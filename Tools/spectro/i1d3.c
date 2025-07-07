@@ -600,6 +600,9 @@ i1d3_unlock(
 		{ "i1Display3 ",         { 0xc9bfafe0, 0x02871166 }, i1d3_disppro,  i1d3_sc_c6 },
 		{ "i1Display3 ",         { 0x1abfae03, 0xf25ac8e8 }, i1d3_disppro,  i1d3_wacom_dc },
 		{ "i1Display3 ",         { 0x828c43e9, 0xcbb8a8ed }, i1d3_disppro,  i1d3_tpa_1 },
+		{ "i1Display3 ",         { 0xe8d1a980, 0xd146f7ad }, i1d3_disppro,  i1d3_barco },
+		{ "i1Display3 ",         { 0x171ae295, 0x2e5c7664 }, i1d3_disppro,  i1d3_crysta },
+		{ "i1Display3 ",         { 0x64d8c546, 0x4b24b4a7 }, i1d3_disppro,  i1d3_viewsonic_xri1 },
 		{ NULL } 
 	}; 
 	inst_code ev;
@@ -1729,7 +1732,7 @@ i1d3_take_emis_measurement(
 								nedgec = 2.0;
 
 							/* Round down to nearest even edge count */
-							inedgec = 2.0 * (int)floor(nedgec/2.0);
+							inedgec = (int)(2.0 * floor(nedgec / 2.0)); // Omardris
 
 							a1logd(p->log,3,"chan %d set edgec to %d\n",i,inedgec);
 
