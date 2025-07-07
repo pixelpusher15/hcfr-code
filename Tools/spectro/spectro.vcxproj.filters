@@ -75,6 +75,9 @@
     <ClCompile Include="spydX.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="spydX2.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="usbio.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -276,6 +279,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="spydX.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="spydX2.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="xrga.h">

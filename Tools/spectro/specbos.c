@@ -162,7 +162,7 @@ int nd				/* nz to disable debug messages */
 				if (!nd) a1logd(p->log, 1, "specbos_fcommand: serial i/o failure on write_read '%s'\n",icoms_fix(in));
 				return icoms2specbos_err(se);;
 			}
-			if (p->model == 1501 || p->model == 1511) {
+			if (p->model == 1501 || p->model == 1511 || p->model == 2501) {
 				if (sscanf(buf, "%d ",&se) != 1) {
 					if (!nd) a1logd(p->log, 1, "specbos_fcommand: failed to parse error code '%s'\n",icoms_fix(buf));
 					return SPECBOS_DATA_PARSE_ERROR;
@@ -340,6 +340,7 @@ specbos_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 			|| (len >= 17  && strncmp(buf, "PECFIRM_JETI_1501", 17) == 0)
 			|| (len >= 18  && strncmp(buf, "SPECFIRM_JETI_1501", 18) == 0)) {
 		p->model = 1501;
+	}else if(len >= 12 && strncmp(buf, "JETI_SCB25X1", 12) == 0) {p->model = 2501; // Omardris
 	} else {
 		if (len < 11
 		 || sscanf(buf, "JETI_SB%d\r", &p->model) != 1) {
@@ -351,7 +352,8 @@ specbos_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 
 	if (p->model != 1201
 	 && p->model != 1211
-	 && p->model != 1501) {
+	 && p->model != 1501
+	 && p->model != 2501){
 		amutex_unlock(p->lock);
 		a1logd(p->log, 2, "specbos_init_coms: unrecognised model %04d\n",p->model);
 		return inst_unknown_model;
@@ -393,7 +395,6 @@ specbos_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 				a1logd(p->log, 2, "specbos_init_coms: remote command failed (newer firmware ?)\n");
 			}
 		}
-
 		/* Check Bluetooth status */
 		if ((ev = specbos_command(p, "*conf:bten?\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
 			amutex_unlock(p->lock);
@@ -530,7 +531,7 @@ int specbos_diff_thread(void *pp) {
 		int pos;
 
 		amutex_lock(p->lock);
-		if (p->model != 1501 && p->model != 1511)
+		if (p->model != 1501 && p->model != 1511 && p->model != 2501) // Omardris
 			rv1 = specbos_get_diffpos(p, &pos, 1); 
 		rv2 = specbos_get_target_laser(p, &p->laser, 1); 
 		amutex_unlock(p->lock);
@@ -571,8 +572,12 @@ specbos_init_inst(inst *pp) {
 		return inst_internal_error;		/* Must establish coms before calling init */
 
 	amutex_lock(p->lock);
-	
-	if (p->model != 1501 && p->model != 1511) {
+
+	if (p->model == 2501) {
+		if ((ev = specbos_command(p, "*contr:buttonled 1\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) // Omardris
+			return ev;
+	}
+	if (p->model != 1501 && p->model != 1511 && p->model != 2501) {
 		/* Restore the instrument to it's default settings */
 		if ((ev = specbos_command(p, "*conf:default\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok)
 			return ev;
@@ -584,9 +589,9 @@ specbos_init_inst(inst *pp) {
 		return ev;
 	}
 
-	if (p->model == 1501 || p->model == 1511) {
+	if (p->model == 1501 || p->model == 1511 || p->model == 2501) { // Omardris
 		/* Set auto exposure/integration time */
-		if ((ev = specbos_command(p, "*para:tint 0\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
+		if ((ev = specbos_command(p, "*para:tint 0.0\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
 			amutex_unlock(p->lock);
 			return ev;
 		}
@@ -616,11 +621,11 @@ specbos_init_inst(inst *pp) {
 		p->measto = 6.0 + 3.6;		/* Aprox. Same overall time as i1d3 ?? */
 	else if (p->model == 1201)
 		p->measto = 16.0 + 3.6;
-	else if (p->model == 1501 || p->model == 1511)
+	else if (p->model == 1501 || p->model == 1511 || p->model == 2501)
 		p->measto = 6.0 + 3.6;
 
 	/* Implement max auto int. time, to speed up display measurement */
-	if (p->model == 1501 || p->model == 1511) {
+	if (p->model == 1501 || p->model == 1511 || p->model == 2501) {
 #ifdef NEVER		/* Bound auto by integration time (worse for inttime > 1.0) */ 
 		int maxaver = 2;	/* Maximum averages for auto int time */
 		double dmaxtint;
@@ -744,12 +749,17 @@ specbos_init_inst(inst *pp) {
 
 	}
 
-	if (p->model == 1501 || p->model == 1511) {
+	if (p->model == 1501 || p->model == 1511 || p->model == 2501) { // Omardris
 		int i;
 		int wstart, wend, wstep;
 
 		/* Try several times due to BT problems */
 		for (i = 0; i < 3; i++) {
+			/* Omardris */
+			if ((ev = specbos_command(p, "*para:func 3\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
+				amutex_unlock(p->lock);
+				return ev;
+			}
 			/* Set the measurement format to None. We will read measurement manually. */
 			/* (0 = None, 1 = Binary, 2 = ASCII) */
 			if ((ev = specbos_command(p, "*para:form 0\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
@@ -896,7 +906,6 @@ specbos_init_inst(inst *pp) {
 	p->inited = 1;
 	a1logd(p->log, 2, "specbos_init_inst: instrument inited OK\n");
 	amutex_unlock(p->lock);
-
 	return inst_ok;
 }
 
@@ -941,7 +950,7 @@ specbos_get_target_laser(
 	if ((ec = specbos_fcommand(p, "*contr:laser?\r", buf, MAX_MES_SIZE, 1.0, 1, tnorm, nd)) != inst_ok) {
 		return specbos_interp_code((inst *)p, ec);
 	}
-	if (p->model == 1501 || p->model == 1511) {
+	if (p->model == 1501 || p->model == 1511 || p->model == 2501) { // Omardris
 		if (sscanf(buf, "%d ",&lstate) != 1) {
 			a1logd(p->log, 1, "specbos_get_target_laser: failed to parse laser state\n");
 			return specbos_interp_code((inst *)p, SPECBOS_DATA_PARSE_ERROR);
@@ -964,7 +973,7 @@ static inst_code set_average(specbos *p, int nav, int lock) {
 
 	if (lock) amutex_lock(p->lock);
 
-	if (p->model == 1501 || p->model == 1511) {
+	if (p->model == 1501 || p->model == 1511 || p->model == 2501) { // Omardris
 		/* Set number to average */
 		sprintf(mes, "*para:aver %d\r", nav);
 		if ((ev = specbos_command(p, mes, buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
@@ -1022,7 +1031,7 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 	 && p->trans_white.spec_n == 0) {
 		return inst_needs_cal;
 	}
-
+	
 	amutex_lock(p->lock);
 
 	if (!p->doing_cal && p->trig == inst_opt_trig_user) {
@@ -1060,7 +1069,10 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 		}
 	}
 
-	if (p->model != 1501 && p->model != 1511) {
+	if (p->model == 2501) {
+		ec = specbos_command(p, "*contr:buttonled 0\r", buf, MAX_MES_SIZE, 1.0); // Omardris
+	}
+	if (p->model != 1501 && p->model != 1511 && p->model != 2501) { // Omardris
 		/* See if we're in emissive or ambient mode */
 		if ((rv = specbos_get_diffpos(p, &pos, 0) ) != inst_ok) {
 			amutex_unlock(p->lock);
@@ -1116,7 +1128,7 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 		a1logd(p->log, 6, " Adjusted measto to %f for noaver %d\n",measto,p->setnav);
 	}
 
-	if (p->model == 1501 || p->model == 1511) {
+	if (p->model == 1501 || p->model == 1511 || p->model == 2501) {
 		/* Set the measurement format to None. We will read measurement manually. */
 		if ((rv = specbos_command(p, "*para:form 0\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
 			amutex_unlock(p->lock);
@@ -1147,7 +1159,7 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 
 #ifdef EXPL1211AVG
 		/* Switch off auto exposure after first measurement, to save some time */
-		if (n > 0 && p->model != 1501 && p->model != 1511) {
+		if (n > 0 && p->model != 1501 && p->model != 1511 && p->model != 2501) {
 			if ((ec = specbos_command(p, "*para:expo 0\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
 				warning("Changing &para:expo to 0 failed");
 			}
@@ -1226,7 +1238,7 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 
 			p->noXYZ = 1;
 
-			if (p->model == 1501 || p->model == 1511) {
+			if (p->model == 1501 || p->model == 1511 || p->model == 2501) { // Omardris
 				if ((ec = specbos_fcommand(p, "*calc:PHOTOmetric\r", buf, MAX_RD_SIZE, 1.0, 1, tnorm, 0))
 				                                                                        != SPECBOS_OK) {
 					amutex_unlock(p->lock);
@@ -1250,7 +1262,7 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 				}
 			}
 		
-			if (p->model == 1501 || p->model == 1511) {
+			if (p->model == 1501 || p->model == 1511 || p->model == 2501) { // Omardris
 				if ((ec = specbos_fcommand(p, "*calc:CHROMXY\r", buf, MAX_RD_SIZE, 0.5, 1, tnorm, 0))
 				                                                                    != SPECBOS_OK) {
 					amutex_unlock(p->lock);
@@ -1293,7 +1305,7 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 			int ii,i, xsize;
 			char *cp, *ncp;
 	 
-			if (p->model == 1501 || p->model == 1511) {
+			if (p->model == 1501 || p->model == 1511 || p->model == 2501) { // Omardris
 				/* Turn on spetrum output */
 				if ((ec = specbos_command(p, "*para:form 2\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
 					amutex_unlock(p->lock);
@@ -1315,7 +1327,7 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 			for (tries = 0; tries < maxtries; tries++) {
 	
 				/* Fetch the spectral readings */
-				if (p->model == 1501 || p->model == 1511)
+				if (p->model == 1501 || p->model == 1511 || p->model == 2501) // Omardris
 					ec = specbos_fcommand(p, "*calc:sprad\r", buf, MAX_RD_SIZE, 6.0,
 					                                            1, tspec, 0);
 				else
@@ -1341,7 +1353,7 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 					*ncp = '\000';
 					if (i >= 0) {
 						double wl, sp = -1e6;
-						if (p->model == 1501 || p->model == 1511) {
+						if (p->model == 1501 || p->model == 1511 || p->model == 2501) { // Omardris
 							if (sscanf(cp, "%lf %lf", &wl, &sp) != 2)
 								sp = -1e6;
 						} else {
@@ -1382,7 +1394,7 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 	}	/* Next explicit average */
 
 #ifdef EXPL1211AVG
-	if (nxav > 0 && p->model != 1501 && p->model != 1511) {
+	if (nxav > 0 && p->model != 1501 && p->model != 1511  && p->model != 2501) { // Omardris
 		/* Return to automatic exposure */
 		if ((ec = specbos_command(p, "*para:expo 1\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
 			warning("Restoring &para:expo to 0 failed");
@@ -1522,7 +1534,9 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 		val->mtype = inst_mrt_transmissive;
 	}
 
-
+	if (p->model == 2501) {
+		ec = specbos_command(p, "*contr:buttonled 1\r", buf, MAX_MES_SIZE, 1.0); // Omardris
+	}
 	if (user_trig)
 		return inst_user_trig;
 	return rv;
@@ -1541,7 +1555,7 @@ specbos_imp_set_refresh(specbos *p) {
 	/* Set synchronised read if we should do so */
 	if (p->refrmode != 0 && p->refrvalid) {
 		char mes[100];
-		if (p->model == 1501 || p->model == 1511) {
+		if (p->model == 1501 || p->model == 1511 || p->model == 2501) {
 			if ((rv = specbos_command(p, "*para:syncmod 1\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
 				return rv;
 			}
@@ -1550,7 +1564,7 @@ specbos_imp_set_refresh(specbos *p) {
 				return rv;
 			}
 		}
-		if (p->model == 1501 || p->model == 1511) {
+		if (p->model == 1501 || p->model == 1511 || p->model == 2501) {
 			sprintf(mes,"*para:syncfreq %f\r",1.0/p->refperiod);
 			if ((rv = specbos_command(p, mes, buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
 				return rv;
@@ -1563,7 +1577,7 @@ specbos_imp_set_refresh(specbos *p) {
 		}
 		a1logd(p->log,5,"specbos_imp_set_refresh set refresh rate to %f Hz\n",1.0/p->refperiod);
 	} else {
-		if (p->model == 1501 || p->model == 1511) {
+		if (p->model == 1501 || p->model == 1511 || p->model == 2501) {
 			if ((rv = specbos_command(p, "*para:syncmod 0\r", buf, MAX_MES_SIZE, 1.0)) != inst_ok) {
 				return rv;
 			}
@@ -1601,7 +1615,7 @@ double *ref_rate
 		return rv;
 	}
 
-	if (p->model == 1501 || p->model == 1511) {
+	if (p->model == 1501 || p->model == 1511 || p->model == 2501) {
 		if ((ec = specbos_fcommand(p, "*meas:flic\r", buf, MAX_MES_SIZE, 30.0, 1, trefr, 0)) != SPECBOS_OK) {
 			return specbos_interp_code((inst *)p, ec);
 		}
@@ -1611,7 +1625,7 @@ double *ref_rate
 		}
 	}
 
-	if (p->model == 1501 || p->model == 1511) {
+	if (p->model == 1501 || p->model == 1511 || p->model == 2501) {
 		double ffreq;
 		if (sscanf(buf+1, "%lf ", &ffreq) != 1) {
 			a1logd(p->log, 1, "specbos_imp_measure_refresh rate: failed to parse string '%s'\n",icoms_fix(buf));
@@ -2229,7 +2243,7 @@ inst3_capability *pcap3) {
 	     |  inst_mode_emis_norefresh_ovd
 	        ;
 
-	if (p->model != 1501 && p->model != 1511) {
+	if (p->model != 1501 && p->model != 1511 && p->model != 2501) {
 		cap1 |= inst_mode_ambient;
 	}
 
@@ -2280,7 +2294,7 @@ int *conf_ix
 	 || *conf_ix > 1) {
 		/* Return current configuration measrement modes */
 		amutex_lock(p->lock);
-		if (p->model != 1501 && p->model != 1511) {
+		if (p->model != 1501 && p->model != 1511 && p->model != 2501) {
 			if ((ev = specbos_get_diffpos(p, &pos, 0)) != inst_ok) {
 				amutex_unlock(p->lock);
 				return ev;
@@ -2333,7 +2347,7 @@ static inst_code specbos_check_mode(inst *pp, inst_mode m) {
 		return inst_unsupported;
 
 	/* 1501 doesn't support ambient */
-	if ((p->model == 1501 || p->model == 1511)
+	if ((p->model == 1501 || p->model == 1511 || p->model == 2501)
 	 &&	IMODETST(m, inst_mode_emis_ambient)) {
 		return inst_unsupported;
 	}
@@ -2646,11 +2660,9 @@ extern specbos *new_specbos(icoms *icom, instType dtype) {
 	p->dtype = dtype;
 	if (p->dtype == instSpecbos1201)
 		p->model = 1201;
-
 	amutex_init(p->lock);
 
 	p->noaverage = 1;
-
 	return p;
 }
 

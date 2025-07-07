@@ -52,6 +52,7 @@ extern icom_type dev_category(devType dtype) {
 	case instSpectroScanT:
 	case instSpectrocam:
 	case instSpecbos1201:
+	case instSpecbos2501:
 	case instSpecbos:
 	case instSpectraval:
 	case instKleinK10:
@@ -74,6 +75,7 @@ extern icom_type dev_category(devType dtype) {
 	case instSpyder4:
 	case instSpyder5:
 	case instSpyderX:
+	case instSpyderX2:
 	case instHuey:
 	case instSmile:
 	case instEX1:
@@ -159,12 +161,16 @@ char *inst_sname(instType itype) {
 			return "Spyder5";
 		case instSpyderX:
 			return "SpyderX";
+		case instSpyderX2:
+			return "SpyderX2";
 		case instHuey:
 			return "Huey";
 		case instSmile:
 			return "Smile";
 		case instSpecbos1201:
 			return "specbos 1201";
+		case instSpecbos2501:
+			return "specbos 2501";
 		case instSpecbos:
 			return "specbos";
 		case instSpectraval:
@@ -249,12 +255,16 @@ char *inst_name(instType itype) {
 			return "Datacolor Spyder5";
 		case instSpyderX:
 			return "Datacolor SpyderX";
+		case instSpyderX2:
+			return "Datacolor SpyderX2";
 		case instHuey:
 			return "GretagMacbeth Huey";
 		case instSmile:
 			return "ColorMunki Smile";
 		case instSpecbos1201:
 			return "JETI specbos 1201";
+		case instSpecbos2501:
+			return "JETI specbos 2501";
 		case instSpecbos:
 			return "JETI specbos";
 		case instSpectraval:
@@ -358,12 +368,16 @@ instType inst_enum(char *name) {
 		return instSpyder5;
 	else if (strcmp(name, "Datacolor SpyderX") == 0)
 		return instSpyderX;
+	else if (strcmp(name, "Datacolor SpyderX2") == 0)
+		return instSpyderX2;
 	else if (strcmp(name, "GretagMacbeth Huey") == 0)
 		return instHuey;
 	else if (strcmp(name, "ColorMunki Smile") == 0)
 		return instSmile;
 	else if (strcmp(name, "JETI specbos 1201") == 0)
 		return instSpecbos1201;
+	else if (strcmp(name, "JETI specbos 2501") == 0)
+		return instSpecbos2501;
 	else if (strcmp(name, "JETI specbos") == 0)
 		return instSpecbos;
 	else if (strcmp(name, "JETI spectraval") == 0)
@@ -415,7 +429,7 @@ int nep) {					/* Number of end points */
 			return instI1Disp1;
 	}
 
-	if (idVendor == 0x0765) {		/* X-Rite */
+	if (idVendor == 0x0765) {		/* X-Rite, Calibrite */
 	  	if (idProduct == 0x5001)	/* HueyL (Lenovo W70DS Laptop ?) */
 			return instHuey;
 	  	if (idProduct == 0x5010)	/* HueyL (Lenovo W530 Laptop ?) */
@@ -449,6 +463,8 @@ int nep) {					/* Number of end points */
 			return instSpyder5;
 		if (idProduct == 0x0A00)	/* DataColor SpyderX */
 			return instSpyderX;
+		if (idProduct == 0x0A0A)	/* DataColor SpyderX2 */
+			return instSpyderX2;
 	}
 
 	if (idVendor == 0x0971) {		/* Gretag Macbeth */
@@ -499,7 +515,7 @@ int nep) {					/* Number of end points */
 /* name. */
 
 /* Fill in an instruments illuminant spectrum. */
-/* Return 0 on sucess, 1 if not not applicable. */
+/* Return 0 on success, 1 if not not applicable. */
 int inst_illuminant(xspect *sp, instType itype) {
 
 	switch (itype) {
@@ -567,6 +583,7 @@ int inst_illuminant(xspect *sp, instType itype) {
 		case instSpyder4:
 		case instSpyder5:
 		case instSpyderX:
+		case instSpyderX2:
 			return 1;										/* Not applicable */
 
 		case instHuey:
@@ -576,6 +593,7 @@ int inst_illuminant(xspect *sp, instType itype) {
 			return 1;										/* Not applicable */
 
 		case instSpecbos1201:
+		case instSpecbos2501:
 		case instSpecbos:
 		case instSpectraval:
 			return 1;										/* Not applicable */

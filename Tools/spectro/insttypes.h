@@ -36,6 +36,7 @@ typedef enum {
     instSpectroScanT, 			/* GretagMacbeth SpectroScanT */
 	instSpectrocam,				/* Avantes Spectrocam */
 	instSpecbos1201,			/* JETI specbos 1201 */
+	instSpecbos2501,			/* JETI specbos 2501 */
 	instSpecbos,				/* JETI specbos XXXX */
 	instSpectraval,				/* JETI spectraval 1501, 1511 */
 	instKleinK10,				/* Klein K10-A */
@@ -58,6 +59,7 @@ typedef enum {
 	instSpyder4,				/* Datacolor Spyder4 */
 	instSpyder5,				/* Datacolor Spyder5 */
 	instSpyderX,				/* Datacolor SpyderX */
+	instSpyderX2,				/* Datacolor SpyderX2 */
 	instHuey,					/* GretagMacbeth Huey */
 	instSmile,					/* X-rite Colormunki Smile */
 	instEX1,					/* Image Engineering EX1 */
@@ -127,7 +129,7 @@ int nep);					/* Number of end points (0 for prelim match) */
 /* name. */
 
 /* Fill in an instruments illuminant spectrum. */
-/* Return 0 on sucess, 1 if not not applicable. */
+/* Return 0 on success, 1 if not not applicable. */
 extern int inst_illuminant(xspect *sp, instType itype);
 
 

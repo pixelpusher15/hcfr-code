@@ -287,7 +287,7 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
     // set the desired mode
     // 
     // Omardris: Workarround Jeti => fix mode "inst_mode_emis_tele"
-    if (m_meterType == instSpectraval || m_meterType == instSpecbos)
+    if (m_meterType == instSpectraval || m_meterType == instSpecbos || m_meterType == instSpecbos2501)
         mode = inst_mode_emis_tele;
 
     instCode = m_meter->set_mode(m_meter, mode);

@@ -137,6 +137,7 @@
     <ClInclude Include="specbos.h" />
     <ClInclude Include="spyd2.h" />
     <ClInclude Include="spydX.h" />
+    <ClInclude Include="spydX2.h" />
     <ClInclude Include="ss.h" />
     <ClInclude Include="ss_imp.h" />
     <ClInclude Include="usbio.h" />
@@ -185,6 +186,7 @@
     <ClCompile Include="specbos.c" />
     <ClCompile Include="spyd2.c" />
     <ClCompile Include="spydX.c" />
+    <ClCompile Include="spydX2.c" />
     <ClCompile Include="ss.c" />
     <ClCompile Include="ss_imp.c" />
     <ClCompile Include="usbio.c" />

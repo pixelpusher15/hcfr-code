@@ -135,6 +135,7 @@ struct _specbos {
 								/* 1211 */
 								/* 1501 */
 								/* 1511 - has display */
+								/* 2501 */ // Omardris
 
 	int noXYZ;					/* nz if firmware doesn't support fetch*XYZ */
 	int badCal;					/* nz if its been calibrated with a reduced WL range by 3rd party */

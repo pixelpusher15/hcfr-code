@@ -38,14 +38,15 @@
 #include <ctype.h>
 #include <string.h>
 #include <time.h>
+#include "numsup.h"
 #ifndef SALONEINSTLIB
 #include "copyright.h"
 #include "aconfig.h"
 #include "rand.h"
 #else
 #include "sa_config.h"
+#include "sa_conv.h"
 #endif /* !SALONEINSTLIB */
-#include "numsup.h"
 #include "cgats.h"
 #include "xspect.h"
 #include "conv.h"
@@ -74,7 +75,7 @@ icom_type dev_category(instType itype);
 /* Default methods for instrument class */
 
 /* Establish communications at the indicated baud rate. */
-/* Timout in to seconds, and return non-zero error code */
+/* Timeout in to seconds, and return non-zero error code */
 static inst_code init_coms(
 inst *p,
 baud_rate br,		/* Baud rate */
@@ -163,6 +164,8 @@ int recreate				/* nz to re-check for new ccmx & ccss files */
 ) {
 	if (pnsels != NULL)
 		*pnsels = 0;
+	if (psels != NULL)
+		*psels = NULL;
 	return inst_unsupported;
 }
 
@@ -200,6 +203,8 @@ inst_meascondsel **sels	/* Return the array of measurement conditions types */
 ) {
 	if (no_selectors != NULL)
 		*no_selectors = 0;
+	if (sels != NULL)
+		*sels = NULL;
 	return inst_unsupported;
 }
 
@@ -670,6 +675,7 @@ void *cntx			/* Context for callback */
 
 #ifdef ENABLE_FAST_SERIAL
 	if (itype == instSpecbos1201
+	 || itype == instSpecbos2501
 	 || itype == instSpecbos
 	 || itype == instSpectraval)
 		p = (inst *)new_specbos(icom, itype);
@@ -708,6 +714,8 @@ void *cntx			/* Context for callback */
 		p = (inst *)new_spyd2(icom, itype);
 	else if (itype == instSpyderX)
 		p = (inst *)new_spydX(icom, itype);
+	else if (itype == instSpyderX2)
+		p = (inst *)new_spydX2(icom, itype);
 	else if (itype == instEX1)
 		p = (inst *)new_ex1(icom, itype);
 	if (itype == instHuey)
@@ -757,6 +765,8 @@ void *cntx			/* Context for callback */
 		p->set_disptype = set_disptype;
 	if (p->get_disptechi == NULL)
 		p->get_disptechi = get_disptechi;
+	if (p->get_meascond == NULL)
+		p->get_meascond = get_meascond;
 	if (p->get_set_opt == NULL)
 		p->get_set_opt = get_set_opt;
 	if (p->read_chart == NULL)
@@ -827,6 +837,7 @@ void *cntx			/* Context for callback */
 /* --------------------------------------------------- */
 
 /* Free a display type list */
+/* (Used by instrument driver to cleanup pointers returned by inst_creat_disptype_list()) */
 void inst_del_disptype_list(inst_disptypesel *list, int no) {
 
 	if (list != NULL) {
@@ -864,6 +875,7 @@ static inst_disptypesel *expand_dlist(inst_disptypesel *list, int nlist, int *na
 	list[nlist].sel[0] = '\000';
 	list[nlist].desc[0] = '\000';
 	list[nlist].refr = 0;
+	list[nlist].dtech = 0;
 	list[nlist].ix = 0;
 	list[nlist].cc_cbid = 0;
 	list[nlist].path = NULL;
@@ -895,6 +907,7 @@ static inst_disptypesel *expand_dlist(inst_disptypesel *list, int nlist, int *na
 */
 
 /* Create the display type list */
+/* Will free any existing list passed in pndtlist & pdtlist */
 inst_code inst_creat_disptype_list(inst *p,
 int *pndtlist,					/* Number in returned list */
 inst_disptypesel **pdtlist,		/* Returned list */
@@ -907,6 +920,8 @@ int doccmx						/* Add matching installed ccmx files */
 	char usels[256];			/* Used selectors 1 */
 	static char *asels = "123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 	int fail = 0;
+
+	a1logd(g_log, 4, "inst_creat_disptype_list: doccss %d doccmx %d\n",doccss, doccmx);
 
 	/* free the old list */
 	inst_del_disptype_list(*pdtlist, *pndtlist);
@@ -930,6 +945,8 @@ int doccmx						/* Add matching installed ccmx files */
 			return inst_internal_error;
 
 		list[nlist-1] = sdtlist[i];		/* Struct copy */
+
+		a1logd(g_log, 5, " added static '%s'\n",list[nlist-1].desc);
 	}
 
 	/* Add any OEM and custom ccss's */
@@ -964,6 +981,8 @@ int doccmx						/* Add matching installed ccmx files */
 			list[nlist-1].cbid = 0;
 			list[nlist-1].sets = ss_list[i].sets; ss_list[i].sets = NULL;
 			list[nlist-1].no_sets = ss_list[i].no_sets; ss_list[i].no_sets = 0;
+
+			a1logd(g_log, 5, " added ccss '%s'\n",list[nlist-1].desc);
 		}
 		free_iccss(ss_list);
 	}
@@ -987,7 +1006,7 @@ int doccmx						/* Add matching installed ccmx files */
 					break;
 			}
 			if (j >= nlist) {
-				a1loge(p->log, 1, "inst_creat_disptype_list can't find cbid %d for '%s'\n",ss_list[i].cc_cbid, ss_list[i].path);
+				a1loge(p->log, 1, "inst_creat_disptype_list: can't find cbid %d for '%s'\n",ss_list[i].cc_cbid, ss_list[i].path);
 				continue;
 			}
 
@@ -1013,6 +1032,7 @@ int doccmx						/* Add matching installed ccmx files */
 			list[nlist-1].cbid = 0;
 			list[nlist-1].cc_cbid = ss_list[i].cc_cbid;
 			icmCpy3x3(list[nlist-1].mat, ss_list[i].mat);
+			a1logd(g_log, 5, " added ccss '%s'\n",list[nlist-1].desc);
 		}
 		free_iccmx(ss_list);
 	}
@@ -1087,9 +1107,11 @@ int doccmx						/* Add matching installed ccmx files */
 		*pdtlist = list;
 
 	if (fail) {
-		a1loge(p->log, 1, "inst_creat_disptype_list run out of selectors\n");
+		a1loge(p->log, 1, "inst_creat_disptype_list: run out of selectors\n");
 		return inst_internal_error;
 	}
+
+	a1logd(g_log, 5, "inst_creat_disptype_list: returning %d\n",nlist);
 
 	return inst_ok;
 }
@@ -1142,10 +1164,11 @@ iccmx *list_iccmx(instType itype, int *no) {
 	char **paths = NULL;
 	int npaths = 0;
 
-
 	npaths = xdg_bds(NULL, &paths, xdg_data, xdg_read, xdg_user, xdg_none,
 						"ArgyllCMS/\052.ccmx" XDG_FUDGE "color/\052.ccmx"
 	);
+
+	a1logd(g_log, 1, "list_iccms: xdg_bds returned %d paths\n",npaths);
 
 	if ((rv = malloc(sizeof(iccmx) * (npaths + 1))) == NULL) {
 		a1loge(g_log, 1, "list_iccmx: malloc of paths failed\n");
@@ -1184,7 +1207,7 @@ iccmx *list_iccmx(instType itype, int *no) {
 			continue;
 		}
 
-		a1logd(g_log, 5, "Reading '%s'\n",paths[i]);
+		a1logd(g_log, 5, "list_iccmx: reading '%s'\n",paths[i]);
 		if ((tech = cs->tech) == NULL)
 			tech = "";
 		if ((disp = cs->disp) == NULL)
@@ -1248,6 +1271,8 @@ iccmx *list_iccmx(instType itype, int *no) {
 	HEAPSORT(iccmx, rv, j)
 #undef HEAP_COMPARE
 
+	a1logd(g_log, 1, "list_iccmx: returning %d ccmx's\n",j);
+
 	return rv;
 }
 
@@ -1282,10 +1307,10 @@ iccss *list_iccss(int *no) {
 	char **paths = NULL;
 	int npaths = 0;
 
-
 	npaths = xdg_bds(NULL, &paths, xdg_data, xdg_read, xdg_user, xdg_none,
 						"ArgyllCMS/\052.ccss" XDG_FUDGE "color/\052.ccss"
 	);
+	a1logv(g_log, 1, "list_iccss: xdg_bds returned %d paths\n",npaths);
 
 	if ((rv = malloc(sizeof(iccss) * (npaths + 1))) == NULL) {
 		a1loge(g_log, 1, "list_iccss: malloc of paths failed\n");
@@ -1317,7 +1342,7 @@ iccss *list_iccss(int *no) {
 			continue;		/* Skip any unreadable ccss's */
 		}
 
-		a1logd(g_log, 5, "Reading '%s'\n",paths[i]);
+		a1logd(g_log, 5, "list_iccss: reading '%s'\n",paths[i]);
 		if ((tech = cs->tech) == NULL)
 			tech = "";
 		if ((disp = cs->disp) == NULL)
@@ -1381,6 +1406,8 @@ iccss *list_iccss(int *no) {
 	HEAPSORT(iccss, rv, j)
 #undef HEAP_COMPARE
 
+	a1logv(g_log, 1, "list_iccss: returning %d ccss's\n",j);
+
 	return rv;
 }
 
@@ -1433,8 +1460,8 @@ devType fast_ser_dev_type(
 	unsigned int i;
 	int delayms = 0;
 	int se, len;
-	double tryto = 0.1;		/* [0.1] Communication timout */
-//	double tryto = 0.9;		/* Communication timout (test) */
+	double tryto = 0.1;		/* [0.1] Communication timeout */
+//	double tryto = 0.9;		/* Communication timeout (test) */
 
 	a1logd(p->log, 8, "fast_ser_dev_type: on '%s' dctype 0x%x\n",p->name,p->dctype);
 
@@ -1676,6 +1703,7 @@ devType fast_ser_dev_type(
 				/* JETI specbos returns "JETI_SBXXXX", where XXXX is the instrument type, */
 				/* except for the 1201 which returns "SB05" */
 				/* The spectraval 1501 returns JETI_SDCM3 NNNNNNN */
+				/* The 2501 returns "JETI_SCB25X1" */
 		
 				/* Over Bluetooth, we get an erronious string "AT+JSCR\r\n" mixed in our output. */
 				/* This would appear to be from the eBMU Bluetooth adapter AT command set. */
@@ -1704,6 +1732,12 @@ devType fast_ser_dev_type(
 				 || (len >= 18  && strncmp(buf, "SPECFIRM_JETI_1501", 18) == 0)) {
 					a1logd(p->log, 5, "fser_inst_type: found JETI spectraval\n");
 					rv = instSpectraval;
+					break;
+				}
+				/* Is this a JETI specbos 2501 response ? */
+				if (len >= 12 && strncmp(buf, "JETI_SCB25X1", 12) == 0) {
+					a1logd(p->log, 5, "fser_inst_type: found JETI specbos 2501\n");
+					rv = instSpecbos2501;
 					break;
 				}
 			}
@@ -1738,7 +1772,7 @@ devType fast_ser_dev_type(
 /*
 	Lumagen uses following sequence to setup coms:
 
-	Sent			Recieved		Comments
+	Sent			Received		Comments
 	----            --------		--------
 	M0931			M0931			use %M0931 to ensure it's on
 	f				Ok				if on, else echo's 'f'
