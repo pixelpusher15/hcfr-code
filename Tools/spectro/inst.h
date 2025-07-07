@@ -94,8 +94,11 @@ typedef enum {						/* XYZ units,      Spectral units */
 /* by a non-fluorescent stimulating D50 illuminant. */
 
 /* Reflective measurement conditions */
+/* [ It's tempting to colapse inst_meas_conditions and inst_opt_filter */
+/*   together, as they are closely related and almost identical. */
+/*   They could be disparate though, i.e. a neutral density filter. ] */
 typedef enum {
-	inst_mrc_none           = 0,	/* M0 - Default */
+	inst_mrc_none           = 0,	/* M0 - Default or n/a */
 	inst_mrc_D50            = 1,	/* M1 - D50 illuminant */
 	inst_mrc_D65            = 2,	/*      D65 Illuminant */
 	inst_mrc_uvcut          = 3,	/* M2 - U.V. Cut */ 
@@ -108,7 +111,7 @@ typedef enum {
 #define ICOM_MAX_LOC_LEN 10
 
 struct _ipatch {
-	char loc[ICOM_MAX_LOC_LEN];	/* patch location */
+	char loc[ICOM_MAX_LOC_LEN];	/* patch location description string */
 
 	inst_meas_type mtype;		/* Measurement type */
 	inst_meas_cond mcond;		/* Reflective measurement conditions */
@@ -767,7 +770,7 @@ typedef struct _inst_meascondsel {
 																				\
 	/* Establish communications at the indicated baud rate. */					\
 	/* (Serial parameters are ignored for USB instrument) */					\
-	/* Timout in to seconds, and return non-zero error code */					\
+	/* Timeout in to seconds, and return non-zero error code */					\
 	inst_code (*init_coms)(														\
         struct _inst *p,														\
         baud_rate br,		/* Baud rate */										\
@@ -790,7 +793,7 @@ typedef struct _inst_meascondsel {
 	char *(*get_serial_no)(  													\
         struct _inst *p);														\
 																				\
-	/* Return the avilable instrument modes and capabilities. */				\
+	/* Return the available instrument modes and capabilities. */				\
 	/* Can be called before init, but may be different to */					\
 	/* what's returned after initilisation. */									\
 	/* Note that these may change with the mode. */								\
@@ -827,11 +830,12 @@ typedef struct _inst_meascondsel {
         inst_mode m);		/* Requested mode */								\
 																				\
 	/* Return array of display type selectors */								\
+	/* (The storage for the list is managed by the instrument) */				\
 	inst_code (*get_disptypesel)(												\
         struct _inst *p,														\
 		int *no_selectors,		/* Return number of display types */			\
 		inst_disptypesel **sels,/* Return the array of display types */			\
-								/* Either re-use the list or call inst_del_disptype_list() */	\
+								/* Either re-use the list or call inst_del_disptype_list() */ \
 		int allconfig,			/* nz to return list for all configs, not just current. */	\
 		int recreate);			/* nz to re-check for new ccmx & ccss files */	\
 																				\
@@ -989,7 +993,7 @@ typedef struct _inst_meascondsel {
 	/* This call checks if calibrations are invalid or have timed out. */		\
 	/* With the exception of instruments with automated calibration */			\
 	/* (ie. SpectroScan), an instrument will typically */						\
-	/* not check for calibration timout any other way. */						\
+	/* not check for calibration timeout any other way. */						\
 	/* [What's returned is the same as get_n_a_cals() [ needed_calibrations.] */\
 	inst_cal_type (*needs_calibration)(											\
 		struct _inst *p);														\
@@ -1120,7 +1124,7 @@ typedef struct _inst_meascondsel {
 	 *	To poll for an abort while waiting to trigger.							\
 	 *	To poll for a user abort during measurement.							\
 	 *																			\
-	 * The callback function will have the purpose paramater appropriately.		\
+	 * The callback function will have the purpose parameter appropriately.		\
 	 *																			\
      * For inst_negcoms, the return value of inst_user_abort					\
 	 * will abort the communication negotiation.								\
