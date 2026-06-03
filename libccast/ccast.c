@@ -569,7 +569,7 @@ static int start_ccast(ccast *p) {
 
 		// Hmm. Should we wait for a RECEIVER_STATUS message with id 0 here ?
 
-		/* If we get here, we assume that we've suceeded */
+		/* If we get here, we assume that we've succeeded */
 		break;
 
       retry:;
@@ -983,7 +983,7 @@ static int load_ccast(
 				} else {
 					DBG((g_log,0,"MEDIA_STATUS failed to return mediaSessionId\n"))
 				}
-				/* Suceeded */
+				/* Succeeded */
 
 			} else {
 				rv = 3;

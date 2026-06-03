@@ -15,7 +15,7 @@
 
 #undef DEBUG
 
-typedef long int bool;
+typedef long int abool;
 #ifndef TRUE
 # define FALSE (0)
 # define TRUE (!FALSE)
@@ -41,7 +41,7 @@ static int dfdjc1(
 
 /* QR factorization */
 static int dqrfac(int m, int n, double *a, int lda,
-	bool pivot, int *ipvt, double *sigma,
+	abool pivot, int *ipvt, double *sigma,
 	double *acnorm, double *wa);
 
 /* Use QR decomposition to form the orthogonal matrix */
@@ -86,7 +86,7 @@ int dnsqe(
 	int info = 0;		/* Return status */
 
 	int nfev, njev;
-	int index, ml, lr, mu;
+	int i,j, index, ml, lr, mu;
 	double epsfcn = ss * ss;		/* Jacobian estimate step */
 	double factor = ss;		/* Initial step size */
 	double maxstep = 0.0;	/* Subsequent step size (not working ??) */
@@ -112,6 +112,7 @@ int dnsqe(
 		info = 4;
 	if (info == 0)
 		warning("dnsqe: invalid input parameter.");
+
 	return info;
 } /* dnsqe */
 
@@ -490,7 +491,7 @@ int dnsq(
 	int iwa[1];		/* Pivot swap array (only one element used) */
 
 	/* Local variables */
-	bool jeval;
+	abool jeval;
 	int iter;
 	int i, j, k, l, iflag;
 	int qrflag;					/* Set when a valid Q is in fjac[], and R is in r[] */
@@ -1582,7 +1583,7 @@ static int dqrfac(
 	int n,		/* Number of columns of a[] */
 	double *a,	/* m by n array */
 	int lda,	/* stride of a[][] */
-	bool pivot,	/* TRUE to enforce column pivoting */
+	abool pivot,	/* TRUE to enforce column pivoting */
 	int *ipvt,	/* Pivot output array, size n */
 	double *sigma,	/* Output diagonal elements of R, length n */
 	double *acnorm,	/* Output norms of A, length n */

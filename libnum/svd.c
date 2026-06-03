@@ -58,12 +58,12 @@ int      n		/* Number of unknowns */
 ) {	
 	double eps = DBL_EPSILON;		/* 1.0 + eps = 1.0 */
 	double tol = DBL_MIN/eps;		/* Minumum +ve value/eps */
-	double *rv1, RV1[10];
+	double *rv1, RV1[100];
 	double anm;
 	int i, j, k;
 	int its;
 
-	if (n <= 10) 
+	if (n <= 100) 
 		rv1 = RV1;					/* Allocate fast off stack */
 	else
 		rv1 = dvector(0, n-1);
@@ -371,6 +371,8 @@ int      dof	/* Expected degree of freedom */
 }
 
 /* --------------------------- */
+#ifndef NEVER		/* [und] Use debug version */
+
 /* Use output of svdcmp() to solve overspecified and/or */
 /* singular equation A.x = b */
 int svdbacksub(
@@ -383,9 +385,9 @@ int      m,		/* Number of equations */
 int      n		/* Number of unknowns */
 ) {
 	int i, j;
-	double *tmp, TMP[10]; /* Intermediate value of B . U-1 . W-1 */
+	double *tmp, TMP[100]; /* Intermediate value of B . U-1 . W-1 */
 
-	if (n <= 10)
+	if (n <= 100)
 		tmp = TMP;
 	else
 		tmp = dvector(0, n-1);
@@ -396,8 +398,19 @@ int      n		/* Number of unknowns */
 	/* Compute B . U-1 . W-1 */
 	for (j = 0; j < n; j++) {
 		if (w[j]) {
-			double s;
-			for (s = 0.0, i = 0; i < m; i++)
+			double s = 0.0;
+			i = 0;
+			for (; i < (m-7); i += 8) {
+				s += b[i+0] * u[i+0][j];
+				s += b[i+1] * u[i+1][j];
+				s += b[i+2] * u[i+2][j];
+				s += b[i+3] * u[i+3][j];
+				s += b[i+4] * u[i+4][j];
+				s += b[i+5] * u[i+5][j];
+				s += b[i+6] * u[i+6][j];
+				s += b[i+7] * u[i+7][j];
+			}
+			for (; i < m; i++)
 				s += b[i] * u[i][j];
 			s /= w[j];
 			tmp[j] = s;
@@ -407,8 +420,19 @@ int      n		/* Number of unknowns */
 	}
 	/* Compute T. V-1 */
 	for (j = 0; j < n; j++) {
-		double s;
-		for (s = 0.0, i = 0; i < n; i++)
+		double s = 0.0;
+		i = 0;
+		for (; i < (n-7); i += 8) {
+			s += v[j][i+0] * tmp[i+0];
+			s += v[j][i+1] * tmp[i+1];
+			s += v[j][i+2] * tmp[i+2];
+			s += v[j][i+3] * tmp[i+3];
+			s += v[j][i+4] * tmp[i+4];
+			s += v[j][i+5] * tmp[i+5];
+			s += v[j][i+6] * tmp[i+6];
+			s += v[j][i+7] * tmp[i+7];
+		}
+		for (; i < n; i++)
 			s += v[j][i] * tmp[i];
 		x[j] = s;
 	}
@@ -416,6 +440,69 @@ int      n		/* Number of unknowns */
 		free_dvector(tmp, 0, n-1);
 	return 0;
 }
+
+#else	/* Diagnostic version */
+
+/* Use output of svdcmp() to solve overspecified and/or */
+/* singular equation A.x = b */
+int svdbacksub(
+double **u,		/* U[0..m-1][0..n-1] U, W, V SVD decomposition of A[][] */
+double  *w,		/* W[0..n-1] */
+double **v,		/* V[0..n-1][0..n-1] (not transpose!) */
+double b[],		/* B[0..m-1]  Right hand side of equation */
+double x[],		/* X[0..n-1]  Return solution. (May be the same as b[]) */
+int      m,		/* Number of equations */
+int      n		/* Number of unknowns */
+) {
+	int i, j;
+	double *tmp, TMP[100]; /* Intermediate value of B . U-1 . W-1 */
+
+	printf("svdbacksub diag:\n");
+
+	if (n <= 100)
+		tmp = TMP;
+	else
+		tmp = dvector(0, n-1);
+
+	/* A . X = B == U . W . Vt . X = B */
+	/* and U, W, and Vt are trivialy invertable */
+
+	/* Compute B . U-1 . W-1 */
+	for (j = 0; j < n; j++) {
+		if (w[j]) {
+			double s = 0.0;
+			i = 0;
+			for (; i < m; i++) {
+				s += b[i] * u[i][j];
+				printf("s += b[%d] %f * u[%d][%d] %f => %f\n", i, b[i], i, j, u[i][j], s);
+			}
+			s /= w[j];
+			printf("s /= w[%d] %f => %f\n", j, w[j], s);
+			tmp[j] = s;
+		} else {
+			tmp[j] = 0.0;
+		}
+	}
+	/* Compute T. V-1 */
+	for (j = 0; j < n; j++) {
+		double s = 0.0;
+		i = 0;
+		for (; i < n; i++) {
+			s += v[j][i] * tmp[i];
+			printf("s += v[%d][%d] %f * tmp[%d] %f => %f\n", j, i, v[j][i], i, tmp[i], s);
+		}
+		x[j] = s;
+		printf("x[%d] = %f\n", j, x[j]);
+	}
+	if (tmp != TMP)
+		free_dvector(tmp, 0, n-1);
+
+	printf("svdbacksub done:\n");
+
+	return 0;
+}
+
+#endif
 
 
 /* --------------------------- */
@@ -586,7 +673,58 @@ int      n		/* Number of unknowns */
 }
 
 
+/* --------------------------- */
 
+/* Compute the inverse matrix Ai[[0..n-1][0..m-1] from SVD components */
+void svdinverse(
+double **u,		/* U[0..m-1][0..n-1] U, W, V SVD decomposition of A[][] */
+double  *w,		/* W[0..n-1] */
+double **v,		/* V[0..n-1][0..n-1] (not transpose!) */
+double **ia,	/* iA[0..n-1][0..m-1] return inverse of A */
+int      m,		/* Number of equations */
+int      n		/* Number of unknowns */
+) {
+	int i, j, k;
+
+	for (j = 0; j < n; j++) {		/* Outer of result */
+		for (i = 0; i < m; i++) {	/* Inner of result */
+			ia[j][i] = 0.0;
+			for (k = 0; k < n; k++) {
+				if (w[k] != 0.0)
+					ia[j][i] += v[j][k] * u[i][k] / w[k];
+			}
+		}
+	}
+}
+
+/* Compute x from b using inverse A matrix */
+void svdmulia(
+double **ia,	/* iA[0..n-1][0..m-1] inverse of A */
+double b[],		/* B[0..m-1]  Right hand side of equation */
+double x[],		/* X[0..n-1]  Return solution. (Must be different to b[]) */
+int      m,		/* Number of equations */
+int      n		/* Number of unknowns */
+) {
+	int i, j;
+
+	for (j = 0; j < n; j++) {
+		double s = 0.0;
+		i = 0.0;
+		for (; i < (m-7); i += 8) {
+			s += b[i+0] * ia[j][i+0];
+			s += b[i+1] * ia[j][i+1];
+			s += b[i+2] * ia[j][i+2];
+			s += b[i+3] * ia[j][i+3];
+			s += b[i+4] * ia[j][i+4];
+			s += b[i+5] * ia[j][i+5];
+			s += b[i+6] * ia[j][i+6];
+			s += b[i+7] * ia[j][i+7];
+		}
+		for (; i < m; i++)
+			s += b[i] * ia[j][i];
+		x[j] = s;
+	}
+}
 
 
 

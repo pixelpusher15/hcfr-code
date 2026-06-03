@@ -21,11 +21,24 @@
 extern int ui_initialized;		
 static int *pui_initialized = &ui_initialized;
 
+/* Call this if we decide we are actually going to display */
+/* something in the GUI */
+void ui_UsingGUI();
+
 #ifdef UNIX
 # ifdef __APPLE__
 
 extern pthread_t ui_thid;		/* Thread ID of main thread running io run loop */
 extern pthread_t ui_main_thid;	/* Thread ID of thread running application main() */
+
+/* Run a function in the main thread and return when it is complete */
+void ui_runInMainThreadAndWait(void *cntx, void (*function)(void *context));
+
+/* We are about to change the UI */
+void ui_aboutToWait();
+
+/* Wait until we are sure our UI change is complete */
+void ui_waitForEvents();
 
 #ifndef __UI_C__
 # define main uimain

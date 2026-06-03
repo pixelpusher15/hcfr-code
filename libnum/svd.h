@@ -13,13 +13,45 @@
 	extern "C" {
 #endif
 
+/*
+
+	U[] decomposes A[]'s columns into orthogonal, singular vectors.
+	U[]'s columns are vectors that sum to 1.0, i.e. they leave a vectors normal unchanged.
+	The inverse of U[] is its transpose.
+	U[]'s columns corresponding to non-zero W[] are the orthonormal vectors that span
+	the (input) RANGE space. Columns corresponding to zero W[] are zero.
+
+	W[] will return singlular values, i.e. the weighting of the singular vectors.
+	It's inverse is is the reciprical of its elements.
+
+	V[] composes the singular vectors back into A[]'s rows.
+	V[]'s columns and rows are orthonormal.
+	V[]'s columns corresponding to non-zero W[] are the orthonormal vectors that span
+	the (output) RANGE space. 
+	V[]'s columns corresponding to zero W[] are the (output) othonormal vectors that span
+	the NULL space.
+	The inverse of V[] is its transpose.
+
+	To re-form, A = U.W.Vt, i.e. multiply by transpose of V.
+
+	i.e. mult. input vector[m] by U[] converts to [n] compact, orthogonal
+	basis vectors. W then scales them appropiately, setting null space
+	vectors to 0. V[] then transforms from the orthogonal basis vectors
+	to A[]'s output space.
+
+	To reveal NULL space, make sure n >= m, since U[] vectors corrsponding
+	to zero's are set to zero.
+
+	Inverse of A = V.1/W.Ut ?
+*/
+
 /* Compute Singular Value Decomposition of A = U.W.Vt */
 /* Return status value: */
-/* 0 - no error */
-/* 1 - m < n error */
+/* 0 = no error */
+/* 1 - Too many itterations */
 int svdecomp(
-double **a,		/* A[0..m-1][0..n-1], return U[][] */
-double  *w,		/* return W[0..n-1] */
+double **a,		/* A[0..m-1][0..n-1], return U[0..m-1][0..n-1] */
+double  *w,		/* return W[0..n-1] = singular values */
 double **v,		/* return V[0..n-1][0..n-1] (not transpose!) */
 int      m,		/* Number of equations */
 int      n		/* Number of unknowns */
@@ -79,6 +111,25 @@ int      s		/* Number of unknowns */
 int gen_solve_se(
 double **a,		/* A[0..m-1][0..n-1] input A[][], will return U[][] */
 double b[],		/* B[0..m-1]  Right hand side of equation, return solution */
+int      m,		/* Number of equations */
+int      n		/* Number of unknowns */
+);
+
+/* Compute the inverse matrix Ai[[0..n-1][0..m-1] from SVD components */
+void svdinverse(
+double **u,		/* U[0..m-1][0..n-1] U, W, V SVD decomposition of A[][] */
+double  *w,		/* W[0..n-1] */
+double **v,		/* V[0..n-1][0..n-1] (not transpose!) */
+double **ia,	/* iA[0..n-1][0..m-1] return inverse of A */
+int      m,		/* Number of equations */
+int      n		/* Number of unknowns */
+);
+
+/* Compute x from b using inverse A matrix */
+void svdmulia(
+double **ia,	/* iA[0..n-1][0..m-1] inverse of A */
+double b[],		/* B[0..m-1]  Right hand side of equation */
+double x[],		/* X[0..n-1]  Return solution. (Must be different to b[]) */
 int      m,		/* Number of equations */
 int      n		/* Number of unknowns */
 );

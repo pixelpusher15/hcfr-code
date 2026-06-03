@@ -19,88 +19,179 @@
 /* (From Knuth & H.W.Lewis) */
 #define PSRAND32L(S) ((S) * 1664525L + 1013904223L)
 
+/* - - - - - - - - - - - - - - - */
+/* Global state random generator */
+
+static rand_state g_rand = { 0 }; /* Use default seed for global state generator */
+
 /* Return a 32 bit number between 0 and 4294967295 */
 /* Use Knuth shuffle to improve PSRAND32 sequence */
 unsigned int
 rand32(					/* Return 32 bit random number */
 unsigned int seed		/* Optional seed. Non-zero re-initialized with that seed */
 ) {
-#define TSIZE 2843		/* Prime */
-	static unsigned int last, ran = 0x12345678;	/* Default seed */
-	static unsigned int pvs[TSIZE];
-	static int pvs_inited = 0;
-	int i;
-
-	if (seed != 0)
-		{
-		pvs_inited = 0;
-		ran = seed;;
-		}
-
-	/* Init random storage locations */
-	if (pvs_inited == 0)
-		{
-		for (i = 0; i < TSIZE; i++)
-  			pvs[i] = ran = PSRAND32(ran);
-		last = ran;
-		pvs_inited = 1;
-		}
-	i = last % TSIZE;		/* New location */
-	last = pvs[i];			/* Value generated */
-  	pvs[i] = ran = PSRAND32(ran);		/* New value */
-
-	return last-1;
+	return rand32_th(NULL, seed);
 }
 
 /* return a random number between 0.0 and 1.0 */
 /* based on rand32 */
 double ranno(void) {
-	return rand32(0) / 4294967295.0;
+	return rand32_th(NULL, 0) / 4294967295.0;
 }
 
-/* Return a random double in the range min to max */
+/* Return a uniform random double in the range min to max */
 double
 d_rand(double min, double max) {
-	double tt;
-	tt = ranno();
-	return min + (max - min) * tt;
+	return d_rand_th(NULL, min, max);
+}
+
+/* Return a squared distribution random double in the range min to max */
+double
+d2_rand(double min, double max) {
+	return d2_rand_th(NULL, min, max);
 }
 
 /* Return a random integer in the range min to max inclusive */
 int
 i_rand(int min, int max) {
-	double tt;
-	tt = ranno();
-	return min + (int)floor(0.5 + ((double)(max - min)) * tt);
+	return i_rand_th(NULL, min, max);
 }
-
 
 /* Return a random floating point number with a gausian/normal */
 /* distribution, centered about 0.0, with standard deviation 1.0 */
 /* This uses the Box-Muller transformation */
 double norm_rand(void) {
-	static int r2 = 0;		/* Can use 2nd number generated */
-	static double nr2;
+	return norm_rand_th(NULL);
+}
 
-	if (r2 == 0) {
+/* - - - - - - - - - - - - - - - */
+/* Explicit state random generator */
+
+/* Init rand_state to default */
+void rand_init(rand_state *p) {
+	if (p == NULL)
+		p = &g_rand;
+	memset((void *)p, 0, sizeof(rand_state));
+}
+
+/* Return a 32 bit number between 0 and 4294967295 */
+/* Use Knuth shuffle to improve PSRAND32 sequence */
+unsigned int
+rand32_th(rand_state *p,
+unsigned int seed		/* Optional seed. Non-zero re-initialized with that seed */
+) {
+	int i;
+
+	if (p == NULL)
+		p = &g_rand;
+
+	if (seed != 0) {
+//printf("~1 rand 0x%x seed 0x%x\n",p,seed);
+		rand_init(p);
+		p->ran = seed;
+	}
+
+	/* Init random storage locations */
+	if (p->pvs_inited == 0) {
+		if (p->ran == 0)
+			p->ran = RAND_SEED;
+		for (i = 0; i < RAND_TSIZE; i++)
+  			p->pvs[i] = p->ran = PSRAND32(p->ran);
+		p->last = p->ran;
+		p->pvs_inited = 1;
+	}
+	i = p->last % RAND_TSIZE;				/* New location */
+	p->last = p->pvs[i];					/* Value generated */
+  	p->pvs[i] = p->ran = PSRAND32(p->ran);	/* New value */
+
+//printf("~1 rand 0x%x ret 0x%x\n",p,p->last-1);
+	return p->last-1;
+}
+
+/* return a random number between 0.0 and 1.0 */
+/* based on rand32 */
+double ranno_th(rand_state *p) {
+	return rand32_th(p, 0) / 4294967295.0;
+}
+
+/* Return a uniform random double in the range min to max */
+double
+d_rand_th(rand_state *p, double min, double max) {
+	return min + (max - min) * ranno_th(p);
+}
+
+/* Return a squared distribution random double in the range min to max */
+double
+d2_rand_th(rand_state *p, double min, double max) {
+	double val = ranno_th(p);
+	return min + (max - min) * val * val;
+}
+
+/* Return a random integer in the range min to max inclusive */
+int
+i_rand_th(rand_state *p, int min, int max) {
+	return min + (int)floor(0.5 + ((double)(max - min)) * ranno_th(p));
+}
+
+/* Return a random floating point number with a gausian/normal */
+/* distribution, centered about 0.0, with standard deviation 1.0 */
+/* This uses the Box-Muller transformation */
+double norm_rand_th(rand_state *p) {
+	if (p == NULL)
+		p = &g_rand;
+
+	if (p->r2 == 0) {				/* No previously calculated number */
 		double v1, v2, t1, t2, r1;
 		do {
-			v1 = d_rand(-1.0, 1.0);
-			v2 = d_rand(-1.0, 1.0);
+			v1 = d_rand_th(p, -1.0, 1.0);
+			v2 = d_rand_th(p, -1.0, 1.0);
 			t1 = v1 * v1 + v2 * v2;
 		} while (t1 == 0.0 || t1 >= 1.0);
 		t2 = sqrt(-2.0 * log(t1)/t1);
-		nr2 = v2 * t2;			/* One for next time */
-		r2 = 1;
+		p->nr2 = v2 * t2;			/* One for next time */
+		p->r2 = 1;
 		r1 = v1 * t2;
 		return r1;
-	} else {
-		r2 = 0;
-		return nr2;
+	} else {						/* Return previously calculated number */
+		p->r2 = 0;
+		return p->nr2;
 	}
 }
 
+/* Set random dvector */
+void vect_rand(double *d, double min, double max, int len) {
+	int i;
+	for (i = 0; i < len; i++)
+		d[i] = d_rand(min, max);
+}
 
+/* =================================================================== */
+
+/* Scale normal value by this to give it a mean absolute deviation of 1.0 */
+/* for a given multi-variate dimension */
+
+double NORM_RAND_ABS_SCALE[NORM_RAND_ABS_SCALE_MAXD+1] = {
+	0.0, 
+	NORM_RAND_ABS_SCALE_1,
+	NORM_RAND_ABS_SCALE_2,
+	NORM_RAND_ABS_SCALE_3,
+	NORM_RAND_ABS_SCALE_4,
+	NORM_RAND_ABS_SCALE_5,
+	NORM_RAND_ABS_SCALE_6,
+	NORM_RAND_ABS_SCALE_7,
+	NORM_RAND_ABS_SCALE_8,
+	NORM_RAND_ABS_SCALE_9,
+	NORM_RAND_ABS_SCALE_10,
+	NORM_RAND_ABS_SCALE_11,
+	NORM_RAND_ABS_SCALE_12,
+	NORM_RAND_ABS_SCALE_13,
+	NORM_RAND_ABS_SCALE_14,
+	NORM_RAND_ABS_SCALE_15,
+	NORM_RAND_ABS_SCALE_16,
+	NORM_RAND_ABS_SCALE_17,
+	NORM_RAND_ABS_SCALE_18,
+	NORM_RAND_ABS_SCALE_19
+};
 
 
 

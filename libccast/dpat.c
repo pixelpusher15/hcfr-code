@@ -394,7 +394,7 @@ double get_ccast_dith(double ipat[DISIZE][DISIZE][3], double val[3]) {
 	/* generates number between 1 and 4294967295 */
 #define PSRAND32F(S) (((S) & 0x80000000) ? (((S) << 1) ^ 0xa398655d) : ((S) << 1))
 
-	/* Locate the 8 surrounding RGB verticies */
+	/* Locate the 8 surrounding RGB vertices */
 	for (n = 0; n < 8; n++) {
 		for (k = 0; k < 3; k++) {
 			if (n & (1 << k))

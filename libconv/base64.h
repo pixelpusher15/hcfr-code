@@ -1,9 +1,13 @@
 
+#ifndef BASE64_H
+
 /* 
- * Argyll Color Correction System
+ * Argyll Color Management System
  *
  * Very simple & concise base64 encoder/decoder
- *
+ */
+
+/*
  * Author: Graeme W. Gill
  *
  * Copyright 2014, Graeme W. Gill
@@ -13,6 +17,9 @@
  * see the License2.txt file for licencing details.
  */
 
+#ifdef __cplusplus
+	extern "C" {
+#endif
 
 /* The maximum encoded length given decoded length */
 #define EBASE64LEN(len) (((len) * 4 + 2)/3)
@@ -30,4 +37,9 @@ void ebase64(int *dlen, char *dst, unsigned char *src, int slen);
 /* We assume that the destination buffer is long enough at DBASE64LEN */
 void dbase64(int *dlen, unsigned char *dst, char *src);
 
+#ifdef __cplusplus
+	}
+#endif
 
+#define BASE64_H
+#endif /* BASE64_H */

@@ -85,7 +85,7 @@ char *ccmessv_emes(ccmessv_err rv) {
 			return "ccmes: connection has been closed";
 	}
 
-	return "Uknown ccmessv error";
+	return "Unknown ccmessv error";
 }
 
 #if defined(LOWVERBTRACE) || defined(DEBUG)
