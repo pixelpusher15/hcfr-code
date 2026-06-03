@@ -80,6 +80,7 @@ static int find_field(cgats *p, int table, const char *fsym);
 static int add_table(cgats *p, table_type tt, int oi);
 static int set_table_type(cgats *p, int table, table_type tt, int oi);
 static int set_table_flags(cgats *p, int table, int sup_id, int sup_kwords, int sup_fields);
+static int del_table(cgats *p, int table);
 static int set_cgats_type(cgats *p, const char *osym);
 static int add_other(cgats *p, const char *osym);
 static int get_oi(cgats *p, const char *osym);
@@ -121,7 +122,7 @@ cgatsAlloc *al			/* memory allocator */
 ) {
 	cgats *p;
 
-	if ((p = (cgats *) al->calloc(al, sizeof(cgats), 1)) == NULL) {
+	if ((p = (cgats *) al->calloc(al, 1, sizeof(cgats))) == NULL) {
 		return NULL;
 	}
 	p->al = al;				/* Heap allocator */
@@ -133,6 +134,7 @@ cgatsAlloc *al			/* memory allocator */
 	p->add_table  = add_table;
 	p->set_table_type = set_table_type;
 	p->set_table_flags = set_table_flags;
+	p->del_table  = del_table;
 	p->set_cgats_type  = set_cgats_type;
 	p->add_other  = add_other;
 	p->get_oi     = get_oi;
@@ -181,15 +183,15 @@ static int
 err(cgats *p, int errc, const char *fmt, ...) {
 	va_list args;
 
-	p->errc = errc;
+	p->e.c = errc;
 	va_start(args, fmt);
-	vsprintf(p->err, fmt, args);
+	vsprintf(p->e.m, fmt, args);
 	va_end(args);
 
 	/* If this is the first registered error */
-	if (p->ferrc != 0) {
-		p->ferrc = p->errc;
-		strcpy(p->ferr, p->err);
+	if (p->fe.c != 0) {
+		p->fe.c = p->e.c;
+		strcpy(p->fe.m, p->e.m);
 	}
 
 	return errc;
@@ -204,10 +206,10 @@ static int cgats_error(
 cgats *p,
 char **mes
 ) {
-	if (p->ferrc != 0) {
+	if (p->fe.c != 0) {
 		if (mes != NULL)
-			*mes = p->ferr;
-		return p->ferrc;
+			*mes = p->fe.m;
+		return p->fe.c;
 	}
 	return 0;
 }
@@ -316,8 +318,8 @@ find_kword(cgats *p, int table, const char *ksym) {
 	int i;
 	cgats_table *t;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 
 	if (table < 0 || table >= p->ntables)
 		return err(p, -2, "cgats.find_kword(), table number '%d' is out of range",table);
@@ -342,8 +344,8 @@ find_field(cgats *p, int table, const char *fsym) {
 	int i;
 	cgats_table *t;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 
 	if (table < 0 || table >= p->ntables)
 		return err(p, -2, "cgats.find_field(), table number '%d' is out of range",table);
@@ -361,7 +363,7 @@ find_field(cgats *p, int table, const char *fsym) {
 
 /* Read a cgats file into structure */
 /* returns 0 normally, -ve if there was an error, */
-/* and p->errc and p->err will be valid */
+/* and p->e.c and p->e.m will be valid */
 static int
 cgats_read(cgats *p, cgatsFile *fp) {
 	parse *pp;
@@ -376,8 +378,8 @@ cgats_read(cgats *p, cgatsFile *fp) {
 	int expsets = 0;	/* Expected number of sets */
 	char *kw = NULL;	/* keyword symbol */
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 
 	if ((pp = new_parse_al(p->al, fp)) == NULL) {
 		DBGF((DBGA,"Failed to open parser for file\n"));
@@ -395,19 +397,19 @@ cgats_read(cgats *p, cgatsFile *fp) {
 		/* Fetch the next token */
 		while ((tp = pp->get_token(pp)) == NULL) {
 			int rc;
-			if (pp->errc != 0) {		/* get_token got an error */
-				err(p, -1, "%s", pp->err);
+			if (pp->e.c != 0) {		/* get_token got an error */
+				err(p, -1, "%s", pp->e.m);
 				pp->del(pp);
-				DBGF((DBGA,"Get token got error '%s'\n",pp->err));
-				return p->errc;
+				DBGF((DBGA,"Get token got error '%s'\n",pp->e.m));
+				return p->e.c;
 			}
 			if ((rc = pp->read_line(pp)) == 0)
 				break;		/* End of file */
 			else if (rc == -1) {		/* read_line got an error */
-				err(p, -1, "%s", pp->err);
+				err(p, -1, "%s", pp->e.m);
 				pp->del(pp);
-				DBGF((DBGA,"Read line got error '%s'\n",pp->err));
-				return p->errc;
+				DBGF((DBGA,"Read line got error '%s'\n",pp->e.m));
+				return p->e.c;
 			}
 		}
 		if (tp == NULL)
@@ -418,7 +420,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 			tp[CGATS_ERRM_LENGTH/2] = '\000';
 			err(p,-1,"Read line got symbol '%s' that's too long\n",tp);
 			pp->del(pp);
-			return p->errc;
+			return p->e.c;
 		}
 
 		switch(rstate) {
@@ -451,11 +453,11 @@ cgats_read(cgats *p, cgatsFile *fp) {
 					tt = cgats_X;
 					if (p->cgats_type != NULL)
 						p->al->free(p->al, p->cgats_type);
-					if ((p->cgats_type = (char *)p->al->malloc(p->al,
-					                     (strlen(tp)+1) * sizeof(char))) == NULL) {
+					if ((p->cgats_type = (char *)p->al->calloc(p->al,
+					                     (strlen(tp)+1), sizeof(char))) == NULL) {
 						err(p,-1,"Failed to malloc space for CGATS.X keyword");
 						pp->del(pp);
-						return p->errc;
+						return p->e.c;
 					}
 					strcpy(p->cgats_type,tp);
 					DBGF((DBGA,"Found CGATS file identifier\n"));
@@ -489,7 +491,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 						if ((oi = add_other(p, tp)) == -2) {
 							pp->del(pp);
 							DBGF((DBGA,"add_other for wilidcard failed\n"));
-							return p->errc;
+							return p->e.c;
 						}
 						tt = tt_other;
 						rstate = R_KWORDS;
@@ -501,7 +503,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 					err(p,-1,"Error at line %d of file '%s': No CGATS file identifier found",pp->line,fp->fname(fp));
 					pp->del(pp);
 					DBGF((DBGA,"Failed to match file identifier\n"));
-					return p->errc;
+					return p->e.c;
 				}
 
 				/* Any token after previous table has data finished */
@@ -513,7 +515,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 	        			if (add_table(p, tt, oi) < 0) {
 							pp->del(pp);
 							DBGF((DBGA,"Add table failed\n"));
-							return p->errc;
+							return p->e.c;
 						}
 					} else {	/* Carry everything over from previous table the table type */
 						int i;
@@ -525,7 +527,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 	        			if (add_table(p, p->t[p->ntables-1].tt, p->t[p->ntables-1].oi) < 0) {
 							pp->del(pp);
 							DBGF((DBGA,"Add table failed\n"));
-							return p->errc;
+							return p->e.c;
 						}
 
 						pt = &p->t[p->ntables-2];
@@ -535,14 +537,14 @@ cgats_read(cgats *p, cgatsFile *fp) {
 							if (p->add_kword(p, ct, pt->ksym[i], pt->kdata[i], pt->kcom[i]) < 0) {
 								pp->del(pp);
 								DBGF((DBGA,"Add keyword failed\n"));
-								return p->errc;
+								return p->e.c;
 							}
 						}
 						for (i = 0; i < pt->nfields; i++)
 							if (p->add_field(p, ct, pt->fsym[i], none_t) < 0) {
 								pp->del(pp);
 								DBGF((DBGA,"Add field failed\n"));
-								return p->errc;
+								return p->e.c;
 							}
 					}
 				}
@@ -555,7 +557,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 						if (clear_fields(p, p->ntables-1) < 0) {
 							pp->del(pp);
 							DBGF((DBGA,"Clear field failed\n"));
-							return p->errc;
+							return p->e.c;
 						}
 						break;
 					}
@@ -564,7 +566,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 						if (clear_fields(p, p->ntables-1) < 0) {
 							pp->del(pp);
 							DBGF((DBGA,"Clear field failed\n"));
-							return p->errc;
+							return p->e.c;
 						}
 						goto first_field;
 					}
@@ -578,7 +580,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 						err(p, -2, "cgats.alloc_copy_data_type() malloc fail");
 						pp->del(pp);
 						DBGF((DBGA,"Alloc data type failed\n"));
-						return p->errc;
+						return p->e.c;
 					}
 					rstate = R_KWORD_VALUE;
 				}
@@ -601,12 +603,12 @@ cgats_read(cgats *p, cgatsFile *fp) {
 					if ((ix = find_kword(p, p->ntables-1, kw)) < -1) {
 						pp->del(pp);
 						DBGF((DBGA,"Failed to find keyword\n"));
-						return p->errc;
+						return p->e.c;
 					}
 					if (add_kword_at(p, p->ntables-1, ix, kw, tp, NULL) < 0) {
 						pp->del(pp);
 						DBGF((DBGA,"Failed to add keyword '%s'\n",kw));
-						return p->errc;
+						return p->e.c;
 					}
 				}
 				p->al->free(p->al, kw);
@@ -632,7 +634,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 						err(p, -2, "cgats.alloc_copy_data_type() malloc fail");
 						pp->del(pp);
 						DBGF((DBGA,"Alloc data type failed\n"));
-						return p->errc;
+						return p->e.c;
 					}
 					rstate = R_KWORD_VALUE;
 					break;
@@ -641,7 +643,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 				if (p->add_field(p, p->ntables-1, tp, none_t) < 0)	/* none == cs untill figure type */ {
 					pp->del(pp);
 					DBGF((DBGA,"Add field failed\n"));
-					return p->errc;
+					return p->e.c;
 				}
 				break;
 			}
@@ -656,20 +658,20 @@ cgats_read(cgats *p, cgatsFile *fp) {
 						err(p,-1,"Error at line %d of file '%s': End of data without any data being read",pp->line,fp->fname(fp));
 						pp->del(pp);
 						DBGF((DBGA,"End of data without any data being read\n"));
-						return p->errc;
+						return p->e.c;
 					}
 #endif // NEVER
 					if (expsets != 0 && ct->nsets != expsets) {
 						err(p,-1,"Error at line %d of file '%s': Read %d sets, expected %d sets",pp->line,fp->fname(fp),ct->nsets,expsets);
 						pp->del(pp);
 						DBGF((DBGA,"End of mimatch in number of sets\n"));
-						return p->errc;
+						return p->e.c;
 					}
 					if (ct->ndf != 0) {
 						err(p,-1,"Error at line %d of file '%s': Data was not an integer multiple of fields (remainder %d out of %d)",pp->line,fp->fname(fp),ct->ndf,ct->nfields);
 						pp->del(pp);
 						DBGF((DBGA,"Not an interger multiple of fields\n"));
-						return p->errc;
+						return p->e.c;
 					}
 
 					/* We now need to determine the data types */
@@ -708,7 +710,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 							err(p, -1,"Error in file '%s': Field '%s' has unexpected type, should be '%s', is '%s'",fp->fname(fp),ct->fsym[i],data_type_desc[st],data_type_desc[bt]);
 							pp->del(pp);
 							DBGF((DBGA,"Standard field has unexpected data type\n"));
-							return p->errc;
+							return p->e.c;
 						}
 
 						/* Set field type, and then convert the fields to correct type. */
@@ -722,7 +724,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 										err(p, -2, "cgats.alloc_copy_data_type() malloc fail");
 										pp->del(pp);
 										DBGF((DBGA,"Alloc copy data type failed\n"));
-										return p->errc;
+										return p->e.c;
 									}
 									break;
 								}
@@ -733,7 +735,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 										err(p, -2, "cgats.alloc_copy_data_type() malloc fail");
 										pp->del(pp);
 										DBGF((DBGA,"Alloc copy data type failed\n"));
-										return p->errc = -2;
+										return p->e.c = -2;
 									}
 									break;
 								}
@@ -746,7 +748,7 @@ cgats_read(cgats *p, cgatsFile *fp) {
 										err(p, -2, "cgats.alloc_copy_data_type() malloc fail");
 										pp->del(pp);
 										DBGF((DBGA,"Alloc copy data type failed\n"));
-										return p->errc = -2;
+										return p->e.c = -2;
 									}
 									unquote_cs((char *)ct->fdata[j][i]);
 									break;
@@ -767,13 +769,13 @@ cgats_read(cgats *p, cgatsFile *fp) {
 					err(p, -1,"Error at line %d of file '%s': Found data without field definitions",pp->line,fp->fname(fp));
 					pp->del(pp);
 					DBGF((DBGA,"Found data without field definition\n"));
-					return p->errc;
+					return p->e.c;
 				}
 				/* Add the data item */
 				if (add_data_item(p, p->ntables-1, tp) < 0) {
 					pp->del(pp);
 					DBGF((DBGA,"Adding data item failed\n"));
-					return p->errc;
+					return p->e.c;
 				}
 				break;
 			}
@@ -794,11 +796,11 @@ static int
 set_cgats_type(cgats *p, const char *osym) {
 	cgatsAlloc *al = p->al;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 	if (p->cgats_type != NULL)
 		al->free(al, p->cgats_type);
-	if ((p->cgats_type = (char *)al->malloc(al, (strlen(osym)+1) * sizeof(char))) == NULL)
+	if ((p->cgats_type = (char *)al->calloc(al, (strlen(osym)+1), sizeof(char))) == NULL)
 		return err(p,-2,"cgats.add_cgats_type(), malloc failed!");
 	strcpy(p->cgats_type,osym);
 	return 0;
@@ -806,18 +808,24 @@ set_cgats_type(cgats *p, const char *osym) {
 
 /* Add an 'other' file identifier string, and return the oi. */
 /* Use a zero length string to indicate a wildcard. */
+/* Returns existing if already registered. */
 /* Return -2 & set errc and err on system error */
 static int
 add_other(cgats *p, const char *osym) {
+	int oi;
 	cgatsAlloc *al = p->al;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
+
+	if ((oi = get_oi(p, osym)) >= 0)
+		return oi;
+	
 	p->nothers++;
 	if ((p->others = (char **)al->realloc(al, p->others, p->nothers * sizeof(char *))) == NULL)
 		return err(p,-2, "cgats.add_other(), realloc failed!");
 	if ((p->others[p->nothers-1] =
-	                      (char *)al->malloc(al, (strlen(osym)+1) * sizeof(char))) == NULL)
+	                      (char *)al->calloc(al, (strlen(osym)+1), sizeof(char))) == NULL)
 		return err(p,-2,"cgats.add_other(), malloc failed!");
 	strcpy(p->others[p->nothers-1],osym);
 	return p->nothers-1;
@@ -828,8 +836,8 @@ add_other(cgats *p, const char *osym) {
 static int get_oi(cgats *p, const char *osym) {
 	int oi;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 
 	for (oi = 0; oi < p->nothers; oi++) {
 		if (strcmp(p->others[oi], osym) == 0)
@@ -847,8 +855,8 @@ add_table(cgats *p, table_type tt, int oi) {
 	cgatsAlloc *al = p->al;
 	cgats_table *t;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 	p->ntables++;
 	if ((p->t = (cgats_table *) al->realloc(al, p->t, p->ntables * sizeof(cgats_table))) == NULL)
 		return err(p,-2, "cgats.add_table(), realloc failed!");
@@ -883,8 +891,8 @@ set_table_type(cgats *p, int table, table_type tt, int oi) {
 static int set_table_flags(cgats *p, int table, int sup_id, int sup_kwords, int sup_fields) {
 	cgats_table *t;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 	if (table < 0 || table >= p->ntables)
 		return err(p,-1, "cgats.set_table_flags(), table number '%d' is out of range",table);
 	t = &p->t[table];
@@ -898,6 +906,26 @@ static int set_table_flags(cgats *p, int table, int sup_id, int sup_kwords, int 
 	return 0;
 }
 
+/* delete a table */
+/* Note that any following tables will be shuffled down. */
+static int del_table(cgats *p, int table) {
+	cgats_table *t;
+
+	p->e.c = 0;
+	p->e.m[0] = '\000';
+	if (table < 0 || table >= p->ntables)
+		return err(p,-1, "cgats.del_table(), table number '%d' is out of range",table);
+
+	cgats_table_free(&p->t[table]);
+
+	while ((table+1) < p->ntables) {
+		p->t[table] = p->t[table+1];
+		table++;
+	}
+	p->ntables--;
+
+	return 0;
+}
 
 /* Append a new keyword/value + optional comment pair to the table */
 /* If no comment is provided, kcom should be set to NULL */
@@ -908,8 +936,8 @@ static int
 add_kword(cgats *p, int table, const char *ksym, const char *kdata, const char *kcom) {
 	cgats_table *t;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 	if (table < 0 || table >= p->ntables)
 		return err(p,-1, "cgats.add_kword(), table number '%d' is out of range",table);
 	t = &p->t[table];
@@ -929,8 +957,8 @@ add_kword_at(cgats *p, int table, int pos, const char *ksym, const char *kdata, 
 	cgatsAlloc *al = p->al;
 	cgats_table *t;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 	if (table < 0 || table >= p->ntables) {
 		DBGF((DBGA,"add_kword_at: table is invalid\n"));
 		return err(p,-1, "cgats.add_kword(), table number '%d' is out of range",table);
@@ -999,8 +1027,8 @@ add_field(cgats *p, int table, const char *fsym, data_type ftype) {
 	cgats_table *t;
 	data_type st;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 	if (table < 0 || table >= p->ntables) {
 		return err(p,-1,"cgats.add_field(), table parameter out of range");
 	}
@@ -1057,8 +1085,8 @@ clear_fields(cgats *p, int table) {
 	int i;
 	cgats_table *t;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 	if (table < 0 || table >= p->ntables)
 		return err(p,-1,"cgats.clear_field(), table parameter out of range");
 	t = &p->t[table];
@@ -1099,8 +1127,8 @@ add_set(cgats *p, int table, ...) {
 
 	va_start(args, table);
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 	if (table < 0 || table >= p->ntables)
 		return err(p,-1,"cgats.add_kword(), table parameter out of range");
 	t = &p->t[table];
@@ -1117,7 +1145,7 @@ add_set(cgats *p, int table, ...) {
 			return err(p,-2,"cgats.add_set(), realloc failed!");
 	}
 	/* Allocate set pointer to data element values */
-	if ((t->fdata[t->nsets-1] = (void **)al->malloc(al, t->nfields * sizeof(void *))) == NULL)
+	if ((t->fdata[t->nsets-1] = (void **)al->calloc(al, t->nfields, sizeof(void *))) == NULL)
 		return err(p,-2,"cgats.add_set(), malloc failed!");
 
 	/* Allocate and copy data to new set */
@@ -1164,8 +1192,8 @@ add_setarr(cgats *p, int table, cgats_set_elem *args) {
 	int i;
 	cgats_table *t;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 	if (table < 0 || table >= p->ntables)
 		return err(p,-1,"cgats.add_setarr(), table parameter out of range");
 	t = &p->t[table];
@@ -1182,7 +1210,7 @@ add_setarr(cgats *p, int table, cgats_set_elem *args) {
 			return err(p,-2,"cgats.add_set(), realloc failed!");
 	}
 	/* Allocate set pointer to data element values */
-	if ((t->fdata[t->nsets-1] = (void **)al->malloc(al,t->nfields * sizeof(void *))) == NULL)
+	if ((t->fdata[t->nsets-1] = (void **)al->calloc(al, t->nfields, sizeof(void *))) == NULL)
 		return err(p,-2,"cgats.add_set(), malloc failed!");
 
 	/* Allocate and copy data to new set */
@@ -1226,8 +1254,8 @@ get_setarr(cgats *p, int table, int set_index, cgats_set_elem *args) {
 	int i;
 	cgats_table *t;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 	if (table < 0 || table >= p->ntables)
 		return err(p,-1,"cgats.get_setarr(), table parameter out of range");
 	t = &p->t[table];
@@ -1261,8 +1289,8 @@ add_data_item(cgats *p, int table, void *data) {
 	cgatsAlloc *al = p->al;
 	cgats_table *t;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 	if (table < 0 || table >= p->ntables)
 		return err(p,-1,"cgats.add_kword(), table parameter out of range");
 	t = &p->t[table];
@@ -1284,9 +1312,9 @@ add_data_item(cgats *p, int table, void *data) {
 				return err(p,-2,"cgats.add_item(), realloc failed!");
 		}
 		/* Allocate set pointer to data element values */
-		if ((t->rfdata[t->nsets-1] = (char **)al->malloc(al, t->nfields * sizeof(void *))) == NULL)
+		if ((t->rfdata[t->nsets-1] = (char **)al->calloc(al, t->nfields, sizeof(void *))) == NULL)
 			return err(p,-2,"cgats.add_item(), malloc failed!");
-		if ((t->fdata[t->nsets-1] = (void **)al->malloc(al, t->nfields * sizeof(void *))) == NULL)
+		if ((t->fdata[t->nsets-1] = (void **)al->calloc(al, t->nfields, sizeof(void *))) == NULL)
 			return err(p,-2,"cgats.add_item(), malloc failed!");
 	}
 
@@ -1308,8 +1336,8 @@ cgats_write(cgats *p, cgatsFile *fp) {
 	int i;
 	int table,set,field;
 	int *sfield = NULL;	/* Standard field flag */
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 
 	DBGF((DBGA,"CGATS write called, ntables = %d\n",p->ntables));
 	for (table = 0; table < p->ntables; table++) {
@@ -1319,7 +1347,7 @@ cgats_write(cgats *p, cgatsFile *fp) {
 
 		/* Figure out the standard and non-standard fields */
 		if (t->nfields > 0)
-			if ((sfield = (int *)al->malloc(al, t->nfields * sizeof(int))) == NULL)
+			if ((sfield = (int *)al->calloc(al, t->nfields, sizeof(int))) == NULL)
 				return err(p,-2,"cgats.write(), malloc failed!");
 		for (field = 0; field < t->nfields; field++) {
 				if (standard_field(t->fsym[field]) != none_t)
@@ -1333,12 +1361,12 @@ cgats_write(cgats *p, cgatsFile *fp) {
 			if ((i = p->find_kword(p,table,"ORIGINATOR")) < 0)	/* Create it */
 				if (p->add_kword(p,table,"ORIGINATOR","Not specified", NULL) < 0) {
 					al->free(al, sfield);
-					return p->errc;
+					return p->e.c;
 				}
 			if ((i = p->find_kword(p,table,"DESCRIPTOR")) < 0)	/* Create it */
 				if (p->add_kword(p,table,"DESCRIPTOR","Not specified", NULL) < 0) {
 					al->free(al, sfield);
-					return p->errc;
+					return p->e.c;
 				}
 			if ((i = p->find_kword(p,table,"CREATED")) < 0) {	/* Create it */
 				static char *amonths[] = {"January","February","March","April",
@@ -1352,7 +1380,7 @@ cgats_write(cgats *p, cgatsFile *fp) {
 				sprintf(tcs,"%s %d, %d",amonths[ptm->tm_mon],ptm->tm_mday,1900+ptm->tm_year);
 				if (p->add_kword(p,table,"CREATED",tcs, NULL) < 0) {
 					al->free(al, sfield);
-					return p->errc;
+					return p->e.c;
 				}
 			}
 	
@@ -1364,22 +1392,22 @@ cgats_write(cgats *p, cgatsFile *fp) {
 					if ((i = p->find_kword(p,table,"MANUFACTURER")) < 0)	/* Create it */
 						if (p->add_kword(p,table,"MANUFACTURER","Not specified", NULL) < 0) {
 							al->free(al, sfield);
-							return p->errc;
+							return p->e.c;
 						}
 					if ((i = p->find_kword(p,table,"PROD_DATE")) < 0)	/* Create it */
 						if (p->add_kword(p,table,"PROD_DATE","Not specified", NULL) < 0) {
 							al->free(al, sfield);
-							return p->errc;
+							return p->e.c;
 						}
 					if ((i = p->find_kword(p,table,"SERIAL")) < 0)	/* Create it */
 						if (p->add_kword(p,table,"SERIAL","Not specified", NULL) < 0) {
 							al->free(al, sfield);
-							return p->errc;
+							return p->e.c;
 						}
 					if ((i = p->find_kword(p,table,"MATERIAL")) < 0)	/* Create it */
 						if (p->add_kword(p,table,"MATERIAL","Not specified", NULL) < 0) {
 							al->free(al, sfield);
-							return p->errc;
+							return p->e.c;
 						}
 					break;
 				case it8_7_3:	/* Target measurement files */
@@ -1389,17 +1417,17 @@ cgats_write(cgats *p, cgatsFile *fp) {
 					if ((i = p->find_kword(p,table,"INSTRUMENTATION")) < 0)	/* Create it */
 						if (p->add_kword(p,table,"INSTRUMENTATION","Not specified", NULL) < 0) {
 							al->free(al, sfield);
-							return p->errc;
+							return p->e.c;
 						}
 					if ((i = p->find_kword(p,table,"MEASUREMENT_SOURCE")) < 0)	/* Create it */
 						if (p->add_kword(p,table,"MEASUREMENT_SOURCE","Not specified", NULL) < 0) {
 							al->free(al, sfield);
-							return p->errc;
+							return p->e.c;
 						}
 					if ((i = p->find_kword(p,table,"PRINT_CONDITIONS")) < 0)	/* Create it */
 						if (p->add_kword(p,table,"PRINT_CONDITIONS","Not specified", NULL) < 0) {
 							al->free(al, sfield);
-							return p->errc;
+							return p->e.c;
 						}
 					break;
 				case tt_other:
@@ -1612,7 +1640,7 @@ write_error:
 	err(p,-1,"Write error to file '%s'",fp->fname(fp));
 	if (sfield != NULL)
 		al->free(al, sfield);
-	return p->errc;
+	return p->e.c;
 }
 
 /* Allocate space for data with given type, and copy it from source */
@@ -1622,14 +1650,14 @@ alloc_copy_data_type(cgatsAlloc *al, data_type dtype, void *dpoint) {
 	switch(dtype) {
 		case r_t: {	/* Real value */
 			double *p;
-			if ((p = (double *)al->malloc(al, sizeof(double))) == NULL)
+			if ((p = (double *)al->calloc(al, 1, sizeof(double))) == NULL)
 				return NULL;
 			*p = *((double *)dpoint);
 			return (void *)p;
 		}
 		case i_t: {	/* Integer value */
 			int *p;
-			if ((p = (int *)al->malloc(al, sizeof(int))) == NULL)
+			if ((p = (int *)al->calloc(al, 1, sizeof(int))) == NULL)
 				return NULL;
 			*p = *((int *)dpoint);
 			return (void *)p;
@@ -1637,7 +1665,7 @@ alloc_copy_data_type(cgatsAlloc *al, data_type dtype, void *dpoint) {
 		case cs_t:	/* Character string */
 		case nqcs_t: {	/* Character string */
 			char *p;
-			if ((p = (char *)al->malloc(al, (strlen(((char *)dpoint))+1) * sizeof(char))) == NULL)
+			if ((p = (char *)al->calloc(al, (strlen(((char *)dpoint))+1), sizeof(char))) == NULL)
 				return NULL;
 			strcpy(p, (char *)dpoint);
 			return (void *)p;
@@ -1844,7 +1872,7 @@ quote_cs(cgatsAlloc *al, const char *cs) {
 	for (i = 0, j = 3; cs[i] != '\000'; i++, j++)
 		if (cs[i] == '"')
 			j++;
-	if ((rs = (char *)al->malloc(al, j * sizeof(char))) == NULL) {
+	if ((rs = (char *)al->calloc(al, j, sizeof(char))) == NULL) {
 		return NULL;
 	}
 
@@ -1956,6 +1984,10 @@ real_format(double value, int nsd, char *fmt) {
 	if (value < 1.0) {
 		int thr = -5;
 		ndigs = (int)(log10(value));
+		if (ndigs > 310 || ndigs < -310) {   /* Protect against silliness.. */
+			strcpy(fmt,"%g");
+			return;
+		}
 		if (ndigs <= thr) {
 			sprintf(fmt,"%%%d.%de",xtot,tot-2);
 			return;
@@ -1965,6 +1997,10 @@ real_format(double value, int nsd, char *fmt) {
 	} else {
 		int thr = -0;
 		ndigs = (int)(log10(value));
+		if (ndigs > 310 || ndigs < -310) {   /* Protect against silliness.. */
+			strcpy(fmt,"%g");
+			return;
+		}
 		if (ndigs >= (nsd + thr)) {
 			sprintf(fmt,"%%%d.%de",xtot,tot-2);
 			return;
@@ -2112,7 +2148,7 @@ main(int argc, char *argv[]) {
 		 || pp->add_field(pp, 0, "SAMPLE_ID", cs_t) < 0
 		 || pp->add_field(pp, 0, "SAMPLE_LOC", nqcs_t) < 0
 		 || pp->add_field(pp, 0, "XYZ_X", r_t) < 0)
-			error("Initial error: '%s'",pp->err);
+			error("Initial error: '%s'",pp->e.m);
 	
 		if (pp->add_set(pp, 0, "1", "A1",  0.000000012345678) < 0
 		 || pp->add_set(pp, 0, "2", "A1",  0.00000012345678) < 0
@@ -2137,17 +2173,17 @@ main(int argc, char *argv[]) {
 		 || pp->add_set(pp, 0, "21", "A5", 12345678000.0) < 0
 		 || pp->add_set(pp, 0, "22", "A5", 123456780000.0) < 0
 		 || pp->add_set(pp, 0, "23", "A5", 1234567800000.0) < 0)
-			error("Adding set error '%s'",pp->err);
+			error("Adding set error '%s'",pp->e.m);
 		
 		if (pp->add_table(pp, cgats_5, 0) < 0			/* Start the second table */
 		 || pp->set_table_flags(pp, 1, 1, 1, 1) < 0		/* Suppress id, kwords and fields */
 		 || pp->add_kword(pp, 1, NULL, NULL, "Second Comment only test comment") < 0)
-			error("Adding table error '%s'",pp->err);
+			error("Adding table error '%s'",pp->e.m);
 	
 		if (pp->add_field(pp, 1, "SAMPLE_ID", cs_t) < 0	/* Need to define fields same as table 0 */
 		 || pp->add_field(pp, 1, "SAMPLE_LOC", nqcs_t) < 0
 		 || pp->add_field(pp, 1, "XYZ_X", r_t) < 0)
-			error("Adding field error '%s'",pp->err);
+			error("Adding field error '%s'",pp->e.m);
 	
 		if (pp->add_set(pp, 1, "4", "A4",  -0.000012345678) < 0
 		 || pp->add_set(pp, 1, "5", "A5",  -0.00012345678) < 0
@@ -2166,13 +2202,13 @@ main(int argc, char *argv[]) {
 		 || pp->add_set(pp, 1, "18", "A5", -1234567800.0) < 0
 		 || pp->add_set(pp, 1, "19", "A5", -12345678000.0) < 0
 		 || pp->add_set(pp, 1, "20", "A5", -123456780000.0) < 0)
-			error("Adding set 2 error '%s'",pp->err);
+			error("Adding set 2 error '%s'",pp->e.m);
 	
 		if ((fp = new_cgatsFileStd_name("fred.it8", "w")) == NULL)
 			error("Error opening '%s' for writing","fred.it8");
 	
 		if (pp->write(pp, fp))
-			error("Write error : %s",pp->err);
+			error("Write error : %s",pp->e.m);
 	
 		fp->del(fp);		/* Close file */
 		pp->del(pp);		/* Clean up */
@@ -2185,13 +2221,13 @@ main(int argc, char *argv[]) {
 	if (pp->add_other(pp, "CTI1") == -2
 	 || pp->add_other(pp, "CTI2") == -2
 	 || pp->add_other(pp, "CTI3") == -2)
-		error("Adding other error '%s'",pp->err); 
+		error("Adding other error '%s'",pp->e.m); 
 
 	/* Setup to cope with colorblind files */
 	if (pp->add_other(pp, "CBSC") == -2
 	 || pp->add_other(pp, "CBTA") == -2
 	 || pp->add_other(pp, "CBPR") == -2)
-		error("Adding other 2 error '%s'",pp->err); 
+		error("Adding other 2 error '%s'",pp->e.m); 
 
 	if (argc == 2)
 		fn = argv[1];
@@ -2201,7 +2237,7 @@ main(int argc, char *argv[]) {
 	if ((fp = new_cgatsFileStd_name(fn, "r")) == NULL)
 		error("Error opening '%s' for reading",fn);
 	if (pp->read(pp, fp))
-		error("Read error : %s",pp->err);
+		error("Read error : %s",pp->e.m);
 	fp->del(fp);		/* Close file */
 
 	if ((fp = new_cgatsFileStd_fp(stdout)) == NULL)

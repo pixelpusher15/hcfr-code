@@ -2,7 +2,7 @@
  /* Platform isolation convenience functions */
 
 /* 
- * Argyll Color Correction System
+ * Argyll Color Management System
  *
  * Author: Graeme W. Gill
  * Date:   28/9/97
@@ -14,15 +14,28 @@
  * see the License2.txt file for licencing details.
  */
 
+#define USE_BEGINTHREAD		/* [def] hyper-threading doesn't work on VC++6 otherwise. */
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <time.h>
+#include <ctype.h>
 
 #ifdef NT
+/* Set minimum OS target as XP */
+# if !defined(WINVER) || WINVER < 0x0501
+#  if defined(WINVER) 
+#   undef WINVER
+#  endif
+#  define WINVER 0x0501
+# endif
 # if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0501
+#  if defined(_WIN32_WINNT) 
+#   undef _WIN32_WINNT
+#  endif
 #  define _WIN32_WINNT 0x0501
 # endif
 # define WIN32_LEAN_AND_MEAN
@@ -30,6 +43,7 @@
 #include <conio.h>
 #include <tlhelp32.h>
 #include <direct.h>
+#include <process.h>
 #endif
 
 #if defined(UNIX)
@@ -41,6 +55,9 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <string.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <pwd.h>
 
 /* select() defined, but not poll(), so emulate poll() */
 #if defined(FD_CLR) && !defined(POLLIN)
@@ -59,28 +76,51 @@
 #include "sa_config.h"
 #endif
 #include "numsup.h"
+#include "cgats.h"
 #include "xspect.h"
-#include "../Tools/spectro/insttypes.h"
+#include "insttypes.h"
 #include "conv.h"
-#include "../Tools/spectro/icoms.h"
+#include "icoms.h"
 
-#ifdef __APPLE__
+/*
+	MAC_OS_X_VERSION_MIN_REQUIRED
+	is set to the earliest OS version the code should compile in.
+	This is the usual macro to enable early vs. later OS API use.
+
+	MAC_OS_X_VERSION_MAX_ALLOWED
+	shows the latest API's that the SDK is making available.
+	API's later than MAC_OS_X_VERSION_MIN_REQUIRED need to be
+	detected at run time (i.e soft linking).
+	This is usually used to allow for SDK declaration changes.
+
+	The version should be 4 digits from 1000 to 1090 for 10.0 to 10.9,
+	and 6 digits from 101000 and beyond for 10.1 and beyond.
+
+*/
+
+#ifdef UNIX_APPLE
+
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1060 && MAC_OS_X_VERSION_MIN_REQUIRED < 101200
+# define OBJC_SILENCE_GC_DEPRECATIONS 1     /* Don't warn about objc_registerThreadWithCollector() */
+#endif
+
 //#include <stdbool.h>
 #include <sys/sysctl.h>
 #include <sys/param.h>
+#include <Carbon/Carbon.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
 #include <IOKit/serial/IOSerialKeys.h>
 #include <IOKit/IOBSD.h>
 #include <mach/mach_init.h>
 #include <mach/task_policy.h>
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1050
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
 # include <AudioToolbox/AudioServices.h>
 #endif
 #if MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
 # include <objc/objc-auto.h>
 #endif
-#endif /* __APPLE__ */
+#endif /* UNIX_APPLE */
 
 #undef DEBUG
 
@@ -102,96 +142,138 @@
 /* ============================================================= */
 #ifdef NT
 
-/* wait for and then return the next character from the keyboard */
-/* (If not_interactive, return getchar()) */
-int next_con_char(void) {
-	int c;
+/* Debug function: return Windows last error as a string */
+char *GetLastErrorMessage(void) {
+	static char tmp[512];
+	char *s, *d;
 
-	if (not_interactive) {
-		HANDLE stdinh;
-  		char buf[1];
-		DWORD bread;
+	FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+	            NULL, GetLastError(), 0, tmp, sizeof(tmp) - 1, NULL);
 
-		if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE) {
-			return 0;
-		}
-	
-		/* Ignore end of line characters */
-		for (;;) {
-			if (ReadFile(stdinh, buf, 1, &bread, NULL)
-			 && bread == 1
-			 && buf[0] != '\r' && buf[0] != '\n') { 
-				return buf[0];
-			}
-		}
+	/* Remove any \n or \r .. */
+	for (s = d = tmp; *s != '\000'; s++) {
+		if (d != s)
+			*d = *s;
+		if (*d != '\n' && *d != '\r')
+			d++;
 	}
+	*d = '\000';
 
-	c = _getch();
-	return c;
+	return tmp;
 }
 
-/* Horrible hack to poll stdin when we're not interactive */
-static int th_read_char(void *pp) {
-	char *rp = (char *)pp;
-	HANDLE stdinh;
-  	char buf[1];
-	DWORD bread;
+/* Get the next console character. Return 0 if none is available. */
+/* Wait for one if wait is nz */
+/* (If not_interactive set, return next stdin character if available, but discard cr or lf) */
+static int con_char(int wait) {
 
-	if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE) {
-		return 0;
-	}
-
-	if (ReadFile(stdinh, buf, 1, &bread, NULL)
-	 && bread == 1
-	 && buf[0] != '\r' && buf[0] != '\n') { 
-		*rp = buf[0];
-	}
-
-	return 0;
-}
-
-/* If there is one, return the next character from the keyboard, else return 0 */
-/* (If not_interactive, always returns 0) */
-int poll_con_char(void) {
+//fprintf(stderr,"~1 con_char not_interactive %d wait %d\n",not_interactive,wait);
 
 	if (not_interactive) {		/* Can't assume that it's the console */
-		athread *getch_thread = NULL;
-		char c = 0;
-	
-		/* This is pretty horrible. The problem is that we can't use */
-		/* any of MSWin's async file read functions, because we */
-		/* have no way of ensuring that the STD_INPUT_HANDLE has been */
-		/* opened with FILE_FLAG_OVERLAPPED. Used a thread instead... */
-		if ((getch_thread = new_athread(th_read_char, &c)) != NULL) {
-			HANDLE stdinh;
+		HANDLE stdinh;
+		char buf[10] = { 0 };
+		DWORD bread;
+		int i, rv = 0;
 
-			if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE) {
-				return 0;
+		if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE) {
+			return 0;		
+		}
+
+		if (stdin_type == FILE_TYPE_CHAR) {
+//fprintf(stderr,"~1 wait %d console:\n",wait);
+
+			if (wait || _kbhit() != 0) {
+				for (bread = 0; bread < 10;)  {
+					int c = _getch();
+					buf[bread++] = c;
+//fprintf(stderr,"~1  read 0x%x\n" ,c);
+					if (c == '\n' || c == '\r' || c == 0x3) {
+						break;
+					}
+				}
+//fprintf(stderr,"~1  read %d: ",bread);
+//for (i = 0; i < bread; i++)
+//fprintf(stderr," 0x%x",buf[i]);
+//fprintf(stderr,"\n");
+				if (bread > 0) {
+					rv = buf[0];
+				}
 			}
 
-			Sleep(100);			/* We just hope 1 msec is enough for the thread to start */
-			CancelIo(stdinh);
-			getch_thread->del(getch_thread);
-			return c;
+		/* We assume pipe has been set to NOWAIT mode. */
+		} else if (stdin_type == FILE_TYPE_PIPE) {
+			int i, bib;
+//fprintf(stderr,"~1  top of pipe\n");
+
+			for (bib = 0; bib < 10;) {
+//fprintf(stderr,"~1  got %d in buf\n",bib);
+				if ((!ReadFile(stdinh, buf + bib, 10 - bib, &bread, NULL) || bread == 0)
+				 && !wait) {
+//fprintf(stderr,"~1  no chars waiting\n");
+					break;
+				}
+				bib += bread;
+
+				for (i = 0; i < bib; i++) {
+					if (buf[i] == '\n' || buf[i] == '\r' || buf[i] == 0x3) {
+//fprintf(stderr,"~1  found lf at ix %d\n",i);
+						break;
+					}
+				}
+				if (i < bib) {
+//fprintf(stderr,"~1  found lf\n");
+					break;		/* Found '\n' */
+				}
+				Sleep(100);		/* Wait for a line ending in '\n' */
+			}
+
+//if (bread > 0) {
+//fprintf(stderr,"~1  read %d: ",bread);
+//for (i = 0; i < bread; i++)
+//fprintf(stderr," 0x%x",buf[i]);
+//fprintf(stderr,"\n//");
+//}
+			rv = buf[0];
+
+		/* Assume a file. This will have very limited functionality. */
+		/* We assume that we can't poll for console input, but will */
+		/* read from the file on blocking calls. */
+		} else {
+			if (wait) {		/* Only attempt a read if this is blocking */
+				if (ReadFile(stdinh, buf, 10, &bread, NULL) && bread > 0)
+					rv = buf[0];
+			}
 		}
-		return 0;
+
+//fprintf(stderr,"~1 returning 0x%x\n",rv);
+		return rv;
 	}
 
-	/* Assume it's the console */
-	if (_kbhit() != 0) {
-		int c = next_con_char();
+	/* Assume it's the interactive console */
+	if (wait || _kbhit() != 0) {
+		int c = _getch();
 		return c;
 	}
 	return 0; 
 }
 
-/* Suck all characters from the keyboard */
-/* (If not_interactive, does nothing) */
+/* wait for and then return the next character from the keyboard */
+/* (If not_interactive set, wait for next stdin character but discard cr or lf) */
+int next_con_char(void) {
+	return con_char(1);
+}
+
+/* If there is one, return the next character from the keyboard, else return 0 */
+/* (If not_interactive set, return next stdin character if available, but discard cr or lf) */
+int poll_con_char(void) {
+	return con_char(0); 
+}
+
+/* If interactive, suck all characters from the keyboard */
 void empty_con_chars(void) {
 
-	if (not_interactive) {
+	if (not_interactive)		/* Don't suck all the characters from stdin */
 		return;
-	}
 
 	Sleep(50);					/* _kbhit seems to have a bug */
 	while (_kbhit()) {
@@ -200,54 +282,48 @@ void empty_con_chars(void) {
 	}
 }
 
+/* Do an fgets from stdin, taking account of possible interference from */
+/* non-interactive mode. */
+char *con_fgets(char *buf, int size) {
+
+	if (not_interactive) {
+		char *rv = NULL;
+		HANDLE stdinh;
+		int i, bib;
+//fprintf(stderr,"~1  top of pipe\n");
+
+		if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE) {
+			return NULL;		
+		}
+
+		for (bib = 0; bib < size;) {
+			DWORD bread;
+
+			if (ReadFile(stdinh, buf + bib, size - bib, &bread, NULL) && bread > 0) {
+				bib += bread;
+
+				for (i = 0; i < bib; i++) {
+					if (buf[i] == '\n' || buf[i] == '\r') {
+						break;
+					}
+				}
+				if (i < bib) {
+					buf[i] = '\000';
+					break;		/* Found '\n' */
+				}
+			}
+			Sleep(100);		/* Wait for a line ending in '\n' */
+	
+		}
+		return buf;
+	}
+
+	return fgets(buf, size, stdin);
+}
+
 /* Sleep for the given number of seconds */
 void sleep(unsigned int secs) {
 	Sleep(secs * 1000);
-}
-
-/* Sleep for the given number of msec */
-void msec_sleep(unsigned int msec) {
-	Sleep(msec);
-}
-
-/* Return the current time in msec since */
-/* the first invokation of msec_time() */
-/* (Is this based on timeGetTime() ? ) */
-unsigned int msec_time() {
-	unsigned int rv;
-	static unsigned int startup = 0;
-
-	rv =  GetTickCount();
-	if (startup == 0)
-		startup = rv;
-
-	return rv - startup;
-}
-
-/* Return the current time in usec */
-/* since the first invokation of usec_time() */
-/* Return -1.0 if not available */
-double usec_time() {
-	double rv;
-	LARGE_INTEGER val;
-	static double scale = 0.0;
-	static LARGE_INTEGER startup;
-
-	if (scale == 0.0) {
-		if (QueryPerformanceFrequency(&val) == 0)
-			return -1.0;
-		scale = 1000000.0/val.QuadPart;
-		QueryPerformanceCounter(&val);
-		startup.QuadPart = val.QuadPart;
-
-	} else {
-		QueryPerformanceCounter(&val);
-	}
-	val.QuadPart -= startup.QuadPart;
-
-	rv = val.QuadPart * scale;
-		
-	return rv;
 }
 
 static athread *beep_thread = NULL;
@@ -258,12 +334,14 @@ static int beep_msec;
 /* Delayed beep handler */
 static int delayed_beep(void *pp) {
 	msec_sleep(beep_delay);
+	a1logd(g_log,8, "msec_beep activate\n");
 	Beep(beep_freq, beep_msec);
 	return 0;
 }
 
 /* Activate the system beeper */
 void msec_beep(int delay, int freq, int msec) {
+	a1logd(g_log,8, "msec_beep %d msec\n",msec);
 	if (delay > 0) {
 		if (beep_thread != NULL)
 			beep_thread->del(beep_thread);
@@ -273,13 +351,44 @@ void msec_beep(int delay, int freq, int msec) {
 		if ((beep_thread = new_athread(delayed_beep, NULL)) == NULL)
 			a1logw(g_log, "msec_beep: Delayed beep failed to create thread\n");
 	} else {
+		a1logd(g_log,8, "msec_beep activate\n");
 		Beep(freq, msec);
 	}
 }
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-extern int acond_timedwait_imp(HANDLE cond, CRITICAL_SECTION *lock, int msec) {
+/* Hack to deal with a possibly statically initilized amutex on MSWin. */
+/* We statically initilize the CRITICAL_SECTION with a sentinel */
+/* LockCount value, and if this value is set, use an atomic */
+/* lock to do the initilization before any other operation on it. */
+/* (A more robust trick may be to declare the amutex as a pointer */
+/*  and create it if it is NULL using a InterlockedCompareExchange()) */
+int amutex_chk(CRITICAL_SECTION *lock) {
+
+	if (lock->LockCount == amutex_static_LockCount) {		/* Not initialized */
+		static volatile LONG ilock = 0;
+
+		/* Try ilock */
+//		if (InterlockedCompareExchange((LONG **)&ilock, (LONG *)1, (LONG *)0) == 0)
+		if (InterlockedCompareExchange(&ilock, (LONG)1, (LONG)0) == 0)
+		{
+			/* We locked it */
+			if (lock->LockCount == amutex_static_LockCount) {	/* Still not inited */
+				InitializeCriticalSection(lock);				/* So we init it */
+			}
+			ilock = 0;		/* We're done */
+		} else {			/* Wait for other thread to finish init */
+			while(ilock != 0) {
+				msec_sleep(1);
+			}
+		}
+	}
+	return 0;
+}
+
+
+int acond_timedwait_imp(HANDLE cond, CRITICAL_SECTION *lock, int msec) {
 	int rv;
 	LeaveCriticalSection(lock);
 	rv = WaitForSingleObject(cond, msec);
@@ -314,20 +423,96 @@ int set_normal_priority() {
 #endif /* NEVER */
 
 
-#undef USE_BEGINTHREAD
+/* If reusable, start a stopped thread. NOP if not reusable */
+static void athread_start(
+athread *p
+) {
+	DBG("athread_start called\n");
+	if (!p->reusable)
+		return;
 
-/* Wait for the thread to exit. Return the result */
-static int athread_wait(struct _athread *p) {
+	/* Signal to the thread that it should start */
+	amutex_lock(p->startm);
+	p->startv = 1;
+	acond_signal(p->startc);
+	amutex_unlock(p->startm);
+}
 
-	if (p->finished)
+/* If reusable, change the task and then start a stopped thread. NOP if not reusable */
+static void athread_start_task(
+athread *p,
+int (*function)(void *context),
+void *context
+) {
+	DBG("athread_start_task called\n");
+	if (!p->reusable)
+		return;
+
+	/* Change to this task */
+	p->function = function;
+	p->context = context;
+
+	/* Signal to the thread that it should start */
+	amutex_lock(p->startm);
+	p->startv = 1;
+	acond_signal(p->startc);
+	amutex_unlock(p->startm);
+}
+
+/* If reusable, wait for the thread to stop after starting it. */
+/* Return the result. NOP if not reusable */
+static int athread_wait_stop(
+athread *p
+) {
+	DBG("athread_wait_stop called\n");
+	if (!p->reusable)
 		return p->result;
 
-	WaitForSingleObject(p->th, INFINITE);
+	/* Wait for thread to stop */
+	amutex_lock(p->stopm);
+	while (p->stopv == 0)
+		acond_wait(p->stopc, p->stopm);
+	p->stopv = 0;
+	amutex_unlock(p->stopm);
 
 	return p->result;
 }
 
-/* Destroy the thread */
+/* Wait for the thread to exit. Return the result */
+static int athread_wait(struct _athread *p) {
+
+	if (p->reusable) {
+		p->dofinish = 1;
+		athread_start(p);	/* Wake thread up to cause it to exit */
+	}
+
+	if (p->joined)
+		return p->result;
+
+	WaitForSingleObject(p->th, INFINITE);
+	p->joined = 1;
+
+	return p->result;
+}
+
+/* Forcefully terminate the thread */
+static void athread_terminate(
+athread *p
+) {
+	DBG("athread_terminate called\n");
+
+	if (p == NULL || p->joined)
+		return;
+
+	if (p->th != NULL) {
+		DBG("athread_del calling TerminateThread()\n");
+		TerminateThread(p->th, (DWORD)-1);
+//		WaitForSingleObject(p->th, INFINITE);	// Don't join in case it doesn't terminate	
+	}
+	p->joined = 1;		/* Skip any join afterwards */
+}
+
+/* Free the thread */
 static void athread_del(
 athread *p
 ) {
@@ -337,21 +522,29 @@ athread *p
 		return;
 
 	if (p->th != NULL) {
-		if (!p->finished) {
-			DBG("athread_del calling TerminateThread() because thread hasn't finished\n");
-			TerminateThread(p->th, (DWORD)-1);		/* But it is worse to leave it hanging around */
+		if (p->reusable && !p->joined && !p->dofinish) {
+			p->dofinish = 1;
+			athread_start(p);	/* Wake thread up to cause it to exit */
 		}
+		if (!p->joined)
+			WaitForSingleObject(p->th, INFINITE);
 		CloseHandle(p->th);
+	}
+
+	if (p->reusable) {
+		acond_del(p->startc);
+		amutex_del(p->startm);
+		acond_del(p->stopc);
+		amutex_del(p->stopm);
 	}
 
 	free(p);
 }
 
-/* _beginthread doesn't leak memory, but */
-/* needs to be linked to a different library */
+/* _beginthreadex inits the CRT properly, wheras CreateThread doesn't on VC++6 */ 
 #ifdef USE_BEGINTHREAD
 /* Thread function */
-static void __cdecl threadproc(
+static unsigned int __stdcall threadproc(
 	void *lpParameter
 ) {
 #else
@@ -361,18 +554,42 @@ DWORD WINAPI threadproc(
 #endif
 	athread *p = (athread *)lpParameter;
 
-	p->result = p->function(p->context);
-	p->finished = 1;
-#ifdef USE_BEGINTHREAD
-#else
+	if (p->reusable) {		/* Run over and over */
+		for (;;) {
+
+			/* Wait for client to start us */
+			amutex_lock(p->startm);
+			while (p->startv == 0)
+				acond_wait(p->startc, p->startm);
+			p->startv = 0;
+			amutex_unlock(p->startm);
+
+			if (p->dofinish)
+				break;
+
+			p->result = p->function(p->context);
+
+			if (p->dofinish)
+				break;
+
+			/* Signal to the client that we've stopped */
+			amutex_lock(p->stopm);
+			p->stopv = 1;
+			acond_signal(p->stopc);
+			amutex_unlock(p->stopm);
+		}
+
+	} else {
+		p->result = p->function(p->context);
+	}
+//	p->finished = 1;
 	return 0;
-#endif
 }
  
-
-athread *new_athread(
+athread *new_athread_reusable(
 	int (*function)(void *context),
-	void *context
+	void *context,
+	int reusable
 ) {
 	athread *p = NULL;
 
@@ -383,22 +600,37 @@ athread *new_athread(
 		return NULL;
 	}
 
+	p->reusable = reusable;
+	if (p->reusable) {
+		amutex_init(p->startm);
+		p->startv = 0;
+		acond_init(p->startc);
+
+		amutex_init(p->stopm);
+		p->stopv = 0;
+		acond_init(p->stopc);
+	}
+
 	p->function = function;
 	p->context = context;
+	p->start = athread_start;
+	p->start_task = athread_start_task;
+	p->wait_stop = athread_wait_stop;
 	p->wait = athread_wait;
+	p->terminate = athread_terminate;
 	p->del = athread_del;
 
 	/* Create a thread */
 #ifdef USE_BEGINTHREAD
-	p->th = _beginthread(threadproc, 0, (void *)p);
-	if (p->th == -1) {
+	p->th = (HANDLE)_beginthreadex(NULL, 0, threadproc, (void *)p, 0, NULL);
+	if (p->th == (HANDLE)-1L) {
 #else
 	p->th = CreateThread(NULL, 0, threadproc, (void *)p, 0, NULL);
 	if (p->th == NULL) {
 #endif
 		a1loge(g_log, 1, "new_athread: CreateThread failed with %d\n",GetLastError());
 		p->th = NULL;
-		athread_del(p);
+		athread_del(p);		/* Cleanup any resources */
 		return NULL;
 	}
 
@@ -407,6 +639,13 @@ athread *new_athread(
 }
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+
+/* Return the login $HOME directory. */
+/* (Useful if we might be running sudo) */
+/* No NT equivalent ?? */
+char *login_HOME() {
+	return getenv("HOME");
+}
 
 /* Delete a file */
 void delete_file(char *fname) {
@@ -440,7 +679,58 @@ int create_parent_directories(char *path) {
 	return 0;
 }
 
+/* return the number of processors */
+int system_processors() {
+	SYSTEM_INFO sysinfo;
+	GetSystemInfo(&sysinfo);
+	return sysinfo.dwNumberOfProcessors;
+}
+
 #endif /* NT */
+
+/* Do a string copy while replacing all '\' characters with '/' */
+void copynorm_dirsep(char *d, char *s) { 
+#ifdef NT
+	for (;;) {
+		*d = *s;
+		if (*s == '\000')
+			break;
+		if (*d == '\\')
+			*d = '/';
+		s++;
+		d++;
+	}
+#endif
+}
+
+/* Allocate and create a path to the given filename that is */
+/* in the same directory as the given file. */
+/* Returns normalized separator '/' path. */
+/* Free after use */
+/* Return NULL on malloc error */
+char *path_to_file_in_same_dir(char *inpath, char *infile) {
+	size_t alen = 0;
+	char *rv = NULL, *cp;
+
+	/* Be very conservative */
+	alen = strlen(inpath) + strlen(infile) + 1;
+
+	if ((rv = malloc(alen)) == NULL) {
+		return NULL;
+	}
+
+	copynorm_dirsep(rv, inpath);
+	
+	/* Locate the base filename in path */
+	if ((cp = strrchr(rv, '/')) == NULL) {
+		strcpy(rv, infile);
+	} else {
+		cp++;
+		strcpy(cp, infile);
+	}
+
+	return rv;
+}
 
 
 /* ============================================================= */
@@ -450,14 +740,14 @@ int create_parent_directories(char *path) {
 #if defined(UNIX)
 
 /* Wait for and return the next character from the keyboard */
-/* (If not_interactive, return getchar()) */
+/* (If not_interactive set, wait for next stdin character but discard cr or lf) */
 int next_con_char(void) {
 	struct pollfd pa[1];		/* Poll array to monitor stdin */
 	struct termios origs, news;
 	char rv = 0;
 
+	/* Configure stdin to be ready with just one character if interactive */
 	if (!not_interactive) {
-		/* Configure stdin to be ready with just one character */
 		if (tcgetattr(STDIN_FILENO, &origs) < 0)
 			a1logw(g_log, "next_con_char: tcgetattr failed with '%s' on stdin", strerror(errno));
 		news = origs;
@@ -468,25 +758,24 @@ int next_con_char(void) {
 			a1logw(g_log, "next_con_char: tcsetattr failed with '%s' on stdin", strerror(errno));
 	}
 
-	/* Wait for stdin to have a character */
+	/* Wait for stdin to have at least one character. */
+	/* If not_interactive set then it may be a character followed by cr and/or lf to flush it */
 	pa[0].fd = STDIN_FILENO;
 	pa[0].events = POLLIN | POLLPRI;
 	pa[0].revents = 0;
 
-	if (poll_x(pa, 1, -1) > 0
+	if (poll_x(pa, 1, -1) > 0					/* wait until there is something */
 	 && (pa[0].revents == POLLIN
-		 || pa[0].revents == POLLPRI)) {
-		char tb[3];
-		if (read(STDIN_FILENO, tb, 1) > 0) {	/* User hit a key */
-			rv = tb[0] ;
+		 || pa[0].revents == POLLPRI)) {		/* Something there */
+		char tb[10];
+		if (read(STDIN_FILENO, tb, 3) > 0) {	/* get it and any return */
+			rv = tb[0];
 		}
 	} else {
-		if (!not_interactive)
-			tcsetattr(STDIN_FILENO, TCSANOW, &origs);
 		a1logw(g_log, "next_con_char: poll on stdin returned unexpected value 0x%x",pa[0].revents);
 	}
 
-	/* Restore stdin */
+	/* Restore stdin if interactive */
 	if (!not_interactive && tcsetattr(STDIN_FILENO, TCSANOW, &origs) < 0) {
 		a1logw(g_log, "next_con_char: tcsetattr failed with '%s' on stdin", strerror(errno));
 	}
@@ -495,14 +784,14 @@ int next_con_char(void) {
 }
 
 /* If here is one, return the next character from the keyboard, else return 0 */
-/* (If not_interactive, always returns 0) */
+/* (If not_interactive set, return next stdin character if available, but discard cr or lf) */
 int poll_con_char(void) {
 	struct pollfd pa[1];		/* Poll array to monitor stdin */
 	struct termios origs, news;
 	char rv = 0;
 
+	/* Configure stdin to be ready with just one character if interactive */
 	if (!not_interactive) {
-		/* Configure stdin to be ready with just one character */
 		if (tcgetattr(STDIN_FILENO, &origs) < 0)
 			a1logw(g_log, "poll_con_char: tcgetattr failed with '%s' on stdin", strerror(errno));
 		news = origs;
@@ -513,153 +802,42 @@ int poll_con_char(void) {
 			a1logw(g_log, "poll_con_char: tcsetattr failed with '%s' on stdin", strerror(errno));
 	}
 
-	/* Wait for stdin to have a character */
+	/* See if stdin has a character */
+	/* If not_interactive set then it may be a character followed by cr and/or lf to flush it */
 	pa[0].fd = STDIN_FILENO;
 	pa[0].events = POLLIN | POLLPRI;
 	pa[0].revents = 0;
 
-	if (poll_x(pa, 1, 0) > 0
+	if (poll_x(pa, 1, 0) > 0					/* don't wait if there is nothing */
 	 && (pa[0].revents == POLLIN
-		 || pa[0].revents == POLLPRI)) {
-		char tb[3];
-		if (read(STDIN_FILENO, tb, 1) > 0) {	/* User hit a key */
-			rv = tb[0] ;
+		 || pa[0].revents == POLLPRI)) {		/* Something is there */
+		char tb[10];
+		if (read(STDIN_FILENO, tb, 3) > 0) {	/* Get it and any return */
+			rv = tb[0];
 		}
 	}
 
-	/* Restore stdin */
+	/* Restore stdin if interactive */
 	if (!not_interactive && tcsetattr(STDIN_FILENO, TCSANOW, &origs) < 0)
 		a1logw(g_log, "poll_con_char: tcsetattr failed with '%s' on stdin", strerror(errno));
 
 	return rv;
 }
 
-/* Suck all characters from the keyboard */
-/* (If not_interactive, does nothing) */
+/* Discard all pending characters from stdin */
 void empty_con_chars(void) {
-	if (not_interactive)
+
+	if (not_interactive)		/* Don't suck all the characters from stdin */
 		return;
 
 	tcflush(STDIN_FILENO, TCIFLUSH);
 }
 
-/* Sleep for the given number of msec */
-void msec_sleep(unsigned int msec) {
-#ifdef NEVER
-	if (msec > 1000) {
-		unsigned int secs;
-		secs = msec / 1000;
-		msec = msec % 1000;
-		sleep(secs);
-	}
-	usleep(msec * 1000);
-#else
-	struct timespec ts;
-
-	ts.tv_sec = msec / 1000;
-	ts.tv_nsec = (msec % 1000) * 1000000;
-	nanosleep(&ts, NULL);
-#endif
+/* Do an fgets from stdin, taking account of possible interference from */
+/* non-Interactive mode. */
+char *con_fgets(char *s, int size) {
+	return fgets(s, size, stdin);
 }
-
-
-#if defined(__APPLE__) && !defined(CLOCK_MONOTONIC)
-
-#include <mach/mach_time.h>
-
-unsigned int msec_time() {
-    mach_timebase_info_data_t timebase;
-    static uint64_t startup = 0;
-    uint64_t time;
-	double msec;
-
-    time = mach_absolute_time();
-	if (startup == 0)
-		startup = time;
-
-    mach_timebase_info(&timebase);
-	time -= startup;
-    msec = ((double)time * (double)timebase.numer)/((double)timebase.denom * 1e6);
-
-    return (unsigned int)floor(msec + 0.5);
-}
-
-/* Return the current time in usec */
-/* since the first invokation of usec_time() */
-double usec_time() {
-    mach_timebase_info_data_t timebase;
-    static uint64_t startup = 0;
-    uint64_t time;
-	double usec;
-
-    time = mach_absolute_time();
-	if (startup == 0)
-		startup = time;
-
-    mach_timebase_info(&timebase);
-	time -= startup;
-    usec = ((double)time * (double)timebase.numer)/((double)timebase.denom * 1e3);
-
-    return usec;
-}
-
-#else
-
-/* Return the current time in msec */
-/* since the first invokation of msec_time() */
-unsigned int msec_time() {
-	unsigned int rv;
-	static struct timespec startup = { 0, 0 };
-	struct timespec cv;
-
-	clock_gettime(CLOCK_MONOTONIC, &cv);
-
-	/* Set time to 0 on first invocation */
-	if (startup.tv_sec == 0 && startup.tv_nsec == 0)
-		startup = cv;
-
-	/* Subtract, taking care of carry */
-	cv.tv_sec -= startup.tv_sec;
-	if (startup.tv_nsec > cv.tv_nsec) {
-		cv.tv_sec--;
-		cv.tv_nsec += 1000000000;
-	}
-	cv.tv_nsec -= startup.tv_nsec;
-
-	/* Convert nsec to msec */
-	rv = cv.tv_sec * 1000 + cv.tv_nsec / 1000000;
-
-	return rv;
-}
-
-/* Return the current time in usec */
-/* since the first invokation of usec_time() */
-double usec_time() {
-	double rv;
-	static struct timespec startup = { 0, 0 };
-	struct timespec cv;
-
-	clock_gettime(CLOCK_MONOTONIC, &cv);
-
-	/* Set time to 0 on first invocation */
-	if (startup.tv_sec == 0 && startup.tv_nsec == 0)
-		startup = cv;
-
-	/* Subtract, taking care of carry */
-	cv.tv_sec -= startup.tv_sec;
-	if (startup.tv_nsec > cv.tv_nsec) {
-		cv.tv_sec--;
-		cv.tv_nsec += 1000000000;
-	}
-	cv.tv_nsec -= startup.tv_nsec;
-
-	/* Convert to usec */
-	rv = cv.tv_sec * 1000000.0 + cv.tv_nsec/1000;
-
-	return rv;
-}
-
-#endif
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - */
 
@@ -688,7 +866,7 @@ int acond_timedwait_imp(pthread_cond_t *cond, pthread_mutex_t *lock, int msec) {
 
 /* Set the current threads priority */
 int set_interactive_priority() {
-#ifdef __APPLE__
+#ifdef UNIX_APPLE
 #ifdef NEVER
     int rv = 0;
     struct task_category_policy tcatpolicy;
@@ -714,7 +892,7 @@ int set_interactive_priority() {
 //		a1logd(g_log, 8, "set_interactive_priority: set to important got %d\n",rv);
 	return rv;
 #endif /* NEVER */
-#else /* !APPLE */
+#else /* !UNIX_APPLE */
 	int rv;
 	struct sched_param param;
 	param.sched_priority = 32;
@@ -723,11 +901,11 @@ int set_interactive_priority() {
 	rv = pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
 //		a1logd(g_log, 8, "set_interactive_priority: set got %d\n",rv);
 	return rv;
-#endif /* !APPLE */
+#endif /* !UNIX_APPLE */
 }
 
 int set_normal_priority() {
-#ifdef __APPLE__
+#ifdef UNIX_APPLE
 #ifdef NEVER
     int rv = 0;
     struct task_category_policy tcatpolicy;
@@ -752,7 +930,7 @@ int set_normal_priority() {
 //		a1logd(g_log, 8, "set_normal_priority: set to standard got %d\n",rv);
 	return rv;
 #endif /* NEVER */
-#else /* !APPLE */
+#else /* !UNIX_APPLE */
 	struct sched_param param;
 	param.sched_priority = 0;
 	int rv;
@@ -760,7 +938,7 @@ int set_normal_priority() {
 	rv = pthread_setschedparam(pthread_self(), SCHED_OTHER, &param);
 //		a1logd(g_log, 8, "set_normal_priority: reset got %d\n",rv);
 	return rv;
-#endif /* !APPLE */
+#endif /* !UNIX_APPLE */
 }
 
 #endif /* NEVER */
@@ -774,14 +952,18 @@ static int beep_msec;
 /* Delayed beep handler */
 static int delayed_beep(void *pp) {
 	msec_sleep(beep_delay);
-#ifdef __APPLE__
-# if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1050
+	a1logd(g_log,8, "msec_beep activate\n");
+#ifdef UNIX_APPLE
+# if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
 	AudioServicesPlayAlertSound(kUserPreferredAlert);
 # else
 	SysBeep((beep_msec * 60)/1000);
 # endif
 #else	/* UNIX */
 	/* Linux is pretty lame in this regard... */
+	/* Maybe we could write an 8Khz 8 bit sample to /dev/dsp, or /dev/audio ? */
+	/* The ALSA system is the modern way for audio output. */
+	/* Also check out what sox does: <http://sox.sourceforge.net/> */
 	fprintf(stdout, "\a"); fflush(stdout);
 #endif 
 	return 0;
@@ -789,6 +971,7 @@ static int delayed_beep(void *pp) {
 
 /* Activate the system beeper */
 void msec_beep(int delay, int freq, int msec) {
+	a1logd(g_log,8, "msec_beep %d msec\n",msec);
 	if (delay > 0) {
 		if (beep_thread != NULL)
 			beep_thread->del(beep_thread);
@@ -798,8 +981,9 @@ void msec_beep(int delay, int freq, int msec) {
 		if ((beep_thread = new_athread(delayed_beep, NULL)) == NULL)
 			a1logw(g_log, "msec_beep: Delayed beep failed to create thread\n");
 	} else {
-#ifdef __APPLE__
-# if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1050
+		a1logd(g_log,8, "msec_beep activate\n");
+#ifdef UNIX_APPLE
+# if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
 			AudioServicesPlayAlertSound(kUserPreferredAlert);
 # else
 			SysBeep((msec * 60)/1000);
@@ -856,18 +1040,100 @@ XBell(..);
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - */
 
-/* Wait for the thread to exit. Return the result */
-static int athread_wait(struct _athread *p) {
+// ~~~ !!!! a lot of this is duplicated in the MSWIN code !!!!
+// !!! Should consolidate to reduce maintanence ?? !!!!
 
-	if (p->finished)
+/* If reusable, start a stopped thread. NOP if not reusable */
+static void athread_start(
+athread *p
+) {
+	DBG("athread_start called\n");
+	if (!p->reusable)
+		return;
+
+	/* Signal to the thread that it should start */
+	amutex_lock(p->startm);
+	p->startv = 1;
+	acond_signal(p->startc);
+	amutex_unlock(p->startm);
+}
+
+/* If reusable, change the task and then start a stopped thread. NOP if not reusable */
+static void athread_start_task(
+athread *p,
+int (*function)(void *context),
+void *context
+) {
+	DBG("athread_start_task called\n");
+	if (!p->reusable)
+		return;
+
+	/* Change to this task */
+	p->function = function;
+	p->context = context;
+
+	/* Signal to the thread that it should start */
+	amutex_lock(p->startm);
+	p->startv = 1;
+	acond_signal(p->startc);
+	amutex_unlock(p->startm);
+}
+
+/* If reusable, wait for the thread to stop. Return the result. NOP if not reusable */
+static int athread_wait_stop(
+athread *p
+) {
+	DBG("athread_wait_stop called\n");
+	if (!p->reusable)
 		return p->result;
 
-	pthread_join(p->thid, NULL);
+	/* Wait for thread to stop */
+	amutex_lock(p->stopm);
+	while (p->stopv == 0)
+		acond_wait(p->stopc, p->stopm);
+	p->stopv = 0;
+	amutex_unlock(p->stopm);
 
 	return p->result;
 }
 
-/* Destroy the thread */
+/* Wait for the thread to exit. Return the result */
+static int athread_wait(struct _athread *p) {
+	int rv;
+
+	if (p->reusable) {
+		p->dofinish = 1;
+		athread_start(p);	/* Wake thread up to cause it to exit */
+	}
+
+	if (p->joined)
+		return p->result;
+
+    if ((rv = pthread_join(p->thid, NULL)) != 0) 
+		warning("pthread_join of thid %d failed with %d",p->thid,rv);
+	p->joined = 1;
+
+	return p->result;
+}
+
+/* Forcefully terminate the thread */
+static void athread_terminate(
+athread *p
+) {
+	DBG("athread_terminate called\n");
+
+	if (p == NULL || p->joined)
+		return;
+
+	if (p->thid != (pthread_t)0) {
+		DBG("athread_terminate calling pthread_cancel()\n");
+		pthread_cancel(p->thid);
+//	    pthread_join(p->thid, NULL);	// Don't join in case it doesn't terminate
+	}
+	p->joined = 1;		/* Skip any join afterwards */
+}
+
+/* Free up thread resources */
 static void athread_del(
 athread *p
 ) {
@@ -876,10 +1142,25 @@ athread *p
 	if (p == NULL)
 		return;
 
-	if (!p->finished) {
-		pthread_cancel(p->thid);
+	if (p->thid != 0) {
+		if (p->reusable && !p->joined && !p->dofinish) {
+			p->dofinish = 1;
+			athread_start(p);	/* Wake thread up to cause it to exit */
+		}
+		if (!p->joined) {
+			int rv;
+		    if ((rv = pthread_join(p->thid, NULL)) != 0) 
+				warning("pthread_join of thid %d failed with %d",p->thid,rv);
+		}
 	}
-	pthread_join(p->thid, NULL);
+
+	if (p->reusable) {
+		acond_del(p->startc);
+		amutex_del(p->startm);
+		acond_del(p->stopc);
+		amutex_del(p->stopm);
+	}
+
 	free(p);
 }
 
@@ -889,20 +1170,46 @@ static void *threadproc(
 	athread *p = (athread *)param;
 
 	/* Register this thread with the Objective-C garbage collector */
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
+	/* (Still needed even though marked deprecated ??) */
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1060 && MAC_OS_X_VERSION_MIN_REQUIRED < 101200
 	 objc_registerThreadWithCollector();
 #endif
 
-	p->result = p->function(p->context);
-	p->finished = 1;
+	if (p->reusable) {		/* Run over and over */
+		for (;;) {
+
+			/* Wait for client to start us */
+			amutex_lock(p->startm);
+			while (p->startv == 0)
+				acond_wait(p->startc, p->startm);
+			p->startv = 0;
+			amutex_unlock(p->startm);
+
+			if (p->dofinish)		/* If we've been woken up so we can exit */
+				break;
+
+			p->result = p->function(p->context);
+
+			/* Signal to the client that we've stopped */
+			amutex_lock(p->stopm);
+			p->stopv = 1;
+			acond_signal(p->stopc);
+			amutex_unlock(p->stopm);
+		}
+
+	} else {
+		p->result = p->function(p->context);
+	}
+//	p->finished = 1;
 
 	return 0;
 }
  
 
-athread *new_athread(
+athread *new_athread_reusable(
 	int (*function)(void *context),
-	void *context
+	void *context,
+	int reusable
 ) {
 	int rv;
 	athread *p = NULL;
@@ -914,24 +1221,84 @@ athread *new_athread(
 		return NULL;
 	}
 
+	p->reusable = reusable;
+	if (p->reusable) {
+		amutex_init(p->startm);
+		p->startv = 0;
+		acond_init(p->startc);
+
+		amutex_init(p->stopm);
+		p->stopv = 0;
+		acond_init(p->stopc);
+	}
+
 	p->function = function;
 	p->context = context;
+	p->start = athread_start;
+	p->start_task = athread_start_task;
+	p->wait_stop = athread_wait_stop;
 	p->wait = athread_wait;
 	p->del = athread_del;
+
+#if defined(UNIX_APPLE)
+	{
+		pthread_attr_t stackSzAtrbt;
+
+		/* Default stack size is 512K - this is a bit small - raise it to 4MB */
+		if ((rv = pthread_attr_init(&stackSzAtrbt)) != 0
+		 || (rv = pthread_attr_setstacksize(&stackSzAtrbt, 4 * 1024 * 1024)) != 0) {
+			fprintf(stderr,"new_athread: thread_attr_setstacksize failed with %d\n",rv);
+			return NULL;
+		}
+
+		/* Create a thread */
+		rv = pthread_create(&p->thid, &stackSzAtrbt, threadproc, (void *)p);
+		if (rv != 0) {
+			a1loge(g_log, 1, "new_athread: pthread_create failed with %d\n",rv);
+			athread_del(p);
+			return NULL;
+		}
+	}
+#else	/* !APPLE */
 
 	/* Create a thread */
 	rv = pthread_create(&p->thid, NULL, threadproc, (void *)p);
 	if (rv != 0) {
 		a1loge(g_log, 1, "new_athread: pthread_create failed with %d\n",rv);
+		p->thid = 0;
 		athread_del(p);
 		return NULL;
 	}
+#endif /* !APPLE */
 
 	DBG("About to exit new_athread()\n");
 	return p;
 }
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - */
+
+/* Return the login $HOME directory. */
+/* (Useful if we might be running sudo) */
+char *login_HOME() {
+
+	if (getuid() == 0) {	/* If we are running as root */
+		char *uids;
+
+		if ((uids = getenv("SUDO_UID")) != NULL) {		/* And we sudo's to get it */
+			int uid;
+			struct passwd *pwd;
+
+			uid = atoi(uids);
+
+			if ((pwd = getpwuid(uid)) != NULL) {
+				return pwd->pw_dir;
+			}
+		}
+	}
+
+	return getenv("HOME");
+}
+
 
 /* Delete a file */
 void delete_file(char *fname) {
@@ -963,16 +1330,48 @@ int create_parent_directories(char *path) {
 	return 0;
 }
 
+#if !defined(UNIX_APPLE) || MAC_OS_X_VERSION_MIN_REQUIRED > 1040
+
+/* return the number of processors */
+int system_processors() {
+	return sysconf(_SC_NPROCESSORS_ONLN);
+}
+
+#else	/* OS X <= 10.4 code */
+
+/* return the number of processors using BSD code */
+int system_processors() {
+	int mib[4];
+	int numCPU;
+	size_t len = sizeof(numCPU); 
+
+	mib[0] = CTL_HW;
+	mib[1] = HW_AVAILCPU; 
+
+	sysctl(mib, 2, &numCPU, &len, NULL, 0);
+
+	if (numCPU < 1) {
+	    mib[1] = HW_NCPU;
+		sysctl(mib, 2, &numCPU, &len, NULL, 0);
+		if (numCPU < 1)
+			numCPU = 1;
+	}
+
+	return numCPU;
+}
+
+#endif
+
 #endif /* defined(UNIX) */
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - */
-#if defined(__APPLE__) || defined(NT)
+#if defined(UNIX_APPLE) || defined(NT)
 
 /* Thread to monitor and kill the named processes */
 static int th_kkill_nprocess(void *pp) {
 	kkill_nproc_ctx *ctx = (kkill_nproc_ctx *)pp;
 
-	/* set result to 0 if it ever suceeds or there was no such process */
+	/* set result to 0 if it ever succeeds or there was no such process */
 	ctx->th->result = -1;
 	while(ctx->stop == 0) {
 		if (kill_nprocess(ctx->pname, ctx->log) >= 0)
@@ -1095,7 +1494,7 @@ int kill_nprocess(char **pname, a1log *log) {
 
 #endif /* NT */
 
-#if defined(__APPLE__)
+#if defined(UNIX_APPLE)
 
 /* Kill a list of named process. */
 /* Kill the first process found, then return */
@@ -1174,439 +1573,91 @@ int kill_nprocess(char **pname, a1log *log) {
 	return rv;
 }
 
-#endif /* __APPLE__ */
+#endif /* UNIX_APPLE */
 
-#endif /* __APPLE__ || NT */
+#endif /* UNIX_APPLE || NT */
 
-/* ============================================================= */
+/* ===================================================================== */
+/* Some web support */
 
-/* A very small subset of icclib, copied to here. */
-/* This is just enough to support the standalone instruments */
-#ifdef SALONEINSTLIB
-
-sa_XYZNumber sa_D50 = {
-    0.9642, 1.0000, 0.8249
-};
-
-sa_XYZNumber sa_D65 = {
-    0.9505, 1.0000, 1.0890
-};
-
-void sa_SetUnity3x3(double mat[3][3]) {
-	int i, j;
-	for (j = 0; j < 3; j++) {
-		for (i = 0; i < 3; i++) {
-			if (i == j)
-				mat[j][i] = 1.0;
-			else
-				mat[j][i] = 0.0;
-		}
-	}
-	
-}
-
-void sa_Cpy3x3(double dst[3][3], double src[3][3]) {
-	int i, j;
-
-	for (j = 0; j < 3; j++) {
-		for (i = 0; i < 3; i++)
-			dst[j][i] = src[j][i];
-	}
-}
-
-void sa_MulBy3x3(double out[3], double mat[3][3], double in[3]) {
-	double tt[3];
-
-	tt[0] = mat[0][0] * in[0] + mat[0][1] * in[1] + mat[0][2] * in[2];
-	tt[1] = mat[1][0] * in[0] + mat[1][1] * in[1] + mat[1][2] * in[2];
-	tt[2] = mat[2][0] * in[0] + mat[2][1] * in[1] + mat[2][2] * in[2];
-
-	out[0] = tt[0];
-	out[1] = tt[1];
-	out[2] = tt[2];
-}
-
-void sa_Mul3x3_2(double dst[3][3], double src1[3][3], double src2[3][3]) {
-	int i, j, k;
-	double td[3][3];		/* Temporary dest */
-
-	for (j = 0; j < 3; j++) {
-		for (i = 0; i < 3; i++) {
-			double tt = 0.0;
-			for (k = 0; k < 3; k++)
-				tt += src1[j][k] * src2[k][i];
-			td[j][i] = tt;
-		}
-	}
-
-	/* Copy result out */
-	for (j = 0; j < 3; j++)
-		for (i = 0; i < 3; i++)
-			dst[j][i] = td[j][i];
-}
-
-
-/* Matrix Inversion by Richard Carling from "Graphics Gems", Academic Press, 1990 */
-#define det2x2(a, b, c, d) (a * d - b * c)
-
-static void adjoint(
-double out[3][3],
-double in[3][3]
-) {
-    double a1, a2, a3, b1, b2, b3, c1, c2, c3;
-
-    /* assign to individual variable names to aid  */
-    /* selecting correct values  */
-
-	a1 = in[0][0]; b1 = in[0][1]; c1 = in[0][2];
-	a2 = in[1][0]; b2 = in[1][1]; c2 = in[1][2];
-	a3 = in[2][0]; b3 = in[2][1]; c3 = in[2][2];
-
-    /* row column labeling reversed since we transpose rows & columns */
-
-    out[0][0]  =   det2x2(b2, b3, c2, c3);
-    out[1][0]  = - det2x2(a2, a3, c2, c3);
-    out[2][0]  =   det2x2(a2, a3, b2, b3);
-        
-    out[0][1]  = - det2x2(b1, b3, c1, c3);
-    out[1][1]  =   det2x2(a1, a3, c1, c3);
-    out[2][1]  = - det2x2(a1, a3, b1, b3);
-        
-    out[0][2]  =   det2x2(b1, b2, c1, c2);
-    out[1][2]  = - det2x2(a1, a2, c1, c2);
-    out[2][2]  =   det2x2(a1, a2, b1, b2);
-}
-
-static double sa_Det3x3(double in[3][3]) {
-    double a1, a2, a3, b1, b2, b3, c1, c2, c3;
-    double ans;
-
-	a1 = in[0][0]; b1 = in[0][1]; c1 = in[0][2];
-	a2 = in[1][0]; b2 = in[1][1]; c2 = in[1][2];
-	a3 = in[2][0]; b3 = in[2][1]; c3 = in[2][2];
-
-    ans = a1 * det2x2(b2, b3, c2, c3)
-        - b1 * det2x2(a2, a3, c2, c3)
-        + c1 * det2x2(a2, a3, b2, b3);
-    return ans;
-}
-
-#define SA__SMALL_NUMBER	1.e-8
-
-int sa_Inverse3x3(double out[3][3], double in[3][3]) {
-    int i, j;
-    double det;
-
-    /*  calculate the 3x3 determinant
-     *  if the determinant is zero, 
-     *  then the inverse matrix is not unique.
-     */
-    det = sa_Det3x3(in);
-
-    if ( fabs(det) < SA__SMALL_NUMBER)
-        return 1;
-
-    /* calculate the adjoint matrix */
-    adjoint(out, in);
-
-    /* scale the adjoint matrix to get the inverse */
-    for (i = 0; i < 3; i++)
-        for(j = 0; j < 3; j++)
-		    out[i][j] /= det;
-	return 0;
-}
-
-#undef SA__SMALL_NUMBER	
-#undef det2x2
-
-/* - - - - - - - - - - - - - - - - - - - - - - - - */
-/* Transpose a 3x3 matrix */
-void sa_Transpose3x3(double out[3][3], double in[3][3]) {
-	int i, j;
-	if (out != in) {
-		for (i = 0; i < 3; i++)
-			for (j = 0; j < 3; j++)
-				out[i][j] = in[j][i];
-	} else {
-		double tt[3][3];
-		for (i = 0; i < 3; i++)
-			for (j = 0; j < 3; j++)
-				tt[i][j] = in[j][i];
-		for (i = 0; i < 3; i++)
-			for (j = 0; j < 3; j++)
-				out[i][j] = tt[i][j];
-	}
-}
-
-/* Scale a 3 vector by the given ratio */
-void sa_Scale3(double out[3], double in[3], double rat) {
-	out[0] = in[0] * rat;
-	out[1] = in[1] * rat;
-	out[2] = in[2] * rat;
-}
-
-/* Clamp a 3 vector to be +ve */
-void sa_Clamp3(double out[3], double in[3]) {
-	int i;
-	for (i = 0; i < 3; i++)
-		out[i] = in[i] < 0.0 ? 0.0 : in[i];
-}
-
-/* Return the normal Delta E given two Lab values */
-double sa_LabDE(double *Lab0, double *Lab1) {
-	double rv = 0.0, tt;
-
-	tt = Lab0[0] - Lab1[0];
-	rv += tt * tt;
-	tt = Lab0[1] - Lab1[1];
-	rv += tt * tt;
-	tt = Lab0[2] - Lab1[2];
-	rv += tt * tt;
-
-	return sqrt(rv);
-}
-
-/* CIE XYZ to perceptual CIE 1976 L*a*b* */
-void
-sa_XYZ2Lab(icmXYZNumber *w, double *out, double *in) {
-	double X = in[0], Y = in[1], Z = in[2];
-	double x,y,z,fx,fy,fz;
-
-	x = X/w->X;
-	y = Y/w->Y;
-	z = Z/w->Z;
-
-	if (x > 0.008856451586)
-		fx = pow(x,1.0/3.0);
+static char nib2hex(int nib) {
+	nib &= 0xf;
+	if (nib < 10)
+		return '0' + nib;
 	else
-		fx = 7.787036979 * x + 16.0/116.0;
-
-	if (y > 0.008856451586)
-		fy = pow(y,1.0/3.0);
-	else
-		fy = 7.787036979 * y + 16.0/116.0;
-
-	if (z > 0.008856451586)
-		fz = pow(z,1.0/3.0);
-	else
-		fz = 7.787036979 * z + 16.0/116.0;
-
-	out[0] = 116.0 * fy - 16.0;
-	out[1] = 500.0 * (fx - fy);
-	out[2] = 200.0 * (fy - fz);
+		return 'A' + nib - 10;
 }
 
-/* - - - - - - - - - - - - - - - - - - - - - - - - */
-/* A sub-set of ludecomp code from numlib          */
+/* Destination should be strlen(s) * 3 + 1 */
+void encodeurl(char *d, char *s) {
+	char *dd = d;
+	DBGF((DBGA," encodeurl s = '%s'\n",s));
+	for (; *s != '\000'; s++) {
+		char c = *s; 
 
-int sa_lu_decomp(double **a, int n, int *pivx, double *rip) {
-	int    i, j;
-	double *rscale, RSCALE[10];		
-
-	if (n <= 10)
-		rscale = RSCALE;
-	else
-		rscale = dvector(0, n-1);
-
-	for (i = 0; i < n; i++) {
-		double big;
-		for (big = 0.0, j=0; j < n; j++) {
-			double temp;
-			temp = fabs(a[i][j]);
-			if (temp > big)
-				big = temp;
-		}
-		if (fabs(big) <= DBL_MIN) {
-			if (rscale != RSCALE)
-				free_dvector(rscale, 0, n-1);
-			return 1;		
-		}
-		rscale[i] = 1.0/big;	
-	}
-
-	for (*rip = 1.0, j = 0; j < n; j++) {
-		double big;
-		int k, bigi = 0;
-
-		for (i = 0; i < j; i++) {
-			double sum;
-			sum = a[i][j];
-			for (k = 0; k < i; k++)
-				sum -= a[i][k] * a[k][j];
-			a[i][j] = sum;
-		}
-
-		for (big = 0.0, i = j; i < n; i++) {
-			double sum, temp;
-			sum = a[i][j];
-			for (k = 0; k < j; k++)
-				sum -= a[i][k] * a[k][j];
-			a[i][j] = sum;
-			temp = rscale[i] * fabs(sum);	
-			if (temp >= big) {
-				big = temp;		
-				bigi = i;		
-			}
-		}
-		
-		if (j != bigi) {
-			{	
-				double *temp;
-				temp = a[bigi];
-				a[bigi] = a[j];
-				a[j] = temp;
-			}
-			*rip = -(*rip);				
-			rscale[bigi] = rscale[j];	
-		}
-		
-		pivx[j] = bigi;					
-		if (fabs(a[j][j]) <= DBL_MIN) {
-			if (rscale != RSCALE)
-				free_dvector(rscale, 0, n-1);
-			return 1; 					
-		}
-
-		if (j != (n-1)) {
-			double temp;
-			temp = 1.0/a[j][j];
-			for (i = j+1; i < n; i++)
-				a[i][j] *= temp;
+		if (isalnum(c)
+		 || c == '~'
+		 || c == '-'
+		 || c == '.'
+		 || c == '_')
+			*d++ = c;
+		else {
+			*d++ = '%';
+			*d++ = nib2hex(c >> 4);
+			*d++ = nib2hex(c);
 		}
 	}
-	if (rscale != RSCALE)
-		free_dvector(rscale, 0, n-1);
-	return 0;
+	*d++ = '\000';
+	DBGF((DBGA," encodeurl d = '%s'\n",dd));
+}
+ 
+static int hex2nib(char c) {
+	int nib = 0;
+	if (c >= '0' && c <= '9')
+		nib = c - '0';
+	else if (c >= 'A' && c <= 'F')
+		nib = c - 'A' + 10;
+	else if (c >= 'a' && c <= 'f')
+		nib = c - 'a' + 10;
+	return nib;
 }
 
-void sa_lu_backsub(double **a, int n, int *pivx, double  *b) {
-	int i, j;
-	int nvi;		
-	
-	for (nvi = -1, i = 0; i < n; i++) {
-		int px;
-		double sum;
-
-		px = pivx[i];
-		sum = b[px];
-		b[px] = b[i];
-		if (nvi >= 0) {
-			for (j = nvi; j < i; j++)
-				sum -= a[i][j] * b[j];
-		} else {
-			if (sum != 0.0)
-				nvi = i;			
-		}
-		b[i] = sum;
+/* Destination is smaller than src */
+void decodeurl(char *d, char *s) {
+	char *dd = d;
+	DBGF((DBGA," decodeurl s = '%s'\n",s));
+	for (; *s != '\000'; s++) {
+//		if (s[0] == '+')
+//			*d++ = ' ';
+//		else
+		if (s[0] == '%' && s[1] != '\000' && s[2] != '\000') {
+			*d++ = (hex2nib(s[1]) << 4) + hex2nib(s[2]); 
+			s += 2;
+		} else
+			*d++ = s[0];
 	}
-
-	for (i = (n-1); i >= 0; i--) {
-		double sum;
-		sum = b[i];
-		for (j = i+1; j < n; j++)
-			sum -= a[i][j] * b[j];
-		b[i] = sum/a[i][i];
-	}
+	*d++ = '\000';
+	DBGF((DBGA," decodeurl d = '%s'\n",dd));
 }
 
-int sa_lu_invert(double **a, int n) {
-	int i, j;
-	double rip;		
-	int *pivx, PIVX[10];
-	double **y;
+/* ===================================================================== */
+/* Some compatibility functions */
 
-	if (n <= 10)
-		pivx = PIVX;
-	else
-		pivx = ivector(0, n-1);
+#if defined(UNIX_APPLE) 
 
-	if (sa_lu_decomp(a, n, pivx, &rip)) {
-		if (pivx != PIVX)
-			free_ivector(pivx, 0, n-1);
-		return 1;
-	}
-
-	y = dmatrix(0, n-1, 0, n-1);
-	for (i = 0; i < n; i++) {
-		for (j = 0; j < n; j++) {
-			y[i][j] = a[i][j];
-		}
-	}
-
-	for (i = 0; i < n; i++) {
-		for (j = 0; j < n; j++)
-			a[i][j] = 0.0;
-		a[i][i] = 1.0;
-		sa_lu_backsub(y, n, pivx, a[i]);
-	}
-
-	free_dmatrix(y, 0, n-1, 0, n-1);
-	if (pivx != PIVX)
-		free_ivector(pivx, 0, n-1);
-
-	return 0;
+size_t osx_strnlen(const char *string, size_t maxlen) {
+  const char *end = memchr(string, '\0', maxlen);
+  return end ? end - string : maxlen;
 }
 
-int sa_lu_psinvert(double **out, double **in, int m, int n) {
-	int rv = 0;
-	double **tr;		
-	double **sq;		
+char *osx_strndup(const char *s, size_t n) {
+	size_t len = osx_strnlen(s, n);
+	char *buf = malloc(len + 1);
 
-	tr = dmatrix(0, n-1, 0, m-1);
-	matrix_trans(tr, in, m,  n);
-
-	if (m > n) {
-		sq = dmatrix(0, n-1, 0, n-1);
-		if ((rv = matrix_mult(sq, n, n, tr, n, m, in, m, n)) == 0) {
-			if ((rv = sa_lu_invert(sq, n)) == 0) {
-				rv = matrix_mult(out, n, m, sq, n, n, tr, n, m);
-			}
-		}
-		free_dmatrix(sq, 0, n-1, 0, n-1);
-	} else {
-		sq = dmatrix(0, m-1, 0, m-1);
-		if ((rv = matrix_mult(sq, m, m, in, m, n, tr, n, m)) == 0) {
-			if ((rv = sa_lu_invert(sq, m)) == 0) {
-				rv = matrix_mult(out, n, m, tr, n, m, sq, m, m);
-			}
-		}
-		free_dmatrix(sq, 0, m-1, 0, m-1);
-	}
-
-	free_dmatrix(tr, 0, n-1, 0, m-1);
-	return rv;
+	if (buf == NULL)
+		return NULL;
+	buf[len] = '\0';
+  	return memcpy(buf, s, len);
 }
 
-
-#endif /* SALONEINSTLIB */
-/* ============================================================= */
-
-/* Diagnostic aids */
-
-// Print bytes as hex to debug log */
-void adump_bytes(a1log *log, char *pfx, unsigned char *buf, int base, int len) {
-	int i, j, ii;
-	char oline[200] = { '\000' }, *bp = oline;
-	for (i = j = 0; i < len; i++) {
-		if ((i % 16) == 0)
-			bp += sprintf(bp,"%s%04x:",pfx,base+i);
-		bp += sprintf(bp," %02x",buf[i]);
-		if ((i+1) >= len || ((i+1) % 16) == 0) {
-			for (ii = i; ((ii+1) % 16) != 0; ii++)
-				bp += sprintf(bp,"   ");
-			bp += sprintf(bp,"  ");
-			for (; j <= i; j++) {
-				if (!(buf[j] & 0x80) && isprint(buf[j]))
-					bp += sprintf(bp,"%c",buf[j]);
-				else
-					bp += sprintf(bp,".");
-			}
-			bp += sprintf(bp,"\n");
-			a1logd(log,0,"%s",oline);
-			bp = oline;
-		}
-	}
-}
-
-
-
+#endif // APPLE && < 1040

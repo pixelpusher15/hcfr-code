@@ -374,7 +374,7 @@ static disptech_info disptech_info_array[] = {
 	},
 	{	disptech_dlp_rgbw,
 		"Projector RGBW Filter Wheel",
-		"DPL Projector RGBW Filter Wheel",
+		"DLP Projector RGBW Filter Wheel",
 		1,
 		DISPTECH_DLP_RISE,
 		DISPTECH_DLP_FALL,

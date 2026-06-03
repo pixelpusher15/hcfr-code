@@ -102,7 +102,7 @@ static int vflush_output(unsigned int w) {
 		return 0;
 	if (vwrite_output(slide, wp))
 		return 1;
-    DBG(("Flushed %d byte sof ouput\n",wp))
+    DBG(("Flushed %d bytes of output\n",wp))
     wp = 0;
 
 	return 0;
@@ -239,7 +239,7 @@ static int vdbits = 6;          /* bits in base distance lookup table */
 #define N_MAX 288       /* maximum number of codes in any set */
 
 
-static unsigned hufts;         /* track memory usage */
+static unsigned hufts;	/* track memory usage */
 
 /* Given a list of code lengths and a maximum table size, make a set of
    tables to decode that set of codes.  Return zero on success, one if
@@ -247,15 +247,15 @@ static unsigned hufts;         /* track memory usage */
    case), two if the input is invalid (all zero length codes or an
    oversubscribed set of lengths), and three if not enough memory. */
 /* return nz (2 ?) on error */
-static int huft_build(b, n, s, d, e, t, m)
-unsigned *b;            /* code lengths in bits (all assumed <= BMAX) */
-unsigned n;             /* number of codes (assumed <= N_MAX) */
-unsigned s;             /* number of simple-valued codes (0..s-1) */
-ush *d;                 /* list of base values for non-simple codes */
-ush *e;                 /* list of extra bits for non-simple codes */
-struct huft **t;        /* result: starting table */
-int *m;                 /* maximum lookup bits, returns actual */
-{
+static int huft_build(
+unsigned *b,            /* code lengths in bits (all assumed <= BMAX) */
+unsigned n,             /* number of codes (assumed <= N_MAX) */
+unsigned s,             /* number of simple-valued codes (0..s-1) */
+ush *d,                 /* list of base values for non-simple codes */
+ush *e,                 /* list of extra bits for non-simple codes */
+struct huft **t,        /* result: starting table */
+int *m                  /* maximum lookup bits, returns actual */
+) {
   unsigned a;                   /* counter for codes of length k */
   unsigned c[BMAX+1];           /* bit length count table */
   unsigned f;                   /* i repeats in table every f entries */
@@ -451,12 +451,12 @@ int *m;                 /* maximum lookup bits, returns actual */
 
 
 
-static int huft_free(t)
-struct huft *t;         /* table to free */
+static int huft_free(
+struct huft *t         /* table to free */
 /* Free the malloc'ed tables built by huft_build(), which makes a linked
    list of the tables it made, with the links in a dummy first entry of
    each table. */
-{
+) {
   register struct huft *p, *q;
 
 
@@ -474,10 +474,10 @@ struct huft *t;         /* table to free */
 
 /* inflate (decompress) the codes in a deflated (compressed) block.
    Return an error code or zero if it all goes ok. */
-static int vinflate_codes(tl, td, bl, bd)
-struct huft *tl, *td;   /* literal/length and distance decoder tables */
-int bl, bd;             /* number of bits decoded by tl[] and td[] */
-{
+static int vinflate_codes(
+struct huft *tl, struct huft *td,   /* literal/length and distance decoder tables */
+int bl, int bd             /* number of bits decoded by tl[] and td[] */
+) {
   register unsigned e;  /* table entry flag/number of extra bits */
   unsigned n, d;        /* length and index for copy */
   unsigned w;           /* current window position */
@@ -881,9 +881,9 @@ static int vinflate_dynamic()
 
 
 /* decompress an inflated block */
-static int vinflate_block(e)
-int *e;                 /* last block flag */
-{
+static int vinflate_block(
+int *e                 /* last block flag */
+) {
   unsigned t;           /* block type */
   register ulg b;       /* bit buffer */
   register unsigned k;  /* number of bits in bit buffer */

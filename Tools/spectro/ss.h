@@ -63,6 +63,8 @@ struct _ss {
 	inst_mode	nextmode;		/* Next requested mode */
 	inst_mode	mode;			/* Currently instrument mode */
 
+	char serno[20];				/* Serial number */
+
 	/* Desired measurement configuration */
 	ss_aft     filt;			/* Filter type (None/UV/D65/Pol etc.) */
 	ss_dst     dstd;			/* Density standard (ANSI A/ANSI T/DIN etc.) */

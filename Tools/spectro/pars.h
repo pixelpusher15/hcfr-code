@@ -24,6 +24,14 @@
 #undef CGATS_DEBUG_MALLOC	/* Turns on partial support for filename and linenumber capture */
 
 /* - - - - - - - - - - - - - - - - - - - - -  */
+#define CGATS_ERRM_LENGTH 2000		/* try and keep in sync with ICM_ERRM_SIZE */
+
+typedef struct {
+	int  c;            			/* Error code */
+	char m[CGATS_ERRM_LENGTH];	/* Error message */
+} cgats_err;
+
+/* - - - - - - - - - - - - - - - - - - - - -  */
 
 /* System interface objects. The defaults can be replaced */
 /* for adaption to different system environments */
@@ -213,7 +221,7 @@ struct _parse {
 	int (*read_line)(struct _parse *p);			/* Read in a line. Return 0 if read failed, */
 												/* -1 on other error */
 	char *(*get_token)(struct _parse *p);		/* Return a pointer to the next token, */
-												/* NULL if no tokens. set errc NZ on other error */
+												/* NULL if no tokens. set e.c NZ on other error */
 
 	/* Private */
 	cgatsAlloc *al;	/* Memory allocator */
@@ -234,8 +242,8 @@ struct _parse {
 #define PARS_COMM	0x04		/* Character starts a comment */
 #define PARS_QUOTE	0x08		/* Character starts/ends a quoted string */
 
-	char err[200];		/* Error message */
-	int errc;			/* Error code */
+	cgats_err e;			/* Error message * code */
+
 }; typedef struct _parse parse;
 
 /* Creator */

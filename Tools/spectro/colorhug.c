@@ -101,7 +101,7 @@ colorhug_interp_error(inst *pp, int ec) {
 		case COLORHUG_OK:
 			return "OK";
 		case COLORHUG_UNKNOWN_CMD:
-			return "Unknown connamd";
+			return "Unknown command";
 		case COLORHUG_WRONG_UNLOCK_CODE:
 			return "Wrong unlock code";
 		case COLORHUG_NOT_IMPLEMENTED:
@@ -174,7 +174,7 @@ colorhug_command(colorhug *p,
 		memcpy(buf + 1, in, in_size);
 	if (ishid) {
 		xwbytes = 64;
-		se = p->icom->hid_write(p->icom, buf, xwbytes, &wbytes, timeout);
+		se = p->icom->hid_write(p->icom, buf, xwbytes, &wbytes, timeout, 0);
 	} else {
 //		xwbytes = in_size + 1;		/* cmd + arguments */
 		xwbytes = 64;
@@ -193,7 +193,7 @@ colorhug_command(colorhug *p,
 	if (rv != inst_ok) {
 		/* Flush any response if write failed */
 		if (ishid)
-			p->icom->hid_read(p->icom, buf, 64, &rbytes, timeout);
+			p->icom->hid_read(p->icom, buf, 64, &rbytes, timeout, 0);
 		else
 			p->icom->usb_read(p->icom, NULL, 0x81, buf, out_size + 2, &rbytes, timeout);
 		return rv;
@@ -204,7 +204,7 @@ colorhug_command(colorhug *p,
 
 	if (ishid) {
 		xrbytes = xrbytes2 = 64;
-		se = p->icom->hid_read(p->icom, buf, xrbytes, &rbytes, timeout);
+		se = p->icom->hid_read(p->icom, buf, xrbytes, &rbytes, timeout, 0);
 	} else {
 		xrbytes = 64;
 		xrbytes2 = out_size + 2;	/* For backwards compatibility with fw <= 1.1.8 */
@@ -213,13 +213,13 @@ colorhug_command(colorhug *p,
 
 	a1logd(p->log,8,"colorhug_command: Read %d bytes and %d read\n",xrbytes,rbytes);
 	if (rbytes >= 2) {
-		a1logd(p->log,6,"colorhug_command: recieved cmd '%s' error '%s' args '%s'\n",
+		a1logd(p->log,1,"colorhug_command: received cmd '%s' error '%s' args '%s'\n",
 				inst_desc(buf[1]),
 				colorhug_interp_error((inst *) p, buf[0]),
 				icoms_tohex(buf, rbytes - 2));
 	}
 
-	if (se != 0) {
+	if (se != 0 || buf[0] != COLORHUG_OK) {
 
 		/* deal with command error */
 		if (buf[0] != COLORHUG_OK) {
@@ -518,6 +518,7 @@ colorhug_get_serialnumber (colorhug *p)
 		return ev;
 
 	p->ser_no = buf2uint_le(obuf + 0);
+	sprintf(p->serno, "%u", p->ser_no);
 
 	a1logd(p->log,2,"colorhug: Serial number = %d\n",p->ser_no); 
 
@@ -669,6 +670,17 @@ colorhug_init_inst(inst *pp)
 	return inst_ok;
 }
 
+static char *colorhug_get_serial_no(inst *pp) {
+	colorhug *p = (colorhug *)pp;
+	
+	if (!pp->gotcoms)
+		return "";
+	if (!pp->inited)
+		return "";
+
+	return p->serno;
+}
+
 /* Read a single sample */
 static inst_code
 colorhug_read_sample(
@@ -803,7 +815,6 @@ colorhug_interp_code(inst *pp, int ec) {
 		case COLORHUG_UNKNOWN_CMD:
 		case COLORHUG_WRONG_UNLOCK_CODE:
 		case COLORHUG_NOT_IMPLEMENTED:
-		case COLORHUG_UNDERFLOW_SENSOR:
 		case COLORHUG_NO_SERIAL:
 		case COLORHUG_WATCHDOG:
 		case COLORHUG_INVALID_ADDRESS:
@@ -811,18 +822,23 @@ colorhug_interp_code(inst *pp, int ec) {
 		case COLORHUG_INVALID_CHECKSUM:
 		case COLORHUG_INVALID_VALUE:
 		case COLORHUG_UNKNOWN_CMD_FOR_BOOTLOADER:
-		case COLORHUG_NO_CALIBRATION:
 		case COLORHUG_OVERFLOW_MULTIPLY:
 		case COLORHUG_OVERFLOW_ADDITION:
 		case COLORHUG_OVERFLOW_SENSOR:
 		case COLORHUG_OVERFLOW_STACK:
-		case COLORHUG_DEVICE_DEACTIVATED:
 		case COLORHUG_INCOMPLETE_REQUEST:
 		case COLORHUG_BAD_WR_LENGTH:
 		case COLORHUG_BAD_RD_LENGTH:
 		case COLORHUG_BAD_RET_CMD:
 		case COLORHUG_BAD_RET_STAT:
 			return inst_protocol_error | ec;
+
+		case COLORHUG_UNDERFLOW_SENSOR:
+			return inst_misread | ec;
+
+		case COLORHUG_DEVICE_DEACTIVATED:
+		case COLORHUG_NO_CALIBRATION:
+			return inst_hardware_fail | ec;
 	}
 	return inst_other_error | ec;
 }
@@ -1221,6 +1237,7 @@ extern colorhug *new_colorhug(icoms *icom, instType dtype) {
 	p->init_coms         = colorhug_init_coms;
 	p->init_inst         = colorhug_init_inst;
 	p->capabilities      = colorhug_capabilities;
+	p->get_serial_no     = colorhug_get_serial_no;
 	p->check_mode        = colorhug_check_mode;
 	p->set_mode          = colorhug_set_mode;
 	p->get_disptypesel   = colorhug_get_disptypesel;

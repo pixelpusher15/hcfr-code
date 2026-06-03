@@ -26,10 +26,11 @@
 #else
 #include "numsup.h"
 #endif
+#include "yajl.h"
+#include "conv.h"
 #include "ccmdns.h"
 #include "ccpacket.h"
 #include "ccmes.h"
-#include "yajl.h"
 
 /* Check if JSON is invalid */
 /* Exits if invalid */
@@ -46,8 +47,9 @@ static void check_json(char *mesbuf) {
 }
 
 /* Return nz on error */
-static int get_a_reply(ccmessv *mes, ORD8 **pdata) {
+static int get_a_reply(ccmessv *mesv, ORD8 **pdata) {
 	ccmessv_err merr;
+	ccmes mes;
 	char *source_id;
 	char *destination_id;
 	char *namespace;
@@ -55,24 +57,23 @@ static int get_a_reply(ccmessv *mes, ORD8 **pdata) {
 	ORD8 *data;					/* String or binary */
 	ORD32 bin_len;				/* Binary data length */
 
-	if ((merr = mes->receive(mes, &source_id, &destination_id, &namespace,	
- 		&binary, &data, &bin_len)) != ccmessv_OK) {
-		printf("mes->receive failed with '%s'\n",ccmessv_emes(merr));
+	if ((merr = mesv->receive(mesv, &mes)) != ccmessv_OK) {
+		printf("mesv->receive failed with '%s'\n",ccmessv_emes(merr));
 		return -1;
 	} else {
 		printf("Got message:\n");
-		printf("  source_id = '%s'\n",source_id);
-		printf("  destination_id = '%s'\n",destination_id);
-		printf("  namespace = '%s'\n",namespace);
-		printf("  binary = %d\n",binary);
+		printf("  source_id = '%s'\n",mes.source_id);
+		printf("  destination_id = '%s'\n",mes.destination_id);
+		printf("  namespace = '%s'\n",mes.namespace);
+		printf("  binary = %d\n",mes.binary);
 		if (binary) {
 			printf("  payload =\n");
-			adump_bytes(g_log, "  ", data, 0, bin_len);
+			adump_bytes(g_log, "  ", data, 0, mes.bin_len);
 		} else {
-			printf("  payload = '%s'\n",data);
+			printf("  payload = '%s'\n",mes.data);
 		}
 		if (pdata != NULL)
-			*pdata = data;
+			*pdata = mes.data;
 		else
 			free(data);
 	}
@@ -80,7 +81,7 @@ static int get_a_reply(ccmessv *mes, ORD8 **pdata) {
 }
 
 /* Get replies until we get one with the matching Id, then return */
-static int get_a_reply_id(ccmessv *mes, int tid, ORD8 **pdata) {
+static int get_a_reply_id(ccmessv *mesv, int tid, ORD8 **pdata) {
 	ORD8 *data;
 	int id, rv;
 	yajl_val node, v;
@@ -90,7 +91,7 @@ static int get_a_reply_id(ccmessv *mes, int tid, ORD8 **pdata) {
 	for (;;) {
 		int id = -1;
 
-		if ((rv = get_a_reply(mes, &data)) != 0)
+		if ((rv = get_a_reply(mesv, &data)) != 0)
 			return rv;
 
 //		printf("\nGot JSON data to parse: '%s'\n",data);
@@ -118,7 +119,7 @@ static int get_a_reply_id(ccmessv *mes, int tid, ORD8 **pdata) {
 }
 
 /* Do the authentication sequence */
-static void authenticate(ccmessv *mes) {
+static void authenticate(ccmessv *mesv) {
 
 	/* (Not needed) */
 }
@@ -132,7 +133,7 @@ main(
 	int i;
 	ccpacket *pk;
 	ccpacket_err perr;
-	ccmessv *mes;
+	ccmessv *mesv;
 	ccmessv_err merr;
 	char *sessionId = NULL;
 	char *transportId = NULL;
@@ -161,36 +162,36 @@ main(
 	} 
 	printf("Got TLS connection to '%s\n'",ids[0]->name);
 
-	if ((mes = new_ccmessv(pk)) == NULL) {
+	if ((mesv = new_ccmessv(pk)) == NULL) {
 		error("new_ccmessv() failed");
 	}
 
 	/* Attempt a connection */
-	if ((merr = mes->send(mes, "sender-0", "receiver-0",
+	if ((merr = mesv->send(mesv, "sender-0", "receiver-0",
 		"urn:x-cast:com.google.cast.tp.connection", 0,
 		"{ \"type\": \"CONNECT\" }", 0)) != ccmessv_OK) {
-		error("mes->send CONNECT failed with '%s'",ccmessv_emes(merr));
+		error("mesv->send CONNECT failed with '%s'",ccmessv_emes(merr));
 	}
 	
 	/* Send a ping */
-	if ((merr = mes->send(mes, "sender-0", "receiver-0",
+	if ((merr = mesv->send(mesv, "sender-0", "receiver-0",
 		"urn:x-cast:com.google.cast.tp.heartbeat", 0,
 		"{ \"type\": \"PING\" }", 0)) != ccmessv_OK) {
-		error("mes->send PING failed with '%s'",ccmessv_emes(merr));
+		error("mesv->send PING failed with '%s'",ccmessv_emes(merr));
 	}
 	
 	/* Wait for a PONG */
-	get_a_reply(mes, NULL);
+	get_a_reply(mesv, NULL);
 
-	authenticate(mes);
+	authenticate(mesv);
 
 	/* Launch the default application */
 	/* (Presumably we would use the com.google.cast.receiver channel */
 	/*  for monitoring and controlling the reciever) */
-	if ((merr = mes->send(mes, "sender-0", "receiver-0",
+	if ((merr = mesv->send(mesv, "sender-0", "receiver-0",
 		"urn:x-cast:com.google.cast.receiver", 0,
 		"{ \"requestId\": 1, \"type\": \"LAUNCH\", \"appId\": \"CC1AD845\" }", 0)) != ccmessv_OK) {
-		error("mes->send LAUNCH failed with '%s'",ccmessv_emes(merr));
+		error("mesv->send LAUNCH failed with '%s'",ccmessv_emes(merr));
 	}
 
 	/* Receive the RECEIVER_STATUS status messages until it is ready to cast */
@@ -202,7 +203,7 @@ main(
 		yajl_val node, v;
 		char errbuf[1024];
 
-		get_a_reply(mes, &data);
+		get_a_reply(mesv, &data);
 
 //		printf("\nGot JSON data to parse: '%s'\n",data);
 		if ((node = yajl_tree_parse(data, errbuf, sizeof(errbuf))) == NULL)
@@ -226,10 +227,10 @@ main(
 	printf("\nAbout to send URL\n");
 
 	/* Connect up to the reciever media channels */
-	if ((merr = mes->send(mes, "med_send", transportId,
+	if ((merr = mesv->send(mesv, "med_send", transportId,
 		"urn:x-cast:com.google.cast.tp.connection", 0,
 		"{ \"type\": \"CONNECT\" }", 0)) != ccmessv_OK) {
-		error("mes->send CONNECT failed with '%s'",ccmessv_emes(merr));
+		error("mesv->send CONNECT failed with '%s'",ccmessv_emes(merr));
 	}
 	
 	// "urn:x-cast:com.google.cast.player.message"
@@ -244,27 +245,27 @@ main(
 	check_json(mesbuf);
 
 	/* Send the LOAD command */
-	if ((merr = mes->send(mes, "med_send", transportId,
+	if ((merr = mesv->send(mesv, "med_send", transportId,
 		"urn:x-cast:com.google.cast.media", 0,
 	    mesbuf, 0
 		)) != ccmessv_OK) {
-		error("mes->send LOAD failed with '%s'",ccmessv_emes(merr));
+		error("mesv->send LOAD failed with '%s'",ccmessv_emes(merr));
 	}
 
-	if (get_a_reply_id(mes, 2, NULL) != 0)
+	if (get_a_reply_id(mesv, 2, NULL) != 0)
 		exit(1);
 
 	msec_sleep(2000);
 
 #ifdef NEVER
 	/* Check the media status */
-	if ((merr = mes->send(mes, "med_send", transportId,
+	if ((merr = mesv->send(mesv, "med_send", transportId,
 		"urn:x-cast:com.google.cast.media", 0,
 		"{ \"requestId\": 3, \"type\": \"GET_STATUS\" }", 0)) != ccmessv_OK) {
-		error("mes->send GET_STATUS failed with '%s'",ccmessv_emes(merr));
+		error("mesv->send GET_STATUS failed with '%s'",ccmessv_emes(merr));
 	}
 	
-	if (get_a_reply_id(mes, 3, NULL) != 0)
+	if (get_a_reply_id(mesv, 3, NULL) != 0)
 		exit(1);
 #endif
 
@@ -275,49 +276,49 @@ main(
 	check_json(mesbuf);
 
 	/* Send the LOAD command */
-	if ((merr = mes->send(mes, "med_send", transportId,
+	if ((merr = mesv->send(mesv, "med_send", transportId,
 		"urn:x-cast:com.google.cast.media", 0,
 	    mesbuf, 0
 		)) != ccmessv_OK) {
-		error("mes->send LOAD failed with '%s'",ccmessv_emes(merr));
+		error("mesv->send LOAD failed with '%s'",ccmessv_emes(merr));
 	}
 
-	if (get_a_reply_id(mes, 4, NULL) != 0)
+	if (get_a_reply_id(mesv, 4, NULL) != 0)
 		exit(1);
 
 	msec_sleep(2000);
 
 #ifdef NEVER
 	/* Check the media status */
-	if ((merr = mes->send(mes, "med_send", transportId,
+	if ((merr = mesv->send(mesv, "med_send", transportId,
 		"urn:x-cast:com.google.cast.media", 0,
 		"{ \"requestId\": 5, \"type\": \"GET_STATUS\" }", 0)) != ccmessv_OK) {
-		error("mes->send GET_STATUS failed with '%s'",ccmessv_emes(merr));
+		error("mesv->send GET_STATUS failed with '%s'",ccmessv_emes(merr));
 	}
 	
-	if (get_a_reply_id(mes, 5, NULL) != 0)
+	if (get_a_reply_id(mesv, 5, NULL) != 0)
 		exit(1);
 #endif
 
 #ifdef NEVER
 	/* Try and send it an image URL */
-	if ((merr = mes->send(mes, "med_send", transportId,
+	if ((merr = mesv->send(mesv, "med_send", transportId,
 		"urn:x-cast:com.google.cast.media", 0,
 //		"{ \"imageUrl\": \"http://www.argyllcms.com/ArgyllCMSLogo.gif\", \"requestId\": 6 }", 0)) != ccmessv_OK) {
 		"{ \"url\": \"http://www.argyllcms.com/ArgyllCMSLogo.gif\", \"requestId\": 2 }", 0)) != ccmessv_OK) {
-		error("mes->send imageUrl failed with '%s'",ccmessv_emes(merr));
+		error("mesv->send imageUrl failed with '%s'",ccmessv_emes(merr));
 	}
 
 #endif
 	/* Wait for any reply */
 	for (;;) {
-		if (get_a_reply(mes, NULL) != 0)
+		if (get_a_reply(mesv, NULL) != 0)
 			break;
 	}
 	
 	// ~~999
 
-	mes->del(mes);
+	mesv->del(mesv);
 	pk->del(pk);
 
 	printf("Disconnected from '%s'\n",ids[0]->name);

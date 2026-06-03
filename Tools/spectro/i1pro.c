@@ -120,7 +120,7 @@ i1pro_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 		return i1pro_interp_code(p, icoms2i1pro_err(se));
 	}
 
-	a1logd(p->log, 2, "i1pro_init_coms: init coms has suceeded\n");
+	a1logd(p->log, 2, "i1pro_init_coms: init coms has succeeded\n");
 
 	p->gotcoms = 1;
 	return inst_ok;
@@ -447,7 +447,7 @@ i1pro_interp_error(inst *pp, i1pro_code ec) {
 		case I1PRO_RD_WHITEREADINCONS:
 			return "White calibration reading is inconsistent";
 		case I1PRO_RD_WHITEREFERROR:
-			return "White reference reading error";
+			return "White reference reading is out of tollerance";
 		case I1PRO_RD_LIGHTTOOLOW:
 			return "Light level is too low";
 		case I1PRO_RD_LIGHTTOOHIGH:
@@ -472,6 +472,8 @@ i1pro_interp_error(inst *pp, i1pro_code ec) {
 			return "No refresh rate detected or failed to measure it";
 		case I1PRO_RD_NOTRANS_FOUND:
 			return "No delay calibration transition found";
+		case I1PRO_RD_LEADTRAILINCONS:
+			return "Swipe didn't start and end on the media";
 
 		case I1PRO_INT_NO_COMS:
 			return "Communications hasn't been established";
@@ -511,22 +513,18 @@ i1pro_interp_error(inst *pp, i1pro_code ec) {
 			return "Error in allocating memory";
 		case I1PRO_INT_CREATE_EEPROM_STORE:
 			return "Error in creating EEProm store";
-		case I1PRO_INT_SAVE_SUBT_MODE:
-			return "Can't save calibration if in subt mode";
 		case I1PRO_INT_NO_CAL_TO_SAVE:
 			return "No calibration data to save";
 		case I1PRO_INT_EEPROM_DATA_MISSING:
 			return "EEProm data is missing";
 		case I1PRO_INT_NEW_RSPL_FAILED:
-			return "Creating RSPL object faild";
+			return "Creating RSPL object failed";
 		case I1PRO_INT_CAL_SAVE:
 			return "Unable to save calibration to file";
 		case I1PRO_INT_CAL_RESTORE:
 			return "Unable to restore calibration from file";
 		case I1PRO_INT_CAL_TOUCH:
 			return "Unable to update calibration file modification time";
-		case I1PRO_INT_ADARK_INVALID:
-			return "Adaptive dark calibration is invalid";
 		case I1PRO_INT_NO_HIGH_GAIN:
 			return "Rev E mode doesn't have a high gain mode";
 		case I1PRO_INT_ASSERT:
@@ -617,6 +615,7 @@ i1pro_interp_code(i1pro *p, i1pro_code ec) {
 		case I1PRO_RD_NOAMBB4FLASHES:
 		case I1PRO_RD_NOREFR_FOUND:
 		case I1PRO_RD_NOTRANS_FOUND:
+		case I1PRO_RD_LEADTRAILINCONS:
 			return inst_misread | ec;
 
 		case I1PRO_RD_NEEDS_CAL:
@@ -640,14 +639,12 @@ i1pro_interp_code(i1pro *p, i1pro_code ec) {
 		case I1PRO_INT_PREP_LOG_DATA:
 		case I1PRO_INT_MALLOC:
 		case I1PRO_INT_CREATE_EEPROM_STORE:
-		case I1PRO_INT_SAVE_SUBT_MODE:
 		case I1PRO_INT_NO_CAL_TO_SAVE:
 		case I1PRO_INT_EEPROM_DATA_MISSING:
 		case I1PRO_INT_NEW_RSPL_FAILED:
 		case I1PRO_INT_CAL_SAVE:
 		case I1PRO_INT_CAL_RESTORE:
 		case I1PRO_INT_CAL_TOUCH:
-		case I1PRO_INT_ADARK_INVALID:
 		case I1PRO_INT_NO_HIGH_GAIN:
 		case I1PRO_INT_ASSERT:
 			return inst_internal_error | ec;

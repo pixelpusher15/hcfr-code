@@ -135,6 +135,9 @@ typedef struct {
 #define XSPECT_XIX(PXSP, WL) \
 ((int)floor(XSPECT_XDIX(PXSP, WL) + 0.5))
 
+/* Given the sampling ranges, compute the wavelegth interval */
+#define XSPECT_WLI_EX(SHORT, LONG, N) (((LONG) - (SHORT))/((N)-1.0))
+
 /* Given the address of an xspect, compute the wavelegth interval */
 #define XSPECT_WLI(PXSP) \
 ((((PXSP)->spec_wl_long) - ((PXSP)->spec_wl_short))/(((PXSP)->spec_n)-1.0))
@@ -143,6 +146,7 @@ int write_xspect(char *fname, inst_meas_type mt, inst_meas_cond mc, xspect *s);
 /* mt, mc may be NULL */
 int read_xspect(xspect *sp, inst_meas_type *mt, inst_meas_cond *mc, char *fname);
 
+/* Write an xspect in 'C' initialization form */
 int write_C_xspect(char *fname, xspect *s);
 
 #ifndef SALONEINSTLIB
@@ -197,8 +201,17 @@ int getval_xspec(xspect *sp, double *rv, double wl) ;
 /* Get linear or poly interpolated value at wavelenth (not normalised) */
 double value_xspect(xspect *sp, double wl);
 
+/* Get linear or poly interpolated value at wavelenth (not normalised) */
+double value_xspect_ex(int spec_n, double spec_wl_short, double spec_wl_long,
+                       double *spec, double wl);
+
 /* Get linear interpolated value at wavelenth (not normalised) */
 double value_xspect_lin(xspect *sp, double wl);
+
+/* Get a (normalised) linearly interpolated spectrum value. */
+/* Return NZ if value is valid, Z and last valid value */
+/* if outside the range */
+int getval_lxspec(xspect *sp, double *rv, double wl);
 
 /* Get poly interpolated value at wavelenth (not normalised) */
 double value_xspect_poly(xspect *sp, double wl);
@@ -211,11 +224,33 @@ void xspect_denorm(xspect *sp);
 void xspect_scale(xspect *sp, double scale);
 
 #ifndef SALONEINSTLIB
-/* Convert from one xspect type to another with a wl offset from source */
+/* Convert from one xspect type to another with a wl offset from source, */
+/* using point sampling of source. */
 void xspect2xspect_wloff(xspect *dst, xspect *targ, xspect *src, double wloff);
 
-/* Convert from one xspect type to another */
+/* Convert from one xspect type to another, */
+/* using point sampling of source. */
 void xspect2xspect(xspect *dst, xspect *targ, xspect *src);
+
+/* Convert from one xspect type to another, */
+/* using point resampling. */
+void poi_resample_xspect(xspect *dst, xspect *src);
+
+/* Convert from one xspect type to another, */
+/* using point resampling. */
+void poi_resample_xspect_ex(
+                 int d_spec_n, double d_spec_wl_short, double d_spec_wl_long, double *d_spec,
+                 int s_spec_n, double s_spec_wl_short, double s_spec_wl_long, double *s_spec);
+
+/* Convert from one xspect type to another, */
+/* using triangular resampling. */
+void tri_resample_xspect(xspect *dst, xspect *src);
+
+/* Convert from one xspect type to another, */
+/* using triangular resampling. */
+void tri_resample_xspect_ex(
+                 int d_spec_n, double d_spec_wl_short, double d_spec_wl_long, double *d_spec,
+                 int s_spec_n, double s_spec_wl_short, double s_spec_wl_long, double *s_spec);
 
 /* Dump a spectra to stdout */
 void xspect_dump(xspect *sp);
@@ -226,14 +261,17 @@ void xspect_plot_w(xspect *sp1, xspect *sp2, xspect *sp3, int wait);
 /* Plot up to 3 spectra & wait for key */
 void xspect_plot(xspect *sp1, xspect *sp2, xspect *sp3);
 
-/* Plot up to 12 spectra in an array & wait for key */
+/* Plot up to MXGPHS spectra in an array & wait for key */
 void xspect_plotN(xspect *sp, int n);
 
-/* Plot up to 12 spectra pointed to by an array & wait for key */
+/* Plot up to MXGPHS spectra pointed to by an array & wait for key */
 void xspect_plotNp(xspect *sp[MXGPHS], int n);
 
-/* Plot up to 12 spectra pointed to by an array */
+/* Plot up to MXGPHS spectra pointed to by an array */
 void xspect_plotNp_w(xspect *sp[MXGPHS], int n, int wait);
+
+/* Plot up to MXGPHS spectra pointed to by an array, with optional wait and zero */
+void xspect_plotNp_wz(xspect *sp[MXGPHS], int n, int wait, int zero);
 
 /* Plot up to 12 spectra pointed to by an array over a wl range */
 //void xspect_plotNp_w(xspect *sp[MXGPHS], int n, double shwl, double lowl, int wait);
@@ -307,8 +345,8 @@ typedef enum {
     icxOT_custom			= 2,	/* Custom observer type weighting */
     icxOT_CIE_1931_2		= 3,	/* Standard CIE 1931 2 degree */
     icxOT_CIE_1964_10		= 4,	/* Standard CIE 1964 10 degree */
-    icxOT_CIE_2012_2		= 5,	/* Proposed Standard CIE 2012 2 degree */
-    icxOT_CIE_2012_10		= 6,	/* Proposed Standard CIE 2012 10 degree */
+    icxOT_CIE_2015_2		= 5,	/* Standard CIE 2015 2 degree */
+    icxOT_CIE_2015_10		= 6,	/* Standard CIE 2015 10 degree */
 //#ifndef SALONEINSTLIB
     icxOT_Stiles_Burch_2	= 7,	/* Stiles & Burch 1955 2 degree */
     icxOT_Judd_Voss_2		= 8,	/* Judd & Voss 1978 2 degree */

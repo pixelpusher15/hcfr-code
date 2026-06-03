@@ -376,7 +376,7 @@ ss_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 
 	p->gotcoms = 1;
 
-	a1logd(p->log, 2, "ss_init_coms: init coms has suceeded\n");
+	a1logd(p->log, 2, "ss_init_coms: init coms has succeeded\n");
 
 	return inst_ok;
 }
@@ -509,7 +509,7 @@ ss_init_inst(inst *pp) {
 	if ((rv = so_do_ExecWhiteRefToOrigDat(p)) != inst_ok)
 		return rv;
 
-	if (p->log->verb) {
+	{
 		char dn[19];		/* device name */
 		ss_dnot dno;		/* device number */
 		char pn[9];			/* part number */
@@ -530,12 +530,16 @@ ss_init_inst(inst *pp) {
 	                           &tt, &fswl, &nosw, &dsw)) != inst_ok)
 			return rv;
 
-		a1logv(p->log, 1,
+		sprintf(p->serno, "%u",sn);
+
+		if (p->log->verb) {
+			a1logv(p->log, 1,
 		       "Device:     %s\n"
 		       "Serial No:  %u\n"
 		       "Part No:    %s\n"
 		       "Prod Date:  %d/%d/%d\n"
 		       "SW Version: %s\n", dn, sn, pn, dp, mp, yp, sv);
+		}
 	}
 
 	/* Set the default colorimetric parameters */
@@ -554,6 +558,17 @@ ss_init_inst(inst *pp) {
 	a1logd(p->log, 2, "ss_init_inst: instrument inited OK\n");
 
 	return inst_ok;
+}
+
+static char *ss_get_serial_no(inst *pp) {
+	ss *p = (ss *)pp;
+	
+	if (!pp->gotcoms)
+		return "";
+	if (!pp->inited)
+		return "";
+
+	return p->serno;
 }
 
 /* For an xy instrument, release the paper */
@@ -1644,7 +1659,7 @@ ss_interp_error(inst *pp, int ec) {
 		case ss_et_FilterOutOfPos:
 			return "Filter wheel out of position";
 		case ss_et_SendTimeout:
-			return "Data transmission timout";
+			return "Data transmission timeout";
 		case ss_et_DriveError:
 			return "Data drive defect";
 		case ss_et_MeasDisabled:
@@ -1764,7 +1779,7 @@ ss_interp_error(inst *pp, int ec) {
 		case ss_et_BadHexEncoding:
 			return "Message received from instrument has bad Hex encoding";
 		case ss_et_RecBufferOverun:
-			return "Message received from instrument would overflow recieve buffer";
+			return "Message received from instrument would overflow receive buffer";
 		default:
 			return "Unknown error code";
 	}
@@ -2124,6 +2139,7 @@ extern ss *new_ss(icoms *icom, instType dtype) {
 	p->init_coms    	= ss_init_coms;
 	p->init_inst    	= ss_init_inst;
 	p->capabilities 	= ss_capabilities;
+	p->get_serial_no 	= ss_get_serial_no;
 	p->check_mode       = ss_check_mode;
 	p->set_mode     	= ss_set_mode;
 	p->get_set_opt     	= ss_get_set_opt;

@@ -404,7 +404,7 @@ void del_i1proimp(i1pro *p);
 #define I1PRO_RD_DARKNOTVALID   	    0x32		/* Dark reading is not valid (too light) */
 #define I1PRO_RD_NEEDS_CAL 		        0x33		/* Mode needs calibration */
 #define I1PRO_RD_WHITEREADINCONS        0x34		/* White reference readings are inconsistent */
-#define I1PRO_RD_WHITEREFERROR 	        0x35		/* White reference reading error */
+#define I1PRO_RD_WHITEREFERROR 	        0x35		/* White reference tollerance error */
 #define I1PRO_RD_LIGHTTOOLOW 	        0x36		/* Light level is too low */
 #define I1PRO_RD_LIGHTTOOHIGH 	        0x37		/* Light level is too high */
 #define I1PRO_RD_SHORTMEAS              0x38		/* Measurment was too short */
@@ -417,6 +417,7 @@ void del_i1proimp(i1pro *p);
 #define I1PRO_RD_NOAMBB4FLASHES         0x3F		/* No ambient before flashes found */
 #define I1PRO_RD_NOREFR_FOUND           0x40		/* Unable to measure refresh rate */
 #define I1PRO_RD_NOTRANS_FOUND          0x41		/* Unable to measure delay transition */
+#define I1PRO_RD_LEADTRAILINCONS        0x42		/* Leader and trailer are inconsistent */
 
 /* Internal errors */
 #define I1PRO_INT_NO_COMS 		        0x50
@@ -439,14 +440,12 @@ void del_i1proimp(i1pro *p);
 #define I1PRO_INT_PREP_LOG_DATA         0x62		/* Error in preparing log data */
 #define I1PRO_INT_MALLOC                0x63		/* Error in mallocing memory */
 #define I1PRO_INT_CREATE_EEPROM_STORE   0x64		/* Error in creating EEProm store */
-#define I1PRO_INT_SAVE_SUBT_MODE        0x65		/* Can't save calibration if in subt mode */
 #define I1PRO_INT_NO_CAL_TO_SAVE        0x66		/* No calibration data to save */
 #define I1PRO_INT_EEPROM_DATA_MISSING   0x67		/* EEProm data is missing */
-#define I1PRO_INT_NEW_RSPL_FAILED       0x68		/* Creating RSPL object faild */
+#define I1PRO_INT_NEW_RSPL_FAILED       0x68		/* Creating RSPL object failed */
 #define I1PRO_INT_CAL_SAVE              0x69		/* Unable to save calibration to file */
 #define I1PRO_INT_CAL_RESTORE           0x6A		/* Unable to restore calibration from file */
 #define I1PRO_INT_CAL_TOUCH             0x6B		/* Unable to touch calibration file */
-#define I1PRO_INT_ADARK_INVALID         0x6C		/* Adaptive dark calibration is invalid */
 #define I1PRO_INT_NO_HIGH_GAIN          0x6D		/* Rev E mode doesn't support high gain mode */
 #define I1PRO_INT_ASSERT                0x6F		/* Internal assert */
 

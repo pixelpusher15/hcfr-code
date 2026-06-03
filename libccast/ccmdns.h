@@ -1,7 +1,7 @@
 #ifndef CCMDNST_H
 
 #ifdef __cplusplus
-	extern "C" {
+	extern "C" {			/* HCFR local: C linkage for GoogleCastWrapper (C++) */
 #endif
 
 /* 
@@ -35,7 +35,7 @@ typedef enum {
 } cctype;
 
 /* Use cctype2str() to dump type */
-char *cctype2str(cctype typ);
+char *cctype2str(cctype typ);	/* HCFR local: decl used by GoogleCastWrapper (dropped upstream in 3.5.0) */
 
 /* A record of a Chromecast that may be accessed */
 struct _ccast_id {
@@ -47,7 +47,9 @@ struct _ccast_id {
 /* Get a list of Video out capable Chromecasts. Return NULL on error */
 /* Last pointer in array is NULL */ 
 /* Takes 0.5 second to return */
-ccast_id **get_ccids(void);
+ccast_id **get_ccids(
+void
+);
 
 /* Free up what get_ccids returned */
 void free_ccids(ccast_id **ids);
@@ -57,7 +59,7 @@ ccast_id *ccast_id_clone(ccast_id *src);
 void ccast_id_del(ccast_id *id);
 
 #ifdef __cplusplus
-	}
+	}						/* HCFR local: end extern "C" */
 #endif
 
 #define CCMDNST_H

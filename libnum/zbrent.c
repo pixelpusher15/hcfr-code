@@ -34,6 +34,7 @@ void *fdata								/* Opaque data pointer */
 	int i;
 	double x1, x2;		/* Bracket under consideration */
 	double f1, f2;		/* Function values at points x1 and x2 */
+	double gold = ZBRACK_GOLD;
 
 	x1 = *x1p;
 	x2 = *x2p;
@@ -50,11 +51,25 @@ void *fdata								/* Opaque data pointer */
 			return 0;			/* If signs are opposite, we're done */
 		}
 		if (fabs(f2) > fabs(f1)) {	/* Move smaller in direction away from larger */
-			x1 += ZBRACK_GOLD * (x1 - x2);
-			f1 = (*func)(fdata, x1);
+			double tx1, tf1;
+			tx1 = x1 + gold * (x1 - x2);
+			tf1 = (*func)(fdata, tx1);
+			if (tf1 < f1) {			/* It improved */
+				x1 = tx1;
+				f1 = tf1;
+			} else {
+				gold *= 0.5;
+			}
 		} else {
-			x2 += ZBRACK_GOLD * (x2 - x1);
-			f2 = (*func)(fdata, x2);
+			double tx2, tf2;
+			tx2 = x1 + gold * (x2 - x1);
+			tf2 = (*func)(fdata, tx2);
+			if (tf2 > f2) {			/* It improved */
+				x2 = tx2;
+				f2 = tf2;
+			} else {
+				gold *= 0.5;
+			}
 		}
 	}
 	return -2;

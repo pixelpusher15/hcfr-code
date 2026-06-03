@@ -162,8 +162,7 @@ void *aat_afind ( aat_atree_t *tree, void *data )
   aat_anode_t *it = tree->root;
 
   while ( it != tree->nil ) {
-    int cmp;
-	AAT_CMP(cmp, tree, it->data, data);
+    int cmp = tree->cmp ( it->data, data );
 
     if ( cmp == 0 )
       break;
@@ -232,7 +231,7 @@ int aat_ainsert ( aat_atree_t *tree, void *data )
   return 1;
 }
 
-/* Delete an given entry by locating it by */
+/* Delete a given entry by locating it by */
 /* its value, then removing it from the tree. */
 /* The item itself isn't deleted. */
 /* Return 0 if the item wasn't found */

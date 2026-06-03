@@ -190,7 +190,7 @@ unsigned char *in,		/* Command string */
 int ilen,				/* Number of bytes to send */
 unsigned char *out,		/* Reply string buffer */
 int olen,				/* Number of bytes expected in reply (buffer expected to be MAX_MES_SIZE) */
-double to) {			/* Timout in seconds */
+double to) {			/* Timeout in seconds */
 	int rv = smcube_fcommand(p, in, ilen, out, olen, to, 0);
 	return smcube_interp_code((inst *)p, rv);
 }
@@ -293,7 +293,7 @@ smcube_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 		}
 		amutex_unlock(p->lock);
 	}
-	a1logd(p->log, 2, "smcube_init_coms: init coms has suceeded\n");
+	a1logd(p->log, 2, "smcube_init_coms: init coms has succeeded\n");
 
 	p->gotcoms = 1;
 
@@ -769,7 +769,7 @@ smcube_interp_error(inst *pp, int ec) {
 		case SMCUBE_INT_THREADFAILED:
 			return "Starting diffuser position thread failed";
 		case SMCUBE_INT_ILL_WRITE:
-			return "Attemp to write to factory calibration";
+			return "Attempt to write to factory calibration";
 		case SMCUBE_INT_WHITE_CALIB:
 			return "No valid white calibration";
 		case SMCUBE_INT_BLACK_CALIB:
@@ -1205,7 +1205,7 @@ smcube_ping(smcube *p) {
 	if (buf[0] != 0x7e || buf[1] != 0x20 || buf[2] != 0x02 || buf[3] == 0x00) {
 		return smcube_interp_code((inst *)p, SMCUBE_DATA_PARSE_ERROR);
 	}
-	a1logd(p->log, 2, "smcube_init_coms: ping sucesss\n");
+	a1logd(p->log, 2, "smcube_init_coms: ping successs\n");
 
 	amutex_unlock(p->lock);
 
@@ -1250,7 +1250,7 @@ smcube_get_idle_time(smcube *p, int *pitime, int nd) {
 	itime = read_ORD16_be(buf + 4);
 
 	if (!nd)
-		a1logd(p->log, 2, "smcube_get_idle_time: returing %d\n",itime);
+		a1logd(p->log, 2, "smcube_get_idle_time: returning %d\n",itime);
 
 	if (pitime != NULL)
 		*pitime = itime;
@@ -1295,11 +1295,11 @@ smcube_fact_measure(smcube *p, double *XYZ) {
 	XYZ[0] = IEEE754todouble(read_ORD32_be(buf + 4));
 	XYZ[1] = IEEE754todouble(read_ORD32_be(buf + 8));
 	XYZ[2] = IEEE754todouble(read_ORD32_be(buf + 12));
-	a1logd(p->log, 2, "smcube_fact_measure: returing L*a*b* %f %f %f\n",XYZ[0], XYZ[1], XYZ[2]);
+	a1logd(p->log, 2, "smcube_fact_measure: returning L*a*b* %f %f %f\n",XYZ[0], XYZ[1], XYZ[2]);
 
 	icmLab2XYZ(&icmD50_100, XYZ, XYZ);
 
-	a1logd(p->log, 2, "smcube_fact_measure: returing XYZ %f %f %f\n",XYZ[0], XYZ[1], XYZ[2]);
+	a1logd(p->log, 2, "smcube_fact_measure: returning XYZ %f %f %f\n",XYZ[0], XYZ[1], XYZ[2]);
 
 	return inst_ok;
 }
@@ -1341,7 +1341,7 @@ smcube_poll_measure(smcube *p, double to, int nd) {
 	p->XYZ[0] = IEEE754todouble(read_ORD32_be(buf + 4));
 	p->XYZ[1] = IEEE754todouble(read_ORD32_be(buf + 8));
 	p->XYZ[2] = IEEE754todouble(read_ORD32_be(buf + 12));
-	if (!nd) a1logd(p->log, 2, "smcube_poll_measure: returing L*a*b* %f %f %f\n",p->XYZ[0], p->XYZ[1], p->XYZ[2]);
+	if (!nd) a1logd(p->log, 2, "smcube_poll_measure: returning L*a*b* %f %f %f\n",p->XYZ[0], p->XYZ[1], p->XYZ[2]);
 
 	icmLab2XYZ(&icmD50_100, p->XYZ, p->XYZ);
 
@@ -2003,7 +2003,7 @@ static void cube_rgb2XYZ(double *xyz, double *irgb) {
 		for (f = 0; f < 3; f++)
 			xyz[f] = w * clut.table[ix[0]][ix[1]][ix[2]][f];
 
-		for (e = 3-1; e > 0; e--) {	/* Middle verticies */
+		for (e = 3-1; e > 0; e--) {	/* Middle vertices */
 			w = co[si[e]] - co[si[e-1]];
 			ix[si[e]]++;
 			for (f = 0; f < 3; f++)
@@ -2068,7 +2068,7 @@ int static smcube_save_calibration(smcube *p) {
 	calf_wtime_ts(&x, &p->gdate, 1);
 	calf_wdoubles(&x, p->goff, 3);
 
-	a1logd(p->log,3,"nbytes = %d, Checkum = 0x%x\n",x.nbytes,x.chsum);
+	a1logd(p->log,3,"nbytes = %d, Checksum = 0x%x\n",x.nbytes,x.chsum);
 	calf_wints(&x, (int *)(&x.chsum), 1);
 
 	if (calf_done(&x))

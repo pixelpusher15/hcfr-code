@@ -334,7 +334,7 @@ cgatsAlloc *al		/* heap allocator, NULL for default */
 ) {
 	cgatsFileStd *p;
 	int del_al = 0;
-	struct stat sbuf;
+	struct stat sbuf = { 0 };
 
 	if (al == NULL) {	/* None provided, create default */
 		if ((al = new_cgatsAllocStd()) == NULL)

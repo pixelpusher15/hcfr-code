@@ -38,6 +38,7 @@ int      n	/* Dimensionality */
 );
 
 /* Decompose the square matrix A[][] into lower and upper triangles */
+/* NOTE that rows get swaped by swapping matrix pointers! */
 /* Return 1 if the matrix is singular. */
 int
 lu_decomp(
@@ -69,9 +70,30 @@ int     *pivx		/* Pivoting row permutations record */
 );
 
 /* Invert a matrix A using lu decomposition */
+/* NOTE that it returns transposed inverse by normal convention. */
+/* Use sym_matrix_trans() to fix this, or use matrix_trans_mult() */ 
 /* Return 1 if the matrix is singular, 0 if OK */
 int
 lu_invert(
+double **a,	/* A[][] input matrix, returns inversion of A transposed */
+int      n	/* Dimensionality */
+);
+
+/* Invert a matrix A using lu decomposition */
+/* The normal convention inverse is returned */
+/* Return 1 if the matrix is singular, 0 if OK */
+int
+lu_invert_normal(
+double **a,	/* A[][] input matrix, returns inversion of A */
+int      n	/* Dimensionality */
+);
+
+/* Invert a matrix A using lu decomposition, and polish it. */
+/* NOTE that it returns transposed inverse by normal convention. */
+/* Use sym_matrix_trans() to fix this, or use matrix_trans_mult() */
+/* Return 1 if the matrix is singular, 0 if OK */
+int
+lu_polished_invert(
 double **a,	/* A[][] input matrix, returns inversion of A */
 int      n	/* Dimensionality */
 );
@@ -82,9 +104,28 @@ int
 lu_psinvert(
 double **out,	/* Output[0..N-1][0..M-1] */
 double **in,	/*  Input[0..M-1][0..N-1] input matrix */
-int      m,		/* Rows */
-int      n		/* Columns */
+int      m,		/* In Rows */
+int      n		/* In Columns */
 );
+
+/* - - - - - - - - - - - - - - - - - - - */
+
+/* Use Cholesky decomposition on a symetric positive-definite matrix. */
+/* Only the upper triangle of the matrix A is accessed. */
+/* L returns the decomposition */
+/* Return nz if A is not positive-definite */
+int llt_decomp(double **L, double **A, int n);
+
+
+/* Solve a set of simultaneous equations A.x = b from the */
+/* LLt decomposition, by back substitution. */
+void llt_backsub(
+double **L,			/* A[][] LLt decomposition in lower triangle */
+int n,				/* Dimensionality */
+double *b,			/* Input B[] */
+double *x			/* Return X[] (may be same as B[]) */
+);
+
 
 #ifdef __cplusplus
 	}

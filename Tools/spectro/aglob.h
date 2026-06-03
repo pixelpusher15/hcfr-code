@@ -33,7 +33,7 @@ typedef struct {
 #ifdef NT
 	char *base;				/* Base path */
     struct _finddata_t ffs;
-	long ff;
+	IPNTR ff;
 	int first;
 #else	/* UNIX */
 	glob_t g;

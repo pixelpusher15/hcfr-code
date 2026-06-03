@@ -38,6 +38,7 @@
 #include "insttypes.h"
 #include "conv.h"
 #include "icoms.h"
+#include "inst.h"
 
 #ifdef ENABLE_USB
 
@@ -53,8 +54,6 @@ void usb_init_cancel(usb_cancelt *p) {
 	
 	amutex_init(p->cmtx);
 	amutex_init(p->condx);
-
-	p->hcancel = NULL;
 }
 
 void usb_uninit_cancel(usb_cancelt *p) {
@@ -68,7 +67,6 @@ void usb_reinit_cancel(usb_cancelt *cancelt) {
 	
 	amutex_lock(cancelt->cmtx);
 
-	cancelt->hcancel = NULL;
 	cancelt->state = 0;
 	amutex_lock(cancelt->condx);		/* Block until IO is started */
 
@@ -88,19 +86,28 @@ static int icoms_usb_wait_io(
 /*  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 /* Include the USB implementation dependent function implementations */
-# ifdef NT
-#  include "usbio_nt.c"
+#ifdef NT
+# if !defined(EN_LIBUSB0) && !defined(EN_USBDK)
+#  error "One or both of USE_LIBUSB0 and USE_USBDK must be set in Jamtop!"
 # endif
-# if defined(UNIX_APPLE)
-#  include "usbio_ox.c"
+# ifdef EN_LIBUSB0
+#  include "usbio_w0.c"		/* libusb0.sys based */
 # endif
-# if defined(UNIX_X11)
-#  if defined(__FreeBSD__) || defined(__OpenBSD__)
-#   include "usbio_bsd.c"
-#  else
-#   include "usbio_lx.c"
-#  endif
+# ifdef EN_USBDK
+#  include "usbio_dk.c"		/* UsbDk based */
 # endif
+# include "usbio_nt.c"		/* multiplexing shims */
+#endif
+#if defined(UNIX_APPLE)
+# include "usbio_ox.c"
+#endif
+#if defined(UNIX_X11)
+# if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__FreeBSD_kernel__)
+#  include "usbio_bsd.c"
+# else
+#  include "usbio_lx.c"
+# endif
+#endif
 
 /*  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /* I/O routines supported by icoms - uses platform independent */
@@ -135,7 +142,7 @@ double tout				/* Timeout in seconds */
 		return ICOM_SYS;
 	}
 
-	top = (int)(tout * 1000.0 + 0.5);		/* Timout in msec */
+	top = (int)(tout * 1000.0 + 0.5);		/* Timeout in msec */
 
 #ifdef QUIET_MEMCHECKERS
 	if (requesttype & IUSB_ENDPOINT_IN)
@@ -214,7 +221,7 @@ icoms_usb_rw(icoms *p,
 	}
 
 	/* Until data is all read/written, we get a short read/write, we time out, or the user aborts */
-//	a1logd(p->log, 8, "icoms_usb_rw: read/write of %d bytes, timout %f\n",bsize,tout);
+//	a1logd(p->log, 8, "icoms_usb_rw: read/write of %d bytes, timeout %f\n",bsize,tout);
 	while (bsize > 0) {
 		int rv, rbytes;
 		int rsize = bsize > qa ? qa : bsize; 
@@ -299,7 +306,7 @@ static void icoms_sighandler(int arg) {
 		in_usb_rw = -1;
 	icoms_cleanup();
 
-	/* Call the existing handlers */
+	/* Call through to previous handlers */
 #ifdef UNIX
 	if (arg == SIGHUP && usbio_hup != SIG_DFL && usbio_hup != SIG_IGN)
 		usbio_hup(arg);
@@ -317,15 +324,34 @@ static void icoms_sighandler(int arg) {
 
 /* - - - - - - - - - - - - - - - - - - - */
 
+/* Use sigaction() if we can, to get SA_RESTART behavior */
+#if defined(UNIX)
+//sighandler_t signal_x(int signum, sighandler_t handler) {
+static void (*signal_x(int signum, void (*handler)(int)))(int) {
+	struct sigaction new, old;
+	int rv = 0;
+
+	new.sa_handler = handler;
+	sigemptyset(&new.sa_mask);
+	new.sa_flags = SA_RESTART;
+
+	rv =  sigaction(signum, &new, &old);
+
+	return old.sa_handler;
+}
+#else
+# define signal_x signal
+#endif
+
 /* Install the cleanup signal handlers */
 void usb_install_signal_handlers(icoms *p) {
 	if (icoms_list == NULL) {
 		a1logd(g_log, 6, "usb_install_signal_handlers: called\n");
 #if defined(UNIX)
-		usbio_hup = signal(SIGHUP, icoms_sighandler);
+		usbio_hup = signal_x(SIGHUP, icoms_sighandler);
 #endif /* UNIX */
-		usbio_int = signal(SIGINT, icoms_sighandler);
-		usbio_term = signal(SIGTERM, icoms_sighandler);
+		usbio_int = signal_x(SIGINT, icoms_sighandler);
+		usbio_term = signal_x(SIGTERM, icoms_sighandler);
 	}
 
 	/* Add it to our static list, to allow automatic cleanup on signal */
@@ -343,10 +369,10 @@ void usb_delete_from_cleanup_list(icoms *p) {
 			icoms_list = p->next;
 			if (icoms_list == NULL) {
 #if defined(UNIX)
-				signal(SIGHUP, usbio_hup);
+				signal_x(SIGHUP, usbio_hup);
 #endif /* UNIX */
-				signal(SIGINT, usbio_int);
-				signal(SIGTERM, usbio_term);
+				signal_x(SIGINT, usbio_int);
+				signal_x(SIGTERM, usbio_term);
 			}
 		} else {
 			icoms *pp;
@@ -638,7 +664,6 @@ char **pnames			/* List of process names to try and kill before opening */
 	}
 	a1logd(p->log, 6, "icoms_set_usb_port: usb port characteristics set ok\n");
 
-
 	return ICOM_OK;
 }
 
@@ -656,6 +681,43 @@ icoms *p
 	p->usb_cancel_io    = icoms_usb_cancel_io;
 	p->usb_resetep      = icoms_usb_resetep;
 	p->usb_clearhalt    = icoms_usb_clearhalt;
+}
+
+/* ---------------------------------------------------------------------------------*/
+/* Utility code */
+
+/* USB descriptors are little endian */
+
+/* Take a word sized return buffer, and convert it to an unsigned int */
+unsigned int usb2uint(unsigned char *buf) {
+	unsigned int val;
+	val = buf[3];
+	val = ((val << 8) + (0xff & buf[2]));
+	val = ((val << 8) + (0xff & buf[1]));
+	val = ((val << 8) + (0xff & buf[0]));
+	return val;
+}
+
+/* Take a short sized return buffer, and convert it to an int */
+unsigned int usb2ushort(unsigned char *buf) {
+	unsigned int val;
+	val = buf[1];
+	val = ((val << 8) + (0xff & buf[0]));
+	return val;
+}
+
+/* Take an int, and convert it into a byte buffer */
+void int2usb(unsigned char *buf, int inv) {
+	buf[0] = (inv >> 0) & 0xff;
+	buf[1] = (inv >> 8) & 0xff;
+	buf[2] = (inv >> 16) & 0xff;
+	buf[3] = (inv >> 24) & 0xff;
+}
+
+/* Take a short, and convert it into a byte buffer */
+void short2usb(unsigned char *buf, int inv) {
+	buf[0] = (inv >> 0) & 0xff;
+	buf[1] = (inv >> 8) & 0xff;
 }
 
 /* ---------------------------------------------------------------------------------*/

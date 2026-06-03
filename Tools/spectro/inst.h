@@ -229,7 +229,7 @@ typedef enum {
 	inst_mode_basic_mask         = inst_mode_illum_mask | inst_mode_sub_mask,
 
 	/* Extra dependent modes */
-	inst_mode_emis_nonadaptive   = 0x00000800,	/* Emissom Non-adaptive mode */
+	inst_mode_emis_nonadaptive   = 0x00000800,	/* Emission Non-adaptive mode */
 #   define inst_mode_emis_nonadaptive_sys       "EMNA"
 	inst_mode_ref_uv             = 0x00001000,	/* Ultra Violet measurement mode */
 #   define inst_mode_ref_uv_sym                 "REUV"
@@ -335,7 +335,7 @@ typedef enum {
 
 	inst2_emis_refr_meas    = 0x00000080, /* Has an emissive refresh rate measurement func. */
 
-	inst2_prog_trig         = 0x00000100, /* Progromatic trigger measure capability */
+	inst2_prog_trig         = 0x00000100, /* Progromatic trigger measure capability. */
 	inst2_user_trig         = 0x00000200, /* User trigger measure capability, */
 										  /* i.e. via user button and uicallback. */
 	inst2_switch_trig       = 0x00000400, /* Inst. switch trigger measure capability, */
@@ -1184,7 +1184,7 @@ struct _inst {
 /* (Doesn't copy icompaths log!) */
 /* If uicallback is provided, it will be set in the resulting inst */
 extern inst *new_inst(
-	icompath *path,		/* Device path this instrument */
+	icompath *path,		/* Device path this instrument - NULL for no instrument, will return NULL */
 	int nocoms,			/* Don't open if communications are needed to establish inst type */
 	a1log *log,			/* Log to use */
 	inst_code (*uicallback)(void *cntx, inst_ui_purp purp),		/* optional uicallback */
@@ -1267,12 +1267,19 @@ iccss *list_iccss(int *no);
 /* Free up a iccss list */
 void free_iccss(iccss *list);
 
-/* - - - - - - - - - - - - - - - - - - -- */
+/* - - - - - - - - - - - - - - - - - - - */
 /* Custom filter support */
 
 /* Apply a custom filer to an array of ipatch's */
 /* Spetral values are divided by filter spectrum and XYZ recomputed */
 void ipatch_convert_custom_filter(ipatch *vals, int nvals, xspect *filt, int clamp);
+
+/* - - - - - - - - - - - - - - - - - - - */
+ 
+#if defined(ENABLE_FAST_SERIAL)
+devType fast_ser_dev_type(icoms *p, int tryhard, 
+       inst_code (*uicallback)(void *cntx, inst_ui_purp purp), void *cntx);
+#endif /* ENABLE_FAST_SERIAL */
 
 /* - - - - - - - - - - - - - - - - - - -- */
 

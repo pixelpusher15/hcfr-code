@@ -60,6 +60,7 @@ typedef enum {
 	instSpyder5,				/* Datacolor Spyder5 */
 	instSpyderX,				/* Datacolor SpyderX */
 	instSpyderX2,				/* Datacolor SpyderX2 */
+	instSpyder2024,				/* Datacolor Spyder 2024 */
 	instHuey,					/* GretagMacbeth Huey */
 	instSmile,					/* X-rite Colormunki Smile */
 	instEX1,					/* Image Engineering EX1 */

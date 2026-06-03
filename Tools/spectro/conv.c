@@ -14,15 +14,28 @@
  * see the License2.txt file for licencing details.
  */
 
+#define USE_BEGINTHREAD		/* [def] hyper-threading doesn't work on VC++6 otherwise. */
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <time.h>
+#include <ctype.h>
 
 #ifdef NT
+/* Set minimum OS target as XP */
+# if !defined(WINVER) || WINVER < 0x0501
+#  if defined(WINVER) 
+#   undef WINVER
+#  endif
+#  define WINVER 0x0501
+# endif
 # if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0501
+#  if defined(_WIN32_WINNT) 
+#   undef _WIN32_WINNT
+#  endif
 #  define _WIN32_WINNT 0x0501
 # endif
 # define WIN32_LEAN_AND_MEAN
@@ -30,6 +43,7 @@
 #include <conio.h>
 #include <tlhelp32.h>
 #include <direct.h>
+#include <process.h>
 #endif
 
 #if defined(UNIX)
@@ -68,7 +82,28 @@
 #include "conv.h"
 #include "icoms.h"
 
+/*
+	MAC_OS_X_VERSION_MIN_REQUIRED
+	is set to the earliest OS version the code should compile in.
+	This is the usual macro to enable early vs. later OS API use.
+
+	MAC_OS_X_VERSION_MAX_ALLOWED
+	shows the latest API's that the SDK is making available.
+	API's later than MAC_OS_X_VERSION_MIN_REQUIRED need to be
+	detected at run time (i.e soft linking).
+	This is usually used to allow for SDK declaration changes.
+
+	The version should be 4 digits from 1000 to 1090 for 10.0 to 10.9,
+	and 6 digits from 101000 and beyond for 10.1 and beyond.
+
+*/
+
 #ifdef UNIX_APPLE
+
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1060 && MAC_OS_X_VERSION_MIN_REQUIRED < 101200
+# define OBJC_SILENCE_GC_DEPRECATIONS 1     /* Don't warn about objc_registerThreadWithCollector() */
+#endif
+
 //#include <stdbool.h>
 #include <sys/sysctl.h>
 #include <sys/param.h>
@@ -79,7 +114,7 @@
 #include <IOKit/IOBSD.h>
 #include <mach/mach_init.h>
 #include <mach/task_policy.h>
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1050
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
 # include <AudioToolbox/AudioServices.h>
 #endif
 #if MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
@@ -107,164 +142,183 @@
 /* ============================================================= */
 #ifdef NT
 
-/* wait for and then return the next character from the keyboard */
-/* (If not_interactive, return getchar()) */
-int next_con_char(void) {
-	int c;
+/* Debug function: return Windows last error as a string */
+char *GetLastErrorMessage(void) {
+	static char tmp[512];
+	char *s, *d;
 
-	if (not_interactive) {
-		HANDLE stdinh;
-  		char buf[1];
-		DWORD bread;
+	FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+	            NULL, GetLastError(), 0, tmp, sizeof(tmp) - 1, NULL);
 
-		if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE) {
-			return 0;
-		}
-	
-		/* Ignore end of line characters */
-		for (;;) {
-			if (ReadFile(stdinh, buf, 1, &bread, NULL)
-			 && bread == 1
-			 && buf[0] != '\r' && buf[0] != '\n') { 
-				return buf[0];
-			}
-		}
+	/* Remove any \n or \r .. */
+	for (s = d = tmp; *s != '\000'; s++) {
+		if (d != s)
+			*d = *s;
+		if (*d != '\n' && *d != '\r')
+			d++;
 	}
+	*d = '\000';
 
-	c = _getch();
-	return c;
+	return tmp;
 }
 
-#ifdef NEVER	// Don't need this now.
+/* Get the next console character. Return 0 if none is available. */
+/* Wait for one if wait is nz */
+/* (If not_interactive set, return next stdin character if available, but discard cr or lf) */
+static int con_char(int wait) {
 
-/* Horrible hack to poll stdin when we're not interactive. */
-/* This has the drawback that the char and returm must be */
-/* written in one operation for the character to be recognised - */
-/* trying to do this manually typically doesn't work unless you are */
-/* very fast and lucky. */
-static int th_read_char(void *pp) {
-	char *rp = (char *)pp;
-	HANDLE stdinh;
-  	char buf[1];
-	DWORD bread;
-
-	if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE) {
-		*rp = 0;		/* We've started */
-		return 0;
-	}
-
-	*rp = 0;		/* We've started */
-
-	if (ReadFile(stdinh, buf, 1, &bread, NULL)
-	 && bread == 1
-	 && buf[0] != '\r' && buf[0] != '\n') { 
-		*rp = buf[0];
-	}
-
-	return 0;
-}
-#endif	/* NEVER */
-
-/* If there is one, return the next character from the keyboard, else return 0 */
-/* (If not_interactive, always returns 0) */
-int poll_con_char(void) {
+//fprintf(stderr,"~1 con_char not_interactive %d wait %d\n",not_interactive,wait);
 
 	if (not_interactive) {		/* Can't assume that it's the console */
-
-#ifdef NEVER	// Use better approach below.
-		athread *getch_thread = NULL;
-		volatile char c = 0xff;
-	
-		/* This is pretty horrible. The problem is that we can't use */
-		/* any of MSWin's async file read functions, because we */
-		/* have no way of ensuring that the STD_INPUT_HANDLE has been */
-		/* opened with FILE_FLAG_OVERLAPPED. Used a thread instead... */
-		/* ReOpenFile() would in theory fix this, but it's not available in WinXP, only Vista+, */
-		/* and aparently doesn't work on stdin anyway! :-( */
-		if ((getch_thread = new_athread(th_read_char, (char *)&c)) != NULL) {
-			HANDLE stdinh;
-
-			if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE) {
-				return 0;
-			}
-
-			/* Wait for the thread to start */
-			while (c == 0xff) {
-				Sleep(10);			/* We just hope 1 msec is enough for the thread to start */
-			}
-			Sleep(10);			/* Give it time to read */
-			CancelIo(stdinh);	/* May not work since ReadFile() is on a different thread ? */
-			getch_thread->del(getch_thread);
-			return c;
-		}
-#else	/* ! NEVER */
-		/* This approach is very flakey from the console, but seems */
-		/* to work reliably when operated progromatically. */
 		HANDLE stdinh;
-		char buf[10] = { 0 }, c;
+		char buf[10] = { 0 };
 		DWORD bread;
+		int i, rv = 0;
 
 		if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE) {
-			return 0;
+			return 0;		
 		}
-//		printf("Waiting\n");
-		if (WaitForSingleObject(stdinh, 1) == WAIT_OBJECT_0) {
-//			printf("stdin signalled\n");
-			
-//			FlushFileBuffers(stdinh);
-//			FlushConsoleInputBuffer(stdinh);
-			if (ReadFile(stdinh, buf, 1, &bread, NULL)) {
-				int i;
-//				fprintf(stderr,"Read %d chars 0x%x 0x%x 0x%x\n",bread,buf[0],buf[1], buf[2]);
-				if (buf[0] != '\r' && buf[0] != '\n')
-					return buf[0];
-				return 0;
+
+		if (stdin_type == FILE_TYPE_CHAR) {
+//fprintf(stderr,"~1 wait %d console:\n",wait);
+
+			if (wait || _kbhit() != 0) {
+				for (bread = 0; bread < 10;)  {
+					int c = _getch();
+					buf[bread++] = c;
+//fprintf(stderr,"~1  read 0x%x\n" ,c);
+					if (c == '\n' || c == '\r' || c == 0x3) {
+						break;
+					}
+				}
+//fprintf(stderr,"~1  read %d: ",bread);
+//for (i = 0; i < bread; i++)
+//fprintf(stderr," 0x%x",buf[i]);
+//fprintf(stderr,"\n");
+				if (bread > 0) {
+					rv = buf[0];
+				}
+			}
+
+		/* We assume pipe has been set to NOWAIT mode. */
+		} else if (stdin_type == FILE_TYPE_PIPE) {
+			int i, bib;
+//fprintf(stderr,"~1  top of pipe\n");
+
+			for (bib = 0; bib < 10;) {
+//fprintf(stderr,"~1  got %d in buf\n",bib);
+				if ((!ReadFile(stdinh, buf + bib, 10 - bib, &bread, NULL) || bread == 0)
+				 && !wait) {
+//fprintf(stderr,"~1  no chars waiting\n");
+					break;
+				}
+				bib += bread;
+
+				for (i = 0; i < bib; i++) {
+					if (buf[i] == '\n' || buf[i] == '\r' || buf[i] == 0x3) {
+//fprintf(stderr,"~1  found lf at ix %d\n",i);
+						break;
+					}
+				}
+				if (i < bib) {
+//fprintf(stderr,"~1  found lf\n");
+					break;		/* Found '\n' */
+				}
+				Sleep(100);		/* Wait for a line ending in '\n' */
+			}
+
+//if (bread > 0) {
+//fprintf(stderr,"~1  read %d: ",bread);
+//for (i = 0; i < bread; i++)
+//fprintf(stderr," 0x%x",buf[i]);
+//fprintf(stderr,"\n//");
+//}
+			rv = buf[0];
+
+		/* Assume a file. This will have very limited functionality. */
+		/* We assume that we can't poll for console input, but will */
+		/* read from the file on blocking calls. */
+		} else {
+			if (wait) {		/* Only attempt a read if this is blocking */
+				if (ReadFile(stdinh, buf, 10, &bread, NULL) && bread > 0)
+					rv = buf[0];
 			}
 		}
-#endif	/* !NEVER */
-		return 0;
+
+//fprintf(stderr,"~1 returning 0x%x\n",rv);
+		return rv;
 	}
 
-	/* Assume it's the console */
-	if (_kbhit() != 0) {
-		int c = next_con_char();
+	/* Assume it's the interactive console */
+	if (wait || _kbhit() != 0) {
+		int c = _getch();
 		return c;
 	}
 	return 0; 
 }
 
-/* Suck all characters from the keyboard */
-/* (If not_interactive, does nothing ?) */
+/* wait for and then return the next character from the keyboard */
+/* (If not_interactive set, wait for next stdin character but discard cr or lf) */
+int next_con_char(void) {
+	return con_char(1);
+}
+
+/* If there is one, return the next character from the keyboard, else return 0 */
+/* (If not_interactive set, return next stdin character if available, but discard cr or lf) */
+int poll_con_char(void) {
+	return con_char(0); 
+}
+
+/* If interactive, suck all characters from the keyboard */
 void empty_con_chars(void) {
 
-	if (not_interactive) {
-		HANDLE stdinh;
-		char buf[100] = { 0 }, c;
-		DWORD bread;
-
-		if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE)
-			return;
-		for (;;) {
-			/* Wait for 1msec */
-
-			/* Do dummy read, as stdin seems to be signalled on startup */
-			if (WaitForSingleObject(stdinh, 1) == WAIT_OBJECT_0)
-				ReadFile(stdinh, buf, 0, &bread, NULL);
-
-			if (WaitForSingleObject(stdinh, 1) == WAIT_OBJECT_0) {
-				ReadFile(stdinh, buf, 100, &bread, NULL);
-			} else {
-				break;
-			}
-		}
+	if (not_interactive)		/* Don't suck all the characters from stdin */
 		return;
-	}
 
 	Sleep(50);					/* _kbhit seems to have a bug */
 	while (_kbhit()) {
 		if (next_con_char() == 0x3)	/* ^C Safety */
 			break;
 	}
+}
+
+/* Do an fgets from stdin, taking account of possible interference from */
+/* non-interactive mode. */
+char *con_fgets(char *buf, int size) {
+
+	if (not_interactive) {
+		char *rv = NULL;
+		HANDLE stdinh;
+		int i, bib;
+//fprintf(stderr,"~1  top of pipe\n");
+
+		if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE) {
+			return NULL;		
+		}
+
+		for (bib = 0; bib < size;) {
+			DWORD bread;
+
+			if (ReadFile(stdinh, buf + bib, size - bib, &bread, NULL) && bread > 0) {
+				bib += bread;
+
+				for (i = 0; i < bib; i++) {
+					if (buf[i] == '\n' || buf[i] == '\r') {
+						break;
+					}
+				}
+				if (i < bib) {
+					buf[i] = '\000';
+					break;		/* Found '\n' */
+				}
+			}
+			Sleep(100);		/* Wait for a line ending in '\n' */
+	
+		}
+		return buf;
+	}
+
+	return fgets(buf, size, stdin);
 }
 
 /* Sleep for the given number of seconds */
@@ -316,7 +370,9 @@ int amutex_chk(CRITICAL_SECTION *lock) {
 		static volatile LONG ilock = 0;
 
 		/* Try ilock */
-		if (InterlockedCompareExchange((LONG **)&ilock, (LONG *)1, (LONG *)0) == 0) {
+//		if (InterlockedCompareExchange((LONG **)&ilock, (LONG *)1, (LONG *)0) == 0)
+		if (InterlockedCompareExchange(&ilock, (LONG)1, (LONG)0) == 0)
+		{
 			/* We locked it */
 			if (lock->LockCount == amutex_static_LockCount) {	/* Still not inited */
 				InitializeCriticalSection(lock);				/* So we init it */
@@ -367,8 +423,6 @@ int set_normal_priority() {
 #endif /* NEVER */
 
 
-#undef USE_BEGINTHREAD
-
 /* If reusable, start a stopped thread. NOP if not reusable */
 static void athread_start(
 athread *p
@@ -384,7 +438,29 @@ athread *p
 	amutex_unlock(p->startm);
 }
 
-/* If reusable, wait for the thread to stop. Return the result. NOP if not reusable */
+/* If reusable, change the task and then start a stopped thread. NOP if not reusable */
+static void athread_start_task(
+athread *p,
+int (*function)(void *context),
+void *context
+) {
+	DBG("athread_start_task called\n");
+	if (!p->reusable)
+		return;
+
+	/* Change to this task */
+	p->function = function;
+	p->context = context;
+
+	/* Signal to the thread that it should start */
+	amutex_lock(p->startm);
+	p->startv = 1;
+	acond_signal(p->startc);
+	amutex_unlock(p->startm);
+}
+
+/* If reusable, wait for the thread to stop after starting it. */
+/* Return the result. NOP if not reusable */
 static int athread_wait_stop(
 athread *p
 ) {
@@ -446,6 +522,10 @@ athread *p
 		return;
 
 	if (p->th != NULL) {
+		if (p->reusable && !p->joined && !p->dofinish) {
+			p->dofinish = 1;
+			athread_start(p);	/* Wake thread up to cause it to exit */
+		}
 		if (!p->joined)
 			WaitForSingleObject(p->th, INFINITE);
 		CloseHandle(p->th);
@@ -461,11 +541,10 @@ athread *p
 	free(p);
 }
 
-/* _beginthread doesn't leak memory, but */
-/* needs to be linked to a different library */
+/* _beginthreadex inits the CRT properly, wheras CreateThread doesn't on VC++6 */ 
 #ifdef USE_BEGINTHREAD
 /* Thread function */
-static void __cdecl threadproc(
+static unsigned int __stdcall threadproc(
 	void *lpParameter
 ) {
 #else
@@ -504,10 +583,7 @@ DWORD WINAPI threadproc(
 		p->result = p->function(p->context);
 	}
 //	p->finished = 1;
-#ifdef USE_BEGINTHREAD
-#else
 	return 0;
-#endif
 }
  
 athread *new_athread_reusable(
@@ -538,6 +614,7 @@ athread *new_athread_reusable(
 	p->function = function;
 	p->context = context;
 	p->start = athread_start;
+	p->start_task = athread_start_task;
 	p->wait_stop = athread_wait_stop;
 	p->wait = athread_wait;
 	p->terminate = athread_terminate;
@@ -545,8 +622,8 @@ athread *new_athread_reusable(
 
 	/* Create a thread */
 #ifdef USE_BEGINTHREAD
-	p->th = _beginthread(threadproc, 0, (void *)p);
-	if (p->th == -1) {
+	p->th = (HANDLE)_beginthreadex(NULL, 0, threadproc, (void *)p, 0, NULL);
+	if (p->th == (HANDLE)-1L) {
 #else
 	p->th = CreateThread(NULL, 0, threadproc, (void *)p, 0, NULL);
 	if (p->th == NULL) {
@@ -611,6 +688,50 @@ int system_processors() {
 
 #endif /* NT */
 
+/* Do a string copy while replacing all '\' characters with '/' */
+void copynorm_dirsep(char *d, char *s) { 
+#ifdef NT
+	for (;;) {
+		*d = *s;
+		if (*s == '\000')
+			break;
+		if (*d == '\\')
+			*d = '/';
+		s++;
+		d++;
+	}
+#endif
+}
+
+/* Allocate and create a path to the given filename that is */
+/* in the same directory as the given file. */
+/* Returns normalized separator '/' path. */
+/* Free after use */
+/* Return NULL on malloc error */
+char *path_to_file_in_same_dir(char *inpath, char *infile) {
+	size_t alen = 0;
+	char *rv = NULL, *cp;
+
+	/* Be very conservative */
+	alen = strlen(inpath) + strlen(infile) + 1;
+
+	if ((rv = malloc(alen)) == NULL) {
+		return NULL;
+	}
+
+	copynorm_dirsep(rv, inpath);
+	
+	/* Locate the base filename in path */
+	if ((cp = strrchr(rv, '/')) == NULL) {
+		strcpy(rv, infile);
+	} else {
+		cp++;
+		strcpy(cp, infile);
+	}
+
+	return rv;
+}
+
 
 /* ============================================================= */
 /*                          UNIX/OS X                            */
@@ -619,14 +740,14 @@ int system_processors() {
 #if defined(UNIX)
 
 /* Wait for and return the next character from the keyboard */
-/* (If not_interactive, return getchar()) */
+/* (If not_interactive set, wait for next stdin character but discard cr or lf) */
 int next_con_char(void) {
 	struct pollfd pa[1];		/* Poll array to monitor stdin */
 	struct termios origs, news;
 	char rv = 0;
 
+	/* Configure stdin to be ready with just one character if interactive */
 	if (!not_interactive) {
-		/* Configure stdin to be ready with just one character */
 		if (tcgetattr(STDIN_FILENO, &origs) < 0)
 			a1logw(g_log, "next_con_char: tcgetattr failed with '%s' on stdin", strerror(errno));
 		news = origs;
@@ -637,25 +758,24 @@ int next_con_char(void) {
 			a1logw(g_log, "next_con_char: tcsetattr failed with '%s' on stdin", strerror(errno));
 	}
 
-	/* Wait for stdin to have a character */
+	/* Wait for stdin to have at least one character. */
+	/* If not_interactive set then it may be a character followed by cr and/or lf to flush it */
 	pa[0].fd = STDIN_FILENO;
 	pa[0].events = POLLIN | POLLPRI;
 	pa[0].revents = 0;
 
-	if (poll_x(pa, 1, -1) > 0
+	if (poll_x(pa, 1, -1) > 0					/* wait until there is something */
 	 && (pa[0].revents == POLLIN
-		 || pa[0].revents == POLLPRI)) {
-		char tb[3];
-		if (read(STDIN_FILENO, tb, 1) > 0) {	/* User hit a key */
-			rv = tb[0] ;
+		 || pa[0].revents == POLLPRI)) {		/* Something there */
+		char tb[10];
+		if (read(STDIN_FILENO, tb, 3) > 0) {	/* get it and any return */
+			rv = tb[0];
 		}
 	} else {
-		if (!not_interactive)
-			tcsetattr(STDIN_FILENO, TCSANOW, &origs);
 		a1logw(g_log, "next_con_char: poll on stdin returned unexpected value 0x%x",pa[0].revents);
 	}
 
-	/* Restore stdin */
+	/* Restore stdin if interactive */
 	if (!not_interactive && tcsetattr(STDIN_FILENO, TCSANOW, &origs) < 0) {
 		a1logw(g_log, "next_con_char: tcsetattr failed with '%s' on stdin", strerror(errno));
 	}
@@ -664,14 +784,14 @@ int next_con_char(void) {
 }
 
 /* If here is one, return the next character from the keyboard, else return 0 */
-/* (If not_interactive, always returns 0) */
+/* (If not_interactive set, return next stdin character if available, but discard cr or lf) */
 int poll_con_char(void) {
 	struct pollfd pa[1];		/* Poll array to monitor stdin */
 	struct termios origs, news;
 	char rv = 0;
 
+	/* Configure stdin to be ready with just one character if interactive */
 	if (!not_interactive) {
-		/* Configure stdin to be ready with just one character */
 		if (tcgetattr(STDIN_FILENO, &origs) < 0)
 			a1logw(g_log, "poll_con_char: tcgetattr failed with '%s' on stdin", strerror(errno));
 		news = origs;
@@ -682,34 +802,41 @@ int poll_con_char(void) {
 			a1logw(g_log, "poll_con_char: tcsetattr failed with '%s' on stdin", strerror(errno));
 	}
 
-	/* Wait for stdin to have a character */
+	/* See if stdin has a character */
+	/* If not_interactive set then it may be a character followed by cr and/or lf to flush it */
 	pa[0].fd = STDIN_FILENO;
 	pa[0].events = POLLIN | POLLPRI;
 	pa[0].revents = 0;
 
-	if (poll_x(pa, 1, 0) > 0
+	if (poll_x(pa, 1, 0) > 0					/* don't wait if there is nothing */
 	 && (pa[0].revents == POLLIN
-		 || pa[0].revents == POLLPRI)) {
-		char tb[3];
-		if (read(STDIN_FILENO, tb, 1) > 0) {	/* User hit a key */
-			rv = tb[0] ;
+		 || pa[0].revents == POLLPRI)) {		/* Something is there */
+		char tb[10];
+		if (read(STDIN_FILENO, tb, 3) > 0) {	/* Get it and any return */
+			rv = tb[0];
 		}
 	}
 
-	/* Restore stdin */
+	/* Restore stdin if interactive */
 	if (!not_interactive && tcsetattr(STDIN_FILENO, TCSANOW, &origs) < 0)
 		a1logw(g_log, "poll_con_char: tcsetattr failed with '%s' on stdin", strerror(errno));
 
 	return rv;
 }
 
-/* Suck all characters from the keyboard */
-/* (If not_interactive, does nothing) */
+/* Discard all pending characters from stdin */
 void empty_con_chars(void) {
-	if (not_interactive)
+
+	if (not_interactive)		/* Don't suck all the characters from stdin */
 		return;
 
 	tcflush(STDIN_FILENO, TCIFLUSH);
+}
+
+/* Do an fgets from stdin, taking account of possible interference from */
+/* non-Interactive mode. */
+char *con_fgets(char *s, int size) {
+	return fgets(s, size, stdin);
 }
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - */
@@ -827,7 +954,7 @@ static int delayed_beep(void *pp) {
 	msec_sleep(beep_delay);
 	a1logd(g_log,8, "msec_beep activate\n");
 #ifdef UNIX_APPLE
-# if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1050
+# if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
 	AudioServicesPlayAlertSound(kUserPreferredAlert);
 # else
 	SysBeep((beep_msec * 60)/1000);
@@ -856,7 +983,7 @@ void msec_beep(int delay, int freq, int msec) {
 	} else {
 		a1logd(g_log,8, "msec_beep activate\n");
 #ifdef UNIX_APPLE
-# if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1050
+# if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
 			AudioServicesPlayAlertSound(kUserPreferredAlert);
 # else
 			SysBeep((msec * 60)/1000);
@@ -913,6 +1040,9 @@ XBell(..);
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - */
 
+// ~~~ !!!! a lot of this is duplicated in the MSWIN code !!!!
+// !!! Should consolidate to reduce maintanence ?? !!!!
+
 /* If reusable, start a stopped thread. NOP if not reusable */
 static void athread_start(
 athread *p
@@ -920,6 +1050,27 @@ athread *p
 	DBG("athread_start called\n");
 	if (!p->reusable)
 		return;
+
+	/* Signal to the thread that it should start */
+	amutex_lock(p->startm);
+	p->startv = 1;
+	acond_signal(p->startc);
+	amutex_unlock(p->startm);
+}
+
+/* If reusable, change the task and then start a stopped thread. NOP if not reusable */
+static void athread_start_task(
+athread *p,
+int (*function)(void *context),
+void *context
+) {
+	DBG("athread_start_task called\n");
+	if (!p->reusable)
+		return;
+
+	/* Change to this task */
+	p->function = function;
+	p->context = context;
 
 	/* Signal to the thread that it should start */
 	amutex_lock(p->startm);
@@ -991,10 +1142,16 @@ athread *p
 	if (p == NULL)
 		return;
 
-	if (p->thid != 0 && !p->joined) {
-		int rv;
-	    if ((rv = pthread_join(p->thid, NULL)) != 0) 
-			warning("pthread_join of thid %d failed with %d",p->thid,rv);
+	if (p->thid != 0) {
+		if (p->reusable && !p->joined && !p->dofinish) {
+			p->dofinish = 1;
+			athread_start(p);	/* Wake thread up to cause it to exit */
+		}
+		if (!p->joined) {
+			int rv;
+		    if ((rv = pthread_join(p->thid, NULL)) != 0) 
+				warning("pthread_join of thid %d failed with %d",p->thid,rv);
+		}
 	}
 
 	if (p->reusable) {
@@ -1013,8 +1170,8 @@ static void *threadproc(
 	athread *p = (athread *)param;
 
 	/* Register this thread with the Objective-C garbage collector */
-	/* (Hmm. Done by default in latter versions though, hence deprecated in them ?) */
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
+	/* (Still needed even though marked deprecated ??) */
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1060 && MAC_OS_X_VERSION_MIN_REQUIRED < 101200
 	 objc_registerThreadWithCollector();
 #endif
 
@@ -1078,6 +1235,7 @@ athread *new_athread_reusable(
 	p->function = function;
 	p->context = context;
 	p->start = athread_start;
+	p->start_task = athread_start_task;
 	p->wait_stop = athread_wait_stop;
 	p->wait = athread_wait;
 	p->del = athread_del;
@@ -1172,14 +1330,14 @@ int create_parent_directories(char *path) {
 	return 0;
 }
 
-#if !defined(UNIX_APPLE) || __MAC_OS_X_VERSION_MAX_ALLOWED >= 1040
+#if !defined(UNIX_APPLE) || MAC_OS_X_VERSION_MIN_REQUIRED > 1040
 
 /* return the number of processors */
 int system_processors() {
 	return sysconf(_SC_NPROCESSORS_ONLN);
 }
 
-#else	/* OS X < 10.4 code */
+#else	/* OS X <= 10.4 code */
 
 /* return the number of processors using BSD code */
 int system_processors() {
@@ -1213,7 +1371,7 @@ int system_processors() {
 static int th_kkill_nprocess(void *pp) {
 	kkill_nproc_ctx *ctx = (kkill_nproc_ctx *)pp;
 
-	/* set result to 0 if it ever suceeds or there was no such process */
+	/* set result to 0 if it ever succeeds or there was no such process */
 	ctx->th->result = -1;
 	while(ctx->stop == 0) {
 		if (kill_nprocess(ctx->pname, ctx->log) >= 0)
@@ -1418,6 +1576,69 @@ int kill_nprocess(char **pname, a1log *log) {
 #endif /* UNIX_APPLE */
 
 #endif /* UNIX_APPLE || NT */
+
+/* ===================================================================== */
+/* Some web support */
+
+static char nib2hex(int nib) {
+	nib &= 0xf;
+	if (nib < 10)
+		return '0' + nib;
+	else
+		return 'A' + nib - 10;
+}
+
+/* Destination should be strlen(s) * 3 + 1 */
+void encodeurl(char *d, char *s) {
+	char *dd = d;
+	DBGF((DBGA," encodeurl s = '%s'\n",s));
+	for (; *s != '\000'; s++) {
+		char c = *s; 
+
+		if (isalnum(c)
+		 || c == '~'
+		 || c == '-'
+		 || c == '.'
+		 || c == '_')
+			*d++ = c;
+		else {
+			*d++ = '%';
+			*d++ = nib2hex(c >> 4);
+			*d++ = nib2hex(c);
+		}
+	}
+	*d++ = '\000';
+	DBGF((DBGA," encodeurl d = '%s'\n",dd));
+}
+ 
+static int hex2nib(char c) {
+	int nib = 0;
+	if (c >= '0' && c <= '9')
+		nib = c - '0';
+	else if (c >= 'A' && c <= 'F')
+		nib = c - 'A' + 10;
+	else if (c >= 'a' && c <= 'f')
+		nib = c - 'a' + 10;
+	return nib;
+}
+
+/* Destination is smaller than src */
+void decodeurl(char *d, char *s) {
+	char *dd = d;
+	DBGF((DBGA," decodeurl s = '%s'\n",s));
+	for (; *s != '\000'; s++) {
+//		if (s[0] == '+')
+//			*d++ = ' ';
+//		else
+		if (s[0] == '%' && s[1] != '\000' && s[2] != '\000') {
+			*d++ = (hex2nib(s[1]) << 4) + hex2nib(s[2]); 
+			s += 2;
+		} else
+			*d++ = s[0];
+	}
+	*d++ = '\000';
+	DBGF((DBGA," decodeurl d = '%s'\n",dd));
+}
 
 /* ===================================================================== */
 /* Some compatibility functions */

@@ -53,7 +53,7 @@
 */
 #undef USE_NEW_OSX_CODE		/* Not fully implemented */
 
-/* These routines supliement the class code in ntio.c and unixio.c */
+/* These routines supliment the class code in ntio.c and unixio.c */
 /* with HID specific access routines for devices running on operating */
 /* systems where this is desirable. */
 
@@ -114,6 +114,7 @@ typedef struct _HIDD_ATTRIBUTES {
 
 void (WINAPI *pHidD_GetHidGuid)(OUT LPGUID HidGuid) = NULL;
 BOOL (WINAPI *pHidD_GetAttributes)(IN HANDLE HidDeviceObject, OUT PHIDD_ATTRIBUTES Attributes) = NULL;
+BOOL (WINAPI *pHidD_GetSerialNumberString)(IN HANDLE HidDeviceObject, OUT PVOID Buffer, IN ULONG BufferLength) = NULL;
 
 /* See if we can get the wanted function calls */
 /* Return nz if OK */
@@ -127,10 +128,14 @@ static int setup_dyn_calls() {
 		                   GetProcAddress(LoadLibrary("HID"), "HidD_GetHidGuid");
 		pHidD_GetAttributes = (BOOL (WINAPI*)(HANDLE, PHIDD_ATTRIBUTES))
 		                      GetProcAddress(LoadLibrary("HID"), "HidD_GetAttributes");
+		pHidD_GetSerialNumberString = (BOOL (WINAPI*)(HANDLE, PVOID, ULONG))
+		                      GetProcAddress(LoadLibrary("HID"), "HidD_GetSerialNumberString");
 
 		if (pHidD_GetHidGuid == NULL
-		|| pHidD_GetAttributes == NULL)
+		|| pHidD_GetAttributes == NULL
+		|| pHidD_GetSerialNumberString == NULL) {
 			dyn_inited = 0;
+		}
 	}
 	return dyn_inited;
 }
@@ -271,7 +276,7 @@ int hid_get_paths(icompaths *p) {
 #endif /* NT */
 
 #ifdef UNIX_APPLE
-# if defined(USE_NEW_OSX_CODE) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+# if defined(USE_NEW_OSX_CODE) && MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
 	{
 		CFAllocatorContext alocctx;
 		IOHIDManagerRef mref;
@@ -428,7 +433,7 @@ int hid_get_paths(icompaths *p) {
 		}
 	    IOObjectRelease(mit);			/* Release the itterator */
 	}
-#endif	/* __MAC_OS_X_VERSION_MAX_ALLOWED < 1060 */
+#endif	/* MAC_OS_X_VERSION_MIN_REQUIRED < 1060 */
 #endif /* UNIX_APPLE */
 
 #if defined(UNIX_X11)
@@ -502,7 +507,7 @@ void *target,
 IOReturn result,
 void *refcon,
 void *sender,
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1050
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= 1050
 uint32_t size
 #else
 UInt32 size
@@ -547,7 +552,8 @@ char **pnames			/* List of process names to try and kill before opening */
 		{
 			int tries = 0;
 			int last_err = 0;
-
+			icmUTF16 buf[IUSB_DESC_TYPE_STRING_MAX_SIZE/2];
+			
 			for (tries = 0; retries >= 0; retries--, tries++) {
 				/* Open the device */
   				if ((p->hidd->fh = CreateFile(p->hidd->dpath, GENERIC_READ|GENERIC_WRITE,
@@ -570,20 +576,60 @@ char **pnames			/* List of process names to try and kill before opening */
 				}
 			}
 			if (p->hidd->fh == INVALID_HANDLE_VALUE) {
-				a1loge(p->log, ICOM_SYS, "hid_open_port: Failed to open "
-				                     "path '%s' with err %d\n",p->hidd->dpath, last_err);
+				a1loge(p->log, ICOM_SYS, "hid_open_port: Failed to open path "
+				                     "'%s' with err %d\n",p->hidd->dpath, last_err);
 				return ICOM_SYS;
+			}
+
+			/* If possible, read the device serial no */
+			if (!pHidD_GetSerialNumberString(p->hidd->fh, buf, IUSB_DESC_TYPE_STRING_MAX_SIZE)) { 
+				a1logd(p->log, 1, "hid_open_port failed to read device serial no '%s'\n",p->hidd->dpath);
+			} else {
+				size_t s8len;
+
+				/* Convert to 16 bit native endian and add nul terminator */
+				s8len =icmUTF16toUTF8(NULL, NULL, buf);	/* Compute UTF8 size */
+
+				if ((p->hidd->SerialNumber = (char *) calloc(s8len, 1)) == NULL) {
+					a1loge(p->log, ICOM_SYS, "hid_open_port calloc failed!\n");
+					hid_close_port(p);
+					return ICOM_SYS;
+				}
+				icmUTF16toUTF8(NULL, p->hidd->SerialNumber, buf);	/* Convert to UTF8 */
+				a1logd(p->log, 6, "hid_open_port got USB serial no '%s'\n",p->hidd->SerialNumber);
 			}
 		}
 #endif /* NT */
 
 #ifdef UNIX_APPLE
-# if defined(USE_NEW_OSX_CODE) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+# if defined(USE_NEW_OSX_CODE) && MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
 		{
 			/* Open the device */
 			if (IOHIDDeviceOpen(p->hidd->ioob, kIOHIDOptionsTypeSeizeDevice) != kIOReturnSuccess) {
 				a1loge(p->log, ICOM_SYS, "hid_open_port: Opening HID device '%s' failed",p->name);
 				return ICOM_SYS;
+			}
+			/* Try and get the USB serial number */
+			{
+				CFStringRef sref;					/* Serial number propety */
+				char serno[IUSB_DESC_TYPE_STRING_MAX_SIZE/2];
+
+				if ((sref = IORegistryEntryCreateCFProperty(p->hidd->ioob, CFSTR(kIOHIDSerialNumberKey),
+				                                         kCFAllocatorDefault,kNilOptions)) != 0) {
+					/* Convert from CF string to C string */
+					if (CFStringGetCString(sref, serno, IUSB_DESC_TYPE_STRING_MAX_SIZE/2,
+					                                            kCFStringEncodingUTF8)) {
+		 				if ((p->hidd->SerialNumber = strdup(serno)) == NULL) {
+							a1loge(p->log, 0, "hid_open_port: open '%s' malloc failed\n",p->name);
+							hid_close_port(p);
+							return ICOM_SYS;
+						}
+					} else {
+						a1logd(p->log, 6, "hid_open_port: CFStringGetCString failed\n");
+					}
+				    CFRelease(sref);
+				} else {
+				}
 			}
 		}
 #else	/* < 1060 */
@@ -638,18 +684,43 @@ char **pnames			/* List of process names to try and kill before opening */
 			/* And set read callback routine */
 			if ((*(p->hidd->device))->setInterruptReportHandlerCallback(p->hidd->device,
 				p->hidd->rbuf, 256, hid_read_callback, (void *)p, NULL) != kIOReturnSuccess) {
-				a1loge(p->log, ICOM_SYS, "icoms_hid_read: Setting callback handler for "
+				a1loge(p->log, ICOM_SYS, "hid_open_port: Setting callback handler for "
 				                                             "HID '%s' failed\n", p->name);
 				return ICOM_SYS;
 			}
 
 			if ((*(p->hidd->device))->startAllQueues(p->hidd->device) != kIOReturnSuccess) {
-				a1loge(p->log, ICOM_SYS, "icoms_hid_read: Starting queues for "
+				a1loge(p->log, ICOM_SYS, "hid_open_port: Starting queues for "
 				                                   "HID '%s' failed\n", p->name);
 				return ICOM_SYS;
 			}
 		}
-#endif	/* __MAC_OS_X_VERSION_MAX_ALLOWED < 1060 */
+
+		p->is_open = 1;		/* Set it open so that ->usb_control will work... */
+
+		/* Try and get the USB serial number */
+		{
+			CFStringRef sref;					/* Serial number propety */
+			char serno[IUSB_DESC_TYPE_STRING_MAX_SIZE/2];
+
+			if ((sref = IORegistryEntryCreateCFProperty(p->hidd->ioob, CFSTR(kIOHIDSerialNumberKey),
+			                                         kCFAllocatorDefault,kNilOptions)) != 0) {
+				/* Convert from CF string to C string */
+				if (CFStringGetCString(sref, serno, IUSB_DESC_TYPE_STRING_MAX_SIZE/2,
+				                                            kCFStringEncodingUTF8)) {
+	 				if ((p->hidd->SerialNumber = strdup(serno)) == NULL) {
+						a1loge(p->log, 0, "hid_open_port: open '%s' malloc failed\n",p->name);
+						hid_close_port(p);
+						return ICOM_SYS;
+					}
+				} else {
+					a1logd(p->log, 6, "hid_open_port: CFStringGetCString failed\n");
+				}
+			    CFRelease(sref);
+			} else {
+			}
+		}
+#endif	/* MAC_OS_X_VERSION_MIN_REQUIRED < 1060 */
 #endif /* UNIX_APPLE */
 
 		p->is_open = 1;
@@ -676,7 +747,7 @@ void hid_close_port(icoms *p) {
 #endif /* NT */
 
 #ifdef UNIX_APPLE
-# if defined(USE_NEW_OSX_CODE) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+# if defined(USE_NEW_OSX_CODE) && MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
 		if (IOHIDDeviceClose(p->hidd->ioob, kIOHIDOptionsTypeNone) != kIOReturnSuccess) {
 			a1loge(p->log, ICOM_SYS, "hid_close_port: closing HID port '%s' failed\n",p->name);
 		}
@@ -706,7 +777,7 @@ void hid_close_port(icoms *p) {
 		//}
 
 		p->hidd->device = NULL;
-#endif	/* __MAC_OS_X_VERSION_MAX_ALLOWED < 1060 */
+#endif	/* MAC_OS_X_VERSION_MIN_REQUIRED < 1060 */
 #endif /* UNIX_APPLE */
 
 		p->is_open = 0;
@@ -729,7 +800,8 @@ icoms_hid_read(icoms *p,
 	unsigned char *rbuf,	/* Read buffer */
 	int bsize,				/* Bytes to read */
 	int *breadp,			/* Bytes read */
-	double tout				/* Timeout in seconds */
+	double tout,			/* Timeout in seconds */
+	int id					/* If nz, then first byte of buffer is HID ID */
 ) {
 	int retrv = ICOM_OK;	/* Returned error value */
 	int bread = 0;
@@ -744,14 +816,18 @@ icoms_hid_read(icoms *p,
 #if defined(NT)
 	{
 		unsigned char *rbuf2;
+		int bsize2 = bsize;
 
-		/* Create a copy of the data recieved with one more byte */
+		/* Create a copy of the data received with room for one more byte */
 		if ((rbuf2 = malloc(bsize + 1)) == NULL) {
 			a1loge(p->log, ICOM_SYS, "icoms_hid_read: malloc failed\n");
 			return ICOM_SYS;
 		}
-		rbuf2[0] = 0;
-		if (ReadFile(p->hidd->fh, rbuf2, bsize+1, (LPDWORD)&bread, &p->hidd->ols) == 0)  {
+		if (id == 0) {		/* Add no id ID */
+			rbuf2[0] = 0;
+			bsize2++;
+		}
+		if (ReadFile(p->hidd->fh, rbuf2, bsize2, (LPDWORD)&bread, &p->hidd->ols) == 0)  {
 			if (GetLastError() != ERROR_IO_PENDING) {
 				retrv = ICOM_USBR; 
 			} else {
@@ -769,15 +845,19 @@ icoms_hid_read(icoms *p,
 				}
 			}
 		}
-		if (bread > 0)
-			bread--;
-		memmove(rbuf,rbuf2+1,bsize);
+		if (id == 0) {		/* Remove dummy HID ID */
+			if (bread > 0)
+				bread--;
+			memmove(rbuf,rbuf2+1,bread);
+		} else {	
+			memmove(rbuf,rbuf2,bread);
+		}
 		free(rbuf2);
 	}
 #endif /* NT */
 
 #ifdef UNIX_APPLE
-# if defined(USE_NEW_OSX_CODE) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+# if defined(USE_NEW_OSX_CODE) && MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
 	{
 		IOReturn result;
 		CFIndex lbsize = bsize;
@@ -877,8 +957,9 @@ printf("~1 IOHIDDeviceGet returned 0x%x\n",result);
 			return ICOM_SYS;
 		}
 		bread = p->hidd->bread;
-		if (bread > 0)
+		if (bread > 0) {
 			memcpy(rbuf, p->hidd->rbuf, bread > HID_RBUF_SIZE ? HID_RBUF_SIZE : bread);
+		}
 	}
 #else	// NEVER
 	/* This doesn't work. Don't know why */
@@ -904,7 +985,7 @@ printf("~1 IOHIDDeviceGet returned 0x%x\n",result);
 		}
 	}
 #endif	// NEVER
-#endif	/* __MAC_OS_X_VERSION_MAX_ALLOWED < 1060 */
+#endif	/* MAC_OS_X_VERSION_MIN_REQUIRED < 1060 */
 #endif /* UNIX_APPLE */
 
 	if (breadp != NULL)
@@ -925,7 +1006,8 @@ icoms_hid_write(icoms *p,
 	unsigned char *wbuf,	/* Write buffer */
 	int bsize,				/* Bytes to write */
 	int *bwrittenp,			/* Bytes written */
-	double tout				/* Timeout in seconds */
+	double tout,			/* Timeout in seconds */
+	int id					/* If nz, then first byte of buffer is HID ID */
 ) {
 	int retrv = ICOM_OK;	/* Returned error value */
 	int bwritten = 0;
@@ -938,18 +1020,26 @@ icoms_hid_write(icoms *p,
 	}
 
 #if defined(NT)
+	/* Could use HidD_SetOutputReport() ? - but this doesn't support a timeout. */
 	{
 		unsigned char *wbuf2;
+		int bsize2 = bsize;
 
-		/* Create a copy of the data to send with one more byte */
+		/* Create a copy of the data to send with possible extra byte */
 		if ((wbuf2 = malloc(bsize + 1)) == NULL) {
 			a1loge(p->log, ICOM_SYS, "icoms_hid_write: malloc failed\n");
 			return ICOM_SYS;
 		}
-		memmove(wbuf2+1,wbuf,bsize);
-		wbuf2[0] = 0;		/* Extra report ID byte (why ?) */
-		if (WriteFile(p->hidd->fh, wbuf2, bsize+1, (LPDWORD)&bwritten, &p->hidd->ols) == 0) { 
+		if (id == 0) {
+			memmove(wbuf2+1,wbuf,bsize);
+			wbuf2[0] = 0;		/* No id ID */
+			bsize2++;
+		} else {
+			memmove(wbuf2,wbuf,bsize);
+		}
+		if (WriteFile(p->hidd->fh, wbuf2, bsize2, (LPDWORD)&bwritten, &p->hidd->ols) == 0) { 
 			if (GetLastError() != ERROR_IO_PENDING) {
+				a1logd(p->log, 8, "icoms_hid_write error: '%s'\n",GetLastErrorMessage());
 				retrv = ICOM_USBW; 
 			} else {
 				int res;
@@ -967,15 +1057,16 @@ icoms_hid_write(icoms *p,
 				}
 			}
 		}
-		if (bwritten > 0)
+		if (id == 0 && bwritten > 0) {
 			bwritten--;
+		}
 
 		free(wbuf2);
 	}
 #endif /* NT */
 
 #ifdef UNIX_APPLE
-# if defined(USE_NEW_OSX_CODE) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+# if defined(USE_NEW_OSX_CODE) && MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
 	{
 		IOReturn result;
 #ifdef NEVER
@@ -1044,7 +1135,7 @@ printf("~1 IOHIDDeviceSetReportWithCallback returned 0x%x\n",result);
 			bwritten = bsize;
 		}
 	}
-#endif	/* __MAC_OS_X_VERSION_MAX_ALLOWED < 1060 */
+#endif	/* MAC_OS_X_VERSION_MIN_REQUIRED < 1060 */
 #endif /* UNIX_APPLE */
 
 	if (bwrittenp != NULL)
@@ -1070,7 +1161,7 @@ char **pnames			/* List of process names to try and kill before opening */
 
 	a1logd(p->log, 8, "icoms_set_hid_port: About to set HID port characteristics\n");
 
-	if (p->is_open) 
+	if (p->is_open)
 		p->close_port(p);
 
 	if (p->port_type(p) == icomt_hid) {
@@ -1108,16 +1199,22 @@ int hid_copy_hid_idevice(icoms *d, icompath *s) {
 	}
 #endif
 #if defined(UNIX_APPLE)
-# if defined(USE_NEW_OSX_CODE) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+# if defined(USE_NEW_OSX_CODE) && MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
 	d->hidd->ioob = s->hidd->ioob;
 	CFRetain(d->hidd->ioob);
 #else
 	d->hidd->ioob = s->hidd->ioob;
 	IOObjectRetain(d->hidd->ioob);
-#endif	/* __MAC_OS_X_VERSION_MAX_ALLOWED < 1060 */
+#endif	/* MAC_OS_X_VERSION_MIN_REQUIRED < 1060 */
 #endif	/* UNIX_APPLE */
 #if defined (UNIX_X11)
 #endif
+	if (s->hidd->SerialNumber != NULL 
+	 && (d->hidd->SerialNumber = strdup(s->hidd->SerialNumber)) == NULL) {
+		a1loge(d->log, ICOM_SYS, "hid_copy_usb_idevice: malloc\n");
+		return ICOM_SYS;
+	}
+
 	return ICOM_OK;
 }
 
@@ -1131,16 +1228,18 @@ void hid_del_hid_idevice(struct hid_idevice *hidd) {
 		free(hidd->dpath);
 #endif
 #if defined(UNIX_APPLE)
-# if defined(USE_NEW_OSX_CODE) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+# if defined(USE_NEW_OSX_CODE) && MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
 	if (hidd->ioob != 0)
 		CFRelease(hidd->ioob);
 #else
 	if (hidd->ioob != 0)
 		IOObjectRelease(hidd->ioob);
-#endif	/* __MAC_OS_X_VERSION_MAX_ALLOWED < 1060 */
+#endif	/* MAC_OS_X_VERSION_MIN_REQUIRED < 1060 */
 #endif	/* UNIX_APPLE */
 #if defined (UNIX_X11)
 #endif
+	if (hidd->SerialNumber != NULL)
+		free(hidd->SerialNumber);
 	free(hidd);
 }
 

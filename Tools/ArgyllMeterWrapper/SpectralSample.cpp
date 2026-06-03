@@ -448,7 +448,7 @@ bool SpectralSample::createFromTI3(const std::string& ti3Path)
 		if (!bRet) 
 		{
 			std::string errorMessage = "set_ccss failed with '%s'";
-			errorMessage += m_ccss->err;
+			errorMessage += m_ccss->e.m;
 			throw std::logic_error(errorMessage);
 		}
 		return bRet;
@@ -540,7 +540,7 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 	if (!bRet) 
 	{
 		std::string errorMessage = "set_ccss failed with '%s'";
-		errorMessage += m_ccss->err;
+		errorMessage += m_ccss->e.m;
 		throw std::logic_error(errorMessage);
 	}
 

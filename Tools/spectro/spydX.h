@@ -11,7 +11,7 @@
  * Copyright 2006 - 2019, Graeme W. Gill
  * All rights reserved.
  *
- * (Based on spydX.h)
+ * (Based on spyd5.h)
  *
  * This material is licenced under the GNU GENERAL PUBLIC LICENSE Version 2 or later :-
  * see the License2.txt file for licencing details.
@@ -93,7 +93,7 @@ typedef struct {
 
 	double mat[3][3];		/* Native calibration matrix */
 
-} calinfo;
+} SpXcalinfo;
 
 #define SPYDX_NOCALIBS 4
 
@@ -116,7 +116,7 @@ struct _spydX {
 	inst_disptypesel *dtlist;	/* Display Type list */
 	int ndtlist;				/* Number of valid dtlist entries */
 
-	calinfo cinfo[SPYDX_NOCALIBS];	/* cal  & meas setup info indexed by native ix */
+	SpXcalinfo cinfo[SPYDX_NOCALIBS];	/* cal & meas setup info indexed by native ix */
 	
 	int ix;						/* current native cal index */
 	int cbid;					/* current calibration base ID, 0 if not a base */
@@ -125,11 +125,11 @@ struct _spydX {
 
 	double ccmat[3][3];			/* Current colorimeter correction matrix, unity if none */
 
-	int bcal_done;
+	int bcal_done;				/* Black offset calibration is valid */
 	int bcal[3];				/* Black offset calibration values */
 	time_t bdate;				/* Date/time of last black calibration */
 
-	int noinitcalib;		 	/* Don't do initial calibrate */
+	int noinitcalib;		 	/* Don't do initial calibrate, or we've done initial calib.  */
 	int lo_secs;				/* Seconds since last opened (from calibration file mod time) */ 
 
 }; typedef struct _spydX spydX;

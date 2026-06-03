@@ -2,7 +2,7 @@
 
 /*
  * Class to deal with TLS connection to ChromCast,
- * and send and recieve packat format data.
+ * and send and recieve packet format data.
  *
  * Author: Graeme W. Gill
  * Date:   3/9/2014
@@ -133,7 +133,7 @@ char *ccpacket_emes(ccpacket_err rv) {
 			return "Packet: failed to read message";
 	}
 
-	return "Uknown ccpacket error";
+	return "Unknown ccpacket error";
 }
 
 /* Establish an ccpacket connection - implementation */
@@ -154,7 +154,8 @@ static ccpacket_err connect_ccpacket_imp(
 	server.sin_port = htons((short)p->dport);
 
 #ifdef USING_AXTLS
-	if ((p->ctx = ssl_ctx_new(SSL_SERVER_VERIFY_LATER, 1)) == NULL)
+//	if ((p->ctx = ssl_ctx_new(SSL_SERVER_VERIFY_LATER, 1)) == NULL)
+	if ((p->ctx = ssl_ctx_new(0, 1)) == NULL)
 
 	// Want to use TLS_client_method(), but older OpenSSL doesn't have it...
 #elif OPENSSL_VERSION_NUMBER < 0x10100000L
@@ -195,13 +196,13 @@ static ccpacket_err connect_ccpacket_imp(
 #endif
 		if ((rv = setsockopt(p->sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv,
 			                                                   sizeof(tv))) < 0) {
-			DBG((g_log,0,"setsockopt timout failed with %d, errno %d",rv,ERRNO))
+			DBG((g_log,0,"setsockopt timeout failed with %d, errno %d",rv,ERRNO))
 			return ccpacket_connect;
 		}
 		tv = 2000;
 		if ((rv = setsockopt(p->sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv,
 			                                                    sizeof(tv))) < 0) {
-			DBG((g_log,0,"setsockopt timout failed with %d, errno %d",rv,ERRNO))
+			DBG((g_log,0,"setsockopt timeout failed with %d, errno %d",rv,ERRNO))
 			return ccpacket_connect;
 		}
 #else
@@ -215,14 +216,14 @@ static ccpacket_err connect_ccpacket_imp(
 #endif
 		if ((rv = setsockopt(p->sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv,
 			                                                    sizeof(tv))) < 0) {
-			DBG((g_log,0,"setsockopt timout failed with %d, errno %d",rv,ERRNO))
+			DBG((g_log,0,"setsockopt timeout failed with %d, errno %d",rv,ERRNO))
 			return ccpacket_connect;
 		}
 		tv.tv_sec = 2;
 		tv.tv_usec = 0;
 		if ((rv = setsockopt(p->sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv,
 			                                                    sizeof(tv))) < 0) {
-			DBG((g_log,0,"setsockopt timout failed with %d, errno %d",rv,ERRNO))
+			DBG((g_log,0,"setsockopt timeout failed with %d, errno %d",rv,ERRNO))
 			return ccpacket_connect;
 		}
 #endif
@@ -232,7 +233,7 @@ static ccpacket_err connect_ccpacket_imp(
 		ling.l_linger = 2;	/* Two seconds */
 		if ((rv = setsockopt(p->sock, SOL_SOCKET, SO_LINGER, (const char*)&ling,
 			                                                    sizeof(ling))) < 0) {
-			DBG((g_log,0,"setsockopt timout failed with %d, errno %d",rv,ERRNO))
+			DBG((g_log,0,"setsockopt timeout failed with %d, errno %d",rv,ERRNO))
 			return ccpacket_connect;
 		}
 #endif /* NEVER */
@@ -249,14 +250,14 @@ static ccpacket_err connect_ccpacket_imp(
 	/* Return nz if we can send PNG directly as base64 + bg RGB, */
 	/* else have to setup webserver and send URL */
 #ifdef USING_AXTLS
-	if ((p->ssl = ssl_client_new(p->ctx, p->sock, sesid, 32)) == NULL)
+	if ((p->ssl = ssl_client_new(p->ctx, p->sock, sesid, 32, NULL)) == NULL)
 #else
 	if ((p->ssl = SSL_new(p->ctx)) == NULL
 	 || SSL_set_fd(p->ssl, p->sock) != 1
 	 || SSL_connect(p->ssl) != 1)
 #endif
 	{
-		DBG((g_log,0, "connect IP '%s' port %d ssl_ctx_new failed\n",p->dip, p->dport))
+		DBG((g_log,0, "TLS connect IP '%s' port %d ssl_ctx_new failed\n",p->dip, p->dport))
 		return ccpacket_ssl;
 	} 	
 	DBG((g_log,0, "TLS connect IP '%s' port %d success\n",p->dip, p->dport))

@@ -35,7 +35,7 @@
 #define IUSB_CLASS_VENDOR_SPEC       0xff
 
 
-/* Standard Descriptor types */
+/* Standard Descriptor types wValue high byte */
 #define IUSB_DESC_TYPE_DEVICE                0x01
 #define IUSB_DESC_TYPE_CONFIG                0x02
 #define IUSB_DESC_TYPE_STRING                0x03
@@ -53,6 +53,8 @@
 #define IUSB_DESC_TYPE_CONFIG_SIZE           9
 #define IUSB_DESC_TYPE_INTERFACE_SIZE        9
 #define IUSB_DESC_TYPE_ENDPOINT_SIZE         7
+#define IUSB_DESC_TYPE_STRING_MIN_SIZE       2
+#define IUSB_DESC_TYPE_STRING_MAX_SIZE       256
 
 /* Endpoint descriptor bEndpointAddress */
 #define IUSB_ENDPOINT_NUM_MASK         0x0f

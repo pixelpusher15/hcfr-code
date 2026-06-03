@@ -61,7 +61,7 @@ struct hid_idevice {
 	OVERLAPPED ols;				/* Overlapped structure for write/read */
 #endif
 #if defined(UNIX_APPLE)
-# if defined(USE_NEW_OSX_CODE) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+# if defined(USE_NEW_OSX_CODE) && MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
 	int lid;							/* Location ID */
 	IOHIDDeviceRef ioob;				/* Object to open */
 	/* Stuff setup when device is open: */
@@ -78,11 +78,12 @@ struct hid_idevice {
 #   define HID_RBUF_SIZE 1024
 	unsigned char rbuf[HID_RBUF_SIZE];	/* Buffer for read callback */
     int bread;            				/* Bytes read by callback */
-#endif	/* __MAC_OS_X_VERSION_MAX_ALLOWED < 1060 */
+#endif	/* MAC_OS_X_VERSION_MIN_REQUIRED < 1060 */
 #endif
+	char *SerialNumber;		/* If not-NULL, USB serial number string */
 };
 
-/* Cleanup and then free an hidd entry */
+/* Cleanup and then free an hid entry */
 void hid_del_hid_idevice(struct hid_idevice *hidd);
 
 #ifdef __cplusplus

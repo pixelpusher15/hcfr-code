@@ -111,6 +111,8 @@ icompaths *p
 		usbd->nconfig = nconfig;
 		usbd->config = 1;				/* We are only interested in config 1 */
 
+		/* Can we get Manufacturer, Product, SerialNumber using IORegistryEntryCreateCFProperty ? */
+
 		/* Go through all the Interfaces, adding up the number of end points */
 		tnep = 0;
 		if ((kstat = IORegistryEntryCreateIterator(ioob, kIOServicePlane,
@@ -213,6 +215,12 @@ int usb_copy_usb_idevice(icoms *d, icompath *s) {
 		a1loge(d->log, ICOM_SYS, "usb_copy_usb_idevice: malloc\n");
 		return ICOM_SYS;
 	}
+	if (s->usbd->SerialNumber != NULL
+	 && (d->usbd->SerialNumber = strdup(s->usbd->SerialNumber)) == NULL) {
+		a1loge(d->log, ICOM_SYS, "usb_copy_usb_idevice: malloc\n");
+		return ICOM_SYS;
+	}
+
 	d->nconfig = s->usbd->nconfig;
 	d->config = s->usbd->config;
 	d->nifce = s->usbd->nifce;
@@ -226,6 +234,9 @@ void usb_del_usb_idevice(struct usb_idevice *usbd) {
 
 	if (usbd == NULL)
 		return;
+
+	if (usbd->SerialNumber != NULL)
+		free(usbd->SerialNumber);
 
 	if (usbd->ioob != 0)
 		IOObjectRelease(usbd->ioob);
@@ -273,11 +284,13 @@ void usb_close_port(icoms *p) {
 		/* Workaround for some bugs - reset device on close */
 		if (p->uflags & icomuf_reset_before_close) {
 			IOReturn rv;
-			// ~~~~ may have to switch to ->USBDeviceReEnumerate(p->usbd->device, 0) ???
-			// because new OS X 10.11 ignore ResetDevice ?
-			if ((rv = (*(p->usbd->device))->ResetDevice(p->usbd->device)) != kIOReturnSuccess) {
-				a1logd(p->log, 1, "usb_close_port: ResetDevice failed with 0x%x\n",rv);
-			}
+
+			a1logd(p->log, 6, "usb_close_port: icomuf_reset_before_close\n");
+
+			// OS X >= 10.11 ignores ResetDevice, so use alternative... */
+			if ((rv = (*(p->usbd->device))->USBDeviceReEnumerate(p->usbd->device, 0))
+				                                                 != kIOReturnSuccess)
+				a1logd(p->log, 1, "usb_close_port: USBDeviceReEnumerate failed with 0x%x\n",rv);
 		}
 
 		/* Close down and free everything in p->usbd */
@@ -388,6 +401,84 @@ char **pnames		/* List of process names to try and kill before opening */
 		if (kpc != NULL)
 			kpc->del(kpc); 
 
+		/* Try and get the USB serial number */
+#ifdef kUSBSerialNumberString		/* Easy way */
+		{
+			CFStringRef sref;					/* Serial number propety */
+			char serno[IUSB_DESC_TYPE_STRING_MAX_SIZE/2];
+
+			if ((sref = IORegistryEntryCreateCFProperty(p->usbd->ioob, CFSTR(kUSBSerialNumberString),
+			                                         kCFAllocatorDefault,kNilOptions)) != 0) {
+				/* Convert from CF string to C string */
+				if (CFStringGetCString(sref, serno, IUSB_DESC_TYPE_STRING_MAX_SIZE/2,
+				                                            kCFStringEncodingUTF8)) {
+	 				if ((p->usbd->SerialNumber = strdup(serno)) == NULL) {
+						a1loge(p->log, rv, "usb_open_port: open '%s' malloc failed\n",p->name);
+						cleanup_device(p);
+						return ICOM_SYS;
+					}
+				} else {
+					a1logd(p->log, 1, "usb_open_port: CFStringGetCString failed\n");
+				}
+			    CFRelease(sref);
+			} else {
+				a1logd(p->log, 1, "usb_open_port: IORegistryEntryCreateCFProperty kUSBSerialNumberString failed\n");
+			}
+		}
+#else		/* The hard way... */
+		{
+			CFNumberRef siref;					/* Serial number index */
+			unsigned int iserialno = 0;
+
+			if ((siref = IORegistryEntryCreateCFProperty(p->usbd->ioob, CFSTR(kUSBSerialNumberStringIndex),
+			                                         kCFAllocatorDefault,kNilOptions)) != 0) {
+				CFNumberGetValue(siref, kCFNumberIntType, &iserialno);
+			    CFRelease(siref);
+			} else {
+				a1logd(p->log, 6, "usb_open_port: failed to get kUSBSerialNumberStringIndex\n");
+			}
+			if (iserialno != 0) {
+				unsigned char buf[IUSB_DESC_TYPE_STRING_MAX_SIZE]; 
+				int se = 0;
+				int retsz = 0;
+
+				if (((se = icoms_usb_control_msg(p, &retsz, 
+					IUSB_REQ_DEV_TO_HOST | IUSB_REQ_TYPE_STANDARD | IUSB_REQ_RECIP_DEVICE,
+					IUSB_REQ_GET_DESCRIPTOR,
+		            (IUSB_DESC_TYPE_STRING << 8) | iserialno, 0,
+					buf, IUSB_DESC_TYPE_STRING_MAX_SIZE, 200)) != ICOM_OK && se != ICOM_SHORT)
+                                     || retsz < IUSB_DESC_TYPE_STRING_MIN_SIZE) {
+					a1logd(p->log, 1, "usb_open_port failed to read device serial no with ICOM err 0x%x and retsz %d\n",se,retsz);
+				} else {
+					unsigned int slen = buf[0];
+
+					if (slen > 2 && (slen & 1) == 0) {
+						icmUTF16 buf2[IUSB_DESC_TYPE_STRING_MAX_SIZE/2];
+						unsigned int j;
+						size_t s8len;
+
+						/* Convert to 16 bit native endian and add nul terminator */
+						slen = (slen-2)/2;
+						for (j = 0; j < slen; j++) {
+							buf2[j] = usb2ushort(buf + 2 + j * 2);
+						}
+						buf2[j] = 0;
+
+						s8len =icmUTF16toUTF8(NULL, NULL, buf2);	/* Compute UTF8 size */
+
+						if ((p->usbd->SerialNumber = (char *) calloc(s8len, 1)) == NULL) {
+							a1loge(p->log, ICOM_SYS, "usb_get_paths_w0 calloc failed!\n");
+							cleanup_device(p);
+							return ICOM_SYS;
+						}
+						icmUTF16toUTF8(NULL, (unsigned char *)p->usbd->SerialNumber, buf2);	/* Convert to UTF8 */
+						a1logd(p->log, 6, "usb_open_port got USB serial no '%s'\n",p->usbd->SerialNumber);
+					}
+				}
+			}
+		}
+#endif	/* !kUSBSerialNumberString */
+
 		/* We should only do a set configuration if the device has more than one */
 		/* possible configuration and it is currently not the desired configuration, */
 		/* but we should avoid doing a set configuration if the OS has already */
@@ -408,6 +499,10 @@ char **pnames		/* List of process names to try and kill before opening */
 			p->cconfig = config;
 			a1logd(p->log, 6, "usb_open_port: SetConfiguration %d OK\n",config);
 		}
+
+		/* For some devices (Spyder 3/4 ?) on some versions of OS X (Ventura ?), */
+		/* we seem to need to let the device recover from the set configuration. */
+		msec_sleep(50);
 
 		/* Get interfaces */
 		{
@@ -499,7 +594,7 @@ char **pnames		/* List of process names to try and kill before opening */
 					p->EPINFO(ad).addr = ad;
 					p->EPINFO(ad).packetsize = maxPacketSize;
 					p->EPINFO(ad).type = transferType & IUSB_ENDPOINT_TYPE_MASK;
-					p->EPINFO(ad).interface = i;
+					p->EPINFO(ad).ifaceno = i;
 					p->EPINFO(ad).pipe = j+1;
 					a1logd(p->log, 6, "set ep ad 0x%x packetsize %d type %d, if %d, pipe %d\n",ad,maxPacketSize,transferType & IUSB_ENDPOINT_TYPE_MASK,i,j);
 				}
@@ -581,7 +676,7 @@ static int icoms_usb_transaction(
 	usbio_req req;
 	IOReturn result;
 	CFRunLoopSourceRef cfsource;	/* Device event sources */
-	int iix = p->EPINFO(endpoint).interface;
+	int iix = p->EPINFO(endpoint).ifaceno;
 	UInt8 pno = (UInt8)p->EPINFO(endpoint).pipe;
 
 	in_usb_rw++;
@@ -802,7 +897,7 @@ int icoms_usb_resetep(
 	int ep					/* End point address */
 ) {
 	int reqrv = ICOM_OK;
-	int iix = p->EPINFO(ep).interface;
+	int iix = p->EPINFO(ep).ifaceno;
 	UInt8 pno = (UInt8)p->EPINFO(ep).pipe;
 	IOReturn rv;
 
@@ -821,7 +916,7 @@ int icoms_usb_clearhalt(
 	int ep					/* End point address */
 ) {
 	int reqrv = ICOM_OK;
-	int iix = p->EPINFO(ep).interface;
+	int iix = p->EPINFO(ep).ifaceno;
 	UInt8 pno = (UInt8)p->EPINFO(ep).pipe;
 	IOReturn rv;
 	int irv;

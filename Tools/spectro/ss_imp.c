@@ -217,7 +217,7 @@ static int h2b(ss *p, char c) {
 	return 0;
 }
 
-/* Return the first enum from the recieve buffer without removing it. */
+/* Return the first enum from the receive buffer without removing it. */
 int ss_peek_ans(ss *p) {
 	int rv;
 
@@ -447,7 +447,7 @@ inst_code ss_inst_err(ss *p) {
 void ss_incorp_err(ss *p, ss_et se) {
 	if (p->snerr != ss_et_NoError)		/* Don't overrite any existing error */
 		return;
-	if (se == ss_set_NoError)
+	if (se == ss_et_NoError)
 		return;
 
 	p->snerr = se;

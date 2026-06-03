@@ -502,7 +502,7 @@ struct _i1pro3imp {
 	int ee1_pol_led_suv_cur;	/* Polarized illuminating Short UV LED current */
 
 	double ee1_wltempcoef;	/* wl/delta_temperature adjustment factor */
-							/* adjust by - (current_board_temp - cal_board_temp) * ee1_2f88 */
+							/* adjust by - (current_board_temp - cal_board_temp) * ee1_wltempcoef */
 
 	/* Block 4 */
 	int ee_unk27[4];
@@ -585,6 +585,7 @@ void del_i1pro3imp(i1pro3 *p);
 #define I1PRO3_RD_NOAMBB4FLASHES        0x3F		/* No ambient before flashes found */
 #define I1PRO3_RD_NOREFR_FOUND          0x40		/* Unable to measure refresh rate */
 #define I1PRO3_RD_NOTRANS_FOUND         0x41		/* Unable to measure delay transition */
+#define I1PRO3_RD_LEADTRAILINCONS       0x42		/* Leader and trailer are inconsistent */
 
 /* Internal errors */
 #define I1PRO3_INT_NO_COMS 		        0x50
@@ -602,6 +603,7 @@ void del_i1pro3imp(i1pro3 *p);
 #define I1PRO3_INT_CIECONVFAIL 	        0x61		/* Creating spectral to CIE converted failed */
 #define I1PRO3_INT_MALLOC               0x63		/* Error in mallocing memory */
 #define I1PRO3_INT_CREATE_EEPROM_STORE  0x64		/* Error in creating EEProm store */
+#define I1PRO3_INT_NEW_RSPL_FAILED       0x68		/* Creating RSPL object failed */
 #define I1PRO3_INT_CAL_SAVE             0x69		/* Unable to save calibration to file */
 #define I1PRO3_INT_CAL_RESTORE          0x6A		/* Unable to restore calibration from file */
 #define I1PRO3_INT_CAL_TOUCH            0x6B		/* Unable to touch calibration file */
@@ -826,6 +828,7 @@ i1pro3_code i1pro3_scan_emis_meas(
 typedef struct {
 	int ss;				/* Start sample index */
 	int no;				/* Number of samples */
+	double nno;			/* Speed normalized number of samples */
 	int use;			/* nz if patch is to be used */
 } i1pro3_patch;
 
@@ -1439,7 +1442,7 @@ i1pro3_code i1pro3_waitfor_event(i1pro3 *p, i1pro3_eve *ecode, double top);
 /* Wait for a reply triggered by an instrument event (thread version) */
 /* Returns I1PRO3_OK if the switch has been pressed or some other event such */
 /* as an adapter type change, or I1PRO3_INT_BUTTONTIMEOUT if */
-/* no event has occured before the time expired, */
+/* no event has occurred before the time expired, */
 /* or some other error. */
 i1pro3_code i1pro3_waitfor_event_th(i1pro3 *p, i1pro3_eve *ecode, double top);
 

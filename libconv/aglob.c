@@ -25,8 +25,15 @@
  *************************************************************************/
 
 #if defined (NT)
+/* Set minimum OS target as XP */
+# if !defined(WINVER) || WINVER < 0x0501
+#  if defined(WINVER) 
+#   undef WINVER
+#  endif
+#  define WINVER 0x0501
+# endif
 # if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0501
-#  if defined _WIN32_WINNT
+#  if defined(_WIN32_WINNT) 
 #   undef _WIN32_WINNT
 #  endif
 #  define _WIN32_WINNT 0x0501
@@ -42,6 +49,7 @@
 # include <pthread.h>
 #endif
 
+#include <ctype.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdio.h>
@@ -54,6 +62,9 @@
 #include "aglob.h"
 
 /*
+	NOTE :- do we need this info now that we are setting manifest
+	to use the 65001 code page ??
+
 	For MSWin should convert spath to UTF16 and call
 	wide version of FindFirstFileW with  "\\?\" pre-pended to
 	the path. Convert results back to UTF8. (No Nt2K support ?)
@@ -65,7 +76,7 @@
 	_wfindnext()
 	_wfopen()
 	WideCharToMultiByte
-	MultiByteToWideCharTo
+	MultiByteToWideChar
 	GetShortPathNameW to convert for libraries, but not 100% reliable
 
 	See <http://utf8everywhere.org/>
@@ -102,9 +113,35 @@ int aglob_create(aglob *g, char *spath) {
 	g->first = 1;
     g->ff = _findfirst(spath, &g->ffs);
 #else /* UNIX */
+	char *tpath, *d, *s;
+
+	/* Make a copy of the pattern with extra space */
+	if ((tpath = malloc(4 * strlen(spath)+1)) == NULL) {
+		a1loge(g_log, 1, "aglob_create: malloc failed\n");
+		return 1;
+	}
+	strcpy(tpath, spath);
+
+	/* If there is a file extension, make it case insensitive */
+	if ((s = strrchr(spath, '.')) != NULL) {
+		d = tpath + (s - spath);
+		while (*s != '\000') {
+			if (isalpha(*s)) {
+				*d++ = '[';
+				*d++ = tolower(*s);
+				*d++ = toupper(*s++);
+				*d++ = ']';
+			} else {
+				*d++ = *s++;
+			}
+		}
+		*d++ = '\000';
+//printf("~` converted '%s' to '%s'\n",spath,tpath);
+	}
 	memset(&g->g, 0, sizeof(g->g));
-	g->rv = glob(spath, GLOB_NOSORT, NULL, &g->g);
-//a1loge(g_log, 0, "~1 glob '%s' returns %d and gl_pathc = %d\n",spath,g->rv,g->g.gl_pathc);
+	g->rv = glob(tpath, GLOB_NOSORT, NULL, &g->g);
+	free(tpath);
+	a1logd(g_log, 2, " glob '%s' returns %d and gl_pathc %d\n",spath,g->rv,g->g.gl_pathc);
 	if (g->rv == GLOB_NOSPACE) {
 		a1loge(g_log, 1, "aglob_create: glob returned GLOB_NOSPACE\n");
 		return 1;

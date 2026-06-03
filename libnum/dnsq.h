@@ -84,7 +84,8 @@ int dnsq_jac(		/* Return < 0 on abort */
 );
 
 #define		M_LARGE 1.79e+308
-#define		M_DIVER 2.22e-15
+#define		M_DIVER 2.22e-15		/* Machine precision (10 x IEEE double) */
+#define		M_SQRT_DIVER 4.71e-8	/* sqrt(M_DIVER) */
 
 /* Simplified dnsq() */
 int dnsqe(

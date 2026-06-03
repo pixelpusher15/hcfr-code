@@ -15,6 +15,8 @@
 	extern "C" {
 #endif
 
+#define DFUNC_NRV	1e100
+
 /* Standard interface for powell function */
 /* return 0 on sucess, 1 on failure due to excessive itterations */
 /* Result will be in cp */
@@ -32,7 +34,7 @@ void (*prog)(void *pdata, int perc),		/* Optional progress percentage callback *
 void *pdata				/* Opaque data needed by prog() */
 );
 
-/* Conjugate Gradient optimiser */
+/* Conjugate Gradient optimiser using partial derivatives. */
 /* return 0 on sucess, 1 on failure due to excessive itterations */
 /* Result will be in cp */
 int conjgrad(
@@ -43,8 +45,26 @@ double s[],				/* Size of initial search area */
 double ftol,			/* Tollerance of error change to stop on */
 int maxit,				/* Maximum iterations allowed */
 double (*func)(void *fdata, double tp[]),		/* Error function to evaluate */
-double (*dfunc)(void *fdata, double dp[], double tp[]),		/* Gradient function to evaluate */
+double (*dfunc)(void *fdata, double dp[], double tp[]),		/* Gradient & function to evaluate */
+						/* dfunc() should return DFUNC_NRV if it doesn't return function value */
 void *fdata,			/* Opaque data needed by function */
+void (*prog)(void *pdata, int perc),		/* Optional progress percentage callback */
+void *pdata				/* Opaque data needed by prog() */
+);
+
+/* conjgrad using one callback function (uses numerical aprox., gradient function). */
+/* return 0 on sucess, 1 on failure due to excessive itterations */
+/* Result will be in cp */
+/* Arrays start at 0 */
+int conjgrad1(
+double *rv,				/* If not NULL, return the residual error */
+int di,					/* Dimentionality */
+double cp[],			/* Initial starting point */
+double s[],				/* Size of initial search area */
+double ftol,			/* Tollerance of error change to stop on */
+int maxit,				/* Maximum iterations allowed */
+double (*funk)(void *fdata, double tp[]),		/* Error function to evaluate */
+void *fdata,			/* Opaque data needed by func() */
 void (*prog)(void *pdata, int perc),		/* Optional progress percentage callback */
 void *pdata				/* Opaque data needed by prog() */
 );
@@ -54,18 +74,36 @@ double powell_funk(		/* Return function value */
 	void *fdata,		/* Opaque data pointer */
 	double tp[]);		/* Multivriate input value */
 
-/* Line in multi-dimensional space minimiser */
-double brentnd(			/* vector multiplier return value */
-double ax,				/* Minimum of multiplier range */
-double bx,				/* Starting point multiplier of search */
-double cx,				/* Maximum of multiplier range */
-double ftol,			/* Tollerance to stop search */
-double *xmin,			/* Return value of multiplier at minimum */		
-int n,					/* Dimensionality */
+/* Line bracketing and minimisation routine. */
+/* Return value at minimum. */
+double linmin(
+double cp[],		/* Start point, and returned value */
+double xi[],		/* Search vector */
+int di,				/* Dimensionality */
+#ifdef ABSTOL
+double ftol,		/* Absolute tolerance to stop on */
+#else
+double ftol,		/* Relative tolerance to stop on */
+#endif
 double (*func)(void *fdata, double tp[]),		/* Error function to evaluate */
-void *fdata,			/* Opaque data */
-double pcom[],			/* Base vector point */
-double xicom[]);		/* Vector that will be multiplied and added to pcom[] */
+void *fdata			/* Opaque data for func() */
+);
+
+/* Line bracketing and minimisation routine using derivatives. */
+/* Return value at minimum. */
+double linmind(
+double cp[],		/* Start point, and returned value */
+double xi[],		/* Search vector */
+int di,				/* Dimensionality */
+#ifdef ABSTOL
+double ftol,		/* Absolute tolerance to stop on */
+#else
+double ftol,		/* Relative tolerance to stop on */
+#endif
+double (*func)(void *fdata, double tp[]),		/* Error function to evaluate */
+double (*dfunc)(void *fdata, double dp[], double tp[]),		/* Gradient & function to evaluate */
+void *fdata			/* Opaque data for func() */
+);
 
 #ifdef __cplusplus
 	}

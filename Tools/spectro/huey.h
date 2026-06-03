@@ -96,6 +96,7 @@ struct _huey {
 	/* EEPROM registers */
 	/* Number is the register address, and B, S, W, F indicate the type/size */
 	int     ser_no;				/* Serial number */
+	char    serno[20];			/* Serial number as a string */
 
 	double  LCD_cal[9];			/* LCD 3x3 calibration matrix */
 	int     LCD_caltime;		/* Calibration time in secs from January 1, 1970, UTC */

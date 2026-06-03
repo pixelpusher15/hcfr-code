@@ -76,6 +76,7 @@ extern icom_type dev_category(devType dtype) {
 	case instSpyder5:
 	case instSpyderX:
 	case instSpyderX2:
+	case instSpyder2024:
 	case instHuey:
 	case instSmile:
 	case instEX1:
@@ -163,6 +164,8 @@ char *inst_sname(instType itype) {
 			return "SpyderX";
 		case instSpyderX2:
 			return "SpyderX2";
+		case instSpyder2024:
+			return "Spyder 2024";
 		case instHuey:
 			return "Huey";
 		case instSmile:
@@ -257,6 +260,8 @@ char *inst_name(instType itype) {
 			return "Datacolor SpyderX";
 		case instSpyderX2:
 			return "Datacolor SpyderX2";
+		case instSpyder2024:
+			return "Datacolor Spyder 2024";
 		case instHuey:
 			return "GretagMacbeth Huey";
 		case instSmile:
@@ -370,6 +375,8 @@ instType inst_enum(char *name) {
 		return instSpyderX;
 	else if (strcmp(name, "Datacolor SpyderX2") == 0)
 		return instSpyderX2;
+	else if (strcmp(name, "GretagMacbeth Spyder 2024") == 0)
+		return instSpyder2024;
 	else if (strcmp(name, "GretagMacbeth Huey") == 0)
 		return instHuey;
 	else if (strcmp(name, "ColorMunki Smile") == 0)
@@ -465,6 +472,8 @@ int nep) {					/* Number of end points */
 			return instSpyderX;
 		if (idProduct == 0x0A0A)	/* DataColor SpyderX2 */
 			return instSpyderX2;
+		if (idProduct == 0x0A0B)	/* DataColor Spyder2024 */
+			return instSpyder2024;
 	}
 
 	if (idVendor == 0x0971) {		/* Gretag Macbeth */
@@ -584,6 +593,7 @@ int inst_illuminant(xspect *sp, instType itype) {
 		case instSpyder5:
 		case instSpyderX:
 		case instSpyderX2:
+		case instSpyder2024:
 			return 1;										/* Not applicable */
 
 		case instHuey:

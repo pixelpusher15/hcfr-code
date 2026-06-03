@@ -1,9 +1,12 @@
 
 /* 
- * Argyll Color Correction System
+ * Argyll Color Management System
  *
  * Very simple & concise base64 encoder/decoder
  *
+ */
+
+/*
  * Author: Graeme W. Gill
  *
  * Copyright 2014, Graeme W. Gill
@@ -101,7 +104,7 @@ void DLL_LOCAL dbase64(int *dlen, unsigned char *dst, char *src) {
 
 	/* Do this 4 characters at a time */
 	for (j = 0;;) { 
-		int ib;
+		int v, ib;
 
 		/* Grab 4 characters skipping illegals, and count bits */
 		while ((buf[0] = dec(*src++)) == -1)

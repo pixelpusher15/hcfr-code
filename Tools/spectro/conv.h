@@ -2,6 +2,7 @@
 
 /*
  * Some system dependent convenience functions.
+ * (Some of this should be moved to numlib/numsup  - i.e. threading support ?)
  * Implemented in unixio.c and ntio.c
  */
 
@@ -21,8 +22,14 @@
  */
 
 #if defined (NT)
+# if !defined(WINVER) || WINVER < 0x0501
+#  if defined(WINVER) 
+#   undef WINVER
+#  endif
+#  define WINVER 0x0501
+# endif
 # if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0501
-#  if defined _WIN32_WINNT
+#  if defined(_WIN32_WINNT) 
 #   undef _WIN32_WINNT
 #  endif
 #  define _WIN32_WINNT 0x0501
@@ -30,6 +37,10 @@
 # define WIN32_LEAN_AND_MEAN
 # include <windows.h>
 # include <io.h>
+#endif
+
+#ifdef SALONEINSTLIB
+# include "sa_conv.h"		/* HCFR local: standalone shims incl. icmUTF16toUTF8 (see sa_conv.h) */
 #endif
 
 #if defined(UNIX)
@@ -41,6 +52,14 @@
 #ifdef __cplusplus
 	extern "C" {
 #endif
+
+/* - - - - - - - - - - - - - - - - - - -- */
+#ifdef NT
+
+/* Debug function: return Windows last error as a string */
+char *GetLastErrorMessage(void);
+
+#endif /* NT */
 
 /* - - - - - - - - - - - - - - - - - - -- */
 /* System dependent convenience functions */
@@ -56,6 +75,10 @@ int poll_con_char(void);
 /* Empty the console of any pending characters */
 /* (If not_interactive, does nothing) */
 void empty_con_chars(void);
+
+/* Do an fgets from stdin, taking account of possible interference from */
+/* non-Interactive mode. */
+char *con_fgets(char *s, int size);
 
 /* Activate the system beeper after a delay */
 /* (Note frequency and duration may not be honoured on all systems) */
@@ -180,7 +203,11 @@ struct _athread {
 	/* If reusable, start a stopped thread. NOP if not reusable */
 	void (*start)(struct _athread *p);
 
-	/* If reusable, wait for the thread to stop. Return the result. NOP if not reusable */
+	/* If reusable, change the task and then start a stopped thread. NOP if not reusable */
+	void (*start_task)(struct _athread *p, int (*function)(void *context), void *context);
+
+	/* If reusable, wait for the thread to stop after starting it. */
+	/* Return the result. NOP if not reusable */
 	int (*wait_stop)(struct _athread *p);
 
 	/* Wait for the thread to exit. Return the result. Causes reusable thread to exit. */
@@ -223,6 +250,16 @@ void delete_file(char *fname);
 /* are created. return nz on error */
 int create_parent_directories(char *path);
 
+/* Do a string copy while replacing all '\' characters with '/' */
+static void copynorm_dirsep(char *d, char *s);
+
+/* Allocate and create a path to the given filename that is */
+/* in the same directory as the given file. */
+/* Returns normalized separator '/' path. */
+/* Free after use */
+/* Return NULL on malloc error */
+char *path_to_file_in_same_dir(char *inpath, char *infile);
+
 /* - - - - - - - - - - - - - - - - - - -- */
 
 /* return the number of processors */
@@ -254,6 +291,15 @@ kkill_nproc_ctx *kkill_nprocess(char **pname, a1log *log);
 #endif /* UNIX_APPLE || NT */
 
 #include "xdg_bds.h"
+
+/* - - - - - - - - - - - - - - - - - - -- */
+/* Some web functions */
+
+/* Destination should be strlen(s) * 3 + 1 */
+void encodeurl(char *d, char *s);
+
+/* Destination is smaller than src */
+void decodeurl(char *d, char *s);
 
 /* - - - - - - - - - - - - - - - - - - -- */
 /* Some compatibility functions */

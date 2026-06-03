@@ -191,7 +191,7 @@ std::string CGATSFile::getErrorMessage() const
 {
 	if (m_CGATS != NULL)
 	{
-		return m_CGATS->err;
+		return m_CGATS->e.m;
 	}
 	else
 	{

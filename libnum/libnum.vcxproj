@@ -89,12 +89,16 @@
     <ClCompile Include="aatree.c" />
     <ClCompile Include="dhsx.c" />
     <ClCompile Include="dnsq.c" />
+    <ClCompile Include="gnewt.c" />
     <ClCompile Include="ludecomp.c" />
     <ClCompile Include="powell.c" />
+    <ClCompile Include="quadprog.c" />
     <ClCompile Include="rand.c" />
+    <ClCompile Include="roots.c" />
     <ClCompile Include="sobol.c" />
     <ClCompile Include="svd.c" />
     <ClCompile Include="ui.c" />
+    <ClCompile Include="varmet.c" />
     <ClCompile Include="zbrent.c" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

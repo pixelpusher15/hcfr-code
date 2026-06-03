@@ -114,7 +114,7 @@ char *out,			/* Out string buffer */
 int bsize,			/* Out buffer size */
 char *tc,			/* Terminating characters */
 int ntc,			/* Number of terminating characters */
-double to) {		/* Timout in seconts */
+double to) {		/* Timeout in seconts */
 	int rv, se;
 
 	if ((se = p->icom->write_read(p->icom, in, 0, out, bsize, NULL, tc, ntc, to)) != 0) {
@@ -256,7 +256,7 @@ dtp41_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 		return inst_coms_fail;
 	}
 
-	a1logd(p->log, 2, "dtp41_init_coms: init coms has suceeded\n");
+	a1logd(p->log, 2, "dtp41_init_coms: init coms has succeeded\n");
 
 	p->gotcoms = 1;
 	return inst_ok;
@@ -409,7 +409,7 @@ dtp41_init_inst(inst *pp) {
 	if ((ev = dtp41_command(p, "181ECF\r", buf, MAX_MES_SIZE, 1.5)) != inst_ok)
 		return ev;
 
-	/* Set Trailer timout to 2 seconds */
+	/* Set Trailer timeout to 2 seconds */
 	if ((ev = dtp41_command(p, "021FCF\r", buf, MAX_MES_SIZE, 1.5)) != inst_ok)
 		return ev;
 

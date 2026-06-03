@@ -375,7 +375,7 @@ double r, double g, double b	/* Color values 0.0 - 1.0 */
 #else
 			 NULL,
 #endif
-			 NULL)) == NULL) {
+			 NULL, 0.0)) == NULL) {	/* 3.5.0 added mxerr param (0.0 = default) */
 			error("ccwin: new_render2d() failed");
 		}
 	

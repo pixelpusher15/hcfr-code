@@ -102,8 +102,7 @@ static int vinit[8][SOBOL_MAXDIM] = {
 
 /* Get the next sobol vector */
 /* return nz if we've run out */
-static int next_sobol(sobol *s, double * v)
-{
+static int next_sobol(sobol *s, double *v) {
 	int i, p;
 	unsigned int c;
 

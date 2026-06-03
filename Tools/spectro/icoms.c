@@ -189,7 +189,7 @@ static void icompaths_clear_all(icompaths *p) {
 }
 
 /* Add the give path to the given list. */
-/* If the path is NULL, allocat an empty */
+/* If the path is NULL, allocate an empty */
 /* one and add it to the combined list */
 /* Return icom error */
 static int icompaths_add_path(icompaths *p, int ix, icompath *xp) {
@@ -355,6 +355,55 @@ int icompath_set_usb(a1log *log, icompath *p, char *name, unsigned int vid, unsi
 	a1logd(g_log, 8, "icompath_set_usb '%s' returning dctype 0x%x\n",p->name,p->dctype);
 
 	return ICOM_OK;
+}
+
+/* Check a usb vid/pid against combined list. */
+/* return nz if on the list */
+static int icompaths_check_usb(icompaths *p, unsigned int vid, unsigned int pid) {
+	icom_dtix ix = dtix_combined;
+	int i;
+
+	if (p->dpaths[ix] == NULL)
+		return 0;
+
+	for (i = 0; i < p->ndpaths[ix]; i++) {
+		if (p->dpaths[ix][i]->vid == vid
+		 && p->dpaths[ix][i]->pid == pid)
+			return 1;
+	}
+	return 0;
+}
+
+/* Return the current combined path count */
+/* (Used to set upto value for check_usb_upto() */ 
+static int icompaths_get_cur_count(icompaths *p) {
+	return p->ndpaths[dtix_combined];
+}
+
+/* Check an instrument type against combined list up to given index. */
+/* We're assuming that all instruments of the same type will be found */
+/* by a single driver type. To avoid this assumption we'd have to somehow */
+/* obtain the hub+port number to check agains. */
+/* return nz if on the list */
+static int icompaths_check_usb_upto(icompaths *p, int upto, devType itype) {
+	icom_dtix ix = dtix_combined;
+	int i;
+
+	if (p->dpaths[ix] == NULL)
+		return 0;
+
+	if (upto < 0)
+		upto = 0;
+	if (upto > p->ndpaths[ix])
+		upto = p->ndpaths[ix];
+
+	for (i = 0; i < upto; i++) {
+		if (p->dpaths[ix][i]->dtype == itype) {
+			a1logd(p->log, 1, "icompaths_check_usb_upto: skipping vid 0x%04x, pid 0x%04x nep %d because we've already found a driver for it\n",p->dpaths[ix][i]->vid,p->dpaths[ix][i]->pid,p->dpaths[ix][i]->nep);
+			return 1;
+		}
+	}
+	return 0;
 }
 
 /* Add a usb path. usbd is taken, others are copied. */
@@ -575,9 +624,12 @@ static int create_fserexcl(icompaths *p) {
 		}
 
 #ifdef NEVER
-		printf("Exclusion list len %d =\n",p->exno);
-		for (i = 0; i < p->exno; i++) 
-			printf(" '%s'\n",p->exlist[i]);
+		{
+			int i;
+			printf("Exclusion list len %d =\n",p->exno);
+			for (i = 0; i < p->exno; i++) 
+				printf(" '%s'\n",p->exlist[i]);
+		}
 #endif
 	}
 	return 0;
@@ -633,11 +685,14 @@ icompaths *new_icompaths_sel(a1log *log, icom_type mask) {
 	p->add_serial    = icompaths_add_serial;
 #endif /* ENABLE_SERIAL */
 #ifdef ENABLE_USB
-	p->add_usb       = icompaths_add_usb;
-	p->add_hid       = icompaths_add_hid;
+	p->check_usb      = icompaths_check_usb;
+	p->get_cur_count  = icompaths_get_cur_count;
+	p->check_usb_upto = icompaths_check_usb_upto;
+	p->add_usb        = icompaths_add_usb;
+	p->add_hid        = icompaths_add_hid;
 #endif /* ENABLE_USB */
-	p->del_last_path = icompaths_del_last_path;
-	p->get_last_path = icompaths_get_last_path;
+	p->del_last_path  = icompaths_del_last_path;
+	p->get_last_path  = icompaths_get_last_path;
 	/* ====================================== */
 
 	/* Get list of fast scan exclusion devices */
@@ -875,11 +930,13 @@ icoms *new_icoms(
 
 	amutex_init(p->lock);
 	
+#ifdef NEVER		// icom_copy_path_to_icom does this ??
 	if ((p->name = strdup(ipath->name)) == NULL) {
 		a1loge(log, ICOM_SYS, "new_icoms: strdup failed!\n");
 		return NULL;
 	}
 	p->dtype = ipath->dtype;
+#endif
 
 	/* Copy ipath info to this icoms */
 	if (icom_copy_path_to_icom(p, ipath)) {

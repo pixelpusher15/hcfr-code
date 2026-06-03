@@ -127,6 +127,11 @@ struct _rspl {
 		struct _rspl *s,	/* this */
 		co *p);				/* Input and output values */
 
+	/* Do forward 1d interpolation of and return the value. */
+	double (*interp1)(		/* Return value */
+		struct _rspl *s,	/* this */
+		double in);			/* Input value */
+
 	/* Return a pointer to the resolution array */
 	int *(*get_res)(struct _rspl *s);
 

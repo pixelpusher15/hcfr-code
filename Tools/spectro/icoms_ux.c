@@ -57,9 +57,14 @@ devType fast_ser_dev_type(icoms *p, int tryhard, void *, void *);
 int serial_get_paths(icompaths *p, icom_type mask) {
 	int rv;
 
-	a1logd(p->log, 7, "serial_get_paths: called with mask %d\n",mask);
+	a1logd(p->log, 7, "serial_get_paths: called with mask 0x%x\n",mask);
 
 #ifdef UNIX_APPLE
+
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 120000        // This is dumb...
+# define kIOMasterPortDefault kIOMainPortDefault
+#endif
+
 	/* Search the OSX registry for serial ports */
 	if (mask & (icomt_serial | icomt_fastserial | icomt_btserial)) {
 	    kern_return_t kstat; 
@@ -76,8 +81,12 @@ int serial_get_paths(icompaths *p, icom_type mask) {
 			return ICOM_OK;		/* Hmm. There are no serial ports ? */
 		}
 
+		/* OS X 12 changes the "constant" kIOSerialBSDRS232Type from */
+		/* "IORS232SerialStream" to kIOSerialBSDAllTypes "IOSerialStream", */
+		/* and "IORS232SerialStream" no longer works. This breaks binary compatibility. */
+
 		/* Set value to match to RS232 type serial */
-        CFDictionarySetValue(sdict, CFSTR(kIOSerialBSDTypeKey), CFSTR(kIOSerialBSDRS232Type));
+		CFDictionarySetValue(sdict, CFSTR(kIOSerialBSDTypeKey), CFSTR(kIOSerialBSDAllTypes));
 
 		/* Init itterator to find matching types. Consumes sdict reference */
 		if ((kstat = IOServiceGetMatchingServices(kIOMasterPortDefault, sdict, &mit))
@@ -93,33 +102,44 @@ int serial_get_paths(icompaths *p, icom_type mask) {
 			
 	        CFTypeRef dfp;		/* Device file path */
 
-		    if ((ioob = IOIteratorNext(mit)) == 0)
+		    if ((ioob = IOIteratorNext(mit)) == 0) {
+				a1logd(p->log, 6, "serial_get_paths: itterator is done\n");
 				break;
+			}
 
 		    /* Get the callout device's path (/dev/cu.xxxxx). */
 			if ((dfp = IORegistryEntryCreateCFProperty(ioob, CFSTR(kIOCalloutDeviceKey),
-			                                      kCFAllocatorDefault, 0)) == NULL)
+			                                      kCFAllocatorDefault, 0)) == NULL) {
+				a1logd(p->log, 6, "serial_get_paths: IORegistryEntryCreateCFProperty failed\n");
 				goto continue1;
+			}
 
 			/* Convert from CF string to C string */
-			if (!CFStringGetCString(dfp, pname, 100, kCFStringEncodingASCII))
+			if (!CFStringGetCString(dfp, pname, 100, kCFStringEncodingASCII)) {
+				a1logd(p->log, 6, "serial_get_paths: CFStringGetCString failed\n");
 				goto continue2;
+			}
 
 			a1logd(p->log, 8, "serial_get_paths: checking '%s'\n",pname);
 
 			/* Ignore infra red port or any other noise */
 			if (strstr(pname, "IrDA") != NULL
 			 || strstr(pname, "Dialup") != NULL
-			 || strstr(pname, "PDA-Sync") != NULL)
+			 || strstr(pname, "debug-console") != NULL
+			 || strstr(pname, "PDA-Sync") != NULL) {
+				a1logd(p->log, 6, "serial_get_paths: '%s' not what we're looking for\n",pname);
 				goto continue2;
+			}
 
 			/* Would be nice to identify FTDI serial ports more specifically ? */
-			if (strstr(pname, "usbserial") != NULL)
-				dctype |= icomt_fastserial;
-
-			if (strstr(pname, "Bluetooth") != NULL
+			if (strstr(pname, "usbserial") != NULL
+			 || strstr(pname, "usbmodem") != NULL
+			 || strstr(pname, "Bluetooth") != NULL
 			 || strstr(pname, "JETI") != NULL) {
 				dctype |= icomt_fastserial;
+			}
+
+			if (strstr(pname, "Bluetooth") != NULL) {
 				dctype |= icomt_btserial;
 			}
 

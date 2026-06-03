@@ -133,7 +133,7 @@ dtp22_fcommand(
 	int bsize,			/* Out buffer size */
 	char *tc,			/* Terminating characters */
 	int ntc,			/* Number of terminating characters */
-	double to) {		/* Timout in seconds */
+	double to) {		/* Timeout in seconds */
 	int se, rv = DTP22_OK;
 
 	if ((se = p->icom->write_read(p->icom, in, 0, out, bsize, NULL, tc, ntc, to)) != 0) {
@@ -276,7 +276,7 @@ dtp22_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 		return inst_coms_fail;
 	}
 
-	a1logd(p->log, 2, "dtp22_init_coms: init coms has suceeded\n");
+	a1logd(p->log, 2, "dtp22_init_coms: init coms has succeeded\n");
 
 	p->gotcoms = 1;
 	return inst_ok;
