@@ -2,12 +2,12 @@
 /* 
  * Argyll Color Management System
  *
- * Datacolor Spyder X2 related software.
+ * Datacolor Spyder X2, Spyder 2024 related software.
  *
  * Author: Graeme W. Gill
  * Date:   30/8/2024
  *
- * Copyright 2006 - 2024, Graeme W. Gill
+ * Copyright 2006 - 2025, Graeme W. Gill
  * All rights reserved.
  *
  * (Based on spydX.c)
@@ -35,6 +35,9 @@
  */
 
 /* TTBD:
+
+	Add env variable to make 2024 use old measurement commands ?
+	If so, when in old mode enable optional black cal.
 
 */
 
@@ -230,12 +233,10 @@ spydX2_command(
 	return SPYDX2_OK;
 }
 
-/* Get the HW version and Serial number */
+/* Get the HW version, Serial number and other instrument info. */
 static inst_code
 spydX2_getInstInfo(
-	spydX2 *p,
-	unsigned int hwvn[2],	/* HW version, major, minor */
-	char serno[9]			/* serno[8] with nul */
+	spydX2 *p
 ) {
 	ORD8 reply[0x2A], buf[3];
 	int se = ICOM_OK;
@@ -254,18 +255,30 @@ spydX2_getInstInfo(
 	/* Major no */
 	buf[0] = reply[0];
 	buf[1] = '\000';
-	hwvn[0] = atoi((char *)buf);
+	p->hwvn[0] = atoi((char *)buf);
 
 	/* Minor no */
 	buf[0] = reply[2];
 	buf[1] = reply[3];
 	buf[2] = '\000';
-	hwvn[1] = atoi((char *)buf);
+	p->hwvn[1] = atoi((char *)buf);
 
-	memcpy(serno, reply + 4, 8);
-	serno[8] = '\000';
+	memcpy(p->serno, reply + 4, 8);
+	p->serno[8] = '\000';
 
-	a1logd(p->log, 3, "spydX2_getInstInfo got HW '%d.%02d and SN '%s'\n",hwvn[0],hwvn[1], serno);
+	a1logd(p->log, 3, "spydX2_getInstInfo got HW '%d.%02d and SN '%s'\n",p->hwvn[0],p->hwvn[1], p->serno);
+
+	p->hlavail = 0;
+	p->mxdnp1 = 0;
+	p->dnomask = 0;
+	if (p->is2024) {
+		if (reply[17] == 0x09 && reply[18] == 0x08 && reply[19] == 0x01) {
+			p->hlavail = 1;
+			p->mxdnp1 = reply[35];					/* Max number of display types + 1 */
+			p->dnomask = reply[20] << 8 | reply[21];	/* Display type mask */
+			a1logd(p->log, 3, "spydX2_getInstInfo got hlavail %d, mxdnp1 %d, dnomask 0x%x\n",p->hlavail,p->mxdnp1,p->dnomask);
+		}
+	}
 
 	return rv;
 }
@@ -467,6 +480,56 @@ spydX2_Measure(
 
 	a1logd(p->log, 3, "spydX2_Measure got raw = %d %d %d %d %d %d\n",
 	       raw[0], raw[1], raw[2], raw[3], raw[4], raw[5]);
+
+	return rv;
+}
+
+/* Do a ready cooked measurement from the 2024. */
+static inst_code
+spyd2024_GetReading(
+	spydX2 *p,
+	double xyz[3]				/* return XYZ */
+) {
+	SpX2calinfo *ci = &p->cinfo[p->ix];
+	int i;
+	ORD8 send[1];
+	ORD8 reply[13];
+	int se = ICOM_OK;
+	inst_code rv = inst_ok;
+
+	a1logd(p->log, 3, "spyd2024_GetReading\n");
+
+	if (!p->is2024) {
+		rv = spydX2_interp_code((inst *)p, SPYDX2_WRONG_INST);
+		a1logd(p->log, 6, "Wrong instrument, expect 2024 and got X2\n");
+		return rv;
+	}
+
+	/* Reset the instrument to trigger an auto-zero ? */
+	if ((rv = spydX2_reset(p)) != inst_ok)
+		return rv;
+
+	send[0] = p->ix;
+
+	se = spydX2_command(p, 0xFA, send, 1, reply, 13, 0, 5.0);  
+
+	if (se != SPYDX2_OK) {
+		rv = spydX2_interp_code((inst *)p, icoms2spydX2_err(se));
+		a1logd(p->log, 6, "spydX2_Measure: failed with ICOM code 0x%x\n",rv);
+		return rv;
+	}
+
+	if (reply[0] != p->ix) {
+		rv = spydX2_interp_code((inst *)p, SPYDX2_CIX_MISMATCH);
+		a1logd(p->log, 6, "spydX2_Measure: got unexpected display no. back. 0x%x\n",rv);
+	}
+
+	for (i = 0; i < 3; i++) {
+		ORD32 vv = read_ORD32_le(reply + 1 + i * 4);
+		xyz[i] = IEEE754todouble(vv);
+	}
+
+	a1logd(p->log, 3, "spyd2024_GetReading got XYZ = %f %f %f\n", xyz[0], xyz[1], xyz[2]);
 
 	return rv;
 }
@@ -700,8 +763,16 @@ spydX2_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 
 	a1logd(p->log, 2, "spydX2_init_coms: about to init USB\n");
 
-	/* Some instruments on some systems seem to lockup after use... */
-	usbflags |= icomuf_reset_before_close;
+#if defined(UNIX_X11)
+    /* On Linux, it doesn't seem to close properly, and won't re-open */
+    usbflags |= icomuf_detach;
+    usbflags |= icomuf_reset_before_close;
+#endif
+
+#if defined(NT) || defined(UNIX_APPLE)
+	/* On MSWin it doesn't like clearing on open when running direct (i.e not HID) */
+	usbflags |= icomuf_no_open_clear;
+#endif
 
 	/* Set config, interface, write end point, read end point */
 	/* ("serial" end points aren't used - the spydX2 uses USB control & write/read) */
@@ -732,7 +803,8 @@ spydX2_init_inst(inst *pp) {
 	if (p->gotcoms == 0) /* Must establish coms before calling init */
 		return spydX2_interp_code((inst *)p, SPYDX2_NO_COMS);
 
-	if (p->dtype != instSpyderX2)
+	if (p->dtype != instSpyderX2
+	 && p->dtype != instSpyder2024)
 		return spydX2_interp_code((inst *)p, SPYDX2_UNKNOWN_MODEL);
 
 	/* Reset the instrument */
@@ -740,7 +812,7 @@ spydX2_init_inst(inst *pp) {
 		return ev;
 
 	/* Get HW version and serial number */
-	if ((ev = spydX2_getInstInfo(p, p->hwvn, p->serno)) != inst_ok)
+	if ((ev = spydX2_getInstInfo(p)) != inst_ok)
 		return ev;
 
 	/* Set a default calibration */
@@ -833,7 +905,12 @@ instClamping clamp) {		/* NZ if clamp XYZ/Lab to be +ve */
 		ev = inst_ok;
 
 		/* Read the XYZ value */
-		if ((ev = spydX2_GetReading(p, val->XYZ)) == inst_ok) {
+		if (p->is2024 && p->usehl)
+			ev = spyd2024_GetReading(p, val->XYZ);		/* High level command */
+		else
+			ev = spydX2_GetReading(p, val->XYZ);		/* Low level commands */
+
+		if (ev == inst_ok) {
 
 			/* Apply the colorimeter correction matrix */
 			icmMulBy3x3(val->XYZ, p->ccmat, val->XYZ);
@@ -920,11 +997,13 @@ static inst_code spydX2_get_n_a_cals(inst *pp, inst_cal_type *pn_cals, inst_cal_
 	}
 		
 	if (!IMODETST(p->mode, inst_mode_emis_ambient)) {		/* If not ambient */
+		if (!p->is2024 || !p->usehl) {
 #ifdef ENABLE_BLACK_CAL
-		if (!p->bcal_done || !p->noinitcalib)
-			n_cals |= inst_calt_emis_offset;
+			if (!p->bcal_done || !p->noinitcalib)
+				n_cals |= inst_calt_emis_offset;
 #endif	/* ENABLE_BLACK_CAL */
-		a_cals |= inst_calt_emis_offset;
+			a_cals |= inst_calt_emis_offset;
+		}
 	}
 
 	a1logd(p->log,4,"SpydX: returning n_cals 0x%x, a_cals 0x%x\n",n_cals,a_cals);
@@ -982,20 +1061,22 @@ char id[CALIDLEN]		/* Condition identifier (ie. white reference ID) */
 	}
 
 	/* Black calibration: */
-	if (*calt & inst_calt_emis_offset) {
-		time_t cdate = time(NULL);
-
-		if ((*calc & inst_calc_cond_mask) != inst_calc_man_em_dark) {
-			*calc = inst_calc_man_em_dark;
-			return inst_cal_setup;
+	if (!p->is2024 || !p->usehl) {
+		if (*calt & inst_calt_emis_offset) {
+			time_t cdate = time(NULL);
+	
+			if ((*calc & inst_calc_cond_mask) != inst_calc_man_em_dark) {
+				*calc = inst_calc_man_em_dark;
+				return inst_cal_setup;
+			}
+	
+			/* Do black offset calibration */
+			if ((ev = spydX2_BlackCal(p)) != inst_ok)
+				return ev;
+			p->bcal_done = 1;
+			p->bdate = cdate;
+			p->noinitcalib = 1;			/* Don't calibrate again */
 		}
-
-		/* Do black offset calibration */
-		if ((ev = spydX2_BlackCal(p)) != inst_ok)
-			return ev;
-		p->bcal_done = 1;
-		p->bdate = cdate;
-		p->noinitcalib = 1;			/* Don't calibrate again */
 	}
 
 #ifdef ENABLE_NONVCAL
@@ -1059,9 +1140,14 @@ spydX2_interp_code(inst *pp, int ec) {
 		case SPYDX2_UNKNOWN_MODEL:
 			return inst_unknown_model | ec;
 
+		case SPYDX2_CIX_MISMATCH:
+			return inst_wrong_setup | ec;
+
+		case SPYDX2_WRONG_INST:
+			return inst_internal_error | ec;
+		
 //			return inst_protocol_error | ec;
 //			return inst_hardware_fail | ec;
-//			return inst_wrong_setup | ec;
 //			return inst_misread | ec;
 
 	}
@@ -1222,6 +1308,81 @@ static inst_disptypesel spydX2_disptypesel[SPYDX2_NOCALIBS+1] = {
 	}
 };
 
+static inst_disptypesel spyd2024_disptypesel[SPYD2024_NOCALIBS+1] = {
+	{
+		inst_dtflags_mtx | inst_dtflags_default,		/* flags */
+		1,							/* cbid */
+		"l",						/* sel */
+		"General",					/* desc */
+		0,							/* refr */
+		disptech_lcd_ccfl,			/* disptype */
+		0							/* ix */
+	},
+	{
+		inst_dtflags_mtx,			/* flags */
+		0,							/* cbid */
+		"e",						/* sel */
+		"Standard LED",				/* desc */
+		1,							/* refr */
+		disptech_lcd_wled,			/* disptype */
+		1							/* ix */
+	},
+	{
+		inst_dtflags_mtx,			/* flags */
+		0,							/* cbid */
+		"b",						/* sel */
+		"Wide Gamut LED",			/* desc */
+		1,							/* refr */
+		disptech_lcd_rgbled,		/* disptype */
+		2							/* ix */
+	},
+	{
+		inst_dtflags_mtx,			/* flags */
+		0,							/* cbid */
+		"i",						/* sel */
+		"GB LED",					/* desc */
+		1,							/* refr */
+		disptech_lcd_gbrledp,		/* disptype */
+		3							/* ix */
+	},
+	{
+		inst_dtflags_mtx,			/* flags */
+		0,							/* cbid */
+		"h",						/* sel */
+		"High Brightness",			/* desc */
+		1,							/* refr */
+		disptech_lcd_wled,			/* disptype (assumed) */
+		4							/* ix */
+	},
+	{
+		inst_dtflags_mtx,			/* flags */
+		0,							/* cbid */
+		"o",						/* sel */
+		"OLED",						/* desc */
+		1,							/* refr */
+		disptech_oled,				/* disptype (assumed) */
+		5							/* ix */
+	},
+	{
+		inst_dtflags_mtx,			/* flags */
+		0,							/* cbid */
+		"m",						/* sel */
+		"Mini-LED",					/* desc */
+		1,							/* refr */
+		disptech_lcd_rgbled,		/* disptype (assumed) */
+		6							/* ix */
+	},
+	{
+		inst_dtflags_end,
+		0,
+		"",
+		"",
+		0,
+		disptech_none,
+		0
+	}
+};
+
 
 /* Get mode and option details */
 static inst_code spydX2_get_disptypesel(
@@ -1236,9 +1397,15 @@ int recreate				/* nz to re-check for new ccmx & ccss files */
 
 	/* Create/Re-create a current list of available display types. */
 	if (p->dtlist == NULL || recreate) {
-		if ((rv = inst_creat_disptype_list(pp, &p->ndtlist, &p->dtlist,
-		    spydX2_disptypesel, 0 /* doccss*/, 1 /* doccmx */)) != inst_ok)
-			return rv;
+		if (p->is2024) {
+			if ((rv = inst_creat_disptype_list(pp, &p->ndtlist, &p->dtlist,
+			    spyd2024_disptypesel, 0 /* doccss */, 1 /* doccmx */)) != inst_ok)
+				return rv;
+		} else {
+			if ((rv = inst_creat_disptype_list(pp, &p->ndtlist, &p->dtlist,
+			    spydX2_disptypesel, 0 /* doccss */, 1 /* doccmx */)) != inst_ok)
+				return rv;
+		}
 	}
 
 	if (pnsels != NULL)
@@ -1263,10 +1430,21 @@ static inst_code set_disp_type(spydX2 *p, inst_disptypesel *dentry) {
 		p->ix = ix;
 		p->cinfo[ix].ix = ix;
 
-		rv = spydX2_getCalibration(p);
+		/* See if we could/should use high level measure XYZ for Spyder 2024 */
+		p->usehl = 0;
+		if ( p->is2024
+		 && !p->forcell
+		 && ix < p->mxdnp1
+   		 && ((1 << ix) & p->dnomask) != 0) {	
+			p->usehl = 1;
+		}
 
-		if (rv != inst_ok)
-			return rv;
+		if (!p->is2024 || !p->usehl) {
+			rv = spydX2_getCalibration(p);
+	
+			if (rv != inst_ok)
+				return rv;
+		}
 
 		icmSetUnity3x3(dentry->mat);			/* Not used for native calibration */
 
@@ -1304,6 +1482,7 @@ static inst_code set_disp_type(spydX2 *p, inst_disptypesel *dentry) {
 		a1logd(p->log,4,"                  %f %f %f\n\n",
 		                 p->ccmat[2][0], p->ccmat[2][1], p->ccmat[2][2]);
 		a1logd(p->log,4,"ucbid = %d, cbid = %d\n",p->ucbid, p->cbid);
+		a1logd(p->log,4,"usehl = %d\n",p->usehl);
 		a1logd(p->log,4,"\n");
 	}
 
@@ -1340,10 +1519,19 @@ static inst_code set_default_disp_type(spydX2 *p) {
 	int i;
 
 	if (p->dtlist == NULL) {
-		if ((ev = inst_creat_disptype_list((inst *)p, &p->ndtlist, &p->dtlist,
-		    spydX2_disptypesel, 0 /* doccss*/, 1 /* doccmx */)) != inst_ok)
-			return ev;
+		if (p->is2024) {
+			// Hmm. Should we really use the dnomask to edit the list
+			// down to what the instrument supports ??
+			if ((ev = inst_creat_disptype_list((inst *)p, &p->ndtlist, &p->dtlist,
+			    spyd2024_disptypesel, 0 /* doccss */, 1 /* doccmx */)) != inst_ok)
+				return ev;
+		} else {
+			if ((ev = inst_creat_disptype_list((inst *)p, &p->ndtlist, &p->dtlist,
+			    spydX2_disptypesel, 0 /* doccss*/, 1 /* doccmx */)) != inst_ok)
+				return ev;
+			}
 	}
+	/* Locate the default */
 	for (i = 0; !(p->dtlist[i].flags & inst_dtflags_end); i++) {
 		if (p->dtlist[i].flags & inst_dtflags_default)
 			break;
@@ -1370,9 +1558,15 @@ static inst_code set_base_disp_type(spydX2 *p, int cbid) {
 	}
 
 	if (p->dtlist == NULL) {
-		if ((ev = inst_creat_disptype_list((inst *)p, &p->ndtlist, &p->dtlist,
-		    spydX2_disptypesel, 0 /* doccss*/, 1 /* doccmx */)) != inst_ok)
-			return ev;
+		if (p->is2024) {
+			if ((ev = inst_creat_disptype_list((inst *)p, &p->ndtlist, &p->dtlist,
+			    spyd2024_disptypesel, 0 /* doccss */, 1 /* doccmx */)) != inst_ok)
+				return ev;
+		} else {
+			if ((ev = inst_creat_disptype_list((inst *)p, &p->ndtlist, &p->dtlist,
+			    spydX2_disptypesel, 0 /* doccss*/, 1 /* doccmx */)) != inst_ok)
+				return ev;
+		}
 	}
 
 	for (i = 0; !(p->dtlist[i].flags & inst_dtflags_end); i++) {
@@ -1463,10 +1657,19 @@ spydX2_get_set_opt(inst *pp, inst_opt_type m, ...) {
 /* Constructor */
 extern spydX2 *new_spydX2(icoms *icom, instType dtype) {
 	spydX2 *p;
+
 	if ((p = (spydX2 *)calloc(sizeof(spydX2),1)) == NULL) {
 		a1loge(icom->log, 1, "new_spydX2: malloc failed!\n");
 		return NULL;
 	}
+
+	if (dtype == instSpyder2024) {
+		p->is2024 = 1;
+
+		if (getenv("SPYD2024_LOWLEV_MEASURE") != NULL)
+			p->forcell = 1;
+	}
+
 
 	p->log = new_a1log_d(icom->log);
 

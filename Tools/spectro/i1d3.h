@@ -68,6 +68,7 @@
 #define I1D3_BAD_RET_CMD			0x14
 #define I1D3_NOT_INITED				0x15
 #define I1D3_TOOBRIGHT  	        0x16
+#define I1D3_PERIOD_MEAS_FAIL		0x17		/* Rev. B 0x83 error */
 
 /* Internal errors */
 #define I1D3_BAD_MEM_ADDRESS	    0x20
@@ -87,12 +88,13 @@ typedef enum {
 	i1d3_nec_ssp        = 3, 	/* NEC SpectraSensor Pro */
 	i1d3_quato_sh3      = 4, 	/* Quato Silver Haze 3 */
 	i1d3_hp_dreamc      = 5, 	/* HP DreameColor */
-	i1d3_sc_c6          = 6, 	/* SpectraCal C6 */
+	i1d3_sc_c6          = 6, 	/* SpectraCal C6 (HCFR local) */
 	i1d3_wacom_dc       = 7, 	/* Wacom DC */
 	i1d3_tpa_1          = 8, 	/* Toshiba TPA-1 */
-	i1d3_barco			= 9, 	/* Barco */
-	i1d3_crysta			= 10, 	/* PhotoCrysta */
-	i1d3_viewsonic_xri1 = 11	/* ViewSonic CS-XRi1 */
+	i1d3_barco          = 9, 	/* Barco */
+	i1d3_crysta         = 10, 	/* PhotoCrysta */
+	i1d3_viewsonic_xri1 = 11,	/* ViewSonic CS-XRi1 */
+	i1d3_unk            = 12 	/* Unknown */
 } i1d3_dtype;
 
 /* Generic OEM aliases:
@@ -115,6 +117,7 @@ struct _i1d3 {
 	/* Modes */
 	inst_mode mode;				/* Currently selected mode */
 	inst_opt_type trig;			/* Reading trigger mode */
+	int use_aio;				/* Whether to use AIO measurement for Rev B */
 
 	/* Information and EEPROM values */
 	i1d3_dtype btype;			/* Base type of instrument, ie i1d3_disppro or i1d3_munkdisp */
@@ -122,11 +125,15 @@ struct _i1d3 {
 								/* (Only accurate if it needed unlocking). */
 	int status;					/* 0 if status is ok (not sure what this is) */
 	char serial_no[21];			/* "I1-11.A-01.100999.02" or "CM-11.A-01.100999.02" */
-	char vers_no[11];			/* "A-01", "A-02" */
+	char vers_no[11];			/* "A-01", "A-02", "B-02" */
+	char hwrev;					/* 0 = Rev A, 1 = Rev B etc. */
+	int hw_top, hw_bot;				/* Extra hw info from rev B */
 	char prod_name[32];			/* "i1Display3 " or "ColorMunki Display" */
 	int prod_type;				/* 16 bit product type number. i1d3_disppro = 0x0001, */
 								/* i1d3_munkdisp = 0x0002 */
 	char firm_ver[32];			/* Firmware version string. ie. "v1.0 " */
+	int firmv;					/* Firmware version as a number i.e. 0x0100 */
+								/* Must be >= 0x21A for new instructions */
 	char firm_date[32];			/* Firmware date string. ie. "11Jan11" */
 
 	/* Calibration information */
@@ -134,7 +141,7 @@ struct _i1d3 {
 	xspect sens[3];				/* RGB Sensor spectral sensitivities in Hz per mW/nm */
 	xspect ambi[3];				/* RGB Sensor with ambient filter spectral sensitivities */
 
-	double black[3];			/* Black level to subtract */
+	double black[3];			/* Black level to subtract (in Hz ?) */
 	double emis_cal[3][3];		/* Current emssion calibration matrix */
 	double ambi_cal[3][3];		/* Current ambient calibration matrix */
 

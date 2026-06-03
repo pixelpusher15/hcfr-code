@@ -50,7 +50,7 @@
 				hs_j = hs_l+hs_l+1;	\
 				while (hs_j <= hs_ir)	\
 					{	\
-					if (hs_j < hs_ir && HEAP_COMPARE(hs_ncb[hs_j],hs_ncb[hs_j+1]))	\
+					if (hs_j < hs_ir && (HEAP_COMPARE(hs_ncb[hs_j],hs_ncb[hs_j+1])))	\
 						hs_j++;	\
 					if (HEAP_COMPARE(hs_rra,hs_ncb[hs_j]))	\
 						{	\

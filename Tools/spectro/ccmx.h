@@ -83,8 +83,8 @@ struct _ccmx {
 	double mx_err;			/* Maximum error of fit */
 	
 	/* Houskeeping */
-	int errc;				/* Error code */
-	char err[200];			/* Error message */
+	icmErr e;				/* Error code & message */
+
 }; typedef struct _ccmx ccmx;
 
 /* Create a new, uninitialised ccmx */

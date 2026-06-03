@@ -20,15 +20,35 @@
 
 /* Some MSWin specific stuff is in icoms, and used by usbio & hidio */
 #if defined (NT)
-#if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0501
-# if defined(_WIN32_WINNT) 
-#  undef _WIN32_WINNT
+
+/* Set minimum OS target as XP */
+# if !defined(WINVER) || WINVER < 0x0501
+#  if defined(WINVER) 
+#   undef WINVER
+#  endif
+#  define WINVER 0x0501
 # endif
-# define _WIN32_WINNT 0x0501
-#endif
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include "conv.h"
+# if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0501
+#  if defined(_WIN32_WINNT) 
+#   undef _WIN32_WINNT
+#  endif
+#  define _WIN32_WINNT 0x0501
+# endif
+
+# define WIN32_LEAN_AND_MEAN
+# include <windows.h>
+
+# ifdef EN_USBDK 
+#   include <objbase.h>				/* For GUID type definition */
+#  if VER_PRODUCTBUILD >= 9600		/* SDK's that have these... */
+#   include <cfgmgr32.h>
+#   include <usbspec.h>
+#   include <Usbiodef.h>
+#  else
+#   include "UsbDkHlprCompat.h"
+#  endif
+# include "UsbDkHelper.h"
+# endif
 #endif
 
 #if defined(UNIX_APPLE)
@@ -94,7 +114,7 @@ typedef enum {
 #define ICOM_NOTS 	0x001000		/* Not supported */
 #define ICOM_SIZE	0x002000		/* Request/response size exceeded limits */
 #define ICOM_TO		0x004000		/* Timed out, but there may be bytes read/written */
-#define ICOM_SHORT	0x008000		/* No timeout but number of bytes wasn't read/written */
+#define ICOM_SHORT	0x008000		/* No timeout but target number of bytes wasn't read/written */
 #define ICOM_CANC	0x010000		/* Was cancelled */
 #define ICOM_SYS	0x020000		/* System error (ie. malloc, system call fail) */
 #define ICOM_VER	0x040000		/* Version error - need up to date kernel driver */
@@ -116,6 +136,7 @@ typedef struct _icompath icompath;
 typedef struct _icompaths icompaths;
 typedef struct _icoms icoms;
 
+
 #ifdef ENABLE_USB
 
 struct usb_idevice;		/* Forward declarations */
@@ -127,7 +148,7 @@ typedef struct {
 	int addr;			/* Address of end point */
 	int packetsize;		/* The max packet size */
 	int type;			/* 2 = bulk, 3 = interrupt */	
-	int interface;		/* interface number */
+	int ifaceno;		/* interface number */
 #if defined(UNIX_APPLE)
 	int pipe;			/* pipe number (1..N, OS X only) */
 #endif
@@ -235,6 +256,17 @@ struct _icompaths {
 #endif /* ENABLE_SERIAL */
 
 #ifdef ENABLE_USB
+	/* Check a usb vid/pid against combined list and return nz if already on it. */
+	int (*check_usb)(struct _icompaths *p, unsigned int vid, unsigned int pid);
+
+	/* Return the current combined path count */
+	/* (Used to set upto value for check_usb_upto() */ 
+	int (*get_cur_count)(icompaths *p);
+
+	/* Check a usb itype against combined list up to given index. */
+	/* return nz if on the list */
+	int (*check_usb_upto)(icompaths *p, int upto, devType itype);
+
 	/* Add a usb path to combined. usbd is taken, others are copied. Return icom error */
 	int (*add_usb)(struct _icompaths *p, char *name, unsigned int vid, unsigned int pid,
 	               int nep, struct usb_idevice *usbd, devType dtype);
@@ -333,6 +365,12 @@ void usb_uninit_cancel(usb_cancelt *p);
 void usb_reinit_cancel(usb_cancelt *p);
 #endif
 
+/* HCFR local: _icoms uses amutex (CRITICAL_SECTION), defined in conv.h. Ensure it
+   is available for C++ consumers (e.g. ArgyllMeterWrapper) that include icoms.h
+   without including conv.h first. conv.h is guarded, so this is a no-op when the
+   normal C build already included it ahead of icoms.h. */
+#include "conv.h"
+
 struct _icoms {
   /* Private: */
 
@@ -424,6 +462,7 @@ struct _icoms {
 
 #if defined(ENABLE_SERIAL) || defined(ENABLE_FAST_SERIAL)
 	/* Select the serial communications port and characteristics - extended version */
+	/* and open or close and re-open it */
 	/* return icom error */
 	int (*set_ser_port_ex)(
 		struct _icoms *p, 
@@ -435,6 +474,7 @@ struct _icoms {
 		int delayms);			/* Delay in ms after open */
 
 	/* Select the serial communications port and characteristics */
+	/* and open or close and re-open it */
 	/* return icom error */
 	int (*set_ser_port)(
 		struct _icoms *p, 
@@ -446,7 +486,7 @@ struct _icoms {
 #endif  /* ENABLE_SERIAL */
 
 #ifdef ENABLE_USB
-	/* Select the USB communications port and characteristics */
+	/* Select the USB communications port and characteristics and open or close and re-open it */
 	/* return icom error */
 	int (*set_usb_port)(
 		struct _icoms *p, 
@@ -458,7 +498,7 @@ struct _icoms {
 		char **pnames				/* List of process names to try and kill before opening */
 	);
 
-	/* Select the HID communications port and characteristics */
+	/* Select the HID communications port and characteristics and open or close and re-open it */
 	/* return icom error */
 	int (*set_hid_port)(
 		struct _icoms *p, 
@@ -580,7 +620,9 @@ struct _icoms {
 		unsigned char *buf,		/* Read buffer */
 		int bsize,				/* Bytes to read or write */
 		int *bread,				/* Bytes read */
-		double tout);			/* Timeout in seconds */
+		double tout,			/* Timeout in seconds */
+		int	id					/* If nz, then first byte of buffer is HID ID */
+	);
 
 	/* For an HID device, write a message to the device */
 	/* return icom error */
@@ -588,7 +630,9 @@ struct _icoms {
 		unsigned char *wbuf,	/* Write buffer */
 		int wsize,				/* Bytes to or write */
 		int *bwritten,			/* Bytes written */
-		double tout);			/* Timeout in seconds */
+		double tout,			/* Timeout in seconds */
+		int	id					/* If nz, then first byte of buffer is HID ID */
+	);
 
 	/* Optional callback to client from device */ 
 	/* Default implementation is a NOOP */
@@ -621,6 +665,9 @@ int icoms_ser_read(icoms *p, char *rbuf, int bsize, int *bread,
                                     char *tc, int ntc, double tout);
 
 #endif
+
+/* Modify a serial path to add the device type */
+int icompaths_set_serial_itype(icompath *p, devType itype);
 
 #ifdef __cplusplus
 	}

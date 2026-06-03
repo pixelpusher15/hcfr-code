@@ -128,7 +128,7 @@ spydX_command(
 	unsigned int nonce, chnonce;
 	int xfrd;				/* Bytes transferred */
 	unsigned int iec;		/* Instrument error code */
-	int xrlen;				/* Expected recieve length */
+	int xrlen;				/* Expected receive length */
 	int se;
 
 	if ((s_size + 5) > BUF_SIZE
@@ -176,7 +176,7 @@ spydX_command(
 	se = p->icom->usb_read(p->icom, NULL, 0x81, buf, 5 + r_size, &xfrd, to);
 
 	if (p->log->debug >= 7) {
-		a1logd(p->log, 1, "recieved:\n");
+		a1logd(p->log, 1, "received:\n");
 		adump_bytes(p->log, "  ", buf, 0, xfrd);
 	}
 
@@ -312,6 +312,11 @@ spydX_getCalibration(
 
 	a1logd(p->log, 3, "spydX_getCalibration %d: called\n",cix);
 
+	if (cix < 0 || cix >= SPYDX_NOCALIBS) {
+		rv = spydX_interp_code((inst *)p, SPYDX_CIX_MISMATCH);
+		a1logd(p->log, 6, "spydX_getCalibration cix is out of range 0 .. %d\n",SPYDX_NOCALIBS-1);
+	}
+
 	send[0] = cix;
 
 	se = spydX_command(p, 0xCB, send, 1, reply, 0x2A, 1, 5.0);  
@@ -408,7 +413,7 @@ spydX_measSettup(
 
 	a1logd(p->log, 3, "spydX_measSettup got s1 = %d\n",s1);
 	a1logd(p->log, 3, "  s2 = %d %d %d %d\n", s2[0], s2[1], s2[2], s2[3]);
-	a1logd(p->log, 3, "  s2 = %d %d %d %d\n", s3[0], s3[1], s3[2], s3[3]);
+	a1logd(p->log, 3, "  s3 = %d %d %d %d\n", s3[0], s3[1], s3[2], s3[3]);
 
 	return rv;
 }
@@ -480,7 +485,7 @@ static inst_code
 spydX_AmbMeasure(
 	spydX *p,
 	int raw[4],			/* Return four ambient values (last two same as ap[] ?) */
-	int ap[2]			/* Parameters, integration time,  gain control bits */
+	int ap[2]			/* Parameters, integration time, gain control bits */
 ) {
 	int i;
 	ORD8 send[0x2];
@@ -563,7 +568,7 @@ spydX_GetReading(
 /* NOTE :- the ambient sensor seem to be an AMS TSL25721. */
 /* It has two sensors, one wide band and the other infra-red, */
 /* the idea being to subtract them to get a rough human response. */
-/* The reading is 16 bits, with 2 bits of gain and 8 bits of integration time conrtol */
+/* The reading is 16 bits, with 2 bits of gain and 8 bits of integration time control */
 static inst_code
 spydX_GetAmbientReading(
 	spydX *p,
@@ -683,8 +688,16 @@ spydX_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 
 	a1logd(p->log, 2, "spydX_init_coms: about to init USB\n");
 
-//	usbflags |= icomuf_no_open_clear;
-//	usbflags |= icomuf_resetep_before_read;
+#if defined(UNIX_X11)
+    /* On Linux, it doesn't seem to close properly, and won't re-open */
+    usbflags |= icomuf_detach;
+    usbflags |= icomuf_reset_before_close;
+#endif
+
+#if defined(NT) || defined(UNIX_APPLE)
+	/* On MSWin & OS X it doesn't like clearing on open when running direct (i.e not HID) */
+	usbflags |= icomuf_no_open_clear;
+#endif
 
 	/* Set config, interface, write end point, read end point */
 	/* ("serial" end points aren't used - the spydX uses USB control & write/read) */
@@ -693,7 +706,7 @@ spydX_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 		return spydX_interp_code((inst *)p, icoms2spydX_err(se));
 	}
 
-	a1logd(p->log, 2, "spydX_init_coms: suceeded\n");
+	a1logd(p->log, 2, "spydX_init_coms: succeeded\n");
 
 	p->gotcoms = 1;
 	return inst_ok;
@@ -902,15 +915,17 @@ static inst_code spydX_get_n_a_cals(inst *pp, inst_cal_type *pn_cals, inst_cal_t
 	inst_cal_type a_cals = inst_calt_none;
 	
 	if ((curtime - p->bdate) > DCALTOUT) {
-		a1logd(p->log,2,"Invalidating black cal as %d secs from last cal\n",curtime - p->bdate);
+		a1logd(p->log,2,"SpydX: Invalidating black cal as %d secs from last cal\n",curtime - p->bdate);
 		p->bcal_done = 0;
 	}
 		
-	if (!IMODETST(p->mode, inst_mode_emis_ambient)) {
+	if (!IMODETST(p->mode, inst_mode_emis_ambient)) {		/* If not ambient */
 		if (!p->bcal_done || !p->noinitcalib)
 			n_cals |= inst_calt_emis_offset;
 		a_cals |= inst_calt_emis_offset;
 	}
+
+	a1logd(p->log,4,"SpydX: returning n_cals 0x%x, a_cals 0x%x\n",n_cals,a_cals);
 
 	if (pn_cals != NULL)
 		*pn_cals = n_cals;
@@ -978,6 +993,7 @@ char id[CALIDLEN]		/* Condition identifier (ie. white reference ID) */
 			return ev;
 		p->bcal_done = 1;
 		p->bdate = cdate;
+		p->noinitcalib = 1;			/* Don't calibrate again */
 	}
 
 #ifdef ENABLE_NONVCAL
@@ -999,7 +1015,7 @@ spydX_interp_error(inst *pp, int ec) {
 		case SPYDX_COMS_FAIL:
 			return "Communications failure";
 		case SPYDX_UNKNOWN_MODEL:
-			return "Not a Spyder 2, 3, 4 or 5";
+			return "Not a Spyder X";
 		case SPYDX_DATA_PARSE_ERROR:
 			return "Data from i1 Display didn't parse as expected";
 		case SPYDX_INT_CAL_SAVE:
@@ -1056,8 +1072,10 @@ spydX_del(inst *pp) {
 	spydX *p = (spydX *)pp;
 
 #ifdef ENABLE_NONVCAL
-	/* Touch it so that we know when the instrument was last open */
-	spydX_touch_calibration(p);
+	if (p->inited) {
+		/* Touch it so that we know when the instrument was last open */
+		spydX_touch_calibration(p);
+	}
 #endif
 
 	if (p->icom != NULL)
@@ -1250,7 +1268,7 @@ static inst_code set_disp_type(spydX *p, inst_disptypesel *dentry) {
 
 	if (dentry->flags & inst_dtflags_ccmx) {
 		if (dentry->cc_cbid != 1) {
-			a1loge(p->log, 1, "k10: matrix must use cbid 1!\n",dentry->cc_cbid);
+			a1loge(p->log, 1, "SpydX: matrix must use cbid 1 (is %d)!\n",dentry->cc_cbid);
 			return inst_wrong_setup;
 		}
 
@@ -1258,11 +1276,15 @@ static inst_code set_disp_type(spydX *p, inst_disptypesel *dentry) {
 		icmCpy3x3(p->ccmat, dentry->mat);
 		p->cbid = 0;	/* Can't be a base type now */
 
-	} else {
+	} else if ((dentry->flags & inst_dtflags_mtx) != 0) { 
 		p->dtech = dentry->dtech;
 		icmCpy3x3(p->ccmat, dentry->mat);
 		p->cbid = dentry->cbid;
 		p->ucbid = dentry->cbid;    /* This is underying base if dentry is base selection */
+
+	} else {			/* This shouldn't happen... */
+		a1loge(p->log, 1, "SpydX: calibration selected isn't builit in or CCMX!\n");
+		return inst_wrong_setup;
 	}
 
 	p->ix = dentry->ix;				/* Native index */
@@ -1315,6 +1337,7 @@ static inst_code set_default_disp_type(spydX *p) {
 		    spydX_disptypesel, 0 /* doccss*/, 1 /* doccmx */)) != inst_ok)
 			return ev;
 	}
+	/* Locate the default */
 	for (i = 0; !(p->dtlist[i].flags & inst_dtflags_end); i++) {
 		if (p->dtlist[i].flags & inst_dtflags_default)
 			break;
@@ -1495,7 +1518,7 @@ static int spydX_save_calibration(spydX *p) {
 	calf_wtime_ts(&x, &p->bdate, 1);
 	calf_wints(&x, p->bcal, 3);
 
-	a1logd(p->log,3,"nbytes = %d, Checkum = 0x%x\n",x.nbytes,x.chsum);
+	a1logd(p->log,3,"nbytes = %d, Checksum = 0x%x\n",x.nbytes,x.chsum);
 	calf_wints(&x, (int *)(&x.chsum), 1);
 
 	if (calf_done(&x))

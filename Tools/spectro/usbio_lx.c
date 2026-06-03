@@ -1,6 +1,7 @@
 
 /* General USB I/O support, Linux native implementation. */
 /* ("libusbx ? We don't need no stinking libusbx..." :-) */
+
 /* This file is conditionaly #included into usbio.c */
  
 /* 
@@ -34,40 +35,12 @@
 #define poll_x poll
 #endif
 
-/* USB descriptors are little endian */
+#ifndef PATH_MAX
+# define PATH_MAX 4096
+#endif
 
-/* Take a word sized return buffer, and convert it to an unsigned int */
-static unsigned int buf2uint(unsigned char *buf) {
-	unsigned int val;
-	val = buf[3];
-	val = ((val << 8) + (0xff & buf[2]));
-	val = ((val << 8) + (0xff & buf[1]));
-	val = ((val << 8) + (0xff & buf[0]));
-	return val;
-}
-
-/* Take a short sized return buffer, and convert it to an int */
-static unsigned int buf2ushort(unsigned char *buf) {
-	unsigned int val;
-	val = buf[1];
-	val = ((val << 8) + (0xff & buf[0]));
-	return val;
-}
-
-/* Take an int, and convert it into a byte buffer */
-static void int2buf(unsigned char *buf, int inv) {
-	buf[0] = (inv >> 0) & 0xff;
-	buf[1] = (inv >> 8) & 0xff;
-	buf[2] = (inv >> 16) & 0xff;
-	buf[3] = (inv >> 24) & 0xff;
-}
-
-/* Take a short, and convert it into a byte buffer */
-static void short2buf(unsigned char *buf, int inv) {
-	buf[0] = (inv >> 0) & 0xff;
-	buf[1] = (inv >> 8) & 0xff;
-}
-
+static int icoms_usb_control_msg(icoms *p, int *transferred, int requesttype, int request,
+                       int value, int index, unsigned char *bytes, int size, int timeout);
 
 /* Check a USB Vendor and product ID by reading the device descriptors, */
 /* and add the device to the icoms path if it is supported. */
@@ -86,7 +59,7 @@ char *dpath		/* path to device */
 	struct usb_idevice *usbd = NULL;
 	int fd;			/* device file descriptor */
 
-	a1logd(log, 6, "usb_check_and_add: givem '%s'\n",dpath);
+	a1logd(log, 6, "usb_check_and_add: given '%s'\n",dpath);
 
 	/* Open the device so that we can read it */
 	if ((fd = open(dpath, O_RDONLY)) < 0) {
@@ -105,10 +78,16 @@ char *dpath		/* path to device */
 	}
 
 	/* Extract the vid and pid */ 	
-	vid = buf2ushort(buf + 8);
-	pid = buf2ushort(buf + 10);
+	vid = usb2ushort(buf + 8);
+	pid = usb2ushort(buf + 10);
 	nconfig = buf[17];
 	
+	/*
+		Indexes of DESCRIPTOR strings:
+		iManufacturer	buf[14]
+		iProduct		buf[15]
+		iSerialNumber	buf[16]
+	*/
 	a1logd(log, 6, "usb_check_and_add: checking vid 0x%04x, pid 0x%04x\n",vid,pid);
 
 	/* Do a preliminary match */
@@ -126,6 +105,7 @@ char *dpath		/* path to device */
 	}
 
 	usbd->nconfig = nconfig;
+	usbd->iserialno = buf[16];
 
 	/* Read the configuration descriptors looking for the first configuration, first interface, */
 	/* and extract the number of end points */
@@ -144,7 +124,7 @@ char *dpath		/* path to device */
 			return ICOM_OK;
 		}
 
-		if ((totlen = buf2ushort(buf + 2)) < 6) {
+		if ((totlen = usb2ushort(buf + 2)) < 6) {
 			a1logd(log, 1, "usb_check_and_add: config desc size strange\n");
 			free(usbd);
 			close(fd);
@@ -169,7 +149,7 @@ char *dpath		/* path to device */
 		bp = buf2 + buf2[0];	/* Skip coniguration tag */
 		zp = buf2 + totlen;		/* Past last bytes */
 
-		/* We are at the first configuration. */
+		/* We are at a configuration. */
 		/* Just read tags and keep track of where we are */
 		ninfaces = 0;
 		nep = 0;
@@ -195,16 +175,16 @@ char *dpath		/* path to device */
 					nep10 = nep;
 					usbd->EPINFO(ad).valid = 1;
 					usbd->EPINFO(ad).addr = ad;
-					usbd->EPINFO(ad).packetsize = buf2ushort(bp + 4);
+					usbd->EPINFO(ad).packetsize = usb2ushort(bp + 4);
 					usbd->EPINFO(ad).type = bp[3] & IUSB_ENDPOINT_TYPE_MASK;
-					usbd->EPINFO(ad).interface = ifaceno;
+					usbd->EPINFO(ad).ifaceno = ifaceno;
 					a1logd(log, 6, "set ep ad 0x%x packetsize %d type %d\n",ad,usbd->EPINFO(ad).packetsize,usbd->EPINFO(ad).type);
 				}
 			}
 			/* Ignore other tags */
 		}
 		free(buf2);
-	}
+	}	/* Read next config descriptor */
 	if (nep10 == 0xffff) {			/* Hmm. Failed to find number of end points */
 		a1logd(log, 1, "usb_check_and_add: failed to find number of end points\n");
 		free(usbd);
@@ -343,6 +323,13 @@ int usb_copy_usb_idevice(icoms *d, icompath *s) {
 		a1loge(d->log, ICOM_SYS, "usb_copy_usb_idevice: malloc\n");
 		return ICOM_SYS;
 	}
+	if (s->usbd->SerialNumber != NULL
+	 && (d->usbd->SerialNumber = strdup(s->usbd->SerialNumber)) == NULL) {
+		a1loge(d->log, ICOM_SYS, "usb_copy_usb_idevice: malloc\n");
+		return ICOM_SYS;
+	}
+
+	d->usbd->iserialno = s->usbd->iserialno;
 	/* Copy the ep info */
 	d->nconfig = s->usbd->nconfig;
 	d->nifce = s->usbd->nifce;
@@ -360,6 +347,8 @@ void usb_del_usb_idevice(struct usb_idevice *usbd) {
 
 	if (usbd->dpath != NULL)
 		free(usbd->dpath);
+	if (usbd->SerialNumber != NULL)
+		free(usbd->SerialNumber);
 	free(usbd);
 }
 
@@ -389,6 +378,7 @@ void usb_close_port(icoms *p) {
 		   On Linux the path stays the same, so could do open/reset/open
 		 */
 		if (p->uflags & icomuf_reset_before_close) {
+			a1logd(p->log, 6, "usb_close_port: icomuf_reset_before_close\n");
 			if ((rv = ioctl(p->usbd->fd, USBDEVFS_RESET, NULL)) != 0) {
 				a1logd(p->log, 1, "usb_close_port: reset returned %d\n",rv);
 			}
@@ -495,6 +485,8 @@ char **pnames		/* List of process names to try and kill before opening */
 				}
 				p->cconfig = config;
 				a1logd(p->log, 6, "usb_open_port: set config %d OK\n",config);
+
+				msec_sleep(50);		/* Allow device some time to configure */
 			}
 
 			/* We're done */
@@ -531,6 +523,7 @@ char **pnames		/* List of process names to try and kill before opening */
 					return ICOM_SYS;
 				}
 			}
+			a1logd(p->log, 6, "usb_open_port: Claimed USB port '%s' interface %d\n",p->usbd->dpath,iface);
 		}
 
 		/* Clear any errors. */
@@ -569,6 +562,47 @@ char **pnames		/* List of process names to try and kill before opening */
 
 		p->is_open = 1;
 		a1logd(p->log, 8, "usb_open_port: USB port is now open\n");
+
+		/* If possible, read the device serial no */
+		if (p->usbd->iserialno != 0) {
+			unsigned char buf[IUSB_DESC_TYPE_STRING_MAX_SIZE]; 
+			int se = 0;
+			int retsz = 0;
+
+			if (((se = icoms_usb_control_msg(p, &retsz, 
+				IUSB_REQ_DEV_TO_HOST | IUSB_REQ_TYPE_STANDARD | IUSB_REQ_RECIP_DEVICE,
+				IUSB_REQ_GET_DESCRIPTOR,
+	            (IUSB_DESC_TYPE_STRING << 8) | p->usbd->iserialno, 0,
+				buf, IUSB_DESC_TYPE_STRING_MAX_SIZE, 200)) != ICOM_OK && se != ICOM_SHORT)
+                                     || retsz < IUSB_DESC_TYPE_STRING_MIN_SIZE) {
+				a1logd(p->log, 1, "usb_open_port failed to read device serial no with ICOM err 0x%x and retsz %d\n",se,retsz);
+			} else {
+				unsigned int slen = buf[0];
+
+				if (slen > 2 && (slen & 1) == 0) {
+					icmUTF16 buf2[IUSB_DESC_TYPE_STRING_MAX_SIZE/2];
+					unsigned int j;
+					size_t s8len;
+
+					/* Convert to 16 bit native endian and add nul terminator */
+					slen = (slen-2)/2;
+					for (j = 0; j < slen; j++) {
+						buf2[j] = usb2ushort(buf + 2 + j * 2);
+					}
+					buf2[j] = 0;
+
+					s8len =icmUTF16toUTF8(NULL, NULL, buf2);	/* Compute UTF8 size */
+
+					if ((p->usbd->SerialNumber = (char *) calloc(s8len, 1)) == NULL) {
+						a1loge(p->log, ICOM_SYS, "usb_get_paths_w0 calloc failed!\n");
+						usb_close_port(p);
+						return ICOM_SYS;
+					}
+					icmUTF16toUTF8(NULL, (unsigned char *)p->usbd->SerialNumber, buf2);	/* Convert to UTF8 */
+					a1logd(p->log, 6, "usb_open_port got USB serial no '%s'\n",p->usbd->SerialNumber);
+				}
+			}
+		}
 	}
 
 	/* Install the cleanup signal handlers, and add to our cleanup list */
@@ -603,7 +637,7 @@ typedef struct _usbio_req {
 
 /* - - - - - - - - - - - - - - - - - - - - - */
 
-/* Cancel a req's urbs from the last down to but not including thisurb. */
+/* Cancel a req's urbs from the last down to but not including this urb. */
 /* return icom error */
 static int cancel_req(icoms *p, usbio_req *req, int thisurb) {
 	int i, rv = ICOM_OK;
@@ -615,7 +649,7 @@ static int cancel_req(icoms *p, usbio_req *req, int thisurb) {
 		ev = ioctl(p->usbd->fd, USBDEVFS_DISCARDURB, &req->urbs[i].urb);
 		if (ev != 0 && ev != EINVAL) {
 			/* Hmmm */
-			a1loge(p->log, ICOM_SYS, "cancel_req: failed with %d\n",rv);
+			a1logd(p->log, 2, "cancel_req: failed with %d\n",ev);
 			rv = ICOM_SYS;
 		}
 		req->urbs[i].urb.status = -ECONNRESET; 
@@ -714,7 +748,7 @@ static void *urb_reaper(void *context) {
 
 		/* If urb failed or is done (but not cancelled), cancel all the following urbs */
 		if (req->nourbs > 0 && !req->cancelled
-		 && ((out->actual_length < out->buffer_length)
+		 && ((out->actual_length < out->buffer_length)				/* Run out of data */
 		   || (out->status < 0 && out->status != -ECONNRESET))) {
 			a1logd(p->log, 8, "urb_reaper: reaper canceling failed or done urb's\n",rv);
 			if (cancel_req(p, req, iurb->urbno) != ICOM_OK) {
@@ -1011,9 +1045,9 @@ int timeout) {
 	/* Setup the control header */
 	buf[0] = requesttype;
 	buf[1] = request;
-	short2buf(buf + 2, value);
-	short2buf(buf + 4, index);
-	short2buf(buf + 6, size);
+	short2usb(buf + 2, value);
+	short2usb(buf + 4, index);
+	short2usb(buf + 6, size);
 
 	/* If it's a write, copy the write data into the buffer */
 	if (dirw)

@@ -3,7 +3,7 @@
 /* 
  * Argyll Color Management System
  *
- * Gretag i1Display related defines
+ * Gretag i1Display 1/2/Smile related defines
  *
  * Author: Graeme W. Gill
  * Date:   19/10/2006
@@ -174,7 +174,6 @@ struct _i1disp {
 
 	int     int_clocks;			/* Currently set integration time in clocks */
 
-	/* For dtype == 2 (ColorMunki Smile) */
 	char serno[20];				/* Ascii serial number */
 
 	/* misc */

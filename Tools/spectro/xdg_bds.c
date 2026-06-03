@@ -156,9 +156,6 @@ static void mputenv(char *ss) {
 }
 #endif
 
-/* Allocate a copy of the string, and normalize the */
-/* path separator to '/' */
-
 /* Append a string. Free in. Return NULL on error. */
 static char *append(char *in, char *app) {
 	char *rv;
@@ -881,7 +878,7 @@ char *xdg_errstr(xdg_error er) {
 		case xdg_nohome:
 			return "There is no $HOME";
 		case xdg_noalluserprofile:
-			return "Theres no $ALLUSERSPROFILE is no $ALLUSERSPROFILE";
+			return "There's no $ALLUSERSPROFILE is no $ALLUSERSPROFILE";
 		case xdg_nopath:
 			return "There is no resulting path";
 		case xdg_mallformed:
@@ -983,7 +980,7 @@ static int runtest(
 	}
 	printf("Create %s %s returned '%s'\n",
 		st == xdg_data ? "Data" : st == xdg_data ? "Conf" : "Cache",
-		sc == xdg_data ? "User" : "Local", paths[0]);
+		sc == xdg_user ? "User" : "Local", paths[0]);
 	if (touch(paths[0])) {
 		printf("Creating file %s failed\n",paths[0]);
 		return 1;
@@ -1010,7 +1007,7 @@ static int runtest(
 	}
 	printf("  Read %s %s returned '%s'\n",
 		st == xdg_data ? "Data" : st == xdg_data ? "Conf" : "Cache",
-		sc == xdg_data ? "User" : "Local",paths[0]);
+		sc == xdg_user ? "User" : "Local",paths[0]);
 	if (check(paths[0])) {
 		printf("Checking file %s failed\n",paths[0]);
 		return 1;

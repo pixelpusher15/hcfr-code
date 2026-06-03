@@ -70,18 +70,19 @@ C:\Program Files (x86)\X-Rite\Devices\i1d3\Calibrations
 oem_target oemtargs = {
 #ifdef NT
 	{	/* Installed files */
-		{ "/ColorVision/Spyder2express/CVSpyder.dll",    targ_spyd2_pld, file_dllcab },
-		{ "/ColorVision/Spyder2pro/CVSpyder.dll",        targ_spyd2_pld, file_dllcab },
-		{ "/PANTONE COLORVISION/ColorPlus/CVSpyder.dll", targ_spyd2_pld, file_dllcab },
-		{ "/Datacolor/Spyder4Express/dccmtr.dll",        targ_spyd_cal, file_dllcab },
-		{ "/Datacolor/Spyder4Pro/dccmtr.dll",            targ_spyd_cal, file_dllcab },
-		{ "/Datacolor/Spyder4Elite/dccmtr.dll",          targ_spyd_cal, file_dllcab },
-		{ "/Datacolor/Spyder4TV HD/dccmtr.dll",          targ_spyd_cal, file_dllcab },
-		{ "/Datacolor/Spyder5Express/dccmtr.dll",        targ_spyd_cal, file_dllcab },
-		{ "/Datacolor/Spyder5Pro/dccmtr.dll",            targ_spyd_cal, file_dllcab },
-		{ "/Datacolor/Spyder5Elite/dccmtr.dll",          targ_spyd_cal, file_dllcab },
-		{ "/Datacolor/Spyder5TV HD/dccmtr.dll",          targ_spyd_cal, file_dllcab },
-		{ "/X-Rite/Devices/i1d3/Calibrations/*.edr",     targ_i1d3_edr, file_data },
+		{ "/ColorVision/Spyder2express/CVSpyder.dll",            targ_spyd2_pld, file_dllcab },
+		{ "/ColorVision/Spyder2pro/CVSpyder.dll",                targ_spyd2_pld, file_dllcab },
+		{ "/PANTONE COLORVISION/ColorPlus/CVSpyder.dll",         targ_spyd2_pld, file_dllcab },
+		{ "/Datacolor/Spyder4Express/dccmtr.dll",                targ_spyd_cal, file_dllcab },
+		{ "/Datacolor/Spyder4Pro/dccmtr.dll",                    targ_spyd_cal, file_dllcab },
+		{ "/Datacolor/Spyder4Elite/dccmtr.dll",                  targ_spyd_cal, file_dllcab },
+		{ "/Datacolor/Spyder4TV HD/dccmtr.dll",                  targ_spyd_cal, file_dllcab },
+		{ "/Datacolor/Spyder5Express/dccmtr.dll",                targ_spyd_cal, file_dllcab },
+		{ "/Datacolor/Spyder5Pro/dccmtr.dll",                    targ_spyd_cal, file_dllcab },
+		{ "/Datacolor/Spyder5Elite/dccmtr.dll",                  targ_spyd_cal, file_dllcab },
+		{ "/Datacolor/Spyder5TV HD/dccmtr.dll",                  targ_spyd_cal, file_dllcab },
+		{ "/X-Rite/Devices/i1d3/Calibrations/*.edr",             targ_i1d3_edr, file_data },
+		{ "/I-O DATA/i1Profiler for PhotoCrysta/EDRFiles/*.edr", targ_i1d3_edr, file_data },
 		{ NULL }
 	},
 	{	/* Volume names */
@@ -1031,7 +1032,7 @@ void save_xfile(xfile *xf, char *sname, char *pfx, int verb) {
 	if (fclose(fp))
 		error("Failed to close file '%s' after writing",fname);
 
-	if (verb) printf("Wrote '%s' %ld bytes\n",fname, xf->len);
+	if (verb) printf("Wrote '%s' %" PFSTPREC "d bytes\n",fname, xf->len);
 
 	if (sname == NULL)
 		free(fname);
@@ -1297,7 +1298,7 @@ static xfile *vise_extract(xfile **pxf, xfile *arch, char *tfilename, int verb) 
 	vi->dsize = vi->dasize = 0;
 	vi->del(vi);
 
-	if (verb) printf("Returning '%s' length %ld from '%s'\n",xf->name, xf->len, arch[0].name);
+	if (verb) printf("Returning '%s' length %" PFSTPREC "d from '%s'\n",xf->name, xf->len, arch[0].name);
 
 
 	return xf;
@@ -1410,7 +1411,7 @@ static xfile *spyd2pld_extract(xfile **pxf, xfile *dll, int verb) {
 	xf->ftype = file_data;
 	xf->ttype = targ_spyd2_pld;
 
-	if (verb) printf("Returning '%s' length %ld from '%s'\n",xf->name, xf->len, dll->name);
+	if (verb) printf("Returning '%s' length %" PFSTPREC "d from '%s'\n",xf->name, xf->len, dll->name);
 
 	return xf;
 }
@@ -1521,7 +1522,7 @@ static xfile *spyd4cal_extract(xfile **pxf, xfile *dll, int verb) {
 	xf->ftype = file_data;
 	xf->ttype = targ_spyd_cal;
 
-	if (verb) printf("Returning '%s' length %ld from '%s'\n",xf->name, xf->len, dll[0].name);
+	if (verb) printf("Returning '%s' length %" PFSTPREC "d from '%s'\n",xf->name, xf->len, dll[0].name);
 
 	return xf;
 }
@@ -1532,7 +1533,7 @@ static xfile *spyd4cal_extract(xfile **pxf, xfile *dll, int verb) {
 static ccss *parse_EDR(unsigned char *buf, unsigned long len, char *name, int verb);
 static ccss *read_EDR_file(char *name, int verb);
 
-/* Do conversion. Return NZ on sucess */
+/* Do conversion. Return NZ on success */
 static xfile *edr_convert(xfile **pxf, xfile *xi, int verb) {
 	xfile *xf = NULL;
 	ccss *c;
@@ -1548,7 +1549,7 @@ static xfile *edr_convert(xfile **pxf, xfile *xi, int verb) {
 		unsigned char *buf;
 		size_t len;
 		if (c->buf_write_ccss(c, &buf, &len)) {
-			error("Failed to create ccss for '%s' error '%s'",xi->name,c->err);
+			error("Failed to create ccss for '%s' error '%s'",xi->name,c->e.m);
 		}
 		/* Convert .edr file name to .ccss */
 	
@@ -1836,7 +1837,7 @@ static ccss *parse_EDR(
 		nsamples = buf2int(buf + 0x0010);
 
 		if (nsamples != sp.spec_n) {
-			if (verb) printf("File '%s' set %d number of samles %d doesn't match wavelengths %d\n",name,set,nsamples,sp.spec_n);
+			if (verb) printf("File '%s' set %d number of samples %d doesn't match wavelengths %d\n",name,set,nsamples,sp.spec_n);
 			if (samples != NULL) free(samples);
 			if (tdtypes != NULL) free(tdtypes);
 			return NULL;
@@ -2525,7 +2526,7 @@ static xfile *inno_extract(xfile *xi, char *tfilename, int verb) {
 	xf->ftype = file_dllcab;
 	xf->ttype = xi->ttype;
 
-	if (verb) printf("Returning '%s' length %ld from '%s'\n",xf->name,xf->len, xi->name);
+	if (verb) printf("Returning '%s' length %" PFSTPREC "d from '%s'\n",xf->name,xf->len, xi->name);
 
 	return xf;
 }
@@ -2672,7 +2673,7 @@ static xfile *msi_extract_cab(xfile **pxf, xfile *xi, char *tname, int verb) {
 	/* Lookup the .cab size (really 64 bit, but we don't care) */
 	len = buf2uint(xi->buf + i + 8);
 
-	if (verb > 1) printf("'%s' is length %ld\n",tname,len);
+	if (verb > 1) printf("'%s' is length %" PFSTPREC "d\n",tname,len);
 
 	if ((xi->len - i) < len) {
 		if (verb) printf("Not enough room for .cab file in source\n");
@@ -2696,7 +2697,7 @@ static xfile *msi_extract_cab(xfile **pxf, xfile *xi, char *tname, int verb) {
 	xf->ftype = file_dllcab;
 	xf->ttype = xi->ttype;
 
-	if (verb) printf("Extracted '%s' length %ld\n",xf->name,xf->len);
+	if (verb) printf("Extracted '%s' length %" PFSTPREC "d\n",xf->name,xf->len);
 
 	return xf;
 }
@@ -2741,7 +2742,7 @@ static xfile *ai_extract_cab(xfile **pxf, xfile *xi, char *key, char *tname, int
 		/* Lookup the .cab size (really 64 bit, but we don't care) */
 		len = ibuf2uint(xi->buf + i + 8);
 
-		if (verb > 1) printf("'%s' is length %ld\n",tname,len);
+		if (verb > 1) printf("'%s' is length %" PFSTPREC "d\n",tname,len);
 
 		if ((xi->len - i) < len) {
 			if (verb) printf("Not enough room for .cab file in source\n");
@@ -2770,7 +2771,7 @@ static xfile *ai_extract_cab(xfile **pxf, xfile *xi, char *key, char *tname, int
 		xf->ftype = file_dllcab;
 		xf->ttype = xi->ttype;
 
-		if (verb) printf("Extracted .cab '%s' length %ld\n",xf->name,xf->len);
+		if (verb) printf("Extracted .cab '%s' length %" PFSTPREC "d\n",xf->name,xf->len);
 
 //	/* Save diagnostic file */
 //	save_xfile(xf, "temp.cab", NULL, verb);

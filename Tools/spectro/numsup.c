@@ -79,21 +79,9 @@ void set_exe_path(char *argv0) {
 #ifdef NT	/* CMD.EXE doesn't give us the full path in argv[0] :-( */
 			/* so we need to fix this */
 	{
-		HMODULE mh;
 		char *tpath = NULL;
 		int pl;
 
-		/* Add an .exe extension if it is missing */
-		if (i < 4 || _stricmp(exe_path +i -4, ".exe") != 0)
-			strcat(exe_path, ".exe");
-
-		if ((mh = GetModuleHandle(exe_path)) == NULL) {
-			a1loge(g_log, 1, "set_exe_path: GetModuleHandle '%s' failed with%d\n",
-			                                            exe_path,GetLastError());
-			exe_path[0] = '\000';
-			return;
-		}
-		
 		/* Retry until we don't truncate the returned path */
 		for (pl = 100; ; pl *= 2) {
 			if (tpath != NULL)
@@ -103,7 +91,7 @@ void set_exe_path(char *argv0) {
 				exe_path[0] = '\000';
 			return;
 			}
-			if ((i = GetModuleFileName(mh, tpath, pl)) == 0) {
+			if ((i = GetModuleFileName(NULL, tpath, pl)) == 0) {
 				a1loge(g_log, 1, "set_exe_path: GetModuleFileName '%s' failed with%d\n",
 				                                                tpath,GetLastError());
 				exe_path[0] = '\000';
@@ -124,6 +112,9 @@ void set_exe_path(char *argv0) {
 		}
 	}
 #else		/* Neither does UNIX */
+
+	/* Should use readlink("/proc/self/exe", dest, PATH_MAX) on Linux... */
+	/* Should use _NSGetExecutablePath() on OS X */
 
 	if (*exe_path != '/') {			/* Not already absolute */
 		char *p, *cp;
@@ -207,20 +198,70 @@ void set_exe_path(char *argv0) {
 
 /* Check if the "ARGYLL_NOT_INTERACTIVE" environment variable is */
 /* set, and set cr_char to '\n' if it is. */
+/* This should be called _before_ any stdout is used */
 
-int not_interactive = 0;
-char cr_char = '\r';
+int not_interactive = 0;	/* 1 = not_interactive */
+#ifdef NT
+DWORD stdin_type = FILE_TYPE_CHAR;
+#endif
+char cr_char = '\r';		/* For update on one line messages */
+char *fl_end = "";			/* For strings with no \n and a do_fflush() */
 
 void check_if_not_interactive() {
 	char *ev;
 
+#ifdef NEVER
+# ifdef NT
+	// ?? Should we ??
+	// - but shouldn't the UTF-8 code page trigger this anyway ??
+	_setmode(_fileno(stdin), 0x00040000); // _O_U8TEXT
+	_setmode(_fileno(stdout), 0x00040000); // _O_U8TEXT
+	_setmode(_fileno(stdserr), 0x00040000); // _O_U8TEXT
+# endif
+#endif
+
+	fl_end = "";
+
 	if ((ev = getenv("ARGYLL_NOT_INTERACTIVE")) != NULL) {
+#ifdef NT
+		HANDLE stdinh;
+#endif
+
 		not_interactive = 1;
 		cr_char = '\n';
+
+#ifdef NT
+		stdin_type = FILE_TYPE_CHAR;
+
+		/* Set no buffering so that messages arrive in the right sequence */
+		setvbuf(stdout, NULL, _IONBF, 1024);
+
+		/* Since we can't force the pipe to be in OVERLAPPED mode, we have */
+		/* to use NOWAIT mode. */
+		if ((stdinh = GetStdHandle(STD_INPUT_HANDLE)) != INVALID_HANDLE_VALUE) {
+			stdin_type = GetFileType(stdinh);
+			if (stdin_type == FILE_TYPE_PIPE) {
+				DWORD mode = PIPE_READMODE_BYTE | PIPE_NOWAIT;
+				SetNamedPipeHandleState(stdinh, &mode, NULL, NULL);
+			}
+		}
+#else
+		/* Set line buffering so that messages arrive in the right sequence */
+		setvbuf(stdout, NULL, _IOLBF, 1024);
+#endif
+
 	} else {
+#ifdef NT
+		stdin_type = FILE_TYPE_CHAR;
+#endif
 		not_interactive = 0;
 		cr_char = '\r';
 	}
+}
+
+/* Flush out prompts */
+void do_fflush() {
+	fflush(stdout);
 }
 
 /******************************************************************/
@@ -350,11 +391,15 @@ static char *get_sys_info() {
 #ifdef UNIX
 
 static char *get_sys_info() {
-	static char sysinfo[300] = { "Unknown" };
+	static char sysinfo[500] = { "Unknown" };
 	struct utsname ver;
 
 	if (uname(&ver) == 0)
-		sprintf(sysinfo,"%s %s %s %s",ver.sysname, ver.version, ver.release, ver.machine);
+#if defined(__APPLE__)
+		sprintf(sysinfo,"%s, %s, %s, %s (OS X %s)",ver.sysname, ver.version, ver.release, ver.machine, osx_get_version_str());
+#else
+		sprintf(sysinfo,"%s, %s, %s, %s",ver.sysname, ver.version, ver.release, ver.machine);
+#endif
 	return sysinfo;
 }
 
@@ -410,6 +455,7 @@ a1log default_log = {
 	&a1_default_v_log,	/* Default verbose to stdout */
 	&a1_default_d_log,	/* Default debug to stderr */
 	&a1_default_e_log,	/* Default error to stderr */
+	NULL,				/* No logd copy */
 	0,					/* error code 0 */			
 	{ '\000' }			/* No error message */
 };
@@ -532,6 +578,8 @@ void a1logd(a1log *log, int level, char *fmt, ...) {
 			A1LOG_LOCK(log, 1);
 			va_start(args, fmt);
 			log->logd(log->cntx, log, fmt, args);
+			if (log->logd_cc != NULL)
+				log->logd_cc(fmt, args);
 			va_end(args);
 			A1LOG_UNLOCK(log);
 		}
@@ -789,12 +837,12 @@ size_t nsize
 }
 
 /******************************************************************/
-/* OS X App Nap fixes                                             */
+/* OS X support functions                                         */
 /******************************************************************/
 
 #if defined(__APPLE__)
 
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1050
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= 1050
 # include <objc/runtime.h>
 # include <objc/message.h>
 #else
@@ -803,6 +851,144 @@ size_t nsize
 #if MAC_OS_X_VERSION_MIN_REQUIRED >= 1060
 # include <objc/objc-auto.h>
 #endif
+
+#include <CoreFoundation/CFURL.h>
+#include <CoreFoundation/CFStream.h>
+#include <CoreFoundation/CFPropertyList.h>
+
+/* OS X version info. Apple has not maintained any consistent function to do this ! */
+/* (This code is from "Mecki" via stackoverflow) */
+
+static bool osx_versionOK = false;
+static bool osx_onceToken = false;
+static unsigned int osx_versions[3] = { 0, 0, 0 };
+static char osx_versions_str[40] = { "0.0.0" };
+
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 1050
+
+#include <Carbon/Carbon.h>
+
+void initMacOSVersion() {
+    SInt32 vers;
+    SInt32 maj, min, bug;
+
+	osx_onceToken = true;
+
+    Gestalt(gestaltSystemVersion, &vers);
+	maj = vers/0x1000 * 10 + (vers/0x100 % 0x10) ;
+	min = (vers/0x10) % 0x10;
+	bug = (vers) % 0x10;
+
+	osx_versions[0] = maj;
+	osx_versions[1] = min;
+	osx_versions[2] = bug;
+
+	sprintf(osx_versions_str, "%d.%d.%d", (int)maj, (int)min, (int)bug);
+
+	osx_versionOK = true;
+}
+
+#else
+
+#include <CoreFoundation/CFURL.h>
+#include <CoreFoundation/CFStream.h>
+#include <CoreFoundation/CFPropertyList.h>
+
+void initMacOSVersion() {
+	osx_onceToken = true;
+
+	// `Gestalt()` actually gets the system version from this file.
+	// Even `if (@available(macOS 10.x, *))` gets the version from there.
+	CFURLRef url = CFURLCreateWithFileSystemPath(
+		NULL, CFSTR("/System/Library/CoreServices/SystemVersion.plist"),
+		kCFURLPOSIXPathStyle, false);
+	if (!url) return;
+
+	CFReadStreamRef readStr = CFReadStreamCreateWithFile(NULL, url);
+	CFRelease(url);
+	if (!readStr) return;
+
+	if (!CFReadStreamOpen(readStr)) {
+		CFRelease(readStr);
+		return;
+	}
+
+	CFErrorRef outError = NULL;
+	CFPropertyListRef propList = CFPropertyListCreateWithStream(
+		NULL, readStr, 0, kCFPropertyListImmutable, NULL, &outError);
+	CFRelease(readStr);
+	if (!propList) {
+		CFShow(outError);
+		CFRelease(outError);
+		return;
+	}
+
+	if (CFGetTypeID(propList) != CFDictionaryGetTypeID()) {
+		CFRelease(propList);
+		return;
+	}
+
+	CFDictionaryRef dict = propList;
+	CFTypeRef ver = CFDictionaryGetValue(dict, CFSTR("ProductVersion"));
+	if (ver) CFRetain(ver);
+	CFRelease(dict);
+	if (!ver) return;
+
+	if (CFGetTypeID(ver) != CFStringGetTypeID()) {
+		CFRelease(ver);
+		return;
+	}
+
+	CFStringRef verStr = ver;
+	// `1 +` for the terminating NUL (\0) character
+	CFIndex size = 1 + CFStringGetMaximumSizeForEncoding(
+		CFStringGetLength(verStr), kCFStringEncodingASCII);
+	// `calloc` initializes the memory with all zero (all \0)
+	char * cstr = calloc(1, size);
+	if (!cstr) {
+		CFRelease(verStr);
+		return;
+	}
+
+	CFStringGetBytes(ver, CFRangeMake(0, CFStringGetLength(verStr)),
+		kCFStringEncodingASCII, '?', false, (UInt8 *)cstr, size, NULL);
+	CFRelease(verStr);
+
+	int scans = sscanf(cstr, "%u.%u.%u",
+		&osx_versions[0], &osx_versions[1], &osx_versions[2]);
+	free(cstr);
+
+	// There may only be two values, but only one is definitely wrong.
+	// As `version` is `static`, its zero initialized.
+	osx_versionOK = (scans >= 2);
+
+	sprintf(osx_versions_str, "%d.%d.%d", osx_versions[0], osx_versions[1], osx_versions[2]);
+}
+
+#endif
+
+/* Get the OS X version number. */
+/* Return maj + min/100.0 + bugfix/10000.0 */
+/* (Returns 0.0 if unable to get version */
+double osx_get_version() {
+	double rv = 0.0;
+
+	if (!osx_onceToken)
+		initMacOSVersion();
+
+	if (osx_versionOK)
+		rv = osx_versions[0] + osx_versions[1]/100.0 + osx_versions[2]/10000.0;
+
+	return rv;
+}
+
+/* Get text OS X verion number, i.e. "10.3.1" */
+char *osx_get_version_str() {
+	if (!osx_onceToken)
+		initMacOSVersion();
+
+	return osx_versions_str;
+}
 
 /*
 	OS X 10.9+ App Nap problems bug:
@@ -880,7 +1066,7 @@ void osx_userinitiated_start() {
 		return;
 	}
 
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
 	/* Get the process instance */
 	if ((pi = ((id (*)(id, SEL))objc_msgSend)((id)pic, pis)) == nil) {
 		return;
@@ -910,7 +1096,7 @@ void osx_userinitiated_start() {
 #endif
 }
 
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
 /* Done with user initiated */
 void osx_userinitiated_end() {
 	if (osx_userinitiated_cnt > 0) {
@@ -972,7 +1158,7 @@ void osx_latencycritical_start() {
 		return;
 	}
 
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
 	/* Get the process instance */
 	if ((pi = ((id (*)(id, SEL))objc_msgSend)((id)pic, pis)) == nil) {
 		return;
@@ -1001,7 +1187,7 @@ void osx_latencycritical_start() {
 #endif
 }
 
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
 /* Done with latency critical */
 void osx_latencycritical_end() {
 	if (osx_latencycritical_cnt > 0) {
@@ -1039,6 +1225,7 @@ void osx_latencycritical_end() {
 /* Numerical Recipes Vector/Matrix Support functions              */
 /******************************************************************/
 /* Note the z suffix versions return zero'd vectors/matricies */
+/* Note the a suffix versions allocates on the stack using alloca() */
 
 /* Double Vector malloc/free */
 double *dvector(
@@ -2286,6 +2473,15 @@ void vect_max_elem3(double *d, double *s1, double *s2, int len) {
 		d[i] = (s1[i] > s2[i]) ? s1[i] : s2[i];
 }
 
+/* Offset a vector, */
+/* d may be same as 2 */
+void vect_off(double *d, double *s, double off, int len) {
+	int i;
+
+	for (i = 0; i < len; i++)
+		d[i] = s[i] + off;
+}
+
 /* Scale a vector, */
 /* d may be same as v */
 void vect_scale(double *d, double *s, double scale, int len) {
@@ -2451,6 +2647,19 @@ double vect_max2(double *s1, int len1, double *s2, int len2) {
 	for (i = 0; i < len2; i++) {
 		if (s2[i] > rv)
 			rv = s2[i];
+	}
+	return rv;
+}
+
+/* Return the maximum value difference between two vectors */
+double vect_diffmax(double *s1, double *s2, int len) {
+	int i;
+	double rv = 0.0;
+
+	for (i = 0; i < len; i++) {
+		double tt = fabs(s1[i] - s2[i]);
+		if (tt > rv)
+			rv = tt;
 	}
 	return rv;
 }
@@ -2902,6 +3111,23 @@ void acode_dvector(FILE *fp, char *id, char *pfx, double *v, int nc, int hb) {
 
 	for (i = 0; i < nc; i++) {
 		fprintf(fp, "%f%s",v[i], i < (nc-1) ? ", " : "");
+		if ((i % hb) == (hb-1))
+			fprintf(fp, "\n%s\t  ",pfx);
+	}
+	fprintf(fp, "%s};\n",pfx);
+}
+
+/* Format unsigned char vector as C code to FILE */
+/* id is variable name */
+/* pfx used at start of each line */
+/* hb sets horizontal element limit to wrap */
+/* Assumed indexed from 0 */
+void acode_cvector(FILE *fp, char *id, char *pfx, unsigned char *v, int nc, int hb) {
+	int i;
+	fprintf(fp, "%sunsigned char %s[%d] = { ",pfx,id,nc);
+
+	for (i = 0; i < nc; i++) {
+		fprintf(fp, "%u%s",v[i], i < (nc-1) ? ", " : "");
 		if ((i % hb) == (hb-1))
 			fprintf(fp, "\n%s\t  ",pfx);
 	}
@@ -3777,6 +4003,19 @@ void write_FLT64_le(ORD8 *p, double d) {
 }
 
 
+/*******************************************/
+/* Some bit functions */
+
+/* Return number of set bits */
+int count_set_bits(unsigned int val) {
+    int c = 0;
+    while (val) {
+        val &= (val - 1);
+        c++;
+    }
+    return c;
+}
+
 /*******************************/
 /* System independent timing */
 
@@ -3959,7 +4198,7 @@ double usec_time() {
 /* Debug convenience functions */
 /*******************************/
 
-#define DEB_MAX_CHAN 24
+#define DEB_MAX_CHAN 36
 #define DEB_NO_BUFS 10
 
 /* The buffer re-use arrangement isn't thread safe, but will */
@@ -4029,8 +4268,11 @@ char *debPdv(int di, double *p) {
 /* Print a float color vector to a string. */
 /* Returned static buffer is re-used every 5 calls. */
 char *debPfv(int di, float *p) {
-	static char buf[DEB_NO_BUFS][DEB_MAX_CHAN * 50];
+#   define BUFSZ (DEB_MAX_CHAN * 50)
+	char *fmt = "%.8f";
+	static char buf[DEB_NO_BUFS][BUFSZ];
 	static int ix = 0;
+	int brem = BUFSZ;
 	int e;
 	char *bp;
 
@@ -4041,16 +4283,21 @@ char *debPfv(int di, float *p) {
 		ix = 0;
 	bp = buf[ix];
 
-	if (di > DEB_MAX_CHAN)
-		di = DEB_MAX_CHAN;		/* Make sure that buf isn't overrun */
-
-	for (e = 0; e < di; e++) {
+	for (e = 0; e < di && brem > 10; e++) {
+		int tt;
 		if (e > 0)
-			*bp++ = ' ';
-		sprintf(bp, "%.8f", p[e]); bp += strlen(bp);
+			*bp++ = ' ', brem--;
+		tt = snprintf(bp, brem, fmt, p[e]);
+		if (tt < 0 || tt >= brem)
+			break;			/* Run out of room... */
+		bp += tt;
+		brem -= tt;
 	}
 	return buf[ix];
+#   undef BUFSZ
 }
+
+#undef DEB_MAX_CHAN
 
 /*******************************************/
 /* In case system doesn't have an implementation */
@@ -4071,5 +4318,31 @@ double gamma_func(double x) {
 	return rv/x;
 }
 
-#undef DEB_MAX_CHAN
+/*******************************************/
+/* Dev. diagnostic logging to a file. */
+
+#ifdef NT
+# define LOGFILE "C:/Users/Public/log.txt"
+#else
+# define LOGFILE "~/log.txt"
+#endif
+
+FILE *a_diag_fp = NULL;
+
+void a_diag_log(char *fmt, ...) {
+	va_list args;
+
+	if (a_diag_fp == NULL)
+		a_diag_fp = fopen(LOGFILE, "w");
+
+	if (a_diag_fp == NULL)
+		return;
+
+	va_start(args, fmt);
+	vfprintf(a_diag_fp, fmt, args);
+	va_end(args);
+	fflush(a_diag_fp);
+}
+
+/*******************************************/
 

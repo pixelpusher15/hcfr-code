@@ -129,7 +129,7 @@ dtp20 *p,
 char *in,		/* In string */
 char *out,		/* Out string buffer */
 int bsize,				/* Out buffer size */
-double to) {			/* Timout in seconts */
+double to) {			/* Timeout in seconts */
 	char *tc = ">";			/* Terminating character */
 	int ntc = 1;			/* Number of terminating characters */
 	int rv, se, insize;
@@ -176,7 +176,7 @@ dtp20 *p,
 char *in,			/* In string */
 char *out,			/* Out string buffer */
 int bsize,			/* Out buffer size & bytes to read */
-double top) {		/* Timout in seconds */
+double top) {		/* Timeout in seconds */
 	int rv, se, insize;
 	int bread = 0;
 	char *op;

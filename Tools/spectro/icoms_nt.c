@@ -27,7 +27,7 @@ int serial_get_paths(icompaths *p, icom_type mask) {
 	LONG stat;
 	HKEY sch;		/* Serial coms handle */
 
-	a1logd(p->log, 7, "serial_get_paths: called with mask = %d\n",mask);
+	a1logd(p->log, 7, "serial_get_paths: called with mask = 0x%x\n",mask);
 
 	// (Beware KEY_WOW64_64KEY ?)
 
@@ -501,7 +501,7 @@ double tout)
 
 	a1logd(p->log, 8, "\nicoms_ser_write: ep 0x%x, bytes %d, ttop %d, quant %d\n", p->rd_ep, len, ttop, p->rd_qa);
 
-	/* Set the timout value */
+	/* Set the timeout value */
 	tmo.ReadIntervalTimeout = 0;
 	tmo.ReadTotalTimeoutMultiplier = 0;
 	tmo.ReadTotalTimeoutConstant = ttop;
@@ -596,7 +596,7 @@ double tout			/* Time out in seconds */
 
 	a1logd(p->log, 8, "\nicoms_ser_read: bytes %d, ttop %d, ntc %d\n", bsize, ttop, ntc);
 
-	/* Set the timout value */
+	/* Set the timeout value */
 	tmo.ReadIntervalTimeout = 20;			/* small inter character to detect tc */
 	tmo.ReadTotalTimeoutMultiplier = 0;		/* No per byte */
 	tmo.ReadTotalTimeoutConstant = ttop;	/* Just overall total */

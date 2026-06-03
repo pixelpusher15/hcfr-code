@@ -259,7 +259,7 @@ int bsize,				/* Out buffer size */
 int *bread,				/* Bytes read */
 int nchar,				/* Number of characters to expect */
 ichecks xec,			/* Error check */
-double to) {			/* Timout in seconds */
+double to) {			/* Timeout in seconds */
 	int rv = k10_fcommand(p, in, out, bsize, bread, nchar, to, xec, 0);
 	return k10_interp_code(p, rv);
 }
@@ -557,6 +557,16 @@ k10_init_inst(inst *pp) {
 	return inst_ok;
 }
 
+static char *k10_get_serial_no(inst *pp) {
+	kleink10 *p = (kleink10 *)pp;
+	
+	if (!pp->gotcoms)
+		return "";
+	if (!pp->inited)
+		return "";
+
+	return p->serial_no;
+}
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
@@ -735,7 +745,7 @@ int ix					/* Klein calibration index 1 - 96 */
 
 	if (buf[0] != 'D' || buf[1] != '1') {
 		amutex_unlock(p->lock);
-		a1logd(p->log, 1, "k10_read_cal_matrix: didn't get echo'd commad D1\n");
+		a1logd(p->log, 1, "k10_read_cal_matrix: didn't get echo'd command D1\n");
 		return inst_protocol_error;
 	}
 
@@ -1849,7 +1859,7 @@ static inst_code k10_imp_measure_refresh(
 				}
 
 				if (nfails == 0 || (nfails <= 2 && npeaks >= 6))
-					break;		/* Sucess */
+					break;		/* Success */
 				/* else go and try a different divisor */
 			}
 			if (j < 25)
@@ -2091,7 +2101,7 @@ int *pinstmsec) {	/* Return instrument reaction time in msec */
 			break;
 	}
 
-	a1logd(p->log, 2, "k10_meas_delay: stoped at sample %d time %f\n",i,samp[i].sec);
+	a1logd(p->log, 2, "k10_meas_delay: stopped at sample %d time %f\n",i,samp[i].sec);
 
 	/* Compute overall delay */
 	dispmsec = (int)(samp[i].sec * 1000.0 + 0.5);
@@ -2886,6 +2896,7 @@ extern kleink10 *new_kleink10(icoms *icom, instType dtype) {
 	p->init_coms         = k10_init_coms;
 	p->init_inst         = k10_init_inst;
 	p->capabilities      = k10_capabilities;
+	p->get_serial_no     = k10_get_serial_no;
 	p->check_mode        = k10_check_mode;
 	p->set_mode          = k10_set_mode;
 	p->get_disptypesel   = k10_get_disptypesel;

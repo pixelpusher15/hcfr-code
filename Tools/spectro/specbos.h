@@ -135,7 +135,7 @@ struct _specbos {
 								/* 1211 */
 								/* 1501 */
 								/* 1511 - has display */
-								/* 2501 */ // Omardris
+								/* 2501 */
 
 	int noXYZ;					/* nz if firmware doesn't support fetch*XYZ */
 	int badCal;					/* nz if its been calibrated with a reduced WL range by 3rd party */
@@ -169,12 +169,13 @@ struct _specbos {
 	athread *th;                /* Diffuser position monitoring thread */
 	volatile int th_term;		/* nz to terminate thread */
 	volatile int th_termed;		/* nz when thread terminated */
-	int dpos;					/* Diffuser position, 0 = emissive, 1 = ambient */
+	int dpos;					/* Diffuser position, 0 = emissive, 1 = ambient, 2+ = other */
 	int laser;					/* Target laser state, nz = on */
 
 	int maxtin_warn;			/* NZ if conf:maxtin failure warning has been given */
 
-	int serno;					/* Spectrometer serial number */
+	int ser_no;					/* Spectrometer serial number */
+	char serno[20];				/* Serial number as string */
 
 	}; typedef struct _specbos specbos;
 

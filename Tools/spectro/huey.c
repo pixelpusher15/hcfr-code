@@ -82,7 +82,7 @@ static int icoms2huey_err(int se, int torc) {
 /* i1Display command codes */
 /* B = byte (8bit), S = short (16bit), W = word (32bit), A = string */
 /* U = unused byte, - = no arguments/results */
-/* The is a 7 byte command buffer and 6 response recieve buffer. */
+/* The is a 7 byte command buffer and 6 response receive buffer. */
 /* :2 means the read is from a second 8 byte ep x81 read. */
 /* cbuf[-] is command byte */
 /* rbuf[-2] is continuation byte */
@@ -184,7 +184,7 @@ huey_command(
 	memmove(buf + 1, in, 7);
 
 	if (ishid) {
-		se = p->icom->hid_write(p->icom, buf, 8, &wbytes, to); 
+		se = p->icom->hid_write(p->icom, buf, 8, &wbytes, to, 0); 
 	} else {
 		se = p->icom->usb_control(p->icom,
 		      IUSB_ENDPOINT_OUT | IUSB_REQ_TYPE_CLASS | IUSB_REQ_RECIP_INTERFACE, 0x9, 0x200, 0, buf, 8, NULL, to);
@@ -204,7 +204,7 @@ huey_command(
 	if (rv != inst_ok) {
 		/* Flush any response if write failed */
 		if (ishid)
-			p->icom->hid_read(p->icom, buf, 8, &rbytes, to);
+			p->icom->hid_read(p->icom, buf, 8, &rbytes, to, 0);
 		else
 			p->icom->usb_read(p->icom, NULL, 0x81, buf, 8, &rbytes, to);
 		return rv;
@@ -214,7 +214,7 @@ huey_command(
 	a1logd(p->log,6,"huey_command: Reading response\n");
 
 	if (ishid) {
-		se = p->icom->hid_read(p->icom, buf, 8, &rbytes, to);
+		se = p->icom->hid_read(p->icom, buf, 8, &rbytes, to, 0);
 	} else {
 		se = p->icom->usb_read(p->icom, NULL, 0x81, buf, 8, &rbytes, to);
 	} 
@@ -235,7 +235,7 @@ huey_command(
 		a1logd(p->log,6,"huey_command: Reading extended response\n");
 
 		if (ishid) {
-			se = p->icom->hid_read(p->icom, buf, 8, &rbytes, to2);
+			se = p->icom->hid_read(p->icom, buf, 8, &rbytes, to2, 0);
 		} else {
 			se = p->icom->usb_read(p->icom, NULL, 0x81, buf, 8, &rbytes, to2);
 		} 
@@ -942,7 +942,7 @@ huey_read_all_regs(
 	if ((ev = huey_rdreg_word(p, &p->ser_no, 0) ) != inst_ok)
 		return ev;
 	a1logd(p->log,4,"serial number = %d\n",p->ser_no);
-
+	sprintf(p->serno, "%u",p->ser_no);
 
 	/* LCD/user calibration values */
 	for (i = 0; i < 9; i++) {
@@ -1168,6 +1168,17 @@ huey_init_inst(inst *pp) {
 		return ev;
 
 	return inst_ok;
+}
+
+static char *huey_get_serial_no(inst *pp) {
+	huey *p = (huey *)pp;
+	
+	if (!pp->gotcoms)
+		return "";
+	if (!pp->inited)
+		return "";
+
+	return p->serno;
 }
 
 /* Read a single sample */
@@ -1758,6 +1769,7 @@ extern huey *new_huey(icoms *icom, instType dtype) {
 
 	p->init_coms         = huey_init_coms;
 	p->init_inst         = huey_init_inst;
+	p->get_serial_no     = huey_get_serial_no;
 	p->capabilities      = huey_capabilities;
 	p->check_mode        = huey_check_mode;
 	p->set_mode          = huey_set_mode;

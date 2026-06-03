@@ -114,7 +114,7 @@ munki_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 		return munki_interp_code(p, icoms2munki_err(se));
 	}
 
-	a1logd(p->log, 2, "munki_init_coms: init coms has suceeded\n");
+	a1logd(p->log, 2, "munki_init_coms: init coms has succeeded\n");
 
 	p->gotcoms = 1;
 	return inst_ok;
@@ -442,6 +442,8 @@ munki_interp_error(inst *pp, munki_code ec) {
 			return "Instrument calibration version is unknown";
 		case MUNKI_HW_CALIBMATCH:
 			return "Calibration doesn't match device";
+		case MUNKI_HW_NOSENSOR:
+			return "Sensor seems to be disconnected";
 
 		case MUNKI_RD_DARKREADINCONS:
 			return "Dark calibration reading is inconsistent";
@@ -479,6 +481,8 @@ munki_interp_error(inst *pp, munki_code ec) {
 			return "No refresh rate detected or failed to measure it";
 		case MUNKI_RD_NOTRANS_FOUND:
 			return "No delay calibration transition found";
+		case MUNKI_RD_LEADTRAILINCONS:
+			return "Swipe didn't start and end on the media";
 
 		case MUNKI_SPOS_PROJ:
 			return "Sensor should be in projector position";
@@ -530,7 +534,7 @@ munki_interp_error(inst *pp, munki_code ec) {
 		case MUNKI_INT_CREATE_EEPROM_STORE:
 			return "Error in creating EEProm store";
 		case MUNKI_INT_NEW_RSPL_FAILED:
-			return "Creating RSPL object faild";
+			return "Creating RSPL object failed";
 		case MUNKI_INT_CAL_SAVE:
 			return "Unable to save calibration to file";
 		case MUNKI_INT_CAL_RESTORE:
@@ -592,6 +596,7 @@ munki_interp_code(munki *p, munki_code ec) {
 		case MUNKI_HW_ME_ODDREAD:
 		case MUNKI_HW_CALIBVERSION:
 		case MUNKI_HW_CALIBMATCH:
+		case MUNKI_HW_NOSENSOR:
 			return inst_hardware_fail | ec;
 
 		case MUNKI_RD_DARKREADINCONS:
@@ -611,6 +616,7 @@ munki_interp_code(munki *p, munki_code ec) {
 		case MUNKI_RD_NOAMBB4FLASHES:
 		case MUNKI_RD_NOREFR_FOUND:
 		case MUNKI_RD_NOTRANS_FOUND:
+		case MUNKI_RD_LEADTRAILINCONS:
 			return inst_misread | ec;
 
 		case MUNKI_INTERNAL_ERROR:

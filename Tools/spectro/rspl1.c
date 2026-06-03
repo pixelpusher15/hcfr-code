@@ -69,6 +69,18 @@ co *p
 	return rv;
 }
 
+/* Use a linear interp between grid points. */
+/* If the input is outside the grid range, it will */
+/* be clamped to the nearest grid point. */
+static double interp1(rspl *t, double in) {
+	co p = { 0 };
+
+	p.p[0] = in;
+	t->interp(t, &p);
+	return p.v[0];
+}
+
+
 /* Destructor */
 static void del_rspl(rspl *t) {
 	if (t != NULL) {
@@ -457,6 +469,7 @@ rspl *new_rspl(int flags, int di, int fdi) {
 
 	/* Initialise the classes methods */
 	t->interp     = interp;
+	t->interp1    = interp1;
 	t->fit_rspl   = fit_rspl; 
 	t->fit_rspl_w = fit_rspl_w; 
 	t->set_rspl   = set_rspl; 

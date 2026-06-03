@@ -60,7 +60,7 @@ typedef struct {
 
 /* A list of files stored in memory. */
 typedef struct {
-	char *name;				/* Name of file, NULL for last entry */
+	char *name;				/* Name/Path of file, NULL for last entry */
 	unsigned char *buf;		/* It's contents */
 	size_t len;				/* The length of the contents */
 	file_type ftype;		/* Hint to file type */

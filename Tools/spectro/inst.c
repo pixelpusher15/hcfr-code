@@ -60,14 +60,10 @@
 #include "ccss.h"
 #include "sort.h"
 
-#if defined(ENABLE_FAST_SERIAL)
-devType fast_ser_dev_type(icoms *p, int tryhard, 
-       inst_code (*uicallback)(void *cntx, inst_ui_purp purp), void *cntx);
-# if defined(ENABLE_SERIAL)
+#if defined(ENABLE_SERIAL)
 static instType ser_inst_type(icoms *p, 
        inst_code (*uicallback)(void *cntx, inst_ui_purp purp), void *cntx);
-# endif /* ENABLE_SERIAL */
-#endif /* ENABLE_FAST_SERIAL */
+#endif /* ENABLE_SERIAL */
 
 icom_type dev_category(instType itype);
 
@@ -610,7 +606,7 @@ static inst_code virtual_del(inst *p) {
 /* Return NULL for unknown instrument, */
 /* or serial instrument if nocoms == 0. */
 extern inst *new_inst(
-icompath *path,		/* Device path to instrument */
+icompath *path,		/* Device path to instrument - NULL for no instrument, will return NULL */
 int nocoms,			/* Don't open if communications are needed to establish inst type */
 a1log *log,			/* log to use */
 inst_code (*uicallback)(void *cntx, inst_ui_purp purp),		/* optional uicallback */
@@ -693,6 +689,10 @@ void *cntx			/* Context for callback */
 		p = (inst *)new_i1disp(icom, itype);
 	else if (itype == instI1Disp3)
 		p = (inst *)new_i1d3(icom, itype);
+#if defined(PRIVATE) || defined(ANDROID_NOTDEMO) || defined(ENABLE_D123)
+	else if (itype == instD123)
+		p = (inst *)new_i1d123(icom, itype);
+#endif
 	else if (itype == instI1Monitor)
 		p = (inst *)new_i1pro(icom, itype);
 	else if ((itype == instI1Pro) ||
@@ -714,7 +714,8 @@ void *cntx			/* Context for callback */
 		p = (inst *)new_spyd2(icom, itype);
 	else if (itype == instSpyderX)
 		p = (inst *)new_spydX(icom, itype);
-	else if (itype == instSpyderX2)
+	else if (itype == instSpyderX2 ||
+		     itype == instSpyder2024)
 		p = (inst *)new_spydX2(icom, itype);
 	else if (itype == instEX1)
 		p = (inst *)new_ex1(icom, itype);
@@ -1310,7 +1311,7 @@ iccss *list_iccss(int *no) {
 	npaths = xdg_bds(NULL, &paths, xdg_data, xdg_read, xdg_user, xdg_none,
 						"ArgyllCMS/\052.ccss" XDG_FUDGE "color/\052.ccss"
 	);
-	a1logv(g_log, 1, "list_iccss: xdg_bds returned %d paths\n",npaths);
+	a1logd(g_log, 1, "list_iccss: xdg_bds returned %d paths\n",npaths);
 
 	if ((rv = malloc(sizeof(iccss) * (npaths + 1))) == NULL) {
 		a1loge(g_log, 1, "list_iccss: malloc of paths failed\n");
@@ -1406,7 +1407,7 @@ iccss *list_iccss(int *no) {
 	HEAPSORT(iccss, rv, j)
 #undef HEAP_COMPARE
 
-	a1logv(g_log, 1, "list_iccss: returning %d ccss's\n",j);
+	a1logd(g_log, 1, "list_iccss: returning %d ccss's\n",j);
 
 	return rv;
 }
@@ -1898,7 +1899,7 @@ static instType ser_inst_type(
 	int so = 0;
 	
 #ifdef ENABLE_USB
-	if (p->usbd != NULL || p->hidd != NULL)
+	if ((p->usbd != NULL || p->hidd != NULL) && p->dtype != instUnknown)
 		return p->dtype;
 #endif /* ENABLE_USB */
 

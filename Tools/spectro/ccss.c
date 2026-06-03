@@ -95,11 +95,16 @@ cgats **pocg		/* return CGATS structure */
 	if (p->disp)
 		ocg->add_kword(ocg, 0, "DISPLAY",p->disp, NULL);
 
-	p->tech = disptech_get_id(p->dtech)->strid;
+	if ((p->tech = strdup(disptech_get_id(p->dtech)->strid)) == NULL) {
+		sprintf(p->e.m, "strdup of tech string faile!");
+		ocg->del(ocg);		/* Clean up */
+		return 2;
+	}
+
 	ocg->add_kword(ocg, 0, "TECHNOLOGY", p->tech, NULL);
 
 	if (p->disp == NULL && p->tech == NULL) {
-		sprintf(p->err, "write_ccss: ccss doesn't contain display or techology strings");
+		sprintf(p->e.m, "write_ccss: ccss doesn't contain display or techology strings");
 		ocg->del(ocg);
 		return 1;
 	}
@@ -123,7 +128,7 @@ cgats **pocg		/* return CGATS structure */
 
 	/* Fields we want */
 	if (ocg->add_field(ocg, 0, "SAMPLE_ID", nqcs_t) < 0) {
-		sprintf(p->err, "cgats add_field SAMPLE_ID failed with '%s'!",ocg->err);
+		sprintf(p->e.m, "cgats add_field SAMPLE_ID failed with '%s'!",ocg->e.m);
 		ocg->del(ocg);		/* Clean up */
 		return 2;
 	}
@@ -139,7 +144,7 @@ cgats **pocg		/* return CGATS structure */
 		
 		sprintf(buf,"SPEC_%03d",nm);
 		if (ocg->add_field(ocg, 0, buf, r_t) < 0) {
-			sprintf(p->err, "cgats add_field %s failed with '%s'",buf,ocg->err);
+			sprintf(p->e.m, "cgats add_field %s failed with '%s'",buf,ocg->e.m);
 			ocg->del(ocg);		/* Clean up */
 			return 2;
 		}
@@ -147,7 +152,7 @@ cgats **pocg		/* return CGATS structure */
 	nsetel += p->samples[0].spec_n;		/* Spectral values */
 
 	if ((setel = (cgats_set_elem *)malloc(sizeof(cgats_set_elem) * nsetel)) == NULL) {
-		strcpy(p->err, "Malloc failed!");
+		strcpy(p->e.m, "Malloc failed!");
 		ocg->del(ocg);		/* Clean up */
 		return 2;
 	}
@@ -182,7 +187,7 @@ char *outname	/* Filename to write to */
 	cgats *ocg;				/* CGATS structure */
 
 	if (p->no_samp < 3) {
-		strcpy(p->err, "Need at least three spectral samples");
+		strcpy(p->e.m, "Need at least three spectral samples");
 		return 1;
 	}
 
@@ -193,7 +198,7 @@ char *outname	/* Filename to write to */
 
 	/* Write it to file */
 	if (ocg->write_name(ocg, outname)) {
-		strcpy(p->err, ocg->err);
+		strcpy(p->e.m, ocg->e.m);
 		ocg->del(ocg);		/* Clean up */
 		return 1;
 	}
@@ -214,7 +219,7 @@ size_t *len					/* Return length */
 	cgatsFile *fp;
 
 	if (p->no_samp < 3) {
-		strcpy(p->err, "Need at least three spectral samples");
+		strcpy(p->e.m, "Need at least three spectral samples");
 		return 1;
 	}
 
@@ -224,13 +229,13 @@ size_t *len					/* Return length */
 	}
 
 	if ((fp = new_cgatsFileMem(NULL, 0)) == NULL) {
-		strcpy(p->err, "new_cgatsFileMem failed");
+		strcpy(p->e.m, "new_cgatsFileMem failed");
 		return 2;
 	}
 
 	/* Write it to file */
 	if (ocg->write(ocg, fp)) {
-		strcpy(p->err, ocg->err);
+		strcpy(p->e.m, ocg->e.m);
 		ocg->del(ocg);		/* Clean up */
 		fp->del(fp);
 		return 1;
@@ -238,7 +243,7 @@ size_t *len					/* Return length */
 
 	/* Get the buffer the ccss has been written to */
 	if (fp->get_buf(fp, buf, len)) {
-		strcpy(p->err, "cgatsFileMem get_buf failed");
+		strcpy(p->e.m, "cgatsFileMem get_buf failed");
 		return 2;
 	}
 
@@ -260,11 +265,11 @@ cgats *icg		/* input cgats structure */
 	xspect sp;
 
 	if (icg->ntables == 0 || icg->t[0].tt != tt_other || icg->t[0].oi != 0) {
-		sprintf(p->err, "read_ccss: Input file isn't a CCSS format file");
+		sprintf(p->e.m, "read_ccss: Input file isn't a CCSS format file");
 		return 1;
 	}
 	if (icg->ntables != 1) {
-		sprintf(p->err, "Input file doesn't contain exactly one table");
+		sprintf(p->e.m, "Input file doesn't contain exactly one table");
 		return 1;
 	}
 
@@ -272,41 +277,42 @@ cgats *icg		/* input cgats structure */
 
 	if ((ti = icg->find_kword(icg, 0, "DESCRIPTOR")) >= 0) {
 		if ((p->desc = strdup(icg->t[0].kdata[ti])) == NULL) {
-			sprintf(p->err, "read_ccss: malloc failed");
+			sprintf(p->e.m, "read_ccss: malloc failed");
 			return 2;
 		}
 	}
 	if ((ti = icg->find_kword(icg, 0, "ORIGINATOR")) >= 0) {
 		if ((p->orig = strdup(icg->t[0].kdata[ti])) == NULL) {
-			sprintf(p->err, "read_ccss: malloc failed");
+			sprintf(p->e.m, "read_ccss: malloc failed");
 			return 2;
 		}
 	}
 	if ((ti = icg->find_kword(icg, 0, "CREATED")) >= 0) {
 		if ((p->crdate = strdup(icg->t[0].kdata[ti])) == NULL) {
-			sprintf(p->err, "read_ccss: malloc failed");
+			sprintf(p->e.m, "read_ccss: malloc failed");
 			return 2;
 		}
 	}
 
 	if ((ti = icg->find_kword(icg, 0, "DISPLAY")) >= 0) {
 		if ((p->disp = strdup(icg->t[0].kdata[ti])) == NULL) {
-			sprintf(p->err, "read_ccss: malloc failed");
+			sprintf(p->e.m, "read_ccss: malloc failed");
 			return 2;
 		}
 	}
 	if ((ti = icg->find_kword(icg, 0, "TECHNOLOGY")) >= 0) {
 		if ((p->tech = strdup(icg->t[0].kdata[ti])) == NULL) {
-			sprintf(p->err, "read_ccss: malloc failed");
+			sprintf(p->e.m, "read_ccss: malloc failed");
 			return 2;
 		}
 		/* Get disptech enum from standard TECHNOLOGY string */
 		p->dtech = disptech_get_strid(p->tech)->dtech;
 	}
 	if (p->disp == NULL && p->tech == NULL) {
-		sprintf(p->err, "read_ccss: Input file doesn't contain keyword DISPLAY or TECHNOLOGY");
+		sprintf(p->e.m, "read_ccss: Input file doesn't contain keyword DISPLAY or TECHNOLOGY");
 		return 1;
 	}
+	p->refrmode = -1;
 	if ((ti = icg->find_kword(icg, 0, "DISPLAY_TYPE_REFRESH")) >= 0) {
 		if (stricmp(icg->t[0].kdata[ti], "YES") == 0)
 			p->refrmode = 1;
@@ -316,14 +322,14 @@ cgats *icg		/* input cgats structure */
 
 	if ((ti = icg->find_kword(icg, 0, "UI_SELECTORS")) >= 0) {
 		if ((p->sel = strdup(icg->t[0].kdata[ti])) == NULL) {
-			sprintf(p->err, "read_ccss: malloc failed");
+			sprintf(p->e.m, "read_ccss: malloc failed");
 			return 2;
 		}
 	}
 
 	if ((ti = icg->find_kword(icg, 0, "REFERENCE")) >= 0) {
 		if ((p->ref = strdup(icg->t[0].kdata[ti])) == NULL) {
-			sprintf(p->err, "read_ccss: malloc failed");
+			sprintf(p->e.m, "read_ccss: malloc failed");
 			return 2;
 		}
 	}
@@ -338,17 +344,17 @@ cgats *icg		/* input cgats structure */
 	}
 
 	if ((ii = icg->find_kword(icg, 0, "SPECTRAL_BANDS")) < 0) {
-		sprintf(p->err,"Input file doesn't contain keyword SPECTRAL_BANDS");
+		sprintf(p->e.m,"Input file doesn't contain keyword SPECTRAL_BANDS");
 		return 1;
 	}
 	sp.spec_n = atoi(icg->t[0].kdata[ii]);
 	if ((ii = icg->find_kword(icg, 0, "SPECTRAL_START_NM")) < 0) {
-		sprintf(p->err,"Input file doesn't contain keyword SPECTRAL_START_NM");
+		sprintf(p->e.m,"Input file doesn't contain keyword SPECTRAL_START_NM");
 		return 1;
 	}
 	sp.spec_wl_short = atof(icg->t[0].kdata[ii]);
 	if ((ii = icg->find_kword(icg, 0, "SPECTRAL_END_NM")) < 0) {
-		sprintf(p->err,"Input file doesn't contain keyword SPECTRAL_END_NM");
+		sprintf(p->e.m,"Input file doesn't contain keyword SPECTRAL_END_NM");
 		return 1;
 	}
 	sp.spec_wl_long = atof(icg->t[0].kdata[ii]);
@@ -371,20 +377,20 @@ cgats *icg		/* input cgats structure */
 		sprintf(buf,"SPEC_%03d",nm);
 
 		if ((spi[j] = icg->find_field(icg, 0, buf)) < 0) {
-			sprintf(p->err,"Input file doesn't contain field %s",buf);
+			sprintf(p->e.m,"Input file doesn't contain field %s",buf);
 			return 1;
 		}
 	}
 
 	if ((p->no_samp = icg->t[0].nsets) < 3) {
-		sprintf(p->err, "Input file doesn't contain at least three spectral samples");
+		sprintf(p->e.m, "Input file doesn't contain at least three spectral samples");
 		p->no_samp = 0;
 		return 1;
 	}
 
 	/* Allocate spectral array */
 	if ((p->samples = (xspect *)malloc(sizeof(xspect) * p->no_samp)) == NULL) {
-		strcpy(p->err, "Malloc failed!");
+		strcpy(p->e.m, "Malloc failed!");
 		p->no_samp = 0;
 		return 2;
 	}
@@ -414,13 +420,13 @@ char *inname	/* Filename to read from */
 
 	/* Open and look at the .ccss file */
 	if ((icg = new_cgats()) == NULL) {		/* Create a CGATS structure */
-		sprintf(p->err, "read_ccss: new_cgats() failed");
+		sprintf(p->e.m, "read_ccss: new_cgats() failed");
 		return 2;
 	}
 	icg->add_other(icg, "CCSS");		/* our special type is Model Printer Profile */
 
 	if (icg->read_name(icg, inname)) {
-		strcpy(p->err, icg->err);
+		strcpy(p->e.m, icg->e.m);
 		icg->del(icg);
 		return 1;
 	}
@@ -447,20 +453,20 @@ size_t len
 	cgats *icg;			/* input cgats structure */
 
 	if ((fp = new_cgatsFileMem(buf, len)) == NULL) {
-		strcpy(p->err, "new_cgatsFileMem failed");
+		strcpy(p->e.m, "new_cgatsFileMem failed");
 		return 2;
 	}
 
 	/* Open and look at the .ccss file */
 	if ((icg = new_cgats()) == NULL) {		/* Create a CGATS structure */
-		sprintf(p->err, "read_ccss: new_cgats() failed");
+		sprintf(p->e.m, "read_ccss: new_cgats() failed");
 		fp->del(fp);
 		return 2;
 	}
 	icg->add_other(icg, "CCSS");		/* our special type is Model Printer Profile */
 	
 	if (icg->read(icg, fp)) {
-		strcpy(p->err, icg->err);
+		strcpy(p->e.m, icg->e.m);
 		icg->del(icg);
 		fp->del(fp);
 		return 1;
@@ -497,25 +503,25 @@ int no_samp			/* Number of spectral samples */
 	free_ccss(p);
 	if (orig != NULL) {
 		if ((p->orig = strdup(orig)) == NULL) {
-			sprintf(p->err, "set_ccss: malloc orig failed");
+			sprintf(p->e.m, "set_ccss: malloc orig failed");
 			return 2;
 		}
 	}
 	if (desc != NULL) {
 		if ((p->desc = strdup(desc)) == NULL) {
-			sprintf(p->err, "set_ccss: malloc desc failed");
+			sprintf(p->e.m, "set_ccss: malloc desc failed");
 			return 2;
 		}
 	}
 	if (crdate != NULL) {
 		if ((p->crdate = strdup(crdate)) == NULL) {
-			sprintf(p->err, "set_ccss: malloc crdate failed");
+			sprintf(p->e.m, "set_ccss: malloc crdate failed");
 			return 2;
 		}
 	}
 	if (disp != NULL) {
 		if ((p->disp = strdup(disp)) == NULL) {
-			sprintf(p->err, "set_ccss: malloc disp failed");
+			sprintf(p->e.m, "set_ccss: malloc disp failed");
 			return 2;
 		}
 	}
@@ -523,13 +529,13 @@ int no_samp			/* Number of spectral samples */
 	p->refrmode = refrmode;
 	if (sel != NULL) {
 		if ((p->sel = strdup(sel)) == NULL) {
-			sprintf(p->err, "set_ccss: malloc sel failed");
+			sprintf(p->e.m, "set_ccss: malloc sel failed");
 			return 2;
 		}
 	}
 	if (refd != NULL) {
 		if ((p->ref = strdup(refd)) == NULL) {
-			sprintf(p->err, "set_ccss: malloc ref failed");
+			sprintf(p->e.m, "set_ccss: malloc ref failed");
 			return 2;
 		}
 	}
@@ -542,14 +548,14 @@ int no_samp			/* Number of spectral samples */
 	}
 
 	if ((p->no_samp = no_samp) < 3) {
-		strcpy(p->err, "Must be at least three spectral samples");
+		strcpy(p->e.m, "Must be at least three spectral samples");
 		p->no_samp = 0;
 		return 1;
 	}
 
 	/* Allocate spectral array */
 	if ((p->samples = (xspect *)malloc(sizeof(xspect) * p->no_samp)) == NULL) {
-		strcpy(p->err, "Malloc failed!");
+		strcpy(p->e.m, "Malloc failed!");
 		p->no_samp = 0;
 		return 2;
 	}

@@ -39,14 +39,14 @@ static int
 err(cgats *p, int errc, const char *fmt, ...) {
 	va_list args;
 
-	p->errc = errc;
+	p->e.c = errc;
 	va_start(args, fmt);
 	vsprintf(p->err, fmt, args);
 	va_end(args);
 
 	/* If this is the first registered error */
 	if (p->ferrc != 0) {
-		p->ferrc = p->errc;
+		p->ferrc = p->e.c;
 		strcpy(p->ferr, p->err);
 	}
 
@@ -78,15 +78,15 @@ cgats *new_cgats(void) {
 
 /* Read a cgats file into structure */
 /* Return non-zero if there was an error */
-/* and set p->errc * p->err */
+/* and set p->e.c * p->err */
 CGATS_STATIC
 int
 cgats_read_name(cgats *p, const char *filename) {
 	int rv;
 	cgatsFile *fp;
 
-	p->errc = 0;
-	p->err[0] = '\000';
+	p->e.c = 0;
+	p->e.m[0] = '\000';
 
 	if ((fp = new_cgatsFileStd_name(filename, "r")) == NULL)
 		return err(p,-1,"Unable to open file '%s' for reading",filename);

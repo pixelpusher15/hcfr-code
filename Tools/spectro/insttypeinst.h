@@ -19,7 +19,7 @@
 # include "dtp41.h"
 # include "dtp51.h"
 # include "ss.h"
-#endif
+#endif /* ALLINSTS */
 
 #ifdef ENABLE_FAST_SERIAL
 # include "specbos.h"
@@ -32,11 +32,15 @@
 # include "dtp92.h"
 # include "i1disp.h"
 # include "i1d3.h"
+#if defined(PRIVATE) || defined(ANDROID_NOTDEMO) || defined(ENABLE_D123)
+# include "d123.h"
+#endif
 # include "i1pro.h"
 # include "i1pro3.h"
 # include "munki.h"
 # include "spyd2.h"
 # include "spydX.h"
+# include "spydX2.h"
 # include "huey.h"
 # include "ex1.h"
 # include "hcfr.h"

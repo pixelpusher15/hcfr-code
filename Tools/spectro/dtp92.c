@@ -120,7 +120,7 @@ dtp92_fcommand(
 	int bsize,			/* Out buffer size */
 	char *tc,			/* Terminating characters */
 	int ntc,			/* Number of terminating characters */
-	double to) {		/* Timout in seconds */
+	double to) {		/* Timeout in seconds */
 	int rv, se;
 
 	if ((se = p->icom->write_read(p->icom, in, 0, out, bsize, NULL, tc, ntc, to)) != 0) {
@@ -358,7 +358,7 @@ dtp92_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 					if ((ev = dtp92_command(p, tbuf, buf, MAX_MES_SIZE, 6.0)) != inst_ok)
 						error("Writing offset drift value failed");
 					else
-						printf("Writing offset drift value suceeded!\n");
+						printf("Writing offset drift value succeeded!\n");
 				} else {
 					printf("No command written\n");
 				}
@@ -372,7 +372,7 @@ dtp92_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 		return inst_coms_fail;
 	}
 
-	a1logd(p->log, 2, "dtp92_init_coms: init coms has suceeded\n");
+	a1logd(p->log, 2, "dtp92_init_coms: init coms has succeeded\n");
 
 	p->gotcoms = 1;
 	return inst_ok;
@@ -943,7 +943,7 @@ dtp92_interp_error(inst *pp, int ec) {
 		case DTP92_NO_DATA_AVAILABLE:
 			return "No data available";
 		case DTP92_MISSING_PARAMETER:
-			return "Paramter is missing";
+			return "Parameter is missing";
 		case DTP92_CALIBRATION_DENIED:
 			return "Invalid calibration enable code";
 		case DTP92_NEEDS_OFFSET_CAL:
@@ -1187,7 +1187,7 @@ int recreate				/* nz to re-check for new ccmx & ccss files */
 	dtp92 *p = (dtp92 *)pp;
 	inst_code rv = inst_ok;
 
-	/* Create/Re-create a current list of abailable display types */
+	/* Create/Re-create a current list of available display types */
 	if (p->dtlist == NULL || recreate) {
 		if ((rv = inst_creat_disptype_list(pp, &p->ndtlist, &p->dtlist,
 		    p->_dtlist, 0 /* doccss*/, 1 /* doccmx */)) != inst_ok)

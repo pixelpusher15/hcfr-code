@@ -1442,11 +1442,11 @@ static xspect ob_CIE_1964_10[3] = {
 	}
 };
 
-/* CIE (2012) 2-deg XYZ, TC 1-36 proposed 2-deg XYZ */
+/* CIE (2015) 2-deg XYZ, CIE 170-2:2015 and TC 1-36 proposed 2-deg XYZ */
 /* CMFs transformed from the CIE (2006) 2-deg LMS cone fundamentals */
 /* <http://www.cvrl.org/ciexyzpr.htm> */
 /* <http://www.cvrl.org/database/text/cienewxyz/cie2012xyz2.htm> */
-static xspect ob_CIE_2012_2[3] = {
+static xspect ob_CIE_2015_2[3] = {
 	{
 		441, 390.0, 830.0,	/* 471 bands from 360 to 830 nm in 1nm steps */
 		1.0,				/* Scale factor */
@@ -1734,9 +1734,9 @@ static xspect ob_CIE_2012_2[3] = {
 	}
 };
 
-/* CIE (2012) 10-deg XYZ, TC 1-36 proposed 10-deg XYZ */
+/* CIE (2015) 10-deg XYZ from TC 1-36 proposed 2-deg XYZ and CIE 170-2:2015 */
 /* CMFs transformed from the CIE (2006) 2-deg LMS cone fundamentals */
-static xspect ob_CIE_2012_10[3] = {
+static xspect ob_CIE_2015_10[3] = {
 	{
 		441, 390.0, 830.0,	/* 471 bands from 360 to 830 nm in 1nm steps */
 		1.0,				/* Scale factor */
@@ -2635,15 +2635,15 @@ icxObserverType obType		/* Type of observer */
 			sp[1] = &ob_CIE_1964_10[1];
 			sp[2] = &ob_CIE_1964_10[2];
 			return 0;
-    	case icxOT_CIE_2012_2:
-			sp[0] = &ob_CIE_2012_2[0];
-			sp[1] = &ob_CIE_2012_2[1];
-			sp[2] = &ob_CIE_2012_2[2];
+    	case icxOT_CIE_2015_2:
+			sp[0] = &ob_CIE_2015_2[0];
+			sp[1] = &ob_CIE_2015_2[1];
+			sp[2] = &ob_CIE_2015_2[2];
 			return 0;
-    	case icxOT_CIE_2012_10:
-			sp[0] = &ob_CIE_2012_10[0];
-			sp[1] = &ob_CIE_2012_10[1];
-			sp[2] = &ob_CIE_2012_10[2];
+    	case icxOT_CIE_2015_10:
+			sp[0] = &ob_CIE_2015_10[0];
+			sp[1] = &ob_CIE_2015_10[1];
+			sp[2] = &ob_CIE_2015_10[2];
 			return 0;
 //#ifndef SALONEINSTLIB
     	case icxOT_Stiles_Burch_2:
@@ -2690,10 +2690,10 @@ char *standardObserverDescription(icxObserverType obType) {
 			return "CIE 1931 2 degree observer";
     	case icxOT_CIE_1964_10:
 			return "CIE 1964 10 degree observer";
-    	case icxOT_CIE_2012_2:
-			return "CIE 2012 2 degree observer";
-    	case icxOT_CIE_2012_10:
-			return "CIE 2012 10 degree observer";
+    	case icxOT_CIE_2015_2:
+			return "CIE 2015 2 degree observer";
+    	case icxOT_CIE_2015_10:
+			return "CIE 2015 10 degree observer";
 //#ifndef SALONEINSTLIB
     	case icxOT_Stiles_Burch_2:
 			return "Stiles & Burch 1955 2 degree observer (aligned)";
@@ -3759,7 +3759,7 @@ int write_nxspect_1(cgats **pocg, inst_meas_type mt, inst_meas_cond mc, xspect *
 int write_nxspect_2(cgats *ocg, char *fname) {
 
 	if (ocg->write_name(ocg, fname)) {
-		DBGF((DBGA,"CGATS file write error : %s\n",ocg->err));
+		DBGF((DBGA,"CGATS file write error : %s\n",ocg->e.m));
 		return 1;
 	}
 
@@ -3783,6 +3783,7 @@ int write_nxspect(char *fname, inst_meas_type mt, inst_meas_cond mc, xspect *sp,
 }
 
 /* Restore a set of spectrum from a CGATS file. */
+/* We assume that the spectra are in the first table. */
 /* Up to nspec will be restored starting at offset off. */
 /* The number restored from the file will be written to *nret */
 /* File type: 0 = any, mask: 1 = SPECT, 2 = CMF, 4 = ccss */
@@ -3817,13 +3818,13 @@ int read_nxspect_1(cgats **picg, xspect *sp, inst_meas_type *mt, inst_meas_cond 
 	}
 
 	if (icg->read_name(icg, fname)) {
-		DBGF((DBGA,"CGATS file read error : %s\n",icg->err));
+		DBGF((DBGA,"CGATS file read error : %s\n",icg->e.m));
 		icg->del(icg);
 		return 1;
 	}
 
-	if (icg->ntables != 1) {
-		DBG("Input file doesn't contain exactly one table\n");
+	if (icg->ntables < 1) {
+		DBG("Input file doesn't contain any tables\n");
 		icg->del(icg);
 		return 1;
 	}
@@ -4073,7 +4074,7 @@ int read_cmf(xspect sp[3], char *fname) {
 /* Return NZ if value is valid, Z and xtrapolated value */
 /* if outside the range */
 /* NOTE: Returned value isn't normalised by sp->norm */ 
-static int getval_raw_xspec_poly3(xspect *sp, double *rv, double xw) {
+static int getval_raw_xspec_poly3_ex(xspect *sp, double *spec, double *rv, double xw) {
 	int i, rc = 1;
 	double spcing, f;
 #ifdef NEVER
@@ -4107,13 +4108,13 @@ static int getval_raw_xspec_poly3(xspect *sp, double *rv, double xw) {
 
 	/* Setup the surrounding values */
 	x[0] = sp->spec_wl_short + (i-1) * spcing;
-	y[0] = sp->spec[i-1];
+	y[0] = spec[i-1];
 	x[1] = sp->spec_wl_short + i * spcing;
-	y[1] = sp->spec[i];
+	y[1] = spec[i];
 	x[2] = sp->spec_wl_short + (i+1) * spcing;
-	y[2] = sp->spec[i+1];
+	y[2] = spec[i+1];
 	x[3] = sp->spec_wl_short + (i+2) * spcing;
-	y[3] = sp->spec[i+2];
+	y[3] = spec[i+2];
 
 #ifndef NEVER
 	/* Compute interpolated value using Lagrange: */
@@ -4152,7 +4153,7 @@ static int getval_raw_xspec_poly3(xspect *sp, double *rv, double xw) {
 /* Return NZ if value is valid, Z and last valid value */
 /* if outside the range */
 /* NOTE: Returned value isn't normalised by sp->norm */ 
-static int getval_raw_xspec_lin(xspect *sp, double *rv, double wl) {
+static int getval_raw_xspec_lin_ex(xspect *sp, double *spec, double *rv, double wl) {
 	int i, rc = 1;
 	double f, w;
 
@@ -4179,7 +4180,7 @@ static int getval_raw_xspec_lin(xspect *sp, double *rv, double wl) {
 	w = f - (double)i;			/* Interpolation weighting factor */
 
 	/* Compute interpolated value */
-	*rv = (1.0 - w) * sp->spec[i] + w * sp->spec[i+1];
+	*rv = (1.0 - w) * spec[i] + w * spec[i+1];
 
 #ifdef NEVER
 	/* Calibration issues or interpolation overshoot can give -ve values, */
@@ -4350,9 +4351,27 @@ static int getval_raw_xspec(xspect *sp, double *rv, double wl) {
 	/* - or is it better to use linear on the assumption */
 	/* that the fwhm is rarely better than 5nm ? */
 	if (spcg < 5.01) {
-		return getval_raw_xspec_lin(sp, rv, wl);
+		return getval_raw_xspec_lin_ex(sp, sp->spec, rv, wl);
 	} else {
-		return getval_raw_xspec_poly3(sp, rv, wl);
+		return getval_raw_xspec_poly3_ex(sp, sp->spec, rv, wl);
+	}
+}
+
+/* Call the appropriate interpolation routine */
+/* Return NZ if value is valid, Z and last valid value */
+/* if outside the range */
+/* NOTE: Returned value isn't normalised by sp->norm */ 
+static int getval_raw_xspec_ex(xspect *sp, double *spec, double *rv, double wl) {
+
+	double spcg = (sp->spec_wl_long - sp->spec_wl_short)/(sp->spec_n-1.0);
+
+	/* Hmm. Should we use poly3 for all spot resampling ? */
+	/* - or is it better to use linear on the assumption */
+	/* that the fwhm is rarely better than 5nm ? */
+	if (spcg < 5.01) {
+		return getval_raw_xspec_lin_ex(sp, spec, rv, wl);
+	} else {
+		return getval_raw_xspec_poly3_ex(sp, spec, rv, wl);
 	}
 }
 
@@ -4375,14 +4394,14 @@ double value_xspect(xspect *sp, double wl) {
 /* Get linear interpolated value at wavelenth (not normalised) */
 double value_xspect_lin(xspect *sp, double wl) {
 	double rv;
-	getval_raw_xspec_lin(sp, &rv, wl);
+	getval_raw_xspec_lin_ex(sp, sp->spec, &rv, wl);
 	return rv;
 }
 
 /* Get poly interpolated value at wavelenth (not normalised) */
 double value_xspect_poly(xspect *sp, double wl) {
 	double rv;
-	getval_raw_xspec_poly3(sp, &rv, wl);
+	getval_raw_xspec_poly3_ex(sp, sp->spec, &rv, wl);
 	return rv;
 }
 
@@ -4390,8 +4409,8 @@ double value_xspect_poly(xspect *sp, double wl) {
 /* Get a (normalised) linearly interpolated spectrum value. */
 /* Return NZ if value is valid, Z and last valid value */
 /* if outside the range */
-static int getval_lxspec(xspect *sp, double *rv, double wl) {
-	int sv = getval_raw_xspec_lin(sp, rv, wl);
+int getval_lxspec(xspect *sp, double *rv, double wl) {
+	int sv = getval_raw_xspec_lin_ex(sp, sp->spec, rv, wl);
 	*rv /= sp->norm;
 	return sv;
 }
@@ -4418,8 +4437,9 @@ void xspect_scale(xspect *sp, double scale) {
 #ifndef SALONEINSTLIB
 
 /* Convert from one xspect type to another (targ type) */
-/* with a wavelength shift offset from source */
-/* Linear or polinomial interpolation will be used as appropriate */
+/* with a wavelength shift offset from source. */
+/* Linear or polinomial source interpolation will be used as appropriate, */
+/* with point by point interpolation to destination */
 /* (converted to targ norm too) */
 void xspect2xspect_wloff(xspect *dst, xspect *targ, xspect *src, double wloff) {
 	xspect dd;
@@ -4457,6 +4477,96 @@ void xspect2xspect(xspect *dst, xspect *targ, xspect *src) {
 }
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+
+/* Convert from one xspect type to another, */
+/* using point resampling. */
+/* Note that dst is assumed to be not the same storage as src. */
+void poi_resample_xspect(xspect *dst, xspect *src) {
+	poi_resample_xspect_ex(dst->spec_n, dst->spec_wl_short, dst->spec_wl_long, dst->spec,
+	                   src->spec_n, src->spec_wl_short, src->spec_wl_long, src->spec);
+}
+
+/* Convert from one xspect type to another, */
+/* using point resampling. */
+/* Note that dst is assumed to be not the same storage as src. */
+void poi_resample_xspect_ex(
+	int d_spec_n, double d_spec_wl_short, double d_spec_wl_long, double *d_spec,
+	int s_spec_n, double s_spec_wl_short, double s_spec_wl_long, double *s_spec
+) {
+	int i;
+	xspect src;
+
+	src.spec_n = s_spec_n;
+	src.spec_wl_short = s_spec_wl_short;
+	src.spec_wl_long = s_spec_wl_long;
+	src.norm = 1.0;
+
+	for (i = 0; i < d_spec_n; i++) {
+		double wl = XSPECT_WL(d_spec_wl_short, d_spec_wl_long, d_spec_n, i);
+		double v;
+//		getval_raw_xspec_lin_ex(&src, s_spec, &v, wl);
+		getval_raw_xspec_ex(&src, s_spec, &v, wl);
+		d_spec[i] = v;
+	}
+}
+
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+
+/* Convert from one xspect type to another, */
+/* using triangular resampling. */
+/* Note that dst is assumed to be not the same storage as src. */
+void tri_resample_xspect(xspect *dst, xspect *src) {
+	tri_resample_xspect_ex(dst->spec_n, dst->spec_wl_short, dst->spec_wl_long, dst->spec,
+	                   src->spec_n, src->spec_wl_short, src->spec_wl_long, src->spec);
+}
+
+/* Convert from one xspect type to another, */
+/* using triangular resampling. */
+/* Note that dst is assumed to be not the same storage as src. */
+void tri_resample_xspect_ex(
+	int d_spec_n, double d_spec_wl_short, double d_spec_wl_long, double *d_spec,
+	int s_spec_n, double s_spec_wl_short, double s_spec_wl_long, double *s_spec
+) {
+	int i;
+	double fwli = XSPECT_WLI_EX(d_spec_wl_short, d_spec_wl_long, d_spec_n);
+	xspect src;
+
+	src.spec_n = s_spec_n;
+	src.spec_wl_short = s_spec_wl_short;
+	src.spec_wl_long = s_spec_wl_long;
+	src.norm = 1.0;
+
+//printf("~1  src = %s\n",debPdv(s_spec_n, s_spec));
+
+//printf("~1 tri_resample_xspect_ex: d_spec_n %d, s_spec_n %d\n",d_spec_n, s_spec_n);
+//printf("~1 tri_resample_xspect_ex: s_spec_wl_short %f, s_spec_wl_long %f\n",s_spec_wl_short, s_spec_wl_long);
+//printf("~1 tri_resample_xspect_ex: d_spec_wl_short %f, d_spec_wl_long %f\n",d_spec_wl_short, d_spec_wl_long);
+//printf("~1   fwli = %f\n",fwli);
+
+	for (i = 0; i < d_spec_n; i++) {
+		double wl, cwl = XSPECT_WL(d_spec_wl_short, d_spec_wl_long, d_spec_n, i);
+		double tw;
+
+//printf("~1   i = %d, cwl = %f\n",i, cwl);
+
+		/* Triangle sample at 1nm intervals */
+		d_spec[i] = tw = 0.0;
+		for (wl = cwl - fwli; wl <= cwl + fwli; wl += 1.0) {
+			double v, w = 1.0 - fabs(cwl - wl)/fwli;
+
+			getval_raw_xspec_ex(&src, s_spec, &v, wl);
+			d_spec[i] += w * v;
+			tw += w;
+//printf("~1 tri_resample_xspect_ex: dst[%f] += %f * src[%f] %f\n",cwl,w,wl,v);
+		} 
+		d_spec[i] /= tw;
+//printf("~1 tri_resample_xspect_ex: dst[%f] = %f\n",cwl,d_spec[i]);
+	}
+//printf("~1  dst = %s\n",debPdv(d_spec_n, d_spec));
+//printf("\n");
+}
+
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /* Dump a spectra to stdout */
 void xspect_dump(xspect *sp) {
 	int i;
@@ -4488,8 +4598,8 @@ void xspect_dump_log(a1log *log, int lev, xspect *sp) {
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-/* Plot up to MXGPHS spectra pointed to by an array, with optional wait */
-void xspect_plotNp_w(xspect *sp[MXGPHS], int n, int wait) {
+/* Plot up to MXGPHS spectra pointed to by an array, with optional wait and zero */
+void xspect_plotNp_wz(xspect *sp[MXGPHS], int n, int wait, int zero) {
 # ifndef SALONEINSTLIB
 #  ifdef EN_PLOT
 	static double xx[XSPECT_MAX_BANDS];				/* Hmm. Don't need static if */
@@ -4535,12 +4645,17 @@ void xspect_plotNp_w(xspect *sp[MXGPHS], int n, int wait) {
 			if (sp[i] == NULL)
 				continue;
 			yp[i] = yy[i];
-			yy[i][j] = value_xspect(sp[i], wl);
+//			yy[i][j] = value_xspect(sp[i], wl);
+			yy[i][j] = value_xspect_lin(sp[i], wl);
 		}
 	}
-	do_plotNpwz(xx, yp, j, NULL, NULL, 0, wait, 0);
+	do_plotNpwz(xx, yp, j, NULL, NULL, 0, wait, zero);
 #  endif
 # endif
+}
+
+void xspect_plotNp_w(xspect *sp[MXGPHS], int n, int wait) {
+	xspect_plotNp_wz(sp, n, wait, 0);
 }
 
 /* Plot up to MXGPHS spectra pointed to by an array * wait for a key */
@@ -4594,7 +4709,7 @@ void xspect_plot(xspect *sp1, xspect *sp2, xspect *sp3) {
 /* Given an emission spectrum, set the UV output to the given level. */
 /* The shape of the UV is taken from FWA1_stim, and the level is */
 /* with respect to the Y of the input spectrum. */
-/* The output range is extended to accomodate the UV wavelengths */
+/* The output range is extended to accommodate the UV wavelengths */
 void xsp_setUV(xspect *out, xspect *in, double uvlevel) {
 	int i, xs, xe;
 	double ww, avg;
@@ -4623,8 +4738,8 @@ void xsp_setUV(xspect *out, xspect *in, double uvlevel) {
 		double inv, uvv, bl, nbl, outv;
 
 		ww = XSPECT_XWL(out, i);
-		getval_raw_xspec_lin(&cin, &inv, ww);
-		getval_raw_xspec_lin(&FWA1_stim, &uvv, ww);
+		getval_raw_xspec_lin_ex(&cin, cin.spec, &inv, ww);
+		getval_raw_xspec_lin_ex(&FWA1_stim, FWA1_stim.spec, &uvv, ww);
 
 		/* Input illuminant with no Uv */
 		out->spec[i] = inv;
@@ -7745,10 +7860,10 @@ static xslpoly splo_CIE_1931_2_uv       = { 0, icxOT_CIE_1931_2,       1, 0 };
 static xslpoly splo_CIE_1964_10_xy      = { 0, icxOT_CIE_1964_10,      0, 0 };
 static xslpoly splo_CIE_1964_10_uv      = { 0, icxOT_CIE_1964_10,      1, 0 };
 
-static xslpoly splo_CIE_2012_2_xy       = { 0, icxOT_CIE_2012_2,       0, 0 };
-static xslpoly splo_CIE_2012_2_uv       = { 0, icxOT_CIE_2012_2,       1, 0 };
-static xslpoly splo_CIE_2012_10_xy      = { 0, icxOT_CIE_2012_10,      0, 0 };
-static xslpoly splo_CIE_2012_10_uv      = { 0, icxOT_CIE_2012_10,      1, 0 };
+static xslpoly splo_CIE_2015_2_xy       = { 0, icxOT_CIE_2015_2,       0, 0 };
+static xslpoly splo_CIE_2015_2_uv       = { 0, icxOT_CIE_2015_2,       1, 0 };
+static xslpoly splo_CIE_2015_10_xy      = { 0, icxOT_CIE_2015_10,      0, 0 };
+static xslpoly splo_CIE_2015_10_uv      = { 0, icxOT_CIE_2015_10,      1, 0 };
 
 /* Illuminant locus */
 static xslpoly illo_D_CIE_1931_2_xy       = { 1, icxOT_CIE_1931_2,     0, 0 };
@@ -7760,14 +7875,14 @@ static xslpoly illo_P_CIE_1931_2_uv       = { 2, icxOT_CIE_1931_2,     1, 0 };
 static xslpoly illo_P_CIE_1964_10_xy      = { 2, icxOT_CIE_1964_10,    0, 0 };
 static xslpoly illo_P_CIE_1964_10_uv      = { 2, icxOT_CIE_1964_10,    1, 0 };
 
-static xslpoly illo_D_CIE_2012_2_xy       = { 1, icxOT_CIE_2012_2,     0, 0 };
-static xslpoly illo_D_CIE_2012_2_uv       = { 1, icxOT_CIE_2012_2,     1, 0 };
-static xslpoly illo_D_CIE_2012_10_xy      = { 1, icxOT_CIE_2012_10,    0, 0 };
-static xslpoly illo_D_CIE_2012_10_uv      = { 1, icxOT_CIE_2012_10,    1, 0 };
-static xslpoly illo_P_CIE_2012_2_xy       = { 2, icxOT_CIE_2012_2,     0, 0 };
-static xslpoly illo_P_CIE_2012_2_uv       = { 2, icxOT_CIE_2012_2,     1, 0 };
-static xslpoly illo_P_CIE_2012_10_xy      = { 2, icxOT_CIE_2012_10,    0, 0 };
-static xslpoly illo_P_CIE_2012_10_uv      = { 2, icxOT_CIE_2012_10,    1, 0 };
+static xslpoly illo_D_CIE_2015_2_xy       = { 1, icxOT_CIE_2015_2,     0, 0 };
+static xslpoly illo_D_CIE_2015_2_uv       = { 1, icxOT_CIE_2015_2,     1, 0 };
+static xslpoly illo_D_CIE_2015_10_xy      = { 1, icxOT_CIE_2015_10,    0, 0 };
+static xslpoly illo_D_CIE_2015_10_uv      = { 1, icxOT_CIE_2015_10,    1, 0 };
+static xslpoly illo_P_CIE_2015_2_xy       = { 2, icxOT_CIE_2015_2,     0, 0 };
+static xslpoly illo_P_CIE_2015_2_uv       = { 2, icxOT_CIE_2015_2,     1, 0 };
+static xslpoly illo_P_CIE_2015_10_xy      = { 2, icxOT_CIE_2015_10,    0, 0 };
+static xslpoly illo_P_CIE_2015_10_uv      = { 2, icxOT_CIE_2015_10,    1, 0 };
 
 /* Return a pointer to the (static) chromaticity locus poligon */
 /* return NULL on failure. */
@@ -7817,38 +7932,38 @@ int uv						/* 0 = xy, 1 = u'v' space */
 					rv = &illo_P_CIE_1964_10_uv;
 			}	
 			break;
-    	case icxOT_CIE_2012_2:
+    	case icxOT_CIE_2015_2:
 			if (uv == 0) {
 				if (loty == icxLT_spectral)
-					rv = &splo_CIE_2012_2_xy;
+					rv = &splo_CIE_2015_2_xy;
 				else if (loty == icxLT_daylight)
-					rv = &illo_D_CIE_2012_2_xy;
+					rv = &illo_D_CIE_2015_2_xy;
 				else if (loty == icxLT_plankian)
-					rv = &illo_P_CIE_2012_2_xy;
+					rv = &illo_P_CIE_2015_2_xy;
 			} else {
 				if (loty == icxLT_spectral)
-					rv = &splo_CIE_2012_2_uv;
+					rv = &splo_CIE_2015_2_uv;
 				else if (loty == icxLT_daylight)
-					rv = &illo_D_CIE_2012_2_uv;
+					rv = &illo_D_CIE_2015_2_uv;
 				else if (loty == icxLT_plankian)
-					rv = &illo_P_CIE_2012_2_uv;
+					rv = &illo_P_CIE_2015_2_uv;
 			}
 			break;
-    	case icxOT_CIE_2012_10:
+    	case icxOT_CIE_2015_10:
 			if (uv == 0) {
 				if (loty == icxLT_spectral)
-					rv = &splo_CIE_2012_10_xy;
+					rv = &splo_CIE_2015_10_xy;
 				else if (loty == icxLT_daylight)
-					rv = &illo_D_CIE_2012_10_xy;
+					rv = &illo_D_CIE_2015_10_xy;
 				else if (loty == icxLT_plankian)
-					rv = &illo_P_CIE_2012_10_xy;
+					rv = &illo_P_CIE_2015_10_xy;
 			} else {
 				if (loty == icxLT_spectral)
-					rv = &splo_CIE_2012_10_uv;
+					rv = &splo_CIE_2015_10_uv;
 				else if (loty == icxLT_daylight)
-					rv = &illo_D_CIE_2012_10_uv;
+					rv = &illo_D_CIE_2015_10_uv;
 				else if (loty == icxLT_plankian)
-					rv = &illo_P_CIE_2012_10_uv;
+					rv = &illo_P_CIE_2015_10_uv;
 			}	
 			break;
 		default:

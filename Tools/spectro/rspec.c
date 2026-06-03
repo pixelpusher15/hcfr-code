@@ -979,7 +979,7 @@ int calf_open(calf *x, a1log *log, char *fname, int wr) {
 	}
 	xdg_free(cal_paths, no_paths);
 
-	a1logd(x->log,2,"calf_open: suceeded\n");
+	a1logd(x->log,2,"calf_open: succeeded\n");
 
 	return 0;
 }

@@ -16,9 +16,11 @@
 /*
  * TTBD:
  *
+#ifdef PRIVATE
  * Would be good to have a safe C string library availble, to simplify
- * string handling and provide UTF8/16 bit support.
+ * string handling.
  * See mgs/casting/str.hpp and sds library.
+#endif
  *
  */
 
@@ -30,14 +32,23 @@
 #include <math.h>
 
 #ifdef NT
-#include <basetsd.h>		/* So jpg header doesn't define INT32 */
+# include <basetsd.h>		/* So jpg header doesn't define INT32 */
+# if !defined(WINVER) || WINVER < 0x0501
+#  if defined(WINVER) 
+#   undef WINVER
+#  endif
+#  define WINVER 0x0501
+# endif
 # if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0501
-#  undef _WIN32_WINNT 
+#  if defined(_WIN32_WINNT) 
+#   undef _WIN32_WINNT
+#  endif
 #  define _WIN32_WINNT 0x0501
 # endif
 # define WIN32_LEAN_AND_MEAN
 # include <windows.h>
 #endif
+
 #ifdef UNIX
 # include <pthread.h>
 #endif
@@ -46,14 +57,19 @@
 	extern "C" {
 #endif
 
+#ifndef PATH_MAX
+# define PATH_MAX 4096
+#endif
+
 /* =========================================================== */
 /* Platform specific primitive defines. */
 /* This really needs checking for each different platform. */
 /* Using C99 and MSC covers a lot of cases, */
 /* and the fallback default is pretty reliable with modern compilers and machines. */
-/* Note that MSWin is LLP64 == 32 bit long, while OS X/Linux is LP64 == 64 bit long. */
+/* Note that MSWin is LLP64 == 32 bit long, while OS X/Linux is LP64 == 64 bit long, */
+/* (and this doesn't change with the CPU target being 32 or 64 bit) */
 /* so long shouldn't really be used in any code.... */
-/* (duplicated in icc.h) */ 
+/* (duplicated in icc.h, yajl_common.h) */ 
 
 /* Use __P64__ as cross platform 64 bit pointer #define */
 #if defined(__LP64__) || defined(__ILP64__) || defined(__LLP64__) || defined(_WIN64)
@@ -77,10 +93,12 @@
 #define ORD32  uint32_t		/* 32 bit unsigned */
 #define ORD64  uint64_t		/* 64 bit unsigned */
 
-#define PNTR intptr_t
+#define IPNTR intptr_t		/* Integer that can hold a pointer */
 
-#define PF64PREC "ll"		/* printf format precision specifier */
-#define CF64PREC "LL"		/* Constant precision specifier */
+#define PFSTPREC "z"		/* size_t printf format precision specifier (ie %zu) */
+
+#define PF64PREC "ll"		/* 64 bit printf format precision specifier */
+#define CF64PREC(NNN) NNN##LL		/* 64 bit Constant precision specifier */
 
 #ifndef ATTRIBUTE_NORETURN
 # ifdef _MSC_VER
@@ -111,10 +129,15 @@
 #define ORD32  unsigned __int32		/* 32 bit unsigned */
 #define ORD64  unsigned __int64		/* 64 bit unsigned */
 
-#define PNTR UINT_PTR
+#define IPNTR UINT_PTR				/* Integer that can hold a pointer */
 
-#define PF64PREC "I64"				/* printf format precision specifier */
-#define CF64PREC "LL"				/* Constant precision specifier */
+#define PFSTPREC "I"				/* size_t printf format precision specifier (ie %Iu) */
+
+#define PF64PREC "I64"				/* 64 bit printf format precision specifier */
+#define CF64PREC(NNN) NNN##i64		/* 64 bit Constant precision specifier */
+
+#define vsnprintf _vsnprintf
+#define snprintf _snprintf
 
 #ifndef ATTRIBUTE_NORETURN
 # define ATTRIBUTE_NORETURN __declspec(noreturn)
@@ -129,32 +152,28 @@
 /* The following works on a lot of modern systems, including */
 /* LLP64 and LP64 models, but won't work with ILP64 which needs int32 */
 
-#define INR8   signed char		/* 8 bit signed */
-#define INR16  signed short		/* 16 bit signed */
-#define INR32  signed int		/* 32 bit signed */
-#define ORD8   unsigned char	/* 8 bit unsigned */
-#define ORD16  unsigned short	/* 16 bit unsigned */
-#define ORD32  unsigned int		/* 32 bit unsigned */
+#define INR8   signed char			/* 8 bit signed */
+#define INR16  signed short			/* 16 bit signed */
+#define INR32  signed int			/* 32 bit signed */
+#define ORD8   unsigned char		/* 8 bit unsigned */
+#define ORD16  unsigned short		/* 16 bit unsigned */
+#define ORD32  unsigned int			/* 32 bit unsigned */
+
+#define PFSTPREC "l"				/* size_t printf format precision specifier (ie %lu) */
 
 #ifdef __GNUC__
-# ifdef __LP64__	/* long long could be 128 bit ? */
-#  define INR64  long				/* 64 bit signed */
-#  define ORD64  unsigned long		/* 64 bit unsigned */
-#  define PF64PREC "l"			/* printf format precision specifier */
-#  define CF64PREC "L"			/* Constant precision specifier */
-# else
-#  define INR64  long long			/* 64 bit signed */
-#  define ORD64  unsigned long long	/* 64 bit unsigned */
-#  define PF64PREC "ll"			/* printf format precision specifier */
-#  define CF64PREC "LL"			/* Constant precision specifier */
-# endif /* !__LP64__ */
-#endif /* __GNUC__ */
+# define INR64  long long			/* 64 bit signed */
+# define ORD64  unsigned long long	/* 64 bit unsigned */
+# define PF64PREC "ll"				/* 64 bit printf format precision specifier */
+# define CF64PREC(NNN) NNN##LL		/* 64 bit Constant precision specifier */
+#endif
 
-#define PNTR unsigned long 
+#define IPNTR unsigned long 	/* Integer that can hold a pointer */
 
 #ifndef ATTRIBUTE_NORETURN
 # define ATTRIBUTE_NORETURN __attribute__((noreturn))
 #endif
+
 #ifndef INLINE
 #  define INLINE inline
 #endif /* INLINE */
@@ -190,6 +209,10 @@
 #endif
 #ifndef stricmp
 # define stricmp _stricmp
+#endif
+
+#ifndef alloca
+# define alloca _alloca
 #endif
 
 #endif	/* NT */
@@ -269,7 +292,8 @@
 	 1-5 = Application internals at increasing level of detail
 	 2-6 = Driver level.(overlaps app & coms)
 	 6-7 = high level communications
-	 8-9 = low level communications.
+	 8   = low level communications.
+	 9   = low level communications including polling threads.
 	
 	Warning is a serious internal fault that is going to be ignored at the
 	point it is noticed, but may explain any unexpected behaviour.
@@ -300,6 +324,9 @@ struct _a1log {
 								/* Implementation of log debug */
 	void (*loge)(void *cntx, struct _a1log *p, char *fmt, va_list args);
 								/* Implementation of log warning/error */
+
+	/* If not NULL, then send copy of debug output to this function */
+	void (*logd_cc)(char *fmt, va_list args);
 
 	int errc; 					/* error code */
 	char errm[A1_LOG_BUFSIZE];	/* error message (public) */
@@ -390,8 +417,14 @@ extern void verbose(int level, char *fmt, ...);
 extern int ret_null_on_malloc_fail;
 
 extern void check_if_not_interactive();
+extern void do_fflush();
 extern int not_interactive;
+#ifdef NT
+extern DWORD stdin_type;			/* FILE_TYPE_CHAR, FILE_TYPE_PIPE or assume file */ 
+#endif
+
 extern char cr_char;
+extern char *fl_end;
 
 /* =========================================================== */
 
@@ -410,6 +443,14 @@ size_t nsize
 /* =========================================================== */
 
 #if defined(__APPLE__)
+
+/* Get the OS X version number. */
+/* Return maj + min/100.0 + bugfix/10000.0 */
+/* (Returns 0.0 if unable to get version */
+double osx_get_version();
+
+/* Get text OS X verion number, i.e. "10.3.1" */
+char *osx_get_version_str();
 
 /* Tell App Nap that this is user initiated */
 void osx_userinitiated_start();
@@ -430,16 +471,21 @@ void osx_latencycritical_end();
 /* Numerical recipes vector/matrix support functions */
 /* Note that the index arguments are the inclusive low and high values */
 
-/* Double */
+/* Double Vector */
 double *dvector(int nl,int nh);
 double *dvectorz(int nl,int nh);
 void free_dvector(double *v,int nl,int nh);
+// Macro: dvectora(doubld *ret, int nl,int nh);
 
+
+/* Double Matrix */
 double **dmatrix(int nrl, int nrh, int ncl, int nch);
 double **dmatrixz(int nrl, int nrh, int ncl, int nch);
 void free_dmatrix(double **m, int nrl, int nrh, int ncl, int nch);
 void dmatrix_reset(double **m, int nrl, int nrh, int ncl, int nch);
+// Macro: dmatrixa(double **ret, int nrl, int nrh, int ncl, int nch);
 
+/* Half Matrix */
 double **dhmatrix(int nrl, int nrh, int ncl, int nch);
 double **dhmatrixz(int nrl, int nrh, int ncl, int nch);
 void free_dhmatrix(double **m, int nrl, int nrh, int ncl, int nch);
@@ -571,7 +617,7 @@ void vect_add3(double *d, double *s1, double *s2, int len);
 /* d may be same as v */
 void vect_sub(double *d, double *v, int len);
 
-/* Subtract two vectors, d =  s1 - s2 */
+/* Subtract two vectors, d = s1 - s2 */
 void vect_sub3(double *d, double *s1, double *s2, int len);
 
 /* Invert and copy a vector, d = 1/s */
@@ -613,6 +659,10 @@ void vect_max_elem3(double *d, double *s1, double *s2, int len);
 /* i.e. d = (1 - bl) * s0 + bl * s1 */
 void vect_blend(double *d, double *s0, double *s1, double bl, int len);
 
+/* Offset a vector, */
+/* d may be same as 2 */
+void vect_off(double *d, double *s, double off, int len);
+
 /* Scale a vector, */
 /* d may be same as 2 */
 void vect_scale(double *d, double *s, double scale, int len);
@@ -621,6 +671,7 @@ void vect_scale(double *d, double *s, double scale, int len);
 void vect_scale1(double *d, double scale, int len);
 
 /* Scale s and add to d */
+/* d += scale * s */
 void vect_scaleadd(double *d, double *s, double scale, int len);
 
 /* Take dot product of two vectors */
@@ -653,6 +704,9 @@ double vect_max(double *s, int len);
 
 /* Return the elements maximum value from two vectors */
 double vect_max2(double *s1, int len1, double *s2, int len2);
+
+/* Return the maximum value difference between two vectors */
+double vect_diffmax(double *s1, double *s2, int len);
 
 /* Return the vectors elements minimum value */
 double vect_min(double *s, int len);
@@ -881,6 +935,12 @@ void write_FLT64_be(ORD8 *p, double d);
 void write_FLT64_le(ORD8 *p, double d);
 
 /*******************************************/
+/* Some bit functions */
+
+/* Return number of set bits */
+int count_set_bits(unsigned int val);
+
+/*******************************************/
 
 /* Sleep for the given number of msec */
 void msec_sleep(unsigned int msec);
@@ -923,8 +983,85 @@ char *debPfv(int di, float *p);
 #endif
 
 /*******************************************/
+/* Dev. diagnostic logging to C:/Users/Public/log.txt */
+
+extern FILE *a_diag_fp;
+void a_diag_log(char *fmt, ...);
+
+/*******************************************/
 double gamma_func(double x);
 
+/*******************************************/
+
+/* Double Vector on stack */
+#define dvectora(ret,		/* Variable to put result in */ \
+nl,		/* Lowest index */ \
+nh		/* Highest index */ \
+)	{ \
+	double *v; \
+	int nl = Anl; \
+	int nh = Anh; \
+ \
+	if ((v = (double *) alloca((nh-nl+1) * sizeof(double))) == NULL) { \
+		if (ret_null_on_malloc_fail) { \
+			(ret) = NUL; \
+			goto done; \
+		} else \
+			error("Alloca failure in dvector()"); \
+	} \
+	(ret) = v-nl; \
+  done:; \
+}
+
+/* 2D Double matrix on stack */
+#define dmatrixa(ret,		/* Variable to put result in */ \
+Anrl,	/* Row low index */ \
+Anrh,	/* Row high index */ \
+Ancl,	/* Col low index */ \
+Anch	/* Col high index */ \
+) { \
+	int i; \
+	int rows, cols; \
+	double **m; \
+	int nrl = Anrl; \
+	int nrh = Anrh; \
+	int ncl = Ancl; \
+	int nch = Anch; \
+ \
+	if (nrh < nrl)	/* Prevent failure for 0 dimension */ \
+		nrh = nrl; \
+	if (nch < ncl) \
+		nch = ncl; \
+ \
+	rows = nrh - nrl + 1; \
+	cols = nch - ncl + 1; \
+ \
+	/* One extra pointer before colums to hold main allocation address */ \
+	if ((m = (double **) alloca((rows + 1) * sizeof(double *))) == NULL) { \
+		if (ret_null_on_malloc_fail) { \
+			(ret) = NULL; \
+			goto done; \
+		} else \
+			error("Alloca failure in dmatrix(), pointers"); \
+	} \
+	m -= nrl;	/* Offset to nrl */ \
+	m += 1;		/* Make nrl-1 pointer to main allocation, in case rows get swaped */ \
+ \
+	if ((m[nrl-1] = (double *) alloca(rows * cols * sizeof(double))) == NULL) { \
+		if (ret_null_on_malloc_fail) { \
+			(ret) = NULL; \
+			goto done; \
+		} else \
+			error("Alloca failure in dmatrix(), array"); \
+	} \
+ \
+	m[nrl] = m[nrl-1] - ncl;		/* Set first row address, offset to ncl */ \
+	for(i = nrl+1; i <= nrh; i++)	/* Set subsequent row addresses */ \
+		m[i] = m[i-1] + cols; \
+ \
+	(ret) = m; \
+  done:; \
+}
 
 #ifdef __cplusplus
 	}

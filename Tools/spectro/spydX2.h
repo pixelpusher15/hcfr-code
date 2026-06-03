@@ -3,12 +3,12 @@
 /* 
  * Argyll Color Management System
  *
- * ColorVision Spyder X2 related software.
+ * ColorVision Spyder X2 & Spyder 2024 related software.
  *
  * Author: Graeme W. Gill
  * Date:   30/8/2024
  *
- * Copyright 2006 - 2024, Graeme W. Gill
+ * Copyright 2006 - 2025, Graeme W. Gill
  * All rights reserved.
  *
  * (Based on spydX.h)
@@ -51,12 +51,15 @@ typedef int spydX2_code;
 /* Fake Error codes */
 #define SPYDX2_INTERNAL_ERROR		0x61		/* Internal software error */
 #define SPYDX2_COMS_FAIL			0x62		/* Communication failure */
-#define SPYDX2_UNKNOWN_MODEL		0x63		/* Not an spydX2lay */
+#define SPYDX2_UNKNOWN_MODEL		0x63		/* Not an spyder X2 or 2024 */
 #define SPYDX2_DATA_PARSE_ERROR  	0x64		/* Read data parsing error */
 
 
 #define SPYDX2_NO_COMS				0x80		/* No communications when it's needed */
 #define SPYDX2_CIX_MISMATCH			0x81		/* Got different calibration than asked for */
+
+#define SPYDX2_WRONG_INST			0x82		/* Got Spyder 2024 and attempted X2 instruction, */
+												/* or visa-versa. */
 
 /* Most 8 bit instrument error codes are unknown */
 #define SPYDX2_BAD_PARAM			0x01		/* Parameter out of range ? */
@@ -67,7 +70,7 @@ typedef int spydX2_code;
 #define SPYDX2_INT_CAL_RESTORE      0xE00A		/* Restoring calibration to file failed */
 #define SPYDX2_INT_CAL_TOUCH        0xE00B		/* Touching calibration to file failed */
  
-/* Extra native calibration info */
+/* Extra native calibration info (X2 only) */
 typedef struct {
 	int ix;					/* Native index */
 
@@ -102,6 +105,7 @@ typedef struct {
 } SpX2calinfo;
 
 #define SPYDX2_NOCALIBS 5
+#define SPYD2024_NOCALIBS 7
 
 /* SPYDX2 communication object */
 struct _spydX2 {
@@ -111,9 +115,17 @@ struct _spydX2 {
 
 	inst_opt_type trig;			/* Reading trigger mode */
 
+	int is2024;					/* nz if Spyder 2024 rather than X2 */
+	int forcell;				/* nz if forcing Spyder 2024 to use low level commands */
+	int hlavail;				/* nz if Spyder 2020 high level command is available */
+	int mxdnp1;					/* Maximum display number + 1 */
+	int dnomask;				/* mask of valid display type number for high level command */
+	int usehl;					/* nz if Spyder 2024 to use high level measurement commands */
+	
 	unsigned int hwvn[2];		/* Harware major, Minor version numbers */
 
-								/* Initial SpyderX2 = ?.?? */
+								/* SpyderX2   = 5.50 ?? */
+								/* Spyder2024 = 6.00 */
 
 
 	char    serno[9];			/* 8:8xB  Serial number as zero terminated string */

@@ -46,8 +46,8 @@
 /* Serial Interface manual. */
 /* We are using the Hex communication method */
 
-/* Timout values for commands */
-#define SH_TMO	0.5			/* Short timout for establishing communications */
+/* Timeout values for commands */
+#define SH_TMO	0.5			/* Short timeout for establishing communications */
 #define IT_TMO	18.0		/* Initialisation commands */
 #define MV_TMO	10.0		/* Move commands */
 #define DF_TMO	6.0			/* Other commands */
@@ -723,7 +723,7 @@ void ss_add_string(struct _ss *p, char *t, int len);
 /* - - - - - - - - - - - - - - - - - - - - - */
 /* ANSWER: */
 
-/* Return the first enum from the recieve buffer without removing it. */
+/* Return the first enum from the receive buffer without removing it. */
 int ss_peek_ans(struct _ss *p);
 
 /* Remove a Spectrolino answer enum from the revieve buffer, */

@@ -2747,7 +2747,6 @@ spyd4_load_cal(spyd2 *p) {
 	if (spyd4_nocals != 0)
 		return SPYD2_OK;
 
-
 	for (;;) {		/* So we can break */
 		if ((no_paths = xdg_bds(NULL, &bin_paths, xdg_data, xdg_read, xdg_user, xdg_none,
 			            "ArgyllCMS/spyd4cal.bin" XDG_FUDGE "color/spyd4cal.bin"
@@ -2916,7 +2915,7 @@ spyd2_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 		return spyd2_interp_code((inst *)p, icoms2spyd2_err(se));
 	}
 
-	a1logd(p->log, 2, "spyd2_init_coms: suceeded\n");
+	a1logd(p->log, 2, "spyd2_init_coms: succeeded\n");
 
 	p->gotcoms = 1;
 	return inst_ok;
@@ -2983,6 +2982,7 @@ spyd2_init_inst(inst *pp) {
 		int rwbytes;			/* Data bytes read or written */
 
 		
+		a1logd(p->log, 3, "spyd3/4/5 flush any stale data:\n");
 		for (i = 0; i < 10; i++) {
 			if ((p->icom->usb_read(p->icom, NULL, 0x81, buf, 8, &rwbytes, 0.1) & ICOM_TO)
 			 && i > 9)
@@ -3042,6 +3042,17 @@ spyd2_init_inst(inst *pp) {
 	                  ,inst_name(p->dtype) ,p->serno ,p->hwver,p->fbits);
 
 	return inst_ok;
+}
+
+static char *spyd2_get_serial_no(inst *pp) {
+	spyd2 *p = (spyd2 *)pp;
+	
+	if (!pp->gotcoms)
+		return "";
+	if (!pp->inited)
+		return "";
+
+	return p->serno;
 }
 
 /* Read a single sample */
@@ -3374,9 +3385,9 @@ spyd2_interp_error(inst *pp, int ec) {
 		case SPYD2_BADREADSIZE:
 			return "Didn't read expected amount of data";
 		case SPYD2_TRIGTIMEOUT:
-			return "Trigger timout";
+			return "Trigger timeout";
 		case SPYD2_OVERALLTIMEOUT:
-			return "Overall timout";
+			return "Overall timeout";
 		case SPYD2_BAD_EE_CRC:
 			return "Serial EEProm CRC failed";
 
@@ -4093,6 +4104,7 @@ extern spyd2 *new_spyd2(icoms *icom, instType dtype) {
 
 	p->init_coms         = spyd2_init_coms;
 	p->init_inst         = spyd2_init_inst;
+	p->get_serial_no     = spyd2_get_serial_no;
 	p->capabilities      = spyd2_capabilities;
 	p->check_mode        = spyd2_check_mode;
 	p->set_mode          = spyd2_set_mode;
@@ -4160,7 +4172,6 @@ int setup_spyd2(int id) {
 	/* If not loaded, try and load it */
 	if (spyder_pld_size[id] == 0) {
 		
-
 		for (;;) {	/* So we can break out */
 			if (id == 0)
 				p1 = "ArgyllCMS/spyd1PLD.bin" XDG_FUDGE "color/spyd1PLD.bin";

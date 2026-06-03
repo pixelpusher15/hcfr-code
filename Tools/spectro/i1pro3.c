@@ -76,7 +76,7 @@ static inst_code i1pro3_interp_code(i1pro3 *p, i1pro3_code ec);
 
 /* ------------------------------------------------------------------------ */
 
-/* Establish communications with a I1DISP */
+/* Establish communications with a I1PRO3 */
 /* If it's a serial port, use the baud rate given, and timeout in to secs */
 /* Return I1PRO3_COMS_FAIL on failure to establish communications */
 static inst_code
@@ -117,7 +117,7 @@ i1pro3_init_coms(inst *pp, baud_rate br, flow_control fc, double tout) {
 		return i1pro3_interp_code(p, icoms2i1pro3_err(se));
 	}
 
-	a1logd(p->log, 2, "i1pro3_init_coms: init coms has suceeded\n");
+	a1logd(p->log, 2, "i1pro3_init_coms: init coms has succeeded\n");
 
 	p->gotcoms = 1;
 	return inst_ok;
@@ -435,6 +435,8 @@ i1pro3_interp_error(inst *pp, i1pro3_code ec) {
 			return "No refresh rate detected or failed to measure it";
 		case I1PRO3_RD_NOTRANS_FOUND:
 			return "No delay calibration transition found";
+		case I1PRO3_RD_LEADTRAILINCONS:
+			return "Swipe didn't start and end on the media";
 
 		case I1PRO3_INT_NO_COMS:
 			return "Communications hasn't been established";
@@ -466,6 +468,8 @@ i1pro3_interp_error(inst *pp, i1pro3_code ec) {
 			return "Error in allocating memory";
 		case I1PRO3_INT_CREATE_EEPROM_STORE:
 			return "Error in creating EEProm store";
+		case I1PRO3_INT_NEW_RSPL_FAILED:
+			return "Creating RSPL object failed";
 		case I1PRO3_INT_CAL_SAVE:
 			return "Unable to save calibration to file";
 		case I1PRO3_INT_CAL_RESTORE:
@@ -552,6 +556,7 @@ i1pro3_interp_code(i1pro3 *p, i1pro3_code ec) {
 		case I1PRO3_RD_NOAMBB4FLASHES:
 		case I1PRO3_RD_NOREFR_FOUND:
 		case I1PRO3_RD_NOTRANS_FOUND:
+		case I1PRO3_RD_LEADTRAILINCONS:
 			return inst_misread | ec;
 
 		case I1PRO3_RD_NEEDS_CAL:
@@ -572,6 +577,7 @@ i1pro3_interp_code(i1pro3 *p, i1pro3_code ec) {
 		case I1PRO3_INT_CIECONVFAIL:
 		case I1PRO3_INT_MALLOC:
 		case I1PRO3_INT_CREATE_EEPROM_STORE:
+		case I1PRO3_INT_NEW_RSPL_FAILED:
 		case I1PRO3_INT_CAL_SAVE:
 		case I1PRO3_INT_CAL_RESTORE:
 		case I1PRO3_INT_CAL_TOUCH:
@@ -736,17 +742,17 @@ inst_meascondsel **psels	/* Return the array of measurement conditions types */
 		no++;
 
 		strcpy(sels[no].desc, "M1 (D50)");
-		sels[no].fsel = inst_opt_filter_D50;			/* M1 */
+		sels[no].fsel = inst_opt_filter_D50;		/* M1 */
 		no++;
 
 		strcpy(sels[no].desc, "M2 (UV cut)");
-		sels[no].fsel = inst_opt_filter_UVCut;		/* M0 */
+		sels[no].fsel = inst_opt_filter_UVCut;		/* M2 */
 		no++;
 
 		if (m->capabilities & I1PRO3_CAP_POL) {
 
 			strcpy(sels[no].desc, "M3 (Polarized)");
-			sels[no].fsel = inst_opt_filter_pol;		/* M0 */
+			sels[no].fsel = inst_opt_filter_pol;	/* M3 */
 			no++;
 		}
 	}

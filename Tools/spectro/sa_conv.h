@@ -21,8 +21,14 @@
  */
 
 #if defined (NT)
+# if !defined(WINVER) || WINVER < 0x0501
+#  if defined(WINVER) 
+#   undef WINVER
+#  endif
+#  define WINVER 0x0501
+# endif
 # if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0501
-#  if defined _WIN32_WINNT
+#  if defined(_WIN32_WINNT) 
 #   undef _WIN32_WINNT
 #  endif
 #  define _WIN32_WINNT 0x0501
@@ -44,6 +50,13 @@
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /* A subset of icclib */
+
+#define SA_ERRM_SIZE 2000		/* Try and keep in sync with CGATS_ERRM_LENGTH */
+
+typedef struct {
+	int  c;            		/* Error code */
+	char m[SA_ERRM_SIZE];	/* Error message */
+} sa_Err;
 
 #ifndef MAX_CHAN
 # define MAX_CHAN 15
@@ -121,6 +134,9 @@ void sa_Lab2XYZ(sa_XYZNumber *w, double *out, double *in);
 void sa_XYZ2Lab(sa_XYZNumber *w, double *out, double *in);
 void sa_Yxy2XYZ(double *out, double *in);
 
+void sa_Add3(double out[3], double in1[3], double in2[3]);
+
+#define icmErr sa_Err
 #define icColorSpaceSignature sa_ColorSpaceSignature
 #define icSigXYZData sa_SigXYZData
 #define icSigLabData sa_SigLabData
@@ -180,13 +196,25 @@ void sa_Yxy2XYZ(double *out, double *in);
 
 #define icmSet3(d_ary, s_val) ((d_ary)[0] = (s_val), (d_ary)[1] = (s_val), \
                               (d_ary)[2] = (s_val))
-#define icmAdd3(out, in1, in2) ((out)[0] = in1[0] + in2[0], \
-                                (out)[1] = in1[1] + in2[1], \
-                                (out)[2] = in1[2] + in2[2])
 #define icmCpy3(d_ary, s_ary) ((d_ary)[0] = (s_ary)[0], (d_ary)[1] = (s_ary)[1], \
                               (d_ary)[2] = (s_ary)[2])
 #define icmScale3 sa_Scale3
 #define icmClamp3 sa_Clamp3
+
+#define icmAdd3 sa_Add3
+#define rand32 sa_rand32
+
+/* HCFR local: minimal UTF-16 -> UTF-8 shim for the standalone instlib.
+   Argyll 3.5.0's hidio.c / usbio_*.c read USB serial-number strings with
+   icc's icmUTF16toUTF8(), which is not part of the instlib subset. Provide an
+   ASCII-subset conversion (sufficient for instrument serial numbers) so the
+   standalone build does not need to pull in icclib. */
+#ifndef SA_ICMUTF16_SHIM
+#define SA_ICMUTF16_SHIM
+typedef unsigned short icmUTF16;
+size_t sa_UTF16toUTF8(void *pillegal, char *out, icmUTF16 *in);
+#define icmUTF16toUTF8 sa_UTF16toUTF8
+#endif /* SA_ICMUTF16_SHIM */
 
 #define icmAry2XYZ(xyz, ary) ((xyz).X = (ary)[0], (xyz).Y = (ary)[1], (xyz).Z = (ary)[2])
 

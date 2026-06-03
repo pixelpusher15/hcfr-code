@@ -25,8 +25,15 @@
  *************************************************************************/
 
 #if defined (NT)
+/* Set minimum OS target as XP */
+# if !defined(WINVER) || WINVER < 0x0501
+#  if defined(WINVER) 
+#   undef WINVER
+#  endif
+#  define WINVER 0x0501
+# endif
 # if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0501
-#  if defined _WIN32_WINNT
+#  if defined(_WIN32_WINNT) 
 #   undef _WIN32_WINNT
 #  endif
 #  define _WIN32_WINNT 0x0501
@@ -55,6 +62,9 @@
 #include "aglob.h"
 
 /*
+	NOTE :- do we need this info now that we are setting manifest
+	to use the 65001 code page ??
+
 	For MSWin should convert spath to UTF16 and call
 	wide version of FindFirstFileW with  "\\?\" pre-pended to
 	the path. Convert results back to UTF8. (No Nt2K support ?)
@@ -66,7 +76,7 @@
 	_wfindnext()
 	_wfopen()
 	WideCharToMultiByte
-	MultiByteToWideCharTo
+	MultiByteToWideChar
 	GetShortPathNameW to convert for libraries, but not 100% reliable
 
 	See <http://utf8everywhere.org/>

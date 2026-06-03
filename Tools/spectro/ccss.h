@@ -26,7 +26,7 @@
 #endif
 
 /*
- * This object provides storage and application of emisive spectral
+ * This object provides storage and application of emissive spectral
  * samples that can be used to compute calibration for suitable
  * colorimeters (such as the i1d3) tuned for particular types of displays.
  * 
@@ -74,7 +74,7 @@ struct _ccss {
 	char *desc;			/* General Description (optional) */
 	char *disp;			/* Description of the display (Manfrr and Model No) (optional if tech) */
 	disptech dtech;		/* Display Technology enumeration (optional if disp) */
-	char *tech;			/* Technology string (Looked up from dtech enum) */
+	char *tech;			/* Technology string (Looked up from dtech enum or read from file) */
 	int refrmode;		/* Refresh mode, -1 if unknown, 0 of no, 1 if yes */
 	char *sel;			/* Optional UI selector characters. May be NULL */
 	char *ref;			/* Name of reference spectrometer instrument (optional) */
@@ -83,8 +83,8 @@ struct _ccss {
 	int no_samp;		/* Number of samples */
 	
 	/* Houskeeping - should switch this to a1log ? */
-	int errc;				/* Error code */
-	char err[200];			/* Error message */
+	icmErr e;				/* Error code & message */
+
 }; typedef struct _ccss ccss;
 
 /* Create a new, uninitialised ccss */
