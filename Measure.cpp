@@ -43,6 +43,41 @@ static char THIS_FILE[]=__FILE__;
 #define PATTERN_SIZE (RANDOM250 * 100)
 
 //////////////////////////////////////////////////////////////////////
+// Grayscale level presets
+//////////////////////////////////////////////////////////////////////
+
+static const double s_grayLevels5[]  = { 0,25,50,75,100 };
+static const double s_grayLevels6[]  = { 0,20,40,60,80,100 };
+static const double s_grayLevels11[] = { 0,10,20,30,40,50,60,70,80,90,100 };
+static const double s_grayLevels12[] = { 0,5,10,20,30,40,50,60,70,80,90,100 };	// non-uniform: 5% near-black
+static const double s_grayLevels16[] = { 0,1,2,3,4,5,10,20,30,40,50,60,70,80,90,100 };	// 12-point + 1-4 IRE
+static const double s_grayLevels21[] = { 0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100 };
+static const double s_grayLevels25[] = { 0,1,2,3,4,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100 };	// 21-point + 1-4 IRE
+
+static const GrayScalePreset s_grayPresets[] =
+{
+	{ "5-point (25%)",                  5,  s_grayLevels5  },
+	{ "6-point (20%)",                  6,  s_grayLevels6  },
+	{ "11-point (10%)",                11,  s_grayLevels11 },
+	{ "12-point (5% near-black)",      12,  s_grayLevels12 },
+	{ "16-point (1-5% near black)",    16,  s_grayLevels16 },
+	{ "21-point (5%)",                 21,  s_grayLevels21 },
+	{ "25-point (1-5% near black)",    25,  s_grayLevels25 },
+};
+
+const GrayScalePreset * GetGrayScalePresets ()    { return s_grayPresets; }
+int                     GetGrayScalePresetCount () { return sizeof(s_grayPresets) / sizeof(s_grayPresets[0]); }
+
+// Fill 'levels' with a uniform ramp of 'nPoints' nominal IRE percentages (0..100).
+// A Custom selection of N steps maps to nPoints = N+1.
+static void FillUniformGrayLevels(CArray<double,double> & levels, int nPoints)
+{
+	levels.SetSize(nPoints);
+	for (int i = 0; i < nPoints; i++)
+		levels[i] = ( nPoints > 1 ) ? ( i * 100.0 / (nPoints - 1) ) : 0.0;
+}
+
+//////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
@@ -57,7 +92,36 @@ CMeasure::CMeasure()
 	bDisplayRT = TRUE;
 	m_primariesArray.SetSize(3);
 	m_secondariesArray.SetSize(3);
-	m_grayMeasureArray.SetSize(	GetConfig()->GetProfileInt("Scale Sizes","Gray",10)+1);
+	{
+		// Grayscale levels: prefer an explicit preset index saved in the registry;
+		// otherwise apply the legacy mapping of the saved step count
+		// (4->5-point, 10->11-point, 20->21-point, any other N -> Custom with N steps).
+		CArray<double,double> levels;
+		const GrayScalePreset * pPresets = GetGrayScalePresets();
+		int nPresetCount = GetGrayScalePresetCount();
+		int nPreset = GetConfig()->GetProfileInt("Scale Sizes","GrayPreset",-99);
+		if ( nPreset >= 0 && nPreset < nPresetCount )
+		{
+			levels.SetSize(pPresets[nPreset].count);
+			for (int i = 0; i < pPresets[nPreset].count; i++)
+				levels[i] = pPresets[nPreset].levels[i];
+		}
+		else
+		{
+			int nGray = GetConfig()->GetProfileInt("Scale Sizes","Gray",10);	// legacy step count (points-1)
+			int nLegacy = ( nGray == 4 ) ? 0 : ( nGray == 10 ) ? 2 : ( nGray == 20 ) ? 4 : -1;
+			if ( nLegacy >= 0 )
+			{
+				levels.SetSize(pPresets[nLegacy].count);
+				for (int i = 0; i < pPresets[nLegacy].count; i++)
+					levels[i] = pPresets[nLegacy].levels[i];
+			}
+			else
+				FillUniformGrayLevels(levels, nGray + 1);	// Custom N steps -> N+1 points
+		}
+		m_grayMeasureArray.SetSize(levels.GetSize());
+		m_grayIRELevelArray.Copy(levels);
+	}
 	m_nearBlackMeasureArray.SetSize( GetConfig()->GetProfileInt("Scale Sizes","Near Black",4)+1);
 	m_nearWhiteMeasureArray.SetSize(GetConfig()->GetProfileInt("Scale Sizes","Near White",4)+1);
 	m_redSatMeasureArray.SetSize(GetConfig()->GetProfileInt("Scale Sizes","Saturations",4)+1);
@@ -140,10 +204,11 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 	{
 		case DUPLGRAYLEVEL:		// Gray scale measure
 			m_grayMeasureArray.SetSize(p->m_grayMeasureArray.GetSize());
+			m_grayIRELevelArray.Copy(p->m_grayIRELevelArray);
 			m_bIREScaleMode=p->m_bIREScaleMode;
 			m_OnOffWhite=p->m_OnOffWhite;
 			for(int i=0;i<m_grayMeasureArray.GetSize();i++)
-    			m_grayMeasureArray[i]=p->m_grayMeasureArray[i];	
+    			m_grayMeasureArray[i]=p->m_grayMeasureArray[i];
 			break;
 
 		case DUPLNEARBLACK:		// Near black measure
@@ -235,7 +300,7 @@ void CMeasure::Serialize(CArchive& ar)
 
 	if (ar.IsStoring())
 	{
-	    int version = 17;
+	    int version = 18;
 		ar << version;
 
 		ar << GetConfig()->m_BT2390_BS;
@@ -281,6 +346,11 @@ void CMeasure::Serialize(CArchive& ar)
 		ar << m_grayMeasureArray.GetSize();
 		for(int i=0;i<m_grayMeasureArray.GetSize();i++)
 			m_grayMeasureArray[i].Serialize(ar);
+
+		// Version 18: explicit grayscale IRE levels (supports non-uniform presets)
+		ar << m_grayIRELevelArray.GetSize();
+		for(int i=0;i<m_grayIRELevelArray.GetSize();i++)
+			ar << m_grayIRELevelArray[i];
 
 		// Version 3: near black and near white added
 		ar << m_nearBlackMeasureArray.GetSize();
@@ -369,7 +439,7 @@ void CMeasure::Serialize(CArchive& ar)
 		ar >> version;
 
 		
-		if ( version > 17 )
+		if ( version > 18 )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 
 
@@ -509,7 +579,18 @@ void CMeasure::Serialize(CArchive& ar)
 		m_grayMeasureArray.SetSize(gsize);
 		for(int i=0;i<m_grayMeasureArray.GetSize();i++)
 			m_grayMeasureArray[i].Serialize(ar);
-					
+
+		// Version 18: explicit grayscale IRE levels (else fall back to even distribution)
+		m_grayIRELevelArray.RemoveAll();
+		if ( version > 17 )
+		{
+			int lsize;
+			ar >> lsize;
+			m_grayIRELevelArray.SetSize(lsize);
+			for(int i=0;i<m_grayIRELevelArray.GetSize();i++)
+				ar >> m_grayIRELevelArray[i];
+		}
+
 		if ( version > 2 )
 		{
 			ar >> size;
@@ -707,9 +788,94 @@ void CMeasure::SetGrayScaleSize(int steps)
 		// Purge all actual results
 		for(int i=0;i<m_grayMeasureArray.GetSize();i++)	// Init default values: by default m_grayMeasureArray init to D65, Y=1
 		{
-			m_grayMeasureArray[i]=noDataColor;	
+			m_grayMeasureArray[i]=noDataColor;
+		}
+
+		// A genuine resize drops any explicit (preset) level set; fall back to the
+		// legacy even distribution computed live by ArrayIndexToGrayLevel().
+		// A same-size call (e.g. from the background measure validators) leaves an
+		// explicit, possibly non-uniform, level set intact.
+		m_grayIRELevelArray.RemoveAll();
+	}
+}
+
+void CMeasure::SetGrayScaleLevels(const double * pLevels, int count)
+{
+	int OldSize = m_grayMeasureArray.GetSize ();
+
+	// Purge measured results only when the effective measurement points move
+	// (count changed, or any level differs from the current effective level).
+	bool bChanged = ( count != OldSize );
+	if ( ! bChanged )
+	{
+		for (int i = 0; i < count && ! bChanged; i++)
+		{
+			double cur = ( m_grayIRELevelArray.GetSize() == count )
+						 ? m_grayIRELevelArray[i]
+						 : ( ( count > 1 ) ? ( i * 100.0 / (count - 1) ) : 0.0 );	// implied uniform ramp
+			if ( fabs(cur - pLevels[i]) > 1e-9 )
+				bChanged = true;
 		}
 	}
+
+	m_grayMeasureArray.SetSize(count);
+	m_grayIRELevelArray.SetSize(count);
+	for (int i = 0; i < count; i++)
+		m_grayIRELevelArray[i] = pLevels[i];
+
+	if ( bChanged )
+	{
+		for (int i = 0; i < count; i++)
+			m_grayMeasureArray[i] = noDataColor;
+	}
+}
+
+double CMeasure::GetGrayPercent(int index, bool bUseRoundDown, bool b10bit) const
+{
+	int size = m_grayMeasureArray.GetSize ();
+
+	if ( m_grayIRELevelArray.GetSize() == size && index >= 0 && index < size )
+	{
+		// Snap the stored nominal IRE % to the active output grid, matching
+		// ArrayIndexToGrayLevel()'s rounding for round-down / 10-bit / 8-bit.
+		// For a uniform level set this reproduces ArrayIndexToGrayLevel() exactly.
+		double L = m_grayIRELevelArray[index];
+		if ( bUseRoundDown )
+			return ( floor( L / 100.0 * 219.0 ) / 219.0 * 100.0 );
+		else if ( b10bit )
+			return ( floor( L / 100.0 * (219.0 * 4) + 0.5 ) / (219.0 * 4) * 100.0 );
+		else
+			return ( floor( L / 100.0 * 219.0 + 0.5 ) / 219.0 * 100.0 );
+	}
+
+	return ArrayIndexToGrayLevel ( index, size, bUseRoundDown, b10bit );
+}
+
+int CMeasure::GetGrayScalePreset() const
+{
+	const GrayScalePreset *	pPresets = GetGrayScalePresets();
+	int						nPresetCount = GetGrayScalePresetCount();
+	int						size = m_grayMeasureArray.GetSize ();
+	bool					bHasExplicit = ( m_grayIRELevelArray.GetSize() == size );
+
+	for (int k = 0; k < nPresetCount; k++)
+	{
+		if ( pPresets[k].count != size )
+			continue;
+
+		bool match = true;
+		for (int i = 0; i < size && match; i++)
+		{
+			// Compare against stored nominal levels, or the implied uniform ramp.
+			double level = bHasExplicit ? m_grayIRELevelArray[i]
+										: ( ( size > 1 ) ? ( i * 100.0 / (size - 1) ) : 0.0 );
+			if ( fabs(level - pPresets[k].levels[i]) > 1e-9 )
+				match = false;
+		}
+		if ( match )
+			return k;
+	}
+	return -1;	// custom
 }
 
 void CMeasure::SetIREScaleMode(BOOL bIRE)
@@ -957,7 +1123,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 		
 		if (!i && (GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) == DISPLAY_GDI_Hide) )
 			UpdateTstWnd(pDoc, -1);
-		if( pGenerator->DisplayGray(ArrayIndexToGrayLevel ( i, size, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit),CGenerator::MT_IRE ,!bRetry))
+		if( pGenerator->DisplayGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit),CGenerator::MT_IRE ,!bRetry))
 		{
 			UpdateTstWnd(pDoc, i);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
@@ -968,7 +1134,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureGray(ArrayIndexToGrayLevel ( i, size, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit));
+				measuredColor[i]=pSensor->MeasureGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit));
 
 				m_grayMeasureArray[i] = measuredColor[i];
 				
@@ -1179,7 +1345,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 		if (!i && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) == DISPLAY_GDI_Hide)
 			UpdateTstWnd(pDoc, -1);
 
-		if( pGenerator->DisplayGray(ArrayIndexToGrayLevel ( i, size, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit),CGenerator::MT_IRE ,!bRetry))
+		if( pGenerator->DisplayGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit),CGenerator::MT_IRE ,!bRetry))
 		{
 			UpdateTstWnd(pDoc, i);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
@@ -1190,7 +1356,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureGray(ArrayIndexToGrayLevel ( i, size, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit ));
+				measuredColor[i]=pSensor->MeasureGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit ));
 				m_grayMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )

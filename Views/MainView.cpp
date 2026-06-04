@@ -1381,9 +1381,9 @@ void CMainView::InitGrid(bool sizeGrid)
 		{
 			case 0:
 				 if ( bIRE && i==0 )
-					Item.strText.Format("%.1f",ArrayIndexToGrayLevel ( i, size, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit ));
+					Item.strText.Format("%.1f",GetDocument()->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit ));
 				 else
-					Item.strText.Format("%d", (int) floor(ArrayIndexToGrayLevel ( i, size, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit )+0.5) );
+					Item.strText.Format("%d", (int) floor(GetDocument()->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit )+0.5) );
 				 break;
 
 			case 1:
@@ -2539,7 +2539,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						if ( GetConfig ()->m_GammaOffsetType == 1 )
 							yblack = Black.GetY();
 						if (m_displayMode == 0)
-							x = ArrayIndexToGrayLevel ( nCol - 1, nGrayScaleSize, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
+							x = GetDocument()->GetMeasure()->GetGrayPercent ( nCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
 						else if (m_displayMode == 3)
 							valx = GrayLevelToGrayProp ( (double)(nCol - 1)*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
 						else if (m_displayMode == 4)
@@ -3261,7 +3261,9 @@ void CMainView::UpdateGrid()
 		{
             int i = GetDocument() -> GetMeasure () -> GetGrayScaleSize ();
             ColorxyY tmpColor(GetColorReference().GetWhite());
-			double x = ArrayIndexToGrayLevel ( j, nCount, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
+			double x = ( m_displayMode == 0 )
+					   ? GetDocument()->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit )
+					   : ArrayIndexToGrayLevel ( j, nCount, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
 			int mode = GetConfig()->m_GammaOffsetType;
 			CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
 			CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
@@ -5566,7 +5568,9 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 			// Compute reference Luminance regarding actual offset and reference gamma 
              // fixed to use correct gamma predicts
              // and added option to assume perfect gamma
-				double x = ArrayIndexToGrayLevel ( nCol, nCnt, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
+				double x = ( nCnt == GetDocument()->GetMeasure()->GetGrayScaleSize() )
+						   ? GetDocument()->GetMeasure()->GetGrayPercent ( nCol, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit )
+						   : ArrayIndexToGrayLevel ( nCol, nCnt, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
 				CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
 //	            CColor Black = GetDocument() -> GetMeasure () -> GetGray ( 0 );
 	            CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();

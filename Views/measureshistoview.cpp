@@ -288,7 +288,9 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		if (GetDocument()->GetMeasure()->GetGray(0).isValid()) 
 		{
 			ColorxyY tmpColor(GetColorReference().GetWhite());
-			x = ArrayIndexToGrayLevel ( l_nCol  , l_nSize, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
+			x = ( l_nSize == GetDocument()->GetMeasure()->GetGrayScaleSize() )
+				? GetDocument()->GetMeasure()->GetGrayPercent ( l_nCol, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit )
+				: ArrayIndexToGrayLevel ( l_nCol  , l_nSize, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
 			// Determine Reference Y luminance for Delta E calculus
 			if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
 			{
@@ -525,7 +527,7 @@ void CMeasuresHistoView::OnDraw(CDC* pDC)
 		font.CreateFont( 15, 0, 900, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Arial" );
 	else
 		font.CreateFont( 9, 0, 900, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Arial" );
-		pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );
+		pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );
 	rect2.left = 0;
 	if (GetConfig()->isHighDPI)
 		rect2.right = 21;

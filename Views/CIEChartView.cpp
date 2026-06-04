@@ -1577,7 +1577,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		{
 			CString str;
 			Msg.LoadString ( IDS_GRAYIRE );
-			str.Format(Msg,i*100/(pDoc->GetMeasure()->GetGrayScaleSize()-1));
+			str.Format(Msg,(int)(pDoc->GetMeasure()->GetGrayPercent(i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)+0.5));
             ColorXYZ aColor(pDoc->GetMeasure()->GetGray(i).GetXYZValue());
             ColorXYZ refColor(GetColorReference().GetWhite());
             double valy;
@@ -1585,7 +1585,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
             // Determine Reference Y luminance for Delta E calculus
             if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
             {
-				double x = ArrayIndexToGrayLevel ( i, nSize, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
+				double x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
     			CColor White = pDoc -> GetMeasure () -> GetGray ( nSize - 1 );
 				CColor Black = pDoc->GetMeasure()->GetOnOffBlack();
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;

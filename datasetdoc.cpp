@@ -2596,7 +2596,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetGrayScaleSize ();
 			 for (i = 0; i < nSteps ; i ++ )
 			 {
-				GenIRE [ i ] = ArrayIndexToGrayLevel ( i, nSteps, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit);
+				GenIRE [ i ] = GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit);
 				bIRE [ i ] = GetMeasure () -> m_bIREScaleMode;
 				GenColors [ i ] = ColorRGBDisplay(GenIRE[i]);
 			 	mType [ i ] = CGenerator::MT_IRE;
@@ -2638,7 +2638,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nMaxSteps = nSteps;
 			 for (i = 0; i < nSteps ; i ++ )
 			 {
-				GenIRE [ i ] = (int)ArrayIndexToGrayLevel ( i, nSteps, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit);
+				GenIRE [ i ] = (int)GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit);
 				bIRE [ i ] = GetMeasure () -> m_bIREScaleMode;
 				GenColors [ i ] = ColorRGBDisplay(GenIRE[i]);
  			 	mType [ i ] = CGenerator::MT_IRE;
@@ -4238,7 +4238,7 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 
 			for (int i=0; i<Size; i++)
 			{
-				x = ArrayIndexToGrayLevel ( i, Size, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit);
+				x = GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit);
 				v = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit);
 				valx[i]=(v+Offset_opt)/(1.0+Offset_opt);
 			}

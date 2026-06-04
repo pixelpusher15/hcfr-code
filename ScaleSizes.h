@@ -38,16 +38,17 @@ public:
 // Dialog Data
 	//{{AFX_DATA(CScaleSizes)
 	enum { IDD = IDD_SCALESIZES };
-	CComboBox	m_ComboEditGrays;
-	CComboBox	m_ComboGrays;
+	CComboBox	m_ComboGrays;	// grayscale preset dropdown (non-editable)
+	CEdit		m_EditGrays;	// custom number-of-steps field (Custom... only)
 	int		m_NbNearBlack;
 	int		m_NbNearWhite;
 	int		m_NbSat;
-	BOOL	m_bIRE;
 	//}}AFX_DATA
 
-	int		m_NbGrays;
+	BOOL	m_bIRE;				// preserved as-is (IRE scale mode is no longer user-toggled here)
 	CDataSetDoc *	m_pDoc;
+
+	void	UpdateGrayControls();	// show/enable the custom field only for "Custom..."
 
 // Overrides
 	// ClassWizard generated virtual function overrides
@@ -66,7 +67,7 @@ protected:
 	virtual void OnCancel();
 	afx_msg void OnHelp();
 	afx_msg BOOL OnHelpInfo(HELPINFO* pHelpInfo);
-	afx_msg void OnCheckIre();
+	afx_msg void OnSelChangeGrays();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };
