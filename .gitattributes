@@ -1,1 +1,6 @@
 ipch/colorhcfr-7cce6296/colorhcfr-c9ef32e0.ipch filter=lfs diff=lfs merge=lfs -text
+
+# Localized resource files: pin CRLF in the working tree so an editor/tool
+# can't silently flip their line endings. (These are also stored as
+# ISO-8859-1, not UTF-8 - that's an editor concern git can't enforce.)
+CHCFR21_*.rc text eol=crlf
