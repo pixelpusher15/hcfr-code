@@ -49,7 +49,22 @@
 #define LUX_CANCELED	2
 
 
-class CMeasure : public CObject  
+// ---- Grayscale level presets (shared by CMeasure and the Measure-parameters dialog) ----
+// Each preset is an explicit array of nominal IRE percentages (0..100); one is non-uniform.
+struct GrayScalePreset
+{
+	LPCSTR			name;	// dropdown label
+	int				count;	// number of IRE points
+	const double *	levels;	// 'count' entries, 0..100
+};
+
+const GrayScalePreset *	GetGrayScalePresets ();		// fixed table (excludes the "Custom..." entry)
+int						GetGrayScalePresetCount ();
+
+#define GRAYSCALE_DEFAULT_PRESET	2	// 11-point (10%) is the default selection
+
+
+class CMeasure : public CObject
 {
 public:
 	DECLARE_SERIAL(CMeasure) ;
@@ -60,6 +75,7 @@ protected:
 	CArray<CColor,CColor> m_primariesArray;
 	CArray<CColor,CColor> m_secondariesArray;
 	CArray<CColor,CColor> m_grayMeasureArray;
+	CArray<double,double> m_grayIRELevelArray;	// explicit nominal IRE % per gray index (empty => legacy even distribution)
 	CArray<CColor,CColor> m_measurementsArray;
 	CColor m_OnOffBlack;
 	CColor m_OnOffWhite;
@@ -117,6 +133,9 @@ public:
 	void SetGray(int i,const CColor & aColor) {m_grayMeasureArray[i]=aColor; m_isModified=TRUE;} 
 	int GetGrayScaleSize() const { return m_grayMeasureArray.GetSize(); }
 	void SetGrayScaleSize(int steps);
+	void SetGrayScaleLevels(const double * pLevels, int count);	// install explicit (possibly non-uniform) IRE levels
+	double GetGrayPercent(int index, bool bUseRoundDown, bool b10bit = FALSE) const;	// IRE % for a gray index
+	int GetGrayScalePreset() const;	// matching preset index, or -1 (custom)
 	void SetIREScaleMode(BOOL bIRE);
 	CColor lastColor, previousColor;
 	CColor m_userBlack;

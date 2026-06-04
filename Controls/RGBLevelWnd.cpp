@@ -260,7 +260,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 						x = ArrayIndexToGrayLevel ( m_pDocument->GetMeasure()->m_NearWhiteClipCol - Count + (minCol - 1), 101, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
 						break;
 						default:
-						x = ArrayIndexToGrayLevel ( minCol - 1 , nCount, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
+						x = m_pDocument->GetMeasure()->GetGrayPercent ( minCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
 					}
 					double valy, Gamma, Offset;
                     Gamma = GetConfig()->m_GammaRef;

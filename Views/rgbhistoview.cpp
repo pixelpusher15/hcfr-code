@@ -144,7 +144,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 		for (int i=1; i<size; i++)
 		{
-			double x = ArrayIndexToGrayLevel ( i, size, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
+			double x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
             double valy;
 			ColorxyY aColor=pDoc->GetMeasure()->GetGray(i).GetxyYValue();
             ColorxyY tmpColor(GetColorReference().GetWhite());
@@ -226,7 +226,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=1; i<size; i++)
 		{
 			ColorxyY aColor, aColor2;
-		    double x = ArrayIndexToGrayLevel ( i, size, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
+		    double x = pDataRef->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
             double valy;			
 			
 			aColor=pDataRef->GetMeasure()->GetGray(i).GetxyYValue();
