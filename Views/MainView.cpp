@@ -2098,7 +2098,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	else
 	{
 		// Normal OnUpdate
-		CFormView::OnUpdate(pSender, lHint, pHint);
+		if ( !( (lHint >= UPD_PRIMARIES && lHint <= UPD_FREEMEASURES) || lHint == UPD_CC24SAT ) )
+			CFormView::OnUpdate(pSender, lHint, pHint);
 
 		if ( m_displayType == HCFR_SENSORRGB_VIEW )
 		{
