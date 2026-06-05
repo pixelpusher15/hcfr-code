@@ -102,6 +102,26 @@ void CXPGroupBox::OnPaint()
 	// TODO: Add your message handler code here
    	CRect	rectClient;
 	GetClientRect(rectClient);
+
+	{
+		CWnd* _pP = GetParent();
+		if (_pP != NULL)
+		{
+			CRect _myR; GetWindowRect(_myR);
+			for (CWnd* _pS = _pP->GetWindow(GW_CHILD); _pS != NULL; _pS = _pS->GetWindow(GW_HWNDNEXT))
+			{
+				if (_pS->GetSafeHwnd() == GetSafeHwnd()) continue;
+				if (!(_pS->GetStyle() & WS_VISIBLE)) continue;
+				CRect _sR; _pS->GetWindowRect(_sR);
+				CRect _iR;
+				if (_iR.IntersectRect(_myR, _sR))
+				{
+					CRect _cR(_sR); ScreenToClient(_cR);
+					dc.ExcludeClipRect(_cR);
+				}
+			}
+		}
+	}
 	
 	// Defalte Rect
 	rectClient.DeflateRect(1,1);
@@ -225,6 +245,26 @@ void CXPGroupBox::OnPaint()
 		pDC->SelectClipRgn(&rgn);
 		DrawGradient(pDC,rectTitle,colorTop,colorBottom,true);
 		pDC->SelectClipRgn(NULL);
+
+		{
+			CWnd* _pP2 = GetParent();
+			if (_pP2 != NULL)
+			{
+				CRect _myR2; GetWindowRect(_myR2);
+				for (CWnd* _pS2 = _pP2->GetWindow(GW_CHILD); _pS2 != NULL; _pS2 = _pS2->GetWindow(GW_HWNDNEXT))
+				{
+					if (_pS2->GetSafeHwnd() == GetSafeHwnd()) continue;
+					if (!(_pS2->GetStyle() & WS_VISIBLE)) continue;
+					CRect _sR2; _pS2->GetWindowRect(_sR2);
+					CRect _iR2;
+					if (_iR2.IntersectRect(_myR2, _sR2))
+					{
+						CRect _cR2(_sR2); ScreenToClient(_cR2);
+						dc.ExcludeClipRect(_cR2);
+					}
+				}
+			}
+		}
 		// End of fx add
 		
 		// Draw content area
@@ -385,7 +425,7 @@ void CXPGroupBox::UpdateSurface()
 	RedrawWindow();
 
 	GetParent()->ScreenToClient(rc);
-	GetParent()->InvalidateRect(rc,TRUE);
+	GetParent()->InvalidateRect(rc,FALSE);
 	GetParent()->UpdateWindow();
 }
 
@@ -572,8 +612,11 @@ CXPGroupBox& CXPGroupBox::SetFontSize(int nSize)
 //////////////////////////////////////////////////////////////////////////
 CXPGroupBox& CXPGroupBox::SetBorderColor(COLORREF clrBorder)
 {
-	m_clrBorder = clrBorder;
-	UpdateSurface();
+	if (m_clrBorder != clrBorder)
+	{
+		m_clrBorder = clrBorder;
+		UpdateSurface();
+	}
 	return *this;
 }
 
@@ -660,9 +703,21 @@ CXPGroupBox& CXPGroupBox::SetText(LPCTSTR lpszText)
 {
 	if(IsWindow(this->GetSafeHwnd())) 
 	{
-		m_strTitle = lpszText;
-		m_strTitle = _T(" ") + m_strTitle + _T(" ");
-		UpdateSurface();
+		CString _newTitle = _T(" ");
+		_newTitle += lpszText;
+		_newTitle += _T(" ");
+		if (_newTitle != m_strTitle)
+		{
+			m_strTitle = _newTitle;
+			CClientDC _dc(this);
+			CFont* _pOldF = _dc.SelectObject(&m_font);
+			int _titleH = _dc.GetTextExtent(_T("Ag"), 2).cy + 3;
+			_dc.SelectObject(_pOldF);
+			CRect _rcT; GetClientRect(_rcT);
+			_rcT.bottom = _rcT.top + _titleH;
+			InvalidateRect(_rcT, FALSE);
+			UpdateWindow();
+		}
 	}
 	
 	return *this;

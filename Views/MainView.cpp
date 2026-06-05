@@ -430,6 +430,7 @@ CMainView::CMainView()
 
 	m_pGrayScaleGrid = NULL;
 	m_pSelectedColorGrid = NULL;
+	m_nSelColorGridReadingType = -1;
 	m_pBgBrush= new CBrush(FxGetMenuBgColor());
 
 	m_pInfoWnd = NULL;
@@ -1835,6 +1836,13 @@ void CMainView::InitSelectedColorGrid()
 	if(m_pSelectedColorGrid==NULL)
 		return;
 
+	int nReadingType = GetDocument()->m_pSensor->ReadingType();
+	// Structure/labels depend only on the sensor reading type, which doesn't change during a run.
+	// Skip the full rebuild + autosize (a per-update flicker source) when nothing structural changed.
+	if ( m_pSelectedColorGrid->GetRowCount() == 24 && m_nSelColorGridReadingType == nReadingType )
+		return;
+	m_nSelColorGridReadingType = nReadingType;
+
 	m_pSelectedColorGrid->SetFixedColumnCount(1);
 
     m_pSelectedColorGrid->SetRowCount(24);
@@ -1845,7 +1853,7 @@ void CMainView::InitSelectedColorGrid()
 	m_pSelectedColorGrid->SetTrackFocusCell(TRUE);
 	m_pSelectedColorGrid->SetEditable(FALSE);
 	m_pSelectedColorGrid->EnableDragAndDrop(FALSE);
-	m_pSelectedColorGrid->SetDoubleBuffering(FALSE);
+	m_pSelectedColorGrid->SetDoubleBuffering(TRUE);	// double-buffer to reduce flicker while live values stream in
 
 	m_pSelectedColorGrid->SetDefCellMargin(3);
 
@@ -1946,7 +1954,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	CFrameWnd * pFrame = (CFrameWnd *)(AfxGetApp()->m_pMainWnd);
 //	if (pFrame)
 //		pFrame->GetActiveFrame()->ActivateFrame();
-	pFrame->OnUpdateFrameMenu(NULL);
+	if ( lHint < UPD_REALTIME && lHint != UPD_FREEMEASUREAPPENDED )
+		pFrame->OnUpdateFrameMenu(NULL);
 	// TODO: add a general option for that ?
 	if ( 1 )
 	{
@@ -2089,7 +2098,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	else
 	{
 		// Normal OnUpdate
-		CFormView::OnUpdate(pSender, lHint, pHint);
+		if ( !( (lHint >= UPD_PRIMARIES && lHint <= UPD_FREEMEASURES) || lHint == UPD_CC24SAT ) )
+			CFormView::OnUpdate(pSender, lHint, pHint);
 
 		if ( m_displayType == HCFR_SENSORRGB_VIEW )
 		{
@@ -2103,11 +2113,20 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 		if ( ( lHint >= UPD_EVERYTHING && lHint <= UPD_FREEMEASURES ) || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA )
 		{
+			if (m_pGrayScaleGrid)
+				m_pGrayScaleGrid->SetRedraw(FALSE);
+			// Suppress intermediate repaints while InitGrid tears the grid down and UpdateGrid refills it
+			// (otherwise it blanks to white between the two during a measurement update); repaint once below.
 			InitGrid(); // to update row labels (if colorReference setting has changed, or if lux values appeared)
 			if(m_pGrayScaleGrid)
 				UpdateGrid();
 			if(m_SelectedColor.isValid())
 				RefreshSelection(false,GetDocument()->GetMeasure()->m_binMeasure);
+			if (m_pGrayScaleGrid)
+			{
+				m_pGrayScaleGrid->SetRedraw(TRUE);
+				m_pGrayScaleGrid->Invalidate(FALSE);
+			}
 		}
 		
 		if ( lHint == UPD_FREEMEASUREAPPENDED )
@@ -3701,7 +3720,6 @@ void CMainView::UpdateGrid()
 		if ( m_displayMode == 12 )
 			UpdateContrastValuesInGrid ();
 
-		m_pGrayScaleGrid->Refresh();
 		
 		if ( m_displayMode == 0 || m_displayMode == 3 || m_displayMode == 4)
 		{
@@ -5948,6 +5966,14 @@ BOOL CMainView::OnEraseBkgnd(CDC* pDC)
 {
 	CRect windowRect;
 	GetClientRect(windowRect );
+	if (m_pGrayScaleGrid && m_pGrayScaleGrid->GetSafeHwnd() && (m_pGrayScaleGrid->GetStyle() & WS_VISIBLE))
+	{
+		CRect _gr; m_pGrayScaleGrid->GetWindowRect(&_gr); ScreenToClient(&_gr); pDC->ExcludeClipRect(&_gr);
+	}
+	if (m_pSelectedColorGrid && m_pSelectedColorGrid->GetSafeHwnd() && (m_pSelectedColorGrid->GetStyle() & WS_VISIBLE))
+	{
+		CRect _sr; m_pSelectedColorGrid->GetWindowRect(&_sr); ScreenToClient(&_sr); pDC->ExcludeClipRect(&_sr);
+	}
 
 	COLORREF colorTop,colorBottom;
 	FxGetMenuBgColors(colorTop,colorBottom);
