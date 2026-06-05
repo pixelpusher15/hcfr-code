@@ -33,3 +33,4 @@ UnitTests/tests.xml
 /.vscode
 /.claude
 *proj.user
+/flash_diag.log

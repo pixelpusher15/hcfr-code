@@ -220,6 +220,7 @@ public:
 protected:
 	CGridCtrl* m_pGrayScaleGrid;
 	CGridCtrl* m_pSelectedColorGrid;
+	int m_nSelColorGridReadingType;	// gates selected-color grid rebuilds: reading type it was built for (-1 = unbuilt)
 	void OnGrayScaleGridBeginEdit(NMHDR *pNotifyStruct,LRESULT* pResult);
 	void OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult);
 	void OnGrayScaleGridEndSelChange(NMHDR *pNotifyStruct,LRESULT* pResult);

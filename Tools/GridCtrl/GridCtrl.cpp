@@ -4319,7 +4319,13 @@ BOOL CGridCtrl::SetItem(const GV_ITEM* pItem)
     SetModified(TRUE, pItem->row, pItem->col);
 
     if (pItem->mask & GVIF_TEXT)
+    {
+        LPCTSTR _oldTxt = pCell->GetText();
+        BOOL _txtChg = (_oldTxt == NULL) || (_tcscmp(_oldTxt, (LPCTSTR)pItem->strText) != 0);
         pCell->SetText(pItem->strText);
+        if (_txtChg)
+            InvalidateCellRect(pItem->row, pItem->col);
+    }
     if (pItem->mask & GVIF_PARAM)
         pCell->SetData(pItem->lParam);
     if (pItem->mask & GVIF_IMAGE)
@@ -4564,7 +4570,10 @@ BOOL CGridCtrl::SetItemBkColour(int nRow, int nCol, COLORREF cr /* = CLR_DEFAULT
     if (!pCell)
         return FALSE;
 
+    BOOL _bkChg = (pCell->GetBackClr() != cr);
     pCell->SetBackClr(cr);
+    if (_bkChg)
+        InvalidateCellRect(nRow, nCol);
     return TRUE;
 }
 
@@ -4588,7 +4597,10 @@ BOOL CGridCtrl::SetItemFgColour(int nRow, int nCol, COLORREF cr /* = CLR_DEFAULT
     if (!pCell)
         return FALSE;
     
+    BOOL _fgChg = (pCell->GetTextClr() != cr);
     pCell->SetTextClr(cr);
+    if (_fgChg)
+        InvalidateCellRect(nRow, nCol);
     return TRUE;
 }
 
