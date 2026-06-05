@@ -425,7 +425,7 @@ void CXPGroupBox::UpdateSurface()
 	RedrawWindow();
 
 	GetParent()->ScreenToClient(rc);
-	GetParent()->InvalidateRect(rc,TRUE);
+	GetParent()->InvalidateRect(rc,FALSE);
 	GetParent()->UpdateWindow();
 }
 
@@ -700,9 +700,14 @@ CXPGroupBox& CXPGroupBox::SetText(LPCTSTR lpszText)
 {
 	if(IsWindow(this->GetSafeHwnd())) 
 	{
-		m_strTitle = lpszText;
-		m_strTitle = _T(" ") + m_strTitle + _T(" ");
-		UpdateSurface();
+		CString _newTitle = _T(" ");
+		_newTitle += lpszText;
+		_newTitle += _T(" ");
+		if (_newTitle != m_strTitle)
+		{
+			m_strTitle = _newTitle;
+			UpdateSurface();
+		}
 	}
 	
 	return *this;
