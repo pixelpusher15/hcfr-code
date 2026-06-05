@@ -612,8 +612,11 @@ CXPGroupBox& CXPGroupBox::SetFontSize(int nSize)
 //////////////////////////////////////////////////////////////////////////
 CXPGroupBox& CXPGroupBox::SetBorderColor(COLORREF clrBorder)
 {
-	m_clrBorder = clrBorder;
-	UpdateSurface();
+	if (m_clrBorder != clrBorder)
+	{
+		m_clrBorder = clrBorder;
+		UpdateSurface();
+	}
 	return *this;
 }
 
@@ -706,7 +709,14 @@ CXPGroupBox& CXPGroupBox::SetText(LPCTSTR lpszText)
 		if (_newTitle != m_strTitle)
 		{
 			m_strTitle = _newTitle;
-			UpdateSurface();
+			CClientDC _dc(this);
+			CFont* _pOldF = _dc.SelectObject(&m_font);
+			int _titleH = _dc.GetTextExtent(_T("Ag"), 2).cy + 3;
+			_dc.SelectObject(_pOldF);
+			CRect _rcT; GetClientRect(_rcT);
+			_rcT.bottom = _rcT.top + _titleH;
+			InvalidateRect(_rcT, FALSE);
+			UpdateWindow();
 		}
 	}
 	
