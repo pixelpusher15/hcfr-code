@@ -117,6 +117,7 @@ public:
 	BOOL m_bWhiteBkgndOnScreen;
 	BOOL m_bWhiteBkgndOnFile;
 	BOOL m_bmoveMessage;
+	BOOL m_darkTheme;
 
 	COLORREF m_fxColorWindow;
 	COLORREF m_fxColorMenu;

@@ -311,6 +311,7 @@ void CColorHCFRConfig::InitDefaults()
 	m_fxColorMenu=CLR_DEFAULT;
 	m_fxColorSelection=CLR_DEFAULT;
 	m_fxColorText=CLR_DEFAULT;
+	m_darkTheme=FALSE;
 
 	m_doMultipleInstance=FALSE;
 	m_doUpdateCheck=FALSE;
@@ -411,6 +412,7 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_fxColorMenu=GetProfileColor("Appearance","Menu Color");
 	m_fxColorSelection=GetProfileColor("Appearance","Selection Color");
 	m_fxColorText=GetProfileColor("Appearance","Text Color");
+	m_darkTheme=GetProfileInt("Appearance","DarkTheme",FALSE);
 
 	m_TBViewsRightClickMode = GetProfileInt("Advanced","TBViewsRightClickMode",0);
 	m_TBViewsMiddleClickMode = GetProfileInt("Advanced","TBViewsMiddleClickMode",1);
@@ -504,6 +506,7 @@ void CColorHCFRConfig::SaveSettings()
 	WriteProfileColor("Appearance","Menu Color",m_fxColorMenu);
 	WriteProfileColor("Appearance","Selection Color",m_fxColorSelection);
 	WriteProfileColor("Appearance","Text Color",m_fxColorText);
+	WriteProfileInt("Appearance","DarkTheme",m_darkTheme);
 
 	WriteProfileInt("Advanced","TBViewsRightClickMode",m_TBViewsRightClickMode);
 	WriteProfileInt("Advanced","TBViewsMiddleClickMode",m_TBViewsMiddleClickMode);
@@ -583,26 +586,7 @@ void CColorHCFRConfig::SetPropertiesSheetValues()
 	m_referencesPropertiesPage.m_manualBluey=m_manualBluey;
 	m_referencesPropertiesPage.m_GammaOffsetType=m_GammaOffsetType;
 	m_appearancePropertiesPage.m_isModified=FALSE;
-	switch(m_menuDrawMode)
-	{
-		case CNewMenu::STYLE_XP_2003:
-			m_appearancePropertiesPage.m_themeComboIndex=0;
-			break;
-		case CNewMenu::STYLE_XP:
-			m_appearancePropertiesPage.m_themeComboIndex=1;
-			break;
-		case CNewMenu::STYLE_ORIGINAL:
-			m_appearancePropertiesPage.m_themeComboIndex=2;
-			break;
-		case CNewMenu::STYLE_ICY:
-			m_appearancePropertiesPage.m_themeComboIndex=3;
-			break;
-		case CNewMenu::STYLE_COLORFUL:
-			m_appearancePropertiesPage.m_themeComboIndex=4;
-			break;
-		default:
-			m_appearancePropertiesPage.m_themeComboIndex=0;
-	}
+	m_appearancePropertiesPage.m_themeComboIndex = m_darkTheme ? 1 : 0;
 
 	m_appearancePropertiesPage.m_drawMenuborder=m_drawMenuBorder;
 	m_appearancePropertiesPage.m_doXpBlending=m_doXpBlending;
@@ -709,27 +693,8 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	m_manualBluex=m_referencesPropertiesPage.m_manualBluex;
 	m_manualBluey=m_referencesPropertiesPage.m_manualBluey;
 	m_GammaOffsetType=m_referencesPropertiesPage.m_GammaOffsetType;
-	switch(m_appearancePropertiesPage.m_themeComboIndex)
-	{
-		case 0:
-			m_menuDrawMode=CNewMenu::STYLE_XP_2003;
-			break;
-		case 1:
-			m_menuDrawMode=CNewMenu::STYLE_XP;
-			break;
-		case 2:
-			m_menuDrawMode=CNewMenu::STYLE_ORIGINAL;
-			break;
-		case 3:
-			m_menuDrawMode=CNewMenu::STYLE_ICY;
-			break;
-		case 4:
-			m_menuDrawMode=CNewMenu::STYLE_COLORFUL;
-			break;
-		default:
-			m_menuDrawMode=CNewMenu::STYLE_XP_2003;
-	}
-
+	m_menuDrawMode=CNewMenu::STYLE_XP_2003;
+	m_darkTheme=(m_appearancePropertiesPage.m_themeComboIndex==1);
 	m_drawMenuBorder=m_appearancePropertiesPage.m_drawMenuborder;
 	m_doXpBlending=m_appearancePropertiesPage.m_doXpBlending;
 	m_doSelectDisabledItem=m_appearancePropertiesPage.m_doSelectDisabledItem;
@@ -738,6 +703,7 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	m_bWhiteBkgndOnFile=m_appearancePropertiesPage.m_bWhiteBkgndOnFile;
 	m_bmoveMessage=m_appearancePropertiesPage.m_bmoveMessage;
 	m_useCustomColor=m_appearancePropertiesPage.m_useCustomColor;
+	if(m_darkTheme) m_useCustomColor=TRUE;
 	m_fxColorWindow=m_appearancePropertiesPage.m_colorWindowButton.GetColor();
 	m_fxColorMenu=m_appearancePropertiesPage.m_colorMenuButton.GetColor();
 	m_fxColorSelection=m_appearancePropertiesPage.m_colorSelectionButton.GetColor();
@@ -774,16 +740,22 @@ void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 	}
 
 	// Apply appearance settings
-	CNewMenu::SetMenuDrawMode(m_menuDrawMode);
+	CNewMenu::SetMenuDrawMode(CNewMenu::STYLE_XP);
 	fxDrawMenuBorder=m_drawMenuBorder;
-	fxUseCustomColor=m_useCustomColor;
+	fxUseCustomColor=m_darkTheme;
 	CNewMenu::SetSelectDisableMode(m_doSelectDisabledItem);
 	CNewMenu::SetXpBlending(m_doXpBlending);
 	if(m_doGlooming)
 		CNewMenu::SetGloomFactor(50);
 	else
 		CNewMenu::SetGloomFactor(0);
-	SetFxColors(m_fxColorWindow,m_fxColorMenu,m_fxColorSelection,m_fxColorText);
+	if(m_darkTheme)
+		SetFxColors(RGB(30,30,30),RGB(45,45,48),RGB(38,79,120),RGB(235,235,235));
+	else
+		SetFxColors(CLR_DEFAULT,CLR_DEFAULT,CLR_DEFAULT,CLR_DEFAULT);
+	if(AfxGetMainWnd()) ApplyDarkTitleBar(AfxGetMainWnd()->GetSafeHwnd(), m_darkTheme);
+	FxEnableDarkMode(m_darkTheme);
+	if(AfxGetMainWnd()) FxApplyDarkModeTree(AfxGetMainWnd()->GetSafeHwnd(), m_darkTheme);
 
 	// Apply reference settings
     if(GetColorApp()->m_pColorReference)
@@ -828,7 +800,7 @@ void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 		if(m_appearancePropertiesPage.m_isModified)// || m_generalPropertiesPage.m_isModified)	
 			AfxGetMainWnd()->SendMessage(WM_SYSCOLORCHANGE); // to update color changes 
 
-		if(m_generalPropertiesPage.m_isModified || m_referencesPropertiesPage.m_isModified || m_advancedPropertiesPage.m_isModified || m_appearancePropertiesPage.m_isWhiteModified || m_isModified)	
+		if(m_generalPropertiesPage.m_isModified || m_referencesPropertiesPage.m_isModified || m_advancedPropertiesPage.m_isModified || m_appearancePropertiesPage.m_isWhiteModified || m_isModified || m_appearancePropertiesPage.m_isModified)	
 		{
 			CDocEnumerator docEnumerator;	// Update all views of all docs
 			CDocument* pDoc;

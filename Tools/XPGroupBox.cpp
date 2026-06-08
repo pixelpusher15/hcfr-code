@@ -40,7 +40,7 @@ CXPGroupBox::CXPGroupBox()
 {
     m_strTitle = _T("");
 	
-	m_clrBorder = FxGetSysColor(COLOR_3DSHADOW);
+	m_clrBorder = fxUseCustomColor ? RGB(64,64,70) : FxGetSysColor(COLOR_3DSHADOW);
 	m_clrClientBackground = FxGetSysColor(COLOR_BTNFACE);
 
 	m_clrTitleText = FxGetSysColor(COLOR_WINDOWTEXT);
@@ -275,9 +275,15 @@ void CXPGroupBox::OnPaint()
 		rectContent.right = rectClient.right;
 		rectContent.bottom = rectContent.top + rectClient.Height() - sizeText.cy - 4; 
 		
-		pOldBrush = dc.SelectObject(&brushBKContent); 
-		
-		dc.Rectangle(rectContent);  
+		pOldBrush = dc.SelectObject(&brushBKContent);
+		CPen penContent(PS_SOLID, 1, FxGetMenuBgColor());
+		dc.SelectObject(&penContent);
+		dc.Rectangle(rectContent);
+		// Re-draw the rounded panel outline on top of the content so it is
+		// visible all the way around (subtle, VS-like) in both themes.
+		dc.SelectStockObject(NULL_BRUSH);
+		dc.SelectObject(&penFrame);
+		dc.RoundRect(rectClient, CPoint(10, 10));
 		
 		dc.SelectObject(pOldPen);
 		dc.SelectObject(pOldBrush); 
@@ -373,8 +379,12 @@ void CXPGroupBox::PreSubclassWindow()
 	
 	CButton::PreSubclassWindow();
 
-	//modified the style to avoid text overlap when press tab 
+	//modified the style to avoid text overlap when press tab
 	ModifyStyle(0, BS_ICON);
+
+	// Strip the Windows-drawn 3D dialog frame (WS_EX_DLGMODALFRAME) so panels
+	// show only our own flat rounded border (VS-like) in both themes.
+	ModifyStyleEx(WS_EX_DLGMODALFRAME, 0, SWP_FRAMECHANGED);
 
 	// Get Defalut Font 
 	CFont* cf = GetFont();
@@ -784,4 +794,4 @@ CXPGroupBox& CXPGroupBox::SetHilighted(int iHilight)
 	}
 
 	return *this;
-}
+}

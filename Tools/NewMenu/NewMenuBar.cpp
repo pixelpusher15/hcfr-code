@@ -308,11 +308,7 @@ void CNewIconBarItem::DrawSpecialChar(HDC hDC, LPCRECT pRect, TCHAR Sign, BOOL b
 
   MyFont.CreateFontIndirect (&logfont);
 
-  COLORREF oldColor = CLR_NONE;
-  if(bDisabled)
-  {
-    oldColor = pDC->SetTextColor(::FxGetSysColor(COLOR_GRAYTEXT)); 
-  }
+  COLORREF oldColor = pDC->SetTextColor(bDisabled ? ::FxGetSysColor(COLOR_GRAYTEXT) : ::FxGetSysColor(COLOR_MENUTEXT));
   CFont* pOldFont = pDC->SelectObject (&MyFont); 
   int OldMode = pDC->SetBkMode(TRANSPARENT);  
 
@@ -320,10 +316,7 @@ void CNewIconBarItem::DrawSpecialChar(HDC hDC, LPCRECT pRect, TCHAR Sign, BOOL b
 
   pDC->SetBkMode(OldMode);
   pDC->SelectObject(pOldFont);
-  if(bDisabled)
-  {
-    pDC->SetTextColor(oldColor); 
-  }
+  pDC->SetTextColor(oldColor);
 }
 
 void CNewIconBarItem::PaintHotButton(HDC hDC)

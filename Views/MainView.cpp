@@ -407,6 +407,18 @@ extern CWinThread*			g_hThread;
 /////////////////////////////////////////////////////////////////////////////
 // CMainView construction/destruction
 
+static COLORREF GridBk(COLORREF c)
+{
+	if (!GetConfig()->m_darkTheme) return c;
+	return RGB(GetRValue(c)/4, GetGValue(c)/4, GetBValue(c)/4);
+}
+static COLORREF GridFg(COLORREF c)
+{
+	if (!GetConfig()->m_darkTheme) return c;
+	if ((GetRValue(c)*30 + GetGValue(c)*59 + GetBValue(c)*11)/100 < 128) return RGB(235,235,235);
+	return c;
+}
+
 CMainView::CMainView()
 	: CFormView(CMainView::IDD)
 {
@@ -613,6 +625,7 @@ void CMainView::OnInitialUpdate()
 
 	InitButtons();
 	InitGroups();
+	if(AfxGetMainWnd()) FxApplyDarkModeTree(AfxGetMainWnd()->GetSafeHwnd(), GetConfig()->m_darkTheme);
 
 	if (m_displayMode != 0)
 		OnSelchangeComboMode();
@@ -1311,6 +1324,11 @@ void CMainView::InitGrid(bool sizeGrid)
 			nRows ++;
 	}
 
+	m_pGrayScaleGrid->SetTextColor(FxGetSysColor(COLOR_WINDOWTEXT));
+	m_pGrayScaleGrid->SetTextBkColor(FxGetSysColor(COLOR_WINDOW));
+	m_pGrayScaleGrid->SetFixedTextColor(FxGetSysColor(COLOR_WINDOWTEXT));
+	m_pGrayScaleGrid->SetFixedBkColor(FxGetSysColor(COLOR_3DFACE));
+	m_pGrayScaleGrid->SetGridLineColor(GetConfig()->m_darkTheme ? RGB(96,96,100) : RGB(192,192,192));
 	m_pGrayScaleGrid->SetFixedRowCount(1);
 	m_pGrayScaleGrid->SetFixedColumnCount(1);
 
@@ -1600,7 +1618,7 @@ void CMainView::InitGrid(bool sizeGrid)
 
 		for ( int i2 = 4; i2 <= nRows ; i2++ )
 		{
-			m_pGrayScaleGrid->SetItemBkColour ( i2, i+1, ( (i2&1) ? RGB(240,240,240) : RGB(224,224,224) ) );
+			m_pGrayScaleGrid->SetItemBkColour ( i2, i+1, GridBk( (i2&1) ? RGB(240,240,240) : RGB(224,224,224) ) );
 			m_pGrayScaleGrid->SetItemState ( i2, i+1, m_pGrayScaleGrid->GetItemState(i2,i+1) | GVIS_READONLY );
         }
 
@@ -1701,12 +1719,12 @@ void CMainView::InitGrid(bool sizeGrid)
 			{
 				Item.strText = ( i==0 ? "ON/OFF:" : ( i==1 ? "ANSI:" : "" ) );
 				m_pGrayScaleGrid->SetItem(&Item);
-				m_pGrayScaleGrid->SetItemBkColour ( Item.row,Item.col, RGB(224,224,224) );
+				m_pGrayScaleGrid->SetItemBkColour ( Item.row,Item.col, GridBk(RGB(224,224,224)) );
 //				m_pGrayScaleGrid->SetItemState ( Item.row,Item.col, m_pGrayScaleGrid->GetItemState(Item.row,Item.col) | GVIS_READONLY );
 			}
 			else if ( i < 3 )
 			{
-				m_pGrayScaleGrid->SetItemBkColour ( Item.row,Item.col, RGB(255,255,255) );
+				m_pGrayScaleGrid->SetItemBkColour ( Item.row,Item.col, GridBk(RGB(255,255,255)) );
 //				m_pGrayScaleGrid->SetItemState ( Item.row,Item.col, m_pGrayScaleGrid->GetItemState(Item.row,Item.col) & (~GVIS_READONLY) );
 			}
 		}
@@ -1725,7 +1743,7 @@ void CMainView::InitGrid(bool sizeGrid)
 				}
 				else if ( i < 3 )
 				{
-				m_pGrayScaleGrid->SetItemBkColour ( Item.row,Item.col, RGB(255,255,255) );
+				m_pGrayScaleGrid->SetItemBkColour ( Item.row,Item.col, GridBk(RGB(255,255,255)) );
 //					m_pGrayScaleGrid->SetItemState ( Item.row,Item.col, m_pGrayScaleGrid->GetItemState(Item.row,Item.col) & (~GVIS_READONLY) );
 				}
 			}
@@ -1812,20 +1830,20 @@ void CMainView::InitGrid(bool sizeGrid)
 
 	if ( (m_displayMode == 0 || m_displayMode == 3 || m_displayMode == 12) && GetConfig()->m_userBlack)
 	{
-    		m_pGrayScaleGrid->SetItemBkColour ( 1, 1, RGB(255,218,185) );
-    		m_pGrayScaleGrid->SetItemBkColour ( 2, 1, RGB(255,218,185) );
-    		m_pGrayScaleGrid->SetItemBkColour ( 3, 1, RGB(255,218,185) );
-    		m_pGrayScaleGrid->SetItemFgColour ( 1, 1, RGB(0,10,185) );
-    		m_pGrayScaleGrid->SetItemFgColour ( 2, 1, RGB(0,10,185) );
-    		m_pGrayScaleGrid->SetItemFgColour ( 3, 1, RGB(0,10,185) );
+    		m_pGrayScaleGrid->SetItemBkColour ( 1, 1, (GetConfig()->m_darkTheme ? RGB(0,0,0) : RGB(255,218,185)) );
+    		m_pGrayScaleGrid->SetItemBkColour ( 2, 1, (GetConfig()->m_darkTheme ? RGB(0,0,0) : RGB(255,218,185)) );
+    		m_pGrayScaleGrid->SetItemBkColour ( 3, 1, (GetConfig()->m_darkTheme ? RGB(0,0,0) : RGB(255,218,185)) );
+    		m_pGrayScaleGrid->SetItemFgColour ( 1, 1, (GetConfig()->m_darkTheme ? RGB(255,195,0) : RGB(0,10,185)) );
+    		m_pGrayScaleGrid->SetItemFgColour ( 2, 1, (GetConfig()->m_darkTheme ? RGB(255,195,0) : RGB(0,10,185)) );
+    		m_pGrayScaleGrid->SetItemFgColour ( 3, 1, (GetConfig()->m_darkTheme ? RGB(255,195,0) : RGB(0,10,185)) );
 	} else
 	{
-   			m_pGrayScaleGrid->SetItemBkColour ( 1, 1, RGB(255,255,255) );
-   			m_pGrayScaleGrid->SetItemBkColour ( 2, 1, RGB(255,255,255) );
-   			m_pGrayScaleGrid->SetItemBkColour ( 3, 1, RGB(255,255,255) );
-   			m_pGrayScaleGrid->SetItemFgColour ( 1, 1, RGB(0,0,0) );
-   			m_pGrayScaleGrid->SetItemFgColour ( 2, 1, RGB(0,0,0) );
-   			m_pGrayScaleGrid->SetItemFgColour ( 3, 1, RGB(0,0,0) );
+   			m_pGrayScaleGrid->SetItemBkColour ( 1, 1, GridBk(RGB(255,255,255)) );
+   			m_pGrayScaleGrid->SetItemBkColour ( 2, 1, GridBk(RGB(255,255,255)) );
+   			m_pGrayScaleGrid->SetItemBkColour ( 3, 1, GridBk(RGB(255,255,255)) );
+   			m_pGrayScaleGrid->SetItemFgColour ( 1, 1, GridFg(RGB(0,0,0)) );
+   			m_pGrayScaleGrid->SetItemFgColour ( 2, 1, GridFg(RGB(0,0,0)) );
+   			m_pGrayScaleGrid->SetItemFgColour ( 3, 1, GridFg(RGB(0,0,0)) );
 	}
 
 	OnEditgridCheck();
@@ -1843,6 +1861,11 @@ void CMainView::InitSelectedColorGrid()
 		return;
 	m_nSelColorGridReadingType = nReadingType;
 
+	m_pSelectedColorGrid->SetTextColor(FxGetSysColor(COLOR_WINDOWTEXT));
+	m_pSelectedColorGrid->SetTextBkColor(FxGetSysColor(COLOR_WINDOW));
+	m_pSelectedColorGrid->SetFixedTextColor(FxGetSysColor(COLOR_WINDOWTEXT));
+	m_pSelectedColorGrid->SetFixedBkColor(FxGetSysColor(COLOR_3DFACE));
+	m_pSelectedColorGrid->SetGridLineColor(GetConfig()->m_darkTheme ? RGB(96,96,100) : RGB(192,192,192));
 	m_pSelectedColorGrid->SetFixedColumnCount(1);
 
     m_pSelectedColorGrid->SetRowCount(24);
@@ -1885,7 +1908,7 @@ void CMainView::InitSelectedColorGrid()
 		m_pSelectedColorGrid->SetItem(&Item);
 
 		if ( (i/3)&1 )
-			m_pSelectedColorGrid->SetItemBkColour(Item.row,1,RGB(224,224,224));
+			m_pSelectedColorGrid->SetItemBkColour(Item.row,1,GridBk(RGB(224,224,224)));
 	}
 
 	m_pSelectedColorGrid->ExpandColumnsToFit(TRUE);
@@ -2377,11 +2400,11 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						if (dE > dEmax)
                             dEmax = dE;
 						if (GetConfig()->m_dE_form == 0)
-							clr = (dE<3.0?RGB(175,255,175):(dE<5?RGB(255,255,175):RGB(255,175,175)));
+							clr = (dE<3.0?RGB(98,187,78):(dE<5?RGB(206,188,71):RGB(232,84,84)));
 						else
-							clr = (dE<2.0?RGB(175,255,175):(dE<3?RGB(255,255,175):RGB(255,175,175)));
+							clr = (dE<2.0?RGB(98,187,78):(dE<3?RGB(206,188,71):RGB(232,84,84)));
                         if (GetConfig()->doHighlight)
-                            m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr);
+                            { m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
 						m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
 						dEcnt++;
 					}
@@ -2484,11 +2507,11 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					if (dE > dEmax)
                         dEmax = dE;
 					if (GetConfig()->m_dE_form == 0)
-						clr = (dE<3.0?RGB(175,255,175):(dE<5?RGB(255,255,175):RGB(255,175,175)));
+						clr = (dE<3.0?RGB(98,187,78):(dE<5?RGB(206,188,71):RGB(232,84,84)));
 					else
-						clr = (dE<2.0?RGB(175,255,175):(dE<3?RGB(255,255,175):RGB(255,175,175)));
+						clr = (dE<2.0?RGB(98,187,78):(dE<3?RGB(206,188,71):RGB(232,84,84)));
                     if (GetConfig()->doHighlight)
-                        m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr);
+                        { m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
 					m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
 					dEcnt++;
 				}
@@ -3706,7 +3729,7 @@ void CMainView::UpdateGrid()
 
 				if ( bSpecialRef && i >= 3 )
 				{
-					m_pGrayScaleGrid->SetItemBkColour ( i+1, j+1, ( i&1 ? clrSpecial1 : clrSpecial2 ) );
+					m_pGrayScaleGrid->SetItemBkColour ( i+1, j+1, GridBk( i&1 ? clrSpecial1 : clrSpecial2 ) );
 				}
 			}
 		}
@@ -3812,7 +3835,7 @@ void CMainView::UpdateGrid()
 					dEform = GetConfig()->m_dE_gray==0?" [Relative Y]":(GetConfig ()->m_dE_gray == 1?" [Absolute Y w/gamma]":" [Absolute Y w/o gamma]");
 					Msg += dEform;
                     if (GetConfig()->doHighlight)
-					    m_grayScaleGroup.SetBorderColor (dEavg / dEcnt < a ? RGB(0,230,0):(dEavg / dEcnt < b?RGB(230,230,0):RGB(230,0,0)));
+					    m_grayScaleGroup.SetBorderColor (fxUseCustomColor ? FxGetSysColor(COLOR_BTNFACE) : FxGetSysColor(COLOR_3DSHADOW));
 				}
 			}
 
@@ -3874,7 +3897,7 @@ void CMainView::UpdateGrid()
 					}
 					Msg += dEform;
                     if (GetConfig()->doHighlight)
-                        m_grayScaleGroup.SetBorderColor (dEavg / dEcnt < a ? RGB(0,230,0):(dEavg / dEcnt < b?RGB(230,230,0):RGB(230,0,0)));
+                        m_grayScaleGroup.SetBorderColor (fxUseCustomColor ? FxGetSysColor(COLOR_BTNFACE) : FxGetSysColor(COLOR_3DSHADOW));
 			}
 			m_grayScaleGroup.SetText ( Msg );
 		} else if ( m_displayMode > 4 && m_displayMode < 11 )
@@ -3961,7 +3984,7 @@ void CMainView::UpdateGrid()
 					}
 					Msg += dEform;
                     if (GetConfig()->doHighlight) 
-					    m_grayScaleGroup.SetBorderColor (dEavg / dEcnt < a ? RGB(0,230,0):(dEavg / dEcnt < b?RGB(230,230,0):RGB(230,0,0)));
+					    m_grayScaleGroup.SetBorderColor (fxUseCustomColor ? FxGetSysColor(COLOR_BTNFACE) : FxGetSysColor(COLOR_3DSHADOW));
 			}
 			m_grayScaleGroup.SetText ( Msg );
 		} else if (m_displayMode == 11)
@@ -4054,7 +4077,7 @@ void CMainView::UpdateGrid()
 					}
 					Msg += dEform;
                     if (GetConfig()->doHighlight)
-					    m_grayScaleGroup.SetBorderColor (dEavg / dEcnt < a ? RGB(0,230,0):(dEavg / dEcnt < b?RGB(230,230,0):RGB(230,0,0)));
+					    m_grayScaleGroup.SetBorderColor (fxUseCustomColor ? FxGetSysColor(COLOR_BTNFACE) : FxGetSysColor(COLOR_3DSHADOW));
 			}
 			m_grayScaleGroup.SetText ( Msg );
 		}
@@ -5558,18 +5581,18 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 		m_pGrayScaleGrid -> SetItemFont ( 0, n, m_pGrayScaleGrid->GetItemFont(0,n-1) ); // Set the font to bold
 
 		m_pGrayScaleGrid->SetItemState ( 4, n, m_pGrayScaleGrid->GetItemState(4,n) | GVIS_READONLY );
-		m_pGrayScaleGrid->SetItemBkColour ( 4, n, RGB(224,224,224) );
+		m_pGrayScaleGrid->SetItemBkColour ( 4, n, GridBk(RGB(224,224,224)) );
 
 		m_pGrayScaleGrid->SetItemState ( 5, n, m_pGrayScaleGrid->GetItemState(5,n) | GVIS_READONLY );
-		m_pGrayScaleGrid->SetItemBkColour ( 5, n, RGB(240,240,240) );
+		m_pGrayScaleGrid->SetItemBkColour ( 5, n, GridBk(RGB(240,240,240)) );
 
 		if ( pDataRef )
 		{
 			m_pGrayScaleGrid->SetItemState ( 6, n, m_pGrayScaleGrid->GetItemState(6,n) | GVIS_READONLY );
-			m_pGrayScaleGrid->SetItemBkColour ( 6, n, RGB(224,224,224) );
+			m_pGrayScaleGrid->SetItemBkColour ( 6, n, GridBk(RGB(224,224,224)) );
 
 			m_pGrayScaleGrid->SetItemState ( 7, n, m_pGrayScaleGrid->GetItemState(7,n) | GVIS_READONLY );
-			m_pGrayScaleGrid->SetItemBkColour ( 7, n, RGB(240,240,240) );
+			m_pGrayScaleGrid->SetItemBkColour ( 7, n, GridBk(RGB(240,240,240)) );
 		}
 
 		bSpecialRef = TRUE;
@@ -5676,7 +5699,7 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 
 			if ( bSpecialRef && i >= 3 )
 			{
-				m_pGrayScaleGrid->SetItemBkColour ( i+1, n, ( i&1 ? clrSpecial1 : clrSpecial2 ) );
+				m_pGrayScaleGrid->SetItemBkColour ( i+1, n, GridBk( i&1 ? clrSpecial1 : clrSpecial2 ) );
 			}
 		}
 
@@ -5838,11 +5861,18 @@ void CMainView::InitButtons()
 	}
 	m_Font.DeleteObject();
 
+	line_Font.DeleteObject();
 	line_Font.CreateFontA(17,0,0,0,FW_SEMIBOLD,0,0,0,0,0,0,PROOF_QUALITY,VARIABLE_PITCH,_T("ARIAL"));
 	m_refInfo.SetFont(&line_Font);
 
     GetDlgItem( IDC_INFOLINE )->SetFont( &line_Font );
 
+	if(GetDlgItem(IDC_MEASUREGRAYSCALE_BUTTON)) GetDlgItem(IDC_MEASUREGRAYSCALE_BUTTON)->ModifyStyleEx(WS_EX_DLGMODALFRAME,0,SWP_FRAMECHANGED);
+	if(GetDlgItem(IDC_DELETEGRAYSCALE_BUTTON)) GetDlgItem(IDC_DELETEGRAYSCALE_BUTTON)->ModifyStyleEx(WS_EX_DLGMODALFRAME,0,SWP_FRAMECHANGED);
+	if(GetDlgItem(IDC_REFS_BUTTON)) GetDlgItem(IDC_REFS_BUTTON)->ModifyStyleEx(WS_EX_DLGMODALFRAME,0,SWP_FRAMECHANGED);
+
+	if (m_tooltip.GetSafeHwnd() == NULL)
+	{
 	m_tooltip.Create(this);	
 	m_tooltip.SetBehaviour(PPTOOLTIP_CLOSE_LEAVEWND);
 	m_tooltip.SetNotify(TRUE);
@@ -5867,6 +5897,7 @@ void CMainView::InitButtons()
 	m_tooltip2.SetBorder(::CreateSolidBrush(RGB(212,175,55)),1,1);
 	m_tooltip.SetFont(&line_Font);
 	m_tooltip2.SetFont(&line_Font);
+	}
 }
 void CMainView::InitGroups()
 {
@@ -5977,7 +6008,7 @@ BOOL CMainView::OnEraseBkgnd(CDC* pDC)
 
 	COLORREF colorTop,colorBottom;
 	FxGetMenuBgColors(colorTop,colorBottom);
-	DrawGradient(pDC,windowRect,colorTop,colorBottom,false);
+	pDC->FillSolidRect(windowRect, colorTop);
 	return true;
 }
 
@@ -5987,6 +6018,8 @@ void CMainView::OnSysColorChange()
 	delete m_pBgBrush;
 	m_pBgBrush= new CBrush(FxGetMenuBgColor());
 	InitButtons();
+	if(m_pGrayScaleGrid) m_pGrayScaleGrid->DeleteAllItems();
+	if(m_pSelectedColorGrid) m_pSelectedColorGrid->DeleteAllItems();
 	OnSelchangeComboMode();
 	InitGroups();
 	Invalidate(TRUE);	
@@ -6019,7 +6052,7 @@ LRESULT CMainView::OnCtlColorStatic(WPARAM wParam, LPARAM lParam)
 	
 	HWND hWnd = (HWND)lParam;
 	if ( (::GetDlgCtrlID(hWnd) != IDC_CCOMP3) && (::GetDlgCtrlID(hWnd) != IDC_CCOMP) )
-		return DefWindowProc(WM_CTLCOLORSTATIC, wParam, lParam);
+	{ HDC hDC = (HDC)wParam; SetBkMode(hDC, TRANSPARENT); SetTextColor(hDC, FxGetSysColor(COLOR_MENUTEXT)); return (LRESULT)(m_pBgBrush->GetSafeHandle()); }
 
 	if (CCompClr)
 	{
@@ -7730,4 +7763,4 @@ BOOL CMainView::PreTranslateMessage(MSG* pMsg)
 	m_tooltip.RelayEvent(pMsg);
 	m_tooltip2.RelayEvent(pMsg);
 	return CWnd::PreTranslateMessage(pMsg);
-}
+}

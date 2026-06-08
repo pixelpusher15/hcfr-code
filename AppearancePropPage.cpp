@@ -122,3 +122,17 @@ UINT CAppearancePropPage::GetHelpId ( LPSTR lpszTopic )
 {
 	return HID_PREF_APPEARANCE;
 }
+
+BOOL CAppearancePropPage::OnInitDialog()
+{
+	BOOL bRet = CPropertyPageWithHelp::OnInitDialog();
+	CComboBox* pCombo=(CComboBox*)GetDlgItem(IDC_THEME_COMBO);
+	if(pCombo)
+	{
+		pCombo->ResetContent();
+		pCombo->AddString(_T("Light"));
+		pCombo->AddString(_T("Dark"));
+		pCombo->SetCurSel(m_themeComboIndex);
+	}
+	return bRet;
+}

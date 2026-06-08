@@ -23,6 +23,7 @@
 
 #include "stdafx.h"
 #include "ColorHCFR.h"
+#pragma comment(lib, "msimg32.lib")
 #include "DataSetDoc.h"
 #include "MainView.h"
 
@@ -302,6 +303,10 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 
 	// Clear initial lux value
 	m_wndStatusBar.SetPaneText ( m_wndStatusBar.CommandToIndex ( ID_LUX_VALUE ), "" );
+
+	if(GetConfig()) ApplyDarkTitleBar(GetSafeHwnd(), GetConfig()->m_darkTheme);
+
+	if(GetConfig() && GetConfig()->m_darkTheme && m_hWndMDIClient) { SetWindowLongPtr(m_hWndMDIClient, GWL_EXSTYLE, GetWindowLongPtr(m_hWndMDIClient, GWL_EXSTYLE) & ~(LONG_PTR)WS_EX_CLIENTEDGE); ::SetWindowPos(m_hWndMDIClient, NULL, 0,0,0,0, SWP_FRAMECHANGED|SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE); }
 
 	return 0;
 }

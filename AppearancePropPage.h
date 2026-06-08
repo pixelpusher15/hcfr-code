@@ -68,6 +68,7 @@ public:
 	//{{AFX_VIRTUAL(CAppearancePropPage)
 	public:
 	virtual BOOL OnApply();
+	virtual BOOL OnInitDialog();
 	protected:
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
 	//}}AFX_VIRTUAL
