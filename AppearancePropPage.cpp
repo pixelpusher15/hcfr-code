@@ -39,11 +39,6 @@ CAppearancePropPage::CAppearancePropPage() : CPropertyPageWithHelp(CAppearancePr
 {
 	//{{AFX_DATA_INIT(CAppearancePropPage)
 	m_themeComboIndex = -1;
-	m_drawMenuborder = FALSE;
-	m_useCustomColor = -1;
-	m_doSelectDisabledItem = FALSE;
-	m_doGlooming = FALSE;
-	m_doXpBlending = FALSE;
 	m_bWhiteBkgndOnScreen = FALSE;
 	m_bWhiteBkgndOnFile = TRUE;
 	m_bmoveMessage = FALSE;
@@ -61,16 +56,7 @@ void CAppearancePropPage::DoDataExchange(CDataExchange* pDX)
 {
 	CPropertyPageWithHelp::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CAppearancePropPage)
-	DDX_Control(pDX, IDC_WINDOWCOLOR_BUTTON, m_colorWindowButton);
-	DDX_Control(pDX, IDC_MENUCOLOR_BUTTON, m_colorMenuButton);
-	DDX_Control(pDX, IDC_SELECTIONCOLOR_BUTTON, m_colorSelectionButton);
-	DDX_Control(pDX, IDC_TEXTCOLOR_BUTTON, m_colorTextButton);
 	DDX_CBIndex(pDX, IDC_THEME_COMBO, m_themeComboIndex);
-	DDX_Check(pDX, IDC_MENUBORDER_CHECK, m_drawMenuborder);
-	DDX_Radio(pDX, IDC_CUSTOMCOLOR_RADIO, m_useCustomColor);
-	DDX_Check(pDX, IDC_DISABLE_CHECK, m_doSelectDisabledItem);
-	DDX_Check(pDX, IDC_GLOOM_CHECK, m_doGlooming);
-	DDX_Check(pDX, IDC_XPBLENDING_CHECK, m_doXpBlending);
 	DDX_Check(pDX, IDC_BK_WHITE_SCREEN, m_bWhiteBkgndOnScreen);
 	DDX_Check(pDX, IDC_BK_WHITE_FILE, m_bWhiteBkgndOnFile);
 	DDX_Check(pDX, IDC_MOVE_MESSAGE, m_bmoveMessage);
@@ -79,10 +65,8 @@ void CAppearancePropPage::DoDataExchange(CDataExchange* pDX)
 
 
 BEGIN_MESSAGE_MAP(CAppearancePropPage, CPropertyPageWithHelp)
-    ON_CONTROL_RANGE(BN_CLICKED, IDC_THEME_COMBO, IDC_RADIO8, OnControlClicked)
+    ON_CBN_SELCHANGE(IDC_THEME_COMBO, OnThemeComboChanged)
     ON_CONTROL_RANGE(BN_CLICKED, IDC_BK_WHITE_SCREEN, IDC_MOVE_MESSAGE, OnWhiteCheckClicked)
-    ON_CONTROL_RANGE(CBN_SELCHANGE, IDC_THEME_COMBO, IDC_RADIO8, OnControlClicked)
-    ON_MESSAGE(CPN_SELENDOK, OnColorChanged)
 	//{{AFX_MSG_MAP(CAppearancePropPage)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
@@ -90,25 +74,16 @@ END_MESSAGE_MAP()
 /////////////////////////////////////////////////////////////////////////////
 // CAppearancePropPage message handlers
 
-void CAppearancePropPage::OnControlClicked(UINT nID) 
+void CAppearancePropPage::OnThemeComboChanged()
 {
-	m_isModified=TRUE;
-	SetModified(TRUE);	
-}
-
-void CAppearancePropPage::OnWhiteCheckClicked(UINT nID) 
-{
-	m_isWhiteModified=TRUE;
-	SetModified(TRUE);	
-}
-
-LRESULT CAppearancePropPage::OnColorChanged(WPARAM wParam, LPARAM lParam)
-{
-	m_useCustomColor=TRUE;	// Force custom color selection
-	UpdateData(FALSE);		// to update radio button state
 	m_isModified=TRUE;
 	SetModified(TRUE);
-	return 0;
+}
+
+void CAppearancePropPage::OnWhiteCheckClicked(UINT nID)
+{
+	m_isWhiteModified=TRUE;
+	SetModified(TRUE);
 }
 
 BOOL CAppearancePropPage::OnApply() 

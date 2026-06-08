@@ -108,21 +108,10 @@ public:
 	bool m_bHDR100;
 
 	// Appearance settings
-	BOOL m_drawMenuBorder;
-	int m_menuDrawMode;
-	BOOL m_useCustomColor;
-	BOOL m_doXpBlending;
-	BOOL m_doSelectDisabledItem;
-	BOOL m_doGlooming;
 	BOOL m_bWhiteBkgndOnScreen;
 	BOOL m_bWhiteBkgndOnFile;
 	BOOL m_bmoveMessage;
 	BOOL m_darkTheme;
-
-	COLORREF m_fxColorWindow;
-	COLORREF m_fxColorMenu;
-	COLORREF m_fxColorSelection;
-	COLORREF m_fxColorText;
 
 	// Other settings
 	BOOL m_doMultipleInstance;

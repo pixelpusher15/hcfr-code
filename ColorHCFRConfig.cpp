@@ -297,20 +297,10 @@ void CColorHCFRConfig::InitDefaults()
 		// Set drawing style of all menus to XP-Mode
 	CNewMenu::SetAcceleratorsDraw(TRUE);
 
-	m_menuDrawMode=CNewMenu::STYLE_XP_2003;
-	m_drawMenuBorder=TRUE;
-	m_useCustomColor=FALSE;
-	m_doSelectDisabledItem=FALSE;
-	m_doXpBlending=FALSE;
-	m_doGlooming=FALSE;
 	m_bWhiteBkgndOnScreen = FALSE;
 	m_bWhiteBkgndOnFile = TRUE;
 	m_bmoveMessage = FALSE;
 
-	m_fxColorWindow=CLR_DEFAULT;
-	m_fxColorMenu=CLR_DEFAULT;
-	m_fxColorSelection=CLR_DEFAULT;
-	m_fxColorText=CLR_DEFAULT;
 	m_darkTheme=FALSE;
 
 	m_doMultipleInstance=FALSE;
@@ -399,19 +389,9 @@ BOOL CColorHCFRConfig::LoadSettings()
 			m_manualGOffset = 0.055;
 	}
 
-	m_menuDrawMode=GetProfileInt("Appearance","DrawMode",CNewMenu::STYLE_XP_2003);
-	m_drawMenuBorder=GetProfileInt("Appearance","DrawMemuBorder",TRUE);
-	m_doSelectDisabledItem=GetProfileInt("Appearance","SelectDisabledItem",FALSE);
-	m_doXpBlending=GetProfileInt("Appearance","DoXpBlending",FALSE);
-	m_doGlooming=GetProfileInt("Appearance","DoGlooming",FALSE);
 	m_bWhiteBkgndOnScreen=GetProfileInt("Appearance","WhiteBkgndOnScreen",FALSE);
 	m_bWhiteBkgndOnFile=GetProfileInt("Appearance","WhiteBkgndOnFile",FALSE);
 	m_bmoveMessage=GetProfileInt("Appearance","MoveMessage",FALSE);
-	m_useCustomColor=GetProfileInt("Appearance","UseCustomColor",FALSE);
-	m_fxColorWindow=GetProfileColor("Appearance","Window Color");
-	m_fxColorMenu=GetProfileColor("Appearance","Menu Color");
-	m_fxColorSelection=GetProfileColor("Appearance","Selection Color");
-	m_fxColorText=GetProfileColor("Appearance","Text Color");
 	m_darkTheme=GetProfileInt("Appearance","DarkTheme",FALSE);
 
 	m_TBViewsRightClickMode = GetProfileInt("Advanced","TBViewsRightClickMode",0);
@@ -492,20 +472,10 @@ void CColorHCFRConfig::SaveSettings()
 	WriteProfileInt("References","Override Targets",m_bOverRideTargs);
 	WriteProfileInt("References","Use Tone Map",m_useToneMap);
 	WriteProfileInt("References","UseMeasuredGamma",m_useMeasuredGamma);
-	WriteProfileInt("Appearance","DrawMode",m_menuDrawMode);
-	WriteProfileInt("Appearance","DrawMemuBorder",m_drawMenuBorder);
-	WriteProfileInt("Appearance","SelectDisabledItem",m_doSelectDisabledItem);
-	WriteProfileInt("Appearance","DoXpBlending",m_doXpBlending);
-	WriteProfileInt("Appearance","DoGlooming",m_doGlooming);
 	WriteProfileInt("Appearance","WhiteBkgndOnScreen",m_bWhiteBkgndOnScreen);
 	WriteProfileInt("Appearance","WhiteBkgndOnFile",m_bWhiteBkgndOnFile);
 	WriteProfileInt("Appearance","MoveMessage",m_bmoveMessage);
 
-	WriteProfileInt("Appearance","UseCustomColor",m_useCustomColor);
-	WriteProfileColor("Appearance","Window Color",m_fxColorWindow);
-	WriteProfileColor("Appearance","Menu Color",m_fxColorMenu);
-	WriteProfileColor("Appearance","Selection Color",m_fxColorSelection);
-	WriteProfileColor("Appearance","Text Color",m_fxColorText);
 	WriteProfileInt("Appearance","DarkTheme",m_darkTheme);
 
 	WriteProfileInt("Advanced","TBViewsRightClickMode",m_TBViewsRightClickMode);
@@ -587,19 +557,10 @@ void CColorHCFRConfig::SetPropertiesSheetValues()
 	m_referencesPropertiesPage.m_GammaOffsetType=m_GammaOffsetType;
 	m_appearancePropertiesPage.m_isModified=FALSE;
 	m_appearancePropertiesPage.m_themeComboIndex = m_darkTheme ? 1 : 0;
-
-	m_appearancePropertiesPage.m_drawMenuborder=m_drawMenuBorder;
-	m_appearancePropertiesPage.m_doXpBlending=m_doXpBlending;
-	m_appearancePropertiesPage.m_doSelectDisabledItem=m_doSelectDisabledItem;
-	m_appearancePropertiesPage.m_doGlooming=m_doGlooming;
-	m_appearancePropertiesPage.m_useCustomColor=m_useCustomColor;
-	m_appearancePropertiesPage.m_colorWindowButton.SetColor(m_fxColorWindow);
-	m_appearancePropertiesPage.m_colorMenuButton.SetColor(m_fxColorMenu);
-	m_appearancePropertiesPage.m_colorSelectionButton.SetColor(m_fxColorSelection);
-	m_appearancePropertiesPage.m_colorTextButton.SetColor(m_fxColorText);
 	m_appearancePropertiesPage.m_bWhiteBkgndOnScreen=m_bWhiteBkgndOnScreen;
 	m_appearancePropertiesPage.m_bWhiteBkgndOnFile=m_bWhiteBkgndOnFile;
 	m_appearancePropertiesPage.m_bmoveMessage=m_bmoveMessage;
+
 
 	m_toolbarPropertiesPage.m_TBViewsRightClickMode = m_TBViewsRightClickMode;
 	m_toolbarPropertiesPage.m_TBViewsMiddleClickMode = m_TBViewsMiddleClickMode;
@@ -693,21 +654,10 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	m_manualBluex=m_referencesPropertiesPage.m_manualBluex;
 	m_manualBluey=m_referencesPropertiesPage.m_manualBluey;
 	m_GammaOffsetType=m_referencesPropertiesPage.m_GammaOffsetType;
-	m_menuDrawMode=CNewMenu::STYLE_XP_2003;
 	m_darkTheme=(m_appearancePropertiesPage.m_themeComboIndex==1);
-	m_drawMenuBorder=m_appearancePropertiesPage.m_drawMenuborder;
-	m_doXpBlending=m_appearancePropertiesPage.m_doXpBlending;
-	m_doSelectDisabledItem=m_appearancePropertiesPage.m_doSelectDisabledItem;
-	m_doGlooming=m_appearancePropertiesPage.m_doGlooming;
 	m_bWhiteBkgndOnScreen=m_appearancePropertiesPage.m_bWhiteBkgndOnScreen;
 	m_bWhiteBkgndOnFile=m_appearancePropertiesPage.m_bWhiteBkgndOnFile;
 	m_bmoveMessage=m_appearancePropertiesPage.m_bmoveMessage;
-	m_useCustomColor=m_appearancePropertiesPage.m_useCustomColor;
-	if(m_darkTheme) m_useCustomColor=TRUE;
-	m_fxColorWindow=m_appearancePropertiesPage.m_colorWindowButton.GetColor();
-	m_fxColorMenu=m_appearancePropertiesPage.m_colorMenuButton.GetColor();
-	m_fxColorSelection=m_appearancePropertiesPage.m_colorSelectionButton.GetColor();
-	m_fxColorText=m_appearancePropertiesPage.m_colorTextButton.GetColor();
 
 	m_TBViewsRightClickMode = m_toolbarPropertiesPage.m_TBViewsRightClickMode;
 	m_TBViewsMiddleClickMode = m_toolbarPropertiesPage.m_TBViewsMiddleClickMode;
@@ -741,14 +691,11 @@ void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 
 	// Apply appearance settings
 	CNewMenu::SetMenuDrawMode(CNewMenu::STYLE_XP);
-	fxDrawMenuBorder=m_drawMenuBorder;
+	fxDrawMenuBorder=TRUE;
 	fxUseCustomColor=m_darkTheme;
-	CNewMenu::SetSelectDisableMode(m_doSelectDisabledItem);
-	CNewMenu::SetXpBlending(m_doXpBlending);
-	if(m_doGlooming)
-		CNewMenu::SetGloomFactor(50);
-	else
-		CNewMenu::SetGloomFactor(0);
+	CNewMenu::SetSelectDisableMode(FALSE);
+	CNewMenu::SetXpBlending(FALSE);
+	CNewMenu::SetGloomFactor(0);
 	if(m_darkTheme)
 		SetFxColors(RGB(30,30,30),RGB(45,45,48),RGB(38,79,120),RGB(235,235,235));
 	else

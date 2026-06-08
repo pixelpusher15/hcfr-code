@@ -26,7 +26,6 @@
 // AppearancePropPage.h : header file
 //
 
-#include "ColourPickerXP.h"
 
 /////////////////////////////////////////////////////////////////////////////
 // CAppearancePropPage dialog
@@ -46,16 +45,7 @@ public:
 
 	//{{AFX_DATA(CAppearancePropPage)
 	enum { IDD = IDD_APPEARANCE_PROP_PAGE };
-	CColourPickerXP	m_colorWindowButton;
-	CColourPickerXP	m_colorMenuButton;
-	CColourPickerXP	m_colorSelectionButton;
-	CColourPickerXP	m_colorTextButton;
 	int		m_themeComboIndex;
-	BOOL	m_drawMenuborder;
-	int		m_useCustomColor;
-	BOOL	m_doSelectDisabledItem;
-	BOOL	m_doGlooming;
-	BOOL	m_doXpBlending;
 	BOOL	m_bWhiteBkgndOnScreen;
 	BOOL	m_bWhiteBkgndOnFile;
 	BOOL	m_bmoveMessage;
@@ -75,11 +65,10 @@ public:
 
 // Implementation
 protected:
-	afx_msg LRESULT CAppearancePropPage::OnColorChanged(WPARAM wParam, LPARAM lParam);
 
 	// Generated message map functions
 	//{{AFX_MSG(CAppearancePropPage)
-	afx_msg void OnControlClicked(UINT nID);
+	afx_msg void OnThemeComboChanged();
 	afx_msg void OnWhiteCheckClicked(UINT nID);
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
