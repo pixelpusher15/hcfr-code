@@ -132,7 +132,7 @@ void CNewToolBar::DrawGripper(CDC* pDC, const CRect& rect)
       case CNewMenu::STYLE_XP:
       case CNewMenu::STYLE_XP_NOBORDER:
         {
-          COLORREF col = DarkenColorXP(CNewMenu::GetMenuBarColorXP());
+          COLORREF col = fxUseCustomColor ? RGB(128,128,128) : DarkenColorXP(CNewMenu::GetMenuBarColorXP());
           CPen pen(PS_SOLID,0,col);
           CPen* pOld = pDC->SelectObject(&pen);
           for (int n=rect.top+m_cyTopBorder+2*CY_BORDER_GRIPPER;n<rect.Height()-m_cyTopBorder-m_cyBottomBorder-4*CY_BORDER_GRIPPER;n+=2)
@@ -197,7 +197,7 @@ void CNewToolBar::DrawGripper(CDC* pDC, const CRect& rect)
       case CNewMenu::STYLE_XP:
       case CNewMenu::STYLE_XP_NOBORDER:
         {
-          COLORREF col = DarkenColorXP(CNewMenu::GetMenuBarColorXP());
+          COLORREF col = fxUseCustomColor ? RGB(128,128,128) : DarkenColorXP(CNewMenu::GetMenuBarColorXP());
           CPen pen(PS_SOLID,0,col);
           CPen* pOld = pDC->SelectObject(&pen);
           for (int n=rect.top+m_cxLeftBorder+2*CX_BORDER_GRIPPER;n<rect.Width()-m_cxLeftBorder-m_cxRightBorder-2*CX_BORDER_GRIPPER;n+=2)
