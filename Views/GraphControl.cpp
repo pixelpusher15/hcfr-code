@@ -945,6 +945,9 @@ void CGraphControl::OnPaint()
 	pDC -> SetBkColor ( RGB(255,255,255) );
 	pDC -> SelectObject ( pOldFont );
 
+	CBrush fxBorderBrush ( RGB ( 128, 128, 128 ) );
+	pDC -> FrameRect ( rect, & fxBorderBrush );
+
 }
 
 void CGraphControl::OnSize(UINT nType, int cx, int cy) 

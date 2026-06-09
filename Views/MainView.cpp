@@ -6081,6 +6081,22 @@ LRESULT CMainView::OnCtlColorStatic(WPARAM wParam, LPARAM lParam)
 	return DefWindowProc(WM_CTLCOLORSTATIC, wParam, lParam);
 }
 
+void CMainView::InsetInfoWindows()
+{
+	CWnd * pInfoArr [ 13 ] = { m_pInfoWnd, m_pInfoWnd2, m_pInfoWnd3, m_pInfoWnd4, m_pInfoWnd5, m_pInfoWnd6, m_pInfoWnd7, m_pInfoWnd8, m_pInfoWnd9, m_pInfoWnd10, m_pInfoWnd11, m_pInfoWnd12, m_pInfoWnd13 };
+	for ( int i = 0; i < 13; i++ )
+	{
+		if ( pInfoArr [ i ] != NULL && ::IsWindow ( pInfoArr [ i ] -> m_hWnd ) )
+		{
+			CRect r;
+			pInfoArr [ i ] -> GetWindowRect ( & r );
+			ScreenToClient ( & r );
+			r.DeflateRect ( 2, 2, 2, 2 );
+			pInfoArr [ i ] -> MoveWindow ( & r, FALSE );
+		}
+	}
+}
+
 void CMainView::OnSize(UINT nType, int cx, int cy) 
 {
 	RECT			Rect;
@@ -6236,6 +6252,8 @@ void CMainView::OnSize(UINT nType, int cx, int cy)
 			}
 
 		}
+
+		InsetInfoWindows ();
 
 		if ( ClientRect.bottom - ClientRect.top < m_InitialWindowSize.y + m_nSizeOffset )
 		{
@@ -7430,6 +7448,8 @@ void CMainView::OnSelchangeInfoDisplay()
 	
 	if ( m_pInfoWnd ) 
 		m_pInfoWnd -> Invalidate ();
+
+	InsetInfoWindows ();
 }
 
 void CMainView::OnChangeInfosEdit() 

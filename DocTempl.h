@@ -61,8 +61,9 @@ public:
 	virtual DWORD	GetUserInfo () = 0;
 	virtual void	SetUserInfo ( DWORD dwUserInfo ) = 0;
 
-	// Strip the 3D sunken/edge border from every graph & chart view (info pane and
-	// MDI tabs alike) for a flat look in both light and dark themes.
+	// Strip the 3D sunken bevel AND the WS_BORDER from every graph & chart view.
+	// A flat 1px outline is drawn by the graph control itself instead (see
+	// CGraphControl::OnPaint), so there is no sunken window border in any theme.
 	virtual BOOL PreCreateWindow ( CREATESTRUCT & cs )
 	{
 		cs.style &= ~WS_BORDER;
