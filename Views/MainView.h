@@ -284,6 +284,9 @@ public:
 
 	DECLARE_DYNAMIC(CSubFrame)
 
+public:
+	virtual BOOL PreCreateWindow(CREATESTRUCT& cs);
+
 // Generated message map functions
 public:
 	//{{AFX_MSG(CSubFrame)

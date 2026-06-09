@@ -61,6 +61,15 @@ public:
 	virtual DWORD	GetUserInfo () = 0;
 	virtual void	SetUserInfo ( DWORD dwUserInfo ) = 0;
 
+	// Strip the 3D sunken/edge border from every graph & chart view (info pane and
+	// MDI tabs alike) for a flat look in both light and dark themes.
+	virtual BOOL PreCreateWindow ( CREATESTRUCT & cs )
+	{
+		cs.style &= ~WS_BORDER;
+		cs.dwExStyle &= ~( WS_EX_CLIENTEDGE | WS_EX_WINDOWEDGE | WS_EX_STATICEDGE | WS_EX_DLGMODALFRAME );
+		return CView::PreCreateWindow ( cs );
+	}
+
 };
 
 /////////////////////////////////////////////////////////////////////////////

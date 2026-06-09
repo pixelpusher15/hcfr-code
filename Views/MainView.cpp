@@ -7657,6 +7657,15 @@ CSubFrame::CSubFrame() : CFrameWnd ()
 
 IMPLEMENT_DYNAMIC(CSubFrame, CFrameWnd)
 
+BOOL CSubFrame::PreCreateWindow(CREATESTRUCT& cs)
+{
+	if ( ! CFrameWnd::PreCreateWindow ( cs ) )
+		return FALSE;
+	cs.dwExStyle &= ~( WS_EX_CLIENTEDGE | WS_EX_WINDOWEDGE | WS_EX_STATICEDGE | WS_EX_DLGMODALFRAME );
+	cs.style &= ~WS_BORDER;
+	return TRUE;
+}
+
 BEGIN_MESSAGE_MAP(CSubFrame, CFrameWnd)
 	//{{AFX_MSG_MAP(CSubFrame)
 	ON_WM_PAINT()
