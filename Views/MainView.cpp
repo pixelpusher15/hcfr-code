@@ -1724,7 +1724,7 @@ void CMainView::InitGrid(bool sizeGrid)
 			}
 			else if ( i < 3 )
 			{
-				m_pGrayScaleGrid->SetItemBkColour ( Item.row,Item.col, GridBk(RGB(255,255,255)) );
+				m_pGrayScaleGrid->SetItemBkColour ( Item.row,Item.col, FxGetSysColor(COLOR_WINDOW) );
 //				m_pGrayScaleGrid->SetItemState ( Item.row,Item.col, m_pGrayScaleGrid->GetItemState(Item.row,Item.col) & (~GVIS_READONLY) );
 			}
 		}
@@ -1743,7 +1743,7 @@ void CMainView::InitGrid(bool sizeGrid)
 				}
 				else if ( i < 3 )
 				{
-				m_pGrayScaleGrid->SetItemBkColour ( Item.row,Item.col, GridBk(RGB(255,255,255)) );
+				m_pGrayScaleGrid->SetItemBkColour ( Item.row,Item.col, FxGetSysColor(COLOR_WINDOW) );
 //					m_pGrayScaleGrid->SetItemState ( Item.row,Item.col, m_pGrayScaleGrid->GetItemState(Item.row,Item.col) & (~GVIS_READONLY) );
 				}
 			}
