@@ -108,6 +108,8 @@ private:
 	CWnd *		m_pInfoWnd12;
 	CWnd *		m_pInfoWnd13;
 
+	void InsetInfoWindows();
+
 
 // Attributes
 public:
@@ -283,6 +285,9 @@ public:
 	CSubFrame();
 
 	DECLARE_DYNAMIC(CSubFrame)
+
+public:
+	virtual BOOL PreCreateWindow(CREATESTRUCT& cs);
 
 // Generated message map functions
 public:

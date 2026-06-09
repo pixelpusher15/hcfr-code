@@ -3064,6 +3064,8 @@ BEGIN_MESSAGE_MAP(CRefCheckDlg, CDialog)
 //	ON_BN_CLICKED(IDC_CHECK_XYZ, OnCheckXYZ)
 	ON_BN_CLICKED(IDC_BUTTON_MENU, OnButtonMenu)
 	//}}AFX_MSG_MAP
+	ON_WM_CTLCOLOR()
+	ON_WM_ERASEBKGND()
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -3072,7 +3074,7 @@ END_MESSAGE_MAP()
 void CRefCheckDlg::OnPaint() 
 {
 	RECT		Rect;
-	CPen		blackPen(PS_SOLID, 1, GetSysColor(COLOR_BTNTEXT));
+	CPen		blackPen(PS_SOLID, 1, FxGetSysColor(COLOR_BTNTEXT));
 	CPaintDC	dc(this); // device context for painting
 	
 	GetClientRect ( & Rect );
@@ -3092,7 +3094,34 @@ void CRefCheckDlg::OnPaint()
 	// Do not call CDialog::OnPaint() for painting messages
 }
 
-void CRefCheckDlg::OnCheckRef() 
+HBRUSH CRefCheckDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
+{
+	if ( GetConfig() && GetConfig()->m_darkTheme )
+	{
+		if ( m_fxDlgBrush.GetSafeHandle() == NULL )
+			m_fxDlgBrush.CreateSolidBrush ( FxGetSysColor(COLOR_BTNFACE) );
+		pDC->SetBkColor ( FxGetSysColor(COLOR_BTNFACE) );
+		pDC->SetTextColor ( FxGetSysColor(COLOR_WINDOWTEXT) );
+		return (HBRUSH) m_fxDlgBrush.GetSafeHandle();
+	}
+	return CDialog::OnCtlColor ( pDC, pWnd, nCtlColor );
+}
+
+BOOL CRefCheckDlg::OnEraseBkgnd(CDC* pDC)
+{
+	if ( GetConfig() && GetConfig()->m_darkTheme )
+	{
+		RECT	rc;
+		GetClientRect ( & rc );
+		if ( m_fxDlgBrush.GetSafeHandle() == NULL )
+			m_fxDlgBrush.CreateSolidBrush ( FxGetSysColor(COLOR_BTNFACE) );
+		pDC->FillRect ( & rc, & m_fxDlgBrush );
+		return TRUE;
+	}
+	return CDialog::OnEraseBkgnd ( pDC );
+}
+
+void CRefCheckDlg::OnCheckRef()
 {
 	( (CMultiFrame *) GetParent () ) -> OnChangeRef ( m_RefCheck.GetCheck () );
 }

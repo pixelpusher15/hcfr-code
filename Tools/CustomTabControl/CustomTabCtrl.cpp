@@ -10,6 +10,7 @@
 #include <AFXPRIV.H>
 #include "CustomTabCtrl.h"
 #include "..\ColorHCFR.h"
+#include "..\fxcolor.h"
 
 // CCustomTabCtrlItem
 
@@ -187,13 +188,13 @@ void CCustomTabCtrlItem::GetDrawPoints(const CRect& rc, CPoint* pts, BOOL fOnTop
 
 void CCustomTabCtrlItem::Draw(CDC& dc, CFont& font, BOOL fOnTop, BOOL fRTL)
 {
-	COLORREF bgColor = GetSysColor((m_fSelected||m_fHighlighted) ? COLOR_WINDOW     : COLOR_3DFACE);
-	COLORREF fgColor = GetSysColor((m_fSelected ||m_fHighlighted) ? COLOR_WINDOWTEXT : COLOR_BTNTEXT);
+	COLORREF bgColor = FxGetSysColor((m_fSelected||m_fHighlighted) ? COLOR_WINDOW     : COLOR_3DFACE);
+	COLORREF fgColor = FxGetSysColor((m_fSelected ||m_fHighlighted) ? COLOR_WINDOWTEXT : COLOR_BTNTEXT);
 
 	CBrush brush(bgColor);
 
-	CPen blackPen(PS_SOLID, 1, GetSysColor(COLOR_BTNTEXT));
-	CPen shadowPen(PS_SOLID, 1, GetSysColor(COLOR_3DSHADOW));
+	CPen blackPen(PS_SOLID, 1, FxGetSysColor(COLOR_BTNTEXT));
+	CPen shadowPen(PS_SOLID, 1, FxGetSysColor(COLOR_3DSHADOW));
 
 	CPoint pts[4];
 	CRect rc = m_rect;
@@ -379,16 +380,18 @@ BOOL CCustomTabCtrl::OnEraseBkgnd(CDC* /*pDC*/)
 	return TRUE;
 }
 
+static void FxTabBtn(CDC& dc, CRect r, BOOL pushed) { dc.FillSolidRect(r, FxGetSysColor(pushed ? COLOR_WINDOW : COLOR_3DFACE)); }
+
 void CCustomTabCtrl::OnPaint()
 {
 	CPaintDC dc(this);
 
 	if(!m_hBmpBkLeftSpin)
 	{
-		m_rgbGlyph[0] = GetSysColor(COLOR_BTNTEXT);
-		m_rgbGlyph[1] = GetSysColor(COLOR_BTNTEXT);
-		m_rgbGlyph[2] = GetSysColor(COLOR_BTNTEXT);
-		m_rgbGlyph[3] = GetSysColor(COLOR_BTNTEXT);
+		m_rgbGlyph[0] = FxGetSysColor(COLOR_BTNTEXT);
+		m_rgbGlyph[1] = FxGetSysColor(COLOR_BTNTEXT);
+		m_rgbGlyph[2] = FxGetSysColor(COLOR_BTNTEXT);
+		m_rgbGlyph[3] = FxGetSysColor(COLOR_BTNTEXT);
 	}
 
 	CRect rCl;
@@ -396,7 +399,7 @@ void CCustomTabCtrl::OnPaint()
 	if(IsVertical())
 		rCl.SetRect(0,0,rCl.Height(),rCl.Width());
 
-	CPen blackPen(PS_SOLID, 1, GetSysColor(COLOR_BTNTEXT));
+	CPen blackPen(PS_SOLID, 1, FxGetSysColor(COLOR_BTNTEXT));
 
 	CDC dcMem;
 	CBitmap bmpMem;
@@ -422,7 +425,7 @@ void CCustomTabCtrl::OnPaint()
 	
 
 	// clear background
-	dcMem.FillSolidRect(&rCl,GetSysColor(COLOR_BTNFACE));
+	dcMem.FillSolidRect(&rCl,FxGetSysColor(COLOR_BTNFACE));
 
 	BOOL fRTL = (BOOL)(GetExStyle()&WS_EX_LAYOUTRTL);
 	BOOL fAfter = (BOOL)GetStyle()&CTCS_BUTTONSAFTER;
@@ -499,9 +502,9 @@ void CCustomTabCtrl::OnPaint()
 		else
 		{
 			if(m_nCloseState==BNST_PRESSED)
-				dcMem.DrawFrameControl(rClose,DFC_BUTTON,DFCS_BUTTONPUSH|DFCS_PUSHED);
+				FxTabBtn(dcMem,rClose,TRUE);
 			else
-				dcMem.DrawFrameControl(rClose,DFC_BUTTON,DFCS_BUTTONPUSH);
+				FxTabBtn(dcMem,rClose,FALSE);
 		}
 		if(fRTL)
 			DrawGlyph(dcMem,ptClose,1,m_nCloseState-1);
@@ -554,9 +557,9 @@ void CCustomTabCtrl::OnPaint()
 			else
 			{
 				if(m_nFirstState==BNST_PRESSED)
-					dcMem.DrawFrameControl(rFirst,DFC_BUTTON,DFCS_BUTTONPUSH|DFCS_PUSHED);
+					FxTabBtn(dcMem,rFirst,TRUE);
 				else
-					dcMem.DrawFrameControl(rFirst,DFC_BUTTON,DFCS_BUTTONPUSH);
+					FxTabBtn(dcMem,rFirst,FALSE);
 			}
 			if(fRTL)
 				DrawGlyph(dcMem,ptFirst,2,m_nFirstState-1);
@@ -571,9 +574,9 @@ void CCustomTabCtrl::OnPaint()
 			else
 			{
 				if(m_nLastState==BNST_PRESSED)
-					dcMem.DrawFrameControl(rLast,DFC_BUTTON,DFCS_BUTTONPUSH|DFCS_PUSHED);
+					FxTabBtn(dcMem,rLast,TRUE);
 				else
-					dcMem.DrawFrameControl(rLast,DFC_BUTTON,DFCS_BUTTONPUSH);
+					FxTabBtn(dcMem,rLast,FALSE);
 			}
 			if(fRTL)
 				DrawGlyph(dcMem,ptLast,5,m_nLastState-1);
@@ -589,9 +592,9 @@ void CCustomTabCtrl::OnPaint()
 		else
 		{
 			if(m_nPrevState==BNST_PRESSED)
-				dcMem.DrawFrameControl(rPrev,DFC_BUTTON,DFCS_BUTTONPUSH|DFCS_PUSHED);
+				FxTabBtn(dcMem,rPrev,TRUE);
 			else
-				dcMem.DrawFrameControl(rPrev,DFC_BUTTON,DFCS_BUTTONPUSH);
+				FxTabBtn(dcMem,rPrev,FALSE);
 		}
 		if(fRTL)
 			DrawGlyph(dcMem,ptPrev,3,m_nPrevState-1);
@@ -607,9 +610,9 @@ void CCustomTabCtrl::OnPaint()
 		{
 			rNext.left -= 1;
 			if(m_nNextState==BNST_PRESSED)
-				dcMem.DrawFrameControl(rNext,DFC_BUTTON,DFCS_BUTTONPUSH|DFCS_PUSHED);
+				FxTabBtn(dcMem,rNext,TRUE);
 			else
-				dcMem.DrawFrameControl(rNext,DFC_BUTTON,DFCS_BUTTONPUSH);
+				FxTabBtn(dcMem,rNext,FALSE);
 		}
 		if(fRTL)
 			DrawGlyph(dcMem,ptNext,4,m_nNextState-1);

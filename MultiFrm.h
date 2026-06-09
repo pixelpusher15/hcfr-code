@@ -54,6 +54,7 @@ public:
 	//}}AFX_DATA
 
 	BOOL	m_bTop;
+	CBrush	m_fxDlgBrush;
 
 // Overrides
 	// ClassWizard generated virtual function overrides
@@ -73,6 +74,8 @@ protected:
 	afx_msg void OnButtonMenu();
 	virtual BOOL OnInitDialog();
 	//}}AFX_MSG
+	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
+	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
 	DECLARE_MESSAGE_MAP()
 };
 

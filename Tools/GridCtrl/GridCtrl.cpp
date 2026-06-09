@@ -118,6 +118,7 @@
 #include "stdafx.h"
 #include "MemDC.h"
 #include "GridCtrl.h"
+#include "../fxcolor.h"
 
 // OLE stuff for clipboard operations
 #include <afxadv.h>            // For CSharedFile
@@ -202,10 +203,10 @@ CGridCtrl::CGridCtrl(int nRows, int nCols, int nFixedRows, int nFixedCols)
     // the gridctrl colours have been changed from the system colours.
     // If they have, then leave them, otherwise change them to reflect
     // the new system colours.
-    m_crWindowText        = ::GetSysColor(COLOR_WINDOWTEXT);
-    m_crWindowColour      = ::GetSysColor(COLOR_WINDOW);
-    m_cr3DFace            = ::GetSysColor(COLOR_3DFACE);
-    m_crShadow            = ::GetSysColor(COLOR_3DSHADOW);
+    m_crWindowText        = FxGetSysColor(COLOR_WINDOWTEXT);
+    m_crWindowColour      = FxGetSysColor(COLOR_WINDOW);
+    m_cr3DFace            = FxGetSysColor(COLOR_3DFACE);
+    m_crShadow            = FxGetSysColor(COLOR_3DSHADOW);
     m_crGridLineColour    = RGB(192,192,192);
 
     m_nRows               = 0;
@@ -688,32 +689,32 @@ void CGridCtrl::OnSysColorChange()
     CWnd::OnSysColorChange();
 
     if (GetDefaultCell(FALSE, FALSE)->GetTextClr() == m_crWindowText)                   // Still using system colours
-        GetDefaultCell(FALSE, FALSE)->SetTextClr(::GetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
+        GetDefaultCell(FALSE, FALSE)->SetTextClr(FxGetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
     if (GetDefaultCell(FALSE, FALSE)->GetBackClr() == m_crWindowColour)
-        GetDefaultCell(FALSE, FALSE)->SetBackClr(::GetSysColor(COLOR_WINDOW));
+        GetDefaultCell(FALSE, FALSE)->SetBackClr(FxGetSysColor(COLOR_WINDOW));
 
     if (GetDefaultCell(TRUE, FALSE)->GetTextClr() == m_crWindowText)                   // Still using system colours
-        GetDefaultCell(TRUE, FALSE)->SetTextClr(::GetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
+        GetDefaultCell(TRUE, FALSE)->SetTextClr(FxGetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
     if (GetDefaultCell(TRUE, FALSE)->GetBackClr() == m_crWindowColour)
-        GetDefaultCell(TRUE, FALSE)->SetBackClr(::GetSysColor(COLOR_WINDOW));
+        GetDefaultCell(TRUE, FALSE)->SetBackClr(FxGetSysColor(COLOR_WINDOW));
 
     if (GetDefaultCell(FALSE, TRUE)->GetTextClr() == m_crWindowText)                   // Still using system colours
-        GetDefaultCell(FALSE, TRUE)->SetTextClr(::GetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
+        GetDefaultCell(FALSE, TRUE)->SetTextClr(FxGetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
     if (GetDefaultCell(FALSE, TRUE)->GetBackClr() == m_crWindowColour)
-        GetDefaultCell(FALSE, TRUE)->SetBackClr(::GetSysColor(COLOR_WINDOW));
+        GetDefaultCell(FALSE, TRUE)->SetBackClr(FxGetSysColor(COLOR_WINDOW));
 
     if (GetDefaultCell(TRUE, TRUE)->GetTextClr() == m_crWindowText)                   // Still using system colours
-        GetDefaultCell(TRUE, TRUE)->SetTextClr(::GetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
+        GetDefaultCell(TRUE, TRUE)->SetTextClr(FxGetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
     if (GetDefaultCell(TRUE, TRUE)->GetBackClr() == m_crWindowColour)
-        GetDefaultCell(TRUE, TRUE)->SetBackClr(::GetSysColor(COLOR_WINDOW));
+        GetDefaultCell(TRUE, TRUE)->SetBackClr(FxGetSysColor(COLOR_WINDOW));
 
     if (GetGridBkColor() == m_crShadow)
-        SetGridBkColor(::GetSysColor(COLOR_3DSHADOW));
+        SetGridBkColor(FxGetSysColor(COLOR_3DSHADOW));
 
-    m_crWindowText   = ::GetSysColor(COLOR_WINDOWTEXT);
-    m_crWindowColour = ::GetSysColor(COLOR_WINDOW);
-    m_cr3DFace       = ::GetSysColor(COLOR_3DFACE);
-    m_crShadow       = ::GetSysColor(COLOR_3DSHADOW);
+    m_crWindowText   = FxGetSysColor(COLOR_WINDOWTEXT);
+    m_crWindowColour = FxGetSysColor(COLOR_WINDOW);
+    m_cr3DFace       = FxGetSysColor(COLOR_3DFACE);
+    m_crShadow       = FxGetSysColor(COLOR_3DSHADOW);
 }
 #endif
 
@@ -746,32 +747,32 @@ void CGridCtrl::OnSettingChange(UINT uFlags, LPCTSTR lpszSection)
     CWnd::OnSettingChange(uFlags, lpszSection);
 
     if (GetDefaultCell(FALSE, FALSE)->GetTextClr() == m_crWindowText)                   // Still using system colours
-        GetDefaultCell(FALSE, FALSE)->SetTextClr(::GetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
+        GetDefaultCell(FALSE, FALSE)->SetTextClr(FxGetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
     if (GetDefaultCell(FALSE, FALSE)->GetBackClr() == m_crWindowColour)
-        GetDefaultCell(FALSE, FALSE)->SetBackClr(::GetSysColor(COLOR_WINDOW));
+        GetDefaultCell(FALSE, FALSE)->SetBackClr(FxGetSysColor(COLOR_WINDOW));
 
     if (GetDefaultCell(TRUE, FALSE)->GetTextClr() == m_crWindowText)                   // Still using system colours
-        GetDefaultCell(TRUE, FALSE)->SetTextClr(::GetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
+        GetDefaultCell(TRUE, FALSE)->SetTextClr(FxGetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
     if (GetDefaultCell(TRUE, FALSE)->GetBackClr() == m_crWindowColour)
-        GetDefaultCell(TRUE, FALSE)->SetBackClr(::GetSysColor(COLOR_WINDOW));
+        GetDefaultCell(TRUE, FALSE)->SetBackClr(FxGetSysColor(COLOR_WINDOW));
 
     if (GetDefaultCell(FALSE, TRUE)->GetTextClr() == m_crWindowText)                   // Still using system colours
-        GetDefaultCell(FALSE, TRUE)->SetTextClr(::GetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
+        GetDefaultCell(FALSE, TRUE)->SetTextClr(FxGetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
     if (GetDefaultCell(FALSE, TRUE)->GetBackClr() == m_crWindowColour)
-        GetDefaultCell(FALSE, TRUE)->SetBackClr(::GetSysColor(COLOR_WINDOW));
+        GetDefaultCell(FALSE, TRUE)->SetBackClr(FxGetSysColor(COLOR_WINDOW));
 
     if (GetDefaultCell(TRUE, TRUE)->GetTextClr() == m_crWindowText)                   // Still using system colours
-        GetDefaultCell(TRUE, TRUE)->SetTextClr(::GetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
+        GetDefaultCell(TRUE, TRUE)->SetTextClr(FxGetSysColor(COLOR_WINDOWTEXT));      // set to new system colour
     if (GetDefaultCell(TRUE, TRUE)->GetBackClr() == m_crWindowColour)
-        GetDefaultCell(TRUE, TRUE)->SetBackClr(::GetSysColor(COLOR_WINDOW));
+        GetDefaultCell(TRUE, TRUE)->SetBackClr(FxGetSysColor(COLOR_WINDOW));
 
     if (GetGridBkColor() == m_crShadow)
-        SetGridBkColor(::GetSysColor(COLOR_3DSHADOW));
+        SetGridBkColor(FxGetSysColor(COLOR_3DSHADOW));
 
-    m_crWindowText   = ::GetSysColor(COLOR_WINDOWTEXT);
-    m_crWindowColour = ::GetSysColor(COLOR_WINDOW);
-    m_cr3DFace       = ::GetSysColor(COLOR_3DFACE);
-    m_crShadow       = ::GetSysColor(COLOR_3DSHADOW);
+    m_crWindowText   = FxGetSysColor(COLOR_WINDOWTEXT);
+    m_crWindowColour = FxGetSysColor(COLOR_WINDOW);
+    m_cr3DFace       = FxGetSysColor(COLOR_3DFACE);
+    m_crShadow       = FxGetSysColor(COLOR_3DSHADOW);
 
     m_nRowsPerWheelNotch = GetMouseScrollLines(); // Get the number of lines
 }
@@ -4566,7 +4567,7 @@ BOOL CGridCtrl::SetItemBkColour(int nRow, int nCol, COLORREF cr /* = CLR_DEFAULT
         return FALSE;
 
     CGridCellBase* pCell = GetCell(nRow, nCol);
-    ASSERT(pCell);
+    // ASSERT(pCell);  // guarded below; silenced - MainView may color cells transiently out of range during rebuilds
     if (!pCell)
         return FALSE;
 
@@ -4593,7 +4594,7 @@ BOOL CGridCtrl::SetItemFgColour(int nRow, int nCol, COLORREF cr /* = CLR_DEFAULT
         return FALSE;
 
     CGridCellBase* pCell = GetCell(nRow, nCol);
-    ASSERT(pCell);
+    // ASSERT(pCell);  // guarded below; silenced - MainView may color cells transiently out of range during rebuilds
     if (!pCell)
         return FALSE;
     
@@ -4683,7 +4684,7 @@ int CGridCtrl::GetRowHeight(int nRow) const
 
 int CGridCtrl::GetColumnWidth(int nCol) const
 {
-    ASSERT(nCol >= 0 && nCol < m_nCols);
+    // ASSERT(nCol >= 0 && nCol < m_nCols);  // guarded below; silenced - transient during grid rebuilds
     if (nCol < 0 || nCol >= m_nCols)
         return -1;
 

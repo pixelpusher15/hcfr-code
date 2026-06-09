@@ -511,7 +511,7 @@ void CRGBLevelWnd::OnPaint()
 	// fill the background with black
 	HBRUSH hBrBkgnd = (HBRUSH) GetParent () -> SendMessage ( WM_CTLCOLORSTATIC, (WPARAM) dc.m_hDC, (LPARAM) m_hWnd );
 	
-	if ( hBrBkgnd )
+	if ( hBrBkgnd && !GetConfig()->m_darkTheme )
 		FillRect ( pDC -> m_hDC, & rect, hBrBkgnd );
 	else
 		pDC->FillSolidRect(0,0,rect.Width(),rect.Height(),RGB(0,0,0));
@@ -613,7 +613,7 @@ void CRGBLevelWnd::OnPaint()
 
 	// Display values on top of bars
 	pDC->SetTextAlign(TA_CENTER | TA_BOTTOM);
-	if ( ! hBrBkgnd )
+	if ( ! hBrBkgnd || GetConfig()->m_darkTheme )
 		pDC->SetTextColor(RGB(255,255,255));
 	pDC->SetBkMode(TRANSPARENT);
 

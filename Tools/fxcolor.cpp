@@ -24,7 +24,17 @@
 #endif
 
 #include "fxcolor.h"
-#include <math.h> 
+#include <commctrl.h>
+#include <math.h>
+#include <stdio.h>
+#include <uxtheme.h>
+#pragma comment(lib, "uxtheme.lib")
+#ifndef BP_RADIOBUTTON
+#define BP_RADIOBUTTON 2
+#endif
+#ifndef BP_CHECKBOX
+#define BP_CHECKBOX 3
+#endif 
 
 
 BOOL fxDrawMenuBorder = TRUE;
@@ -177,10 +187,7 @@ void SetFxColors(COLORREF aColorWindow,COLORREF aColorMenu,COLORREF aColorSelect
 	fxColorSelection=aColorSelection;
 	fxColorText=aColorText;
 
-	if (fxUseCustomColor && fxColorText != CLR_DEFAULT)  // disable XP themed controls if text color is changed
-		FxEnableControlsTheme(FALSE);	// Text of controls will be drawned with custom color
-	else
-		FxEnableControlsTheme(TRUE);
+	FxEnableControlsTheme(TRUE);
 }	
 		
 COLORREF FxGetWindowColor()
@@ -296,11 +303,11 @@ COLORREF FxGetSysColor(int nIndex)
 			return FxGetTextColor();
 			break;
 		case COLOR_GRAYTEXT:
-			return LightenColor(110,GrayColor(FxGetTextColor()));
+			if (fxUseCustomColor) return RGB(120,120,120); return LightenColor(110,GrayColor(FxGetTextColor()));
 			break;
 		case COLOR_INACTIVECAPTIONTEXT:
 		case COLOR_WINDOWTEXT:
-			return GetSysColor(nIndex);
+			return FxGetTextColor();
 			break;
 		default:
 			return GetSysColor(nIndex);
@@ -555,3 +562,125 @@ COLORREF FxSaturateColor(int aSatPercent,COLORREF aColor)
 	return RGB(r,g,b);
 }
 
+void ApplyDarkTitleBar(HWND hWnd, BOOL bDark)
+{
+	if (hWnd == NULL)
+		return;
+	HMODULE hDwm = LoadLibrary(_T("dwmapi.dll"));
+	if (hDwm == NULL)
+		return;
+	typedef HRESULT (WINAPI *DwmSetWindowAttributeFunc)(HWND, DWORD, LPCVOID, DWORD);
+	DwmSetWindowAttributeFunc pSet = (DwmSetWindowAttributeFunc)GetProcAddress(hDwm, "DwmSetWindowAttribute");
+	if (pSet != NULL)
+	{
+		BOOL v = bDark;
+		if (pSet(hWnd, 20, &v, sizeof(v)) != S_OK)
+			pSet(hWnd, 19, &v, sizeof(v));
+	}
+	FreeLibrary(hDwm);
+}
+
+void FxEnableDarkMode(BOOL bDark)
+{
+    HMODULE hUx = LoadLibrary(_T("uxtheme.dll"));
+    if (hUx == NULL) return;
+    typedef int (WINAPI *SetPreferredAppModeFn)(int);
+    SetPreferredAppModeFn pSetMode = (SetPreferredAppModeFn)GetProcAddress(hUx, MAKEINTRESOURCEA(135));
+    if (pSetMode) pSetMode(bDark ? 1 : 0);
+    typedef void (WINAPI *RefreshFn)(); RefreshFn pRefresh = (RefreshFn)GetProcAddress(hUx, MAKEINTRESOURCEA(104)); if (pRefresh) pRefresh();
+    typedef void (WINAPI *FlushMenuThemesFn)();
+    FlushMenuThemesFn pFlush = (FlushMenuThemesFn)GetProcAddress(hUx, MAKEINTRESOURCEA(136));
+    if (pFlush) pFlush();
+    FreeLibrary(hUx);
+}
+static LRESULT CALLBACK FxCheckSubclass(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR uId, DWORD_PTR dwRef)
+{
+    if (msg == WM_ERASEBKGND) return 1;
+    if (msg == WM_MOUSEMOVE) { if (!GetProp(hWnd, _T("fxh"))) { SetProp(hWnd, _T("fxh"), (HANDLE)1); TRACKMOUSEEVENT t; t.cbSize=sizeof(t); t.dwFlags=TME_LEAVE; t.hwndTrack=hWnd; t.dwHoverTime=0; TrackMouseEvent(&t); InvalidateRect(hWnd, NULL, FALSE); } return DefSubclassProc(hWnd, msg, wp, lp); }
+    if (msg == WM_MOUSELEAVE) { RemoveProp(hWnd, _T("fxh")); InvalidateRect(hWnd, NULL, FALSE); return DefSubclassProc(hWnd, msg, wp, lp); }
+    if (msg == WM_SETFOCUS || msg == WM_KILLFOCUS) { InvalidateRect(hWnd, NULL, FALSE); return DefSubclassProc(hWnd, msg, wp, lp); }
+    if (msg != WM_PAINT) return DefSubclassProc(hWnd, msg, wp, lp);
+    PAINTSTRUCT ps; HDC hdc = BeginPaint(hWnd, &ps); RECT rc; GetClientRect(hWnd, &rc);
+    HBRUSH hbg = (HBRUSH)::SendMessage(GetParent(hWnd), WM_CTLCOLORSTATIC, (WPARAM)hdc, (LPARAM)hWnd); if (hbg) FillRect(hdc, &rc, hbg);
+    LONG st = GetWindowLong(hWnd, GWL_STYLE) & BS_TYPEMASK; BOOL isRadio = (st == BS_RADIOBUTTON || st == BS_AUTORADIOBUTTON); BOOL checked = (::SendMessage(hWnd, BM_GETCHECK, 0, 0) == BST_CHECKED); BOOL hot = (GetProp(hWnd, _T("fxh")) != NULL);
+    int h = rc.bottom - rc.top; int sz = h - 8; if (sz < 11) sz = 11; if (sz > 15) sz = 15; int top = rc.top + (h - sz) / 2; int left = rc.left + 1;
+    COLORREF fg = FxGetTextColor(); HPEN pen = CreatePen(PS_SOLID, hot ? 2 : 1, fg); HGDIOBJ oldPen = SelectObject(hdc, pen); HGDIOBJ oldBr = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    if (isRadio) { Ellipse(hdc, left, top, left + sz, top + sz); if (checked) { HBRUSH db = CreateSolidBrush(fg); HGDIOBJ ob = SelectObject(hdc, db); Ellipse(hdc, left + 4, top + 4, left + sz - 4, top + sz - 4); SelectObject(hdc, ob); DeleteObject(db); } }
+    else { RoundRect(hdc, left, top, left + sz, top + sz, 4, 4); if (checked) { MoveToEx(hdc, left + 3, top + sz / 2, NULL); LineTo(hdc, left + sz / 2 - 1, top + sz - 4); LineTo(hdc, left + sz - 3, top + 3); } }
+    SelectObject(hdc, oldPen); SelectObject(hdc, oldBr); DeleteObject(pen);
+    WCHAR buf[256]; buf[0] = 0; GetWindowTextW(hWnd, buf, 255);
+    RECT tr; tr.left = left + sz + 5; tr.top = rc.top; tr.right = rc.right; tr.bottom = rc.bottom;
+    SetBkMode(hdc, TRANSPARENT); SetTextColor(hdc, fg);
+    HFONT hf = (HFONT)::SendMessage(hWnd, WM_GETFONT, 0, 0); HGDIOBJ oldF = hf ? SelectObject(hdc, hf) : NULL;
+    DrawTextW(hdc, buf, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE); if (oldF) SelectObject(hdc, oldF); if (GetFocus() == hWnd) DrawFocusRect(hdc, &tr);
+    EndPaint(hWnd, &ps); return 0;
+}
+static void FxSubclassCheckRadio(HWND hWnd, BOOL bDark)
+{
+    if (bDark) SetWindowSubclass(hWnd, FxCheckSubclass, 1, 0); else RemoveWindowSubclass(hWnd, FxCheckSubclass, 1);
+    InvalidateRect(hWnd, NULL, TRUE);
+}
+static LRESULT CALLBACK FxRadioTextSubclass(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR uId, DWORD_PTR dwRef)
+{
+    if (msg == WM_ERASEBKGND) return 1;
+    if (msg == WM_MOUSEMOVE) { if (!GetProp(hWnd, _T("fxrh"))) { SetProp(hWnd, _T("fxrh"), (HANDLE)1); TRACKMOUSEEVENT tme; tme.cbSize=sizeof(tme); tme.dwFlags=TME_LEAVE; tme.hwndTrack=hWnd; tme.dwHoverTime=0; TrackMouseEvent(&tme); InvalidateRect(hWnd, NULL, FALSE); } return DefSubclassProc(hWnd, msg, wp, lp); }
+    if (msg == WM_MOUSELEAVE) { RemoveProp(hWnd, _T("fxrh")); InvalidateRect(hWnd, NULL, FALSE); return DefSubclassProc(hWnd, msg, wp, lp); }
+    if (msg == WM_SETFOCUS || msg == WM_KILLFOCUS) { InvalidateRect(hWnd, NULL, FALSE); return DefSubclassProc(hWnd, msg, wp, lp); }
+    if (msg == WM_NCDESTROY) { RemoveWindowSubclass(hWnd, FxRadioTextSubclass, 2); RemoveProp(hWnd, _T("fxrh")); return DefSubclassProc(hWnd, msg, wp, lp); }
+    if (msg != WM_PAINT) return DefSubclassProc(hWnd, msg, wp, lp);
+    PAINTSTRUCT ps; HDC hdc = BeginPaint(hWnd, &ps); RECT rc; GetClientRect(hWnd, &rc);
+    HBRUSH hbg = (HBRUSH)::SendMessage(GetParent(hWnd), WM_CTLCOLORSTATIC, (WPARAM)hdc, (LPARAM)hWnd); if (hbg) FillRect(hdc, &rc, hbg);
+    BOOL enabled = IsWindowEnabled(hWnd); LRESULT chk = ::SendMessage(hWnd, BM_GETCHECK, 0, 0); BOOL hot = (GetProp(hWnd, _T("fxrh")) != NULL);
+    LONG bs = GetWindowLong(hWnd, GWL_STYLE) & BS_TYPEMASK; BOOL isRadio = (bs == BS_RADIOBUTTON || bs == BS_AUTORADIOBUTTON); int part = isRadio ? BP_RADIOBUTTON : BP_CHECKBOX;
+    int base = (chk == BST_CHECKED) ? 5 : ((chk == BST_INDETERMINATE) ? 9 : 1); int state = base + (!enabled ? 3 : (hot ? 1 : 0));
+    SIZE gsz; gsz.cx = 13; gsz.cy = 13;
+    HTHEME hT = OpenThemeData(hWnd, L"Button");
+    if (hT) { GetThemePartSize(hT, hdc, part, state, NULL, TS_TRUE, &gsz); }
+    int gy = rc.top + (rc.bottom - rc.top - gsz.cy) / 2; if (gy < rc.top) gy = rc.top;
+    RECT g; g.left = rc.left; g.top = gy; g.right = rc.left + gsz.cx; g.bottom = gy + gsz.cy;
+    if (hT) { DrawThemeBackground(hT, hdc, part, state, &g, NULL); CloseThemeData(hT); }
+    WCHAR buf[256]; buf[0] = 0; GetWindowTextW(hWnd, buf, 255);
+    RECT tr; tr.left = g.right + 5; tr.top = rc.top; tr.right = rc.right; tr.bottom = rc.bottom;
+    SetBkMode(hdc, TRANSPARENT); SetTextColor(hdc, enabled ? FxGetTextColor() : FxGetSysColor(COLOR_GRAYTEXT));
+    HFONT hf = (HFONT)::SendMessage(hWnd, WM_GETFONT, 0, 0); HGDIOBJ oldF = hf ? SelectObject(hdc, hf) : NULL;
+    DrawTextW(hdc, buf, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE); if (oldF) SelectObject(hdc, oldF);
+    if (GetFocus() == hWnd) { RECT cr = tr; DrawTextW(hdc, buf, -1, &cr, DT_CALCRECT | DT_SINGLELINE); RECT fr = tr; fr.right = tr.left + (cr.right - cr.left) + 2; DrawFocusRect(hdc, &fr); }
+    EndPaint(hWnd, &ps); return 0;
+}
+static void FxSubclassRadio(HWND hWnd, BOOL bDark)
+{
+    if (bDark) SetWindowSubclass(hWnd, FxRadioTextSubclass, 2, 0); else RemoveWindowSubclass(hWnd, FxRadioTextSubclass, 2);
+    InvalidateRect(hWnd, NULL, TRUE);
+}
+static void FxThemeOneWindow(HWND hWnd, BOOL bDark)
+{
+    if (bDark) { LONG_PTR fxstrip = WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE; HWND fxpar = GetParent(hWnd); if (fxpar) { WCHAR fxpc[32]; fxpc[0]=0; GetClassNameW(fxpar, fxpc, 31); if (wcscmp(fxpc, L"MDIClient") == 0) fxstrip |= WS_EX_WINDOWEDGE; } LONG_PTR ex = GetWindowLongPtr(hWnd, GWL_EXSTYLE); LONG_PTR ex2 = ex & ~(LONG_PTR)fxstrip; if (ex2 != ex) { SetWindowLongPtr(hWnd, GWL_EXSTYLE, ex2); SetWindowPos(hWnd, NULL, 0,0,0,0, SWP_FRAMECHANGED|SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE); } }
+    
+    HMODULE hUx = LoadLibrary(_T("uxtheme.dll"));
+    if (hUx == NULL) return;
+    typedef bool (WINAPI *AllowDarkModeForWindowFn)(HWND, BOOL);
+    AllowDarkModeForWindowFn pAllow = (AllowDarkModeForWindowFn)GetProcAddress(hUx, MAKEINTRESOURCEA(133));
+    if (pAllow) pAllow(hWnd, bDark);
+    typedef HRESULT (WINAPI *SetWindowThemeFn)(HWND, LPCWSTR, LPCWSTR);
+    SetWindowThemeFn pSetTheme = (SetWindowThemeFn)GetProcAddress(hUx, "SetWindowTheme");
+    LPCWSTR fxTheme = bDark ? L"DarkMode_Explorer" : NULL; LPCWSTR fxSubId = NULL;
+    WCHAR fxcls[64]; fxcls[0]=0; GetClassNameW(hWnd, fxcls, 63);
+    BOOL fxIsRadio = FALSE; if (wcscmp(fxcls, L"Button") == 0) { LONG bt = GetWindowLong(hWnd, GWL_STYLE) & BS_TYPEMASK; fxIsRadio = (bt == BS_RADIOBUTTON || bt == BS_AUTORADIOBUTTON || bt == BS_CHECKBOX || bt == BS_AUTOCHECKBOX || bt == BS_3STATE || bt == BS_AUTO3STATE); }
+    if (bDark && wcsstr(fxcls, L"ComboBox") != NULL) fxTheme = L"DarkMode_CFD";
+    if (pSetTheme) pSetTheme(hWnd, fxTheme, fxSubId);
+    if (fxIsRadio) FxSubclassRadio(hWnd, bDark);
+    { WCHAR fxc3[16]; fxc3[0]=0; GetClassNameW(hWnd, fxc3, 15); if (bDark && wcscmp(fxc3, L"ComboBox") == 0) { int cs = (int)::SendMessage(hWnd, CB_GETCURSEL, 0, 0); ::SendMessage(hWnd, CB_SETCURSEL, cs, 0); ::InvalidateRect(hWnd, NULL, TRUE); } }
+    FreeLibrary(hUx);
+}
+static BOOL CALLBACK FxDarkChildProc(HWND hChild, LPARAM lParam)
+{
+    FxThemeOneWindow(hChild, (BOOL)lParam);
+    return TRUE;
+}
+void FxApplyDarkModeTree(HWND hRoot, BOOL bDark)
+{
+    if (hRoot == NULL) return;
+    FxThemeOneWindow(hRoot, bDark);
+    EnumChildWindows(hRoot, FxDarkChildProc, (LPARAM)bDark);
+    RedrawWindow(hRoot, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_ERASE);
+}

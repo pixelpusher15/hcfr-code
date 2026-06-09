@@ -45,6 +45,7 @@
 #include "stdafx.h"
 #include "GridCtrl.h"
 #include "GridCellBase.h"
+#include "../fxcolor.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -154,8 +155,8 @@ BOOL CGridCellBase::Draw(CDC* pDC, int nRow, int nCol, CRect rect,  BOOL bEraseB
         // cursor is at.  Use the highlight colors though.
         if(GetState() & GVIS_SELECTED)
         {
-            TextBkClr = ::GetSysColor(COLOR_HIGHLIGHT);
-            TextClr = ::GetSysColor(COLOR_HIGHLIGHTTEXT);
+            TextBkClr = FxGetSysColor(COLOR_HIGHLIGHT);
+            TextClr = FxGetSysColor(COLOR_HIGHLIGHTTEXT);
             bEraseBkgnd = TRUE;
         }
 
@@ -211,9 +212,9 @@ BOOL CGridCellBase::Draw(CDC* pDC, int nRow, int nCol, CRect rect,  BOOL bEraseB
     else if ((GetState() & GVIS_SELECTED))
     {
         rect.right++; rect.bottom++;    // FillRect doesn't draw RHS or bottom
-        pDC->FillSolidRect(rect, ::GetSysColor(COLOR_HIGHLIGHT));
+        pDC->FillSolidRect(rect, FxGetSysColor(COLOR_HIGHLIGHT));
         rect.right--; rect.bottom--;
-        pDC->SetTextColor(::GetSysColor(COLOR_HIGHLIGHTTEXT));
+        pDC->SetTextColor(FxGetSysColor(COLOR_HIGHLIGHTTEXT));
     }
     else
     {
@@ -247,8 +248,8 @@ BOOL CGridCellBase::Draw(CDC* pDC, int nRow, int nCol, CRect rect,  BOOL bEraseB
         }
         else
         {
-            CPen lightpen(PS_SOLID, 1,  ::GetSysColor(COLOR_3DHIGHLIGHT)),
-                darkpen(PS_SOLID,  1, ::GetSysColor(COLOR_3DDKSHADOW)),
+            CPen lightpen(PS_SOLID, 1,  pGrid->GetGridLineColor()),
+                darkpen(PS_SOLID,  1, pGrid->GetGridLineColor()),
                 *pOldPen = pDC->GetCurrentPen();
 
             pDC->SelectObject(&lightpen);

@@ -61,6 +61,16 @@ public:
 	virtual DWORD	GetUserInfo () = 0;
 	virtual void	SetUserInfo ( DWORD dwUserInfo ) = 0;
 
+	// Strip the 3D sunken bevel AND the WS_BORDER from every graph & chart view.
+	// A flat 1px outline is drawn by the graph control itself instead (see
+	// CGraphControl::OnPaint), so there is no sunken window border in any theme.
+	virtual BOOL PreCreateWindow ( CREATESTRUCT & cs )
+	{
+		cs.style &= ~WS_BORDER;
+		cs.dwExStyle &= ~( WS_EX_CLIENTEDGE | WS_EX_WINDOWEDGE | WS_EX_STATICEDGE | WS_EX_DLGMODALFRAME );
+		return CView::PreCreateWindow ( cs );
+	}
+
 };
 
 /////////////////////////////////////////////////////////////////////////////

@@ -39,4 +39,7 @@ extern void FxGetMenuBarColors(COLORREF& colorTop, COLORREF& colorBottom);
 extern COLORREF FxGetMenuBgColor();
 extern void FxGetMenuBgColors(COLORREF& colorTop, COLORREF& colorBottom);
 extern COLORREF FxSaturateColor(int aSatPercent,COLORREF aColor);
+extern void ApplyDarkTitleBar(HWND hWnd, BOOL bDark);
+extern void FxEnableDarkMode(BOOL bDark);
+extern void FxApplyDarkModeTree(HWND hRoot, BOOL bDark);
 #endif
