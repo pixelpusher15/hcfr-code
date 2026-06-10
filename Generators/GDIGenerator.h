@@ -146,8 +146,9 @@ public:
 
 	virtual CString GetActiveDisplayName();
 
-protected:
+public:
 	void GetMonitorList();
+protected:
 	std::string GetMonitorName(const MONITORINFOEX *m) const;
 };
 

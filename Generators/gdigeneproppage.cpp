@@ -47,6 +47,7 @@ CGDIGenePropPage::CGDIGenePropPage() : CPropertyPageWithHelp(CGDIGenePropPage::I
 	m_Intensity = 0;
 	//}}AFX_DATA_INIT
 	m_activeMonitorNum = 0;
+	m_pGenerator = NULL;
 	m_nDisplayMode = GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE);
 	m_b16_235 = FALSE;
 	m_busePic = FALSE;
@@ -110,6 +111,7 @@ BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	ON_BN_CLICKED(IDC_RADIO8, OnClickSelection)
 	ON_BN_CLICKED(IDC_DISP_TRIP3, OnClickSelection)
 	//}}AFX_MSG_MAP
+	ON_CBN_DROPDOWN(IDC_MONITOR_COMBO, OnDropdownMonitorCombo)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -206,6 +208,10 @@ void CGDIGenePropPage::OnOK()
 
 BOOL CGDIGenePropPage::OnSetActive() 
 {
+	// Refresh the monitor list so hot-plugged displays appear.
+	if (m_pGenerator)
+		m_pGenerator->GetMonitorList();
+
 	// Init combo box with monitor list stored in array
 	m_monitorComboCtrl.ResetContent();
 	m_cCastComboCtrl.ResetContent();
@@ -523,6 +529,30 @@ void CGDIGenePropPage::OnClickSelection()
 		GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(FALSE);
 		GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(FALSE);
 	}
+}
+
+void CGDIGenePropPage::OnDropdownMonitorCombo()
+{
+	// Re-enumerate monitors each time the list opens so a just-plugged
+	// display shows up without reopening the dialog or restarting HCFR.
+	CString cur;
+	int sel = m_monitorComboCtrl.GetCurSel();
+	if (sel >= 0)
+		m_monitorComboCtrl.GetLBText(sel, cur);
+
+	if (m_pGenerator)
+		m_pGenerator->GetMonitorList();
+
+	m_monitorComboCtrl.ResetContent();
+	for (int i = 0; i < m_monitorNameArray.GetSize(); i++)
+		m_monitorComboCtrl.AddString(m_monitorNameArray[i]);
+
+	// Keep the previous selection if it still exists.
+	int idx = cur.IsEmpty() ? -1 : m_monitorComboCtrl.FindStringExact(-1, cur);
+	if (idx >= 0)
+		m_monitorComboCtrl.SetCurSel(idx);
+	else if (m_monitorComboCtrl.GetCount() > 0)
+		m_monitorComboCtrl.SetCurSel(0);
 }
 
 UINT CGDIGenePropPage::GetHelpId ( LPSTR lpszTopic )

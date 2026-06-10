@@ -30,6 +30,8 @@
 /////////////////////////////////////////////////////////////////////////////
 // CGDIGenePropPage dialog
 
+class CGDIGenerator;
+
 class CGDIGenePropPage : public CPropertyPageWithHelp
 {
 	DECLARE_DYNCREATE(CGDIGenePropPage)
@@ -71,6 +73,7 @@ public:
 
 	HMONITOR	m_monitorHandle [ 16 ];
 	CGoogleCastWrapper m_GCast;
+	CGDIGenerator*	m_pGenerator;
 
 	virtual UINT GetHelpId ( LPSTR lpszTopic );
 
@@ -91,6 +94,7 @@ protected:
 	//{{AFX_MSG(CGDIGenePropPage)
 	afx_msg void OnTestOverlay();
 	afx_msg void OnClickSelection();
+	afx_msg void OnDropdownMonitorCombo();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 

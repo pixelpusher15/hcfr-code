@@ -35,6 +35,7 @@
 #include "../MainFrm.h"
 
 #include <string>
+#include <vector>
 #include <float.h>
 
 #ifdef _DEBUG
@@ -86,6 +87,7 @@ CGDIGenerator::CGDIGenerator()
 	m_patternDGenerator=NULL;
 	m_HdrInterface=NULL;
 
+	m_GDIGenePropertiesPage.m_pGenerator = this;
 	GetMonitorList();
 	m_activeMonitorNum = m_monitorNb-1;
 
@@ -134,6 +136,7 @@ CGDIGenerator::CGDIGenerator(int nDisplayMode, BOOL b16_235)
 	m_HdrInterface=NULL;
 	m_nPat = 0;
 
+	m_GDIGenePropertiesPage.m_pGenerator = this;
 	GetMonitorList();
 	m_activeMonitorNum = m_monitorNb-1;
 
@@ -194,25 +197,80 @@ void CGDIGenerator::GetMonitorList()
 
 std::string CGDIGenerator::GetMonitorName(const MONITORINFOEX *m) const
 {
-	// Windows is a little ugly about how it handles monitors. ColorHCFR uses a HMONITOR in operations to write to the
-	// screen. However, the EnumDisplayMonitors() function that returns the HMONITOR handle does not return a friendly name
-	// for the monitor. The function that DOES return the friendly name for the monitor, EnumDisplayDevices() on the 
-	// other hand, does not return a HMONITOR. So we need to call first EnumDisplayMonitors() to get the handle, and then call
-	// EnumDisplayDevices() to find the friendly monitor name.
+	std::string sMonitor;
+	if (!m)
+		return sMonitor;
 
+	// Prefer the OS friendly monitor name (e.g. "DELL U2720Q") from the DisplayConfig
+	// API. The legacy EnumDisplayDevices path below only yields the generic driver
+	// name ("Generic PnP Monitor") and is kept as a fallback.
+	UINT32 numPaths = 0, numModes = 0;
+	if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &numPaths, &numModes) == ERROR_SUCCESS)
+	{
+		std::vector<DISPLAYCONFIG_PATH_INFO> paths(numPaths);
+		std::vector<DISPLAYCONFIG_MODE_INFO> modes(numModes);
+		if (numPaths && QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &numPaths, paths.data(), &numModes, modes.data(), NULL) == ERROR_SUCCESS)
+		{
+			for (UINT32 i = 0; i < numPaths; i++)
+			{
+				// Match this path's GDI source name against the monitor's device name.
+				DISPLAYCONFIG_SOURCE_DEVICE_NAME src;
+				SecureZeroMemory(&src, sizeof(src));
+				src.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+				src.header.size = sizeof(src);
+				src.header.adapterId = paths[i].sourceInfo.adapterId;
+				src.header.id = paths[i].sourceInfo.id;
+				if (DisplayConfigGetDeviceInfo(&src.header) != ERROR_SUCCESS)
+					continue;
+
+				char gdiName[CCHDEVICENAME] = { 0 };
+				WideCharToMultiByte(CP_ACP, 0, src.viewGdiDeviceName, -1, gdiName, sizeof(gdiName), NULL, NULL);
+				if (strcmp(gdiName, m->szDevice) != 0)
+					continue;
+
+				// Found it; ask for the EDID friendly name on the target.
+				DISPLAYCONFIG_TARGET_DEVICE_NAME tgt;
+				SecureZeroMemory(&tgt, sizeof(tgt));
+				tgt.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+				tgt.header.size = sizeof(tgt);
+				tgt.header.adapterId = paths[i].targetInfo.adapterId;
+				tgt.header.id = paths[i].targetInfo.id;
+				if (DisplayConfigGetDeviceInfo(&tgt.header) == ERROR_SUCCESS)
+				{
+					if (tgt.monitorFriendlyDeviceName[0])
+					{
+						char friendly[64] = { 0 };
+						WideCharToMultiByte(CP_ACP, 0, tgt.monitorFriendlyDeviceName, -1, friendly, sizeof(friendly), NULL, NULL);
+						sMonitor = friendly;
+					}
+					else if (tgt.outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL
+						|| tgt.outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EMBEDDED
+						|| tgt.outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_UDI_EMBEDDED)
+					{
+						// Built-in laptop panels usually carry no EDID name; match Windows.
+						sMonitor = "Internal Display";
+					}
+				}
+				break;
+			}
+		}
+	}
+
+	if (!sMonitor.empty())
+		return sMonitor;
+
+	// Fallback: legacy driver name via EnumDisplayDevices.
 	DISPLAY_DEVICE  dd, dm;
-    
+
 	SecureZeroMemory(&dd, sizeof(dd));
 	dd.cb = sizeof(dd);
 
 	SecureZeroMemory(&dm, sizeof(dm));
-	dm.cb = sizeof(dm);   
+	dm.cb = sizeof(dm);
 
-	std::string sMonitor;
-
-	for (DWORD numAdapter = 0; m && EnumDisplayDevices(NULL, numAdapter, &dd, EDD_GET_DEVICE_INTERFACE_NAME); numAdapter++)
+	for (DWORD numAdapter = 0; EnumDisplayDevices(NULL, numAdapter, &dd, EDD_GET_DEVICE_INTERFACE_NAME); numAdapter++)
 	{
-		if (!(dd.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP)) 
+		if (!(dd.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP))
 		{
 			; // silently ignore as it's disabled or virtual
 		}
@@ -221,7 +279,7 @@ std::string CGDIGenerator::GetMonitorName(const MONITORINFOEX *m) const
 			; // silently ignore as it's not the right monitor
 		}
 		else if (EnumDisplayDevices(dd.DeviceName, 0, &dm, 0))
-		{			
+		{
 			sMonitor = dm.DeviceString;
 		}
 	}
