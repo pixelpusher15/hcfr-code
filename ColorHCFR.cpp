@@ -331,7 +331,8 @@ BOOL CColorHCFRApp::InitInstance()
 	m_pMainWnd = pMainFrame;
 
 	// Loading toolbar icons into the menu 
-	pDocTemplate->m_NewMenuShared.LoadToolBar(IDR_MENUBARGRAPH);
+	if(!pDocTemplate->m_NewMenuShared.LoadPngMenuIcons(16, 16, (GetConfig() && GetConfig()->m_darkTheme) != FALSE))
+		pDocTemplate->m_NewMenuShared.LoadToolBar(IDR_MENUBARGRAPH);
 
 	// Parse command line for standard shell commands, DDE, file open
 	CCommandLineInfo cmdInfo;

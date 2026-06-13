@@ -74,6 +74,7 @@
 #include "stdafx.h"
 #include "NewMenu.h"
 #include "NewToolBar.h"
+#include "PngIconLoader.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -97,7 +98,8 @@ IMPLEMENT_DYNAMIC(CNewToolBar, CToolBar)
 CNewToolBar::CNewToolBar()
 : m_ActMenuIndex(-1),
   m_pCustomizeMenu(NULL),
-  m_DoCheck(0)
+  m_DoCheck(0),
+  m_bPngIcons(FALSE)
 {
 }
 
@@ -782,6 +784,7 @@ void CNewToolBar::BuildGloomImageList()
 
 BOOL CNewToolBar::LoadHiColor(LPCTSTR lpszResourceName,COLORREF transparentColor/*=CLR_DEFAULT*/)
 {
+  if(m_bPngIcons) return TRUE;
   int nColors = 0;
   HBITMAP hBitmap = LoadColorBitmap(lpszResourceName,0, &nColors);
 
@@ -853,10 +856,70 @@ BOOL CNewToolBar::LoadHiColor(LPCTSTR lpszResourceName,COLORREF transparentColor
   return FALSE;
 }
 
+BOOL CNewToolBar::LoadPngImageList()
+{
+  m_bPngIcons = FALSE;
+
+  bool bDark = (fxUseCustomColor != FALSE);
+
+  CToolBarCtrl& tbc = GetToolBarCtrl();
+  int nButtons = tbc.GetButtonCount();
+  if (nButtons <= 0)
+    return FALSE;
+
+  CStringArray files;
+  for (int i = 0; i < nButtons; i++)
+  {
+    TBBUTTON tb;
+    ZeroMemory(&tb, sizeof(tb));
+    if (!tbc.GetButton(i, &tb))
+      return FALSE;
+    if (tb.fsStyle & TBSTYLE_SEP)
+      continue;
+    CString f = HCFR_ResolveToolbarIcon((UINT)tb.idCommand, bDark);
+    if (f.IsEmpty())
+      return FALSE;
+    files.Add(f);
+  }
+
+  if (files.GetSize() <= 0)
+    return FALSE;
+
+  HIMAGELIST hNorm = HCFR_BuildPngImageList(files, m_sizeImage.cx, m_sizeImage.cy, false);
+  if (!hNorm)
+    return FALSE;
+  HIMAGELIST hDis = HCFR_BuildPngImageList(files, m_sizeImage.cx, m_sizeImage.cy, true);
+
+  if (m_ImageList.GetSafeHandle())
+    m_ImageList.DeleteImageList();
+  m_ImageList.Attach(hNorm);
+
+  if (m_ImageListDisabled.GetSafeHandle())
+    m_ImageListDisabled.DeleteImageList();
+  if (hDis)
+    m_ImageListDisabled.Attach(hDis);
+
+  BuildGloomImageList();
+
+  m_bPngIcons = TRUE;
+  return TRUE;
+}
+
+void CNewToolBar::ReloadThemeIcons()
+{
+  m_bPngIcons = FALSE;
+  if (LoadPngImageList())
+  {
+    Invalidate();
+    UpdateWindow();
+  }
+}
+
 BOOL CNewToolBar::LoadToolBar(LPCTSTR lpszResourceName)
 {
   BOOL bRet = CToolBar::LoadToolBar(lpszResourceName);
 
+  LoadPngImageList();
   LoadHiColor(lpszResourceName);
 
   return bRet;

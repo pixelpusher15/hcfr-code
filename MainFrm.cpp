@@ -136,6 +136,18 @@ CMainFrame::~CMainFrame()
 {
 }
 
+void CMainFrame::RefreshToolbarIcons()
+{
+	m_wndToolBar.ReloadThemeIcons();
+	m_wndToolBarViews.ReloadThemeIcons();
+	m_wndToolBarMeasures.ReloadThemeIcons();
+	m_wndToolBarMeasuresEx.ReloadThemeIcons();
+	m_wndToolBarMeasuresSat.ReloadThemeIcons();
+	if(!m_DefaultNewMenu.LoadPngMenuIcons(16, 16, (GetConfig() && GetConfig()->m_darkTheme) != FALSE))
+		m_DefaultNewMenu.LoadToolBar(IDR_MENUBARGRAPH);
+	m_wndMenuBar.Invalidate();
+}
+
 BOOL CMainFrame::LoadToolbars()
 {
 	// GGA TODO: very slow, need to be optimized: maybe create a LoadToolBar with no useless internal call to LoadHiColor.
@@ -297,7 +309,8 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 		}
 	}
 
-	m_DefaultNewMenu.LoadToolBar(IDR_MENUBARGRAPH);
+	if(!m_DefaultNewMenu.LoadPngMenuIcons(16, 16, (GetConfig() && GetConfig()->m_darkTheme) != FALSE))
+		m_DefaultNewMenu.LoadToolBar(IDR_MENUBARGRAPH);
 
 	RecalcLayout(FALSE);
 

@@ -172,7 +172,8 @@
 //------------------------------------------------------------------------------
 
 #include "stdafx.h"        // Standard windows header file
-#include "NewMenu.h"       // CNewMenu class declaration
+#include "NewMenu.h"
+#include "PngIconLoader.h"       // CNewMenu class declaration
 #include "fxcolor.h"
 
 // Those two following constants should be only defined for tracing.
@@ -2078,6 +2079,21 @@ void CNewMenuIcons::SetResourceName(LPCTSTR lpszResourceName)
   {
     m_lpszResourceName = lpszResourceName;
   }
+}
+
+BOOL CNewMenuIcons::LoadPngIcons(int cx, int cy, bool bDark)
+{
+  CArray<UINT,UINT&> ids;
+  HIMAGELIST h = HCFR_BuildMenuIconList(bDark, cx, cy, ids);
+  if (!h)
+    return FALSE;
+  if (m_IconsList.GetSafeHandle())
+    m_IconsList.DeleteImageList();
+  m_IconsList.Attach(h);
+  m_IDs.RemoveAll();
+  for (int i = 0; i < (int)ids.GetSize(); i++)
+    m_IDs.Add(ids[i]);
+  return TRUE;
 }
 
 BOOL CNewMenuIcons::LoadToolBar(LPCTSTR lpszResourceName, HMODULE hInst)
@@ -7059,6 +7075,22 @@ CNewMenuItemData* CNewMenu::NewODMenu(UINT pos, UINT nFlags, UINT nID, LPCTSTR s
   }
   return(pItemData);
 };
+
+BOOL CNewMenu::LoadPngMenuIcons(int cx, int cy, bool bDark)
+{
+  CNewMenuIcons* pMenuIcon = new CNewMenuIcons();
+  pMenuIcon->m_crTransparent = m_bitmapBackground;
+  if (pMenuIcon->LoadPngIcons(cx, cy, bDark))
+  {
+    if (m_pSharedMenuIcons == NULL)
+      m_pSharedMenuIcons = new CTypedPtrList<CPtrList, CNewMenuIcons*>;
+    m_pSharedMenuIcons->AddTail(pMenuIcon);
+    SetMenuIcons(pMenuIcon);
+    return TRUE;
+  }
+  delete pMenuIcon;
+  return FALSE;
+}
 
 BOOL CNewMenu::LoadToolBars(const UINT* arID, int n, HMODULE hInst)
 {

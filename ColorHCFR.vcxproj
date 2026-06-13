@@ -615,6 +615,12 @@
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
+    <ClCompile Include="Tools\NewMenu\PngIconLoader.cpp">
+      <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="Tools\ColourPickerXP.cpp">
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -933,6 +939,7 @@
     <ClInclude Include="Tools\NewMenu\NewProperty.h" />
     <ClInclude Include="Tools\NewMenu\NewStatusBar.h" />
     <ClInclude Include="Tools\NewMenu\NewToolBar.h" />
+    <ClInclude Include="Tools\NewMenu\PngIconLoader.h" />
     <ClInclude Include="Tools\ColourPickerXP.h" />
     <ClInclude Include="Tools\CustomTabControl\CustomTabCtrl.h" />
     <ClInclude Include="Tools\CustomTabControl\Schemadef.h" />
@@ -1061,6 +1068,12 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <Target Name="CopyToolbarIcons" AfterTargets="Build">
+    <ItemGroup>
+      <ToolbarIconFiles Include="$(ProjectDir)res\images\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ToolbarIconFiles)" DestinationFiles="@(ToolbarIconFiles-&gt;'$(OutDir)res\images\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
   <ProjectExtensions>
     <VisualStudio>
       <UserProperties RESOURCE_FILE="ColorHCFR.rc" />

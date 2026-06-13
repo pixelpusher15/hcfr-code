@@ -735,7 +735,8 @@ void CMultiFrame::OpenNewTabMenu ( POINT pt )
 {
 	CNewMenu menu;
 	menu.LoadMenu(IDR_MESURETYPE);
-	menu.LoadToolBar(IDR_MENUBARGRAPH);
+	if(!menu.LoadPngMenuIcons(16, 16, (GetConfig() && GetConfig()->m_darkTheme) != FALSE))
+		menu.LoadToolBar(IDR_MENUBARGRAPH);
 	
 	// Retrieve "Graphs" menu (must be at position 4)
 	CMenu* pViewPopup = menu.GetSubMenu(4);
