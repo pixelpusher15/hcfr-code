@@ -351,6 +351,8 @@ static const SCtrlLayout g_CtrlLayout [] = {
 
 IMPLEMENT_DYNCREATE(CMainView, CFormView)
 
+#define SIZEMOVE_TIMER_ID 0x5713
+
 BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	//{{AFX_MSG_MAP(CMainView)
 	ON_BN_CLICKED(IDC_XYZ_RADIO, OnXyzRadio)
@@ -369,6 +371,9 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_BN_CLICKED(IDC_MEASUREGRAYSCALE_BUTTON, OnMeasureGrayScale)
 	ON_BN_CLICKED(IDC_DELETEGRAYSCALE_BUTTON, OnDeleteGrayscale)
 	ON_WM_SIZE()
+	ON_WM_ENTERSIZEMOVE()
+	ON_WM_EXITSIZEMOVE()
+	ON_WM_TIMER()
 	ON_CBN_SELCHANGE(IDC_INFO_DISPLAY, OnSelchangeInfoDisplay)
 	ON_COMMAND(IDM_HELP, OnHelp)
 	ON_COMMAND(ID_EDIT_COPY, OnEditCopy)
@@ -431,6 +436,7 @@ CMainView::CMainView()
 	m_infoDisplay = 5;
 	m_nSizeOffset = 0;
 	m_bPositionsInit = FALSE;
+	m_bInSizeMove = FALSE;
 	m_dwInitialUserInfo = 0;
 	last_minCol = 4;
 	minCol = 4;
@@ -6270,9 +6276,50 @@ void CMainView::OnSize(UINT nType, int cx, int cy)
 				m_Target.ShowWindow ( SW_SHOW );
 		}
 		
+		if ( m_bInSizeMove )
+		{
+			KillTimer ( SIZEMOVE_TIMER_ID );
+			SetTimer ( SIZEMOVE_TIMER_ID, 120, NULL );
+		}
+		else
+		{
+			InitGrid(true);
+			UpdateGrid();
+		}
+	}
+}
+
+void CMainView::OnEnterSizeMove()
+{
+	CFormView::OnEnterSizeMove();
+	m_bInSizeMove = TRUE;
+}
+
+void CMainView::OnExitSizeMove()
+{
+	CFormView::OnExitSizeMove();
+	m_bInSizeMove = FALSE;
+	KillTimer ( SIZEMOVE_TIMER_ID );
+	if ( m_bPositionsInit )
+	{
 		InitGrid(true);
 		UpdateGrid();
 	}
+}
+
+void CMainView::OnTimer(UINT_PTR nIDEvent)
+{
+	if ( nIDEvent == SIZEMOVE_TIMER_ID )
+	{
+		KillTimer ( SIZEMOVE_TIMER_ID );
+		if ( m_bPositionsInit )
+		{
+			InitGrid(true);
+			UpdateGrid();
+		}
+		return;
+	}
+	CFormView::OnTimer(nIDEvent);
 }
 
 void CMainView::OnSelchangeInfoDisplay() 

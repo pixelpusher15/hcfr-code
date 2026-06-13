@@ -87,6 +87,7 @@ private:
     void AddColorToGrid(const ColorTriplet& color, GV_ITEM& Item, const char* format);
 
     BOOL		m_bPositionsInit;
+    BOOL		m_bInSizeMove;
 	POINT		m_InitialWindowSize;
 	RECT		m_OriginalRect;
 	CPtrList	m_CtrlInitPos;
@@ -251,6 +252,9 @@ protected:
 	afx_msg void OnMeasureGrayScale();
 	afx_msg void OnDeleteGrayscale();
 	afx_msg void OnSize(UINT nType, int cx, int cy);
+	afx_msg void OnEnterSizeMove();
+	afx_msg void OnExitSizeMove();
+	afx_msg void OnTimer(UINT_PTR nIDEvent);
 	afx_msg void OnChangeInfosEdit();
 	afx_msg void OnHelp();
 	afx_msg void OnEditCopy();
