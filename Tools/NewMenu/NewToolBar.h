@@ -42,6 +42,13 @@ public:
   // For replacing the toolbar with a high-color image
   BOOL LoadHiColor(LPCTSTR lpszResourceName,COLORREF transparentColor=CLR_DEFAULT);
 
+  // Replace the toolbar images with alpha-blended PNG icons for the active
+  // Light/Dark theme (res\images\toolbar\{light,dark}\). Returns TRUE when every
+  // button resolved to a PNG; FALSE otherwise (caller then keeps the bitmap path).
+  BOOL LoadPngImageList();
+  // Rebuild the PNG icons for the current theme (used on a live theme switch).
+  void ReloadThemeIcons();
+
   bool InsertControl (int nIndex, CWnd* pControl, DWORD_PTR dwData=NULL);
 
   // Change the toolbar button to a menu button
@@ -111,6 +118,7 @@ private:
   CImageList m_ImageListDisabled;
   CMenu* m_pCustomizeMenu;
   DWORD m_DoCheck;
+  BOOL m_bPngIcons;   // TRUE once LoadPngImageList installed alpha PNG icons
 };
 
 #endif //__CNewToolBar_H_ 

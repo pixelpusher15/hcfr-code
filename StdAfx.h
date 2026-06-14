@@ -17,9 +17,10 @@
 
 
 #if _MSC_VER >= 1600
-// visual studio 2010 ships with mfc that doesn't like 
-// low values of WINVER
-#define WINVER 0x0510
+// Modern MFC/SDK. Target Windows 7+ so the DisplayConfig API
+// (QueryDisplayConfig / DisplayConfigGetDeviceInfo) is available.
+#define WINVER 0x0601
+#define _WIN32_WINNT 0x0601
 #else
 #define WINVER 0x0410
 #endif

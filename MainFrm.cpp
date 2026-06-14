@@ -136,6 +136,18 @@ CMainFrame::~CMainFrame()
 {
 }
 
+void CMainFrame::RefreshToolbarIcons()
+{
+	m_wndToolBar.ReloadThemeIcons();
+	m_wndToolBarViews.ReloadThemeIcons();
+	m_wndToolBarMeasures.ReloadThemeIcons();
+	m_wndToolBarMeasuresEx.ReloadThemeIcons();
+	m_wndToolBarMeasuresSat.ReloadThemeIcons();
+	if(!m_DefaultNewMenu.LoadPngMenuIcons(16, 16, (GetConfig() && GetConfig()->m_darkTheme) != FALSE))
+		m_DefaultNewMenu.LoadToolBar(IDR_MENUBARGRAPH);
+	m_wndMenuBar.Invalidate();
+}
+
 BOOL CMainFrame::LoadToolbars()
 {
 	// GGA TODO: very slow, need to be optimized: maybe create a LoadToolBar with no useless internal call to LoadHiColor.
@@ -297,7 +309,8 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 		}
 	}
 
-	m_DefaultNewMenu.LoadToolBar(IDR_MENUBARGRAPH);
+	if(!m_DefaultNewMenu.LoadPngMenuIcons(16, 16, (GetConfig() && GetConfig()->m_darkTheme) != FALSE))
+		m_DefaultNewMenu.LoadToolBar(IDR_MENUBARGRAPH);
 
 	RecalcLayout(FALSE);
 
@@ -976,7 +989,7 @@ END_MESSAGE_MAP()
 
 CMDIClientWithLogo::CMDIClientWithLogo ()
 {
-	m_LogoBitmap.LoadBitmap ( IDB_LOGO );
+	m_LogoBitmap.LoadBitmap ( IDB_LOGO_LARGE );
 }
 
 CMDIClientWithLogo::~CMDIClientWithLogo ()
@@ -997,7 +1010,7 @@ BOOL CMDIClientWithLogo::OnEraseBkgnd(CDC* pDC)
 	RECT		ClientRect;
 	CDC			BmpDC;
 	CBitmap *	pOldBmp;
-	CBrush		Brush ( RGB ( 56, 76, 104 ) );
+	CBrush		Brush ( RGB ( 5, 6, 20 ) );
 	BITMAP		bm;
 	
 	GetClientRect ( & ClientRect );

@@ -656,13 +656,13 @@ static void FxThemeOneWindow(HWND hWnd, BOOL bDark)
 {
     if (bDark) { LONG_PTR fxstrip = WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE; HWND fxpar = GetParent(hWnd); if (fxpar) { WCHAR fxpc[32]; fxpc[0]=0; GetClassNameW(fxpar, fxpc, 31); if (wcscmp(fxpc, L"MDIClient") == 0) fxstrip |= WS_EX_WINDOWEDGE; } LONG_PTR ex = GetWindowLongPtr(hWnd, GWL_EXSTYLE); LONG_PTR ex2 = ex & ~(LONG_PTR)fxstrip; if (ex2 != ex) { SetWindowLongPtr(hWnd, GWL_EXSTYLE, ex2); SetWindowPos(hWnd, NULL, 0,0,0,0, SWP_FRAMECHANGED|SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE); } }
     
-    HMODULE hUx = LoadLibrary(_T("uxtheme.dll"));
+    static HMODULE hUx = LoadLibrary(_T("uxtheme.dll"));
     if (hUx == NULL) return;
     typedef bool (WINAPI *AllowDarkModeForWindowFn)(HWND, BOOL);
-    AllowDarkModeForWindowFn pAllow = (AllowDarkModeForWindowFn)GetProcAddress(hUx, MAKEINTRESOURCEA(133));
+    static AllowDarkModeForWindowFn pAllow = (AllowDarkModeForWindowFn)GetProcAddress(hUx, MAKEINTRESOURCEA(133));
     if (pAllow) pAllow(hWnd, bDark);
     typedef HRESULT (WINAPI *SetWindowThemeFn)(HWND, LPCWSTR, LPCWSTR);
-    SetWindowThemeFn pSetTheme = (SetWindowThemeFn)GetProcAddress(hUx, "SetWindowTheme");
+    static SetWindowThemeFn pSetTheme = (SetWindowThemeFn)GetProcAddress(hUx, "SetWindowTheme");
     LPCWSTR fxTheme = bDark ? L"DarkMode_Explorer" : NULL; LPCWSTR fxSubId = NULL;
     WCHAR fxcls[64]; fxcls[0]=0; GetClassNameW(hWnd, fxcls, 63);
     BOOL fxIsRadio = FALSE; if (wcscmp(fxcls, L"Button") == 0) { LONG bt = GetWindowLong(hWnd, GWL_STYLE) & BS_TYPEMASK; fxIsRadio = (bt == BS_RADIOBUTTON || bt == BS_AUTORADIOBUTTON || bt == BS_CHECKBOX || bt == BS_AUTOCHECKBOX || bt == BS_3STATE || bt == BS_AUTO3STATE); }
@@ -670,7 +670,6 @@ static void FxThemeOneWindow(HWND hWnd, BOOL bDark)
     if (pSetTheme) pSetTheme(hWnd, fxTheme, fxSubId);
     if (fxIsRadio) FxSubclassRadio(hWnd, bDark);
     { WCHAR fxc3[16]; fxc3[0]=0; GetClassNameW(hWnd, fxc3, 15); if (bDark && wcscmp(fxc3, L"ComboBox") == 0) { int cs = (int)::SendMessage(hWnd, CB_GETCURSEL, 0, 0); ::SendMessage(hWnd, CB_SETCURSEL, cs, 0); ::InvalidateRect(hWnd, NULL, TRUE); } }
-    FreeLibrary(hUx);
 }
 static BOOL CALLBACK FxDarkChildProc(HWND hChild, LPARAM lParam)
 {

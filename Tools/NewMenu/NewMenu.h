@@ -243,6 +243,9 @@ public:
   virtual BOOL LoadToolBar(WORD* pToolInfo, COLORREF crTransparent=CLR_NONE);
   virtual BOOL LoadToolBar(HBITMAP hBitmap, CSize size, UINT* pID, COLORREF crTransparent=CLR_NONE);
 
+  // Build the icon list from alpha PNG menu icons for the active Light/Dark theme.
+  BOOL LoadPngIcons(int cx, int cy, bool bDark);
+
   virtual BOOL DoMatch(LPCTSTR lpszResourceName, HMODULE hInst);
   virtual BOOL DoMatch(WORD* pToolInfo, COLORREF crTransparent=CLR_NONE);
   virtual BOOL DoMatch(HBITMAP hBitmap, CSize size, UINT* pID);
@@ -410,6 +413,8 @@ public:
   BOOL LoadToolBar(LPCTSTR lpszResourceName, HMODULE hInst = NULL);
   BOOL LoadToolBar(UINT nToolBar, HMODULE hInst = NULL);
   BOOL LoadToolBars(const UINT *arID,int n, HMODULE hInst = NULL);
+  // Replace menu icons with alpha PNG icons for the active Light/Dark theme.
+  BOOL LoadPngMenuIcons(int cx, int cy, bool bDark);
   // Jan-12-2005 - Mark P. Peterson - mpp@rhinosoft.com - http://www.RhinoSoft.com/
   BOOL LoadToolBar(UINT n16ToolBarID, UINT n256BitmapID, COLORREF transparentColor, HMODULE hInst = NULL);
 

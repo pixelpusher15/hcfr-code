@@ -83,7 +83,7 @@ BEGIN
             VALUE "FileDescription", "CHCFR21_PATTERNS DLL"
             VALUE "FileVersion", "3.5.5.0"
             VALUE "InternalName", "CHCFR21_PATTERNS"
-            VALUE "LegalCopyright", "Copyright (C) 2007-2016"
+            VALUE "LegalCopyright", "Copyright (C) 2007-2026"
             VALUE "OriginalFilename", "CHCFR21_PATTERNS.DLL"
             VALUE "ProductName", "Bibliothèque de liaison dynamique CHCFR21_PATTERNS"
             VALUE "ProductVersion", "3.5.5.0"

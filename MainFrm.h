@@ -87,6 +87,7 @@ public:
 
 public:
 	virtual ~CMainFrame();
+	void RefreshToolbarIcons();
 #ifdef _DEBUG
 	virtual void AssertValid() const;
 	virtual void Dump(CDumpContext& dc) const;

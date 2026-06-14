@@ -90,7 +90,7 @@ BEGIN
             VALUE "FileDescription", "HCFR"
             VALUE "FileVersion", "3.5.5.0"
             VALUE "InternalName", "ColorHCFR"
-            VALUE "LegalCopyright", "Copyright (c) 2005-2017"
+            VALUE "LegalCopyright", "Copyright (c) 2005-2026"
             VALUE "OriginalFilename", "ColorHCFR.EXE"
             VALUE "ProductName", "HCFR"
             VALUE "ProductVersion", "3.5.5.0"
