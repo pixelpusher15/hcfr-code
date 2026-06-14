@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
 // fichier Include Microsoft Visual C++.
-// Utilisé par CHCFR21_FRANCAIS.rc
+// Utilisï¿½ par CHCFR21_FRANCAIS.rc
 //
 #define IDS_STRING_VERSION              1
 #define IDS_STRING_VERSION_WEB          2
@@ -116,6 +116,7 @@
 #define IDR_SATLUM_GRAPH_MENU           221
 #define IDR_SATLUMSHIFT_GRAPH_MENU      222
 #define IDB_LOGO                        223
+#define IDB_LOGO_LARGE                  344
 #define IDD_GENERAL_PROP_PAGE           224
 #define IDB_ANSICONTRAST_BITMAP         226
 #define IDD_EXPORTXLS_DIALOG            227

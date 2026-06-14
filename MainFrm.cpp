@@ -989,7 +989,7 @@ END_MESSAGE_MAP()
 
 CMDIClientWithLogo::CMDIClientWithLogo ()
 {
-	m_LogoBitmap.LoadBitmap ( IDB_LOGO );
+	m_LogoBitmap.LoadBitmap ( IDB_LOGO_LARGE );
 }
 
 CMDIClientWithLogo::~CMDIClientWithLogo ()
@@ -1010,7 +1010,7 @@ BOOL CMDIClientWithLogo::OnEraseBkgnd(CDC* pDC)
 	RECT		ClientRect;
 	CDC			BmpDC;
 	CBitmap *	pOldBmp;
-	CBrush		Brush ( RGB ( 56, 76, 104 ) );
+	CBrush		Brush ( RGB ( 5, 6, 20 ) );
 	BITMAP		bm;
 	
 	GetClientRect ( & ClientRect );

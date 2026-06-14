@@ -216,69 +216,67 @@ void	UpdateDataRef(BOOL ActiveDataRef, CDataSetDoc * pDoc)
 
 BOOL CColorHCFRApp::InitInstance()
 {
-	// Create splash screen
-	int		cx, cy;
-	RECT	Rect;
+	// Create splash screen (layered window with per-pixel alpha)
 	CxImage SplashImage;
 	CWnd	SplashWnd;
-	CDC *	pDC;
 
 	HRSRC hRsrc = ::FindResource(AfxGetInstanceHandle(),MAKEINTRESOURCE(IDR_SPLASH_SCREEN),"SPLASHSCREEN");
-	SplashImage.LoadResource(hRsrc,CXIMAGE_FORMAT_PNG,AfxGetInstanceHandle());   
+	SplashImage.LoadResource(hRsrc,CXIMAGE_FORMAT_PNG,AfxGetInstanceHandle());
 
-	cx = SplashImage.GetWidth();
-	cy = SplashImage.GetHeight();
+	int cx = (int) SplashImage.GetWidth();
+	int cy = (int) SplashImage.GetHeight();
 
-	Rect.left = ( GetSystemMetrics(SM_CXSCREEN) - cx ) / 2;
-	Rect.top = ( GetSystemMetrics(SM_CYSCREEN) - cy ) / 2;
-	Rect.right = Rect.left + cx;
-	Rect.bottom = Rect.top + cy;
+	// Build a 32bpp premultiplied BGRA top-down DIB from the image and its alpha layer
+	BITMAPINFO bmi;
+	ZeroMemory ( &bmi, sizeof(bmi) );
+	bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+	bmi.bmiHeader.biWidth = cx;
+	bmi.bmiHeader.biHeight = -cy;
+	bmi.bmiHeader.biPlanes = 1;
+	bmi.bmiHeader.biBitCount = 32;
+	bmi.bmiHeader.biCompression = BI_RGB;
 
-	SplashWnd.CreateEx(WS_EX_TOPMOST,AfxRegisterWndClass(0,NULL,NULL,NULL),NULL,WS_POPUP|WS_VISIBLE, Rect, NULL, 0 );
-	
-	pDC = SplashWnd.GetDC ();
+	HDC		hScreenDC = ::GetDC ( NULL );
+	HDC		hMemDC = ::CreateCompatibleDC ( hScreenDC );
+	void *	pBits = NULL;
+	HBITMAP	hDib = ::CreateDIBSection ( hScreenDC, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0 );
+	HBITMAP	hOldDib = (HBITMAP) ::SelectObject ( hMemDC, hDib );
 
-	HBITMAP	hMaskBmp, hBmp, hBmp2;
-	HBITMAP hOldMaskBmp, hOldBmp, hOldBmp2;
-	CDC		MaskDC, MemDC, MemDC2;
+	bool	bAlpha = SplashImage.AlphaIsValid();
+	BYTE *	p = (BYTE *) pBits;
+	for ( int y = 0 ; y < cy ; y ++ )
+	{
+		long yy = cy - 1 - y;
+		for ( int x = 0 ; x < cx ; x ++ )
+		{
+			RGBQUAD c = SplashImage.GetPixelColor ( x, yy, false );
+			BYTE a = bAlpha ? SplashImage.AlphaGet ( x, yy ) : (BYTE) 255;
+			p[0] = (BYTE) ( ( c.rgbBlue  * a ) / 255 );
+			p[1] = (BYTE) ( ( c.rgbGreen * a ) / 255 );
+			p[2] = (BYTE) ( ( c.rgbRed   * a ) / 255 );
+			p[3] = a;
+			p += 4;
+		}
+	}
 
-	// Draw bitmap in memory
-	MemDC.CreateCompatibleDC ( pDC );
-	hBmp = CreateCompatibleBitmap ( pDC -> m_hDC, cx, cy );
-	hOldBmp = (HBITMAP) MemDC.SelectObject ( hBmp );
+	int		px = ( GetSystemMetrics(SM_CXSCREEN) - cx ) / 2;
+	int		py = ( GetSystemMetrics(SM_CYSCREEN) - cy ) / 2;
 
-	MemDC2.CreateCompatibleDC ( pDC );
-	hBmp2 = CreateCompatibleBitmap ( pDC -> m_hDC, cx, cy );
-	hOldBmp2 = (HBITMAP) MemDC2.SelectObject ( hBmp2 );
+	SplashWnd.CreateEx ( WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+		AfxRegisterWndClass(0,NULL,NULL,NULL), NULL, WS_POPUP,
+		px, py, cx, cy, NULL, 0 );
 
-	SetRect ( & Rect, 0, 0, cx, cy );
-	SplashImage.Draw ( MemDC.m_hDC, Rect );
+	POINT			ptSrc = { 0, 0 };
+	POINT			ptDst = { px, py };
+	SIZE			szWnd = { cx, cy };
+	BLENDFUNCTION	bf = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+	::UpdateLayeredWindow ( SplashWnd.m_hWnd, hScreenDC, &ptDst, &szWnd, hMemDC, &ptSrc, 0, &bf, ULW_ALPHA );
+	SplashWnd.ShowWindow ( SW_SHOWNA );
 
-	// Create mask bitmap
-	MaskDC.CreateCompatibleDC ( pDC );
-	hMaskBmp = CreateBitmap ( cx, cy, 1, 1, NULL );
-	hOldMaskBmp = (HBITMAP) MaskDC.SelectObject ( hMaskBmp );
-
-	BitBlt ( MaskDC.m_hDC, 0, 0, cx, cy, MemDC.m_hDC, 0, 0, SRCCOPY );
-
-	MaskDC.SelectObject ( hOldMaskBmp );
-	MaskDC.DeleteDC ();
-
-	BitBlt ( MemDC2.m_hDC, 0, 0, cx, cy, pDC -> m_hDC, 0, 0, SRCCOPY );
-	MaskBlt ( MemDC2.m_hDC, 0, 0, cx, cy, MemDC.m_hDC, 0, 0, hMaskBmp, 0, 0, MAKEROP4(MERGEPAINT,SRCCOPY) );
-	BitBlt ( pDC -> m_hDC, 0, 0, cx, cy, MemDC2.m_hDC, 0, 0, SRCCOPY );
-
-	DeleteObject ( hMaskBmp );
-
-	MemDC.SelectObject ( hOldBmp );
-	MemDC.DeleteDC ();
-	DeleteObject ( hBmp );
-
-	MemDC2.SelectObject ( hOldBmp2 );
-	MemDC2.DeleteDC ();
-	DeleteObject ( hBmp2 );
-	
-	SplashWnd.ReleaseDC ( pDC );
+	::SelectObject ( hMemDC, hOldDib );
+	::DeleteObject ( hDib );
+	::DeleteDC ( hMemDC );
+	::ReleaseDC ( NULL, hScreenDC );
 
 	// Beginning of initializations
 	m_pColorReference = new CColorReference (SDTV,D65,2.2);
