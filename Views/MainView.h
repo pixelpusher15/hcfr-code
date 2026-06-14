@@ -41,6 +41,7 @@ class CGridCtrl;
 #include "ShadeButtonST.h"
 #include "XPGroupBox.h"
 #include "RGBLevelWnd.h"
+#include "StatsBarWnd.h"
 #include "TargetWnd.h"
 
 class CMainView : public CFormView
@@ -53,7 +54,8 @@ public:
 	//{{AFX_DATA(CMainView)
 	enum { IDD = IDD_MAINVIEW_FORM };
 	CComboBox	m_comboMode;
-	CXPGroupBox	m_grayScaleGroup;
+	CMeasuresGroupBox	m_grayScaleGroup;
+	CStatsBarWnd	m_statsBar;
 	CXPGroupBox	m_sensorGroup;
 	CXPGroupBox	m_generatorGroup;
 	CXPGroupBox	m_datarefGroup;

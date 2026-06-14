@@ -134,6 +134,9 @@ static const SCtrlLayout g_CtrlLayout [] = {
 
 };
 
+static const SCtrlLayout g_StatsBarLayout =
+{ 0, LAYOUT_LEFT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
+
                     char*  PatName[96]={
                     "White",
                     "6J",
@@ -695,6 +698,50 @@ void CMainView::OnInitialUpdate()
 	m_OriginalRect.right = m_InitialWindowSize.x;
 	m_OriginalRect.bottom = m_InitialWindowSize.y;
 	m_bPositionsInit = TRUE;
+
+	{
+		const int HEADER_H = 38;
+		CRect rcGroup( 0, 0, 0, 0 );
+		CRect rcGrid( 0, 0, 0, 0 );
+		POSITION sbPos = m_CtrlInitPos.GetHeadPosition();
+		while ( sbPos )
+		{
+			SCtrlInitPos * pSb = (SCtrlInitPos *) m_CtrlInitPos.GetNext( sbPos );
+			int sbId = ::GetDlgCtrlID( pSb->m_hWnd );
+			if ( sbId == IDC_GRAYSCALE_GROUP )
+				rcGroup = pSb->m_Rect;
+			if ( sbId == IDC_GRAYSCALE_GRID )
+				rcGrid = pSb->m_Rect;
+		}
+		if ( ! rcGroup.IsRectEmpty() && ! rcGrid.IsRectEmpty() )
+		{
+			int barTop = rcGroup.top + 2;
+			int barBottom = barTop + HEADER_H;
+			int gridDelta = barBottom - rcGrid.top;
+			if ( gridDelta < 0 )
+				gridDelta = 0;
+			POSITION sbPos2 = m_CtrlInitPos.GetHeadPosition();
+			while ( sbPos2 )
+			{
+				SCtrlInitPos * pSb2 = (SCtrlInitPos *) m_CtrlInitPos.GetNext( sbPos2 );
+				int sbId2 = ::GetDlgCtrlID( pSb2->m_hWnd );
+				if ( sbId2 == IDC_GRAYSCALE_GRID || sbId2 == IDC_VALUES_STATIC )
+					pSb2->m_Rect.top += gridDelta;
+			}
+			CRect rcBar( rcGroup.left + 2, barTop, rcGroup.right - 2, barBottom );
+			LPCTSTR sbClass = AfxRegisterWndClass( CS_HREDRAW | CS_VREDRAW, ::LoadCursor( NULL, IDC_ARROW ), NULL, NULL );
+			m_statsBar.CreateEx( 0, sbClass, _T(""), WS_CHILD | WS_VISIBLE, rcBar, this, 0 );
+			SCtrlInitPos * pBarPos = new SCtrlInitPos;
+			pBarPos->m_hWnd = m_statsBar.GetSafeHwnd();
+			pBarPos->m_Rect.left = rcBar.left;
+			pBarPos->m_Rect.top = rcBar.top;
+			pBarPos->m_Rect.right = rcBar.right;
+			pBarPos->m_Rect.bottom = rcBar.bottom;
+			pBarPos->m_pLayout = &g_StatsBarLayout;
+			m_CtrlInitPos.AddTail( pBarPos );
+			m_grayScaleGroup.InitMeasures( &m_statsBar, _T("") );
+		}
+	}
 	
 	( (CMultiFrame *) GetParentFrame () ) -> m_MinSize2.x = m_InitialWindowSize.x + ( GetSystemMetrics ( SM_CXSIZEFRAME ) * 2 ) - 150;
 	( (CMultiFrame *) GetParentFrame () ) -> m_MinSize2.y = m_InitialWindowSize.y + GetSystemMetrics ( SM_CYCAPTION ) + GetSystemMetrics ( SM_CYSIZEFRAME ) + 6 - 400;
