@@ -6026,14 +6026,20 @@ BOOL CMainView::OnEraseBkgnd(CDC* pDC)
 void CMainView::OnSysColorChange() 
 {
 	CFormView::OnSysColorChange();
+	SetRedraw(FALSE);
 	delete m_pBgBrush;
 	m_pBgBrush= new CBrush(FxGetMenuBgColor());
 	InitButtons();
-	if(m_pGrayScaleGrid) m_pGrayScaleGrid->DeleteAllItems();
-	if(m_pSelectedColorGrid) m_pSelectedColorGrid->DeleteAllItems();
-	OnSelchangeComboMode();
 	InitGroups();
-	Invalidate(TRUE);	
+	m_nSelColorGridReadingType = -1;
+	InitSelectedColorGrid();
+	InitGrid(true);
+	if(m_pGrayScaleGrid) UpdateGrid();
+	RefreshSelection();
+	SetRedraw(TRUE);
+	if(m_pGrayScaleGrid) m_pGrayScaleGrid->Invalidate(FALSE);
+	if(m_pSelectedColorGrid) m_pSelectedColorGrid->Invalidate(FALSE);
+	Invalidate(FALSE);	
 }
 
 HBRUSH CMainView::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor) 

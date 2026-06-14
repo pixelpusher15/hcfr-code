@@ -691,6 +691,8 @@ void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 	}
 
 	// Apply appearance settings
+	CWnd* pFxLockWnd = AfxGetMainWnd();
+	if(pFxLockWnd) pFxLockWnd->LockWindowUpdate();
 	CNewMenu::SetMenuDrawMode(CNewMenu::STYLE_XP);
 	fxDrawMenuBorder=TRUE;
 	fxUseCustomColor=m_darkTheme;
@@ -703,8 +705,10 @@ void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 		SetFxColors(CLR_DEFAULT,CLR_DEFAULT,CLR_DEFAULT,CLR_DEFAULT);
 	if(AfxGetMainWnd()) ApplyDarkTitleBar(AfxGetMainWnd()->GetSafeHwnd(), m_darkTheme);
 	FxEnableDarkMode(m_darkTheme);
+	if(AfxGetMainWnd()) AfxGetMainWnd()->SendMessageToDescendants(WM_SYSCOLORCHANGE, 0, 0, TRUE);
 	if(AfxGetMainWnd()) FxApplyDarkModeTree(AfxGetMainWnd()->GetSafeHwnd(), m_darkTheme);
 	{ CMainFrame * pMainFrame = DYNAMIC_DOWNCAST(CMainFrame, AfxGetMainWnd()); if(pMainFrame) pMainFrame->RefreshToolbarIcons(); }
+	if(pFxLockWnd) { pFxLockWnd->UnlockWindowUpdate(); pFxLockWnd->RedrawWindow(NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_ERASE | RDW_FRAME); }
 
 	// Apply reference settings
     if(GetColorApp()->m_pColorReference)
