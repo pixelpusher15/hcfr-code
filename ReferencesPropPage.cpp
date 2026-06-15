@@ -307,7 +307,7 @@ BOOL CReferencesPropPage::OnApply()
 	GetConfig()->	WriteProfileDouble("References","BT2390WhiteSlopeFactor",m_BT2390_WS);
 	GetConfig()->	WriteProfileDouble("References","BT2390WhiteSlopeFactor1",m_BT2390_WS1);
 	GetConfig()->	WriteProfileDouble("References","TargetSysGammaUser",m_TargetSysGammaUser);
-	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == UHDTV3 || m_colorStandard == UHDTV4 || m_colorStandard == CC6) 
+	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == CC6) 
 	{
 		m_changeWhiteCheckCtrl.EnableWindow(FALSE);
 		m_changeWhiteCheck = FALSE;
@@ -417,7 +417,7 @@ BOOL CReferencesPropPage::OnInitDialog()
 		GetDlgItem(IDC_GAMMA_OFFSET_RADIO10)->EnableWindow(FALSE);
 	}
 	m_GammaAvgEdit.EnableWindow(FALSE);
-	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == UHDTV3 || m_colorStandard == UHDTV4 || m_colorStandard == CC6) 
+	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == CC6) 
 	{
 		m_changeWhiteCheckCtrl.EnableWindow(FALSE);
 		m_changeWhiteCheck = FALSE;
