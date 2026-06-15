@@ -40,7 +40,7 @@ END_MESSAGE_MAP()
 
 // Trim surrounding whitespace from a segment. Labels are kept verbatim
 // (e.g. "Average dE") so localisation is preserved.
-static CString Abbreviate(const CString& strIn)
+static CString TrimSegment(const CString& strIn)
 {
 	CString s(strIn);
 	s.TrimLeft();
@@ -60,7 +60,7 @@ void CStatsBarWnd::AddGroup(const CString& strGroup, BOOL bSplitCommas)
 
 	if (!bSplitCommas)
 	{
-		m_segments.Add(Abbreviate(t));
+		m_segments.Add(TrimSegment(t));
 		return;
 	}
 
@@ -80,7 +80,7 @@ void CStatsBarWnd::AddGroup(const CString& strGroup, BOOL bSplitCommas)
 			piece.TrimLeft();
 			piece.TrimRight();
 			if (!piece.IsEmpty())
-				m_segments.Add(Abbreviate(piece));
+				m_segments.Add(TrimSegment(piece));
 			start = i + 1;
 		}
 	}
@@ -88,7 +88,7 @@ void CStatsBarWnd::AddGroup(const CString& strGroup, BOOL bSplitCommas)
 	last.TrimLeft();
 	last.TrimRight();
 	if (!last.IsEmpty())
-		m_segments.Add(Abbreviate(last));
+		m_segments.Add(TrimSegment(last));
 }
 
 // Parse the verbose summary string into display segments. The string is a
@@ -97,9 +97,12 @@ void CStatsBarWnd::AddGroup(const CString& strGroup, BOOL bSplitCommas)
 //   " ( Average Gamma: 2.36, Contrast: 12345:1 )"
 //   " ( Average dE: 2.02 [0.00,0.56,1.99] max: 3.38 [dCIE76(uv)] )"
 //   " [Absolute Y w/o gamma]"
-// Parenthesised groups are comma-split into separate cells; bracket tags are
-// kept whole. Nested brackets (the [a,b,c] error breakdown, the [form] tag)
-// are handled by tracking depth.
+// It may also carry leading plain text outside any bracket (e.g. the
+// ColorChecker pattern-set name "Classic GCD" in mode 11) -- such a run
+// becomes its own chip. Parenthesised groups are comma-split into separate
+// cells; bracket tags are kept whole. Nested brackets (the [a,b,c] error
+// breakdown, the [form] tag) are handled by tracking depth. Whitespace-only
+// runs between groups trim away and add nothing.
 void CStatsBarWnd::Parse(LPCTSTR lpszText)
 {
 	m_segments.RemoveAll();
@@ -109,11 +112,16 @@ void CStatsBarWnd::Parse(LPCTSTR lpszText)
 	s.TrimRight();
 	int n = s.GetLength();
 	int i = 0;
+	int plainStart = 0;		// start of the current run of non-bracket text
 	while (i < n)
 	{
 		TCHAR c = s[i];
 		if (c == _T('(') || c == _T('['))
 		{
+			// Flush any plain text accumulated before this group as one chip.
+			if (i > plainStart)
+				AddGroup(s.Mid(plainStart, i - plainStart), FALSE);
+
 			BOOL bParen = (c == _T('('));
 			int depth = 0;
 			int start = i + 1;
@@ -133,6 +141,7 @@ void CStatsBarWnd::Parse(LPCTSTR lpszText)
 			CString inner = s.Mid(start, j - start);
 			AddGroup(inner, bParen);
 			i = j + 1;
+			plainStart = i;
 		}
 		else
 		{
@@ -140,9 +149,9 @@ void CStatsBarWnd::Parse(LPCTSTR lpszText)
 		}
 	}
 
-	// Fallback: if the text carried no grouping at all, show it as one cell.
-	if (m_segments.GetSize() == 0 && !s.IsEmpty())
-		m_segments.Add(Abbreviate(s));
+	// Flush any trailing plain text (also covers strings with no brackets).
+	if (n > plainStart)
+		AddGroup(s.Mid(plainStart, n - plainStart), FALSE);
 }
 
 void CStatsBarWnd::SetSegmentedText(LPCTSTR lpszText)
