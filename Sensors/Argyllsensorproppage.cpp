@@ -50,6 +50,7 @@ CArgyllSensorPropPage::CArgyllSensorPropPage() : CPropertyPageWithHelp(CArgyllSe
     m_HiRes = FALSE;
     m_Adapt = FALSE;
     //}}AFX_DATA_INIT
+    m_bNotifyAmbientSwitch = FALSE;
 }
 
 CArgyllSensorPropPage::~CArgyllSensorPropPage()
@@ -85,7 +86,10 @@ void CArgyllSensorPropPage::DoDataExchange(CDataExchange* pDX)
     if ( m_DisplayTypeCombo.GetCount() == 0 && m_ReadingType == 0 && m_MeterName == "X-Rite i1 DisplayPro, ColorMunki Display" )
     {
         m_ReadingType = 2;
-        GetColorApp()->InMeasureMessageBox("Diffuser is deployed, switching to Ambient mode","Wrong mode!",MB_OK);
+        // Defer the modal notification: showing a message box inside DoDataExchange
+        // re-enters the modal loop mid data-transfer (MFC winocc.cpp assert) and can
+        // pop during a measurement. Flag it and notify from OnSetActive instead.
+        m_bNotifyAmbientSwitch = TRUE;
     }
 
     DDX_CBIndex(pDX, IDC_ARGYLLSENSOR_DISPLAYTYPE_COMBO, m_DisplayType);
@@ -128,5 +132,10 @@ BOOL CArgyllSensorPropPage::OnSetActive()
     if (m_SpectralType == "")
         m_SpectralType = "Default";
     BOOL bRet = CPropertyPageWithHelp::OnSetActive();
+    if (bRet && m_bNotifyAmbientSwitch)
+    {
+        m_bNotifyAmbientSwitch = FALSE;
+        GetColorApp()->InMeasureMessageBox("Diffuser is deployed, switching to Ambient mode","Wrong mode!",MB_OK);
+    }
     return bRet;
 }
