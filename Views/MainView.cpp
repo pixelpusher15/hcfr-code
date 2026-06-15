@@ -5132,7 +5132,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-secondaries"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-sat-primaries-secondaries"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESECONDARIES );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
