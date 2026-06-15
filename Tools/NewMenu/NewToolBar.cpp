@@ -57,7 +57,7 @@
 // - work also with 16-bit colored toolbar
 //
 // 12. July 2003 Version 1.0
-// - Thanks to Andreas Schärer for some hints
+// - Thanks to Andreas Schï¿½rer for some hints
 // - It works with IE 4.0 and above
 // - only a minimal implementation not supported all styles
 // - support more than 16 colors for toolbarbitmaps
@@ -75,6 +75,7 @@
 #include "NewMenu.h"
 #include "NewToolBar.h"
 #include "PngIconLoader.h"
+#include "resource.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -99,7 +100,9 @@ CNewToolBar::CNewToolBar()
 : m_ActMenuIndex(-1),
   m_pCustomizeMenu(NULL),
   m_DoCheck(0),
-  m_bPngIcons(FALSE)
+  m_bPngIcons(FALSE),
+  m_nContinuousImageIndex(-1),
+  m_nStopImageIndex(-1)
 {
 }
 
@@ -399,7 +402,7 @@ BOOL CNewToolBar::OnEraseBkgnd(CDC* pDC)
       {
         COLORREF menuColor = CNewMenu::GetMenuBarColor2003();
 
-        // corrections from Andreas Schärer
+        // corrections from Andreas Schï¿½rer
         switch(menuColor)
         {
         case RGB(163,194,245)://blau
@@ -418,7 +421,7 @@ BOOL CNewToolBar::OnEraseBkgnd(CDC* pDC)
             clrDarkLine = RGB(124,124,148);
             break;
           }
-        case RGB(218,218,170)://olivgrün
+        case RGB(218,218,170)://olivgrï¿½n
           {
             clrUpperColor = RGB(244,247,222);
             clrMediumColor = RGB(209,222,172);
@@ -867,6 +870,9 @@ BOOL CNewToolBar::LoadPngImageList()
   if (nButtons <= 0)
     return FALSE;
 
+  m_nContinuousImageIndex = -1;
+  m_nStopImageIndex = -1;
+
   CStringArray files;
   for (int i = 0; i < nButtons; i++)
   {
@@ -879,11 +885,25 @@ BOOL CNewToolBar::LoadPngImageList()
     CString f = HCFR_ResolveToolbarIcon((UINT)tb.idCommand, bDark);
     if (f.IsEmpty())
       return FALSE;
+    if ((UINT)tb.idCommand == IDM_CONTINUOUS_MEASUREMENT)
+      m_nContinuousImageIndex = (int)files.GetSize();
     files.Add(f);
   }
 
   if (files.GetSize() <= 0)
     return FALSE;
+
+  // Append the measure-stop icon as an extra image (beyond the button count) so the
+  // continuous-measure button can swap to it while a measurement runs.
+  if (m_nContinuousImageIndex >= 0)
+  {
+    CString fStop = HCFR_ResolveToolbarIconByName(_T("measure-stop"), bDark);
+    if (!fStop.IsEmpty())
+    {
+      m_nStopImageIndex = (int)files.GetSize();
+      files.Add(fStop);
+    }
+  }
 
   HIMAGELIST hNorm = HCFR_BuildPngImageList(files, m_sizeImage.cx, m_sizeImage.cy, false);
   if (!hNorm)
@@ -913,6 +933,34 @@ void CNewToolBar::ReloadThemeIcons()
     Invalidate();
     UpdateWindow();
   }
+}
+
+BOOL CNewToolBar::SetContinuousMeasuringIcon(BOOL bRunning)
+{
+  if (!m_bPngIcons || m_nContinuousImageIndex < 0 || m_nStopImageIndex < 0)
+    return FALSE;
+
+  CToolBarCtrl& tbc = GetToolBarCtrl();
+  if (!tbc.GetSafeHwnd())
+    return FALSE;
+
+  int nIndex = tbc.CommandToIndex(IDM_CONTINUOUS_MEASUREMENT);
+  if (nIndex < 0)
+    return FALSE;
+
+  int nWant = bRunning ? m_nStopImageIndex : m_nContinuousImageIndex;
+
+  TBBUTTONINFO tbi;
+  ZeroMemory(&tbi, sizeof(tbi));
+  tbi.cbSize = sizeof(tbi);
+  tbi.dwMask = TBIF_IMAGE;
+  if (tbc.GetButtonInfo(IDM_CONTINUOUS_MEASUREMENT, &tbi) >= 0 && tbi.iImage == nWant)
+    return FALSE; // already correct, avoid needless repaint
+
+  tbi.dwMask = TBIF_IMAGE;
+  tbi.iImage = nWant;
+  tbc.SetButtonInfo(IDM_CONTINUOUS_MEASUREMENT, &tbi);
+  return TRUE;
 }
 
 BOOL CNewToolBar::LoadToolBar(LPCTSTR lpszResourceName)
