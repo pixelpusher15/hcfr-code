@@ -207,6 +207,20 @@ CString HCFR_ResolveToolbarIcon(UINT nCmdId, bool bDark)
   return ResolveIn(nCmdId, bDark, _T("toolbar"));
 }
 
+CString HCFR_ResolveToolbarIconByName(LPCTSTR pszName, bool bDark)
+{
+  CString base = ExeDir() + _T("res\\images\\toolbar\\");
+  CString primary = base + (bDark ? _T("dark\\") : _T("light\\")) + pszName + _T(".png");
+  if (FileThere(primary))
+    return primary;
+
+  CString other = base + (bDark ? _T("light\\") : _T("dark\\")) + pszName + _T(".png");
+  if (FileThere(other))
+    return other;
+
+  return CString();
+}
+
 HICON HCFR_LoadPngHIcon(LPCTSTR pszSet, LPCTSTR pszName, bool bDark, int w, int h)
 {
   if (w <= 0 || h <= 0)

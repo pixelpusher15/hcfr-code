@@ -48,6 +48,10 @@ public:
   BOOL LoadPngImageList();
   // Rebuild the PNG icons for the current theme (used on a live theme switch).
   void ReloadThemeIcons();
+  // Swap the continuous-measure button between its normal icon and the appended
+  // measure-stop icon while a measurement runs. No-op unless PNG icons are active
+  // and both image indices resolved. Returns TRUE if it changed the button image.
+  BOOL SetContinuousMeasuringIcon(BOOL bRunning);
 
   bool InsertControl (int nIndex, CWnd* pControl, DWORD_PTR dwData=NULL);
 
@@ -119,6 +123,8 @@ private:
   CMenu* m_pCustomizeMenu;
   DWORD m_DoCheck;
   BOOL m_bPngIcons;   // TRUE once LoadPngImageList installed alpha PNG icons
+  int  m_nContinuousImageIndex; // PNG image-list index of the continuous-measure button (-1 if none)
+  int  m_nStopImageIndex;       // PNG image-list index of the appended measure-stop icon (-1 if none)
 };
 
 #endif //__CNewToolBar_H_ 

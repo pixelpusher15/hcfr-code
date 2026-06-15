@@ -262,7 +262,7 @@ BOOL CColorHCFRApp::InitInstance()
 	int		px = ( GetSystemMetrics(SM_CXSCREEN) - cx ) / 2;
 	int		py = ( GetSystemMetrics(SM_CYSCREEN) - cy ) / 2;
 
-	SplashWnd.CreateEx ( WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+	SplashWnd.CreateEx ( WS_EX_LAYERED | WS_EX_TOOLWINDOW,
 		AfxRegisterWndClass(0,NULL,NULL,NULL), NULL, WS_POPUP,
 		px, py, cx, cy, NULL, 0 );
 

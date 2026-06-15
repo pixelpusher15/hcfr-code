@@ -67,6 +67,7 @@ public:
     //}}AFX_DATA
     
     CArgyllSensor* m_pSensor;
+    BOOL       m_bNotifyAmbientSwitch;
 
     virtual UINT GetHelpId ( LPSTR lpszTopic );
 
