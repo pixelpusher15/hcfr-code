@@ -3798,12 +3798,29 @@ void CMainView::UpdateGrid()
 			UpdateContrastValuesInGrid ();
 
 		
+		BOOL bHasMeas = FALSE;
+		switch ( m_displayMode )
+		{
+		case 0: case 3: case 4: bHasMeas = GetDocument()->GetMeasure()->GetGray(0).isValid(); break;
+		case 1: bHasMeas = GetDocument()->GetMeasure()->GetRedPrimary().isValid(); break;
+		case 5: bHasMeas = GetDocument()->GetMeasure()->GetRedSat(0).isValid(); break;
+		case 6: bHasMeas = GetDocument()->GetMeasure()->GetGreenSat(0).isValid(); break;
+		case 7: bHasMeas = GetDocument()->GetMeasure()->GetBlueSat(0).isValid(); break;
+		case 8: bHasMeas = GetDocument()->GetMeasure()->GetYellowSat(0).isValid(); break;
+		case 9: bHasMeas = GetDocument()->GetMeasure()->GetCyanSat(0).isValid(); break;
+		case 10: bHasMeas = GetDocument()->GetMeasure()->GetMagentaSat(0).isValid(); break;
+		case 11: bHasMeas = GetDocument()->GetMeasure()->GetCC24Sat(0).isValid(); break;
+		}
+		if ( ! bHasMeas )
+		{
+			dEavg = 0.0; dLavg = 0.0; dCavg = 0.0; dHavg = 0.0; dEmax = 0.0; dEcnt = 0;
+		}
+		int dEcntSafe = ( dEcnt > 0 ) ? dEcnt : 1;
 		if ( m_displayMode == 0 || m_displayMode == 3 || m_displayMode == 4)
 		{
 			// Gray scale mode: update group box title
 			CString	Msg="", Tmp;
 
-			if (GetDocument()->GetMeasure()->GetGray(0).isValid())
 			{
 				char	szBuf [ 256 ];
 
@@ -3812,36 +3829,38 @@ void CMainView::UpdateGrid()
     				Tmp.LoadString ( IDS_GAMMAAVERAGE );
 	    			Msg += " ( ";
 		    		Msg += Tmp;
-			    	sprintf ( szBuf, ": %.2f, ", Gamma );
+			    	sprintf ( szBuf, ": %.2f, ", bHasMeas ? Gamma : 0.0 );
 				    Msg += szBuf;					
 				    Tmp.LoadString ( IDS_CONTRAST );
 				    Msg += Tmp;
-				    if ( GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] > 0.0001 )
+				    if ( GetDocument()->GetMeasure()->GetGray(0).isValid() && GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] > 0.0001 )
 				    {
 					    sprintf ( szBuf, ": %.0f:1 )", GetDocument()->GetMeasure()->GetOnOffWhite()[1] / GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] );
 					    Msg += szBuf;
 				    }
-					else if ( GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] == 0 )
+					else if ( GetDocument()->GetMeasure()->GetGray(0).isValid() && GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] == 0 )
 					{
 					    sprintf ( szBuf, ": %s:1 )", "Infinity" );
 					    Msg += szBuf;
 					}
 				    else
 				    {
-					    Msg += ": ???:1 )";
+					    Msg += ": 0:1 )";
 				    }
                 }
 
    			    if ( dEcnt > 0 )
 				{
-					dEavg_gs = dEavg / dEcnt;
+					dEavg_gs = dEavg / dEcntSafe;
 					dEmax_gs = dEmax;
+				}
+				{
 					CString dEform;
                     float a=2.0,b=3.0;
 					Tmp.LoadString ( IDS_DELTAEAVERAGE );
 					Msg += " ( ";
 					Msg += Tmp;
-					sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f", dEavg / dEcnt, dLavg / dEcnt, dCavg / dEcnt, dHavg / dEcnt, dEmax  );
+					sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f", dEavg / dEcntSafe, dLavg / dEcntSafe, dCavg / dEcntSafe, dHavg / dEcntSafe, dEmax  );
 					Msg += szBuf;
 					switch (GetConfig()->m_dE_form)
 					{
@@ -3899,15 +3918,14 @@ void CMainView::UpdateGrid()
 			CString	Msg="", Tmp;
 //			Msg.LoadString ( IDS_SECONDARYCOLORS );
 			m_grayScaleGroup.SetText ( Msg );
-			if (GetDocument()->GetMeasure()->GetRedPrimary().isValid() && dEcnt > 0 )
-		    {
+			{
 				char	szBuf [ 256 ];
 				CString dEform;
 				float a=2.0, b=3;
 				Tmp.LoadString ( IDS_DELTAEAVERAGE );
 				Msg += " ( ";
 				Msg += Tmp;
-				sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f", dEavg / dEcnt, dLavg / dEcnt, dCavg / dEcnt, dHavg / dEcnt, dEmax  );
+				sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f", dEavg / dEcntSafe, dLavg / dEcntSafe, dCavg / dEcntSafe, dHavg / dEcntSafe, dEmax  );
 				Msg += szBuf;					
 					switch (GetConfig()->m_dE_form)
 					{
@@ -3959,32 +3977,32 @@ void CMainView::UpdateGrid()
 			CString	Msg="", Tmp;;
 //			Msg.LoadString ( IDS_SATURATIONCOLORS );
 			m_grayScaleGroup.SetText ( Msg );
-			if (GetDocument()->GetMeasure()->GetRedSat(0).isValid() && dEcnt > 0 )
-		    {
+			{
+				if ( dEcnt > 0 )
 				switch(m_displayMode)
 				{
 				case 5:
-					dEavg_sr = dEavg / dEcnt;
+					dEavg_sr = dEavg / dEcntSafe;
 					dEmax_sr = dEmax;
 					break;
 				case 6:
-					dEavg_sg = dEavg / dEcnt;
+					dEavg_sg = dEavg / dEcntSafe;
 					dEmax_sg = dEmax;
 					break;
 				case 7:
-					dEavg_sb = dEavg / dEcnt;
+					dEavg_sb = dEavg / dEcntSafe;
 					dEmax_sb = dEmax;
 					break;
 				case 8:
-					dEavg_sy = dEavg / dEcnt;
+					dEavg_sy = dEavg / dEcntSafe;
 					dEmax_sy = dEmax;
 					break;
 				case 9:
-					dEavg_sc = dEavg / dEcnt;
+					dEavg_sc = dEavg / dEcntSafe;
 					dEmax_sc = dEmax;
 					break;
 				case 10:
-					dEavg_sm = dEavg / dEcnt;
+					dEavg_sm = dEavg / dEcntSafe;
 					dEmax_sm = dEmax;
 					break;
 				}
@@ -3994,7 +4012,7 @@ void CMainView::UpdateGrid()
 				Tmp.LoadString ( IDS_DELTAEAVERAGE );
 				Msg += " ( ";
 				Msg += Tmp;
-				sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f", dEavg / dEcnt, dLavg / dEcnt, dCavg / dEcnt, dHavg / dEcnt, dEmax  );
+				sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f", dEavg / dEcntSafe, dLavg / dEcntSafe, dCavg / dEcntSafe, dHavg / dEcntSafe, dEmax  );
 				Msg += szBuf;					
 					switch (GetConfig()->m_dE_form)
 					{
@@ -4048,17 +4066,19 @@ void CMainView::UpdateGrid()
 			isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
 			Msg += (GetConfig()->m_CCMode == GCD?"Classic GCD":(GetConfig()->m_CCMode==MCD?"Classic MCD":(GetConfig()->m_CCMode==SKIN?"Pantone skin tones":(GetConfig()->m_CCMode==CCSG?"CalMan SG":isExtPat?GetConfig()->GetCColorsN(-1).c_str():(GetConfig()->m_CCMode==CMS?"CalMAN SG skin tones":(GetConfig()->m_CCMode==CPS?"ChromaPure skin tones":(GetConfig()->m_CCMode==CMC?"Classic CalMAN":"RGB Luminance Ramps")))))));
 			m_grayScaleGroup.SetText ( Msg );
-			if (GetDocument()->GetMeasure()->GetCC24Sat(0).isValid() && dEcnt > 0 )
-		    {
+			{
 				char	szBuf [ 256 ];
 				CString dEform;
-				dEavg_cc = dEavg / dEcnt;
-				dEmax_cc = dEmax;
+				if ( dEcnt > 0 )
+				{
+					dEavg_cc = dEavg / dEcntSafe;
+					dEmax_cc = dEmax;
+				}
 				float a = 2.0, b = 3;
 				Tmp.LoadString ( IDS_DELTAEAVERAGE );
 				Msg += " ( ";
 				Msg += Tmp;
-				if (GetConfig()->GetCColorsSize() >= 96 )
+				if ( dEcnt > 0 && GetConfig()->GetCColorsSize() >= 96 )
                 {
                     vector<double>::iterator max;
                     max = max_element( dEvector.begin(), dEvector.end() );
@@ -4075,14 +4095,14 @@ void CMainView::UpdateGrid()
 					dEmax_cc = maxv;
 
 					if (GetConfig()->m_CCMode == CCSG )
-        				sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f[%s], worst 10%%: %.2f", dEavg / dEcnt, dLavg / dEcnt, dCavg / dEcnt, dHavg / dEcnt, maxv, PatName[pos], dE10 );
+        				sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f[%s], worst 10%%: %.2f", dEavg / dEcntSafe, dLavg / dEcntSafe, dCavg / dEcntSafe, dHavg / dEcntSafe, maxv, PatName[pos], dE10 );
                     else
-        				sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f[%s], worst 10%%: %.2f", dEavg / dEcnt, dLavg / dEcnt, dCavg / dEcnt, dHavg / dEcnt, maxv, aBuf, dE10 );
+        				sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f[%s], worst 10%%: %.2f", dEavg / dEcntSafe, dLavg / dEcntSafe, dCavg / dEcntSafe, dHavg / dEcntSafe, maxv, aBuf, dE10 );
                 }
                 else
 				{
 					dE10min=0.;
-    				sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f", dEavg / dEcnt, dLavg / dEcnt, dCavg / dEcnt, dHavg / dEcnt, dEmax);
+    				sprintf ( szBuf, ": %.2f [%.2f,%.2f,%.2f] max: %.2f", dEavg / dEcntSafe, dLavg / dEcntSafe, dCavg / dEcntSafe, dHavg / dEcntSafe, dEmax);
 				}
                     dEvector.clear();
                     dLvector.clear();

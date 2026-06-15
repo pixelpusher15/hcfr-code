@@ -38,16 +38,13 @@ END_MESSAGE_MAP()
 /////////////////////////////////////////////////////////////////////////////
 // CStatsBarWnd message handlers
 
-// Trim a leading "Average " to "Avg " (English) so the bar reads compactly,
-// matching the mock-up. Localised labels (which do not start with "Average")
-// are left untouched.
+// Trim surrounding whitespace from a segment. Labels are kept verbatim
+// (e.g. "Average dE") so localisation is preserved.
 static CString Abbreviate(const CString& strIn)
 {
 	CString s(strIn);
 	s.TrimLeft();
 	s.TrimRight();
-	if (s.Left(8) == _T("Average "))
-		s = _T("Avg ") + s.Mid(8);
 	return s;
 }
 
