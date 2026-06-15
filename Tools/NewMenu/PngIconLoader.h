@@ -13,6 +13,11 @@
 // Returns an empty CString when the command has no mapping or no file exists.
 CString HCFR_ResolveToolbarIcon(UINT nCmdId, bool bDark);
 
+// Resolve a toolbar icon by base filename (no extension, no command mapping),
+// e.g. _T("measure-stop"). Same theme-folder preference/fallback as above.
+// Returns an empty CString when no file exists.
+CString HCFR_ResolveToolbarIconByName(LPCTSTR pszName, bool bDark);
+
 // Load a themed PNG (res\images\<set>\<theme>\<name>.png, with fallback to the
 // other theme) as an alpha HICON scaled to w x h. Returns NULL if not found.
 // Caller passes it to CButtonST::SetIcon, which takes ownership.

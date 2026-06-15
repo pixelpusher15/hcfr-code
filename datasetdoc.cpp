@@ -4117,7 +4117,7 @@ void CDataSetDoc::OnUpdateContinuousMeasurement(CCmdUI* pCmdUI)
 	if ( pToolBar && pToolBar -> m_hWnd )
 	{
 		pToolBar -> GetButtonInfo ( pCmdUI -> m_nIndex, nID, nStyle, iImage );
-		pToolBar -> SetButtonInfo ( pCmdUI -> m_nIndex, nID, nStyle, bRunning ? 6: 5 );
+		{ CNewToolBar * pNewTB = DYNAMIC_DOWNCAST ( CNewToolBar, pToolBar ); if ( ! ( pNewTB && pNewTB -> SetContinuousMeasuringIcon ( bRunning ) ) ) pToolBar -> SetButtonInfo ( pCmdUI -> m_nIndex, nID, nStyle, bRunning ? 6: 5 ); }
 	}
 }
 
