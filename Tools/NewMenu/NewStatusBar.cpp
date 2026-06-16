@@ -257,8 +257,12 @@ void CNewStatusBar::Drawpanels(CDC* pDC)
     break;
 
   default:
+    // Flat neutral grey pane border. COLOR_BTNHIGHLIGHT maps to the blue
+    // selection colour in the dark palette, which gave the status-bar panes a
+    // blue bottom/right edge; use the shadow colour for both edges so the
+    // border stays grey in both themes.
     color1 = FxGetSysColor(COLOR_BTNSHADOW);
-    color2 = FxGetSysColor(COLOR_BTNHIGHLIGHT);
+    color2 = color1;
     break;
   }
 
