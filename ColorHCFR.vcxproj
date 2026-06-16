@@ -1081,6 +1081,9 @@
     </ItemGroup>
     <Copy SourceFiles="@(ToolbarIconFiles)" DestinationFiles="@(ToolbarIconFiles-&gt;'$(OutDir)res\images\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
+  <Target Name="CopyPiGenerator" AfterTargets="Build">
+    <Copy SourceFiles="$(ProjectDir)Tools\pi\RB8PGenerator.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
   <ProjectExtensions>
     <VisualStudio>
       <UserProperties RESOURCE_FILE="ColorHCFR.rc" />
