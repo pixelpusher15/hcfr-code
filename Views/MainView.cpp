@@ -699,6 +699,45 @@ void CMainView::OnInitialUpdate()
 	m_OriginalRect.bottom = m_InitialWindowSize.y;
 	m_bPositionsInit = TRUE;
 
+	// Open a few px of breathing room between the Sensor / Generator /
+	// Parameters panels in the top row (they abut edge-to-edge in the dialog
+	// template). The Sensor/Generator/Parameters panels are right-anchored
+	// fixed-width and "View" is the stretchy filler, so shift the panels (and
+	// their children) left to open the gaps without overflowing the right edge.
+	{
+		const int GAP = 4;
+		POSITION gapPos = m_CtrlInitPos.GetHeadPosition();
+		while ( gapPos )
+		{
+			SCtrlInitPos * pGap = (SCtrlInitPos *) m_CtrlInitPos.GetNext( gapPos );
+			int gapId = ::GetDlgCtrlID( pGap->m_hWnd );
+			int shift = 0;
+			switch ( gapId )
+			{
+			case IDC_SENSOR_GROUP:
+			case IDC_SENSORNAME_STATIC:
+			case IDC_SENSORNAME_STATIC2:
+			case IDM_CONFIGURE_SENSOR:
+			case IDM_CONFIGURE_SENSOR2:
+				shift = 2 * GAP;
+				break;
+			case IDC_GENERATOR_GROUP:
+			case IDC_GENERATORNAME_STATIC:
+			case IDM_CONFIGURE_GENERATOR:
+				shift = GAP;
+				break;
+			case IDC_PARAM_GROUP:
+				pGap->m_Rect.right -= 2 * GAP;
+				break;
+			}
+			if ( shift )
+			{
+				pGap->m_Rect.left  -= shift;
+				pGap->m_Rect.right -= shift;
+			}
+		}
+	}
+
 	{
 		const int HEADER_H = 38;
 		CRect rcGroup( 0, 0, 0, 0 );
@@ -5954,16 +5993,16 @@ void CMainView::InitButtons()
 	m_tooltip.Create(this);	
 	m_tooltip.SetBehaviour(PPTOOLTIP_CLOSE_LEAVEWND);
 	m_tooltip.SetNotify(TRUE);
-	m_tooltip.SetBorder(::CreateSolidBrush(RGB(212,175,55)),1,1);
+	m_tooltip.SetBorder(::CreateSolidBrush(RGB(96,96,96)),1,1);
 	GetDlgItem( IDC_INFOLINE )->SetWindowTextA(m_infoLine);
 
 	CWnd * pWnd = GetDlgItem(IDC_INFOLINE);
 	pWnd = GetDlgItem(IDC_CCOMP3);
 
 	m_tooltip.AddTool(pWnd, m_infoLine);
-	m_tooltip.SetColorBk(RGB(255,165,0),RGB(0,128,128));
-	m_tooltip.SetEffectBk(CPPDrawManager::EFFECT_HGRADIENT);
-	m_tooltip.SetBorder(::CreateSolidBrush(RGB(212,175,55)),1,1);
+	m_tooltip.SetColorBk(RGB(238,238,238),RGB(238,238,238));
+	m_tooltip.SetEffectBk(CPPDrawManager::EFFECT_SOLID);
+	m_tooltip.SetBorder(::CreateSolidBrush(RGB(96,96,96)),1,1);
 
 	m_tooltip2.Create(this);	
 	m_tooltip2.SetBehaviour(PPTOOLTIP_CLOSE_LEAVEWND);
@@ -5972,7 +6011,7 @@ void CMainView::InitButtons()
 	m_tooltip2.AddTool(pWnd, "Color Comparator\n____________________________________________\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
 	m_tooltip2.SetColorBk(RGB(110,110,110),RGB(128,128,128));
 	m_tooltip2.SetEffectBk(CPPDrawManager::EFFECT_SOLID);
-	m_tooltip2.SetBorder(::CreateSolidBrush(RGB(212,175,55)),1,1);
+	m_tooltip2.SetBorder(::CreateSolidBrush(RGB(96,96,96)),1,1);
 	m_tooltip.SetFont(&line_Font);
 	m_tooltip2.SetFont(&line_Font);
 	}
