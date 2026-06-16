@@ -145,6 +145,17 @@ void CMainFrame::RefreshToolbarIcons()
 	m_wndToolBarMeasuresSat.ReloadThemeIcons();
 	if(!m_DefaultNewMenu.LoadPngMenuIcons(16, 16, (GetConfig() && GetConfig()->m_darkTheme) != FALSE))
 		m_DefaultNewMenu.LoadToolBar(IDR_MENUBARGRAPH);
+	BOOL bDarkRT = (GetConfig() && GetConfig()->m_darkTheme) != FALSE;
+	POSITION posRT = AfxGetApp()->GetFirstDocTemplatePosition();
+	while(posRT)
+	{
+		CNewMultiDocTemplate* pNT = DYNAMIC_DOWNCAST(CNewMultiDocTemplate, AfxGetApp()->GetNextDocTemplate(posRT));
+		if(pNT)
+		{
+			if(!pNT->m_NewMenuShared.LoadPngMenuIcons(16, 16, bDarkRT))
+				pNT->m_NewMenuShared.LoadToolBar(IDR_MENUBARGRAPH);
+		}
+	}
 	m_wndMenuBar.Invalidate();
 }
 
