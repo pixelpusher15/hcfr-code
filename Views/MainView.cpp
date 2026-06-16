@@ -934,7 +934,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			Item.row = 2;
 			m_pSelectedColorGrid->SetItem(&Item);
 		}
-		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 
         AddColorToGrid(m_SelectedColor.GetXYZValue(), Item, "%.2f");
         AddColorToGrid(m_SelectedColor.GetRGBValue(bRef), Item, "%.2f");
@@ -1053,7 +1053,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		t_color=RGB(25,50,75);
 		ColorRGB ref(.5,.5,.5);
 		ColorRGB meas(0.5,0.5,0.5);
-		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 		CColor White = GetDocument()->GetMeasure()->GetOnOffWhite();
 		CColor Black = GetDocument()->GetMeasure()->GetOnOffBlack();
 		int mode = GetConfig()->m_GammaOffsetType;
@@ -1071,7 +1071,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			ref = ColorRGB(m_RefColor.GetRGBValue(bRef));
 			if (mode == 5)
 			{
-				double Yref = ((m_displayMode==0||m_displayMode==3||m_displayMode==4||m_displayMode==12)?(GetConfig()->m_useToneMap?((GetConfig()->m_DiffuseL/94.37844) /(GetConfig()->m_TargetMaxL/10000.)):tmWhite/(GetConfig()->m_TargetMaxL/10000.)):(m_displayMode == 1 && !(GetConfig()->m_colorStandard==UHDTV2||GetConfig()->m_colorStandard==UHDTV3))?(m_RefWhite * 10000./94.37844):(m_RefWhite * 10000./94.37844*tmWhite));
+				double Yref = ((m_displayMode==0||m_displayMode==3||m_displayMode==4||m_displayMode==12)?(GetConfig()->m_useToneMap?((GetConfig()->m_DiffuseL/94.37844) /(GetConfig()->m_TargetMaxL/10000.)):tmWhite/(GetConfig()->m_TargetMaxL/10000.)):(m_displayMode == 1 && !(GetConfig()->m_colorStandard==UHDTV2||GetConfig()->m_colorStandard==UHDTV3||GetConfig()->m_colorStandard==UHDTV4))?(m_RefWhite * 10000./94.37844):(m_RefWhite * 10000./94.37844*tmWhite));
 				m_ref_rd = min(max(ref[0]/Yref,0),1);
 				m_ref_gd = min(max(ref[1]/Yref,0),1);
 				m_ref_bd = min(max(ref[2]/Yref,0),1);
@@ -1143,7 +1143,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 
 				if (mode == 5)
 				{
-					double Yref = ((m_displayMode==0||m_displayMode==3||m_displayMode==4||m_displayMode==12)?(GetConfig()->m_useToneMap?10000.*(GetConfig()->m_DiffuseL/94.37844):tmWhite*10000.):(m_displayMode == 1 && !(GetConfig()->m_colorStandard==UHDTV2||GetConfig()->m_colorStandard==UHDTV3))?(m_YWhite * 10000./94.37844):(m_YWhite * 10000./94.37844*tmWhite));
+					double Yref = ((m_displayMode==0||m_displayMode==3||m_displayMode==4||m_displayMode==12)?(GetConfig()->m_useToneMap?10000.*(GetConfig()->m_DiffuseL/94.37844):tmWhite*10000.):(m_displayMode == 1 && !(GetConfig()->m_colorStandard==UHDTV2||GetConfig()->m_colorStandard==UHDTV3||GetConfig()->m_colorStandard==UHDTV4))?(m_YWhite * 10000./94.37844):(m_YWhite * 10000./94.37844*tmWhite));
 					m_meas_r = min(max(meas[0]/Yref,0),1);
 					m_meas_g = min(max(meas[1]/Yref,0),1);
 					m_meas_b = min(max(meas[2]/Yref,0),1);
@@ -2387,7 +2387,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 	BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 && (m_displayMode == 1 || m_displayMode >= 5 && m_displayMode <= 11) );
 	//Special case White redefined on Mascior disk to level 502 50.0% 92.254965 nits
 	BOOL DVD = (GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual);
-	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 	
 	if(aMeasure.isValid() || ( aComponentNum == 7 || ( aComponentNum == 5 && ( GetDataRef() == NULL || GetDataRef() == GetDocument () ) ) ))
 	{
@@ -2492,7 +2492,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 							tmWhite = getL_EOTF(0.50, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
 							if (m_displayMode == 1)
 							{
-								if ( (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || nCol == 7) ) //fix for P3/Mascior
+								if ( (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7) ) //fix for P3/Mascior
 									RefWhite = YWhite / (!shiftDiffuse?92.254965:tmWhite);
 								else
 								{
@@ -2515,7 +2515,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						{
 							if (m_displayMode == 1)
 							{
-								if (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || nCol == 7)
+								if (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7)
 									RefWhite = YWhite / (tmWhite) ;
 								else
 								{
@@ -2536,7 +2536,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						}
 					}
 
-					CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+					CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 
 					str.Format("%.1f",aMeasure.GetDeltaE ( YWhite, aReference, RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->m_GammaOffsetType == 5?3:GetConfig()->gw_Weight ) );
 					dE=aMeasure.GetDeltaE ( YWhite, aReference, RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->m_GammaOffsetType == 5?3:GetConfig()->gw_Weight );
@@ -2778,7 +2778,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					else
 					{
 						if (m_displayMode == 1)
-							if (GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV || nCol == 7)
+							if (GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 || nCol == 7)
 								white.SetY(tmWhite);
 							else
 								white.SetY(94.37844);
@@ -3060,7 +3060,7 @@ void CMainView::UpdateGrid()
 		Item.mask = GVIF_TEXT|GVIF_FORMAT;
 		Item.nFormat = DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX;
 		bool isHDR = GetConfig()->m_GammaOffsetType == 5;
-		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 		GetConfig()->WriteProfileInt("MainView","Chart Display",m_displayMode);
 
 
@@ -4249,7 +4249,7 @@ void CMainView::OnGrayScaleGridBeginEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 
 	// Get document XYZ value
 	CColor aColorMeasure;
-	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 	
 	switch ( m_displayMode )
 	{
@@ -4407,7 +4407,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 	CString aNewStr=m_pGrayScaleGrid->GetItemText(pItem->iRow,pItem->iColumn);
 	aNewStr.Replace(",",".");	// replace decimal separator if necessary
  	double aVal;
-	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 	BOOL bAcceptChange = !aNewStr.IsEmpty() && sscanf(aNewStr,"%lf",&aVal) && (m_displayType != HCFR_xyz2_VIEW);
 	if(bAcceptChange)	// update value in document
 	{
@@ -5552,7 +5552,7 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 	double YWhiteRefDoc = -1;
 	double			Gamma,Offset = 0.0;
 	int nCount = GetDocument()->GetMeasure()->GetGrayScaleSize();
-	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 
 	// Retrieve gamma and offset in case user has modified
     Gamma = GetConfig()->m_GammaRef;
