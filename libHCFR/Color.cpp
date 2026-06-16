@@ -908,6 +908,43 @@ CColorReference GetStandardColorReference(ColorStandard aColorStandard)
 	return aStandardRef;
 }
 
+static CColorReference WithWhiteOf(ColorStandard aStandard, const CColorReference& active)
+{
+	if (active.m_white == DCUST)
+		return CColorReference(aStandard, DCUST, -1, " modified", active.GetWhite());
+	if (active.m_white != D65 && active.m_white != Default)
+		return CColorReference(aStandard, active.m_white);
+	return CColorReference(aStandard);
+}
+
+CColorReference ContainerInnerReference(const CColorReference& active)
+{
+	if (active.m_standard == UHDTV3) return WithWhiteOf(UHDTV, active);
+	if (active.m_standard == UHDTV4) return WithWhiteOf(HDTV, active);
+	return active;
+}
+
+CColorReference ContainerTransportReference(const CColorReference& active)
+{
+	if (active.m_standard == UHDTV3 || active.m_standard == UHDTV4) return WithWhiteOf(UHDTV2, active);
+	return active;
+}
+
+ColorRGB ContainerPrimaryLinear(const CColorReference& active, int index)
+{
+	CColorReference inner = ContainerInnerReference(active);
+	CColorReference transport = ContainerTransportReference(active);
+	ColorXYZ xyz;
+	if (index == 0) xyz = inner.GetRed();
+	else if (index == 1) xyz = inner.GetGreen();
+	else if (index == 2) xyz = inner.GetBlue();
+	else if (index == 3) xyz = inner.GetYellow();
+	else if (index == 4) xyz = inner.GetCyan();
+	else if (index == 5) xyz = inner.GetMagenta();
+	else xyz = inner.GetWhite();
+	return ColorRGB(xyz, transport);
+}
+
 void CColorReference::UpdateSecondary ( ColorXYZ & secondary, const ColorXYZ& primary1, const ColorXYZ& primary2, const ColorXYZ& primaryOpposite )
 {
 	// Compute intersection between line (primary1-primary2) and line (primaryOpposite-white)
@@ -3345,7 +3382,7 @@ void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDi
 	//use fully saturated space if user has special color space modes set
 	//UHDTV pseudo-spaces XYZ is set in original space and mapped to BT.2020
 	int m_cRef=colorReference.m_standard;
-	CColorReference cRef=((m_cRef==HDTVa  || m_cRef==HDTVb || m_cRef==UHDTV4 )?CColorReference(HDTV):m_cRef==UHDTV3?CColorReference(UHDTV):colorReference);
+	CColorReference cRef=((m_cRef==HDTVa  || m_cRef==HDTVb)?CColorReference(HDTV):ContainerInnerReference(colorReference));
 
 	// Retrieve color luminance coefficients matching actual reference
     const double KR = cRef.GetRedReferenceLuma (true);  
@@ -3431,9 +3468,9 @@ void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDi
 		if (m_cRef == UHDTV3 || m_cRef == UHDTV4)
 		{
 			if (m_cRef == UHDTV3)
-				aColor.SetRGBValue(rgbColor, CColorReference(UHDTV));
+				aColor.SetRGBValue(rgbColor, ContainerInnerReference(colorReference));
 			else
-				aColor.SetRGBValue(rgbColor, CColorReference(HDTV));
+				aColor.SetRGBValue(rgbColor, ContainerInnerReference(colorReference));
 
 			if (mode == 5)
 			{
@@ -3441,7 +3478,7 @@ void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDi
 				aColor.SetY(aColor.GetY() / m_HDRRefLevel );
 				aColor.SetZ(aColor.GetZ() / m_HDRRefLevel );
 			}
-			rgbColor = aColor.GetRGBValue(CColorReference(UHDTV2));
+			rgbColor = aColor.GetRGBValue(ContainerTransportReference(colorReference));
 		}
 		else
 		{
