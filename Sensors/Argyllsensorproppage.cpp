@@ -51,6 +51,9 @@ CArgyllSensorPropPage::CArgyllSensorPropPage() : CPropertyPageWithHelp(CArgyllSe
     m_Adapt = FALSE;
     //}}AFX_DATA_INIT
     m_bNotifyAmbientSwitch = FALSE;
+    m_DisableAIO = FALSE;
+    m_AIOEnabled = FALSE;
+    m_bAdaptCreated = FALSE;
 }
 
 CArgyllSensorPropPage::~CArgyllSensorPropPage()
@@ -80,7 +83,11 @@ void CArgyllSensorPropPage::DoDataExchange(CDataExchange* pDX)
     m_IntTypeCombo.EnableWindow(m_intTimeEnabled);
 
     m_HiResCheckBox.EnableWindow(m_HiResCheckBoxEnabled);
-    m_AdaptCheckBox.EnableWindow(FALSE);
+    // m_AdaptCheckBox is created programmatically in OnInitDialog; guard against
+    // a NULL HWND here (this exchange also runs during base OnInitDialog, before
+    // the control exists).
+    if (::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
+        m_AdaptCheckBox.EnableWindow(m_AIOEnabled);
 	m_HiRes = (m_HiResCheckBoxEnabled?m_HiRes:0);
 
     if ( m_DisplayTypeCombo.GetCount() == 0 && m_ReadingType == 0 && m_MeterName == "X-Rite i1 DisplayPro, ColorMunki Display" )
@@ -99,7 +106,11 @@ void CArgyllSensorPropPage::DoDataExchange(CDataExchange* pDX)
     DDX_Text(pDX, IDC_ARGYLLSENSOR_METER_NAME, m_MeterName);
     DDX_Check(pDX, IDC_ARGYLL_SENSOR_DEBUG_CB, m_DebugMode);
     DDX_Check(pDX, IDC_ARGYLL_SENSOR_HIRES, m_HiRes);
-//    DDX_Check(pDX, IDC_ARGYLL_SENSOR_ADAPT, m_Adapt);
+
+    // The "Disable AIO" checkbox is created programmatically (see OnInitDialog),
+    // so transfer its state by hand rather than via a resource-bound DDX_Check.
+    if (pDX->m_bSaveAndValidate && ::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
+        m_DisableAIO = (m_AdaptCheckBox.GetCheck() == BST_CHECKED);
 }
 
 
@@ -136,6 +147,35 @@ BOOL CArgyllSensorPropPage::OnSetActive()
     {
         m_bNotifyAmbientSwitch = FALSE;
         GetColorApp()->InMeasureMessageBox("Diffuser is deployed, switching to Ambient mode","Wrong mode!",MB_OK);
+    }
+    return bRet;
+}
+
+BOOL CArgyllSensorPropPage::OnInitDialog()
+{
+    BOOL bRet = CPropertyPageWithHelp::OnInitDialog();
+
+    // Create the "Disable AIO" checkbox programmatically. The dialog template
+    // lives in the active language resource DLL (which may not be rebuilt for
+    // every language), so we add the control at runtime instead. It is placed in
+    // the free area to the right of the Hi-Res checkbox, inside the Configuration
+    // group. Coordinates are in dialog units, mapped to pixels for the DPI.
+    if (!m_bAdaptCreated)
+    {
+        CRect rc(114, 86, 166, 106);    // dlu: right of Hi-Res, left of Integration Time
+        MapDialogRect(&rc);
+        if (m_AdaptCheckBox.Create(_T("Disable Rev. B AIO"),
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,
+                rc, this, IDC_ARGYLL_SENSOR_ADAPT))
+        {
+            m_AdaptCheckBox.SetFont(GetFont());
+            m_bAdaptCreated = TRUE;
+        }
+    }
+    if (::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
+    {
+        m_AdaptCheckBox.SetCheck(m_DisableAIO ? BST_CHECKED : BST_UNCHECKED);
+        m_AdaptCheckBox.EnableWindow(m_AIOEnabled);
     }
     return bRet;
 }

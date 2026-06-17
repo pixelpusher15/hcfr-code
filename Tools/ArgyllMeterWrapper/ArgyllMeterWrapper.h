@@ -122,6 +122,9 @@ public:
     /// Enable/Disable adaptive averaging
     bool setAdaptMode();
 
+    /// Enable/Disable Rev. B AIO measurement mode (i1d3 family only)
+    void setDisableAIO(bool disable);
+
     /// Does device support high resolution mode on i1Pro
     bool doesSupportHiRes() const;
 

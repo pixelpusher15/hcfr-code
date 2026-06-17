@@ -69,6 +69,13 @@ public:
     CArgyllSensor* m_pSensor;
     BOOL       m_bNotifyAmbientSwitch;
 
+    // Rev. B AIO disable (i1d3 / ColorMunki Display). The checkbox is created
+    // programmatically (no resource control) so it works regardless of which
+    // language resource DLL provides the dialog template.
+    BOOL       m_DisableAIO;
+    BOOL       m_AIOEnabled;
+    BOOL       m_bAdaptCreated;
+
     virtual UINT GetHelpId ( LPSTR lpszTopic );
 
 // Overrides
@@ -76,6 +83,7 @@ public:
     //{{AFX_VIRTUAL(CArgyllSensorPropPage)
     public:
     virtual BOOL OnSetActive();
+    virtual BOOL OnInitDialog();
     protected:
     virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
     //}}AFX_VIRTUAL
