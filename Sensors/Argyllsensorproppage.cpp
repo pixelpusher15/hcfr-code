@@ -151,18 +151,142 @@ BOOL CArgyllSensorPropPage::OnSetActive()
     return bRet;
 }
 
+CWnd* CArgyllSensorPropPage::FindRowLabel(CWnd* pCtrl)
+{
+    if (pCtrl == NULL)
+        return NULL;
+    CRect rcCtrl;
+    pCtrl->GetWindowRect(&rcCtrl);   // screen coords
+    CWnd* pBest = NULL;
+    int bestRight = -1000000;
+    for (CWnd* pChild = GetWindow(GW_CHILD); pChild != NULL; pChild = pChild->GetNextWindow())
+    {
+        TCHAR cls[32] = {0};
+        ::GetClassName(pChild->GetSafeHwnd(), cls, 32);
+        if (_tcsicmp(cls, _T("Static")) != 0)
+            continue;
+        CRect rc;
+        pChild->GetWindowRect(&rc);
+        // require vertical overlap with the control's row and sit to its left
+        if (rc.bottom <= rcCtrl.top || rc.top >= rcCtrl.bottom)
+            continue;
+        if (rc.right > rcCtrl.left + 4)
+            continue;
+        if (rc.right > bestRight)
+        {
+            bestRight = rc.right;
+            pBest = pChild;
+        }
+    }
+    return pBest;
+}
+
 BOOL CArgyllSensorPropPage::OnInitDialog()
 {
     BOOL bRet = CPropertyPageWithHelp::OnInitDialog();
 
-    // Create the "Disable AIO" checkbox programmatically. The dialog template
-    // lives in the active language resource DLL (which may not be rebuilt for
-    // every language), so we add the control at runtime instead. It is placed in
-    // the free area to the right of the Hi-Res checkbox, inside the Configuration
-    // group. Coordinates are in dialog units, mapped to pixels for the DPI.
+    // dlu -> client pixel origin helper
+    struct Mapper { HWND h; CPoint at(int x, int y) { CRect r(x, y, x + 1, y + 1); ::MapDialogRect(h, &r); return CPoint(r.left, r.top); } } M = { GetSafeHwnd() };
+
+    // Relayout the Configuration group into one clean left-aligned column:
+    // every labelled field (incl. Integration Time, previously floating top-right)
+    // becomes a row with the label at x=13 and the control at x=81. Done at runtime
+    // (rather than in the .rc) so it applies to whichever language DLL is loaded.
+    // Labels are IDC_STATIC, so they are matched to their control by geometry.
+    const int CTRL_X = 81, LBL_X = 13;
+    struct Row { UINT id; int y; } rows[] = {
+        { IDC_ARGYLLSENSOR_METER_NAME,        14 },
+        { IDC_ARGYLLSENSOR_DISPLAYTYPE_COMBO, 30 },
+        { IDC_ARGYLLSENSOR_READINGTYPE_COMBO, 46 },
+        { IDC_ARGYLLSENSOR_SPECTRALTYPE_COMBO, 62 },
+        { IDC_ARGYLLSENSOR_INTTIME_COMBO,     78 },
+    };
+    for (int i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
+    {
+        CWnd* pCtrl = GetDlgItem(rows[i].id);
+        if (pCtrl == NULL)
+            continue;
+        CWnd* pLbl = FindRowLabel(pCtrl);
+        CPoint cc = M.at(CTRL_X, rows[i].y);
+        pCtrl->SetWindowPos(NULL, cc.x, cc.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        if (pLbl != NULL)
+        {
+            CPoint lc = M.at(LBL_X, rows[i].y + 3);
+            if (rows[i].id == IDC_ARGYLLSENSOR_INTTIME_COMBO)
+            {
+                // the "Integration Time" label was narrow (2-line) in its old
+                // corner spot; widen it to match the other row labels
+                CRect rcLbl; pLbl->GetWindowRect(&rcLbl);
+                CRect wr(0, 0, 62, 8); MapDialogRect(&wr);
+                pLbl->SetWindowPos(NULL, lc.x, lc.y, wr.right, rcLbl.Height(), SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            else
+            {
+                pLbl->SetWindowPos(NULL, lc.x, lc.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+        }
+    }
+
+    // The property sheet sizes every page to the tallest one (the Sensor-matrix
+    // page is 191 dlu vs this page's 176), so there is spare vertical room at the
+    // bottom at runtime. Push the lower block down and grow the Configuration group
+    // so the rows can use a comfortable pitch and the two checkboxes get their own
+    // stacked rows below the fields.
+    const int PUSH = 18;    // dlu, downward shift of the lower block
+    const int GROW = 16;    // dlu, extra height for the Configuration group box
+    CRect rP(0, 0, 1, PUSH); MapDialogRect(&rP); int pushPx = rP.bottom;
+    CRect rG(0, 0, 1, GROW); MapDialogRect(&rG); int growPx = rG.bottom;
+
+    // Locate the two group boxes (class "Button" + BS_GROUPBOX) by vertical order,
+    // and the help text (the largest static), so they can be relocated without ids.
+    CWnd *pCfgGroup = NULL, *pCalGroup = NULL, *pHelp = NULL;
+    int cfgTop = INT_MAX, calTop = INT_MIN;
+    long helpArea = 0;
+    for (CWnd* pChild = GetWindow(GW_CHILD); pChild != NULL; pChild = pChild->GetNextWindow())
+    {
+        TCHAR cls[32] = {0};
+        ::GetClassName(pChild->GetSafeHwnd(), cls, 32);
+        CRect rc; pChild->GetWindowRect(&rc); ScreenToClient(&rc);
+        if (_tcsicmp(cls, _T("Button")) == 0 && (pChild->GetStyle() & BS_TYPEMASK) == BS_GROUPBOX)
+        {
+            if (rc.top < cfgTop) { cfgTop = rc.top; pCfgGroup = pChild; }
+            if (rc.top > calTop) { calTop = rc.top; pCalGroup = pChild; }
+        }
+        else if (_tcsicmp(cls, _T("Static")) == 0)
+        {
+            long a = (long)rc.Width() * rc.Height();
+            if (a > helpArea) { helpArea = a; pHelp = pChild; }
+        }
+    }
+
+    CWnd* lower[] = { pCalGroup, GetDlgItem(IDC_ARGYLL_CALIBRATE), GetDlgItem(IDC_ARGYLL_SENSOR_DEBUG_CB), pHelp };
+    for (int i = 0; i < 4; ++i)
+    {
+        if (lower[i] == NULL) continue;
+        CRect rc; lower[i]->GetWindowRect(&rc); ScreenToClient(&rc);
+        lower[i]->SetWindowPos(NULL, rc.left, rc.top + pushPx, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    if (pCfgGroup != NULL)
+    {
+        CRect rc; pCfgGroup->GetWindowRect(&rc); ScreenToClient(&rc);
+        pCfgGroup->SetWindowPos(NULL, 0, 0, rc.Width(), rc.Height() + growPx, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    // Two stacked checkbox rows, left edge aligned with the dropdowns (x = CTRL_X),
+    // each a single full-width line so the long Hi-Res caption never wraps.
+    const int HIRES_Y = 96;
+    const int AIO_Y = 108;
+    CWnd* pHiRes = GetDlgItem(IDC_ARGYLL_SENSOR_HIRES);
+    if (pHiRes != NULL)
+    {
+        CRect rc(CTRL_X, HIRES_Y, CTRL_X + 206, HIRES_Y + 10);
+        MapDialogRect(&rc);
+        pHiRes->MoveWindow(&rc);
+    }
+
     if (!m_bAdaptCreated)
     {
-        CRect rc(114, 86, 166, 106);    // dlu: right of Hi-Res, left of Integration Time
+        CRect rc(CTRL_X, AIO_Y, CTRL_X + 206, AIO_Y + 10);
         MapDialogRect(&rc);
         if (m_AdaptCheckBox.Create(_T("Disable Rev. B AIO"),
                 WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,

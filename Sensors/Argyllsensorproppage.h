@@ -78,6 +78,11 @@ public:
 
     virtual UINT GetHelpId ( LPSTR lpszTopic );
 
+    // Finds the static label sitting just left of pCtrl on the same row (labels
+    // are all IDC_STATIC, so they can't be located by id). Used by OnInitDialog
+    // to relayout each labelled row.
+    CWnd* FindRowLabel(CWnd* pCtrl);
+
 // Overrides
     // ClassWizard generate virtual function overrides
     //{{AFX_VIRTUAL(CArgyllSensorPropPage)
