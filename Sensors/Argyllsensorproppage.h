@@ -74,7 +74,6 @@ public:
     // language resource DLL provides the dialog template.
     BOOL       m_DisableAIO;
     BOOL       m_AIOEnabled;
-    BOOL       m_bAdaptCreated;
 
     virtual UINT GetHelpId ( LPSTR lpszTopic );
 

@@ -53,7 +53,6 @@ CArgyllSensorPropPage::CArgyllSensorPropPage() : CPropertyPageWithHelp(CArgyllSe
     m_bNotifyAmbientSwitch = FALSE;
     m_DisableAIO = FALSE;
     m_AIOEnabled = FALSE;
-    m_bAdaptCreated = FALSE;
 }
 
 CArgyllSensorPropPage::~CArgyllSensorPropPage()
@@ -201,7 +200,7 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
         { IDC_ARGYLLSENSOR_SPECTRALTYPE_COMBO, 62 },
         { IDC_ARGYLLSENSOR_INTTIME_COMBO,     78 },
     };
-    for (int i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
+    for (int i = 0; i < (int)(sizeof(rows) / sizeof(rows[0])); ++i)
     {
         CWnd* pCtrl = GetDlgItem(rows[i].id);
         if (pCtrl == NULL)
@@ -284,8 +283,14 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
         pHiRes->MoveWindow(&rc);
     }
 
-    if (!m_bAdaptCreated)
+    // (Re)create the checkbox if its window doesn't exist. The page object is
+    // reused across property-sheet opens (see CSensor::Configure), so a guard that
+    // only created it once would leave the control missing on every reopen; detach
+    // any handle left over from a previous, now-destroyed page instance first.
+    if (!::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
     {
+        if (m_AdaptCheckBox.GetSafeHwnd() != NULL)
+            m_AdaptCheckBox.Detach();
         CRect rc(CTRL_X, AIO_Y, CTRL_X + 206, AIO_Y + 10);
         MapDialogRect(&rc);
         if (m_AdaptCheckBox.Create(_T("Disable Rev. B AIO"),
@@ -293,7 +298,6 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
                 rc, this, IDC_ARGYLL_SENSOR_ADAPT))
         {
             m_AdaptCheckBox.SetFont(GetFont());
-            m_bAdaptCreated = TRUE;
         }
     }
     if (::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
