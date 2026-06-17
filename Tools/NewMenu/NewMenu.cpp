@@ -10012,6 +10012,43 @@ LRESULT CALLBACK CNewMenuHook::SubClassMenu(HWND hWnd,      // handle to window
 
           SendMessage(hWnd,WM_ERASEBKGND,(WPARAM)dc.m_hDC,0);
           SendMessage(hWnd,WM_PRINTCLIENT,(WPARAM)dc.m_hDC,lParam);
+          if(fxUseCustomColor && pData && pData->m_hMenu && ::IsMenu(pData->m_hMenu))
+          {
+            HMENU hOdMenu = pData->m_hMenu;
+            int nOdCount = ::GetMenuItemCount(hOdMenu);
+            CPoint ptOdOrg(0,0);
+            ClientToScreen(hWnd,&ptOdOrg);
+            LOGFONT lfOd;
+            ZeroMemory(&lfOd,sizeof(lfOd));
+            lfOd.lfHeight = -11;
+            lfOd.lfWeight = FW_NORMAL;
+            lfOd.lfCharSet = DEFAULT_CHARSET;
+            lstrcpy(lfOd.lfFaceName,_T("Marlett"));
+            CFont fOd;
+            fOd.CreateFontIndirect(&lfOd);
+            CFont* pfOdOld = dc.SelectObject(&fOd);
+            int bkOd = dc.SetBkMode(TRANSPARENT);
+            for(int iOd=0; iOd<nOdCount; ++iOd)
+            {
+              if(::GetSubMenu(hOdMenu,iOd)==NULL)
+                continue;
+              CRect rcOd;
+              if(!::GetMenuItemRect(hWnd,hOdMenu,iOd,&rcOd))
+                continue;
+              rcOd.OffsetRect(-ptOdOrg);
+              if(rcOd.bottom<=rcOd.top)
+                continue;
+              int cyOd = (rcOd.top+rcOd.bottom)/2;
+              CRect rcArrowOd(rcOd.right-17, rcOd.top+1, rcOd.right-1, rcOd.bottom-1);
+              COLORREF bgOd = dc.GetPixel(rcOd.right-20, cyOd);
+              if(bgOd!=CLR_INVALID)
+                dc.FillSolidRect(rcArrowOd, bgOd);
+              dc.SetTextColor(FxGetSysColor(COLOR_MENUTEXT));
+              dc.DrawText(_T("8"), 1, &rcArrowOd, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+            }
+            dc.SetBkMode(bkOd);
+            dc.SelectObject(pfOdOld);
+          }
 
           CPoint wndOffset(0,0);
           ClientToScreen(hWnd,&wndOffset);
