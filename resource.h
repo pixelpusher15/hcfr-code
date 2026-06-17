@@ -1690,6 +1690,7 @@
 #define IDS_UHDTV4BLUEREF               41969
 #define IDS_ARGYLLSENSOR_PROPERTIES_TITLE 59394
 #define IDS_ARGYLLSENSOR_NAME           59395
+#define IDS_DISABLE_AIO                59396
 
 // Next default values for new objects
 // 

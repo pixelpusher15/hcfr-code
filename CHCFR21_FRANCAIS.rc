@@ -3114,6 +3114,7 @@ BEGIN
     ID_VIEW_STATUS_BAR      "Affiche ou masque la barre d'état\nBarre d'état"
     IDS_ARGYLLSENSOR_PROPERTIES_TITLE "Paramètres du Argyll Meter"
     IDS_ARGYLLSENSOR_NAME   "Argyll"
+    IDS_DISABLE_AIO         "Désactiver l'AIO Rev. B"
 END
 
 STRINGTABLE

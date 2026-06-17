@@ -2900,6 +2900,7 @@ BEGIN
     ID_VIEW_STATUS_BAR      "Show or hide the status bar\nToggle StatusBar"
     IDS_ARGYLLSENSOR_PROPERTIES_TITLE "Argyll Meter Property Page"
     IDS_ARGYLLSENSOR_NAME   "Argyll"
+    IDS_DISABLE_AIO         "Disable Rev. B AIO"
 END
 
 STRINGTABLE

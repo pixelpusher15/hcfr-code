@@ -293,7 +293,10 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
             m_AdaptCheckBox.Detach();
         CRect rc(CTRL_X, AIO_Y, CTRL_X + 206, AIO_Y + 10);
         MapDialogRect(&rc);
-        if (m_AdaptCheckBox.Create(_T("Disable Rev. B AIO"),
+        // Caption is localized via the active language resource DLL.
+        CString sAIO;
+        sAIO.LoadString(IDS_DISABLE_AIO);
+        if (m_AdaptCheckBox.Create(sAIO,
                 WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,
                 rc, this, IDC_ARGYLL_SENSOR_ADAPT))
         {
