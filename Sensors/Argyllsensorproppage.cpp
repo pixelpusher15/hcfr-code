@@ -261,16 +261,15 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
     // Checkboxes: Disable-AIO (top) then Use-Hi-Res (below), each auto-sized.
     int chkWpx = M.w(212);
     int chkTextPx = chkWpx - glyphPx;
+    CPoint aioPt = M.at(COL, 96);
     if (!::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))   // recreate (page reused across opens)
     {
         if (m_AdaptCheckBox.GetSafeHwnd() != NULL) m_AdaptCheckBox.Detach();
         CString sAIO; sAIO.LoadString(IDS_DISABLE_AIO);   // localized caption
-        CPoint p = M.at(COL, 106);
         m_AdaptCheckBox.Create(sAIO, WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,
-            CRect(p.x, p.y, p.x + chkWpx, p.y + lineHpx), this, IDC_ARGYLL_SENSOR_ADAPT);
+            CRect(aioPt.x, aioPt.y, aioPt.x + chkWpx, aioPt.y + lineHpx), this, IDC_ARGYLL_SENSOR_ADAPT);
         m_AdaptCheckBox.SetFont(GetFont());
     }
-    CPoint aioPt = M.at(COL, 96);
     int hAio = lineHpx;
     if (::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
     {
