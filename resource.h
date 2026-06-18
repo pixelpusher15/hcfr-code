@@ -1691,6 +1691,8 @@
 #define IDS_ARGYLLSENSOR_PROPERTIES_TITLE 59394
 #define IDS_ARGYLLSENSOR_NAME           59395
 #define IDS_DISABLE_AIO                59396
+#define IDS_METER_CALIBRATION          59397
+#define IDS_CAL_NOTE                   59398
 
 // Next default values for new objects
 // 

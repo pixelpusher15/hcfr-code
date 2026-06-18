@@ -184,129 +184,149 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
 {
     BOOL bRet = CPropertyPageWithHelp::OnInitDialog();
 
-    // dlu -> client pixel origin helper
-    struct Mapper { HWND h; CPoint at(int x, int y) { CRect r(x, y, x + 1, y + 1); ::MapDialogRect(h, &r); return CPoint(r.left, r.top); } } M = { GetSafeHwnd() };
+    // The five language dialog templates are authored differently, which caused
+    // overlapping/clipped controls. To make every language render identically, the
+    // whole page is laid out here at runtime to one fixed design: every control is
+    // positioned absolutely (template positions are ignored), with the note and the
+    // Hi-Res caption auto-sized so multi-line text in any language has room.
+    struct Mapper {
+        HWND h;
+        CPoint at(int x, int y) { CRect r(x, y, x + 1, y + 1); ::MapDialogRect(h, &r); return CPoint(r.left, r.top); }
+        int w(int n) { CRect r(0, 0, n, 1); ::MapDialogRect(h, &r); return r.right; }
+        int ht(int n) { CRect r(0, 0, 1, n); ::MapDialogRect(h, &r); return r.bottom; }
+    } M = { GetSafeHwnd() };
 
-    // Relayout the Configuration group into one clean left-aligned column:
-    // every labelled field (incl. Integration Time, previously floating top-right)
-    // becomes a row with the label at x=13 and the control at x=81. Done at runtime
-    // (rather than in the .rc) so it applies to whichever language DLL is loaded.
-    // Labels are IDC_STATIC, so they are matched to their control by geometry.
-    const int CTRL_X = 81, LBL_X = 13;
-    struct Row { UINT id; int y; } rows[] = {
-        { IDC_ARGYLLSENSOR_METER_NAME,        14 },
-        { IDC_ARGYLLSENSOR_DISPLAYTYPE_COMBO, 30 },
-        { IDC_ARGYLLSENSOR_READINGTYPE_COMBO, 46 },
-        { IDC_ARGYLLSENSOR_SPECTRALTYPE_COMBO, 62 },
-        { IDC_ARGYLLSENSOR_INTTIME_COMBO,     78 },
-    };
-    for (int i = 0; i < (int)(sizeof(rows) / sizeof(rows[0])); ++i)
-    {
-        CWnd* pCtrl = GetDlgItem(rows[i].id);
-        if (pCtrl == NULL)
-            continue;
-        CWnd* pLbl = FindRowLabel(pCtrl);
-        CPoint cc = M.at(CTRL_X, rows[i].y);
-        pCtrl->SetWindowPos(NULL, cc.x, cc.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-        if (pLbl != NULL)
-        {
-            CPoint lc = M.at(LBL_X, rows[i].y + 3);
-            if (rows[i].id == IDC_ARGYLLSENSOR_INTTIME_COMBO)
-            {
-                // the "Integration Time" label was narrow (2-line) in its old
-                // corner spot; widen it to match the other row labels
-                CRect rcLbl; pLbl->GetWindowRect(&rcLbl);
-                CRect wr(0, 0, 62, 8); MapDialogRect(&wr);
-                pLbl->SetWindowPos(NULL, lc.x, lc.y, wr.right, rcLbl.Height(), SWP_NOZORDER | SWP_NOACTIVATE);
-            }
-            else
-            {
-                pLbl->SetWindowPos(NULL, lc.x, lc.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-            }
+    // Wrapped text height (px) for a control's caption at a given pixel width.
+    struct Measure {
+        CWnd* pg;
+        int operator()(CWnd* c, int wpx) {
+            CString s; c->GetWindowText(s);
+            CFont* pf = c->GetFont(); if (pf == NULL) pf = pg->GetFont();
+            CClientDC dc(c); CFont* pOld = dc.SelectObject(pf);
+            CRect tr(0, 0, wpx, 0); dc.DrawText(s, &tr, DT_CALCRECT | DT_WORDBREAK);
+            if (pOld) dc.SelectObject(pOld);
+            return tr.Height();
         }
-    }
+    } measure = { this };
 
-    // The property sheet sizes every page to the tallest one (the Sensor-matrix
-    // page is 191 dlu vs this page's 176), so there is spare vertical room at the
-    // bottom at runtime. Push the lower block down and grow the Configuration group
-    // so the rows can use a comfortable pitch and the two checkboxes get their own
-    // stacked rows below the fields.
-    const int PUSH = 18;    // dlu, downward shift of the lower block
-    const int GROW = 16;    // dlu, extra height for the Configuration group box
-    CRect rP(0, 0, 1, PUSH); MapDialogRect(&rP); int pushPx = rP.bottom;
-    CRect rG(0, 0, 1, GROW); MapDialogRect(&rG); int growPx = rG.bottom;
+    const int COL = 81, LBLX = 13, GRPW = 299;
+    int glyphPx = ::GetSystemMetrics(SM_CXMENUCHECK) + 6;
+    int lineHpx = M.ht(9);
+    int gapPx   = M.ht(3);
 
-    // Locate the two group boxes (class "Button" + BS_GROUPBOX) by vertical order,
-    // and the help text (the largest static), so they can be relocated without ids.
-    CWnd *pCfgGroup = NULL, *pCalGroup = NULL, *pHelp = NULL;
-    int cfgTop = INT_MAX, calTop = INT_MIN;
-    long helpArea = 0;
-    for (CWnd* pChild = GetWindow(GW_CHILD); pChild != NULL; pChild = pChild->GetNextWindow())
+    // Locate the two group boxes (top = Configuration, bottom = Calibration) and
+    // the note (largest static), so they can be retitled / repositioned without ids.
+    CWnd *pCfg = NULL, *pCal = NULL, *pNote = NULL;
+    int cfgTop = INT_MAX, calTop = INT_MIN; long noteArea = 0;
+    for (CWnd* ch = GetWindow(GW_CHILD); ch != NULL; ch = ch->GetNextWindow())
     {
-        TCHAR cls[32] = {0};
-        ::GetClassName(pChild->GetSafeHwnd(), cls, 32);
-        CRect rc; pChild->GetWindowRect(&rc); ScreenToClient(&rc);
-        if (_tcsicmp(cls, _T("Button")) == 0 && (pChild->GetStyle() & BS_TYPEMASK) == BS_GROUPBOX)
+        TCHAR cls[32] = {0}; ::GetClassName(ch->GetSafeHwnd(), cls, 32);
+        CRect rc; ch->GetWindowRect(&rc); ScreenToClient(&rc);
+        if (_tcsicmp(cls, _T("Button")) == 0 && (ch->GetStyle() & BS_TYPEMASK) == BS_GROUPBOX)
         {
-            if (rc.top < cfgTop) { cfgTop = rc.top; pCfgGroup = pChild; }
-            if (rc.top > calTop) { calTop = rc.top; pCalGroup = pChild; }
+            if (rc.top < cfgTop) { cfgTop = rc.top; pCfg = ch; }
+            if (rc.top > calTop) { calTop = rc.top; pCal = ch; }
         }
         else if (_tcsicmp(cls, _T("Static")) == 0)
         {
             long a = (long)rc.Width() * rc.Height();
-            if (a > helpArea) { helpArea = a; pHelp = pChild; }
+            if (a > noteArea) { noteArea = a; pNote = ch; }
         }
     }
 
-    CWnd* lower[] = { pCalGroup, GetDlgItem(IDC_ARGYLL_CALIBRATE), GetDlgItem(IDC_ARGYLL_SENSOR_DEBUG_CB), pHelp };
-    for (int i = 0; i < 4; ++i)
-    {
-        if (lower[i] == NULL) continue;
-        CRect rc; lower[i]->GetWindowRect(&rc); ScreenToClient(&rc);
-        lower[i]->SetWindowPos(NULL, rc.left, rc.top + pushPx, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-    }
-    if (pCfgGroup != NULL)
-    {
-        CRect rc; pCfgGroup->GetWindowRect(&rc); ScreenToClient(&rc);
-        pCfgGroup->SetWindowPos(NULL, 0, 0, rc.Width(), rc.Height() + growPx, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-    }
+    // Field rows: capture each label (at its template position) before moving.
+    UINT fieldIds[] = { IDC_ARGYLLSENSOR_METER_NAME, IDC_ARGYLLSENSOR_DISPLAYTYPE_COMBO,
+        IDC_ARGYLLSENSOR_READINGTYPE_COMBO, IDC_ARGYLLSENSOR_SPECTRALTYPE_COMBO, IDC_ARGYLLSENSOR_INTTIME_COMBO };
+    CWnd* fieldLabels[5];
+    for (int i = 0; i < 5; ++i) fieldLabels[i] = FindRowLabel(GetDlgItem(fieldIds[i]));
 
-    // Two stacked checkbox rows, left edge aligned with the dropdowns (x = CTRL_X),
-    // each a single full-width line so the long Hi-Res caption never wraps.
-    const int HIRES_Y = 96;
-    const int AIO_Y = 108;
-    CWnd* pHiRes = GetDlgItem(IDC_ARGYLL_SENSOR_HIRES);
-    if (pHiRes != NULL)
+    int rowY[]   = { 16, 32, 48, 64, 80 };
+    int fieldW[] = { 210, 210, 210, 210, 110 };
+    for (int i = 0; i < 5; ++i)
     {
-        CRect rc(CTRL_X, HIRES_Y, CTRL_X + 206, HIRES_Y + 10);
-        MapDialogRect(&rc);
-        pHiRes->MoveWindow(&rc);
-    }
-
-    // (Re)create the checkbox if its window doesn't exist. The page object is
-    // reused across property-sheet opens (see CSensor::Configure), so a guard that
-    // only created it once would leave the control missing on every reopen; detach
-    // any handle left over from a previous, now-destroyed page instance first.
-    if (!::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
-    {
-        if (m_AdaptCheckBox.GetSafeHwnd() != NULL)
-            m_AdaptCheckBox.Detach();
-        CRect rc(CTRL_X, AIO_Y, CTRL_X + 206, AIO_Y + 10);
-        MapDialogRect(&rc);
-        // Caption is localized via the active language resource DLL.
-        CString sAIO;
-        sAIO.LoadString(IDS_DISABLE_AIO);
-        if (m_AdaptCheckBox.Create(sAIO,
-                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,
-                rc, this, IDC_ARGYLL_SENSOR_ADAPT))
+        CWnd* c = GetDlgItem(fieldIds[i]);
+        if (c != NULL)
         {
-            m_AdaptCheckBox.SetFont(GetFont());
+            CPoint p = M.at(COL, rowY[i]);
+            int h = (fieldIds[i] == IDC_ARGYLLSENSOR_METER_NAME) ? M.ht(12) : M.ht(90);  // combos keep dropdown height
+            c->MoveWindow(p.x, p.y, M.w(fieldW[i]), h);
+        }
+        if (fieldLabels[i] != NULL)
+        {
+            CPoint lp = M.at(LBLX, rowY[i] + 3);
+            fieldLabels[i]->MoveWindow(lp.x, lp.y, M.w(64), M.ht(9));
         }
     }
+
+    // Checkboxes: Disable-AIO (top) then Use-Hi-Res (below), each auto-sized.
+    int chkWpx = M.w(212);
+    int chkTextPx = chkWpx - glyphPx;
+    if (!::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))   // recreate (page reused across opens)
+    {
+        if (m_AdaptCheckBox.GetSafeHwnd() != NULL) m_AdaptCheckBox.Detach();
+        CString sAIO; sAIO.LoadString(IDS_DISABLE_AIO);   // localized caption
+        CPoint p = M.at(COL, 106);
+        m_AdaptCheckBox.Create(sAIO, WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,
+            CRect(p.x, p.y, p.x + chkWpx, p.y + lineHpx), this, IDC_ARGYLL_SENSOR_ADAPT);
+        m_AdaptCheckBox.SetFont(GetFont());
+    }
+    CPoint aioPt = M.at(COL, 96);
+    int hAio = lineHpx;
     if (::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
     {
+        int th = measure(&m_AdaptCheckBox, chkTextPx); hAio = (th + 2 > lineHpx) ? th + 2 : lineHpx;
+        m_AdaptCheckBox.MoveWindow(aioPt.x, aioPt.y, chkWpx, hAio);
         m_AdaptCheckBox.SetCheck(m_DisableAIO ? BST_CHECKED : BST_UNCHECKED);
         m_AdaptCheckBox.EnableWindow(m_AIOEnabled);
     }
+    int yHiRes = aioPt.y + hAio + gapPx;
+    int hHiRes = lineHpx;
+    CWnd* pHiRes = GetDlgItem(IDC_ARGYLL_SENSOR_HIRES);
+    if (pHiRes != NULL)
+    {
+        int th = measure(pHiRes, chkTextPx); hHiRes = (th + 2 > lineHpx) ? th + 2 : lineHpx;
+        pHiRes->MoveWindow(aioPt.x, yHiRes, chkWpx, hHiRes);
+    }
+    int chkBottom = yHiRes + hHiRes;
+
+    // Configuration group encloses the fields + checkboxes.
+    if (pCfg != NULL)
+    {
+        CPoint g = M.at(5, 4);
+        pCfg->MoveWindow(g.x, g.y, M.w(GRPW), (chkBottom + gapPx) - g.y);
+    }
+
+    // Meter Calibration group: full width, retitled, with the note inside (top) and
+    // the Calibrate button centred below it.
+    int calTopPx = chkBottom + gapPx + M.ht(4);
+    if (pCal != NULL) { CString s; s.LoadString(IDS_METER_CALIBRATION); pCal->SetWindowText(s); }
+
+    int noteTop = calTopPx + M.ht(11);
+    int noteWpx = M.w(280);
+    int noteH = lineHpx;
+    if (pNote != NULL)
+    {
+        CString s; s.LoadString(IDS_CAL_NOTE); pNote->SetWindowText(s);
+        pNote->ModifyStyle(WS_BORDER, 0);
+        pNote->ModifyStyleEx(WS_EX_CLIENTEDGE | WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE);
+        int th = measure(pNote, noteWpx - M.w(8)); int want = th + M.ht(6);
+        noteH = (want > lineHpx) ? want : lineHpx;
+        CPoint np = M.at(LBLX, 0);
+        pNote->SetWindowPos(NULL, np.x, noteTop, noteWpx, noteH, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+
+    int btnW = M.w(70), btnH = M.ht(14);
+    int btnX = M.at(5, 0).x + (M.w(GRPW) - btnW) / 2;
+    int btnY = noteTop + noteH + M.ht(6);
+    CWnd* pBtn = GetDlgItem(IDC_ARGYLL_CALIBRATE);
+    if (pBtn != NULL) pBtn->MoveWindow(btnX, btnY, btnW, btnH);
+
+    int calBottom = btnY + btnH + M.ht(6);
+    if (pCal != NULL) { CPoint cp = M.at(5, 0); pCal->MoveWindow(cp.x, calTopPx, M.w(GRPW), calBottom - calTopPx); }
+
+    // Debug checkbox below the calibration group.
+    CWnd* pDbg = GetDlgItem(IDC_ARGYLL_SENSOR_DEBUG_CB);
+    if (pDbg != NULL) { CPoint dp = M.at(LBLX + 1, 0); pDbg->MoveWindow(dp.x, calBottom + M.ht(4), M.w(220), M.ht(10)); }
+
     return bRet;
 }
