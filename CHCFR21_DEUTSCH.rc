@@ -2891,7 +2891,7 @@ BEGIN
     ID_VIEW_STATUS_BAR      "Blendet die Statusleiste ein oder aus.\nStatusleiste ein-/ausschalten"
     IDS_ARGYLLSENSOR_PROPERTIES_TITLE "Argyll Meter Parameter"
     IDS_ARGYLLSENSOR_NAME   "Argyll"
-    IDS_DISABLE_AIO         "Rev. B AIO deaktivieren"
+    IDS_DISABLE_AIO         "AIO (All-In-One)-Modus deaktivieren"
     IDS_METER_CALIBRATION   "Sensorkalibrierung"
     IDS_CAL_NOTE            "Nach Wahl von Anzeige- und Messmodus auf Kalibrieren klicken, um zu prüfen, ob eine Kalibrierung nötig ist. [Anzeigetyp gilt nicht im Umgebungsmodus.]"
 END

@@ -3022,7 +3022,7 @@ BEGIN
     ID_VIEW_STATUS_BAR      "Show or hide the status bar\nToggle StatusBar"
     IDS_ARGYLLSENSOR_PROPERTIES_TITLE "Argyll Meter Property Page"
     IDS_ARGYLLSENSOR_NAME   "Argyll"
-    IDS_DISABLE_AIO         "Desactivar AIO Rev. B"
+    IDS_DISABLE_AIO         "Desactivar modo AIO (All-In-One)"
     IDS_METER_CALIBRATION   "Calibración del medidor"
     IDS_CAL_NOTE            "Tras elegir el tipo de pantalla y de lectura, pulse Calibrar para ver si se necesita calibración. [El tipo de pantalla no aplica en modo de lectura ambiente.]"
 END

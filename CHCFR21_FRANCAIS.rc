@@ -3114,7 +3114,7 @@ BEGIN
     ID_VIEW_STATUS_BAR      "Affiche ou masque la barre d'état\nBarre d'état"
     IDS_ARGYLLSENSOR_PROPERTIES_TITLE "Paramètres du Argyll Meter"
     IDS_ARGYLLSENSOR_NAME   "Argyll"
-    IDS_DISABLE_AIO         "Désactiver l'AIO Rev. B"
+    IDS_DISABLE_AIO         "Désactiver le mode AIO (All-In-One)"
     IDS_METER_CALIBRATION   "Calibration de la sonde"
     IDS_CAL_NOTE            "Après avoir choisi le type d'affichage et de lecture, cliquez sur Calibrer pour voir si une calibration est requise. [Le type d'affichage ne s'applique pas en mode ambiant.]"
 END
