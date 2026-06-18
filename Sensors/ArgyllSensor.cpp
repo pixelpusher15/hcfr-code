@@ -53,7 +53,8 @@ CArgyllSensor::CArgyllSensor() :
     m_intTime(1),
     m_meter(0),
     m_HiRes(0),
-    m_Adapt(0)
+    m_Adapt(0),
+    m_DisableAIO(0)
 {
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
@@ -89,7 +90,8 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
     m_HiRes = GetConfig()->GetProfileInt(meterName.c_str(), "HiRes", 0);
 
     m_Adapt = GetConfig()->GetProfileInt(meterName.c_str(), "Adapt", 0);
-    
+    m_DisableAIO = GetConfig()->GetProfileInt(meterName.c_str(), "DisableAIO", 0);
+
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
     m_pDevicePage = & m_ArgyllSensorPropertiesPage;  // Add Argyll settings page to property sheet
@@ -129,7 +131,8 @@ void CArgyllSensor::Copy(CSensor * p)
     m_intTime = ((CArgyllSensor*)p)->m_intTime;
     m_HiRes = ((CArgyllSensor*)p)->m_HiRes;
     m_Adapt = ((CArgyllSensor*)p)->m_Adapt;
-	
+    m_DisableAIO = ((CArgyllSensor*)p)->m_DisableAIO;
+
  
     if(m_meter >= 0)
     {
@@ -149,7 +152,7 @@ void CArgyllSensor::Serialize(CArchive& archive)
 
     if (archive.IsStoring())
     {
-        int version=4;
+        int version=5;
         archive << version;
         archive << m_DisplayType;
         archive << m_ReadingType;
@@ -158,6 +161,7 @@ void CArgyllSensor::Serialize(CArchive& archive)
         archive << m_HiRes;
         archive << m_intTime;
         archive << m_Adapt;
+        archive << m_DisableAIO;
         if(m_meter)
         {
             archive << CString(m_meter->getMeterName().c_str());
@@ -167,13 +171,15 @@ void CArgyllSensor::Serialize(CArchive& archive)
     {
         int version;
         archive >> version;
-        if ( version > 4 )
+        if ( version > 5 )
             AfxThrowArchiveException ( CArchiveException::badSchema );
         archive >> m_DisplayType;
         archive >> m_ReadingType;
         archive >> m_SpectralType;
         if ( version > 3)
             archive >> m_Adapt;
+        if ( version > 4)
+            archive >> m_DisableAIO;
         if ( version > 2)
             archive >> m_intTime;
         if(version == 1)
@@ -232,6 +238,10 @@ void CArgyllSensor::SetPropertiesSheetValues()
     m_ArgyllSensorPropertiesPage.m_intTimeEnabled = (m_meter->getMeterName() == "X-Rite i1 DisplayPro, ColorMunki Display");
     m_ArgyllSensorPropertiesPage.m_HiRes=m_HiRes;
     m_ArgyllSensorPropertiesPage.m_Adapt=m_Adapt;
+    m_ArgyllSensorPropertiesPage.m_DisableAIO=m_DisableAIO;
+    // Rev. B AIO only applies to the i1d3 / ColorMunki Display colorimeter family.
+    m_ArgyllSensorPropertiesPage.m_AIOEnabled =
+        (m_meter->getMeterName() == "X-Rite i1 DisplayPro, ColorMunki Display");
     m_ArgyllSensorPropertiesPage.m_MeterName = m_meter->getMeterName().c_str();
 }
 
@@ -252,7 +262,8 @@ void CArgyllSensor::GetPropertiesSheetValues()
         m_DisplayType != m_ArgyllSensorPropertiesPage.m_DisplayType ||
         m_HiRes != m_ArgyllSensorPropertiesPage.m_HiRes ||
         m_intTime != m_ArgyllSensorPropertiesPage.m_intTime ||
-		m_Adapt != m_ArgyllSensorPropertiesPage.m_Adapt)
+		m_Adapt != m_ArgyllSensorPropertiesPage.m_Adapt ||
+		m_DisableAIO != m_ArgyllSensorPropertiesPage.m_DisableAIO)
     {
         SetModifiedFlag(TRUE);
         m_ReadingType=m_ArgyllSensorPropertiesPage.m_ReadingType;
@@ -261,6 +272,7 @@ void CArgyllSensor::GetPropertiesSheetValues()
         m_HiRes = m_ArgyllSensorPropertiesPage.m_HiRes;
         m_intTime=m_ArgyllSensorPropertiesPage.m_intTime;
         m_Adapt=m_ArgyllSensorPropertiesPage.m_Adapt;
+        m_DisableAIO=m_ArgyllSensorPropertiesPage.m_DisableAIO;
 
         GetConfig()->WriteProfileInt(meterName.c_str(), "ReadingType", m_ReadingType );
         GetConfig()->WriteProfileString(meterName.c_str(), "SpectralType", m_SpectralType );
@@ -268,6 +280,7 @@ void CArgyllSensor::GetPropertiesSheetValues()
         GetConfig()->WriteProfileInt(meterName.c_str(), "DisplayType", m_DisplayType );
         GetConfig()->WriteProfileInt(meterName.c_str(), "HiRes", m_HiRes );
         GetConfig()->WriteProfileInt(meterName.c_str(), "Adapt", m_Adapt );
+        GetConfig()->WriteProfileInt(meterName.c_str(), "DisableAIO", m_DisableAIO );
         Init(TRUE);
     }
 }
@@ -306,6 +319,11 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
         return FALSE;
     }
     m_meter->setHiResMode(!!m_HiRes);
+    // Apply the Rev. B AIO setting. The meter is initialised by now, so this
+    // overrides whatever init_inst() selected and takes effect immediately on a
+    // settings change (Init() is re-run from GetPropertiesSheetValues), with no
+    // re-init or restart needed. No-op for non-i1d3 meters.
+    m_meter->setDisableAIO(!!m_DisableAIO);
     if(m_DisplayType != 0xFFFFFFFF)
     {
         m_meter->setDisplayType(m_DisplayType);

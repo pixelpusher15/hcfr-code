@@ -38,6 +38,7 @@
 #include "numsup.h"
 #include "xspect.h"
 #include "inst.h"
+#include "i1d3.h"
 #include "hidio.h"
 #include "conv.h"
 #include "ccss.h"
@@ -194,12 +195,25 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
    inst_code instCode;
    if (debugmode)
     {
-        m_meter->icom->log->verb = 3;
-        m_meter->icom->log->debug = 6;
-		m_meter->log->verb=3;
-        m_meter->log->debug = 6;
-		m_meter->icom->log->logd = m_meter->icom->log->loge;
-		m_meter->icom->log->logv = m_meter->icom->log->loge;
+        // icom / icom->log can be NULL before init_inst() for some meters (e.g.
+        // the i1d3 over HID), so guard the derefs — the unguarded version was a
+        // pre-existing access violation when Debug was enabled. Route m_meter->log
+        // too so the driver's a1logd() output still reaches HCFR.log even when the
+        // comms log isn't available yet.
+        if (m_meter->icom != NULL && m_meter->icom->log != NULL)
+        {
+            m_meter->icom->log->verb = 3;
+            m_meter->icom->log->debug = 6;
+            m_meter->icom->log->logd = m_meter->icom->log->loge;
+            m_meter->icom->log->logv = m_meter->icom->log->loge;
+        }
+        if (m_meter->log != NULL)
+        {
+            m_meter->log->verb = 3;
+            m_meter->log->debug = 6;
+            m_meter->log->logd = m_meter->log->loge;
+            m_meter->log->logv = m_meter->log->loge;
+        }
     }
 
     instCode = m_meter->get_set_opt(m_meter, inst_opt_set_filter, inst_opt_filter_none);
@@ -849,6 +863,19 @@ bool ArgyllMeterWrapper::setAdaptMode()
 {
         m_Adapt = !m_Adapt;
         return m_Adapt;
+}
+
+void ArgyllMeterWrapper::setDisableAIO(bool disable)
+{
+    // AIO ("all in one") is a Rev. B i1d3 firmware measurement path. Only the
+    // i1d3-family driver (instI1Disp3) is backed by the i1d3 struct, so the cast
+    // must be restricted to that type. Mirror the driver's own firmware gating
+    // (firmv >= 0x21a) when (re-)enabling; disabling is always safe.
+    if (m_meter != NULL && m_meterType == instI1Disp3)
+    {
+        i1d3 *p = (i1d3 *)m_meter;
+        p->use_aio = (!disable && p->firmv >= 0x21a) ? 1 : 0;
+    }
 }
 
 bool ArgyllMeterWrapper::doesSupportHiRes() const

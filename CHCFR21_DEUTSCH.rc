@@ -554,7 +554,7 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,15,150,184,10
 END
 
-IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 190
+IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 222
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Argyll Sensor"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
@@ -2891,6 +2891,9 @@ BEGIN
     ID_VIEW_STATUS_BAR      "Blendet die Statusleiste ein oder aus.\nStatusleiste ein-/ausschalten"
     IDS_ARGYLLSENSOR_PROPERTIES_TITLE "Argyll Meter Parameter"
     IDS_ARGYLLSENSOR_NAME   "Argyll"
+    IDS_DISABLE_AIO         "AIO (All-In-One)-Modus deaktivieren"
+    IDS_METER_CALIBRATION   "Sensorkalibrierung"
+    IDS_CAL_NOTE            "Nach Wahl von Anzeige- und Messmodus auf Kalibrieren klicken, um zu prüfen, ob eine Kalibrierung nötig ist. [Anzeigetyp gilt nicht im Umgebungsmodus.]"
 END
 
 STRINGTABLE

@@ -539,7 +539,7 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,15,152,184,10
 END
 
-IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 176
+IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 222
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Argyll Sensor"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
@@ -2900,6 +2900,9 @@ BEGIN
     ID_VIEW_STATUS_BAR      "Show or hide the status bar\nToggle StatusBar"
     IDS_ARGYLLSENSOR_PROPERTIES_TITLE "Argyll Meter Property Page"
     IDS_ARGYLLSENSOR_NAME   "Argyll"
+    IDS_DISABLE_AIO         "Disable AIO (All-In-One) mode"
+    IDS_METER_CALIBRATION   "Meter Calibration"
+    IDS_CAL_NOTE            "After selecting a Display and Reading Type click calibrate to see if calibration is required. [Note that Display Type is not applicable when in ambient reading mode.]"
 END
 
 STRINGTABLE

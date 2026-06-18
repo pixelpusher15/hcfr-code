@@ -765,6 +765,7 @@
 #define IDC_ARGYLLSENSOR__METER_NAME    1269
 #define IDC_ARGYLLSENSOR_METER_NAME     1269
 #define IDC_ARGYLL_SENSOR_HIRES         1270
+#define IDC_ARGYLL_SENSOR_ADAPT         1292
 #define IDC_ARGYLLSENSOR_SPECTRALTYPE_COMBO 1271
 #define IDC_DISPLAY_NAME                1272
 #define IDC_ARGYLLSENSOR_INTTIME_COMBO  1272
@@ -1689,6 +1690,9 @@
 #define IDS_UHDTV4BLUEREF               41969
 #define IDS_ARGYLLSENSOR_PROPERTIES_TITLE 59394
 #define IDS_ARGYLLSENSOR_NAME           59395
+#define IDS_DISABLE_AIO                59396
+#define IDS_METER_CALIBRATION          59397
+#define IDS_CAL_NOTE                   59398
 
 // Next default values for new objects
 // 
@@ -1697,7 +1701,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33108
-#define _APS_NEXT_CONTROL_VALUE         1292
+#define _APS_NEXT_CONTROL_VALUE         1293
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

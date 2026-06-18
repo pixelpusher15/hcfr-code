@@ -69,13 +69,25 @@ public:
     CArgyllSensor* m_pSensor;
     BOOL       m_bNotifyAmbientSwitch;
 
+    // Rev. B AIO disable (i1d3 / ColorMunki Display). The checkbox is created
+    // programmatically (no resource control) so it works regardless of which
+    // language resource DLL provides the dialog template.
+    BOOL       m_DisableAIO;
+    BOOL       m_AIOEnabled;
+
     virtual UINT GetHelpId ( LPSTR lpszTopic );
+
+    // Finds the static label sitting just left of pCtrl on the same row (labels
+    // are all IDC_STATIC, so they can't be located by id). Used by OnInitDialog
+    // to relayout each labelled row.
+    CWnd* FindRowLabel(CWnd* pCtrl);
 
 // Overrides
     // ClassWizard generate virtual function overrides
     //{{AFX_VIRTUAL(CArgyllSensorPropPage)
     public:
     virtual BOOL OnSetActive();
+    virtual BOOL OnInitDialog();
     protected:
     virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
     //}}AFX_VIRTUAL

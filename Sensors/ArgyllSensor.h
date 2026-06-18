@@ -51,6 +51,7 @@ public:
     UINT        m_intTime;
     BOOL		m_HiRes;
     BOOL        m_Adapt;
+    BOOL        m_DisableAIO;   // Disable Rev. B AIO measurement mode (i1d3 / ColorMunki Display)
 private:
     ArgyllMeterWrapper* m_meter;
     SpectralSampleFiles *m_spectralSamples;
