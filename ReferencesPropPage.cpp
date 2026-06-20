@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -75,6 +75,10 @@ CReferencesPropPage::CReferencesPropPage() : CPropertyPageWithHelp(CReferencesPr
     //}}AFX_DATA_INIT
 
 	m_isModified=FALSE;
+	m_pCdm2 = NULL;
+	m_pTFGroup = NULL;
+	m_pCCGroup = NULL;
+	m_pTargetGroup = NULL;
 }
 
 CReferencesPropPage::~CReferencesPropPage()
@@ -178,7 +182,6 @@ void CReferencesPropPage::DoDataExchange(CDataExchange* pDX)
 
 BEGIN_MESSAGE_MAP(CReferencesPropPage, CPropertyPageWithHelp)
 	//{{AFX_MSG_MAP(CReferencesPropPage)
-    ON_CONTROL_RANGE(BN_CLICKED, IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, OnControlClicked)
 	ON_BN_CLICKED(IDC_CHECK_COLORS, OnCheckColors)
 	ON_EN_CHANGE(IDC_EDIT_IRIS_TIME, OnChangeEditIrisTime)
 	ON_EN_CHANGE(IDC_EDIT_GAMMA_REF, OnChangeEditGammaRef)
@@ -213,73 +216,13 @@ BEGIN_MESSAGE_MAP(CReferencesPropPage, CPropertyPageWithHelp)
 	ON_CBN_SELCHANGE(IDC_COLORREF_COMBO, OnSelchangeColorrefCombo)
 	ON_CBN_SELCHANGE(IDC_WHITETARGET_COMBO, OnSelchangeWhiteCombo)
 	ON_CBN_SELCHANGE(IDC_CCMODE_COMBO, OnSelchangeCCmodeCombo)
+	ON_CBN_SELCHANGE(IDC_TRANSFERFUNC_COMBO, OnSelchangeTransferFuncCombo)
 	ON_EN_CHANGE(IDC_EDIT_MANUAL_GOFFSET, OnChangeEditManualGOffset)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
 // CReferencesPropPage message handlers
-
-void CReferencesPropPage::OnControlClicked(UINT nID) 
-{
-	m_bSave = TRUE;
-	UpdateData(TRUE);
-
-	if (m_GammaOffsetType >= 4 || GetConfig()->m_colorStandard == sRGB)
-    {
-  	  m_GammaRefEdit.EnableWindow (FALSE);
-      m_eMeasuredGamma.EnableWindow (FALSE);
-	  m_useMeasuredGamma = FALSE;
-    }
-	else
-    {
-  	  m_GammaRefEdit.EnableWindow (TRUE);
-      m_eMeasuredGamma.EnableWindow (TRUE);
-    }
-
-	if (m_GammaOffsetType == 5 || m_GammaOffsetType == 7 )
-	{
-		if (m_bOverRideTargs)
-		{
-			m_TargetMinLCtrl.EnableWindow (TRUE);
-  			m_TargetMaxLCtrl.EnableWindow (TRUE);
-  			m_DiffuseLCtrl.EnableWindow (TRUE);
-			m_TargetSysGammaCtrl.EnableWindow (TRUE);
-			m_BT2390_BSCtrl.EnableWindow (TRUE);
-			m_BT2390_WSCtrl.EnableWindow (TRUE);
-			m_BT2390_WS1Ctrl.EnableWindow (TRUE);
-		}
-  		m_MasterMinLCtrl.EnableWindow (TRUE);
-  		m_MasterMaxLCtrl.EnableWindow (TRUE);
-  		m_ContentMaxLCtrl.EnableWindow (TRUE);
-  		m_FrameAvgMaxLCtrl.EnableWindow (TRUE);
-  		m_bOverRideTargsCtrl.EnableWindow (TRUE);
-  		m_useToneMapCtrl.EnableWindow (TRUE);
-		GetDlgItem(IDC_USER_BLACK)->EnableWindow(FALSE);
-	}
-	else
-	{
-		m_TargetMinLCtrl.EnableWindow (FALSE);
-  		m_TargetMaxLCtrl.EnableWindow (FALSE);
-  		m_MasterMinLCtrl.EnableWindow (FALSE);
-  		m_MasterMaxLCtrl.EnableWindow (FALSE);
-  		m_ContentMaxLCtrl.EnableWindow (FALSE);
-  		m_FrameAvgMaxLCtrl.EnableWindow (FALSE);
-  		m_bOverRideTargsCtrl.EnableWindow (FALSE);
-  		m_useToneMapCtrl.EnableWindow (FALSE);
-  		m_DiffuseLCtrl.EnableWindow (FALSE);
-		m_TargetSysGammaCtrl.EnableWindow (FALSE);
-		m_BT2390_BSCtrl.EnableWindow (FALSE);
-		m_BT2390_WSCtrl.EnableWindow (FALSE);
-		m_BT2390_WS1Ctrl.EnableWindow (FALSE);
-		m_TargetSysGamma = floor( (1.2 + 0.42 * log10(GetConfig()->m_TargetMaxL / 1000.))*100.+0.5)/100.;
-		GetDlgItem(IDC_USER_BLACK)->EnableWindow(TRUE);
-	}
-
-	m_isModified=TRUE;
-	SetModified(TRUE);	
-	UpdateData(TRUE);
-}
 
 void CReferencesPropPage::OnCheckColors() 
 {
@@ -535,6 +478,8 @@ BOOL CReferencesPropPage::OnInitDialog()
 		m_BT2390_WSCtrl.EnableWindow (FALSE);
 		m_BT2390_WS1Ctrl.EnableWindow (FALSE);
 	}
+	BuildRuntimeLayout();
+	UpdateControlStates();
 	return TRUE;  // return TRUE unless you set the focus to a control
 	              // EXCEPTION: OCX Property Pages should return FALSE
 }
@@ -600,6 +545,7 @@ void CReferencesPropPage::OnUseMeasuredGammaCheck()
 	SetModified(TRUE);	
 	m_bSave = TRUE;
 	UpdateData(TRUE);
+	UpdateControlStates();
 }
 
 void CReferencesPropPage::OnUserBlackCheck() 
@@ -609,6 +555,7 @@ void CReferencesPropPage::OnUserBlackCheck()
 	UpdateData(TRUE);
 	m_bSave = TRUE;
 	m_ManualBlackEdit.EnableWindow(m_userBlack);
+	UpdateControlStates();
 }
 
 void CReferencesPropPage::OnUserOverRideTargsCheck() 
@@ -655,6 +602,7 @@ void CReferencesPropPage::OnUserOverRideTargsCheck()
 	GetConfig()->m_BT2390_WS1 = m_BT2390_WS1;
 
 	UpdateData(FALSE);
+	UpdateControlStates();
 }
 
 void CReferencesPropPage::OnSelchangeWhiteCombo()
@@ -668,6 +616,7 @@ void CReferencesPropPage::OnSelchangeWhiteCombo()
 	m_manualWhiteyedit.EnableWindow (enableEditControls);
 	UpdateColorSpaceValues();
 	UpdateData(FALSE);
+	UpdateControlStates();
 }
 
 void CReferencesPropPage::OnSelchangeColorrefCombo() 
@@ -752,6 +701,7 @@ void CReferencesPropPage::OnSelchangeColorrefCombo()
 	}
 
 	UpdateData(FALSE);	
+	UpdateControlStates();
 }
 
 void CReferencesPropPage::OnSelchangeCCmodeCombo() 
@@ -797,4 +747,386 @@ void CReferencesPropPage::UpdateColorSpaceValues()
 		m_manualBluex  = blueColor.GetxyYValue()[0];
 		m_manualBluey  = blueColor.GetxyYValue()[1];
 	}
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Runtime-built layout for the redesigned References page (branch uiFixes).
+// The dialog template positions are ignored; every control is repositioned
+// here so all 5 localized templates produce one identical layout. Decoration
+// (group boxes + labels) is created at runtime with localized IDS_* strings.
+//
+namespace {
+
+struct DlgMap
+{
+    HWND h;
+    CPoint at(int x, int y) { CRect r(x, y, x + 1, y + 1); ::MapDialogRect(h, &r); return CPoint(r.left, r.top); }
+    int w(int n)  { CRect r(0, 0, n, 1); ::MapDialogRect(h, &r); return r.right; }
+    int ht(int n) { CRect r(0, 0, 1, n); ::MapDialogRect(h, &r); return r.bottom; }
+};
+
+static CString LS(UINT id)
+{
+    CString s;
+    if (id) s.LoadString(id);
+    return s;
+}
+
+static CStatic* AddText(CWnd* pg, CObArray& all, CObArray* bucket, CFont* font, DlgMap& M,
+                        const CString& text, int x, int y, int w, int h, DWORD style = SS_LEFT)
+{
+    CStatic* p = new CStatic();
+    CPoint pt = M.at(x, y);
+    p->Create(text, WS_CHILD | WS_VISIBLE | style, CRect(pt.x, pt.y, pt.x + M.w(w), pt.y + M.ht(h)), pg);
+    p->SetFont(font);
+    all.Add(p);
+    if (bucket) bucket->Add(p);
+    return p;
+}
+
+static CButton* AddGroup(CWnd* pg, CObArray& all, CObArray* bucket, CFont* font, DlgMap& M,
+                         UINT ids, int x, int y, int w, int h)
+{
+    CButton* p = new CButton();
+    CPoint pt = M.at(x, y);
+    p->Create(LS(ids), WS_CHILD | WS_VISIBLE | BS_GROUPBOX, CRect(pt.x, pt.y, pt.x + M.w(w), pt.y + M.ht(h)), pg, (UINT)IDC_STATIC);
+    p->SetFont(font);
+    all.Add(p);
+    if (bucket) bucket->Add(p);
+    return p;
+}
+
+static void MoveDlg(CWnd* pg, UINT id, DlgMap& M, int x, int y, int w, int h)
+{
+    CWnd* c = pg->GetDlgItem(id);
+    if (!c) return;
+    CPoint pt = M.at(x, y);
+    c->MoveWindow(pt.x, pt.y, M.w(w), M.ht(h));
+}
+
+static void MoveWnd(CWnd* c, DlgMap& M, int x, int y, int w, int h)
+{
+    if (!c || !c->GetSafeHwnd()) return;
+    CPoint pt = M.at(x, y);
+    c->MoveWindow(pt.x, pt.y, M.w(w), M.ht(h));
+}
+
+static void ShowIds(CWnd* pg, const UINT* ids, int n, BOOL show)
+{
+    for (int i = 0; i < n; i++)
+    {
+        CWnd* c = pg->GetDlgItem(ids[i]);
+        if (c) c->ShowWindow(show ? SW_SHOW : SW_HIDE);
+    }
+}
+
+static void EnableIds(CWnd* pg, const UINT* ids, int n, BOOL en)
+{
+    for (int i = 0; i < n; i++)
+    {
+        CWnd* c = pg->GetDlgItem(ids[i]);
+        if (c) c->EnableWindow(en);
+    }
+}
+
+static void ShowBucket(CObArray& a, BOOL show)
+{
+    for (int i = 0; i < a.GetSize(); i++)
+    {
+        CWnd* c = (CWnd*)a.GetAt(i);
+        if (c && c->GetSafeHwnd()) c->ShowWindow(show ? SW_SHOW : SW_HIDE);
+    }
+}
+
+// transfer-function dropdown order <-> stored m_GammaOffsetType
+static const int kComboToType[6] = { 0, 1, 4, 6, 5, 7 };
+
+static int TypeToCombo(int t)
+{
+    for (int i = 0; i < 6; i++) if (kComboToType[i] == t) return i;
+    return 0;
+}
+
+static bool IsKnownType(int t)
+{
+    for (int i = 0; i < 6; i++) if (kComboToType[i] == t) return true;
+    return false;
+}
+
+static int TypeToRadio(int t)
+{
+    switch (t)
+    {
+        case 0: return IDC_GAMMA_OFFSET_RADIO1;
+        case 1: return IDC_GAMMA_OFFSET_RADIO2;
+        case 4: return IDC_GAMMA_OFFSET_RADIO5;
+        case 5: return IDC_GAMMA_OFFSET_RADIO8;
+        case 6: return IDC_GAMMA_OFFSET_RADIO7;
+        case 7: return IDC_GAMMA_OFFSET_RADIO6;
+    }
+    return IDC_GAMMA_OFFSET_RADIO1;
+}
+
+} // namespace
+
+void CReferencesPropPage::BuildRuntimeLayout()
+{
+    for (int i = 0; i < m_dynAll.GetSize(); i++)
+    {
+        CWnd* c = (CWnd*)m_dynAll.GetAt(i);
+        if (c) { if (c->GetSafeHwnd()) c->DestroyWindow(); delete c; }
+    }
+    m_dynAll.RemoveAll();
+    m_bSDRgamma.RemoveAll(); m_bTargetGamma.RemoveAll(); m_bBT1886.RemoveAll();
+    m_bLstar.RemoveAll(); m_bHDR.RemoveAll(); m_bPQ.RemoveAll(); m_bHLG.RemoveAll();
+    m_bWhiteXY.RemoveAll(); m_bToneSlopes.RemoveAll();
+    m_pCdm2 = NULL;
+    m_pTFGroup = NULL;
+    m_pCCGroup = NULL;
+    m_pTargetGroup = NULL;
+
+    DlgMap M; M.h = GetSafeHwnd();
+    CFont* font = GetFont();
+
+    for (CWnd* c = GetWindow(GW_CHILD); c != NULL; c = c->GetWindow(GW_HWNDNEXT))
+    {
+        int id = c->GetDlgCtrlID();
+        if (id <= 0 || id == 0xffff) c->ShowWindow(SW_HIDE);
+    }
+
+    static const UINT hideIds[] = {
+        IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO2, IDC_GAMMA_OFFSET_RADIO3,
+        IDC_GAMMA_OFFSET_RADIO4, IDC_GAMMA_OFFSET_RADIO5, IDC_GAMMA_OFFSET_RADIO6,
+        IDC_GAMMA_OFFSET_RADIO7, IDC_GAMMA_OFFSET_RADIO8, IDC_GAMMA_OFFSET_RADIO9,
+        IDC_GAMMA_OFFSET_RADIO10, IDC_CHANGEWHITE_CHECK, IDC_EDIT_MANUAL_GOFFSET };
+    ShowIds(this, hideIds, sizeof(hideIds) / sizeof(hideIds[0]), FALSE);
+
+    // ===== Section 1: Color space =====
+    AddGroup(this, m_dynAll, NULL, font, M, IDS_REF_GRP_COLORSPACE, 5, 3, 270, 72);
+    AddText(this, m_dynAll, NULL, font, M, LS(IDS_REF_STANDARD), 12, 19, 42, 9);
+    MoveDlg(this, IDC_COLORREF_COMBO, M, 54, 17, 96, 90);
+    {
+        CComboBox* pStd = (CComboBox*)GetDlgItem(IDC_COLORREF_COMBO);
+        if (pStd && pStd->GetCount() == 11)
+        {
+            int sel = m_colorStandard;
+            pStd->ResetContent();
+            pStd->AddString(LS(IDS_STD_PALSECAM));
+            pStd->AddString(LS(IDS_STD_SDTV));
+            pStd->AddString(LS(IDS_STD_REC709));
+            pStd->AddString(LS(IDS_STD_REC709_75));
+            pStd->AddString(LS(IDS_STD_REC709_PLASMA));
+            pStd->AddString(LS(IDS_STD_SRGB));
+            pStd->AddString(LS(IDS_STD_DCIP3));
+            pStd->AddString(LS(IDS_STD_REC2020));
+            pStd->AddString(LS(IDS_STD_P3IN2020));
+            pStd->AddString(LS(IDS_STD_709IN2020));
+            pStd->AddString(LS(IDS_STD_CUSTOM));
+            pStd->SetCurSel(sel);
+        }
+    }
+    AddText(this, m_dynAll, NULL, font, M, LS(IDS_REF_WHITEPOINT), 12, 34, 42, 9);
+    MoveDlg(this, IDC_WHITETARGET_COMBO, M, 54, 32, 96, 90);
+    AddText(this, m_dynAll, &m_bWhiteXY, font, M, "x", 44, 49, 8, 9);
+    MoveDlg(this, IDC_WHITE_X, M, 54, 47, 32, 12);
+    AddText(this, m_dynAll, &m_bWhiteXY, font, M, "y", 92, 49, 8, 9);
+    MoveDlg(this, IDC_WHITE_Y, M, 102, 47, 32, 12);
+    AddText(this, m_dynAll, NULL, font, M, "x", 190, 8, 16, 8, SS_CENTER);
+    AddText(this, m_dynAll, NULL, font, M, "y", 226, 8, 16, 8, SS_CENTER);
+    AddText(this, m_dynAll, NULL, font, M, LS(IDS_REF_RED), 160, 19, 20, 9);
+    MoveDlg(this, IDC_RED_X, M, 184, 17, 32, 12);
+    MoveDlg(this, IDC_RED_Y, M, 220, 17, 32, 12);
+    AddText(this, m_dynAll, NULL, font, M, LS(IDS_REF_GREEN), 160, 34, 20, 9);
+    MoveDlg(this, IDC_GREEN_X, M, 184, 32, 32, 12);
+    MoveDlg(this, IDC_GREEN_Y, M, 220, 32, 32, 12);
+    AddText(this, m_dynAll, NULL, font, M, LS(IDS_REF_BLUE), 160, 49, 20, 9);
+    MoveDlg(this, IDC_BLUE_X, M, 184, 47, 32, 12);
+    MoveDlg(this, IDC_BLUE_Y, M, 220, 47, 32, 12);
+
+    // ===== Section 2: Transfer function (dropdown on the title line) =====
+    m_pTFGroup = AddGroup(this, m_dynAll, NULL, font, M, IDS_REF_GRP_TRANSFERFUNC, 5, 80, 270, 148);
+    if (m_transferFuncCombo.GetSafeHwnd()) m_transferFuncCombo.DestroyWindow();
+    {
+        CPoint cpt = M.at(90, 79);
+        m_transferFuncCombo.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+            CRect(cpt.x, cpt.y, cpt.x + M.w(115), cpt.y + M.ht(120)), this, IDC_TRANSFERFUNC_COMBO);
+        m_transferFuncCombo.SetFont(font);
+        m_transferFuncCombo.AddString(LS(IDS_TF_GAMMA_POWER));
+        m_transferFuncCombo.AddString(LS(IDS_TF_GAMMA_BLACKCOMP));
+        m_transferFuncCombo.AddString(LS(IDS_TF_BT1886));
+        m_transferFuncCombo.AddString(LS(IDS_TF_LSTAR));
+        m_transferFuncCombo.AddString(LS(IDS_TF_PQ));
+        m_transferFuncCombo.AddString(LS(IDS_TF_HLG));
+    }
+    if (!IsKnownType(m_GammaOffsetType)) m_GammaOffsetType = 0;
+    m_transferFuncCombo.SetCurSel(TypeToCombo(m_GammaOffsetType));
+    CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
+
+    // Override black: common, fixed top-left for every transfer function.
+    MoveDlg(this, IDC_USER_BLACK, M, 12, 96, 84, 10);
+    GetDlgItem(IDC_USER_BLACK)->SetWindowText(LS(IDS_REF_OVERRIDEBLACK));
+    MoveDlg(this, IDC_EDIT_MANUAL_BLACK, M, 98, 95, 26, 12);
+    m_pCdm2 = AddText(this, m_dynAll, NULL, font, M, "cd/m2", 127, 97, 18, 8);
+
+    // Set target values manually: own row (HDR only).
+    MoveDlg(this, IDC_USER_OVERRIDE_TARGS, M, 12, 110, 270, 10);
+    GetDlgItem(IDC_USER_OVERRIDE_TARGS)->SetWindowText(LS(IDS_REF_SETMANUAL));
+
+    // --- SDR power-law / black compensation: one Gamma box (editable reference,
+    //     or locked measured-average when "use measured" is on) ---
+    AddText(this, m_dynAll, &m_bSDRgamma, font, M, LS(IDS_REF_GAMMA), 12, 112, 30, 9);
+    MoveDlg(this, IDC_EDIT_GAMMA_REF, M, 42, 110, 34, 12);
+    MoveDlg(this, IDC_EDIT_GAMMA_AVERAGE, M, 42, 110, 34, 12);
+    MoveDlg(this, IDC_USE_MEASURED_GAMMA, M, 42, 126, 180, 10);
+    GetDlgItem(IDC_USE_MEASURED_GAMMA)->SetWindowText(LS(IDS_REF_USEMEASGAMMA));
+
+    // --- BT.1886 (inline labels, inputs aligned) ---
+    AddText(this, m_dynAll, &m_bBT1886, font, M, LS(IDS_REF_EFFGAMMA50), 12, 112, 110, 9);
+    MoveDlg(this, IDC_EDIT_GAMMA_REL, M, 124, 110, 24, 12);
+    AddText(this, m_dynAll, &m_bBT1886, font, M, LS(IDS_REF_BLACKOFFSET), 12, 128, 110, 9);
+    MoveDlg(this, IDC_EDIT_SPLIT, M, 124, 126, 24, 12);
+
+    // --- L* ---
+    AddText(this, m_dynAll, &m_bLstar, font, M, LS(IDS_REF_LSTAR_DESC), 12, 112, 260, 9);
+
+    // --- HDR target group (PQ + HLG) ---
+    m_pTargetGroup = AddGroup(this, m_dynAll, &m_bHDR, font, M, IDS_REF_GRP_TARGETDISPLAY, 10, 124, 260, 106);
+    AddText(this, m_dynAll, &m_bPQ,  font, M, LS(IDS_REF_DIFFUSEWHITE), 16, 134, 76, 9);
+    MoveDlg(this, IDC_EDIT_DIFFUSE_WHITE, M, 16, 145, 44, 12);
+    AddText(this, m_dynAll, &m_bHLG, font, M, LS(IDS_REF_HLGSYSGAMMA), 16, 134, 76, 9);
+    MoveDlg(this, IDC_EDIT_TARGET_MAXL2, M, 16, 145, 44, 12);
+    AddText(this, m_dynAll, &m_bHDR, font, M, LS(IDS_REF_TARGETPEAK), 98, 134, 76, 9);
+    MoveDlg(this, IDC_EDIT_TARGET_MAXL, M, 98, 145, 44, 12);
+    AddText(this, m_dynAll, &m_bHDR, font, M, LS(IDS_REF_TARGETBLACK), 180, 134, 76, 9);
+    MoveDlg(this, IDC_EDIT_TARGET_MINL, M, 180, 145, 44, 12);
+    MoveDlg(this, IDC_USE_TONEMAP, M, 16, 164, 180, 10);
+    GetDlgItem(IDC_USE_TONEMAP)->SetWindowText(LS(IDS_REF_GRP_TONEMAP));
+    AddText(this, m_dynAll, &m_bToneSlopes, font, M, LS(IDS_REF_ROLLOFFKNEE), 16, 178, 118, 9);
+    MoveDlg(this, IDC_EDIT_TARGET_MAXL5, M, 16, 188, 22, 12);
+    AddText(this, m_dynAll, &m_bToneSlopes, font, M, LS(IDS_REF_BLACKSLOPE), 16, 202, 118, 9);
+    MoveDlg(this, IDC_EDIT_TARGET_MAXL3, M, 16, 212, 22, 12);
+    AddText(this, m_dynAll, &m_bToneSlopes, font, M, LS(IDS_REF_HIGHLIGHTSLOPE), 140, 178, 116, 9);
+    MoveDlg(this, IDC_EDIT_TARGET_MAXL4, M, 140, 188, 22, 12);
+
+    // --- HDR10 signal metadata (PQ only) ---
+    AddGroup(this, m_dynAll, &m_bPQ, font, M, IDS_REF_GRP_SIGNALMETA, 10, 234, 260, 42);
+    AddText(this, m_dynAll, &m_bPQ, font, M, LS(IDS_REF_MASTERINGMIN), 16, 244, 62, 9);
+    MoveDlg(this, IDC_EDIT_MASTER_MINL, M, 16, 254, 44, 12);
+    AddText(this, m_dynAll, &m_bPQ, font, M, LS(IDS_REF_MASTERINGMAX), 82, 244, 62, 9);
+    MoveDlg(this, IDC_EDIT_MASTER_MAXL, M, 82, 254, 44, 12);
+    AddText(this, m_dynAll, &m_bPQ, font, M, LS(IDS_REF_MAXCLL), 148, 244, 60, 9);
+    MoveDlg(this, IDC_EDIT_CONTENT_MAXL, M, 148, 254, 44, 12);
+    AddText(this, m_dynAll, &m_bPQ, font, M, LS(IDS_REF_MAXFALL), 214, 244, 54, 9);
+    MoveDlg(this, IDC_EDIT_FRAME_AVG_MAXL, M, 214, 254, 44, 12);
+
+    // ===== Section 3: ColorChecker patterns =====
+    m_pCCGroup = AddGroup(this, m_dynAll, NULL, font, M, IDS_REF_GRP_CCPATTERNS, 5, 232, 270, 30);
+    MoveDlg(this, IDC_CCMODE_COMBO, M, 12, 244, 200, 100);
+}
+
+void CReferencesPropPage::UpdateControlStates()
+{
+    int t = m_GammaOffsetType;
+    BOOL isPower   = (t == 0 || t == 1);
+    BOOL isBT1886  = (t == 4);
+    BOOL isLstar   = (t == 6);
+    BOOL isPQ      = (t == 5);
+    BOOL isHLG     = (t == 7);
+    BOOL isHDR     = (isPQ || isHLG);
+    BOOL isSRGB    = (m_colorStandard == sRGB);
+    BOOL useMeas   = m_useMeasuredGamma;
+    BOOL toneMap   = m_useToneMap;
+    BOOL manual    = m_bOverRideTargs;
+
+    DlgMap M; M.h = GetSafeHwnd();
+
+    if (m_transferFuncCombo.GetSafeHwnd()) m_transferFuncCombo.EnableWindow(!isSRGB);
+
+    CWnd* pUB = GetDlgItem(IDC_USER_BLACK);
+    if (pUB) pUB->EnableWindow(TRUE);
+    m_ManualBlackEdit.EnableWindow(m_userBlack);
+
+    ShowBucket(m_bSDRgamma,   isPower);
+    ShowBucket(m_bBT1886,     isBT1886);
+    ShowBucket(m_bLstar,      isLstar);
+    ShowBucket(m_bHDR,        isHDR);
+    ShowBucket(m_bPQ,         isPQ);
+    ShowBucket(m_bHLG,        isHLG);
+    ShowBucket(m_bToneSlopes, isPQ && toneMap);
+
+    static const UINT gRefId[] = { IDC_EDIT_GAMMA_REF };
+    ShowIds(this, gRefId, 1, isPower && !useMeas);
+    static const UINT gAvgId[] = { IDC_EDIT_GAMMA_AVERAGE };
+    ShowIds(this, gAvgId, 1, isPower && useMeas);
+    static const UINT measId[] = { IDC_USE_MEASURED_GAMMA };
+    ShowIds(this, measId, 1, isPower);
+    m_GammaRefEdit.EnableWindow(isPower && !useMeas && !isSRGB);
+    m_GammaAvgEdit.EnableWindow(FALSE);
+    m_eMeasuredGamma.EnableWindow(isPower && !isSRGB);
+
+    static const UINT btIds[] = { IDC_EDIT_GAMMA_REL, IDC_EDIT_SPLIT };
+    ShowIds(this, btIds, 2, isBT1886);
+
+    static const UINT hdrIds[] = { IDC_EDIT_TARGET_MAXL, IDC_EDIT_TARGET_MINL, IDC_USER_OVERRIDE_TARGS };
+    ShowIds(this, hdrIds, 3, isHDR);
+    static const UINT pqIds[]  = { IDC_EDIT_DIFFUSE_WHITE, IDC_USE_TONEMAP,
+        IDC_EDIT_MASTER_MINL, IDC_EDIT_MASTER_MAXL, IDC_EDIT_CONTENT_MAXL, IDC_EDIT_FRAME_AVG_MAXL };
+    ShowIds(this, pqIds, 6, isPQ);
+    static const UINT slopeIds[] = { IDC_EDIT_TARGET_MAXL5, IDC_EDIT_TARGET_MAXL3, IDC_EDIT_TARGET_MAXL4 };
+    ShowIds(this, slopeIds, 3, isPQ && toneMap);
+    static const UINT hlgIds[] = { IDC_EDIT_TARGET_MAXL2 };
+    ShowIds(this, hlgIds, 1, isHLG);
+
+    static const UINT diffuseId[]  = { IDC_EDIT_DIFFUSE_WHITE };
+    EnableIds(this, diffuseId, 1, isPQ && manual);
+    static const UINT tgtId[]      = { IDC_EDIT_TARGET_MAXL, IDC_EDIT_TARGET_MINL };
+    EnableIds(this, tgtId, 2, isHDR && manual);
+    static const UINT hlgGammaId[] = { IDC_EDIT_TARGET_MAXL2 };
+    EnableIds(this, hlgGammaId, 1, isHLG && manual);
+    static const UINT slopeEnId[]  = { IDC_EDIT_TARGET_MAXL5, IDC_EDIT_TARGET_MAXL3, IDC_EDIT_TARGET_MAXL4 };
+    EnableIds(this, slopeEnId, 3, isPQ && manual && toneMap);
+    static const UINT metaId[]     = { IDC_EDIT_MASTER_MINL, IDC_EDIT_MASTER_MAXL, IDC_EDIT_CONTENT_MAXL, IDC_EDIT_FRAME_AVG_MAXL };
+    EnableIds(this, metaId, 4, isPQ);
+    static const UINT toneChkId[]  = { IDC_USE_TONEMAP };
+    EnableIds(this, toneChkId, 1, isPQ);
+    static const UINT manualChkId[] = { IDC_USER_OVERRIDE_TARGS };
+    EnableIds(this, manualChkId, 1, isHDR);
+
+    BOOL customW = (m_whiteTarget == DCUST);
+    ShowBucket(m_bWhiteXY, TRUE);
+    static const UINT whiteIds[] = { IDC_WHITE_X, IDC_WHITE_Y };
+    ShowIds(this, whiteIds, 2, TRUE);
+    m_manualWhitexedit.EnableWindow(customW);
+    m_manualWhiteyedit.EnableWindow(customW);
+
+    BOOL customP = (m_colorStandard == CUSTOM);
+    m_manualRedxedit.EnableWindow(customP);
+    m_manualRedyedit.EnableWindow(customP);
+    m_manualGreenxedit.EnableWindow(customP);
+    m_manualGreenyedit.EnableWindow(customP);
+    m_manualBluexedit.EnableWindow(customP);
+    m_manualBlueyedit.EnableWindow(customP);
+
+    MoveWnd(m_pTargetGroup, M, 10, 124, 260, isHLG ? 38 : 106);
+    int tfBottom;
+    if (isPower)        tfBottom = 144;
+    else if (isBT1886)  tfBottom = 146;
+    else if (isLstar)   tfBottom = 128;
+    else if (isHLG)     tfBottom = 168;
+    else                tfBottom = 282;
+    MoveWnd(m_pTFGroup, M, 5, 80, 270, tfBottom - 80);
+    MoveWnd(m_pCCGroup, M, 5, tfBottom + 6, 270, 30);
+    MoveDlg(this, IDC_CCMODE_COMBO, M, 12, tfBottom + 18, 200, 100);
+}
+
+void CReferencesPropPage::OnSelchangeTransferFuncCombo()
+{
+    int sel = m_transferFuncCombo.GetCurSel();
+    if (sel < 0) return;
+    m_GammaOffsetType = kComboToType[sel];
+    CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
+    m_isModified = TRUE;
+    m_bSave = TRUE;
+    SetModified(TRUE);
+    UpdateControlStates();
 }

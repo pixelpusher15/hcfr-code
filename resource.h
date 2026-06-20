@@ -488,6 +488,7 @@
 #define IDC_RGBLEVEL_RADIO3             1125
 #define IDC_COLORTEMPBAR                1126
 #define IDC_WHITETARGET_COMBO           1126
+#define IDC_TRANSFERFUNC_COMBO          1293
 #define IDC_RGBLEVEL_RADIO4             1126
 #define IDC_TARGETBAR                   1127
 #define IDC_CALIBRATIONDATE_STATIC      1127
@@ -1693,6 +1694,58 @@
 #define IDS_DISABLE_AIO                59396
 #define IDS_METER_CALIBRATION          59397
 #define IDS_CAL_NOTE                   59398
+#define IDS_REF_GRP_COLORSPACE        59399
+#define IDS_REF_GRP_TRANSFERFUNC      59400
+#define IDS_REF_GRP_CCPATTERNS        59401
+#define IDS_REF_GRP_TARGETDISPLAY     59402
+#define IDS_REF_GRP_TONEMAP           59403
+#define IDS_REF_GRP_SIGNALMETA        59404
+#define IDS_REF_STANDARD              59405
+#define IDS_REF_WHITEPOINT            59406
+#define IDS_REF_PRIMARIES             59407
+#define IDS_REF_RED                   59408
+#define IDS_REF_GREEN                 59409
+#define IDS_REF_BLUE                  59410
+#define IDS_REF_TYPE                  59411
+#define IDS_REF_GAMMA                 59412
+#define IDS_REF_USEMEASGAMMA          59413
+#define IDS_REF_TARGETGAMMA           59414
+#define IDS_REF_OVERRIDEBLACK         59415
+#define IDS_REF_ADVANCED              59416
+#define IDS_REF_EFFGAMMA50            59417
+#define IDS_REF_BLACKOFFSET           59418
+#define IDS_REF_LSTAR_DESC            59419
+#define IDS_REF_DIFFUSEWHITE          59420
+#define IDS_REF_TARGETPEAK            59421
+#define IDS_REF_TARGETBLACK           59422
+#define IDS_REF_SETMANUAL             59423
+#define IDS_REF_HLGSYSGAMMA           59424
+#define IDS_REF_ROLLOFFKNEE           59425
+#define IDS_REF_BLACKSLOPE            59426
+#define IDS_REF_HIGHLIGHTSLOPE        59427
+#define IDS_REF_MADVRONLY             59428
+#define IDS_REF_MASTERINGMIN          59429
+#define IDS_REF_MASTERINGMAX          59430
+#define IDS_REF_MAXCLL                59431
+#define IDS_REF_MAXFALL               59432
+#define IDS_REF_METANOTE              59433
+#define IDS_TF_GAMMA_POWER            59434
+#define IDS_TF_GAMMA_BLACKCOMP        59435
+#define IDS_TF_BT1886                 59436
+#define IDS_TF_LSTAR                  59437
+#define IDS_TF_PQ                     59438
+#define IDS_TF_HLG                    59439
+#define IDS_STD_PALSECAM                    59440
+#define IDS_STD_SDTV                        59441
+#define IDS_STD_REC709                      59442
+#define IDS_STD_REC709_75                   59443
+#define IDS_STD_REC709_PLASMA               59444
+#define IDS_STD_SRGB                        59445
+#define IDS_STD_DCIP3                       59446
+#define IDS_STD_REC2020                     59447
+#define IDS_STD_P3IN2020                    59448
+#define IDS_STD_709IN2020                   59449
+#define IDS_STD_CUSTOM                      59450
 
 // Next default values for new objects
 // 
@@ -1701,7 +1754,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33108
-#define _APS_NEXT_CONTROL_VALUE         1293
+#define _APS_NEXT_CONTROL_VALUE         1294
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif
