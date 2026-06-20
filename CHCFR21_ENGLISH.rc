@@ -2955,7 +2955,7 @@ BEGIN
     IDS_STD_P3IN2020  "P3 in Rec.2020"
     IDS_STD_709IN2020  "Rec.709 in Rec.2020"
     IDS_STD_CUSTOM  "Custom"
-    IDS_AVG_LOW_LIGHT  "Avg low light"
+    IDS_AVG_LOW_LIGHT  "Adaptive low light"
     IDS_GEN_OUTPUT  "Pattern output"
     IDS_GEN_OUT_FULLSCREEN  "Desktop - fullscreen"
     IDS_GEN_OUT_OVERLAY  "Desktop - overlay"

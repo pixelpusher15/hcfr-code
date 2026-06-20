@@ -3169,7 +3169,7 @@ BEGIN
     IDS_STD_P3IN2020  "P3 in Rec.2020"
     IDS_STD_709IN2020  "Rec.709 in Rec.2020"
     IDS_STD_CUSTOM  "Personnalisé"
-    IDS_AVG_LOW_LIGHT  "Moyenne faible lumière"
+    IDS_AVG_LOW_LIGHT  "Faible lumière adaptative"
     IDS_GEN_OUTPUT  "Sortie des mires"
     IDS_GEN_OUT_FULLSCREEN  "Bureau - plein écran"
     IDS_GEN_OUT_OVERLAY  "Bureau - superposition"
