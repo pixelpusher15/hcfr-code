@@ -67,6 +67,67 @@ static struct
 					   };
 
 
+// ---- One-time settings migration from a previous HCFR install ----
+// 4.0 keeps its config under %APPDATA% (the exe folder is read-only when
+// installed under Program Files). On first run, import the most recent
+// ColorHCFR.ini from a prior version: a writable old folder, a Program Files
+// install, or its UAC VirtualStore mirror.
+static bool HcfrFileWriteTime(LPCSTR p, FILETIME &ft)
+{
+	WIN32_FILE_ATTRIBUTE_DATA fad;
+	if (!GetFileAttributesEx(p, GetFileExInfoStandard, &fad)) return false;
+	if (fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) return false;
+	ft = fad.ftLastWriteTime;
+	return true;
+}
+static void HcfrScanForIni(LPCSTR baseDir, char *best, FILETIME &bestFt, bool &haveBest)
+{
+	if (!baseDir || !*baseDir) return;
+	char pattern[MAX_PATH];
+	sprintf(pattern, "%s\\ColorHCFR*", baseDir);
+	WIN32_FIND_DATA fd;
+	HANDLE h = FindFirstFile(pattern, &fd);
+	if (h == INVALID_HANDLE_VALUE) return;
+	do
+	{
+		if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+		if (fd.cFileName[0] == '.') continue;
+		char cand[MAX_PATH];
+		sprintf(cand, "%s\\%s\\ColorHCFR.ini", baseDir, fd.cFileName);
+		FILETIME ft;
+		if (HcfrFileWriteTime(cand, ft) && (!haveBest || CompareFileTime(&ft, &bestFt) > 0))
+		{
+			strcpy(best, cand);
+			bestFt = ft;
+			haveBest = true;
+		}
+	} while (FindNextFile(h, &fd));
+	FindClose(h);
+}
+static void HcfrMigratePreviousIni(LPCSTR dest, LPCSTR exeDirIni)
+{
+	char best[MAX_PATH] = "";
+	FILETIME bestFt;
+	bool haveBest = false;
+	FILETIME ft;
+	if (exeDirIni && *exeDirIni && HcfrFileWriteTime(exeDirIni, ft))
+	{
+		strcpy(best, exeDirIni);
+		bestFt = ft;
+		haveBest = true;
+	}
+	HcfrScanForIni(getenv("ProgramFiles(x86)"), best, bestFt, haveBest);
+	const char *lad = getenv("LOCALAPPDATA");
+	if (lad && *lad)
+	{
+		char vs[MAX_PATH];
+		sprintf(vs, "%s\\VirtualStore\\Program Files (x86)", lad);
+		HcfrScanForIni(vs, best, bestFt, haveBest);
+	}
+	if (haveBest)
+		CopyFile(best, dest, TRUE);
+}
+
 CColorHCFRConfig::CColorHCFRConfig()
 {
 	char			szBuf [ 256 ];
@@ -96,6 +157,26 @@ CColorHCFRConfig::CColorHCFRConfig()
 	// Build log file name
 	lpStr = strrchr ( m_logFileName, (int) '\\' );
 	strcpy ( lpStr + 1, "ColorHCFR.log" );
+
+	// Config must live in a per-user writable location: the exe folder is
+	// read-only when installed under Program Files, and UAC virtualization is
+	// off for this build. Keep the INI and log under %APPDATA%\color; read-only
+	// files (help, language DLLs, res\images) still load from the exe folder.
+	{
+		const char *pAppData = getenv("APPDATA");
+		if (pAppData && *pAppData)
+		{
+			char szExeIni[MAX_PATH];
+			strcpy(szExeIni, m_iniFileName);
+			char szDir[MAX_PATH];
+			sprintf(szDir, "%s\\color", pAppData);
+			CreateDirectory(szDir, NULL);
+			sprintf(m_iniFileName, "%s\\ColorHCFR.ini", szDir);
+			sprintf(m_logFileName, "%s\\ColorHCFR.log", szDir);
+			if (GetFileAttributes(m_iniFileName) == INVALID_FILE_ATTRIBUTES)
+				HcfrMigratePreviousIni(m_iniFileName, szExeIni);
+		}
+	}
 
 	// Initialize language DLL, which is definitively loaded
 	strLang = GetProfileString ( "Options", "Language", "" );
