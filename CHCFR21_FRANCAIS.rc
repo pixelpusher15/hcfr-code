@@ -3417,24 +3417,24 @@ BEGIN
     IDS_CUSTREDREF          "Référence rouge Custom"
     IDS_CUSTGREENREF        "Référence vert Custom"
     IDS_CUSTBLUEREF         "Référence bleu Custom"
-    IDS_UHDTVREDREF         "Référence rouge UHDTV P3"
-    IDS_UHDTVGREENREF       "Référence vert UHDTV P3"
-    IDS_UHDTVBLUEREF        "Référence bleu UHDTV P3"
-    IDS_UHDTV2REDREF        "Référence rouge UHDTV Rec2020"
-    IDS_UHDTV2GREENREF      "Référence vert UHDTV Rec2020"
-    IDS_UHDTV2BLUEREF       "Référence bleu UHDTV Rec2020"
+    IDS_UHDTVREDREF         "Référence rouge DCI-P3"
+    IDS_UHDTVGREENREF       "Référence vert DCI-P3"
+    IDS_UHDTVBLUEREF        "Référence bleu DCI-P3"
+    IDS_UHDTV2REDREF        "Référence rouge Rec.2020"
+    IDS_UHDTV2GREENREF      "Référence vert Rec.2020"
+    IDS_UHDTV2BLUEREF       "Référence bleu Rec.2020"
     IDS_CONFIGURESENSOR2    "Démarrer/arrêter l'Intégration Adaptative"
-    IDS_UHDTV3REDREF        "Référence rouge UHDTV P3 in Rec2020"
-    IDS_UHDTV3GREENREF      "Référence vert UHDTV P3 in Rec2020"
-    IDS_UHDTV3BLUEREF       "Référence bleu UHDTV P3 in Rec2020"
+    IDS_UHDTV3REDREF        "Référence rouge P3 in Rec.2020"
+    IDS_UHDTV3GREENREF      "Référence vert P3 in Rec.2020"
+    IDS_UHDTV3BLUEREF       "Référence bleu P3 in Rec.2020"
     IDS_ABOUT_PATTERNS      "Motifs Additionels- 2016"
-    IDS_UHDTV4REDREF        "Référence rouge UHDTV Rec709 in Rec2020"
+    IDS_UHDTV4REDREF        "Référence rouge Rec.709 in Rec.2020"
 END
 
 STRINGTABLE
 BEGIN
-    IDS_UHDTV4GREENREF      "Référence vert UHDTV Rec709 in Rec2020"
-    IDS_UHDTV4BLUEREF       "Référence bleu UHDTV Rec709 in Rec2020"
+    IDS_UHDTV4GREENREF      "Référence vert Rec.709 in Rec.2020"
+    IDS_UHDTV4BLUEREF       "Référence bleu Rec.709 in Rec.2020"
 END
 
 STRINGTABLE

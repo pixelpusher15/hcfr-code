@@ -3185,24 +3185,24 @@ BEGIN
     IDS_CUSTREDREF          "Custom Rot Referenz"
     IDS_CUSTGREENREF        "Custom Grün Referenz"
     IDS_CUSTBLUEREF         "Custom Blau Referenz"
-    IDS_UHDTVREDREF         "UHDTV P3 Rot Referenz"
-    IDS_UHDTVGREENREF       "UHDTV P3 Grün Referenz"
-    IDS_UHDTVBLUEREF        "UHDTV P3 Blau Referenz"
-    IDS_UHDTV2REDREF        "UHDTV Rec2020 Rot Referenz"
-    IDS_UHDTV2GREENREF      "UHDTV Rec2020 Grün Referenz"
-    IDS_UHDTV2BLUEREF       "UHDTV Rec2020 Blau Referenz"
+    IDS_UHDTVREDREF         "DCI-P3 Rot Referenz"
+    IDS_UHDTVGREENREF       "DCI-P3 Grün Referenz"
+    IDS_UHDTVBLUEREF        "DCI-P3 Blau Referenz"
+    IDS_UHDTV2REDREF        "Rec.2020 Rot Referenz"
+    IDS_UHDTV2GREENREF      "Rec.2020 Grün Referenz"
+    IDS_UHDTV2BLUEREF       "Rec.2020 Blau Referenz"
     IDS_CONFIGURESENSOR2    "Start/Stop Adaptive Integration"
-    IDS_UHDTV3REDREF        "UHDTV P3 in Rec2020 Rot Referenz"
-    IDS_UHDTV3GREENREF      "UHDTV P3 in Rec2020 Grün Referenz"
-    IDS_UHDTV3BLUEREF       "UHDTV P3 in Rec2020 Blau Referenz"
+    IDS_UHDTV3REDREF        "P3 in Rec.2020 Rot Referenz"
+    IDS_UHDTV3GREENREF      "P3 in Rec.2020 Grün Referenz"
+    IDS_UHDTV3BLUEREF       "P3 in Rec.2020 Blau Referenz"
     IDS_ABOUT_PATTERNS      "additional patterns - 2016"
-    IDS_UHDTV4REDREF        "UHDTV Rec709 in Rec2020 Rot Referenz"
+    IDS_UHDTV4REDREF        "Rec.709 in Rec.2020 Rot Referenz"
 END
 
 STRINGTABLE
 BEGIN
-    IDS_UHDTV4GREENREF      "UHDTV Rec709 in Rec2020 Grün Referenz"
-    IDS_UHDTV4BLUEREF       "UHDTV Rec709 in Rec2020 Blau Referenz"
+    IDS_UHDTV4GREENREF      "Rec.709 in Rec.2020 Grün Referenz"
+    IDS_UHDTV4BLUEREF       "Rec.709 in Rec.2020 Blau Referenz"
 END
 
 STRINGTABLE
