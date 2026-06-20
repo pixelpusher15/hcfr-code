@@ -959,7 +959,7 @@ void CReferencesPropPage::BuildRuntimeLayout()
     m_pCdm2 = AddText(this, m_dynAll, NULL, font, M, "cd/m2", 127, 97, 18, 8);
 
     // Set target values manually: own row (HDR only).
-    MoveDlg(this, IDC_USER_OVERRIDE_TARGS, M, 12, 110, 270, 10);
+    MoveDlg(this, IDC_USER_OVERRIDE_TARGS, M, 12, 110, 256, 10);
     GetDlgItem(IDC_USER_OVERRIDE_TARGS)->SetWindowText(LS(IDS_REF_SETMANUAL));
 
     // --- SDR power-law / black compensation: one Gamma box (editable reference,
