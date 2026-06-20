@@ -593,33 +593,6 @@ void FxEnableDarkMode(BOOL bDark)
     if (pFlush) pFlush();
     FreeLibrary(hUx);
 }
-static LRESULT CALLBACK FxCheckSubclass(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR uId, DWORD_PTR dwRef)
-{
-    if (msg == WM_ERASEBKGND) return 1;
-    if (msg == WM_MOUSEMOVE) { if (!GetProp(hWnd, _T("fxh"))) { SetProp(hWnd, _T("fxh"), (HANDLE)1); TRACKMOUSEEVENT t; t.cbSize=sizeof(t); t.dwFlags=TME_LEAVE; t.hwndTrack=hWnd; t.dwHoverTime=0; TrackMouseEvent(&t); InvalidateRect(hWnd, NULL, FALSE); } return DefSubclassProc(hWnd, msg, wp, lp); }
-    if (msg == WM_MOUSELEAVE) { RemoveProp(hWnd, _T("fxh")); InvalidateRect(hWnd, NULL, FALSE); return DefSubclassProc(hWnd, msg, wp, lp); }
-    if (msg == WM_SETFOCUS || msg == WM_KILLFOCUS) { InvalidateRect(hWnd, NULL, FALSE); return DefSubclassProc(hWnd, msg, wp, lp); }
-    if (msg != WM_PAINT) return DefSubclassProc(hWnd, msg, wp, lp);
-    PAINTSTRUCT ps; HDC hdc = BeginPaint(hWnd, &ps); RECT rc; GetClientRect(hWnd, &rc);
-    HBRUSH hbg = (HBRUSH)::SendMessage(GetParent(hWnd), WM_CTLCOLORSTATIC, (WPARAM)hdc, (LPARAM)hWnd); if (hbg) FillRect(hdc, &rc, hbg);
-    LONG st = GetWindowLong(hWnd, GWL_STYLE) & BS_TYPEMASK; BOOL isRadio = (st == BS_RADIOBUTTON || st == BS_AUTORADIOBUTTON); BOOL checked = (::SendMessage(hWnd, BM_GETCHECK, 0, 0) == BST_CHECKED); BOOL hot = (GetProp(hWnd, _T("fxh")) != NULL);
-    int h = rc.bottom - rc.top; int sz = h - 8; if (sz < 11) sz = 11; if (sz > 15) sz = 15; int top = rc.top + (h - sz) / 2; int left = rc.left + 1;
-    COLORREF fg = FxGetTextColor(); HPEN pen = CreatePen(PS_SOLID, hot ? 2 : 1, fg); HGDIOBJ oldPen = SelectObject(hdc, pen); HGDIOBJ oldBr = SelectObject(hdc, GetStockObject(NULL_BRUSH));
-    if (isRadio) { Ellipse(hdc, left, top, left + sz, top + sz); if (checked) { HBRUSH db = CreateSolidBrush(fg); HGDIOBJ ob = SelectObject(hdc, db); Ellipse(hdc, left + 4, top + 4, left + sz - 4, top + sz - 4); SelectObject(hdc, ob); DeleteObject(db); } }
-    else { RoundRect(hdc, left, top, left + sz, top + sz, 4, 4); if (checked) { MoveToEx(hdc, left + 3, top + sz / 2, NULL); LineTo(hdc, left + sz / 2 - 1, top + sz - 4); LineTo(hdc, left + sz - 3, top + 3); } }
-    SelectObject(hdc, oldPen); SelectObject(hdc, oldBr); DeleteObject(pen);
-    WCHAR buf[256]; buf[0] = 0; GetWindowTextW(hWnd, buf, 255);
-    RECT tr; tr.left = left + sz + 5; tr.top = rc.top; tr.right = rc.right; tr.bottom = rc.bottom;
-    SetBkMode(hdc, TRANSPARENT); SetTextColor(hdc, fg);
-    HFONT hf = (HFONT)::SendMessage(hWnd, WM_GETFONT, 0, 0); HGDIOBJ oldF = hf ? SelectObject(hdc, hf) : NULL;
-    DrawTextW(hdc, buf, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE); if (oldF) SelectObject(hdc, oldF); if (GetFocus() == hWnd) DrawFocusRect(hdc, &tr);
-    EndPaint(hWnd, &ps); return 0;
-}
-static void FxSubclassCheckRadio(HWND hWnd, BOOL bDark)
-{
-    if (bDark) SetWindowSubclass(hWnd, FxCheckSubclass, 1, 0); else RemoveWindowSubclass(hWnd, FxCheckSubclass, 1);
-    InvalidateRect(hWnd, NULL, TRUE);
-}
 static LRESULT CALLBACK FxRadioTextSubclass(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR uId, DWORD_PTR dwRef)
 {
     if (msg == WM_ERASEBKGND) return 1;
