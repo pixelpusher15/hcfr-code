@@ -768,6 +768,7 @@
 #define IDC_ARGYLL_SENSOR_HIRES         1270
 #define IDC_ARGYLL_SENSOR_ADAPT         1292
 #define IDC_AVG_LOW_LIGHT               1299
+#define IDC_GEN_OUTPUT_COMBO            1500
 #define IDC_ARGYLLSENSOR_SPECTRALTYPE_COMBO 1271
 #define IDC_DISPLAY_NAME                1272
 #define IDC_ARGYLLSENSOR_INTTIME_COMBO  1272
@@ -1748,6 +1749,39 @@
 #define IDS_STD_709IN2020                   59449
 #define IDS_STD_CUSTOM                      59450
 #define IDS_AVG_LOW_LIGHT                   59451
+#define IDS_GEN_OUTPUT                    59452
+#define IDS_GEN_OUT_FULLSCREEN            59453
+#define IDS_GEN_OUT_OVERLAY               59454
+#define IDS_GEN_OUT_FLOATING              59455
+#define IDS_GEN_OUT_MADVR                 59456
+#define IDS_GEN_OUT_CAST                  59457
+#define IDS_GEN_OUT_PGEN                  59458
+#define IDS_GEN_GRP_DISPLAY               59459
+#define IDS_GEN_GRP_MADVR                 59460
+#define IDS_GEN_GRP_CAST                  59461
+#define IDS_GEN_GRP_PGEN                  59462
+#define IDS_GEN_GRP_SIGNAL                59463
+#define IDS_GEN_TARGET_SCREEN             59465
+#define IDS_GEN_PATTERN_SIZE              59466
+#define IDS_GEN_APL                       59467
+#define IDS_GEN_INTENSITY                 59468
+#define IDS_GEN_XOFFSET                   59469
+#define IDS_GEN_YOFFSET                   59470
+#define IDS_GEN_CAST_DEVICE               59471
+#define IDS_GEN_USE_IMAGE_BG              59472
+#define IDS_GEN_DISABLE_3DLUT             59473
+#define IDS_GEN_DISABLE_VLUT              59474
+#define IDS_GEN_OSD                       59475
+#define IDS_GEN_HDR_PASS                  59476
+#define IDS_GEN_HDR10                     59477
+#define IDS_GEN_BYPASS_VLUT               59478
+#define IDS_GEN_LOG_TRIPLETS              59479
+#define IDS_GEN_USER_PATTERN              59480
+#define IDS_GEN_RGB_RANGE                 59481
+#define IDS_GEN_NO_CAST                  59482
+#define IDS_GEN_GRP_PATTERN              59483
+#define IDS_GEN_GRP_BLANKING             59484
+#define IDS_GEN_BLANK_SCREEN              59485
 
 // Next default values for new objects
 // 
@@ -1756,7 +1790,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33108
-#define _APS_NEXT_CONTROL_VALUE         1294
+#define _APS_NEXT_CONTROL_VALUE         1501
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

@@ -376,7 +376,7 @@ BEGIN
     CONTROL         "Blank screen during measure",IDC_BLANKING_CHECK,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,17,20,112,10
 END
 
-IDD_GENERATOR_GDI_PROP_PAGE DIALOGEX 0, 0, 186, 214
+IDD_GENERATOR_GDI_PROP_PAGE DIALOGEX 0, 0, 186, 246
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Display"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
@@ -2956,6 +2956,39 @@ BEGIN
     IDS_STD_709IN2020  "Rec.709 in Rec.2020"
     IDS_STD_CUSTOM  "Custom"
     IDS_AVG_LOW_LIGHT  "Avg low light"
+    IDS_GEN_OUTPUT  "Pattern output"
+    IDS_GEN_OUT_FULLSCREEN  "Desktop - fullscreen"
+    IDS_GEN_OUT_OVERLAY  "Desktop - overlay"
+    IDS_GEN_OUT_FLOATING  "Desktop - window"
+    IDS_GEN_OUT_MADVR  "madVR / madTPG (network)"
+    IDS_GEN_OUT_CAST  "Google Cast (network)"
+    IDS_GEN_OUT_PGEN  "PGenerator (network)"
+    IDS_GEN_GRP_DISPLAY  "Display"
+    IDS_GEN_GRP_MADVR  "madVR options"
+    IDS_GEN_GRP_CAST  "Google Cast device"
+    IDS_GEN_GRP_PGEN  "PGenerator options"
+    IDS_GEN_GRP_SIGNAL  "Signal"
+    IDS_GEN_TARGET_SCREEN  "Target screen"
+    IDS_GEN_PATTERN_SIZE  "Pattern size [%]"
+    IDS_GEN_APL  "APL [%]"
+    IDS_GEN_INTENSITY  "Pattern intensity [%]"
+    IDS_GEN_XOFFSET  "Offset X [px]"
+    IDS_GEN_YOFFSET  "Offset Y [px]"
+    IDS_GEN_CAST_DEVICE  "Device"
+    IDS_GEN_USE_IMAGE_BG  "Use reference image as background"
+    IDS_GEN_DISABLE_3DLUT  "Disable 3D LUT"
+    IDS_GEN_DISABLE_VLUT  "Disable video LUT"
+    IDS_GEN_OSD  "On-screen display"
+    IDS_GEN_HDR_PASS  "HDR passthrough"
+    IDS_GEN_HDR10  "Enable HDR10 metadata"
+    IDS_GEN_BYPASS_VLUT  "Bypass video LUT"
+    IDS_GEN_LOG_TRIPLETS  "Show RGB triplets"
+    IDS_GEN_USER_PATTERN  "Use PGenerator user pattern"
+    IDS_GEN_RGB_RANGE  "RGB range"
+    IDS_GEN_NO_CAST  "No Google Cast device found"
+    IDS_GEN_GRP_PATTERN  "Pattern"
+    IDS_GEN_GRP_BLANKING  "Blanking"
+    IDS_GEN_BLANK_SCREEN  "Blank screen during measure"
 END
 
 STRINGTABLE

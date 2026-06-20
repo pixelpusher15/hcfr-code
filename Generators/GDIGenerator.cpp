@@ -112,6 +112,7 @@ CGDIGenerator::CGDIGenerator()
 	m_propertySheet.m_psh.dwFlags |= PSH_NOAPPLYNOW;
 
 	AddPropertyPage(&m_GDIGenePropertiesPage);
+	m_propertySheet.RemovePage(&m_GeneratorPropertiePage);
 
 	str.LoadString(IDS_GDIGENERATOR_NAME);
 	SetName(str);
@@ -150,6 +151,7 @@ CGDIGenerator::CGDIGenerator(int nDisplayMode, BOOL b16_235)
 	m_propertySheet.m_psh.dwFlags |= PSH_NOAPPLYNOW;
 
 	AddPropertyPage(&m_GDIGenePropertiesPage);
+	m_propertySheet.RemovePage(&m_GeneratorPropertiePage);
 
 	str.LoadString(IDS_GDIGENERATOR_NAME);
 	SetName(str);
@@ -356,6 +358,8 @@ void CGDIGenerator::SetPropertiesSheetValues()
 {
 	CGenerator::SetPropertiesSheetValues();
 
+	m_GDIGenePropertiesPage.m_doScreenBlanking = m_doScreenBlanking;
+
 	m_GDIGenePropertiesPage.m_rectSizePercent=m_displayWindow.m_rectSizePercent;
 	m_GDIGenePropertiesPage.m_bgStimPercent=m_displayWindow.m_bgStimPercent;
 	m_GDIGenePropertiesPage.m_Intensity=m_displayWindow.m_Intensity;
@@ -376,6 +380,7 @@ void CGDIGenerator::SetPropertiesSheetValues()
 
 void CGDIGenerator::GetPropertiesSheetValues()
 {
+	m_GeneratorPropertiePage.m_doScreenBlanking = m_GDIGenePropertiesPage.m_doScreenBlanking;
 	CGenerator::GetPropertiesSheetValues();
 
 	if( m_displayWindow.m_rectSizePercent != m_GDIGenePropertiesPage.m_rectSizePercent )
