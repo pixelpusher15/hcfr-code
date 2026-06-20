@@ -111,7 +111,9 @@ public:
 	virtual BOOL HasSpectrumCapabilities ( int * pNbBands, int * pMinWaveLength, int * pMaxWaveLength, double * pBandWidth ) { return FALSE; }
     virtual bool isColorimeter() const { return true; }
     virtual int ReadingType() const {return 0;}
-    virtual bool setAvg() {return false;}
+    virtual bool supportsAvg() const { return false; }
+    virtual void setAvgEnabled(bool) {}
+    virtual bool getAvgEnabled() const { return false; }
 private:
     virtual CColor MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int displaymode = 0) { return noDataColor;};
 };

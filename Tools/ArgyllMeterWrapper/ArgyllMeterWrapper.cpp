@@ -859,12 +859,6 @@ void ArgyllMeterWrapper::setHiResMode(bool enableHiRes)
     }
 }
 
-bool ArgyllMeterWrapper::setAdaptMode()
-{
-        m_Adapt = !m_Adapt;
-        return m_Adapt;
-}
-
 void ArgyllMeterWrapper::setDisableAIO(bool disable)
 {
     // AIO ("all in one") is a Rev. B i1d3 firmware measurement path. Only the

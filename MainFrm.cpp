@@ -145,6 +145,17 @@ void CMainFrame::RefreshToolbarIcons()
 	m_wndToolBarMeasuresSat.ReloadThemeIcons();
 	if(!m_DefaultNewMenu.LoadPngMenuIcons(16, 16, (GetConfig() && GetConfig()->m_darkTheme) != FALSE))
 		m_DefaultNewMenu.LoadToolBar(IDR_MENUBARGRAPH);
+	BOOL bDarkRT = (GetConfig() && GetConfig()->m_darkTheme) != FALSE;
+	POSITION posRT = AfxGetApp()->GetFirstDocTemplatePosition();
+	while(posRT)
+	{
+		CNewMultiDocTemplate* pNT = DYNAMIC_DOWNCAST(CNewMultiDocTemplate, AfxGetApp()->GetNextDocTemplate(posRT));
+		if(pNT)
+		{
+			if(!pNT->m_NewMenuShared.LoadPngMenuIcons(16, 16, bDarkRT))
+				pNT->m_NewMenuShared.LoadToolBar(IDR_MENUBARGRAPH);
+		}
+	}
 	m_wndMenuBar.Invalidate();
 }
 
@@ -258,9 +269,9 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	m_tooltip.AddToolBar(&m_wndToolBarMeasuresEx);
 	m_tooltip.AddToolBar(&m_wndToolBarMeasuresSat);
 	m_tooltip.AddToolBar(&m_wndToolBarViews);
-	m_tooltip.SetColorBk(RGB(255,165,0),RGB(0,128,128));
-	m_tooltip.SetEffectBk(CPPDrawManager::EFFECT_HGRADIENT);
-	m_tooltip.SetBorder(::CreateSolidBrush(RGB(212,175,55)),1,1);
+	m_tooltip.SetColorBk(RGB(238,238,238),RGB(238,238,238));
+	m_tooltip.SetEffectBk(CPPDrawManager::EFFECT_SOLID);
+	m_tooltip.SetBorder(::CreateSolidBrush(RGB(96,96,96)),1,1);
 
 	m_wndMenuBar.EnableDocking(CBRS_ALIGN_ANY); 
 	m_wndToolBar.EnableDocking(CBRS_ALIGN_ANY);

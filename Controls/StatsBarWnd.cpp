@@ -202,10 +202,12 @@ void CStatsBarWnd::OnPaint()
 	bmp.CreateCompatibleBitmap(&dc, rc.Width(), rc.Height());
 	CBitmap* pOldBmp = memDC.SelectObject(&bmp);
 
-	// Flat band with dark, borderless "chips" on it (light text for contrast).
+	// Flat band with borderless "chips" on it. Theme-aware: dark chips with
+	// light text in dark mode, light-grey chips with black text in light mode.
+	BOOL bDark = (fxUseCustomColor != FALSE);
 	COLORREF clrBand = FxGetSysColor(COLOR_BTNFACE);
-	COLORREF clrChip = RGB(28, 28, 30);
-	COLORREF clrText = RGB(235, 235, 235);
+	COLORREF clrChip = bDark ? RGB(28, 28, 30) : RGB(220, 220, 220);
+	COLORREF clrText = bDark ? RGB(235, 235, 235) : RGB(0, 0, 0);
 
 	memDC.FillSolidRect(rc, clrBand);
 

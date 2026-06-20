@@ -324,6 +324,9 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
     // settings change (Init() is re-run from GetPropertiesSheetValues), with no
     // re-init or restart needed. No-op for non-i1d3 meters.
     m_meter->setDisableAIO(!!m_DisableAIO);
+    // Re-apply the low-light averaging setting so it survives reconnects /
+    // restarts (the wrapper resets it on each new meter object).
+    m_meter->setAdapt(!!m_Adapt);
     if(m_DisplayType != 0xFFFFFFFF)
     {
         m_meter->setDisplayType(m_DisplayType);
@@ -488,9 +491,26 @@ bool CArgyllSensor::isColorimeter() const
     return m_meter->isColorimeter();
 }
 
-bool CArgyllSensor::setAvg()
+bool CArgyllSensor::supportsAvg() const
 {
-    return m_meter->setAdaptMode();
+    // The low-light averager is a software loop in the wrapper, available for
+    // every Argyll meter once one is connected.
+    return (m_meter != 0);
+}
+
+void CArgyllSensor::setAvgEnabled(bool bOn)
+{
+    m_Adapt = bOn ? 1 : 0;
+    if (m_meter)
+    {
+        m_meter->setAdapt(!!m_Adapt);
+        GetConfig()->WriteProfileInt(m_meter->getMeterName().c_str(), "Adapt", m_Adapt);
+    }
+}
+
+bool CArgyllSensor::getAvgEnabled() const
+{
+    return !!m_Adapt;
 }
 
 bool CArgyllSensor::isRefresh() const

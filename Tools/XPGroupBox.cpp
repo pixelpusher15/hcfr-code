@@ -278,7 +278,17 @@ void CXPGroupBox::OnPaint()
 		pOldBrush = dc.SelectObject(&brushBKContent);
 		CPen penContent(PS_SOLID, 1, FxGetMenuBgColor());
 		dc.SelectObject(&penContent);
+		// Clip the content fill to the rounded panel outline so the bottom
+		// corners are rounded to match the top. Save/restore the current clip
+		// (it carries the sibling ExcludeClipRect set above) so child windows
+		// stay protected.
+		CRgn rgnSaved; rgnSaved.CreateRectRgn(0, 0, 0, 0);
+		int nHadClip = ::GetClipRgn(dc.GetSafeHdc(), (HRGN)rgnSaved.GetSafeHandle());
+		CRgn rgnRound;
+		rgnRound.CreateRoundRectRgn(rectClient.left, rectClient.top, rectClient.right + 1, rectClient.bottom + 1, 11, 11);
+		dc.SelectClipRgn(&rgnRound, RGN_AND);
 		dc.Rectangle(rectContent);
+		dc.SelectClipRgn(nHadClip == 1 ? &rgnSaved : NULL);
 		// Re-draw the rounded panel outline on top of the content so it is
 		// visible all the way around (subtle, VS-like) in both themes.
 		dc.SelectStockObject(NULL_BRUSH);

@@ -119,8 +119,11 @@ public:
     /// Enable/Disable high resolution mode on i1Pro
     void setHiResMode(bool enableHiRes);
 
-    /// Enable/Disable adaptive averaging
-    bool setAdaptMode();
+    /// Set low-light averaging on/off explicitly
+    void setAdapt(bool bOn) { m_Adapt = bOn; }
+
+    /// Current low-light averaging state
+    bool getAdapt() const { return m_Adapt != 0; }
 
     /// Enable/Disable Rev. B AIO measurement mode (i1d3 family only)
     void setDisableAIO(bool disable);

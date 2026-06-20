@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //  Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -535,7 +535,7 @@ void CGraphControl::DrawBackground(CDC *pDC, CRect rect, BOOL bForFile)
 	if ( bForFile ? GetConfig()->m_bWhiteBkgndOnFile : GetConfig()->m_bWhiteBkgndOnScreen )
 		pDC->FillSolidRect(rect,RGB(255,255,255));
 	else if(m_doGradientBg)
-		DrawGradient(pDC,rect,RGB(32+m_minX,32+m_minX,32+m_minX),RGB(m_maxX*2.55,m_maxX*2.55,m_maxX*2.55),true);
+		DrawGradient(pDC,rect,RGB(10,10,10),RGB(47,47,47),true);
 	else
 		pDC->FillSolidRect(rect,RGB(0,0,0));
 }
@@ -801,7 +801,7 @@ void CGraphControl::DrawGraphs(CDC *pDC, CRect rect)
 
 void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 {
-    CPen axisPen(PS_SOLID,1,RGB(0,64,64));
+    CPen axisPen(PS_SOLID,1,RGB(64,64,64));
     CPen *pOldPen = pDC->SelectObject(&axisPen); 
 
 	pDC->SetTextAlign(TA_BOTTOM);
@@ -837,7 +837,7 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 			if(m_pXUnitStr)
 				str+=m_pXUnitStr;
 			if ( ! bWhiteBkgnd && m_doGradientBg )
-				pDC->SetTextColor(RGB(255-xVal*2.55,255-xVal*2.55,255-xVal*2.55));
+				pDC->SetTextColor(RGB(200+xVal*0.55,200+xVal*0.55,200+xVal*0.55));
 			if(i &&  x > lastStrEndX)
 			{
 				pDC->TextOut(x+2,rect.bottom,str); // Draw axis label
@@ -929,12 +929,12 @@ void CGraphControl::OnPaint()
 	BOOL		bWhiteBkgnd = GetConfig () -> m_bWhiteBkgndOnScreen;
 	TCHAR		GLabel[100] = _T("");
 	StringCchCat(GLabel, 260, GTxt); 
-		pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );
+		pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(255,0,0) );
 	if (GetConfig()->isHighDPI)
 		font.CreateFont( 14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Arial" );
 	else
 		font.CreateFont( 18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Arial" );
-	pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );	if (GTxt == "Near White Luminance Response")		pDC -> SetTextColor ( RGB(100,50,100) );
+	pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );	if (GTxt == "Near White Luminance Response")		pDC -> SetTextColor ( RGB(220,120,220) );
 	else
 		pDC -> SetTextColor ( RGB(210,210,10) );
 

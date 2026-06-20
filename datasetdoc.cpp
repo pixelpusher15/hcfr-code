@@ -463,7 +463,6 @@ IMPLEMENT_DYNCREATE(CDataSetDoc, CDocument)
 BEGIN_MESSAGE_MAP(CDataSetDoc, CDocument)
 	//{{AFX_MSG_MAP(CDataSetDoc)
 	ON_COMMAND(IDM_CONFIGURE_SENSOR, OnConfigureSensor)
-	ON_COMMAND(IDM_CONFIGURE_SENSOR2, OnConfigureSensor2)
 	ON_COMMAND(IDM_CONFIGURE_GENERATOR, OnConfigureGenerator)
 	ON_COMMAND(IDM_CHANGE_GENERATOR, OnChangeGenerator)
 	ON_COMMAND(IDM_CHANGE_SENSOR, OnChangeSensor)
@@ -1355,31 +1354,6 @@ void CDataSetDoc::OnConfigureSensor()
 		UpdateAllViews ( NULL, UPD_EVERYTHING );
 		AfxGetMainWnd () -> SendMessageToDescendants ( WM_COMMAND, IDM_REFRESH_REFERENCE );
 
-	}
-}
-
-void CDataSetDoc::OnConfigureSensor2() 
-{
-    POSITION pos;
-    CView* pView;
-    pos = this -> GetFirstViewPosition ();
-    pView = this -> GetNextView ( pos );
-	bool can_Avg = m_pSensor->setAvg();
-	if (can_Avg == m_pSensor->setAvg())
-	{
-		GetColorApp()->InMeasureMessageBox("Averaging not available for this probe.","Average Button",MB_OK);	
-	} 	else
-	{
-		if (m_pSensor->setAvg())
-		{
-		   GetColorApp()->InMeasureMessageBox("Averaging on","Average Button",MB_OK);
-		   ( (CMainView*) pView )->m_configSensorButton2.SetIcon(IDI_STOP_ICON,36,36);
-		}
-		else
-		{
-		   GetColorApp()->InMeasureMessageBox("Averaging off","Average Button",MB_OK);
-		   ( (CMainView*) pView )->m_configSensorButton2.SetIcon(IDI_START_ICON,36,36);
-		}
 	}
 }
 

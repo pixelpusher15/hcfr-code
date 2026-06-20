@@ -42,6 +42,22 @@ public:
 // Dialog Data
 	BOOL m_isModified;
 
+	CComboBox m_transferFuncCombo;
+	CObArray  m_dynAll;     // every runtime-created control (for cleanup)
+	CObArray  m_bSDRgamma;  // power-law / black-comp: Gamma + use-measured
+	CObArray  m_bTargetGamma; // target-gamma-in-use readout
+	CObArray  m_bBT1886;    // BT.1886 advanced knobs
+	CObArray  m_bLstar;     // L* description
+	CObArray  m_bHDR;       // common HDR: target box, peak/black, metadata
+	CObArray  m_bPQ;        // PQ-only: diffuse white, tone mapping
+	CObArray  m_bHLG;       // HLG-only: system gamma
+	CObArray  m_bWhiteXY;
+	CObArray  m_bToneSlopes;
+	CStatic*  m_pCdm2;
+	CButton*  m_pTFGroup;
+	CButton*  m_pCCGroup;
+	CButton*  m_pTargetGroup;
+
 	//{{AFX_DATA(CReferencesPropPage)
 	enum { IDD = IDD_REFERENCE_PROP_PAGE };
 	CEdit m_GammaRefEdit;
@@ -126,13 +142,16 @@ protected:
 	afx_msg void OnSelchangeColorrefCombo();
 	afx_msg void OnSelchangeWhiteCombo();
 	afx_msg void OnSelchangeCCmodeCombo();
+	afx_msg void OnSelchangeTransferFuncCombo();
 	afx_msg void OnChangeEditGammaOffset();
 	afx_msg void OnChangeEditManualGOffset();
 	//}}AFX_MSG
-	afx_msg void OnControlClicked(UINT nID);
 	DECLARE_MESSAGE_MAP()
 
 	void UpdateColorSpaceValues();
+
+	void BuildRuntimeLayout();
+	void UpdateControlStates();
 
 };
 
