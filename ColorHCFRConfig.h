@@ -38,6 +38,7 @@
 #include "AdvancedPropPage.h"
 #include "ToolbarPropPage.h"
 #include <map>
+extern CString GetColorStandardName(int nStandard);
 
 class CColorHCFRConfig  
 {

@@ -762,7 +762,7 @@ bool CExport::SavePDF()
 	CCIEChartGrapher pCIE;
 	pCIE.SaveGraphFile(m_pDoc,CSize(dX,dY),filename1,2,95,TRUE);
 	CColorReference cRef = GetColorReference();
-	CString sName = cRef.standardName.c_str();
+	CString sName = GetColorStandardName(cRef.m_standard);
 	draw_image2(pdf, "color\\temp.png", 6, HPDF_Page_GetHeight (page) - 320 - 230, "CIE Diagram "+sName);
 	
 //SATS/LUM Chart

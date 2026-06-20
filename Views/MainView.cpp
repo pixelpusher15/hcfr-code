@@ -4215,7 +4215,7 @@ void CMainView::UpdateGrid()
 		CString bbcstr,sdrstr;
 		bbcstr.Format("system gamma: %3.2f",BBC_gamma);
 
-		CString CS = GetColorReference().standardName.c_str();
+		CString CS = GetColorStandardName(GetColorReference().m_standard);
 		CString WP = GetColorReference().whiteName;
 
 		switch(GetConfig()->m_GammaOffsetType)
@@ -5891,6 +5891,7 @@ void CMainView::InitButtons()
 			m_avgLowLightCheck.SetFont(GetFont());
 			CString sAvg; sAvg.LoadString(IDS_AVG_LOW_LIGHT);
 			m_avgLowLightCheck.SetWindowText(sAvg);
+			if (!GetConfig()->m_darkTheme) FxApplyFlatCheck(m_avgLowLightCheck.GetSafeHwnd());
 		}
 		CSensor* pAvgS = GetDocument() ? GetDocument()->m_pSensor : NULL;
 		BOOL bAvgSup = (pAvgS != NULL && pAvgS->supportsAvg());
