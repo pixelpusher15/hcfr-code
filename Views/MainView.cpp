@@ -106,6 +106,7 @@ static const SCtrlLayout g_CtrlLayout [] = {
 { IDC_SENSORNAME_STATIC2				, LAYOUT_RIGHT,	LAYOUT_RIGHT,	LAYOUT_TOP,			LAYOUT_TOP			},
 { IDM_CONFIGURE_SENSOR					, LAYOUT_RIGHT,	LAYOUT_RIGHT,	LAYOUT_TOP,			LAYOUT_TOP			},
 { IDM_CONFIGURE_SENSOR2					, LAYOUT_RIGHT,	LAYOUT_RIGHT,	LAYOUT_TOP,			LAYOUT_TOP			},
+{ IDC_AVG_LOW_LIGHT, LAYOUT_RIGHT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP },
 { IDC_GENERATOR_GROUP					, LAYOUT_RIGHT,	LAYOUT_RIGHT,	LAYOUT_TOP,			LAYOUT_TOP			},
 { IDC_GENERATORNAME_STATIC				, LAYOUT_RIGHT,	LAYOUT_RIGHT,	LAYOUT_TOP,			LAYOUT_TOP			},
 { IDM_CONFIGURE_GENERATOR				, LAYOUT_RIGHT,	LAYOUT_RIGHT,	LAYOUT_TOP,			LAYOUT_TOP			},
@@ -367,6 +368,7 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_BN_CLICKED(IDC_EDITGRID_CHECK, OnEditgridCheck)
 	ON_BN_CLICKED(IDC_DATAREF_CHECK, OnDatarefCheck)
 	ON_BN_CLICKED(IDC_ADJUSTXYZ_CHECK, OnAdjustXYZCheck)
+	ON_BN_CLICKED(IDC_AVG_LOW_LIGHT, OnAvgLowLightCheck)
 	ON_BN_CLICKED(IDC_INIT_BUTTON, OnInitDefaults)
 	ON_WM_ERASEBKGND()
 	ON_WM_SYSCOLORCHANGE()
@@ -560,7 +562,6 @@ void CMainView::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_MEASUREGRAYSCALE_BUTTON, m_grayScaleButton);
 	DDX_Control(pDX, IDC_DELETEGRAYSCALE_BUTTON, m_grayScaleDeleteButton);
 	DDX_Control(pDX, IDM_CONFIGURE_SENSOR, m_configSensorButton);
-	DDX_Control(pDX, IDM_CONFIGURE_SENSOR2, m_configSensorButton2);
 	DDX_Control(pDX, IDM_CONFIGURE_GENERATOR, m_configGeneratorButton);
 	DDX_Control(pDX, IDC_VALUES_STATIC, m_valuesStatic);
 	DDX_Control(pDX, IDC_COLORDATA_STATIC, m_colordataStatic);
@@ -719,6 +720,7 @@ void CMainView::OnInitialUpdate()
 			case IDC_SENSORNAME_STATIC2:
 			case IDM_CONFIGURE_SENSOR:
 			case IDM_CONFIGURE_SENSOR2:
+				case IDC_AVG_LOW_LIGHT:
 				shift = 2 * GAP;
 				break;
 			case IDC_GENERATOR_GROUP:
@@ -2281,6 +2283,13 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		if ( lHint == UPD_EVERYTHING || lHint == UPD_SENSORCONFIG )
 		{
 			m_sensorName=GetDocument()->m_pSensor->GetName();
+			if (::IsWindow(m_avgLowLightCheck.GetSafeHwnd()))
+			{
+				CSensor* pAvgS = GetDocument()->m_pSensor;
+				BOOL bAvgSup = (pAvgS != NULL && pAvgS->supportsAvg());
+				m_avgLowLightCheck.EnableWindow(bAvgSup);
+				m_avgLowLightCheck.SetCheck((bAvgSup && pAvgS->getAvgEnabled()) ? BST_CHECKED : BST_UNCHECKED);
+			}
 		}
 
 		if ( lHint == UPD_EVERYTHING || lHint == UPD_GENERATORCONFIG || lHint == UPD_GRAYSCALE )
@@ -5843,13 +5852,7 @@ void CMainView::InitButtons()
 		m_configSensorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-sensor"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
 	else
 		m_configSensorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-sensor"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
-	Msg2.LoadString ( IDS_CONFIGURESENSOR2 );
-	if (GetConfig()->isHighDPI)
-		m_configSensorButton2.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("adaptive"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
-	else
-		m_configSensorButton2.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("adaptive"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
 	m_configSensorButton.SetFont(GetFont());
-	m_configSensorButton2.SetFont(GetFont());
 	m_configSensorButton.EnableBalloonTooltip();
 	m_configSensorButton.SetTooltipText(Msg);
 	m_configSensorButton.SetColor(CButtonST::BTNST_COLOR_FG_IN,FxGetSysColor(COLOR_MENUTEXT));
@@ -5862,18 +5865,41 @@ void CMainView::InitButtons()
 	m_configSensorButton.OffsetColor(CButtonST::BTNST_COLOR_FG_IN, 30);
 	m_configSensorButton.SetWindowPos(NULL,0,0,24,24,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
 	m_configSensorButton.SetWindowText(_T(""));
-	m_configSensorButton2.EnableBalloonTooltip();
-	m_configSensorButton2.SetTooltipText(Msg2);
-	m_configSensorButton2.SetColor(CButtonST::BTNST_COLOR_FG_IN,FxGetSysColor(COLOR_MENUTEXT));
-	m_configSensorButton2.SetColor(CButtonST::BTNST_COLOR_FG_OUT,FxGetSysColor(COLOR_MENUTEXT));
-	m_configSensorButton2.SetColor(CButtonST::BTNST_COLOR_FG_FOCUS,FxGetSysColor(COLOR_MENUTEXT));
-	m_configSensorButton2.SetColor(CButtonST::BTNST_COLOR_BK_IN,FxGetMenuBgColor());
-	m_configSensorButton2.SetColor(CButtonST::BTNST_COLOR_BK_OUT,FxGetMenuBgColor());
-	m_configSensorButton2.SetColor(CButtonST::BTNST_COLOR_BK_FOCUS,FxGetMenuBgColor());
-	m_configSensorButton2.OffsetColor(CButtonST::BTNST_COLOR_BK_IN, 30);
-	m_configSensorButton2.OffsetColor(CButtonST::BTNST_COLOR_FG_IN, 30);
-	m_configSensorButton2.SetWindowPos(NULL,0,0,24,24,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
-	m_configSensorButton2.SetWindowText(_T(""));
+	{
+		CWnd* pAvgLbl = GetDlgItem(IDC_SENSORNAME_STATIC2);
+		CWnd* pAvgBtn = GetDlgItem(IDM_CONFIGURE_SENSOR2);
+		if (pAvgLbl) pAvgLbl->ShowWindow(SW_HIDE);
+		if (pAvgBtn) pAvgBtn->ShowWindow(SW_HIDE);
+		if (!::IsWindow(m_avgLowLightCheck.GetSafeHwnd()) && pAvgLbl && pAvgBtn)
+		{
+			CRect rcAvgL, rcAvgB, rcAvg;
+			pAvgLbl->GetWindowRect(&rcAvgL); ScreenToClient(&rcAvgL);
+			pAvgBtn->GetWindowRect(&rcAvgB); ScreenToClient(&rcAvgB);
+			rcAvg.left = rcAvgL.left < rcAvgB.left ? rcAvgL.left : rcAvgB.left;
+			rcAvg.right = rcAvgL.right > rcAvgB.right ? rcAvgL.right : rcAvgB.right;
+			CWnd* pAvgCfg = GetDlgItem(IDM_CONFIGURE_SENSOR);
+			if (pAvgCfg)
+			{
+				CRect rcAvgCfg;
+				pAvgCfg->GetWindowRect(&rcAvgCfg); ScreenToClient(&rcAvgCfg);
+				if (rcAvgCfg.left - 6 > rcAvg.right) rcAvg.right = rcAvgCfg.left - 6;
+			}
+			rcAvg.top = rcAvgL.top < rcAvgB.top ? rcAvgL.top : rcAvgB.top;
+			int hAvg = rcAvgL.Height() > rcAvgB.Height() ? rcAvgL.Height() : rcAvgB.Height();
+			rcAvg.bottom = rcAvg.top + hAvg + 2;
+			m_avgLowLightCheck.Create(_T(""), WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX, rcAvg, this, IDC_AVG_LOW_LIGHT);
+			m_avgLowLightCheck.SetFont(GetFont());
+			CString sAvg; sAvg.LoadString(IDS_AVG_LOW_LIGHT);
+			m_avgLowLightCheck.SetWindowText(sAvg);
+		}
+		CSensor* pAvgS = GetDocument() ? GetDocument()->m_pSensor : NULL;
+		BOOL bAvgSup = (pAvgS != NULL && pAvgS->supportsAvg());
+		if (::IsWindow(m_avgLowLightCheck.GetSafeHwnd()))
+		{
+			m_avgLowLightCheck.EnableWindow(bAvgSup);
+			m_avgLowLightCheck.SetCheck((bAvgSup && pAvgS->getAvgEnabled()) ? BST_CHECKED : BST_UNCHECKED);
+		}
+	}
 //	m_configSensorButton.DrawTransparent(TRUE);
 
 	Msg.LoadString ( IDS_CONFIGUREGENERATOR );
@@ -7665,6 +7691,15 @@ void CMainView::OnInitDefaults()
 		GetDocument()->UpdateAllViews ( NULL, UPD_EVERYTHING );
 		AfxGetMainWnd()->SendMessage(WM_SYSCOLORCHANGE);
 	}
+}
+
+void CMainView::OnAvgLowLightCheck()
+{
+	CSensor* pS = GetDocument() ? GetDocument()->m_pSensor : NULL;
+	if (pS == NULL || !pS->supportsAvg())
+		return;
+	bool bOn = (m_avgLowLightCheck.GetCheck() == BST_CHECKED);
+	pS->setAvgEnabled(bOn);
 }
 
 void CMainView::OnAdjustXYZCheck()

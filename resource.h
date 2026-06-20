@@ -767,6 +767,7 @@
 #define IDC_ARGYLLSENSOR_METER_NAME     1269
 #define IDC_ARGYLL_SENSOR_HIRES         1270
 #define IDC_ARGYLL_SENSOR_ADAPT         1292
+#define IDC_AVG_LOW_LIGHT               1299
 #define IDC_ARGYLLSENSOR_SPECTRALTYPE_COMBO 1271
 #define IDC_DISPLAY_NAME                1272
 #define IDC_ARGYLLSENSOR_INTTIME_COMBO  1272
@@ -1746,6 +1747,7 @@
 #define IDS_STD_P3IN2020                    59448
 #define IDS_STD_709IN2020                   59449
 #define IDS_STD_CUSTOM                      59450
+#define IDS_AVG_LOW_LIGHT                   59451
 
 // Next default values for new objects
 // 

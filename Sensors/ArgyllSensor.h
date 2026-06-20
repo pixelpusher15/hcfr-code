@@ -83,7 +83,9 @@ public:
     void FillDisplayTypeCombo(CComboBox& comboToFill);
     void FillSpectralTypeCombo(CComboBox& comboToFill);
     virtual bool isColorimeter() const;
-    virtual bool setAvg();
+    virtual bool supportsAvg() const;
+    virtual void setAvgEnabled(bool bOn);
+    virtual bool getAvgEnabled() const;
     virtual bool isRefresh() const;
 
 private:

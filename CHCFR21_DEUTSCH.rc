@@ -2946,6 +2946,7 @@ BEGIN
     IDS_STD_P3IN2020  "P3 in Rec.2020"
     IDS_STD_709IN2020  "Rec.709 in Rec.2020"
     IDS_STD_CUSTOM  "Benutzerdefiniert"
+    IDS_AVG_LOW_LIGHT  "Mittelung bei wenig Licht"
 END
 
 STRINGTABLE

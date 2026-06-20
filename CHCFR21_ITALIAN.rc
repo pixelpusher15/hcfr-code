@@ -3155,6 +3155,7 @@ BEGIN
     IDS_STD_P3IN2020  "P3 in Rec.2020"
     IDS_STD_709IN2020  "Rec.709 in Rec.2020"
     IDS_STD_CUSTOM  "Personalizzato"
+    IDS_AVG_LOW_LIGHT  "Media luce bassa"
 END
 
 STRINGTABLE
