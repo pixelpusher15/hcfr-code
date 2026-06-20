@@ -4176,7 +4176,7 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	//convert to HDR levels if needed for psuedo color spaces
 	if (!(mode == 5 || mode == 7) && (GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4))
 	{
-		for (int ci = 0; ci < 6; ci++)
+		for (int ci = 0; ci < 3; ci++)
 		{
 			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
 			for (int ck = 0; ck < 3; ck++)
