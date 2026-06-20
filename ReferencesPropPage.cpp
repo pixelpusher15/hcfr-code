@@ -911,17 +911,7 @@ void CReferencesPropPage::BuildRuntimeLayout()
         {
             int sel = m_colorStandard;
             pStd->ResetContent();
-            pStd->AddString(LS(IDS_STD_PALSECAM));
-            pStd->AddString(LS(IDS_STD_SDTV));
-            pStd->AddString(LS(IDS_STD_REC709));
-            pStd->AddString(LS(IDS_STD_REC709_75));
-            pStd->AddString(LS(IDS_STD_REC709_PLASMA));
-            pStd->AddString(LS(IDS_STD_SRGB));
-            pStd->AddString(LS(IDS_STD_DCIP3));
-            pStd->AddString(LS(IDS_STD_REC2020));
-            pStd->AddString(LS(IDS_STD_P3IN2020));
-            pStd->AddString(LS(IDS_STD_709IN2020));
-            pStd->AddString(LS(IDS_STD_CUSTOM));
+            for (int i = 0; i <= CUSTOM; i++) pStd->AddString(GetColorStandardName(i));
             pStd->SetCurSel(sel);
         }
     }

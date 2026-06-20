@@ -48,6 +48,14 @@ static char THIS_FILE[]=__FILE__;
 #define LANG_PREFIX "CHCFR21_"
 #define HELP_PREFIX "ColorHCFR_"
 
+CString GetColorStandardName(int nStandard)
+{
+	static const UINT ids[] = { IDS_STD_PALSECAM, IDS_STD_SDTV, IDS_STD_REC709, IDS_STD_REC709_75, IDS_STD_REC709_PLASMA, IDS_STD_SRGB, IDS_STD_DCIP3, IDS_STD_REC2020, IDS_STD_P3IN2020, IDS_STD_709IN2020, IDS_STD_CUSTOM };
+	CString s;
+	if (nStandard >= 0 && nStandard < (int)(sizeof(ids)/sizeof(ids[0]))) s.LoadString(ids[nStandard]);
+	return s;
+}
+
 static struct
 { LPCSTR	lpszLangCode;
   LPCSTR	lpszHelpName;

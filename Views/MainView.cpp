@@ -4215,7 +4215,7 @@ void CMainView::UpdateGrid()
 		CString bbcstr,sdrstr;
 		bbcstr.Format("system gamma: %3.2f",BBC_gamma);
 
-		CString CS = GetColorReference().standardName.c_str();
+		CString CS = GetColorStandardName(GetColorReference().m_standard);
 		CString WP = GetColorReference().whiteName;
 
 		switch(GetConfig()->m_GammaOffsetType)
