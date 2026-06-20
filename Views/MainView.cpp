@@ -5891,6 +5891,7 @@ void CMainView::InitButtons()
 			m_avgLowLightCheck.SetFont(GetFont());
 			CString sAvg; sAvg.LoadString(IDS_AVG_LOW_LIGHT);
 			m_avgLowLightCheck.SetWindowText(sAvg);
+			if (!GetConfig()->m_darkTheme) FxApplyFlatCheck(m_avgLowLightCheck.GetSafeHwnd());
 		}
 		CSensor* pAvgS = GetDocument() ? GetDocument()->m_pSensor : NULL;
 		BOOL bAvgSup = (pAvgS != NULL && pAvgS->supportsAvg());

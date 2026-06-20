@@ -42,4 +42,5 @@ extern COLORREF FxSaturateColor(int aSatPercent,COLORREF aColor);
 extern void ApplyDarkTitleBar(HWND hWnd, BOOL bDark);
 extern void FxEnableDarkMode(BOOL bDark);
 extern void FxApplyDarkModeTree(HWND hRoot, BOOL bDark);
+extern void FxApplyFlatCheck(HWND hWnd);
 #endif
