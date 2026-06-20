@@ -604,7 +604,7 @@ static LRESULT CALLBACK FxCheckSubclass(HWND hWnd, UINT msg, WPARAM wp, LPARAM l
     HBRUSH hbg = (HBRUSH)::SendMessage(GetParent(hWnd), WM_CTLCOLORSTATIC, (WPARAM)hdc, (LPARAM)hWnd); if (hbg) FillRect(hdc, &rc, hbg);
     LONG st = GetWindowLong(hWnd, GWL_STYLE) & BS_TYPEMASK; BOOL isRadio = (st == BS_RADIOBUTTON || st == BS_AUTORADIOBUTTON); BOOL checked = (::SendMessage(hWnd, BM_GETCHECK, 0, 0) == BST_CHECKED); BOOL hot = (GetProp(hWnd, _T("fxh")) != NULL);
     int h = rc.bottom - rc.top; int sz = h - 8; if (sz < 11) sz = 11; if (sz > 15) sz = 15; int top = rc.top + (h - sz) / 2; int left = rc.left + 1;
-    COLORREF fg = IsWindowEnabled(hWnd) ? FxGetTextColor() : FxGetSysColor(COLOR_GRAYTEXT); HPEN pen = CreatePen(PS_SOLID, hot ? 2 : 1, fg); HGDIOBJ oldPen = SelectObject(hdc, pen); HGDIOBJ oldBr = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    COLORREF fg = FxGetTextColor(); HPEN pen = CreatePen(PS_SOLID, hot ? 2 : 1, fg); HGDIOBJ oldPen = SelectObject(hdc, pen); HGDIOBJ oldBr = SelectObject(hdc, GetStockObject(NULL_BRUSH));
     if (isRadio) { Ellipse(hdc, left, top, left + sz, top + sz); if (checked) { HBRUSH db = CreateSolidBrush(fg); HGDIOBJ ob = SelectObject(hdc, db); Ellipse(hdc, left + 4, top + 4, left + sz - 4, top + sz - 4); SelectObject(hdc, ob); DeleteObject(db); } }
     else { RoundRect(hdc, left, top, left + sz, top + sz, 4, 4); if (checked) { MoveToEx(hdc, left + 3, top + sz / 2, NULL); LineTo(hdc, left + sz / 2 - 1, top + sz - 4); LineTo(hdc, left + sz - 3, top + 3); } }
     SelectObject(hdc, oldPen); SelectObject(hdc, oldBr); DeleteObject(pen);
@@ -614,10 +614,6 @@ static LRESULT CALLBACK FxCheckSubclass(HWND hWnd, UINT msg, WPARAM wp, LPARAM l
     HFONT hf = (HFONT)::SendMessage(hWnd, WM_GETFONT, 0, 0); HGDIOBJ oldF = hf ? SelectObject(hdc, hf) : NULL;
     DrawTextW(hdc, buf, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE); if (oldF) SelectObject(hdc, oldF); if (GetFocus() == hWnd) DrawFocusRect(hdc, &tr);
     EndPaint(hWnd, &ps); return 0;
-}
-void FxApplyFlatCheck(HWND hWnd)
-{
-    if (hWnd) { SetWindowSubclass(hWnd, FxCheckSubclass, 1, 0); InvalidateRect(hWnd, NULL, TRUE); }
 }
 static void FxSubclassCheckRadio(HWND hWnd, BOOL bDark)
 {
@@ -650,6 +646,10 @@ static LRESULT CALLBACK FxRadioTextSubclass(HWND hWnd, UINT msg, WPARAM wp, LPAR
     DrawTextW(hdc, buf, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE); if (oldF) SelectObject(hdc, oldF);
     if (GetFocus() == hWnd) { RECT cr = tr; DrawTextW(hdc, buf, -1, &cr, DT_CALCRECT | DT_SINGLELINE); RECT fr = tr; fr.right = tr.left + (cr.right - cr.left) + 2; DrawFocusRect(hdc, &fr); }
     EndPaint(hWnd, &ps); return 0;
+}
+void FxApplyFlatCheck(HWND hWnd)
+{
+    if (hWnd) { SetWindowSubclass(hWnd, FxRadioTextSubclass, 1, 0); InvalidateRect(hWnd, NULL, TRUE); }
 }
 static void FxSubclassRadio(HWND hWnd, BOOL bDark)
 {
