@@ -797,7 +797,7 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,17,20,112,10
 END
 
-IDD_GENERATOR_GDI_PROP_PAGE DIALOGEX 0, 0, 231, 214
+IDD_GENERATOR_GDI_PROP_PAGE DIALOGEX 0, 0, 186, 246
 STYLE DS_SETFONT | WS_POPUP | WS_DISABLED | WS_CAPTION | WS_SYSMENU
 CAPTION "Display"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
@@ -3170,6 +3170,39 @@ BEGIN
     IDS_STD_709IN2020  "Rec.709 in Rec.2020"
     IDS_STD_CUSTOM  "Personnalisé"
     IDS_AVG_LOW_LIGHT  "Moyenne faible lumière"
+    IDS_GEN_OUTPUT  "Sortie des mires"
+    IDS_GEN_OUT_FULLSCREEN  "Bureau - plein écran"
+    IDS_GEN_OUT_OVERLAY  "Bureau - superposition"
+    IDS_GEN_OUT_FLOATING  "Bureau - fenêtre"
+    IDS_GEN_OUT_MADVR  "madVR / madTPG (réseau)"
+    IDS_GEN_OUT_CAST  "Google Cast (réseau)"
+    IDS_GEN_OUT_PGEN  "PGenerator (réseau)"
+    IDS_GEN_GRP_DISPLAY  "Affichage"
+    IDS_GEN_GRP_MADVR  "Options madVR"
+    IDS_GEN_GRP_CAST  "Périphérique Google Cast"
+    IDS_GEN_GRP_PGEN  "Options PGenerator"
+    IDS_GEN_GRP_SIGNAL  "Signal"
+    IDS_GEN_TARGET_SCREEN  "Écran cible"
+    IDS_GEN_PATTERN_SIZE  "Taille de mire [%]"
+    IDS_GEN_APL  "APL [%]"
+    IDS_GEN_INTENSITY  "Intensité de mire [%]"
+    IDS_GEN_XOFFSET  "Décalage X [px]"
+    IDS_GEN_YOFFSET  "Décalage Y [px]"
+    IDS_GEN_CAST_DEVICE  "Périphérique"
+    IDS_GEN_USE_IMAGE_BG  "Utiliser une image de référence en fond"
+    IDS_GEN_DISABLE_3DLUT  "Désactiver la 3D LUT"
+    IDS_GEN_DISABLE_VLUT  "Désactiver la LUT vidéo"
+    IDS_GEN_OSD  "Affichage à l'écran"
+    IDS_GEN_HDR_PASS  "Transfert HDR"
+    IDS_GEN_HDR10  "Activer les métadonnées HDR10"
+    IDS_GEN_BYPASS_VLUT  "Contourner la LUT vidéo"
+    IDS_GEN_LOG_TRIPLETS  "Afficher les triplets RGB"
+    IDS_GEN_USER_PATTERN  "Mire utilisateur PGenerator"
+    IDS_GEN_RGB_RANGE  "Plage RGB"
+    IDS_GEN_NO_CAST  "Aucun périphérique Google Cast trouvé"
+    IDS_GEN_GRP_PATTERN  "Mire"
+    IDS_GEN_GRP_BLANKING  "Blanking"
+    IDS_GEN_BLANK_SCREEN  "Eteint l'écran pendant la mesure"
 END
 
 STRINGTABLE

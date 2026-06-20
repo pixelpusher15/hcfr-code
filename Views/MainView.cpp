@@ -2302,22 +2302,22 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				switch (d)
 				{
 					case 0:
-						dName = "GDI";
+						dName = "Fullscreen";
 						break;
 					case 3:
-						dName = "GDI(overlay)";
+						dName = "Overlay";
 						break;
 					case 2:
-						dName = "madTPG";
+						dName = "madVR";
 						break;
 					case 4:
-						dName = "Chromecast";
+						dName = "Google Cast";
 						break;
 					case 5:
-						dName = "GDI(window)";
+						dName = "Window";
 						break;
 						case 6:
-						dName = "Raspberry Pi";
+						dName = "PGenerator";
 						break;
 				}
 				m_generatorName.SetString(dName);
@@ -6113,22 +6113,22 @@ void CMainView::InitGroups()
 		switch (d)
 		{
 		case 0:
-			dName = "GDI";
+			dName = "Fullscreen";
 			break;
 		case 3:
-			dName = "GDI(overlay)";
+			dName = "Overlay";
 			break;
 		case 2:
-			dName = "madTPG";
+			dName = "madVR";
 			break;
 		case 4:
-			dName = "Chromecast";
+			dName = "Google Cast";
 			break;
 		case 5:
-			dName = "GDI(window)";
+			dName = "Window";
 			break;
 			case 6:
-			dName = "Raspberry Pi";
+			dName = "PGenerator";
 			break;
 		}
 		m_generatorName.SetString(dName);

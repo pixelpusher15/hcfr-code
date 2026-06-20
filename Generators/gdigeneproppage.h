@@ -70,10 +70,23 @@ public:
 	BOOL m_madVR_OSD;
 	BOOL m_bLinear;
 	BOOL m_bHdr10;
+	bool m_castHasDevice;
+	BOOL m_doScreenBlanking;
+	CButton m_blankCheck;
 
 	HMONITOR	m_monitorHandle [ 16 ];
 	CGoogleCastWrapper m_GCast;
 	CGDIGenerator*	m_pGenerator;
+
+	// Runtime-built "Pattern output" layout (branch uiFixes). The dialog-template
+	// positions are ignored; every control is repositioned in Relayout() so all 5
+	// localized templates produce one identical, overlap-free layout. The old
+	// display-mode radios are hidden and replaced by m_outputCombo.
+	CComboBox	m_outputCombo;
+	CObArray	m_dynAll;     // runtime-created decoration (for cleanup)
+	CButton		*m_grpDisplay, *m_grpMadvr, *m_grpCast, *m_grpPgen, *m_grpSignal, *m_grpPattern, *m_grpBlanking;
+	CStatic		*m_lblOutput, *m_lblScreen, *m_lblSize, *m_lblApl, *m_lblIntensity;
+	CStatic		*m_lblXoff, *m_lblYoff, *m_lblCastDev, *m_lblRange;
 
 	virtual UINT GetHelpId ( LPSTR lpszTopic );
 
@@ -92,12 +105,19 @@ public:
 protected:
 	// Generated message map functions
 	//{{AFX_MSG(CGDIGenePropPage)
+	virtual BOOL OnInitDialog();
 	afx_msg void OnTestOverlay();
-	afx_msg void OnClickSelection();
 	afx_msg void OnDropdownMonitorCombo();
 	//}}AFX_MSG
+	afx_msg void OnSelchangeOutput();
+	afx_msg void OnUserPatternClick();
 	DECLARE_MESSAGE_MAP()
 
+	void BuildRuntimeLayout();
+	void Relayout();
+	void PopulateCast();
+	int  ComboToMode(int sel);
+	int  ModeToCombo(int mode);
 };
 
 //{{AFX_INSERT_LOCATION}}
