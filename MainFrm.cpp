@@ -1012,6 +1012,16 @@ void CMDIClientWithLogo::OnSize(UINT nType, int cx, int cy)
 {
 	InvalidateRect ( NULL, TRUE );
 	Default ();
+	if ( GetConfig() && GetConfig()->m_darkTheme && m_hWnd )
+	{
+		LONG_PTR fxex = ::GetWindowLongPtr ( m_hWnd, GWL_EXSTYLE );
+		LONG_PTR fxex2 = fxex & ~(LONG_PTR)WS_EX_CLIENTEDGE;
+		if ( fxex2 != fxex )
+		{
+			::SetWindowLongPtr ( m_hWnd, GWL_EXSTYLE, fxex2 );
+			::SetWindowPos ( m_hWnd, NULL, 0,0,0,0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE );
+		}
+	}
 }
 
 BOOL CMDIClientWithLogo::OnEraseBkgnd(CDC* pDC) 
