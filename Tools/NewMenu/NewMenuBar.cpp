@@ -1805,10 +1805,10 @@ BOOL CNewMenuBar::OnEraseBkgnd(CDC* pDC)
     ScreenToClient(clientRect);
     pDC->FillRect(clientRect,pBrush);
 	// Start of fx add
-	if(fxDrawMenuBorder)
+	if(fxDrawMenuBorder && !fxUseCustomColor)
 	{
 		clientRect.DeflateRect(0,0,0,2);
-		pDC->DrawEdge(clientRect,EDGE_ETCHED,BF_BOTTOM);	
+		pDC->DrawEdge(clientRect,EDGE_ETCHED,BF_BOTTOM);
 	}
 	// End of fx add
     pDC->SetBrushOrg(oldOrg);
@@ -1820,10 +1820,10 @@ BOOL CNewMenuBar::OnEraseBkgnd(CDC* pDC)
     ScreenToClient(clientRect);
     pDC->FillSolidRect(clientRect,CNewMenu::GetMenuBarColor());//FxGetSysColor(COLOR_3DLIGHT));
  	// Start of fx add
-	if(fxDrawMenuBorder)
+	if(fxDrawMenuBorder && !fxUseCustomColor)
 	{
 		clientRect.DeflateRect(0,0,0,2);
-		pDC->DrawEdge(clientRect,EDGE_ETCHED,BF_BOTTOM);	
+		pDC->DrawEdge(clientRect,EDGE_ETCHED,BF_BOTTOM);
 	}
 	// End of fx add
   }
