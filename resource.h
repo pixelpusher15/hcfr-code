@@ -1784,6 +1784,16 @@
 #define IDS_GEN_GRP_PATTERN              59483
 #define IDS_GEN_PGEN_SETTINGS            59486
 #define IDS_GEN_OFFSET                   59487
+#define IDS_PGEN_RO_NAME                 59488
+#define IDS_PGEN_RO_DEVICE               59489
+#define IDS_PGEN_RO_IP                   59490
+#define IDS_PGEN_RO_VERSION              59491
+#define IDS_PGEN_RO_DYNRANGE             59492
+#define IDS_PGEN_RO_RESOLUTION           59493
+#define IDS_PGEN_RO_BITDEPTH             59494
+#define IDS_PGEN_RO_COLORSPACE           59495
+#define IDS_PGEN_RO_COLORFORMAT          59496
+#define IDS_PGEN_RO_SIGRANGE             59497
 #define IDS_GEN_GRP_BLANKING             59484
 #define IDS_GEN_BLANK_SCREEN              59485
 

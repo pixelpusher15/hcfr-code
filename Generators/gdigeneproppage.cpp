@@ -537,13 +537,13 @@ void CGDIGenePropPage::QueryPGenerator()
 		m_pgenReadout.SetWindowText(err.IsEmpty() ? _T("No generator available.") : err);
 		return;
 	}
-	static const TCHAR* labels[10] = {
-		_T("Name"), _T("Device"), _T("IP address"), _T("PGen version"), _T("Dynamic range"),
-		_T("Resolution"), _T("Bit depth"), _T("Color space"), _T("Color format"), _T("Signal range") };
+	static const UINT lblIds[10] = {
+		IDS_PGEN_RO_NAME, IDS_PGEN_RO_DEVICE, IDS_PGEN_RO_IP, IDS_PGEN_RO_VERSION, IDS_PGEN_RO_DYNRANGE,
+		IDS_PGEN_RO_RESOLUTION, IDS_PGEN_RO_BITDEPTH, IDS_PGEN_RO_COLORSPACE, IDS_PGEN_RO_COLORFORMAT, IDS_PGEN_RO_SIGRANGE };
 	CString out;
 	for (int i = 0; i < 10 && i < vals.GetSize(); i++)
 	{
-		out += labels[i];
+		CString lbl; lbl.LoadString(lblIds[i]); out += lbl;
 		out += _T("\t");
 		out += vals[i];
 		if (i < 9) out += _T("\r\n");
