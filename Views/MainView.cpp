@@ -862,6 +862,32 @@ void CMainView::AddColorToGrid(const ColorTriplet& color, GV_ITEM& Item, const c
     m_pSelectedColorGrid->SetItem(&Item);
 }
 
+// Highlight the column currently being measured by selecting it in the grayscale
+// grid. Called from the measure loop (UpdateTstWnd, right before each blocking
+// reading) and from the continuous/background-measure update, so the user can see
+// which point is active. bForceRepaint=TRUE + UpdateWindow() paint it immediately,
+// before the UI thread blocks in the sensor read. Skipped while the grid is in
+// edit mode so we don't fight the user's manual edits.
+void CMainView::HighlightMeasuringColumn(int gridCol)
+{
+	if ( !m_pGrayScaleGrid || !::IsWindow(m_pGrayScaleGrid->GetSafeHwnd()) )
+		return;
+	if ( gridCol < 1 || gridCol >= m_pGrayScaleGrid->GetColumnCount() )
+		return;
+	if ( IsDlgButtonChecked(IDC_EDITGRID_CHECK) == BST_CHECKED )
+		return;
+
+	int maxRow = m_pGrayScaleGrid->GetRowCount() - 1;	// select the x/y/Y data rows of the column
+	if ( maxRow > 3 )
+		maxRow = 3;
+	if ( maxRow < 1 )
+		return;
+
+	m_pGrayScaleGrid->EnsureVisible(1, gridCol);
+	m_pGrayScaleGrid->SetSelectedRange(1, gridCol, maxRow, gridCol, TRUE);
+	m_pGrayScaleGrid->UpdateWindow();
+}
+
 void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 {
 	int		i, aColorTemp;
@@ -5612,6 +5638,7 @@ void CMainView::OnDeleteGrayscale()
 
 void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 {
+	HighlightMeasuringColumn(last_minCol);	// indicate the active column during continuous/background measures
 	CColor	MeasuredColor=noDataColor;
 	double YWhite = -1;
 	double YWhiteRefDoc = -1;

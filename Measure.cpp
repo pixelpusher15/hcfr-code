@@ -5506,6 +5506,7 @@ void CMeasure::UpdateTstWnd (CDataSetDoc *pDoc, int i )
 		((CMainView*)pView)->minCol = i+1;
 		((CMainView*)pView)->last_minCol = i;
 		m_currentIndex = i+1;
+		((CMainView*)pView)->HighlightMeasuringColumn(i+1);
 		displaymode = ((CMainView*)pView)->m_displayMode;
 	}
 }
