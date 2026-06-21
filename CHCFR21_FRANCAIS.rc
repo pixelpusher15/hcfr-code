@@ -3213,6 +3213,12 @@ BEGIN
     IDS_PGEN_RO_COLORSPACE  "Espace colorimétrique"
     IDS_PGEN_RO_COLORFORMAT  "Format de couleur"
     IDS_PGEN_RO_SIGRANGE  "Plage du signal"
+    IDS_PGEN_ST_QUERYING  "Interrogation du PGenerator..."
+    IDS_PGEN_ST_NOTFOUND  "Aucun PGenerator trouvé sur le réseau."
+    IDS_PGEN_ST_NODLL  "RB8PGenerator.dll introuvable à côté de l'application."
+    IDS_PGEN_ST_NOENTRY  "Points d'entrée attendus manquants dans RB8PGenerator.dll."
+    IDS_PGEN_ST_NOCONNECT  "PGenerator trouvé mais connexion impossible."
+    IDS_PGEN_ST_NOGEN  "Aucun générateur disponible."
     IDS_GEN_GRP_BLANKING  "Blanking"
     IDS_GEN_BLANK_SCREEN  "Eteint l'écran pendant la mesure"
 END

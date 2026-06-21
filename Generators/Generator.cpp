@@ -169,30 +169,31 @@ BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
 {
 	err = _T("");
 	vals.RemoveAll();
-	for (int i = 0; i < 10; i++) vals.Add(_T("-"));
+	for (int i = 0; i < 9; i++) vals.Add(_T("-"));
 
 	HINSTANCE hLib = LoadLibrary("RB8PGenerator.dll");
-	if (!hLib) { err = _T("RB8PGenerator.dll not found next to the application."); return FALSE; }
+	if (!hLib) { err.LoadString(IDS_PGEN_ST_NODLL); return FALSE; }
 	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
 	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
 	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
 	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
-	if (!disc || !conn || !getf || !clsf) { FreeLibrary(hLib); err = _T("RB8PGenerator.dll is missing expected entry points."); return FALSE; }
+	if (!disc || !conn || !getf || !clsf) { FreeLibrary(hLib); err.LoadString(IDS_PGEN_ST_NOENTRY); return FALSE; }
 
 	char* ip = NULL;
 	for (int i = 0; i < 3; i++) { ip = disc(); if (ip && strlen(ip) > 5) break; Sleep(150); }
-	if (!ip || strlen(ip) <= 5) { FreeLibrary(hLib); err = _T("No PGenerator found on the network."); return FALSE; }
+	if (!ip || strlen(ip) <= 5) { FreeLibrary(hLib); err.LoadString(IDS_PGEN_ST_NOTFOUND); return FALSE; }
 	CString ipStr(ip);
 
 	SOCKET s = conn(ip);
-	if (!s) { FreeLibrary(hLib); err = _T("Found a PGenerator at ") + ipStr + _T(" but could not connect."); return FALSE; }
+	if (!s) { FreeLibrary(hLib); err.LoadString(IDS_PGEN_ST_NOCONNECT); return FALSE; }
 
 	CString ver   = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_VERSION"), "GET_PGENERATOR_VERSION");
 	CString mode  = PgenParseVal(getf(s, "CMD:GET_MODE"), "GET_MODE");
 	CString res   = PgenParseVal(getf(s, "CMD:GET_RESOLUTION"), "GET_RESOLUTION");
 	CString fmt   = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_COLOR_FORMAT"), "GET_PGENERATOR_CONF_COLOR_FORMAT");
 	CString bpc   = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_MAX_BPC"), "GET_PGENERATOR_CONF_MAX_BPC");
-	CString rng   = PgenParseVal(getf(s, "CMD:GET_OUTPUT_RANGE"), "GET_OUTPUT_RANGE");
+	CString outr  = PgenParseVal(getf(s, "CMD:GET_OUTPUT_RANGE"), "GET_OUTPUT_RANGE");
+	CString quant = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_RGB_QUANT_RANGE"), "GET_PGENERATOR_CONF_RGB_QUANT_RANGE");
 	CString colm  = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_COLORIMETRY"), "GET_PGENERATOR_CONF_COLORIMETRY");
 	CString isHdr = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_IS_HDR"), "GET_PGENERATOR_CONF_IS_HDR");
 	CString isDov = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_IS_LL_DOVI"), "GET_PGENERATOR_CONF_IS_LL_DOVI");
@@ -227,23 +228,28 @@ BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
 	else if (colm == "1") cs = _T("BT.709 (YCC)");
 	else if (colm == "2") cs = _T("BT.2020 (RGB)");
 
-	CString rl = rng; rl.MakeLower();
-	CString range = rng;
-	if (rl.Find("full") >= 0) range = _T("Full");
-	else if (rl.Find("limited") >= 0) range = _T("Limited");
+	CString range;
+	if (quant == "1") range = _T("Limited");
+	else if (quant == "2") range = _T("Full");
+	else
+	{
+		CString ol = outr; ol.MakeLower();
+		if (ol.Find("full") >= 0) range = _T("Full");
+		else if (ol.Find("limit") >= 0) range = _T("Limited");
+		else range = quant.IsEmpty() ? outr : quant;
+	}
 
 	if (host.IsEmpty()) host = _T("-");
 
 	vals[0] = host;
-	vals[1] = _T("-");
-	vals[2] = ipStr;
-	vals[3] = ver;
-	vals[4] = status;
-	vals[5] = resval;
-	vals[6] = bd;
-	vals[7] = cs;
-	vals[8] = cf;
-	vals[9] = range;
+	vals[1] = ipStr;
+	vals[2] = ver;
+	vals[3] = status;
+	vals[4] = resval;
+	vals[5] = bd;
+	vals[6] = cs;
+	vals[7] = cf;
+	vals[8] = range;
 	return TRUE;
 }
 

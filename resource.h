@@ -1794,6 +1794,12 @@
 #define IDS_PGEN_RO_COLORSPACE           59495
 #define IDS_PGEN_RO_COLORFORMAT          59496
 #define IDS_PGEN_RO_SIGRANGE             59497
+#define IDS_PGEN_ST_QUERYING             59498
+#define IDS_PGEN_ST_NOTFOUND             59499
+#define IDS_PGEN_ST_NODLL                59500
+#define IDS_PGEN_ST_NOENTRY              59501
+#define IDS_PGEN_ST_NOCONNECT            59502
+#define IDS_PGEN_ST_NOGEN                59503
 #define IDS_GEN_GRP_BLANKING             59484
 #define IDS_GEN_BLANK_SCREEN              59485
 

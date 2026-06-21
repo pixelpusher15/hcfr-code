@@ -2990,6 +2990,12 @@ BEGIN
     IDS_PGEN_RO_COLORSPACE  "Farbraum"
     IDS_PGEN_RO_COLORFORMAT  "Farbformat"
     IDS_PGEN_RO_SIGRANGE  "Signalbereich"
+    IDS_PGEN_ST_QUERYING  "PGenerator wird abgefragt..."
+    IDS_PGEN_ST_NOTFOUND  "Kein PGenerator im Netzwerk gefunden."
+    IDS_PGEN_ST_NODLL  "RB8PGenerator.dll nicht neben der Anwendung gefunden."
+    IDS_PGEN_ST_NOENTRY  "RB8PGenerator.dll fehlen erwartete Einsprungpunkte."
+    IDS_PGEN_ST_NOCONNECT  "PGenerator gefunden, aber Verbindung fehlgeschlagen."
+    IDS_PGEN_ST_NOGEN  "Kein Generator verfügbar."
     IDS_GEN_GRP_BLANKING  "Dunkelschaltung"
     IDS_GEN_BLANK_SCREEN  "Bildschirm bei der Messung dunkel schalten"
 END

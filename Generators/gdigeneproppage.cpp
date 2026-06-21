@@ -527,26 +527,26 @@ void CGDIGenePropPage::QueryPGenerator()
 {
 	if (!m_pgenReadout.GetSafeHwnd()) return;
 	CWaitCursor wait;
-	m_pgenReadout.SetWindowText(_T("Querying PGenerator..."));
+	CString q; q.LoadString(IDS_PGEN_ST_QUERYING); m_pgenReadout.SetWindowText(q);
 	m_pgenReadout.UpdateWindow();
 	CStringArray vals;
 	CString err;
 	BOOL ok = m_pGenerator ? m_pGenerator->QueryPGeneratorInfo(vals, err) : FALSE;
 	if (!ok)
 	{
-		m_pgenReadout.SetWindowText(err.IsEmpty() ? _T("No generator available.") : err);
+		CString ng; ng.LoadString(IDS_PGEN_ST_NOGEN); m_pgenReadout.SetWindowText(err.IsEmpty() ? ng : err);
 		return;
 	}
-	static const UINT lblIds[10] = {
-		IDS_PGEN_RO_NAME, IDS_PGEN_RO_DEVICE, IDS_PGEN_RO_IP, IDS_PGEN_RO_VERSION, IDS_PGEN_RO_DYNRANGE,
+	static const UINT lblIds[9] = {
+		IDS_PGEN_RO_NAME, IDS_PGEN_RO_IP, IDS_PGEN_RO_VERSION, IDS_PGEN_RO_DYNRANGE,
 		IDS_PGEN_RO_RESOLUTION, IDS_PGEN_RO_BITDEPTH, IDS_PGEN_RO_COLORSPACE, IDS_PGEN_RO_COLORFORMAT, IDS_PGEN_RO_SIGRANGE };
 	CString out;
-	for (int i = 0; i < 10 && i < vals.GetSize(); i++)
+	for (int i = 0; i < 9 && i < vals.GetSize(); i++)
 	{
 		CString lbl; lbl.LoadString(lblIds[i]); out += lbl;
 		out += _T("\t");
 		out += vals[i];
-		if (i < 9) out += _T("\r\n");
+		if (i < 8) out += _T("\r\n");
 	}
 	m_pgenReadout.SetWindowText(out);
 }
