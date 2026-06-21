@@ -64,6 +64,7 @@ CGenerator::CGenerator()
 
 	SetName("Not defined");  // Needs to be set for real generators
 	m_blankingWindow.m_bDisableCursorHiding = TRUE;
+	m_blankingWindow.m_bBlankScreen = TRUE;
 	ccwin = dw;
 }
 

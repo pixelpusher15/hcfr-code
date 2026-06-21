@@ -63,6 +63,7 @@ CFullScreenWindow::CFullScreenWindow(BOOL bTestOverlay)
 	
 	m_nDisplayMode = GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE);
 	m_bDisableCursorHiding = FALSE;
+	m_bBlankScreen = FALSE;
 	m_b16_235 = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",0);
 	m_busePic = GetConfig()->GetProfileInt("GDIGenerator","USEPIC",0);
 	m_bLinear = GetConfig()->GetProfileInt("GDIGenerator","LOADLINEAR",1);
@@ -1225,6 +1226,14 @@ void video_scale (CxImage *inImage)
 	//make sure we are foreground
 	::SetForegroundWindow(this->hWnd);
 	this->SetFocus();
+
+	// Screen blanking: plain black fill, no pattern rect / RGB triplets / ABL / settling.
+	if (m_bBlankScreen)
+	{
+		CBrush blackBrush(RGB(0,0,0));
+		dc.FillRect(&rect, &blackBrush);
+		return;
+	}
 	// Pattern Display Common Vars
 		CBrush		br0;
 		CRect		aRect;
