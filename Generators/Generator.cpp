@@ -254,6 +254,32 @@ BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
 }
 
 
+BOOL CGenerator::SetPGeneratorConf(LPCSTR name, int value)
+{
+	HINSTANCE hLib = LoadLibrary("RB8PGenerator.dll");
+	if (!hLib) return FALSE;
+	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
+	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
+	RB8PG_send      send = (RB8PG_send)GetProcAddress(hLib, "RB8PG_send@8");
+	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
+	if (!disc || !conn || !send || !clsf) { FreeLibrary(hLib); return FALSE; }
+
+	char* ip = NULL;
+	for (int i = 0; i < 3; i++) { ip = disc(); if (ip && strlen(ip) > 5) break; Sleep(150); }
+	if (!ip || strlen(ip) <= 5) { FreeLibrary(hLib); return FALSE; }
+
+	SOCKET s = conn(ip);
+	if (!s) { FreeLibrary(hLib); return FALSE; }
+
+	char cmd[128];
+	sprintf_s(cmd, "CMD:%s:%d", name, value);
+	send(s, cmd);
+
+	clsf(s);
+	FreeLibrary(hLib);
+	return TRUE;
+}
+
 BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
 	nMeasureNumber = nbMeasure; 

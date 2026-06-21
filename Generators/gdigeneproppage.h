@@ -125,6 +125,20 @@ protected:
 	int  ModeToCombo(int mode);
 };
 
+class CPGenSettingsDlg : public CDialog
+{
+public:
+	CPGenSettingsDlg(CWnd* pParent = NULL);
+	enum { IDD = IDD_PGEN_SETTINGS };
+	CGDIGenerator* m_pGenerator;
+protected:
+	CComboBox m_rangeCombo;
+	CStatic m_rangeLabel;
+	virtual BOOL OnInitDialog();
+	virtual void OnOK();
+	DECLARE_MESSAGE_MAP()
+};
+
 //{{AFX_INSERT_LOCATION}}
 // Microsoft Visual C++ will insert additional declarations immediately before the previous line.
 

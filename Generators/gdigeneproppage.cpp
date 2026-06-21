@@ -552,9 +552,66 @@ void CGDIGenePropPage::QueryPGenerator()
 }
 
 
+BEGIN_MESSAGE_MAP(CPGenSettingsDlg, CDialog)
+END_MESSAGE_MAP()
+
+CPGenSettingsDlg::CPGenSettingsDlg(CWnd* pParent) : CDialog(CPGenSettingsDlg::IDD, pParent)
+{
+	m_pGenerator = NULL;
+}
+
+BOOL CPGenSettingsDlg::OnInitDialog()
+{
+	CDialog::OnInitDialog();
+	SetWindowText(_T("PGenerator settings"));
+	DlgMap M; M.h = GetSafeHwnd();
+	CFont* font = GetFont();
+
+	CPoint lp = M.at(12, 16);
+	m_rangeLabel.Create(_T("Video signal range"), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(85), lp.y + M.ht(9)), this);
+	m_rangeLabel.SetFont(font);
+
+	CPoint cp = M.at(100, 14);
+	m_rangeCombo.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(100), cp.y + M.ht(80)), this, IDC_PGEN_RANGE_COMBO);
+	m_rangeCombo.SetFont(font);
+	m_rangeCombo.AddString(_T("Full"));
+	m_rangeCombo.AddString(_T("Limited"));
+
+	int sel = 0;
+	if (m_pGenerator)
+	{
+		CWaitCursor wait;
+		CStringArray vals;
+		CString err;
+		if (m_pGenerator->QueryPGeneratorInfo(vals, err) && vals.GetSize() >= 9)
+		{
+			if (vals[8].CompareNoCase(_T("Limited")) == 0) sel = 1;
+		}
+	}
+	m_rangeCombo.SetCurSel(sel);
+
+	if (GetDlgItem(IDOK)) GetDlgItem(IDOK)->SetWindowText(_T("Apply"));
+	if (GetDlgItem(IDCANCEL)) GetDlgItem(IDCANCEL)->SetWindowText(_T("Close"));
+	return TRUE;
+}
+
+void CPGenSettingsDlg::OnOK()
+{
+	int sel = m_rangeCombo.GetCurSel();
+	int quant = (sel == 1) ? 1 : 2;
+	if (m_pGenerator)
+	{
+		CWaitCursor wait;
+		m_pGenerator->SetPGeneratorConf("SET_PGENERATOR_CONF_RGB_QUANT_RANGE", quant);
+	}
+	CDialog::OnOK();
+}
+
 void CGDIGenePropPage::OnPgenSettings()
 {
-	AfxMessageBox(_T("The PGenerator settings dialog is coming in the next phase."));
+	CPGenSettingsDlg dlg(this);
+	dlg.m_pGenerator = m_pGenerator;
+	dlg.DoModal();
 }
 
 void CGDIGenePropPage::OnOK()
