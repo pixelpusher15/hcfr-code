@@ -599,7 +599,9 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 	
 	bOnOtherMonitor = IsOnOtherMonitor ();
 
-	if ( ! bOnOtherMonitor )
+	BOOL bExternalSurface = ( m_nDisplayMode == DISPLAY_rPI || m_nDisplayMode == DISPLAY_ccast );
+
+	if ( ! bOnOtherMonitor && ! bExternalSurface )
 	{
 		// Deactivate blanking when generator window is on the same monitor
 		m_bBlankingCanceled = m_doScreenBlanking;

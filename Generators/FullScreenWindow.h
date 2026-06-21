@@ -67,6 +67,7 @@ public:
 	UINT					m_nDisplayMode;
 	INT						m_ansiCcast;
 	BOOL					m_bDisableCursorHiding;
+	BOOL					m_bBlankScreen;		// when TRUE, OnPaint just fills the window solid black (screen blanking)
 	BOOL					m_bIRE;
 	BOOL					m_b16_235;
 	BOOL					m_busePic;
