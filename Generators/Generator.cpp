@@ -165,26 +165,30 @@ static CString PgenParseVal(const char* resp, const char* name)
 	return r;
 }
 
-void CGenerator::QueryPGeneratorInfo(CString& out)
+BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
 {
-	out = _T("");
+	err = _T("");
+	vals.RemoveAll();
+	for (int i = 0; i < 10; i++) vals.Add(_T("-"));
+
 	HINSTANCE hLib = LoadLibrary("RB8PGenerator.dll");
-	if (!hLib) { out = _T("RB8PGenerator.dll not found next to the application."); return; }
+	if (!hLib) { err = _T("RB8PGenerator.dll not found next to the application."); return FALSE; }
 	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
 	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
 	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
 	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
-	if (!disc || !conn || !getf || !clsf) { FreeLibrary(hLib); out = _T("RB8PGenerator.dll is missing expected entry points."); return; }
+	if (!disc || !conn || !getf || !clsf) { FreeLibrary(hLib); err = _T("RB8PGenerator.dll is missing expected entry points."); return FALSE; }
 
 	char* ip = NULL;
 	for (int i = 0; i < 3; i++) { ip = disc(); if (ip && strlen(ip) > 5) break; Sleep(150); }
-	if (!ip || strlen(ip) <= 5) { FreeLibrary(hLib); out = _T("No PGenerator found on the network."); return; }
+	if (!ip || strlen(ip) <= 5) { FreeLibrary(hLib); err = _T("No PGenerator found on the network."); return FALSE; }
 	CString ipStr(ip);
 
 	SOCKET s = conn(ip);
-	if (!s) { FreeLibrary(hLib); out = _T("Found a PGenerator at ") + ipStr + _T(" but could not connect."); return; }
+	if (!s) { FreeLibrary(hLib); err = _T("Found a PGenerator at ") + ipStr + _T(" but could not connect."); return FALSE; }
 
 	CString ver   = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_VERSION"), "GET_PGENERATOR_VERSION");
+	CString mode  = PgenParseVal(getf(s, "CMD:GET_MODE"), "GET_MODE");
 	CString res   = PgenParseVal(getf(s, "CMD:GET_RESOLUTION"), "GET_RESOLUTION");
 	CString fmt   = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_COLOR_FORMAT"), "GET_PGENERATOR_CONF_COLOR_FORMAT");
 	CString bpc   = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_MAX_BPC"), "GET_PGENERATOR_CONF_MAX_BPC");
@@ -201,31 +205,46 @@ void CGenerator::QueryPGeneratorInfo(CString& out)
 	if (isDov == "1") status = _T("Dolby Vision");
 	else if (isHdr == "1") status = _T("HDR");
 
-	CString rl = rng; rl.MakeLower();
-	CString range = rng;
-	if (rl.Find("full") >= 0) range = _T("Full (0-255)");
-	else if (rl.Find("limited") >= 0) range = _T("Limited (16-235)");
+	CString resval = res;
+	int hz = mode.Find("Hz");
+	if (hz > 0)
+	{
+		int st = hz; while (st > 0 && mode[st - 1] != ' ') st--;
+		CString rate = mode.Mid(st, hz - st + 2);
+		resval = res.IsEmpty() ? rate : (res + _T(" @ ") + rate);
+	}
+
+	CString bd = bpc;
+	if (!bd.IsEmpty()) bd += _T("-bit");
 
 	CString cf = fmt;
 	if (fmt == "0") cf = _T("RGB");
 	else if (fmt == "1") cf = _T("YCbCr 4:4:4");
 	else if (fmt == "2") cf = _T("YCbCr 4:2:2");
-	CString bd = bpc;
-	if (!bd.IsEmpty()) bd += _T("-bit");
+
+	CString cs = colm;
+	if (colm == "0") cs = _T("Default");
+	else if (colm == "1") cs = _T("BT.709 (YCC)");
+	else if (colm == "2") cs = _T("BT.2020 (RGB)");
+
+	CString rl = rng; rl.MakeLower();
+	CString range = rng;
+	if (rl.Find("full") >= 0) range = _T("Full");
+	else if (rl.Find("limited") >= 0) range = _T("Limited");
+
 	if (host.IsEmpty()) host = _T("-");
 
-	out.Format(
-		_T("Status:        %s\r\n")
-		_T("Resolution:    %s\r\n")
-		_T("Bit depth:     %s\r\n")
-		_T("Color format:  %s\r\n")
-		_T("Colorimetry:   %s\r\n")
-		_T("Signal range:  %s\r\n")
-		_T("Hostname:      %s\r\n")
-		_T("IP address:    %s\r\n")
-		_T("PGen version:  %s"),
-		(LPCTSTR)status, (LPCTSTR)res, (LPCTSTR)bd, (LPCTSTR)cf, (LPCTSTR)colm,
-		(LPCTSTR)range, (LPCTSTR)host, (LPCTSTR)ipStr, (LPCTSTR)ver);
+	vals[0] = host;
+	vals[1] = _T("-");
+	vals[2] = ipStr;
+	vals[3] = ver;
+	vals[4] = status;
+	vals[5] = resval;
+	vals[6] = bd;
+	vals[7] = cs;
+	vals[8] = cf;
+	vals[9] = range;
+	return TRUE;
 }
 
 

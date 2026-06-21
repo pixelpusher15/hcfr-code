@@ -303,6 +303,7 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 		CPoint rpt = M.at(LBL_X, 40);
 		m_pgenReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP | WS_BORDER, CRect(rpt.x, rpt.y, rpt.x + M.w(166), rpt.y + M.ht(80)), this, IDC_PGEN_READOUT);
 		m_pgenReadout.SetFont(font);
+		{ int pgtab = 80; m_pgenReadout.SendMessage(EM_SETTABSTOPS, 1, (LPARAM)&pgtab); }
 		m_pgenReadout.SetWindowText(_T("PGenerator device info will appear here."));
 	}
 	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.DestroyWindow();
@@ -398,8 +399,8 @@ void CGDIGenePropPage::Relayout()
 		int top = y, cy = top + TOP_INSET;
 		int innerLeftPx = M.at(LBL_X, cy).x;
 		int innerW = grpRightPx - M.w(3) - innerLeftPx;
-		{ CPoint rp = M.at(LBL_X, cy); m_pgenReadout.MoveWindow(rp.x, rp.y, innerW, M.ht(78)); m_pgenReadout.ShowWindow(SW_SHOW); }
-		cy += 82;
+		{ CPoint rp = M.at(LBL_X, cy); m_pgenReadout.MoveWindow(rp.x, rp.y, innerW, M.ht(86)); m_pgenReadout.ShowWindow(SW_SHOW); }
+		cy += 90;
 		{ CPoint bp = M.at(LBL_X, cy); m_pgenSettingsBtn.MoveWindow(bp.x, bp.y, M.w(92), M.ht(14)); m_pgenSettingsBtn.ShowWindow(SW_SHOW); }
 		cy += 18;
 		if (m_lblOffset) { CPoint p = M.at(LBL_X, cy + 2); m_lblOffset->MoveWindow(p.x, p.y, M.w(28), M.ht(9)); m_lblOffset->ShowWindow(SW_SHOW); }
@@ -528,9 +529,25 @@ void CGDIGenePropPage::QueryPGenerator()
 	CWaitCursor wait;
 	m_pgenReadout.SetWindowText(_T("Querying PGenerator..."));
 	m_pgenReadout.UpdateWindow();
+	CStringArray vals;
+	CString err;
+	BOOL ok = m_pGenerator ? m_pGenerator->QueryPGeneratorInfo(vals, err) : FALSE;
+	if (!ok)
+	{
+		m_pgenReadout.SetWindowText(err.IsEmpty() ? _T("No generator available.") : err);
+		return;
+	}
+	static const TCHAR* labels[10] = {
+		_T("Name"), _T("Device"), _T("IP address"), _T("PGen version"), _T("Dynamic range"),
+		_T("Resolution"), _T("Bit depth"), _T("Color space"), _T("Color format"), _T("Signal range") };
 	CString out;
-	if (m_pGenerator) m_pGenerator->QueryPGeneratorInfo(out);
-	else out = _T("No generator available.");
+	for (int i = 0; i < 10 && i < vals.GetSize(); i++)
+	{
+		out += labels[i];
+		out += _T("\t");
+		out += vals[i];
+		if (i < 9) out += _T("\r\n");
+	}
 	m_pgenReadout.SetWindowText(out);
 }
 
