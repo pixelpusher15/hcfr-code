@@ -1,5 +1,7 @@
 # ColorHCFR 4.0.0.0 — Release Notes
 
+> ⚠️ **Developed with AI assistance.** This release was built with substantial help from Claude (Anthropic's AI). It has been tested on real hardware, but the development approach is new — please keep backups of your measurement data, report any issues you run into, and treat this as an early build.
+
 A major release rolling up instrument support, color-science, and a full UI/UX overhaul. (Supersedes the internal 3.5.5 work, which is included below.)
 
 ## Instrument & Color Engine
