@@ -6540,6 +6540,20 @@
             "Icon" = "8:_A6684703AD8A46A9A1DCA60E55B03837"
             "Feature" = "8:"
             }
+            "{970C0BB2-C7D0-45D7-ABFA-7EC378858BC0}:_6B8D4F2A0C3E5B7D9E1F2A4C6B8D0E2F"
+            {
+            "Name" = "8:ColorHCFR"
+            "Arguments" = "8:"
+            "Description" = "8:"
+            "ShowCmd" = "3:1"
+            "IconIndex" = "3:0"
+            "Transitive" = "11:FALSE"
+            "Target" = "8:_B67B0B3487F14058AFFDA8EFD8EB2AF0"
+            "Folder" = "8:_3373C97FF7544DF699FFB259C544FC42"
+            "WorkingFolder" = "8:_CBA93CD1FDCA460399C4B48902B51B88"
+            "Icon" = "8:_A6684703AD8A46A9A1DCA60E55B03837"
+            "Feature" = "8:"
+            }
         }
         "UserInterface"
         {
