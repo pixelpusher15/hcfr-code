@@ -44,5 +44,4 @@ overhaul. (Supersedes the internal 3.5.5 work, which is included below.)
 - **Eliminated measurement flashing** — the data grids, group-box frames, and
   window no longer flicker during or after a measurement sweep.
 - **Installer fixes** — now creates a Start Menu shortcut (so HCFR shows up in
-  Start menu search), plus themed icons, splash, English UI, and required
-  runtime files (incl. `RB8PGenerator.dll`) are now packaged correctly.
+  Start menu search), plus themed icons, splash, and English installer UI.
