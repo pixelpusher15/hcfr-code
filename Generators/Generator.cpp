@@ -274,6 +274,8 @@ BOOL CGenerator::SetPGeneratorConf(LPCSTR name, int value)
 	char cmd[128];
 	sprintf_s(cmd, "CMD:%s:%d", name, value);
 	send(s, cmd);
+	Sleep(200);
+	send(s, "RESTARTPGENERATOR:");
 
 	clsf(s);
 	FreeLibrary(hLib);
