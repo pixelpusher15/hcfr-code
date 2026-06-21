@@ -225,8 +225,8 @@ BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
 
 	CString cs = colm;
 	if (colm == "0") cs = _T("Default");
-	else if (colm == "1") cs = _T("BT.709 (YCC)");
-	else if (colm == "2") cs = _T("BT.2020 (RGB)");
+	else if (colm == "2") cs = _T("BT.709 (YCC)");
+	else if (colm == "9") cs = _T("BT.2020 (RGB)");
 
 	CString range;
 	if (quant == "1") range = _T("Limited");
