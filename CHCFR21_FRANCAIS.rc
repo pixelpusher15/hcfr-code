@@ -3198,7 +3198,7 @@ BEGIN
     IDS_GEN_BYPASS_VLUT  "Contourner la LUT vidéo"
     IDS_GEN_LOG_TRIPLETS  "Afficher les triplets RGB"
     IDS_GEN_USER_PATTERN  "Mire utilisateur PGenerator"
-    IDS_GEN_RGB_RANGE  "Plage RGB"
+    IDS_GEN_RGB_RANGE  "Plage de mire"
     IDS_GEN_NO_CAST  "Aucun périphérique Google Cast trouvé"
     IDS_GEN_GRP_PATTERN  "Mire"
     IDS_GEN_GRP_BLANKING  "Blanking"

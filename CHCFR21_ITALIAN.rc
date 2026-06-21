@@ -3184,7 +3184,7 @@ BEGIN
     IDS_GEN_BYPASS_VLUT  "Ignora LUT video"
     IDS_GEN_LOG_TRIPLETS  "Mostra terne RGB"
     IDS_GEN_USER_PATTERN  "Usa pattern utente PGenerator"
-    IDS_GEN_RGB_RANGE  "Gamma RGB"
+    IDS_GEN_RGB_RANGE  "Gamma pattern"
     IDS_GEN_NO_CAST  "Nessun dispositivo Google Cast trovato"
     IDS_GEN_GRP_PATTERN  "Pattern"
     IDS_GEN_GRP_BLANKING  "Blanking"
