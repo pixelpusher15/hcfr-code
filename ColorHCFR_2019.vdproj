@@ -6170,7 +6170,7 @@
             }
             "{3C67513D-01DD-4637-8A68-80971EB9504F}:_CBA93CD1FDCA460399C4B48902B51B88"
             {
-            "DefaultLocation" = "8:[ProgramFilesFolder]\\HCFR Calibration\\[ProductName]"
+            "DefaultLocation" = "8:[ProgramFilesFolder]\\[ProductName]"
             "Name" = "8:#1925"
             "AlwaysCreate" = "11:FALSE"
             "Condition" = "8:"
@@ -6404,10 +6404,10 @@
         "Product"
         {
         "Name" = "8:Microsoft Visual Studio"
-        "ProductName" = "8:ColorHCFR"
-        "ProductCode" = "8:{4B49A0A8-E86F-455B-A97D-CA1883B7E529}"
+        "ProductName" = "8:HCFR"
+        "ProductCode" = "8:{ECDD81B8-ED26-4B4A-9B16-B3E9E08FCD0F}"
         "PackageCode" = "8:{363576D1-5964-4B96-92A2-9C82C4229FC9}"
-        "UpgradeCode" = "8:{DB7FD0E2-11D3-4C2C-8B91-90B3306C7084}"
+        "UpgradeCode" = "8:{BF340A8C-5760-4352-B44E-37B4C150A159}"
         "AspNetVersion" = "8:2.0.50727.0"
         "RestartWWWService" = "11:FALSE"
         "RemovePreviousVersions" = "11:TRUE"
