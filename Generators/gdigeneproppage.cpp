@@ -612,6 +612,7 @@ void CGDIGenePropPage::OnPgenSettings()
 	CPGenSettingsDlg dlg(this);
 	dlg.m_pGenerator = m_pGenerator;
 	dlg.DoModal();
+	QueryPGenerator();
 }
 
 void CGDIGenePropPage::OnOK()
