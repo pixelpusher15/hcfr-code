@@ -2231,19 +2231,36 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 		if ( ( lHint >= UPD_EVERYTHING && lHint <= UPD_FREEMEASURES ) || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA )
 		{
-			if (m_pGrayScaleGrid)
-				m_pGrayScaleGrid->SetRedraw(FALSE);
-			// Suppress intermediate repaints while InitGrid tears the grid down and UpdateGrid refills it
-			// (otherwise it blanks to white between the two during a measurement update); repaint once below.
-			InitGrid(); // to update row labels (if colorReference setting has changed, or if lux values appeared)
-			if(m_pGrayScaleGrid)
-				UpdateGrid();
-			if(m_SelectedColor.isValid())
-				RefreshSelection(false,GetDocument()->GetMeasure()->m_binMeasure);
-			if (m_pGrayScaleGrid)
+			if ( lHint == UPD_EVERYTHING || lHint == UPD_ARRAYSIZES )
 			{
-				m_pGrayScaleGrid->SetRedraw(TRUE);
-				m_pGrayScaleGrid->Invalidate(FALSE);
+				// Structural change (e.g. the grayscale point count changed): rebuild and
+				// auto-fit the columns with redraw ENABLED, so the scroll bars and client
+				// rect are settled before ExpandColumnsToFit measures the available width.
+				// Sizing while redraw was off fit the columns to stale geometry, leaving the
+				// last column clipped by the always-present vertical scroll bar. This mirrors
+				// the OnSize path, which is why a manual window resize already corrected it.
+				InitGrid(true);
+				if(m_pGrayScaleGrid)
+					UpdateGrid();
+				if(m_SelectedColor.isValid())
+					RefreshSelection(false,GetDocument()->GetMeasure()->m_binMeasure);
+			}
+			else
+			{
+				if (m_pGrayScaleGrid)
+					m_pGrayScaleGrid->SetRedraw(FALSE);
+				// Suppress intermediate repaints while InitGrid tears the grid down and UpdateGrid refills it
+				// (otherwise it blanks to white between the two during a measurement update); repaint once below.
+				InitGrid();
+				if(m_pGrayScaleGrid)
+					UpdateGrid();
+				if(m_SelectedColor.isValid())
+					RefreshSelection(false,GetDocument()->GetMeasure()->m_binMeasure);
+				if (m_pGrayScaleGrid)
+				{
+					m_pGrayScaleGrid->SetRedraw(TRUE, TRUE);
+					m_pGrayScaleGrid->Invalidate(FALSE);
+				}
 			}
 		}
 		
