@@ -399,8 +399,8 @@ void CGDIGenePropPage::Relayout()
 		int top = y, cy = top + TOP_INSET;
 		int innerLeftPx = M.at(LBL_X, cy).x;
 		int innerW = grpRightPx - M.w(3) - innerLeftPx;
-		{ CPoint rp = M.at(LBL_X, cy); m_pgenReadout.MoveWindow(rp.x, rp.y, innerW, M.ht(86)); m_pgenReadout.ShowWindow(SW_SHOW); }
-		cy += 90;
+		{ CPoint rp = M.at(LBL_X, cy); m_pgenReadout.MoveWindow(rp.x, rp.y, innerW, M.ht(78)); m_pgenReadout.ShowWindow(SW_SHOW); }
+		cy += 82;
 		{ CPoint bp = M.at(LBL_X, cy); m_pgenSettingsBtn.MoveWindow(bp.x, bp.y, M.w(92), M.ht(14)); m_pgenSettingsBtn.ShowWindow(SW_SHOW); }
 		cy += 18;
 		if (m_lblOffset) { CPoint p = M.at(LBL_X, cy + 2); m_lblOffset->MoveWindow(p.x, p.y, M.w(28), M.ht(9)); m_lblOffset->ShowWindow(SW_SHOW); }
