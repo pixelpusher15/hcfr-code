@@ -119,6 +119,7 @@ public:
 	virtual void Serialize(CArchive& archive); 
 
 	virtual BOOL Init(UINT nbMeasure = 0, bool isSpecial =  FALSE);
+	void QueryPGeneratorInfo(CString& out);
 	virtual BOOL DisplayGray(double aLevel,MeasureType nPatternType, BOOL bChangePattern = TRUE);
 	virtual BOOL DisplayRGBColor(const ColorRGBDisplay& aRGBColor, MeasureType nPatternType, UINT nPatternInfo = 0,BOOL bChangePattern = TRUE,BOOL bSilentMode = FALSE);	// need to be overriden
 	virtual BOOL DisplayRGBColormadVR(const ColorRGBDisplay& aRGBColor, MeasureType nPatternType = MT_UNKNOWN, UINT nPatternInfo = 0);	// need to be overriden

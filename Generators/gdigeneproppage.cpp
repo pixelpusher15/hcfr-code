@@ -513,12 +513,27 @@ void CGDIGenePropPage::OnSelchangeOutput()
 	if (m_nDisplayMode == DISPLAY_ccast)
 		m_b16_235 = FALSE;
 	Relayout();
+	if (m_nDisplayMode == DISPLAY_rPI)
+		QueryPGenerator();
 }
 
 void CGDIGenePropPage::OnUserPatternClick()
 {
 	Relayout();
 }
+
+void CGDIGenePropPage::QueryPGenerator()
+{
+	if (!m_pgenReadout.GetSafeHwnd()) return;
+	CWaitCursor wait;
+	m_pgenReadout.SetWindowText(_T("Querying PGenerator..."));
+	m_pgenReadout.UpdateWindow();
+	CString out;
+	if (m_pGenerator) m_pGenerator->QueryPGeneratorInfo(out);
+	else out = _T("No generator available.");
+	m_pgenReadout.SetWindowText(out);
+}
+
 
 void CGDIGenePropPage::OnPgenSettings()
 {
@@ -587,6 +602,8 @@ BOOL CGDIGenePropPage::OnSetActive()
 		m_outputCombo.SetCurSel(ModeToCombo(m_nDisplayMode));
 
 	Relayout();
+	if (m_outputCombo.GetSafeHwnd() && ComboToMode(m_outputCombo.GetCurSel()) == DISPLAY_rPI)
+		QueryPGenerator();
 	return CPropertyPageWithHelp::OnSetActive();
 }
 

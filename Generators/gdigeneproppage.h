@@ -119,6 +119,7 @@ protected:
 
 	void BuildRuntimeLayout();
 	void Relayout();
+	void QueryPGenerator();
 	void PopulateCast();
 	int  ComboToMode(int sel);
 	int  ModeToCombo(int mode);
