@@ -456,7 +456,7 @@ BEGIN
     CONTROL         "Blank screen during measure",IDC_BLANKING_CHECK,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,17,20,112,10
 END
 
-IDD_GENERATOR_GDI_PROP_PAGE DIALOGEX 0, 0, 186, 246
+IDD_GENERATOR_GDI_PROP_PAGE DIALOGEX 0, 0, 186, 320
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Display"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
@@ -3109,6 +3109,8 @@ BEGIN
     IDS_GEN_RGB_RANGE  "Rango de patrón"
     IDS_GEN_NO_CAST  "No se encontró ningún dispositivo Google Cast"
     IDS_GEN_GRP_PATTERN  "Patrón"
+    IDS_GEN_PGEN_SETTINGS  "Configuración de PGenerator..."
+    IDS_GEN_OFFSET  "Desplazamiento"
     IDS_GEN_GRP_BLANKING  "Blanking"
     IDS_GEN_BLANK_SCREEN  "Blank screen during measure"
 END

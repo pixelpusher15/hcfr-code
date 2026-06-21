@@ -65,7 +65,7 @@ CGDIGenePropPage::CGDIGenePropPage() : CPropertyPageWithHelp(CGDIGenePropPage::I
 
 	m_grpDisplay = m_grpMadvr = m_grpCast = m_grpPgen = m_grpSignal = m_grpPattern = m_grpBlanking = NULL;
 	m_lblOutput = m_lblScreen = m_lblSize = m_lblApl = m_lblIntensity = NULL;
-	m_lblXoff = m_lblYoff = m_lblCastDev = m_lblRange = NULL;
+	m_lblXoff = m_lblYoff = m_lblCastDev = m_lblRange = m_lblOffset = NULL;
 }
 
 CGDIGenePropPage::~CGDIGenePropPage()
@@ -112,6 +112,7 @@ BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	ON_CBN_DROPDOWN(IDC_MONITOR_COMBO, OnDropdownMonitorCombo)
 	ON_CBN_SELCHANGE(IDC_GEN_OUTPUT_COMBO, OnSelchangeOutput)
 	ON_BN_CLICKED(IDC_DISP_TRIP3, OnUserPatternClick)
+	ON_BN_CLICKED(IDC_PGEN_SETTINGS_BTN, OnPgenSettings)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -244,7 +245,7 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	m_dynAll.RemoveAll();
 	m_grpDisplay = m_grpMadvr = m_grpCast = m_grpPgen = m_grpSignal = m_grpPattern = m_grpBlanking = NULL;
 	m_lblOutput = m_lblScreen = m_lblSize = m_lblApl = m_lblIntensity = NULL;
-	m_lblXoff = m_lblYoff = m_lblCastDev = m_lblRange = NULL;
+	m_lblXoff = m_lblYoff = m_lblCastDev = m_lblRange = m_lblOffset = NULL;
 
 	DlgMap M; M.h = GetSafeHwnd();
 	CFont* font = GetFont();
@@ -297,6 +298,20 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 		m_blankCheck.SetFont(font);
 	}
 	m_blankCheck.SetCheck(m_doScreenBlanking ? BST_CHECKED : BST_UNCHECKED);
+	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.DestroyWindow();
+	{
+		CPoint rpt = M.at(LBL_X, 40);
+		m_pgenReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP | WS_BORDER, CRect(rpt.x, rpt.y, rpt.x + M.w(166), rpt.y + M.ht(80)), this, IDC_PGEN_READOUT);
+		m_pgenReadout.SetFont(font);
+		m_pgenReadout.SetWindowText(_T("PGenerator device info will appear here."));
+	}
+	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.DestroyWindow();
+	{
+		CPoint spt = M.at(LBL_X, 130);
+		m_pgenSettingsBtn.Create(LS(IDS_GEN_PGEN_SETTINGS), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(spt.x, spt.y, spt.x + M.w(92), spt.y + M.ht(14)), this, IDC_PGEN_SETTINGS_BTN);
+		m_pgenSettingsBtn.SetFont(font);
+	}
+	m_lblOffset = AddText(this, m_dynAll, font, M, LS(IDS_GEN_OFFSET), LBL_X, 0, 28, 9);
 
 	// Group frames + row labels. Real positions are assigned in Relayout().
 	m_grpDisplay = AddGroup(this, m_dynAll, font, M, IDS_GEN_GRP_DISPLAY, GRP_X, 26, GRP_W, 90);
@@ -311,8 +326,8 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	m_lblSize      = AddText(this, m_dynAll, font, M, LS(IDS_GEN_PATTERN_SIZE),  LBL_X, 0, 84, 9);
 	m_lblApl       = AddText(this, m_dynAll, font, M, LS(IDS_GEN_APL),           LBL_X, 0, 84, 9);
 	m_lblIntensity = AddText(this, m_dynAll, font, M, LS(IDS_GEN_INTENSITY),     LBL_X, 0, 84, 9);
-	m_lblXoff      = AddText(this, m_dynAll, font, M, LS(IDS_GEN_XOFFSET),       LBL_X, 0, 84, 9);
-	m_lblYoff      = AddText(this, m_dynAll, font, M, LS(IDS_GEN_YOFFSET),       LBL_X, 0, 84, 9);
+	m_lblXoff      = AddText(this, m_dynAll, font, M, _T("X (px)"),       LBL_X, 0, 84, 9);
+	m_lblYoff      = AddText(this, m_dynAll, font, M, _T("Y (px)"),       LBL_X, 0, 84, 9);
 	m_lblCastDev   = AddText(this, m_dynAll, font, M, LS(IDS_GEN_CAST_DEVICE),   LBL_X, 0, 28, 9);
 	m_lblRange     = AddText(this, m_dynAll, font, M, LS(IDS_GEN_RGB_RANGE),     LBL_X, 0, 42, 9);
 }
@@ -347,8 +362,10 @@ void CGDIGenePropPage::Relayout()
 	ShowIds(this, fieldIds, sizeof(fieldIds) / sizeof(fieldIds[0]), FALSE);
 	CWnd* groups[] = { m_grpDisplay, m_grpMadvr, m_grpCast, m_grpPgen, m_grpSignal, m_grpPattern, m_grpBlanking };
 	for (int i = 0; i < 7; i++) if (groups[i]) groups[i]->ShowWindow(SW_HIDE);
-	CWnd* labels[] = { m_lblScreen, m_lblSize, m_lblApl, m_lblIntensity, m_lblXoff, m_lblYoff, m_lblCastDev, m_lblRange };
-	for (int i = 0; i < 8; i++) if (labels[i]) labels[i]->ShowWindow(SW_HIDE);
+	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.ShowWindow(SW_HIDE);
+	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.ShowWindow(SW_HIDE);
+	CWnd* labels[] = { m_lblScreen, m_lblSize, m_lblApl, m_lblIntensity, m_lblXoff, m_lblYoff, m_lblCastDev, m_lblRange, m_lblOffset };
+	for (int i = 0; i < 9; i++) if (labels[i]) labels[i]->ShowWindow(SW_HIDE);
 
 	int y = 26;
 
@@ -379,8 +396,18 @@ void CGDIGenePropPage::Relayout()
 	if (isPgen)
 	{
 		int top = y, cy = top + TOP_INSET;
-		PlaceLF(m_lblXoff, GetDlgItem(IDC_XOFFSET_EDIT), M, cy); cy += ROW_F;
-		PlaceLF(m_lblYoff, GetDlgItem(IDC_YOFFSET_EDIT), M, cy); cy += ROW_F;
+		int innerLeftPx = M.at(LBL_X, cy).x;
+		int innerW = grpRightPx - M.w(3) - innerLeftPx;
+		{ CPoint rp = M.at(LBL_X, cy); m_pgenReadout.MoveWindow(rp.x, rp.y, innerW, M.ht(78)); m_pgenReadout.ShowWindow(SW_SHOW); }
+		cy += 82;
+		{ CPoint bp = M.at(LBL_X, cy); m_pgenSettingsBtn.MoveWindow(bp.x, bp.y, M.w(92), M.ht(14)); m_pgenSettingsBtn.ShowWindow(SW_SHOW); }
+		cy += 18;
+		if (m_lblOffset) { CPoint p = M.at(LBL_X, cy + 2); m_lblOffset->MoveWindow(p.x, p.y, M.w(28), M.ht(9)); m_lblOffset->ShowWindow(SW_SHOW); }
+		if (m_lblXoff) { CPoint p = M.at(40, cy + 2); m_lblXoff->MoveWindow(p.x, p.y, M.w(24), M.ht(9)); m_lblXoff->ShowWindow(SW_SHOW); }
+		{ CWnd* xo = GetDlgItem(IDC_XOFFSET_EDIT); if (xo) { CPoint p = M.at(64, cy); xo->MoveWindow(p.x, p.y, M.w(28), M.ht(12)); xo->ShowWindow(SW_SHOW); } }
+		if (m_lblYoff) { CPoint p = M.at(100, cy + 2); m_lblYoff->MoveWindow(p.x, p.y, M.w(24), M.ht(9)); m_lblYoff->ShowWindow(SW_SHOW); }
+		{ CWnd* yo = GetDlgItem(IDC_YOFFSET_EDIT); if (yo) { CPoint p = M.at(124, cy); yo->MoveWindow(p.x, p.y, M.w(28), M.ht(12)); yo->ShowWindow(SW_SHOW); } }
+		cy += ROW_F;
 		PlaceChk(GetDlgItem(IDC_DISP_TRIP3), M, cy); cy += ROW_C;
 		int fb = cy + BOT_PAD;
 		PlaceGroup(m_grpPgen, M, top, fb - top, grpRightPx);
@@ -491,6 +518,11 @@ void CGDIGenePropPage::OnSelchangeOutput()
 void CGDIGenePropPage::OnUserPatternClick()
 {
 	Relayout();
+}
+
+void CGDIGenePropPage::OnPgenSettings()
+{
+	AfxMessageBox(_T("The PGenerator settings dialog is coming in the next phase."));
 }
 
 void CGDIGenePropPage::OnOK()

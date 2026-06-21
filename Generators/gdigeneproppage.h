@@ -87,6 +87,9 @@ public:
 	CButton		*m_grpDisplay, *m_grpMadvr, *m_grpCast, *m_grpPgen, *m_grpSignal, *m_grpPattern, *m_grpBlanking;
 	CStatic		*m_lblOutput, *m_lblScreen, *m_lblSize, *m_lblApl, *m_lblIntensity;
 	CStatic		*m_lblXoff, *m_lblYoff, *m_lblCastDev, *m_lblRange;
+	CStatic		*m_lblOffset;
+	CEdit		m_pgenReadout;
+	CButton		m_pgenSettingsBtn;
 
 	virtual UINT GetHelpId ( LPSTR lpszTopic );
 
@@ -111,6 +114,7 @@ protected:
 	//}}AFX_MSG
 	afx_msg void OnSelchangeOutput();
 	afx_msg void OnUserPatternClick();
+	afx_msg void OnPgenSettings();
 	DECLARE_MESSAGE_MAP()
 
 	void BuildRuntimeLayout();

@@ -769,6 +769,8 @@
 #define IDC_ARGYLL_SENSOR_ADAPT         1292
 #define IDC_AVG_LOW_LIGHT               1299
 #define IDC_GEN_OUTPUT_COMBO            1500
+#define IDC_PGEN_READOUT              1501
+#define IDC_PGEN_SETTINGS_BTN          1502
 #define IDC_ARGYLLSENSOR_SPECTRALTYPE_COMBO 1271
 #define IDC_DISPLAY_NAME                1272
 #define IDC_ARGYLLSENSOR_INTTIME_COMBO  1272
@@ -1780,6 +1782,8 @@
 #define IDS_GEN_RGB_RANGE                 59481
 #define IDS_GEN_NO_CAST                  59482
 #define IDS_GEN_GRP_PATTERN              59483
+#define IDS_GEN_PGEN_SETTINGS            59486
+#define IDS_GEN_OFFSET                   59487
 #define IDS_GEN_GRP_BLANKING             59484
 #define IDS_GEN_BLANK_SCREEN              59485
 
@@ -1790,7 +1794,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33108
-#define _APS_NEXT_CONTROL_VALUE         1501
+#define _APS_NEXT_CONTROL_VALUE         1503
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif
