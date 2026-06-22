@@ -6393,7 +6393,7 @@
         {
         "Name" = "8:Microsoft Visual Studio"
         "ProductName" = "8:HCFR"
-        "ProductCode" = "8:{4BF88344-B16A-424E-8FBC-732E6633E50B}"
+        "ProductCode" = "8:{B64FC50E-FA1A-4654-9BAF-B25CE6C6AE62}"
         "PackageCode" = "8:{7A8A0441-D466-4276-9010-22E9E3FE273D}"
         "UpgradeCode" = "8:{BF340A8C-5760-4352-B44E-37B4C150A159}"
         "AspNetVersion" = "8:2.0.50727.0"
