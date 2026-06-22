@@ -560,6 +560,25 @@ CPGenSettingsDlg::CPGenSettingsDlg(CWnd* pParent) : CDialog(CPGenSettingsDlg::ID
 	m_pGenerator = NULL;
 }
 
+static const TCHAR* kPgSetCmd[4] = {
+	_T("SET_PGENERATOR_CONF_RGB_QUANT_RANGE"),
+	_T("SET_PGENERATOR_CONF_COLOR_FORMAT"),
+	_T("SET_PGENERATOR_CONF_MAX_BPC"),
+	_T("SET_PGENERATOR_CONF_COLORIMETRY") };
+static const UINT kPgLblId[4] = { IDS_PGEN_RO_SIGRANGE, IDS_PGEN_RO_COLORFORMAT, IDS_PGEN_RO_BITDEPTH, IDS_PGEN_RO_COLORSPACE };
+static const int kPgValIdx[4] = { 8, 7, 5, 6 };
+static const TCHAR* kPgItems0[] = { _T("Full"), _T("Limited") };
+static const int    kPgVals0[]  = { 2, 1 };
+static const TCHAR* kPgItems1[] = { _T("RGB"), _T("YCbCr 4:4:4"), _T("YCbCr 4:2:2") };
+static const int    kPgVals1[]  = { 0, 1, 2 };
+static const TCHAR* kPgItems2[] = { _T("8-bit"), _T("10-bit") };
+static const int    kPgVals2[]  = { 8, 10 };
+static const TCHAR* kPgItems3[] = { _T("Default"), _T("BT.709 (YCC)"), _T("BT.2020 (RGB)") };
+static const int    kPgVals3[]  = { 0, 2, 9 };
+static const TCHAR** kPgItems[4] = { kPgItems0, kPgItems1, kPgItems2, kPgItems3 };
+static const int*    kPgVals[4]  = { kPgVals0, kPgVals1, kPgVals2, kPgVals3 };
+static const int     kPgCount[4] = { 2, 3, 2, 3 };
+
 BOOL CPGenSettingsDlg::OnInitDialog()
 {
 	CDialog::OnInitDialog();
@@ -567,28 +586,30 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 	DlgMap M; M.h = GetSafeHwnd();
 	CFont* font = GetFont();
 
-	CPoint lp = M.at(12, 16);
-	m_rangeLabel.Create(_T("Video signal range"), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(85), lp.y + M.ht(9)), this);
-	m_rangeLabel.SetFont(font);
+	CStringArray vals;
+	CString err;
+	BOOL haveData = FALSE;
+	if (m_pGenerator) { CWaitCursor wait; haveData = m_pGenerator->QueryPGeneratorInfo(vals, err); }
 
-	CPoint cp = M.at(100, 14);
-	m_rangeCombo.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(100), cp.y + M.ht(80)), this, IDC_PGEN_RANGE_COMBO);
-	m_rangeCombo.SetFont(font);
-	m_rangeCombo.AddString(_T("Full"));
-	m_rangeCombo.AddString(_T("Limited"));
-
-	int sel = 0;
-	if (m_pGenerator)
+	for (int i = 0; i < 4; i++)
 	{
-		CWaitCursor wait;
-		CStringArray vals;
-		CString err;
-		if (m_pGenerator->QueryPGeneratorInfo(vals, err) && vals.GetSize() >= 9)
+		int y = 16 + i * 20;
+		CPoint lp = M.at(12, y + 2);
+		m_label[i].Create(LS(kPgLblId[i]), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(85), lp.y + M.ht(9)), this);
+		m_label[i].SetFont(font);
+		CPoint cp = M.at(100, y);
+		m_combo[i].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(100), cp.y + M.ht(120)), this, IDC_PGEN_RANGE_COMBO + i);
+		m_combo[i].SetFont(font);
+		for (int j = 0; j < kPgCount[i]; j++) m_combo[i].AddString(kPgItems[i][j]);
+		int sel = 0;
+		if (haveData && kPgValIdx[i] < vals.GetSize())
 		{
-			if (vals[8].CompareNoCase(_T("Limited")) == 0) sel = 1;
+			int fx = m_combo[i].FindStringExact(-1, vals[kPgValIdx[i]]);
+			if (fx >= 0) sel = fx;
 		}
+		m_combo[i].SetCurSel(sel);
+		m_initSel[i] = sel;
 	}
-	m_rangeCombo.SetCurSel(sel);
 
 	if (GetDlgItem(IDOK)) GetDlgItem(IDOK)->SetWindowText(_T("Apply"));
 	if (GetDlgItem(IDCANCEL)) GetDlgItem(IDCANCEL)->SetWindowText(_T("Close"));
@@ -597,12 +618,19 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 
 void CPGenSettingsDlg::OnOK()
 {
-	int sel = m_rangeCombo.GetCurSel();
-	int quant = (sel == 1) ? 1 : 2;
-	if (m_pGenerator)
+	CStringArray cmds;
+	for (int i = 0; i < 4; i++)
+	{
+		int sel = m_combo[i].GetCurSel();
+		if (sel < 0 || sel == m_initSel[i]) continue;
+		CString c;
+		c.Format(_T("CMD:%s:%d"), kPgSetCmd[i], kPgVals[i][sel]);
+		cmds.Add(c);
+	}
+	if (cmds.GetSize() > 0 && m_pGenerator)
 	{
 		CWaitCursor wait;
-		m_pGenerator->SetPGeneratorConf("SET_PGENERATOR_CONF_RGB_QUANT_RANGE", quant);
+		m_pGenerator->ApplyPGeneratorConf(cmds);
 	}
 	CDialog::OnOK();
 }

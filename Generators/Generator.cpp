@@ -254,8 +254,9 @@ BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
 }
 
 
-BOOL CGenerator::SetPGeneratorConf(LPCSTR name, int value)
+BOOL CGenerator::ApplyPGeneratorConf(const CStringArray& cmds)
 {
+	if (cmds.GetSize() == 0) return TRUE;
 	HINSTANCE hLib = LoadLibrary("RB8PGenerator.dll");
 	if (!hLib) return FALSE;
 	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
@@ -271,10 +272,9 @@ BOOL CGenerator::SetPGeneratorConf(LPCSTR name, int value)
 	SOCKET s = conn(ip);
 	if (!s) { FreeLibrary(hLib); return FALSE; }
 
-	char cmd[128];
-	sprintf_s(cmd, "CMD:%s:%d", name, value);
-	getf(s, cmd);
-	Sleep(200);
+	for (int i = 0; i < cmds.GetSize(); i++)
+		getf(s, (LPCTSTR)cmds[i]);
+	Sleep(150);
 	getf(s, "RESTARTPGENERATOR:");
 
 	clsf(s);

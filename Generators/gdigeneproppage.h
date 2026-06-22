@@ -132,8 +132,9 @@ public:
 	enum { IDD = IDD_PGEN_SETTINGS };
 	CGDIGenerator* m_pGenerator;
 protected:
-	CComboBox m_rangeCombo;
-	CStatic m_rangeLabel;
+	CComboBox m_combo[4];
+	CStatic m_label[4];
+	int m_initSel[4];
 	virtual BOOL OnInitDialog();
 	virtual void OnOK();
 	DECLARE_MESSAGE_MAP()
