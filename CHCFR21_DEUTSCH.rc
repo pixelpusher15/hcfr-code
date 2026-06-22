@@ -412,7 +412,7 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,17,20,150,10
 END
 
-IDD_PGEN_SETTINGS DIALOGEX 0, 0, 220, 156
+IDD_PGEN_SETTINGS DIALOGEX 0, 0, 334, 136
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "PGenerator settings"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
@@ -3011,6 +3011,7 @@ BEGIN
     IDS_PGEN_REBOOT  "Neu starten"
     IDS_PGEN_RESTART_SW  "Software neu starten"
     IDS_PGEN_REBOOT_CONFIRM  "PGenerator jetzt neu starten?"
+    IDS_PGEN_RESTART_CONFIRM  "PGenerator-Software jetzt neu starten?"
     IDS_GEN_GRP_BLANKING  "Dunkelschaltung"
     IDS_GEN_BLANK_SCREEN  "Bildschirm bei der Messung dunkel schalten"
 END

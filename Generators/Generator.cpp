@@ -165,42 +165,94 @@ static CString PgenParseVal(const char* resp, const char* name)
 	return r;
 }
 
+static char* PgSafeDisc(RB8PG_discovery f) { __try { return f(); } __except(EXCEPTION_EXECUTE_HANDLER) { return NULL; } }
+static SOCKET PgSafeConn(RB8PG_connect f, char* ip) { __try { return f(ip); } __except(EXCEPTION_EXECUTE_HANDLER) { return (SOCKET)0; } }
+static char* PgSafeGet(RB8PG_get f, SOCKET s, LPCSTR c) { __try { return f(s, c); } __except(EXCEPTION_EXECUTE_HANDLER) { return NULL; } }
+static void PgSafeClose(RB8PG_close f, SOCKET s) { __try { f(s); } __except(EXCEPTION_EXECUTE_HANDLER) {} }
+static CStringA PgSend(SOCKET s, LPCSTR cmd)
+{
+	CStringA out;
+	if (!s) return out;
+	CStringA frame(cmd);
+	char term[2]; term[0] = 2; term[1] = 13;
+	frame += CStringA(term, 2);
+	if (send(s, (LPCSTR)frame, frame.GetLength(), 0) == SOCKET_ERROR) return out;
+	DWORD tmo = 1000;
+	setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tmo, sizeof(tmo));
+	char buf[4096];
+	for (int it = 0; it < 512 && out.Find((char)2) < 0; it++)
+	{
+		int n = recv(s, buf, sizeof(buf), 0);
+		if (n <= 0) break;
+		out += CStringA(buf, n);
+	}
+	int t = out.Find((char)2); if (t >= 0) out = out.Left(t);
+	return out;
+}
+
+static HINSTANCE g_pgenLib = NULL;
+static HINSTANCE PgenLib() { if (!g_pgenLib) g_pgenLib = LoadLibrary("RB8PGenerator.dll"); return g_pgenLib; }
+
+static char g_pgenIp[64] = {0};
+static char* PgDiscoverIP(RB8PG_discovery disc)
+{
+	if (g_pgenIp[0]) return g_pgenIp;
+	char* ip = NULL;
+	for (int i = 0; i < 3; i++) { ip = PgSafeDisc(disc); if (ip && strlen(ip) > 5) break; Sleep(150); }
+	if (ip && strlen(ip) > 5) { strncpy(g_pgenIp, ip, 63); g_pgenIp[63] = 0; return g_pgenIp; }
+	return NULL;
+}
+
+static SOCKET g_pgenSock = (SOCKET)0;
+static SOCKET PgGetConn(RB8PG_connect conn, char* ip) { if (!g_pgenSock) g_pgenSock = PgSafeConn(conn, ip); return g_pgenSock; }
+static void PgDropConn(RB8PG_close clsf) { if (g_pgenSock) { PgSafeClose(clsf, g_pgenSock); g_pgenSock = (SOCKET)0; } }
+static SOCKET PgLiveConn(RB8PG_connect conn, RB8PG_close clsf, RB8PG_get getf, char* ip)
+{
+	for (int attempt = 0; attempt < 2; attempt++)
+	{
+		SOCKET s = PgGetConn(conn, ip);
+		if (!s) return (SOCKET)0;
+		CStringA v = PgSend(s, "CMD:GET_PGENERATOR_VERSION");
+		if (v.Find("OK") >= 0) return s;
+		PgDropConn(clsf);
+	}
+	return (SOCKET)0;
+}
+
 BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
 {
 	err = _T("");
 	vals.RemoveAll();
 	for (int i = 0; i < 9; i++) vals.Add(_T("-"));
 
-	HINSTANCE hLib = LoadLibrary("RB8PGenerator.dll");
+	HINSTANCE hLib = PgenLib();
 	if (!hLib) { err.LoadString(IDS_PGEN_ST_NODLL); return FALSE; }
 	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
 	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
 	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
 	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
-	if (!disc || !conn || !getf || !clsf) { FreeLibrary(hLib); err.LoadString(IDS_PGEN_ST_NOENTRY); return FALSE; }
+	if (!disc || !conn || !getf || !clsf) { err.LoadString(IDS_PGEN_ST_NOENTRY); return FALSE; }
 
-	char* ip = NULL;
-	for (int i = 0; i < 3; i++) { ip = disc(); if (ip && strlen(ip) > 5) break; Sleep(150); }
-	if (!ip || strlen(ip) <= 5) { FreeLibrary(hLib); err.LoadString(IDS_PGEN_ST_NOTFOUND); return FALSE; }
+	char* ip = PgDiscoverIP(disc);
+	if (!ip || strlen(ip) <= 5) { err.LoadString(IDS_PGEN_ST_NOTFOUND); return FALSE; }
 	CString ipStr(ip);
 
-	SOCKET s = conn(ip);
-	if (!s) { FreeLibrary(hLib); err.LoadString(IDS_PGEN_ST_NOCONNECT); return FALSE; }
+	SOCKET s = PgLiveConn(conn, clsf, getf, ip);
+	if (!s) { g_pgenIp[0] = 0; err.LoadString(IDS_PGEN_ST_NOCONNECT); return FALSE; }
 
-	CString ver   = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_VERSION"), "GET_PGENERATOR_VERSION");
-	CString mode  = PgenParseVal(getf(s, "CMD:GET_MODE"), "GET_MODE");
-	CString res   = PgenParseVal(getf(s, "CMD:GET_RESOLUTION"), "GET_RESOLUTION");
-	CString fmt   = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_COLOR_FORMAT"), "GET_PGENERATOR_CONF_COLOR_FORMAT");
-	CString bpc   = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_MAX_BPC"), "GET_PGENERATOR_CONF_MAX_BPC");
-	CString outr  = PgenParseVal(getf(s, "CMD:GET_OUTPUT_RANGE"), "GET_OUTPUT_RANGE");
-	CString quant = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_RGB_QUANT_RANGE"), "GET_PGENERATOR_CONF_RGB_QUANT_RANGE");
-	CString colm  = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_COLORIMETRY"), "GET_PGENERATOR_CONF_COLORIMETRY");
-	CString isHdr = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_IS_HDR"), "GET_PGENERATOR_CONF_IS_HDR");
-	CString isDov = PgenParseVal(getf(s, "CMD:GET_PGENERATOR_CONF_IS_LL_DOVI"), "GET_PGENERATOR_CONF_IS_LL_DOVI");
-	CString host  = PgenParseVal(getf(s, "CMD:GET_HOSTNAME"), "GET_HOSTNAME");
+	CString ver   = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_VERSION"), "GET_PGENERATOR_VERSION");
+	CString mode  = PgenParseVal(PgSend(s, "CMD:GET_MODE"), "GET_MODE");
+	CString res   = PgenParseVal(PgSend(s, "CMD:GET_RESOLUTION"), "GET_RESOLUTION");
+	CString fmt   = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_COLOR_FORMAT"), "GET_PGENERATOR_CONF_COLOR_FORMAT");
+	CString bpc   = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_BPC"), "GET_PGENERATOR_CONF_MAX_BPC");
+	CString outr  = PgenParseVal(PgSend(s, "CMD:GET_OUTPUT_RANGE"), "GET_OUTPUT_RANGE");
+	CString quant = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_RGB_QUANT_RANGE"), "GET_PGENERATOR_CONF_RGB_QUANT_RANGE");
+	CString colm  = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_COLORIMETRY"), "GET_PGENERATOR_CONF_COLORIMETRY");
+	CString isHdr = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_HDR"), "GET_PGENERATOR_CONF_IS_HDR");
+	CString isDov = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_LL_DOVI"), "GET_PGENERATOR_CONF_IS_LL_DOVI");
+	CString host  = PgenParseVal(PgSend(s, "CMD:GET_HOSTNAME"), "GET_HOSTNAME");
 
-	clsf(s);
-	FreeLibrary(hLib);
+	
 
 	CString status = _T("SDR");
 	if (isDov == "1") status = _T("Dolby Vision");
@@ -257,28 +309,28 @@ BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
 BOOL CGenerator::ApplyPGeneratorConf(const CStringArray& cmds)
 {
 	if (cmds.GetSize() == 0) return TRUE;
-	HINSTANCE hLib = LoadLibrary("RB8PGenerator.dll");
+	InvalidatePGenCache();
+	HINSTANCE hLib = PgenLib();
 	if (!hLib) return FALSE;
 	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
 	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
 	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
 	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
-	if (!disc || !conn || !getf || !clsf) { FreeLibrary(hLib); return FALSE; }
+	if (!disc || !conn || !getf || !clsf) { return FALSE; }
 
-	char* ip = NULL;
-	for (int i = 0; i < 3; i++) { ip = disc(); if (ip && strlen(ip) > 5) break; Sleep(150); }
-	if (!ip || strlen(ip) <= 5) { FreeLibrary(hLib); return FALSE; }
+	char* ip = PgDiscoverIP(disc);
+	if (!ip || strlen(ip) <= 5) { return FALSE; }
 
-	SOCKET s = conn(ip);
-	if (!s) { FreeLibrary(hLib); return FALSE; }
+	SOCKET s = PgLiveConn(conn, clsf, getf, ip);
+	if (!s) { g_pgenIp[0] = 0; return FALSE; }
 
 	for (int i = 0; i < cmds.GetSize(); i++)
-		getf(s, (LPCTSTR)cmds[i]);
+		PgSend(s, (LPCTSTR)cmds[i]);
 	Sleep(150);
-	getf(s, "RESTARTPGENERATOR:");
+	PgSend(s, "RESTARTPGENERATOR:");
+	PgDropConn(clsf);
 
-	clsf(s);
-	FreeLibrary(hLib);
+	
 	return TRUE;
 }
 
@@ -301,62 +353,63 @@ static CStringA PgenB64Decode(const CStringA& in)
 	return out;
 }
 
-int CGenerator::QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids)
+static BOOL g_pgenModeCacheValid = FALSE;
+static CStringArray g_cacheLabels;
+static CArray<int,int> g_cacheIds;
+static int g_cacheCurMode = -1;
+static PGenSettings g_cacheSt;
+void CGenerator::InvalidatePGenCache() { g_pgenModeCacheValid = FALSE; }
+
+int CGenerator::QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids, PGenSettings& st)
 {
 	labels.RemoveAll();
 	ids.RemoveAll();
+	if (g_pgenModeCacheValid) { labels.Copy(g_cacheLabels); ids.Copy(g_cacheIds); st = g_cacheSt; return g_cacheCurMode; }
+	st.valid = FALSE;
 	int curId = -1;
-	HINSTANCE hLib = LoadLibrary("RB8PGenerator.dll");
+	HINSTANCE hLib = PgenLib();
 	if (!hLib) return -1;
 	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
 	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
 	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
 	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
-	if (!disc || !conn || !getf || !clsf) { FreeLibrary(hLib); return -1; }
+	if (!disc || !conn || !getf || !clsf) { return -1; }
 
-	char* ip = NULL;
-	for (int i = 0; i < 3; i++) { ip = disc(); if (ip && strlen(ip) > 5) break; Sleep(150); }
-	if (!ip || strlen(ip) <= 5) { FreeLibrary(hLib); return -1; }
+	char* ip = PgDiscoverIP(disc);
+	if (!ip || strlen(ip) <= 5) { return -1; }
 
-	SOCKET s = conn(ip);
-	if (!s) { FreeLibrary(hLib); return -1; }
+	SOCKET s = PgLiveConn(conn, clsf, getf, ip);
+	if (!s) { g_pgenIp[0] = 0; return -1; }
 
-	getf(s, "CMD:GET_PGENERATOR_VERSION");
+	PgSend(s, "CMD:GET_PGENERATOR_VERSION");
 
-	char* curp = getf(s, "CMD:GET_MODE");
-	CString cur(curp ? curp : "");
+	CString cur(PgSend(s, "CMD:GET_MODE"));
 
-	// getf returns only the first ~1KB chunk of the (long) modes response, with
-	// the command echo as buffer-tail garbage. Take that clean first chunk, then
-	// drain the socket for the remainder, and stitch the base64 back together.
-	char* c1 = getf(s, "CMD:GET_MODES_AVAILABLE");
-	CStringA partA(c1 ? c1 : "");
-	{ int ok = partA.Find("OK:"); if (ok >= 0) partA = partA.Mid(ok + 3); }
-	{ int g = partA.Find("CMD:"); if (g >= 0) partA = partA.Left(g); }
-	{ int t = partA.Find('\x02'); if (t >= 0) partA = partA.Left(t); }
+	st.colorFormat = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_COLOR_FORMAT"), "GET_PGENERATOR_CONF_COLOR_FORMAT"));
+	st.quantRange  = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_RGB_QUANT_RANGE"), "GET_PGENERATOR_CONF_RGB_QUANT_RANGE"));
+	st.bitDepth    = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_BPC"), "GET_PGENERATOR_CONF_MAX_BPC"));
+	st.colorimetry = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_COLORIMETRY"), "GET_PGENERATOR_CONF_COLORIMETRY"));
+	st.isHdr       = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_HDR"), "GET_PGENERATOR_CONF_IS_HDR"));
+	st.isLLDovi    = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_LL_DOVI"), "GET_PGENERATOR_CONF_IS_LL_DOVI"));
+	st.eotf        = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_EOTF"), "GET_PGENERATOR_CONF_EOTF"));
+	st.primaries   = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_PRIMARIES"), "GET_PGENERATOR_CONF_PRIMARIES"));
+	st.doviMode    = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_DV_MAP_MODE"), "GET_PGENERATOR_CONF_DV_MAP_MODE"));
+	st.maxLuma     = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_LUMA"), "GET_PGENERATOR_CONF_MAX_LUMA"));
+	st.minLuma     = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MIN_LUMA"), "GET_PGENERATOR_CONF_MIN_LUMA"));
+	st.maxCll      = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_CLL"), "GET_PGENERATOR_CONF_MAX_CLL"));
+	st.maxFall     = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_FALL"), "GET_PGENERATOR_CONF_MAX_FALL"));
+	st.valid = TRUE;
 
-	CStringA partB;
-	{
-		DWORD tmo = 800;
-		setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tmo, sizeof(tmo));
-		char buf[4096];
-		for (int it = 0; it < 256 && partB.Find('\x02') < 0; it++)
-		{
-			int n = recv(s, buf, sizeof(buf), 0);
-			if (n <= 0) break;
-			partB += CStringA(buf, n);
-		}
-		int t = partB.Find('\x02'); if (t >= 0) partB = partB.Left(t);
-	}
-
-	clsf(s);
-	FreeLibrary(hLib);
+	// modes list last: the recv-drain can leave the socket mid-frame, so do it
+	// after the single-frame conf reads above.
+	CStringA rawA = PgSend(s, "CMD:GET_MODES_AVAILABLE");
+	{ int ok = rawA.Find("OK:"); if (ok >= 0) rawA = rawA.Mid(ok + 3); }
 
 	{ int t = cur.Find('\x02'); if (t >= 0) cur = cur.Left(t); }
 	{ int c = cur.Find(':'); int b = cur.Find('['); if (c >= 0 && (b < 0 || c < b)) cur = cur.Mid(c + 1); }
 	curId = atoi(cur);
 
-	CString raw(PgenB64Decode(partA + partB));
+	CString raw(PgenB64Decode(rawA));
 
 	int pos = 0;
 	while ((pos = raw.Find('[', pos)) >= 0)
@@ -376,7 +429,7 @@ int CGenerator::QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids)
 				CString wh = desc.Left(sp);
 				int hz = desc.Find("Hz");
 				CString rate;
-				if (hz > 0) { int st = hz; while (st > 0 && desc[st - 1] != ' ') st--; rate = desc.Mid(st, hz - st + 2); }
+				if (hz > 0) { int stt = hz; while (stt > 0 && desc[stt - 1] != ' ') stt--; rate = desc.Mid(stt, hz - stt + 2); }
 				lbl = rate.IsEmpty() ? wh : (wh + _T(" @ ") + rate);
 			}
 			labels.Add(lbl);
@@ -384,31 +437,32 @@ int CGenerator::QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids)
 		}
 		pos = close + 1;
 	}
+	if (st.valid) { g_cacheLabels.Copy(labels); g_cacheIds.Copy(ids); g_cacheSt = st; g_cacheCurMode = curId; g_pgenModeCacheValid = TRUE; }
 	return curId;
 }
 
 BOOL CGenerator::SendPGeneratorCommand(LPCSTR cmd)
 {
-	HINSTANCE hLib = LoadLibrary("RB8PGenerator.dll");
+	InvalidatePGenCache();
+	HINSTANCE hLib = PgenLib();
 	if (!hLib) return FALSE;
 	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
 	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
 	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
 	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
-	if (!disc || !conn || !getf || !clsf) { FreeLibrary(hLib); return FALSE; }
+	if (!disc || !conn || !getf || !clsf) { return FALSE; }
 
-	char* ip = NULL;
-	for (int i = 0; i < 3; i++) { ip = disc(); if (ip && strlen(ip) > 5) break; Sleep(150); }
-	if (!ip || strlen(ip) <= 5) { FreeLibrary(hLib); return FALSE; }
+	char* ip = PgDiscoverIP(disc);
+	if (!ip || strlen(ip) <= 5) { return FALSE; }
 
-	SOCKET s = conn(ip);
-	if (!s) { FreeLibrary(hLib); return FALSE; }
+	SOCKET s = PgLiveConn(conn, clsf, getf, ip);
+	if (!s) { g_pgenIp[0] = 0; return FALSE; }
 
-	getf(s, cmd);
+	PgSend(s, cmd);
 	Sleep(150);
+	PgDropConn(clsf);
 
-	clsf(s);
-	FreeLibrary(hLib);
+	
 	return TRUE;
 }
 

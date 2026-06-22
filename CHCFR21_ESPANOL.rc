@@ -456,7 +456,7 @@ BEGIN
     CONTROL         "Blank screen during measure",IDC_BLANKING_CHECK,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,17,20,112,10
 END
 
-IDD_PGEN_SETTINGS DIALOGEX 0, 0, 220, 156
+IDD_PGEN_SETTINGS DIALOGEX 0, 0, 334, 136
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "PGenerator settings"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
@@ -3142,6 +3142,7 @@ BEGIN
     IDS_PGEN_REBOOT  "Reiniciar"
     IDS_PGEN_RESTART_SW  "Reiniciar software"
     IDS_PGEN_REBOOT_CONFIRM  "¿Reiniciar el PGenerator ahora?"
+    IDS_PGEN_RESTART_CONFIRM  "¿Reiniciar el software del PGenerator ahora?"
     IDS_GEN_GRP_BLANKING  "Blanking"
     IDS_GEN_BLANK_SCREEN  "Blank screen during measure"
 END

@@ -113,6 +113,7 @@ BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	ON_CBN_SELCHANGE(IDC_GEN_OUTPUT_COMBO, OnSelchangeOutput)
 	ON_BN_CLICKED(IDC_DISP_TRIP3, OnUserPatternClick)
 	ON_BN_CLICKED(IDC_PGEN_SETTINGS_BTN, OnPgenSettings)
+	ON_BN_CLICKED(IDC_PGEN_REFRESH_BTN, OnPgenRefresh)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -312,6 +313,12 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 		m_pgenSettingsBtn.Create(LS(IDS_GEN_PGEN_SETTINGS), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(spt.x, spt.y, spt.x + M.w(92), spt.y + M.ht(14)), this, IDC_PGEN_SETTINGS_BTN);
 		m_pgenSettingsBtn.SetFont(font);
 	}
+	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.DestroyWindow();
+	{
+		CPoint rfp = M.at(LBL_X, 130);
+		m_pgenRefreshBtn.Create(_T("Refresh"), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(rfp.x, rfp.y, rfp.x + M.w(44), rfp.y + M.ht(14)), this, IDC_PGEN_REFRESH_BTN);
+		m_pgenRefreshBtn.SetFont(font);
+	}
 	m_lblOffset = AddText(this, m_dynAll, font, M, LS(IDS_GEN_OFFSET), LBL_X, 0, 28, 9);
 
 	// Group frames + row labels. Real positions are assigned in Relayout().
@@ -365,6 +372,7 @@ void CGDIGenePropPage::Relayout()
 	for (int i = 0; i < 7; i++) if (groups[i]) groups[i]->ShowWindow(SW_HIDE);
 	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.ShowWindow(SW_HIDE);
 	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.ShowWindow(SW_HIDE);
+	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.ShowWindow(SW_HIDE);
 	CWnd* labels[] = { m_lblScreen, m_lblSize, m_lblApl, m_lblIntensity, m_lblXoff, m_lblYoff, m_lblCastDev, m_lblRange, m_lblOffset };
 	for (int i = 0; i < 9; i++) if (labels[i]) labels[i]->ShowWindow(SW_HIDE);
 
@@ -402,6 +410,7 @@ void CGDIGenePropPage::Relayout()
 		{ CPoint rp = M.at(LBL_X, cy); m_pgenReadout.MoveWindow(rp.x, rp.y, innerW, M.ht(78)); m_pgenReadout.ShowWindow(SW_SHOW); }
 		cy += 82;
 		{ CPoint bp = M.at(LBL_X, cy); m_pgenSettingsBtn.MoveWindow(bp.x, bp.y, M.w(92), M.ht(14)); m_pgenSettingsBtn.ShowWindow(SW_SHOW); }
+			{ CPoint rfp = M.at(LBL_X + 96, cy); m_pgenRefreshBtn.MoveWindow(rfp.x, rfp.y, M.w(44), M.ht(14)); m_pgenRefreshBtn.ShowWindow(SW_SHOW); }
 		cy += 18;
 		if (m_lblOffset) { CPoint p = M.at(LBL_X, cy + 2); m_lblOffset->MoveWindow(p.x, p.y, M.w(28), M.ht(9)); m_lblOffset->ShowWindow(SW_SHOW); }
 		if (m_lblXoff) { CPoint p = M.at(40, cy + 2); m_lblXoff->MoveWindow(p.x, p.y, M.w(24), M.ht(9)); m_lblXoff->ShowWindow(SW_SHOW); }
@@ -531,14 +540,14 @@ void CGDIGenePropPage::QueryPGenerator()
 	m_pgenReadout.UpdateWindow();
 	CStringArray vals;
 	CString err;
-	BOOL ok = m_pGenerator ? m_pGenerator->QueryPGeneratorInfo(vals, err) : FALSE;
+BOOL ok = m_pGenerator ? m_pGenerator->QueryPGeneratorInfo(vals, err) : FALSE;
 	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.EnableWindow(ok);
 	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(ok);
 	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(ok);
 	if (GetDlgItem(IDC_DISP_TRIP3)) GetDlgItem(IDC_DISP_TRIP3)->EnableWindow(ok);
 	if (!ok)
 	{
-		CString ng; ng.LoadString(IDS_PGEN_ST_NOGEN); m_pgenReadout.SetWindowText(err.IsEmpty() ? ng : err);
+		ShowPgenDisconnected();
 		return;
 	}
 	static const UINT lblIds[9] = {
@@ -557,34 +566,36 @@ void CGDIGenePropPage::QueryPGenerator()
 
 
 BEGIN_MESSAGE_MAP(CPGenSettingsDlg, CDialog)
-	ON_CBN_SELCHANGE(IDC_PGEN_RANGE_COMBO + 1, OnFormatChanged)
+	ON_CBN_SELCHANGE(IDC_PGEN_AVI_BASE + 1, OnFormatChanged)
+	ON_CBN_SELCHANGE(IDC_PGEN_AVI_BASE + 5, OnDynRangeChanged)
 	ON_BN_CLICKED(IDC_PGEN_REBOOT_BTN, OnReboot)
 	ON_BN_CLICKED(IDC_PGEN_RESTART_BTN, OnRestartSw)
+	ON_BN_CLICKED(IDC_PGEN_SHUTDOWN_BTN, OnShutdown)
 END_MESSAGE_MAP()
 
 CPGenSettingsDlg::CPGenSettingsDlg(CWnd* pParent) : CDialog(CPGenSettingsDlg::IDD, pParent)
 {
 	m_pGenerator = NULL;
+	m_action = 0;
 }
 
-static const TCHAR* kPgSetCmd[4] = {
-	_T("SET_PGENERATOR_CONF_RGB_QUANT_RANGE"),
-	_T("SET_PGENERATOR_CONF_COLOR_FORMAT"),
-	_T("SET_PGENERATOR_CONF_MAX_BPC"),
-	_T("SET_PGENERATOR_CONF_COLORIMETRY") };
-static const UINT kPgLblId[4] = { IDS_PGEN_RO_SIGRANGE, IDS_PGEN_RO_COLORFORMAT, IDS_PGEN_RO_BITDEPTH, IDS_PGEN_RO_COLORSPACE };
-static const int kPgValIdx[4] = { 8, 7, 5, 6 };
-static const TCHAR* kPgItems0[] = { _T("Full"), _T("Limited") };
-static const int    kPgVals0[]  = { 2, 1 };
-static const TCHAR* kPgItems1[] = { _T("RGB"), _T("YCbCr 4:4:4"), _T("YCbCr 4:2:2") };
-static const int    kPgVals1[]  = { 0, 1, 2 };
-static const TCHAR* kPgItems2[] = { _T("8-bit"), _T("10-bit") };
-static const int    kPgVals2[]  = { 8, 10 };
-static const TCHAR* kPgItems3[] = { _T("Default"), _T("BT.709 (YCC)"), _T("BT.2020 (RGB)") };
-static const int    kPgVals3[]  = { 0, 2, 9 };
-static const TCHAR** kPgItems[4] = { kPgItems0, kPgItems1, kPgItems2, kPgItems3 };
-static const int*    kPgVals[4]  = { kPgVals0, kPgVals1, kPgVals2, kPgVals3 };
-static const int     kPgCount[4] = { 2, 3, 2, 3 };
+static const TCHAR* const kPgCF[] = { _T("RGB"), _T("YCbCr 4:4:4"), _T("YCbCr 4:2:2") };
+static const int kPgCFv[] = { 0, 1, 2 };
+static const TCHAR* const kPgQR[] = { _T("Full"), _T("Limited") };
+static const int kPgQRv[] = { 2, 1 };
+static const TCHAR* const kPgBD[] = { _T("8-bit"), _T("10-bit") };
+static const int kPgBDv[] = { 8, 10 };
+static const TCHAR* const kPgCM[] = { _T("Default"), _T("BT.709 (YCC)"), _T("BT.2020 (RGB)") };
+static const int kPgCMv[] = { 0, 2, 9 };
+static const TCHAR* const kPgDR[] = { _T("SDR"), _T("HDR"), _T("Dolby Vision") };
+static const TCHAR* const kPgEO[] = { _T("SDR (gamma)"), _T("HDR (gamma)"), _T("ST.2084 / PQ"), _T("HLG") };
+static const int kPgEOv[] = { 0, 1, 2, 3 };
+static const TCHAR* const kPgPR[] = { _T("Rec.709"), _T("Rec.2020"), _T("P3 / D65"), _T("DCI-P3"), _T("P3 / D60") };
+static const int kPgPRv[] = { 0, 1, 2, 3, 4 };
+static const TCHAR* const* const kAviItems[5] = { 0, kPgCF, kPgQR, kPgBD, kPgCM };
+static const int* const kAviVals[5] = { 0, kPgCFv, kPgQRv, kPgBDv, kPgCMv };
+static const int kAviCnt[5] = { 0, 3, 2, 2, 3 };
+static const UINT kAviLblId[5] = { IDS_PGEN_RO_RESOLUTION, IDS_PGEN_RO_COLORFORMAT, IDS_PGEN_RO_SIGRANGE, IDS_PGEN_RO_BITDEPTH, IDS_PGEN_RO_COLORSPACE };
 
 BOOL CPGenSettingsDlg::OnInitDialog()
 {
@@ -593,82 +604,140 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 	DlgMap M; M.h = GetSafeHwnd();
 	CFont* font = GetFont();
 
-	CStringArray vals;
-	CString err;
-	BOOL haveData = FALSE;
-	if (m_pGenerator) { CWaitCursor wait; haveData = m_pGenerator->QueryPGeneratorInfo(vals, err); }
-
+	CStringArray modeLabels;
+	int curMode = -1;
+	PGenSettings st; st.valid = FALSE;
+	st.colorFormat = st.quantRange = st.bitDepth = st.colorimetry = 0;
+	st.isHdr = st.isLLDovi = st.eotf = st.primaries = 0;
+	st.maxLuma = 1000; st.minLuma = 5; st.maxCll = 1000; st.maxFall = 400;
+	if (m_pGenerator)
 	{
-		CPoint lp = M.at(12, 18);
-		m_resLabel.Create(LS(IDS_PGEN_RO_RESOLUTION), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(85), lp.y + M.ht(9)), this);
-		m_resLabel.SetFont(font);
-		CPoint cp = M.at(100, 16);
-		m_resCombo.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(100), cp.y + M.ht(160)), this, IDC_PGEN_RANGE_COMBO + 10);
-		m_resCombo.SetFont(font);
-		int curId = -1;
-		if (m_pGenerator) { CWaitCursor wait; CStringArray ml; curId = m_pGenerator->QueryPGeneratorModes(ml, m_resIds); for (int j = 0; j < ml.GetSize(); j++) m_resCombo.AddString(ml[j]); }
-		m_resInit = 0;
-		for (int j = 0; j < m_resIds.GetSize(); j++) if (m_resIds[j] == curId) { m_resInit = j; break; }
-		m_resCombo.SetCurSel(m_resInit);
+		CWaitCursor wait;
+		curMode = m_pGenerator->QueryPGeneratorModes(modeLabels, m_resIds, st);
 	}
 
-	for (int i = 0; i < 4; i++)
+	const int LX = 6, LW = 56, CX = 62, CW = 100;
+	const int RX = 178, RW = 50, RCX = 230, RCW = 96;
+	const int Y0 = 16, PITCH = 14;
+
+	{ CPoint p = M.at(LX, 3); m_hdrAvi.Create(_T("Output config / AVI infoframe"), WS_CHILD | WS_VISIBLE, CRect(p.x, p.y, p.x + M.w(168), p.y + M.ht(9)), this); m_hdrAvi.SetFont(font); }
+	{ CPoint p = M.at(RX, 3); m_hdrDrm.Create(_T("HDR metadata / DRM infoframe"), WS_CHILD | WS_VISIBLE, CRect(p.x, p.y, p.x + M.w(150), p.y + M.ht(9)), this); m_hdrDrm.SetFont(font); }
+
 	{
-		int y = 16 + (i + 1) * 20;
-		CPoint lp = M.at(12, y + 2);
-		m_label[i].Create(LS(kPgLblId[i]), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(85), lp.y + M.ht(9)), this);
-		m_label[i].SetFont(font);
-		CPoint cp = M.at(100, y);
-		m_combo[i].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(100), cp.y + M.ht(120)), this, IDC_PGEN_RANGE_COMBO + i);
-		m_combo[i].SetFont(font);
-		for (int j = 0; j < kPgCount[i]; j++) m_combo[i].AddString(kPgItems[i][j]);
-		int sel = 0;
-		if (haveData && kPgValIdx[i] < vals.GetSize())
+		int y = Y0 + PITCH;
+		CPoint lp = M.at(LX, y + 2); m_aviL[0].Create(LS(IDS_PGEN_RO_RESOLUTION), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[0].SetFont(font);
+		CPoint cp = M.at(CX, y); m_avi[0].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(160)), this, IDC_PGEN_AVI_BASE + 0); m_avi[0].SetFont(font);
+		for (int j = 0; j < modeLabels.GetSize(); j++) m_avi[0].AddString(modeLabels[j]);
+		int sel = 0; for (int j = 0; j < m_resIds.GetSize(); j++) if (m_resIds[j] == curMode) { sel = j; break; }
+		m_avi[0].SetCurSel(sel); m_aviInit[0] = sel;
+	}
+	int aviVal[5] = { 0, st.colorFormat, st.quantRange, st.bitDepth, st.colorimetry };
+	for (int i = 1; i <= 4; i++)
+	{
+		int y = Y0 + (i + 1) * PITCH;
+		CPoint lp = M.at(LX, y + 2); m_aviL[i].Create(LS(kAviLblId[i]), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[i].SetFont(font);
+		CPoint cp = M.at(CX, y); m_avi[i].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(120)), this, IDC_PGEN_AVI_BASE + i); m_avi[i].SetFont(font);
+		for (int j = 0; j < kAviCnt[i]; j++) m_avi[i].AddString(kAviItems[i][j]);
+		int sel = 0; for (int j = 0; j < kAviCnt[i]; j++) if (kAviVals[i][j] == aviVal[i]) { sel = j; break; }
+		m_avi[i].SetCurSel(sel); m_aviInit[i] = sel;
+	}
+	{
+		int y = Y0;
+		CPoint lp = M.at(LX, y + 2); m_aviL[5].Create(_T("Dynamic range"), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[5].SetFont(font);
+		CPoint cp = M.at(CX, y); m_avi[5].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_AVI_BASE + 5); m_avi[5].SetFont(font);
+		for (int j = 0; j < 3; j++) m_avi[5].AddString(kPgDR[j]);
+		int sel = st.isLLDovi ? 2 : (st.isHdr ? 1 : 0);
+		m_avi[5].SetCurSel(sel); m_aviInit[5] = sel;
+	}
+	{
+		int y = Y0 + 6 * PITCH;
+		CPoint lp = M.at(LX, y + 2); m_doviLbl.Create(_T("DoVi mode"), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_doviLbl.SetFont(font);
+		CPoint cp = M.at(CX, y); m_doviCombo.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_DOVI_COMBO); m_doviCombo.SetFont(font);
+		m_doviCombo.AddString(_T("Verify / Absolute"));
+		m_doviCombo.AddString(_T("Calibrate / Relative"));
+		int sel = (st.doviMode == 2) ? 1 : 0;
+		m_doviCombo.SetCurSel(sel); m_doviInit = sel;
+	}
+
+	{
+		int y = Y0; CPoint lp = M.at(RX, y + 2); m_drmL[0].Create(_T("EOTF"), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(RW), lp.y + M.ht(9)), this); m_drmL[0].SetFont(font);
+		CPoint cp = M.at(RCX, y); m_drm[0].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(RCW), cp.y + M.ht(90)), this, IDC_PGEN_DRM_BASE + 0); m_drm[0].SetFont(font);
+		for (int j = 0; j < 4; j++) m_drm[0].AddString(kPgEO[j]);
+		int sel = 0; for (int j = 0; j < 4; j++) if (kPgEOv[j] == st.eotf) { sel = j; break; }
+		m_drm[0].SetCurSel(sel); m_drmInit[0] = sel;
+	}
+	{
+		int y = Y0 + PITCH; CPoint lp = M.at(RX, y + 2); m_drmL[1].Create(_T("Primaries"), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(RW), lp.y + M.ht(9)), this); m_drmL[1].SetFont(font);
+		CPoint cp = M.at(RCX, y); m_drm[1].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(RCW), cp.y + M.ht(90)), this, IDC_PGEN_DRM_BASE + 1); m_drm[1].SetFont(font);
+		for (int j = 0; j < 5; j++) m_drm[1].AddString(kPgPR[j]);
+		int sel = 0; for (int j = 0; j < 5; j++) if (kPgPRv[j] == st.primaries) { sel = j; break; }
+		m_drm[1].SetCurSel(sel); m_drmInit[1] = sel;
+	}
+	{
+		static const TCHAR* const edLbl[4] = { _T("Max MDL (nits)"), _T("Min MDL (nits)"), _T("MaxCLL (nits)"), _T("MaxFALL (nits)") };
+		CString edTxt[4];
+		edTxt[0].Format(_T("%d"), st.maxLuma);
+		edTxt[1].Format(_T("%.4f"), st.minLuma / 10000.0);
+		edTxt[2].Format(_T("%d"), st.maxCll);
+		edTxt[3].Format(_T("%d"), st.maxFall);
+		for (int i = 0; i < 4; i++)
 		{
-			int fx = m_combo[i].FindStringExact(-1, vals[kPgValIdx[i]]);
-			if (fx >= 0) sel = fx;
+			int y = Y0 + (i + 2) * PITCH;
+			CPoint lp = M.at(RX, y + 2); m_edL[i].Create(edLbl[i], WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(RW), lp.y + M.ht(9)), this); m_edL[i].SetFont(font);
+			CPoint cp = M.at(RCX, y); m_ed[i].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL, CRect(cp.x, cp.y, cp.x + M.w(RCW), cp.y + M.ht(12)), this, IDC_PGEN_EDIT_BASE + i); m_ed[i].SetFont(font);
+			m_ed[i].SetWindowText(edTxt[i]); m_edInit[i] = edTxt[i];
 		}
-		m_combo[i].SetCurSel(sel);
-		m_initSel[i] = sel;
 	}
 
-	if (GetDlgItem(IDOK)) GetDlgItem(IDOK)->SetWindowText(LS(IDS_PGEN_APPLY));
-	if (GetDlgItem(IDCANCEL)) GetDlgItem(IDCANCEL)->SetWindowText(LS(IDS_PGEN_CLOSE));
-	{
-		CPoint rb = M.at(6, 112);
-		m_rebootBtn.Create(LS(IDS_PGEN_REBOOT), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(rb.x, rb.y, rb.x + M.w(44), rb.y + M.ht(14)), this, IDC_PGEN_REBOOT_BTN);
-		m_rebootBtn.SetFont(font);
-		CPoint rs = M.at(54, 112);
-		m_restartBtn.Create(LS(IDS_PGEN_RESTART_SW), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(rs.x, rs.y, rs.x + M.w(76), rs.y + M.ht(14)), this, IDC_PGEN_RESTART_BTN);
-		m_restartBtn.SetFont(font);
-	}
-	UpdateRangeState();
+	{ CPoint p = M.at(172, 14); CPoint p2 = M.at(172, Y0 + 7 * PITCH); m_divider.Create(_T(""), WS_CHILD | WS_VISIBLE | SS_ETCHEDVERT, CRect(p.x, p.y, p.x + 2, p2.y), this); }
+
+	int by = Y0 + 7 * PITCH + 4;
+	if (GetDlgItem(IDOK)) { CPoint p = M.at(232, by); GetDlgItem(IDOK)->MoveWindow(p.x, p.y, M.w(46), M.ht(14)); GetDlgItem(IDOK)->SetFont(font); GetDlgItem(IDOK)->SetWindowText(LS(IDS_PGEN_APPLY)); }
+	if (GetDlgItem(IDCANCEL)) { CPoint p = M.at(282, by); GetDlgItem(IDCANCEL)->MoveWindow(p.x, p.y, M.w(46), M.ht(14)); GetDlgItem(IDCANCEL)->SetFont(font); GetDlgItem(IDCANCEL)->SetWindowText(LS(IDS_PGEN_CLOSE)); }
+	{ CPoint p = M.at(LX, by); m_rebootBtn.Create(LS(IDS_PGEN_REBOOT), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(42), p.y + M.ht(14)), this, IDC_PGEN_REBOOT_BTN); m_rebootBtn.SetFont(font); }
+	{ CPoint p = M.at(50, by); m_restartBtn.Create(LS(IDS_PGEN_RESTART_SW), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(76), p.y + M.ht(14)), this, IDC_PGEN_RESTART_BTN); m_restartBtn.SetFont(font); }
+	{ CPoint p = M.at(130, by); m_shutdownBtn.Create(_T("Shutdown"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(48), p.y + M.ht(14)), this, IDC_PGEN_SHUTDOWN_BTN); m_shutdownBtn.SetFont(font); }
+
+	UpdateDynRangeState();
 	return TRUE;
 }
 
 void CPGenSettingsDlg::OnOK()
 {
 	CStringArray cmds;
-	int rsel = m_resCombo.GetCurSel();
-	if (rsel >= 0 && rsel != m_resInit && rsel < m_resIds.GetSize())
+	{ int sel = m_avi[0].GetCurSel(); if (sel >= 0 && sel != m_aviInit[0] && sel < m_resIds.GetSize()) { CString c; c.Format(_T("CMD:SET_MODE:%d"), m_resIds[sel]); cmds.Add(c); } }
 	{
-		CString c;
-		c.Format(_T("CMD:SET_MODE:%d"), m_resIds[rsel]);
-		cmds.Add(c);
+		static const TCHAR* const nm[5] = { 0, _T("SET_PGENERATOR_CONF_COLOR_FORMAT"), _T("SET_PGENERATOR_CONF_RGB_QUANT_RANGE"), _T("SET_PGENERATOR_CONF_MAX_BPC"), _T("SET_PGENERATOR_CONF_COLORIMETRY") };
+		for (int i = 1; i <= 4; i++) { int sel = m_avi[i].GetCurSel(); if (sel < 0 || sel == m_aviInit[i]) continue; CString c; c.Format(_T("CMD:%s:%d"), nm[i], kAviVals[i][sel]); cmds.Add(c); }
 	}
-	for (int i = 0; i < 4; i++)
 	{
-		int sel = m_combo[i].GetCurSel();
-		if (sel < 0 || sel == m_initSel[i]) continue;
-		CString c;
-		c.Format(_T("CMD:%s:%d"), kPgSetCmd[i], kPgVals[i][sel]);
-		cmds.Add(c);
+		int sel = m_avi[5].GetCurSel();
+		if (sel >= 0 && sel != m_aviInit[5])
+		{
+			int isSdr = (sel == 0) ? 1 : 0, isHdr = (sel >= 1) ? 1 : 0, dovi = (sel == 2) ? 1 : 0;
+			CString c;
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_SDR:%d"), isSdr); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_HDR:%d"), isHdr); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_STD_DOVI:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_STATUS:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), dovi); cmds.Add(c);
+		}
 	}
-	if (cmds.GetSize() > 0 && m_pGenerator)
+	{ int sel = m_doviCombo.GetCurSel(); if (sel >= 0 && sel != m_doviInit) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_MAP_MODE:%d"), (sel == 1) ? 2 : 1); cmds.Add(c); } }
+	{ int sel = m_drm[0].GetCurSel(); if (sel >= 0 && sel != m_drmInit[0]) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_EOTF:%d"), kPgEOv[sel]); cmds.Add(c); } }
+	{ int sel = m_drm[1].GetCurSel(); if (sel >= 0 && sel != m_drmInit[1]) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_PRIMARIES:%d"), kPgPRv[sel]); cmds.Add(c); } }
 	{
-		CWaitCursor wait;
-		m_pGenerator->ApplyPGeneratorConf(cmds);
+		static const TCHAR* const nm[4] = { _T("SET_PGENERATOR_CONF_MAX_LUMA"), _T("SET_PGENERATOR_CONF_MIN_LUMA"), _T("SET_PGENERATOR_CONF_MAX_CLL"), _T("SET_PGENERATOR_CONF_MAX_FALL") };
+		for (int i = 0; i < 4; i++)
+		{
+			CString t; m_ed[i].GetWindowText(t); t.TrimLeft(); t.TrimRight();
+			if (t == m_edInit[i]) continue;
+			int v = (i == 1) ? (int)(atof((LPCTSTR)t) * 10000.0 + 0.5) : atoi((LPCTSTR)t);
+			CString c; c.Format(_T("CMD:%s:%d"), nm[i], v); cmds.Add(c);
+		}
 	}
+	if (cmds.GetSize() > 0 && m_pGenerator) { CWaitCursor wait; m_pGenerator->ApplyPGeneratorConf(cmds); }
 	CDialog::OnOK();
 }
 
@@ -679,25 +748,76 @@ void CPGenSettingsDlg::OnFormatChanged()
 
 void CPGenSettingsDlg::UpdateRangeState()
 {
-	if (!m_combo[1].GetSafeHwnd() || !m_combo[0].GetSafeHwnd()) return;
-	BOOL isRgb = (m_combo[1].GetCurSel() == 0);
+	if (!m_avi[1].GetSafeHwnd() || !m_avi[2].GetSafeHwnd()) return;
+	BOOL isRgb = (m_avi[1].GetCurSel() == 0);
 	if (!isRgb)
 	{
-		int lim = m_combo[0].FindStringExact(-1, _T("Limited"));
-		if (lim >= 0) m_combo[0].SetCurSel(lim);
+		int lim = m_avi[2].FindStringExact(-1, _T("Limited"));
+		if (lim >= 0) m_avi[2].SetCurSel(lim);
 	}
-	m_combo[0].EnableWindow(isRgb);
+	m_avi[2].EnableWindow(isRgb);
+}
+
+void CPGenSettingsDlg::OnDynRangeChanged()
+{
+	UpdateDynRangeState();
+}
+
+void CPGenSettingsDlg::UpdateDynRangeState()
+{
+	if (!m_avi[5].GetSafeHwnd()) return;
+	int dr = m_avi[5].GetCurSel();
+	BOOL isDovi = (dr == 2);
+	BOOL isHdr = (dr == 1);
+	if (m_avi[0].GetSafeHwnd()) m_avi[0].EnableWindow(TRUE);
+	for (int i = 1; i <= 4; i++) if (m_avi[i].GetSafeHwnd()) m_avi[i].EnableWindow(!isDovi);
+	int sw = isDovi ? SW_SHOW : SW_HIDE;
+	if (m_doviLbl.GetSafeHwnd()) m_doviLbl.ShowWindow(sw);
+	if (m_doviCombo.GetSafeHwnd()) m_doviCombo.ShowWindow(sw);
+	int dsw = isHdr ? SW_SHOW : SW_HIDE;
+	if (m_hdrDrm.GetSafeHwnd()) m_hdrDrm.ShowWindow(dsw);
+	for (int i = 0; i < 2; i++) { if (m_drm[i].GetSafeHwnd()) m_drm[i].ShowWindow(dsw); if (m_drmL[i].GetSafeHwnd()) m_drmL[i].ShowWindow(dsw); }
+	for (int i = 0; i < 4; i++) { if (m_ed[i].GetSafeHwnd()) m_ed[i].ShowWindow(dsw); if (m_edL[i].GetSafeHwnd()) m_edL[i].ShowWindow(dsw); }
+	if (!isDovi) UpdateRangeState();
 }
 
 void CPGenSettingsDlg::OnReboot()
 {
 	if (AfxMessageBox(LS(IDS_PGEN_REBOOT_CONFIRM), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
 	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("CMD:REBOOT"); }
+	m_action = 1;
+	CDialog::OnCancel();
 }
 
 void CPGenSettingsDlg::OnRestartSw()
 {
+	if (AfxMessageBox(LS(IDS_PGEN_RESTART_CONFIRM), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
 	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("RESTARTPGENERATOR:"); }
+	m_action = 1;
+	CDialog::OnCancel();
+}
+
+void CPGenSettingsDlg::OnShutdown()
+{
+	if (AfxMessageBox(_T("Shut down the PGenerator now?"), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("CMD:HALT"); }
+	m_action = 2;
+	CDialog::OnCancel();
+}
+
+void CGDIGenePropPage::OnPgenRefresh()
+{
+	CGenerator::InvalidatePGenCache();
+	QueryPGenerator();
+}
+
+void CGDIGenePropPage::ShowPgenDisconnected()
+{
+	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.EnableWindow(FALSE);
+	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(FALSE);
+	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(FALSE);
+	if (GetDlgItem(IDC_DISP_TRIP3)) GetDlgItem(IDC_DISP_TRIP3)->EnableWindow(FALSE);
+	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.SetWindowText(_T("No PGenerator connected. Press Refresh to search."));
 }
 
 void CGDIGenePropPage::OnPgenSettings()
@@ -705,7 +825,8 @@ void CGDIGenePropPage::OnPgenSettings()
 	CPGenSettingsDlg dlg(this);
 	dlg.m_pGenerator = m_pGenerator;
 	dlg.DoModal();
-	QueryPGenerator();
+	if (dlg.m_action != 0)
+		ShowPgenDisconnected();
 }
 
 void CGDIGenePropPage::OnOK()

@@ -43,6 +43,15 @@ typedef SOCKET (__stdcall *RB8PG_connect)(const char *server_addr);
 typedef char * (__stdcall *RB8PG_discovery)();
 typedef char * (__stdcall *RB8PG_get)(SOCKET sock,const char *message);
 
+struct PGenSettings
+{
+	int colorFormat, quantRange, bitDepth, colorimetry;
+	int isHdr, isLLDovi;
+	int eotf, primaries, doviMode;
+	int maxLuma, minLuma, maxCll, maxFall;
+	BOOL valid;
+};
+
 class CGenerator: public CObject    
 {
 public:
@@ -121,7 +130,8 @@ public:
 	virtual BOOL Init(UINT nbMeasure = 0, bool isSpecial =  FALSE);
 	BOOL QueryPGeneratorInfo(CStringArray& vals, CString& err);
 	BOOL ApplyPGeneratorConf(const CStringArray& cmds);
-	int QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids);
+	int QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids, PGenSettings& st);
+	static void InvalidatePGenCache();
 	BOOL SendPGeneratorCommand(LPCSTR cmd);
 	virtual BOOL DisplayGray(double aLevel,MeasureType nPatternType, BOOL bChangePattern = TRUE);
 	virtual BOOL DisplayRGBColor(const ColorRGBDisplay& aRGBColor, MeasureType nPatternType, UINT nPatternInfo = 0,BOOL bChangePattern = TRUE,BOOL bSilentMode = FALSE);	// need to be overriden

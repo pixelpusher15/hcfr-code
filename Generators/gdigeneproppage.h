@@ -90,6 +90,7 @@ public:
 	CStatic		*m_lblOffset;
 	CEdit		m_pgenReadout;
 	CButton		m_pgenSettingsBtn;
+	CButton m_pgenRefreshBtn;
 
 	virtual UINT GetHelpId ( LPSTR lpszTopic );
 
@@ -115,11 +116,13 @@ protected:
 	afx_msg void OnSelchangeOutput();
 	afx_msg void OnUserPatternClick();
 	afx_msg void OnPgenSettings();
+	afx_msg void OnPgenRefresh();
 	DECLARE_MESSAGE_MAP()
 
 	void BuildRuntimeLayout();
 	void Relayout();
 	void QueryPGenerator();
+	void ShowPgenDisconnected();
 	void PopulateCast();
 	int  ComboToMode(int sel);
 	int  ModeToCombo(int mode);
@@ -131,22 +134,34 @@ public:
 	CPGenSettingsDlg(CWnd* pParent = NULL);
 	enum { IDD = IDD_PGEN_SETTINGS };
 	CGDIGenerator* m_pGenerator;
+	int m_action;
 protected:
-	CComboBox m_combo[4];
-	CStatic m_label[4];
-	int m_initSel[4];
-	CComboBox m_resCombo;
-	CStatic m_resLabel;
+	CComboBox m_avi[6];
+	CStatic m_aviL[6];
+	int m_aviInit[6];
 	CArray<int,int> m_resIds;
-	int m_resInit;
+	CComboBox m_drm[2];
+	CStatic m_drmL[2];
+	int m_drmInit[2];
+	CEdit m_ed[4];
+	CStatic m_edL[4];
+	CString m_edInit[4];
+	CComboBox m_doviCombo;
+	CStatic m_doviLbl;
+	int m_doviInit;
 	CButton m_rebootBtn;
 	CButton m_restartBtn;
+	CButton m_shutdownBtn;
+	CStatic m_hdrAvi, m_hdrDrm, m_divider;
 	virtual BOOL OnInitDialog();
 	virtual void OnOK();
 	afx_msg void OnFormatChanged();
 	void UpdateRangeState();
 	afx_msg void OnReboot();
 	afx_msg void OnRestartSw();
+	afx_msg void OnShutdown();
+	afx_msg void OnDynRangeChanged();
+	void UpdateDynRangeState();
 	DECLARE_MESSAGE_MAP()
 };
 
