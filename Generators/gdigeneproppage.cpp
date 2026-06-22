@@ -532,6 +532,10 @@ void CGDIGenePropPage::QueryPGenerator()
 	CStringArray vals;
 	CString err;
 	BOOL ok = m_pGenerator ? m_pGenerator->QueryPGeneratorInfo(vals, err) : FALSE;
+	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.EnableWindow(ok);
+	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(ok);
+	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(ok);
+	if (GetDlgItem(IDC_DISP_TRIP3)) GetDlgItem(IDC_DISP_TRIP3)->EnableWindow(ok);
 	if (!ok)
 	{
 		CString ng; ng.LoadString(IDS_PGEN_ST_NOGEN); m_pgenReadout.SetWindowText(err.IsEmpty() ? ng : err);
@@ -554,6 +558,8 @@ void CGDIGenePropPage::QueryPGenerator()
 
 BEGIN_MESSAGE_MAP(CPGenSettingsDlg, CDialog)
 	ON_CBN_SELCHANGE(IDC_PGEN_RANGE_COMBO + 1, OnFormatChanged)
+	ON_BN_CLICKED(IDC_PGEN_REBOOT_BTN, OnReboot)
+	ON_BN_CLICKED(IDC_PGEN_RESTART_BTN, OnRestartSw)
 END_MESSAGE_MAP()
 
 CPGenSettingsDlg::CPGenSettingsDlg(CWnd* pParent) : CDialog(CPGenSettingsDlg::IDD, pParent)
@@ -628,6 +634,14 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 
 	if (GetDlgItem(IDOK)) GetDlgItem(IDOK)->SetWindowText(_T("Apply"));
 	if (GetDlgItem(IDCANCEL)) GetDlgItem(IDCANCEL)->SetWindowText(_T("Close"));
+	{
+		CPoint rb = M.at(6, 112);
+		m_rebootBtn.Create(_T("Reboot"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(rb.x, rb.y, rb.x + M.w(44), rb.y + M.ht(14)), this, IDC_PGEN_REBOOT_BTN);
+		m_rebootBtn.SetFont(font);
+		CPoint rs = M.at(54, 112);
+		m_restartBtn.Create(_T("Restart software"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(rs.x, rs.y, rs.x + M.w(76), rs.y + M.ht(14)), this, IDC_PGEN_RESTART_BTN);
+		m_restartBtn.SetFont(font);
+	}
 	UpdateRangeState();
 	return TRUE;
 }
@@ -673,6 +687,17 @@ void CPGenSettingsDlg::UpdateRangeState()
 		if (lim >= 0) m_combo[0].SetCurSel(lim);
 	}
 	m_combo[0].EnableWindow(isRgb);
+}
+
+void CPGenSettingsDlg::OnReboot()
+{
+	if (AfxMessageBox(_T("Reboot the PGenerator now?"), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("CMD:REBOOT"); }
+}
+
+void CPGenSettingsDlg::OnRestartSw()
+{
+	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("RESTARTPGENERATOR:"); }
 }
 
 void CGDIGenePropPage::OnPgenSettings()

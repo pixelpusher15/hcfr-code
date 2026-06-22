@@ -122,6 +122,7 @@ public:
 	BOOL QueryPGeneratorInfo(CStringArray& vals, CString& err);
 	BOOL ApplyPGeneratorConf(const CStringArray& cmds);
 	int QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids);
+	BOOL SendPGeneratorCommand(LPCSTR cmd);
 	virtual BOOL DisplayGray(double aLevel,MeasureType nPatternType, BOOL bChangePattern = TRUE);
 	virtual BOOL DisplayRGBColor(const ColorRGBDisplay& aRGBColor, MeasureType nPatternType, UINT nPatternInfo = 0,BOOL bChangePattern = TRUE,BOOL bSilentMode = FALSE);	// need to be overriden
 	virtual BOOL DisplayRGBColormadVR(const ColorRGBDisplay& aRGBColor, MeasureType nPatternType = MT_UNKNOWN, UINT nPatternInfo = 0);	// need to be overriden

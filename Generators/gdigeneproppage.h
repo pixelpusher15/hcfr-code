@@ -139,10 +139,14 @@ protected:
 	CStatic m_resLabel;
 	CArray<int,int> m_resIds;
 	int m_resInit;
+	CButton m_rebootBtn;
+	CButton m_restartBtn;
 	virtual BOOL OnInitDialog();
 	virtual void OnOK();
 	afx_msg void OnFormatChanged();
 	void UpdateRangeState();
+	afx_msg void OnReboot();
+	afx_msg void OnRestartSw();
 	DECLARE_MESSAGE_MAP()
 };
 

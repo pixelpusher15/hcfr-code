@@ -282,6 +282,25 @@ BOOL CGenerator::ApplyPGeneratorConf(const CStringArray& cmds)
 	return TRUE;
 }
 
+static CStringA PgenB64Decode(const CStringA& in)
+{
+	signed char rev[256];
+	for (int i = 0; i < 256; i++) rev[i] = -1;
+	const char* tbl = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	for (int i = 0; i < 64; i++) rev[(unsigned char)tbl[i]] = (signed char)i;
+	CStringA out;
+	int val = 0, bits = 0;
+	for (int i = 0; i < in.GetLength(); i++)
+	{
+		int d = rev[(unsigned char)in[i]];
+		if (d < 0) continue;
+		val = (val << 6) | d;
+		bits += 6;
+		if (bits >= 8) { bits -= 8; out += (char)((val >> bits) & 0xFF); }
+	}
+	return out;
+}
+
 int CGenerator::QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids)
 {
 	labels.RemoveAll();
@@ -302,41 +321,95 @@ int CGenerator::QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids)
 	SOCKET s = conn(ip);
 	if (!s) { FreeLibrary(hLib); return -1; }
 
-	CString cur(getf(s, "CMD:GET_MODE"));
+	getf(s, "CMD:GET_PGENERATOR_VERSION");
+
+	char* curp = getf(s, "CMD:GET_MODE");
+	CString cur(curp ? curp : "");
+
+	// getf returns only the first ~1KB chunk of the (long) modes response, with
+	// the command echo as buffer-tail garbage. Take that clean first chunk, then
+	// drain the socket for the remainder, and stitch the base64 back together.
+	char* c1 = getf(s, "CMD:GET_MODES_AVAILABLE");
+	CStringA partA(c1 ? c1 : "");
+	{ int ok = partA.Find("OK:"); if (ok >= 0) partA = partA.Mid(ok + 3); }
+	{ int g = partA.Find("CMD:"); if (g >= 0) partA = partA.Left(g); }
+	{ int t = partA.Find('\x02'); if (t >= 0) partA = partA.Left(t); }
+
+	CStringA partB;
+	{
+		DWORD tmo = 800;
+		setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tmo, sizeof(tmo));
+		char buf[4096];
+		for (int it = 0; it < 256 && partB.Find('\x02') < 0; it++)
+		{
+			int n = recv(s, buf, sizeof(buf), 0);
+			if (n <= 0) break;
+			partB += CStringA(buf, n);
+		}
+		int t = partB.Find('\x02'); if (t >= 0) partB = partB.Left(t);
+	}
+
+	clsf(s);
+	FreeLibrary(hLib);
+
 	{ int t = cur.Find('\x02'); if (t >= 0) cur = cur.Left(t); }
 	{ int c = cur.Find(':'); int b = cur.Find('['); if (c >= 0 && (b < 0 || c < b)) cur = cur.Mid(c + 1); }
 	curId = atoi(cur);
 
-	CString raw(getf(s, "CMD:GET_MODES_AVAILABLE"));
-	{ int t = raw.Find('\x02'); if (t >= 0) raw = raw.Left(t); }
-
-	clsf(s);
-	FreeLibrary(hLib);
+	CString raw(PgenB64Decode(partA + partB));
 
 	int pos = 0;
 	while ((pos = raw.Find('[', pos)) >= 0)
 	{
 		int idStart = pos;
 		while (idStart > 0 && raw[idStart - 1] >= '0' && raw[idStart - 1] <= '9') idStart--;
-		int id = atoi(raw.Mid(idStart, pos - idStart));
 		int close = raw.Find(']', pos);
 		if (close < 0) break;
-		CString desc = raw.Mid(pos + 1, close - pos - 1);
-		CString lbl = desc;
-		int sp = desc.Find(' ');
-		if (sp > 0)
+		if (idStart < pos)
 		{
-			CString wh = desc.Left(sp);
-			int hz = desc.Find("Hz");
-			CString rate;
-			if (hz > 0) { int st = hz; while (st > 0 && desc[st - 1] != ' ') st--; rate = desc.Mid(st, hz - st + 2); }
-			lbl = rate.IsEmpty() ? wh : (wh + _T(" @ ") + rate);
+			int id = atoi(raw.Mid(idStart, pos - idStart));
+			CString desc = raw.Mid(pos + 1, close - pos - 1);
+			CString lbl = desc;
+			int sp = desc.Find(' ');
+			if (sp > 0)
+			{
+				CString wh = desc.Left(sp);
+				int hz = desc.Find("Hz");
+				CString rate;
+				if (hz > 0) { int st = hz; while (st > 0 && desc[st - 1] != ' ') st--; rate = desc.Mid(st, hz - st + 2); }
+				lbl = rate.IsEmpty() ? wh : (wh + _T(" @ ") + rate);
+			}
+			labels.Add(lbl);
+			ids.Add(id);
 		}
-		labels.Add(lbl);
-		ids.Add(id);
 		pos = close + 1;
 	}
 	return curId;
+}
+
+BOOL CGenerator::SendPGeneratorCommand(LPCSTR cmd)
+{
+	HINSTANCE hLib = LoadLibrary("RB8PGenerator.dll");
+	if (!hLib) return FALSE;
+	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
+	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
+	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
+	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
+	if (!disc || !conn || !getf || !clsf) { FreeLibrary(hLib); return FALSE; }
+
+	char* ip = NULL;
+	for (int i = 0; i < 3; i++) { ip = disc(); if (ip && strlen(ip) > 5) break; Sleep(150); }
+	if (!ip || strlen(ip) <= 5) { FreeLibrary(hLib); return FALSE; }
+
+	SOCKET s = conn(ip);
+	if (!s) { FreeLibrary(hLib); return FALSE; }
+
+	getf(s, cmd);
+	Sleep(150);
+
+	clsf(s);
+	FreeLibrary(hLib);
+	return TRUE;
 }
 
 BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)

@@ -773,6 +773,8 @@
 #define IDC_PGEN_SETTINGS_BTN          1502
 #define IDD_PGEN_SETTINGS              378
 #define IDC_PGEN_RANGE_COMBO           1503
+#define IDC_PGEN_REBOOT_BTN           1520
+#define IDC_PGEN_RESTART_BTN          1521
 #define IDC_ARGYLLSENSOR_SPECTRALTYPE_COMBO 1271
 #define IDC_DISPLAY_NAME                1272
 #define IDC_ARGYLLSENSOR_INTTIME_COMBO  1272
@@ -1812,7 +1814,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33108
-#define _APS_NEXT_CONTROL_VALUE         1504
+#define _APS_NEXT_CONTROL_VALUE         1522
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif
