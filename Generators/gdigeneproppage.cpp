@@ -553,6 +553,7 @@ void CGDIGenePropPage::QueryPGenerator()
 
 
 BEGIN_MESSAGE_MAP(CPGenSettingsDlg, CDialog)
+	ON_CBN_SELCHANGE(IDC_PGEN_RANGE_COMBO + 1, OnFormatChanged)
 END_MESSAGE_MAP()
 
 CPGenSettingsDlg::CPGenSettingsDlg(CWnd* pParent) : CDialog(CPGenSettingsDlg::IDD, pParent)
@@ -613,6 +614,7 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 
 	if (GetDlgItem(IDOK)) GetDlgItem(IDOK)->SetWindowText(_T("Apply"));
 	if (GetDlgItem(IDCANCEL)) GetDlgItem(IDCANCEL)->SetWindowText(_T("Close"));
+	UpdateRangeState();
 	return TRUE;
 }
 
@@ -633,6 +635,23 @@ void CPGenSettingsDlg::OnOK()
 		m_pGenerator->ApplyPGeneratorConf(cmds);
 	}
 	CDialog::OnOK();
+}
+
+void CPGenSettingsDlg::OnFormatChanged()
+{
+	UpdateRangeState();
+}
+
+void CPGenSettingsDlg::UpdateRangeState()
+{
+	if (!m_combo[1].GetSafeHwnd() || !m_combo[0].GetSafeHwnd()) return;
+	BOOL isRgb = (m_combo[1].GetCurSel() == 0);
+	if (!isRgb)
+	{
+		int lim = m_combo[0].FindStringExact(-1, _T("Limited"));
+		if (lim >= 0) m_combo[0].SetCurSel(lim);
+	}
+	m_combo[0].EnableWindow(isRgb);
 }
 
 void CGDIGenePropPage::OnPgenSettings()

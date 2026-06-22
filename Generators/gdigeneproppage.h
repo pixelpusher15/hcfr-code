@@ -137,6 +137,8 @@ protected:
 	int m_initSel[4];
 	virtual BOOL OnInitDialog();
 	virtual void OnOK();
+	afx_msg void OnFormatChanged();
+	void UpdateRangeState();
 	DECLARE_MESSAGE_MAP()
 };
 
