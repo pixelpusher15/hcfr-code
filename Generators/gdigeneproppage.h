@@ -135,6 +135,10 @@ protected:
 	CComboBox m_combo[4];
 	CStatic m_label[4];
 	int m_initSel[4];
+	CComboBox m_resCombo;
+	CStatic m_resLabel;
+	CArray<int,int> m_resIds;
+	int m_resInit;
 	virtual BOOL OnInitDialog();
 	virtual void OnOK();
 	afx_msg void OnFormatChanged();

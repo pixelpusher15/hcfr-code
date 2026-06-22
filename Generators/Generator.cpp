@@ -282,6 +282,63 @@ BOOL CGenerator::ApplyPGeneratorConf(const CStringArray& cmds)
 	return TRUE;
 }
 
+int CGenerator::QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids)
+{
+	labels.RemoveAll();
+	ids.RemoveAll();
+	int curId = -1;
+	HINSTANCE hLib = LoadLibrary("RB8PGenerator.dll");
+	if (!hLib) return -1;
+	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
+	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
+	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
+	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
+	if (!disc || !conn || !getf || !clsf) { FreeLibrary(hLib); return -1; }
+
+	char* ip = NULL;
+	for (int i = 0; i < 3; i++) { ip = disc(); if (ip && strlen(ip) > 5) break; Sleep(150); }
+	if (!ip || strlen(ip) <= 5) { FreeLibrary(hLib); return -1; }
+
+	SOCKET s = conn(ip);
+	if (!s) { FreeLibrary(hLib); return -1; }
+
+	CString cur(getf(s, "CMD:GET_MODE"));
+	{ int t = cur.Find('\x02'); if (t >= 0) cur = cur.Left(t); }
+	{ int c = cur.Find(':'); int b = cur.Find('['); if (c >= 0 && (b < 0 || c < b)) cur = cur.Mid(c + 1); }
+	curId = atoi(cur);
+
+	CString raw(getf(s, "CMD:GET_MODES_AVAILABLE"));
+	{ int t = raw.Find('\x02'); if (t >= 0) raw = raw.Left(t); }
+
+	clsf(s);
+	FreeLibrary(hLib);
+
+	int pos = 0;
+	while ((pos = raw.Find('[', pos)) >= 0)
+	{
+		int idStart = pos;
+		while (idStart > 0 && raw[idStart - 1] >= '0' && raw[idStart - 1] <= '9') idStart--;
+		int id = atoi(raw.Mid(idStart, pos - idStart));
+		int close = raw.Find(']', pos);
+		if (close < 0) break;
+		CString desc = raw.Mid(pos + 1, close - pos - 1);
+		CString lbl = desc;
+		int sp = desc.Find(' ');
+		if (sp > 0)
+		{
+			CString wh = desc.Left(sp);
+			int hz = desc.Find("Hz");
+			CString rate;
+			if (hz > 0) { int st = hz; while (st > 0 && desc[st - 1] != ' ') st--; rate = desc.Mid(st, hz - st + 2); }
+			lbl = rate.IsEmpty() ? wh : (wh + _T(" @ ") + rate);
+		}
+		labels.Add(lbl);
+		ids.Add(id);
+		pos = close + 1;
+	}
+	return curId;
+}
+
 BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
 	nMeasureNumber = nbMeasure; 

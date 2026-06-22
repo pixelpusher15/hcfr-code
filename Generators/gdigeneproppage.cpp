@@ -592,9 +592,23 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 	BOOL haveData = FALSE;
 	if (m_pGenerator) { CWaitCursor wait; haveData = m_pGenerator->QueryPGeneratorInfo(vals, err); }
 
+	{
+		CPoint lp = M.at(12, 18);
+		m_resLabel.Create(LS(IDS_PGEN_RO_RESOLUTION), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(85), lp.y + M.ht(9)), this);
+		m_resLabel.SetFont(font);
+		CPoint cp = M.at(100, 16);
+		m_resCombo.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(100), cp.y + M.ht(160)), this, IDC_PGEN_RANGE_COMBO + 10);
+		m_resCombo.SetFont(font);
+		int curId = -1;
+		if (m_pGenerator) { CWaitCursor wait; CStringArray ml; curId = m_pGenerator->QueryPGeneratorModes(ml, m_resIds); for (int j = 0; j < ml.GetSize(); j++) m_resCombo.AddString(ml[j]); }
+		m_resInit = 0;
+		for (int j = 0; j < m_resIds.GetSize(); j++) if (m_resIds[j] == curId) { m_resInit = j; break; }
+		m_resCombo.SetCurSel(m_resInit);
+	}
+
 	for (int i = 0; i < 4; i++)
 	{
-		int y = 16 + i * 20;
+		int y = 16 + (i + 1) * 20;
 		CPoint lp = M.at(12, y + 2);
 		m_label[i].Create(LS(kPgLblId[i]), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(85), lp.y + M.ht(9)), this);
 		m_label[i].SetFont(font);
@@ -621,6 +635,13 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 void CPGenSettingsDlg::OnOK()
 {
 	CStringArray cmds;
+	int rsel = m_resCombo.GetCurSel();
+	if (rsel >= 0 && rsel != m_resInit && rsel < m_resIds.GetSize())
+	{
+		CString c;
+		c.Format(_T("CMD:SET_MODE:%d"), m_resIds[rsel]);
+		cmds.Add(c);
+	}
 	for (int i = 0; i < 4; i++)
 	{
 		int sel = m_combo[i].GetCurSel();
