@@ -42,6 +42,7 @@ CGDIGenePropPage::CGDIGenePropPage() : CPropertyPageWithHelp(CGDIGenePropPage::I
 	//{{AFX_DATA_INIT(CGDIGenePropPage)
 	m_rectSizePercent = 0;
 	m_offsetx = 0;
+	m_pgenQuerying = FALSE;
 	m_offsety =0;
 	m_bgStimPercent = 0;
 	m_Intensity = 0;
@@ -105,6 +106,8 @@ void CGDIGenePropPage::DoDataExchange(CDataExchange* pDX)
 }
 
 
+#define WM_PGEN_QUERY_DONE (WM_USER + 172)
+
 BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	//{{AFX_MSG_MAP(CGDIGenePropPage)
 	ON_BN_CLICKED(IDC_OVERLAY, OnTestOverlay)
@@ -114,6 +117,7 @@ BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	ON_BN_CLICKED(IDC_DISP_TRIP3, OnUserPatternClick)
 	ON_BN_CLICKED(IDC_PGEN_SETTINGS_BTN, OnPgenSettings)
 	ON_BN_CLICKED(IDC_PGEN_REFRESH_BTN, OnPgenRefresh)
+	ON_MESSAGE(WM_PGEN_QUERY_DONE, OnPgenQueryDone)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -532,38 +536,57 @@ void CGDIGenePropPage::OnUserPatternClick()
 	Relayout();
 }
 
+struct PgenQueryResult { CStringArray vals; CString err; BOOL ok; };
+
+static UINT AFX_CDECL PgenQueryThread(LPVOID p)
+{
+	CGDIGenePropPage* pg = (CGDIGenePropPage*)p;
+	CGDIGenerator* gen = pg->m_pGenerator;
+	HWND hwnd = pg->GetSafeHwnd();
+	PgenQueryResult* r = new PgenQueryResult;
+	r->ok = gen ? gen->QueryPGeneratorInfo(r->vals, r->err) : FALSE;
+	if (hwnd && IsWindow(hwnd)) ::PostMessage(hwnd, WM_PGEN_QUERY_DONE, 0, (LPARAM)r);
+	else delete r;
+	return 0;
+}
+
 void CGDIGenePropPage::QueryPGenerator()
 {
 	if (!m_pgenReadout.GetSafeHwnd()) return;
-	CWaitCursor wait;
+	if (m_pgenQuerying) return;
+	m_pgenQuerying = TRUE;
+	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.EnableWindow(FALSE);
+	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(FALSE);
+	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(FALSE);
+	if (GetDlgItem(IDC_DISP_TRIP3)) GetDlgItem(IDC_DISP_TRIP3)->EnableWindow(FALSE);
 	CString q; q.LoadString(IDS_PGEN_ST_QUERYING); m_pgenReadout.SetWindowText(q);
-	m_pgenReadout.UpdateWindow();
-	CStringArray vals;
-	CString err;
-BOOL ok = m_pGenerator ? m_pGenerator->QueryPGeneratorInfo(vals, err) : FALSE;
-	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.EnableWindow(ok);
-	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(ok);
-	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(ok);
-	if (GetDlgItem(IDC_DISP_TRIP3)) GetDlgItem(IDC_DISP_TRIP3)->EnableWindow(ok);
-	if (!ok)
-	{
-		ShowPgenDisconnected();
-		return;
-	}
+	AfxBeginThread(PgenQueryThread, this);
+}
+
+LRESULT CGDIGenePropPage::OnPgenQueryDone(WPARAM, LPARAM lp)
+{
+	PgenQueryResult* r = (PgenQueryResult*)lp;
+	m_pgenQuerying = FALSE;
+	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.EnableWindow(r->ok);
+	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(r->ok);
+	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(r->ok);
+	if (GetDlgItem(IDC_DISP_TRIP3)) GetDlgItem(IDC_DISP_TRIP3)->EnableWindow(r->ok);
+	if (!r->ok) { ShowPgenDisconnected(); delete r; return 0; }
 	static const UINT lblIds[9] = {
 		IDS_PGEN_RO_NAME, IDS_PGEN_RO_IP, IDS_PGEN_RO_VERSION, IDS_PGEN_RO_DYNRANGE,
 		IDS_PGEN_RO_RESOLUTION, IDS_PGEN_RO_BITDEPTH, IDS_PGEN_RO_COLORSPACE, IDS_PGEN_RO_COLORFORMAT, IDS_PGEN_RO_SIGRANGE };
 	CString out;
-	for (int i = 0; i < 9 && i < vals.GetSize(); i++)
+	for (int i = 0; i < 9 && i < r->vals.GetSize(); i++)
 	{
 		CString lbl; lbl.LoadString(lblIds[i]); out += lbl;
 		out += _T("\t");
-		out += vals[i];
+		out += r->vals[i];
 		if (i < 8) out += _T("\r\n");
 	}
-	m_pgenReadout.SetWindowText(out);
+	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.SetWindowText(out);
+	delete r;
+	return 0;
 }
-
 
 BEGIN_MESSAGE_MAP(CPGenSettingsDlg, CDialog)
 	ON_CBN_SELCHANGE(IDC_PGEN_AVI_BASE + 1, OnFormatChanged)

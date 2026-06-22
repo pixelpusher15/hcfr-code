@@ -91,6 +91,7 @@ public:
 	CEdit		m_pgenReadout;
 	CButton		m_pgenSettingsBtn;
 	CButton m_pgenRefreshBtn;
+	BOOL m_pgenQuerying;
 
 	virtual UINT GetHelpId ( LPSTR lpszTopic );
 
@@ -117,6 +118,7 @@ protected:
 	afx_msg void OnUserPatternClick();
 	afx_msg void OnPgenSettings();
 	afx_msg void OnPgenRefresh();
+	afx_msg LRESULT OnPgenQueryDone(WPARAM, LPARAM);
 	DECLARE_MESSAGE_MAP()
 
 	void BuildRuntimeLayout();
