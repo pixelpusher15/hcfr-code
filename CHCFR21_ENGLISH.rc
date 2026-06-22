@@ -3014,6 +3014,12 @@ BEGIN
     IDS_PGEN_ST_NOENTRY  "RB8PGenerator.dll is missing expected entry points."
     IDS_PGEN_ST_NOCONNECT  "Found a PGenerator but could not connect."
     IDS_PGEN_ST_NOGEN  "No generator available."
+    IDS_PGEN_DLG_TITLE  "PGenerator settings"
+    IDS_PGEN_APPLY  "Apply"
+    IDS_PGEN_CLOSE  "Close"
+    IDS_PGEN_REBOOT  "Reboot"
+    IDS_PGEN_RESTART_SW  "Restart software"
+    IDS_PGEN_REBOOT_CONFIRM  "Reboot the PGenerator now?"
     IDS_GEN_GRP_BLANKING  "Blanking"
     IDS_GEN_BLANK_SCREEN  "Blank screen during measure"
 END

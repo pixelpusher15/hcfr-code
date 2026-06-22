@@ -589,7 +589,7 @@ static const int     kPgCount[4] = { 2, 3, 2, 3 };
 BOOL CPGenSettingsDlg::OnInitDialog()
 {
 	CDialog::OnInitDialog();
-	SetWindowText(_T("PGenerator settings"));
+	SetWindowText(LS(IDS_PGEN_DLG_TITLE));
 	DlgMap M; M.h = GetSafeHwnd();
 	CFont* font = GetFont();
 
@@ -632,14 +632,14 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 		m_initSel[i] = sel;
 	}
 
-	if (GetDlgItem(IDOK)) GetDlgItem(IDOK)->SetWindowText(_T("Apply"));
-	if (GetDlgItem(IDCANCEL)) GetDlgItem(IDCANCEL)->SetWindowText(_T("Close"));
+	if (GetDlgItem(IDOK)) GetDlgItem(IDOK)->SetWindowText(LS(IDS_PGEN_APPLY));
+	if (GetDlgItem(IDCANCEL)) GetDlgItem(IDCANCEL)->SetWindowText(LS(IDS_PGEN_CLOSE));
 	{
 		CPoint rb = M.at(6, 112);
-		m_rebootBtn.Create(_T("Reboot"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(rb.x, rb.y, rb.x + M.w(44), rb.y + M.ht(14)), this, IDC_PGEN_REBOOT_BTN);
+		m_rebootBtn.Create(LS(IDS_PGEN_REBOOT), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(rb.x, rb.y, rb.x + M.w(44), rb.y + M.ht(14)), this, IDC_PGEN_REBOOT_BTN);
 		m_rebootBtn.SetFont(font);
 		CPoint rs = M.at(54, 112);
-		m_restartBtn.Create(_T("Restart software"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(rs.x, rs.y, rs.x + M.w(76), rs.y + M.ht(14)), this, IDC_PGEN_RESTART_BTN);
+		m_restartBtn.Create(LS(IDS_PGEN_RESTART_SW), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(rs.x, rs.y, rs.x + M.w(76), rs.y + M.ht(14)), this, IDC_PGEN_RESTART_BTN);
 		m_restartBtn.SetFont(font);
 	}
 	UpdateRangeState();
@@ -691,7 +691,7 @@ void CPGenSettingsDlg::UpdateRangeState()
 
 void CPGenSettingsDlg::OnReboot()
 {
-	if (AfxMessageBox(_T("Reboot the PGenerator now?"), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+	if (AfxMessageBox(LS(IDS_PGEN_REBOOT_CONFIRM), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
 	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("CMD:REBOOT"); }
 }
 

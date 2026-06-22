@@ -1804,6 +1804,12 @@
 #define IDS_PGEN_ST_NOENTRY              59501
 #define IDS_PGEN_ST_NOCONNECT            59502
 #define IDS_PGEN_ST_NOGEN                59503
+#define IDS_PGEN_DLG_TITLE               59504
+#define IDS_PGEN_APPLY                   59505
+#define IDS_PGEN_CLOSE                   59506
+#define IDS_PGEN_REBOOT                  59507
+#define IDS_PGEN_RESTART_SW              59508
+#define IDS_PGEN_REBOOT_CONFIRM          59509
 #define IDS_GEN_GRP_BLANKING             59484
 #define IDS_GEN_BLANK_SCREEN              59485
 

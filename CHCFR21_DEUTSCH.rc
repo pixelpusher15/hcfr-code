@@ -3005,6 +3005,12 @@ BEGIN
     IDS_PGEN_ST_NOENTRY  "RB8PGenerator.dll fehlen erwartete Einsprungpunkte."
     IDS_PGEN_ST_NOCONNECT  "PGenerator gefunden, aber Verbindung fehlgeschlagen."
     IDS_PGEN_ST_NOGEN  "Kein Generator verfügbar."
+    IDS_PGEN_DLG_TITLE  "PGenerator-Einstellungen"
+    IDS_PGEN_APPLY  "Übernehmen"
+    IDS_PGEN_CLOSE  "Schließen"
+    IDS_PGEN_REBOOT  "Neu starten"
+    IDS_PGEN_RESTART_SW  "Software neu starten"
+    IDS_PGEN_REBOOT_CONFIRM  "PGenerator jetzt neu starten?"
     IDS_GEN_GRP_BLANKING  "Dunkelschaltung"
     IDS_GEN_BLANK_SCREEN  "Bildschirm bei der Messung dunkel schalten"
 END
