@@ -469,6 +469,7 @@ BOOL CGenerator::SendPGeneratorCommand(LPCSTR cmd)
 BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
 	nMeasureNumber = nbMeasure; 
+	m_initShowedError = FALSE;
 	CGDIGenerator Cgen;
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
@@ -510,7 +511,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 							sock = _RB8PG_connect(m_piIP);
 						else
 						{
-							GetColorApp()->InMeasureMessageBox( "Error connecting with rPI: "+cs, "Error", MB_ICONINFORMATION);
+							m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error connecting with PGenerator: "+cs, "Error", MB_ICONINFORMATION);
 							return false;
 						}
 
@@ -525,7 +526,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 								AfxExtractSubString(cs2, cs1, 0, ':');
 								if (cs2 != "OK")
 								{
-									GetColorApp()->InMeasureMessageBox( "Failed to get rPi resolution", "GET_RESOLUTION", MB_ICONINFORMATION);
+									m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Failed to get PGenerator resolution", "GET_RESOLUTION", MB_ICONINFORMATION);
 									return false;
 								}
 								AfxExtractSubString(cs3, cs1, 1, ':');
@@ -542,7 +543,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 								AfxExtractSubString(cs5, cs4, 0, ':');
 								if (cs5 != "OK")
 								{
-									GetColorApp()->InMeasureMessageBox( "Failed to get rPi GPU memory size", "GET_GPU_MEMORY", MB_ICONINFORMATION);
+									m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Failed to get PGenerator GPU memory size", "GET_GPU_MEMORY", MB_ICONINFORMATION);
 									return false;
 								}
 								cs6=cs4.Mid(3);
@@ -613,21 +614,21 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 							}
 							else
 							{
-								GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
+								m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error communicating with PGenerator", "Error", MB_ICONINFORMATION);
 								return false;
 							}
 						}
 					}
 					else
 					{
-						GetColorApp()->InMeasureMessageBox( "    ** Raspberry Pi generator not found **", "Error", MB_ICONERROR);
+						m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "    ** PGenerator not found on the network **", "Error", MB_ICONERROR);
 						OutputDebugString("    ** RB8PG_discovery failed **");
 						return false;
 					}			
 				}
 				else
 				{
-					GetColorApp()->InMeasureMessageBox( "    ** RB8PGenerator.dll not found **", "Error", MB_ICONERROR);
+					m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "    ** RB8PGenerator.dll not found **", "Error", MB_ICONERROR);
 					OutputDebugString("    ** Load_dll failed **");
 					return false;
 				}
@@ -692,7 +693,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 			GCast.RefreshList();
 			if (GCast.getCount() == 0)
 			{
-				GetColorApp()->InMeasureMessageBox( "    ** No ChromeCasts found **", "Error", MB_ICONERROR);
+				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "    ** No ChromeCasts found **", "Error", MB_ICONERROR);
 				OutputDebugString("    ** No ChromeCasts found **");
 				return false;
 			} else 
@@ -700,7 +701,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 				const ccast_id *id = m_ccastIp ? GCast.getCcastByIp(m_ccastIp) : GCast[0];
 				if (id == NULL && (id = GCast[0]) == NULL)
 				{
-					GetColorApp()->InMeasureMessageBox( "    ** Error discovering ChromeCasts **", "Error", MB_ICONERROR);
+					m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "    ** Error discovering ChromeCasts **", "Error", MB_ICONERROR);
 					OutputDebugString("    ** Error discovering ChromeCasts **");
 					return false;
 				}
@@ -711,7 +712,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 					dw = new_ccwin((ccast_id *)id, 1000.0 * rx  , 565.0 * rx, 0.0, 0.0, 0, 0.1234);
 					if (dw == NULL) 
 					{
-						GetColorApp()->InMeasureMessageBox( id->name, "new_ccwin failed!", MB_ICONERROR);
+						m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( id->name, "new_ccwin failed!", MB_ICONERROR);
 						OutputDebugString("new_ccwin failed! ");OutputDebugString(id->name);
 						return -1;
 					} 
@@ -736,7 +737,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 			}
 			else
 			{
-				GetColorApp()->InMeasureMessageBox( "madVR dll not found, is madVR installed?", "Error", MB_ICONERROR);
+				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "madVR dll not found, is madVR installed?", "Error", MB_ICONERROR);
 				return false;
 			}
 		} else
@@ -1073,7 +1074,7 @@ BOOL CGenerator::Release(INT nbNext)
 				_RB8PG_send(sock,"TESTTEMPLATE:PatternDynamic:0,0,0");
 			}
 			else
-				GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
+				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error communicating with PGenerator", "Error", MB_ICONINFORMATION);
 	}
 
 	if (sock && Cgen.m_nDisplayMode != DISPLAY_rPI && hInstLibrary) //disconnect only after generator change
@@ -1088,12 +1089,12 @@ BOOL CGenerator::Release(INT nbNext)
 				_RB8PG_send(sock,"TESTTEMPLATE:PatternDynamic:0,0,0");
 			}
 			else
-				GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
+				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error communicating with PGenerator", "Error", MB_ICONINFORMATION);
 
 			if (_RB8PG_close)
 				_RB8PG_close(sock);
 			else
-				GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
+				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error communicating with PGenerator", "Error", MB_ICONINFORMATION);
 
 			sock = NULL;
 			GetConfig()->WriteProfileInt("GDIGenerator", "rPiSock", 0);

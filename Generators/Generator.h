@@ -132,6 +132,7 @@ public:
 	BOOL ApplyPGeneratorConf(const CStringArray& cmds);
 	int QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids, PGenSettings& st);
 	static void InvalidatePGenCache();
+	BOOL m_initShowedError;
 	BOOL SendPGeneratorCommand(LPCSTR cmd);
 	virtual BOOL DisplayGray(double aLevel,MeasureType nPatternType, BOOL bChangePattern = TRUE);
 	virtual BOOL DisplayRGBColor(const ColorRGBDisplay& aRGBColor, MeasureType nPatternType, UINT nPatternInfo = 0,BOOL bChangePattern = TRUE,BOOL bSilentMode = FALSE);	// need to be overriden
