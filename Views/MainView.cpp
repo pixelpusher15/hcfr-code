@@ -862,6 +862,32 @@ void CMainView::AddColorToGrid(const ColorTriplet& color, GV_ITEM& Item, const c
     m_pSelectedColorGrid->SetItem(&Item);
 }
 
+// Highlight the column currently being measured by selecting it in the grayscale
+// grid. Called from the measure loop (UpdateTstWnd, right before each blocking
+// reading) and from the continuous/background-measure update, so the user can see
+// which point is active. bForceRepaint=TRUE + UpdateWindow() paint it immediately,
+// before the UI thread blocks in the sensor read. Skipped while the grid is in
+// edit mode so we don't fight the user's manual edits.
+void CMainView::HighlightMeasuringColumn(int gridCol)
+{
+	if ( !m_pGrayScaleGrid || !::IsWindow(m_pGrayScaleGrid->GetSafeHwnd()) )
+		return;
+	if ( gridCol < 1 || gridCol >= m_pGrayScaleGrid->GetColumnCount() )
+		return;
+	if ( IsDlgButtonChecked(IDC_EDITGRID_CHECK) == BST_CHECKED )
+		return;
+
+	int maxRow = m_pGrayScaleGrid->GetRowCount() - 1;	// select the x/y/Y data rows of the column
+	if ( maxRow > 3 )
+		maxRow = 3;
+	if ( maxRow < 1 )
+		return;
+
+	m_pGrayScaleGrid->EnsureVisible(1, gridCol);
+	m_pGrayScaleGrid->SetSelectedRange(1, gridCol, maxRow, gridCol, TRUE);
+	m_pGrayScaleGrid->UpdateWindow();
+}
+
 void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 {
 	int		i, aColorTemp;
@@ -2231,19 +2257,36 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 		if ( ( lHint >= UPD_EVERYTHING && lHint <= UPD_FREEMEASURES ) || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA )
 		{
-			if (m_pGrayScaleGrid)
-				m_pGrayScaleGrid->SetRedraw(FALSE);
-			// Suppress intermediate repaints while InitGrid tears the grid down and UpdateGrid refills it
-			// (otherwise it blanks to white between the two during a measurement update); repaint once below.
-			InitGrid(); // to update row labels (if colorReference setting has changed, or if lux values appeared)
-			if(m_pGrayScaleGrid)
-				UpdateGrid();
-			if(m_SelectedColor.isValid())
-				RefreshSelection(false,GetDocument()->GetMeasure()->m_binMeasure);
-			if (m_pGrayScaleGrid)
+			if ( lHint == UPD_EVERYTHING || lHint == UPD_ARRAYSIZES )
 			{
-				m_pGrayScaleGrid->SetRedraw(TRUE);
-				m_pGrayScaleGrid->Invalidate(FALSE);
+				// Structural change (e.g. the grayscale point count changed): rebuild and
+				// auto-fit the columns with redraw ENABLED, so the scroll bars and client
+				// rect are settled before ExpandColumnsToFit measures the available width.
+				// Sizing while redraw was off fit the columns to stale geometry, leaving the
+				// last column clipped by the always-present vertical scroll bar. This mirrors
+				// the OnSize path, which is why a manual window resize already corrected it.
+				InitGrid(true);
+				if(m_pGrayScaleGrid)
+					UpdateGrid();
+				if(m_SelectedColor.isValid())
+					RefreshSelection(false,GetDocument()->GetMeasure()->m_binMeasure);
+			}
+			else
+			{
+				if (m_pGrayScaleGrid)
+					m_pGrayScaleGrid->SetRedraw(FALSE);
+				// Suppress intermediate repaints while InitGrid tears the grid down and UpdateGrid refills it
+				// (otherwise it blanks to white between the two during a measurement update); repaint once below.
+				InitGrid();
+				if(m_pGrayScaleGrid)
+					UpdateGrid();
+				if(m_SelectedColor.isValid())
+					RefreshSelection(false,GetDocument()->GetMeasure()->m_binMeasure);
+				if (m_pGrayScaleGrid)
+				{
+					m_pGrayScaleGrid->SetRedraw(TRUE, TRUE);
+					m_pGrayScaleGrid->Invalidate(FALSE);
+				}
 			}
 		}
 		
@@ -5595,6 +5638,7 @@ void CMainView::OnDeleteGrayscale()
 
 void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 {
+	HighlightMeasuringColumn(last_minCol);	// indicate the active column during continuous/background measures
 	CColor	MeasuredColor=noDataColor;
 	double YWhite = -1;
 	double YWhiteRefDoc = -1;

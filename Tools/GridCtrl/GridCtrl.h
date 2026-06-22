@@ -773,6 +773,7 @@ protected: //GG
 #endif
 #if !defined(_WIN32_WCE) && (_MFC_VER >= 0x0421)
     afx_msg BOOL OnMouseWheel(UINT nFlags, short zDelta, CPoint pt);
+    afx_msg void OnMouseHWheel(UINT nFlags, short zDelta, CPoint pt);
 #endif
     afx_msg LRESULT OnSetFont(WPARAM hFont, LPARAM lParam);
     afx_msg LRESULT OnGetFont(WPARAM hFont, LPARAM lParam);

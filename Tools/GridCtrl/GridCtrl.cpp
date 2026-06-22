@@ -556,6 +556,7 @@ BEGIN_MESSAGE_MAP(CGridCtrl, CWnd)
 #endif
 #if !defined(_WIN32_WCE) && (_MFC_VER >= 0x0421)
     ON_WM_MOUSEWHEEL()
+    ON_WM_MOUSEHWHEEL()
 #endif
     ON_MESSAGE(WM_SETFONT, OnSetFont)
     ON_MESSAGE(WM_GETFONT, OnGetFont)
@@ -5475,6 +5476,17 @@ BOOL CGridCtrl::InvalidateCellRect(const CCellRange& cellRange)
 #if !defined(_WIN32_WCE) && (_MFC_VER >= 0x0421)
 BOOL CGridCtrl::OnMouseWheel(UINT nFlags, short zDelta, CPoint pt)
 {
+    // Route the wheel to whichever axis can actually scroll. Some grids (e.g. the
+    // grayscale grid) fit vertically but overflow horizontally, so a plain wheel
+    // should scroll horizontally when there's nothing to scroll vertically.
+    // Holding Shift always forces horizontal scrolling.
+    BOOL bHorz = (nFlags & MK_SHIFT) || (m_nVScrollMax <= 0 && m_nHScrollMax > 0);
+    UINT nScrollMsg = bHorz ? WM_HSCROLL : WM_VSCROLL;
+    int  nLineUp    = bHorz ? SB_LINELEFT : SB_LINEUP;
+    int  nLineDown  = bHorz ? SB_LINERIGHT : SB_LINEDOWN;
+    int  nPageUp    = bHorz ? SB_PAGELEFT : SB_PAGEUP;
+    int  nPageDown  = bHorz ? SB_PAGERIGHT : SB_PAGEDOWN;
+
     // A m_nRowsPerWheelNotch value less than 0 indicates that the mouse
     // wheel scrolls whole pages, not just lines.
     if (m_nRowsPerWheelNotch == -1)
@@ -5485,14 +5497,14 @@ BOOL CGridCtrl::OnMouseWheel(UINT nFlags, short zDelta, CPoint pt)
 		{
             for (int i = 0; i < nPagesScrolled; i++)
 			{
-                PostMessage(WM_VSCROLL, SB_PAGEUP, 0);
+                PostMessage(nScrollMsg, nPageUp, 0);
 			}
 		}
         else
 		{
             for (int i = 0; i > nPagesScrolled; i--)
 			{
-                PostMessage(WM_VSCROLL, SB_PAGEDOWN, 0);
+                PostMessage(nScrollMsg, nPageDown, 0);
 			}
 		}
     }
@@ -5504,19 +5516,40 @@ BOOL CGridCtrl::OnMouseWheel(UINT nFlags, short zDelta, CPoint pt)
 		{
             for (int i = 0; i < nRowsScrolled; i++)
 			{
-                PostMessage(WM_VSCROLL, SB_LINEUP, 0);
+                PostMessage(nScrollMsg, nLineUp, 0);
 			}
 		}
         else
 		{
             for (int i = 0; i > nRowsScrolled; i--)
 			{
-                PostMessage(WM_VSCROLL, SB_LINEDOWN, 0);
+                PostMessage(nScrollMsg, nLineDown, 0);
 			}
 		}
     }
 
     return CWnd::OnMouseWheel(nFlags, zDelta, pt);
+}
+
+// Horizontal wheel / two-finger horizontal trackpad swipe.
+void CGridCtrl::OnMouseHWheel(UINT nFlags, short zDelta, CPoint pt)
+{
+    int nNotch = (m_nRowsPerWheelNotch > 0) ? m_nRowsPerWheelNotch : 3;
+    int nLines = nNotch * zDelta / 120;
+
+    // For a horizontal wheel, a positive zDelta means scroll right.
+    if (nLines > 0)
+    {
+        for (int i = 0; i < nLines; i++)
+            PostMessage(WM_HSCROLL, SB_LINERIGHT, 0);
+    }
+    else
+    {
+        for (int i = 0; i > nLines; i--)
+            PostMessage(WM_HSCROLL, SB_LINELEFT, 0);
+    }
+
+    CWnd::OnMouseHWheel(nFlags, zDelta, pt);
 }
 #endif // !defined(_WIN32_WCE) && (_MFC_VER >= 0x0421)
 
