@@ -797,7 +797,7 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,17,20,112,10
 END
 
-IDD_PGEN_SETTINGS DIALOGEX 0, 0, 334, 136
+IDD_PGEN_SETTINGS DIALOGEX 0, 0, 200, 200
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "PGenerator settings"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
@@ -3235,6 +3235,15 @@ BEGIN
     IDS_PGEN_RESTART_SW  "Redémarrer le logiciel"
     IDS_PGEN_REBOOT_CONFIRM  "Redémarrer le PGenerator maintenant ?"
     IDS_PGEN_RESTART_CONFIRM  "Redémarrer le logiciel PGenerator maintenant ?"
+    IDS_PGEN_HDR_AVI  "Sortie / AVI infoframe"
+    IDS_PGEN_HDR_DRM  "Métadonnées HDR / DRM infoframe"
+    IDS_PGEN_DYNRANGE  "Plage dynamique"
+    IDS_PGEN_DOVI_MODE  "Mode DoVi"
+    IDS_PGEN_PRIMARIES  "Primaires"
+    IDS_PGEN_SHUTDOWN  "Éteindre"
+    IDS_PGEN_REFRESH  "Actualiser"
+    IDS_PGEN_SHUTDOWN_CONFIRM  "Éteindre le PGenerator maintenant ?"
+    IDS_PGEN_ST_NOTCONN  "Aucun PGenerator connecté. Cliquez sur Actualiser pour rechercher."
     IDS_GEN_GRP_BLANKING  "Blanking"
     IDS_GEN_BLANK_SCREEN  "Eteint l'écran pendant la mesure"
 END

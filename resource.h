@@ -1817,6 +1817,15 @@
 #define IDS_PGEN_RESTART_SW              59508
 #define IDS_PGEN_REBOOT_CONFIRM          59509
 #define IDS_PGEN_RESTART_CONFIRM         59510
+#define IDS_PGEN_HDR_AVI                 59511
+#define IDS_PGEN_HDR_DRM                 59512
+#define IDS_PGEN_DYNRANGE                59513
+#define IDS_PGEN_DOVI_MODE               59514
+#define IDS_PGEN_PRIMARIES               59515
+#define IDS_PGEN_SHUTDOWN                59516
+#define IDS_PGEN_REFRESH                 59517
+#define IDS_PGEN_SHUTDOWN_CONFIRM        59518
+#define IDS_PGEN_ST_NOTCONN              59519
 #define IDS_GEN_GRP_BLANKING             59484
 #define IDS_GEN_BLANK_SCREEN              59485
 

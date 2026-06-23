@@ -24,6 +24,9 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "GDIGenerator.h"
+#include <uxtheme.h>
+#include <vsstyle.h>
+#pragma comment(lib, "uxtheme.lib")
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -148,6 +151,44 @@ static CString LS(UINT id)
     CString s;
     if (id) s.LoadString(id);
     return s;
+}
+
+static int CALLBACK PgFontEnumProc(const LOGFONT*, const TEXTMETRIC*, DWORD, LPARAM lp) { *(BOOL*)lp = TRUE; return 0; }
+static void PgMakeGlyphFont(CFont& f, int pt = 9)
+{
+	HDC hdc = ::GetDC(NULL);
+	int px = -MulDiv(pt, ::GetDeviceCaps(hdc, LOGPIXELSY), 72);
+	LOGFONT lf; ZeroMemory(&lf, sizeof(lf));
+	lf.lfHeight = px; lf.lfCharSet = DEFAULT_CHARSET;
+	lstrcpy(lf.lfFaceName, _T("Segoe Fluent Icons"));
+	BOOL found = FALSE;
+	LOGFONT probe; ZeroMemory(&probe, sizeof(probe)); probe.lfCharSet = DEFAULT_CHARSET;
+	lstrcpy(probe.lfFaceName, _T("Segoe Fluent Icons"));
+	::EnumFontFamiliesEx(hdc, &probe, PgFontEnumProc, (LPARAM)&found, 0);
+	if (!found) lstrcpy(lf.lfFaceName, _T("Segoe MDL2 Assets"));
+	::ReleaseDC(NULL, hdc);
+	f.CreateFontIndirect(&lf);
+}
+static void PgMakeGlyphBtn(CButton& btn, CWnd* parent, CFont& gf, int id, const wchar_t* glyph, CPoint pt, int w, int h, DWORD exStyle = 0)
+{
+	if (btn.GetSafeHwnd()) btn.DestroyWindow();
+	HWND hh = ::CreateWindowExW(exStyle, L"BUTTON", glyph, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, pt.x, pt.y, w, h, parent->GetSafeHwnd(), (HMENU)(INT_PTR)id, AfxGetInstanceHandle(), NULL);
+	if (hh) { btn.Attach(hh); ::SendMessageW(hh, WM_SETFONT, (WPARAM)gf.GetSafeHandle(), TRUE); }
+}
+
+static void PgHeaderRule(CWnd* parent, CStatic& line, CStatic& lbl, CFont* font, int rightPx, BOOL visible)
+{
+	CString s; lbl.GetWindowText(s);
+	CClientDC dc(parent);
+	CFont* of = dc.SelectObject(font);
+	CSize sz = dc.GetTextExtent(s);
+	dc.SelectObject(of);
+	CRect lr; lbl.GetWindowRect(&lr); parent->ScreenToClient(&lr);
+	int x1 = lr.left + sz.cx + 6;
+	int yc = lr.top + lr.Height() / 2;
+	if (line.GetSafeHwnd()) line.DestroyWindow();
+	DWORD st = WS_CHILD | SS_ETCHEDHORZ; if (visible) st |= WS_VISIBLE;
+	line.Create(_T(""), st, CRect(x1, yc, rightPx, yc + 2), parent);
 }
 
 static CStatic* AddText(CWnd* pg, CObArray& all, CFont* font, DlgMap& M,
@@ -314,14 +355,16 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.DestroyWindow();
 	{
 		CPoint spt = M.at(LBL_X, 130);
-		m_pgenSettingsBtn.Create(LS(IDS_GEN_PGEN_SETTINGS), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(spt.x, spt.y, spt.x + M.w(92), spt.y + M.ht(14)), this, IDC_PGEN_SETTINGS_BTN);
+		m_pgenSettingsBtn.Create(LS(IDS_GEN_PGEN_SETTINGS), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(spt.x, spt.y, spt.x + M.w(106), spt.y + M.ht(14)), this, IDC_PGEN_SETTINGS_BTN);
 		m_pgenSettingsBtn.SetFont(font);
 	}
 	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.DestroyWindow();
 	{
 		CPoint rfp = M.at(LBL_X, 130);
-		m_pgenRefreshBtn.Create(_T("Refresh"), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(rfp.x, rfp.y, rfp.x + M.w(44), rfp.y + M.ht(14)), this, IDC_PGEN_REFRESH_BTN);
-		m_pgenRefreshBtn.SetFont(font);
+		if (!m_glyphFont.GetSafeHandle()) PgMakeGlyphFont(m_glyphFont);
+		PgMakeGlyphBtn(m_pgenRefreshBtn, this, m_glyphFont, IDC_PGEN_REFRESH_BTN, L"\xE72C", rfp, M.w(18), M.ht(14));
+		if (!m_pageTip.GetSafeHwnd()) { m_pageTip.Create(this); m_pageTip.Activate(TRUE); }
+		m_pageTip.AddTool(&m_pgenRefreshBtn, LS(IDS_PGEN_REFRESH));
 	}
 	m_lblOffset = AddText(this, m_dynAll, font, M, LS(IDS_GEN_OFFSET), LBL_X, 0, 28, 9);
 
@@ -413,8 +456,8 @@ void CGDIGenePropPage::Relayout()
 		int innerW = grpRightPx - M.w(3) - innerLeftPx;
 		{ CPoint rp = M.at(LBL_X, cy); m_pgenReadout.MoveWindow(rp.x, rp.y, innerW, M.ht(78)); m_pgenReadout.ShowWindow(SW_SHOW); }
 		cy += 82;
-		{ CPoint bp = M.at(LBL_X, cy); m_pgenSettingsBtn.MoveWindow(bp.x, bp.y, M.w(92), M.ht(14)); m_pgenSettingsBtn.ShowWindow(SW_SHOW); }
-			{ CPoint rfp = M.at(LBL_X + 96, cy); m_pgenRefreshBtn.MoveWindow(rfp.x, rfp.y, M.w(44), M.ht(14)); m_pgenRefreshBtn.ShowWindow(SW_SHOW); }
+		{ CPoint bp = M.at(LBL_X, cy); m_pgenSettingsBtn.MoveWindow(bp.x, bp.y, M.w(106), M.ht(14)); m_pgenSettingsBtn.ShowWindow(SW_SHOW); }
+			{ CPoint rfp = M.at(LBL_X + 110, cy); m_pgenRefreshBtn.MoveWindow(rfp.x, rfp.y, M.w(18), M.ht(14)); m_pgenRefreshBtn.ShowWindow(SW_SHOW); }
 		cy += 18;
 		if (m_lblOffset) { CPoint p = M.at(LBL_X, cy + 2); m_lblOffset->MoveWindow(p.x, p.y, M.w(28), M.ht(9)); m_lblOffset->ShowWindow(SW_SHOW); }
 		if (m_lblXoff) { CPoint p = M.at(40, cy + 2); m_lblXoff->MoveWindow(p.x, p.y, M.w(24), M.ht(9)); m_lblXoff->ShowWindow(SW_SHOW); }
@@ -625,7 +668,7 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 	CDialog::OnInitDialog();
 	SetWindowText(LS(IDS_PGEN_DLG_TITLE));
 	DlgMap M; M.h = GetSafeHwnd();
-	CFont* font = GetFont();
+	CFont* font = GetParent() ? GetParent()->GetFont() : GetFont();
 
 	CStringArray modeLabels;
 	int curMode = -1;
@@ -639,13 +682,22 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 		curMode = m_pGenerator->QueryPGeneratorModes(modeLabels, m_resIds, st);
 	}
 
-	const int LX = 6, LW = 56, CX = 62, CW = 100;
-	const int RX = 178, RW = 50, RCX = 230, RCW = 96;
-	const int Y0 = 16, PITCH = 14;
+	const int LX = 8, LW = 82, CX = 94, CW = 98;
+	const int FULLW = 200, PITCH = 14, Y0 = 20;
 
-	{ CPoint p = M.at(LX, 3); m_hdrAvi.Create(_T("Output config / AVI infoframe"), WS_CHILD | WS_VISIBLE, CRect(p.x, p.y, p.x + M.w(168), p.y + M.ht(9)), this); m_hdrAvi.SetFont(font); }
-	{ CPoint p = M.at(RX, 3); m_hdrDrm.Create(_T("HDR metadata / DRM infoframe"), WS_CHILD | WS_VISIBLE, CRect(p.x, p.y, p.x + M.w(150), p.y + M.ht(9)), this); m_hdrDrm.SetFont(font); }
+	if (!m_glyphFont.GetSafeHandle()) PgMakeGlyphFont(m_glyphFont);
 
+	{ CPoint p = M.at(LX, 5); m_hdrAvi.Create(LS(IDS_PGEN_HDR_AVI), WS_CHILD | WS_VISIBLE, CRect(p.x, p.y, p.x + M.w(FULLW - LX), p.y + M.ht(9)), this); m_hdrAvi.SetFont(font); }
+	PgHeaderRule(this, m_hdrAviLine, m_hdrAvi, font, M.at(FULLW - 8, 0).x, TRUE);
+
+	{
+		int y = Y0;
+		CPoint lp = M.at(LX, y + 2); m_aviL[5].Create(LS(IDS_PGEN_DYNRANGE), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[5].SetFont(font);
+		CPoint cp = M.at(CX, y); m_avi[5].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_AVI_BASE + 5); m_avi[5].SetFont(font);
+		for (int j = 0; j < 3; j++) m_avi[5].AddString(kPgDR[j]);
+		int sel = st.isLLDovi ? 2 : (st.isHdr ? 1 : 0);
+		m_avi[5].SetCurSel(sel); m_aviInit[5] = sel;
+	}
 	{
 		int y = Y0 + PITCH;
 		CPoint lp = M.at(LX, y + 2); m_aviL[0].Create(LS(IDS_PGEN_RO_RESOLUTION), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[0].SetFont(font);
@@ -665,33 +717,26 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 		m_avi[i].SetCurSel(sel); m_aviInit[i] = sel;
 	}
 	{
-		int y = Y0;
-		CPoint lp = M.at(LX, y + 2); m_aviL[5].Create(_T("Dynamic range"), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[5].SetFont(font);
-		CPoint cp = M.at(CX, y); m_avi[5].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_AVI_BASE + 5); m_avi[5].SetFont(font);
-		for (int j = 0; j < 3; j++) m_avi[5].AddString(kPgDR[j]);
-		int sel = st.isLLDovi ? 2 : (st.isHdr ? 1 : 0);
-		m_avi[5].SetCurSel(sel); m_aviInit[5] = sel;
-	}
-	{
 		int y = Y0 + 6 * PITCH;
-		CPoint lp = M.at(LX, y + 2); m_doviLbl.Create(_T("DoVi mode"), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_doviLbl.SetFont(font);
-		CPoint cp = M.at(CX, y); m_doviCombo.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_DOVI_COMBO); m_doviCombo.SetFont(font);
+		CPoint lp = M.at(LX, y + 2); m_doviLbl.Create(LS(IDS_PGEN_DOVI_MODE), WS_CHILD, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_doviLbl.SetFont(font);
+		CPoint cp = M.at(CX, y); m_doviCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_DOVI_COMBO); m_doviCombo.SetFont(font);
 		m_doviCombo.AddString(_T("Verify / Absolute"));
 		m_doviCombo.AddString(_T("Calibrate / Relative"));
 		int sel = (st.doviMode == 2) ? 1 : 0;
 		m_doviCombo.SetCurSel(sel); m_doviInit = sel;
 	}
-
+	{ CPoint p = M.at(LX, Y0 + 6 * PITCH + 3); m_hdrDrm.Create(LS(IDS_PGEN_HDR_DRM), WS_CHILD, CRect(p.x, p.y, p.x + M.w(FULLW - LX), p.y + M.ht(9)), this); m_hdrDrm.SetFont(font); }
+	PgHeaderRule(this, m_hdrDrmLine, m_hdrDrm, font, M.at(FULLW - 8, 0).x, FALSE);
 	{
-		int y = Y0; CPoint lp = M.at(RX, y + 2); m_drmL[0].Create(_T("EOTF"), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(RW), lp.y + M.ht(9)), this); m_drmL[0].SetFont(font);
-		CPoint cp = M.at(RCX, y); m_drm[0].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(RCW), cp.y + M.ht(90)), this, IDC_PGEN_DRM_BASE + 0); m_drm[0].SetFont(font);
+		int y = Y0 + 7 * PITCH + 2; CPoint lp = M.at(LX, y + 2); m_drmL[0].Create(_T("EOTF"), WS_CHILD, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_drmL[0].SetFont(font);
+		CPoint cp = M.at(CX, y); m_drm[0].Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(90)), this, IDC_PGEN_DRM_BASE + 0); m_drm[0].SetFont(font);
 		for (int j = 0; j < 4; j++) m_drm[0].AddString(kPgEO[j]);
 		int sel = 0; for (int j = 0; j < 4; j++) if (kPgEOv[j] == st.eotf) { sel = j; break; }
 		m_drm[0].SetCurSel(sel); m_drmInit[0] = sel;
 	}
 	{
-		int y = Y0 + PITCH; CPoint lp = M.at(RX, y + 2); m_drmL[1].Create(_T("Primaries"), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(RW), lp.y + M.ht(9)), this); m_drmL[1].SetFont(font);
-		CPoint cp = M.at(RCX, y); m_drm[1].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(RCW), cp.y + M.ht(90)), this, IDC_PGEN_DRM_BASE + 1); m_drm[1].SetFont(font);
+		int y = Y0 + 8 * PITCH + 2; CPoint lp = M.at(LX, y + 2); m_drmL[1].Create(LS(IDS_PGEN_PRIMARIES), WS_CHILD, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_drmL[1].SetFont(font);
+		CPoint cp = M.at(CX, y); m_drm[1].Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(90)), this, IDC_PGEN_DRM_BASE + 1); m_drm[1].SetFont(font);
 		for (int j = 0; j < 5; j++) m_drm[1].AddString(kPgPR[j]);
 		int sel = 0; for (int j = 0; j < 5; j++) if (kPgPRv[j] == st.primaries) { sel = j; break; }
 		m_drm[1].SetCurSel(sel); m_drmInit[1] = sel;
@@ -705,21 +750,23 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 		edTxt[3].Format(_T("%d"), st.maxFall);
 		for (int i = 0; i < 4; i++)
 		{
-			int y = Y0 + (i + 2) * PITCH;
-			CPoint lp = M.at(RX, y + 2); m_edL[i].Create(edLbl[i], WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(RW), lp.y + M.ht(9)), this); m_edL[i].SetFont(font);
-			CPoint cp = M.at(RCX, y); m_ed[i].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL, CRect(cp.x, cp.y, cp.x + M.w(RCW), cp.y + M.ht(12)), this, IDC_PGEN_EDIT_BASE + i); m_ed[i].SetFont(font);
+			int y = Y0 + (i + 9) * PITCH + 2;
+			CPoint lp = M.at(LX, y + 2); m_edL[i].Create(edLbl[i], WS_CHILD, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_edL[i].SetFont(font);
+			CPoint cp = M.at(CX, y); m_ed[i].Create(WS_CHILD | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(12)), this, IDC_PGEN_EDIT_BASE + i); m_ed[i].SetFont(font);
 			m_ed[i].SetWindowText(edTxt[i]); m_edInit[i] = edTxt[i];
 		}
 	}
-
-	{ CPoint p = M.at(172, 14); CPoint p2 = M.at(172, Y0 + 7 * PITCH); m_divider.Create(_T(""), WS_CHILD | WS_VISIBLE | SS_ETCHEDVERT, CRect(p.x, p.y, p.x + 2, p2.y), this); }
-
-	int by = Y0 + 7 * PITCH + 4;
-	if (GetDlgItem(IDOK)) { CPoint p = M.at(232, by); GetDlgItem(IDOK)->MoveWindow(p.x, p.y, M.w(46), M.ht(14)); GetDlgItem(IDOK)->SetFont(font); GetDlgItem(IDOK)->SetWindowText(LS(IDS_PGEN_APPLY)); }
-	if (GetDlgItem(IDCANCEL)) { CPoint p = M.at(282, by); GetDlgItem(IDCANCEL)->MoveWindow(p.x, p.y, M.w(46), M.ht(14)); GetDlgItem(IDCANCEL)->SetFont(font); GetDlgItem(IDCANCEL)->SetWindowText(LS(IDS_PGEN_CLOSE)); }
-	{ CPoint p = M.at(LX, by); m_rebootBtn.Create(LS(IDS_PGEN_REBOOT), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(42), p.y + M.ht(14)), this, IDC_PGEN_REBOOT_BTN); m_rebootBtn.SetFont(font); }
-	{ CPoint p = M.at(50, by); m_restartBtn.Create(LS(IDS_PGEN_RESTART_SW), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(76), p.y + M.ht(14)), this, IDC_PGEN_RESTART_BTN); m_restartBtn.SetFont(font); }
-	{ CPoint p = M.at(130, by); m_shutdownBtn.Create(_T("Shutdown"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(48), p.y + M.ht(14)), this, IDC_PGEN_SHUTDOWN_BTN); m_shutdownBtn.SetFont(font); }
+	if (!m_glyphFontBig.GetSafeHandle()) PgMakeGlyphFont(m_glyphFontBig, 9);
+	PgMakeGlyphBtn(m_rebootBtn, this, m_glyphFontBig, IDC_PGEN_REBOOT_BTN, L"\xE777", M.at(LX, Y0), M.w(18), M.ht(14));
+	PgMakeGlyphBtn(m_restartBtn, this, m_glyphFont, IDC_PGEN_RESTART_BTN, L"\xE895", M.at(LX, Y0), M.w(18), M.ht(14));
+	PgMakeGlyphBtn(m_shutdownBtn, this, m_glyphFont, IDC_PGEN_SHUTDOWN_BTN, L"\xE7E8", M.at(LX, Y0), M.w(18), M.ht(14));
+	if (GetDlgItem(IDOK)) { GetDlgItem(IDOK)->SetFont(font); GetDlgItem(IDOK)->SetWindowText(LS(IDS_PGEN_APPLY)); }
+	if (GetDlgItem(IDCANCEL)) { GetDlgItem(IDCANCEL)->SetFont(font); GetDlgItem(IDCANCEL)->SetWindowText(LS(IDS_PGEN_CLOSE)); }
+	m_tip.Create(this);
+	m_tip.AddTool(&m_rebootBtn, LS(IDS_PGEN_REBOOT));
+	m_tip.AddTool(&m_restartBtn, LS(IDS_PGEN_RESTART_SW));
+	m_tip.AddTool(&m_shutdownBtn, LS(IDS_PGEN_SHUTDOWN));
+	m_tip.Activate(TRUE);
 
 	UpdateDynRangeState();
 	return TRUE;
@@ -799,9 +846,28 @@ void CPGenSettingsDlg::UpdateDynRangeState()
 	if (m_doviCombo.GetSafeHwnd()) m_doviCombo.ShowWindow(sw);
 	int dsw = isHdr ? SW_SHOW : SW_HIDE;
 	if (m_hdrDrm.GetSafeHwnd()) m_hdrDrm.ShowWindow(dsw);
+	if (m_hdrDrmLine.GetSafeHwnd()) m_hdrDrmLine.ShowWindow(dsw);
 	for (int i = 0; i < 2; i++) { if (m_drm[i].GetSafeHwnd()) m_drm[i].ShowWindow(dsw); if (m_drmL[i].GetSafeHwnd()) m_drmL[i].ShowWindow(dsw); }
 	for (int i = 0; i < 4; i++) { if (m_ed[i].GetSafeHwnd()) m_ed[i].ShowWindow(dsw); if (m_edL[i].GetSafeHwnd()) m_edL[i].ShowWindow(dsw); }
 	if (!isDovi) UpdateRangeState();
+
+	DlgMap M; M.h = GetSafeHwnd();
+	const int Y0r = 20, PITCHr = 14;
+	int cbot;
+	if (isHdr) cbot = Y0r + 13 * PITCHr + 2;
+	else if (isDovi) cbot = Y0r + 7 * PITCHr;
+	else cbot = Y0r + 6 * PITCHr;
+	int by = cbot + 4;
+	if (m_rebootBtn.GetSafeHwnd()) { CPoint p = M.at(8, by); m_rebootBtn.MoveWindow(p.x, p.y, M.w(18), M.ht(14)); }
+	if (m_restartBtn.GetSafeHwnd()) { CPoint p = M.at(28, by); m_restartBtn.MoveWindow(p.x, p.y, M.w(18), M.ht(14)); }
+	if (m_shutdownBtn.GetSafeHwnd()) { CPoint p = M.at(48, by); m_shutdownBtn.MoveWindow(p.x, p.y, M.w(18), M.ht(14)); }
+	if (GetDlgItem(IDOK)) { CPoint p = M.at(96, by); GetDlgItem(IDOK)->MoveWindow(p.x, p.y, M.w(48), M.ht(14)); }
+	if (GetDlgItem(IDCANCEL)) { CPoint p = M.at(148, by); GetDlgItem(IDCANCEL)->MoveWindow(p.x, p.y, M.w(48), M.ht(14)); }
+	CRect wr, cr; GetWindowRect(wr); GetClientRect(cr);
+	int newW = M.w(200) + (wr.Width() - cr.Width());
+	int newH = M.at(0, by + 20).y + (wr.Height() - cr.Height());
+	SetWindowPos(NULL, 0, 0, newW, newH, SWP_NOMOVE | SWP_NOZORDER);
+	CenterWindow();
 }
 
 void CPGenSettingsDlg::OnReboot()
@@ -822,10 +888,22 @@ void CPGenSettingsDlg::OnRestartSw()
 
 void CPGenSettingsDlg::OnShutdown()
 {
-	if (AfxMessageBox(_T("Shut down the PGenerator now?"), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+	if (AfxMessageBox(LS(IDS_PGEN_SHUTDOWN_CONFIRM), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
 	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("CMD:HALT"); }
 	m_action = 2;
 	CDialog::OnCancel();
+}
+
+BOOL CPGenSettingsDlg::PreTranslateMessage(MSG* pMsg)
+{
+	if (m_tip.GetSafeHwnd()) m_tip.RelayEvent(pMsg);
+	return CDialog::PreTranslateMessage(pMsg);
+}
+
+BOOL CGDIGenePropPage::PreTranslateMessage(MSG* pMsg)
+{
+	if (m_pageTip.GetSafeHwnd()) m_pageTip.RelayEvent(pMsg);
+	return CPropertyPageWithHelp::PreTranslateMessage(pMsg);
 }
 
 void CGDIGenePropPage::OnPgenRefresh()
@@ -840,7 +918,7 @@ void CGDIGenePropPage::ShowPgenDisconnected()
 	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(FALSE);
 	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(FALSE);
 	if (GetDlgItem(IDC_DISP_TRIP3)) GetDlgItem(IDC_DISP_TRIP3)->EnableWindow(FALSE);
-	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.SetWindowText(_T("No PGenerator connected. Press Refresh to search."));
+	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.SetWindowText(LS(IDS_PGEN_ST_NOTCONN));
 }
 
 void CGDIGenePropPage::OnPgenSettings()

@@ -119,6 +119,9 @@ protected:
 	afx_msg void OnPgenSettings();
 	afx_msg void OnPgenRefresh();
 	afx_msg LRESULT OnPgenQueryDone(WPARAM, LPARAM);
+	CFont m_glyphFont;
+	CToolTipCtrl m_pageTip;
+	virtual BOOL PreTranslateMessage(MSG* pMsg);
 	DECLARE_MESSAGE_MAP()
 
 	void BuildRuntimeLayout();
@@ -155,6 +158,7 @@ protected:
 	CButton m_restartBtn;
 	CButton m_shutdownBtn;
 	CStatic m_hdrAvi, m_hdrDrm, m_divider;
+	CStatic m_hdrAviLine, m_hdrDrmLine;
 	virtual BOOL OnInitDialog();
 	virtual void OnOK();
 	afx_msg void OnFormatChanged();
@@ -164,6 +168,10 @@ protected:
 	afx_msg void OnShutdown();
 	afx_msg void OnDynRangeChanged();
 	void UpdateDynRangeState();
+	CFont m_glyphFont;
+	CToolTipCtrl m_tip;
+	CFont m_glyphFontBig;
+	virtual BOOL PreTranslateMessage(MSG* pMsg);
 	DECLARE_MESSAGE_MAP()
 };
 
