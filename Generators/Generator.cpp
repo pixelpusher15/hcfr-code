@@ -334,6 +334,8 @@ BOOL CGenerator::ApplyPGeneratorConf(const CStringArray& cmds)
 	return TRUE;
 }
 
+// Decodes the base64 body of a PGenerator GET_MODES_AVAILABLE reply.
+// Wire framing: OK: prefix + base64 payload, terminated by the STX (0x02) frame byte.
 static CStringA PgenB64Decode(const CStringA& in)
 {
 	signed char rev[256];
@@ -474,7 +476,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 	BOOL madVR_Found;
-	char *	m_piIP = "";
+	const char *	m_piIP = "";
 	if (m_name != str)
 	{
 		if (Cgen.m_nDisplayMode == DISPLAY_rPI)
@@ -497,14 +499,14 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 						for (int i = 0; i < 10; i++)
 						{
 							m_piIP = _RB8PG_discovery();
-							if (strlen(m_piIP) > 5)
+							if (m_piIP && strlen(m_piIP) > 5)
 								break;
 							else
 								Sleep(200);
 						}
 					}
 								
-					if(strlen(m_piIP) > 5)
+					if(m_piIP && strlen(m_piIP) > 5)
 					{
 						CString cs = m_piIP;
 						if (_RB8PG_connect)
@@ -549,7 +551,6 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 								cs6=cs4.Mid(3);
 								cs6.Remove('M');
 								rPi_memSize = atoi(cs6);
-								GetConfig()->WriteProfileInt("GDIGenerator", "rPiSock", sock);
 								GetConfig()->WriteProfileInt("GDIGenerator", "rPiGPU", rPi_memSize);
 								GetConfig()->WriteProfileInt("GDIGenerator", "rPiWidth", rPi_xWidth);
 								GetConfig()->WriteProfileInt("GDIGenerator", "rPiHeight", rPi_yHeight);
@@ -1097,7 +1098,6 @@ BOOL CGenerator::Release(INT nbNext)
 				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error communicating with PGenerator", "Error", MB_ICONINFORMATION);
 
 			sock = NULL;
-			GetConfig()->WriteProfileInt("GDIGenerator", "rPiSock", 0);
 			GetConfig()->WriteProfileInt("GDIGenerator", "rPiGPU", 0);
 			FreeLibrary(hInstLibrary);
 	}

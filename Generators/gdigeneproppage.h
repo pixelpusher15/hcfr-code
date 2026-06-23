@@ -120,6 +120,7 @@ protected:
 	afx_msg void OnUserPatternClick();
 	afx_msg void OnPgenSettings();
 	afx_msg void OnPgenRefresh();
+	afx_msg void OnDestroy();
 	afx_msg LRESULT OnPgenQueryDone(WPARAM, LPARAM);
 	CFont m_glyphFont;
 	CToolTipCtrl m_pageTip;
@@ -170,6 +171,7 @@ protected:
 	afx_msg void OnShutdown();
 	afx_msg void OnDynRangeChanged();
 	void UpdateDynRangeState();
+	afx_msg void OnDestroy();
 	CFont m_glyphFont;
 	CToolTipCtrl m_tip;
 	CFont m_glyphFontBig;

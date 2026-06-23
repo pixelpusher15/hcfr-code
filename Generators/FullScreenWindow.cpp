@@ -54,6 +54,7 @@ CFullScreenWindow::CFullScreenWindow(BOOL bTestOverlay)
 
 	m_Color = 0;
 	m_nPat = 0;
+	m_rPiSock = 0;
 	m_ansiCcast = -1;
 	m_bTestOverlay = bTestOverlay;
 	m_rectSizePercent = GetConfig()->GetProfileInt("GDIGenerator","SizePercent",10);
@@ -1254,7 +1255,7 @@ void video_scale (CxImage *inImage)
 		int			iW, iH;
 		int			destW = rect.Width();
 		int			destH = rect.Height();
-		bool		isScaled;
+		bool		isScaled = FALSE;
 		
 		CxImage* newImage = new CxImage();
 
@@ -1397,7 +1398,7 @@ void video_scale (CxImage *inImage)
 		{
 				typedef int (__stdcall *RB8PG_send)(SOCKET sock,const char *message);
 				RB8PG_send	 _RB8PG_send;
-				SOCKET sock = GetConfig()->GetProfileInt("GDIGenerator", "rPiSock", 0);
+				SOCKET sock = (SOCKET)m_rPiSock;
 				int rPi_memSize = GetConfig()->GetProfileInt("GDIGenerator", "rPiGPU", 0);
 				int rPi_x = GetConfig()->GetProfileInt("GDIGenerator", "rPiWidth", 1920);
 				int rPi_y = GetConfig()->GetProfileInt("GDIGenerator", "rPiHeight", 1080);
@@ -1438,7 +1439,7 @@ void video_scale (CxImage *inImage)
 							}
 							case IDR_PATTERN_USER5:
 							{
-								Pat = "RGB=IMAGE;"+x+","+y+","+";255,255,255;0,0,0;-1,-1;/var/lib/PGenerator/images/user5.png";
+								Pat = "RGB=IMAGE;"+x+","+y+","+";100;255,255,255;0,0,0;-1,-1;/var/lib/PGenerator/images/user5.png";
 								isUser = TRUE;
 								break;
 							}
@@ -1463,7 +1464,7 @@ void video_scale (CxImage *inImage)
 								HINSTANCE hInstLibrary;
 								hInstLibrary = LoadLibrary("RB8PGenerator.dll");
 								_RB8PG_send = (RB8PG_send)GetProcAddress(hInstLibrary, "RB8PG_send@8");
-								_RB8PG_send(sock,(Pat+patterns[index]));
+								if (_RB8PG_send) _RB8PG_send(sock,(Pat+patterns[index]));
 								FreeLibrary(hInstLibrary);
 							}
 						}
@@ -1472,7 +1473,7 @@ void video_scale (CxImage *inImage)
 							HINSTANCE hInstLibrary;
 							hInstLibrary = LoadLibrary("RB8PGenerator.dll");
 							_RB8PG_send = (RB8PG_send)GetProcAddress(hInstLibrary, "RB8PG_send@8");
-							_RB8PG_send(sock,Pat);
+							if (_RB8PG_send) _RB8PG_send(sock,Pat);
 							FreeLibrary(hInstLibrary);
 						}
 					}

@@ -97,6 +97,7 @@ public:
 	BOOL					m_bColorPattern;
 	BOOL					m_bPatternPict;
 	UINT					m_uiPictRess;
+	UINT_PTR				m_rPiSock;
 	HMODULE					m_hPatternInst;
 	BOOL					m_bResizePict;
 	HWND					hWnd;

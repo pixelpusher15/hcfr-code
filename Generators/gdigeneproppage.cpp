@@ -111,6 +111,9 @@ void CGDIGenePropPage::DoDataExchange(CDataExchange* pDX)
 
 #define WM_PGEN_QUERY_DONE (WM_USER + 172)
 
+#define IDC_PGEN_FORMAT_COMBO   (IDC_PGEN_AVI_BASE + 1)
+#define IDC_PGEN_DYNRANGE_COMBO (IDC_PGEN_AVI_BASE + 5)
+
 BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	//{{AFX_MSG_MAP(CGDIGenePropPage)
 	ON_BN_CLICKED(IDC_OVERLAY, OnTestOverlay)
@@ -122,6 +125,7 @@ BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	ON_BN_CLICKED(IDC_PGEN_REFRESH_BTN, OnPgenRefresh)
 	ON_MESSAGE(WM_PGEN_QUERY_DONE, OnPgenQueryDone)
 	ON_WM_CTLCOLOR()
+	ON_WM_DESTROY()
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -172,7 +176,7 @@ static void PgMakeGlyphFont(CFont& f, int pt = 9)
 }
 static void PgMakeGlyphBtn(CButton& btn, CWnd* parent, CFont& gf, int id, const wchar_t* glyph, CPoint pt, int w, int h, DWORD exStyle = 0)
 {
-	if (btn.GetSafeHwnd()) btn.DestroyWindow();
+	{ HWND old = btn.Detach(); if (old) ::DestroyWindow(old); }
 	HWND hh = ::CreateWindowExW(exStyle, L"BUTTON", glyph, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, pt.x, pt.y, w, h, parent->GetSafeHwnd(), (HMENU)(INT_PTR)id, AfxGetInstanceHandle(), NULL);
 	if (hh) { btn.Attach(hh); ::SendMessageW(hh, WM_SETFONT, (WPARAM)gf.GetSafeHandle(), TRUE); }
 }
@@ -385,7 +389,6 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 		m_pgenSettingsBtn.Create(LS(IDS_GEN_PGEN_SETTINGS), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(spt.x, spt.y, spt.x + M.w(106), spt.y + M.ht(14)), this, IDC_PGEN_SETTINGS_BTN);
 		m_pgenSettingsBtn.SetFont(font);
 	}
-	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.DestroyWindow();
 	{
 		CPoint rfp = M.at(LBL_X, 130);
 		if (!m_glyphFont.GetSafeHandle()) PgMakeGlyphFont(m_glyphFont);
@@ -659,11 +662,12 @@ LRESULT CGDIGenePropPage::OnPgenQueryDone(WPARAM, LPARAM lp)
 }
 
 BEGIN_MESSAGE_MAP(CPGenSettingsDlg, CDialog)
-	ON_CBN_SELCHANGE(IDC_PGEN_AVI_BASE + 1, OnFormatChanged)
-	ON_CBN_SELCHANGE(IDC_PGEN_AVI_BASE + 5, OnDynRangeChanged)
+	ON_CBN_SELCHANGE(IDC_PGEN_FORMAT_COMBO, OnFormatChanged)
+	ON_CBN_SELCHANGE(IDC_PGEN_DYNRANGE_COMBO, OnDynRangeChanged)
 	ON_BN_CLICKED(IDC_PGEN_REBOOT_BTN, OnReboot)
 	ON_BN_CLICKED(IDC_PGEN_RESTART_BTN, OnRestartSw)
 	ON_BN_CLICKED(IDC_PGEN_SHUTDOWN_BTN, OnShutdown)
+	ON_WM_DESTROY()
 END_MESSAGE_MAP()
 
 CPGenSettingsDlg::CPGenSettingsDlg(CWnd* pParent) : CDialog(CPGenSettingsDlg::IDD, pParent)
@@ -945,6 +949,20 @@ HBRUSH CGDIGenePropPage::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 	return hbr;
 }
 
+void CPGenSettingsDlg::OnDestroy()
+{
+	if (m_rebootBtn.GetSafeHwnd()) m_rebootBtn.Detach();
+	if (m_restartBtn.GetSafeHwnd()) m_restartBtn.Detach();
+	if (m_shutdownBtn.GetSafeHwnd()) m_shutdownBtn.Detach();
+	CDialog::OnDestroy();
+}
+
+void CGDIGenePropPage::OnDestroy()
+{
+	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.Detach();
+	CPropertyPageWithHelp::OnDestroy();
+}
+
 void CGDIGenePropPage::OnPgenRefresh()
 {
 	CGenerator::InvalidatePGenCache();
@@ -998,9 +1016,8 @@ void CGDIGenePropPage::OnOK()
 	GetConfig()->WriteProfileInt("GDIGenerator","EnableHDR10",m_bHdr10);
 	if (m_nDisplayMode == DISPLAY_ccast && m_castHasDevice)
 	{
-		char nameBuf[1024];
-		m_cCastComboCtrl.GetWindowTextA(nameBuf, 1024);
-		GetConfig()->WriteProfileInt("GDIGenerator","CCastIp",m_GCast.getCcastIpAddress(m_GCast[nameBuf]));
+		CString name; m_cCastComboCtrl.GetWindowText(name);
+		GetConfig()->WriteProfileInt("GDIGenerator","CCastIp",m_GCast.getCcastIpAddress(m_GCast[(LPCTSTR)name]));
 	}
 
 	if (GetConfig()->m_GammaOffsetType == 5)
