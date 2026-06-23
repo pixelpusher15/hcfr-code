@@ -92,6 +92,8 @@ public:
 	CButton		m_pgenSettingsBtn;
 	CButton m_pgenRefreshBtn;
 	BOOL m_pgenQuerying;
+	CBrush m_roBrush;
+	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
 
 	virtual UINT GetHelpId ( LPSTR lpszTopic );
 

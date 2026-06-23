@@ -121,6 +121,7 @@ BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	ON_BN_CLICKED(IDC_PGEN_SETTINGS_BTN, OnPgenSettings)
 	ON_BN_CLICKED(IDC_PGEN_REFRESH_BTN, OnPgenRefresh)
 	ON_MESSAGE(WM_PGEN_QUERY_DONE, OnPgenQueryDone)
+	ON_WM_CTLCOLOR()
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -189,6 +190,31 @@ static void PgHeaderRule(CWnd* parent, CStatic& line, CStatic& lbl, CFont* font,
 	if (line.GetSafeHwnd()) line.DestroyWindow();
 	DWORD st = WS_CHILD | SS_ETCHEDHORZ; if (visible) st |= WS_VISIBLE;
 	line.Create(_T(""), st, CRect(x1, yc, rightPx, yc + 2), parent);
+}
+
+static LRESULT CALLBACK PgReadoutProc(HWND h, UINT msg, WPARAM w, LPARAM l, UINT_PTR id, DWORD_PTR ref)
+{
+	if (msg == WM_NCDESTROY) { ::RemoveWindowSubclass(h, PgReadoutProc, id); return ::DefSubclassProc(h, msg, w, l); }
+	if (msg == WM_SIZE)
+	{
+		LRESULT r = ::DefSubclassProc(h, msg, w, l);
+		RECT rc; ::GetClientRect(h, &rc);
+		RECT fr; fr.left = 7; fr.top = 4; fr.right = rc.right - 5; fr.bottom = rc.bottom;
+		::SendMessage(h, EM_SETRECTNP, 0, (LPARAM)&fr);
+		return r;
+	}
+	if (msg == WM_PAINT)
+	{
+		LRESULT r = ::DefSubclassProc(h, msg, w, l);
+		RECT rc; ::GetClientRect(h, &rc);
+		HDC dc = ::GetDC(h);
+		HBRUSH bbr = ::CreateSolidBrush(RGB(207, 224, 243));
+		::FrameRect(dc, &rc, bbr);
+		::DeleteObject(bbr);
+		::ReleaseDC(h, dc);
+		return r;
+	}
+	return ::DefSubclassProc(h, msg, w, l);
 }
 
 static CStatic* AddText(CWnd* pg, CObArray& all, CFont* font, DlgMap& M,
@@ -347,10 +373,11 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.DestroyWindow();
 	{
 		CPoint rpt = M.at(LBL_X, 40);
-		m_pgenReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP | WS_BORDER, CRect(rpt.x, rpt.y, rpt.x + M.w(166), rpt.y + M.ht(80)), this, IDC_PGEN_READOUT);
+		m_pgenReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP, CRect(rpt.x, rpt.y, rpt.x + M.w(166), rpt.y + M.ht(80)), this, IDC_PGEN_READOUT);
 		m_pgenReadout.SetFont(font);
 		{ int pgtab = 80; m_pgenReadout.SendMessage(EM_SETTABSTOPS, 1, (LPARAM)&pgtab); }
 		m_pgenReadout.SetWindowText(_T("PGenerator device info will appear here."));
+		::SetWindowSubclass(m_pgenReadout.GetSafeHwnd(), PgReadoutProc, 1, 0);
 	}
 	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.DestroyWindow();
 	{
@@ -453,7 +480,7 @@ void CGDIGenePropPage::Relayout()
 	{
 		int top = y, cy = top + TOP_INSET;
 		int innerLeftPx = M.at(LBL_X, cy).x;
-		int innerW = grpRightPx - M.w(3) - innerLeftPx;
+		int innerW = grpRightPx - M.w(7) - innerLeftPx;
 		{ CPoint rp = M.at(LBL_X, cy); m_pgenReadout.MoveWindow(rp.x, rp.y, innerW, M.ht(78)); m_pgenReadout.ShowWindow(SW_SHOW); }
 		cy += 82;
 		{ CPoint bp = M.at(LBL_X, cy); m_pgenSettingsBtn.MoveWindow(bp.x, bp.y, M.w(106), M.ht(14)); m_pgenSettingsBtn.ShowWindow(SW_SHOW); }
@@ -904,6 +931,18 @@ BOOL CGDIGenePropPage::PreTranslateMessage(MSG* pMsg)
 {
 	if (m_pageTip.GetSafeHwnd()) m_pageTip.RelayEvent(pMsg);
 	return CPropertyPageWithHelp::PreTranslateMessage(pMsg);
+}
+
+HBRUSH CGDIGenePropPage::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
+{
+	HBRUSH hbr = CPropertyPageWithHelp::OnCtlColor(pDC, pWnd, nCtlColor);
+	if (pWnd && pWnd->GetDlgCtrlID() == IDC_PGEN_READOUT)
+	{
+		if (!m_roBrush.GetSafeHandle()) m_roBrush.CreateSolidBrush(RGB(238, 244, 251));
+		pDC->SetBkColor(RGB(238, 244, 251));
+		return (HBRUSH)m_roBrush.GetSafeHandle();
+	}
+	return hbr;
 }
 
 void CGDIGenePropPage::OnPgenRefresh()
