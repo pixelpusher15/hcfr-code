@@ -483,6 +483,15 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 		{
 			int x2 = Cgen.m_offsetx;
 			int y2 = Cgen.m_offsety;
+			if (sock)
+			{
+				CStringA _vp = PgSend(sock, "CMD:GET_PGENERATOR_VERSION");
+				if (_vp.Find("OK") < 0)
+				{
+					PgSafeClose(_RB8PG_close, sock);
+					sock = (SOCKET)0;
+				}
+			}
 			if (!sock) //initialization
 			{
 				hInstLibrary = LoadLibrary("RB8PGenerator.dll");
@@ -496,13 +505,11 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 
 					if (_RB8PG_discovery)
 					{
-						for (int i = 0; i < 10; i++)
+						for (int i = 0; i < 2; i++)
 						{
 							m_piIP = _RB8PG_discovery();
 							if (m_piIP && strlen(m_piIP) > 5)
 								break;
-							else
-								Sleep(200);
 						}
 					}
 								
@@ -517,6 +524,11 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 							return false;
 						}
 
+						if (!sock)
+						{
+							m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "    ** PGenerator not found on the network **", "Error", MB_ICONERROR);
+							return false;
+						}
 						if (sock)
 						{
 							if (_RB8PG_send)
