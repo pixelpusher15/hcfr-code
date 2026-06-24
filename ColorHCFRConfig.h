@@ -168,6 +168,17 @@ public:
 
 	void DisplayHelp ( UINT nId, LPCSTR lpszTopic );
 	void EnsurePathExists ( CString strPath );
+
+	// --- High-DPI support (Phase 0) --------------------------------------
+	// 96 DPI == 100% scaling. GetDpiForHWND prefers the per-monitor Win10
+	// GetDpiForWindow API (resolved dynamically because we target Win7 SDK
+	// headers) and falls back to the process / system DPI. Scale() converts
+	// a value authored at 96 DPI to the current DPI.
+	// IMPORTANT: never use this UI scale to size the measurement pattern
+	// surface -- that must come from the target monitor's physical rect
+	// (see Generators/FullScreenWindow).
+	int  GetDpiForHWND(HWND hWnd = NULL);
+	int  Scale(int px, HWND hWnd = NULL);
 	CReferencesPropPage m_referencesPropertiesPage;
 	CAdvancedPropPage m_advancedPropertiesPage;
 

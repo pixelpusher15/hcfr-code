@@ -413,6 +413,42 @@ void CColorHCFRConfig::InitDefaults()
 	isHighDPI = FALSE;
 }
 
+int CColorHCFRConfig::GetDpiForHWND(HWND hWnd)
+{
+	// GetDpiForWindow is Windows 10 1607+ and is not declared by our Win7 SDK
+	// target, so resolve it dynamically (same approach as the uxtheme calls in
+	// Tools/fxcolor.cpp).
+	typedef UINT (WINAPI * GetDpiForWindowFn)(HWND);
+	static GetDpiForWindowFn pGetDpiForWindow =
+		(GetDpiForWindowFn) GetProcAddress(GetModuleHandle(_T("user32.dll")), "GetDpiForWindow");
+
+	if (pGetDpiForWindow != NULL && hWnd != NULL && ::IsWindow(hWnd))
+	{
+		UINT dpi = pGetDpiForWindow(hWnd);
+		if (dpi >= 48)
+			return (int) dpi;
+	}
+
+	// Fallback: process / system DPI from a screen DC. A DPI-unaware process
+	// always reports 96 (virtualized); once awareness is declared this returns
+	// the real DPI.
+	int dpi = 96;
+	HDC hdc = ::GetDC(NULL);
+	if (hdc != NULL)
+	{
+		dpi = ::GetDeviceCaps(hdc, LOGPIXELSX);
+		::ReleaseDC(NULL, hdc);
+	}
+	if (dpi < 48)
+		dpi = 96;
+	return dpi;
+}
+
+int CColorHCFRConfig::Scale(int px, HWND hWnd)
+{
+	return MulDiv(px, GetDpiForHWND(hWnd), 96);
+}
+
 BOOL CColorHCFRConfig::LoadSettings()
 {
 	m_doMultipleInstance=GetProfileInt("General","DoMultipleInstance",FALSE);
@@ -496,7 +532,12 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_dE_gray = GetProfileInt("Advanced","dE_gray",2);
 	gw_Weight = GetProfileInt("Advanced","gw_Weight",0);
 	if (!m_bDisableHighDPI)
-		isHighDPI = ((GetSystemMetrics(SM_CXSCREEN) > 1920) && (GetSystemMetrics(SM_CYSCREEN) > 1080));
+		// Fire the coarse legacy font/tab-size bump on a real DPI scale of >=150%
+		// (meaningful once DPI awareness is declared) OR on the legacy >1080p
+		// resolution heuristic, so existing 4K users keep the bump and 1080p@150%
+		// users gain it.
+		isHighDPI = ( GetDpiForHWND(NULL) >= 144 )
+			|| ( (GetSystemMetrics(SM_CXSCREEN) > 1920) && (GetSystemMetrics(SM_CYSCREEN) > 1080) );
 
 	CString	Msg;
 	m_generatorTypes.clear();

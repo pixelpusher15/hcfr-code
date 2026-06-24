@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  ColorHCFR application manifest.
+
+  High-DPI support, Phase A: declare the process DPI-aware so Windows renders
+  the UI at physical pixels instead of bitmap-stretching it (blurry) on display
+  scaling > 100%.
+
+  <dpiAware>true</dpiAware> == System-DPI-aware (one scale, chosen at login from
+  the primary monitor). This is the Phase A target.
+
+  Phase B (Per-Monitor-V2) will replace the windowsSettings block below with:
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
+  and requires WM_DPICHANGED handling + manual rescale of the owner-drawn
+  controls (see findings/HIGHDPI-PLAN.md). Do NOT enable PMv2 here until that
+  work lands.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+    </windowsSettings>
+  </application>
+</assembly>
