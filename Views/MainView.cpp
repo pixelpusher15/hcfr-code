@@ -5892,10 +5892,7 @@ void CMainView::InitButtons()
 	CString	Msg, Msg2;
 
 	Msg.LoadString ( IDS_CONFIGURESENSOR );
-	if (GetConfig()->isHighDPI)
-		m_configSensorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-sensor"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
-	else
-		m_configSensorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-sensor"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
+	m_configSensorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-sensor"),(fxUseCustomColor!=FALSE),GetConfig()->Scale(16),GetConfig()->Scale(16)),(HICON)NULL);
 	m_configSensorButton.SetFont(GetFont());
 	m_configSensorButton.EnableBalloonTooltip();
 	m_configSensorButton.SetTooltipText(Msg);
@@ -5948,10 +5945,7 @@ void CMainView::InitButtons()
 //	m_configSensorButton.DrawTransparent(TRUE);
 
 	Msg.LoadString ( IDS_CONFIGUREGENERATOR );
-	if (GetConfig()->isHighDPI)
-		m_configGeneratorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-generator"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
-	else
-		m_configGeneratorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-generator"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
+	m_configGeneratorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-generator"),(fxUseCustomColor!=FALSE),GetConfig()->Scale(16),GetConfig()->Scale(16)),(HICON)NULL);
 	m_configGeneratorButton.SetFont(GetFont());
 	m_configGeneratorButton.EnableBalloonTooltip();
 	m_configGeneratorButton.SetTooltipText(Msg);
@@ -6032,7 +6026,7 @@ void CMainView::InitButtons()
 
 	CFont m_Font;
 	m_Font.Detach();
-	m_Font.CreateFont(8, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,0,PROOF_QUALITY,0, "Tahoma");
+	m_Font.CreateFont(GetConfig()->Scale(8), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,0,PROOF_QUALITY,0, "Tahoma");
 
 	m_Ccomp.SetFont(&m_Font);
 	m_Ccomp3.SetFont(&m_Font);
@@ -6050,7 +6044,7 @@ void CMainView::InitButtons()
 	m_Font.DeleteObject();
 
 	line_Font.DeleteObject();
-	line_Font.CreateFontA(17,0,0,0,FW_SEMIBOLD,0,0,0,0,0,0,PROOF_QUALITY,VARIABLE_PITCH,_T("ARIAL"));
+	line_Font.CreateFontA(GetConfig()->ScaleFloor(14,17),0,0,0,FW_SEMIBOLD,0,0,0,0,0,0,PROOF_QUALITY,VARIABLE_PITCH,_T("ARIAL"));
 	m_refInfo.SetFont(&line_Font);
 
     GetDlgItem( IDC_INFOLINE )->SetFont( &line_Font );

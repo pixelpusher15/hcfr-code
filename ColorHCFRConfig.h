@@ -179,6 +179,7 @@ public:
 	// (see Generators/FullScreenWindow).
 	int  GetDpiForHWND(HWND hWnd = NULL);
 	int  Scale(int px, HWND hWnd = NULL);
+	int  ScaleFloor(int px, int floorPx, HWND hWnd = NULL);
 	CReferencesPropPage m_referencesPropertiesPage;
 	CAdvancedPropPage m_advancedPropertiesPage;
 

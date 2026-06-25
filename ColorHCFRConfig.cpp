@@ -449,6 +449,12 @@ int CColorHCFRConfig::Scale(int px, HWND hWnd)
 	return MulDiv(px, GetDpiForHWND(hWnd), 96);
 }
 
+int CColorHCFRConfig::ScaleFloor(int px, int floorPx, HWND hWnd)
+{
+	int v = Scale(px, hWnd);
+	return (v < floorPx) ? floorPx : v;
+}
+
 BOOL CColorHCFRConfig::LoadSettings()
 {
 	m_doMultipleInstance=GetProfileInt("General","DoMultipleInstance",FALSE);

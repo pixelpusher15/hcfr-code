@@ -1486,8 +1486,7 @@ void CCustomTabCtrl::SetControlFont(const LOGFONT& lf, BOOL fRedraw)
 		m_FontSelected.m_hObject = NULL;
 	}
 
-	if (GetConfig()->isHighDPI)
-		lf_default.lfHeight = 28;
+	lf_default.lfHeight = GetConfig()->Scale(12);
 
 	if(!m_Font.CreateFontIndirect(&lf))
 		m_Font.CreateFontIndirect(&lf_default);
