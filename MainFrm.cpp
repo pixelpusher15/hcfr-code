@@ -69,6 +69,8 @@ IMPLEMENT_DYNAMIC(CMainFrame, CNewMDIFrameWnd)
 BEGIN_MESSAGE_MAP(CMainFrame, CNewMDIFrameWnd)
 	//{{AFX_MSG_MAP(CMainFrame)
 	ON_WM_CREATE()
+	ON_WM_SIZE()
+	ON_WM_TIMER()
 	ON_COMMAND(IDM_DUPLICATEDOC, OnDuplicateDoc)
 	ON_COMMAND(ID_VIEW_VIEW_BAR, OnViewViewBar)
 	ON_UPDATE_COMMAND_UI(ID_VIEW_VIEW_BAR, OnUpdateViewViewBar)
@@ -129,6 +131,7 @@ CMainFrame::CMainFrame()
 	m_measureToolbarID = IDR_MEDIUMTOOLBAR_MEASURES;
 	m_measureexToolbarID = IDR_MEDIUMTOOLBAR_MEASURES_EX;
 	m_measuresatToolbarID = IDR_MEDIUMTOOLBAR_MEASURES_SAT;
+	m_bInReflow = FALSE;
 //	m_strPane0StatusMsg.SetString("this is a test");
 }
 
@@ -296,9 +299,9 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	DockControlBar(&m_wndMenuBar);
 	DockControlBar(&m_wndToolBar);
 	DockControlBarNextTo(&m_wndToolBarMeasures,&m_wndToolBar);
-	DockControlBarNextTo(&m_wndToolBarViews,&m_wndToolBarMeasures);
-	DockControlBar(&m_wndToolBarMeasuresEx);
+	DockControlBarNextTo(&m_wndToolBarMeasuresEx,&m_wndToolBarMeasures);
 	DockControlBarNextTo(&m_wndToolBarMeasuresSat,&m_wndToolBarMeasuresEx);
+	DockControlBarNextTo(&m_wndToolBarViews,&m_wndToolBarMeasuresSat);
 
 	// Restore previous bar state
 	CString sProfile = _T("MeasureBarState");
@@ -324,6 +327,8 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 		m_DefaultNewMenu.LoadToolBar(IDR_MENUBARGRAPH);
 
 	RecalcLayout(FALSE);
+
+	ReflowToolbars();
 
 	// Clear initial lux value
 	m_wndStatusBar.SetPaneText ( m_wndStatusBar.CommandToIndex ( ID_LUX_VALUE ), "" );
@@ -439,6 +444,114 @@ void CMainFrame::DockControlBarNextTo(CControlBar* pBar,CControlBar* pTargetBar)
     pTargetBar->GetWindowRect(rBar);
     rBar.OffsetRect(bHorz ? 1 : 0, bHorz ? 0 : 1);
     pBar->MoveWindow(rBar);
+}
+
+static const UINT_PTR REFLOW_TIMER_ID = 0x52464C57;
+
+void CMainFrame::OnSize(UINT nType, int cx, int cy)
+{
+	CNewMDIFrameWnd::OnSize(nType, cx, cy);
+	// Debounce: reflow once the resize settles rather than on every WM_SIZE
+	// (running RecalcLayout per event made resizing laggy).
+	KillTimer(REFLOW_TIMER_ID);
+	SetTimer(REFLOW_TIMER_ID, 80, NULL);
+}
+
+void CMainFrame::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == REFLOW_TIMER_ID)
+	{
+		KillTimer(REFLOW_TIMER_ID);
+		ReflowToolbars();
+		return;
+	}
+	CNewMDIFrameWnd::OnTimer(nIDEvent);
+}
+
+// Pack the docked toolbars into as many rows as the current window width needs,
+// so they flow left-to-right and wrap when the window is too narrow. The user's
+// drag order is preserved (we read it back from the dock bar); only the row
+// breaks are recomputed.
+void CMainFrame::ReflowToolbars()
+{
+	if (m_bInReflow)
+		return;
+	CDockBar* pDock = (CDockBar*)GetControlBar(AFX_IDW_DOCKBAR_TOP);
+	if (pDock == NULL || !::IsWindow(pDock->GetSafeHwnd()))
+		return;
+
+	// Split the top dock's bars (in their current user order) into the toolbars we
+	// reflow and any other bars (e.g. the menu bar), which keep their own rows at
+	// the top. Reading the order back from m_arrBars preserves the user's drag order.
+	CPtrArray bars;     // toolbars to pack
+	CPtrArray others;   // non-toolbar bars (menu) left on their own rows
+	for (int i = 0; i < pDock->m_arrBars.GetSize(); i++)
+	{
+		CControlBar* pBar = (CControlBar*)pDock->m_arrBars[i];
+		if (pBar == NULL)
+			continue;
+		if (pBar->IsKindOf(RUNTIME_CLASS(CToolBar)))
+			bars.Add(pBar);
+		else
+			others.Add(pBar);
+	}
+	if (bars.GetSize() == 0)
+		return;
+
+	CRect rcClient;
+	GetClientRect(&rcClient);
+	const int avail = rcClient.Width();
+	if (avail <= 0)
+		return;
+
+	// Build the desired m_arrBars: a leading NULL (CDockBar requires m_arrBars[0]
+	// == NULL), each non-toolbar bar on its own row, then the toolbars greedily
+	// packed into as many rows as the width needs.
+	CPtrArray want;
+	want.Add(NULL);
+	for (int i = 0; i < others.GetSize(); i++)
+	{
+		want.Add(others[i]);
+		want.Add(NULL);
+	}
+	int rowW = 0;
+	for (int i = 0; i < bars.GetSize(); i++)
+	{
+		CControlBar* pBar = (CControlBar*)bars[i];
+		// Size each bar the way CDockBar's own layout does, so our wrap points
+		// match what actually gets rendered.
+		const int w = pBar->IsWindowVisible()
+			? pBar->CalcDynamicLayout(-1, LM_HORZ | LM_HORZDOCK).cx : 0;
+		if (rowW > 0 && rowW + w > avail)
+		{
+			want.Add(NULL);
+			rowW = 0;
+		}
+		want.Add(pBar);
+		rowW += w;
+	}
+	want.Add(NULL);
+
+	// Relayout only when the row structure actually changed (avoids churn/recursion).
+	BOOL same = (want.GetSize() == pDock->m_arrBars.GetSize());
+	for (int i = 0; same && i < want.GetSize(); i++)
+		if (want[i] != pDock->m_arrBars[i])
+			same = FALSE;
+	if (same)
+		return;
+
+	m_bInReflow = TRUE;
+	pDock->m_arrBars.RemoveAll();
+	pDock->m_arrBars.Append(want);
+	// CDockBar keeps each bar's current X if it sits right of the packed slot, so
+	// move every toolbar hard-left first to force clean left-packing of the rows.
+	for (int i = 0; i < bars.GetSize(); i++)
+		((CControlBar*)bars[i])->SetWindowPos(NULL, -2000, 0, 0, 0,
+			SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
+	RecalcLayout(FALSE);
+	// Repaint the whole dock so a bar that moved between rows leaves no ghost.
+	pDock->RedrawWindow(NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+	m_bInReflow = FALSE;
 }
 
 LRESULT CMainFrame::OnSetMessageString(WPARAM wParam, LPARAM lParam)
