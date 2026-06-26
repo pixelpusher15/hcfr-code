@@ -936,9 +936,9 @@ LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 		OnSelchangeInfoDisplay();
 
 		// Set m_nSizeOffset
-		if ( m_nSizeOffset != ( ( m_dwInitialUserInfo >> 16 ) & 0x00FF ) )
+		if ( m_nSizeOffset != (signed char) ( ( m_dwInitialUserInfo >> 16 ) & 0x00FF ) )
 		{
-			m_nSizeOffset = ( m_dwInitialUserInfo >> 16 ) & 0x00FF;
+			m_nSizeOffset = (signed char) ( ( m_dwInitialUserInfo >> 16 ) & 0x00FF );
 			( (CMultiFrame *) GetParentFrame () ) -> EnsureMinimumSize ();
 			InvalidateRect ( NULL );
 			OnSize ( 0, 0, 0 );
@@ -8128,7 +8128,7 @@ void CMainView::OnDeltaposSpinView(NMHDR* pNMHDR, LRESULT* pResult)
 	}
 	else
 	{
-		if ( m_nSizeOffset > 0 )
+		if ( m_nSizeOffset > -63 )
 		{
 			m_nSizeOffset -= 21;
 			InvalidateRect ( NULL );
