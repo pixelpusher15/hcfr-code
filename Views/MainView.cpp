@@ -2030,7 +2030,6 @@ void CMainView::InitGrid(bool sizeGrid)
 		m_pGrayScaleGrid->AutoSizeRows();
 		m_pGrayScaleGrid->ExpandRowsToFit(FALSE);
 		double height = m_pGrayScaleGrid -> GetRowHeight ( 1 );
-		height = min(height, 40);
 		height = max(height, 25);
 		if (height == 40 || height == 25)
 		{
@@ -6505,6 +6504,9 @@ void CMainView::OnSize(UINT nType, int cx, int cy)
 			pCtrlPos = (SCtrlInitPos *) m_CtrlInitPos.GetNext ( pos );
 			::InvalidateRect ( pCtrlPos -> m_hWnd, NULL, FALSE );
 		}
+
+		if (m_pGrayScaleGrid && m_pGrayScaleGrid->GetSafeHwnd() && (m_pGrayScaleGrid->GetStyle() & WS_VISIBLE))
+			m_pGrayScaleGrid->ExpandToFit(FALSE);
 
 		if ( m_pInfoWnd )
 		{
