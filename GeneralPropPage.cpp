@@ -191,7 +191,9 @@ BOOL CGeneralPropPage::OnApply()
 	if (m_bDisableHighDPI)
 		GetConfig()->isHighDPI = FALSE;
 	else
-		GetConfig()->isHighDPI = ((GetSystemMetrics(SM_CXSCREEN) > 1920)&&(GetSystemMetrics(SM_CYSCREEN) > 1080));
+		// Match LoadSettings(): real DPI scale >=150% OR the legacy >1080p heuristic.
+		GetConfig()->isHighDPI = ( GetConfig()->GetDpiForHWND(NULL) >= 144 )
+			|| ((GetSystemMetrics(SM_CXSCREEN) > 1920)&&(GetSystemMetrics(SM_CYSCREEN) > 1080));
 
     GetConfig()->ApplySettings(FALSE);
 	m_isModified=FALSE;

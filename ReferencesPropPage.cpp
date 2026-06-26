@@ -953,10 +953,27 @@ void CReferencesPropPage::BuildRuntimeLayout()
     CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
 
     // Override black: common, fixed top-left for every transfer function.
-    MoveDlg(this, IDC_USER_BLACK, M, 12, 96, 84, 10);
     GetDlgItem(IDC_USER_BLACK)->SetWindowText(LS(IDS_REF_OVERRIDEBLACK));
-    MoveDlg(this, IDC_EDIT_MANUAL_BLACK, M, 98, 95, 26, 12);
-    m_pCdm2 = AddText(this, m_dynAll, NULL, font, M, "cd/m2", 127, 97, 18, 8);
+    {
+        // Auto-size the override-black checkbox to its localized text so the value
+        // edit + cd/m2 sit right after it with no gap in any language (DE is far
+        // longer than EN/FR/ES/IT, so a fixed width can't fit all without gaps).
+        CClientDC dc(this);
+        CFont* pOldF = dc.SelectObject(font);
+        CSize ts = dc.GetTextExtent(LS(IDS_REF_OVERRIDEBLACK));
+        dc.SelectObject(pOldF);
+        CPoint cbPt = M.at(12, 96);
+        int glyph = GetConfig()->Scale(18);            // checkbox box + gap before the text
+        int cbW = glyph + ts.cx + M.w(4);
+        CWnd* pUB = GetDlgItem(IDC_USER_BLACK);
+        if (pUB) pUB->MoveWindow(cbPt.x, cbPt.y, cbW, M.ht(10));
+        int editX = cbPt.x + cbW + M.w(4);
+        int editW = M.w(26);
+        CWnd* pEd = GetDlgItem(IDC_EDIT_MANUAL_BLACK);
+        if (pEd) pEd->MoveWindow(editX, M.at(12, 95).y, editW, M.ht(12));
+        m_pCdm2 = AddText(this, m_dynAll, NULL, font, M, "cd/m2", 12, 97, 30, 10);
+        if (m_pCdm2) m_pCdm2->MoveWindow(editX + editW + M.w(4), M.at(12, 97).y, M.w(30), M.ht(10));
+    }
 
     // Set target values manually: own row (HDR only).
     MoveDlg(this, IDC_USER_OVERRIDE_TARGS, M, 12, 110, 256, 10);

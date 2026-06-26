@@ -365,6 +365,7 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_BN_CLICKED(IDC_XYZ_RADIO2, OnXyz2Radio)
 	ON_BN_CLICKED(IDC_XYY_RADIO, OnxyYRadio)
 	ON_CBN_SELCHANGE(IDC_GRAYSCALESTEPS_COMBOMODE, OnSelchangeComboMode)
+	ON_CBN_DROPDOWN(IDC_GRAYSCALESTEPS_COMBOMODE, OnDropdownComboMode)
 	ON_BN_CLICKED(IDC_EDITGRID_CHECK, OnEditgridCheck)
 	ON_BN_CLICKED(IDC_DATAREF_CHECK, OnDatarefCheck)
 	ON_BN_CLICKED(IDC_ADJUSTXYZ_CHECK, OnAdjustXYZCheck)
@@ -667,6 +668,8 @@ void CMainView::OnInitialUpdate()
 	if ( ! GetDocument () -> m_pFramePosInfo )
 		ResizeParentToFit();
 
+	SetScrollSizes(MM_TEXT, CSize(0, 0));
+
 	// Initialise controls positions
 	m_InitialWindowSize.x = 0;
 	m_InitialWindowSize.y = 0;
@@ -700,45 +703,158 @@ void CMainView::OnInitialUpdate()
 	m_OriginalRect.bottom = m_InitialWindowSize.y;
 	m_bPositionsInit = TRUE;
 
-	// Open a few px of breathing room between the Sensor / Generator /
-	// Parameters panels in the top row (they abut edge-to-edge in the dialog
-	// template). The Sensor/Generator/Parameters panels are right-anchored
-	// fixed-width and "View" is the stretchy filler, so shift the panels (and
-	// their children) left to open the gaps without overflowing the right edge.
+	// ---- Deterministic, language-consistent top-row layout -----------------
+	// The MainView form template is hand-authored per language, so the top
+	// panes (View / Sensor / Generator / Parameters) sit at different
+	// positions/widths in each CHCFR21_*.rc. Override the captured positions
+	// with one computed layout, derived from the actual form-font line height:
+	// Sensor / Generator / Parameters are sized to fit their own (localized)
+	// text and right-anchored; "View" is the stretchy filler whose info text
+	// wraps. The panes are sized snug to the content, then the whole lower half
+	// is shifted up to meet them (no gap).
 	{
-		const int GAP = 4;
-		POSITION gapPos = m_CtrlInitPos.GetHeadPosition();
-		while ( gapPos )
+		SCtrlInitPos *pView=NULL,*pCombo=NULL,*pInfo=NULL,*pSpin=NULL,*pGGrid=NULL;
+		SCtrlInitPos *pSGrp=NULL,*pSName=NULL,*pSGear=NULL,*pAvg=NULL;
+		SCtrlInitPos *pGGrp=NULL,*pGName=NULL,*pGGear=NULL;
+		SCtrlInitPos *pPGrp=NULL,*pRef=NULL,*pXYZ=NULL;
+		POSITION lp = m_CtrlInitPos.GetHeadPosition();
+		while (lp)
 		{
-			SCtrlInitPos * pGap = (SCtrlInitPos *) m_CtrlInitPos.GetNext( gapPos );
-			int gapId = ::GetDlgCtrlID( pGap->m_hWnd );
-			int shift = 0;
-			switch ( gapId )
+			SCtrlInitPos* e = (SCtrlInitPos*) m_CtrlInitPos.GetNext(lp);
+			switch (::GetDlgCtrlID(e->m_hWnd))
 			{
-			case IDC_SENSOR_GROUP:
-			case IDC_SENSORNAME_STATIC:
-			case IDC_SENSORNAME_STATIC2:
-			case IDM_CONFIGURE_SENSOR:
-			case IDM_CONFIGURE_SENSOR2:
-				case IDC_AVG_LOW_LIGHT:
-				shift = 2 * GAP;
-				break;
-			case IDC_GENERATOR_GROUP:
-			case IDC_GENERATORNAME_STATIC:
-			case IDM_CONFIGURE_GENERATOR:
-				shift = GAP;
-				break;
-			case IDC_PARAM_GROUP:
-				pGap->m_Rect.right -= 2 * GAP;
-				break;
+			case IDC_PARAM_GROUP:               pView=e;  break;
+			case IDC_GRAYSCALESTEPS_COMBOMODE:  pCombo=e; break;
+			case IDC_INFOLINE:                  pInfo=e;  break;
+			case IDC_SPIN_VIEW:                 pSpin=e;  break;
+			case IDC_GRAYSCALE_GROUP:           pGGrid=e; break;
+			case IDC_SENSOR_GROUP:              pSGrp=e;  break;
+			case IDC_SENSORNAME_STATIC:         pSName=e; break;
+			case IDM_CONFIGURE_SENSOR:          pSGear=e; break;
+			case IDC_AVG_LOW_LIGHT:             pAvg=e;   break;
+			case IDC_GENERATOR_GROUP:           pGGrp=e;  break;
+			case IDC_GENERATORNAME_STATIC:      pGName=e; break;
+			case IDM_CONFIGURE_GENERATOR:       pGGear=e; break;
+			case IDC_DATAREF_GROUP:             pPGrp=e;  break;
+			case IDC_DATAREF_CHECK:             pRef=e;   break;
+			case IDC_ADJUSTXYZ_CHECK:           pXYZ=e;   break;
 			}
-			if ( shift )
+		}
+		if (pView && pSGrp && pGGrp && pPGrp && pRef && pXYZ && pAvg && pGGrid)
+		{
+			CColorHCFRConfig* cfg = GetConfig();
+			CClientDC dc(this);
+			CFont* pOldF = dc.SelectObject(GetFont());
+			CString s;
+			CWnd::FromHandle(pRef->m_hWnd)->GetWindowText(s);  int wRef  = dc.GetTextExtent(s, s.GetLength()).cx;
+			CWnd::FromHandle(pXYZ->m_hWnd)->GetWindowText(s);  int wXYZ  = dc.GetTextExtent(s, s.GetLength()).cx;
+			CWnd::FromHandle(pAvg->m_hWnd)->GetWindowText(s);  int wAvg  = dc.GetTextExtent(s, s.GetLength()).cx;
+			CWnd::FromHandle(pPGrp->m_hWnd)->GetWindowText(s); int wPCap = dc.GetTextExtent(s, s.GetLength()).cx;
+			CWnd::FromHandle(pSGrp->m_hWnd)->GetWindowText(s); int wSCap = dc.GetTextExtent(s, s.GetLength()).cx;
+			CWnd::FromHandle(pGGrp->m_hWnd)->GetWindowText(s); int wGCap = dc.GetTextExtent(s, s.GetLength()).cx;
+			int wSName = 0, wGName = 0;
+			if (pSName) { CWnd::FromHandle(pSName->m_hWnd)->GetWindowText(s); wSName = dc.GetTextExtent(s, s.GetLength()).cx; }
+			if (pGName) { CWnd::FromHandle(pGName->m_hWnd)->GetWindowText(s); wGName = dc.GetTextExtent(s, s.GetLength()).cx; }
+			int fh = dc.GetTextExtent(_T("Ag"), 2).cy;     // form-font line height
+			dc.SelectObject(pOldF);
+
+			int PAD    = cfg->Scale(5);
+			int GAPX   = cfg->Scale(3);
+			int GLYPH  = cfg->Scale(16);
+			int GEAR   = cfg->Scale(16) + cfg->Scale(3);
+			int CAPPAD = cfg->Scale(14);
+			int NAMECAP= cfg->Scale(150);
+			int GCOL   = GEAR + GAPX;
+
+			int top   = cfg->Scale(2);
+			int cap   = fh + cfg->Scale(2);
+			int line1 = top + cap + cfg->Scale(1);
+			int line2 = line1 + fh + cfg->Scale(3);
+			int chkH  = fh + cfg->Scale(2);
+			int lblH  = fh;
+			int rowH  = (line2 + chkH) - top + cfg->Scale(4);
+			int cMid  = (line1 + line2 + chkH) / 2;
+			int right = pPGrp->m_Rect.right;
+
+			int wParam = max(wPCap + CAPPAD, max(wRef, wXYZ) + GLYPH + 2*PAD);
+			int wSens  = max(max(wSCap + CAPPAD, wAvg + GLYPH + 2*PAD + GCOL), min(wSName + 2*PAD + GCOL, NAMECAP));
+			int wGen   = max(wGCap + CAPPAD, min(wGName + 2*PAD + GCOL, NAMECAP));
+
+			CRect rP(right - wParam, top, right, top + rowH);
+			CRect rG(rP.left - GAPX - wGen, top, rP.left - GAPX, top + rowH);
+			CRect rS(rG.left - GAPX - wSens, top, rG.left - GAPX, top + rowH);
+			CRect rV(pView->m_Rect.left, top, rS.left - GAPX, top + rowH);
+
+			pView->m_Rect = rV;
+			pSGrp->m_Rect = rS;
+			pGGrp->m_Rect = rG;
+			pPGrp->m_Rect = rP;
+
+			pRef->m_Rect = CRect(rP.left + PAD, line1, rP.right - PAD, line1 + chkH);
+			pXYZ->m_Rect = CRect(rP.left + PAD, line2, rP.right - PAD, line2 + chkH);
+
+			int sGearX = rS.right - PAD - GEAR;
+			if (pSName) pSName->m_Rect = CRect(rS.left + PAD, line1, sGearX - GAPX, line1 + lblH);
+			if (pAvg)   pAvg->m_Rect   = CRect(rS.left + PAD, line2, sGearX - GAPX, line2 + chkH);
+			if (pSGear) pSGear->m_Rect = CRect(sGearX, cMid - GEAR/2, rS.right - PAD, cMid - GEAR/2 + GEAR);
+
+			int gGearX = rG.right - PAD - GEAR;
+			if (pGName) pGName->m_Rect = CRect(rG.left + PAD, cMid - lblH/2, gGearX - GAPX, cMid - lblH/2 + lblH);
+			if (pGGear) pGGear->m_Rect = CRect(gGearX, cMid - GEAR/2, rG.right - PAD, cMid - GEAR/2 + GEAR);
+
+			if (pCombo)
 			{
-				pGap->m_Rect.left  -= shift;
-				pGap->m_Rect.right -= shift;
+				int comboW = cfg->Scale(96);
+				{
+					// Make the combo a consistent width = the widest mode name in
+					// this language, so it never clips whatever item is selected.
+					CFont* cpo = dc.SelectObject(GetFont());
+					int ccnt = m_comboMode.GetCount();
+					for (int cci = 0; cci < ccnt; cci++)
+					{
+						CString cit; m_comboMode.GetLBText(cci, cit);
+						int citw = dc.GetTextExtent(cit, cit.GetLength()).cx + ::GetSystemMetrics(SM_CXVSCROLL) + cfg->Scale(12);
+						if (citw > comboW) comboW = citw;
+					}
+					dc.SelectObject(cpo);
+				}
+				m_comboMode.ModifyStyleEx(WS_EX_DLGMODALFRAME, 0, SWP_FRAMECHANGED);
+				if (m_comboDisplay.GetSafeHwnd()) m_comboDisplay.ModifyStyleEx(WS_EX_DLGMODALFRAME, 0, SWP_FRAMECHANGED);
+				int comboH = pCombo->m_Rect.bottom - pCombo->m_Rect.top;
+				pCombo->m_Rect = CRect(rV.left + PAD, line1, rV.left + PAD + comboW, line1 + comboH);
+				int spinW = pSpin ? (pSpin->m_Rect.right - pSpin->m_Rect.left) : cfg->Scale(11);
+				int spinH = pSpin ? (pSpin->m_Rect.bottom - pSpin->m_Rect.top) : cfg->Scale(14);
+				if (pSpin) pSpin->m_Rect = CRect(rV.right - PAD - spinW, cMid - spinH/2, rV.right - PAD, cMid - spinH/2 + spinH);
+				if (pInfo)
+				{
+					CWnd* pi = CWnd::FromHandle(pInfo->m_hWnd);
+					pi->ModifyStyle(SS_TYPEMASK | SS_WORDELLIPSIS | SS_SUNKEN, SS_LEFT, SWP_FRAMECHANGED);   // clear ellipsis -> wrap
+					pInfo->m_Rect = CRect(rV.left + PAD + comboW + cfg->Scale(8), top + cap, rV.right - PAD - spinW - GAPX, top + rowH - cfg->Scale(2));
+				}
+			}
+
+			// Pull the whole lower half up to meet the (snug) top row, closing the
+			// gap the shorter panes would otherwise leave above the measures grid.
+			// Fixed-height controls move rigidly; bottom-anchored ones grow upward.
+			int measTop = pGGrid->m_Rect.top;
+			int delta = (top + rowH + cfg->Scale(3)) - measTop;
+			if (delta < 0)
+			{
+				POSITION rp2 = m_CtrlInitPos.GetHeadPosition();
+				while (rp2)
+				{
+					SCtrlInitPos* e2 = (SCtrlInitPos*) m_CtrlInitPos.GetNext(rp2);
+					if (e2->m_Rect.top >= measTop - cfg->Scale(2))
+					{
+						e2->m_Rect.top += delta;
+						if (e2->m_pLayout->m_BottomMode != LAYOUT_BOTTOM)
+							e2->m_Rect.bottom += delta;
+					}
+				}
 			}
 		}
 	}
+
 
 	{
 		const int HEADER_H = 38;
@@ -820,9 +936,9 @@ LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 		OnSelchangeInfoDisplay();
 
 		// Set m_nSizeOffset
-		if ( m_nSizeOffset != ( ( m_dwInitialUserInfo >> 16 ) & 0x00FF ) )
+		if ( m_nSizeOffset != (signed char) ( ( m_dwInitialUserInfo >> 16 ) & 0x00FF ) )
 		{
-			m_nSizeOffset = ( m_dwInitialUserInfo >> 16 ) & 0x00FF;
+			m_nSizeOffset = (signed char) ( ( m_dwInitialUserInfo >> 16 ) & 0x00FF );
 			( (CMultiFrame *) GetParentFrame () ) -> EnsureMinimumSize ();
 			InvalidateRect ( NULL );
 			OnSize ( 0, 0, 0 );
@@ -1914,9 +2030,8 @@ void CMainView::InitGrid(bool sizeGrid)
 		m_pGrayScaleGrid->AutoSizeRows();
 		m_pGrayScaleGrid->ExpandRowsToFit(FALSE);
 		double height = m_pGrayScaleGrid -> GetRowHeight ( 1 );
-		height = min(height, 40);
 		height = max(height, 25);
-		if (height == 40 || height == 25)
+		if (height == 25)
 		{
 			for ( i = 1 ; i <= nRows ; i ++ )
 				m_pGrayScaleGrid -> SetRowHeight ( i, height);
@@ -5173,9 +5288,27 @@ void CMainView::OnEditgridCheck()
 	m_pGrayScaleGrid->EnableDragAndDrop(isEnabled);
 }
 
+void CMainView::OnDropdownComboMode()
+{
+	int n = m_comboMode.GetCount();
+	if (n <= 0) return;
+	CClientDC dc(this);
+	CFont* pf = m_comboMode.GetFont();
+	if (!pf) pf = GetFont();
+	CFont* pOld = dc.SelectObject(pf);
+	int mw = 0;
+	for (int i = 0; i < n; i++)
+	{
+		CString it; m_comboMode.GetLBText(i, it);
+		int w = dc.GetTextExtent(it, it.GetLength()).cx;
+		if (w > mw) mw = w;
+	}
+	dc.SelectObject(pOld);
+	m_comboMode.SetDroppedWidth(mw + ::GetSystemMetrics(SM_CXVSCROLL) + GetConfig()->Scale(12));
+}
+
 void CMainView::OnSelchangeComboMode() 
 {
-	// TODO: Add your control notification handler code here
 	int	nNewMode = m_comboMode.GetCurSel ();
 	CString	Msg, MsgAdd;
 
@@ -5892,10 +6025,7 @@ void CMainView::InitButtons()
 	CString	Msg, Msg2;
 
 	Msg.LoadString ( IDS_CONFIGURESENSOR );
-	if (GetConfig()->isHighDPI)
-		m_configSensorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-sensor"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
-	else
-		m_configSensorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-sensor"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
+	m_configSensorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-sensor"),(fxUseCustomColor!=FALSE),GetConfig()->Scale(16),GetConfig()->Scale(16)),(HICON)NULL);
 	m_configSensorButton.SetFont(GetFont());
 	m_configSensorButton.EnableBalloonTooltip();
 	m_configSensorButton.SetTooltipText(Msg);
@@ -5948,10 +6078,7 @@ void CMainView::InitButtons()
 //	m_configSensorButton.DrawTransparent(TRUE);
 
 	Msg.LoadString ( IDS_CONFIGUREGENERATOR );
-	if (GetConfig()->isHighDPI)
-		m_configGeneratorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-generator"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
-	else
-		m_configGeneratorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-generator"),(fxUseCustomColor!=FALSE),16,16),(HICON)NULL);
+	m_configGeneratorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-generator"),(fxUseCustomColor!=FALSE),GetConfig()->Scale(16),GetConfig()->Scale(16)),(HICON)NULL);
 	m_configGeneratorButton.SetFont(GetFont());
 	m_configGeneratorButton.EnableBalloonTooltip();
 	m_configGeneratorButton.SetTooltipText(Msg);
@@ -6032,7 +6159,7 @@ void CMainView::InitButtons()
 
 	CFont m_Font;
 	m_Font.Detach();
-	m_Font.CreateFont(8, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,0,PROOF_QUALITY,0, "Tahoma");
+	m_Font.CreateFont(GetConfig()->Scale(8), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,0,PROOF_QUALITY,0, "Tahoma");
 
 	m_Ccomp.SetFont(&m_Font);
 	m_Ccomp3.SetFont(&m_Font);
@@ -6050,7 +6177,7 @@ void CMainView::InitButtons()
 	m_Font.DeleteObject();
 
 	line_Font.DeleteObject();
-	line_Font.CreateFontA(17,0,0,0,FW_SEMIBOLD,0,0,0,0,0,0,PROOF_QUALITY,VARIABLE_PITCH,_T("ARIAL"));
+	line_Font.CreateFontA(GetConfig()->ScaleFloor(14,17),0,0,0,FW_SEMIBOLD,0,0,0,0,0,0,PROOF_QUALITY,VARIABLE_PITCH,_T("ARIAL"));
 	m_refInfo.SetFont(&line_Font);
 
     GetDlgItem( IDC_INFOLINE )->SetFont( &line_Font );
@@ -6377,6 +6504,9 @@ void CMainView::OnSize(UINT nType, int cx, int cy)
 			pCtrlPos = (SCtrlInitPos *) m_CtrlInitPos.GetNext ( pos );
 			::InvalidateRect ( pCtrlPos -> m_hWnd, NULL, FALSE );
 		}
+
+		if (m_pGrayScaleGrid && m_pGrayScaleGrid->GetSafeHwnd() && (m_pGrayScaleGrid->GetStyle() & WS_VISIBLE))
+			m_pGrayScaleGrid->ExpandToFit(FALSE);
 
 		if ( m_pInfoWnd )
 		{
@@ -7998,7 +8128,7 @@ void CMainView::OnDeltaposSpinView(NMHDR* pNMHDR, LRESULT* pResult)
 	}
 	else
 	{
-		if ( m_nSizeOffset > 0 )
+		if ( m_nSizeOffset > -63 )
 		{
 			m_nSizeOffset -= 21;
 			InvalidateRect ( NULL );
