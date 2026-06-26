@@ -235,6 +235,7 @@ public:
 	void UpdateMeasurementsAfterBkgndMeasure ();
 	afx_msg void OnSelchangeInfoDisplay();
 	afx_msg void OnSelchangeComboMode();
+	afx_msg void OnDropdownComboMode();
 
 // Generated message map functions
 protected:
