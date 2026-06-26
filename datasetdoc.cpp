@@ -4240,9 +4240,9 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 	*Offset = Offset_opt;
 	*Gamma = Gamma_opt;
 
-	delete lumlvl;
-	delete valx;
-	delete tmpx;
+	delete[] lumlvl;
+	delete[] valx;
+	delete[] tmpx;
 }
 
 bool CDataSetDoc::CheckVideoLevel()

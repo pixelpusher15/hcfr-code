@@ -180,7 +180,7 @@ void CHCFile::readFile (const char* path)
         magentaSaturationColors.push_back(newColor);
     }
     // saturation cc24
-    file.read((char*)&arraySize, 24);
+    file.read((char*)&arraySize, 4);
     arraySize = littleEndianUint32ToHost(arraySize);
     for (loopIndex = 0; loopIndex < arraySize; loopIndex ++)
     {

@@ -60,6 +60,7 @@ CString CWebUpdate::DoSHA1Hash(LPCSTR filePath)
 	sha1_begin(&m_sha1);
 
 	fileToHash = fopen(filePath, "rb");
+	if (fileToHash == NULL) { delete[] tempOut; return outHash; }
 	
 	do
 	{
@@ -136,7 +137,7 @@ int CWebUpdate::DoUpdateCheck()
 	// First of all, try and retrieve the update file
 	remoteFile = updateURL;
 	CString path;
-	path = getenv("APPDATA");
+	const char* appdataEnv = getenv("APPDATA"); path = appdataEnv ? appdataEnv : "";
 
 	localFile = path + "\\color\\CheckUpdate.txt";
 	// Download
@@ -285,7 +286,7 @@ bool CWebUpdate::DownloadDifferent(int i)
 	//	localFile = localDir + "\\" + differentFiles.GetAt(i);
 
 	CString path;
-	path = getenv("APPDATA");
+	const char* appdataEnv = getenv("APPDATA"); path = appdataEnv ? appdataEnv : "";
 
 	localFile = path + "\\color\\HCFRSetup.exe";
 

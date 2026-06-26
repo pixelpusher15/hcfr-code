@@ -52,9 +52,24 @@ char* readCString (ifstream &file)
   }
   else
     stringSize = charBuffer;
-  char  *string = new char[stringSize+1];
+  std::streamoff pcfrRemaining = -1;
+  std::streampos pcfrCur = file.tellg();
+  if (pcfrCur != std::streampos(-1))
+  {
+    file.seekg(0, std::ios::end);
+    std::streampos pcfrEnd = file.tellg();
+    file.seekg(pcfrCur);
+    if (pcfrEnd != std::streampos(-1))
+      pcfrRemaining = pcfrEnd - pcfrCur;
+  }
+  if (pcfrRemaining >= 0 && (std::streamoff)stringSize > pcfrRemaining)
+    stringSize = (uint32_t)pcfrRemaining;
+  char  *string = new char[(size_t)stringSize + 1];
   file.read(string, stringSize);
-  string[stringSize] = '\0';
+  std::streamsize pcfrGot = file.gcount();
+  if (pcfrGot < 0) pcfrGot = 0;
+  if ((uint32_t)pcfrGot > stringSize) pcfrGot = (std::streamsize)stringSize;
+  string[(size_t)pcfrGot] = '\0';
   
   return string;
 }
