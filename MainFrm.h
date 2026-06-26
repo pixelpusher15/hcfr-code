@@ -97,6 +97,7 @@ protected:
 	BOOL LoadToolbars();
 	BOOL VerifyBarState(LPCTSTR lpszProfileName);
 	void DockControlBarNextTo(CControlBar* pBar,CControlBar* pTargetBar);
+	void ReflowToolbars();
 
 protected:  // control bar embedded members
 	CNewMenuBar			m_wndMenuBar;
@@ -106,6 +107,7 @@ protected:  // control bar embedded members
 	CNewToolBar			m_wndToolBarMeasures;
 	CNewToolBar			m_wndToolBarMeasuresEx;
 	CNewToolBar			m_wndToolBarMeasuresSat;
+	BOOL				m_bInReflow;
 	CLuminanceWnd		m_wndLuminanceWnd;
 	
 public:
@@ -116,6 +118,8 @@ public:
 protected:
 	//{{AFX_MSG(CMainFrame)
 	afx_msg int OnCreate(LPCREATESTRUCT lpCreateStruct);
+	afx_msg void OnSize(UINT nType, int cx, int cy);
+	afx_msg void OnTimer(UINT_PTR nIDEvent);
 	afx_msg void OnDuplicateDoc();
 	afx_msg void OnViewViewBar();
 	afx_msg void OnUpdateViewSensorBar(CCmdUI* pCmdUI);
