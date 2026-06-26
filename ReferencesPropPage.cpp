@@ -140,8 +140,6 @@ void CReferencesPropPage::DoDataExchange(CDataExchange* pDX)
 	DDV_MinMaxDouble(pDX, m_GammaRel, 0., 5.);
 	DDV_MinMaxDouble(pDX, m_Split, 0., 100.);
 	DDV_MinMaxDouble(pDX, m_ManualBlack, 0., 1.);
-	DDX_Check(pDX, IDC_CHANGEWHITE_CHECK, m_changeWhiteCheck);
-	DDX_Control(pDX, IDC_CHANGEWHITE_CHECK, m_changeWhiteCheckCtrl);
 	DDX_Check(pDX, IDC_USE_MEASURED_GAMMA, m_useMeasuredGamma);
 	DDX_Check(pDX, IDC_USER_BLACK, m_userBlack);
 	DDX_Control(pDX, IDC_USER_OVERRIDE_TARGS, m_bOverRideTargsCtrl);
@@ -208,7 +206,6 @@ BEGIN_MESSAGE_MAP(CReferencesPropPage, CPropertyPageWithHelp)
 	ON_EN_CHANGE(IDC_EDIT_TARGET_MAXL3, OnChangeEditGammaAvg)
 	ON_EN_CHANGE(IDC_EDIT_TARGET_MAXL4, OnChangeEditGammaAvg)
 	ON_EN_CHANGE(IDC_EDIT_TARGET_MAXL5, OnChangeEditGammaAvg)
-	ON_BN_CLICKED(IDC_CHANGEWHITE_CHECK, OnChangeWhiteCheck)
 	ON_BN_CLICKED(IDC_USE_MEASURED_GAMMA, OnUseMeasuredGammaCheck)
 	ON_BN_CLICKED(IDC_USER_BLACK, OnUserBlackCheck)
 	ON_BN_CLICKED(IDC_USER_OVERRIDE_TARGS, OnUserOverRideTargsCheck)
@@ -252,15 +249,12 @@ BOOL CReferencesPropPage::OnApply()
 	GetConfig()->	WriteProfileDouble("References","TargetSysGammaUser",m_TargetSysGammaUser);
 	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == CC6) 
 	{
-		m_changeWhiteCheckCtrl.EnableWindow(FALSE);
 		m_changeWhiteCheck = FALSE;
         m_whiteTargetCombo.EnableWindow (FALSE);
         m_manualWhitexedit.EnableWindow (FALSE);
         m_manualWhiteyedit.EnableWindow (FALSE);        
 		m_whiteTarget=(int)(GetStandardColorReference((ColorStandard)(m_colorStandard)).m_white);	
 	} 
-	else
-		m_changeWhiteCheckCtrl.EnableWindow(TRUE);
 
     if (m_whiteTarget == DCUST)
     {
@@ -362,23 +356,11 @@ BOOL CReferencesPropPage::OnInitDialog()
 	m_GammaAvgEdit.EnableWindow(FALSE);
 	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == CC6) 
 	{
-		m_changeWhiteCheckCtrl.EnableWindow(FALSE);
 		m_changeWhiteCheck = FALSE;
 		m_whiteTarget=(int)(GetStandardColorReference((ColorStandard)(m_colorStandard)).m_white);	}
 	else
 		m_changeWhiteCheck = (m_whiteTarget!=(int)(GetStandardColorReference((ColorStandard)(m_colorStandard)).m_white));
 
-	if(m_changeWhiteCheck)
-	{
-		CheckRadioButton ( IDC_CHANGEWHITE_CHECK, IDC_CHANGEWHITE_CHECK, IDC_CHANGEWHITE_CHECK );
-		m_whiteTargetCombo.EnableWindow (TRUE);
-	}
-    else
-    {
-        m_whiteTargetCombo.EnableWindow (FALSE);
-        m_manualWhitexedit.EnableWindow (FALSE);
-        m_manualWhiteyedit.EnableWindow (FALSE);        
-    }
     if (m_colorStandard == CUSTOM)
     {
         m_manualRedxedit.EnableWindow (TRUE);
@@ -524,21 +506,6 @@ UINT CReferencesPropPage::GetHelpId ( LPSTR lpszTopic )
 	return HID_PREF_REFERENCES;
 }
 
-void CReferencesPropPage::OnChangeWhiteCheck() 
-{
-	UpdateData(TRUE);
-	m_bSave = TRUE;
-	if(!m_changeWhiteCheck)	// Restore default white
-	{
-		m_whiteTarget=(int)(GetStandardColorReference((ColorStandard)(m_colorStandard)).m_white);
-		m_isModified=TRUE;
-		SetModified(TRUE);
-		UpdateData(FALSE);	
-		OnSelchangeWhiteCombo();
-	}
-	m_whiteTargetCombo.EnableWindow (m_changeWhiteCheck);
-}
-
 void CReferencesPropPage::OnUseMeasuredGammaCheck() 
 {
 	m_isModified=TRUE;
@@ -611,6 +578,10 @@ void CReferencesPropPage::OnSelchangeWhiteCombo()
 	SetModified(TRUE);
 	m_bSave = TRUE;
 	UpdateData(TRUE);
+	// Keep the internal "white overridden" flag honest now that the dropdown is the
+	// only control: TRUE when the chosen white differs from the standard default, so a
+	// later color-space change preserves the user's white instead of resetting it.
+	m_changeWhiteCheck = (m_whiteTarget != (int)(GetStandardColorReference((ColorStandard)(m_colorStandard)).m_white));
 	BOOL enableEditControls = m_whiteTarget == DCUST ? TRUE : FALSE;
 	m_manualWhitexedit.EnableWindow (enableEditControls);
 	m_manualWhiteyedit.EnableWindow (enableEditControls);
@@ -679,7 +650,9 @@ void CReferencesPropPage::OnSelchangeColorrefCombo()
 	}
 	if (m_colorStandard == CC6)
 		m_CCMode = GCD;
-	if(!m_changeWhiteCheck) // Restore default white
+	// Restore the standard's default white when the user hasn't overridden it,
+	// and ALWAYS for the fixed-matrix standards (HDTVa/HDTVb/CC6), locked to D65.
+	if(!m_changeWhiteCheck || m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == CC6)
 		m_whiteTarget=(int)(GetStandardColorReference((ColorStandard)(m_colorStandard)).m_white);
     if (m_colorStandard == CUSTOM)
     {
@@ -1099,12 +1072,18 @@ void CReferencesPropPage::UpdateControlStates()
     static const UINT manualChkId[] = { IDC_USER_OVERRIDE_TARGS };
     EnableIds(this, manualChkId, 1, isHDR);
 
-    BOOL customW = (m_whiteTarget == DCUST);
+    // White-point dropdown is enabled directly (the old enabling checkbox is gone).
+    // HDTVa/HDTVb/CC6 are fixed-matrix calibration standards locked to D65: grey out
+    // the dropdown AND the x/y fields so the UI can't present an editable custom white
+    // for a standard that ignores it.
+    BOOL whiteLocked = (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == CC6);
+    BOOL customW = (m_whiteTarget == DCUST) && !whiteLocked;
     ShowBucket(m_bWhiteXY, TRUE);
     static const UINT whiteIds[] = { IDC_WHITE_X, IDC_WHITE_Y };
     ShowIds(this, whiteIds, 2, TRUE);
     m_manualWhitexedit.EnableWindow(customW);
     m_manualWhiteyedit.EnableWindow(customW);
+    if (m_whiteTargetCombo.GetSafeHwnd()) m_whiteTargetCombo.EnableWindow(!whiteLocked);
 
     BOOL customP = (m_colorStandard == CUSTOM);
     m_manualRedxedit.EnableWindow(customP);
