@@ -1083,7 +1083,14 @@ void CReferencesPropPage::UpdateControlStates()
     ShowIds(this, whiteIds, 2, TRUE);
     m_manualWhitexedit.EnableWindow(customW);
     m_manualWhiteyedit.EnableWindow(customW);
-    if (m_whiteTargetCombo.GetSafeHwnd()) m_whiteTargetCombo.EnableWindow(!whiteLocked);
+    if (m_whiteTargetCombo.GetSafeHwnd())
+    {
+        m_whiteTargetCombo.EnableWindow(!whiteLocked);
+        // Force the dropdown to reflect m_whiteTarget so the (possibly greyed)
+        // selection can never lag behind the white actually applied to the reference.
+        if (m_whiteTarget >= 0)
+            m_whiteTargetCombo.SetCurSel(m_whiteTarget);
+    }
 
     BOOL customP = (m_colorStandard == CUSTOM);
     m_manualRedxedit.EnableWindow(customP);
