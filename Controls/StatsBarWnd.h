@@ -35,6 +35,11 @@ public:
 	// Feed the verbose summary string; it is split into display segments.
 	void SetSegmentedText(LPCTSTR lpszText);
 
+	// Height (px) the band needs so the DPI-scaled chip text is not clipped:
+	// the scaled text height plus fixed, modest padding -- so the band tracks
+	// the font but its padding does not balloon at high DPI.
+	int PreferredHeight(CDC* pDC);
+
 // Implementation
 public:
 	virtual ~CStatsBarWnd();
@@ -42,6 +47,7 @@ public:
 protected:
 	void Parse(LPCTSTR lpszText);
 	void AddGroup(const CString& strGroup, BOOL bSplitCommas);
+	void EnsureFont(CDC* pDC);	// build the bold chip font once (DPI-scaled)
 
 	CString			m_strText;	// last text received (to skip redundant repaints)
 	CStringArray	m_segments;	// parsed display segments

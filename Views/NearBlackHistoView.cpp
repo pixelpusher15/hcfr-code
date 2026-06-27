@@ -476,7 +476,7 @@ void CNearBlackHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_NEARBLACK || lHint == UPD_NEARWHITE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA || lHint == UPD_ARRAYSIZES || lHint == UPD_FREEMEASUREAPPENDED || lHint >= UPD_REALTIME)
 	{
 		m_Grapher.UpdateGraph ( GetDocument () );
-		RedrawWindow(NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+		{ static DWORD s_liveTick = 0; UINT redrawFlags = RDW_INVALIDATE | RDW_ALLCHILDREN; DWORD nowTick = ::GetTickCount(); if ( nowTick - s_liveTick >= 33 ) { redrawFlags |= RDW_UPDATENOW; s_liveTick = nowTick; } RedrawWindow( NULL, NULL, redrawFlags ); }
 	}
 }
 
