@@ -87,7 +87,6 @@ public:
 	CEdit	m_TargetMinLCtrl, m_TargetMaxLCtrl, m_DiffuseLCtrl, m_MasterMinLCtrl, m_MasterMaxLCtrl, m_ContentMaxLCtrl, m_FrameAvgMaxLCtrl, m_bOverRideTargsCtrl, m_useToneMapCtrl;
 	CEdit	m_TargetSysGammaCtrl, m_BT2390_BSCtrl, m_BT2390_WSCtrl, m_BT2390_WS1Ctrl;
 	BOOL	m_changeWhiteCheck;
-	CEdit	m_changeWhiteCheckCtrl;
 	BOOL	m_useMeasuredGamma;
 	BOOL	m_bSave;
 	BOOL	m_userBlack, m_useToneMap, m_bOverRideTargs;
@@ -135,7 +134,6 @@ protected:
 	afx_msg void OnChangeEditGammaRel();
 	afx_msg void OnChangeEditManualBlack();
 	afx_msg void OnChangeEditGammaAvg();
-	afx_msg void OnChangeWhiteCheck();
 	afx_msg void OnUseMeasuredGammaCheck();
 	afx_msg void OnUserBlackCheck();
 	afx_msg void OnUserOverRideTargsCheck();
