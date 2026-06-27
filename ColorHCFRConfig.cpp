@@ -847,9 +847,12 @@ void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 	if(pFxLockWnd) { pFxLockWnd->UnlockWindowUpdate(); pFxLockWnd->RedrawWindow(NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_ERASE | RDW_FRAME); }
 
 	// Apply reference settings
+    ColorXYZ savedRefWhite;
     if(GetColorApp()->m_pColorReference)
     {
+        savedRefWhite = GetColorApp()->m_pColorReference->GetWhite();
         delete GetColorApp()->m_pColorReference;
+        GetColorApp()->m_pColorReference = NULL;
     }
 
 	//Custom White only
@@ -863,7 +866,7 @@ void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 	    ColorxyY redcolor=ColorxyY(m_manualRedx,m_manualRedy);
 		ColorxyY greencolor=ColorxyY(m_manualGreenx,m_manualGreeny);
 		ColorxyY bluecolor=ColorxyY(m_manualBluex,m_manualBluey);
-	    GetColorApp()->m_pColorReference = new CColorReference(m_colorStandard, m_whiteTarget,-1, " modified", 	GetColorApp()->m_pColorReference->GetWhite(), redcolor, greencolor, bluecolor);
+	    GetColorApp()->m_pColorReference = new CColorReference(m_colorStandard, m_whiteTarget,-1, " modified", 	savedRefWhite, redcolor, greencolor, bluecolor);
 	} 
 	else if (m_colorStandard == CUSTOM && m_whiteTarget == DCUST)	//Both
 	{

@@ -515,7 +515,35 @@ Matrix& Matrix::REF()
 {
     for(int i=0; i<m_nRows; ++i)
     {
-        for(int j=i+1; j<m_nRows; ++j) 
+        // Partial pivoting (numerically conservative): find the largest-magnitude
+        // candidate pivot in column i (rows i..n-1). If the whole column is zero
+        // from row i down, the matrix is singular -> throw instead of dividing by
+        // zero and silently producing Inf/NaN. Only swap when the current diagonal
+        // pivot is negligible relative to that best candidate, so well-conditioned
+        // matrices keep their existing row order and produce identical results.
+        int pivotRow = i;
+        double colMax = fabs(m_pData[i * m_nCols + i]);
+        for(int r=i+1; r<m_nRows; ++r)
+        {
+            double v = fabs(m_pData[r * m_nCols + i]);
+            if(v > colMax) { colMax = v; pivotRow = r; }
+        }
+        if(colMax == 0.0)
+        {
+            cout << "Matrix exception : REF : singular matrix" << endl;
+            throw new MatrixException("REF : singular matrix");
+        }
+        if(pivotRow != i && fabs(m_pData[i * m_nCols + i]) < 1e-12 * colMax)
+        {
+            for(int c=0; c<m_nCols; ++c)
+            {
+                double swapTmp = m_pData[i * m_nCols + c];
+                m_pData[i * m_nCols + c] = m_pData[pivotRow * m_nCols + c];
+                m_pData[pivotRow * m_nCols + c] = swapTmp;
+            }
+        }
+
+        for(int j=i+1; j<m_nRows; ++j)
         {
             AddRows(i, j, -m_pData[j * m_nCols + i]/m_pData[i * m_nCols + i]);
         }

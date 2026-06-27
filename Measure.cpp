@@ -3431,7 +3431,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 	CCPatterns	ccPat = GetConfig()->m_CCMode;
 	int			ccSize = ccPat == CCSG?96:(ccPat == CMS || ccPat == CPS)?19:(ccPat==AXIS?71:24);
 	CString		strMsg, Title;
-	ColorRGBDisplay	GenColors [ 7 * 256 ];
+	std::vector<ColorRGBDisplay> GenColors ( size * 6 + MAX_USER_CC_PATCH_SIZE );
 
 	double		dLuxValue;
 	CGenerator::MeasureType nPattern;
@@ -3523,7 +3523,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 
 
 	// Generate saturations for all colors
-	GenerateSaturationColors (GetColorReference(), GenColors, size, true, false, false, GetConfig()->m_GammaOffsetType);			// Red
+	GenerateSaturationColors (GetColorReference(), &GenColors[0], size, true, false, false, GetConfig()->m_GammaOffsetType);			// Red
 	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType);	// Green
 	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType);	// Blue
 	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType);	// Yellow

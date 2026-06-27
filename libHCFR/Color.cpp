@@ -2217,9 +2217,9 @@ ColorLuv::ColorLuv(const ColorXYZ& XYZ, double YWhiteRef, CColorReference colorR
             var_Y = (kappa * var_Y + 16.0)/116.0;
         }
         ColorxyY xyY(XYZ);
-        double u = 4.0*xyY[0] / (-2.0*xyY[0] + 12.0*xyY[0] + 3.0); 
+        double u = 4.0*xyY[0] / (-2.0*xyY[0] + 12.0*xyY[1] + 3.0); 
         double v = 9.0*xyY[1] / (-2.0*xyY[0] + 12.0*xyY[1] + 3.0);
-        double u_white = 4.0*white[0] / (-2.0*white[0] + 12.0*white[0] + 3.0); 
+        double u_white = 4.0*white[0] / (-2.0*white[0] + 12.0*white[1] + 3.0); 
         double v_white = 9.0*white[1] / (-2.0*white[0] + 12.0*white[1] + 3.0); 
         (*this)[0] = 116.0*var_Y-16.0;	 // CIE-L*
         (*this)[1] = 13.0 * (*this)[0] * (u - u_white);

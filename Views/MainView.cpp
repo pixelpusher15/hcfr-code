@@ -4044,14 +4044,14 @@ void CMainView::UpdateGrid()
 					    sprintf ( szBuf, ": %.0f:1 )", GetDocument()->GetMeasure()->GetOnOffWhite()[1] / GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] );
 					    Msg += szBuf;
 				    }
-					else if ( GetDocument()->GetMeasure()->GetGray(0).isValid() && GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] == 0 )
+					else if ( GetDocument()->GetMeasure()->GetOnOffWhite().isValid() && GetDocument()->GetMeasure()->GetOnOffWhite()[1] > 0.0 )
 					{
 					    sprintf ( szBuf, ": %s:1 )", "Infinity" );
 					    Msg += szBuf;
 					}
 				    else
 				    {
-					    Msg += ": 0:1 )";
+					    Msg += ": N/A )";
 				    }
                 }
 
@@ -5919,7 +5919,7 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 				if (  (mode >= 4) )
 			    {
 					double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit);
-					valy = 
+					valy = getL_EOTF
 						(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 			    }
 			    else
@@ -5959,7 +5959,7 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 		}
 		else if ( MeasuredColor.GetDeltaxy ( GetDocument()->GetMeasure()->GetRefPrimary(2), bRef ) < 0.05 )
 		{
-			refColor = GetDocument()->GetMeasure()->GetRefPrimary(0);
+			refColor = GetDocument()->GetMeasure()->GetRefPrimary(2);
 			clrSpecial1 = RGB(192,192,255);
 			clrSpecial2 = RGB(224,224,255);
 		}

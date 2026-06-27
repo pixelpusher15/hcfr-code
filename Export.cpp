@@ -322,7 +322,7 @@ bool CExport::SavePDF()
 	CDataSetDoc *pDataRef = GetDataRef();
 	CView *pView;
 	POSITION		pos;
-	double CR = NULL;
+	double CR = 0.0;
 
 	bool bk=GetConfig()->m_bWhiteBkgndOnFile != 0;
 	GetConfig()->m_bWhiteBkgndOnFile=FALSE;
@@ -471,8 +471,10 @@ bool CExport::SavePDF()
 	char str[100];
 	if (White > 0 && Black < 0.000001)
 		sprintf(str,"White: %.2f cd/m^2 Black: %.4f cd/m^2 CR: Infinite", White, Black);
-	else
+	else if (CR > 0)
 		sprintf(str,"White: %.2f cd/m^2 Black: %.4f cd/m^2 CR: %.0f:1", White, Black, CR);
+	else
+		sprintf(str,"White: %.2f cd/m^2 Black: %.4f cd/m^2 CR: N/A", White, Black);
 
 	HPDF_Page_BeginText (page);
 	HPDF_Page_SetFontAndSize (page, font2, 9);

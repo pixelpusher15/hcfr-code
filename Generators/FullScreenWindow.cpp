@@ -1209,7 +1209,6 @@ void video_scale (CxImage *inImage)
 	void CFullScreenWindow::OnPaint() 
 {
 	CPaintDC	dc(this); // device context for painting
-	CPaintDC	dc1(this);
 	CRect		rect,rect_ABL;
 	int			row, col, dWidth, dHeight;
 	COLORREF	DisplayColor = m_Color;
@@ -1661,7 +1660,6 @@ void video_scale (CxImage *inImage)
 				dc.FillRect ( &rect_ABL, &brush );
 				Sleep(GetConfig()->m_ablDuration);
 				brush.DeleteObject();
-				DeleteDC(dc1);
 			}
 
 			if(m_rectSizePercent < 100 && !isSpecial)  // Need to draw background and border
