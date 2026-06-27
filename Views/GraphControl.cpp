@@ -327,6 +327,7 @@ void CGraphControl::ChangeScale()
 BEGIN_MESSAGE_MAP(CGraphControl, CWnd)
 	//{{AFX_MSG_MAP(CGraphControl)
 	ON_WM_PAINT()
+	ON_WM_ERASEBKGND()
 	ON_WM_SIZE()
 	ON_WM_CREATE()
 	//}}AFX_MSG_MAP
@@ -870,6 +871,11 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 
 	pDC->SelectObject(pOldPen);
 	pDC->SelectObject(pOldFont);
+}
+
+BOOL CGraphControl::OnEraseBkgnd(CDC*)
+{
+	return TRUE;
 }
 
 void CGraphControl::OnPaint() 

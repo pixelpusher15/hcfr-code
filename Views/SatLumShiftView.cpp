@@ -736,7 +736,6 @@ void CSatLumShiftView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		case UPD_NEARWHITE:
 		case UPD_CONTRAST:
 		case UPD_FREEMEASURES:
-		case UPD_FREEMEASUREAPPENDED:
 		case UPD_GENERATORCONFIG:
 		case UPD_SELECTEDCOLOR:
 			 return;
@@ -744,7 +743,7 @@ void CSatLumShiftView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 	m_Grapher.UpdateGraph ( GetDocument () );
 
-	Invalidate(TRUE);
+	RedrawWindow(NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 }
 
 DWORD CSatLumShiftView::GetUserInfo ()

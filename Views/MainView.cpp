@@ -6013,8 +6013,7 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 	}
 	else
 	{
-		m_pGrayScaleGrid->SetSelectedRange(-1,-1,-1,-1);
-		m_pGrayScaleGrid->SetFocusCell(-1,-1);
+		HighlightMeasuringColumn(last_minCol);
 	}
 
 	SetSelectedColor ( MeasuredColor );

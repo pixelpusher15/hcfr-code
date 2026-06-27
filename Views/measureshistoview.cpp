@@ -370,7 +370,7 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		
 		m_graphCtrl.SetYAxisProps("", pow ( 10.0, (double) ( nFactor < 3 ? nTensScale - 1 : nTensScale ) ), 0, m_LumaMaxY * 2.0);
 	}
-	Invalidate(TRUE);
+	RedrawWindow(NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 }
 
 DWORD CMeasuresHistoView::GetUserInfo ()

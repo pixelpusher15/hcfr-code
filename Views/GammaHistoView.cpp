@@ -444,7 +444,7 @@ void CGammaHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA  || lHint == UPD_FREEMEASUREAPPENDED || lHint >= UPD_REALTIME)
 	{
 		m_Grapher.UpdateGraph ( GetDocument () );
-		Invalidate(TRUE);
+		RedrawWindow(NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 	}
 }
 
