@@ -833,12 +833,12 @@ void CMainView::OnInitialUpdate()
 				}
 			}
 
-			// Pull the whole lower half up to meet the (snug) top row, closing the
-			// gap the shorter panes would otherwise leave above the measures grid.
-			// Fixed-height controls move rigidly; bottom-anchored ones grow upward.
+			// Shift the whole lower half to align with the top row: UP to close a gap
+			// a shorter pane leaves, or DOWN to clear an overlap when the computed band
+			// is taller than the template (high DPI/font). Bottom-anchored ones grow/shrink.
 			int measTop = pGGrid->m_Rect.top;
 			int delta = (top + rowH + cfg->Scale(3)) - measTop;
-			if (delta < 0)
+			if (delta != 0)
 			{
 				POSITION rp2 = m_CtrlInitPos.GetHeadPosition();
 				while (rp2)
@@ -857,7 +857,8 @@ void CMainView::OnInitialUpdate()
 
 
 	{
-		const int HEADER_H = 38;
+		CClientDC sbHdrDC( this );
+		int HEADER_H = m_statsBar.PreferredHeight( &sbHdrDC );
 		CRect rcGroup( 0, 0, 0, 0 );
 		CRect rcGrid( 0, 0, 0, 0 );
 		POSITION sbPos = m_CtrlInitPos.GetHeadPosition();

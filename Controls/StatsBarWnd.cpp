@@ -15,6 +15,7 @@ static char THIS_FILE[] = __FILE__;
 #define STATSBAR_GAP		8	// horizontal gap between chips
 #define STATSBAR_TEXTPAD	12	// text padding inside a chip (each side)
 #define STATSBAR_VMARGIN	5	// top/bottom margin of a chip within the band
+#define STATSBAR_CHIPVPAD	6	// vertical slack between the text and the chip edge
 #define STATSBAR_FONTPT		10	// chip text size, points
 
 /////////////////////////////////////////////////////////////////////////////
@@ -172,6 +173,39 @@ BOOL CStatsBarWnd::OnEraseBkgnd(CDC* /*pDC*/)
 	return TRUE;	// fully painted in OnPaint (double-buffered)
 }
 
+// Build the larger bold chip font once (its height depends on screen DPI).
+void CStatsBarWnd::EnsureFont(CDC* pDC)
+{
+	if (m_font.m_hObject != NULL)
+		return;
+	LOGFONT lf;
+	ZeroMemory(&lf, sizeof(lf));
+	// GetFont() asserts on a not-yet-created window, and PreferredHeight() can be
+	// called before the band is created -- guard it (the band has no custom font,
+	// so this falls back to the default GUI font either way).
+	CFont* pBase = ::IsWindow(GetSafeHwnd()) ? GetFont() : NULL;
+	if (pBase == NULL || pBase->GetLogFont(&lf) == 0)
+		::GetObject(::GetStockObject(DEFAULT_GUI_FONT), sizeof(lf), &lf);
+	lf.lfHeight = -MulDiv(STATSBAR_FONTPT, pDC->GetDeviceCaps(LOGPIXELSY), 72);
+	lf.lfWidth = 0;
+	lf.lfWeight = FW_BOLD;
+	m_font.CreateFontIndirect(&lf);
+}
+
+// Band height needed so the DPI-scaled chip text clears the chip edges: the
+// scaled text height plus fixed chip + band padding. Only the text term scales
+// with DPI, so the band grows with the font but less than proportionally --
+// the chips get taller to fit the text without the padding ballooning.
+int CStatsBarWnd::PreferredHeight(CDC* pDC)
+{
+	EnsureFont(pDC);
+	CFont* pOld = pDC->SelectObject(&m_font);
+	TEXTMETRIC tm;
+	pDC->GetTextMetrics(&tm);
+	pDC->SelectObject(pOld);
+	return tm.tmHeight + 2 * (STATSBAR_VMARGIN + STATSBAR_CHIPVPAD);
+}
+
 void CStatsBarWnd::OnPaint()
 {
 	CPaintDC dc(this);
@@ -181,19 +215,7 @@ void CStatsBarWnd::OnPaint()
 	if (rc.Width() <= 0 || rc.Height() <= 0)
 		return;
 
-	// Build the larger bold chip font once (depends on screen DPI).
-	if (m_font.m_hObject == NULL)
-	{
-		LOGFONT lf;
-		ZeroMemory(&lf, sizeof(lf));
-		CFont* pBase = GetFont();
-		if (pBase == NULL || pBase->GetLogFont(&lf) == 0)
-			::GetObject(::GetStockObject(DEFAULT_GUI_FONT), sizeof(lf), &lf);
-		lf.lfHeight = -MulDiv(STATSBAR_FONTPT, dc.GetDeviceCaps(LOGPIXELSY), 72);
-		lf.lfWidth = 0;
-		lf.lfWeight = FW_BOLD;
-		m_font.CreateFontIndirect(&lf);
-	}
+	EnsureFont(&dc);
 
 	// Double-buffer to keep the header flicker-free during measurement updates.
 	CDC memDC;
