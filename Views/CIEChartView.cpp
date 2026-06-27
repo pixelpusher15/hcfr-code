@@ -2485,7 +2485,7 @@ void CCIEChartView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		GetReferenceRect ( & Rect );
 		if (lHint != UPD_FREEMEASURES && lHint != UPD_REALTIME && lHint != UPD_FREEMEASUREAPPENDED && !GetDocument()->GetMeasure()->m_binMeasure)
 			m_Grapher.MakeBgBitmap(Rect,GetConfig()->m_bWhiteBkgndOnScreen);
-		Invalidate(TRUE);
+		RedrawWindow(NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 	}
 	else
 	{
