@@ -5497,6 +5497,13 @@ void CMeasure::UpdateViews ( CDataSetDoc *pDoc, int Sequence )
 			pDoc ->SetModifiedFlag(TRUE);
 			pDoc ->UpdateAllViews(NULL, UPD_REALTIME + Sequence);
 		}
+		else if ( ((CMainView*)pView)->m_displayMode != Sequence )
+		{
+			// Realtime off: switch the shown grid to the sweep's mode once, reusing the
+			// realtime update path, so the test window paints and the sensor measures the
+			// correct patterns. Later points already match, so there is no per-point refresh.
+			pDoc ->UpdateAllViews(NULL, UPD_REALTIME + Sequence);
+		}
 	}
 
 }
