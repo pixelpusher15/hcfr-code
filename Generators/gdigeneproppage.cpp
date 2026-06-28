@@ -24,6 +24,9 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "GDIGenerator.h"
+#include <uxtheme.h>
+#include <vsstyle.h>
+#pragma comment(lib, "uxtheme.lib")
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -42,6 +45,7 @@ CGDIGenePropPage::CGDIGenePropPage() : CPropertyPageWithHelp(CGDIGenePropPage::I
 	//{{AFX_DATA_INIT(CGDIGenePropPage)
 	m_rectSizePercent = 0;
 	m_offsetx = 0;
+	m_pgenQuerying = FALSE;
 	m_offsety =0;
 	m_bgStimPercent = 0;
 	m_Intensity = 0;
@@ -65,7 +69,7 @@ CGDIGenePropPage::CGDIGenePropPage() : CPropertyPageWithHelp(CGDIGenePropPage::I
 
 	m_grpDisplay = m_grpMadvr = m_grpCast = m_grpPgen = m_grpSignal = m_grpPattern = m_grpBlanking = NULL;
 	m_lblOutput = m_lblScreen = m_lblSize = m_lblApl = m_lblIntensity = NULL;
-	m_lblXoff = m_lblYoff = m_lblCastDev = m_lblRange = NULL;
+	m_lblXoff = m_lblYoff = m_lblCastDev = m_lblRange = m_lblOffset = NULL;
 }
 
 CGDIGenePropPage::~CGDIGenePropPage()
@@ -105,6 +109,11 @@ void CGDIGenePropPage::DoDataExchange(CDataExchange* pDX)
 }
 
 
+#define WM_PGEN_QUERY_DONE (WM_USER + 172)
+
+#define IDC_PGEN_FORMAT_COMBO   (IDC_PGEN_AVI_BASE + 1)
+#define IDC_PGEN_DYNRANGE_COMBO (IDC_PGEN_AVI_BASE + 5)
+
 BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	//{{AFX_MSG_MAP(CGDIGenePropPage)
 	ON_BN_CLICKED(IDC_OVERLAY, OnTestOverlay)
@@ -112,6 +121,11 @@ BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	ON_CBN_DROPDOWN(IDC_MONITOR_COMBO, OnDropdownMonitorCombo)
 	ON_CBN_SELCHANGE(IDC_GEN_OUTPUT_COMBO, OnSelchangeOutput)
 	ON_BN_CLICKED(IDC_DISP_TRIP3, OnUserPatternClick)
+	ON_BN_CLICKED(IDC_PGEN_SETTINGS_BTN, OnPgenSettings)
+	ON_BN_CLICKED(IDC_PGEN_REFRESH_BTN, OnPgenRefresh)
+	ON_MESSAGE(WM_PGEN_QUERY_DONE, OnPgenQueryDone)
+	ON_WM_CTLCOLOR()
+	ON_WM_DESTROY()
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -142,6 +156,69 @@ static CString LS(UINT id)
     CString s;
     if (id) s.LoadString(id);
     return s;
+}
+
+static int CALLBACK PgFontEnumProc(const LOGFONT*, const TEXTMETRIC*, DWORD, LPARAM lp) { *(BOOL*)lp = TRUE; return 0; }
+static void PgMakeGlyphFont(CFont& f, int pt = 9)
+{
+	HDC hdc = ::GetDC(NULL);
+	int px = -MulDiv(pt, ::GetDeviceCaps(hdc, LOGPIXELSY), 72);
+	LOGFONT lf; ZeroMemory(&lf, sizeof(lf));
+	lf.lfHeight = px; lf.lfCharSet = DEFAULT_CHARSET;
+	lstrcpy(lf.lfFaceName, _T("Segoe Fluent Icons"));
+	BOOL found = FALSE;
+	LOGFONT probe; ZeroMemory(&probe, sizeof(probe)); probe.lfCharSet = DEFAULT_CHARSET;
+	lstrcpy(probe.lfFaceName, _T("Segoe Fluent Icons"));
+	::EnumFontFamiliesEx(hdc, &probe, PgFontEnumProc, (LPARAM)&found, 0);
+	if (!found) lstrcpy(lf.lfFaceName, _T("Segoe MDL2 Assets"));
+	::ReleaseDC(NULL, hdc);
+	f.CreateFontIndirect(&lf);
+}
+static void PgMakeGlyphBtn(CButton& btn, CWnd* parent, CFont& gf, int id, const wchar_t* glyph, CPoint pt, int w, int h, DWORD exStyle = 0)
+{
+	{ HWND old = btn.Detach(); if (old) ::DestroyWindow(old); }
+	HWND hh = ::CreateWindowExW(exStyle, L"BUTTON", glyph, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, pt.x, pt.y, w, h, parent->GetSafeHwnd(), (HMENU)(INT_PTR)id, AfxGetInstanceHandle(), NULL);
+	if (hh) { btn.Attach(hh); ::SendMessageW(hh, WM_SETFONT, (WPARAM)gf.GetSafeHandle(), TRUE); }
+}
+
+static void PgHeaderRule(CWnd* parent, CStatic& line, CStatic& lbl, CFont* font, int rightPx, BOOL visible)
+{
+	CString s; lbl.GetWindowText(s);
+	CClientDC dc(parent);
+	CFont* of = dc.SelectObject(font);
+	CSize sz = dc.GetTextExtent(s);
+	dc.SelectObject(of);
+	CRect lr; lbl.GetWindowRect(&lr); parent->ScreenToClient(&lr);
+	int x1 = lr.left + sz.cx + 6;
+	int yc = lr.top + lr.Height() / 2;
+	if (line.GetSafeHwnd()) line.DestroyWindow();
+	DWORD st = WS_CHILD | SS_ETCHEDHORZ; if (visible) st |= WS_VISIBLE;
+	line.Create(_T(""), st, CRect(x1, yc, rightPx, yc + 2), parent);
+}
+
+static LRESULT CALLBACK PgReadoutProc(HWND h, UINT msg, WPARAM w, LPARAM l, UINT_PTR id, DWORD_PTR ref)
+{
+	if (msg == WM_NCDESTROY) { ::RemoveWindowSubclass(h, PgReadoutProc, id); return ::DefSubclassProc(h, msg, w, l); }
+	if (msg == WM_SIZE)
+	{
+		LRESULT r = ::DefSubclassProc(h, msg, w, l);
+		RECT rc; ::GetClientRect(h, &rc);
+		RECT fr; fr.left = 7; fr.top = 4; fr.right = rc.right - 5; fr.bottom = rc.bottom;
+		::SendMessage(h, EM_SETRECTNP, 0, (LPARAM)&fr);
+		return r;
+	}
+	if (msg == WM_PAINT)
+	{
+		LRESULT r = ::DefSubclassProc(h, msg, w, l);
+		RECT rc; ::GetClientRect(h, &rc);
+		HDC dc = ::GetDC(h);
+		HBRUSH bbr = ::CreateSolidBrush(RGB(207, 224, 243));
+		::FrameRect(dc, &rc, bbr);
+		::DeleteObject(bbr);
+		::ReleaseDC(h, dc);
+		return r;
+	}
+	return ::DefSubclassProc(h, msg, w, l);
 }
 
 static CStatic* AddText(CWnd* pg, CObArray& all, CFont* font, DlgMap& M,
@@ -244,7 +321,7 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	m_dynAll.RemoveAll();
 	m_grpDisplay = m_grpMadvr = m_grpCast = m_grpPgen = m_grpSignal = m_grpPattern = m_grpBlanking = NULL;
 	m_lblOutput = m_lblScreen = m_lblSize = m_lblApl = m_lblIntensity = NULL;
-	m_lblXoff = m_lblYoff = m_lblCastDev = m_lblRange = NULL;
+	m_lblXoff = m_lblYoff = m_lblCastDev = m_lblRange = m_lblOffset = NULL;
 
 	DlgMap M; M.h = GetSafeHwnd();
 	CFont* font = GetFont();
@@ -297,6 +374,29 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 		m_blankCheck.SetFont(font);
 	}
 	m_blankCheck.SetCheck(m_doScreenBlanking ? BST_CHECKED : BST_UNCHECKED);
+	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.DestroyWindow();
+	{
+		CPoint rpt = M.at(LBL_X, 40);
+		m_pgenReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP, CRect(rpt.x, rpt.y, rpt.x + M.w(166), rpt.y + M.ht(80)), this, IDC_PGEN_READOUT);
+		m_pgenReadout.SetFont(font);
+		{ int pgtab = 80; m_pgenReadout.SendMessage(EM_SETTABSTOPS, 1, (LPARAM)&pgtab); }
+		m_pgenReadout.SetWindowText(_T("PGenerator device info will appear here."));
+		::SetWindowSubclass(m_pgenReadout.GetSafeHwnd(), PgReadoutProc, 1, 0);
+	}
+	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.DestroyWindow();
+	{
+		CPoint spt = M.at(LBL_X, 130);
+		m_pgenSettingsBtn.Create(LS(IDS_GEN_PGEN_SETTINGS), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(spt.x, spt.y, spt.x + M.w(106), spt.y + M.ht(14)), this, IDC_PGEN_SETTINGS_BTN);
+		m_pgenSettingsBtn.SetFont(font);
+	}
+	{
+		CPoint rfp = M.at(LBL_X, 130);
+		if (!m_glyphFont.GetSafeHandle()) PgMakeGlyphFont(m_glyphFont);
+		PgMakeGlyphBtn(m_pgenRefreshBtn, this, m_glyphFont, IDC_PGEN_REFRESH_BTN, L"\xE72C", rfp, M.w(18), M.ht(14));
+		if (!m_pageTip.GetSafeHwnd()) { m_pageTip.Create(this); m_pageTip.Activate(TRUE); }
+		m_pageTip.AddTool(&m_pgenRefreshBtn, LS(IDS_PGEN_REFRESH));
+	}
+	m_lblOffset = AddText(this, m_dynAll, font, M, LS(IDS_GEN_OFFSET), LBL_X, 0, 28, 9);
 
 	// Group frames + row labels. Real positions are assigned in Relayout().
 	m_grpDisplay = AddGroup(this, m_dynAll, font, M, IDS_GEN_GRP_DISPLAY, GRP_X, 26, GRP_W, 90);
@@ -311,8 +411,8 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	m_lblSize      = AddText(this, m_dynAll, font, M, LS(IDS_GEN_PATTERN_SIZE),  LBL_X, 0, 84, 9);
 	m_lblApl       = AddText(this, m_dynAll, font, M, LS(IDS_GEN_APL),           LBL_X, 0, 84, 9);
 	m_lblIntensity = AddText(this, m_dynAll, font, M, LS(IDS_GEN_INTENSITY),     LBL_X, 0, 84, 9);
-	m_lblXoff      = AddText(this, m_dynAll, font, M, LS(IDS_GEN_XOFFSET),       LBL_X, 0, 84, 9);
-	m_lblYoff      = AddText(this, m_dynAll, font, M, LS(IDS_GEN_YOFFSET),       LBL_X, 0, 84, 9);
+	m_lblXoff      = AddText(this, m_dynAll, font, M, _T("X (px)"),       LBL_X, 0, 84, 9);
+	m_lblYoff      = AddText(this, m_dynAll, font, M, _T("Y (px)"),       LBL_X, 0, 84, 9);
 	m_lblCastDev   = AddText(this, m_dynAll, font, M, LS(IDS_GEN_CAST_DEVICE),   LBL_X, 0, 28, 9);
 	m_lblRange     = AddText(this, m_dynAll, font, M, LS(IDS_GEN_RGB_RANGE),     LBL_X, 0, 42, 9);
 }
@@ -347,8 +447,11 @@ void CGDIGenePropPage::Relayout()
 	ShowIds(this, fieldIds, sizeof(fieldIds) / sizeof(fieldIds[0]), FALSE);
 	CWnd* groups[] = { m_grpDisplay, m_grpMadvr, m_grpCast, m_grpPgen, m_grpSignal, m_grpPattern, m_grpBlanking };
 	for (int i = 0; i < 7; i++) if (groups[i]) groups[i]->ShowWindow(SW_HIDE);
-	CWnd* labels[] = { m_lblScreen, m_lblSize, m_lblApl, m_lblIntensity, m_lblXoff, m_lblYoff, m_lblCastDev, m_lblRange };
-	for (int i = 0; i < 8; i++) if (labels[i]) labels[i]->ShowWindow(SW_HIDE);
+	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.ShowWindow(SW_HIDE);
+	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.ShowWindow(SW_HIDE);
+	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.ShowWindow(SW_HIDE);
+	CWnd* labels[] = { m_lblScreen, m_lblSize, m_lblApl, m_lblIntensity, m_lblXoff, m_lblYoff, m_lblCastDev, m_lblRange, m_lblOffset };
+	for (int i = 0; i < 9; i++) if (labels[i]) labels[i]->ShowWindow(SW_HIDE);
 
 	int y = 26;
 
@@ -379,8 +482,19 @@ void CGDIGenePropPage::Relayout()
 	if (isPgen)
 	{
 		int top = y, cy = top + TOP_INSET;
-		PlaceLF(m_lblXoff, GetDlgItem(IDC_XOFFSET_EDIT), M, cy); cy += ROW_F;
-		PlaceLF(m_lblYoff, GetDlgItem(IDC_YOFFSET_EDIT), M, cy); cy += ROW_F;
+		int innerLeftPx = M.at(LBL_X, cy).x;
+		int innerW = grpRightPx - M.w(7) - innerLeftPx;
+		{ CPoint rp = M.at(LBL_X, cy); m_pgenReadout.MoveWindow(rp.x, rp.y, innerW, M.ht(78)); m_pgenReadout.ShowWindow(SW_SHOW); }
+		cy += 82;
+		{ CPoint bp = M.at(LBL_X, cy); m_pgenSettingsBtn.MoveWindow(bp.x, bp.y, M.w(106), M.ht(14)); m_pgenSettingsBtn.ShowWindow(SW_SHOW); }
+			{ CPoint rfp = M.at(LBL_X + 110, cy); m_pgenRefreshBtn.MoveWindow(rfp.x, rfp.y, M.w(18), M.ht(14)); m_pgenRefreshBtn.ShowWindow(SW_SHOW); }
+		cy += 18;
+		if (m_lblOffset) { CPoint p = M.at(LBL_X, cy + 2); m_lblOffset->MoveWindow(p.x, p.y, M.w(28), M.ht(9)); m_lblOffset->ShowWindow(SW_SHOW); }
+		if (m_lblXoff) { CPoint p = M.at(40, cy + 2); m_lblXoff->MoveWindow(p.x, p.y, M.w(24), M.ht(9)); m_lblXoff->ShowWindow(SW_SHOW); }
+		{ CWnd* xo = GetDlgItem(IDC_XOFFSET_EDIT); if (xo) { CPoint p = M.at(64, cy); xo->MoveWindow(p.x, p.y, M.w(28), M.ht(12)); xo->ShowWindow(SW_SHOW); } }
+		if (m_lblYoff) { CPoint p = M.at(100, cy + 2); m_lblYoff->MoveWindow(p.x, p.y, M.w(24), M.ht(9)); m_lblYoff->ShowWindow(SW_SHOW); }
+		{ CWnd* yo = GetDlgItem(IDC_YOFFSET_EDIT); if (yo) { CPoint p = M.at(124, cy); yo->MoveWindow(p.x, p.y, M.w(28), M.ht(12)); yo->ShowWindow(SW_SHOW); } }
+		cy += ROW_F;
 		PlaceChk(GetDlgItem(IDC_DISP_TRIP3), M, cy); cy += ROW_C;
 		int fb = cy + BOT_PAD;
 		PlaceGroup(m_grpPgen, M, top, fb - top, grpRightPx);
@@ -486,11 +600,392 @@ void CGDIGenePropPage::OnSelchangeOutput()
 	if (m_nDisplayMode == DISPLAY_ccast)
 		m_b16_235 = FALSE;
 	Relayout();
+	if (m_nDisplayMode == DISPLAY_rPI)
+		QueryPGenerator();
 }
 
 void CGDIGenePropPage::OnUserPatternClick()
 {
 	Relayout();
+}
+
+struct PgenQueryResult { CStringArray vals; CString err; BOOL ok; };
+
+static UINT AFX_CDECL PgenQueryThread(LPVOID p)
+{
+	CGDIGenePropPage* pg = (CGDIGenePropPage*)p;
+	CGDIGenerator* gen = pg->m_pGenerator;
+	HWND hwnd = pg->GetSafeHwnd();
+	PgenQueryResult* r = new PgenQueryResult;
+	r->ok = gen ? gen->QueryPGeneratorInfo(r->vals, r->err) : FALSE;
+	if (!(hwnd && IsWindow(hwnd) && ::PostMessage(hwnd, WM_PGEN_QUERY_DONE, 0, (LPARAM)r)))
+		delete r;
+	return 0;
+}
+
+void CGDIGenePropPage::QueryPGenerator()
+{
+	if (!m_pgenReadout.GetSafeHwnd()) return;
+	if (m_pgenQuerying) return;
+	m_pgenQuerying = TRUE;
+	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.EnableWindow(FALSE);
+	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(FALSE);
+	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(FALSE);
+	if (GetDlgItem(IDC_DISP_TRIP3)) GetDlgItem(IDC_DISP_TRIP3)->EnableWindow(FALSE);
+	CString q; q.LoadString(IDS_PGEN_ST_QUERYING); m_pgenReadout.SetWindowText(q);
+	AfxBeginThread(PgenQueryThread, this);
+}
+
+LRESULT CGDIGenePropPage::OnPgenQueryDone(WPARAM, LPARAM lp)
+{
+	PgenQueryResult* r = (PgenQueryResult*)lp;
+	m_pgenQuerying = FALSE;
+	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.EnableWindow(r->ok);
+	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(r->ok);
+	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(r->ok);
+	if (GetDlgItem(IDC_DISP_TRIP3)) GetDlgItem(IDC_DISP_TRIP3)->EnableWindow(r->ok);
+	if (!r->ok) { ShowPgenDisconnected(); delete r; return 0; }
+	static const UINT lblIds[9] = {
+		IDS_PGEN_RO_NAME, IDS_PGEN_RO_IP, IDS_PGEN_RO_VERSION, IDS_PGEN_RO_DYNRANGE,
+		IDS_PGEN_RO_RESOLUTION, IDS_PGEN_RO_BITDEPTH, IDS_PGEN_RO_COLORSPACE, IDS_PGEN_RO_COLORFORMAT, IDS_PGEN_RO_SIGRANGE };
+	CString out;
+	for (int i = 0; i < 9 && i < r->vals.GetSize(); i++)
+	{
+		CString lbl; lbl.LoadString(lblIds[i]); out += lbl;
+		out += _T("\t");
+		out += r->vals[i];
+		if (i < 8) out += _T("\r\n");
+	}
+	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.SetWindowText(out);
+	delete r;
+	return 0;
+}
+
+BEGIN_MESSAGE_MAP(CPGenSettingsDlg, CDialog)
+	ON_CBN_SELCHANGE(IDC_PGEN_FORMAT_COMBO, OnFormatChanged)
+	ON_CBN_SELCHANGE(IDC_PGEN_DYNRANGE_COMBO, OnDynRangeChanged)
+	ON_BN_CLICKED(IDC_PGEN_REBOOT_BTN, OnReboot)
+	ON_BN_CLICKED(IDC_PGEN_RESTART_BTN, OnRestartSw)
+	ON_BN_CLICKED(IDC_PGEN_SHUTDOWN_BTN, OnShutdown)
+	ON_WM_DESTROY()
+END_MESSAGE_MAP()
+
+CPGenSettingsDlg::CPGenSettingsDlg(CWnd* pParent) : CDialog(CPGenSettingsDlg::IDD, pParent)
+{
+	m_pGenerator = NULL;
+	m_action = 0;
+}
+
+static const TCHAR* const kPgCF[] = { _T("RGB"), _T("YCbCr 4:4:4"), _T("YCbCr 4:2:2") };
+static const int kPgCFv[] = { 0, 1, 2 };
+static const TCHAR* const kPgQR[] = { _T("Full"), _T("Limited") };
+static const int kPgQRv[] = { 2, 1 };
+static const TCHAR* const kPgBD[] = { _T("8-bit"), _T("10-bit") };
+static const int kPgBDv[] = { 8, 10 };
+static const TCHAR* const kPgCM[] = { _T("Default"), _T("BT.709 (YCC)"), _T("BT.2020 (RGB)") };
+static const int kPgCMv[] = { 0, 2, 9 };
+static const TCHAR* const kPgDR[] = { _T("SDR"), _T("HDR"), _T("Dolby Vision") };
+static const TCHAR* const kPgEO[] = { _T("SDR (gamma)"), _T("HDR (gamma)"), _T("ST.2084 / PQ"), _T("HLG") };
+static const int kPgEOv[] = { 0, 1, 2, 3 };
+static const TCHAR* const kPgPR[] = { _T("Rec.709"), _T("Rec.2020"), _T("P3 / D65"), _T("DCI-P3"), _T("P3 / D60") };
+static const int kPgPRv[] = { 0, 1, 2, 3, 4 };
+static const TCHAR* const* const kAviItems[5] = { 0, kPgCF, kPgQR, kPgBD, kPgCM };
+static const int* const kAviVals[5] = { 0, kPgCFv, kPgQRv, kPgBDv, kPgCMv };
+static const int kAviCnt[5] = { 0, 3, 2, 2, 3 };
+static const UINT kAviLblId[5] = { IDS_PGEN_RO_RESOLUTION, IDS_PGEN_RO_COLORFORMAT, IDS_PGEN_RO_SIGRANGE, IDS_PGEN_RO_BITDEPTH, IDS_PGEN_RO_COLORSPACE };
+
+BOOL CPGenSettingsDlg::OnInitDialog()
+{
+	CDialog::OnInitDialog();
+	SetWindowText(LS(IDS_PGEN_DLG_TITLE));
+	DlgMap M; M.h = GetSafeHwnd();
+	CFont* font = GetParent() ? GetParent()->GetFont() : GetFont();
+
+	CStringArray modeLabels;
+	int curMode = -1;
+	PGenSettings st; st.valid = FALSE;
+	st.colorFormat = st.quantRange = st.bitDepth = st.colorimetry = 0;
+	st.isHdr = st.isLLDovi = st.eotf = st.primaries = 0;
+	st.maxLuma = 1000; st.minLuma = 5; st.maxCll = 1000; st.maxFall = 400;
+	if (m_pGenerator)
+	{
+		CWaitCursor wait;
+		curMode = m_pGenerator->QueryPGeneratorModes(modeLabels, m_resIds, st);
+	}
+
+	const int LX = 8, LW = 82, CX = 94, CW = 98;
+	const int FULLW = 200, PITCH = 14, Y0 = 20;
+
+	if (!m_glyphFont.GetSafeHandle()) PgMakeGlyphFont(m_glyphFont);
+
+	{ CPoint p = M.at(LX, 5); m_hdrAvi.Create(LS(IDS_PGEN_HDR_AVI), WS_CHILD | WS_VISIBLE, CRect(p.x, p.y, p.x + M.w(FULLW - LX), p.y + M.ht(9)), this); m_hdrAvi.SetFont(font); }
+	PgHeaderRule(this, m_hdrAviLine, m_hdrAvi, font, M.at(FULLW - 8, 0).x, TRUE);
+
+	{
+		int y = Y0;
+		CPoint lp = M.at(LX, y + 2); m_aviL[5].Create(LS(IDS_PGEN_DYNRANGE), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[5].SetFont(font);
+		CPoint cp = M.at(CX, y); m_avi[5].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_AVI_BASE + 5); m_avi[5].SetFont(font);
+		for (int j = 0; j < 3; j++) m_avi[5].AddString(kPgDR[j]);
+		int sel = st.isLLDovi ? 2 : (st.isHdr ? 1 : 0);
+		m_avi[5].SetCurSel(sel); m_aviInit[5] = sel;
+	}
+	{
+		int y = Y0 + PITCH;
+		CPoint lp = M.at(LX, y + 2); m_aviL[0].Create(LS(IDS_PGEN_RO_RESOLUTION), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[0].SetFont(font);
+		CPoint cp = M.at(CX, y); m_avi[0].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(160)), this, IDC_PGEN_AVI_BASE + 0); m_avi[0].SetFont(font);
+		for (int j = 0; j < modeLabels.GetSize(); j++) m_avi[0].AddString(modeLabels[j]);
+		int sel = 0; for (int j = 0; j < m_resIds.GetSize(); j++) if (m_resIds[j] == curMode) { sel = j; break; }
+		m_avi[0].SetCurSel(sel); m_aviInit[0] = sel;
+	}
+	int aviVal[5] = { 0, st.colorFormat, st.quantRange, st.bitDepth, st.colorimetry };
+	for (int i = 1; i <= 4; i++)
+	{
+		int y = Y0 + (i + 1) * PITCH;
+		CPoint lp = M.at(LX, y + 2); m_aviL[i].Create(LS(kAviLblId[i]), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[i].SetFont(font);
+		CPoint cp = M.at(CX, y); m_avi[i].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(120)), this, IDC_PGEN_AVI_BASE + i); m_avi[i].SetFont(font);
+		for (int j = 0; j < kAviCnt[i]; j++) m_avi[i].AddString(kAviItems[i][j]);
+		int sel = 0; for (int j = 0; j < kAviCnt[i]; j++) if (kAviVals[i][j] == aviVal[i]) { sel = j; break; }
+		m_avi[i].SetCurSel(sel); m_aviInit[i] = sel;
+	}
+	{
+		int y = Y0 + 6 * PITCH;
+		CPoint lp = M.at(LX, y + 2); m_doviLbl.Create(LS(IDS_PGEN_DOVI_MODE), WS_CHILD, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_doviLbl.SetFont(font);
+		CPoint cp = M.at(CX, y); m_doviCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_DOVI_COMBO); m_doviCombo.SetFont(font);
+		m_doviCombo.AddString(_T("Verify / Absolute"));
+		m_doviCombo.AddString(_T("Calibrate / Relative"));
+		int sel = (st.doviMode == 2) ? 1 : 0;
+		m_doviCombo.SetCurSel(sel); m_doviInit = sel;
+	}
+	{ CPoint p = M.at(LX, Y0 + 6 * PITCH + 3); m_hdrDrm.Create(LS(IDS_PGEN_HDR_DRM), WS_CHILD, CRect(p.x, p.y, p.x + M.w(FULLW - LX), p.y + M.ht(9)), this); m_hdrDrm.SetFont(font); }
+	PgHeaderRule(this, m_hdrDrmLine, m_hdrDrm, font, M.at(FULLW - 8, 0).x, FALSE);
+	{
+		int y = Y0 + 7 * PITCH + 2; CPoint lp = M.at(LX, y + 2); m_drmL[0].Create(_T("EOTF"), WS_CHILD, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_drmL[0].SetFont(font);
+		CPoint cp = M.at(CX, y); m_drm[0].Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(90)), this, IDC_PGEN_DRM_BASE + 0); m_drm[0].SetFont(font);
+		for (int j = 0; j < 4; j++) m_drm[0].AddString(kPgEO[j]);
+		int sel = 0; for (int j = 0; j < 4; j++) if (kPgEOv[j] == st.eotf) { sel = j; break; }
+		m_drm[0].SetCurSel(sel); m_drmInit[0] = sel;
+	}
+	{
+		int y = Y0 + 8 * PITCH + 2; CPoint lp = M.at(LX, y + 2); m_drmL[1].Create(LS(IDS_PGEN_PRIMARIES), WS_CHILD, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_drmL[1].SetFont(font);
+		CPoint cp = M.at(CX, y); m_drm[1].Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(90)), this, IDC_PGEN_DRM_BASE + 1); m_drm[1].SetFont(font);
+		for (int j = 0; j < 5; j++) m_drm[1].AddString(kPgPR[j]);
+		int sel = 0; for (int j = 0; j < 5; j++) if (kPgPRv[j] == st.primaries) { sel = j; break; }
+		m_drm[1].SetCurSel(sel); m_drmInit[1] = sel;
+	}
+	{
+		static const TCHAR* const edLbl[4] = { _T("Max MDL (nits)"), _T("Min MDL (nits)"), _T("MaxCLL (nits)"), _T("MaxFALL (nits)") };
+		CString edTxt[4];
+		edTxt[0].Format(_T("%d"), st.maxLuma);
+		edTxt[1].Format(_T("%.4f"), st.minLuma / 10000.0);
+		edTxt[2].Format(_T("%d"), st.maxCll);
+		edTxt[3].Format(_T("%d"), st.maxFall);
+		for (int i = 0; i < 4; i++)
+		{
+			int y = Y0 + (i + 9) * PITCH + 2;
+			CPoint lp = M.at(LX, y + 2); m_edL[i].Create(edLbl[i], WS_CHILD, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_edL[i].SetFont(font);
+			CPoint cp = M.at(CX, y); m_ed[i].Create(WS_CHILD | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(12)), this, IDC_PGEN_EDIT_BASE + i); m_ed[i].SetFont(font);
+			m_ed[i].SetWindowText(edTxt[i]); m_edInit[i] = edTxt[i];
+		}
+	}
+	if (!m_glyphFontBig.GetSafeHandle()) PgMakeGlyphFont(m_glyphFontBig, 9);
+	PgMakeGlyphBtn(m_rebootBtn, this, m_glyphFontBig, IDC_PGEN_REBOOT_BTN, L"\xE777", M.at(LX, Y0), M.w(18), M.ht(14));
+	PgMakeGlyphBtn(m_restartBtn, this, m_glyphFont, IDC_PGEN_RESTART_BTN, L"\xE895", M.at(LX, Y0), M.w(18), M.ht(14));
+	PgMakeGlyphBtn(m_shutdownBtn, this, m_glyphFont, IDC_PGEN_SHUTDOWN_BTN, L"\xE7E8", M.at(LX, Y0), M.w(18), M.ht(14));
+	if (GetDlgItem(IDOK)) { GetDlgItem(IDOK)->SetFont(font); GetDlgItem(IDOK)->SetWindowText(LS(IDS_PGEN_APPLY)); }
+	if (GetDlgItem(IDCANCEL)) { GetDlgItem(IDCANCEL)->SetFont(font); GetDlgItem(IDCANCEL)->SetWindowText(LS(IDS_PGEN_CLOSE)); }
+	m_tip.Create(this);
+	m_tip.AddTool(&m_rebootBtn, LS(IDS_PGEN_REBOOT));
+	m_tip.AddTool(&m_restartBtn, LS(IDS_PGEN_RESTART_SW));
+	m_tip.AddTool(&m_shutdownBtn, LS(IDS_PGEN_SHUTDOWN));
+	m_tip.Activate(TRUE);
+
+	UpdateDynRangeState();
+	return TRUE;
+}
+
+void CPGenSettingsDlg::OnOK()
+{
+	CStringArray cmds;
+	int drSel = (m_avi[5].GetSafeHwnd()) ? m_avi[5].GetCurSel() : -1;
+	{ int sel = m_avi[0].GetCurSel(); if (sel >= 0 && sel != m_aviInit[0] && sel < m_resIds.GetSize()) { CString c; c.Format(_T("CMD:SET_MODE:%d"), m_resIds[sel]); cmds.Add(c); } }
+	{
+		static const TCHAR* const nm[5] = { 0, _T("SET_PGENERATOR_CONF_COLOR_FORMAT"), _T("SET_PGENERATOR_CONF_RGB_QUANT_RANGE"), _T("SET_PGENERATOR_CONF_MAX_BPC"), _T("SET_PGENERATOR_CONF_COLORIMETRY") };
+		for (int i = 1; i <= 4; i++) { int sel = m_avi[i].GetCurSel(); if (sel < 0 || sel == m_aviInit[i]) continue; CString c; c.Format(_T("CMD:%s:%d"), nm[i], kAviVals[i][sel]); cmds.Add(c); }
+	}
+	{
+		int sel = m_avi[5].GetCurSel();
+		if (sel >= 0 && sel != m_aviInit[5])
+		{
+			int isSdr = (sel == 0) ? 1 : 0, isHdr = (sel >= 1) ? 1 : 0, dovi = (sel == 2) ? 1 : 0;
+			CString c;
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_SDR:%d"), isSdr); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_HDR:%d"), isHdr); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_STD_DOVI:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_STATUS:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), dovi); cmds.Add(c);
+		}
+	}
+	{ int sel = m_doviCombo.GetCurSel(); if (sel >= 0 && sel != m_doviInit && drSel == 2) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_MAP_MODE:%d"), (sel == 1) ? 2 : 1); cmds.Add(c); } }
+	{ int sel = m_drm[0].GetCurSel(); if (sel >= 0 && sel != m_drmInit[0] && drSel == 1) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_EOTF:%d"), kPgEOv[sel]); cmds.Add(c); } }
+	{ int sel = m_drm[1].GetCurSel(); if (sel >= 0 && sel != m_drmInit[1] && drSel == 1) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_PRIMARIES:%d"), kPgPRv[sel]); cmds.Add(c); } }
+	{
+		static const TCHAR* const nm[4] = { _T("SET_PGENERATOR_CONF_MAX_LUMA"), _T("SET_PGENERATOR_CONF_MIN_LUMA"), _T("SET_PGENERATOR_CONF_MAX_CLL"), _T("SET_PGENERATOR_CONF_MAX_FALL") };
+		if (drSel == 1) for (int i = 0; i < 4; i++)
+		{
+			CString t; m_ed[i].GetWindowText(t); t.TrimLeft(); t.TrimRight();
+			if (t == m_edInit[i]) continue;
+			int v = (i == 1) ? (int)(atof((LPCTSTR)t) * 10000.0 + 0.5) : atoi((LPCTSTR)t);
+			CString c; c.Format(_T("CMD:%s:%d"), nm[i], v); cmds.Add(c);
+		}
+	}
+	if (cmds.GetSize() > 0 && m_pGenerator) { CWaitCursor wait; m_pGenerator->ApplyPGeneratorConf(cmds); }
+	CDialog::OnOK();
+}
+
+void CPGenSettingsDlg::OnFormatChanged()
+{
+	UpdateRangeState();
+}
+
+void CPGenSettingsDlg::UpdateRangeState()
+{
+	if (!m_avi[1].GetSafeHwnd() || !m_avi[2].GetSafeHwnd()) return;
+	BOOL isRgb = (m_avi[1].GetCurSel() == 0);
+	if (!isRgb)
+	{
+		int lim = m_avi[2].FindStringExact(-1, _T("Limited"));
+		if (lim >= 0) m_avi[2].SetCurSel(lim);
+	}
+	m_avi[2].EnableWindow(isRgb);
+}
+
+void CPGenSettingsDlg::OnDynRangeChanged()
+{
+	UpdateDynRangeState();
+}
+
+void CPGenSettingsDlg::UpdateDynRangeState()
+{
+	if (!m_avi[5].GetSafeHwnd()) return;
+	int dr = m_avi[5].GetCurSel();
+	BOOL isDovi = (dr == 2);
+	BOOL isHdr = (dr == 1);
+	if (m_avi[0].GetSafeHwnd()) m_avi[0].EnableWindow(TRUE);
+	for (int i = 1; i <= 4; i++) if (m_avi[i].GetSafeHwnd()) m_avi[i].EnableWindow(!isDovi);
+	int sw = isDovi ? SW_SHOW : SW_HIDE;
+	if (m_doviLbl.GetSafeHwnd()) m_doviLbl.ShowWindow(sw);
+	if (m_doviCombo.GetSafeHwnd()) m_doviCombo.ShowWindow(sw);
+	int dsw = isHdr ? SW_SHOW : SW_HIDE;
+	if (m_hdrDrm.GetSafeHwnd()) m_hdrDrm.ShowWindow(dsw);
+	if (m_hdrDrmLine.GetSafeHwnd()) m_hdrDrmLine.ShowWindow(dsw);
+	for (int i = 0; i < 2; i++) { if (m_drm[i].GetSafeHwnd()) m_drm[i].ShowWindow(dsw); if (m_drmL[i].GetSafeHwnd()) m_drmL[i].ShowWindow(dsw); }
+	for (int i = 0; i < 4; i++) { if (m_ed[i].GetSafeHwnd()) m_ed[i].ShowWindow(dsw); if (m_edL[i].GetSafeHwnd()) m_edL[i].ShowWindow(dsw); }
+	if (!isDovi) UpdateRangeState();
+
+	DlgMap M; M.h = GetSafeHwnd();
+	const int Y0r = 20, PITCHr = 14;
+	int cbot;
+	if (isHdr) cbot = Y0r + 13 * PITCHr + 2;
+	else if (isDovi) cbot = Y0r + 7 * PITCHr;
+	else cbot = Y0r + 6 * PITCHr;
+	int by = cbot + 4;
+	if (m_rebootBtn.GetSafeHwnd()) { CPoint p = M.at(8, by); m_rebootBtn.MoveWindow(p.x, p.y, M.w(18), M.ht(14)); }
+	if (m_restartBtn.GetSafeHwnd()) { CPoint p = M.at(28, by); m_restartBtn.MoveWindow(p.x, p.y, M.w(18), M.ht(14)); }
+	if (m_shutdownBtn.GetSafeHwnd()) { CPoint p = M.at(48, by); m_shutdownBtn.MoveWindow(p.x, p.y, M.w(18), M.ht(14)); }
+	if (GetDlgItem(IDOK)) { CPoint p = M.at(96, by); GetDlgItem(IDOK)->MoveWindow(p.x, p.y, M.w(48), M.ht(14)); }
+	if (GetDlgItem(IDCANCEL)) { CPoint p = M.at(148, by); GetDlgItem(IDCANCEL)->MoveWindow(p.x, p.y, M.w(48), M.ht(14)); }
+	CRect wr, cr; GetWindowRect(wr); GetClientRect(cr);
+	int newW = M.w(200) + (wr.Width() - cr.Width());
+	int newH = M.at(0, by + 20).y + (wr.Height() - cr.Height());
+	SetWindowPos(NULL, 0, 0, newW, newH, SWP_NOMOVE | SWP_NOZORDER);
+	CenterWindow();
+}
+
+void CPGenSettingsDlg::OnReboot()
+{
+	if (AfxMessageBox(LS(IDS_PGEN_REBOOT_CONFIRM), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("CMD:REBOOT"); }
+	m_action = 1;
+	CDialog::OnCancel();
+}
+
+void CPGenSettingsDlg::OnRestartSw()
+{
+	if (AfxMessageBox(LS(IDS_PGEN_RESTART_CONFIRM), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("RESTARTPGENERATOR:"); }
+	m_action = 1;
+	CDialog::OnCancel();
+}
+
+void CPGenSettingsDlg::OnShutdown()
+{
+	if (AfxMessageBox(LS(IDS_PGEN_SHUTDOWN_CONFIRM), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("CMD:HALT"); }
+	m_action = 2;
+	CDialog::OnCancel();
+}
+
+BOOL CPGenSettingsDlg::PreTranslateMessage(MSG* pMsg)
+{
+	if (m_tip.GetSafeHwnd()) m_tip.RelayEvent(pMsg);
+	return CDialog::PreTranslateMessage(pMsg);
+}
+
+BOOL CGDIGenePropPage::PreTranslateMessage(MSG* pMsg)
+{
+	if (m_pageTip.GetSafeHwnd()) m_pageTip.RelayEvent(pMsg);
+	return CPropertyPageWithHelp::PreTranslateMessage(pMsg);
+}
+
+HBRUSH CGDIGenePropPage::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
+{
+	HBRUSH hbr = CPropertyPageWithHelp::OnCtlColor(pDC, pWnd, nCtlColor);
+	if (pWnd && pWnd->GetDlgCtrlID() == IDC_PGEN_READOUT)
+	{
+		if (!m_roBrush.GetSafeHandle()) m_roBrush.CreateSolidBrush(RGB(238, 244, 251));
+		pDC->SetBkColor(RGB(238, 244, 251));
+		return (HBRUSH)m_roBrush.GetSafeHandle();
+	}
+	return hbr;
+}
+
+void CPGenSettingsDlg::OnDestroy()
+{
+	if (m_rebootBtn.GetSafeHwnd()) m_rebootBtn.Detach();
+	if (m_restartBtn.GetSafeHwnd()) m_restartBtn.Detach();
+	if (m_shutdownBtn.GetSafeHwnd()) m_shutdownBtn.Detach();
+	CDialog::OnDestroy();
+}
+
+void CGDIGenePropPage::OnDestroy()
+{
+	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.Detach();
+	CPropertyPageWithHelp::OnDestroy();
+}
+
+void CGDIGenePropPage::OnPgenRefresh()
+{
+	CGenerator::InvalidatePGenCache();
+	QueryPGenerator();
+}
+
+void CGDIGenePropPage::ShowPgenDisconnected()
+{
+	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.EnableWindow(FALSE);
+	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(FALSE);
+	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(FALSE);
+	if (GetDlgItem(IDC_DISP_TRIP3)) GetDlgItem(IDC_DISP_TRIP3)->EnableWindow(FALSE);
+	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.SetWindowText(LS(IDS_PGEN_ST_NOTCONN));
+}
+
+void CGDIGenePropPage::OnPgenSettings()
+{
+	CPGenSettingsDlg dlg(this);
+	dlg.m_pGenerator = m_pGenerator;
+	dlg.DoModal();
+	if (dlg.m_action != 0)
+		ShowPgenDisconnected();
 }
 
 void CGDIGenePropPage::OnOK()
@@ -522,9 +1017,8 @@ void CGDIGenePropPage::OnOK()
 	GetConfig()->WriteProfileInt("GDIGenerator","EnableHDR10",m_bHdr10);
 	if (m_nDisplayMode == DISPLAY_ccast && m_castHasDevice)
 	{
-		char nameBuf[1024];
-		m_cCastComboCtrl.GetWindowTextA(nameBuf, 1024);
-		GetConfig()->WriteProfileInt("GDIGenerator","CCastIp",m_GCast.getCcastIpAddress(m_GCast[nameBuf]));
+		CString name; m_cCastComboCtrl.GetWindowText(name);
+		GetConfig()->WriteProfileInt("GDIGenerator","CCastIp",m_GCast.getCcastIpAddress(m_GCast[(LPCTSTR)name]));
 	}
 
 	if (GetConfig()->m_GammaOffsetType == 5)
@@ -555,6 +1049,8 @@ BOOL CGDIGenePropPage::OnSetActive()
 		m_outputCombo.SetCurSel(ModeToCombo(m_nDisplayMode));
 
 	Relayout();
+	if (m_outputCombo.GetSafeHwnd() && ComboToMode(m_outputCombo.GetCurSel()) == DISPLAY_rPI)
+		QueryPGenerator();
 	return CPropertyPageWithHelp::OnSetActive();
 }
 

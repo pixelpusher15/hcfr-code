@@ -456,7 +456,16 @@ BEGIN
     CONTROL         "Blank screen during measure",IDC_BLANKING_CHECK,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,17,20,112,10
 END
 
-IDD_GENERATOR_GDI_PROP_PAGE DIALOGEX 0, 0, 186, 246
+IDD_PGEN_SETTINGS DIALOGEX 0, 0, 200, 200
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "PGenerator settings"
+FONT 8, "MS Sans Serif", 0, 0, 0x0
+BEGIN
+    DEFPUSHBUTTON   "Apply",IDOK,100,132,55,14
+    PUSHBUTTON      "Close",IDCANCEL,160,132,55,14
+END
+
+IDD_GENERATOR_GDI_PROP_PAGE DIALOGEX 0, 0, 186, 324
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Display"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
@@ -3109,6 +3118,40 @@ BEGIN
     IDS_GEN_RGB_RANGE  "Rango de patrón"
     IDS_GEN_NO_CAST  "No se encontró ningún dispositivo Google Cast"
     IDS_GEN_GRP_PATTERN  "Patrón"
+    IDS_GEN_PGEN_SETTINGS  "Configuración de PGenerator..."
+    IDS_GEN_OFFSET  "Desplazamiento"
+    IDS_PGEN_RO_NAME  "Nombre"
+    IDS_PGEN_RO_DEVICE  "Dispositivo"
+    IDS_PGEN_RO_IP  "Dirección IP"
+    IDS_PGEN_RO_VERSION  "Versión PGen"
+    IDS_PGEN_RO_DYNRANGE  "Rango dinámico"
+    IDS_PGEN_RO_RESOLUTION  "Resolución"
+    IDS_PGEN_RO_BITDEPTH  "Profundidad de bits"
+    IDS_PGEN_RO_COLORSPACE  "Espacio de color"
+    IDS_PGEN_RO_COLORFORMAT  "Formato de color"
+    IDS_PGEN_RO_SIGRANGE  "Rango de señal"
+    IDS_PGEN_ST_QUERYING  "Consultando PGenerator..."
+    IDS_PGEN_ST_NOTFOUND  "No se encontró ningún PGenerator en la red."
+    IDS_PGEN_ST_NODLL  "No se encontró RB8PGenerator.dll junto a la aplicación."
+    IDS_PGEN_ST_NOENTRY  "A RB8PGenerator.dll le faltan puntos de entrada esperados."
+    IDS_PGEN_ST_NOCONNECT  "Se encontró un PGenerator pero no se pudo conectar."
+    IDS_PGEN_ST_NOGEN  "No hay generador disponible."
+    IDS_PGEN_DLG_TITLE  "Configuración de PGenerator"
+    IDS_PGEN_APPLY  "Aplicar"
+    IDS_PGEN_CLOSE  "Cerrar"
+    IDS_PGEN_REBOOT  "Reiniciar"
+    IDS_PGEN_RESTART_SW  "Reiniciar software"
+    IDS_PGEN_REBOOT_CONFIRM  "¿Reiniciar el PGenerator ahora?"
+    IDS_PGEN_RESTART_CONFIRM  "¿Reiniciar el software del PGenerator ahora?"
+    IDS_PGEN_HDR_AVI  "Salida / AVI infoframe"
+    IDS_PGEN_HDR_DRM  "Metadatos HDR / DRM infoframe"
+    IDS_PGEN_DYNRANGE  "Rango dinámico"
+    IDS_PGEN_DOVI_MODE  "Modo DoVi"
+    IDS_PGEN_PRIMARIES  "Primarios"
+    IDS_PGEN_SHUTDOWN  "Apagar"
+    IDS_PGEN_REFRESH  "Actualizar"
+    IDS_PGEN_SHUTDOWN_CONFIRM  "¿Apagar el PGenerator ahora?"
+    IDS_PGEN_ST_NOTCONN  "No hay PGenerator conectado. Pulse Actualizar para buscar."
     IDS_GEN_GRP_BLANKING  "Blanking"
     IDS_GEN_BLANK_SCREEN  "Blank screen during measure"
 END

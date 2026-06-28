@@ -87,6 +87,13 @@ public:
 	CButton		*m_grpDisplay, *m_grpMadvr, *m_grpCast, *m_grpPgen, *m_grpSignal, *m_grpPattern, *m_grpBlanking;
 	CStatic		*m_lblOutput, *m_lblScreen, *m_lblSize, *m_lblApl, *m_lblIntensity;
 	CStatic		*m_lblXoff, *m_lblYoff, *m_lblCastDev, *m_lblRange;
+	CStatic		*m_lblOffset;
+	CEdit		m_pgenReadout;
+	CButton		m_pgenSettingsBtn;
+	CButton m_pgenRefreshBtn;
+	BOOL m_pgenQuerying;
+	CBrush m_roBrush;
+	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
 
 	virtual UINT GetHelpId ( LPSTR lpszTopic );
 
@@ -111,13 +118,65 @@ protected:
 	//}}AFX_MSG
 	afx_msg void OnSelchangeOutput();
 	afx_msg void OnUserPatternClick();
+	afx_msg void OnPgenSettings();
+	afx_msg void OnPgenRefresh();
+	afx_msg void OnDestroy();
+	afx_msg LRESULT OnPgenQueryDone(WPARAM, LPARAM);
+	CFont m_glyphFont;
+	CToolTipCtrl m_pageTip;
+	virtual BOOL PreTranslateMessage(MSG* pMsg);
 	DECLARE_MESSAGE_MAP()
 
 	void BuildRuntimeLayout();
 	void Relayout();
+	void QueryPGenerator();
+	void ShowPgenDisconnected();
 	void PopulateCast();
 	int  ComboToMode(int sel);
 	int  ModeToCombo(int mode);
+};
+
+class CPGenSettingsDlg : public CDialog
+{
+public:
+	CPGenSettingsDlg(CWnd* pParent = NULL);
+	enum { IDD = IDD_PGEN_SETTINGS };
+	CGDIGenerator* m_pGenerator;
+	int m_action;
+protected:
+	CComboBox m_avi[6];
+	CStatic m_aviL[6];
+	int m_aviInit[6];
+	CArray<int,int> m_resIds;
+	CComboBox m_drm[2];
+	CStatic m_drmL[2];
+	int m_drmInit[2];
+	CEdit m_ed[4];
+	CStatic m_edL[4];
+	CString m_edInit[4];
+	CComboBox m_doviCombo;
+	CStatic m_doviLbl;
+	int m_doviInit;
+	CButton m_rebootBtn;
+	CButton m_restartBtn;
+	CButton m_shutdownBtn;
+	CStatic m_hdrAvi, m_hdrDrm, m_divider;
+	CStatic m_hdrAviLine, m_hdrDrmLine;
+	virtual BOOL OnInitDialog();
+	virtual void OnOK();
+	afx_msg void OnFormatChanged();
+	void UpdateRangeState();
+	afx_msg void OnReboot();
+	afx_msg void OnRestartSw();
+	afx_msg void OnShutdown();
+	afx_msg void OnDynRangeChanged();
+	void UpdateDynRangeState();
+	afx_msg void OnDestroy();
+	CFont m_glyphFont;
+	CToolTipCtrl m_tip;
+	CFont m_glyphFontBig;
+	virtual BOOL PreTranslateMessage(MSG* pMsg);
+	DECLARE_MESSAGE_MAP()
 };
 
 //{{AFX_INSERT_LOCATION}}

@@ -53,6 +53,7 @@ CGenerator::CGenerator()
 	m_rectSizePercent=GetConfig()->GetProfileInt("GDIGenerator","SizePercent",10);
 	m_ccastIp = 0;
 	sock = NULL;
+	m_initShowedError = FALSE;
 	rPi_xWidth = 1980;
 	rPi_yHeight = 1080;
 	rPi_memSize  = 0;
@@ -149,20 +150,350 @@ BOOL CGenerator::Configure()
 	return result==IDOK;
 }
 
+static CString PgenParseVal(const char* resp, const char* name)
+{
+	if (!resp) return CString();
+	int len = 0;
+	while (resp[len] != 0 && (unsigned char)resp[len] >= 0x20) len++;
+	CString r(resp, len);
+	r.TrimLeft(); r.TrimRight();
+	CString key(name); key += ":";
+	int idx = r.Find(key);
+	if (idx >= 0) { CString v = r.Mid(idx + key.GetLength()); v.TrimLeft(); v.TrimRight(); return v; }
+	if (r.Left(3) == "OK:") { CString v = r.Mid(3); v.TrimLeft(); v.TrimRight(); return v; }
+	int c = r.ReverseFind(':');
+	if (c >= 0) { CString v = r.Mid(c + 1); v.TrimLeft(); v.TrimRight(); return v; }
+	return r;
+}
+
+static char* PgSafeDisc(RB8PG_discovery f) { __try { return f(); } __except(EXCEPTION_EXECUTE_HANDLER) { return NULL; } }
+static SOCKET PgSafeConn(RB8PG_connect f, char* ip) { __try { return f(ip); } __except(EXCEPTION_EXECUTE_HANDLER) { return (SOCKET)0; } }
+static char* PgSafeGet(RB8PG_get f, SOCKET s, LPCSTR c) { __try { return f(s, c); } __except(EXCEPTION_EXECUTE_HANDLER) { return NULL; } }
+static void PgSafeClose(RB8PG_close f, SOCKET s) { __try { f(s); } __except(EXCEPTION_EXECUTE_HANDLER) {} }
+static CStringA PgSend(SOCKET s, LPCSTR cmd)
+{
+	CStringA out;
+	if (!s) return out;
+	CStringA frame(cmd);
+	char term[2]; term[0] = 2; term[1] = 13;
+	frame += CStringA(term, 2);
+	if (send(s, (LPCSTR)frame, frame.GetLength(), 0) == SOCKET_ERROR) return out;
+	DWORD tmo = 1000;
+	setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tmo, sizeof(tmo));
+	char buf[4096];
+	for (int it = 0; it < 512 && out.Find((char)2) < 0; it++)
+	{
+		int n = recv(s, buf, sizeof(buf), 0);
+		if (n <= 0) break;
+		out += CStringA(buf, n);
+	}
+	int t = out.Find((char)2); if (t >= 0) out = out.Left(t);
+	return out;
+}
+
+static HINSTANCE g_pgenLib = NULL;
+static HINSTANCE PgenLib() { if (!g_pgenLib) g_pgenLib = LoadLibrary("RB8PGenerator.dll"); return g_pgenLib; }
+
+static char g_pgenIp[64] = {0};
+static char* PgDiscoverIP(RB8PG_discovery disc)
+{
+	if (g_pgenIp[0]) return g_pgenIp;
+	char* ip = NULL;
+	for (int i = 0; i < 3; i++) { ip = PgSafeDisc(disc); if (ip && strlen(ip) > 5) break; Sleep(150); }
+	if (ip && strlen(ip) > 5) { strncpy(g_pgenIp, ip, 63); g_pgenIp[63] = 0; return g_pgenIp; }
+	return NULL;
+}
+
+static SOCKET g_pgenSock = (SOCKET)0;
+static SOCKET PgGetConn(RB8PG_connect conn, char* ip) { if (!g_pgenSock) g_pgenSock = PgSafeConn(conn, ip); return g_pgenSock; }
+static void PgDropConn(RB8PG_close clsf) { if (g_pgenSock) { PgSafeClose(clsf, g_pgenSock); g_pgenSock = (SOCKET)0; } }
+static SOCKET PgLiveConn(RB8PG_connect conn, RB8PG_close clsf, RB8PG_get getf, char* ip)
+{
+	for (int attempt = 0; attempt < 2; attempt++)
+	{
+		SOCKET s = PgGetConn(conn, ip);
+		if (!s) return (SOCKET)0;
+		CStringA v = PgSend(s, "CMD:GET_PGENERATOR_VERSION");
+		if (v.Find("OK") >= 0) return s;
+		PgDropConn(clsf);
+	}
+	return (SOCKET)0;
+}
+
+BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
+{
+	err = _T("");
+	vals.RemoveAll();
+	for (int i = 0; i < 9; i++) vals.Add(_T("-"));
+
+	HINSTANCE hLib = PgenLib();
+	if (!hLib) { err.LoadString(IDS_PGEN_ST_NODLL); return FALSE; }
+	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
+	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
+	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
+	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
+	if (!disc || !conn || !getf || !clsf) { err.LoadString(IDS_PGEN_ST_NOENTRY); return FALSE; }
+
+	char* ip = PgDiscoverIP(disc);
+	if (!ip || strlen(ip) <= 5) { err.LoadString(IDS_PGEN_ST_NOTFOUND); return FALSE; }
+	CString ipStr(ip);
+
+	SOCKET s = PgLiveConn(conn, clsf, getf, ip);
+	if (!s) { g_pgenIp[0] = 0; err.LoadString(IDS_PGEN_ST_NOCONNECT); return FALSE; }
+
+	CString ver   = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_VERSION"), "GET_PGENERATOR_VERSION");
+	CString mode  = PgenParseVal(PgSend(s, "CMD:GET_MODE"), "GET_MODE");
+	CString res   = PgenParseVal(PgSend(s, "CMD:GET_RESOLUTION"), "GET_RESOLUTION");
+	CString fmt   = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_COLOR_FORMAT"), "GET_PGENERATOR_CONF_COLOR_FORMAT");
+	CString bpc   = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_BPC"), "GET_PGENERATOR_CONF_MAX_BPC");
+	CString outr  = PgenParseVal(PgSend(s, "CMD:GET_OUTPUT_RANGE"), "GET_OUTPUT_RANGE");
+	CString quant = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_RGB_QUANT_RANGE"), "GET_PGENERATOR_CONF_RGB_QUANT_RANGE");
+	CString colm  = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_COLORIMETRY"), "GET_PGENERATOR_CONF_COLORIMETRY");
+	CString isHdr = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_HDR"), "GET_PGENERATOR_CONF_IS_HDR");
+	CString isDov = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_LL_DOVI"), "GET_PGENERATOR_CONF_IS_LL_DOVI");
+	CString host  = PgenParseVal(PgSend(s, "CMD:GET_HOSTNAME"), "GET_HOSTNAME");
+
+	
+
+	CString status = _T("SDR");
+	if (isDov == "1") status = _T("Dolby Vision");
+	else if (isHdr == "1") status = _T("HDR");
+
+	CString resval = res;
+	int hz = mode.Find("Hz");
+	if (hz > 0)
+	{
+		int st = hz; while (st > 0 && mode[st - 1] != ' ') st--;
+		CString rate = mode.Mid(st, hz - st + 2);
+		resval = res.IsEmpty() ? rate : (res + _T(" @ ") + rate);
+	}
+
+	CString bd = bpc;
+	if (!bd.IsEmpty()) bd += _T("-bit");
+
+	CString cf = fmt;
+	if (fmt == "0") cf = _T("RGB");
+	else if (fmt == "1") cf = _T("YCbCr 4:4:4");
+	else if (fmt == "2") cf = _T("YCbCr 4:2:2");
+
+	CString cs = colm;
+	if (colm == "0") cs = _T("Default");
+	else if (colm == "2") cs = _T("BT.709 (YCC)");
+	else if (colm == "9") cs = _T("BT.2020 (RGB)");
+
+	CString range;
+	if (quant == "1") range = _T("Limited");
+	else if (quant == "2") range = _T("Full");
+	else
+	{
+		CString ol = outr; ol.MakeLower();
+		if (ol.Find("full") >= 0) range = _T("Full");
+		else if (ol.Find("limit") >= 0) range = _T("Limited");
+		else range = quant.IsEmpty() ? outr : quant;
+	}
+
+	if (host.IsEmpty()) host = _T("-");
+
+	vals[0] = host;
+	vals[1] = ipStr;
+	vals[2] = ver;
+	vals[3] = status;
+	vals[4] = resval;
+	vals[5] = bd;
+	vals[6] = cs;
+	vals[7] = cf;
+	vals[8] = range;
+	return TRUE;
+}
+
+
+BOOL CGenerator::ApplyPGeneratorConf(const CStringArray& cmds)
+{
+	if (cmds.GetSize() == 0) return TRUE;
+	InvalidatePGenCache();
+	HINSTANCE hLib = PgenLib();
+	if (!hLib) return FALSE;
+	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
+	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
+	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
+	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
+	if (!disc || !conn || !getf || !clsf) { return FALSE; }
+
+	char* ip = PgDiscoverIP(disc);
+	if (!ip || strlen(ip) <= 5) { return FALSE; }
+
+	SOCKET s = PgLiveConn(conn, clsf, getf, ip);
+	if (!s) { g_pgenIp[0] = 0; return FALSE; }
+
+	for (int i = 0; i < cmds.GetSize(); i++)
+		PgSend(s, (LPCTSTR)cmds[i]);
+	Sleep(150);
+	PgSend(s, "RESTARTPGENERATOR:");
+	PgDropConn(clsf);
+
+	
+	return TRUE;
+}
+
+// Decodes the base64 body of a PGenerator GET_MODES_AVAILABLE reply.
+// Wire framing: OK: prefix + base64 payload, terminated by the STX (0x02) frame byte.
+static CStringA PgenB64Decode(const CStringA& in)
+{
+	signed char rev[256];
+	for (int i = 0; i < 256; i++) rev[i] = -1;
+	const char* tbl = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	for (int i = 0; i < 64; i++) rev[(unsigned char)tbl[i]] = (signed char)i;
+	CStringA out;
+	int val = 0, bits = 0;
+	for (int i = 0; i < in.GetLength(); i++)
+	{
+		int d = rev[(unsigned char)in[i]];
+		if (d < 0) continue;
+		val = (val << 6) | d;
+		bits += 6;
+		if (bits >= 8) { bits -= 8; out += (char)((val >> bits) & 0xFF); }
+	}
+	return out;
+}
+
+static BOOL g_pgenModeCacheValid = FALSE;
+static CStringArray g_cacheLabels;
+static CArray<int,int> g_cacheIds;
+static int g_cacheCurMode = -1;
+static PGenSettings g_cacheSt;
+void CGenerator::InvalidatePGenCache() { g_pgenModeCacheValid = FALSE; }
+
+int CGenerator::QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids, PGenSettings& st)
+{
+	labels.RemoveAll();
+	ids.RemoveAll();
+	if (g_pgenModeCacheValid) { labels.Copy(g_cacheLabels); ids.Copy(g_cacheIds); st = g_cacheSt; return g_cacheCurMode; }
+	st.valid = FALSE;
+	int curId = -1;
+	HINSTANCE hLib = PgenLib();
+	if (!hLib) return -1;
+	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
+	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
+	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
+	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
+	if (!disc || !conn || !getf || !clsf) { return -1; }
+
+	char* ip = PgDiscoverIP(disc);
+	if (!ip || strlen(ip) <= 5) { return -1; }
+
+	SOCKET s = PgLiveConn(conn, clsf, getf, ip);
+	if (!s) { g_pgenIp[0] = 0; return -1; }
+
+	PgSend(s, "CMD:GET_PGENERATOR_VERSION");
+
+	CString cur(PgSend(s, "CMD:GET_MODE"));
+
+	st.colorFormat = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_COLOR_FORMAT"), "GET_PGENERATOR_CONF_COLOR_FORMAT"));
+	st.quantRange  = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_RGB_QUANT_RANGE"), "GET_PGENERATOR_CONF_RGB_QUANT_RANGE"));
+	st.bitDepth    = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_BPC"), "GET_PGENERATOR_CONF_MAX_BPC"));
+	st.colorimetry = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_COLORIMETRY"), "GET_PGENERATOR_CONF_COLORIMETRY"));
+	st.isHdr       = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_HDR"), "GET_PGENERATOR_CONF_IS_HDR"));
+	st.isLLDovi    = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_LL_DOVI"), "GET_PGENERATOR_CONF_IS_LL_DOVI"));
+	st.eotf        = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_EOTF"), "GET_PGENERATOR_CONF_EOTF"));
+	st.primaries   = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_PRIMARIES"), "GET_PGENERATOR_CONF_PRIMARIES"));
+	st.doviMode    = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_DV_MAP_MODE"), "GET_PGENERATOR_CONF_DV_MAP_MODE"));
+	st.maxLuma     = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_LUMA"), "GET_PGENERATOR_CONF_MAX_LUMA"));
+	st.minLuma     = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MIN_LUMA"), "GET_PGENERATOR_CONF_MIN_LUMA"));
+	st.maxCll      = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_CLL"), "GET_PGENERATOR_CONF_MAX_CLL"));
+	st.maxFall     = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_FALL"), "GET_PGENERATOR_CONF_MAX_FALL"));
+	st.valid = TRUE;
+
+	// modes list last: the recv-drain can leave the socket mid-frame, so do it
+	// after the single-frame conf reads above.
+	CStringA rawA = PgSend(s, "CMD:GET_MODES_AVAILABLE");
+	{ int ok = rawA.Find("OK:"); if (ok >= 0) rawA = rawA.Mid(ok + 3); }
+
+	{ int t = cur.Find('\x02'); if (t >= 0) cur = cur.Left(t); }
+	{ int c = cur.Find(':'); int b = cur.Find('['); if (c >= 0 && (b < 0 || c < b)) cur = cur.Mid(c + 1); }
+	curId = atoi(cur);
+
+	CString raw(PgenB64Decode(rawA));
+
+	int pos = 0;
+	while ((pos = raw.Find('[', pos)) >= 0)
+	{
+		int idStart = pos;
+		while (idStart > 0 && raw[idStart - 1] >= '0' && raw[idStart - 1] <= '9') idStart--;
+		int close = raw.Find(']', pos);
+		if (close < 0) break;
+		if (idStart < pos)
+		{
+			int id = atoi(raw.Mid(idStart, pos - idStart));
+			CString desc = raw.Mid(pos + 1, close - pos - 1);
+			CString lbl = desc;
+			int sp = desc.Find(' ');
+			if (sp > 0)
+			{
+				CString wh = desc.Left(sp);
+				int hz = desc.Find("Hz");
+				CString rate;
+				if (hz > 0) { int stt = hz; while (stt > 0 && desc[stt - 1] != ' ') stt--; rate = desc.Mid(stt, hz - stt + 2); }
+				lbl = rate.IsEmpty() ? wh : (wh + _T(" @ ") + rate);
+			}
+			labels.Add(lbl);
+			ids.Add(id);
+		}
+		pos = close + 1;
+	}
+	if (st.valid) { g_cacheLabels.Copy(labels); g_cacheIds.Copy(ids); g_cacheSt = st; g_cacheCurMode = curId; g_pgenModeCacheValid = TRUE; }
+	return curId;
+}
+
+BOOL CGenerator::SendPGeneratorCommand(LPCSTR cmd)
+{
+	InvalidatePGenCache();
+	HINSTANCE hLib = PgenLib();
+	if (!hLib) return FALSE;
+	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
+	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
+	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
+	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
+	if (!disc || !conn || !getf || !clsf) { return FALSE; }
+
+	char* ip = PgDiscoverIP(disc);
+	if (!ip || strlen(ip) <= 5) { return FALSE; }
+
+	SOCKET s = PgLiveConn(conn, clsf, getf, ip);
+	if (!s) { g_pgenIp[0] = 0; return FALSE; }
+
+	PgSend(s, cmd);
+	Sleep(150);
+	PgDropConn(clsf);
+
+	
+	return TRUE;
+}
+
 BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
 	nMeasureNumber = nbMeasure; 
+	m_initShowedError = FALSE;
 	CGDIGenerator Cgen;
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 	BOOL madVR_Found;
-	char *	m_piIP = "";
+	const char *	m_piIP = "";
 	if (m_name != str)
 	{
 		if (Cgen.m_nDisplayMode == DISPLAY_rPI)
 		{
 			int x2 = Cgen.m_offsetx;
 			int y2 = Cgen.m_offsety;
+			if (sock)
+			{
+				CStringA _vp = PgSend(sock, "CMD:GET_PGENERATOR_VERSION");
+				DWORD _rt = 0; setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&_rt, sizeof(_rt));
+				if (_vp.Find("OK") < 0)
+				{
+					PgSafeClose(_RB8PG_close, sock);
+					sock = (SOCKET)0;
+				}
+			}
 			if (!sock) //initialization
 			{
 				hInstLibrary = LoadLibrary("RB8PGenerator.dll");
@@ -176,28 +507,30 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 
 					if (_RB8PG_discovery)
 					{
-						for (int i = 0; i < 10; i++)
+						for (int i = 0; i < 2; i++)
 						{
 							m_piIP = _RB8PG_discovery();
-							if (strlen(m_piIP) > 5)
+							if (m_piIP && strlen(m_piIP) > 5)
 								break;
-							else
-								Sleep(200);
 						}
 					}
 								
-					if(strlen(m_piIP) > 5)
+					if(m_piIP && strlen(m_piIP) > 5)
 					{
 						CString cs = m_piIP;
 						if (_RB8PG_connect)
 							sock = _RB8PG_connect(m_piIP);
 						else
 						{
-							GetColorApp()->InMeasureMessageBox( "Error connecting with rPI: "+cs, "Error", MB_ICONINFORMATION);
+							m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error connecting with PGenerator: "+cs, "Error", MB_ICONINFORMATION);
 							return false;
 						}
 
-						if (sock)
+						if (!sock)
+						{
+							m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "    ** PGenerator not found on the network **", "Error", MB_ICONERROR);
+							return false;
+						}
 						{
 							if (_RB8PG_send)
 							{
@@ -208,7 +541,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 								AfxExtractSubString(cs2, cs1, 0, ':');
 								if (cs2 != "OK")
 								{
-									GetColorApp()->InMeasureMessageBox( "Failed to get rPi resolution", "GET_RESOLUTION", MB_ICONINFORMATION);
+									m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Failed to get PGenerator resolution", "GET_RESOLUTION", MB_ICONINFORMATION);
 									return false;
 								}
 								AfxExtractSubString(cs3, cs1, 1, ':');
@@ -225,13 +558,12 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 								AfxExtractSubString(cs5, cs4, 0, ':');
 								if (cs5 != "OK")
 								{
-									GetColorApp()->InMeasureMessageBox( "Failed to get rPi GPU memory size", "GET_GPU_MEMORY", MB_ICONINFORMATION);
+									m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Failed to get PGenerator GPU memory size", "GET_GPU_MEMORY", MB_ICONINFORMATION);
 									return false;
 								}
 								cs6=cs4.Mid(3);
 								cs6.Remove('M');
 								rPi_memSize = atoi(cs6);
-								GetConfig()->WriteProfileInt("GDIGenerator", "rPiSock", sock);
 								GetConfig()->WriteProfileInt("GDIGenerator", "rPiGPU", rPi_memSize);
 								GetConfig()->WriteProfileInt("GDIGenerator", "rPiWidth", rPi_xWidth);
 								GetConfig()->WriteProfileInt("GDIGenerator", "rPiHeight", rPi_yHeight);
@@ -296,21 +628,21 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 							}
 							else
 							{
-								GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
+								m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error communicating with PGenerator", "Error", MB_ICONINFORMATION);
 								return false;
 							}
 						}
 					}
 					else
 					{
-						GetColorApp()->InMeasureMessageBox( "    ** Raspberry Pi generator not found **", "Error", MB_ICONERROR);
+						m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "    ** PGenerator not found on the network **", "Error", MB_ICONERROR);
 						OutputDebugString("    ** RB8PG_discovery failed **");
 						return false;
 					}			
 				}
 				else
 				{
-					GetColorApp()->InMeasureMessageBox( "    ** RB8PGenerator.dll not found **", "Error", MB_ICONERROR);
+					m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "    ** RB8PGenerator.dll not found **", "Error", MB_ICONERROR);
 					OutputDebugString("    ** Load_dll failed **");
 					return false;
 				}
@@ -375,7 +707,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 			GCast.RefreshList();
 			if (GCast.getCount() == 0)
 			{
-				GetColorApp()->InMeasureMessageBox( "    ** No ChromeCasts found **", "Error", MB_ICONERROR);
+				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "    ** No ChromeCasts found **", "Error", MB_ICONERROR);
 				OutputDebugString("    ** No ChromeCasts found **");
 				return false;
 			} else 
@@ -383,7 +715,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 				const ccast_id *id = m_ccastIp ? GCast.getCcastByIp(m_ccastIp) : GCast[0];
 				if (id == NULL && (id = GCast[0]) == NULL)
 				{
-					GetColorApp()->InMeasureMessageBox( "    ** Error discovering ChromeCasts **", "Error", MB_ICONERROR);
+					m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "    ** Error discovering ChromeCasts **", "Error", MB_ICONERROR);
 					OutputDebugString("    ** Error discovering ChromeCasts **");
 					return false;
 				}
@@ -394,7 +726,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 					dw = new_ccwin((ccast_id *)id, 1000.0 * rx  , 565.0 * rx, 0.0, 0.0, 0, 0.1234);
 					if (dw == NULL) 
 					{
-						GetColorApp()->InMeasureMessageBox( id->name, "new_ccwin failed!", MB_ICONERROR);
+						m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( id->name, "new_ccwin failed!", MB_ICONERROR);
 						OutputDebugString("new_ccwin failed! ");OutputDebugString(id->name);
 						return -1;
 					} 
@@ -419,7 +751,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 			}
 			else
 			{
-				GetColorApp()->InMeasureMessageBox( "madVR dll not found, is madVR installed?", "Error", MB_ICONERROR);
+				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "madVR dll not found, is madVR installed?", "Error", MB_ICONERROR);
 				return false;
 			}
 		} else
@@ -756,7 +1088,7 @@ BOOL CGenerator::Release(INT nbNext)
 				_RB8PG_send(sock,"TESTTEMPLATE:PatternDynamic:0,0,0");
 			}
 			else
-				GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
+				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error communicating with PGenerator", "Error", MB_ICONINFORMATION);
 	}
 
 	if (sock && Cgen.m_nDisplayMode != DISPLAY_rPI && hInstLibrary) //disconnect only after generator change
@@ -771,15 +1103,14 @@ BOOL CGenerator::Release(INT nbNext)
 				_RB8PG_send(sock,"TESTTEMPLATE:PatternDynamic:0,0,0");
 			}
 			else
-				GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
+				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error communicating with PGenerator", "Error", MB_ICONINFORMATION);
 
 			if (_RB8PG_close)
 				_RB8PG_close(sock);
 			else
-				GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
+				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error communicating with PGenerator", "Error", MB_ICONINFORMATION);
 
 			sock = NULL;
-			GetConfig()->WriteProfileInt("GDIGenerator", "rPiSock", 0);
 			GetConfig()->WriteProfileInt("GDIGenerator", "rPiGPU", 0);
 			FreeLibrary(hInstLibrary);
 	}
