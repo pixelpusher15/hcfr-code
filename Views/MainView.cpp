@@ -5493,6 +5493,8 @@ void CMainView::OnSelchangeComboMode()
 			 break;
 	}
 	
+	InitGrid(true);
+
 	if ( m_pGrayScaleGrid)
 	{
 		if ( m_pGrayScaleGrid->GetSelectedCellRange().IsValid () )
@@ -5504,7 +5506,6 @@ void CMainView::OnSelchangeComboMode()
 		}
 	}
 
-	InitGrid(true);
 	if(m_pGrayScaleGrid)
 		UpdateGrid();
 }
