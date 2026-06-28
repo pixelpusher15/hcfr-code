@@ -5593,7 +5593,7 @@ void CMainView::OnMeasureGrayScale()
 	}
 	else
 	{
-		BOOL bStopToggle = ( m_displayMode == 0 );
+		BOOL bStopToggle = ( m_displayMode != 2 );   // all sweep modes are async now; mode 2 (continuous/single) manages its own button
 		if ( bStopToggle )
 		{
 			m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-stop"), (fxUseCustomColor!=FALSE), 32, 32 ), (HICON)NULL );

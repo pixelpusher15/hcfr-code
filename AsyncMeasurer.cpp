@@ -16,7 +16,7 @@ static char THIS_FILE[] = __FILE__;
 
 CAsyncMeasurer::CAsyncMeasurer()
 	: m_pSensor(NULL), m_hThread(NULL), m_hEventRun(NULL), m_hEventDone(NULL),
-	  m_bTerminate(FALSE)
+	  m_bTerminate(FALSE), m_displaymode(0)
 {
 }
 
@@ -54,14 +54,15 @@ BOOL CAsyncMeasurer::Start(CSensor * pSensor)
 	return TRUE;
 }
 
-BOOL CAsyncMeasurer::MeasurePumped(const ColorRGBDisplay & aRGBValue, CColor & out)
+BOOL CAsyncMeasurer::MeasurePumped(const ColorRGBDisplay & aRGBValue, CColor & out, int displaymode)
 {
 	if (!m_hThread)
 		return FALSE;
 
 	// Hand the request to the worker.
 	ResetEvent(m_hEventDone);
-	m_request = aRGBValue;
+	m_request    = aRGBValue;
+	m_displaymode = displaymode;
 	SetEvent(m_hEventRun);
 
 	// Block here until the measure completes, but run a message pump so the window stays
@@ -74,8 +75,20 @@ BOOL CAsyncMeasurer::MeasurePumped(const ColorRGBDisplay & aRGBValue, CColor & o
 		if (wr == WAIT_OBJECT_0)
 			break;             // measurement done
 
+		// Pump everything EXCEPT two ranges, by peeking around the keyboard range:
+		//  - keyboard (WM_KEYFIRST..WM_KEYLAST) is left queued so the sweep's own
+		//    post-read PeekMessage still sees an ESC press and aborts, exactly as in the
+		//    old synchronous path;
+		//  - queued WM_COMMAND (menu / accelerator / posted toolbar commands) is dropped
+		//    so nothing can run mid-sweep and disturb the measurement (e.g. opening
+		//    References and changing the gamut, or exporting a half-finished sweep).
+		// The Stop button is unaffected: a button click delivers WM_COMMAND via a
+		// synchronous SendMessage during WM_LBUTTONUP, not as a queued message, so it is
+		// not filtered (and the action buttons that could interfere are guarded by
+		// IsMeasureSweepActive() in their handlers).
 		MSG msg;
-		while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+		while (PeekMessage(&msg, NULL, 0, WM_KEYFIRST - 1, PM_REMOVE)
+		    || PeekMessage(&msg, NULL, WM_KEYLAST + 1, 0xFFFFFFFF, PM_REMOVE))
 		{
 			if (msg.message == WM_QUIT)
 			{
@@ -87,13 +100,6 @@ BOOL CAsyncMeasurer::MeasurePumped(const ColorRGBDisplay & aRGBValue, CColor & o
 				out = m_result;
 				return TRUE;
 			}
-			// Drop queued command messages (menu / accelerator / posted toolbar commands)
-			// so nothing can run mid-sweep and disturb the in-progress measurement -- e.g.
-			// opening References and changing the gamut, or exporting a half-finished sweep.
-			// The Stop button is unaffected: a button click delivers WM_COMMAND via a
-			// synchronous SendMessage during WM_LBUTTONUP, not as a queued message, so it
-			// is not filtered here (and the few action buttons that could interfere are
-			// guarded by IsMeasureSweepActive() in their handlers).
 			if (msg.message == WM_COMMAND)
 				continue;
 			TranslateMessage(&msg);
@@ -161,7 +167,7 @@ void CAsyncMeasurer::Run()
 		{
 			// The same call the sweep would make directly on the UI thread:
 			// CSensor::MeasureGray() merely forwards to MeasureColor() of a gray.
-			m_result = m_pSensor->MeasureColor(m_request);
+			m_result = m_pSensor->MeasureColor(m_request, m_displaymode);
 		}
 		catch (std::exception & e)
 		{

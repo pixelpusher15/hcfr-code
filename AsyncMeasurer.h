@@ -44,7 +44,9 @@ public:
 	// The result is returned in 'out'. Measurement validity is reported exactly as a
 	// direct call would: query the sensor's IsMeasureValid()/GetErrorString() afterwards.
 	// Returns FALSE only if the worker is not running (caller should fall back).
-	BOOL MeasurePumped(const ColorRGBDisplay & aRGBValue, CColor & out);
+	// displaymode is forwarded to CSensor::MeasureColor() (only the simulated sensor
+	// uses it) so it must match what a direct call would pass.
+	BOOL MeasurePumped(const ColorRGBDisplay & aRGBValue, CColor & out, int displaymode = 0);
 
 	// Stop and join the worker, close handles. Safe to call repeatedly. Called
 	// automatically by the destructor, so early returns from a sweep clean up via RAII.
@@ -60,5 +62,6 @@ private:
 	HANDLE           m_hEventDone;  // worker -> UI: result is ready
 	volatile BOOL    m_bTerminate;
 	ColorRGBDisplay  m_request;     // written by UI before SetEvent(run)
+	int              m_displaymode; // written by UI before SetEvent(run)
 	CColor           m_result;      // written by worker before SetEvent(done)
 };
