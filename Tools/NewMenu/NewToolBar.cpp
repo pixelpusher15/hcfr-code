@@ -882,7 +882,7 @@ BOOL CNewToolBar::LoadPngImageList()
       return FALSE;
     if (tb.fsStyle & TBSTYLE_SEP)
       continue;
-    CString f = HCFR_ResolveToolbarIcon((UINT)tb.idCommand, bDark);
+    CString f = HCFR_ResolveToolbarIcon((UINT)tb.idCommand, bDark, m_sizeImage.cx);
     if (f.IsEmpty())
       return FALSE;
     if ((UINT)tb.idCommand == IDM_CONTINUOUS_MEASUREMENT)
@@ -897,7 +897,7 @@ BOOL CNewToolBar::LoadPngImageList()
   // continuous-measure button can swap to it while a measurement runs.
   if (m_nContinuousImageIndex >= 0)
   {
-    CString fStop = HCFR_ResolveToolbarIconByName(_T("measure-stop"), bDark);
+    CString fStop = HCFR_ResolveToolbarIconByName(_T("measure-stop"), bDark, m_sizeImage.cx);
     if (!fStop.IsEmpty())
     {
       m_nStopImageIndex = (int)files.GetSize();
@@ -963,12 +963,26 @@ BOOL CNewToolBar::SetContinuousMeasuringIcon(BOOL bRunning)
   return TRUE;
 }
 
+void CNewToolBar::ApplyDpiIconSize()
+{
+  int px = HCFR_ScaleIconPx(32, GetSafeHwnd());   // 32px base scaled to DPI, floored at 32
+  if (m_sizeImage.cx == px && m_sizeImage.cy == px)
+    return;                        // already correct (e.g. 100% DPI)
+  SetSizes(CSize(px + 7, px + 6), CSize(px, px));
+}
+
 BOOL CNewToolBar::LoadToolBar(LPCTSTR lpszResourceName)
 {
   BOOL bRet = CToolBar::LoadToolBar(lpszResourceName);
 
-  LoadPngImageList();
-  LoadHiColor(lpszResourceName);
+  ApplyDpiIconSize();   // CToolBar::LoadToolBar reset the cell to the resource size; rescale for DPI
+  if (!LoadPngImageList())
+  {
+    // No PNG icons available: restore the resource bitmap's native 32px cell so the
+    // legacy HiColor bitmaps aren't stretched into the enlarged high-DPI cell.
+    SetSizes(CSize(32 + 7, 32 + 6), CSize(32, 32));
+    LoadHiColor(lpszResourceName);
+  }
 
   return bRet;
 }

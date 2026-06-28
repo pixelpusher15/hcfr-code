@@ -5345,7 +5345,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-grayscale"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-grayscale"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETEGRAYSCALE );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5357,7 +5357,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-secondaries"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-secondaries"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESECONDARIES );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5369,7 +5369,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),(GetConfig()->m_bContinuousMeasures?_T("measure-continuous"):_T("measure-single")),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),(GetConfig()->m_bContinuousMeasures?_T("measure-continuous"):_T("measure-single")),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETEALLMEASURES );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5381,7 +5381,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-near-black"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-near-black"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETENEARBLACK );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5393,7 +5393,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-near-white"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-near-white"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETENEARWHITE );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5405,7 +5405,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-red"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-red"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATRED );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5417,7 +5417,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-green"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-green"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATGREEN );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5429,7 +5429,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-blue"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-blue"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATBLUE );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5441,7 +5441,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-yellow"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-yellow"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATYELLOW );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5453,7 +5453,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-cyan"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-cyan"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATCYAN );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5465,7 +5465,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-magenta"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-magenta"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATMAGENTA );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5477,7 +5477,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-colorchecker"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-colorchecker"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATCC24 );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5487,7 +5487,7 @@ void CMainView::OnSelchangeComboMode()
 			 m_grayScaleGroup.SetText ( Msg );
 			 Msg.LoadString ( IDS_MEASURECONTRAST );
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-contrast"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-contrast"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETECONTRAST );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -6098,7 +6098,7 @@ void CMainView::InitButtons()
 	Msg2.LoadString ( IDS_CTRLCLICK_SIM );
 	Msg += "\r\n";
 	Msg += Msg2;
-	m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-grayscale"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+	m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-grayscale"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 	m_grayScaleButton.DrawFlatFocus(FALSE);
 	m_grayScaleButton.EnableBalloonTooltip();
 	m_grayScaleButton.SetTooltipText(Msg);
@@ -6129,7 +6129,7 @@ void CMainView::InitButtons()
 //	m_grayScaleDeleteButton.DrawTransparent(TRUE);
 
 	Msg.LoadString ( IDS_DISPLAYANSICONTRAST );
-	m_testAnsiPatternButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-ansi"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+	m_testAnsiPatternButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-ansi"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 	m_testAnsiPatternButton.SetFont(GetFont());
 	m_testAnsiPatternButton.EnableBalloonTooltip();
 	m_testAnsiPatternButton.SetTooltipText(Msg);
@@ -6142,8 +6142,8 @@ void CMainView::InitButtons()
 	m_testAnsiPatternButton.OffsetColor(CButtonST::BTNST_COLOR_BK_IN, 30);
 	m_testAnsiPatternButton.OffsetColor(CButtonST::BTNST_COLOR_FG_IN, 30);
 
-	m_refs.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("references"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
-	m_grayScaleDeleteButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("delete"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
+	m_refs.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("references"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+	m_grayScaleDeleteButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("delete"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 	m_refs.SetFont(GetFont());
 	m_refs.EnableBalloonTooltip();
 	m_refs.SetTooltipText("Open references menu");

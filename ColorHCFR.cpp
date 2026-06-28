@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -328,7 +328,7 @@ BOOL CColorHCFRApp::InitInstance()
 		return FALSE;
 	m_pMainWnd = pMainFrame;
 
-	// Loading toolbar icons into the menu 
+	// Loading toolbar icons into the menu
 	if(!pDocTemplate->m_NewMenuShared.LoadPngMenuIcons(16, 16, (GetConfig() && GetConfig()->m_darkTheme) != FALSE))
 		pDocTemplate->m_NewMenuShared.LoadToolBar(IDR_MENUBARGRAPH);
 
@@ -1511,7 +1511,7 @@ BOOL CAboutDlg::OnInitDialog()
 	char *auteurStyle[2]={"<p><font style='b' size='14' color='56,76,104'>","<br><font style='i' size='12' color='64,64,64'>"};
 	char *auteurStrings[]={	"Patrice AFFLATET",szSensor,
 							"Benoit SEGUIN",szSensorAndApp,
-							"François-Xavier CHABOUD",szDevApp,
+							"Franï¿½ois-Xavier CHABOUD",szDevApp,
 							"Georges GALLERAND",szDevApp,
 							"Laurent GARNIER",szDevApp,
 							"Michel de LILLERS",szExpert,
