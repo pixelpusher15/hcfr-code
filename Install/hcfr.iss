@@ -77,6 +77,8 @@ Source: "..\Release\spotread.exe"; DestDir: "{app}\Tools"; Flags: ignoreversion;
 Source: "..\Install\dispwin.exe"; DestDir: "{app}\Tools"; Flags: ignoreversion; Components: main; 
 Source: "..\Install\msvcr100.dll"; DestDir: "{app}\Tools"; Flags: ignoreversion; Components: main
 Source: "..\Release\*.dll"; DestDir: "{app}"; Flags: ignoreversion; Components: main
+; High-DPI toolbar/menu icons, loaded at runtime from <exe dir>\res\images (light/dark, @1.5x/@2x/@3x variants)
+Source: "..\res\images\*"; DestDir: "{app}\res\images"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: main
 Source: "Help\*.chm"; DestDir: "{app}"; Flags: ignoreversion; Components: main
 Source: "..\Install\Etalon_HCFR\*.thc"; DestDir: "{app}\Etalon_HCFR"; Flags: ignoreversion; Components: main
 Source: "..\Install\Profils_IR\*.ihc"; DestDir: "{app}\Profils_IR"; Flags: ignoreversion; Components: main

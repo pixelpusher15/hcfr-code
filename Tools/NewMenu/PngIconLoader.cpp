@@ -6,6 +6,15 @@
 #include "resource.h"
 #include "ximage.h"
 #include "PngIconLoader.h"
+#include "ColorHCFR.h"   // GetConfig() / CColorHCFRConfig::ScaleFloor
+
+// Scale a base (96-dpi) icon size to the current DPI, never below the base. One
+// place so toolbar + menu icon sizing tracks the rest of the UI (no duplicated
+// GetDpiForWindow logic in the toolbar/menu classes).
+int HCFR_ScaleIconPx(int basePx, HWND hWnd)
+{
+  return GetConfig() ? GetConfig()->ScaleFloor(basePx, basePx, hWnd) : basePx;
+}
 
 struct HCFR_IconMap { UINT nCmd; LPCTSTR pszFile; };
 
@@ -134,6 +143,8 @@ static void BlitPngCell(BYTE* pBase, int stride, int cellIndex, int cx, int cy, 
   img.Load((LPCTSTR)file, CXIMAGE_FORMAT_PNG);
   if (!img.IsValid())
     return;
+  if ((int)img.GetWidth() != cx || (int)img.GetHeight() != cy)
+    img.Resample2(cx, cy, CxImage::IM_BICUBIC2, CxImage::OM_TRANSPARENT);   // area-averaged scale, transparent edge overflow
   int iw = (int)img.GetWidth();
   int ih = (int)img.GetHeight();
   bool hasAlpha = img.AlphaIsValid();
@@ -184,41 +195,93 @@ static HBITMAP CreateStripDib(int cells, int cx, int cy, void** ppBits)
   return hbm;
 }
 
-static CString ResolveIn(UINT nCmdId, bool bDark, LPCTSTR pszSet)
+// High-DPI variants. A glyph ships as an unsuffixed 1x base plus larger
+// masters (1.5x/2x/3x). The resolver picks the smallest variant >= the
+// requested scale and the caller resamples it to the exact cell size, so we
+// downscale (crisp) and never upscale within the available range.
+struct HCFR_FactorDef { double mult; LPCTSTR suffix; };
+static const HCFR_FactorDef g_factors[] =
 {
-  CString name = IconFileName(nCmdId);
-  if (name.IsEmpty())
+  { 1.0, _T("")     },   // unsuffixed base
+  { 1.5, _T("1.5x") },
+  { 2.0, _T("2x")   },
+  { 3.0, _T("3x")   },
+};
+
+// Build the path for one set/theme/name/suffix. Tolerates the '@' separator
+// being present or absent (some exports drop it on the 1.5x files).
+static CString BuildIconPath(LPCTSTR pszSet, bool bDark, LPCTSTR pszName, LPCTSTR pszSuffix)
+{
+  CString base = ExeDir() + _T("res\\images\\") + pszSet + _T("\\")
+               + (bDark ? _T("dark\\") : _T("light\\"));
+  if (pszSuffix == NULL || pszSuffix[0] == 0)
+  {
+    CString p = base + pszName + _T(".png");
+    return FileThere(p) ? p : CString();
+  }
+  CString withAt = base + pszName + _T("@") + pszSuffix + _T(".png");
+  if (FileThere(withAt))
+    return withAt;
+  CString plain = base + pszName + pszSuffix + _T(".png");
+  if (FileThere(plain))
+    return plain;
+  return CString();
+}
+
+// Best existing variant for one theme: smallest factor >= want first (downscale
+// to the cell), then any larger, then fall back to smaller (last resort upscale).
+static CString ResolveForTheme(LPCTSTR pszSet, bool bDark, LPCTSTR pszName, double want)
+{
+  const int n = (int)(sizeof(g_factors) / sizeof(g_factors[0]));
+  int start = -1;
+  for (int i = 0; i < n; i++)
+    if (g_factors[i].mult + 1e-6 >= want) { start = i; break; }
+
+  if (start >= 0)
+  {
+    for (int i = start; i < n; i++)
+    {
+      CString p = BuildIconPath(pszSet, bDark, pszName, g_factors[i].suffix);
+      if (!p.IsEmpty()) return p;
+    }
+    for (int i = start - 1; i >= 0; i--)
+    {
+      CString p = BuildIconPath(pszSet, bDark, pszName, g_factors[i].suffix);
+      if (!p.IsEmpty()) return p;
+    }
+  }
+  else
+  {
+    for (int i = n - 1; i >= 0; i--)
+    {
+      CString p = BuildIconPath(pszSet, bDark, pszName, g_factors[i].suffix);
+      if (!p.IsEmpty()) return p;
+    }
+  }
+  return CString();
+}
+
+// Resolve a themed icon for a target cell size. basePx is the set's 1x pixel
+// size (32 toolbar, 16 menu). Prefers the active theme, falls back to the other.
+static CString ResolveBySize(LPCTSTR pszSet, bool bDark, LPCTSTR pszName, int targetPx, int basePx)
+{
+  if (pszName == NULL || pszName[0] == 0)
     return CString();
-
-  CString base = ExeDir() + _T("res\\images\\") + pszSet + _T("\\");
-  CString primary = base + (bDark ? _T("dark\\") : _T("light\\")) + name + _T(".png");
-  if (FileThere(primary))
-    return primary;
-
-  CString other = base + (bDark ? _T("light\\") : _T("dark\\")) + name + _T(".png");
-  if (FileThere(other))
-    return other;
-
-  return CString();
+  double want = (basePx > 0) ? (double)targetPx / (double)basePx : 1.0;
+  CString p = ResolveForTheme(pszSet, bDark, pszName, want);
+  if (p.IsEmpty())
+    p = ResolveForTheme(pszSet, !bDark, pszName, want);
+  return p;
 }
 
-CString HCFR_ResolveToolbarIcon(UINT nCmdId, bool bDark)
+CString HCFR_ResolveToolbarIcon(UINT nCmdId, bool bDark, int targetPx)
 {
-  return ResolveIn(nCmdId, bDark, _T("toolbar"));
+  return ResolveBySize(_T("toolbar"), bDark, IconFileName(nCmdId), targetPx, 32);
 }
 
-CString HCFR_ResolveToolbarIconByName(LPCTSTR pszName, bool bDark)
+CString HCFR_ResolveToolbarIconByName(LPCTSTR pszName, bool bDark, int targetPx)
 {
-  CString base = ExeDir() + _T("res\\images\\toolbar\\");
-  CString primary = base + (bDark ? _T("dark\\") : _T("light\\")) + pszName + _T(".png");
-  if (FileThere(primary))
-    return primary;
-
-  CString other = base + (bDark ? _T("light\\") : _T("dark\\")) + pszName + _T(".png");
-  if (FileThere(other))
-    return other;
-
-  return CString();
+  return ResolveBySize(_T("toolbar"), bDark, pszName, targetPx, 32);
 }
 
 HICON HCFR_LoadPngHIcon(LPCTSTR pszSet, LPCTSTR pszName, bool bDark, int w, int h)
@@ -226,11 +289,9 @@ HICON HCFR_LoadPngHIcon(LPCTSTR pszSet, LPCTSTR pszName, bool bDark, int w, int 
   if (w <= 0 || h <= 0)
     return NULL;
 
-  CString base = ExeDir() + _T("res\\images\\") + pszSet + _T("\\");
-  CString path = base + (bDark ? _T("dark\\") : _T("light\\")) + pszName + _T(".png");
-  if (!FileThere(path))
-    path = base + (bDark ? _T("light\\") : _T("dark\\")) + pszName + _T(".png");
-  if (!FileThere(path))
+  int basePx = (lstrcmpi(pszSet, _T("menu")) == 0) ? 16 : 32;
+  CString path = ResolveBySize(pszSet, bDark, pszName, w, basePx);
+  if (path.IsEmpty())
     return NULL;
 
   CxImage img;
@@ -238,7 +299,7 @@ HICON HCFR_LoadPngHIcon(LPCTSTR pszSet, LPCTSTR pszName, bool bDark, int w, int 
   if (!img.IsValid())
     return NULL;
   if ((int)img.GetWidth() != w || (int)img.GetHeight() != h)
-    img.Resample(w, h, 1);
+    img.Resample2(w, h, CxImage::IM_BICUBIC2, CxImage::OM_TRANSPARENT);
   bool hasAlpha = img.AlphaIsValid();
 
   // 32bpp straight-alpha top-down color DIB for the icon
@@ -307,7 +368,7 @@ HIMAGELIST HCFR_BuildMenuIconList(bool bDark, int cx, int cy, CArray<UINT, UINT&
   for (int i = 0; i < (int)(sizeof(g_menuOrder) / sizeof(g_menuOrder[0])); i++)
   {
     UINT nId = g_menuOrder[i];
-    CString f = ResolveIn(nId, bDark, _T("menu"));
+    CString f = ResolveBySize(_T("menu"), bDark, IconFileName(nId), cx, 16);
     if (f.IsEmpty())
       continue;
     files.Add(f);
@@ -379,6 +440,8 @@ HIMAGELIST HCFR_BuildPngImageList(const CStringArray& files, int cx, int cy, boo
     img.Load((LPCTSTR)f, CXIMAGE_FORMAT_PNG);
     if (!img.IsValid())
       continue;
+    if ((int)img.GetWidth() != cx || (int)img.GetHeight() != cy)
+      img.Resample2(cx, cy, CxImage::IM_BICUBIC2, CxImage::OM_TRANSPARENT);   // area-averaged scale, transparent edge overflow
 
     int iw = (int)img.GetWidth();
     int ih = (int)img.GetHeight();

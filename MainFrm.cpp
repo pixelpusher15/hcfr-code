@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -253,11 +253,11 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	m_wndMenuBar.SetWindowText(_T("Menu standard"));
 	m_wndToolBar.SetWindowText(_T("Toolbar standard"));
 	m_wndToolBarViews.SetWindowText(_T("Toolbar views"));
-	m_wndToolBarViews.SetSizes(CSize(32+7,32+6), CSize(32,32));
 	m_wndToolBarMeasures.SetWindowText(_T("Toolbar measures"));
 	m_wndToolBarMeasuresEx.SetWindowText(_T("Toolbar measures ext"));
 	m_wndToolBarMeasuresSat.SetWindowText(_T("Toolbar measures sat"));
-	m_wndToolBarMeasures.SetSizes(CSize(32+7,32+6), CSize(32,32));
+	// Toolbar icon cell size is DPI-scaled inside CNewToolBar::LoadToolBar (after the
+	// toolbar resource sets it), so there is no SetSizes here.
 
 	if(!LoadToolbars())
 	{
