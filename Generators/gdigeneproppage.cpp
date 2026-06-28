@@ -618,8 +618,8 @@ static UINT AFX_CDECL PgenQueryThread(LPVOID p)
 	HWND hwnd = pg->GetSafeHwnd();
 	PgenQueryResult* r = new PgenQueryResult;
 	r->ok = gen ? gen->QueryPGeneratorInfo(r->vals, r->err) : FALSE;
-	if (hwnd && IsWindow(hwnd)) ::PostMessage(hwnd, WM_PGEN_QUERY_DONE, 0, (LPARAM)r);
-	else delete r;
+	if (!(hwnd && IsWindow(hwnd) && ::PostMessage(hwnd, WM_PGEN_QUERY_DONE, 0, (LPARAM)r)))
+		delete r;
 	return 0;
 }
 
@@ -806,6 +806,7 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 void CPGenSettingsDlg::OnOK()
 {
 	CStringArray cmds;
+	int drSel = (m_avi[5].GetSafeHwnd()) ? m_avi[5].GetCurSel() : -1;
 	{ int sel = m_avi[0].GetCurSel(); if (sel >= 0 && sel != m_aviInit[0] && sel < m_resIds.GetSize()) { CString c; c.Format(_T("CMD:SET_MODE:%d"), m_resIds[sel]); cmds.Add(c); } }
 	{
 		static const TCHAR* const nm[5] = { 0, _T("SET_PGENERATOR_CONF_COLOR_FORMAT"), _T("SET_PGENERATOR_CONF_RGB_QUANT_RANGE"), _T("SET_PGENERATOR_CONF_MAX_BPC"), _T("SET_PGENERATOR_CONF_COLORIMETRY") };
@@ -825,12 +826,12 @@ void CPGenSettingsDlg::OnOK()
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), dovi); cmds.Add(c);
 		}
 	}
-	{ int sel = m_doviCombo.GetCurSel(); if (sel >= 0 && sel != m_doviInit) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_MAP_MODE:%d"), (sel == 1) ? 2 : 1); cmds.Add(c); } }
-	{ int sel = m_drm[0].GetCurSel(); if (sel >= 0 && sel != m_drmInit[0]) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_EOTF:%d"), kPgEOv[sel]); cmds.Add(c); } }
-	{ int sel = m_drm[1].GetCurSel(); if (sel >= 0 && sel != m_drmInit[1]) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_PRIMARIES:%d"), kPgPRv[sel]); cmds.Add(c); } }
+	{ int sel = m_doviCombo.GetCurSel(); if (sel >= 0 && sel != m_doviInit && drSel == 2) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_MAP_MODE:%d"), (sel == 1) ? 2 : 1); cmds.Add(c); } }
+	{ int sel = m_drm[0].GetCurSel(); if (sel >= 0 && sel != m_drmInit[0] && drSel == 1) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_EOTF:%d"), kPgEOv[sel]); cmds.Add(c); } }
+	{ int sel = m_drm[1].GetCurSel(); if (sel >= 0 && sel != m_drmInit[1] && drSel == 1) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_PRIMARIES:%d"), kPgPRv[sel]); cmds.Add(c); } }
 	{
 		static const TCHAR* const nm[4] = { _T("SET_PGENERATOR_CONF_MAX_LUMA"), _T("SET_PGENERATOR_CONF_MIN_LUMA"), _T("SET_PGENERATOR_CONF_MAX_CLL"), _T("SET_PGENERATOR_CONF_MAX_FALL") };
-		for (int i = 0; i < 4; i++)
+		if (drSel == 1) for (int i = 0; i < 4; i++)
 		{
 			CString t; m_ed[i].GetWindowText(t); t.TrimLeft(); t.TrimRight();
 			if (t == m_edInit[i]) continue;

@@ -53,6 +53,7 @@ CGenerator::CGenerator()
 	m_rectSizePercent=GetConfig()->GetProfileInt("GDIGenerator","SizePercent",10);
 	m_ccastIp = 0;
 	sock = NULL;
+	m_initShowedError = FALSE;
 	rPi_xWidth = 1980;
 	rPi_yHeight = 1080;
 	rPi_memSize  = 0;
@@ -486,6 +487,7 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 			if (sock)
 			{
 				CStringA _vp = PgSend(sock, "CMD:GET_PGENERATOR_VERSION");
+				DWORD _rt = 0; setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&_rt, sizeof(_rt));
 				if (_vp.Find("OK") < 0)
 				{
 					PgSafeClose(_RB8PG_close, sock);
@@ -529,7 +531,6 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 							m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "    ** PGenerator not found on the network **", "Error", MB_ICONERROR);
 							return false;
 						}
-						if (sock)
 						{
 							if (_RB8PG_send)
 							{
