@@ -1121,6 +1121,12 @@ void CDataSetDoc::OnCloseDocument()
 
 BOOL CDataSetDoc::CanCloseFrame(CFrameWnd* pFrame) 
 {
+	if ( IsMeasureSweepActive() )
+	{
+		m_measure.AbortMeasure();
+		return FALSE;
+	}
+
 	if ( this == g_pDataDocRunningThread )
 		StopBackgroundMeasures ();
 
@@ -1341,6 +1347,7 @@ void CDataSetDoc::AddMeasurement()
 
 void CDataSetDoc::OnConfigureSensor() 
 {
+	if ( IsMeasureSweepActive() ) return;
 	StopBackgroundMeasures ();
     m_pSensor->SetSensorMatrixMod( m_pSensor->GetSensorMatrix() );
 	m_pSensor->Configure();
@@ -1359,6 +1366,7 @@ void CDataSetDoc::OnConfigureSensor()
 
 void CDataSetDoc::OnConfigureGenerator() 
 {
+	if ( IsMeasureSweepActive() ) return;
 	StopBackgroundMeasures ();
 
 	m_pGenerator->Configure();
@@ -1406,6 +1414,7 @@ BOOL CDataSetDoc::OnOpenDocument(LPCTSTR lpszPathName)
 
 void CDataSetDoc::OnChangeGenerator() 
 {
+	if ( IsMeasureSweepActive() ) return;
 	StopBackgroundMeasures ();
 
 	CPropertySheetWithHelp propSheet;
@@ -1427,6 +1436,7 @@ void CDataSetDoc::OnChangeGenerator()
 
 void CDataSetDoc::OnChangeSensor() 
 {
+	if ( IsMeasureSweepActive() ) return;
 	CString		Msg, Title;
 
 	StopBackgroundMeasures ();

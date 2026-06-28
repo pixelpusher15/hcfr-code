@@ -370,7 +370,7 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		
 		m_graphCtrl.SetYAxisProps("", pow ( 10.0, (double) ( nFactor < 3 ? nTensScale - 1 : nTensScale ) ), 0, m_LumaMaxY * 2.0);
 	}
-	{ static DWORD s_liveTick = 0; UINT redrawFlags = RDW_INVALIDATE | RDW_ALLCHILDREN; DWORD nowTick = ::GetTickCount(); if ( nowTick - s_liveTick >= 33 ) { redrawFlags |= RDW_UPDATENOW; s_liveTick = nowTick; } RedrawWindow( NULL, NULL, redrawFlags ); }
+	RedrawWindow( NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW );
 }
 
 DWORD CMeasuresHistoView::GetUserInfo ()

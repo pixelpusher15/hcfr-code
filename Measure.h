@@ -32,6 +32,7 @@
 #include "Color.h"
 #include "Sensors\Sensor.h"
 #include "Generators\Generator.h"
+BOOL IsMeasureSweepActive();
 
 #define	DUPLGRAYLEVEL		0
 #define	DUPLNEARBLACK		1
@@ -97,6 +98,7 @@ protected:
 public:
 	BOOL	m_bIREScaleMode;
 	BOOL	m_binMeasure;
+	volatile BOOL	m_bAbortSweep;
 	BOOL	bDisplayRT;
 	UINT	m_bpreV10;
 	UINT	m_NearWhiteClipCol;
@@ -241,6 +243,7 @@ public:
 	void GetRefCC24Sat(int i, CColor &color) const;
 
 	BOOL IsModified() { return m_isModified; }
+	void AbortMeasure() { m_bAbortSweep = TRUE; }
 
     void ApplySensorAdjustmentMatrix(const Matrix & matrixAdjustment);
 

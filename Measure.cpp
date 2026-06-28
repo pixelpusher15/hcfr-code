@@ -26,6 +26,7 @@
 #include "ColorHCFR.h"
 #include "MainFrm.h"
 #include "Measure.h"
+#include "AsyncMeasurer.h"
 #include "Generator.h"
 #include "LuxScaleAdvisor.h"
 #include "DataSetDoc.h"
@@ -81,6 +82,21 @@ static void FillUniformGrayLevels(CArray<double,double> & levels, int nPoints)
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
+static volatile BOOL g_bMeasureSweepActive = FALSE;
+BOOL IsMeasureSweepActive() { return g_bMeasureSweepActive; }
+namespace {
+struct SweepActiveGuard
+{
+    BOOL m_owned;
+    explicit SweepActiveGuard(CMeasure * p) : m_owned(!g_bMeasureSweepActive)
+    {
+        if (m_owned) { g_bMeasureSweepActive = TRUE; if (p) p->m_bAbortSweep = FALSE; }
+    }
+    ~SweepActiveGuard() { if (m_owned) g_bMeasureSweepActive = FALSE; }
+    BOOL Owned() const { return m_owned; }
+};
+}
+
 IMPLEMENT_SERIAL(CMeasure, CObject, 1)
 
 CMeasure::CMeasure()
@@ -89,6 +105,7 @@ CMeasure::CMeasure()
 	m_isModified = FALSE;
 	m_bpreV10 = 0;
 	m_binMeasure = FALSE;
+	m_bAbortSweep = FALSE;
 	bDisplayRT = TRUE;
 	m_primariesArray.SetSize(3);
 	m_secondariesArray.SetSize(3);
@@ -1070,6 +1087,8 @@ bool doSettling = FALSE;
 
 BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
@@ -1109,6 +1128,8 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	BOOL bAsyncMeasure = asyncMeasure.Start(pSensor);
 	
 	m_binMeasure = TRUE;
 	m_currentIndex = 0;
@@ -1134,7 +1155,10 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit));
+				if (bAsyncMeasure)
+					asyncMeasure.MeasurePumped(ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)), measuredColor[i]);
+				else
+					measuredColor[i]=pSensor->MeasureGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit));
 
 				m_grayMeasureArray[i] = measuredColor[i];
 				
@@ -1196,6 +1220,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -1291,6 +1316,8 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 
 BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
@@ -1417,6 +1444,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -1644,6 +1672,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -1765,6 +1794,8 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 
 BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
@@ -1891,6 +1922,7 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -1968,6 +2000,8 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
@@ -2074,6 +2108,7 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -2148,6 +2183,8 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -2244,6 +2281,7 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -2318,6 +2356,8 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 
 BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -2413,6 +2453,7 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -2487,6 +2528,8 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 
 BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -2584,6 +2627,7 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -2658,6 +2702,8 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -2754,6 +2800,7 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -2829,6 +2876,8 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -2926,6 +2975,7 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -3001,6 +3051,8 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -3098,6 +3150,7 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -3172,6 +3225,8 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 
 BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -3332,6 +3387,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -3422,6 +3478,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerator, BOOL bPrimaryOnly, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	int			i, j;
 	MSG			Msg;
 	BOOL		bEscape;
@@ -3626,6 +3684,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 					if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 						bEscape = TRUE;
 				}
+				if ( m_bAbortSweep ) bEscape = TRUE;
 
 				if ( bEscape )
 				{
@@ -3802,6 +3861,8 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 
 BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenerator *pGenerator, BOOL bPrimaryOnly, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	int			i, j;
 	MSG			Msg;
 	BOOL		bEscape;
@@ -3930,6 +3991,7 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 					if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 						bEscape = TRUE;
 				}
+				if ( m_bAbortSweep ) bEscape = TRUE;
 
 				if ( bEscape )
 				{
@@ -4051,6 +4113,8 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 
 BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	int		i;
 	MSG		Msg;
 	BOOL	bEscape;
@@ -4254,6 +4318,7 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -4354,6 +4419,8 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 
 BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	int		i;
 	MSG		Msg;
 	BOOL	bEscape;
@@ -4561,6 +4628,7 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -4669,6 +4737,8 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 
 BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	int		i;
 	MSG		Msg;
 	BOOL	bEscape;
@@ -4789,6 +4859,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 					if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 						bEscape = TRUE;
 				}
+				if ( m_bAbortSweep ) bEscape = TRUE;
 
 				if ( bEscape )
 				{
@@ -4871,6 +4942,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -5006,6 +5078,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 					if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 						bEscape = TRUE;
 				}
+				if ( m_bAbortSweep ) bEscape = TRUE;
 
 				if ( bEscape )
 				{
@@ -5117,6 +5190,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 					if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 						bEscape = TRUE;
 				}
+				if ( m_bAbortSweep ) bEscape = TRUE;
 
 				if ( bEscape )
 				{

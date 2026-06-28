@@ -444,7 +444,7 @@ void CGammaHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA  || lHint == UPD_FREEMEASUREAPPENDED || lHint >= UPD_REALTIME)
 	{
 		m_Grapher.UpdateGraph ( GetDocument () );
-		{ static DWORD s_liveTick = 0; UINT redrawFlags = RDW_INVALIDATE | RDW_ALLCHILDREN; DWORD nowTick = ::GetTickCount(); if ( nowTick - s_liveTick >= 33 ) { redrawFlags |= RDW_UPDATENOW; s_liveTick = nowTick; } RedrawWindow( NULL, NULL, redrawFlags ); }
+		RedrawWindow( NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW );
 	}
 }
 
@@ -481,7 +481,6 @@ void CGammaHistoView::OnSize(UINT nType, int cx, int cy)
 void CGammaHistoView::OnDraw(CDC* pDC) 
 {
 	// TODO: Add your specialized code here and/or call the base class	
-	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
 }
 
 BOOL CGammaHistoView::OnEraseBkgnd(CDC* pDC) 

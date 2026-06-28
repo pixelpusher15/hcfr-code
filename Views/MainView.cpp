@@ -5310,6 +5310,11 @@ void CMainView::OnDropdownComboMode()
 
 void CMainView::OnSelchangeComboMode() 
 {
+	if ( IsMeasureSweepActive() )
+	{
+		m_comboMode.SetCurSel ( m_displayMode );
+		return;
+	}
 	int	nNewMode = m_comboMode.GetCurSel ();
 	CString	Msg, MsgAdd;
 
@@ -5509,8 +5514,34 @@ void CMainView::OnSelchangeComboMode()
 		UpdateGrid();
 }
 
+void CMainView::SetMeasureButtonForMode()
+{
+	LPCTSTR name = _T("measure-grayscale");
+	switch ( m_displayMode )
+	{
+		case 1:  name = _T("measure-secondaries"); break;
+		case 2:  name = GetConfig()->m_bContinuousMeasures ? _T("measure-continuous") : _T("measure-single"); break;
+		case 3:  name = _T("measure-near-black"); break;
+		case 4:  name = _T("measure-near-white"); break;
+		case 5:  name = _T("sat-red"); break;
+		case 6:  name = _T("sat-green"); break;
+		case 7:  name = _T("sat-blue"); break;
+		case 8:  name = _T("sat-yellow"); break;
+		case 9:  name = _T("sat-cyan"); break;
+		case 10: name = _T("sat-magenta"); break;
+		case 11: name = _T("sat-colorchecker"); break;
+		case 12: name = _T("measure-contrast"); break;
+	}
+	m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), name, (fxUseCustomColor!=FALSE), 32, 32 ), (HICON)NULL );
+}
+
 void CMainView::OnMeasureGrayScale() 
 {
+	if ( IsMeasureSweepActive() )
+	{
+		GetDocument()->GetMeasure()->AbortMeasure();
+		return;
+	}
 	if ( GetKeyState ( VK_CONTROL ) < 0 )
 	{
 		switch ( m_displayMode )
@@ -5562,6 +5593,12 @@ void CMainView::OnMeasureGrayScale()
 	}
 	else
 	{
+		BOOL bStopToggle = ( m_displayMode == 0 );
+		if ( bStopToggle )
+		{
+			m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-stop"), (fxUseCustomColor!=FALSE), 32, 32 ), (HICON)NULL );
+			CString sStop; sStop.LoadString ( IDS_STOPCONTINUOUS ); m_grayScaleButton.SetTooltipText ( sStop );
+		}
 		switch ( m_displayMode )
 		{
 			case 0:
@@ -5619,11 +5656,14 @@ void CMainView::OnMeasureGrayScale()
 				 GetDocument()->OnMeasureContrast();
 				 break;
 		}
+		if ( bStopToggle )
+			SetMeasureButtonForMode ();
 	}
 }
 
 void CMainView::OnDeleteGrayscale() 
 {
+	if ( IsMeasureSweepActive() ) return;
 	BOOL	bSelectionOnly = FALSE;
 	CString	Msg, Title;
 	LPARAM	lHint = UPD_EVERYTHING;
@@ -8143,6 +8183,7 @@ void CMainView::OnDeltaposSpinView(NMHDR* pNMHDR, LRESULT* pResult)
 
 void CMainView::OnAnsiContrastPatternTestButton() 
 {
+	if ( IsMeasureSweepActive() ) return;
 	CString	Msg;
 
 	CGenerator *pGenerator=GetDocument()->GetGenerator();
@@ -8158,6 +8199,7 @@ void CMainView::OnAnsiContrastPatternTestButton()
 
 void CMainView::OnRefs() 
 {
+	if ( IsMeasureSweepActive() ) return;
 	GetConfig()->ChangeSettings(1);
 }
 

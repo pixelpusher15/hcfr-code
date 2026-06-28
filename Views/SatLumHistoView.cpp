@@ -403,7 +403,7 @@ void CSatLumHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 	m_Grapher.UpdateGraph ( GetDocument () );
 
-	{ static DWORD s_liveTick = 0; UINT redrawFlags = RDW_INVALIDATE | RDW_ALLCHILDREN; DWORD nowTick = ::GetTickCount(); if ( nowTick - s_liveTick >= 33 ) { redrawFlags |= RDW_UPDATENOW; s_liveTick = nowTick; } RedrawWindow( NULL, NULL, redrawFlags ); }
+	RedrawWindow( NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW );
 }
 
 DWORD CSatLumHistoView::GetUserInfo ()
@@ -433,7 +433,6 @@ void CSatLumHistoView::OnSize(UINT nType, int cx, int cy)
 void CSatLumHistoView::OnDraw(CDC* pDC) 
 {
 	// TODO: Add your specialized code here and/or call the base class
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Luminance Histo");	
 }
 
 BOOL CSatLumHistoView::OnEraseBkgnd(CDC* pDC) 
