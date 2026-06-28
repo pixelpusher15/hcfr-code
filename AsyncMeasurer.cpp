@@ -75,10 +75,11 @@ BOOL CAsyncMeasurer::MeasurePumped(const ColorRGBDisplay & aRGBValue, CColor & o
 		if (wr == WAIT_OBJECT_0)
 			break;             // measurement done
 
-		// Pump everything EXCEPT two ranges, by peeking around the keyboard range:
-		//  - keyboard (WM_KEYFIRST..WM_KEYLAST) is left queued so the sweep's own
-		//    post-read PeekMessage still sees an ESC press and aborts, exactly as in the
-		//    old synchronous path;
+		// Pump everything by peeking around exactly WM_KEYDOWN..WM_KEYUP:
+		//  - WM_KEYDOWN/WM_KEYUP are left queued -- and only those, because that is the
+		//    exact range each sweep's own post-read PeekMessage drains -- so an ESC press
+		//    still aborts as in the old synchronous path, while WM_CHAR / WM_SYSKEY* / IME
+		//    messages are dispatched normally rather than piling up unread for the sweep;
 		//  - queued WM_COMMAND (menu / accelerator / posted toolbar commands) is dropped
 		//    so nothing can run mid-sweep and disturb the measurement (e.g. opening
 		//    References and changing the gamut, or exporting a half-finished sweep).
@@ -87,8 +88,8 @@ BOOL CAsyncMeasurer::MeasurePumped(const ColorRGBDisplay & aRGBValue, CColor & o
 		// not filtered (and the action buttons that could interfere are guarded by
 		// IsMeasureSweepActive() in their handlers).
 		MSG msg;
-		while (PeekMessage(&msg, NULL, 0, WM_KEYFIRST - 1, PM_REMOVE)
-		    || PeekMessage(&msg, NULL, WM_KEYLAST + 1, 0xFFFFFFFF, PM_REMOVE))
+		while (PeekMessage(&msg, NULL, 0, WM_KEYDOWN - 1, PM_REMOVE)
+		    || PeekMessage(&msg, NULL, WM_KEYUP + 1, 0xFFFFFFFF, PM_REMOVE))
 		{
 			if (msg.message == WM_QUIT)
 			{
