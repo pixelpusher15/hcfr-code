@@ -376,7 +376,16 @@ BEGIN
     CONTROL         "Blank screen during measure",IDC_BLANKING_CHECK,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,17,20,112,10
 END
 
-IDD_GENERATOR_GDI_PROP_PAGE DIALOGEX 0, 0, 186, 246
+IDD_PGEN_SETTINGS DIALOGEX 0, 0, 200, 200
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "PGenerator settings"
+FONT 8, "MS Sans Serif", 0, 0, 0x0
+BEGIN
+    DEFPUSHBUTTON   "Apply",IDOK,100,132,55,14
+    PUSHBUTTON      "Close",IDCANCEL,160,132,55,14
+END
+
+IDD_GENERATOR_GDI_PROP_PAGE DIALOGEX 0, 0, 186, 324
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Display"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
@@ -2987,6 +2996,40 @@ BEGIN
     IDS_GEN_RGB_RANGE  "Pattern range"
     IDS_GEN_NO_CAST  "No Google Cast device found"
     IDS_GEN_GRP_PATTERN  "Pattern"
+    IDS_GEN_PGEN_SETTINGS  "PGenerator settings..."
+    IDS_GEN_OFFSET  "Offset"
+    IDS_PGEN_RO_NAME  "Name"
+    IDS_PGEN_RO_DEVICE  "Device"
+    IDS_PGEN_RO_IP  "IP address"
+    IDS_PGEN_RO_VERSION  "PGen version"
+    IDS_PGEN_RO_DYNRANGE  "Dynamic range"
+    IDS_PGEN_RO_RESOLUTION  "Resolution"
+    IDS_PGEN_RO_BITDEPTH  "Bit depth"
+    IDS_PGEN_RO_COLORSPACE  "Color space"
+    IDS_PGEN_RO_COLORFORMAT  "Color format"
+    IDS_PGEN_RO_SIGRANGE  "Signal range"
+    IDS_PGEN_ST_QUERYING  "Querying PGenerator..."
+    IDS_PGEN_ST_NOTFOUND  "No PGenerator found on the network."
+    IDS_PGEN_ST_NODLL  "RB8PGenerator.dll not found next to the application."
+    IDS_PGEN_ST_NOENTRY  "RB8PGenerator.dll is missing expected entry points."
+    IDS_PGEN_ST_NOCONNECT  "Found a PGenerator but could not connect."
+    IDS_PGEN_ST_NOGEN  "No generator available."
+    IDS_PGEN_DLG_TITLE  "PGenerator settings"
+    IDS_PGEN_APPLY  "Apply"
+    IDS_PGEN_CLOSE  "Close"
+    IDS_PGEN_REBOOT  "Reboot"
+    IDS_PGEN_RESTART_SW  "Restart software"
+    IDS_PGEN_REBOOT_CONFIRM  "Reboot the PGenerator now?"
+    IDS_PGEN_RESTART_CONFIRM  "Restart the PGenerator software now?"
+    IDS_PGEN_HDR_AVI  "Output config / AVI infoframe"
+    IDS_PGEN_HDR_DRM  "HDR metadata / DRM infoframe"
+    IDS_PGEN_DYNRANGE  "Dynamic range"
+    IDS_PGEN_DOVI_MODE  "DoVi mode"
+    IDS_PGEN_PRIMARIES  "Primaries"
+    IDS_PGEN_SHUTDOWN  "Shutdown"
+    IDS_PGEN_REFRESH  "Refresh"
+    IDS_PGEN_SHUTDOWN_CONFIRM  "Shut down the PGenerator now?"
+    IDS_PGEN_ST_NOTCONN  "No PGenerator connected. Press Refresh to search."
     IDS_GEN_GRP_BLANKING  "Blanking"
     IDS_GEN_BLANK_SCREEN  "Blank screen during measure"
 END

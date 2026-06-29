@@ -769,6 +769,18 @@
 #define IDC_ARGYLL_SENSOR_ADAPT         1292
 #define IDC_AVG_LOW_LIGHT               1299
 #define IDC_GEN_OUTPUT_COMBO            1500
+#define IDC_PGEN_READOUT              1501
+#define IDC_PGEN_SETTINGS_BTN          1502
+#define IDD_PGEN_SETTINGS              378
+#define IDC_PGEN_RANGE_COMBO           1503
+#define IDC_PGEN_REBOOT_BTN           1520
+#define IDC_PGEN_RESTART_BTN          1521
+#define IDC_PGEN_REFRESH_BTN            1522
+#define IDC_PGEN_SHUTDOWN_BTN           1523
+#define IDC_PGEN_DOVI_COMBO             1542
+#define IDC_PGEN_AVI_BASE               1530
+#define IDC_PGEN_DRM_BASE               1536
+#define IDC_PGEN_EDIT_BASE              1538
 #define IDC_ARGYLLSENSOR_SPECTRALTYPE_COMBO 1271
 #define IDC_DISPLAY_NAME                1272
 #define IDC_ARGYLLSENSOR_INTTIME_COMBO  1272
@@ -1780,10 +1792,44 @@
 #define IDS_GEN_RGB_RANGE                 59481
 #define IDS_GEN_NO_CAST                  59482
 #define IDS_GEN_GRP_PATTERN              59483
+#define IDS_GEN_PGEN_SETTINGS            59486
+#define IDS_GEN_OFFSET                   59487
+#define IDS_PGEN_RO_NAME                 59488
+#define IDS_PGEN_RO_DEVICE               59489
+#define IDS_PGEN_RO_IP                   59490
+#define IDS_PGEN_RO_VERSION              59491
+#define IDS_PGEN_RO_DYNRANGE             59492
+#define IDS_PGEN_RO_RESOLUTION           59493
+#define IDS_PGEN_RO_BITDEPTH             59494
+#define IDS_PGEN_RO_COLORSPACE           59495
+#define IDS_PGEN_RO_COLORFORMAT          59496
+#define IDS_PGEN_RO_SIGRANGE             59497
+#define IDS_PGEN_ST_QUERYING             59498
+#define IDS_PGEN_ST_NOTFOUND             59499
+#define IDS_PGEN_ST_NODLL                59500
+#define IDS_PGEN_ST_NOENTRY              59501
+#define IDS_PGEN_ST_NOCONNECT            59502
+#define IDS_PGEN_ST_NOGEN                59503
+#define IDS_PGEN_DLG_TITLE               59504
+#define IDS_PGEN_APPLY                   59505
+#define IDS_PGEN_CLOSE                   59506
+#define IDS_PGEN_REBOOT                  59507
+#define IDS_PGEN_RESTART_SW              59508
+#define IDS_PGEN_REBOOT_CONFIRM          59509
+#define IDS_PGEN_RESTART_CONFIRM         59510
+#define IDS_PGEN_HDR_AVI                 59511
+#define IDS_PGEN_HDR_DRM                 59512
+#define IDS_PGEN_DYNRANGE                59513
+#define IDS_PGEN_DOVI_MODE               59514
+#define IDS_PGEN_PRIMARIES               59515
+#define IDS_PGEN_SHUTDOWN                59516
+#define IDS_PGEN_REFRESH                 59517
+#define IDS_PGEN_SHUTDOWN_CONFIRM        59518
+#define IDS_PGEN_ST_NOTCONN              59519
 #define IDS_GEN_GRP_BLANKING             59484
 #define IDS_GEN_BLANK_SCREEN              59485
-#define IDS_STOPSWEEP                  59486
-#define IDS_STOP_BTN                   59487
+#define IDS_STOPSWEEP                  59520
+#define IDS_STOP_BTN                   59521
 
 // Next default values for new objects
 // 
@@ -1792,7 +1838,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33108
-#define _APS_NEXT_CONTROL_VALUE         1501
+#define _APS_NEXT_CONTROL_VALUE         1543
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

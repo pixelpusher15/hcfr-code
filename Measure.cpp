@@ -1119,6 +1119,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	if(pGenerator->Init(size) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -1345,6 +1346,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 	if(pGenerator->Init(size+6+GetConfig()->m_BWColorsToAdd) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -1824,6 +1826,7 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 	if(pGenerator->Init(size) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -2036,6 +2039,7 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 	if(pGenerator->Init(size) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -2218,6 +2222,7 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 	if(pGenerator->Init(size) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -2393,6 +2398,7 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 	if(pGenerator->Init(size) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -2567,6 +2573,7 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	if(pGenerator->Init(size) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -2743,6 +2750,7 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 	if(pGenerator->Init(size) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -2919,6 +2927,7 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	if(pGenerator->Init(size) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -3096,6 +3105,7 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 	if(pGenerator->Init(size) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -3277,6 +3287,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	if(pGenerator->Init(size) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -3336,6 +3347,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
     if(pGenerator->GetName() == str&&( (GetConfig()->m_CCMode==USER && size > 100) ) )
 	{		
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		strMsg.Append(" not a supported DVD sequence.");
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
@@ -3346,6 +3358,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
     if (!GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType))
 	{		
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		pGenerator->Release();
@@ -3574,6 +3587,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 	if(pGenerator->Init(size*(bPrimaryOnly?3:6) + ccSize) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -3601,6 +3615,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 	if(pGenerator->GetName() == str&&( (GetConfig()->m_CCMode==USER && ccSize > 100) ))
 	{		
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		strMsg.Append(" not a supported DVD sequence.");
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
@@ -3620,6 +3635,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 	if (!GenerateCC24Colors (GetColorReference(), & GenColors [ size * 6 ], GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType)) //color checker
 	{		
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		pGenerator->Release();
@@ -3924,6 +3940,7 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 	if(pGenerator->Init(size*(bPrimaryOnly?3:6)) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -4161,6 +4178,7 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	if(pGenerator->Init(3 + GetConfig () -> m_BWColorsToAdd) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -4183,6 +4201,7 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	if(pGenerator->GetName() == str&&GetConfig()->m_colorStandard == HDTVb)
 	{		
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		strMsg.Append(" not a supported DVD sequence.");
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
@@ -4469,6 +4488,7 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 	if(pGenerator->Init(6+GetConfig()->m_BWColorsToAdd) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;
@@ -4789,6 +4809,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 	if(pGenerator->Init(4, TRUE) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		return FALSE;

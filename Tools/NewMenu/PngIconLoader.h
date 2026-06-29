@@ -8,15 +8,21 @@
 // Icons live on disk next to the exe, under res\images\toolbar\{light,dark}\,
 // one 32x32 PNG per command, named by command (see g_iconMap in the .cpp).
 
-// Resolve the icon file for a command id and theme. Returns the full path to an
-// existing PNG, preferring the active theme folder and falling back to the other.
-// Returns an empty CString when the command has no mapping or no file exists.
-CString HCFR_ResolveToolbarIcon(UINT nCmdId, bool bDark);
+// Scale a base (96-dpi) pixel size to the current DPI for hWnd, never returning
+// below basePx. Delegates to the app config (CColorHCFRConfig::ScaleFloor) so all
+// icon sizing tracks the rest of the UI from one place.
+int HCFR_ScaleIconPx(int basePx, HWND hWnd);
+
+// Resolve the icon file for a command id and theme, choosing the best high-DPI
+// variant for a target cell size (targetPx). Returns the full path to an existing
+// PNG, preferring the active theme folder and falling back to the other. Returns
+// an empty CString when the command has no mapping or no file exists.
+CString HCFR_ResolveToolbarIcon(UINT nCmdId, bool bDark, int targetPx);
 
 // Resolve a toolbar icon by base filename (no extension, no command mapping),
-// e.g. _T("measure-stop"). Same theme-folder preference/fallback as above.
-// Returns an empty CString when no file exists.
-CString HCFR_ResolveToolbarIconByName(LPCTSTR pszName, bool bDark);
+// e.g. _T("measure-stop"), choosing the best variant for targetPx. Same theme-
+// folder preference/fallback as above. Returns an empty CString when none exists.
+CString HCFR_ResolveToolbarIconByName(LPCTSTR pszName, bool bDark, int targetPx);
 
 // Load a themed PNG (res\images\<set>\<theme>\<name>.png, with fallback to the
 // other theme) as an alpha HICON scaled to w x h. Returns NULL if not found.

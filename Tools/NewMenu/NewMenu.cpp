@@ -2792,7 +2792,7 @@ void CNewMenu::GetMenuBarColor2003(COLORREF& color1, COLORREF& color2, BOOL bBac
     CClientDC myDC(NULL);
     COLORREF nearColor = myDC.GetNearestColor(MidColor(colorWindow,colorCaption));
 
-    // some colorscheme corrections (Andreas Schärer)
+    // some colorscheme corrections (Andreas Schï¿½rer)
     if (nearColor == 15779244) //standartblau
     { //entspricht (haar-)genau office 2003
       nearColor = RGB(163,194,245);
@@ -2801,7 +2801,7 @@ void CNewMenu::GetMenuBarColor2003(COLORREF& color1, COLORREF& color2, BOOL bBac
     {
       nearColor = RGB(215,215,229);
     }
-    else if (nearColor == 13425878) //olivgrün
+    else if (nearColor == 13425878) //olivgrï¿½n
     {
       nearColor = RGB(218,218,170);
     }
@@ -2905,7 +2905,7 @@ void CNewMenu::GetMenuBarColor2003(COLORREF& color1, COLORREF& color2, BOOL bBac
       CClientDC myDC(NULL);
       COLORREF nearColor = myDC.GetNearestColor(MidColor(colorWindow,colorCaption));
 
-      // some colorscheme corrections (Andreas Schärer)
+      // some colorscheme corrections (Andreas Schï¿½rer)
       if (nearColor == 15779244) //standartblau
       { //entspricht (haar-)genau office 2003
         color1 = RGB(163,194,245);
@@ -2914,7 +2914,7 @@ void CNewMenu::GetMenuBarColor2003(COLORREF& color1, COLORREF& color2, BOOL bBac
       {
         color1 = RGB(215,215,229);
       }
-      else if (nearColor == 13425878) //olivgrün
+      else if (nearColor == 13425878) //olivgrï¿½n
       {
         color1 = RGB(218,218,170);
       }
@@ -3927,7 +3927,7 @@ void CNewMenu::DrawItem_WinXP(LPDRAWITEMSTRUCT lpDIS, BOOL bIsMenuBar)
       }
       if(state&ODS_DRAW_VERTICAL)
       {
-        // rotate font 90°
+        // rotate font 90ï¿½
         logFontMenu.lfOrientation = -900;
         logFontMenu.lfEscapement = -900;
       }
@@ -4659,7 +4659,7 @@ void CNewMenu::DrawItem_XP_2003(LPDRAWITEMSTRUCT lpDIS, BOOL bIsMenuBar)
       }
       if(state&ODS_DRAW_VERTICAL)
       {
-        // rotate font 90°
+        // rotate font 90ï¿½
         logFontMenu.lfOrientation = -900;
         logFontMenu.lfEscapement = -900;
       }
@@ -4999,7 +4999,7 @@ void CNewMenu::DrawItem_SpecialStyle (LPDRAWITEMSTRUCT lpDIS, BOOL bIsMenuBar)
 #endif
   if(lpDIS->itemState&ODS_DRAW_VERTICAL)
   {
-    // rotate font 90°
+    // rotate font 90ï¿½
     logFontMenu.lfOrientation = -900;
     logFontMenu.lfEscapement = -900;
   }
@@ -5441,7 +5441,7 @@ void CNewMenu::DrawItem_Icy(LPDRAWITEMSTRUCT lpDIS, BOOL bIsMenuBar)
       }
       if(state&ODS_DRAW_VERTICAL)
       {
-        // rotate font 90°
+        // rotate font 90ï¿½
         logFontMenu.lfOrientation = -900;
         logFontMenu.lfEscapement = -900;
       }
@@ -5869,7 +5869,7 @@ void CNewMenu::DrawItem_OldStyle (LPDRAWITEMSTRUCT lpDIS, BOOL bIsMenuBar)
       }
       if(state&ODS_DRAW_VERTICAL)
       {
-        // rotate font 90°
+        // rotate font 90ï¿½
         logFontMenu.lfOrientation = -900;
         logFontMenu.lfEscapement = -900;
       }
@@ -7078,6 +7078,10 @@ CNewMenuItemData* CNewMenu::NewODMenu(UINT pos, UINT nFlags, UINT nID, LPCTSTR s
 
 BOOL CNewMenu::LoadPngMenuIcons(int cx, int cy, bool bDark)
 {
+  // cx/cy are the base (96-dpi) icon size; scale to the current DPI here so every
+  // caller stays DPI-agnostic (no duplicated Scale() at each call site).
+  cx = HCFR_ScaleIconPx(cx, NULL);
+  cy = HCFR_ScaleIconPx(cy, NULL);
   CNewMenuIcons* pMenuIcon = new CNewMenuIcons();
   pMenuIcon->m_crTransparent = m_bitmapBackground;
   if (pMenuIcon->LoadPngIcons(cx, cy, bDark))

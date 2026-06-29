@@ -609,6 +609,7 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 	}
 	
 	bOk = CGenerator::Init (nbMeasure );
+	m_displayWindow.m_rPiSock = sock;
 
 	if ( ! bOnOtherMonitor )
 	{
@@ -848,9 +849,9 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 	//subtract window area for APL
 	if (Cgen.m_rectSizePercent < 100)
 	{
-		R1 = max(0,(bgstim*255 - clr[0]*Cgen.m_rectSizePercent/100.))/(1-m_rectSizePercent/100. );
-		G1 = max(0,(bgstim*255 - clr[1]*Cgen.m_rectSizePercent/100.))/(1-m_rectSizePercent/100. );
-		B1 = max(0,(bgstim*255 - clr[2]*Cgen.m_rectSizePercent/100.))/(1-m_rectSizePercent/100. );
+		R1 = max(0,(bgstim*255 - clr[0]*Cgen.m_rectSizePercent/100.))/(1-Cgen.m_rectSizePercent/100. );
+		G1 = max(0,(bgstim*255 - clr[1]*Cgen.m_rectSizePercent/100.))/(1-Cgen.m_rectSizePercent/100. );
+		B1 = max(0,(bgstim*255 - clr[2]*Cgen.m_rectSizePercent/100.))/(1-Cgen.m_rectSizePercent/100. );
 		R1 = min(R1, 255);
 		G1 = min(G1, 255);
 		B1 = min(B1, 255);
@@ -895,7 +896,7 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 	{
 		BYTE lvl = m_b16_235 ? (BYTE)(2.19 * GetConfig()->m_ablLevel + 16) : (BYTE)(2.55 * GetConfig()->m_ablLevel);
 		sprintf_s(CPat,"RGB=RECTANGLE;%d,%d;100;%d,%d,%d;%d,%d,%d;-1,-1", (int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_xWidth),(int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_yHeight),lvl,lvl,lvl,0,0,0);
-		if (CGenerator::_RB8PG_send && CPat)
+		if (sock && CGenerator::_RB8PG_send && CPat[0])
 			CGenerator::_RB8PG_send(sock,CPat);
 		else
 			GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
@@ -912,7 +913,7 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 
 	CString debug=_T(CPat);
 
-		if (CGenerator::_RB8PG_send && CPat)
+		if (sock && CGenerator::_RB8PG_send && CPat[0])
 			CGenerator::_RB8PG_send(sock,CPat);
 		else
 			GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);

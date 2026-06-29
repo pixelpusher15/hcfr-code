@@ -46,6 +46,10 @@ public:
   // Light/Dark theme (res\images\toolbar\{light,dark}\). Returns TRUE when every
   // button resolved to a PNG; FALSE otherwise (caller then keeps the bitmap path).
   BOOL LoadPngImageList();
+  // Scale the icon cell (m_sizeImage) and button size to the current DPI. Called
+  // after CToolBar::LoadToolBar (which resets the cell to the resource size) and
+  // before the PNG list is built, so high-DPI displays get larger crisp icons.
+  void ApplyDpiIconSize();
   // Rebuild the PNG icons for the current theme (used on a live theme switch).
   void ReloadThemeIcons();
   // Swap the continuous-measure button between its normal icon and the appended
