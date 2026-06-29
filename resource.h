@@ -1828,6 +1828,8 @@
 #define IDS_PGEN_ST_NOTCONN              59519
 #define IDS_GEN_GRP_BLANKING             59484
 #define IDS_GEN_BLANK_SCREEN              59485
+#define IDS_STOPSWEEP                  59520
+#define IDS_STOP_BTN                   59521
 
 // Next default values for new objects
 // 

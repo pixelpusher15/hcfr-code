@@ -5493,6 +5493,8 @@ void CMainView::OnSelchangeComboMode()
 			 break;
 	}
 	
+	InitGrid(true);
+
 	if ( m_pGrayScaleGrid)
 	{
 		if ( m_pGrayScaleGrid->GetSelectedCellRange().IsValid () )
@@ -5504,13 +5506,65 @@ void CMainView::OnSelchangeComboMode()
 		}
 	}
 
-	InitGrid(true);
 	if(m_pGrayScaleGrid)
 		UpdateGrid();
+	if ( IsMeasureSweepActive() )
+		SetMeasureButtonStop ( TRUE );
+}
+
+void CMainView::SetMeasureButtonForMode()
+{
+	if ( m_measureGoCaption.IsEmpty() )
+		m_grayScaleButton.GetWindowText ( m_measureGoCaption );
+	LPCTSTR name = _T("measure-grayscale");
+	UINT    tip  = IDS_MEASUREGRAYSCALE;
+	BOOL    bSimHint = TRUE;
+	switch ( m_displayMode )
+	{
+		case 1:  name = _T("measure-secondaries"); tip = IDS_MEASURESECONDARIES; break;
+		case 2:  name = GetConfig()->m_bContinuousMeasures ? _T("measure-continuous") : _T("measure-single");
+		         tip  = GetConfig()->m_bContinuousMeasures ? IDS_RUNCONTINUOUS : IDS_ONEMEASURE; break;
+		case 3:  name = _T("measure-near-black"); tip = IDS_MEASURENEARBLACK; break;
+		case 4:  name = _T("measure-near-white"); tip = IDS_MEASURENEARWHITE; break;
+		case 5:  name = _T("sat-red"); tip = IDS_MEASURESATRED; break;
+		case 6:  name = _T("sat-green"); tip = IDS_MEASURESATGREEN; break;
+		case 7:  name = _T("sat-blue"); tip = IDS_MEASURESATBLUE; break;
+		case 8:  name = _T("sat-yellow"); tip = IDS_MEASURESATYELLOW; break;
+		case 9:  name = _T("sat-cyan"); tip = IDS_MEASURESATCYAN; break;
+		case 10: name = _T("sat-magenta"); tip = IDS_MEASURESATMAGENTA; break;
+		case 11: name = _T("sat-colorchecker"); tip = IDS_MEASURESATCC24; break;
+		case 12: name = _T("measure-contrast"); tip = IDS_MEASURECONTRAST; bSimHint = FALSE; break;
+	}
+	m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), name, (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(32,GetSafeHwnd()), HCFR_ScaleIconPx(32,GetSafeHwnd()) ), (HICON)NULL );
+	CString sTip; sTip.LoadString ( tip );
+	if ( bSimHint )
+	{
+		CString sSim; sSim.LoadString ( IDS_CTRLCLICK_SIM );
+		sTip += _T("\r\n"); sTip += sSim;
+	}
+	m_grayScaleButton.SetTooltipText ( sTip );
+	m_grayScaleButton.SetWindowText ( m_measureGoCaption );
+}
+
+void CMainView::SetMeasureButtonStop(BOOL bStop)
+{
+	if ( bStop )
+	{
+		m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-stop"), (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(32,GetSafeHwnd()), HCFR_ScaleIconPx(32,GetSafeHwnd()) ), (HICON)NULL );
+		CString sStop; sStop.LoadString ( IDS_STOPSWEEP ); m_grayScaleButton.SetTooltipText ( sStop );
+		CString sBtn; sBtn.LoadString ( IDS_STOP_BTN ); m_grayScaleButton.SetWindowText ( sBtn );
+	}
+	else
+		SetMeasureButtonForMode ();
 }
 
 void CMainView::OnMeasureGrayScale() 
 {
+	if ( IsMeasureSweepActive() )
+	{
+		GetDocument()->GetMeasure()->AbortMeasure();
+		return;
+	}
 	if ( GetKeyState ( VK_CONTROL ) < 0 )
 	{
 		switch ( m_displayMode )
@@ -5624,6 +5678,7 @@ void CMainView::OnMeasureGrayScale()
 
 void CMainView::OnDeleteGrayscale() 
 {
+	if ( IsMeasureSweepActive() ) return;
 	BOOL	bSelectionOnly = FALSE;
 	CString	Msg, Title;
 	LPARAM	lHint = UPD_EVERYTHING;
@@ -6022,7 +6077,7 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 
 void CMainView::InitButtons()
 {
-	CString	Msg, Msg2;
+	CString	Msg;
 
 	Msg.LoadString ( IDS_CONFIGURESENSOR );
 	m_configSensorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-sensor"),(fxUseCustomColor!=FALSE),GetConfig()->Scale(16),GetConfig()->Scale(16)),(HICON)NULL);
@@ -6094,14 +6149,9 @@ void CMainView::InitButtons()
 	m_configGeneratorButton.SetWindowText(_T(""));
 //	m_configGeneratorButton.DrawTransparent(TRUE);
 
-	Msg.LoadString ( IDS_MEASUREGRAYSCALE );
-	Msg2.LoadString ( IDS_CTRLCLICK_SIM );
-	Msg += "\r\n";
-	Msg += Msg2;
-	m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-grayscale"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
 	m_grayScaleButton.DrawFlatFocus(FALSE);
 	m_grayScaleButton.EnableBalloonTooltip();
-	m_grayScaleButton.SetTooltipText(Msg);
+	SetMeasureButtonForMode();
 	m_grayScaleButton.SetColor(CButtonST::BTNST_COLOR_FG_IN,FxGetSysColor(COLOR_MENUTEXT));
 	m_grayScaleButton.SetColor(CButtonST::BTNST_COLOR_FG_OUT,FxGetSysColor(COLOR_MENUTEXT));
 	m_grayScaleButton.SetColor(CButtonST::BTNST_COLOR_FG_FOCUS,FxGetSysColor(COLOR_MENUTEXT));
@@ -8143,6 +8193,7 @@ void CMainView::OnDeltaposSpinView(NMHDR* pNMHDR, LRESULT* pResult)
 
 void CMainView::OnAnsiContrastPatternTestButton() 
 {
+	if ( IsMeasureSweepActive() ) return;
 	CString	Msg;
 
 	CGenerator *pGenerator=GetDocument()->GetGenerator();
@@ -8158,6 +8209,7 @@ void CMainView::OnAnsiContrastPatternTestButton()
 
 void CMainView::OnRefs() 
 {
+	if ( IsMeasureSweepActive() ) return;
 	GetConfig()->ChangeSettings(1);
 }
 

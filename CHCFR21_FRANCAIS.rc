@@ -3489,6 +3489,8 @@ BEGIN
     IDS_DELETETHISMEASURE   "Efface la mesure sélectionnée"
     IDS_DISPLAYANSICONTRAST "Affiche la mire ANSI de contraste"
     IDS_STOPCONTINUOUS      "Arrête les mesures en continu - F8"
+    IDS_STOPSWEEP           "Arrêter (Esc)"
+    IDS_STOP_BTN            "Arrêter"
     IDS_YELLOW              "Jaune"
     IDS_CYAN                "Cyan"
     IDS_MAGENTA             "Magenta"

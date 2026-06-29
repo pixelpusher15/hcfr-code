@@ -26,6 +26,7 @@
 #include "ColorHCFR.h"
 #include "MainFrm.h"
 #include "Measure.h"
+#include "AsyncMeasurer.h"
 #include "Generator.h"
 #include "LuxScaleAdvisor.h"
 #include "DataSetDoc.h"
@@ -81,6 +82,31 @@ static void FillUniformGrayLevels(CArray<double,double> & levels, int nPoints)
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
+static volatile BOOL g_bMeasureSweepActive = FALSE;
+BOOL IsMeasureSweepActive() { return g_bMeasureSweepActive; }
+namespace {
+struct SweepActiveGuard
+{
+    BOOL m_owned;
+    explicit SweepActiveGuard(CMeasure * p) : m_owned(!g_bMeasureSweepActive)
+    {
+        if (m_owned) { g_bMeasureSweepActive = TRUE; if (p) p->m_bAbortSweep = FALSE; }
+    }
+    ~SweepActiveGuard() { if (m_owned) g_bMeasureSweepActive = FALSE; }
+    BOOL Owned() const { return m_owned; }
+};
+}
+
+static CColor PumpedRead(CAsyncMeasurer & am, CSensor * pSensor, const ColorRGBDisplay & rgb, int displaymode = 0)
+{
+	CColor c;
+	if (am.IsRunning())
+		am.MeasurePumped(rgb, c, displaymode);
+	else
+		c = pSensor->MeasureColor(rgb, displaymode);
+	return c;
+}
+
 IMPLEMENT_SERIAL(CMeasure, CObject, 1)
 
 CMeasure::CMeasure()
@@ -89,6 +115,7 @@ CMeasure::CMeasure()
 	m_isModified = FALSE;
 	m_bpreV10 = 0;
 	m_binMeasure = FALSE;
+	m_bAbortSweep = FALSE;
 	bDisplayRT = TRUE;
 	m_primariesArray.SetSize(3);
 	m_secondariesArray.SetSize(3);
@@ -1070,6 +1097,8 @@ bool doSettling = FALSE;
 
 BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
@@ -1110,6 +1139,8 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 	
 	m_binMeasure = TRUE;
 	m_currentIndex = 0;
@@ -1135,7 +1166,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)));
 
 				m_grayMeasureArray[i] = measuredColor[i];
 				
@@ -1197,6 +1228,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -1292,6 +1324,8 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 
 BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
@@ -1332,6 +1366,8 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 	m_binMeasure = TRUE;
 	m_currentIndex = 0;
@@ -1358,7 +1394,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit ));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit )));
 				m_grayMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -1419,6 +1455,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -1616,7 +1653,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[size+i]=pSensor->MeasureColor(GenColors[i], displaymode);
+				measuredColor[size+i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				if (i<3)
 					m_primariesArray[i] = measuredColor[size+i];
 				if (i>=3&&i<6)
@@ -1646,6 +1683,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -1767,6 +1805,8 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 
 BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
@@ -1806,6 +1846,8 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 
 	m_binMeasure = TRUE;
@@ -1833,7 +1875,7 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureGray(ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)));
 				m_nearBlackMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -1894,6 +1936,7 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -1971,6 +2014,8 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
@@ -2015,6 +2060,8 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 	m_binMeasure = TRUE;
 	m_currentIndex = 0;
@@ -2051,7 +2098,7 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureGray(ArrayIndexToGrayLevel ( m_NearWhiteClipCol - size+i, 101, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( m_NearWhiteClipCol - size+i, 101, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)));
 				m_nearWhiteMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -2078,6 +2125,7 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -2152,6 +2200,8 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -2192,6 +2242,8 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for red
 	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, false, GetConfig()->m_GammaOffsetType);
@@ -2222,7 +2274,7 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureColor(GenColors[i], displaymode);
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				m_redSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -2249,6 +2301,7 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -2323,6 +2376,8 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 
 BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -2363,6 +2418,8 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 	// Generate saturation colors for green
 	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, false, GetConfig()->m_GammaOffsetType);
 	CString str;
@@ -2392,7 +2449,7 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureColor(GenColors[i], displaymode);
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				m_greenSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -2419,6 +2476,7 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -2493,6 +2551,8 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 
 BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -2533,6 +2593,8 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for blue
 		GenerateSaturationColors (GetColorReference(), GenColors,size, false, false, true, GetConfig()->m_GammaOffsetType);
@@ -2564,7 +2626,7 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureColor(GenColors[i], displaymode);
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				m_blueSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -2591,6 +2653,7 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -2665,6 +2728,8 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -2705,6 +2770,8 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for yellow
 	GenerateSaturationColors (GetColorReference(), GenColors,size, true, true, false, GetConfig()->m_GammaOffsetType);
@@ -2735,7 +2802,7 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureColor(GenColors[i], displaymode);
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				m_yellowSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -2762,6 +2829,7 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -2837,6 +2905,8 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -2877,6 +2947,8 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for cyan
 	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, true, GetConfig()->m_GammaOffsetType);
@@ -2908,7 +2980,7 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureColor(GenColors[i], displaymode);
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				m_cyanSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -2935,6 +3007,7 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -3010,6 +3083,8 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -3050,6 +3125,8 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for magenta
 	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, true, GetConfig()->m_GammaOffsetType);
@@ -3081,7 +3158,7 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureColor(GenColors[i], displaymode);
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				m_magentaSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -3108,6 +3185,7 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -3182,6 +3260,8 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 
 BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
 	BOOL		bPatternRetry = FALSE;
@@ -3259,6 +3339,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -3309,14 +3391,14 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 					StartLuxMeasure ();
 				if (GetConfig()->m_CCMode != MCD)
 				{
-					measuredColor[i]=pSensor->MeasureColor(GenColors[i], displaymode);
+					measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				}
 				else
 				{
 					if (i < 18)
-						measuredColor[i+6]=pSensor->MeasureColor(GenColors[i], displaymode);	
+						measuredColor[i+6] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 					else
-						measuredColor[23-i]=pSensor->MeasureColor(GenColors[i], displaymode);	
+						measuredColor[23-i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				}
 
 				m_cc24SatMeasureArray[i] = measuredColor[i];
@@ -3345,6 +3427,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -3435,6 +3518,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerator, BOOL bPrimaryOnly, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	int			i, j;
 	MSG			Msg;
 	BOOL		bEscape;
@@ -3522,6 +3607,8 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
@@ -3596,7 +3683,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 					if ( bUseLuxValues )
 						StartLuxMeasure ();
 
-					measuredColor[(j*size)+i]=pSensor->MeasureColor(GenColors[(j*size)+i], displaymode);
+					measuredColor[(j*size)+i] = PumpedRead(asyncMeasure, pSensor, GenColors[(j*size)+i], displaymode);
 					if ((i+j*size)<size)
 						m_redSatMeasureArray[i] = measuredColor[j*size+i];
 					if ((i+j*size)<2*size&&(i+j*size)>=size)
@@ -3642,6 +3729,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 					if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 						bEscape = TRUE;
 				}
+				if ( m_bAbortSweep ) bEscape = TRUE;
 
 				if ( bEscape )
 				{
@@ -3818,6 +3906,8 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 
 BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenerator *pGenerator, BOOL bPrimaryOnly, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	int			i, j;
 	MSG			Msg;
 	BOOL		bEscape;
@@ -3870,6 +3960,8 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 
 	// Generate saturations for all colors
@@ -3906,7 +3998,7 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 					if ( bUseLuxValues )
 						StartLuxMeasure ();
 
-					measuredColor[(j*size)+i]=pSensor->MeasureColor(GenColors[(j*size)+i], displaymode);
+					measuredColor[(j*size)+i] = PumpedRead(asyncMeasure, pSensor, GenColors[(j*size)+i], displaymode);
 					if ((i+j*size)<size)
 						m_redSatMeasureArray[i] = measuredColor[i];
 					if ((i+j*size)<size*2&&(i+j*size)>=size)
@@ -3947,6 +4039,7 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 					if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 						bEscape = TRUE;
 				}
+				if ( m_bAbortSweep ) bEscape = TRUE;
 
 				if ( bEscape )
 				{
@@ -4068,6 +4161,8 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 
 BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	int		i;
 	MSG		Msg;
 	BOOL	bEscape;
@@ -4097,6 +4192,8 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
@@ -4246,7 +4343,7 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureColor(GenColors[i], displaymode);
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				if (i < 3)
 					m_primariesArray[i] = measuredColor[i];
 				if ( bUseLuxValues )
@@ -4273,6 +4370,7 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -4373,6 +4471,8 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 
 BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	int		i;
 	MSG		Msg;
 	BOOL	bEscape;
@@ -4402,6 +4502,8 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 		CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 	// Measure primary and secondary colors
@@ -4551,7 +4653,7 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i]=pSensor->MeasureColor(GenColors[i], displaymode);
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				
 				if (i<3)
 					m_primariesArray[i] = measuredColor[i];
@@ -4581,6 +4683,7 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -4689,6 +4792,8 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 
 BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 {
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
 	int		i;
 	MSG		Msg;
 	BOOL	bEscape;
@@ -4718,6 +4823,8 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 		pGenerator->Release();
 		return FALSE;
 	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
 
 	double BlackIRELevel=0.0;	
 	double WhiteIRELevel=100.0;	
@@ -4750,7 +4857,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 					if ( bUseLuxValues )
 						StartLuxMeasure ();
 
-						measure=pSensor->MeasureColor(ColorRGBDisplay(BlackIRELevel));
+						measure = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(BlackIRELevel));
 				
 					if ( bUseLuxValues )
 					{
@@ -4810,6 +4917,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 					if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 						bEscape = TRUE;
 				}
+				if ( m_bAbortSweep ) bEscape = TRUE;
 
 				if ( bEscape )
 				{
@@ -4866,7 +4974,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measure=pSensor->MeasureColor(ColorRGBDisplay(WhiteIRELevel));
+				measure = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(WhiteIRELevel));
 				
 				if ( bUseLuxValues )
 				{
@@ -4892,6 +5000,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					bEscape = TRUE;
 			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
 
 			if ( bEscape )
 			{
@@ -4967,7 +5076,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 				{
 					if ( bUseLuxValues )
 						StartLuxMeasure ();
-						measure=pSensor->MeasureColor(ColorRGBDisplay(NearBlackIRELevel));	// Assume Black
+						measure = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(NearBlackIRELevel));	// Assume Black
 					
 					if ( bUseLuxValues )
 					{
@@ -5027,6 +5136,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 					if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 						bEscape = TRUE;
 				}
+				if ( m_bAbortSweep ) bEscape = TRUE;
 
 				if ( bEscape )
 				{
@@ -5075,7 +5185,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measure=pSensor->MeasureColor(ColorRGBDisplay(NearWhiteIRELevel));	// Assume White
+				measure = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(NearWhiteIRELevel));	// Assume White
 				
 				pGenerator->DisplayGray(0, CGenerator::MT_NEARBLACK, FALSE); //flush ccast
 
@@ -5138,6 +5248,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 					if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 						bEscape = TRUE;
 				}
+				if ( m_bAbortSweep ) bEscape = TRUE;
 
 				if ( bEscape )
 				{
@@ -5495,6 +5606,10 @@ void CMeasure::UpdateViews ( CDataSetDoc *pDoc, int Sequence )
 		if (GetConfig()->bDisplayRT)
 		{
 			pDoc ->SetModifiedFlag(TRUE);
+			pDoc ->UpdateAllViews(NULL, UPD_REALTIME + Sequence);
+		}
+		else if ( ((CMainView*)pView)->m_displayMode != Sequence )
+		{
 			pDoc ->UpdateAllViews(NULL, UPD_REALTIME + Sequence);
 		}
 	}

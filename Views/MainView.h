@@ -67,6 +67,7 @@ public:
 	BOOL		m_datarefCheckButton;
 	CButton		m_AdjustXYZCheckButton;
 	CButtonST	m_grayScaleButton;
+	CString	m_measureGoCaption;	// original button caption (Go/Start/Vai), restored when not measuring
 	CButtonST	m_grayScaleDeleteButton;
 	CButtonST	m_configSensorButton;
 	CButton		m_avgLowLightCheck;
@@ -255,6 +256,10 @@ protected:
 	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
 	afx_msg LRESULT OnCtlColorStatic(WPARAM wParam, LPARAM lParam);
 	afx_msg void OnMeasureGrayScale();
+	void SetMeasureButtonForMode();
+public:
+	void SetMeasureButtonStop(BOOL bStop);
+protected:
 	afx_msg void OnDeleteGrayscale();
 	afx_msg void OnSize(UINT nType, int cx, int cy);
 	afx_msg void OnEnterSizeMove();

@@ -3475,6 +3475,8 @@ BEGIN
     IDS_DELETETHISMEASURE   "Cancella le misure selezionate"
     IDS_DISPLAYANSICONTRAST "mostra il pattern di contrasto ANSI"
     IDS_STOPCONTINUOUS      "Fermare le misure continue - F8"
+    IDS_STOPSWEEP           "Ferma (Esc)"
+    IDS_STOP_BTN            "Ferma"
     IDS_YELLOW              "Giallo"
     IDS_CYAN                "Ciano"
     IDS_MAGENTA             "Magenta"

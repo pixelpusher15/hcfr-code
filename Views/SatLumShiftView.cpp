@@ -743,7 +743,7 @@ void CSatLumShiftView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 	m_Grapher.UpdateGraph ( GetDocument () );
 
-	{ static DWORD s_liveTick = 0; UINT redrawFlags = RDW_INVALIDATE | RDW_ALLCHILDREN; DWORD nowTick = ::GetTickCount(); if ( nowTick - s_liveTick >= 33 ) { redrawFlags |= RDW_UPDATENOW; s_liveTick = nowTick; } RedrawWindow( NULL, NULL, redrawFlags ); }
+	RedrawWindow( NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW );
 }
 
 DWORD CSatLumShiftView::GetUserInfo ()
@@ -783,8 +783,6 @@ void CSatLumShiftView::OnSize(UINT nType, int cx, int cy)
 void CSatLumShiftView::OnDraw(CDC* pDC) 
 {
 	// TODO: Add your specialized code here and/or call the base class
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
-	m_Grapher.m_graphCtrl2.WriteSettings("Saturation Shift Color");
 }
 
 BOOL CSatLumShiftView::OnEraseBkgnd(CDC* pDC) 
