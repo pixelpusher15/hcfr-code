@@ -6077,7 +6077,7 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 
 void CMainView::InitButtons()
 {
-	CString	Msg, Msg2;
+	CString	Msg;
 
 	Msg.LoadString ( IDS_CONFIGURESENSOR );
 	m_configSensorButton.SetIcon(HCFR_LoadPngHIcon(_T("menu"),_T("configure-sensor"),(fxUseCustomColor!=FALSE),GetConfig()->Scale(16),GetConfig()->Scale(16)),(HICON)NULL);
