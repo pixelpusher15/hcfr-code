@@ -1782,6 +1782,8 @@
 #define IDS_GEN_GRP_PATTERN              59483
 #define IDS_GEN_GRP_BLANKING             59484
 #define IDS_GEN_BLANK_SCREEN              59485
+#define IDS_STOPSWEEP                  59486
+#define IDS_STOP_BTN                   59487
 
 // Next default values for new objects
 // 

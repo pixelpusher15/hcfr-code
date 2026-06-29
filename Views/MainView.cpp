@@ -5310,11 +5310,6 @@ void CMainView::OnDropdownComboMode()
 
 void CMainView::OnSelchangeComboMode() 
 {
-	if ( IsMeasureSweepActive() )
-	{
-		m_comboMode.SetCurSel ( m_displayMode );
-		return;
-	}
 	int	nNewMode = m_comboMode.GetCurSel ();
 	CString	Msg, MsgAdd;
 
@@ -5498,6 +5493,8 @@ void CMainView::OnSelchangeComboMode()
 			 break;
 	}
 	
+	InitGrid(true);
+
 	if ( m_pGrayScaleGrid)
 	{
 		if ( m_pGrayScaleGrid->GetSelectedCellRange().IsValid () )
@@ -5509,30 +5506,56 @@ void CMainView::OnSelchangeComboMode()
 		}
 	}
 
-	InitGrid(true);
 	if(m_pGrayScaleGrid)
 		UpdateGrid();
+	if ( IsMeasureSweepActive() )
+		SetMeasureButtonStop ( TRUE );
 }
 
 void CMainView::SetMeasureButtonForMode()
 {
+	if ( m_measureGoCaption.IsEmpty() )
+		m_grayScaleButton.GetWindowText ( m_measureGoCaption );
 	LPCTSTR name = _T("measure-grayscale");
+	UINT    tip  = IDS_MEASUREGRAYSCALE;
+	BOOL    bSimHint = TRUE;
 	switch ( m_displayMode )
 	{
-		case 1:  name = _T("measure-secondaries"); break;
-		case 2:  name = GetConfig()->m_bContinuousMeasures ? _T("measure-continuous") : _T("measure-single"); break;
-		case 3:  name = _T("measure-near-black"); break;
-		case 4:  name = _T("measure-near-white"); break;
-		case 5:  name = _T("sat-red"); break;
-		case 6:  name = _T("sat-green"); break;
-		case 7:  name = _T("sat-blue"); break;
-		case 8:  name = _T("sat-yellow"); break;
-		case 9:  name = _T("sat-cyan"); break;
-		case 10: name = _T("sat-magenta"); break;
-		case 11: name = _T("sat-colorchecker"); break;
-		case 12: name = _T("measure-contrast"); break;
+		case 1:  name = _T("measure-secondaries"); tip = IDS_MEASURESECONDARIES; break;
+		case 2:  name = GetConfig()->m_bContinuousMeasures ? _T("measure-continuous") : _T("measure-single");
+		         tip  = GetConfig()->m_bContinuousMeasures ? IDS_RUNCONTINUOUS : IDS_ONEMEASURE; break;
+		case 3:  name = _T("measure-near-black"); tip = IDS_MEASURENEARBLACK; break;
+		case 4:  name = _T("measure-near-white"); tip = IDS_MEASURENEARWHITE; break;
+		case 5:  name = _T("sat-red"); tip = IDS_MEASURESATRED; break;
+		case 6:  name = _T("sat-green"); tip = IDS_MEASURESATGREEN; break;
+		case 7:  name = _T("sat-blue"); tip = IDS_MEASURESATBLUE; break;
+		case 8:  name = _T("sat-yellow"); tip = IDS_MEASURESATYELLOW; break;
+		case 9:  name = _T("sat-cyan"); tip = IDS_MEASURESATCYAN; break;
+		case 10: name = _T("sat-magenta"); tip = IDS_MEASURESATMAGENTA; break;
+		case 11: name = _T("sat-colorchecker"); tip = IDS_MEASURESATCC24; break;
+		case 12: name = _T("measure-contrast"); tip = IDS_MEASURECONTRAST; bSimHint = FALSE; break;
 	}
 	m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), name, (fxUseCustomColor!=FALSE), 32, 32 ), (HICON)NULL );
+	CString sTip; sTip.LoadString ( tip );
+	if ( bSimHint )
+	{
+		CString sSim; sSim.LoadString ( IDS_CTRLCLICK_SIM );
+		sTip += _T("\r\n"); sTip += sSim;
+	}
+	m_grayScaleButton.SetTooltipText ( sTip );
+	m_grayScaleButton.SetWindowText ( m_measureGoCaption );
+}
+
+void CMainView::SetMeasureButtonStop(BOOL bStop)
+{
+	if ( bStop )
+	{
+		m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-stop"), (fxUseCustomColor!=FALSE), 32, 32 ), (HICON)NULL );
+		CString sStop; sStop.LoadString ( IDS_STOPSWEEP ); m_grayScaleButton.SetTooltipText ( sStop );
+		CString sBtn; sBtn.LoadString ( IDS_STOP_BTN ); m_grayScaleButton.SetWindowText ( sBtn );
+	}
+	else
+		SetMeasureButtonForMode ();
 }
 
 void CMainView::OnMeasureGrayScale() 
@@ -5593,12 +5616,6 @@ void CMainView::OnMeasureGrayScale()
 	}
 	else
 	{
-		BOOL bStopToggle = ( m_displayMode != 2 );   // all sweep modes are async now; mode 2 (continuous/single) manages its own button
-		if ( bStopToggle )
-		{
-			m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-stop"), (fxUseCustomColor!=FALSE), 32, 32 ), (HICON)NULL );
-			CString sStop; sStop.LoadString ( IDS_STOPCONTINUOUS ); m_grayScaleButton.SetTooltipText ( sStop );
-		}
 		switch ( m_displayMode )
 		{
 			case 0:
@@ -5656,8 +5673,6 @@ void CMainView::OnMeasureGrayScale()
 				 GetDocument()->OnMeasureContrast();
 				 break;
 		}
-		if ( bStopToggle )
-			SetMeasureButtonForMode ();
 	}
 }
 
@@ -6134,14 +6149,9 @@ void CMainView::InitButtons()
 	m_configGeneratorButton.SetWindowText(_T(""));
 //	m_configGeneratorButton.DrawTransparent(TRUE);
 
-	Msg.LoadString ( IDS_MEASUREGRAYSCALE );
-	Msg2.LoadString ( IDS_CTRLCLICK_SIM );
-	Msg += "\r\n";
-	Msg += Msg2;
-	m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-grayscale"),(fxUseCustomColor!=FALSE),32,32),(HICON)NULL);
 	m_grayScaleButton.DrawFlatFocus(FALSE);
 	m_grayScaleButton.EnableBalloonTooltip();
-	m_grayScaleButton.SetTooltipText(Msg);
+	SetMeasureButtonForMode();
 	m_grayScaleButton.SetColor(CButtonST::BTNST_COLOR_FG_IN,FxGetSysColor(COLOR_MENUTEXT));
 	m_grayScaleButton.SetColor(CButtonST::BTNST_COLOR_FG_OUT,FxGetSysColor(COLOR_MENUTEXT));
 	m_grayScaleButton.SetColor(CButtonST::BTNST_COLOR_FG_FOCUS,FxGetSysColor(COLOR_MENUTEXT));

@@ -5587,6 +5587,10 @@ void CMeasure::UpdateViews ( CDataSetDoc *pDoc, int Sequence )
 			pDoc ->SetModifiedFlag(TRUE);
 			pDoc ->UpdateAllViews(NULL, UPD_REALTIME + Sequence);
 		}
+		else if ( ((CMainView*)pView)->m_displayMode != Sequence )
+		{
+			pDoc ->UpdateAllViews(NULL, UPD_REALTIME + Sequence);
+		}
 	}
 
 }

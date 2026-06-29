@@ -3214,6 +3214,8 @@ BEGIN
     IDS_DELETETHISMEASURE   "Die ausgewählten Messungen löschen"
     IDS_DISPLAYANSICONTRAST "ANSI-Kontrastmuster anzeigen"
     IDS_STOPCONTINUOUS      "Kontinuierliche Messungen stoppen - F8"
+    IDS_STOPSWEEP           "Stopp (Esc)"
+    IDS_STOP_BTN            "Stopp"
     IDS_YELLOW              "Gelb"
     IDS_CYAN                "Cyan"
     IDS_MAGENTA             "Magenta"

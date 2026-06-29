@@ -1134,9 +1134,30 @@ BOOL CDataSetDoc::CanCloseFrame(CFrameWnd* pFrame)
 }
 
 
+namespace {
+struct MeasureButtonStopScope
+{
+	CDataSetDoc * m_pDoc;
+	explicit MeasureButtonStopScope(CDataSetDoc * pDoc) : m_pDoc(pDoc) { Set(TRUE); }
+	~MeasureButtonStopScope() { Set(FALSE); }
+	void Set(BOOL bStop)
+	{
+		if (!m_pDoc) return;
+		POSITION pos = m_pDoc->GetFirstViewPosition();
+		while (pos)
+		{
+			CView * v = m_pDoc->GetNextView(pos);
+			if (v && v->IsKindOf(RUNTIME_CLASS(CMainView)))
+				((CMainView*)v)->SetMeasureButtonStop(bStop);
+		}
+	}
+};
+}
+
 void CDataSetDoc::MeasureGrayScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureGrayScale(m_pSensor,m_pGenerator, this))
 	{
@@ -1148,6 +1169,7 @@ void CDataSetDoc::MeasureGrayScale()
 void CDataSetDoc::MeasureGrayScaleAndColors() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureGrayScaleAndColors(m_pSensor,m_pGenerator,this))
 	{
@@ -1159,6 +1181,7 @@ void CDataSetDoc::MeasureGrayScaleAndColors()
 void CDataSetDoc::MeasureNearBlackScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureNearBlackScale(m_pSensor,m_pGenerator,this))
 	{
@@ -1170,6 +1193,7 @@ void CDataSetDoc::MeasureNearBlackScale()
 void CDataSetDoc::MeasureNearWhiteScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureNearWhiteScale(m_pSensor,m_pGenerator,this))
 	{
@@ -1181,6 +1205,7 @@ void CDataSetDoc::MeasureNearWhiteScale()
 void CDataSetDoc::MeasureRedSatScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureRedSatScale(m_pSensor,m_pGenerator,this))
 	{
@@ -1192,6 +1217,7 @@ void CDataSetDoc::MeasureRedSatScale()
 void CDataSetDoc::MeasureGreenSatScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureGreenSatScale(m_pSensor,m_pGenerator,this))
 	{
@@ -1203,6 +1229,7 @@ void CDataSetDoc::MeasureGreenSatScale()
 void CDataSetDoc::MeasureBlueSatScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureBlueSatScale(m_pSensor,m_pGenerator,this))
 	{
@@ -1214,6 +1241,7 @@ void CDataSetDoc::MeasureBlueSatScale()
 void CDataSetDoc::MeasureYellowSatScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureYellowSatScale(m_pSensor,m_pGenerator,this))
 	{
@@ -1225,6 +1253,7 @@ void CDataSetDoc::MeasureYellowSatScale()
 void CDataSetDoc::MeasureCyanSatScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureCyanSatScale(m_pSensor,m_pGenerator,this))
 	{
@@ -1236,6 +1265,7 @@ void CDataSetDoc::MeasureCyanSatScale()
 void CDataSetDoc::MeasureMagentaSatScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureMagentaSatScale(m_pSensor,m_pGenerator,this))
 	{
@@ -1257,6 +1287,7 @@ void CDataSetDoc::MeasureCC24SatScale()
 void CDataSetDoc::MeasureAllSaturationScales() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureAllSaturationScales(m_pSensor,m_pGenerator,FALSE,this))
 	{
@@ -1268,6 +1299,7 @@ void CDataSetDoc::MeasureAllSaturationScales()
 void CDataSetDoc::MeasurePrimarySaturationScales() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasurePrimarySecondarySaturationScales(m_pSensor,m_pGenerator,TRUE,this))
 	{
@@ -1279,6 +1311,7 @@ void CDataSetDoc::MeasurePrimarySaturationScales()
 void CDataSetDoc::MeasurePrimarySecondarySaturationScales() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasurePrimarySecondarySaturationScales(m_pSensor,m_pGenerator,FALSE,this))
 	{
@@ -1290,6 +1323,7 @@ void CDataSetDoc::MeasurePrimarySecondarySaturationScales()
 void CDataSetDoc::MeasurePrimaries() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasurePrimaries(m_pSensor,m_pGenerator,this))
 	{
@@ -1301,6 +1335,7 @@ void CDataSetDoc::MeasurePrimaries()
 void CDataSetDoc::MeasureSecondaries() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureSecondaries(m_pSensor,m_pGenerator,this))
 	{
@@ -1312,6 +1347,7 @@ void CDataSetDoc::MeasureSecondaries()
 void CDataSetDoc::MeasureContrast()
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureContrast(m_pSensor,m_pGenerator))
 	{
