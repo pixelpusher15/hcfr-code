@@ -6243,6 +6243,14 @@ void CMainView::InitButtons()
 		{
 			m_avgLowLightCheck.EnableWindow(bAvgSup);
 			m_avgLowLightCheck.SetCheck((bAvgSup && pAvgS->getAvgEnabled()) ? BST_CHECKED : BST_UNCHECKED);
+			// Re-theme on every InitButtons call: the create-once guard above skips
+			// re-theming on a dark<->light switch, which left this checkbox painted with
+			// the previous theme's background. FxApplyDarkModeTree adds/removes the dark
+			// subclass and resets the window theme; FxApplyFlatCheck restores the flat
+			// light owner-draw.
+			FxApplyDarkModeTree(m_avgLowLightCheck.GetSafeHwnd(), GetConfig()->m_darkTheme);
+			if (!GetConfig()->m_darkTheme) FxApplyFlatCheck(m_avgLowLightCheck.GetSafeHwnd());
+			m_avgLowLightCheck.Invalidate(TRUE);
 		}
 	}
 //	m_configSensorButton.DrawTransparent(TRUE);
