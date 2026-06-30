@@ -3332,8 +3332,6 @@ void CMainView::UpdateGrid()
 				if ( pDataRef -> GetMeasure () -> GetGray ( nCount - 1 ).isValid() )
 					YWhiteGrayRefDoc = pDataRef -> GetMeasure () -> GetGray ( nCount - 1 ) [ 1 ];
 			}
-			else
-				pDataRef = NULL;
 
 		}
 
