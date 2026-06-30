@@ -912,6 +912,7 @@ void CMainView::OnInitialUpdate()
 	// keep it consistent at every window size and in every localized template.
 	{
 		int dwWiden = GetConfig()->Scale(12);
+		int grpR = 0;
 		POSITION wp = m_CtrlInitPos.GetHeadPosition();
 		while (wp)
 		{
@@ -919,9 +920,12 @@ void CMainView::OnInitialUpdate()
 			switch (::GetDlgCtrlID(e->m_hWnd))
 			{
 			case IDC_GRAYSCALE_GROUP:
+				e->m_Rect.right -= dwWiden;   // measures pane gives 12px back from its right edge
+				grpR = e->m_Rect.right;       // remember the new right edge for the grid below
+				break;
 			case IDC_VALUES_STATIC:
 			case IDC_GRAYSCALE_GRID:
-				e->m_Rect.right -= dwWiden;   // measures pane gives 12px back from its right edge
+				e->m_Rect.right = grpR - GetConfig()->Scale(2);   // stretch the grid flush to the pane's right edge (removes the ~11px gap in English)
 				break;
 			case IDC_DISPLAY_GROUP:
 				e->m_Rect.left  -= dwWiden;   // Display pane + buttons grow 12px to the left
