@@ -753,7 +753,7 @@ void CMainView::LayoutTopRow()
 				int bx1 = pDisp->m_Rect.right - cfg->Scale(3);
 				int bh  = pGo ? (pGo->m_Rect.bottom - pGo->m_Rect.top) : cfg->Scale(27);
 				int bgap = cfg->Scale(4);
-				int by  = dGrpBot + cfg->Scale(3);
+				int by  = dGrpBot + cfg->Scale(5);   // +2px: nudge the Go/Delete/Refs container down
 				if (pGo)      { pGo->m_Rect  = CRect(bx0, by, bx1, by + bh); by += bh + bgap; }
 				if (pDel)     { pDel->m_Rect = CRect(bx0, by, bx1, by + bh); by += bh + bgap; }
 				if (pRefsBtn) pRefsBtn->m_Rect = CRect(bx0, by, bx1, by + bh);
