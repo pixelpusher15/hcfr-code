@@ -2117,8 +2117,8 @@ void CMainView::InitGrid(bool sizeGrid)
 		m_pGrayScaleGrid->AutoSizeRows();
 		m_pGrayScaleGrid->ExpandRowsToFit(FALSE);
 		double height = m_pGrayScaleGrid -> GetRowHeight ( 1 );
-		height = max(height, 25);
-		if (height == 25)
+		height = max(height, 18);
+		if (height == 18)
 		{
 			for ( i = 1 ; i <= nRows ; i ++ )
 				m_pGrayScaleGrid -> SetRowHeight ( i, height);

@@ -3115,11 +3115,14 @@ void CGridCtrl::ResetScrollBars()
     //      VirtualRect.Width(), VirtualRect.Height(),
     //      IsVisibleHScroll(), IsVisibleVScroll());
 
-    // If vertical scroll bar, horizontal space is reduced
-    if (VisibleRect.Height() < VirtualRect.Height())
+    // If vertical scroll bar, horizontal space is reduced. An always-visible
+    // scrollbar also occupies space even without overflow, so account for it too
+    // -- otherwise the page size is overestimated and the last row/column cannot
+    // be scrolled out from behind the permanent scrollbar.
+    if (VisibleRect.Height() < VirtualRect.Height() || m_bShowAlwaysVScroll)
         VisibleRect.right -= ::GetSystemMetrics(SM_CXVSCROLL);
     // If horz scroll bar, vert space is reduced
-    if (VisibleRect.Width() < VirtualRect.Width())
+    if (VisibleRect.Width() < VirtualRect.Width() || m_bShowAlwaysHScroll)
         VisibleRect.bottom -= ::GetSystemMetrics(SM_CYHSCROLL);
     
     // Recheck vertical scroll bar
