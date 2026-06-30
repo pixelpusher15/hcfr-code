@@ -138,6 +138,17 @@ static const SCtrlLayout g_CtrlLayout [] = {
 static const SCtrlLayout g_StatsBarLayout =
 { 0, LAYOUT_LEFT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
 
+static const SCtrlLayout g_DisplayComboLayout =
+{ IDC_DISPLAYTYPE_COMBO, LAYOUT_RIGHT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
+
+static const SCtrlLayout g_HeaderBtnLayout =
+{ 0, LAYOUT_RIGHT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
+
+static COLORREF ButtonPanelColor();   // defined near OnEraseBkgnd
+static COLORREF ButtonFaceColor();
+static COLORREF ButtonHoverColor();
+static COLORREF ButtonBorderColor();
+
                     char*  PatName[96]={
                     "White",
                     "6J",
@@ -381,6 +392,10 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_WM_EXITSIZEMOVE()
 	ON_WM_TIMER()
 	ON_CBN_SELCHANGE(IDC_INFO_DISPLAY, OnSelchangeInfoDisplay)
+	ON_CBN_SELCHANGE(IDC_DISPLAYTYPE_COMBO, OnSelchangeDisplayType)
+	ON_BN_CLICKED(IDC_SIZE_PLUS, OnSizePlus)
+	ON_BN_CLICKED(IDC_SIZE_MINUS, OnSizeMinus)
+	ON_WM_DRAWITEM()
 	ON_COMMAND(IDM_HELP, OnHelp)
 	ON_COMMAND(ID_EDIT_COPY, OnEditCopy)
 	ON_UPDATE_COMMAND_UI(ID_EDIT_COPY, OnUpdateEditCopy)
@@ -457,6 +472,8 @@ CMainView::CMainView()
 	m_pSelectedColorGrid = NULL;
 	m_nSelColorGridReadingType = -1;
 	m_pBgBrush= new CBrush(FxGetMenuBgColor());
+	m_pHdrBrush = NULL;
+	m_rcButtonPanel.SetRectEmpty();
 
 	m_pInfoWnd = NULL;
 	m_pInfoWnd2 = NULL;
@@ -530,6 +547,7 @@ CMainView::~CMainView()
 			delete m_pInfoWnd;
 
 	delete m_pBgBrush;
+	if (m_pHdrBrush) delete m_pHdrBrush;
 
 	GetConfig()->WriteProfileInt("MainView","Display type",m_displayType);
 
@@ -579,6 +597,190 @@ void CMainView::DoDataExchange(CDataExchange* pDX)
 	
 	//}}AFX_DATA_MAP
 }
+
+void CMainView::LayoutTopRow()
+	// ---- Deterministic, language-consistent top-row layout -----------------
+	// The MainView form template is hand-authored per language, so the top
+	// panes (View / Sensor / Generator / Parameters) sit at different
+	// positions/widths in each CHCFR21_*.rc. Override the captured positions
+	// with one computed layout, derived from the actual form-font line height:
+	// Sensor / Generator / Parameters are sized to fit their own (localized)
+	// text and right-anchored; "View" is the stretchy filler whose info text
+	// wraps. The panes are sized snug to the content, then the whole lower half
+	// is shifted up to meet them (no gap).
+	{
+		SCtrlInitPos *pView=NULL,*pCombo=NULL,*pInfo=NULL,*pSpin=NULL,*pGGrid=NULL;
+		SCtrlInitPos *pSGrp=NULL,*pSName=NULL,*pSGear=NULL,*pAvg=NULL;
+		SCtrlInitPos *pGGrp=NULL,*pGName=NULL,*pGGear=NULL;
+		SCtrlInitPos *pPGrp=NULL,*pRef=NULL,*pXYZ=NULL;
+		SCtrlInitPos *pDisp=NULL,*pDispCombo=NULL,*pGo=NULL,*pDel=NULL,*pRefsBtn=NULL,*pAnsi=NULL;
+		POSITION lp = m_CtrlInitPos.GetHeadPosition();
+		while (lp)
+		{
+			SCtrlInitPos* e = (SCtrlInitPos*) m_CtrlInitPos.GetNext(lp);
+			switch (::GetDlgCtrlID(e->m_hWnd))
+			{
+			case IDC_PARAM_GROUP:               pView=e;  break;
+			case IDC_GRAYSCALESTEPS_COMBOMODE:  pCombo=e; break;
+			case IDC_INFOLINE:                  pInfo=e;  break;
+			case IDC_SPIN_VIEW:                 pSpin=e;  break;
+			case IDC_GRAYSCALE_GROUP:           pGGrid=e; break;
+			case IDC_SENSOR_GROUP:              pSGrp=e;  break;
+			case IDC_SENSORNAME_STATIC:         pSName=e; break;
+			case IDM_CONFIGURE_SENSOR:          pSGear=e; break;
+			case IDC_AVG_LOW_LIGHT:             pAvg=e;   break;
+			case IDC_GENERATOR_GROUP:           pGGrp=e;  break;
+			case IDC_GENERATORNAME_STATIC:      pGName=e; break;
+			case IDM_CONFIGURE_GENERATOR:       pGGear=e; break;
+			case IDC_DATAREF_GROUP:             pPGrp=e;  break;
+			case IDC_DATAREF_CHECK:             pRef=e;   break;
+			case IDC_ADJUSTXYZ_CHECK:           pXYZ=e;   break;
+			case IDC_DISPLAY_GROUP:                     pDisp=e;      break;
+			case IDC_DISPLAYTYPE_COMBO:                 pDispCombo=e; break;
+			case IDC_MEASUREGRAYSCALE_BUTTON:           pGo=e;        break;
+			case IDC_DELETEGRAYSCALE_BUTTON:            pDel=e;       break;
+			case IDC_REFS_BUTTON:                       pRefsBtn=e;   break;
+			case IDC_ANSICONTRAST_PATTERN_TEST_BUTTON:  pAnsi=e;      break;
+			}
+		}
+		if (pView && pSGrp && pGGrp && pPGrp && pRef && pXYZ && pAvg && pGGrid)
+		{
+			CColorHCFRConfig* cfg = GetConfig();
+			CClientDC dc(this);
+			CFont* pOldF = dc.SelectObject(GetFont());
+			CString s;
+			CWnd::FromHandle(pRef->m_hWnd)->GetWindowText(s);  int wRef  = dc.GetTextExtent(s, s.GetLength()).cx;
+			CWnd::FromHandle(pXYZ->m_hWnd)->GetWindowText(s);  int wXYZ  = dc.GetTextExtent(s, s.GetLength()).cx;
+			CWnd::FromHandle(pAvg->m_hWnd)->GetWindowText(s);  int wAvg  = dc.GetTextExtent(s, s.GetLength()).cx;
+			CWnd::FromHandle(pPGrp->m_hWnd)->GetWindowText(s); int wPCap = dc.GetTextExtent(s, s.GetLength()).cx;
+			CWnd::FromHandle(pSGrp->m_hWnd)->GetWindowText(s); int wSCap = dc.GetTextExtent(s, s.GetLength()).cx;
+			CWnd::FromHandle(pGGrp->m_hWnd)->GetWindowText(s); int wGCap = dc.GetTextExtent(s, s.GetLength()).cx;
+			int wSName = 0, wGName = 0;
+			if (pSName) { CWnd::FromHandle(pSName->m_hWnd)->GetWindowText(s); wSName = dc.GetTextExtent(s, s.GetLength()).cx; }
+			if (pGName) { CWnd::FromHandle(pGName->m_hWnd)->GetWindowText(s); wGName = dc.GetTextExtent(s, s.GetLength()).cx; }
+			int fh = dc.GetTextExtent(_T("Ag"), 2).cy;     // form-font line height
+			dc.SelectObject(pOldF);
+
+			int PAD    = cfg->Scale(5);
+			int GAPX   = cfg->Scale(3);
+			int GLYPH  = cfg->Scale(16);
+			int GEAR   = cfg->Scale(16) + cfg->Scale(3);
+			int CAPPAD = cfg->Scale(14);
+			int NAMECAP= cfg->Scale(150);
+			int GCOL   = GEAR + GAPX;
+
+			int top   = cfg->Scale(2);
+			int cap   = fh + cfg->Scale(2);
+			int line1 = top + cap + cfg->Scale(1);
+			int line2 = line1 + fh + cfg->Scale(3);
+			int chkH  = fh + cfg->Scale(2);
+			int lblH  = fh;
+			int rowH  = (line2 + chkH) - top + cfg->Scale(4);
+			int cMid  = (line1 + line2 + chkH) / 2;
+			int right = pPGrp->m_Rect.right;
+
+			int wParam = max(wPCap + CAPPAD, max(wRef, wXYZ) + GLYPH + 2*PAD);
+			int wMeter = min(wSName + 2*PAD + GCOL, NAMECAP);                          // meter name (capped; ellipsizes)
+			int wSens  = max(wSCap + CAPPAD, max(wMeter, wAvg + GLYPH + 2*PAD + GCOL)); // GLYPH = checkbox box allowance // fit the avg label only when it is shown
+			int wGen   = max(wGCap + CAPPAD, wGName + 2*PAD + GCOL);     // fit the full generator label (no cap)
+
+			CRect rP(right - wParam, top, right, top + rowH);
+			CRect rG(rP.left - GAPX - wGen, top, rP.left - GAPX, top + rowH);
+			CRect rS(rG.left - GAPX - wSens, top, rG.left - GAPX, top + rowH);
+			CRect rV(pView->m_Rect.left, top, rS.left - GAPX, top + rowH);
+
+			pView->m_Rect = rV;
+			pSGrp->m_Rect = rS;
+			pGGrp->m_Rect = rG;
+			pPGrp->m_Rect = rP;
+
+			pRef->m_Rect = CRect(rP.left + PAD, line1, rP.right - PAD, line1 + chkH);
+			pXYZ->m_Rect = CRect(rP.left + PAD, line2, rP.right - PAD, line2 + chkH);
+
+			int sGearX = rS.right - PAD - GEAR;
+			if (pSName) pSName->m_Rect = CRect(rS.left + PAD, line1, sGearX - GAPX, line1 + lblH);
+			if (pAvg)   pAvg->m_Rect   = CRect(rS.left + PAD, line2, sGearX - GAPX, line2 + chkH);
+			if (pSGear) pSGear->m_Rect = CRect(sGearX, cMid - GEAR/2, rS.right - PAD, cMid - GEAR/2 + GEAR);
+
+			int gGearX = rG.right - PAD - GEAR;
+			if (pGName) pGName->m_Rect = CRect(rG.left + PAD, cMid - lblH/2, gGearX - GAPX, cMid - lblH/2 + lblH);
+			if (pGGear) pGGear->m_Rect = CRect(gGearX, cMid - GEAR/2, rG.right - PAD, cMid - GEAR/2 + GEAR);
+
+			if (pCombo)
+			{
+				int comboW = cfg->Scale(96);
+				{
+					// Make the combo a consistent width = the widest mode name in
+					// this language, so it never clips whatever item is selected.
+					CFont* cpo = dc.SelectObject(GetFont());
+					int ccnt = m_comboMode.GetCount();
+					for (int cci = 0; cci < ccnt; cci++)
+					{
+						CString cit; m_comboMode.GetLBText(cci, cit);
+						int citw = dc.GetTextExtent(cit, cit.GetLength()).cx + ::GetSystemMetrics(SM_CXVSCROLL) + cfg->Scale(12);
+						if (citw > comboW) comboW = citw;
+					}
+					dc.SelectObject(cpo);
+				}
+				m_comboMode.ModifyStyleEx(WS_EX_DLGMODALFRAME, 0, SWP_FRAMECHANGED);
+				if (m_comboDisplay.GetSafeHwnd()) m_comboDisplay.ModifyStyleEx(WS_EX_DLGMODALFRAME, 0, SWP_FRAMECHANGED);
+				int comboH = pCombo->m_Rect.bottom - pCombo->m_Rect.top;
+				pCombo->m_Rect = CRect(rV.left + PAD, line1, rV.left + PAD + comboW, line1 + comboH);
+				// (the size spinner is relocated to the stats-bar header, see below)
+				if (pInfo)
+				{
+					CWnd* pi = CWnd::FromHandle(pInfo->m_hWnd);
+					pi->ModifyStyle(SS_TYPEMASK | SS_WORDELLIPSIS | SS_SUNKEN, SS_LEFT, SWP_FRAMECHANGED);   // clear ellipsis -> wrap
+					pInfo->m_Rect = CRect(rV.left + PAD + comboW + cfg->Scale(8), top + cap, rV.right - PAD, top + rowH - cfg->Scale(2));
+				}
+			}
+
+			// Display pane: place the runtime dropdown and shrink the group to a single
+			// row, then pull the Go / Delete / Refs / ANSI buttons up into the freed
+			// space. (The group + buttons shift with the grid band below.)
+			if (pDisp && pDispCombo && m_comboDisplayType.GetSafeHwnd())
+			{
+				int dcapH = fh + cfg->Scale(3);
+				int dcmbH = fh + cfg->Scale(8);
+				int dx0   = pDisp->m_Rect.left  + cfg->Scale(4);
+				int dx1   = pDisp->m_Rect.right - cfg->Scale(4);
+				int dcTop = pDisp->m_Rect.top + dcapH;
+				pDispCombo->m_Rect = CRect(dx0, dcTop, dx1, dcTop + dcmbH + cfg->Scale(120)); // tall window so the list can drop (closed combo shows one row)
+				int dGrpBot = dcTop + dcmbH + cfg->Scale(4);
+				pDisp->m_Rect.bottom = dGrpBot;
+
+				int bx0 = pDisp->m_Rect.left  + cfg->Scale(3);
+				int bx1 = pDisp->m_Rect.right - cfg->Scale(3);
+				int bh  = pGo ? (pGo->m_Rect.bottom - pGo->m_Rect.top) : cfg->Scale(27);
+				int bgap = cfg->Scale(4);
+				int by  = dGrpBot + cfg->Scale(3);
+				if (pGo)      { pGo->m_Rect  = CRect(bx0, by, bx1, by + bh); by += bh + bgap; }
+				if (pDel)     { pDel->m_Rect = CRect(bx0, by, bx1, by + bh); by += bh + bgap; }
+				if (pRefsBtn) pRefsBtn->m_Rect = CRect(bx0, by, bx1, by + bh);
+				if (pAnsi)    pAnsi->m_Rect    = CRect(bx0, by, bx1, by + bh);   // shares the Refs slot
+			}
+
+			// Shift the whole lower half to align with the top row: UP to close a gap
+			// a shorter pane leaves, or DOWN to clear an overlap when the computed band
+			// is taller than the template (high DPI/font). Bottom-anchored ones grow/shrink.
+			int measTop = pGGrid->m_Rect.top;
+			int delta = (top + rowH + cfg->Scale(3)) - measTop;
+			if (delta != 0)
+			{
+				POSITION rp2 = m_CtrlInitPos.GetHeadPosition();
+				while (rp2)
+				{
+					SCtrlInitPos* e2 = (SCtrlInitPos*) m_CtrlInitPos.GetNext(rp2);
+					if (e2->m_Rect.top >= measTop - cfg->Scale(2))
+					{
+						e2->m_Rect.top += delta;
+						if (e2->m_pLayout->m_BottomMode != LAYOUT_BOTTOM)
+							e2->m_Rect.bottom += delta;
+					}
+				}
+			}
+		}
+	}
 
 void CMainView::OnInitialUpdate()
 {
@@ -703,157 +905,32 @@ void CMainView::OnInitialUpdate()
 	m_OriginalRect.bottom = m_InitialWindowSize.y;
 	m_bPositionsInit = TRUE;
 
-	// ---- Deterministic, language-consistent top-row layout -----------------
-	// The MainView form template is hand-authored per language, so the top
-	// panes (View / Sensor / Generator / Parameters) sit at different
-	// positions/widths in each CHCFR21_*.rc. Override the captured positions
-	// with one computed layout, derived from the actual form-font line height:
-	// Sensor / Generator / Parameters are sized to fit their own (localized)
-	// text and right-anchored; "View" is the stretchy filler whose info text
-	// wraps. The panes are sized snug to the content, then the whole lower half
-	// is shifted up to meet them (no gap).
+	// Widen the Display pane + Go/Delete/Refs buttons by 12px and take the same
+	// 12px off the right of the measures (data-grid) pane, so the gap between the
+	// two is preserved. Applied once to the captured (per-language) rects so it is
+	// idempotent across LayoutTopRow re-runs; the LAYOUT_LEFT/RIGHT anchors then
+	// keep it consistent at every window size and in every localized template.
 	{
-		SCtrlInitPos *pView=NULL,*pCombo=NULL,*pInfo=NULL,*pSpin=NULL,*pGGrid=NULL;
-		SCtrlInitPos *pSGrp=NULL,*pSName=NULL,*pSGear=NULL,*pAvg=NULL;
-		SCtrlInitPos *pGGrp=NULL,*pGName=NULL,*pGGear=NULL;
-		SCtrlInitPos *pPGrp=NULL,*pRef=NULL,*pXYZ=NULL;
-		POSITION lp = m_CtrlInitPos.GetHeadPosition();
-		while (lp)
+		int dwWiden = GetConfig()->Scale(12);
+		POSITION wp = m_CtrlInitPos.GetHeadPosition();
+		while (wp)
 		{
-			SCtrlInitPos* e = (SCtrlInitPos*) m_CtrlInitPos.GetNext(lp);
+			SCtrlInitPos* e = (SCtrlInitPos*) m_CtrlInitPos.GetNext(wp);
 			switch (::GetDlgCtrlID(e->m_hWnd))
 			{
-			case IDC_PARAM_GROUP:               pView=e;  break;
-			case IDC_GRAYSCALESTEPS_COMBOMODE:  pCombo=e; break;
-			case IDC_INFOLINE:                  pInfo=e;  break;
-			case IDC_SPIN_VIEW:                 pSpin=e;  break;
-			case IDC_GRAYSCALE_GROUP:           pGGrid=e; break;
-			case IDC_SENSOR_GROUP:              pSGrp=e;  break;
-			case IDC_SENSORNAME_STATIC:         pSName=e; break;
-			case IDM_CONFIGURE_SENSOR:          pSGear=e; break;
-			case IDC_AVG_LOW_LIGHT:             pAvg=e;   break;
-			case IDC_GENERATOR_GROUP:           pGGrp=e;  break;
-			case IDC_GENERATORNAME_STATIC:      pGName=e; break;
-			case IDM_CONFIGURE_GENERATOR:       pGGear=e; break;
-			case IDC_DATAREF_GROUP:             pPGrp=e;  break;
-			case IDC_DATAREF_CHECK:             pRef=e;   break;
-			case IDC_ADJUSTXYZ_CHECK:           pXYZ=e;   break;
-			}
-		}
-		if (pView && pSGrp && pGGrp && pPGrp && pRef && pXYZ && pAvg && pGGrid)
-		{
-			CColorHCFRConfig* cfg = GetConfig();
-			CClientDC dc(this);
-			CFont* pOldF = dc.SelectObject(GetFont());
-			CString s;
-			CWnd::FromHandle(pRef->m_hWnd)->GetWindowText(s);  int wRef  = dc.GetTextExtent(s, s.GetLength()).cx;
-			CWnd::FromHandle(pXYZ->m_hWnd)->GetWindowText(s);  int wXYZ  = dc.GetTextExtent(s, s.GetLength()).cx;
-			CWnd::FromHandle(pAvg->m_hWnd)->GetWindowText(s);  int wAvg  = dc.GetTextExtent(s, s.GetLength()).cx;
-			CWnd::FromHandle(pPGrp->m_hWnd)->GetWindowText(s); int wPCap = dc.GetTextExtent(s, s.GetLength()).cx;
-			CWnd::FromHandle(pSGrp->m_hWnd)->GetWindowText(s); int wSCap = dc.GetTextExtent(s, s.GetLength()).cx;
-			CWnd::FromHandle(pGGrp->m_hWnd)->GetWindowText(s); int wGCap = dc.GetTextExtent(s, s.GetLength()).cx;
-			int wSName = 0, wGName = 0;
-			if (pSName) { CWnd::FromHandle(pSName->m_hWnd)->GetWindowText(s); wSName = dc.GetTextExtent(s, s.GetLength()).cx; }
-			if (pGName) { CWnd::FromHandle(pGName->m_hWnd)->GetWindowText(s); wGName = dc.GetTextExtent(s, s.GetLength()).cx; }
-			int fh = dc.GetTextExtent(_T("Ag"), 2).cy;     // form-font line height
-			dc.SelectObject(pOldF);
-
-			int PAD    = cfg->Scale(5);
-			int GAPX   = cfg->Scale(3);
-			int GLYPH  = cfg->Scale(16);
-			int GEAR   = cfg->Scale(16) + cfg->Scale(3);
-			int CAPPAD = cfg->Scale(14);
-			int NAMECAP= cfg->Scale(150);
-			int GCOL   = GEAR + GAPX;
-
-			int top   = cfg->Scale(2);
-			int cap   = fh + cfg->Scale(2);
-			int line1 = top + cap + cfg->Scale(1);
-			int line2 = line1 + fh + cfg->Scale(3);
-			int chkH  = fh + cfg->Scale(2);
-			int lblH  = fh;
-			int rowH  = (line2 + chkH) - top + cfg->Scale(4);
-			int cMid  = (line1 + line2 + chkH) / 2;
-			int right = pPGrp->m_Rect.right;
-
-			int wParam = max(wPCap + CAPPAD, max(wRef, wXYZ) + GLYPH + 2*PAD);
-			int wSens  = max(max(wSCap + CAPPAD, wAvg + GLYPH + 2*PAD + GCOL), min(wSName + 2*PAD + GCOL, NAMECAP));
-			int wGen   = max(wGCap + CAPPAD, min(wGName + 2*PAD + GCOL, NAMECAP));
-
-			CRect rP(right - wParam, top, right, top + rowH);
-			CRect rG(rP.left - GAPX - wGen, top, rP.left - GAPX, top + rowH);
-			CRect rS(rG.left - GAPX - wSens, top, rG.left - GAPX, top + rowH);
-			CRect rV(pView->m_Rect.left, top, rS.left - GAPX, top + rowH);
-
-			pView->m_Rect = rV;
-			pSGrp->m_Rect = rS;
-			pGGrp->m_Rect = rG;
-			pPGrp->m_Rect = rP;
-
-			pRef->m_Rect = CRect(rP.left + PAD, line1, rP.right - PAD, line1 + chkH);
-			pXYZ->m_Rect = CRect(rP.left + PAD, line2, rP.right - PAD, line2 + chkH);
-
-			int sGearX = rS.right - PAD - GEAR;
-			if (pSName) pSName->m_Rect = CRect(rS.left + PAD, line1, sGearX - GAPX, line1 + lblH);
-			if (pAvg)   pAvg->m_Rect   = CRect(rS.left + PAD, line2, sGearX - GAPX, line2 + chkH);
-			if (pSGear) pSGear->m_Rect = CRect(sGearX, cMid - GEAR/2, rS.right - PAD, cMid - GEAR/2 + GEAR);
-
-			int gGearX = rG.right - PAD - GEAR;
-			if (pGName) pGName->m_Rect = CRect(rG.left + PAD, cMid - lblH/2, gGearX - GAPX, cMid - lblH/2 + lblH);
-			if (pGGear) pGGear->m_Rect = CRect(gGearX, cMid - GEAR/2, rG.right - PAD, cMid - GEAR/2 + GEAR);
-
-			if (pCombo)
-			{
-				int comboW = cfg->Scale(96);
-				{
-					// Make the combo a consistent width = the widest mode name in
-					// this language, so it never clips whatever item is selected.
-					CFont* cpo = dc.SelectObject(GetFont());
-					int ccnt = m_comboMode.GetCount();
-					for (int cci = 0; cci < ccnt; cci++)
-					{
-						CString cit; m_comboMode.GetLBText(cci, cit);
-						int citw = dc.GetTextExtent(cit, cit.GetLength()).cx + ::GetSystemMetrics(SM_CXVSCROLL) + cfg->Scale(12);
-						if (citw > comboW) comboW = citw;
-					}
-					dc.SelectObject(cpo);
-				}
-				m_comboMode.ModifyStyleEx(WS_EX_DLGMODALFRAME, 0, SWP_FRAMECHANGED);
-				if (m_comboDisplay.GetSafeHwnd()) m_comboDisplay.ModifyStyleEx(WS_EX_DLGMODALFRAME, 0, SWP_FRAMECHANGED);
-				int comboH = pCombo->m_Rect.bottom - pCombo->m_Rect.top;
-				pCombo->m_Rect = CRect(rV.left + PAD, line1, rV.left + PAD + comboW, line1 + comboH);
-				int spinW = pSpin ? (pSpin->m_Rect.right - pSpin->m_Rect.left) : cfg->Scale(11);
-				int spinH = pSpin ? (pSpin->m_Rect.bottom - pSpin->m_Rect.top) : cfg->Scale(14);
-				if (pSpin) pSpin->m_Rect = CRect(rV.right - PAD - spinW, cMid - spinH/2, rV.right - PAD, cMid - spinH/2 + spinH);
-				if (pInfo)
-				{
-					CWnd* pi = CWnd::FromHandle(pInfo->m_hWnd);
-					pi->ModifyStyle(SS_TYPEMASK | SS_WORDELLIPSIS | SS_SUNKEN, SS_LEFT, SWP_FRAMECHANGED);   // clear ellipsis -> wrap
-					pInfo->m_Rect = CRect(rV.left + PAD + comboW + cfg->Scale(8), top + cap, rV.right - PAD - spinW - GAPX, top + rowH - cfg->Scale(2));
-				}
-			}
-
-			// Shift the whole lower half to align with the top row: UP to close a gap
-			// a shorter pane leaves, or DOWN to clear an overlap when the computed band
-			// is taller than the template (high DPI/font). Bottom-anchored ones grow/shrink.
-			int measTop = pGGrid->m_Rect.top;
-			int delta = (top + rowH + cfg->Scale(3)) - measTop;
-			if (delta != 0)
-			{
-				POSITION rp2 = m_CtrlInitPos.GetHeadPosition();
-				while (rp2)
-				{
-					SCtrlInitPos* e2 = (SCtrlInitPos*) m_CtrlInitPos.GetNext(rp2);
-					if (e2->m_Rect.top >= measTop - cfg->Scale(2))
-					{
-						e2->m_Rect.top += delta;
-						if (e2->m_pLayout->m_BottomMode != LAYOUT_BOTTOM)
-							e2->m_Rect.bottom += delta;
-					}
-				}
+			case IDC_GRAYSCALE_GROUP:
+			case IDC_VALUES_STATIC:
+			case IDC_GRAYSCALE_GRID:
+				e->m_Rect.right -= dwWiden;   // measures pane gives 12px back from its right edge
+				break;
+			case IDC_DISPLAY_GROUP:
+				e->m_Rect.left  -= dwWiden;   // Display pane + buttons grow 12px to the left
+				break;
 			}
 		}
 	}
+
+	LayoutTopRow();
 
 
 	{
@@ -886,9 +963,13 @@ void CMainView::OnInitialUpdate()
 				if ( sbId2 == IDC_GRAYSCALE_GRID || sbId2 == IDC_VALUES_STATIC )
 					pSb2->m_Rect.top += gridDelta;
 			}
+			// --- Stats-bar header --------------------------------------------------
+			// The [ ] Edit checkbox and the [+]/[-] grid-size buttons are drawn BY THE
+			// bar (CStatsBarWnd) at the far right, so they fill the band height like the
+			// chips and can never be clipped by a sibling window.
 			CRect rcBar( rcGroup.left + 2, barTop, rcGroup.right - 2, barBottom );
 			LPCTSTR sbClass = AfxRegisterWndClass( CS_HREDRAW | CS_VREDRAW, ::LoadCursor( NULL, IDC_ARROW ), NULL, NULL );
-			m_statsBar.CreateEx( 0, sbClass, _T(""), WS_CHILD | WS_VISIBLE, rcBar, this, 0 );
+			m_statsBar.CreateEx( 0, sbClass, _T(""), WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, rcBar, this, 0 );
 			SCtrlInitPos * pBarPos = new SCtrlInitPos;
 			pBarPos->m_hWnd = m_statsBar.GetSafeHwnd();
 			pBarPos->m_Rect.left = rcBar.left;
@@ -898,6 +979,11 @@ void CMainView::OnInitialUpdate()
 			pBarPos->m_pLayout = &g_StatsBarLayout;
 			m_CtrlInitPos.AddTail( pBarPos );
 			m_grayScaleGroup.InitMeasures( &m_statsBar, _T("") );
+			m_statsBar.SetHeaderModel( &m_editCheckButton, &m_fluentFont );
+			{
+				POSITION rpE = m_CtrlInitPos.GetHeadPosition();
+				while (rpE) { POSITION curE = rpE; SCtrlInitPos* eE = (SCtrlInitPos*) m_CtrlInitPos.GetNext(rpE); if (::GetDlgCtrlID(eE->m_hWnd) == IDC_EDITGRID_CHECK) { delete eE; m_CtrlInitPos.RemoveAt(curE); break; } }
+			}
 		}
 	}
 	
@@ -2584,6 +2670,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		}
 
 		UpdateData(FALSE);
+
+		if (m_bPositionsInit) { LayoutTopRow(); OnSize(0,0,0); }   // re-fit the gen/sensor panes to the new labels
 	}
 }
 
@@ -5287,6 +5375,33 @@ void CMainView::OnEditgridCheck()
 	m_pGrayScaleGrid->EnableDragAndDrop(isEnabled);
 }
 
+void CMainView::OnSelchangeDisplayType()
+{
+	int sel = m_comboDisplayType.GetCurSel();
+	if (sel < 0) return;
+	int newType = (int) m_comboDisplayType.GetItemData(sel);
+	m_displayType = newType;
+
+	// Keep the (hidden) radios' checked state in sync for any code that reads them.
+	CheckDlgButton(IDC_XYZ_RADIO,       newType == HCFR_XYZ_VIEW       ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(IDC_SENSORRGB_RADIO, newType == HCFR_SENSORRGB_VIEW ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(IDC_RGB_RADIO,       newType == HCFR_RGB_VIEW       ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(IDC_XYZ_RADIO2,      newType == HCFR_xyz2_VIEW      ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(IDC_XYY_RADIO,       newType == HCFR_xyY_VIEW       ? BST_CHECKED : BST_UNCHECKED);
+
+	// Mirror the per-radio enable rule for the Edit checkbox (see OnXyz2Radio etc.).
+	if (newType == HCFR_xyz2_VIEW)
+	{
+		CheckDlgButton(IDC_EDITGRID_CHECK, FALSE);
+		m_editCheckButton.EnableWindow(FALSE);
+	}
+	else
+		m_editCheckButton.EnableWindow(!m_AdjustXYZCheckButton.GetCheck());
+
+	InitGrid();   // update row labels
+	UpdateGrid();
+}
+
 void CMainView::OnDropdownComboMode()
 {
 	int n = m_comboMode.GetCount();
@@ -5343,7 +5458,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-grayscale"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-grayscale"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETEGRAYSCALE );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5355,7 +5470,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-secondaries"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-secondaries"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESECONDARIES );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5367,7 +5482,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),(GetConfig()->m_bContinuousMeasures?_T("measure-continuous"):_T("measure-single")),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),(GetConfig()->m_bContinuousMeasures?_T("measure-continuous"):_T("measure-single")),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETEALLMEASURES );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5379,7 +5494,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-near-black"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-near-black"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETENEARBLACK );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5391,7 +5506,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-near-white"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-near-white"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETENEARWHITE );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5403,7 +5518,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-red"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-red"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATRED );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5415,7 +5530,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-green"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-green"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATGREEN );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5427,7 +5542,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-blue"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-blue"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATBLUE );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5439,7 +5554,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-yellow"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-yellow"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATYELLOW );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5451,7 +5566,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-cyan"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-cyan"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATCYAN );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5463,7 +5578,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-magenta"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-magenta"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATMAGENTA );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5475,7 +5590,7 @@ void CMainView::OnSelchangeComboMode()
 			 Msg += "\r\n";
 			 Msg += MsgAdd;
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-colorchecker"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-colorchecker"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETESATCC24 );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5485,7 +5600,7 @@ void CMainView::OnSelchangeComboMode()
 			 m_grayScaleGroup.SetText ( Msg );
 			 Msg.LoadString ( IDS_MEASURECONTRAST );
 			 m_grayScaleButton.SetTooltipText(Msg);
-		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-contrast"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-contrast"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETECONTRAST );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
@@ -5533,7 +5648,7 @@ void CMainView::SetMeasureButtonForMode()
 		case 11: name = _T("sat-colorchecker"); tip = IDS_MEASURESATCC24; break;
 		case 12: name = _T("measure-contrast"); tip = IDS_MEASURECONTRAST; bSimHint = FALSE; break;
 	}
-	m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), name, (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(32,GetSafeHwnd()), HCFR_ScaleIconPx(32,GetSafeHwnd()) ), (HICON)NULL );
+	m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), name, (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(24,GetSafeHwnd()), HCFR_ScaleIconPx(24,GetSafeHwnd()) ), (HICON)NULL );
 	CString sTip; sTip.LoadString ( tip );
 	if ( bSimHint )
 	{
@@ -5542,15 +5657,17 @@ void CMainView::SetMeasureButtonForMode()
 	}
 	m_grayScaleButton.SetTooltipText ( sTip );
 	m_grayScaleButton.SetWindowText ( m_measureGoCaption );
+	m_grayScaleButton.SetRoundedBorder ( ButtonBorderColor() );   // d2d2d2, same as the other buttons
 }
 
 void CMainView::SetMeasureButtonStop(BOOL bStop)
 {
 	if ( bStop )
 	{
-		m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-stop"), (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(32,GetSafeHwnd()), HCFR_ScaleIconPx(32,GetSafeHwnd()) ), (HICON)NULL );
+		m_grayScaleButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-stop"), (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(24,GetSafeHwnd()), HCFR_ScaleIconPx(24,GetSafeHwnd()) ), (HICON)NULL );
 		CString sStop; sStop.LoadString ( IDS_STOPSWEEP ); m_grayScaleButton.SetTooltipText ( sStop );
 		CString sBtn; sBtn.LoadString ( IDS_STOP_BTN ); m_grayScaleButton.SetWindowText ( sBtn );
+		m_grayScaleButton.SetRoundedBorder ( RGB(211,47,47) );   // red: measuring (click to stop)
 	}
 	else
 		SetMeasureButtonForMode ();
@@ -6177,7 +6294,7 @@ void CMainView::InitButtons()
 //	m_grayScaleDeleteButton.DrawTransparent(TRUE);
 
 	Msg.LoadString ( IDS_DISPLAYANSICONTRAST );
-	m_testAnsiPatternButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-ansi"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+	m_testAnsiPatternButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-ansi"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 	m_testAnsiPatternButton.SetFont(GetFont());
 	m_testAnsiPatternButton.EnableBalloonTooltip();
 	m_testAnsiPatternButton.SetTooltipText(Msg);
@@ -6190,8 +6307,8 @@ void CMainView::InitButtons()
 	m_testAnsiPatternButton.OffsetColor(CButtonST::BTNST_COLOR_BK_IN, 30);
 	m_testAnsiPatternButton.OffsetColor(CButtonST::BTNST_COLOR_FG_IN, 30);
 
-	m_refs.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("references"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
-	m_grayScaleDeleteButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("delete"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(32,GetSafeHwnd()),HCFR_ScaleIconPx(32,GetSafeHwnd())),(HICON)NULL);
+	m_refs.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("references"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
+	m_grayScaleDeleteButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("delete"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 	m_refs.SetFont(GetFont());
 	m_refs.EnableBalloonTooltip();
 	m_refs.SetTooltipText("Open references menu");
@@ -6204,6 +6321,90 @@ void CMainView::InitButtons()
 	m_refs.SetColor(CButtonST::BTNST_COLOR_BK_FOCUS,FxGetMenuBgColor());
 	m_refs.OffsetColor(CButtonST::BTNST_COLOR_BK_IN, 30);
 	m_refs.OffsetColor(CButtonST::BTNST_COLOR_FG_IN, 30);
+
+	// "Normal button" look: rounded corners + left-aligned labels on the action buttons.
+	m_grayScaleButton.SetRoundedNormal(TRUE);
+	m_grayScaleDeleteButton.SetRoundedNormal(TRUE);
+	m_refs.SetRoundedNormal(TRUE);
+	m_testAnsiPatternButton.SetRoundedNormal(TRUE);
+	COLORREF crPanel = FxGetMenuBgColor();   // corner-fill = app bg (buttons float)
+	m_grayScaleButton.SetRoundedBg(crPanel);
+	m_grayScaleDeleteButton.SetRoundedBg(crPanel);
+	m_refs.SetRoundedBg(crPanel);
+	m_testAnsiPatternButton.SetRoundedBg(crPanel);
+	COLORREF crFace = ButtonFaceColor();
+	COLORREF crHover = ButtonHoverColor();
+	COLORREF crBdr  = ButtonBorderColor();
+	m_grayScaleButton.SetColor(CButtonST::BTNST_COLOR_BK_OUT, crFace);
+	m_grayScaleButton.SetColor(CButtonST::BTNST_COLOR_BK_IN, crHover);
+	m_grayScaleButton.SetColor(CButtonST::BTNST_COLOR_BK_FOCUS, crFace);
+	m_grayScaleDeleteButton.SetColor(CButtonST::BTNST_COLOR_BK_OUT, crFace);
+	m_grayScaleDeleteButton.SetColor(CButtonST::BTNST_COLOR_BK_IN, crHover);
+	m_grayScaleDeleteButton.SetColor(CButtonST::BTNST_COLOR_BK_FOCUS, crFace);
+	m_grayScaleDeleteButton.SetRoundedBorder(crBdr);
+	m_refs.SetColor(CButtonST::BTNST_COLOR_BK_OUT, crFace);
+	m_refs.SetColor(CButtonST::BTNST_COLOR_BK_IN, crHover);
+	m_refs.SetColor(CButtonST::BTNST_COLOR_BK_FOCUS, crFace);
+	m_refs.SetRoundedBorder(crBdr);
+	m_testAnsiPatternButton.SetColor(CButtonST::BTNST_COLOR_BK_OUT, crFace);
+	m_testAnsiPatternButton.SetColor(CButtonST::BTNST_COLOR_BK_IN, crHover);
+	m_testAnsiPatternButton.SetColor(CButtonST::BTNST_COLOR_BK_FOCUS, crFace);
+	m_testAnsiPatternButton.SetRoundedBorder(crBdr);
+	if (!GetConfig()->m_darkTheme && ::IsWindow(m_editCheckButton.GetSafeHwnd())) FxApplyFlatCheck(m_editCheckButton.GetSafeHwnd());
+	// Header [+]/[-] size buttons replace the up-down spinner. Owner-drawn so the
+	// Segoe Fluent Icons glyphs render in this MBCS build; behaviour mirrors the spinner.
+	if (GetDlgItem(IDC_SPIN_VIEW)) GetDlgItem(IDC_SPIN_VIEW)->ShowWindow(SW_HIDE);
+	{
+		m_fluentFont.DeleteObject();
+		LOGFONT lf; ZeroMemory(&lf, sizeof(lf));
+		lf.lfHeight = -GetConfig()->Scale(12);
+		lf.lfWeight = FW_NORMAL;
+		lf.lfCharSet = DEFAULT_CHARSET;
+		lstrcpyn(lf.lfFaceName, _T("Segoe Fluent Icons"), LF_FACESIZE);
+		m_fluentFont.CreateFontIndirect(&lf);
+	}
+	// (the Edit checkbox is reparented into the stats bar by SetHeaderModel below)
+	// (The Go button's border is tinted green/red by SetMeasureButtonForMode/Stop.)
+
+	// Header band brush (matches the stats bar) for the Edit checkbox background.
+	if (m_pHdrBrush) { delete m_pHdrBrush; m_pHdrBrush = NULL; }
+	m_pHdrBrush = new CBrush(FxGetSysColor(COLOR_BTNFACE));
+
+	// (The Display dropdown keeps its own group-box frame; the buttons get their
+	// own rounded panel painted in OnEraseBkgnd.)
+
+	// Sensor-name label: ellipsize long meter names (e.g. Xrite i1 Display Pro).
+	if (GetDlgItem(IDC_SENSORNAME_STATIC))
+		GetDlgItem(IDC_SENSORNAME_STATIC)->ModifyStyle(SS_TYPEMASK, SS_LEFT | SS_ENDELLIPSIS | SS_NOPREFIX, SWP_FRAMECHANGED);
+
+	// Replace the 5 display-type radios with a dropdown (Sensor RGB is always disabled,
+	// so it is omitted). Selection drives m_displayType via OnSelchangeDisplayType.
+	if (m_comboDisplayType.GetSafeHwnd() == NULL)
+	{
+		CRect rcDisp; GetDlgItem(IDC_DISPLAY_GROUP)->GetWindowRect(&rcDisp); ScreenToClient(&rcDisp);
+		CRect rcCombo(rcDisp.left + GetConfig()->Scale(4), rcDisp.top + GetConfig()->Scale(14), rcDisp.right - GetConfig()->Scale(4), rcDisp.top + GetConfig()->Scale(14) + GetConfig()->Scale(120));
+		m_comboDisplayType.Create(WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|CBS_DROPDOWNLIST, rcCombo, this, IDC_DISPLAYTYPE_COMBO);
+		m_comboDisplayType.SetFont(GetFont());
+		int iXYZ = m_comboDisplayType.AddString(_T("XYZ")); m_comboDisplayType.SetItemData(iXYZ, HCFR_XYZ_VIEW);
+		int iRGB = m_comboDisplayType.AddString(_T("RGB")); m_comboDisplayType.SetItemData(iRGB, HCFR_RGB_VIEW);
+		int ixyz = m_comboDisplayType.AddString(_T("xyz")); m_comboDisplayType.SetItemData(ixyz, HCFR_xyz2_VIEW);
+		int ixyY = m_comboDisplayType.AddString(_T("xyY")); m_comboDisplayType.SetItemData(ixyY, HCFR_xyY_VIEW);
+		for (int ci = 0; ci < m_comboDisplayType.GetCount(); ci++)
+			if ((int)m_comboDisplayType.GetItemData(ci) == m_displayType) { m_comboDisplayType.SetCurSel(ci); break; }
+		if (m_comboDisplayType.GetCurSel() < 0) m_comboDisplayType.SetCurSel(0);
+		m_comboDisplayType.ModifyStyleEx(WS_EX_DLGMODALFRAME, 0, SWP_FRAMECHANGED);
+
+		int radios[] = { IDC_SENSORRGB_RADIO, IDC_RGB_RADIO, IDC_XYZ_RADIO, IDC_XYZ_RADIO2, IDC_XYY_RADIO };
+		for (int ri = 0; ri < 5; ri++) if (GetDlgItem(radios[ri])) GetDlgItem(radios[ri])->ShowWindow(SW_HIDE);
+
+		SCtrlInitPos* pCombo = new SCtrlInitPos;
+		pCombo->m_hWnd = m_comboDisplayType.GetSafeHwnd();
+		::GetWindowRect(pCombo->m_hWnd, &pCombo->m_Rect);
+		::ScreenToClient(m_hWnd, (LPPOINT)&pCombo->m_Rect.left);
+		::ScreenToClient(m_hWnd, (LPPOINT)&pCombo->m_Rect.right);
+		pCombo->m_pLayout = &g_DisplayComboLayout;
+		m_CtrlInitPos.AddTail(pCombo);
+	}
 
 	CFont m_Font;
 	m_Font.Detach();
@@ -6356,6 +6557,15 @@ void CMainView::InitGroups()
 		m_generatorName.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 }	
 
+// Solid panel colour behind the Display dropdown + action buttons: a few shades
+// lighter than the app (menu) background so the group reads as a raised pane and
+// the rounded buttons' corners blend into it.
+// Action-button palette. Light theme uses the design values; dark theme uses muted equivalents.
+static COLORREF ButtonPanelColor() { return (fxUseCustomColor != FALSE) ? RGB(45,45,47) : RGB(217,217,217); }  // container D9D9D9
+static COLORREF ButtonFaceColor()  { return (fxUseCustomColor != FALSE) ? RGB(60,60,62) : RGB(255,255,255); }  // face FFFFFF
+static COLORREF ButtonHoverColor() { return (fxUseCustomColor != FALSE) ? RGB(82,82,85) : RGB(242,242,242); }  // hover F2F2F2
+static COLORREF ButtonBorderColor(){ return (fxUseCustomColor != FALSE) ? RGB(95,95,98) : RGB(210, 210, 210); }  // D2D2D2 (light) / subtle dark, matches the +/- buttons
+
 BOOL CMainView::OnEraseBkgnd(CDC* pDC) 
 {
 	CRect windowRect;
@@ -6372,6 +6582,33 @@ BOOL CMainView::OnEraseBkgnd(CDC* pDC)
 	COLORREF colorTop,colorBottom;
 	FxGetMenuBgColors(colorTop,colorBottom);
 	pDC->FillSolidRect(windowRect, colorTop);
+	{
+		// Rounded container behind the action buttons, matching the other panels
+		// (Display etc.): same menu-bg fill + border, 6px radius, 3px gap to the buttons.
+		CWnd* bp[4] = { GetDlgItem(IDC_MEASUREGRAYSCALE_BUTTON), GetDlgItem(IDC_DELETEGRAYSCALE_BUTTON),
+		                GetDlgItem(IDC_REFS_BUTTON), GetDlgItem(IDC_ANSICONTRAST_PATTERN_TEST_BUTTON) };
+		CRect panel(0,0,0,0); BOOL gotp = FALSE;
+		for (int bpi = 0; bpi < 4; bpi++)
+		{
+			if (!bp[bpi] || !::IsWindow(bp[bpi]->GetSafeHwnd())) continue;
+			CRect rc; bp[bpi]->GetWindowRect(&rc); ScreenToClient(&rc);
+			if (!gotp) { panel = rc; gotp = TRUE; } else panel |= rc;
+		}
+		if (gotp)
+		{
+			panel.InflateRect(GetConfig()->Scale(3), GetConfig()->Scale(3));
+			m_rcButtonPanel = panel;
+			int rad = GetConfig()->Scale(6);
+			COLORREF crCbdr = (fxUseCustomColor != FALSE) ? RGB(64,64,70) : FxGetSysColor(COLOR_3DSHADOW);
+			CBrush brP(FxGetMenuBgColor());
+			CPen penP(PS_SOLID, 1, crCbdr);
+			CBrush* pOldB = pDC->SelectObject(&brP);
+			CPen* pOldP = pDC->SelectObject(&penP);
+			pDC->RoundRect(panel.left, panel.top, panel.right, panel.bottom, rad*2, rad*2);
+			pDC->SelectObject(pOldB);
+			pDC->SelectObject(pOldP);
+		}
+	}
 	return true;
 }
 
@@ -8187,6 +8424,51 @@ void CMainView::OnDeltaposSpinView(NMHDR* pNMHDR, LRESULT* pResult)
 	*pResult = 0;
 
 //	UpdateGrid();
+}
+
+void CMainView::OnDrawItem(int nIDCtl, LPDRAWITEMSTRUCT lpDIS)
+{
+	if ( lpDIS && (nIDCtl == IDC_SIZE_PLUS || nIDCtl == IDC_SIZE_MINUS) )
+	{
+		CDC* pDC = CDC::FromHandle( lpDIS->hDC );
+		CRect rc = lpDIS->rcItem;
+		BOOL bPressed = (lpDIS->itemState & ODS_SELECTED) != 0;
+		COLORREF face = bPressed ? ButtonHoverColor() : ButtonFaceColor();
+		pDC->FillSolidRect( rc, face );
+		CBrush brB( ButtonBorderColor() );
+		pDC->FrameRect( rc, &brB );
+		CFont* pOldF = pDC->SelectObject( &m_fluentFont );
+		int oldBk = pDC->SetBkMode( TRANSPARENT );
+		COLORREF oldTx = pDC->SetTextColor( FxGetSysColor(COLOR_MENUTEXT) );
+		const wchar_t* glyph = (nIDCtl == IDC_SIZE_PLUS) ? L"\uE710" : L"\uE738";
+		::DrawTextW( lpDIS->hDC, glyph, 1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX );
+		pDC->SetTextColor( oldTx );
+		pDC->SetBkMode( oldBk );
+		pDC->SelectObject( pOldF );
+		return;
+	}
+	CFormView::OnDrawItem( nIDCtl, lpDIS );
+}
+
+void CMainView::OnSizePlus()
+{
+	if ( m_nSizeOffset < 100 )
+	{
+		m_nSizeOffset += 21;
+		( (CMultiFrame *) GetParentFrame () ) -> EnsureMinimumSize ();
+		InvalidateRect ( NULL );
+		OnSize ( 0, 0, 0 );
+	}
+}
+
+void CMainView::OnSizeMinus()
+{
+	if ( m_nSizeOffset > -63 )
+	{
+		m_nSizeOffset -= 21;
+		InvalidateRect ( NULL );
+		OnSize ( 0, 0, 0 );
+	}
 }
 
 void CMainView::OnAnsiContrastPatternTestButton() 
