@@ -2680,6 +2680,7 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		UpdateData(FALSE);
 
 		if (m_bPositionsInit) { LayoutTopRow(); OnSize(0,0,0); }   // re-fit the gen/sensor panes to the new labels
+			if (::IsWindow(m_statsBar.GetSafeHwnd())) m_statsBar.Invalidate(FALSE);   // refresh the bar-drawn Edit checkbox (enabled/checked state)
 	}
 }
 

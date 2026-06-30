@@ -5,6 +5,11 @@
 #include "StatsBarWnd.h"
 #include "fxcolor.h"
 #include "resource.h"
+#include <uxtheme.h>
+#pragma comment(lib, "uxtheme.lib")
+#ifndef BP_CHECKBOX
+#define BP_CHECKBOX 3
+#endif
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -40,9 +45,9 @@ void CStatsBarWnd::SetHeaderModel(CButton* pEditBtn, CFont* pGlyphFont)
 	m_pGlyphFont = pGlyphFont;
 	if (m_pEditBtn != NULL && ::IsWindow(m_pEditBtn->GetSafeHwnd()) && ::IsWindow(GetSafeHwnd()))
 	{
-		m_pEditBtn->SetParent(this);		// host the native checkbox inside the bar (WS_CLIPCHILDREN protects it)
-		m_pEditBtn->ModifyStyle(0, BS_VCENTER);
-		m_pEditBtn->ShowWindow(SW_SHOW);
+		m_pEditBtn->SetParent(this);		// keep it our child for state, but never show it --
+		m_pEditBtn->ModifyStyle(0, BS_VCENTER);	// the bar draws the checkbox itself (DrawHeaderControls)
+		m_pEditBtn->ShowWindow(SW_HIDE);		// so it can't be left blank/black by a stray repaint
 	}
 	if (::IsWindow(GetSafeHwnd()))
 		Invalidate(FALSE);
@@ -311,18 +316,16 @@ void CStatsBarWnd::OnPaint()
 		if (sEdit.IsEmpty()) sEdit = _T("Edit");
 		int editTextW = memDC.GetTextExtent(sEdit).cx;
 		memDC.SelectObject(pfm);
-		int editW = ::GetSystemMetrics(SM_CXMENUCHECK) + editTextW + STATSBAR_GAP;
+		int boxSz   = MulDiv(13, dc.GetDeviceCaps(LOGPIXELSY), 96);
+		int editGap = MulDiv(6,  dc.GetDeviceCaps(LOGPIXELSX), 96);
+		int editW   = boxSz + editGap + editTextW;
 		m_rcMinusZone = CRect(rc.right - STATSBAR_GAP - eb, ey, rc.right - STATSBAR_GAP, ey + eb);
 		m_rcPlusZone  = CRect(m_rcMinusZone.left - 3 - eb,  ey, m_rcMinusZone.left - 3,  ey + eb);
 		m_rcEditZone  = CRect(m_rcPlusZone.left - STATSBAR_GAP - editW, chipTop, m_rcPlusZone.left - STATSBAR_GAP, chipBottom);
 		clusterLeft = m_rcEditZone.left - STATSBAR_GAP;
-		// Position the hosted native Edit checkbox (a child of the bar) in its zone.
-		if (::IsWindow(m_pEditBtn->GetSafeHwnd()))
-		{
-			CRect cur; m_pEditBtn->GetWindowRect(&cur); ScreenToClient(&cur);
-			if (cur != m_rcEditZone)
-				m_pEditBtn->MoveWindow(&m_rcEditZone, TRUE);
-		}
+		// The Edit checkbox is drawn by the bar (DrawHeaderControls), not a hosted native
+		// control: a hosted child kept going blank/black on the various repaint triggers
+		// (theme switch, +/-, resize, grid rebuild). The hidden m_pEditBtn only holds state.
 	}
 	else
 	{
@@ -374,7 +377,50 @@ void CStatsBarWnd::DrawHeaderControls(CDC* pDC, const CRect& /*rc*/)
 	int oldBk = pDC->SetBkMode(TRANSPARENT);
 	wchar_t gPlus = (wchar_t)0xE710, gMinus = (wchar_t)0xE738;	// Fluent Add / Remove
 
-	// [+] and [-] buttons (the Edit checkbox is a hosted native control)
+	// [ ] Edit checkbox -- bar-drawn (box + check + label), state read from the hidden control.
+	if (m_pEditBtn != NULL && !m_rcEditZone.IsRectEmpty())
+	{
+		BOOL bChecked = (m_pEditBtn->GetCheck() == BST_CHECKED);
+		BOOL bOn      = m_pEditBtn->IsWindowEnabled();
+		BOOL bHot     = (m_hoverZone == IDC_EDITGRID_CHECK);
+		// Draw the box with the OS theme so it is pixel-identical to the native control
+		// (rounded corners, native check glyph, hover/checked/disabled states, dark-mode
+		// aware). Open the theme on the hidden checkbox's hwnd so it inherits that
+		// control's window theme (DarkMode_Explorer in dark mode).
+		BOOL bPress  = (m_pressZone == IDC_EDITGRID_CHECK);
+		int  cbState = (bChecked ? 5 : 1) + (!bOn ? 3 : (bPress ? 2 : (bHot ? 1 : 0)));	// CBS_* (1.. unchecked, 5.. checked)
+		int  bs      = MulDiv(13, pDC->GetDeviceCaps(LOGPIXELSY), 96);
+		HTHEME hTheme = ::OpenThemeData(m_pEditBtn->GetSafeHwnd(), L"Button");
+		if (hTheme)
+		{
+			SIZE gsz; gsz.cx = bs; gsz.cy = bs;
+			::GetThemePartSize(hTheme, pDC->GetSafeHdc(), BP_CHECKBOX, cbState, NULL, TS_TRUE, &gsz);
+			bs = gsz.cy;
+		}
+		int  byy = m_rcEditZone.top + (m_rcEditZone.Height() - bs) / 2;
+		CRect rbox(m_rcEditZone.left, byy, m_rcEditZone.left + bs, byy + bs);
+		if (hTheme)
+		{
+			::DrawThemeBackground(hTheme, pDC->GetSafeHdc(), BP_CHECKBOX, cbState, &rbox, NULL);
+			::CloseThemeData(hTheme);
+		}
+		else
+		{
+			UINT st = DFCS_BUTTONCHECK | (bChecked ? DFCS_CHECKED : 0) | (!bOn ? DFCS_INACTIVE : 0);
+			pDC->DrawFrameControl(rbox, DFC_BUTTON, st);
+		}
+		CString sEdit; m_pEditBtn->GetWindowText(sEdit);
+		if (sEdit.IsEmpty()) sEdit = _T("Edit");
+		int editGap = MulDiv(6, pDC->GetDeviceCaps(LOGPIXELSX), 96);
+		CRect rlbl(rbox.right + editGap, m_rcEditZone.top, m_rcEditZone.right, m_rcEditZone.bottom);
+		CFont* pem = m_pEditBtn->GetFont();
+		CFont* olf = pDC->SelectObject(pem ? pem : &m_font);
+		pDC->SetTextColor(bOn ? clrText : RGB(130, 130, 130));
+		pDC->DrawText(sEdit, rlbl, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+		pDC->SelectObject(olf);
+	}
+
+	// [+] and [-] buttons
 	if (m_pGlyphFont != NULL)
 	{
 		CFont* of = pDC->SelectObject(m_pGlyphFont);
@@ -405,6 +451,7 @@ void CStatsBarWnd::OnLButtonDown(UINT nFlags, CPoint point)
 	int zone = 0;
 	if (m_rcPlusZone.PtInRect(point))       zone = IDC_SIZE_PLUS;
 	else if (m_rcMinusZone.PtInRect(point)) zone = IDC_SIZE_MINUS;
+	else if (m_rcEditZone.PtInRect(point) && m_pEditBtn != NULL && m_pEditBtn->IsWindowEnabled()) zone = IDC_EDITGRID_CHECK;
 	if (zone != 0)
 	{
 		m_pressZone = zone;
@@ -423,6 +470,18 @@ void CStatsBarWnd::OnLButtonUp(UINT nFlags, CPoint point)
 		m_pressZone = 0;
 		ReleaseCapture();
 		Invalidate(FALSE);
+		if (zone == IDC_EDITGRID_CHECK)
+		{
+			if (m_rcEditZone.PtInRect(point) && m_pEditBtn != NULL && m_pEditBtn->IsWindowEnabled())
+			{
+				m_pEditBtn->SetCheck(m_pEditBtn->GetCheck() == BST_CHECKED ? BST_UNCHECKED : BST_CHECKED);
+				Invalidate(FALSE);
+				CWnd* pParent = GetParent();
+				if (pParent != NULL)	// run the existing OnEditgridCheck handler on the view
+					pParent->PostMessage(WM_COMMAND, MAKEWPARAM(IDC_EDITGRID_CHECK, BN_CLICKED), (LPARAM)m_pEditBtn->GetSafeHwnd());
+			}
+			return;
+		}
 		BOOL hit = (zone == IDC_SIZE_PLUS  && m_rcPlusZone.PtInRect(point)) ||
 		           (zone == IDC_SIZE_MINUS && m_rcMinusZone.PtInRect(point));
 		if (hit)
@@ -430,9 +489,8 @@ void CStatsBarWnd::OnLButtonUp(UINT nFlags, CPoint point)
 			CWnd* pParent = GetParent();
 			if (pParent != NULL)
 				// Post, don't Send: the handler runs a full OnSize re-layout that moves
-				// THIS bar (and repaints the hosted Edit checkbox). Doing that synchronously
-				// from inside our own mouse handler re-enters and corrupts the checkbox paint
-				// (it flashes blank with a stray block). Defer it until we have returned.
+				// THIS bar. Doing that synchronously from inside our own mouse handler
+				// re-enters; defer it until we have returned.
 				pParent->PostMessage(WM_COMMAND, MAKEWPARAM(zone, BN_CLICKED), (LPARAM)GetSafeHwnd());
 		}
 		return;
@@ -445,6 +503,7 @@ void CStatsBarWnd::OnMouseMove(UINT nFlags, CPoint point)
 	int hz = 0;
 	if (m_rcPlusZone.PtInRect(point))       hz = IDC_SIZE_PLUS;
 	else if (m_rcMinusZone.PtInRect(point)) hz = IDC_SIZE_MINUS;
+	else if (m_rcEditZone.PtInRect(point))  hz = IDC_EDITGRID_CHECK;
 	if (hz != m_hoverZone)
 	{
 		m_hoverZone = hz;
