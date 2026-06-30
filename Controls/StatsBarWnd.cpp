@@ -429,7 +429,11 @@ void CStatsBarWnd::OnLButtonUp(UINT nFlags, CPoint point)
 		{
 			CWnd* pParent = GetParent();
 			if (pParent != NULL)
-				pParent->SendMessage(WM_COMMAND, MAKEWPARAM(zone, BN_CLICKED), (LPARAM)GetSafeHwnd());
+				// Post, don't Send: the handler runs a full OnSize re-layout that moves
+				// THIS bar (and repaints the hosted Edit checkbox). Doing that synchronously
+				// from inside our own mouse handler re-enters and corrupts the checkbox paint
+				// (it flashes blank with a stray block). Defer it until we have returned.
+				pParent->PostMessage(WM_COMMAND, MAKEWPARAM(zone, BN_CLICKED), (LPARAM)GetSafeHwnd());
 		}
 		return;
 	}

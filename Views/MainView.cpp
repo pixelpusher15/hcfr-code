@@ -969,7 +969,7 @@ void CMainView::OnInitialUpdate()
 			// chips and can never be clipped by a sibling window.
 			CRect rcBar( rcGroup.left + 2, barTop, rcGroup.right - 2, barBottom );
 			LPCTSTR sbClass = AfxRegisterWndClass( CS_HREDRAW | CS_VREDRAW, ::LoadCursor( NULL, IDC_ARROW ), NULL, NULL );
-			m_statsBar.CreateEx( 0, sbClass, _T(""), WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, rcBar, this, 0 );
+			m_statsBar.CreateEx( 0, sbClass, _T(""), WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, rcBar, this, 0 );
 			SCtrlInitPos * pBarPos = new SCtrlInitPos;
 			pBarPos->m_hWnd = m_statsBar.GetSafeHwnd();
 			pBarPos->m_Rect.left = rcBar.left;
@@ -980,6 +980,10 @@ void CMainView::OnInitialUpdate()
 			m_CtrlInitPos.AddTail( pBarPos );
 			m_grayScaleGroup.InitMeasures( &m_statsBar, _T("") );
 			m_statsBar.SetHeaderModel( &m_editCheckButton, &m_fluentFont );
+				// The bar overlaps the top of the measures group box. Without sibling clipping the
+				// group box repaints over the bar's top on resize/refresh (only a hover restores it).
+				m_grayScaleGroup.ModifyStyle( 0, WS_CLIPSIBLINGS );
+				m_statsBar.SetWindowPos( &wndTop, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE );
 			{
 				POSITION rpE = m_CtrlInitPos.GetHeadPosition();
 				while (rpE) { POSITION curE = rpE; SCtrlInitPos* eE = (SCtrlInitPos*) m_CtrlInitPos.GetNext(rpE); if (::GetDlgCtrlID(eE->m_hWnd) == IDC_EDITGRID_CHECK) { delete eE; m_CtrlInitPos.RemoveAt(curE); break; } }
@@ -8466,6 +8470,9 @@ void CMainView::OnSizePlus()
 		( (CMultiFrame *) GetParentFrame () ) -> EnsureMinimumSize ();
 		InvalidateRect ( NULL );
 		OnSize ( 0, 0, 0 );
+		m_statsBar.Invalidate ( FALSE );
+		if ( ::IsWindow ( m_editCheckButton.GetSafeHwnd() ) )   // the [-]/[+] change the offset only, so the bar never repositions
+			m_editCheckButton.RedrawWindow ( NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE );   // (and thus never repaints) the hosted checkbox -- force it
 	}
 }
 
@@ -8476,6 +8483,9 @@ void CMainView::OnSizeMinus()
 		m_nSizeOffset -= 21;
 		InvalidateRect ( NULL );
 		OnSize ( 0, 0, 0 );
+		m_statsBar.Invalidate ( FALSE );
+		if ( ::IsWindow ( m_editCheckButton.GetSafeHwnd() ) )   // the [-]/[+] change the offset only, so the bar never repositions
+			m_editCheckButton.RedrawWindow ( NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE );   // (and thus never repaints) the hosted checkbox -- force it
 	}
 }
 
