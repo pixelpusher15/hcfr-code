@@ -212,8 +212,19 @@ void CLuminanceWnd::MakeBgBitmap()
 void CLuminanceWnd::OnSize(UINT nType, int cx, int cy) 
 {
 	CWnd::OnSize(nType, cx, cy);
-	KillTimer(IDT_LUM_RESIZE_SETTLE);
-	SetTimer(IDT_LUM_RESIZE_SETTLE, 80, NULL);
+	if (m_bgBitmap.m_hObject == NULL)
+	{
+		// First sizing: build now so the initial paint isn't a blank BitBlt.
+		// (OnPaint BitBlts m_bgBitmap unconditionally; the settle-timer would
+		// otherwise leave it empty until ~80ms after the window first appears.)
+		MakeBgBitmap();
+		ComputeFontSize();
+	}
+	else
+	{
+		KillTimer(IDT_LUM_RESIZE_SETTLE);
+		SetTimer(IDT_LUM_RESIZE_SETTLE, 80, NULL);
+	}
 	Invalidate(FALSE);
 }
 
