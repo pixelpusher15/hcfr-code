@@ -270,97 +270,97 @@ void CColorTempHistoView::OnGraphScaleFit()
 	m_Grapher.m_graphCtrl.FitXScale(TRUE, 50.0);
 	m_Grapher.m_graphCtrl.FitYScale(TRUE, 50.0);
 	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnColortempGraphYScale1() 
 {
 	m_Grapher.m_graphCtrl.SetYScale(3000,9500);
 	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnColortempGraphYScale2() 
 {
 	m_Grapher.m_graphCtrl.SetYScale(5000,8000);
 	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphYScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,50.);
 	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphYShiftBottom() 
 {
 	m_Grapher.m_graphCtrl.ShiftYScale(100);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphYShiftTop() 
 {
 	m_Grapher.m_graphCtrl.ShiftYScale(-100);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphYZoomIn() 
 {
 	m_Grapher.m_graphCtrl.GrowYScale(+500,-500);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphYZoomOut() 
 {
 	m_Grapher.m_graphCtrl.GrowYScale(-500,+500);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphXScale1() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(0,100);
 		m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphXScale2() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(20,100);
 		m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphXScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
 		m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphXZoomIn() 
 {
 	m_Grapher.m_graphCtrl.GrowXScale(+10,-10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphXZoomOut() 
 {
 	m_Grapher.m_graphCtrl.GrowXScale(-10,+10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphXShiftLeft() 
 {
 	m_Grapher.m_graphCtrl.ShiftXScale(-10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphXShiftRight() 
 {
 	m_Grapher.m_graphCtrl.ShiftXScale(+10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnHelp() 

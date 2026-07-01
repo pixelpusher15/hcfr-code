@@ -618,7 +618,7 @@ void CRGBHistoView::OnRGBGraphYScale1()
 	m_Grapher.m_graphCtrl.SetYAxisProps("%", 20, 0, 400);
 	m_Grapher.m_graphCtrl.WriteSettings("RGB Histo");
 	m_Grapher.m_graphCtrl2.WriteSettings("RGB Histo2");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnRGBGraphYScale2() 
@@ -628,7 +628,7 @@ void CRGBHistoView::OnRGBGraphYScale2()
 	m_Grapher.m_graphCtrl.SetYAxisProps("%", 10, 0, 400);
 	m_Grapher.m_graphCtrl.WriteSettings("RGB Histo");
 	m_Grapher.m_graphCtrl2.WriteSettings("RGB Histo2");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnRGBGraphYScale3() 
@@ -638,7 +638,7 @@ void CRGBHistoView::OnRGBGraphYScale3()
 	m_Grapher.m_graphCtrl.SetYAxisProps("%", 5, 0, 400);
 	m_Grapher.m_graphCtrl.WriteSettings("RGB Histo");
 	m_Grapher.m_graphCtrl2.WriteSettings("RGB Histo2");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnDeltaEGraphYScale1() 
@@ -648,7 +648,7 @@ void CRGBHistoView::OnDeltaEGraphYScale1()
 	m_Grapher.m_graphCtrl2.SetYAxisProps("", 2, 0, 40);
 	m_Grapher.m_graphCtrl.WriteSettings("RGB Histo");
 	m_Grapher.m_graphCtrl2.WriteSettings("RGB Histo2");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnDeltaEGraphYScale2() 
@@ -658,7 +658,7 @@ void CRGBHistoView::OnDeltaEGraphYScale2()
 	m_Grapher.m_graphCtrl2.SetYAxisProps("", 1, 0, 40);
 	m_Grapher.m_graphCtrl.WriteSettings("RGB Histo");
 	m_Grapher.m_graphCtrl2.WriteSettings("RGB Histo2");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnDeltaEGraphYScale3() 
@@ -668,7 +668,7 @@ void CRGBHistoView::OnDeltaEGraphYScale3()
 	m_Grapher.m_graphCtrl2.SetYAxisProps("", 1, 0, 40);
 	m_Grapher.m_graphCtrl.WriteSettings("RGB Histo");
 	m_Grapher.m_graphCtrl2.WriteSettings("RGB Histo2");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnDeltaEGraphYScaleFit() 
@@ -678,35 +678,35 @@ void CRGBHistoView::OnDeltaEGraphYScaleFit()
 	m_Grapher.m_graphCtrl2.m_yAxisStep=(m_Grapher.m_graphCtrl2.m_maxY-m_Grapher.m_graphCtrl2.m_minY)/10;
 	m_Grapher.m_graphCtrl.WriteSettings("RGB Histo");
 	m_Grapher.m_graphCtrl2.WriteSettings("RGB Histo2");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnDeltaEGraphYShiftBottom() 
 {
 	m_Grapher.m_graphCtrl2.ShiftYScale(1);
 	m_Grapher.m_scaleYdeltaE = 0;
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnDeltaEGraphYShiftTop() 
 {
 	m_Grapher.m_graphCtrl2.ShiftYScale(-1);
 	m_Grapher.m_scaleYdeltaE = 0;
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnDeltaEGraphYZoomIn() 
 {
 	m_Grapher.m_graphCtrl2.GrowYScale(0,-4);
 	m_Grapher.m_scaleYdeltaE = 0;
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnDeltaEGraphYZoomOut() 
 {
 	m_Grapher.m_graphCtrl2.GrowYScale(0,+4);
 	m_Grapher.m_scaleYdeltaE = 0;
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnDeltaEGraphScaleCustom() 
@@ -721,84 +721,84 @@ void CRGBHistoView::OnGraphYScaleFit()
 {
 	m_Grapher.m_graphCtrl.FitYScale(TRUE);
 	m_Grapher.m_scaleYrgb = 0;
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnGraphYShiftBottom() 
 {
 	m_Grapher.m_graphCtrl.ShiftYScale(10);
 	m_Grapher.m_scaleYrgb = 0;
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnGraphYShiftTop() 
 {
 	m_Grapher.m_graphCtrl.ShiftYScale(-10);
 	m_Grapher.m_scaleYrgb = 0;
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnGraphYZoomIn() 
 {
 	m_Grapher.m_graphCtrl.GrowYScale(+10,-10);
 	m_Grapher.m_scaleYrgb = 0;
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnGraphYZoomOut() 
 {
 	m_Grapher.m_graphCtrl.GrowYScale(-10,+10);
 	m_Grapher.m_scaleYrgb = 0;
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnGraphXScale1() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(0,100);
 	m_Grapher.m_graphCtrl2.SetXScale(0,100);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnGraphXScale2() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(20,100);
 	m_Grapher.m_graphCtrl2.SetXScale(20,100);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnGraphXScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
 	m_Grapher.m_graphCtrl2.FitXScale(TRUE);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnGraphXZoomIn() 
 {
 	m_Grapher.m_graphCtrl.GrowXScale(+10,-10);
 	m_Grapher.m_graphCtrl2.GrowXScale(+10,-10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnGraphXZoomOut() 
 {
 	m_Grapher.m_graphCtrl.GrowXScale(-10,+10);
 	m_Grapher.m_graphCtrl2.GrowXScale(-10,+10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnGraphXShiftLeft() 
 {
 	m_Grapher.m_graphCtrl.ShiftXScale(-10);
 	m_Grapher.m_graphCtrl2.ShiftXScale(-10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CRGBHistoView::OnGraphXShiftRight() 
 {
 	m_Grapher.m_graphCtrl.ShiftXScale(+10);
 	m_Grapher.m_graphCtrl2.ShiftXScale(+10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 

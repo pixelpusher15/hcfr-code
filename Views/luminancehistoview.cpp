@@ -703,7 +703,7 @@ void CLuminanceHistoView::OnGraphScaleFit()
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,m_Grapher.m_logY?1:10);
 	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnLuminanceGraphYScale1() 
@@ -714,83 +714,83 @@ void CLuminanceHistoView::OnLuminanceGraphYScale1()
 		m_Grapher.m_graphCtrl.SetYScale(0,100);
 	
 	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphYScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,m_Grapher.m_logY?1:10);
 	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphYShiftBottom() 
 {
 	m_Grapher.m_graphCtrl.ShiftYScale(10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphYShiftTop() 
 {
 	m_Grapher.m_graphCtrl.ShiftYScale(-10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphYZoomIn() 
 {
 	m_Grapher.m_graphCtrl.GrowYScale(0,-10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphYZoomOut() 
 {
 	m_Grapher.m_graphCtrl.GrowYScale(0,10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphXScale1() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(0,100);
 	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphXScale2() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(20,100);
 	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphXScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
 	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphXZoomIn() 
 {
 	m_Grapher.m_graphCtrl.GrowXScale(+10,-10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphXZoomOut() 
 {
 	m_Grapher.m_graphCtrl.GrowXScale(-10,+10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphXShiftLeft() 
 {
 	m_Grapher.m_graphCtrl.ShiftXScale(-10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphXShiftRight() 
 {
 	m_Grapher.m_graphCtrl.ShiftXScale(+10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 
