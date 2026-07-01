@@ -1228,7 +1228,9 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			m_pSelectedColorGrid->SetItem(&Item);
 		}
 	}
-	m_pSelectedColorGrid->Invalidate();
+	// MV-014: was `m_pSelectedColorGrid->Invalidate();` - SetItem already invalidates
+	// only the cells that actually changed (grid-flash fix from prior work), so this
+	// whole-grid repaint on top was pure duplication per measurement point.
 
 	if ( m_pInfoWnd )
 	{
