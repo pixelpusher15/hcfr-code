@@ -2396,6 +2396,7 @@ BEGIN_MESSAGE_MAP(CCIEChartView, CSavingView)
 	//{{AFX_MSG_MAP(CCIEChartView)
 	ON_WM_ERASEBKGND()
 	ON_WM_SIZE()
+	ON_WM_TIMER()
 	ON_WM_CONTEXTMENU()
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWBACKGROUND, OnUpdateCieShowbackground)
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWDELTAE, OnUpdateCieShowDeltaE)
@@ -2614,16 +2615,21 @@ BOOL CCIEChartView::OnEraseBkgnd(CDC* pDC)
 	return TRUE;
 }
 
+// CIE-001: MakeBgBitmap HALFTONE-resamples the whole chromaticity background,
+// so running it per WM_SIZE makes drag-resize choppy. Defer to a settle-timer;
+// rebuild once after the drag stops.
+#define IDT_CIE_RESIZE_SETTLE 4201
+
 void CCIEChartView::OnSize(UINT nType, int cx, int cy) 
 {
 	if(cx && cy)
 	{
 		CRect ClientRect = CRect(CPoint(0,0),CSize(cx,cy));
-		CRect RefRect;
 
 		if ( m_Grapher.m_ZoomFactor > 1000 )
 		{
 			// Zoom is active: adjust deltaX and deltaY
+			CRect RefRect;
 			do
 			{
 				RefRect = CRect(CPoint(0,0),CSize(cx*m_Grapher.m_ZoomFactor/1000,cy*m_Grapher.m_ZoomFactor/1000));
@@ -2639,12 +2645,25 @@ void CCIEChartView::OnSize(UINT nType, int cx, int cy)
 			if ( RefRect.bottom + m_Grapher.m_DeltaY < ClientRect.bottom )
 				m_Grapher.m_DeltaY = ClientRect.bottom - RefRect.bottom;
 		}
-		else
-			RefRect = ClientRect;
 
-		m_Grapher.MakeBgBitmap(RefRect,GetConfig()->m_bWhiteBkgndOnScreen);
+		KillTimer(IDT_CIE_RESIZE_SETTLE);
+		SetTimer(IDT_CIE_RESIZE_SETTLE, 80, NULL);
 	}
 	Invalidate(FALSE);
+}
+
+void CCIEChartView::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == IDT_CIE_RESIZE_SETTLE)
+	{
+		KillTimer(IDT_CIE_RESIZE_SETTLE);
+		CRect RefRect;
+		GetReferenceRect(&RefRect);
+		m_Grapher.MakeBgBitmap(RefRect, GetConfig()->m_bWhiteBkgndOnScreen);
+		Invalidate(FALSE);
+		return;
+	}
+	CSavingView::OnTimer(nIDEvent);
 }
 
 void CCIEChartView::OnContextMenu(CWnd* pWnd, CPoint point) 

@@ -74,6 +74,7 @@ BEGIN_MESSAGE_MAP(CLuminanceWnd, CWnd)
 	ON_WM_ERASEBKGND()
 	ON_WM_PAINT()
 	ON_WM_SIZE()
+	ON_WM_TIMER()
 	ON_WM_CLOSE()
 	ON_WM_CONTEXTMENU()
 	ON_COMMAND(IDM_WHATS_THIS, OnHelp)
@@ -125,7 +126,9 @@ void CLuminanceWnd::OnPaint()
 
 void CLuminanceWnd::ComputeFontSize()
 {
-    CPaintDC dc(this);
+	// CTRL-003: was CPaintDC - outside WM_PAINT that yields an empty DC and the
+	// GetTextExtent-based font sizing came out wrong on every resize.
+    CClientDC dc(this);
     CRect rect;
     GetClientRect(&rect);
 
@@ -150,7 +153,8 @@ void CLuminanceWnd::ComputeFontSize()
 
 void CLuminanceWnd::MakeBgBitmap()
 {
-    CPaintDC dc(this);
+	// CTRL-004: was CPaintDC - outside WM_PAINT, produced a broken bg bitmap.
+    CClientDC dc(this);
     CRect rect;
     GetClientRect(&rect);
 
@@ -200,12 +204,30 @@ void CLuminanceWnd::MakeBgBitmap()
     dc2.SelectObject(oldbmap);
 }
 
+// CTRL-004/EPIC-PERF: defer heavy MakeBgBitmap+ComputeFontSize per WM_SIZE to a
+// settle-timer so drag-resize stays smooth. Refresh() still calls ComputeFontSize
+// synchronously so data-driven updates size correctly.
+#define IDT_LUM_RESIZE_SETTLE 4211
+
 void CLuminanceWnd::OnSize(UINT nType, int cx, int cy) 
 {
-	MakeBgBitmap();
-	ComputeFontSize();
 	CWnd::OnSize(nType, cx, cy);
+	KillTimer(IDT_LUM_RESIZE_SETTLE);
+	SetTimer(IDT_LUM_RESIZE_SETTLE, 80, NULL);
 	Invalidate(FALSE);
+}
+
+void CLuminanceWnd::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == IDT_LUM_RESIZE_SETTLE)
+	{
+		KillTimer(IDT_LUM_RESIZE_SETTLE);
+		MakeBgBitmap();
+		ComputeFontSize();
+		Invalidate(FALSE);
+		return;
+	}
+	CWnd::OnTimer(nIDEvent);
 }
 
 void CLuminanceWnd::OnClose()
