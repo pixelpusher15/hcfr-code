@@ -736,7 +736,7 @@ void CMeasuresHistoView::OnRGBGraphYScale1()
 	m_graphCtrl1.WriteSettings("Combo RGB Histo");
 	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
 	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CMeasuresHistoView::OnRGBGraphYScale2() 
@@ -747,7 +747,7 @@ void CMeasuresHistoView::OnRGBGraphYScale2()
 	m_graphCtrl1.WriteSettings("Combo RGB Histo");
 	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
 	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CMeasuresHistoView::OnRGBGraphYScale3() 
@@ -758,7 +758,7 @@ void CMeasuresHistoView::OnRGBGraphYScale3()
 	m_graphCtrl1.WriteSettings("Combo RGB Histo");
 	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
 	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CMeasuresHistoView::OnDeltaEGraphYScale1() 
@@ -769,7 +769,7 @@ void CMeasuresHistoView::OnDeltaEGraphYScale1()
 	m_graphCtrl1.WriteSettings("Combo RGB Histo");
 	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
 	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CMeasuresHistoView::OnDeltaEGraphYScale2() 
@@ -780,7 +780,7 @@ void CMeasuresHistoView::OnDeltaEGraphYScale2()
 	m_graphCtrl1.WriteSettings("Combo RGB Histo");
 	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
 	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CMeasuresHistoView::OnColortempGraphYScale1() 
@@ -790,7 +790,7 @@ void CMeasuresHistoView::OnColortempGraphYScale1()
 	m_graphCtrl1.WriteSettings("Combo RGB Histo");
 	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
 	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CMeasuresHistoView::OnColortempGraphYScale2() 
@@ -800,7 +800,7 @@ void CMeasuresHistoView::OnColortempGraphYScale2()
 	m_graphCtrl1.WriteSettings("Combo RGB Histo");
 	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
 	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CMeasuresHistoView::OnGraphXScale10()

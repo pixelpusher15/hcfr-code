@@ -275,7 +275,7 @@ void CGraphControl::ChangeSettings()
 		m_doShowYLabel=dialog.m_doShowYLabel;
 		m_doShowAllPoints=dialog.m_doShowAllPoints;
 		m_doShowAllToolTips=dialog.m_doShowAllToolTips;
-		Invalidate(TRUE);
+		Invalidate(FALSE);
 	}
 }
 
@@ -320,7 +320,7 @@ void CGraphControl::ChangeScale()
 		m_maxYGrow=dialog.m_maxYGrow;
 		m_yAxisStep=dialog.m_yAxisStep;
 		SetScale(m_minX,m_maxX,m_minY,m_maxY);
-		Invalidate(TRUE);
+		Invalidate(FALSE);
 	}
 }
 
