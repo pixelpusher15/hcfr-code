@@ -146,6 +146,23 @@ public:
 	DWORD DrawBorder(BOOL bDrawBorder = TRUE, BOOL bRepaint = TRUE);
 	DWORD DrawFlatFocus(BOOL bDrawFlatFocus, BOOL bRepaint = TRUE);
 
+	// Opt-in "normal button" look: a rounded-rect fill/border drawn against the
+	// parent background, with the caption left-aligned (next to the icon) instead
+	// of centred. Off by default so existing CButtonST instances are unchanged.
+	DWORD SetRoundedNormal(BOOL bRounded = TRUE, BOOL bRepaint = TRUE);
+
+	// Colour painted in the corners outside the rounded rect (i.e. the background
+	// the button sits on). CLR_NONE => use the menu background. Set this to the
+	// container/panel colour so the rounded corners blend into it.
+	DWORD SetRoundedBg(COLORREF crBg, BOOL bRepaint = TRUE);
+
+	// Outline colour of the rounded "normal button" look. CLR_NONE => COLOR_BTNSHADOW.
+	// Used e.g. to tint the Go button green and the Stop button red.
+	DWORD SetRoundedBorder(COLORREF crBorder, BOOL bRepaint = TRUE);
+
+	// Inner-border thickness for the rounded look (px). 0 = no border. Default 1.
+	DWORD SetRoundedBorderWidth(int nWidth, BOOL bRepaint = TRUE);
+
 	DWORD SetIcon(int nIconIn, int nCxDesiredIn, int nCyDesiredIn, int nIconOut = NULL, int nCxDesiredOut = 0, int nCyDesiredOut = 0);
 	DWORD SetIcon(int nIconIn, int nIconOut = NULL);
 	DWORD SetIcon(HICON hIconIn, HICON hIconOut = NULL);
@@ -211,6 +228,10 @@ protected:
 	BYTE		m_byAlign;			// Align mode
 	BOOL		m_bDrawBorder;		// Draw border?
 	BOOL		m_bDrawFlatFocus;	// Draw focus rectangle for flat button?
+	BOOL		m_bRoundedNormal;	// Draw a rounded "normal button" + left-align caption?
+	COLORREF	m_crRoundedBg;		// Corner/background colour for the rounded look (CLR_NONE = menu bg)
+	COLORREF	m_crRoundedBorder;	// Outline colour for the rounded look (CLR_NONE = COLOR_BTNSHADOW)
+	int			m_roundedBorderW;	// Inner-border thickness for the rounded look (px; 0 = none)
 	COLORREF	m_crColors[BTNST_MAX_COLORS];	// Colors to be used
 	HWND		m_hParentWndMenu;	// Handle to window for menu selection
 	BOOL		m_bMenuDisplayed;	// Is menu displayed ?

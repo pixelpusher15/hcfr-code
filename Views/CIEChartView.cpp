@@ -243,7 +243,7 @@ void CCIEChartGrapher::MakeBgBitmap(CRect rect, BOOL bWhiteBkgnd)	// Create back
 
 	// Initializes a CFont object with the specified characteristics. 
 	CFont font;
-	font.CreateFont(16,0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_MODERN,_T("Garamond"));
+	font.CreateFont(16,0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 
 	CFont* pOldFont = bgDC.SelectObject(&font);
 
@@ -1476,7 +1476,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			GetColorApp() -> m_chartBitmap.GetBitmap(&bm);
 			// Initializes a CFont object with the specified characteristics. 
 			CFont font;
-			font.CreateFont(16,0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_MODERN,_T("Garamond"));
+			font.CreateFont(16,0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 
 			CFont* pOldFont = pDC->SelectObject(&font);
 

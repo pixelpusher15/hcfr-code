@@ -278,8 +278,10 @@ BOOL CGridCellBase::Draw(CDC* pDC, int nRow, int nCol, CRect rect,  BOOL bEraseB
             pDC->SelectObject(pFont);
     }
 
-    //rect.DeflateRect(GetMargin(), 0); - changed by Yogurt
-    rect.DeflateRect(GetMargin(), GetMargin());    
+    // Horizontal padding only -- a vertical inset clips the taller, bold fixed-cell
+    // (row/column header) labels once the rows are shrunk, while the centred text
+    // gains nothing from it at normal sizes (DT_VCENTER already centres it).
+    rect.DeflateRect(GetMargin(), 0);
     rect.right++;    
     rect.bottom++;
 

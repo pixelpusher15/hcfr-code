@@ -60,6 +60,12 @@ CButtonST::CButtonST()
 	// By default, for "flat" button, don't draw the focus rect
 	m_bDrawFlatFocus = FALSE;
 
+	// By default the "rounded normal button" look is off
+	m_bRoundedNormal = FALSE;
+	m_crRoundedBg = CLR_NONE;
+	m_crRoundedBorder = CLR_NONE;
+	m_roundedBorderW = 1;
+
 	// By default the button is not the default button
 	m_bIsDefault = FALSE;
 	// Invalid value, since type still unknown
@@ -821,14 +827,22 @@ void CButtonST::DrawTheText(CDC* pDC, LPCTSTR lpszText, RECT* rpItem, CRect* rpC
 	//CBrush brBtnShadow(RGB(255, 0, 0));
 	//pDC->FrameRect(rCaption, &brBtnShadow);
 
-	// Center text
-	CRect centerRect = rpCaption;
-	pDC->DrawText(lpszText, -1, rpCaption, DT_WORDBREAK | DT_CENTER | DT_CALCRECT);
-	rpCaption->OffsetRect((centerRect.Width() - rpCaption->Width())/2, (centerRect.Height() - rpCaption->Height())/2);
-	/* RFU
-	rpCaption->OffsetRect(0, (centerRect.Height() - rpCaption->Height())/2);
-	rpCaption->OffsetRect((centerRect.Width() - rpCaption->Width())-4, (centerRect.Height() - rpCaption->Height())/2);
-	*/
+	// Text layout: rounded "normal" buttons left-align the caption (next to the
+	// icon) and vertically centre it; classic buttons keep the centred,
+	// word-wrapped layout.
+	UINT dtFlags = (DT_WORDBREAK | DT_CENTER);
+	if (m_bRoundedNormal)
+	{
+		dtFlags = (DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+		rpCaption->left += 2;	// small inset so the caption isn't flush against the icon
+	}
+	else
+	{
+		// Center text
+		CRect centerRect = rpCaption;
+		pDC->DrawText(lpszText, -1, rpCaption, DT_WORDBREAK | DT_CENTER | DT_CALCRECT);
+		rpCaption->OffsetRect((centerRect.Width() - rpCaption->Width())/2, (centerRect.Height() - rpCaption->Height())/2);
+	}
 
 	pDC->SetBkMode(TRANSPARENT);
 	/*
@@ -839,10 +853,10 @@ void CButtonST::DrawTheText(CDC* pDC, LPCTSTR lpszText, RECT* rpItem, CRect* rpC
 	{
 		rpCaption->OffsetRect(1, 1);
 		pDC->SetTextColor(FxGetSysColor(COLOR_3DHILIGHT));
-		pDC->DrawText(lpszText, -1, rpCaption, DT_WORDBREAK | DT_CENTER);
+		pDC->DrawText(lpszText, -1, rpCaption, dtFlags);
 		rpCaption->OffsetRect(-1, -1);
 		pDC->SetTextColor(FxGetSysColor(COLOR_3DSHADOW));
-		pDC->DrawText(lpszText, -1, rpCaption, DT_WORDBREAK | DT_CENTER);
+		pDC->DrawText(lpszText, -1, rpCaption, dtFlags);
 	} // if
 	else
 	{
@@ -864,7 +878,7 @@ void CButtonST::DrawTheText(CDC* pDC, LPCTSTR lpszText, RECT* rpItem, CRect* rpC
 				pDC->SetBkColor(m_crColors[BTNST_COLOR_BK_OUT]); 
 			} // else
 		} // else
-		pDC->DrawText(lpszText, -1, rpCaption, DT_WORDBREAK | DT_CENTER);
+		pDC->DrawText(lpszText, -1, rpCaption, dtFlags);
 	} // if
 } // End of DrawTheText
 
@@ -1910,6 +1924,56 @@ DWORD CButtonST::DrawFlatFocus(BOOL bDrawFlatFocus, BOOL bRepaint)
 	return BTNST_OK;
 } // End of DrawFlatFocus
 
+// This function enables the opt-in rounded "normal button" look: a rounded-rect
+// fill/outline drawn against the parent background, with the caption left-aligned
+// (next to the icon) instead of centred.
+//
+// Parameters:
+//		[IN]	bRounded
+//				If TRUE the button is drawn with the rounded look.
+//		[IN]	bRepaint
+//				If TRUE the control will be repainted.
+//
+// Return value:
+//		BTNST_OK
+//			Function executed successfully.
+//
+DWORD CButtonST::SetRoundedNormal(BOOL bRounded, BOOL bRepaint)
+{
+	m_bRoundedNormal = bRounded;
+	// Repaint the button
+	if (bRepaint) Invalidate();
+
+	return BTNST_OK;
+} // End of SetRoundedNormal
+
+DWORD CButtonST::SetRoundedBg(COLORREF crBg, BOOL bRepaint)
+{
+	m_crRoundedBg = crBg;
+	// Repaint the button
+	if (bRepaint) Invalidate();
+
+	return BTNST_OK;
+} // End of SetRoundedBg
+
+DWORD CButtonST::SetRoundedBorder(COLORREF crBorder, BOOL bRepaint)
+{
+	m_crRoundedBorder = crBorder;
+	// Repaint the button
+	if (bRepaint) Invalidate();
+
+	return BTNST_OK;
+} // End of SetRoundedBorder
+
+DWORD CButtonST::SetRoundedBorderWidth(int nWidth, BOOL bRepaint)
+{
+	m_roundedBorderW = nWidth;
+	// Repaint the button
+	if (bRepaint) Invalidate();
+
+	return BTNST_OK;
+} // End of SetRoundedBorderWidth
+
 void CButtonST::InitToolTip()
 {
 	if (m_ToolTip.m_hWnd == NULL)
@@ -2362,6 +2426,51 @@ DWORD CButtonST::OnDrawBackground(CDC* pDC, CRect* pRect)
 {
 	COLORREF	crColor;
 
+	if (m_bRoundedNormal)
+	{
+		// "Normal button" look: a rounded fill + outline drawn against the parent
+		// background, so the corners outside the rounded rect read as cut-out.
+		// OnDrawBorder is skipped for these (the outline is drawn here).
+		if (m_bMouseOnButton || m_bIsPressed)
+			crColor = m_crColors[BTNST_COLOR_BK_IN];
+		else if (m_bIsFocused)
+			crColor = m_crColors[BTNST_COLOR_BK_FOCUS];
+		else
+			crColor = m_crColors[BTNST_COLOR_BK_OUT];
+
+		CBrush brParent(m_crRoundedBg == CLR_NONE ? FxGetMenuBgColor() : m_crRoundedBg);
+		pDC->FillRect(pRect, &brParent);
+
+		int radius = 3;		// button corner radius (design spec)
+
+		// Draw as two filled rounded rects (no pen) so the border is a clean solid
+		// ring with no corner gap: outer = border colour, inner (inset) = face.
+		CPen* pOldPen = (CPen*) pDC->SelectStockObject(NULL_PEN);
+		if (m_roundedBorderW > 0)
+		{
+			COLORREF crB = (m_crRoundedBorder == CLR_NONE) ? FxGetSysColor(COLOR_BTNSHADOW) : m_crRoundedBorder;
+			CBrush brB(crB);
+			CBrush* pOldBrush = pDC->SelectObject(&brB);
+			pDC->RoundRect(pRect->left, pRect->top, pRect->right, pRect->bottom, radius * 2, radius * 2);
+			CBrush brFace(crColor);
+			pDC->SelectObject(&brFace);
+			int in = m_roundedBorderW;
+			int ir = radius - in; if (ir < 2) ir = 2;
+			pDC->RoundRect(pRect->left + in, pRect->top + in, pRect->right - in, pRect->bottom - in, ir * 2, ir * 2);
+			pDC->SelectObject(pOldBrush);
+		}
+		else
+		{
+			CBrush brFace(crColor);
+			CBrush* pOldBrush = pDC->SelectObject(&brFace);
+			pDC->RoundRect(pRect->left, pRect->top, pRect->right, pRect->bottom, radius * 2, radius * 2);
+			pDC->SelectObject(pOldBrush);
+		}
+		pDC->SelectObject(pOldPen);
+
+		return BTNST_OK;
+	}
+
 	if (m_bIsFlat == FALSE)
 	{
 		if (m_bIsFocused || m_bIsDefault)
@@ -2406,6 +2515,10 @@ DWORD CButtonST::OnDrawBackground(CDC* pDC, CRect* pRect)
 //
 DWORD CButtonST::OnDrawBorder(CDC* pDC, CRect* pRect)
 {
+	// Rounded "normal" buttons draw their outline in OnDrawBackground.
+	if (m_bRoundedNormal)
+		return BTNST_OK;
+
 	// Draw pressed button
 	if (m_bIsPressed)
 	{

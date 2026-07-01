@@ -402,6 +402,13 @@ void CRGBHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_SENSORCONFIG || lHint == UPD_FREEMEASUREAPPENDED || lHint >= UPD_REALTIME)
 	{
 		m_Grapher.UpdateGraph ( GetDocument () );
+		// Keep the two stacked charts' x-axes aligned so their vertical gridlines line up:
+		// the delta-E chart (graphCtrl2) can auto-fit to a narrower valid x-range than the
+		// RGB balance chart stacked above it -- mirror its x-range onto the RGB balance one.
+		m_Grapher.m_graphCtrl2.m_minX      = m_Grapher.m_graphCtrl.m_minX;
+		m_Grapher.m_graphCtrl2.m_maxX      = m_Grapher.m_graphCtrl.m_maxX;
+		m_Grapher.m_graphCtrl2.m_xScale    = m_Grapher.m_graphCtrl.m_xScale;
+		m_Grapher.m_graphCtrl2.m_xAxisStep = m_Grapher.m_graphCtrl.m_xAxisStep;
 		RedrawWindow( NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW );
 	}
 }

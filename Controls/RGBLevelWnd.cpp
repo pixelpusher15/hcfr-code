@@ -27,6 +27,8 @@
 #include "MainView.h"
 #include "RGBLevelWnd.h"
 #include "Color.h"
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -497,9 +499,10 @@ END_MESSAGE_MAP()
 
 void CRGBLevelWnd::OnPaint() 
 {
-	int widthMargin=2;
+	int widthMargin=6;
 	int heightMargin=5;
-	int interBarMargin=4;
+	int bottomMargin=1;
+	int interBarMargin=6;
 
 	CPaintDC dc(this); // device context for painting
 	
@@ -508,18 +511,28 @@ void CRGBLevelWnd::OnPaint()
 	CRect rect;
 	GetClientRect(&rect);
 
-	// fill the background with black
-	HBRUSH hBrBkgnd = (HBRUSH) GetParent () -> SendMessage ( WM_CTLCOLORSTATIC, (WPARAM) dc.m_hDC, (LPARAM) m_hWnd );
-	
-	if ( hBrBkgnd && !GetConfig()->m_darkTheme )
-		FillRect ( pDC -> m_hDC, & rect, hBrBkgnd );
-	else
-		pDC->FillSolidRect(0,0,rect.Width(),rect.Height(),RGB(0,0,0));
+	// Chart panel background: a soft vertical gradient + thin border, tuned per theme
+	// (near-black in dark mode so the bars still pop; a pale panel in light mode).
+	BOOL bDark = GetConfig()->m_darkTheme;
+	int bgTop = bDark ? 26 : 250;
+	int bgBot = bDark ? 12 : 235;
+	int bgH = rect.Height();
+	for ( int y = 0; y < bgH; y++ )
+	{
+		int v = bgTop - (bgH>1 ? (bgTop-bgBot)*y/(bgH-1) : 0);
+		pDC->FillSolidRect(0, y, rect.Width(), 1, RGB(v, v, bDark ? v : min(255, v + 2)));
+	}
+	CBrush* pOldBgBr = (CBrush*) pDC->SelectStockObject(NULL_BRUSH);
+	CPen penBg(PS_SOLID, 1, bDark ? RGB(56,56,56) : RGB(205,207,213));
+	CPen* pOldBgPen = pDC->SelectObject(&penBg);
+	pDC->Rectangle(0, 0, rect.Width(), rect.Height());
+	pDC->SelectObject(pOldBgPen);
+	pDC->SelectObject(pOldBgBr);
 
 	CRect drawRect=rect;
-	drawRect.DeflateRect(widthMargin,heightMargin);
+	drawRect.DeflateRect(widthMargin,heightMargin,widthMargin,bottomMargin);
 
-	int barWidth = int ((drawRect.Width()-2*interBarMargin)/4.0); //includes dE
+	int barWidth = int ((drawRect.Width()-3*interBarMargin)/4.0); //includes dE
 	int maxYValue = int  max(m_redValue,max(m_greenValue,m_blueValue));
 	CSize labelSize=pDC->GetTextExtent("100%");
 
@@ -535,29 +548,31 @@ void CRGBLevelWnd::OnPaint()
 
 	if(maxYValue < 200) 	// draw 100% line only if scale is 0-200%
 	{
-		CPen aPen(PS_DOT,1,RGB(128,128,128));
-		pDC->SelectObject(&aPen);
-		pDC->MoveTo(0,rect.Height()-(int)(100.0*yScale)-heightMargin);
-		pDC->LineTo(rect.Width(),rect.Height()-(int)(100.0*yScale)-heightMargin);
+		CPen aPen(PS_DOT,1, bDark ? RGB(128,128,128) : RGB(176,178,184));
+		CPen* pOldLinePen = pDC->SelectObject(&aPen);
+		pDC->MoveTo(0,rect.Height()-(int)(100.0*yScale)-bottomMargin);
+		pDC->LineTo(rect.Width(),rect.Height()-(int)(100.0*yScale)-bottomMargin);
+		pDC->SelectObject(pOldLinePen);   // CTRL-007: restore the DC's pen before aPen is destroyed
 	}
 
-	int redBarHeight=(int)(m_redValue*yScale);
+	int minBar = MulDiv(3, pDC->GetDeviceCaps(LOGPIXELSY), 96);
+	int redBarHeight=max(minBar,(int)(floor(m_redValue*10.0+0.5)/10.0*yScale));
 	int redBarX=widthMargin;
-	int redBarY=rect.Height()-redBarHeight-heightMargin;
+	int redBarY=rect.Height()-redBarHeight-bottomMargin;
 	
-	int greenBarHeight= (int)(m_greenValue*yScale);
+	int greenBarHeight= max(minBar,(int)(floor(m_greenValue*10.0+0.5)/10.0*yScale));
 	int greenBarX=widthMargin+barWidth+interBarMargin;
-	int greenBarY=rect.Height()-greenBarHeight-heightMargin;
+	int greenBarY=rect.Height()-greenBarHeight-bottomMargin;
 
-	int blueBarHeight= (int)(m_blueValue*yScale);
+	int blueBarHeight= max(minBar,(int)(floor(m_blueValue*10.0+0.5)/10.0*yScale));
 	int blueBarX=widthMargin+2*barWidth+2*interBarMargin;
-	int blueBarY=rect.Height()-blueBarHeight-heightMargin;
+	int blueBarY=rect.Height()-blueBarHeight-bottomMargin;
 
 	double dEyScale=(float)drawRect.Height()/6.;
 	double dEBarHeightmax=dEyScale * 4.8;
-	int dEBarHeight= min((int)dEBarHeightmax,(int)(m_dEValue*dEyScale));
+	int dEBarHeight= max(minBar,min((int)dEBarHeightmax,(int)(floor(m_dEValue*10.0+0.5)/10.0*dEyScale)));
 	int dEBarX=widthMargin+3*barWidth+3*interBarMargin;
-	int dEBarY=rect.Height()-dEBarHeight-heightMargin;
+	int dEBarY=rect.Height()-dEBarHeight-bottomMargin;
 
     // draw RGB bars
 	int ellipseHeight=barWidth/4;
@@ -566,55 +581,22 @@ void CRGBLevelWnd::OnPaint()
     	DrawGradientBar(pDC,RGB(0,125,125),redBarX,redBarY,barWidth,redBarHeight);
 	    DrawGradientBar(pDC,RGB(125,0,125),greenBarX,greenBarY,barWidth,greenBarHeight);
 	    DrawGradientBar(pDC,RGB(125,125,0),blueBarX,blueBarY,barWidth,blueBarHeight);
-	    DrawGradientBar(pDC,RGB(255,215,0),dEBarX,dEBarY,barWidth,dEBarHeight);
+	    DrawGradientBar(pDC,RGB(220,185,55),dEBarX,dEBarY,barWidth,dEBarHeight);
     }
     else
     {
-    	DrawGradientBar(pDC,RGB(255,0,0),redBarX,redBarY,barWidth,redBarHeight);
-	    DrawGradientBar(pDC,RGB(0,255,0),greenBarX,greenBarY,barWidth,greenBarHeight);
+    	DrawGradientBar(pDC,RGB(215,55,55),redBarX,redBarY,barWidth,redBarHeight);
+	    DrawGradientBar(pDC,RGB(65,190,80),greenBarX,greenBarY,barWidth,greenBarHeight);
 	    DrawGradientBar(pDC,RGB(0,0,255),blueBarX,blueBarY,barWidth,blueBarHeight);
-	    DrawGradientBar(pDC,RGB(255,215,0),dEBarX,dEBarY,barWidth,dEBarHeight);
+	    DrawGradientBar(pDC,RGB(220,185,55),dEBarX,dEBarY,barWidth,dEBarHeight);
     }
 
 
-    if(ellipseHeight > 3)
-	{
-		CPen *pOldPen;
-		CPen anEllipsePen(PS_SOLID,1,RGB(0,0,0));
-		pOldPen=pDC->SelectObject(&anEllipsePen);
-		// Red ellipse
-		CBrush *pOldBrush;
-		CBrush anEllipseBrush;
-		anEllipseBrush.CreateSolidBrush(RGB(164,0,0));
-		pOldBrush=pDC->SelectObject(&anEllipseBrush);
-		pDC->Ellipse(redBarX,redBarY-ellipseHeight/2,redBarX+barWidth,redBarY+ellipseHeight/2);
-		// Green ellipse
-		pDC->SelectObject(pOldBrush);
-		anEllipseBrush.DeleteObject();
-		anEllipseBrush.CreateSolidBrush(RGB(0,164,0));
-		pOldBrush=pDC->SelectObject(&anEllipseBrush);
-		pDC->Ellipse(greenBarX,greenBarY-ellipseHeight/2,greenBarX+barWidth,greenBarY+ellipseHeight/2);
-		// Blue ellipse
-		pDC->SelectObject(pOldBrush);
-		anEllipseBrush.DeleteObject();
-		anEllipseBrush.CreateSolidBrush(RGB(0,0,164));
-		pOldBrush=pDC->SelectObject(&anEllipseBrush);
-		pDC->Ellipse(blueBarX,blueBarY-ellipseHeight/2,blueBarX+barWidth,blueBarY+ellipseHeight/2);
-		// dE ellipse
-		pDC->SelectObject(pOldBrush);
-		anEllipseBrush.DeleteObject();
-		anEllipseBrush.CreateSolidBrush(RGB(184,134,11));
-		pOldBrush=pDC->SelectObject(&anEllipseBrush);
-		pDC->Ellipse(dEBarX,dEBarY-ellipseHeight/2,dEBarX+barWidth,dEBarY+ellipseHeight/2);
-
-		pDC->SelectObject(pOldBrush);
-		pDC->SelectObject(pOldPen);
-	}
+    // Flat bars: the 3D ellipse caps have been removed; rounded tops are drawn in DrawGradientBar.
 
 	// Display values on top of bars
 	pDC->SetTextAlign(TA_CENTER | TA_BOTTOM);
-	if ( ! hBrBkgnd || GetConfig()->m_darkTheme )
-		pDC->SetTextColor(RGB(255,255,255));
+	pDC->SetTextColor(bDark ? RGB(255,255,255) : RGB(40,40,44));
 	pDC->SetBkMode(TRANSPARENT);
 
 	// Initializes a CFont object with the specified characteristics. 
@@ -622,7 +604,7 @@ void CRGBLevelWnd::OnPaint()
 	if (GetConfig()->isHighDPI)
 	{
 		VERIFY(font.CreateFont(
-		   18,						  // nHeight
+		   19,						  // nHeight
 		   0,                         // nWidth
 		   0,                         // nEscapement
 		   0,                         // nOrientation
@@ -634,12 +616,12 @@ void CRGBLevelWnd::OnPaint()
 		   OUT_TT_ONLY_PRECIS,//OUT_DEFAULT_PRECIS,        // nOutPrecision
 		   CLIP_DEFAULT_PRECIS,       // nClipPrecision
 		   PROOF_QUALITY,//DEFAULT_QUALITY,           // nQuality
-		   VARIABLE_PITCH | FF_MODERN,//FIXED_PITCH,				  // nPitchAndFamily
-		   _T("Garamond")));                 // lpszFacename
+		   VARIABLE_PITCH | FF_SWISS,//FIXED_PITCH,				  // nPitchAndFamily
+		   _T("Segoe UI")));                 // lpszFacename
 	} else
 	{
 		VERIFY(font.CreateFont(
-		   14,						  // nHeight
+		   15,						  // nHeight
 		   0,                         // nWidth
 		   0,                         // nEscapement
 		   0,                         // nOrientation
@@ -651,8 +633,8 @@ void CRGBLevelWnd::OnPaint()
 		   OUT_TT_ONLY_PRECIS,//OUT_DEFAULT_PRECIS,        // nOutPrecision
 		   CLIP_DEFAULT_PRECIS,       // nClipPrecision
 		   PROOF_QUALITY,//DEFAULT_QUALITY,           // nQuality
-		   VARIABLE_PITCH | FF_MODERN,//FIXED_PITCH,				  // nPitchAndFamily
-		   _T("Garamond")));                 // lpszFacename
+		   VARIABLE_PITCH | FF_SWISS,//FIXED_PITCH,				  // nPitchAndFamily
+		   _T("Segoe UI")));                 // lpszFacename
 	}
 
 	// Do something with the font just created...
@@ -670,37 +652,84 @@ void CRGBLevelWnd::OnPaint()
 
 	pDC->SelectObject(pOldFont);
 
-	rect.top = rect.bottom - heightMargin;
-	pDC -> FillSolidRect ( & rect, RGB(0,0,0) );
+	// No bottom strip fill here: the panel gradient + border already paints the bottom
+	// margin, and each bar's border is clipped to the baseline, so a solid strip would
+	// only cut into the panel frame.
+}
+
+// Initialise GDI+ once (process lifetime) so the level bars can be drawn anti-aliased.
+static void EnsureGdiplus()
+{
+	static ULONG_PTR s_token = 0;
+	if ( s_token == 0 )
+	{
+		Gdiplus::GdiplusStartupInput gdipInput;
+		Gdiplus::GdiplusStartup(&s_token, &gdipInput, NULL);
+	}
 }
 
 void CRGBLevelWnd::DrawGradientBar(CDC *pDC,COLORREF aColor, int aX, int aY, int aWidth, int aHeight) 
 {
-	aWidth=aWidth/2;  // Split the drawing in 2 parts white to color and color to black
+	if ( aWidth <= 0 || aHeight <= 0 )
+		return;
 
-	// fill white to color gradient
-	int r1=255,g1=255,b1=255; // start with white
-	int r2=GetRValue(aColor),g2=GetGValue(aColor),b2=GetBValue(aColor); //Any stop color
-	for(int i=0;i<aWidth;i++)
-	{ 
-		int r,g,b;
-		r = r1 + (i * (r2-r1) / aWidth);
-		g = g1 + (i * (g2-g1) / aWidth);
-		b = b1 + (i * (b2-b1) / aWidth);
-		pDC->FillSolidRect(aX+i,aY,1,aHeight,RGB(r,g,b));
+	EnsureGdiplus();
+	BOOL bDark = GetConfig()->m_darkTheme;
+
+	// Per-theme colours: top sheen, deepened bottom, and a defining edge
+	// (lighter than the bar on the dark panel, darker on the light panel).
+	int r0 = GetRValue(aColor), g0 = GetGValue(aColor), b0 = GetBValue(aColor);
+	int rT, gT, bT, rB, gB, bB, re, ge, be;
+	if ( bDark )
+	{
+		rT = r0 + (255 - r0) * 10 / 100; gT = g0 + (255 - g0) * 10 / 100; bT = b0 + (255 - b0) * 10 / 100;
+		rB = r0 * 82 / 100; gB = g0 * 82 / 100; bB = b0 * 82 / 100;
+		re = r0 + (255 - r0) * 40 / 100; ge = g0 + (255 - g0) * 40 / 100; be = b0 + (255 - b0) * 40 / 100;
+	}
+	else
+	{
+		rT = r0; gT = g0; bT = b0;
+		rB = r0 * 80 / 100; gB = g0 * 80 / 100; bB = b0 * 80 / 100;
+		re = r0 * 58 / 100; ge = g0 * 58 / 100; be = b0 * 58 / 100;
 	}
 
-	// fill color to black gradient
-	r1=GetRValue(aColor),g1=GetGValue(aColor),b1=GetBValue(aColor); //Any stop color
-	r2=0,g2=0,b2=0; // end with black
-	for(int i=0;i<aWidth;i++)
-	{ 
-		int r,g,b;
-		r = r1 + (i * (r2-r1) / aWidth);
-		g = g1 + (i * (g2-g1) / aWidth);
-		b = b1 + (i * (b2-b1) / aWidth);
-		pDC->FillSolidRect(aX+i+aWidth,aY,1,aHeight,RGB(r,g,b));
-	}
+	Gdiplus::Graphics g(pDC->GetSafeHdc());
+	g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+	g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+	float radius = (float) MulDiv(3, pDC->GetDeviceCaps(LOGPIXELSY), 96);
+	if ( radius > aWidth / 2.0f )  radius = aWidth / 2.0f;
+	if ( radius > aHeight / 2.0f ) radius = aHeight / 2.0f;
+	if ( radius < 1.0f )           radius = 1.0f;
+
+	float Lx = (float) aX + 0.5f;
+	float Rx = (float) (aX + aWidth) - 0.5f;
+	float Ty = (float) aY + 0.5f;
+	float By = (float) (aY + aHeight);          // baseline (open bottom -- no inset)
+	float d  = radius * 2.0f;
+
+	// Fill: rounded-top / square-bottom path with a vertical gradient.
+	Gdiplus::GraphicsPath fillPath;
+	fillPath.AddArc(Lx, Ty, d, d, 180.0f, 90.0f);        // top-left corner
+	fillPath.AddArc(Rx - d, Ty, d, d, 270.0f, 90.0f);    // top-right corner
+	fillPath.AddLine(Rx, Ty + radius, Rx, By);           // right side
+	fillPath.AddLine(Rx, By, Lx, By);                    // bottom
+	fillPath.CloseFigure();                              // left side
+	float gw = Rx - Lx; if ( gw < 1.0f ) gw = 1.0f;   // LinearGradientBrush needs a non-empty rect
+	Gdiplus::LinearGradientBrush brush(
+		Gdiplus::RectF(Lx, Ty - 1.0f, gw, (By - Ty) + 2.0f),
+		Gdiplus::Color(255, rT, gT, bT), Gdiplus::Color(255, rB, gB, bB),
+		Gdiplus::LinearGradientModeVertical);
+	g.FillPath(&brush, &fillPath);
+
+	// Border: rounded top + sides only (open path -- no bottom edge, ends level with the fill).
+	Gdiplus::GraphicsPath borderPath;
+	borderPath.AddLine(Lx, By - 1.0f, Lx, Ty + radius);  // left side up (stop level with the fill's solid bottom)
+	borderPath.AddArc(Lx, Ty, d, d, 180.0f, 90.0f);      // top-left
+	borderPath.AddArc(Rx - d, Ty, d, d, 270.0f, 90.0f);  // top-right
+	borderPath.AddLine(Rx, Ty + radius, Rx, By - 1.0f);  // right side down
+	Gdiplus::Pen pen(Gdiplus::Color(255, re, ge, be), 1.0f);
+	g.DrawPath(&pen, &borderPath);
 }
 
 void CRGBLevelWnd::OnContextMenu(CWnd* pWnd, CPoint point) 

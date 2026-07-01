@@ -775,7 +775,7 @@ void CGraphControl::DrawGraphs(CDC *pDC, CRect rect)
 				if (this->m_doShowDataLabel && (j==0 || this->m_graphArray[0].m_Title == "Red") && j<6 && this->m_graphArray[0].m_Title != "RGB Reference") //only label 1st graph of series unless Luminance from sat sweep
 				{
 					CFont font;
-				font.CreateFont(GetConfig()->Scale(16),0,300,300,FW_SEMIBOLD,FALSE,FALSE,FALSE,0,OUT_STRING_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_MODERN,_T("Garamond"));
+				font.CreateFont(GetConfig()->Scale(16),0,300,300,FW_SEMIBOLD,FALSE,FALSE,FALSE,0,OUT_STRING_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 					CFont* pOldFont = pDC->SelectObject(&font);
 					char outStr[10];
 					double y = m_graphArray[j].m_pointArray[i].y;
@@ -807,7 +807,7 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 
 	int pointSize=80;
 	CFont font;
-	font.CreateFont(GetConfig()->ScaleFloor(14,16),0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_MODERN,_T("Garamond"));
+	font.CreateFont(GetConfig()->ScaleFloor(14,16),0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 
 	CFont* pOldFont = pDC->SelectObject(&font);
 
@@ -917,7 +917,7 @@ void CGraphControl::OnPaint()
 		else
 			clr = RGB ( 64, 64, 64 );
 		
-		DrawFiligree ( pDC, rect, clr );
+		(void)clr;   // hcfr.sourceforge.net watermark removed from the on-screen charts
 	}
 	
 	DrawAxis(pDC,rect,GetConfig()->m_bWhiteBkgndOnScreen);
@@ -930,7 +930,7 @@ void CGraphControl::OnPaint()
 	TCHAR		GLabel[100] = _T("");
 	StringCchCat(GLabel, 260, GTxt); 
 		pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(255,0,0) );
-	font.CreateFont( GetConfig()->ScaleFloor(14,18), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Arial" );
+	font.CreateFont( GetConfig()->ScaleFloor(14,18), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Segoe UI" );
 	pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );	if (GTxt == "Near White Luminance Response")		pDC -> SetTextColor ( RGB(220,120,220) );
 	else
 		pDC -> SetTextColor ( RGB(210,210,10) );
@@ -972,7 +972,7 @@ void CGraphControl::DrawFiligree(CDC *pDC, CRect rect, COLORREF clr)
 	logfont.lfClipPrecision = CLIP_DEFAULT_PRECIS;
 	logfont.lfQuality = PROOF_QUALITY;
 	logfont.lfPitchAndFamily = VARIABLE_PITCH;
-	strcpy_s(logfont.lfFaceName,"Arial");
+	strcpy_s(logfont.lfFaceName,"Segoe UI");
 
 	font.CreateFontIndirect (&logfont);
 

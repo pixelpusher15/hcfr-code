@@ -84,6 +84,10 @@ public:
 	CComboBox	m_comboDisplay;
 	CButtonST	m_testAnsiPatternButton;
 	CButtonST	m_refs;
+	CComboBox	m_comboDisplayType;	// Display-type dropdown (runtime-created, replaces the 5 radios)
+	CButton		m_btnSizePlus;	// header [+] size button (runtime-created, replaces the spinner)
+	CButton		m_btnSizeMinus;	// header [-] size button
+	CFont		m_fluentFont;	// Segoe Fluent Icons font for the +/- glyphs
 	//}}AFX_DATA
 
 private:
@@ -171,6 +175,8 @@ public:
 	std::vector<double> dEvector, dLvector, dCvector, dHvector;
 
 	CBrush *m_pBgBrush;
+	CBrush *m_pHdrBrush;		// header band brush for the Edit checkbox (matches the stats bar)
+	CRect  m_rcButtonPanel;	// solid panel behind the Display dropdown + action buttons
 
 	CDataSetDoc* GetDocument();
 
@@ -198,6 +204,7 @@ protected:
 	void InitSelectedColorGrid();
 	void InitButtons();
 	void InitGroups();
+	void LayoutTopRow();
 	void UpdateContrastValuesInGrid ();
 	CPPToolTip	m_tooltip,m_tooltip2;
 	CString GetItemText(CColor & aMeasure, double YWhite, CColor & aReference, CColor & aRefDocColor, double YWhiteRefDoc, int aComponentNum, int nCol, double Offset, bool isGS);
@@ -237,6 +244,9 @@ public:
 	afx_msg void OnSelchangeInfoDisplay();
 	afx_msg void OnSelchangeComboMode();
 	afx_msg void OnDropdownComboMode();
+	afx_msg void OnSelchangeDisplayType();
+	afx_msg void OnSizePlus();
+	afx_msg void OnSizeMinus();
 
 // Generated message map functions
 protected:

@@ -40,6 +40,15 @@ public:
 	// the font but its padding does not balloon at high DPI.
 	int PreferredHeight(CDC* pDC);
 
+	
+	// Header controls drawn BY THE BAR (so they fill the band height like the chips
+	// and can never be clipped by sibling windows): a [ ] Edit checkbox plus [+]/[-]
+	// grid-size buttons at the far right. The bar reads/toggles the (hidden) edit
+	// checkbox for its state and fires the existing command handlers on click.
+	//   pEditBtn   : hidden CButton that holds the edit-grid checked/enabled state
+	//   pGlyphFont : Segoe Fluent Icons font for the +/- and checkmark glyphs
+	void SetHeaderModel(CButton* pEditBtn, CFont* pGlyphFont);
+
 // Implementation
 public:
 	virtual ~CStatsBarWnd();
@@ -52,12 +61,28 @@ protected:
 	CString			m_strText;	// last text received (to skip redundant repaints)
 	CStringArray	m_segments;	// parsed display segments
 	CFont			m_font;		// larger bold font for the header chips
+	int				m_rightReserve;	// px reserved on the right for overlaid controls
 
+	// Bar-drawn header controls
+	CButton*		m_pEditBtn;		// hidden control holding the edit-grid state
+	CFont*			m_pGlyphFont;	// Segoe Fluent Icons (not owned)
+	CRect			m_rcEditZone, m_rcPlusZone, m_rcMinusZone;	// hit rects (client px)
+	int				m_pressZone;	// control id being pressed, or 0
+	int				m_hoverZone;	// +/- control id under the mouse, or 0
+
+	void DrawHeaderControls(CDC* pDC, const CRect& rc);	// draws the bar's header controls: the [ ] Edit checkbox and the [+]/[-] buttons
+
+	
 	// Generated message map functions
 protected:
 	//{{AFX_MSG(CStatsBarWnd)
 	afx_msg void OnPaint();
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
+	afx_msg void OnLButtonDown(UINT nFlags, CPoint point);
+	afx_msg void OnLButtonUp(UINT nFlags, CPoint point);
+	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
+	afx_msg void OnMouseLeave();
+	afx_msg void OnSize(UINT nType, int cx, int cy);
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };
