@@ -27,6 +27,8 @@
 #include "MainView.h"
 #include "RGBLevelWnd.h"
 #include "Color.h"
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -653,59 +655,78 @@ void CRGBLevelWnd::OnPaint()
 	// (bottom margin is left to the panel gradient + border; each bar's border is clipped to
 }
 
+// Initialise GDI+ once (process lifetime) so the level bars can be drawn anti-aliased.
+static void EnsureGdiplus()
+{
+	static ULONG_PTR s_token = 0;
+	if ( s_token == 0 )
+	{
+		Gdiplus::GdiplusStartupInput gdipInput;
+		Gdiplus::GdiplusStartup(&s_token, &gdipInput, NULL);
+	}
+}
+
 void CRGBLevelWnd::DrawGradientBar(CDC *pDC,COLORREF aColor, int aX, int aY, int aWidth, int aHeight) 
 {
 	if ( aWidth <= 0 || aHeight <= 0 )
 		return;
 
+	EnsureGdiplus();
 	BOOL bDark = GetConfig()->m_darkTheme;
 
-	int radius = MulDiv(3, pDC->GetDeviceCaps(LOGPIXELSY), 96);
-	if ( radius > aWidth / 2 )  radius = aWidth / 2;
-	if ( radius > aHeight / 2 ) radius = aHeight / 2;
-	if ( radius < 1 )           radius = 1;
-
-	CRect bar(aX, aY, aX + aWidth, aY + aHeight);
-
-	// A single rounded rect whose bottom is pushed well below the panel floor: only the
-	// smooth, symmetric rounded top and the straight sides show (no bottom edge on screen).
-	CRgn rgn;
-	rgn.CreateRoundRectRgn(bar.left, bar.top, bar.right + 1, bar.bottom + 2 * radius + 8, radius * 2, radius * 2);
-
-	// Subtle vertical gradient (gentle sheen at top, deepening toward the bottom).
+	// Per-theme colours: top sheen, deepened bottom, and a defining edge
+	// (lighter than the bar on the dark panel, darker on the light panel).
 	int r0 = GetRValue(aColor), g0 = GetGValue(aColor), b0 = GetBValue(aColor);
-	int rT, gT, bT, rB, gB, bB;
+	int rT, gT, bT, rB, gB, bB, re, ge, be;
 	if ( bDark )
 	{
 		rT = r0 + (255 - r0) * 10 / 100; gT = g0 + (255 - g0) * 10 / 100; bT = b0 + (255 - b0) * 10 / 100;
 		rB = r0 * 82 / 100; gB = g0 * 82 / 100; bB = b0 * 82 / 100;
+		re = r0 + (255 - r0) * 40 / 100; ge = g0 + (255 - g0) * 40 / 100; be = b0 + (255 - b0) * 40 / 100;
 	}
 	else
 	{
 		rT = r0; gT = g0; bT = b0;
 		rB = r0 * 80 / 100; gB = g0 * 80 / 100; bB = b0 * 80 / 100;
+		re = r0 * 58 / 100; ge = g0 * 58 / 100; be = b0 * 58 / 100;
 	}
-	int denom = (aHeight > 1) ? (aHeight - 1) : 1;
-	pDC->SelectClipRgn(&rgn);
-	for ( int y = 0; y < aHeight; y++ )
-	{
-		int r = rT + (rB - rT) * y / denom;
-		int g = gT + (gB - gT) * y / denom;
-		int b = bT + (bB - bT) * y / denom;
-		pDC->FillSolidRect(bar.left, bar.top + y, aWidth, 1, RGB(r, g, b));
-	}
-	pDC->SelectClipRgn(NULL);
 
-	// Border tracing exactly the same shape (lighter on the dark panel, darker on light).
-	COLORREF crEdge = bDark
-		? RGB(r0 + (255 - r0) * 55 / 100, g0 + (255 - g0) * 55 / 100, b0 + (255 - b0) * 55 / 100)
-		: RGB(r0 * 58 / 100, g0 * 58 / 100, b0 * 58 / 100);
-	CBrush brEdge(crEdge);
-	CRgn clipRgn;
-	clipRgn.CreateRectRgn(bar.left, bar.top, bar.right + 1, bar.bottom);   // stop the border level with the fill (no bottom edge, no run-down)
-	pDC->SelectClipRgn(&clipRgn);
-	pDC->FrameRgn(&rgn, &brEdge, 1, 1);
-	pDC->SelectClipRgn(NULL);
+	Gdiplus::Graphics g(pDC->GetSafeHdc());
+	g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+	g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+	float radius = (float) MulDiv(3, pDC->GetDeviceCaps(LOGPIXELSY), 96);
+	if ( radius > aWidth / 2.0f )  radius = aWidth / 2.0f;
+	if ( radius > aHeight / 2.0f ) radius = aHeight / 2.0f;
+	if ( radius < 1.0f )           radius = 1.0f;
+
+	float Lx = (float) aX + 0.5f;
+	float Rx = (float) (aX + aWidth) - 0.5f;
+	float Ty = (float) aY + 0.5f;
+	float By = (float) (aY + aHeight);          // baseline (open bottom -- no inset)
+	float d  = radius * 2.0f;
+
+	// Fill: rounded-top / square-bottom path with a vertical gradient.
+	Gdiplus::GraphicsPath fillPath;
+	fillPath.AddArc(Lx, Ty, d, d, 180.0f, 90.0f);        // top-left corner
+	fillPath.AddArc(Rx - d, Ty, d, d, 270.0f, 90.0f);    // top-right corner
+	fillPath.AddLine(Rx, Ty + radius, Rx, By);           // right side
+	fillPath.AddLine(Rx, By, Lx, By);                    // bottom
+	fillPath.CloseFigure();                              // left side
+	Gdiplus::LinearGradientBrush brush(
+		Gdiplus::RectF(Lx, Ty - 1.0f, Rx - Lx, (By - Ty) + 2.0f),
+		Gdiplus::Color(255, rT, gT, bT), Gdiplus::Color(255, rB, gB, bB),
+		Gdiplus::LinearGradientModeVertical);
+	g.FillPath(&brush, &fillPath);
+
+	// Border: rounded top + sides only (open path -- no bottom edge, ends level with the fill).
+	Gdiplus::GraphicsPath borderPath;
+	borderPath.AddLine(Lx, By - 1.0f, Lx, Ty + radius);  // left side up (stop level with the fill's solid bottom)
+	borderPath.AddArc(Lx, Ty, d, d, 180.0f, 90.0f);      // top-left
+	borderPath.AddArc(Rx - d, Ty, d, d, 270.0f, 90.0f);  // top-right
+	borderPath.AddLine(Rx, Ty + radius, Rx, By - 1.0f);  // right side down
+	Gdiplus::Pen pen(Gdiplus::Color(255, re, ge, be), 1.0f);
+	g.DrawPath(&pen, &borderPath);
 }
 
 void CRGBLevelWnd::OnContextMenu(CWnd* pWnd, CPoint point) 
