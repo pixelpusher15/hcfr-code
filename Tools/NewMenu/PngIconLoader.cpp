@@ -203,6 +203,7 @@ struct HCFR_FactorDef { double mult; LPCTSTR suffix; };
 static const HCFR_FactorDef g_factors[] =
 {
   { 1.0, _T("")     },   // unsuffixed base
+  { 1.25, _T("1.25x") }, // exact match at 125% DPI (add res\images\<set>\<theme>\<name>@1.25x.png)
   { 1.5, _T("1.5x") },
   { 2.0, _T("2x")   },
   { 3.0, _T("3x")   },
