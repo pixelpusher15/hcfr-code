@@ -141,8 +141,6 @@ static const SCtrlLayout g_StatsBarLayout =
 static const SCtrlLayout g_DisplayComboLayout =
 { IDC_DISPLAYTYPE_COMBO, LAYOUT_RIGHT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
 
-static const SCtrlLayout g_HeaderBtnLayout =
-{ 0, LAYOUT_RIGHT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
 
 static COLORREF ButtonPanelColor();   // defined near OnEraseBkgnd
 static COLORREF ButtonFaceColor();
@@ -395,7 +393,6 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_CBN_SELCHANGE(IDC_DISPLAYTYPE_COMBO, OnSelchangeDisplayType)
 	ON_BN_CLICKED(IDC_SIZE_PLUS, OnSizePlus)
 	ON_BN_CLICKED(IDC_SIZE_MINUS, OnSizeMinus)
-	ON_WM_DRAWITEM()
 	ON_COMMAND(IDM_HELP, OnHelp)
 	ON_COMMAND(ID_EDIT_COPY, OnEditCopy)
 	ON_UPDATE_COMMAND_UI(ID_EDIT_COPY, OnUpdateEditCopy)
@@ -925,7 +922,7 @@ void CMainView::OnInitialUpdate()
 				break;
 			case IDC_VALUES_STATIC:
 			case IDC_GRAYSCALE_GRID:
-				e->m_Rect.right = grpR - GetConfig()->Scale(2);   // stretch the grid flush to the pane's right edge (removes the ~11px gap in English)
+				if ( grpR > 0 ) e->m_Rect.right = grpR - GetConfig()->Scale(2);   // stretch the grid flush to the pane's right edge (removes the ~11px gap in English)
 				break;
 			case IDC_DISPLAY_GROUP:
 				e->m_Rect.left  -= dwWiden;   // Display pane + buttons grow 12px to the left
@@ -8443,29 +8440,6 @@ void CMainView::OnDeltaposSpinView(NMHDR* pNMHDR, LRESULT* pResult)
 //	UpdateGrid();
 }
 
-void CMainView::OnDrawItem(int nIDCtl, LPDRAWITEMSTRUCT lpDIS)
-{
-	if ( lpDIS && (nIDCtl == IDC_SIZE_PLUS || nIDCtl == IDC_SIZE_MINUS) )
-	{
-		CDC* pDC = CDC::FromHandle( lpDIS->hDC );
-		CRect rc = lpDIS->rcItem;
-		BOOL bPressed = (lpDIS->itemState & ODS_SELECTED) != 0;
-		COLORREF face = bPressed ? ButtonHoverColor() : ButtonFaceColor();
-		pDC->FillSolidRect( rc, face );
-		CBrush brB( ButtonBorderColor() );
-		pDC->FrameRect( rc, &brB );
-		CFont* pOldF = pDC->SelectObject( &m_fluentFont );
-		int oldBk = pDC->SetBkMode( TRANSPARENT );
-		COLORREF oldTx = pDC->SetTextColor( FxGetSysColor(COLOR_MENUTEXT) );
-		const wchar_t* glyph = (nIDCtl == IDC_SIZE_PLUS) ? L"\uE710" : L"\uE738";
-		::DrawTextW( lpDIS->hDC, glyph, 1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX );
-		pDC->SetTextColor( oldTx );
-		pDC->SetBkMode( oldBk );
-		pDC->SelectObject( pOldF );
-		return;
-	}
-	CFormView::OnDrawItem( nIDCtl, lpDIS );
-}
 
 void CMainView::OnSizePlus()
 {
@@ -8476,8 +8450,6 @@ void CMainView::OnSizePlus()
 		InvalidateRect ( NULL );
 		OnSize ( 0, 0, 0 );
 		m_statsBar.Invalidate ( FALSE );
-		if ( ::IsWindow ( m_editCheckButton.GetSafeHwnd() ) )   // the [-]/[+] change the offset only, so the bar never repositions
-			m_editCheckButton.RedrawWindow ( NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE );   // (and thus never repaints) the hosted checkbox -- force it
 	}
 }
 
@@ -8489,8 +8461,6 @@ void CMainView::OnSizeMinus()
 		InvalidateRect ( NULL );
 		OnSize ( 0, 0, 0 );
 		m_statsBar.Invalidate ( FALSE );
-		if ( ::IsWindow ( m_editCheckButton.GetSafeHwnd() ) )   // the [-]/[+] change the offset only, so the bar never repositions
-			m_editCheckButton.RedrawWindow ( NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE );   // (and thus never repaints) the hosted checkbox -- force it
 	}
 }
 

@@ -40,10 +40,7 @@ public:
 	// the font but its padding does not balloon at high DPI.
 	int PreferredHeight(CDC* pDC);
 
-	// Reserve px on the right edge for controls overlaid on the bar (the Edit
-	// checkbox + size spinner): chips never draw into this region.
-	void SetRightReserve(int px);
-
+	
 	// Header controls drawn BY THE BAR (so they fill the band height like the chips
 	// and can never be clipped by sibling windows): a [ ] Edit checkbox plus [+]/[-]
 	// grid-size buttons at the far right. The bar reads/toggles the (hidden) edit
@@ -64,7 +61,6 @@ protected:
 	CString			m_strText;	// last text received (to skip redundant repaints)
 	CStringArray	m_segments;	// parsed display segments
 	CFont			m_font;		// larger bold font for the header chips
-	CBrush			m_ctlBrush;	// theme-matched background brush for the hosted Edit checkbox
 	int				m_rightReserve;	// px reserved on the right for overlaid controls
 
 	// Bar-drawn header controls
@@ -74,11 +70,9 @@ protected:
 	int				m_pressZone;	// control id being pressed, or 0
 	int				m_hoverZone;	// +/- control id under the mouse, or 0
 
-	void DrawHeaderControls(CDC* pDC, const CRect& rc);	// draws the +/- buttons (the Edit checkbox is a hosted native control)
+	void DrawHeaderControls(CDC* pDC, const CRect& rc);	// draws the bar's header controls: the [ ] Edit checkbox and the [+]/[-] buttons
 
-	// Forward the hosted Edit checkbox's BN_CLICKED to the parent view.
-	virtual BOOL OnCommand(WPARAM wParam, LPARAM lParam);
-
+	
 	// Generated message map functions
 protected:
 	//{{AFX_MSG(CStatsBarWnd)
@@ -89,7 +83,6 @@ protected:
 	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
 	afx_msg void OnMouseLeave();
 	afx_msg void OnSize(UINT nType, int cx, int cy);
-	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);	// theme the hosted Edit checkbox
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

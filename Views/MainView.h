@@ -247,7 +247,6 @@ public:
 	afx_msg void OnSelchangeDisplayType();
 	afx_msg void OnSizePlus();
 	afx_msg void OnSizeMinus();
-	afx_msg void OnDrawItem(int nIDCtl, LPDRAWITEMSTRUCT lpDrawItemStruct);
 
 // Generated message map functions
 protected:

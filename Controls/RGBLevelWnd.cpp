@@ -652,7 +652,9 @@ void CRGBLevelWnd::OnPaint()
 
 	pDC->SelectObject(pOldFont);
 
-	// (bottom margin is left to the panel gradient + border; each bar's border is clipped to
+	// No bottom strip fill here: the panel gradient + border already paints the bottom
+	// margin, and each bar's border is clipped to the baseline, so a solid strip would
+	// only cut into the panel frame.
 }
 
 // Initialise GDI+ once (process lifetime) so the level bars can be drawn anti-aliased.
@@ -713,8 +715,9 @@ void CRGBLevelWnd::DrawGradientBar(CDC *pDC,COLORREF aColor, int aX, int aY, int
 	fillPath.AddLine(Rx, Ty + radius, Rx, By);           // right side
 	fillPath.AddLine(Rx, By, Lx, By);                    // bottom
 	fillPath.CloseFigure();                              // left side
+	float gw = Rx - Lx; if ( gw < 1.0f ) gw = 1.0f;   // LinearGradientBrush needs a non-empty rect
 	Gdiplus::LinearGradientBrush brush(
-		Gdiplus::RectF(Lx, Ty - 1.0f, Rx - Lx, (By - Ty) + 2.0f),
+		Gdiplus::RectF(Lx, Ty - 1.0f, gw, (By - Ty) + 2.0f),
 		Gdiplus::Color(255, rT, gT, bT), Gdiplus::Color(255, rB, gB, bB),
 		Gdiplus::LinearGradientModeVertical);
 	g.FillPath(&brush, &fillPath);

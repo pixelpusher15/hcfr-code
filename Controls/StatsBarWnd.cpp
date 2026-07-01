@@ -29,7 +29,6 @@ static char THIS_FILE[] = __FILE__;
 
 CStatsBarWnd::CStatsBarWnd()
 {
-	m_rightReserve = 0;
 	m_pEditBtn = NULL;
 	m_pGlyphFont = NULL;
 	m_pressZone = 0;
@@ -53,29 +52,7 @@ void CStatsBarWnd::SetHeaderModel(CButton* pEditBtn, CFont* pGlyphFont)
 		Invalidate(FALSE);
 }
 
-// The hosted Edit checkbox is our child, so its BN_CLICKED comes here -- forward it
-// to the parent view, which runs the existing OnEditgridCheck handler.
-BOOL CStatsBarWnd::OnCommand(WPARAM wParam, LPARAM lParam)
-{
-	if (LOWORD(wParam) == IDC_EDITGRID_CHECK)
-	{
-		CWnd* p = GetParent();
-		if (p != NULL)
-			return (BOOL) p->SendMessage(WM_COMMAND, wParam, lParam);
-	}
-	return CWnd::OnCommand(wParam, lParam);
-}
 
-void CStatsBarWnd::SetRightReserve(int px)
-{
-	if (px < 0)
-		px = 0;
-	if (px == m_rightReserve)
-		return;
-	m_rightReserve = px;
-	if (::IsWindow(GetSafeHwnd()))
-		Invalidate(FALSE);
-}
 
 CStatsBarWnd::~CStatsBarWnd()
 {
@@ -90,7 +67,6 @@ BEGIN_MESSAGE_MAP(CStatsBarWnd, CWnd)
 	ON_WM_MOUSEMOVE()
 	ON_WM_MOUSELEAVE()
 	ON_WM_SIZE()
-	ON_WM_CTLCOLOR()
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
@@ -305,7 +281,7 @@ void CStatsBarWnd::OnPaint()
 	// Reserve the far right for the bar-drawn header cluster ([ ] Edit [+] [-]).
 	// Drawing it as part of the bar (like the chips) means it always fills the band
 	// height and can never be clipped by a sibling window.
-	int clusterLeft = rc.right - m_rightReserve;
+	int clusterLeft = rc.right;
 	if (m_pEditBtn != NULL)
 	{
 		int eb = MulDiv(18, dc.GetDeviceCaps(LOGPIXELSY), 96);		// +/- buttons: 18x18 (DPI-scaled)
@@ -547,21 +523,6 @@ void CStatsBarWnd::OnSize(UINT nType, int cx, int cy)
 	}
 }
 
-// The Edit checkbox is hosted as our child (see SetHeaderModel), so Windows asks
-// US for its background colour. Paint it to match the band and the active theme,
-// the same way the parent view themes its own checkboxes -- otherwise the label
-// sits on a default light rectangle that does not swap in dark mode.
-HBRUSH CStatsBarWnd::OnCtlColor(CDC* pDC, CWnd* /*pWnd*/, UINT /*nCtlColor*/)
-{
-	COLORREF clrBand = FxGetSysColor(COLOR_BTNFACE);				// same fill the band paints with
-	COLORREF clrText = (fxUseCustomColor != FALSE) ? RGB(235,235,235) : RGB(0,0,0);
-	if (m_ctlBrush.m_hObject != NULL)
-		m_ctlBrush.DeleteObject();
-	m_ctlBrush.CreateSolidBrush(clrBand);
-	pDC->SetBkMode(TRANSPARENT);
-	pDC->SetTextColor(clrText);
-	return (HBRUSH) m_ctlBrush.GetSafeHandle();
-}
 
 /////////////////////////////////////////////////////////////////////////////
 // CMeasuresGroupBox
