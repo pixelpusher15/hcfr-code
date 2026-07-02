@@ -55,7 +55,7 @@ CNearBlackGrapher::CNearBlackGrapher()
 	Msg.LoadString ( IDS_GREEN );
 	m_greenLumGraphID = m_graphCtrl.AddGraph(RGB(0,255,0),(LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_BLUE );
-	m_blueLumGraphID = m_graphCtrl.AddGraph(RGB(0,0,255),(LPSTR)(LPCSTR)Msg);
+	m_blueLumGraphID = m_graphCtrl.AddGraph(RGB(70,70,255),(LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_REFERENCE );
 	m_refGraphID = m_graphCtrl.AddGraph(RGB(230,230,230),(LPSTR)(LPCSTR)Msg,1,PS_DOT);
 
@@ -68,7 +68,7 @@ CNearBlackGrapher::CNearBlackGrapher()
 	Msg.LoadString ( IDS_GREENDATAREF );
 	m_greenLumDataRefGraphID = m_graphCtrl.AddGraph(RGB(0,255,0), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki
 	Msg.LoadString ( IDS_BLUEDATAREF );
-	m_blueLumDataRefGraphID = m_graphCtrl.AddGraph(RGB(0,0,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki
+	m_blueLumDataRefGraphID = m_graphCtrl.AddGraph(RGB(70,70,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki
 
 	m_showL=GetConfig()->GetProfileInt("Near Black Histo","Show L",FALSE);
 	m_abY=GetConfig()->GetProfileInt("Near Black Histo","Absolute Y",FALSE);
@@ -85,7 +85,7 @@ CNearBlackGrapher::CNearBlackGrapher()
 	Msg.LoadString ( IDS_GAMMAGREEN );
 	m_greenLumLogGraphID = m_logGraphCtrl.AddGraph(RGB(0,255,0),(LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_GAMMABLUE );
-	m_blueLumLogGraphID = m_logGraphCtrl.AddGraph(RGB(0,0,255),(LPSTR)(LPCSTR)Msg);
+	m_blueLumLogGraphID = m_logGraphCtrl.AddGraph(RGB(70,70,255),(LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_GAMMAREFERENCE );
 	m_refLogGraphID = m_logGraphCtrl.AddGraph(RGB(230,230,230),(LPSTR)(LPCSTR)Msg,1,PS_DOT);
 	
@@ -98,7 +98,7 @@ CNearBlackGrapher::CNearBlackGrapher()
 	Msg.LoadString ( IDS_GAMMAGREENDATAREF );
 	m_greenLumDataRefLogGraphID = m_logGraphCtrl.AddGraph(RGB(0,255,0), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki
 	Msg.LoadString ( IDS_GAMMABLUEDATAREF );
-	m_blueLumDataRefLogGraphID = m_logGraphCtrl.AddGraph(RGB(0,0,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki
+	m_blueLumDataRefLogGraphID = m_logGraphCtrl.AddGraph(RGB(70,70,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki
 
 	m_logGraphCtrl.SetXAxisProps((LPSTR)(LPCSTR)GetConfig()->m_PercentGray, 1, 0, 20);
 	m_logGraphCtrl.SetYAxisProps("", 0.1, 0, 10);

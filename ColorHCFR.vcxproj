@@ -913,6 +913,7 @@
     <ClInclude Include="ExportReplaceDialog.h" />
     <ClInclude Include="Views\GammaHistoView.h" />
     <ClInclude Include="GeneralPropPage.h" />
+    <ClInclude Include="Views\GdiPlusAA.h" />
     <ClInclude Include="Views\GraphControl.h" />
     <ClInclude Include="Views\graphscalepropdialog.h" />
     <ClInclude Include="Views\graphsettingsdialog.h" />

@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -27,8 +27,9 @@
 // RGBLevelWnd.h : header file
 //
 
-// Initialise GDI+ once for the process (shared by the panel's owner-drawn controls).
-void EnsureGdiplus();
+// EnsureGdiplus() (GDI+ startup, shared by the panel's owner-drawn controls
+// and the chart controls) comes inline from the shared chart helper.
+#include "../Views/GdiPlusAA.h"
 
 /////////////////////////////////////////////////////////////////////////////
 // CRGBLevelWnd window

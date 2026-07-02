@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	FranÃ§ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -31,6 +31,7 @@
 #include "ximage.h"
 #include "savegraphdialog.h"
 #include "graphcontrol.h"
+#include "GdiPlusAA.h"
 #include "Views\MainView.h"
 
 #ifdef _DEBUG
@@ -1073,17 +1074,15 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 
 	int penWidth=(min(rect.Width(),rect.Height()) > FX_MINSIZETOSHOW_TRIANGLEDETAILS) ? 3: 2;
 
- 	// Draw reference gamut triangle
-    CPen refPrimariesPen(PS_SOLID,penWidth,RGB(128,128,128));
-    CPen *pOldPen = pDC->SelectObject(&refPrimariesPen); 
-
+ 	// Draw reference gamut triangle (anti-aliased; semi-transparent gray over
+ 	// the gamut fill replaces the old R2_MASKPEN darkening, which GDI+ lacks)
 	pDC->SetBkMode(TRANSPARENT);
+	{
+	CAAPolyline aaLine(pDC,(float)penWidth,RGB(128,128,128));
 	if(m_doDisplayBackground)
-		pDC->SetROP2(R2_MASKPEN);
-	else
-		pDC->SetROP2(R2_COPYPEN);
+		aaLine.Pen().SetColor(GpColor(RGB(96,96,96),176));
 
-	pDC->MoveTo(refRedPrimaryPoint.GetGraphPoint(rect));
+	aaLine.MoveTo(refRedPrimaryPoint.GetGraphPoint(rect));
 
 	if (m_bCIEab)
 	{
@@ -1102,11 +1101,11 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
 
-	pDC->LineTo(refYellowSecondaryPoint.GetGraphPoint(rect));
+	aaLine.LineTo(refYellowSecondaryPoint.GetGraphPoint(rect));
 	if (m_bCIEab)
 	{
 		//for ab space curvature
@@ -1124,10 +1123,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
-	pDC->LineTo(refGreenPrimaryPoint.GetGraphPoint(rect));
+	aaLine.LineTo(refGreenPrimaryPoint.GetGraphPoint(rect));
 	if (m_bCIEab)
 	{
 		//for ab space curvature
@@ -1145,10 +1144,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
-	pDC->LineTo(refCyanSecondaryPoint.GetGraphPoint(rect));
+	aaLine.LineTo(refCyanSecondaryPoint.GetGraphPoint(rect));
 	if (m_bCIEab)
 	{
 		//for ab space curvature
@@ -1166,10 +1165,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
-	pDC->LineTo(refBluePrimaryPoint.GetGraphPoint(rect));
+	aaLine.LineTo(refBluePrimaryPoint.GetGraphPoint(rect));
 	if (m_bCIEab)
 	{
 		//for ab space curvature
@@ -1187,10 +1186,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
-	pDC->LineTo(refMagentaSecondaryPoint.GetGraphPoint(rect));
+	aaLine.LineTo(refMagentaSecondaryPoint.GetGraphPoint(rect));
 	if (m_bCIEab)
 	{
 		//for ab space curvature
@@ -1208,40 +1207,31 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
-	pDC->LineTo(refRedPrimaryPoint.GetGraphPoint(rect));
-
-	pDC->SelectObject(pOldPen);
-
-	pDC->SetBkMode(TRANSPARENT);
-	pDC->SetROP2(R2_COPYPEN);
+	aaLine.LineTo(refRedPrimaryPoint.GetGraphPoint(rect));
+	}
 
  	// Draw reference gamut triangle 2020 outside P3
 
 	if ( hasdatarefPrimaries )
 	{
-		CPen datarefPrimariesPen(PS_SOLID,penWidth-1,RGB(192,192,192));
-		pOldPen = pDC->SelectObject(&datarefPrimariesPen); 
+		CAAPolyline aaLine(pDC,(float)(penWidth-1),RGB(192,192,192));
 
-		pDC->MoveTo(datarefRedPoint.GetGraphPoint(rect));
-		pDC->LineTo(datarefGreenPoint.GetGraphPoint(rect));
-		pDC->LineTo(datarefBluePoint.GetGraphPoint(rect));
-		pDC->LineTo(datarefRedPoint.GetGraphPoint(rect));
-		
-		pDC->SelectObject(pOldPen);
+		aaLine.MoveTo(datarefRedPoint.GetGraphPoint(rect));
+		aaLine.LineTo(datarefGreenPoint.GetGraphPoint(rect));
+		aaLine.LineTo(datarefBluePoint.GetGraphPoint(rect));
+		aaLine.LineTo(datarefRedPoint.GetGraphPoint(rect));
 	}
-
-    CPen primariesPen(PS_SOLID,penWidth,RGB(255,255,255));
-    pOldPen = pDC->SelectObject(&primariesPen); 
 
 	// Draw gamut triangle
 	if(hasPrimaries)
 	{
+		CAAPolyline aaLine(pDC,(float)penWidth,RGB(255,255,255));
 		if (hasSecondaries)
 		{
-			pDC->MoveTo(redPrimaryPoint.GetGraphPoint(rect));
+			aaLine.MoveTo(redPrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1259,10 +1249,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(yellowSecondaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(yellowSecondaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1280,10 +1270,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(greenPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(greenPrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1301,10 +1291,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(cyanSecondaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(cyanSecondaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1322,10 +1312,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(bluePrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(bluePrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1343,10 +1333,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(magentaSecondaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(magentaSecondaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1364,14 +1354,14 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(redPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(redPrimaryPoint.GetGraphPoint(rect));
 		}
 		else
 		{
-			pDC->MoveTo(redPrimaryPoint.GetGraphPoint(rect));
+			aaLine.MoveTo(redPrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1389,10 +1379,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(greenPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(greenPrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1410,10 +1400,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(bluePrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(bluePrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1431,26 +1421,22 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(redPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(redPrimaryPoint.GetGraphPoint(rect));
 		}
 	}
-	pDC->SelectObject(pOldPen);
 
-	// Draw white reference white dashed cross 
+	// Draw white reference white dashed cross
 	if(min(rect.Width(),rect.Height()) > FX_MINSIZETOSHOW_SCALEDETAILS )
 	{
-		CPen whiteCrossPen(PS_DOT,1,RGB(192,192,192));
-		pOldPen = pDC->SelectObject(&whiteCrossPen); 
+		CAAPolyline aaLine(pDC,1.0f,RGB(192,192,192),PS_DOT);
 
-		pDC->MoveTo(5,whiteRef.GetGraphY(rect));
-		pDC->LineTo(rect.right-5,whiteRef.GetGraphY(rect));
-		pDC->MoveTo(whiteRef.GetGraphX(rect),5);
-		pDC->LineTo(whiteRef.GetGraphX(rect),rect.bottom-5);
-
-		pDC->SelectObject(pOldPen);
+		aaLine.MoveTo(CPoint(5,whiteRef.GetGraphY(rect)));
+		aaLine.LineTo(CPoint(rect.right-5,whiteRef.GetGraphY(rect)));
+		aaLine.MoveTo(CPoint(whiteRef.GetGraphX(rect),5));
+		aaLine.LineTo(CPoint(whiteRef.GetGraphX(rect),rect.bottom-5));
 	}
 
 	// Draw bitmaps on triangle vertex
@@ -1514,19 +1500,16 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		if(hasPrimaries && hasSecondaries && !m_bCIEab)
 		{
 			// Draw lines between primaries and secondaries
-			CPen secondariesPen(PS_DOT,1,RGB(64,64,64));
-			pOldPen = pDC->SelectObject(&secondariesPen); 
+			CAAPolyline aaLine(pDC,1.0f,RGB(64,64,64),PS_DOT);
 
-			pDC->MoveTo(redPrimaryPoint.GetGraphPoint(rect));
-			pDC->LineTo(cyanSecondaryPoint.GetGraphPoint(rect));
+			aaLine.MoveTo(redPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(cyanSecondaryPoint.GetGraphPoint(rect));
 
-			pDC->MoveTo(greenPrimaryPoint.GetGraphPoint(rect));
-			pDC->LineTo(magentaSecondaryPoint.GetGraphPoint(rect));
+			aaLine.MoveTo(greenPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(magentaSecondaryPoint.GetGraphPoint(rect));
 
-			pDC->MoveTo(bluePrimaryPoint.GetGraphPoint(rect));
-			pDC->LineTo(yellowSecondaryPoint.GetGraphPoint(rect));
-
-			pDC->SelectObject(pOldPen);
+			aaLine.MoveTo(bluePrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(yellowSecondaryPoint.GetGraphPoint(rect));
 		}
 
 		if ( hasPrimaries )

@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	FranÃ§ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -28,8 +28,7 @@
 #include "RGBLevelWnd.h"
 #include "Color.h"
 #include "fxcolor.h"
-#include <gdiplus.h>
-#pragma comment(lib, "gdiplus.lib")
+#include "../Views/GdiPlusAA.h"
 #include "../Tools/fxcolor.h"
 
 #ifdef _DEBUG
@@ -645,22 +644,10 @@ void CRGBLevelWnd::OnPaint()
 	}
 }
 
+// EnsureGdiplus() now comes inline from Views/GdiPlusAA.h (via RGBLevelWnd.h),
+// shared with the chart controls -- no local definition needed here.
 
-// Initialise GDI+ once (process lifetime); shared by the RGB bars and the
-// owner-drawn colour-comparator swatches (declared in RGBLevelWnd.h).
-void EnsureGdiplus()
-{
-	static ULONG_PTR s_token = 0;
-	if ( s_token == 0 )
-	{
-		Gdiplus::GdiplusStartupInput gdipInput;
-		Gdiplus::GdiplusStartup(&s_token, &gdipInput, NULL);
-	}
-}
-
-
-
-void CRGBLevelWnd::OnContextMenu(CWnd* pWnd, CPoint point) 
+void CRGBLevelWnd::OnContextMenu(CWnd* pWnd, CPoint point)
 {
 	// load and display popup menu
 	CNewMenu menu;

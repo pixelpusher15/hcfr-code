@@ -80,7 +80,7 @@ CLuminanceGrapher::CLuminanceGrapher()
 	Msg.LoadString ( IDS_GREEN );
 	m_greenLumGraphID = m_graphCtrl.AddGraph(RGB(0,255,0),(LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_BLUE );
-	m_blueLumGraphID = m_graphCtrl.AddGraph(RGB(0,0,255),(LPSTR)(LPCSTR)Msg);
+	m_blueLumGraphID = m_graphCtrl.AddGraph(RGB(70,70,255),(LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_REFERENCE );
 	m_refGraphID = m_graphCtrl.AddGraph(RGB(230,230,230),(LPSTR)(LPCSTR)Msg,1,PS_DOT);
 	Msg.LoadString ( IDS_SMOOTHEDAVERAGE );
@@ -97,7 +97,7 @@ CLuminanceGrapher::CLuminanceGrapher()
 	Msg.LoadString ( IDS_GREENDATAREF );
 	m_greenLumDataRefGraphID = m_graphCtrl.AddGraph(RGB(0,255,0), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki
 	Msg.LoadString ( IDS_BLUEDATAREF );
-	m_blueLumDataRefGraphID = m_graphCtrl.AddGraph(RGB(0,0,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki	
+	m_blueLumDataRefGraphID = m_graphCtrl.AddGraph(RGB(70,70,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki	
 	
 	m_graphCtrl.SetXAxisProps((LPSTR)(LPCSTR)GetConfig()->m_PercentGray, 10, 0, 100);
 	m_showL=GetConfig()->GetProfileInt("Luminance Histo","Show L",FALSE);

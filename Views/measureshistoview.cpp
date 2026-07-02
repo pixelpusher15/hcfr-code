@@ -74,7 +74,7 @@ CMeasuresHistoView::CMeasuresHistoView()
 	Msg.LoadString ( IDS_RGBLEVELGREEN );
 	m_greenGraphID = m_graphCtrl1.AddGraph(RGB(0,255,0), (LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_RGBLEVELBLUE );
-	m_blueGraphID = m_graphCtrl1.AddGraph(RGB(0,0,255), (LPSTR)(LPCSTR)Msg);
+	m_blueGraphID = m_graphCtrl1.AddGraph(RGB(70,70,255), (LPSTR)(LPCSTR)Msg);
 	m_graphCtrl1.SetScale(0,nMaxX,0,200);
 	m_graphCtrl1.SetXAxisProps("", 1, 0, 50);
 	m_graphCtrl1.SetYAxisProps("%", 20, 0, 400);
@@ -403,7 +403,12 @@ void CMeasuresHistoView::SetUserInfo ( DWORD dwUserInfo )
 	m_graphCtrl3.SetXScale(0,nMaxX);
 }
 
-void CMeasuresHistoView::OnSize(UINT nType, int cx, int cy) 
+// Label strip metrics, shared between OnSize (layout margins) and OnDraw
+// (section names on the left, tracking level on top).
+static int SideStripWidth()  { return GetConfig()->Scale(17); }
+static int TopStripHeight()  { return GetConfig()->Scale(16); }
+
+void CMeasuresHistoView::OnSize(UINT nType, int cx, int cy)
 {
 	int				i, NbGraphCtrl;
 	CGraphControl *	pGraphCtrl [ 4 ];
@@ -423,25 +428,15 @@ void CMeasuresHistoView::OnSize(UINT nType, int cx, int cy)
 	if ( m_showColorTemp )
 		pGraphCtrl [ NbGraphCtrl ++ ] = & m_graphCtrl3;
 
+	int stripW = SideStripWidth();
+	int stripH = TopStripHeight();
 	for ( i = 0; i < NbGraphCtrl ; i ++ )
 	{
-		if (GetConfig()->isHighDPI)
-		{
-			if (IsWindow(pGraphCtrl[i]->m_hWnd))
-				if ( i )
-					pGraphCtrl [ i ] -> MoveWindow ( 21, i * cy / NbGraphCtrl, cx - 21, cy/NbGraphCtrl + 1 );
-				else
-					pGraphCtrl [ i ] -> MoveWindow ( 21, 22, cx - 21, cy/NbGraphCtrl + 1 - 22);
-		}
-		else
-		{
-			if (IsWindow(pGraphCtrl[i]->m_hWnd))
-				if ( i )
-					pGraphCtrl [ i ] -> MoveWindow ( 14, i * cy / NbGraphCtrl, cx - 14, cy/NbGraphCtrl + 1);
-				else
-					pGraphCtrl [ i ] -> MoveWindow ( 14, 15, cx - 14, cy/NbGraphCtrl + 1 - 15);
-		}
-
+		if (IsWindow(pGraphCtrl[i]->m_hWnd))
+			if ( i )
+				pGraphCtrl [ i ] -> MoveWindow ( stripW, i * cy / NbGraphCtrl, cx - stripW, cy/NbGraphCtrl + 1 );
+			else
+				pGraphCtrl [ i ] -> MoveWindow ( stripW, stripH, cx - stripW, cy/NbGraphCtrl + 1 - stripH );
 	}
 }
 
@@ -523,16 +518,10 @@ void CMeasuresHistoView::OnDraw(CDC* pDC)
 	}
 
 	// Declare a "vertical" font
-	if (GetConfig()->isHighDPI)
-		font.CreateFont( 15, 0, 900, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Arial" );
-	else
-		font.CreateFont( 9, 0, 900, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Arial" );
+	font.CreateFont( GetConfig()->Scale(13), 0, 900, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Segoe UI" );
 		pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );
 	rect2.left = 0;
-	if (GetConfig()->isHighDPI)
-		rect2.right = 21;
-	else
-		rect2.right = 14;
+	rect2.right = SideStripWidth();
 
 	for ( i = 0; i < NbGraphCtrl ; i ++ )
 	{
@@ -545,24 +534,13 @@ void CMeasuresHistoView::OnDraw(CDC* pDC)
 	}
 
 	//Tracking percentage
-	if (GetConfig()->isHighDPI)
-		font2.CreateFont( 18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Arial" );
-	else
-		font2.CreateFont( 12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Arial" );
+	font2.CreateFont( GetConfig()->Scale(13), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Segoe UI" );
 	pOldFont2 = pDC -> SelectObject ( & font2 );//	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );	pDC -> SetTextColor ( RGB(200,200,0) );
 
 	rect2.right = rect.right;
 	rect2.top = 0;
-	if (GetConfig()->isHighDPI)
-	{
-		rect2.left = 21;
-		rect2.bottom = 22;
-	}
-	else
-	{
-		rect2.left = 14;
-		rect2.bottom = 15;
-	}
+	rect2.left = SideStripWidth();
+	rect2.bottom = TopStripHeight();
 	
 	pDC -> FillSolidRect ( & rect2, bWhiteBkgnd?RGB(255,255,255):RGB(50,40,30) );
 	pDC -> TextOut ( rect2.left + 20, rect2.top+1, trkPerc, strlen ( trkPerc ) );
