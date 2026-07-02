@@ -499,7 +499,6 @@ END_MESSAGE_MAP()
 /////////////////////////////////////////////////////////////////////////////
 // CRGBLevelWnd message handlers
 
-static void EnsureGdiplus();
 
 // Rounded-rectangle path (all four corners) for the level tracks and bars.
 static void AddRoundRectPath(Gdiplus::GraphicsPath& p, float x, float y, float w, float h, float r)
@@ -526,6 +525,7 @@ void CRGBLevelWnd::OnPaint()
 
 	BOOL bDark = GetConfig()->m_darkTheme;
 	int dpiY = pDC->GetDeviceCaps(LOGPIXELSY);
+	int dpiX = pDC->GetDeviceCaps(LOGPIXELSX);
 
 	// Flat panel surface matching the app theme so the bars read as part of the
 	// Selected color panel rather than a separate inset chart.
@@ -541,7 +541,7 @@ void CRGBLevelWnd::OnPaint()
 
 	// Layout: four rounded tracks with the value and channel labels below them.
 	float margin    = (float) MulDiv(4, dpiY, 96);
-	float gap       = (float) MulDiv(9, dpiY, 96);
+	float gap       = (float) MulDiv(9, dpiX, 96);
 	float rad       = (float) MulDiv(5, dpiY, 96);
 	float valuePx   = (float) MulDiv(12, dpiY, 96);
 	float letterPx  = (float) MulDiv(11, dpiY, 96);
@@ -550,7 +550,7 @@ void CRGBLevelWnd::OnPaint()
 	float trackTop = margin;
 	float trackBot = (float) rect.Height() - labelZone;
 	float trackH   = trackBot - trackTop;
-	float hmargin  = (float) MulDiv(8, dpiY, 96);   // left room so wide values (e.g. 129.8%) are not clipped
+	float hmargin  = (float) MulDiv(8, dpiX, 96);   // left room so wide values (e.g. 129.8%) are not clipped
 	float colW     = ((float) rect.Width() - hmargin - 3.0f*gap) / 4.0f;
 	if ( trackH <= 8.0f || colW <= 8.0f )
 		return;
@@ -646,8 +646,9 @@ void CRGBLevelWnd::OnPaint()
 }
 
 
-// Initialise GDI+ once (process lifetime) so the level bars can be drawn anti-aliased.
-static void EnsureGdiplus()
+// Initialise GDI+ once (process lifetime); shared by the RGB bars and the
+// owner-drawn colour-comparator swatches (declared in RGBLevelWnd.h).
+void EnsureGdiplus()
 {
 	static ULONG_PTR s_token = 0;
 	if ( s_token == 0 )

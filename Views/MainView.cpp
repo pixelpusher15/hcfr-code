@@ -367,17 +367,6 @@ static COLORREF ButtonBorderColor();
 /////////////////////////////////////////////////////////////////////////////
 // CCompSwatch - one half of the measured / reference split colour swatch
 
-// Initialise GDI+ once (process lifetime) for the owner-drawn swatch halves.
-static void EnsureGdiplusMV()
-{
-	static ULONG_PTR s_token = 0;
-	if ( s_token == 0 )
-	{
-		Gdiplus::GdiplusStartupInput gdipInput;
-		Gdiplus::GdiplusStartup(&s_token, &gdipInput, NULL);
-	}
-}
-
 // Rounded-rectangle path (all four corners).
 static void SwatchRoundPath(Gdiplus::GraphicsPath& p, float x, float y, float w, float h, float r)
 {
@@ -423,7 +412,7 @@ void CCompSwatch::OnPaint()
 	CBitmap* pOldBmp = mem.SelectObject(&bmp);
 	mem.FillSolidRect(&rc, panelBg);
 
-	EnsureGdiplusMV();
+	EnsureGdiplus();
 	Gdiplus::Graphics g(mem.GetSafeHdc());
 	g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
 	g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
@@ -467,7 +456,9 @@ void CCompSwatch::OnPaint()
 
 	float pad = (float) MulDiv(2, dpiY, 96);
 	float ty  = swTop + swH + (float) MulDiv(5, dpiY, 96);
-	CStringW wlabel(m_side == 0 ? L"Measured" : L"Reference");
+	wchar_t lblBuf[64] = L"";
+	::GetWindowTextW(GetSafeHwnd(), lblBuf, 64);
+	CStringW wlabel(lblBuf);
 	g.DrawString(wlabel, -1, &labelFont, Gdiplus::RectF(pad, ty, W - 2.0f*pad, labelPx + 4.0f), &fmt, &labelBrush);
 	if ( m_hasColor && !m_value.IsEmpty() )
 	{

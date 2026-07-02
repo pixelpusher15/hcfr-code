@@ -27,6 +27,9 @@
 // RGBLevelWnd.h : header file
 //
 
+// Initialise GDI+ once for the process (shared by the panel's owner-drawn controls).
+void EnsureGdiplus();
+
 /////////////////////////////////////////////////////////////////////////////
 // CRGBLevelWnd window
 
