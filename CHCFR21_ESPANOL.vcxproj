@@ -248,7 +248,6 @@
     <None Include="res\selectedplot.bmp" />
     <None Include="res\settings.ico" />
     <None Include="res\spectrum.ico" />
-    <None Include="res\target.bmp" />
     <None Include="res\tbmeasures.bmp" />
     <None Include="res\tbmeasures_ex.bmp" />
     <None Include="res\tbmeasures_sat.bmp" />

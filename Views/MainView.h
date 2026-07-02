@@ -43,6 +43,7 @@ class CGridCtrl;
 #include "RGBLevelWnd.h"
 #include "StatsBarWnd.h"
 #include "TargetWnd.h"
+#include "PPTooltip.h"
 
 class CMainView : public CFormView
 {

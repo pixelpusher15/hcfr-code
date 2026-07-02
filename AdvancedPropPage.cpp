@@ -45,6 +45,7 @@ CAdvancedPropPage::CAdvancedPropPage() : CPropertyPageWithHelp(CAdvancedPropPage
 	m_nLuminanceCurveMode = 0;
 	m_bPreferLuxmeter = FALSE;
 	m_dE_form = 5;
+	m_dE_tolerance = 1.0;
 	m_dE_gray = 2;
     gw_Weight = 0;
     doHighlight = TRUE;
@@ -75,6 +76,8 @@ void CAdvancedPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Radio(pDX, IDC_RADIO1, m_nLuminanceCurveMode);
 	DDX_Check(pDX, IDC_CHECK_PREFER_LUXMETER, m_bPreferLuxmeter);
 	//}}AFX_DATA_MAP
+	DDX_Text(pDX, IDC_EDIT_DE_TOLERANCE, m_dE_tolerance);
+	DDV_MinMaxDouble(pDX, m_dE_tolerance, 0.1, 10.0);
 }
 
 
@@ -91,6 +94,7 @@ BEGIN_MESSAGE_MAP(CAdvancedPropPage, CPropertyPageWithHelp)
 	ON_CBN_SELCHANGE(IDC_COMBO_dE, OnSelchangedECombo)
 	ON_CBN_SELCHANGE(IDC_COMBO_dE_GRAY, OnSelchangedECombo)
 	ON_CBN_SELCHANGE(IDC_COMBO_dE_WEIGHT, OnSelchangedECombo)
+	ON_EN_CHANGE(IDC_EDIT_DE_TOLERANCE, OnChangeDeTolerance)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
@@ -106,9 +110,15 @@ void CAdvancedPropPage::OnControlClicked(UINT nID)
 	SetModified(TRUE);	
 }
 
-void CAdvancedPropPage::OnSelchangeLuxmeterComCombo() 
+void CAdvancedPropPage::OnSelchangeLuxmeterComCombo()
 {
-	SetModified(TRUE);	
+	SetModified(TRUE);
+}
+
+void CAdvancedPropPage::OnChangeDeTolerance()
+{
+	m_isModified = TRUE;	// have the parent refresh the views so the target ring moves
+	SetModified(TRUE);
 }
 
 void CAdvancedPropPage::OnSelchangedECombo() 

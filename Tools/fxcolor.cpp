@@ -29,6 +29,8 @@
 #include <stdio.h>
 #include <uxtheme.h>
 #pragma comment(lib, "uxtheme.lib")
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
 #ifndef BP_RADIOBUTTON
 #define BP_RADIOBUTTON 2
 #endif
@@ -659,4 +661,16 @@ void FxApplyDarkModeTree(HWND hRoot, BOOL bDark)
     FxThemeOneWindow(hRoot, bDark);
     EnumChildWindows(hRoot, FxDarkChildProc, (LPARAM)bDark);
     RedrawWindow(hRoot, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_ERASE);
+}
+
+// Initialise GDI+ once (process lifetime, never shut down) for the controls
+// that draw anti-aliased (RGB level bars, target widget).
+void FxEnsureGdiplus()
+{
+    static ULONG_PTR s_token = 0;
+    if (s_token == 0)
+    {
+        Gdiplus::GdiplusStartupInput gdipInput;
+        Gdiplus::GdiplusStartup(&s_token, &gdipInput, NULL);
+    }
 }

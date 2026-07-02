@@ -943,7 +943,7 @@ BEGIN
     LTEXT           "Generator",IDC_GENERATORNAME_STATIC,372,18,42,12
 END
 
-IDD_ADVANCED_PROP_PAGE DIALOGEX 0, 0, 212, 236
+IDD_ADVANCED_PROP_PAGE DIALOGEX 0, 0, 212, 244
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Erweitert"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
@@ -967,13 +967,15 @@ BEGIN
     CONTROL         "Kontrast und Delta Luminance aus Luxmeter-Werten berechen",IDC_CHECK_PREFER_LUXMETER,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,153,210,10
     CONTROL         "",IDC_STATIC,"Static",SS_ETCHEDHORZ | WS_GROUP,7,149,220,1
-    GROUPBOX        "Delta E",IDC_STATIC,7,170,220,55,WS_GROUP
+    GROUPBOX        "Delta E",IDC_STATIC,7,170,220,69,WS_GROUP
     LTEXT           "Formel für die Farbabweichung",IDC_STATIC,15,183,110,10
     COMBOBOX        IDC_COMBO_dE,130,181,88,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
     COMBOBOX        IDC_COMBO_dE_GRAY,130,195,88,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
     LTEXT           "Einfluss der Graustufen auf dE",IDC_STATIC,15,196,110,10
     CONTROL         "Anzeige",IDC_HIGHLIGHT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,41,169,43,10
     COMBOBOX        IDC_COMBO_dE_WEIGHT,130,209,87,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
+    LTEXT           "Ziel-dE-Toleranz",IDC_STATIC,15,225,110,10
+    EDITTEXT        IDC_EDIT_DE_TOLERANCE,130,223,40,12,ES_AUTOHSCROLL
     LTEXT           "Gewichtung der Weiß-Referenz",IDC_STATIC,15,209,110,10
 END
 
@@ -1086,7 +1088,6 @@ IDB_MEDIUMTOOLBAR_MEASURE_HICOL BITMAP                  "res\\medium_tb_measures
 
 IDB_MEDIUMTOOLBAR_MEAS_EX_HICOL BITMAP                  "res\\medium_tb_measures_ex_hicol.bmp"
 
-IDB_POINT_BITMAP        BITMAP                  "res\\target.bmp"
 
 IDB_REFBLUEPRIMARY_BITMAP BITMAP                  "res\\refblueprimary.bmp"
 
@@ -3785,6 +3786,8 @@ STRINGTABLE
 BEGIN
     IDS_FREEMEASURES        "Freie Messungen"
     IDS_RGBLEVELS           "RGB Niveau"
+    IDS_TARGET_RINGS        "Ringe: dE %s"
+    IDS_TARGET_TOLERANCE    "dE-Toleranz"
     IDS_SATLUMSHIFT         "Sättigungsverschiebung"
     IDS_SATLUM              "Sättigung - Helligkeit"
     ID_LUX_VALUE            "00000000 Lux"

@@ -850,13 +850,15 @@ BEGIN
     CONTROL         "Computa contrasto e delta luminanza da valori luxmeter",IDC_CHECK_PREFER_LUXMETER,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,153,185,10
     CONTROL         "",IDC_STATIC,"Static",SS_ETCHEDHORZ | WS_GROUP,7,149,199,1
-    GROUPBOX        "Delta E",IDC_STATIC,7,171,198,62,WS_GROUP
+    GROUPBOX        "Delta E",IDC_STATIC,7,171,198,71,WS_GROUP
     LTEXT           "Formula dE colore",IDC_STATIC,21,185,88,10
     COMBOBOX        IDC_COMBO_dE,110,184,88,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
     COMBOBOX        IDC_COMBO_dE_GRAY,110,198,88,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
     LTEXT           "Gestione dE scala grigi",IDC_STATIC,21,199,88,10
     CONTROL         "Highlights",IDC_HIGHLIGHT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,41,171,47,10
     COMBOBOX        IDC_COMBO_dE_WEIGHT,110,212,87,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
+    LTEXT           "Tolleranza dE obiettivo",IDC_STATIC,22,228,80,10
+    EDITTEXT        IDC_EDIT_DE_TOLERANCE,110,226,40,12,ES_AUTOHSCROLL
     LTEXT           "Pesatura rif. bianco",IDC_STATIC,22,214,80,10
 END
 
@@ -1784,7 +1786,6 @@ IDB_MEDIUMTOOLBAR_MEASURE_HICOL BITMAP                  "res\\medium_tb_measures
 
 IDB_MEDIUMTOOLBAR_MEAS_EX_HICOL BITMAP                  "res\\medium_tb_measures_ex_hicol.bmp"
 
-IDB_POINT_BITMAP        BITMAP                  "res\\target.bmp"
 
 IDB_REFBLUEPRIMARY_BITMAP BITMAP                  "res\\refblueprimary.bmp"
 
@@ -4012,6 +4013,8 @@ STRINGTABLE
 BEGIN
     IDS_FREEMEASURES        "Misure libere"
     IDS_RGBLEVELS           "Livelli RGB"
+    IDS_TARGET_RINGS        "Anelli: dE %s"
+    IDS_TARGET_TOLERANCE    "Tolleranza dE"
     IDS_SATLUMSHIFT         "Saturazione - turni"
     IDS_SATLUM              "Saturazione - luminanza"
     ID_LUX_VALUE            "00000000 Lux"

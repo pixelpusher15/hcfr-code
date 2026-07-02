@@ -27,7 +27,9 @@
 // TargetWnd.h : header file
 //
 
-#include "PPTooltip.h" 
+#include <deque>
+
+namespace Gdiplus { class Bitmap; }
 
 /////////////////////////////////////////////////////////////////////////////
 // CTargetWnd window
@@ -40,22 +42,14 @@ public:
 
 // Attributes
 public:
-	CBitmap m_bgBitmap;
-	CBitmap m_pointBitmap;
-	CBitmap m_scaledPointBitmap;
-
 	double		m_deltax;
 	double		m_deltay;
+	double		m_deltaE;		// dE of the current read (< 0 until first refresh)
 	COLORREF	m_clr;
-	int m_marginInPercent;
-	int m_targetRectInPercent;
-	int m_pointSizeInPercent;
 	int nR;
 	int nG;
 	int nB;
 	ColorXYZ centerXYZ;
-	CPPToolTip m_tooltip;
-	CString *	pTooltipText;
 
 	CColor *	m_pRefColor;
 	CDataSetDoc *	m_pDocument;
@@ -67,20 +61,26 @@ public:
 	void Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMode, CDataSetDoc * pDoc, int target);
 
 protected:
-	int m_prev_cx; 
-	int m_prev_cy; 
+	// Measurement history drawn as a fading trail. Points are stored in
+	// ring-scale polar form (angle, radius fraction) so window resizes and
+	// theme switches don't invalidate them. The last entry is the current read.
+	struct STrailPoint { double angle; double radius; };
+	std::deque<STrailPoint> m_trail;
+	ColorXYZ	m_trailCenter;	// target the trail belongs to
+	int			m_trailCol;
+	int			m_trailMode;
 
-	void MakeBgBitmap();
-	void UpdateScaledBitmap();
-	double GetZoomFactor();
+	// Background (panel, hue wheel, dE rings, labels) cached per size/theme.
+	Gdiplus::Bitmap *	m_pBgBitmap;
+	int			m_bgCx;
+	int			m_bgCy;
+	BOOL		m_bgDark;
+	double		m_bgTol;	// tolerance ring position baked into the cache
 
-// Overrides
-	// ClassWizard generated virtual function overrides
-	//{{AFX_VIRTUAL(CTargetWnd)
-	public:
-	virtual BOOL Create(LPCTSTR lpszClassName, LPCTSTR lpszWindowName, DWORD dwStyle, const RECT& rect, CWnd* pParentWnd, UINT nID, CCreateContext* pContext = NULL);
-	virtual BOOL PreTranslateMessage(MSG* pMsg);
-	//}}AFX_VIRTUAL
+	void GetGeometry(const CRect & rect, double & cx, double & cy, double & R) const;
+	void RebuildBackground(const CRect & rect, BOOL bDark);
+	void UpdateDeltaE();
+	static double RingRadius(double dE);
 
 // Implementation
 public:
@@ -88,7 +88,6 @@ public:
 
 	// Generated message map functions
 protected:
-	afx_msg void NotifyDisplayTooltip(NMHDR * pNMHDR, LRESULT * result);
 	//{{AFX_MSG(CTargetWnd)
 	afx_msg void OnPaint();
 	afx_msg void OnSize(UINT nType, int cx, int cy);

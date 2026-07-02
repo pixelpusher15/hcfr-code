@@ -89,7 +89,6 @@
 #define IDB_MEDIUMTOOLBAR_MEASURE_HICOL 187
 #define IDB_MEDIUMTOOLBAR_MEAS_EX_HICOL 189
 #define IDC_CURSOR_MEASURE              190
-#define IDB_POINT_BITMAP                192
 #define IDB_REFBLUEPRIMARY_BITMAP       201
 #define IDB_REFGREENPRIMARY_BITMAP      202
 #define IDB_REFREDPRIMARY_BITMAP        203
@@ -1833,6 +1832,11 @@
 #define IDS_GEN_BLANK_SCREEN              59485
 #define IDS_STOPSWEEP                  59520
 #define IDS_STOP_BTN                   59521
+#define IDS_TARGET_RINGS               59522
+#define IDS_TARGET_TOLERANCE           59523
+#define IDC_EDIT_DE_TOLERANCE           1546
+#define ID_TARGET_TOL_FIRST             33108
+#define ID_TARGET_TOL_LAST              33112
 
 // Next default values for new objects
 // 
@@ -1840,8 +1844,8 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
-#define _APS_NEXT_COMMAND_VALUE         33108
-#define _APS_NEXT_CONTROL_VALUE         1546
+#define _APS_NEXT_COMMAND_VALUE         33113
+#define _APS_NEXT_CONTROL_VALUE         1547
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif
