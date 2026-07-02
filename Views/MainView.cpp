@@ -29,6 +29,8 @@
 #include "Tools/GridCtrl/GridCtrl.h"
 #include "MainFrm.h"
 #include "MultiFrm.h"
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
 #include "GDIGenerator.h"
 #include "LuminanceHistoView.h"
 #include "NearBlackHistoView.h"
@@ -362,6 +364,121 @@ static COLORREF ButtonBorderColor();
 /////////////////////////////////////////////////////////////////////////////
 // CMainView
 
+/////////////////////////////////////////////////////////////////////////////
+// CCompSwatch - one half of the measured / reference split colour swatch
+
+// Initialise GDI+ once (process lifetime) for the owner-drawn swatch halves.
+static void EnsureGdiplusMV()
+{
+	static ULONG_PTR s_token = 0;
+	if ( s_token == 0 )
+	{
+		Gdiplus::GdiplusStartupInput gdipInput;
+		Gdiplus::GdiplusStartup(&s_token, &gdipInput, NULL);
+	}
+}
+
+// Rounded-rectangle path (all four corners).
+static void SwatchRoundPath(Gdiplus::GraphicsPath& p, float x, float y, float w, float h, float r)
+{
+	if ( r * 2.0f > w ) r = w * 0.5f;
+	if ( r * 2.0f > h ) r = h * 0.5f;
+	if ( r <= 0.0f ) { p.AddRectangle(Gdiplus::RectF(x, y, w, h)); return; }
+	p.AddArc(x, y, r*2.0f, r*2.0f, 180.0f, 90.0f);
+	p.AddArc(x+w-r*2.0f, y, r*2.0f, r*2.0f, 270.0f, 90.0f);
+	p.AddArc(x+w-r*2.0f, y+h-r*2.0f, r*2.0f, r*2.0f, 0.0f, 90.0f);
+	p.AddArc(x, y+h-r*2.0f, r*2.0f, r*2.0f, 90.0f, 90.0f);
+	p.CloseFigure();
+}
+
+BEGIN_MESSAGE_MAP(CCompSwatch, CStatic)
+	ON_WM_PAINT()
+	ON_WM_ERASEBKGND()
+END_MESSAGE_MAP()
+
+BOOL CCompSwatch::OnEraseBkgnd(CDC*)
+{
+	return TRUE;
+}
+
+void CCompSwatch::OnPaint()
+{
+	CPaintDC dc(this);
+	CRect rc;
+	GetClientRect(&rc);
+	if ( rc.Width() <= 0 || rc.Height() <= 0 )
+		return;
+
+	int dpiY = dc.GetDeviceCaps(LOGPIXELSY);
+	BOOL bDark = GetConfig()->m_darkTheme;
+	COLORREF panelBg   = FxGetMenuBgColor();
+	COLORREF textClr   = FxGetSysColor(COLOR_WINDOWTEXT);
+	COLORREF mutedClr  = bDark ? RGB(148,148,154) : RGB(112,114,120);
+	COLORREF borderClr = bDark ? RGB(72,72,78)    : RGB(196,198,204);
+
+	CDC mem;
+	mem.CreateCompatibleDC(&dc);
+	CBitmap bmp;
+	bmp.CreateCompatibleBitmap(&dc, rc.Width(), rc.Height());
+	CBitmap* pOldBmp = mem.SelectObject(&bmp);
+	mem.FillSolidRect(&rc, panelBg);
+
+	EnsureGdiplusMV();
+	Gdiplus::Graphics g(mem.GetSafeHdc());
+	g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+	g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+	g.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+
+	float W   = (float) rc.Width();
+	float rad = (float) MulDiv(8, dpiY, 96);
+
+	// Swatch pill (upper half): outer corners rounded, inner edge square, so the
+	// measured and reference halves butt together into one split pill.
+	float swTop = 0.0f;
+	float swH   = ((float) rc.Height() - swTop) * 0.52f;
+	Gdiplus::GraphicsPath pill;
+	if ( m_side == 0 )
+		SwatchRoundPath(pill, 0.5f, swTop, W + rad, swH, rad);
+	else
+		SwatchRoundPath(pill, -rad, swTop, W - 0.5f + rad, swH, rad);
+	COLORREF fill = m_hasColor ? m_fill : panelBg;
+	Gdiplus::SolidBrush pillBrush(Gdiplus::Color(255, GetRValue(fill), GetGValue(fill), GetBValue(fill)));
+	g.FillPath(&pillBrush, &pill);
+	Gdiplus::Pen pillPen(Gdiplus::Color(255, GetRValue(borderClr), GetGValue(borderClr), GetBValue(borderClr)), 1.0f);
+	g.DrawPath(&pillPen, &pill);
+	// Inset look: 1px white bottom highlight under the pill (matches the RGB tracks).
+	Gdiplus::Pen hlPen(bDark ? Gdiplus::Color(26,255,255,255) : Gdiplus::Color(115,255,255,255), 1.0f);
+	Gdiplus::REAL hlY = swTop + swH + 1.0f;
+	if ( m_side == 0 )
+		g.DrawLine(&hlPen, rad, hlY, W, hlY);
+	else
+		g.DrawLine(&hlPen, 0.0f, hlY, W - rad, hlY);
+
+	// Label and RGB triplet below, aligned to the outer edge of each half so
+	// the pair reads left / right across the split.
+	float labelPx = (float) MulDiv(11, dpiY, 96);
+	float valuePx = (float) MulDiv(12, dpiY, 96);
+	Gdiplus::Font labelFont(L"Segoe UI", labelPx, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+	Gdiplus::Font valueFont(L"Consolas", valuePx, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+	Gdiplus::SolidBrush labelBrush(Gdiplus::Color(255, GetRValue(mutedClr), GetGValue(mutedClr), GetBValue(mutedClr)));
+	Gdiplus::SolidBrush valueBrush(Gdiplus::Color(255, GetRValue(textClr), GetGValue(textClr), GetBValue(textClr)));
+	Gdiplus::StringFormat fmt(Gdiplus::StringFormatFlagsNoWrap);
+	fmt.SetAlignment(m_side == 0 ? Gdiplus::StringAlignmentNear : Gdiplus::StringAlignmentFar);
+
+	float pad = (float) MulDiv(2, dpiY, 96);
+	float ty  = swTop + swH + (float) MulDiv(5, dpiY, 96);
+	CStringW wlabel(m_side == 0 ? L"Measured" : L"Reference");
+	g.DrawString(wlabel, -1, &labelFont, Gdiplus::RectF(pad, ty, W - 2.0f*pad, labelPx + 4.0f), &fmt, &labelBrush);
+	if ( m_hasColor && !m_value.IsEmpty() )
+	{
+		CStringW wv(m_value);
+		g.DrawString(wv, -1, &valueFont, Gdiplus::RectF(pad, ty + labelPx + (float) MulDiv(3, dpiY, 96), W - 2.0f*pad, valuePx + 4.0f), &fmt, &valueBrush);
+	}
+
+	dc.BitBlt(0, 0, rc.Width(), rc.Height(), &mem, 0, 0, SRCCOPY);
+	mem.SelectObject(pOldBmp);
+}
+
 IMPLEMENT_DYNCREATE(CMainView, CFormView)
 
 #define SIZEMOVE_TIMER_ID 0x5713
@@ -528,7 +645,6 @@ CMainView::CMainView()
 	m_meas_r1 = 0.,m_meas_g1 = 0.,m_meas_b1 = 0.;
 	refresh = false;
 	m_infoLine = "Welcome to HCFR";
-	CCompClr = NULL;
 }
 
 CMainView::~CMainView()
@@ -587,6 +703,7 @@ void CMainView::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_TARGET, m_TargetStatic);
 	DDX_Control(pDX, IDC_CCOMP, m_Ccomp);
 	DDX_Control(pDX, IDC_CCOMP3, m_Ccomp3);
+	m_Ccomp3.m_side = 1;	// right/reference half of the split swatch
 	DDX_Control(pDX, IDC_RGBLEVELS, m_RGBLevelsStatic);
 	DDX_Control(pDX, IDC_STATIC_RGBLEVELS, m_RGBLevelsLabel);
 	DDX_Control(pDX, IDC_ANSICONTRAST_PATTERN_TEST_BUTTON, m_testAnsiPatternButton);
@@ -831,7 +948,10 @@ void CMainView::OnInitialUpdate()
 		CRect rect;
         m_colordataStatic.GetWindowRect(&rect);	// size control to m_colordataStatic control size
 		ScreenToClient(&rect);
-        m_pSelectedColorGrid->Create(rect, this, IDC_COLORDATA_GRID,WS_CHILD | WS_TABSTOP | WS_VISIBLE | WS_VSCROLL);		// Create the Gridctrl window
+		rect.OffsetRect(2, 0);   // fine-tune: shift the Current Measure grid 2px right
+		rect.bottom += 2;         // and make it 2px taller
+        m_pSelectedColorGrid->Create(rect, this, IDC_COLORDATA_GRID,WS_CHILD | WS_TABSTOP | WS_VISIBLE | WS_VSCROLL);
+		m_pSelectedColorGrid->ModifyStyleEx(WS_EX_CLIENTEDGE, 0, SWP_FRAMECHANGED);   // flat grid, no sunken 3D border		// Create the Gridctrl window
 	}
 
 	InitButtons();
@@ -1321,13 +1441,6 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 	if (!inMeasure)
 	{
 		UpdateGrid();
-		if (CCompClr)
-		{
-			DeleteObject(CCompClr);
-			CCompClr = NULL;
-		}
-
-		t_color=RGB(25,50,75);
 		ColorRGB ref(.5,.5,.5);
 		ColorRGB meas(0.5,0.5,0.5);
 		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
@@ -1392,10 +1505,6 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			m_ref_g = m_ref_gd;
 			m_ref_b = m_ref_bd;
 
-			if (m_ref_gd > 0.4 || m_ref_gd > 0.6)
-				t_color=RGB(25,50,75);
-			else
-				t_color=RGB(125,150,175);
 		
 		}
 			trip1.SetString("No\nMeasure\n");				
@@ -1501,19 +1610,21 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			trip2.SetString("No\nMeasure\n");				
 			if (m_SelectedColor.isValid())
 			{
-				m_tooltip2.RemoveAllTools();
-				CString dEstr;
-				dEstr.Format("Color Comparator\n______________________%3.2f dE______________________\n\n\n\n\n\n\n\n\n\n\n\n\n\n", m_dE);
-				m_tooltip2.AddTool(GetDlgItem(IDC_CCOMP3), dEstr);
-				m_tooltip2.SetColorBk(RGB(floor(m_meas_r1*255.+0.5),floor(m_meas_g1*255.+0.5),floor(m_meas_b1*255.+0.5)),RGB(floor(m_ref_r1*255.+0.5),floor(m_ref_g1*255.+0.5),floor(m_ref_b1*255.+0.5)));
 				if (GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",0))
 					trip2.Format("%d,%d,%d\nReference",((int)floor((m_ref_rd)*219.+0.5)+16),(int)(floor((m_ref_gd)*219.+0.5)+16),(int)(floor((m_ref_bd)*219.+0.5)+16));
 				else
 					trip2.Format("%d,%d,%d\nReference",((int)floor((m_ref_rd)*255+0.5)),(int)(floor((m_ref_gd)*255.+0.5)),(int)(floor((m_ref_bd)*255.+0.5)));
 			}
 
-		SetDlgItemTextA(IDC_CCOMP, trip1); //this calls window redraw as well
-		SetDlgItemTextA(IDC_CCOMP3, trip2);
+		// Owner-drawn split swatch: push each half its fill colour and numeric
+		// triplet (labels are fixed per side inside CCompSwatch). No SetWindowText
+		// here - the default static repaint it triggers was the source of the old
+		// comparator's one-frame flash.
+		{
+			BOOL bSel = m_SelectedColor.isValid();
+			m_Ccomp.SetContent(RGB((int)floor(m_meas_r1*255.+0.5),(int)floor(m_meas_g1*255.+0.5),(int)floor(m_meas_b1*255.+0.5)), bSel, trip1.SpanExcluding("\n"));
+			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel, trip2.SpanExcluding("\n"));
+		}
 	}
 }
 
@@ -6422,13 +6533,6 @@ void CMainView::InitButtons()
 		m_CtrlInitPos.AddTail(pCombo);
 	}
 
-	CFont m_Font;
-	m_Font.Detach();
-	m_Font.CreateFont(GetConfig()->Scale(8), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,0,PROOF_QUALITY,0, "Tahoma");
-
-	m_Ccomp.SetFont(&m_Font);
-	m_Ccomp3.SetFont(&m_Font);
-
 	if ( m_displayMode == 12 )
 	{
 		m_testAnsiPatternButton.ShowWindow ( SW_SHOW );
@@ -6439,11 +6543,17 @@ void CMainView::InitButtons()
 		m_testAnsiPatternButton.ShowWindow ( SW_HIDE );
 		m_refs.ShowWindow ( SW_SHOW );
 	}
-	m_Font.DeleteObject();
-
 	line_Font.DeleteObject();
 	line_Font.CreateFontA(GetConfig()->ScaleFloor(14,17),0,0,0,FW_SEMIBOLD,0,0,0,0,0,0,PROOF_QUALITY,VARIABLE_PITCH,_T("ARIAL"));
 	m_refInfo.SetFont(&line_Font);
+
+	// Crisp ClearType Segoe UI for the panel section labels (native GDI statics
+	// otherwise render in the default non-ClearType dialog font).
+	m_sectionFont.DeleteObject();
+	m_sectionFont.CreateFontA(-GetConfig()->Scale(12),0,0,0,FW_NORMAL,0,0,0,ANSI_CHARSET,OUT_TT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,VARIABLE_PITCH|FF_SWISS,_T("Segoe UI"));
+	if (GetDlgItem(IDC_STATIC_RGBLEVELS)) GetDlgItem(IDC_STATIC_RGBLEVELS)->SetFont(&m_sectionFont);
+	if (GetDlgItem(IDC_STATIC_DATA))      GetDlgItem(IDC_STATIC_DATA)->SetFont(&m_sectionFont);
+	if (GetDlgItem(IDC_STATIC_TARGET))    GetDlgItem(IDC_STATIC_TARGET)->SetFont(&m_sectionFont);
 
     GetDlgItem( IDC_INFOLINE )->SetFont( &line_Font );
 
@@ -6467,16 +6577,7 @@ void CMainView::InitButtons()
 	m_tooltip.SetEffectBk(CPPDrawManager::EFFECT_SOLID);
 	m_tooltip.SetBorder(::CreateSolidBrush(RGB(96,96,96)),1,1);
 
-	m_tooltip2.Create(this);	
-	m_tooltip2.SetBehaviour(PPTOOLTIP_CLOSE_LEAVEWND);
-	m_tooltip2.SetNotify(TRUE);
-	m_tooltip2.SetSize(0, 72);
-	m_tooltip2.AddTool(pWnd, "Color Comparator\n____________________________________________\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
-	m_tooltip2.SetColorBk(RGB(110,110,110),RGB(128,128,128));
-	m_tooltip2.SetEffectBk(CPPDrawManager::EFFECT_SOLID);
-	m_tooltip2.SetBorder(::CreateSolidBrush(RGB(96,96,96)),1,1);
 	m_tooltip.SetFont(&line_Font);
-	m_tooltip2.SetFont(&line_Font);
 	}
 }
 void CMainView::InitGroups()
@@ -6671,36 +6772,13 @@ HBRUSH CMainView::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 
 LRESULT CMainView::OnCtlColorStatic(WPARAM wParam, LPARAM lParam)
 {
-	
-	HWND hWnd = (HWND)lParam;
-	if ( (::GetDlgCtrlID(hWnd) != IDC_CCOMP3) && (::GetDlgCtrlID(hWnd) != IDC_CCOMP) )
-	{ HDC hDC = (HDC)wParam; SetBkMode(hDC, TRANSPARENT); SetTextColor(hDC, FxGetSysColor(COLOR_MENUTEXT)); return (LRESULT)(m_pBgBrush->GetSafeHandle()); }
-
-	if (CCompClr)
-	{
-		DeleteObject(CCompClr);
-		CCompClr = NULL;
-	}
-
-
-	if (::GetDlgCtrlID(hWnd) == IDC_CCOMP && m_SelectedColor.isValid()) //measured color
-	{
-		HDC hDC = (HDC)wParam;
-		SetBkMode(hDC, TRANSPARENT);
-		SetTextColor(hDC, t_color); //set to reference
-		CCompClr=CreateSolidBrush(RGB(floor(pow(m_meas_r1,1.0)*255.+0.5),floor(pow(m_meas_g1,1.0)*255.+0.5),floor(pow(m_meas_b1,1.0)*255.+0.5)));
-		return BOOL(CCompClr);
-	}
-	else if (::GetDlgCtrlID(hWnd) == IDC_CCOMP3 && m_SelectedColor.isValid()) //reference color
-	{
-		HDC hDC = (HDC)wParam;
-		SetBkMode(hDC, TRANSPARENT);
-		SetTextColor(hDC, t_color); //set to reference
-		CCompClr = CreateSolidBrush(RGB(floor(pow(m_ref_r1,1.0)*255.+0.5),floor(pow(m_ref_g1,1.0)*255.+0.5),floor(pow(m_ref_b1,1.0)*255.+0.5)));
-		return BOOL(CCompClr);
-	}
-
-	return DefWindowProc(WM_CTLCOLORSTATIC, wParam, lParam);
+	// The colour-comparator swatches (IDC_CCOMP / IDC_CCOMP3) are owner-drawn
+	// now (CCompSwatch::OnPaint), so every static gets the plain panel treatment.
+	UNREFERENCED_PARAMETER(lParam);
+	HDC hDC = (HDC)wParam;
+	SetBkMode(hDC, TRANSPARENT);
+	SetTextColor(hDC, FxGetSysColor(COLOR_MENUTEXT));
+	return (LRESULT)(m_pBgBrush->GetSafeHandle());
 }
 
 void CMainView::InsetInfoWindows()
@@ -6880,9 +6958,20 @@ void CMainView::OnSize(UINT nType, int cx, int cy)
 
 		InsetInfoWindows ();
 
-		if ( ClientRect.bottom - ClientRect.top < m_InitialWindowSize.y + m_nSizeOffset )
-		{
-			m_Target.ShowWindow ( SW_HIDE );
+		// Gate the target on the room the TARGET itself needs, not the full panel
+			// height (the grid/groupbox extend well below the target, so keying off
+			// m_InitialWindowSize.y hid the target even when it would fit).
+			int nTargetNeeded = m_InitialWindowSize.y;
+			if ( m_Target.GetSafeHwnd () )
+			{
+				CRect tgtRect;
+				m_Target.GetWindowRect ( & tgtRect );
+				ScreenToClient ( & tgtRect );
+				nTargetNeeded = tgtRect.bottom + 4;
+			}
+			if ( ClientRect.bottom - ClientRect.top < nTargetNeeded + m_nSizeOffset )
+			{
+				m_Target.ShowWindow ( SW_HIDE );
 		}
 		else
 		{
@@ -8491,6 +8580,5 @@ void CMainView::OnRefs()
 BOOL CMainView::PreTranslateMessage(MSG* pMsg)
 {
 	m_tooltip.RelayEvent(pMsg);
-	m_tooltip2.RelayEvent(pMsg);
 	return CWnd::PreTranslateMessage(pMsg);
 }

@@ -30,6 +30,7 @@
 #include "fxcolor.h"
 #include <gdiplus.h>
 #pragma comment(lib, "gdiplus.lib")
+#include "../Tools/fxcolor.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -498,229 +499,165 @@ END_MESSAGE_MAP()
 /////////////////////////////////////////////////////////////////////////////
 // CRGBLevelWnd message handlers
 
-void CRGBLevelWnd::OnPaint() 
-{
-	int widthMargin=6;
-	int heightMargin=5;
-	int bottomMargin=1;
-	int interBarMargin=6;
+static void EnsureGdiplus();
 
+// Rounded-rectangle path (all four corners) for the level tracks and bars.
+static void AddRoundRectPath(Gdiplus::GraphicsPath& p, float x, float y, float w, float h, float r)
+{
+	if ( r * 2.0f > w ) r = w * 0.5f;
+	if ( r * 2.0f > h ) r = h * 0.5f;
+	if ( r <= 0.0f ) { p.AddRectangle(Gdiplus::RectF(x, y, w, h)); return; }
+	p.AddArc(x, y, r*2.0f, r*2.0f, 180.0f, 90.0f);
+	p.AddArc(x+w-r*2.0f, y, r*2.0f, r*2.0f, 270.0f, 90.0f);
+	p.AddArc(x+w-r*2.0f, y+h-r*2.0f, r*2.0f, r*2.0f, 0.0f, 90.0f);
+	p.AddArc(x, y+h-r*2.0f, r*2.0f, r*2.0f, 90.0f, 90.0f);
+	p.CloseFigure();
+}
+
+void CRGBLevelWnd::OnPaint()
+{
 	CPaintDC dc(this); // device context for painting
-	
-    CHMemDC pDC(&dc);
+	CHMemDC pDC(&dc);
 
 	CRect rect;
 	GetClientRect(&rect);
-
-	// Chart panel background: a soft vertical gradient + thin border, tuned per theme
-	// (near-black in dark mode so the bars still pop; a pale panel in light mode).
-	BOOL bDark = GetConfig()->m_darkTheme;
-	int bgTop = bDark ? 26 : 250;
-	int bgBot = bDark ? 12 : 235;
-	int bgH = rect.Height();
-	for ( int y = 0; y < bgH; y++ )
-	{
-		int v = bgTop - (bgH>1 ? (bgTop-bgBot)*y/(bgH-1) : 0);
-		pDC->FillSolidRect(0, y, rect.Width(), 1, RGB(v, v, bDark ? v : min(255, v + 2)));
-	}
-	CBrush* pOldBgBr = (CBrush*) pDC->SelectStockObject(NULL_BRUSH);
-	CPen penBg(PS_SOLID, 1, bDark ? RGB(56,56,56) : RGB(205,207,213));
-	CPen* pOldBgPen = pDC->SelectObject(&penBg);
-	pDC->Rectangle(0, 0, rect.Width(), rect.Height());
-	pDC->SelectObject(pOldBgPen);
-	pDC->SelectObject(pOldBgBr);
-
-	CRect drawRect=rect;
-	drawRect.DeflateRect(widthMargin,heightMargin,widthMargin,bottomMargin);
-
-	int barWidth = int ((drawRect.Width()-3*interBarMargin)/4.0); //includes dE
-	int maxYValue = int  max(m_redValue,max(m_greenValue,m_blueValue));
-	CSize labelSize=pDC->GetTextExtent("100%");
-
-	float yScale;
-	if(maxYValue < 200 )
-		yScale=(float)drawRect.Height()/200.0f;		// if value is bellow 200% => scale is 0-200% 
-	else		
-		yScale=(float)drawRect.Height()/(float)maxYValue;	// else scale is 0-max value
-	
-	// Adjust scale if label cannot be drawn correctly
-	if(maxYValue*yScale + labelSize.cy > drawRect.Height() )
-		yScale=(float)(drawRect.Height() - labelSize.cy)/(float)maxYValue;  
-
-	if(maxYValue < 200) 	// draw 100% line only if scale is 0-200%
-	{
-		CPen aPen(PS_DOT,1, bDark ? RGB(128,128,128) : RGB(176,178,184));
-		CPen* pOldLinePen = pDC->SelectObject(&aPen);
-		pDC->MoveTo(0,rect.Height()-(int)(100.0*yScale)-bottomMargin);
-		pDC->LineTo(rect.Width(),rect.Height()-(int)(100.0*yScale)-bottomMargin);
-		pDC->SelectObject(pOldLinePen);   // CTRL-007: restore the DC's pen before aPen is destroyed
-	}
-
-	int minBar = MulDiv(3, pDC->GetDeviceCaps(LOGPIXELSY), 96);
-	int redBarHeight=max(minBar,(int)(floor(m_redValue*10.0+0.5)/10.0*yScale));
-	int redBarX=widthMargin;
-	int redBarY=rect.Height()-redBarHeight-bottomMargin;
-	
-	int greenBarHeight= max(minBar,(int)(floor(m_greenValue*10.0+0.5)/10.0*yScale));
-	int greenBarX=widthMargin+barWidth+interBarMargin;
-	int greenBarY=rect.Height()-greenBarHeight-bottomMargin;
-
-	int blueBarHeight= max(minBar,(int)(floor(m_blueValue*10.0+0.5)/10.0*yScale));
-	int blueBarX=widthMargin+2*barWidth+2*interBarMargin;
-	int blueBarY=rect.Height()-blueBarHeight-bottomMargin;
-
-	double dEyScale=(float)drawRect.Height()/6.;
-	double dEBarHeightmax=dEyScale * 4.8;
-	int dEBarHeight= max(minBar,min((int)dEBarHeightmax,(int)(floor(m_dEValue*10.0+0.5)/10.0*dEyScale)));
-	int dEBarX=widthMargin+3*barWidth+3*interBarMargin;
-	int dEBarY=rect.Height()-dEBarHeight-bottomMargin;
-
-    // draw RGB bars
-	int ellipseHeight=barWidth/4;
-    if (m_bLumaMode && GetConfig()->m_useHSV)
-	{
-    	DrawGradientBar(pDC,RGB(0,125,125),redBarX,redBarY,barWidth,redBarHeight);
-	    DrawGradientBar(pDC,RGB(125,0,125),greenBarX,greenBarY,barWidth,greenBarHeight);
-	    DrawGradientBar(pDC,RGB(125,125,0),blueBarX,blueBarY,barWidth,blueBarHeight);
-	    DrawGradientBar(pDC,RGB(220,185,55),dEBarX,dEBarY,barWidth,dEBarHeight);
-    }
-    else
-    {
-    	DrawGradientBar(pDC,RGB(215,55,55),redBarX,redBarY,barWidth,redBarHeight);
-	    DrawGradientBar(pDC,RGB(65,190,80),greenBarX,greenBarY,barWidth,greenBarHeight);
-	    DrawGradientBar(pDC,RGB(0,0,255),blueBarX,blueBarY,barWidth,blueBarHeight);
-	    DrawGradientBar(pDC,RGB(220,185,55),dEBarX,dEBarY,barWidth,dEBarHeight);
-    }
-
-
-    // Flat bars: the 3D ellipse caps have been removed; rounded tops are drawn in DrawGradientBar.
-
-	// Display values on top of bars
-	pDC->SetTextAlign(TA_CENTER | TA_BOTTOM);
-	pDC->SetTextColor(bDark ? RGB(255,255,255) : RGB(40,40,44));
-	pDC->SetBkMode(TRANSPARENT);
-
-	// Initializes a CFont object with the specified characteristics. 
-	CFont font;
-	if (GetConfig()->isHighDPI)
-	{
-		VERIFY(font.CreateFont(
-		   19,						  // nHeight
-		   0,                         // nWidth
-		   0,                         // nEscapement
-		   0,                         // nOrientation
-		   FW_BOLD,					  // nWeight
-		   FALSE,                     // bItalic
-		   FALSE,                     // bUnderline
-		   FALSE,                         // cStrikeOut
-		   0,              // nCharSet
-		   OUT_TT_ONLY_PRECIS,//OUT_DEFAULT_PRECIS,        // nOutPrecision
-		   CLIP_DEFAULT_PRECIS,       // nClipPrecision
-		   PROOF_QUALITY,//DEFAULT_QUALITY,           // nQuality
-		   VARIABLE_PITCH | FF_SWISS,//FIXED_PITCH,				  // nPitchAndFamily
-		   _T("Segoe UI")));                 // lpszFacename
-	} else
-	{
-		VERIFY(font.CreateFont(
-		   15,						  // nHeight
-		   0,                         // nWidth
-		   0,                         // nEscapement
-		   0,                         // nOrientation
-		   FW_BOLD,					  // nWeight
-		   FALSE,                     // bItalic
-		   FALSE,                     // bUnderline
-		   FALSE,                         // cStrikeOut
-		   0,              // nCharSet
-		   OUT_TT_ONLY_PRECIS,//OUT_DEFAULT_PRECIS,        // nOutPrecision
-		   CLIP_DEFAULT_PRECIS,       // nClipPrecision
-		   PROOF_QUALITY,//DEFAULT_QUALITY,           // nQuality
-		   VARIABLE_PITCH | FF_SWISS,//FIXED_PITCH,				  // nPitchAndFamily
-		   _T("Segoe UI")));                 // lpszFacename
-	}
-
-	// Do something with the font just created...
-	CFont* pOldFont = pDC->SelectObject(&font);
-
-	char aBuf[32];
-	sprintf(aBuf,"%3.1f%%",m_redValue);
-	pDC->TextOut(redBarX+barWidth/2,redBarY-ellipseHeight/2,aBuf);
-	sprintf(aBuf,"%3.1f%%",m_blueValue);
-	pDC->TextOut(blueBarX+barWidth/2,blueBarY-ellipseHeight/2,aBuf);
-	sprintf(aBuf,"%3.1f%%",m_greenValue);
-	pDC->TextOut(greenBarX+barWidth/2,greenBarY-ellipseHeight/2,aBuf);
-    sprintf(aBuf,"dE %3.1f",m_dEValue);
-	pDC->TextOut(dEBarX+barWidth/2,dEBarY-ellipseHeight/2,aBuf);
-
-	pDC->SelectObject(pOldFont);
-
-	// No bottom strip fill here: the panel gradient + border already paints the bottom
-	// margin, and each bar's border is clipped to the baseline, so a solid strip would
-	// only cut into the panel frame.
-}
-
-void CRGBLevelWnd::DrawGradientBar(CDC *pDC,COLORREF aColor, int aX, int aY, int aWidth, int aHeight) 
-{
-	if ( aWidth <= 0 || aHeight <= 0 )
+	if ( rect.Width() <= 0 || rect.Height() <= 0 )
 		return;
 
-	FxEnsureGdiplus();
 	BOOL bDark = GetConfig()->m_darkTheme;
+	int dpiY = pDC->GetDeviceCaps(LOGPIXELSY);
 
-	// Per-theme colours: top sheen, deepened bottom, and a defining edge
-	// (lighter than the bar on the dark panel, darker on the light panel).
-	int r0 = GetRValue(aColor), g0 = GetGValue(aColor), b0 = GetBValue(aColor);
-	int rT, gT, bT, rB, gB, bB, re, ge, be;
-	if ( bDark )
+	// Flat panel surface matching the app theme so the bars read as part of the
+	// Selected color panel rather than a separate inset chart.
+	COLORREF panelBg = FxGetMenuBgColor();
+	pDC->FillSolidRect(&rect, panelBg);
+
+	COLORREF trackClr  = bDark ? RGB(40,40,40)    : RGB(208,208,208);
+	COLORREF valueClr  = bDark ? RGB(242,242,244) : RGB(35,35,40);
+	COLORREF letterClr = bDark ? RGB(148,148,154) : RGB(112,114,120);
+	COLORREF dashClr   = bDark ? RGB(140,140,140) : RGB(115,115,115);
+
+	BOOL hasData = (m_pRefColor != NULL && m_pRefColor->isValid());
+
+	// Layout: four rounded tracks with the value and channel labels below them.
+	float margin    = (float) MulDiv(4, dpiY, 96);
+	float gap       = (float) MulDiv(9, dpiY, 96);
+	float rad       = (float) MulDiv(5, dpiY, 96);
+	float valuePx   = (float) MulDiv(12, dpiY, 96);
+	float letterPx  = (float) MulDiv(11, dpiY, 96);
+	float labelZone = valuePx + letterPx + (float) MulDiv(6, dpiY, 96);
+
+	float trackTop = margin;
+	float trackBot = (float) rect.Height() - labelZone;
+	float trackH   = trackBot - trackTop;
+	float hmargin  = (float) MulDiv(8, dpiY, 96);   // left room so wide values (e.g. 129.8%) are not clipped
+	float colW     = ((float) rect.Width() - hmargin - 3.0f*gap) / 4.0f;
+	if ( trackH <= 8.0f || colW <= 8.0f )
+		return;
+
+	// 0-200% scale puts 100% exactly halfway up the track; if a channel exceeds
+	// 200% the scale stretches so the tallest bar still fits. The dE track uses
+	// its own 0-6 scale, which lands dE 3.0 on the same halfway line.
+	float maxVal  = max(m_redValue, max(m_greenValue, m_blueValue));
+	float yScale  = (maxVal < 200.0f) ? trackH / 200.0f : trackH / maxVal;
+	float dEScale = trackH / 6.0f;
+
+	float vals[4] = { m_redValue, m_greenValue, m_blueValue, (float) m_dEValue };
+	COLORREF clrs[4];
+	if ( m_bLumaMode && GetConfig()->m_useHSV )
 	{
-		rT = r0 + (255 - r0) * 10 / 100; gT = g0 + (255 - g0) * 10 / 100; bT = b0 + (255 - b0) * 10 / 100;
-		rB = r0 * 82 / 100; gB = g0 * 82 / 100; bB = b0 * 82 / 100;
-		re = r0 + (255 - r0) * 40 / 100; ge = g0 + (255 - g0) * 40 / 100; be = b0 + (255 - b0) * 40 / 100;
+		clrs[0] = RGB(0,125,125); clrs[1] = RGB(125,0,125); clrs[2] = RGB(125,125,0);
 	}
 	else
 	{
-		rT = r0; gT = g0; bT = b0;
-		rB = r0 * 80 / 100; gB = g0 * 80 / 100; bB = b0 * 80 / 100;
-		re = r0 * 58 / 100; ge = g0 * 58 / 100; be = b0 * 58 / 100;
+		clrs[0] = RGB(215,60,60); clrs[1] = RGB(65,190,80); clrs[2] = RGB(66,109,218); // B = #426DDA
 	}
+	// dE bar colours from the spec: green #83FF61, yellow #E7FAA3, red #D67C6A.
+	clrs[3] = (m_dEValue < 2.0f) ? RGB(131,255,97)
+	        : (m_dEValue < 3.0f) ? RGB(231,250,163)
+	                             : RGB(214,124,106);
 
+	EnsureGdiplus();
 	Gdiplus::Graphics g(pDC->GetSafeHdc());
 	g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
 	g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+	g.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
 
-	float radius = (float) MulDiv(3, pDC->GetDeviceCaps(LOGPIXELSY), 96);
-	if ( radius > aWidth / 2.0f )  radius = aWidth / 2.0f;
-	if ( radius > aHeight / 2.0f ) radius = aHeight / 2.0f;
-	if ( radius < 1.0f )           radius = 1.0f;
+	// Inset "well" styling (Figma spec): track fill + subtle dark border + a 1px
+	// white bottom highlight; the fill bars get a subtle dark border of their own.
+	Gdiplus::SolidBrush trackBrush(Gdiplus::Color(255, GetRValue(trackClr), GetGValue(trackClr), GetBValue(trackClr)));
+	Gdiplus::Pen trackBorderPen(bDark ? Gdiplus::Color(34,255,255,255) : Gdiplus::Color(26,0,0,0), 1.0f);
+	Gdiplus::Pen hlPen(bDark ? Gdiplus::Color(26,255,255,255) : Gdiplus::Color(115,255,255,255), 1.0f);
+	Gdiplus::Pen barBorderPen(bDark ? Gdiplus::Color(70,0,0,0) : Gdiplus::Color(51,0,0,0), 1.0f);
+	Gdiplus::Pen dashPen(Gdiplus::Color(255, GetRValue(dashClr), GetGValue(dashClr), GetBValue(dashClr)), 1.0f);
+	float dashes[2] = { 4.0f, 4.0f };
+	dashPen.SetDashPattern(dashes, 2);
 
-	float Lx = (float) aX + 0.5f;
-	float Rx = (float) (aX + aWidth) - 0.5f;
-	float Ty = (float) aY + 0.5f;
-	float By = (float) (aY + aHeight);          // baseline (open bottom -- no inset)
-	float d  = radius * 2.0f;
+	Gdiplus::Font valueFont(L"Segoe UI", valuePx, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+	Gdiplus::Font letterFont(L"Segoe UI", letterPx, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+	Gdiplus::SolidBrush valueBrush(Gdiplus::Color(255, GetRValue(valueClr), GetGValue(valueClr), GetBValue(valueClr)));
+	Gdiplus::SolidBrush letterBrush(Gdiplus::Color(255, GetRValue(letterClr), GetGValue(letterClr), GetBValue(letterClr)));
+	Gdiplus::StringFormat fmt(Gdiplus::StringFormatFlagsNoWrap | Gdiplus::StringFormatFlagsNoClip);
+	fmt.SetAlignment(Gdiplus::StringAlignmentCenter);
 
-	// Fill: rounded-top / square-bottom path with a vertical gradient.
-	Gdiplus::GraphicsPath fillPath;
-	fillPath.AddArc(Lx, Ty, d, d, 180.0f, 90.0f);        // top-left corner
-	fillPath.AddArc(Rx - d, Ty, d, d, 270.0f, 90.0f);    // top-right corner
-	fillPath.AddLine(Rx, Ty + radius, Rx, By);           // right side
-	fillPath.AddLine(Rx, By, Lx, By);                    // bottom
-	fillPath.CloseFigure();                              // left side
-	float gw = Rx - Lx; if ( gw < 1.0f ) gw = 1.0f;   // LinearGradientBrush needs a non-empty rect
-	Gdiplus::LinearGradientBrush brush(
-		Gdiplus::RectF(Lx, Ty - 1.0f, gw, (By - Ty) + 2.0f),
-		Gdiplus::Color(255, rT, gT, bT), Gdiplus::Color(255, rB, gB, bB),
-		Gdiplus::LinearGradientModeVertical);
-	g.FillPath(&brush, &fillPath);
+	static const WCHAR* letters[4] = { L"R", L"G", L"B", L"\x0394" L"E" };
 
-	// Border: rounded top + sides only (open path -- no bottom edge, ends level with the fill).
-	Gdiplus::GraphicsPath borderPath;
-	borderPath.AddLine(Lx, By - 1.0f, Lx, Ty + radius);  // left side up (stop level with the fill's solid bottom)
-	borderPath.AddArc(Lx, Ty, d, d, 180.0f, 90.0f);      // top-left
-	borderPath.AddArc(Rx - d, Ty, d, d, 270.0f, 90.0f);  // top-right
-	borderPath.AddLine(Rx, Ty + radius, Rx, By - 1.0f);  // right side down
-	Gdiplus::Pen pen(Gdiplus::Color(255, re, ge, be), 1.0f);
-	g.DrawPath(&pen, &borderPath);
+	for ( int i = 0; i < 4; i++ )
+	{
+		float x = hmargin + i * (colW + gap);
+
+		// 1px white bottom highlight just under the track (the "0 1px 0" inset shadow).
+		g.DrawLine(&hlPen, x + rad, trackBot + 1.0f, x + colW - rad, trackBot + 1.0f);
+
+		Gdiplus::GraphicsPath track;
+		AddRoundRectPath(track, x, trackTop, colW, trackH, rad);
+		g.FillPath(&trackBrush, &track);
+		g.DrawPath(&trackBorderPen, &track);
+
+		// Dashed reference: 100% for the channel bars, dE 3.0 for the dE bar.
+		float dashY = (i < 3) ? (trackBot - 100.0f * yScale) : (trackBot - trackH * 0.5f);
+		g.DrawLine(&dashPen, x + 2.0f, dashY, x + colW, dashY);
+
+		if ( hasData )
+		{
+			float v = (i < 3) ? vals[i] * yScale : vals[i] * dEScale;
+			if ( v > trackH ) v = trackH;
+			if ( v > 1.0f )
+			{
+				Gdiplus::GraphicsPath bar;
+				AddRoundRectPath(bar, x, trackBot - v, colW, v, rad);
+				Gdiplus::SolidBrush barBrush(Gdiplus::Color(255, GetRValue(clrs[i]), GetGValue(clrs[i]), GetBValue(clrs[i])));
+				g.FillPath(&barBrush, &bar);
+				g.DrawPath(&barBorderPen, &bar);
+			}
+
+			WCHAR wval[24];
+			if ( i < 3 )
+				swprintf_s(wval, L"%.1f%%", vals[i]);
+			else
+				swprintf_s(wval, L"%.1f", vals[i]);
+			Gdiplus::RectF vr(x - gap, trackBot + (float) MulDiv(3, dpiY, 96), colW + 2.0f*gap, valuePx + 4.0f);
+			g.DrawString(wval, -1, &valueFont, vr, &fmt, &valueBrush);
+		}
+
+		Gdiplus::RectF lr(x - gap*0.5f, trackBot + (float) MulDiv(4, dpiY, 96) + valuePx, colW + gap, letterPx + 4.0f);
+		g.DrawString(letters[i], -1, &letterFont, lr, &fmt, &letterBrush);
+	}
 }
+
+
+// Initialise GDI+ once (process lifetime) so the level bars can be drawn anti-aliased.
+static void EnsureGdiplus()
+{
+	static ULONG_PTR s_token = 0;
+	if ( s_token == 0 )
+	{
+		Gdiplus::GdiplusStartupInput gdipInput;
+		Gdiplus::GdiplusStartup(&s_token, &gdipInput, NULL);
+	}
+}
+
+
 
 void CRGBLevelWnd::OnContextMenu(CWnd* pWnd, CPoint point) 
 {

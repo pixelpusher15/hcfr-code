@@ -54,7 +54,6 @@ public:
 	void Refresh(int mCol, int m_displayMode, int nSize);
 
 protected:
-	void DrawGradientBar(CDC *pDc,COLORREF aColor, int aX, int aY, int aWidth, int aHeight);
 
 // Overrides
 	// ClassWizard generated virtual function overrides
