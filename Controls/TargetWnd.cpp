@@ -25,10 +25,13 @@
 #include "ColorHCFR.h"
 #include "TargetWnd.h"
 #include "Color.h"
-#include "BitmapTools.h"
 #include "MainFrm.h"
 #include "DataSetDoc.h"
+#include "MainView.h"
+#include "fxcolor.h"
 #include <math.h>
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -41,25 +44,29 @@ static char THIS_FILE[] = __FILE__;
 
 CTargetWnd::CTargetWnd()
 {
-	m_pointBitmap.LoadBitmap(IDB_POINT_BITMAP);
 	m_deltax=0.0;
 	m_deltay=0.0;
-	m_marginInPercent=15;
-	m_targetRectInPercent=10;
-	m_pointSizeInPercent=50;
-	m_prev_cx = -1; 
-	m_prev_cy = -1; 
+	m_deltaE=-1.0;
+	m_clr = RGB(0,0,0);
 	m_pRefColor = NULL;
-	pTooltipText = NULL;
     m_pDocument = NULL;
 	centerXYZ = GetColorReference().GetWhite();
 	nR = 0;
 	nG = 0;
 	nB = 0;
+	m_trailCenter = centerXYZ;
+	m_trailCol = -999;
+	m_trailMode = -999;
+	m_pBgBitmap = NULL;
+	m_bgCx = -1;
+	m_bgCy = -1;
+	m_bgDark = -1;
+	m_bgTol = -1.0;
 }
 
 CTargetWnd::~CTargetWnd()
 {
+	delete m_pBgBitmap;
 }
 
 void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMode, CDataSetDoc * pDoc, int target)
@@ -752,16 +759,33 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 
 			m_deltax = (aColor[0]-centerxyY[0])/centerxyY[0];
 			m_deltay = (aColor[1]-centerxyY[1])/centerxyY[1];
-		
-			if ( m_tooltip.IsWindowVisible() )
+
+			UpdateDeltaE();
+
+			// Trail bookkeeping: a new target (patch, mode or reference change)
+			// starts a fresh trail; a moved reading appends to it.
+			if ( m_trailCol != minCol || m_trailMode != m_DisplayMode ||
+				 fabs(m_trailCenter[0]-centerXYZ[0]) > 1e-9 ||
+				 fabs(m_trailCenter[1]-centerXYZ[1]) > 1e-9 ||
+				 fabs(m_trailCenter[2]-centerXYZ[2]) > 1e-9 )
 			{
-				if ( pTooltipText )
-				{
-					pTooltipText -> Format("<b>delta x</b>: %.1f%% <br><b>delta y</b>: %.1f%%",m_deltax*100.0,m_deltay*100.0);
-					m_tooltip.Invalidate();
-				}
+				m_trail.clear();
+				m_trailCol = minCol;
+				m_trailMode = m_DisplayMode;
+				m_trailCenter = centerXYZ;
 			}
-			UpdateScaledBitmap();
+
+			STrailPoint pt;
+			pt.angle = atan2(m_deltay, m_deltax);
+			pt.radius = RingRadius(m_deltaE);
+			if ( m_trail.empty() || fabs(m_trail.back().angle - pt.angle) > 1e-6 ||
+				 fabs(m_trail.back().radius - pt.radius) > 1e-6 )
+			{
+				m_trail.push_back(pt);
+				while ( m_trail.size() > 5 )	// current read + up to 4 predecessors
+					m_trail.pop_front();
+			}
+
 			Invalidate(TRUE);
 		}
 	} //have valid m_prefcolor
@@ -776,394 +800,443 @@ BEGIN_MESSAGE_MAP(CTargetWnd, CWnd)
 	ON_WM_CONTEXTMENU()
 	ON_COMMAND(IDM_WHATS_THIS, OnHelp)
 	//}}AFX_MSG_MAP
-	ON_NOTIFY (UDM_TOOLTIP_DISPLAY, NULL, NotifyDisplayTooltip)
 END_MESSAGE_MAP()
 
 
 /////////////////////////////////////////////////////////////////////////////
 // CTargetWnd message handlers
 
-void CTargetWnd::OnPaint() 
+// Display name of the configured colour-difference formula (the combo in the
+// advanced settings). "Recommended" computes CIE2000 for colour patches and
+// CIE76uv for grayscale, so it is shown as the pair.
+static const WCHAR * DeltaEFormulaName()
+{
+	switch ( GetConfig()->m_dE_form )
+	{
+		case 0: return L"CIE76uv";
+		case 1: return L"CIE76ab";
+		case 2: return L"CIE94";
+		case 3: return L"CIE2000";
+		case 4: return L"CMC";
+		case 5: return L"CIE2000/76uv";
+		case 6: return L"dICtCp";
+	}
+	return L"";
+}
+
+// Draws a pill chip anchored by its bottom-right corner and returns its width
+// (so a row of chips can grow leftward from the corner).
+static Gdiplus::REAL DrawChip(Gdiplus::Graphics & g, const Gdiplus::Font & font, const WCHAR * text,
+					 Gdiplus::REAL right, Gdiplus::REAL bottom,
+					 const Gdiplus::Color & fill, const Gdiplus::Color & border, const Gdiplus::Color & textClr)
+{
+	Gdiplus::RectF bounds;
+	g.MeasureString(text, -1, &font, Gdiplus::PointF(0.0f, 0.0f), &bounds);
+	Gdiplus::REAL padX = font.GetSize() * 0.55f;
+	Gdiplus::REAL padY = font.GetSize() * 0.24f;
+	Gdiplus::REAL w = bounds.Width + 2.0f * padX;
+	Gdiplus::REAL h = bounds.Height + 2.0f * padY;
+	Gdiplus::REAL x = right - w;
+	Gdiplus::REAL y = bottom - h;
+	Gdiplus::REAL r = h / 2.0f;	// pill
+	Gdiplus::GraphicsPath path;
+	path.AddArc(x, y, 2.0f * r, 2.0f * r, 90.0f, 180.0f);
+	path.AddArc(x + w - 2.0f * r, y, 2.0f * r, 2.0f * r, 270.0f, 180.0f);
+	path.CloseFigure();
+	Gdiplus::SolidBrush fillBrush(fill);
+	g.FillPath(&fillBrush, &path);
+	Gdiplus::Pen borderPen(border, 1.0f);
+	g.DrawPath(&borderPen, &path);
+	Gdiplus::SolidBrush textBrush(textClr);
+	g.DrawString(text, -1, &font, Gdiplus::PointF(x + padX, y + padY), &textBrush);
+	return w;
+}
+
+void CTargetWnd::OnPaint()
 {
 	CPaintDC dc(this); // device context for painting
     CHMemDC pDC(&dc);
-	
+
 	CRect rect;
 	GetClientRect(&rect);
-
-	// Draw background bitmap
-	CDC dcBg;
-	dcBg.CreateCompatibleDC(pDC);
-	CBitmap *pOldBitmap=dcBg.SelectObject(&m_bgBitmap);
-	pDC->BitBlt(0,0,rect.Width(),rect.Height(),&dcBg,0,0,SRCCOPY);
-	dcBg.SelectObject(pOldBitmap);
-
-	// Draw target frame
-	int widthMargin=rect.Width()*m_marginInPercent/100;
-	int heightMargin=rect.Height()*m_marginInPercent/100;
-
-	CRect frameRect(rect.left+widthMargin,rect.top+heightMargin,rect.right-widthMargin,rect.bottom-heightMargin);
-	
-	CBrush br(m_clr);
-	pDC->SelectObject ( & br );
-	pDC->SelectObject ( GetStockObject ( WHITE_PEN ) );
-	pDC->RoundRect ( & frameRect, CPoint ( 20, 20 ) );
-	
-	int targetRectWidth=rect.Width()*m_targetRectInPercent/100;
-	int targetRectHeight=rect.Height()*m_targetRectInPercent/100;
-
-    CPen crossPen(PS_DASH,1,RGB(255,255,255));
-    CPen crossPen2(PS_DOT,1,RGB(0,0,0));
-
-    CPen *pOldPen = pDC->SelectObject(&crossPen); 
-
-	// auto-zoom
-	double zoomFactor=GetZoomFactor();
-
-	int cornerWidth=(int)(zoomFactor*targetRectWidth/2.0);
-	int cornerHeight=(int)(zoomFactor*targetRectHeight/2.0);
-	
-	// draw white cross 
-	pDC->MoveTo(rect.CenterPoint());
-	pDC->LineTo(rect.CenterPoint().x,rect.CenterPoint().y+2*cornerHeight); 
-	pDC->MoveTo(rect.CenterPoint());
-	pDC->LineTo(rect.CenterPoint().x+2*cornerWidth,rect.CenterPoint().y); 
-	pDC->MoveTo(rect.CenterPoint());
-	pDC->LineTo(rect.CenterPoint().x,rect.CenterPoint().y-2*cornerHeight); 
-	pDC->MoveTo(rect.CenterPoint());
-	pDC->LineTo(rect.CenterPoint().x-2*cornerWidth,rect.CenterPoint().y); 
-
-    CPen *pOldPen2 = pDC->SelectObject(&crossPen2); 
-
-	// draw black cross 
-	pDC->MoveTo(rect.CenterPoint());
-	pDC->LineTo(rect.CenterPoint().x,rect.CenterPoint().y+2*cornerHeight); 
-	pDC->MoveTo(rect.CenterPoint());
-	pDC->LineTo(rect.CenterPoint().x+2*cornerWidth,rect.CenterPoint().y); 
-	pDC->MoveTo(rect.CenterPoint());
-	pDC->LineTo(rect.CenterPoint().x,rect.CenterPoint().y-2*cornerHeight); 
-	pDC->MoveTo(rect.CenterPoint());
-	pDC->LineTo(rect.CenterPoint().x-2*cornerWidth,rect.CenterPoint().y); 
-
-    // draw circle
-	pDC->SelectObject ( GetStockObject ( NULL_BRUSH ) );
-	pDC->Ellipse ( rect.CenterPoint().x-cornerWidth, rect.CenterPoint().y-cornerHeight, rect.CenterPoint().x+cornerWidth, rect.CenterPoint().y+cornerHeight );
-    pDC->SelectObject(pOldPen);
-
-    int r1=0,g1=255,b1=119;
-    int r2=255,g2=192,b2=0;
-    int r3=0,g3=80,b3=255;
-    int r4=255,g4=0,b4=136;
-
-	// draw corners
-	for(int i=1;i<8;i++)
-	{
-		if(rect.CenterPoint().x-(i+1)*cornerWidth > frameRect.left + 4)	// Clipping
-		{
-			CPen cornerPen1(PS_SOLID,1,RGB(r1,g1,b1));
-			pOldPen = pDC->SelectObject(&cornerPen1); 
-			pDC -> Arc ( rect.CenterPoint().x-(i+1)*cornerWidth, rect.CenterPoint().y-(i+1)*cornerHeight, 
-						 rect.CenterPoint().x+(i+1)*cornerWidth, rect.CenterPoint().y+(i+1)*cornerHeight, 
-						 rect.CenterPoint().x-(i+1)*cornerWidth/2, rect.CenterPoint().y-(i+1)*cornerHeight,
-						 rect.CenterPoint().x-(i+1)*cornerWidth, rect.CenterPoint().y-(i+1)*cornerHeight/2 ); 
-
-			pDC->SelectObject(pOldPen);
-
-			CPen cornerPen2(PS_SOLID,1,RGB(r2,g2,b2));
-			pOldPen = pDC->SelectObject(&cornerPen2); 
-			pDC -> Arc ( rect.CenterPoint().x-(i+1)*cornerWidth, rect.CenterPoint().y-(i+1)*cornerHeight, 
-						 rect.CenterPoint().x+(i+1)*cornerWidth, rect.CenterPoint().y+(i+1)*cornerHeight, 
-						 rect.CenterPoint().x+(i+1)*cornerWidth, rect.CenterPoint().y-(i+1)*cornerHeight/2,
-						 rect.CenterPoint().x+(i+1)*cornerWidth/2, rect.CenterPoint().y-(i+1)*cornerHeight );
-
-			pDC->SelectObject(pOldPen);
-
-			CPen cornerPen3(PS_SOLID,1,RGB(r3,g3,b3));
-			pOldPen = pDC->SelectObject(&cornerPen3); 
-			pDC -> Arc ( rect.CenterPoint().x-(i+1)*cornerWidth, rect.CenterPoint().y-(i+1)*cornerHeight, 
-						 rect.CenterPoint().x+(i+1)*cornerWidth, rect.CenterPoint().y+(i+1)*cornerHeight, 
-						 rect.CenterPoint().x-(i+1)*cornerWidth, rect.CenterPoint().y+(i+1)*cornerHeight/2,
-						 rect.CenterPoint().x-(i+1)*cornerWidth/2, rect.CenterPoint().y+(i+1)*cornerHeight ); 
-
-			pDC->SelectObject(pOldPen);
-
-			CPen cornerPen4(PS_SOLID,1,RGB(r4,g4,b4));
-			pOldPen = pDC->SelectObject(&cornerPen4); 
-			pDC -> Arc ( rect.CenterPoint().x-(i+1)*cornerWidth, rect.CenterPoint().y-(i+1)*cornerHeight, 
-						 rect.CenterPoint().x+(i+1)*cornerWidth, rect.CenterPoint().y+(i+1)*cornerHeight, 
-						 rect.CenterPoint().x+(i+1)*cornerWidth/2, rect.CenterPoint().y+(i+1)*cornerHeight,
-						 rect.CenterPoint().x+(i+1)*cornerWidth, rect.CenterPoint().y+(i+1)*cornerHeight/2 ); 
-
-			pDC->SelectObject(pOldPen);
-		}
-	}
-
-	if( m_pRefColor == NULL || !m_pRefColor->isValid())
-		return;		// Draw nothing more
-
-	CPoint targetPoint=rect.CenterPoint();
-	targetPoint+=CPoint((int)(zoomFactor*m_deltax*frameRect.Width()/2.0),-(int)(zoomFactor*m_deltay*frameRect.Height()/2.0));
-
-	// draw Arrow
-	int pointWidth=(int)(rect.Width()*m_pointSizeInPercent/100.0);
-	int pointHeight=(int)(rect.Height()*m_pointSizeInPercent/100.0);
-
-	DrawTransparentBitmap(pDC->m_hDC,(HBITMAP)m_scaledPointBitmap.m_hObject,(short)(targetPoint.x-pointWidth/4),(short)(targetPoint.y-pointHeight*3/4),RGB(0,0,0));
-}
-
-double CTargetWnd::GetZoomFactor()
-{
-		// auto-zoom
-	double zoomFactor;
-	int maxDelta=max(abs((int)(m_deltax*100.0)), abs((int)(m_deltay*100.0)) )/10;
-	switch(maxDelta)
-	{
-		case 0:
-			zoomFactor = 4.0;
-			break;
-		case 1:
-			zoomFactor = 3.0;
-			break;
-		case 2:
-			zoomFactor = 2.0;
-			break;
-		case 3:
-			zoomFactor = 1.5;
-			break;
-		default:
-			zoomFactor = 1.0;
-			break;
-	}
-	return zoomFactor;
-}
-
-void CTargetWnd::UpdateScaledBitmap()
-{
-
-    CRect rect;
-    GetClientRect(&rect);
-
-	// draw arrow
-	int pointWidth=(int)(rect.Width()*m_pointSizeInPercent/100.0);
-	int pointHeight=(int)(rect.Height()*m_pointSizeInPercent/100.0);
-
-    CPaintDC dc(this);
-
-	BITMAP bm;
-	m_pointBitmap.GetBitmap(&bm);
-
-	if(m_scaledPointBitmap.m_hObject)
-		m_scaledPointBitmap.DeleteObject();
-	m_scaledPointBitmap.CreateCompatibleBitmap(&dc,pointWidth,pointHeight);
-
-
-	CDC memDCSrc;
-	memDCSrc.CreateCompatibleDC( &dc );
-	CBitmap* pOld = memDCSrc.SelectObject(&m_pointBitmap);
-	int oldMode=memDCSrc.GetStretchBltMode();
-
-	CDC memDCScaled;
-	memDCScaled.CreateCompatibleDC( &dc );
-	memDCScaled.SetStretchBltMode(HALFTONE);
-   // The docs say that you should call SetBrushOrgEx after SetStretchBltMode,
-   // but not what the arguments should be.
-    SetBrushOrgEx(memDCScaled, 0,0, NULL);
-	CBitmap* pOldScaled = memDCScaled.SelectObject(&m_scaledPointBitmap);
-	memDCScaled.StretchBlt(0,0,pointWidth,pointHeight,&memDCSrc,0,0,bm.bmWidth,bm.bmHeight,SRCCOPY);
-    memDCScaled.SelectObject(pOldScaled); 
-
-	memDCSrc.SetStretchBltMode(oldMode);
-    memDCSrc.SelectObject(pOld); 
-	ReleaseDC(&dc);
-}
-
-void CTargetWnd::MakeBgBitmap()	// Create background bitmap
-{
-    CPaintDC dc(this);
-    CRect rect;
-    GetClientRect(&rect);
 
 	// windows problem with "negative" client height. Can occur when mainframe is really small
 	if ( rect.bottom == 32767 )
 		rect.bottom = 0;
+	if ( rect.Width() <= 0 || rect.Height() <= 0 )
+		return;
 
-    int r1=0,g1=255,b1=119;
-    int r1b=65,g1b=255,b1b=0;
-    int r2=255,g2=192,b2=0;
-    int r2b=255,g2b=0,b2b=0;
-    int r3=0,g3=0,b3=255;
-    int r4=255,g4=0,b4=136;
+	FxEnsureGdiplus();
+	BOOL bDark = GetConfig()->m_darkTheme;
 
-    int r,g,b;
+	if ( !m_pBgBitmap || m_bgCx != rect.Width() || m_bgCy != rect.Height() || m_bgDark != bDark ||
+		 m_bgTol != GetConfig()->m_dE_tolerance )
+		RebuildBackground(rect, bDark);
 
-    CDC dc2;
-    dc2.CreateCompatibleDC(&dc);
+	Gdiplus::Graphics g(pDC->GetSafeHdc());
+	g.DrawImage(m_pBgBitmap, 0, 0, rect.Width(), rect.Height());
 
-   if(m_bgBitmap.m_hObject)
-        m_bgBitmap.DeleteObject();
-    m_bgBitmap.CreateCompatibleBitmap(&dc,rect.Width(),rect.Height());
+	if ( m_pRefColor == NULL || !m_pRefColor->isValid() )
+		return;		// Draw nothing more
 
-    CBitmap *pOldBitmap=dc2.SelectObject(&m_bgBitmap);
+	g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+	g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
 
-	for(int i=0; i<rect.Width() / 2;i++)
+	double cx, cy, R;
+	GetGeometry(rect, cx, cy, R);
+
+	// Current read on the ring scale: direction = xy cast direction,
+	// distance = dE.
+	double curAngle = atan2(m_deltay, m_deltax);
+	double curFrac = RingRadius(m_deltaE);
+	Gdiplus::REAL curX = (Gdiplus::REAL)(cx + cos(curAngle) * curFrac * R);
+	Gdiplus::REAL curY = (Gdiplus::REAL)(cy - sin(curAngle) * curFrac * R);
+
+	// Fading trail of the previous reads, linked into the current dot
+	// (the last stored point is the current read).
+	int nTrail = (int)m_trail.size();
+	if ( nTrail > 1 )
 	{
-        r = r1 + (i * (r1b-r1) / (rect.Width()/2) );
-        g = g1 + (i * (g1b-g1) / (rect.Width()/2) );
-        b = b1 + (i * (b1b-b1) / (rect.Width()/2) );
-
-        CPen aPen(PS_SOLID,1,RGB(r,g,b));
-        CPen *pOldPen = dc2.SelectObject(&aPen); 
-
-        dc2.MoveTo(rect.CenterPoint());
-        dc2.LineTo(i,0);
-
-        dc2.SelectObject(pOldPen);
+		BYTE trailGray = bDark ? 210 : 80;
+		Gdiplus::Pen linkPen(Gdiplus::Color(110, trailGray, trailGray, trailGray), 1.0f);
+		linkPen.SetDashStyle(Gdiplus::DashStyleDash);
+		Gdiplus::REAL trailR = (Gdiplus::REAL)max(2.5, 0.022 * R);
+		Gdiplus::REAL prevX = 0.0f, prevY = 0.0f;
+		for ( int i = 0; i < nTrail; i++ )
+		{
+			Gdiplus::REAL px = (Gdiplus::REAL)(cx + cos(m_trail[i].angle) * m_trail[i].radius * R);
+			Gdiplus::REAL py = (Gdiplus::REAL)(cy - sin(m_trail[i].angle) * m_trail[i].radius * R);
+			if ( i > 0 )
+				g.DrawLine(&linkPen, prevX, prevY, px, py);
+			if ( i < nTrail - 1 )
+			{
+				int alpha = 60 + 110 * (i + 1) / nTrail;
+				Gdiplus::SolidBrush dotBrush(Gdiplus::Color((BYTE)alpha, trailGray, trailGray, trailGray));
+				g.FillEllipse(&dotBrush, px - trailR, py - trailR, 2.0f * trailR, 2.0f * trailR);
+			}
+			prevX = px;
+			prevY = py;
+		}
 	}
 
-	for(int i=rect.Width() / 2; i<rect.Width();i++)
+	// Measured dot, filled with the measured colour
+	Gdiplus::REAL dotR = (Gdiplus::REAL)max(4.0, 0.055 * R);
+	Gdiplus::Color fill(255, GetRValue(m_clr), GetGValue(m_clr), GetBValue(m_clr));
+	Gdiplus::Color edge = bDark ? Gdiplus::Color(255, 240, 240, 240) : Gdiplus::Color(255, 50, 50, 50);
+	if ( m_deltaE > 10.0 )
 	{
-        r = r1b + ( (i-(rect.Width()/2)) * (r2-r1b) / (rect.Width()/2) );
-        g = g1b + ( (i-(rect.Width()/2)) * (g2-g1b) / (rect.Width()/2) );
-        b = b1b + ( (i-(rect.Width()/2)) * (b2-b1b) / (rect.Width()/2) );
-
-        CPen aPen(PS_SOLID,1,RGB(r,g,b));
-        CPen *pOldPen = dc2.SelectObject(&aPen); 
-
-        dc2.MoveTo(rect.CenterPoint());
-        dc2.LineTo(i,0);
-
-        dc2.SelectObject(pOldPen);
+		// off scale: hollow marker pinned just outside the outer ring
+		Gdiplus::Pen fillPen(fill, (Gdiplus::REAL)max(2.0, dotR * 0.45));
+		g.DrawEllipse(&fillPen, curX - dotR, curY - dotR, 2.0f * dotR, 2.0f * dotR);
+		Gdiplus::Pen edgePen(edge, 1.0f);
+		g.DrawEllipse(&edgePen, curX - dotR - 1.0f, curY - dotR - 1.0f, 2.0f * dotR + 2.0f, 2.0f * dotR + 2.0f);
 	}
-
-	for(int i=0; i<rect.Width();i++)
-	{
-        r = r3 + (i * (r4-r3) / rect.Width());
-        g = g3 + (i * (g4-g3) / rect.Width());
-        b = b3 + (i * (b4-b3) / rect.Width());
-
-        CPen aPen(PS_SOLID,1,RGB(r,g,b));
-        CPen *pOldPen = dc2.SelectObject(&aPen); 
-
-        dc2.MoveTo(rect.CenterPoint());
-        dc2.LineTo(i,rect.Height());
-
-        dc2.SelectObject(pOldPen);
-	}
-
-	for(int i=0; i<rect.Height();i++)
-	{
-        r = r1 + (i * (r3-r1) / rect.Height());
-        g = g1 + (i * (g3-g1) / rect.Height());
-        b = b1 + (i * (b3-b1) / rect.Height());
-
-        CPen aPen(PS_SOLID,1,RGB(r,g,b));
-        CPen *pOldPen = dc2.SelectObject(&aPen); 
-
-        dc2.MoveTo(rect.CenterPoint());
-        dc2.LineTo(0,i);
-
-        dc2.SelectObject(pOldPen);
-	}
-
-	for(int i=0; i<rect.Height()/2;i++)		
-	{
-        r = r2 + (i * (r2b-r2) / (rect.Height()/2) );
-        g = g2 + (i * (g2b-g2) / (rect.Height()/2) );
-        b = b2 + (i * (b2b-b2) / (rect.Height()/2) );
-
-        CPen aPen(PS_SOLID,1,RGB(r,g,b));
-        CPen *pOldPen = dc2.SelectObject(&aPen); 
-
-        dc2.MoveTo(rect.CenterPoint());
-        dc2.LineTo(rect.Width()-1,i);	// -1 to avoid bad junction
-
-        dc2.SelectObject(pOldPen);
-	}
-
-	for(int i=rect.Height()/2; i<rect.Height();i++)		
-	{
-        r = r2b + ( (i-(rect.Height()/2)) * (r4-r2b) / (rect.Height()/2) );
-        g = g2b + ( (i-(rect.Height()/2)) * (g4-g2b) / (rect.Height()/2) );
-        b = b2b + ( (i-(rect.Height()/2)) * (b4-b2b) / (rect.Height()/2) );
-
-        CPen aPen(PS_SOLID,1,RGB(r,g,b));
-        CPen *pOldPen = dc2.SelectObject(&aPen); 
-
-        dc2.MoveTo(rect.CenterPoint());
-        dc2.LineTo(rect.Width()-1,i);	// -1 to avoid bad junction
-
-        dc2.SelectObject(pOldPen);
-	}
-
-    dc2.SelectObject(pOldBitmap);
-}
-
-
-
-void CTargetWnd::OnSize(UINT nType, int cx, int cy) 
-{
-	if(cx != m_prev_cx || cy != m_prev_cy)
-	{	
-		MakeBgBitmap();
-		UpdateScaledBitmap();
-		Invalidate(FALSE);
-	}
-	m_prev_cx=cx;
-	m_prev_cy=cy;
-}
-
-BOOL CTargetWnd::Create(LPCTSTR lpszClassName, LPCTSTR lpszWindowName, DWORD dwStyle, const RECT& rect, CWnd* pParentWnd, UINT nID, CCreateContext* pContext) 
-{
-	CWnd::Create(lpszClassName, lpszWindowName, dwStyle, rect, pParentWnd, nID, pContext);
-
-	m_tooltip.Create(this);	
-	m_tooltip.AddTool(this, "Tooltip for rectangle area");
-	m_tooltip.SetBehaviour(PPTOOLTIP_MULTIPLE_SHOW);
-	m_tooltip.SetNotify(TRUE);
-	m_tooltip.SetColorBk(RGB(255,165,0),RGB(0,128,128));
-	m_tooltip.SetEffectBk(CPPDrawManager::EFFECT_HGRADIENT);
-	m_tooltip.SetBorder(::CreateSolidBrush(RGB(212,175,55)),1,1);
-	m_tooltip.SetTransparency(250);
-
-	return TRUE;
-}
-
-BOOL CTargetWnd::PreTranslateMessage(MSG* pMsg) 
-{
-	m_tooltip.RelayEvent(pMsg);
-
-	return CWnd::PreTranslateMessage(pMsg);
-}
-
-void CTargetWnd::NotifyDisplayTooltip(NMHDR * pNMHDR, LRESULT * result)
-{
-    *result = 0;
-    NM_PPTOOLTIP_DISPLAY * pNotify = (NM_PPTOOLTIP_DISPLAY*)pNMHDR;
-	CString valueStr;
-    
-	if( m_pRefColor && (*m_pRefColor).isValid())
-		valueStr.Format("<b>delta x</b>: %.1f%% <br><b>delta y</b>: %.1f%%",m_deltax*100.0,m_deltay*100.0);
 	else
-		valueStr="No data";
-    pNotify->ti->sTooltip = valueStr;
-	pTooltipText = & pNotify->ti->sTooltip;
+	{
+		Gdiplus::SolidBrush dotBrush(fill);
+		g.FillEllipse(&dotBrush, curX - dotR, curY - dotR, 2.0f * dotR, 2.0f * dotR);
+		Gdiplus::Pen edgePen(edge, 1.5f);
+		g.DrawEllipse(&edgePen, curX - dotR, curY - dotR, 2.0f * dotR, 2.0f * dotR);
+	}
+
+	// Large widget only: stat chips bottom-right (dE tinted with the data
+	// grid's highlight colours, xy offsets beside it) and the ring formula
+	// note bottom-left.
+	BOOL compact = min(rect.Width(), rect.Height()) < 220;
+	if ( !compact )
+	{
+		g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+		Gdiplus::REAL chipFontPx = (Gdiplus::REAL)max(11.0, 0.052 * R);
+		Gdiplus::Font chipFont(L"Segoe UI", chipFontPx, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+		const Gdiplus::REAL pad = 8.0f;
+
+		// Same colours and thresholds as the measures grid dE row (CIE76uv is
+		// judged at 3/5, every other formula at 2/3), black text like the grid.
+		bool is76uv = (GetConfig()->m_dE_form == 0);
+		double tGood = is76uv ? 3.0 : 2.0;
+		double tWarn = is76uv ? 5.0 : 3.0;
+		COLORREF gridClr = bDark ? (m_deltaE < tGood ? RGB(98,187,78)   : (m_deltaE < tWarn ? RGB(206,188,71)  : RGB(232,84,84)))
+								 : (m_deltaE < tGood ? RGB(175,255,175) : (m_deltaE < tWarn ? RGB(255,255,175) : RGB(255,175,175)));
+		Gdiplus::Color chipFill(255, GetRValue(gridClr), GetGValue(gridClr), GetBValue(gridClr));
+		Gdiplus::Color chipBorder(255, GetRValue(gridClr) * 70 / 100, GetGValue(gridClr) * 70 / 100, GetBValue(gridClr) * 70 / 100);
+		Gdiplus::Color chipText(255, 0, 0, 0);
+
+		WCHAR buf[64];
+		Gdiplus::REAL xRight = (Gdiplus::REAL)rect.Width() - pad;
+		Gdiplus::REAL yBottom = (Gdiplus::REAL)rect.Height() - pad;
+		swprintf_s(buf, 64, L"dE %.1f", m_deltaE);
+		Gdiplus::REAL wChip = DrawChip(g, chipFont, buf, xRight, yBottom, chipFill, chipBorder, chipText);
+
+		Gdiplus::Color nFill   = bDark ? Gdiplus::Color(255, 42, 42, 42)    : Gdiplus::Color(255, 255, 255, 255);
+		Gdiplus::Color nBorder = bDark ? Gdiplus::Color(255, 72, 72, 72)    : Gdiplus::Color(255, 205, 207, 213);
+		Gdiplus::Color nText   = bDark ? Gdiplus::Color(255, 215, 215, 215) : Gdiplus::Color(255, 70, 74, 80);
+		swprintf_s(buf, 64, L"dx %+.1f%%   dy %+.1f%%", m_deltax * 100.0, m_deltay * 100.0);
+		DrawChip(g, chipFont, buf, xRight - wChip - 6.0f, yBottom, nFill, nBorder, nText);
+
+		// ring formula note, plain muted text (localized prefix)
+		Gdiplus::REAL noteFontPx = (Gdiplus::REAL)max(11.0, 0.055 * R);
+		Gdiplus::Font noteFont(L"Segoe UI", noteFontPx, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+		CStringW noteFmt;
+		if ( !noteFmt.LoadString(IDS_TARGET_RINGS) )
+			noteFmt = L"Rings: dE %s";
+		CStringW note;
+		note.Format(noteFmt, DeltaEFormulaName());
+		Gdiplus::RectF noteBounds;
+		g.MeasureString(note, -1, &noteFont, Gdiplus::PointF(0.0f, 0.0f), &noteBounds);
+		Gdiplus::SolidBrush noteBrush(bDark ? Gdiplus::Color(190, 205, 205, 205) : Gdiplus::Color(200, 95, 99, 106));
+		g.DrawString(note, -1, &noteFont, Gdiplus::PointF(pad, yBottom - noteBounds.Height), &noteBrush);
+	}
 }
 
-BOOL CTargetWnd::OnEraseBkgnd(CDC* pDC) 
+// Ring anchors: dE 1/3/5/10 sit at 25/50/75/100% of the scale radius,
+// piecewise linear in between, pinned just outside the rim when off scale.
+double CTargetWnd::RingRadius(double dE)
+{
+	if ( dE < 0.0 )
+		return 0.0;
+	if ( dE <= 1.0 )
+		return 0.25 * dE;
+	if ( dE <= 3.0 )
+		return 0.25 + 0.25 * (dE - 1.0) / 2.0;
+	if ( dE <= 5.0 )
+		return 0.50 + 0.25 * (dE - 3.0) / 2.0;
+	if ( dE <= 10.0 )
+		return 0.75 + 0.25 * (dE - 5.0) / 5.0;
+	return 1.04;
+}
+
+void CTargetWnd::GetGeometry(const CRect & rect, double & cx, double & cy, double & R) const
+{
+	cx = rect.Width() / 2.0;
+	cy = rect.Height() / 2.0;
+	double margin = max(8.0, 0.05 * min(rect.Width(), rect.Height()));
+	R = min(rect.Width(), rect.Height()) / 2.0 - margin;
+	if ( R < 10.0 )
+		R = 10.0;
+}
+
+// The dE shown is the same number as the RGB-levels dE bar (full configured
+// formula including the HDR handling), read from the sibling widget - both
+// targets are CMainView children and the levels widget refreshes first. When
+// the sibling has none (it zeroes dE for the first grayscale column), fall
+// back to the plain formula against the current target.
+void CTargetWnd::UpdateDeltaE()
+{
+	m_deltaE = -1.0;
+	CWnd * pParent = GetParent();
+	if ( pParent && pParent->IsKindOf(RUNTIME_CLASS(CMainView)) )
+	{
+		float dE = ((CMainView *)pParent)->m_RGBLevels.m_dEValue;
+		if ( dE > 0.0f )
+			m_deltaE = dE;
+	}
+	if ( m_deltaE < 0.0 && m_pRefColor && m_pRefColor->isValid() )
+		m_deltaE = m_pRefColor->GetDeltaE(CColor(centerXYZ));
+	if ( m_deltaE < 0.0 )
+		m_deltaE = 0.0;
+}
+
+static void HueToRGB(double hue, double v, int & r, int & g, int & b)	// HSV -> RGB with S = 1, hue in [0,360)
+{
+	double h6 = hue / 60.0;
+	int i = (int)h6;
+	double f = h6 - i;
+	double q = v * (1.0 - f);
+	double t = v * f;
+	double rd, gd, bd;
+	switch ( i )
+	{
+		case 0:  rd = v;   gd = t;   bd = 0.0; break;
+		case 1:  rd = q;   gd = v;   bd = 0.0; break;
+		case 2:  rd = 0.0; gd = v;   bd = t;   break;
+		case 3:  rd = 0.0; gd = q;   bd = v;   break;
+		case 4:  rd = t;   gd = 0.0; bd = v;   break;
+		default: rd = v;   gd = 0.0; bd = q;   break;
+	}
+	r = (int)(rd * 255.0 + 0.5);
+	g = (int)(gd * 255.0 + 0.5);
+	b = (int)(bd * 255.0 + 0.5);
+}
+
+void CTargetWnd::RebuildBackground(const CRect & rect, BOOL bDark)	// Cached: panel, hue wheel, rings, labels
+{
+	int w = rect.Width();
+	int h = rect.Height();
+
+	delete m_pBgBitmap;
+	// DEBUG_NEW's placement form doesn't match Gdiplus::GdiplusBase::operator new
+#ifdef _DEBUG
+#undef new
+#endif
+	m_pBgBitmap = new Gdiplus::Bitmap(w, h, PixelFormat32bppPARGB);
+#ifdef _DEBUG
+#define new DEBUG_NEW
+#endif
+	m_bgTol = GetConfig()->m_dE_tolerance;
+	m_bgCx = w;
+	m_bgCy = h;
+	m_bgDark = bDark;
+
+	double cx, cy, R;
+	GetGeometry(rect, cx, cy, R);
+
+	// Panel gradient behind everything (matches the RGB level widget), with
+	// the hue wheel blended in inside the circle: direction from center =
+	// hue of the cast, neutral at the target, saturating toward the rim.
+	int bgTop = bDark ? 26 : 250;
+	int bgBot = bDark ? 12 : 235;
+	double wheelAlpha = bDark ? 0.45 : 0.35;
+	double wheelV = bDark ? 0.80 : 0.85;
+
+	Gdiplus::BitmapData bd;
+	Gdiplus::Rect lockRect(0, 0, w, h);
+	if ( m_pBgBitmap->LockBits(&lockRect, Gdiplus::ImageLockModeWrite, PixelFormat32bppPARGB, &bd) == Gdiplus::Ok )
+	{
+		for ( int y = 0; y < h; y++ )
+		{
+			DWORD * row = (DWORD *)((BYTE *)bd.Scan0 + y * bd.Stride);
+			int v = bgTop - (h > 1 ? (bgTop - bgBot) * y / (h - 1) : 0);
+			int bgR = v, bgG = v, bgB = bDark ? v : min(255, v + 2);
+			for ( int x = 0; x < w; x++ )
+			{
+				int r = bgR, gg = bgG, b = bgB;
+				double fx = x - cx;
+				double fy = cy - y;
+				double rr = sqrt(fx * fx + fy * fy) / R;
+				if ( rr <= 1.0 )
+				{
+					double a = atan2(fy, fx) * 180.0 / PI;
+					if ( a < 0.0 )
+						a += 360.0;
+					// green up, red right, magenta down, cyan left (the old
+					// widget's axis convention)
+					double hue;
+					if ( a < 90.0 )
+						hue = a * (120.0 / 90.0);
+					else if ( a < 180.0 )
+						hue = 120.0 + (a - 90.0) * (60.0 / 90.0);
+					else if ( a < 270.0 )
+						hue = 180.0 + (a - 180.0) * (120.0 / 90.0);
+					else
+						hue = 300.0 + (a - 270.0) * (60.0 / 90.0);
+					int hr, hg, hb;
+					HueToRGB(hue, wheelV, hr, hg, hb);
+					double alpha = wheelAlpha * (rr - 0.12) / 0.88;
+					if ( alpha < 0.0 )
+						alpha = 0.0;
+					double aaEdge = (1.0 - rr) * R / 1.5;	// anti-alias the rim
+					if ( aaEdge < 1.0 )
+						alpha *= max(0.0, aaEdge);
+					r  = (int)(r  + (hr - r ) * alpha);
+					gg = (int)(gg + (hg - gg) * alpha);
+					b  = (int)(b  + (hb - b ) * alpha);
+				}
+				row[x] = 0xFF000000 | (r << 16) | (gg << 8) | b;
+			}
+		}
+		m_pBgBitmap->UnlockBits(&bd);
+	}
+
+	Gdiplus::Graphics gb(m_pBgBitmap);
+
+	// panel border, crisp (no AA yet)
+	Gdiplus::Pen borderPen(bDark ? Gdiplus::Color(255, 56, 56, 56) : Gdiplus::Color(255, 205, 207, 213), 1.0f);
+	gb.DrawRectangle(&borderPen, 0, 0, w - 1, h - 1);
+
+	gb.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+	gb.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+	BOOL compact = min(w, h) < 220;
+
+	// crosshair axes, under the rings
+	Gdiplus::Pen axisPen(bDark ? Gdiplus::Color(70, 235, 235, 235) : Gdiplus::Color(60, 30, 30, 30), 1.0f);
+	gb.DrawLine(&axisPen, (Gdiplus::REAL)(cx - R), (Gdiplus::REAL)cy, (Gdiplus::REAL)(cx + R), (Gdiplus::REAL)cy);
+	gb.DrawLine(&axisPen, (Gdiplus::REAL)cx, (Gdiplus::REAL)(cy - R), (Gdiplus::REAL)cx, (Gdiplus::REAL)(cy + R));
+
+	// dE scale rings at 1/3/5/10; the dashed tolerance ring is drawn on top
+	// at the configured tolerance
+	Gdiplus::Pen ringPen(bDark ? Gdiplus::Color(140, 130, 130, 130) : Gdiplus::Color(150, 165, 169, 178), 1.0f);
+	static const double ringFrac[4] = { 0.25, 0.50, 0.75, 1.00 };
+	for ( int i = 0; i < 4; i++ )
+	{
+		double rr = ringFrac[i] * R;
+		gb.DrawEllipse(&ringPen, (Gdiplus::REAL)(cx - rr), (Gdiplus::REAL)(cy - rr), (Gdiplus::REAL)(2.0 * rr), (Gdiplus::REAL)(2.0 * rr));
+	}
+
+	Gdiplus::Pen tolPen(bDark ? Gdiplus::Color(255, 47, 191, 143) : Gdiplus::Color(255, 29, 158, 117), 1.4f);
+	tolPen.SetDashStyle(Gdiplus::DashStyleDash);
+	double tolR = RingRadius(m_bgTol) * R;
+	gb.DrawEllipse(&tolPen, (Gdiplus::REAL)(cx - tolR), (Gdiplus::REAL)(cy - tolR), (Gdiplus::REAL)(2.0 * tolR), (Gdiplus::REAL)(2.0 * tolR));
+
+	// center marker
+	double ctrR = max(2.0, 0.014 * R);
+	Gdiplus::SolidBrush ctrBrush(bDark ? Gdiplus::Color(255, 235, 235, 235) : Gdiplus::Color(255, 40, 40, 40));
+	gb.FillEllipse(&ctrBrush, (Gdiplus::REAL)(cx - ctrR), (Gdiplus::REAL)(cy - ctrR), (Gdiplus::REAL)(2.0 * ctrR), (Gdiplus::REAL)(2.0 * ctrR));
+
+	// dE ring labels along the upper-right diagonal (dropped in the small pane)
+	if ( !compact )
+	{
+		gb.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+		Gdiplus::REAL fontPx = (Gdiplus::REAL)max(11.0, 0.068 * R);
+		Gdiplus::Font labelFont(L"Segoe UI", fontPx, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+		Gdiplus::SolidBrush labelBrush(bDark ? Gdiplus::Color(210, 205, 205, 205) : Gdiplus::Color(220, 95, 99, 106));
+		static const double labelFrac[4] = { 0.25, 0.50, 0.75, 1.00 };
+		static const WCHAR * labelText[4] = { L"1", L"3", L"5", L"10" };
+		const double diag = 0.70710678;
+		for ( int i = 0; i < 4; i++ )
+		{
+			Gdiplus::PointF pos((Gdiplus::REAL)(cx + labelFrac[i] * R * diag + 2.0),
+								(Gdiplus::REAL)(cy - labelFrac[i] * R * diag - fontPx - 2.0));
+			gb.DrawString(labelText[i], -1, &labelFont, pos, &labelBrush);
+		}
+	}
+}
+
+void CTargetWnd::OnSize(UINT nType, int cx, int cy)
+{
+	CWnd::OnSize(nType, cx, cy);
+	Invalidate(FALSE);	// background rebuild happens lazily in OnPaint
+}
+
+BOOL CTargetWnd::OnEraseBkgnd(CDC* pDC)
 {
 	return TRUE;	
 }
 
-void CTargetWnd::OnContextMenu(CWnd* pWnd, CPoint point) 
+void CTargetWnd::OnContextMenu(CWnd* pWnd, CPoint point)
 {
-	// load and display popup menu
+	// load and display popup menu, extended with the dE tolerance presets
+	// (the tolerance is also configurable in the advanced settings)
+	static const double presets[] = { 0.5, 1.0, 1.5, 2.0, 3.0 };
+	const int nPresets = sizeof(presets) / sizeof(presets[0]);
+
 	CNewMenu menu;
 	menu.LoadMenu(IDR_WHATS_THIS);
 	CMenu* pPopup = menu.GetSubMenu(0);
 	ASSERT(pPopup);
-	
-	pPopup->TrackPopupMenu( TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_VERTICAL,
+
+	CString tolLabel;
+	if ( !tolLabel.LoadString(IDS_TARGET_TOLERANCE) )
+		tolLabel = "dE tolerance";
+	pPopup->AppendMenu(MF_SEPARATOR);
+	for ( int i = 0; i < nPresets; i++ )
+	{
+		CString item;
+		item.Format("%s %g", (LPCSTR)tolLabel, presets[i]);
+		UINT flags = MF_STRING | ( fabs(GetConfig()->m_dE_tolerance - presets[i]) < 1e-6 ? MF_CHECKED : 0 );
+		pPopup->AppendMenu(flags, ID_TARGET_TOL_FIRST + i, item);
+	}
+
+	int cmd = pPopup->TrackPopupMenu( TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_VERTICAL | TPM_RETURNCMD,
 		point.x, point.y, this);
+	if ( cmd >= ID_TARGET_TOL_FIRST && cmd <= ID_TARGET_TOL_LAST )
+	{
+		GetConfig()->m_dE_tolerance = presets[cmd - ID_TARGET_TOL_FIRST];
+		GetConfig()->WriteProfileDouble("Advanced","dE_tolerance",GetConfig()->m_dE_tolerance);
+		Invalidate(FALSE);
+	}
+	else if ( cmd != 0 )
+		SendMessage(WM_COMMAND, cmd);
 }
 
 void CTargetWnd::OnHelp() 

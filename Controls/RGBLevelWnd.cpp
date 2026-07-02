@@ -27,6 +27,7 @@
 #include "MainView.h"
 #include "RGBLevelWnd.h"
 #include "Color.h"
+#include "fxcolor.h"
 #include <gdiplus.h>
 #pragma comment(lib, "gdiplus.lib")
 
@@ -657,23 +658,12 @@ void CRGBLevelWnd::OnPaint()
 	// only cut into the panel frame.
 }
 
-// Initialise GDI+ once (process lifetime) so the level bars can be drawn anti-aliased.
-static void EnsureGdiplus()
-{
-	static ULONG_PTR s_token = 0;
-	if ( s_token == 0 )
-	{
-		Gdiplus::GdiplusStartupInput gdipInput;
-		Gdiplus::GdiplusStartup(&s_token, &gdipInput, NULL);
-	}
-}
-
 void CRGBLevelWnd::DrawGradientBar(CDC *pDC,COLORREF aColor, int aX, int aY, int aWidth, int aHeight) 
 {
 	if ( aWidth <= 0 || aHeight <= 0 )
 		return;
 
-	EnsureGdiplus();
+	FxEnsureGdiplus();
 	BOOL bDark = GetConfig()->m_darkTheme;
 
 	// Per-theme colours: top sheen, deepened bottom, and a defining edge

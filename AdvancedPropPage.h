@@ -50,6 +50,7 @@ public:
 	BOOL		m_bConfirmMeasures;
 	CString		m_comPort;
 	int 		m_dE_form;
+	double		m_dE_tolerance;
 	int 		m_dE_gray;
 	int 		gw_Weight;
 	BOOL		m_bUseOnlyPrimaries;
@@ -77,6 +78,7 @@ protected:
 	//{{AFX_MSG(CAdvancedPropPage)
 	afx_msg void OnSelchangeLuxmeterComCombo();
 	afx_msg void OnSelchangedECombo();
+	afx_msg void OnChangeDeTolerance();
 	//}}AFX_MSG
 	afx_msg void OnControlClicked(UINT nID);
 	DECLARE_MESSAGE_MAP()

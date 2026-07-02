@@ -129,6 +129,7 @@ public:
 	int		m_nLuminanceCurveMode;
 	BOOL	m_bPreferLuxmeter;
 	int		m_dE_form;
+	double	m_dE_tolerance;	// target widget tolerance ring (dE)
     int     m_dE_gray;
     int     gw_Weight;
     BOOL    doHighlight;

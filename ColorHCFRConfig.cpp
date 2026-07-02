@@ -407,6 +407,7 @@ void CColorHCFRConfig::InitDefaults()
 	m_nLuminanceCurveMode = 0;
 	m_bPreferLuxmeter = FALSE;
 	m_dE_form = 5;
+	m_dE_tolerance = 1.0;
     m_dE_gray = 2;
     gw_Weight = 0;
     doHighlight = TRUE;
@@ -535,6 +536,7 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_nLuminanceCurveMode = GetProfileInt("Advanced","LuminanceCurveMode",0);
 	m_bPreferLuxmeter = GetProfileInt("Advanced","PreferLuxmeter",0);
 	m_dE_form = GetProfileInt("Advanced","dE_form",5);
+	m_dE_tolerance = GetProfileDouble("Advanced","dE_tolerance",1.0);
 	m_dE_gray = GetProfileInt("Advanced","dE_gray",2);
 	gw_Weight = GetProfileInt("Advanced","gw_Weight",0);
 	if (!m_bDisableHighDPI)
@@ -624,6 +626,7 @@ void CColorHCFRConfig::SaveSettings()
 	WriteProfileInt("Advanced","LuminanceCurveMode",m_nLuminanceCurveMode);
 	WriteProfileInt("Advanced","PreferLuxmeter",m_bPreferLuxmeter);
 	WriteProfileInt("Advanced","dE_form",m_dE_form);
+	WriteProfileDouble("Advanced","dE_tolerance",m_dE_tolerance);
 	WriteProfileInt("Advanced","dE_gray",m_dE_gray);
 	WriteProfileInt("Advanced","gw_Weight",gw_Weight);
 }
@@ -710,6 +713,7 @@ void CColorHCFRConfig::SetPropertiesSheetValues()
 	m_advancedPropertiesPage.m_nLuminanceCurveMode = m_nLuminanceCurveMode;
 	m_advancedPropertiesPage.m_bPreferLuxmeter = m_bPreferLuxmeter;
 	m_advancedPropertiesPage.m_dE_form = m_dE_form;
+	m_advancedPropertiesPage.m_dE_tolerance = m_dE_tolerance;
 	m_advancedPropertiesPage.m_dE_gray = m_dE_gray;
 	m_advancedPropertiesPage.gw_Weight = gw_Weight;
 
@@ -805,6 +809,7 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	m_nLuminanceCurveMode = m_advancedPropertiesPage.m_nLuminanceCurveMode;
 	m_bPreferLuxmeter = m_advancedPropertiesPage.m_bPreferLuxmeter;
 	m_dE_form = m_advancedPropertiesPage.m_dE_form;
+	m_dE_tolerance = m_advancedPropertiesPage.m_dE_tolerance;
 	m_dE_gray = m_advancedPropertiesPage.m_dE_gray;
 	gw_Weight = m_advancedPropertiesPage.gw_Weight;
 	return needRestart;
