@@ -275,7 +275,7 @@ void CGraphControl::ChangeSettings()
 		m_doShowYLabel=dialog.m_doShowYLabel;
 		m_doShowAllPoints=dialog.m_doShowAllPoints;
 		m_doShowAllToolTips=dialog.m_doShowAllToolTips;
-		Invalidate(TRUE);
+		Invalidate(FALSE);
 	}
 }
 
@@ -320,7 +320,7 @@ void CGraphControl::ChangeScale()
 		m_maxYGrow=dialog.m_maxYGrow;
 		m_yAxisStep=dialog.m_yAxisStep;
 		SetScale(m_minX,m_maxX,m_minY,m_maxY);
-		Invalidate(TRUE);
+		Invalidate(FALSE);
 	}
 }
 
@@ -929,7 +929,8 @@ void CGraphControl::OnPaint()
 	BOOL		bWhiteBkgnd = GetConfig () -> m_bWhiteBkgndOnScreen;
 	TCHAR		GLabel[100] = _T("");
 	StringCchCat(GLabel, 260, GTxt); 
-		pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(255,0,0) );
+		// CIE-005: dropped uninitialised-font SelectObject + red-bg SetBkColor;
+	// real select + bg-color assignment happens below, after CreateFont.
 	font.CreateFont( GetConfig()->ScaleFloor(14,18), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Segoe UI" );
 	pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );	if (GTxt == "Near White Luminance Response")		pDC -> SetTextColor ( RGB(220,120,220) );
 	else

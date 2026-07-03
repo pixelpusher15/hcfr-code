@@ -2396,6 +2396,7 @@ BEGIN_MESSAGE_MAP(CCIEChartView, CSavingView)
 	//{{AFX_MSG_MAP(CCIEChartView)
 	ON_WM_ERASEBKGND()
 	ON_WM_SIZE()
+	ON_WM_TIMER()
 	ON_WM_CONTEXTMENU()
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWBACKGROUND, OnUpdateCieShowbackground)
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWDELTAE, OnUpdateCieShowDeltaE)
@@ -2614,16 +2615,21 @@ BOOL CCIEChartView::OnEraseBkgnd(CDC* pDC)
 	return TRUE;
 }
 
+// CIE-001: MakeBgBitmap HALFTONE-resamples the whole chromaticity background,
+// so running it per WM_SIZE makes drag-resize choppy. Defer to a settle-timer;
+// rebuild once after the drag stops.
+#define IDT_CIE_RESIZE_SETTLE 4201
+
 void CCIEChartView::OnSize(UINT nType, int cx, int cy) 
 {
 	if(cx && cy)
 	{
 		CRect ClientRect = CRect(CPoint(0,0),CSize(cx,cy));
-		CRect RefRect;
 
 		if ( m_Grapher.m_ZoomFactor > 1000 )
 		{
 			// Zoom is active: adjust deltaX and deltaY
+			CRect RefRect;
 			do
 			{
 				RefRect = CRect(CPoint(0,0),CSize(cx*m_Grapher.m_ZoomFactor/1000,cy*m_Grapher.m_ZoomFactor/1000));
@@ -2639,12 +2645,25 @@ void CCIEChartView::OnSize(UINT nType, int cx, int cy)
 			if ( RefRect.bottom + m_Grapher.m_DeltaY < ClientRect.bottom )
 				m_Grapher.m_DeltaY = ClientRect.bottom - RefRect.bottom;
 		}
-		else
-			RefRect = ClientRect;
 
-		m_Grapher.MakeBgBitmap(RefRect,GetConfig()->m_bWhiteBkgndOnScreen);
+		KillTimer(IDT_CIE_RESIZE_SETTLE);
+		SetTimer(IDT_CIE_RESIZE_SETTLE, 80, NULL);
 	}
 	Invalidate(FALSE);
+}
+
+void CCIEChartView::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == IDT_CIE_RESIZE_SETTLE)
+	{
+		KillTimer(IDT_CIE_RESIZE_SETTLE);
+		CRect RefRect;
+		GetReferenceRect(&RefRect);
+		m_Grapher.MakeBgBitmap(RefRect, GetConfig()->m_bWhiteBkgndOnScreen);
+		Invalidate(FALSE);
+		return;
+	}
+	CSavingView::OnTimer(nIDEvent);
 }
 
 void CCIEChartView::OnContextMenu(CWnd* pWnd, CPoint point) 
@@ -2737,7 +2756,7 @@ void CCIEChartView::OnCieShowbackground()
 	CRect rect;
 	GetReferenceRect(&rect);
 	m_Grapher.MakeBgBitmap(rect,GetConfig()->m_bWhiteBkgndOnScreen);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnCieShowDeltaE() 
@@ -2747,21 +2766,21 @@ void CCIEChartView::OnCieShowDeltaE()
 	CRect rect;
 	GetReferenceRect(&rect);
 	m_Grapher.MakeBgBitmap(rect,GetConfig()->m_bWhiteBkgndOnScreen);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnCieShowreferences() 
 {
 	m_Grapher.m_doShowReferences = !m_Grapher.m_doShowReferences;
 	GetConfig()->WriteProfileInt("CIE Chart","Show References",m_Grapher.m_doShowReferences);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnCieGraphShowDataRef()
 {
 	m_Grapher.m_doShowDataRef = !m_Grapher.m_doShowDataRef;
 	GetConfig()->WriteProfileInt("CIE Chart","Show Reference Data",m_Grapher.m_doShowDataRef);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 
@@ -2769,49 +2788,49 @@ void CCIEChartView::OnCieShowGrayScale()
 {
 	m_Grapher.m_doShowGrayScale = !m_Grapher.m_doShowGrayScale;
 	GetConfig()->WriteProfileInt("CIE Chart","Display GrayScale",m_Grapher.m_doShowGrayScale);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnCieShowSaturationScale() 
 {
 	m_Grapher.m_doShowSaturationScale = !m_Grapher.m_doShowSaturationScale;
 	GetConfig()->WriteProfileInt("CIE Chart","Display Saturation Scale",m_Grapher.m_doShowSaturationScale);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnCieShowSaturationScaleTarg() 
 {
 	m_Grapher.m_doShowSaturationScaleTarg = !m_Grapher.m_doShowSaturationScaleTarg;
 	GetConfig()->WriteProfileInt("CIE Chart","Display Saturation Scale Targets",m_Grapher.m_doShowSaturationScaleTarg);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnCieShowCCScale() 
 {
 	m_Grapher.m_doShowCCScale = !m_Grapher.m_doShowCCScale;
 	GetConfig()->WriteProfileInt("CIE Chart","Display Color Checker measures",m_Grapher.m_doShowCCScale);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnCieShowdE10() 
 {
 	m_Grapher.m_bdE10 = !m_Grapher.m_bdE10;
 	GetConfig()->WriteProfileInt("CIE Chart","Worst dE",m_Grapher.m_bdE10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnCieShowCCScaleTarg() 
 {
 	m_Grapher.m_doShowCCScaleTarg = !m_Grapher.m_doShowCCScaleTarg;
 	GetConfig()->WriteProfileInt("CIE Chart","Display Color Checker Targets",m_Grapher.m_doShowCCScaleTarg);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnCieShowMeasurements() 
 {
 	m_Grapher.m_doShowMeasurements = !m_Grapher.m_doShowMeasurements;
 	GetConfig()->WriteProfileInt("CIE Chart","Show Measurements",m_Grapher.m_doShowMeasurements);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnGraphZoomIn() 
@@ -2881,7 +2900,7 @@ void CCIEChartView::OnCieUv()
 	CRect rect;
 	GetReferenceRect(&rect);
 	m_Grapher.MakeBgBitmap(rect,GetConfig()->m_bWhiteBkgndOnScreen);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnCieab() 
@@ -2895,7 +2914,7 @@ void CCIEChartView::OnCieab()
 	CRect rect;
 	GetReferenceRect(&rect);
 	m_Grapher.MakeBgBitmap(rect,GetConfig()->m_bWhiteBkgndOnScreen);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CCIEChartView::OnUpdateCieUv(CCmdUI* pCmdUI) 

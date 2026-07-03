@@ -493,20 +493,20 @@ void CSatLumHistoView::OnGraphSave()
 void CSatLumHistoView::OnGraphScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CSatLumHistoView::OnLuminanceGraphYScale1() 
 {
 	m_Grapher.m_graphCtrl.SetYScale(0,100);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CSatLumHistoView::OnGraphSettings() 
 {
 	m_Grapher.m_graphCtrl.ChangeSettings();
 	m_Grapher.m_graphCtrl.WriteSettings("Saturation Luminance Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CSatLumHistoView::OnHelp() 

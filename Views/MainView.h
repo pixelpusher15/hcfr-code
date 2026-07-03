@@ -45,6 +45,35 @@ class CGridCtrl;
 #include "TargetWnd.h"
 #include "PPTooltip.h"
 
+// One half of the measured / reference colour-comparator split swatch.
+// Owner-drawn with GDI+ (flat pill with the label and RGB triplet below);
+// CMainView pushes state via SetContent, the half labels are fixed per side.
+class CCompSwatch : public CStatic
+{
+public:
+	CCompSwatch() : m_side(0), m_fill(RGB(255,255,255)), m_hasColor(FALSE) {}
+
+	void SetContent(COLORREF fill, BOOL hasColor, LPCSTR value)
+	{
+		m_fill = fill;
+		m_hasColor = hasColor;
+		m_value = value;
+		if ( GetSafeHwnd() )
+			Invalidate(FALSE);
+	}
+
+	int			m_side;		// 0 = measured (left half), 1 = reference (right half)
+
+protected:
+	COLORREF	m_fill;
+	BOOL		m_hasColor;
+	CString		m_value;
+
+	afx_msg void OnPaint();
+	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
+	DECLARE_MESSAGE_MAP()
+};
+
 class CMainView : public CFormView
 {
 protected: // create from serialization only
@@ -79,7 +108,7 @@ public:
 	CString	m_sensorName;
 	CStatic	m_refInfo;
 	CStatic	m_TargetStatic;
-	CStatic	m_Ccomp,m_Ccomp3;
+	CCompSwatch	m_Ccomp,m_Ccomp3;
 	CStatic	m_RGBLevelsStatic;
 	CStatic		m_RGBLevelsLabel;
 	CComboBox	m_comboDisplay;
@@ -100,6 +129,7 @@ private:
 	RECT		m_OriginalRect;
 	CPtrList	m_CtrlInitPos;
 	CFont		line_Font;
+	CFont		m_sectionFont;	// Segoe UI ClearType for the RGB Levels / Current Measure / Target labels
 	DWORD		m_dwInitialUserInfo;
 
 	// Information windows
@@ -164,10 +194,8 @@ public:
 	double r1, r2;
 	double g1, g2;
 	double b1, b2;
-	HBRUSH CCompClr;
 	CString trip1,trip2;
 	CString m_infoLine;
-	COLORREF t_color;
 	double m_meas_r, m_meas_g, m_meas_b;
 	double m_ref_r, m_ref_g, m_ref_b;
 	double m_meas_r1, m_meas_g1, m_meas_b1;
@@ -207,7 +235,7 @@ protected:
 	void InitGroups();
 	void LayoutTopRow();
 	void UpdateContrastValuesInGrid ();
-	CPPToolTip	m_tooltip,m_tooltip2;
+	CPPToolTip	m_tooltip;
 	CString GetItemText(CColor & aMeasure, double YWhite, CColor & aReference, CColor & aRefDocColor, double YWhiteRefDoc, int aComponentNum, int nCol, double Offset, bool isGS);
 	LPSTR GetGridRowLabel(int aComponentNum);
 	bool binfoRedraw;

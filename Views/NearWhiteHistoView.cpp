@@ -726,7 +726,7 @@ void CNearWhiteHistoView::OnGraphYScaleFit()
 		m_Grapher.m_graphCtrl.FitYScale(TRUE,1);
 	m_Grapher.m_graphCtrl.WriteSettings("Near White Histo");
 	m_Grapher.m_logGraphCtrl.WriteSettings("Near White Histo Log");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CNearWhiteHistoView::OnGraphYShiftBottom() 

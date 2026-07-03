@@ -592,7 +592,7 @@ void CGammaHistoView::OnGraphScaleFit()
 	bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,isHDR?1:0.1,true);
 	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGammaGraphYScale1() 
@@ -601,7 +601,7 @@ void CGammaHistoView::OnGammaGraphYScale1()
 	m_Grapher.m_graphCtrl.SetYScale(isHDR?-10:1,isHDR?10:3);
 	m_Grapher.m_graphCtrl.SetYAxisProps(isHDR?" cd m-2 ":"", isHDR?1:0.1, isHDR?-100:1, isHDR?100:4);
 	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphYScaleFit() 
@@ -610,76 +610,76 @@ void CGammaHistoView::OnGraphYScaleFit()
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,isHDR?1:0.1, true);
 	m_Grapher.m_graphCtrl.SetYAxisProps(isHDR?" cd m-2 ":"", isHDR?1:0.1, isHDR?-100:1, isHDR?100:4);
 	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphYShiftBottom() 
 {
 	m_Grapher.m_graphCtrl.ShiftYScale(0.1);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphYShiftTop() 
 {
 	m_Grapher.m_graphCtrl.ShiftYScale(-0.1);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphYZoomIn() 
 {
 	m_Grapher.m_graphCtrl.GrowYScale(0.1,-0.1);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphYZoomOut() 
 {
 	m_Grapher.m_graphCtrl.GrowYScale(-0.1,0.1);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphXScale1() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(0,100);
 	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphXScale2() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(20,100);
 	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphXScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
 	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphXZoomIn() 
 {
 	m_Grapher.m_graphCtrl.GrowXScale(+10,-10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphXZoomOut() 
 {
 	m_Grapher.m_graphCtrl.GrowXScale(-10,+10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphXShiftLeft() 
 {
 	m_Grapher.m_graphCtrl.ShiftXScale(-10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphXShiftRight() 
 {
 	m_Grapher.m_graphCtrl.ShiftXScale(+10);
-	Invalidate(TRUE);
+	Invalidate(FALSE);
 }
 
 
