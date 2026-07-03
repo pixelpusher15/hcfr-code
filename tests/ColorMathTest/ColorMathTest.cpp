@@ -105,6 +105,70 @@ static void RunT1()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T1b — ConvertPercentToCode (added by PR 2 of the 10-bit plan):
+// bits=8 must equal the frozen legacy oracle at every input; bits=10 is
+// checked structurally (endpoints, clamps, monotonicity, limited grid).
+//////////////////////////////////////////////////////////////////////////
+static void RunT1b()
+{
+    printf("T1b ConvertPercentToCode...\n");
+    for (int r = 0; r < 2; ++r)
+    {
+        bool lim = (r != 0);
+        // bits=8 == legacy oracle, dense sweep + grid + clamps
+        for (int i = 0; i <= 1000000; ++i)
+        {
+            double pct = i * 1e-4;
+            int code = ColorRGBDisplay::ConvertPercentToCode(pct, lim, 8);
+            BYTE expected = Legacy_ConvertPercentToBYTE(pct, lim);
+            if (code != (int)expected)
+                Fail("T1b8 pct=%.17g range=%d: legacy=%d code=%d", pct, r, (int)expected, code);
+        }
+        static const double edges[] = { -100.0, -5.0, 0.0, 100.0, 105.0, 200.0 };
+        for (int e = 0; e < sizeof(edges)/sizeof(edges[0]); ++e)
+        {
+            int code = ColorRGBDisplay::ConvertPercentToCode(edges[e], lim, 8);
+            if (code != (int)Legacy_ConvertPercentToBYTE(edges[e], lim))
+                Fail("T1b8 edge pct=%.17g range=%d", edges[e], r);
+        }
+
+        // bits=10: monotonic non-decreasing over the sweep, codes in range
+        int prev = -1;
+        for (int i = 0; i <= 1000000; ++i)
+        {
+            int code = ColorRGBDisplay::ConvertPercentToCode(i * 1e-4, lim, 10);
+            if (code < prev)
+                Fail("T1b10 non-monotonic at pct=%.17g range=%d (%d -> %d)", i * 1e-4, r, prev, code);
+            if (code < 0 || code > 1023)
+                Fail("T1b10 out of range at pct=%.17g range=%d: %d", i * 1e-4, r, code);
+            prev = code;
+        }
+    }
+
+    // bits=10 endpoints
+    if (ColorRGBDisplay::ConvertPercentToCode(0.0, false, 10) != 0)    Fail("T1b10 full 0%% != 0");
+    if (ColorRGBDisplay::ConvertPercentToCode(100.0, false, 10) != 1023) Fail("T1b10 full 100%% != 1023");
+    if (ColorRGBDisplay::ConvertPercentToCode(0.0, true, 10) != 64)    Fail("T1b10 limited 0%% != 64");
+    if (ColorRGBDisplay::ConvertPercentToCode(100.0, true, 10) != 940) Fail("T1b10 limited 100%% != 940");
+    // bits=10 clamps (full-range convention: clamp to 0..maxCode)
+    if (ColorRGBDisplay::ConvertPercentToCode(-5.0, false, 10) != 0)     Fail("T1b10 full clamp low");
+    if (ColorRGBDisplay::ConvertPercentToCode(200.0, false, 10) != 1023) Fail("T1b10 full clamp high");
+
+    // limited 10-bit grid: exactly 877 distinct codes (64..940) over 0..100%
+    {
+        std::vector<char> seen(1024, 0);
+        for (int i = 0; i <= 1000000; ++i)
+            seen[ColorRGBDisplay::ConvertPercentToCode(i * 1e-4, true, 10)] = 1;
+        int distinct = 0;
+        for (int c = 0; c < 1024; ++c) distinct += seen[c];
+        if (distinct != 877)
+            Fail("T1b10 limited grid: %d distinct codes, expected 877", distinct);
+        if (!seen[64] || !seen[940] || seen[63] || seen[941])
+            Fail("T1b10 limited grid bounds wrong");
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 // Golden-file plumbing. Tables are built as strings (LF line endings,
 // %.17g doubles) and either written (gen) or compared exactly (verify).
 //////////////////////////////////////////////////////////////////////////
@@ -293,6 +357,7 @@ int main(int argc, char* argv[])
         _mkdir(g_goldenDir.c_str());
 
     RunT1();
+    RunT1b();
     RunT2();
     RunT3();
     RunT4();

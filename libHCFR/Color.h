@@ -228,6 +228,7 @@ public:
     explicit ColorRGBDisplay(COLORREF aColor);
     COLORREF GetColorRef(bool is16_235) const;
     static BYTE ConvertPercentToBYTE(double percent, bool is16_235);
+    static int ConvertPercentToCode(double percent, bool is16_235, int bits);
 #endif
 };
 
