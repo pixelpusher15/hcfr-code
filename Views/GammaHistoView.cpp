@@ -61,7 +61,7 @@ CGammaGrapher::CGammaGrapher ()
 	Msg.LoadString ( IDS_GAMMAGREEN );
 	m_greenLumLogGraphID = m_graphCtrl.AddGraph(RGB(0,255,0),(LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_GAMMABLUE );
-	m_blueLumLogGraphID = m_graphCtrl.AddGraph(RGB(0,0,255),(LPSTR)(LPCSTR)Msg);
+	m_blueLumLogGraphID = m_graphCtrl.AddGraph(RGB(70,70,255),(LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_GAMMAAVERAGE );
 	m_avgLogGraphID = m_graphCtrl.AddGraph(RGB(0,255,255),(LPSTR)(LPCSTR)Msg,1,PS_DOT);
 	Msg += " (lux)";
@@ -72,7 +72,7 @@ CGammaGrapher::CGammaGrapher ()
 	Msg.LoadString ( IDS_GAMMAGREENDATAREF );
 	m_greenLumDataRefLogGraphID = m_graphCtrl.AddGraph(RGB(0,255,0), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki
 	Msg.LoadString ( IDS_GAMMABLUEDATAREF );
-	m_blueLumDataRefLogGraphID = m_graphCtrl.AddGraph(RGB(0,0,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki
+	m_blueLumDataRefLogGraphID = m_graphCtrl.AddGraph(RGB(70,70,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT); //Ki
 	
 	m_graphCtrl.SetXAxisProps((LPSTR)(LPCSTR)GetConfig()->m_PercentGray, 10, 0, 100);
 	bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);

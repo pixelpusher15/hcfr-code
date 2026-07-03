@@ -28,7 +28,9 @@
 #include "graphsettingsdialog.h"
 #include "graphscalepropdialog.h"
 #include "savegraphdialog.h"
+#include "GdiPlusAA.h"
 #include <strsafe.h>
+#include <vector>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -209,6 +211,10 @@ bool CGraphControl::ReadSettings(LPSTR aConfigStr, BOOL bReadGraphSettings)
 				break;
 
 			m_graphArray[i].m_color=GetConfig()->GetProfileColor(aStr,"Color");
+			// Migrate the old pure-blue default (too dark on black) to the
+			// brighter blue introduced with the GDI+ charts.
+			if ( m_graphArray[i].m_color == RGB(0,0,255) )
+				m_graphArray[i].m_color = RGB(70,70,255);
 			m_graphArray[i].m_penStyle=GetConfig()->GetProfileInt(aStr,"Pen Style",PS_SOLID);	
 			m_graphArray[i].m_penWidth=GetConfig()->GetProfileInt(aStr,"Pen Width",2);	
 			m_graphArray[i].m_doShowPoints=GetConfig()->GetProfileInt(aStr,"Show Points",TRUE);	
@@ -518,6 +524,17 @@ void CGraphControl::FitYScale(BOOL doRound, double roundStep, bool isGamma)
 
 int CGraphControl::GetGraphX(double x,CRect rect) 
 {
+	// Display-only snap: measured stimuli are quantized to video levels
+	// (e.g. "40%" is really 39.7% with round-down), which puts points a few
+	// pixels off the axis grid lines. Snap x onto a grid line when it is
+	// within half a video level so the charts read cleanly; tooltips keep
+	// showing the true value.
+	if ( m_xAxisStep > 0 )
+	{
+		double snapped = floor(x/m_xAxisStep+0.5)*m_xAxisStep;
+		if ( fabs(x-snapped) < min(0.5, m_xAxisStep*0.25) )
+			x = snapped;
+	}
 	return (int)((x-m_minX)*(double)rect.Width()*m_xScale);	// graph is from 0 to m_xScale in width
 }
 
@@ -724,27 +741,72 @@ void CGraphControl::DrawGraphs(CDC *pDC, CRect rect)
 	int lineWidth=2;
 	m_tooltip.RemoveAllTools();
 
-	for(int j=0;j<m_graphArray.GetSize();j++)
+	// Anti-aliased pass: data polylines and point markers. Scoped so the
+	// Graphics object releases the DC before the GDI text/tooltip pass below.
 	{
-		COLORREF graphColor=m_graphArray[j].m_color;
+		EnsureGdiplus();
+		Gdiplus::Graphics g(pDC->GetSafeHdc());
+		g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+		GpApplyDCOrigin(g, pDC);
 
-		CPen graphPen(m_graphArray[j].m_penStyle,m_graphArray[j].m_penWidth,graphColor);
-	    CPen *pOldPen = pDC->SelectObject(&graphPen); 
-	
-		if(m_graphArray[j].m_pointArray.GetSize())
-			pDC->MoveTo(GetGraphPoint(m_graphArray[j].m_pointArray[0],rect));
-
-		for(int i=0; i<m_graphArray[j].m_pointArray.GetSize(); i++)
+		for(int j=0;j<m_graphArray.GetSize();j++)
 		{
-			pDC->LineTo(GetGraphPoint(m_graphArray[j].m_pointArray[i],rect));
-			if(m_doShowAllPoints && m_graphArray[j].m_doShowPoints)
+			COLORREF graphColor=m_graphArray[j].m_color;
+			int nPoints=m_graphArray[j].m_pointArray.GetSize();
+
+			if(nPoints > 1)
 			{
-				CSize pointSize(4*lineWidth,4*lineWidth);
-				CPoint pointPos(GetGraphPoint(m_graphArray[j].m_pointArray[i],rect)-CPoint(pointSize.cx/2,pointSize.cy/2));
-				CRect pointRect(pointPos,pointSize);
-				pDC->FillSolidRect(pointRect,graphColor);
+				// Dotted/dashed strokes (reference lines) stay un-antialiased:
+				// AA smears the hairline dots across pixel rows and they no
+				// longer sit cleanly on their line.
+				BOOL bSolid=(m_graphArray[j].m_penStyle == PS_SOLID);
+				g.SetSmoothingMode(bSolid ? Gdiplus::SmoothingModeAntiAlias : Gdiplus::SmoothingModeNone);
+
+				Gdiplus::Pen pen(GpColor(graphColor),(float)m_graphArray[j].m_penWidth);
+				if(bSolid)
+				{
+					pen.SetStartCap(Gdiplus::LineCapRound);
+					pen.SetEndCap(Gdiplus::LineCapRound);
+					pen.SetLineJoin(Gdiplus::LineJoinRound);
+				}
+				else
+				{
+					switch(m_graphArray[j].m_penStyle)
+					{
+						case PS_DASH:    pen.SetDashStyle(Gdiplus::DashStyleDash); break;
+						case PS_DOT:     pen.SetDashStyle(Gdiplus::DashStyleDot); break;
+						case PS_DASHDOT: pen.SetDashStyle(Gdiplus::DashStyleDashDot); break;
+						default: break;
+					}
+				}
+
+				std::vector<Gdiplus::PointF> pts(nPoints);
+				for(int i=0; i<nPoints; i++)
+				{
+					CPoint p=GetGraphPoint(m_graphArray[j].m_pointArray[i],rect);
+					pts[i]=Gdiplus::PointF((float)p.x,(float)p.y);
+				}
+				g.DrawLines(&pen,&pts[0],nPoints);
 			}
 
+			if(m_doShowAllPoints && m_graphArray[j].m_doShowPoints)
+			{
+				g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+				Gdiplus::SolidBrush brush(GpColor(graphColor));
+				float diameter=10.0f;
+				for(int i=0; i<nPoints; i++)
+				{
+					CPoint p=GetGraphPoint(m_graphArray[j].m_pointArray[i],rect);
+					g.FillEllipse(&brush,(float)p.x-diameter/2.0f,(float)p.y-diameter/2.0f,diameter,diameter);
+				}
+			}
+		}
+	}
+
+	for(int j=0;j<m_graphArray.GetSize();j++)
+	{
+		for(int i=0; i<m_graphArray[j].m_pointArray.GetSize(); i++)
+		{
 			if(m_doShowAllToolTips && m_graphArray[j].m_doShowToolTips)
 			{
 				CString str,str2;
@@ -793,14 +855,27 @@ void CGraphControl::DrawGraphs(CDC *pDC, CRect rect)
 			}
 
 		}
-		pDC->SelectObject(pOldPen);
 	}
+}
+
+// Text with a 1px halo in the background colour: keeps axis labels readable
+// over dense grid lines without blanking out the data lines behind them.
+static void DrawHaloText(CDC *pDC, int x, int y, const CString & str, COLORREF haloClr)
+{
+	COLORREF clr = pDC->GetTextColor();
+	pDC->SetTextColor(haloClr);
+	for(int dy=-1; dy<=1; dy++)
+		for(int dx=-1; dx<=1; dx++)
+			if(dx || dy)
+				pDC->TextOut(x+dx,y+dy,str);
+	pDC->SetTextColor(clr);
+	pDC->TextOut(x,y,str);
 }
 
 void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 {
     CPen axisPen(PS_SOLID,1,RGB(64,64,64));
-    CPen *pOldPen = pDC->SelectObject(&axisPen); 
+    CPen *pOldPen = pDC->SelectObject(&axisPen);
 
 	pDC->SetTextAlign(TA_BOTTOM);
 	pDC->SetBkMode(TRANSPARENT);
@@ -835,7 +910,8 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 				pDC->SetTextColor(RGB(200+xVal*0.55,200+xVal*0.55,200+xVal*0.55));
 			if(i &&  x > lastStrEndX)
 			{
-				pDC->TextOut(x+2,rect.bottom,str); // Draw axis label
+				int shade = m_doGradientBg ? 10+37*x/max((int)rect.right,1) : 0;
+				DrawHaloText(pDC,x+2,rect.bottom,str,bWhiteBkgnd ? RGB(255,255,255) : RGB(shade,shade,shade));
 				lastStrEndX=x+pDC->GetTextExtent(str).cx+2;
 			}
 		}
@@ -862,8 +938,14 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 				str+=m_pYUnitStr;
 			if(i && y < lastStrEndY)
 			{
-				pDC->TextOut(2,y,str);
-				lastStrEndY=y-pDC->GetTextExtent(str).cy+2;
+				// Keep the top-most label inside the chart instead of letting
+				// it clip against the top edge (text is bottom-aligned).
+				int yText=y;
+				int textHeight=pDC->GetTextExtent(str).cy;
+				if(yText < textHeight)
+					yText=textHeight;
+				DrawHaloText(pDC,2,yText,str,bWhiteBkgnd ? RGB(255,255,255) : (m_doGradientBg ? RGB(10,10,10) : RGB(0,0,0)));
+				lastStrEndY=yText-textHeight+2;
 			}
 		}
 		yVal+=m_yAxisStep;
@@ -920,6 +1002,7 @@ void CGraphControl::OnPaint()
 		(void)clr;   // hcfr.sourceforge.net watermark removed from the on-screen charts
 	}
 	
+	// Layering: grid lines, then labels (both in DrawAxis), data on top
 	DrawAxis(pDC,rect,GetConfig()->m_bWhiteBkgndOnScreen);
 	DrawGraphs(pDC,rect);
 
@@ -929,15 +1012,18 @@ void CGraphControl::OnPaint()
 	BOOL		bWhiteBkgnd = GetConfig () -> m_bWhiteBkgndOnScreen;
 	TCHAR		GLabel[100] = _T("");
 	StringCchCat(GLabel, 260, GTxt); 
-		// CIE-005: dropped uninitialised-font SelectObject + red-bg SetBkColor;
+	// CIE-005: dropped uninitialised-font SelectObject + red-bg SetBkColor;
 	// real select + bg-color assignment happens below, after CreateFont.
-	font.CreateFont( GetConfig()->ScaleFloor(14,18), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Segoe UI" );
+	font.CreateFont( GetConfig()->ScaleFloor(18,22), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Segoe UI" );
 	pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );	if (GTxt == "Near White Luminance Response")		pDC -> SetTextColor ( RGB(220,120,220) );
 	else
-		pDC -> SetTextColor ( RGB(210,210,10) );
+		pDC -> SetTextColor ( bWhiteBkgnd ? RGB(64,64,64) : RGB(255,255,255) );
 
-	int sL = strlen( GLabel );	
-	pDC -> TextOut ( (rect.right - rect.left)/2 - (sL * 3.5), 18, GLabel, sL );
+	pDC -> SetTextAlign ( TA_TOP | TA_LEFT );
+	pDC -> SetBkMode ( TRANSPARENT );
+	int sL = strlen( GLabel );
+	CSize TitleSize = pDC -> GetTextExtent ( GLabel, sL );
+	pDC -> TextOut ( (rect.Width() - TitleSize.cx) / 2, 2, GLabel, sL );
 
 	pDC -> SetTextColor ( RGB(0,0,0) );
 	pDC -> SetBkColor ( RGB(255,255,255) );

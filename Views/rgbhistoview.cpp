@@ -54,14 +54,14 @@ CRGBGrapher::CRGBGrapher ()
 	Msg.LoadString ( IDS_RGBLEVELGREEN );
 	m_greenGraphID = m_graphCtrl.AddGraph(RGB(0,255,0), (LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_RGBLEVELBLUE );
-	m_blueGraphID = m_graphCtrl.AddGraph(RGB(0,0,255), (LPSTR)(LPCSTR)Msg);
+	m_blueGraphID = m_graphCtrl.AddGraph(RGB(70,70,255), (LPSTR)(LPCSTR)Msg);
 	
 	Msg.LoadString ( IDS_RGBLEVELREDDATAREF );
 	m_redDataRefGraphID = m_graphCtrl.AddGraph(RGB(255,0,0), (LPSTR)(LPCSTR)Msg,1,PS_DOT);	//Ki
 	Msg.LoadString ( IDS_RGBLEVELGREENDATAREF );
 	m_greenDataRefGraphID = m_graphCtrl.AddGraph(RGB(0,255,0), (LPSTR)(LPCSTR)Msg,1,PS_DOT);	//Ki
 	Msg.LoadString ( IDS_RGBLEVELBLUEDATAREF );
-	m_blueDataRefGraphID = m_graphCtrl.AddGraph(RGB(0,0,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT);	//Ki
+	m_blueDataRefGraphID = m_graphCtrl.AddGraph(RGB(70,70,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT);	//Ki
 	
 	m_graphCtrl.SetScale(0,100,50,150);
 	m_graphCtrl.SetXAxisProps((LPSTR)(LPCSTR)GetConfig()->m_PercentGray, 10, 0, 100);

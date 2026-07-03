@@ -662,7 +662,9 @@ void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowB
 	int			DeltaX;
 	int			AbsDeltaY;
 	int			delta;
-	int			nMaxRgbVal = ( bCIEab ? 240 : (doFullChart ? 255 : 200) );
+	// Muted tongue fill so measurement markers stand out; the "full" variant
+	// (shown inside the display's gamut triangle) stays visibly brighter.
+	int			nMaxRgbVal = ( bCIEab ? 190 : (doFullChart ? 205 : 145) );
 	double		d;
 	double		squared_white_ray = 0.02;	// defines a diffusion zone around white point, to make it esthetically visible
 	double		xCie, yCie, zCie, yCieLine;
@@ -788,17 +790,17 @@ void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowB
 			{
 				// Initializes a CFont object with the specified characteristics. 
 				CFont font;
-				font.CreateFont(24,0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+				font.CreateFont(36,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 				CFont* pOldFont = pDC->SelectObject(&font);
 
 				CString szText;
 				if (520 - i*2 != 520)
 				{
 					szText.Format("%d nm",520 - i*2);
-					pDC->SetTextColor(RGB(220,220,255));
+					pDC->SetTextColor(RGB(170,170,170));
 					pDC->SetTextAlign(TA_CENTER);
 					pDC->SetBkMode(TRANSPARENT);
-					CPen bbcPen ( PS_SOLID, 1, RGB(220,220,255)  );
+					CPen bbcPen ( PS_SOLID, 2, RGB(150,150,150)  );
 					CPen * pOldPen = pDC -> SelectObject ( & bbcPen );
 					pDC -> MoveTo (ptShape[0][nbptShape[0]].x,ptShape[0][nbptShape[0]].y );
 					pDC -> LineTo ( ptShape[0][nbptShape[0]].x-30,ptShape[0][nbptShape[0]].y+10 );
@@ -812,8 +814,8 @@ void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowB
 			{
 				// Initializes a CFont object with the specified characteristics. 
 				CFont font,font1;
-				font.CreateFont(24,0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
-				font1.CreateFont(24,0,-180,-180,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+				font.CreateFont(36,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+				font1.CreateFont(36,0,-180,-180,FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 				CFont* pOldFont = pDC->SelectObject(&font);
 				BOOL doPrint = FALSE;
 
@@ -836,7 +838,7 @@ void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowB
 
 				if (doPrint)
 				{
-					pDC->SetTextColor(RGB(220,220,255));
+					pDC->SetTextColor(RGB(170,170,170));
 					pDC->SetTextAlign(TA_CENTER);
 					pDC->SetBkMode(TRANSPARENT);
 					if (i == 0)
@@ -881,14 +883,14 @@ void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowB
 			{
 				// Initializes a CFont object with the specified characteristics. 
 				CFont font;
-				font.CreateFont(24,0,(bCIEuv?300:0),(bCIEuv?300:0),FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+				font.CreateFont(36,0,(bCIEuv?300:0),(bCIEuv?300:0),FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 				CFont* pOldFont = pDC->SelectObject(&font);
 				CString szText;
 				szText.Format("%d nm",i*2 + 520);
-				pDC->SetTextColor(RGB(220,220,255));
+				pDC->SetTextColor(RGB(170,170,170));
 				pDC->SetTextAlign(TA_LEFT | TA_TOP);
 				pDC->SetBkMode(TRANSPARENT);
-				CPen bbcPen ( PS_SOLID, 1, RGB(220,220,255) );
+				CPen bbcPen ( PS_SOLID, 2, RGB(150,150,150) );
 				CPen * pOldPen = pDC -> SelectObject ( & bbcPen );
 				pDC->TextOutA( ptShape[1][nbptShape[1]].x+30,ptShape[1][nbptShape[1]].y-50,szText);
 				pDC -> MoveTo (ptShape[1][nbptShape[1]].x+30,ptShape[1][nbptShape[1]].y-40 );
@@ -900,7 +902,7 @@ void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowB
 			{
 				// Initializes a CFont object with the specified characteristics. 
 				CFont font;
-				font.CreateFont(24,0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+				font.CreateFont(36,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 				CFont* pOldFont = pDC->SelectObject(&font);
 				BOOL doPrint = FALSE;
 
@@ -915,7 +917,7 @@ void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowB
 
 				if (doPrint)
 				{
-					pDC->SetTextColor(RGB(220,220,255));
+					pDC->SetTextColor(RGB(170,170,170));
 					pDC->SetTextAlign(TA_CENTER);
 					pDC->SetBkMode(TRANSPARENT);
 					pDC->TextOutA( ptShape[1][nbptShape[1]].x,ptShape[1][nbptShape[1]].y - 35,szText);
@@ -980,7 +982,7 @@ void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowB
 	while ( Y_Cour <= MaxY )
 	{
 		NbLimits = 0;
-		// i is zéro for left side, 1 for right side
+		// i is zÃ©ro for left side, 1 for right side
 		for ( i = 0 ; i < 2 ; i ++ )
 		{
 			if ( Y_Cour <= TB [ i ].Last_Y )
@@ -1411,7 +1413,7 @@ void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowB
 		DrawBlackBodyCurve ( pDC, cxMax, cyMax, doFullChart, bCIEuv, bCIEab );
 	}
 
-	CPen bbcPen ( PS_SOLID, 2, ( doFullChart ? RGB(0,0,0) : RGB(255,167,0) ) );
+	CPen bbcPen ( PS_SOLID, 2, ( doFullChart ? RGB(0,0,0) : RGB(170,170,170) ) );
 	CPen * pOldPen = pDC -> SelectObject ( & bbcPen );
 	pDC -> MoveTo(ptShape[0][0].x,ptShape[0][0].y);
 	for (i = 1; i < nbptShape[0]; i++)
@@ -1593,7 +1595,7 @@ void DrawCIEChartWhiteSurrounding(CDC* pDC, int cxMax, int cyMax, BOOL bCIEuv, B
 	while ( Y_Cour <= MaxY )
 	{
 		NbLimits = 0;
-		// i is zéro for left side, 1 for right side
+		// i is zÃ©ro for left side, 1 for right side
 		for ( i = 0 ; i < 2 ; i ++ )
 		{
 			if ( Y_Cour <= TB [ i ].Last_Y )
@@ -1957,18 +1959,18 @@ void DrawCIEChartWhiteSurrounding(CDC* pDC, int cxMax, int cyMax, BOOL bCIEuv, B
 
 				// Initializes a CFont object with the specified characteristics. 
 				CFont font,font1;
-				font.CreateFont(24,0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
-				font1.CreateFont(24,0,-180,-180,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+				font.CreateFont(36,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+				font1.CreateFont(36,0,-180,-180,FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 				CFont* pOldFont = pDC->SelectObject(&font);
 
 				CString szText;
 				if (520 - i*2 != 520)
 				{
 					szText.Format("%d nm",520 - i*2);
-					pDC->SetTextColor(RGB(10,10,200));
+					pDC->SetTextColor(RGB(70,70,90));
 					pDC->SetTextAlign(TA_CENTER);
 					pDC->SetBkMode(TRANSPARENT);
-					CPen bbcPen ( PS_SOLID, 1, RGB(10,10,200)  );
+					CPen bbcPen ( PS_SOLID, 2, RGB(70,70,90)  );
 					CPen * pOldPen = pDC -> SelectObject ( & bbcPen );
 					pDC -> MoveTo (ptShape[0][nbptShape[0]].x,ptShape[0][nbptShape[0]].y );
 					pDC -> LineTo ( ptShape[0][nbptShape[0]].x-30,ptShape[0][nbptShape[0]].y+10 );
@@ -1981,8 +1983,8 @@ void DrawCIEChartWhiteSurrounding(CDC* pDC, int cxMax, int cyMax, BOOL bCIEuv, B
 			{
 				// Initializes a CFont object with the specified characteristics. 
 				CFont font,font1;
-				font.CreateFont(24,0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
-				font1.CreateFont(24,0,-220,-220,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+				font.CreateFont(36,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+				font1.CreateFont(36,0,-220,-220,FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 				CFont* pOldFont = pDC->SelectObject(&font);
 				BOOL doPrint = FALSE;
 
@@ -2005,7 +2007,7 @@ void DrawCIEChartWhiteSurrounding(CDC* pDC, int cxMax, int cyMax, BOOL bCIEuv, B
 
 				if (doPrint)
 				{
-					pDC->SetTextColor(RGB(10,10,200));
+					pDC->SetTextColor(RGB(70,70,90));
 					pDC->SetTextAlign(TA_CENTER);
 					pDC->SetBkMode(TRANSPARENT);
 					if (i == 0)
@@ -2050,14 +2052,14 @@ void DrawCIEChartWhiteSurrounding(CDC* pDC, int cxMax, int cyMax, BOOL bCIEuv, B
 			{
 				// Initializes a CFont object with the specified characteristics. 
 				CFont font;
-				font.CreateFont(24,0,(bCIEuv?300:0),(bCIEuv?300:0),FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+				font.CreateFont(36,0,(bCIEuv?300:0),(bCIEuv?300:0),FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 				CFont* pOldFont = pDC->SelectObject(&font);
 				CString szText;
 				szText.Format("%d nm",i*2 + 520);
-				pDC->SetTextColor(RGB(10,10,200));
+				pDC->SetTextColor(RGB(70,70,90));
 				pDC->SetTextAlign(TA_LEFT | TA_TOP);
 				pDC->SetBkMode(TRANSPARENT);
-				CPen bbcPen ( PS_SOLID, 1, RGB(10,10,200) );
+				CPen bbcPen ( PS_SOLID, 2, RGB(70,70,90) );
 				CPen * pOldPen = pDC -> SelectObject ( & bbcPen );
 				pDC->TextOutA( ptShape[1][nbptShape[1]].x+30,ptShape[1][nbptShape[1]].y-50,szText);
 				pDC -> MoveTo (ptShape[1][nbptShape[1]].x+30,ptShape[1][nbptShape[1]].y-40 );
@@ -2069,7 +2071,7 @@ void DrawCIEChartWhiteSurrounding(CDC* pDC, int cxMax, int cyMax, BOOL bCIEuv, B
 			{
 				// Initializes a CFont object with the specified characteristics. 
 				CFont font;
-				font.CreateFont(24,0,0,0,FW_THIN,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+				font.CreateFont(36,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
 				CFont* pOldFont = pDC->SelectObject(&font);
 				BOOL doPrint = FALSE;
 
@@ -2084,7 +2086,7 @@ void DrawCIEChartWhiteSurrounding(CDC* pDC, int cxMax, int cyMax, BOOL bCIEuv, B
 
 				if (doPrint)
 				{
-					pDC->SetTextColor(RGB(10,10,200));
+					pDC->SetTextColor(RGB(70,70,90));
 					pDC->SetTextAlign(TA_CENTER);
 					pDC->SetBkMode(TRANSPARENT);
 					pDC->TextOutA( ptShape[1][nbptShape[1]].x,ptShape[1][nbptShape[1]].y-25,szText);

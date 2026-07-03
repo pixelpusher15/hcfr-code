@@ -45,7 +45,7 @@ CSatLumShiftGrapher::CSatLumShiftGrapher ()
 	Msg.LoadString ( IDS_PERCENTSATGREEN );
 	m_greenSatGraphID = m_graphCtrl.AddGraph(RGB(0,255,0), (LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_PERCENTSATBLUE );
-	m_blueSatGraphID = m_graphCtrl.AddGraph(RGB(0,0,255), (LPSTR)(LPCSTR)Msg);
+	m_blueSatGraphID = m_graphCtrl.AddGraph(RGB(70,70,255), (LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_PERCENTSATYELLOW );
 	m_yellowSatGraphID = m_graphCtrl.AddGraph(RGB(255,255,0), (LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_PERCENTSATCYAN );
@@ -58,7 +58,7 @@ CSatLumShiftGrapher::CSatLumShiftGrapher ()
 	Msg.LoadString ( IDS_PERCENTSATGREENDATAREF );
 	m_greenSatDataRefGraphID = m_graphCtrl.AddGraph(RGB(0,255,0), (LPSTR)(LPCSTR)Msg,1,PS_DOT);
 	Msg.LoadString ( IDS_PERCENTSATBLUEDATAREF );
-	m_blueSatDataRefGraphID = m_graphCtrl.AddGraph(RGB(0,0,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT);
+	m_blueSatDataRefGraphID = m_graphCtrl.AddGraph(RGB(70,70,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT);
 	Msg.LoadString ( IDS_PERCENTSATYELLOWDATAREF );
 	m_yellowSatDataRefGraphID = m_graphCtrl.AddGraph(RGB(255,255,0), (LPSTR)(LPCSTR)Msg,1,PS_DOT);
 	Msg.LoadString ( IDS_PERCENTSATCYANDATAREF );
@@ -79,7 +79,7 @@ CSatLumShiftGrapher::CSatLumShiftGrapher ()
 	Msg.LoadString ( IDS_DELTAEGREEN );
 	m_greenColorGraphID = m_graphCtrl2.AddGraph(RGB(0,255,0), (LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_DELTAEBLUE );
-	m_blueColorGraphID = m_graphCtrl2.AddGraph(RGB(0,0,255), (LPSTR)(LPCSTR)Msg);
+	m_blueColorGraphID = m_graphCtrl2.AddGraph(RGB(70,70,255), (LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_DELTAEYELLOW );
 	m_yellowColorGraphID = m_graphCtrl2.AddGraph(RGB(255,255,0), (LPSTR)(LPCSTR)Msg);
 	Msg.LoadString ( IDS_DELTAECYAN );
@@ -92,7 +92,7 @@ CSatLumShiftGrapher::CSatLumShiftGrapher ()
 	Msg.LoadString ( IDS_DELTAEGREENDATAREF );
 	m_greenColorDataRefGraphID = m_graphCtrl2.AddGraph(RGB(0,255,0), (LPSTR)(LPCSTR)Msg,1,PS_DOT);
 	Msg.LoadString ( IDS_DELTAEBLUEDATAREF );
-	m_blueColorDataRefGraphID = m_graphCtrl2.AddGraph(RGB(0,0,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT);
+	m_blueColorDataRefGraphID = m_graphCtrl2.AddGraph(RGB(70,70,255), (LPSTR)(LPCSTR)Msg,1,PS_DOT);
 	Msg.LoadString ( IDS_DELTAEYELLOWDATAREF );
 	m_yellowColorDataRefGraphID = m_graphCtrl2.AddGraph(RGB(255,255,0), (LPSTR)(LPCSTR)Msg,1,PS_DOT);
 	Msg.LoadString ( IDS_DELTAECYANDATAREF );

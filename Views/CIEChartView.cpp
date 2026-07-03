@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	FranÃ§ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -31,6 +31,7 @@
 #include "ximage.h"
 #include "savegraphdialog.h"
 #include "graphcontrol.h"
+#include "GdiPlusAA.h"
 #include "Views\MainView.h"
 
 #ifdef _DEBUG
@@ -157,12 +158,50 @@ CCIEChartGrapher::CCIEChartGrapher()
 	m_DeltaY = 0;
 	dE10 = 0.;
 	isSat = FALSE;
+
+	m_pMarkerGraphics = NULL;
+	m_markerScale = 1.0f;
+	m_bgW = -1;
+	m_bgH = -1;
+	m_bgWhite = m_bgUv = m_bgAb = m_bgShowBg = m_bgShowDE = FALSE;
+	m_bgWhitex = m_bgWhitey = 0.0;
 }
 
 std::vector <COLORREF> stRGB,eRGB;
 
 void CCIEChartGrapher::MakeBgBitmap(CRect rect, BOOL bWhiteBkgnd)	// Create background bitmap
 {
+	// The source chart bitmaps are built by a startup thread: wait for them
+	// before building (and caching) a background from their content.
+	CColorHCFRApp * pApp = GetColorApp();
+	if ( pApp -> m_hCIEEvent && WAIT_TIMEOUT == WaitForSingleObject ( pApp -> m_hCIEEvent, 0 ) )
+	{
+		CWaitCursor wait;
+		if ( pApp -> m_hCIEThread )
+			::SetThreadPriority ( pApp -> m_hCIEThread, THREAD_PRIORITY_NORMAL );
+		WaitForSingleObject ( pApp -> m_hCIEEvent, INFINITE );
+	}
+
+	// Skip the rebuild when nothing that affects the background changed:
+	// during a live resize OnSize and OnUpdate both come through here, and
+	// the double HALFTONE StretchBlt of the 1400x1000 chart is expensive.
+	ColorxyY bgWhite ( GetColorReference().GetWhite() );
+	if ( rect.Width() == m_bgW && rect.Height() == m_bgH
+	  && bWhiteBkgnd == m_bgWhite && m_bCIEuv == m_bgUv && m_bCIEab == m_bgAb
+	  && m_doDisplayBackground == m_bgShowBg && m_doDisplayDeltaERef == m_bgShowDE
+	  && bgWhite[0] == m_bgWhitex && bgWhite[1] == m_bgWhitey )
+		return;
+
+	m_bgW = rect.Width();
+	m_bgH = rect.Height();
+	m_bgWhite = bWhiteBkgnd;
+	m_bgUv = m_bCIEuv;
+	m_bgAb = m_bCIEab;
+	m_bgShowBg = m_doDisplayBackground;
+	m_bgShowDE = m_doDisplayDeltaERef;
+	m_bgWhitex = bgWhite[0];
+	m_bgWhitey = bgWhite[1];
+
     int		i;
 	CDC		ScreenDC;
 	
@@ -234,9 +273,6 @@ void CCIEChartGrapher::MakeBgBitmap(CRect rect, BOOL bWhiteBkgnd)	// Create back
 	}
 
 	// Draw axis
-    CPen axisPen(PS_SOLID,1,RGB(64,64,64));
-    CPen *pOldPen = bgDC.SelectObject(&axisPen); 
-
 	bgDC.SetTextAlign(TA_BOTTOM);
 	bgDC.SetTextColor(bWhiteBkgnd?RGB(0,0,0):RGB(255,255,255));
 	bgDC.SetBkMode(TRANSPARENT);
@@ -247,43 +283,65 @@ void CCIEChartGrapher::MakeBgBitmap(CRect rect, BOOL bWhiteBkgnd)	// Create back
 
 	CFont* pOldFont = bgDC.SelectObject(&font);
 
-	for(i=0;i<(m_bCIEab?21.0:m_bCIEuv?7:8);i++)	// Draw X axis
-	{
-		int x=(int)(rect.Width()*((i + 0.75)/(m_bCIEuv?8.0:9.0)));
-		if (m_bCIEab)
-			x=(int)(rect.Width()*((i)/20.));
-		CString str;
+	BOOL bShowLabels = min(rect.Width(),rect.Height()) > FX_MINSIZETOSHOW_REFDETAILS;
 
-		if (m_bCIEab)
-			str.Format("%.1f",i*20.0-220.0);
-		else
-			str.Format("%.1f",i/10.0);
-		bgDC.MoveTo(x,0);
-		bgDC.LineTo(x,rect.bottom);
-		if(i && min(rect.Width(),rect.Height()) > FX_MINSIZETOSHOW_REFDETAILS )
-			bgDC.TextOut(x+2,rect.bottom,str); // Draw axis label
+	// Grid lines as a translucent overlay (GDI+): reads as a quiet guide over
+	// both the dark surround and the coloured tongue instead of hard lines.
+	// Draw every grid line first and let the GDI+ Graphics release the DC
+	// before any GDI TextOut -- GDI and GDI+ must not interleave on one HDC.
+	EnsureGdiplus();
+	{
+		Gdiplus::Graphics gridG(bgDC.GetSafeHdc());
+		Gdiplus::Pen gridPen(bWhiteBkgnd ? Gdiplus::Color(50,0,0,0) : Gdiplus::Color(50,255,255,255), 1.0f);
+
+		for(i=0;i<(m_bCIEab?21.0:m_bCIEuv?7:8);i++)	// X axis grid
+		{
+			int x=(int)(rect.Width()*((i + 0.75)/(m_bCIEuv?8.0:9.0)));
+			if (m_bCIEab)
+				x=(int)(rect.Width()*((i)/20.));
+			gridG.DrawLine(&gridPen,x,0,x,(int)rect.bottom);
+		}
+
+		for(i=0;i<(m_bCIEab?20.0:m_bCIEuv?7:9);i++) 	// Y axis grid
+		{
+			int y=(int)(rect.Height()*((i + 0.5)/(m_bCIEuv?8.0:10.0)));
+			if (m_bCIEab)
+				y=(int)(rect.Height()*((i)/20.));
+			gridG.DrawLine(&gridPen,0,y,(int)rect.right,y);
+		}
 	}
 
-	for(i=0;i<(m_bCIEab?20.0:m_bCIEuv?7:9);i++) 	// Draw Y axis
+	// Axis labels (GDI), after the GDI+ Graphics above has been destroyed
+	if (bShowLabels)
 	{
-		int y=(int)(rect.Height()*((i + 0.5)/(m_bCIEuv?8.0:10.0)));
-		if (m_bCIEab)
-			y=(int)(rect.Height()*((i)/20.));
-		CString str;
+		for(i=1;i<(m_bCIEab?21.0:m_bCIEuv?7:8);i++)	// X axis labels
+		{
+			int x=(int)(rect.Width()*((i + 0.75)/(m_bCIEuv?8.0:9.0)));
+			if (m_bCIEab)
+				x=(int)(rect.Width()*((i)/20.));
+			CString str;
+			if (m_bCIEab)
+				str.Format("%.1f",i*20.0-220.0);
+			else
+				str.Format("%.1f",i/10.0);
+			bgDC.TextOut(x+2,rect.bottom,str);
+		}
 
-		if (m_bCIEab)
-			str.Format("%.1f",200.0-i*20.0);
-		else
-			str.Format("%.1f",(m_bCIEuv?0.7:0.9)-i/10.0);
-		bgDC.MoveTo(0,y);
-		bgDC.LineTo(rect.right,y);
-		if(i && min(rect.Width(),rect.Height()) > FX_MINSIZETOSHOW_REFDETAILS)
+		for(i=1;i<(m_bCIEab?20.0:m_bCIEuv?7:9);i++) 	// Y axis labels
+		{
+			int y=(int)(rect.Height()*((i + 0.5)/(m_bCIEuv?8.0:10.0)));
+			if (m_bCIEab)
+				y=(int)(rect.Height()*((i)/20.));
+			CString str;
+			if (m_bCIEab)
+				str.Format("%.1f",200.0-i*20.0);
+			else
+				str.Format("%.1f",(m_bCIEuv?0.7:0.9)-i/10.0);
 			bgDC.TextOut(2,y,str);
+		}
 	}
 
-	bgDC.SelectObject(pOldPen);
 	bgDC.SelectObject(pOldFont);
-	CGraphControl::DrawFiligree ( &bgDC, rect, bWhiteBkgnd?RGB(192,192,192):RGB(64,64,64) );
 	
 	// Create stretched bitmap for gamut hilighting
 
@@ -308,6 +366,130 @@ void CCIEChartGrapher::MakeBgBitmap(CRect rect, BOOL bWhiteBkgnd)	// Create back
 
 	bgDC.SetStretchBltMode(oldMode); 
 	bgDC.SelectObject(pOldBitmap);
+}
+
+// Modern anti-aliased markers replacing the legacy point bitmaps: measured
+// values plot as dots filled with their own colour inside a light ring,
+// reference targets as outline shapes, reference-document data as crosses.
+// Returns false for a bitmap with no mapped style (caller falls back to the
+// legacy alpha blit).
+bool CCIEChartGrapher::DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int y, const CCIEGraphPoint& aGraphPoint, bool isSelected)
+{
+	enum MarkerKind { KIND_DOT, KIND_TARGET, KIND_DIAMOND, KIND_CROSS };
+	MarkerKind kind;
+	COLORREF clr = RGB(255,255,255);
+
+	if ( pBitmap == &m_grayPlotBitmap || pBitmap == &m_measurePlotBitmap || pBitmap == &m_selectedPlotBitmap
+	  || pBitmap == &m_redPrimaryBitmap || pBitmap == &m_greenPrimaryBitmap || pBitmap == &m_bluePrimaryBitmap
+	  || pBitmap == &m_yellowSecondaryBitmap || pBitmap == &m_cyanSecondaryBitmap || pBitmap == &m_magentaSecondaryBitmap )
+	{
+		kind = KIND_DOT;
+		CColor measColor = aGraphPoint.GetNormalizedColor();
+		ColorRGB measCol = ColorRGB(measColor.GetRGBValue(CColorReference(HDTV)));
+		int r = (int)floor(pow(min(max(measCol[0],0),1),1.0/2.2)*255.+0.5);
+		int g = (int)floor(pow(min(max(measCol[1],0),1),1.0/2.2)*255.+0.5);
+		int b = (int)floor(pow(min(max(measCol[2],0),1),1.0/2.2)*255.+0.5);
+		clr = RGB(r,g,b);
+	}
+	// Primary/secondary reference targets are diamonds -- the distinct landmark
+	// shape. Saturation-sweep and other targets are plain squares; a sweep's
+	// 100% point lands on its primary vertex, so the diamond over the square
+	// reads as two distinct series rather than one misaligned square.
+	else if ( pBitmap == &m_refRedPrimaryBitmap )       { kind = KIND_DIAMOND; clr = RGB(255,55,55); }
+	else if ( pBitmap == &m_refGreenPrimaryBitmap )     { kind = KIND_DIAMOND; clr = RGB(60,240,60); }
+	else if ( pBitmap == &m_refBluePrimaryBitmap )      { kind = KIND_DIAMOND; clr = RGB(120,135,255); }
+	else if ( pBitmap == &m_refYellowSecondaryBitmap )  { kind = KIND_DIAMOND; clr = RGB(255,240,60); }
+	else if ( pBitmap == &m_refCyanSecondaryBitmap )    { kind = KIND_DIAMOND; clr = RGB(55,240,240); }
+	else if ( pBitmap == &m_refMagentaSecondaryBitmap ) { kind = KIND_DIAMOND; clr = RGB(250,80,250); }
+	else if ( pBitmap == &m_cc24SatRefBitmap )          { kind = KIND_TARGET; clr = RGB(235,235,235); }
+	else if ( pBitmap == &m_redSatRefBitmap )        { kind = KIND_TARGET; clr = RGB(255,55,55); }
+	else if ( pBitmap == &m_greenSatRefBitmap )      { kind = KIND_TARGET; clr = RGB(60,240,60); }
+	else if ( pBitmap == &m_blueSatRefBitmap )       { kind = KIND_TARGET; clr = RGB(120,135,255); }
+	else if ( pBitmap == &m_yellowSatRefBitmap )     { kind = KIND_TARGET; clr = RGB(255,240,60); }
+	else if ( pBitmap == &m_cyanSatRefBitmap )       { kind = KIND_TARGET; clr = RGB(55,240,240); }
+	else if ( pBitmap == &m_magentaSatRefBitmap )    { kind = KIND_TARGET; clr = RGB(250,80,250); }
+	else if ( pBitmap == &m_illuminantPointBitmap )  { kind = KIND_TARGET; clr = RGB(235,235,235); }
+	else if ( pBitmap == &m_colorTempPointBitmap )   { kind = KIND_TARGET; clr = RGB(200,200,200); }
+	else if ( pBitmap == &m_datarefRedBitmap )     { kind = KIND_CROSS; clr = RGB(255,55,55); }
+	else if ( pBitmap == &m_datarefGreenBitmap )   { kind = KIND_CROSS; clr = RGB(60,240,60); }
+	else if ( pBitmap == &m_datarefBlueBitmap )    { kind = KIND_CROSS; clr = RGB(120,135,255); }
+	else if ( pBitmap == &m_datarefYellowBitmap )  { kind = KIND_CROSS; clr = RGB(255,240,60); }
+	else if ( pBitmap == &m_datarefCyanBitmap )    { kind = KIND_CROSS; clr = RGB(55,240,240); }
+	else if ( pBitmap == &m_datarefMagentaBitmap ) { kind = KIND_CROSS; clr = RGB(250,80,250); }
+	else
+		return false;
+
+	float s = m_markerScale;
+	float fx = (float)x, fy = (float)y;
+	// Thin dark underlay behind outline markers: keeps them readable over
+	// the bright parts of the tongue without making the strokes heavier
+	Gdiplus::Color haloClr(160,0,0,0);
+
+	auto drawMarker = [&](Gdiplus::Graphics & g)
+	{
+	switch ( kind )
+	{
+		case KIND_DOT:
+		{
+			float r = 4.0f * s;
+			Gdiplus::Pen contour(haloClr, 1.0f*s);
+			g.DrawEllipse(&contour, fx-r-1.0f*s, fy-r-1.0f*s, 2.0f*(r+1.0f*s), 2.0f*(r+1.0f*s));
+			Gdiplus::SolidBrush fill(GpColor(clr));
+			g.FillEllipse(&fill, fx-r, fy-r, 2.0f*r, 2.0f*r);
+			// Selection shows as a gold ring in place of the white one, so it
+			// adds no footprint and never hides a target square around it
+			BOOL bSel = ( isSelected || pBitmap == &m_selectedPlotBitmap );
+			Gdiplus::Pen ring(bSel ? Gdiplus::Color(255,255,215,0) : Gdiplus::Color(255,255,255,255), bSel ? 1.7f*s : 1.2f*s);
+			g.DrawEllipse(&ring, fx-r, fy-r, 2.0f*r, 2.0f*r);
+			break;
+		}
+		case KIND_TARGET:
+		{
+			float h = 4.5f * s;
+			Gdiplus::Pen halo(haloClr, 2.8f*s);
+			g.DrawRectangle(&halo, fx-h, fy-h, 2.0f*h, 2.0f*h);
+			Gdiplus::Pen pen(GpColor(clr), 1.5f*s);
+			g.DrawRectangle(&pen, fx-h, fy-h, 2.0f*h, 2.0f*h);
+			break;
+		}
+		case KIND_DIAMOND:
+		{
+			float h = 5.5f * s;
+			Gdiplus::PointF d[4] = {
+				Gdiplus::PointF(fx, fy-h), Gdiplus::PointF(fx+h, fy),
+				Gdiplus::PointF(fx, fy+h), Gdiplus::PointF(fx-h, fy) };
+			Gdiplus::Pen halo(haloClr, 2.8f*s);
+			g.DrawPolygon(&halo, d, 4);
+			Gdiplus::Pen pen(GpColor(clr), 1.5f*s);
+			g.DrawPolygon(&pen, d, 4);
+			break;
+		}
+		case KIND_CROSS:
+		{
+			float a = 4.5f * s;
+			Gdiplus::Pen halo(haloClr, 2.8f*s);
+			g.DrawLine(&halo, fx-a, fy, fx+a, fy);
+			g.DrawLine(&halo, fx, fy-a, fx, fy+a);
+			Gdiplus::Pen pen(GpColor(clr), 1.5f*s);
+			g.DrawLine(&pen, fx-a, fy, fx+a, fy);
+			g.DrawLine(&pen, fx, fy-a, fx, fy+a);
+			break;
+		}
+	}
+	};
+
+	// Reuse the per-DrawChart Graphics (one per pass instead of one per
+	// marker keeps live-resize repaints cheap); stack fallback otherwise.
+	if ( m_pMarkerGraphics )
+		drawMarker(*m_pMarkerGraphics);
+	else
+	{
+		EnsureGdiplus();
+		Gdiplus::Graphics g(pDC->GetSafeHdc());
+		g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+		drawMarker(g);
+	}
+	return true;
 }
 
 void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint, bool isSelected, double dE10, bool isPrimeSat)
@@ -501,24 +683,41 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 
 	if (bDrawBMP)
 	{
-		CDC memDC;
-		memDC.CreateCompatibleDC( pDC );
+		if ( ! DrawGdiPlusMarker(pDC, pBitmap, aGraphPoint.GetGraphX(rect), aGraphPoint.GetGraphY(rect), aGraphPoint, isSelected) )
+		{
+			// Legacy alpha-bitmap blit for any marker without a mapped style
+			CDC memDC;
+			memDC.CreateCompatibleDC( pDC );
 
-		CBitmap* pOld = memDC.SelectObject(pBitmap);
-		BLENDFUNCTION bf;
-		bf.BlendOp=AC_SRC_OVER;
-		bf.BlendFlags=0;
-		bf.AlphaFormat=0x01;  // AC_SRC_ALPHA=0x01
-		bf.SourceConstantAlpha=255;
-		AlphaBlend(*pDC,aGraphPoint.GetGraphX(rect)-bm.bmWidth/2,aGraphPoint.GetGraphY(rect)-bm.bmHeight/2,bm.bmWidth,bm.bmHeight,memDC,0,0,bm.bmWidth,bm.bmHeight,bf);
+			CBitmap* pOld = memDC.SelectObject(pBitmap);
+			BLENDFUNCTION bf;
+			bf.BlendOp=AC_SRC_OVER;
+			bf.BlendFlags=0;
+			bf.AlphaFormat=0x01;  // AC_SRC_ALPHA=0x01
+			bf.SourceConstantAlpha=255;
+			AlphaBlend(*pDC,aGraphPoint.GetGraphX(rect)-bm.bmWidth/2,aGraphPoint.GetGraphY(rect)-bm.bmHeight/2,bm.bmWidth,bm.bmHeight,memDC,0,0,bm.bmWidth,bm.bmHeight,bf);
 
-		memDC.SelectObject(pOld);
+			memDC.SelectObject(pOld);
+		}
 	}
 
 }
 
-void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd) 
+void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd)
 {
+	// One shared anti-aliased Graphics for every marker drawn in this pass
+	// (constructing a Graphics per marker is measurable with 100+ points)
+	EnsureGdiplus();
+	Gdiplus::Graphics chartMarkerGraphics(pDC->GetSafeHdc());
+	chartMarkerGraphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+	struct CMarkerGraphicsScope
+	{
+		CCIEChartGrapher * p;
+		~CMarkerGraphicsScope() { p->m_pMarkerGraphics = NULL; }
+	} markerScope = { this };
+	m_pMarkerGraphics = & chartMarkerGraphics;
+	m_markerScale = (float)GetConfig()->Scale(100) / 100.0f;	// resolve DPI once per pass, not per marker
+
 	CColorHCFRApp *	pApp = GetColorApp();
 	CString			Msg, Msg2, Msg3;
 	CDataSetDoc *	pDataRef = GetDataRef();
@@ -1073,17 +1272,19 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 
 	int penWidth=(min(rect.Width(),rect.Height()) > FX_MINSIZETOSHOW_TRIANGLEDETAILS) ? 3: 2;
 
- 	// Draw reference gamut triangle
-    CPen refPrimariesPen(PS_SOLID,penWidth,RGB(128,128,128));
-    CPen *pOldPen = pDC->SelectObject(&refPrimariesPen); 
-
+ 	// Reference gamut: no outline -- collect the gamut polygon (with the
+ 	// curved a*b* edges) and dim everything OUTSIDE it instead. The shading
+ 	// itself marks the target boundary.
 	pDC->SetBkMode(TRANSPARENT);
-	if(m_doDisplayBackground)
-		pDC->SetROP2(R2_MASKPEN);
-	else
-		pDC->SetROP2(R2_COPYPEN);
+	{
+	struct CGamutPolygon
+	{
+		std::vector<Gdiplus::PointF> pts;
+		void MoveTo(CPoint p) { pts.clear(); pts.push_back(Gdiplus::PointF((float)p.x,(float)p.y)); }
+		void LineTo(CPoint p) { pts.push_back(Gdiplus::PointF((float)p.x,(float)p.y)); }
+	} aaLine;
 
-	pDC->MoveTo(refRedPrimaryPoint.GetGraphPoint(rect));
+	aaLine.MoveTo(refRedPrimaryPoint.GetGraphPoint(rect));
 
 	if (m_bCIEab)
 	{
@@ -1102,11 +1303,11 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
 
-	pDC->LineTo(refYellowSecondaryPoint.GetGraphPoint(rect));
+	aaLine.LineTo(refYellowSecondaryPoint.GetGraphPoint(rect));
 	if (m_bCIEab)
 	{
 		//for ab space curvature
@@ -1124,10 +1325,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
-	pDC->LineTo(refGreenPrimaryPoint.GetGraphPoint(rect));
+	aaLine.LineTo(refGreenPrimaryPoint.GetGraphPoint(rect));
 	if (m_bCIEab)
 	{
 		//for ab space curvature
@@ -1145,10 +1346,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
-	pDC->LineTo(refCyanSecondaryPoint.GetGraphPoint(rect));
+	aaLine.LineTo(refCyanSecondaryPoint.GetGraphPoint(rect));
 	if (m_bCIEab)
 	{
 		//for ab space curvature
@@ -1166,10 +1367,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
-	pDC->LineTo(refBluePrimaryPoint.GetGraphPoint(rect));
+	aaLine.LineTo(refBluePrimaryPoint.GetGraphPoint(rect));
 	if (m_bCIEab)
 	{
 		//for ab space curvature
@@ -1187,10 +1388,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
-	pDC->LineTo(refMagentaSecondaryPoint.GetGraphPoint(rect));
+	aaLine.LineTo(refMagentaSecondaryPoint.GetGraphPoint(rect));
 	if (m_bCIEab)
 	{
 		//for ab space curvature
@@ -1208,40 +1409,42 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 			ColorXYZ iXYZ(ixyY);
 			CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-			pDC->LineTo(iGP.GetGraphPoint(rect));
+			aaLine.LineTo(iGP.GetGraphPoint(rect));
 		}
 	}
-	pDC->LineTo(refRedPrimaryPoint.GetGraphPoint(rect));
+	aaLine.LineTo(refRedPrimaryPoint.GetGraphPoint(rect));
 
-	pDC->SelectObject(pOldPen);
-
-	pDC->SetBkMode(TRANSPARENT);
-	pDC->SetROP2(R2_COPYPEN);
+	if ( aaLine.pts.size() >= 3 && m_pMarkerGraphics )
+	{
+		// Even-odd fill between the chart rectangle and the gamut polygon:
+		// dims only the out-of-gamut area, with an anti-aliased boundary
+		Gdiplus::GraphicsPath path(Gdiplus::FillModeAlternate);
+		path.AddRectangle(Gdiplus::Rect(0,0,rect.Width(),rect.Height()));
+		path.AddPolygon(&aaLine.pts[0],(INT)aaLine.pts.size());
+		Gdiplus::SolidBrush shade(Gdiplus::Color(100,0,0,0));
+		m_pMarkerGraphics->FillPath(&shade,&path);
+	}
+	}
 
  	// Draw reference gamut triangle 2020 outside P3
 
 	if ( hasdatarefPrimaries )
 	{
-		CPen datarefPrimariesPen(PS_SOLID,penWidth-1,RGB(192,192,192));
-		pOldPen = pDC->SelectObject(&datarefPrimariesPen); 
+		CAAPolyline aaLine(pDC,(float)(penWidth-1),RGB(192,192,192));
 
-		pDC->MoveTo(datarefRedPoint.GetGraphPoint(rect));
-		pDC->LineTo(datarefGreenPoint.GetGraphPoint(rect));
-		pDC->LineTo(datarefBluePoint.GetGraphPoint(rect));
-		pDC->LineTo(datarefRedPoint.GetGraphPoint(rect));
-		
-		pDC->SelectObject(pOldPen);
+		aaLine.MoveTo(datarefRedPoint.GetGraphPoint(rect));
+		aaLine.LineTo(datarefGreenPoint.GetGraphPoint(rect));
+		aaLine.LineTo(datarefBluePoint.GetGraphPoint(rect));
+		aaLine.LineTo(datarefRedPoint.GetGraphPoint(rect));
 	}
-
-    CPen primariesPen(PS_SOLID,penWidth,RGB(255,255,255));
-    pOldPen = pDC->SelectObject(&primariesPen); 
 
 	// Draw gamut triangle
 	if(hasPrimaries)
 	{
+		CAAPolyline aaLine(pDC,(float)penWidth,RGB(255,255,255));
 		if (hasSecondaries)
 		{
-			pDC->MoveTo(redPrimaryPoint.GetGraphPoint(rect));
+			aaLine.MoveTo(redPrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1259,10 +1462,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(yellowSecondaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(yellowSecondaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1280,10 +1483,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(greenPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(greenPrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1301,10 +1504,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(cyanSecondaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(cyanSecondaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1322,10 +1525,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(bluePrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(bluePrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1343,10 +1546,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(magentaSecondaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(magentaSecondaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1364,14 +1567,14 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(redPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(redPrimaryPoint.GetGraphPoint(rect));
 		}
 		else
 		{
-			pDC->MoveTo(redPrimaryPoint.GetGraphPoint(rect));
+			aaLine.MoveTo(redPrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1389,10 +1592,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(greenPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(greenPrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1410,10 +1613,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(bluePrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(bluePrimaryPoint.GetGraphPoint(rect));
 			if (m_bCIEab)
 			{
 				//for ab space curvature
@@ -1431,26 +1634,22 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					ColorxyY ixyY(x1+dx,y1+dy,Y1+dY);
 					ColorXYZ iXYZ(ixyY);
 					CCIEGraphPoint iGP(iXYZ, 1, "iteration",FALSE, TRUE);
-					pDC->LineTo(iGP.GetGraphPoint(rect));
+					aaLine.LineTo(iGP.GetGraphPoint(rect));
 				}
 			}
-			pDC->LineTo(redPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(redPrimaryPoint.GetGraphPoint(rect));
 		}
 	}
-	pDC->SelectObject(pOldPen);
 
-	// Draw white reference white dashed cross 
+	// Draw white reference white dashed cross
 	if(min(rect.Width(),rect.Height()) > FX_MINSIZETOSHOW_SCALEDETAILS )
 	{
-		CPen whiteCrossPen(PS_DOT,1,RGB(192,192,192));
-		pOldPen = pDC->SelectObject(&whiteCrossPen); 
+		CAAPolyline aaLine(pDC,1.0f,RGB(192,192,192),PS_DOT);
 
-		pDC->MoveTo(5,whiteRef.GetGraphY(rect));
-		pDC->LineTo(rect.right-5,whiteRef.GetGraphY(rect));
-		pDC->MoveTo(whiteRef.GetGraphX(rect),5);
-		pDC->LineTo(whiteRef.GetGraphX(rect),rect.bottom-5);
-
-		pDC->SelectObject(pOldPen);
+		aaLine.MoveTo(CPoint(5,whiteRef.GetGraphY(rect)));
+		aaLine.LineTo(CPoint(rect.right-5,whiteRef.GetGraphY(rect)));
+		aaLine.MoveTo(CPoint(whiteRef.GetGraphX(rect),5));
+		aaLine.LineTo(CPoint(whiteRef.GetGraphX(rect),rect.bottom-5));
 	}
 
 	// Draw bitmaps on triangle vertex
@@ -1464,10 +1663,9 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		DrawAlphaBitmap(pDC,refCyanSecondaryPoint,&m_refCyanSecondaryBitmap,rect,pTooltip,pWnd);
 		DrawAlphaBitmap(pDC,refMagentaSecondaryPoint,&m_refMagentaSecondaryBitmap,rect,pTooltip,pWnd);
 
-		if(m_doDisplayBackground)
-			pDC->SetTextColor(RGB(0,0,0));
-		else
-			pDC->SetTextColor(RGB(255,255,255));
+		// Reference labels (illuminants, colour temperatures): white over the
+		// chart, dark only when the white-background option is active
+		pDC->SetTextColor(m_bgWhite ? RGB(64,64,64) : RGB(255,255,255));
 		pDC->SetBkMode(TRANSPARENT);
 
 		if(m_doShowReferences)
@@ -1514,19 +1712,16 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		if(hasPrimaries && hasSecondaries && !m_bCIEab)
 		{
 			// Draw lines between primaries and secondaries
-			CPen secondariesPen(PS_DOT,1,RGB(64,64,64));
-			pOldPen = pDC->SelectObject(&secondariesPen); 
+			CAAPolyline aaLine(pDC,1.0f,RGB(64,64,64),PS_DOT);
 
-			pDC->MoveTo(redPrimaryPoint.GetGraphPoint(rect));
-			pDC->LineTo(cyanSecondaryPoint.GetGraphPoint(rect));
+			aaLine.MoveTo(redPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(cyanSecondaryPoint.GetGraphPoint(rect));
 
-			pDC->MoveTo(greenPrimaryPoint.GetGraphPoint(rect));
-			pDC->LineTo(magentaSecondaryPoint.GetGraphPoint(rect));
+			aaLine.MoveTo(greenPrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(magentaSecondaryPoint.GetGraphPoint(rect));
 
-			pDC->MoveTo(bluePrimaryPoint.GetGraphPoint(rect));
-			pDC->LineTo(yellowSecondaryPoint.GetGraphPoint(rect));
-
-			pDC->SelectObject(pOldPen);
+			aaLine.MoveTo(bluePrimaryPoint.GetGraphPoint(rect));
+			aaLine.LineTo(yellowSecondaryPoint.GetGraphPoint(rect));
 		}
 
 		if ( hasPrimaries )
