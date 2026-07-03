@@ -989,7 +989,7 @@ void CReferencesPropPage::BuildRuntimeLayout()
     MoveDlg(this, IDC_EDIT_TARGET_MAXL4, M, 140, 188, 22, 12);
 
     // --- HDR10 signal metadata (PQ only) ---
-    AddGroup(this, m_dynAll, &m_bPQ, font, M, IDS_REF_GRP_SIGNALMETA, 10, 234, 260, 42);
+    AddGroup(this, m_dynAll, &m_bPQ, font, M, IDS_REF_GRP_SIGNALMETA, 10, 234, 260, 66);
     AddText(this, m_dynAll, &m_bPQ, font, M, LS(IDS_REF_MASTERINGMIN), 16, 244, 62, 9);
     MoveDlg(this, IDC_EDIT_MASTER_MINL, M, 16, 254, 44, 12);
     AddText(this, m_dynAll, &m_bPQ, font, M, LS(IDS_REF_MASTERINGMAX), 82, 244, 62, 9);
@@ -998,6 +998,7 @@ void CReferencesPropPage::BuildRuntimeLayout()
     MoveDlg(this, IDC_EDIT_CONTENT_MAXL, M, 148, 254, 44, 12);
     AddText(this, m_dynAll, &m_bPQ, font, M, LS(IDS_REF_MAXFALL), 214, 244, 54, 9);
     MoveDlg(this, IDC_EDIT_FRAME_AVG_MAXL, M, 214, 254, 44, 12);
+    AddText(this, m_dynAll, &m_bPQ, font, M, LS(IDS_REF_METANOTE), 16, 268, 248, 26);
 
     // ===== Section 3: ColorChecker patterns =====
     m_pCCGroup = AddGroup(this, m_dynAll, NULL, font, M, IDS_REF_GRP_CCPATTERNS, 5, 232, 270, 30);
@@ -1106,7 +1107,7 @@ void CReferencesPropPage::UpdateControlStates()
     else if (isBT1886)  tfBottom = 146;
     else if (isLstar)   tfBottom = 128;
     else if (isHLG)     tfBottom = 168;
-    else                tfBottom = 282;
+    else                tfBottom = 306;
     MoveWnd(m_pTFGroup, M, 5, 80, 270, tfBottom - 80);
     MoveWnd(m_pCCGroup, M, 5, tfBottom + 6, 270, 30);
     MoveDlg(this, IDC_CCMODE_COMBO, M, 12, tfBottom + 18, 200, 100);

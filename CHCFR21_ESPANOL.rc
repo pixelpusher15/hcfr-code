@@ -263,7 +263,7 @@ BEGIN
     PUSHBUTTON      "Help",IDHELP,140,154,49,14,WS_GROUP
 END
 
-IDD_REFERENCE_PROP_PAGE DIALOGEX 0, 0, 280, 320
+IDD_REFERENCE_PROP_PAGE DIALOGEX 0, 0, 280, 350
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "References"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
@@ -3040,7 +3040,7 @@ BEGIN
     IDS_REF_GRP_CCPATTERNS  "Patrones ColorChecker"
     IDS_REF_GRP_TARGETDISPLAY  "Objetivo (tu pantalla)"
     IDS_REF_GRP_TONEMAP  "Mapeo tonal (BT.2390)"
-    IDS_REF_GRP_SIGNALMETA  "Metadatos de señal HDR10 (solo salida madVR / Windows HDR)"
+    IDS_REF_GRP_SIGNALMETA  "Metadatos de señal HDR10"
     IDS_REF_STANDARD  "Estándar"
     IDS_REF_WHITEPOINT  "Punto blanco"
     IDS_REF_PRIMARIES  "Primarios (xy)"
@@ -3069,7 +3069,7 @@ BEGIN
     IDS_REF_MASTERINGMAX  "Masterización máx"
     IDS_REF_MAXCLL  "MaxCLL"
     IDS_REF_MAXFALL  "MaxFALL"
-    IDS_REF_METANOTE  "Sent to the HDR signal; no effect on Pi, manual, Ki or non-HDR10 output."
+    IDS_REF_METANOTE  "MaxCLL / MaxFALL are output metadata for madVR / Windows HDR only; Mastering min/max also affect the tone-mapped target on every output."
     IDS_TF_GAMMA_POWER  "Gamma (ley de potencia)"
     IDS_TF_GAMMA_BLACKCOMP  "Gamma (compensación de negro)"
     IDS_TF_BT1886  "BT.1886"
