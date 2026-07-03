@@ -104,6 +104,7 @@
   <ItemGroup>
     <ClCompile Include="ArgyllMeterWrapper_unittests.cpp" />
     <ClCompile Include="Color_unittests.cpp" />
+    <ClCompile Include="GamutCoverage_unittests.cpp" />
     <ClCompile Include="MatrixAdjustment_unittests.cpp" />
     <ClCompile Include="spectro_unittests.cpp" />
     <ClCompile Include="UnitTests.cpp" />

@@ -32,6 +32,7 @@
 #include "savegraphdialog.h"
 #include "graphcontrol.h"
 #include "GdiPlusAA.h"
+#include "GamutCoverage.h"
 #include "Views\MainView.h"
 
 #ifdef _DEBUG
@@ -158,6 +159,8 @@ CCIEChartGrapher::CCIEChartGrapher()
 	m_DeltaY = 0;
 	dE10 = 0.;
 	isSat = FALSE;
+
+	m_covValid = FALSE;
 
 	m_pMarkerGraphics = NULL;
 	m_markerScale = 1.0f;
@@ -1707,6 +1710,113 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			pDC->TextOut(colorTempPoint2700.GetGraphX(rect)-2,colorTempPoint2700.GetGraphY(rect)-2,"2700");
 
 			pDC->SelectObject(pOldFont);
+		}
+
+		// Gamut coverage chips (top right): [gamut] [xy: n%] [u'v': n%]. The
+		// gamut-name chip always shows; the coverage percentages are the measured
+		// primaries triangle vs the displayed reference triangle (area
+		// intersection / reference area) in xy and u'v'. Not shown in CIE a*b*
+		// mode (the metric is a chromaticity-plane one). The percentages hide
+		// when the gamut is changed until the primaries are re-measured, since
+		// old primaries don't belong to the new reference.
+		if (!m_bCIEab && min(rect.Width(),rect.Height()) > FX_MINSIZETOSHOW_REFDETAILS)
+		{
+			// Short names for the mainstream gamuts; everything else (incl. the
+			// reduced-primary HDTVa/HDTVb pseudo-gamuts) uses its own reference
+			// name so the label always matches the triangle actually drawn.
+			WCHAR gamutName[64];
+			switch (GetColorReference().m_standard)
+			{
+				case HDTV: case UHDTV4: wcscpy_s(gamutName, L"Rec.709");  break;
+				case UHDTV: case UHDTV3: wcscpy_s(gamutName, L"DCI-P3");   break;
+				case UHDTV2:            wcscpy_s(gamutName, L"Rec.2020");  break;
+				default:
+					swprintf_s(gamutName, 64, L"%S", GetColorReference().GetName().c_str());
+					break;
+			}
+
+			// Decide whether the coverage percentages are current. They are stale
+			// (and hidden) if the reference standard changed while the measured
+			// primaries stayed put -- i.e. the gamut was switched without a fresh
+			// measurement. Re-measuring changes the primaries and re-shows them.
+			ColorStandard curStd = GetColorReference().m_standard;
+			BOOL showPct = FALSE;
+			double covXY = 0.0, covUV = 0.0;
+			if (hasPrimaries)
+			{
+				BOOL primsSame = m_covValid
+					&& redPrimaryColor[0]   == m_covPrimaries[0][0] && redPrimaryColor[1]   == m_covPrimaries[0][1] && redPrimaryColor[2]   == m_covPrimaries[0][2]
+					&& greenPrimaryColor[0] == m_covPrimaries[1][0] && greenPrimaryColor[1] == m_covPrimaries[1][1] && greenPrimaryColor[2] == m_covPrimaries[1][2]
+					&& bluePrimaryColor[0]  == m_covPrimaries[2][0] && bluePrimaryColor[1]  == m_covPrimaries[2][1] && bluePrimaryColor[2]  == m_covPrimaries[2][2];
+				BOOL stdSame = m_covValid && (m_covStandard == curStd);
+
+				if (m_covValid && !stdSame && primsSame)
+				{
+					showPct = FALSE;	// gamut changed, primaries not re-measured
+				}
+				else
+				{
+					showPct = TRUE;
+					ColorxyY measured[3] = { ColorxyY(redPrimaryColor),
+											 ColorxyY(greenPrimaryColor),
+											 ColorxyY(bluePrimaryColor) };
+					// the triangle drawn on the chart is the active reference's primaries
+					// (for P3/709 inside a 2020 container these are already the inner gamut)
+					ColorxyY refTri[3] = { ColorxyY(GetColorReference().GetRed()),
+										   ColorxyY(GetColorReference().GetGreen()),
+										   ColorxyY(GetColorReference().GetBlue()) };
+					covXY = GamutCoverage(measured, refTri, GAMUT_PLANE_XY) * 100.0;
+					covUV = GamutCoverage(measured, refTri, GAMUT_PLANE_UV) * 100.0;
+					m_covStandard = curStd;
+					m_covPrimaries[0] = redPrimaryColor;
+					m_covPrimaries[1] = greenPrimaryColor;
+					m_covPrimaries[2] = bluePrimaryColor;
+					m_covValid = TRUE;
+				}
+			}
+
+			// Pill stat chips like the target widget's, anchored top right,
+			// growing leftward from the corner.
+			EnsureGdiplus();
+			Gdiplus::Graphics g(pDC->GetSafeHdc());
+			GpApplyDCOrigin(g, pDC);
+			g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+			g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+			Gdiplus::Font chipFont(L"Segoe UI", 15.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+
+			// neutral chip palette shared with the target widget's dx/dy chip
+			BOOL bDark = !m_bgWhite;
+			Gdiplus::Color nFill   = bDark ? Gdiplus::Color(255, 42, 42, 42)    : Gdiplus::Color(255, 255, 255, 255);
+			Gdiplus::Color nBorder = bDark ? Gdiplus::Color(255, 72, 72, 72)    : Gdiplus::Color(255, 205, 207, 213);
+			Gdiplus::Color nText   = bDark ? Gdiplus::Color(255, 215, 215, 215) : Gdiplus::Color(255, 70, 74, 80);
+
+			// Visual order left-to-right is [gamut] [xy] [u'v']; priority is the
+			// reverse, so if the row can't fit the chart width drop u'v' first,
+			// then xy, always keeping the gamut name.
+			WCHAR uvBuf[64], xyBuf[64];
+			const WCHAR * ordered[3];
+			int nChips = 0;
+			ordered[nChips++] = gamutName;
+			if (showPct)
+			{
+				swprintf_s(xyBuf, 64, L"xy: %.1f%%", covXY);
+				swprintf_s(uvBuf, 64, L"u'v': %.1f%%", covUV);
+				ordered[nChips++] = xyBuf;
+				ordered[nChips++] = uvBuf;
+			}
+
+			const Gdiplus::REAL pad = 8.0f, gap = 6.0f;
+			Gdiplus::REAL avail = (Gdiplus::REAL)rect.Width() - 2.0f * pad;
+			Gdiplus::REAL total = 0.0f;
+			for (int i = 0; i < nChips; i++)
+				total += MeasureStatChip(g, chipFont, ordered[i]).Width + (i ? gap : 0.0f);
+			while (nChips > 1 && total > avail)	// drop lowest-priority (rightmost) chips
+				total -= MeasureStatChip(g, chipFont, ordered[--nChips]).Width + gap;
+
+			Gdiplus::REAL bottom = (Gdiplus::REAL)rect.top + pad + MeasureStatChip(g, chipFont, gamutName).Height;
+			Gdiplus::REAL xRight = (Gdiplus::REAL)rect.right - pad;
+			for (int i = nChips - 1; i >= 0; i--)	// draw right to left
+				xRight -= DrawStatChip(g, chipFont, ordered[i], xRight, bottom, nFill, nBorder, nText) + gap;
 		}
 
 		if(hasPrimaries && hasSecondaries && !m_bCIEab)
