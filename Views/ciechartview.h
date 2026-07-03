@@ -132,6 +132,14 @@ class CCIEChartGrapher
 	BOOL	m_bgWhite, m_bgUv, m_bgAb, m_bgShowBg, m_bgShowDE;
 	double	m_bgWhitex, m_bgWhitey;
 
+	// Gamut-coverage chip staleness tracking: the standard and measured
+	// primaries the last shown coverage % was computed for. When the gamut is
+	// changed but the primaries have not been re-measured, the percentages are
+	// hidden (the gamut-name chip still shows).
+	BOOL			m_covValid;
+	ColorStandard	m_covStandard;
+	ColorXYZ		m_covPrimaries[3];
+
 	// Zoom handling, for window mode
 	UINT	m_ZoomFactor;	// Zoom factor = 1000 for 1:1 scale, 2000 for 2x zoom, and so on
 	int		m_DeltaX;		// When zoom active, delta values for picture scrolling in pixels

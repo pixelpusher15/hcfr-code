@@ -21,6 +21,9 @@
     <ClCompile Include="Color_unittests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="GamutCoverage_unittests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MatrixAdjustment_unittests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

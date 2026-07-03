@@ -47,6 +47,48 @@ inline void GpApplyDCOrigin(Gdiplus::Graphics & g, CDC *pDC)
 		g.TranslateTransform((float)(vo.x - wo.x), (float)(vo.y - wo.y));
 }
 
+// Chip padding as a fraction of the font size (horizontal, vertical).
+static const float STATCHIP_PADX_FRAC = 0.55f;
+static const float STATCHIP_PADY_FRAC = 0.24f;
+
+// Size of a stat chip (pill) for the given text, padding included.
+inline Gdiplus::SizeF MeasureStatChip(Gdiplus::Graphics & g, const Gdiplus::Font & font, const WCHAR * text)
+{
+	Gdiplus::RectF bounds;
+	g.MeasureString(text, -1, &font, Gdiplus::PointF(0.0f, 0.0f), &bounds);
+	return Gdiplus::SizeF(bounds.Width + 2.0f * font.GetSize() * STATCHIP_PADX_FRAC,
+						  bounds.Height + 2.0f * font.GetSize() * STATCHIP_PADY_FRAC);
+}
+
+// Draws a pill stat chip anchored by its bottom-right corner and returns its
+// width (so a row of chips can grow leftward from the corner). Shared by the
+// target widget and the CIE chart coverage readout.
+inline Gdiplus::REAL DrawStatChip(Gdiplus::Graphics & g, const Gdiplus::Font & font, const WCHAR * text,
+					 Gdiplus::REAL right, Gdiplus::REAL bottom,
+					 const Gdiplus::Color & fill, const Gdiplus::Color & border, const Gdiplus::Color & textClr)
+{
+	Gdiplus::RectF bounds;
+	g.MeasureString(text, -1, &font, Gdiplus::PointF(0.0f, 0.0f), &bounds);
+	Gdiplus::REAL padX = font.GetSize() * STATCHIP_PADX_FRAC;
+	Gdiplus::REAL padY = font.GetSize() * STATCHIP_PADY_FRAC;
+	Gdiplus::REAL w = bounds.Width + 2.0f * padX;
+	Gdiplus::REAL h = bounds.Height + 2.0f * padY;
+	Gdiplus::REAL x = right - w;
+	Gdiplus::REAL y = bottom - h;
+	Gdiplus::REAL r = h / 2.0f;	// pill
+	Gdiplus::GraphicsPath path;
+	path.AddArc(x, y, 2.0f * r, 2.0f * r, 90.0f, 180.0f);
+	path.AddArc(x + w - 2.0f * r, y, 2.0f * r, 2.0f * r, 270.0f, 180.0f);
+	path.CloseFigure();
+	Gdiplus::SolidBrush fillBrush(fill);
+	g.FillPath(&fillBrush, &path);
+	Gdiplus::Pen borderPen(border, 1.0f);
+	g.DrawPath(&borderPen, &path);
+	Gdiplus::SolidBrush textBrush(textClr);
+	g.DrawString(text, -1, &font, Gdiplus::PointF(x + padX, y + padY), &textBrush);
+	return w;
+}
+
 // Anti-aliased drop-in for the CDC MoveTo/LineTo pattern used by the charts.
 // Wraps a Graphics + Pen over the target DC and keeps the current position.
 class CAAPolyline

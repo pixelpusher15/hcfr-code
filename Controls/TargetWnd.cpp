@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <gdiplus.h>
 #pragma comment(lib, "gdiplus.lib")
+#include "GdiPlusAA.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -832,33 +833,7 @@ static const WCHAR * DeltaEFormulaName()
 	return L"";
 }
 
-// Draws a pill chip anchored by its bottom-right corner and returns its width
-// (so a row of chips can grow leftward from the corner).
-static Gdiplus::REAL DrawChip(Gdiplus::Graphics & g, const Gdiplus::Font & font, const WCHAR * text,
-					 Gdiplus::REAL right, Gdiplus::REAL bottom,
-					 const Gdiplus::Color & fill, const Gdiplus::Color & border, const Gdiplus::Color & textClr)
-{
-	Gdiplus::RectF bounds;
-	g.MeasureString(text, -1, &font, Gdiplus::PointF(0.0f, 0.0f), &bounds);
-	Gdiplus::REAL padX = font.GetSize() * 0.55f;
-	Gdiplus::REAL padY = font.GetSize() * 0.24f;
-	Gdiplus::REAL w = bounds.Width + 2.0f * padX;
-	Gdiplus::REAL h = bounds.Height + 2.0f * padY;
-	Gdiplus::REAL x = right - w;
-	Gdiplus::REAL y = bottom - h;
-	Gdiplus::REAL r = h / 2.0f;	// pill
-	Gdiplus::GraphicsPath path;
-	path.AddArc(x, y, 2.0f * r, 2.0f * r, 90.0f, 180.0f);
-	path.AddArc(x + w - 2.0f * r, y, 2.0f * r, 2.0f * r, 270.0f, 180.0f);
-	path.CloseFigure();
-	Gdiplus::SolidBrush fillBrush(fill);
-	g.FillPath(&fillBrush, &path);
-	Gdiplus::Pen borderPen(border, 1.0f);
-	g.DrawPath(&borderPen, &path);
-	Gdiplus::SolidBrush textBrush(textClr);
-	g.DrawString(text, -1, &font, Gdiplus::PointF(x + padX, y + padY), &textBrush);
-	return w;
-}
+// Pill stat chips are drawn with the shared DrawStatChip helper (GdiPlusAA.h).
 
 void CTargetWnd::OnPaint()
 {
@@ -954,7 +929,7 @@ void CTargetWnd::OnPaint()
 	if ( !compact )
 	{
 		g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
-		Gdiplus::REAL chipFontPx = (Gdiplus::REAL)max(12.0, 0.052 * R + 1.0);
+		Gdiplus::REAL chipFontPx = (Gdiplus::REAL)max(14.0, 0.058 * R + 1.0);
 		Gdiplus::Font chipFont(L"Segoe UI", chipFontPx, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
 		const Gdiplus::REAL pad = 8.0f;
 
@@ -973,13 +948,13 @@ void CTargetWnd::OnPaint()
 		Gdiplus::REAL xRight = (Gdiplus::REAL)rect.Width() - pad;
 		Gdiplus::REAL yBottom = (Gdiplus::REAL)rect.Height() - pad;
 		swprintf_s(buf, 64, L"dE %.1f", m_deltaE);
-		Gdiplus::REAL wChip = DrawChip(g, chipFont, buf, xRight, yBottom, chipFill, chipBorder, chipText);
+		Gdiplus::REAL wChip = DrawStatChip(g, chipFont, buf, xRight, yBottom, chipFill, chipBorder, chipText);
 
 		Gdiplus::Color nFill   = bDark ? Gdiplus::Color(255, 42, 42, 42)    : Gdiplus::Color(255, 255, 255, 255);
 		Gdiplus::Color nBorder = bDark ? Gdiplus::Color(255, 72, 72, 72)    : Gdiplus::Color(255, 205, 207, 213);
 		Gdiplus::Color nText   = bDark ? Gdiplus::Color(255, 215, 215, 215) : Gdiplus::Color(255, 70, 74, 80);
 		swprintf_s(buf, 64, L"dx %+.1f%%   dy %+.1f%%", m_deltax * 100.0, m_deltay * 100.0);
-		DrawChip(g, chipFont, buf, xRight - wChip - 6.0f, yBottom, nFill, nBorder, nText);
+		DrawStatChip(g, chipFont, buf, xRight - wChip - 6.0f, yBottom, nFill, nBorder, nText);
 
 		// ring formula note, plain muted text (localized prefix)
 		Gdiplus::REAL noteFontPx = (Gdiplus::REAL)max(11.0, 0.055 * R);
