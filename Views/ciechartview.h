@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	FranÃ§ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -60,6 +60,8 @@ public:
     ColorXYZ m_color;
     ColorXYZ a_color;
 };
+
+namespace Gdiplus { class Graphics; }
 
 class CCIEChartGrapher
 {
@@ -119,6 +121,17 @@ class CCIEChartGrapher
 
 	int		m_ttID; //tooltip index, max of 5000 entries per chart
 
+	// Shared GDI+ Graphics while a DrawChart pass runs (one per pass instead
+	// of one per marker); NULL outside DrawChart.
+	Gdiplus::Graphics *	m_pMarkerGraphics;
+	float	m_markerScale;	// DPI scale, resolved once per DrawChart pass
+
+	// MakeBgBitmap cache key: skip rebuilding when the background would be
+	// identical (helps live resize, where OnSize and OnUpdate both rebuild)
+	int		m_bgW, m_bgH;
+	BOOL	m_bgWhite, m_bgUv, m_bgAb, m_bgShowBg, m_bgShowDE;
+	double	m_bgWhitex, m_bgWhitey;
+
 	// Zoom handling, for window mode
 	UINT	m_ZoomFactor;	// Zoom factor = 1000 for 1:1 scale, 2000 for 2x zoom, and so on
 	int		m_DeltaX;		// When zoom active, delta values for picture scrolling in pixels
@@ -127,6 +140,7 @@ class CCIEChartGrapher
 	// Operations
 	void MakeBgBitmap(CRect rect,BOOL bWhiteBkgnd);
 	void DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint = NULL, bool isSelected = FALSE, double dE10=100.0, bool isPrimeSec = FALSE);
+	bool DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int y, const CCIEGraphPoint& aGraphPoint, bool isSelected);
 	void DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd);
 	void SaveGraphFile ( CDataSetDoc * pDoc, CSize ImageSize, LPCSTR lpszPathName, int ImageFormat = 0, int ImageQuality = 95, bool PDF=FALSE );
 };

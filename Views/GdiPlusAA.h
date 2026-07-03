@@ -56,13 +56,15 @@ public:
 		: m_g((EnsureGdiplus(), pDC->GetSafeHdc()))
 		, m_pen(GpColor(clr), fWidth)
 	{
-		// Dotted/dashed strokes stay un-antialiased: AA smears the hairline
-		// dots across pixel rows instead of keeping them on their line.
+		// Dotted/dashed HAIRLINES stay un-antialiased: AA smears the 1px dots
+		// across pixel rows instead of keeping them on their line. Wider
+		// dashed strokes (e.g. the CIE reference gamut outline) do get AA.
 		// Note: keep the default PixelOffsetMode -- it renders integer
 		// coordinates on the same pixels as GDI; PixelOffsetModeHalf lands
 		// half to a full pixel up-left of GDI-drawn grid lines.
-		m_g.SetSmoothingMode(nPenStyle == PS_SOLID ? Gdiplus::SmoothingModeAntiAlias
-		                                           : Gdiplus::SmoothingModeNone);
+		m_g.SetSmoothingMode(nPenStyle == PS_SOLID || fWidth > 1.5f
+		                     ? Gdiplus::SmoothingModeAntiAlias
+		                     : Gdiplus::SmoothingModeNone);
 		GpApplyDCOrigin(m_g, pDC);
 		switch ( nPenStyle )
 		{
