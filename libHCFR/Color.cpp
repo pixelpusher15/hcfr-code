@@ -1036,17 +1036,28 @@ COLORREF ColorRGBDisplay::GetColorRef(bool is16_235) const
 
 BYTE ColorRGBDisplay::ConvertPercentToBYTE(double percent, bool is16_235)
 {
+    return (BYTE)ConvertPercentToCode(percent, is16_235, 8);
+}
+
+// Generalized quantizer: bits=8 is exactly equivalent to the legacy
+// ConvertPercentToBYTE behavior (locked by tests/ColorMathTest T1).
+// Limited range is 16-235 at 8 bits, 64-940 at 10 bits; clamping is to
+// the full 0..maxCode range, matching the legacy convention.
+int ColorRGBDisplay::ConvertPercentToCode(double percent, bool is16_235, int bits)
+{
+    int scale = 1 << (bits - 8);
+    int maxCode = (256 << (bits - 8)) - 1;
     double coef;
     double offset;
 
     if (is16_235)
     {
-        coef = (235.0 - 16.0) / 100.0;
-        offset = 16.0;
+        coef = (235.0 - 16.0) * scale / 100.0;
+        offset = 16.0 * scale;
     }
     else
     {
-        coef = 255.0 / 100.0;
+        coef = (double)maxCode / 100.0;
         offset = 0.0;
     }
 
@@ -1056,13 +1067,13 @@ BYTE ColorRGBDisplay::ConvertPercentToBYTE(double percent, bool is16_235)
     {
         return 0;
     }
-    else if(result > 255)
+    else if(result > maxCode)
     {
-        return 255;
+        return maxCode;
     }
     else
     {
-        return (BYTE)result;
+        return result;
     }
 }
 #endif // #ifdef LIBHCFR_HAS_WIN32_API
