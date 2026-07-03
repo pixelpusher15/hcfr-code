@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	FranÃ§ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -30,6 +30,8 @@
 #include "MainView.h"
 #include "fxcolor.h"
 #include <math.h>
+#include <vector>
+#include <algorithm>
 #include <gdiplus.h>
 #pragma comment(lib, "gdiplus.lib")
 
@@ -42,8 +44,13 @@ static char THIS_FILE[] = __FILE__;
 /////////////////////////////////////////////////////////////////////////////
 // CTargetWnd
 
+// Live instances, so a dE-tolerance change made on one target widget can
+// repaint the others (e.g. the mini target in the main view).
+static std::vector<CTargetWnd *> s_targetWnds;
+
 CTargetWnd::CTargetWnd()
 {
+	s_targetWnds.push_back(this);
 	m_deltax=0.0;
 	m_deltay=0.0;
 	m_deltaE=-1.0;
@@ -66,6 +73,7 @@ CTargetWnd::CTargetWnd()
 
 CTargetWnd::~CTargetWnd()
 {
+	s_targetWnds.erase(std::remove(s_targetWnds.begin(), s_targetWnds.end(), this), s_targetWnds.end());
 	delete m_pBgBitmap;
 }
 
@@ -946,7 +954,7 @@ void CTargetWnd::OnPaint()
 	if ( !compact )
 	{
 		g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
-		Gdiplus::REAL chipFontPx = (Gdiplus::REAL)max(11.0, 0.052 * R);
+		Gdiplus::REAL chipFontPx = (Gdiplus::REAL)max(12.0, 0.052 * R + 1.0);
 		Gdiplus::Font chipFont(L"Segoe UI", chipFontPx, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
 		const Gdiplus::REAL pad = 8.0f;
 
@@ -1233,7 +1241,11 @@ void CTargetWnd::OnContextMenu(CWnd* pWnd, CPoint point)
 	{
 		GetConfig()->m_dE_tolerance = presets[cmd - ID_TARGET_TOL_FIRST];
 		GetConfig()->WriteProfileDouble("Advanced","dE_tolerance",GetConfig()->m_dE_tolerance);
-		Invalidate(FALSE);
+		// Repaint every live target widget, not just this one -- the mini
+		// target in the main view shares the same tolerance ring.
+		for ( size_t i = 0; i < s_targetWnds.size(); i++ )
+			if ( ::IsWindow(s_targetWnds[i]->m_hWnd) )
+				s_targetWnds[i]->Invalidate(FALSE);
 	}
 	else if ( cmd != 0 )
 		SendMessage(WM_COMMAND, cmd);
