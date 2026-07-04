@@ -546,7 +546,7 @@ void CRGBLevelWnd::OnPaint()
 	float rad       = (float) MulDiv(5, dpiY, 96);
 	float valuePx   = (float) MulDiv(12, dpiY, 96);
 	float letterPx  = (float) MulDiv(11, dpiY, 96);
-	float labelZone = valuePx + letterPx + (float) MulDiv(6, dpiY, 96);
+	float labelZone = valuePx + letterPx + (float) MulDiv(8, dpiY, 96);	// +2px so the nudged letter row isn't clipped
 
 	float trackTop = margin;
 	float trackBot = (float) rect.Height() - labelZone;
@@ -649,7 +649,8 @@ void CRGBLevelWnd::OnPaint()
 		// Dashed reference line, over the bar and slightly translucent.
 		g.DrawLine(&dashPen, x + 2.0f, dashY, x + colW, dashY);
 
-		Gdiplus::RectF lr(x - gap*0.5f, trackBot + (float) MulDiv(4, dpiY, 96) + valuePx, colW + gap, letterPx + 4.0f);
+		// letter row (R/G/B/dE) nudged 2px lower than the value row above it
+		Gdiplus::RectF lr(x - gap*0.5f, trackBot + (float) MulDiv(6, dpiY, 96) + valuePx, colW + gap, letterPx + 4.0f);
 		g.DrawString(letters[i], -1, &letterFont, lr, &fmt, &letterBrush);
 	}
 }
