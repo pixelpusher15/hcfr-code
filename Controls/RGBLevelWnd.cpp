@@ -559,7 +559,12 @@ void CRGBLevelWnd::OnPaint()
 	// its own 0-6 scale, which lands dE 3.0 on the same halfway line.
 	float maxVal  = max(m_redValue, max(m_greenValue, m_blueValue));
 	float yScale  = (maxVal < 200.0f) ? trackH / 200.0f : trackH / maxVal;
-	float dEScale = trackH / 6.0f;
+	float dEScale = trackH / 10.0f;		// full dE bar height = dE 10
+
+	// dE tolerance bands (shared with the grid and target widget); the dashed
+	// reference line marks the "good" (green) ceiling and moves with the preset.
+	double deGood, deWarn;
+	GetConfig()->GetDEThresholds(deGood, deWarn);
 
 	float vals[4] = { m_redValue, m_greenValue, m_blueValue, (float) m_dEValue };
 	COLORREF clrs[4];
@@ -572,9 +577,9 @@ void CRGBLevelWnd::OnPaint()
 		clrs[0] = RGB(215,60,60); clrs[1] = RGB(65,190,80); clrs[2] = RGB(66,109,218); // B = #426DDA
 	}
 	// dE bar colours from the spec: green #83FF61, yellow #E7FAA3, red #D67C6A.
-	clrs[3] = (m_dEValue < 2.0f) ? RGB(131,255,97)
-	        : (m_dEValue < 3.0f) ? RGB(231,250,163)
-	                             : RGB(214,124,106);
+	clrs[3] = (m_dEValue < deGood) ? RGB(131,255,97)
+	        : (m_dEValue < deWarn) ? RGB(231,250,163)
+	                               : RGB(214,124,106);
 
 	EnsureGdiplus();
 	Gdiplus::Graphics g(pDC->GetSafeHdc());
@@ -613,8 +618,9 @@ void CRGBLevelWnd::OnPaint()
 		g.FillPath(&trackBrush, &track);
 		g.DrawPath(&trackBorderPen, &track);
 
-		// Dashed reference: 100% for the channel bars, dE 3.0 for the dE bar.
-		float dashY = (i < 3) ? (trackBot - 100.0f * yScale) : (trackBot - trackH * 0.5f);
+		// Dashed reference: 100% for the channel bars, the dE tolerance (the
+		// fail/yellow->red limit) for the dE bar -- moves with the preset.
+		float dashY = (i < 3) ? (trackBot - 100.0f * yScale) : (trackBot - (float)deWarn * dEScale);
 		g.DrawLine(&dashPen, x + 2.0f, dashY, x + colW, dashY);
 
 		if ( hasData )

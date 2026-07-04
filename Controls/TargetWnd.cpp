@@ -852,8 +852,10 @@ void CTargetWnd::OnPaint()
 	FxEnsureGdiplus();
 	BOOL bDark = GetConfig()->m_darkTheme;
 
+	double deGood, deWarn;
+	GetConfig()->GetDEThresholds(deGood, deWarn);
 	if ( !m_pBgBitmap || m_bgCx != rect.Width() || m_bgCy != rect.Height() || m_bgDark != bDark ||
-		 m_bgTol != GetConfig()->m_dE_tolerance )
+		 m_bgTol != deWarn )
 		RebuildBackground(rect, bDark);
 
 	Gdiplus::Graphics g(pDC->GetSafeHdc());
@@ -933,13 +935,9 @@ void CTargetWnd::OnPaint()
 		Gdiplus::Font chipFont(L"Segoe UI", chipFontPx, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
 		const Gdiplus::REAL pad = 8.0f;
 
-		// Same colours and thresholds as the measures grid dE row (CIE76uv is
-		// judged at 3/5, every other formula at 2/3), black text like the grid.
-		bool is76uv = (GetConfig()->m_dE_form == 0);
-		double tGood = is76uv ? 3.0 : 2.0;
-		double tWarn = is76uv ? 5.0 : 3.0;
-		COLORREF gridClr = bDark ? (m_deltaE < tGood ? RGB(98,187,78)   : (m_deltaE < tWarn ? RGB(206,188,71)  : RGB(232,84,84)))
-								 : (m_deltaE < tGood ? RGB(175,255,175) : (m_deltaE < tWarn ? RGB(255,255,175) : RGB(255,175,175)));
+		// dE chip tinted exactly like the measures grid cell, from the shared
+		// tolerance preset (black text like the grid).
+		COLORREF gridClr = GetConfig()->GetDEColor(m_deltaE, bDark);
 		Gdiplus::Color chipFill(255, GetRValue(gridClr), GetGValue(gridClr), GetBValue(gridClr));
 		Gdiplus::Color chipBorder(255, GetRValue(gridClr) * 70 / 100, GetGValue(gridClr) * 70 / 100, GetBValue(gridClr) * 70 / 100);
 		Gdiplus::Color chipText(255, 0, 0, 0);
@@ -1055,7 +1053,9 @@ void CTargetWnd::RebuildBackground(const CRect & rect, BOOL bDark)	// Cached: pa
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
-	m_bgTol = GetConfig()->m_dE_tolerance;
+	double deGood, deWarn;
+	GetConfig()->GetDEThresholds(deGood, deWarn);
+	m_bgTol = deWarn;	// tolerance ring sits at the fail (yellow->red) limit
 	m_bgCx = w;
 	m_bgCy = h;
 	m_bgDark = bDark;
@@ -1189,38 +1189,44 @@ BOOL CTargetWnd::OnEraseBkgnd(CDC* pDC)
 void CTargetWnd::OnContextMenu(CWnd* pWnd, CPoint point)
 {
 	// load and display popup menu, extended with the dE tolerance presets
-	// (the tolerance is also configurable in the advanced settings)
-	static const double presets[] = { 0.5, 1.0, 1.5, 2.0, 3.0 };
-	const int nPresets = sizeof(presets) / sizeof(presets[0]);
+	// (also configurable in the advanced settings; drives every dE indicator)
+	static const UINT ids[CColorHCFRConfig::DE_PRESET_COUNT] =
+		{ IDS_DEPRESET_REFERENCE, IDS_DEPRESET_PROFESSIONAL, IDS_DEPRESET_CONSUMER, IDS_DEPRESET_RELAXED };
 
 	CNewMenu menu;
 	menu.LoadMenu(IDR_WHATS_THIS);
 	CMenu* pPopup = menu.GetSubMenu(0);
 	ASSERT(pPopup);
 
-	CString tolLabel;
-	if ( !tolLabel.LoadString(IDS_TARGET_TOLERANCE) )
-		tolLabel = "dE tolerance";
 	pPopup->AppendMenu(MF_SEPARATOR);
-	for ( int i = 0; i < nPresets; i++ )
+	for ( int i = 0; i < CColorHCFRConfig::DE_PRESET_COUNT; i++ )
 	{
+		CString name;
+		name.LoadString(ids[i]);
+		double good, warn;
+		GetConfig()->GetDEThresholdsFor(i, good, warn);
 		CString item;
-		item.Format("%s %g", (LPCSTR)tolLabel, presets[i]);
-		UINT flags = MF_STRING | ( fabs(GetConfig()->m_dE_tolerance - presets[i]) < 1e-6 ? MF_CHECKED : 0 );
+		item.Format("%s (dE %g)", (LPCSTR)name, warn);	// show the tolerance (fail) limit
+		UINT flags = MF_STRING | ( GetConfig()->m_dE_preset == i ? MF_CHECKED : 0 );
 		pPopup->AppendMenu(flags, ID_TARGET_TOL_FIRST + i, item);
 	}
 
 	int cmd = pPopup->TrackPopupMenu( TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_VERTICAL | TPM_RETURNCMD,
 		point.x, point.y, this);
-	if ( cmd >= ID_TARGET_TOL_FIRST && cmd <= ID_TARGET_TOL_LAST )
+	if ( cmd >= ID_TARGET_TOL_FIRST && cmd < ID_TARGET_TOL_FIRST + CColorHCFRConfig::DE_PRESET_COUNT )
 	{
-		GetConfig()->m_dE_tolerance = presets[cmd - ID_TARGET_TOL_FIRST];
-		GetConfig()->WriteProfileDouble("Advanced","dE_tolerance",GetConfig()->m_dE_tolerance);
-		// Repaint every live target widget, not just this one -- the mini
-		// target in the main view shares the same tolerance ring.
+		GetConfig()->m_dE_preset = cmd - ID_TARGET_TOL_FIRST;
+		GetConfig()->WriteProfileInt("Advanced","dE_preset",GetConfig()->m_dE_preset);
+		// Repaint every live target widget and its RGB-levels sibling; the
+		// measures grid recolours on the next measurement refresh.
 		for ( size_t i = 0; i < s_targetWnds.size(); i++ )
 			if ( ::IsWindow(s_targetWnds[i]->m_hWnd) )
+			{
 				s_targetWnds[i]->Invalidate(FALSE);
+				CWnd * par = s_targetWnds[i]->GetParent();
+				if ( par && par->IsKindOf(RUNTIME_CLASS(CMainView)) )
+					((CMainView *)par)->m_RGBLevels.Invalidate(FALSE);
+			}
 	}
 	else if ( cmd != 0 )
 		SendMessage(WM_COMMAND, cmd);

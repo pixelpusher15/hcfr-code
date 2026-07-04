@@ -1297,8 +1297,8 @@ BEGIN
     LTEXT           "Gestion du dE d'échelle de gris",IDC_STATIC,17,195,88,10
     CONTROL         "Surligner",IDC_HIGHLIGHT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,41,171,43,10
     COMBOBOX        IDC_COMBO_dE_WEIGHT,106,208,87,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
-    LTEXT           "Tolérance dE cible",IDC_STATIC,13,224,88,10
-    EDITTEXT        IDC_EDIT_DE_TOLERANCE,106,222,40,12,ES_AUTOHSCROLL
+    LTEXT           "Tolérance dE",IDC_STATIC,13,224,88,10
+    COMBOBOX        IDC_COMBO_DE_TOLERANCE,106,221,88,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT           "Pondération de la référence de blanc",IDC_STATIC,13,210,88,10
 END
 
@@ -4029,6 +4029,10 @@ BEGIN
     IDS_RGBLEVELS           "Niveaux RVB"
     IDS_TARGET_RINGS        "Anneaux : dE %s"
     IDS_TARGET_TOLERANCE    "Tolérance dE"
+    IDS_DEPRESET_REFERENCE  "Référence"
+    IDS_DEPRESET_PROFESSIONAL "Professionnel"
+    IDS_DEPRESET_CONSUMER   "Grand public"
+    IDS_DEPRESET_RELAXED    "Détendu"
     IDS_SATLUMSHIFT         "Saturation - écarts"
     IDS_SATLUM              "Saturation - luminance"
     ID_LUX_VALUE            "00000000 Lux"

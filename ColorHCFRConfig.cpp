@@ -408,7 +408,7 @@ void CColorHCFRConfig::InitDefaults()
 	m_nLuminanceCurveMode = 0;
 	m_bPreferLuxmeter = FALSE;
 	m_dE_form = 5;
-	m_dE_tolerance = 1.0;
+	m_dE_preset = 1;	// Professional (good 2 / warn 3)
     m_dE_gray = 2;
     gw_Weight = 0;
     doHighlight = TRUE;
@@ -537,7 +537,7 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_nLuminanceCurveMode = GetProfileInt("Advanced","LuminanceCurveMode",0);
 	m_bPreferLuxmeter = GetProfileInt("Advanced","PreferLuxmeter",0);
 	m_dE_form = GetProfileInt("Advanced","dE_form",5);
-	m_dE_tolerance = GetProfileDouble("Advanced","dE_tolerance",1.0);
+	m_dE_preset = GetProfileInt("Advanced","dE_preset",1);
 	m_dE_gray = GetProfileInt("Advanced","dE_gray",2);
 	gw_Weight = GetProfileInt("Advanced","gw_Weight",0);
 	if (!m_bDisableHighDPI)
@@ -627,9 +627,36 @@ void CColorHCFRConfig::SaveSettings()
 	WriteProfileInt("Advanced","LuminanceCurveMode",m_nLuminanceCurveMode);
 	WriteProfileInt("Advanced","PreferLuxmeter",m_bPreferLuxmeter);
 	WriteProfileInt("Advanced","dE_form",m_dE_form);
-	WriteProfileDouble("Advanced","dE_tolerance",m_dE_tolerance);
+	WriteProfileInt("Advanced","dE_preset",m_dE_preset);
 	WriteProfileInt("Advanced","dE_gray",m_dE_gray);
 	WriteProfileInt("Advanced","gw_Weight",gw_Weight);
+}
+
+void CColorHCFRConfig::GetDEThresholdsFor(int preset, double& good, double& warn) const
+{
+	// green ceiling / yellow ceiling per preset, on the CIE2000-family scale
+	static const double G[DE_PRESET_COUNT] = { 1.0, 2.0, 3.0, 4.0 };
+	static const double W[DE_PRESET_COUNT] = { 2.0, 3.0, 5.0, 6.0 };
+	int p = ( preset >= 0 && preset < DE_PRESET_COUNT ) ? preset : 1;
+	double mult = ( m_dE_form == 0 ) ? 1.5 : 1.0;	// CIE76uv runs ~1.5x larger
+	good = G[p] * mult;
+	warn = W[p] * mult;
+}
+
+void CColorHCFRConfig::GetDEThresholds(double& good, double& warn) const
+{
+	GetDEThresholdsFor(m_dE_preset, good, warn);
+}
+
+COLORREF CColorHCFRConfig::GetDEColor(double dE, BOOL bDark) const
+{
+	double good, warn;
+	GetDEThresholds(good, warn);
+	if ( dE < good )
+		return bDark ? RGB(98,187,78)   : RGB(175,255,175);
+	if ( dE < warn )
+		return bDark ? RGB(206,188,71)  : RGB(255,255,175);
+	return     bDark ? RGB(232,84,84)   : RGB(255,175,175);
 }
 
 void CColorHCFRConfig::ChangeSettings(int aPage)
@@ -714,7 +741,7 @@ void CColorHCFRConfig::SetPropertiesSheetValues()
 	m_advancedPropertiesPage.m_nLuminanceCurveMode = m_nLuminanceCurveMode;
 	m_advancedPropertiesPage.m_bPreferLuxmeter = m_bPreferLuxmeter;
 	m_advancedPropertiesPage.m_dE_form = m_dE_form;
-	m_advancedPropertiesPage.m_dE_tolerance = m_dE_tolerance;
+	m_advancedPropertiesPage.m_dE_preset = m_dE_preset;
 	m_advancedPropertiesPage.m_dE_gray = m_dE_gray;
 	m_advancedPropertiesPage.gw_Weight = gw_Weight;
 
@@ -810,7 +837,7 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	m_nLuminanceCurveMode = m_advancedPropertiesPage.m_nLuminanceCurveMode;
 	m_bPreferLuxmeter = m_advancedPropertiesPage.m_bPreferLuxmeter;
 	m_dE_form = m_advancedPropertiesPage.m_dE_form;
-	m_dE_tolerance = m_advancedPropertiesPage.m_dE_tolerance;
+	m_dE_preset = m_advancedPropertiesPage.m_dE_preset;
 	m_dE_gray = m_advancedPropertiesPage.m_dE_gray;
 	gw_Weight = m_advancedPropertiesPage.gw_Weight;
 	return needRestart;

@@ -132,7 +132,7 @@ public:
 	int		m_nLuminanceCurveMode;
 	BOOL	m_bPreferLuxmeter;
 	int		m_dE_form;
-	double	m_dE_tolerance;	// target widget tolerance ring (dE)
+	int		m_dE_preset;	// dE tolerance preset: 0=Reference 1=Professional 2=Consumer 3=Relaxed
     int     m_dE_gray;
     int     gw_Weight;
     BOOL    doHighlight;
@@ -140,6 +140,15 @@ public:
 
 	// Global strings
 	CString	m_PercentGray;
+
+	// dE tolerance presets, shared by every dE indicator (grid, RGB dE bar,
+	// target ring + chip). "good" is the green ceiling (= target ring); at or
+	// above "warn" is red; between is yellow. Thresholds are scaled up for
+	// CIE76uv, whose numbers run ~1.5x larger than the CIE2000-family scale.
+	enum { DE_PRESET_COUNT = 4 };
+	void GetDEThresholdsFor(int preset, double& good, double& warn) const;
+	void GetDEThresholds(double& good, double& warn) const;
+	COLORREF GetDEColor(double dE, BOOL bDark) const;
 
 	BOOL GetPropertiesSheetValues();
 	void SetPropertiesSheetValues();

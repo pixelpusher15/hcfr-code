@@ -857,8 +857,8 @@ BEGIN
     LTEXT           "Gestione dE scala grigi",IDC_STATIC,21,199,88,10
     CONTROL         "Highlights",IDC_HIGHLIGHT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,41,171,47,10
     COMBOBOX        IDC_COMBO_dE_WEIGHT,110,212,87,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
-    LTEXT           "Tolleranza dE obiettivo",IDC_STATIC,22,228,80,10
-    EDITTEXT        IDC_EDIT_DE_TOLERANCE,110,226,40,12,ES_AUTOHSCROLL
+    LTEXT           "Tolleranza dE",IDC_STATIC,22,228,80,10
+    COMBOBOX        IDC_COMBO_DE_TOLERANCE,110,225,88,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT           "Pesatura rif. bianco",IDC_STATIC,22,214,80,10
 END
 
@@ -4016,6 +4016,10 @@ BEGIN
     IDS_RGBLEVELS           "Livelli RGB"
     IDS_TARGET_RINGS        "Anelli: dE %s"
     IDS_TARGET_TOLERANCE    "Tolleranza dE"
+    IDS_DEPRESET_REFERENCE  "Riferimento"
+    IDS_DEPRESET_PROFESSIONAL "Professionale"
+    IDS_DEPRESET_CONSUMER   "Consumatore"
+    IDS_DEPRESET_RELAXED    "Rilassato"
     IDS_SATLUMSHIFT         "Saturazione - turni"
     IDS_SATLUM              "Saturazione - luminanza"
     ID_LUX_VALUE            "00000000 Lux"

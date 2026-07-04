@@ -974,8 +974,8 @@ BEGIN
     LTEXT           "Einfluss der Graustufen auf dE",IDC_STATIC,15,196,110,10
     CONTROL         "Anzeige",IDC_HIGHLIGHT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,41,169,43,10
     COMBOBOX        IDC_COMBO_dE_WEIGHT,130,209,87,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
-    LTEXT           "Ziel-dE-Toleranz",IDC_STATIC,15,225,110,10
-    EDITTEXT        IDC_EDIT_DE_TOLERANCE,130,223,40,12,ES_AUTOHSCROLL
+    LTEXT           "dE-Toleranz",IDC_STATIC,15,225,110,10
+    COMBOBOX        IDC_COMBO_DE_TOLERANCE,130,222,88,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT           "Gewichtung der Weiﬂ-Referenz",IDC_STATIC,15,209,110,10
 END
 
@@ -3789,6 +3789,10 @@ BEGIN
     IDS_RGBLEVELS           "RGB Niveau"
     IDS_TARGET_RINGS        "Ringe: dE %s"
     IDS_TARGET_TOLERANCE    "dE-Toleranz"
+    IDS_DEPRESET_REFERENCE  "Referenz"
+    IDS_DEPRESET_PROFESSIONAL "Professionell"
+    IDS_DEPRESET_CONSUMER   "Verbraucher"
+    IDS_DEPRESET_RELAXED    "Locker"
     IDS_SATLUMSHIFT         "S‰ttigungsverschiebung"
     IDS_SATLUM              "S‰ttigung - Helligkeit"
     ID_LUX_VALUE            "00000000 Lux"
