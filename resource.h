@@ -777,6 +777,7 @@
 #define IDC_PGEN_REFRESH_BTN            1522
 #define IDC_PGEN_SHUTDOWN_BTN           1523
 #define IDC_PGEN_DOVI_COMBO             1542
+#define IDC_PGEN_10BIT_CHECK            1547
 #define IDC_DISPLAYTYPE_COMBO           1543
 #define IDC_SIZE_PLUS                   1544
 #define IDC_SIZE_MINUS                  1545
@@ -1818,6 +1819,7 @@
 #define IDS_PGEN_REBOOT                  59507
 #define IDS_PGEN_RESTART_SW              59508
 #define IDS_PGEN_REBOOT_CONFIRM          59509
+#define IDS_GEN_10BIT_PGEN               59524
 #define IDS_PGEN_RESTART_CONFIRM         59510
 #define IDS_PGEN_HDR_AVI                 59511
 #define IDS_PGEN_HDR_DRM                 59512
@@ -1845,7 +1847,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33113
-#define _APS_NEXT_CONTROL_VALUE         1547
+#define _APS_NEXT_CONTROL_VALUE         1548
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

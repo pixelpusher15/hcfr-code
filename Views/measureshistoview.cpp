@@ -289,8 +289,8 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		{
 			ColorxyY tmpColor(GetColorReference().GetWhite());
 			x = ( l_nSize == GetDocument()->GetMeasure()->GetGrayScaleSize() )
-				? GetDocument()->GetMeasure()->GetGrayPercent ( l_nCol, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit )
-				: ArrayIndexToGrayLevel ( l_nCol  , l_nSize, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
+				? GetDocument()->GetMeasure()->GetGrayPercent ( l_nCol, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() )
+				: ArrayIndexToGrayLevel ( l_nCol  , l_nSize, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
 			// Determine Reference Y luminance for Delta E calculus
 			if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
 			{
@@ -300,13 +300,13 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if ( mode >= 4 )
 		        {
-			        double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit);
+			        double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
                     valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //					valy = min(valy, GetConfig()->m_TargetMaxL);
 		        }
 		        else
 		        {
-			        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)+Offset)/(1.0+Offset);
+			        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+Offset)/(1.0+Offset);
 			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+Offset;
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;

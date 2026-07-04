@@ -98,6 +98,7 @@ CGDIGenerator::CGDIGenerator()
 	m_bHdr10 = GetConfig()->GetProfileInt("GDIGenerator","EnableHDR10",0);
 	m_bdispTrip = GetConfig()->GetProfileInt("GDIGenerator","DISPLAYTRIPLETS",1);
 	m_brPi_user = GetConfig()->GetProfileInt("GDIGenerator","DISPLAYRPIUSER",0);
+	m_b10bitPGen = GetConfig()->GetProfileInt("GDIGenerator","TenBitPGen",0);
     m_madVR_3d = GetConfig()->GetProfileInt("GDIGenerator","MADVR3D",1);
     m_madVR_vLUT = GetConfig()->GetProfileInt("GDIGenerator","MADVRvLUT",1);
     m_madVR_HDR = GetConfig()->GetProfileInt("GDIGenerator","MADVRHDR",0);
@@ -143,6 +144,7 @@ CGDIGenerator::CGDIGenerator(int nDisplayMode, BOOL b16_235)
 
 	m_nDisplayMode = nDisplayMode;
 	m_b16_235 = b16_235;
+	m_b10bitPGen = GetConfig()->GetProfileInt("GDIGenerator","TenBitPGen",0);
 	m_displayWindow.SetDisplayMode(nDisplayMode);
 
 	CString str;
@@ -372,6 +374,7 @@ void CGDIGenerator::SetPropertiesSheetValues()
 	m_GDIGenePropertiesPage.m_bLinear=m_bLinear;
 	m_GDIGenePropertiesPage.m_bdispTrip=m_bdispTrip;
 	m_GDIGenePropertiesPage.m_brPi_user=m_brPi_user;
+	m_GDIGenePropertiesPage.m_b10bitPGen=m_b10bitPGen;
 	m_GDIGenePropertiesPage.m_madVR_3d=m_madVR_3d;
 	m_GDIGenePropertiesPage.m_madVR_vLUT=m_madVR_vLUT;
 	m_GDIGenePropertiesPage.m_madVR_HDR=m_madVR_HDR;
@@ -473,6 +476,13 @@ void CGDIGenerator::GetPropertiesSheetValues()
 		SetModifiedFlag(TRUE);
 	}
 
+	if ( m_b10bitPGen!=m_GDIGenePropertiesPage.m_b10bitPGen )
+	{
+		m_b10bitPGen=m_GDIGenePropertiesPage.m_b10bitPGen;
+		GetConfig()->WriteProfileInt("GDIGenerator","TenBitPGen",m_b10bitPGen);
+		SetModifiedFlag(TRUE);
+	}
+
     if ( m_madVR_3d!=m_GDIGenePropertiesPage.m_madVR_3d )
 	{
 		m_madVR_3d=m_GDIGenePropertiesPage.m_madVR_3d;
@@ -500,6 +510,10 @@ void CGDIGenerator::GetPropertiesSheetValues()
 		GetConfig()->WriteProfileInt("GDIGenerator","MADVROSD",m_madVR_OSD);
 		SetModifiedFlag(TRUE);
 	}
+
+	// DisplayMode / TenBitPGen may have changed above; refresh the cached
+	// 10-bit-levels flag so charts/measure pick it up without per-call INI reads.
+	GetConfig()->RefreshUse10bitLevels();
 }
 
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
@@ -857,28 +871,14 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 		B1 = min(B1, 255);
 	}
 
-	if (m_b16_235)
-	{
-		r = floor((clr[0]) / 100. * 219.0 + 16.5);
-		g = floor((clr[1]) / 100. * 219.0 + 16.5);
-		b = floor((clr[2]) / 100. * 219.0 + 16.5);
-		r=min(max(r,0),235);
-		g=min(max(g,0),235);
-		b=min(max(b,0),235);
-		R1 = floor(R1/255. * 219. + 16.5);
-		G1 = floor(G1/255. * 219. + 16.5);
-		B1 = floor(B1/255. * 219. + 16.5);
-	}
-	else
-	{
-		r = floor((clr[0]) / 100. * 255.0 + 0.5);
-		g = floor((clr[1]) / 100. * 255.0 + 0.5);
-		b = floor((clr[2]) / 100. * 255.0 + 0.5);
-		r=min(max(r,0),255);
-		g=min(max(g,0),255);
-		b=min(max(b,0),255);
-	}
-	
+		int bits = Cgen.m_b10bitPGen ? 10 : 8;
+	r = PiPercentToCode ( clr[0], !!m_b16_235, bits );
+	g = PiPercentToCode ( clr[1], !!m_b16_235, bits );
+	b = PiPercentToCode ( clr[2], !!m_b16_235, bits );
+	int bgR = PiBackground8ToCode ( R1, !!m_b16_235, bits );
+	int bgG = PiBackground8ToCode ( G1, !!m_b16_235, bits );
+	int bgB = PiBackground8ToCode ( B1, !!m_b16_235, bits );
+
 	m_nPat++;
 
 	int x2 = Cgen.m_offsetx;
@@ -894,8 +894,12 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 
 	if ( (m_nPat % GetConfig()->m_ablFreq == 0) && GetConfig()->m_bABL)
 	{
-		BYTE lvl = m_b16_235 ? (BYTE)(2.19 * GetConfig()->m_ablLevel + 16) : (BYTE)(2.55 * GetConfig()->m_ablLevel);
-		sprintf_s(CPat,"RGB=RECTANGLE;%d,%d;100;%d,%d,%d;%d,%d,%d;-1,-1", (int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_xWidth),(int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_yHeight),lvl,lvl,lvl,0,0,0);
+				int abl;
+		if (bits == 10)
+			abl = PiPercentToCode ( GetConfig()->m_ablLevel, !!m_b16_235, 10 );
+		else
+			abl = m_b16_235 ? (BYTE)(2.19 * GetConfig()->m_ablLevel + 16) : (BYTE)(2.55 * GetConfig()->m_ablLevel);
+		sprintf_s(CPat,"RGB=%s;%d,%d;100;%d,%d,%d;%d,%d,%d;-1,-1", bits == 10 ? "RECTANGLE10bit" : "RECTANGLE", (int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_xWidth),(int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_yHeight),abl,abl,abl,0,0,0);
 		if (sock && CGenerator::_RB8PG_send && CPat[0])
 			CGenerator::_RB8PG_send(sock,CPat);
 		else
@@ -904,12 +908,15 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 		Sleep(GetConfig()->m_ablDuration);
 	}
 
-		if (m_brPi_user) //user background
+				// 10-bit mode always sends the direct RECTANGLE10bit command: the
+		// user/triplet template paths stay 8-bit until daemon template
+		// support for 10-bit values is confirmed on hardware.
+		if (m_brPi_user && bits != 10) //user background
 			sprintf_s(CPat, "TESTTEMPLATEDISK:PatternDynamic:%d,%d,%d",r,g,b);
-		else if (!m_bdispTrip)
-			sprintf_s(CPat,"RGB=RECTANGLE;%d,%d;100;%d,%d,%d;%d,%d,%d;-1,-1,%d,%d", (int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_xWidth),(int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_yHeight),r,g,b,(int)R1,(int)G1,(int)B1,x2,y2);
+		else if (!m_bdispTrip || bits == 10)
+			sprintf_s(CPat,"RGB=%s;%d,%d;100;%d,%d,%d;%d,%d,%d;-1,-1,%d,%d", bits == 10 ? "RECTANGLE10bit" : "RECTANGLE", (int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_xWidth),(int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_yHeight),r,g,b,bgR,bgG,bgB,x2,y2);
 		else
-			sprintf_s(CPat, "TESTTEMPLATERAMDISK:HCFR:%d,%d,%d;%d,%d,%d",r,g,b,(int)R1,(int)G1,(int)B1);
+			sprintf_s(CPat, "TESTTEMPLATERAMDISK:HCFR:%d,%d,%d;%d,%d,%d",r,g,b,bgR,bgG,bgB);
 
 	CString debug=_T(CPat);
 

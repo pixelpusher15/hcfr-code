@@ -3600,6 +3600,66 @@ Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ refere
     return transform;
 }
 
+// PGenerator (rPI) emission quantizers (10-bit plan PR 3).
+// bits=8 reproduces the legacy DisplayRGBColorrPI math EXACTLY (locked by
+// tests/ColorMathTest T5): patch limited = floor(pct/100*219+16.5) clamped
+// 0..235; patch full = floor(pct/100*255+0.5) clamped 0..255. The 10-bit
+// forms are the direct analogs (limited 64..940 = 876 steps, full 0..1023).
+int PiPercentToCode ( double percent, bool is16_235, int bits )
+{
+    int code;
+    if ( bits == 10 )
+    {
+        if ( is16_235 )
+        {
+            code = (int) floor ( percent / 100.0 * 876.0 + 64.5 );
+            code = ( code < 0 ) ? 0 : ( ( code > 940 ) ? 940 : code );
+        }
+        else
+        {
+            code = (int) floor ( percent / 100.0 * 1023.0 + 0.5 );
+            code = ( code < 0 ) ? 0 : ( ( code > 1023 ) ? 1023 : code );
+        }
+        return code;
+    }
+    if ( is16_235 )
+    {
+        code = (int) floor ( percent / 100.0 * 219.0 + 16.5 );
+        code = ( code < 0 ) ? 0 : ( ( code > 235 ) ? 235 : code );
+    }
+    else
+    {
+        code = (int) floor ( percent / 100.0 * 255.0 + 0.5 );
+        code = ( code < 0 ) ? 0 : ( ( code > 255 ) ? 255 : code );
+    }
+    return code;
+}
+
+// APL background values: the caller computes the surround in the legacy
+// 8-bit full-range domain (0..255 double). bits=8 keeps the legacy wire
+// values EXACTLY (limited = floor(v/255*219+16.5); full = plain (int)
+// truncation, as DisplayRGBColorrPI always did). bits=10 rescales into the
+// 10-bit grid.
+int PiBackground8ToCode ( double v255, bool is16_235, int bits )
+{
+    int code;
+    if ( bits == 10 )
+    {
+        if ( is16_235 )
+            code = (int) floor ( v255 / 255.0 * 876.0 + 64.5 );
+        else
+            code = (int) floor ( v255 / 255.0 * 1023.0 + 0.5 );
+        code = ( code < 0 ) ? 0 : ( ( code > 1023 ) ? 1023 : code );
+        return code;
+    }
+    if ( is16_235 )
+        code = (int) floor ( v255 / 255.0 * 219.0 + 16.5 );
+    else
+        code = (int) v255;
+    code = ( code < 0 ) ? 0 : ( ( code > 255 ) ? 255 : code );
+    return code;
+}
+
 double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit)
 {
     // Gray percent: return a value between 0 and 100 corresponding to whole number level based on

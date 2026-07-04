@@ -167,13 +167,13 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
     		CColor White = pDoc -> GetMeasure () -> GetGray ( g_size - 1 );
 //	    	CColor Black = pDoc -> GetMeasure () -> GetGray ( 0 );
 	    	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
-			double x = ArrayIndexToGrayLevel ( i*(GetConfig()->m_GammaOffsetType==5?2:1), 101, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit); 
+			double x = ArrayIndexToGrayLevel ( i*(GetConfig()->m_GammaOffsetType==5?2:1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()); 
 			double valx,val;//=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef) );
 			int mode = GetConfig()->m_GammaOffsetType;
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if ( mode >= 4 ) 
 			{
-			    valx = (GrayLevelToGrayProp( x, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit));
+			    valx = (GrayLevelToGrayProp( x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()));
 				if  (mode == 5)
 				{
 	                val = getL_EOTF( valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100 / White.GetY();
@@ -184,7 +184,7 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			}
 			else
 			{
-                valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)+GammaOffset)/(1.0+GammaOffset);
+                valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+GammaOffset)/(1.0+GammaOffset);
                 val=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 				if (mode == 1) //black compensation target
 					val = (Black.GetY() + ( val * ( White.GetY() - Black.GetY() ) )) / White.GetY();
@@ -371,23 +371,23 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	
 	if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
 	{
-		m_logGraphCtrl.AddPoint(LogGraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit) * 100., log(colorlevel/whitelvl)/log(GrayLevelToGrayProp( (double)PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)), lpMsg, NULL);
+		m_logGraphCtrl.AddPoint(LogGraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., log(colorlevel/whitelvl)/log(GrayLevelToGrayProp( (double)PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())), lpMsg, NULL);
 	}
 
     if (!m_showL && !m_abY)
 	{
 		max = whitelvl;
 		if (ColorSpace == 1 && ColorIndex == 1)
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit) * 100., (colorlevel/max)*100.0, lpMsg, whitelvl);
+	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., (colorlevel/max)*100.0, lpMsg, whitelvl);
 		else
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit) * 100., (colorlevel/max)*100.0, lpMsg, NULL);
+	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., (colorlevel/max)*100.0, lpMsg, NULL);
 	}
 	else 
 	{
 		if (m_showL)
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit) * 100., Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max), lpMsg, NULL);
+	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max), lpMsg, NULL);
 		else
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit) * 100., Y_to_abY(colorlevel, 1.0), lpMsg, NULL);
+	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., Y_to_abY(colorlevel, 1.0), lpMsg, NULL);
 
 	}
 }

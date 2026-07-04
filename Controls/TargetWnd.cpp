@@ -102,7 +102,7 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 					if (m_DisplayMode == 0)
 						// Grayscale: honor the explicit (possibly non-uniform) IRE levels,
 						// matching what DisplayGray() actually shows/measures.
-						p1 = pDoc->GetMeasure()->GetGrayPercent(minCol - 1, GetConfig()->m_bUseRoundDown, GetConfig()->m_bUse10bit) / 100.0;
+						p1 = pDoc->GetMeasure()->GetGrayPercent(minCol - 1, GetConfig()->m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) / 100.0;
 					else if (isHDR10 && m_DisplayMode == 3)
 						p1 = (double)(minCol - 1) * 2. / (double)(nSize-1);
 					else
