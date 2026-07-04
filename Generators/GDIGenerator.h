@@ -58,6 +58,7 @@ public:										// public because of callback
 	UINT     m_bgStimPercent;
 	int		m_offsetx,m_offsety;
 	BOOL	m_b10bitPGen;
+	BOOL	m_b10bitMadvr;
 	UINT    m_Intensity;
 	BOOL	IsOnOtherMonitor ();
 	BOOL	m_bisInited;

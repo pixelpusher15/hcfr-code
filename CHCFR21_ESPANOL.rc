@@ -3121,7 +3121,7 @@ BEGIN
     IDS_GEN_GRP_PATTERN  "Patrón"
     IDS_GEN_PGEN_SETTINGS  "Configuración de PGenerator..."
     IDS_GEN_OFFSET  "Desplazamiento"
-    IDS_GEN_10BIT_PGEN      "Patrones de 10 bits"
+    IDS_GEN_10BIT_PGEN      "Usar niveles de 10 bits"
     IDS_PGEN_RO_NAME  "Nombre"
     IDS_PGEN_RO_DEVICE  "Dispositivo"
     IDS_PGEN_RO_IP  "Dirección IP"

@@ -826,8 +826,10 @@ BOOL CColorHCFRConfig::GetUse10bitLevels()
 // chart paint loops and the measure loop and must stay a cheap member read.
 void CColorHCFRConfig::RefreshUse10bitLevels()
 {
+	int genMode = GetProfileInt("GDIGenerator","DisplayMode",0);
 	m_bUse10bitLevels = ( m_bUse10bit ||
-		( GetProfileInt("GDIGenerator","DisplayMode",0) == 6 && GetProfileInt("GDIGenerator","TenBitPGen",0) ) )
+		( genMode == 6 && GetProfileInt("GDIGenerator","TenBitPGen",0) ) ||
+		( genMode == 2 && GetProfileInt("GDIGenerator","TenBitMadvr",0) ) )
 		? TRUE : FALSE;
 }
 

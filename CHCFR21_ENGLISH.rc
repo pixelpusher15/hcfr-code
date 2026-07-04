@@ -2999,7 +2999,7 @@ BEGIN
     IDS_GEN_GRP_PATTERN  "Pattern"
     IDS_GEN_PGEN_SETTINGS  "PGenerator settings..."
     IDS_GEN_OFFSET  "Offset"
-    IDS_GEN_10BIT_PGEN      "10-bit patterns"
+    IDS_GEN_10BIT_PGEN      "Use 10-bit levels"
     IDS_PGEN_RO_NAME  "Name"
     IDS_PGEN_RO_DEVICE  "Device"
     IDS_PGEN_RO_IP  "IP address"

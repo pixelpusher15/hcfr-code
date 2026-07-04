@@ -3213,7 +3213,7 @@ BEGIN
     IDS_GEN_GRP_PATTERN  "Mire"
     IDS_GEN_PGEN_SETTINGS  "Réglages PGenerator..."
     IDS_GEN_OFFSET  "Décalage"
-    IDS_GEN_10BIT_PGEN      "Mires 10 bits"
+    IDS_GEN_10BIT_PGEN      "Utiliser des niveaux 10 bits"
     IDS_PGEN_RO_NAME  "Nom"
     IDS_PGEN_RO_DEVICE  "Périphérique"
     IDS_PGEN_RO_IP  "Adresse IP"

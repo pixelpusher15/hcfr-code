@@ -2990,7 +2990,7 @@ BEGIN
     IDS_GEN_GRP_PATTERN  "Muster"
     IDS_GEN_PGEN_SETTINGS  "PGenerator-Einstellungen..."
     IDS_GEN_OFFSET  "Versatz"
-    IDS_GEN_10BIT_PGEN      "10-Bit-Muster"
+    IDS_GEN_10BIT_PGEN      "10-Bit-Stufen verwenden"
     IDS_PGEN_RO_NAME  "Name"
     IDS_PGEN_RO_DEVICE  "Gerät"
     IDS_PGEN_RO_IP  "IP-Adresse"

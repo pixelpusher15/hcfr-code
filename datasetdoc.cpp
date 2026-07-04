@@ -1407,7 +1407,10 @@ void CDataSetDoc::OnConfigureGenerator()
 
 	m_pGenerator->Configure();
 	if( m_pGenerator->IsModified() )
+	{
 		SetModifiedFlag(TRUE);
+		UpdateAllViews(NULL, UPD_GENERATORCONFIG);	// refresh grid targets (e.g. 10-bit levels changed)
+	}
 }
 
 
