@@ -778,6 +778,7 @@
 #define IDC_PGEN_SHUTDOWN_BTN           1523
 #define IDC_PGEN_DOVI_COMBO             1542
 #define IDC_PGEN_10BIT_CHECK            1547
+#define IDC_MADVR_10BIT_CHECK           1548
 #define IDC_DISPLAYTYPE_COMBO           1543
 #define IDC_SIZE_PLUS                   1544
 #define IDC_SIZE_MINUS                  1545

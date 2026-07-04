@@ -99,6 +99,7 @@ CGDIGenerator::CGDIGenerator()
 	m_bdispTrip = GetConfig()->GetProfileInt("GDIGenerator","DISPLAYTRIPLETS",1);
 	m_brPi_user = GetConfig()->GetProfileInt("GDIGenerator","DISPLAYRPIUSER",0);
 	m_b10bitPGen = GetConfig()->GetProfileInt("GDIGenerator","TenBitPGen",0);
+	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
     m_madVR_3d = GetConfig()->GetProfileInt("GDIGenerator","MADVR3D",1);
     m_madVR_vLUT = GetConfig()->GetProfileInt("GDIGenerator","MADVRvLUT",1);
     m_madVR_HDR = GetConfig()->GetProfileInt("GDIGenerator","MADVRHDR",0);
@@ -145,6 +146,7 @@ CGDIGenerator::CGDIGenerator(int nDisplayMode, BOOL b16_235)
 	m_nDisplayMode = nDisplayMode;
 	m_b16_235 = b16_235;
 	m_b10bitPGen = GetConfig()->GetProfileInt("GDIGenerator","TenBitPGen",0);
+	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
 	m_displayWindow.SetDisplayMode(nDisplayMode);
 
 	CString str;
@@ -348,6 +350,7 @@ void CGDIGenerator::Serialize(CArchive& archive)
 			{
 				GetColorApp()->InMeasureMessageBox("Restoring generator setting from save file...", "Generator Change", MB_OK);
 				GetConfig()->WriteProfileInt("GDIGenerator","DisplayMode", m_nDisplayMode);
+				GetConfig()->RefreshUse10bitLevels();
 				SetPropertiesSheetValues();
 			}
 		}
@@ -375,6 +378,7 @@ void CGDIGenerator::SetPropertiesSheetValues()
 	m_GDIGenePropertiesPage.m_bdispTrip=m_bdispTrip;
 	m_GDIGenePropertiesPage.m_brPi_user=m_brPi_user;
 	m_GDIGenePropertiesPage.m_b10bitPGen=m_b10bitPGen;
+	m_GDIGenePropertiesPage.m_b10bitMadvr=m_b10bitMadvr;
 	m_GDIGenePropertiesPage.m_madVR_3d=m_madVR_3d;
 	m_GDIGenePropertiesPage.m_madVR_vLUT=m_madVR_vLUT;
 	m_GDIGenePropertiesPage.m_madVR_HDR=m_madVR_HDR;
@@ -480,6 +484,13 @@ void CGDIGenerator::GetPropertiesSheetValues()
 	{
 		m_b10bitPGen=m_GDIGenePropertiesPage.m_b10bitPGen;
 		GetConfig()->WriteProfileInt("GDIGenerator","TenBitPGen",m_b10bitPGen);
+		SetModifiedFlag(TRUE);
+	}
+
+	if ( m_b10bitMadvr!=m_GDIGenePropertiesPage.m_b10bitMadvr )
+	{
+		m_b10bitMadvr=m_GDIGenePropertiesPage.m_b10bitMadvr;
+		GetConfig()->WriteProfileInt("GDIGenerator","TenBitMadvr",m_b10bitMadvr);
 		SetModifiedFlag(TRUE);
 	}
 

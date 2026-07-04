@@ -1407,7 +1407,18 @@ void CDataSetDoc::OnConfigureGenerator()
 
 	m_pGenerator->Configure();
 	if( m_pGenerator->IsModified() )
+	{
 		SetModifiedFlag(TRUE);
+		// Generator settings (e.g. 10-bit levels) affect grid targets in EVERY
+		// open document, not just this one - update them all.
+		CDocEnumerator docEnumerator;
+		CDocument* pDoc;
+		// UPD_EVERYTHING (not UPD_GENERATORCONFIG): the chart views explicitly
+		// ignore UPD_GENERATORCONFIG, but their reference curves depend on the
+		// 10-bit-levels flag; ApplySettings uses the same hint for this reason.
+		while ((pDoc=docEnumerator.Next())!=NULL)
+			pDoc->UpdateAllViews(NULL, UPD_EVERYTHING);
+	}
 }
 
 

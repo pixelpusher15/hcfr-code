@@ -63,6 +63,7 @@ CGDIGenePropPage::CGDIGenePropPage() : CPropertyPageWithHelp(CGDIGenePropPage::I
 	m_bdispTrip = GetConfig()->GetProfileInt("GDIGenerator","DISPLAYTRIPLETS",1);
 	m_brPi_user = FALSE;
 	m_b10bitPGen = FALSE;
+	m_b10bitMadvr = FALSE;
 	m_bLinear = FALSE;
 	m_bHdr10 = GetConfig()->GetProfileInt("GDIGenerator","EnableHDR10",0);
 	m_castHasDevice = false;
@@ -394,6 +395,10 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	m_tenBitCheck.Create(LS(IDS_GEN_10BIT_PGEN), WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX, CRect(0, 0, M.w(140), M.ht(10)), this, IDC_PGEN_10BIT_CHECK);
 	m_tenBitCheck.SetFont(font);
 	m_tenBitCheck.SetCheck(m_b10bitPGen ? BST_CHECKED : BST_UNCHECKED);
+	if (m_tenBitMadvrCheck.GetSafeHwnd()) m_tenBitMadvrCheck.DestroyWindow();
+	m_tenBitMadvrCheck.Create(LS(IDS_GEN_10BIT_PGEN), WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX, CRect(0, 0, M.w(140), M.ht(10)), this, IDC_MADVR_10BIT_CHECK);
+	m_tenBitMadvrCheck.SetFont(font);
+	m_tenBitMadvrCheck.SetCheck(m_b10bitMadvr ? BST_CHECKED : BST_UNCHECKED);
 	}
 	{
 		CPoint rfp = M.at(LBL_X, 130);
@@ -456,6 +461,7 @@ void CGDIGenePropPage::Relayout()
 	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.ShowWindow(SW_HIDE);
 	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.ShowWindow(SW_HIDE);
 	if (m_tenBitCheck.GetSafeHwnd()) m_tenBitCheck.ShowWindow(SW_HIDE);
+	if (m_tenBitMadvrCheck.GetSafeHwnd()) m_tenBitMadvrCheck.ShowWindow(SW_HIDE);
 	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.ShowWindow(SW_HIDE);
 	CWnd* labels[] = { m_lblScreen, m_lblSize, m_lblApl, m_lblIntensity, m_lblXoff, m_lblYoff, m_lblCastDev, m_lblRange, m_lblOffset };
 	for (int i = 0; i < 9; i++) if (labels[i]) labels[i]->ShowWindow(SW_HIDE);
@@ -515,6 +521,7 @@ void CGDIGenePropPage::Relayout()
 		PlaceChk(GetDlgItem(IDC_MADVR_3D2), M, cy); cy += ROW_C;
 		PlaceChk(GetDlgItem(IDC_MADVR_OSD), M, cy); cy += ROW_C;
 		PlaceChk(GetDlgItem(IDC_MADVR_HDR), M, cy); cy += ROW_C;
+		PlaceChk(&m_tenBitMadvrCheck, M, cy); m_tenBitMadvrCheck.ShowWindow(SW_SHOW); cy += ROW_C;
 		int fb = cy + BOT_PAD;
 		PlaceGroup(m_grpMadvr, M, top, fb - top, grpRightPx);
 		y = fb + GRP_GAP;
@@ -1012,6 +1019,7 @@ void CGDIGenePropPage::OnOK()
 
 	m_doScreenBlanking = (m_blankCheck.GetSafeHwnd() && m_blankCheck.GetCheck() == BST_CHECKED) ? TRUE : FALSE;
 	m_b10bitPGen = (m_tenBitCheck.GetSafeHwnd() && m_tenBitCheck.GetCheck() == BST_CHECKED) ? TRUE : FALSE;
+	m_b10bitMadvr = (m_tenBitMadvrCheck.GetSafeHwnd() && m_tenBitMadvrCheck.GetCheck() == BST_CHECKED) ? TRUE : FALSE;
 
 	int sel = m_outputCombo.GetSafeHwnd() ? m_outputCombo.GetCurSel() : ModeToCombo(m_nDisplayMode);
 	if (sel < 0) sel = 0;
@@ -1087,6 +1095,7 @@ BOOL CGDIGenePropPage::OnKillActive()
 	m_madVR_HDR = IsDlgButtonChecked(IDC_MADVR_HDR) ? TRUE : FALSE;
 	m_doScreenBlanking = (m_blankCheck.GetSafeHwnd() && m_blankCheck.GetCheck() == BST_CHECKED) ? TRUE : FALSE;
 	m_b10bitPGen = (m_tenBitCheck.GetSafeHwnd() && m_tenBitCheck.GetCheck() == BST_CHECKED) ? TRUE : FALSE;
+	m_b10bitMadvr = (m_tenBitMadvrCheck.GetSafeHwnd() && m_tenBitMadvrCheck.GetCheck() == BST_CHECKED) ? TRUE : FALSE;
 
 	return CPropertyPageWithHelp::OnKillActive();
 }

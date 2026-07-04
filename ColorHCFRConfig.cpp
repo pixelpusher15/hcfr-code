@@ -853,14 +853,15 @@ BOOL CColorHCFRConfig::GetUse10bitLevels()
 // chart paint loops and the measure loop and must stay a cheap member read.
 void CColorHCFRConfig::RefreshUse10bitLevels()
 {
+	int genMode = GetProfileInt("GDIGenerator","DisplayMode",0);
 	m_bUse10bitLevels = ( m_bUse10bit ||
-		( GetProfileInt("GDIGenerator","DisplayMode",0) == 6 && GetProfileInt("GDIGenerator","TenBitPGen",0) ) )
+		( genMode == 6 && GetProfileInt("GDIGenerator","TenBitPGen",0) ) ||
+		( genMode == 2 && GetProfileInt("GDIGenerator","TenBitMadvr",0) ) )
 		? TRUE : FALSE;
 }
 
 void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 {
-	RefreshUse10bitLevels();
 	ColorStandard OriginalColorStandard = m_colorStandard;
 	WhiteTarget OriginalWhiteTarget = m_whiteTarget;
 
@@ -874,6 +875,11 @@ void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 			MessageBox(NULL,Msg,Title,MB_ICONINFORMATION | MB_OK);
 		}
 	}
+
+	// Refresh the cached 10-bit-levels flag AFTER GetPropertiesSheetValues has
+	// applied m_bUse10bit from the Preferences page (else the change is one
+	// settings-apply stale).
+	RefreshUse10bitLevels();
 
 	// Apply appearance settings
 	CWnd* pFxLockWnd = AfxGetMainWnd();

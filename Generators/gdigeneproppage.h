@@ -75,6 +75,8 @@ public:
 	CButton m_blankCheck;
 	BOOL m_b10bitPGen;
 	CButton m_tenBitCheck;
+	BOOL m_b10bitMadvr;
+	CButton m_tenBitMadvrCheck;
 
 	HMONITOR	m_monitorHandle [ 16 ];
 	CGoogleCastWrapper m_GCast;
