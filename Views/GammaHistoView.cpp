@@ -152,11 +152,11 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=(isHDR?0:1); i<(isHDR?size:(size-1)); i++)
 		{
 			double x, valx, valy;
-			x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
+			x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if (  (mode >= 4) )
 			{
-				valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit);
+				valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
 				if (mode == 5)
 				{
 		            valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.;
@@ -167,7 +167,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			}
 			else
 			{
-				valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)+GammaOffset)/(1.0+GammaOffset);
+				valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+GammaOffset)/(1.0+GammaOffset);
 				valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 			}
 
@@ -187,7 +187,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 		// (x + offset) / (1+offset) 
 		for (int i=1; i<size-1; i++)
-			m_graphCtrl.AddPoint(m_avgLogGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit ), GammaOpt);
+			m_graphCtrl.AddPoint(m_avgLogGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() ), GammaOpt);
 	}
 
 	if ( GetConfig () -> m_nLuminanceCurveMode == 2 )
@@ -198,7 +198,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 			// (x + offset) / (1+offset) 
 			for (int i=1; i<size-1; i++)
-				m_graphCtrl.AddPoint(m_luxmeterAvgLogGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit ), LuxGammaOpt);
+				m_graphCtrl.AddPoint(m_luxmeterAvgLogGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() ), LuxGammaOpt);
 		}
 	}
 
@@ -344,9 +344,9 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 
 	if((GraphID != -1)&&((PointIndex != 0 && PointIndex != (Size-1)) && colorlevel > 0.0001) || (GraphID != -1&&(GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 )))	// log scale is not valid for first and last value nor for negative values
 	{
-		double x = pDataSet->GetMeasure()->GetGrayPercent ( PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit );
+		double x = pDataSet->GetMeasure()->GetGrayPercent ( PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
 
-		double valxprime=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)+GammaOffset)/(1.0+GammaOffset);
+		double valxprime=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+GammaOffset)/(1.0+GammaOffset);
 
 		if (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7) 
 			m_graphCtrl.AddPoint(GraphID, x, colorlevel - whitelvl * m_yref_abs[PointIndex], lpMsg);

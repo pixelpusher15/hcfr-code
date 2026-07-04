@@ -815,6 +815,16 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	return needRestart;
 }
 
+BOOL CColorHCFRConfig::GetUse10bitLevels()
+{
+	if ( m_bUse10bit )
+		return TRUE;
+	
+	if ( GetProfileInt("GDIGenerator","DisplayMode",0) == 6 && GetProfileInt("GDIGenerator","TenBitPGen",0) )
+		return TRUE;
+	return FALSE;
+}
+
 void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 {
 	ColorStandard OriginalColorStandard = m_colorStandard;

@@ -159,7 +159,7 @@ void CNearWhiteGrapher::UpdateGraph ( CDataSetDoc * pDoc )
     		CColor White = pDoc -> GetMeasure () -> GetGray ( g_size - 1 );
 //	    	CColor Black = pDoc -> GetMeasure () -> GetGray ( 0 );
 	    	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
-			double x = ArrayIndexToGrayLevel ( pDoc->GetMeasure()->m_NearWhiteClipCol - size + i, 101, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit);
+			double x = ArrayIndexToGrayLevel ( pDoc->GetMeasure()->m_NearWhiteClipCol - size + i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
 
 			double valx,val;
 
@@ -167,7 +167,7 @@ void CNearWhiteGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if ( mode >= 4 )
 			{
-			    valx = (GrayLevelToGrayProp( x, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit));
+			    valx = (GrayLevelToGrayProp( x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()));
 				if  (mode == 5)
 				{
 	                val = getL_EOTF( valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100 / White.GetY();
@@ -178,7 +178,7 @@ void CNearWhiteGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			}
 			else
 			{
-                valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)+GammaOffset)/(1.0+GammaOffset);
+                valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+GammaOffset)/(1.0+GammaOffset);
                 val=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 				if (mode == 1) //black compensation target
 					val = (Black.GetY() + ( val * ( White.GetY() - Black.GetY() ) )) / White.GetY();
@@ -344,7 +344,7 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	
     if(whitelvl>0 && PointIndex != (Size-1))	// log scale is not valid for last value
 	{
-		m_logGraphCtrl.AddPoint(LogGraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit) * 100., log(colorlevel/max)/log(GrayLevelToGrayProp( (double)(PointIndex+101-Size), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit)), lpMsg);
+		m_logGraphCtrl.AddPoint(LogGraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., log(colorlevel/max)/log(GrayLevelToGrayProp( (double)(PointIndex+101-Size), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())), lpMsg);
 	}
 
 	if (whitelvl < 0.1)
@@ -354,16 +354,16 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	{
 		max = whitelvl;
 		if (ColorSpace == 1 && ColorIndex == 1)
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit) * 100., (colorlevel/max)*100.0, lpMsg, whitelvl);
+	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., (colorlevel/max)*100.0, lpMsg, whitelvl);
 		else
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit) * 100., (colorlevel/max)*100.0, lpMsg, NULL);
+	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., (colorlevel/max)*100.0, lpMsg, NULL);
 	}
 	else 
 	{
 		if (m_showL)
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit) * 100., Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max), lpMsg, NULL);
+	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max), lpMsg, NULL);
 		else
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig () -> m_bUse10bit) * 100., Y_to_abY(colorlevel, 1.0), lpMsg, NULL);
+	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., Y_to_abY(colorlevel, 1.0), lpMsg, NULL);
 
 	}
 }

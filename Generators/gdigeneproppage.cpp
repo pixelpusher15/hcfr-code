@@ -62,6 +62,7 @@ CGDIGenePropPage::CGDIGenePropPage() : CPropertyPageWithHelp(CGDIGenePropPage::I
 	m_bdispTrip = FALSE;
 	m_bdispTrip = GetConfig()->GetProfileInt("GDIGenerator","DISPLAYTRIPLETS",1);
 	m_brPi_user = FALSE;
+	m_b10bitPGen = FALSE;
 	m_bLinear = FALSE;
 	m_bHdr10 = GetConfig()->GetProfileInt("GDIGenerator","EnableHDR10",0);
 	m_castHasDevice = false;
@@ -121,6 +122,7 @@ BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	ON_CBN_DROPDOWN(IDC_MONITOR_COMBO, OnDropdownMonitorCombo)
 	ON_CBN_SELCHANGE(IDC_GEN_OUTPUT_COMBO, OnSelchangeOutput)
 	ON_BN_CLICKED(IDC_DISP_TRIP3, OnUserPatternClick)
+	ON_BN_CLICKED(IDC_PGEN_10BIT_CHECK, On10bitClick)
 	ON_BN_CLICKED(IDC_PGEN_SETTINGS_BTN, OnPgenSettings)
 	ON_BN_CLICKED(IDC_PGEN_REFRESH_BTN, OnPgenRefresh)
 	ON_MESSAGE(WM_PGEN_QUERY_DONE, OnPgenQueryDone)
@@ -388,6 +390,10 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 		CPoint spt = M.at(LBL_X, 130);
 		m_pgenSettingsBtn.Create(LS(IDS_GEN_PGEN_SETTINGS), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(spt.x, spt.y, spt.x + M.w(106), spt.y + M.ht(14)), this, IDC_PGEN_SETTINGS_BTN);
 		m_pgenSettingsBtn.SetFont(font);
+	if (m_tenBitCheck.GetSafeHwnd()) m_tenBitCheck.DestroyWindow();
+	m_tenBitCheck.Create(LS(IDS_GEN_10BIT_PGEN), WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX, CRect(0, 0, M.w(140), M.ht(10)), this, IDC_PGEN_10BIT_CHECK);
+	m_tenBitCheck.SetFont(font);
+	m_tenBitCheck.SetCheck(m_b10bitPGen ? BST_CHECKED : BST_UNCHECKED);
 	}
 	{
 		CPoint rfp = M.at(LBL_X, 130);
@@ -449,6 +455,7 @@ void CGDIGenePropPage::Relayout()
 	for (int i = 0; i < 7; i++) if (groups[i]) groups[i]->ShowWindow(SW_HIDE);
 	if (m_pgenReadout.GetSafeHwnd()) m_pgenReadout.ShowWindow(SW_HIDE);
 	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.ShowWindow(SW_HIDE);
+	if (m_tenBitCheck.GetSafeHwnd()) m_tenBitCheck.ShowWindow(SW_HIDE);
 	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.ShowWindow(SW_HIDE);
 	CWnd* labels[] = { m_lblScreen, m_lblSize, m_lblApl, m_lblIntensity, m_lblXoff, m_lblYoff, m_lblCastDev, m_lblRange, m_lblOffset };
 	for (int i = 0; i < 9; i++) if (labels[i]) labels[i]->ShowWindow(SW_HIDE);
@@ -496,6 +503,7 @@ void CGDIGenePropPage::Relayout()
 		{ CWnd* yo = GetDlgItem(IDC_YOFFSET_EDIT); if (yo) { CPoint p = M.at(124, cy); yo->MoveWindow(p.x, p.y, M.w(28), M.ht(12)); yo->ShowWindow(SW_SHOW); } }
 		cy += ROW_F;
 		PlaceChk(GetDlgItem(IDC_DISP_TRIP3), M, cy); cy += ROW_C;
+		PlaceChk(&m_tenBitCheck, M, cy); m_tenBitCheck.ShowWindow(SW_SHOW); cy += ROW_C;
 		int fb = cy + BOT_PAD;
 		PlaceGroup(m_grpPgen, M, top, fb - top, grpRightPx);
 		y = fb + GRP_GAP;
@@ -562,7 +570,8 @@ void CGDIGenePropPage::Relayout()
 	if (pTrip)
 	{
 		BOOL userPat = (isPgen && IsDlgButtonChecked(IDC_DISP_TRIP3));
-		pTrip->EnableWindow(!userPat);
+		BOOL tenBit = (isPgen && m_tenBitCheck.GetSafeHwnd() && m_tenBitCheck.GetCheck() == BST_CHECKED);
+		pTrip->EnableWindow(!userPat && !tenBit);
 	}
 }
 
@@ -606,6 +615,14 @@ void CGDIGenePropPage::OnSelchangeOutput()
 
 void CGDIGenePropPage::OnUserPatternClick()
 {
+	Relayout();
+}
+
+void CGDIGenePropPage::On10bitClick()
+{
+	// 10-bit patterns force the direct RECTANGLE10bit command, which has no
+	// triplet overlay (the daemon template renderer is 8-bit), so grey out
+	// Show-RGB-triplets while 10-bit is on.
 	Relayout();
 }
 
@@ -994,6 +1011,7 @@ void CGDIGenePropPage::OnOK()
 	m_selectedGcastNum = m_cCastComboCtrl.GetCurSel();
 
 	m_doScreenBlanking = (m_blankCheck.GetSafeHwnd() && m_blankCheck.GetCheck() == BST_CHECKED) ? TRUE : FALSE;
+	m_b10bitPGen = (m_tenBitCheck.GetSafeHwnd() && m_tenBitCheck.GetCheck() == BST_CHECKED) ? TRUE : FALSE;
 
 	int sel = m_outputCombo.GetSafeHwnd() ? m_outputCombo.GetCurSel() : ModeToCombo(m_nDisplayMode);
 	if (sel < 0) sel = 0;
@@ -1068,6 +1086,7 @@ BOOL CGDIGenePropPage::OnKillActive()
 	m_bHdr10   = IsDlgButtonChecked(IDC_ENBL_HDR) ? TRUE : FALSE;
 	m_madVR_HDR = IsDlgButtonChecked(IDC_MADVR_HDR) ? TRUE : FALSE;
 	m_doScreenBlanking = (m_blankCheck.GetSafeHwnd() && m_blankCheck.GetCheck() == BST_CHECKED) ? TRUE : FALSE;
+	m_b10bitPGen = (m_tenBitCheck.GetSafeHwnd() && m_tenBitCheck.GetCheck() == BST_CHECKED) ? TRUE : FALSE;
 
 	return CPropertyPageWithHelp::OnKillActive();
 }

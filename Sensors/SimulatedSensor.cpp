@@ -223,7 +223,7 @@ CColor CSimulatedSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, 
 	
 	//	quantize to 8 or 10 bit video
 	double r,g,b;
-	if (GetConfig() -> m_bUse10bit)
+	if (GetConfig()->GetUse10bitLevels())
 	{
 		r =  floor( (aRGBValue[0]/100. * 219. * 4.) + 0.5 ) / (2.19 * 4.0);
 		g =  floor( (aRGBValue[1]/100. * 219. * 4.) + 0.5 ) / (2.19 * 4.0);

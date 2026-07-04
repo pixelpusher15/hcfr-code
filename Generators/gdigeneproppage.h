@@ -73,6 +73,8 @@ public:
 	bool m_castHasDevice;
 	BOOL m_doScreenBlanking;
 	CButton m_blankCheck;
+	BOOL m_b10bitPGen;
+	CButton m_tenBitCheck;
 
 	HMONITOR	m_monitorHandle [ 16 ];
 	CGoogleCastWrapper m_GCast;
@@ -118,6 +120,7 @@ protected:
 	//}}AFX_MSG
 	afx_msg void OnSelchangeOutput();
 	afx_msg void OnUserPatternClick();
+	afx_msg void On10bitClick();
 	afx_msg void OnPgenSettings();
 	afx_msg void OnPgenRefresh();
 	afx_msg void OnDestroy();

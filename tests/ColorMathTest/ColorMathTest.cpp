@@ -320,6 +320,67 @@ static void RunT4()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T5 — rPI (PGenerator) emission quantizers (added by PR 3): bits=8 must
+// reproduce the legacy DisplayRGBColorrPI wire math exactly; bits=10 is
+// checked structurally.
+//////////////////////////////////////////////////////////////////////////
+static void RunT5()
+{
+    printf("T5 rPI emission quantizers...\n");
+    // bits=8 patch == frozen legacy formulas
+    for (int i = 0; i <= 1000000; ++i)
+    {
+        double pct = i * 1e-4;
+        int lgFull = (int)floor(pct / 100.0 * 255.0 + 0.5);
+        lgFull = lgFull < 0 ? 0 : (lgFull > 255 ? 255 : lgFull);
+        if (PiPercentToCode(pct, false, 8) != lgFull)
+            Fail("T5 full8 pct=%.17g", pct);
+        int lgLim = (int)floor(pct / 100.0 * 219.0 + 16.5);
+        lgLim = lgLim < 0 ? 0 : (lgLim > 235 ? 235 : lgLim);
+        if (PiPercentToCode(pct, true, 8) != lgLim)
+            Fail("T5 lim8 pct=%.17g", pct);
+    }
+    // bits=8 background == frozen legacy formulas (v in the 0..255 domain)
+    for (int i = 0; i <= 255000; ++i)
+    {
+        double v = i * 1e-3;
+        if (PiBackground8ToCode(v, false, 8) != (int)v)
+            Fail("T5 bgfull8 v=%.17g", v);
+        if (PiBackground8ToCode(v, true, 8) != (int)floor(v / 255.0 * 219.0 + 16.5))
+            Fail("T5 bglim8 v=%.17g", v);
+    }
+    // bits=10 endpoints and clamps
+    if (PiPercentToCode(0.0, false, 10) != 0)      Fail("T5 full10 0%%");
+    if (PiPercentToCode(100.0, false, 10) != 1023) Fail("T5 full10 100%%");
+    if (PiPercentToCode(0.0, true, 10) != 64)      Fail("T5 lim10 0%%");
+    if (PiPercentToCode(100.0, true, 10) != 940)   Fail("T5 lim10 100%%");
+    if (PiPercentToCode(-5.0, false, 10) != 0)     Fail("T5 full10 clamp low");
+    if (PiPercentToCode(200.0, false, 10) != 1023) Fail("T5 full10 clamp high");
+    if (PiPercentToCode(200.0, true, 10) != 940)   Fail("T5 lim10 clamp high");
+    if (PiBackground8ToCode(0.0, true, 10) != 64)    Fail("T5 bglim10 0");
+    if (PiBackground8ToCode(255.0, true, 10) != 940) Fail("T5 bglim10 255");
+    if (PiBackground8ToCode(255.0, false, 10) != 1023) Fail("T5 bgfull10 255");
+    // bits=10 monotonic + limited grid = 877 distinct codes
+    for (int r = 0; r < 2; ++r)
+    {
+        bool lim = (r != 0);
+        int prev = -1;
+        std::vector<char> seen(1024, 0);
+        for (int i = 0; i <= 1000000; ++i)
+        {
+            int code = PiPercentToCode(i * 1e-4, lim, 10);
+            if (code < prev) Fail("T5 10bit non-monotonic range=%d pct=%.17g", r, i * 1e-4);
+            prev = code;
+            seen[code] = 1;
+        }
+        int distinct = 0;
+        for (int c = 0; c < 1024; ++c) distinct += seen[c];
+        if (lim && distinct != 877) Fail("T5 lim10 grid: %d distinct, expected 877", distinct);
+        if (!lim && distinct != 1024) Fail("T5 full10 grid: %d distinct, expected 1024", distinct);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 // T6 — GetColorRef COLORREF packing.
 //////////////////////////////////////////////////////////////////////////
 static void RunT6()
@@ -361,6 +422,7 @@ int main(int argc, char* argv[])
     RunT2();
     RunT3();
     RunT4();
+    RunT5();
     RunT6();
 
     if (g_failures)
