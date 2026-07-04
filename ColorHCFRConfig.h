@@ -83,7 +83,9 @@ public:
 	BOOL m_bDisableHighDPI;
 	BOOL m_bUseRoundDown;
 	BOOL m_bUse10bit;
+	BOOL m_bUse10bitLevels;
 	BOOL GetUse10bitLevels();
+	void RefreshUse10bitLevels();
 	int m_BWColorsToAdd;
 	double m_GammaRef;
 	double m_GammaAvg;

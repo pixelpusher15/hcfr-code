@@ -350,6 +350,7 @@ void CColorHCFRConfig::InitDefaults()
 	m_bDisableHighDPI=FALSE;
 	m_bUseRoundDown=FALSE;
 	m_bUse10bit = FALSE;
+	m_bUse10bitLevels = FALSE;
 	m_BWColorsToAdd=1;
 	m_GammaRef=2.2;
 	m_GammaAvg=2.2;
@@ -817,16 +818,22 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 
 BOOL CColorHCFRConfig::GetUse10bitLevels()
 {
-	if ( m_bUse10bit )
-		return TRUE;
-	
-	if ( GetProfileInt("GDIGenerator","DisplayMode",0) == 6 && GetProfileInt("GDIGenerator","TenBitPGen",0) )
-		return TRUE;
-	return FALSE;
+	return m_bUse10bitLevels;
+}
+
+// Recompute the cached 10-bit-levels flag. The INI reads happen HERE (rarely -
+// only when settings change), never in GetUse10bitLevels(), which is called in
+// chart paint loops and the measure loop and must stay a cheap member read.
+void CColorHCFRConfig::RefreshUse10bitLevels()
+{
+	m_bUse10bitLevels = ( m_bUse10bit ||
+		( GetProfileInt("GDIGenerator","DisplayMode",0) == 6 && GetProfileInt("GDIGenerator","TenBitPGen",0) ) )
+		? TRUE : FALSE;
 }
 
 void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 {
+	RefreshUse10bitLevels();
 	ColorStandard OriginalColorStandard = m_colorStandard;
 	WhiteTarget OriginalWhiteTarget = m_whiteTarget;
 

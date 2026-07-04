@@ -510,6 +510,10 @@ void CGDIGenerator::GetPropertiesSheetValues()
 		GetConfig()->WriteProfileInt("GDIGenerator","MADVROSD",m_madVR_OSD);
 		SetModifiedFlag(TRUE);
 	}
+
+	// DisplayMode / TenBitPGen may have changed above; refresh the cached
+	// 10-bit-levels flag so charts/measure pick it up without per-call INI reads.
+	GetConfig()->RefreshUse10bitLevels();
 }
 
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
