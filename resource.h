@@ -1835,14 +1835,12 @@
 #define IDS_STOPSWEEP                  59520
 #define IDS_STOP_BTN                   59521
 #define IDS_TARGET_RINGS               59522
-#define IDS_TARGET_TOLERANCE           59523
 #define IDS_DEPRESET_REFERENCE         59525
 #define IDS_DEPRESET_PROFESSIONAL      59526
 #define IDS_DEPRESET_CONSUMER          59527
 #define IDS_DEPRESET_RELAXED           59528
 #define IDC_COMBO_DE_TOLERANCE          1548
 #define ID_TARGET_TOL_FIRST             33108
-#define ID_TARGET_TOL_LAST              33112
 
 // Next default values for new objects
 // 

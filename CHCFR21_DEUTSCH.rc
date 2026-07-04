@@ -3788,7 +3788,6 @@ BEGIN
     IDS_FREEMEASURES        "Freie Messungen"
     IDS_RGBLEVELS           "RGB Niveau"
     IDS_TARGET_RINGS        "Ringe: dE %s"
-    IDS_TARGET_TOLERANCE    "dE-Toleranz"
     IDS_DEPRESET_REFERENCE  "Referenz"
     IDS_DEPRESET_PROFESSIONAL "Professionell"
     IDS_DEPRESET_CONSUMER   "Verbraucher"

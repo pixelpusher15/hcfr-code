@@ -558,13 +558,13 @@ void CRGBLevelWnd::OnPaint()
 
 	// 0-200% scale puts 100% exactly halfway up the track; if a channel exceeds
 	// 200% the scale stretches so the tallest bar still fits. The dE track uses
-	// its own 0-6 scale, which lands dE 3.0 on the same halfway line.
+	// its own 0-10 scale; its dashed reference line sits at the tolerance limit.
 	float maxVal  = max(m_redValue, max(m_greenValue, m_blueValue));
 	float yScale  = (maxVal < 200.0f) ? trackH / 200.0f : trackH / maxVal;
 	float dEScale = trackH / 10.0f;		// full dE bar height = dE 10
 
 	// dE tolerance bands (shared with the grid and target widget); the dashed
-	// reference line marks the "good" (green) ceiling and moves with the preset.
+	// reference line marks the tolerance (yellow->red fail) limit, per preset.
 	double deGood, deWarn;
 	GetConfig()->GetDEThresholds(deGood, deWarn);
 
