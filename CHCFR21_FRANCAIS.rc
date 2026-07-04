@@ -3184,7 +3184,7 @@ BEGIN
     IDS_GEN_OUT_FULLSCREEN  "Bureau - plein écran"
     IDS_GEN_OUT_OVERLAY  "Bureau - superposition"
     IDS_GEN_OUT_FLOATING  "Bureau - fenêtre"
-    IDS_GEN_OUT_MADVR  "madVR / madTPG (réseau)"
+    IDS_GEN_OUT_MADVR  "madVR / madTPG"
     IDS_GEN_OUT_CAST  "Google Cast (réseau)"
     IDS_GEN_OUT_PGEN  "PGenerator (réseau)"
     IDS_GEN_GRP_DISPLAY  "Affichage"

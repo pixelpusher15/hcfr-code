@@ -835,7 +835,6 @@ void CColorHCFRConfig::RefreshUse10bitLevels()
 
 void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 {
-	RefreshUse10bitLevels();
 	ColorStandard OriginalColorStandard = m_colorStandard;
 	WhiteTarget OriginalWhiteTarget = m_whiteTarget;
 
@@ -849,6 +848,11 @@ void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
 			MessageBox(NULL,Msg,Title,MB_ICONINFORMATION | MB_OK);
 		}
 	}
+
+	// Refresh the cached 10-bit-levels flag AFTER GetPropertiesSheetValues has
+	// applied m_bUse10bit from the Preferences page (else the change is one
+	// settings-apply stale).
+	RefreshUse10bitLevels();
 
 	// Apply appearance settings
 	CWnd* pFxLockWnd = AfxGetMainWnd();

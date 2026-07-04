@@ -3170,7 +3170,7 @@ BEGIN
     IDS_GEN_OUT_FULLSCREEN  "Desktop - schermo intero"
     IDS_GEN_OUT_OVERLAY  "Desktop - overlay"
     IDS_GEN_OUT_FLOATING  "Desktop - finestra"
-    IDS_GEN_OUT_MADVR  "madVR / madTPG (rete)"
+    IDS_GEN_OUT_MADVR  "madVR / madTPG"
     IDS_GEN_OUT_CAST  "Google Cast (rete)"
     IDS_GEN_OUT_PGEN  "PGenerator (rete)"
     IDS_GEN_GRP_DISPLAY  "Visualizzazione"

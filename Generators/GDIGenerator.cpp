@@ -350,6 +350,7 @@ void CGDIGenerator::Serialize(CArchive& archive)
 			{
 				GetColorApp()->InMeasureMessageBox("Restoring generator setting from save file...", "Generator Change", MB_OK);
 				GetConfig()->WriteProfileInt("GDIGenerator","DisplayMode", m_nDisplayMode);
+				GetConfig()->RefreshUse10bitLevels();
 				SetPropertiesSheetValues();
 			}
 		}

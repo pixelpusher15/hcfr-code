@@ -3092,7 +3092,7 @@ BEGIN
     IDS_GEN_OUT_FULLSCREEN  "Escritorio - pantalla completa"
     IDS_GEN_OUT_OVERLAY  "Escritorio - superposición"
     IDS_GEN_OUT_FLOATING  "Escritorio - ventana"
-    IDS_GEN_OUT_MADVR  "madVR / madTPG (red)"
+    IDS_GEN_OUT_MADVR  "madVR / madTPG"
     IDS_GEN_OUT_CAST  "Google Cast (red)"
     IDS_GEN_OUT_PGEN  "PGenerator (red)"
     IDS_GEN_GRP_DISPLAY  "Pantalla"
