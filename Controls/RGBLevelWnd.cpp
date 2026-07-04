@@ -534,7 +534,9 @@ void CRGBLevelWnd::OnPaint()
 	COLORREF trackClr  = bDark ? RGB(40,40,40)    : RGB(208,208,208);
 	COLORREF valueClr  = bDark ? RGB(242,242,244) : RGB(35,35,40);
 	COLORREF letterClr = bDark ? RGB(148,148,154) : RGB(112,114,120);
-	COLORREF dashClr   = bDark ? RGB(140,140,140) : RGB(115,115,115);
+	// Bright on dark / dark on light so the reference line reads over both the
+	// empty track and a bright filled bar.
+	COLORREF dashClr   = bDark ? RGB(228,228,232) : RGB(64,64,68);
 
 	BOOL hasData = (m_pRefColor != NULL && m_pRefColor->isValid());
 
@@ -544,7 +546,7 @@ void CRGBLevelWnd::OnPaint()
 	float rad       = (float) MulDiv(5, dpiY, 96);
 	float valuePx   = (float) MulDiv(12, dpiY, 96);
 	float letterPx  = (float) MulDiv(11, dpiY, 96);
-	float labelZone = valuePx + letterPx + (float) MulDiv(6, dpiY, 96);
+	float labelZone = valuePx + letterPx + (float) MulDiv(8, dpiY, 96);	// +2px so the nudged letter row isn't clipped
 
 	float trackTop = margin;
 	float trackBot = (float) rect.Height() - labelZone;
@@ -556,10 +558,15 @@ void CRGBLevelWnd::OnPaint()
 
 	// 0-200% scale puts 100% exactly halfway up the track; if a channel exceeds
 	// 200% the scale stretches so the tallest bar still fits. The dE track uses
-	// its own 0-6 scale, which lands dE 3.0 on the same halfway line.
+	// its own 0-10 scale; its dashed reference line sits at the tolerance limit.
 	float maxVal  = max(m_redValue, max(m_greenValue, m_blueValue));
 	float yScale  = (maxVal < 200.0f) ? trackH / 200.0f : trackH / maxVal;
-	float dEScale = trackH / 6.0f;
+	float dEScale = trackH / 10.0f;		// full dE bar height = dE 10
+
+	// dE tolerance bands (shared with the grid and target widget); the dashed
+	// reference line marks the tolerance (yellow->red fail) limit, per preset.
+	double deGood, deWarn;
+	GetConfig()->GetDEThresholds(deGood, deWarn);
 
 	float vals[4] = { m_redValue, m_greenValue, m_blueValue, (float) m_dEValue };
 	COLORREF clrs[4];
@@ -572,9 +579,9 @@ void CRGBLevelWnd::OnPaint()
 		clrs[0] = RGB(215,60,60); clrs[1] = RGB(65,190,80); clrs[2] = RGB(66,109,218); // B = #426DDA
 	}
 	// dE bar colours from the spec: green #83FF61, yellow #E7FAA3, red #D67C6A.
-	clrs[3] = (m_dEValue < 2.0f) ? RGB(131,255,97)
-	        : (m_dEValue < 3.0f) ? RGB(231,250,163)
-	                             : RGB(214,124,106);
+	clrs[3] = (m_dEValue < deGood) ? RGB(131,255,97)
+	        : (m_dEValue < deWarn) ? RGB(231,250,163)
+	                               : RGB(214,124,106);
 
 	EnsureGdiplus();
 	Gdiplus::Graphics g(pDC->GetSafeHdc());
@@ -588,7 +595,7 @@ void CRGBLevelWnd::OnPaint()
 	Gdiplus::Pen trackBorderPen(bDark ? Gdiplus::Color(34,255,255,255) : Gdiplus::Color(26,0,0,0), 1.0f);
 	Gdiplus::Pen hlPen(bDark ? Gdiplus::Color(26,255,255,255) : Gdiplus::Color(115,255,255,255), 1.0f);
 	Gdiplus::Pen barBorderPen(bDark ? Gdiplus::Color(70,0,0,0) : Gdiplus::Color(51,0,0,0), 1.0f);
-	Gdiplus::Pen dashPen(Gdiplus::Color(255, GetRValue(dashClr), GetGValue(dashClr), GetBValue(dashClr)), 1.0f);
+	Gdiplus::Pen dashPen(Gdiplus::Color(205, GetRValue(dashClr), GetGValue(dashClr), GetBValue(dashClr)), 1.0f);
 	float dashes[2] = { 4.0f, 4.0f };
 	dashPen.SetDashPattern(dashes, 2);
 
@@ -613,9 +620,9 @@ void CRGBLevelWnd::OnPaint()
 		g.FillPath(&trackBrush, &track);
 		g.DrawPath(&trackBorderPen, &track);
 
-		// Dashed reference: 100% for the channel bars, dE 3.0 for the dE bar.
-		float dashY = (i < 3) ? (trackBot - 100.0f * yScale) : (trackBot - trackH * 0.5f);
-		g.DrawLine(&dashPen, x + 2.0f, dashY, x + colW, dashY);
+		// 100% for the channel bars, the dE tolerance (fail limit) for the dE
+		// bar -- moves with the preset. Drawn on TOP of the bar below.
+		float dashY = (i < 3) ? (trackBot - 100.0f * yScale) : (trackBot - (float)deWarn * dEScale);
 
 		if ( hasData )
 		{
@@ -639,7 +646,11 @@ void CRGBLevelWnd::OnPaint()
 			g.DrawString(wval, -1, &valueFont, vr, &fmt, &valueBrush);
 		}
 
-		Gdiplus::RectF lr(x - gap*0.5f, trackBot + (float) MulDiv(4, dpiY, 96) + valuePx, colW + gap, letterPx + 4.0f);
+		// Dashed reference line, over the bar and slightly translucent.
+		g.DrawLine(&dashPen, x + 2.0f, dashY, x + colW, dashY);
+
+		// letter row (R/G/B/dE) nudged 2px lower than the value row above it
+		Gdiplus::RectF lr(x - gap*0.5f, trackBot + (float) MulDiv(6, dpiY, 96) + valuePx, colW + gap, letterPx + 4.0f);
 		g.DrawString(letters[i], -1, &letterFont, lr, &fmt, &letterBrush);
 	}
 }

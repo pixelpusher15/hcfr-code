@@ -1835,10 +1835,12 @@
 #define IDS_STOPSWEEP                  59520
 #define IDS_STOP_BTN                   59521
 #define IDS_TARGET_RINGS               59522
-#define IDS_TARGET_TOLERANCE           59523
-#define IDC_EDIT_DE_TOLERANCE           1546
+#define IDS_DEPRESET_REFERENCE         59525
+#define IDS_DEPRESET_PROFESSIONAL      59526
+#define IDS_DEPRESET_CONSUMER          59527
+#define IDS_DEPRESET_RELAXED           59528
+#define IDC_COMBO_DE_TOLERANCE          1548
 #define ID_TARGET_TOL_FIRST             33108
-#define ID_TARGET_TOL_LAST              33112
 
 // Next default values for new objects
 // 
@@ -1847,7 +1849,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33113
-#define _APS_NEXT_CONTROL_VALUE         1548
+#define _APS_NEXT_CONTROL_VALUE         1549
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

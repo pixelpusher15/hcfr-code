@@ -47,10 +47,11 @@ public:
 	CEdit		m_gwWeightEdit;
 	CEdit		m_dEgrayEdit;
 	CComboBox	m_dEform;
+	CComboBox	m_dEtolCombo;
 	BOOL		m_bConfirmMeasures;
 	CString		m_comPort;
 	int 		m_dE_form;
-	double		m_dE_tolerance;
+	int 		m_dE_preset;
 	int 		m_dE_gray;
 	int 		gw_Weight;
 	BOOL		m_bUseOnlyPrimaries;
@@ -68,6 +69,7 @@ public:
 	public:
 	virtual BOOL OnApply();
 	virtual BOOL OnSetActive();
+	virtual BOOL OnInitDialog();
 	protected:
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
 	//}}AFX_VIRTUAL
@@ -78,7 +80,7 @@ protected:
 	//{{AFX_MSG(CAdvancedPropPage)
 	afx_msg void OnSelchangeLuxmeterComCombo();
 	afx_msg void OnSelchangedECombo();
-	afx_msg void OnChangeDeTolerance();
+	afx_msg void OnSelchangeDeTolerance();
 	//}}AFX_MSG
 	afx_msg void OnControlClicked(UINT nID);
 	DECLARE_MESSAGE_MAP()

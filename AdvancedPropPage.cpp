@@ -45,7 +45,7 @@ CAdvancedPropPage::CAdvancedPropPage() : CPropertyPageWithHelp(CAdvancedPropPage
 	m_nLuminanceCurveMode = 0;
 	m_bPreferLuxmeter = FALSE;
 	m_dE_form = 5;
-	m_dE_tolerance = 1.0;
+	m_dE_preset = 1;
 	m_dE_gray = 2;
     gw_Weight = 0;
     doHighlight = TRUE;
@@ -65,6 +65,7 @@ void CAdvancedPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_COMBO_dE_WEIGHT, m_gwWeightEdit);
 	DDX_Control(pDX, IDC_COMBO_dE_GRAY, m_dEgrayEdit);
 	DDX_Control(pDX, IDC_COMBO_dE, m_dEform);
+	DDX_Control(pDX, IDC_COMBO_DE_TOLERANCE, m_dEtolCombo);
 	DDX_Check(pDX, IDC_CHECK_CONFIRM, m_bConfirmMeasures);
 	DDX_CBString(pDX, IDC_LUXMETER_COM_COMBO, m_comPort);
 	DDX_CBIndex(pDX, IDC_COMBO_dE, m_dE_form);
@@ -76,8 +77,7 @@ void CAdvancedPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Radio(pDX, IDC_RADIO1, m_nLuminanceCurveMode);
 	DDX_Check(pDX, IDC_CHECK_PREFER_LUXMETER, m_bPreferLuxmeter);
 	//}}AFX_DATA_MAP
-	DDX_Text(pDX, IDC_EDIT_DE_TOLERANCE, m_dE_tolerance);
-	DDV_MinMaxDouble(pDX, m_dE_tolerance, 0.1, 10.0);
+	DDX_CBIndex(pDX, IDC_COMBO_DE_TOLERANCE, m_dE_preset);
 }
 
 
@@ -94,7 +94,7 @@ BEGIN_MESSAGE_MAP(CAdvancedPropPage, CPropertyPageWithHelp)
 	ON_CBN_SELCHANGE(IDC_COMBO_dE, OnSelchangedECombo)
 	ON_CBN_SELCHANGE(IDC_COMBO_dE_GRAY, OnSelchangedECombo)
 	ON_CBN_SELCHANGE(IDC_COMBO_dE_WEIGHT, OnSelchangedECombo)
-	ON_EN_CHANGE(IDC_EDIT_DE_TOLERANCE, OnChangeDeTolerance)
+	ON_CBN_SELCHANGE(IDC_COMBO_DE_TOLERANCE, OnSelchangeDeTolerance)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
@@ -115,9 +115,9 @@ void CAdvancedPropPage::OnSelchangeLuxmeterComCombo()
 	SetModified(TRUE);
 }
 
-void CAdvancedPropPage::OnChangeDeTolerance()
+void CAdvancedPropPage::OnSelchangeDeTolerance()
 {
-	m_isModified = TRUE;	// have the parent refresh the views so the target ring moves
+	m_isModified = TRUE;	// have the parent refresh every dE indicator (grid, bars, target)
 	SetModified(TRUE);
 }
 
@@ -176,6 +176,31 @@ BOOL CAdvancedPropPage::OnApply()
 UINT CAdvancedPropPage::GetHelpId ( LPSTR lpszTopic )
 {
 	return HID_PREF_ADVANCED;
+}
+
+BOOL CAdvancedPropPage::OnInitDialog()
+{
+	CPropertyPageWithHelp::OnInitDialog();
+
+	// Populate the dE tolerance presets (localized) and select the current one.
+	static const UINT ids[CColorHCFRConfig::DE_PRESET_COUNT] =
+		{ IDS_DEPRESET_REFERENCE, IDS_DEPRESET_PROFESSIONAL, IDS_DEPRESET_CONSUMER, IDS_DEPRESET_RELAXED };
+	m_dEtolCombo.ResetContent();
+	for ( int i = 0; i < CColorHCFRConfig::DE_PRESET_COUNT; i++ )
+	{
+		CString s;
+		s.LoadString(ids[i]);
+		double good, warn;
+		GetConfig()->GetDEThresholdsFor(i, good, warn);
+		CString item;
+		item.Format("%s (dE %g)", (LPCSTR)s, warn);	// show the tolerance (fail) limit
+		m_dEtolCombo.AddString(item);
+	}
+	if ( m_dE_preset < 0 || m_dE_preset >= CColorHCFRConfig::DE_PRESET_COUNT )
+		m_dE_preset = 1;
+	m_dEtolCombo.SetCurSel(m_dE_preset);
+
+	return TRUE;
 }
 
 

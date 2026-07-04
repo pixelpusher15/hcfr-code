@@ -2858,10 +2858,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 
 						if (dE > dEmax)
                             dEmax = dE;
-						if (GetConfig()->m_dE_form == 0)
-							clr = GetConfig()->m_darkTheme ? (dE<3.0?RGB(98,187,78):(dE<5?RGB(206,188,71):RGB(232,84,84))) : (dE<3.0?RGB(175,255,175):(dE<5?RGB(255,255,175):RGB(255,175,175)));
-						else
-							clr = GetConfig()->m_darkTheme ? (dE<2.0?RGB(98,187,78):(dE<3?RGB(206,188,71):RGB(232,84,84))) : (dE<2.0?RGB(175,255,175):(dE<3?RGB(255,255,175):RGB(255,175,175)));
+						clr = GetConfig()->GetDEColor(dE, GetConfig()->m_darkTheme);
                         if (GetConfig()->doHighlight)
                             { m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
 						m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
@@ -2965,10 +2962,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 
 					if (dE > dEmax)
                         dEmax = dE;
-					if (GetConfig()->m_dE_form == 0)
-						clr = GetConfig()->m_darkTheme ? (dE<3.0?RGB(98,187,78):(dE<5?RGB(206,188,71):RGB(232,84,84))) : (dE<3.0?RGB(175,255,175):(dE<5?RGB(255,255,175):RGB(255,175,175)));
-					else
-						clr = GetConfig()->m_darkTheme ? (dE<2.0?RGB(98,187,78):(dE<3?RGB(206,188,71):RGB(232,84,84))) : (dE<2.0?RGB(175,255,175):(dE<3?RGB(255,255,175):RGB(255,175,175)));
+					clr = GetConfig()->GetDEColor(dE, GetConfig()->m_darkTheme);
                     if (GetConfig()->doHighlight)
                         { m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
 					m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
