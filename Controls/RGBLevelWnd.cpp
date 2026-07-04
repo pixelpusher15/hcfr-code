@@ -534,7 +534,9 @@ void CRGBLevelWnd::OnPaint()
 	COLORREF trackClr  = bDark ? RGB(40,40,40)    : RGB(208,208,208);
 	COLORREF valueClr  = bDark ? RGB(242,242,244) : RGB(35,35,40);
 	COLORREF letterClr = bDark ? RGB(148,148,154) : RGB(112,114,120);
-	COLORREF dashClr   = bDark ? RGB(140,140,140) : RGB(115,115,115);
+	// Bright on dark / dark on light so the reference line reads over both the
+	// empty track and a bright filled bar.
+	COLORREF dashClr   = bDark ? RGB(228,228,232) : RGB(64,64,68);
 
 	BOOL hasData = (m_pRefColor != NULL && m_pRefColor->isValid());
 
@@ -593,7 +595,7 @@ void CRGBLevelWnd::OnPaint()
 	Gdiplus::Pen trackBorderPen(bDark ? Gdiplus::Color(34,255,255,255) : Gdiplus::Color(26,0,0,0), 1.0f);
 	Gdiplus::Pen hlPen(bDark ? Gdiplus::Color(26,255,255,255) : Gdiplus::Color(115,255,255,255), 1.0f);
 	Gdiplus::Pen barBorderPen(bDark ? Gdiplus::Color(70,0,0,0) : Gdiplus::Color(51,0,0,0), 1.0f);
-	Gdiplus::Pen dashPen(Gdiplus::Color(255, GetRValue(dashClr), GetGValue(dashClr), GetBValue(dashClr)), 1.0f);
+	Gdiplus::Pen dashPen(Gdiplus::Color(205, GetRValue(dashClr), GetGValue(dashClr), GetBValue(dashClr)), 1.0f);
 	float dashes[2] = { 4.0f, 4.0f };
 	dashPen.SetDashPattern(dashes, 2);
 
@@ -618,10 +620,9 @@ void CRGBLevelWnd::OnPaint()
 		g.FillPath(&trackBrush, &track);
 		g.DrawPath(&trackBorderPen, &track);
 
-		// Dashed reference: 100% for the channel bars, the dE tolerance (the
-		// fail/yellow->red limit) for the dE bar -- moves with the preset.
+		// 100% for the channel bars, the dE tolerance (fail limit) for the dE
+		// bar -- moves with the preset. Drawn on TOP of the bar below.
 		float dashY = (i < 3) ? (trackBot - 100.0f * yScale) : (trackBot - (float)deWarn * dEScale);
-		g.DrawLine(&dashPen, x + 2.0f, dashY, x + colW, dashY);
 
 		if ( hasData )
 		{
@@ -644,6 +645,9 @@ void CRGBLevelWnd::OnPaint()
 			Gdiplus::RectF vr(x - gap, trackBot + (float) MulDiv(3, dpiY, 96), colW + 2.0f*gap, valuePx + 4.0f);
 			g.DrawString(wval, -1, &valueFont, vr, &fmt, &valueBrush);
 		}
+
+		// Dashed reference line, over the bar and slightly translucent.
+		g.DrawLine(&dashPen, x + 2.0f, dashY, x + colW, dashY);
 
 		Gdiplus::RectF lr(x - gap*0.5f, trackBot + (float) MulDiv(4, dpiY, 96) + valuePx, colW + gap, letterPx + 4.0f);
 		g.DrawString(letters[i], -1, &letterFont, lr, &fmt, &letterBrush);
