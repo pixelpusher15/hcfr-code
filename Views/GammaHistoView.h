@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Benoit SEGUIN
 /////////////////////////////////////////////////////////////////////////////
 
@@ -28,6 +28,7 @@
 //
 
 #include "GraphControl.h"
+#include <vector>
 
 /////////////////////////////////////////////////////////////////////////////
 // CGammaHistoView form view
@@ -58,6 +59,8 @@ class CGammaGrapher
 	long m_redLumDataRefLogGraphID;		//Ki
 	long m_greenLumDataRefLogGraphID;	//Ki
 	long m_blueLumDataRefLogGraphID;	//Ki
+
+	std::vector<double> m_yref_abs;	// per-view reference luminance (was a file-scope global -> cross-doc corruption)
 
 	// Updatable flags. Initialized with default values in constructor, can be changed before calling UpdateGraph
 	BOOL m_showReference;

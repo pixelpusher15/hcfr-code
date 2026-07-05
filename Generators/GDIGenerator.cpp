@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -540,7 +540,8 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 		CString str1 = GetConfig () -> m_ApplicationPath;
 		str += "\\tools\\dispwin.exe";
 		str1 += "\\tools\\current.cal";
-		sprintf(arg," -d%d -s " + str1, m_activeMonitorNum+1);
+		_snprintf(arg, sizeof(arg), " -d%d -s %s", m_activeMonitorNum+1, (LPCTSTR)str1);
+		arg[sizeof(arg)-1] = 0;
 		ShellExecute(NULL, "open", str, arg, NULL, SW_HIDE);
 		Sleep(100);
 		sprintf(arg," -d%d -c", m_activeMonitorNum+1);
@@ -1419,7 +1420,8 @@ BOOL CGDIGenerator::Release(INT nbNext)
 		CString str1 = GetConfig () -> m_ApplicationPath;
 		str += "\\tools\\dispwin.exe";
 		str1 += "\\tools\\current.cal";
-		sprintf(arg," -d%d " + str1, m_activeMonitorNum+1);
+		_snprintf(arg, sizeof(arg), " -d%d %s", m_activeMonitorNum+1, (LPCTSTR)str1);
+		arg[sizeof(arg)-1] = 0;
 		ShellExecute(NULL, "open", str, arg, NULL, SW_HIDE);
 		m_bConnect = FALSE;
 	}

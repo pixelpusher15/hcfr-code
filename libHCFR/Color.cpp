@@ -2816,8 +2816,9 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
 	char * path;
 	char appPath[255];
 	path = getenv("APPDATA");
-	strcpy(appPath, path);
-	strcat(appPath, "\\color");
+	if (!path) path = "";
+	_snprintf(appPath, sizeof(appPath), "%s\\color", path);
+	appPath[sizeof(appPath)-1] = 0;
 	bool bOk = true, constant_XYZ = FALSE, m_bRecalc = FALSE;
 	int n_elements=24;
 	switch (aCCMode)
@@ -3646,10 +3647,15 @@ int PiBackground8ToCode ( double v255, bool is16_235, int bits )
     if ( bits == 10 )
     {
         if ( is16_235 )
+        {
             code = (int) floor ( v255 / 255.0 * 876.0 + 64.5 );
+            code = ( code < 0 ) ? 0 : ( ( code > 940 ) ? 940 : code );
+        }
         else
+        {
             code = (int) floor ( v255 / 255.0 * 1023.0 + 0.5 );
-        code = ( code < 0 ) ? 0 : ( ( code > 1023 ) ? 1023 : code );
+            code = ( code < 0 ) ? 0 : ( ( code > 1023 ) ? 1023 : code );
+        }
         return code;
     }
     if ( is16_235 )

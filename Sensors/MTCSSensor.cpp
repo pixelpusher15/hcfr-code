@@ -347,17 +347,21 @@ CColor CMTCSSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue)
 		if (m_debugMode) 
 		{
 			EnterCriticalSection ( & GetConfig () -> LogFileCritSec );
-			CTime theTime = CTime::GetCurrentTime(); 
-			CString s = theTime.Format( "%d/%m/%y %H:%M:%S" );		
+			CTime theTime = CTime::GetCurrentTime();
+			CString s = theTime.Format( "%d/%m/%y %H:%M:%S" );
 			FILE *f = fopen ( GetConfig () -> m_logFileName, "a" );
-			fprintf(f, "MTCS-C2 - %s : R:%3f G:%3f B:%3f : amp:%d Ticks:%6d RVal:%6d GVal:%6d BVal:%6d\n", s, aRGBValue[0], aRGBValue[1], aRGBValue[2], amp, nTicks, r, g, b );
-			fclose(f);
+			if ( f )
+			{
+				fprintf(f, "MTCS-C2 - %s : R:%3f G:%3f B:%3f : amp:%d Ticks:%6d RVal:%6d GVal:%6d BVal:%6d\n", s, aRGBValue[0], aRGBValue[1], aRGBValue[2], amp, nTicks, r, g, b );
+				fclose(f);
+			}
 			LeaveCriticalSection ( & GetConfig () -> LogFileCritSec );
 		}
 	}
-	else 
+	else
 	{
 		MessageBox(0, "No data from Sensor","Error",MB_OK+MB_ICONINFORMATION);
+		return noDataColor;
 	}
 
 	return colMeasure;

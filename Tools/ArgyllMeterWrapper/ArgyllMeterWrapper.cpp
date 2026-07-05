@@ -651,15 +651,20 @@ ArgyllMeterWrapper::eMeterState ArgyllMeterWrapper::takeReading(CString Spectral
 
         if (cnt > 0)
         {
+            int nGood = 0;
             for(int i(0); i < cnt; ++i)
             {
                 instCode = m_meter->read_sample(m_meter, "SPOT", &argyllReading, instNoClamp);
+                if (instCode != inst_ok)
+                    continue;
                 if (!isColorimeter() && sp2cie != NULL)
                     sp2cie->convert(sp2cie, argyllReading.XYZ, &argyllReading.sp);
-                    X+=argyllReading.XYZ[0];
-                    Y+=argyllReading.XYZ[1];
-                    Z+=argyllReading.XYZ[2];
+                X+=argyllReading.XYZ[0];
+                Y+=argyllReading.XYZ[1];
+                Z+=argyllReading.XYZ[2];
+                ++nGood;
             }
+            cnt = nGood; // average only over samples that actually succeeded
         }
     }
     X = X / (cnt+1);
