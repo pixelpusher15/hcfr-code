@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 //	Benoit SEGUIN
 /////////////////////////////////////////////////////////////////////////////
@@ -54,7 +54,7 @@ CColorTempGrapher::CColorTempGrapher()
 	m_graphCtrl.SetYAxisProps("K", 500, 1500, 15000);
 
 	m_showReference=GetConfig()->GetProfileInt("ColorTemp Histo","Show Reference",TRUE);
-	m_showDataRef=GetConfig()->GetProfileInt("ColorTemp Hist","Show Reference Data",TRUE);	//Ki
+	m_showDataRef=GetConfig()->GetProfileInt("ColorTemp Histo","Show Reference Data",TRUE);	//Ki
 
 	m_graphCtrl.ReadSettings("ColorTemp Histo");
 	m_graphCtrl.m_graphArray[0].p_Title="Color Temperature";
