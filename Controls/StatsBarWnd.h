@@ -61,7 +61,6 @@ protected:
 	CString			m_strText;	// last text received (to skip redundant repaints)
 	CStringArray	m_segments;	// parsed display segments
 	CFont			m_font;		// larger bold font for the header chips
-	int				m_rightReserve;	// px reserved on the right for overlaid controls
 
 	// Bar-drawn header controls
 	CButton*		m_pEditBtn;		// hidden control holding the edit-grid state

@@ -28,8 +28,6 @@
 #include "RGBLevelWnd.h"
 #include "Color.h"
 #include "fxcolor.h"
-#include "../Views/GdiPlusAA.h"
-#include "../Tools/fxcolor.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
