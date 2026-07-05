@@ -461,7 +461,7 @@ void CMeasuresHistoView::OnDraw(CDC* pDC)
 	char		szBuf[10];
 	TCHAR		trkPerc[100] = _T("");
 
-	StringCchCat(trkPerc, 260, trkTxt); 
+	StringCchCat(trkPerc, _countof(trkPerc), trkTxt); 
 
 	GetClientRect(&rect);	// fill entire window with three graphs
 	
@@ -479,21 +479,21 @@ void CMeasuresHistoView::OnDraw(CDC* pDC)
 	_ltoa(l_nCol * stepSize, szBuf, 10);
 
 	if (l_Display == 0 || l_Display == 3 || l_Display == 4)
-		StringCchCat(trkPerc, 260, szBuf);
+		StringCchCat(trkPerc, _countof(trkPerc), szBuf);
 
 	switch (l_Display)
 	{
 	case (0):
-		StringCchCat(trkPerc, 260, _T("% (Gray scale)"));
+		StringCchCat(trkPerc, _countof(trkPerc), _T("% (Gray scale)"));
 		break;
 	case (3):
-		StringCchCat(trkPerc, 260, _T("% (Near black scale)"));
+		StringCchCat(trkPerc, _countof(trkPerc), _T("% (Near black scale)"));
 		break;
 	case (4):
-		StringCchCat(trkPerc, 260, _T("% (Near white scale)"));
+		StringCchCat(trkPerc, _countof(trkPerc), _T("% (Near white scale)"));
 		break;
 	default:
-	StringCchCat(trkPerc, 260, _T("Tracking off..."));
+	StringCchCat(trkPerc, _countof(trkPerc), _T("Tracking off..."));
 	}
 						
 	if ( m_showLuminance )

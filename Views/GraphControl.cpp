@@ -666,9 +666,9 @@ static double spectral_chromaticities[][2] = {
 				nWaveIndex = 0;
 				WaveIndex = 0.0;
 			}
-			else if ( nWaveIndex > sizeof ( spectral_chromaticities ) / sizeof ( spectral_chromaticities [ 0 ] ) - 1 )
+			else if ( nWaveIndex > sizeof ( spectral_chromaticities ) / sizeof ( spectral_chromaticities [ 0 ] ) - 2 )
 			{
-				nWaveIndex = sizeof ( spectral_chromaticities ) / sizeof ( spectral_chromaticities [ 0 ] ) - 1;
+				nWaveIndex = sizeof ( spectral_chromaticities ) / sizeof ( spectral_chromaticities [ 0 ] ) - 2;
 				WaveIndex = 1.0;
 			}
 
@@ -701,6 +701,9 @@ static double spectral_chromaticities[][2] = {
 			m_pSpectrumColors [ x ] = RGB(nR,nG,nB);
 		}
 	}
+
+	if ( m_graphArray.GetSize() == 0 )
+		return;
 
 	ptOrg = pDC ->GetWindowOrg ();
 	pts = new POINT [ m_graphArray[0].m_pointArray.GetSize() + 2 ];
@@ -1011,7 +1014,7 @@ void CGraphControl::OnPaint()
 	CString		GTxt = m_graphArray[0].p_Title;
 	BOOL		bWhiteBkgnd = GetConfig () -> m_bWhiteBkgndOnScreen;
 	TCHAR		GLabel[100] = _T("");
-	StringCchCat(GLabel, 260, GTxt); 
+	StringCchCat(GLabel, _countof(GLabel), GTxt);
 	// CIE-005: dropped uninitialised-font SelectObject + red-bg SetBkColor;
 	// real select + bg-color assignment happens below, after CreateFont.
 	font.CreateFont( GetConfig()->ScaleFloor(18,22), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Segoe UI" );

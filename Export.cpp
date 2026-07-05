@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -81,9 +81,9 @@ draw_image (HPDF_Doc     pdf,
     HPDF_Image image;
 	char * path;
 	path = getenv("APPDATA");
-    strcpy(filename1, path);
-    strcat(filename1, FILE_SEPARATOR);
-    strcat(filename1, filename);
+	if (!path) path = "";
+    _snprintf(filename1, sizeof(filename1), "%s%s%s", path, FILE_SEPARATOR, filename);
+    filename1[sizeof(filename1)-1] = 0;
 
     image = HPDF_LoadPngImageFromFile (pdf, filename1);
 
@@ -117,10 +117,9 @@ draw_image2 (HPDF_Doc     pdf,
     HPDF_Image image;
 	char * path;
 	path = getenv("APPDATA");
-
-	strcpy(filename1, path);
-    strcat(filename1, FILE_SEPARATOR);
-    strcat(filename1, filename);
+	if (!path) path = "";
+	_snprintf(filename1, sizeof(filename1), "%s%s%s", path, FILE_SEPARATOR, filename);
+    filename1[sizeof(filename1)-1] = 0;
 
     image = HPDF_LoadPngImageFromFile (pdf, filename1);
 
@@ -515,7 +514,7 @@ bool CExport::SavePDF()
 	if (nCount > 0 && !isHDR )
 	{
 		m_pDoc->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
-		sprintf(str,"Average measured gamma: %.2f, Color dE formula: "+dEform2,Gamma);
+		sprintf(str,"Average measured gamma: %.2f, Color dE formula: %s",Gamma,(LPCTSTR)dEform2);
 	}
 	else
 	{
@@ -756,9 +755,9 @@ bool CExport::SavePDF()
 	char * path;
 	char filename1[255];
 	path = getenv("APPDATA");
-    strcpy(filename1, path);
-    strcat(filename1, "\\");
-    strcat(filename1, "color\\temp.png");
+	if (!path) path = "";
+    _snprintf(filename1, sizeof(filename1), "%s\\color\\temp.png", path);
+    filename1[sizeof(filename1)-1] = 0;
 
 //CIE Chart
 	CCIEChartGrapher pCIE;
@@ -1089,7 +1088,7 @@ bool CExport::SavePDF()
 		if (nCount > 0)
 		{
 			m_pDoc->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
-			sprintf(str,"Average measured gamma: %.2f, Color dE formula: "+dEform2,Gamma);
+			sprintf(str,"Average measured gamma: %.2f, Color dE formula: %s",Gamma,(LPCTSTR)dEform2);
 		}
 		else
 		{
@@ -1327,9 +1326,9 @@ bool CExport::SavePDF()
 		char * path;
 		char filename1[255];
 		path = getenv("APPDATA");
-		strcpy(filename1, path);
-		strcat(filename1, "\\");
-		strcat(filename1, "color\\temp.png");
+		if (!path) path = "";
+		_snprintf(filename1, sizeof(filename1), "%s\\color\\temp.png", path);
+		filename1[sizeof(filename1)-1] = 0;
 		CCIEChartGrapher pCIE;
 		pCIE.SaveGraphFile(pDataRef,CSize(dX,dY),filename1,2,95,TRUE);
 

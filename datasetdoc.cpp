@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -2233,7 +2233,8 @@ void CDataSetDoc::OnCalibrationSpectralSample()
 
 		const char* FILE_SEPARATOR = "\\";			
 		const char* FILE_PREPEND = "\\color\\";			
-		std::string savePath = getenv("APPDATA");
+		const char* appdataEnv = getenv("APPDATA");
+		std::string savePath = appdataEnv ? appdataEnv : "";
 		savePath += FILE_PREPEND;
 		CFileDialog fileSaveDialog( FALSE, "ccss", NULL, OFN_HIDEREADONLY, "Colorimeter Calibration Spectral Sample (*.ccss)|*.ccss||" );
 		fileSaveDialog.m_ofn.lpstrInitialDir = savePath.c_str();

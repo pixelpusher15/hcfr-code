@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 //	Benoit SEGUIN
 /////////////////////////////////////////////////////////////////////////////
@@ -354,9 +354,9 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	{
 		max = whitelvl;
 		if (ColorSpace == 1 && ColorIndex == 1)
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., (colorlevel/max)*100.0, lpMsg, whitelvl);
+	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., (max>0?(colorlevel/max)*100.0:0.0), lpMsg, whitelvl);
 		else
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., (colorlevel/max)*100.0, lpMsg, NULL);
+	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)(PointIndex+pDataSet->GetMeasure()->m_NearWhiteClipCol-Size), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) * 100., (max>0?(colorlevel/max)*100.0:0.0), lpMsg, NULL);
 	}
 	else 
 	{

@@ -520,11 +520,13 @@ CColor CEyeOneSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue)
 						sscanf ( lpStr, "%lf,%lf,%lf,%d", & x, & y, & z, & bSpectrumOk );
 						if ( bSpectrumOk )
 						{
-							lpStr = strchr ( lpStr, (int) '|' ) + 1;
+							char * pBar = strchr ( lpStr, (int) '|' );
+							lpStr = pBar ? pBar + 1 : NULL;
 							for (int i = 0; lpStr && lpStr [ 0 ] && i < SPECTRUM_BANDS ; i ++ )
 							{
 								Spectrum [ i ] = atof ( lpStr );
-								lpStr = strchr ( lpStr, (int) ',' ) + 1;
+								char * pComma = strchr ( lpStr, (int) ',' );
+								lpStr = pComma ? pComma + 1 : NULL;
 							}
 						}
 					}
