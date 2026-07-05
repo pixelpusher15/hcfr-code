@@ -144,7 +144,6 @@ static const SCtrlLayout g_DisplayComboLayout =
 { IDC_DISPLAYTYPE_COMBO, LAYOUT_RIGHT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
 
 
-static COLORREF ButtonPanelColor();   // defined near OnEraseBkgnd
 static COLORREF ButtonFaceColor();
 static COLORREF ButtonHoverColor();
 static COLORREF ButtonBorderColor();
@@ -577,7 +576,6 @@ CMainView::CMainView()
 	m_pSelectedColorGrid = NULL;
 	m_nSelColorGridReadingType = -1;
 	m_pBgBrush= new CBrush(FxGetMenuBgColor());
-	m_pHdrBrush = NULL;
 	m_rcButtonPanel.SetRectEmpty();
 
 	m_pInfoWnd = NULL;
@@ -651,7 +649,6 @@ CMainView::~CMainView()
 			delete m_pInfoWnd;
 
 	delete m_pBgBrush;
-	if (m_pHdrBrush) delete m_pHdrBrush;
 
 	GetConfig()->WriteProfileInt("MainView","Display type",m_displayType);
 
@@ -1193,7 +1190,7 @@ void CMainView::HighlightMeasuringColumn(int gridCol)
 		return;
 	if ( gridCol < 1 || gridCol >= m_pGrayScaleGrid->GetColumnCount() )
 		return;
-	if ( IsDlgButtonChecked(IDC_EDITGRID_CHECK) == BST_CHECKED )
+	if ( m_editCheckButton.GetCheck() == BST_CHECKED )
 		return;
 
 	int maxRow = m_pGrayScaleGrid->GetRowCount() - 1;	// select the x/y/Y data rows of the column
@@ -5424,7 +5421,7 @@ void CMainView::OnGrayScaleGridEndSelChange(NMHDR *pNotifyStruct,LRESULT* pResul
 				 break;
 		}
 
-		if (IsDlgButtonChecked(IDC_EDITGRID_CHECK)!=BST_CHECKED)
+		if (m_editCheckButton.GetCheck()!=BST_CHECKED)
 			m_pGrayScaleGrid->SetSelectedRange(1,minCol,3,minCol,FALSE);	// Select entire column
 	}
 	GetDocument()->UpdateAllViews(this, UPD_SELECTEDCOLOR);
@@ -5457,8 +5454,9 @@ void CMainView::OnRgbRadio()
 
 void CMainView::OnXyz2Radio() 
 {
-	CheckDlgButton ( IDC_EDITGRID_CHECK, FALSE );
+	m_editCheckButton.SetCheck ( BST_UNCHECKED );
 	m_editCheckButton.EnableWindow ( FALSE );
+	if (::IsWindow(m_statsBar.GetSafeHwnd())) m_statsBar.Invalidate(FALSE);   // refresh the bar-drawn Edit checkbox
 	m_displayType=HCFR_xyz2_VIEW;
 	InitGrid();	// to update row labels
 	UpdateGrid();
@@ -5496,11 +5494,12 @@ void CMainView::OnSelchangeDisplayType()
 	// Mirror the per-radio enable rule for the Edit checkbox (see OnXyz2Radio etc.).
 	if (newType == HCFR_xyz2_VIEW)
 	{
-		CheckDlgButton(IDC_EDITGRID_CHECK, FALSE);
+		m_editCheckButton.SetCheck(BST_UNCHECKED);
 		m_editCheckButton.EnableWindow(FALSE);
 	}
 	else
 		m_editCheckButton.EnableWindow(!m_AdjustXYZCheckButton.GetCheck());
+	if (::IsWindow(m_statsBar.GetSafeHwnd())) m_statsBar.Invalidate(FALSE);   // refresh the bar-drawn Edit checkbox
 
 	InitGrid();   // update row labels
 	UpdateGrid();
@@ -6478,9 +6477,6 @@ void CMainView::InitButtons()
 	// (the Edit checkbox is reparented into the stats bar by SetHeaderModel below)
 	// (The Go button's border is tinted green/red by SetMeasureButtonForMode/Stop.)
 
-	// Header band brush (matches the stats bar) for the Edit checkbox background.
-	if (m_pHdrBrush) { delete m_pHdrBrush; m_pHdrBrush = NULL; }
-	m_pHdrBrush = new CBrush(FxGetSysColor(COLOR_BTNFACE));
 
 	// (The Display dropdown keeps its own group-box frame; the buttons get their
 	// own rounded panel painted in OnEraseBkgnd.)
@@ -6663,7 +6659,6 @@ void CMainView::InitGroups()
 // lighter than the app (menu) background so the group reads as a raised pane and
 // the rounded buttons' corners blend into it.
 // Action-button palette. Light theme uses the design values; dark theme uses muted equivalents.
-static COLORREF ButtonPanelColor() { return (fxUseCustomColor != FALSE) ? RGB(45,45,47) : RGB(217,217,217); }  // container D9D9D9
 static COLORREF ButtonFaceColor()  { return (fxUseCustomColor != FALSE) ? RGB(60,60,62) : RGB(255,255,255); }  // face FFFFFF
 static COLORREF ButtonHoverColor() { return (fxUseCustomColor != FALSE) ? RGB(82,82,85) : RGB(242,242,242); }  // hover F2F2F2
 static COLORREF ButtonBorderColor(){ return (fxUseCustomColor != FALSE) ? RGB(95,95,98) : RGB(210, 210, 210); }  // D2D2D2 (light) / subtle dark, matches the +/- buttons

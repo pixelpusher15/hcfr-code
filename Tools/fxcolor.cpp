@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 /////////////////////////////////////////////////////////////////////////////
 
 #include "stdafx.h"        // Standard windows header file
@@ -667,10 +667,14 @@ void FxApplyDarkModeTree(HWND hRoot, BOOL bDark)
 // that draw anti-aliased (RGB level bars, target widget).
 void FxEnsureGdiplus()
 {
-    static ULONG_PTR s_token = 0;
-    if (s_token == 0)
+    // C++11 magic-static: the initializer runs exactly once even if two
+    // threads race the first call, so no double-startup / leaked token.
+    static ULONG_PTR s_token = []() -> ULONG_PTR
     {
+        ULONG_PTR token = 0;
         Gdiplus::GdiplusStartupInput gdipInput;
-        Gdiplus::GdiplusStartup(&s_token, &gdipInput, NULL);
-    }
+        Gdiplus::GdiplusStartup(&token, &gdipInput, NULL);
+        return token;
+    }();
+    (void)s_token;
 }
