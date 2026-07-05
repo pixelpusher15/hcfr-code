@@ -3345,9 +3345,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
     if(pGenerator->GetName() == str&&( (GetConfig()->m_CCMode==USER && size > 100) ) )
-	{		
+	{
 		Title.LoadString ( IDS_ERROR );
-		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		strMsg.Append(" not a supported DVD sequence.");
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
@@ -3356,9 +3355,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	}
 
     if (!GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType))
-	{		
+	{
 		Title.LoadString ( IDS_ERROR );
-		if (pGenerator->m_initShowedError) return FALSE;
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
 		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 		pGenerator->Release();
