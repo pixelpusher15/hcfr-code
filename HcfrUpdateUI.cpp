@@ -20,6 +20,17 @@
 // TaskDialog command-button IDs (kept clear of IDOK/IDCANCEL).
 enum { BTN_DOWNLOAD = 1001, BTN_SKIP = 1002, BTN_LATER = 1003 };
 
+// Load a localized WIDE string from the active language DLL. The resource-free
+// TaskDialog / IProgressDialog need PCWSTR; string-table resources are always
+// UTF-16 in the binary, so LoadStringW returns correctly-decoded text
+// regardless of the app's MBCS build. (cchBufferMax 0 -> read-only resource ptr.)
+static CStringW LoadW(UINT id)
+{
+    LPWSTR p = NULL;
+    int len = ::LoadStringW(AfxGetResourceHandle(), id, (LPWSTR)&p, 0);
+    return len > 0 ? CStringW(p, len) : CStringW();
+}
+
 // Shared state between the UI thread and the download worker thread. The
 // download runs off the UI thread so the main window stays responsive; the UI
 // thread owns the (apartment-threaded) progress dialog and reads counters here.
@@ -71,14 +82,14 @@ static void DownloadAndInstall(CWnd* pParent, const HcfrUpdateInfo& info)
 {
     if (info.assetUrl.IsEmpty())
     {
-        AfxMessageBox(_T("This release has no downloadable installer."),
-                      MB_OK | MB_ICONWARNING);
+        CString m; m.LoadString(IDS_UPDLG_NO_INSTALLER);
+        AfxMessageBox(m, MB_OK | MB_ICONWARNING);
         return;
     }
     if (s_downloadInProgress)
     {
-        AfxMessageBox(_T("An update download is already in progress."),
-                      MB_OK | MB_ICONINFORMATION);
+        CString m; m.LoadString(IDS_UPDLG_IN_PROGRESS);
+        AfxMessageBox(m, MB_OK | MB_ICONINFORMATION);
         return;
     }
     DownloadBusyGuard busy;
@@ -88,8 +99,8 @@ static void DownloadAndInstall(CWnd* pParent, const HcfrUpdateInfo& info)
     DWORD tlen = GetTempPathA(MAX_PATH, tmpDir);
     if (tlen == 0 || tlen >= MAX_PATH)
     {
-        AfxMessageBox(_T("Could not locate the temporary folder for the download."),
-                      MB_OK | MB_ICONWARNING);
+        CString m; m.LoadString(IDS_UPDLG_NO_TEMP);
+        AfxMessageBox(m, MB_OK | MB_ICONWARNING);
         return;
     }
     // Use only the file-name part of the server-supplied asset name so a crafted
@@ -119,9 +130,9 @@ static void DownloadAndInstall(CWnd* pParent, const HcfrUpdateInfo& info)
                      IID_IProgressDialog, (void**)&pd);
     if (pd)
     {
-        pd->SetTitle(L"Downloading HCFR update");
-        CStringW line;
-        line.Format(L"Downloading version %S ...", (LPCSTR)info.version);
+        pd->SetTitle(LoadW(IDS_UPDLG_DOWNLOADING_TITLE));
+        CStringW verW(info.version), line;
+        line.Format(LoadW(IDS_UPDLG_DOWNLOADING_LINE), (LPCWSTR)verW);
         pd->SetLine(1, line, FALSE, NULL);
         pd->StartProgressDialog(pParent ? pParent->GetSafeHwnd() : NULL, NULL,
                                 PROGDLG_AUTOTIME | PROGDLG_NOMINIMIZE, NULL);
@@ -133,7 +144,8 @@ static void DownloadAndInstall(CWnd* pParent, const HcfrUpdateInfo& info)
     {
         if (pd) { pd->StopProgressDialog(); pd->Release(); }
         if (SUCCEEDED(hrCo)) CoUninitialize();
-        AfxMessageBox(_T("Could not start the download."), MB_OK | MB_ICONWARNING);
+        CString m; m.LoadString(IDS_UPDLG_CANT_START);
+        AfxMessageBox(m, MB_OK | MB_ICONWARNING);
         return;
     }
 
@@ -182,17 +194,15 @@ static void DownloadAndInstall(CWnd* pParent, const HcfrUpdateInfo& info)
     {
         if (!cancelled)
         {
-            CString m;
-            m.Format(_T("The update could not be downloaded.\n\n%s"),
-                     (LPCSTR)st.error);
+            CString fmt; fmt.LoadString(IDS_UPDLG_DOWNLOAD_FAILED);
+            CString m; m.Format(fmt, (LPCSTR)st.error);
             AfxMessageBox(m, MB_OK | MB_ICONWARNING);
         }
         return;   // cancelled -> stay quiet
     }
 
-    if (AfxMessageBox(_T("The update was downloaded successfully.\n\n")
-                      _T("HCFR will now close and the installer will start. Continue?"),
-                      MB_OKCANCEL | MB_ICONINFORMATION) == IDOK)
+    CString askInstall; askInstall.LoadString(IDS_UPDLG_DOWNLOAD_OK);
+    if (AfxMessageBox(askInstall, MB_OKCANCEL | MB_ICONINFORMATION) == IDOK)
     {
         // Only close the app if the installer actually launched (ShellExecute
         // returns <=32 on failure) - otherwise the user would be left with a
@@ -200,9 +210,8 @@ static void DownloadAndInstall(CWnd* pParent, const HcfrUpdateInfo& info)
         HINSTANCE hInst = ShellExecute(NULL, _T("open"), dest, NULL, NULL, SW_SHOWNORMAL);
         if ((INT_PTR)hInst <= 32)
         {
-            CString m;
-            m.Format(_T("Could not launch the installer.\n\nIt was saved to:\n%s"),
-                     (LPCSTR)dest);
+            CString fmt; fmt.LoadString(IDS_UPDLG_CANT_LAUNCH);
+            CString m; m.Format(fmt, (LPCSTR)dest);
             AfxMessageBox(m, MB_OK | MB_ICONWARNING);
             return;
         }
@@ -219,20 +228,29 @@ void HcfrUpdate_ShowAvailable(CWnd* pParent, const HcfrUpdateInfo& info)
 {
     CString running = CHcfrUpdate::GetRunningVersion();
 
-    CString content;
-    content.Format("You are running version %s.\nVersion %s is now available%s.",
-                   (LPCSTR)running, (LPCSTR)info.version,
-                   info.isPrerelease ? " (pre-release)" : "");
+    // Localized strings, kept alive for the whole TaskDialogIndirect call.
+    CStringW sTitle   = LoadW(IDS_UPDLG_TITLE);
+    CStringW sInstr   = LoadW(IDS_UPDLG_AVAILABLE);
+    CStringW sBtnDl   = LoadW(IDS_UPDLG_BTN_DOWNLOAD);
+    CStringW sBtnSkip = LoadW(IDS_UPDLG_BTN_SKIP);
+    CStringW sBtnLtr  = LoadW(IDS_UPDLG_BTN_LATER);
+    CStringW sHide    = LoadW(IDS_UPDLG_HIDE_NOTES);
+    CStringW sShow    = LoadW(IDS_UPDLG_SHOW_NOTES);
+    CStringW sAuto    = LoadW(IDS_UPDLG_AUTOCHECK);
 
-    CStringW wContent(content);
+    CStringW runningW(running), verW(info.version);
+    CStringW suffixW = info.isPrerelease ? LoadW(IDS_UPDLG_PRERELEASE) : CStringW();
+    CStringW wContent;
+    wContent.Format(LoadW(IDS_UPDLG_CONTENT), (LPCWSTR)runningW, (LPCWSTR)verW, (LPCWSTR)suffixW);
+
     CStringW wNotes(info.notes);
     if (wNotes.GetLength() > 2000)
         wNotes = wNotes.Left(2000) + L"\r\n...";
 
     TASKDIALOG_BUTTON btns[3];
-    btns[0].nButtonID = BTN_DOWNLOAD; btns[0].pszButtonText = L"Download and install now";
-    btns[1].nButtonID = BTN_SKIP;     btns[1].pszButtonText = L"Skip this version";
-    btns[2].nButtonID = BTN_LATER;    btns[2].pszButtonText = L"Remind me later";
+    btns[0].nButtonID = BTN_DOWNLOAD; btns[0].pszButtonText = sBtnDl;
+    btns[1].nButtonID = BTN_SKIP;     btns[1].pszButtonText = sBtnSkip;
+    btns[2].nButtonID = BTN_LATER;    btns[2].pszButtonText = sBtnLtr;
 
     TASKDIALOGCONFIG tc;
     ZeroMemory(&tc, sizeof(tc));
@@ -240,22 +258,22 @@ void HcfrUpdate_ShowAvailable(CWnd* pParent, const HcfrUpdateInfo& info)
     tc.hwndParent = pParent ? pParent->GetSafeHwnd() : NULL;
     tc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION
                | TDF_EXPAND_FOOTER_AREA | TDF_POSITION_RELATIVE_TO_WINDOW;
-    tc.pszWindowTitle     = L"HCFR Update";
+    tc.pszWindowTitle     = sTitle;
     tc.pszMainIcon        = TD_INFORMATION_ICON;
-    tc.pszMainInstruction = L"A new version of HCFR is available";
+    tc.pszMainInstruction = sInstr;
     tc.pszContent         = wContent;
     if (!wNotes.IsEmpty())
     {
         tc.pszExpandedInformation = wNotes;
-        tc.pszExpandedControlText = L"Hide release notes";
-        tc.pszCollapsedControlText = L"Show release notes";
+        tc.pszExpandedControlText = sHide;
+        tc.pszCollapsedControlText = sShow;
     }
     tc.pButtons       = btns;
     tc.cButtons       = 3;
     tc.nDefaultButton = BTN_DOWNLOAD;
 
     BOOL autoCheck = GetConfig()->m_doUpdateCheck;
-    tc.pszVerificationText = L"Check for updates automatically";
+    tc.pszVerificationText = sAuto;
     if (autoCheck)
         tc.dwFlags |= TDF_VERIFICATION_FLAG_CHECKED;
 
@@ -297,9 +315,8 @@ void HcfrUpdate_CheckInteractive(CWnd* pParent, int ring)
 
     if (r < 0)
     {
-        CString m;
-        m.Format(_T("Could not check for updates.\n\n%s"),
-                 (LPCSTR)upd.GetLastErrorText());
+        CString fmt; fmt.LoadString(IDS_UPDLG_CHECK_FAILED);
+        CString m; m.Format(fmt, (LPCSTR)upd.GetLastErrorText());
         AfxMessageBox(m, MB_OK | MB_ICONWARNING);
         return;
     }
@@ -311,10 +328,11 @@ void HcfrUpdate_CheckInteractive(CWnd* pParent, int ring)
     }
     else
     {
-        CStringW m;
-        m.Format(L"You are running the latest version (%S).", (LPCSTR)running);
+        CStringW runningW(running), content;
+        content.Format(LoadW(IDS_UPDLG_UPTODATE_CONTENT), (LPCWSTR)runningW);
+        CStringW title = LoadW(IDS_UPDLG_TITLE), instr = LoadW(IDS_UPDLG_UPTODATE);
         TaskDialog(pParent ? pParent->GetSafeHwnd() : NULL, NULL,
-                   L"HCFR Update", L"HCFR is up to date", m,
+                   title, instr, content,
                    TDCBF_OK_BUTTON, TD_INFORMATION_ICON, NULL);
     }
 }
