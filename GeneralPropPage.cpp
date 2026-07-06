@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -41,6 +41,7 @@ CGeneralPropPage::CGeneralPropPage() : CPropertyPageWithHelp(CGeneralPropPage::I
 	//{{AFX_DATA_INIT(CGeneralPropPage)
 	m_doMultipleInstance = FALSE;
 	m_doUpdateCheck = FALSE;
+	m_updateRing = 0;
 	m_bDisplayTestColors = TRUE;
 	m_latencyTime = 0;
 	m_ablFreq = 10;
@@ -73,6 +74,11 @@ void CGeneralPropPage::DoDataExchange(CDataExchange* pDX)
 	//{{AFX_DATA_MAP(CGeneralPropPage)
 	DDX_Check(pDX, IDC_CHECK_MULTIPLEINSTANCE, m_doMultipleInstance);
 	DDX_Check(pDX, IDC_CHECK_UPDATE, m_doUpdateCheck);
+	// The update-channel combo only exists in language DLLs that have been
+	// updated with it; exchange only when present so older localizations
+	// (which keep just the checkbox) still work.
+	if (GetDlgItem(IDC_COMBO_UPDATE_RING) != NULL)
+		DDX_CBIndex(pDX, IDC_COMBO_UPDATE_RING, m_updateRing);
 	DDX_Check(pDX, IDC_CHECK_COLORS, m_bDisplayTestColors);
 	DDX_Text(pDX, IDC_EDIT_IRIS_TIME, m_latencyTime);
 	DDX_Text(pDX, IDC_EDIT_IRIS_TIME2, m_ablFreq);
@@ -141,6 +147,7 @@ BEGIN_MESSAGE_MAP(CGeneralPropPage, CPropertyPageWithHelp)
     ON_CONTROL_RANGE(BN_CLICKED, IDC_IS_SETTLING, IDC_IS_SETTLING, OnControlClicked)
     ON_CONTROL_RANGE(BN_CLICKED, IDC_CHECK_USE_ROUNDDOWN, IDC_CHECK_USE_ROUNDDOWN, OnControlClicked)
     ON_CONTROL_RANGE(BN_CLICKED, IDC_CHECK_USE_10bit, IDC_CHECK_USE_10bit, OnControlClicked)
+    ON_CBN_SELCHANGE(IDC_COMBO_UPDATE_RING, OnUpdateRingChanged)
 	//{{AFX_MSG_MAP(CGeneralPropPage)
 		// NOTE: the ClassWizard will add message map macros here
 	//}}AFX_MSG_MAP
@@ -203,4 +210,32 @@ BOOL CGeneralPropPage::OnApply()
 UINT CGeneralPropPage::GetHelpId ( LPSTR lpszTopic )
 {
 	return HID_PREF_GENERAL;
+}
+
+BOOL CGeneralPropPage::OnInitDialog()
+{
+	CPropertyPageWithHelp::OnInitDialog();
+
+	// Fill the update-channel combo when the loaded language DLL provides it.
+	CComboBox* pRing = (CComboBox*) GetDlgItem(IDC_COMBO_UPDATE_RING);
+	if (pRing != NULL)
+	{
+		pRing->ResetContent();
+		CString sStable, sPre;
+		sStable.LoadString(IDS_UPDATE_RING_STABLE);
+		sPre.LoadString(IDS_UPDATE_RING_PRERELEASE);
+		pRing->AddString(sStable);
+		pRing->AddString(sPre);
+		if (m_updateRing < 0 || m_updateRing > 1)
+			m_updateRing = 0;
+		pRing->SetCurSel(m_updateRing);
+	}
+
+	return TRUE;
+}
+
+void CGeneralPropPage::OnUpdateRingChanged()
+{
+	m_isModified = TRUE;
+	SetModified(TRUE);
 }

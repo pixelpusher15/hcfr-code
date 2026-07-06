@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -61,9 +61,9 @@ static struct
   LPCSTR	lpszHelpName;
 } g_HelpFileNames [] = { 
 						{ "en", "English help" },
-						{ "fr", "Aide en Français" },
+						{ "fr", "Aide en Franï¿½ais" },
 						{ "de", "Hilfe in Deutsch" },
-						{ "es", "Ayuda en español" }
+						{ "es", "Ayuda en espaï¿½ol" }
 					   };
 
 
@@ -395,7 +395,10 @@ void CColorHCFRConfig::InitDefaults()
 	m_darkTheme=FALSE;
 
 	m_doMultipleInstance=FALSE;
-	m_doUpdateCheck=FALSE;
+	m_doUpdateCheck=TRUE;
+	m_updateRing=0;
+	m_updateSkipVersion=_T("");
+	m_updateLastCheck=0;
 	m_doSavePosition=TRUE;
 
 	m_PercentGray.LoadString ( IDS_PERCENTGRAY );
@@ -461,7 +464,12 @@ BOOL CColorHCFRConfig::LoadSettings()
 {
 	m_doMultipleInstance=GetProfileInt("General","DoMultipleInstance",FALSE);
 	m_doSavePosition=GetProfileInt("General","DoSavePosition",TRUE);
-	m_doUpdateCheck=GetProfileInt("General","DoUpdateCheck",FALSE);
+	m_doUpdateCheck=GetProfileInt("General","DoUpdateCheck",TRUE);
+	m_updateRing=GetProfileInt("General","UpdateRing",0);
+	if ( m_updateRing < 0 || m_updateRing > 1 )
+		m_updateRing = 0;   // guard a hand-edited/corrupted INI (0=stable,1=prerelease)
+	m_updateSkipVersion=GetProfileString("General","UpdateSkipVersion","");
+	m_updateLastCheck=(DWORD)GetProfileInt("General","UpdateLastCheck",0);
 	m_BWColorsToAdd=GetProfileInt("General","BWColorsToAdd",1);
 	if ( m_BWColorsToAdd < 0 ) 
 		m_BWColorsToAdd = 0;
@@ -565,6 +573,9 @@ void CColorHCFRConfig::SaveSettings()
 {
 	WriteProfileInt("General","DoMultipleInstance",m_doMultipleInstance);
 	WriteProfileInt("General","DoUpdateCheck",m_doUpdateCheck);
+	WriteProfileInt("General","UpdateRing",m_updateRing);
+	WriteProfileString("General","UpdateSkipVersion",m_updateSkipVersion);
+	WriteProfileInt("General","UpdateLastCheck",(int)m_updateLastCheck);
 	WriteProfileInt("General","DoSavePosition",m_doSavePosition);
 	WriteProfileInt("General","BWColorsToAdd",m_BWColorsToAdd);
 
@@ -670,6 +681,7 @@ void CColorHCFRConfig::SetPropertiesSheetValues()
 {
 	m_generalPropertiesPage.m_doMultipleInstance=m_doMultipleInstance;
 	m_generalPropertiesPage.m_doUpdateCheck=m_doUpdateCheck;
+	m_generalPropertiesPage.m_updateRing=m_updateRing;
 	m_generalPropertiesPage.m_doSavePosition=m_doSavePosition;
 	m_generalPropertiesPage.m_BWColorsToAdd=m_BWColorsToAdd;
 	
@@ -770,6 +782,7 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 		needRestart=TRUE;
 	}
 	m_doUpdateCheck=m_generalPropertiesPage.m_doUpdateCheck;
+	m_updateRing=m_generalPropertiesPage.m_updateRing;
 	m_doSavePosition=m_generalPropertiesPage.m_doSavePosition;
 	m_BWColorsToAdd=m_generalPropertiesPage.m_BWColorsToAdd;
 	m_bDisplayTestColors=m_generalPropertiesPage.m_bDisplayTestColors;

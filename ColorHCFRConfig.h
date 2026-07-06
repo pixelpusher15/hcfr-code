@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -120,6 +120,9 @@ public:
 	// Other settings
 	BOOL m_doMultipleInstance;
 	BOOL m_doUpdateCheck;
+	int  m_updateRing;            // 0 = stable releases, 1 = include pre-releases
+	CString m_updateSkipVersion;  // version the user chose to skip (don't re-notify)
+	DWORD m_updateLastCheck;      // time() of last update-check attempt (throttle)
 	BOOL m_doSavePosition;
 	BOOL m_isModified;
 

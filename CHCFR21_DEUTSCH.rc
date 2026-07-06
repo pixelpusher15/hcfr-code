@@ -281,49 +281,51 @@ BEGIN
     PUSHBUTTON      "Hilfe",IDHELP,140,154,49,14,WS_GROUP
 END
 
-IDD_GENERAL_PROP_PAGE DIALOGEX 0, 0, 213, 256
+IDD_GENERAL_PROP_PAGE DIALOGEX 0, 0, 213, 269
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Allgemeines"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    GROUPBOX        "Anwendung",IDC_STATIC,7,1,203,35,WS_GROUP
+    GROUPBOX        "Anwendung",IDC_STATIC,7,1,203,48,WS_GROUP
     CONTROL         "Mehrere Instanzen",IDC_CHECK_MULTIPLEINSTANCE,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,10,77,10
     CONTROL         "Größen/Positionen speichern",IDC_CHECK_SAVEPOSITION,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,95,10,110,10
-    GROUPBOX        "Benutzermessungen",IDC_STATIC,7,41,203,48,WS_GROUP
+    GROUPBOX        "Benutzermessungen",IDC_STATIC,7,54,203,48,WS_GROUP
     CONTROL         "Testfarbe bei der Messung anzeigen",IDC_CHECK_COLORS,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,52,183,10
-    CONTROL         "Fortlaufendes Messen",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,63,85,10
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,65,183,10
+    CONTROL         "Fortlaufendes Messen",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,76,85,10
     CONTROL         "Grau/Primärfarben bei User-Messungen erkennen",IDC_CHECK_DETECT_PRIMARIES,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,74,175,10
-    GROUPBOX        "Dynamische Iris",IDC_STATIC,7,93,203,71,WS_GROUP
-    LTEXT           "Latenzzeit",IDC_STATIC,14,104,34,8
-    EDITTEXT        IDC_EDIT_IRIS_TIME,60,101,21,14,ES_AUTOHSCROLL | WS_GROUP
-    LTEXT           "ms",IDC_STATIC,87,104,15,8
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,87,175,10
+    GROUPBOX        "Dynamische Iris",IDC_STATIC,7,106,203,71,WS_GROUP
+    LTEXT           "Latenzzeit",IDC_STATIC,14,117,34,8
+    EDITTEXT        IDC_EDIT_IRIS_TIME,60,114,21,14,ES_AUTOHSCROLL | WS_GROUP
+    LTEXT           "ms",IDC_STATIC,87,117,15,8
     CONTROL         "Signal bei Beginn der Messung (Latenzeinstellungshilfe)",IDC_CHECK_BEEP,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,116,189,10
-    GROUPBOX        "Farben hinzufügen bei Primär- und Sekundärfarbmessungen",IDC_STATIC,7,169,203,25,WS_GROUP
-    CONTROL         "Keine",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,180,34,10
-    CONTROL         "Weiß",IDC_RADIO2,"Button",BS_AUTORADIOBUTTON,69,180,33,10
-    CONTROL         "Weiß und Schwarz",IDC_RADIO3,"Button",BS_AUTORADIOBUTTON,115,180,76,10
-    GROUPBOX        "Rundungsvorgabe für Graustufen",IDC_STATIC,7,201,203,42,WS_GROUP
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,129,189,10
+    GROUPBOX        "Farben hinzufügen bei Primär- und Sekundärfarbmessungen",IDC_STATIC,7,182,203,25,WS_GROUP
+    CONTROL         "Keine",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,193,34,10
+    CONTROL         "Weiß",IDC_RADIO2,"Button",BS_AUTORADIOBUTTON,69,193,33,10
+    CONTROL         "Weiß und Schwarz",IDC_RADIO3,"Button",BS_AUTORADIOBUTTON,115,193,76,10
+    GROUPBOX        "Rundungsvorgabe für Graustufen",IDC_STATIC,7,214,203,42,WS_GROUP
     CONTROL         "Pegel abrunden (AVSHD, DVE)",IDC_CHECK_USE_ROUNDDOWN,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,212,164,10
-    CONTROL         "HSV-Level-Balken",IDC_CHECK_USE_HSV,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,113,63,85,10
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,225,164,10
+    CONTROL         "HSV-Level-Balken",IDC_CHECK_USE_HSV,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,113,76,85,10
     CONTROL         "Add settling pattern to automatic measures",IDC_IS_SETTLING,
-                    "Button",BS_AUTOCHECKBOX | NOT WS_VISIBLE | WS_DISABLED | WS_GROUP | WS_TABSTOP,14,128,149,10
+                    "Button",BS_AUTOCHECKBOX | NOT WS_VISIBLE | WS_DISABLED | WS_GROUP | WS_TABSTOP,14,141,149,10
     CONTROL         "Auf Update prüfen",IDC_CHECK_UPDATE,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,23,77,10
-    CONTROL         "Echtzeitanzeige der Messung",IDC_CHECK_DISPLAYRT,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,100,103,104,10
-    CONTROL         "Rahmen einfügen",IDC_CHECK_ABL,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,140,69,10
+    LTEXT           "Update-Kanal:",IDC_STATIC,14,38,74,8
+    COMBOBOX        IDC_COMBO_UPDATE_RING,90,36,103,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Echtzeitanzeige der Messung",IDC_CHECK_DISPLAYRT,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,100,116,104,10
+    CONTROL         "Rahmen einfügen",IDC_CHECK_ABL,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,153,69,10
     CONTROL         "Keine hohe DPI-Skalierung",IDC_CHECK_DISABLEDPI,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,95,24,97,10
     CONTROL         "Verwende 10 bit targets (HDR10 Blu-ray)",IDC_CHECK_USE_10bit,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,224,140,10
-    EDITTEXT        IDC_EDIT_IRIS_TIME2,85,147,21,14,ES_AUTOHSCROLL | WS_GROUP
-    LTEXT           "Frequenz",IDC_STATIC,82,138,34,8
-    EDITTEXT        IDC_EDIT_IRIS_TIME3,118,147,21,14,ES_AUTOHSCROLL | WS_GROUP
-    LTEXT           "Dauer [ms]",IDC_STATIC,113,138,35,8
-    EDITTEXT        IDC_EDIT_IRIS_TIME4,152,147,21,14,ES_AUTOHSCROLL | WS_GROUP
-    LTEXT           "Level [%]",IDC_STATIC,149,138,34,8
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,237,140,10
+    EDITTEXT        IDC_EDIT_IRIS_TIME2,85,160,21,14,ES_AUTOHSCROLL | WS_GROUP
+    LTEXT           "Frequenz",IDC_STATIC,82,151,34,8
+    EDITTEXT        IDC_EDIT_IRIS_TIME3,118,160,21,14,ES_AUTOHSCROLL | WS_GROUP
+    LTEXT           "Dauer [ms]",IDC_STATIC,113,151,35,8
+    EDITTEXT        IDC_EDIT_IRIS_TIME4,152,160,21,14,ES_AUTOHSCROLL | WS_GROUP
+    LTEXT           "Level [%]",IDC_STATIC,149,151,34,8
 END
 
 IDD_EXPORTXLS_DIALOG DIALOG 0, 0, 226, 135
@@ -644,14 +646,6 @@ BEGIN
     PUSHBUTTON      "Hilfe",ID_HELP,217,76,50,14,WS_GROUP
 END
 
-IDD_WEB_UPDATE DIALOGEX 100, 100, 186, 46
-STYLE DS_SETFONT | WS_POPUP | WS_CAPTION
-EXSTYLE WS_EX_TOOLWINDOW
-CAPTION "Web Update"
-FONT 8, "MS Sans Serif", 0, 0, 0x1
-BEGIN
-    CTEXT           "Verbinde...",IDC_STATIC1,7,18,172,8
-END
 
 IDD_REFERENCE_PROP_PAGE DIALOGEX 0, 0, 280, 350
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
@@ -1810,6 +1804,7 @@ BEGIN
         MENUITEM "Zoom -",                      IDM_GRAPH_Y_ZOOM_OUT
         MENUITEM SEPARATOR
         MENUITEM "&Hilfe",                      IDM_HELP
+        MENUITEM "Nach Updates suchen",           IDM_UPDATE_SOFT
     END
 END
 
@@ -2026,10 +2021,7 @@ BEGIN
     BEGIN
         MENUITEM "&Hilfe\tF1",                  IDM_HELP
         MENUITEM "Colorimeter &Installation",   IDM_HELP_INSTALL, INACTIVE
-        POPUP "Updates"
-        BEGIN
-            MENUITEM "Softwareupdate herunterladen", IDM_UPDATE_SOFT
-        END
+        MENUITEM "Nach Updates suchen",           IDM_UPDATE_SOFT
         MENUITEM "&Support",                    IDM_HELP_SUPPORT, INACTIVE
         MENUITEM SEPARATOR
         MENUITEM "Info über H&CFR ...",         ID_APP_ABOUT
@@ -2263,10 +2255,7 @@ BEGIN
     BEGIN
         MENUITEM "&Hilfe\tF1",                  IDM_HELP
         MENUITEM "Colorimeter &Installation",   IDM_HELP_INSTALL, INACTIVE
-        POPUP "&Updates"
-        BEGIN
-            MENUITEM "&Softwareupdate herunterladen", IDM_UPDATE_SOFT
-        END
+        MENUITEM "Nach Updates suchen",           IDM_UPDATE_SOFT
         MENUITEM "&Support",                    IDM_HELP_SUPPORT, INACTIVE
         MENUITEM "HCFR &Forum",                 IDM_HELP_FORUM, INACTIVE
         MENUITEM SEPARATOR
@@ -3724,7 +3713,31 @@ BEGIN
     IDM_PATTERN_ANIM_BLACK  "Animiertes Schwarzwert Testbild mit zwei Streifen bei 1%% video level und 2%% video level auf einem schwarzen Hintergrund anzeigen\nAnimiertes Schwarzwert Testbild"
     IDM_PATTERN_ANIM_WHITE  "Animiertes Weißwert Testbild mit zwei Streifen bei 98%% video level und 99%% video level auf einem weißen Hintergrund anzeigen\nAnimiertes Weißwert Testbild"
     ID_VIEW_SPECTRUM        "Blendet das Spektrum Fenster ein oder aus\nSpektrum"
-    IDM_UPDATE_SOFT         "Check for software updates."
+    IDM_UPDATE_SOFT         "Sucht auf GitHub nach einer neuen HCFR-Version und lädt sie herunter\nNach Updates suchen"
+    IDS_UPDATE_RING_STABLE  "Nur stabile Versionen"
+    IDS_UPDATE_RING_PRERELEASE "Vorabversionen (Beta) einschließen"
+    IDS_UPDLG_TITLE             "HCFR-Update"
+    IDS_UPDLG_AVAILABLE         "Eine neue HCFR-Version ist verfügbar"
+    IDS_UPDLG_CONTENT           "Sie verwenden Version %s.\nVersion %s ist jetzt verfügbar%s."
+    IDS_UPDLG_PRERELEASE        " (Vorabversion)"
+    IDS_UPDLG_BTN_DOWNLOAD      "Jetzt herunterladen und installieren"
+    IDS_UPDLG_BTN_SKIP          "Diese Version überspringen"
+    IDS_UPDLG_BTN_LATER         "Später erinnern"
+    IDS_UPDLG_HIDE_NOTES        "Versionshinweise ausblenden"
+    IDS_UPDLG_SHOW_NOTES        "Versionshinweise anzeigen"
+    IDS_UPDLG_AUTOCHECK         "Automatisch nach Updates suchen"
+    IDS_UPDLG_UPTODATE          "HCFR ist aktuell"
+    IDS_UPDLG_UPTODATE_CONTENT  "Sie verwenden die neueste Version (%s)."
+    IDS_UPDLG_CHECK_FAILED      "Nach Updates konnte nicht gesucht werden.\n\n%s"
+    IDS_UPDLG_NO_INSTALLER      "Diese Version hat kein herunterladbares Installationsprogramm."
+    IDS_UPDLG_IN_PROGRESS       "Ein Update-Download läuft bereits."
+    IDS_UPDLG_NO_TEMP           "Der temporäre Ordner für den Download konnte nicht gefunden werden."
+    IDS_UPDLG_DOWNLOADING_TITLE "HCFR-Update wird heruntergeladen"
+    IDS_UPDLG_DOWNLOADING_LINE  "Version %s wird heruntergeladen ..."
+    IDS_UPDLG_CANT_START        "Der Download konnte nicht gestartet werden."
+    IDS_UPDLG_DOWNLOAD_FAILED   "Das Update konnte nicht heruntergeladen werden.\n\n%s"
+    IDS_UPDLG_DOWNLOAD_OK       "Das Update wurde erfolgreich heruntergeladen.\n\nHCFR wird jetzt geschlossen und die Installation gestartet. Fortfahren?"
+    IDS_UPDLG_CANT_LAUNCH       "Das Installationsprogramm konnte nicht gestartet werden.\n\nEs wurde gespeichert unter:\n%s"
     IDM_SINGLE_MEASUREMENT  "Eine einmalige Messung ausführen\nEine einmalige Messung ausführen"
     IDM_CONTINUOUS_MEASUREMENT 
                             "Kontinuierliche Messungen starten oder stoppen\nKontinuierliche Messungen starten oder stoppen"
@@ -3755,15 +3768,10 @@ BEGIN
     IDS_MEASURESATCYAN_SIM  "Cyan-Sättigung simultan messen ?\nWarnung: Aktuelle Daten gehen verloren...\n\nBemerkung: Sie können die Messung mit ESCAPE abbrechen."
     IDS_MEASURESATMAGENTA_SIM 
                             "Magenta-Sättigung simultan messen ?\nWarnung: Aktuelle Daten gehen verloren...\n\nBemerkung: Sie können die Messung mit ESCAPE abbrechen."
-    IDS_UPD_IMPOSSIBLE      "Update nicht möglich (Verbindungsaufbau ist fehlgeschlagen)."
-    IDS_NO_UPD              "Es sind keine Updates verfügbar."
-    IDS_UPD_ASK_DOWNLOAD    "Ein Update ist verfügbar. Wollen Sie es herunterladen?"
-    IDS_UPD_DOWNLOAD_SUCCEED "Der Download wurde erfolgreich abgeschlossen."
 END
 
 STRINGTABLE
 BEGIN
-    IDS_UPD_DOWNLOAD_FAILED "Der Download ist fehlgeschlagen."
     IDS_CONTRAST            "Kontrast"
     IDS_OFFSET              "Offset"
     IDS_CONFIRMTRAINING     "Wollen Sie eine Korrektur auf das aktuelle Dokument anwenden, damit die Werte mit denen im Referenzdokument vergleichbar sind ?"

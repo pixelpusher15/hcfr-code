@@ -218,7 +218,8 @@
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <ClCompile Include="CrashDump.cpp" />
-    <ClCompile Include="CWebUpdate.cpp" />
+    <ClCompile Include="HcfrUpdate.cpp" />
+    <ClCompile Include="HcfrUpdateUI.cpp" />
     <ClCompile Include="DataSetDoc.cpp">
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -329,7 +330,6 @@
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
-    <ClCompile Include="sha1.cpp" />
     <ClCompile Include="Signature.cpp">
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -933,6 +933,9 @@
     <ClInclude Include="Tools\HyperLink.h" />
     <ClInclude Include="Tools\SerialCom.h" />
     <ClInclude Include="Tools\Subclass.h" />
+    <ClInclude Include="HcfrUpdate.h" />
+    <ClInclude Include="HcfrUpdateUI.h" />
+    <ClInclude Include="Tools\MiniJson.h" />
     <ClInclude Include="Tools\VersionInfoFromFile.h" />
     <ClInclude Include="Tools\XPGroupBox.h" />
     <ClInclude Include="Tools\GridCtrl\CellRange.h" />

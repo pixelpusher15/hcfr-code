@@ -138,7 +138,6 @@
 #define IDD_DUPLICATEDOC_DIALOG         245
 #define IDD_REF_COLOR_VALUES            246
 #define IDD_COLORSPECTRUM               247
-#define IDD_WEB_UPDATE                  248
 #define IDD_IRPROFILE_PROP_PAGE         249
 #define IDD_REF_CHECKBOX                250
 #define IDR_TAB_MENU                    250
@@ -568,7 +567,6 @@
 #define IDC_KISENSOR_INTERLACE_2        1169
 #define IDC_KISENSOR_WHITE              1170
 #define IDC_KISENSOR_FASTMEASURE        1171
-#define IDC_STATIC1                     1172
 #define IDC_STATIC_VERSION              1172
 #define IDC_STATIC2                     1173
 #define IDC_STATIC3                     1174
@@ -1508,11 +1506,30 @@
 #define IDS_MEASURESATYELLOW_SIM        41769
 #define IDS_MEASURESATCYAN_SIM          41770
 #define IDS_MEASURESATMAGENTA_SIM       41771
-#define IDS_UPD_IMPOSSIBLE              41772
-#define IDS_NO_UPD                      41773
-#define IDS_UPD_ASK_DOWNLOAD            41774
-#define IDS_UPD_DOWNLOAD_SUCCEED        41775
-#define IDS_UPD_DOWNLOAD_FAILED         41776
+#define IDS_UPDATE_RING_STABLE          41772
+#define IDS_UPDATE_RING_PRERELEASE      41773
+#define IDS_UPDLG_TITLE                 41970
+#define IDS_UPDLG_AVAILABLE             41971
+#define IDS_UPDLG_CONTENT               41972
+#define IDS_UPDLG_PRERELEASE            41973
+#define IDS_UPDLG_BTN_DOWNLOAD          41974
+#define IDS_UPDLG_BTN_SKIP              41975
+#define IDS_UPDLG_BTN_LATER             41976
+#define IDS_UPDLG_HIDE_NOTES            41977
+#define IDS_UPDLG_SHOW_NOTES            41978
+#define IDS_UPDLG_AUTOCHECK             41979
+#define IDS_UPDLG_UPTODATE              41980
+#define IDS_UPDLG_UPTODATE_CONTENT      41981
+#define IDS_UPDLG_CHECK_FAILED          41982
+#define IDS_UPDLG_NO_INSTALLER          41983
+#define IDS_UPDLG_IN_PROGRESS           41984
+#define IDS_UPDLG_NO_TEMP               41985
+#define IDS_UPDLG_DOWNLOADING_TITLE     41986
+#define IDS_UPDLG_DOWNLOADING_LINE      41987
+#define IDS_UPDLG_CANT_START            41988
+#define IDS_UPDLG_DOWNLOAD_FAILED       41989
+#define IDS_UPDLG_DOWNLOAD_OK           41990
+#define IDS_UPDLG_CANT_LAUNCH           41991
 #define IDS_CONTRAST                    41777
 #define IDS_OFFSET                      41778
 #define IDS_CONFIRMTRAINING             41779
@@ -1841,6 +1858,7 @@
 #define IDS_DEPRESET_CONSUMER          59527
 #define IDS_DEPRESET_RELAXED           59528
 #define IDC_COMBO_DE_TOLERANCE          1549
+#define IDC_COMBO_UPDATE_RING           1550
 #define ID_TARGET_TOL_FIRST             33108
 
 // Next default values for new objects
@@ -1850,7 +1868,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33113
-#define _APS_NEXT_CONTROL_VALUE         1550
+#define _APS_NEXT_CONTROL_VALUE         1551
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

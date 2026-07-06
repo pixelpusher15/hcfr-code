@@ -45,7 +45,8 @@
 #include "SerialCom.h"
 #include "VersionInfoFromFile.h"
 #include "ximage.h"
-#include "CWebUpdate.h"
+#include "HcfrUpdateUI.h"
+#include <time.h>
 
 #ifdef USE_NON_FREE_CODE
 // Include for device interface (this device interface is outside GNU GPL license)
@@ -363,85 +364,19 @@ BOOL CColorHCFRApp::InitInstance()
 	if ( ! m_LuxPort.IsEmpty () )
 		StartLuxMeasures ();
 
-	//check for updates
-	if (m_pConfig->m_doUpdateCheck)
+	// Check for updates in the background (non-blocking) via GitHub Releases.
+	// Throttled to at most once per ~20 hours so we don't query on every launch.
+	if (GetConfig()->m_doUpdateCheck)
 	{
-		CWebUpdate WebUpdate;
-		HWND	hDlg, hCtrl;
-
-		hDlg = ::CreateDialog ( AfxGetResourceHandle (), MAKEINTRESOURCE(IDD_WEB_UPDATE), NULL, NULL );
-		hCtrl = ::GetDlgItem ( hDlg, IDC_STATIC1 );
-		::ShowWindow ( hDlg, SW_HIDE );
-		::UpdateWindow ( hDlg );
-
-		WebUpdate.SetLocalDirectory("", true);
-		WebUpdate.SetUpdateFileURL("	ftp://prairie17.dyndns.org/shares/dload/CheckUpdate.txt");
-		WebUpdate.SetRemoteURL("	ftp://prairie17.dyndns.org/shares/dload/");
-		bool cacheDel = DeleteUrlCacheEntry("ftp://prairie17.dyndns.org/shares/dload/CheckUpdate.txt");
-		cacheDel = DeleteUrlCacheEntry("ftp://prairie17.dyndns.org/shares/dload/ColorHCFR.exe");
-
-		int m_WebUp = WebUpdate.DoUpdateCheck();
-		if (!m_WebUp)
+		const DWORD now = (DWORD) time(NULL);
+		const DWORD kMinInterval = 20 * 60 * 60;   // 20 hours
+		if (now - GetConfig()->m_updateLastCheck >= kMinInterval)
 		{
-			//update check failed
-			::DestroyWindow ( hDlg );
-//			AfxMessageBox(IDS_UPD_IMPOSSIBLE, MB_OK | MB_ICONWARNING);
-			return TRUE;
-		} else if (m_WebUp == -99)
-		{
-			//update check timed out
-			::DestroyWindow ( hDlg );
-			return TRUE;
+			GetConfig()->m_updateLastCheck = now;
+			GetConfig()->SaveSettings();
+			HcfrUpdate_StartBackgroundCheck(pMainFrame->GetSafeHwnd(),
+				GetConfig()->m_updateRing, GetConfig()->m_updateSkipVersion);
 		}
-
-		if (WebUpdate.GetNumberDifferent() == 1)
-		{
-			::ShowWindow ( hDlg, SW_SHOW );
-			::UpdateWindow ( hDlg );
-			::SetWindowText ( hCtrl, "Version "+WebUpdate.fileVer+" is available..." );
-			Sleep(1500);
-			::ShowWindow ( hDlg, SW_HIDE );
-			CString msg;
-			msg.LoadStringA(IDS_UPD_ASK_DOWNLOAD);
-			msg+="(v:"+WebUpdate.fileVer+")";
-			if (AfxMessageBox(msg, MB_YESNO | MB_ICONQUESTION) == IDYES)
-			{
-				::SetWindowText ( hCtrl, "Downloading install file for version to APPDATA, please wait..." );
-				::ShowWindow ( hDlg, SW_SHOW );
-				::UpdateWindow ( hDlg );
-			
-				if (!WebUpdate.DownloadDifferent(0))
-					::SetWindowText ( hCtrl, "Update failed." );
-				else
-				{
-					CString path;
-					path = getenv("APPDATA");
-					path += "\\color\\HCFRSetup.EXE";
-					::SetWindowText ( hCtrl, "New install package saved to APPDATA." );
-					if (AfxMessageBox("Install new version(application will close)?", MB_YESNO) == IDYES)
-					{
-						ShellExecute(NULL,"open",path,NULL,NULL,1);
-						ASSERT(AfxGetMainWnd() != NULL);
-						AfxGetMainWnd()->SendMessage(WM_CLOSE);
-					}
-				}
-			}
-			else
-			{
-				::ShowWindow ( hDlg, SW_SHOW );
-				::UpdateWindow ( hDlg );
-				::SetWindowText ( hCtrl, "Update cancelled." );
-			}
-		
-			Sleep(1000);
-		}
-		else
-		{
-//			::SetWindowText ( hCtrl, "No updates found." );
-//			Sleep(1000);
-		}
-
-		::DestroyWindow ( hDlg );
 	}
 
 	return TRUE;

@@ -34,8 +34,7 @@
 
 #include "PatternDisplay.h"
 
-//#include "WebUpdate.h"
-#include "CWebUpdate.h"
+#include "HcfrUpdateUI.h"
 
 #include <dde.h>
 #include <afxpriv.h> 
@@ -109,6 +108,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CNewMDIFrameWnd)
 	ON_MESSAGE(WM_TOOLBAR_RBUTTONDOWN, OnRightButton)
 	ON_MESSAGE(WM_TOOLBAR_MBUTTONDOWN, OnMiddleButton)
 	ON_MESSAGE(WM_SETMESSAGESTRING, OnSetMessageString)
+	ON_MESSAGE(WM_HCFR_UPDATE_AVAILABLE, OnHcfrUpdateAvailable)
 END_MESSAGE_MAP()
 
 static UINT indicators[] =
@@ -1278,87 +1278,24 @@ void CMainFrame::OnRefreshLux()
 	m_wndLuminanceWnd.Refresh ( szBuf );
 }
 
-int __stdcall MyDialogProc(HWND hwndDlg,UINT uMsg,WPARAM wParam,LPARAM lParam)
-{
-	return FALSE;
-}
-
 void CMainFrame::OnUpdateSoft()
 {
-	CWebUpdate WebUpdate;
-	HWND	hDlg, hCtrl;
+	// Manual "Check for updates": query GitHub Releases synchronously and show
+	// the result (available update, or "up to date").
+	HcfrUpdate_CheckInteractive(this, GetConfig()->m_updateRing);
+}
 
-	hDlg = ::CreateDialog ( AfxGetResourceHandle (), MAKEINTRESOURCE(IDD_WEB_UPDATE), m_hWnd, MyDialogProc );
-	hCtrl = ::GetDlgItem ( hDlg, IDC_STATIC1 );
-	::ShowWindow ( hDlg, SW_SHOW );
-	::UpdateWindow ( hDlg );
-
-		WebUpdate.SetLocalDirectory("", true);
-		WebUpdate.SetUpdateFileURL("ftp://prairie17.dyndns.org/shares/dload/CheckUpdate.txt");
-		WebUpdate.SetRemoteURL("ftp://prairie17.dyndns.org/shares/dload/");
-		BOOL cacheDel = DeleteUrlCacheEntry("ftp://prairie17.dyndns.org/shares/dload/CheckUpdate.txt");
-		cacheDel = DeleteUrlCacheEntry("ftp://prairie17.dyndns.org/shares/dload/ColorHCFR.exe");
-
-		int m_WebUp = WebUpdate.DoUpdateCheck();
-		if (!m_WebUp)
-		{
-			//update check failed
-			::DestroyWindow ( hDlg );
-			AfxMessageBox(IDS_UPD_IMPOSSIBLE, MB_OK | MB_ICONWARNING);
-			return;
-		} else if (m_WebUp == -99)
-		{
-			::DestroyWindow ( hDlg );
-			AfxMessageBox("Update Check timed out.\n(Network not found)", MB_OK | MB_ICONWARNING);
-			return;
-		}
-
-		if (WebUpdate.GetNumberDifferent() == 1)
-		{
-			::SetWindowText ( hCtrl, "Version "+WebUpdate.fileVer+" is available..." );
-			Sleep(1500);
-			::ShowWindow ( hDlg, SW_HIDE );
-			CString msg;
-			msg.LoadStringA(IDS_UPD_ASK_DOWNLOAD);
-			msg+="(v:"+WebUpdate.fileVer+")";
-			if (AfxMessageBox(msg, MB_YESNO | MB_ICONQUESTION) == IDYES)
-			{
-				::SetWindowText ( hCtrl, "Downloading "+WebUpdate.fileVer+" install file to APPDATA..." );
-				::ShowWindow ( hDlg, SW_SHOW ); 
-				::UpdateWindow ( hDlg );
-			
-				if (!WebUpdate.DownloadDifferent(0))
-					::SetWindowText ( hCtrl, "Update failed." );
-				else
-				{
-					CString path;
-					path = getenv("APPDATA");
-					path += "\\color\\HCFRSetup.EXE";
-					::SetWindowText ( hCtrl, "New install package saved to APPDATA." );
-					if (AfxMessageBox("Install new version(application will close)?", MB_YESNO) == IDYES)
-					{
-						ShellExecute(NULL,"open",path,NULL,NULL,1);
-						ASSERT(AfxGetMainWnd() != NULL);
-						AfxGetMainWnd()->SendMessage(WM_CLOSE);
-					}
-				}
-			}
-			else
-			{
-				::ShowWindow ( hDlg, SW_SHOW );
-				::UpdateWindow ( hDlg );
-				::SetWindowText ( hCtrl, "Update cancelled." );
-			}
-		
-			Sleep(1200);
-		}
-		else
-		{
-			::SetWindowText ( hCtrl, "No updates found." );
-			Sleep(1200);
-		}
-
-		::DestroyWindow ( hDlg );
+LRESULT CMainFrame::OnHcfrUpdateAvailable(WPARAM /*wParam*/, LPARAM lParam)
+{
+	// Posted from the background update-check thread with a heap-allocated
+	// HcfrUpdateInfo* that we own and must free.
+	HcfrUpdateInfo* pInfo = (HcfrUpdateInfo*) lParam;
+	if (pInfo)
+	{
+		HcfrUpdate_ShowAvailable(this, *pInfo);
+		delete pInfo;
+	}
+	return 0;
 }
 
 void CMainFrame::OnPatternDisplay()
