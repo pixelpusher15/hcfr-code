@@ -6413,7 +6413,7 @@
         "RemovePreviousVersions" = "11:TRUE"
         "DetectNewerInstalledVersion" = "11:FALSE"
         "InstallAllUsers" = "11:TRUE"
-        "ProductVersion" = "8:4.0.3"
+        "ProductVersion" = "8:4.1.0"
         "Manufacturer" = "8:ColorHCFR"
         "ARPHELPTELEPHONE" = "8:"
         "ARPHELPLINK" = "8:https://www.avsforum.com/forum/139-display-calibration/1393853-hcfr-open-source-projector-display-calibration-software.html"
