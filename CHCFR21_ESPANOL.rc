@@ -350,49 +350,51 @@ BEGIN
     LTEXT           "NW slope",IDC_STATIC,202,235,30,11
 END
 
-IDD_GENERAL_PROP_PAGE DIALOGEX 0, 0, 216, 256
+IDD_GENERAL_PROP_PAGE DIALOGEX 0, 0, 216, 269
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "General"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    GROUPBOX        "Application",IDC_STATIC,7,5,203,37,WS_GROUP
+    GROUPBOX        "Application",IDC_STATIC,7,5,203,50,WS_GROUP
     CONTROL         "Multiple instances",IDC_CHECK_MULTIPLEINSTANCE,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,13,77,10
     CONTROL         "Save sizes and positions",IDC_CHECK_SAVEPOSITION,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,97,13,99,10
-    GROUPBOX        "User measures",IDC_STATIC,7,42,203,50,WS_GROUP
+    GROUPBOX        "User measures",IDC_STATIC,7,55,203,50,WS_GROUP
     CONTROL         "Display test color during measures",IDC_CHECK_COLORS,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,55,183,10
-    CONTROL         "Continuous measuring",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,66,85,10
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,68,183,10
+    CONTROL         "Continuous measuring",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,79,85,10
     CONTROL         "Detect gray/primary colors during user measures",IDC_CHECK_DETECT_PRIMARIES,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,78,168,10
-    GROUPBOX        "Dynamic iris",IDC_STATIC,7,96,203,65,WS_GROUP
-    LTEXT           "Latency time",IDC_STATIC,14,107,40,8
-    EDITTEXT        IDC_EDIT_IRIS_TIME,60,105,21,14,ES_AUTOHSCROLL | WS_GROUP
-    LTEXT           "ms",IDC_STATIC,86,107,10,8
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,91,168,10
+    GROUPBOX        "Dynamic iris",IDC_STATIC,7,109,203,65,WS_GROUP
+    LTEXT           "Latency time",IDC_STATIC,14,120,40,8
+    EDITTEXT        IDC_EDIT_IRIS_TIME,60,118,21,14,ES_AUTOHSCROLL | WS_GROUP
+    LTEXT           "ms",IDC_STATIC,86,120,10,8
     CONTROL         "Bip at the beginning of measure (latency definition help)",IDC_CHECK_BEEP,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,122,189,10
-    GROUPBOX        "Colors to add when measuring primaries and secondaries",IDC_STATIC,7,166,203,25,WS_GROUP
-    CONTROL         "None",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,177,33,10
-    CONTROL         "White",IDC_RADIO2,"Button",BS_AUTORADIOBUTTON,60,177,35,10
-    CONTROL         "White and black",IDC_RADIO3,"Button",BS_AUTORADIOBUTTON,114,177,68,10
-    GROUPBOX        "Gray levels rounding assumption",IDC_STATIC,7,200,203,44,WS_GROUP
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,135,189,10
+    GROUPBOX        "Colors to add when measuring primaries and secondaries",IDC_STATIC,7,179,203,25,WS_GROUP
+    CONTROL         "None",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,190,33,10
+    CONTROL         "White",IDC_RADIO2,"Button",BS_AUTORADIOBUTTON,60,190,35,10
+    CONTROL         "White and black",IDC_RADIO3,"Button",BS_AUTORADIOBUTTON,114,190,68,10
+    GROUPBOX        "Gray levels rounding assumption",IDC_STATIC,7,213,203,44,WS_GROUP
     CONTROL         "Use round down levels (AVSHD, DVE)",IDC_CHECK_USE_ROUNDDOWN,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,213,135,10
-    CONTROL         "Use HSV Level Bars",IDC_CHECK_USE_HSV,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,105,66,81,10
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,226,135,10
+    CONTROL         "Use HSV Level Bars",IDC_CHECK_USE_HSV,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,105,79,81,10
     CONTROL         "Add settling pattern to automatic measures",IDC_IS_SETTLING,
-                    "Button",BS_AUTOCHECKBOX | NOT WS_VISIBLE | WS_DISABLED | WS_GROUP | WS_TABSTOP,14,243,149,10
+                    "Button",BS_AUTOCHECKBOX | NOT WS_VISIBLE | WS_DISABLED | WS_GROUP | WS_TABSTOP,14,256,149,10
     CONTROL         "Check for updates",IDC_CHECK_UPDATE,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,26,77,10
+    LTEXT           "Actualizaciones:",IDC_STATIC,14,41,74,8
+    COMBOBOX        IDC_COMBO_UPDATE_RING,90,39,103,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     CONTROL         "RealTime display of measures",IDC_CHECK_DISPLAYRT,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,101,106,105,10
-    CONTROL         "Frame insertion",IDC_CHECK_ABL,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,141,58,10
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,101,119,105,10
+    CONTROL         "Frame insertion",IDC_CHECK_ABL,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,154,58,10
     CONTROL         "Disable High DPI scaling",IDC_CHECK_DISABLEDPI,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,97,27,91,10
     CONTROL         "Use 10 bit targets (HDR10 Blu-ray)",IDC_CHECK_USE_10bit,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,228,135,10
-    EDITTEXT        IDC_EDIT_IRIS_TIME2,81,144,21,14,ES_AUTOHSCROLL | WS_GROUP
-    LTEXT           "Frequency",IDC_STATIC,76,134,35,8
-    EDITTEXT        IDC_EDIT_IRIS_TIME3,119,144,21,14,ES_AUTOHSCROLL | WS_GROUP
-    LTEXT           "Duration [ms]",IDC_STATIC,110,134,40,8
-    EDITTEXT        IDC_EDIT_IRIS_TIME4,157,144,21,14,ES_AUTOHSCROLL | WS_GROUP
-    LTEXT           "Level [%]",IDC_STATIC,153,134,35,8
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,241,135,10
+    EDITTEXT        IDC_EDIT_IRIS_TIME2,81,157,21,14,ES_AUTOHSCROLL | WS_GROUP
+    LTEXT           "Frequency",IDC_STATIC,76,147,35,8
+    EDITTEXT        IDC_EDIT_IRIS_TIME3,119,157,21,14,ES_AUTOHSCROLL | WS_GROUP
+    LTEXT           "Duration [ms]",IDC_STATIC,110,147,40,8
+    EDITTEXT        IDC_EDIT_IRIS_TIME4,157,157,21,14,ES_AUTOHSCROLL | WS_GROUP
+    LTEXT           "Level [%]",IDC_STATIC,153,147,35,8
 END
 
 IDD_EXPORTXLS_DIALOG DIALOG 0, 0, 226, 135
@@ -735,14 +737,6 @@ BEGIN
     EDITTEXT        IDC_GAINERROR_EDIT,103,125,19,12,ES_AUTOHSCROLL
 END
 
-IDD_WEB_UPDATE DIALOGEX 100, 100, 186, 46
-STYLE DS_SETFONT | WS_POPUP | WS_CAPTION
-EXSTYLE WS_EX_TOOLWINDOW
-CAPTION "Web update"
-FONT 8, "MS Sans Serif", 0, 0, 0x1
-BEGIN
-    CTEXT           "Connecting...",IDC_STATIC1,7,18,172,8
-END
 
 IDD_GENERATOR_KI_PROP_PAGE DIALOGEX 0, 0, 224, 254
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
@@ -1660,10 +1654,6 @@ BEGIN
     BEGIN
     END
 
-    IDD_WEB_UPDATE, DIALOG
-    BEGIN
-    END
-
     IDD_GENERATOR_KI_PROP_PAGE, DIALOG
     BEGIN
     END
@@ -1991,6 +1981,7 @@ BEGIN
         MENUITEM "Zoom -",                      IDM_GRAPH_Y_ZOOM_OUT
         MENUITEM SEPARATOR
         MENUITEM "&Help",                       IDM_HELP
+        MENUITEM "Buscar actualizaciones",           IDM_UPDATE_SOFT
     END
 END
 
@@ -2208,10 +2199,7 @@ BEGIN
     BEGIN
         MENUITEM "&Help\tF1",                   IDM_HELP
         MENUITEM "Colorimeter &Installation",   IDM_HELP_INSTALL
-        POPUP "Updates"
-        BEGIN
-            MENUITEM "Check for new software",      IDM_UPDATE_SOFT
-        END
+        MENUITEM "Buscar actualizaciones",           IDM_UPDATE_SOFT
         MENUITEM "&Support",                    IDM_HELP_SUPPORT
         MENUITEM SEPARATOR
         MENUITEM "About H&CFR ...",             ID_APP_ABOUT
@@ -2456,10 +2444,7 @@ BEGIN
         MENUITEM "&Help\tF1",                   IDM_HELP
         MENUITEM "Colorimeter &Installation",   IDM_HELP_INSTALL, INACTIVE
         MENUITEM "&Support",                    IDM_HELP_SUPPORT, INACTIVE
-        POPUP "Updates"
-        BEGIN
-            MENUITEM "Check for new software",      IDM_UPDATE_SOFT
-        END
+        MENUITEM "Buscar actualizaciones",           IDM_UPDATE_SOFT
         MENUITEM "HCFR &Forum",                 IDM_HELP_FORUM, INACTIVE
         MENUITEM SEPARATOR
         MENUITEM "About HCFR &Colorimeter...",  ID_APP_ABOUT
@@ -3872,7 +3857,9 @@ BEGIN
     IDM_PATTERN_ANIM_BLACK  "Display animated test pattern with two stripes at 1%% video level and 2%% video level on a black background\nAnimated black level test pattern"
     IDM_PATTERN_ANIM_WHITE  "Display animated test pattern with two stripes at 98%% video level and 99%% video level on a white background\nAnimated white level test pattern"
     ID_VIEW_SPECTRUM        "Display or hide spectrum window\nSpectrum"
-    IDM_UPDATE_SOFT         "Test if a new software release is available on hcfr.sourceforge.net website and download it\nDownload software updates"
+    IDM_UPDATE_SOFT         "Busca una nueva versión de HCFR en GitHub y la descarga\nBuscar actualizaciones"
+    IDS_UPDATE_RING_STABLE  "Solo versiones estables"
+    IDS_UPDATE_RING_PRERELEASE "Incluir versiones preliminares (beta)"
     IDM_UPDATE_ETALONS      "Download updated and new correction files from hcfr.sourceforge.net site\nDownload correction files"
     IDM_SINGLE_MEASUREMENT  "Perform a unique measure\nPerform a unique measure"
     IDM_CONTINUOUS_MEASUREMENT 
@@ -3904,15 +3891,10 @@ BEGIN
     IDS_MEASURESATCYAN_SIM  "Measure saturations for Cyan on all documents simultaneously ?\nWarning: actual data will be lost...\n\nNote: you can cancel measuring using ESCAPE key."
     IDS_MEASURESATMAGENTA_SIM 
                             "Measure saturations for Magenta on all documents simultaneously ?\nWarning: actual data will be lost...\n\nNote: you can cancel measuring using ESCAPE key."
-    IDS_UPD_IMPOSSIBLE      "Update impossible (remote access failed)."
-    IDS_NO_UPD              "There is no available update."
-    IDS_UPD_ASK_DOWNLOAD    "An update is available. Would you like to download it?"
-    IDS_UPD_DOWNLOAD_SUCCEED "The download succeeded."
 END
 
 STRINGTABLE
 BEGIN
-    IDS_UPD_DOWNLOAD_FAILED "The download failed."
     IDS_CONTRAST            "Contrast"
     IDS_OFFSET              "Offset"
     IDS_CONFIRMTRAINING     "Do you want to apply a correction to current document measures to match reference document values ?"

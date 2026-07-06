@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 /////////////////////////////////////////////////////////////////////////////
 
 #if !defined(AFX_GENERALPROPPAGE_H__822A7A51_CB51_4F23_8B29_D7BF5A335392__INCLUDED_)
@@ -45,6 +45,7 @@ public:
 	enum { IDD = IDD_GENERAL_PROP_PAGE };
 	BOOL	m_doMultipleInstance;
 	BOOL	m_doUpdateCheck;
+	int		m_updateRing;   // 0 = stable, 1 = include pre-releases (combo present only in updated language DLLs)
 	BOOL	m_bDisplayTestColors;
 	int		m_latencyTime;
 	int		m_ablFreq;
@@ -73,6 +74,7 @@ public:
 	//{{AFX_VIRTUAL(CGeneralPropPage)
 	public:
 	virtual BOOL OnApply();
+	virtual BOOL OnInitDialog();
 	protected:
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
 	//}}AFX_VIRTUAL
@@ -84,6 +86,7 @@ protected:
 		// NOTE: the ClassWizard will add member functions here
 	//}}AFX_MSG
 	afx_msg void OnControlClicked(UINT nID);
+	afx_msg void OnUpdateRingChanged();
 	DECLARE_MESSAGE_MAP()
 
 };
