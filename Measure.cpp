@@ -7586,6 +7586,13 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 		g = aRGBColor[1];
 		b = aRGBColor[2];
 
+		// Pure-primary patches (100% saturations) can round-trip through XYZ to a
+		// tiny negative channel value; pow()/EOTF below turn that into NaN, which
+		// invalidates the reference (blank dE, garbage Y target). Clamp to zero.
+		if (r < 0.) r = 0.;
+		if (g < 0.) g = 0.;
+		if (b < 0.) b = 0.;
+
 		double qr,qg,qb;
 		if (mode == 5 || mode == 7)
 		{

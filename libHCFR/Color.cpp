@@ -3134,7 +3134,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = TRUE;
 			strcat(appPath, "\\CM 10-Point Saturation (100AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 
@@ -3142,7 +3142,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = TRUE;
 			strcat(appPath, "\\CM 10-Point Saturation (75AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 	
@@ -3150,7 +3150,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = FALSE;
 			strcat(appPath, "\\CM 4-Point Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 
@@ -3158,7 +3158,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = FALSE;
 			strcat(appPath, "\\CM 5-Point Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 	
@@ -3166,7 +3166,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = FALSE;
 			strcat(appPath, "\\CM 10-Point Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 	
@@ -3174,7 +3174,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = TRUE;
 			strcat(appPath, "\\CM 4-Point Saturation (100AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 	
@@ -3182,7 +3182,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = TRUE;
 			strcat(appPath, "\\CM 4-Point Saturation (75AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 	
@@ -3190,7 +3190,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = TRUE;
 			strcat(appPath, "\\CM 5-Point Saturation (100AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 	
@@ -3198,7 +3198,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = TRUE;
 			strcat(appPath, "\\CM 5-Point Saturation (75AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 	
@@ -3206,112 +3206,112 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = FALSE;
 			strcat(appPath, "\\CM 6-Point Near Black.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 
 	case MASCIOR50:
         {//read in user defined colors
 			strcat(appPath, "\\Mascior50_50_BT2020_HDR.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 
 		case LG54017:
         {//read in user defined colors
 			strcat(appPath, "\\LG_540_Base_Tone_Curve_2017.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 
 		case LG100017:
         {//read in user defined colors
 			strcat(appPath, "\\LG_1000_Base_Tone_Curve_2017.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 
 		case LG400017:
         {//read in user defined colors
 			strcat(appPath, "\\LG_4000_Base_Tone_Curve_2017.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 
 		case LG54016:
         {//read in user defined colors
 			strcat(appPath, "\\LG_540_Base_Tone_Curve_2016.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 
 		case LGUK65XX:
 		{//read in user defined colors
 			strcat(appPath, "\\LG_UK65xx_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
 			break;
 		}
 
 		case LGOLEDV12018:
 		{//read in user defined colors
 			strcat(appPath, "\\LG_2018_V1_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
 			break;
 		}
 
 		case LGOLEDV22018:
 		{//read in user defined colors
 			strcat(appPath, "\\LG_2018_V2_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
 			break;
 		}
 
 		case LGOLEDV32018:
 		{//read in user defined colors
 			strcat(appPath, "\\LG_2018_V3_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
 			break;
 		}
 
 		case LGOLED102019:
 		{//read in user defined colors
 			strcat(appPath, "\\LG_2019_HDR10_10_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
 			break;
 		}
 
 		case LGOLED222019:
 		{//read in user defined colors
 			strcat(appPath, "\\LG_2019_HDR10_22_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
 			break;
 		}
 
 		case LGOLED102020:
 		{//read in user defined colors
 			strcat(appPath, "\\LG_2020_HDR10_10_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
 			break;
 		}
 
 		case LGOLED222020:
 		{//read in user defined colors
 			strcat(appPath, "\\LG_2020_HDR10_22_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
 			break;
 		}
 
 		case LGOLED102021:
 		{//read in user defined colors
 			strcat(appPath, "\\LG_2021_HDR10_10_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
 			break;
 		}
 
 		case LGOLED222021:
 		{//read in user defined colors
 			strcat(appPath, "\\LG_2021_HDR10_22_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
 			break;
 		}
 
@@ -3319,7 +3319,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = FALSE;
 			strcat(appPath, "\\CM Dynamic Range (Clipping).csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 
@@ -3327,7 +3327,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = FALSE;
 			strcat(appPath, "\\Random_250.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 	
@@ -3335,7 +3335,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         {//read in user defined colors
 			m_bRecalc = FALSE;
 			strcat(appPath, "\\Random_500.csv");
-			n_elements = ReadColorsFromCsv(GenColors, 100, appPath);
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
             break;
         }
 	}//switch
