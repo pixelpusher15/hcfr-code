@@ -175,6 +175,30 @@ CColorHCFRConfig::CColorHCFRConfig()
 			sprintf(m_logFileName, "%s\\ColorHCFR.log", szDir);
 			if (GetFileAttributes(m_iniFileName) == INVALID_FILE_ATTRIBUTES)
 				HcfrMigratePreviousIni(m_iniFileName, szExeIni);
+
+			// Pattern CSVs and the PDF report logo are read from %APPDATA%\color
+			// so users can customize them. Seed missing ones from the read-only
+			// copies installed in <exe folder>\data (no overwrite: user edits win).
+			char szSearch[MAX_PATH];
+			WIN32_FIND_DATA wfdData;
+			_snprintf(szSearch, sizeof(szSearch), "%sdata\\*.*", m_ApplicationPath);
+			szSearch[sizeof(szSearch) - 1] = '\0';
+			HANDLE hFindData = FindFirstFile(szSearch, &wfdData);
+			if (hFindData != INVALID_HANDLE_VALUE)
+			{
+				do
+				{
+					if (!(wfdData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+					{
+						char szSrc[MAX_PATH], szDst[MAX_PATH];
+						int nSrc = _snprintf(szSrc, sizeof(szSrc), "%sdata\\%s", m_ApplicationPath, wfdData.cFileName);
+						int nDst = _snprintf(szDst, sizeof(szDst), "%s\\%s", szDir, wfdData.cFileName);
+						if (nSrc > 0 && nSrc < (int)sizeof(szSrc) && nDst > 0 && nDst < (int)sizeof(szDst))
+							CopyFile(szSrc, szDst, TRUE);
+					}
+				} while (FindNextFile(hFindData, &wfdData));
+				FindClose(hFindData);
+			}
 		}
 	}
 
