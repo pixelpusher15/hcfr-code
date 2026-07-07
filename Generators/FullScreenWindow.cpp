@@ -47,6 +47,53 @@
 std::vector<CString> patterns;
 std::vector<int> patternsID;
 
+// ---------------------------------------------------------------------------
+// Per-Monitor-V2 DPI scope for the full-screen generator window
+//
+// ColorHCFR is declared System-DPI-aware (see ColorHCFR.manifest), so the whole
+// process is locked to the primary monitor's scale factor. On a multi-monitor
+// setup where the target display has a different DPI, GetMonitorInfo/SetWindowPos
+// then report and place this window in the *primary's* scaled coordinate space,
+// so it is sized wrong and Windows bitmap-virtualizes it -- it fails to fill the
+// target monitor physically.
+//
+// The full-screen window is just a flat colour / stretched-image fill driven by
+// GetClientRect, so it needs none of the WM_DPICHANGED rescaling the owner-drawn
+// main UI would require. We therefore make *just this window* Per-Monitor-V2
+// aware while it is created and positioned, using the documented mixed-mode DPI
+// mechanism. SetThreadDpiAwarenessContext is Win10 1607+ and PMv2 is 1703+, so
+// both are resolved dynamically because we target the Win7 SDK (same pattern as
+// GetDpiForWindow in ColorHCFRConfig.cpp). On a uniform-DPI desktop PMv2 and
+// System awareness yield identical physical coordinates, so this is a no-op
+// there and only diverges (correctly) when monitors differ.
+// ---------------------------------------------------------------------------
+#ifndef DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+	#define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ((HANDLE)-4)
+#endif
+
+static HANDLE SetThreadDpiContext ( HANDLE hContext )
+{
+	typedef HANDLE (WINAPI *SetThreadDpiAwarenessContextFn)(HANDLE);
+	static SetThreadDpiAwarenessContextFn pSet =
+		(SetThreadDpiAwarenessContextFn) GetProcAddress (
+			GetModuleHandle(_T("user32.dll")), "SetThreadDpiAwarenessContext");
+
+	if ( pSet != NULL )
+		return pSet ( hContext );
+	return NULL;
+}
+
+class CPerMonitorDpiScope
+{
+public:
+	CPerMonitorDpiScope ()
+		{ m_hPrevContext = SetThreadDpiContext ( DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ); }
+	~CPerMonitorDpiScope ()
+		{ if ( m_hPrevContext != NULL ) SetThreadDpiContext ( m_hPrevContext ); }
+private:
+	HANDLE	m_hPrevContext;
+};
+
 CFullScreenWindow::CFullScreenWindow(BOOL bTestOverlay)
 {
 	RECT			rect;
@@ -113,7 +160,12 @@ CFullScreenWindow::CFullScreenWindow(BOOL bTestOverlay)
 		rect.bottom = rect.top + OVERLAY_SMALL_HEIGHT;
 	}
 
-	hWnd = ::CreateWindowEx ( WS_EX_TOOLWINDOW, AfxRegisterWndClass ( 0, ::LoadCursor(NULL,IDC_ARROW) ), "", WS_POPUP, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, NULL, (HMENU) NULL, GetModuleHandle ( NULL ), NULL );
+	{
+		// Create the window Per-Monitor-V2 aware so it can physically fill a
+		// target monitor whose DPI differs from the primary. See note above.
+		CPerMonitorDpiScope dpiScope;
+		hWnd = ::CreateWindowEx ( WS_EX_TOOLWINDOW, AfxRegisterWndClass ( 0, ::LoadCursor(NULL,IDC_ARROW) ), "", WS_POPUP, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, NULL, (HMENU) NULL, GetModuleHandle ( NULL ), NULL );
+	}
 	SubclassWindow ( hWnd );
 	
 	patternsID.push_back(IDR_PATTERN_TESTIMG); 
@@ -297,6 +349,11 @@ void CFullScreenWindow::MoveToMonitor ( HMONITOR hMon )
 {
 	HWND			hDesktop;
 	MONITORINFO		mi;
+
+	// Query monitor bounds and reposition under Per-Monitor-V2 awareness so the
+	// rectangle and SetWindowPos are in the target monitor's physical pixels,
+	// not the primary's scaled space. See note above CPerMonitorDpiScope.
+	CPerMonitorDpiScope dpiScope;
 
 	if ( hMon )
 	{
@@ -2492,6 +2549,13 @@ void CFullScreenWindow::SetOverlayPosition ()
     DDOVERLAYFX		DDOverlayFX;
 	char			szMsg [ 256 ];
 	char			szError [ 256 ];
+
+	// Read the window rect under the same Per-Monitor-V2 awareness that MoveToMonitor
+	// used to capture m_ptMonitorPos, so both operands of the translation below are in
+	// physical pixels. This function is reached both from inside MoveToMonitor's scope
+	// and from DisplayRGBColorInternal (process-default System awareness); without this
+	// the two paths would compute different origins on an off-DPI monitor.
+	CPerMonitorDpiScope dpiScope;
 
 	GetWindowRect ( &rect );
 
