@@ -640,7 +640,15 @@ struct Elem_Bres
 // This algorythm is efficient with this simple shape, even when number of vertex is
 // very high. Pixel color is computed to match CIE diagram.
 
-void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowBlack, BOOL bCIEuv, BOOL bCIEab ) 
+void DrawCIEChartEx(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowBlack, BOOL bCIEuv, BOOL bCIEab, BOOL bHideLabels);
+
+// Backward-compatible wrapper: original callers keep the wavelength labels.
+void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowBlack, BOOL bCIEuv, BOOL bCIEab )
+{
+	DrawCIEChartEx(pDC, cxMax, cyMax, doFullChart, doShowBlack, bCIEuv, bCIEab, FALSE);
+}
+
+void DrawCIEChartEx(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowBlack, BOOL bCIEuv, BOOL bCIEab, BOOL bHideLabels ) 
 {
 	int			i, j, k, l;
 	int			MinY, MaxY;
@@ -786,7 +794,7 @@ void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowB
 		if ( nbptShape [ 0 ] == 0 || ptShape [ 0 ] [ nbptShape [ 0 ] ].y > ptShape [ 0 ] [ nbptShape [ 0 ] - 1 ].y )
 		{
 			// Accept this point
-			if ((i*2 % 20) == 0 && !bCIEab)
+			if ((i*2 % 20) == 0 && !bCIEab && !bHideLabels)
 			{
 				// Initializes a CFont object with the specified characteristics. 
 				CFont font;
@@ -879,7 +887,7 @@ void DrawCIEChart(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowB
 		if ( nbptShape [ 1 ] == 0 || ptShape [ 1 ] [ nbptShape [ 1 ] ].y > ptShape [ 1 ] [ nbptShape [ 1 ] - 1 ].y )
 		{
 			// 2nm increments label every 10nm mod(i*2 /10) = 0
-			if ((i*2 % 20) == 0 && !bCIEab)
+			if ((i*2 % 20) == 0 && !bCIEab && !bHideLabels)
 			{
 				// Initializes a CFont object with the specified characteristics. 
 				CFont font;

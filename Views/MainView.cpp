@@ -39,6 +39,7 @@
 #include "RGBHistoView.h"
 #include "ColorTempHistoView.h"
 #include "CIEChartView.h"
+#include "Color3DView.h"
 #include "MeasuresHistoView.h"
 #include "SatLumHistoView.h"
 #include "SatLumShiftView.h"
@@ -1154,6 +1155,12 @@ LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 
 		m_dwInitialUserInfo = 0;
 	}
+
+	// The 3D viewer entry is appended here rather than in the .rc DLGINIT so it
+	// appears in every language build without editing each resource; the guard
+	// below keeps it idempotent.
+	if ( m_comboDisplay.GetSafeHwnd () && m_comboDisplay.GetCount () < 14 )
+		m_comboDisplay.AddString ( _T("3D Viewer") );
 
 	//restore last saved info window
 	m_infoDisplay = GetConfig()->GetProfileInt("MainView","Info Display",5);
@@ -7548,6 +7555,30 @@ void CMainView::OnSelchangeInfoDisplay()
 			 m_pInfoWnd11 -> SetWindowPos ( pWnd, Rect.left + (Rect.right - Rect.left) / 3 * 2, Rect.top, (Rect.right - Rect.left) / 3, (Rect.bottom - Rect.top) , SWP_NOACTIVATE );
 			 
 			 break;
+
+		case 13: // 3D color viewer
+		{
+			C3DColorView * p3DColorView;
+
+			pFrame = new CSubFrame;
+			pFrame -> Create ( NULL, NULL, WS_CHILD | WS_VISIBLE, Rect, this );
+
+			context.m_pCurrentDoc = GetDocument ();
+			context.m_pCurrentFrame = pFrame;
+			context.m_pLastView = this;
+			context.m_pNewDocTemplate = GetDocument () -> GetDocTemplate ();
+			context.m_pNewViewClass = RUNTIME_CLASS ( C3DColorView );
+
+			p3DColorView = (C3DColorView *) context.m_pNewViewClass->CreateObject();
+			p3DColorView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
+			p3DColorView -> OnInitialUpdate ();
+			pFrame -> SetActiveView ( p3DColorView, FALSE );
+			pFrame -> OnSize ( 0, 0, 0 );
+
+			m_pInfoWnd = pFrame;
+			m_pInfoWnd -> SetWindowPos ( pWnd, Rect.left, Rect.top, (Rect.right - Rect.left), (Rect.bottom - Rect.top), SWP_NOACTIVATE );
+		}
+		break;
 
 		case 12: //auto
 				CMultiFrame * pActiveFrame = (CMultiFrame *) ( (CMainFrame *) AfxGetMainWnd () ) -> MDIGetActive();
