@@ -85,6 +85,26 @@ static inline DWORD DibColor(int r, int g, int b)
 	return ((DWORD)(r & 0xFF) << 16) | ((DWORD)(g & 0xFF) << 8) | (DWORD)(b & 0xFF);
 }
 
+// Blend src over dst (alpha 0..255), both 0x00RRGGBB DIB pixels.
+static inline DWORD BlendDib(DWORD src, DWORD dst, int a)
+{
+	int sr = ( src >> 16 ) & 0xFF, sg = ( src >> 8 ) & 0xFF, sb = src & 0xFF;
+	int dr = ( dst >> 16 ) & 0xFF, dg = ( dst >> 8 ) & 0xFF, db = dst & 0xFF;
+	return DibColor( ( sr * a + dr * ( 255 - a ) ) / 255,
+					 ( sg * a + dg * ( 255 - a ) ) / 255,
+					 ( sb * a + db * ( 255 - a ) ) / 255 );
+}
+
+// Gamma-encode a linear ColorRGB into a DIB swatch pixel so the dot reads
+// roughly like the patch on screen.
+static DWORD RgbSwatch(const ColorRGB & rgb)
+{
+	double r = pow( clampd( rgb[0], 0.0, 1.0 ), 1.0 / 2.2 );
+	double g = pow( clampd( rgb[1], 0.0, 1.0 ), 1.0 / 2.2 );
+	double b = pow( clampd( rgb[2], 0.0, 1.0 ), 1.0 / 2.2 );
+	return DibColor( (int)( r * 255.0 + 0.5 ), (int)( g * 255.0 + 0.5 ), (int)( b * 255.0 + 0.5 ) );
+}
+
 // dE heatmap: green (0) -> yellow (~3) -> red (>=6).
 static DWORD HeatColor(double dE)
 {
@@ -194,16 +214,9 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 	double mx, my, mz;
 	ToModel( xyz, whiteY, ref, mx, my, mz );
 
-	// Display colour: measured RGB, clamped and gamma-encoded so the swatch reads
-	// roughly like the patch on screen.
-	ColorRGB drgb = c.GetRGBValue( ref );
-	double r = pow( clampd( drgb[0], 0.0, 1.0 ), 1.0 / 2.2 );
-	double g = pow( clampd( drgb[1], 0.0, 1.0 ), 1.0 / 2.2 );
-	double b = pow( clampd( drgb[2], 0.0, 1.0 ), 1.0 / 2.2 );
-
 	ScenePoint p;
 	p.mx = (float)mx; p.my = (float)my; p.mz = (float)mz;
-	p.trueColor = DibColor( (int)( r * 255.0 + 0.5 ), (int)( g * 255.0 + 0.5 ), (int)( b * 255.0 + 0.5 ) );
+	p.trueColor = RgbSwatch( c.GetRGBValue( ref ) );
 	p.heatColor = p.trueColor;
 	p.tx = p.ty = p.tz = 0.0f;
 	p.dE = 0.0f;
@@ -248,11 +261,7 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 
 		// In non-heatmap mode, colour the dot by its TARGET colour: it identifies
 		// which patch this is regardless of how far off the display measured.
-		ColorRGB prgb = markerTarget.GetRGBValue( ref );
-		double pr = pow( clampd( prgb[0], 0.0, 1.0 ), 1.0 / 2.2 );
-		double pg = pow( clampd( prgb[1], 0.0, 1.0 ), 1.0 / 2.2 );
-		double pb = pow( clampd( prgb[2], 0.0, 1.0 ), 1.0 / 2.2 );
-		p.trueColor = DibColor( (int)( pr * 255.0 + 0.5 ), (int)( pg * 255.0 + 0.5 ), (int)( pb * 255.0 + 0.5 ) );
+		p.trueColor = RgbSwatch( markerTarget.GetRGBValue( ref ) );
 	}
 	m_points.push_back( p );
 }
@@ -389,6 +398,9 @@ void C3DColorView::BuildScene()
 	n = GetConfig()->GetCColorsSize();
 	if ( GetConfig()->m_CCMode == AXIS )
 		n = 71;
+	if ( n > MAX_USER_CC_PATCH_SIZE )
+		n = MAX_USER_CC_PATCH_SIZE;   // the measure arrays are allocated to this;
+									  // GetCC24Sat indexes unchecked past it
 	for ( i = 0; i < n; i++ )
 	{
 		CColor c = pMeasure->GetCC24Sat( i );
@@ -750,13 +762,7 @@ void C3DColorView::BlendPixel(int x, int y, float z, DWORD color, double alpha)
 	if ( z <= m_zbuf[idx] )
 		return;
 	if ( alpha > 1.0 ) alpha = 1.0;
-	DWORD d = m_bits[idx];
-	int a  = (int)( alpha * 255.0 + 0.5 );
-	int sr = ( color >> 16 ) & 0xFF, sg = ( color >> 8 ) & 0xFF, sb = color & 0xFF;
-	int dr = ( d >> 16 ) & 0xFF,     dg = ( d >> 8 ) & 0xFF,     db = d & 0xFF;
-	m_bits[idx] = DibColor( ( sr * a + dr * ( 255 - a ) ) / 255,
-							( sg * a + dg * ( 255 - a ) ) / 255,
-							( sb * a + db * ( 255 - a ) ) / 255 );
+	m_bits[idx] = BlendDib( color, m_bits[idx], (int)( alpha * 255.0 + 0.5 ) );
 }
 
 // Xiaolin Wu anti-aliased line with linear depth interpolation -- visually on a
@@ -822,31 +828,25 @@ void C3DColorView::RasterTriFlat(const double v[3][3], DWORD color, int alpha)
 	double x2 = v[2][0], y2 = v[2][1], z2 = v[2][2];
 	double denom = ( y1 - y2 ) * ( x0 - x2 ) + ( x2 - x1 ) * ( y0 - y2 );
 	if ( fabs( denom ) < 1e-9 ) return;
+	double invDen = 1.0 / denom;   // hoisted: division per pixel is measurable
 
 	int minx = (int)floor( min3( x0, x1, x2 ) ), maxx = (int)ceil( max3( x0, x1, x2 ) );
 	int miny = (int)floor( min3( y0, y1, y2 ) ), maxy = (int)ceil( max3( y0, y1, y2 ) );
 	if ( minx < 0 ) minx = 0; if ( miny < 0 ) miny = 0;
 	if ( maxx > w - 1 ) maxx = w - 1; if ( maxy > h - 1 ) maxy = h - 1;
 
-	int sr = ( color >> 16 ) & 0xFF, sg = ( color >> 8 ) & 0xFF, sb = color & 0xFF;
 	for ( int py = miny; py <= maxy; py++ )
 	{
 		for ( int px = minx; px <= maxx; px++ )
 		{
-			double b0 = ( ( y1 - y2 ) * ( px - x2 ) + ( x2 - x1 ) * ( py - y2 ) ) / denom;
-			double b1 = ( ( y2 - y0 ) * ( px - x2 ) + ( x0 - x2 ) * ( py - y2 ) ) / denom;
+			double b0 = ( ( y1 - y2 ) * ( px - x2 ) + ( x2 - x1 ) * ( py - y2 ) ) * invDen;
+			double b1 = ( ( y2 - y0 ) * ( px - x2 ) + ( x0 - x2 ) * ( py - y2 ) ) * invDen;
 			double b2 = 1.0 - b0 - b1;
 			if ( b0 < 0 || b1 < 0 || b2 < 0 ) continue;
 			double z = b0 * z0 + b1 * z1 + b2 * z2;
 			int idx = py * w + px;
 			if ( z > m_zbuf[idx] )
-			{
-				DWORD d = m_bits[idx];
-				int dr = ( d >> 16 ) & 0xFF, dg = ( d >> 8 ) & 0xFF, db = d & 0xFF;
-				m_bits[idx] = DibColor( ( sr * alpha + dr * ( 255 - alpha ) ) / 255,
-										( sg * alpha + dg * ( 255 - alpha ) ) / 255,
-										( sb * alpha + db * ( 255 - alpha ) ) / 255 );
-			}
+				m_bits[idx] = BlendDib( color, m_bits[idx], alpha );
 		}
 	}
 }
@@ -861,6 +861,7 @@ void C3DColorView::RasterTriTex(const double v[3][3], const double uv[3][2])
 	double x2 = v[2][0], y2 = v[2][1], z2 = v[2][2];
 	double denom = ( y1 - y2 ) * ( x0 - x2 ) + ( x2 - x1 ) * ( y0 - y2 );
 	if ( fabs( denom ) < 1e-9 ) return;
+	double invDen = 1.0 / denom;   // hoisted: division per pixel is measurable
 
 	int minx = (int)floor( min3( x0, x1, x2 ) ), maxx = (int)ceil( max3( x0, x1, x2 ) );
 	int miny = (int)floor( min3( y0, y1, y2 ) ), maxy = (int)ceil( max3( y0, y1, y2 ) );
@@ -871,8 +872,8 @@ void C3DColorView::RasterTriTex(const double v[3][3], const double uv[3][2])
 	{
 		for ( int px = minx; px <= maxx; px++ )
 		{
-			double b0 = ( ( y1 - y2 ) * ( px - x2 ) + ( x2 - x1 ) * ( py - y2 ) ) / denom;
-			double b1 = ( ( y2 - y0 ) * ( px - x2 ) + ( x0 - x2 ) * ( py - y2 ) ) / denom;
+			double b0 = ( ( y1 - y2 ) * ( px - x2 ) + ( x2 - x1 ) * ( py - y2 ) ) * invDen;
+			double b1 = ( ( y2 - y0 ) * ( px - x2 ) + ( x0 - x2 ) * ( py - y2 ) ) * invDen;
 			double b2 = 1.0 - b0 - b1;
 			if ( b0 < 0 || b1 < 0 || b2 < 0 ) continue;
 			double z = b0 * z0 + b1 * z1 + b2 * z2;
@@ -887,12 +888,7 @@ void C3DColorView::RasterTriTex(const double v[3][3], const double uv[3][2])
 				if ( ty < 0 ) ty = 0; if ( ty > m_texH - 1 ) ty = m_texH - 1;
 				// Blend the tongue toward the (dark) background so the floor reads
 				// as a translucent surface rather than a bright opaque one.
-				DWORD src = m_texBits[ty * m_texW + tx], dst = m_bits[idx];
-				int sr = ( src >> 16 ) & 0xFF, sg = ( src >> 8 ) & 0xFF, sb = src & 0xFF;
-				int dr = ( dst >> 16 ) & 0xFF, dg = ( dst >> 8 ) & 0xFF, db = dst & 0xFF;
-				m_bits[idx] = DibColor( ( sr * kFloorAlpha + dr * ( 255 - kFloorAlpha ) ) / 255,
-										( sg * kFloorAlpha + dg * ( 255 - kFloorAlpha ) ) / 255,
-										( sb * kFloorAlpha + db * ( 255 - kFloorAlpha ) ) / 255 );
+				m_bits[idx] = BlendDib( m_texBits[ty * m_texW + tx], m_bits[idx], kFloorAlpha );
 				m_zbuf[idx] = (float)z;
 			}
 		}

@@ -1118,14 +1118,15 @@ void CMainView::OnInitialUpdate()
 LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 {
 	// The 3D viewer entry is appended here rather than in the .rc DLGINIT so it
-	// appears in every language build without editing each resource; the guard
-	// below keeps it idempotent. It must run BEFORE the saved-workspace restore
+	// appears in every language build without editing each resource; the lookup
+	// keeps it idempotent. It must run BEFORE the saved-workspace restore
 	// so a layout saved on the 3D viewer can reselect entry 13.
-	if ( m_comboDisplay.GetSafeHwnd () && m_comboDisplay.GetCount () < 14 )
+	if ( m_comboDisplay.GetSafeHwnd () )
 	{
 		CString str3D;
 		str3D.LoadString ( IDS_3DVIEW_NAME );
-		m_comboDisplay.AddString ( str3D );
+		if ( m_comboDisplay.FindStringExact ( -1, str3D ) == CB_ERR )
+			m_comboDisplay.AddString ( str3D );
 	}
 
 	if ( m_dwInitialUserInfo != 0 )
