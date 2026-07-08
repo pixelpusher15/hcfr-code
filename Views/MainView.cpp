@@ -39,6 +39,7 @@
 #include "RGBHistoView.h"
 #include "ColorTempHistoView.h"
 #include "CIEChartView.h"
+#include "Color3DView.h"
 #include "MeasuresHistoView.h"
 #include "SatLumHistoView.h"
 #include "SatLumShiftView.h"
@@ -1116,6 +1117,18 @@ void CMainView::OnInitialUpdate()
 
 LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 {
+	// The 3D viewer entry is appended here rather than in the .rc DLGINIT so it
+	// appears in every language build without editing each resource; the lookup
+	// keeps it idempotent. It must run BEFORE the saved-workspace restore
+	// so a layout saved on the 3D viewer can reselect entry 13.
+	if ( m_comboDisplay.GetSafeHwnd () )
+	{
+		CString str3D;
+		str3D.LoadString ( IDS_3DVIEW_NAME );
+		if ( m_comboDisplay.FindStringExact ( -1, str3D ) == CB_ERR )
+			m_comboDisplay.AddString ( str3D );
+	}
+
 	if ( m_dwInitialUserInfo != 0 )
 	{
 		// Set m_displayMode
@@ -7548,6 +7561,30 @@ void CMainView::OnSelchangeInfoDisplay()
 			 m_pInfoWnd11 -> SetWindowPos ( pWnd, Rect.left + (Rect.right - Rect.left) / 3 * 2, Rect.top, (Rect.right - Rect.left) / 3, (Rect.bottom - Rect.top) , SWP_NOACTIVATE );
 			 
 			 break;
+
+		case 13: // 3D color viewer
+		{
+			C3DColorView * p3DColorView;
+
+			pFrame = new CSubFrame;
+			pFrame -> Create ( NULL, NULL, WS_CHILD | WS_VISIBLE, Rect, this );
+
+			context.m_pCurrentDoc = GetDocument ();
+			context.m_pCurrentFrame = pFrame;
+			context.m_pLastView = this;
+			context.m_pNewDocTemplate = GetDocument () -> GetDocTemplate ();
+			context.m_pNewViewClass = RUNTIME_CLASS ( C3DColorView );
+
+			p3DColorView = (C3DColorView *) context.m_pNewViewClass->CreateObject();
+			p3DColorView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
+			p3DColorView -> OnInitialUpdate ();
+			pFrame -> SetActiveView ( p3DColorView, FALSE );
+			pFrame -> OnSize ( 0, 0, 0 );
+
+			m_pInfoWnd = pFrame;
+			m_pInfoWnd -> SetWindowPos ( pWnd, Rect.left, Rect.top, (Rect.right - Rect.left), (Rect.bottom - Rect.top), SWP_NOACTIVATE );
+		}
+		break;
 
 		case 12: //auto
 				CMultiFrame * pActiveFrame = (CMultiFrame *) ( (CMainFrame *) AfxGetMainWnd () ) -> MDIGetActive();

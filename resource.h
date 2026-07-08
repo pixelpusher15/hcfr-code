@@ -1857,6 +1857,17 @@
 #define IDS_DEPRESET_PROFESSIONAL      59526
 #define IDS_DEPRESET_CONSUMER          59527
 #define IDS_DEPRESET_RELAXED           59528
+#define IDS_3DVIEW_NAME                 59529
+#define IDS_3DVIEW_COLORSPACE           59530
+#define IDS_3DVIEW_POINTCOLOR           59531
+#define IDS_3DVIEW_PC_DE                59532
+#define IDS_3DVIEW_PC_TARGET            59533
+#define IDS_3DVIEW_PC_PLAIN             59534
+#define IDS_3DVIEW_SHOWGAMUT            59535
+#define IDS_3DVIEW_SHADEGAMUT           59536
+#define IDS_3DVIEW_SHOWFLOOR            59537
+#define IDS_3DVIEW_SHOWTAILS            59538
+#define IDS_3DVIEW_RESETVIEW            59539
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
 #define ID_TARGET_TOL_FIRST             33108
