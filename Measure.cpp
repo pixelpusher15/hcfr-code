@@ -88,11 +88,22 @@ namespace {
 struct SweepActiveGuard
 {
     BOOL m_owned;
-    explicit SweepActiveGuard(CMeasure * p) : m_owned(!g_bMeasureSweepActive)
+    CMeasure * m_pMeasure;
+    explicit SweepActiveGuard(CMeasure * p) : m_owned(!g_bMeasureSweepActive), m_pMeasure(p)
     {
-        if (m_owned) { g_bMeasureSweepActive = TRUE; if (p) p->m_bAbortSweep = FALSE; }
+        if (m_owned) { g_bMeasureSweepActive = TRUE; p->m_bAbortSweep = FALSE; }
     }
-    ~SweepActiveGuard() { if (m_owned) g_bMeasureSweepActive = FALSE; }
+    // Clearing m_binMeasure here covers every early return (ESC cancel, sensor
+    // abort, init failure); success paths still clear it explicitly before
+    // their final UpdateViews so views repaint with the flag already down.
+    ~SweepActiveGuard()
+    {
+        if (m_owned)
+        {
+            m_pMeasure->m_binMeasure = FALSE;
+            g_bMeasureSweepActive = FALSE;
+        }
+    }
     BOOL Owned() const { return m_owned; }
 };
 }
