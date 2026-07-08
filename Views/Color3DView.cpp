@@ -63,9 +63,9 @@ static const double kFloorDrop = 0.03;
 // curves, more triangles.
 static const int kGamutN = 12;
 
-// Camera distance for the mild perspective (model units; scene radius ~2.3).
-// Larger = flatter/more orthographic.
-static const double kCamDist = 8.0;
+// Camera distance for the perspective projection (model units; scene radius
+// ~2.3). Larger = flatter/more orthographic; 5.0 chosen by eye.
+static const double kCamDist = 5.0;
 
 // CIE floor subdivisions: under perspective an affine texture map warps across
 // large triangles, so the floor quad is rasterized as an NxN grid instead.
