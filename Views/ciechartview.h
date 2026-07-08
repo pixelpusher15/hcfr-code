@@ -169,6 +169,12 @@ protected:
 // Attributes
 	BOOL	m_bDelayedUpdate;
 
+	// Set when a realtime hint arrives mid-sweep: the next OnDraw paints just
+	// the new measurement over the retained chart bitmap instead of running a
+	// full DrawChart pass (which re-derives every reference point and tooltip,
+	// and made sweeps several times slower while this chart was visible).
+	BOOL	m_bRealtimeIncrement;
+
 	CCIEChartGrapher m_Grapher;
 
 	double	m_refDeltaE;
