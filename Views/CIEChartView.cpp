@@ -2691,6 +2691,7 @@ CCIEChartView::CCIEChartView()
 	: CSavingView()
 {
 	m_bDelayedUpdate = FALSE;
+	m_bRealtimeIncrement = FALSE;
 }
 
 CCIEChartView::~CCIEChartView()
@@ -2791,7 +2792,16 @@ void CCIEChartView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		GetReferenceRect ( & Rect );
 		if (lHint != UPD_FREEMEASURES && lHint != UPD_REALTIME && lHint != UPD_FREEMEASUREAPPENDED && !GetDocument()->GetMeasure()->m_binMeasure)
 			m_Grapher.MakeBgBitmap(Rect,GetConfig()->m_bWhiteBkgndOnScreen);
+		// A realtime hint during a sweep adds exactly one measurement: paint it
+		// incrementally. The sweep-end update comes as a non-realtime hint with
+		// m_binMeasure off, which repaints everything (targets, tooltips, dE).
+		if ( lHint >= UPD_REALTIME && GetDocument()->GetMeasure()->m_binMeasure )
+			m_bRealtimeIncrement = TRUE;
 		RedrawWindow( NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW );
+		// The flag must not outlive the synchronous repaint above: if the paint
+		// was skipped (window clipped to nothing), a later unrelated WM_PAINT
+		// would otherwise take the incremental path instead of a full redraw.
+		m_bRealtimeIncrement = FALSE;
 	}
 	else
 	{
@@ -2851,7 +2861,29 @@ void CCIEChartView::OnDraw(CDC* pDC)
 	CDC dcDraw;
 	dcDraw.CreateCompatibleDC(pDC);
 	CBitmap *pOldBitmap=dcDraw.SelectObject(&m_Grapher.m_drawBitmap);
-	m_Grapher.DrawChart ( GetDocument (), & dcDraw, refrect, & m_tooltip, this );
+	if ( m_bRealtimeIncrement )
+	{
+		// Mid-sweep: the retained bitmap already shows the chart as of the
+		// previous patch; add the just-measured point as a plain dot. Marker
+		// styling, dE colouring and tooltips are restored by the full repaint
+		// at sweep end.
+		CDataSetDoc * pDoc = GetDocument ();
+		if ( pDoc->m_SelectedColor.isValid() )
+		{
+			double YWhite = 1.0;
+			if ( pDoc->GetMeasure()->GetPrimeWhite().isValid() )
+				YWhite = pDoc->GetMeasure()->GetPrimeWhite() [ 1 ];
+			else if ( pDoc->GetMeasure()->GetOnOffWhite().isValid() )
+				YWhite = pDoc->GetMeasure()->GetOnOffWhite() [ 1 ];
+
+			CCIEGraphPoint newPoint ( pDoc->m_SelectedColor.GetXYZValue(), YWhite, "", m_Grapher.m_bCIEuv, m_Grapher.m_bCIEab );
+			m_Grapher.DrawGdiPlusMarker ( & dcDraw, & m_Grapher.m_measurePlotBitmap,
+				newPoint.GetGraphX(refrect), newPoint.GetGraphY(refrect), newPoint, false );
+		}
+	}
+	else
+		m_Grapher.DrawChart ( GetDocument (), & dcDraw, refrect, & m_tooltip, this );
+	m_bRealtimeIncrement = FALSE;
 	pDC->BitBlt(0,0,rect.Width(),rect.Height(),&dcDraw,-m_Grapher.m_DeltaX,-m_Grapher.m_DeltaY,SRCCOPY);
 	dcDraw.SelectObject(pOldBitmap);
 }

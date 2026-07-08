@@ -1159,11 +1159,12 @@ void CDataSetDoc::MeasureGrayScale()
 	StopBackgroundMeasures ();
 	MeasureButtonStopScope _btn(this);
 
+	// Views resync even when the sweep is cancelled or fails: a cancelled
+	// sweep keeps the patches measured so far, and the CIE chart relies on
+	// this update to leave its incremental realtime rendering mode.
 	if(m_measure.MeasureGrayScale(m_pSensor,m_pGenerator, this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_GRAYSCALE);
-	}
+	UpdateAllViews(NULL, UPD_GRAYSCALE);
 }
 
 void CDataSetDoc::MeasureGrayScaleAndColors() 
@@ -1172,10 +1173,8 @@ void CDataSetDoc::MeasureGrayScaleAndColors()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureGrayScaleAndColors(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_GRAYSCALEANDCOLORS);
-	}
+	UpdateAllViews(NULL, UPD_GRAYSCALEANDCOLORS);
 }
 
 void CDataSetDoc::MeasureNearBlackScale() 
@@ -1184,10 +1183,8 @@ void CDataSetDoc::MeasureNearBlackScale()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureNearBlackScale(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_NEARBLACK);
-	}
+	UpdateAllViews(NULL, UPD_NEARBLACK);
 }
 
 void CDataSetDoc::MeasureNearWhiteScale() 
@@ -1196,10 +1193,8 @@ void CDataSetDoc::MeasureNearWhiteScale()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureNearWhiteScale(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_NEARWHITE);
-	}
+	UpdateAllViews(NULL, UPD_NEARWHITE);
 }
 
 void CDataSetDoc::MeasureRedSatScale() 
@@ -1208,10 +1203,8 @@ void CDataSetDoc::MeasureRedSatScale()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureRedSatScale(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_REDSAT);
-	}
+	UpdateAllViews(NULL, UPD_REDSAT);
 }
 
 void CDataSetDoc::MeasureGreenSatScale() 
@@ -1220,10 +1213,8 @@ void CDataSetDoc::MeasureGreenSatScale()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureGreenSatScale(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_GREENSAT);
-	}
+	UpdateAllViews(NULL, UPD_GREENSAT);
 }
 
 void CDataSetDoc::MeasureBlueSatScale() 
@@ -1232,10 +1223,8 @@ void CDataSetDoc::MeasureBlueSatScale()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureBlueSatScale(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_BLUESAT);
-	}
+	UpdateAllViews(NULL, UPD_BLUESAT);
 }
 
 void CDataSetDoc::MeasureYellowSatScale() 
@@ -1244,10 +1233,8 @@ void CDataSetDoc::MeasureYellowSatScale()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureYellowSatScale(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_YELLOWSAT);
-	}
+	UpdateAllViews(NULL, UPD_YELLOWSAT);
 }
 
 void CDataSetDoc::MeasureCyanSatScale() 
@@ -1256,10 +1243,8 @@ void CDataSetDoc::MeasureCyanSatScale()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureCyanSatScale(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_CYANSAT);
-	}
+	UpdateAllViews(NULL, UPD_CYANSAT);
 }
 
 void CDataSetDoc::MeasureMagentaSatScale() 
@@ -1268,20 +1253,16 @@ void CDataSetDoc::MeasureMagentaSatScale()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureMagentaSatScale(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_MAGENTASAT);
-	}
+	UpdateAllViews(NULL, UPD_MAGENTASAT);
 }
 
 void CDataSetDoc::MeasureCC24SatScale() 
 {
 	StopBackgroundMeasures ();
 	if(m_measure.MeasureCC24SatScale(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_CC24SAT);
-	}
+	UpdateAllViews(NULL, UPD_CC24SAT);
 }
 
 void CDataSetDoc::MeasureAllSaturationScales() 
@@ -1290,10 +1271,8 @@ void CDataSetDoc::MeasureAllSaturationScales()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureAllSaturationScales(m_pSensor,m_pGenerator,FALSE,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_ALLSATURATIONS);
-	}
+	UpdateAllViews(NULL, UPD_ALLSATURATIONS);
 }
 
 void CDataSetDoc::MeasurePrimarySaturationScales() 
@@ -1302,10 +1281,8 @@ void CDataSetDoc::MeasurePrimarySaturationScales()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasurePrimarySecondarySaturationScales(m_pSensor,m_pGenerator,TRUE,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_ALLSATURATIONS);
-	}
+	UpdateAllViews(NULL, UPD_ALLSATURATIONS);
 }
 
 void CDataSetDoc::MeasurePrimarySecondarySaturationScales() 
@@ -1314,10 +1291,8 @@ void CDataSetDoc::MeasurePrimarySecondarySaturationScales()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasurePrimarySecondarySaturationScales(m_pSensor,m_pGenerator,FALSE,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_ALLSATURATIONS);
-	}
+	UpdateAllViews(NULL, UPD_ALLSATURATIONS);
 }
 
 void CDataSetDoc::MeasurePrimaries() 
@@ -1326,10 +1301,8 @@ void CDataSetDoc::MeasurePrimaries()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasurePrimaries(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_PRIMARIES);
-	}
+	UpdateAllViews(NULL, UPD_PRIMARIES);
 }
 
 void CDataSetDoc::MeasureSecondaries() 
@@ -1338,10 +1311,8 @@ void CDataSetDoc::MeasureSecondaries()
 	MeasureButtonStopScope _btn(this);
 
 	if(m_measure.MeasureSecondaries(m_pSensor,m_pGenerator,this))
-	{
 		SetModifiedFlag(m_measure.IsModified());
-		UpdateAllViews(NULL, UPD_SECONDARIES);
-	}
+	UpdateAllViews(NULL, UPD_SECONDARIES);
 }
 
 void CDataSetDoc::MeasureContrast()
