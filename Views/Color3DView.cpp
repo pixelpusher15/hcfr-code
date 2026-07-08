@@ -63,6 +63,14 @@ static const double kFloorDrop = 0.03;
 // curves, more triangles.
 static const int kGamutN = 12;
 
+// Camera distance for the mild perspective (model units; scene radius ~2.3).
+// Larger = flatter/more orthographic.
+static const double kCamDist = 8.0;
+
+// CIE floor subdivisions: under perspective an affine texture map warps across
+// large triangles, so the floor quad is rasterized as an NxN grid instead.
+static const int kFloorGridN = 8;
+
 // Translucency (0..255) of the shaded gamut faces and the CIE tongue floor.
 static const int kGamutFaceAlpha = 16;
 static const int kFloorAlpha     = 115;
@@ -705,8 +713,12 @@ void C3DColorView::ProjectModel(double mx, double my, double mz,
 	double z1 = -mx * m_rsy + mz * m_ry;
 	double y2 =  my * m_rp - z1 * m_rsp;
 	double z2 =  my * m_rsp + z1 * m_rp;
-	sx = m_cx + m_scale * x1;
-	sy = m_cyc - m_scale * y2;
+	// mild perspective: nearer geometry (larger z2) projects slightly larger
+	double den = kCamDist - z2;
+	if ( den < 0.5 ) den = 0.5;
+	double k = kCamDist / den;
+	sx = m_cx + m_scale * x1 * k;
+	sy = m_cyc - m_scale * y2 * k;
 	depth = z2;                    // larger == nearer the viewer
 }
 
@@ -915,25 +927,34 @@ void C3DColorView::Render(const CRect& rc)
 	m_ry = cos( m_yaw );  m_rsy = sin( m_yaw );
 	m_rp = cos( m_pitch ); m_rsp = sin( m_pitch );
 
-	// 1) CIE tongue floor (xyY only), at the Y=0 plane (my = -1)
+	// 1) CIE tongue floor (xyY only), just below the Y=0 plane. Rasterized as a
+	// grid of small quads so the affine texture mapping stays accurate under
+	// the perspective projection.
 	if ( m_showFloor && m_space == SPACE_XYY && m_texBits != NULL )
 	{
-		double fx[4] = { kFloorX0, kFloorX1, kFloorX1, kFloorX0 };
-		double fy[4] = { kFloorY0, kFloorY0, kFloorY1, kFloorY1 };
-		double sv[4][3], uv[4][2];
-		for ( int k = 0; k < 4; k++ )
-		{
-			double mx = ( fx[k] - 0.3 ) / 0.35, mz = ( fy[k] - 0.3 ) / 0.35;
-			ProjectModel( mx, -kLumStretchXYY - kFloorDrop, mz, sv[k][0], sv[k][1], sv[k][2] );  // just below Y=0
-			uv[k][0] = ( fx[k] + 0.075 ) / 0.9;
-			uv[k][1] = 1.0 - ( fy[k] + 0.05 ) / 1.0;
-		}
-		double a[3][3]  = { { sv[0][0], sv[0][1], sv[0][2] }, { sv[1][0], sv[1][1], sv[1][2] }, { sv[2][0], sv[2][1], sv[2][2] } };
-		double auv[3][2] = { { uv[0][0], uv[0][1] }, { uv[1][0], uv[1][1] }, { uv[2][0], uv[2][1] } };
-		RasterTriTex( a, auv );
-		double b[3][3]  = { { sv[0][0], sv[0][1], sv[0][2] }, { sv[2][0], sv[2][1], sv[2][2] }, { sv[3][0], sv[3][1], sv[3][2] } };
-		double buv[3][2] = { { uv[0][0], uv[0][1] }, { uv[2][0], uv[2][1] }, { uv[3][0], uv[3][1] } };
-		RasterTriTex( b, buv );
+		const int FN = kFloorGridN;
+		for ( int gi = 0; gi < FN; gi++ )
+			for ( int gj = 0; gj < FN; gj++ )
+			{
+				double fx[4], fy[4], sv[4][3], uv[4][2];
+				fx[0] = fx[3] = kFloorX0 + ( kFloorX1 - kFloorX0 ) * gi / FN;
+				fx[1] = fx[2] = kFloorX0 + ( kFloorX1 - kFloorX0 ) * ( gi + 1 ) / FN;
+				fy[0] = fy[1] = kFloorY0 + ( kFloorY1 - kFloorY0 ) * gj / FN;
+				fy[2] = fy[3] = kFloorY0 + ( kFloorY1 - kFloorY0 ) * ( gj + 1 ) / FN;
+				for ( int k = 0; k < 4; k++ )
+				{
+					double mx = ( fx[k] - 0.3 ) / 0.35, mz = ( fy[k] - 0.3 ) / 0.35;
+					ProjectModel( mx, -kLumStretchXYY - kFloorDrop, mz, sv[k][0], sv[k][1], sv[k][2] );
+					uv[k][0] = ( fx[k] + 0.075 ) / 0.9;
+					uv[k][1] = 1.0 - ( fy[k] + 0.05 ) / 1.0;
+				}
+				double a[3][3]   = { { sv[0][0], sv[0][1], sv[0][2] }, { sv[1][0], sv[1][1], sv[1][2] }, { sv[2][0], sv[2][1], sv[2][2] } };
+				double auv[3][2] = { { uv[0][0], uv[0][1] }, { uv[1][0], uv[1][1] }, { uv[2][0], uv[2][1] } };
+				RasterTriTex( a, auv );
+				double b[3][3]   = { { sv[0][0], sv[0][1], sv[0][2] }, { sv[2][0], sv[2][1], sv[2][2] }, { sv[3][0], sv[3][1], sv[3][2] } };
+				double buv[3][2] = { { uv[0][0], uv[0][1] }, { uv[2][0], uv[2][1] }, { uv[3][0], uv[3][1] } };
+				RasterTriTex( b, buv );
+			}
 	}
 
 	// 2) measured points (opaque, z-tested)
