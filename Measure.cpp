@@ -91,7 +91,7 @@ struct SweepActiveGuard
     CMeasure * m_pMeasure;
     explicit SweepActiveGuard(CMeasure * p) : m_owned(!g_bMeasureSweepActive), m_pMeasure(p)
     {
-        if (m_owned) { g_bMeasureSweepActive = TRUE; if (p) p->m_bAbortSweep = FALSE; }
+        if (m_owned) { g_bMeasureSweepActive = TRUE; p->m_bAbortSweep = FALSE; }
     }
     // Clearing m_binMeasure here covers every early return (ESC cancel, sensor
     // abort, init failure); success paths still clear it explicitly before
@@ -100,7 +100,7 @@ struct SweepActiveGuard
     {
         if (m_owned)
         {
-            if (m_pMeasure) m_pMeasure->m_binMeasure = FALSE;
+            m_pMeasure->m_binMeasure = FALSE;
             g_bMeasureSweepActive = FALSE;
         }
     }
