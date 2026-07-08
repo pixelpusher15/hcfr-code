@@ -4805,15 +4805,12 @@ void CDataSetDoc::OnUpdateMeasureSatAll(CCmdUI* pCmdUI)
 	pCmdUI -> Enable ( m_pGenerator -> CanDisplayScale ( CGenerator::MT_SAT_ALL, GetMeasure () -> GetSaturationSize(), TRUE ) );
 }
 
-void CDataSetDoc::OnMeasureSatAllLevels()
+// Configured stimulus-capture levels (fractions 0..1), shared by the grid's
+// stimulus dropdown and the "measure all levels" commands.
+static void ParseSatStimLevels(std::vector<double> & levels)
 {
-	StopBackgroundMeasures ();
-	MeasureButtonStopScope _btn(this);
-
-	// Configured capture levels: percent list shared with the grid's stimulus
-	// dropdown ("Scale Sizes" > "SatStimLevels").
+	levels.clear ();
 	CString strLevels = GetConfig () -> GetProfileString ( "Scale Sizes", "SatStimLevels", "25 50 75 100" );
-	std::vector<double> levels;
 	LPCSTR p = (LPCSTR) strLevels;
 	while ( *p )
 	{
@@ -4827,6 +4824,15 @@ void CDataSetDoc::OnMeasureSatAllLevels()
 	}
 	if ( levels.empty () )
 		levels.push_back ( 1.0 );
+}
+
+void CDataSetDoc::OnMeasureSatAllLevels()
+{
+	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
+
+	std::vector<double> levels;
+	ParseSatStimLevels ( levels );
 
 	CString	Msg, TmpStr;
 	Msg = "This will measure the six saturation sweeps at";
@@ -4852,6 +4858,51 @@ void CDataSetDoc::OnMeasureSatAllLevels()
 void CDataSetDoc::OnUpdateMeasureSatAllLevels(CCmdUI* pCmdUI)
 {
 	pCmdUI -> Enable ( m_pGenerator -> CanDisplayScale ( CGenerator::MT_SAT_ALL, GetMeasure () -> GetSaturationSize(), TRUE ) );
+}
+
+// Measure a single hue's saturation sweep at every configured stimulus level.
+// hue: 0=Red 1=Green 2=Blue 3=Yellow 4=Cyan 5=Magenta (matches sat grid modes 5-10).
+void CDataSetDoc::MeasureSatColorAllLevels(int hue)
+{
+	if ( hue < 0 || hue > 5 )
+		return;
+
+	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
+
+	std::vector<double> levels;
+	ParseSatStimLevels ( levels );
+
+	static const char * const hueName[6] = { "red", "green", "blue", "yellow", "cyan", "magenta" };
+	CString	Msg, TmpStr;
+	Msg.Format ( "This will measure the %s saturation sweep at", hueName[hue] );
+	TmpStr.Format ( " %d stimulus levels (%d patches).\nContinue?",
+		(int) levels.size (), (int) levels.size () * GetMeasure () -> GetSaturationSize () );
+	Msg += TmpStr;
+	if ( GetColorApp()->InMeasureMessageBox ( Msg, "Saturation at all levels", MB_ICONQUESTION | MB_YESNO ) != IDYES )
+		return;
+
+	for ( size_t k = 0; k < levels.size (); k++ )
+	{
+		m_measure.BindSatLevel ( levels[k] );
+		UpdateAllViews ( NULL, UPD_ALLSATURATIONS );	// views track the level being captured
+
+		BOOL ok = FALSE;
+		switch ( hue )
+		{
+			case 0: ok = m_measure.MeasureRedSatScale     ( m_pSensor, m_pGenerator, this ); break;
+			case 1: ok = m_measure.MeasureGreenSatScale   ( m_pSensor, m_pGenerator, this ); break;
+			case 2: ok = m_measure.MeasureBlueSatScale    ( m_pSensor, m_pGenerator, this ); break;
+			case 3: ok = m_measure.MeasureYellowSatScale  ( m_pSensor, m_pGenerator, this ); break;
+			case 4: ok = m_measure.MeasureCyanSatScale    ( m_pSensor, m_pGenerator, this ); break;
+			case 5: ok = m_measure.MeasureMagentaSatScale ( m_pSensor, m_pGenerator, this ); break;
+		}
+		if ( ! ok )
+			break;	// aborted or failed: keep the levels already measured
+
+		SetModifiedFlag ( m_measure.IsModified () );
+		UpdateAllViews ( NULL, UPD_ALLSATURATIONS );
+	}
 }
 
 void CDataSetDoc::OnMeasureGrayscaleColors() 

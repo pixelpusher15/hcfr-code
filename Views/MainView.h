@@ -114,6 +114,7 @@ public:
 	CComboBox	m_comboDisplay;
 	CButtonST	m_testAnsiPatternButton;
 	CButtonST	m_refs;
+	CButtonST	m_satAllLevelsButton;	// runtime-created; sat modes only: measure this hue at every stim level
 	CComboBox	m_comboDisplayType;	// Display-type dropdown (runtime-created, replaces the 5 radios)
 	CComboBox	m_comboSteps;	// per-mode pattern-steps dropdown (runtime-created, under the mode combo)
 	CComboBox	m_comboStimLevel;	// saturation stimulus-level dropdown (runtime-created, sat modes only)
@@ -279,6 +280,7 @@ public:
 	afx_msg void OnSelchangeDisplayType();
 	afx_msg void OnSelchangeComboSteps();
 	afx_msg void OnSelchangeComboStimLevel();
+	afx_msg void OnMeasureSatColorAllLevels();
 	afx_msg void OnSizePlus();
 	afx_msg void OnSizeMinus();
 

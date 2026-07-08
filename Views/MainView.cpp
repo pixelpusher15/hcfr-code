@@ -148,6 +148,9 @@ static const SCtrlLayout g_DisplayComboLayout =
 static const SCtrlLayout g_ParamComboLayout =
 { IDC_PARAMSTEPS_COMBO, LAYOUT_LEFT, LAYOUT_LEFT, LAYOUT_TOP, LAYOUT_TOP };
 
+static const SCtrlLayout g_ActionBtnLayout =
+{ IDC_MEASURESATALLLEVELS_BUTTON, LAYOUT_RIGHT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
+
 
 static COLORREF ButtonFaceColor();
 static COLORREF ButtonHoverColor();
@@ -519,6 +522,7 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_NOTIFY(UDN_DELTAPOS, IDC_SPIN_VIEW, OnDeltaposSpinView)
 	ON_BN_CLICKED(IDC_ANSICONTRAST_PATTERN_TEST_BUTTON, OnAnsiContrastPatternTestButton)
 	ON_BN_CLICKED(IDC_REFS_BUTTON, OnRefs)
+	ON_BN_CLICKED(IDC_MEASURESATALLLEVELS_BUTTON, OnMeasureSatColorAllLevels)
 	ON_EN_CHANGE(IDC_INFO_VIEW, OnChangeInfosEdit)
 	//}}AFX_MSG_MAP
 	// Standard printing commands
@@ -723,7 +727,7 @@ void CMainView::LayoutTopRow()
 		SCtrlInitPos *pGGrp=NULL,*pGName=NULL,*pGGear=NULL;
 		SCtrlInitPos *pPGrp=NULL,*pRef=NULL,*pXYZ=NULL;
 		SCtrlInitPos *pDisp=NULL,*pDispCombo=NULL,*pGo=NULL,*pDel=NULL,*pRefsBtn=NULL,*pAnsi=NULL;
-		SCtrlInitPos *pSteps=NULL,*pStim=NULL,*pModeLbl=NULL,*pStepsLbl=NULL,*pStimLbl=NULL;
+		SCtrlInitPos *pSteps=NULL,*pStim=NULL,*pModeLbl=NULL,*pStepsLbl=NULL,*pStimLbl=NULL,*pSatAll=NULL;
 		POSITION lp = m_CtrlInitPos.GetHeadPosition();
 		while (lp)
 		{
@@ -756,6 +760,7 @@ void CMainView::LayoutTopRow()
 			case IDC_DELETEGRAYSCALE_BUTTON:            pDel=e;       break;
 			case IDC_REFS_BUTTON:                       pRefsBtn=e;   break;
 			case IDC_ANSICONTRAST_PATTERN_TEST_BUTTON:  pAnsi=e;      break;
+			case IDC_MEASURESATALLLEVELS_BUTTON:        pSatAll=e;    break;
 			}
 		}
 		if (pView && pSGrp && pGGrp && pPGrp && pRef && pXYZ && pAvg && pGGrid)
@@ -910,7 +915,11 @@ void CMainView::LayoutTopRow()
 				int bh  = pGo ? (pGo->m_Rect.bottom - pGo->m_Rect.top) : cfg->Scale(27);
 				int bgap = cfg->Scale(4);
 				int by  = dGrpBot + cfg->Scale(5);   // +2px: nudge the Go/Delete/Refs container down
+				bool bSatMode = ( m_displayMode >= 5 && m_displayMode <= 10 );
 				if (pGo)      { pGo->m_Rect  = CRect(bx0, by, bx1, by + bh); by += bh + bgap; }
+				// "All levels" sits right under Go (both are measure actions); sat modes only.
+				// It just adds a row in the empty space below; the other buttons keep their size.
+				if (pSatAll && bSatMode) { pSatAll->m_Rect = CRect(bx0, by, bx1, by + bh); by += bh + bgap; }
 				if (pDel)     { pDel->m_Rect = CRect(bx0, by, bx1, by + bh); by += bh + bgap; }
 				if (pRefsBtn) pRefsBtn->m_Rect = CRect(bx0, by, bx1, by + bh);
 				if (pAnsi)    pAnsi->m_Rect    = CRect(bx0, by, bx1, by + bh);   // shares the Refs slot
@@ -5623,6 +5632,8 @@ void CMainView::OnSelchangeComboMode()
 		m_testAnsiPatternButton.ShowWindow ( SW_HIDE );
 		m_refs.ShowWindow ( SW_SHOW );
 	}
+	if ( m_satAllLevelsButton.GetSafeHwnd () )
+		m_satAllLevelsButton.ShowWindow ( ( m_displayMode >= 5 && m_displayMode <= 10 ) ? SW_SHOW : SW_HIDE );
 
 	MsgAdd.LoadString ( IDS_CTRLCLICK_SIM );
 
@@ -6864,6 +6875,7 @@ void CMainView::InitButtons()
 	m_testAnsiPatternButton.SetColor(CButtonST::BTNST_COLOR_BK_IN, crHover);
 	m_testAnsiPatternButton.SetColor(CButtonST::BTNST_COLOR_BK_FOCUS, crFace);
 	m_testAnsiPatternButton.SetRoundedBorder(crBdr);
+	// (m_satAllLevelsButton is created + styled below, after the param dropdowns.)
 	if (!GetConfig()->m_darkTheme && ::IsWindow(m_editCheckButton.GetSafeHwnd())) FxApplyFlatCheck(m_editCheckButton.GetSafeHwnd());
 	// Header [+]/[-] size buttons replace the up-down spinner. Owner-drawn so the
 	// Segoe Fluent Icons glyphs render in this MBCS build; behaviour mirrors the spinner.
@@ -6948,6 +6960,44 @@ void CMainView::InitButtons()
 		}
 	}
 
+	// "All stim" action button (runtime-created, shown only in saturation modes):
+	// measures the current hue's sweep at every configured stimulus level. Styled
+	// every InitButtons (theme-responsive) to exactly match the other action buttons.
+	if (m_satAllLevelsButton.GetSafeHwnd() == NULL)
+	{
+		CRect rcBtn(0, 0, GetConfig()->Scale(80), GetConfig()->Scale(25));
+		m_satAllLevelsButton.Create(_T("All stim"), WS_CHILD|WS_TABSTOP, rcBtn, this, IDC_MEASURESATALLLEVELS_BUTTON);
+		SCtrlInitPos* pBtn = new SCtrlInitPos;
+		pBtn->m_hWnd = m_satAllLevelsButton.GetSafeHwnd();
+		::GetWindowRect(pBtn->m_hWnd, &pBtn->m_Rect);
+		::ScreenToClient(m_hWnd, (LPPOINT)&pBtn->m_Rect.left);
+		::ScreenToClient(m_hWnd, (LPPOINT)&pBtn->m_Rect.right);
+		pBtn->m_pLayout = &g_ActionBtnLayout;
+		m_CtrlInitPos.AddTail(pBtn);
+	}
+	if (m_satAllLevelsButton.GetSafeHwnd())
+	{
+		m_satAllLevelsButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-sat-all"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
+		m_satAllLevelsButton.SetFont(GetFont());
+		m_satAllLevelsButton.EnableBalloonTooltip();
+		m_satAllLevelsButton.SetTooltipText(_T("Measure this color's saturation sweep at every stimulus level"));
+		m_satAllLevelsButton.DrawFlatFocus(FALSE);
+		m_satAllLevelsButton.SetColor(CButtonST::BTNST_COLOR_FG_IN,FxGetSysColor(COLOR_MENUTEXT));
+		m_satAllLevelsButton.SetColor(CButtonST::BTNST_COLOR_FG_OUT,FxGetSysColor(COLOR_MENUTEXT));
+		m_satAllLevelsButton.SetColor(CButtonST::BTNST_COLOR_FG_FOCUS,FxGetSysColor(COLOR_MENUTEXT));
+		m_satAllLevelsButton.SetColor(CButtonST::BTNST_COLOR_BK_IN,FxGetMenuBgColor());
+		m_satAllLevelsButton.SetColor(CButtonST::BTNST_COLOR_BK_OUT,FxGetMenuBgColor());
+		m_satAllLevelsButton.SetColor(CButtonST::BTNST_COLOR_BK_FOCUS,FxGetMenuBgColor());
+		m_satAllLevelsButton.OffsetColor(CButtonST::BTNST_COLOR_BK_IN, 30);
+		m_satAllLevelsButton.OffsetColor(CButtonST::BTNST_COLOR_FG_IN, 30);
+		m_satAllLevelsButton.SetRoundedNormal(TRUE);
+		m_satAllLevelsButton.SetRoundedBg(FxGetMenuBgColor());
+		m_satAllLevelsButton.SetColor(CButtonST::BTNST_COLOR_BK_OUT, ButtonFaceColor());
+		m_satAllLevelsButton.SetColor(CButtonST::BTNST_COLOR_BK_IN, ButtonHoverColor());
+		m_satAllLevelsButton.SetColor(CButtonST::BTNST_COLOR_BK_FOCUS, ButtonFaceColor());
+		m_satAllLevelsButton.SetRoundedBorder(ButtonBorderColor());
+	}
+
 	if ( m_displayMode == 12 )
 	{
 		m_testAnsiPatternButton.ShowWindow ( SW_SHOW );
@@ -6958,6 +7008,7 @@ void CMainView::InitButtons()
 		m_testAnsiPatternButton.ShowWindow ( SW_HIDE );
 		m_refs.ShowWindow ( SW_SHOW );
 	}
+	m_satAllLevelsButton.ShowWindow ( ( m_displayMode >= 5 && m_displayMode <= 10 ) ? SW_SHOW : SW_HIDE );
 	line_Font.DeleteObject();
 	line_Font.CreateFontA(GetConfig()->ScaleFloor(14,17),0,0,0,FW_SEMIBOLD,0,0,0,0,0,0,PROOF_QUALITY,VARIABLE_PITCH,_T("ARIAL"));
 	m_refInfo.SetFont(&line_Font);
@@ -7121,12 +7172,16 @@ BOOL CMainView::OnEraseBkgnd(CDC* pDC)
 	{
 		// Rounded container behind the action buttons, matching the other panels
 		// (Display etc.): same menu-bg fill + border, 6px radius, 3px gap to the buttons.
-		CWnd* bp[4] = { GetDlgItem(IDC_MEASUREGRAYSCALE_BUTTON), GetDlgItem(IDC_DELETEGRAYSCALE_BUTTON),
-		                GetDlgItem(IDC_REFS_BUTTON), GetDlgItem(IDC_ANSICONTRAST_PATTERN_TEST_BUTTON) };
+		// Only VISIBLE buttons count -- Refs/ANSI share a slot, and "All stim" appears
+		// in saturation modes -- so the panel wraps exactly the buttons on screen.
+		CWnd* bp[5] = { GetDlgItem(IDC_MEASUREGRAYSCALE_BUTTON), GetDlgItem(IDC_MEASURESATALLLEVELS_BUTTON),
+		                GetDlgItem(IDC_DELETEGRAYSCALE_BUTTON), GetDlgItem(IDC_REFS_BUTTON),
+		                GetDlgItem(IDC_ANSICONTRAST_PATTERN_TEST_BUTTON) };
 		CRect panel(0,0,0,0); BOOL gotp = FALSE;
-		for (int bpi = 0; bpi < 4; bpi++)
+		for (int bpi = 0; bpi < 5; bpi++)
 		{
 			if (!bp[bpi] || !::IsWindow(bp[bpi]->GetSafeHwnd())) continue;
+			if (!(bp[bpi]->GetStyle() & WS_VISIBLE)) continue;
 			CRect rc; bp[bpi]->GetWindowRect(&rc); ScreenToClient(&rc);
 			if (!gotp) { panel = rc; gotp = TRUE; } else panel |= rc;
 		}
@@ -9024,10 +9079,17 @@ void CMainView::OnAnsiContrastPatternTestButton()
 }
 
 
-void CMainView::OnRefs() 
+void CMainView::OnRefs()
 {
 	if ( IsMeasureSweepActive() ) return;
 	GetConfig()->ChangeSettings(1);
+}
+
+void CMainView::OnMeasureSatColorAllLevels()
+{
+	if ( IsMeasureSweepActive() ) return;
+	if ( m_displayMode < 5 || m_displayMode > 10 ) return;   // saturation modes only
+	GetDocument()->MeasureSatColorAllLevels( m_displayMode - 5 );   // 0=R..5=M
 }
 
 BOOL CMainView::PreTranslateMessage(MSG* pMsg)

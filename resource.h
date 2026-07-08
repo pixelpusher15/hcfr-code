@@ -785,6 +785,7 @@
 #define IDC_MODE_LABEL                  1553
 #define IDC_PARAMSTEPS_LABEL            1554
 #define IDC_STIMLEVEL_LABEL             1555
+#define IDC_MEASURESATALLLEVELS_BUTTON  1556
 #define IDC_PGEN_AVI_BASE               1530
 #define IDC_PGEN_DRM_BASE               1536
 #define IDC_PGEN_EDIT_BASE              1538
@@ -1885,7 +1886,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33114
-#define _APS_NEXT_CONTROL_VALUE         1556
+#define _APS_NEXT_CONTROL_VALUE         1557
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

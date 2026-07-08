@@ -280,6 +280,7 @@ protected:
 	afx_msg void OnUpdateMeasureSatAll(CCmdUI* pCmdUI);
 	afx_msg void OnMeasureSatAllLevels();
 	afx_msg void OnUpdateMeasureSatAllLevels(CCmdUI* pCmdUI);
+	void MeasureSatColorAllLevels(int hue);	// one hue across all stimulus levels
 	afx_msg void OnMeasureGrayscaleColors();
 	afx_msg void OnUpdateMeasureGrayscaleColors(CCmdUI* pCmdUI);
 	afx_msg void OnSimNearblack();
