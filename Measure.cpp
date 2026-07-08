@@ -162,6 +162,8 @@ CMeasure::CMeasure()
     m_cc24SatMeasureArray.SetSize(MAX_USER_CC_PATCH_SIZE);
 	m_cc24SatMeasureArray_master.SetSize(5 * MAX_USER_CC_PATCH_SIZE);
 
+	m_activeSatLevel = 1.0;
+
 	m_primariesArray[0]=m_primariesArray[1]=m_primariesArray[2]=noDataColor;
 	m_secondariesArray[0]=m_secondariesArray[1]=m_secondariesArray[2]=noDataColor;
 
@@ -327,8 +329,10 @@ void CMeasure::Serialize(CArchive& ar)
 
 	if (ar.IsStoring())
 	{
-	    int version = 18;
+	    int version = 19;
 		ar << version;
+
+		StoreActiveSatLevel();	// capture the bound sweeps before writing the store
 
 		ar << GetConfig()->m_BT2390_BS;
 		ar << GetConfig()->m_BT2390_WS;
@@ -459,14 +463,28 @@ void CMeasure::Serialize(CArchive& ar)
 		ar << m_infoStr;
 
 		ar << m_bIREScaleMode;
+
+		// Version 19: multi-level saturation store
+		ar << m_activeSatLevel;
+		ar << (int) m_satLevelStore.size();
+		for ( size_t s = 0; s < m_satLevelStore.size(); s++ )
+		{
+			ar << m_satLevelStore[s].stimLevel;
+			for ( int c = 0; c < 6; c++ )
+			{
+				ar << (int) m_satLevelStore[s].sat[c].size();
+				for ( size_t i = 0; i < m_satLevelStore[s].sat[c].size(); i++ )
+					m_satLevelStore[s].sat[c][i].Serialize(ar);
+			}
+		}
 	}
 	else
 	{
 	    int version;
 		ar >> version;
 
-		
-		if ( version > 18 )
+
+		if ( version > 19 )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 
 
@@ -800,6 +818,30 @@ void CMeasure::Serialize(CArchive& ar)
 		else
 			m_bIREScaleMode = FALSE;
 
+		// Version 19: multi-level saturation store
+		m_satLevelStore.clear();
+		m_activeSatLevel = 1.0;
+		if ( version > 18 )
+		{
+			int nLevels;
+			ar >> m_activeSatLevel;
+			ar >> nLevels;
+			m_satLevelStore.resize ( nLevels );
+			for ( int s = 0; s < nLevels; s++ )
+			{
+				ar >> m_satLevelStore[s].stimLevel;
+				for ( int c = 0; c < 6; c++ )
+				{
+					int nColors;
+					ar >> nColors;
+					m_satLevelStore[s].sat[c].resize ( nColors );
+					for ( int i = 0; i < nColors; i++ )
+						m_satLevelStore[s].sat[c][i].Serialize(ar);
+				}
+			}
+		}
+		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
+
 	}
 	m_isModified = FALSE;
 }
@@ -974,7 +1016,109 @@ void CMeasure::SetSaturationSize(int steps)
 			m_cyanSatMeasureArray[i]=noDataColor;
 			m_magentaSatMeasureArray[i]=noDataColor;
 		}
+
+		// The step count changed, so every stored level's sweeps are stale too
+		for ( size_t s = 0; s < m_satLevelStore.size(); s++ )
+			for ( int c = 0; c < 6; c++ )
+				m_satLevelStore[s].sat[c].assign ( steps, noDataColor );
 	}
+}
+
+// ---- Multi-level saturation store --------------------------------------
+
+static int FindSatLevelIndex ( const std::vector<CSatLevelSet> & store, double level )
+{
+	for ( size_t s = 0; s < store.size(); s++ )
+		if ( fabs ( store[s].stimLevel - level ) < 1e-4 )
+			return (int) s;
+	return -1;
+}
+
+void CMeasure::StoreActiveSatLevel()
+{
+	int idx = FindSatLevelIndex ( m_satLevelStore, m_activeSatLevel );
+	if ( idx < 0 )
+	{
+		CSatLevelSet emptySet;
+		emptySet.stimLevel = m_activeSatLevel;
+
+		// keep the store sorted by level so dropdowns list naturally
+		idx = 0;
+		while ( idx < (int) m_satLevelStore.size () && m_satLevelStore[idx].stimLevel < m_activeSatLevel )
+			idx ++;
+		m_satLevelStore.insert ( m_satLevelStore.begin () + idx, emptySet );
+	}
+
+	CSatLevelSet & set = m_satLevelStore[idx];
+	const CArray<CColor,CColor> * pArrays[6] =
+		{ &m_redSatMeasureArray, &m_greenSatMeasureArray, &m_blueSatMeasureArray,
+		  &m_yellowSatMeasureArray, &m_cyanSatMeasureArray, &m_magentaSatMeasureArray };
+	for ( int c = 0; c < 6; c++ )
+	{
+		set.sat[c].resize ( pArrays[c]->GetSize () );
+		for ( int i = 0; i < pArrays[c]->GetSize (); i++ )
+			set.sat[c][i] = pArrays[c]->GetAt ( i );
+	}
+}
+
+BOOL CMeasure::BindSatLevel(double level)
+{
+	if ( fabs ( level - m_activeSatLevel ) < 1e-4 )
+		return FALSE;
+
+	StoreActiveSatLevel ();
+
+	int nSize = m_redSatMeasureArray.GetSize ();
+	CArray<CColor,CColor> * pArrays[6] =
+		{ &m_redSatMeasureArray, &m_greenSatMeasureArray, &m_blueSatMeasureArray,
+		  &m_yellowSatMeasureArray, &m_cyanSatMeasureArray, &m_magentaSatMeasureArray };
+
+	int idx = FindSatLevelIndex ( m_satLevelStore, level );
+	for ( int c = 0; c < 6; c++ )
+	{
+		for ( int i = 0; i < nSize; i++ )
+		{
+			if ( idx >= 0 && i < (int) m_satLevelStore[idx].sat[c].size () )
+				pArrays[c]->SetAt ( i, m_satLevelStore[idx].sat[c][i] );
+			else
+				pArrays[c]->SetAt ( i, noDataColor );
+		}
+	}
+
+	m_activeSatLevel = level;
+	StoreActiveSatLevel ();	// materialize the entry (and heal a size mismatch)
+	m_isModified = TRUE;
+	return TRUE;
+}
+
+int CMeasure::GetSatLevelCount()
+{
+	StoreActiveSatLevel ();
+	return (int) m_satLevelStore.size ();
+}
+
+double CMeasure::GetSatLevelAt(int idx)
+{
+	return m_satLevelStore[idx].stimLevel;
+}
+
+const CSatLevelSet & CMeasure::GetSatLevelSet(int idx)
+{
+	StoreActiveSatLevel ();
+	return m_satLevelStore[idx];
+}
+
+BOOL CMeasure::SatLevelHasData(double level)
+{
+	StoreActiveSatLevel ();
+	int idx = FindSatLevelIndex ( m_satLevelStore, level );
+	if ( idx < 0 )
+		return FALSE;
+	for ( int c = 0; c < 6; c++ )
+		for ( size_t i = 0; i < m_satLevelStore[idx].sat[c].size (); i++ )
+			if ( m_satLevelStore[idx].sat[c][i].isValid () )
+				return TRUE;
+	return FALSE;
 }
 
 
@@ -2246,7 +2390,7 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for red
-	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, false, GetConfig()->m_GammaOffsetType);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -2421,7 +2565,7 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 	CAsyncMeasurer asyncMeasure;
 	asyncMeasure.Start(pSensor);
 	// Generate saturation colors for green
-	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, false, GetConfig()->m_GammaOffsetType);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -2597,7 +2741,7 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for blue
-		GenerateSaturationColors (GetColorReference(), GenColors,size, false, false, true, GetConfig()->m_GammaOffsetType);
+		GenerateSaturationColors (GetColorReference(), GenColors,size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -2774,7 +2918,7 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for yellow
-	GenerateSaturationColors (GetColorReference(), GenColors,size, true, true, false, GetConfig()->m_GammaOffsetType);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -2951,7 +3095,7 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for cyan
-	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, true, GetConfig()->m_GammaOffsetType);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -3129,7 +3273,7 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for magenta
-	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, true, GetConfig()->m_GammaOffsetType);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -3623,12 +3767,12 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 
 
 	// Generate saturations for all colors
-	GenerateSaturationColors (GetColorReference(), &GenColors[0], size, true, false, false, GetConfig()->m_GammaOffsetType);			// Red
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType);	// Green
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType);	// Blue
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType);	// Yellow
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType);	// Cyan
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType);	// Magenta
+	GenerateSaturationColors (GetColorReference(), &GenColors[0], size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);			// Red
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Green
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Blue
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Yellow
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Cyan
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Magenta
 
 	if (!GenerateCC24Colors (GetColorReference(), & GenColors [ size * 6 ], GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType)) //color checker
 	{		
@@ -3963,12 +4107,12 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 
 
 	// Generate saturations for all colors
-	GenerateSaturationColors (GetColorReference(), GenColors, size, true, false, false, GetConfig()->m_GammaOffsetType);				// Red
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType);	// Green
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType);	// Blue
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType);	// Yellow
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType);	// Cyan
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType);	// Magenta
+	GenerateSaturationColors (GetColorReference(), GenColors, size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);				// Red
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Green
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Blue
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Yellow
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Cyan
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Magenta
 
 	m_binMeasure = TRUE;
 	for ( j = 0 ; j < ( bPrimaryOnly ? 3 : 6 ) ; j ++ )
@@ -7011,9 +7155,12 @@ CColor CMeasure::GetRefSecondary(int i) const
 	return noDataColor;
 }
 
-CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special) const
+CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLevel) const
 {
 	CColor	refColor;
+
+	if ( stimLevel < 0.0 )
+		stimLevel = m_activeSatLevel;	// default: track the bound sweep level
 	ColorxyY	refWhite(GetColorReference().GetWhite());
 	double	x, y;
 	double	xstart = refWhite[0];
@@ -7141,16 +7288,16 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special) const
 	double r=rgb[0],g=rgb[1],b=rgb[2];
 	double qr,qg,qb;
 
-	if (sat_ratio < 1 || (sat_ratio == 1 && (GetConfig()->m_GammaOffsetType != 5 || GetConfig()->m_colorStandard == UHDTV3 || GetConfig()->m_colorStandard == UHDTV4)) ) // adjust references locations for difference between target gamma and 2.2
+	if (stimLevel < 1.0 || sat_ratio < 1 || (sat_ratio == 1 && (GetConfig()->m_GammaOffsetType != 5 || GetConfig()->m_colorStandard == UHDTV3 || GetConfig()->m_colorStandard == UHDTV4)) ) // adjust references locations for difference between target gamma and 2.2
 	{
 		if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 		if ( mode >= 4 )
 		{
 			if (mode == 5 || mode == 7)
 			{
-				qr = getL_EOTF(r,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
-				qg = getL_EOTF(g,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
-				qb = getL_EOTF(b,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
+				qr = getL_EOTF(r,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode) * stimLevel;
+				qg = getL_EOTF(g,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode) * stimLevel;
+				qb = getL_EOTF(b,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode) * stimLevel;
 				qr = floor( (qr * 219.) + 0.5 ) / 219.;
 				qg = floor( (qg * 219.) + 0.5 ) / 219.;
 				qb = floor( (qb * 219.) + 0.5 ) / 219.;
@@ -7161,9 +7308,9 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special) const
 			}
 			else
 			{
-				qr = (r<=0||r>=1)?min(max(r,0),1):pow(r, 1.0 / 2.22);
-				qg = (g<=0||g>=1)?min(max(g,0),1):pow(g, 1.0 / 2.22);
-				qb = (b<=0||b>=1)?min(max(b,0),1):pow(b, 1.0 / 2.22);
+				qr = ((r<=0||r>=1)?min(max(r,0),1):pow(r, 1.0 / 2.22)) * stimLevel;
+				qg = ((g<=0||g>=1)?min(max(g,0),1):pow(g, 1.0 / 2.22)) * stimLevel;
+				qb = ((b<=0||b>=1)?min(max(b,0),1):pow(b, 1.0 / 2.22)) * stimLevel;
 				qr = floor( (qr * 219.) + 0.5 ) / 219.;
 				qg = floor( (qg * 219.) + 0.5 ) / 219.;
 				qb = floor( (qb * 219.) + 0.5 ) / 219.;
@@ -7174,9 +7321,9 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special) const
 		}
 		else
 		{
-			qr = (r<=0||r>=1)?min(max(r,0),1):pow(r, 1.0 / 2.22);
-			qg = (g<=0||g>=1)?min(max(g,0),1):pow(g, 1.0 / 2.22);
-			qb = (b<=0||b>=1)?min(max(b,0),1):pow(b, 1.0 / 2.22);
+			qr = ((r<=0||r>=1)?min(max(r,0),1):pow(r, 1.0 / 2.22)) * stimLevel;
+			qg = ((g<=0||g>=1)?min(max(g,0),1):pow(g, 1.0 / 2.22)) * stimLevel;
+			qb = ((b<=0||b>=1)?min(max(b,0),1):pow(b, 1.0 / 2.22)) * stimLevel;
 			qr = floor( (qr * 219.) + 0.5 ) / 219.;
 			qg = floor( (qg * 219.) + 0.5 ) / 219.;
 			qb = floor( (qb * 219.) + 0.5 ) / 219.;

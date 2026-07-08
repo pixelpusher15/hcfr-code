@@ -3389,7 +3389,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
 	return bOk;
 }
 
-void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode)
+void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode, double stimLevel)
 {
 	//use fully saturated space if user has special color space modes set
 	//UHDTV pseudo-spaces XYZ is set in original space and mapped to BT.2020
@@ -3517,11 +3517,20 @@ void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDi
 			rgbColor[2] = 100.0 * ( (rgbColor[2]<=0.0||rgbColor[2]>=1.0)?min(max(rgbColor[2],0),1):pow(rgbColor[2], 1.0 / 2.22) );
 		}
 
+		// stimulus level scales the encoded (signal-domain) pattern, so a 50%
+		// level sweep drives the same hues at half signal amplitude
+		if ( stimLevel < 1.0 )
+		{
+			rgbColor[0] *= stimLevel;
+			rgbColor[1] *= stimLevel;
+			rgbColor[2] *= stimLevel;
+		}
+
 		//quantize to 8-bit video %
 		rgbColor[0] = floor( (rgbColor[0] / 100. * 219.) + 0.5 ) / 2.19;
 		rgbColor[1] = floor( (rgbColor[1] / 100. * 219.) + 0.5 ) / 2.19;
 		rgbColor[2] = floor( (rgbColor[2] / 100. * 219.) + 0.5 ) / 2.19;
-		
+
 		GenColors [ i ] = ColorRGBDisplay( rgbColor[0], rgbColor[1], rgbColor[2] );
         
     }

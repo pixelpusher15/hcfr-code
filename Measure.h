@@ -32,6 +32,7 @@
 #include "Color.h"
 #include "Sensors\Sensor.h"
 #include "Generators\Generator.h"
+#include <vector>
 BOOL IsMeasureSweepActive();
 
 #define	DUPLGRAYLEVEL		0
@@ -65,6 +66,18 @@ int						GetGrayScalePresetCount ();
 #define GRAYSCALE_DEFAULT_PRESET	2	// 11-point (10%) is the default selection
 
 
+// ---- Multi-level saturation store ----
+// One entry per measured stimulus level: the signal-domain amplitude (0..1]
+// the sweep patterns were scaled to, plus its six hue sweeps. The active
+// level's set is mirrored in the six m_*SatMeasureArray members so every
+// existing consumer (grid, charts, dE math) reads it unchanged.
+struct CSatLevelSet
+{
+	double stimLevel;
+	std::vector<CColor> sat[6];	// R,G,B,Y,C,M — GetSaturationSize() entries each
+};
+
+
 class CMeasure : public CObject
 {
 public:
@@ -93,6 +106,8 @@ protected:
 	CArray<CColor,CColor> m_magentaSatMeasureArray;
 	CArray<CColor,CColor> m_cc24SatMeasureArray;
 	CArray<CColor,CColor> m_cc24SatMeasureArray_master;
+	std::vector<CSatLevelSet> m_satLevelStore;	// all measured stimulus levels (active mirrored in m_*SatMeasureArray)
+	double m_activeSatLevel;	// signal-domain amplitude the bound sweeps were measured at
 	CString m_infoStr;
 	CString m_CCStr;
 public:
@@ -182,8 +197,17 @@ public:
 	CColor GetCC24Sat(int i);
 	void SetCC24Sat(int i,const CColor & aColor) {m_cc24SatMeasureArray[i]=aColor; m_isModified=TRUE; } 
 	CColor GetCC24MasterSat(int i) const;
-	void SetCC24MasterSat(int i,const CColor & aColor) {m_cc24SatMeasureArray_master[i]=aColor; m_isModified=TRUE; } 
+	void SetCC24MasterSat(int i,const CColor & aColor) {m_cc24SatMeasureArray_master[i]=aColor; m_isModified=TRUE; }
 	CString GetCCStr() const;
+
+	// Multi-level saturation store (see CSatLevelSet above)
+	double GetActiveSatLevel() const { return m_activeSatLevel; }
+	void StoreActiveSatLevel();	// mirror the bound m_*SatMeasureArray sweeps into the store
+	BOOL BindSatLevel(double level);	// store the active sweeps, then load (or create empty) 'level'
+	int GetSatLevelCount();	// syncs the active entry first
+	double GetSatLevelAt(int idx);
+	const CSatLevelSet & GetSatLevelSet(int idx);
+	BOOL SatLevelHasData(double level);
 
 	BOOL MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc);
 	CColor GetPrimary(int i) const;
@@ -239,7 +263,7 @@ public:
 
 	CColor GetRefPrimary(int i) const;
 	CColor GetRefSecondary(int i) const;
-	CColor GetRefSat(int i, double sat_percent, bool special) const;
+	CColor GetRefSat(int i, double sat_percent, bool special, double stimLevel = -1.0) const;	// stimLevel < 0 => active level
 	void GetRefCC24Sat(int i, CColor &color) const;
 
 	BOOL IsModified() { return m_isModified; }

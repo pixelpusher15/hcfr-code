@@ -2146,6 +2146,7 @@ BEGIN
             MENUITEM "&Primary colors",             IDM_MEASURE_SAT_PRIMARIES
             MENUITEM "&Primary and Secondary colors", IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
             MENUITEM "&All colors",                 IDM_MEASURE_SAT_ALL
+            MENUITEM "All colors at all stimulus levels", IDM_MEASURE_SAT_ALL_LEVELS
         END
         MENUITEM "&Contrast",                   IDM_MEASURE_CONTRAST
         MENUITEM "Full Tilt Boogie",            ID_MEASURES_FULLTILTBOOGIE
@@ -2674,6 +2675,7 @@ BEGIN
     BUTTON      IDM_MEASURE_SAT_PRIMARIES
     BUTTON      IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
     BUTTON      IDM_MEASURE_SAT_ALL
+    BUTTON      IDM_MEASURE_SAT_ALL_LEVELS
     SEPARATOR
     BUTTON      IDM_SIM_SAT_RED
     BUTTON      IDM_SIM_SAT_GREEN
@@ -2705,6 +2707,7 @@ BEGIN
     SEPARATOR
     BUTTON      IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
     BUTTON      IDM_MEASURE_SAT_ALL
+    BUTTON      IDM_MEASURE_SAT_ALL_LEVELS
     BUTTON      ID_MEASURES_FULLTILTBOOGIE
 END
 
@@ -3878,6 +3881,7 @@ END
 STRINGTABLE
 BEGIN
     IDM_MEASURE_SAT_ALL     "Measure all colors saturation scales\nMeasure all colors saturation scales"
+    IDM_MEASURE_SAT_ALL_LEVELS "Measure all colors saturation scales at every configured stimulus level\nMeasure saturations at all stimulus levels"
     IDM_MEASURE_GRAYSCALE_COLORS 
                             "Measure gray scale, primary and secondary colors in one operation\nMeasure gray scale, primary and secondary colors"
     IDM_SIM_NEARBLACK       "Perform simultaneous measuring of near black gray scale using all opened documents sensors\nSimultaneous measures of near black gray scale"

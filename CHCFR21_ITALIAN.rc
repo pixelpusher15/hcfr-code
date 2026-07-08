@@ -2287,6 +2287,7 @@ BEGIN
             MENUITEM "Colori &Primari",             IDM_MEASURE_SAT_PRIMARIES
             MENUITEM "Colori Primari e &Secondari", IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
             MENUITEM "&Tutti i colori",             IDM_MEASURE_SAT_ALL
+            MENUITEM "All colors at all stimulus levels", IDM_MEASURE_SAT_ALL_LEVELS
         END
         MENUITEM "&Contrast",                   IDM_MEASURE_CONTRAST
         MENUITEM "&Boogie tutto inclinato",      ID_MEASURES_FULLTILTBOOGIE
@@ -2815,6 +2816,7 @@ BEGIN
     BUTTON      IDM_MEASURE_SAT_PRIMARIES
     BUTTON      IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
     BUTTON      IDM_MEASURE_SAT_ALL
+    BUTTON      IDM_MEASURE_SAT_ALL_LEVELS
     SEPARATOR
     BUTTON      IDM_SIM_SAT_RED
     BUTTON      IDM_SIM_SAT_GREEN
@@ -2846,6 +2848,7 @@ BEGIN
     SEPARATOR
     BUTTON      IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
     BUTTON      IDM_MEASURE_SAT_ALL
+    BUTTON      IDM_MEASURE_SAT_ALL_LEVELS
     BUTTON      ID_MEASURES_FULLTILTBOOGIE
 END
 
@@ -4074,6 +4077,7 @@ END
 STRINGTABLE
 BEGIN
     IDM_MEASURE_SAT_ALL     "Misura tutte le scale di saturazione dei colori\nMisura tutte le scale di saturazione dei colori"
+    IDM_MEASURE_SAT_ALL_LEVELS "Measure all colors saturation scales at every configured stimulus level\nMeasure saturations at all stimulus levels"
     IDM_MEASURE_GRAYSCALE_COLORS 
                             "Misura la scala di grigi, i colori primari e secondari in una sola operazione\nMisura la scala di grigi, i colori primari e secondari"
     IDM_SIM_NEARBLACK       "Eseguire la misurazione simultanea della scala di grigi quasi nera utilizzando tutti i sensori dei documenti aperti\nMisure simultanee della scala di grigi quasi nera"

@@ -48,6 +48,7 @@
 #include "../Measure.h"
 
 #include "DocEnumerator.h"	//Ki
+#include "../ScaleSizes.h"
 #include <math.h>
 #include <algorithm>
 #include <vector>
@@ -143,6 +144,9 @@ static const SCtrlLayout g_StatsBarLayout =
 
 static const SCtrlLayout g_DisplayComboLayout =
 { IDC_DISPLAYTYPE_COMBO, LAYOUT_RIGHT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
+
+static const SCtrlLayout g_ParamComboLayout =
+{ IDC_PARAMSTEPS_COMBO, LAYOUT_LEFT, LAYOUT_LEFT, LAYOUT_TOP, LAYOUT_TOP };
 
 
 static COLORREF ButtonFaceColor();
@@ -499,6 +503,8 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_WM_TIMER()
 	ON_CBN_SELCHANGE(IDC_INFO_DISPLAY, OnSelchangeInfoDisplay)
 	ON_CBN_SELCHANGE(IDC_DISPLAYTYPE_COMBO, OnSelchangeDisplayType)
+	ON_CBN_SELCHANGE(IDC_PARAMSTEPS_COMBO, OnSelchangeComboSteps)
+	ON_CBN_SELCHANGE(IDC_STIMLEVEL_COMBO, OnSelchangeComboStimLevel)
 	ON_BN_CLICKED(IDC_SIZE_PLUS, OnSizePlus)
 	ON_BN_CLICKED(IDC_SIZE_MINUS, OnSizeMinus)
 	ON_COMMAND(IDM_HELP, OnHelp)
@@ -717,6 +723,7 @@ void CMainView::LayoutTopRow()
 		SCtrlInitPos *pGGrp=NULL,*pGName=NULL,*pGGear=NULL;
 		SCtrlInitPos *pPGrp=NULL,*pRef=NULL,*pXYZ=NULL;
 		SCtrlInitPos *pDisp=NULL,*pDispCombo=NULL,*pGo=NULL,*pDel=NULL,*pRefsBtn=NULL,*pAnsi=NULL;
+		SCtrlInitPos *pSteps=NULL,*pStim=NULL,*pModeLbl=NULL,*pStepsLbl=NULL,*pStimLbl=NULL;
 		POSITION lp = m_CtrlInitPos.GetHeadPosition();
 		while (lp)
 		{
@@ -740,6 +747,11 @@ void CMainView::LayoutTopRow()
 			case IDC_ADJUSTXYZ_CHECK:           pXYZ=e;   break;
 			case IDC_DISPLAY_GROUP:                     pDisp=e;      break;
 			case IDC_DISPLAYTYPE_COMBO:                 pDispCombo=e; break;
+			case IDC_PARAMSTEPS_COMBO:                  pSteps=e;     break;
+			case IDC_STIMLEVEL_COMBO:                   pStim=e;      break;
+			case IDC_MODE_LABEL:                        pModeLbl=e;   break;
+			case IDC_PARAMSTEPS_LABEL:                  pStepsLbl=e;  break;
+			case IDC_STIMLEVEL_LABEL:                   pStimLbl=e;   break;
 			case IDC_MEASUREGRAYSCALE_BUTTON:           pGo=e;        break;
 			case IDC_DELETEGRAYSCALE_BUTTON:            pDel=e;       break;
 			case IDC_REFS_BUTTON:                       pRefsBtn=e;   break;
@@ -779,6 +791,18 @@ void CMainView::LayoutTopRow()
 			int chkH  = fh + cfg->Scale(2);
 			int lblH  = fh;
 			int rowH  = (line2 + chkH) - top + cfg->Scale(4);
+			int comboVisH = fh + cfg->Scale(8);   // approx closed combo height (for dropped-list sizing)
+			// Actual closed height of the mode combo, so the caption row sits just below
+			// it without its opaque background overlapping the combo's bottom edge.
+			int comboClosedH = comboVisH;
+			if (m_comboMode.GetSafeHwnd())
+			{
+				int itemH = (int) m_comboMode.SendMessage(CB_GETITEMHEIGHT, (WPARAM)(-1), 0);
+				if (itemH > 0) comboClosedH = itemH + 2*::GetSystemMetrics(SM_CYEDGE) + cfg->Scale(3);
+			}
+			int capH = cfg->Scale(12);   // short caption block so its fill clears the pane's bottom border
+			int lblRowTop = line1 + comboClosedH;   // caption row snug under the dropdowns
+			rowH = max(rowH, (lblRowTop + capH + cfg->Scale(3)) - top);
 			int cMid  = (line1 + line2 + chkH) / 2;
 			int right = pPGrp->m_Rect.right;
 
@@ -829,12 +853,41 @@ void CMainView::LayoutTopRow()
 				if (m_comboDisplay.GetSafeHwnd()) m_comboDisplay.ModifyStyleEx(WS_EX_DLGMODALFRAME, 0, SWP_FRAMECHANGED);
 				int comboH = pCombo->m_Rect.bottom - pCombo->m_Rect.top;
 				pCombo->m_Rect = CRect(rV.left + PAD, line1, rV.left + PAD + comboW, line1 + comboH);
+				// Per-mode parameter dropdowns sit on line 1, immediately right of the
+				// mode combo: steps then (saturation modes) stimulus level. The info
+				// text wraps in its own column to the right of them. UpdateParamCombos
+				// shows/hides them; OnSelchangeComboMode relayouts so the info column
+				// starts after whichever dropdowns the current mode shows. Tall rects so
+				// the lists can drop.
+				{
+					int dropH  = comboVisH + cfg->Scale(140);
+					int stepsW = (m_displayMode == 11) ? cfg->Scale(210) : cfg->Scale(140);   // CC set names are long
+					int stimW  = cfg->Scale(70);
+					int dropX  = rV.left + PAD + comboW + GAPX;   // right of the mode combo
+					int stimX  = dropX + stepsW + GAPX;
+					if (pSteps) pSteps->m_Rect = CRect(dropX, line1, dropX + stepsW, line1 + dropH);
+					if (pStim)  pStim->m_Rect  = CRect(stimX, line1, stimX + stimW, line1 + dropH);
+					// captions centered under each dropdown
+					if (pModeLbl)  pModeLbl->m_Rect  = CRect(rV.left + PAD, lblRowTop, rV.left + PAD + comboW, lblRowTop + capH);
+					if (pStepsLbl) pStepsLbl->m_Rect = CRect(dropX, lblRowTop, dropX + stepsW, lblRowTop + capH);
+					if (pStimLbl)  pStimLbl->m_Rect  = CRect(stimX, lblRowTop, stimX + stimW, lblRowTop + capH);
+				}
 				// (the size spinner is relocated to the stats-bar header, see below)
 				if (pInfo)
 				{
 					CWnd* pi = CWnd::FromHandle(pInfo->m_hWnd);
 					pi->ModifyStyle(SS_TYPEMASK | SS_WORDELLIPSIS | SS_SUNKEN, SS_LEFT, SWP_FRAMECHANGED);   // clear ellipsis -> wrap
-					pInfo->m_Rect = CRect(rV.left + PAD + comboW + cfg->Scale(8), top + cap, rV.right - PAD, top + rowH - cfg->Scale(2));
+					// Info text starts right of the mode combo plus whatever parameter
+					// dropdowns the current mode shows, then wraps over the pane's two rows.
+					bool bWantStim  = ( m_displayMode >= 5 && m_displayMode <= 10 );
+					bool bWantSteps = ( m_displayMode == 0 || m_displayMode == 3 || m_displayMode == 4 || m_displayMode == 11 || bWantStim );
+					int iStepsW = (m_displayMode == 11) ? cfg->Scale(210) : cfg->Scale(140), iStimW = cfg->Scale(70);
+					int iDropX  = rV.left + PAD + comboW + GAPX;
+					int infoX;
+					if (bWantStim)        infoX = iDropX + iStepsW + GAPX + iStimW + GAPX + cfg->Scale(4);
+					else if (bWantSteps)  infoX = iDropX + iStepsW + GAPX + cfg->Scale(4);
+					else                  infoX = rV.left + PAD + comboW + cfg->Scale(8);
+					pInfo->m_Rect = CRect(infoX, top + cap, rV.right - PAD, top + rowH - cfg->Scale(2));
 				}
 			}
 
@@ -1111,6 +1164,8 @@ void CMainView::OnInitialUpdate()
 	( (CMultiFrame *) GetParentFrame () )->CMDIChildWnd::MDIMaximize(); //this maximizes and calls onsize
 
 	InitSelectedColorGrid();
+
+	UpdateParamCombos();	// default mode's dropdowns (mode changes re-run this)
 
 	UpdateData(FALSE);
 }
@@ -2411,11 +2466,17 @@ CDataSetDoc* CMainView::GetDocument() // non-debug version is inline
 /////////////////////////////////////////////////////////////////////////////
 // CMainView message handlers
 
-void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint) 
+void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 {
 	int		nForceMode = -1;
 	double	dContrast;
 	InitSelectedColorGrid();
+
+	// Keep the parameter dropdowns in sync with document-side changes (scale
+	// sizes dialog, stimulus level rebinds). Skipped for realtime per-point
+	// hints so sweeps don't pay for combo rebuilds.
+	if ( lHint == UPD_EVERYTHING || lHint == UPD_ALLSATURATIONS )
+		UpdateParamCombos();
 	CFrameWnd * pFrame = (CFrameWnd *)(AfxGetApp()->m_pMainWnd);
 //	if (pFrame)
 //		pFrame->GetActiveFrame()->ActivateFrame();
@@ -5721,7 +5782,10 @@ void CMainView::OnSelchangeComboMode()
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
 	}
-	
+
+	UpdateParamCombos();
+	if ( m_bPositionsInit ) { LayoutTopRow(); OnSize(0,0,0); }	// info column starts after this mode's dropdowns
+
 	InitGrid(true);
 
 	if ( m_pGrayScaleGrid)
@@ -5739,6 +5803,332 @@ void CMainView::OnSelchangeComboMode()
 		UpdateGrid();
 	if ( IsMeasureSweepActive() )
 		SetMeasureButtonStop ( TRUE );
+}
+
+BOOL CMainView::CurrentModeSweepHasData()
+{
+	CMeasure * pMeasure = GetDocument () -> GetMeasure ();
+	int i;
+
+	switch ( m_displayMode )
+	{
+		case 0:
+			 for ( i = 0; i < pMeasure->GetGrayScaleSize(); i++ )
+				if ( pMeasure->GetGray(i).isValid() )
+					return TRUE;
+			 break;
+
+		case 3:
+			 for ( i = 0; i < pMeasure->GetNearBlackScaleSize(); i++ )
+				if ( pMeasure->GetNearBlack(i).isValid() )
+					return TRUE;
+			 break;
+
+		case 4:
+			 for ( i = 0; i < pMeasure->GetNearWhiteScaleSize(); i++ )
+				if ( pMeasure->GetNearWhite(i).isValid() )
+					return TRUE;
+			 break;
+
+		case 5: case 6: case 7: case 8: case 9: case 10:
+			 // Changing the saturation step count resizes all six hue sweeps.
+			 for ( i = 0; i < pMeasure->GetSaturationSize(); i++ )
+			 {
+				if ( pMeasure->GetRedSat(i).isValid()    || pMeasure->GetGreenSat(i).isValid()  ||
+					 pMeasure->GetBlueSat(i).isValid()   || pMeasure->GetYellowSat(i).isValid() ||
+					 pMeasure->GetCyanSat(i).isValid()   || pMeasure->GetMagentaSat(i).isValid() )
+					return TRUE;
+			 }
+			 break;
+	}
+	return FALSE;
+}
+
+void CMainView::UpdateParamCombos()
+{
+	if ( ! m_comboSteps.GetSafeHwnd () )
+		return;
+
+	CMeasure *	pMeasure = GetDocument () -> GetMeasure ();
+	BOOL		bShowSteps = FALSE;
+	CString		str;
+
+	m_comboSteps.ResetContent ();
+
+	switch ( m_displayMode )
+	{
+		case 0:		// Grayscale: the preset list (same as the Scale Sizes dialog)
+			 {
+				const GrayScalePreset *	pPresets = GetGrayScalePresets ();
+				int						nPresetCount = GetGrayScalePresetCount ();
+				for ( int k = 0; k < nPresetCount; k++ )
+				{
+					int idx = m_comboSteps.AddString ( pPresets[k].name );
+					m_comboSteps.SetItemData ( idx, k );
+				}
+				int iCustom = m_comboSteps.AddString ( _T("Custom...") );
+				m_comboSteps.SetItemData ( iCustom, (DWORD_PTR) -1 );
+				int nMatch = pMeasure -> GetGrayScalePreset ();
+				m_comboSteps.SetCurSel ( nMatch >= 0 ? nMatch : iCustom );
+				m_comboSteps.SetDroppedWidth ( GetConfig () -> Scale ( 220 ) );	// preset names are long
+				bShowSteps = TRUE;
+			 }
+			 break;
+
+		case 3: case 4:
+		case 5: case 6: case 7: case 8: case 9: case 10:
+			 {
+				// Near black / near white top out at 10 steps; saturation sweeps go higher.
+				static const int nSatChoices  [] = { 2, 4, 5, 8, 10, 12, 16, 20, 25, 32, 50 };
+				static const int nNbNwChoices [] = { 2, 4, 5, 6, 8, 10 };
+				bool bNbNw = ( m_displayMode == 3 || m_displayMode == 4 );
+				const int *	pChoices = bNbNw ? nNbNwChoices : nSatChoices;
+				int nChoiceCount = bNbNw ? ( sizeof(nNbNwChoices)/sizeof(nNbNwChoices[0]) )
+										 : ( sizeof(nSatChoices)/sizeof(nSatChoices[0]) );
+				int nCur;
+				if ( m_displayMode == 3 )
+					nCur = pMeasure -> GetNearBlackScaleSize () - 1;
+				else if ( m_displayMode == 4 )
+					nCur = pMeasure -> GetNearWhiteScaleSize () - 1;
+				else
+					nCur = pMeasure -> GetSaturationSize () - 1;
+
+				BOOL bListed = FALSE;
+				for ( int k = 0; k < nChoiceCount; k++ )
+				{
+					if ( pChoices[k] == nCur )
+						bListed = TRUE;
+					if ( ! bListed && pChoices[k] > nCur )
+					{
+						// keep the (custom) current value visible, in sorted order
+						str.Format ( _T("%d"), nCur );
+						int idx = m_comboSteps.AddString ( str );
+						m_comboSteps.SetItemData ( idx, nCur );
+						bListed = TRUE;
+					}
+					str.Format ( _T("%d"), pChoices[k] );
+					int idx = m_comboSteps.AddString ( str );
+					m_comboSteps.SetItemData ( idx, pChoices[k] );
+				}
+				for ( int k = 0; k < m_comboSteps.GetCount (); k++ )
+					if ( (int) m_comboSteps.GetItemData ( k ) == nCur ) { m_comboSteps.SetCurSel ( k ); break; }
+				bShowSteps = TRUE;
+			 }
+			 break;
+
+		case 11:	// Color Checker: the CC set list (same order/labels as the References dialog)
+			 {
+				// Names indexed by CCPatterns value (see libHCFR/Color.h); English-only,
+				// matching the other runtime-built UI on this branch.
+				static const char * const kCCSetNames [] = {
+					"GCD classic", "MCD classic", "Pantone skin tones", "CalMAN Classic",
+					"CalMAN SG skin tones", "ChromaPure skin tones", "CalMAN SG", "RGB Luminance Axis",
+					"CM 4-Point Luminance", "CM 5-Point Luminance", "CM 10-Point Luminance",
+					"CM 4-Point Saturation (100AMP)", "CM 4-Point Saturation (75AMP)",
+					"CM 5-Point Saturation (100AMP)", "CM 5-Point Saturation (75AMP)",
+					"CM 10-Point Saturation (100AMP)", "CM 10-Point Saturation (75AMP)",
+					"CM 6-Point Near Black", "CM Dynamic Range (Clipping)", "BT2020HDR_50_50",
+					"LG_540_2016", "LG_540_2017", "LG_1000_2017", "LG_4000_2017", "LG UK65xx 20-Point",
+					"LG 2018 OLED V1 20-Point", "LG 2018 OLED V2 20-Point", "LG 2018 OLED V3 20-Point",
+					"LG 2019 OLED 10-Point", "LG 2019 OLED 22-Point", "LG 2020 OLED 10-Point",
+					"LG 2020 OLED 22-Point", "LG 2021 OLED 10-Point", "LG 2021 OLED 22-Point",
+					"Random 250", "Random 500", "User defined"
+				};
+				int nCCMode = (int) GetConfig () -> m_CCMode;
+				for ( int k = 0; k < sizeof(kCCSetNames)/sizeof(kCCSetNames[0]); k++ )
+				{
+					int idx = m_comboSteps.AddString ( kCCSetNames[k] );
+					m_comboSteps.SetItemData ( idx, k );
+					if ( k == nCCMode )
+						m_comboSteps.SetCurSel ( idx );
+				}
+				m_comboSteps.SetDroppedWidth ( GetConfig () -> Scale ( 240 ) );	// CC set names are long
+				bShowSteps = TRUE;
+			 }
+			 break;
+	}
+
+	m_comboSteps.ShowWindow ( bShowSteps ? SW_SHOW : SW_HIDE );
+
+	// Stimulus level: saturation modes only. The list is the configured capture
+	// levels plus any level already measured in this document.
+	BOOL bShowStim = ( m_displayMode >= 5 && m_displayMode <= 10 );
+	if ( bShowStim )
+	{
+		std::vector<int> pcts;
+
+		CString strLevels = GetConfig () -> GetProfileString ( "Scale Sizes", "SatStimLevels", "25 50 75 100" );
+		LPCSTR p = (LPCSTR) strLevels;
+		while ( *p )
+		{
+			char * pEnd;
+			long v = strtol ( p, &pEnd, 10 );
+			if ( pEnd == p )
+				{ p ++; continue; }
+			if ( v >= 1 && v <= 100 )
+				pcts.push_back ( (int) v );
+			p = pEnd;
+		}
+
+		for ( int s = 0; s < pMeasure -> GetSatLevelCount (); s++ )
+			pcts.push_back ( (int) floor ( pMeasure -> GetSatLevelAt ( s ) * 100.0 + 0.5 ) );
+
+		int nActivePct = (int) floor ( pMeasure -> GetActiveSatLevel () * 100.0 + 0.5 );
+		pcts.push_back ( nActivePct );
+
+		std::sort ( pcts.begin (), pcts.end () );
+		pcts.erase ( std::unique ( pcts.begin (), pcts.end () ), pcts.end () );
+
+		m_comboStimLevel.ResetContent ();
+		for ( size_t k = 0; k < pcts.size (); k++ )
+		{
+			str.Format ( _T("%d%%"), pcts[k] );
+			int idx = m_comboStimLevel.AddString ( str );
+			m_comboStimLevel.SetItemData ( idx, pcts[k] );
+			if ( pcts[k] == nActivePct )
+				m_comboStimLevel.SetCurSel ( idx );
+		}
+	}
+	m_comboStimLevel.ShowWindow ( bShowStim ? SW_SHOW : SW_HIDE );
+
+	// Captions under each dropdown. The mode combo is always present; the steps
+	// caption reads "Preset" for grayscale (named presets) and "Steps" otherwise.
+	if ( m_lblMode.GetSafeHwnd () )
+	{
+		m_lblMode.SetWindowText ( _T("Mode") );
+		m_lblMode.ShowWindow ( SW_SHOW );
+		m_lblSteps.SetWindowText ( m_displayMode == 11 ? _T("CC set") : _T("Steps") );
+		m_lblSteps.ShowWindow ( bShowSteps ? SW_SHOW : SW_HIDE );
+		m_lblStim.SetWindowText ( _T("Stimulus") );
+		m_lblStim.ShowWindow ( bShowStim ? SW_SHOW : SW_HIDE );
+	}
+}
+
+void CMainView::OnSelchangeComboSteps()
+{
+	if ( IsMeasureSweepActive () )
+	{
+		UpdateParamCombos ();	// revert the selection, no changes mid-sweep
+		return;
+	}
+
+	CMeasure *	pMeasure = GetDocument () -> GetMeasure ();
+	int			sel = m_comboSteps.GetCurSel ();
+	if ( sel < 0 )
+		return;
+	int			data = (int) m_comboSteps.GetItemData ( sel );
+
+	if ( m_displayMode == 11 )
+	{
+		// Color Checker: the dropdown selects the global CC pattern set (m_CCMode),
+		// exactly as the References dialog does. Reload the set's colors and refresh.
+		if ( data == (int) GetConfig () -> m_CCMode )
+			return;
+		GetConfig () -> m_CCMode = (CCPatterns) data;
+		GetConfig () -> m_referencesPropertiesPage.m_CCMode = data;	// keep the dialog's DDX var in sync
+		GetConfig () -> WriteProfileInt ( "References", "CCMode", data );
+		GetConfig () -> GetCColors ();	// reload the set's target colors / patch count
+		GetDocument () -> UpdateAllViews ( NULL, UPD_EVERYTHING );
+		return;
+	}
+
+	if ( m_displayMode == 0 )
+	{
+		if ( data < 0 )
+		{
+			// "Custom...": the Scale Sizes dialog has the free-form step count + IRE mode
+			CScaleSizes dlg ( GetDocument () );
+			dlg.DoModal ();
+			UpdateParamCombos ();
+			return;
+		}
+		if ( data == pMeasure -> GetGrayScalePreset () )
+			return;
+		if ( CurrentModeSweepHasData () &&
+			 GetColorApp()->InMeasureMessageBox ( _T("Changing the grayscale steps clears the current grayscale measurements.\nContinue?"), _T("Grayscale steps"), MB_ICONQUESTION | MB_YESNO ) != IDYES )
+		{
+			UpdateParamCombos ();
+			return;
+		}
+		const GrayScalePreset *	pPresets = GetGrayScalePresets ();
+		CArray<double,double>	levels;
+		levels.SetSize ( pPresets[data].count );
+		for ( int i = 0; i < pPresets[data].count; i++ )
+			levels[i] = pPresets[data].levels[i];
+		pMeasure -> SetGrayScaleLevels ( levels.GetData (), (int) levels.GetSize () );
+		GetConfig()->WriteProfileInt("Scale Sizes","GrayPreset",data);
+		GetConfig()->WriteProfileInt("Scale Sizes","GrayCustomN",pPresets[data].count - 1);
+		GetConfig()->WriteProfileInt("Scale Sizes","Gray",pPresets[data].count - 1);
+	}
+	else
+	{
+		int nCur;
+		if ( m_displayMode == 3 )
+			nCur = pMeasure -> GetNearBlackScaleSize () - 1;
+		else if ( m_displayMode == 4 )
+			nCur = pMeasure -> GetNearWhiteScaleSize () - 1;
+		else
+			nCur = pMeasure -> GetSaturationSize () - 1;
+		if ( data == nCur )
+			return;
+
+		LPCTSTR lpszWarn;
+		if ( m_displayMode == 3 )
+			lpszWarn = _T("Changing the near black steps clears the current near black measurements.\nContinue?");
+		else if ( m_displayMode == 4 )
+			lpszWarn = _T("Changing the near white steps clears the current near white measurements.\nContinue?");
+		else
+			lpszWarn = _T("Changing the saturation steps clears the measurements of all six saturation sweeps.\nContinue?");
+		if ( CurrentModeSweepHasData () &&
+			 GetColorApp()->InMeasureMessageBox ( lpszWarn, _T("Scale steps"), MB_ICONQUESTION | MB_YESNO ) != IDYES )
+		{
+			UpdateParamCombos ();
+			return;
+		}
+
+		if ( m_displayMode == 3 )
+		{
+			pMeasure -> SetNearBlackScaleSize ( data + 1 );
+			GetConfig()->WriteProfileInt("Scale Sizes","Near Black",data);
+		}
+		else if ( m_displayMode == 4 )
+		{
+			pMeasure -> SetNearWhiteScaleSize ( data + 1 );
+			GetConfig()->WriteProfileInt("Scale Sizes","Near White",data);
+		}
+		else
+		{
+			pMeasure -> SetSaturationSize ( data + 1 );
+			GetConfig()->WriteProfileInt("Scale Sizes","Saturations",data);
+		}
+	}
+
+	GetDocument () -> SetModifiedFlag ();
+	GetDocument () -> UpdateAllViews ( NULL );
+	UpdateParamCombos ();
+}
+
+void CMainView::OnSelchangeComboStimLevel()
+{
+	if ( IsMeasureSweepActive () )
+	{
+		UpdateParamCombos ();	// revert the selection, no level swap mid-sweep
+		return;
+	}
+
+	int sel = m_comboStimLevel.GetCurSel ();
+	if ( sel < 0 )
+		return;
+	int nPct = (int) m_comboStimLevel.GetItemData ( sel );
+
+	// Non-destructive: stores the bound sweeps, then binds the chosen level's
+	// set (creating an empty one if it has never been measured). Every view
+	// follows via the update broadcast.
+	if ( GetDocument () -> GetMeasure () -> BindSatLevel ( (double) nPct / 100.0 ) )
+	{
+		GetDocument () -> SetModifiedFlag ();
+		GetDocument () -> UpdateAllViews ( NULL );
+	}
 }
 
 void CMainView::SetMeasureButtonForMode()
@@ -6527,6 +6917,37 @@ void CMainView::InitButtons()
 		m_CtrlInitPos.AddTail(pCombo);
 	}
 
+	// Per-mode pattern-parameter dropdowns (steps / stimulus level), positioned by
+	// LayoutTopRow under the mode combo; UpdateParamCombos fills and shows them.
+	if (m_comboSteps.GetSafeHwnd() == NULL)
+	{
+		CRect rcInit(0, 0, GetConfig()->Scale(80), GetConfig()->Scale(140));
+		m_comboSteps.Create(WS_CHILD|WS_TABSTOP|WS_VSCROLL|CBS_DROPDOWNLIST, rcInit, this, IDC_PARAMSTEPS_COMBO);
+		m_comboSteps.SetFont(GetFont());
+		m_comboSteps.ModifyStyleEx(WS_EX_DLGMODALFRAME, 0, SWP_FRAMECHANGED);
+		m_comboStimLevel.Create(WS_CHILD|WS_TABSTOP|WS_VSCROLL|CBS_DROPDOWNLIST, rcInit, this, IDC_STIMLEVEL_COMBO);
+		m_comboStimLevel.SetFont(GetFont());
+		m_comboStimLevel.ModifyStyleEx(WS_EX_DLGMODALFRAME, 0, SWP_FRAMECHANGED);
+
+		// Caption labels drawn under each dropdown (font set with m_sectionFont below).
+		CRect rcLbl(0, 0, GetConfig()->Scale(80), GetConfig()->Scale(14));
+		m_lblMode.Create (_T(""), WS_CHILD|SS_CENTER|SS_CENTERIMAGE|SS_NOPREFIX, rcLbl, this, IDC_MODE_LABEL);
+		m_lblSteps.Create(_T(""), WS_CHILD|SS_CENTER|SS_CENTERIMAGE|SS_NOPREFIX, rcLbl, this, IDC_PARAMSTEPS_LABEL);
+		m_lblStim.Create (_T(""), WS_CHILD|SS_CENTER|SS_CENTERIMAGE|SS_NOPREFIX, rcLbl, this, IDC_STIMLEVEL_LABEL);
+
+		int nParamIds[5] = { IDC_PARAMSTEPS_COMBO, IDC_STIMLEVEL_COMBO, IDC_MODE_LABEL, IDC_PARAMSTEPS_LABEL, IDC_STIMLEVEL_LABEL };
+		for (int pi = 0; pi < 5; pi++)
+		{
+			SCtrlInitPos* pPos = new SCtrlInitPos;
+			pPos->m_hWnd = ::GetDlgItem(m_hWnd, nParamIds[pi]);
+			::GetWindowRect(pPos->m_hWnd, &pPos->m_Rect);
+			::ScreenToClient(m_hWnd, (LPPOINT)&pPos->m_Rect.left);
+			::ScreenToClient(m_hWnd, (LPPOINT)&pPos->m_Rect.right);
+			pPos->m_pLayout = &g_ParamComboLayout;
+			m_CtrlInitPos.AddTail(pPos);
+		}
+	}
+
 	if ( m_displayMode == 12 )
 	{
 		m_testAnsiPatternButton.ShowWindow ( SW_SHOW );
@@ -6548,6 +6969,11 @@ void CMainView::InitButtons()
 	if (GetDlgItem(IDC_STATIC_RGBLEVELS)) GetDlgItem(IDC_STATIC_RGBLEVELS)->SetFont(&m_sectionFont);
 	if (GetDlgItem(IDC_STATIC_DATA))      GetDlgItem(IDC_STATIC_DATA)->SetFont(&m_sectionFont);
 	if (GetDlgItem(IDC_STATIC_TARGET))    GetDlgItem(IDC_STATIC_TARGET)->SetFont(&m_sectionFont);
+	m_captionFont.DeleteObject();
+	m_captionFont.CreateFontA(-GetConfig()->Scale(11),0,0,0,FW_NORMAL,0,0,0,ANSI_CHARSET,OUT_TT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,VARIABLE_PITCH|FF_SWISS,_T("Segoe UI"));
+	if (m_lblMode.GetSafeHwnd())  m_lblMode.SetFont(&m_captionFont);
+	if (m_lblSteps.GetSafeHwnd()) m_lblSteps.SetFont(&m_captionFont);
+	if (m_lblStim.GetSafeHwnd())  m_lblStim.SetFont(&m_captionFont);
 
     GetDlgItem( IDC_INFOLINE )->SetFont( &line_Font );
 
@@ -6767,10 +7193,20 @@ LRESULT CMainView::OnCtlColorStatic(WPARAM wParam, LPARAM lParam)
 {
 	// The colour-comparator swatches (IDC_CCOMP / IDC_CCOMP3) are owner-drawn
 	// now (CCompSwatch::OnPaint), so every static gets the plain panel treatment.
-	UNREFERENCED_PARAMETER(lParam);
 	HDC hDC = (HDC)wParam;
 	SetBkMode(hDC, TRANSPARENT);
-	SetTextColor(hDC, FxGetSysColor(COLOR_MENUTEXT));
+	int nId = ::GetDlgCtrlID((HWND)lParam);
+	if ( nId == IDC_MODE_LABEL || nId == IDC_PARAMSTEPS_LABEL || nId == IDC_STIMLEVEL_LABEL )
+	{
+		// Captions: dimmer than data but still clearly legible (70% text / 30% gray).
+		COLORREF t = FxGetSysColor(COLOR_MENUTEXT);
+		COLORREF g = FxGetSysColor(COLOR_GRAYTEXT);
+		SetTextColor(hDC, RGB( (GetRValue(t)*7+GetRValue(g)*3)/10,
+		                       (GetGValue(t)*7+GetGValue(g)*3)/10,
+		                       (GetBValue(t)*7+GetBValue(g)*3)/10 ));
+	}
+	else
+		SetTextColor(hDC, FxGetSysColor(COLOR_MENUTEXT));
 	return (LRESULT)(m_pBgBrush->GetSafeHandle());
 }
 

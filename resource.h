@@ -780,6 +780,11 @@
 #define IDC_DISPLAYTYPE_COMBO           1543
 #define IDC_SIZE_PLUS                   1544
 #define IDC_SIZE_MINUS                  1545
+#define IDC_PARAMSTEPS_COMBO            1551
+#define IDC_STIMLEVEL_COMBO             1552
+#define IDC_MODE_LABEL                  1553
+#define IDC_PARAMSTEPS_LABEL            1554
+#define IDC_STIMLEVEL_LABEL             1555
 #define IDC_PGEN_AVI_BASE               1530
 #define IDC_PGEN_DRM_BASE               1536
 #define IDC_PGEN_EDIT_BASE              1538
@@ -1056,6 +1061,7 @@
 #define IDM_MEASURE_SAT_CYAN            32990
 #define IDM_MEASURE_SAT_MAGENTA         32991
 #define IDM_MEASURE_SAT_ALL             32992
+#define IDM_MEASURE_SAT_ALL_LEVELS      33113
 #define IDM_MEASURE_GRAYSCALE_COLORS    32993
 #define IDM_SIM_NEARBLACK               32994
 #define IDM_SIM_NEARWHITE               32995
@@ -1878,8 +1884,8 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
-#define _APS_NEXT_COMMAND_VALUE         33113
-#define _APS_NEXT_CONTROL_VALUE         1551
+#define _APS_NEXT_COMMAND_VALUE         33114
+#define _APS_NEXT_CONTROL_VALUE         1556
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

@@ -93,6 +93,7 @@ BEGIN
     BUTTON      IDM_MEASURE_SAT_PRIMARIES
     BUTTON      IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
     BUTTON      IDM_MEASURE_SAT_ALL
+    BUTTON      IDM_MEASURE_SAT_ALL_LEVELS
     SEPARATOR
     BUTTON      IDM_SIM_SAT_RED
     BUTTON      IDM_SIM_SAT_GREEN
@@ -322,6 +323,7 @@ BEGIN
     SEPARATOR
     BUTTON      IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
     BUTTON      IDM_MEASURE_SAT_ALL
+    BUTTON      IDM_MEASURE_SAT_ALL_LEVELS
 END
 
 IDR_MEDIUMTOOLBAR_MEASURES_SAT TOOLBAR 32, 32
@@ -2473,6 +2475,7 @@ BEGIN
             MENUITEM "Couleurs &Primaires",         IDM_MEASURE_SAT_PRIMARIES
             MENUITEM "&Couleurs Primaires et Secondaires", IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
             MENUITEM "&Toutes les couleurs",        IDM_MEASURE_SAT_ALL
+            MENUITEM "All colors at all stimulus levels", IDM_MEASURE_SAT_ALL_LEVELS
         END
         MENUITEM "Full Tilt Boogie",            ID_MEASURES_FULLTILTBOOGIE
         MENUITEM "&Contraste",                  IDM_MEASURE_CONTRAST
@@ -4087,6 +4090,7 @@ END
 STRINGTABLE
 BEGIN
     IDM_MEASURE_SAT_ALL     "Mesure les saturations pour toutes les couleurs\nMesure les saturations pour toutes les couleurs"
+    IDM_MEASURE_SAT_ALL_LEVELS "Measure all colors saturation scales at every configured stimulus level\nMeasure saturations at all stimulus levels"
     IDM_MEASURE_GRAYSCALE_COLORS 
                             "Mesure l'échelle de gris et les couleurs primaires et secondaires en une seule opération\nMesure l'échelle de gris et les couleurs primaires et secondaires"
     IDM_SIM_NEARBLACK       "Effectue des mesures simultanées de l'échelle de gris au voisinage du noir en utilisant les capteurs de tous les documents ouverts.\nMesures simultanées du voisinage du noir"
