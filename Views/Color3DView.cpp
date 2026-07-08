@@ -203,7 +203,7 @@ void C3DColorView::ToModel(const ColorXYZ & xyz, double whiteY, CColorReference 
 void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReference & ref,
 								 const CColor & dETarget, const CColor & markerTarget,
 								 bool isGS, double ywForDE, const wchar_t * label,
-								 int srcType, int srcA, int srcB)
+								 int srcType, int srcA, int srcB, int srcC)
 {
 	if ( !c.isValid() )
 		return;
@@ -225,6 +225,7 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 	p.srcType = (BYTE)srcType;
 	p.srcA = (short)srcA;
 	p.srcB = (short)srcB;
+	p.srcC = (short)srcC;
 	ColorxyY mxyY = c.GetxyYValue();
 	p.mcx = (float)mxyY[0]; p.mcy = (float)mxyY[1];
 	p.mYr = (float)( whiteY > 0.0 ? mxyY[2] / whiteY : mxyY[2] );
@@ -376,21 +377,32 @@ void C3DColorView::BuildScene()
 		AppendMeasure( pMeasure->GetSecondary( i ), whiteY, ref, refS, refS, false, whiteY, secName[i], SRC_SECONDARY, i );
 	}
 
-	n = pMeasure->GetSaturationSize();
+	// Saturation sweeps: plot EVERY measured stimulus level from the store, not
+	// just the active one, so the full color-volume envelope is visible. The
+	// label and per-level reference (GetRefSat with the level's amplitude) make
+	// each level distinct; srcC records the level for click-to-inspect.
 	const bool satSpecial = ( ref.m_standard == HDTVa || ref.m_standard == HDTVb );
-	for ( i = 0; i < n; i++ )
+	static const wchar_t * hueName[6] = { L"Red", L"Green", L"Blue", L"Yellow", L"Cyan", L"Magenta" };
+	int nSatLevels = pMeasure->GetSatLevelCount();
+	for ( int L = 0; L < nSatLevels; L++ )
 	{
-		double satRatio = ( n > 1 ) ? (double)i / (double)( n - 1 ) : 1.0;
-		// GetRefSat hue order: 0=R 1=G 2=B 3=Y 4=C 5=M
-		CColor sat[6] = { pMeasure->GetRedSat( i ),    pMeasure->GetGreenSat( i ), pMeasure->GetBlueSat( i ),
-						  pMeasure->GetYellowSat( i ), pMeasure->GetCyanSat( i ),  pMeasure->GetMagentaSat( i ) };
-		static const wchar_t * hueName[6] = { L"Red", L"Green", L"Blue", L"Yellow", L"Cyan", L"Magenta" };
-		for ( int h = 0; h < 6; h++ )
+		const CSatLevelSet & set = pMeasure->GetSatLevelSet( L );
+		double stim   = set.stimLevel;
+		int    stimPct = (int)( stim * 100.0 + 0.5 );
+		int    nStep  = (int) set.sat[0].size();
+		for ( i = 0; i < nStep; i++ )
 		{
-			CColor refC = pMeasure->GetRefSat( h, satRatio, satSpecial );
-			wchar_t lbl[48];
-			swprintf( lbl, 48, L"%s %d%% sat", hueName[h], (int)( satRatio * 100.0 + 0.5 ) );
-			AppendMeasure( sat[h], whiteY, ref, refC, refC, false, whiteY, lbl, SRC_SAT, i, h );
+			double satRatio = ( nStep > 1 ) ? (double)i / (double)( nStep - 1 ) : 1.0;
+			// GetRefSat hue order: 0=R 1=G 2=B 3=Y 4=C 5=M
+			for ( int h = 0; h < 6; h++ )
+			{
+				if ( i >= (int) set.sat[h].size() )
+					continue;
+				CColor refC = pMeasure->GetRefSat( h, satRatio, satSpecial, stim );
+				wchar_t lbl[64];
+				swprintf( lbl, 64, L"%s %d%% sat @ %d%% stim", hueName[h], (int)( satRatio * 100.0 + 0.5 ), stimPct );
+				AppendMeasure( set.sat[h][i], whiteY, ref, refC, refC, false, whiteY, lbl, SRC_SAT, i, h, L );
+			}
 		}
 	}
 
@@ -1383,6 +1395,14 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 		case SRC_CC24:      sel = pM->GetCC24Sat( S.srcA );   break;
 		case SRC_FREE:      sel = pM->GetMeasurement( S.srcA ); break;
 		case SRC_SAT:
+			// The clicked point may belong to a non-active stimulus level; make that
+			// level active (so the grid, CIE chart and stimulus dropdown follow) and
+			// read the colour from the now-bound sweeps.
+			if ( S.srcC >= 0 && S.srcC < pM->GetSatLevelCount() )
+			{
+				if ( pM->BindSatLevel( pM->GetSatLevelAt( S.srcC ) ) )
+					pDoc->UpdateAllViews( NULL, UPD_ALLSATURATIONS );
+			}
 			switch ( S.srcB )
 			{
 				case 0: sel = pM->GetRedSat( S.srcA );     break;
