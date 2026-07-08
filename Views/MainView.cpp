@@ -1160,7 +1160,11 @@ LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 	// appears in every language build without editing each resource; the guard
 	// below keeps it idempotent.
 	if ( m_comboDisplay.GetSafeHwnd () && m_comboDisplay.GetCount () < 14 )
-		m_comboDisplay.AddString ( _T("3D Viewer") );
+	{
+		CString str3D;
+		str3D.LoadString ( IDS_3DVIEW_NAME );
+		m_comboDisplay.AddString ( str3D );
+	}
 
 	//restore last saved info window
 	m_infoDisplay = GetConfig()->GetProfileInt("MainView","Info Display",5);

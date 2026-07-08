@@ -1421,31 +1421,45 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 
 void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 {
+	CString sColorSpace, sPointColor, sPcDE, sPcTarget, sPcPlain,
+			sShowGamut, sShadeGamut, sShowFloor, sShowTails, sResetView;
+	sColorSpace.LoadString ( IDS_3DVIEW_COLORSPACE );
+	sPointColor.LoadString ( IDS_3DVIEW_POINTCOLOR );
+	sPcDE.LoadString       ( IDS_3DVIEW_PC_DE );
+	sPcTarget.LoadString   ( IDS_3DVIEW_PC_TARGET );
+	sPcPlain.LoadString    ( IDS_3DVIEW_PC_PLAIN );
+	sShowGamut.LoadString  ( IDS_3DVIEW_SHOWGAMUT );
+	sShadeGamut.LoadString ( IDS_3DVIEW_SHADEGAMUT );
+	sShowFloor.LoadString  ( IDS_3DVIEW_SHOWFLOOR );
+	sShowTails.LoadString  ( IDS_3DVIEW_SHOWTAILS );
+	sResetView.LoadString  ( IDS_3DVIEW_RESETVIEW );
+
 	CMenu menu, spaceMenu, colorMenu;
 	menu.CreatePopupMenu();
 
 	spaceMenu.CreatePopupMenu();
+	// space names are technical terms, identical in every language
 	spaceMenu.AppendMenu( MF_STRING, 101, _T("CIE xyY") );
 	spaceMenu.AppendMenu( MF_STRING, 102, _T("CIE L*a*b*") );
 	spaceMenu.AppendMenu( MF_STRING, 103, _T("RGB cube") );
 	spaceMenu.CheckMenuRadioItem( 101, 103, 101 + m_space, MF_BYCOMMAND );
 
 	colorMenu.CreatePopupMenu();
-	colorMenu.AppendMenu( MF_STRING, 204, _T("Delta E heatmap") );
-	colorMenu.AppendMenu( MF_STRING, 206, _T("Target colors") );
-	colorMenu.AppendMenu( MF_STRING, 207, _T("Plain") );
+	colorMenu.AppendMenu( MF_STRING, 204, sPcDE );
+	colorMenu.AppendMenu( MF_STRING, 206, sPcTarget );
+	colorMenu.AppendMenu( MF_STRING, 207, sPcPlain );
 	colorMenu.CheckMenuRadioItem( 204, 207,
 		m_pointColor == PTCOLOR_TARGET ? 206 : ( m_pointColor == PTCOLOR_PLAIN ? 207 : 204 ), MF_BYCOMMAND );
 
-	menu.AppendMenu( MF_POPUP, (UINT_PTR)spaceMenu.m_hMenu, _T("Color space") );
-	menu.AppendMenu( MF_POPUP, (UINT_PTR)colorMenu.m_hMenu, _T("Point color") );
+	menu.AppendMenu( MF_POPUP, (UINT_PTR)spaceMenu.m_hMenu, sColorSpace );
+	menu.AppendMenu( MF_POPUP, (UINT_PTR)colorMenu.m_hMenu, sPointColor );
 	menu.AppendMenu( MF_SEPARATOR );
-	menu.AppendMenu( MF_STRING | ( m_showGamut  ? MF_CHECKED : 0 ), 201, _T("Show target gamut (wireframe)") );
-	menu.AppendMenu( MF_STRING | ( m_shadeGamut ? MF_CHECKED : 0 ), 203, _T("Shade gamut faces") );
-	menu.AppendMenu( MF_STRING | ( m_showFloor  ? MF_CHECKED : 0 ), 202, _T("Show CIE floor (xyY)") );
-	menu.AppendMenu( MF_STRING | ( m_showTails  ? MF_CHECKED : 0 ), 205, _T("Show target tails") );
+	menu.AppendMenu( MF_STRING | ( m_showGamut  ? MF_CHECKED : 0 ), 201, sShowGamut );
+	menu.AppendMenu( MF_STRING | ( m_shadeGamut ? MF_CHECKED : 0 ), 203, sShadeGamut );
+	menu.AppendMenu( MF_STRING | ( m_showFloor  ? MF_CHECKED : 0 ), 202, sShowFloor );
+	menu.AppendMenu( MF_STRING | ( m_showTails  ? MF_CHECKED : 0 ), 205, sShowTails );
 	menu.AppendMenu( MF_SEPARATOR );
-	menu.AppendMenu( MF_STRING, 301, _T("Reset view") );
+	menu.AppendMenu( MF_STRING, 301, sResetView );
 
 	// The parent menu owns the submenus now; detach the wrappers so their
 	// destructors don't destroy the handles a second time.
