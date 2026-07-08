@@ -865,13 +865,16 @@ void CMainView::LayoutTopRow()
 				// starts after whichever dropdowns the current mode shows. Tall rects so
 				// the lists can drop.
 				{
-					int dropH  = comboVisH + cfg->Scale(140);
+					// Window height = the mode combo's closed height (comboH), NOT a tall
+					// "dropped" height. The list height is fixed once at creation (rcInit);
+					// forcing a tall window on each relayout makes the combo re-collapse
+					// and flash a black box below it.
 					int stepsW = (m_displayMode == 11) ? cfg->Scale(210) : cfg->Scale(140);   // CC set names are long
 					int stimW  = cfg->Scale(70);
 					int dropX  = rV.left + PAD + comboW + GAPX;   // right of the mode combo
 					int stimX  = dropX + stepsW + GAPX;
-					if (pSteps) pSteps->m_Rect = CRect(dropX, line1, dropX + stepsW, line1 + dropH);
-					if (pStim)  pStim->m_Rect  = CRect(stimX, line1, stimX + stimW, line1 + dropH);
+					if (pSteps) pSteps->m_Rect = CRect(dropX, line1, dropX + stepsW, line1 + comboH);
+					if (pStim)  pStim->m_Rect  = CRect(stimX, line1, stimX + stimW, line1 + comboH);
 					// captions centered under each dropdown
 					if (pModeLbl)  pModeLbl->m_Rect  = CRect(rV.left + PAD, lblRowTop, rV.left + PAD + comboW, lblRowTop + capH);
 					if (pStepsLbl) pStepsLbl->m_Rect = CRect(dropX, lblRowTop, dropX + stepsW, lblRowTop + capH);
@@ -5794,8 +5797,20 @@ void CMainView::OnSelchangeComboMode()
 			 break;
 	}
 
+	// Reconfigure the dropdowns with painting suppressed on the view AND the two
+	// runtime combos, then repaint once. Otherwise ShowWindow / OnSize paint the
+	// stimulus combo's transient (tall, pre-collapse) state, flashing a black box
+	// below it -- the dialog-template mode combo avoids this by collapsing while the
+	// view is still invisible at creation.
+	SetRedraw ( FALSE );
+	if ( m_comboSteps.GetSafeHwnd () )     m_comboSteps.SetRedraw ( FALSE );
+	if ( m_comboStimLevel.GetSafeHwnd () ) m_comboStimLevel.SetRedraw ( FALSE );
 	UpdateParamCombos();
 	if ( m_bPositionsInit ) { LayoutTopRow(); OnSize(0,0,0); }	// info column starts after this mode's dropdowns
+	if ( m_comboSteps.GetSafeHwnd () )     m_comboSteps.SetRedraw ( TRUE );
+	if ( m_comboStimLevel.GetSafeHwnd () ) m_comboStimLevel.SetRedraw ( TRUE );
+	SetRedraw ( TRUE );
+	RedrawWindow ( NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN );
 
 	InitGrid(true);
 
