@@ -91,6 +91,7 @@ protected:
 		BYTE  srcType;        // PointSource
 		short srcA;           // index within the source array
 		short srcB;           // SRC_SAT: hue 0-5 (R,G,B,Y,C,M)
+		short srcC;           // SRC_SAT: stimulus-level index into the multi-level store
 	};
 	std::vector<ScenePoint> m_points;
 	bool m_sceneDirty;
@@ -103,7 +104,7 @@ protected:
 	void AppendMeasure(const CColor & c, double whiteY, CColorReference & ref,
 					   const CColor & dETarget, const CColor & markerTarget,
 					   bool isGS, double ywForDE, const wchar_t * label,
-					   int srcType, int srcA, int srcB = 0);
+					   int srcType, int srcA, int srcB = 0, int srcC = 0);
 	void PushSelectionToMainView(const ScenePoint & S);
 	void ToModel(const ColorXYZ & xyz, double whiteY, CColorReference & ref,
 				 double & mx, double & my, double & mz) const;

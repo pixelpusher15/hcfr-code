@@ -558,6 +558,8 @@ BEGIN_MESSAGE_MAP(CDataSetDoc, CDocument)
 	ON_UPDATE_COMMAND_UI(IDM_MEASURE_CONTRAST, OnUpdateMeasureContrast)
 	ON_COMMAND(IDM_MEASURE_SAT_ALL, OnMeasureSatAll)
 	ON_UPDATE_COMMAND_UI(IDM_MEASURE_SAT_ALL, OnUpdateMeasureSatAll)
+	ON_COMMAND(IDM_MEASURE_SAT_ALL_LEVELS, OnMeasureSatAllLevels)
+	ON_UPDATE_COMMAND_UI(IDM_MEASURE_SAT_ALL_LEVELS, OnUpdateMeasureSatAllLevels)
 	ON_COMMAND(IDM_MEASURE_GRAYSCALE_COLORS, OnMeasureGrayscaleColors)
 	ON_UPDATE_COMMAND_UI(IDM_MEASURE_GRAYSCALE_COLORS, OnUpdateMeasureGrayscaleColors)
 	ON_COMMAND(ID_MEASURES_FULLTILTBOOGIE, OnMeasureFullTiltBoogie)
@@ -2461,7 +2463,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_RED;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, false, false, GetConfig()->m_GammaOffsetType);
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, false, false, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel());
 			 pValidationFunc = &CMeasure::ValidateBackgroundRedSatScale;
 			 lHint = UPD_REDSAT;
 			 break;
@@ -2470,7 +2472,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_GREEN;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, true, false, GetConfig()->m_GammaOffsetType );
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, true, false, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel() );
 			 pValidationFunc = &CMeasure::ValidateBackgroundGreenSatScale;
 			 lHint = UPD_GREENSAT;
 			 break;
@@ -2479,7 +2481,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_BLUE;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, false, true, GetConfig()->m_GammaOffsetType );
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, false, true, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel() );
 			 pValidationFunc = &CMeasure::ValidateBackgroundBlueSatScale;
 			 lHint = UPD_BLUESAT;
 			 break;
@@ -2488,7 +2490,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_YELLOW;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, true, false, GetConfig()->m_GammaOffsetType );
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, true, false, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel() );
 			 pValidationFunc = &CMeasure::ValidateBackgroundYellowSatScale;
 			 lHint = UPD_YELLOWSAT;
 			 break;
@@ -2497,7 +2499,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_CYAN;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, true, true, GetConfig()->m_GammaOffsetType );
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, true, true, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel() );
 			 pValidationFunc = &CMeasure::ValidateBackgroundCyanSatScale;
 			 lHint = UPD_CYANSAT;
 			 break;
@@ -2506,7 +2508,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_MAGENTA;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, false, true, GetConfig()->m_GammaOffsetType );
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, false, true, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel() );
 			 pValidationFunc = &CMeasure::ValidateBackgroundMagentaSatScale;
 			 lHint = UPD_MAGENTASAT;
 			 break;
@@ -4798,9 +4800,98 @@ void CDataSetDoc::OnMeasureSatAll()
 	}
 }
 
-void CDataSetDoc::OnUpdateMeasureSatAll(CCmdUI* pCmdUI) 
+void CDataSetDoc::OnUpdateMeasureSatAll(CCmdUI* pCmdUI)
 {
 	pCmdUI -> Enable ( m_pGenerator -> CanDisplayScale ( CGenerator::MT_SAT_ALL, GetMeasure () -> GetSaturationSize(), TRUE ) );
+}
+
+// Configured stimulus-capture levels as fractions 0..1 (empty list -> 100% only),
+// derived from the shared percent parser GetSatStimLevelPercents.
+static void ParseSatStimLevels(std::vector<double> & levels)
+{
+	std::vector<int> pcts;
+	GetSatStimLevelPercents ( pcts );
+	levels.clear ();
+	for ( size_t k = 0; k < pcts.size (); k++ )
+		levels.push_back ( (double) pcts[k] / 100.0 );
+	if ( levels.empty () )
+		levels.push_back ( 1.0 );
+}
+
+void CDataSetDoc::OnMeasureSatAllLevels()
+{
+	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
+
+	std::vector<double> levels;
+	ParseSatStimLevels ( levels );
+
+	CString	Msg, fmt, Title;
+	fmt.LoadString ( IDS_ALLLEVELS_CONFIRM );
+	Msg.Format ( fmt, (int) levels.size (), (int) levels.size () * 6 * GetMeasure () -> GetSaturationSize () );
+	Title.LoadString ( IDS_ALLLEVELS_TITLE );
+	if ( GetColorApp()->InMeasureMessageBox ( Msg, Title, MB_ICONQUESTION | MB_YESNO ) != IDYES )
+		return;
+
+	for ( size_t k = 0; k < levels.size (); k++ )
+	{
+		m_measure.BindSatLevel ( levels[k] );
+		UpdateAllViews ( NULL, UPD_ALLSATURATIONS );	// views track the level being captured
+
+		if ( ! m_measure.MeasurePrimarySecondarySaturationScales ( m_pSensor, m_pGenerator, FALSE, this ) )
+			break;	// aborted or failed: keep the levels already measured
+
+		SetModifiedFlag ( m_measure.IsModified () );
+		UpdateAllViews ( NULL, UPD_ALLSATURATIONS );
+	}
+}
+
+void CDataSetDoc::OnUpdateMeasureSatAllLevels(CCmdUI* pCmdUI)
+{
+	pCmdUI -> Enable ( m_pGenerator -> CanDisplayScale ( CGenerator::MT_SAT_ALL, GetMeasure () -> GetSaturationSize(), TRUE ) );
+}
+
+// Measure a single hue's saturation sweep at every configured stimulus level.
+// hue: 0=Red 1=Green 2=Blue 3=Yellow 4=Cyan 5=Magenta (matches sat grid modes 5-10).
+void CDataSetDoc::MeasureSatColorAllLevels(int hue)
+{
+	if ( hue < 0 || hue > 5 )
+		return;
+
+	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
+
+	std::vector<double> levels;
+	ParseSatStimLevels ( levels );
+
+	CString	Msg, fmt, Title;
+	fmt.LoadString ( IDS_ALLLEVELS_HUE_CONFIRM );
+	Msg.Format ( fmt, (int) levels.size (), (int) levels.size () * GetMeasure () -> GetSaturationSize () );
+	Title.LoadString ( IDS_ALLLEVELS_TITLE );
+	if ( GetColorApp()->InMeasureMessageBox ( Msg, Title, MB_ICONQUESTION | MB_YESNO ) != IDYES )
+		return;
+
+	for ( size_t k = 0; k < levels.size (); k++ )
+	{
+		m_measure.BindSatLevel ( levels[k] );
+		UpdateAllViews ( NULL, UPD_ALLSATURATIONS );	// views track the level being captured
+
+		BOOL ok = FALSE;
+		switch ( hue )
+		{
+			case 0: ok = m_measure.MeasureRedSatScale     ( m_pSensor, m_pGenerator, this ); break;
+			case 1: ok = m_measure.MeasureGreenSatScale   ( m_pSensor, m_pGenerator, this ); break;
+			case 2: ok = m_measure.MeasureBlueSatScale    ( m_pSensor, m_pGenerator, this ); break;
+			case 3: ok = m_measure.MeasureYellowSatScale  ( m_pSensor, m_pGenerator, this ); break;
+			case 4: ok = m_measure.MeasureCyanSatScale    ( m_pSensor, m_pGenerator, this ); break;
+			case 5: ok = m_measure.MeasureMagentaSatScale ( m_pSensor, m_pGenerator, this ); break;
+		}
+		if ( ! ok )
+			break;	// aborted or failed: keep the levels already measured
+
+		SetModifiedFlag ( m_measure.IsModified () );
+		UpdateAllViews ( NULL, UPD_ALLSATURATIONS );
+	}
 }
 
 void CDataSetDoc::OnMeasureGrayscaleColors() 

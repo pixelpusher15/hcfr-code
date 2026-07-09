@@ -57,6 +57,7 @@ static const HCFR_IconMap g_iconMap[] =
   { IDM_MEASURE_NEARWHITE,                _T("measure-near-white") },
   { IDM_MEASURE_SAT_PRIMARIES_SECONDARIES, _T("measure-sat-primaries-secondaries") },
   { IDM_MEASURE_SAT_ALL,                  _T("measure-sat-all") },
+  { IDM_MEASURE_SAT_ALL_LEVELS,           _T("measure-sat-all") },
   { ID_MEASURES_FULLTILTBOOGIE,           _T("measure-complete") },
   // Measures-Sat toolbar
   { IDM_MEASURE_SAT_RED,                  _T("sat-red") },
@@ -103,6 +104,7 @@ static const UINT g_menuOrder[] =
   IDM_MEASURE_SAT_RED, IDM_MEASURE_SAT_GREEN, IDM_MEASURE_SAT_BLUE, IDM_MEASURE_SAT_YELLOW,
   IDM_MEASURE_SAT_CYAN, IDM_MEASURE_SAT_MAGENTA, IDM_MEASURE_SAT_CC24,
   IDM_MEASURE_SAT_PRIMARIES, IDM_MEASURE_SAT_PRIMARIES_SECONDARIES, IDM_MEASURE_SAT_ALL,
+  IDM_MEASURE_SAT_ALL_LEVELS,
   IDM_SIM_SAT_RED, IDM_SIM_SAT_GREEN, IDM_SIM_SAT_BLUE, IDM_SIM_SAT_YELLOW,
   IDM_SIM_SAT_CYAN, IDM_SIM_SAT_MAGENTA,
   IDM_MEASURE_CONTRAST, ID_MEASURES_FULLTILTBOOGIE,

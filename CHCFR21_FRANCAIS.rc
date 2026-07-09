@@ -93,6 +93,7 @@ BEGIN
     BUTTON      IDM_MEASURE_SAT_PRIMARIES
     BUTTON      IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
     BUTTON      IDM_MEASURE_SAT_ALL
+    BUTTON      IDM_MEASURE_SAT_ALL_LEVELS
     SEPARATOR
     BUTTON      IDM_SIM_SAT_RED
     BUTTON      IDM_SIM_SAT_GREEN
@@ -322,6 +323,7 @@ BEGIN
     SEPARATOR
     BUTTON      IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
     BUTTON      IDM_MEASURE_SAT_ALL
+    BUTTON      IDM_MEASURE_SAT_ALL_LEVELS
 END
 
 IDR_MEDIUMTOOLBAR_MEASURES_SAT TOOLBAR 32, 32
@@ -2473,6 +2475,7 @@ BEGIN
             MENUITEM "Couleurs &Primaires",         IDM_MEASURE_SAT_PRIMARIES
             MENUITEM "&Couleurs Primaires et Secondaires", IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
             MENUITEM "&Toutes les couleurs",        IDM_MEASURE_SAT_ALL
+            MENUITEM "Toutes les couleurs à tous les niveaux", IDM_MEASURE_SAT_ALL_LEVELS
         END
         MENUITEM "Full Tilt Boogie",            ID_MEASURES_FULLTILTBOOGIE
         MENUITEM "&Contraste",                  IDM_MEASURE_CONTRAST
@@ -4053,6 +4056,21 @@ BEGIN
     IDS_3DVIEW_RESETVIEW    "Réinitialiser la vue"
     IDS_3DVIEW_FILTER_ALL   "Tout afficher"
     IDS_3DVIEW_FILTER_HIDE  "Masquer < %s dE"
+    IDS_PARAM_MODE          "Mode"
+    IDS_PARAM_STEPS         "Pas"
+    IDS_PARAM_STIMULUS      "Stimulus"
+    IDS_PARAM_CCSET         "Jeu CC"
+    IDS_PARAM_CUSTOM        "Personnalisé..."
+    IDS_ALLSTIM_BTN         "Tous stim"
+    IDS_ALLSTIM_TIP         "Mesure la saturation de cette couleur à chaque niveau de stimulus"
+    IDS_CONFIRM_CLEAR_GRAY  "Changer le nombre de pas efface les mesures d'échelle de gris actuelles.\nContinuer ?"
+    IDS_CONFIRM_CLEAR_NB    "Changer le nombre de pas efface les mesures de voisinage du noir actuelles.\nContinuer ?"
+    IDS_CONFIRM_CLEAR_NW    "Changer le nombre de pas efface les mesures de voisinage du blanc actuelles.\nContinuer ?"
+    IDS_CONFIRM_CLEAR_SAT   "Changer le nombre de pas efface les mesures des six balayages de saturation.\nContinuer ?"
+    IDS_STEPS_TITLE         "Nombre de pas"
+    IDS_ALLLEVELS_CONFIRM   "Ceci mesurera les six balayages de saturation à %d niveaux de stimulus (%d patchs).\nContinuer ?"
+    IDS_ALLLEVELS_HUE_CONFIRM "Ceci mesurera le balayage de saturation de cette couleur à %d niveaux de stimulus (%d patchs).\nContinuer ?"
+    IDS_ALLLEVELS_TITLE     "Saturation à tous les niveaux"
     IDS_SATLUMSHIFT         "Saturation - écarts"
     IDS_SATLUM              "Saturation - luminance"
     ID_LUX_VALUE            "00000000 Lux"
@@ -4093,6 +4111,7 @@ END
 STRINGTABLE
 BEGIN
     IDM_MEASURE_SAT_ALL     "Mesure les saturations pour toutes les couleurs\nMesure les saturations pour toutes les couleurs"
+    IDM_MEASURE_SAT_ALL_LEVELS "Mesure les saturations de toutes les couleurs à chaque niveau de stimulus configuré\nMesure les saturations à tous les niveaux"
     IDM_MEASURE_GRAYSCALE_COLORS 
                             "Mesure l'échelle de gris et les couleurs primaires et secondaires en une seule opération\nMesure l'échelle de gris et les couleurs primaires et secondaires"
     IDM_SIM_NEARBLACK       "Effectue des mesures simultanées de l'échelle de gris au voisinage du noir en utilisant les capteurs de tous les documents ouverts.\nMesures simultanées du voisinage du noir"

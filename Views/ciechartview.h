@@ -126,6 +126,15 @@ class CCIEChartGrapher
 	Gdiplus::Graphics *	m_pMarkerGraphics;
 	float	m_markerScale;	// DPI scale, resolved once per DrawChart pass
 
+	// More per-pass invariants: the tone-mapped white (a getL_EOTF call) and
+	// the Lab-conversion reference are identical for every point of a pass,
+	// but were being recomputed inside each DrawAlphaBitmap call — with a few
+	// hundred points that dominated every full repaint. Set by DrawChart,
+	// cleared when the pass ends; DrawAlphaBitmap falls back to computing
+	// them itself when unset.
+	double	m_passTmWhite;
+	const CColorReference *	m_pPassRef;
+
 	// MakeBgBitmap cache key: skip rebuilding when the background would be
 	// identical (helps live resize, where OnSize and OnUpdate both rebuild)
 	int		m_bgW, m_bgH;
@@ -147,6 +156,7 @@ class CCIEChartGrapher
 
 	// Operations
 	void MakeBgBitmap(CRect rect,BOOL bWhiteBkgnd);
+	void DrawCoverageChips(CDC *pDC, CRect rcAnchor, CDataSetDoc * pDoc);
 	void DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint = NULL, bool isSelected = FALSE, double dE10=100.0, bool isPrimeSec = FALSE);
 	bool DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int y, const CCIEGraphPoint& aGraphPoint, bool isSelected);
 	void DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd);
@@ -175,6 +185,36 @@ protected:
 	// and made sweeps several times slower while this chart was visible).
 	BOOL	m_bRealtimeIncrement;
 
+	// Retained-chart repaint (CIE-001/CIE-006): m_drawBitmap keeps the last
+	// full DrawChart output, so a paint where neither the data (m_bChartDirty,
+	// set by OnUpdate) nor the content signature below changed is a plain
+	// blit. During a live resize the retained chart is StretchBlt'ed and the
+	// real render happens once, on the resize settle timer.
+	BOOL	m_bChartDirty;
+	BOOL	m_bResizeSettling;
+
+	// Content signature of the last full DrawChart: render size, the grapher
+	// display toggles (GetUserInfo bits), and the MainView/document state
+	// DrawChart reads directly without any update hint reaching this view.
+	int		m_chartW, m_chartH;
+	DWORD	m_chartUserInfo;
+	int		m_chartMode;
+	int		m_chartEdit;
+	double	m_chartdE10;
+	BOOL	m_chartSelValid;
+	ColorXYZ	m_chartSel;
+
+	// Pinch-to-zoom state: distance between the two touch points and the
+	// zoom factor captured when the gesture began (GF_BEGIN).
+	double	m_gestureStartDist;
+	UINT	m_gestureStartZoom;
+
+	// Client-sized compose buffer: the chart blit and the pinned chip
+	// overlay are combined here and reach the screen in one blit, otherwise
+	// the chips flicker on every pan/zoom repaint.
+	CBitmap	m_composeBitmap;
+	CSize	m_composeSize;
+
 	CCIEChartGrapher m_Grapher;
 
 	double	m_refDeltaE;
@@ -192,6 +232,8 @@ public:
 public:
 	void	UpdateTestColor ( CPoint point );
 	void	GetReferenceRect ( LPRECT lpRect );		// Returns client rect with size increased regarding zoom factor
+	void	ZoomChart ( int nNewFactor, CPoint ptAnchorClient );	// Anchored zoom shared by wheel, menu and pinch
+	void	SchedulePreviewSettle ( UINT nDelayMs );	// Preview paints until the settle timer runs the real render
 // Overrides
 	// ClassWizard generated virtual function overrides
 	//{{AFX_VIRTUAL(CCIEChartView)
@@ -255,6 +297,7 @@ protected:
 	afx_msg void OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags);
 	afx_msg void NotifyDisplayTooltip(NMHDR * pNMHDR, LRESULT * result);
 	afx_msg void OnTimer(UINT_PTR nIDEvent);
+	afx_msg LRESULT OnGestureMsg(WPARAM wParam, LPARAM lParam);
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

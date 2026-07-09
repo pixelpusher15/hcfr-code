@@ -48,6 +48,22 @@ extern void DrawDeltaECurve(CDC* pDC, int cxMax, int cyMax, double DeltaE, BOOL 
 #define FX_MINSIZETOSHOW_TRIANGLEDETAILS 100
 #define FX_MINSIZETOSHOW_REFDETAILS 300
 
+// Zoom limits. The retained chart bitmaps are canvas-sized, so the canvas
+// cap bounds their memory (~64MB per bitmap at 4096px, which a 32-bit
+// process can afford); it is what actually limits zoom on large panes.
+#define FX_MAXZOOMFACTOR   8000
+#define FX_MAXZOOMCANVASPX 4096
+
+// The HDTV reference used to derive display colours for plot dots and
+// tooltips is built from fixed constants only (verified: the constructor and
+// the reference luma getters read nothing mutable), so build it once instead
+// of once per point per paint — its constructor inverts matrices.
+static const CColorReference & HdtvPlotRef()
+{
+	static const CColorReference hdtvRef(HDTV);
+	return hdtvRef;
+}
+
 /////////////////////////////////////////////////////////////////////////////
 // CCIEGraphPoint
 
@@ -164,6 +180,8 @@ CCIEChartGrapher::CCIEChartGrapher()
 
 	m_pMarkerGraphics = NULL;
 	m_markerScale = 1.0f;
+	m_passTmWhite = 0.0;
+	m_pPassRef = NULL;
 	m_bgW = -1;
 	m_bgH = -1;
 	m_bgWhite = m_bgUv = m_bgAb = m_bgShowBg = m_bgShowDE = FALSE;
@@ -388,7 +406,7 @@ bool CCIEChartGrapher::DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int 
 	{
 		kind = KIND_DOT;
 		CColor measColor = aGraphPoint.GetNormalizedColor();
-		ColorRGB measCol = ColorRGB(measColor.GetRGBValue(CColorReference(HDTV)));
+		ColorRGB measCol = ColorRGB(measColor.GetRGBValue(HdtvPlotRef()));
 		int r = (int)floor(pow(min(max(measCol[0],0),1),1.0/2.2)*255.+0.5);
 		int g = (int)floor(pow(min(max(measCol[1],0),1),1.0/2.2)*255.+0.5);
 		int b = (int)floor(pow(min(max(measCol[2],0),1),1.0/2.2)*255.+0.5);
@@ -503,8 +521,9 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 	pBitmap->GetBitmap(&bm);
 	bool bDrawBMP = !m_bdE10;
 	double RefWhite = 1.0, YWhite = 1.0, L = 100., a = 0., b = 0.;
-	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
-	
+	CColorReference  bRef = ( m_pPassRef ? *m_pPassRef :
+		((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference()) );
+
 	if (isSelected)
 		bDrawBMP = TRUE;
 
@@ -513,7 +532,7 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 	{
 		CString str, str1, str2, str3;
 		CColor NoDataColor;
-		double tmWhite = getL_EOTF(0.5022283, NoDataColor, NoDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+		double tmWhite = ( m_passTmWhite > 0.0 ) ? m_passTmWhite : getL_EOTF(0.5022283, NoDataColor, NoDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
 		
 		int x=aGraphPoint.GetGraphX(rect)+m_DeltaX;
 		int y=aGraphPoint.GetGraphY(rect)+m_DeltaY;		
@@ -641,8 +660,8 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 					aColor2.SetZ(aColor2.GetZ() * YWhite / tmWhite);
 				}
 
-				ColorRGB measCol = ColorRGB(aColor1.GetRGBValue(HDTV));
-				ColorRGB refCol = ColorRGB(aColor2.GetRGBValue(HDTV));
+				ColorRGB measCol = ColorRGB(aColor1.GetRGBValue(HdtvPlotRef()));
+				ColorRGB refCol = ColorRGB(aColor2.GetRGBValue(HdtvPlotRef()));
 				double r1=min(max(measCol[0],0),1);
 				double g1=min(max(measCol[1],0),1);
 				double b1=min(max(measCol[2],0),1);
@@ -664,7 +683,7 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 		{
 			CColor aColor = aGraphPoint.GetNormalizedColor();
 
-			ColorRGB measCol = ColorRGB(aColor.GetRGBValue(CColorReference(HDTV)));
+			ColorRGB measCol = ColorRGB(aColor.GetRGBValue(HdtvPlotRef()));
 			double r1=min(max(measCol[0],0),1);
 			double g1=min(max(measCol[1],0),1);
 			double b1=min(max(measCol[2],0),1);
@@ -706,6 +725,125 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 
 }
 
+// Gamut coverage chips (top right): [gamut] [xy: n%] [u'v': n%]. The
+// gamut-name chip always shows; the coverage percentages are the measured
+// primaries triangle vs the displayed reference triangle (area intersection
+// / reference area) in xy and u'v'. Not shown in CIE a*b* mode (the metric
+// is a chromaticity-plane one). The percentages hide when the gamut is
+// changed until the primaries are re-measured, since old primaries don't
+// belong to the new reference.
+// The row anchors to rcAnchor's top-right: the client rect when overlaid on
+// screen paints (OnDraw calls this after every blit so the chips stay pinned
+// under zoom/pan), the image rect when baked into exports.
+void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDoc * pDoc )
+{
+	if ( m_bCIEab || min(rcAnchor.Width(),rcAnchor.Height()) <= FX_MINSIZETOSHOW_REFDETAILS )
+		return;
+
+	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetRedPrimary().GetXYZValue();
+	ColorXYZ greenPrimaryColor=pDoc->GetMeasure()->GetGreenPrimary().GetXYZValue();
+	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetBluePrimary().GetXYZValue();
+	BOOL hasPrimaries = redPrimaryColor.isValid() && greenPrimaryColor.isValid() &&
+						bluePrimaryColor.isValid();
+
+	// Short names for the mainstream gamuts; everything else (incl. the
+	// reduced-primary HDTVa/HDTVb pseudo-gamuts) uses its own reference
+	// name so the label always matches the triangle actually drawn.
+	WCHAR gamutName[64];
+	switch (GetColorReference().m_standard)
+	{
+		case HDTV: case UHDTV4: wcscpy_s(gamutName, L"Rec.709");  break;
+		case UHDTV: case UHDTV3: wcscpy_s(gamutName, L"DCI-P3");   break;
+		case UHDTV2:            wcscpy_s(gamutName, L"Rec.2020");  break;
+		default:
+			swprintf_s(gamutName, 64, L"%S", GetColorReference().GetName().c_str());
+			break;
+	}
+
+	// Decide whether the coverage percentages are current. They are stale
+	// (and hidden) if the reference standard changed while the measured
+	// primaries stayed put -- i.e. the gamut was switched without a fresh
+	// measurement. Re-measuring changes the primaries and re-shows them.
+	ColorStandard curStd = GetColorReference().m_standard;
+	BOOL showPct = FALSE;
+	double covXY = 0.0, covUV = 0.0;
+	if (hasPrimaries)
+	{
+		BOOL primsSame = m_covValid
+			&& redPrimaryColor[0]   == m_covPrimaries[0][0] && redPrimaryColor[1]   == m_covPrimaries[0][1] && redPrimaryColor[2]   == m_covPrimaries[0][2]
+			&& greenPrimaryColor[0] == m_covPrimaries[1][0] && greenPrimaryColor[1] == m_covPrimaries[1][1] && greenPrimaryColor[2] == m_covPrimaries[1][2]
+			&& bluePrimaryColor[0]  == m_covPrimaries[2][0] && bluePrimaryColor[1]  == m_covPrimaries[2][1] && bluePrimaryColor[2]  == m_covPrimaries[2][2];
+		BOOL stdSame = m_covValid && (m_covStandard == curStd);
+
+		if (m_covValid && !stdSame && primsSame)
+		{
+			showPct = FALSE;	// gamut changed, primaries not re-measured
+		}
+		else
+		{
+			showPct = TRUE;
+			ColorxyY measured[3] = { ColorxyY(redPrimaryColor),
+									 ColorxyY(greenPrimaryColor),
+									 ColorxyY(bluePrimaryColor) };
+			// the triangle drawn on the chart is the active reference's primaries
+			// (for P3/709 inside a 2020 container these are already the inner gamut)
+			ColorxyY refTri[3] = { ColorxyY(GetColorReference().GetRed()),
+								   ColorxyY(GetColorReference().GetGreen()),
+								   ColorxyY(GetColorReference().GetBlue()) };
+			covXY = GamutCoverage(measured, refTri, GAMUT_PLANE_XY) * 100.0;
+			covUV = GamutCoverage(measured, refTri, GAMUT_PLANE_UV) * 100.0;
+			m_covStandard = curStd;
+			m_covPrimaries[0] = redPrimaryColor;
+			m_covPrimaries[1] = greenPrimaryColor;
+			m_covPrimaries[2] = bluePrimaryColor;
+			m_covValid = TRUE;
+		}
+	}
+
+	// Pill stat chips like the target widget's, anchored top right,
+	// growing leftward from the corner.
+	EnsureGdiplus();
+	Gdiplus::Graphics g(pDC->GetSafeHdc());
+	GpApplyDCOrigin(g, pDC);
+	g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+	g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+	Gdiplus::Font chipFont(L"Segoe UI", 15.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+
+	// neutral chip palette shared with the target widget's dx/dy chip
+	BOOL bDark = !m_bgWhite;
+	Gdiplus::Color nFill   = bDark ? Gdiplus::Color(255, 42, 42, 42)    : Gdiplus::Color(255, 255, 255, 255);
+	Gdiplus::Color nBorder = bDark ? Gdiplus::Color(255, 72, 72, 72)    : Gdiplus::Color(255, 205, 207, 213);
+	Gdiplus::Color nText   = bDark ? Gdiplus::Color(255, 215, 215, 215) : Gdiplus::Color(255, 70, 74, 80);
+
+	// Visual order left-to-right is [gamut] [xy] [u'v']; priority is the
+	// reverse, so if the row can't fit the chart width drop u'v' first,
+	// then xy, always keeping the gamut name.
+	WCHAR uvBuf[64], xyBuf[64];
+	const WCHAR * ordered[3];
+	int nChips = 0;
+	ordered[nChips++] = gamutName;
+	if (showPct)
+	{
+		swprintf_s(xyBuf, 64, L"xy: %.1f%%", covXY);
+		swprintf_s(uvBuf, 64, L"u'v': %.1f%%", covUV);
+		ordered[nChips++] = xyBuf;
+		ordered[nChips++] = uvBuf;
+	}
+
+	const Gdiplus::REAL pad = 8.0f, gap = 6.0f;
+	Gdiplus::REAL avail = (Gdiplus::REAL)rcAnchor.Width() - 2.0f * pad;
+	Gdiplus::REAL total = 0.0f;
+	for (int i = 0; i < nChips; i++)
+		total += MeasureStatChip(g, chipFont, ordered[i]).Width + (i ? gap : 0.0f);
+	while (nChips > 1 && total > avail)	// drop lowest-priority (rightmost) chips
+		total -= MeasureStatChip(g, chipFont, ordered[--nChips]).Width + gap;
+
+	Gdiplus::REAL bottom = (Gdiplus::REAL)rcAnchor.top + pad + MeasureStatChip(g, chipFont, gamutName).Height;
+	Gdiplus::REAL xRight = (Gdiplus::REAL)rcAnchor.right - pad;
+	for (int i = nChips - 1; i >= 0; i--)	// draw right to left
+		xRight -= DrawStatChip(g, chipFont, ordered[i], xRight, bottom, nFill, nBorder, nText) + gap;
+}
+
 void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd)
 {
 	// One shared anti-aliased Graphics for every marker drawn in this pass
@@ -716,7 +854,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	struct CMarkerGraphicsScope
 	{
 		CCIEChartGrapher * p;
-		~CMarkerGraphicsScope() { p->m_pMarkerGraphics = NULL; }
+		~CMarkerGraphicsScope() { p->m_pMarkerGraphics = NULL; p->m_passTmWhite = 0.0; p->m_pPassRef = NULL; }
 	} markerScope = { this };
 	m_pMarkerGraphics = & chartMarkerGraphics;
 	m_markerScale = (float)GetConfig()->Scale(100) / 100.0f;	// resolve DPI once per pass, not per marker
@@ -731,6 +869,11 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	CColor NoDataColor;
 	double tmWhite = getL_EOTF(0.5022283, NoDataColor, NoDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
 	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+
+	// Publish the pass invariants so DrawAlphaBitmap doesn't recompute them
+	// per point (cleared by markerScope when this pass ends)
+	m_passTmWhite = tmWhite;
+	m_pPassRef = & bRef;
 
 	if (pTooltip)
 	{
@@ -1719,105 +1862,11 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		// mode (the metric is a chromaticity-plane one). The percentages hide
 		// when the gamut is changed until the primaries are re-measured, since
 		// old primaries don't belong to the new reference.
-		if (!m_bCIEab && min(rect.Width(),rect.Height()) > FX_MINSIZETOSHOW_REFDETAILS)
-		{
-			// Short names for the mainstream gamuts; everything else (incl. the
-			// reduced-primary HDTVa/HDTVb pseudo-gamuts) uses its own reference
-			// name so the label always matches the triangle actually drawn.
-			WCHAR gamutName[64];
-			switch (GetColorReference().m_standard)
-			{
-				case HDTV: case UHDTV4: wcscpy_s(gamutName, L"Rec.709");  break;
-				case UHDTV: case UHDTV3: wcscpy_s(gamutName, L"DCI-P3");   break;
-				case UHDTV2:            wcscpy_s(gamutName, L"Rec.2020");  break;
-				default:
-					swprintf_s(gamutName, 64, L"%S", GetColorReference().GetName().c_str());
-					break;
-			}
-
-			// Decide whether the coverage percentages are current. They are stale
-			// (and hidden) if the reference standard changed while the measured
-			// primaries stayed put -- i.e. the gamut was switched without a fresh
-			// measurement. Re-measuring changes the primaries and re-shows them.
-			ColorStandard curStd = GetColorReference().m_standard;
-			BOOL showPct = FALSE;
-			double covXY = 0.0, covUV = 0.0;
-			if (hasPrimaries)
-			{
-				BOOL primsSame = m_covValid
-					&& redPrimaryColor[0]   == m_covPrimaries[0][0] && redPrimaryColor[1]   == m_covPrimaries[0][1] && redPrimaryColor[2]   == m_covPrimaries[0][2]
-					&& greenPrimaryColor[0] == m_covPrimaries[1][0] && greenPrimaryColor[1] == m_covPrimaries[1][1] && greenPrimaryColor[2] == m_covPrimaries[1][2]
-					&& bluePrimaryColor[0]  == m_covPrimaries[2][0] && bluePrimaryColor[1]  == m_covPrimaries[2][1] && bluePrimaryColor[2]  == m_covPrimaries[2][2];
-				BOOL stdSame = m_covValid && (m_covStandard == curStd);
-
-				if (m_covValid && !stdSame && primsSame)
-				{
-					showPct = FALSE;	// gamut changed, primaries not re-measured
-				}
-				else
-				{
-					showPct = TRUE;
-					ColorxyY measured[3] = { ColorxyY(redPrimaryColor),
-											 ColorxyY(greenPrimaryColor),
-											 ColorxyY(bluePrimaryColor) };
-					// the triangle drawn on the chart is the active reference's primaries
-					// (for P3/709 inside a 2020 container these are already the inner gamut)
-					ColorxyY refTri[3] = { ColorxyY(GetColorReference().GetRed()),
-										   ColorxyY(GetColorReference().GetGreen()),
-										   ColorxyY(GetColorReference().GetBlue()) };
-					covXY = GamutCoverage(measured, refTri, GAMUT_PLANE_XY) * 100.0;
-					covUV = GamutCoverage(measured, refTri, GAMUT_PLANE_UV) * 100.0;
-					m_covStandard = curStd;
-					m_covPrimaries[0] = redPrimaryColor;
-					m_covPrimaries[1] = greenPrimaryColor;
-					m_covPrimaries[2] = bluePrimaryColor;
-					m_covValid = TRUE;
-				}
-			}
-
-			// Pill stat chips like the target widget's, anchored top right,
-			// growing leftward from the corner.
-			EnsureGdiplus();
-			Gdiplus::Graphics g(pDC->GetSafeHdc());
-			GpApplyDCOrigin(g, pDC);
-			g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-			g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
-			Gdiplus::Font chipFont(L"Segoe UI", 15.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
-
-			// neutral chip palette shared with the target widget's dx/dy chip
-			BOOL bDark = !m_bgWhite;
-			Gdiplus::Color nFill   = bDark ? Gdiplus::Color(255, 42, 42, 42)    : Gdiplus::Color(255, 255, 255, 255);
-			Gdiplus::Color nBorder = bDark ? Gdiplus::Color(255, 72, 72, 72)    : Gdiplus::Color(255, 205, 207, 213);
-			Gdiplus::Color nText   = bDark ? Gdiplus::Color(255, 215, 215, 215) : Gdiplus::Color(255, 70, 74, 80);
-
-			// Visual order left-to-right is [gamut] [xy] [u'v']; priority is the
-			// reverse, so if the row can't fit the chart width drop u'v' first,
-			// then xy, always keeping the gamut name.
-			WCHAR uvBuf[64], xyBuf[64];
-			const WCHAR * ordered[3];
-			int nChips = 0;
-			ordered[nChips++] = gamutName;
-			if (showPct)
-			{
-				swprintf_s(xyBuf, 64, L"xy: %.1f%%", covXY);
-				swprintf_s(uvBuf, 64, L"u'v': %.1f%%", covUV);
-				ordered[nChips++] = xyBuf;
-				ordered[nChips++] = uvBuf;
-			}
-
-			const Gdiplus::REAL pad = 8.0f, gap = 6.0f;
-			Gdiplus::REAL avail = (Gdiplus::REAL)rect.Width() - 2.0f * pad;
-			Gdiplus::REAL total = 0.0f;
-			for (int i = 0; i < nChips; i++)
-				total += MeasureStatChip(g, chipFont, ordered[i]).Width + (i ? gap : 0.0f);
-			while (nChips > 1 && total > avail)	// drop lowest-priority (rightmost) chips
-				total -= MeasureStatChip(g, chipFont, ordered[--nChips]).Width + gap;
-
-			Gdiplus::REAL bottom = (Gdiplus::REAL)rect.top + pad + MeasureStatChip(g, chipFont, gamutName).Height;
-			Gdiplus::REAL xRight = (Gdiplus::REAL)rect.right - pad;
-			for (int i = nChips - 1; i >= 0; i--)	// draw right to left
-				xRight -= DrawStatChip(g, chipFont, ordered[i], xRight, bottom, nFill, nBorder, nText) + gap;
-		}
+		// Coverage chips are baked into exports here; screen paints overlay
+		// them in OnDraw after the blit instead, so they stay pinned to the
+		// window's top-right corner while the chart is zoomed or panned.
+		if ( ! pWnd )
+			DrawCoverageChips ( pDC, rect, pDoc );
 
 		if(hasPrimaries && hasSecondaries && !m_bCIEab)
 		{
@@ -2692,6 +2741,18 @@ CCIEChartView::CCIEChartView()
 {
 	m_bDelayedUpdate = FALSE;
 	m_bRealtimeIncrement = FALSE;
+	m_bChartDirty = TRUE;
+	m_bResizeSettling = FALSE;
+	m_chartW = 0;
+	m_chartH = 0;
+	m_chartUserInfo = 0;
+	m_chartMode = -1;
+	m_chartEdit = -1;
+	m_chartdE10 = 0.0;
+	m_chartSelValid = FALSE;
+	m_gestureStartDist = 0.0;
+	m_gestureStartZoom = 1000;
+	m_composeSize = CSize ( 0, 0 );
 }
 
 CCIEChartView::~CCIEChartView()
@@ -2740,6 +2801,7 @@ BEGIN_MESSAGE_MAP(CCIEChartView, CSavingView)
 	ON_WM_MOUSEWHEEL()
 	ON_WM_PAINT()
 	ON_WM_KEYDOWN()
+	ON_MESSAGE(WM_GESTURE, OnGestureMsg)
 	ON_NOTIFY (UDM_TOOLTIP_DISPLAY, NULL, NotifyDisplayTooltip)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
@@ -2768,11 +2830,22 @@ void CCIEChartView::OnInitialUpdate()
 	m_tooltip.SetBehaviour(PPTOOLTIP_MULTIPLE_SHOW);
 	m_tooltip.SetNotify(TRUE);
 	m_tooltip.SetBorder(::CreateSolidBrush(RGB(212,175,55)),1,1);
+
+	// Touch: keep the pinch gesture for zooming, but block the pan gesture so
+	// single-finger drags promote to the mouse messages the existing
+	// drag-pan/selection code already handles.
+	GESTURECONFIG gestureConfig[] = { { GID_ZOOM, GC_ZOOM, 0 }, { GID_PAN, 0, GC_PAN } };
+	::SetGestureConfig ( m_hWnd, 0, 2, gestureConfig, sizeof ( GESTURECONFIG ) );
 }
 
-void CCIEChartView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint) 
+void CCIEChartView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 {
 	CRect	Rect;
+
+	// Any update hint means something changed: mark the retained chart
+	// bitmap stale even for the hints below that skip the immediate repaint,
+	// so the next natural paint re-renders (the pre-retained behavior).
+	m_bChartDirty = TRUE;
 
 	// Do nothing when not concerned
 	switch ( lHint )
@@ -2857,6 +2930,31 @@ void CCIEChartView::OnDraw(CDC* pDC)
 	CRect rect, refrect;
 	GetClientRect(&rect);
 	GetReferenceRect(&refrect);
+	if ( rect.Width () <= 0 || rect.Height () <= 0 )
+		return;
+
+	BOOL bScalePreview = FALSE;
+
+	// State DrawChart reads directly, with no update hint reaching this view
+	// when it changes: MainView mode/edit state, the worst-dE threshold, and
+	// the selected color. Together with the render size and the display
+	// toggles it forms the content signature of the retained bitmap.
+	CDataSetDoc * pDoc = GetDocument ();
+	POSITION pos = pDoc -> GetFirstViewPosition ();
+	CMainView * pMainView = (CMainView *) pDoc -> GetNextView ( pos );
+	int curMode = pMainView -> m_displayMode;
+	int curEdit = pMainView -> m_editCheckButton.GetCheck();
+	double curdE10 = pMainView -> dE10min;
+	BOOL selValid = pDoc -> m_SelectedColor.isValid();
+	ColorXYZ selColor;
+	if ( selValid )
+		selColor = pDoc -> m_SelectedColor.GetXYZValue();
+
+	BOOL bSigMatch = refrect.Width() == m_chartW && refrect.Height() == m_chartH
+		&& GetUserInfo() == m_chartUserInfo
+		&& curMode == m_chartMode && curEdit == m_chartEdit && curdE10 == m_chartdE10
+		&& selValid == m_chartSelValid
+		&& ( !selValid || ( selColor[0] == m_chartSel[0] && selColor[1] == m_chartSel[1] && selColor[2] == m_chartSel[2] ) );
 
 	CDC dcDraw;
 	dcDraw.CreateCompatibleDC(pDC);
@@ -2881,11 +2979,71 @@ void CCIEChartView::OnDraw(CDC* pDC)
 				newPoint.GetGraphX(refrect), newPoint.GetGraphY(refrect), newPoint, false );
 		}
 	}
+	else if ( !m_bChartDirty && bSigMatch )
+	{
+		// Nothing changed since the last full render: the retained bitmap is
+		// current and the blit below is the whole repaint (hover, uncover)
+	}
+	else if ( m_bResizeSettling && m_chartW > 0 )
+	{
+		// Live resize or zoom: scale the retained chart into the current
+		// canvas placement (refrect at the pan deltas) and skip the full
+		// render; the settle timer renders once for real when it pauses
+		bScalePreview = TRUE;
+	}
 	else
+	{
 		m_Grapher.DrawChart ( GetDocument (), & dcDraw, refrect, & m_tooltip, this );
+		m_chartW = refrect.Width();
+		m_chartH = refrect.Height();
+		m_chartUserInfo = GetUserInfo();
+		m_chartMode = curMode;
+		m_chartEdit = curEdit;
+		m_chartdE10 = curdE10;
+		m_chartSelValid = selValid;
+		m_chartSel = selColor;
+		m_bChartDirty = FALSE;
+	}
 	m_bRealtimeIncrement = FALSE;
-	pDC->BitBlt(0,0,rect.Width(),rect.Height(),&dcDraw,-m_Grapher.m_DeltaX,-m_Grapher.m_DeltaY,SRCCOPY);
+
+	// Compose the visible chart and the pinned chip overlay off-screen and
+	// flip to the window in a single blit: painting them in two steps
+	// directly on screen made the chip corner flicker on every pan repaint
+	if ( m_composeSize != rect.Size () )
+	{
+		if ( m_composeBitmap.m_hObject )
+			m_composeBitmap.DeleteObject ();
+		m_composeBitmap.CreateCompatibleBitmap ( pDC, rect.Width (), rect.Height () );
+		// On GDI resource exhaustion keep the size null so creation retries
+		m_composeSize = m_composeBitmap.m_hObject ? rect.Size () : CSize ( 0, 0 );
+	}
+	CDC dcOut;
+	dcOut.CreateCompatibleDC ( pDC );
+	CBitmap * pOldOut = m_composeBitmap.m_hObject ? dcOut.SelectObject ( & m_composeBitmap ) : NULL;
+	// If the compose bitmap couldn't be created, paint the window directly
+	// (the chips may flicker) rather than blitting from an empty DC
+	CDC * pOut = pOldOut ? & dcOut : pDC;
+
+	if ( bScalePreview )
+	{
+		pOut->SetStretchBltMode(HALFTONE);
+		SetBrushOrgEx(pOut->GetSafeHdc(), 0, 0, NULL);
+		pOut->StretchBlt(m_Grapher.m_DeltaX, m_Grapher.m_DeltaY, refrect.Width(), refrect.Height(),
+			&dcDraw, 0, 0, m_chartW, m_chartH, SRCCOPY);
+	}
+	else
+		pOut->BitBlt(0,0,rect.Width(),rect.Height(),&dcDraw,-m_Grapher.m_DeltaX,-m_Grapher.m_DeltaY,SRCCOPY);
 	dcDraw.SelectObject(pOldBitmap);
+
+	// The coverage chips are not part of the retained chart, so they stay
+	// pinned to the window's top-right whatever the zoom/pan state
+	m_Grapher.DrawCoverageChips ( pOut, rect, pDoc );
+
+	if ( pOldOut )
+	{
+		pDC->BitBlt(0,0,rect.Width(),rect.Height(),&dcOut,0,0,SRCCOPY);
+		dcOut.SelectObject(pOldOut);
+	}
 }
 
 void CCIEChartView::SaveChart() 
@@ -2940,10 +3098,12 @@ void CCIEChartView::SaveChart()
 	{
 		m_Grapher.SaveGraphFile ( GetDocument (), size, fileSaveDialog.GetPathName(), dialog.m_fileType, dialog.m_jpegQuality );
 
-		// Recompute BgBitmap to match client size
+		// Recompute BgBitmap to match client size; this recreates m_drawBitmap
+		// so the retained chart is gone and the next paint must render fully
 		CRect clientRect;
 		GetReferenceRect(&clientRect);
 		m_Grapher.MakeBgBitmap(clientRect,GetConfig()->m_bWhiteBkgndOnScreen);
+		m_bChartDirty = TRUE;
 	}
 }
 
@@ -2965,16 +3125,13 @@ void CCIEChartView::OnSize(UINT nType, int cx, int cy)
 
 		if ( m_Grapher.m_ZoomFactor > 1000 )
 		{
-			// Zoom is active: adjust deltaX and deltaY
-			CRect RefRect;
-			do
-			{
-				RefRect = CRect(CPoint(0,0),CSize(cx*m_Grapher.m_ZoomFactor/1000,cy*m_Grapher.m_ZoomFactor/1000));
-				if ( m_Grapher.m_ZoomFactor >= 1200 && ( RefRect.Width () > 2000 || RefRect.Height () > 2000 ) )
-					m_Grapher.m_ZoomFactor -= 250;
-				else
-					break;
-			} while ( TRUE );
+			// Zoom is active: keep the zoomed canvas below the size cap
+			// (the factor is continuous now, so clamp instead of stepping)
+			// and adjust deltaX and deltaY
+			int nMaxFactor = min ( FX_MAXZOOMFACTOR, FX_MAXZOOMCANVASPX * 1000 / max ( cx, cy ) );
+			m_Grapher.m_ZoomFactor = max ( 1000, min ( (int) m_Grapher.m_ZoomFactor, nMaxFactor ) );
+
+			CRect RefRect(CPoint(0,0),CSize(cx*m_Grapher.m_ZoomFactor/1000,cy*m_Grapher.m_ZoomFactor/1000));
 
 			if ( RefRect.right + m_Grapher.m_DeltaX < ClientRect.right )
 				m_Grapher.m_DeltaX = ClientRect.right - RefRect.right;
@@ -2983,8 +3140,7 @@ void CCIEChartView::OnSize(UINT nType, int cx, int cy)
 				m_Grapher.m_DeltaY = ClientRect.bottom - RefRect.bottom;
 		}
 
-		KillTimer(IDT_CIE_RESIZE_SETTLE);
-		SetTimer(IDT_CIE_RESIZE_SETTLE, 80, NULL);
+		SchedulePreviewSettle ( 80 );
 	}
 	Invalidate(FALSE);
 }
@@ -2994,9 +3150,13 @@ void CCIEChartView::OnTimer(UINT_PTR nIDEvent)
 	if (nIDEvent == IDT_CIE_RESIZE_SETTLE)
 	{
 		KillTimer(IDT_CIE_RESIZE_SETTLE);
+		m_bResizeSettling = FALSE;
 		CRect RefRect;
 		GetReferenceRect(&RefRect);
+		// MakeBgBitmap recreates m_drawBitmap at the new size, discarding the
+		// retained chart: the next paint must be a full render
 		m_Grapher.MakeBgBitmap(RefRect, GetConfig()->m_bWhiteBkgndOnScreen);
+		m_bChartDirty = TRUE;
 		Invalidate(FALSE);
 		return;
 	}
@@ -3170,48 +3330,42 @@ void CCIEChartView::OnCieShowMeasurements()
 	Invalidate(FALSE);
 }
 
-void CCIEChartView::OnGraphZoomIn() 
+// Restart the settle timer: OnDraw paints scaled previews of the retained
+// chart until the timer fires and runs the one real render.
+void CCIEChartView::SchedulePreviewSettle ( UINT nDelayMs )
 {
-	CRect	ClientRect, RefRect;
-	GetClientRect ( & ClientRect );
-
-	m_Grapher.m_ZoomFactor += 250;
-	if ( m_Grapher.m_ZoomFactor > 4000 )
-		m_Grapher.m_ZoomFactor = 4000;
-
-	GetReferenceRect ( & RefRect );
-	if ( m_Grapher.m_ZoomFactor >= 1200 && ( RefRect.Width () > 3000 || RefRect.Height () > 3000 ) )
-	{
-		m_Grapher.m_ZoomFactor -= 250;
-		GetReferenceRect ( & RefRect );
-	}
-
-	if ( m_Grapher.m_DeltaX > 0 )
-		m_Grapher.m_DeltaX = 0;
-	else if ( m_Grapher.m_DeltaX < ClientRect.right - RefRect.right )
-		m_Grapher.m_DeltaX = ClientRect.right - RefRect.right;
-
-	if ( m_Grapher.m_DeltaY > 0 )
-		m_Grapher.m_DeltaY = 0;
-	else if ( m_Grapher.m_DeltaY < ClientRect.bottom - RefRect.bottom )
-		m_Grapher.m_DeltaY = ClientRect.bottom - RefRect.bottom;
-
-	m_Grapher.MakeBgBitmap(RefRect,GetConfig()->m_bWhiteBkgndOnScreen);
-	
-	Invalidate ( TRUE );
+	KillTimer(IDT_CIE_RESIZE_SETTLE);
+	SetTimer(IDT_CIE_RESIZE_SETTLE, nDelayMs, NULL);
+	m_bResizeSettling = TRUE;
 }
 
-void CCIEChartView::OnGraphZoomOut() 
+// Anchored zoom shared by the mouse wheel, the menu commands and the pinch
+// gesture: the chart point under ptAnchorClient stays put while the factor
+// changes. Paints preview by scaling the retained chart; the settle timer
+// runs the one real render when the zooming pauses.
+void CCIEChartView::ZoomChart ( int nNewFactor, CPoint ptAnchorClient )
 {
 	CRect	ClientRect, RefRect;
 	GetClientRect ( & ClientRect );
+	if ( ClientRect.Width () <= 0 || ClientRect.Height () <= 0 )
+		return;
 
-	m_Grapher.m_ZoomFactor -= 250;
-	if ( m_Grapher.m_ZoomFactor < 1000 )
-		m_Grapher.m_ZoomFactor = 1000;
+	// Keep the zoomed canvas (= retained bitmap size) capped
+	int nMaxSide = max ( ClientRect.Width (), ClientRect.Height () );
+	int nMaxFactor = min ( FX_MAXZOOMFACTOR, FX_MAXZOOMCANVASPX * 1000 / nMaxSide );
+	nNewFactor = max ( 1000, min ( nNewFactor, nMaxFactor ) );
+
+	int nOldFactor = (int) m_Grapher.m_ZoomFactor;
+	if ( nNewFactor == nOldFactor )
+		return;
+
+	// Keep the canvas point under the anchor stationary: canvas coordinates
+	// scale by the factor ratio, deltas are the (negative) canvas origin
+	m_Grapher.m_ZoomFactor = nNewFactor;
+	m_Grapher.m_DeltaX = ptAnchorClient.x - (int) ( (__int64) ( ptAnchorClient.x - m_Grapher.m_DeltaX ) * nNewFactor / nOldFactor );
+	m_Grapher.m_DeltaY = ptAnchorClient.y - (int) ( (__int64) ( ptAnchorClient.y - m_Grapher.m_DeltaY ) * nNewFactor / nOldFactor );
 
 	GetReferenceRect ( & RefRect );
-
 	if ( m_Grapher.m_DeltaX > 0 )
 		m_Grapher.m_DeltaX = 0;
 	else if ( m_Grapher.m_DeltaX < ClientRect.right - RefRect.right )
@@ -3222,9 +3376,23 @@ void CCIEChartView::OnGraphZoomOut()
 	else if ( m_Grapher.m_DeltaY < ClientRect.bottom - RefRect.bottom )
 		m_Grapher.m_DeltaY = ClientRect.bottom - RefRect.bottom;
 
-	m_Grapher.MakeBgBitmap(RefRect,GetConfig()->m_bWhiteBkgndOnScreen);
-	
-	Invalidate ( TRUE );
+	// Preview now, render for real once the zoom pauses
+	SchedulePreviewSettle ( 120 );
+	Invalidate ( FALSE );
+}
+
+void CCIEChartView::OnGraphZoomIn()
+{
+	CRect ClientRect;
+	GetClientRect ( & ClientRect );
+	ZoomChart ( m_Grapher.m_ZoomFactor * 5 / 4, ClientRect.CenterPoint () );
+}
+
+void CCIEChartView::OnGraphZoomOut()
+{
+	CRect ClientRect;
+	GetClientRect ( & ClientRect );
+	ZoomChart ( m_Grapher.m_ZoomFactor * 4 / 5, ClientRect.CenterPoint () );
 }
 
 void CCIEChartView::OnCieUv() 
@@ -3339,7 +3507,15 @@ void CCIEChartView::OnLButtonUp(UINT nFlags, CPoint point)
 			
 			m_CurMousePoint = point;
 
-			ScrollWindow ( m_Grapher.m_DeltaX - OldDeltaX, m_Grapher.m_DeltaY - OldDeltaY );
+			if ( m_Grapher.m_DeltaX != OldDeltaX || m_Grapher.m_DeltaY != OldDeltaY )
+			{
+				// Repaint from the retained canvas at the new deltas (a cheap
+				// blit). ScrollWindow would drag the pinned chip overlay along
+				// with the pixels and leave trails. The settle render then
+				// re-anchors the tooltip rects to the new deltas.
+				Invalidate ( FALSE );
+				SchedulePreviewSettle ( 80 );
+			}
 		}
 
 		UpdateTestColor ( point );
@@ -3376,7 +3552,12 @@ void CCIEChartView::OnMouseMove(UINT nFlags, CPoint point)
 			
 			m_CurMousePoint = point;
 
-			ScrollWindow ( m_Grapher.m_DeltaX - OldDeltaX, m_Grapher.m_DeltaY - OldDeltaY );
+			// Repaint at the new deltas instead of ScrollWindow (see OnLButtonUp)
+			if ( m_Grapher.m_DeltaX != OldDeltaX || m_Grapher.m_DeltaY != OldDeltaY )
+			{
+				Invalidate ( FALSE );
+				SchedulePreviewSettle ( 80 );
+			}
 		}
 
 		UpdateTestColor ( point );
@@ -3384,46 +3565,50 @@ void CCIEChartView::OnMouseMove(UINT nFlags, CPoint point)
 }
 
 
-BOOL CCIEChartView::OnMouseWheel(UINT nFlags, short zDelta, CPoint pt) 
+BOOL CCIEChartView::OnMouseWheel(UINT nFlags, short zDelta, CPoint pt)
 {
-	// TODO: Add your message handler code here and/or call default
-	CRect	ClientRect, RefRect;
-	GetClientRect ( & ClientRect );
-
-	if ( zDelta < 0 )
-	{
-		m_Grapher.m_ZoomFactor += 250;
-		if ( m_Grapher.m_ZoomFactor > 4000 )
-			m_Grapher.m_ZoomFactor = 4000;
-
-		GetReferenceRect ( & RefRect );
-		if ( m_Grapher.m_ZoomFactor >= 1200 && ( RefRect.Width () > 3000 || RefRect.Height () > 3000 ) )
-			m_Grapher.m_ZoomFactor -= 250;
-	}
-	else if ( zDelta > 0 )
-	{
-		m_Grapher.m_ZoomFactor -= 250;
-		if ( m_Grapher.m_ZoomFactor < 1000 )
-			m_Grapher.m_ZoomFactor = 1000;
-	}
-
-	GetReferenceRect ( & RefRect );
-
-	if ( m_Grapher.m_DeltaX > 0 )
-		m_Grapher.m_DeltaX = 0;
-	else if ( m_Grapher.m_DeltaX < ClientRect.right - RefRect.right )
-		m_Grapher.m_DeltaX = ClientRect.right - RefRect.right;
-
-	if ( m_Grapher.m_DeltaY > 0 )
-		m_Grapher.m_DeltaY = 0;
-	else if ( m_Grapher.m_DeltaY < ClientRect.bottom - RefRect.bottom )
-		m_Grapher.m_DeltaY = ClientRect.bottom - RefRect.bottom;
-
-	m_Grapher.MakeBgBitmap(RefRect,GetConfig()->m_bWhiteBkgndOnScreen);
-	
-	Invalidate ( FALSE );
-
+	// Wheel up zooms in, anchored at the cursor. Precision touchpads deliver
+	// pinches as fine-grained Ctrl+wheel, so scale the step by the actual
+	// delta instead of a fixed notch for a smooth pinch.
+	ScreenToClient ( & pt );
+	double ratio = pow ( 1.25, (double) zDelta / 120.0 );
+	ZoomChart ( (int) ( m_Grapher.m_ZoomFactor * ratio + 0.5 ), pt );
 	return TRUE;
+}
+
+// Touch pinch (WM_GESTURE / GID_ZOOM): ullArguments carries the distance
+// between the two touch points; zoom follows the ratio to the distance
+// captured when the gesture began, anchored at the gesture center.
+LRESULT CCIEChartView::OnGestureMsg(WPARAM wParam, LPARAM lParam)
+{
+	GESTUREINFO gi;
+	ZeroMemory ( & gi, sizeof ( gi ) );
+	gi.cbSize = sizeof ( gi );
+
+	if ( ! ::GetGestureInfo ( (HGESTUREINFO) lParam, & gi ) || gi.dwID != GID_ZOOM )
+		return DefWindowProc ( WM_GESTURE, wParam, lParam );
+
+	if ( gi.dwFlags & GF_BEGIN )
+	{
+		m_gestureStartDist = (double) (ULONGLONG) gi.ullArguments;
+		m_gestureStartZoom = m_Grapher.m_ZoomFactor;
+	}
+	else if ( gi.dwFlags & GF_END )
+	{
+		// The END event repeats the last distance; nothing to zoom. Reset the
+		// baseline so a stray GID_ZOOM without GF_BEGIN can't scale against a
+		// previous gesture's distance.
+		m_gestureStartDist = 0.0;
+	}
+	else if ( m_gestureStartDist > 0.0 )
+	{
+		CPoint pt ( gi.ptsLocation.x, gi.ptsLocation.y );
+		ScreenToClient ( & pt );
+		ZoomChart ( (int) ( (double) m_gestureStartZoom * (double) (ULONGLONG) gi.ullArguments / m_gestureStartDist + 0.5 ), pt );
+	}
+
+	::CloseGestureInfoHandle ( (HGESTUREINFO) lParam );
+	return 0;
 }
 
 void CCIEChartView::UpdateTestColor ( CPoint point )
@@ -3533,8 +3718,13 @@ void CCIEChartView::OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags)
 		m_Grapher.m_DeltaY = 0;
 	else if ( m_Grapher.m_DeltaY < ClientRect.bottom - RefRect.bottom )
 		m_Grapher.m_DeltaY = ClientRect.bottom - RefRect.bottom;
-	
-	ScrollWindow ( m_Grapher.m_DeltaX - OldDeltaX, m_Grapher.m_DeltaY - OldDeltaY );
+
+	// Repaint at the new deltas instead of ScrollWindow (see OnLButtonUp)
+	if ( m_Grapher.m_DeltaX != OldDeltaX || m_Grapher.m_DeltaY != OldDeltaY )
+	{
+		Invalidate ( FALSE );
+		SchedulePreviewSettle ( 80 );
+	}
 
 	CSavingView::OnKeyDown(nChar, nRepCnt, nFlags);
 }
