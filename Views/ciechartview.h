@@ -156,6 +156,7 @@ class CCIEChartGrapher
 
 	// Operations
 	void MakeBgBitmap(CRect rect,BOOL bWhiteBkgnd);
+	void DrawCoverageChips(CDC *pDC, CRect rcAnchor, CDataSetDoc * pDoc);
 	void DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint = NULL, bool isSelected = FALSE, double dE10=100.0, bool isPrimeSec = FALSE);
 	bool DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int y, const CCIEGraphPoint& aGraphPoint, bool isSelected);
 	void DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd);
@@ -203,6 +204,17 @@ protected:
 	BOOL	m_chartSelValid;
 	ColorXYZ	m_chartSel;
 
+	// Pinch-to-zoom state: distance between the two touch points and the
+	// zoom factor captured when the gesture began (GF_BEGIN).
+	double	m_gestureStartDist;
+	UINT	m_gestureStartZoom;
+
+	// Client-sized compose buffer: the chart blit and the pinned chip
+	// overlay are combined here and reach the screen in one blit, otherwise
+	// the chips flicker on every pan/zoom repaint.
+	CBitmap	m_composeBitmap;
+	CSize	m_composeSize;
+
 	CCIEChartGrapher m_Grapher;
 
 	double	m_refDeltaE;
@@ -220,6 +232,8 @@ public:
 public:
 	void	UpdateTestColor ( CPoint point );
 	void	GetReferenceRect ( LPRECT lpRect );		// Returns client rect with size increased regarding zoom factor
+	void	ZoomChart ( int nNewFactor, CPoint ptAnchorClient );	// Anchored zoom shared by wheel, menu and pinch
+	void	SchedulePreviewSettle ( UINT nDelayMs );	// Preview paints until the settle timer runs the real render
 // Overrides
 	// ClassWizard generated virtual function overrides
 	//{{AFX_VIRTUAL(CCIEChartView)
@@ -283,6 +297,7 @@ protected:
 	afx_msg void OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags);
 	afx_msg void NotifyDisplayTooltip(NMHDR * pNMHDR, LRESULT * result);
 	afx_msg void OnTimer(UINT_PTR nIDEvent);
+	afx_msg LRESULT OnGestureMsg(WPARAM wParam, LPARAM lParam);
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };
