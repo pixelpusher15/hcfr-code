@@ -187,6 +187,31 @@ BOOL CMainFrame::LoadToolbars()
 	if(!m_wndToolBarMeasuresSat.LoadHiColor(MAKEINTRESOURCE(IDB_MEDIUMTOOLBAR_MEAS_SAT_HICOL),RGB(0,0,0)))
 		return FALSE;
 
+	// The 3D viewer button is inserted at runtime, reusing the CIE chart icon
+	// for now (an own icon would need a new image in the toolbar bitmap strip
+	// of every language DLL). LoadToolBar resets the button list, so this runs
+	// on every (re)load; the CommandToIndex guard keeps it idempotent.
+	{
+		CToolBarCtrl & tbc = m_wndToolBarViews.GetToolBarCtrl();
+		// NB: CToolBarCtrl::CommandToIndex returns UINT, so "not found" is
+		// 0xFFFFFFFF -- it must be cast to int before comparing with 0.
+		int nCIE = (int)tbc.CommandToIndex ( IDM_VIEW_CIECHART );
+		if ( nCIE >= 0 && (int)tbc.CommandToIndex ( IDM_VIEW_3DCOLOR ) < 0 )
+		{
+			TBBUTTON cie;
+			ZeroMemory ( &cie, sizeof ( cie ) );
+			tbc.GetButton ( nCIE, &cie );
+
+			TBBUTTON btn;
+			ZeroMemory ( &btn, sizeof ( btn ) );
+			btn.iBitmap = cie.iBitmap;
+			btn.idCommand = IDM_VIEW_3DCOLOR;
+			btn.fsState = TBSTATE_ENABLED;
+			btn.fsStyle = TBSTYLE_BUTTON;
+			tbc.InsertButton ( tbc.GetButtonCount (), &btn );
+		}
+	}
+
 	return TRUE;
 }
 

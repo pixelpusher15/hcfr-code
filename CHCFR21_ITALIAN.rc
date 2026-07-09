@@ -2325,6 +2325,7 @@ BEGIN
         MENUITEM "S&aturazione - grafico degli scosramenti", IDM_VIEW_SATLUMSHIFT
         MENUITEM SEPARATOR
         MENUITEM "Grafico combinato per &misure libere", IDM_VIEW_MEASURESCOMBO
+        MENUITEM "Vista 3D del colore",         IDM_VIEW_3DCOLOR
     END
     POPUP "&Avanzato"
     BEGIN
@@ -2644,6 +2645,7 @@ BEGIN
             MENUITEM "S&aturazione - grafico degli scostamenti",  IDM_VIEW_SATLUMSHIFT
             MENUITEM SEPARATOR
             MENUITEM "Grafico combinato per &misure libre", IDM_VIEW_MEASURESCOMBO
+            MENUITEM "Vista 3D del colore",         IDM_VIEW_3DCOLOR
         END
         MENUITEM "Mostra tutte le viste",              IDM_SHOWALLVIEWS
         MENUITEM "Chiudi tutte le viste",             IDM_CLOSEALLVIEWS
@@ -3363,6 +3365,8 @@ STRINGTABLE
 BEGIN
     IDM_CIE_UV              "Mostra il diagramma CIE u'v\nDiagramma CIE u'v'"
     IDM_VIEW_MEASURESCOMBO  "Mostra il grafico combinato per le misure libere\nGrafico combinato per le misure libere"
+    IDM_VIEW_3DCOLOR        "Mostra la vista 3D del colore\nVista 3D"
+    IDS_3DVIEW_FILTER       "Filtro dE"
     IDM_LANGUAGE            "Scelta della lingua"
     IDM_CIE_SHOWDELTAE      "Mostra le curve che rappresentano il delta E = 3 e 10 intorno al riferimento bianco\nMostra le curve Delta E = 3 e 10"
 END
@@ -4037,6 +4041,8 @@ BEGIN
     IDS_3DVIEW_SHOWFLOOR    "Mostra base CIE (xyY)"
     IDS_3DVIEW_SHOWTAILS    "Mostra linee verso il target"
     IDS_3DVIEW_RESETVIEW    "Reimposta vista"
+    IDS_3DVIEW_FILTER_ALL   "Mostra tutti"
+    IDS_3DVIEW_FILTER_HIDE  "Nascondi < %s dE"
     IDS_PARAM_MODE          "Modo"
     IDS_PARAM_STEPS         "Passi"
     IDS_PARAM_STIMULUS      "Stimolo"
