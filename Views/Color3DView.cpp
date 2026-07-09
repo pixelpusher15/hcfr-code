@@ -155,6 +155,7 @@ C3DColorView::C3DColorView()
 	, m_pointColor(PTCOLOR_DE), m_deFilter(0), m_showTails(true)
 	, m_bDragging(false)
 	, m_selected(-1)
+	, m_orbKernelR(-1)
 	, m_memDC(NULL), m_memBmp(NULL), m_oldBmp(NULL), m_bits(NULL), m_bw(0), m_bh(0)
 	, m_cx(0), m_cyc(0), m_scale(0), m_ry(1), m_rsy(0), m_rp(1), m_rsp(0)
 {
@@ -753,20 +754,61 @@ void C3DColorView::ProjectModel(double mx, double my, double mz,
 	depth = z2;                    // larger == nearer the viewer
 }
 
-void C3DColorView::SplatPoint(int cx, int cy, float depth, DWORD color, int radius)
+// Precompute the orb shading kernel for a radius: per covered pixel, a diffuse
+// factor from a sphere normal lit from the upper left, plus a small specular
+// glint. Rebuilt only when the radius changes.
+void C3DColorView::BuildOrbKernel(int radius)
 {
-	int w = m_bw, h = m_bh, r2 = radius * radius + 1;
+	if ( m_orbKernelR == radius )
+		return;
+	m_orbKernelR = radius;
+	m_orbKernel.clear();
+
+	const double Lx = -0.45, Ly = -0.60, Lz = 0.66;   // normalized-ish light dir
+	double r = (double)radius;
 	for ( int dy = -radius; dy <= radius; dy++ )
-	{
-		int yy = cy + dy;
-		if ( yy < 0 || yy >= h ) continue;
 		for ( int dx = -radius; dx <= radius; dx++ )
 		{
-			if ( dx * dx + dy * dy > r2 ) continue;
-			int xx = cx + dx;
-			if ( xx < 0 || xx >= w ) continue;
-			int idx = yy * w + xx;
-			if ( depth > m_zbuf[idx] ) { m_zbuf[idx] = depth; m_bits[idx] = color; }
+			double d2 = ( dx * dx + dy * dy ) / ( r * r );
+			if ( d2 > 1.0 )
+				continue;
+			double nx = dx / r, ny = dy / r, nz = sqrt( 1.0 - d2 );
+			double dot = nx * Lx + ny * Ly + nz * Lz;
+			if ( dot < 0.0 ) dot = 0.0;
+			OrbPx px;
+			px.dx = (short)dx;
+			px.dy = (short)dy;
+			px.shade = (float)( 0.35 + 0.65 * dot );                       // never fully black
+			px.spec  = (BYTE)( dot > 0.90 ? ( dot - 0.90 ) / 0.10 * 90.0 : 0.0 );
+			m_orbKernel.push_back( px );
+		}
+}
+
+void C3DColorView::SplatOrb(int cx, int cy, float depth, DWORD color)
+{
+	if ( m_orbKernel.empty() )
+		return;
+	int w = m_bw, h = m_bh;
+	int r = ( color >> 16 ) & 0xFF, g = ( color >> 8 ) & 0xFF, b = color & 0xFF;
+	// raw pointers: MSVC Debug bounds-checks every vector[] access, which adds
+	// up in this per-pixel loop
+	const OrbPx * pk = &m_orbKernel[0];
+	const size_t  n  = m_orbKernel.size();
+	float *       zb = &m_zbuf[0];
+	DWORD *       px = m_bits;
+	for ( size_t k = 0; k < n; k++ )
+	{
+		const OrbPx & o = pk[k];
+		int xx = cx + o.dx, yy = cy + o.dy;
+		if ( xx < 0 || xx >= w || yy < 0 || yy >= h ) continue;
+		int idx = yy * w + xx;
+		if ( depth > zb[idx] )
+		{
+			int rr = (int)( r * o.shade ) + o.spec;
+			int gg = (int)( g * o.shade ) + o.spec;
+			int bb = (int)( b * o.shade ) + o.spec;
+			zb[idx] = depth;
+			px[idx] = DibColor( rr > 255 ? 255 : rr, gg > 255 ? 255 : gg, bb > 255 ? 255 : bb );
 		}
 	}
 }
@@ -930,10 +972,22 @@ void C3DColorView::Render(const CRect& rc)
 		m_sceneDirty = false;
 	}
 
-	// clear colour + depth
+	// Clear colour + depth via doubling memcpy: at fullscreen this touches ~2M
+	// pixels per buffer per frame, and a plain element loop is a real cost
+	// (especially in Debug builds).
 	const DWORD bg = DibColor( 24, 24, 28 );
-	int total = w * h, i;
-	for ( i = 0; i < total; i++ ) { m_bits[i] = bg; m_zbuf[i] = -1e30f; }
+	size_t total = (size_t)w * h;
+	{
+		size_t seed = total < 256 ? total : 256;
+		float * zb = &m_zbuf[0];
+		for ( size_t s = 0; s < seed; s++ ) { m_bits[s] = bg; zb[s] = -1e30f; }
+		for ( size_t done = seed; done < total; done += done )
+		{
+			size_t chunk = ( done < total - done ) ? done : total - done;
+			memcpy( m_bits + done, m_bits, chunk * sizeof( DWORD ) );
+			memcpy( zb + done,     zb,     chunk * sizeof( float ) );
+		}
+	}
 
 	// per-frame camera basis
 	m_cx    = w * 0.5 + m_panX;
@@ -978,8 +1032,8 @@ void C3DColorView::Render(const CRect& rc)
 	GetConfig()->GetDEThresholds( deGood, deWarn );
 	double deThr = ( m_deFilter == 0 ) ? -1.0 : ( m_deFilter == 1 ? deGood : deWarn );
 
-	// 2) measured points (opaque, z-tested)
-	int radius = ( m_points.size() > 4000 ) ? 1 : 2;
+	// 2) measured points as shaded orbs (opaque, z-tested); smaller for dense clouds
+	BuildOrbKernel( ( m_points.size() > 4000 ) ? 2 : 4 );
 	for ( size_t k = 0; k < m_points.size(); k++ )
 	{
 		const ScenePoint & P = m_points[k];
@@ -991,14 +1045,14 @@ void C3DColorView::Render(const CRect& rc)
 		if ( m_pointColor == PTCOLOR_PLAIN )              clr = DibColor( 235, 235, 238 );
 		else if ( m_pointColor == PTCOLOR_DE && P.hasTarget ) clr = HeatColor( P.dE, deGood, deWarn );
 		else                                               clr = P.trueColor;
-		SplatPoint( (int)( sx + 0.5 ), (int)( sy + 0.5 ), (float)dep, clr, radius );
+		SplatOrb( (int)( sx + 0.5 ), (int)( sy + 0.5 ), (float)dep, clr );
 	}
 
 	// 2b) target tails + cross markers, software-rasterized with the same depth
 	// buffer -- no point-count cap, and correctly occluded by nearer geometry.
 	if ( m_showTails )
 	{
-		const DWORD tailClr  = DibColor( 170, 170, 180 );
+		const DWORD tailClr  = DibColor( 200, 200, 212 );   // brighter: subtle tails vanished when zoomed out
 		const DWORD crossClr = DibColor( 204, 204, 210 );   // ~80% white
 		for ( size_t k = 0; k < m_points.size(); k++ )
 		{
@@ -1012,7 +1066,7 @@ void C3DColorView::Render(const CRect& rc)
 			ProjectModel( P.tx, P.ty, P.tz, tx, ty, td );
 			double ddx = sx - tx, ddy = sy - ty;
 			if ( ddx * ddx + ddy * ddy > 0.5 )   // skip sub-pixel tails (invisible)
-				WuLine( tx, ty, (float)td, sx, sy, (float)sd, tailClr, 0.55 );
+				WuLine( tx, ty, (float)td, sx, sy, (float)sd, tailClr, 0.8 );
 			SplatCross( (int)( tx + 0.5 ), (int)( ty + 0.5 ), (float)td, crossClr, 3 );
 		}
 	}

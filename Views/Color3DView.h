@@ -151,7 +151,13 @@ protected:
 	double m_cx, m_cyc, m_scale, m_ry, m_rsy, m_rp, m_rsp;
 	void ProjectModel(double mx, double my, double mz,
 					  double & sx, double & sy, double & depth) const;
-	void SplatPoint(int px, int py, float depth, DWORD color, int radius);
+	// Points render as shaded orbs: a per-radius kernel of diffuse/specular
+	// factors is precomputed once, so the per-pixel cost stays a multiply.
+	struct OrbPx { short dx, dy; float shade; BYTE spec; };
+	std::vector<OrbPx> m_orbKernel;
+	int  m_orbKernelR;
+	void BuildOrbKernel(int radius);
+	void SplatOrb(int px, int py, float depth, DWORD color);
 	void BlendPixel(int x, int y, float z, DWORD color, double alpha);              // z-tested, no z write
 	void WuLine(double x0, double y0, float z0, double x1, double y1, float z1,
 				DWORD color, double alpha);                                          // anti-aliased tail
