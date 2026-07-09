@@ -126,6 +126,15 @@ class CCIEChartGrapher
 	Gdiplus::Graphics *	m_pMarkerGraphics;
 	float	m_markerScale;	// DPI scale, resolved once per DrawChart pass
 
+	// More per-pass invariants: the tone-mapped white (a getL_EOTF call) and
+	// the Lab-conversion reference are identical for every point of a pass,
+	// but were being recomputed inside each DrawAlphaBitmap call — with a few
+	// hundred points that dominated every full repaint. Set by DrawChart,
+	// cleared when the pass ends; DrawAlphaBitmap falls back to computing
+	// them itself when unset.
+	double	m_passTmWhite;
+	const CColorReference *	m_pPassRef;
+
 	// MakeBgBitmap cache key: skip rebuilding when the background would be
 	// identical (helps live resize, where OnSize and OnUpdate both rebuild)
 	int		m_bgW, m_bgH;
@@ -174,6 +183,25 @@ protected:
 	// full DrawChart pass (which re-derives every reference point and tooltip,
 	// and made sweeps several times slower while this chart was visible).
 	BOOL	m_bRealtimeIncrement;
+
+	// Retained-chart repaint (CIE-001/CIE-006): m_drawBitmap keeps the last
+	// full DrawChart output, so a paint where neither the data (m_bChartDirty,
+	// set by OnUpdate) nor the content signature below changed is a plain
+	// blit. During a live resize the retained chart is StretchBlt'ed and the
+	// real render happens once, on the resize settle timer.
+	BOOL	m_bChartDirty;
+	BOOL	m_bResizeSettling;
+
+	// Content signature of the last full DrawChart: render size, the grapher
+	// display toggles (GetUserInfo bits), and the MainView/document state
+	// DrawChart reads directly without any update hint reaching this view.
+	int		m_chartW, m_chartH;
+	DWORD	m_chartUserInfo;
+	int		m_chartMode;
+	int		m_chartEdit;
+	double	m_chartdE10;
+	BOOL	m_chartSelValid;
+	ColorXYZ	m_chartSel;
 
 	CCIEChartGrapher m_Grapher;
 
