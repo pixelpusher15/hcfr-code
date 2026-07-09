@@ -151,6 +151,10 @@ static const SCtrlLayout g_ParamComboLayout =
 static const SCtrlLayout g_ActionBtnLayout =
 { IDC_MEASURESATALLLEVELS_BUTTON, LAYOUT_RIGHT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
 
+// Sentinel item-data for the stimulus dropdown's command rows (level rows store
+// their 1..100 percentage). Selecting a preset rewrites the SatStimLevels list.
+enum { STIM_SEP = -1, STIM_QUICK = -2, STIM_STANDARD = -3, STIM_FINE = -4 };
+
 
 static COLORREF ButtonFaceColor();
 static COLORREF ButtonHoverColor();
@@ -6003,6 +6007,14 @@ void CMainView::UpdateParamCombos()
 			if ( pcts[k] == nActivePct )
 				m_comboStimLevel.SetCurSel ( idx );
 		}
+		// Level presets: a separator, then Quick/Standard/Fine. Selecting one
+		// rewrites the configured SatStimLevels list (see OnSelchangeComboStimLevel).
+		m_comboStimLevel.SetItemData ( m_comboStimLevel.AddString ( _T("--------------------") ), (DWORD_PTR) STIM_SEP );
+		CString sPreset;
+		sPreset.LoadString ( IDS_STIMPRESET_QUICK );    m_comboStimLevel.SetItemData ( m_comboStimLevel.AddString ( sPreset ), (DWORD_PTR) STIM_QUICK );
+		sPreset.LoadString ( IDS_STIMPRESET_STANDARD ); m_comboStimLevel.SetItemData ( m_comboStimLevel.AddString ( sPreset ), (DWORD_PTR) STIM_STANDARD );
+		sPreset.LoadString ( IDS_STIMPRESET_FINE );     m_comboStimLevel.SetItemData ( m_comboStimLevel.AddString ( sPreset ), (DWORD_PTR) STIM_FINE );
+		m_comboStimLevel.SetDroppedWidth ( GetConfig () -> Scale ( 150 ) );	// preset labels are longer than "100%"
 	}
 	m_comboStimLevel.ShowWindow ( bShowStim ? SW_SHOW : SW_HIDE );
 
@@ -6133,16 +6145,34 @@ void CMainView::OnSelchangeComboStimLevel()
 	int sel = m_comboStimLevel.GetCurSel ();
 	if ( sel < 0 )
 		return;
-	int nPct = (int) m_comboStimLevel.GetItemData ( sel );
+	int data = (int) m_comboStimLevel.GetItemData ( sel );
 
-	// Non-destructive: stores the bound sweeps, then binds the chosen level's
-	// set (creating an empty one if it has never been measured). Every view
-	// follows via the update broadcast.
-	if ( GetDocument () -> GetMeasure () -> BindSatLevel ( (double) nPct / 100.0 ) )
+	if ( data >= 1 )	// a level percentage: view/measure at that stimulus level
 	{
-		GetDocument () -> SetModifiedFlag ();
-		GetDocument () -> UpdateAllViews ( NULL );
+		// Non-destructive: stores the bound sweeps, then binds the chosen level's
+		// set (creating an empty one if it has never been measured). Every view
+		// follows via the update broadcast.
+		if ( GetDocument () -> GetMeasure () -> BindSatLevel ( (double) data / 100.0 ) )
+		{
+			GetDocument () -> SetModifiedFlag ();
+			GetDocument () -> UpdateAllViews ( NULL );
+		}
+		return;
 	}
+
+	// Preset command: rewrite the configured capture list, then repopulate. This
+	// changes which levels are offered / measured by "All stim", not the active
+	// (viewed) level. The separator just reverts the selection.
+	LPCTSTR pList = NULL;
+	switch ( data )
+	{
+		case STIM_QUICK:    pList = _T("25 50 75 100"); break;
+		case STIM_STANDARD: pList = _T("10 20 30 40 50 60 70 80 90 100"); break;
+		case STIM_FINE:     pList = _T("5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95 100"); break;
+	}
+	if ( pList )
+		GetConfig () -> WriteProfileString ( "Scale Sizes", "SatStimLevels", pList );
+	UpdateParamCombos ();	// reselects the active level; reflects the new list
 }
 
 void CMainView::SetMeasureButtonForMode()
