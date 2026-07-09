@@ -2128,6 +2128,7 @@ BEGIN
         MENUITEM "Histogramm Sättigungs&verschiebung", IDM_VIEW_SATLUMSHIFT
         MENUITEM SEPARATOR
         MENUITEM "Kombiniertes H&istogramm für freie Messungen", IDM_VIEW_MEASURESCOMBO
+        MENUITEM "3D-Farbansicht",              IDM_VIEW_3DCOLOR
     END
     POPUP "&Erweitert"
     BEGIN
@@ -2438,6 +2439,7 @@ BEGIN
             MENUITEM "Histogramm Sättigungs&verschiebung", IDM_VIEW_SATLUMSHIFT
             MENUITEM SEPARATOR
             MENUITEM "Kombiniertes H&istogramm für freie Messungen", IDM_VIEW_MEASURESCOMBO
+            MENUITEM "3D-Farbansicht",              IDM_VIEW_3DCOLOR
         END
         MENUITEM "Alle Ansichten anzeigen",     IDM_SHOWALLVIEWS
         MENUITEM "Alle Ansichten schließen",    IDM_CLOSEALLVIEWS
@@ -3149,6 +3151,8 @@ STRINGTABLE
 BEGIN
     IDM_CIE_UV              "CIE u'v' Diagramm anzeigen\nCIE u'v' Diagramm"
     IDM_VIEW_MEASURESCOMBO  "Kombiniertes Histogramm für freie Messungen anzeigen\nKombiniertes Histogramm für freie Messungen"
+    IDM_VIEW_3DCOLOR        "3D-Farbansicht anzeigen\n3D-Ansicht"
+    IDS_3DVIEW_FILTER       "dE-Filter"
     IDM_LANGUAGE            "Die Anwendungssprache auswählen"
     IDM_CIE_SHOWDELTAE      "Zeigt Kreise um die Weißreferenz an, die Delta E = 3 und 10 repräsentieren\nKreise für Delta E = 3 und 10 anzeigen"
 END

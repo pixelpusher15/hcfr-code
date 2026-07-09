@@ -186,6 +186,8 @@ protected:
 	afx_msg void OnUpdateViewSatLumshift(CCmdUI* pCmdUI);
 	afx_msg void OnViewMeasuresCombo();
 	afx_msg void OnUpdateViewMeasuresCombo(CCmdUI* pCmdUI);
+	afx_msg void OnView3DColor();
+	afx_msg void OnUpdateView3DColor(CCmdUI* pCmdUI);
 	afx_msg void OnActivateTab();
 	afx_msg void OnActivateTabOnAll();
 	afx_msg void OnDuplicateTab();

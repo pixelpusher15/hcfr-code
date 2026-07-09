@@ -1066,6 +1066,7 @@
 #define IDM_SIM_SAT_CYAN                33000
 #define IDM_SIM_SAT_MAGENTA             33001
 #define IDM_VIEW_GAMMAHISTO             33002
+#define IDM_VIEW_3DCOLOR                33500
 #define IDM_NEXT_TAB                    33003
 #define IDM_RGB_GRAPH_Y_SCALE3          33004
 #define IDM_PREV_TAB                    33005
@@ -1870,6 +1871,7 @@
 #define IDS_3DVIEW_RESETVIEW            59539
 #define IDS_3DVIEW_FILTER_ALL           59540
 #define IDS_3DVIEW_FILTER_HIDE          59541
+#define IDS_3DVIEW_FILTER               59542
 #define IDC_3DVIEW_DE_FILTER            1551
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550

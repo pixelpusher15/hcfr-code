@@ -1254,6 +1254,11 @@ void C3DColorView::OnInitialUpdate()
 {
 	CSavingView::OnInitialUpdate();   // calls OnUpdate(NULL,0,NULL) -> marks dirty
 	EnsureGdiplus();
+
+	// Start from the persisted dE filter: the info-pane host pushes it when its
+	// segments change, but as a full-window tab this is the only initialisation.
+	int f = GetConfig()->GetProfileInt( "MainView", "ThreeD dE Filter", 0 );
+	m_deFilter = ( f < 0 || f > 2 ) ? 0 : f;
 }
 
 void C3DColorView::OnUpdate(CView* /*pSender*/, LPARAM /*lHint*/, CObject* /*pHint*/)
@@ -1484,7 +1489,19 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 {
 	CString sColorSpace, sPointColor, sPcDE, sPcTarget, sPcPlain,
-			sShowGamut, sShadeGamut, sShowFloor, sShowTails, sResetView;
+			sShowGamut, sShadeGamut, sShowFloor, sShowTails, sResetView,
+			sFilter, sFilterAll, sFilterFmt, sFilter1, sFilter2, sNum;
+	sFilter.LoadString    ( IDS_3DVIEW_FILTER );
+	sFilterAll.LoadString ( IDS_3DVIEW_FILTER_ALL );
+	sFilterFmt.LoadString ( IDS_3DVIEW_FILTER_HIDE );
+	{
+		double good, warn;
+		GetConfig()->GetDEThresholds( good, warn );
+		sNum.Format ( "%.3g", good );
+		sFilter1.Format ( sFilterFmt, (LPCTSTR)sNum );
+		sNum.Format ( "%.3g", warn );
+		sFilter2.Format ( sFilterFmt, (LPCTSTR)sNum );
+	}
 	sColorSpace.LoadString ( IDS_3DVIEW_COLORSPACE );
 	sPointColor.LoadString ( IDS_3DVIEW_POINTCOLOR );
 	sPcDE.LoadString       ( IDS_3DVIEW_PC_DE );
@@ -1496,8 +1513,16 @@ void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 	sShowTails.LoadString  ( IDS_3DVIEW_SHOWTAILS );
 	sResetView.LoadString  ( IDS_3DVIEW_RESETVIEW );
 
-	CMenu menu, spaceMenu, colorMenu;
+	CMenu menu, spaceMenu, colorMenu, filterMenu;
 	menu.CreatePopupMenu();
+
+	// dE filter, mirroring the info-pane segments (and the only way to set it
+	// when the view runs as a full-window tab)
+	filterMenu.CreatePopupMenu();
+	filterMenu.AppendMenu( MF_STRING, 501, sFilterAll );
+	filterMenu.AppendMenu( MF_STRING, 502, sFilter1 );
+	filterMenu.AppendMenu( MF_STRING, 503, sFilter2 );
+	filterMenu.CheckMenuRadioItem( 501, 503, 501 + m_deFilter, MF_BYCOMMAND );
 
 	spaceMenu.CreatePopupMenu();
 	// space names are technical terms, identical in every language
@@ -1515,6 +1540,7 @@ void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 
 	menu.AppendMenu( MF_POPUP, (UINT_PTR)spaceMenu.m_hMenu, sColorSpace );
 	menu.AppendMenu( MF_POPUP, (UINT_PTR)colorMenu.m_hMenu, sPointColor );
+	menu.AppendMenu( MF_POPUP, (UINT_PTR)filterMenu.m_hMenu, sFilter );
 	menu.AppendMenu( MF_SEPARATOR );
 	menu.AppendMenu( MF_STRING | ( m_showGamut  ? MF_CHECKED : 0 ), 201, sShowGamut );
 	menu.AppendMenu( MF_STRING | ( m_shadeGamut ? MF_CHECKED : 0 ), 203, sShadeGamut );
@@ -1527,6 +1553,7 @@ void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 	// destructors don't destroy the handles a second time.
 	spaceMenu.Detach();
 	colorMenu.Detach();
+	filterMenu.Detach();
 
 	if ( point.x == -1 && point.y == -1 )
 	{
@@ -1546,6 +1573,27 @@ void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 		case 207: m_pointColor = PTCOLOR_PLAIN;  Invalidate( FALSE ); break;
 		case 205: m_showTails  = !m_showTails;   Invalidate( FALSE ); break;
 		case 301: m_yaw = 0.70; m_pitch = 0.45; m_zoom = 1.0; m_panX = m_panY = 0.0; Invalidate( FALSE ); break;
+		case 501: case 502: case 503:
+		{
+			int f = cmd - 501;
+			SetDEFilter( f );
+			GetConfig()->WriteProfileInt( "MainView", "ThreeD dE Filter", f );
+			// keep the info-pane segments in step if they exist
+			CDataSetDoc * pDoc = GetDocument();
+			POSITION pos = pDoc ? pDoc->GetFirstViewPosition() : NULL;
+			while ( pos != NULL )
+			{
+				CView * pView = pDoc->GetNextView( pos );
+				if ( pView != NULL && pView->IsKindOf( RUNTIME_CLASS( CMainView ) ) )
+				{
+					CMainView * pMain = (CMainView *)pView;
+					if ( pMain->m_3dDEFilter.GetSafeHwnd() )
+						pMain->m_3dDEFilter.SetSel( f );
+					break;
+				}
+			}
+			break;
+		}
 		default: break;
 	}
 }

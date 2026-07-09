@@ -2510,6 +2510,7 @@ BEGIN
         MENUITEM "Graphe de saturation - écarts", IDM_VIEW_SATLUMSHIFT
         MENUITEM SEPARATOR
         MENUITEM "Graphe combiné - mesures libres", IDM_VIEW_MEASURESCOMBO
+        MENUITEM "Vue 3D des couleurs",         IDM_VIEW_3DCOLOR
     END
     POPUP "A&vancé"
     BEGIN
@@ -2819,6 +2820,7 @@ BEGIN
             MENUITEM "Graphe de saturation - écarts", IDM_VIEW_SATLUMSHIFT
             MENUITEM SEPARATOR
             MENUITEM "Graphe combiné - mesures libres", IDM_VIEW_MEASURESCOMBO
+            MENUITEM "Vue 3D des couleurs",         IDM_VIEW_3DCOLOR
         END
         MENUITEM "Afficher toutes les vues",    IDM_SHOWALLVIEWS
         MENUITEM "Fermer toutes les vues",      IDM_CLOSEALLVIEWS
@@ -3373,6 +3375,8 @@ STRINGTABLE
 BEGIN
     IDM_CIE_UV              "Affiche le diagramme CIE u'v'\nDiagramme CIE u'v'"
     IDM_VIEW_MEASURESCOMBO  "Affiche le graphe combiné des mesures libres\nGraphe combiné - mesures libres"
+    IDM_VIEW_3DCOLOR        "Afficher la vue 3D des couleurs\nVue 3D"
+    IDS_3DVIEW_FILTER       "Filtre dE"
     IDM_LANGUAGE            "Définit la langue du programme"
     IDM_CIE_SHOWDELTAE      "Dessine les courbes représentant les delta E 3 et 10 autour du blanc de référence\nAffiche les courbes Delta E = 3 et 10"
     IDM_SETASREF            "Défini le document comme document de référence"

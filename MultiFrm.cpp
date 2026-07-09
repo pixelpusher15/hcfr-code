@@ -38,6 +38,7 @@
 #include "NearWhiteHistoView.h"
 #include "SatLumHistoView.h"
 #include "SatLumShiftView.h"
+#include "Color3DView.h"
 #include "measureshistoview.h"
 
 #include "OneDeviceSensor.h"
@@ -80,7 +81,8 @@ static const HCFR_VIEW_TYPE g_ViewType [] =
 	{ RUNTIME_CLASS ( CCIEChartView ), IDS_CIECHARTVIEW_NAME, IDS_CIECHARTVIEW_NAME },
 	{ RUNTIME_CLASS ( CSatLumHistoView ), IDS_SATLUM, IDS_SATLUMHISTOVIEW_NAME },
 	{ RUNTIME_CLASS ( CSatLumShiftView ), IDS_SATLUMSHIFT, IDS_SATLUMSHIFTVIEW_NAME },
-	{ RUNTIME_CLASS ( CMeasuresHistoView ), IDS_FREEMEASURES, IDS_MEASURESHISTOVIEW_NAME }
+	{ RUNTIME_CLASS ( CMeasuresHistoView ), IDS_FREEMEASURES, IDS_MEASURESHISTOVIEW_NAME },
+	{ RUNTIME_CLASS ( C3DColorView ), IDS_3DVIEW_NAME, IDS_3DVIEW_NAME }
 };
 
 // Define view type indexes (indexes in array above)
@@ -95,6 +97,7 @@ static const HCFR_VIEW_TYPE g_ViewType [] =
 #define VIEW_IDX_SATLUM				8
 #define VIEW_IDX_SATLUMSHIFT		9
 #define VIEW_IDX_FREEMEASURES		10
+#define VIEW_IDX_3DCOLOR			11	// keep at the END: tab persistence stores these ordinals
 
 // Tool function: retrieve an array index from name ID
 static int GetViewTypeIndex ( int nIDName )
@@ -159,6 +162,8 @@ BEGIN_MESSAGE_MAP(CMultiFrame, CNewMDIChildWnd)
 	ON_UPDATE_COMMAND_UI(IDM_VIEW_SATLUMSHIFT, OnUpdateViewSatLumshift)
 	ON_COMMAND(IDM_VIEW_MEASURESCOMBO, OnViewMeasuresCombo)
 	ON_UPDATE_COMMAND_UI(IDM_VIEW_MEASURESCOMBO, OnUpdateViewMeasuresCombo)
+	ON_COMMAND(IDM_VIEW_3DCOLOR, OnView3DColor)
+	ON_UPDATE_COMMAND_UI(IDM_VIEW_3DCOLOR, OnUpdateView3DColor)
 	ON_COMMAND(IDM_TAB_ACTIVATE, OnActivateTab)
 	ON_COMMAND(IDM_TAB_ACTIVATE_ON_ALL, OnActivateTabOnAll)
 	ON_COMMAND(IDM_TAB_DUPLICATE, OnDuplicateTab)
@@ -1139,6 +1144,18 @@ void CMultiFrame::OnUpdateViewMeasuresCombo(CCmdUI* pCmdUI)
 	pCmdUI -> SetCheck ( GetViewTabIndex ( IDS_FREEMEASURES ) >= 0 );
 }
 
+void CMultiFrame::OnView3DColor()
+{
+	if ( m_bDisplayTab )
+		CreateOrActivateView ( VIEW_IDX_3DCOLOR );
+}
+
+void CMultiFrame::OnUpdateView3DColor(CCmdUI* pCmdUI)
+{
+	pCmdUI -> Enable ( m_bDisplayTab );
+	pCmdUI -> SetCheck ( GetViewTabIndex ( IDS_3DVIEW_NAME ) >= 0 );
+}
+
 void CMultiFrame::OnActivateTab()
 {
 	if ( m_LastRightClickedTab >= 0 && m_LastRightClickedTab < m_NbTabbedViews )
@@ -1424,6 +1441,10 @@ static int GetViewIndexFromMenuCommand ( WPARAM wParam )
 
 		case IDM_VIEW_MEASURESCOMBO:
 			 nViewIndex = VIEW_IDX_FREEMEASURES;
+			 break;
+
+		case IDM_VIEW_3DCOLOR:
+			 nViewIndex = VIEW_IDX_3DCOLOR;
 			 break;
 	}
 
