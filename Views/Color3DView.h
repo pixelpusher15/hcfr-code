@@ -94,7 +94,9 @@ protected:
 	};
 	std::vector<ScenePoint> m_points;
 	bool m_sceneDirty;
+	int  m_freeInScene;       // free measurements already in m_points (incremental append)
 	void BuildScene();
+	void AppendNewFreeMeasures();
 	// dETarget/ywForDE feed GetDeltaE with the grid's conventions; markerTarget
 	// (relative to white=1) is where the tail/ring is drawn. Pass noDataColor
 	// twice for measurements without a reference.

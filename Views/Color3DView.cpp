@@ -145,6 +145,7 @@ END_MESSAGE_MAP()
 C3DColorView::C3DColorView()
 	: CSavingView()
 	, m_sceneDirty(true)
+	, m_freeInScene(0)
 	, m_baseValid(false)
 	, m_gamutValid(false)
 	, m_texDC(NULL), m_texBmp(NULL), m_texOld(NULL), m_texBits(NULL), m_texW(0), m_texH(0), m_texSig(-1)
@@ -423,32 +424,10 @@ void C3DColorView::BuildScene()
 	}
 
 	// Free measures: this is where a large display profile (thousands of patches,
-	// the future 3D-LUT source) accumulates. No stored reference: auto-detect
-	// near-white/primary/secondary by chromaticity like the measures grid does.
-	CColor wRef( ref.GetWhite() );
-	n = pMeasure->GetMeasurementsSize();
-	for ( i = 0; i < n; i++ )
-	{
-		CColor c = pMeasure->GetMeasurement( i );
-		if ( !c.isValid() )
-			continue;
-		CColor refC = noDataColor;
-		if ( c.GetDeltaxy( wRef, ref ) < 0.05 )
-			refC = wRef;
-		else
-		{
-			for ( int k = 0; k < 3 && !refC.isValid(); k++ )
-			{
-				if ( c.GetDeltaxy( pMeasure->GetRefPrimary( k ), ref ) < 0.05 )
-					refC = pMeasure->GetRefPrimary( k );
-				else if ( c.GetDeltaxy( pMeasure->GetRefSecondary( k ), ref ) < 0.05 )
-					refC = pMeasure->GetRefSecondary( k );
-			}
-		}
-		wchar_t lbl[48];
-		swprintf( lbl, 48, L"Measurement #%d", i + 1 );
-		AppendMeasure( c, whiteY, ref, refC, refC, false, whiteY, lbl, SRC_FREE, i );
-	}
+	// the future 3D-LUT source) accumulates. Shared with the incremental
+	// UPD_FREEMEASUREAPPENDED path.
+	m_freeInScene = 0;
+	AppendNewFreeMeasures();
 
 	BuildGamut( ref );
 	EnsureTongueTexture( ref );
@@ -616,41 +595,93 @@ void C3DColorView::EnsureTongueTexture(CColorReference & ref)
 		return;
 	FreeTongueTexture();
 
-	const int W = 700, H = 778;   // 0.9:1.0 aspect -> isotropic chromaticity pixels
+	// Stored at 2x the old size, and RENDERED at 2x that again with a box-filter
+	// downsample: the tongue boundary is a hard colour step, and bilinear
+	// magnification of a hard step still shows the texel grid as scalloped
+	// jaggies. Supersampling anti-aliases the edge in texture space.
+	const int W = 1400, H = 1556;          // 0.9:1.0 aspect -> isotropic chromaticity px
+	const int SS = 2;
+	const int BW = W * SS, BH = H * SS;
+
 	BITMAPINFO bmi;
 	ZeroMemory( &bmi, sizeof( bmi ) );
 	bmi.bmiHeader.biSize        = sizeof( BITMAPINFOHEADER );
-	bmi.bmiHeader.biWidth       = W;
-	bmi.bmiHeader.biHeight      = -H;   // top-down
+	bmi.bmiHeader.biWidth       = BW;
+	bmi.bmiHeader.biHeight      = -BH;   // top-down
 	bmi.bmiHeader.biPlanes      = 1;
 	bmi.bmiHeader.biBitCount    = 32;
 	bmi.bmiHeader.biCompression = BI_RGB;
 
-	void * bits = NULL;
-	m_texBmp = CreateDIBSection( NULL, &bmi, DIB_RGB_COLORS, &bits, NULL, 0 );
-	if ( m_texBmp == NULL )
+	// oversized render target (temporary)
+	void * bigBits = NULL;
+	HBITMAP hBig = CreateDIBSection( NULL, &bmi, DIB_RGB_COLORS, &bigBits, NULL, 0 );
+	if ( hBig == NULL )
 		return;
-	m_texDC = CreateCompatibleDC( NULL );
-	if ( m_texDC == NULL )
+	HDC hBigDC = CreateCompatibleDC( NULL );
+	if ( hBigDC == NULL )
 	{
-		DeleteObject( m_texBmp );
-		m_texBmp = NULL;
+		DeleteObject( hBig );
 		return;
 	}
-	m_texOld = (HBITMAP)SelectObject( m_texDC, m_texBmp );
+	HBITMAP hBigOld = (HBITMAP)SelectObject( hBigDC, hBig );
+
+	DWORD bg = DibColor( 18, 18, 22 );
+	DWORD * bp = (DWORD *)bigBits;
+	{
+		size_t total = (size_t)BW * BH;
+		size_t seed = total < 256 ? total : 256;
+		for ( size_t s = 0; s < seed; s++ ) bp[s] = bg;
+		for ( size_t done = seed; done < total; done += done )
+		{
+			size_t chunk = ( done < total - done ) ? done : total - done;
+			memcpy( bp + done, bp, chunk * sizeof( DWORD ) );
+		}
+	}
+
+	CDC * p = CDC::FromHandle( hBigDC );
+	p->SetBkMode( TRANSPARENT );
+	DrawCIEChartEx( p, BW, BH, TRUE, FALSE, FALSE, FALSE, TRUE /*hide nm labels*/ );
+	GdiFlush();
+
+	// the stored texture
+	bmi.bmiHeader.biWidth  = W;
+	bmi.bmiHeader.biHeight = -H;
+	void * bits = NULL;
+	m_texBmp = CreateDIBSection( NULL, &bmi, DIB_RGB_COLORS, &bits, NULL, 0 );
+	m_texDC  = m_texBmp ? CreateCompatibleDC( NULL ) : NULL;
+	if ( m_texDC == NULL )
+	{
+		if ( m_texBmp ) { DeleteObject( m_texBmp ); m_texBmp = NULL; }
+		SelectObject( hBigDC, hBigOld );
+		DeleteDC( hBigDC );
+		DeleteObject( hBig );
+		return;
+	}
+	m_texOld  = (HBITMAP)SelectObject( m_texDC, m_texBmp );
 	m_texBits = (DWORD *)bits;
 	m_texW = W;
 	m_texH = H;
 
-	// Dark floor background where there's no tongue.
-	DWORD bg = DibColor( 18, 18, 22 );
-	int total = W * H;
-	for ( int i = 0; i < total; i++ ) m_texBits[i] = bg;
+	// 2x2 box-filter downsample
+	for ( int y = 0; y < H; y++ )
+	{
+		const DWORD * r0 = bp + (size_t)( y * SS )     * BW;
+		const DWORD * r1 = bp + (size_t)( y * SS + 1 ) * BW;
+		DWORD * dst = m_texBits + (size_t)y * W;
+		for ( int x = 0; x < W; x++ )
+		{
+			const DWORD c0 = r0[x * SS], c1 = r0[x * SS + 1];
+			const DWORD c2 = r1[x * SS], c3 = r1[x * SS + 1];
+			int r = ( ( ( c0 >> 16 ) & 0xFF ) + ( ( c1 >> 16 ) & 0xFF ) + ( ( c2 >> 16 ) & 0xFF ) + ( ( c3 >> 16 ) & 0xFF ) ) >> 2;
+			int g = ( ( ( c0 >> 8 ) & 0xFF )  + ( ( c1 >> 8 ) & 0xFF )  + ( ( c2 >> 8 ) & 0xFF )  + ( ( c3 >> 8 ) & 0xFF ) ) >> 2;
+			int b = ( ( c0 & 0xFF ) + ( c1 & 0xFF ) + ( c2 & 0xFF ) + ( c3 & 0xFF ) ) >> 2;
+			dst[x] = DibColor( r, g, b );
+		}
+	}
 
-	CDC * p = CDC::FromHandle( m_texDC );
-	p->SetBkMode( TRANSPARENT );
-	DrawCIEChartEx( p, W, H, TRUE, FALSE, FALSE, FALSE, TRUE /*hide nm labels*/ );
-	GdiFlush();
+	SelectObject( hBigDC, hBigOld );
+	DeleteDC( hBigDC );
+	DeleteObject( hBig );
 
 	m_texSig = sig;
 }
@@ -879,6 +910,37 @@ void C3DColorView::SplatCross(int cx, int cy, float z, DWORD color, int arm)
 	}
 }
 
+// Compute the inclusive pixel span [xl, xr] a triangle covers on scanline py,
+// given the barycentric row bases/slopes, clipped to [minx, maxx]. Returns
+// false for an empty row. Doing this analytically (three half-plane bounds)
+// makes rasterization cost proportional to COVERED pixels: with the old
+// bounding-box scan, a zoomed-in triangle whose box clamps to the whole window
+// barycentric-tested millions of pixels only to reject most of them.
+static inline bool RowSpan(const double base[3], const double slope[3],
+						   int minx, int maxx, int & xl, int & xr)
+{
+	double lo = (double)minx, hi = (double)maxx;
+	for ( int e = 0; e < 3; e++ )
+	{
+		if ( fabs( slope[e] ) < 1e-12 )
+		{
+			if ( base[e] < 0.0 )
+				return false;                       // whole row outside this edge
+		}
+		else
+		{
+			double x = -base[e] / slope[e];
+			if ( slope[e] > 0.0 ) { if ( x > lo ) lo = x; }
+			else                  { if ( x < hi ) hi = x; }
+		}
+	}
+	xl = (int)ceil ( lo - 1e-9 );
+	xr = (int)floor( hi + 1e-9 );
+	if ( xl < minx ) xl = minx;
+	if ( xr > maxx ) xr = maxx;
+	return xl <= xr;
+}
+
 // Translucent flat triangle: z-tested against the buffer but does NOT write z,
 // so opaque points already drawn stay crisp and later faces still blend.
 void C3DColorView::RasterTriFlat(const double v[3][3], DWORD color, int alpha)
@@ -889,30 +951,49 @@ void C3DColorView::RasterTriFlat(const double v[3][3], DWORD color, int alpha)
 	double x2 = v[2][0], y2 = v[2][1], z2 = v[2][2];
 	double denom = ( y1 - y2 ) * ( x0 - x2 ) + ( x2 - x1 ) * ( y0 - y2 );
 	if ( fabs( denom ) < 1e-9 ) return;
-	double invDen = 1.0 / denom;   // hoisted: division per pixel is measurable
+	double invDen = 1.0 / denom;
 
 	int minx = (int)floor( min3( x0, x1, x2 ) ), maxx = (int)ceil( max3( x0, x1, x2 ) );
 	int miny = (int)floor( min3( y0, y1, y2 ) ), maxy = (int)ceil( max3( y0, y1, y2 ) );
 	if ( minx < 0 ) minx = 0; if ( miny < 0 ) miny = 0;
 	if ( maxx > w - 1 ) maxx = w - 1; if ( maxy > h - 1 ) maxy = h - 1;
+	if ( minx > maxx || miny > maxy ) return;
 
+	// barycentrics as linear functions of the pixel: b = C + A*px + B*py
+	double A0 = ( y1 - y2 ) * invDen, B0 = ( x2 - x1 ) * invDen;
+	double C0 = ( -( y1 - y2 ) * x2 - ( x2 - x1 ) * y2 ) * invDen;
+	double A1 = ( y2 - y0 ) * invDen, B1 = ( x0 - x2 ) * invDen;
+	double C1 = ( -( y2 - y0 ) * x2 - ( x0 - x2 ) * y2 ) * invDen;
+	double slope[3] = { A0, A1, -( A0 + A1 ) };
+
+	float * zb = &m_zbuf[0];
 	for ( int py = miny; py <= maxy; py++ )
 	{
-		for ( int px = minx; px <= maxx; px++ )
+		double base[3];
+		base[0] = C0 + B0 * py;
+		base[1] = C1 + B1 * py;
+		base[2] = 1.0 - base[0] - base[1];
+		int xl, xr;
+		if ( !RowSpan( base, slope, minx, maxx, xl, xr ) )
+			continue;
+		double b0 = base[0] + slope[0] * xl;
+		double b1 = base[1] + slope[1] * xl;
+		double b2 = base[2] + slope[2] * xl;
+		double z    = b0 * z0 + b1 * z1 + b2 * z2;
+		double dzdx = slope[0] * z0 + slope[1] * z1 + slope[2] * z2;
+		int rowIdx = py * w;
+		for ( int px = xl; px <= xr; px++, z += dzdx )
 		{
-			double b0 = ( ( y1 - y2 ) * ( px - x2 ) + ( x2 - x1 ) * ( py - y2 ) ) * invDen;
-			double b1 = ( ( y2 - y0 ) * ( px - x2 ) + ( x0 - x2 ) * ( py - y2 ) ) * invDen;
-			double b2 = 1.0 - b0 - b1;
-			if ( b0 < 0 || b1 < 0 || b2 < 0 ) continue;
-			double z = b0 * z0 + b1 * z1 + b2 * z2;
-			int idx = py * w + px;
-			if ( z > m_zbuf[idx] )
+			int idx = rowIdx + px;
+			if ( z > zb[idx] )
 				m_bits[idx] = BlendDib( color, m_bits[idx], alpha );
 		}
 	}
 }
 
-// Opaque textured triangle (the CIE floor): z-tested AND writes z.
+// Opaque textured triangle (the CIE floor): z-tested AND writes z. Bilinear
+// sampling: nearest-neighbour looked blocky/jagged as soon as the floor was
+// magnified by zooming in.
 void C3DColorView::RasterTriTex(const double v[3][3], const double uv[3][2])
 {
 	if ( m_texBits == NULL ) return;
@@ -922,35 +1003,68 @@ void C3DColorView::RasterTriTex(const double v[3][3], const double uv[3][2])
 	double x2 = v[2][0], y2 = v[2][1], z2 = v[2][2];
 	double denom = ( y1 - y2 ) * ( x0 - x2 ) + ( x2 - x1 ) * ( y0 - y2 );
 	if ( fabs( denom ) < 1e-9 ) return;
-	double invDen = 1.0 / denom;   // hoisted: division per pixel is measurable
+	double invDen = 1.0 / denom;
 
 	int minx = (int)floor( min3( x0, x1, x2 ) ), maxx = (int)ceil( max3( x0, x1, x2 ) );
 	int miny = (int)floor( min3( y0, y1, y2 ) ), maxy = (int)ceil( max3( y0, y1, y2 ) );
 	if ( minx < 0 ) minx = 0; if ( miny < 0 ) miny = 0;
 	if ( maxx > w - 1 ) maxx = w - 1; if ( maxy > h - 1 ) maxy = h - 1;
+	if ( minx > maxx || miny > maxy ) return;
+
+	double A0 = ( y1 - y2 ) * invDen, B0 = ( x2 - x1 ) * invDen;
+	double C0 = ( -( y1 - y2 ) * x2 - ( x2 - x1 ) * y2 ) * invDen;
+	double A1 = ( y2 - y0 ) * invDen, B1 = ( x0 - x2 ) * invDen;
+	double C1 = ( -( y2 - y0 ) * x2 - ( x0 - x2 ) * y2 ) * invDen;
+	double slope[3] = { A0, A1, -( A0 + A1 ) };
+
+	const int    TW = m_texW, TH = m_texH;
+	const double USCALE = (double)( TW - 1 ), VSCALE = (double)( TH - 1 );
+	float *       zb = &m_zbuf[0];
+	const DWORD * tex = m_texBits;
 
 	for ( int py = miny; py <= maxy; py++ )
 	{
-		for ( int px = minx; px <= maxx; px++ )
+		double base[3];
+		base[0] = C0 + B0 * py;
+		base[1] = C1 + B1 * py;
+		base[2] = 1.0 - base[0] - base[1];
+		int xl, xr;
+		if ( !RowSpan( base, slope, minx, maxx, xl, xr ) )
+			continue;
+		double b0 = base[0] + slope[0] * xl;
+		double b1 = base[1] + slope[1] * xl;
+		double b2 = base[2] + slope[2] * xl;
+		double z    = b0 * z0 + b1 * z1 + b2 * z2;
+		double dzdx = slope[0] * z0 + slope[1] * z1 + slope[2] * z2;
+		double u    = ( b0 * uv[0][0] + b1 * uv[1][0] + b2 * uv[2][0] ) * USCALE;
+		double dudx = ( slope[0] * uv[0][0] + slope[1] * uv[1][0] + slope[2] * uv[2][0] ) * USCALE;
+		double tvv  = ( b0 * uv[0][1] + b1 * uv[1][1] + b2 * uv[2][1] ) * VSCALE;
+		double dvdx = ( slope[0] * uv[0][1] + slope[1] * uv[1][1] + slope[2] * uv[2][1] ) * VSCALE;
+		int rowIdx = py * w;
+		for ( int px = xl; px <= xr; px++, z += dzdx, u += dudx, tvv += dvdx )
 		{
-			double b0 = ( ( y1 - y2 ) * ( px - x2 ) + ( x2 - x1 ) * ( py - y2 ) ) * invDen;
-			double b1 = ( ( y2 - y0 ) * ( px - x2 ) + ( x0 - x2 ) * ( py - y2 ) ) * invDen;
-			double b2 = 1.0 - b0 - b1;
-			if ( b0 < 0 || b1 < 0 || b2 < 0 ) continue;
-			double z = b0 * z0 + b1 * z1 + b2 * z2;
-			int idx = py * w + px;
-			if ( z > m_zbuf[idx] )
+			int idx = rowIdx + px;
+			if ( z > zb[idx] )
 			{
-				double tu = b0 * uv[0][0] + b1 * uv[1][0] + b2 * uv[2][0];
-				double tv = b0 * uv[0][1] + b1 * uv[1][1] + b2 * uv[2][1];
-				int tx = (int)( tu * ( m_texW - 1 ) + 0.5 );
-				int ty = (int)( tv * ( m_texH - 1 ) + 0.5 );
-				if ( tx < 0 ) tx = 0; if ( tx > m_texW - 1 ) tx = m_texW - 1;
-				if ( ty < 0 ) ty = 0; if ( ty > m_texH - 1 ) ty = m_texH - 1;
+				// bilinear 4-tap
+				double cu = u < 0.0 ? 0.0 : ( u > USCALE ? USCALE : u );
+				double cv = tvv < 0.0 ? 0.0 : ( tvv > VSCALE ? VSCALE : tvv );
+				int tx = (int)cu, ty = (int)cv;
+				int tx1 = tx + 1 < TW ? tx + 1 : tx;
+				int ty1 = ty + 1 < TH ? ty + 1 : ty;
+				int fx = (int)( ( cu - tx ) * 256.0 ), fy = (int)( ( cv - ty ) * 256.0 );
+				DWORD c00 = tex[ty * TW + tx],  c10 = tex[ty * TW + tx1];
+				DWORD c01 = tex[ty1 * TW + tx], c11 = tex[ty1 * TW + tx1];
+				int r = ( ( ( ( c00 >> 16 ) & 0xFF ) * ( 256 - fx ) + ( ( c10 >> 16 ) & 0xFF ) * fx ) * ( 256 - fy )
+					  +   ( ( ( c01 >> 16 ) & 0xFF ) * ( 256 - fx ) + ( ( c11 >> 16 ) & 0xFF ) * fx ) * fy ) >> 16;
+				int g = ( ( ( ( c00 >> 8 ) & 0xFF ) * ( 256 - fx ) + ( ( c10 >> 8 ) & 0xFF ) * fx ) * ( 256 - fy )
+					  +   ( ( ( c01 >> 8 ) & 0xFF ) * ( 256 - fx ) + ( ( c11 >> 8 ) & 0xFF ) * fx ) * fy ) >> 16;
+				int b = ( ( ( c00 & 0xFF ) * ( 256 - fx ) + ( c10 & 0xFF ) * fx ) * ( 256 - fy )
+					  +   ( ( c01 & 0xFF ) * ( 256 - fx ) + ( c11 & 0xFF ) * fx ) * fy ) >> 16;
 				// Blend the tongue toward the (dark) background so the floor reads
 				// as a translucent surface rather than a bright opaque one.
-				m_bits[idx] = BlendDib( m_texBits[ty * m_texW + tx], m_bits[idx], kFloorAlpha );
-				m_zbuf[idx] = (float)z;
+				m_bits[idx] = BlendDib( DibColor( r, g, b ), m_bits[idx], kFloorAlpha );
+				zb[idx] = (float)z;
 			}
 		}
 	}
@@ -1315,8 +1429,61 @@ void C3DColorView::OnInitialUpdate()
 	m_deFilter = ( f < 0 || f > 2 ) ? 0 : f;
 }
 
-void C3DColorView::OnUpdate(CView* /*pSender*/, LPARAM /*lHint*/, CObject* /*pHint*/)
+// Incrementally add free measurements appended since the last (re)build. During
+// a large profile capture every appended point fires UPD_FREEMEASUREAPPENDED; a
+// full scene rebuild per point (n conversions + dE each) would make the capture
+// O(n^2), so only the new points are converted.
+void C3DColorView::AppendNewFreeMeasures()
 {
+	CDataSetDoc * pDoc = GetDocument();
+	if ( pDoc == NULL || pDoc->GetMeasure() == NULL )
+		return;
+	CMeasure * pMeasure = pDoc->GetMeasure();
+
+	CColorReference ref = GetColorReference();
+	double whiteY = 1.0;
+	CColor cw = pMeasure->GetPrimeWhite();
+	if ( !cw.isValid() || cw.GetY() <= 0.0 )
+		cw = pMeasure->GetOnOffWhite();
+	if ( cw.isValid() && cw.GetY() > 0.0 )
+		whiteY = cw.GetY();
+
+	CColor wRef( ref.GetWhite() );
+	int n = pMeasure->GetMeasurementsSize();
+	for ( int i = m_freeInScene; i < n; i++ )
+	{
+		CColor c = pMeasure->GetMeasurement( i );
+		if ( !c.isValid() )
+			continue;
+		CColor refC = noDataColor;
+		if ( c.GetDeltaxy( wRef, ref ) < 0.05 )
+			refC = wRef;
+		else
+		{
+			for ( int k = 0; k < 3 && !refC.isValid(); k++ )
+			{
+				if ( c.GetDeltaxy( pMeasure->GetRefPrimary( k ), ref ) < 0.05 )
+					refC = pMeasure->GetRefPrimary( k );
+				else if ( c.GetDeltaxy( pMeasure->GetRefSecondary( k ), ref ) < 0.05 )
+					refC = pMeasure->GetRefSecondary( k );
+			}
+		}
+		wchar_t lbl[48];
+		swprintf( lbl, 48, L"Measurement #%d", i + 1 );
+		AppendMeasure( c, whiteY, ref, refC, refC, false, whiteY, lbl, SRC_FREE, i );
+	}
+	m_freeInScene = n;
+}
+
+void C3DColorView::OnUpdate(CView* /*pSender*/, LPARAM lHint, CObject* /*pHint*/)
+{
+	if ( lHint == UPD_FREEMEASUREAPPENDED && !m_sceneDirty && !m_points.empty() )
+	{
+		AppendNewFreeMeasures();
+		if ( ::IsWindow( m_hWnd ) )
+			Invalidate( FALSE );
+		return;
+	}
 	m_sceneDirty = true;
 	if ( ::IsWindow( m_hWnd ) )
 		Invalidate( FALSE );
