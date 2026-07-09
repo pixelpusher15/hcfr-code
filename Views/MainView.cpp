@@ -5892,7 +5892,8 @@ void CMainView::UpdateParamCombos()
 					int idx = m_comboSteps.AddString ( pPresets[k].name );
 					m_comboSteps.SetItemData ( idx, k );
 				}
-				int iCustom = m_comboSteps.AddString ( _T("Custom...") );
+				CString sCustom; sCustom.LoadString ( IDS_PARAM_CUSTOM );
+				int iCustom = m_comboSteps.AddString ( sCustom );
 				m_comboSteps.SetItemData ( iCustom, (DWORD_PTR) -1 );
 				int nMatch = pMeasure -> GetGrayScalePreset ();
 				m_comboSteps.SetCurSel ( nMatch >= 0 ? nMatch : iCustom );
@@ -6021,11 +6022,12 @@ void CMainView::UpdateParamCombos()
 	// caption reads "Preset" for grayscale (named presets) and "Steps" otherwise.
 	if ( m_lblMode.GetSafeHwnd () )
 	{
-		m_lblMode.SetWindowText ( _T("Mode") );
+		CString sCap;
+		sCap.LoadString ( IDS_PARAM_MODE );     m_lblMode.SetWindowText ( sCap );
 		m_lblMode.ShowWindow ( SW_SHOW );
-		m_lblSteps.SetWindowText ( m_displayMode == 11 ? _T("CC set") : _T("Steps") );
+		sCap.LoadString ( m_displayMode == 11 ? IDS_PARAM_CCSET : IDS_PARAM_STEPS );  m_lblSteps.SetWindowText ( sCap );
 		m_lblSteps.ShowWindow ( bShowSteps ? SW_SHOW : SW_HIDE );
-		m_lblStim.SetWindowText ( _T("Stimulus") );
+		sCap.LoadString ( IDS_PARAM_STIMULUS ); m_lblStim.SetWindowText ( sCap );
 		m_lblStim.ShowWindow ( bShowStim ? SW_SHOW : SW_HIDE );
 	}
 }
@@ -6070,8 +6072,9 @@ void CMainView::OnSelchangeComboSteps()
 		}
 		if ( data == pMeasure -> GetGrayScalePreset () )
 			return;
+		CString sMsg, sTitle; sMsg.LoadString ( IDS_CONFIRM_CLEAR_GRAY ); sTitle.LoadString ( IDS_STEPS_TITLE );
 		if ( CurrentModeSweepHasData () &&
-			 GetColorApp()->InMeasureMessageBox ( _T("Changing the grayscale steps clears the current grayscale measurements.\nContinue?"), _T("Grayscale steps"), MB_ICONQUESTION | MB_YESNO ) != IDYES )
+			 GetColorApp()->InMeasureMessageBox ( sMsg, sTitle, MB_ICONQUESTION | MB_YESNO ) != IDYES )
 		{
 			UpdateParamCombos ();
 			return;
@@ -6098,15 +6101,12 @@ void CMainView::OnSelchangeComboSteps()
 		if ( data == nCur )
 			return;
 
-		LPCTSTR lpszWarn;
-		if ( m_displayMode == 3 )
-			lpszWarn = _T("Changing the near black steps clears the current near black measurements.\nContinue?");
-		else if ( m_displayMode == 4 )
-			lpszWarn = _T("Changing the near white steps clears the current near white measurements.\nContinue?");
-		else
-			lpszWarn = _T("Changing the saturation steps clears the measurements of all six saturation sweeps.\nContinue?");
+		CString sWarn, sTitle;
+		sWarn.LoadString ( m_displayMode == 3 ? IDS_CONFIRM_CLEAR_NB
+										      : ( m_displayMode == 4 ? IDS_CONFIRM_CLEAR_NW : IDS_CONFIRM_CLEAR_SAT ) );
+		sTitle.LoadString ( IDS_STEPS_TITLE );
 		if ( CurrentModeSweepHasData () &&
-			 GetColorApp()->InMeasureMessageBox ( lpszWarn, _T("Scale steps"), MB_ICONQUESTION | MB_YESNO ) != IDYES )
+			 GetColorApp()->InMeasureMessageBox ( sWarn, sTitle, MB_ICONQUESTION | MB_YESNO ) != IDYES )
 		{
 			UpdateParamCombos ();
 			return;
@@ -6981,7 +6981,8 @@ void CMainView::InitButtons()
 	if (m_satAllLevelsButton.GetSafeHwnd() == NULL)
 	{
 		CRect rcBtn(0, 0, GetConfig()->Scale(80), GetConfig()->Scale(25));
-		m_satAllLevelsButton.Create(_T("All stim"), WS_CHILD|WS_TABSTOP, rcBtn, this, IDC_MEASURESATALLLEVELS_BUTTON);
+		CString sBtn; sBtn.LoadString ( IDS_ALLSTIM_BTN );
+		m_satAllLevelsButton.Create(sBtn, WS_CHILD|WS_TABSTOP, rcBtn, this, IDC_MEASURESATALLLEVELS_BUTTON);
 		SCtrlInitPos* pBtn = new SCtrlInitPos;
 		pBtn->m_hWnd = m_satAllLevelsButton.GetSafeHwnd();
 		::GetWindowRect(pBtn->m_hWnd, &pBtn->m_Rect);
@@ -6995,7 +6996,8 @@ void CMainView::InitButtons()
 		m_satAllLevelsButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-sat-all"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 		m_satAllLevelsButton.SetFont(GetFont());
 		m_satAllLevelsButton.EnableBalloonTooltip();
-		m_satAllLevelsButton.SetTooltipText(_T("Measure this color's saturation sweep at every stimulus level"));
+		CString sTip; sTip.LoadString ( IDS_ALLSTIM_TIP );
+		m_satAllLevelsButton.SetTooltipText(sTip);
 		m_satAllLevelsButton.DrawFlatFocus(FALSE);
 		m_satAllLevelsButton.SetColor(CButtonST::BTNST_COLOR_FG_IN,FxGetSysColor(COLOR_MENUTEXT));
 		m_satAllLevelsButton.SetColor(CButtonST::BTNST_COLOR_FG_OUT,FxGetSysColor(COLOR_MENUTEXT));

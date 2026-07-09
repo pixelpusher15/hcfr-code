@@ -4834,12 +4834,11 @@ void CDataSetDoc::OnMeasureSatAllLevels()
 	std::vector<double> levels;
 	ParseSatStimLevels ( levels );
 
-	CString	Msg, TmpStr;
-	Msg = "This will measure the six saturation sweeps at";
-	TmpStr.Format ( " %d stimulus levels (%d patches).\nContinue?",
-		(int) levels.size (), (int) levels.size () * 6 * GetMeasure () -> GetSaturationSize () );
-	Msg += TmpStr;
-	if ( GetColorApp()->InMeasureMessageBox ( Msg, "Saturations at all levels", MB_ICONQUESTION | MB_YESNO ) != IDYES )
+	CString	Msg, fmt, Title;
+	fmt.LoadString ( IDS_ALLLEVELS_CONFIRM );
+	Msg.Format ( fmt, (int) levels.size (), (int) levels.size () * 6 * GetMeasure () -> GetSaturationSize () );
+	Title.LoadString ( IDS_ALLLEVELS_TITLE );
+	if ( GetColorApp()->InMeasureMessageBox ( Msg, Title, MB_ICONQUESTION | MB_YESNO ) != IDYES )
 		return;
 
 	for ( size_t k = 0; k < levels.size (); k++ )
@@ -4873,13 +4872,11 @@ void CDataSetDoc::MeasureSatColorAllLevels(int hue)
 	std::vector<double> levels;
 	ParseSatStimLevels ( levels );
 
-	static const char * const hueName[6] = { "red", "green", "blue", "yellow", "cyan", "magenta" };
-	CString	Msg, TmpStr;
-	Msg.Format ( "This will measure the %s saturation sweep at", hueName[hue] );
-	TmpStr.Format ( " %d stimulus levels (%d patches).\nContinue?",
-		(int) levels.size (), (int) levels.size () * GetMeasure () -> GetSaturationSize () );
-	Msg += TmpStr;
-	if ( GetColorApp()->InMeasureMessageBox ( Msg, "Saturation at all levels", MB_ICONQUESTION | MB_YESNO ) != IDYES )
+	CString	Msg, fmt, Title;
+	fmt.LoadString ( IDS_ALLLEVELS_HUE_CONFIRM );
+	Msg.Format ( fmt, (int) levels.size (), (int) levels.size () * GetMeasure () -> GetSaturationSize () );
+	Title.LoadString ( IDS_ALLLEVELS_TITLE );
+	if ( GetColorApp()->InMeasureMessageBox ( Msg, Title, MB_ICONQUESTION | MB_YESNO ) != IDYES )
 		return;
 
 	for ( size_t k = 0; k < levels.size (); k++ )

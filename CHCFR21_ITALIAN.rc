@@ -2287,7 +2287,7 @@ BEGIN
             MENUITEM "Colori &Primari",             IDM_MEASURE_SAT_PRIMARIES
             MENUITEM "Colori Primari e &Secondari", IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
             MENUITEM "&Tutti i colori",             IDM_MEASURE_SAT_ALL
-            MENUITEM "All colors at all stimulus levels", IDM_MEASURE_SAT_ALL_LEVELS
+            MENUITEM "Tutti i colori a tutti i livelli", IDM_MEASURE_SAT_ALL_LEVELS
         END
         MENUITEM "&Contrast",                   IDM_MEASURE_CONTRAST
         MENUITEM "&Boogie tutto inclinato",      ID_MEASURES_FULLTILTBOOGIE
@@ -4037,6 +4037,21 @@ BEGIN
     IDS_3DVIEW_SHOWFLOOR    "Mostra base CIE (xyY)"
     IDS_3DVIEW_SHOWTAILS    "Mostra linee verso il target"
     IDS_3DVIEW_RESETVIEW    "Reimposta vista"
+    IDS_PARAM_MODE          "Modo"
+    IDS_PARAM_STEPS         "Passi"
+    IDS_PARAM_STIMULUS      "Stimolo"
+    IDS_PARAM_CCSET         "Set CC"
+    IDS_PARAM_CUSTOM        "Personalizzato..."
+    IDS_ALLSTIM_BTN         "Tutti stim"
+    IDS_ALLSTIM_TIP         "Misura la saturazione di questo colore a ogni livello di stimolo"
+    IDS_CONFIRM_CLEAR_GRAY  "La modifica dei passi cancella le misure attuali della scala di grigi.\nContinuare?"
+    IDS_CONFIRM_CLEAR_NB    "La modifica dei passi cancella le misure attuali vicino al nero.\nContinuare?"
+    IDS_CONFIRM_CLEAR_NW    "La modifica dei passi cancella le misure attuali vicino al bianco.\nContinuare?"
+    IDS_CONFIRM_CLEAR_SAT   "La modifica dei passi cancella le misure di tutte e sei le scale di saturazione.\nContinuare?"
+    IDS_STEPS_TITLE         "Passi scala"
+    IDS_ALLLEVELS_CONFIRM   "Verranno misurate le sei scale di saturazione a %d livelli di stimolo (%d campioni).\nContinuare?"
+    IDS_ALLLEVELS_HUE_CONFIRM "Verrà misurata la scala di saturazione di questo colore a %d livelli di stimolo (%d campioni).\nContinuare?"
+    IDS_ALLLEVELS_TITLE     "Saturazione a tutti i livelli"
     IDS_SATLUMSHIFT         "Saturazione - turni"
     IDS_SATLUM              "Saturazione - luminanza"
     ID_LUX_VALUE            "00000000 Lux"
@@ -4077,7 +4092,7 @@ END
 STRINGTABLE
 BEGIN
     IDM_MEASURE_SAT_ALL     "Misura tutte le scale di saturazione dei colori\nMisura tutte le scale di saturazione dei colori"
-    IDM_MEASURE_SAT_ALL_LEVELS "Measure all colors saturation scales at every configured stimulus level\nMeasure saturations at all stimulus levels"
+    IDM_MEASURE_SAT_ALL_LEVELS "Misura le scale di saturazione di tutti i colori a ogni livello di stimolo configurato\nMisura le saturazioni a tutti i livelli"
     IDM_MEASURE_GRAYSCALE_COLORS 
                             "Misura la scala di grigi, i colori primari e secondari in una sola operazione\nMisura la scala di grigi, i colori primari e secondari"
     IDM_SIM_NEARBLACK       "Eseguire la misurazione simultanea della scala di grigi quasi nera utilizzando tutti i sensori dei documenti aperti\nMisure simultanee della scala di grigi quasi nera"
