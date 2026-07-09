@@ -512,7 +512,13 @@ CView * CMultiFrame::CreateTabbedView ( CCreateContext * pContext, int nIDName, 
 		}
 		else if (!m_bHasStarted && (m_nTabbedViewIndex[0] == IDS_DATASETVIEW_NAME))
 		{
+			// A torn ini write can persist an out-of-range view index; treat
+			// it as "no tab" instead of indexing past g_ViewType, which made
+			// startup die in CFrameWnd::CreateView with a NULL view class
+			int nViewTypes = sizeof(g_ViewType)/sizeof(g_ViewType[0]);
 			int a = GetConfig()->GetProfileInt ( "Tabbed Views", "Tab1", 0 );
+			if ( a < 0 || a >= nViewTypes )
+				a = 0;
 
 			if (a)
 			{
@@ -537,6 +543,8 @@ CView * CMultiFrame::CreateTabbedView ( CCreateContext * pContext, int nIDName, 
 				m_NbTabbedViews ++;
 			}
 			a = GetConfig()->GetProfileInt ( "Tabbed Views", "Tab2", 0 );
+			if ( a < 0 || a >= nViewTypes )
+				a = 0;
 
 			if (a)
 			{
@@ -561,6 +569,8 @@ CView * CMultiFrame::CreateTabbedView ( CCreateContext * pContext, int nIDName, 
 				m_NbTabbedViews ++;
 			}
 			a = GetConfig()->GetProfileInt ( "Tabbed Views", "Tab3", 0 );
+			if ( a < 0 || a >= nViewTypes )
+				a = 0;
 
 			if (a)
 			{
