@@ -1890,9 +1890,9 @@
 #define IDS_ALLLEVELS_CONFIRM           59552
 #define IDS_ALLLEVELS_HUE_CONFIRM       59553
 #define IDS_ALLLEVELS_TITLE             59554
-#define IDS_STIMPRESET_QUICK            59555
-#define IDS_STIMPRESET_STANDARD         59556
-#define IDS_STIMPRESET_FINE             59557
+#define IDS_STIMPRESET_QUICK            59558
+#define IDS_STIMPRESET_STANDARD         59559
+#define IDS_STIMPRESET_FINE             59560
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
 #define ID_TARGET_TOL_FIRST             33108

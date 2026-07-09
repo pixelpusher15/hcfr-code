@@ -873,7 +873,11 @@ void CMainView::LayoutTopRow()
 					// "dropped" height. The list height is fixed once at creation (rcInit);
 					// forcing a tall window on each relayout makes the combo re-collapse
 					// and flash a black box below it.
-					int stepsW = (m_displayMode == 11) ? cfg->Scale(210) : cfg->Scale(140);   // CC set names are long
+					// Steps combo width by mode: wide for the long CC-set names and
+					// grayscale preset names, narrow for the bare step-count numbers.
+					int stepsW = (m_displayMode == 11) ? cfg->Scale(210)
+							   : (m_displayMode == 0)  ? cfg->Scale(150)
+							   :                          cfg->Scale(58);
 					int stimW  = cfg->Scale(70);
 					int dropX  = rV.left + PAD + comboW + GAPX;   // right of the mode combo
 					int stimX  = dropX + stepsW + GAPX;
@@ -893,7 +897,10 @@ void CMainView::LayoutTopRow()
 					// dropdowns the current mode shows, then wraps over the pane's two rows.
 					bool bWantStim  = ( m_displayMode >= 5 && m_displayMode <= 10 );
 					bool bWantSteps = ( m_displayMode == 0 || m_displayMode == 3 || m_displayMode == 4 || m_displayMode == 11 || bWantStim );
-					int iStepsW = (m_displayMode == 11) ? cfg->Scale(210) : cfg->Scale(140), iStimW = cfg->Scale(70);
+					int iStepsW = (m_displayMode == 11) ? cfg->Scale(210)
+									: (m_displayMode == 0)  ? cfg->Scale(150)
+									:                          cfg->Scale(58);
+						int iStimW = cfg->Scale(70);
 					int iDropX  = rV.left + PAD + comboW + GAPX;
 					int infoX;
 					if (bWantStim)        infoX = iDropX + iStepsW + GAPX + iStimW + GAPX + cfg->Scale(4);
@@ -5943,6 +5950,7 @@ void CMainView::UpdateParamCombos()
 				}
 				for ( int k = 0; k < m_comboSteps.GetCount (); k++ )
 					if ( (int) m_comboSteps.GetItemData ( k ) == nCur ) { m_comboSteps.SetCurSel ( k ); break; }
+				m_comboSteps.SetDroppedWidth ( GetConfig () -> Scale ( 64 ) );	// bare step numbers; reset any wide width left by grayscale/CC modes
 				bShowSteps = TRUE;
 			 }
 			 break;
