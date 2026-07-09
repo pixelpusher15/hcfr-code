@@ -38,6 +38,11 @@ public:
 	int  GetSel() const { return m_sel; }
 	void SetSel(int sel);
 
+	// Compose the three localized filter labels ("Show all" / "Hide < g dE" /
+	// "Hide < w dE") from the live tolerance thresholds. Shared with the 3D
+	// view's context menu so both filter UIs always word them identically.
+	static void FormatFilterLabels(CString & sAll, CString & sHideGood, CString & sHideWarn);
+
 protected:
 	int m_sel;   // 0 = show all, 1 = hide < good, 2 = hide < warn
 

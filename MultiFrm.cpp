@@ -99,6 +99,10 @@ static const HCFR_VIEW_TYPE g_ViewType [] =
 #define VIEW_IDX_FREEMEASURES		10
 #define VIEW_IDX_3DCOLOR			11	// keep at the END: tab persistence stores these ordinals
 
+// Compile-time tripwire: the ordinals above must stay in step with g_ViewType[]
+// (they are persisted in the "Tabbed Views" profile, so new entries go at the END).
+C_ASSERT ( sizeof(g_ViewType)/sizeof(g_ViewType[0]) == VIEW_IDX_3DCOLOR + 1 );
+
 // Tool function: retrieve an array index from name ID
 static int GetViewTypeIndex ( int nIDName )
 {
@@ -633,7 +637,9 @@ CView * CMultiFrame::CreateOrActivateView ( int nViewIndex, BOOL bForceCreate, B
 
 		pView = CreateTabbedView ( & context, g_ViewType [ nViewIndex ].nIDName, g_ViewType [ nViewIndex ].nIDTooltipText, Rect, bDisableInitialUpdate );
 		
-		if (m_NbTabbedViews > 1)
+		// Tab 0 is not necessarily the dataset view: "open tab in new window"
+		// spawns frames whose first tab is a chart view.
+		if (m_NbTabbedViews > 1 && m_pTabbedView[0]->IsKindOf(RUNTIME_CLASS(CMainView)))
 		{
 			if (( (CMainView *) m_pTabbedView[0] )->m_infoDisplay == 12)
 			{

@@ -47,6 +47,19 @@ BOOL CDEFilterSegments::Create(const CRect & rc, CWnd * pParent, UINT nID)
 						 NULL, WS_CHILD, rc, pParent, nID );
 }
 
+void CDEFilterSegments::FormatFilterLabels(CString & sAll, CString & sHideGood, CString & sHideWarn)
+{
+	double good = 2.0, warn = 3.0;
+	GetConfig()->GetDEThresholds( good, warn );
+	CString sFmt, num;
+	sAll.LoadString ( IDS_3DVIEW_FILTER_ALL );
+	sFmt.LoadString ( IDS_3DVIEW_FILTER_HIDE );
+	num.Format ( "%.3g", good );
+	sHideGood.Format ( sFmt, (LPCTSTR)num );
+	num.Format ( "%.3g", warn );
+	sHideWarn.Format ( sFmt, (LPCTSTR)num );
+}
+
 void CDEFilterSegments::SetSel(int sel)
 {
 	if ( sel < 0 ) sel = 0;
@@ -100,15 +113,8 @@ void CDEFilterSegments::OnPaint()
 
 	// segment labels: "Show all" | "Hide < good dE" | "Hide < warn dE", with the
 	// thresholds read live from the tolerance preset in Advanced settings
-	double good = 2.0, warn = 3.0;
-	GetConfig()->GetDEThresholds( good, warn );
-	CString sAll, sFmt, seg1, seg2, num;
-	sAll.LoadString ( IDS_3DVIEW_FILTER_ALL );
-	sFmt.LoadString ( IDS_3DVIEW_FILTER_HIDE );
-	num.Format ( "%.3g", good );
-	seg1.Format ( sFmt, (LPCTSTR)num );
-	num.Format ( "%.3g", warn );
-	seg2.Format ( sFmt, (LPCTSTR)num );
+	CString sAll, seg1, seg2;
+	FormatFilterLabels( sAll, seg1, seg2 );
 	const CString * labels[3] = { &sAll, &seg1, &seg2 };
 
 	Gdiplus::Font font( L"Segoe UI", 8.5f );

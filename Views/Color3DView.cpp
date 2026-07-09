@@ -63,6 +63,29 @@ static const double kFloorDrop = 0.03;
 // curves, more triangles.
 static const int kGamutN = 12;
 
+// Above this many points the orbs drop to the smaller radius.
+static const size_t kOrbDenseThreshold = 4000;
+
+// Chromaticity distance under which a free measurement is auto-matched to the
+// white/primary/secondary reference (mirrors the measures grid convention).
+static const double kChromaMatch = 0.05;
+
+// Fill a buffer with a repeated value via doubling memcpy -- far faster than an
+// element loop for the multi-megabyte per-frame clears.
+template <typename T>
+static void FillDoubling(T * p, size_t n, T value)
+{
+	if ( n == 0 )
+		return;
+	size_t seed = n < 256 ? n : 256;
+	for ( size_t s = 0; s < seed; s++ ) p[s] = value;
+	for ( size_t done = seed; done < n; done += done )
+	{
+		size_t chunk = ( done < n - done ) ? done : n - done;
+		memcpy( p + done, p, chunk * sizeof( T ) );
+	}
+}
+
 // Camera distance for the perspective projection (model units; scene radius
 // ~2.3). Larger = flatter/more orthographic; 5.0 chosen by eye.
 static const double kCamDist = 5.0;
@@ -625,18 +648,8 @@ void C3DColorView::EnsureTongueTexture(CColorReference & ref)
 	}
 	HBITMAP hBigOld = (HBITMAP)SelectObject( hBigDC, hBig );
 
-	DWORD bg = DibColor( 18, 18, 22 );
 	DWORD * bp = (DWORD *)bigBits;
-	{
-		size_t total = (size_t)BW * BH;
-		size_t seed = total < 256 ? total : 256;
-		for ( size_t s = 0; s < seed; s++ ) bp[s] = bg;
-		for ( size_t done = seed; done < total; done += done )
-		{
-			size_t chunk = ( done < total - done ) ? done : total - done;
-			memcpy( bp + done, bp, chunk * sizeof( DWORD ) );
-		}
-	}
+	FillDoubling( bp, (size_t)BW * BH, DibColor( 18, 18, 22 ) );   // dark floor background
 
 	CDC * p = CDC::FromHandle( hBigDC );
 	p->SetBkMode( TRANSPARENT );
@@ -1086,22 +1099,11 @@ void C3DColorView::Render(const CRect& rc)
 		m_sceneDirty = false;
 	}
 
-	// Clear colour + depth via doubling memcpy: at fullscreen this touches ~2M
-	// pixels per buffer per frame, and a plain element loop is a real cost
-	// (especially in Debug builds).
-	const DWORD bg = DibColor( 24, 24, 28 );
+	// Clear colour + depth: at fullscreen this touches ~2M pixels per buffer per
+	// frame, and a plain element loop is a real cost (especially in Debug builds).
 	size_t total = (size_t)w * h;
-	{
-		size_t seed = total < 256 ? total : 256;
-		float * zb = &m_zbuf[0];
-		for ( size_t s = 0; s < seed; s++ ) { m_bits[s] = bg; zb[s] = -1e30f; }
-		for ( size_t done = seed; done < total; done += done )
-		{
-			size_t chunk = ( done < total - done ) ? done : total - done;
-			memcpy( m_bits + done, m_bits, chunk * sizeof( DWORD ) );
-			memcpy( zb + done,     zb,     chunk * sizeof( float ) );
-		}
-	}
+	FillDoubling( m_bits, total, DibColor( 24, 24, 28 ) );
+	FillDoubling( &m_zbuf[0], total, -1e30f );
 
 	// per-frame camera basis
 	m_cx    = w * 0.5 + m_panX;
@@ -1147,7 +1149,7 @@ void C3DColorView::Render(const CRect& rc)
 	double deThr = ( m_deFilter == 0 ) ? -1.0 : ( m_deFilter == 1 ? deGood : deWarn );
 
 	// 2) measured points as shaded orbs (opaque, z-tested); smaller for dense clouds
-	BuildOrbKernel( ( m_points.size() > 4000 ) ? 2 : 4 );
+	BuildOrbKernel( ( m_points.size() > kOrbDenseThreshold ) ? 2 : 4 );
 	for ( size_t k = 0; k < m_points.size(); k++ )
 	{
 		const ScenePoint & P = m_points[k];
@@ -1456,15 +1458,15 @@ void C3DColorView::AppendNewFreeMeasures()
 		if ( !c.isValid() )
 			continue;
 		CColor refC = noDataColor;
-		if ( c.GetDeltaxy( wRef, ref ) < 0.05 )
+		if ( c.GetDeltaxy( wRef, ref ) < kChromaMatch )
 			refC = wRef;
 		else
 		{
 			for ( int k = 0; k < 3 && !refC.isValid(); k++ )
 			{
-				if ( c.GetDeltaxy( pMeasure->GetRefPrimary( k ), ref ) < 0.05 )
+				if ( c.GetDeltaxy( pMeasure->GetRefPrimary( k ), ref ) < kChromaMatch )
 					refC = pMeasure->GetRefPrimary( k );
-				else if ( c.GetDeltaxy( pMeasure->GetRefSecondary( k ), ref ) < 0.05 )
+				else if ( c.GetDeltaxy( pMeasure->GetRefSecondary( k ), ref ) < kChromaMatch )
 					refC = pMeasure->GetRefSecondary( k );
 			}
 		}
@@ -1643,6 +1645,25 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 		return;
 	CMeasure * pM = pDoc->GetMeasure();
 
+	// The scene can briefly be stale after measurements are deleted (the
+	// rebuild is deferred to the next paint, and a queued click can arrive
+	// first), so re-validate the stored index against the CURRENT arrays --
+	// the Get* accessors index CArrays unchecked.
+	int nAvail = 0;
+	switch ( S.srcType )
+	{
+		case SRC_GRAY:      nAvail = pM->GetGrayScaleSize();      break;
+		case SRC_NEARBLACK: nAvail = pM->GetNearBlackScaleSize(); break;
+		case SRC_NEARWHITE: nAvail = pM->GetNearWhiteScaleSize(); break;
+		case SRC_PRIMARY:
+		case SRC_SECONDARY: nAvail = 3;                           break;
+		case SRC_SAT:       nAvail = pM->GetSaturationSize();     break;
+		case SRC_CC24:      nAvail = MAX_USER_CC_PATCH_SIZE;      break;
+		case SRC_FREE:      nAvail = pM->GetMeasurementsSize();   break;
+	}
+	if ( S.srcA < 0 || S.srcA >= nAvail )
+		return;
+
 	CColor sel = noDataColor;
 	switch ( S.srcType )
 	{
@@ -1711,18 +1732,9 @@ void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 {
 	CString sColorSpace, sPointColor, sPcDE, sPcTarget, sPcPlain,
 			sShowGamut, sShadeGamut, sShowFloor, sShowTails, sResetView,
-			sFilter, sFilterAll, sFilterFmt, sFilter1, sFilter2, sNum;
-	sFilter.LoadString    ( IDS_3DVIEW_FILTER );
-	sFilterAll.LoadString ( IDS_3DVIEW_FILTER_ALL );
-	sFilterFmt.LoadString ( IDS_3DVIEW_FILTER_HIDE );
-	{
-		double good, warn;
-		GetConfig()->GetDEThresholds( good, warn );
-		sNum.Format ( "%.3g", good );
-		sFilter1.Format ( sFilterFmt, (LPCTSTR)sNum );
-		sNum.Format ( "%.3g", warn );
-		sFilter2.Format ( sFilterFmt, (LPCTSTR)sNum );
-	}
+			sFilter, sFilterAll, sFilter1, sFilter2;
+	sFilter.LoadString ( IDS_3DVIEW_FILTER );
+	CDEFilterSegments::FormatFilterLabels( sFilterAll, sFilter1, sFilter2 );
 	sColorSpace.LoadString ( IDS_3DVIEW_COLORSPACE );
 	sPointColor.LoadString ( IDS_3DVIEW_POINTCOLOR );
 	sPcDE.LoadString       ( IDS_3DVIEW_PC_DE );
