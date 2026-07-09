@@ -153,6 +153,10 @@ static const SCtrlLayout g_ParamComboLayout =
 static const SCtrlLayout g_ActionBtnLayout =
 { IDC_MEASURESATALLLEVELS_BUTTON, LAYOUT_RIGHT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
 
+// Sentinel item-data for the stimulus dropdown's command rows (level rows store
+// their 1..100 percentage). Selecting a preset rewrites the SatStimLevels list.
+enum { STIM_SEP = -1, STIM_QUICK = -2, STIM_STANDARD = -3, STIM_FINE = -4 };
+
 
 static COLORREF ButtonFaceColor();
 static COLORREF ButtonHoverColor();
@@ -872,7 +876,11 @@ void CMainView::LayoutTopRow()
 					// "dropped" height. The list height is fixed once at creation (rcInit);
 					// forcing a tall window on each relayout makes the combo re-collapse
 					// and flash a black box below it.
-					int stepsW = (m_displayMode == 11) ? cfg->Scale(210) : cfg->Scale(140);   // CC set names are long
+					// Steps combo width by mode: wide for the long CC-set names and
+					// grayscale preset names, narrow for the bare step-count numbers.
+					int stepsW = (m_displayMode == 11) ? cfg->Scale(210)
+							   : (m_displayMode == 0)  ? cfg->Scale(150)
+							   :                          cfg->Scale(58);
 					int stimW  = cfg->Scale(70);
 					int dropX  = rV.left + PAD + comboW + GAPX;   // right of the mode combo
 					int stimX  = dropX + stepsW + GAPX;
@@ -892,7 +900,10 @@ void CMainView::LayoutTopRow()
 					// dropdowns the current mode shows, then wraps over the pane's two rows.
 					bool bWantStim  = ( m_displayMode >= 5 && m_displayMode <= 10 );
 					bool bWantSteps = ( m_displayMode == 0 || m_displayMode == 3 || m_displayMode == 4 || m_displayMode == 11 || bWantStim );
-					int iStepsW = (m_displayMode == 11) ? cfg->Scale(210) : cfg->Scale(140), iStimW = cfg->Scale(70);
+					int iStepsW = (m_displayMode == 11) ? cfg->Scale(210)
+									: (m_displayMode == 0)  ? cfg->Scale(150)
+									:                          cfg->Scale(58);
+						int iStimW = cfg->Scale(70);
 					int iDropX  = rV.left + PAD + comboW + GAPX;
 					int infoX;
 					if (bWantStim)        infoX = iDropX + iStepsW + GAPX + iStimW + GAPX + cfg->Scale(4);
@@ -5954,6 +5965,7 @@ void CMainView::UpdateParamCombos()
 				}
 				for ( int k = 0; k < m_comboSteps.GetCount (); k++ )
 					if ( (int) m_comboSteps.GetItemData ( k ) == nCur ) { m_comboSteps.SetCurSel ( k ); break; }
+				m_comboSteps.SetDroppedWidth ( GetConfig () -> Scale ( 64 ) );	// bare step numbers; reset any wide width left by grayscale/CC modes
 				bShowSteps = TRUE;
 			 }
 			 break;
@@ -6000,11 +6012,24 @@ void CMainView::UpdateParamCombos()
 		std::vector<int> pcts;
 		GetSatStimLevelPercents ( pcts );	// configured list, plus measured + active below
 
-		for ( int s = 0; s < pMeasure -> GetSatLevelCount (); s++ )
-			pcts.push_back ( (int) floor ( pMeasure -> GetSatLevelAt ( s ) * 100.0 + 0.5 ) );
+		// Add stored levels that actually hold measurements. Selecting a level
+		// creates an empty store entry, so skipping the empty ones keeps the list
+		// to the configured intervals + genuinely-measured off-interval levels.
+		int nStored = pMeasure -> GetSatLevelCount ();	// hoisted: each call re-syncs the store
+		for ( int s = 0; s < nStored; s++ )
+		{
+			const CSatLevelSet & set = pMeasure -> GetSatLevelSet ( s );
+			bool bHasData = false;
+			for ( int c = 0; c < 6 && ! bHasData; c++ )
+				for ( size_t i = 0; i < set.sat[c].size () && ! bHasData; i++ )
+					if ( set.sat[c][i].isValid () )
+						bHasData = true;
+			if ( bHasData )
+				pcts.push_back ( (int) floor ( pMeasure -> GetSatLevelAt ( s ) * 100.0 + 0.5 ) );
+		}
 
 		int nActivePct = (int) floor ( pMeasure -> GetActiveSatLevel () * 100.0 + 0.5 );
-		pcts.push_back ( nActivePct );
+		pcts.push_back ( nActivePct );	// the level being viewed always appears
 
 		std::sort ( pcts.begin (), pcts.end () );
 		pcts.erase ( std::unique ( pcts.begin (), pcts.end () ), pcts.end () );
@@ -6018,6 +6043,14 @@ void CMainView::UpdateParamCombos()
 			if ( pcts[k] == nActivePct )
 				m_comboStimLevel.SetCurSel ( idx );
 		}
+		// Level presets: a separator, then Quick/Standard/Fine. Selecting one
+		// rewrites the configured SatStimLevels list (see OnSelchangeComboStimLevel).
+		m_comboStimLevel.SetItemData ( m_comboStimLevel.AddString ( _T("--------------------") ), (DWORD_PTR) STIM_SEP );
+		CString sPreset;
+		sPreset.LoadString ( IDS_STIMPRESET_QUICK );    m_comboStimLevel.SetItemData ( m_comboStimLevel.AddString ( sPreset ), (DWORD_PTR) STIM_QUICK );
+		sPreset.LoadString ( IDS_STIMPRESET_STANDARD ); m_comboStimLevel.SetItemData ( m_comboStimLevel.AddString ( sPreset ), (DWORD_PTR) STIM_STANDARD );
+		sPreset.LoadString ( IDS_STIMPRESET_FINE );     m_comboStimLevel.SetItemData ( m_comboStimLevel.AddString ( sPreset ), (DWORD_PTR) STIM_FINE );
+		m_comboStimLevel.SetDroppedWidth ( GetConfig () -> Scale ( 150 ) );	// preset labels are longer than "100%"
 	}
 	m_comboStimLevel.ShowWindow ( bShowStim ? SW_SHOW : SW_HIDE );
 
@@ -6148,16 +6181,62 @@ void CMainView::OnSelchangeComboStimLevel()
 	int sel = m_comboStimLevel.GetCurSel ();
 	if ( sel < 0 )
 		return;
-	int nPct = (int) m_comboStimLevel.GetItemData ( sel );
+	int data = (int) m_comboStimLevel.GetItemData ( sel );
 
-	// Non-destructive: stores the bound sweeps, then binds the chosen level's
-	// set (creating an empty one if it has never been measured). Every view
-	// follows via the update broadcast.
-	if ( GetDocument () -> GetMeasure () -> BindSatLevel ( (double) nPct / 100.0 ) )
+	if ( data >= 1 )	// a level percentage: view/measure at that stimulus level
 	{
-		GetDocument () -> SetModifiedFlag ();
-		GetDocument () -> UpdateAllViews ( NULL );
+		// Non-destructive: stores the bound sweeps, then binds the chosen level's
+		// set (creating an empty one if it has never been measured). Every view
+		// follows via the update broadcast.
+		if ( GetDocument () -> GetMeasure () -> BindSatLevel ( (double) data / 100.0 ) )
+		{
+			GetDocument () -> SetModifiedFlag ();
+			GetDocument () -> UpdateAllViews ( NULL );
+		}
+		return;
 	}
+
+	// Preset command: rewrite the configured capture list, then repopulate. This
+	// changes which levels are offered / measured by "All stim", not the active
+	// (viewed) level. The separator just reverts the selection.
+	LPCTSTR pList = NULL;
+	switch ( data )
+	{
+		case STIM_QUICK:    pList = _T("25 50 75 100"); break;
+		case STIM_STANDARD: pList = _T("10 20 30 40 50 60 70 80 90 100"); break;
+		case STIM_FINE:     pList = _T("5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95 100"); break;
+	}
+	if ( ! pList )		// the separator: just revert the selection to the active level
+	{
+		UpdateParamCombos ();
+		return;
+	}
+
+	GetConfig () -> WriteProfileString ( "Scale Sizes", "SatStimLevels", pList );
+
+	// If the active level isn't one of the new interval's levels, snap it to the
+	// nearest one so it doesn't linger as an off-interval straggler in the list.
+	CMeasure *	pMeasure = GetDocument () -> GetMeasure ();
+	int			nActive = (int) floor ( pMeasure -> GetActiveSatLevel () * 100.0 + 0.5 );
+	std::vector<int> newPcts;
+	GetSatStimLevelPercents ( newPcts );	// the list just written
+	bool bSnapped = false;
+	if ( ! newPcts.empty () && std::find ( newPcts.begin (), newPcts.end (), nActive ) == newPcts.end () )
+	{
+		int best = newPcts[0], bestD = ( best > nActive ) ? best - nActive : nActive - best;
+		for ( size_t i = 1; i < newPcts.size (); i++ )
+		{
+			int d = ( newPcts[i] > nActive ) ? newPcts[i] - nActive : nActive - newPcts[i];
+			if ( d < bestD ) { best = newPcts[i]; bestD = d; }
+		}
+		if ( pMeasure -> BindSatLevel ( (double) best / 100.0 ) )
+			{ GetDocument () -> SetModifiedFlag (); bSnapped = true; }
+	}
+
+	if ( bSnapped )
+		GetDocument () -> UpdateAllViews ( NULL, UPD_ALLSATURATIONS );	// new list + snapped level, all views
+	else
+		UpdateParamCombos ();	// just reflect the new list
 }
 
 void CMainView::SetMeasureButtonForMode()
