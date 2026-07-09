@@ -1104,21 +1104,26 @@ double CMeasure::GetSatLevelAt(int idx)
 
 const CSatLevelSet & CMeasure::GetSatLevelSet(int idx)
 {
-	StoreActiveSatLevel ();
+	// Callers iterate by index after GetSatLevelCount() (which syncs the active
+	// entry), so no per-call StoreActiveSatLevel is needed here -- and re-storing
+	// mid-iteration could reallocate the vector and invalidate a returned reference.
 	return m_satLevelStore[idx];
 }
 
-BOOL CMeasure::SatLevelHasData(double level)
+void GetSatStimLevelPercents ( std::vector<int> & pcts )
 {
-	StoreActiveSatLevel ();
-	int idx = FindSatLevelIndex ( m_satLevelStore, level );
-	if ( idx < 0 )
-		return FALSE;
-	for ( int c = 0; c < 6; c++ )
-		for ( size_t i = 0; i < m_satLevelStore[idx].sat[c].size (); i++ )
-			if ( m_satLevelStore[idx].sat[c][i].isValid () )
-				return TRUE;
-	return FALSE;
+	pcts.clear ();
+	CString strLevels = GetConfig () -> GetProfileString ( "Scale Sizes", "SatStimLevels", "25 50 75 100" );
+	LPCSTR p = (LPCSTR) strLevels;
+	while ( *p )
+	{
+		char * pEnd;
+		long v = strtol ( p, &pEnd, 10 );
+		if ( pEnd == p ) { p ++; continue; }
+		if ( v >= 1 && v <= 100 )
+			pcts.push_back ( (int) v );
+		p = pEnd;
+	}
 }
 
 

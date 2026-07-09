@@ -4805,23 +4805,15 @@ void CDataSetDoc::OnUpdateMeasureSatAll(CCmdUI* pCmdUI)
 	pCmdUI -> Enable ( m_pGenerator -> CanDisplayScale ( CGenerator::MT_SAT_ALL, GetMeasure () -> GetSaturationSize(), TRUE ) );
 }
 
-// Configured stimulus-capture levels (fractions 0..1), shared by the grid's
-// stimulus dropdown and the "measure all levels" commands.
+// Configured stimulus-capture levels as fractions 0..1 (empty list -> 100% only),
+// derived from the shared percent parser GetSatStimLevelPercents.
 static void ParseSatStimLevels(std::vector<double> & levels)
 {
+	std::vector<int> pcts;
+	GetSatStimLevelPercents ( pcts );
 	levels.clear ();
-	CString strLevels = GetConfig () -> GetProfileString ( "Scale Sizes", "SatStimLevels", "25 50 75 100" );
-	LPCSTR p = (LPCSTR) strLevels;
-	while ( *p )
-	{
-		char * pEnd;
-		long v = strtol ( p, &pEnd, 10 );
-		if ( pEnd == p )
-			{ p ++; continue; }
-		if ( v >= 1 && v <= 100 )
-			levels.push_back ( (double) v / 100.0 );
-		p = pEnd;
-	}
+	for ( size_t k = 0; k < pcts.size (); k++ )
+		levels.push_back ( (double) pcts[k] / 100.0 );
 	if ( levels.empty () )
 		levels.push_back ( 1.0 );
 }

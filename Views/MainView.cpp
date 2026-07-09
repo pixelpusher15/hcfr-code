@@ -5962,7 +5962,7 @@ void CMainView::UpdateParamCombos()
 					"Random 250", "Random 500", "User defined"
 				};
 				int nCCMode = (int) GetConfig () -> m_CCMode;
-				for ( int k = 0; k < sizeof(kCCSetNames)/sizeof(kCCSetNames[0]); k++ )
+				for ( int k = 0; k < (int)( sizeof(kCCSetNames)/sizeof(kCCSetNames[0]) ); k++ )
 				{
 					int idx = m_comboSteps.AddString ( kCCSetNames[k] );
 					m_comboSteps.SetItemData ( idx, k );
@@ -5983,19 +5983,7 @@ void CMainView::UpdateParamCombos()
 	if ( bShowStim )
 	{
 		std::vector<int> pcts;
-
-		CString strLevels = GetConfig () -> GetProfileString ( "Scale Sizes", "SatStimLevels", "25 50 75 100" );
-		LPCSTR p = (LPCSTR) strLevels;
-		while ( *p )
-		{
-			char * pEnd;
-			long v = strtol ( p, &pEnd, 10 );
-			if ( pEnd == p )
-				{ p ++; continue; }
-			if ( v >= 1 && v <= 100 )
-				pcts.push_back ( (int) v );
-			p = pEnd;
-		}
+		GetSatStimLevelPercents ( pcts );	// configured list, plus measured + active below
 
 		for ( int s = 0; s < pMeasure -> GetSatLevelCount (); s++ )
 			pcts.push_back ( (int) floor ( pMeasure -> GetSatLevelAt ( s ) * 100.0 + 0.5 ) );

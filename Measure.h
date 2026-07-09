@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -62,6 +62,11 @@ struct GrayScalePreset
 
 const GrayScalePreset *	GetGrayScalePresets ();		// fixed table (excludes the "Custom..." entry)
 int						GetGrayScalePresetCount ();
+
+// Configured stimulus-capture levels as integer percentages (1..100), parsed from
+// the "SatStimLevels" registry list. Shared by the grid dropdown and the
+// measure-all-levels commands.
+void					GetSatStimLevelPercents ( std::vector<int> & pcts );
 
 #define GRAYSCALE_DEFAULT_PRESET	2	// 11-point (10%) is the default selection
 
@@ -207,7 +212,6 @@ public:
 	int GetSatLevelCount();	// syncs the active entry first
 	double GetSatLevelAt(int idx);
 	const CSatLevelSet & GetSatLevelSet(int idx);
-	BOOL SatLevelHasData(double level);
 
 	BOOL MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc);
 	CColor GetPrimary(int i) const;
