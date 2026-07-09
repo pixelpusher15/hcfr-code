@@ -1868,6 +1868,9 @@
 #define IDS_3DVIEW_SHOWFLOOR            59537
 #define IDS_3DVIEW_SHOWTAILS            59538
 #define IDS_3DVIEW_RESETVIEW            59539
+#define IDS_3DVIEW_FILTER_ALL           59540
+#define IDS_3DVIEW_FILTER_HIDE          59541
+#define IDC_3DVIEW_DE_FILTER            1551
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
 #define ID_TARGET_TOL_FIRST             33108
@@ -1879,7 +1882,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33113
-#define _APS_NEXT_CONTROL_VALUE         1551
+#define _APS_NEXT_CONTROL_VALUE         1552
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

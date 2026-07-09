@@ -60,6 +60,11 @@ public:
 
 	virtual void OnInitialUpdate();
 
+	// dE display filter driven by the info-pane segments: 0 = show all,
+	// 1 = hide points below the "good" threshold, 2 = below "warn"
+	// (thresholds read live from the configured tolerance preset).
+	void SetDEFilter(int filter);
+
 protected:
 	virtual void OnDraw(CDC* pDC);
 	virtual void OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint);
@@ -77,8 +82,8 @@ protected:
 		float tx, ty, tz;     // target position (valid when hasTarget)
 		float dE;             // delta E vs target (HCFR's configured formula)
 		bool  hasTarget;
-		DWORD trueColor;      // target/patch-colour swatch
-		DWORD heatColor;      // green->red by dE
+		DWORD trueColor;      // target/patch-colour swatch (heat colour is
+							  // derived at render time from live thresholds)
 		// inspection data (click-to-inspect readout)
 		float mcx, mcy, mYr;  // measured chromaticity x,y + Y ratio (white=1)
 		float tcx, tcy, tYr;  // target chromaticity x,y + Y ratio
@@ -126,6 +131,7 @@ protected:
 	bool   m_showGamut, m_showFloor, m_shadeGamut;
 	enum PointColorMode { PTCOLOR_DE = 0, PTCOLOR_TARGET = 1, PTCOLOR_PLAIN = 2 };
 	int    m_pointColor;          // one of PointColorMode
+	int    m_deFilter;            // see SetDEFilter
 	bool   m_showTails;           // draw target cross + tail to each measured point
 	bool   m_bDragging;
 	CPoint m_lastMouse;

@@ -3956,6 +3956,8 @@ BEGIN
     IDS_3DVIEW_SHOWFLOOR    "Mostrar suelo CIE (xyY)"
     IDS_3DVIEW_SHOWTAILS    "Mostrar líneas al objetivo"
     IDS_3DVIEW_RESETVIEW    "Restablecer vista"
+    IDS_3DVIEW_FILTER_ALL   "Mostrar todo"
+    IDS_3DVIEW_FILTER_HIDE  "Ocultar < %s dE"
     IDS_SATLUMSHIFT         "Saturation - shifts"
     IDS_SATLUM              "Saturation - luminance"
     ID_LUX_VALUE            "00000000 Lux"

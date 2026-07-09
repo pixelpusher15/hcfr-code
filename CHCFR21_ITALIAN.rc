@@ -4034,6 +4034,8 @@ BEGIN
     IDS_3DVIEW_SHOWFLOOR    "Mostra base CIE (xyY)"
     IDS_3DVIEW_SHOWTAILS    "Mostra linee verso il target"
     IDS_3DVIEW_RESETVIEW    "Reimposta vista"
+    IDS_3DVIEW_FILTER_ALL   "Mostra tutti"
+    IDS_3DVIEW_FILTER_HIDE  "Nascondi < %s dE"
     IDS_SATLUMSHIFT         "Saturazione - turni"
     IDS_SATLUM              "Saturazione - luminanza"
     ID_LUX_VALUE            "00000000 Lux"

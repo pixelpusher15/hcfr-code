@@ -105,14 +105,24 @@ static DWORD RgbSwatch(const ColorRGB & rgb)
 	return DibColor( (int)( r * 255.0 + 0.5 ), (int)( g * 255.0 + 0.5 ), (int)( b * 255.0 + 0.5 ) );
 }
 
-// dE heatmap: green (0) -> yellow (~3) -> red (>=6).
-static DWORD HeatColor(double dE)
+// dE heatmap anchored to the shared tolerance thresholds so the bands agree
+// with the data grid's colouring (GetDEColor): greens below "good", yellows to
+// orange between "good" and "warn", reds at or above "warn". Gradients within
+// each band keep the magnitude readable.
+static DWORD HeatColor(double dE, double good, double warn)
 {
-	double t = clampd( dE / 3.0, 0.0, 2.0 );
-	int r, g;
-	if ( t <= 1.0 ) { r = (int)( 255.0 * t );           g = 220; }
-	else            { r = 255;                          g = (int)( 220.0 * ( 2.0 - t ) ); }
-	return DibColor( r, g, 40 );
+	if ( dE < good )
+	{
+		double t = ( good > 0.0 ) ? clampd( dE / good, 0.0, 1.0 ) : 0.0;
+		return DibColor( (int)( 140.0 * t ), (int)( 180.0 + 40.0 * t ), 50 );          // green -> yellow-green
+	}
+	if ( dE < warn )
+	{
+		double t = ( warn > good ) ? clampd( ( dE - good ) / ( warn - good ), 0.0, 1.0 ) : 0.0;
+		return DibColor( 255, (int)( 220.0 - 70.0 * t ), 35 );                          // yellow -> orange
+	}
+	double t = clampd( ( dE - warn ) / ( warn > 0.0 ? warn : 1.0 ), 0.0, 1.0 );
+	return DibColor( 255 - (int)( 40.0 * t ), (int)( 60.0 - 40.0 * t ), 45 );           // red, deepening
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -142,7 +152,7 @@ C3DColorView::C3DColorView()
 	, m_yaw(0.70), m_pitch(0.45), m_zoom(1.0)
 	, m_panX(0.0), m_panY(0.0)
 	, m_showGamut(true), m_showFloor(true), m_shadeGamut(true)
-	, m_pointColor(PTCOLOR_DE), m_showTails(true)
+	, m_pointColor(PTCOLOR_DE), m_deFilter(0), m_showTails(true)
 	, m_bDragging(false)
 	, m_selected(-1)
 	, m_memDC(NULL), m_memBmp(NULL), m_oldBmp(NULL), m_bits(NULL), m_bw(0), m_bh(0)
@@ -217,7 +227,6 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 	ScenePoint p;
 	p.mx = (float)mx; p.my = (float)my; p.mz = (float)mz;
 	p.trueColor = RgbSwatch( c.GetRGBValue( ref ) );
-	p.heatColor = p.trueColor;
 	p.tx = p.ty = p.tz = 0.0f;
 	p.dE = 0.0f;
 	p.hasTarget = false;
@@ -255,7 +264,6 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 		ToModel( ta, whiteY, ref, tx, ty, tz );
 		p.tx = (float)tx; p.ty = (float)ty; p.tz = (float)tz;
 		p.hasTarget = true;
-		p.heatColor = HeatColor( p.dE );
 		ColorxyY txyY = markerTarget.GetxyYValue();
 		p.tcx = (float)txyY[0]; p.tcy = (float)txyY[1]; p.tYr = (float)txyY[2];
 
@@ -574,6 +582,17 @@ void C3DColorView::BuildGamut(CColorReference & ref)
 	}
 
 	m_gamutValid = true;
+}
+
+void C3DColorView::SetDEFilter(int filter)
+{
+	if ( filter < 0 ) filter = 0;
+	if ( filter > 2 ) filter = 2;
+	if ( filter == m_deFilter )
+		return;
+	m_deFilter = filter;
+	if ( ::IsWindow( m_hWnd ) )
+		Invalidate( FALSE );
 }
 
 void C3DColorView::SetSpace(int space)
@@ -953,16 +972,24 @@ void C3DColorView::Render(const CRect& rc)
 			}
 	}
 
+	// Shared tolerance thresholds drive both the heat colours and the display
+	// filter (-1 = filter off); values track the preset in Advanced settings.
+	double deGood, deWarn;
+	GetConfig()->GetDEThresholds( deGood, deWarn );
+	double deThr = ( m_deFilter == 0 ) ? -1.0 : ( m_deFilter == 1 ? deGood : deWarn );
+
 	// 2) measured points (opaque, z-tested)
 	int radius = ( m_points.size() > 4000 ) ? 1 : 2;
 	for ( size_t k = 0; k < m_points.size(); k++ )
 	{
 		const ScenePoint & P = m_points[k];
+		if ( deThr >= 0.0 && P.hasTarget && P.dE < deThr )
+			continue;
 		double sx, sy, dep;
 		ProjectModel( P.mx, P.my, P.mz, sx, sy, dep );
 		DWORD clr;
 		if ( m_pointColor == PTCOLOR_PLAIN )              clr = DibColor( 235, 235, 238 );
-		else if ( m_pointColor == PTCOLOR_DE && P.hasTarget ) clr = P.heatColor;
+		else if ( m_pointColor == PTCOLOR_DE && P.hasTarget ) clr = HeatColor( P.dE, deGood, deWarn );
 		else                                               clr = P.trueColor;
 		SplatPoint( (int)( sx + 0.5 ), (int)( sy + 0.5 ), (float)dep, clr, radius );
 	}
@@ -977,6 +1004,8 @@ void C3DColorView::Render(const CRect& rc)
 		{
 			const ScenePoint & P = m_points[k];
 			if ( !P.hasTarget )
+				continue;
+			if ( deThr >= 0.0 && P.dE < deThr )
 				continue;
 			double sx, sy, sd, tx, ty, td;
 			ProjectModel( P.mx, P.my, P.mz, sx, sy, sd );
@@ -1115,13 +1144,15 @@ void C3DColorView::Render(const CRect& rc)
 								   : ( m_space == SPACE_RGB ) ? L"RGB cube"
 								   :                            L"CIE xyY";
 		double sumDE = 0.0, maxDE = 0.0;
-		int nDE = 0;
+		int nDE = 0, nHidden = 0;
 		for ( size_t k = 0; k < m_points.size(); k++ )
 			if ( m_points[k].hasTarget )
 			{
 				sumDE += m_points[k].dE;
 				if ( m_points[k].dE > maxDE ) maxDE = m_points[k].dE;
 				nDE++;
+				if ( deThr >= 0.0 && m_points[k].dE < deThr )
+					nHidden++;
 			}
 		wchar_t buf[160];
 		if ( nDE > 0 )
@@ -1131,6 +1162,11 @@ void C3DColorView::Render(const CRect& rc)
 					  spaceName, (int)m_points.size(), sumDE / nDE, maxDE );
 		else
 			swprintf( buf, 160, L"%s   \x2022   %d points", spaceName, (int)m_points.size() );
+		if ( nHidden > 0 )
+		{
+			size_t len = wcslen( buf );
+			swprintf( buf + len, 160 - len, L"   \x2022   %d hidden", nHidden );
+		}
 		g.DrawString( buf, -1, &fontSmall, Gdiplus::PointF( 8.0f, 6.0f ), &dim );
 		g.DrawString( L"drag: rotate    shift+drag: pan    wheel: zoom    click: inspect    right-click: options",
 					  -1, &fontSmall, Gdiplus::PointF( 8.0f, (float)( h - 20 ) ), &dim );
@@ -1304,8 +1340,17 @@ void C3DColorView::OnLButtonUp(UINT nFlags, CPoint point)
 			int    best     = -1;
 			double bestDist = 8.0 * 8.0;
 			double bestDep  = -1e30;
+			double deThr    = -1.0;   // hidden points are not clickable
+			if ( m_deFilter > 0 )
+			{
+				double good, warn;
+				GetConfig()->GetDEThresholds( good, warn );
+				deThr = ( m_deFilter == 1 ) ? good : warn;
+			}
 			for ( size_t k = 0; k < m_points.size(); k++ )
 			{
+				if ( deThr >= 0.0 && m_points[k].hasTarget && m_points[k].dE < deThr )
+					continue;
 				double sx, sy, dep;
 				ProjectModel( m_points[k].mx, m_points[k].my, m_points[k].mz, sx, sy, dep );
 				double dx = sx - point.x, dy = sy - point.y;
