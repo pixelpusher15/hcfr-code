@@ -2307,6 +2307,7 @@ BEGIN
         MENUITEM "S&aturation - shifts graph",  IDM_VIEW_SATLUMSHIFT
         MENUITEM SEPARATOR
         MENUITEM "Combined graph for &free measures", IDM_VIEW_MEASURESCOMBO
+        MENUITEM "Vista 3D del color",          IDM_VIEW_3DCOLOR
     END
     POPUP "&Advanced"
     BEGIN
@@ -2626,6 +2627,7 @@ BEGIN
             MENUITEM "S&aturation - shifts graph",  IDM_VIEW_SATLUMSHIFT
             MENUITEM SEPARATOR
             MENUITEM "Combined &graph for free measures", IDM_VIEW_MEASURESCOMBO
+            MENUITEM "Vista 3D del color",          IDM_VIEW_3DCOLOR
         END
         MENUITEM "Show all views",              IDM_SHOWALLVIEWS
         MENUITEM "Close all views",             IDM_CLOSEALLVIEWS
@@ -3285,6 +3287,8 @@ STRINGTABLE
 BEGIN
     IDM_CIE_UV              "Display CIE u'v' diagram\nCIE u'v' diagram"
     IDM_VIEW_MEASURESCOMBO  "Display combined graph for free measures\nCombined graph for free measures"
+    IDM_VIEW_3DCOLOR        "Mostrar la vista 3D del color\nVista 3D"
+    IDS_3DVIEW_FILTER       "Filtro dE"
     IDM_LANGUAGE            "Select application language"
     IDM_CIE_SHOWDELTAE      "Display curves representing delta E = 3 and 10 around white reference\nDisplay Delta E = 3 and 10 curves"
 END
@@ -3959,6 +3963,8 @@ BEGIN
     IDS_3DVIEW_SHOWFLOOR    "Mostrar suelo CIE (xyY)"
     IDS_3DVIEW_SHOWTAILS    "Mostrar líneas al objetivo"
     IDS_3DVIEW_RESETVIEW    "Restablecer vista"
+    IDS_3DVIEW_FILTER_ALL   "Mostrar todo"
+    IDS_3DVIEW_FILTER_HIDE  "Ocultar < %s dE"
     IDS_PARAM_MODE          "Mode"
     IDS_PARAM_STEPS         "Steps"
     IDS_PARAM_STIMULUS      "Stimulus"

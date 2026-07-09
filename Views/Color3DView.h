@@ -60,6 +60,11 @@ public:
 
 	virtual void OnInitialUpdate();
 
+	// dE display filter driven by the info-pane segments: 0 = show all,
+	// 1 = hide points below the "good" threshold, 2 = below "warn"
+	// (thresholds read live from the configured tolerance preset).
+	void SetDEFilter(int filter);
+
 protected:
 	virtual void OnDraw(CDC* pDC);
 	virtual void OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint);
@@ -77,8 +82,8 @@ protected:
 		float tx, ty, tz;     // target position (valid when hasTarget)
 		float dE;             // delta E vs target (HCFR's configured formula)
 		bool  hasTarget;
-		DWORD trueColor;      // target/patch-colour swatch
-		DWORD heatColor;      // green->red by dE
+		DWORD trueColor;      // target/patch-colour swatch (heat colour is
+							  // derived at render time from live thresholds)
 		// inspection data (click-to-inspect readout)
 		float mcx, mcy, mYr;  // measured chromaticity x,y + Y ratio (white=1)
 		float tcx, tcy, tYr;  // target chromaticity x,y + Y ratio
@@ -90,7 +95,9 @@ protected:
 	};
 	std::vector<ScenePoint> m_points;
 	bool m_sceneDirty;
+	int  m_freeInScene;       // free measurements already in m_points (incremental append)
 	void BuildScene();
+	void AppendNewFreeMeasures();
 	// dETarget/ywForDE feed GetDeltaE with the grid's conventions; markerTarget
 	// (relative to white=1) is where the tail/ring is drawn. Pass noDataColor
 	// twice for measurements without a reference.
@@ -127,6 +134,7 @@ protected:
 	bool   m_showGamut, m_showFloor, m_shadeGamut;
 	enum PointColorMode { PTCOLOR_DE = 0, PTCOLOR_TARGET = 1, PTCOLOR_PLAIN = 2 };
 	int    m_pointColor;          // one of PointColorMode
+	int    m_deFilter;            // see SetDEFilter
 	bool   m_showTails;           // draw target cross + tail to each measured point
 	bool   m_bDragging;
 	CPoint m_lastMouse;
@@ -146,7 +154,13 @@ protected:
 	double m_cx, m_cyc, m_scale, m_ry, m_rsy, m_rp, m_rsp;
 	void ProjectModel(double mx, double my, double mz,
 					  double & sx, double & sy, double & depth) const;
-	void SplatPoint(int px, int py, float depth, DWORD color, int radius);
+	// Points render as shaded orbs: a per-radius kernel of diffuse/specular
+	// factors is precomputed once, so the per-pixel cost stays a multiply.
+	struct OrbPx { short dx, dy; float shade; BYTE spec; };
+	std::vector<OrbPx> m_orbKernel;
+	int  m_orbKernelR;
+	void BuildOrbKernel(int radius);
+	void SplatOrb(int px, int py, float depth, DWORD color);
 	void BlendPixel(int x, int y, float z, DWORD color, double alpha);              // z-tested, no z write
 	void WuLine(double x0, double y0, float z0, double x1, double y1, float z1,
 				DWORD color, double alpha);                                          // anti-aliased tail

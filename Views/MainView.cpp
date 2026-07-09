@@ -145,6 +145,8 @@ static const SCtrlLayout g_StatsBarLayout =
 static const SCtrlLayout g_DisplayComboLayout =
 { IDC_DISPLAYTYPE_COMBO, LAYOUT_RIGHT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP };
 
+static const SCtrlLayout g_3DDEFilterLayout =
+{ IDC_3DVIEW_DE_FILTER, LAYOUT_LEFT, LAYOUT_LEFT, LAYOUT_TOP_OFFSET, LAYOUT_TOP_OFFSET };
 static const SCtrlLayout g_ParamComboLayout =
 { IDC_PARAMSTEPS_COMBO, LAYOUT_LEFT, LAYOUT_LEFT, LAYOUT_TOP, LAYOUT_TOP };
 
@@ -509,6 +511,7 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_WM_EXITSIZEMOVE()
 	ON_WM_TIMER()
 	ON_CBN_SELCHANGE(IDC_INFO_DISPLAY, OnSelchangeInfoDisplay)
+	ON_BN_CLICKED(IDC_3DVIEW_DE_FILTER, On3DDEFilterClicked)
 	ON_CBN_SELCHANGE(IDC_DISPLAYTYPE_COMBO, OnSelchangeDisplayType)
 	ON_CBN_SELCHANGE(IDC_PARAMSTEPS_COMBO, OnSelchangeComboSteps)
 	ON_CBN_SELCHANGE(IDC_STIMLEVEL_COMBO, OnSelchangeComboStimLevel)
@@ -5621,6 +5624,18 @@ void CMainView::OnDropdownComboMode()
 	m_comboMode.SetDroppedWidth(mw + ::GetSystemMetrics(SM_CXVSCROLL) + GetConfig()->Scale(12));
 }
 
+// Segment change on the info-pane dE filter: persist and push to the live 3D view.
+void CMainView::On3DDEFilterClicked()
+{
+	GetConfig()->WriteProfileInt("MainView", "ThreeD dE Filter", m_3dDEFilter.GetSel());
+	if ( m_infoDisplay == 13 && m_pInfoWnd )
+	{
+		CView * pView = ( (CSubFrame *) m_pInfoWnd ) -> GetActiveView ();
+		if ( pView && pView->IsKindOf ( RUNTIME_CLASS ( C3DColorView ) ) )
+			( (C3DColorView *) pView ) -> SetDEFilter ( m_3dDEFilter.GetSel () );
+	}
+}
+
 void CMainView::OnSelchangeComboMode() 
 {
 	int	nNewMode = m_comboMode.GetCurSel ();
@@ -6970,6 +6985,25 @@ void CMainView::InitButtons()
 		m_CtrlInitPos.AddTail(pCombo);
 	}
 
+	// dE filter segments for the 3D viewer, placed right of the info-pane
+	// dropdown; hidden unless the 3D viewer occupies the pane.
+	if (m_3dDEFilter.GetSafeHwnd() == NULL && GetDlgItem(IDC_INFO_DISPLAY))
+	{
+		CRect rcInfo; GetDlgItem(IDC_INFO_DISPLAY)->GetWindowRect(&rcInfo); ScreenToClient(&rcInfo);
+		CRect rcSeg(rcInfo.right + GetConfig()->Scale(8), rcInfo.top,
+					rcInfo.right + GetConfig()->Scale(8) + GetConfig()->Scale(330), rcInfo.bottom);
+		m_3dDEFilter.Create(rcSeg, this, IDC_3DVIEW_DE_FILTER);
+		m_3dDEFilter.SetSel(GetConfig()->GetProfileInt("MainView", "ThreeD dE Filter", 0));
+
+		SCtrlInitPos* pSeg = new SCtrlInitPos;
+		pSeg->m_hWnd = m_3dDEFilter.GetSafeHwnd();
+		::GetWindowRect(pSeg->m_hWnd, &pSeg->m_Rect);
+		::ScreenToClient(m_hWnd, (LPPOINT)&pSeg->m_Rect.left);
+		::ScreenToClient(m_hWnd, (LPPOINT)&pSeg->m_Rect.right);
+		pSeg->m_pLayout = &g_3DDEFilterLayout;
+		m_CtrlInitPos.AddTail(pSeg);
+	}
+
 	// Per-mode pattern-parameter dropdowns (steps / stimulus level), positioned by
 	// LayoutTopRow under the mode combo; UpdateParamCombos fills and shows them.
 	if (m_comboSteps.GetSafeHwnd() == NULL)
@@ -7653,6 +7687,10 @@ void CMainView::OnSelchangeInfoDisplay()
 		m_pInfoWnd13 = NULL;
 	}
 
+	// the dE filter segments only apply to the 3D viewer
+	if ( m_3dDEFilter.GetSafeHwnd () )
+		m_3dDEFilter.ShowWindow ( SW_HIDE );
+
 	pWnd = GetDlgItem ( IDC_STATIC_VIEW );
 	pWnd -> GetWindowRect ( & Rect );
 	ScreenToClient ( & Rect );
@@ -8117,6 +8155,12 @@ void CMainView::OnSelchangeInfoDisplay()
 
 			m_pInfoWnd = pFrame;
 			m_pInfoWnd -> SetWindowPos ( pWnd, Rect.left, Rect.top, (Rect.right - Rect.left), (Rect.bottom - Rect.top), SWP_NOACTIVATE );
+
+			if ( m_3dDEFilter.GetSafeHwnd () )
+			{
+				m_3dDEFilter.ShowWindow ( SW_SHOW );
+				p3DColorView -> SetDEFilter ( m_3dDEFilter.GetSel () );
+			}
 		}
 		break;
 

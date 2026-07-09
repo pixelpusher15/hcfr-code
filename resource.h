@@ -1073,6 +1073,7 @@
 #define IDM_SIM_SAT_CYAN                33000
 #define IDM_SIM_SAT_MAGENTA             33001
 #define IDM_VIEW_GAMMAHISTO             33002
+#define IDM_VIEW_3DCOLOR                33500
 #define IDM_NEXT_TAB                    33003
 #define IDM_RGB_GRAPH_Y_SCALE3          33004
 #define IDM_PREV_TAB                    33005
@@ -1875,6 +1876,10 @@
 #define IDS_3DVIEW_SHOWFLOOR            59537
 #define IDS_3DVIEW_SHOWTAILS            59538
 #define IDS_3DVIEW_RESETVIEW            59539
+#define IDS_3DVIEW_FILTER_ALL           59555
+#define IDS_3DVIEW_FILTER_HIDE          59556
+#define IDS_3DVIEW_FILTER               59557
+#define IDC_3DVIEW_DE_FILTER            1557
 #define IDS_PARAM_MODE                  59540
 #define IDS_PARAM_STEPS                 59541
 #define IDS_PARAM_STIMULUS              59542
@@ -1904,7 +1909,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33114
-#define _APS_NEXT_CONTROL_VALUE         1557
+#define _APS_NEXT_CONTROL_VALUE         1558
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif
