@@ -2797,9 +2797,14 @@ void CCIEChartView::OnInitialUpdate()
 	m_tooltip.SetBorder(::CreateSolidBrush(RGB(212,175,55)),1,1);
 }
 
-void CCIEChartView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint) 
+void CCIEChartView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 {
 	CRect	Rect;
+
+	// Any update hint means something changed: mark the retained chart
+	// bitmap stale even for the hints below that skip the immediate repaint,
+	// so the next natural paint re-renders (the pre-retained behavior).
+	m_bChartDirty = TRUE;
 
 	// Do nothing when not concerned
 	switch ( lHint )
@@ -2812,10 +2817,6 @@ void CCIEChartView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		case UPD_GENERALREFERENCES:
 		return;
 	}
-
-	// Any update hint that concerns this view means the document (or its
-	// reference data) changed: the retained chart bitmap is no longer valid.
-	m_bChartDirty = TRUE;
 
 	if ( IsWindowVisible () )
 	{
@@ -3426,6 +3427,16 @@ void CCIEChartView::OnLButtonUp(UINT nFlags, CPoint point)
 			m_CurMousePoint = point;
 
 			ScrollWindow ( m_Grapher.m_DeltaX - OldDeltaX, m_Grapher.m_DeltaY - OldDeltaY );
+
+			// The scrolled blit shows the panned chart, but the tooltip rects
+			// registered by the last full render are anchored to the old
+			// deltas: schedule one deferred render to re-anchor them
+			if ( m_Grapher.m_DeltaX != OldDeltaX || m_Grapher.m_DeltaY != OldDeltaY )
+			{
+				KillTimer(IDT_CIE_RESIZE_SETTLE);
+				SetTimer(IDT_CIE_RESIZE_SETTLE, 80, NULL);
+				m_bResizeSettling = TRUE;
+			}
 		}
 
 		UpdateTestColor ( point );
@@ -3463,6 +3474,14 @@ void CCIEChartView::OnMouseMove(UINT nFlags, CPoint point)
 			m_CurMousePoint = point;
 
 			ScrollWindow ( m_Grapher.m_DeltaX - OldDeltaX, m_Grapher.m_DeltaY - OldDeltaY );
+
+			// Re-anchor tooltip rects once the pan pauses (see OnLButtonUp)
+			if ( m_Grapher.m_DeltaX != OldDeltaX || m_Grapher.m_DeltaY != OldDeltaY )
+			{
+				KillTimer(IDT_CIE_RESIZE_SETTLE);
+				SetTimer(IDT_CIE_RESIZE_SETTLE, 80, NULL);
+				m_bResizeSettling = TRUE;
+			}
 		}
 
 		UpdateTestColor ( point );
@@ -3619,8 +3638,16 @@ void CCIEChartView::OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags)
 		m_Grapher.m_DeltaY = 0;
 	else if ( m_Grapher.m_DeltaY < ClientRect.bottom - RefRect.bottom )
 		m_Grapher.m_DeltaY = ClientRect.bottom - RefRect.bottom;
-	
+
 	ScrollWindow ( m_Grapher.m_DeltaX - OldDeltaX, m_Grapher.m_DeltaY - OldDeltaY );
+
+	// Re-anchor tooltip rects once the pan pauses (see OnLButtonUp)
+	if ( m_Grapher.m_DeltaX != OldDeltaX || m_Grapher.m_DeltaY != OldDeltaY )
+	{
+		KillTimer(IDT_CIE_RESIZE_SETTLE);
+		SetTimer(IDT_CIE_RESIZE_SETTLE, 80, NULL);
+		m_bResizeSettling = TRUE;
+	}
 
 	CSavingView::OnKeyDown(nChar, nRepCnt, nFlags);
 }
