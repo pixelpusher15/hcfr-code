@@ -48,6 +48,16 @@ extern void DrawDeltaECurve(CDC* pDC, int cxMax, int cyMax, double DeltaE, BOOL 
 #define FX_MINSIZETOSHOW_TRIANGLEDETAILS 100
 #define FX_MINSIZETOSHOW_REFDETAILS 300
 
+// The HDTV reference used to derive display colours for plot dots and
+// tooltips is built from fixed constants only (verified: the constructor and
+// the reference luma getters read nothing mutable), so build it once instead
+// of once per point per paint — its constructor inverts matrices.
+static const CColorReference & HdtvPlotRef()
+{
+	static const CColorReference hdtvRef(HDTV);
+	return hdtvRef;
+}
+
 /////////////////////////////////////////////////////////////////////////////
 // CCIEGraphPoint
 
@@ -164,6 +174,8 @@ CCIEChartGrapher::CCIEChartGrapher()
 
 	m_pMarkerGraphics = NULL;
 	m_markerScale = 1.0f;
+	m_passTmWhite = 0.0;
+	m_pPassRef = NULL;
 	m_bgW = -1;
 	m_bgH = -1;
 	m_bgWhite = m_bgUv = m_bgAb = m_bgShowBg = m_bgShowDE = FALSE;
@@ -388,7 +400,7 @@ bool CCIEChartGrapher::DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int 
 	{
 		kind = KIND_DOT;
 		CColor measColor = aGraphPoint.GetNormalizedColor();
-		ColorRGB measCol = ColorRGB(measColor.GetRGBValue(CColorReference(HDTV)));
+		ColorRGB measCol = ColorRGB(measColor.GetRGBValue(HdtvPlotRef()));
 		int r = (int)floor(pow(min(max(measCol[0],0),1),1.0/2.2)*255.+0.5);
 		int g = (int)floor(pow(min(max(measCol[1],0),1),1.0/2.2)*255.+0.5);
 		int b = (int)floor(pow(min(max(measCol[2],0),1),1.0/2.2)*255.+0.5);
@@ -503,8 +515,9 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 	pBitmap->GetBitmap(&bm);
 	bool bDrawBMP = !m_bdE10;
 	double RefWhite = 1.0, YWhite = 1.0, L = 100., a = 0., b = 0.;
-	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
-	
+	CColorReference  bRef = ( m_pPassRef ? *m_pPassRef :
+		((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference()) );
+
 	if (isSelected)
 		bDrawBMP = TRUE;
 
@@ -513,7 +526,7 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 	{
 		CString str, str1, str2, str3;
 		CColor NoDataColor;
-		double tmWhite = getL_EOTF(0.5022283, NoDataColor, NoDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+		double tmWhite = ( m_passTmWhite > 0.0 ) ? m_passTmWhite : getL_EOTF(0.5022283, NoDataColor, NoDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
 		
 		int x=aGraphPoint.GetGraphX(rect)+m_DeltaX;
 		int y=aGraphPoint.GetGraphY(rect)+m_DeltaY;		
@@ -641,8 +654,8 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 					aColor2.SetZ(aColor2.GetZ() * YWhite / tmWhite);
 				}
 
-				ColorRGB measCol = ColorRGB(aColor1.GetRGBValue(HDTV));
-				ColorRGB refCol = ColorRGB(aColor2.GetRGBValue(HDTV));
+				ColorRGB measCol = ColorRGB(aColor1.GetRGBValue(HdtvPlotRef()));
+				ColorRGB refCol = ColorRGB(aColor2.GetRGBValue(HdtvPlotRef()));
 				double r1=min(max(measCol[0],0),1);
 				double g1=min(max(measCol[1],0),1);
 				double b1=min(max(measCol[2],0),1);
@@ -664,7 +677,7 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 		{
 			CColor aColor = aGraphPoint.GetNormalizedColor();
 
-			ColorRGB measCol = ColorRGB(aColor.GetRGBValue(CColorReference(HDTV)));
+			ColorRGB measCol = ColorRGB(aColor.GetRGBValue(HdtvPlotRef()));
 			double r1=min(max(measCol[0],0),1);
 			double g1=min(max(measCol[1],0),1);
 			double b1=min(max(measCol[2],0),1);
@@ -716,7 +729,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	struct CMarkerGraphicsScope
 	{
 		CCIEChartGrapher * p;
-		~CMarkerGraphicsScope() { p->m_pMarkerGraphics = NULL; }
+		~CMarkerGraphicsScope() { p->m_pMarkerGraphics = NULL; p->m_passTmWhite = 0.0; p->m_pPassRef = NULL; }
 	} markerScope = { this };
 	m_pMarkerGraphics = & chartMarkerGraphics;
 	m_markerScale = (float)GetConfig()->Scale(100) / 100.0f;	// resolve DPI once per pass, not per marker
@@ -731,6 +744,11 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	CColor NoDataColor;
 	double tmWhite = getL_EOTF(0.5022283, NoDataColor, NoDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
 	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+
+	// Publish the pass invariants so DrawAlphaBitmap doesn't recompute them
+	// per point (cleared by markerScope when this pass ends)
+	m_passTmWhite = tmWhite;
+	m_pPassRef = & bRef;
 
 	if (pTooltip)
 	{
@@ -2692,6 +2710,15 @@ CCIEChartView::CCIEChartView()
 {
 	m_bDelayedUpdate = FALSE;
 	m_bRealtimeIncrement = FALSE;
+	m_bChartDirty = TRUE;
+	m_bResizeSettling = FALSE;
+	m_chartW = 0;
+	m_chartH = 0;
+	m_chartUserInfo = 0;
+	m_chartMode = -1;
+	m_chartEdit = -1;
+	m_chartdE10 = 0.0;
+	m_chartSelValid = FALSE;
 }
 
 CCIEChartView::~CCIEChartView()
@@ -2770,9 +2797,14 @@ void CCIEChartView::OnInitialUpdate()
 	m_tooltip.SetBorder(::CreateSolidBrush(RGB(212,175,55)),1,1);
 }
 
-void CCIEChartView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint) 
+void CCIEChartView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 {
 	CRect	Rect;
+
+	// Any update hint means something changed: mark the retained chart
+	// bitmap stale even for the hints below that skip the immediate repaint,
+	// so the next natural paint re-renders (the pre-retained behavior).
+	m_bChartDirty = TRUE;
 
 	// Do nothing when not concerned
 	switch ( lHint )
@@ -2858,6 +2890,27 @@ void CCIEChartView::OnDraw(CDC* pDC)
 	GetClientRect(&rect);
 	GetReferenceRect(&refrect);
 
+	// State DrawChart reads directly, with no update hint reaching this view
+	// when it changes: MainView mode/edit state, the worst-dE threshold, and
+	// the selected color. Together with the render size and the display
+	// toggles it forms the content signature of the retained bitmap.
+	CDataSetDoc * pDoc = GetDocument ();
+	POSITION pos = pDoc -> GetFirstViewPosition ();
+	CMainView * pMainView = (CMainView *) pDoc -> GetNextView ( pos );
+	int curMode = pMainView -> m_displayMode;
+	int curEdit = pMainView -> m_editCheckButton.GetCheck();
+	double curdE10 = pMainView -> dE10min;
+	BOOL selValid = pDoc -> m_SelectedColor.isValid();
+	ColorXYZ selColor;
+	if ( selValid )
+		selColor = pDoc -> m_SelectedColor.GetXYZValue();
+
+	BOOL bSigMatch = refrect.Width() == m_chartW && refrect.Height() == m_chartH
+		&& GetUserInfo() == m_chartUserInfo
+		&& curMode == m_chartMode && curEdit == m_chartEdit && curdE10 == m_chartdE10
+		&& selValid == m_chartSelValid
+		&& ( !selValid || ( selColor[0] == m_chartSel[0] && selColor[1] == m_chartSel[1] && selColor[2] == m_chartSel[2] ) );
+
 	CDC dcDraw;
 	dcDraw.CreateCompatibleDC(pDC);
 	CBitmap *pOldBitmap=dcDraw.SelectObject(&m_Grapher.m_drawBitmap);
@@ -2881,8 +2934,35 @@ void CCIEChartView::OnDraw(CDC* pDC)
 				newPoint.GetGraphX(refrect), newPoint.GetGraphY(refrect), newPoint, false );
 		}
 	}
+	else if ( !m_bChartDirty && bSigMatch )
+	{
+		// Nothing changed since the last full render: the retained bitmap is
+		// current and the blit below is the whole repaint (hover, uncover)
+	}
+	else if ( m_bResizeSettling && m_chartW > 0 && m_Grapher.m_ZoomFactor <= 1000 )
+	{
+		// Live resize: scale the retained chart to the moving size and skip
+		// the ~0.5s full render; the resize settle timer renders once for
+		// real when the drag stops
+		pDC->SetStretchBltMode(HALFTONE);
+		SetBrushOrgEx(pDC->GetSafeHdc(), 0, 0, NULL);
+		pDC->StretchBlt(0,0,rect.Width(),rect.Height(),&dcDraw,0,0,m_chartW,m_chartH,SRCCOPY);
+		dcDraw.SelectObject(pOldBitmap);
+		return;
+	}
 	else
+	{
 		m_Grapher.DrawChart ( GetDocument (), & dcDraw, refrect, & m_tooltip, this );
+		m_chartW = refrect.Width();
+		m_chartH = refrect.Height();
+		m_chartUserInfo = GetUserInfo();
+		m_chartMode = curMode;
+		m_chartEdit = curEdit;
+		m_chartdE10 = curdE10;
+		m_chartSelValid = selValid;
+		m_chartSel = selColor;
+		m_bChartDirty = FALSE;
+	}
 	m_bRealtimeIncrement = FALSE;
 	pDC->BitBlt(0,0,rect.Width(),rect.Height(),&dcDraw,-m_Grapher.m_DeltaX,-m_Grapher.m_DeltaY,SRCCOPY);
 	dcDraw.SelectObject(pOldBitmap);
@@ -2940,10 +3020,12 @@ void CCIEChartView::SaveChart()
 	{
 		m_Grapher.SaveGraphFile ( GetDocument (), size, fileSaveDialog.GetPathName(), dialog.m_fileType, dialog.m_jpegQuality );
 
-		// Recompute BgBitmap to match client size
+		// Recompute BgBitmap to match client size; this recreates m_drawBitmap
+		// so the retained chart is gone and the next paint must render fully
 		CRect clientRect;
 		GetReferenceRect(&clientRect);
 		m_Grapher.MakeBgBitmap(clientRect,GetConfig()->m_bWhiteBkgndOnScreen);
+		m_bChartDirty = TRUE;
 	}
 }
 
@@ -2985,6 +3067,7 @@ void CCIEChartView::OnSize(UINT nType, int cx, int cy)
 
 		KillTimer(IDT_CIE_RESIZE_SETTLE);
 		SetTimer(IDT_CIE_RESIZE_SETTLE, 80, NULL);
+		m_bResizeSettling = TRUE;	// OnDraw scales the retained chart until the timer fires
 	}
 	Invalidate(FALSE);
 }
@@ -2994,9 +3077,13 @@ void CCIEChartView::OnTimer(UINT_PTR nIDEvent)
 	if (nIDEvent == IDT_CIE_RESIZE_SETTLE)
 	{
 		KillTimer(IDT_CIE_RESIZE_SETTLE);
+		m_bResizeSettling = FALSE;
 		CRect RefRect;
 		GetReferenceRect(&RefRect);
+		// MakeBgBitmap recreates m_drawBitmap at the new size, discarding the
+		// retained chart: the next paint must be a full render
 		m_Grapher.MakeBgBitmap(RefRect, GetConfig()->m_bWhiteBkgndOnScreen);
+		m_bChartDirty = TRUE;
 		Invalidate(FALSE);
 		return;
 	}
@@ -3340,6 +3427,16 @@ void CCIEChartView::OnLButtonUp(UINT nFlags, CPoint point)
 			m_CurMousePoint = point;
 
 			ScrollWindow ( m_Grapher.m_DeltaX - OldDeltaX, m_Grapher.m_DeltaY - OldDeltaY );
+
+			// The scrolled blit shows the panned chart, but the tooltip rects
+			// registered by the last full render are anchored to the old
+			// deltas: schedule one deferred render to re-anchor them
+			if ( m_Grapher.m_DeltaX != OldDeltaX || m_Grapher.m_DeltaY != OldDeltaY )
+			{
+				KillTimer(IDT_CIE_RESIZE_SETTLE);
+				SetTimer(IDT_CIE_RESIZE_SETTLE, 80, NULL);
+				m_bResizeSettling = TRUE;
+			}
 		}
 
 		UpdateTestColor ( point );
@@ -3377,6 +3474,14 @@ void CCIEChartView::OnMouseMove(UINT nFlags, CPoint point)
 			m_CurMousePoint = point;
 
 			ScrollWindow ( m_Grapher.m_DeltaX - OldDeltaX, m_Grapher.m_DeltaY - OldDeltaY );
+
+			// Re-anchor tooltip rects once the pan pauses (see OnLButtonUp)
+			if ( m_Grapher.m_DeltaX != OldDeltaX || m_Grapher.m_DeltaY != OldDeltaY )
+			{
+				KillTimer(IDT_CIE_RESIZE_SETTLE);
+				SetTimer(IDT_CIE_RESIZE_SETTLE, 80, NULL);
+				m_bResizeSettling = TRUE;
+			}
 		}
 
 		UpdateTestColor ( point );
@@ -3533,8 +3638,16 @@ void CCIEChartView::OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags)
 		m_Grapher.m_DeltaY = 0;
 	else if ( m_Grapher.m_DeltaY < ClientRect.bottom - RefRect.bottom )
 		m_Grapher.m_DeltaY = ClientRect.bottom - RefRect.bottom;
-	
+
 	ScrollWindow ( m_Grapher.m_DeltaX - OldDeltaX, m_Grapher.m_DeltaY - OldDeltaY );
+
+	// Re-anchor tooltip rects once the pan pauses (see OnLButtonUp)
+	if ( m_Grapher.m_DeltaX != OldDeltaX || m_Grapher.m_DeltaY != OldDeltaY )
+	{
+		KillTimer(IDT_CIE_RESIZE_SETTLE);
+		SetTimer(IDT_CIE_RESIZE_SETTLE, 80, NULL);
+		m_bResizeSettling = TRUE;
+	}
 
 	CSavingView::OnKeyDown(nChar, nRepCnt, nFlags);
 }
