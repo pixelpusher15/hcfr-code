@@ -3014,29 +3014,36 @@ void CCIEChartView::OnDraw(CDC* pDC)
 		if ( m_composeBitmap.m_hObject )
 			m_composeBitmap.DeleteObject ();
 		m_composeBitmap.CreateCompatibleBitmap ( pDC, rect.Width (), rect.Height () );
-		m_composeSize = rect.Size ();
+		// On GDI resource exhaustion keep the size null so creation retries
+		m_composeSize = m_composeBitmap.m_hObject ? rect.Size () : CSize ( 0, 0 );
 	}
 	CDC dcOut;
 	dcOut.CreateCompatibleDC ( pDC );
-	CBitmap * pOldOut = dcOut.SelectObject ( & m_composeBitmap );
+	CBitmap * pOldOut = m_composeBitmap.m_hObject ? dcOut.SelectObject ( & m_composeBitmap ) : NULL;
+	// If the compose bitmap couldn't be created, paint the window directly
+	// (the chips may flicker) rather than blitting from an empty DC
+	CDC * pOut = pOldOut ? & dcOut : pDC;
 
 	if ( bScalePreview )
 	{
-		dcOut.SetStretchBltMode(HALFTONE);
-		SetBrushOrgEx(dcOut.GetSafeHdc(), 0, 0, NULL);
-		dcOut.StretchBlt(m_Grapher.m_DeltaX, m_Grapher.m_DeltaY, refrect.Width(), refrect.Height(),
+		pOut->SetStretchBltMode(HALFTONE);
+		SetBrushOrgEx(pOut->GetSafeHdc(), 0, 0, NULL);
+		pOut->StretchBlt(m_Grapher.m_DeltaX, m_Grapher.m_DeltaY, refrect.Width(), refrect.Height(),
 			&dcDraw, 0, 0, m_chartW, m_chartH, SRCCOPY);
 	}
 	else
-		dcOut.BitBlt(0,0,rect.Width(),rect.Height(),&dcDraw,-m_Grapher.m_DeltaX,-m_Grapher.m_DeltaY,SRCCOPY);
+		pOut->BitBlt(0,0,rect.Width(),rect.Height(),&dcDraw,-m_Grapher.m_DeltaX,-m_Grapher.m_DeltaY,SRCCOPY);
 	dcDraw.SelectObject(pOldBitmap);
 
 	// The coverage chips are not part of the retained chart, so they stay
 	// pinned to the window's top-right whatever the zoom/pan state
-	m_Grapher.DrawCoverageChips ( & dcOut, rect, pDoc );
+	m_Grapher.DrawCoverageChips ( pOut, rect, pDoc );
 
-	pDC->BitBlt(0,0,rect.Width(),rect.Height(),&dcOut,0,0,SRCCOPY);
-	dcOut.SelectObject(pOldOut);
+	if ( pOldOut )
+	{
+		pDC->BitBlt(0,0,rect.Width(),rect.Height(),&dcOut,0,0,SRCCOPY);
+		dcOut.SelectObject(pOldOut);
+	}
 }
 
 void CCIEChartView::SaveChart() 
