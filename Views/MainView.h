@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 //	Benoit SEGUIN
 /////////////////////////////////////////////////////////////////////////////
@@ -114,7 +114,12 @@ public:
 	CComboBox	m_comboDisplay;
 	CButtonST	m_testAnsiPatternButton;
 	CButtonST	m_refs;
+	CButtonST	m_satAllLevelsButton;	// runtime-created; sat modes only: measure this hue at every stim level
 	CComboBox	m_comboDisplayType;	// Display-type dropdown (runtime-created, replaces the 5 radios)
+	CComboBox	m_comboSteps;	// per-mode pattern-steps dropdown (runtime-created, under the mode combo)
+	CComboBox	m_comboStimLevel;	// saturation stimulus-level dropdown (runtime-created, sat modes only)
+	CStatic		m_lblMode, m_lblSteps, m_lblStim;	// ClearType captions under the three dropdowns
+	CFont		m_captionFont;	// caption font (1px smaller than the section labels)
 	CFont		m_fluentFont;	// Segoe Fluent Icons font for the +/- glyphs
 	//}}AFX_DATA
 
@@ -231,6 +236,8 @@ protected:
 	void InitButtons();
 	void InitGroups();
 	void LayoutTopRow();
+	void UpdateParamCombos();	// populate + show/hide the steps/stimulus dropdowns for m_displayMode
+	BOOL CurrentModeSweepHasData();	// any measured value in the current mode's sweep arrays
 	void UpdateContrastValuesInGrid ();
 	CPPToolTip	m_tooltip;
 	CString GetItemText(CColor & aMeasure, double YWhite, CColor & aReference, CColor & aRefDocColor, double YWhiteRefDoc, int aComponentNum, int nCol, double Offset, bool isGS);
@@ -271,6 +278,9 @@ public:
 	afx_msg void OnSelchangeComboMode();
 	afx_msg void OnDropdownComboMode();
 	afx_msg void OnSelchangeDisplayType();
+	afx_msg void OnSelchangeComboSteps();
+	afx_msg void OnSelchangeComboStimLevel();
+	afx_msg void OnMeasureSatColorAllLevels();
 	afx_msg void OnSizePlus();
 	afx_msg void OnSizeMinus();
 

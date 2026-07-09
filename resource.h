@@ -780,6 +780,12 @@
 #define IDC_DISPLAYTYPE_COMBO           1543
 #define IDC_SIZE_PLUS                   1544
 #define IDC_SIZE_MINUS                  1545
+#define IDC_PARAMSTEPS_COMBO            1551
+#define IDC_STIMLEVEL_COMBO             1552
+#define IDC_MODE_LABEL                  1553
+#define IDC_PARAMSTEPS_LABEL            1554
+#define IDC_STIMLEVEL_LABEL             1555
+#define IDC_MEASURESATALLLEVELS_BUTTON  1556
 #define IDC_PGEN_AVI_BASE               1530
 #define IDC_PGEN_DRM_BASE               1536
 #define IDC_PGEN_EDIT_BASE              1538
@@ -1056,6 +1062,7 @@
 #define IDM_MEASURE_SAT_CYAN            32990
 #define IDM_MEASURE_SAT_MAGENTA         32991
 #define IDM_MEASURE_SAT_ALL             32992
+#define IDM_MEASURE_SAT_ALL_LEVELS      33113
 #define IDM_MEASURE_GRAYSCALE_COLORS    32993
 #define IDM_SIM_NEARBLACK               32994
 #define IDM_SIM_NEARWHITE               32995
@@ -1868,6 +1875,21 @@
 #define IDS_3DVIEW_SHOWFLOOR            59537
 #define IDS_3DVIEW_SHOWTAILS            59538
 #define IDS_3DVIEW_RESETVIEW            59539
+#define IDS_PARAM_MODE                  59540
+#define IDS_PARAM_STEPS                 59541
+#define IDS_PARAM_STIMULUS              59542
+#define IDS_PARAM_CCSET                 59543
+#define IDS_PARAM_CUSTOM                59544
+#define IDS_ALLSTIM_BTN                 59545
+#define IDS_ALLSTIM_TIP                 59546
+#define IDS_CONFIRM_CLEAR_GRAY          59547
+#define IDS_CONFIRM_CLEAR_NB            59548
+#define IDS_CONFIRM_CLEAR_NW            59549
+#define IDS_CONFIRM_CLEAR_SAT           59550
+#define IDS_STEPS_TITLE                 59551
+#define IDS_ALLLEVELS_CONFIRM           59552
+#define IDS_ALLLEVELS_HUE_CONFIRM       59553
+#define IDS_ALLLEVELS_TITLE             59554
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
 #define ID_TARGET_TOL_FIRST             33108
@@ -1878,8 +1900,8 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
-#define _APS_NEXT_COMMAND_VALUE         33113
-#define _APS_NEXT_CONTROL_VALUE         1551
+#define _APS_NEXT_COMMAND_VALUE         33114
+#define _APS_NEXT_CONTROL_VALUE         1557
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

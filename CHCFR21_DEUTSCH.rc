@@ -2091,6 +2091,7 @@ BEGIN
             MENUITEM "&Primärfarben",               IDM_MEASURE_SAT_PRIMARIES
             MENUITEM "Primär- and &Sekundärfarben", IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
             MENUITEM "&Alle Farben",                IDM_MEASURE_SAT_ALL
+            MENUITEM "Alle Farben bei allen Stimuluspegeln", IDM_MEASURE_SAT_ALL_LEVELS
         END
         MENUITEM "Full Tilt Boogie",            ID_MEASURES_FULLTILTBOOGIE
         MENUITEM "&Kontrast",                   IDM_MEASURE_CONTRAST
@@ -2572,6 +2573,7 @@ BEGIN
     SEPARATOR
     BUTTON      IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
     BUTTON      IDM_MEASURE_SAT_ALL
+    BUTTON      IDM_MEASURE_SAT_ALL_LEVELS
 END
 
 IDR_MEDIUMTOOLBAR_MEASURES_SAT TOOLBAR 32, 32
@@ -3811,6 +3813,21 @@ BEGIN
     IDS_3DVIEW_SHOWFLOOR    "CIE-Boden anzeigen (xyY)"
     IDS_3DVIEW_SHOWTAILS    "Ziellinien anzeigen"
     IDS_3DVIEW_RESETVIEW    "Ansicht zurücksetzen"
+    IDS_PARAM_MODE          "Modus"
+    IDS_PARAM_STEPS         "Stufen"
+    IDS_PARAM_STIMULUS      "Stimulus"
+    IDS_PARAM_CCSET         "CC-Satz"
+    IDS_PARAM_CUSTOM        "Benutzerdefiniert..."
+    IDS_ALLSTIM_BTN         "Alle Stim"
+    IDS_ALLSTIM_TIP         "Misst den Sättigungsverlauf dieser Farbe bei jedem Stimuluspegel"
+    IDS_CONFIRM_CLEAR_GRAY  "Das Ändern der Stufen löscht die aktuellen Graustufen-Messungen.\nFortfahren?"
+    IDS_CONFIRM_CLEAR_NB    "Das Ändern der Stufen löscht die aktuellen Messungen nahe Schwarz.\nFortfahren?"
+    IDS_CONFIRM_CLEAR_NW    "Das Ändern der Stufen löscht die aktuellen Messungen nahe Weiß.\nFortfahren?"
+    IDS_CONFIRM_CLEAR_SAT   "Das Ändern der Stufen löscht die Messungen aller sechs Sättigungsverläufe.\nFortfahren?"
+    IDS_STEPS_TITLE         "Stufen"
+    IDS_ALLLEVELS_CONFIRM   "Dies misst die sechs Sättigungsverläufe bei %d Stimuluspegeln (%d Felder).\nFortfahren?"
+    IDS_ALLLEVELS_HUE_CONFIRM "Dies misst den Sättigungsverlauf dieser Farbe bei %d Stimuluspegeln (%d Felder).\nFortfahren?"
+    IDS_ALLLEVELS_TITLE     "Sättigung bei allen Pegeln"
     IDS_SATLUMSHIFT         "Sättigungsverschiebung"
     IDS_SATLUM              "Sättigung - Helligkeit"
     ID_LUX_VALUE            "00000000 Lux"
@@ -3851,6 +3868,7 @@ END
 STRINGTABLE
 BEGIN
     IDM_MEASURE_SAT_ALL     "Abstufung der Sättigung aller Farben messen\nAbstufung der Sättigung aller Farben messen"
+    IDM_MEASURE_SAT_ALL_LEVELS "Misst die Sättigungsverläufe aller Farben bei jedem konfigurierten Stimuluspegel\nSättigungen bei allen Stimuluspegeln messen"
     IDM_MEASURE_GRAYSCALE_COLORS 
                             "Grautreppe, Primär- und Sekundärfarben in einem Schritt messen\nGrautreppe, Primär- und Sekundärfarben messen"
     IDM_SIM_NEARBLACK       "Simultane Messungen mit den Sensoren aller offenen Dokumente für die Abstufungen nahe Schwarz ausführen\nSimultane Messungen der Abstufungen nahe Schwarz"
@@ -4000,6 +4018,7 @@ BEGIN
     BUTTON      IDM_MEASURE_SAT_PRIMARIES
     BUTTON      IDM_MEASURE_SAT_PRIMARIES_SECONDARIES
     BUTTON      IDM_MEASURE_SAT_ALL
+    BUTTON      IDM_MEASURE_SAT_ALL_LEVELS
     SEPARATOR
     BUTTON      IDM_SIM_SAT_RED
     BUTTON      IDM_SIM_SAT_GREEN
