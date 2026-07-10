@@ -13,17 +13,17 @@
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
-// Ce fichier contiend les routines necessaires à la lecture et à
-// l'écriture d'un fichier de calibration ColorHCFR.
-// Les données sont stoquées dans une structure spécifique HCFRCalibrationData.
+// Ce fichier contiend les routines necessaires a la lecture et a
+// l'ecriture d'un fichier de calibration ColorHCFR.
+// Les donnees sont stoquees dans une structure specifique HCFRCalibrationData.
 //
-// !!!!!!! Le code dans ce fichier considère que un short est sur 16 bits,
+// !!!!!!! Le code dans ce fichier considere que un short est sur 16 bits,
 // !!!!!!! un entier ou un float sur 32 bits et un double sur 64 bits.
-// !!!!!!! C'est dégeulasse, il faudrait utiliser des des types de taille
-// !!!!!!! définis pour éviter les problèmes inter-plateforme.
+// !!!!!!! C'est degeulasse, il faudrait utiliser des des types de taille
+// !!!!!!! definis pour eviter les problemes inter-plateforme.
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//  Jérôme Duquennoy
+//  Jerome Duquennoy
 /////////////////////////////////////////////////////////////////////////////
 
 #include "endianness.h"
@@ -37,9 +37,9 @@ using namespace std;
 
 HCFRCalibrationData readCalibrationFile (const char* filePath)
 {
-  // variables utilisées lors de la lecture
+  // variables utilisees lors de la lecture
   unsigned int readIntValue; // pour lire les entiers, et les boolean (qui sont
-                             // également stockés comme des entiers sur 4 octets)
+                             // egalement stockes comme des entiers sur 4 octets)
 
   HCFRCalibrationData   result;
   ifstream              calibrationFile(filePath);
@@ -113,7 +113,7 @@ HCFRCalibrationData readCalibrationFile (const char* filePath)
     // on saute la version de CCalibrationInfo
     calibrationFile.seekg(4, ios::cur);
     
-    // on saute le numéro de version de la classe Matrix et la taille de la matrice
+    // on saute le numero de version de la classe Matrix et la taille de la matrice
     calibrationFile.seekg(4*3, ios::cur);
     // la matrice des mesures
 //    result.measuresMatrix = Matrix(0.0,3,3);
@@ -122,7 +122,7 @@ HCFRCalibrationData readCalibrationFile (const char* filePath)
     cout << endl << "measures :" << endl;
     result.measuresMatrix.Display();
 
-    // on saute le numéro de version de la classe Matrix et la taille de la matrice
+    // on saute le numero de version de la classe Matrix et la taille de la matrice
     calibrationFile.seekg(4*3, ios::cur);
     // la matrice des mesures
 //    result.referencesMatrix = Matrix(0.0,3,3);
@@ -131,7 +131,7 @@ HCFRCalibrationData readCalibrationFile (const char* filePath)
 //    cout << endl << "reference :" << endl;
 //    result.referencesMatrix.Display();
 
-    // on saute le numéro de version de la classe Matrix et la taille de la matrice
+    // on saute le numero de version de la classe Matrix et la taille de la matrice
     calibrationFile.seekg(4*3, ios::cur);
     // la matrice des mesures
 //    result.whiteTestMatrix = Matrix(0.0,3,1);
@@ -140,7 +140,7 @@ HCFRCalibrationData readCalibrationFile (const char* filePath)
 //    cout << endl << "white test :" << endl;
 //    result.whiteTestMatrix.Display();
 
-    // on saute le numéro de version de la classe Matrix et la taille de la matrice
+    // on saute le numero de version de la classe Matrix et la taille de la matrice
     calibrationFile.seekg(4*3, ios::cur);
     // la matrice des mesures
 //    result.blackTestMatrix = Matrix(0.0,3,1);
