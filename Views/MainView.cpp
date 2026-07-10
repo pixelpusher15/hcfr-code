@@ -2414,7 +2414,7 @@ void CMainView::InitSelectedColorGrid()
 	Item.mask = GVIF_TEXT|GVIF_FORMAT;
 	Item.nFormat = DT_CENTER|DT_WORDBREAK;
 
-    char * RowLabels [] = { "Y cd/m²", "Y ftL", "T°", "X", "Y", "Z", "R", "G", "B", "x", "y", "Y", "x", "y", "z", "L", "a", "b", "L", "C", "H","L","M","S"};
+    char * RowLabels [] = { "Y cd/m\xB2", "Y ftL", "T\xB0", "X", "Y", "Z", "R", "G", "B", "x", "y", "Y", "x", "y", "z", "L", "a", "b", "L", "C", "H","L","M","S"};
             
     if (GetDocument()->m_pSensor->ReadingType() == 2)
     {
