@@ -1898,6 +1898,10 @@
 #define IDS_STIMPRESET_QUICK            59558
 #define IDS_STIMPRESET_STANDARD         59559
 #define IDS_STIMPRESET_FINE             59560
+#define IDS_DISPLAYPROFILE              59561
+#define IDS_MEASUREDISPLAYPROFILE       59562
+#define IDS_DELETEDISPLAYPROFILE        59563
+#define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
 #define ID_TARGET_TOL_FIRST             33108
@@ -1909,7 +1913,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        385
 #define _APS_NEXT_COMMAND_VALUE         33114
-#define _APS_NEXT_CONTROL_VALUE         1558
+#define _APS_NEXT_CONTROL_VALUE         1559
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

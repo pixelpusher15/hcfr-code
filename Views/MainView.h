@@ -45,6 +45,7 @@ class CGridCtrl;
 #include "TargetWnd.h"
 #include "PPTooltip.h"
 #include "DEFilterSegments.h"
+#include "ProfilePane.h"
 
 // One half of the measured / reference colour-comparator split swatch.
 // Owner-drawn with GDI+ (flat pill with the label and RGB triplet below);
@@ -114,6 +115,7 @@ public:
 	CStatic		m_RGBLevelsLabel;
 	CComboBox	m_comboDisplay;
 	CDEFilterSegments	m_3dDEFilter;	// dE filter segments (info pane, 3D viewer only)
+	CProfilePane	m_profilePane;	// display-profile pane (replaces the grid, mode 13)
 	CButtonST	m_testAnsiPatternButton;
 	CButtonST	m_refs;
 	CButtonST	m_satAllLevelsButton;	// runtime-created; sat modes only: measure this hue at every stim level
@@ -279,6 +281,8 @@ public:
 	afx_msg void OnSelchangeInfoDisplay();
 	afx_msg void OnSelchangeComboMode();
 	afx_msg void On3DDEFilterClicked();
+	afx_msg void OnProfilePaneAction();
+	void StartProfileCapture();
 	afx_msg void OnDropdownComboMode();
 	afx_msg void OnSelchangeDisplayType();
 	afx_msg void OnSelchangeComboSteps();

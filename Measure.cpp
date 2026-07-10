@@ -175,6 +175,10 @@ CMeasure::CMeasure()
 
 	m_activeSatLevel = 1.0;
 
+	ClearProfileMeasures();
+	m_bProfilePause = FALSE;
+	m_profileCurrentDrift = 0.0;
+
 	m_primariesArray[0]=m_primariesArray[1]=m_primariesArray[2]=noDataColor;
 	m_secondariesArray[0]=m_secondariesArray[1]=m_secondariesArray[2]=noDataColor;
 
@@ -340,7 +344,9 @@ void CMeasure::Serialize(CArchive& ar)
 
 	if (ar.IsStoring())
 	{
-	    int version = 19;
+		// Version 20 only when a display profile exists: documents without one keep
+		// version 19 so they stay readable by older builds.
+	    int version = HasProfileMeasures() ? 20 : 19;
 		ar << version;
 
 		StoreActiveSatLevel();	// capture the bound sweeps before writing the store
@@ -488,6 +494,33 @@ void CMeasure::Serialize(CArchive& ar)
 					m_satLevelStore[s].sat[c][i].Serialize(ar);
 			}
 		}
+
+		// Version 20: display profile capture (see version selection above)
+		if ( HasProfileMeasures() )
+		{
+			ar << m_profileCubeSize;
+			ar << m_profileGrayExtras;
+			ar << m_profileDriftComp;
+			ar << m_profileCaptureSeconds;
+
+			ar << m_profileMeasureArray.GetSize();
+			for(int i=0;i<m_profileMeasureArray.GetSize();i++)
+			{
+				if (m_profileMeasureArray[i].isValid())
+				{
+					m_profileMeasureArray[i].Serialize(ar);
+					ar << i;
+				}
+			}
+			MarkerColor.Serialize(ar);
+
+			ar << (int) m_profileDriftAnchors.size();
+			for ( size_t i = 0; i < m_profileDriftAnchors.size(); i++ )
+			{
+				ar << m_profileDriftAnchorIdx[i];
+				m_profileDriftAnchors[i].Serialize(ar);
+			}
+		}
 	}
 	else
 	{
@@ -495,7 +528,7 @@ void CMeasure::Serialize(CArchive& ar)
 		ar >> version;
 
 
-		if ( version > 19 )
+		if ( version > 20 )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 
 
@@ -851,10 +884,156 @@ void CMeasure::Serialize(CArchive& ar)
 				}
 			}
 		}
+
+		// Version 20: display profile capture
+		ClearProfileMeasures();
+		if ( version > 19 )
+		{
+			ar >> m_profileCubeSize;
+			ar >> m_profileGrayExtras;
+			ar >> m_profileDriftComp;
+			ar >> m_profileCaptureSeconds;
+
+			ar >> size;
+			m_profileMeasureArray.SetSize(size);
+			for(int i=0;i<size;i++)
+				m_profileMeasureArray[i]=noDataColor;
+			// size+1 iterations: a fully-valid array writes size pairs and THEN the
+			// end marker, which must still be consumed to keep the stream in sync
+			for(int i=0;i<size+1;i++)
+			{
+				CColor inColor;
+				int j = 0;
+				inColor.Serialize(ar);
+				if (inColor.GetX() == 0.123 && inColor.GetY() == 0.456 && inColor.GetZ() == 0.789)
+					break;
+				else
+				{
+					ar >> j;
+					m_profileMeasureArray[j] = inColor;
+				}
+			}
+
+			int nAnchors;
+			ar >> nAnchors;
+			m_profileDriftAnchors.resize(nAnchors);
+			m_profileDriftAnchorIdx.resize(nAnchors);
+			for ( int i = 0; i < nAnchors; i++ )
+			{
+				ar >> m_profileDriftAnchorIdx[i];
+				m_profileDriftAnchors[i].Serialize(ar);
+			}
+		}
 		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
 
 	}
 	m_isModified = FALSE;
+}
+
+CColor CMeasure::GetProfileMeasure(int i) const
+{
+	ASSERT(i >= 0 && i < m_profileMeasureArray.GetSize());
+	return m_profileMeasureArray[i];
+}
+
+void CMeasure::ClearProfileMeasures()
+{
+	m_profileMeasureArray.SetSize(0);
+	m_profileDriftAnchors.clear();
+	m_profileDriftAnchorIdx.clear();
+	m_profileCubeSize = 0;
+	m_profileGrayExtras = FALSE;
+	m_profileDriftComp = FALSE;
+	m_profileCaptureSeconds = 0.0;
+	m_profileGenCache.clear();
+	m_profileGenCacheKey = -1;
+}
+
+ColorRGBDisplay CMeasure::GetProfilePatchRGB(int i)
+{
+	int key = m_profileCubeSize * 2 + ( m_profileGrayExtras ? 1 : 0 );
+	if ( key != m_profileGenCacheKey )
+	{
+		int n = GenerateProfileColors ( NULL, 0, m_profileCubeSize, m_profileGrayExtras != FALSE );
+		m_profileGenCache.assign ( ( n > 0 ) ? n : 0, ColorRGBDisplay(0.0) );
+		if ( n > 0 )
+			GenerateProfileColors ( &m_profileGenCache[0], n, m_profileCubeSize, m_profileGrayExtras != FALSE );
+		m_profileGenCacheKey = key;
+	}
+	if ( i < 0 || i >= (int)m_profileGenCache.size() )
+		return ColorRGBDisplay(0.0);
+	return m_profileGenCache[i];
+}
+
+// Theoretical reference for profile patch i: the same signal-path model the
+// grid applies to color-checker patches (GetRefCC24Sat's generic branch) --
+// gamma-decode, XYZ round-trip through the working color space, clamp, 8-bit
+// video quantization, then the configured gamma/EOTF -- sourced from the
+// generated patch stimulus instead of a CC table.
+void CMeasure::GetRefProfileSat(int i, CColor & ccRef)
+{
+	ColorRGBDisplay rgbd = GetProfilePatchRGB ( i );
+	CColorReference cRef = GetColorReference();
+	CColor White = GetGray ( GetGrayScaleSize() - 1 );
+	CColor Black = GetOnOffBlack();
+	double gamma = GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef);
+	CColor tempColor;
+	int mode = GetConfig()->m_GammaOffsetType;
+	if (GetConfig()->m_colorStandard == sRGB) mode = 99;
+
+	double r=pow(rgbd[0]/100.,2.22),g=pow(rgbd[1]/100.,2.22),b=pow(rgbd[2]/100.,2.22);
+
+	tempColor.SetRGBValue(ColorRGB(r,g,b), (GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4)?ContainerInnerReference(GetColorReference()):cRef);
+	ColorRGB aRGBColor = tempColor.GetRGBValue((GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4)?ContainerInnerReference(GetColorReference()):cRef);
+	r = aRGBColor[0];
+	g = aRGBColor[1];
+	b = aRGBColor[2];
+
+	// same NaN guard as GetRefCC24Sat: round-trip can go fractionally negative
+	if (r < 0.) r = 0.;
+	if (g < 0.) g = 0.;
+	if (b < 0.) b = 0.;
+
+	double qr,qg,qb;
+	if (mode == 5 || mode == 7)
+	{
+		qr = getL_EOTF(r,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
+		qg = getL_EOTF(g,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
+		qb = getL_EOTF(b,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
+		qr = floor( (qr * 219.) + 0.5 ) / 219.;
+		qg = floor( (qg * 219.) + 0.5 ) / 219.;
+		qb = floor( (qb * 219.) + 0.5 ) / 219.;
+		r = getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
+		g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
+		b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
+	}
+	if ( mode == 6 || mode == 4 || mode == 8 )
+	{
+		qr = (r==0)?0:pow(r, 1.0 / 2.22);
+		qg = (g==0)?0:pow(g, 1.0 / 2.22);
+		qb = (b==0)?0:pow(b, 1.0 / 2.22);
+		qr = floor( (qr * 219.) + 0.5 ) / 219.;
+		qg = floor( (qg * 219.) + 0.5 ) / 219.;
+		qb = floor( (qb * 219.) + 0.5 ) / 219.;
+		r=(r<=0||r>=1)?min(max(r,0),1):getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
+		g=(g<=0||g>=1)?min(max(g,0),1):getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
+		b=(b<=0||b>=1)?min(max(b,0),1):getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
+	}
+	else if ( mode < 4 )
+	{
+		qr = (r==0)?0:pow(r, 1.0 / 2.22);
+		qg = (g==0)?0:pow(g, 1.0 / 2.22);
+		qb = (b==0)?0:pow(b, 1.0 / 2.22);
+		qr = floor( (qr * 219.) + 0.5 ) / 219.;
+		qg = floor( (qg * 219.) + 0.5 ) / 219.;
+		qb = floor( (qb * 219.) + 0.5 ) / 219.;
+		r=(qr<=0||qr>=1)?min(max(qr,0),1):pow(qr, gamma);
+		g=(qg<=0||qg>=1)?min(max(qg,0),1):pow(qg, gamma);
+		b=(qb<=0||qb>=1)?min(max(qb,0),1):pow(qb, gamma);
+	}
+
+	ccRef.ClearSpectrumLux();
+	ccRef.SetRGBValue(ColorRGB(r,g,b),(GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4)?ContainerInnerReference(GetColorReference()):cRef);
 }
 
 void CMeasure::SetGrayScaleSize(int steps)
@@ -3671,6 +3850,288 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	UpdateViews(pDoc, 11);
 	m_isModified=TRUE;
 	m_CCStr=GetCCStr();
+	return TRUE;
+}
+
+static const int kProfileAnchorInterval = 64;	// patches between drift-compensation white anchors
+
+// Rescale the XYZ of profile patches [fromIdx, toIdx) by the reciprocal of a
+// drift factor interpolated linearly from fFrom (at the previous anchor) to
+// fTo (at the anchor just measured). Luminance-only correction: all three
+// components share the factor, so chromaticity is preserved. Spectral data,
+// when present, is intentionally left raw.
+void CMeasure::ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, double fTo)
+{
+	for ( int j = fromIdx; j < toIdx && j < m_profileMeasureArray.GetSize(); j++ )
+	{
+		if ( ! m_profileMeasureArray[j].isValid() )
+			continue;
+		double t = (double)( j - fromIdx + 1 ) / (double)( toIdx - fromIdx );
+		double f = fFrom + t * ( fTo - fFrom );
+		if ( f <= 0.0 )
+			continue;
+		double x = m_profileMeasureArray[j].GetX() / f;
+		double y = m_profileMeasureArray[j].GetY() / f;
+		double z = m_profileMeasureArray[j].GetZ() / f;
+		m_profileMeasureArray[j].SetXYZValue ( ColorXYZ(x, y, z) );
+	}
+}
+
+// Measure a full-white drift anchor before patch patchIdx. A valid anchor
+// closes the previous segment (retroactive correction) and becomes the new
+// segment start; an invalid sensor read is skipped rather than aborting an
+// hours-long capture. Returns false only when the generator itself fails.
+bool CMeasure::MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx)
+{
+	ColorRGBDisplay whiteRGB ( 100.0, 100.0, 100.0 );
+	if ( ! pGenerator->DisplayRGBColor ( whiteRGB, CGenerator::MT_SAT_CC24_USER, patchIdx, TRUE ) )
+		return false;
+	if ( WaitForDynamicIris ( FALSE, pDoc ) )
+		m_bAbortSweep = TRUE;
+	CColor anchor = PumpedRead ( am, pSensor, whiteRGB, displaymode );
+	if ( ! pSensor->IsMeasureValid() || ! anchor.isValid() || anchor.GetY() <= 0.0 )
+		return true;
+
+	if ( firstAnchorY <= 0.0 )
+	{
+		firstAnchorY = anchor.GetY();
+		prevFactor = 1.0;
+		prevIdx = patchIdx;
+	}
+	else
+	{
+		double f = anchor.GetY() / firstAnchorY;
+		ApplyProfileDriftSegment ( prevIdx, patchIdx, prevFactor, f );
+		prevFactor = f;
+		prevIdx = patchIdx;
+		m_profileCurrentDrift = f - 1.0;
+	}
+	m_profileDriftAnchors.push_back ( anchor );
+	m_profileDriftAnchorIdx.push_back ( patchIdx );
+	return true;
+}
+
+BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc, int cubeN, BOOL bGrayExtras, BOOL bDriftComp)
+{
+	SweepActiveGuard _sweepGuard(this);
+	if (!_sweepGuard.Owned()) return FALSE;
+	MSG			Msg;
+	BOOL		bEscape = FALSE;
+	BOOL		bPatternRetry = FALSE;
+	BOOL		bRetry = FALSE;
+	CString		strMsg, Title;
+	double		dLuxValue;
+
+	int size = GenerateProfileColors ( NULL, 0, cubeN, bGrayExtras != FALSE );
+	if ( size <= 0 || size > MAX_USER_CC_PATCH_SIZE )
+		return FALSE;
+
+	std::vector<ColorRGBDisplay> GenColors ( size );
+	if ( GenerateProfileColors ( &GenColors[0], size, cubeN, bGrayExtras != FALSE ) != size )
+		return FALSE;
+
+	BOOL	bUseLuxValues = TRUE;
+
+	if(pGenerator->Init(size) != TRUE)
+	{
+		Title.LoadString ( IDS_ERROR );
+		if (pGenerator->m_initShowedError) return FALSE;
+		strMsg.LoadString ( IDS_ERRINITGENERATOR );
+		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
+		return FALSE;
+	}
+
+	CGenerator::MeasureType nPattern = CGenerator::MT_SAT_CC24_USER;
+
+	if(pGenerator->CanDisplayScale ( nPattern, size ) != TRUE)
+	{
+		pGenerator->Release();
+		return FALSE;
+	}
+
+	if(pSensor->Init(FALSE) != TRUE)
+	{
+		Title.LoadString ( IDS_ERROR );
+		strMsg.LoadString ( IDS_ERRINITSENSOR );
+		GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
+		pGenerator->Release();
+		return FALSE;
+	}
+	CAsyncMeasurer asyncMeasure;
+	asyncMeasure.Start(pSensor);
+
+	// a new capture replaces the document's profile
+	ClearProfileMeasures();
+	m_profileCubeSize = cubeN;
+	m_profileGrayExtras = bGrayExtras;
+	m_profileDriftComp = bDriftComp;
+	m_profileMeasureArray.SetSize(size);
+	for (int i=0;i<size;i++)
+		m_profileMeasureArray[i] = noDataColor;
+	m_bProfilePause = FALSE;
+	m_profileCurrentDrift = 0.0;
+
+	double	firstAnchorY = 0.0;
+	double	prevAnchorFactor = 1.0;
+	int		prevAnchorIdx = 0;
+	DWORD	startTick = GetTickCount();
+	int		nDone = 0;
+
+	m_binMeasure = TRUE;
+	m_currentIndex = 0;
+
+	for(int i=0;i<size;i++)
+	{
+		if (i>0)
+			GetConfig()->m_isSettling=FALSE;
+		else
+			doSettling = GetConfig()->m_isSettling;
+
+		// pane-driven pause: idle between patches, keeping the UI responsive
+		while ( m_bProfilePause && ! m_bAbortSweep )
+		{
+			while ( PeekMessage ( & Msg, NULL, 0, 0, PM_REMOVE ) )
+			{
+				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
+					m_bAbortSweep = TRUE;
+				TranslateMessage ( & Msg );
+				DispatchMessage ( & Msg );
+			}
+			Sleep(50);
+		}
+		if ( m_bAbortSweep )
+			break;
+
+
+		// white drift anchor at capture start and every kProfileAnchorInterval patches
+		if ( bDriftComp && ( i % kProfileAnchorInterval ) == 0 && ! bRetry )
+		{
+			if ( ! MeasureProfileDriftAnchor ( asyncMeasure, pSensor, pGenerator, pDoc, i, firstAnchorY, prevAnchorFactor, prevAnchorIdx ) )
+			{
+				pSensor->Release();
+				pGenerator->Release();
+				ClearProfileMeasures();
+				return FALSE;
+			}
+			if ( m_bAbortSweep )
+				break;
+		}
+
+		m_currentIndex = i;
+		UpdateViews(pDoc, 13);
+
+		if (!i && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) == DISPLAY_GDI_Hide)
+			UpdateTstWnd(pDoc, -1);
+		if( pGenerator->DisplayRGBColor(GenColors[i], nPattern , i, !bRetry))
+		{
+			bEscape = WaitForDynamicIris (FALSE, pDoc);
+			bRetry = FALSE;
+
+			if ( ! bEscape )
+			{
+				if ( bUseLuxValues )
+					StartLuxMeasure ();
+
+				CColor measured = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
+
+				if ( bUseLuxValues )
+				{
+					switch ( GetLuxMeasure ( & dLuxValue ) )
+					{
+						case LUX_NOMEASURE:
+							 bUseLuxValues = FALSE;
+							 break;
+
+						case LUX_OK:
+							 measured.SetLuxValue ( dLuxValue );
+							 break;
+
+						case LUX_CANCELED:
+							 bEscape = TRUE;
+							 break;
+					}
+				}
+				if ( ! bUseLuxValues )
+					measured.ResetLuxValue ();
+
+				m_profileMeasureArray[i] = measured;
+				nDone = i + 1;
+			}
+
+			while ( PeekMessage ( & Msg, NULL, WM_KEYDOWN, WM_KEYUP, TRUE ) )
+			{
+				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
+					bEscape = TRUE;
+			}
+			if ( m_bAbortSweep ) bEscape = TRUE;
+
+			if ( bEscape )
+				break;		// Stop / ESC keeps the partial capture
+
+			if(!pSensor->IsMeasureValid())
+			{
+				Title.LoadString ( IDS_ERROR );
+				strMsg.LoadString ( IDS_ANERROROCCURED );
+				int result=GetColorApp()->InMeasureMessageBox(strMsg+pSensor->GetErrorString(),Title,MB_ABORTRETRYIGNORE | MB_ICONERROR);
+				if(result == IDABORT)
+					break;	// keep the partial capture
+				if(result == IDRETRY)
+				{
+					m_profileMeasureArray[i] = noDataColor;
+					i--;
+					bRetry = TRUE;
+				}
+			}
+			else
+			{
+				previousColor = lastColor;
+				lastColor = m_profileMeasureArray[i];
+
+				if(i != 0)
+				{
+					if (!pGenerator->HasPatternChanged(nPattern,previousColor,lastColor))
+					{
+						i--;
+						bPatternRetry = TRUE;
+					}
+				}
+			}
+		}
+		else
+		{
+			pSensor->Release();
+			pGenerator->Release();
+			ClearProfileMeasures();
+			return FALSE;
+		}
+	}
+
+	// final drift anchor closes the last open segment (also after Stop)
+	if ( bDriftComp && firstAnchorY > 0.0 && nDone > prevAnchorIdx )
+		MeasureProfileDriftAnchor ( asyncMeasure, pSensor, pGenerator, pDoc, nDone, firstAnchorY, prevAnchorFactor, prevAnchorIdx );
+
+	pSensor->Release();
+	pGenerator->Release();
+
+	if (bPatternRetry)
+		AfxMessageBox(pGenerator->GetRetryMessage(), MB_OK | MB_ICONWARNING);
+
+	GetConfig()->m_isSettling = doSettling;
+	m_profileCaptureSeconds = (GetTickCount() - startTick) / 1000.0;
+	m_profileDriftComp = bDriftComp && m_profileDriftAnchors.size() >= 2;
+	m_binMeasure = FALSE;
+	m_bProfilePause = FALSE;
+	m_currentIndex = nDone;
+
+	if ( nDone == 0 )
+	{
+		ClearProfileMeasures();
+		UpdateViews(pDoc, 13);
+		return FALSE;
+	}
+
+	UpdateViews(pDoc, 13);
+	m_isModified=TRUE;
 	return TRUE;
 }
 

@@ -147,6 +147,8 @@ static const SCtrlLayout g_DisplayComboLayout =
 
 static const SCtrlLayout g_3DDEFilterLayout =
 { IDC_3DVIEW_DE_FILTER, LAYOUT_LEFT, LAYOUT_LEFT, LAYOUT_TOP_OFFSET, LAYOUT_TOP_OFFSET };
+static const SCtrlLayout g_ProfilePaneLayout =
+{ IDC_PROFILE_PANE, LAYOUT_LEFT, LAYOUT_RIGHT, LAYOUT_TOP, LAYOUT_TOP_OFFSET };
 static const SCtrlLayout g_ParamComboLayout =
 { IDC_PARAMSTEPS_COMBO, LAYOUT_LEFT, LAYOUT_LEFT, LAYOUT_TOP, LAYOUT_TOP };
 
@@ -512,6 +514,7 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_WM_TIMER()
 	ON_CBN_SELCHANGE(IDC_INFO_DISPLAY, OnSelchangeInfoDisplay)
 	ON_BN_CLICKED(IDC_3DVIEW_DE_FILTER, On3DDEFilterClicked)
+	ON_BN_CLICKED(IDC_PROFILE_PANE, OnProfilePaneAction)
 	ON_CBN_SELCHANGE(IDC_DISPLAYTYPE_COMBO, OnSelchangeDisplayType)
 	ON_CBN_SELCHANGE(IDC_PARAMSTEPS_COMBO, OnSelchangeComboSteps)
 	ON_CBN_SELCHANGE(IDC_STIMLEVEL_COMBO, OnSelchangeComboStimLevel)
@@ -1210,6 +1213,16 @@ LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 			m_comboDisplay.AddString ( str3D );
 	}
 
+	// Same code-append trick for the measurement-mode combo: "Display profile"
+	// becomes mode 13 in every language build without touching the DLGINIT blobs.
+	if ( m_comboMode.GetSafeHwnd () )
+	{
+		CString strProf;
+		strProf.LoadString ( IDS_DISPLAYPROFILE );
+		if ( !strProf.IsEmpty () && m_comboMode.FindStringExact ( -1, strProf ) == CB_ERR )
+			m_comboMode.AddString ( strProf );
+	}
+
 	if ( m_dwInitialUserInfo != 0 )
 	{
 		// Set m_displayMode
@@ -1714,6 +1727,9 @@ void CMainView::InitGrid(bool sizeGrid)
 {
 	if(m_pGrayScaleGrid==NULL)
 		return;
+
+	if(m_displayMode == 13)
+		return;		// display profile: the grid is hidden, the pane owns the area
 
 	CDataSetDoc *	pDataRef = GetDataRef();
 
@@ -2590,6 +2606,13 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				 if ( m_displayMode != 12 )
 					nForceMode = 12;
 				 break;
+
+			case UPD_DISPLAYPROFILE:
+				 if ( m_displayMode != 13 )
+					nForceMode = 13;
+				 else if ( m_profilePane.GetSafeHwnd () )
+					m_profilePane.RefreshState ();
+				 break;
 		}
 
 		if ( nForceMode >= 0 )
@@ -2624,7 +2647,7 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		UpdateGrid();		
 		UpdateMeasurementsAfterBkgndMeasure ();
 	}
-	else if ( lHint >= UPD_REALTIME ) //optimized for realtime
+	else if ( lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE ) //optimized for realtime
 	{
 		last_minCol = GetDocument()->GetMeasure()->m_currentIndex;
 		minCol = last_minCol;
@@ -2636,6 +2659,41 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			OnSelchangeComboMode();
 			minCol = 1;
 			last_minCol = minCol;
+		}
+
+		if ( m_displayMode == 13 && m_profilePane.GetSafeHwnd () )
+		{
+			// per-patch progress during a profile capture; RefreshSelection is
+			// grid-bound (gated <= 11), so drive the reference widgets and the
+			// desktop test window directly for the on-screen patch
+			m_profilePane.OnCaptureProgress ();
+			CMeasure * pProfMeasure = GetDocument()->GetMeasure();
+			int nProfSize = pProfMeasure->GetProfileMeasureSize();
+			if ( nProfSize > 0 )
+			{
+				// desktop test window shows the patch being DISPLAYED (index cur)...
+				int cur = min ( pProfMeasure->m_currentIndex, nProfSize - 1 );
+				m_Target.Refresh ( GetDocument()->GetGenerator()->m_b16_235, cur + 1, nProfSize, 13, GetDocument(), CTargetWnd::TARGET_TESTWINDOW );
+
+				// ...while the reference widgets pair with the last MEASURED patch
+				// (cur - 1), whose color the selected-measure UI is showing.
+				// m_RefColor & co normally come from grid population, which mode 13
+				// skips - feed the comparator directly.
+				if ( pProfMeasure->m_currentIndex > 0 )
+				{
+					int done = min ( pProfMeasure->m_currentIndex - 1, nProfSize - 1 );
+					CColor profRef;
+					pProfMeasure->GetRefProfileSat ( done, profRef );
+					CColor w = pProfMeasure->GetPrimeWhite ();
+					if ( !w.isValid () )
+						w = pProfMeasure->GetOnOffWhite ();
+					m_RefColor = profRef;
+					m_RefWhite = 1.0;
+					m_YWhite = ( w.isValid () && w.GetY () > 0.0 ) ? w.GetY () : 1.0;
+					m_RGBLevels.Refresh ( done + 1, 13, nProfSize );
+					m_Target.Refresh ( GetDocument()->GetGenerator()->m_b16_235, done + 1, nProfSize, 13, GetDocument(), CTargetWnd::TARGET_TARGET );
+				}
+			}
 		}
 
 		RefreshSelection(FALSE); //this will update grid
@@ -3531,6 +3589,9 @@ LPSTR CMainView::GetGridRowLabel(int aComponentNum)
 
 void CMainView::UpdateGrid()
 {
+	if(m_displayMode == 13)
+		return;		// display profile: the grid is hidden, the pane owns the area
+
 
 	if (m_pGrayScaleGrid)
 	{
@@ -5664,6 +5725,27 @@ void CMainView::OnSelchangeComboMode()
 	if ( m_satAllLevelsButton.GetSafeHwnd () )
 		m_satAllLevelsButton.ShowWindow ( ( m_displayMode >= 5 && m_displayMode <= 10 ) ? SW_SHOW : SW_HIDE );
 
+	// mode 13 swaps the measures grid for the display-profile pane; the delete
+	// button is pointless there ("New profile" replaces the capture instead)
+	if ( m_profilePane.GetSafeHwnd () )
+	{
+		if ( m_displayMode == 13 )
+		{
+			if ( m_pGrayScaleGrid && m_pGrayScaleGrid->GetSafeHwnd () )
+				m_pGrayScaleGrid->ShowWindow ( SW_HIDE );
+			m_grayScaleDeleteButton.ShowWindow ( SW_HIDE );
+			m_profilePane.ShowWindow ( SW_SHOW );
+			m_profilePane.RefreshState ();
+		}
+		else
+		{
+			m_profilePane.ShowWindow ( SW_HIDE );
+			m_grayScaleDeleteButton.ShowWindow ( SW_SHOW );
+			if ( m_pGrayScaleGrid && m_pGrayScaleGrid->GetSafeHwnd () )
+				m_pGrayScaleGrid->ShowWindow ( SW_SHOW );
+		}
+	}
+
 	MsgAdd.LoadString ( IDS_CTRLCLICK_SIM );
 
 	switch ( m_displayMode )
@@ -5819,6 +5901,16 @@ void CMainView::OnSelchangeComboMode()
 			 m_grayScaleButton.SetTooltipText(Msg);
 		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-contrast"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 			 Msg.LoadString ( IDS_DELETECONTRAST );
+			 m_grayScaleDeleteButton.SetTooltipText(Msg);
+			 break;
+
+		case 13:
+			 Msg.LoadString ( IDS_DISPLAYPROFILE );
+			 m_grayScaleGroup.SetText ( Msg );
+			 Msg.LoadString ( IDS_MEASUREDISPLAYPROFILE );
+			 m_grayScaleButton.SetTooltipText(Msg);
+		 	 m_grayScaleButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("sat-colorchecker"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
+			 Msg.LoadString ( IDS_DELETEDISPLAYPROFILE );
 			 m_grayScaleDeleteButton.SetTooltipText(Msg);
 			 break;
 	}
@@ -6401,11 +6493,105 @@ void CMainView::OnMeasureGrayScale()
 			case 12:
 				 GetDocument()->OnMeasureContrast();
 				 break;
+
+			case 13:
+				 StartProfileCapture();
+				 break;
 		}
 	}
 }
 
-void CMainView::OnDeleteGrayscale() 
+void CMainView::StartProfileCapture()
+{
+	CDataSetDoc * pDoc = GetDocument();
+	if ( !pDoc || IsMeasureSweepActive() )
+		return;
+
+	// flip the info pane to the 3D viewer so the point cloud fills in live
+	if ( m_comboDisplay.GetSafeHwnd () )
+	{
+		CString str3D;
+		str3D.LoadString ( IDS_3DVIEW_NAME );
+		int idx = m_comboDisplay.FindStringExact ( -1, str3D );
+		if ( idx != CB_ERR && m_comboDisplay.GetCurSel () != idx )
+		{
+			m_comboDisplay.SetCurSel ( idx );
+			OnSelchangeInfoDisplay ();
+		}
+	}
+
+	m_profilePane.EnterRunning ();
+	pDoc->MeasureDisplayProfile ( m_profilePane.GetCubeSize (), m_profilePane.GetGrayExtras (), m_profilePane.GetDriftComp () );
+	m_profilePane.LeaveRunning ();
+}
+
+void CMainView::OnProfilePaneAction()
+{
+	CProfilePane::Action act = m_profilePane.GetPendingAction ();
+	m_profilePane.ClearPendingAction ();
+	CDataSetDoc * pDoc = GetDocument ();
+	if ( !pDoc )
+		return;
+	CMeasure * pMeasure = pDoc->GetMeasure ();
+
+	switch ( act )
+	{
+		case CProfilePane::PA_START:
+			StartProfileCapture ();
+			break;
+
+		case CProfilePane::PA_PAUSE:
+			// toggles; the capture loop idles between patches while set
+			if ( pMeasure && IsMeasureSweepActive () )
+			{
+				pMeasure->m_bProfilePause = !pMeasure->m_bProfilePause;
+				m_profilePane.SetPaused ( pMeasure->m_bProfilePause );
+			}
+			break;
+
+		case CProfilePane::PA_INSPECT:
+			if ( pMeasure && m_profilePane.GetInspectIndex () >= 0 )
+			{
+				int idx = m_profilePane.GetInspectIndex ();
+				if ( idx < pMeasure->GetProfileMeasureSize () )
+				{
+					CColor sel = pMeasure->GetProfileMeasure ( idx );
+
+					// reference + comparator follow the inspected patch (grid
+					// population normally feeds m_RefColor; mode 13 has no grid)
+					CColor profRef;
+					pMeasure->GetRefProfileSat ( idx, profRef );
+					CColor w = pMeasure->GetPrimeWhite ();
+					if ( !w.isValid () )
+						w = pMeasure->GetOnOffWhite ();
+					m_RefColor = profRef;
+					m_RefWhite = 1.0;
+					m_YWhite = ( w.isValid () && w.GetY () > 0.0 ) ? w.GetY () : 1.0;
+
+					if ( sel.isValid () )
+						SetSelectedColor ( sel );
+
+					m_RGBLevels.Refresh ( idx + 1, 13, pMeasure->GetProfileMeasureSize () );
+					m_Target.Refresh ( pDoc->GetGenerator()->m_b16_235, idx + 1, pMeasure->GetProfileMeasureSize (), 13, pDoc, CTargetWnd::TARGET_TARGET );
+
+					// halo the patch in any live 3D view (info pane or full tab)
+					POSITION pos = pDoc->GetFirstViewPosition ();
+					while ( pos != NULL )
+					{
+						CView * pView = pDoc->GetNextView ( pos );
+						if ( pView != NULL && pView->IsKindOf ( RUNTIME_CLASS ( C3DColorView ) ) )
+							( (C3DColorView *)pView )->SelectProfilePoint ( idx );
+					}
+				}
+			}
+			break;
+
+		default:
+			break;
+	}
+}
+
+void CMainView::OnDeleteGrayscale()
 {
 	if ( IsMeasureSweepActive() ) return;
 	BOOL	bSelectionOnly = FALSE;
@@ -6414,7 +6600,22 @@ void CMainView::OnDeleteGrayscale()
 
 	Msg.LoadString ( IDS_CONFIRMDELETE );
 	Title.LoadString ( IDS_CALIBRATION );
-	
+
+	if ( m_displayMode == 13 )
+	{
+		// Display profile: delete clears the whole capture after confirmation
+		CMeasure * pProfMeasure = GetDocument()->GetMeasure();
+		if ( !pProfMeasure->HasProfileMeasures() )
+			return;
+		if ( MessageBox ( Msg, Title, MB_YESNO | MB_ICONQUESTION ) == IDYES )
+		{
+			pProfMeasure->ClearProfileMeasures();
+			GetDocument()->SetModifiedFlag(TRUE);
+			GetDocument()->UpdateAllViews(NULL, UPD_DISPLAYPROFILE);
+		}
+		return;
+	}
+
 	if ( m_displayMode == 2 )
 	{
 		// Special case: free measurements can be deleted by selection or totally
@@ -7043,6 +7244,25 @@ void CMainView::InitButtons()
 		::ScreenToClient(m_hWnd, (LPPOINT)&pSeg->m_Rect.right);
 		pSeg->m_pLayout = &g_3DDEFilterLayout;
 		m_CtrlInitPos.AddTail(pSeg);
+	}
+
+	// Display-profile pane: occupies the measures-grid rectangle, shown only in
+	// mode 13 (grid hidden). Same anchoring as the grid so both resize together.
+	if (m_profilePane.GetSafeHwnd() == NULL && m_pGrayScaleGrid && m_pGrayScaleGrid->GetSafeHwnd())
+	{
+		CRect rcGrid;
+		m_pGrayScaleGrid->GetWindowRect(&rcGrid);
+		ScreenToClient(&rcGrid);
+		m_profilePane.Create(rcGrid, this, IDC_PROFILE_PANE);
+		m_profilePane.SetDocument(GetDocument());
+
+		SCtrlInitPos* pPane = new SCtrlInitPos;
+		pPane->m_hWnd = m_profilePane.GetSafeHwnd();
+		::GetWindowRect(pPane->m_hWnd, &pPane->m_Rect);
+		::ScreenToClient(m_hWnd, (LPPOINT)&pPane->m_Rect.left);
+		::ScreenToClient(m_hWnd, (LPPOINT)&pPane->m_Rect.right);
+		pPane->m_pLayout = &g_ProfilePaneLayout;
+		m_CtrlInitPos.AddTail(pPane);
 	}
 
 	// Per-mode pattern-parameter dropdowns (steps / stimulus level), positioned by

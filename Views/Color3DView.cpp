@@ -169,6 +169,7 @@ C3DColorView::C3DColorView()
 	: CSavingView()
 	, m_sceneDirty(true)
 	, m_freeInScene(0)
+	, m_profileInScene(0)
 	, m_baseValid(false)
 	, m_gamutValid(false)
 	, m_texDC(NULL), m_texBmp(NULL), m_texOld(NULL), m_texBits(NULL), m_texW(0), m_texH(0), m_texSig(-1)
@@ -458,11 +459,14 @@ void C3DColorView::BuildScene()
 		AppendMeasure( c, whiteY, ref, refC, refC, false, whiteY, lbl, SRC_CC24, i );
 	}
 
-	// Free measures: this is where a large display profile (thousands of patches,
-	// the future 3D-LUT source) accumulates. Shared with the incremental
-	// UPD_FREEMEASUREAPPENDED path.
+	// Free measures. Shared with the incremental UPD_FREEMEASUREAPPENDED path.
 	m_freeInScene = 0;
 	AppendNewFreeMeasures();
+
+	// Display profile patches (dense cube capture, the 3D-LUT source). Shared
+	// with the incremental per-patch path driven by UPD_REALTIME+13.
+	m_profileInScene = 0;
+	AppendNewProfileMeasures();
 
 	BuildGamut( ref );
 	EnsureTongueTexture( ref );
@@ -1489,11 +1493,74 @@ void C3DColorView::AppendNewFreeMeasures()
 	m_freeInScene = n;
 }
 
+
+void C3DColorView::AppendNewProfileMeasures()
+{
+	CDataSetDoc * pDoc = GetDocument();
+	if ( pDoc == NULL || pDoc->GetMeasure() == NULL )
+		return;
+	CMeasure * pMeasure = pDoc->GetMeasure();
+
+	int n = pMeasure->GetProfileMeasureSize();
+	if ( m_profileInScene > 0 &&
+		 ( m_profileInScene > n || !pMeasure->GetProfileMeasure( m_profileInScene - 1 ).isValid() ) )
+	{
+		// a new capture replaced the array underneath the scene: full rebuild
+		m_sceneDirty = true;
+		return;
+	}
+
+	CColorReference ref = GetColorReference();
+	double whiteY = 1.0;
+	CColor cw = pMeasure->GetPrimeWhite();
+	if ( !cw.isValid() || cw.GetY() <= 0.0 )
+		cw = pMeasure->GetOnOffWhite();
+	if ( cw.isValid() && cw.GetY() > 0.0 )
+		whiteY = cw.GetY();
+
+	for ( int i = m_profileInScene; i < n; i++ )
+	{
+		CColor c = pMeasure->GetProfileMeasure( i );
+		if ( !c.isValid() )
+			break;			// patches fill in capture order; stop at the frontier
+		CColor refC;
+		pMeasure->GetRefProfileSat( i, refC );
+		ColorRGBDisplay rgb = pMeasure->GetProfilePatchRGB( i );
+		wchar_t lbl[64];
+		swprintf( lbl, 64, L"Profile #%d (RGB %.0f,%.0f,%.0f)", i + 1, rgb[0], rgb[1], rgb[2] );
+		AppendMeasure( c, whiteY, ref, refC, refC, false, whiteY, lbl, SRC_PROFILE, i );
+		m_profileInScene = i + 1;
+	}
+}
+
+void C3DColorView::SelectProfilePoint(int patchIdx)
+{
+	for ( size_t i = 0; i < m_points.size(); i++ )
+	{
+		if ( m_points[i].srcType == SRC_PROFILE && m_points[i].srcA == patchIdx )
+		{
+			m_selected = (int)i;
+			if ( ::IsWindow( m_hWnd ) )
+				Invalidate( FALSE );
+			return;
+		}
+	}
+}
+
 void C3DColorView::OnUpdate(CView* /*pSender*/, LPARAM lHint, CObject* /*pHint*/)
 {
 	if ( lHint == UPD_FREEMEASUREAPPENDED && !m_sceneDirty && !m_points.empty() )
 	{
 		AppendNewFreeMeasures();
+		if ( ::IsWindow( m_hWnd ) )
+			Invalidate( FALSE );
+		return;
+	}
+	if ( lHint == UPD_REALTIME + 13 && !m_sceneDirty && !m_points.empty() )
+	{
+		// per-patch profile-capture hint: incremental append, no full rebuild
+		// (AppendNewProfileMeasures marks the scene dirty itself when stale)
+		AppendNewProfileMeasures();
 		if ( ::IsWindow( m_hWnd ) )
 			Invalidate( FALSE );
 		return;
@@ -1672,6 +1739,7 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 		case SRC_SAT:       nAvail = pM->GetSaturationSize();     break;
 		case SRC_CC24:      nAvail = MAX_USER_CC_PATCH_SIZE;      break;
 		case SRC_FREE:      nAvail = pM->GetMeasurementsSize();   break;
+		case SRC_PROFILE:   nAvail = pM->GetProfileMeasureSize(); break;
 	}
 	if ( S.srcA < 0 || S.srcA >= nAvail )
 		return;
@@ -1686,6 +1754,7 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 		case SRC_SECONDARY: sel = pM->GetSecondary( S.srcA ); break;
 		case SRC_CC24:      sel = pM->GetCC24Sat( S.srcA );   break;
 		case SRC_FREE:      sel = pM->GetMeasurement( S.srcA ); break;
+		case SRC_PROFILE:   sel = pM->GetProfileMeasure( S.srcA ); break;
 		case SRC_SAT:
 			// The clicked point may belong to a non-active stimulus level; make that
 			// level active (so the grid, CIE chart and stimulus dropdown follow) and
@@ -1724,6 +1793,7 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 		case SRC_NEARWHITE: mode = 4;            col = S.srcA + 1; break;
 		case SRC_SAT:       mode = 5 + S.srcB;   col = S.srcA + 1; break;
 		case SRC_CC24:      mode = 11;           col = S.srcA + 1; break;
+		case SRC_PROFILE:   mode = 13;           col = -1;         break;	// pane, no grid columns
 	}
 
 	POSITION pos = pDoc->GetFirstViewPosition();

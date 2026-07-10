@@ -1267,7 +1267,17 @@ void CDataSetDoc::MeasureCC24SatScale()
 	UpdateAllViews(NULL, UPD_CC24SAT);
 }
 
-void CDataSetDoc::MeasureAllSaturationScales() 
+void CDataSetDoc::MeasureDisplayProfile(int cubeN, BOOL bGrayExtras, BOOL bDriftComp)
+{
+	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
+
+	if(m_measure.MeasureDisplayProfile(m_pSensor,m_pGenerator,this,cubeN,bGrayExtras,bDriftComp))
+		SetModifiedFlag(m_measure.IsModified());
+	UpdateAllViews(NULL, UPD_DISPLAYPROFILE);
+}
+
+void CDataSetDoc::MeasureAllSaturationScales()
 {
 	StopBackgroundMeasures ();
 	MeasureButtonStopScope _btn(this);

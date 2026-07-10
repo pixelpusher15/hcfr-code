@@ -93,7 +93,12 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		if (minCol > 0)
 		{
 
-			if (m_displayMode == 11)
+			if (m_displayMode == 13)	// display profile patch
+			{
+				m_bLumaMode = TRUE;
+				m_pDocument->GetMeasure()->GetRefProfileSat(minCol-1, aReference);
+			}
+			else if (m_displayMode == 11)
 			{
 				m_bLumaMode = TRUE;
 				m_pDocument->GetMeasure()->GetRefCC24Sat(minCol-1, aReference);

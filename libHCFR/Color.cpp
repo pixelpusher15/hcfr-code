@@ -2806,6 +2806,69 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 	return cnt;
 }
 
+static int AppendProfileGray(ColorRGBDisplay* GenColors, int maxEntries, int cnt, int cubeN, double level)
+{
+	if ( cnt < 0 )
+		return -1;
+	// skip levels the cube's own gray diagonal already covers
+	const double step = 100.0 / (cubeN - 1);
+	double k = level / step;
+	if ( fabs(k - floor(k + 0.5)) < 1e-6 )
+		return cnt;
+	if ( GenColors )
+	{
+		if ( cnt >= maxEntries )
+			return -1;
+		GenColors[cnt] = ColorRGBDisplay(level, level, level);
+	}
+	return cnt + 1;
+}
+
+// Display profile patch set: full N^3 RGB cube in generation order (r slowest,
+// b fastest, each channel at i*100/(N-1) percent), optionally followed by extra
+// gray-axis samples: near-black levels below 10%, then a 5% gray ramp from 10%,
+// both skipping levels the cube diagonal already covers. The order is
+// deterministic so a saved document regenerates the exact list from
+// (cubeN, bGrayExtras) alone - changing it breaks saved profiles.
+// Pass GenColors == NULL to get the patch count without filling a buffer.
+// Returns the patch count, or -1 on a bad cube size / buffer overflow.
+int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, int cubeN, bool bGrayExtras)
+{
+	if ( cubeN < 2 || cubeN > 21 )
+		return -1;
+
+	int cnt = 0;
+	const double step = 100.0 / (cubeN - 1);
+
+	for ( int r = 0; r < cubeN; r++ )
+	{
+		for ( int g = 0; g < cubeN; g++ )
+		{
+			for ( int b = 0; b < cubeN; b++ )
+			{
+				if ( GenColors )
+				{
+					if ( cnt >= maxEntries )
+						return -1;
+					GenColors[cnt] = ColorRGBDisplay(r * step, g * step, b * step);
+				}
+				cnt++;
+			}
+		}
+	}
+
+	if ( bGrayExtras )
+	{
+		static const double nearBlack[] = { 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0 };
+		for ( int i = 0; i < (int)(sizeof(nearBlack)/sizeof(nearBlack[0])); i++ )
+			cnt = AppendProfileGray(GenColors, maxEntries, cnt, cubeN, nearBlack[i]);
+		for ( int lvl = 10; lvl <= 95; lvl += 5 )
+			cnt = AppendProfileGray(GenColors, maxEntries, cnt, cubeN, (double)lvl);
+	}
+
+	return cnt;
+}
+
 bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode)
 {
 	//six cases, one for GCD sequence, one for Mascior's disk (Chromapure based), and four different generator only cases

@@ -364,6 +364,7 @@
     </ClCompile>
     <ClCompile Include="Views\Color3DView.cpp" />
     <ClCompile Include="Views\DEFilterSegments.cpp" />
+    <ClCompile Include="Views\ProfilePane.cpp" />
     <ClCompile Include="Views\ColorTempHistoView.cpp">
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -910,6 +911,7 @@
     <ClInclude Include="Views\CIEChartView.h" />
     <ClInclude Include="Views\Color3DView.h" />
     <ClInclude Include="Views\DEFilterSegments.h" />
+    <ClInclude Include="Views\ProfilePane.h" />
     <ClInclude Include="Views\ColorTempHistoView.h" />
     <ClInclude Include="CSpreadSheet.h" />
     <ClInclude Include="DuplicateDocDlg.h" />

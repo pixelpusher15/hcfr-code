@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -59,6 +59,10 @@
 #define UPD_FREEMEASUREAPPENDED			24
 #define UPD_CC24SAT						25
 #define UPD_REALTIME					26
+// UPD_REALTIME is a BASE: sweeps broadcast UPD_REALTIME + <grid display mode>,
+// so 27..40 are implicitly taken. Discrete hints above 26 must be explicitly
+// excluded from CMainView::OnUpdate's `lHint >= UPD_REALTIME` branch.
+#define UPD_DISPLAYPROFILE				50
 
 class CColorTempHistoView;
 class CRGBHistoView;
@@ -116,6 +120,7 @@ public:
 	void MeasureCyanSatScale();
 	void MeasureMagentaSatScale();
 	void MeasureCC24SatScale();
+	void MeasureDisplayProfile(int cubeN, BOOL bGrayExtras, BOOL bDriftComp);
 	void MeasureAllSaturationScales();
 	void MeasurePrimarySaturationScales();
 	void MeasurePrimarySecondarySaturationScales();
