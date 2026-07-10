@@ -549,6 +549,7 @@ END_MESSAGE_MAP()
 // Tool functions and variables implemented in DataSetDoc.cpp
 BOOL StartBackgroundMeasures ( CDataSetDoc * pDoc );
 void StopBackgroundMeasures ();
+BOOL IsAllLevelsSweepActive ();
 extern CDataSetDoc *	g_pDataDocRunningThread;
 extern BOOL				g_bTerminateThread;
 extern CWinThread*			g_hThread;
@@ -5854,7 +5855,12 @@ void CMainView::OnSelchangeComboMode()
 	if(m_pGrayScaleGrid)
 		UpdateGrid();
 	if ( IsMeasureSweepActive() )
-		SetMeasureButtonStop ( TRUE );
+	{
+		if ( IsAllLevelsSweepActive() )
+			SetAllLevelsButtonStop ( TRUE );
+		else
+			SetMeasureButtonStop ( TRUE );
+	}
 }
 
 BOOL CMainView::CurrentModeSweepHasData()
@@ -6287,7 +6293,28 @@ void CMainView::SetMeasureButtonStop(BOOL bStop)
 		SetMeasureButtonForMode ();
 }
 
-void CMainView::OnMeasureGrayScale() 
+void CMainView::SetAllLevelsButtonStop(BOOL bStop)
+{
+	if ( !m_satAllLevelsButton.GetSafeHwnd () )
+		return;
+
+	if ( bStop )
+	{
+		m_satAllLevelsButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-stop"), (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(24,GetSafeHwnd()), HCFR_ScaleIconPx(24,GetSafeHwnd()) ), (HICON)NULL );
+		CString sStop; sStop.LoadString ( IDS_STOPSWEEP ); m_satAllLevelsButton.SetTooltipText ( sStop );
+		CString sBtn; sBtn.LoadString ( IDS_STOP_BTN ); m_satAllLevelsButton.SetWindowText ( sBtn );
+		m_satAllLevelsButton.SetRoundedBorder ( RGB(211,47,47) );   // red: measuring (click to stop)
+	}
+	else
+	{
+		m_satAllLevelsButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-sat-all"), (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(24,GetSafeHwnd()), HCFR_ScaleIconPx(24,GetSafeHwnd()) ), (HICON)NULL );
+		CString sBtn; sBtn.LoadString ( IDS_ALLSTIM_BTN ); m_satAllLevelsButton.SetWindowText ( sBtn );
+		CString sTip; sTip.LoadString ( IDS_ALLSTIM_TIP ); m_satAllLevelsButton.SetTooltipText ( sTip );
+		m_satAllLevelsButton.SetRoundedBorder ( ButtonBorderColor() );
+	}
+}
+
+void CMainView::OnMeasureGrayScale()
 {
 	if ( IsMeasureSweepActive() )
 	{
@@ -9215,7 +9242,13 @@ void CMainView::OnRefs()
 
 void CMainView::OnMeasureSatColorAllLevels()
 {
-	if ( IsMeasureSweepActive() ) return;
+	// While a sweep runs this button shows the red "click to stop" state
+	// (SetAllLevelsButtonStop), so a click here must abort -- mirror OnMeasureGrayScale.
+	if ( IsMeasureSweepActive() )
+	{
+		GetDocument()->GetMeasure()->AbortMeasure();
+		return;
+	}
 	if ( m_displayMode < 5 || m_displayMode > 10 ) return;   // saturation modes only
 	GetDocument()->MeasureSatColorAllLevels( m_displayMode - 5 );   // 0=R..5=M
 }
@@ -9223,5 +9256,19 @@ void CMainView::OnMeasureSatColorAllLevels()
 BOOL CMainView::PreTranslateMessage(MSG* pMsg)
 {
 	m_tooltip.RelayEvent(pMsg);
+
+	// Continuous free-run measurement (case 2's "Run continuous" toggle) is driven by a
+	// background thread that has no accelerator wired to it -- Escape falls through untouched,
+	// so the Go button is stuck showing its red "click to stop" state. Only act when this view's
+	// own document owns the running thread: OnContinuousMeasurement() toggles based on
+	// g_pDataDocRunningThread, and calling it for an unrelated document would stop that one and
+	// start a new run here instead of just cancelling.
+	if ( pMsg->message == WM_KEYDOWN && pMsg->wParam == VK_ESCAPE &&
+	     g_pDataDocRunningThread && g_pDataDocRunningThread == GetDocument() )
+	{
+		GetDocument()->OnContinuousMeasurement();
+		return TRUE;
+	}
+
 	return CWnd::PreTranslateMessage(pMsg);
 }
