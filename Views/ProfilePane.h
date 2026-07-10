@@ -37,9 +37,10 @@ class CProfilePane : public CWnd
 {
 public:
 	enum State  { PS_SETUP = 0, PS_RUNNING, PS_SUMMARY };
-	enum Action { PA_NONE = 0, PA_START, PA_PAUSE, PA_NEWPROFILE, PA_INSPECT };
+	enum Action { PA_NONE = 0, PA_START, PA_PAUSE, PA_STOP, PA_INSPECT, PA_REFS };
 
 	CProfilePane();
+	virtual ~CProfilePane();
 
 	BOOL Create(const CRect & rc, CWnd * pParent, UINT nID);
 
@@ -65,7 +66,8 @@ public:
 protected:
 	// hover-tracking ids for owner-drawn interactive elements
 	enum Hot { HOT_NONE = -1, HOT_PRESET_FIRST = 0, HOT_PRESET_LAST = 4,
-			   HOT_START = 10, HOT_PAUSE = 11, HOT_NEWPROFILE = 12,
+			   HOT_START = 10, HOT_PAUSE = 11, HOT_STOP = 12,
+			   HOT_REFS = 13, HOT_CTX = 14,		// chrome buttons (client-space)
 			   HOT_WORST_FIRST = 100 };
 
 	// stats over the measured profile, recomputed lazily (m_statsValid)
@@ -119,13 +121,28 @@ protected:
 	SProfStats		m_stats;
 	bool			m_statsValid;
 
-	// hover state
+	// hover + press state (buttons activate on release, over the same element)
 	int				m_hot;
+	int				m_pressed;
 	bool			m_trackingMouse;
 
-	// hit-test rectangles rebuilt on every paint
+	// self-drawn pane frame: content is inset below the title and inside the
+	// border, so the Paint* methods draw in a translated (0,0)-origin space and
+	// mouse points are shifted back by (m_contentDX, m_contentDY)
+	int				m_contentDX, m_contentDY;
+
+	// References-button PNG icon (same asset as the toolbar Refs button), cached
+	// and reloaded on theme change
+	HICON			m_hRefIcon;
+	bool			m_refIconDark;
+
+	// hit-test rectangles rebuilt on every paint.
+	// chrome buttons (m_rcRefs, m_rcCtx) are in pane CLIENT coords; body rects
+	// (presets, start, pause, stop, worst rows) are in translated CONTENT coords.
+	CRect			m_rcRefs, m_rcCtx;			// client-space chrome
+	CString			m_ctxLabel;					// "" hides the context button
 	CRect			m_rcPresets[5];
-	CRect			m_rcStart, m_rcPause, m_rcNewProfile;
+	CRect			m_rcStart, m_rcPause, m_rcStop;
 	std::vector<std::pair<CRect,int> > m_rcWorstRows;	// rect -> patch index
 
 	CMeasure * Measure() const;
@@ -137,8 +154,11 @@ protected:
 	int  PatchCountFor(int preset) const;
 	double EstimateSeconds(int patches) const;
 	int  HotFromPoint(CPoint pt) const;
+	void ActivateHot(int hotId);	// perform the action for a pressed-and-released element
 	void SyncChildren();		// checkbox visibility/position/state per pane state
 
+	void PaintChrome(Gdiplus::Graphics & g, const CRect & client, bool dark);	// title + status + buttons (client space)
+	CString StatusLine() const;	// per-state text for the chrome status slot
 	void PaintSetup(Gdiplus::Graphics & g, const CRect & rc, bool dark);
 	void PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool dark);
 	void PaintSummary(Gdiplus::Graphics & g, const CRect & rc, bool dark);
@@ -149,6 +169,7 @@ protected:
 	afx_msg void OnPaint();
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
 	afx_msg void OnLButtonDown(UINT nFlags, CPoint point);
+	afx_msg void OnLButtonUp(UINT nFlags, CPoint point);
 	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
 	afx_msg LRESULT OnMouseLeave(WPARAM wParam, LPARAM lParam);
 	afx_msg void OnSize(UINT nType, int cx, int cy);

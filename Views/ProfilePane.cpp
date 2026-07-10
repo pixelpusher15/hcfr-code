@@ -22,6 +22,7 @@
 #include "Measure.h"
 #include "ProfilePane.h"
 #include "fxcolor.h"
+#include "PngIconLoader.h"
 #include <uxtheme.h>
 #include <math.h>
 #include <algorithm>
@@ -58,6 +59,7 @@ BEGIN_MESSAGE_MAP(CProfilePane, CWnd)
 	ON_WM_PAINT()
 	ON_WM_ERASEBKGND()
 	ON_WM_LBUTTONDOWN()
+	ON_WM_LBUTTONUP()
 	ON_WM_MOUSEMOVE()
 	ON_MESSAGE(WM_MOUSELEAVE, OnMouseLeave)
 	ON_WM_SIZE()
@@ -79,7 +81,12 @@ CProfilePane::CProfilePane()
 	, m_runDECount(0)
 	, m_statsValid(false)
 	, m_hot(HOT_NONE)
+	, m_pressed(HOT_NONE)
 	, m_trackingMouse(false)
+	, m_contentDX(0)
+	, m_contentDY(0)
+	, m_hRefIcon(NULL)
+	, m_refIconDark(false)
 {
 	m_preset = GetConfig()->GetProfileInt("MainView", "Profile Preset", 1);
 	if ( m_preset < 0 || m_preset > 4 ) m_preset = 1;
@@ -87,11 +94,24 @@ CProfilePane::CProfilePane()
 	m_driftComp = GetConfig()->GetProfileInt("MainView", "Profile DriftComp", 1);
 }
 
+CProfilePane::~CProfilePane()
+{
+	if ( m_hRefIcon )
+		DestroyIcon( m_hRefIcon );
+}
+
 BOOL CProfilePane::Create(const CRect & rc, CWnd * pParent, UINT nID)
 {
 	if ( !CWnd::Create( AfxRegisterWndClass( 0, ::LoadCursor( NULL, IDC_ARROW ) ),
 						NULL, WS_CHILD | WS_CLIPCHILDREN, rc, pParent, nID ) )
 		return FALSE;
+
+	// Frame/title insets are size-independent constants; compute them once here
+	// so SyncChildren (which can run on WM_SIZE before the first WM_PAINT) always
+	// reads valid offsets. OnPaint reasserts the same values.
+	// contentDY = header height (Scale 34) + Scale(12) gap below it.
+	m_contentDX = GetConfig()->Scale( 12 );
+	m_contentDY = GetConfig()->Scale( 34 ) + GetConfig()->Scale( 12 );
 
 	// standard Windows checkboxes as real child controls
 	CRect rcInit( 0, 0, 10, 10 );
@@ -150,15 +170,25 @@ void CProfilePane::SyncChildren()
 	m_chkDriftComp.ShowWindow( show ? SW_SHOW : SW_HIDE );
 	if ( show )
 	{
+		// Checkboxes are real child controls STACKED on the left, one below the
+		// other under the preset cards; their width is capped to the left half so
+		// their windows never reach the right-pinned Start button (a child window
+		// there would punch an opaque hole through the owner-drawn button).
+		// Positions mirror PaintSetup's content layout, shifted into pane client
+		// coords by the frame/title inset (m_contentDX/DY).
 		CRect rc;
 		GetClientRect( &rc );
-		int mgn = GetConfig()->Scale( 12 );
-		int cardBottom = mgn + GetConfig()->Scale( 30 ) + GetConfig()->Scale( 84 );
+		int contentW = rc.Width() - 2 * m_contentDX;
+		int contentBottom = rc.Height() - GetConfig()->Scale( 12 );	// matches OnPaint's bottom inset
 		int h = GetConfig()->Scale( 20 );
-		int w = GetConfig()->Scale( 330 );
-		m_chkGrayExtras.MoveWindow( mgn, cardBottom + GetConfig()->Scale( 12 ), w, h );
-		m_chkDriftComp.MoveWindow( mgn, cardBottom + GetConfig()->Scale( 12 ) + h + GetConfig()->Scale( 8 ),
-								   GetConfig()->Scale( 420 ), h );
+		int x = m_contentDX;
+		int w = min( GetConfig()->Scale( 360 ), contentW / 2 - GetConfig()->Scale( 10 ) );
+		if ( w < GetConfig()->Scale( 120 ) ) w = GetConfig()->Scale( 120 );
+		// stacked, anchored to the content bottom (same row band as the Start button)
+		int y2 = contentBottom - h;						// bottom checkbox row
+		int y1 = y2 - h - GetConfig()->Scale( 6 );		// row above it
+		m_chkGrayExtras.MoveWindow( x, y1, w, h );
+		m_chkDriftComp.MoveWindow( x, y2, w, h );
 		m_chkGrayExtras.SetCheck( m_grayExtras ? BST_CHECKED : BST_UNCHECKED );
 		m_chkDriftComp.SetCheck( m_driftComp ? BST_CHECKED : BST_UNCHECKED );
 	}
@@ -330,13 +360,20 @@ BOOL CProfilePane::OnCommand(WPARAM wParam, LPARAM lParam)
 
 HBRUSH CProfilePane::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 {
-	// checkbox labels sit on the pane's custom background
-	static CBrush s_darkBrush( RGB(48,48,50) );
-	static CBrush s_lightBrush( RGB(255,255,255) );
-	const bool dark = ( fxUseCustomColor != FALSE );
+	// checkbox labels sit on the pane BODY, which is the panel fill; match it
+	// exactly (and follow theme changes) so the label background never conflicts
+	static CBrush s_brush;
+	static COLORREF s_col = CLR_INVALID;
+	COLORREF bg = FxGetMenuBgColor();
+	if ( bg != s_col )
+	{
+		s_brush.DeleteObject();
+		s_brush.CreateSolidBrush( bg );
+		s_col = bg;
+	}
 	pDC->SetBkMode( TRANSPARENT );
-	pDC->SetTextColor( dark ? RGB(235,235,240) : RGB(28,28,32) );
-	return dark ? (HBRUSH)s_darkBrush.GetSafeHandle() : (HBRUSH)s_lightBrush.GetSafeHandle();
+	pDC->SetTextColor( FxGetSysColor( COLOR_WINDOWTEXT ) );
+	return (HBRUSH)s_brush.GetSafeHandle();
 }
 
 void CProfilePane::OnSize(UINT nType, int cx, int cy)
@@ -368,6 +405,16 @@ static Gdiplus::Color DEColor(double dE, double good, double warn)
 	return Gdiplus::Color( 229, 87, 86 );
 }
 
+// dE colours tuned for TEXT legibility on the pane body (bar fills use DEColor).
+static Gdiplus::Color DETextColor(double dE, double good, double warn, bool dark)
+{
+	if ( dE < good )
+		return dark ? Gdiplus::Color( 124, 200, 110 ) : Gdiplus::Color(  56, 128,  40 );	// green
+	if ( dE < warn )
+		return dark ? Gdiplus::Color( 236, 178,  92 ) : Gdiplus::Color( 170, 106,  16 );	// amber
+	return dark ? Gdiplus::Color( 238, 122, 120 ) : Gdiplus::Color( 188,  52,  52 );		// red
+}
+
 // approximate display swatch for a stimulus percent triplet
 static Gdiplus::Color SwatchColor(const ColorRGBDisplay & rgb)
 {
@@ -389,50 +436,57 @@ static CString FormatDuration(double secs)
 	return s;
 }
 
+// Colours mirror the app theme (SetFxColors: window/menu/accent/text) so the
+// pane reads as a sibling of the View/Sensor/Generator panels.
+//   body   = window colour   (recessed area, matches the data-grid background)
+//   header = menu/panel colour (raised header strip; also the stat chips, cards
+//            and secondary buttons)
+//   border = panel border, accent = selection blue.
 struct SPaneTheme
 {
-	Gdiplus::Color face, card, cardHot, cardSel, cardSelHot, border, borderSel,
+	Gdiplus::Color body, header, card, cardHot, cardSel, cardSelHot, border, btnBorder, borderSel,
 					text, dimtxt, accent, btnFace, btnFaceHot, btnText, danger, track;
 };
 
 static SPaneTheme PaneTheme(bool dark)
 {
 	SPaneTheme t;
+	// Derive the structural colours from the SAME functions the other panels use
+	// (CMainView::OnEraseBkgnd fills them with FxGetMenuBgColor + a 64,64,70 /
+	// COLOR_3DSHADOW border; XPGroupBox captions use COLOR_BTNFACE), so the pane
+	// matches its siblings by construction in any theme.
+	t.body   = GpColor( FxGetMenuBgColor() );					// panel fill
+	t.header = GpColor( FxGetSysColor( COLOR_BTNFACE ) );		// panel caption / header strip
+	t.border = GpColor( ( fxUseCustomColor != FALSE ) ? RGB( 64, 64, 70 ) : FxGetSysColor( COLOR_3DSHADOW ) );
+	t.text   = GpColor( FxGetSysColor( COLOR_WINDOWTEXT ) );
+
+	t.borderSel  = Gdiplus::Color(   0, 120, 215 );	// selection blue
+	t.accent     = Gdiplus::Color(   0, 120, 215 );
+	t.btnFace    = Gdiplus::Color(   0, 120, 215 );	// primary (Start) button
+	t.btnFaceHot = Gdiplus::Color(  38, 143, 226 );
+	t.btnText    = Gdiplus::Color( 250, 252, 255 );
+
 	if ( dark )
 	{
-		t.face       = Gdiplus::Color( 48, 48, 50 );
-		t.card       = Gdiplus::Color( 62, 62, 65 );
-		t.cardHot    = Gdiplus::Color( 74, 74, 78 );
-		t.cardSel    = Gdiplus::Color( 66, 80, 104 );
-		t.cardSelHot = Gdiplus::Color( 74, 90, 116 );
-		t.border     = Gdiplus::Color( 104, 104, 108 );
-		t.borderSel  = Gdiplus::Color( 130, 168, 232 );
-		t.text       = Gdiplus::Color( 240, 240, 244 );
-		t.dimtxt     = Gdiplus::Color( 198, 198, 205 );
-		t.accent     = Gdiplus::Color( 120, 158, 224 );
-		t.btnFace    = Gdiplus::Color( 76, 110, 170 );
-		t.btnFaceHot = Gdiplus::Color( 92, 128, 192 );
-		t.btnText    = Gdiplus::Color( 244, 248, 252 );
+		t.card       = Gdiplus::Color(  57,  57,  61 );	// raised chips/cards, a touch brighter than the header
+		t.cardHot    = Gdiplus::Color(  70,  70,  74 );
+		t.cardSel    = Gdiplus::Color(  38,  54,  78 );
+		t.cardSelHot = Gdiplus::Color(  46,  64,  92 );
+		t.btnBorder  = Gdiplus::Color(  96,  96, 102 );	// button outline, brighter than the panel border
+		t.dimtxt     = Gdiplus::Color( 148, 148, 154 );
 		t.danger     = Gdiplus::Color( 232, 112, 110 );
-		t.track      = Gdiplus::Color( 62, 62, 65 );
+		t.track      = Gdiplus::Color(  58,  58,  62 );
 	}
 	else
 	{
-		t.face       = Gdiplus::Color( 255, 255, 255 );
-		t.card       = Gdiplus::Color( 246, 246, 248 );
-		t.cardHot    = Gdiplus::Color( 238, 238, 242 );
-		t.cardSel    = Gdiplus::Color( 226, 236, 250 );
-		t.cardSelHot = Gdiplus::Color( 216, 229, 248 );
-		t.border     = Gdiplus::Color( 200, 200, 205 );
-		t.borderSel  = Gdiplus::Color( 56, 108, 190 );
-		t.text       = Gdiplus::Color( 28, 28, 32 );
-		t.dimtxt     = Gdiplus::Color( 90, 90, 98 );
-		t.accent     = Gdiplus::Color( 52, 104, 186 );
-		t.btnFace    = Gdiplus::Color( 56, 106, 182 );
-		t.btnFaceHot = Gdiplus::Color( 72, 122, 198 );
-		t.btnText    = Gdiplus::Color( 250, 252, 255 );
-		t.danger     = Gdiplus::Color( 186, 58, 58 );
-		t.track      = Gdiplus::Color( 236, 236, 240 );
+		t.card       = Gdiplus::Color( 255, 255, 255 );	// raised white chips on the gray panel body
+		t.cardHot    = Gdiplus::Color( 246, 246, 248 );
+		t.cardSel    = Gdiplus::Color( 225, 238, 252 );
+		t.cardSelHot = Gdiplus::Color( 214, 231, 250 );
+		t.btnBorder  = Gdiplus::Color( 178, 180, 188 );	// button outline, a touch stronger than the panel border
+		t.dimtxt     = Gdiplus::Color(  96,  98, 104 );
+		t.danger     = Gdiplus::Color( 186,  58,  58 );
+		t.track      = Gdiplus::Color( 228, 228, 231 );
 	}
 	return t;
 }
@@ -464,6 +518,26 @@ static void DrawRound(Gdiplus::Graphics & g, const CRect & rc, int r, const Gdip
 	g.DrawPath( &pen, &path );
 }
 
+// Fill a rect with only its TOP two corners rounded (for the header strip that
+// sits inside the rounded frame; its bottom edge is square against the body).
+static void FillRoundTop(Gdiplus::Graphics & g, const CRect & rc, int r, const Gdiplus::Color & fill)
+{
+	int d = r * 2;
+	Gdiplus::GraphicsPath path;
+	path.AddArc( rc.left, rc.top, d, d, 180.0f, 90.0f );
+	path.AddArc( rc.right - d - 1, rc.top, d, d, 270.0f, 90.0f );
+	path.AddLine( (Gdiplus::REAL)( rc.right - 1 ), (Gdiplus::REAL)( rc.top + r ),
+				  (Gdiplus::REAL)( rc.right - 1 ), (Gdiplus::REAL)rc.bottom );
+	path.AddLine( (Gdiplus::REAL)( rc.right - 1 ), (Gdiplus::REAL)rc.bottom,
+				  (Gdiplus::REAL)rc.left, (Gdiplus::REAL)rc.bottom );
+	path.CloseFigure();
+	Gdiplus::SolidBrush br( fill );
+	g.FillPath( &br, &path );
+}
+
+// StringFormatFlagsNoClip lets descenders/overhangs render even when the rect
+// is a hair short -- the fix for the pervasive glyph clipping. Callers still
+// pass rects at least one line-height tall; NoClip is the safety net.
 static void DrawStr(Gdiplus::Graphics & g, const CString & s, Gdiplus::Font & f,
 					const Gdiplus::RectF & rc, const Gdiplus::Color & clr,
 					Gdiplus::StringAlignment ha = Gdiplus::StringAlignmentNear,
@@ -473,7 +547,7 @@ static void DrawStr(Gdiplus::Graphics & g, const CString & s, Gdiplus::Font & f,
 	Gdiplus::StringFormat sf;
 	sf.SetAlignment( ha );
 	sf.SetLineAlignment( va );
-	sf.SetFormatFlags( Gdiplus::StringFormatFlagsNoWrap );
+	sf.SetFormatFlags( Gdiplus::StringFormatFlagsNoWrap | Gdiplus::StringFormatFlagsNoClip );
 	sf.SetTrimming( Gdiplus::StringTrimmingEllipsisCharacter );
 	CStringW wide( s );
 	g.DrawString( wide, -1, &f, rc, &sf, &br );
@@ -487,6 +561,108 @@ static void DrawButton(Gdiplus::Graphics & g, const CRect & rc, const CString & 
 	DrawRound( g, rc, 5, border, 1.0f );
 	DrawStr( g, label, f, Gdiplus::RectF( (float)rc.left, (float)rc.top, (float)rc.Width(), (float)rc.Height() - 1 ),
 			 txt, Gdiplus::StringAlignmentCenter, Gdiplus::StringAlignmentCenter );
+}
+
+// Rounded button with a leading icon (PNG HICON) or a Fluent glyph, then the
+// label; the icon+label group is centred in the button.
+static void DrawIconButton(Gdiplus::Graphics & g, const CRect & rc, const CString & label,
+						   Gdiplus::Font & fLabel, HICON hIcon, wchar_t glyph, Gdiplus::Font * pGlyphFont,
+						   int iconSz, const Gdiplus::Color & face, const Gdiplus::Color & txt,
+						   const Gdiplus::Color & border)
+{
+	FillRound( g, rc, 5, face );
+	DrawRound( g, rc, 5, border, 1.0f );
+
+	Gdiplus::RectF bb;
+	CStringW wlabel( label );
+	g.MeasureString( wlabel, -1, &fLabel, Gdiplus::PointF( 0.0f, 0.0f ), &bb );
+	int textW = (int)( bb.Width + 0.5f );
+	int iconW = ( hIcon || ( glyph && pGlyphFont ) ) ? iconSz : 0;
+	int ggap  = iconW ? GetConfig()->Scale( 4 ) : 0;
+	int startX = rc.left + ( rc.Width() - ( iconW + ggap + textW ) ) / 2;
+	int iy = rc.top + ( rc.Height() - iconSz ) / 2;
+
+	if ( hIcon )
+	{
+		HDC hdc = g.GetHDC();
+		DrawIconEx( hdc, startX, iy, hIcon, iconSz, iconSz, 0, NULL, DI_NORMAL );
+		g.ReleaseHDC( hdc );
+	}
+	else if ( glyph && pGlyphFont )
+	{
+		Gdiplus::SolidBrush gb( txt );
+		Gdiplus::StringFormat sf;
+		sf.SetAlignment( Gdiplus::StringAlignmentCenter );
+		sf.SetLineAlignment( Gdiplus::StringAlignmentCenter );
+		wchar_t gs[2] = { glyph, 0 };
+		g.DrawString( gs, 1, pGlyphFont,
+					  Gdiplus::RectF( (float)startX, (float)rc.top, (float)iconSz, (float)rc.Height() ), &sf, &gb );
+	}
+
+	DrawStr( g, label, fLabel,
+			 Gdiplus::RectF( (float)( startX + iconW + ggap ), (float)rc.top, (float)( textW + 6 ), (float)rc.Height() ),
+			 txt, Gdiplus::StringAlignmentNear, Gdiplus::StringAlignmentCenter );
+}
+
+// Width a chrome button needs to fit its icon/glyph + label without truncation
+// (icon + gap + text + symmetric horizontal padding).
+static int ContentButtonWidth(Gdiplus::Graphics & g, const CString & label, Gdiplus::Font & f,
+							  int iconSz, int padX)
+{
+	Gdiplus::RectF bb;
+	CStringW w( label );
+	g.MeasureString( w, -1, &f, Gdiplus::PointF( 0.0f, 0.0f ), &bb );
+	return iconSz + GetConfig()->Scale( 4 ) + (int)( bb.Width + 0.5f ) + 2 * padX;
+}
+
+// Media transport marks drawn as crisp geometric shapes (pause bars / stop
+// square / resume triangle) so they render identically to the Segoe media
+// glyphs without any font/codepoint ambiguity.
+enum { MEDIA_PAUSE = 1, MEDIA_STOP = 2, MEDIA_PLAY = 3 };
+static void DrawMediaShape(Gdiplus::Graphics & g, int kind, int cx, int cy, int s, const Gdiplus::Color & clr)
+{
+	Gdiplus::SolidBrush br( clr );
+	if ( kind == MEDIA_PAUSE )
+	{
+		int bw = max( 2, (int)( s * 0.28 ) ), bh = (int)( s * 0.9 ), gp = max( 2, (int)( s * 0.20 ) );
+		g.FillRectangle( &br, cx - gp / 2 - bw, cy - bh / 2, bw, bh );
+		g.FillRectangle( &br, cx + gp / 2,      cy - bh / 2, bw, bh );
+	}
+	else if ( kind == MEDIA_STOP )
+	{
+		int q = (int)( s * 0.82 );
+		CRect sq( cx - q / 2, cy - q / 2, cx + q / 2, cy + q / 2 );
+		FillRound( g, sq, 2, clr );
+	}
+	else if ( kind == MEDIA_PLAY )
+	{
+		Gdiplus::PointF pts[3] = {
+			Gdiplus::PointF( (float)( cx - s * 0.26 ), (float)( cy - s * 0.45 ) ),
+			Gdiplus::PointF( (float)( cx + s * 0.38 ), (float)cy ),
+			Gdiplus::PointF( (float)( cx - s * 0.26 ), (float)( cy + s * 0.45 ) ) };
+		g.FillPolygon( &br, pts, 3 );
+	}
+}
+
+static void DrawMediaButton(Gdiplus::Graphics & g, const CRect & rc, const CString & label,
+							Gdiplus::Font & fLabel, int mediaShape, const Gdiplus::Color & shapeClr,
+							int iconSz, const Gdiplus::Color & face, const Gdiplus::Color & txt,
+							const Gdiplus::Color & border)
+{
+	FillRound( g, rc, 5, face );
+	DrawRound( g, rc, 5, border, 1.0f );
+
+	Gdiplus::RectF bb;
+	CStringW wlabel( label );
+	g.MeasureString( wlabel, -1, &fLabel, Gdiplus::PointF( 0.0f, 0.0f ), &bb );
+	int textW = (int)( bb.Width + 0.5f );
+	int ggap  = GetConfig()->Scale( 6 );
+	int startX = rc.left + ( rc.Width() - ( iconSz + ggap + textW ) ) / 2;
+
+	DrawMediaShape( g, mediaShape, startX + iconSz / 2, rc.top + rc.Height() / 2, iconSz, shapeClr );
+	DrawStr( g, label, fLabel,
+			 Gdiplus::RectF( (float)( startX + iconSz + ggap ), (float)rc.top, (float)( textW + 6 ), (float)rc.Height() ),
+			 txt, Gdiplus::StringAlignmentNear, Gdiplus::StringAlignmentCenter );
 }
 
 void CProfilePane::OnPaint()
@@ -506,31 +682,163 @@ void CProfilePane::OnPaint()
 	g.SetSmoothingMode( Gdiplus::SmoothingModeAntiAlias );
 
 	SPaneTheme t = PaneTheme( dark );
-	Gdiplus::SolidBrush faceBrush( t.face );
-	g.FillRectangle( &faceBrush, 0, 0, rc.Width(), rc.Height() );
+	// The rounded corners reveal whatever the parent painted behind the pane;
+	// fill that gap with the EXACT parent background (CMainView::OnEraseBkgnd
+	// uses FxGetMenuBgColors) so the corners blend seamlessly in any theme.
+	COLORREF ctop = 0, cbot = 0;
+	FxGetMenuBgColors( ctop, cbot );
+	Gdiplus::SolidBrush hostBrush( GpColor( ctop ) );
+	g.FillRectangle( &hostBrush, 0, 0, rc.Width(), rc.Height() );
 
-	// reset hit rects; the active state's painter rebuilds its own
+	CRect rcFrame( 1, 1, rc.Width() - 2, rc.Height() - 2 );
+	FillRound( g, rcFrame, 8, t.body );
+
+	int headerBottom = GetConfig()->Scale( 34 );	// short header strip, no divider line
+	CRect rcHeader( 1, 1, rc.Width() - 2, headerBottom );
+	FillRoundTop( g, rcHeader, 8, t.header );
+
+	DrawRound( g, rcFrame, 8, t.border, 1.0f );
+
+	// reset hit rects; the chrome + active state's painter rebuild their own
 	int i;
 	for ( i = 0; i < 5; i++ ) m_rcPresets[i].SetRectEmpty();
-	m_rcStart.SetRectEmpty(); m_rcPause.SetRectEmpty();
-	m_rcNewProfile.SetRectEmpty();
+	m_rcStart.SetRectEmpty(); m_rcPause.SetRectEmpty(); m_rcStop.SetRectEmpty();
+	m_rcRefs.SetRectEmpty(); m_rcCtx.SetRectEmpty();
 	m_rcWorstRows.clear();
+
+	// fixed chrome row (title + status + buttons), drawn in client coords so it
+	// is identical across all three states
+	PaintChrome( g, rc, dark );
+
+	// content is inset inside the border and below the chrome row; the Paint*
+	// methods draw from (0,0), so translate here and shift mouse points to match
+	// content sits Scale(12) below the header bottom, matching the L/R/B insets so
+	// it is equidistant from the left edge and the header
+	m_contentDX = GetConfig()->Scale( 12 );
+	m_contentDY = GetConfig()->Scale( 34 ) + GetConfig()->Scale( 12 );
+	CRect content( 0, 0, rc.Width() - 2 * m_contentDX,
+				   rc.Height() - m_contentDY - GetConfig()->Scale( 12 ) );	// equal L/R/B insets
+
+	Gdiplus::GraphicsState gs = g.Save();
+	g.TranslateTransform( (float)m_contentDX, (float)m_contentDY );
 
 	switch ( m_state )
 	{
-		case PS_SETUP:   PaintSetup( g, rc, dark );   break;
-		case PS_RUNNING: PaintRunning( g, rc, dark ); break;
-		case PS_SUMMARY: PaintSummary( g, rc, dark ); break;
+		case PS_SETUP:   PaintSetup( g, content, dark );   break;
+		case PS_RUNNING: PaintRunning( g, content, dark ); break;
+		case PS_SUMMARY: PaintSummary( g, content, dark ); break;
 	}
+	g.Restore( gs );
 
 	Gdiplus::Graphics screen( dc.GetSafeHdc() );
 	screen.DrawImage( &bmp, 0, 0 );
 }
 
+CString CProfilePane::StatusLine() const
+{
+	CMeasure * pMeasure = Measure();
+	CString s;
+	switch ( m_state )
+	{
+		case PS_SETUP:
+			s = "Measure an RGB cube grid to characterize this display";
+			break;
+
+		case PS_RUNNING:
+			if ( pMeasure )
+			{
+				int n = pMeasure->GetProfileCubeSize();
+				s.Format( "Profiling %dx%dx%d%s%s%s", n, n, n,
+						  pMeasure->GetProfileGrayExtras() ? " + gray/near-black" : "",
+						  m_driftComp ? ", drift compensation on" : "",
+						  m_paused ? "   -   PAUSED" : "" );
+			}
+			break;
+
+		case PS_SUMMARY:
+			if ( pMeasure )
+			{
+				int n = pMeasure->GetProfileCubeSize();
+				s.Format( "%dx%dx%d%s   -   %d of %d patches   -   %s%s", n, n, n,
+						  pMeasure->GetProfileGrayExtras() ? " + gray/near-black" : "",
+						  m_stats.count, pMeasure->GetProfileMeasureSize(),
+						  (LPCTSTR)FormatDuration( pMeasure->GetProfileCaptureSeconds() ),
+						  pMeasure->GetProfileDriftComp() ? "   -   Drift comp on" : "" );
+			}
+			break;
+	}
+	return s;
+}
+
+// Fixed header row in pane CLIENT coords: title (left) + status (middle) +
+// context button + References button (right). Identical position/font in every
+// state so nothing shifts between views. Buttons are pinned to the top-right.
+void CProfilePane::PaintChrome(Gdiplus::Graphics & g, const CRect & client, bool dark)
+{
+	SPaneTheme t = PaneTheme( dark );
+	Gdiplus::Font fTitle ( L"Segoe UI", 10.0f, Gdiplus::FontStyleBold );
+	Gdiplus::Font fStatus( L"Segoe UI", 9.5f );
+	Gdiplus::Font fBtn   ( L"Segoe UI", 9.0f );
+	Gdiplus::Font fGlyph ( L"Segoe Fluent Icons", 9.0f );
+
+	int pad     = GetConfig()->Scale( 12 );
+	int headerBottom = GetConfig()->Scale( 34 );	// header strip spans client y = 1 .. headerBottom
+	int btnH    = GetConfig()->Scale( 24 );
+	int top     = ( 1 + headerBottom - btnH ) / 2;	// centred within the visible strip
+	int titleW  = GetConfig()->Scale( 116 );
+	int iconSz  = GetConfig()->Scale( 15 );
+	int padX    = GetConfig()->Scale( 10 );			// horizontal padding inside each chrome button
+
+	// title, left-aligned with the body content (pad), centred on the chrome row
+	DrawStr( g, "Display profile", fTitle,
+			 Gdiplus::RectF( (float)pad, (float)top, (float)titleW, (float)btnH ),
+			 t.text, Gdiplus::StringAlignmentNear, Gdiplus::StringAlignmentCenter );
+
+	// References button (rightmost), width fitted to its content, using the same
+	// PNG glyph as the toolbar Refs button (cached, reloaded on theme change)
+	if ( m_hRefIcon == NULL || m_refIconDark != dark )
+	{
+		if ( m_hRefIcon ) DestroyIcon( m_hRefIcon );
+		m_hRefIcon = HCFR_LoadPngHIcon( _T("toolbar"), _T("references"), dark, iconSz, iconSz );
+		m_refIconDark = dark;
+	}
+	int refsW = ContentButtonWidth( g, "References...", fBtn, iconSz, padX );
+	m_rcRefs = CRect( client.right - pad - refsW, top, client.right - pad, top + btnH );
+	DrawIconButton( g, m_rcRefs, "References...", fBtn, m_hRefIcon, 0, NULL, iconSz,
+					m_hot == HOT_REFS ? t.cardHot : t.card, t.text, t.btnBorder );
+
+	// per-state context button to the left of References, width fitted to its label
+	m_ctxLabel.Empty();
+	if ( m_state == PS_SUMMARY )
+		m_ctxLabel = "New profile...";
+	else if ( m_state == PS_SETUP && Measure() && Measure()->HasProfileMeasures() )
+		m_ctxLabel = "Back to summary";
+
+	int statusRight = m_rcRefs.left - GetConfig()->Scale( 12 );
+	if ( !m_ctxLabel.IsEmpty() )
+	{
+		int ctxW = ContentButtonWidth( g, m_ctxLabel, fBtn, iconSz, padX );
+		m_rcCtx = CRect( m_rcRefs.left - GetConfig()->Scale( 8 ) - ctxW, top,
+						 m_rcRefs.left - GetConfig()->Scale( 8 ), top + btnH );
+		// Fluent "Add" for New profile, "ChevronLeft" for Back to summary
+		wchar_t ctxGlyph = ( m_state == PS_SUMMARY ) ? (wchar_t)0xE710 : (wchar_t)0xE76B;
+		DrawIconButton( g, m_rcCtx, m_ctxLabel, fBtn, NULL, ctxGlyph, &fGlyph, iconSz,
+						m_hot == HOT_CTX ? t.cardHot : t.card, t.text, t.btnBorder );
+		statusRight = m_rcCtx.left - GetConfig()->Scale( 12 );
+	}
+
+	// status text fills the gap between the title and the buttons
+	int statusLeft = pad + titleW + GetConfig()->Scale( 8 );
+	if ( statusRight - statusLeft > GetConfig()->Scale( 40 ) )
+		DrawStr( g, StatusLine(), fStatus,
+				 Gdiplus::RectF( (float)statusLeft, (float)top,
+								 (float)( statusRight - statusLeft ), (float)btnH ),
+				 t.text, Gdiplus::StringAlignmentNear, Gdiplus::StringAlignmentCenter );
+}
+
 void CProfilePane::PaintSetup(Gdiplus::Graphics & g, const CRect & rc, bool dark)
 {
 	SPaneTheme t = PaneTheme( dark );
-	int mgn = GetConfig()->Scale( 12 );
 	Gdiplus::Font fTitle( L"Segoe UI", 11.0f, Gdiplus::FontStyleBold );
 	Gdiplus::Font fBody( L"Segoe UI", 10.0f );
 	Gdiplus::Font fSmall( L"Segoe UI", 9.0f );
@@ -538,15 +846,13 @@ void CProfilePane::PaintSetup(Gdiplus::Graphics & g, const CRect & rc, bool dark
 	CMeasure * pMeasure = Measure();
 	bool hasOld = ( pMeasure && pMeasure->HasProfileMeasures() );
 
-	int y = mgn;
-	DrawStr( g, "Measure an RGB cube grid to characterize this display", fBody,
-			 Gdiplus::RectF( (float)mgn, (float)y, (float)( rc.Width() - 2 * mgn ), 22.0f ), t.dimtxt );
-	y += GetConfig()->Scale( 30 );
+	const int CW = rc.Width();
+	const int gap = GetConfig()->Scale( 10 );
 
-	// preset cards
-	int cardH = GetConfig()->Scale( 84 );
-	int cardW = ( rc.Width() - mgn * 6 ) / 5;
-	int x = mgn;
+	// preset cards, single row of 5 across the full width
+	int cardH = GetConfig()->Scale( 80 );
+	int cardW = ( CW - gap * 4 ) / 5;
+	int x = 0, y = 0;
 	for ( int p = 0; p < 5; p++ )
 	{
 		CRect rcCard( x, y, x + cardW, y + cardH );
@@ -555,51 +861,51 @@ void CProfilePane::PaintSetup(Gdiplus::Graphics & g, const CRect & rc, bool dark
 		bool hot = ( m_hot == p );
 		FillRound( g, rcCard, 6, sel ? ( hot ? t.cardSelHot : t.cardSel )
 									 : ( hot ? t.cardHot : t.card ) );
-		DrawRound( g, rcCard, 6, sel ? t.borderSel : t.border, sel ? 2.0f : 1.0f );
+		DrawRound( g, rcCard, 6, sel ? t.borderSel : t.btnBorder, 1.0f );
 
 		int patches = PatchCountFor( p );
 		CString line1, line2, line3;
 		line1 = kPresets[p].name;
 		line2.Format( "%dx%dx%d cube", kPresets[p].cubeN, kPresets[p].cubeN, kPresets[p].cubeN );
-		line3.Format( "%d patches - %s", patches, (LPCTSTR)FormatDuration( EstimateSeconds( patches ) ) );
-		float cy = (float)rcCard.top + 8.0f;
-		DrawStr( g, line1, fTitle, Gdiplus::RectF( (float)rcCard.left + 10, cy, (float)rcCard.Width() - 20, 24.0f ), t.text );
-		cy += 26.0f;
-		DrawStr( g, line2, fBody, Gdiplus::RectF( (float)rcCard.left + 10, cy, (float)rcCard.Width() - 20, 20.0f ), t.dimtxt );
-		cy += 21.0f;
-		DrawStr( g, line3, fSmall, Gdiplus::RectF( (float)rcCard.left + 10, cy, (float)rcCard.Width() - 20, 18.0f ), t.dimtxt );
-		x += cardW + mgn;
+		line3.Format( "%d patches  -  %s", patches, (LPCTSTR)FormatDuration( EstimateSeconds( patches ) ) );
+		int tx = rcCard.left + GetConfig()->Scale( 12 );
+		int tw = rcCard.Width() - GetConfig()->Scale( 24 );
+		DrawStr( g, line1, fTitle, Gdiplus::RectF( (float)tx, (float)( y + GetConfig()->Scale( 8 ) ), (float)tw, 24.0f ), t.text );
+		DrawStr( g, line2, fBody,  Gdiplus::RectF( (float)tx, (float)( y + GetConfig()->Scale( 34 ) ), (float)tw, 20.0f ), t.dimtxt );
+		DrawStr( g, line3, fSmall, Gdiplus::RectF( (float)tx, (float)( y + GetConfig()->Scale( 55 ) ), (float)tw, 18.0f ), t.dimtxt );
+		x += cardW + gap;
 	}
-	y += cardH + mgn;
+	(void)y;
+	const int CH = rc.Height();
 
-	// the two option checkboxes are real child controls placed by SyncChildren;
-	// reserve their vertical band here
-	int optH = GetConfig()->Scale( 12 ) + 2 * GetConfig()->Scale( 20 ) + GetConfig()->Scale( 8 );
-	int rowBottom = y + optH;
-
-	// Start button, right-aligned on the options band
+	// Start button pinned to the content BOTTOM-RIGHT (equal gap from the right
+	// and bottom edges, since the content inset is symmetric). The two checkboxes
+	// are child controls stacked bottom-LEFT (placed by SyncChildren). Help text
+	// sits just left of Start.
+	Gdiplus::Font fGlyph( L"Segoe Fluent Icons", 9.0f );
 	int btnW = GetConfig()->Scale( 130 ), btnH = GetConfig()->Scale( 32 );
-	m_rcStart = CRect( rc.Width() - mgn - btnW, rowBottom - btnH, rc.Width() - mgn, rowBottom );
-	DrawButton( g, m_rcStart, "Start profile", fBody,
-				m_hot == HOT_START ? t.btnFaceHot : t.btnFace, t.btnText, t.borderSel );
+	m_rcStart = CRect( CW - btnW, CH - btnH, CW, CH );
+	DrawIconButton( g, m_rcStart, "Start profile", fBody, NULL, (wchar_t)0xE768, &fGlyph,	// Fluent "Play"
+					GetConfig()->Scale( 14 ),
+					m_hot == HOT_START ? t.btnFaceHot : t.btnFace, t.btnText, t.borderSel );
 
-	// summary line left of the button
 	int patches = PatchCountFor( m_preset );
-	CString sum;
-	sum.Format( "%d patches - %s", patches, (LPCTSTR)FormatDuration( EstimateSeconds( patches ) ) );
+	CString help;
+	help.Format( "%d patches  -  %s", patches, (LPCTSTR)FormatDuration( EstimateSeconds( patches ) ) );
 	if ( hasOld )
-		sum += "   (replaces the existing capture)";
-	DrawStr( g, sum, fSmall,
-			 Gdiplus::RectF( (float)( rc.Width() / 2 ), (float)( m_rcStart.top + 8 ),
-							 (float)( m_rcStart.left - rc.Width() / 2 - mgn ), 18.0f ),
-			 hasOld ? t.danger : t.dimtxt, Gdiplus::StringAlignmentFar );
+		help += "   (replaces the existing capture)";
+	int helpLeft = CW / 2 + GetConfig()->Scale( 10 );
+	int helpRight = m_rcStart.left - GetConfig()->Scale( 12 );
+	if ( helpRight - helpLeft > GetConfig()->Scale( 60 ) )
+		DrawStr( g, help, fSmall,
+				 Gdiplus::RectF( (float)helpLeft, (float)( m_rcStart.top ), (float)( helpRight - helpLeft ), (float)btnH ),
+				 hasOld ? t.danger : t.dimtxt, Gdiplus::StringAlignmentFar, Gdiplus::StringAlignmentCenter );
 }
 
 void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool dark)
 {
 	SPaneTheme t = PaneTheme( dark );
-	int mgn = GetConfig()->Scale( 12 );
-	Gdiplus::Font fTitle( L"Segoe UI", 11.0f, Gdiplus::FontStyleBold );
+	Gdiplus::Font fBig( L"Segoe UI", 12.0f, Gdiplus::FontStyleBold );
 	Gdiplus::Font fBody( L"Segoe UI", 10.0f );
 	Gdiplus::Font fSmall( L"Segoe UI", 9.0f );
 
@@ -608,43 +914,37 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 		return;
 	int total = pMeasure->GetProfileMeasureSize();
 	int cur = min( pMeasure->m_currentIndex, total );
+	const int CW = rc.Width();
+	const int CH = rc.Height();
 
-	int y = mgn;
-	CString hdr;
-	int nCube = pMeasure->GetProfileCubeSize();
-	hdr.Format( "Profiling %dx%dx%d%s%s%s", nCube, nCube, nCube,
-				pMeasure->GetProfileGrayExtras() ? " + gray/near-black" : "",
-				m_driftComp ? ", drift compensation on" : "",
-				m_paused ? "  -  PAUSED" : "" );
-	DrawStr( g, hdr, fBody, Gdiplus::RectF( (float)mgn, (float)y, (float)( rc.Width() - 2 * mgn ), 22.0f ), t.dimtxt );
-	y += GetConfig()->Scale( 28 );
-
-	// current patch swatch + label + progress bar
+	// current patch swatch + label + progress bar (status is in the chrome row)
 	int swSz = GetConfig()->Scale( 48 );
+	int y = 0;
 	ColorRGBDisplay cur_rgb = ( total > 0 ) ? pMeasure->GetProfilePatchRGB( min( cur, total - 1 ) )
 											: ColorRGBDisplay( 0.0 );
-	CRect rcSw( mgn, y, mgn + swSz, y + swSz );
+	CRect rcSw( 0, y, swSz, y + swSz );
 	FillRound( g, rcSw, 5, SwatchColor( cur_rgb ) );
 	DrawRound( g, rcSw, 5, t.border, 1.0f );
 
-	int barX = mgn + swSz + mgn;
-	int barW = rc.Width() - barX - mgn;
+	int barX = swSz + GetConfig()->Scale( 12 );
+	int barW = CW - barX;
+	int etaW = GetConfig()->Scale( 210 );
 	CString line;
 	line.Format( "Patch %d of %d  -  RGB %.0f, %.0f, %.0f", min( cur + 1, total ), total,
 				 cur_rgb[0], cur_rgb[1], cur_rgb[2] );
-	DrawStr( g, line, fBody, Gdiplus::RectF( (float)barX, (float)y, (float)barW * 0.6f, 21.0f ), t.text );
+	DrawStr( g, line, fBody, Gdiplus::RectF( (float)barX, (float)y, (float)( barW - etaW - GetConfig()->Scale( 8 ) ), 22.0f ), t.text );
 
 	double frac = total > 0 ? (double)cur / total : 0.0;
 	int remain = total - cur;
 	CString eta;
 	eta.Format( "%d%%  -  about %s left", (int)( frac * 100.0 + 0.5 ),
 				(LPCTSTR)FormatDuration( remain * ( m_emaPatchSecs > 0 ? m_emaPatchSecs : 1.8 ) ) );
-	DrawStr( g, eta, fSmall, Gdiplus::RectF( (float)barX + (float)barW * 0.6f, (float)y + 2, (float)barW * 0.4f, 19.0f ),
-			 t.dimtxt, Gdiplus::StringAlignmentFar );
+	DrawStr( g, eta, fBody, Gdiplus::RectF( (float)( CW - etaW ), (float)y, (float)etaW, 22.0f ),
+			 t.text, Gdiplus::StringAlignmentFar );
 
-	int barY = y + GetConfig()->Scale( 26 );
+	int barY = y + GetConfig()->Scale( 28 );
 	int barH = GetConfig()->Scale( 12 );
-	CRect rcTrack( barX, barY, barX + barW, barY + barH );
+	CRect rcTrack( barX, barY, CW, barY + barH );
 	FillRound( g, rcTrack, barH / 2, t.track );
 	DrawRound( g, rcTrack, barH / 2, t.border, 1.0f );
 	int fillW = (int)( barW * frac );
@@ -654,7 +954,7 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 		FillRound( g, rcFill, barH / 2, t.accent );
 	}
 
-	y += swSz + mgn + GetConfig()->Scale( 4 );
+	y = swSz + GetConfig()->Scale( 14 );
 
 	// stat tiles: avg dE / max dE / drift / per patch
 	double good = 2.0, warn = 3.0;
@@ -674,31 +974,35 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 		v[2] = "off";
 	v[3].Format( "%.1f s", m_emaPatchSecs );
 
-	int tileW = GetConfig()->Scale( 108 ), tileH = GetConfig()->Scale( 46 );
-	int x = mgn;
+	int gap = GetConfig()->Scale( 10 );
+	int tileH = GetConfig()->Scale( 46 );
+
+	// stat tiles in a row just below the progress bar, left-aligned
+	int tileW = min( GetConfig()->Scale( 150 ), ( CW - 3 * gap ) / 4 );
+	int x = 0;
 	for ( int i = 0; i < 4; i++ )
 	{
 		CRect rcTile( x, y, x + tileW, y + tileH );
-		FillRound( g, rcTile, 6, t.card );
-		DrawRound( g, rcTile, 6, t.border, 1.0f );
-		DrawStr( g, lbl[i], fSmall, Gdiplus::RectF( (float)x + 10, (float)y + 5, (float)tileW - 20, 17.0f ), t.dimtxt );
+		FillRound( g, rcTile, 6, t.card );		// filled chip, no border (stats, not buttons)
+		DrawStr( g, lbl[i], fSmall, Gdiplus::RectF( (float)x + 10, (float)y + 5, (float)tileW - 20, 18.0f ), t.dimtxt );
 		Gdiplus::Color vc = t.text;
 		if ( i == 1 && m_runDECount > 0 && m_runMaxDE >= warn ) vc = t.danger;
 		if ( i == 2 && fabs( pMeasure->m_profileCurrentDrift ) > 0.02 ) vc = t.danger;
-		DrawStr( g, v[i], fTitle, Gdiplus::RectF( (float)x + 10, (float)y + 21, (float)tileW - 20, 22.0f ), vc );
-		x += tileW + mgn;
+		DrawStr( g, v[i], fBig, Gdiplus::RectF( (float)x + 10, (float)y + 20, (float)tileW - 20, 24.0f ), vc );
+		x += tileW + gap;
 	}
 
-	// Pause button bottom-right; stopping uses the red Stop button / ESC, so no
-	// second stop control here
-	int btnW = GetConfig()->Scale( 110 ), btnH = GetConfig()->Scale( 30 );
-	m_rcPause = CRect( rc.Width() - mgn - btnW, y + tileH - btnH, rc.Width() - mgn, y + tileH );
-	DrawButton( g, m_rcPause, m_paused ? "Resume" : "Pause", fBody,
-				m_hot == HOT_PAUSE ? t.cardHot : t.card, t.text, t.border );
-
-	CString hint = "3D view fills in live  -  stop with the red Stop button or ESC";
-	DrawStr( g, hint, fSmall, Gdiplus::RectF( (float)x, (float)( y + tileH - 20 ), (float)( m_rcPause.left - x - mgn ), 18.0f ),
-			 t.dimtxt, Gdiplus::StringAlignmentFar );
+	// Pause + Stop pinned to the content BOTTOM-RIGHT (side measure/stop chrome is
+	// hidden in this mode, so the pane owns capture control; Stop keeps partials)
+	int cbW = GetConfig()->Scale( 110 ), cbH = GetConfig()->Scale( 30 );
+	int glyphSz = GetConfig()->Scale( 12 );
+	m_rcStop  = CRect( CW - cbW, CH - cbH, CW, CH );
+	m_rcPause = CRect( m_rcStop.left - gap - cbW, CH - cbH, m_rcStop.left - gap, CH );
+	DrawMediaButton( g, m_rcStop, "Stop", fBody, MEDIA_STOP, t.danger, glyphSz,
+					 m_hot == HOT_STOP ? t.cardHot : t.card, t.danger, t.danger );
+	DrawMediaButton( g, m_rcPause, m_paused ? "Resume" : "Pause", fBody,
+					 m_paused ? MEDIA_PLAY : MEDIA_PAUSE, t.text, glyphSz,
+					 m_hot == HOT_PAUSE ? t.cardHot : t.card, t.text, t.btnBorder );
 }
 
 void CProfilePane::ComputeStats()
@@ -781,9 +1085,7 @@ void CProfilePane::ComputeStats()
 void CProfilePane::PaintSummary(Gdiplus::Graphics & g, const CRect & rc, bool dark)
 {
 	SPaneTheme t = PaneTheme( dark );
-	int mgn = GetConfig()->Scale( 12 );
-	Gdiplus::Font fTitle( L"Segoe UI", 12.0f, Gdiplus::FontStyleBold );
-	Gdiplus::Font fBody( L"Segoe UI", 10.0f );
+	Gdiplus::Font fBig( L"Segoe UI", 12.0f, Gdiplus::FontStyleBold );
 	Gdiplus::Font fSmall( L"Segoe UI", 9.0f );
 
 	CMeasure * pMeasure = Measure();
@@ -794,64 +1096,57 @@ void CProfilePane::PaintSummary(Gdiplus::Graphics & g, const CRect & rc, bool da
 	double good = 2.0, warn = 3.0;
 	GetConfig()->GetDEThresholds( good, warn );
 
-	// header + "New profile..." button
-	int nCube = pMeasure->GetProfileCubeSize();
-	CString hdr;
-	hdr.Format( "%dx%dx%d%s  -  %d of %d patches  -  %s%s",
-				nCube, nCube, nCube,
-				pMeasure->GetProfileGrayExtras() ? " + gray/near-black" : "",
-				m_stats.count, pMeasure->GetProfileMeasureSize(),
-				(LPCTSTR)FormatDuration( pMeasure->GetProfileCaptureSeconds() ),
-				pMeasure->GetProfileDriftComp() ? "  -  drift comp" : "" );
-	int btnW = GetConfig()->Scale( 120 ), btnH = GetConfig()->Scale( 28 );
-	m_rcNewProfile = CRect( rc.Width() - mgn - btnW, mgn, rc.Width() - mgn, mgn + btnH );
-	DrawButton( g, m_rcNewProfile, "New profile...", fSmall,
-				m_hot == HOT_NEWPROFILE ? t.cardHot : t.card, t.text, t.border );
-	DrawStr( g, hdr, fBody, Gdiplus::RectF( (float)mgn, (float)mgn + 4, (float)( m_rcNewProfile.left - 2 * mgn ), 21.0f ), t.dimtxt );
+	const int CW = rc.Width();
+	const int H  = rc.Height();
+	const int gap = GetConfig()->Scale( 10 );
+	int leftW = CW * 56 / 100;			// tiles + histogram + region line
+	int rightX = leftW + GetConfig()->Scale( 16 );	// worst-patches column
+	int rightW = CW - rightX;
 
-	int y = mgn + btnH + GetConfig()->Scale( 10 );
-
-	// stat tiles (left column)
+	// ---- left column: stat tiles (single row of 4) ----
 	CString v[4], lbl[4];
 	lbl[0] = "Avg dE"; lbl[1] = "95th pct"; lbl[2] = "Max dE"; lbl[3] = "Within target";
 	v[0].Format( "%.1f", m_stats.avgDE );
 	v[1].Format( "%.1f", m_stats.pct95DE );
 	v[2].Format( "%.1f", m_stats.maxDE );
 	v[3].Format( "%d%%", (int)( m_stats.pctGood * 100.0 + 0.5 ) );
-	int leftW = rc.Width() * 55 / 100;
-	int tileW = ( leftW - mgn * 5 ) / 4;
-	int tileH = GetConfig()->Scale( 48 );
-	int x = mgn;
+	int tileW = ( leftW - gap * 3 ) / 4;
+	int tileH = GetConfig()->Scale( 46 );
+	int x = 0, y = 0;
 	for ( int i = 0; i < 4; i++ )
 	{
 		CRect rcTile( x, y, x + tileW, y + tileH );
-		FillRound( g, rcTile, 6, t.card );
-		DrawRound( g, rcTile, 6, t.border, 1.0f );
-		DrawStr( g, lbl[i], fSmall, Gdiplus::RectF( (float)x + 10, (float)y + 5, (float)tileW - 20, 17.0f ), t.dimtxt );
+		FillRound( g, rcTile, 6, t.card );		// filled chip, no border (these are stats, not buttons)
+		DrawStr( g, lbl[i], fSmall, Gdiplus::RectF( (float)x + 10, (float)y + 5, (float)tileW - 20, 16.0f ), t.dimtxt );
 		Gdiplus::Color vc = t.text;
 		if ( i == 2 && m_stats.maxDE >= warn ) vc = t.danger;
-		DrawStr( g, v[i], fTitle, Gdiplus::RectF( (float)x + 10, (float)y + 21, (float)tileW - 20, 24.0f ), vc );
-		x += tileW + mgn;
+		DrawStr( g, v[i], fBig, Gdiplus::RectF( (float)x + 10, (float)y + 20, (float)tileW - 20, 24.0f ), vc );
+		x += tileW + gap;
 	}
 
-	// dE histogram under the tiles (left column)
-	int histoY = y + tileH + GetConfig()->Scale( 24 );
-	int regRows = GetConfig()->Scale( 18 ) * 4 + GetConfig()->Scale( 22 );
-	int histoH = max( GetConfig()->Scale( 40 ), rc.Height() - histoY - regRows - GetConfig()->Scale( 30 ) );
-	int histoW = leftW - 2 * mgn;
-	DrawStr( g, "dE distribution", fSmall, Gdiplus::RectF( (float)mgn, (float)histoY - 17, 220.0f, 16.0f ), t.dimtxt );
+	// ---- left column: dE histogram, sized to leave one axis row + one region
+	// row below it so nothing clips at the pane bottom ----
+	int histoLblY = y + tileH + GetConfig()->Scale( 8 );
+	int histoY = histoLblY + GetConfig()->Scale( 20 );
+	int histoW = leftW;
+	int axisRowH = GetConfig()->Scale( 16 );
+	int regRowH  = GetConfig()->Scale( 18 );
+	int histoBottom = H - regRowH - axisRowH - GetConfig()->Scale( 1 );
+	int histoH = histoBottom - histoY;		// shrinks with the space, never floored
+	DrawStr( g, "dE distribution", fSmall, Gdiplus::RectF( 0.0f, (float)histoLblY, 220.0f, 18.0f ), t.dimtxt );
 	int maxBin = 1;
 	int b;
 	for ( b = 0; b < 16; b++ )
 		if ( m_stats.histo[b] > maxBin ) maxBin = m_stats.histo[b];
 	int bw = histoW / 16;
-	for ( b = 0; b < 16; b++ )
+	for ( b = 0; histoH > 2 && b < 16; b++ )
 	{
 		int bh = (int)( (double)m_stats.histo[b] / maxBin * ( histoH - 2 ) );
 		if ( bh < 1 ) continue;
+		int barTop = max( histoY, histoBottom - bh );	// never rise into the label band
 		double binMid = ( b + 0.5 ) * m_stats.histoBinW;
-		CRect rcBar( mgn + b * bw, histoY + histoH - bh, mgn + b * bw + bw - 3, histoY + histoH );
-		if ( bh > 4 )
+		CRect rcBar( b * bw, barTop, b * bw + bw - 3, histoBottom );
+		if ( rcBar.Height() > 4 )
 			FillRound( g, rcBar, 2, DEColor( binMid, good, warn ) );
 		else
 		{
@@ -860,67 +1155,73 @@ void CProfilePane::PaintSummary(Gdiplus::Graphics & g, const CRect & rc, bool da
 		}
 	}
 	Gdiplus::Pen axPen( t.border, 1.0f );
-	g.DrawLine( &axPen, mgn, histoY + histoH, mgn + histoW, histoY + histoH );
-	CString axL, axM, axR;
-	axL = "0";
+	g.DrawLine( &axPen, 0, histoBottom, histoW, histoBottom );
+	CString axM, axR;
 	axM.Format( "%.3g (good)", good );
 	axR.Format( "%.3g+ (warn)", warn );
-	DrawStr( g, axL, fSmall, Gdiplus::RectF( (float)mgn, (float)( histoY + histoH + 4 ), 40.0f, 16.0f ), t.dimtxt );
-	DrawStr( g, axM, fSmall, Gdiplus::RectF( (float)( mgn + (int)( good / m_stats.histoBinW ) * bw - 40 ), (float)( histoY + histoH + 4 ), 90.0f, 16.0f ), t.dimtxt, Gdiplus::StringAlignmentCenter );
-	DrawStr( g, axR, fSmall, Gdiplus::RectF( (float)( mgn + histoW - 90 ), (float)( histoY + histoH + 4 ), 90.0f, 16.0f ), t.dimtxt, Gdiplus::StringAlignmentFar );
+	int axY = histoBottom + GetConfig()->Scale( 1 );
+	DrawStr( g, "0", fSmall, Gdiplus::RectF( 0.0f, (float)axY, 40.0f, 16.0f ), t.dimtxt );
+	DrawStr( g, axM, fSmall, Gdiplus::RectF( (float)( (int)( good / m_stats.histoBinW ) * bw - 45 ), (float)axY, 90.0f, 16.0f ), t.dimtxt, Gdiplus::StringAlignmentCenter );
+	DrawStr( g, axR, fSmall, Gdiplus::RectF( (float)( histoW - 90 ), (float)axY, 90.0f, 16.0f ), t.dimtxt, Gdiplus::StringAlignmentFar );
 
-	// by-region table under the histogram
-	int regY = histoY + histoH + GetConfig()->Scale( 28 );
-	DrawStr( g, "By region", fSmall, Gdiplus::RectF( (float)mgn, (float)regY - 17, 150.0f, 16.0f ), t.dimtxt );
+	// ---- left column: region breakdown, one compact line ----
+	CString regLine = "By region";
 	for ( int r = 0; r < 4; r++ )
 	{
-		if ( regY + 18 > rc.Height() ) break;
-		CString row;
+		CString seg;
 		if ( m_stats.regCnt[r] )
-			row.Format( "%s:  avg %.1f,  max %.1f", kRegionNames[r], m_stats.regAvg[r], m_stats.regMax[r] );
+			seg.Format( "    %s %.1f / %.1f", kRegionNames[r], m_stats.regAvg[r], m_stats.regMax[r] );
 		else
-			row.Format( "%s:  no data", kRegionNames[r] );
-		DrawStr( g, row, fSmall, Gdiplus::RectF( (float)mgn, (float)regY, (float)histoW, 17.0f ), t.text );
-		regY += GetConfig()->Scale( 18 );
+			seg.Format( "    %s -", kRegionNames[r] );
+		regLine += seg;
 	}
+	DrawStr( g, regLine, fSmall, Gdiplus::RectF( 0.0f, (float)( axY + axisRowH ), (float)histoW, 18.0f ), t.dimtxt );
 
-	// worst patches (right column), clickable
-	int wx = leftW + mgn;
-	int wy = y;
-	DrawStr( g, "Worst patches  -  click to inspect in the 3D view", fSmall,
-			 Gdiplus::RectF( (float)wx, (float)wy - 2, (float)( rc.Width() - wx - mgn ), 16.0f ), t.dimtxt );
-	wy += GetConfig()->Scale( 20 );
-	int rowH = GetConfig()->Scale( 20 );
+	// ---- right column: worst patches, clickable, fills the height ----
+	int wy = 0;
+	DrawStr( g, "Worst patches  -  click to inspect", fSmall,
+			 Gdiplus::RectF( (float)rightX, (float)wy, (float)rightW, 18.0f ), t.dimtxt );
+	wy += GetConfig()->Scale( 22 );
+	int rowH = GetConfig()->Scale( 19 );
 	for ( size_t w = 0; w < m_stats.worst.size(); w++ )
 	{
-		if ( wy + rowH > rc.Height() - mgn )
+		if ( wy + rowH > H )
 			break;
 		int pi = m_stats.worst[w];
 		ColorRGBDisplay rgb = pMeasure->GetProfilePatchRGB( pi );
 		double dE = PatchDE( pi );
-		CRect rcRow( wx, wy, rc.Width() - mgn, wy + rowH );
+		CRect rcRow( rightX, wy, CW, wy + rowH );
 		m_rcWorstRows.push_back( std::make_pair( rcRow, pi ) );
 
 		if ( m_hot == HOT_WORST_FIRST + (int)w )
 			FillRound( g, rcRow, 4, t.cardHot );
 
-		CRect rcSw( wx + 3, wy + 3, wx + rowH - 3, wy + rowH - 3 );
+		CRect rcSw( rightX + 3, wy + 3, rightX + rowH - 3, wy + rowH - 3 );
 		FillRound( g, rcSw, 3, SwatchColor( rgb ) );
 		DrawRound( g, rcSw, 3, t.border, 1.0f );
 
 		CString row;
 		row.Format( "RGB %.0f, %.0f, %.0f", rgb[0], rgb[1], rgb[2] );
-		DrawStr( g, row, fSmall, Gdiplus::RectF( (float)( wx + rowH + 6 ), (float)wy + 2, (float)( rc.Width() - wx - mgn - rowH - 60 ), 17.0f ), t.text );
+		DrawStr( g, row, fSmall, Gdiplus::RectF( (float)( rightX + rowH + 6 ), (float)wy + 1, (float)( rightW - rowH - 60 ), 17.0f ), t.text );
 		CString de;
 		de.Format( "%.1f", dE );
-		DrawStr( g, de, fSmall, Gdiplus::RectF( (float)( rc.Width() - mgn - 52 ), (float)wy + 2, 48.0f, 17.0f ),
-				 DEColor( dE, good, warn ), Gdiplus::StringAlignmentFar );
+		DrawStr( g, de, fSmall, Gdiplus::RectF( (float)( CW - 50 ), (float)wy + 1, 48.0f, 17.0f ),
+				 DETextColor( dE, good, warn, dark ), Gdiplus::StringAlignmentFar );
 		wy += rowH;
 	}
 }
 
-int CProfilePane::HotFromPoint(CPoint pt) const
+// clientPt is in pane client coords (for the chrome buttons); the body rects
+// live in content coords, so shift a copy by (m_contentDX, m_contentDY).
+int CProfilePane::HotFromPoint(CPoint clientPt) const
 {
+	// chrome buttons first (client coords, present in every state)
+	if ( !m_rcRefs.IsRectEmpty() && m_rcRefs.PtInRect( clientPt ) )
+		return HOT_REFS;
+	if ( !m_rcCtx.IsRectEmpty() && m_rcCtx.PtInRect( clientPt ) )
+		return HOT_CTX;
+
+	CPoint pt( clientPt.x - m_contentDX, clientPt.y - m_contentDY );	// content space
 	switch ( m_state )
 	{
 		case PS_SETUP:
@@ -934,11 +1235,11 @@ int CProfilePane::HotFromPoint(CPoint pt) const
 		case PS_RUNNING:
 			if ( m_rcPause.PtInRect( pt ) )
 				return HOT_PAUSE;
+			if ( m_rcStop.PtInRect( pt ) )
+				return HOT_STOP;
 			break;
 
 		case PS_SUMMARY:
-			if ( m_rcNewProfile.PtInRect( pt ) )
-				return HOT_NEWPROFILE;
 			for ( size_t w = 0; w < m_rcWorstRows.size(); w++ )
 				if ( m_rcWorstRows[w].first.PtInRect( pt ) )
 					return HOT_WORST_FIRST + (int)w;
@@ -975,52 +1276,59 @@ LRESULT CProfilePane::OnMouseLeave(WPARAM /*wParam*/, LPARAM /*lParam*/)
 	return 0;
 }
 
+// Perform the action for an element the user pressed AND released over.
+void CProfilePane::ActivateHot(int id)
+{
+	if ( id >= HOT_PRESET_FIRST && id <= HOT_PRESET_LAST )
+	{
+		if ( id != m_preset )
+		{
+			m_preset = id;
+			GetConfig()->WriteProfileInt("MainView", "Profile Preset", m_preset);
+			Invalidate( FALSE );
+		}
+		return;
+	}
+	if ( id >= HOT_WORST_FIRST )
+	{
+		int w = id - HOT_WORST_FIRST;
+		if ( w >= 0 && w < (int)m_rcWorstRows.size() )
+			SendAction( PA_INSPECT, m_rcWorstRows[w].second );
+		return;
+	}
+	switch ( id )
+	{
+		case HOT_START: SendAction( PA_START ); break;
+		case HOT_PAUSE: SendAction( PA_PAUSE ); break;
+		case HOT_STOP:  SendAction( PA_STOP );  break;
+		case HOT_REFS:  SendAction( PA_REFS );  break;
+		case HOT_CTX:
+			// "New profile..." (summary) -> setup, or "Back to summary" (setup) ->
+			// summary. Nothing is destroyed until a capture actually starts.
+			m_state = ( m_state == PS_SUMMARY ) ? PS_SETUP : PS_SUMMARY;
+			SyncChildren();
+			Invalidate( FALSE );
+			break;
+	}
+}
+
 void CProfilePane::OnLButtonDown(UINT nFlags, CPoint point)
 {
-	switch ( m_state )
-	{
-		case PS_SETUP:
-		{
-			for ( int p = 0; p < 5; p++ )
-			{
-				if ( m_rcPresets[p].PtInRect( point ) && p != m_preset )
-				{
-					m_preset = p;
-					GetConfig()->WriteProfileInt("MainView", "Profile Preset", m_preset);
-					Invalidate( FALSE );
-					CWnd::OnLButtonDown( nFlags, point );
-					return;
-				}
-			}
-			if ( m_rcStart.PtInRect( point ) )
-				SendAction( PA_START );
-			break;
-		}
-
-		case PS_RUNNING:
-			if ( m_rcPause.PtInRect( point ) )
-				SendAction( PA_PAUSE );
-			break;
-
-		case PS_SUMMARY:
-		{
-			if ( m_rcNewProfile.PtInRect( point ) )
-			{
-				m_state = PS_SETUP;
-				SyncChildren();
-				Invalidate( FALSE );
-				break;
-			}
-			for ( size_t w = 0; w < m_rcWorstRows.size(); w++ )
-			{
-				if ( m_rcWorstRows[w].first.PtInRect( point ) )
-				{
-					SendAction( PA_INSPECT, m_rcWorstRows[w].second );
-					break;
-				}
-			}
-			break;
-		}
-	}
+	// Record what was pressed and capture the mouse; the action fires on release
+	// (OnLButtonUp) only if the cursor is still over the same element.
+	m_pressed = HotFromPoint( point );
+	if ( m_pressed != HOT_NONE )
+		SetCapture();
 	CWnd::OnLButtonDown( nFlags, point );
+}
+
+void CProfilePane::OnLButtonUp(UINT nFlags, CPoint point)
+{
+	if ( GetCapture() == this )
+		ReleaseCapture();
+	int up = HotFromPoint( point );
+	if ( up != HOT_NONE && up == m_pressed )
+		ActivateHot( up );
+	m_pressed = HOT_NONE;
+	CWnd::OnLButtonUp( nFlags, point );
 }

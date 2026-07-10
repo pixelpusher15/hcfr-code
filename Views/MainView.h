@@ -283,6 +283,7 @@ public:
 	afx_msg void On3DDEFilterClicked();
 	afx_msg void OnProfilePaneAction();
 	void StartProfileCapture();
+	void LayoutProfilePane();	// mode 13: pane fills the whole group interior
 	afx_msg void OnDropdownComboMode();
 	afx_msg void OnSelchangeDisplayType();
 	afx_msg void OnSelchangeComboSteps();

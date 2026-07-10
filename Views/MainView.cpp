@@ -5720,30 +5720,44 @@ void CMainView::OnSelchangeComboMode()
 	else
 	{
 		m_testAnsiPatternButton.ShowWindow ( SW_HIDE );
-		m_refs.ShowWindow ( SW_SHOW );
+		// mode 13 hides the whole right column; the pane hosts References itself
+		m_refs.ShowWindow ( m_displayMode == 13 ? SW_HIDE : SW_SHOW );
 	}
 	if ( m_satAllLevelsButton.GetSafeHwnd () )
 		m_satAllLevelsButton.ShowWindow ( ( m_displayMode >= 5 && m_displayMode <= 10 ) ? SW_SHOW : SW_HIDE );
 
-	// mode 13 swaps the measures grid for the display-profile pane; the delete
-	// button is pointless there ("New profile" replaces the capture instead)
+	// mode 13 swaps the measures grid AND its satellite chrome (stats bar, value
+	// display group, Go/Delete buttons) for the full-width display-profile pane;
+	// the pane hosts its own Start/Stop/References controls
 	if ( m_profilePane.GetSafeHwnd () )
 	{
-		if ( m_displayMode == 13 )
+		BOOL bProfile = ( m_displayMode == 13 );
+		int nShow = bProfile ? SW_HIDE : SW_SHOW;
+
+		if ( m_pGrayScaleGrid && m_pGrayScaleGrid->GetSafeHwnd () )
+			m_pGrayScaleGrid->ShowWindow ( nShow );
+		if ( m_valuesStatic.GetSafeHwnd () )
+			m_valuesStatic.ShowWindow ( nShow );	// etched frame behind the grid
+		m_grayScaleDeleteButton.ShowWindow ( nShow );
+		m_grayScaleButton.ShowWindow ( nShow );
+		m_grayScaleGroup.ShowWindow ( nShow );	// pane draws its own titled frame
+		if ( m_statsBar.GetSafeHwnd () )
+			m_statsBar.ShowWindow ( nShow );
+		if ( m_editCheckButton.GetSafeHwnd () )
+			m_editCheckButton.ShowWindow ( nShow );
+		if ( m_comboDisplayType.GetSafeHwnd () )
+			m_comboDisplayType.ShowWindow ( nShow );
+		if ( GetDlgItem ( IDC_DISPLAY_GROUP ) )
+			GetDlgItem ( IDC_DISPLAY_GROUP )->ShowWindow ( nShow );
+
+		if ( bProfile )
 		{
-			if ( m_pGrayScaleGrid && m_pGrayScaleGrid->GetSafeHwnd () )
-				m_pGrayScaleGrid->ShowWindow ( SW_HIDE );
-			m_grayScaleDeleteButton.ShowWindow ( SW_HIDE );
+			LayoutProfilePane ();
 			m_profilePane.ShowWindow ( SW_SHOW );
 			m_profilePane.RefreshState ();
 		}
 		else
-		{
 			m_profilePane.ShowWindow ( SW_HIDE );
-			m_grayScaleDeleteButton.ShowWindow ( SW_SHOW );
-			if ( m_pGrayScaleGrid && m_pGrayScaleGrid->GetSafeHwnd () )
-				m_pGrayScaleGrid->ShowWindow ( SW_SHOW );
-		}
 	}
 
 	MsgAdd.LoadString ( IDS_CTRLCLICK_SIM );
@@ -6501,6 +6515,29 @@ void CMainView::OnMeasureGrayScale()
 	}
 }
 
+void CMainView::LayoutProfilePane()
+{
+	if ( !m_profilePane.GetSafeHwnd () || !m_grayScaleGroup.GetSafeHwnd () )
+		return;
+	// The measures group only spans the grid band; the Display group + Go/Refs
+	// buttons sit in a separate strip to its right. Span the pane across BOTH so
+	// no chrome pokes out: group's top-left to the client right edge, matching
+	// the full-width top-row panes above.
+	CRect rcGroup;
+	m_grayScaleGroup.GetWindowRect ( &rcGroup );
+	ScreenToClient ( &rcGroup );
+
+	CRect rcClient;
+	GetClientRect ( &rcClient );
+
+	int leftInset = rcGroup.left;	// mirror on the right so both margins match
+	// pull the right edge in 1px more so the gap to the window edge matches the
+	// other top-row panes exactly (right-aligned content follows since CW shrinks)
+	CRect rc ( rcGroup.left, rcGroup.top, rcClient.right - leftInset - 1, rcGroup.bottom );
+	if ( rc.Width () > 0 && rc.Height () > 0 )
+		m_profilePane.MoveWindow ( &rc );
+}
+
 void CMainView::StartProfileCapture()
 {
 	CDataSetDoc * pDoc = GetDocument();
@@ -6547,6 +6584,19 @@ void CMainView::OnProfilePaneAction()
 				pMeasure->m_bProfilePause = !pMeasure->m_bProfilePause;
 				m_profilePane.SetPaused ( pMeasure->m_bProfilePause );
 			}
+			break;
+
+		case CProfilePane::PA_STOP:
+			// the loop breaks at the next patch boundary and keeps partials
+			if ( pMeasure && IsMeasureSweepActive () )
+			{
+				pMeasure->m_bProfilePause = FALSE;
+				pMeasure->m_bAbortSweep = TRUE;
+			}
+			break;
+
+		case CProfilePane::PA_REFS:
+			OnRefs ();
 			break;
 
 		case CProfilePane::PA_INSPECT:
@@ -7344,7 +7394,7 @@ void CMainView::InitButtons()
 	else
 	{
 		m_testAnsiPatternButton.ShowWindow ( SW_HIDE );
-		m_refs.ShowWindow ( SW_SHOW );
+		m_refs.ShowWindow ( m_displayMode == 13 ? SW_HIDE : SW_SHOW );
 	}
 	m_satAllLevelsButton.ShowWindow ( ( m_displayMode >= 5 && m_displayMode <= 10 ) ? SW_SHOW : SW_HIDE );
 	line_Font.DeleteObject();
@@ -7811,6 +7861,9 @@ void CMainView::OnSize(UINT nType, int cx, int cy)
 			InitGrid(true);
 			UpdateGrid();
 		}
+
+		if ( m_displayMode == 13 )
+			LayoutProfilePane ();	// override the grid-anchored CtrlInitPos rect
 	}
 }
 
