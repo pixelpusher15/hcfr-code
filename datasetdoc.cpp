@@ -1136,12 +1136,22 @@ BOOL CDataSetDoc::CanCloseFrame(CFrameWnd* pFrame)
 }
 
 
+static volatile BOOL g_bAllLevelsSweepActive = FALSE;
+BOOL IsAllLevelsSweepActive() { return g_bAllLevelsSweepActive; }
+
 namespace {
 struct MeasureButtonStopScope
 {
 	CDataSetDoc * m_pDoc;
-	explicit MeasureButtonStopScope(CDataSetDoc * pDoc) : m_pDoc(pDoc) { Set(TRUE); }
-	~MeasureButtonStopScope() { Set(FALSE); }
+	bool m_bAllLevels;
+	// bAllLevels: the "All stim" button drives this sweep (CDataSetDoc::MeasureSatColorAllLevels),
+	// so it -- not the per-hue Go button -- should show the red "click to stop" state.
+	explicit MeasureButtonStopScope(CDataSetDoc * pDoc, bool bAllLevels = false) : m_pDoc(pDoc), m_bAllLevels(bAllLevels)
+	{
+		if (m_bAllLevels) g_bAllLevelsSweepActive = TRUE;
+		Set(TRUE);
+	}
+	~MeasureButtonStopScope() { Set(FALSE); if (m_bAllLevels) g_bAllLevelsSweepActive = FALSE; }
 	void Set(BOOL bStop)
 	{
 		if (!m_pDoc) return;
@@ -1150,7 +1160,12 @@ struct MeasureButtonStopScope
 		{
 			CView * v = m_pDoc->GetNextView(pos);
 			if (v && v->IsKindOf(RUNTIME_CLASS(CMainView)))
-				((CMainView*)v)->SetMeasureButtonStop(bStop);
+			{
+				if (m_bAllLevels)
+					((CMainView*)v)->SetAllLevelsButtonStop(bStop);
+				else
+					((CMainView*)v)->SetMeasureButtonStop(bStop);
+			}
 		}
 	}
 };
@@ -4859,7 +4874,7 @@ void CDataSetDoc::MeasureSatColorAllLevels(int hue)
 		return;
 
 	StopBackgroundMeasures ();
-	MeasureButtonStopScope _btn(this);
+	MeasureButtonStopScope _btn(this, true);
 
 	std::vector<double> levels;
 	ParseSatStimLevels ( levels );
