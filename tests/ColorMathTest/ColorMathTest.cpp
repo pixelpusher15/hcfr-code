@@ -316,6 +316,40 @@ static void RunT4()
                 DumpTriplets(out, &buf[0], ccsizes[m]);
             }
     }
+
+    // Native 10-bit grid variants (b10bit=true): freezes the native path
+    // (219*4 grid) that the 8-bit blocks above do NOT exercise. Same cases,
+    // tagged SAT10 / CC10 and appended so the 8-bit rows stay byte-identical.
+    out += "# GenerateSaturationColors 10-bit (std,combo,steps,eotf) then triplets %.17g\n";
+    for (int s = 0; s < sizeof(stds)/sizeof(stds[0]); ++s)
+    {
+        CColorReference ref(stds[s]);
+        for (int c = 0; c < 6; ++c)
+            for (int st = 0; st < sizeof(steps)/sizeof(steps[0]); ++st)
+                for (int e = 0; e < sizeof(eotfs)/sizeof(eotfs[0]); ++e)
+                {
+                    std::vector<ColorRGBDisplay> buf(steps[st]);
+                    GenerateSaturationColors(ref, &buf[0], steps[st],
+                        combos[c][0], combos[c][1], combos[c][2], eotfs[e], 1.0, true);
+                    AppendF(out, "SAT10,%d,%d,%d,%d\n", (int)stds[s], c, steps[st], eotfs[e]);
+                    DumpTriplets(out, &buf[0], steps[st]);
+                }
+    }
+
+    out += "# GenerateCC24Colors 10-bit (std,ccmode,eotf) hardcoded modes only\n";
+    for (int s = 0; s < sizeof(ccstds)/sizeof(ccstds[0]); ++s)
+    {
+        CColorReference ref(ccstds[s]);
+        for (int m = 0; m < sizeof(ccmodes)/sizeof(ccmodes[0]); ++m)
+            for (int e = 0; e < 2; ++e)
+            {
+                int eotf = e ? 5 : 0;
+                std::vector<ColorRGBDisplay> buf(96);
+                bool ok = GenerateCC24Colors(ref, &buf[0], ccmodes[m], eotf, true);
+                AppendF(out, "CC10,%d,%d,%d,%d\n", (int)ccstds[s], ccmodes[m], eotf, ok ? 1 : 0);
+                DumpTriplets(out, &buf[0], ccsizes[m]);
+            }
+    }
     HandleTable("T4_patterns.txt", out);
 }
 
