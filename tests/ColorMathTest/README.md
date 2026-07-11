@@ -11,12 +11,17 @@ Guards the 8-bit signal path while the 10-bit work lands. Part of the plan in
 - **T2/T3** — `ArrayIndexToGrayLevel` / `GrayLevelToGrayProp` tables for all grayscale sizes
   and all three rounding modes (normal / round-down / 10-bit disc), vs golden files.
 - **T4** — `GenerateSaturationColors` (5 standards x 6 color combos x 3 sizes x 3 EOTF modes)
-  and the hardcoded `GenerateCC24Colors` modes (GCD/MCD/CCSG), vs golden files. Emitted twice:
-  the 8-bit path (`SAT`/`CC` rows, `b10bit=false`) and the native 10-bit path (`SAT10`/`CC10`
-  rows, `b10bit=true`, quantized to the 219*4 grid). The 8-bit rows are frozen and must not
-  drift; T4 catches accidental changes (e.g. a stray edit in byte-sensitive `Color.cpp`). Note
-  `CC10` SDR rows equal their `CC` counterparts because the hardcoded ColorChecker tables are
-  fixed 8-bit reference values (only the HDR-recalc path is regenerated on the 10-bit grid).
+  and the hardcoded `GenerateCC24Colors` modes (GCD/MCD/CCSG), vs golden files. Emitted for
+  every native grid the generators can quantize to: 8-bit limited (`SAT`/`CC` rows — the
+  frozen legacy path, byte-identical forever), 8-bit full (`SAT8F`/`CC8F`, 255 grid), 10-bit
+  limited (`SAT10`/`CC10`, 876 grid), and 10-bit full (`SAT10F`/`CC10F`, 1023 grid). T4
+  catches accidental drift (e.g. a stray edit in byte-sensitive `Color.cpp`). Note `CC*`
+  SDR (eotf=0) rows equal the hardcoded ColorChecker tables regardless of grid — only the
+  HDR-recalc path re-quantizes; the SDR tables are fixed 8-bit reference values.
+- **T8** — `SnapToVideoGrid` oracle (no golden file): the shared patch/reference/sensor
+  quantizer must hit the exact native grid for all four (bit depth, range) combos —
+  219/255/876/1023 — and its 8-bit limited form must equal the historical
+  `floor(v*219+0.5)/219` exactly.
 - **T6** — `GetColorRef` COLORREF packing, vs golden file.
 - **T5** (rPI emission function) arrives with PR 3. **T7** (.chc round-trip) needs app-level
   linkage and is not in this console harness.
