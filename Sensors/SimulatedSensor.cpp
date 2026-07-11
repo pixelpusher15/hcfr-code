@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 /////////////////////////////////////////////////////////////////////////////
 
 // SimulatedSensor.cpp: implementation of the CSimulatedSensor class.
@@ -221,27 +221,19 @@ CColor CSimulatedSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, 
 	if (GetConfig()->m_colorStandard == sRGB)
 		mode = 99;
 	
-	//	quantize to 8 or 10 bit video
+	// Quantize on the same native code grid the patch generators emit (bit
+	// depth AND range) so a perfect simulated measurement matches the
+	// reference exactly (baseline dE ~ 0). Uses SnapToVideoGrid: 219/255
+	// (8-bit limited/full), 876/1023 (10-bit limited/full).
 	double r,g,b;
-	if (GetConfig()->GetUse10bitLevels())
 	{
-		r =  floor( (aRGBValue[0]/100. * 219. * 4.) + 0.5 ) / (2.19 * 4.0);
-		g =  floor( (aRGBValue[1]/100. * 219. * 4.) + 0.5 ) / (2.19 * 4.0);
-		b =  floor( (aRGBValue[2]/100. * 219. * 4.) + 0.5 ) / (2.19 * 4.0);
-	}
-	else
-	{
-		r =  floor( (aRGBValue[0]/100. * 219.) + 0.5 ) / 2.19;
-		g =  floor( (aRGBValue[1]/100. * 219.) + 0.5 ) / 2.19;
-		b =  floor( (aRGBValue[2]/100. * 219.) + 0.5 ) / 2.19;
+		const bool b10 = !!GetConfig()->GetUse10bitLevels();
+		const bool lim = !!GetConfig()->GetRGB16_235();
+		r = SnapToVideoGrid( aRGBValue[0] / 100., b10, lim ) * 100.;
+		g = SnapToVideoGrid( aRGBValue[1] / 100., b10, lim ) * 100.;
+		b = SnapToVideoGrid( aRGBValue[2] / 100., b10, lim ) * 100.;
 	}
 		
-//	if (!GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1)) //user outputs full range -can be set to simulate rounding errors
-//	{
-//		r = floor( ((r / 100.) * 255. + 0.5) ) / 2.55;
-//		g = floor( ((g / 100.) * 255. + 0.5) ) / 2.55;
-//		b = floor( ((b / 100.) * 255. + 0.5) ) / 2.55;
-//	}
 
 	gamma=GetConfig()->m_GammaRef;
 

@@ -1233,9 +1233,12 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					r1=getL_EOTF(r[i], noDataColor, noDataColor, 2.4, 0.9, -1*mode);
 					g1=getL_EOTF(g[i], noDataColor, noDataColor, 2.4, 0.9, -1*mode);
 					b1=getL_EOTF(b[i], noDataColor, noDataColor, 2.4, 0.9, -1*mode);
-					r1 = floor( (r1 * 219.) + 0.5 ) / 219.;
-					g1 = floor( (g1 * 219.) + 0.5 ) / 219.;
-					b1 = floor( (b1 * 219.) + 0.5 ) / 219.;
+					// model the wire quantization on the active grid (bit depth + range)
+					bool b10 = !!GetConfig()->GetUse10bitLevels();
+					bool lim = !!GetConfig()->GetRGB16_235();
+					r1 = SnapToVideoGrid( r1, b10, lim );
+					g1 = SnapToVideoGrid( g1, b10, lim );
+					b1 = SnapToVideoGrid( b1, b10, lim );
 				    r1 = getL_EOTF(r1,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 				    g1 = getL_EOTF(g1,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 				    b1 = getL_EOTF(b1,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
