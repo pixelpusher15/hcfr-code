@@ -37,7 +37,7 @@ class CProfilePane : public CWnd
 {
 public:
 	enum State  { PS_SETUP = 0, PS_RUNNING, PS_SUMMARY };
-	enum Action { PA_NONE = 0, PA_START, PA_PAUSE, PA_STOP, PA_INSPECT, PA_REFS };
+	enum Action { PA_NONE = 0, PA_START, PA_PAUSE, PA_STOP, PA_INSPECT, PA_REFS, PA_CLEAR };
 
 	CProfilePane();
 	virtual ~CProfilePane();
@@ -67,7 +67,7 @@ protected:
 	// hover-tracking ids for owner-drawn interactive elements
 	enum Hot { HOT_NONE = -1, HOT_PRESET_FIRST = 0, HOT_PRESET_LAST = 4,
 			   HOT_START = 10, HOT_PAUSE = 11, HOT_STOP = 12,
-			   HOT_REFS = 13, HOT_CTX = 14,		// chrome buttons (client-space)
+			   HOT_REFS = 13, HOT_CTX = 14, HOT_CLEAR = 15,		// chrome buttons (client-space)
 			   HOT_WORST_FIRST = 100 };
 
 	// stats over the measured profile, recomputed lazily (m_statsValid)
@@ -139,7 +139,7 @@ protected:
 	// hit-test rectangles rebuilt on every paint.
 	// chrome buttons (m_rcRefs, m_rcCtx) are in pane CLIENT coords; body rects
 	// (presets, start, pause, stop, worst rows) are in translated CONTENT coords.
-	CRect			m_rcRefs, m_rcCtx;			// client-space chrome
+	CRect			m_rcRefs, m_rcCtx, m_rcClear;	// client-space chrome
 	CString			m_ctxLabel;					// "" hides the context button
 	CRect			m_rcPresets[5];
 	CRect			m_rcStart, m_rcPause, m_rcStop;

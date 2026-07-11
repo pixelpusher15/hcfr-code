@@ -1529,6 +1529,7 @@ bool CExport::SaveSheets()
 	result&=SavePrimariesSheet();
 	result&=SaveCCSheet();
 	result&=SaveSpectralSheet();
+	result&=SaveProfileSheet();
 
 	if(!result)
 	{
@@ -1929,6 +1930,63 @@ bool CExport::SaveSpectralSheet()
 	result&=spectralSS.Commit();
 	if(!result)
 		m_errorStr=spectralSS.GetLastError();
+	return result;
+}
+
+// Dense display-profile cube: one row per measured patch (stimulus RGB% +
+// measured XYZ / xyY / dE), so the profile can leave the .chc for external
+// 3D-LUT / analysis tools. No-op when the document has no profile.
+bool CExport::SaveProfileSheet()
+{
+	CMeasure * pM = m_pDoc->GetMeasure();
+	if ( pM == NULL || !pM->HasProfileMeasures() )
+		return true;
+
+	CString SheetOrSeparator="ProfileSheet";
+	CString aFileName;
+	if(m_type == CSV)
+	{
+		aFileName=m_fileName+"."+SheetOrSeparator+".csv";
+		SheetOrSeparator=m_separator;
+	}
+	else
+		aFileName=m_fileName;
+
+	CSpreadSheet profSS(aFileName, SheetOrSeparator, m_doBackup);
+	profSS.BeginTransaction();
+
+	CRowArray Rows;
+	Rows.RemoveAll();
+	Rows.Add("Patch");	Rows.Add("R%"); Rows.Add("G%"); Rows.Add("B%");
+	Rows.Add("X"); Rows.Add("Y"); Rows.Add("Z");
+	Rows.Add("x"); Rows.Add("y"); Rows.Add("dE");
+	bool result = profSS.AddHeaders(Rows,true);
+
+	int rowNb = 2;
+	int n = pM->GetProfileMeasureSize();
+	for ( int i = 0; i < n; i++ )
+	{
+		CColor c = pM->GetProfileMeasure(i);
+		if ( !c.isValid() )
+			continue;
+		ColorRGBDisplay rgb = pM->GetProfilePatchRGB(i);
+		ColorXYZ  xyz = c.GetXYZValue();
+		ColorxyY  xyY = c.GetxyYValue();
+		double    dE  = pM->ComputeProfileDE(c, i);
+
+		Rows.RemoveAll();
+		Rows.Add((float)i);
+		Rows.Add((float)rgb[0]); Rows.Add((float)rgb[1]); Rows.Add((float)rgb[2]);
+		Rows.Add((float)xyz[0]); Rows.Add((float)xyz[1]); Rows.Add((float)xyz[2]);
+		Rows.Add((float)xyY[0]); Rows.Add((float)xyY[1]);
+		Rows.Add((float)( dE >= 0.0 ? dE : 0.0 ));
+		result &= profSS.AddRow(Rows,rowNb,m_doReplace);
+		rowNb++;
+	}
+
+	result&=profSS.Commit();
+	if(!result)
+		m_errorStr=profSS.GetLastError();
 	return result;
 }
 

@@ -261,26 +261,9 @@ double CProfilePane::PatchDE(int i) const
 	CMeasure * pMeasure = Measure();
 	if ( !pMeasure )
 		return -1.0;
-	CColor c = pMeasure->GetProfileMeasure( i );
-	if ( !c.isValid() )
-		return -1.0;
-	ColorXYZ xyz = c.GetXYZValue();
-	double ywForDE = WhiteYForDE();
-	if ( ( xyz[0] + xyz[1] + xyz[2] ) < 1e-6 || ywForDE <= 0.0 )
-		return -1.0;	// blackish: no defined chromaticity, dE meaningless
-	CColor refC;
-	pMeasure->GetRefProfileSat( i, refC );
-	if ( !refC.isValid() )
-		return -1.0;
-	int gw = ( GetConfig()->m_GammaOffsetType == 5 ) ? 3 : GetConfig()->gw_Weight;
-	double dE = c.GetDeltaE( ywForDE, refC, 1.0, GetColorReference(), GetConfig()->m_dE_form, false, gw );
-	if ( !( dE == dE ) || dE < 0.0 )
-		return -1.0;
-	if ( dE > 1.0e6 )	// non-finite / absurd: poisons stats and histogram binning
-	{
-		return -1.0;
-	}
-	return dE;
+	// centralised in CMeasure so it matches the measures grid exactly, including
+	// the PQ-HDR (mode 5) absolute-nits bridge
+	return pMeasure->ComputeProfileDE( pMeasure->GetProfileMeasure( i ), i );
 }
 
 void CProfilePane::OnCaptureProgress()
@@ -703,7 +686,7 @@ void CProfilePane::OnPaint()
 	int i;
 	for ( i = 0; i < 5; i++ ) m_rcPresets[i].SetRectEmpty();
 	m_rcStart.SetRectEmpty(); m_rcPause.SetRectEmpty(); m_rcStop.SetRectEmpty();
-	m_rcRefs.SetRectEmpty(); m_rcCtx.SetRectEmpty();
+	m_rcRefs.SetRectEmpty(); m_rcCtx.SetRectEmpty(); m_rcClear.SetRectEmpty();
 	m_rcWorstRows.clear();
 
 	// fixed chrome row (title + status + buttons), drawn in client coords so it
@@ -825,6 +808,17 @@ void CProfilePane::PaintChrome(Gdiplus::Graphics & g, const CRect & client, bool
 		DrawIconButton( g, m_rcCtx, m_ctxLabel, fBtn, NULL, ctxGlyph, &fGlyph, iconSz,
 						m_hot == HOT_CTX ? t.cardHot : t.card, t.text, t.btnBorder );
 		statusRight = m_rcCtx.left - GetConfig()->Scale( 12 );
+	}
+
+	// Delete button (summary only) discards the captured profile from the document
+	if ( m_state == PS_SUMMARY && !m_rcCtx.IsRectEmpty() )
+	{
+		int delW = ContentButtonWidth( g, "Delete", fBtn, iconSz, padX );
+		m_rcClear = CRect( m_rcCtx.left - GetConfig()->Scale( 8 ) - delW, top,
+						   m_rcCtx.left - GetConfig()->Scale( 8 ), top + btnH );
+		DrawIconButton( g, m_rcClear, "Delete", fBtn, NULL, (wchar_t)0xE74D, &fGlyph, iconSz,	// Fluent "Delete"
+						m_hot == HOT_CLEAR ? t.cardHot : t.card, t.danger, t.btnBorder );
+		statusRight = m_rcClear.left - GetConfig()->Scale( 12 );
 	}
 
 	// status text fills the gap between the title and the buttons
@@ -1220,6 +1214,8 @@ int CProfilePane::HotFromPoint(CPoint clientPt) const
 		return HOT_REFS;
 	if ( !m_rcCtx.IsRectEmpty() && m_rcCtx.PtInRect( clientPt ) )
 		return HOT_CTX;
+	if ( !m_rcClear.IsRectEmpty() && m_rcClear.PtInRect( clientPt ) )
+		return HOT_CLEAR;
 
 	CPoint pt( clientPt.x - m_contentDX, clientPt.y - m_contentDY );	// content space
 	switch ( m_state )
@@ -1302,6 +1298,7 @@ void CProfilePane::ActivateHot(int id)
 		case HOT_PAUSE: SendAction( PA_PAUSE ); break;
 		case HOT_STOP:  SendAction( PA_STOP );  break;
 		case HOT_REFS:  SendAction( PA_REFS );  break;
+		case HOT_CLEAR: SendAction( PA_CLEAR ); break;
 		case HOT_CTX:
 			// "New profile..." (summary) -> setup, or "Back to summary" (setup) ->
 			// summary. Nothing is destroyed until a capture actually starts.

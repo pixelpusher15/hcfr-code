@@ -402,6 +402,51 @@ static void RunT6()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T7 — GenerateProfileColors (display-profiling cube patch set). The whole
+// feature relies on this being DETERMINISTIC: a saved .chc stores only the
+// cube size + gray-extras flag and regenerates the exact patch list on load,
+// and the reference / export paths index it by position. If the ordering or
+// count ever changes, saved profiles silently mis-map. Locks the exact counts
+// (which also drive the pane's preset labels) and the ordering contract. No
+// golden file: all values are asserted inline.
+//////////////////////////////////////////////////////////////////////////
+static void RunT7()
+{
+    printf("T7 GenerateProfileColors determinism...\n");
+    // { cube N, count WITH gray/near-black extras } — must match the pane presets
+    static const int cases[5][2] = { {5,150}, {9,754}, {11,1350}, {17,4938}, {21,9270} };
+    for (int c = 0; c < 5; ++c)
+    {
+        int N = cases[c][0], expExt = cases[c][1];
+        int plain = GenerateProfileColors(NULL, 0, N, false);
+        if (plain != N*N*N) Fail("T7 cube %d plain count %d != %d", N, plain, N*N*N);
+        int ext = GenerateProfileColors(NULL, 0, N, true);
+        if (ext != expExt) Fail("T7 cube %d extras count %d != %d", N, ext, expExt);
+
+        std::vector<ColorRGBDisplay> a(ext), b(ext);
+        int fa = GenerateProfileColors(&a[0], ext, N, true);
+        int fb = GenerateProfileColors(&b[0], ext, N, true);
+        if (fa != ext || fb != ext) Fail("T7 cube %d fill count mismatch (%d/%d)", N, fa, fb);
+        for (int i = 0; i < ext; ++i)
+            if (a[i][0] != b[i][0] || a[i][1] != b[i][1] || a[i][2] != b[i][2])
+            { Fail("T7 cube %d non-deterministic at index %d", N, i); break; }
+    }
+
+    // ordering: r slowest, b fastest; first = black, last cube node = white
+    std::vector<ColorRGBDisplay> g(125);
+    GenerateProfileColors(&g[0], 125, 5, false);
+    if (g[0][0] != 0.0 || g[0][1] != 0.0 || g[0][2] != 0.0) Fail("T7 patch 0 not black");
+    if (g[1][0] != 0.0 || g[1][1] != 0.0 || fabs(g[1][2] - 25.0) > 1e-9) Fail("T7 patch 1 not (0,0,25)");
+    if (fabs(g[124][0] - 100.0) > 1e-9 || fabs(g[124][2] - 100.0) > 1e-9) Fail("T7 last cube node not white");
+
+    // bad cube sizes rejected; buffer overflow caught
+    if (GenerateProfileColors(NULL, 0, 1, false)  != -1) Fail("T7 cube size 1 not rejected");
+    if (GenerateProfileColors(NULL, 0, 22, false) != -1) Fail("T7 cube size 22 not rejected");
+    std::vector<ColorRGBDisplay> tiny(10);
+    if (GenerateProfileColors(&tiny[0], 10, 5, false) != -1) Fail("T7 buffer overflow not caught");
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -424,6 +469,7 @@ int main(int argc, char* argv[])
     RunT4();
     RunT5();
     RunT6();
+    RunT7();
 
     if (g_failures)
     {

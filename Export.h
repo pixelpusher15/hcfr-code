@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 /////////////////////////////////////////////////////////////////////////////
 
 // Export.h: interface for the CExport class.
@@ -60,6 +60,7 @@ private:
 	bool SavePDF();
 	bool SaveCCSheet();
 	bool SaveSpectralSheet();
+	bool SaveProfileSheet();
 
 public:
 	CExport(CDataSetDoc *pDoc, ExportType type);

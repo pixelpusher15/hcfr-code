@@ -332,6 +332,17 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 			m_infoStr=p->m_infoStr;
 			break;
 
+		case DUPLPROFILE:	// Display profile (whole capture + metadata + drift anchors)
+			m_profileCubeSize      = p->m_profileCubeSize;
+			m_profileGrayExtras    = p->m_profileGrayExtras;
+			m_profileDriftComp     = p->m_profileDriftComp;
+			m_profileCaptureSeconds= p->m_profileCaptureSeconds;
+			m_profileMeasureArray.Copy(p->m_profileMeasureArray);
+			m_profileDriftAnchors  = p->m_profileDriftAnchors;
+			m_profileDriftAnchorIdx= p->m_profileDriftAnchorIdx;
+			m_profileGenCacheKey   = -1;	// force regen of the stimulus cache
+			break;
+
 		default:
 			break;
 	}
@@ -895,6 +906,7 @@ void CMeasure::Serialize(CArchive& ar)
 			ar >> m_profileCaptureSeconds;
 
 			ar >> size;
+			if ( size < 0 ) size = 0;
 			m_profileMeasureArray.SetSize(size);
 			for(int i=0;i<size;i++)
 				m_profileMeasureArray[i]=noDataColor;
@@ -910,12 +922,16 @@ void CMeasure::Serialize(CArchive& ar)
 				else
 				{
 					ar >> j;
-					m_profileMeasureArray[j] = inColor;
+					// index comes straight from the archive; guard against a
+					// corrupt/hand-edited file writing out of bounds
+					if ( j >= 0 && j < size )
+						m_profileMeasureArray[j] = inColor;
 				}
 			}
 
 			int nAnchors;
 			ar >> nAnchors;
+			if ( nAnchors < 0 ) nAnchors = 0;
 			m_profileDriftAnchors.resize(nAnchors);
 			m_profileDriftAnchorIdx.resize(nAnchors);
 			for ( int i = 0; i < nAnchors; i++ )
@@ -1034,6 +1050,62 @@ void CMeasure::GetRefProfileSat(int i, CColor & ccRef)
 
 	ccRef.ClearSpectrumLux();
 	ccRef.SetRGBValue(ColorRGB(r,g,b),(GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4)?ContainerInnerReference(GetColorReference()):cRef);
+}
+
+// dE for a measured profile patch against its theoretical reference, using the
+// SAME conventions as the measures grid (CMainView::GetItemText, CC24 branch):
+// bRef standard selection, gw_Weight, and -- crucially -- the PQ-HDR bridge
+// (mode 5) that scales the normalized reference to absolute nits and adjusts
+// YWhite/RefWhite via tmWhite. SDR (mode != 5) keeps the plain relative path.
+// Returns -1.0 to skip (invalid / blackish / non-finite).
+double CMeasure::ComputeProfileDE(const CColor & c, int i)
+{
+	if ( !c.isValid() )
+		return -1.0;
+	ColorXYZ xyz = c.GetXYZValue();
+	CColor w = GetPrimeWhite();
+	if ( !w.isValid() || w.GetY() <= 0.0 )
+		w = GetOnOffWhite();
+	double ywForDE = w.isValid() ? w.GetY() : 0.0;
+	// (near-)black has no defined chromaticity; a chroma dE against it is bogus
+	if ( ( xyz[0] + xyz[1] + xyz[2] ) < 1e-6 || ywForDE <= 0.0 )
+		return -1.0;
+
+	CColor refC;
+	GetRefProfileSat( i, refC );
+	if ( !refC.isValid() )
+		return -1.0;
+
+	CColorReference cRef = GetColorReference();
+	CColorReference bRef = ( cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 ) ? ContainerTransportReference( cRef )
+						 : ( cRef.m_standard == HDTVa  || cRef.m_standard == HDTVb  ) ? CColorReference( HDTV )
+						 : cRef;
+	int mode = GetConfig()->m_GammaOffsetType;
+	int gw = ( mode == 5 ) ? 3 : GetConfig()->gw_Weight;
+
+	double YWhite = ywForDE, RefWhite = 1.0;
+	if ( mode == 5 )	// PQ HDR: match the grid's absolute-nits bridge
+	{
+		CColor White = GetOnOffWhite();
+		CColor Black = GetOnOffBlack();
+		double tmWhite = getL_EOTF( 0.5022283, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5,
+			GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL,
+			GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL, GetConfig()->m_useToneMap, FALSE,
+			GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1 ) * 100.0;
+		if ( tmWhite > 0.0 )
+		{
+			refC.SetX( refC.GetX() * 105.95640 );
+			refC.SetY( refC.GetY() * 105.95640 );
+			refC.SetZ( refC.GetZ() * 105.95640 );
+			RefWhite = YWhite / tmWhite;
+			YWhite   = YWhite * 94.37844 / tmWhite;
+		}
+	}
+
+	double dE = c.GetDeltaE( YWhite, refC, RefWhite, bRef, GetConfig()->m_dE_form, false, gw );
+	if ( !( dE == dE ) || dE < 0.0 || dE > 1.0e6 )	// NaN / negative / absurd
+		return -1.0;
+	return dE;
 }
 
 void CMeasure::SetGrayScaleSize(int steps)

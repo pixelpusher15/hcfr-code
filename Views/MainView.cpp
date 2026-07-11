@@ -6599,6 +6599,21 @@ void CMainView::OnProfilePaneAction()
 			OnRefs ();
 			break;
 
+		case CProfilePane::PA_CLEAR:
+			if ( pMeasure && pMeasure->HasProfileMeasures () && !IsMeasureSweepActive () )
+			{
+				CString msg, title;
+				msg.LoadString ( IDS_CONFIRMDELETE );
+				title.LoadString ( IDS_CALIBRATION );
+				if ( MessageBox ( msg, title, MB_YESNO | MB_ICONQUESTION ) == IDYES )
+				{
+					pMeasure->ClearProfileMeasures ();
+					pDoc->SetModifiedFlag ( TRUE );
+					pDoc->UpdateAllViews ( NULL, UPD_DISPLAYPROFILE );
+				}
+			}
+			break;
+
 		case CProfilePane::PA_INSPECT:
 			if ( pMeasure && m_profilePane.GetInspectIndex () >= 0 )
 			{
@@ -6651,20 +6666,8 @@ void CMainView::OnDeleteGrayscale()
 	Msg.LoadString ( IDS_CONFIRMDELETE );
 	Title.LoadString ( IDS_CALIBRATION );
 
-	if ( m_displayMode == 13 )
-	{
-		// Display profile: delete clears the whole capture after confirmation
-		CMeasure * pProfMeasure = GetDocument()->GetMeasure();
-		if ( !pProfMeasure->HasProfileMeasures() )
-			return;
-		if ( MessageBox ( Msg, Title, MB_YESNO | MB_ICONQUESTION ) == IDYES )
-		{
-			pProfMeasure->ClearProfileMeasures();
-			GetDocument()->SetModifiedFlag(TRUE);
-			GetDocument()->UpdateAllViews(NULL, UPD_DISPLAYPROFILE);
-		}
-		return;
-	}
+	// mode 13 (display profile) has no grid delete button; the pane's own Delete
+	// button clears the profile via CProfilePane::PA_CLEAR / OnProfilePaneAction.
 
 	if ( m_displayMode == 2 )
 	{

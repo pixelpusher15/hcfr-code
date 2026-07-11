@@ -46,6 +46,7 @@ class CAsyncMeasurer;
 #define	DUPLSECONDARIESCOL	6
 #define	DUPLCONTRAST		7
 #define	DUPLINFO			8
+#define	DUPLPROFILE			9
 
 
 #define LUX_NOMEASURE	0
@@ -233,6 +234,7 @@ public:
 	void ClearProfileMeasures();
 	ColorRGBDisplay GetProfilePatchRGB(int i);		// patch stimulus, regenerated from metadata (cached)
 	void GetRefProfileSat(int i, CColor & ccRef);	// theoretical reference for patch i (grid conventions)
+	double ComputeProfileDE(const CColor & measured, int i);	// dE for profile patch i, matching the measures grid (SDR + PQ HDR); -1 to skip
 	// Live profile-capture state (not serialized): the profiling pane pauses/observes through these
 	volatile BOOL m_bProfilePause;
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0

@@ -943,6 +943,10 @@ BOOL CDataSetDoc::OnNewDocument()
 					m_measure.Copy(&g_DocToDuplicate->m_measure,DUPLCONTRAST);
 				if (Dlg.m_DuplInfoCheck)
 					m_measure.Copy(&g_DocToDuplicate->m_measure,DUPLINFO);
+				// A captured display profile always carries over (it has no
+				// dialog checkbox; a document duplicate should keep it).
+				if (g_DocToDuplicate->m_measure.HasProfileMeasures())
+					m_measure.Copy(&g_DocToDuplicate->m_measure,DUPLPROFILE);
 			}
 			else	// Default
 			{
