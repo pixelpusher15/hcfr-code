@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -522,6 +522,8 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 	double qr,qg,qb;
 	double re=rgbe[0],ge=rgbe[1],be=rgbe[2];
 	double qre,qge,qbe;
+	bool b10 = GetConfig()->GetUse10bitLevels();
+	bool lim = GetConfig()->GetRGB16_235();
 
 	if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 	if ( mode >= 4 )
@@ -531,9 +533,9 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 			qr = getL_EOTF(r, noDataColor, noDataColor, 0, 0, -1*mode);
 			qg = getL_EOTF(g, noDataColor, noDataColor, 0, 0, -1*mode);
 			qb = getL_EOTF(b, noDataColor, noDataColor, 0, 0, -1*mode);
-			qr = floor( (qr * 219.) + 0.5 ) / 219.;		
-			qg = floor( (qg * 219.) + 0.5 ) / 219.;		
-			qb = floor( (qb * 219.) + 0.5 ) / 219.;		
+			qr = SnapToVideoGrid( qr, b10, lim );		
+			qg = SnapToVideoGrid( qg, b10, lim );		
+			qb = SnapToVideoGrid( qb, b10, lim );		
 			r = getL_EOTF(qr, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
 			g = getL_EOTF(qg, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
 			b = getL_EOTF(qb, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
@@ -541,9 +543,9 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 			qre = getL_EOTF(re, noDataColor, noDataColor, 0, 0, -1*mode);
 			qge = getL_EOTF(ge, noDataColor, noDataColor, 0, 0, -1*mode);
 			qbe = getL_EOTF(be, noDataColor, noDataColor, 0, 0, -1*mode);
-			qre = floor( (qre * 219.) + 0.5 ) / 219.;		
-			qge = floor( (qge * 219.) + 0.5 ) / 219.;		
-			qbe = floor( (qbe * 219.) + 0.5 ) / 219.;		
+			qre = SnapToVideoGrid( qre, b10, lim );		
+			qge = SnapToVideoGrid( qge, b10, lim );		
+			qbe = SnapToVideoGrid( qbe, b10, lim );		
 			re = getL_EOTF(qre, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
 			ge = getL_EOTF(qge, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
 			be = getL_EOTF(qbe, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
@@ -553,9 +555,9 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 	        qr = (r<=0||r>=1)?min(max(r,0),1):pow(r,1.0/2.22);
 	        qg = (g<=0||g>=1)?min(max(g,0),1):pow(g,1.0/2.22);
 	        qb = (b<=0||b>=1)?min(max(b,0),1):pow(b,1.0/2.22);
-			qr = floor( (qr * 219.) + 0.5 ) / 219.;		
-			qg = floor( (qg * 219.) + 0.5 ) / 219.;		
-			qb = floor( (qb * 219.) + 0.5 ) / 219.;		
+			qr = SnapToVideoGrid( qr, b10, lim );		
+			qg = SnapToVideoGrid( qg, b10, lim );		
+			qb = SnapToVideoGrid( qb, b10, lim );		
 	        r = getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 	        g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 	        b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
@@ -563,9 +565,9 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 			qre = (re<=0||re>=1)?min(max(re,0),1):pow(re,1.0/2.22);
 	        qge = (ge<=0||ge>=1)?min(max(ge,0),1):pow(ge,1.0/2.22);
 	        qbe = (be<=0||be>=1)?min(max(be,0),1):pow(be,1.0/2.22);
-			qre = floor( (qre * 219.) + 0.5 ) / 219.;		
-			qge = floor( (qge * 219.) + 0.5 ) / 219.;		
-			qbe = floor( (qbe * 219.) + 0.5 ) / 219.;		
+			qre = SnapToVideoGrid( qre, b10, lim );		
+			qge = SnapToVideoGrid( qge, b10, lim );		
+			qbe = SnapToVideoGrid( qbe, b10, lim );		
 	        re = getL_EOTF(qre,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 	        ge = getL_EOTF(qge,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 	        be = getL_EOTF(qbe,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
@@ -576,9 +578,9 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 	    qr = (r<=0||r>=1)?min(max(r,0),1):pow(r,1.0/2.22);
 	    qg = (g<=0||g>=1)?min(max(g,0),1):pow(g,1.0/2.22);
 	    qb = (b<=0||b>=1)?min(max(b,0),1):pow(b,1.0/2.22);
-		qr = floor( (qr * 219.) + 0.5 ) / 219.;		
-		qg = floor( (qg * 219.) + 0.5 ) / 219.;		
-		qb = floor( (qb * 219.) + 0.5 ) / 219.;		
+		qr = SnapToVideoGrid( qr, b10, lim );		
+		qg = SnapToVideoGrid( qg, b10, lim );		
+		qb = SnapToVideoGrid( qb, b10, lim );		
 		r=(qr<=0||qr>=1)?min(max(qr,0),1):pow(qr,gamma);
 		g=(qg<=0||qg>=1)?min(max(qg,0),1):pow(qg,gamma);
 		b=(qb<=0||qb>=1)?min(max(qb,0),1):pow(qb,gamma);
@@ -586,9 +588,9 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 		qre = (re<=0||re>=1)?min(max(re,0),1):pow(re,1.0/2.22);
 	    qge = (ge<=0||ge>=1)?min(max(ge,0),1):pow(ge,1.0/2.22);
 	    qbe = (be<=0||be>=1)?min(max(be,0),1):pow(be,1.0/2.22);
-		qre = floor( (qre * 219.) + 0.5 ) / 219.;		
-		qge = floor( (qge * 219.) + 0.5 ) / 219.;		
-		qbe = floor( (qbe * 219.) + 0.5 ) / 219.;		
+		qre = SnapToVideoGrid( qre, b10, lim );		
+		qge = SnapToVideoGrid( qge, b10, lim );		
+		qbe = SnapToVideoGrid( qbe, b10, lim );		
 		re=(qre<=0||qre>=1)?min(max(qre,0),1):pow(qre,gamma);
 		ge=(qge<=0||qge>=1)?min(max(qge,0),1):pow(qge,gamma);
 		be=(qbe<=0||qbe>=1)?min(max(qbe,0),1):pow(qbe,gamma);

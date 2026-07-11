@@ -375,6 +375,7 @@ void CColorHCFRConfig::InitDefaults()
 	m_bUseRoundDown=FALSE;
 	m_bUse10bit = FALSE;
 	m_bUse10bitLevels = FALSE;
+	m_bRGB16_235 = TRUE;
 	m_BWColorsToAdd=1;
 	m_GammaRef=2.2;
 	m_GammaAvg=2.2;
@@ -885,6 +886,14 @@ BOOL CColorHCFRConfig::GetUse10bitLevels()
 	return m_bUse10bitLevels;
 }
 
+// Cached output range flag (TRUE = limited/video 16-235, FALSE = full/PC).
+// Mirrors the active generator's m_b16_235 (set from the same INI key) so the
+// patch-code grid quantization can match the range the wire encoder uses.
+BOOL CColorHCFRConfig::GetRGB16_235()
+{
+	return m_bRGB16_235;
+}
+
 // Recompute the cached 10-bit-levels flag. The INI reads happen HERE (rarely -
 // only when settings change), never in GetUse10bitLevels(), which is called in
 // chart paint loops and the measure loop and must stay a cheap member read.
@@ -895,6 +904,7 @@ void CColorHCFRConfig::RefreshUse10bitLevels()
 		( genMode == 6 && GetProfileInt("GDIGenerator","TenBitPGen",0) ) ||
 		( genMode == 2 && GetProfileInt("GDIGenerator","TenBitMadvr",0) ) )
 		? TRUE : FALSE;
+	m_bRGB16_235 = GetProfileInt("GDIGenerator","RGB_16_235",1) ? TRUE : FALSE;
 }
 
 void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)

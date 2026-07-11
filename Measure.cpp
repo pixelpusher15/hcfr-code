@@ -2406,7 +2406,7 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for red
-	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -2581,7 +2581,7 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 	CAsyncMeasurer asyncMeasure;
 	asyncMeasure.Start(pSensor);
 	// Generate saturation colors for green
-	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -2757,7 +2757,7 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for blue
-		GenerateSaturationColors (GetColorReference(), GenColors,size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+		GenerateSaturationColors (GetColorReference(), GenColors,size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -2934,7 +2934,7 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for yellow
-	GenerateSaturationColors (GetColorReference(), GenColors,size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -3111,7 +3111,7 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for cyan
-	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -3289,7 +3289,7 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for magenta
-	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -3514,7 +3514,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		return FALSE;
 	}
 
-    if (!GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType))
+    if (!GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()))
 	{
 		Title.LoadString ( IDS_ERROR );
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
@@ -3783,14 +3783,14 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 
 
 	// Generate saturations for all colors
-	GenerateSaturationColors (GetColorReference(), &GenColors[0], size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);			// Red
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Green
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Blue
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Yellow
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Cyan
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Magenta
+	GenerateSaturationColors (GetColorReference(), &GenColors[0], size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());			// Red
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());	// Green
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());	// Blue
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());	// Yellow
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());	// Cyan
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());	// Magenta
 
-	if (!GenerateCC24Colors (GetColorReference(), & GenColors [ size * 6 ], GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType)) //color checker
+	if (!GenerateCC24Colors (GetColorReference(), & GenColors [ size * 6 ], GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())) //color checker
 	{		
 		Title.LoadString ( IDS_ERROR );
 		if (pGenerator->m_initShowedError) return FALSE;
@@ -4123,12 +4123,12 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 
 
 	// Generate saturations for all colors
-	GenerateSaturationColors (GetColorReference(), GenColors, size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);				// Red
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Green
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Blue
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Yellow
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Cyan
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Magenta
+	GenerateSaturationColors (GetColorReference(), GenColors, size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());				// Red
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());	// Green
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());	// Blue
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());	// Yellow
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());	// Cyan
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());	// Magenta
 
 	m_binMeasure = TRUE;
 	for ( j = 0 ; j < ( bPrimaryOnly ? 3 : 6 ) ; j ++ )
@@ -7303,6 +7303,8 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 
 	double r=rgb[0],g=rgb[1],b=rgb[2];
 	double qr,qg,qb;
+	bool b10 = GetConfig()->GetUse10bitLevels();
+	bool lim = GetConfig()->GetRGB16_235();
 
 	if (stimLevel < 1.0 || sat_ratio < 1 || (sat_ratio == 1 && (GetConfig()->m_GammaOffsetType != 5 || GetConfig()->m_colorStandard == UHDTV3 || GetConfig()->m_colorStandard == UHDTV4)) ) // adjust references locations for difference between target gamma and 2.2
 	{
@@ -7314,9 +7316,9 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 				qr = getL_EOTF(r,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode) * stimLevel;
 				qg = getL_EOTF(g,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode) * stimLevel;
 				qb = getL_EOTF(b,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode) * stimLevel;
-				qr = floor( (qr * 219.) + 0.5 ) / 219.;
-				qg = floor( (qg * 219.) + 0.5 ) / 219.;
-				qb = floor( (qb * 219.) + 0.5 ) / 219.;
+				qr = SnapToVideoGrid( qr, b10, lim );
+				qg = SnapToVideoGrid( qg, b10, lim );
+				qb = SnapToVideoGrid( qb, b10, lim );
 				
 				r = getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 				g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
@@ -7327,9 +7329,9 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 				qr = ((r<=0||r>=1)?min(max(r,0),1):pow(r, 1.0 / 2.22)) * stimLevel;
 				qg = ((g<=0||g>=1)?min(max(g,0),1):pow(g, 1.0 / 2.22)) * stimLevel;
 				qb = ((b<=0||b>=1)?min(max(b,0),1):pow(b, 1.0 / 2.22)) * stimLevel;
-				qr = floor( (qr * 219.) + 0.5 ) / 219.;
-				qg = floor( (qg * 219.) + 0.5 ) / 219.;
-				qb = floor( (qb * 219.) + 0.5 ) / 219.;
+				qr = SnapToVideoGrid( qr, b10, lim );
+				qg = SnapToVideoGrid( qg, b10, lim );
+				qb = SnapToVideoGrid( qb, b10, lim );
 			    r = getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 			    g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 			    b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
@@ -7340,9 +7342,9 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 			qr = ((r<=0||r>=1)?min(max(r,0),1):pow(r, 1.0 / 2.22)) * stimLevel;
 			qg = ((g<=0||g>=1)?min(max(g,0),1):pow(g, 1.0 / 2.22)) * stimLevel;
 			qb = ((b<=0||b>=1)?min(max(b,0),1):pow(b, 1.0 / 2.22)) * stimLevel;
-			qr = floor( (qr * 219.) + 0.5 ) / 219.;
-			qg = floor( (qg * 219.) + 0.5 ) / 219.;
-			qb = floor( (qb * 219.) + 0.5 ) / 219.;
+			qr = SnapToVideoGrid( qr, b10, lim );
+			qg = SnapToVideoGrid( qg, b10, lim );
+			qb = SnapToVideoGrid( qb, b10, lim );
 			r=(qr<=0||qr>=1)?min(max(qr,0),1):pow(qr,gamma);
 			g=(qg<=0||qg>=1)?min(max(qg,0),1):pow(qg,gamma);
 			b=(qb<=0||qb>=1)?min(max(qb,0),1):pow(qb,gamma);
@@ -7757,14 +7759,16 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 		if (b < 0.) b = 0.;
 
 		double qr,qg,qb;
+		bool b10 = GetConfig()->GetUse10bitLevels();
+		bool lim = GetConfig()->GetRGB16_235();
 		if (mode == 5 || mode == 7)
 		{
 			qr = getL_EOTF(r,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
 			qg = getL_EOTF(g,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
 			qb = getL_EOTF(b,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
-			qr = floor( (qr * 219.) + 0.5 ) / 219.;
-			qg = floor( (qg * 219.) + 0.5 ) / 219.;
-			qb = floor( (qb * 219.) + 0.5 ) / 219.;
+			qr = SnapToVideoGrid( qr, b10, lim );
+			qg = SnapToVideoGrid( qg, b10, lim );
+			qb = SnapToVideoGrid( qb, b10, lim );
 			r = getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 			g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 			b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
@@ -7774,9 +7778,9 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 			qr = (r==0)?0:pow(r, 1.0 / 2.22);
 			qg = (g==0)?0:pow(g, 1.0 / 2.22);
 			qb = (b==0)?0:pow(b, 1.0 / 2.22);
-			qr = floor( (qr * 219.) + 0.5 ) / 219.;
-			qg = floor( (qg * 219.) + 0.5 ) / 219.;
-			qb = floor( (qb * 219.) + 0.5 ) / 219.;
+			qr = SnapToVideoGrid( qr, b10, lim );
+			qg = SnapToVideoGrid( qg, b10, lim );
+			qb = SnapToVideoGrid( qb, b10, lim );
 			r=(r<=0||r>=1)?min(max(r,0),1):getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 			g=(g<=0||g>=1)?min(max(g,0),1):getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 			b=(b<=0||b>=1)?min(max(b,0),1):getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
@@ -7786,14 +7790,14 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 			qr = (r==0)?0:pow(r, 1.0 / 2.22);
 			qg = (g==0)?0:pow(g, 1.0 / 2.22);
 			qb = (b==0)?0:pow(b, 1.0 / 2.22);
-			qr = floor( (qr * 219.) + 0.5 ) / 219.;
-			qg = floor( (qg * 219.) + 0.5 ) / 219.;
-			qb = floor( (qb * 219.) + 0.5 ) / 219.;
+			qr = SnapToVideoGrid( qr, b10, lim );
+			qg = SnapToVideoGrid( qg, b10, lim );
+			qb = SnapToVideoGrid( qb, b10, lim );
 			r=(qr<=0||qr>=1)?min(max(qr,0),1):pow(qr, gamma);
 			g=(qg<=0||qg>=1)?min(max(qg,0),1):pow(qg, gamma);
 			b=(qb<=0||qb>=1)?min(max(qb,0),1):pow(qb, gamma);
 		}
-	
+
 	}
 
 	ccRef.ClearSpectrumLux();

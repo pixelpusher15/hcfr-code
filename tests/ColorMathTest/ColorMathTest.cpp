@@ -316,6 +316,80 @@ static void RunT4()
                 DumpTriplets(out, &buf[0], ccsizes[m]);
             }
     }
+
+    // Full-range 8-bit variants (b10bit=false, is16_235=false): freezes the
+    // native 255-grid quantization (PC levels), which the frozen limited rows
+    // above do NOT exercise. Tags: SAT8F / CC8F.
+    out += "# GenerateSaturationColors 8-bit full (std,combo,steps,eotf) then triplets %.17g\n";
+    for (int s = 0; s < sizeof(stds)/sizeof(stds[0]); ++s)
+    {
+        CColorReference ref(stds[s]);
+        for (int c = 0; c < 6; ++c)
+            for (int st = 0; st < sizeof(steps)/sizeof(steps[0]); ++st)
+                for (int e = 0; e < sizeof(eotfs)/sizeof(eotfs[0]); ++e)
+                {
+                    std::vector<ColorRGBDisplay> buf(steps[st]);
+                    GenerateSaturationColors(ref, &buf[0], steps[st],
+                        combos[c][0], combos[c][1], combos[c][2], eotfs[e], 1.0, false, false);
+                    AppendF(out, "SAT8F,%d,%d,%d,%d\n", (int)stds[s], c, steps[st], eotfs[e]);
+                    DumpTriplets(out, &buf[0], steps[st]);
+                }
+    }
+    out += "# GenerateCC24Colors 8-bit full (std,ccmode,eotf) hardcoded modes only\n";
+    for (int s = 0; s < sizeof(ccstds)/sizeof(ccstds[0]); ++s)
+    {
+        CColorReference ref(ccstds[s]);
+        for (int m = 0; m < sizeof(ccmodes)/sizeof(ccmodes[0]); ++m)
+            for (int e = 0; e < 2; ++e)
+            {
+                int eotf = e ? 5 : 0;
+                std::vector<ColorRGBDisplay> buf(96);
+                bool ok = GenerateCC24Colors(ref, &buf[0], ccmodes[m], eotf, false, false);
+                AppendF(out, "CC8F,%d,%d,%d,%d\n", (int)ccstds[s], ccmodes[m], eotf, ok ? 1 : 0);
+                DumpTriplets(out, &buf[0], ccsizes[m]);
+            }
+    }
+
+    // Native 10-bit grid variants (b10bit=true), for BOTH output ranges:
+    // limited/16-235 (876 grid) and full/PC (1023 grid). Freezes the range-aware
+    // single-rounding native quantization; appended so the 8-bit rows stay
+    // byte-identical. Tags: SAT10/CC10 (limited), SAT10F/CC10F (full).
+    for (int rng = 0; rng < 2; ++rng)
+    {
+        bool lim = (rng == 0);
+        const char* satTag = lim ? "SAT10" : "SAT10F";
+        const char* ccTag  = lim ? "CC10"  : "CC10F";
+        AppendF(out, "# GenerateSaturationColors 10-bit %s (std,combo,steps,eotf) then triplets %%.17g\n", lim ? "limited" : "full");
+        for (int s = 0; s < sizeof(stds)/sizeof(stds[0]); ++s)
+        {
+            CColorReference ref(stds[s]);
+            for (int c = 0; c < 6; ++c)
+                for (int st = 0; st < sizeof(steps)/sizeof(steps[0]); ++st)
+                    for (int e = 0; e < sizeof(eotfs)/sizeof(eotfs[0]); ++e)
+                    {
+                        std::vector<ColorRGBDisplay> buf(steps[st]);
+                        GenerateSaturationColors(ref, &buf[0], steps[st],
+                            combos[c][0], combos[c][1], combos[c][2], eotfs[e], 1.0, true, lim);
+                        AppendF(out, "%s,%d,%d,%d,%d\n", satTag, (int)stds[s], c, steps[st], eotfs[e]);
+                        DumpTriplets(out, &buf[0], steps[st]);
+                    }
+        }
+
+        AppendF(out, "# GenerateCC24Colors 10-bit %s (std,ccmode,eotf) hardcoded modes only\n", lim ? "limited" : "full");
+        for (int s = 0; s < sizeof(ccstds)/sizeof(ccstds[0]); ++s)
+        {
+            CColorReference ref(ccstds[s]);
+            for (int m = 0; m < sizeof(ccmodes)/sizeof(ccmodes[0]); ++m)
+                for (int e = 0; e < 2; ++e)
+                {
+                    int eotf = e ? 5 : 0;
+                    std::vector<ColorRGBDisplay> buf(96);
+                    bool ok = GenerateCC24Colors(ref, &buf[0], ccmodes[m], eotf, true, lim);
+                    AppendF(out, "%s,%d,%d,%d,%d\n", ccTag, (int)ccstds[s], ccmodes[m], eotf, ok ? 1 : 0);
+                    DumpTriplets(out, &buf[0], ccsizes[m]);
+                }
+        }
+    }
     HandleTable("T4_patterns.txt", out);
 }
 
@@ -402,6 +476,50 @@ static void RunT6()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T8 — SnapToVideoGrid oracle: the shared patch/reference/sensor grid
+// quantizer must hit the exact native grid for every (bit depth, range)
+// combo: 219 / 255 (8-bit limited/full), 876 / 1023 (10-bit limited/full).
+// 8-bit limited must equal the historical floor(v*219+0.5)/219 form exactly.
+//////////////////////////////////////////////////////////////////////////
+static void RunT8()
+{
+    printf("T8 SnapToVideoGrid oracle...\n");
+    static const struct { bool b10, lim; double grid; } combos[] = {
+        { false, true,  219.  }, { false, false, 255.  },
+        { true,  true,  876.  }, { true,  false, 1023. },
+    };
+    for (int c = 0; c < 4; ++c)
+    {
+        const double grid = combos[c].grid;
+        for (int i = 0; i <= 1000000; ++i)      // v = 0..1 step 1e-6
+        {
+            double v = i * 1e-6;
+            double got = SnapToVideoGrid(v, combos[c].b10, combos[c].lim);
+            // contract includes the 1e-9 tie-breaker: exact half-code ties
+            // round up deterministically (see SnapToVideoGrid in Color.cpp)
+            double want = floor(v * grid + 0.5 + 1e-9) / grid;
+            if (got != want)
+                Fail("T8 b10=%d lim=%d v=%.17g got=%.17g want=%.17g",
+                     combos[c].b10, combos[c].lim, v, got, want);
+            // result must sit on an integer code of its grid (allow last-ULP
+            // noise from the /grid*grid round trip; a wrong grid is off by ~0.2+)
+            double code = got * grid;
+            if (fabs(code - floor(code + 0.5)) > 1e-6)
+                Fail("T8 off-grid b10=%d lim=%d v=%.17g code=%.17g",
+                     combos[c].b10, combos[c].lim, v, code);
+        }
+        // legacy byte-identity spot check for 8-bit limited
+        if (!combos[c].b10 && combos[c].lim)
+            for (int i = 0; i <= 1000; ++i)
+            {
+                double v = i * 1e-3;
+                if (SnapToVideoGrid(v, false, true) != floor((v * 219.) + 0.5) / 219.)
+                    Fail("T8 legacy219 v=%.17g", v);
+            }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -424,6 +542,7 @@ int main(int argc, char* argv[])
     RunT4();
     RunT5();
     RunT6();
+    RunT8();
 
     if (g_failures)
     {
