@@ -748,8 +748,8 @@ extern CColor theMeasure;
 extern CColor noDataColor;
 
 // Tool functions
-extern void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode = 0, double stimLevel = 1.0);
-extern bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode);
+extern void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode = 0, double stimLevel = 1.0, bool b10bit = false);
+extern bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit = false);
 extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries);
 extern int PiPercentToCode ( double percent, bool is16_235, int bits );
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );

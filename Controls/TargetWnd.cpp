@@ -128,42 +128,42 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 				{
 					case 5:
 					centerXYZ =  pDoc->GetMeasure()->GetRefSat(0, double(minCol-1) / double(nSize - 1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, false, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel());
+					GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, false, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels());
 					p1=GenColors[minCol-1][0] / 100.;
 					p2=GenColors[minCol-1][1] / 100.;
 					p3=GenColors[minCol-1][2] / 100.;
 					break;
 				case 6:
 					centerXYZ =  pDoc->GetMeasure()->GetRefSat(1, double(minCol-1) / double(nSize - 1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, true, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel());
+					GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, true, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels());
 					p1=GenColors[minCol-1][0] / 100.;
 					p2=GenColors[minCol-1][1] / 100.;
 					p3=GenColors[minCol-1][2] / 100.;
 					break;
 				case 7:
 					centerXYZ =  pDoc->GetMeasure()->GetRefSat(2, double(minCol-1) / double(nSize - 1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, false, true,  GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel());
+					GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, false, true,  GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels());
 					p1=GenColors[minCol-1][0] / 100.;
 					p2=GenColors[minCol-1][1] / 100.;
 					p3=GenColors[minCol-1][2] / 100.;
 					break;
 				case 8:
 					centerXYZ =  pDoc->GetMeasure()->GetRefSat(3, double(minCol-1) / double(nSize-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, true, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel());
+					GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, true, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels());
 					p1=GenColors[minCol-1][0] / 100.;
 					p2=GenColors[minCol-1][1] / 100.;
 					p3=GenColors[minCol-1][2] / 100.;
 					break;
 				case 9:
 					centerXYZ =  pDoc->GetMeasure()->GetRefSat(4, double(minCol-1) / double(nSize-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, true, true, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel());
+					GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, true, true, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels());
 					p1=GenColors[minCol-1][0] / 100.;
 					p2=GenColors[minCol-1][1] / 100.;
 					p3=GenColors[minCol-1][2] / 100.;
 					break;
 				case 10:
 					centerXYZ =  pDoc->GetMeasure()->GetRefSat(5, double(minCol-1) / double(nSize-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, false, true, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel());
+					GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, false, true, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels());
 					p1=GenColors[minCol-1][0] / 100.;
 					p2=GenColors[minCol-1][1] / 100.;
 					p3=GenColors[minCol-1][2] / 100.;
@@ -174,7 +174,7 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 					pDoc->GetMeasure()->GetRefCC24Sat(minCol - 1, clr);
 					centerXYZ = clr.GetXYZValue();
 				}
-					GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType);
+					GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels());
 					if (GetConfig()->m_CCMode == MCD)
 					{
 						if (minCol >= 7)

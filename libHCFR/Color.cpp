@@ -2806,7 +2806,7 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 	return cnt;
 }
 
-bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode)
+bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit)
 {
 	//six cases, one for GCD sequence, one for Mascior's disk (Chromapure based), and four different generator only cases
 	//GCD
@@ -3378,10 +3378,22 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
 			g = (aRGBColor[1]<=0.0||aRGBColor[1]>1.0)?min(max(aRGBColor[1],0),1):getL_EOTF(aRGBColor[1], noDataColor, noDataColor,0.0,0.0,-1*mode);
 			b = (aRGBColor[2]<=0.0||aRGBColor[2]>1.0)?min(max(aRGBColor[2],0),1):getL_EOTF(aRGBColor[2], noDataColor, noDataColor,0.0,0.0,-1*mode);
 
-			//re-quantize to 8-bit video %
-			GenColors[i][0] = floor( (r * 219.) + 0.5 ) / 2.19;
-			GenColors[i][1] = floor( (g * 219.) + 0.5 ) / 2.19;
-			GenColors[i][2] = floor( (b * 219.) + 0.5 ) / 2.19;
+			// Re-quantize to the output signal grid (see GenerateSaturationColors).
+			// r/g/b are 0..1 here. Native 10-bit uses the 219*4 grid; the 8-bit
+			// branch is kept byte-identical to the historical /2.19 form so the
+			// legacy signal path does not drift (guarded by ColorMathTest T4).
+			if ( b10bit )
+			{
+				GenColors[i][0] = floor( ( r * 876. ) + 0.5 ) / 8.76;
+				GenColors[i][1] = floor( ( g * 876. ) + 0.5 ) / 8.76;
+				GenColors[i][2] = floor( ( b * 876. ) + 0.5 ) / 8.76;
+			}
+			else
+			{
+				GenColors[i][0] = floor( (r * 219.) + 0.5 ) / 2.19;
+				GenColors[i][1] = floor( (g * 219.) + 0.5 ) / 2.19;
+				GenColors[i][2] = floor( (b * 219.) + 0.5 ) / 2.19;
+			}
 
 		}
 	}
@@ -3389,7 +3401,7 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
 	return bOk;
 }
 
-void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode, double stimLevel)
+void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode, double stimLevel, bool b10bit)
 {
 	//use fully saturated space if user has special color space modes set
 	//UHDTV pseudo-spaces XYZ is set in original space and mapped to BT.2020
@@ -3526,10 +3538,24 @@ void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDi
 			rgbColor[2] *= stimLevel;
 		}
 
-		//quantize to 8-bit video %
-		rgbColor[0] = floor( (rgbColor[0] / 100. * 219.) + 0.5 ) / 2.19;
-		rgbColor[1] = floor( (rgbColor[1] / 100. * 219.) + 0.5 ) / 2.19;
-		rgbColor[2] = floor( (rgbColor[2] / 100. * 219.) + 0.5 ) / 2.19;
+		// Quantize to the output signal grid so the stored triplet is exactly
+		// what gets sent (reference == signal). 8-bit video uses the 219 grid;
+		// native 10-bit output uses the 219*4 grid, mirroring ArrayIndexToGrayLevel()
+		// so color and gray patches share one native grid rather than an 8-bit*4
+		// upscale. The 8-bit branch is kept byte-identical to the historical
+		// /2.19 form so the legacy path does not drift (ColorMathTest T4 guards it).
+		if ( b10bit )
+		{
+			rgbColor[0] = floor( ( rgbColor[0] / 100. * 876. ) + 0.5 ) / 8.76;
+			rgbColor[1] = floor( ( rgbColor[1] / 100. * 876. ) + 0.5 ) / 8.76;
+			rgbColor[2] = floor( ( rgbColor[2] / 100. * 876. ) + 0.5 ) / 8.76;
+		}
+		else
+		{
+			rgbColor[0] = floor( (rgbColor[0] / 100. * 219.) + 0.5 ) / 2.19;
+			rgbColor[1] = floor( (rgbColor[1] / 100. * 219.) + 0.5 ) / 2.19;
+			rgbColor[2] = floor( (rgbColor[2] / 100. * 219.) + 0.5 ) / 2.19;
+		}
 
 		GenColors [ i ] = ColorRGBDisplay( rgbColor[0], rgbColor[1], rgbColor[2] );
         

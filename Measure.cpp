@@ -2406,7 +2406,7 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for red
-	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -2581,7 +2581,7 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 	CAsyncMeasurer asyncMeasure;
 	asyncMeasure.Start(pSensor);
 	// Generate saturation colors for green
-	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -2757,7 +2757,7 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for blue
-		GenerateSaturationColors (GetColorReference(), GenColors,size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+		GenerateSaturationColors (GetColorReference(), GenColors,size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -2934,7 +2934,7 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for yellow
-	GenerateSaturationColors (GetColorReference(), GenColors,size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -3111,7 +3111,7 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for cyan
-	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -3289,7 +3289,7 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 	asyncMeasure.Start(pSensor);
 
 	// Generate saturation colors for magenta
-	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);
+	GenerateSaturationColors (GetColorReference(), GenColors,size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());
 	CString str;
 	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 
@@ -3514,7 +3514,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		return FALSE;
 	}
 
-    if (!GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType))
+    if (!GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels()))
 	{
 		Title.LoadString ( IDS_ERROR );
 		strMsg.LoadString ( IDS_ERRINITGENERATOR );
@@ -3783,14 +3783,14 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 
 
 	// Generate saturations for all colors
-	GenerateSaturationColors (GetColorReference(), &GenColors[0], size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);			// Red
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Green
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Blue
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Yellow
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Cyan
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Magenta
+	GenerateSaturationColors (GetColorReference(), &GenColors[0], size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());			// Red
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());	// Green
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());	// Blue
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());	// Yellow
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());	// Cyan
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());	// Magenta
 
-	if (!GenerateCC24Colors (GetColorReference(), & GenColors [ size * 6 ], GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType)) //color checker
+	if (!GenerateCC24Colors (GetColorReference(), & GenColors [ size * 6 ], GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels())) //color checker
 	{		
 		Title.LoadString ( IDS_ERROR );
 		if (pGenerator->m_initShowedError) return FALSE;
@@ -4123,12 +4123,12 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 
 
 	// Generate saturations for all colors
-	GenerateSaturationColors (GetColorReference(), GenColors, size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);				// Red
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Green
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Blue
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Yellow
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Cyan
-	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel);	// Magenta
+	GenerateSaturationColors (GetColorReference(), GenColors, size, true, false, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());				// Red
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 1 ], size, false, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());	// Green
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 2 ], size, false, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());	// Blue
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 3 ], size, true, true, false, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());	// Yellow
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 4 ], size, false, true, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());	// Cyan
+	GenerateSaturationColors (GetColorReference(), & GenColors [ size * 5 ], size, true, false, true, GetConfig()->m_GammaOffsetType, m_activeSatLevel, GetConfig()->GetUse10bitLevels());	// Magenta
 
 	m_binMeasure = TRUE;
 	for ( j = 0 ; j < ( bPrimaryOnly ? 3 : 6 ) ; j ++ )
