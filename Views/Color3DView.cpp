@@ -1518,19 +1518,27 @@ void C3DColorView::AppendNewProfileMeasures()
 	if ( cw.isValid() && cw.GetY() > 0.0 )
 		whiteY = cw.GetY();
 
-	for ( int i = m_profileInScene; i < n; i++ )
+	// During a LIVE capture only patches below the measured frontier exist; when
+	// not measuring (post-capture / .chc load / full rebuild) the whole array is
+	// present. Either way SKIP invalid holes rather than stopping at them -- an
+	// ignored sensor error can leave a gap mid-array, and a plain break would
+	// drop every later patch from the cloud (even on a full rebuild).
+	int frontier = pMeasure->m_binMeasure ? min( n, pMeasure->m_currentIndex + 1 ) : n;
+	int lastAppended = m_profileInScene;	// exclusive high-water of VALID appends
+	for ( int i = m_profileInScene; i < frontier; i++ )
 	{
 		CColor c = pMeasure->GetProfileMeasure( i );
 		if ( !c.isValid() )
-			break;			// patches fill in capture order; stop at the frontier
+			continue;
 		CColor refC;
 		pMeasure->GetRefProfileSat( i, refC );
 		ColorRGBDisplay rgb = pMeasure->GetProfilePatchRGB( i );
 		wchar_t lbl[64];
 		swprintf( lbl, 64, L"Profile #%d (RGB %.0f,%.0f,%.0f)", i + 1, rgb[0], rgb[1], rgb[2] );
 		AppendMeasure( c, whiteY, ref, refC, refC, false, whiteY, lbl, SRC_PROFILE, i );
-		m_profileInScene = i + 1;
+		lastAppended = i + 1;	// keep m_profileInScene-1 pointing at a valid patch
 	}
+	m_profileInScene = lastAppended;
 }
 
 void C3DColorView::SelectProfilePoint(int patchIdx)
@@ -1810,9 +1818,19 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 				pMain->m_comboMode.SetCurSel( mode );
 				pMain->OnSelchangeComboMode();
 			}
-			if ( col >= 1 )
-				pMain->HighlightMeasuringColumn( col );   // select + scroll to the column
-			pMain->SetSelectedColor( sel );
+			if ( S.srcType == SRC_PROFILE )
+			{
+				// mode 13 has no grid to feed the reference comparator; drive the
+				// selected-color panel + reference widgets the same way the pane's
+				// inspect flow does (SetSelectedColor alone leaves the ref stale)
+				pMain->SelectProfilePatch( S.srcA );
+			}
+			else
+			{
+				if ( col >= 1 )
+					pMain->HighlightMeasuringColumn( col );   // select + scroll to the column
+				pMain->SetSelectedColor( sel );
+			}
 			break;
 		}
 	}

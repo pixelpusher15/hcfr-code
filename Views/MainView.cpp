@@ -6557,9 +6557,18 @@ void CMainView::StartProfileCapture()
 		}
 	}
 
+	// Disable the mode dropdown for the duration of the capture: the pause loop
+	// pumps mouse messages (so the pane's Resume/Stop work), which would otherwise
+	// let the user switch modes mid-capture and reenter OnSelchangeComboMode.
+	if ( m_comboMode.GetSafeHwnd () )
+		m_comboMode.EnableWindow ( FALSE );
+
 	m_profilePane.EnterRunning ();
 	pDoc->MeasureDisplayProfile ( m_profilePane.GetCubeSize (), m_profilePane.GetGrayExtras (), m_profilePane.GetDriftComp () );
 	m_profilePane.LeaveRunning ();
+
+	if ( m_comboMode.GetSafeHwnd () )
+		m_comboMode.EnableWindow ( TRUE );
 }
 
 void CMainView::OnProfilePaneAction()
@@ -6615,38 +6624,18 @@ void CMainView::OnProfilePaneAction()
 			break;
 
 		case CProfilePane::PA_INSPECT:
-			if ( pMeasure && m_profilePane.GetInspectIndex () >= 0 )
+			if ( m_profilePane.GetInspectIndex () >= 0 )
 			{
 				int idx = m_profilePane.GetInspectIndex ();
-				if ( idx < pMeasure->GetProfileMeasureSize () )
+				SelectProfilePatch ( idx );
+
+				// halo the patch in any live 3D view (info pane or full tab)
+				POSITION pos = pDoc->GetFirstViewPosition ();
+				while ( pos != NULL )
 				{
-					CColor sel = pMeasure->GetProfileMeasure ( idx );
-
-					// reference + comparator follow the inspected patch (grid
-					// population normally feeds m_RefColor; mode 13 has no grid)
-					CColor profRef;
-					pMeasure->GetRefProfileSat ( idx, profRef );
-					CColor w = pMeasure->GetPrimeWhite ();
-					if ( !w.isValid () )
-						w = pMeasure->GetOnOffWhite ();
-					m_RefColor = profRef;
-					m_RefWhite = 1.0;
-					m_YWhite = ( w.isValid () && w.GetY () > 0.0 ) ? w.GetY () : 1.0;
-
-					if ( sel.isValid () )
-						SetSelectedColor ( sel );
-
-					m_RGBLevels.Refresh ( idx + 1, 13, pMeasure->GetProfileMeasureSize () );
-					m_Target.Refresh ( pDoc->GetGenerator()->m_b16_235, idx + 1, pMeasure->GetProfileMeasureSize (), 13, pDoc, CTargetWnd::TARGET_TARGET );
-
-					// halo the patch in any live 3D view (info pane or full tab)
-					POSITION pos = pDoc->GetFirstViewPosition ();
-					while ( pos != NULL )
-					{
-						CView * pView = pDoc->GetNextView ( pos );
-						if ( pView != NULL && pView->IsKindOf ( RUNTIME_CLASS ( C3DColorView ) ) )
-							( (C3DColorView *)pView )->SelectProfilePoint ( idx );
-					}
+					CView * pView = pDoc->GetNextView ( pos );
+					if ( pView != NULL && pView->IsKindOf ( RUNTIME_CLASS ( C3DColorView ) ) )
+						( (C3DColorView *)pView )->SelectProfilePoint ( idx );
 				}
 			}
 			break;
@@ -6654,6 +6643,35 @@ void CMainView::OnProfilePaneAction()
 		default:
 			break;
 	}
+}
+
+// Load profile patch idx into the selected-color panel AND its reference
+// comparator (measured swatch + reference swatch + RGB-levels + target widget).
+// Mode 13 has no data grid, so the reference (which grid population normally
+// feeds via m_RefColor) must be driven here -- used by both the pane's Delete/
+// inspect flow and a click on a profile point in the 3D viewer.
+void CMainView::SelectProfilePatch(int idx)
+{
+	CDataSetDoc * pDoc = GetDocument ();
+	CMeasure * pMeasure = pDoc ? pDoc->GetMeasure () : NULL;
+	if ( !pMeasure || idx < 0 || idx >= pMeasure->GetProfileMeasureSize () )
+		return;
+
+	CColor sel = pMeasure->GetProfileMeasure ( idx );
+	CColor profRef;
+	pMeasure->GetRefProfileSat ( idx, profRef );
+	CColor w = pMeasure->GetPrimeWhite ();
+	if ( !w.isValid () )
+		w = pMeasure->GetOnOffWhite ();
+	m_RefColor = profRef;
+	m_RefWhite = 1.0;
+	m_YWhite = ( w.isValid () && w.GetY () > 0.0 ) ? w.GetY () : 1.0;
+
+	if ( sel.isValid () )
+		SetSelectedColor ( sel );
+
+	m_RGBLevels.Refresh ( idx + 1, 13, pMeasure->GetProfileMeasureSize () );
+	m_Target.Refresh ( pDoc->GetGenerator()->m_b16_235, idx + 1, pMeasure->GetProfileMeasureSize (), 13, pDoc, CTargetWnd::TARGET_TARGET );
 }
 
 void CMainView::OnDeleteGrayscale()

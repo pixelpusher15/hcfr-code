@@ -514,7 +514,7 @@ void CMeasure::Serialize(CArchive& ar)
 			ar << m_profileDriftComp;
 			ar << m_profileCaptureSeconds;
 
-			ar << m_profileMeasureArray.GetSize();
+			ar << (int) m_profileMeasureArray.GetSize();	// loader reads an int; match the sibling counts + x64 width
 			for(int i=0;i<m_profileMeasureArray.GetSize();i++)
 			{
 				if (m_profileMeasureArray[i].isValid())
@@ -1063,10 +1063,28 @@ double CMeasure::ComputeProfileDE(const CColor & c, int i)
 	if ( !c.isValid() )
 		return -1.0;
 	ColorXYZ xyz = c.GetXYZValue();
-	CColor w = GetPrimeWhite();
-	if ( !w.isValid() || w.GetY() <= 0.0 )
-		w = GetOnOffWhite();
+
+	// White reference, matching the measures grid: prime white normally, but a
+	// primaries run at <100% stimulus leaves prime white dimmer than the
+	// grayscale white -- the grid then uses on/off white (SDR only).
+	CColor prime = GetPrimeWhite();
+	CColor onoff = GetOnOffWhite();
+	CColor w = ( prime.isValid() && prime.GetY() > 0.0 ) ? prime : onoff;
+	if ( onoff.isValid() && onoff.GetY() > 0.0 && prime.isValid() &&
+		 prime.GetY() / onoff.GetY() < 0.9 && GetConfig()->m_GammaOffsetType != 5 )
+		w = onoff;
 	double ywForDE = w.isValid() ? w.GetY() : 0.0;
+
+	// Standalone capture (no grayscale/white measured): fall back to the measured
+	// white cube node (stimulus 100/100/100 = last grid patch) so dE still shows.
+	if ( ywForDE <= 0.0 && m_profileCubeSize >= 2 )
+	{
+		int wi = m_profileCubeSize * m_profileCubeSize * m_profileCubeSize - 1;
+		if ( wi >= 0 && wi < m_profileMeasureArray.GetSize() &&
+			 m_profileMeasureArray[wi].isValid() && m_profileMeasureArray[wi].GetY() > 0.0 )
+			ywForDE = m_profileMeasureArray[wi].GetY();
+	}
+
 	// (near-)black has no defined chromaticity; a chroma dE against it is bogus
 	if ( ( xyz[0] + xyz[1] + xyz[2] ) < 1e-6 || ywForDE <= 0.0 )
 		return -1.0;
@@ -4059,13 +4077,21 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		else
 			doSettling = GetConfig()->m_isSettling;
 
-		// pane-driven pause: idle between patches, keeping the UI responsive
+		// pane-driven pause: idle between patches. We must pump mouse + paint so
+		// the pane's Resume/Stop buttons (which notify via synchronous SendMessage
+		// from their own OnLButtonUp) work and repaint -- but we DROP queued
+		// WM_COMMAND / WM_SYSCOMMAND / WM_CLOSE so a menu/accelerator can't reenter
+		// OnSelchangeComboMode or tear the document down mid-capture (the mode combo
+		// itself is disabled by StartProfileCapture). Sweep guard keeps
+		// IsMeasureSweepActive() TRUE throughout.
 		while ( m_bProfilePause && ! m_bAbortSweep )
 		{
 			while ( PeekMessage ( & Msg, NULL, 0, 0, PM_REMOVE ) )
 			{
 				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
 					m_bAbortSweep = TRUE;
+				if ( Msg.message == WM_COMMAND || Msg.message == WM_SYSCOMMAND || Msg.message == WM_CLOSE )
+					continue;	// don't let it reenter the capture / free the doc
 				TranslateMessage ( & Msg );
 				DispatchMessage ( & Msg );
 			}

@@ -2868,7 +2868,7 @@ void CCIEChartView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		// A realtime hint during a sweep adds exactly one measurement: paint it
 		// incrementally. The sweep-end update comes as a non-realtime hint with
 		// m_binMeasure off, which repaints everything (targets, tooltips, dE).
-		if ( lHint >= UPD_REALTIME && GetDocument()->GetMeasure()->m_binMeasure )
+		if ( lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE && lHint != UPD_REALTIME + 13 && GetDocument()->GetMeasure()->m_binMeasure )
 			m_bRealtimeIncrement = TRUE;
 		RedrawWindow( NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW );
 		// The flag must not outlive the synchronous repaint above: if the paint

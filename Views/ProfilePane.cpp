@@ -92,6 +92,12 @@ CProfilePane::CProfilePane()
 	if ( m_preset < 0 || m_preset > 4 ) m_preset = 1;
 	m_grayExtras = GetConfig()->GetProfileInt("MainView", "Profile GrayExtras", 1);
 	m_driftComp = GetConfig()->GetProfileInt("MainView", "Profile DriftComp", 1);
+	// Hit-test rects are rebuilt each paint, but a WM_MOUSEMOVE / WM_LBUTTONDOWN
+	// can arrive before the first WM_PAINT -- start them empty so HotFromPoint
+	// never reads garbage RECTs (spurious hover / unintended action).
+	for ( int i = 0; i < 5; i++ ) m_rcPresets[i].SetRectEmpty();
+	m_rcStart.SetRectEmpty(); m_rcPause.SetRectEmpty(); m_rcStop.SetRectEmpty();
+	m_rcRefs.SetRectEmpty(); m_rcCtx.SetRectEmpty(); m_rcClear.SetRectEmpty();
 }
 
 CProfilePane::~CProfilePane()
@@ -689,6 +695,13 @@ void CProfilePane::OnPaint()
 	m_rcRefs.SetRectEmpty(); m_rcCtx.SetRectEmpty(); m_rcClear.SetRectEmpty();
 	m_rcWorstRows.clear();
 
+	// The chrome status line shows the summary count, so stats must be current
+	// BEFORE PaintChrome (PaintSummary would otherwise compute them afterwards,
+	// leaving a stale count on the first paint after a capture). Cheap on repeat
+	// (guarded by m_statsValid).
+	if ( m_state == PS_SUMMARY )
+		ComputeStats();
+
 	// fixed chrome row (title + status + buttons), drawn in client coords so it
 	// is identical across all three states
 	PaintChrome( g, rc, dark );
@@ -845,7 +858,7 @@ void CProfilePane::PaintSetup(Gdiplus::Graphics & g, const CRect & rc, bool dark
 
 	// preset cards, single row of 5 across the full width
 	int cardH = GetConfig()->Scale( 80 );
-	int cardW = ( CW - gap * 4 ) / 5;
+	int cardW = max( 1, ( CW - gap * 4 ) / 5 );	// floor so a very narrow pane can't make degenerate rects
 	int x = 0, y = 0;
 	for ( int p = 0; p < 5; p++ )
 	{
@@ -972,7 +985,7 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	int tileH = GetConfig()->Scale( 46 );
 
 	// stat tiles in a row just below the progress bar, left-aligned
-	int tileW = min( GetConfig()->Scale( 150 ), ( CW - 3 * gap ) / 4 );
+	int tileW = max( 1, min( GetConfig()->Scale( 150 ), ( CW - 3 * gap ) / 4 ) );
 	int x = 0;
 	for ( int i = 0; i < 4; i++ )
 	{
@@ -1104,7 +1117,7 @@ void CProfilePane::PaintSummary(Gdiplus::Graphics & g, const CRect & rc, bool da
 	v[1].Format( "%.1f", m_stats.pct95DE );
 	v[2].Format( "%.1f", m_stats.maxDE );
 	v[3].Format( "%d%%", (int)( m_stats.pctGood * 100.0 + 0.5 ) );
-	int tileW = ( leftW - gap * 3 ) / 4;
+	int tileW = max( 1, ( leftW - gap * 3 ) / 4 );
 	int tileH = GetConfig()->Scale( 46 );
 	int x = 0, y = 0;
 	for ( int i = 0; i < 4; i++ )
@@ -1132,7 +1145,7 @@ void CProfilePane::PaintSummary(Gdiplus::Graphics & g, const CRect & rc, bool da
 	int b;
 	for ( b = 0; b < 16; b++ )
 		if ( m_stats.histo[b] > maxBin ) maxBin = m_stats.histo[b];
-	int bw = histoW / 16;
+	int bw = max( 1, histoW / 16 );
 	for ( b = 0; histoH > 2 && b < 16; b++ )
 	{
 		int bh = (int)( (double)m_stats.histo[b] / maxBin * ( histoH - 2 ) );

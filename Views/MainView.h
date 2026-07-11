@@ -283,6 +283,7 @@ public:
 	afx_msg void On3DDEFilterClicked();
 	afx_msg void OnProfilePaneAction();
 	void StartProfileCapture();
+	void SelectProfilePatch(int idx);	// load a profile patch into the selected-color panel + reference comparator
 	void LayoutProfilePane();	// mode 13: pane fills the whole group interior
 	afx_msg void OnDropdownComboMode();
 	afx_msg void OnSelchangeDisplayType();
