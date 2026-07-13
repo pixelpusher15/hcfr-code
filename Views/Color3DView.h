@@ -118,6 +118,13 @@ protected:
 	bool  m_gamutValid;
 	void  BuildGamut(CColorReference & ref);
 
+	// Vertical (luminance) normaliser for the scene: measured diffuse white in
+	// SDR, the TargetMaxL peak in HDR-10 - HDR measurements legitimately
+	// exceed diffuse white, and under peak normalisation the reference gamut
+	// solid IS the display's channel-clip volume. Set by BuildScene, also used
+	// by the incremental free-measure append.
+	double m_lumTop;
+
 	// ---- CIE 1931 tongue floor texture (xyY mode) ----
 	HDC     m_texDC;
 	HBITMAP m_texBmp, m_texOld;
