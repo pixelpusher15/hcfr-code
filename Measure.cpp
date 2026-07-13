@@ -7368,16 +7368,35 @@ void CMeasure::AppendMeasurements(const CColor & aColor, int isPrimary, int last
 	FreeMeasurementAppended(isPrimary, last_minCol); 
 }
 
+// The EXACT percent triplets MeasurePrimaries sends for the special
+// standards (R,G,B,Y,C,M) - the reference must decode these actual wire
+// codes: re-encoding the analog color lands up to half a code away from the
+// 2-decimal-rounded tables (~0.4 dE). Keep byte-identical to the GenColors
+// tables in MeasurePrimaries.
+static const double kHDTVaWireCodes[6][3] =
+{
+	{ 68.04,20.09,20.09 }, { 27.85,73.06,27.85 }, { 19.18,19.18,50.22 },
+	{ 73.9726,73.9726,33.3333 }, { 36.07,73.06,73.06 }, { 64.3836,29.2237,64.3836 },
+};
+static const double kHDTVbWireCodes[6][3] =
+{
+	{ 79.9087,10.0457,10.0457 }, { 30.137,79.9087,30.137 }, { 50.2283,50.2283,79.9087 },
+	{ 79.9087,79.9087,10.0457 }, { 10.0457,79.9087,79.9087 }, { 79.9087,10.0457,79.9087 },
+};
+
 // Shared by GetRefPrimary/GetRefSecondary: turn the analog primary/secondary
 // XYZ into the reference the wire actually produces. Plain standards send
 // pure 0/100% codes - exact on every grid and under any gamma - so the analog
-// color IS the wire-exact reference. The special 75%-style standards (HDTVa/b,
-// CC6) send fractional codes that must be encoded, grid-quantized and decoded.
+// color IS the wire-exact reference. The special 75%-style standards send
+// fractional codes that must be grid-quantized and decoded: HDTVa/b decode
+// the actual hardcoded wire tables (in the HDTV space the sensor/dE path
+// uses); CC6 (no wire table) keeps the analog encode->quantize->decode
+// chain. 'idx' is the patch index (0-2 primaries, 3-5 secondaries).
 // HDR modes 5/7 keep the analog reference (patch levels are recalculated at
 // measure time; legacy behavior). Window Intensity is deliberately NOT
 // modeled - it dims the measured white anchor equally and cancels in the
 // white-relative dE (see the note above TmDiffuseWhiteNits).
-static CColor WireModeledPrimaryReference ( const CMeasure & measure, const ColorXYZ & xyz, const CColorReference & cRef )
+static CColor WireModeledPrimaryReference ( const CMeasure & measure, const ColorXYZ & xyz, const CColorReference & cRef, int idx )
 {
 	int mode = GetConfig()->m_GammaOffsetType;
 	if (GetConfig()->m_colorStandard == sRGB) mode = 99;
@@ -7396,21 +7415,56 @@ static CColor WireModeledPrimaryReference ( const CMeasure & measure, const Colo
 	bool b10 = GetConfig()->GetUse10bitLevels();
 	bool lim = GetConfig()->GetRGB16_235();
 
+	const double (*pWire)[3] = ( cRef.m_standard == HDTVa ) ? kHDTVaWireCodes
+							 : ( cRef.m_standard == HDTVb ) ? kHDTVbWireCodes : NULL;
+
 	CColor aColor;
-	aColor.SetXYZValue ( xyz );
-	ColorRGB rgb = aColor.GetRGBValue ( cRef );
+	ColorRGB rgb;
+	if ( !pWire )
+	{
+		aColor.SetXYZValue ( xyz );
+		rgb = aColor.GetRGBValue ( cRef );
+	}
 	for ( int ch = 0 ; ch < 3 ; ch ++ )
 	{
-		double q = min ( max ( rgb[ch], 0.0 ), 1.0 );
-		q = ( q <= 0.0 || q >= 1.0 ) ? q : pow ( q, 1.0 / 2.22 );
+		double q;
+		if ( pWire )
+			q = pWire[idx][ch] / 100.0;
+		else
+		{
+			q = min ( max ( rgb[ch], 0.0 ), 1.0 );
+			q = ( q <= 0.0 || q >= 1.0 ) ? q : pow ( q, 1.0 / 2.22 );
+		}
 		q = SnapToVideoGrid ( q, b10, lim );
 		if ( mode >= 4 )
 			rgb[ch] = ( q <= 0.0 || q >= 1.0 ) ? q : getL_EOTF ( q, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode );
 		else
 			rgb[ch] = ( q <= 0.0 || q >= 1.0 ) ? q : pow ( q, gamma );
 	}
-	aColor.SetRGBValue ( rgb, cRef );
-	return aColor.GetXYZValue();
+	// HDTVa/b wire codes are HDTV-space signals: the sensor and the dE path
+	// both operate in plain HDTV for the special modes.
+	aColor.SetRGBValue ( rgb, pWire ? CColorReference(HDTV) : cRef );
+	ColorXYZ out = aColor.GetXYZValue();
+
+	// HDTVa's white anchor is the 75% patch (MeasurePrimaries GenColors[6] =
+	// 75/75/75), and the primaries dE normalizes the measurement to that
+	// PrimeWhite while the reference is normalized to 1.0 - so express the
+	// reference relative to the decoded 75% white, exactly as the sensor's
+	// 75% patch relates to the measured white. (HDTVb's white patch is 100%:
+	// no rescale.)
+	if ( cRef.m_standard == HDTVa )
+	{
+		double qw = SnapToVideoGrid ( 0.75, b10, lim );
+		double w = ( mode >= 4 ) ? getL_EOTF ( qw, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode )
+								 : pow ( qw, gamma );
+		if ( w > 0.0 )
+		{
+			out[0] /= w;
+			out[1] /= w;
+			out[2] /= w;
+		}
+	}
+	return out;
 }
 
 CColor CMeasure::GetRefPrimary(int i) const
@@ -7442,13 +7496,13 @@ CColor CMeasure::GetRefPrimary(int i) const
 	switch ( i )
 	{
 		case 0:	// red
-			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetRed()), cRef );
+			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetRed()), cRef, 0 );
 
 		case 1:	// green
-			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetGreen()), cRef );
+			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetGreen()), cRef, 1 );
 
 		case 2:	// blue
-			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetBlue()), cRef );
+			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetBlue()), cRef, 2 );
 	}
 
 	// Cannot execute this if "i" is OK.
@@ -7478,13 +7532,13 @@ CColor CMeasure::GetRefSecondary(int i) const
 	switch ( i )
 	{
 		case 0:	// Yellow
-			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetYellow()), cRef );
+			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetYellow()), cRef, 3 );
 
 		case 1:	// Cyan
-			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetCyan()), cRef );
+			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetCyan()), cRef, 4 );
 
 		case 2:	// Magenta
-			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetMagenta()), cRef );
+			return WireModeledPrimaryReference ( *this, ColorXYZ(cRef.GetMagenta()), cRef, 5 );
 	}
 
 	// Cannot execute this if "i" is OK.
@@ -7604,7 +7658,12 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 
 	double tmWhite = TmDiffuseWhiteNits(White, Black);
 
-	if (mode == 5 && sat_ratio == 1 && GetConfig()->m_colorStandard != UHDTV3 && GetConfig()->m_colorStandard != UHDTV4)
+	// 100%-saturation luma convention for the analog (unquantized) HDR-10
+	// reference. Full-stimulus only: at reduced stimLevel the quantize gate
+	// below opens and the wire (GenerateSaturationColors) encodes the plain
+	// K-luma color - carrying this scale into that encode lands the
+	// reference up to a code away from the signal.
+	if (mode == 5 && sat_ratio == 1 && stimLevel >= 1.0 && GetConfig()->m_colorStandard != UHDTV3 && GetConfig()->m_colorStandard != UHDTV4)
 		YLuma = YLuma * tmWhite / 94.37844;
 
 	aColor.SetxyYValue (x, y, YLuma);
@@ -8161,7 +8220,12 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 			g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 			b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 		}
-		if ( mode == 6 || mode == 4 || mode == 8 )
+		// mode 99 (sRGB standard) belongs here too: the wire quantizes the
+		// 2.22-encoded signal and the sensor/gray targets decode it with the
+		// sRGB curve via getL_EOTF(99) - same chain GetRefSat models. It
+		// previously fell through every branch, leaving CC references
+		// unquantized AND 2.22-decoded (up to ~5 dE on dark AXIS steps).
+		if ( mode == 6 || mode == 4 || mode == 8 || mode == 99 )
 		{
 			qr = (r==0)?0:pow(r, 1.0 / 2.22);
 			qg = (g==0)?0:pow(g, 1.0 / 2.22);

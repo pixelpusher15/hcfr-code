@@ -42,6 +42,8 @@ extern Matrix defaultSensorToXYZMatrix;	// Implemented in Color.cpp
 
 IMPLEMENT_SERIAL(CSimulatedSensor, COneDeviceSensor, 1) ;
 
+BOOL CSimulatedSensor::s_bInstantMeasure = FALSE;
+
 CSimulatedSensor::CSimulatedSensor()
 {
 	m_offsetRed=2;
@@ -305,7 +307,8 @@ CColor CSimulatedSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, 
 	else
 		simulColor[2]=(pow(value/100.0,gamma));
 
-	Sleep(50);
+	if (!s_bInstantMeasure)
+		Sleep(50);
 	ColorRGB colMeasure(simulColor);
 	bool isSpecial = (GetConfig()->m_colorStandard == HDTVa || GetConfig()->m_colorStandard == HDTVb);
 

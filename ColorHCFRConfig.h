@@ -40,7 +40,7 @@
 #include <map>
 extern CString GetColorStandardName(int nStandard);
 
-class CColorHCFRConfig  
+class CColorHCFRConfig
 {
 public:
 	enum GeneratorType
@@ -48,6 +48,13 @@ public:
 		enumAutomatic,
 		enumManual,
 	};
+
+	// Headless mode (set TRUE before construction by the /accuracytest hook):
+	// the constructor must not touch the user's real config or block on UI.
+	// When set it keeps the INI on a throwaway scratch path (no APPDATA
+	// redirect, migration, or data-file seeding), suppresses the modal
+	// language/help pickers, and writes nothing. Never set in interactive use.
+	static BOOL s_bHeadless;
 
 	// Exe Path, with an ending backslash
 	char m_ApplicationPath [MAX_PATH];

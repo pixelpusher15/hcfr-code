@@ -48,6 +48,8 @@ static char THIS_FILE[]=__FILE__;
 #define LANG_PREFIX "CHCFR21_"
 #define HELP_PREFIX "ColorHCFR_"
 
+BOOL CColorHCFRConfig::s_bHeadless = FALSE;
+
 CString GetColorStandardName(int nStandard)
 {
 	static const UINT ids[] = { IDS_STD_PALSECAM, IDS_STD_SDTV, IDS_STD_REC709, IDS_STD_REC709_75, IDS_STD_REC709_PLASMA, IDS_STD_SRGB, IDS_STD_DCIP3, IDS_STD_REC2020, IDS_STD_P3IN2020, IDS_STD_709IN2020, IDS_STD_CUSTOM };
@@ -158,10 +160,23 @@ CColorHCFRConfig::CColorHCFRConfig()
 	lpStr = strrchr ( m_logFileName, (int) '\\' );
 	strcpy ( lpStr + 1, "ColorHCFR.log" );
 
+	// Headless (/accuracytest): keep the INI on a throwaway scratch path and
+	// skip the APPDATA redirect, previous-install migration and data-file
+	// seeding entirely - none of the user's real config may be read or
+	// written during a self-test run.
+	if ( s_bHeadless )
+	{
+		char szTmp[MAX_PATH];
+		GetTempPathA(MAX_PATH, szTmp);
+		_snprintf(m_iniFileName, sizeof(m_iniFileName) - 1, "%saccuracytest_scratch.ini", szTmp);
+		m_iniFileName[sizeof(m_iniFileName) - 1] = '\0';
+		DeleteFileA(m_iniFileName);
+	}
 	// Config must live in a per-user writable location: the exe folder is
 	// read-only when installed under Program Files, and UAC virtualization is
 	// off for this build. Keep the INI and log under %APPDATA%\color; read-only
 	// files (help, language DLLs, res\images) still load from the exe folder.
+	else
 	{
 		const char *pAppData = getenv("APPDATA");
 		if (pAppData && *pAppData)
@@ -240,9 +255,16 @@ CColorHCFRConfig::CColorHCFRConfig()
 		default:
 			 if ( strLang.IsEmpty () || ! dlg.m_Languages.Find ( strLang ) )
 			 {
-				dlg.DoModal ();
-				strLang = dlg.m_Selection;
-				WriteProfileString ( "Options", "Language", strLang );
+				if ( s_bHeadless )
+					// No UI, no config write: take the first available language
+					// so the resource DLL still loads.
+					strLang = dlg.m_Languages.GetHead ();
+				else
+				{
+					dlg.DoModal ();
+					strLang = dlg.m_Selection;
+					WriteProfileString ( "Options", "Language", strLang );
+				}
 			 }
 			 break;
 	}
@@ -300,7 +322,7 @@ CColorHCFRConfig::CColorHCFRConfig()
 				FindClose ( hFind );
 			}
 			
-			if ( dlgHelp.m_Languages.GetCount () > 0 )
+			if ( !s_bHeadless && dlgHelp.m_Languages.GetCount () > 0 )
 			{
 				if ( IDOK == dlgHelp.DoModal () )
 				{

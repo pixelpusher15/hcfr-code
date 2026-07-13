@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 /////////////////////////////////////////////////////////////////////////////
 
 // SimulatedSensor.h: interface for the CSimulatedSensor class.
@@ -54,6 +54,11 @@ public:
 
 	// returns unique sensor identifier (for simultaneous measures: cannot use twice the same sensor on two documents)
 	virtual void GetUniqueIdentifier( CString & strId );
+
+	// AccuracyTest support (/accuracytest): TRUE skips the 50 ms UI pacing
+	// sleep in MeasureColorInternal so the headless matrix can run ~100k
+	// synthetic reads in seconds. Never set in interactive use.
+	static BOOL s_bInstantMeasure;
 
 	// Settings
 	UINT m_offsetRed;
