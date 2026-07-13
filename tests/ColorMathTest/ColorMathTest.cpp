@@ -300,9 +300,10 @@ static void RunT4()
     }
 
     out += "# GenerateCC24Colors(std,ccmode,eotf) hardcoded modes only\n";
-    static const int ccmodes[]  = { GCD, MCD, CCSG };
-    static const int ccsizes[]  = { 24, 24, 96 };
-    static const ColorStandard ccstds[] = { HDTV, UHDTV2 };
+    static const int ccmodes[]  = { GCD, MCD, CCSG, AXIS };
+    static const int ccsizes[]  = { 24, 24, 96, 71 };	// AXIS = black + 7 ramps x 10
+    // UHDTV3/UHDTV4 freeze the SDR inner->transport pseudo-space remap.
+    static const ColorStandard ccstds[] = { HDTV, UHDTV2, UHDTV3, UHDTV4 };
     for (int s = 0; s < sizeof(ccstds)/sizeof(ccstds[0]); ++s)
     {
         CColorReference ref(ccstds[s]);
@@ -520,6 +521,84 @@ static void RunT8()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T9 — quantizer equivalence oracle (pure assertion, no golden file).
+// Freezes two invariants that let the generators, the shared SnapToVideoGrid
+// signal/reference quantizer, and the rPI wire emitter all agree on a single
+// code for every (bit depth, range) combo: 219/255 (8-bit limited/full),
+// 876/1023 (10-bit limited/full).
+//   1. Generator grid-form floor(v*grid+0.5+1e-9) selects the SAME integer
+//      code as SnapToVideoGrid(v)*grid for a dense deterministic sweep of v:
+//      every code center k/grid, every half-code tie (k+0.5)/grid, that tie
+//      +/- 1e-12 and +/- 2e-10 of dust, and a golden-ratio low-discrepancy
+//      sweep. For 8-bit limited the historical /2.19 percent form is also
+//      shown to be the same code (k/2.19/100 == k/219 to 1e-12).
+//   2. Emitter stability: an on-grid signal snapped by SnapToVideoGrid passes
+//      through PiPercentToCode without moving a code — code == k + black
+//      offset (16/0/64/0 for lim8/full8/lim10/full10).
+//////////////////////////////////////////////////////////////////////////
+static void RunT9()
+{
+    printf("T9 quantizer equivalence oracle...\n");
+    static const struct { bool b10, lim; double grid; int bits; int offset; } combos[] = {
+        { false, true,  219.,  8,  16 }, { false, false, 255.,  8,  0 },
+        { true,  true,  876.,  10, 64 }, { true,  false, 1023., 10, 0 },
+    };
+    for (int c = 0; c < 4; ++c)
+    {
+        const double grid   = combos[c].grid;
+        const bool   b10    = combos[c].b10;
+        const bool   lim    = combos[c].lim;
+        const int    bits   = combos[c].bits;
+        const int    offset = combos[c].offset;
+        const int    gi     = (int)grid;
+
+        // ---- Part 1: generator grid-form code == SnapToVideoGrid code.
+        // Each closure input asserts the two integer codes are identical, and
+        // (8-bit limited only) the /2.19 percent form is the same code.
+        struct Local {
+            static void checkCode(double v, double grid, bool b10, bool lim)
+            {
+                int genCode  = (int)floor(v * grid + 0.5 + 1e-9);
+                int snapCode = (int)floor(SnapToVideoGrid(v, b10, lim) * grid + 0.5);
+                if (genCode != snapCode)
+                    Fail("T9 code mismatch grid=%.0f v=%.17g gen=%d snap=%d",
+                         grid, v, genCode, snapCode);
+                if (!b10 && lim)   // /2.19 percent form: same code as k/219
+                {
+                    double a = floor(v * 219. + 0.5 + 1e-9) / 2.19 / 100.;
+                    double b = SnapToVideoGrid(v, false, true);
+                    if (fabs(a - b) > 1e-12)
+                        Fail("T9 pct-form grid=219 v=%.17g /2.19/100=%.17g snap=%.17g",
+                             v, a, b);
+                }
+            }
+        };
+        for (int k = 0; k <= gi; ++k)
+        {
+            Local::checkCode((double)k / grid, grid, b10, lim);        // code center
+            double tie = ((double)k + 0.5) / grid;                     // half-code tie
+            Local::checkCode(tie,          grid, b10, lim);
+            Local::checkCode(tie + 1e-12,  grid, b10, lim);
+            Local::checkCode(tie - 1e-12,  grid, b10, lim);
+            Local::checkCode(tie + 2e-10,  grid, b10, lim);
+            Local::checkCode(tie - 2e-10,  grid, b10, lim);
+        }
+        for (int n = 1; n <= 2000; ++n)                               // golden-ratio sweep
+            Local::checkCode(fmod(0.6180339887498949 * n, 1.0), grid, b10, lim);
+
+        // ---- Part 2: emitter stability for on-grid inputs.
+        for (int k = 0; k <= gi; ++k)
+        {
+            double p = SnapToVideoGrid((double)k / grid, b10, lim) * 100.;
+            int code = PiPercentToCode(p, lim, bits);
+            if (code != k + offset)
+                Fail("T9 emitter grid=%.0f k=%d p=%.17g: PiPercentToCode=%d expected=%d",
+                     grid, k, p, code, k + offset);
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -543,6 +622,7 @@ int main(int argc, char* argv[])
     RunT5();
     RunT6();
     RunT8();
+    RunT9();
 
     if (g_failures)
     {

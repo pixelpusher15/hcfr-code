@@ -616,7 +616,7 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 
 	if (GetConfig()->m_GammaOffsetType == 5)
 	{
-		double tmWhite = getL_EOTF(0.5022283, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+		double tmWhite = TmDiffuseWhiteNits(White, Black);
 		aColor.SetX(aColor.GetX() * 105.95640);
 		aColor.SetY(aColor.GetY() * 105.95640);
 		aColor.SetZ(aColor.GetZ() * 105.95640);

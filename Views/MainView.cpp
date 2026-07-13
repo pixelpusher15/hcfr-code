@@ -1530,7 +1530,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		CColor White = GetDocument()->GetMeasure()->GetOnOffWhite();
 		CColor Black = GetDocument()->GetMeasure()->GetOnOffBlack();
 		int mode = GetConfig()->m_GammaOffsetType;
-		double tmWhite = getL_EOTF(0.5022283, noDataColor, noDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0 / 94.37844;
+		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor) / 94.37844;
 
 		double m_meas_rd, m_meas_gd, m_meas_bd, m_ref_rd, m_ref_gd, m_ref_bd;
 
@@ -2211,9 +2211,13 @@ void CMainView::InitGrid(bool sizeGrid)
 				GetDocument()->GetMeasure()->GetRefCC24Sat(i, s_clr);
 				if (GetConfig()->m_GammaOffsetType == 5 && GetConfig()->m_bHDR100 )
 				{
-					s_clr.SetX(s_clr.GetX()*100);
-					s_clr.SetY(s_clr.GetY()*100);
-					s_clr.SetZ(s_clr.GetZ()*100);
+					// Match the dE path's scale (4219/4225): *100 for the
+					// Mascior-style HDR CC sets, *105.95640 otherwise - so the
+					// swatch luminance represents the same reference the dE uses.
+					double s = ( GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR ) ? 100. : 105.95640;
+					s_clr.SetX(s_clr.GetX()*s);
+					s_clr.SetY(s_clr.GetY()*s);
+					s_clr.SetZ(s_clr.GetZ()*s);
 				}
                 r_clr=s_clr.GetRGBValue(CColorReference(HDTV));
 				r_clr[0]=(min(max(r_clr[0],0),1));
@@ -2986,7 +2990,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						bool shiftDiffuse = (abs(GetConfig()->m_DiffuseL-94.0)>0.5);
 			            CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
 						CColor Black = GetDocument() -> GetMeasure() -> GetOnOffBlack();
-						double tmWhite = getL_EOTF(0.5022283, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+						double tmWhite = TmDiffuseWhiteNits(White, Black);
 						if (DVD)
 						{
 							tmWhite = getL_EOTF(0.50, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
@@ -3253,7 +3257,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 				if ( isHDR )
 				{
 					bool shiftDiffuse=(abs(GetConfig()->m_DiffuseL-94.0)>0.5);
-					double tmWhite = getL_EOTF(0.5022283, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+					double tmWhite = TmDiffuseWhiteNits(White, Black);
 					if (DVD)
 					{
 						tmWhite = getL_EOTF(0.50, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
@@ -4654,7 +4658,7 @@ void CMainView::UpdateGrid()
 		bool isHDR = GetConfig()->m_GammaOffsetType == 5;
 		double 	BBC_gamma = GetConfig()->m_TargetSysGamma;
 		CString dWhitestr;
-		double tmWhite = getL_EOTF(0.5022283, noDataColor, noDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor);
 		dWhitestr.Format("%4.1f nits diffuse white", tmWhite);
 		
 		if (GetConfig()->m_useToneMap)
