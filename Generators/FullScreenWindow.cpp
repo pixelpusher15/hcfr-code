@@ -1608,7 +1608,12 @@ void video_scale (CxImage *inImage)
 		int G = GetGValue(m_Color);
 		int B = GetBValue(m_Color);
 
-    				if ( m_b16_235 )
+		// ANSI checkerboard sentinels (0xFE000000 / 0xFF000000, drawn further
+		// below) are flag values, not RGB codes: their extracted channels are
+		// 0 and must not be range-converted or asserted against 16-235.
+		bool bAnsiSentinel = ( ( m_Color & 0xFE000000 ) == 0xFE000000 );
+
+    				if ( m_b16_235 && !bAnsiSentinel )
 					{
 						ASSERT ( R >= 16 && R <= 235 );
 						ASSERT ( G >= 16 && G <= 235 );
