@@ -46,6 +46,7 @@
 #include "VersionInfoFromFile.h"
 #include "ximage.h"
 #include "HcfrUpdateUI.h"
+#include "AccuracyTest.h"
 #include <time.h>
 
 #ifdef USE_NON_FREE_CODE
@@ -217,6 +218,26 @@ void	UpdateDataRef(BOOL ActiveDataRef, CDataSetDoc * pDoc)
 
 BOOL CColorHCFRApp::InitInstance()
 {
+	// /accuracytest [report.txt] : headless reference==wire==sensor-model
+	// self-test (see AccuracyTest.cpp). Handled before any UI is created;
+	// only the config and the color reference are initialized, then the
+	// process exits with 0 (pass) / 1 (failures). ExitProcess (instead of
+	// returning FALSE) guarantees no teardown path can save settings over
+	// the user's configuration.
+	for ( int na = 1 ; na < __argc ; na ++ )
+	{
+		if ( _tcsicmp(__targv[na], _T("/accuracytest")) == 0 || _tcsicmp(__targv[na], _T("-accuracytest")) == 0 )
+		{
+			m_pColorReference = new CColorReference(SDTV,D65,2.2);
+			m_pConfig = new CColorHCFRConfig();
+			m_pszRegistryKey = NULL;
+			m_pszProfileName = _tcsdup(m_pConfig->m_iniFileName);
+			LPCTSTR pReport = ( na + 1 < __argc && __targv[na+1][0] != _T('/') && __targv[na+1][0] != _T('-') )
+							  ? __targv[na+1] : NULL;
+			::ExitProcess ( RunAccuracyTest ( pReport ) );
+		}
+	}
+
 	// Create splash screen (layered window with per-pixel alpha)
 	CxImage SplashImage;
 	CWnd	SplashWnd;
