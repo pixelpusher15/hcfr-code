@@ -36,6 +36,12 @@
 BOOL IsMeasureSweepActive();
 
 class CAsyncMeasurer;
+// Tone-mapped diffuse-white luminance (nits) for the active HDR-10 target:
+// getL_EOTF of the grid-snapped 50.22831% signal, *100. Centralizes the ~400-char
+// expression that was copy-pasted across the measure/view/export tmWhite sites.
+// Pass noDataColor for White/Black at the sites that do not have a measured
+// White/Black (mode-5 PQ ignores them anyway).
+double TmDiffuseWhiteNits(const CColor & White, const CColor & Black);
 
 #define	DUPLGRAYLEVEL		0
 #define	DUPLNEARBLACK		1
@@ -280,6 +286,7 @@ public:
 	CColor GetOnOffBlack() const;
 	CColor GetOnOffWhite() const;
 	CColor GetPrimeWhite() const; //white reference for pseudo-color spaces
+	double GetHDRRefScale() const; //HDR-10 refs: 1=10000nits -> diffuse-white-relative
 	void SetOnOffBlack(const CColor & aColor) { m_OnOffBlack=aColor; m_isModified=TRUE; }
 	void SetOnOffWhite(const CColor & aColor) { m_OnOffWhite=aColor; m_isModified=TRUE; }
 	void SetPrimeWhite(const CColor & aColor) { m_PrimeWhite=aColor; m_isModified=TRUE; }

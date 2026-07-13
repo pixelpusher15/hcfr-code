@@ -85,6 +85,8 @@ public:
 	BOOL m_bUse10bit;
 	BOOL m_bUse10bitLevels;
 	BOOL GetUse10bitLevels();
+	BOOL m_bRGB16_235;
+	BOOL GetRGB16_235();
 	void RefreshUse10bitLevels();
 	int m_BWColorsToAdd;
 	double m_GammaRef;

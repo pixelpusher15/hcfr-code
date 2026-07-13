@@ -170,6 +170,7 @@ C3DColorView::C3DColorView()
 	, m_sceneDirty(true)
 	, m_freeInScene(0)
 	, m_profileInScene(0)
+	, m_lumTop(1.0)
 	, m_baseValid(false)
 	, m_gamutValid(false)
 	, m_texDC(NULL), m_texBmp(NULL), m_texOld(NULL), m_texBits(NULL), m_texW(0), m_texH(0), m_texSig(-1)
@@ -247,8 +248,11 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 	if ( !xyz.isValid() )
 		return;
 
+	// Model geometry is normalised by m_lumTop (peak in HDR-10), while dE and
+	// the white-relative ratios keep using whiteY / ywForDE - the calibration
+	// math stays anchored to diffuse white, only the plot axis grows.
 	double mx, my, mz;
-	ToModel( xyz, whiteY, ref, mx, my, mz );
+	ToModel( xyz, m_lumTop > 0.0 ? m_lumTop : whiteY, ref, mx, my, mz );
 
 	ScenePoint p;
 	p.mx = (float)mx; p.my = (float)my; p.mz = (float)mz;
@@ -288,7 +292,7 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 		ColorXYZ t = markerTarget.GetXYZValue();
 		ColorXYZ ta( t[0] * whiteY, t[1] * whiteY, t[2] * whiteY );
 		double tx, ty, tz;
-		ToModel( ta, whiteY, ref, tx, ty, tz );
+		ToModel( ta, m_lumTop > 0.0 ? m_lumTop : whiteY, ref, tx, ty, tz );
 		p.tx = (float)tx; p.ty = (float)ty; p.tz = (float)tz;
 		p.hasTarget = true;
 		ColorxyY txyY = markerTarget.GetxyYValue();
@@ -325,6 +329,12 @@ void C3DColorView::BuildScene()
 		cw = pMeasure->GetOnOffWhite();
 	if ( cw.isValid() && cw.GetY() > 0.0 )
 		whiteY = cw.GetY();
+
+	// Vertical axis normaliser: peak in HDR-10 (measurements legitimately
+	// exceed diffuse white up to TargetMaxL), diffuse white otherwise.
+	m_lumTop = whiteY;
+	if ( GetConfig()->m_GammaOffsetType == 5 && GetConfig()->m_TargetMaxL > whiteY )
+		m_lumTop = GetConfig()->m_TargetMaxL;
 
 	int i, n;
 	ColorxyY wChroma( ref.GetWhite() );
@@ -415,6 +425,13 @@ void C3DColorView::BuildScene()
 	// just the active one, so the full color-volume envelope is visible. The
 	// label and per-level reference (GetRefSat with the level's amplitude) make
 	// each level distinct; srcC records the level for click-to-inspect.
+	// HDR-10: GetRefSat/GetRefCC24Sat return the 1.0 = 10000 nits convention;
+	// the scene needs the diffuse-white-relative convention (YWhiteRef is 1.0
+	// in AppendMeasure). The scale is 10000 / tone-mapped white - the legacy
+	// 105.95640 with tone mapping off (* 100 for the Mascior-style HDR CC
+	// sets, matching the measures grid).
+	const bool hdr10Refs = ( GetConfig()->m_GammaOffsetType == 5 );
+	const double hdrRefScale = hdr10Refs ? pMeasure->GetHDRRefScale() : 1.0;
 	const bool satSpecial = ( ref.m_standard == HDTVa || ref.m_standard == HDTVb );
 	static const wchar_t * hueName[6] = { L"Red", L"Green", L"Blue", L"Yellow", L"Cyan", L"Magenta" };
 	int nSatLevels = pMeasure->GetSatLevelCount();
@@ -433,6 +450,12 @@ void C3DColorView::BuildScene()
 				if ( i >= (int) set.sat[h].size() )
 					continue;
 				CColor refC = pMeasure->GetRefSat( h, satRatio, satSpecial, stim );
+				if ( hdr10Refs && refC.isValid() )
+				{
+					refC.SetX( refC.GetX() * hdrRefScale );
+					refC.SetY( refC.GetY() * hdrRefScale );
+					refC.SetZ( refC.GetZ() * hdrRefScale );
+				}
 				wchar_t lbl[64];
 				swprintf( lbl, 64, L"%s %d%% sat @ %d%% stim", hueName[h], (int)( satRatio * 100.0 + 0.5 ), stimPct );
 				AppendMeasure( set.sat[h][i], whiteY, ref, refC, refC, false, whiteY, lbl, SRC_SAT, i, h, L );
@@ -454,6 +477,13 @@ void C3DColorView::BuildScene()
 			continue;
 		CColor refC;
 		pMeasure->GetRefCC24Sat( i, refC );
+		if ( hdr10Refs && refC.isValid() )
+		{
+			double s = ( GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR ) ? 100. : hdrRefScale;
+			refC.SetX( refC.GetX() * s );
+			refC.SetY( refC.GetY() * s );
+			refC.SetZ( refC.GetZ() * s );
+		}
 		wchar_t lbl[48];
 		swprintf( lbl, 48, L"Color checker #%d", i + 1 );
 		AppendMeasure( c, whiteY, ref, refC, refC, false, whiteY, lbl, SRC_CC24, i );
@@ -507,9 +537,41 @@ void C3DColorView::BuildGamut(CColorReference & ref)
 	// Reference primaries already sum to the reference white, so normalise heights
 	// by the reference white's OWN luminance -- not the measured white (else, with
 	// measurements in absolute cd/m^2, the solid collapses toward L*=0).
+	// In HDR-10 this unscaled solid is exactly the display's channel-clip
+	// volume once the scene's vertical axis is normalised by TargetMaxL
+	// (m_lumTop): each linear channel independently reaches TargetMaxL, so
+	// e.g. a clipped full red measures KR * TargetMaxL - which lands
+	// precisely on this solid's red corner (KR) under peak normalisation.
 	double refWhiteY = ref.GetWhite()[1];
 	if ( refWhiteY <= 0.0 ) refWhiteY = 1.0;
 	ColorXYZ R = ref.GetRed(), G = ref.GetGreen(), B = ref.GetBlue();
+
+	// HLG (mode 7): the display applies the OOTF per TRANSPORT channel -
+	// nits(t) = (MaxTL-MinTL) * t^gsys + MinTL - so with gsys < 1 saturated
+	// colors sit above their linear-light ratios and the achievable volume
+	// bulges above the linear solid. Lift every sampled gamut point in the
+	// TRANSPORT container's channels: for pseudo-spaces the display decodes
+	// BT.2020 channels, not inner (P3/709) ones - lifting inner cube
+	// coefficients paints a wrong (overhanging) solid; for plain spaces
+	// transport == ref and this reduces to the own-channel lift. SDR/PQ: no-op.
+	const bool   hlgLift  = ( GetConfig()->m_GammaOffsetType == 7 );
+	const double hlgGamma = GetConfig()->m_TargetSysGamma;
+	CColorReference liftRef = ContainerTransportReference( ref );
+	struct HlgLifter {
+		bool on; double g; CColorReference * pRef;
+		ColorXYZ operator()( const ColorXYZ & xyz ) const
+		{
+			if ( !on )
+				return xyz;
+			ColorRGB t( xyz, *pRef );
+			for ( int c = 0; c < 3; c++ )
+			{
+				double v = ( t[c] < 0.0 ) ? 0.0 : t[c];	// matrix dust
+				t[c] = ( v > 0.0 && v < 1.0 ) ? pow( v, g ) : v;
+			}
+			return ColorXYZ( t, *pRef );
+		}
+	} Lift = { hlgLift, hlgGamma, &liftRef };
 
 	const int N = kGamutN;
 	m_edgeV.assign( (size_t)12 * ( N + 1 ) * 3, 0.0f );
@@ -530,14 +592,14 @@ void C3DColorView::BuildGamut(CColorReference & ref)
 			double r = edgeRGB[e][0] + s * ( edgeRGB[e][3] - edgeRGB[e][0] );
 			double g = edgeRGB[e][1] + s * ( edgeRGB[e][4] - edgeRGB[e][1] );
 			double b = edgeRGB[e][2] + s * ( edgeRGB[e][5] - edgeRGB[e][2] );
-			ColorXYZ xyz( r*R[0] + g*G[0] + b*B[0], r*R[1] + g*G[1] + b*B[1], r*R[2] + g*G[2] + b*B[2] );
+			ColorXYZ xyz = Lift( ColorXYZ( r*R[0] + g*G[0] + b*B[0], r*R[1] + g*G[1] + b*B[1], r*R[2] + g*G[2] + b*B[2] ) );
 			double mx, my, mz;
 			if ( m_space == SPACE_XYY )
 			{
 				// Chromaticity direction = the edge's far end. Makes the three
 				// black->primary edges clean vertical lines at the primary corners.
 				double r2 = edgeRGB[e][3], g2 = edgeRGB[e][4], b2 = edgeRGB[e][5];
-				ColorXYZ dir( r2*R[0] + g2*G[0] + b2*B[0], r2*R[1] + g2*G[1] + b2*B[1], r2*R[2] + g2*G[2] + b2*B[2] );
+				ColorXYZ dir = Lift( ColorXYZ( r2*R[0] + g2*G[0] + b2*B[0], r2*R[1] + g2*G[1] + b2*B[1], r2*R[2] + g2*G[2] + b2*B[2] ) );
 				XyYModelPt( xyz, dir, refWhiteY, mx, my, mz );
 			}
 			else
@@ -567,8 +629,12 @@ void C3DColorView::BuildGamut(CColorReference & ref)
 					if ( faceFixed[f] == 0 )      { wr = 0.0; wg = c1; wb = c2; }  // G -> C -> B
 					else if ( faceFixed[f] == 1 ) { wg = 0.0; wr = c1; wb = c2; }  // R -> M -> B
 					else                          { wb = 0.0; wr = c1; wg = c2; }  // R -> Y -> G
-					ColorXYZ dir( wr*R[0] + wg*G[0] + wb*B[0], wr*R[1] + wg*G[1] + wb*B[1], wr*R[2] + wg*G[2] + wb*B[2] );
-					ColorXYZ xyz( dir[0] * frac, dir[1] * frac, dir[2] * frac );
+					// per-channel lift commutes with scaling ((frac*t)^g =
+					// frac^g * t^g), so Lift(dir*frac) stays colinear with
+					// Lift(dir) and the wall verticals keep their chromaticity
+					ColorXYZ dir0( wr*R[0] + wg*G[0] + wb*B[0], wr*R[1] + wg*G[1] + wb*B[1], wr*R[2] + wg*G[2] + wb*B[2] );
+					ColorXYZ dir = Lift( dir0 );
+					ColorXYZ xyz = Lift( ColorXYZ( dir0[0] * frac, dir0[1] * frac, dir0[2] * frac ) );
 					XyYModelPt( xyz, dir, refWhiteY, mx, my, mz );
 				}
 				else
@@ -577,7 +643,7 @@ void C3DColorView::BuildGamut(CColorReference & ref)
 					if ( faceFixed[f] == 0 )      { r = faceVal[f]; g = u; b = v; }
 					else if ( faceFixed[f] == 1 ) { g = faceVal[f]; r = u; b = v; }
 					else                          { b = faceVal[f]; r = u; g = v; }
-					ColorXYZ xyz( r*R[0] + g*G[0] + b*B[0], r*R[1] + g*G[1] + b*B[1], r*R[2] + g*G[2] + b*B[2] );
+					ColorXYZ xyz = Lift( ColorXYZ( r*R[0] + g*G[0] + b*B[0], r*R[1] + g*G[1] + b*B[1], r*R[2] + g*G[2] + b*B[2] ) );
 					if ( m_space == SPACE_XYY )
 						XyYModelPt( xyz, xyz, refWhiteY, mx, my, mz );
 					else
@@ -590,7 +656,7 @@ void C3DColorView::BuildGamut(CColorReference & ref)
 	// xyY: the base rim -- the gamut triangle at floor level the walls stand on.
 	if ( m_space == SPACE_XYY )
 	{
-		ColorXYZ prim[3] = { R, G, B };
+		ColorXYZ prim[3] = { Lift( R ), Lift( G ), Lift( B ) };
 		for ( int k = 0; k < 3; k++ )
 		{
 			double mx, my, mz;

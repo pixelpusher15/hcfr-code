@@ -1140,12 +1140,22 @@ BOOL CDataSetDoc::CanCloseFrame(CFrameWnd* pFrame)
 }
 
 
+static volatile BOOL g_bAllLevelsSweepActive = FALSE;
+BOOL IsAllLevelsSweepActive() { return g_bAllLevelsSweepActive; }
+
 namespace {
 struct MeasureButtonStopScope
 {
 	CDataSetDoc * m_pDoc;
-	explicit MeasureButtonStopScope(CDataSetDoc * pDoc) : m_pDoc(pDoc) { Set(TRUE); }
-	~MeasureButtonStopScope() { Set(FALSE); }
+	bool m_bAllLevels;
+	// bAllLevels: the "All stim" button drives this sweep (CDataSetDoc::MeasureSatColorAllLevels),
+	// so it -- not the per-hue Go button -- should show the red "click to stop" state.
+	explicit MeasureButtonStopScope(CDataSetDoc * pDoc, bool bAllLevels = false) : m_pDoc(pDoc), m_bAllLevels(bAllLevels)
+	{
+		if (m_bAllLevels) g_bAllLevelsSweepActive = TRUE;
+		Set(TRUE);
+	}
+	~MeasureButtonStopScope() { Set(FALSE); if (m_bAllLevels) g_bAllLevelsSweepActive = FALSE; }
 	void Set(BOOL bStop)
 	{
 		if (!m_pDoc) return;
@@ -1154,7 +1164,12 @@ struct MeasureButtonStopScope
 		{
 			CView * v = m_pDoc->GetNextView(pos);
 			if (v && v->IsKindOf(RUNTIME_CLASS(CMainView)))
-				((CMainView*)v)->SetMeasureButtonStop(bStop);
+			{
+				if (m_bAllLevels)
+					((CMainView*)v)->SetAllLevelsButtonStop(bStop);
+				else
+					((CMainView*)v)->SetMeasureButtonStop(bStop);
+			}
 		}
 	}
 };
@@ -2477,7 +2492,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_RED;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, false, false, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel());
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, false, false, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 			 pValidationFunc = &CMeasure::ValidateBackgroundRedSatScale;
 			 lHint = UPD_REDSAT;
 			 break;
@@ -2486,7 +2501,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_GREEN;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, true, false, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel() );
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, true, false, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 			 pValidationFunc = &CMeasure::ValidateBackgroundGreenSatScale;
 			 lHint = UPD_GREENSAT;
 			 break;
@@ -2495,7 +2510,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_BLUE;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, false, true, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel() );
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, false, true, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 			 pValidationFunc = &CMeasure::ValidateBackgroundBlueSatScale;
 			 lHint = UPD_BLUESAT;
 			 break;
@@ -2504,7 +2519,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_YELLOW;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, true, false, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel() );
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, true, false, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 			 pValidationFunc = &CMeasure::ValidateBackgroundYellowSatScale;
 			 lHint = UPD_YELLOWSAT;
 			 break;
@@ -2513,7 +2528,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_CYAN;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, true, true, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel() );
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, false, true, true, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 			 pValidationFunc = &CMeasure::ValidateBackgroundCyanSatScale;
 			 lHint = UPD_CYANSAT;
 			 break;
@@ -2522,7 +2537,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetSaturationSize ();
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = CGenerator::MT_SAT_MAGENTA;
-			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, false, true, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel() );
+			 GenerateSaturationColors (GetColorReference(), GenColors, nSteps, true, false, true, GetConfig()->m_GammaOffsetType, GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 			 pValidationFunc = &CMeasure::ValidateBackgroundMagentaSatScale;
 			 lHint = UPD_MAGENTASAT;
 			 break;
@@ -2563,7 +2578,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			}
 			 nMaxSteps = nSteps;
 			 mType [ 0 ] = nPattern;
-			 GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType );
+			 GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 			 pValidationFunc = &CMeasure::ValidateBackgroundCC24SatScale;
 			 lHint = UPD_CC24SAT;
 			 break;
@@ -4873,7 +4888,7 @@ void CDataSetDoc::MeasureSatColorAllLevels(int hue)
 		return;
 
 	StopBackgroundMeasures ();
-	MeasureButtonStopScope _btn(this);
+	MeasureButtonStopScope _btn(this, true);
 
 	std::vector<double> levels;
 	ParseSatStimLevels ( levels );

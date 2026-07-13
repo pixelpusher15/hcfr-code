@@ -532,7 +532,7 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 	{
 		CString str, str1, str2, str3;
 		CColor NoDataColor;
-		double tmWhite = ( m_passTmWhite > 0.0 ) ? m_passTmWhite : getL_EOTF(0.5022283, NoDataColor, NoDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+		double tmWhite = ( m_passTmWhite > 0.0 ) ? m_passTmWhite : TmDiffuseWhiteNits(NoDataColor, NoDataColor);
 		
 		int x=aGraphPoint.GetGraphX(rect)+m_DeltaX;
 		int y=aGraphPoint.GetGraphY(rect)+m_DeltaY;		
@@ -867,7 +867,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	int current_mode = ((CMainView*)pView)->m_displayMode;
 	BOOL onEdit =  ((CMainView*)pView)->m_editCheckButton.GetCheck();
 	CColor NoDataColor;
-	double tmWhite = getL_EOTF(0.5022283, NoDataColor, NoDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+	double tmWhite = TmDiffuseWhiteNits(NoDataColor, NoDataColor);
 	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 
 	// Publish the pass invariants so DrawAlphaBitmap doesn't recompute them
@@ -1233,9 +1233,12 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 					r1=getL_EOTF(r[i], noDataColor, noDataColor, 2.4, 0.9, -1*mode);
 					g1=getL_EOTF(g[i], noDataColor, noDataColor, 2.4, 0.9, -1*mode);
 					b1=getL_EOTF(b[i], noDataColor, noDataColor, 2.4, 0.9, -1*mode);
-					r1 = floor( (r1 * 219.) + 0.5 ) / 219.;
-					g1 = floor( (g1 * 219.) + 0.5 ) / 219.;
-					b1 = floor( (b1 * 219.) + 0.5 ) / 219.;
+					// model the wire quantization on the active grid (bit depth + range)
+					bool b10 = !!GetConfig()->GetUse10bitLevels();
+					bool lim = !!GetConfig()->GetRGB16_235();
+					r1 = SnapToVideoGrid( r1, b10, lim );
+					g1 = SnapToVideoGrid( g1, b10, lim );
+					b1 = SnapToVideoGrid( b1, b10, lim );
 				    r1 = getL_EOTF(r1,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 				    g1 = getL_EOTF(g1,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 				    b1 = getL_EOTF(b1,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);

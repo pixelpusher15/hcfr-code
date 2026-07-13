@@ -227,7 +227,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		
     	int nCount = m_pDocument -> GetMeasure () -> GetGrayScaleSize ();
         double YWhite = white.GetY();
-		double tmWhite = getL_EOTF(0.5022283, noDataColor, noDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor);
 
 			if ( (GetConfig()->m_GammaOffsetType == 5 && m_displayMode <=11 && m_displayMode >= 5) )
 			{

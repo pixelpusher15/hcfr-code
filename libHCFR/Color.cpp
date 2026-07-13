@@ -1574,11 +1574,18 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 					m_MinML = m_MinTL;
 				m_MaxML = m_MaxML * m_diffuseL / 94.37844; 
 
-				if (valx == 0.5022283)
+				// Diffuse-white fast path: compute the tone-mapped white
+				// directly for the requested signal instead of building the
+				// 1024-entry inverse LUT. Tolerance instead of exact equality:
+				// the white patch reaches the display grid-quantized (110/219,
+				// 128/255, 440/876, 514/1023 are all within 3.2e-4 of the
+				// nominal 0.5022283), and the snapped code must take the same
+				// exact path as the nominal constant.
+				if (fabs(valx - 0.5022283) < 5e-4)
 					ii = 1;
 				for (int i=0; i < ii;i++)
 				{
-					if (valx != 0.5022283)
+					if (ii != 1)
 						valx = i / 1024.;
 
 					E1 = valx - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
@@ -2869,7 +2876,7 @@ int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, int cubeN
 	return cnt;
 }
 
-bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode)
+bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit, bool is16_235)
 {
 	//six cases, one for GCD sequence, one for Mascior's disk (Chromapure based), and four different generator only cases
 	//GCD
@@ -3073,7 +3080,10 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
 			for (int i=0;i<10;i++) {GenColors [ i + 61 ] = ColorRGBDisplay( (i+1) * 10,	(i+1) * 10,	0);}
 			for (int i=0;i<10;i++) {GenColors [ i + 41 ] = ColorRGBDisplay( 0, (i+1) * 10,	(i+1) * 10);}
 			for (int i=0;i<10;i++) {GenColors [ i + 51] = ColorRGBDisplay( (i+1) * 10, 0, (i+1) * 10);}
-			n_elements= 70;
+			// black + 7 ramps x 10 fills indices 0..70 = 71 patches (the measure
+			// loop reads 71); 70 here silently dropped yellow 100% from every
+			// per-patch pass over the set.
+			n_elements= 71;
         break;
 		}
 		//ColorCheckerSG 96 colors
@@ -3433,26 +3443,112 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
 				}
 			}
 			else
-				tempColor.SetRGBValue(ColorRGB(r,g,b),(colorReference.m_standard==UHDTV3||colorReference.m_standard==UHDTV4)?CColorReference(UHDTV2):colorReference);
+				// pseudo-spaces: the patch tables are inner-space (P3/709)
+				// signals; set in the inner space so the transport read below
+				// remaps them into the container, matching GetRefCC24Sat's
+				// reference model.
+				tempColor.SetRGBValue(ColorRGB(r,g,b),(colorReference.m_standard==UHDTV3||colorReference.m_standard==UHDTV4)?ContainerInnerReference(colorReference):colorReference);
 
-			ColorRGB aRGBColor = tempColor.GetRGBValue((colorReference.m_standard==UHDTV3||colorReference.m_standard==UHDTV4)?CColorReference(UHDTV2):colorReference);	
+			// Read in the TRANSPORT container (ContainerTransportReference, which
+			// carries the active white) - not plain CColorReference(UHDTV2), whose
+			// fixed D65 diverges from GetRefCC24Sat's reference under a custom
+			// pseudo-space white.
+			ColorRGB aRGBColor = tempColor.GetRGBValue((colorReference.m_standard==UHDTV3||colorReference.m_standard==UHDTV4)?ContainerTransportReference(colorReference):colorReference);
 			
 			r = (aRGBColor[0]<=0.0||aRGBColor[0]>1.0)?min(max(aRGBColor[0],0),1):getL_EOTF(aRGBColor[0], noDataColor, noDataColor,0.0,0.0,-1*mode);
 			g = (aRGBColor[1]<=0.0||aRGBColor[1]>1.0)?min(max(aRGBColor[1],0),1):getL_EOTF(aRGBColor[1], noDataColor, noDataColor,0.0,0.0,-1*mode);
 			b = (aRGBColor[2]<=0.0||aRGBColor[2]>1.0)?min(max(aRGBColor[2],0),1):getL_EOTF(aRGBColor[2], noDataColor, noDataColor,0.0,0.0,-1*mode);
 
-			//re-quantize to 8-bit video %
-			GenColors[i][0] = floor( (r * 219.) + 0.5 ) / 2.19;
-			GenColors[i][1] = floor( (g * 219.) + 0.5 ) / 2.19;
-			GenColors[i][2] = floor( (b * 219.) + 0.5 ) / 2.19;
+			// Re-quantize once to the native code grid (see GenerateSaturationColors).
+			// r/g/b are 0..1 here. Grid follows the active bit depth AND range:
+			// 219/255 (8-bit limited/full), 876/1023 (10-bit); the 8-bit limited
+			// branch keeps the historical /2.19 form (T4 guards it). The 1e-9
+			// tie-breaker matches SnapToVideoGrid so signal and reference round
+			// exact half-code ties identically (T9 guards the equivalence).
+			if ( b10bit || !is16_235 )
+			{
+				const double grid = b10bit ? ( is16_235 ? 876. : 1023. ) : 255.;
+				GenColors[i][0] = floor( r * grid + 0.5 + 1e-9 ) / grid * 100.;
+				GenColors[i][1] = floor( g * grid + 0.5 + 1e-9 ) / grid * 100.;
+				GenColors[i][2] = floor( b * grid + 0.5 + 1e-9 ) / grid * 100.;
+			}
+			else
+			{
+				GenColors[i][0] = floor( (r * 219.) + 0.5 + 1e-9 ) / 2.19;
+				GenColors[i][1] = floor( (g * 219.) + 0.5 + 1e-9 ) / 2.19;
+				GenColors[i][2] = floor( (b * 219.) + 0.5 + 1e-9 ) / 2.19;
+			}
 
+		}
+	}
+	else if ( colorReference.m_standard == UHDTV3 || colorReference.m_standard == UHDTV4 )
+	{
+		// Pseudo-spaces (P3 or Rec.709 inside a BT.2020 container): the patch
+		// tables above are inner-space signals, but the wire carries the
+		// transport (BT.2020) encoding, so decode with the active transfer
+		// function (2.22 SDR, pure PQ for HDR-10, HLG inverse OETF), remap
+		// inner->transport, re-encode and quantize on the native per-range
+		// grid with SnapToVideoGrid so reference == signal (shared 1e-9
+		// tie-breaker). GetRefCC24Sat models the identical chain; without the
+		// remap the display renders 2020-gamut colors against inner targets.
+		// The PQ decode passes m_TargetMaxL = 10000 explicitly: the default
+		// (700) would silently tone-clip the wire, and the remap must be a
+		// lossless signal round trip - clipping belongs to the display model
+		// (sensor/reference decode), never to pattern generation. getL_EOTF
+		// (+5) returns 1.0 = 100 nits while the -5 encoder expects 1.0 =
+		// 10000 nits, hence the /100. HLG remaps in SCENE-linear light via the
+		// display-independent inverse OETF (HLG_SignalToScene) and re-encodes
+		// with the pure OETF (case -7); the display-dependent OOTF stays in
+		// the sensor/reference decode.
+		CColor tempColor;
+		bool isPQ = ( mode == 5 ), isHLG = ( mode == 7 );
+		for (int i = 0; i < n_elements; i++)
+		{
+			ColorRGB rgb;
+			for (int ch = 0; ch < 3; ch++)
+			{
+				double v = (GenColors[i][ch] <= 0.0) ? 0.0 : ((GenColors[i][ch] >= 100.0) ? 1.0 : GenColors[i][ch] / 100.);
+				if ( isPQ )
+					rgb[ch] = (v <= 0.0) ? 0.0 : getL_EOTF(v, noDataColor, noDataColor, 0.0, 0.0, 5, 94.37844, 0.0, 4000.0, 0.0, 10000.0) / 100.;
+				else if ( isHLG )
+					rgb[ch] = HLG_SignalToScene(v);
+				else
+					rgb[ch] = (v <= 0.0 || v >= 1.0) ? v : pow(v, 2.22);
+			}
+
+			tempColor.SetRGBValue(rgb, ContainerInnerReference(colorReference));
+			ColorRGB aRGBColor = tempColor.GetRGBValue(ContainerTransportReference(colorReference));
+
+			for (int ch = 0; ch < 3; ch++)
+			{
+				// inner gamut fits inside the 2020 container; clamp only matrix dust
+				double q;
+				if ( isPQ )
+				{
+					double lin = max(aRGBColor[ch], 0.0);
+					q = (lin <= 0.0) ? 0.0 : getL_EOTF(lin, noDataColor, noDataColor, 0.0, 0.0, -5);
+					q = min(max(q, 0.0), 1.0);
+				}
+				else if ( isHLG )
+				{
+					double lin = min(max(aRGBColor[ch], 0.0), 1.0);
+					q = (lin <= 0.0) ? 0.0 : getL_EOTF(lin, noDataColor, noDataColor, 0.0, 0.0, -7);
+					q = min(max(q, 0.0), 1.0);
+				}
+				else
+				{
+					q = min(max(aRGBColor[ch], 0.0), 1.0);
+					q = (q <= 0.0 || q >= 1.0) ? q : pow(q, 1.0 / 2.22);
+				}
+				GenColors[i][ch] = SnapToVideoGrid(q, b10bit, is16_235) * 100.;
+			}
 		}
 	}
 
 	return bOk;
 }
 
-void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode, double stimLevel)
+void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode, double stimLevel, bool b10bit, bool is16_235)
 {
 	//use fully saturated space if user has special color space modes set
 	//UHDTV pseudo-spaces XYZ is set in original space and mapped to BT.2020
@@ -3589,10 +3685,28 @@ void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDi
 			rgbColor[2] *= stimLevel;
 		}
 
-		//quantize to 8-bit video %
-		rgbColor[0] = floor( (rgbColor[0] / 100. * 219.) + 0.5 ) / 2.19;
-		rgbColor[1] = floor( (rgbColor[1] / 100. * 219.) + 0.5 ) / 2.19;
-		rgbColor[2] = floor( (rgbColor[2] / 100. * 219.) + 0.5 ) / 2.19;
+		// Quantize once to the native code grid so the stored triplet is exactly
+		// what gets sent (reference == signal), for the active bit depth AND
+		// range: 219 limited / 255 full (8-bit), 876 limited / 1023 full
+		// (10-bit) - matching the wire encoders, never a limited->full stretch.
+		// The 8-bit limited branch keeps the historical /2.19 form (ColorMathTest
+		// T4 guards it). The 1e-9 tie-breaker matches SnapToVideoGrid so signal
+		// and reference round exact half-code ties identically (T9 guards the
+		// equivalence): matrix dust must not leave the signal one code below
+		// the snapped reference.
+		if ( b10bit || !is16_235 )
+		{
+			const double grid = b10bit ? ( is16_235 ? 876. : 1023. ) : 255.;
+			rgbColor[0] = floor( rgbColor[0] / 100. * grid + 0.5 + 1e-9 ) / grid * 100.;
+			rgbColor[1] = floor( rgbColor[1] / 100. * grid + 0.5 + 1e-9 ) / grid * 100.;
+			rgbColor[2] = floor( rgbColor[2] / 100. * grid + 0.5 + 1e-9 ) / grid * 100.;
+		}
+		else
+		{
+			rgbColor[0] = floor( (rgbColor[0] / 100. * 219.) + 0.5 + 1e-9 ) / 2.19;
+			rgbColor[1] = floor( (rgbColor[1] / 100. * 219.) + 0.5 + 1e-9 ) / 2.19;
+			rgbColor[2] = floor( (rgbColor[2] / 100. * 219.) + 0.5 + 1e-9 ) / 2.19;
+		}
 
 		GenColors [ i ] = ColorRGBDisplay( rgbColor[0], rgbColor[1], rgbColor[2] );
         
@@ -3736,6 +3850,40 @@ int PiBackground8ToCode ( double v255, bool is16_235, int bits )
         code = (int) v255;
     code = ( code < 0 ) ? 0 : ( ( code > 255 ) ? 255 : code );
     return code;
+}
+
+// Snap a normalized 0..1 signal value to the native code grid for the active
+// bit depth AND range, so a deltaE reference lands on the exact code the patch
+// generators emit (reference == signal) with a SINGLE rounding: 219 limited /
+// 255 full (8-bit), 876 limited / 1023 full (10-bit) - never a limited->full
+// stretch. 8-bit limited is the historic 219 form, byte-for-byte.
+// The 1e-9 tie-breaker makes exact half-code inputs round UP deterministically
+// on every path. Nominal levels sit exactly on rounding ties (50% * 219 = 109.5):
+// a directly-quantized signal computes the tie exactly and rounds up, but a
+// reference that reached the same value through a linearize->XYZ->re-encode
+// round trip carries ~1e-16 matrix dust and can land a full code lower. The
+// epsilon absorbs that dust so both sides agree; it is far below any real
+// signal difference (half a 10-bit full-range code is ~5e-4).
+double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 )
+{
+    const double grid = b10bit ? ( is16_235 ? 876. : 1023. ) : ( is16_235 ? 219. : 255. );
+    return floor( v * grid + 0.5 + 1e-9 ) / grid;
+}
+
+// HLG inverse OETF: signal (0..1) -> scene-linear (0..1). Display-INDEPENDENT
+// (the OOTF / display white / system gamma live in getL_EOTF case 7). This is
+// the half the pseudo-space remap needs: a P3/709-in-2020 patch can be taken
+// to scene-linear, remapped inner -> transport, and re-encoded with the pure
+// OETF (case -7) without knowing anything about the display. Constants and
+// piecewise form mirror getL_EOTF's case 7 exactly.
+double HLG_SignalToScene ( double v )
+{
+	const double a = 0.17883277, b = 1.0 - 4 * a, c = 0.5 - a * log(4 * a);
+	if ( v <= 0.0 )
+		return 0.0;
+	if ( v <= 0.5 )
+		return v * v / 3.0;
+	return ( exp( ( v - c ) / a ) + b ) / 12.0;
 }
 
 double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit)

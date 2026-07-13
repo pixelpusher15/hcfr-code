@@ -300,9 +300,10 @@ static void RunT4()
     }
 
     out += "# GenerateCC24Colors(std,ccmode,eotf) hardcoded modes only\n";
-    static const int ccmodes[]  = { GCD, MCD, CCSG };
-    static const int ccsizes[]  = { 24, 24, 96 };
-    static const ColorStandard ccstds[] = { HDTV, UHDTV2 };
+    static const int ccmodes[]  = { GCD, MCD, CCSG, AXIS };
+    static const int ccsizes[]  = { 24, 24, 96, 71 };	// AXIS = black + 7 ramps x 10
+    // UHDTV3/UHDTV4 freeze the SDR inner->transport pseudo-space remap.
+    static const ColorStandard ccstds[] = { HDTV, UHDTV2, UHDTV3, UHDTV4 };
     for (int s = 0; s < sizeof(ccstds)/sizeof(ccstds[0]); ++s)
     {
         CColorReference ref(ccstds[s]);
@@ -315,6 +316,80 @@ static void RunT4()
                 AppendF(out, "CC,%d,%d,%d,%d\n", (int)ccstds[s], ccmodes[m], eotf, ok ? 1 : 0);
                 DumpTriplets(out, &buf[0], ccsizes[m]);
             }
+    }
+
+    // Full-range 8-bit variants (b10bit=false, is16_235=false): freezes the
+    // native 255-grid quantization (PC levels), which the frozen limited rows
+    // above do NOT exercise. Tags: SAT8F / CC8F.
+    out += "# GenerateSaturationColors 8-bit full (std,combo,steps,eotf) then triplets %.17g\n";
+    for (int s = 0; s < sizeof(stds)/sizeof(stds[0]); ++s)
+    {
+        CColorReference ref(stds[s]);
+        for (int c = 0; c < 6; ++c)
+            for (int st = 0; st < sizeof(steps)/sizeof(steps[0]); ++st)
+                for (int e = 0; e < sizeof(eotfs)/sizeof(eotfs[0]); ++e)
+                {
+                    std::vector<ColorRGBDisplay> buf(steps[st]);
+                    GenerateSaturationColors(ref, &buf[0], steps[st],
+                        combos[c][0], combos[c][1], combos[c][2], eotfs[e], 1.0, false, false);
+                    AppendF(out, "SAT8F,%d,%d,%d,%d\n", (int)stds[s], c, steps[st], eotfs[e]);
+                    DumpTriplets(out, &buf[0], steps[st]);
+                }
+    }
+    out += "# GenerateCC24Colors 8-bit full (std,ccmode,eotf) hardcoded modes only\n";
+    for (int s = 0; s < sizeof(ccstds)/sizeof(ccstds[0]); ++s)
+    {
+        CColorReference ref(ccstds[s]);
+        for (int m = 0; m < sizeof(ccmodes)/sizeof(ccmodes[0]); ++m)
+            for (int e = 0; e < 2; ++e)
+            {
+                int eotf = e ? 5 : 0;
+                std::vector<ColorRGBDisplay> buf(96);
+                bool ok = GenerateCC24Colors(ref, &buf[0], ccmodes[m], eotf, false, false);
+                AppendF(out, "CC8F,%d,%d,%d,%d\n", (int)ccstds[s], ccmodes[m], eotf, ok ? 1 : 0);
+                DumpTriplets(out, &buf[0], ccsizes[m]);
+            }
+    }
+
+    // Native 10-bit grid variants (b10bit=true), for BOTH output ranges:
+    // limited/16-235 (876 grid) and full/PC (1023 grid). Freezes the range-aware
+    // single-rounding native quantization; appended so the 8-bit rows stay
+    // byte-identical. Tags: SAT10/CC10 (limited), SAT10F/CC10F (full).
+    for (int rng = 0; rng < 2; ++rng)
+    {
+        bool lim = (rng == 0);
+        const char* satTag = lim ? "SAT10" : "SAT10F";
+        const char* ccTag  = lim ? "CC10"  : "CC10F";
+        AppendF(out, "# GenerateSaturationColors 10-bit %s (std,combo,steps,eotf) then triplets %%.17g\n", lim ? "limited" : "full");
+        for (int s = 0; s < sizeof(stds)/sizeof(stds[0]); ++s)
+        {
+            CColorReference ref(stds[s]);
+            for (int c = 0; c < 6; ++c)
+                for (int st = 0; st < sizeof(steps)/sizeof(steps[0]); ++st)
+                    for (int e = 0; e < sizeof(eotfs)/sizeof(eotfs[0]); ++e)
+                    {
+                        std::vector<ColorRGBDisplay> buf(steps[st]);
+                        GenerateSaturationColors(ref, &buf[0], steps[st],
+                            combos[c][0], combos[c][1], combos[c][2], eotfs[e], 1.0, true, lim);
+                        AppendF(out, "%s,%d,%d,%d,%d\n", satTag, (int)stds[s], c, steps[st], eotfs[e]);
+                        DumpTriplets(out, &buf[0], steps[st]);
+                    }
+        }
+
+        AppendF(out, "# GenerateCC24Colors 10-bit %s (std,ccmode,eotf) hardcoded modes only\n", lim ? "limited" : "full");
+        for (int s = 0; s < sizeof(ccstds)/sizeof(ccstds[0]); ++s)
+        {
+            CColorReference ref(ccstds[s]);
+            for (int m = 0; m < sizeof(ccmodes)/sizeof(ccmodes[0]); ++m)
+                for (int e = 0; e < 2; ++e)
+                {
+                    int eotf = e ? 5 : 0;
+                    std::vector<ColorRGBDisplay> buf(96);
+                    bool ok = GenerateCC24Colors(ref, &buf[0], ccmodes[m], eotf, true, lim);
+                    AppendF(out, "%s,%d,%d,%d,%d\n", ccTag, (int)ccstds[s], ccmodes[m], eotf, ok ? 1 : 0);
+                    DumpTriplets(out, &buf[0], ccsizes[m]);
+                }
+        }
     }
     HandleTable("T4_patterns.txt", out);
 }
@@ -446,6 +521,127 @@ static void RunT7()
     if (GenerateProfileColors(&tiny[0], 10, 5, false) != -1) Fail("T7 buffer overflow not caught");
 }
 
+// T8 — SnapToVideoGrid oracle: the shared patch/reference/sensor grid
+// quantizer must hit the exact native grid for every (bit depth, range)
+// combo: 219 / 255 (8-bit limited/full), 876 / 1023 (10-bit limited/full).
+// 8-bit limited must equal the historical floor(v*219+0.5)/219 form exactly.
+//////////////////////////////////////////////////////////////////////////
+static void RunT8()
+{
+    printf("T8 SnapToVideoGrid oracle...\n");
+    static const struct { bool b10, lim; double grid; } combos[] = {
+        { false, true,  219.  }, { false, false, 255.  },
+        { true,  true,  876.  }, { true,  false, 1023. },
+    };
+    for (int c = 0; c < 4; ++c)
+    {
+        const double grid = combos[c].grid;
+        for (int i = 0; i <= 1000000; ++i)      // v = 0..1 step 1e-6
+        {
+            double v = i * 1e-6;
+            double got = SnapToVideoGrid(v, combos[c].b10, combos[c].lim);
+            // contract includes the 1e-9 tie-breaker: exact half-code ties
+            // round up deterministically (see SnapToVideoGrid in Color.cpp)
+            double want = floor(v * grid + 0.5 + 1e-9) / grid;
+            if (got != want)
+                Fail("T8 b10=%d lim=%d v=%.17g got=%.17g want=%.17g",
+                     combos[c].b10, combos[c].lim, v, got, want);
+            // result must sit on an integer code of its grid (allow last-ULP
+            // noise from the /grid*grid round trip; a wrong grid is off by ~0.2+)
+            double code = got * grid;
+            if (fabs(code - floor(code + 0.5)) > 1e-6)
+                Fail("T8 off-grid b10=%d lim=%d v=%.17g code=%.17g",
+                     combos[c].b10, combos[c].lim, v, code);
+        }
+        // legacy byte-identity spot check for 8-bit limited
+        if (!combos[c].b10 && combos[c].lim)
+            for (int i = 0; i <= 1000; ++i)
+            {
+                double v = i * 1e-3;
+                if (SnapToVideoGrid(v, false, true) != floor((v * 219.) + 0.5) / 219.)
+                    Fail("T8 legacy219 v=%.17g", v);
+            }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T9 — quantizer equivalence oracle (pure assertion, no golden file).
+// Freezes two invariants that let the generators, the shared SnapToVideoGrid
+// signal/reference quantizer, and the rPI wire emitter all agree on a single
+// code for every (bit depth, range) combo: 219/255 (8-bit limited/full),
+// 876/1023 (10-bit limited/full).
+//   1. Generator grid-form floor(v*grid+0.5+1e-9) selects the SAME integer
+//      code as SnapToVideoGrid(v)*grid for a dense deterministic sweep of v:
+//      every code center k/grid, every half-code tie (k+0.5)/grid, that tie
+//      +/- 1e-12 and +/- 2e-10 of dust, and a golden-ratio low-discrepancy
+//      sweep. For 8-bit limited the historical /2.19 percent form is also
+//      shown to be the same code (k/2.19/100 == k/219 to 1e-12).
+//   2. Emitter stability: an on-grid signal snapped by SnapToVideoGrid passes
+//      through PiPercentToCode without moving a code — code == k + black
+//      offset (16/0/64/0 for lim8/full8/lim10/full10).
+//////////////////////////////////////////////////////////////////////////
+static void RunT9()
+{
+    printf("T9 quantizer equivalence oracle...\n");
+    static const struct { bool b10, lim; double grid; int bits; int offset; } combos[] = {
+        { false, true,  219.,  8,  16 }, { false, false, 255.,  8,  0 },
+        { true,  true,  876.,  10, 64 }, { true,  false, 1023., 10, 0 },
+    };
+    for (int c = 0; c < 4; ++c)
+    {
+        const double grid   = combos[c].grid;
+        const bool   b10    = combos[c].b10;
+        const bool   lim    = combos[c].lim;
+        const int    bits   = combos[c].bits;
+        const int    offset = combos[c].offset;
+        const int    gi     = (int)grid;
+
+        // ---- Part 1: generator grid-form code == SnapToVideoGrid code.
+        // Each closure input asserts the two integer codes are identical, and
+        // (8-bit limited only) the /2.19 percent form is the same code.
+        struct Local {
+            static void checkCode(double v, double grid, bool b10, bool lim)
+            {
+                int genCode  = (int)floor(v * grid + 0.5 + 1e-9);
+                int snapCode = (int)floor(SnapToVideoGrid(v, b10, lim) * grid + 0.5);
+                if (genCode != snapCode)
+                    Fail("T9 code mismatch grid=%.0f v=%.17g gen=%d snap=%d",
+                         grid, v, genCode, snapCode);
+                if (!b10 && lim)   // /2.19 percent form: same code as k/219
+                {
+                    double a = floor(v * 219. + 0.5 + 1e-9) / 2.19 / 100.;
+                    double b = SnapToVideoGrid(v, false, true);
+                    if (fabs(a - b) > 1e-12)
+                        Fail("T9 pct-form grid=219 v=%.17g /2.19/100=%.17g snap=%.17g",
+                             v, a, b);
+                }
+            }
+        };
+        for (int k = 0; k <= gi; ++k)
+        {
+            Local::checkCode((double)k / grid, grid, b10, lim);        // code center
+            double tie = ((double)k + 0.5) / grid;                     // half-code tie
+            Local::checkCode(tie,          grid, b10, lim);
+            Local::checkCode(tie + 1e-12,  grid, b10, lim);
+            Local::checkCode(tie - 1e-12,  grid, b10, lim);
+            Local::checkCode(tie + 2e-10,  grid, b10, lim);
+            Local::checkCode(tie - 2e-10,  grid, b10, lim);
+        }
+        for (int n = 1; n <= 2000; ++n)                               // golden-ratio sweep
+            Local::checkCode(fmod(0.6180339887498949 * n, 1.0), grid, b10, lim);
+
+        // ---- Part 2: emitter stability for on-grid inputs.
+        for (int k = 0; k <= gi; ++k)
+        {
+            double p = SnapToVideoGrid((double)k / grid, b10, lim) * 100.;
+            int code = PiPercentToCode(p, lim, bits);
+            if (code != k + offset)
+                Fail("T9 emitter grid=%.0f k=%d p=%.17g: PiPercentToCode=%d expected=%d",
+                     grid, k, p, code, k + offset);
+        }
+    }
+}
+
 //////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
@@ -470,6 +666,8 @@ int main(int argc, char* argv[])
     RunT5();
     RunT6();
     RunT7();
+    RunT8();
+    RunT9();
 
     if (g_failures)
     {

@@ -375,6 +375,7 @@ void CColorHCFRConfig::InitDefaults()
 	m_bUseRoundDown=FALSE;
 	m_bUse10bit = FALSE;
 	m_bUse10bitLevels = FALSE;
+	m_bRGB16_235 = TRUE;
 	m_BWColorsToAdd=1;
 	m_GammaRef=2.2;
 	m_GammaAvg=2.2;
@@ -885,16 +886,42 @@ BOOL CColorHCFRConfig::GetUse10bitLevels()
 	return m_bUse10bitLevels;
 }
 
+// Cached output range flag (TRUE = limited/video 16-235, FALSE = full/PC).
+// Mirrors the active generator's m_b16_235 (set from the same INI key) so the
+// patch-code grid quantization can match the range the wire encoder uses.
+BOOL CColorHCFRConfig::GetRGB16_235()
+{
+	return m_bRGB16_235;
+}
+
 // Recompute the cached 10-bit-levels flag. The INI reads happen HERE (rarely -
 // only when settings change), never in GetUse10bitLevels(), which is called in
 // chart paint loops and the measure loop and must stay a cheap member read.
 void CColorHCFRConfig::RefreshUse10bitLevels()
 {
+	if ( m_generatorType == enumManual )
+	{
+		// Disc-based (manual) patterns: honor the 10-bit checkbox (HDR discs
+		// are 10-bit) but the wire range is always limited/video - consumer
+		// disc video is 16-235 by definition, and the GDIGenerator RGB_16_235
+		// key can hold a stale full-range setting from a previous session
+		// that would silently put the references on the 255/1023 grid.
+		m_bUse10bitLevels = m_bUse10bit ? TRUE : FALSE;
+		m_bRGB16_235 = TRUE;
+		return;
+	}
+	// GDI-family generator. The plain/no-background/hidden window modes render
+	// through 8-bit GDI and Chromecast streams 8-bit video, so a 10-bit
+	// reference grid can never match that wire: the global 10-bit checkbox
+	// only takes effect on the 10-bit-capable outputs (madVR 2, PGenerator 6),
+	// alongside their dedicated per-output flags.
 	int genMode = GetProfileInt("GDIGenerator","DisplayMode",0);
-	m_bUse10bitLevels = ( m_bUse10bit ||
+	bool tenBitCapable = ( genMode == 2 || genMode == 6 );
+	m_bUse10bitLevels = ( ( m_bUse10bit && tenBitCapable ) ||
 		( genMode == 6 && GetProfileInt("GDIGenerator","TenBitPGen",0) ) ||
 		( genMode == 2 && GetProfileInt("GDIGenerator","TenBitMadvr",0) ) )
 		? TRUE : FALSE;
+	m_bRGB16_235 = GetProfileInt("GDIGenerator","RGB_16_235",1) ? TRUE : FALSE;
 }
 
 void CColorHCFRConfig::ApplySettings(BOOL isStartupApply)
@@ -1008,6 +1035,7 @@ bool CColorHCFRConfig::SetGeneratorType(GeneratorType type)
 	{
 		m_generatorType = type;
 		WriteProfileString("Defaults", "Generator", it->second);
+		RefreshUse10bitLevels();	// grid flags are generator-dependent
 		return true;
 	}
 	return false;

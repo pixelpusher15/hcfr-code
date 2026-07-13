@@ -748,12 +748,14 @@ extern CColor theMeasure;
 extern CColor noDataColor;
 
 // Tool functions
-extern void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode = 0, double stimLevel = 1.0);
-extern bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode);
+extern void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode = 0, double stimLevel = 1.0, bool b10bit = false, bool is16_235 = true);
+extern bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit = false, bool is16_235 = true);
 extern int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, int cubeN, bool bGrayExtras);
 extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries);
 extern int PiPercentToCode ( double percent, bool is16_235, int bits );
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
+extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
+extern double HLG_SignalToScene ( double v );
 double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit = FALSE );
 double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit = FALSE );
 double getL_EOTF ( double x, CColor White, CColor Black, double g_rel, double split, int mode, double m_DiffuseL = 94.37844, double m_MasterMinL = 0.0, double m_MasterMaxL = 4000.0, double m_TargetMinL = 0.00, double m_TargetMaxL = 700.0, bool ToneMap = FALSE, bool cBT2390 = FALSE, double m_TargetSysGamma = 1.2, double b_fact = 1.0, double E2_fact = 0.0, double E2_fact1 = 1.1 );

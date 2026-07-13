@@ -552,6 +552,7 @@ END_MESSAGE_MAP()
 // Tool functions and variables implemented in DataSetDoc.cpp
 BOOL StartBackgroundMeasures ( CDataSetDoc * pDoc );
 void StopBackgroundMeasures ();
+BOOL IsAllLevelsSweepActive ();
 extern CDataSetDoc *	g_pDataDocRunningThread;
 extern BOOL				g_bTerminateThread;
 extern CWinThread*			g_hThread;
@@ -1542,7 +1543,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		CColor White = GetDocument()->GetMeasure()->GetOnOffWhite();
 		CColor Black = GetDocument()->GetMeasure()->GetOnOffBlack();
 		int mode = GetConfig()->m_GammaOffsetType;
-		double tmWhite = getL_EOTF(0.5022283, noDataColor, noDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0 / 94.37844;
+		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor) / 94.37844;
 
 		double m_meas_rd, m_meas_gd, m_meas_bd, m_ref_rd, m_ref_gd, m_ref_bd;
 
@@ -2226,9 +2227,13 @@ void CMainView::InitGrid(bool sizeGrid)
 				GetDocument()->GetMeasure()->GetRefCC24Sat(i, s_clr);
 				if (GetConfig()->m_GammaOffsetType == 5 && GetConfig()->m_bHDR100 )
 				{
-					s_clr.SetX(s_clr.GetX()*100);
-					s_clr.SetY(s_clr.GetY()*100);
-					s_clr.SetZ(s_clr.GetZ()*100);
+					// Match the dE path's scale (4219/4225): *100 for the
+					// Mascior-style HDR CC sets, *105.95640 otherwise - so the
+					// swatch luminance represents the same reference the dE uses.
+					double s = ( GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR ) ? 100. : 105.95640;
+					s_clr.SetX(s_clr.GetX()*s);
+					s_clr.SetY(s_clr.GetY()*s);
+					s_clr.SetZ(s_clr.GetZ()*s);
 				}
                 r_clr=s_clr.GetRGBValue(CColorReference(HDTV));
 				r_clr[0]=(min(max(r_clr[0],0),1));
@@ -3043,7 +3048,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						bool shiftDiffuse = (abs(GetConfig()->m_DiffuseL-94.0)>0.5);
 			            CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
 						CColor Black = GetDocument() -> GetMeasure() -> GetOnOffBlack();
-						double tmWhite = getL_EOTF(0.5022283, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+						double tmWhite = TmDiffuseWhiteNits(White, Black);
 						if (DVD)
 						{
 							tmWhite = getL_EOTF(0.50, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
@@ -3310,7 +3315,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 				if ( isHDR )
 				{
 					bool shiftDiffuse=(abs(GetConfig()->m_DiffuseL-94.0)>0.5);
-					double tmWhite = getL_EOTF(0.5022283, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+					double tmWhite = TmDiffuseWhiteNits(White, Black);
 					if (DVD)
 					{
 						tmWhite = getL_EOTF(0.50, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
@@ -4714,7 +4719,7 @@ void CMainView::UpdateGrid()
 		bool isHDR = GetConfig()->m_GammaOffsetType == 5;
 		double 	BBC_gamma = GetConfig()->m_TargetSysGamma;
 		CString dWhitestr;
-		double tmWhite = getL_EOTF(0.5022283, noDataColor, noDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor);
 		dWhitestr.Format("%4.1f nits diffuse white", tmWhite);
 		
 		if (GetConfig()->m_useToneMap)
@@ -5960,7 +5965,12 @@ void CMainView::OnSelchangeComboMode()
 	if(m_pGrayScaleGrid)
 		UpdateGrid();
 	if ( IsMeasureSweepActive() )
-		SetMeasureButtonStop ( TRUE );
+	{
+		if ( IsAllLevelsSweepActive() )
+			SetAllLevelsButtonStop ( TRUE );
+		else
+			SetMeasureButtonStop ( TRUE );
+	}
 }
 
 BOOL CMainView::CurrentModeSweepHasData()
@@ -6393,7 +6403,28 @@ void CMainView::SetMeasureButtonStop(BOOL bStop)
 		SetMeasureButtonForMode ();
 }
 
-void CMainView::OnMeasureGrayScale() 
+void CMainView::SetAllLevelsButtonStop(BOOL bStop)
+{
+	if ( !m_satAllLevelsButton.GetSafeHwnd () )
+		return;
+
+	if ( bStop )
+	{
+		m_satAllLevelsButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-stop"), (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(24,GetSafeHwnd()), HCFR_ScaleIconPx(24,GetSafeHwnd()) ), (HICON)NULL );
+		CString sStop; sStop.LoadString ( IDS_STOPSWEEP ); m_satAllLevelsButton.SetTooltipText ( sStop );
+		CString sBtn; sBtn.LoadString ( IDS_STOP_BTN ); m_satAllLevelsButton.SetWindowText ( sBtn );
+		m_satAllLevelsButton.SetRoundedBorder ( RGB(211,47,47) );   // red: measuring (click to stop)
+	}
+	else
+	{
+		m_satAllLevelsButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-sat-all"), (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(24,GetSafeHwnd()), HCFR_ScaleIconPx(24,GetSafeHwnd()) ), (HICON)NULL );
+		CString sBtn; sBtn.LoadString ( IDS_ALLSTIM_BTN ); m_satAllLevelsButton.SetWindowText ( sBtn );
+		CString sTip; sTip.LoadString ( IDS_ALLSTIM_TIP ); m_satAllLevelsButton.SetTooltipText ( sTip );
+		m_satAllLevelsButton.SetRoundedBorder ( ButtonBorderColor() );
+	}
+}
+
+void CMainView::OnMeasureGrayScale()
 {
 	if ( IsMeasureSweepActive() )
 	{
@@ -9509,7 +9540,13 @@ void CMainView::OnRefs()
 
 void CMainView::OnMeasureSatColorAllLevels()
 {
-	if ( IsMeasureSweepActive() ) return;
+	// While a sweep runs this button shows the red "click to stop" state
+	// (SetAllLevelsButtonStop), so a click here must abort -- mirror OnMeasureGrayScale.
+	if ( IsMeasureSweepActive() )
+	{
+		GetDocument()->GetMeasure()->AbortMeasure();
+		return;
+	}
 	if ( m_displayMode < 5 || m_displayMode > 10 ) return;   // saturation modes only
 	GetDocument()->MeasureSatColorAllLevels( m_displayMode - 5 );   // 0=R..5=M
 }
@@ -9517,5 +9554,19 @@ void CMainView::OnMeasureSatColorAllLevels()
 BOOL CMainView::PreTranslateMessage(MSG* pMsg)
 {
 	m_tooltip.RelayEvent(pMsg);
+
+	// Continuous free-run measurement (case 2's "Run continuous" toggle) is driven by a
+	// background thread that has no accelerator wired to it -- Escape falls through untouched,
+	// so the Go button is stuck showing its red "click to stop" state. Only act when this view's
+	// own document owns the running thread: OnContinuousMeasurement() toggles based on
+	// g_pDataDocRunningThread, and calling it for an unrelated document would stop that one and
+	// start a new run here instead of just cancelling.
+	if ( pMsg->message == WM_KEYDOWN && pMsg->wParam == VK_ESCAPE &&
+	     g_pDataDocRunningThread && g_pDataDocRunningThread == GetDocument() )
+	{
+		GetDocument()->OnContinuousMeasurement();
+		return TRUE;
+	}
+
 	return CWnd::PreTranslateMessage(pMsg);
 }

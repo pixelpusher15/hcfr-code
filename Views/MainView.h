@@ -314,6 +314,7 @@ protected:
 	void SetMeasureButtonForMode();
 public:
 	void SetMeasureButtonStop(BOOL bStop);
+	void SetAllLevelsButtonStop(BOOL bStop);
 protected:
 	afx_msg void OnDeleteGrayscale();
 	afx_msg void OnSize(UINT nType, int cx, int cy);
