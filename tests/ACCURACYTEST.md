@@ -35,9 +35,16 @@ echo %ERRORLEVEL%     rem 0 = pass, 1 = failures, 2 = cannot write report
 Headless: no windows, no generators, no real measure loops; the run takes
 seconds and writes `accuracytest_report.txt` (or the given path) in the
 current directory. When started from a console it also prints progress and
-the summary line. The user's configuration is untouched — all profile reads
-and writes are redirected to a scratch ini in `%TEMP%`, and the process exits
-before any settings-saving teardown.
+the summary line.
+
+Truly headless and config-safe, so it is safe to run in CI on a fresh machine.
+The hook sets `CColorHCFRConfig::s_bHeadless` **before** constructing the
+config, so the constructor never reads or writes the user's real ini, never
+migrates/seeds `%APPDATA%\color`, and never pops the modal language/help
+pickers (which would otherwise hang a headless run on a box that has never
+launched HCFR interactively). All profile traffic lands on a throwaway scratch
+ini in `%TEMP%`, and the process exits via `ExitProcess` before any
+settings-saving teardown.
 
 ## The matrix
 
@@ -85,10 +92,24 @@ measured gray top as White; then primaries, which set PrimeWhite):
 ## Reading the report
 
 One line per combo with the worst dE per family; `*` marks over-tolerance
-(FAIL), `#` marks over-tolerance but documented KNOWN-FAIL. A detail block
-lists every failing family with its worst patch, and known-fail entries print
-their code-level reason. `UNEXPECTED-PASS` means a known-fail entry became
-stale — remove it from `kKnownFails` in `AccuracyTest.cpp`.
+(FAIL), `#` marks over-tolerance but a documented KNOWN-FAIL *within its
+ceiling*. A detail block lists every failing family with its worst patch, and
+known-fail entries print their code-level reason.
+
+Known-fails **do not mask regressions**. Each `kKnownFails` entry carries a
+`ceiling`: a matching combo is only downgraded to KNOWN-FAIL while its worst dE
+stays at or below that ceiling. If the known gap *grows* past the ceiling the
+line is reported as `FAIL(>ceil)` and the run fails — a widening known gap is a
+regression the entry must not swallow. Ceilings sit above the first-full-run
+worst per class with headroom; the broad full-range-gray entry is deliberately
+tight (2.0 vs an observed 0.39) so it cannot absorb a real grayscale/EOTF
+regression.
+
+A known-fail entry that never fires anywhere in a run is **stale** (a combo was
+dropped, or the issue was fixed and the entry now sits ready to mask a new
+nearby regression). Stale entries print a warning **and fail the run** (nonzero
+exit) — remove them from `kKnownFails` in `AccuracyTest.cpp`. The exit code is
+nonzero if there is any real FAIL **or** any stale entry.
 
 Tolerances: **0.05** for exact-model combos (SnapToVideoGrid's 1e-9
 tie-breaker means no extra slack is needed). The Intensity-90% combos get

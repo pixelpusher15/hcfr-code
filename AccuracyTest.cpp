@@ -172,6 +172,7 @@ struct KnownFail
 	int				eotf;		// -1 = any / 57 = HDR (5 or 7)
 	int				family;		// Family, or -1 = any
 	int				grids;		// bitmask over kGrids indices (0xF = any)
+	double			ceiling;	// dE above which this is a REAL fail, not the known gap
 	const char *	reason;
 };
 
@@ -179,6 +180,11 @@ struct KnownFail
 #define GRID_8LIM  0x1	// kGrids[0]
 #define GRID_FULL  0xA	// kGrids[1] (8b-full) | kGrids[3] (10b-full)
 
+// The `ceiling` on each entry bounds the known gap: a matching combo is only
+// downgraded to KNOWN-FAIL while its worst dE stays <= ceiling; a larger dE is
+// a REAL fail (the known issue got WORSE = a regression the entry must not
+// mask). Ceilings sit above the first-full-run worst per class (comments give
+// the observed max) with headroom, tight enough to still catch a regression.
 static const KnownFail kKnownFails[] =
 {
 	// GetRefSat's UHDTV3/UHDTV4 sweep endpoints come from hardcoded xy tables
@@ -188,49 +194,55 @@ static const KnownFail kKnownFails[] =
 	// from ContainerPrimaryLinear (which follows the active white).
 	// GetRefPrimary/GetRefSecondary for these pseudo-spaces route through
 	// GetRefSat(i, 1.0), so the primaries family inherits the same skew.
-	{ UHDTV3, 999, -1, FAM_PRIM,   GRID_ANY, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV3, 999, -1, FAM_SAT100, GRID_ANY, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV3, 999, -1, FAM_SAT75,  GRID_ANY, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV4, 999, -1, FAM_PRIM,   GRID_ANY, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
-	{ UHDTV4, 999, -1, FAM_SAT100, GRID_ANY, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
-	{ UHDTV4, 999, -1, FAM_SAT75,  GRID_ANY, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
+	// (observed worst ~8 dE)
+	{ UHDTV3, 999, -1, FAM_PRIM,   GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
+	{ UHDTV3, 999, -1, FAM_SAT100, GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
+	{ UHDTV3, 999, -1, FAM_SAT75,  GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
+	{ UHDTV4, 999, -1, FAM_PRIM,   GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
+	{ UHDTV4, 999, -1, FAM_SAT100, GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
+	{ UHDTV4, 999, -1, FAM_SAT75,  GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
 	// HDTVa/HDTVb under custom whites: the wire tables, the pRef/sRef
 	// reference endpoints, the simulated sensor's decode space and the dE
 	// space are all fixed Rec.709/D65 constructions, while the gray/sat
 	// reference targets follow the active custom white - custom whites are
 	// outside the special modes' model by design (CC passes because both
-	// sides share the same decode chain).
-	{ HDTVa, 999, -1, FAM_GRAY,   GRID_ANY, "special modes are fixed Rec.709/D65: gray targets follow the custom white, the wire cannot" },
-	{ HDTVb, 999, -1, FAM_GRAY,   GRID_ANY, "special modes are fixed Rec.709/D65: gray targets follow the custom white, the wire cannot" },
-	{ HDTVa, 999, -1, FAM_PRIM,   GRID_ANY, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
-	{ HDTVa, 999, -1, FAM_SAT100, GRID_ANY, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
-	{ HDTVa, 999, -1, FAM_SAT75,  GRID_ANY, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
-	{ HDTVb, 999, -1, FAM_PRIM,   GRID_ANY, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
-	{ HDTVb, 999, -1, FAM_SAT100, GRID_ANY, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
-	{ HDTVb, 999, -1, FAM_SAT75,  GRID_ANY, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	// sides share the same decode chain). (observed worst: gray ~12, sat ~14)
+	{ HDTVa, 999, -1, FAM_GRAY,   GRID_ANY, 20.0, "special modes are fixed Rec.709/D65: gray targets follow the custom white, the wire cannot" },
+	{ HDTVb, 999, -1, FAM_GRAY,   GRID_ANY, 20.0, "special modes are fixed Rec.709/D65: gray targets follow the custom white, the wire cannot" },
+	{ HDTVa, 999, -1, FAM_SAT100, GRID_ANY, 20.0, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	{ HDTVa, 999, -1, FAM_SAT75,  GRID_ANY, 20.0, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	{ HDTVb, 999, -1, FAM_SAT100, GRID_ANY, 20.0, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	{ HDTVb, 999, -1, FAM_SAT75,  GRID_ANY, 20.0, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	// HDTVa/b custom-white primaries overlap the HDR-analog gap below when
+	// the EOTF is PQ/HLG, so this entry (which matches first) must clear the
+	// same ~70 dE. (observed worst ~68 dE)
+	{ HDTVa, 999, -1, FAM_PRIM,   GRID_ANY, 90.0, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	{ HDTVb, 999, -1, FAM_PRIM,   GRID_ANY, 90.0, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
 	// HDTVa/b primaries under PQ/HLG: WireModeledPrimaryReference
 	// deliberately returns the ANALOG color for modes 5/7 (legacy behavior,
 	// see its header comment) while the wire re-encodes the 75% tables with
 	// the active EOTF - the two conventions are far apart (dE ~70 on blue).
-	{ HDTVa, -1, 57, FAM_PRIM, GRID_ANY, "legacy analog primaries reference under HDR (WireModeledPrimaryReference modes 5/7 early-out)" },
-	{ HDTVb, -1, 57, FAM_PRIM, GRID_ANY, "legacy analog primaries reference under HDR (WireModeledPrimaryReference modes 5/7 early-out)" },
+	{ HDTVa, -1, 57, FAM_PRIM, GRID_ANY, 90.0, "legacy analog primaries reference under HDR (WireModeledPrimaryReference modes 5/7 early-out)" },
+	{ HDTVb, -1, 57, FAM_PRIM, GRID_ANY, 90.0, "legacy analog primaries reference under HDR (WireModeledPrimaryReference modes 5/7 early-out)" },
 	// HDTVa/b PQ reduced-stim 100%-saturation point, 8-bit limited grid
 	// only: the PQ 50% anchor is exactly code 110/219, so 0.75 stim lands
 	// the encoded signal on an exact half-code (82.5). The generator and
 	// the reference reach that value through different matrix round trips
 	// whose sub-1e-9 dust falls on opposite sides of the tie -> a one-code
 	// split on two channels (constant dE 0.74 at yellow). No other
-	// grid/level combination lands on a half-code.
-	{ HDTVa, -1, 5, FAM_SAT75, GRID_8LIM, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
-	{ HDTVb, -1, 5, FAM_SAT75, GRID_8LIM, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
+	// grid/level combination lands on a half-code. (observed worst 0.74)
+	{ HDTVa, -1, 5, FAM_SAT75, GRID_8LIM, 2.0, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
+	{ HDTVb, -1, 5, FAM_SAT75, GRID_8LIM, 2.0, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
 	// Grayscale on the FULL-range grids: the whole gray pipeline
 	// (GetGrayPercent, ArrayIndexToGrayLevel, GrayLevelToGrayProp) has no
 	// range parameter - ramp codes and references live on the 219/876
 	// limited grids, and on a full-range wire the re-snap to 255/1023 is
 	// not modeled (<= ~0.4 dE, worst on the PQ 8-bit knee). Fixing requires
 	// adding a range parameter through libHCFR, which moves ColorMathTest
-	// T2/T3 goldens - out of scope for this harness.
-	{ -1, -1, -1, FAM_GRAY, GRID_FULL, "gray ramp codes/references are limited-grid only (no range parameter in GetGrayPercent/GrayLevelToGrayProp)" },
+	// T2/T3 goldens - out of scope for this harness. Tight ceiling: this
+	// entry is broad (any space/white/eotf), so it must NOT swallow a real
+	// grayscale/EOTF regression that pushes dE past ~2. (observed worst 0.39)
+	{ -1, -1, -1, FAM_GRAY, GRID_FULL, 2.0, "gray ramp codes/references are limited-grid only (no range parameter in GetGrayPercent/GrayLevelToGrayProp)" },
 };
 
 static bool s_knownFailFired[sizeof(kKnownFails)/sizeof(kKnownFails[0])] = { false };
@@ -693,11 +705,16 @@ static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CC
 		return;
 	}
 
-	// UpdateGrid default-case YWhite: PrimeWhite, falling back to the
-	// grayscale/contrast white when the primaries run was dimmed (<90%).
+	// UpdateGrid default-case YWhite (MainView.cpp ~3720): OnOffWhite for the
+	// special standards (HDTVa/b), else PrimeWhite - falling back to OnOffWhite
+	// when the primaries run was dimmed (<90%) and not HDR. RunSats uses the
+	// same special?OnOffWhite:PrimeWhite selection; omitting it here would
+	// normalize HDTVa/b CC dE by the 75% PrimeWhite instead of peak white and
+	// diverge from the grid.
+	bool special = ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb );
 	double YWhitePrime = m.GetPrimeWhite().GetY();
 	double YWhiteOnOff = m.GetOnOffWhite().GetY();
-	double YWhite = YWhitePrime;
+	double YWhite = special ? YWhiteOnOff : YWhitePrime;
 	BOOL isHDR = ( cfg->m_GammaOffsetType == 5 );
 	if ( m.GetOnOffWhite().isValid() && !isHDR && YWhiteOnOff > 0 && (YWhitePrime / YWhiteOnOff < 0.9) )
 		YWhite = YWhiteOnOff;
@@ -794,16 +811,27 @@ static void RunCombo ( const Combo & c )
 		int iKnown = MatchKnownFail(c, fam);
 		double w = stats[fam].worst;
 		BOOL over = ( w > tol );
-		n += _snprintf(line + n, sizeof(line)-1-n, "%7.3f%c", w, over ? (iKnown >= 0 ? '#' : '*') : ' ');
+		// A known-fail only absorbs the result while it stays within the
+		// entry's documented ceiling; beyond that, the known issue has grown
+		// = a real regression, so treat it as a hard FAIL.
+		BOOL absorbed = ( iKnown >= 0 && w <= kKnownFails[iKnown].ceiling );
+		n += _snprintf(line + n, sizeof(line)-1-n, "%7.3f%c", w, over ? (absorbed ? '#' : '*') : ' ');
 		if ( over )
 		{
-			if ( iKnown >= 0 )
+			if ( absorbed )
 			{
 				bKnown = TRUE;
 				s_knownFailFired[iKnown] = true;
 				Detail("KNOWN-FAIL  %s %s %s %s %.0f%% [%s]: worst dE %.3f at %s\n            reason: %s\n",
 					   c.stdName, c.eotfName, c.whiteName, c.gridName, c.intensity * 100.,
 					   kFamilyName[fam], w, stats[fam].desc, kKnownFails[iKnown].reason);
+			}
+			else if ( iKnown >= 0 )
+			{
+				bFail = TRUE;
+				Detail("FAIL(>ceil) %s %s %s %s %.0f%% [%s]: worst dE %.3f exceeds known-fail ceiling %.2f at %s\n            the known gap GREW - likely a regression: %s\n",
+					   c.stdName, c.eotfName, c.whiteName, c.gridName, c.intensity * 100.,
+					   kFamilyName[fam], w, kKnownFails[iKnown].ceiling, stats[fam].desc, kKnownFails[iKnown].reason);
 			}
 			else
 			{
@@ -845,9 +873,12 @@ int RunAccuracyTest ( const char * pReportPath )
 
 	CColorHCFRConfig * cfg = GetConfig();
 
-	// Redirect ALL profile traffic to a scratch ini: nothing in this run may
-	// read or write the user's real configuration. (The process also exits
-	// via ExitProcess, so no settings-saving teardown ever runs.)
+	// Profile traffic is already on the scratch ini: the config was built with
+	// CColorHCFRConfig::s_bHeadless set (see the InitInstance hook), so its
+	// constructor never touched the user's real config and put m_iniFileName on
+	// this same scratch path. Re-assert it here (idempotent) as defense in
+	// depth, and because the process exits via ExitProcess, no settings-saving
+	// teardown ever runs either.
 	char tmpPath[MAX_PATH];
 	GetTempPathA(MAX_PATH, tmpPath);
 	_snprintf(cfg->m_iniFileName, MAX_PATH - 1, "%saccuracytest_scratch.ini", tmpPath);
@@ -948,11 +979,15 @@ int RunAccuracyTest ( const char * pReportPath )
 			s_nUnexpectedPass ? " (stale known-fail entries present!)" : "");
 	fclose(s_fReport);
 
-	int rc = ( s_nFail > 0 ) ? 1 : 0;
+	// Fail the run on stale known-fail entries too: a never-fired entry means
+	// a combo was dropped or an issue was fixed (and the entry now sits ready
+	// to mask a NEW nearby regression) - a coverage regression CI must catch,
+	// not a silent exit 0.
+	int rc = ( s_nFail > 0 || s_nUnexpectedPass > 0 ) ? 1 : 0;
 	if ( bConsole )
 	{
-		printf("accuracytest: %d combos: %d pass, %d FAIL, %d known-fail -> exit %d (report: %s)\n",
-			   s_nCombos, s_nPass, s_nFail, s_nKnownFail, rc, pPath);
+		printf("accuracytest: %d combos: %d pass, %d FAIL, %d known-fail, %d stale -> exit %d (report: %s)\n",
+			   s_nCombos, s_nPass, s_nFail, s_nKnownFail, s_nUnexpectedPass, rc, pPath);
 		fflush(stdout);
 	}
 	return rc;

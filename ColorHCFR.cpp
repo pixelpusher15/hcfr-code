@@ -228,6 +228,10 @@ BOOL CColorHCFRApp::InitInstance()
 	{
 		if ( _tcsicmp(__targv[na], _T("/accuracytest")) == 0 || _tcsicmp(__targv[na], _T("-accuracytest")) == 0 )
 		{
+			// Construct the config in headless mode so it cannot read/write the
+			// user's real ini or pop the language/help pickers (which would
+			// hang a truly headless/CI run). Must be set BEFORE construction.
+			CColorHCFRConfig::s_bHeadless = TRUE;
 			m_pColorReference = new CColorReference(SDTV,D65,2.2);
 			m_pConfig = new CColorHCFRConfig();
 			m_pszRegistryKey = NULL;
