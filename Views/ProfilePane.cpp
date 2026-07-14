@@ -171,7 +171,11 @@ void CProfilePane::SyncChildren()
 {
 	if ( !m_chkGrayExtras.GetSafeHwnd() )
 		return;
-	bool show = ( m_state == PS_SETUP ) && IsWindowVisible();
+	// Gate on state only, NOT IsWindowVisible(): on the first switch into mode 13
+	// this runs mid-layout when the pane's visible flag isn't settled yet, which
+	// left the checkboxes hidden until a capture cycle. Children of a hidden parent
+	// are hidden by Windows anyway, so WS_VISIBLE here is safe when mode != 13.
+	bool show = ( m_state == PS_SETUP );
 	m_chkGrayExtras.ShowWindow( show ? SW_SHOW : SW_HIDE );
 	m_chkDriftComp.ShowWindow( show ? SW_SHOW : SW_HIDE );
 	if ( show )
