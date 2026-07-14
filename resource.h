@@ -1876,6 +1876,7 @@
 #define IDS_3DVIEW_SHOWFLOOR            59537
 #define IDS_3DVIEW_SHOWTAILS            59538
 #define IDS_3DVIEW_RESETVIEW            59539
+#define IDS_3DVIEW_SHOWPROFILE          59564
 #define IDS_3DVIEW_FILTER_ALL           59555
 #define IDS_3DVIEW_FILTER_HIDE          59556
 #define IDS_3DVIEW_FILTER               59557
