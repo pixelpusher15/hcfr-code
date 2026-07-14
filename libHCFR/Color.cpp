@@ -2876,6 +2876,62 @@ int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, int cubeN
 	return cnt;
 }
 
+// Remap a display-profile patch list (percent RGB) from inner content space (e.g.
+// P3) to the transport (BT.2020) wire encoding, for the UHDTV3/UHDTV4 pseudo-
+// spaces. This is the SAME signal round trip GenerateCC24Colors applies to its
+// patches: decode with the active EOTF (2.22 SDR / pure PQ / HLG inverse OETF),
+// remap inner->transport, re-encode and snap to the native per-range grid.
+// GenerateProfileColors is container-agnostic (so a .chc regenerates the same
+// cube on any config), so the remap is applied here at capture time. Without it
+// the display renders 2020-gamut colors while the references are inner content
+// colors -- the measured cloud plots stretched out to the 2020 gamut. No-op for
+// non-container standards (inner == transport). mode = m_GammaOffsetType.
+void RemapProfileToTransport(ColorRGBDisplay* GenColors, int n, const CColorReference& colorReference, int mode, bool b10bit, bool is16_235)
+{
+	if ( ! ( colorReference.m_standard == UHDTV3 || colorReference.m_standard == UHDTV4 ) )
+		return;
+	CColor tempColor;
+	bool isPQ = ( mode == 5 ), isHLG = ( mode == 7 );
+	for ( int i = 0; i < n; i++ )
+	{
+		ColorRGB rgb;
+		for ( int ch = 0; ch < 3; ch++ )
+		{
+			double v = ( GenColors[i][ch] <= 0.0 ) ? 0.0 : ( ( GenColors[i][ch] >= 100.0 ) ? 1.0 : GenColors[i][ch] / 100. );
+			if ( isPQ )
+				rgb[ch] = ( v <= 0.0 ) ? 0.0 : getL_EOTF( v, noDataColor, noDataColor, 0.0, 0.0, 5, 94.37844, 0.0, 4000.0, 0.0, 10000.0 ) / 100.;
+			else if ( isHLG )
+				rgb[ch] = HLG_SignalToScene( v );
+			else
+				rgb[ch] = ( v <= 0.0 || v >= 1.0 ) ? v : pow( v, 2.22 );
+		}
+		tempColor.SetRGBValue( rgb, ContainerInnerReference( colorReference ) );
+		ColorRGB aRGBColor = tempColor.GetRGBValue( ContainerTransportReference( colorReference ) );
+		for ( int ch = 0; ch < 3; ch++ )
+		{
+			double q;
+			if ( isPQ )
+			{
+				double lin = max( aRGBColor[ch], 0.0 );
+				q = ( lin <= 0.0 ) ? 0.0 : getL_EOTF( lin, noDataColor, noDataColor, 0.0, 0.0, -5 );
+				q = min( max( q, 0.0 ), 1.0 );
+			}
+			else if ( isHLG )
+			{
+				double lin = min( max( aRGBColor[ch], 0.0 ), 1.0 );
+				q = ( lin <= 0.0 ) ? 0.0 : getL_EOTF( lin, noDataColor, noDataColor, 0.0, 0.0, -7 );
+				q = min( max( q, 0.0 ), 1.0 );
+			}
+			else
+			{
+				q = min( max( aRGBColor[ch], 0.0 ), 1.0 );
+				q = ( q <= 0.0 || q >= 1.0 ) ? q : pow( q, 1.0 / 2.22 );
+			}
+			GenColors[i][ch] = SnapToVideoGrid( q, b10bit, is16_235 ) * 100.;
+		}
+	}
+}
+
 bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit, bool is16_235)
 {
 	//six cases, one for GCD sequence, one for Mascior's disk (Chromapure based), and four different generator only cases

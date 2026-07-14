@@ -1012,10 +1012,54 @@ void CMeasure::GetRefProfileSat(int i, CColor & ccRef)
 	int mode = GetConfig()->m_GammaOffsetType;
 	if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 
-	double r=pow(rgbd[0]/100.,2.22),g=pow(rgbd[1]/100.,2.22),b=pow(rgbd[2]/100.,2.22);
+	// Snap the reference onto the SAME native video grid the generators and the
+	// (simulated) sensor use, so patch == reference == sensor -> 0 dE. Formerly a
+	// hardcoded floor(v*219+0.5)/219 (8-bit limited only); use SnapToVideoGrid so
+	// 10-bit / full-range configs land on 876 / 1023 / 255 instead of 219.
+	bool b10 = GetConfig()->GetUse10bitLevels();
+	bool lim = GetConfig()->GetRGB16_235();
 
+	// Linearize the drive percents. The profile is a NON-RECALC set (the cube is
+	// displayed as-is, modulo the pseudo-space remap below): in modes 5/7 the
+	// percents are EOTF-encoded signals, so linearize with the pure signal EOTF
+	// exactly as GetRefCC24Sat's non-recalc pseudo-space branch and
+	// RemapProfileToTransport do -- PQ with m_TargetMaxL = 10000 passed explicitly
+	// (the display's tone clip belongs to the decode below, never to the signal
+	// round trip; /100 puts it on the 1.0 = 10000 nits scale the -5 encoder
+	// expects), HLG via the display-independent inverse OETF. Using pow(2.22)
+	// here in PQ blew the reference luminance up to peak on every mid patch.
+	double r, g, b;
+	if ( mode == 5 || mode == 7 )
+	{
+		double sr = rgbd[0] / 100., sg = rgbd[1] / 100., sb = rgbd[2] / 100.;
+		if ( mode == 7 )
+		{
+			r = HLG_SignalToScene(sr);
+			g = HLG_SignalToScene(sg);
+			b = HLG_SignalToScene(sb);
+		}
+		else
+		{
+			r = (sr <= 0.0) ? 0.0 : getL_EOTF(sr, noDataColor, noDataColor, 0.0, 0.0, 5, 94.37844, 0.0, 4000.0, 0.0, 10000.0) / 100.;
+			g = (sg <= 0.0) ? 0.0 : getL_EOTF(sg, noDataColor, noDataColor, 0.0, 0.0, 5, 94.37844, 0.0, 4000.0, 0.0, 10000.0) / 100.;
+			b = (sb <= 0.0) ? 0.0 : getL_EOTF(sb, noDataColor, noDataColor, 0.0, 0.0, 5, 94.37844, 0.0, 4000.0, 0.0, 10000.0) / 100.;
+		}
+	}
+	else
+	{
+		r = pow(rgbd[0]/100.,2.22);
+		g = pow(rgbd[1]/100.,2.22);
+		b = pow(rgbd[2]/100.,2.22);
+	}
+
+	// UHDTV3/4 (P3-in-2020): define the patch in INNER (content, e.g. P3) space,
+	// then read it back as the TRANSPORT (BT.2020) wire encoding -- the exact
+	// GetRefCC24Sat model. The capture remaps the DISPLAYED cube the same way
+	// (RemapProfileToTransport), so measured == reference and both land inside the
+	// inner (P3) gamut. For plain (non-container) standards the round trip is an
+	// identity, so this reduces to the raw-wire model.
 	tempColor.SetRGBValue(ColorRGB(r,g,b), (GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4)?ContainerInnerReference(GetColorReference()):cRef);
-	ColorRGB aRGBColor = tempColor.GetRGBValue((GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4)?ContainerInnerReference(GetColorReference()):cRef);
+	ColorRGB aRGBColor = tempColor.GetRGBValue((GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4)?ContainerTransportReference(GetColorReference()):cRef);
 	r = aRGBColor[0];
 	g = aRGBColor[1];
 	b = aRGBColor[2];
@@ -1028,12 +1072,17 @@ void CMeasure::GetRefProfileSat(int i, CColor & ccRef)
 	double qr,qg,qb;
 	if (mode == 5 || mode == 7)
 	{
+		// r,g,b are the inner->transport-remapped LINEAR values (SET inner / GET
+		// transport above), so PQ/HLG-encode them to the wire signal, snap on the
+		// native grid, then decode -- the identical chain as GetRefCC24Sat's
+		// (non-rawWire) HDR branch. The capture applies the matching remap+encode
+		// (RemapProfileToTransport), so reference == displayed signal.
 		qr = getL_EOTF(r,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
 		qg = getL_EOTF(g,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
 		qb = getL_EOTF(b,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
-		qr = floor( (qr * 219.) + 0.5 ) / 219.;
-		qg = floor( (qg * 219.) + 0.5 ) / 219.;
-		qb = floor( (qb * 219.) + 0.5 ) / 219.;
+		qr = SnapToVideoGrid( qr, b10, lim );
+		qg = SnapToVideoGrid( qg, b10, lim );
+		qb = SnapToVideoGrid( qb, b10, lim );
 		r = getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 		g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 		b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
@@ -1043,9 +1092,9 @@ void CMeasure::GetRefProfileSat(int i, CColor & ccRef)
 		qr = (r==0)?0:pow(r, 1.0 / 2.22);
 		qg = (g==0)?0:pow(g, 1.0 / 2.22);
 		qb = (b==0)?0:pow(b, 1.0 / 2.22);
-		qr = floor( (qr * 219.) + 0.5 ) / 219.;
-		qg = floor( (qg * 219.) + 0.5 ) / 219.;
-		qb = floor( (qb * 219.) + 0.5 ) / 219.;
+		qr = SnapToVideoGrid( qr, b10, lim );
+		qg = SnapToVideoGrid( qg, b10, lim );
+		qb = SnapToVideoGrid( qb, b10, lim );
 		r=(r<=0||r>=1)?min(max(r,0),1):getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 		g=(g<=0||g>=1)?min(max(g,0),1):getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 		b=(b<=0||b>=1)?min(max(b,0),1):getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
@@ -1055,16 +1104,16 @@ void CMeasure::GetRefProfileSat(int i, CColor & ccRef)
 		qr = (r==0)?0:pow(r, 1.0 / 2.22);
 		qg = (g==0)?0:pow(g, 1.0 / 2.22);
 		qb = (b==0)?0:pow(b, 1.0 / 2.22);
-		qr = floor( (qr * 219.) + 0.5 ) / 219.;
-		qg = floor( (qg * 219.) + 0.5 ) / 219.;
-		qb = floor( (qb * 219.) + 0.5 ) / 219.;
+		qr = SnapToVideoGrid( qr, b10, lim );
+		qg = SnapToVideoGrid( qg, b10, lim );
+		qb = SnapToVideoGrid( qb, b10, lim );
 		r=(qr<=0||qr>=1)?min(max(qr,0),1):pow(qr, gamma);
 		g=(qg<=0||qg>=1)?min(max(qg,0),1):pow(qg, gamma);
 		b=(qb<=0||qb>=1)?min(max(qb,0),1):pow(qb, gamma);
 	}
 
 	ccRef.ClearSpectrumLux();
-	ccRef.SetRGBValue(ColorRGB(r,g,b),(GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4)?ContainerInnerReference(GetColorReference()):cRef);
+	ccRef.SetRGBValue(ColorRGB(r,g,b),(GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4)?ContainerTransportReference(GetColorReference()):cRef);
 }
 
 // dE for a measured profile patch against its theoretical reference, using the
@@ -1119,12 +1168,10 @@ double CMeasure::ComputeProfileDE(const CColor & c, int i)
 	double YWhite = ywForDE, RefWhite = 1.0;
 	if ( mode == 5 )	// PQ HDR: match the grid's absolute-nits bridge
 	{
-		CColor White = GetOnOffWhite();
-		CColor Black = GetOnOffBlack();
-		double tmWhite = getL_EOTF( 0.5022283, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5,
-			GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL,
-			GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL, GetConfig()->m_useToneMap, FALSE,
-			GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1 ) * 100.0;
+		// Same chain as the grid's CC24 dE (GetItemText): snapped tone-mapped
+		// diffuse white via the shared TmDiffuseWhiteNits helper, reference
+		// rescaled from the 1.0 = 10000 nits convention.
+		double tmWhite = TmDiffuseWhiteNits( GetOnOffWhite(), GetOnOffBlack() );
 		if ( tmWhite > 0.0 )
 		{
 			refC.SetX( refC.GetX() * 105.95640 );
@@ -4009,6 +4056,17 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	if ( GenerateProfileColors ( &GenColors[0], size, cubeN, bGrayExtras != FALSE ) != size )
 		return FALSE;
 
+	// UHDTV3/4 (e.g. "P3 in Rec.2020"): GenerateProfileColors is container-agnostic,
+	// so remap the DISPLAYED patches inner->transport here -- exactly as
+	// GenerateCC24Colors/GenerateSaturationColors do -- so the wire carries the P3
+	// content through the 2020 container and the sensor recovers P3 colors. The
+	// references (GetProfilePatchRGB/GetRefProfileSat) stay on the raw inner cube,
+	// mirroring the CC24 inner-target model, so measured == reference in P3 space.
+	RemapProfileToTransport ( &GenColors[0], size, GetColorReference(),
+							  GetConfig()->m_GammaOffsetType,
+							  GetConfig()->GetUse10bitLevels() != FALSE,
+							  GetConfig()->GetRGB16_235() != FALSE );
+
 	BOOL	bUseLuxValues = TRUE;
 
 	if(pGenerator->Init(size) != TRUE)
@@ -4058,6 +4116,38 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 
 	m_binMeasure = TRUE;
 	m_currentIndex = 0;
+
+	// Self-contained white/black reference. A profile inherently drives its own
+	// 0/0/0 and 100/100/100 cube corners, so measure them up front and publish
+	// the app-wide On/Off white+black -- the user can come straight in and start a
+	// profile with no separate grayscale/contrast pass first, because every
+	// white-relative consumer (ComputeProfileDE, the 3D viewer, the RGB-levels
+	// widget) reads GetOnOffWhite/GetOnOffBlack. Measured only when not already
+	// present, so an existing contrast/grayscale run is never overwritten.
+	if ( ! m_bAbortSweep && ( ! m_OnOffWhite.isValid() || m_OnOffWhite.GetY() <= 0.0 ) )
+	{
+		ColorRGBDisplay whRGB ( 100.0, 100.0, 100.0 );
+		if ( pGenerator->DisplayRGBColor ( whRGB, nPattern, 0, TRUE ) )
+		{
+			if ( WaitForDynamicIris ( FALSE, pDoc ) )
+				m_bAbortSweep = TRUE;
+			CColor wh = PumpedRead ( asyncMeasure, pSensor, whRGB, displaymode );
+			if ( pSensor->IsMeasureValid() && wh.isValid() && wh.GetY() > 0.0 )
+				m_OnOffWhite = wh;
+		}
+	}
+	if ( ! m_bAbortSweep && ! m_OnOffBlack.isValid() )
+	{
+		ColorRGBDisplay bkRGB ( 0.0, 0.0, 0.0 );
+		if ( pGenerator->DisplayRGBColor ( bkRGB, nPattern, 0, TRUE ) )
+		{
+			if ( WaitForDynamicIris ( FALSE, pDoc ) )
+				m_bAbortSweep = TRUE;
+			CColor bk = PumpedRead ( asyncMeasure, pSensor, bkRGB, displaymode );
+			if ( pSensor->IsMeasureValid() && bk.isValid() )
+				m_OnOffBlack = bk;
+		}
+	}
 
 	for(int i=0;i<size;i++)
 	{

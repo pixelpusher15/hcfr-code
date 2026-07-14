@@ -209,7 +209,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			}
 		} 
 
-		BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 && (m_displayMode == 1 || m_displayMode >= 5 && m_displayMode <= 11) );
+		BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 && (m_displayMode == 1 || m_displayMode >= 5 && m_displayMode <= 11 || m_displayMode == 13) );
 		CColor white = m_pDocument->GetMeasure()->GetPrimeWhite();
 
 		if (!white.isValid() && isHDR)
@@ -229,7 +229,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
         double YWhite = white.GetY();
 		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor);
 
-			if ( (GetConfig()->m_GammaOffsetType == 5 && m_displayMode <=11 && m_displayMode >= 5) )
+			if ( (GetConfig()->m_GammaOffsetType == 5 && (m_displayMode <=11 && m_displayMode >= 5 || m_displayMode == 13)) )
 			{
 				if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
 				{
@@ -364,7 +364,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 						}
 						else
 						{
-							if ( ( (GetColorReference().m_standard == UHDTV2 && minCol == satsize) || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV) && m_displayMode != 11)// && !shiftDiffuse) //&& nCol == (satsize)
+							if ( ( (GetColorReference().m_standard == UHDTV2 && minCol == satsize) || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV) && m_displayMode != 11 && m_displayMode != 13)// && !shiftDiffuse) //&& nCol == (satsize)
 								white.SetY(92.25496);
 							else
 								white.SetY(94.37844);
@@ -439,7 +439,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			}
 			else
 			{
-				if ( ((cRef.m_standard == UHDTV2 && minCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11)// && !shiftDiffuse) //fixes skin && nCol == satsize
+				if ( ((cRef.m_standard == UHDTV2 && minCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11 && m_displayMode != 13)// && !shiftDiffuse) //fixes skin && nCol == satsize
 					RefWhite = YWhite / (tmWhite);
 				else
 				{

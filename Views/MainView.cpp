@@ -6698,6 +6698,21 @@ void CMainView::SelectProfilePatch(int idx)
 	m_RefWhite = 1.0;
 	m_YWhite = ( w.isValid () && w.GetY () > 0.0 ) ? w.GetY () : 1.0;
 
+	// PQ HDR: GetRefProfileSat produces the internal HDR-10 scale (1.0 = 10000
+	// nits). The grid applies * 105.95640 (10000 / 94.37844) to CC/sat refs
+	// before handing them to the comparator widgets (GetItemText, ~line 4280);
+	// mode 13 bypasses the grid, so apply the same bridge here, including the
+	// tone-mapped YWhite adjust the CC24 path uses.
+	if ( GetConfig()->m_GammaOffsetType == 5 )
+	{
+		m_RefColor.SetX( m_RefColor.GetX() * 105.95640 );
+		m_RefColor.SetY( m_RefColor.GetY() * 105.95640 );
+		m_RefColor.SetZ( m_RefColor.GetZ() * 105.95640 );
+		double tmWhite = TmDiffuseWhiteNits( noDataColor, noDataColor );
+		if ( tmWhite > 0.0 )
+			m_YWhite = m_YWhite * 94.37844 / tmWhite;
+	}
+
 	if ( sel.isValid () )
 		SetSelectedColor ( sel );
 
