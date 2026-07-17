@@ -325,8 +325,10 @@ static double SceneDiffuseWhiteY( CMeasure * pM )
 	if ( GetConfig()->m_GammaOffsetType == 5 )
 	{
 		double tm = TmDiffuseWhiteNits( pM->GetOnOffWhite(), pM->GetOnOffBlack() );
-		if ( tm > 0.0 )
-			return tm;
+		// never fall through to the SDR path here: its measured-white fallbacks
+		// return PEAK white in PQ (up to ~100x diffuse), which would collapse
+		// the whole scene toward the floor. Same fallback GetHDRRefScale uses.
+		return ( tm > 0.0 ) ? tm : 94.37844;
 	}
 	// SDR: measured grayscale / prime white (100% == diffuse == peak); for a
 	// standalone profile fall back to the measured white cube node.

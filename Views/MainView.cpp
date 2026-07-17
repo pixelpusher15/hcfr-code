@@ -2695,6 +2695,19 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 					m_RefColor = profRef;
 					m_RefWhite = 1.0;
 					m_YWhite = ( w.isValid () && w.GetY () > 0.0 ) ? w.GetY () : 1.0;
+					// PQ HDR: same bridge as SelectProfilePatch -- GetRefProfileSat
+					// is on the 1.0 = 10000 nits scale; without this the LIVE
+					// comparator showed a ~106x-off reference during capture that
+					// then "corrected itself" when the patch was clicked afterward.
+					if ( GetConfig()->m_GammaOffsetType == 5 )
+					{
+						m_RefColor.SetX( m_RefColor.GetX() * 105.95640 );
+						m_RefColor.SetY( m_RefColor.GetY() * 105.95640 );
+						m_RefColor.SetZ( m_RefColor.GetZ() * 105.95640 );
+						double tmWhite = TmDiffuseWhiteNits( noDataColor, noDataColor );
+						if ( tmWhite > 0.0 )
+							m_YWhite = m_YWhite * 94.37844 / tmWhite;
+					}
 					m_RGBLevels.Refresh ( done + 1, 13, nProfSize );
 					m_Target.Refresh ( GetDocument()->GetGenerator()->m_b16_235, done + 1, nProfSize, 13, GetDocument(), CTargetWnd::TARGET_TARGET );
 				}

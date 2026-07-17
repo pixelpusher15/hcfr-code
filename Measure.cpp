@@ -921,7 +921,11 @@ void CMeasure::Serialize(CArchive& ar)
 			ar >> m_profileCaptureSeconds;
 
 			ar >> size;
-			if ( size < 0 ) size = 0;
+			// a count outside what the app can ever write means the stream is
+			// corrupt: abort the load (standard archive error) instead of
+			// attempting a multi-GB SetSize from a garbage value
+			if ( size < 0 || size > MAX_USER_CC_PATCH_SIZE )
+				AfxThrowArchiveException ( CArchiveException::badIndex, NULL );
 			m_profileMeasureArray.SetSize(size);
 			for(int i=0;i<size;i++)
 				m_profileMeasureArray[i]=noDataColor;
@@ -946,7 +950,10 @@ void CMeasure::Serialize(CArchive& ar)
 
 			int nAnchors;
 			ar >> nAnchors;
-			if ( nAnchors < 0 ) nAnchors = 0;
+			// anchors are written every kProfileAnchorInterval patches, so the
+			// legit ceiling is tiny; same corrupt-stream guard as above
+			if ( nAnchors < 0 || nAnchors > 1024 )
+				AfxThrowArchiveException ( CArchiveException::badIndex, NULL );
 			m_profileDriftAnchors.resize(nAnchors);
 			m_profileDriftAnchorIdx.resize(nAnchors);
 			for ( int i = 0; i < nAnchors; i++ )
@@ -1087,7 +1094,11 @@ void CMeasure::GetRefProfileSat(int i, CColor & ccRef)
 		g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 		b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 	}
-	if ( mode == 6 || mode == 4 || mode == 8 )
+	// mode 99 (sRGB standard) must take this branch too: without it the sRGB
+	// reference stayed 2.22-decoded and UNQUANTIZED while the wire/sensor are
+	// sRGB-decoded and grid-snapped -- same omission GetRefCC24Sat fixed
+	// (see its "|| mode == 99" and comment; worst on dark patches).
+	if ( mode == 6 || mode == 4 || mode == 8 || mode == 99 )
 	{
 		qr = (r==0)?0:pow(r, 1.0 / 2.22);
 		qg = (g==0)?0:pow(g, 1.0 / 2.22);
