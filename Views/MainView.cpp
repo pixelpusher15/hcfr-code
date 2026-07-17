@@ -3594,11 +3594,12 @@ LPSTR CMainView::GetGridRowLabel(int aComponentNum)
 
 void CMainView::UpdateGrid()
 {
-	if(m_displayMode == 13)
-		return;		// display profile: the grid is hidden, the pane owns the area
-
-
-	if (m_pGrayScaleGrid)
+	// display profile (mode 13): the grid is hidden and the pane owns that area,
+	// so skip the grid population -- but still fall through to the View-pane info
+	// line at the end of this function. That line must track reference / EOTF
+	// changes; an early return here left it stale (e.g. showing HDR after an
+	// HDR->SDR reference switch while the profile view was open).
+	if (m_displayMode != 13 && m_pGrayScaleGrid)
 	{
 		CColor			aColor;
 		CColor			refColor = GetColorReference().GetWhite();
