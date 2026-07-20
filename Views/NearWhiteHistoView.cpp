@@ -451,7 +451,7 @@ void CNearWhiteHistoView::OnInitialUpdate()
 void CNearWhiteHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint) 
 {
 	// Update this view only when we are concerned
-	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_NEARBLACK || lHint == UPD_NEARWHITE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA || lHint == UPD_ARRAYSIZES || lHint == UPD_FREEMEASUREAPPENDED || lHint >= UPD_REALTIME)
+	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_NEARBLACK || lHint == UPD_NEARWHITE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA || lHint == UPD_ARRAYSIZES || lHint == UPD_FREEMEASUREAPPENDED || (lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE && lHint != UPD_REALTIME + 13))
 	{
 		m_Grapher.UpdateGraph ( GetDocument () );
 		RedrawWindow( NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW );

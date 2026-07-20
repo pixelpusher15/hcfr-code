@@ -230,6 +230,34 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 				nB=(int)x3;
 				m_clr = RGB(nR,nG,nB);
 			}
+			else if ( m_DisplayMode == 13 )	// display profile patch
+			{
+				CColor clr;
+				pDoc->GetMeasure()->GetRefProfileSat(minCol - 1, clr);
+				centerXYZ = clr.GetXYZValue();
+				ColorRGBDisplay rgb = pDoc->GetMeasure()->GetProfilePatchRGB(minCol - 1);
+				p1 = rgb[0] / 100.;
+				p2 = rgb[1] / 100.;
+				p3 = rgb[2] / 100.;
+
+				x1 =  (int)floor(p1 * 255.0 + 0.5);
+				x2 =  (int)floor(p2 * 255.0 + 0.5);
+				x3 =  (int)floor(p3 * 255.0 + 0.5);
+				y1 =  (int)floor(p1 * 219.0 + 0.5);
+				y2 =  (int)floor(p2 * 219.0 + 0.5);
+				y3 =  (int)floor(p3 * 219.0 + 0.5);
+				z1 = y1 - x1 / 255. * 219.;
+				z2 = y2 - x2 / 255. * 219.;
+				z3 = y3 - x3 / 255. * 219.;
+				x1 += floor( z1 + 0.5);
+				x2 += floor( z2 + 0.5);
+				x3 += floor( z3 + 0.5);
+
+				nR=(int)x1;
+				nG=(int)x2;
+				nB=(int)x3;
+				m_clr = RGB(nR,nG,nB);
+			}
 			else if ( m_DisplayMode == 1 && minCol == 1 )
 			{
 				centerXYZ = GetColorReference().GetRed();

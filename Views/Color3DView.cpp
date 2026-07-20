@@ -169,6 +169,7 @@ C3DColorView::C3DColorView()
 	: CSavingView()
 	, m_sceneDirty(true)
 	, m_freeInScene(0)
+	, m_profileInScene(0)
 	, m_lumTop(1.0)
 	, m_baseValid(false)
 	, m_gamutValid(false)
@@ -177,7 +178,7 @@ C3DColorView::C3DColorView()
 	, m_yaw(0.70), m_pitch(0.45), m_zoom(1.0)
 	, m_panX(0.0), m_panY(0.0)
 	, m_showGamut(true), m_showFloor(true), m_shadeGamut(true)
-	, m_pointColor(PTCOLOR_DE), m_deFilter(0), m_showTails(true)
+	, m_pointColor(PTCOLOR_DE), m_deFilter(0), m_showTails(true), m_showProfilePts(true)
 	, m_bDragging(false)
 	, m_selected(-1)
 	, m_orbKernelR(-1)
@@ -239,7 +240,8 @@ void C3DColorView::ToModel(const ColorXYZ & xyz, double whiteY, CColorReference 
 void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReference & ref,
 								 const CColor & dETarget, const CColor & markerTarget,
 								 bool isGS, double ywForDE, const wchar_t * label,
-								 int srcType, int srcA, int srcB, int srcC)
+								 int srcType, int srcA, int srcB, int srcC,
+								 double dEOverride)
 {
 	if ( !c.isValid() )
 		return;
@@ -277,9 +279,12 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 	if ( dETarget.isValid() && markerTarget.isValid() && !blackish )
 	{
 		// Same GetDeltaE conventions as the measures grid (MainView GetItemText):
-		// YWhiteRef always 1.0, gw_Weight forced to 3 in HDR mode 5.
+		// YWhiteRef always 1.0, gw_Weight forced to 3 in HDR mode 5. Profile points
+		// pass a precomputed dE (ComputeProfileDE) so the viewer, the summary pane
+		// and the RGB-levels widget can never disagree.
 		int gw = ( GetConfig()->m_GammaOffsetType == 5 ) ? 3 : GetConfig()->gw_Weight;
-		p.dE = (float)c.GetDeltaE( ywForDE, dETarget, 1.0, ref, GetConfig()->m_dE_form, isGS, gw );
+		p.dE = ( dEOverride >= 0.0 ) ? (float)dEOverride
+									 : (float)c.GetDeltaE( ywForDE, dETarget, 1.0, ref, GetConfig()->m_dE_form, isGS, gw );
 		if ( !( p.dE == p.dE ) || p.dE < 0.0f )   // NaN / negative: no usable dE
 		{
 			m_points.push_back( p );
@@ -304,6 +309,48 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 	m_points.push_back( p );
 }
 
+// Diffuse-white luminance used to normalise the scene and scale reference
+// targets into measured units. Normally the measured grayscale / prime white;
+// for a STANDALONE profile capture (no grayscale run -- "# of measures: 0")
+// there is none, so fall back to the diffuse-white CONVENTION: TmDiffuseWhiteNits
+// in PQ-HDR, else the measured white cube node (100/100/100 = diffuse white in
+// SDR). Without this whiteY defaults to 1.0 and profile targets scale wildly
+// out of bounds (measured in nits vs a white-relative reference).
+static double SceneDiffuseWhiteY( CMeasure * pM )
+{
+	// HDR-10: the diffuse-white NORMALISER is the tone-mapped diffuse white, NOT
+	// the measured 100% white -- in PQ, 100% is PEAK (up to ~100x diffuse). The
+	// references are built diffuse-white-relative, so the plot must normalise to
+	// the same diffuse white or bright patches/targets fly out of scale.
+	if ( GetConfig()->m_GammaOffsetType == 5 )
+	{
+		double tm = TmDiffuseWhiteNits( pM->GetOnOffWhite(), pM->GetOnOffBlack() );
+		// never fall through to the SDR path here: its measured-white fallbacks
+		// return PEAK white in PQ (up to ~100x diffuse), which would collapse
+		// the whole scene toward the floor. Same fallback GetHDRRefScale uses.
+		return ( tm > 0.0 ) ? tm : 94.37844;
+	}
+	// SDR: measured grayscale / prime white (100% == diffuse == peak); for a
+	// standalone profile fall back to the measured white cube node.
+	CColor cw = pM->GetPrimeWhite();
+	if ( !cw.isValid() || cw.GetY() <= 0.0 )
+		cw = pM->GetOnOffWhite();
+	if ( cw.isValid() && cw.GetY() > 0.0 )
+		return cw.GetY();
+	if ( pM->HasProfileMeasures() )
+	{
+		int cubeN = pM->GetProfileCubeSize();
+		int wi = cubeN * cubeN * cubeN - 1;
+		if ( wi >= 0 && wi < pM->GetProfileMeasureSize() )
+		{
+			CColor w = pM->GetProfileMeasure( wi );
+			if ( w.isValid() && w.GetY() > 0.0 )
+				return w.GetY();
+		}
+	}
+	return 1.0;
+}
+
 void C3DColorView::BuildScene()
 {
 	m_points.clear();
@@ -321,13 +368,9 @@ void C3DColorView::BuildScene()
 	CColorReference ref = GetColorReference();
 
 	// White luminance reference for L*a*b* / xyY normalisation (mirrors the CIE
-	// chart: prefer the pseudo-colour-space prime white, else grayscale white).
-	double whiteY = 1.0;
-	CColor cw = pMeasure->GetPrimeWhite();
-	if ( !cw.isValid() || cw.GetY() <= 0.0 )
-		cw = pMeasure->GetOnOffWhite();
-	if ( cw.isValid() && cw.GetY() > 0.0 )
-		whiteY = cw.GetY();
+	// chart: prefer the pseudo-colour-space prime white, else grayscale white;
+	// for a standalone profile it falls back to the diffuse-white convention).
+	double whiteY = SceneDiffuseWhiteY( pMeasure );
 
 	// Vertical axis normaliser: peak in HDR-10 (measurements legitimately
 	// exceed diffuse white up to TargetMaxL), diffuse white otherwise.
@@ -488,11 +531,14 @@ void C3DColorView::BuildScene()
 		AppendMeasure( c, whiteY, ref, refC, refC, false, whiteY, lbl, SRC_CC24, i );
 	}
 
-	// Free measures: this is where a large display profile (thousands of patches,
-	// the future 3D-LUT source) accumulates. Shared with the incremental
-	// UPD_FREEMEASUREAPPENDED path.
+	// Free measures. Shared with the incremental UPD_FREEMEASUREAPPENDED path.
 	m_freeInScene = 0;
 	AppendNewFreeMeasures();
+
+	// Display profile patches (dense cube capture, the 3D-LUT source). Shared
+	// with the incremental per-patch path driven by UPD_REALTIME+13.
+	m_profileInScene = 0;
+	AppendNewProfileMeasures();
 
 	BuildGamut( ref );
 	EnsureTongueTexture( ref );
@@ -569,6 +615,18 @@ void C3DColorView::BuildGamut(CColorReference & ref)
 		}
 	} Lift = { hlgLift, hlgGamma, &liftRef };
 
+	// L*a*b* is cube-root compressed: uniform LINEAR sampling puts the first
+	// row up from black at L* ~ 35 already, and the straight chords between
+	// samples cut far inside the true (bulging) surface - dark measurements
+	// (a 25% drive patch sits at L* ~ 25) then plot OUTSIDE the drawn solid.
+	// Warp the sweep parameter s -> s^3 in Lab so sample rows are ~evenly
+	// spaced in L* and the chords hug the real surface. Identity elsewhere.
+	const bool labWarp = ( m_space == SPACE_LAB );
+	struct SweepWarp {
+		bool on;
+		double operator()( double s ) const { return on ? s * s * s : s; }
+	} Warp = { labWarp };
+
 	const int N = kGamutN;
 	m_edgeV.assign( (size_t)12 * ( N + 1 ) * 3, 0.0f );
 	m_faceV.assign( (size_t)6 * ( N + 1 ) * ( N + 1 ) * 3, 0.0f );
@@ -584,7 +642,7 @@ void C3DColorView::BuildGamut(CColorReference & ref)
 	for ( int e = 0; e < 12; e++ )
 		for ( int t = 0; t <= N; t++ )
 		{
-			double s = (double)t / N;
+			double s = Warp( (double)t / N );
 			double r = edgeRGB[e][0] + s * ( edgeRGB[e][3] - edgeRGB[e][0] );
 			double g = edgeRGB[e][1] + s * ( edgeRGB[e][4] - edgeRGB[e][1] );
 			double b = edgeRGB[e][2] + s * ( edgeRGB[e][5] - edgeRGB[e][2] );
@@ -635,7 +693,7 @@ void C3DColorView::BuildGamut(CColorReference & ref)
 				}
 				else
 				{
-					double u = (double)i / N, v = (double)j / N, r, g, b;
+					double u = Warp( (double)i / N ), v = Warp( (double)j / N ), r, g, b;
 					if ( faceFixed[f] == 0 )      { r = faceVal[f]; g = u; b = v; }
 					else if ( faceFixed[f] == 1 ) { g = faceVal[f]; r = u; b = v; }
 					else                          { b = faceVal[f]; r = u; g = v; }
@@ -1231,6 +1289,8 @@ void C3DColorView::Render(const CRect& rc)
 	for ( size_t k = 0; k < m_points.size(); k++ )
 	{
 		const ScenePoint & P = m_points[k];
+		if ( !m_showProfilePts && P.srcType == SRC_PROFILE )
+			continue;
 		if ( deThr >= 0.0 && P.hasTarget && P.dE < deThr )
 			continue;
 		double sx, sy, dep;
@@ -1251,6 +1311,8 @@ void C3DColorView::Render(const CRect& rc)
 		for ( size_t k = 0; k < m_points.size(); k++ )
 		{
 			const ScenePoint & P = m_points[k];
+			if ( !m_showProfilePts && P.srcType == SRC_PROFILE )
+				continue;
 			if ( !P.hasTarget )
 				continue;
 			if ( deThr >= 0.0 && P.dE < deThr )
@@ -1392,8 +1454,12 @@ void C3DColorView::Render(const CRect& rc)
 								   : ( m_space == SPACE_RGB ) ? L"RGB cube"
 								   :                            L"CIE xyY";
 		double sumDE = 0.0, maxDE = 0.0;
-		int nDE = 0, nHidden = 0;
+		int nDE = 0, nHidden = 0, nVisible = 0;
 		for ( size_t k = 0; k < m_points.size(); k++ )
+		{
+			if ( !m_showProfilePts && m_points[k].srcType == SRC_PROFILE )
+				continue;   // hidden layer: excluded from count and dE stats
+			nVisible++;
 			if ( m_points[k].hasTarget )
 			{
 				sumDE += m_points[k].dE;
@@ -1402,14 +1468,15 @@ void C3DColorView::Render(const CRect& rc)
 				if ( deThr >= 0.0 && m_points[k].dE < deThr )
 					nHidden++;
 			}
+		}
 		wchar_t buf[160];
 		if ( nDE > 0 )
 			// NB: "\x0394" and "E" must be separate literals -- \x greedily
 			// consumes the E as a hex digit otherwise (0x394E = a CJK glyph).
 			swprintf( buf, 160, L"%s   \x2022   %d points   \x2022   avg \x0394" L"E %.1f   max %.1f",
-					  spaceName, (int)m_points.size(), sumDE / nDE, maxDE );
+					  spaceName, nVisible, sumDE / nDE, maxDE );
 		else
-			swprintf( buf, 160, L"%s   \x2022   %d points", spaceName, (int)m_points.size() );
+			swprintf( buf, 160, L"%s   \x2022   %d points", spaceName, nVisible );
 		if ( nHidden > 0 )
 		{
 			size_t len = wcslen( buf );
@@ -1555,11 +1622,96 @@ void C3DColorView::AppendNewFreeMeasures()
 	m_freeInScene = n;
 }
 
+
+void C3DColorView::AppendNewProfileMeasures()
+{
+	CDataSetDoc * pDoc = GetDocument();
+	if ( pDoc == NULL || pDoc->GetMeasure() == NULL )
+		return;
+	CMeasure * pMeasure = pDoc->GetMeasure();
+
+	int n = pMeasure->GetProfileMeasureSize();
+	if ( m_profileInScene > 0 &&
+		 ( m_profileInScene > n || !pMeasure->GetProfileMeasure( m_profileInScene - 1 ).isValid() ) )
+	{
+		// a new capture replaced the array underneath the scene: full rebuild
+		m_sceneDirty = true;
+		return;
+	}
+
+	// The capture remaps the cube inner->transport and the sensor recovers the
+	// INNER (content, e.g. P3) colors, so plot/swatch in the active reference --
+	// the measured cloud then lands inside the P3 gamut solid, not stretched to 2020.
+	CColorReference ref = GetColorReference();
+	// Diffuse white (measured, or the standalone-profile fallback) so reference
+	// targets scale into measured units instead of collapsing at whiteY = 1.0.
+	double whiteY = SceneDiffuseWhiteY( pMeasure );
+
+	// During a LIVE capture only patches below the measured frontier exist; when
+	// not measuring (post-capture / .chc load / full rebuild) the whole array is
+	// present. Either way SKIP invalid holes rather than stopping at them -- an
+	// ignored sensor error can leave a gap mid-array, and a plain break would
+	// drop every later patch from the cloud (even on a full rebuild).
+	int frontier = pMeasure->m_binMeasure ? min( n, pMeasure->m_currentIndex + 1 ) : n;
+	int lastAppended = m_profileInScene;	// exclusive high-water of VALID appends
+	// HDR-10: GetRefProfileSat returns the 1.0 = 10000 nits convention like
+	// GetRefSat/GetRefCC24Sat; rescale to diffuse-white-relative exactly as
+	// BuildScene does for the sat/CC24 references.
+	const bool hdr10Refs = ( GetConfig()->m_GammaOffsetType == 5 );
+	const double hdrRefScale = hdr10Refs ? pMeasure->GetHDRRefScale() : 1.0;
+	for ( int i = m_profileInScene; i < frontier; i++ )
+	{
+		CColor c = pMeasure->GetProfileMeasure( i );
+		if ( !c.isValid() )
+			continue;
+		CColor refC;
+		pMeasure->GetRefProfileSat( i, refC );
+		if ( hdr10Refs && refC.isValid() )
+		{
+			refC.SetX( refC.GetX() * hdrRefScale );
+			refC.SetY( refC.GetY() * hdrRefScale );
+			refC.SetZ( refC.GetZ() * hdrRefScale );
+		}
+		ColorRGBDisplay rgb = pMeasure->GetProfilePatchRGB( i );
+		wchar_t lbl[64];
+		swprintf( lbl, 64, L"Profile #%d (RGB %.0f,%.0f,%.0f)", i + 1, rgb[0], rgb[1], rgb[2] );
+		// Use the exact same dE the summary pane shows (SDR + PQ-HDR bridge).
+		double patchDE = pMeasure->ComputeProfileDE( c, i );
+		AppendMeasure( c, whiteY, ref, refC, refC, false, whiteY, lbl, SRC_PROFILE, i, 0, 0, patchDE );
+		lastAppended = i + 1;	// keep m_profileInScene-1 pointing at a valid patch
+	}
+	m_profileInScene = lastAppended;
+}
+
+void C3DColorView::SelectProfilePoint(int patchIdx)
+{
+	m_showProfilePts = true;   // an explicit inspect un-hides the layer so the halo is visible
+	for ( size_t i = 0; i < m_points.size(); i++ )
+	{
+		if ( m_points[i].srcType == SRC_PROFILE && m_points[i].srcA == patchIdx )
+		{
+			m_selected = (int)i;
+			if ( ::IsWindow( m_hWnd ) )
+				Invalidate( FALSE );
+			return;
+		}
+	}
+}
+
 void C3DColorView::OnUpdate(CView* /*pSender*/, LPARAM lHint, CObject* /*pHint*/)
 {
 	if ( lHint == UPD_FREEMEASUREAPPENDED && !m_sceneDirty && !m_points.empty() )
 	{
 		AppendNewFreeMeasures();
+		if ( ::IsWindow( m_hWnd ) )
+			Invalidate( FALSE );
+		return;
+	}
+	if ( lHint == UPD_REALTIME + 13 && !m_sceneDirty && !m_points.empty() )
+	{
+		// per-patch profile-capture hint: incremental append, no full rebuild
+		// (AppendNewProfileMeasures marks the scene dirty itself when stale)
+		AppendNewProfileMeasures();
 		if ( ::IsWindow( m_hWnd ) )
 			Invalidate( FALSE );
 		return;
@@ -1584,7 +1736,8 @@ DWORD C3DColorView::GetUserInfo()
 		 | ( m_showTails  ? ( 1u << 27 ) : 0u )
 		 | ( m_showGamut  ? ( 1u << 28 ) : 0u )
 		 | ( m_showFloor  ? ( 1u << 29 ) : 0u )
-		 | ( m_shadeGamut ? ( 1u << 30 ) : 0u );
+		 | ( m_shadeGamut ? ( 1u << 30 ) : 0u )
+		 | ( m_showProfilePts ? 0u : ( 1u << 31 ) );   // store the HIDE bit so old/default (0) decodes as shown
 }
 
 void C3DColorView::SetUserInfo(DWORD dwUserInfo)
@@ -1592,8 +1745,8 @@ void C3DColorView::SetUserInfo(DWORD dwUserInfo)
 	if ( dwUserInfo == 0 )
 		return;   // fresh view: keep constructor defaults
 	m_space = dwUserInfo & 0x3;
-	if ( m_space >= SPACE_COUNT )
-		m_space = SPACE_XYY;
+	if ( m_space >= SPACE_COUNT || m_space == SPACE_RGB )
+		m_space = SPACE_XYY;   // RGB cube is hidden; never restore a saved session into it
 	m_yaw   = (double)( ( dwUserInfo >> 2  ) & 0x3FF ) / 1024.0 * k2PI;
 	m_pitch = (double)( ( dwUserInfo >> 12 ) & 0x7F  ) / 127.0 * 3.0 - 1.5;
 	double zn = (double)( ( dwUserInfo >> 19 ) & 0x3F ) / 63.0 * 2.0 - 1.0;
@@ -1605,6 +1758,7 @@ void C3DColorView::SetUserInfo(DWORD dwUserInfo)
 	m_showGamut  = ( ( dwUserInfo >> 28 ) & 1 ) != 0;
 	m_showFloor  = ( ( dwUserInfo >> 29 ) & 1 ) != 0;
 	m_shadeGamut = ( ( dwUserInfo >> 30 ) & 1 ) != 0;
+	m_showProfilePts = ( ( dwUserInfo >> 31 ) & 1 ) == 0;   // HIDE bit; default shown
 	m_sceneDirty = true;
 }
 
@@ -1655,6 +1809,8 @@ void C3DColorView::OnLButtonUp(UINT nFlags, CPoint point)
 			}
 			for ( size_t k = 0; k < m_points.size(); k++ )
 			{
+				if ( !m_showProfilePts && m_points[k].srcType == SRC_PROFILE )
+					continue;   // hidden layer is not clickable
 				if ( deThr >= 0.0 && m_points[k].hasTarget && m_points[k].dE < deThr )
 					continue;
 				double sx, sy, dep;
@@ -1738,6 +1894,7 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 		case SRC_SAT:       nAvail = pM->GetSaturationSize();     break;
 		case SRC_CC24:      nAvail = MAX_USER_CC_PATCH_SIZE;      break;
 		case SRC_FREE:      nAvail = pM->GetMeasurementsSize();   break;
+		case SRC_PROFILE:   nAvail = pM->GetProfileMeasureSize(); break;
 	}
 	if ( S.srcA < 0 || S.srcA >= nAvail )
 		return;
@@ -1752,6 +1909,7 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 		case SRC_SECONDARY: sel = pM->GetSecondary( S.srcA ); break;
 		case SRC_CC24:      sel = pM->GetCC24Sat( S.srcA );   break;
 		case SRC_FREE:      sel = pM->GetMeasurement( S.srcA ); break;
+		case SRC_PROFILE:   sel = pM->GetProfileMeasure( S.srcA ); break;
 		case SRC_SAT:
 			// The clicked point may belong to a non-active stimulus level; make that
 			// level active (so the grid, CIE chart and stimulus dropdown follow) and
@@ -1790,6 +1948,7 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 		case SRC_NEARWHITE: mode = 4;            col = S.srcA + 1; break;
 		case SRC_SAT:       mode = 5 + S.srcB;   col = S.srcA + 1; break;
 		case SRC_CC24:      mode = 11;           col = S.srcA + 1; break;
+		case SRC_PROFILE:   mode = 13;           col = -1;         break;	// pane, no grid columns
 	}
 
 	POSITION pos = pDoc->GetFirstViewPosition();
@@ -1806,9 +1965,19 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 				pMain->m_comboMode.SetCurSel( mode );
 				pMain->OnSelchangeComboMode();
 			}
-			if ( col >= 1 )
-				pMain->HighlightMeasuringColumn( col );   // select + scroll to the column
-			pMain->SetSelectedColor( sel );
+			if ( S.srcType == SRC_PROFILE )
+			{
+				// mode 13 has no grid to feed the reference comparator; drive the
+				// selected-color panel + reference widgets the same way the pane's
+				// inspect flow does (SetSelectedColor alone leaves the ref stale)
+				pMain->SelectProfilePatch( S.srcA );
+			}
+			else
+			{
+				if ( col >= 1 )
+					pMain->HighlightMeasuringColumn( col );   // select + scroll to the column
+				pMain->SetSelectedColor( sel );
+			}
 			break;
 		}
 	}
@@ -1831,6 +2000,8 @@ void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 	sShowFloor.LoadString  ( IDS_3DVIEW_SHOWFLOOR );
 	sShowTails.LoadString  ( IDS_3DVIEW_SHOWTAILS );
 	sResetView.LoadString  ( IDS_3DVIEW_RESETVIEW );
+	CString sShowProfile;
+	sShowProfile.LoadString ( IDS_3DVIEW_SHOWPROFILE );
 
 	CMenu menu, spaceMenu, colorMenu, filterMenu;
 	menu.CreatePopupMenu();
@@ -1847,8 +2018,10 @@ void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 	// space names are technical terms, identical in every language
 	spaceMenu.AppendMenu( MF_STRING, 101, _T("CIE xyY") );
 	spaceMenu.AppendMenu( MF_STRING, 102, _T("CIE L*a*b*") );
-	spaceMenu.AppendMenu( MF_STRING, 103, _T("RGB cube") );
-	spaceMenu.CheckMenuRadioItem( 101, 103, 101 + m_space, MF_BYCOMMAND );
+	// RGB cube is hidden for now: its measured-point placement (linear light) reads
+	// as confusing, and its real use is 3D-LUT work not yet built. The SPACE_RGB
+	// enum + rasterizer are kept; the mode is just not offered here.
+	spaceMenu.CheckMenuRadioItem( 101, 102, 101 + m_space, MF_BYCOMMAND );
 
 	colorMenu.CreatePopupMenu();
 	colorMenu.AppendMenu( MF_STRING, 204, sPcDE );
@@ -1865,6 +2038,7 @@ void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 	menu.AppendMenu( MF_STRING | ( m_shadeGamut ? MF_CHECKED : 0 ), 203, sShadeGamut );
 	menu.AppendMenu( MF_STRING | ( m_showFloor  ? MF_CHECKED : 0 ), 202, sShowFloor );
 	menu.AppendMenu( MF_STRING | ( m_showTails  ? MF_CHECKED : 0 ), 205, sShowTails );
+	menu.AppendMenu( MF_STRING | ( m_showProfilePts ? MF_CHECKED : 0 ), 208, sShowProfile );
 	menu.AppendMenu( MF_SEPARATOR );
 	menu.AppendMenu( MF_STRING, 301, sResetView );
 
@@ -1883,7 +2057,7 @@ void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 	{
 		case 101: SetSpace( SPACE_XYY ); break;
 		case 102: SetSpace( SPACE_LAB ); break;
-		case 103: SetSpace( SPACE_RGB ); break;
+		// case 103 (RGB cube) intentionally removed: mode hidden from the menu
 		case 201: m_showGamut  = !m_showGamut;  Invalidate( FALSE ); break;
 		case 203: m_shadeGamut = !m_shadeGamut; Invalidate( FALSE ); break;
 		case 202: m_showFloor  = !m_showFloor;  Invalidate( FALSE ); break;
@@ -1891,6 +2065,7 @@ void C3DColorView::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 		case 206: m_pointColor = PTCOLOR_TARGET; Invalidate( FALSE ); break;
 		case 207: m_pointColor = PTCOLOR_PLAIN;  Invalidate( FALSE ); break;
 		case 205: m_showTails  = !m_showTails;   Invalidate( FALSE ); break;
+		case 208: m_showProfilePts = !m_showProfilePts; Invalidate( FALSE ); break;
 		case 301: m_yaw = 0.70; m_pitch = 0.45; m_zoom = 1.0; m_panX = m_panY = 0.0; Invalidate( FALSE ); break;
 		case 501: case 502: case 503:
 		{

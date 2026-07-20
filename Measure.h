@@ -35,6 +35,7 @@
 #include <vector>
 BOOL IsMeasureSweepActive();
 
+class CAsyncMeasurer;
 // Tone-mapped diffuse-white luminance (nits) for the active HDR-10 target:
 // getL_EOTF of the grid-snapped 50.22831% signal, *100. Centralizes the ~400-char
 // expression that was copy-pasted across the measure/view/export tmWhite sites.
@@ -51,6 +52,7 @@ double TmDiffuseWhiteNits(const CColor & White, const CColor & Black);
 #define	DUPLSECONDARIESCOL	6
 #define	DUPLCONTRAST		7
 #define	DUPLINFO			8
+#define	DUPLPROFILE			9
 
 
 #define LUX_NOMEASURE	0
@@ -120,6 +122,16 @@ protected:
 	CArray<CColor,CColor> m_cc24SatMeasureArray_master;
 	std::vector<CSatLevelSet> m_satLevelStore;	// all measured stimulus levels (active mirrored in m_*SatMeasureArray)
 	double m_activeSatLevel;	// signal-domain amplitude the bound sweeps were measured at
+	// Display profile capture (serialized as version 20, block written only when data exists)
+	CArray<CColor,CColor> m_profileMeasureArray;	// dense RGB-cube characterization, generation order
+	std::vector<CColor> m_profileDriftAnchors;		// white drift anchors, capture order
+	std::vector<int> m_profileDriftAnchorIdx;		// patch index each anchor was measured before
+	int m_profileCubeSize;							// N of the N^3 grid (0 = no profile captured)
+	BOOL m_profileGrayExtras;						// extra gray-axis / near-black samples appended
+	BOOL m_profileDriftComp;						// drift compensation was applied during capture
+	double m_profileCaptureSeconds;					// wall-clock duration of the capture
+	std::vector<ColorRGBDisplay> m_profileGenCache;	// GetProfilePatchRGB cache (not serialized)
+	int m_profileGenCacheKey;						// cubeSize*2+grayExtras the cache was built for
 	CString m_infoStr;
 	CString m_CCStr;
 public:
@@ -189,6 +201,7 @@ public:
 	BOOL MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc);
 	BOOL MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc);
 	BOOL MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc);
+	BOOL MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc, int cubeN, BOOL bGrayExtras, BOOL bDriftComp);
 	BOOL MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerator,BOOL bPrimaryOnly, CDataSetDoc *pDoc);
 	BOOL MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenerator *pGenerator,BOOL bPrimaryOnly, CDataSetDoc *pDoc);
 	int GetSaturationSize() const { return m_redSatMeasureArray.GetSize(); }
@@ -211,6 +224,31 @@ public:
 	CColor GetCC24MasterSat(int i) const;
 	void SetCC24MasterSat(int i,const CColor & aColor) {m_cc24SatMeasureArray_master[i]=aColor; m_isModified=TRUE; }
 	CString GetCCStr() const;
+
+	// Display profile capture
+	CColor GetProfileMeasure(int i) const;
+	void SetProfileMeasure(int i,const CColor & aColor) {m_profileMeasureArray[i]=aColor; m_isModified=TRUE; }
+	int GetProfileMeasureSize() const { return m_profileMeasureArray.GetSize(); }
+	BOOL HasProfileMeasures() const { return m_profileCubeSize > 0 && m_profileMeasureArray.GetSize() > 0; }
+	int GetProfileCubeSize() const { return m_profileCubeSize; }
+	BOOL GetProfileGrayExtras() const { return m_profileGrayExtras; }
+	BOOL GetProfileDriftComp() const { return m_profileDriftComp; }
+	double GetProfileCaptureSeconds() const { return m_profileCaptureSeconds; }
+	int GetProfileDriftAnchorCount() const { return (int)m_profileDriftAnchors.size(); }
+	CColor GetProfileDriftAnchor(int i) const { return m_profileDriftAnchors[i]; }
+	int GetProfileDriftAnchorIndex(int i) const { return m_profileDriftAnchorIdx[i]; }
+	void ClearProfileMeasures();
+	ColorRGBDisplay GetProfilePatchRGB(int i);		// patch stimulus, regenerated from metadata (cached)
+	void GetRefProfileSat(int i, CColor & ccRef);	// theoretical reference for patch i (grid conventions)
+	double ComputeProfileDE(const CColor & measured, int i);	// dE for profile patch i, matching the measures grid (SDR + PQ HDR); -1 to skip
+	// Live profile-capture state (not serialized): the profiling pane pauses/observes through these
+	volatile BOOL m_bProfilePause;
+	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0
+
+protected:
+	bool MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx);
+	void ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, double fTo);
+public:
 
 	// Multi-level saturation store (see CSatLevelSet above)
 	double GetActiveSatLevel() const { return m_activeSatLevel; }

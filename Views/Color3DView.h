@@ -64,6 +64,7 @@ public:
 	// 1 = hide points below the "good" threshold, 2 = below "warn"
 	// (thresholds read live from the configured tolerance preset).
 	void SetDEFilter(int filter);
+	void SelectProfilePoint(int patchIdx);	// halo a profile patch (summary-pane click)
 
 protected:
 	virtual void OnDraw(CDC* pDC);
@@ -74,7 +75,7 @@ protected:
 	// Which CMeasure array a point came from (so a click can re-fetch the
 	// original CColor, spectrum included, and push it to the main view).
 	enum PointSource { SRC_GRAY = 0, SRC_NEARBLACK, SRC_NEARWHITE, SRC_PRIMARY,
-					   SRC_SECONDARY, SRC_SAT, SRC_CC24, SRC_FREE };
+					   SRC_SECONDARY, SRC_SAT, SRC_CC24, SRC_FREE, SRC_PROFILE };
 
 	struct ScenePoint
 	{
@@ -96,15 +97,21 @@ protected:
 	std::vector<ScenePoint> m_points;
 	bool m_sceneDirty;
 	int  m_freeInScene;       // free measurements already in m_points (incremental append)
+	int  m_profileInScene;    // profile patches already in m_points (incremental append)
 	void BuildScene();
 	void AppendNewFreeMeasures();
+	void AppendNewProfileMeasures();
 	// dETarget/ywForDE feed GetDeltaE with the grid's conventions; markerTarget
 	// (relative to white=1) is where the tail/ring is drawn. Pass noDataColor
 	// twice for measurements without a reference.
+	// dEOverride >= 0 substitutes a caller-computed dE (profile points use
+	// CMeasure::ComputeProfileDE so the viewer matches the summary pane exactly);
+	// < 0 computes dE inline from dETarget.
 	void AppendMeasure(const CColor & c, double whiteY, CColorReference & ref,
 					   const CColor & dETarget, const CColor & markerTarget,
 					   bool isGS, double ywForDE, const wchar_t * label,
-					   int srcType, int srcA, int srcB = 0, int srcC = 0);
+					   int srcType, int srcA, int srcB = 0, int srcC = 0,
+					   double dEOverride = -1.0);
 	void PushSelectionToMainView(const ScenePoint & S);
 	void ToModel(const ColorXYZ & xyz, double whiteY, CColorReference & ref,
 				 double & mx, double & my, double & mz) const;
@@ -143,6 +150,7 @@ protected:
 	int    m_pointColor;          // one of PointColorMode
 	int    m_deFilter;            // see SetDEFilter
 	bool   m_showTails;           // draw target cross + tail to each measured point
+	bool   m_showProfilePts;      // show SRC_PROFILE points (display-profile cube); default on
 	bool   m_bDragging;
 	CPoint m_lastMouse;
 	CPoint m_downPos;             // to tell a click (select) from a drag (rotate)
