@@ -45,6 +45,9 @@ protected:
 	BOOL m_isMeasureValid;
 	Matrix m_sensorToXYZMatrix;
     Matrix m_sensorToXYZMatrixMod;
+	int m_calibrationMethod;					// CalibrationMatrixMethod: which method produced the matrices below
+	Matrix m_bodnerRawMatrix[3];				// Bodner sub-gamut raw-primary matrices (rgw/gbw/rbw), only valid when m_calibrationMethod == CALIB_BODNER_THREEMATRIX
+	Matrix m_bodnerCalMatrix[3];				// Bodner sub-gamut calibration matrices (rgw/gbw/rbw)
 	time_t m_calibrationTime;
 	int		m_PropertySheetTitle;
 	CSensorPropPage m_SensorPropertiesPage;
@@ -74,6 +77,28 @@ public:
 	void SetSensorMatrixMod(Matrix aMatrix) { m_sensorToXYZMatrixMod=aMatrix; m_calibrationTime=time(NULL);}
 	Matrix GetSensorMatrix() {return m_sensorToXYZMatrix; }
 	Matrix GetSensorMatrixMod() {return m_sensorToXYZMatrixMod; }
+
+	void SetCalibrationMethod(int aMethod) { m_calibrationMethod=aMethod; }
+	int GetCalibrationMethod() const { return m_calibrationMethod; }
+	void SetBodnerMatrices(const Matrix aRawMatrix[3], const Matrix aCalMatrix[3])
+	{
+		for ( int k = 0; k < 3; k++ )
+		{
+			m_bodnerRawMatrix[k] = aRawMatrix[k];
+			m_bodnerCalMatrix[k] = aCalMatrix[k];
+		}
+		m_calibrationTime=time(NULL);
+	}
+	void ClearBodnerMatrices()
+	{
+		for ( int k = 0; k < 3; k++ )
+		{
+			m_bodnerRawMatrix[k] = Matrix::IdentityMatrix(3);
+			m_bodnerCalMatrix[k] = Matrix::IdentityMatrix(3);
+		}
+	}
+	const Matrix * GetBodnerRawMatrices() const { return m_bodnerRawMatrix; }
+	const Matrix * GetBodnerCalMatrices() const { return m_bodnerCalMatrix; }
 
 	virtual BOOL IsMeasureValid() {return m_isMeasureValid; }
 	virtual void SetMeasureValidity(BOOL isValid) { m_isMeasureValid=isValid; }

@@ -44,6 +44,12 @@ CSensor::CSensor()
 	m_isMeasureValid=TRUE;
 	m_sensorToXYZMatrix=IdentityMatrix(3);
 	m_sensorToXYZMatrixMod=IdentityMatrix(3);
+	m_calibrationMethod=CALIB_HCFR_DEFAULT;
+	for ( int k = 0; k < 3; k++ )
+	{
+		m_bodnerRawMatrix[k]=IdentityMatrix(3);
+		m_bodnerCalMatrix[k]=IdentityMatrix(3);
+	}
 
 	m_calibrationTime=0;
 
@@ -66,26 +72,60 @@ void CSensor::Copy(CSensor * p)
 	m_isMeasureValid = p->m_isMeasureValid;
 	m_sensorToXYZMatrix = p->m_sensorToXYZMatrix;
 	m_calibrationTime = p->m_calibrationTime;
+	m_calibrationMethod = p->m_calibrationMethod;
+	for ( int k = 0; k < 3; k++ )
+	{
+		m_bodnerRawMatrix[k] = p->m_bodnerRawMatrix[k];
+		m_bodnerCalMatrix[k] = p->m_bodnerCalMatrix[k];
+	}
 	m_name = p->m_name;
 }
 
 void CSensor::Serialize(CArchive& archive)
 {
 	CObject::Serialize(archive);
-	m_sensorToXYZMatrix.Serialize(archive); 
+	m_sensorToXYZMatrix.Serialize(archive);
 	if (archive.IsStoring())
 	{
-		int version=1;
+		int version=2;
 		archive << version;
 		archive << m_calibrationTime;
+		archive << m_calibrationMethod;
+		if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
+		{
+			for ( int k = 0; k < 3; k++ )
+			{
+				m_bodnerRawMatrix[k].Serialize(archive);
+				m_bodnerCalMatrix[k].Serialize(archive);
+			}
+		}
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 1 )
+		if ( version > 2 )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 		archive >> m_calibrationTime;
+
+		if ( version >= 2 )
+		{
+			archive >> m_calibrationMethod;
+			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
+			{
+				for ( int k = 0; k < 3; k++ )
+				{
+					m_bodnerRawMatrix[k].Serialize(archive);
+					m_bodnerCalMatrix[k].Serialize(archive);
+				}
+			}
+		}
+		else
+		{
+			// Pre-existing sensor files predate this feature: they were always
+			// using HCFR's default single-matrix method.
+			m_calibrationMethod = CALIB_HCFR_DEFAULT;
+		}
 	}
 }
 
@@ -126,7 +166,14 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	result.SetX(max(result.GetX(),0.00000001));
 	result.SetY(max(result.GetY(),0.00000001));
 	result.SetZ(max(result.GetZ(),0.00000001));
-    result.applyAdjustmentMatrix(m_sensorToXYZMatrix);
+
+	result.SetRawXYZValue(result.GetXYZValue());
+
+	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
+		result.SetXYZValue(SelectAndApplyBodnerMatrix(result.GetXYZValue(), m_bodnerRawMatrix, m_bodnerCalMatrix));
+	else
+		result.applyAdjustmentMatrix(m_sensorToXYZMatrix);
+
     return result;
 }
 

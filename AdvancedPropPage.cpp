@@ -40,7 +40,7 @@ CAdvancedPropPage::CAdvancedPropPage() : CPropertyPageWithHelp(CAdvancedPropPage
 	//{{AFX_DATA_INIT(CAdvancedPropPage)
 	m_bConfirmMeasures = TRUE;
 	m_comPort = _T("");
-	m_bUseOnlyPrimaries = FALSE;
+	m_calibrationMethod = CALIB_HCFR_DEFAULT;
 	m_bUseImperialUnits = FALSE;
 	m_nLuminanceCurveMode = 0;
 	m_bPreferLuxmeter = FALSE;
@@ -71,7 +71,7 @@ void CAdvancedPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_CBIndex(pDX, IDC_COMBO_dE, m_dE_form);
 	DDX_CBIndex(pDX, IDC_COMBO_dE_GRAY, m_dE_gray);
 	DDX_CBIndex(pDX, IDC_COMBO_dE_WEIGHT, gw_Weight);
-	DDX_Check(pDX, IDC_CHECK_CALIBRATION_OLD, m_bUseOnlyPrimaries);
+	DDX_Radio(pDX, IDC_RADIO_CALIB_CLASSIC_NIST, m_calibrationMethod);
 	DDX_Check(pDX, IDC_HIGHLIGHT, doHighlight);
 	DDX_Check(pDX, IDC_CHECK_IMPERIAL, m_bUseImperialUnits);
 	DDX_Radio(pDX, IDC_RADIO1, m_nLuminanceCurveMode);
@@ -88,6 +88,7 @@ BEGIN_MESSAGE_MAP(CAdvancedPropPage, CPropertyPageWithHelp)
     ON_CONTROL_RANGE(BN_CLICKED, IDC_CHECK_DELTAE_GRAY_LUMA, IDC_CHECK_DELTAE_GRAY_LUMA, OnControlClicked)
     ON_CONTROL_RANGE(BN_CLICKED, IDC_RADIO1, IDC_RADIO3, OnControlClicked)
     ON_CONTROL_RANGE(BN_CLICKED, IDC_HIGHLIGHT, IDC_HIGHLIGHT, OnControlClicked)
+    ON_CONTROL_RANGE(BN_CLICKED, IDC_RADIO_CALIB_CLASSIC_NIST, IDC_RADIO_CALIB_BODNER, OnControlClicked)
 
 	//{{AFX_MSG_MAP(CAdvancedPropPage)
 	ON_CBN_SELCHANGE(IDC_LUXMETER_COM_COMBO, OnSelchangeLuxmeterComCombo)

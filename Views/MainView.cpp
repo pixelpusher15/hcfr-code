@@ -8945,14 +8945,14 @@ void CMainView::OnAdjustXYZCheck()
 		ASSERT(0);
 		GetDocument ()->m_pSensor->SetSensorMatrixMod( CurrentMatrix );
 		GetDocument ()->m_pSensor->SetSensorMatrix( Matrix::IdentityMatrix(3) );
-		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( CurrentMatrix.GetInverse() );
+		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( CurrentMatrix.GetInverse(), Matrix::IdentityMatrix(3) );
 		m_AdjustXYZCheckButton.SetCheck(FALSE);
 	}
 	else  //reapply saved correction matrix
 	{
 		ASSERT(0);
 		GetDocument ()->m_pSensor->SetSensorMatrix( GetDocument ()->m_pSensor->GetSensorMatrixMod() );
-		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix(GetDocument ()->m_pSensor->GetSensorMatrixMod() );
+		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( GetDocument ()->m_pSensor->GetSensorMatrixMod(), GetDocument ()->m_pSensor->GetSensorMatrixMod() );
 		GetDocument ()->m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
 		m_AdjustXYZCheckButton.SetCheck(TRUE);
 	}

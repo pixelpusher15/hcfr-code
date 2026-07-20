@@ -54,7 +54,7 @@ public:
 	int 		m_dE_preset;
 	int 		m_dE_gray;
 	int 		gw_Weight;
-	BOOL		m_bUseOnlyPrimaries;
+	int 		m_calibrationMethod;
 	BOOL		m_bUseImperialUnits;
 	int 		m_nLuminanceCurveMode;
 	BOOL		m_bPreferLuxmeter;

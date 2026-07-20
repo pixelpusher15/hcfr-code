@@ -1377,9 +1377,12 @@ void CDataSetDoc::OnConfigureSensor()
 	m_pSensor->Configure();
 	if( m_pSensor->IsModified() )
 	{
-        //unapply old - apply new
-        m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrixMod().GetInverse() );
-		m_measure.ApplySensorAdjustmentMatrix(m_pSensor->GetSensorMatrix());
+        // Raw-carrying measurements recompute directly from the new full matrix;
+        // legacy measurements (no stored raw value) still need the delta relative
+        // to the previously configured matrix (saved into SensorMatrixMod above).
+        Matrix fullMatrix = m_pSensor->GetSensorMatrix();
+        Matrix deltaMatrix = fullMatrix * m_pSensor->GetSensorMatrixMod().GetInverse();
+		m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix );
         m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
 		SetModifiedFlag(TRUE);
 		UpdateAllViews ( NULL, UPD_EVERYTHING );
@@ -1942,22 +1945,66 @@ void CDataSetDoc::OnCalibrationManual()
 
             ColorXYZ white(measuredColor[3].GetXYZValue());
             Matrix oldMatrix = m_pSensor->GetSensorMatrix();
-            Matrix ConvMatrix = ComputeConversionMatrix (measures, references, white, whiteRef, GetConfig () -> m_bUseOnlyPrimaries );
+            int calibrationMethod = GetConfig () -> m_calibrationMethod;
 
-        	// check that matrix is inversible
-	        if ( ConvMatrix.Determinant() != 0.0 )
-	        {
-		        // Ok: set adjustment matrix
-                Matrix newMatrix = ConvMatrix * oldMatrix;
-		        m_measure.ApplySensorAdjustmentMatrix( ConvMatrix );
-                m_pSensor->SetSensorMatrix(newMatrix);
-		        m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
-		        SetModifiedFlag(TRUE);
-	        }
-	        else
-	        {
-		        GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
-	        }
+            if ( calibrationMethod == CALIB_BODNER_THREEMATRIX )
+            {
+                // Sub-gamut selection at measurement time (CSensor::MeasureColor)
+                // runs on the sensor's genuinely raw reading, so the "measures"
+                // side here must be raw too (not measuredColor[]'s already-
+                // corrected XYZ, which is what "references[]"/"white" above hold).
+                // The dialog-entered values have no raw/corrected distinction.
+                ColorXYZ measuresRGBW[4]   = {
+                                                measuredColor[0].GetRawXYZValue(),
+                                                measuredColor[1].GetRawXYZValue(),
+                                                measuredColor[2].GetRawXYZValue(),
+                                                measuredColor[3].GetRawXYZValue()
+                                              };
+                ColorXYZ referencesRGBW[4] = { measures[0], measures[1], measures[2], whiteRef };
+
+                try
+                {
+                    Matrix rawMatrix[3], calMatrix[3];
+                    ComputeBodnerThreeMatrices(measuresRGBW, referencesRGBW, rawMatrix, calMatrix);
+
+                    m_pSensor->SetBodnerMatrices(rawMatrix, calMatrix);
+                    m_pSensor->SetCalibrationMethod(CALIB_BODNER_THREEMATRIX);
+                    int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
+                    SetModifiedFlag(TRUE);
+
+                    if ( nSkipped > 0 )
+                    {
+                        CString strSkipMsg;
+                        strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
+                        GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
+                    }
+                }
+                catch ( std::logic_error & )
+                {
+                    GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+                }
+            }
+            else
+            {
+                Matrix ConvMatrix = ComputeConversionMatrix (measures, references, white, whiteRef, calibrationMethod == CALIB_CLASSIC_NIST );
+
+                // check that matrix is inversible
+                if ( ConvMatrix.Determinant() != 0.0 )
+                {
+                    // Ok: set adjustment matrix
+                    Matrix newMatrix = ConvMatrix * oldMatrix;
+                    m_measure.ApplySensorAdjustmentMatrix( ConvMatrix, newMatrix );
+                    m_pSensor->SetSensorMatrix(newMatrix);
+                    m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
+                    m_pSensor->SetCalibrationMethod(calibrationMethod);
+                    m_pSensor->ClearBodnerMatrices();
+                    SetModifiedFlag(TRUE);
+                }
+                else
+                {
+                    GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+                }
+            }
 
 	        AfxGetMainWnd () -> SendMessageToDescendants ( WM_COMMAND, IDM_REFRESH_REFERENCE );
 
@@ -2304,23 +2351,67 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 
     // check that measure matrix is inversible
     Matrix oldMatrix = m_pSensor->GetSensorMatrix();
-    Matrix ConvMatrix = ComputeConversionMatrix (measures, references, white, whiteRef, GetConfig () -> m_bUseOnlyPrimaries );
+    int calibrationMethod = GetConfig () -> m_calibrationMethod;
 
-	// check that matrix is inversible
-	if ( ConvMatrix.Determinant() != 0.0 )
-	{
-		// Ok: set adjustment matrix
-        Matrix newMatrix = ConvMatrix * oldMatrix;
-		m_measure.ApplySensorAdjustmentMatrix( ConvMatrix );
-        m_pSensor->SetSensorMatrix(newMatrix);
-		m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
-		SetModifiedFlag(TRUE);
-		bOk = TRUE;
-	}
-	else
-	{
-		        GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
-	}
+    if ( calibrationMethod == CALIB_BODNER_THREEMATRIX )
+    {
+        // Sub-gamut selection at measurement time (CSensor::MeasureColor) runs on
+        // the sensor's genuinely raw reading, so "measures" here must be raw too
+        // (not the already-corrected XYZ that measures[]/white above hold).
+        // referencesRGBW (the reference document's own readings) is unaffected.
+        ColorXYZ measuresRGBW[4] = {
+                                        m_measure.GetRedPrimary().GetRawXYZValue(),
+                                        m_measure.GetGreenPrimary().GetRawXYZValue(),
+                                        m_measure.GetBluePrimary().GetRawXYZValue(),
+                                        m_measure.GetPrimeWhite().isValid() ? m_measure.GetPrimeWhite().GetRawXYZValue() : m_measure.GetOnOffWhite().GetRawXYZValue()
+                                    };
+        ColorXYZ referencesRGBW[4] = { references[0], references[1], references[2], whiteRef };
+
+        try
+        {
+            Matrix rawMatrix[3], calMatrix[3];
+            ComputeBodnerThreeMatrices(measuresRGBW, referencesRGBW, rawMatrix, calMatrix);
+
+            m_pSensor->SetBodnerMatrices(rawMatrix, calMatrix);
+            m_pSensor->SetCalibrationMethod(CALIB_BODNER_THREEMATRIX);
+            int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
+            SetModifiedFlag(TRUE);
+            bOk = TRUE;
+
+            if ( nSkipped > 0 )
+            {
+                CString strSkipMsg;
+                strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
+                GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
+            }
+        }
+        catch ( std::logic_error & )
+        {
+            GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+        }
+    }
+    else
+    {
+        Matrix ConvMatrix = ComputeConversionMatrix (measures, references, white, whiteRef, calibrationMethod == CALIB_CLASSIC_NIST );
+
+        // check that matrix is inversible
+        if ( ConvMatrix.Determinant() != 0.0 )
+        {
+            // Ok: set adjustment matrix
+            Matrix newMatrix = ConvMatrix * oldMatrix;
+            m_measure.ApplySensorAdjustmentMatrix( ConvMatrix, newMatrix );
+            m_pSensor->SetSensorMatrix(newMatrix);
+            m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
+            m_pSensor->SetCalibrationMethod(calibrationMethod);
+            m_pSensor->ClearBodnerMatrices();
+            SetModifiedFlag(TRUE);
+            bOk = TRUE;
+        }
+        else
+        {
+            GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+        }
+    }
 	this->UpdateAllViews ( NULL, UPD_EVERYTHING );
 	AfxGetMainWnd () -> SendMessageToDescendants ( WM_COMMAND, IDM_REFRESH_REFERENCE );
 
@@ -5072,7 +5163,7 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		if(page.m_sensorTrainingMode != 1)
 			m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
 		m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
-		m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix() );
+		m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
 		UpdateAllViews ( NULL, UPD_EVERYTHING );
 		SetModifiedFlag(TRUE);
 	}

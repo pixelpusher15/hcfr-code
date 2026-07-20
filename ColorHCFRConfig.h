@@ -139,7 +139,7 @@ public:
 	int		m_TBViewsRightClickMode;
 	int		m_TBViewsMiddleClickMode;
 	BOOL	m_bConfirmMeasures;
-	BOOL	m_bUseOnlyPrimaries;
+	int		m_calibrationMethod;	// CalibrationMatrixMethod: which correction-matrix method to use
 	BOOL	m_bUseImperialUnits;
 	int		m_nLuminanceCurveMode;
 	BOOL	m_bPreferLuxmeter;
