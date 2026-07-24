@@ -148,6 +148,8 @@ class CCIEChartGrapher
 	BOOL			m_covValid;
 	ColorStandard	m_covStandard;
 	ColorXYZ		m_covPrimaries[3];
+	ColorXYZ		m_covSecondaries[3];	// yellow, cyan, magenta -- a*b* path only
+	BOOL			m_covAbMode;			// which metric (xy/u'v' vs a*b*) the cache above is for
 
 	// Zoom handling, for window mode
 	UINT	m_ZoomFactor;	// Zoom factor = 1000 for 1:1 scale, 2000 for 2x zoom, and so on

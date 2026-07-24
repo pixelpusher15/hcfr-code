@@ -725,19 +725,33 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 
 }
 
-// Gamut coverage chips (top right): [gamut] [xy: n%] [u'v': n%]. The
-// gamut-name chip always shows; the coverage percentages are the measured
-// primaries triangle vs the displayed reference triangle (area intersection
-// / reference area) in xy and u'v'. Not shown in CIE a*b* mode (the metric
-// is a chromaticity-plane one). The percentages hide when the gamut is
-// changed until the primaries are re-measured, since old primaries don't
-// belong to the new reference.
+// Gamut coverage chips (top right): [gamut] [xy: n%] [u'v': n%] in the xy/
+// u'v' views, or [gamut] [a*b*: n%] in the CIE a*b* view. The gamut-name
+// chip always shows.
+//
+// xy/u'v': the measured R,G,B primaries triangle vs the displayed reference
+// triangle (area intersection / reference area) -- a pure chromaticity-plane
+// metric, blind to luminance by construction (see GamutCoverage.h).
+//
+// a*b*: NOT the same metric re-plotted. A 3-point R,G,B triangle would
+// dilute a single bad channel's effect across only three vertices, and
+// would stay completely unmoved by a pure luminance shortfall in a
+// secondary (Y/C/M) -- the exact blind spot this chip exists to close. So
+// this path uses all six of R,Y,G,C,B,M as an a*b* hexagon instead
+// (GamutCoveragePolygon in GamutCoverage.h/.cpp). Because a* and b* both
+// carry the f(Y/Yn) term from the Lab formulas, a channel that loses
+// luminance at an unchanged xy chromaticity visibly compresses toward the
+// neutral point on this hexagon -- which is the point of computing it this
+// way rather than mirroring the triangle metric into this plane.
+//
+// The percentages hide when the gamut is changed until the primaries are
+// re-measured, since old primaries don't belong to the new reference.
 // The row anchors to rcAnchor's top-right: the client rect when overlaid on
 // screen paints (OnDraw calls this after every blit so the chips stay pinned
 // under zoom/pan), the image rect when baked into exports.
 void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDoc * pDoc )
 {
-	if ( m_bCIEab || min(rcAnchor.Width(),rcAnchor.Height()) <= FX_MINSIZETOSHOW_REFDETAILS )
+	if ( min(rcAnchor.Width(),rcAnchor.Height()) <= FX_MINSIZETOSHOW_REFDETAILS )
 		return;
 
 	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetRedPrimary().GetXYZValue();
@@ -745,6 +759,18 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetBluePrimary().GetXYZValue();
 	BOOL hasPrimaries = redPrimaryColor.isValid() && greenPrimaryColor.isValid() &&
 						bluePrimaryColor.isValid();
+
+	// a*b* mode additionally needs the secondaries to build the hexagon.
+	ColorXYZ yellowSecondaryColor, cyanSecondaryColor, magentaSecondaryColor;
+	BOOL hasSecondariesForAb = FALSE;
+	if ( m_bCIEab )
+	{
+		yellowSecondaryColor  = pDoc->GetMeasure()->GetYellowSecondary().GetXYZValue();
+		cyanSecondaryColor    = pDoc->GetMeasure()->GetCyanSecondary().GetXYZValue();
+		magentaSecondaryColor = pDoc->GetMeasure()->GetMagentaSecondary().GetXYZValue();
+		hasSecondariesForAb = yellowSecondaryColor.isValid() && cyanSecondaryColor.isValid() &&
+							  magentaSecondaryColor.isValid();
+	}
 
 	// Short names for the mainstream gamuts; everything else (incl. the
 	// reduced-primary HDTVa/HDTVb pseudo-gamuts) uses its own reference
@@ -761,38 +787,122 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	}
 
 	// Decide whether the coverage percentages are current. They are stale
-	// (and hidden) if the reference standard changed while the measured
-	// primaries stayed put -- i.e. the gamut was switched without a fresh
-	// measurement. Re-measuring changes the primaries and re-shows them.
+	// (and hidden) only if the reference standard changed *while staying in
+	// the same chart view* with the measured primaries left untouched --
+	// i.e. the gamut was switched without a fresh measurement. Re-measuring
+	// changes the primaries and re-shows them. Switching between the xy/u'v'
+	// view and the a*b* view is NOT staleness -- the same measured data is
+	// always valid for computing either metric, so a mode switch just falls
+	// through to a cheap recompute below rather than hiding anything.
 	ColorStandard curStd = GetColorReference().m_standard;
 	BOOL showPct = FALSE;
-	double covXY = 0.0, covUV = 0.0;
-	if (hasPrimaries)
+	double covXY = 0.0, covUV = 0.0, covAB = 0.0;
+	BOOL haveAllNeeded = m_bCIEab ? (hasPrimaries && hasSecondariesForAb) : hasPrimaries;
+	if (haveAllNeeded)
 	{
 		BOOL primsSame = m_covValid
 			&& redPrimaryColor[0]   == m_covPrimaries[0][0] && redPrimaryColor[1]   == m_covPrimaries[0][1] && redPrimaryColor[2]   == m_covPrimaries[0][2]
 			&& greenPrimaryColor[0] == m_covPrimaries[1][0] && greenPrimaryColor[1] == m_covPrimaries[1][1] && greenPrimaryColor[2] == m_covPrimaries[1][2]
 			&& bluePrimaryColor[0]  == m_covPrimaries[2][0] && bluePrimaryColor[1]  == m_covPrimaries[2][1] && bluePrimaryColor[2]  == m_covPrimaries[2][2];
+		BOOL secsSame = !m_bCIEab || (m_covValid
+			&& yellowSecondaryColor[0]  == m_covSecondaries[0][0] && yellowSecondaryColor[1]  == m_covSecondaries[0][1] && yellowSecondaryColor[2]  == m_covSecondaries[0][2]
+			&& cyanSecondaryColor[0]    == m_covSecondaries[1][0] && cyanSecondaryColor[1]    == m_covSecondaries[1][1] && cyanSecondaryColor[2]    == m_covSecondaries[1][2]
+			&& magentaSecondaryColor[0] == m_covSecondaries[2][0] && magentaSecondaryColor[1] == m_covSecondaries[2][1] && magentaSecondaryColor[2] == m_covSecondaries[2][2]);
+		BOOL modeMatches = m_covValid && (m_covAbMode == m_bCIEab);
 		BOOL stdSame = m_covValid && (m_covStandard == curStd);
 
-		if (m_covValid && !stdSame && primsSame)
+		if (modeMatches && !stdSame && primsSame && secsSame)
 		{
-			showPct = FALSE;	// gamut changed, primaries not re-measured
+			showPct = FALSE;	// same view as last time, gamut standard changed, primaries not re-measured
 		}
 		else
 		{
 			showPct = TRUE;
-			ColorxyY measured[3] = { ColorxyY(redPrimaryColor),
-									 ColorxyY(greenPrimaryColor),
-									 ColorxyY(bluePrimaryColor) };
-			// the triangle drawn on the chart is the active reference's primaries
-			// (for P3/709 inside a 2020 container these are already the inner gamut)
-			ColorxyY refTri[3] = { ColorxyY(GetColorReference().GetRed()),
-								   ColorxyY(GetColorReference().GetGreen()),
-								   ColorxyY(GetColorReference().GetBlue()) };
-			covXY = GamutCoverage(measured, refTri, GAMUT_PLANE_XY) * 100.0;
-			covUV = GamutCoverage(measured, refTri, GAMUT_PLANE_UV) * 100.0;
+
+			if ( m_bCIEab )
+			{
+				// Measured colors are raw sensor XYZ (Y in absolute cd/m^2,
+				// e.g. ~10-170), while CColorReference::GetRed()/GetYellow()/
+				// etc. are explicitly documented as "relative-to-white
+				// luminance... white luminance reference value is 1" -- a
+				// completely different scale. Mixing them under a single
+				// YWhiteRef=1.0 (as an earlier version of this code did)
+				// inflates the measured hexagon's Lab magnitude so much it
+				// swallows the correctly-scaled reference hexagon entirely,
+				// pinning coverage near 100% regardless of actual accuracy.
+				// The fix mirrors the existing, working precedent a few
+				// hundred lines below (the actual plotted marker
+				// construction): measured colors use YWhite (the display's
+				// own measured white luminance), reference colors use 1.0
+				// (matching CColorReference's own convention).
+				double YWhiteAB = 1.0;
+				if ( pDoc->GetMeasure()->GetPrimeWhite().isValid() )
+					YWhiteAB = pDoc->GetMeasure()->GetPrimeWhite()[1];
+				else if ( pDoc->GetMeasure()->GetOnOffWhite().isValid() )
+					YWhiteAB = pDoc->GetMeasure()->GetOnOffWhite()[1];
+				// NOTE: the existing code this mirrors additionally special-
+				// cases HDTVa/HDTVb against a UI mode range (current_mode)
+				// that isn't in scope in this function; that narrow case is
+				// not replicated here.
+
+				// NOTE: this covers the SDR case. DrawChart's own Lab
+				// conversions (see ~line 1273) additionally rescale the
+				// *reference* side for HDR tone-mapped diffuse white when
+				// GetConfig()->m_GammaOffsetType == 5. This chip path is
+				// called from the pinned-overlay repaint (below, and from
+				// OnDraw) independently of that pass, so it doesn't have
+				// tmWhite/current_mode in scope the way DrawChart does.
+				// If HDR a*b* coverage looks off, mirror that normalization
+				// in here too -- untested against an HDR project in this
+				// pass.
+				CColorReference bRefAb = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4) ? CColorReference(UHDTV2) :
+										   (GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb) ? CColorReference(HDTV) : GetColorReference());
+
+				ColorLab measLab[6] = {
+					ColorLab(ColorXYZ(redPrimaryColor),      YWhiteAB, bRefAb),
+					ColorLab(ColorXYZ(yellowSecondaryColor), YWhiteAB, bRefAb),
+					ColorLab(ColorXYZ(greenPrimaryColor),    YWhiteAB, bRefAb),
+					ColorLab(ColorXYZ(cyanSecondaryColor),   YWhiteAB, bRefAb),
+					ColorLab(ColorXYZ(bluePrimaryColor),     YWhiteAB, bRefAb),
+					ColorLab(ColorXYZ(magentaSecondaryColor),YWhiteAB, bRefAb),
+				};
+				ColorLab refLab[6] = {
+					ColorLab(ColorXYZ(GetColorReference().GetRed()),     1.0, bRefAb),
+					ColorLab(ColorXYZ(GetColorReference().GetYellow()),  1.0, bRefAb),
+					ColorLab(ColorXYZ(GetColorReference().GetGreen()),   1.0, bRefAb),
+					ColorLab(ColorXYZ(GetColorReference().GetCyan()),    1.0, bRefAb),
+					ColorLab(ColorXYZ(GetColorReference().GetBlue()),    1.0, bRefAb),
+					ColorLab(ColorXYZ(GetColorReference().GetMagenta()), 1.0, bRefAb),
+				};
+
+				std::vector<GamutPoint> measHex(6), refHex(6);
+				for (int i = 0; i < 6; i++)
+				{
+					measHex[i] = GamutPoint{ measLab[i][1], measLab[i][2] };	// a*, b*
+					refHex[i]  = GamutPoint{ refLab[i][1],  refLab[i][2]  };
+				}
+				covAB = GamutCoveragePolygon(measHex, refHex) * 100.0;
+
+				m_covSecondaries[0] = yellowSecondaryColor;
+				m_covSecondaries[1] = cyanSecondaryColor;
+				m_covSecondaries[2] = magentaSecondaryColor;
+			}
+			else
+			{
+				ColorxyY measured[3] = { ColorxyY(redPrimaryColor),
+										 ColorxyY(greenPrimaryColor),
+										 ColorxyY(bluePrimaryColor) };
+				// the triangle drawn on the chart is the active reference's primaries
+				// (for P3/709 inside a 2020 container these are already the inner gamut)
+				ColorxyY refTri[3] = { ColorxyY(GetColorReference().GetRed()),
+									   ColorxyY(GetColorReference().GetGreen()),
+									   ColorxyY(GetColorReference().GetBlue()) };
+				covXY = GamutCoverage(measured, refTri, GAMUT_PLANE_XY) * 100.0;
+				covUV = GamutCoverage(measured, refTri, GAMUT_PLANE_UV) * 100.0;
+			}
+
 			m_covStandard = curStd;
+			m_covAbMode = m_bCIEab;
 			m_covPrimaries[0] = redPrimaryColor;
 			m_covPrimaries[1] = greenPrimaryColor;
 			m_covPrimaries[2] = bluePrimaryColor;
@@ -815,19 +925,27 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	Gdiplus::Color nBorder = bDark ? Gdiplus::Color(255, 72, 72, 72)    : Gdiplus::Color(255, 205, 207, 213);
 	Gdiplus::Color nText   = bDark ? Gdiplus::Color(255, 215, 215, 215) : Gdiplus::Color(255, 70, 74, 80);
 
-	// Visual order left-to-right is [gamut] [xy] [u'v']; priority is the
-	// reverse, so if the row can't fit the chart width drop u'v' first,
-	// then xy, always keeping the gamut name.
-	WCHAR uvBuf[64], xyBuf[64];
+	// Visual order left-to-right is [gamut] [xy] [u'v'] (or [gamut] [a*b*]
+	// in a*b* mode); priority is the reverse, so if the row can't fit the
+	// chart width drop u'v' first, then xy, always keeping the gamut name.
+	WCHAR uvBuf[64], xyBuf[64], abBuf[64];
 	const WCHAR * ordered[3];
 	int nChips = 0;
 	ordered[nChips++] = gamutName;
 	if (showPct)
 	{
-		swprintf_s(xyBuf, 64, L"xy: %.1f%%", covXY);
-		swprintf_s(uvBuf, 64, L"u'v': %.1f%%", covUV);
-		ordered[nChips++] = xyBuf;
-		ordered[nChips++] = uvBuf;
+		if ( m_bCIEab )
+		{
+			swprintf_s(abBuf, 64, L"a*b*: %.1f%%", covAB);
+			ordered[nChips++] = abBuf;
+		}
+		else
+		{
+			swprintf_s(xyBuf, 64, L"xy: %.1f%%", covXY);
+			swprintf_s(uvBuf, 64, L"u'v': %.1f%%", covUV);
+			ordered[nChips++] = xyBuf;
+			ordered[nChips++] = uvBuf;
+		}
 	}
 
 	const Gdiplus::REAL pad = 8.0f, gap = 6.0f;
