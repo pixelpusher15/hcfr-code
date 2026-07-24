@@ -1991,7 +1991,7 @@ BEGIN
         MENUITEM "Mostra Delta E = 3 and 10",   IDM_CIE_SHOWDELTAE
         MENUITEM "Modalità CIE u'v'",           IDM_CIE_UV
         MENUITEM "Modalità CIE a*b*",           IDM_CIE_AB
-        MENUITEM "Always recalc coverage % (ignore gamut change)", IDM_CIE_COV_ALWAYS_RECALC
+        MENUITEM "Always recalc coverage %", IDM_CIE_COV_ALWAYS_RECALC
         MENUITEM "Peggior 10%",                 IDM_CIE_WORST10
         MENUITEM "Mostra referimento",          IDM_CIE_SHOWREFERENCES
         MENUITEM "Salva...",                    IDM_CIE_SAVECHART
