@@ -157,6 +157,7 @@ CCIEChartGrapher::CCIEChartGrapher()
 	m_datarefMagentaBitmap.LoadBitmap(IDB_REFCROSS_MAGENTA);
 
 	m_doDisplayBackground=GetConfig()->GetProfileInt("CIE Chart","Display Background",TRUE);
+	m_doCovAlwaysRecalc=GetConfig()->GetProfileInt("CIE Chart","Coverage Always Recalc",FALSE);
 	m_doDisplayDeltaERef=GetConfig()->GetProfileInt("CIE Chart","Display Delta E",FALSE);
 	m_doShowReferences=GetConfig()->GetProfileInt("CIE Chart","Show References",TRUE);
 	m_doShowDataRef=GetConfig()->GetProfileInt("CIE Chart","Show Reference Data",TRUE);
@@ -812,8 +813,8 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	BOOL xyuvStale = m_covValid && !stdSame && primsSame;
 	BOOL abStale   = m_covValid && !stdSame && primsSame && secsSame;
 
-	BOOL showXYUV = hasPrimaries && !xyuvStale;
-	BOOL showAB   = hasPrimaries && hasSecondariesForAb && !abStale;
+	BOOL showXYUV = hasPrimaries && (m_doCovAlwaysRecalc || !xyuvStale);
+	BOOL showAB   = hasPrimaries && hasSecondariesForAb && (m_doCovAlwaysRecalc || !abStale);
 	double covXY = 0.0, covUV = 0.0, covAB = 0.0;
 
 	if (showXYUV)
@@ -904,7 +905,7 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	// here would silently absorb the new standard into the cache and make
 	// the percentages reappear one frame after being hidden, which isn't
 	// the intended behavior.
-	if (hasPrimaries && hasSecondariesForAb && !xyuvStale)
+	if (hasPrimaries && hasSecondariesForAb && (m_doCovAlwaysRecalc || !xyuvStale))
 	{
 		m_covStandard = curStd;
 		m_covPrimaries[0] = redPrimaryColor;
@@ -2891,12 +2892,14 @@ BEGIN_MESSAGE_MAP(CCIEChartView, CSavingView)
 	ON_WM_TIMER()
 	ON_WM_CONTEXTMENU()
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWBACKGROUND, OnUpdateCieShowbackground)
+	ON_UPDATE_COMMAND_UI(IDM_CIE_COV_ALWAYS_RECALC, OnUpdateCieCovAlwaysRecalc)
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWDELTAE, OnUpdateCieShowDeltaE)
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWREFERENCES, OnUpdateCieShowreferences)
 	ON_UPDATE_COMMAND_UI(IDM_LUM_GRAPH_DATAREF, OnUpdateCieGraphShowDataRef)
 	ON_COMMAND(IDM_CIE_SHOWREFERENCES, OnCieShowreferences)
 	ON_COMMAND(IDM_LUM_GRAPH_DATAREF, OnCieGraphShowDataRef)
 	ON_COMMAND(IDM_CIE_SHOWBACKGROUND, OnCieShowbackground)
+	ON_COMMAND(IDM_CIE_COV_ALWAYS_RECALC, OnCieCovAlwaysRecalc)
 	ON_COMMAND(IDM_CIE_SHOWDELTAE, OnCieShowDeltaE)
 	ON_COMMAND(IDM_CIE_SHOWGRAYSCALE, OnCieShowGrayScale)
 	ON_COMMAND(IDM_CIE_SHOWSATURATIONSCALE, OnCieShowSaturationScale)
@@ -3306,6 +3309,12 @@ void CCIEChartView::OnUpdateCieShowbackground(CCmdUI* pCmdUI)
 	pCmdUI->SetCheck(m_Grapher.m_doDisplayBackground);
 }
 
+void CCIEChartView::OnUpdateCieCovAlwaysRecalc(CCmdUI* pCmdUI)
+{
+	pCmdUI->Enable();
+	pCmdUI->SetCheck(m_Grapher.m_doCovAlwaysRecalc);
+}
+
 void CCIEChartView::OnUpdateCieShowDeltaE(CCmdUI* pCmdUI) 
 {
 	pCmdUI->Enable();
@@ -3378,6 +3387,13 @@ void CCIEChartView::OnCieShowbackground()
 	CRect rect;
 	GetReferenceRect(&rect);
 	m_Grapher.MakeBgBitmap(rect,GetConfig()->m_bWhiteBkgndOnScreen);
+	Invalidate(FALSE);
+}
+
+void CCIEChartView::OnCieCovAlwaysRecalc()
+{
+	m_Grapher.m_doCovAlwaysRecalc = !m_Grapher.m_doCovAlwaysRecalc;
+	GetConfig()->WriteProfileInt("CIE Chart","Coverage Always Recalc",m_Grapher.m_doCovAlwaysRecalc);
 	Invalidate(FALSE);
 }
 

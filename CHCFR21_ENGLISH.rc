@@ -1850,6 +1850,7 @@ BEGIN
         MENUITEM "Display Delta E = 3 and 10",  IDM_CIE_SHOWDELTAE
         MENUITEM "CIE u'v' mode",               IDM_CIE_UV
         MENUITEM "CIE a*b* mode",               IDM_CIE_AB
+        MENUITEM "Always recalc coverage % (ignore gamut change)", IDM_CIE_COV_ALWAYS_RECALC
         MENUITEM "Worst 10%",                   IDM_CIE_WORST10
         MENUITEM "Display references",          IDM_CIE_SHOWREFERENCES
         MENUITEM "Save...",                     IDM_CIE_SAVECHART

@@ -152,6 +152,14 @@ class CCIEChartGrapher
 	ColorXYZ		m_covPrimaries[3];
 	ColorXYZ		m_covSecondaries[3];	// yellow, cyan, magenta -- a*b* path only
 
+	// Off by default, matching the hide-on-stale-standard behavior above.
+	// Toggle on (via the CIE chart's right-click context menu) to skip that
+	// and always show fresh values computed from the existing measurement
+	// against whatever standard is currently selected -- e.g. to check how
+	// an existing measurement happens to cover a different standard
+	// without a separate re-measurement pass.
+	BOOL			m_doCovAlwaysRecalc;
+
 	// Zoom handling, for window mode
 	UINT	m_ZoomFactor;	// Zoom factor = 1000 for 1:1 scale, 2000 for 2x zoom, and so on
 	int		m_DeltaX;		// When zoom active, delta values for picture scrolling in pixels
@@ -264,12 +272,14 @@ protected:
 	afx_msg void OnSize(UINT nType, int cx, int cy);
 	afx_msg void OnContextMenu(CWnd* pWnd, CPoint point);
 	afx_msg void OnUpdateCieShowbackground(CCmdUI* pCmdUI);
+	afx_msg void OnUpdateCieCovAlwaysRecalc(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateCieShowDeltaE(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateCieShowreferences(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateCieGraphShowDataRef(CCmdUI* pCmdUI);
 	afx_msg void OnCieShowreferences();
 	afx_msg void OnCieGraphShowDataRef();
 	afx_msg void OnCieShowbackground();
+	afx_msg void OnCieCovAlwaysRecalc();
 	afx_msg void OnCieShowDeltaE();
 	afx_msg void OnCieShowGrayScale();
 	afx_msg void OnCieShowSaturationScale();
