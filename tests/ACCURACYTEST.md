@@ -33,9 +33,23 @@ The GetRef* functions are coupled to `GetConfig()` and to measured state
 ## Running
 
 ```
-Debug\ColorHCFR.exe /accuracytest [report.txt]
+Debug\ColorHCFR.exe /accuracytest [quick] [report.txt]
 echo %ERRORLEVEL%     rem 0 = pass, 1 = failures, 2 = cannot write report
 ```
+
+`quick` runs a reduced subset — **306 combos in ~2½ minutes** instead of 876 in
+~6 — for fast iteration. Only the white and grid axes shrink (D65 + xyCust,
+8b-lim + 8b-full); every color space, transfer function, generator and intensity
+still runs, because those are the branchy axes. The subset is deliberately
+chosen so **every `kKnownFails` entry still fires** — xyCust covers the
+custom-white entries, 8b-lim the PQ half-code tie, 8b-full the full-range gray
+gap — so the stale-entry check, and therefore the exit code, means exactly what
+it means in a full run.
+
+What it gives up is *level* dependence: several modeling gaps are worst on a
+grid or white the subset drops. It is a pre-flight, not a substitute — run the
+full matrix before committing. The report header and the `SUMMARY:` line both
+mark a quick run so a truncated result can never be mistaken for a full one.
 
 Headless: no windows, no generators, no real measure loops. The run takes a
 few minutes (~5-6 on a current desktop; it evaluates on the order of a million

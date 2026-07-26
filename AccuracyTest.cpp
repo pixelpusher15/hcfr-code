@@ -153,6 +153,20 @@ static const WhiteDef kWhites[] =
 	{ DCUST, "xyCust" },	// manual xy 0.3067, 0.3180
 };
 
+// "quick" runs a reduced subset for fast iteration. Only the WHITE and GRID
+// axes shrink - every color space, transfer function, generator and intensity
+// still runs, because those are the branchy axes. The subset is chosen so that
+// every kKnownFails entry still fires (so the stale-entry check, and therefore
+// the exit code, keeps its meaning): DCUST covers the custom-white entries,
+// 8b-lim covers the PQ half-code tie, 8b-full covers the full-range gray gap.
+// What it gives up is level dependence - several modeling gaps are worst on a
+// grid or white the subset drops - so it is a pre-flight, not a substitute.
+static bool s_bQuick = false;
+static int  s_nQuickWhites = 2;		// kWhites[0] = D65, kWhites[2] = DCUST
+static const int kQuickWhiteIdx[] = { 0, 2 };
+static int  s_nQuickGrids = 2;		// kGrids[0] = 8b-lim, kGrids[1] = 8b-full
+static const int kQuickGridIdx[] = { 0, 1 };
+
 static const GridDef kGrids[] =
 {
 	{ false, true,  "8b-lim"  },	// 219 codes
@@ -1343,8 +1357,10 @@ static void RunCombo ( const Combo & c )
 /////////////////////////////////////////////////////////////////////////////
 // Entry point
 
-int RunAccuracyTest ( const char * pReportPath )
+int RunAccuracyTest ( const char * pReportPath, bool bQuick )
 {
+	s_bQuick = bQuick;
+
 	// Show progress/summary when launched from a console
 	BOOL bConsole = AttachConsole(ATTACH_PARENT_PROCESS);
 	if ( bConsole )
@@ -1383,6 +1399,12 @@ int RunAccuracyTest ( const char * pReportPath )
 	}
 
 	fprintf(s_fReport, "ColorHCFR /accuracytest - reference == wire == sensor-model matrix\n");
+	if ( s_bQuick )
+		fprintf(s_fReport, "*** QUICK subset: D65 + xyCust whites, 8b-lim + 8b-full grids only.\n"
+						   "*** All spaces/EOTFs/generators/intensities run and every known-fail\n"
+						   "*** entry still fires, so the exit code means the same thing - but the\n"
+						   "*** dropped grids and white carry level-dependent gaps. Run the FULL\n"
+						   "*** matrix before committing.\n");
 	fprintf(s_fReport, "Columns are the worst dE per patch family; '*' = over tolerance (FAIL),\n");
 	fprintf(s_fReport, "'#' = over tolerance but documented KNOWN-FAIL (see detail below).\n");
 	fprintf(s_fReport, "Tolerance: 0.05; Intensity-90%% combos: 0.9 (power law) / 1.5 (other EOTFs); conv*: 0.005\n");
@@ -1411,10 +1433,14 @@ int RunAccuracyTest ( const char * pReportPath )
 			int eotf = ( sp.cs == sRGB ) ? 0 : e.mode;
 			BOOL bSdr = !( eotf == 5 || eotf == 7 );
 
-			for ( iWhite = 0 ; iWhite < (int)(sizeof(kWhites)/sizeof(kWhites[0])) ; iWhite ++ )
+			int nWhites = s_bQuick ? s_nQuickWhites : (int)(sizeof(kWhites)/sizeof(kWhites[0]));
+			int nGrids  = s_bQuick ? s_nQuickGrids  : (int)(sizeof(kGrids)/sizeof(kGrids[0]));
+			for ( int jWhite = 0 ; jWhite < nWhites ; jWhite ++ )
 			{
-				for ( iGrid = 0 ; iGrid < (int)(sizeof(kGrids)/sizeof(kGrids[0])) ; iGrid ++ )
+				iWhite = s_bQuick ? kQuickWhiteIdx[jWhite] : jWhite;
+				for ( int jGrid = 0 ; jGrid < nGrids ; jGrid ++ )
 				{
+					iGrid = s_bQuick ? kQuickGridIdx[jGrid] : jGrid;
 					// Window Intensity is SDR-only (the generator UI
 					// disables it for modes 5/7). HDTVa/b are also
 					// excluded: their saturation dE normalizes to the
@@ -1484,7 +1510,8 @@ int RunAccuracyTest ( const char * pReportPath )
 	fprintf(s_fReport, "\n");
 	if ( !s_failDetail.IsEmpty() )
 		fprintf(s_fReport, "---- DETAIL ----\n%s\n", (LPCSTR)s_failDetail);
-	fprintf(s_fReport, "SUMMARY: %d combos: %d pass, %d FAIL, %d known-fail%s\n",
+	fprintf(s_fReport, "SUMMARY:%s %d combos: %d pass, %d FAIL, %d known-fail%s\n",
+			s_bQuick ? " [QUICK subset]" : "",
 			s_nCombos, s_nPass, s_nFail, s_nKnownFail,
 			s_nUnexpectedPass ? " (stale known-fail entries present!)" : "");
 	fclose(s_fReport);

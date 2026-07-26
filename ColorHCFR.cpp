@@ -236,9 +236,19 @@ BOOL CColorHCFRApp::InitInstance()
 			m_pConfig = new CColorHCFRConfig();
 			m_pszRegistryKey = NULL;
 			m_pszProfileName = _tcsdup(m_pConfig->m_iniFileName);
-			LPCTSTR pReport = ( na + 1 < __argc && __targv[na+1][0] != _T('/') && __targv[na+1][0] != _T('-') )
-							  ? __targv[na+1] : NULL;
-			::ExitProcess ( RunAccuracyTest ( pReport ) );
+			// Remaining args, in any order: the literal "quick" selects the
+			// reduced white/grid subset, the first other non-flag token is the
+			// report path.
+			LPCTSTR pReport = NULL;
+			BOOL bQuick = FALSE;
+			for ( int nb = na + 1 ; nb < __argc ; nb ++ )
+			{
+				if ( _tcsicmp(__targv[nb], _T("quick")) == 0 )
+					bQuick = TRUE;
+				else if ( !pReport && __targv[nb][0] != _T('/') && __targv[nb][0] != _T('-') )
+					pReport = __targv[nb];
+			}
+			::ExitProcess ( RunAccuracyTest ( pReport, bQuick ) );
 		}
 	}
 
