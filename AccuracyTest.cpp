@@ -214,6 +214,7 @@ struct KnownFail
 #define GRID_ANY   0xF
 #define GRID_8LIM  0x1	// kGrids[0]
 #define GRID_FULL  0xA	// kGrids[1] (8b-full) | kGrids[3] (10b-full)
+#define GRID_LIM   0x5	// kGrids[0] (8b-lim) | kGrids[2] (10b-lim)
 
 // The `ceiling` on each entry bounds the known gap: a matching combo is only
 // downgraded to KNOWN-FAIL while its worst dE stays <= ceiling; a larger dE is
@@ -297,15 +298,24 @@ static const KnownFail kKnownFails[] =
 	// measured white alone, so the full 105.95640-vs-10000/92.254965 reference
 	// offset - 2.25% - survives: observed 0.49-0.70. Branch B additionally
 	// rescales YWhite by 94.37844/tmWhite, which very nearly cancels it:
-	// observed 0.02-0.07. Split ceilings so a regression in the near-cancelling
-	// half cannot hide under the other half's headroom.
-	{ HDTV,   -1, 5, -1, GRID_ANY, 1, 1.5, "manual generator: grid keeps the legacy DVD HDR conventions, the 3D viewer has no DVD branch (GetItemText ~3103 vs Color3DView BuildScene)" },
-	{ UHDTV,  -1, 5, -1, GRID_ANY, 1, 1.5, "manual generator: grid keeps the legacy DVD HDR conventions, the 3D viewer has no DVD branch (GetItemText ~3103 vs Color3DView BuildScene)" },
-	{ UHDTV2, -1, 5, -1, GRID_ANY, 1, 1.5, "manual generator: grid keeps the legacy DVD HDR conventions, the 3D viewer has no DVD branch (GetItemText ~3103 vs Color3DView BuildScene)" },
-	{ UHDTV3, -1, 5, -1, GRID_ANY, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
-	{ UHDTV4, -1, 5, -1, GRID_ANY, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
-	{ HDTVa,  -1, 5, -1, GRID_ANY, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
-	{ HDTVb,  -1, 5, -1, GRID_ANY, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
+	// observed 0.02-0.07.
+	//
+	// LIMITATION, deliberately recorded rather than papered over: these ceilings
+	// are keyed on color SPACE, but the two sub-branches are selected by
+	// displayMode - and RunSats and RunCC both accumulate into the SAME
+	// stats[FAM_CONV]/[FAM_CONVW], which keeps only the worst. So for
+	// HDTV/UHDTV/UHDTV2, where branch A reaches ~0.70, a branch-B (color
+	// checker) regression is hidden until it exceeds 1.5. Separating them needs
+	// per-displayMode FamStats, which is a bigger change than this entry table.
+	// The four spaces that only ever take branch B get the tight 0.3 ceiling and
+	// are fully protected.
+	{ HDTV,   -1, 5, -1, GRID_LIM, 1, 1.5, "manual generator: grid keeps the legacy DVD HDR conventions, the 3D viewer has no DVD branch (GetItemText ~3103 vs Color3DView BuildScene)" },
+	{ UHDTV,  -1, 5, -1, GRID_LIM, 1, 1.5, "manual generator: grid keeps the legacy DVD HDR conventions, the 3D viewer has no DVD branch (GetItemText ~3103 vs Color3DView BuildScene)" },
+	{ UHDTV2, -1, 5, -1, GRID_LIM, 1, 1.5, "manual generator: grid keeps the legacy DVD HDR conventions, the 3D viewer has no DVD branch (GetItemText ~3103 vs Color3DView BuildScene)" },
+	{ UHDTV3, -1, 5, -1, GRID_LIM, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
+	{ UHDTV4, -1, 5, -1, GRID_LIM, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
+	{ HDTVa,  -1, 5, -1, GRID_LIM, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
+	{ HDTVb,  -1, 5, -1, GRID_LIM, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
 };
 
 static bool s_knownFailFired[sizeof(kKnownFails)/sizeof(kKnownFails[0])] = { false };
@@ -413,6 +423,30 @@ static CColor Meas ( CSimulatedSensor & sensor, const ColorRGBDisplay & rgb, dou
 static CColorReference *	s_pGridDERef = NULL;	// GetItemText's bRef
 static CColorReference *	s_pViewDERef = NULL;	// AppendMeasure's dERef
 
+// UpdateGrid's sat/CC YWhite selection, whole chain (MainView.cpp ~3686-3706
+// then ~3814-3826): the special standards read the ON/OFF white, everyone else
+// the prime white - but prime falls back to ON/OFF when it was never measured,
+// and both fall back to m_TargetMaxL. Reading GetPrimeWhite().GetY() directly
+// (as this used to) skips both fallbacks and would return FX_NODATA (-99999.99)
+// for the common "contrast run done, primaries not run, sweep measured" state,
+// while the viewer's GetColorDEWhiteY handles it - a phantom divergence.
+static double GridYWhite ( const CMeasure & m, bool bSpecial, bool bCC )
+{
+	CColor prime = m.GetPrimeWhite();
+	CColor onoff = m.GetOnOffWhite();
+	double yOnOff = onoff.isValid() ? onoff.GetY() : -1.0;
+	double yPrime = prime.isValid() ? prime.GetY() : yOnOff;
+	double y = bSpecial ? yOnOff : yPrime;
+	if ( y == -1.0 )
+		y = GetConfig()->m_TargetMaxL;
+	// CC only, SDR only: a primaries run made below 90% stimulus (UpdateGrid
+	// ~3819-3826).
+	if ( bCC && onoff.isValid() && GetConfig()->m_GammaOffsetType != 5
+		 && yOnOff > 0 && yPrime / yOnOff < 0.9 )
+		y = yOnOff;
+	return y;
+}
+
 // UpdateGrid's mode-5 sat/CC reference rescale (MainView.cpp ~4313-4333):
 // * 100 for the Mascior-style HDR CC sets, the legacy fixed 105.95640 for the
 // manual generator, the tone-map-aware GetHDRRefScale otherwise.
@@ -437,8 +471,8 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 	{
 		CColor White = m.GetOnOffWhite();
 		CColor Black = m.GetOnOffBlack();
-		double tmWhite = TmDiffuseWhiteNits(White, Black);
 		BOOL DVD = ( cfg->GetGeneratorType() == CColorHCFRConfig::enumManual );
+		double tmWhite;
 		if ( DVD )
 		{
 			// The Mascior disc redefines white as its level-502 (50.0%) patch =
@@ -472,6 +506,7 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 		}
 		else if ( displayMode == 1 )
 		{
+			tmWhite = TmDiffuseWhiteNits(White, Black);
 			if ( cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7 )
 				RefWhite = YWhite / tmWhite;
 			else
@@ -488,6 +523,7 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 			{
 				// Unified convention (GetItemText sat/CC, non-DVD): reference is
 				// GetHDRRefScale-scaled, measured white stays unrescaled.
+				tmWhite = TmDiffuseWhiteNits(White, Black);
 				RefWhite = YWhite / tmWhite;
 			}
 		}
@@ -559,9 +595,14 @@ static void ConvCheck ( const CMeasure & m, const CColor & aColor, const CColor 
 	// reference rescale, a white source, or a dE space - shows up here.
 	if ( wDE <= 0.0 )
 	{
-		// GetDeltaE would divide by this; a NaN here surfaces as a bogus 999
-		// convention failure whose real cause is a missing white.
-		stat.Add(0.0, "%s %d (no white; convention check skipped)", name, idx);
+		// Unreachable while GetColorDEWhiteY ends in its m_TargetMaxL fallback,
+		// and it must FAIL loudly if that ever stops being true: the grid would
+		// keep printing numbers off m_TargetMaxL while the viewer's
+		// AppendMeasure treats ywForDE <= 0 as "blackish" and drops the dE
+		// entirely - a real two-consumer divergence. Recording 0.0 here (which
+		// this used to do) promoted the family from the -1.0 "not run" sentinel
+		// to a 0.000 PASS: it failed OPEN on exactly the state convNW exists for.
+		stat.Add(999.0, "%s %d (no dE white: GetColorDEWhiteY returned %.3f)", name, idx, wDE);
 		return;
 	}
 	CColor refView = refRaw;
@@ -586,7 +627,7 @@ struct ConvSample
 	const char *	name;
 	int				idx;
 };
-static const int kMaxConvSamples = 256;
+static const int kMaxConvSamples = 48;	// high-water mark is 36 (30 sat + 6 stratified CC)
 static ConvSample	s_convSamples[kMaxConvSamples];
 static int			s_nConvSamples = 0;
 
@@ -657,7 +698,13 @@ static void ApplyComboConfig ( const Combo & c )
 	// Setting it after the flags below would silently reset every combo to the
 	// ini's 8-bit-limited default - which is exactly what it did until a
 	// half-code known-fail started firing on all four grids instead of one.
-	cfg->SetGeneratorType(c.dvd ? CColorHCFRConfig::enumManual : CColorHCFRConfig::enumAutomatic);
+	// Guarded because SetGeneratorType also does a WriteProfileString (a full
+	// ini rewrite) plus several reads whose results the flags below overwrite:
+	// unguarded, that is ~876 file rewrites per run for ~168 real changes.
+	CColorHCFRConfig::GeneratorType wantGen = c.dvd ? CColorHCFRConfig::enumManual
+													: CColorHCFRConfig::enumAutomatic;
+	if ( cfg->GetGeneratorType() != wantGen )
+		cfg->SetGeneratorType(wantGen);
 
 	// Grid flags: set the CACHED flags directly (RefreshUse10bitLevels would
 	// re-derive them from the scratch ini's generator keys).
@@ -682,10 +729,14 @@ static void ApplyComboConfig ( const Combo & c )
 	// Rec.709 for the special standards, the active reference otherwise.
 	// AppendMeasure's dERef: transport for the pseudo-spaces, active otherwise
 	// (HDTVa/b need no branch - GetDeltaE forces Rec.709 for them internally).
+	// NULL between the delete and the new: if a CColorReference construction
+	// throws (its ctor inverts a matrix), the next call must not free a stale
+	// pointer, and GridColorDE/ConvCheck must fault on a NULL rather than on
+	// freed memory.
 	const CColorReference & aRef = GetColorReference();
 	bool pseudo = ( aRef.m_standard == UHDTV3 || aRef.m_standard == UHDTV4 );
-	delete s_pGridDERef;
-	delete s_pViewDERef;
+	delete s_pGridDERef;	s_pGridDERef = NULL;
+	delete s_pViewDERef;	s_pViewDERef = NULL;
 	s_pGridDERef = new CColorReference( pseudo ? ContainerTransportReference(aRef)
 						 : ( aRef.m_standard == HDTVa || aRef.m_standard == HDTVb ) ? CColorReference(HDTV) : aRef );
 	s_pViewDERef = new CColorReference( pseudo ? ContainerTransportReference(aRef) : aRef );
@@ -924,7 +975,7 @@ static void RunSats ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 
 	m.SetSaturationSize(kSatSize);
 	// Loop invariants, hoisted exactly as C3DColorView::BuildScene hoists them.
-	double YWhite = special ? m.GetOnOffWhite().GetY() : m.GetPrimeWhite().GetY();
+	double YWhite = GridYWhite(m, special, false);
 	double wDE = m.GetColorDEWhiteY(special, false, false);
 	for ( int s = 0 ; s < 6 ; s ++ )
 	{
@@ -964,19 +1015,12 @@ static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CC
 		return;
 	}
 
-	// UpdateGrid default-case YWhite (MainView.cpp ~3720): OnOffWhite for the
-	// special standards (HDTVa/b), else PrimeWhite - falling back to OnOffWhite
-	// when the primaries run was dimmed (<90%) and not HDR. RunSats uses the
-	// same special?OnOffWhite:PrimeWhite selection; omitting it here would
-	// normalize HDTVa/b CC dE by the 75% PrimeWhite instead of peak white and
-	// diverge from the grid.
+	// UpdateGrid's default-case YWhite, including the CC-only sub-90%-stimulus
+	// fallback - see GridYWhite. Omitting the special-standard selection here
+	// would normalize HDTVa/b CC dE by the 75% PrimeWhite instead of peak white
+	// and diverge from the grid.
 	bool special = ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb );
-	double YWhitePrime = m.GetPrimeWhite().GetY();
-	double YWhiteOnOff = m.GetOnOffWhite().GetY();
-	double YWhite = special ? YWhiteOnOff : YWhitePrime;
-	BOOL isHDR = ( cfg->m_GammaOffsetType == 5 );
-	if ( m.GetOnOffWhite().isValid() && !isHDR && YWhiteOnOff > 0 && (YWhitePrime / YWhiteOnOff < 0.9) )
-		YWhite = YWhiteOnOff;
+	double YWhite = GridYWhite(m, special, true);
 	bool mascior = ( ccMode >= MASCIOR50 && ccMode <= CCMAXHDR );
 	double wDE = m.GetColorDEWhiteY(special, true, mascior);
 
@@ -1025,42 +1069,38 @@ static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CC
 //
 // The gains are otherwise arbitrary; 0.965 on prime white reproduces the
 // 3.5%-low display that surfaced the original bug.
+// Only two whites are perturbed. A third gain on the grayscale TOP was
+// dropped: that white is read only through GetColorDEWhiteY's Mascior branch,
+// and RunCC restores m_CCMode = GCD before this runs, so it was inert - it
+// changed no computed value and gave the false impression that this family
+// locks the Mascior white source. Covering that source needs a Mascior CC set
+// in the matrix (ACCURACYTEST.md coverage gap 3).
 static const double kPrimeWhiteGain = 0.965;
 static const double kOnOffWhiteGain = 0.982;
-static const double kGrayTopGain    = 0.973;
 
-static void RunConvWhite ( const Combo & c, CMeasure & m, FamStat & stat )
+static void RunConvWhite ( CMeasure & m, FamStat & stat )
 {
 	CColorHCFRConfig * cfg = GetConfig();
 	bool special = ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb );
-	int gs = m.GetGrayScaleSize();
-	if ( gs <= 0 || s_nConvSamples == 0 )
+	if ( s_nConvSamples == 0 )
 		return;
 
 	CColor savePrime = m.GetPrimeWhite();
 	CColor saveOnOff = m.GetOnOffWhite();
-	CColor saveTop   = m.GetGray(gs - 1);
 
 	CColor p = savePrime; ScaleXYZ(p, kPrimeWhiteGain); m.SetPrimeWhite(p);
 	CColor o = saveOnOff; ScaleXYZ(o, kOnOffWhiteGain); m.SetOnOffWhite(o);
-	CColor t = saveTop;   ScaleXYZ(t, kGrayTopGain);    m.SetGray(gs - 1, t);
 
 	// Deliberately NO RefreshHdrTargets here: leaving m_TargetMaxL (and with it
 	// tmWhite / GetHDRRefScale) at its converged value is what DECOUPLES the
 	// measured white from the theoretical one. Refreshing would drag the
 	// theoretical white along and restore the accidental equality.
-	double YWhitePrime = m.GetPrimeWhite().GetY();
-	double YWhiteOnOff = m.GetOnOffWhite().GetY();
-	BOOL isHDR = ( cfg->m_GammaOffsetType == 5 );
 	bool mascior = ( cfg->m_CCMode >= MASCIOR50 && cfg->m_CCMode <= CCMAXHDR );
 
-	// UpdateGrid's default-case YWhite (MainView.cpp ~3814-3826) recomputed from
-	// the PERTURBED state, plus the matching shared white - one pair for the
-	// saturation samples, one for the color-checker samples.
-	double YWhiteSat = special ? YWhiteOnOff : YWhitePrime;
-	double YWhiteCC  = YWhiteSat;
-	if ( m.GetOnOffWhite().isValid() && !isHDR && YWhiteOnOff > 0 && (YWhitePrime / YWhiteOnOff < 0.9) )
-		YWhiteCC = YWhiteOnOff;
+	// UpdateGrid's YWhite recomputed from the PERTURBED state, plus the matching
+	// shared white - one pair for saturation samples, one for CC samples.
+	double YWhiteSat = GridYWhite(m, special, false);
+	double YWhiteCC  = GridYWhite(m, special, true);
 	double wDESat = m.GetColorDEWhiteY(special, false, false);
 	double wDECC  = m.GetColorDEWhiteY(special, true, mascior);
 
@@ -1074,7 +1114,6 @@ static void RunConvWhite ( const Combo & c, CMeasure & m, FamStat & stat )
 
 	m.SetPrimeWhite(savePrime);
 	m.SetOnOffWhite(saveOnOff);
-	m.SetGray(gs - 1, saveTop);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1099,13 +1138,26 @@ static void RunConvNoWhite ( const Combo & c, CSimulatedSensor & sensor, FamStat
 		{ true,true,false }, { false,true,true }, { true,false,true },
 	};
 
-	// A pristine CMeasure: no gray array, no primaries, no on/off pair.
+	// A default-constructed CMeasure is NOT white-less: the constructor
+	// pre-loads m_PrimeWhite, m_OnOffWhite and the grayscale top to plausible
+	// display values at Y = m_TargetMaxL (Measure.cpp ~203, ~223-225), and
+	// isValid() only rejects components <= -1.0 - so all three read as
+	// measured. Invalidating the two whites explicitly is what actually
+	// reaches the missing-white path; without it this family silently tested
+	// nothing, because the ctor's Y happens to equal the m_TargetMaxL the pane
+	// side falls back to, so both sides agreed for the wrong reason.
+	// The gray array is deliberately left alone: GetRefSat indexes
+	// GetGray(GetGrayScaleSize()-1) unguarded.
 	CMeasure m;
 	m.SetSaturationSize(kSatSize);
+	m.SetPrimeWhite(noDataColor);
+	m.SetOnOffWhite(noDataColor);
 
-	// Both whites are invalid, so the grid falls all the way through to
-	// m_TargetMaxL - the value ApplyComboConfig set, since no measurement ever
-	// refreshed it. GetColorDEWhiteY must land on the same fallback.
+	// Both whites are now invalid, so UpdateGrid falls all the way through to
+	// m_TargetMaxL (MainView.cpp ~3699-3706) and GetColorDEWhiteY must land on
+	// the same fallback. Note m_TargetMaxL is whatever RefreshHdrTargets left
+	// after RunGray (the measured on/off white on HDR combos), NOT the value
+	// ApplyComboConfig set - which is fine, both sides read the same config.
 	double YWhite = cfg->m_TargetMaxL;
 	double wDE = m.GetColorDEWhiteY(special, false, false);
 
@@ -1203,7 +1255,7 @@ static void RunCombo ( const Combo & c )
 	// White-source coverage, last: RunConvWhite mutates the stored whites (and
 	// restores them), RunConvNoWhite builds its own empty CMeasure. Neither
 	// must run before the wire-model families above.
-	RunConvWhite(c, m, stats[FAM_CONVW]);
+	RunConvWhite(m, stats[FAM_CONVW]);
 	RunConvNoWhite(c, sensor, stats[FAM_CONVNW]);
 
 	// Manual generator: reference == wire is NOT testable. HCFR generates no
@@ -1221,11 +1273,18 @@ static void RunCombo ( const Combo & c )
 				stats[f].worst = -1.0;
 	}
 
-	// Evaluate
+	// Evaluate. MSVC's _snprintf returns NEGATIVE on truncation and does not
+	// NUL-terminate, and the remaining-space argument is size_t - so a raw
+	// `n += _snprintf(line+n, sizeof(line)-1-n, ...)` would write before the
+	// buffer AND widen its own bound the moment it overflowed. Clamp n after
+	// every append and terminate explicitly.
 	char line[512];
-	int n = _snprintf(line, sizeof(line)-1, "%-8s %-10s %-6s %-8s %3.0f%% %-4s ",
+	const int kLineMax = (int)sizeof(line) - 1;
+	int n = _snprintf(line, kLineMax, "%-8s %-10s %-6s %-8s %3.0f%%  %-4s ",
 					  c.stdName, c.eotfName, c.whiteName, c.gridName, c.intensity * 100.,
 					  c.dvd ? "DVD" : "GDI");
+	if ( n < 0 || n > kLineMax ) n = kLineMax;
+	line[n] = 0;
 	BOOL bFail = FALSE, bKnown = FALSE;
 	for ( int fam = 0 ; fam < FAM_COUNT ; fam ++ )
 	{
@@ -1237,7 +1296,9 @@ static void RunCombo ( const Combo & c )
 		// entry's documented ceiling; beyond that, the known issue has grown
 		// = a real regression, so treat it as a hard FAIL.
 		BOOL absorbed = ( iKnown >= 0 && w <= kKnownFails[iKnown].ceiling );
-		n += _snprintf(line + n, sizeof(line)-1-n, "%7.3f%c", w, over ? (absorbed ? '#' : '*') : ' ');
+		int nAdd = _snprintf(line + n, kLineMax - n, "%7.3f%c", w, over ? (absorbed ? '#' : '*') : ' ');
+		n = ( nAdd < 0 || n + nAdd > kLineMax ) ? kLineMax : n + nAdd;
+		line[n] = 0;
 		if ( over )
 		{
 			if ( absorbed )
@@ -1387,7 +1448,13 @@ int RunAccuracyTest ( const char * pReportPath )
 						// diffuse-white CONSTANT, not the chromaticity), so
 						// D65 covers them - running all three whites would
 						// triple the cost for identical branches.
-						if ( eotf == 5 && kWhites[iWhite].wt == D65 && iInt == 0 )
+						// LIMITED-RANGE grids only: RefreshUse10bitLevels
+						// forces m_bRGB16_235 = TRUE for the manual generator
+						// ("consumer disc video is 16-235 by definition"), so a
+						// full-range DVD combo models a wire the app cannot
+						// emit - and would calibrate the DVD known-fail
+						// ceilings on unreachable rows.
+						if ( eotf == 5 && kWhites[iWhite].wt == D65 && iInt == 0 && kGrids[iGrid].lim )
 						{
 							c.dvd = true;
 							RunCombo(c);

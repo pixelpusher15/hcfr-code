@@ -54,7 +54,7 @@ settings-saving teardown.
 
 ## The matrix
 
-Full cross product where meaningful (876 combos):
+Full cross product where meaningful (834 combos):
 
 - **Grid (bit depth x range)**: 8-bit limited (219), 8-bit full (255),
   10-bit limited (876), 10-bit full (1023) — via the cached
@@ -80,10 +80,15 @@ Full cross product where meaningful (876 combos):
   The custom whites were never hand-tested; the known-fail table below
   documents where the references are still D65-bound.
 - **Generator**: automatic (GDI) always; **manual (DVD)** additionally for the
-  three PQ rows at D65. Every `if (DVD)` carve-out in `GetItemText` /
-  `UpdateGrid` sits inside the mode-5 HDR block, and the carve-outs swap a
-  diffuse-white *constant* rather than a chromaticity, so PQ-at-D65 reaches all
-  of them without tripling the matrix.
+  three PQ rows at D65, on the limited-range grids only. Every `if (DVD)`
+  carve-out in `GetItemText` / `UpdateGrid` sits inside the mode-5 HDR block,
+  and the carve-outs swap a diffuse-white *constant* rather than a
+  chromaticity, so PQ-at-D65 reaches all of them without tripling the matrix.
+  Limited-range only because `RefreshUse10bitLevels` forces
+  `m_bRGB16_235 = TRUE` for the manual generator ("consumer disc video is
+  16-235 by definition"), so a full-range DVD combo would model a wire the app
+  cannot emit — and would calibrate the DVD known-fail ceilings on rows that
+  can never occur.
   DVD combos score **only** the `conv*` columns; the wire families print
   `-1.000`. HCFR emits no patches at all with a manual generator — the "wire" is
   the disc the user plays, and the DVD conventions are built for the Mascior
@@ -141,9 +146,9 @@ viewer that no longer exists, and re-enabling it turned out to need only that
 `bSpecial` be threaded through to `GetColorDEWhiteY`.
 
 - `convPV` — nominal measured state.
-- `convPVw` — the same comparison with the three stored whites (prime, ON/OFF,
-  grayscale top) scaled **off target and off each other** (0.965 / 0.982 /
-  0.973). This is the family that would have caught the shipped bug. With the
+- `convPVw` — the same comparison with the two stored whites (prime and ON/OFF)
+  scaled **off target and off each other** (0.965 / 0.982).
+  This is the family that would have caught the shipped bug. With the
   ideal sensor every candidate white — prime, ON/OFF, gray top, theoretical
   `TmDiffuseWhiteNits` — has the *same* value by construction (the 50.22831%
   wire code and the helper's snapped `0.5022283` reach the same grid code on all
@@ -152,14 +157,23 @@ viewer that no longer exists, and re-enabling it turned out to need only that
   a display whose white misses target (found by hand: grid 8.80 vs viewer 8.72).
   The perturbation is applied to the **stored** whites, not to the sensor: both
   consumers read the same `CMeasure`, so a differential check only needs the
-  state to differ, and three *different* factors make the whites mutually
-  distinguishable. A real display cannot have its grayscale top disagree with
-  its ON/OFF white — that is deliberate, and it is why this family asserts only
-  the differential, never dE ~ 0.
-- `convNW` — a saturation sweep on a pristine `CMeasure`: **no** grayscale and
-  **no** primaries, so both whites are invalid and the grid falls through to its
-  `m_TargetMaxL` fallback (MainView.cpp ~3699-3706), which the always-ordered
-  gray → primaries → sat/CC matrix never reaches. A user who measures a
+  state to differ, and two *different* factors make the whites mutually
+  distinguishable. A real display cannot have its prime white and its ON/OFF
+  white disagree by different amounts — that is deliberate, and it is why this
+  family asserts only the differential, never dE ~ 0.
+  The **grayscale-top** white is *not* covered: it is read only through
+  `GetColorDEWhiteY`'s Mascior branch, and no Mascior CC set is in the matrix
+  (gap 3), so perturbing it changed nothing. That third gain was removed rather
+  than left in place looking like coverage.
+- `convNW` — a saturation sweep with the measured whites explicitly
+  invalidated, so the grid falls through to its `m_TargetMaxL` fallback
+  (MainView.cpp ~3699-3706), which the always-ordered gray → primaries → sat/CC
+  matrix never reaches. Note a default-constructed `CMeasure` is **not**
+  white-less: its constructor pre-loads prime, ON/OFF and the grayscale top to
+  plausible display values at `Y = m_TargetMaxL`, and `isValid()` only rejects
+  components ≤ −1.0. Relying on a fresh object alone made this family read
+  0.000 for the wrong reason — both sides landed on `m_TargetMaxL`, one by
+  fallback and one by coincidence — so the whites are now cleared explicitly. A user who measures a
   saturation sweep first lands exactly here. The wire-model dE is meaningless in
   this state (the references are normalized by a white that was never measured),
   so this family also asserts only the differential — and that nothing produces
@@ -266,8 +280,16 @@ run is reported as STALE. Current entries (expected, pre-existing):
   viewer. Two magnitudes, matching the two sub-branches: 0.49–0.70 where the
   measured white is left alone (saturation modes for HDTV/UHDTV, and UHDTV2's
   last saturation column), 0.02–0.07 where the `94.37844/tmWhite` rescale very
-  nearly cancels the reference offset. Ceilings are split (1.5 / 0.3) so a
-  regression in the near-cancelling half cannot hide under the other's headroom.
+  nearly cancels the reference offset. Ceilings are 1.5 / 0.3 by color space.
+  **Known limitation:** the two sub-branches are selected by *displayMode*, but
+  `RunSats` and `RunCC` accumulate into the same `FamStat`, which keeps only the
+  worst — so on HDTV/UHDTV/UHDTV2, where the saturation branch already reaches
+  ~0.70, a color-checker regression stays hidden until it exceeds 1.5. The four
+  spaces that only ever take the near-cancelling branch are fully protected by
+  the 0.3 ceiling. Separating them needs per-displayMode `FamStat`s.
+  Manual-generator combos run on the **limited-range grids only**:
+  `RefreshUse10bitLevels` forces `m_bRGB16_235 = TRUE` for that generator, so a
+  full-range DVD combo would model a wire the app cannot emit.
   Recorded rather than fixed because the 2026-07 unification *deliberately* left
   DVD legacy, and closing it means choosing which convention wins — a
   user-visible number change on a legacy path. The structural fix is coverage
@@ -340,9 +362,10 @@ agree), and the gaps below are mostly places their reach stops.
    is the better fix than an export family: if Export calls it, there is nothing
    left to diverge.
 
-Reference result (2026-07-25): `876 combos: 333 pass, 0 FAIL, 543 known-fail`,
+Reference result (2026-07-26): `834 combos: 333 pass, 0 FAIL, 501 known-fail`,
 ColorMathTest verify green with no golden movement. (Was `708 combos: 311 pass,
 0 FAIL, 397 known-fail` before this work: +84 tone-mapped 700-nit combos and +84
-manual-generator combos, the latter all landing in the new DVD known-fail.
+manual-generator combos (limited-range grids only), the latter all landing in
+the new DVD known-fail.
 On the GDI half the three convention families read 0.000 across the whole
 matrix.)
