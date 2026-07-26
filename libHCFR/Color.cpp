@@ -1200,7 +1200,16 @@ static const CColorReference & SpecialModeReference()
 
 double ColorXYZ::GetDeltaLCH(double YWhite, const ColorXYZ& refColor, double YWhiteRef, const CColorReference & colorReference, int dE_form, bool isGS, int gw_Weight, double &dChrom, double &dHue ) const
 {
-	double dLight;
+	// MATH-010: dE_form indexes the switch below, which has no default case, so
+	// an out-of-range value (a corrupt ini, or a formula added to the UI but not
+	// here) fell through every case and returned an UNINITIALIZED double.
+	// Clamped rather than defaulted to 0: a 0 would read as a perfect colour
+	// match, which is a worse failure than an obviously wrong number because it
+	// is plausible. CIE2000 is the standard general-purpose formula, so an
+	// unrecognized index at least yields a defined, comparable value.
+	if ( dE_form < 0 || dE_form > 6 )
+		dE_form = 3;
+	double dLight = 0.0;
 	if (YWhite <= 0) YWhite = 120.;
 	if (YWhiteRef <= 0) YWhiteRef = 1.0;
     //gray world weighted white reference
@@ -1726,7 +1735,11 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 
 double ColorXYZ::GetDeltaE(double YWhite, const ColorXYZ& refColor, double YWhiteRef, const CColorReference & colorReference, int dE_form, bool isGS, int gw_Weight ) const
 {
-	double dE;
+	// MATH-010, as in GetDeltaLCH above: no default case, so an out-of-range
+	// dE_form returned an uninitialized double. Clamp to CIE2000.
+	if ( dE_form < 0 || dE_form > 6 )
+		dE_form = 3;
+	double dE = 0.0;
 	if (YWhite <= 0) YWhite = 120.;
 	if (YWhiteRef <= 0) YWhiteRef = 1.0;
     //gray world weighted white reference
