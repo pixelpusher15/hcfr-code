@@ -1186,9 +1186,20 @@ int ColorXYZ::GetColorTemp(const CColorReference& colorReference) const
 
 }
 
+// Rec.709/D65 - the space the special standards (HDTVa/HDTVb/CC6) are always
+// evaluated in. Built once: a CColorReference constructor derives the RGB->XYZ
+// matrix, inverts it and solves four line intersections for the secondaries,
+// and this value never varies. Both dE entry points used to build one on EVERY
+// call, which dominated their cost (the measures grid alone evaluates them four
+// times per cell per refresh, and /accuracytest a few hundred thousand times).
+static const CColorReference & SpecialModeReference()
+{
+	static const CColorReference s_ref(HDTV, D65, 2.2);
+	return s_ref;
+}
+
 double ColorXYZ::GetDeltaLCH(double YWhite, const ColorXYZ& refColor, double YWhiteRef, const CColorReference & colorReference, int dE_form, bool isGS, int gw_Weight, double &dChrom, double &dHue ) const
 {
-	CColorReference cRef=CColorReference(HDTV, D65, 2.2); //special modes assume rec.709
 	double dLight;
 	if (YWhite <= 0) YWhite = 120.;
 	if (YWhiteRef <= 0) YWhiteRef = 1.0;
@@ -1208,8 +1219,9 @@ double ColorXYZ::GetDeltaLCH(double YWhite, const ColorXYZ& refColor, double YWh
         YWhite = 0.05 * YWhite;
     }
     }
-	if (!(colorReference.m_standard == HDTVb || colorReference.m_standard == CC6 || colorReference.m_standard == HDTVa))
-		cRef=colorReference;
+	const CColorReference & cRef =
+		(colorReference.m_standard == HDTVb || colorReference.m_standard == CC6 || colorReference.m_standard == HDTVa)
+		? SpecialModeReference() : colorReference;	//special modes assume rec.709
 	switch (dE_form)
 	{
 		case 0:
@@ -1714,7 +1726,6 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 
 double ColorXYZ::GetDeltaE(double YWhite, const ColorXYZ& refColor, double YWhiteRef, const CColorReference & colorReference, int dE_form, bool isGS, int gw_Weight ) const
 {
-	CColorReference cRef=CColorReference(HDTV, D65, 2.2); //special modes assume rec.709
 	double dE;
 	if (YWhite <= 0) YWhite = 120.;
 	if (YWhiteRef <= 0) YWhiteRef = 1.0;
@@ -1733,8 +1744,9 @@ double ColorXYZ::GetDeltaE(double YWhite, const ColorXYZ& refColor, double YWhit
 			YWhite = 0.05 * YWhite;
 		}
     }
-	if (!(colorReference.m_standard == HDTVb || colorReference.m_standard == CC6 || colorReference.m_standard == HDTVa))
-		cRef=colorReference;
+	const CColorReference & cRef =
+		(colorReference.m_standard == HDTVb || colorReference.m_standard == CC6 || colorReference.m_standard == HDTVa)
+		? SpecialModeReference() : colorReference;	//special modes assume rec.709
 	switch (dE_form)
 	{
 		case 0:

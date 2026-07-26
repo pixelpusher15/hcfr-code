@@ -11,6 +11,11 @@ through `CSimulatedSensor` (error injection off) and asserting dE ~ 0 with the
 (= `105.95640` with tone mapping off), the `tmWhite`-based `RefWhite`, the
 per-view YWhite source — gray-ramp top, PrimeWhite, or OnOff white).
 
+It also runs a second, **differential** kind of check — the `conv*` families —
+that asks whether two *consumers* (the measures grid and the 3D viewer) agree
+about a dE convention. The dE ~ 0 invariant structurally cannot answer that; see
+[The convention families](#the-convention-families-convpv--convpvw--convnw).
+
 ## Relation to `tests\ColorMathTest`
 
 They are complementary layers — run **both** after any color-math change:
@@ -32,10 +37,11 @@ Debug\ColorHCFR.exe /accuracytest [report.txt]
 echo %ERRORLEVEL%     rem 0 = pass, 1 = failures, 2 = cannot write report
 ```
 
-Headless: no windows, no generators, no real measure loops; the run takes
-seconds and writes `accuracytest_report.txt` (or the given path) in the
-current directory. When started from a console it also prints progress and
-the summary line.
+Headless: no windows, no generators, no real measure loops. The run takes a
+few minutes (~5-6 on a current desktop; it evaluates on the order of a million
+`GetDeltaE` calls) and writes `accuracytest_report.txt` (or the given path) in
+the current directory. When started from a console it also prints per-EOTF
+progress and the summary line.
 
 Truly headless and config-safe, so it is safe to run in CI on a fresh machine.
 The hook sets `CColorHCFRConfig::s_bHeadless` **before** constructing the
@@ -48,7 +54,7 @@ settings-saving teardown.
 
 ## The matrix
 
-Full cross product where meaningful (~800 combos):
+Full cross product where meaningful (792 combos):
 
 - **Grid (bit depth x range)**: 8-bit limited (219), 8-bit full (255),
   10-bit limited (876), 10-bit full (1023) — via the cached
@@ -56,11 +62,20 @@ Full cross product where meaningful (~800 combos):
 - **Color space**: HDTV (Rec.709), sRGB, UHDTV (P3), UHDTV2 (BT.2020),
   UHDTV3 (P3-in-2020), UHDTV4 (709-in-2020), HDTVa (75%), HDTVb (plasma).
   CC6 is marked unused in the enum and is not UI-selectable — excluded.
-- **Transfer function**: power 2.2, BT.1886, L*, PQ (tone map OFF and ON /
-  BT.2390), HLG. sRGB-the-EOTF is exercised through the sRGB color space
-  (every consumer forces mode 99 for it), so that space runs one entry.
-  Mode 1 (SDR black compensation) only reshapes the gray target and mode 8
-  is not UI-reachable — excluded.
+- **Transfer function**: power 2.2, BT.1886, L*, PQ, PQ + BT.2390 tone mapping
+  at **two** display targets (`TargetMaxL` 300 and 700 nits), HLG.
+  sRGB-the-EOTF is exercised through the sRGB color space (every consumer
+  forces mode 99 for it), so that space runs one entry. Mode 1 (SDR black
+  compensation) only reshapes the gray target and mode 8 is not UI-reachable —
+  excluded.
+  The two tone-mapped rows sit on opposite sides of BT.2390's knee
+  (`KS = 1.5*PQ(Lmax) - 0.5`): at 300 nits the knee falls **below** the 50.23%
+  diffuse-white code, so tone mapping actually compresses diffuse white and the
+  HDR reference-rescale / white-anchor conventions get real coverage; at 700
+  nits diffuse white passes through untouched and the roll-off instead lands
+  among the AXIS patches that hard-clip with tone mapping off. Before the
+  700-nit row existed, the "patches above `m_TargetMaxL` still read dE ~ 0"
+  invariant was only ever checked with tone mapping **off**.
 - **White point**: D65, DCI white, and manual xy 0.3067/0.3180 (`DCUST`).
   The custom whites were never hand-tested; the known-fail table below
   documents where the references are still D65-bound.
@@ -88,38 +103,66 @@ measured gray top as White; then primaries, which set PrimeWhite):
   indices 0..70) via `GenerateCC24Colors`. AXIS covers the clipped-ramp-top
   cases in PQ: patches above `m_TargetMaxL` must STILL read dE ~ 0 because
   the reference models the same per-channel clip.
-- `convPV` — pane-vs-viewer dE **convention equality** (PQ mode-5 combos
-  only; `-1.000` = not run). The wire-model families read dE ~ 0 under *any*
-  self-consistent normalization, so they cannot see a convention split. This
-  family perturbs each sat/CC measurement (fixed asymmetric XYZ gains, a few
-  dE of luminance + chroma error) and asserts the measures-grid formula and
-  the 3D-viewer formula produce the **same** dE. It guards three axes that
-  drifted apart historically: the HDR reference **rescale**, the **white**
-  the dE normalizes by (`CMeasure::GetColorDEWhiteY` — the measured white, not
-  the theoretical `TmDiffuseWhiteNits`), and the **dE evaluation space**
-  (transport space for the UHDTV3/4 pseudo-spaces). Because it also
-  recomputes the white through the shared helper, it fails if that helper
-  drifts from the grid's own YWhite selection. The ideal sensor's prime white equals
-  `TmDiffuseWhiteNits` exactly, so matched conventions agree to machine
-  precision — hence a dedicated **0.005** tolerance: the legacy fixed
-  `105.95640` pane rescale reads 0.015–0.023 here (small in absolute dE
-  because a common normalizer shift largely cancels inside a dE
-  difference), which the default 0.05 would let back in.
-  **Known blind spot:** the ideal sensor's measured white lands exactly on
-  `TmDiffuseWhiteNits`, so a *white-source* divergence is invisible to this
-  harness — the viewer's old theoretical-white normalization passed convPV
-  while reading ~1% off the grid on a real display whose white missed target
-  by 3.5% (found by hand, grid 8.80 vs viewer 8.72). The guard against that
-  class is structural, not numerical: both sides now call
-  `CMeasure::GetColorDEWhiteY`, so there is one definition to drift.
-  Tone-map-ON combos run at `TargetMaxL = 300` nits — BT.2390's
-  knee (`KS = 1.5*PQ(Lmax) - 0.5`) then falls below the 50.23%
-  diffuse-white code, so tone mapping actually compresses diffuse white and
-  a convention split becomes visible (at 700 nits the knee sits ~245 nits
-  and diffuse white passes through untouched). HDTVa/b are excluded: the
-  grid normalizes their sat/CC dE to the measured ON/OFF (peak) white while
-  the viewer uses the tone-mapped diffuse white — a separate legacy
-  divergence.
+### The convention families (`convPV` / `convPVw` / `convNW`)
+
+The wire-model families above read dE ~ 0 under *any* self-consistent
+normalization, so they cannot see two **consumers** disagreeing about a
+convention — only a reference that stopped modeling the wire. Every dE bug that
+reached a user during the 2026-07 HDR rescale unification was of the first kind
+and left all 708 combos green.
+
+These three families close that hole with a **differential** check instead of a
+zero check: perturb the measurement (fixed asymmetric XYZ gains, a few dE of
+luminance + chroma error), then require the measures-grid formula and the
+3D-viewer formula to produce the **same** dE. They guard the three axes that
+drifted apart historically — the HDR reference **rescale**, the **white** the dE
+normalizes by, and the **dE evaluation space** (transport space for the UHDTV3/4
+pseudo-spaces) — and because the viewer side calls `CMeasure::GetColorDEWhiteY`
+while the grid side is fed the harness's own `UpdateGrid` emulation, they also
+fail if that shared helper drifts from the grid's YWhite selection.
+
+They run on **every** combo, SDR included (in SDR the check reduces to that
+white-selection lock, which is where the CC "primaries run below 90% stimulus"
+fallback lives), and now include HDTVa/HDTVb — the old exclusion described a
+viewer that no longer exists, and re-enabling it turned out to need only that
+`bSpecial` be threaded through to `GetColorDEWhiteY`.
+
+- `convPV` — nominal measured state.
+- `convPVw` — the same comparison with the three stored whites (prime, ON/OFF,
+  grayscale top) scaled **off target and off each other** (0.965 / 0.982 /
+  0.973). This is the family that would have caught the shipped bug. With the
+  ideal sensor every candidate white — prime, ON/OFF, gray top, theoretical
+  `TmDiffuseWhiteNits` — has the *same* value by construction (the 50.22831%
+  wire code and the helper's snapped `0.5022283` reach the same grid code on all
+  four grids), so a consumer normalizing by the wrong one is invisible; that is
+  exactly how the viewer shipped a ~1% offset against the grid, visible only on
+  a display whose white misses target (found by hand: grid 8.80 vs viewer 8.72).
+  The perturbation is applied to the **stored** whites, not to the sensor: both
+  consumers read the same `CMeasure`, so a differential check only needs the
+  state to differ, and three *different* factors make the whites mutually
+  distinguishable. A real display cannot have its grayscale top disagree with
+  its ON/OFF white — that is deliberate, and it is why this family asserts only
+  the differential, never dE ~ 0.
+- `convNW` — a saturation sweep on a pristine `CMeasure`: **no** grayscale and
+  **no** primaries, so both whites are invalid and the grid falls through to its
+  `m_TargetMaxL` fallback (MainView.cpp ~3699-3706), which the always-ordered
+  gray → primaries → sat/CC matrix never reaches. A user who measures a
+  saturation sweep first lands exactly here. The wire-model dE is meaningless in
+  this state (the references are normalized by a white that was never measured),
+  so this family also asserts only the differential — and that nothing produces
+  a NaN, which is what an unguarded divide by a missing white looks like.
+
+All three share a dedicated **0.005** tolerance. Matched conventions agree to
+machine precision (identical `GetDeltaE` arguments), while the divergences they
+exist to catch are small in *absolute* dE because a common normalizer shift
+largely cancels inside a dE difference: the legacy fixed `105.95640` pane
+rescale reads 0.015–0.023, and the pre-unification theoretical-white viewer
+reads 0.046 on `convPVw`. The default 0.05 tolerance would let **both** back in.
+
+Verified non-vacuous by mutation: restoring the pre-unification viewer white
+(`TmDiffuseWhiteNits` instead of `GetColorDEWhiteY`) fails 42 combos on
+`convPVw` and 42 on `convNW`, where `convPV` alone catches only 12 — and 18 of
+those are the HDTVa/b combos the family used to skip entirely.
 
 ## Reading the report
 
@@ -144,7 +187,8 @@ exit) — remove them from `kKnownFails` in `AccuracyTest.cpp`. The exit code is
 nonzero if there is any real FAIL **or** any stale entry.
 
 Tolerances: **0.05** for exact-model combos (SnapToVideoGrid's 1e-9
-tie-breaker means no extra slack is needed). The Intensity-90% combos get
+tie-breaker means no extra slack is needed), **0.005** for the three
+convention families (see above). The Intensity-90% combos get
 **0.9** (power law) / **1.5** (BT.1886, L*, sRGB): the cancellation is exact
 only for an ideal power law — the dimmed code snaps to a different grid point
 than the undimmed one, and non-power EOTFs break the ratio identity — so a
@@ -215,51 +259,58 @@ found by hand during the 2026-07 HDR rescale unification lived in one of these.
 **The root limitation.** The core assertion is "a perfect display measures its
 own reference, dE ~ 0". That invariant holds under *any* self-consistent
 normalization, so it cannot distinguish two conventions that disagree — it only
-catches a reference that stops modeling the wire. The `convPV` family exists to
+catches a reference that stops modeling the wire. The `conv*` families exist to
 cover exactly that hole (perturb the measurement, require two formulas to
-agree), and the gaps below are mostly places `convPV`'s reach stops.
+agree), and the gaps below are mostly places their reach stops.
 
-1. **The ideal sensor's white is exactly `TmDiffuseWhiteNits`.** The 50.22831%
-   wire code and the helper's snapped `0.5022283` land on the same grid code, so
-   measured white == theoretical white *by construction*. Any divergence in
-   which white a consumer normalizes by is therefore invisible. This is how the
-   3D viewer shipped a ~1% dE offset vs the grid that only appears on a display
-   whose white misses target (found by hand: grid 8.80 vs viewer 8.72).
-   *Needs:* a combo axis that perturbs the measured white away from the
-   theoretical one (a gain error injected into the white patches only).
+### Closed
+
+1. ~~**The ideal sensor's white is exactly `TmDiffuseWhiteNits`.**~~ Closed by
+   `convPVw`, which scales the three stored whites off target and off each
+   other. Mutation-verified: the pre-unification viewer white fails 42 combos
+   there that `convPV` alone lets through.
+4. ~~**`bSpecial` (HDTVa/HDTVb) is excluded from `convPV`.**~~ Closed — the
+   exclusion needed only `bSpecial` threaded through to `GetColorDEWhiteY`.
+   Those 18 combos now carry the largest signal in the mutation test (3.4 dE).
+5. ~~**Whites are always present.**~~ Closed by `convNW`.
+9. ~~**Hard-clip coverage is tone-map-OFF only.**~~ Closed by the second
+   tone-mapped EOTF row at `TargetMaxL = 700`.
+
+### Still open
+
 2. **The manual generator (DVD) is never configured.** `RunAccuracyTest` sets
    `enumAutomatic` unconditionally, so every `if (DVD)` carve-out — in
    `GetItemText`, `UpdateGrid`, `InitGrid`, `RGBLevelWnd`, and the Export
-   blocks — is untested. Two real bugs hid there.
+   blocks — is untested. Two real bugs hid there. Note the DVD paths use a
+   different white (`getL_EOTF(0.50,…) * 100`, un-snapped) than
+   `TmDiffuseWhiteNits`, so the references have to model that; and the 3D viewer
+   has **no** DVD carve-out at all, so `convPV` under a manual generator is
+   expected to surface a real grid-vs-viewer split rather than read 0.
 3. **Mascior HDR CC sets are never run.** `RunCC` is only called with `GCD` and
    `AXIS`; the whole `m_CCMode in [MASCIOR50..CCMAXHDR]` family (its `* 100`
    reference scale and grayscale-top white) has zero coverage in the harness,
-   in `GetColorDEWhiteY`, and in the viewer.
-4. **`bSpecial` (HDTVa/HDTVb) is excluded from `convPV`.** The exclusion
-   predates the white unification and its stated rationale is now stale — the
-   viewer passes `satSpecial` today, so these could be covered.
-5. **Whites are always present.** The run order is always gray → primaries →
-   sat/CC, so `PrimeWhite`/`OnOffWhite` are always valid and the grid's
-   `m_TargetMaxL` fallback path is never exercised.
+   in `GetColorDEWhiteY`, and in the viewer. Every set in that range reads its
+   patch list from a CSV in `%APPDATA%\color\`, so any coverage here has to be
+   gated on the file loading and cannot be assumed present in CI.
 6. **The display/comparator layer is not modeled at all.** `CMainView::OnUpdate`'s
    `Yref` formulas, the RGB-levels bars and the target widget do dE-adjacent
    math on `m_RefColor`/`m_RefWhite`/`m_YWhite`. A wrong factor there is
    user-visible (swatches disagree while dE reads 0) and completely invisible
-   here.
-7. **`convPV` compares two harness-local copies.** It *emulates* the viewer's
-   formula rather than calling it, so changing `C3DColorView::BuildScene`
+   here. This is MFC view code; extracting the pure math into a testable
+   function is the prerequisite.
+7. **The `conv*` families compare two harness-local copies.** They *emulate* the
+   viewer's formula rather than calling it, so changing `C3DColorView::BuildScene`
    without editing `AccuracyTest.cpp` still reads 0.000. Only the white is
    genuinely shared (`CMeasure::GetColorDEWhiteY`); the reference scale and the
    dE evaluation space are re-derived. Extracting the whole normalization into
-   one `CMeasure` helper that the grid, the viewer and the harness all call
-   would make the lock real.
+   one `CMeasure` helper that the grid, the viewer, Export and the harness all
+   call would make the lock real.
 8. **Export is never exercised.** The PDF/CSV/spreadsheet dE paths duplicate the
-   grid's normalization and have already drifted from it.
-9. **Hard-clip coverage is tone-map-OFF only.** Tone-map-ON combos run at
-   `TargetMaxL = 300`, where BT.2390 rolls off instead of clipping, so the
-   "clipped patches still read dE ~ 0" invariant is only checked on the
-   tone-map-OFF half of the matrix.
+   grid's normalization and have already drifted from it. Gap 7's shared helper
+   is the better fix than an export family: if Export calls it, there is nothing
+   left to diverge.
 
-Reference result (2026-07-13, first full run after the fixes):
-`708 combos: 311 pass, 0 FAIL, 397 known-fail`, ColorMathTest verify green
-with no golden movement.
+Reference result (2026-07-25): `792 combos: 333 pass, 0 FAIL, 459 known-fail`,
+ColorMathTest verify green with no golden movement. (Was `708 combos: 311 pass,
+0 FAIL, 397 known-fail` before the 84 tone-mapped 700-nit combos were added;
+the three convention families read 0.000 across the whole matrix.)
