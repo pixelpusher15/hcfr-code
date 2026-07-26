@@ -13,9 +13,9 @@
 // error injection off, and the result is compared against the corresponding
 // CMeasure reference (GetRefPrimary/GetRefSecondary/GetRefSat/GetRefCC24Sat
 // or the grayscale EOTF target) using the SAME normalization chain the
-// measures grid uses (CMainView::UpdateGrid + GetItemText: HDR 105.95640 /
-// GetHDRRefScale rescales, tmWhite RefWhite normalization, the
-// YWhite * 94.37844 / tmWhite rescale, per-mode YWhite source).
+// measures grid uses (CMainView::UpdateGrid + GetItemText: the unified HDR
+// GetHDRRefScale reference rescale (= 105.95640 with tone mapping off),
+// tmWhite RefWhite normalization, per-mode YWhite source).
 //
 // A perfectly modeled configuration reads dE ~ 0 for every patch, including
 // patches clipped above m_TargetMaxL in PQ (the reference models the same
@@ -138,8 +138,8 @@ static const GridDef kGrids[] =
 	{ true,  false, "10b-full"},	// 1023
 };
 
-enum Family { FAM_GRAY = 0, FAM_PRIM, FAM_SAT100, FAM_SAT75, FAM_CC_GCD, FAM_CC_AXIS, FAM_COUNT };
-static const char * kFamilyName[FAM_COUNT] = { "gray", "prim", "sat100", "sat75", "ccGCD", "ccAXIS" };
+enum Family { FAM_GRAY = 0, FAM_PRIM, FAM_SAT100, FAM_SAT75, FAM_CC_GCD, FAM_CC_AXIS, FAM_CONV, FAM_COUNT };
+static const char * kFamilyName[FAM_COUNT] = { "gray", "prim", "sat100", "sat75", "ccGCD", "ccAXIS", "convPV" };
 
 struct Combo
 {
@@ -329,6 +329,15 @@ static CColor Meas ( CSimulatedSensor & sensor, const ColorRGBDisplay & rgb, dou
 	return sensor.MeasureColor(p);
 }
 
+// Single source for the pane-side HDR-10 (mode 5) reference rescale the
+// measures grid applies to non-Mascior sat/CC references (UpdateGrid ~4294):
+// the unified CMeasure::GetHDRRefScale() (= 10000 / tone-mapped diffuse
+// white; reduces to the legacy 105.95640 with tone mapping off), the same
+// scale the 3D viewer uses. FAM_CONV below locks that unification: swapping
+// this back to the fixed 105.95640 makes convPV nonzero on the tone-map-ON
+// combos (measured 0.015-0.023 dE at TargetMaxL=300 - small because a
+// common normalizer shift largely cancels inside a dE difference, hence
+// FAM_CONV's dedicated 0.005 tolerance in TolFor).
 // Replicates CMainView::GetItemText's color-mode dE (MainView.cpp
 // ~2985-3047) for the non-grayscale families. displayMode: 1 = primaries,
 // 5..10 = saturation sweeps, 11 = color checker. DVD (manual generator) is
@@ -362,8 +371,9 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 				YWhite = m.GetGray(m.GetGrayScaleSize() - 1).GetY();
 			else
 			{
+				// Unified convention (GetItemText sat/CC, non-DVD): reference is
+				// GetHDRRefScale-scaled, measured white stays unrescaled.
 				RefWhite = YWhite / tmWhite;
-				YWhite = YWhite * 94.37844 / tmWhite;
 			}
 		}
 	}
@@ -373,6 +383,73 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 
 	return aMeasure.GetDeltaE(YWhite, aReference, RefWhite, bRef, cfg->m_dE_form, false,
 							  cfg->m_GammaOffsetType == 5 ? 3 : cfg->gw_Weight);
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// FAM_CONV: pane-vs-viewer dE convention equality (PQ HDR, mode 5 only).
+//
+// The 3D viewer computes sat/CC dE as
+//   measured.GetDeltaE( tmWhite, ref * GetHDRRefScale(), 1.0, ... , gw = 3 )
+// (Color3DView SceneDiffuseWhiteY + AppendMeasure). The measures grid uses
+// the GridColorDE chain above with the GetHDRRefScale reference rescale.
+// With the ideal sensor a perfect patch reads dE ~ 0 under EITHER convention,
+// so the wire-model families cannot see a convention mismatch. This check
+// perturbs the measured color (fixed asymmetric XYZ gains -> a few dE of
+// luminance + chroma error) and requires both formulas to yield the SAME dE.
+// The ideal sensor's prime white equals TmDiffuseWhiteNits exactly (the
+// 50.22831% wire code and the helper's 0.5022283 snap to the same grid code
+// on all four grids), so matched conventions agree to machine precision;
+// tone mapping ON exposes any 105.95640-vs-GetHDRRefScale divergence.
+//
+// HDTVa/b are excluded: the grid normalizes their sat/CC dE to the measured
+// ON/OFF (peak) white while the viewer always uses the tone-mapped diffuse
+// white - a real, separate legacy divergence outside this check's scope.
+static void ConvCheck ( const CMeasure & m, const CColor & aColor, const CColor & refRaw,
+						double YWhite, int displayMode, int nCol, int satsize,
+						FamStat & stat, const char * name, int idx )
+{
+	CColorHCFRConfig * cfg = GetConfig();
+	if ( cfg->m_GammaOffsetType != 5 || !aColor.isValid() || !refRaw.isValid() )
+		return;
+	if ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb )
+		return;
+
+	bool bCC = ( displayMode == 11 );
+	bool mascior = ( bCC && cfg->m_CCMode >= MASCIOR50 && cfg->m_CCMode <= CCMAXHDR );
+
+	CColor pert = aColor;
+	pert.SetX(pert.GetX() * 1.07);
+	pert.SetY(pert.GetY() * 1.05);
+	pert.SetZ(pert.GetZ() * 1.03);
+
+	// Pane side: the Mascior HDR CC sets keep their * 100 convention on BOTH
+	// sides (RunCC applies it too) - scaling only the viewer side here would
+	// report a ~1.06x phantom mismatch the moment a Mascior set joins kSpaces.
+	CColor refPane = refRaw;
+	ScaleXYZ(refPane, mascior ? 100. : m.GetHDRRefScale());
+	double dEpane = GridColorDE(m, pert, refPane, YWhite, displayMode, nCol, satsize);
+
+	// Viewer side, as C3DColorView::BuildScene builds it: the reference scaled
+	// to the SHARED grid white (CMeasure::GetColorDEWhiteY) with YWhiteRef 1.0,
+	// and the grid's dE evaluation space. Scaling by 10000/white with
+	// YWhiteRef 1.0 is algebraically the grid's (ref * GetHDRRefScale(),
+	// RefWhite = YWhite/tmWhite) pair, so any drift between the two - a
+	// reference rescale, a white source, or a dE space - shows up here.
+	double wDE = m.GetColorDEWhiteY(false, bCC, mascior);
+	if ( wDE <= 0.0 )
+	{
+		// GetDeltaE would divide by this; a NaN here surfaces as a bogus 999
+		// convention failure whose real cause is a missing white.
+		stat.Add(0.0, "%s %d (no white; convention check skipped)", name, idx);
+		return;
+	}
+	CColor refView = refRaw;
+	ScaleXYZ(refView, mascior ? 100. : 10000. / wDE);
+	CColorReference vRef = ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 )
+						 ? ContainerTransportReference(GetColorReference()) : GetColorReference();
+	double dEview = pert.GetDeltaE(wDE, refView, 1.0, vRef, cfg->m_dE_form, false, 3);
+
+	stat.Add(fabs(dEpane - dEview), "%s %d (pane %.3f vs viewer %.3f)", name, idx, dEpane, dEview);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -410,13 +487,19 @@ static void ApplyComboConfig ( const Combo & c )
 
 	// A realistic 700-nit display target so PQ actually clips/tone-maps the
 	// upper patches (the harness asserts clipped patches STILL read dE ~ 0).
+	// Tone-map-ON combos target 300 nits instead: BT.2390's knee
+	// (KS = 1.5*PQ(Lmax) - 0.5) then falls BELOW the 50.23% diffuse-white
+	// code, so tone mapping actually compresses diffuse white and the HDR
+	// reference-rescale/white-anchor conventions get real coverage - at 700
+	// nits the knee sits ~245 nits and diffuse white passes through untouched
+	// (TM-off PQ keeps 700 for hard-clip coverage).
 	// TargetMinL stays 0: the references target ideal black (Y=0), while the
 	// sensor pins the black patch to TargetMinL - a nonzero floor is a
 	// modeled DISPLAY property that would show up as a constant black-patch
 	// dE, not a wire-modeling error. (With black 0, BT.1886 degenerates to a
 	// pure 2.4 power - consistent on both sides.)
 	BOOL bHdr = ( c.eotf == 5 || c.eotf == 7 );
-	cfg->m_TargetMaxL = bHdr ? 700.0 : 120.0;
+	cfg->m_TargetMaxL = bHdr ? ( c.toneMap ? 300.0 : 700.0 ) : 120.0;
 	cfg->m_TargetMinL = 0.0;
 	cfg->m_bOverRideTargs = FALSE;
 	cfg->m_userBlack = FALSE;
@@ -660,7 +743,7 @@ static void RunPrimaries ( const Combo & c, CMeasure & m, CSimulatedSensor & sen
 }
 
 // Six saturation sweeps at one stimulus level.
-static void RunSats ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, double stim, FamStat & stat )
+static void RunSats ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, double stim, FamStat & stat, FamStat & convStat )
 {
 	CColorHCFRConfig * cfg = GetConfig();
 	bool special = ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb );
@@ -682,9 +765,10 @@ static void RunSats ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 			// MT_SAT_* patches are Intensity-dimmed on the real wire
 			CColor aColor = Meas(sensor, GenColors[j], c.intensity);
 			CColor refColor = m.GetRefSat(s, (double)j / (double)(kSatSize - 1), special, stim);
-			if ( cfg->m_GammaOffsetType == 5 )
-				ScaleXYZ(refColor, 105.95640);	// UpdateGrid ~4229
 			double YWhite = special ? m.GetOnOffWhite().GetY() : m.GetPrimeWhite().GetY();
+			ConvCheck(m, aColor, refColor, YWhite, 5 + s, j + 1, kSatSize, convStat, names[s], j);
+			if ( cfg->m_GammaOffsetType == 5 )
+				ScaleXYZ(refColor, m.GetHDRRefScale());	// UpdateGrid ~4294
 			double dE = GridColorDE(m, aColor, refColor, YWhite, 5 + s, j + 1, kSatSize);
 			stat.Add(dE, "%s sat %d%% stim %.0f%%", names[s], j * 25, stim * 100.);
 		}
@@ -692,7 +776,7 @@ static void RunSats ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 }
 
 // One color-checker set (GCD 24 or AXIS 71).
-static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CCPatterns ccMode, int count, FamStat & stat )
+static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CCPatterns ccMode, int count, FamStat & stat, FamStat & convStat )
 {
 	CColorHCFRConfig * cfg = GetConfig();
 	cfg->m_CCMode = ccMode;
@@ -725,8 +809,9 @@ static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CC
 		CColor aColor = Meas(sensor, GenColors[j], 1.0);
 		CColor refColor;
 		m.GetRefCC24Sat(j, refColor);
+		ConvCheck(m, aColor, refColor, YWhite, 11, j + 1, kSatSize, convStat, "patch", j);
 		if ( cfg->m_GammaOffsetType == 5 )
-			ScaleXYZ(refColor, (ccMode >= MASCIOR50 && ccMode <= CCMAXHDR) ? 100. : 105.95640);	// UpdateGrid ~4221-4231
+			ScaleXYZ(refColor, (ccMode >= MASCIOR50 && ccMode <= CCMAXHDR) ? 100. : m.GetHDRRefScale());	// UpdateGrid ~4296-4307
 		double dE = GridColorDE(m, aColor, refColor, YWhite, 11, j + 1, kSatSize);
 		stat.Add(dE, "patch %d (%.2f/%.2f/%.2f%%)", j, GenColors[j][0], GenColors[j][1], GenColors[j][2]);
 	}
@@ -739,6 +824,12 @@ static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CC
 
 static double TolFor ( const Combo & c, int fam )
 {
+	// Matched pane/viewer conventions agree to machine precision (identical
+	// GetDeltaE arguments), while the legacy 105.95640 pane convention reads
+	// 0.015-0.023 under 300-nit tone mapping - the default 0.05 would let a
+	// convention regression back in.
+	if ( fam == FAM_CONV )
+		return 0.005;
 	if ( c.intensity < 0.999 )
 	{
 		// Dimmed combos verify the Intensity CANCELLATION, which is exact
@@ -795,10 +886,10 @@ static void RunCombo ( const Combo & c )
 	// primaries set PrimeWhite (the sat/CC dE normalizer).
 	RunGray(c, m, sensor, stats[FAM_GRAY]);
 	RunPrimaries(c, m, sensor, stats[FAM_PRIM]);
-	RunSats(c, m, sensor, 1.0, stats[FAM_SAT100]);
-	RunSats(c, m, sensor, 0.75, stats[FAM_SAT75]);
-	RunCC(c, m, sensor, GCD, 24, stats[FAM_CC_GCD]);
-	RunCC(c, m, sensor, AXIS, 71, stats[FAM_CC_AXIS]);
+	RunSats(c, m, sensor, 1.0, stats[FAM_SAT100], stats[FAM_CONV]);
+	RunSats(c, m, sensor, 0.75, stats[FAM_SAT75], stats[FAM_CONV]);
+	RunCC(c, m, sensor, GCD, 24, stats[FAM_CC_GCD], stats[FAM_CONV]);
+	RunCC(c, m, sensor, AXIS, 71, stats[FAM_CC_AXIS], stats[FAM_CONV]);
 
 	// Evaluate
 	char line[512];
@@ -902,11 +993,13 @@ int RunAccuracyTest ( const char * pReportPath )
 	fprintf(s_fReport, "ColorHCFR /accuracytest - reference == wire == sensor-model matrix\n");
 	fprintf(s_fReport, "Columns are the worst dE per patch family; '*' = over tolerance (FAIL),\n");
 	fprintf(s_fReport, "'#' = over tolerance but documented KNOWN-FAIL (see detail below).\n");
-	fprintf(s_fReport, "Tolerance: 0.05; Intensity-90%% combos: 0.9 (power law) / 1.5 (other EOTFs)\n");
-	fprintf(s_fReport, "dE settings: dE_form=3 (CIE2000), dE_gray=1 (gamma-predicted gray target), gw_Weight=0\n\n");
-	fprintf(s_fReport, "%-8s %-10s %-6s %-8s %-5s %8s %7s %7s %7s %7s %7s  %s\n",
+	fprintf(s_fReport, "Tolerance: 0.05; Intensity-90%% combos: 0.9 (power law) / 1.5 (other EOTFs); convPV: 0.005\n");
+	fprintf(s_fReport, "dE settings: dE_form=3 (CIE2000), dE_gray=1 (gamma-predicted gray target), gw_Weight=0\n");
+	fprintf(s_fReport, "convPV: |grid dE - 3D-viewer dE| for a perturbed patch (PQ mode-5 combos only;\n");
+	fprintf(s_fReport, "-1.000 = family not run) - locks the unified HDR reference-rescale convention\n\n");
+	fprintf(s_fReport, "%-8s %-10s %-6s %-8s %-5s %8s %7s %7s %7s %7s %7s %7s  %s\n",
 			"space", "eotf", "white", "grid", "inten",
-			"gray", "prim", "sat100", "sat75", "ccGCD", "ccAXIS", "result");
+			"gray", "prim", "sat100", "sat75", "ccGCD", "ccAXIS", "convPV", "result");
 
 	int iSpace, iEotf, iWhite, iGrid, iInt;
 	for ( iSpace = 0 ; iSpace < (int)(sizeof(kSpaces)/sizeof(kSpaces[0])) ; iSpace ++ )

@@ -577,7 +577,13 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 
 			CColor inColor = aGraphPoint.GetNormalizedColor();
 
-			if (GetConfig()->m_GammaOffsetType == 5 && (GetConfig()->m_colorStandard == UHDTV3 || GetConfig()->m_colorStandard == UHDTV4 || isSat) ) //check for primaries/secondaries page
+			// Saturation-page points are already normalized on the unified
+			// convention (ref by YWhite/10000 via the GetHDRRefScale-form
+			// YWhiteRef, measurement by YWhite), which now matches the measures
+			// grid - no further white adjustment. The legacy 94.37844/tmWhite
+			// adjust remains only for the UHDTV3/4 primaries page (out of the
+			// unified sat/CC scope). Identical with tone mapping off.
+			if (GetConfig()->m_GammaOffsetType == 5 && (GetConfig()->m_colorStandard == UHDTV3 || GetConfig()->m_colorStandard == UHDTV4) && !isSat ) //check for primaries/secondaries page
 			{
 				RefWhite = 94.37844 / tmWhite;
 				YWhite = YWhite * 94.37844 / tmWhite ;

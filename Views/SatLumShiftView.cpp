@@ -616,15 +616,18 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 
 	if (GetConfig()->m_GammaOffsetType == 5)
 	{
+		// Unified HDR convention (matches the measures grid and the 3D viewer):
+		// references scaled by GetHDRRefScale (= 105.95640 with tone mapping
+		// off), measured white unrescaled.
 		double tmWhite = TmDiffuseWhiteNits(White, Black);
-		aColor.SetX(aColor.GetX() * 105.95640);
-		aColor.SetY(aColor.GetY() * 105.95640);
-		aColor.SetZ(aColor.GetZ() * 105.95640);
-		aColore.SetX(aColore.GetX() * 105.95640);
-		aColore.SetY(aColore.GetY() * 105.95640);
-		aColore.SetZ(aColore.GetZ() * 105.95640);
+		double s = pDoc->GetMeasure()->GetHDRRefScale();
+		aColor.SetX(aColor.GetX() * s);
+		aColor.SetY(aColor.GetY() * s);
+		aColor.SetZ(aColor.GetZ() * s);
+		aColore.SetX(aColore.GetX() * s);
+		aColore.SetY(aColore.GetY() * s);
+		aColore.SetZ(aColore.GetZ() * s);
 		RefWhite = YWhite / (tmWhite) ;
-		YWhite = YWhite * 94.37844 / (tmWhite);
 	}
 	
 	deltaE = SatColor.GetDeltaE(YWhite, aColore, RefWhite, isSpecial?CColorReference(HDTV, D65):(GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):GetColorReference() , GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
