@@ -1,7 +1,7 @@
 /////////////////////////////////////////////////////////////////////////////
 // AccuracyTest.cpp: headless "/accuracytest" accuracy-matrix self-test.
 //
-//   ColorHCFR.exe /accuracytest [report.txt]
+//   ColorHCFR.exe /accuracytest [quick] [report.txt]
 //
 // WHAT IT VERIFIES
 // ----------------
@@ -153,20 +153,6 @@ static const WhiteDef kWhites[] =
 	{ DCUST, "xyCust" },	// manual xy 0.3067, 0.3180
 };
 
-// "quick" runs a reduced subset for fast iteration. Only the WHITE and GRID
-// axes shrink - every color space, transfer function, generator and intensity
-// still runs, because those are the branchy axes. The subset is chosen so that
-// every kKnownFails entry still fires (so the stale-entry check, and therefore
-// the exit code, keeps its meaning): DCUST covers the custom-white entries,
-// 8b-lim covers the PQ half-code tie, 8b-full covers the full-range gray gap.
-// What it gives up is level dependence - several modeling gaps are worst on a
-// grid or white the subset drops - so it is a pre-flight, not a substitute.
-static bool s_bQuick = false;
-static int  s_nQuickWhites = 2;		// kWhites[0] = D65, kWhites[2] = DCUST
-static const int kQuickWhiteIdx[] = { 0, 2 };
-static int  s_nQuickGrids = 2;		// kGrids[0] = 8b-lim, kGrids[1] = 8b-full
-static const int kQuickGridIdx[] = { 0, 1 };
-
 static const GridDef kGrids[] =
 {
 	{ false, true,  "8b-lim"  },	// 219 codes
@@ -174,6 +160,37 @@ static const GridDef kGrids[] =
 	{ true,  true,  "10b-lim" },	// 876
 	{ true,  false, "10b-full"},	// 1023
 };
+
+/////////////////////////////////////////////////////////////////////////////
+// "quick" subset
+//
+// A reduced run for fast iteration. Only the WHITE and GRID axes shrink -
+// every color space, transfer function, generator and intensity still runs,
+// because those are the branchy axes. Expressed as a predicate over the axis
+// VALUES, not over table positions: a positional subset silently changes
+// meaning if kWhites or kGrids is ever reordered or extended, and kGrids
+// positions are already load-bearing for the GRID_* known-fail bitmasks.
+//
+// The subset must keep every kKnownFails entry REACHABLE, or the stale-entry
+// sweep turns quick into a permanent exit 1 (see the reachability note in
+// RunAccuracyTest). Four separate things depend on the current choice:
+//   - DCUST      the custom-white entries (white == 999)
+//   - 8b-lim     the PQ half-code tie (GRID_8LIM)
+//   - 8b-full    the full-range gray gap (GRID_FULL)
+//   - 8b-lim     ALSO the entire manual-generator pass, which is gated on
+//                kGrids[].lim - drop the last limited-range grid and all seven
+//                GRID_LIM DVD entries go stale at once
+//   - D65        ALSO the HDTVa/b HDR primaries entries, which are preempted
+//                by the custom-white entries and so only fire at a plain white
+// What quick gives up is LEVEL dependence: several modeling gaps are worst on
+// a grid or white it drops, and a real FAIL confined to those rows is
+// invisible. It is a pre-flight, not a substitute.
+static bool s_bQuick = false;
+
+static bool QuickSkips ( const WhiteDef & w, const GridDef & g )
+{
+	return s_bQuick && ( w.wt == DCI || g.b10 );
+}
 
 enum Family { FAM_GRAY = 0, FAM_PRIM, FAM_SAT100, FAM_SAT75, FAM_CC_GCD, FAM_CC_AXIS,
 			  FAM_CONV, FAM_CONVW, FAM_CONVNW, FAM_COUNT };
@@ -1390,7 +1407,11 @@ int RunAccuracyTest ( const char * pReportPath, bool bQuick )
 
 	CSimulatedSensor::s_bInstantMeasure = TRUE;
 
-	const char * pPath = pReportPath && pReportPath[0] ? pReportPath : "accuracytest_report.txt";
+	// Distinct default for a quick run: sharing the default path lets a 2-minute
+	// pre-flight silently overwrite the full-matrix report someone is diffing
+	// against. The contents say [QUICK subset]; the FILE should too.
+	const char * pPath = pReportPath && pReportPath[0] ? pReportPath
+					   : ( s_bQuick ? "accuracytest_report_quick.txt" : "accuracytest_report.txt" );
 	s_fReport = fopen(pPath, "w");
 	if ( !s_fReport )
 	{
@@ -1400,11 +1421,25 @@ int RunAccuracyTest ( const char * pReportPath, bool bQuick )
 
 	fprintf(s_fReport, "ColorHCFR /accuracytest - reference == wire == sensor-model matrix\n");
 	if ( s_bQuick )
-		fprintf(s_fReport, "*** QUICK subset: D65 + xyCust whites, 8b-lim + 8b-full grids only.\n"
-						   "*** All spaces/EOTFs/generators/intensities run and every known-fail\n"
-						   "*** entry still fires, so the exit code means the same thing - but the\n"
-						   "*** dropped grids and white carry level-dependent gaps. Run the FULL\n"
-						   "*** matrix before committing.\n");
+	{
+		// Derived from the predicate, never hardcoded: a banner that describes
+		// a subset the run did not actually use is worse than no banner, and
+		// this is the one place whose job is to stop a truncated report being
+		// misread.
+		int i;
+		fprintf(s_fReport, "*** QUICK subset. Whites:");
+		for ( i = 0 ; i < (int)(sizeof(kWhites)/sizeof(kWhites[0])) ; i ++ )
+			if ( !QuickSkips(kWhites[i], kGrids[0]) ) fprintf(s_fReport, " %s", kWhites[i].name);
+		fprintf(s_fReport, "   Grids:");
+		for ( i = 0 ; i < (int)(sizeof(kGrids)/sizeof(kGrids[0])) ; i ++ )
+			if ( !QuickSkips(kWhites[0], kGrids[i]) ) fprintf(s_fReport, " %s", kGrids[i].name);
+		fprintf(s_fReport, "\n"
+			"*** All spaces/EOTFs/generators/intensities run. A FAIL here is as real as\n"
+			"*** in a full run - but the converse does NOT hold: a regression confined to\n"
+			"*** a dropped white or grid (several modeling gaps are level-dependent) is\n"
+			"*** invisible, so exit 0 here is weaker than exit 0 on the full matrix.\n"
+			"*** A pre-flight, not a substitute. Run the FULL matrix before committing.\n");
+	}
 	fprintf(s_fReport, "Columns are the worst dE per patch family; '*' = over tolerance (FAIL),\n");
 	fprintf(s_fReport, "'#' = over tolerance but documented KNOWN-FAIL (see detail below).\n");
 	fprintf(s_fReport, "Tolerance: 0.05; Intensity-90%% combos: 0.9 (power law) / 1.5 (other EOTFs); conv*: 0.005\n");
@@ -1433,14 +1468,12 @@ int RunAccuracyTest ( const char * pReportPath, bool bQuick )
 			int eotf = ( sp.cs == sRGB ) ? 0 : e.mode;
 			BOOL bSdr = !( eotf == 5 || eotf == 7 );
 
-			int nWhites = s_bQuick ? s_nQuickWhites : (int)(sizeof(kWhites)/sizeof(kWhites[0]));
-			int nGrids  = s_bQuick ? s_nQuickGrids  : (int)(sizeof(kGrids)/sizeof(kGrids[0]));
-			for ( int jWhite = 0 ; jWhite < nWhites ; jWhite ++ )
+			for ( iWhite = 0 ; iWhite < (int)(sizeof(kWhites)/sizeof(kWhites[0])) ; iWhite ++ )
 			{
-				iWhite = s_bQuick ? kQuickWhiteIdx[jWhite] : jWhite;
-				for ( int jGrid = 0 ; jGrid < nGrids ; jGrid ++ )
+				for ( iGrid = 0 ; iGrid < (int)(sizeof(kGrids)/sizeof(kGrids[0])) ; iGrid ++ )
 				{
-					iGrid = s_bQuick ? kQuickGridIdx[jGrid] : jGrid;
+					if ( QuickSkips(kWhites[iWhite], kGrids[iGrid]) )
+						continue;
 					// Window Intensity is SDR-only (the generator UI
 					// disables it for modes 5/7). HDTVa/b are also
 					// excluded: their saturation dE normalizes to the
@@ -1490,7 +1523,8 @@ int RunAccuracyTest ( const char * pReportPath, bool bQuick )
 			}
 			if ( bConsole )
 			{
-				printf("accuracytest: %-8s %-10s done (%d combos so far, %d fail)\n",
+				printf("accuracytest:%s %-8s %-10s done (%d combos so far, %d fail)\n",
+					   s_bQuick ? " [QUICK]" : "",
 					   sp.name, (sp.cs == sRGB) ? "sRGB" : e.name, s_nCombos, s_nFail);
 				fflush(stdout);
 			}
@@ -1498,13 +1532,39 @@ int RunAccuracyTest ( const char * pReportPath, bool bQuick )
 	}
 
 	// A known-fail entry that never fired anywhere in the matrix is stale.
+	//
+	// In the QUICK subset an entry may be UNREACHABLE rather than stale: it can
+	// be keyed to a white or a grid the subset drops, in which case it could not
+	// possibly have fired and "remove it" is destructive advice - deleting a
+	// valid entry would turn a documented gap into a hard FAIL on the full
+	// matrix. Report those separately and do not fail the run on them. Every
+	// current entry IS reachable in the subset (verified: 0 stale), so this is a
+	// guard for the next entry someone adds, not a live exemption.
 	for ( int k = 0 ; k < (int)(sizeof(kKnownFails)/sizeof(kKnownFails[0])) ; k ++ )
 	{
-		if ( !s_knownFailFired[k] )
+		if ( s_knownFailFired[k] )
+			continue;
+		bool reachable = true;
+		if ( s_bQuick )
+		{
+			reachable = false;
+			for ( int w = 0 ; w < (int)(sizeof(kWhites)/sizeof(kWhites[0])) && !reachable ; w ++ )
+				for ( int g = 0 ; g < (int)(sizeof(kGrids)/sizeof(kGrids[0])) && !reachable ; g ++ )
+				{
+					if ( QuickSkips(kWhites[w], kGrids[g]) ) continue;
+					if ( !( kKnownFails[k].grids & (1 << g) ) ) continue;
+					if ( kKnownFails[k].white == 999 ) { if ( kWhites[w].wt == D65 ) continue; }
+					else if ( kKnownFails[k].white != -1 && kKnownFails[k].white != (int)kWhites[w].wt ) continue;
+					reachable = true;
+				}
+		}
+		if ( reachable )
 		{
 			s_nUnexpectedPass ++;
 			Detail("STALE KNOWN-FAIL entry %d never fired - remove it: %s\n", k, kKnownFails[k].reason);
 		}
+		else
+			Detail("NOT REACHABLE in the quick subset, entry %d (not stale, do NOT remove -\n            re-run the full matrix to judge it): %s\n", k, kKnownFails[k].reason);
 	}
 
 	fprintf(s_fReport, "\n");
@@ -1523,7 +1583,10 @@ int RunAccuracyTest ( const char * pReportPath, bool bQuick )
 	int rc = ( s_nFail > 0 || s_nUnexpectedPass > 0 ) ? 1 : 0;
 	if ( bConsole )
 	{
-		printf("accuracytest: %d combos: %d pass, %d FAIL, %d known-fail, %d stale -> exit %d (report: %s)\n",
+		// The console line is what a developer pastes into a PR and what CI
+		// captures, so it must carry the subset marker too - not just the report.
+		printf("accuracytest:%s %d combos: %d pass, %d FAIL, %d known-fail, %d stale -> exit %d (report: %s)\n",
+			   s_bQuick ? " [QUICK subset]" : "",
 			   s_nCombos, s_nPass, s_nFail, s_nKnownFail, s_nUnexpectedPass, rc, pPath);
 		fflush(stdout);
 	}

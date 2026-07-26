@@ -218,7 +218,7 @@ void	UpdateDataRef(BOOL ActiveDataRef, CDataSetDoc * pDoc)
 
 BOOL CColorHCFRApp::InitInstance()
 {
-	// /accuracytest [report.txt] : headless reference==wire==sensor-model
+	// /accuracytest [quick] [report.txt] : headless reference==wire==sensor-model
 	// self-test (see AccuracyTest.cpp). Handled before any UI is created;
 	// only the config and the color reference are initialized, then the
 	// process exits with 0 (pass) / 1 (failures). ExitProcess (instead of
@@ -236,17 +236,28 @@ BOOL CColorHCFRApp::InitInstance()
 			m_pConfig = new CColorHCFRConfig();
 			m_pszRegistryKey = NULL;
 			m_pszProfileName = _tcsdup(m_pConfig->m_iniFileName);
-			// Remaining args, in any order: the literal "quick" selects the
-			// reduced white/grid subset, the first other non-flag token is the
-			// report path.
+			// Remaining args, in any order: "quick" (bare, /quick or -quick)
+			// selects the reduced white/grid subset, the first other non-flag
+			// token is the report path. Accepting all three spellings because
+			// this command itself takes /accuracytest or -accuracytest, so a
+			// switch-shaped /quick is the form the app has already taught.
+			// Anything unrecognized is reported rather than silently swallowed:
+			// treating a typo as the report path meant `/accuracytest qucik`
+			// ran the full 6-minute matrix into a file named "qucik".
 			LPCTSTR pReport = NULL;
 			BOOL bQuick = FALSE;
 			for ( int nb = na + 1 ; nb < __argc ; nb ++ )
 			{
-				if ( _tcsicmp(__targv[nb], _T("quick")) == 0 )
+				LPCTSTR pArg = __targv[nb];
+				LPCTSTR pBare = ( pArg[0] == _T('/') || pArg[0] == _T('-') ) ? pArg + 1 : pArg;
+				if ( _tcsicmp(pBare, _T("quick")) == 0 )
 					bQuick = TRUE;
-				else if ( !pReport && __targv[nb][0] != _T('/') && __targv[nb][0] != _T('-') )
-					pReport = __targv[nb];
+				else if ( pArg[0] == _T('/') || pArg[0] == _T('-') || pArg[0] == _T('\0') )
+					fprintf(stderr, "accuracytest: ignoring unrecognized argument '%s'\n", pArg);
+				else if ( !pReport )
+					pReport = pArg;
+				else
+					fprintf(stderr, "accuracytest: ignoring extra argument '%s' (report path already '%s')\n", pArg, pReport);
 			}
 			::ExitProcess ( RunAccuracyTest ( pReport, bQuick ) );
 		}

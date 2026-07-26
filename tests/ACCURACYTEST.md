@@ -37,19 +37,34 @@ Debug\ColorHCFR.exe /accuracytest [quick] [report.txt]
 echo %ERRORLEVEL%     rem 0 = pass, 1 = failures, 2 = cannot write report
 ```
 
-`quick` runs a reduced subset — **306 combos in ~2½ minutes** instead of 876 in
-~6 — for fast iteration. Only the white and grid axes shrink (D65 + xyCust,
-8b-lim + 8b-full); every color space, transfer function, generator and intensity
-still runs, because those are the branchy axes. The subset is deliberately
-chosen so **every `kKnownFails` entry still fires** — xyCust covers the
-custom-white entries, 8b-lim the PQ half-code tie, 8b-full the full-range gray
-gap — so the stale-entry check, and therefore the exit code, means exactly what
-it means in a full run.
+`quick` runs a reduced subset — **285 combos in ~2½ minutes** instead of 834 in
+~6 — for fast iteration. Only the white and grid axes shrink (it drops the DCI
+white and both 10-bit grids, leaving D65 + xyCust on 8b-lim + 8b-full); every
+color space, transfer function, generator and intensity still runs, because
+those are the branchy axes.
 
-What it gives up is *level* dependence: several modeling gaps are worst on a
-grid or white the subset drops. It is a pre-flight, not a substitute — run the
-full matrix before committing. The report header and the `SUMMARY:` line both
-mark a quick run so a truncated result can never be mistaken for a full one.
+The subset must keep **every `kKnownFails` entry reachable**, or the stale-entry
+sweep turns `quick` into a permanent exit 1. Four things depend on the current
+choice: xyCust covers the custom-white entries, 8b-lim the PQ half-code tie,
+8b-full the full-range gray gap — and 8b-lim is *also* the last limited-range
+grid, which the entire manual-generator pass is gated on, while D65 is *also*
+load-bearing for the HDTVa/b HDR primaries entries. Drop either and seven DVD
+entries go stale at once. An entry that a quick run cannot reach is now reported
+as `NOT REACHABLE in the quick subset` rather than `STALE`, and does not fail
+the run — deleting it on that advice would turn a documented gap into a hard
+FAIL on the full matrix.
+
+**A FAIL in a quick run is as real as in a full one; exit 0 is not.** The
+converse does not hold: a regression confined to a dropped white or grid is
+invisible, and several modeling gaps are exactly that level-dependent. It is a
+pre-flight, not a substitute — run the full matrix before committing.
+
+A quick run marks itself in four places so a truncated result cannot be mistaken
+for a full one: the report header (which lists the whites and grids it actually
+ran, derived from the subset rather than hardcoded), the `SUMMARY:` line, the
+console progress lines, and the default report filename —
+`accuracytest_report_quick.txt`, so a pre-flight never overwrites a full-matrix
+report you are diffing against.
 
 Headless: no windows, no generators, no real measure loops. The run takes a
 few minutes (~5-6 on a current desktop; it evaluates on the order of a million
