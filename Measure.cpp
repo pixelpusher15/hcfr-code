@@ -1179,17 +1179,22 @@ double CMeasure::ComputeProfileDE(const CColor & c, int i)
 	double YWhite = ywForDE, RefWhite = 1.0;
 	if ( mode == 5 )	// PQ HDR: match the grid's absolute-nits bridge
 	{
-		// Same chain as the grid's CC24 dE (GetItemText): snapped tone-mapped
-		// diffuse white via the shared TmDiffuseWhiteNits helper, reference
-		// rescaled from the 1.0 = 10000 nits convention.
+		// Same chain as the grid's CC24 dE (GetItemText): reference rescaled
+		// from the 1.0 = 10000 nits convention by GetHDRRefScale (the unified,
+		// tone-map-aware form the 3D viewer also uses; = 105.95640 with tone
+		// mapping off), measurement anchored to the measured white as-is.
 		double tmWhite = TmDiffuseWhiteNits( GetOnOffWhite(), GetOnOffBlack() );
 		if ( tmWhite > 0.0 )
 		{
-			refC.SetX( refC.GetX() * 105.95640 );
-			refC.SetY( refC.GetY() * 105.95640 );
-			refC.SetZ( refC.GetZ() * 105.95640 );
+			// 10000/tmWhite IS GetHDRRefScale() here (mode-5 getL_EOTF ignores
+			// White/Black), and the guard above already covers its <= 0 case -
+			// calling it would re-run the PQ + BT.2390 chain on every patch, and
+			// this is per-patch code (a 21-cube is 9261 of them).
+			double s = 10000. / tmWhite;
+			refC.SetX( refC.GetX() * s );
+			refC.SetY( refC.GetY() * s );
+			refC.SetZ( refC.GetZ() * s );
 			RefWhite = YWhite / tmWhite;
-			YWhite   = YWhite * 94.37844 / tmWhite;
 		}
 	}
 
@@ -7448,6 +7453,48 @@ double CMeasure::GetHDRRefScale() const
 	if ( tmWhite <= 0.0 )
 		tmWhite = 94.37844;
 	return 10000. / tmWhite;
+}
+
+// The white the measures grid normalises saturation / color-checker dE by
+// (UpdateGrid's YWhite source + GetItemText's HDR block): the MEASURED prime
+// white, the ON/OFF white for the special 75%/plasma standards, or the
+// grayscale top for the Mascior-style HDR CC sets. The <90% fallback (a
+// primaries run made at reduced stimulus) is SDR- and COLOR-CHECKER-only in
+// the grid, hence bCC.
+//
+// Consumers must normalise dE by THIS white, not by the theoretical
+// TmDiffuseWhiteNits: both are self-consistent (a perfect measurement reads
+// dE 0 either way, which is why the /accuracytest invariant cannot tell them
+// apart), but they diverge as soon as the display's white misses its target -
+// dE scales roughly with (YWhite / tmWhite)^(1/3), so a 3.5%-low white shifted
+// the 3D viewer ~1% away from the grid before this was shared.
+double CMeasure::GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) const
+{
+	BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 );
+
+	if ( isHDR && bCC && bMasciorCC )
+	{
+		int n = GetGrayScaleSize();
+		if ( n > 0 && GetGray(n - 1).isValid() )
+			return GetGray(n - 1).GetY();
+	}
+
+	CColor prime = GetPrimeWhite();
+	CColor onoff = GetOnOffWhite();
+	double yPrime = prime.isValid() ? prime.GetY() : 0.0;
+	double yOnOff = onoff.isValid() ? onoff.GetY() : 0.0;
+
+	// UpdateGrid's chain: prime white, falling back to on/off white, then to
+	// m_TargetMaxL when neither was measured (MainView.cpp ~3708-3722). The
+	// special standards read the on/off white directly and do NOT fall back to
+	// prime - the grid goes straight from a missing on/off white to TargetMaxL.
+	double y = bSpecial ? yOnOff : ( yPrime > 0.0 ? yPrime : yOnOff );
+	if ( bCC && onoff.isValid() && !isHDR && yOnOff > 0.0 && yPrime / yOnOff < 0.9 )
+		y = yOnOff;
+
+	if ( y <= 0.0 )
+		y = GetConfig()->m_TargetMaxL;
+	return y;
 }
 
 CColor CMeasure::GetMeasurement(int i) const 

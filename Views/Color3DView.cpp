@@ -283,8 +283,16 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 		// pass a precomputed dE (ComputeProfileDE) so the viewer, the summary pane
 		// and the RGB-levels widget can never disagree.
 		int gw = ( GetConfig()->m_GammaOffsetType == 5 ) ? 3 : GetConfig()->gw_Weight;
+		// dE evaluation space, mirroring the grid: the COLOR families run in the
+		// transport space for the UHDTV3/4 pseudo-spaces (GetItemText's bRef),
+		// while the grayscale families use the active reference (its grayscale
+		// branch passes GetColorReference()). HDTVa/b/CC6 are forced to Rec.709
+		// inside GetDeltaE itself, so they need no branch here.
+		CColorReference dERef = ref;
+		if ( !isGS && ( ref.m_standard == UHDTV3 || ref.m_standard == UHDTV4 ) )
+			dERef = ContainerTransportReference( ref );
 		p.dE = ( dEOverride >= 0.0 ) ? (float)dEOverride
-									 : (float)c.GetDeltaE( ywForDE, dETarget, 1.0, ref, GetConfig()->m_dE_form, isGS, gw );
+									 : (float)c.GetDeltaE( ywForDE, dETarget, 1.0, dERef, GetConfig()->m_dE_form, isGS, gw );
 		if ( !( p.dE == p.dE ) || p.dE < 0.0f )   // NaN / negative: no usable dE
 		{
 			m_points.push_back( p );
@@ -475,6 +483,21 @@ void C3DColorView::BuildScene()
 	const bool hdr10Refs = ( GetConfig()->m_GammaOffsetType == 5 );
 	const double hdrRefScale = hdr10Refs ? pMeasure->GetHDRRefScale() : 1.0;
 	const bool satSpecial = ( ref.m_standard == HDTVa || ref.m_standard == HDTVb );
+
+	// dE normalisation, separate from the marker geometry above. The grid
+	// normalises sat/CC dE by the MEASURED white (CMeasure::GetColorDEWhiteY)
+	// and expresses the reference relative to it (RefWhite = YWhite / tmWhite);
+	// scaling the reference by 10000 / that white is the same thing with
+	// YWhiteRef 1.0, which is what AppendMeasure passes. Normalising by the
+	// theoretical tmWhite instead (what SceneDiffuseWhiteY returns in HDR, and
+	// what this used to pass) reads ~1% off the grid whenever the display's
+	// white misses target. Marker geometry keeps hdrRefScale: refC * (10000 /
+	// tmWhite) * tmWhite is absolute nits, so a perfect patch draws no tail.
+	// (whiteY fallback: with no measured white at all the helper returns 0,
+	// which AppendMeasure would read as "blackish" and drop the dE entirely.)
+	double satDEWhiteRaw = pMeasure->GetColorDEWhiteY( satSpecial, false, false );
+	const double satDEWhite = ( satDEWhiteRaw > 0.0 ) ? satDEWhiteRaw : whiteY;
+	const double satDEScale = ( hdr10Refs && satDEWhite > 0.0 ) ? 10000. / satDEWhite : 1.0;
 	static const wchar_t * hueName[6] = { L"Red", L"Green", L"Blue", L"Yellow", L"Cyan", L"Magenta" };
 	int nSatLevels = pMeasure->GetSatLevelCount();
 	for ( int L = 0; L < nSatLevels; L++ )
@@ -492,15 +515,19 @@ void C3DColorView::BuildScene()
 				if ( i >= (int) set.sat[h].size() )
 					continue;
 				CColor refC = pMeasure->GetRefSat( h, satRatio, satSpecial, stim );
+				CColor refMark = refC, refDE = refC;
 				if ( hdr10Refs && refC.isValid() )
 				{
-					refC.SetX( refC.GetX() * hdrRefScale );
-					refC.SetY( refC.GetY() * hdrRefScale );
-					refC.SetZ( refC.GetZ() * hdrRefScale );
+					refMark.SetX( refC.GetX() * hdrRefScale );
+					refMark.SetY( refC.GetY() * hdrRefScale );
+					refMark.SetZ( refC.GetZ() * hdrRefScale );
+					refDE.SetX( refC.GetX() * satDEScale );
+					refDE.SetY( refC.GetY() * satDEScale );
+					refDE.SetZ( refC.GetZ() * satDEScale );
 				}
 				wchar_t lbl[64];
 				swprintf( lbl, 64, L"%s %d%% sat @ %d%% stim", hueName[h], (int)( satRatio * 100.0 + 0.5 ), stimPct );
-				AppendMeasure( set.sat[h][i], whiteY, ref, refC, refC, false, whiteY, lbl, SRC_SAT, i, h, L );
+				AppendMeasure( set.sat[h][i], whiteY, ref, refDE, refMark, false, satDEWhite, lbl, SRC_SAT, i, h, L );
 			}
 		}
 	}
@@ -512,6 +539,18 @@ void C3DColorView::BuildScene()
 	if ( n > MAX_USER_CC_PATCH_SIZE )
 		n = MAX_USER_CC_PATCH_SIZE;   // the measure arrays are allocated to this;
 									  // GetCC24Sat indexes unchecked past it
+	// Loop-invariant: hoisted like the saturation block above. GetColorDEWhiteY
+	// returns CColor copies internally, so calling it per patch would allocate
+	// on every one of the 71 AXIS iterations. SDR is included because the grid
+	// falls back to the ON/OFF white for CC when the primaries run was made
+	// below 90% stimulus, which whiteY does not model.
+	const bool ccMascior = ( GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR );
+	double ccDEWhiteRaw = pMeasure->GetColorDEWhiteY( satSpecial, true, ccMascior );
+	const double ccDEWhite = ( ccDEWhiteRaw > 0.0 ) ? ccDEWhiteRaw : whiteY;
+	// Mascior-style HDR CC sets keep their own convention (* 100 against the
+	// grayscale top, RefWhite 1.0) on both sides - see the grid.
+	const double ccMarkScale = ccMascior ? 100. : hdrRefScale;
+	const double ccDEScale   = ccMascior ? 100. : ( 10000. / ccDEWhite );
 	for ( i = 0; i < n; i++ )
 	{
 		CColor c = pMeasure->GetCC24Sat( i );
@@ -519,16 +558,19 @@ void C3DColorView::BuildScene()
 			continue;
 		CColor refC;
 		pMeasure->GetRefCC24Sat( i, refC );
+		CColor refMark = refC, refDE = refC;
 		if ( hdr10Refs && refC.isValid() )
 		{
-			double s = ( GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR ) ? 100. : hdrRefScale;
-			refC.SetX( refC.GetX() * s );
-			refC.SetY( refC.GetY() * s );
-			refC.SetZ( refC.GetZ() * s );
+			refMark.SetX( refC.GetX() * ccMarkScale );
+			refMark.SetY( refC.GetY() * ccMarkScale );
+			refMark.SetZ( refC.GetZ() * ccMarkScale );
+			refDE.SetX( refC.GetX() * ccDEScale );
+			refDE.SetY( refC.GetY() * ccDEScale );
+			refDE.SetZ( refC.GetZ() * ccDEScale );
 		}
 		wchar_t lbl[48];
 		swprintf( lbl, 48, L"Color checker #%d", i + 1 );
-		AppendMeasure( c, whiteY, ref, refC, refC, false, whiteY, lbl, SRC_CC24, i );
+		AppendMeasure( c, whiteY, ref, refDE, refMark, false, ccDEWhite, lbl, SRC_CC24, i );
 	}
 
 	// Free measures. Shared with the incremental UPD_FREEMEASUREAPPENDED path.
