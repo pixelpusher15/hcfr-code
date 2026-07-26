@@ -184,6 +184,7 @@ struct Combo
 	bool			lim;
 	int				gridIdx;	// index into kGrids
 	double			intensity;	// 1.0 or 0.9 (GDI window Intensity fraction)
+	bool			dvd;		// manual generator (enumManual)
 	const char *	eotfName;
 	const char *	whiteName;
 	const char *	gridName;
@@ -205,6 +206,7 @@ struct KnownFail
 	int				eotf;		// -1 = any / 57 = HDR (5 or 7)
 	int				family;		// Family, or -1 = any
 	int				grids;		// bitmask over kGrids indices (0xF = any)
+	int				dvd;		// -1 = any generator, 0 = GDI only, 1 = manual only
 	double			ceiling;	// dE above which this is a REAL fail, not the known gap
 	const char *	reason;
 };
@@ -228,35 +230,35 @@ static const KnownFail kKnownFails[] =
 	// GetRefPrimary/GetRefSecondary for these pseudo-spaces route through
 	// GetRefSat(i, 1.0), so the primaries family inherits the same skew.
 	// (observed worst ~8 dE)
-	{ UHDTV3, 999, -1, FAM_PRIM,   GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV3, 999, -1, FAM_SAT100, GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV3, 999, -1, FAM_SAT75,  GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV4, 999, -1, FAM_PRIM,   GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
-	{ UHDTV4, 999, -1, FAM_SAT100, GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
-	{ UHDTV4, 999, -1, FAM_SAT75,  GRID_ANY, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
+	{ UHDTV3, 999, -1, FAM_PRIM,   GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
+	{ UHDTV3, 999, -1, FAM_SAT100, GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
+	{ UHDTV3, 999, -1, FAM_SAT75,  GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
+	{ UHDTV4, 999, -1, FAM_PRIM,   GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
+	{ UHDTV4, 999, -1, FAM_SAT100, GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
+	{ UHDTV4, 999, -1, FAM_SAT75,  GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
 	// HDTVa/HDTVb under custom whites: the wire tables, the pRef/sRef
 	// reference endpoints, the simulated sensor's decode space and the dE
 	// space are all fixed Rec.709/D65 constructions, while the gray/sat
 	// reference targets follow the active custom white - custom whites are
 	// outside the special modes' model by design (CC passes because both
 	// sides share the same decode chain). (observed worst: gray ~12, sat ~14)
-	{ HDTVa, 999, -1, FAM_GRAY,   GRID_ANY, 20.0, "special modes are fixed Rec.709/D65: gray targets follow the custom white, the wire cannot" },
-	{ HDTVb, 999, -1, FAM_GRAY,   GRID_ANY, 20.0, "special modes are fixed Rec.709/D65: gray targets follow the custom white, the wire cannot" },
-	{ HDTVa, 999, -1, FAM_SAT100, GRID_ANY, 20.0, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
-	{ HDTVa, 999, -1, FAM_SAT75,  GRID_ANY, 20.0, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
-	{ HDTVb, 999, -1, FAM_SAT100, GRID_ANY, 20.0, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
-	{ HDTVb, 999, -1, FAM_SAT75,  GRID_ANY, 20.0, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	{ HDTVa, 999, -1, FAM_GRAY,   GRID_ANY, -1, 20.0, "special modes are fixed Rec.709/D65: gray targets follow the custom white, the wire cannot" },
+	{ HDTVb, 999, -1, FAM_GRAY,   GRID_ANY, -1, 20.0, "special modes are fixed Rec.709/D65: gray targets follow the custom white, the wire cannot" },
+	{ HDTVa, 999, -1, FAM_SAT100, GRID_ANY, -1, 20.0, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	{ HDTVa, 999, -1, FAM_SAT75,  GRID_ANY, -1, 20.0, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	{ HDTVb, 999, -1, FAM_SAT100, GRID_ANY, -1, 20.0, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	{ HDTVb, 999, -1, FAM_SAT75,  GRID_ANY, -1, 20.0, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
 	// HDTVa/b custom-white primaries overlap the HDR-analog gap below when
 	// the EOTF is PQ/HLG, so this entry (which matches first) must clear the
 	// same ~70 dE. (observed worst ~68 dE)
-	{ HDTVa, 999, -1, FAM_PRIM,   GRID_ANY, 90.0, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
-	{ HDTVb, 999, -1, FAM_PRIM,   GRID_ANY, 90.0, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	{ HDTVa, 999, -1, FAM_PRIM,   GRID_ANY, -1, 90.0, "75%-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
+	{ HDTVb, 999, -1, FAM_PRIM,   GRID_ANY, -1, 90.0, "plasma-mode wire tables and pRef/sRef references are fixed Rec.709/D65 constructions" },
 	// HDTVa/b primaries under PQ/HLG: WireModeledPrimaryReference
 	// deliberately returns the ANALOG color for modes 5/7 (legacy behavior,
 	// see its header comment) while the wire re-encodes the 75% tables with
 	// the active EOTF - the two conventions are far apart (dE ~70 on blue).
-	{ HDTVa, -1, 57, FAM_PRIM, GRID_ANY, 90.0, "legacy analog primaries reference under HDR (WireModeledPrimaryReference modes 5/7 early-out)" },
-	{ HDTVb, -1, 57, FAM_PRIM, GRID_ANY, 90.0, "legacy analog primaries reference under HDR (WireModeledPrimaryReference modes 5/7 early-out)" },
+	{ HDTVa, -1, 57, FAM_PRIM, GRID_ANY, -1, 90.0, "legacy analog primaries reference under HDR (WireModeledPrimaryReference modes 5/7 early-out)" },
+	{ HDTVb, -1, 57, FAM_PRIM, GRID_ANY, -1, 90.0, "legacy analog primaries reference under HDR (WireModeledPrimaryReference modes 5/7 early-out)" },
 	// HDTVa/b PQ reduced-stim 100%-saturation point, 8-bit limited grid
 	// only: the PQ 50% anchor is exactly code 110/219, so 0.75 stim lands
 	// the encoded signal on an exact half-code (82.5). The generator and
@@ -264,8 +266,8 @@ static const KnownFail kKnownFails[] =
 	// whose sub-1e-9 dust falls on opposite sides of the tie -> a one-code
 	// split on two channels (constant dE 0.74 at yellow). No other
 	// grid/level combination lands on a half-code. (observed worst 0.74)
-	{ HDTVa, -1, 5, FAM_SAT75, GRID_8LIM, 2.0, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
-	{ HDTVb, -1, 5, FAM_SAT75, GRID_8LIM, 2.0, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
+	{ HDTVa, -1, 5, FAM_SAT75, GRID_8LIM, -1, 2.0, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
+	{ HDTVb, -1, 5, FAM_SAT75, GRID_8LIM, -1, 2.0, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
 	// Grayscale on the FULL-range grids: the whole gray pipeline
 	// (GetGrayPercent, ArrayIndexToGrayLevel, GrayLevelToGrayProp) has no
 	// range parameter - ramp codes and references live on the 219/876
@@ -275,7 +277,35 @@ static const KnownFail kKnownFails[] =
 	// T2/T3 goldens - out of scope for this harness. Tight ceiling: this
 	// entry is broad (any space/white/eotf), so it must NOT swallow a real
 	// grayscale/EOTF regression that pushes dE past ~2. (observed worst 0.39)
-	{ -1, -1, -1, FAM_GRAY, GRID_FULL, 2.0, "gray ramp codes/references are limited-grid only (no range parameter in GetGrayPercent/GrayLevelToGrayProp)" },
+	{ -1, -1, -1, FAM_GRAY, GRID_FULL, -1, 2.0, "gray ramp codes/references are limited-grid only (no range parameter in GetGrayPercent/GrayLevelToGrayProp)" },
+	// MANUAL GENERATOR: the measures grid and the 3D viewer genuinely disagree.
+	// GetItemText keeps the legacy DVD conventions for mode 5 - the Mascior
+	// disc's 92.254965-nit white in place of TmDiffuseWhiteNits, the fixed
+	// 105.95640 reference rescale in place of GetHDRRefScale, and (in its
+	// second sub-branch) the extra YWhite * 94.37844 / tmWhite measured-white
+	// rescale - while C3DColorView::BuildScene has NO manual-generator branch
+	// at all and always uses the unified GetHDRRefScale/GetColorDEWhiteY pair.
+	// So the same patch reports one dE in the pane and another in the 3D
+	// viewer whenever the user is measuring from a disc. This is the same class
+	// of bug the 2026-07 unification fixed for the GDI wire; DVD was
+	// deliberately left legacy there, and closing it means deciding WHICH
+	// convention wins (a user-visible number change on a legacy path), so it is
+	// recorded rather than silently changed.
+	//
+	// Two magnitudes, matching GetItemText's two sub-branches. Branch A (sat
+	// modes for HDTV/UHDTV, and UHDTV2's last saturation column) leaves the
+	// measured white alone, so the full 105.95640-vs-10000/92.254965 reference
+	// offset - 2.25% - survives: observed 0.49-0.70. Branch B additionally
+	// rescales YWhite by 94.37844/tmWhite, which very nearly cancels it:
+	// observed 0.02-0.07. Split ceilings so a regression in the near-cancelling
+	// half cannot hide under the other half's headroom.
+	{ HDTV,   -1, 5, -1, GRID_ANY, 1, 1.5, "manual generator: grid keeps the legacy DVD HDR conventions, the 3D viewer has no DVD branch (GetItemText ~3103 vs Color3DView BuildScene)" },
+	{ UHDTV,  -1, 5, -1, GRID_ANY, 1, 1.5, "manual generator: grid keeps the legacy DVD HDR conventions, the 3D viewer has no DVD branch (GetItemText ~3103 vs Color3DView BuildScene)" },
+	{ UHDTV2, -1, 5, -1, GRID_ANY, 1, 1.5, "manual generator: grid keeps the legacy DVD HDR conventions, the 3D viewer has no DVD branch (GetItemText ~3103 vs Color3DView BuildScene)" },
+	{ UHDTV3, -1, 5, -1, GRID_ANY, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
+	{ UHDTV4, -1, 5, -1, GRID_ANY, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
+	{ HDTVa,  -1, 5, -1, GRID_ANY, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
+	{ HDTVb,  -1, 5, -1, GRID_ANY, 1, 0.3, "manual generator: DVD YWhite * 94.37844/tmWhite rescale nearly cancels the fixed 105.95640, the 3D viewer applies neither" },
 };
 
 static bool s_knownFailFired[sizeof(kKnownFails)/sizeof(kKnownFails[0])] = { false };
@@ -372,15 +402,28 @@ static CColor Meas ( CSimulatedSensor & sensor, const ColorRGBDisplay & rgb, dou
 // common normalizer shift largely cancels inside a dE difference, hence
 // FAM_CONV's dedicated 0.005 tolerance in TolFor).
 // Replicates CMainView::GetItemText's color-mode dE (MainView.cpp
-// ~2985-3047) for the non-grayscale families. displayMode: 1 = primaries,
-// 5..10 = saturation sweeps, 11 = color checker. DVD (manual generator) is
-// FALSE here - the harness models the GDI-family wire.
+// ~3097-3154) for the non-grayscale families. displayMode: 1 = primaries,
+// 5..10 = saturation sweeps, 11 = color checker. Both generator branches are
+// modeled: the manual-generator (DVD) side keeps its own 92.254965 white and
+// 94.37844/tmWhite measured-white rescale.
 // The dE evaluation spaces, rebuilt once per combo by ApplyComboConfig.
 // Constructing a CColorReference is not cheap (matrix inversion + secondary
 // derivation) and these appear in the innermost dE loops; ContainerTransportReference
 // in particular builds a whole new reference on every call.
 static CColorReference *	s_pGridDERef = NULL;	// GetItemText's bRef
 static CColorReference *	s_pViewDERef = NULL;	// AppendMeasure's dERef
+
+// UpdateGrid's mode-5 sat/CC reference rescale (MainView.cpp ~4313-4333):
+// * 100 for the Mascior-style HDR CC sets, the legacy fixed 105.95640 for the
+// manual generator, the tone-map-aware GetHDRRefScale otherwise.
+static double PaneRefScale ( const CMeasure & m, bool mascior )
+{
+	if ( mascior )
+		return 100.;
+	if ( GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual )
+		return 105.95640;
+	return m.GetHDRRefScale();
+}
 
 static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const CColor & aReference,
 							double YWhiteIn, int displayMode, int nCol, int satsize )
@@ -395,7 +438,39 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 		CColor White = m.GetOnOffWhite();
 		CColor Black = m.GetOnOffBlack();
 		double tmWhite = TmDiffuseWhiteNits(White, Black);
-		if ( displayMode == 1 )
+		BOOL DVD = ( cfg->GetGeneratorType() == CColorHCFRConfig::enumManual );
+		if ( DVD )
+		{
+			// The Mascior disc redefines white as its level-502 (50.0%) patch =
+			// 92.254965 nits, un-snapped, instead of the GDI wire's 50.22831%
+			// code -> TmDiffuseWhiteNits. (MainView.cpp ~3103-3126.)
+			bool shiftDiffuse = ( fabs(cfg->m_DiffuseL - 94.0) > 0.5 );
+			tmWhite = getL_EOTF(0.50, White, Black, cfg->m_GammaRel, cfg->m_Split, 5, cfg->m_DiffuseL,
+								cfg->m_MasterMinL, cfg->m_MasterMaxL, cfg->m_TargetMinL, cfg->m_TargetMaxL,
+								cfg->m_useToneMap, FALSE, cfg->m_TargetSysGamma,
+								cfg->m_BT2390_BS, cfg->m_BT2390_WS, cfg->m_BT2390_WS1) * 100.0;
+			if ( displayMode == 1 )
+			{
+				if ( cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7 )
+					RefWhite = YWhite / ( !shiftDiffuse ? 92.254965 : tmWhite );
+				else
+				{
+					RefWhite = YWhite / tmWhite;
+					YWhite = YWhite * 94.37844 / tmWhite;
+				}
+			}
+			else
+			{
+				if ( ( (cRef.m_standard == UHDTV2 && nCol == satsize) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV ) && displayMode != 11 )
+					RefWhite = YWhite / tmWhite;
+				else
+				{
+					RefWhite = YWhite / tmWhite;
+					YWhite = YWhite * 94.37844 / tmWhite;
+				}
+			}
+		}
+		else if ( displayMode == 1 )
 		{
 			if ( cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7 )
 				RefWhite = YWhite / tmWhite;
@@ -473,7 +548,7 @@ static void ConvCheck ( const CMeasure & m, const CColor & aColor, const CColor 
 	// rescale block and the viewer's hdr10Refs are both mode-5 gated).
 	CColor refPane = refRaw;
 	if ( isHDR )
-		ScaleXYZ(refPane, mascior ? 100. : m.GetHDRRefScale());
+		ScaleXYZ(refPane, PaneRefScale(m, mascior));
 	double dEpane = GridColorDE(m, pert, refPane, YWhite, displayMode, nCol, satsize);
 
 	// Viewer side, as C3DColorView::BuildScene builds it: the reference scaled
@@ -576,6 +651,13 @@ static void ApplyComboConfig ( const Combo & c )
 	cfg->m_TargetMinL = 0.0;
 	cfg->m_bOverRideTargs = FALSE;
 	cfg->m_userBlack = FALSE;
+
+	// Generator FIRST: SetGeneratorType calls RefreshUse10bitLevels(), which
+	// re-derives the cached grid flags from the scratch ini's generator keys.
+	// Setting it after the flags below would silently reset every combo to the
+	// ini's 8-bit-limited default - which is exactly what it did until a
+	// half-code known-fail started firing on all four grids instead of one.
+	cfg->SetGeneratorType(c.dvd ? CColorHCFRConfig::enumManual : CColorHCFRConfig::enumAutomatic);
 
 	// Grid flags: set the CACHED flags directly (RefreshUse10bitLevels would
 	// re-derive them from the scratch ini's generator keys).
@@ -861,7 +943,7 @@ static void RunSats ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 			if ( stim >= 1.0 )
 				KeepConvSample(aColor, refColor, 5 + s, j + 1, names[s], j);
 			if ( cfg->m_GammaOffsetType == 5 )
-				ScaleXYZ(refColor, m.GetHDRRefScale());	// UpdateGrid ~4294
+				ScaleXYZ(refColor, PaneRefScale(m, false));	// UpdateGrid ~4313
 			double dE = GridColorDE(m, aColor, refColor, YWhite, 5 + s, j + 1, kSatSize);
 			stat.Add(dE, "%s sat %d%% stim %.0f%%", names[s], j * 25, stim * 100.);
 		}
@@ -912,7 +994,7 @@ static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CC
 		if ( ccMode == GCD && (j % 4) == 0 )
 			KeepConvSample(aColor, refColor, 11, j + 1, "patch", j);
 		if ( cfg->m_GammaOffsetType == 5 )
-			ScaleXYZ(refColor, mascior ? 100. : m.GetHDRRefScale());	// UpdateGrid ~4296-4307
+			ScaleXYZ(refColor, PaneRefScale(m, mascior));	// UpdateGrid ~4313-4333
 		double dE = GridColorDE(m, aColor, refColor, YWhite, 11, j + 1, kSatSize);
 		stat.Add(dE, "patch %d (%.2f/%.2f/%.2f%%)", j, GenColors[j][0], GenColors[j][1], GenColors[j][2]);
 	}
@@ -1085,6 +1167,7 @@ static int MatchKnownFail ( const Combo & c, int fam )	// index into kKnownFails
 		else if ( k.eotf != -1 && k.eotf != c.eotf ) continue;
 		if ( k.family != -1 && k.family != fam ) continue;
 		if ( !( k.grids & (1 << c.gridIdx) ) ) continue;
+		if ( k.dvd != -1 && (k.dvd != 0) != c.dvd ) continue;
 		return i;
 	}
 	return -1;
@@ -1123,10 +1206,26 @@ static void RunCombo ( const Combo & c )
 	RunConvWhite(c, m, stats[FAM_CONVW]);
 	RunConvNoWhite(c, sensor, stats[FAM_CONVNW]);
 
+	// Manual generator: reference == wire is NOT testable. HCFR generates no
+	// patches at all in this mode - the "wire" is the disc the user plays, and
+	// the DVD conventions are built for the Mascior disc's 50.0% / 92.254965-nit
+	// white, not for the 50.22831% code the simulated sensor is fed. The
+	// wire-model families still RUN (they bootstrap the measured whites and
+	// collect the convention samples) but their result is not scored; what the
+	// DVD combos exist to check is the convention families, which compare two
+	// consumers reading the same state.
+	if ( c.dvd )
+	{
+		for ( int f = 0 ; f < FAM_COUNT ; f ++ )
+			if ( !IsConvFamily(f) )
+				stats[f].worst = -1.0;
+	}
+
 	// Evaluate
 	char line[512];
-	int n = _snprintf(line, sizeof(line)-1, "%-8s %-10s %-6s %-8s %3.0f%%  ",
-					  c.stdName, c.eotfName, c.whiteName, c.gridName, c.intensity * 100.);
+	int n = _snprintf(line, sizeof(line)-1, "%-8s %-10s %-6s %-8s %3.0f%% %-4s ",
+					  c.stdName, c.eotfName, c.whiteName, c.gridName, c.intensity * 100.,
+					  c.dvd ? "DVD" : "GDI");
 	BOOL bFail = FALSE, bKnown = FALSE;
 	for ( int fam = 0 ; fam < FAM_COUNT ; fam ++ )
 	{
@@ -1145,22 +1244,22 @@ static void RunCombo ( const Combo & c )
 			{
 				bKnown = TRUE;
 				s_knownFailFired[iKnown] = true;
-				Detail("KNOWN-FAIL  %s %s %s %s %.0f%% [%s]: worst dE %.3f at %s\n            reason: %s\n",
-					   c.stdName, c.eotfName, c.whiteName, c.gridName, c.intensity * 100.,
+				Detail("KNOWN-FAIL  %s %s %s %s %.0f%% %s [%s]: worst dE %.3f at %s\n            reason: %s\n",
+					   c.stdName, c.eotfName, c.whiteName, c.gridName, c.intensity * 100., c.dvd ? "DVD" : "GDI",
 					   kFamilyName[fam], w, stats[fam].desc, kKnownFails[iKnown].reason);
 			}
 			else if ( iKnown >= 0 )
 			{
 				bFail = TRUE;
-				Detail("FAIL(>ceil) %s %s %s %s %.0f%% [%s]: worst dE %.3f exceeds known-fail ceiling %.2f at %s\n            the known gap GREW - likely a regression: %s\n",
-					   c.stdName, c.eotfName, c.whiteName, c.gridName, c.intensity * 100.,
+				Detail("FAIL(>ceil) %s %s %s %s %.0f%% %s [%s]: worst dE %.3f exceeds known-fail ceiling %.2f at %s\n            the known gap GREW - likely a regression: %s\n",
+					   c.stdName, c.eotfName, c.whiteName, c.gridName, c.intensity * 100., c.dvd ? "DVD" : "GDI",
 					   kFamilyName[fam], w, kKnownFails[iKnown].ceiling, stats[fam].desc, kKnownFails[iKnown].reason);
 			}
 			else
 			{
 				bFail = TRUE;
-				Detail("FAIL        %s %s %s %s %.0f%% [%s]: worst dE %.3f (tol %.3f) at %s\n",
-					   c.stdName, c.eotfName, c.whiteName, c.gridName, c.intensity * 100.,
+				Detail("FAIL        %s %s %s %s %.0f%% %s [%s]: worst dE %.3f (tol %.3f) at %s\n",
+					   c.stdName, c.eotfName, c.whiteName, c.gridName, c.intensity * 100., c.dvd ? "DVD" : "GDI",
 					   kFamilyName[fam], w, tol, stats[fam].desc);
 			}
 		}
@@ -1229,9 +1328,12 @@ int RunAccuracyTest ( const char * pReportPath )
 	fprintf(s_fReport, "dE settings: dE_form=3 (CIE2000), dE_gray=1 (gamma-predicted gray target), gw_Weight=0\n");
 	fprintf(s_fReport, "conv* families are DIFFERENTIAL: |grid dE - 3D-viewer dE| for a perturbed patch\n");
 	fprintf(s_fReport, "(-1.000 = family not run). convPV = nominal whites; convPVw = the three stored\n");
-	fprintf(s_fReport, "whites pulled off target and off each other; convNW = no white measured at all.\n\n");
-	fprintf(s_fReport, "%-8s %-10s %-6s %-8s %-5s %8s %7s %7s %7s %7s %7s %7s %7s %7s  %s\n",
-			"space", "eotf", "white", "grid", "inten",
+	fprintf(s_fReport, "whites pulled off target and off each other; convNW = no white measured at all.\n");
+	fprintf(s_fReport, "gen: GDI = automatic generator, DVD = manual generator. DVD combos score ONLY the\n");
+	fprintf(s_fReport, "conv* columns - HCFR emits no patches in that mode, so reference == wire has no\n");
+	fprintf(s_fReport, "meaning; what they check is that the grid's DVD conventions and the viewer agree.\n\n");
+	fprintf(s_fReport, "%-8s %-10s %-6s %-8s %-5s %-4s %8s %7s %7s %7s %7s %7s %7s %7s %7s  %s\n",
+			"space", "eotf", "white", "grid", "inten", "gen",
 			"gray", "prim", "sat100", "sat75", "ccGCD", "ccAXIS", "convPV", "convPVw", "convNW", "result");
 
 	int iSpace, iEotf, iWhite, iGrid, iInt;
@@ -1271,11 +1373,25 @@ int RunAccuracyTest ( const char * pReportPath )
 						c.lim = kGrids[iGrid].lim;
 						c.gridIdx = iGrid;
 						c.intensity = iInt ? 0.9 : 1.0;
+						c.dvd = false;
 						c.eotfName = ( sp.cs == sRGB ) ? "sRGB" : e.name;
 						c.whiteName = kWhites[iWhite].name;
 						c.gridName = kGrids[iGrid].name;
 						c.stdName = sp.name;
 						RunCombo(c);
+
+						// Manual-generator pass. Every DVD carve-out in
+						// GetItemText / UpdateGrid sits inside the mode-5 HDR
+						// block, so only PQ combos differ at all; and the
+						// carve-outs are white-independent (they swap the
+						// diffuse-white CONSTANT, not the chromaticity), so
+						// D65 covers them - running all three whites would
+						// triple the cost for identical branches.
+						if ( eotf == 5 && kWhites[iWhite].wt == D65 && iInt == 0 )
+						{
+							c.dvd = true;
+							RunCombo(c);
+						}
 					}
 				}
 			}

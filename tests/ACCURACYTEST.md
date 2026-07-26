@@ -54,7 +54,7 @@ settings-saving teardown.
 
 ## The matrix
 
-Full cross product where meaningful (792 combos):
+Full cross product where meaningful (876 combos):
 
 - **Grid (bit depth x range)**: 8-bit limited (219), 8-bit full (255),
   10-bit limited (876), 10-bit full (1023) — via the cached
@@ -79,6 +79,18 @@ Full cross product where meaningful (792 combos):
 - **White point**: D65, DCI white, and manual xy 0.3067/0.3180 (`DCUST`).
   The custom whites were never hand-tested; the known-fail table below
   documents where the references are still D65-bound.
+- **Generator**: automatic (GDI) always; **manual (DVD)** additionally for the
+  three PQ rows at D65. Every `if (DVD)` carve-out in `GetItemText` /
+  `UpdateGrid` sits inside the mode-5 HDR block, and the carve-outs swap a
+  diffuse-white *constant* rather than a chromaticity, so PQ-at-D65 reaches all
+  of them without tripling the matrix.
+  DVD combos score **only** the `conv*` columns; the wire families print
+  `-1.000`. HCFR emits no patches at all with a manual generator — the "wire" is
+  the disc the user plays, and the DVD conventions are built for the Mascior
+  disc's 50.0% / 92.254965-nit white rather than the 50.22831% code the
+  simulated sensor is fed, so `reference == wire` has no meaning there. The
+  families still *run* (they bootstrap the measured whites and collect the
+  convention samples), they are just not scored.
 - **Window intensity**: 100% always; 90% additionally for the SDR transfer
   functions (the generator UI disables Intensity for PQ/HLG). Intensity is
   deliberately NOT modeled by the references — it dims the measured white
@@ -103,6 +115,7 @@ measured gray top as White; then primaries, which set PrimeWhite):
   indices 0..70) via `GenerateCC24Colors`. AXIS covers the clipped-ramp-top
   cases in PQ: patches above `m_TargetMaxL` must STILL read dE ~ 0 because
   the reference models the same per-channel clip.
+
 ### The convention families (`convPV` / `convPVw` / `convNW`)
 
 The wire-model families above read dE ~ 0 under *any* self-consistent
@@ -242,6 +255,25 @@ run is reported as STALE. Current entries (expected, pre-existing):
   exactly code 110/219, so 0.75 stim = an exact half-code (82.5); generator
   and reference reach it through different matrix round trips whose sub-1e-9
   dust splits the tie (constant dE 0.74 at yellow).
+- **Manual generator (DVD), all `conv*` families**: a real, newly-detected
+  **grid-vs-3D-viewer divergence**, not a modeling gap — the first thing the DVD
+  axis found. `GetItemText` keeps the legacy DVD conventions for mode 5 (the
+  Mascior disc's 92.254965-nit white instead of `TmDiffuseWhiteNits`, the fixed
+  `105.95640` rescale instead of `GetHDRRefScale`, and in its second sub-branch
+  an extra `YWhite * 94.37844 / tmWhite`), while `C3DColorView::BuildScene` has
+  **no** manual-generator branch and always uses the unified pair. A user
+  measuring from a disc therefore sees one dE in the pane and another in the 3D
+  viewer. Two magnitudes, matching the two sub-branches: 0.49–0.70 where the
+  measured white is left alone (saturation modes for HDTV/UHDTV, and UHDTV2's
+  last saturation column), 0.02–0.07 where the `94.37844/tmWhite` rescale very
+  nearly cancels the reference offset. Ceilings are split (1.5 / 0.3) so a
+  regression in the near-cancelling half cannot hide under the other's headroom.
+  Recorded rather than fixed because the 2026-07 unification *deliberately* left
+  DVD legacy, and closing it means choosing which convention wins — a
+  user-visible number change on a legacy path. The structural fix is coverage
+  gap 7's shared `CMeasure` normalization helper: if the viewer, Export and
+  RGBLevelWnd all ask `CMeasure` for the normalization, the DVD carve-out lives
+  in exactly one place and this divergence cannot exist.
 - **`gray` on the full-range grids**: the gray pipeline (`GetGrayPercent` /
   `ArrayIndexToGrayLevel` / `GrayLevelToGrayProp`) has no range parameter —
   ramp codes and references live on the 219/876 limited grids and the
@@ -275,17 +307,15 @@ agree), and the gaps below are mostly places their reach stops.
 5. ~~**Whites are always present.**~~ Closed by `convNW`.
 9. ~~**Hard-clip coverage is tone-map-OFF only.**~~ Closed by the second
    tone-mapped EOTF row at `TargetMaxL = 700`.
+2. ~~**The manual generator (DVD) is never configured.**~~ Closed by the
+   generator axis — and it immediately found a real grid-vs-3D-viewer
+   divergence, now the DVD known-fail entry above. The `if (DVD)` carve-outs in
+   `InitGrid`, `RGBLevelWnd` and Export are still not *directly* covered: they
+   duplicate the same normalization, which is gap 7's problem, not a separate
+   axis.
 
 ### Still open
 
-2. **The manual generator (DVD) is never configured.** `RunAccuracyTest` sets
-   `enumAutomatic` unconditionally, so every `if (DVD)` carve-out — in
-   `GetItemText`, `UpdateGrid`, `InitGrid`, `RGBLevelWnd`, and the Export
-   blocks — is untested. Two real bugs hid there. Note the DVD paths use a
-   different white (`getL_EOTF(0.50,…) * 100`, un-snapped) than
-   `TmDiffuseWhiteNits`, so the references have to model that; and the 3D viewer
-   has **no** DVD carve-out at all, so `convPV` under a manual generator is
-   expected to surface a real grid-vs-viewer split rather than read 0.
 3. **Mascior HDR CC sets are never run.** `RunCC` is only called with `GCD` and
    `AXIS`; the whole `m_CCMode in [MASCIOR50..CCMAXHDR]` family (its `* 100`
    reference scale and grayscale-top white) has zero coverage in the harness,
@@ -310,7 +340,9 @@ agree), and the gaps below are mostly places their reach stops.
    is the better fix than an export family: if Export calls it, there is nothing
    left to diverge.
 
-Reference result (2026-07-25): `792 combos: 333 pass, 0 FAIL, 459 known-fail`,
+Reference result (2026-07-25): `876 combos: 333 pass, 0 FAIL, 543 known-fail`,
 ColorMathTest verify green with no golden movement. (Was `708 combos: 311 pass,
-0 FAIL, 397 known-fail` before the 84 tone-mapped 700-nit combos were added;
-the three convention families read 0.000 across the whole matrix.)
+0 FAIL, 397 known-fail` before this work: +84 tone-mapped 700-nit combos and +84
+manual-generator combos, the latter all landing in the new DVD known-fail.
+On the GDI half the three convention families read 0.000 across the whole
+matrix.)
