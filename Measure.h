@@ -241,6 +241,7 @@ public:
 	ColorRGBDisplay GetProfilePatchRGB(int i);		// patch stimulus, regenerated from metadata (cached)
 	void GetRefProfileSat(int i, CColor & ccRef);	// theoretical reference for patch i (grid conventions)
 	double ComputeProfileDE(const CColor & measured, int i);	// dE for profile patch i, matching the measures grid (SDR + PQ HDR); -1 to skip
+	double GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) const;	// the white the grid normalises sat/CC dE by (measured, NOT the theoretical tmWhite)
 	// Live profile-capture state (not serialized): the profiling pane pauses/observes through these
 	volatile BOOL m_bProfilePause;
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0

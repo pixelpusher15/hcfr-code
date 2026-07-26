@@ -1544,6 +1544,13 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		CColor Black = GetDocument()->GetMeasure()->GetOnOffBlack();
 		int mode = GetConfig()->m_GammaOffsetType;
 		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor) / 94.37844;
+		// Manual generator (DVD) keeps the legacy 105.95640/94.37844 conventions
+		// upstream (UpdateGrid/GetItemText), so its comparator math stays legacy.
+		BOOL bManualGen = (GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual);
+		// Mascior-style HDR CC sets keep the legacy * 100 reference scale upstream
+		// (UpdateGrid / InitGrid / GetItemText), so the comparator must keep the
+		// legacy tmWhite factor for them too.
+		BOOL bMasciorCC = ( m_displayMode == 11 && GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR );
 
 		double m_meas_rd, m_meas_gd, m_meas_bd, m_ref_rd, m_ref_gd, m_ref_bd;
 
@@ -1557,7 +1564,22 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			ref = ColorRGB(m_RefColor.GetRGBValue(bRef));
 			if (mode == 5)
 			{
-				double Yref = ((m_displayMode==0||m_displayMode==3||m_displayMode==4||m_displayMode==12)?(GetConfig()->m_useToneMap?((GetConfig()->m_DiffuseL/94.37844) /(GetConfig()->m_TargetMaxL/10000.)):tmWhite/(GetConfig()->m_TargetMaxL/10000.)):(m_displayMode == 1 && !(GetConfig()->m_colorStandard==UHDTV2||GetConfig()->m_colorStandard==UHDTV3||GetConfig()->m_colorStandard==UHDTV4))?(m_RefWhite * 10000./94.37844):(m_RefWhite * 10000./94.37844*tmWhite));
+				double Yref;
+				if (m_displayMode==0||m_displayMode==3||m_displayMode==4||m_displayMode==12)
+					Yref = GetConfig()->m_useToneMap?((GetConfig()->m_DiffuseL/94.37844) /(GetConfig()->m_TargetMaxL/10000.)):tmWhite/(GetConfig()->m_TargetMaxL/10000.);
+				else if (m_displayMode == 1 && !(GetConfig()->m_colorStandard==UHDTV2||GetConfig()->m_colorStandard==UHDTV3||GetConfig()->m_colorStandard==UHDTV4))
+					Yref = m_RefWhite * 10000./94.37844;
+				else if ((!bManualGen && m_displayMode >= 5 && m_displayMode <= 11 && !bMasciorCC) || m_displayMode == 13)
+					// sat/CC/profile references are GetHDRRefScale-scaled (1.0 =
+					// tone-mapped diffuse white); without the legacy tmWhite factor
+					// this reproduces exactly the code the 105.95640-scaled
+					// references displayed (identical with tone mapping off).
+					// The Mascior HDR CC sets are excluded: their reference still
+					// gets the legacy * 100 upstream (UpdateGrid/InitGrid), so the
+					// tmWhite factor must stay for them.
+					Yref = m_RefWhite * 10000./94.37844;
+				else
+					Yref = m_RefWhite * 10000./94.37844*tmWhite;
 				m_ref_rd = min(max(ref[0]/Yref,0),1);
 				m_ref_gd = min(max(ref[1]/Yref,0),1);
 				m_ref_bd = min(max(ref[2]/Yref,0),1);
@@ -1625,7 +1647,21 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 
 				if (mode == 5)
 				{
-					double Yref = ((m_displayMode==0||m_displayMode==3||m_displayMode==4||m_displayMode==12)?(GetConfig()->m_useToneMap?10000.*(GetConfig()->m_DiffuseL/94.37844):tmWhite*10000.):(m_displayMode == 1 && !(GetConfig()->m_colorStandard==UHDTV2||GetConfig()->m_colorStandard==UHDTV3||GetConfig()->m_colorStandard==UHDTV4))?(m_YWhite * 10000./94.37844):(m_YWhite * 10000./94.37844*tmWhite));
+					double Yref;
+					if (m_displayMode==0||m_displayMode==3||m_displayMode==4||m_displayMode==12)
+						Yref = GetConfig()->m_useToneMap?10000.*(GetConfig()->m_DiffuseL/94.37844):tmWhite*10000.;
+					else if (m_displayMode == 1 && !(GetConfig()->m_colorStandard==UHDTV2||GetConfig()->m_colorStandard==UHDTV3||GetConfig()->m_colorStandard==UHDTV4))
+						Yref = m_YWhite * 10000./94.37844;
+					else if ((!bManualGen && m_displayMode >= 5 && m_displayMode <= 11 && !bMasciorCC) || m_displayMode == 13)
+						// m_YWhite is the unrescaled measured white under the unified
+						// convention. The legacy pair was m_YWhite_old * K * tmWhite
+						// with m_YWhite_old = m_YWhite / tmWhite, so the faithful
+						// replacement simply DROPS the tmWhite factor - dividing by
+						// it instead would over-correct by tmWhite^2. Mascior CC is
+						// excluded for the same reason as the reference side above.
+						Yref = m_YWhite * 10000./94.37844;
+					else
+						Yref = m_YWhite * 10000./94.37844*tmWhite;
 					m_meas_r = min(max(meas[0]/Yref,0),1);
 					m_meas_g = min(max(meas[1]/Yref,0),1);
 					m_meas_b = min(max(meas[2]/Yref,0),1);
@@ -2227,10 +2263,13 @@ void CMainView::InitGrid(bool sizeGrid)
 				GetDocument()->GetMeasure()->GetRefCC24Sat(i, s_clr);
 				if (GetConfig()->m_GammaOffsetType == 5 && GetConfig()->m_bHDR100 )
 				{
-					// Match the dE path's scale (4219/4225): *100 for the
-					// Mascior-style HDR CC sets, *105.95640 otherwise - so the
+					// Match the dE path's scale (UpdateGrid ~4294): *100 for the
+					// Mascior-style HDR CC sets, GetHDRRefScale otherwise (fixed
+					// 105.95640 for the legacy manual-generator path) - so the
 					// swatch luminance represents the same reference the dE uses.
-					double s = ( GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR ) ? 100. : 105.95640;
+					double s = ( GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR ) ? 100.
+							 : ( GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual ) ? 105.95640
+							 : GetDocument()->GetMeasure()->GetHDRRefScale();
 					s_clr.SetX(s_clr.GetX()*s);
 					s_clr.SetY(s_clr.GetY()*s);
 					s_clr.SetZ(s_clr.GetZ()*s);
@@ -2699,14 +2738,13 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 					// is on the 1.0 = 10000 nits scale; without this the LIVE
 					// comparator showed a ~106x-off reference during capture that
 					// then "corrected itself" when the patch was clicked afterward.
+					// Unified convention: GetHDRRefScale, measured white unrescaled.
 					if ( GetConfig()->m_GammaOffsetType == 5 )
 					{
-						m_RefColor.SetX( m_RefColor.GetX() * 105.95640 );
-						m_RefColor.SetY( m_RefColor.GetY() * 105.95640 );
-						m_RefColor.SetZ( m_RefColor.GetZ() * 105.95640 );
-						double tmWhite = TmDiffuseWhiteNits( noDataColor, noDataColor );
-						if ( tmWhite > 0.0 )
-							m_YWhite = m_YWhite * 94.37844 / tmWhite;
+						double s = pProfMeasure->GetHDRRefScale();
+						m_RefColor.SetX( m_RefColor.GetX() * s );
+						m_RefColor.SetY( m_RefColor.GetY() * s );
+						m_RefColor.SetZ( m_RefColor.GetZ() * s );
 					}
 					m_RGBLevels.Refresh ( done + 1, 13, nProfSize );
 					m_Target.Refresh ( GetDocument()->GetGenerator()->m_b16_235, done + 1, nProfSize, 13, GetDocument(), CTargetWnd::TARGET_TARGET );
@@ -3104,8 +3142,12 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 									YWhite = GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
 								else
 								{
+									// Unified HDR convention: the reference is scaled by
+									// GetHDRRefScale (UpdateGrid ~4294), so the measurement
+									// stays anchored to the measured white as-is - no
+									// 94.37844/tmWhite rescale (matches the 3D viewer;
+									// identical with tone mapping off).
 									RefWhite = YWhite / (tmWhite) ;
-									YWhite = YWhite * 94.37844 / (tmWhite) ;
 								}
 							}
 						}
@@ -3262,45 +3304,18 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						RefLuma [ 5 ] = GetDocument()->GetMeasure()->GetRefSecondary(2).GetLuminance();
 						RefLuma [ 6 ] = 1.0;
 						break ;
+					// The six saturation sweeps differ only in the GetRefSat hue
+					// index (displayMode 5..10 -> hue 0..5); one arm keeps the HDR
+					// scale in a single place instead of six copies to keep in sync.
 					case 5:
-						satcolor = GetDocument()->GetMeasure()->GetRefSat(0, sat, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb));
-						if (GetConfig()->m_GammaOffsetType == 5)
-		                    RefLuma [nCol - 1] = satcolor.GetLuminance() * 105.95640;
-						else
-		                    RefLuma [nCol - 1] = satcolor.GetLuminance();
-						break;
 					case 6:
-                        satcolor = GetDocument()->GetMeasure()->GetRefSat(1, sat, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb));
-						if (GetConfig()->m_GammaOffsetType == 5)
-		                    RefLuma [nCol - 1] = satcolor.GetLuminance() * 105.95640;
-						else
-		                    RefLuma [nCol - 1] = satcolor.GetLuminance();
-						break;
-					case 7:                                                
-                        satcolor = GetDocument()->GetMeasure()->GetRefSat(2, sat, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb));
-						if (GetConfig()->m_GammaOffsetType == 5)
-		                    RefLuma [nCol - 1] = satcolor.GetLuminance() * 105.95640;
-						else
-		                    RefLuma [nCol - 1] = satcolor.GetLuminance();
-						break;
+					case 7:
 					case 8:
-                        satcolor = GetDocument()->GetMeasure()->GetRefSat(3, sat, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb));
-						if (GetConfig()->m_GammaOffsetType == 5)
-		                    RefLuma [nCol - 1] = satcolor.GetLuminance() * 105.95640;
-						else
-		                    RefLuma [nCol - 1] = satcolor.GetLuminance();
-						break;
 					case 9:
-                        satcolor = GetDocument()->GetMeasure()->GetRefSat(4, sat, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb));
-						if (GetConfig()->m_GammaOffsetType == 5)
-		                    RefLuma [nCol - 1] = satcolor.GetLuminance() * 105.95640;
-						else
-		                    RefLuma [nCol - 1] = satcolor.GetLuminance();
-						break;
 					case 10:
-                        satcolor = GetDocument()->GetMeasure()->GetRefSat(5, sat, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb));
+						satcolor = GetDocument()->GetMeasure()->GetRefSat(m_displayMode - 5, sat, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb));
 						if (GetConfig()->m_GammaOffsetType == 5)
-		                    RefLuma [nCol - 1] = satcolor.GetLuminance() * 105.95640;
+		                    RefLuma [nCol - 1] = satcolor.GetLuminance() * (DVD ? 105.95640 : GetDocument()->GetMeasure()->GetHDRRefScale());
 						else
 		                    RefLuma [nCol - 1] = satcolor.GetLuminance();
 						break;
@@ -3358,7 +3373,11 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 							if ((GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR) && m_displayMode == 11)
 								white.SetY(GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1)).GetY());
 							else
-								white.SetY(94.37844);
+								// Unified convention: references are GetHDRRefScale-scaled
+								// (1.0 = tone-mapped diffuse white), so normalize the
+								// measurement by the same white. The delta-luminance ratio
+								// is unchanged (both sides reduce to meas / (ref * 10000)).
+								white.SetY(tmWhite);
 					}
 				}
 
@@ -4301,9 +4320,15 @@ void CMainView::UpdateGrid()
 				}
 				else
 				{
-					refColor.SetX((refColor.GetX() * 105.95640));
-					refColor.SetY((refColor.GetY() * 105.95640));
-					refColor.SetZ((refColor.GetZ() * 105.95640));
+					// Unified HDR rescale: GetHDRRefScale (tone-map aware, matches
+					// the 3D viewer; = 105.95640 with tone mapping off). The manual
+					// generator (DVD) keeps the legacy fixed scale - its GetItemText
+					// white terms still use the 94.37844/tmWhite conventions.
+					double s = ( GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual )
+							 ? 105.95640 : GetDocument()->GetMeasure()->GetHDRRefScale();
+					refColor.SetX((refColor.GetX() * s));
+					refColor.SetY((refColor.GetY() * s));
+					refColor.SetZ((refColor.GetZ() * s));
 				}
 			}
 
@@ -6713,18 +6738,16 @@ void CMainView::SelectProfilePatch(int idx)
 	m_YWhite = ( w.isValid () && w.GetY () > 0.0 ) ? w.GetY () : 1.0;
 
 	// PQ HDR: GetRefProfileSat produces the internal HDR-10 scale (1.0 = 10000
-	// nits). The grid applies * 105.95640 (10000 / 94.37844) to CC/sat refs
-	// before handing them to the comparator widgets (GetItemText, ~line 4280);
-	// mode 13 bypasses the grid, so apply the same bridge here, including the
-	// tone-mapped YWhite adjust the CC24 path uses.
+	// nits). The grid applies GetHDRRefScale (= 105.95640 with tone mapping
+	// off) to CC/sat refs before handing them to the comparator widgets
+	// (UpdateGrid, ~line 4294); mode 13 bypasses the grid, so apply the same
+	// bridge here. Unified convention: the measured white stays unrescaled.
 	if ( GetConfig()->m_GammaOffsetType == 5 )
 	{
-		m_RefColor.SetX( m_RefColor.GetX() * 105.95640 );
-		m_RefColor.SetY( m_RefColor.GetY() * 105.95640 );
-		m_RefColor.SetZ( m_RefColor.GetZ() * 105.95640 );
-		double tmWhite = TmDiffuseWhiteNits( noDataColor, noDataColor );
-		if ( tmWhite > 0.0 )
-			m_YWhite = m_YWhite * 94.37844 / tmWhite;
+		double s = pMeasure->GetHDRRefScale();
+		m_RefColor.SetX( m_RefColor.GetX() * s );
+		m_RefColor.SetY( m_RefColor.GetY() * s );
+		m_RefColor.SetZ( m_RefColor.GetZ() * s );
 	}
 
 	if ( sel.isValid () )
