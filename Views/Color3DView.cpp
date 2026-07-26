@@ -484,20 +484,17 @@ void C3DColorView::BuildScene()
 	const double hdrRefScale = hdr10Refs ? pMeasure->GetHDRRefScale() : 1.0;
 	const bool satSpecial = ( ref.m_standard == HDTVa || ref.m_standard == HDTVb );
 
-	// dE normalisation, separate from the marker geometry above. The grid
-	// normalises sat/CC dE by the MEASURED white (CMeasure::GetColorDEWhiteY)
-	// and expresses the reference relative to it (RefWhite = YWhite / tmWhite);
-	// scaling the reference by 10000 / that white is the same thing with
-	// YWhiteRef 1.0, which is what AppendMeasure passes. Normalising by the
-	// theoretical tmWhite instead (what SceneDiffuseWhiteY returns in HDR, and
-	// what this used to pass) reads ~1% off the grid whenever the display's
-	// white misses target. Marker geometry keeps hdrRefScale: refC * (10000 /
-	// tmWhite) * tmWhite is absolute nits, so a perfect patch draws no tail.
-	// (whiteY fallback: with no measured white at all the helper returns 0,
-	// which AppendMeasure would read as "blackish" and drop the dE entirely.)
-	double satDEWhiteRaw = pMeasure->GetColorDEWhiteY( satSpecial, false, false );
-	const double satDEWhite = ( satDEWhiteRaw > 0.0 ) ? satDEWhiteRaw : whiteY;
-	const double satDEScale = ( hdr10Refs && satDEWhite > 0.0 ) ? 10000. / satDEWhite : 1.0;
+	// dE normalisation, separate from the marker geometry above: ask CMeasure
+	// rather than re-deriving it, so this cannot drift from the measures grid
+	// again (it did - this used to normalise by the THEORETICAL tone-mapped
+	// white where the grid uses the MEASURED one, which reads ~1% off whenever
+	// the display's white misses target). Marker geometry keeps hdrRefScale:
+	// refC * (10000 / tmWhite) * tmWhite is absolute nits, so a perfect patch
+	// draws no tail. (whiteY fallback: with no measured white at all the helper
+	// returns 0, which AppendMeasure would read as "blackish" and drop the dE.)
+	const ColorDENorm satNorm = pMeasure->GetColorDENorm( 5 );	// any saturation mode
+	const double satDEWhite = ( satNorm.whiteY > 0.0 ) ? satNorm.whiteY : whiteY;
+	const double satDEScale = ( satNorm.whiteY > 0.0 ) ? satNorm.deScale : 1.0;
 	static const wchar_t * hueName[6] = { L"Red", L"Green", L"Blue", L"Yellow", L"Cyan", L"Magenta" };
 	int nSatLevels = pMeasure->GetSatLevelCount();
 	for ( int L = 0; L < nSatLevels; L++ )
@@ -539,18 +536,16 @@ void C3DColorView::BuildScene()
 	if ( n > MAX_USER_CC_PATCH_SIZE )
 		n = MAX_USER_CC_PATCH_SIZE;   // the measure arrays are allocated to this;
 									  // GetCC24Sat indexes unchecked past it
-	// Loop-invariant: hoisted like the saturation block above. GetColorDEWhiteY
-	// returns CColor copies internally, so calling it per patch would allocate
-	// on every one of the 71 AXIS iterations. SDR is included because the grid
-	// falls back to the ON/OFF white for CC when the primaries run was made
-	// below 90% stimulus, which whiteY does not model.
-	const bool ccMascior = ( GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR );
-	double ccDEWhiteRaw = pMeasure->GetColorDEWhiteY( satSpecial, true, ccMascior );
-	const double ccDEWhite = ( ccDEWhiteRaw > 0.0 ) ? ccDEWhiteRaw : whiteY;
-	// Mascior-style HDR CC sets keep their own convention (* 100 against the
-	// grayscale top, RefWhite 1.0) on both sides - see the grid.
-	const double ccMarkScale = ccMascior ? 100. : hdrRefScale;
-	const double ccDEScale   = ccMascior ? 100. : ( 10000. / ccDEWhite );
+	// Loop-invariant: hoisted like the saturation block above. GetColorDENorm
+	// reads CColor copies internally, so calling it per patch would allocate on
+	// every one of the 71 AXIS iterations. The color-checker normalisation is
+	// genuinely different from the saturation one - the sub-90%-stimulus ON/OFF
+	// fallback is CC-only, and the Mascior-style HDR sets keep their own * 100
+	// convention against the grayscale top - hence the separate query.
+	const ColorDENorm ccNorm = pMeasure->GetColorDENorm( 11 );
+	const double ccDEWhite   = ( ccNorm.whiteY > 0.0 ) ? ccNorm.whiteY : whiteY;
+	const double ccMarkScale = ccNorm.markScale;
+	const double ccDEScale   = ( ccNorm.whiteY > 0.0 ) ? ccNorm.deScale : 1.0;
 	for ( i = 0; i < n; i++ )
 	{
 		CColor c = pMeasure->GetCC24Sat( i );

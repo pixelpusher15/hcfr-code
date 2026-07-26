@@ -358,6 +358,21 @@ agree), and the gaps below are mostly places their reach stops.
 5. ~~**Whites are always present.**~~ Closed by `convNW`.
 9. ~~**Hard-clip coverage is tone-map-OFF only.**~~ Closed by the second
    tone-mapped EOTF row at `TargetMaxL = 700`.
+7. ~~**The `conv*` families compare two harness-local copies.**~~ Closed by
+   `CMeasure::GetColorDENorm`, which now owns the whole sat/CC normalization —
+   the dE white, the reference rescale and the `YWhiteRef` that pairs with it.
+   The 3D viewer and the harness's viewer side both call it, so the `conv*`
+   families no longer *emulate* the viewer: the pane side is the harness's
+   `UpdateGrid`/`GetItemText` emulation, the viewer side is production code, and
+   the check is "the grid's normalization == the shared helper".
+   Mutation-verified: breaking `GetColorDENorm` **in production, with no edit to
+   `AccuracyTest.cpp`**, fails 105 of the 285 quick-subset combos. Before, the
+   same break read 0.000 until someone remembered to update the harness's copy
+   too — which is the whole point: the harness now follows production instead of
+   carrying its own copy of the formula.
+   Still re-derived on the pane side: the `markScale` application in `UpdateGrid`
+   and the dE evaluation space (`bRef`). Those are the grid's own definition of
+   record, so an emulation of them is the point rather than a duplicate.
 2. ~~**The manual generator (DVD) is never configured.**~~ Closed by the
    generator axis — and it immediately found a real grid-vs-3D-viewer
    divergence, now the DVD known-fail entry above. The `if (DVD)` carve-outs in
@@ -379,17 +394,15 @@ agree), and the gaps below are mostly places their reach stops.
    user-visible (swatches disagree while dE reads 0) and completely invisible
    here. This is MFC view code; extracting the pure math into a testable
    function is the prerequisite.
-7. **The `conv*` families compare two harness-local copies.** They *emulate* the
-   viewer's formula rather than calling it, so changing `C3DColorView::BuildScene`
-   without editing `AccuracyTest.cpp` still reads 0.000. Only the white is
-   genuinely shared (`CMeasure::GetColorDEWhiteY`); the reference scale and the
-   dE evaluation space are re-derived. Extracting the whole normalization into
-   one `CMeasure` helper that the grid, the viewer, Export and the harness all
-   call would make the lock real.
 8. **Export is never exercised.** The PDF/CSV/spreadsheet dE paths duplicate the
-   grid's normalization and have already drifted from it. Gap 7's shared helper
-   is the better fix than an export family: if Export calls it, there is nothing
-   left to diverge.
+   grid's normalization and have already drifted from it — their `YWhite` is a
+   hand-rolled `special ? OnOff : Prime` (plus the Mascior grayscale top) that
+   is missing three of the grid's fallbacks: prime→ON/OFF when prime is invalid,
+   the CC sub-90%-stimulus fallback, and `m_TargetMaxL` when no white exists.
+   Moving them onto `GetColorDENorm` is the fix and would close this gap, but it
+   changes user-visible numbers in exported PDFs/CSVs in exactly those corners,
+   and nothing automated covers Export — so it wants doing deliberately rather
+   than as a side effect.
 
 Reference result (2026-07-26): `834 combos: 333 pass, 0 FAIL, 501 known-fail`,
 ColorMathTest verify green with no golden movement. (Was `708 combos: 311 pass,
