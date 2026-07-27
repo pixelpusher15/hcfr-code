@@ -358,6 +358,13 @@ agree), and the gaps below are mostly places their reach stops.
 5. ~~**Whites are always present.**~~ Closed by `convNW`.
 9. ~~**Hard-clip coverage is tone-map-OFF only.**~~ Closed by the second
    tone-mapped EOTF row at `TargetMaxL = 700`.
+2. ~~**The manual generator (DVD) is never configured.**~~ Closed by the
+   generator axis — and it immediately found a real grid-vs-3D-viewer
+   divergence, now the DVD known-fail entry above. The `if (DVD)` carve-outs in
+   `InitGrid`, `RGBLevelWnd` and Export are still not *directly* covered: they
+   duplicate the same normalization. That is gap 8's problem for Export;
+   `InitGrid` and `RGBLevelWnd` are simply not on `GetColorDENorm` yet and have
+   no gap of their own.
 7. ~~**The `conv*` families compare two harness-local copies.**~~ Closed by
    `CMeasure::GetColorDENorm`, which now owns the whole sat/CC normalization —
    the dE white, the reference rescale and the `YWhiteRef` that pairs with it.
@@ -370,15 +377,23 @@ agree), and the gaps below are mostly places their reach stops.
    same break read 0.000 until someone remembered to update the harness's copy
    too — which is the whole point: the harness now follows production instead of
    carrying its own copy of the formula.
-   Still re-derived on the pane side: the `markScale` application in `UpdateGrid`
-   and the dE evaluation space (`bRef`). Those are the grid's own definition of
-   record, so an emulation of them is the point rather than a duplicate.
-2. ~~**The manual generator (DVD) is never configured.**~~ Closed by the
-   generator axis — and it immediately found a real grid-vs-3D-viewer
-   divergence, now the DVD known-fail entry above. The `if (DVD)` carve-outs in
-   `InitGrid`, `RGBLevelWnd` and Export are still not *directly* covered: they
-   duplicate the same normalization, which is gap 7's problem, not a separate
-   axis.
+   All four struct members are locked: `whiteY`/`deScale` by the pane-vs-viewer
+   comparison, `markScale`/`refWhite` by the extra "both spellings of
+   `ColorDENorm` agree" check in `ConvCheck` — without which a mutation of
+   either escapes the whole matrix while still moving the viewer's HDR CC
+   markers. Mutation-verified in turn: scaling `refWhite` by 1.05 **in
+   production, with no harness edit** takes the quick subset from
+   `90 pass, 0 FAIL` to `66 pass, 96 FAIL`. Before that check it failed nothing,
+   because nothing in the tree read either member.
+   **Still re-derived, and NOT covered:** the `markScale` application in
+   `UpdateGrid` and the *grid's* dE space (`bRef`) — those are the grid's own
+   definition of record, so emulating them is the point — but also the
+   **viewer's** dE space and gray weight (`s_pViewDERef` and the `isHDR ? 3`
+   selection are harness-local copies of `AppendMeasure`'s). Deleting
+   `BuildScene`'s `ContainerTransportReference` branch for UHDTV3/4 still moves
+   real viewer dE while this reads 0.000. The lock is also `dE_form`-specific:
+   the matrix pins `m_dE_form = 3`, and the two `ColorDENorm` spellings are only
+   equivalent for the Lab/Luv forms 0–5 (dICtCp swaps its whites).
 
 ### Still open
 
@@ -399,6 +414,11 @@ agree), and the gaps below are mostly places their reach stops.
    hand-rolled `special ? OnOff : Prime` (plus the Mascior grayscale top) that
    is missing three of the grid's fallbacks: prime→ON/OFF when prime is invalid,
    the CC sub-90%-stimulus fallback, and `m_TargetMaxL` when no white exists.
+   The saturation block is worse still — a bare `GetPrimeWhite().GetY()` with no
+   special-standard branch at all — and every block computes `tmWhite` from
+   `TmDiffuseWhiteNits`, where the grid's DVD branch *reassigns* it to the disc's
+   ~92.25-nit 0.50-code white, so a manual-generator HDR capture already exports
+   sat/CC dE ~2.3% off the on-screen numbers.
    Moving them onto `GetColorDENorm` is the fix and would close this gap, but it
    changes user-visible numbers in exported PDFs/CSVs in exactly those corners,
    and nothing automated covers Export — so it wants doing deliberately rather

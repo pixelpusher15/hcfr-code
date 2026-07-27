@@ -7472,10 +7472,17 @@ double CMeasure::GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) cons
 {
 	BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 );
 
+	// The > 0.0 test matters as much as isValid(): ColorTriplet::isValid only
+	// rejects values below -1.0 (it is a FX_NODATA sentinel check), so a gray
+	// top that measured - or was typed into the grid as - zero luminance is
+	// "valid" with GetY() == 0. Returning it would skip the m_TargetMaxL
+	// fallback below and hand every consumer a zero dE white, which the 3D
+	// viewer turns into a 100x reference/marker mismatch and /accuracytest into
+	// a 999 convention failure.
 	if ( isHDR && bCC && bMasciorCC )
 	{
 		int n = GetGrayScaleSize();
-		if ( n > 0 && GetGray(n - 1).isValid() )
+		if ( n > 0 && GetGray(n - 1).isValid() && GetGray(n - 1).GetY() > 0.0 )
 			return GetGray(n - 1).GetY();
 	}
 
@@ -7523,10 +7530,17 @@ double CMeasure::GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) cons
 // /accuracytest's kKnownFails.
 ColorDENorm CMeasure::GetColorDENorm(int displayMode) const
 {
+	// 5..10 saturation, 11 color checker. Nothing else is modelled: the grid
+	// normalises grayscale (0..4), primaries (1) and the profile cube (13)
+	// differently, and silently handing one of those the SATURATION convention
+	// would double-scale its reference (GetRefPrimary already applies
+	// GetHDRRefScale internally). Assert rather than guess.
+	ASSERT( displayMode >= 5 && displayMode <= 11 );
+
 	CColorHCFRConfig * cfg = GetConfig();
 	bool bCC      = ( displayMode == 11 );
 	bool bSpecial = ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb );
-	bool mascior  = ( bCC && cfg->m_CCMode >= MASCIOR50 && cfg->m_CCMode <= CCMAXHDR );
+	bool mascior  = ( bCC && IsMasciorCC(cfg->m_CCMode) );
 
 	ColorDENorm n;
 	n.whiteY    = GetColorDEWhiteY(bSpecial, bCC, mascior);
@@ -7553,11 +7567,22 @@ ColorDENorm CMeasure::GetColorDENorm(int displayMode) const
 	// markScale brings that to diffuse-white-relative (tone-map aware, = the
 	// legacy 105.95640 with tone mapping off); refWhite then expresses the
 	// measured white against the same diffuse white.
-	double tmWhite = TmDiffuseWhiteNits(GetOnOffWhite(), GetOnOffBlack());
+	// ONE tmWhite for all three members, and it comes from GetHDRRefScale so that
+	// its "<= 0 -> 94.37844" clamp applies to every one of them: refWhite is
+	// whiteY / tmWhite, and tmWhite == 10000 / markScale by construction.
+	// Recomputing TmDiffuseWhiteNits separately here (which this used to do) both
+	// dropped that clamp on refWhite alone - making deScale != markScale /
+	// refWhite in exactly the degenerate case the clamp exists for, i.e. the two
+	// documented spellings of this struct disagreeing - and paid a second full
+	// PQ/BT.2390 evaluation plus four CColor deep copies per call, for a number
+	// that is only equal to markScale's because mode-5 getL_EOTF happens to
+	// ignore White/Black.
 	n.markScale = GetHDRRefScale();
-	n.refWhite  = ( tmWhite > 0.0 && n.whiteY > 0.0 ) ? n.whiteY / tmWhite : 1.0;
-	// deScale == markScale / refWhite, but computed directly so a zero white
-	// cannot turn into a division by zero here instead of inside GetDeltaE.
+	n.refWhite  = ( n.whiteY > 0.0 ) ? n.whiteY * n.markScale / 10000. : 1.0;
+	// deScale == markScale / refWhite in every branch, including whiteY <= 0
+	// (where refWhite is 1.0 and deScale falls back to markScale). Computed
+	// directly so a zero white cannot become a division by zero here instead of
+	// inside GetDeltaE.
 	n.deScale   = ( n.whiteY > 0.0 ) ? 10000. / n.whiteY : n.markScale;
 	return n;
 }

@@ -481,20 +481,27 @@ void C3DColorView::BuildScene()
 	// 105.95640 with tone mapping off (* 100 for the Mascior-style HDR CC
 	// sets, matching the measures grid).
 	const bool hdr10Refs = ( GetConfig()->m_GammaOffsetType == 5 );
-	const double hdrRefScale = hdr10Refs ? pMeasure->GetHDRRefScale() : 1.0;
 	const bool satSpecial = ( ref.m_standard == HDTVa || ref.m_standard == HDTVb );
 
-	// dE normalisation, separate from the marker geometry above: ask CMeasure
+	// dE normalisation, separate from the marker geometry below: ask CMeasure
 	// rather than re-deriving it, so this cannot drift from the measures grid
 	// again (it did - this used to normalise by the THEORETICAL tone-mapped
 	// white where the grid uses the MEASURED one, which reads ~1% off whenever
-	// the display's white misses target). Marker geometry keeps hdrRefScale:
-	// refC * (10000 / tmWhite) * tmWhite is absolute nits, so a perfect patch
-	// draws no tail. (whiteY fallback: with no measured white at all the helper
-	// returns 0, which AppendMeasure would read as "blackish" and drop the dE.)
+	// the display's white misses target).
+	// The scales come from the helper UNCONDITIONALLY: it already degrades a
+	// missing white to deScale == markScale, and second-guessing that with a
+	// bare 1.0 (which this used to do) leaves the reference on the 1.0 = 10000
+	// nits convention while the measurement is normalised by ~100 nits - a 100x
+	// mismatch that also splits the plotted marker from its own dE target.
+	// Only whiteY keeps a local fallback, because the scene white is a better
+	// "blackish" guard than 0 for AppendMeasure.
 	const ColorDENorm satNorm = pMeasure->GetColorDENorm( 5 );	// any saturation mode
 	const double satDEWhite = ( satNorm.whiteY > 0.0 ) ? satNorm.whiteY : whiteY;
-	const double satDEScale = ( satNorm.whiteY > 0.0 ) ? satNorm.deScale : 1.0;
+	const double satDEScale = satNorm.deScale;
+	// Marker geometry: refC * markScale * tmWhite is absolute nits, so a perfect
+	// patch draws no tail. Same number GetHDRRefScale returns - taken from the
+	// helper so there is only one definition of the marker scale.
+	const double hdrRefScale = satNorm.markScale;
 	static const wchar_t * hueName[6] = { L"Red", L"Green", L"Blue", L"Yellow", L"Cyan", L"Magenta" };
 	int nSatLevels = pMeasure->GetSatLevelCount();
 	for ( int L = 0; L < nSatLevels; L++ )
@@ -545,7 +552,10 @@ void C3DColorView::BuildScene()
 	const ColorDENorm ccNorm = pMeasure->GetColorDENorm( 11 );
 	const double ccDEWhite   = ( ccNorm.whiteY > 0.0 ) ? ccNorm.whiteY : whiteY;
 	const double ccMarkScale = ccNorm.markScale;
-	const double ccDEScale   = ( ccNorm.whiteY > 0.0 ) ? ccNorm.deScale : 1.0;
+	// Unconditional, like the saturation block: a bare 1.0 here would leave the
+	// dE reference unscaled while ccMarkScale still plots the marker at * 100 for
+	// a Mascior CC set, so the marker and its own dE target would disagree.
+	const double ccDEScale   = ccNorm.deScale;
 	for ( i = 0; i < n; i++ )
 	{
 		CColor c = pMeasure->GetCC24Sat( i );
