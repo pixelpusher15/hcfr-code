@@ -7472,10 +7472,17 @@ double CMeasure::GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) cons
 {
 	BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 );
 
+	// The > 0.0 test matters as much as isValid(): ColorTriplet::isValid only
+	// rejects values below -1.0 (it is a FX_NODATA sentinel check), so a gray
+	// top that measured - or was typed into the grid as - zero luminance is
+	// "valid" with GetY() == 0. Returning it would skip the m_TargetMaxL
+	// fallback below and hand every consumer a zero dE white, which the 3D
+	// viewer turns into a 100x reference/marker mismatch and /accuracytest into
+	// a 999 convention failure.
 	if ( isHDR && bCC && bMasciorCC )
 	{
 		int n = GetGrayScaleSize();
-		if ( n > 0 && GetGray(n - 1).isValid() )
+		if ( n > 0 && GetGray(n - 1).isValid() && GetGray(n - 1).GetY() > 0.0 )
 			return GetGray(n - 1).GetY();
 	}
 
@@ -7497,8 +7504,91 @@ double CMeasure::GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) cons
 	return y;
 }
 
-CColor CMeasure::GetMeasurement(int i) const 
-{ 
+// The WHOLE saturation / color-checker dE normalisation in one place: the dE
+// white, the reference rescale, and the YWhiteRef that pairs with it.
+// displayMode follows CMainView: 5..10 saturation sweeps, 11 color checker.
+//
+// This exists because the normalisation had been re-derived at roughly a dozen
+// sites - the measures grid, the 3D viewer, three Export blocks, RGBLevelWnd,
+// SatLumShiftView, the CIE tooltip and the /accuracytest harness - and they had
+// already drifted apart twice: the viewer normalised by the THEORETICAL
+// tone-mapped white where the grid uses the MEASURED one, and Export lost the
+// grid's manual-generator carve-out. A dE ~ 0 self-test cannot see that class of
+// split (it holds under any self-consistent normalisation), so the guard has to
+// be structural: one definition, no copies.
+//
+// SCOPE: the unified (automatic-generator) convention. The measures grid keeps a
+// legacy carve-out for the MANUAL generator - the Mascior disc's 92.254965-nit
+// white, a fixed 105.95640 rescale, and an extra YWhite * 94.37844 / tmWhite -
+// which is deliberately NOT modelled here, for two reasons. It is legacy the
+// 2026-07 unification chose to leave alone, and it is not even expressible as a
+// per-family normalisation: one of its branches keys off the patch's COLUMN
+// (UHDTV2's last saturation step), so it cannot be hoisted out of a patch loop
+// the way this can. Sites that must byte-match the grid's on-screen numbers for
+// a disc capture (Export) therefore keep an explicit, commented DVD branch. The
+// resulting grid-vs-viewer split is tracked by the manual-generator entries in
+// /accuracytest's kKnownFails.
+ColorDENorm CMeasure::GetColorDENorm(int displayMode) const
+{
+	// 5..10 saturation, 11 color checker. Nothing else is modelled: the grid
+	// normalises grayscale (0..4), primaries (1) and the profile cube (13)
+	// differently, and silently handing one of those the SATURATION convention
+	// would double-scale its reference (GetRefPrimary already applies
+	// GetHDRRefScale internally). Assert rather than guess.
+	ASSERT( displayMode >= 5 && displayMode <= 11 );
+
+	CColorHCFRConfig * cfg = GetConfig();
+	bool bCC      = ( displayMode == 11 );
+	bool bSpecial = ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb );
+	bool mascior  = ( bCC && IsMasciorCC(cfg->m_CCMode) );
+
+	ColorDENorm n;
+	n.whiteY    = GetColorDEWhiteY(bSpecial, bCC, mascior);
+	n.refWhite  = 1.0;
+	n.markScale = 1.0;
+	n.deScale   = 1.0;
+
+	// SDR: references are already white-relative and the measured white does all
+	// the work, so every scale stays 1.0.
+	if ( cfg->m_GammaOffsetType != 5 )
+		return n;
+
+	// Mascior-style HDR CC sets keep their own convention: references land on the
+	// HDR-100 scale and are normalised against the grayscale top (which
+	// GetColorDEWhiteY already returned), with YWhiteRef 1.0.
+	if ( mascior )
+	{
+		n.markScale = 100.;
+		n.deScale   = 100.;
+		return n;
+	}
+
+	// HDR-10: GetRefSat/GetRefCC24Sat produce the 1.0 = 10000 nits convention.
+	// markScale brings that to diffuse-white-relative (tone-map aware, = the
+	// legacy 105.95640 with tone mapping off); refWhite then expresses the
+	// measured white against the same diffuse white.
+	// ONE tmWhite for all three members, and it comes from GetHDRRefScale so that
+	// its "<= 0 -> 94.37844" clamp applies to every one of them: refWhite is
+	// whiteY / tmWhite, and tmWhite == 10000 / markScale by construction.
+	// Recomputing TmDiffuseWhiteNits separately here (which this used to do) both
+	// dropped that clamp on refWhite alone - making deScale != markScale /
+	// refWhite in exactly the degenerate case the clamp exists for, i.e. the two
+	// documented spellings of this struct disagreeing - and paid a second full
+	// PQ/BT.2390 evaluation plus four CColor deep copies per call, for a number
+	// that is only equal to markScale's because mode-5 getL_EOTF happens to
+	// ignore White/Black.
+	n.markScale = GetHDRRefScale();
+	n.refWhite  = ( n.whiteY > 0.0 ) ? n.whiteY * n.markScale / 10000. : 1.0;
+	// deScale == markScale / refWhite in every branch, including whiteY <= 0
+	// (where refWhite is 1.0 and deScale falls back to markScale). Computed
+	// directly so a zero white cannot become a division by zero here instead of
+	// inside GetDeltaE.
+	n.deScale   = ( n.whiteY > 0.0 ) ? 10000. / n.whiteY : n.markScale;
+	return n;
+}
+
+CColor CMeasure::GetMeasurement(int i) const
+{
 	return m_measurementsArray[i]; 
 } 
 
