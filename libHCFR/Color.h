@@ -95,6 +95,16 @@ typedef enum
     USER = 36
 } CCPatterns;
 
+// "Is this one of the Mascior-style HDR color-checker sets?" - the sets that
+// keep their own dE convention (a * 100 reference scale, normalised against the
+// grayscale top rather than the prime white). This is a CONTIGUOUS-RANGE
+// assumption about the enum above, so it lives here beside the constants that
+// have to stay contiguous, instead of being spelled out again at each consumer.
+inline bool IsMasciorCC ( int ccMode )
+{
+	return ( ccMode >= MASCIOR50 && ccMode <= CCMAXHDR );
+}
+
 typedef enum 
 {
 	Default = -1,

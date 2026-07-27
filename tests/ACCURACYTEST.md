@@ -362,8 +362,38 @@ agree), and the gaps below are mostly places their reach stops.
    generator axis — and it immediately found a real grid-vs-3D-viewer
    divergence, now the DVD known-fail entry above. The `if (DVD)` carve-outs in
    `InitGrid`, `RGBLevelWnd` and Export are still not *directly* covered: they
-   duplicate the same normalization, which is gap 7's problem, not a separate
-   axis.
+   duplicate the same normalization. That is gap 8's problem for Export;
+   `InitGrid` and `RGBLevelWnd` are simply not on `GetColorDENorm` yet and have
+   no gap of their own.
+7. ~~**The `conv*` families compare two harness-local copies.**~~ Closed by
+   `CMeasure::GetColorDENorm`, which now owns the whole sat/CC normalization —
+   the dE white, the reference rescale and the `YWhiteRef` that pairs with it.
+   The 3D viewer and the harness's viewer side both call it, so the `conv*`
+   families no longer *emulate* the viewer: the pane side is the harness's
+   `UpdateGrid`/`GetItemText` emulation, the viewer side is production code, and
+   the check is "the grid's normalization == the shared helper".
+   Mutation-verified: breaking `GetColorDENorm` **in production, with no edit to
+   `AccuracyTest.cpp`**, fails 105 of the 285 quick-subset combos. Before, the
+   same break read 0.000 until someone remembered to update the harness's copy
+   too — which is the whole point: the harness now follows production instead of
+   carrying its own copy of the formula.
+   All four struct members are locked: `whiteY`/`deScale` by the pane-vs-viewer
+   comparison, `markScale`/`refWhite` by the extra "both spellings of
+   `ColorDENorm` agree" check in `ConvCheck` — without which a mutation of
+   either escapes the whole matrix while still moving the viewer's HDR CC
+   markers. Mutation-verified in turn: scaling `refWhite` by 1.05 **in
+   production, with no harness edit** takes the quick subset from
+   `90 pass, 0 FAIL` to `66 pass, 96 FAIL`. Before that check it failed nothing,
+   because nothing in the tree read either member.
+   **Still re-derived, and NOT covered:** the `markScale` application in
+   `UpdateGrid` and the *grid's* dE space (`bRef`) — those are the grid's own
+   definition of record, so emulating them is the point — but also the
+   **viewer's** dE space and gray weight (`s_pViewDERef` and the `isHDR ? 3`
+   selection are harness-local copies of `AppendMeasure`'s). Deleting
+   `BuildScene`'s `ContainerTransportReference` branch for UHDTV3/4 still moves
+   real viewer dE while this reads 0.000. The lock is also `dE_form`-specific:
+   the matrix pins `m_dE_form = 3`, and the two `ColorDENorm` spellings are only
+   equivalent for the Lab/Luv forms 0–5 (dICtCp swaps its whites).
 
 ### Still open
 
@@ -379,17 +409,20 @@ agree), and the gaps below are mostly places their reach stops.
    user-visible (swatches disagree while dE reads 0) and completely invisible
    here. This is MFC view code; extracting the pure math into a testable
    function is the prerequisite.
-7. **The `conv*` families compare two harness-local copies.** They *emulate* the
-   viewer's formula rather than calling it, so changing `C3DColorView::BuildScene`
-   without editing `AccuracyTest.cpp` still reads 0.000. Only the white is
-   genuinely shared (`CMeasure::GetColorDEWhiteY`); the reference scale and the
-   dE evaluation space are re-derived. Extracting the whole normalization into
-   one `CMeasure` helper that the grid, the viewer, Export and the harness all
-   call would make the lock real.
 8. **Export is never exercised.** The PDF/CSV/spreadsheet dE paths duplicate the
-   grid's normalization and have already drifted from it. Gap 7's shared helper
-   is the better fix than an export family: if Export calls it, there is nothing
-   left to diverge.
+   grid's normalization and have already drifted from it — their `YWhite` is a
+   hand-rolled `special ? OnOff : Prime` (plus the Mascior grayscale top) that
+   is missing three of the grid's fallbacks: prime→ON/OFF when prime is invalid,
+   the CC sub-90%-stimulus fallback, and `m_TargetMaxL` when no white exists.
+   The saturation block is worse still — a bare `GetPrimeWhite().GetY()` with no
+   special-standard branch at all — and every block computes `tmWhite` from
+   `TmDiffuseWhiteNits`, where the grid's DVD branch *reassigns* it to the disc's
+   ~92.25-nit 0.50-code white, so a manual-generator HDR capture already exports
+   sat/CC dE ~2.3% off the on-screen numbers.
+   Moving them onto `GetColorDENorm` is the fix and would close this gap, but it
+   changes user-visible numbers in exported PDFs/CSVs in exactly those corners,
+   and nothing automated covers Export — so it wants doing deliberately rather
+   than as a side effect.
 
 Reference result (2026-07-26): `834 combos: 333 pass, 0 FAIL, 501 known-fail`,
 ColorMathTest verify green with no golden movement. (Was `708 combos: 311 pass,

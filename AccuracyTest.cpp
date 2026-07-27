@@ -548,7 +548,7 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 		}
 		else
 		{
-			if ( cfg->m_CCMode >= MASCIOR50 && cfg->m_CCMode <= CCMAXHDR && displayMode == 11 )
+			if ( IsMasciorCC(cfg->m_CCMode) && displayMode == 11 )
 				YWhite = m.GetGray(m.GetGrayScaleSize() - 1).GetY();
 			else
 			{
@@ -568,7 +568,7 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 // The convention families: pane-vs-viewer dE equality.
 //
 // The 3D viewer computes sat/CC dE as
-//   measured.GetDeltaE( GetColorDEWhiteY(), ref * (10000/that white), 1.0, ... )
+//   measured.GetDeltaE( norm.whiteY, ref * norm.deScale, 1.0, ... )
 // (Color3DView BuildScene + AppendMeasure). The measures grid uses the
 // GridColorDE chain above with the GetHDRRefScale reference rescale. With the
 // ideal sensor a perfect patch reads dE ~ 0 under EITHER convention, so the
@@ -576,24 +576,21 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 // the measured color (fixed asymmetric XYZ gains -> a few dE of luminance +
 // chroma error) and requires both formulas to yield the SAME dE.
 //
-// What is genuinely SHARED with production here is the dE white: the viewer
-// side calls CMeasure::GetColorDEWhiteY, while the pane side is fed the
-// harness's own UpdateGrid emulation. So the check also locks "UpdateGrid's
-// YWhite selection == GetColorDEWhiteY", which is what the white-source
-// families below exercise. The reference scale and the dE evaluation space are
-// still re-derived on both sides - see ACCURACYTEST.md coverage gap 7.
-//
 // Three families run this same comparison under different measured state:
 //   convPV   nominal whites (the ideal sensor's prime white lands exactly on
 //            TmDiffuseWhiteNits, so the white SOURCE cannot be told apart)
 //   convPVw  the three stored whites pulled apart and off target (RunConvWhite)
 //   convNW   no white measured at all (RunConvNoWhite)
-// wDE is CMeasure::GetColorDEWhiteY for this family, passed in rather than
-// re-read per patch: the helper returns CColor copies internally, and
-// C3DColorView::BuildScene hoists it out of its patch loops for exactly that
-// reason - so hoisting here also keeps the emulation faithful.
+// norm is CMeasure::GetColorDENorm for this family - PRODUCTION code, not an
+// emulation. That asymmetry is the whole point: the pane side below is the
+// harness's own UpdateGrid/GetItemText emulation, so the check is "the grid's
+// normalization == the shared helper every other consumer uses". Editing
+// C3DColorView::BuildScene without touching AccuracyTest.cpp can no longer
+// read 0.000, because the viewer's numbers now come from the same call.
+// It is passed in rather than re-read per patch because it reads CColor copies
+// internally, and BuildScene hoists it out of its patch loops for that reason.
 static void ConvCheck ( const CMeasure & m, const CColor & aColor, const CColor & refRaw,
-						double YWhite, double wDE, int displayMode, int nCol, int satsize,
+						double YWhite, const ColorDENorm & norm, int displayMode, int nCol, int satsize,
 						FamStat & stat, const char * name, int idx )
 {
 	CColorHCFRConfig * cfg = GetConfig();
@@ -602,7 +599,7 @@ static void ConvCheck ( const CMeasure & m, const CColor & aColor, const CColor 
 
 	bool isHDR = ( cfg->m_GammaOffsetType == 5 );
 	bool bCC = ( displayMode == 11 );
-	bool mascior = ( bCC && cfg->m_CCMode >= MASCIOR50 && cfg->m_CCMode <= CCMAXHDR );
+	bool mascior = ( bCC && IsMasciorCC(cfg->m_CCMode) );
 
 	CColor pert = aColor;
 	pert.SetX(pert.GetX() * 1.07);
@@ -619,12 +616,12 @@ static void ConvCheck ( const CMeasure & m, const CColor & aColor, const CColor 
 	double dEpane = GridColorDE(m, pert, refPane, YWhite, displayMode, nCol, satsize);
 
 	// Viewer side, as C3DColorView::BuildScene builds it: the reference scaled
-	// to the SHARED grid white (CMeasure::GetColorDEWhiteY) with YWhiteRef 1.0,
+	// to the SHARED normalization (CMeasure::GetColorDENorm) with YWhiteRef 1.0,
 	// and the grid's dE evaluation space. Scaling by 10000/white with
 	// YWhiteRef 1.0 is algebraically the grid's (ref * GetHDRRefScale(),
 	// RefWhite = YWhite/tmWhite) pair, so any drift between the two - a
 	// reference rescale, a white source, or a dE space - shows up here.
-	if ( wDE <= 0.0 )
+	if ( norm.whiteY <= 0.0 )
 	{
 		// Unreachable while GetColorDEWhiteY ends in its m_TargetMaxL fallback,
 		// and it must FAIL loudly if that ever stops being true: the grid would
@@ -633,15 +630,30 @@ static void ConvCheck ( const CMeasure & m, const CColor & aColor, const CColor 
 		// entirely - a real two-consumer divergence. Recording 0.0 here (which
 		// this used to do) promoted the family from the -1.0 "not run" sentinel
 		// to a 0.000 PASS: it failed OPEN on exactly the state convNW exists for.
-		stat.Add(999.0, "%s %d (no dE white: GetColorDEWhiteY returned %.3f)", name, idx, wDE);
+		stat.Add(999.0, "%s %d (no dE white: GetColorDENorm returned whiteY %.3f)", name, idx, norm.whiteY);
 		return;
 	}
 	CColor refView = refRaw;
-	if ( isHDR )
-		ScaleXYZ(refView, mascior ? 100. : 10000. / wDE);
+	ScaleXYZ(refView, norm.deScale);
 	// AppendMeasure's gw: 3 in mode 5, the configured weight otherwise.
-	double dEview = pert.GetDeltaE(wDE, refView, 1.0, *s_pViewDERef, cfg->m_dE_form, false,
-								   isHDR ? 3 : cfg->gw_Weight);
+	int gw = isHDR ? 3 : cfg->gw_Weight;
+	double dEview = pert.GetDeltaE(norm.whiteY, refView, 1.0, *s_pViewDERef, cfg->m_dE_form, false, gw);
+
+	// ColorDENorm advertises TWO equivalent spellings - the viewer's
+	// (ref * deScale, YWhiteRef 1.0) just used, and the grid's
+	// (ref * markScale, YWhiteRef refWhite) - equal because deScale ==
+	// markScale / refWhite. Nothing else in the tree reads markScale or
+	// refWhite (the pane side above deliberately re-derives its own scale via
+	// PaneRefScale, because a differential test whose two sides call the same
+	// function tests nothing), so without this a mutation of either member
+	// escapes the whole 876-combo matrix while still moving the 3D viewer's
+	// HDR color-checker markers. Cheap: one extra GetDeltaE per patch.
+	CColor refMark = refRaw;
+	ScaleXYZ(refMark, norm.markScale);
+	double dEmark = pert.GetDeltaE(norm.whiteY, refMark, norm.refWhite, *s_pViewDERef,
+								   cfg->m_dE_form, false, gw);
+	stat.Add(fabs(dEmark - dEview), "%s %d (ColorDENorm markScale form %.3f vs deScale form %.3f)",
+			 name, idx, dEmark, dEview);
 
 	stat.Add(fabs(dEpane - dEview), "%s %d (pane %.3f vs viewer %.3f)", name, idx, dEpane, dEview);
 }
@@ -1007,7 +1019,7 @@ static void RunSats ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 	m.SetSaturationSize(kSatSize);
 	// Loop invariants, hoisted exactly as C3DColorView::BuildScene hoists them.
 	double YWhite = GridYWhite(m, special, false);
-	double wDE = m.GetColorDEWhiteY(special, false, false);
+	ColorDENorm norm = m.GetColorDENorm(5);	// same for every saturation mode
 	for ( int s = 0 ; s < 6 ; s ++ )
 	{
 		ColorRGBDisplay GenColors[kSatSize];
@@ -1018,7 +1030,7 @@ static void RunSats ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 			// MT_SAT_* patches are Intensity-dimmed on the real wire
 			CColor aColor = Meas(sensor, GenColors[j], c.intensity);
 			CColor refColor = m.GetRefSat(s, (double)j / (double)(kSatSize - 1), special, stim);
-			ConvCheck(m, aColor, refColor, YWhite, wDE, 5 + s, j + 1, kSatSize, convStat, names[s], j);
+			ConvCheck(m, aColor, refColor, YWhite, norm, 5 + s, j + 1, kSatSize, convStat, names[s], j);
 			// Only the 100% sweep feeds the white-source replays: the 75% sweep
 			// exercises the same normalization with a different reference, so
 			// keeping both would double the replay cost for no new convention.
@@ -1052,8 +1064,8 @@ static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CC
 	// and diverge from the grid.
 	bool special = ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb );
 	double YWhite = GridYWhite(m, special, true);
-	bool mascior = ( ccMode >= MASCIOR50 && ccMode <= CCMAXHDR );
-	double wDE = m.GetColorDEWhiteY(special, true, mascior);
+	bool mascior = IsMasciorCC(ccMode);
+	ColorDENorm norm = m.GetColorDENorm(11);
 
 	for ( int j = 0 ; j < count ; j ++ )
 	{
@@ -1061,7 +1073,7 @@ static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CC
 		CColor aColor = Meas(sensor, GenColors[j], 1.0);
 		CColor refColor;
 		m.GetRefCC24Sat(j, refColor);
-		ConvCheck(m, aColor, refColor, YWhite, wDE, 11, j + 1, kSatSize, convStat, "patch", j);
+		ConvCheck(m, aColor, refColor, YWhite, norm, 11, j + 1, kSatSize, convStat, "patch", j);
 		// One CC set feeds the replays (the GCD run, which is also the CC mode
 		// left active afterwards - see RunConvWhite), stratified every 4th
 		// patch: a white-source split shows on every patch, so the replay only
@@ -1126,20 +1138,19 @@ static void RunConvWhite ( CMeasure & m, FamStat & stat )
 	// tmWhite / GetHDRRefScale) at its converged value is what DECOUPLES the
 	// measured white from the theoretical one. Refreshing would drag the
 	// theoretical white along and restore the accidental equality.
-	bool mascior = ( cfg->m_CCMode >= MASCIOR50 && cfg->m_CCMode <= CCMAXHDR );
 
 	// UpdateGrid's YWhite recomputed from the PERTURBED state, plus the matching
-	// shared white - one pair for saturation samples, one for CC samples.
+	// shared normalization - one pair for saturation samples, one for CC samples.
 	double YWhiteSat = GridYWhite(m, special, false);
 	double YWhiteCC  = GridYWhite(m, special, true);
-	double wDESat = m.GetColorDEWhiteY(special, false, false);
-	double wDECC  = m.GetColorDEWhiteY(special, true, mascior);
+	ColorDENorm normSat = m.GetColorDENorm(5);
+	ColorDENorm normCC  = m.GetColorDENorm(11);
 
 	for ( int i = 0 ; i < s_nConvSamples ; i ++ )
 	{
 		const ConvSample & s = s_convSamples[i];
 		bool bCC = ( s.displayMode == 11 );
-		ConvCheck(m, s.meas, s.ref, bCC ? YWhiteCC : YWhiteSat, bCC ? wDECC : wDESat,
+		ConvCheck(m, s.meas, s.ref, bCC ? YWhiteCC : YWhiteSat, bCC ? normCC : normSat,
 				  s.displayMode, s.nCol, kSatSize, stat, s.name, s.idx);
 	}
 
@@ -1190,7 +1201,7 @@ static void RunConvNoWhite ( const Combo & c, CSimulatedSensor & sensor, FamStat
 	// after RunGray (the measured on/off white on HDR combos), NOT the value
 	// ApplyComboConfig set - which is fine, both sides read the same config.
 	double YWhite = cfg->m_TargetMaxL;
-	double wDE = m.GetColorDEWhiteY(special, false, false);
+	ColorDENorm norm = m.GetColorDENorm(5);
 
 	for ( int s = 0 ; s < 6 ; s ++ )
 	{
@@ -1201,7 +1212,7 @@ static void RunConvNoWhite ( const Combo & c, CSimulatedSensor & sensor, FamStat
 		{
 			CColor aColor = Meas(sensor, GenColors[j], c.intensity);
 			CColor refColor = m.GetRefSat(s, (double)j / (double)(kSatSize - 1), special, 1.0);
-			ConvCheck(m, aColor, refColor, YWhite, wDE, 5 + s, j + 1, kSatSize,
+			ConvCheck(m, aColor, refColor, YWhite, norm, 5 + s, j + 1, kSatSize,
 					  stat, names[s], j);
 		}
 	}

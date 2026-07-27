@@ -43,6 +43,45 @@ class CAsyncMeasurer;
 // White/Black (mode-5 PQ ignores them anyway).
 double TmDiffuseWhiteNits(const CColor & White, const CColor & Black);
 
+// The complete saturation / color-checker dE normalisation, so that every
+// consumer asks CMeasure for it instead of re-deriving it. See
+// CMeasure::GetColorDENorm.
+//
+// Two equivalent ways to spend it, giving the SAME dE:
+//   measures grid  measured.GetDeltaE( whiteY, ref * markScale, refWhite, ... )
+//   3D viewer      measured.GetDeltaE( whiteY, ref * deScale,   1.0,      ... )
+// because deScale == markScale / refWhite by construction. Use markScale for
+// anything that also has to PLOT the reference (marker geometry, swatches) so
+// the reference lands in the same units as the measurement; use deScale when
+// only a dE is wanted.
+//
+// CAVEAT: that equivalence holds for dE_form 0..5, whose Lab/Luv constructors
+// DIVIDE by the white they are handed, so a common factor cancels. dE_form 6
+// (dICtCp) does not qualify - ColorXYZ::GetDeltaE case 6 SWAPS the two whites
+// and ColorICtCp MULTIPLIES by its white through the non-linear PQ curve, so
+// the two forms give different numbers there. Anything that must match the
+// measures grid under dICtCp has to spend the grid's (markScale, refWhite)
+// form, not deScale.
+//
+// All four members are 1.0 / measured-white in SDR: nothing rescales there.
+//
+// SCOPE: the unified (automatic-generator) convention only. The measures grid
+// keeps a legacy manual-generator (DVD) carve-out that is deliberately NOT
+// modelled here - see CMeasure::GetColorDENorm - so a site that must byte-match
+// the grid's on-screen numbers for a disc capture needs its own DVD branch.
+struct ColorDENorm
+{
+	double	whiteY;		// measured white the MEASUREMENT is normalised by
+	double	refWhite;	// YWhiteRef to pass alongside a markScale-scaled reference
+	double	markScale;	// reference rescale into diffuse-white-relative units
+	double	deScale;	// reference rescale for the YWhiteRef = 1.0 form
+
+	// Defaulted so a partially-filled instance degrades to "no rescale" and
+	// trips the <= 0.0 white guards consumers already have, rather than feeding
+	// indeterminate doubles into GetDeltaE as a divisor.
+	ColorDENorm() : whiteY(0.0), refWhite(1.0), markScale(1.0), deScale(1.0) {}
+};
+
 #define	DUPLGRAYLEVEL		0
 #define	DUPLNEARBLACK		1
 #define	DUPLNEARWHITE		2
@@ -242,6 +281,7 @@ public:
 	void GetRefProfileSat(int i, CColor & ccRef);	// theoretical reference for patch i (grid conventions)
 	double ComputeProfileDE(const CColor & measured, int i);	// dE for profile patch i, matching the measures grid (SDR + PQ HDR); -1 to skip
 	double GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) const;	// the white the grid normalises sat/CC dE by (measured, NOT the theoretical tmWhite)
+	ColorDENorm GetColorDENorm(int displayMode) const;	// the whole sat/CC dE normalisation, shared by every consumer
 	// Live profile-capture state (not serialized): the profiling pane pauses/observes through these
 	volatile BOOL m_bProfilePause;
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0
