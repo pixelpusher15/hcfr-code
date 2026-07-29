@@ -360,6 +360,58 @@ static double SceneDiffuseWhiteY( CMeasure * pM )
 	return 1.0;
 }
 
+// dE white for the GRAY FAMILY (grayscale, near-black, near-white). The measures
+// grid normalises their dE by the measured top gray patch (YWhiteGray in
+// UpdateGrid), not by the scene's diffuse-white normaliser. In SDR the two are
+// the same measurement, but in PQ-HDR SceneDiffuseWhiteY returns the TONE-MAPPED
+// diffuse white while the grid uses measured PEAK white -- a ~2.4x difference
+// that lands straight in the Lab luminance term.
+static double GridGrayWhiteY( CMeasure * pM )
+{
+	// Deliberately the same test and fallback as UpdateGrid, down to accepting a
+	// valid-but-zero white: GetDeltaE substitutes 120 for YWhite <= 0 on both
+	// sides, so matching exactly keeps the two paths bit-identical.
+	int n = pM->GetGrayScaleSize();
+	if ( n > 0 && pM->GetGray( n - 1 ).isValid() )
+		return pM->GetGray( n - 1 )[1];
+	return GetConfig()->m_TargetMaxL;      // same fallback as UpdateGrid
+}
+
+// Theoretical target luminance for a gray-family patch at gray level x, as a
+// ratio of the grid's gray white -- mirrors UpdateGrid's valy / tmpColor[2]
+// (MainView.cpp cases 0/3/4) exactly, including the mode-5 nits conversion and
+// the mode-1 black compensation. blackRef is the black the grid feeds
+// getL_EOTF: near-black passes its own first patch, the others the on/off black.
+static double GridGrayTargetRatio( CMeasure * pM, double x, const CColor & blackRef,
+								   double gsWhiteY, double gammaOffset )
+{
+	int mode = GetConfig()->m_GammaOffsetType;
+	if ( GetConfig()->m_colorStandard == sRGB )
+		mode = 99;
+	double valx = GrayLevelToGrayProp( x, GetConfig()->m_bUseRoundDown != FALSE,
+									   GetConfig()->GetUse10bitLevels() != FALSE );
+	if ( mode >= 4 )
+	{
+		double L = getL_EOTF( valx, pM->GetOnOffWhite(), blackRef,
+							  GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,
+							  GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL,
+							  GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL, GetConfig()->m_useToneMap,
+							  FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS,
+							  GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1 );
+		// mode 5 (PQ) is the one EOTF that returns an ABSOLUTE level, in nits/100.
+		return ( mode == 5 ) ? ( gsWhiteY > 0.0 ? L * 100.0 / gsWhiteY : L ) : L;
+	}
+	double vx = ( valx + gammaOffset ) / ( 1.0 + gammaOffset );
+	double v  = pow( vx, GetConfig()->m_useMeasuredGamma ? GetConfig()->m_GammaAvg : GetConfig()->m_GammaRef );
+	if ( mode == 1 )   // black compensation target
+	{
+		double bY = blackRef.isValid() ? blackRef.GetY() : 0.0;
+		if ( gsWhiteY > 0.0 )
+			v = ( bY + v * ( gsWhiteY - bY ) ) / gsWhiteY;
+	}
+	return v;
+}
+
 void C3DColorView::BuildScene()
 {
 	m_points.clear();
@@ -397,6 +449,16 @@ void C3DColorView::BuildScene()
 	// Grayscale (+ near-black/white): reference chromaticity is the target white;
 	// the reference luminance and the YWhite passed to GetDeltaE follow the
 	// measures grid's m_dE_gray convention.
+	//
+	// Two DIFFERENT white normalisers are in play and must not be conflated:
+	// the MARKER ratio is relative to whiteY (the scene's diffuse white, since
+	// AppendMeasure scales markerTarget by whiteY to plot it), while the dE
+	// target is relative to gsWhiteY (the grid's gray white, so GetDeltaE sees
+	// exactly what GetItemText computes). They coincide in SDR and differ by
+	// ~2.4x in PQ-HDR.
+	const double gsWhiteY = GridGrayWhiteY( pMeasure );
+	const double markPerGrid = ( whiteY > 0.0 ) ? gsWhiteY / whiteY : 1.0;
+
 	n = pMeasure->GetGrayScaleSize();
 	double gammaOpt = 2.2, gammaOffset = 0.0;
 	if ( n > 0 && dEgray == 1 && gammaMode < 4 )
@@ -406,33 +468,23 @@ void C3DColorView::BuildScene()
 		CColor c = pMeasure->GetGray( i );
 		if ( !c.isValid() )
 			continue;
-		double measRatio = whiteY > 0.0 ? c[1] / whiteY : c[1];
+		double measRatio = whiteY   > 0.0 ? c[1] / whiteY   : c[1];   // marker: scene white
+		double deRatio   = gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1];   // dE: grid gray white
 		double markRatio = measRatio;         // default: chroma-only target
 		if ( dEgray == 1 )
 		{
 			// theoretical luminance from the target gamma / EOTF curve
-			double x    = pMeasure->GetGrayPercent( i, bRound, b10bit );
-			double valx = GrayLevelToGrayProp( x, bRound, b10bit );
-			if ( gammaMode >= 4 )
-			{
-				double L = getL_EOTF( valx, pMeasure->GetOnOffWhite(), pMeasure->GetOnOffBlack(),
-									  GetConfig()->m_GammaRel, GetConfig()->m_Split, gammaMode,
-									  GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL,
-									  GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL, GetConfig()->m_useToneMap,
-									  FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS,
-									  GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1 );
-				markRatio = ( gammaMode == 5 ) ? L / 100.0 : L;
-			}
-			else
-			{
-				double vx = ( valx + gammaOffset ) / ( 1.0 + gammaOffset );
-				markRatio = pow( vx, GetConfig()->m_useMeasuredGamma ? GetConfig()->m_GammaAvg : GetConfig()->m_GammaRef );
-			}
+			double gridRatio = GridGrayTargetRatio( pMeasure, pMeasure->GetGrayPercent( i, bRound, b10bit ),
+													pMeasure->GetOnOffBlack(), gsWhiteY, gammaOffset );
+			deRatio   = gridRatio;
+			markRatio = gridRatio * markPerGrid;
 		}
 		CColor dET, markT;
-		double ywForDE = whiteY;
+		double ywForDE = gsWhiteY;
 		if ( dEgray > 0 || GetConfig()->m_dE_form == 5 )
-			dET.SetxyYValue( wChroma[0], wChroma[1], ( dEgray == 2 || GetConfig()->m_dE_form == 5 ) ? measRatio : markRatio );
+			dET.SetxyYValue( wChroma[0], wChroma[1],
+							 ( dEgray == 2 || GetConfig()->m_dE_form == 5 ) ? ( gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1] )
+																			: deRatio );
 		else
 		{
 			dET.SetxyYValue( wChroma[0], wChroma[1], 1.0 );   // chroma-only: luminance cancels
@@ -444,7 +496,11 @@ void C3DColorView::BuildScene()
 		AppendMeasure( c, whiteY, ref, dET, markT, true, ywForDE, lbl, SRC_GRAY, i );
 	}
 
-	// Near-black / near-white: chroma-only grayscale targets at the measured level.
+	// Near-black / near-white. These follow the SAME m_dE_gray convention as the
+	// grayscale block above (UpdateGrid cases 3 and 4); they used to be hard-wired
+	// to the chroma-only "Relative Y" branch, which evaluates the chromaticity
+	// error as if the patch were full white and reported ~100x the grid's dE on
+	// the default "Absolute Y w/o gamma" setting.
 	for ( int nb = 0; nb < 2; nb++ )
 	{
 		n = nb ? pMeasure->GetNearWhiteScaleSize() : pMeasure->GetNearBlackScaleSize();
@@ -453,12 +509,35 @@ void C3DColorView::BuildScene()
 			CColor c = nb ? pMeasure->GetNearWhite( i ) : pMeasure->GetNearBlack( i );
 			if ( !c.isValid() )
 				continue;
+			double markRatio = whiteY > 0.0 ? c[1] / whiteY : c[1];
+			double deRatio   = gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1];
+			if ( dEgray == 1 )
+			{
+				// Same stimulus level and black reference the grid feeds the
+				// curve: near-black steps by 2 in PQ and anchors getL_EOTF on
+				// its own first patch; near-white counts back from the clip col.
+				double x = nb ? ArrayIndexToGrayLevel( (int)pMeasure->m_NearWhiteClipCol - n + i, 101, bRound, b10bit )
+							  : ArrayIndexToGrayLevel( i * ( gammaMode == 5 ? 2 : 1 ), 101, bRound, b10bit );
+				CColor blackRef = nb ? pMeasure->GetOnOffBlack() : pMeasure->GetNearBlack( 0 );
+				double gridRatio = GridGrayTargetRatio( pMeasure, x, blackRef, gsWhiteY, gammaOffset );
+				deRatio   = gridRatio;
+				markRatio = gridRatio * markPerGrid;
+			}
 			CColor dET, markT;
-			dET.SetxyYValue( wChroma[0], wChroma[1], 1.0 );
-			markT.SetxyYValue( wChroma[0], wChroma[1], whiteY > 0.0 ? c[1] / whiteY : c[1] );
+			double ywForDE = gsWhiteY;
+			if ( dEgray > 0 || GetConfig()->m_dE_form == 5 )
+				dET.SetxyYValue( wChroma[0], wChroma[1],
+								 ( dEgray == 2 || GetConfig()->m_dE_form == 5 ) ? ( gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1] )
+																				: deRatio );
+			else
+			{
+				dET.SetxyYValue( wChroma[0], wChroma[1], 1.0 );   // chroma-only: luminance cancels
+				ywForDE = c[1];
+			}
+			markT.SetxyYValue( wChroma[0], wChroma[1], markRatio );
 			wchar_t lbl[48];
 			swprintf( lbl, 48, nb ? L"Near white #%d" : L"Near black #%d", i + 1 );
-			AppendMeasure( c, whiteY, ref, dET, markT, true, c[1], lbl, nb ? SRC_NEARWHITE : SRC_NEARBLACK, i );
+			AppendMeasure( c, whiteY, ref, dET, markT, true, ywForDE, lbl, nb ? SRC_NEARWHITE : SRC_NEARBLACK, i );
 		}
 	}
 
@@ -1637,35 +1716,57 @@ void C3DColorView::AppendNewFreeMeasures()
 	CMeasure * pMeasure = pDoc->GetMeasure();
 
 	CColorReference ref = GetColorReference();
-	double whiteY = 1.0;
-	CColor cw = pMeasure->GetPrimeWhite();
-	if ( !cw.isValid() || cw.GetY() <= 0.0 )
-		cw = pMeasure->GetOnOffWhite();
-	if ( cw.isValid() && cw.GetY() > 0.0 )
-		whiteY = cw.GetY();
+	// Same normaliser as the rest of the scene: the local prime/on-off-white
+	// fallback returned PEAK white in PQ-HDR, so free measures were plotted and
+	// scaled against a different white than every other point.
+	double whiteY = SceneDiffuseWhiteY( pMeasure );
+	const double gsWhiteY = GridGrayWhiteY( pMeasure );
+	const int    dEgray   = GetConfig()->m_dE_gray;
 
 	CColor wRef( ref.GetWhite() );
+	ColorxyY wc( wRef.GetxyYValue() );
 	int n = pMeasure->GetMeasurementsSize();
 	for ( int i = m_freeInScene; i < n; i++ )
 	{
 		CColor c = pMeasure->GetMeasurement( i );
 		if ( !c.isValid() )
 			continue;
-		CColor refC = noDataColor;
-		if ( c.GetDeltaxy( wRef, ref ) < kChromaMatch )
-			refC = wRef;
-		else
-		{
-			for ( int k = 0; k < 3 && !refC.isValid(); k++ )
-			{
-				if ( c.GetDeltaxy( pMeasure->GetRefPrimary( k ), ref ) < kChromaMatch )
-					refC = pMeasure->GetRefPrimary( k );
-				else if ( c.GetDeltaxy( pMeasure->GetRefSecondary( k ), ref ) < kChromaMatch )
-					refC = pMeasure->GetRefSecondary( k );
-			}
-		}
 		wchar_t lbl[48];
 		swprintf( lbl, 48, L"Measurement #%d", i + 1 );
+
+		if ( c.GetDeltaxy( wRef, ref ) < kChromaMatch )
+		{
+			// A near-neutral free measure is graded as a grayscale patch (the
+			// grid takes its "m_displayMode == 2 && isGS" branch), so it follows
+			// the m_dE_gray convention. It must NOT be compared against white at
+			// Y = 1.0: that reports dE ~= 100 - L* for anything dark.
+			// A free measure has no stimulus level, so there is no meaningful
+			// "w/ gamma" target -- the grid reads a stale x there. Both dE_gray
+			// 1 and 2 therefore use the perfect-gamma (measured Y) target.
+			CColor dET, markT;
+			double ywForDE = gsWhiteY;
+			if ( dEgray > 0 || GetConfig()->m_dE_form == 5 )
+				dET.SetxyYValue( wc[0], wc[1], gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1] );
+			else
+			{
+				dET.SetxyYValue( wc[0], wc[1], 1.0 );   // chroma-only: luminance cancels
+				ywForDE = c[1];
+			}
+			markT.SetxyYValue( wc[0], wc[1], whiteY > 0.0 ? c[1] / whiteY : c[1] );
+			AppendMeasure( c, whiteY, ref, dET, markT, true, ywForDE, lbl, SRC_FREE, i );
+			continue;
+		}
+
+		CColor refC = noDataColor;
+		for ( int k = 0; k < 3 && !refC.isValid(); k++ )
+		{
+			if ( c.GetDeltaxy( pMeasure->GetRefPrimary( k ), ref ) < kChromaMatch )
+				refC = pMeasure->GetRefPrimary( k );
+			else if ( c.GetDeltaxy( pMeasure->GetRefSecondary( k ), ref ) < kChromaMatch )
+				refC = pMeasure->GetRefSecondary( k );
+		}
+		// refC stays invalid when nothing matches: no recognisable target, so
+		// AppendMeasure gives the point no target and no dE at all.
 		AppendMeasure( c, whiteY, ref, refC, refC, false, whiteY, lbl, SRC_FREE, i );
 	}
 	m_freeInScene = n;
