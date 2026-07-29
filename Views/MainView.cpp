@@ -3070,9 +3070,17 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						if (dE > dEmax)
                             dEmax = dE;
 						clr = GetConfig()->GetDEColor(dE, GetConfig()->m_darkTheme);
-                        if (GetConfig()->doHighlight)
-                            { m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
-						m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
+						// nCol is -1 for a free measure (see the else below), and the
+						// guard above admits mode 2/4 REGARDLESS of nCol - so without
+						// this all three calls addressed column -1. GridCtrl returns
+						// FALSE on the missing cell, so Release silently skipped the
+						// highlight; Debug tripped SetItemFont's ASSERT(pCell).
+						if ( nCol >= 1 )
+						{
+							if (GetConfig()->doHighlight)
+								{ m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
+							m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
+						}
 						dEcnt++;
 					}
 					else
@@ -3178,9 +3186,13 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					if (dE > dEmax)
                         dEmax = dE;
 					clr = GetConfig()->GetDEColor(dE, GetConfig()->m_darkTheme);
-                    if (GetConfig()->doHighlight)
-                        { m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
-					m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
+					// Same out-of-range guard as the grayscale branch above.
+					if ( nCol >= 1 )
+					{
+						if (GetConfig()->doHighlight)
+							{ m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
+						m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
+					}
 					dEcnt++;
 				}
 			}
