@@ -4147,7 +4147,14 @@ void CMainView::UpdateGrid()
 						clrSpecial1 = RGB(255,192,255);
 						clrSpecial2 = RGB(255,224,255);
 					 }
-					 
+					 else
+						refColor = noDataColor;	// no recognisable target: no dE. Without this
+												// the measure falls through to whatever refColor
+												// held -- reference white at Y=1.0 on the first
+												// column (a meaningless dE ~= 100 - L*), or the
+												// PREVIOUS column's primary after that, since
+												// refColor is declared outside the column loop.
+
 					 if ( pDataRef )
 						refDocColor = pDataRef->GetMeasure()->GetMeasurement(j);
 					 else
@@ -7213,6 +7220,8 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 			clrSpecial1 = RGB(255,192,255);
 			clrSpecial2 = RGB(255,224,255);
 		}
+		else
+			refColor = noDataColor;	// no recognisable target: no dE (same as UpdateGrid case 2)
 
 		CColor refDocColor = noDataColor;
 
