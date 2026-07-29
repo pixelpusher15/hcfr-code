@@ -181,6 +181,7 @@ C3DColorView::C3DColorView()
 	, m_pointColor(PTCOLOR_DE), m_deFilter(0), m_showTails(true), m_showProfilePts(true)
 	, m_bDragging(false)
 	, m_selected(-1)
+	, m_reqType(-1), m_reqA(0), m_reqB(0), m_reqC(0)
 	, m_orbKernelR(-1)
 	, m_memDC(NULL), m_memBmp(NULL), m_oldBmp(NULL), m_bits(NULL), m_bw(0), m_bh(0)
 	, m_cx(0), m_cyc(0), m_scale(0), m_ry(1), m_rsy(0), m_rp(1), m_rsp(0)
@@ -1280,6 +1281,7 @@ void C3DColorView::Render(const CRect& rc)
 	{
 		BuildScene();
 		m_sceneDirty = false;
+		ResolvePendingSelection();   // BuildScene cleared m_selected and renumbered m_points
 	}
 
 	// Clear colour + depth: at fullscreen this touches ~2M pixels per buffer per
@@ -1730,23 +1732,86 @@ void C3DColorView::AppendNewProfileMeasures()
 	m_profileInScene = lastAppended;
 }
 
-void C3DColorView::SelectProfilePoint(int patchIdx)
+// Consume a pending selection request: find the point matching the requested
+// identity in the CURRENT scene, or clear the selection if it has no point.
+// One-shot by design -- see the m_reqType comment in the header.
+void C3DColorView::ResolvePendingSelection()
 {
-	m_showProfilePts = true;   // an explicit inspect un-hides the layer so the halo is visible
+	if ( m_reqType < 0 )
+		return;
+
+	// A point the user cannot click is a point the grid cannot halo either:
+	// same visibility rules as the hit test in OnLButtonUp, so a filtered-out
+	// point never gets a halo ring with no orb under it.
+	double deThr = -1.0;
+	if ( m_deFilter > 0 )
+	{
+		double good, warn;
+		GetConfig()->GetDEThresholds( good, warn );
+		deThr = ( m_deFilter == 1 ) ? good : warn;
+	}
+
+	m_selected = -1;
 	for ( size_t i = 0; i < m_points.size(); i++ )
 	{
-		if ( m_points[i].srcType == SRC_PROFILE && m_points[i].srcA == patchIdx )
-		{
-			m_selected = (int)i;
-			if ( ::IsWindow( m_hWnd ) )
-				Invalidate( FALSE );
-			return;
-		}
+		const ScenePoint & P = m_points[i];
+		if ( P.srcType != (BYTE)m_reqType || P.srcA != (short)m_reqA
+		  || P.srcB != (short)m_reqB || P.srcC != (short)m_reqC )
+			continue;
+		if ( !m_showProfilePts && P.srcType == SRC_PROFILE )
+			break;   // hidden layer
+		if ( deThr >= 0.0 && P.hasTarget && P.dE < deThr )
+			break;   // hidden by the dE filter
+		m_selected = (int)i;
+		break;
 	}
+	m_reqType = -1;   // consumed
+}
+
+// Halo the point matching a measurement's identity: the grid -> viewer half of
+// the selection sync, driven by CMainView::OnGrayScaleGridEndSelChange.
+// srcType < 0 clears. Resolving is deferred when the scene is stale, so a
+// selection made before the rebuild still lands at the next paint.
+void C3DColorView::SelectMeasurePoint(int srcType, int srcA, int srcB, int srcC)
+{
+	if ( srcType == SRC_PROFILE )
+		m_showProfilePts = true;   // an explicit inspect un-hides the layer so the halo is visible
+
+	if ( srcType < 0 )
+	{
+		m_selected = -1;           // an explicit clear needs no scene
+		m_reqType  = -1;
+	}
+	else
+	{
+		m_reqType = srcType;
+		m_reqA    = srcA;
+		m_reqB    = srcB;
+		m_reqC    = srcC;
+		// m_sceneDirty starts TRUE, so this alone means "the scene is current".
+		// Deliberately NOT also gated on m_points being non-empty: a request
+		// left pending against an up-to-date empty scene would sit there and
+		// fire at some later unrelated rebuild, haloing a measurement the user
+		// never picked. An up-to-date scene without the point means "no point".
+		if ( !m_sceneDirty )
+			ResolvePendingSelection();   // otherwise the pending rebuild consumes it
+	}
+	if ( ::IsWindow( m_hWnd ) )
+		Invalidate( FALSE );
+}
+
+void C3DColorView::SelectProfilePoint(int patchIdx)
+{
+	SelectMeasurePoint( SRC_PROFILE, patchIdx );
 }
 
 void C3DColorView::OnUpdate(CView* /*pSender*/, LPARAM lHint, CObject* /*pHint*/)
 {
+	if ( lHint == UPD_SELECTEDCOLOR )
+		return;   // selection-only hint: no measurement changed, so a rebuild here
+				  // would only throw away the halo the grid just asked for. (The
+				  // dE_gray toggles that also send it broadcast UPD_GRAYSCALE first,
+				  // so a real data change still dirties the scene.)
 	if ( lHint == UPD_FREEMEASUREAPPENDED && !m_sceneDirty && !m_points.empty() )
 	{
 		AppendNewFreeMeasures();
@@ -1871,6 +1936,7 @@ void C3DColorView::OnLButtonUp(UINT nFlags, CPoint point)
 					best     = (int)k;
 				}
 			}
+			m_reqType  = -1;     // a direct click supersedes any queued grid selection
 			m_selected = best;   // -1 (empty space) clears the selection
 			if ( best >= 0 )
 				PushSelectionToMainView( m_points[best] );
