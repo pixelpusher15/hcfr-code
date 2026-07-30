@@ -28,6 +28,7 @@
 
 #include "CSpreadSheet.h"
 #include "ExportReplaceDialog.h"
+#include "ExportOptionsDialog.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -203,6 +204,8 @@ draw_rect (HPDF_Page     page,
 
 char *legendXYZ[3]={"X","Y","Z"};
 char *legendRGB[3]={"R","G","B"};
+char *legendRawXYZ[3]={"Raw X","Raw Y","Raw Z"};
+char *legendStimRGB[3]={"Stim R","Stim G","Stim B"};
 char *legendRow1cc[3]={"X","Z","G"};
 char *legendRow2cc[3]={"Y","R","B"};
 char *legendSensor[3]={"Rc","Gc","Bc"};
@@ -217,6 +220,8 @@ CExport::CExport(CDataSetDoc *pDoc, ExportType type)
 	m_numToReplace=1;
 	m_fileName="colorHCFR.xls";
 	m_separator=";";
+	m_bExportRaw=true;
+	m_bExportStimulus=true;
 }
 
 CExport::~CExport()
@@ -234,6 +239,18 @@ bool CExport::Save()
 	flag = OFN_HIDEREADONLY;
 	if (m_type == PDF)
 		flag += flag | OFN_OVERWRITEPROMPT;
+
+	// For the tabular data exports (XLS/CSV), let the user choose whether to
+	// include the raw sensor XYZ and/or the RGB stimulus values. PDF/ICC exports
+	// are unaffected.
+	if ( m_type == XLS || m_type == CSV )
+	{
+		CExportOptionsDialog optionsDialog;
+		if ( optionsDialog.DoModal() != IDOK )
+			return false;
+		m_bExportRaw = ( optionsDialog.m_bExportRaw != FALSE );
+		m_bExportStimulus = ( optionsDialog.m_bExportStimulus != FALSE );
+	}
 
 	CFileDialog fileSaveDialog( FALSE, ext[(int)m_type], NULL, flag, filter[(int)m_type]);
 
@@ -1634,8 +1651,9 @@ bool CExport::SaveGrayScaleSheet()
 	}
 	result&=graySS.AddHeaders(Rows,true);
 
+	int grayBlockRows = 9 + (m_bExportRaw?3:0) + (m_bExportStimulus?3:0);
 	if(m_doReplace)
-		rowNb=(m_numToReplace-1)*9+2;
+		rowNb=(m_numToReplace-1)*grayBlockRows+2;
 	else
 		rowNb=graySS.GetTotalRows()+1;
 
@@ -1657,6 +1675,37 @@ bool CExport::SaveGrayScaleSheet()
 		result&=graySS.AddRow(Rows,rowNb,m_doReplace);
 		rowNb++;
 	}
+
+	if ( m_bExportRaw )
+	{
+		for (i=0; i<3; i++)
+		{
+			Rows.RemoveAll();
+			Rows.Add(legendRawXYZ[i]);
+			for(j=0;j<size;j++)
+			{
+				CColor gc = m_pDoc->GetMeasure()->GetGray(j);
+				Rows.Add((float)(gc.HasRawXYZValue() ? gc.GetRawXYZValue()[i] : -1.0));
+			}
+			result&=graySS.AddRow(Rows,rowNb,m_doReplace);
+			rowNb++;
+		}
+	}
+
+	if ( m_bExportStimulus )
+	{
+		// Grayscale drive is neutral: R = G = B = the gray level %.
+		for (i=0; i<3; i++)
+		{
+			Rows.RemoveAll();
+			Rows.Add(legendStimRGB[i]);
+			for(j=0;j<size;j++)
+				Rows.Add((float)(m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())));
+			result&=graySS.AddRow(Rows,rowNb,m_doReplace);
+			rowNb++;
+		}
+	}
+
 	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 
 	for (i=0; i<3; i++)
@@ -1814,8 +1863,9 @@ bool CExport::SavePrimariesSheet()
 	}
 	result&=primariesSS.AddHeaders(Rows,true);
 
+	int primBlockRows = 7 + (m_bExportRaw?3:0) + (m_bExportStimulus?3:0);
 	if(m_doReplace)
-		rowNb=(m_numToReplace-1)*7+2;
+		rowNb=(m_numToReplace-1)*primBlockRows+2;
 	else
 		rowNb=primariesSS.GetTotalRows()+1;
 
@@ -1829,6 +1879,50 @@ bool CExport::SavePrimariesSheet()
 			Rows.Add((float)m_pDoc->GetMeasure()->GetSecondary(j)[i]);
 		result&=primariesSS.AddRow(Rows,rowNb,m_doReplace);
 		rowNb++;
+	}
+
+	if ( m_bExportRaw )
+	{
+		for (i=0; i<3; i++)
+		{
+			Rows.RemoveAll();
+			Rows.Add(legendRawXYZ[i]);
+			for(j=0;j<3;j++)
+			{
+				CColor pc = m_pDoc->GetMeasure()->GetPrimary(j);
+				Rows.Add((float)(pc.HasRawXYZValue() ? pc.GetRawXYZValue()[i] : -1.0));
+			}
+			for(j=0;j<3;j++)
+			{
+				CColor sc = m_pDoc->GetMeasure()->GetSecondary(j);
+				Rows.Add((float)(sc.HasRawXYZValue() ? sc.GetRawXYZValue()[i] : -1.0));
+			}
+			result&=primariesSS.AddRow(Rows,rowNb,m_doReplace);
+			rowNb++;
+		}
+	}
+
+	if ( m_bExportStimulus )
+	{
+		// Fixed drive signals per column (order R,G,B,Y,C,M), in RGB %.
+		static const float primStimRGB[6][3] =
+		{
+			{100,   0,   0},	// Red
+			{  0, 100,   0},	// Green
+			{  0,   0, 100},	// Blue
+			{100, 100,   0},	// Yellow
+			{  0, 100, 100},	// Cyan
+			{100,   0, 100}		// Magenta
+		};
+		for (i=0; i<3; i++)
+		{
+			Rows.RemoveAll();
+			Rows.Add(legendStimRGB[i]);
+			for(j=0;j<6;j++)
+				Rows.Add((float)primStimRGB[j][i]);
+			result&=primariesSS.AddRow(Rows,rowNb,m_doReplace);
+			rowNb++;
+		}
 	}
 
 	for (i=0; i<3; i++)
@@ -2173,6 +2267,18 @@ bool CExport::SaveCCSheet()
 		Rows.Add(legendRow1cc[i],CRowArray::floatType);
 		Rows.Add(legendRow2cc[i],CRowArray::floatType);
 	}
+	if ( m_bExportRaw )
+	{
+		Rows.Add(legendRawXYZ[0],CRowArray::floatType);
+		Rows.Add(legendRawXYZ[1],CRowArray::floatType);
+		Rows.Add(legendRawXYZ[2],CRowArray::floatType);
+	}
+	if ( m_bExportStimulus )
+	{
+		Rows.Add(legendStimRGB[0],CRowArray::floatType);
+		Rows.Add(legendStimRGB[1],CRowArray::floatType);
+		Rows.Add(legendStimRGB[2],CRowArray::floatType);
+	}
 	Rows.Add("deltaE",CRowArray::floatType);
 	result&=colorcheckerSS.AddHeaders(Rows,true);
 
@@ -2184,6 +2290,18 @@ bool CExport::SaveCCSheet()
 		size = GetConfig()->GetCColorsSize();
     else
         size = GetConfig()->m_CCMode==CCSG?96:GetConfig()->m_CCMode==CMS||GetConfig()->m_CCMode==CPS?19:(GetConfig()->m_CCMode==AXIS?71:24);
+
+	// Reconstruct the RGB stimulus (drive) values for each patch, using the same
+	// generator the measurement used. Sized like the measure-time buffer so the
+	// generator cannot overrun it. If the current CC mode isn't supported by the
+	// generator, ccStimValid stays false and a -1 sentinel is written instead.
+	std::vector<ColorRGBDisplay> ccStim;
+	bool ccStimValid = false;
+	if ( m_bExportStimulus )
+	{
+		ccStim.resize(MAX_USER_CC_PATCH_SIZE + 10);
+		ccStimValid = ( GenerateCC24Colors(GetColorReference(), &ccStim[0], GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) != FALSE );
+	}
 
 	if(m_doReplace)
 		rowNb=(m_numToReplace-1)*size+2;
@@ -2316,7 +2434,25 @@ bool CExport::SaveCCSheet()
 			else
 				Rows.Add(-1.0);
 		}
-		
+
+		if ( m_bExportRaw )
+		{
+			CColor cc = m_pDoc->GetMeasure()->GetCC24Sat(i);
+			for(j=0;j<3;j++)
+			{
+				if (cc.isValid() && cc.HasRawXYZValue())
+					Rows.Add((float)cc.GetRawXYZValue()[j]);
+				else
+					Rows.Add(-1.0);
+			}
+		}
+
+		if ( m_bExportStimulus )
+		{
+			for(j=0;j<3;j++)
+				Rows.Add(ccStimValid ? (float)ccStim[i][j] : (float)-1.0);
+		}
+
 		CColor aColor,aReference;
 		double YWhite, RefWhite = 1.0;
 		if (GetConfig()->m_colorStandard != HDTVa && GetConfig()->m_colorStandard != HDTVb )

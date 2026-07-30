@@ -119,6 +119,7 @@
 #define IDD_GENERAL_PROP_PAGE           224
 #define IDB_ANSICONTRAST_BITMAP         226
 #define IDD_EXPORTXLS_DIALOG            227
+#define IDD_EXPORT_OPTIONS_DIALOG       385
 #define IDR_WHATS_THIS                  228
 #define IDR_NEARBLACK_GRAPH_MENU        229
 #define IDR_NEARWHITE_GRAPH_MENU        230
@@ -1903,6 +1904,8 @@
 #define IDC_RADIO_CALIB_CLASSIC_NIST    1558
 #define IDC_RADIO_CALIB_HCFR_DEFAULT    1559
 #define IDC_RADIO_CALIB_BODNER          1560
+#define IDC_CHECK_EXPORT_RAW            1561
+#define IDC_CHECK_EXPORT_STIMULUS       1562
 #define ID_TARGET_TOL_FIRST             33108
 
 // Next default values for new objects
@@ -1910,9 +1913,9 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
-#define _APS_NEXT_RESOURCE_VALUE        385
+#define _APS_NEXT_RESOURCE_VALUE        386
 #define _APS_NEXT_COMMAND_VALUE         33114
-#define _APS_NEXT_CONTROL_VALUE         1561
+#define _APS_NEXT_CONTROL_VALUE         1563
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif
