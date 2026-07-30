@@ -95,6 +95,16 @@ typedef enum
     USER = 36
 } CCPatterns;
 
+// "Is this one of the Mascior-style HDR color-checker sets?" - the sets that
+// keep their own dE convention (a * 100 reference scale, normalised against the
+// grayscale top rather than the prime white). This is a CONTIGUOUS-RANGE
+// assumption about the enum above, so it lives here beside the constants that
+// have to stay contiguous, instead of being spelled out again at each consumer.
+inline bool IsMasciorCC ( int ccMode )
+{
+	return ( ccMode >= MASCIOR50 && ccMode <= CCMAXHDR );
+}
+
 typedef enum 
 {
 	Default = -1,
@@ -759,6 +769,8 @@ extern CColor noDataColor;
 // Tool functions
 extern void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode = 0, double stimLevel = 1.0, bool b10bit = false, bool is16_235 = true);
 extern bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit = false, bool is16_235 = true);
+extern int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, int cubeN, bool bGrayExtras);
+extern void RemapProfileToTransport (ColorRGBDisplay* GenColors, int n, const CColorReference& colorReference, int mode, bool b10bit, bool is16_235);
 extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries);
 
 // User-selectable colorimeter correction methods. Shared between CColorHCFRConfig

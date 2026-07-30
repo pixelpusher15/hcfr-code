@@ -1186,10 +1186,30 @@ int ColorXYZ::GetColorTemp(const CColorReference& colorReference) const
 
 }
 
+// Rec.709/D65 - the space the special standards (HDTVa/HDTVb/CC6) are always
+// evaluated in. Built once: a CColorReference constructor derives the RGB->XYZ
+// matrix, inverts it and solves four line intersections for the secondaries,
+// and this value never varies. Both dE entry points used to build one on EVERY
+// call, which dominated their cost (the measures grid alone evaluates them four
+// times per cell per refresh, and /accuracytest a few hundred thousand times).
+static const CColorReference & SpecialModeReference()
+{
+	static const CColorReference s_ref(HDTV, D65, 2.2);
+	return s_ref;
+}
+
 double ColorXYZ::GetDeltaLCH(double YWhite, const ColorXYZ& refColor, double YWhiteRef, const CColorReference & colorReference, int dE_form, bool isGS, int gw_Weight, double &dChrom, double &dHue ) const
 {
-	CColorReference cRef=CColorReference(HDTV, D65, 2.2); //special modes assume rec.709
-	double dLight;
+	// MATH-010: dE_form indexes the switch below, which has no default case, so
+	// an out-of-range value (a corrupt ini, or a formula added to the UI but not
+	// here) fell through every case and returned an UNINITIALIZED double.
+	// Clamped rather than defaulted to 0: a 0 would read as a perfect colour
+	// match, which is a worse failure than an obviously wrong number because it
+	// is plausible. CIE2000 is the standard general-purpose formula, so an
+	// unrecognized index at least yields a defined, comparable value.
+	if ( dE_form < 0 || dE_form > 6 )
+		dE_form = 3;
+	double dLight = 0.0;
 	if (YWhite <= 0) YWhite = 120.;
 	if (YWhiteRef <= 0) YWhiteRef = 1.0;
     //gray world weighted white reference
@@ -1208,8 +1228,9 @@ double ColorXYZ::GetDeltaLCH(double YWhite, const ColorXYZ& refColor, double YWh
         YWhite = 0.05 * YWhite;
     }
     }
-	if (!(colorReference.m_standard == HDTVb || colorReference.m_standard == CC6 || colorReference.m_standard == HDTVa))
-		cRef=colorReference;
+	const CColorReference & cRef =
+		(colorReference.m_standard == HDTVb || colorReference.m_standard == CC6 || colorReference.m_standard == HDTVa)
+		? SpecialModeReference() : colorReference;	//special modes assume rec.709
 	switch (dE_form)
 	{
 		case 0:
@@ -1714,8 +1735,11 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 
 double ColorXYZ::GetDeltaE(double YWhite, const ColorXYZ& refColor, double YWhiteRef, const CColorReference & colorReference, int dE_form, bool isGS, int gw_Weight ) const
 {
-	CColorReference cRef=CColorReference(HDTV, D65, 2.2); //special modes assume rec.709
-	double dE;
+	// MATH-010, as in GetDeltaLCH above: no default case, so an out-of-range
+	// dE_form returned an uninitialized double. Clamp to CIE2000.
+	if ( dE_form < 0 || dE_form > 6 )
+		dE_form = 3;
+	double dE = 0.0;
 	if (YWhite <= 0) YWhite = 120.;
 	if (YWhiteRef <= 0) YWhiteRef = 1.0;
     //gray world weighted white reference
@@ -1733,8 +1757,9 @@ double ColorXYZ::GetDeltaE(double YWhite, const ColorXYZ& refColor, double YWhit
 			YWhite = 0.05 * YWhite;
 		}
     }
-	if (!(colorReference.m_standard == HDTVb || colorReference.m_standard == CC6 || colorReference.m_standard == HDTVa))
-		cRef=colorReference;
+	const CColorReference & cRef =
+		(colorReference.m_standard == HDTVb || colorReference.m_standard == CC6 || colorReference.m_standard == HDTVa)
+		? SpecialModeReference() : colorReference;	//special modes assume rec.709
 	switch (dE_form)
 	{
 		case 0:
@@ -2879,6 +2904,125 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 		cnt++;
 	}
 	return cnt;
+}
+
+static int AppendProfileGray(ColorRGBDisplay* GenColors, int maxEntries, int cnt, int cubeN, double level)
+{
+	if ( cnt < 0 )
+		return -1;
+	// skip levels the cube's own gray diagonal already covers
+	const double step = 100.0 / (cubeN - 1);
+	double k = level / step;
+	if ( fabs(k - floor(k + 0.5)) < 1e-6 )
+		return cnt;
+	if ( GenColors )
+	{
+		if ( cnt >= maxEntries )
+			return -1;
+		GenColors[cnt] = ColorRGBDisplay(level, level, level);
+	}
+	return cnt + 1;
+}
+
+// Display profile patch set: full N^3 RGB cube in generation order (r slowest,
+// b fastest, each channel at i*100/(N-1) percent), optionally followed by extra
+// gray-axis samples: near-black levels below 10%, then a 5% gray ramp from 10%,
+// both skipping levels the cube diagonal already covers. The order is
+// deterministic so a saved document regenerates the exact list from
+// (cubeN, bGrayExtras) alone - changing it breaks saved profiles.
+// Pass GenColors == NULL to get the patch count without filling a buffer.
+// Returns the patch count, or -1 on a bad cube size / buffer overflow.
+int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, int cubeN, bool bGrayExtras)
+{
+	if ( cubeN < 2 || cubeN > 21 )
+		return -1;
+
+	int cnt = 0;
+	const double step = 100.0 / (cubeN - 1);
+
+	for ( int r = 0; r < cubeN; r++ )
+	{
+		for ( int g = 0; g < cubeN; g++ )
+		{
+			for ( int b = 0; b < cubeN; b++ )
+			{
+				if ( GenColors )
+				{
+					if ( cnt >= maxEntries )
+						return -1;
+					GenColors[cnt] = ColorRGBDisplay(r * step, g * step, b * step);
+				}
+				cnt++;
+			}
+		}
+	}
+
+	if ( bGrayExtras )
+	{
+		static const double nearBlack[] = { 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0 };
+		for ( int i = 0; i < (int)(sizeof(nearBlack)/sizeof(nearBlack[0])); i++ )
+			cnt = AppendProfileGray(GenColors, maxEntries, cnt, cubeN, nearBlack[i]);
+		for ( int lvl = 10; lvl <= 95; lvl += 5 )
+			cnt = AppendProfileGray(GenColors, maxEntries, cnt, cubeN, (double)lvl);
+	}
+
+	return cnt;
+}
+
+// Remap a display-profile patch list (percent RGB) from inner content space (e.g.
+// P3) to the transport (BT.2020) wire encoding, for the UHDTV3/UHDTV4 pseudo-
+// spaces. This is the SAME signal round trip GenerateCC24Colors applies to its
+// patches: decode with the active EOTF (2.22 SDR / pure PQ / HLG inverse OETF),
+// remap inner->transport, re-encode and snap to the native per-range grid.
+// GenerateProfileColors is container-agnostic (so a .chc regenerates the same
+// cube on any config), so the remap is applied here at capture time. Without it
+// the display renders 2020-gamut colors while the references are inner content
+// colors -- the measured cloud plots stretched out to the 2020 gamut. No-op for
+// non-container standards (inner == transport). mode = m_GammaOffsetType.
+void RemapProfileToTransport(ColorRGBDisplay* GenColors, int n, const CColorReference& colorReference, int mode, bool b10bit, bool is16_235)
+{
+	if ( ! ( colorReference.m_standard == UHDTV3 || colorReference.m_standard == UHDTV4 ) )
+		return;
+	CColor tempColor;
+	bool isPQ = ( mode == 5 ), isHLG = ( mode == 7 );
+	for ( int i = 0; i < n; i++ )
+	{
+		ColorRGB rgb;
+		for ( int ch = 0; ch < 3; ch++ )
+		{
+			double v = ( GenColors[i][ch] <= 0.0 ) ? 0.0 : ( ( GenColors[i][ch] >= 100.0 ) ? 1.0 : GenColors[i][ch] / 100. );
+			if ( isPQ )
+				rgb[ch] = ( v <= 0.0 ) ? 0.0 : getL_EOTF( v, noDataColor, noDataColor, 0.0, 0.0, 5, 94.37844, 0.0, 4000.0, 0.0, 10000.0 ) / 100.;
+			else if ( isHLG )
+				rgb[ch] = HLG_SignalToScene( v );
+			else
+				rgb[ch] = ( v <= 0.0 || v >= 1.0 ) ? v : pow( v, 2.22 );
+		}
+		tempColor.SetRGBValue( rgb, ContainerInnerReference( colorReference ) );
+		ColorRGB aRGBColor = tempColor.GetRGBValue( ContainerTransportReference( colorReference ) );
+		for ( int ch = 0; ch < 3; ch++ )
+		{
+			double q;
+			if ( isPQ )
+			{
+				double lin = max( aRGBColor[ch], 0.0 );
+				q = ( lin <= 0.0 ) ? 0.0 : getL_EOTF( lin, noDataColor, noDataColor, 0.0, 0.0, -5 );
+				q = min( max( q, 0.0 ), 1.0 );
+			}
+			else if ( isHLG )
+			{
+				double lin = min( max( aRGBColor[ch], 0.0 ), 1.0 );
+				q = ( lin <= 0.0 ) ? 0.0 : getL_EOTF( lin, noDataColor, noDataColor, 0.0, 0.0, -7 );
+				q = min( max( q, 0.0 ), 1.0 );
+			}
+			else
+			{
+				q = min( max( aRGBColor[ch], 0.0 ), 1.0 );
+				q = ( q <= 0.0 || q >= 1.0 ) ? q : pow( q, 1.0 / 2.22 );
+			}
+			GenColors[i][ch] = SnapToVideoGrid( q, b10bit, is16_235 ) * 100.;
+		}
+	}
 }
 
 bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit, bool is16_235)

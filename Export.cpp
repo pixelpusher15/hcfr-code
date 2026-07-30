@@ -819,8 +819,14 @@ bool CExport::SavePDF()
 			YWhite = m_pDoc->GetMeasure()->GetGray((m_pDoc->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
 		else
 		{
+			// Unified HDR convention (matches the measures grid): references are
+			// GetHDRRefScale-scaled below, measured white unrescaled. The manual
+			// generator keeps the legacy pair, because the grid does too
+			// (UpdateGrid/InitGrid gate the scale on enumManual) - the export must
+			// reproduce the on-screen numbers.
 			RefWhite = YWhite / (tmWhite) ;
-			YWhite = YWhite * 94.37844 / (tmWhite) ;
+			if (GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual)
+				YWhite = YWhite * 94.37844 / (tmWhite) ;
 		}
 	}
 
@@ -883,12 +889,13 @@ bool CExport::SavePDF()
 				}
 				else
 				{
-					aReference.SetX(aReference.GetX() * 105.95640);
-					aReference.SetY(aReference.GetY() * 105.95640);
-					aReference.SetZ(aReference.GetZ() * 105.95640);
-					aRef[0] = aRef[0] * 105.95640;
-					aRef[1] = aRef[1] * 105.95640;
-					aRef[2] = aRef[2] * 105.95640;
+					double s = ( GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual ) ? 105.95640 : m_pDoc->GetMeasure()->GetHDRRefScale();
+					aReference.SetX(aReference.GetX() * s);
+					aReference.SetY(aReference.GetY() * s);
+					aReference.SetZ(aReference.GetZ() * s);
+					aRef[0] = aRef[0] * s;
+					aRef[1] = aRef[1] * s;
+					aRef[2] = aRef[2] * s;
 				}
 			}
 			aMeasure[0]=pow((tmp.GetRGBValue(bRef)[0]), 1.0/2.22);
@@ -1396,8 +1403,13 @@ bool CExport::SavePDF()
 				YWhite = m_pDoc->GetMeasure()->GetGray((m_pDoc->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
 			else
 			{
+				// Unified HDR convention: references are GetHDRRefScale-scaled
+				// below, measured white unrescaled. The manual generator keeps
+				// the legacy pair so the export reproduces the on-screen grid,
+				// which gates its own scale on enumManual.
 				RefWhite = YWhite / (tmWhite) ;
-				YWhite = YWhite * 94.37844 / (tmWhite) ;
+				if (GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual)
+					YWhite = YWhite * 94.37844 / (tmWhite) ;
 			}
 		}
 		ri = 6;
@@ -1451,12 +1463,13 @@ bool CExport::SavePDF()
 				}
 				else
 				{
-					aReference.SetX(aReference.GetX() * 105.95640);
-					aReference.SetY(aReference.GetY() * 105.95640);
-					aReference.SetZ(aReference.GetZ() * 105.95640);
-					aRef[0] = aRef[0] * 105.95640;
-					aRef[1] = aRef[1] * 105.95640;
-					aRef[2] = aRef[2] * 105.95640;
+					double s = ( GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual ) ? 105.95640 : pDataRef->GetMeasure()->GetHDRRefScale();
+					aReference.SetX(aReference.GetX() * s);
+					aReference.SetY(aReference.GetY() * s);
+					aReference.SetZ(aReference.GetZ() * s);
+					aRef[0] = aRef[0] * s;
+					aRef[1] = aRef[1] * s;
+					aRef[2] = aRef[2] * s;
 				}
 			}
 			if (aColor.isValid())
@@ -1550,6 +1563,7 @@ bool CExport::SaveSheets()
 	result&=SavePrimariesSheet();
 	result&=SaveCCSheet();
 	result&=SaveSpectralSheet();
+	result&=SaveProfileSheet();
 
 	if(!result)
 	{
@@ -2048,6 +2062,63 @@ bool CExport::SaveSpectralSheet()
 	return result;
 }
 
+// Dense display-profile cube: one row per measured patch (stimulus RGB% +
+// measured XYZ / xyY / dE), so the profile can leave the .chc for external
+// 3D-LUT / analysis tools. No-op when the document has no profile.
+bool CExport::SaveProfileSheet()
+{
+	CMeasure * pM = m_pDoc->GetMeasure();
+	if ( pM == NULL || !pM->HasProfileMeasures() )
+		return true;
+
+	CString SheetOrSeparator="ProfileSheet";
+	CString aFileName;
+	if(m_type == CSV)
+	{
+		aFileName=m_fileName+"."+SheetOrSeparator+".csv";
+		SheetOrSeparator=m_separator;
+	}
+	else
+		aFileName=m_fileName;
+
+	CSpreadSheet profSS(aFileName, SheetOrSeparator, m_doBackup);
+	profSS.BeginTransaction();
+
+	CRowArray Rows;
+	Rows.RemoveAll();
+	Rows.Add("Patch");	Rows.Add("R%"); Rows.Add("G%"); Rows.Add("B%");
+	Rows.Add("X"); Rows.Add("Y"); Rows.Add("Z");
+	Rows.Add("x"); Rows.Add("y"); Rows.Add("dE");
+	bool result = profSS.AddHeaders(Rows,true);
+
+	int rowNb = 2;
+	int n = pM->GetProfileMeasureSize();
+	for ( int i = 0; i < n; i++ )
+	{
+		CColor c = pM->GetProfileMeasure(i);
+		if ( !c.isValid() )
+			continue;
+		ColorRGBDisplay rgb = pM->GetProfilePatchRGB(i);
+		ColorXYZ  xyz = c.GetXYZValue();
+		ColorxyY  xyY = c.GetxyYValue();
+		double    dE  = pM->ComputeProfileDE(c, i);
+
+		Rows.RemoveAll();
+		Rows.Add((float)i);
+		Rows.Add((float)rgb[0]); Rows.Add((float)rgb[1]); Rows.Add((float)rgb[2]);
+		Rows.Add((float)xyz[0]); Rows.Add((float)xyz[1]); Rows.Add((float)xyz[2]);
+		Rows.Add((float)xyY[0]); Rows.Add((float)xyY[1]);
+		Rows.Add((float)( dE >= 0.0 ? dE : 0.0 ));
+		result &= profSS.AddRow(Rows,rowNb,m_doReplace);
+		rowNb++;
+	}
+
+	result&=profSS.Commit();
+	if(!result)
+		m_errorStr=profSS.GetLastError();
+	return result;
+}
+
 
 bool CExport::SaveCCSheet()
 {
@@ -2492,8 +2563,13 @@ bool CExport::SaveCCSheet()
 				YWhite = m_pDoc->GetMeasure()->GetGray((m_pDoc->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
 			else
 			{
+				// Unified HDR convention: references are GetHDRRefScale-scaled
+				// below, measured white unrescaled. The manual generator keeps
+				// the legacy pair so the export reproduces the on-screen grid,
+				// which gates its own scale on enumManual.
 				RefWhite = YWhite / (tmWhite) ;
-				YWhite = YWhite * 94.37844 / (tmWhite) ;
+				if (GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual)
+					YWhite = YWhite * 94.37844 / (tmWhite) ;
 			}
 		}
 
@@ -2509,9 +2585,10 @@ bool CExport::SaveCCSheet()
 			}
 			else
 			{
-				aReference.SetX(aReference.GetX() * 105.95640);
-				aReference.SetY(aReference.GetY() * 105.95640);
-				aReference.SetZ(aReference.GetZ() * 105.95640);
+				double s = ( GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual ) ? 105.95640 : m_pDoc->GetMeasure()->GetHDRRefScale();
+				aReference.SetX(aReference.GetX() * s);
+				aReference.SetY(aReference.GetY() * s);
+				aReference.SetZ(aReference.GetZ() * s);
 			}
 		}
 

@@ -1877,6 +1877,7 @@
 #define IDS_3DVIEW_SHOWFLOOR            59537
 #define IDS_3DVIEW_SHOWTAILS            59538
 #define IDS_3DVIEW_RESETVIEW            59539
+#define IDS_3DVIEW_SHOWPROFILE          59564
 #define IDS_3DVIEW_FILTER_ALL           59555
 #define IDS_3DVIEW_FILTER_HIDE          59556
 #define IDS_3DVIEW_FILTER               59557
@@ -1899,13 +1900,17 @@
 #define IDS_STIMPRESET_QUICK            59558
 #define IDS_STIMPRESET_STANDARD         59559
 #define IDS_STIMPRESET_FINE             59560
+#define IDS_DISPLAYPROFILE              59561
+#define IDS_MEASUREDISPLAYPROFILE       59562
+#define IDS_DELETEDISPLAYPROFILE        59563
+#define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
-#define IDC_RADIO_CALIB_CLASSIC_NIST    1558
-#define IDC_RADIO_CALIB_HCFR_DEFAULT    1559
-#define IDC_RADIO_CALIB_BODNER          1560
-#define IDC_CHECK_EXPORT_RAW            1561
-#define IDC_CHECK_EXPORT_STIMULUS       1562
+#define IDC_RADIO_CALIB_CLASSIC_NIST    1559
+#define IDC_RADIO_CALIB_HCFR_DEFAULT    1560
+#define IDC_RADIO_CALIB_BODNER          1561
+#define IDC_CHECK_EXPORT_RAW            1562
+#define IDC_CHECK_EXPORT_STIMULUS       1563
 #define ID_TARGET_TOL_FIRST             33108
 
 // Next default values for new objects
@@ -1915,7 +1920,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        386
 #define _APS_NEXT_COMMAND_VALUE         33114
-#define _APS_NEXT_CONTROL_VALUE         1563
+#define _APS_NEXT_CONTROL_VALUE         1564
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

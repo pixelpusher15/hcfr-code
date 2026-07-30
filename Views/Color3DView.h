@@ -65,17 +65,24 @@ public:
 	// (thresholds read live from the configured tolerance preset).
 	void SetDEFilter(int filter);
 
+	// Which CMeasure array a point came from (so a click can re-fetch the
+	// original CColor, spectrum included, and push it to the main view).
+	// Public because CMainView maps a selected grid column back to one of
+	// these to drive SelectMeasurePoint.
+	enum PointSource { SRC_GRAY = 0, SRC_NEARBLACK, SRC_NEARWHITE, SRC_PRIMARY,
+					   SRC_SECONDARY, SRC_SAT, SRC_CC24, SRC_FREE, SRC_PROFILE };
+
+	// Halo the point a measurement identity resolves to -- the grid -> viewer
+	// half of the selection sync. srcType < 0 (or no matching point) clears it.
+	void SelectMeasurePoint(int srcType, int srcA, int srcB = 0, int srcC = 0);
+	void SelectProfilePoint(int patchIdx);	// halo a profile patch (summary-pane click)
+
 protected:
 	virtual void OnDraw(CDC* pDC);
 	virtual void OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint);
 	virtual ~C3DColorView();
 
 	// ---- scene: measured points in model space (roughly a unit cube) ----
-	// Which CMeasure array a point came from (so a click can re-fetch the
-	// original CColor, spectrum included, and push it to the main view).
-	enum PointSource { SRC_GRAY = 0, SRC_NEARBLACK, SRC_NEARWHITE, SRC_PRIMARY,
-					   SRC_SECONDARY, SRC_SAT, SRC_CC24, SRC_FREE };
-
 	struct ScenePoint
 	{
 		float mx, my, mz;     // measured position
@@ -96,15 +103,21 @@ protected:
 	std::vector<ScenePoint> m_points;
 	bool m_sceneDirty;
 	int  m_freeInScene;       // free measurements already in m_points (incremental append)
+	int  m_profileInScene;    // profile patches already in m_points (incremental append)
 	void BuildScene();
 	void AppendNewFreeMeasures();
+	void AppendNewProfileMeasures();
 	// dETarget/ywForDE feed GetDeltaE with the grid's conventions; markerTarget
 	// (relative to white=1) is where the tail/ring is drawn. Pass noDataColor
 	// twice for measurements without a reference.
+	// dEOverride >= 0 substitutes a caller-computed dE (profile points use
+	// CMeasure::ComputeProfileDE so the viewer matches the summary pane exactly);
+	// < 0 computes dE inline from dETarget.
 	void AppendMeasure(const CColor & c, double whiteY, CColorReference & ref,
 					   const CColor & dETarget, const CColor & markerTarget,
 					   bool isGS, double ywForDE, const wchar_t * label,
-					   int srcType, int srcA, int srcB = 0, int srcC = 0);
+					   int srcType, int srcA, int srcB = 0, int srcC = 0,
+					   double dEOverride = -1.0);
 	void PushSelectionToMainView(const ScenePoint & S);
 	void ToModel(const ColorXYZ & xyz, double whiteY, CColorReference & ref,
 				 double & mx, double & my, double & mz) const;
@@ -143,10 +156,20 @@ protected:
 	int    m_pointColor;          // one of PointColorMode
 	int    m_deFilter;            // see SetDEFilter
 	bool   m_showTails;           // draw target cross + tail to each measured point
+	bool   m_showProfilePts;      // show SRC_PROFILE points (display-profile cube); default on
 	bool   m_bDragging;
 	CPoint m_lastMouse;
 	CPoint m_downPos;             // to tell a click (select) from a drag (rotate)
 	int    m_selected;            // index into m_points, -1 = none
+	// One-shot pending selection: the IDENTITY of a point to halo, queued when
+	// an external selector (the measures grid) arrives while the scene is stale,
+	// and consumed by the next build. Deliberately NOT persistent state -- an
+	// identity kept across rebuilds re-attaches to whatever later occupies the
+	// same array index (measurements shift on delete, and the saturation level
+	// store renumbers on insert), haloing data the user never picked.
+	// m_reqType < 0 = nothing pending.
+	int    m_reqType, m_reqA, m_reqB, m_reqC;
+	void   ResolvePendingSelection();
 
 	// ---- backbuffer: a top-down 32-bit DIB section + its memory DC ----
 	HDC     m_memDC;

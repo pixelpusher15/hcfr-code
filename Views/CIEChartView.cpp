@@ -576,7 +576,13 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 
 			CColor inColor = aGraphPoint.GetNormalizedColor();
 
-			if (GetConfig()->m_GammaOffsetType == 5 && (GetConfig()->m_colorStandard == UHDTV3 || GetConfig()->m_colorStandard == UHDTV4 || isSat) ) //check for primaries/secondaries page
+			// Saturation-page points are already normalized on the unified
+			// convention (ref by YWhite/10000 via the GetHDRRefScale-form
+			// YWhiteRef, measurement by YWhite), which now matches the measures
+			// grid - no further white adjustment. The legacy 94.37844/tmWhite
+			// adjust remains only for the UHDTV3/4 primaries page (out of the
+			// unified sat/CC scope). Identical with tone mapping off.
+			if (GetConfig()->m_GammaOffsetType == 5 && (GetConfig()->m_colorStandard == UHDTV3 || GetConfig()->m_colorStandard == UHDTV4) && !isSat ) //check for primaries/secondaries page
 			{
 				RefWhite = 94.37844 / tmWhite;
 				YWhite = YWhite * 94.37844 / tmWhite ;
@@ -2871,7 +2877,7 @@ void CCIEChartView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		// A realtime hint during a sweep adds exactly one measurement: paint it
 		// incrementally. The sweep-end update comes as a non-realtime hint with
 		// m_binMeasure off, which repaints everything (targets, tooltips, dE).
-		if ( lHint >= UPD_REALTIME && GetDocument()->GetMeasure()->m_binMeasure )
+		if ( lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE && lHint != UPD_REALTIME + 13 && GetDocument()->GetMeasure()->m_binMeasure )
 			m_bRealtimeIncrement = TRUE;
 		RedrawWindow( NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW );
 		// The flag must not outlive the synchronous repaint above: if the paint

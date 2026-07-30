@@ -93,7 +93,12 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		if (minCol > 0)
 		{
 
-			if (m_displayMode == 11)
+			if (m_displayMode == 13)	// display profile patch
+			{
+				m_bLumaMode = TRUE;
+				m_pDocument->GetMeasure()->GetRefProfileSat(minCol-1, aReference);
+			}
+			else if (m_displayMode == 11)
 			{
 				m_bLumaMode = TRUE;
 				m_pDocument->GetMeasure()->GetRefCC24Sat(minCol-1, aReference);
@@ -204,7 +209,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			}
 		} 
 
-		BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 && (m_displayMode == 1 || m_displayMode >= 5 && m_displayMode <= 11) );
+		BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 && (m_displayMode == 1 || m_displayMode >= 5 && m_displayMode <= 11 || m_displayMode == 13) );
 		CColor white = m_pDocument->GetMeasure()->GetPrimeWhite();
 
 		if (!white.isValid() && isHDR)
@@ -217,14 +222,20 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 
 		//special case check if user has done a less than 100% primaries run and use grayscale white instead for colorchecker
 		if (m_pDocument->GetMeasure()->GetOnOffWhite().isValid())
-			if ((m_pDocument->GetMeasure()->GetPrimeWhite()[1] / m_pDocument->GetMeasure()->GetOnOffWhite()[1] < 0.9) && m_displayMode == 11  && GetConfig()->m_GammaOffsetType != 5)
+			if ((m_pDocument->GetMeasure()->GetPrimeWhite()[1] / m_pDocument->GetMeasure()->GetOnOffWhite()[1] < 0.9) && (m_displayMode == 11 || m_displayMode == 13)  && GetConfig()->m_GammaOffsetType != 5)
 				white = m_pDocument -> GetMeasure () ->GetOnOffWhite();
 		
     	int nCount = m_pDocument -> GetMeasure () -> GetGrayScaleSize ();
         double YWhite = white.GetY();
 		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor);
+		// The DVD branches below REASSIGN tmWhite to the manual-generator 0.50-code
+		// white (~92.25). The unified paths (mode 13) pair with a reference scaled
+		// by GetHDRRefScale(), which is built on the true tone-mapped diffuse
+		// white - so they must normalize by THAT, whichever branch ran first.
+		// Clamped exactly like GetHDRRefScale: this value is used as a divisor.
+		const double tmWhiteRef = ( tmWhite > 0.0 ) ? tmWhite : 94.37844;
 
-			if ( (GetConfig()->m_GammaOffsetType == 5 && m_displayMode <=11 && m_displayMode >= 5) )
+			if ( (GetConfig()->m_GammaOffsetType == 5 && (m_displayMode <=11 && m_displayMode >= 5 || m_displayMode == 13)) )
 			{
 				if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
 				{
@@ -234,9 +245,15 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 				}
 				else
 				{
-					aReference.SetX((aReference.GetX() * 105.95640));
-					aReference.SetY((aReference.GetY() * 105.95640));
-					aReference.SetZ((aReference.GetZ() * 105.95640));
+					// Unified HDR rescale (matches UpdateGrid ~4294 and the 3D
+					// viewer): GetHDRRefScale, = 105.95640 with tone mapping off.
+					// The manual generator (DVD) keeps the legacy fixed scale;
+					// profile mode 13 is always unified.
+					double s = ( DVD && m_displayMode != 13 ) ? 105.95640
+							 : m_pDocument->GetMeasure()->GetHDRRefScale();
+					aReference.SetX((aReference.GetX() * s));
+					aReference.SetY((aReference.GetY() * s));
+					aReference.SetZ((aReference.GetZ() * s));
 				}
 			}
 
@@ -359,8 +376,12 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 						}
 						else
 						{
-							if ( ( (GetColorReference().m_standard == UHDTV2 && minCol == satsize) || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV) && m_displayMode != 11)// && !shiftDiffuse) //&& nCol == (satsize)
+							if ( ( (GetColorReference().m_standard == UHDTV2 && minCol == satsize) || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV) && m_displayMode != 11 && m_displayMode != 13)// && !shiftDiffuse) //&& nCol == (satsize)
 								white.SetY(92.25496);
+							else if (m_displayMode == 13)
+								// profile mode is always on the unified GetHDRRefScale
+								// convention, even with the manual generator
+								white.SetY(tmWhiteRef);
 							else
 								white.SetY(94.37844);
 						}
@@ -376,7 +397,11 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 							if ((GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR) && m_displayMode == 11)
 								white.SetY(m_pDocument->GetMeasure()->GetGray((m_pDocument->GetMeasure()->GetGrayScaleSize()-1)).GetY());
 							else
-								white.SetY(94.37844);
+								// Unified convention: the reference above is
+								// GetHDRRefScale-scaled (1.0 = tone-mapped diffuse
+								// white), so normalize the measurement by the same
+								// white (identical with tone mapping off).
+								white.SetY(tmWhiteRef);
 					}
 				}
 				aColor[0]=aColor[0]/white.GetY();
@@ -434,8 +459,15 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			}
 			else
 			{
-				if ( ((cRef.m_standard == UHDTV2 && minCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11)// && !shiftDiffuse) //fixes skin && nCol == satsize
+				if ( ((cRef.m_standard == UHDTV2 && minCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11 && m_displayMode != 13)// && !shiftDiffuse) //fixes skin && nCol == satsize
 					RefWhite = YWhite / (tmWhite);
+				else if (m_displayMode == 13)
+					// profile mode: unified convention even with the manual
+					// generator (reference is GetHDRRefScale-scaled), measured
+					// white unrescaled. tmWhiteRef, NOT tmWhite: the DVD branch
+					// above clobbered tmWhite with the 0.50-code white, which
+					// would leave a fixed ~2.3% bias against the reference.
+					RefWhite = YWhite / (tmWhiteRef);
 				else
 				{
 					RefWhite = YWhite / (tmWhite) ;
@@ -451,7 +483,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 					RefWhite = YWhite / (tmWhite) ;
 				else
 				{
-					RefWhite = YWhite / (tmWhite) ;					
+					RefWhite = YWhite / (tmWhite) ;
 					YWhite = YWhite * 94.37844 / (tmWhite) ;
 				}
 			}
@@ -461,8 +493,11 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 					YWhite = m_pDocument->GetMeasure()->GetGray((m_pDocument->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
 				else
 				{
+					// Unified HDR convention (matches the measures grid and the
+					// 3D viewer): the reference is GetHDRRefScale-scaled, so the
+					// measured white stays unrescaled - no 94.37844/tmWhite
+					// adjust (identical with tone mapping off).
 					RefWhite = YWhite / (tmWhite) ;
-					YWhite = YWhite * 94.37844 / (tmWhite) ;
 				}
 			}
 			}

@@ -943,6 +943,10 @@ BOOL CDataSetDoc::OnNewDocument()
 					m_measure.Copy(&g_DocToDuplicate->m_measure,DUPLCONTRAST);
 				if (Dlg.m_DuplInfoCheck)
 					m_measure.Copy(&g_DocToDuplicate->m_measure,DUPLINFO);
+				// A captured display profile always carries over (it has no
+				// dialog checkbox; a document duplicate should keep it).
+				if (g_DocToDuplicate->m_measure.HasProfileMeasures())
+					m_measure.Copy(&g_DocToDuplicate->m_measure,DUPLPROFILE);
 			}
 			else	// Default
 			{
@@ -1282,7 +1286,17 @@ void CDataSetDoc::MeasureCC24SatScale()
 	UpdateAllViews(NULL, UPD_CC24SAT);
 }
 
-void CDataSetDoc::MeasureAllSaturationScales() 
+void CDataSetDoc::MeasureDisplayProfile(int cubeN, BOOL bGrayExtras, BOOL bDriftComp)
+{
+	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
+
+	if(m_measure.MeasureDisplayProfile(m_pSensor,m_pGenerator,this,cubeN,bGrayExtras,bDriftComp))
+		SetModifiedFlag(m_measure.IsModified());
+	UpdateAllViews(NULL, UPD_DISPLAYPROFILE);
+}
+
+void CDataSetDoc::MeasureAllSaturationScales()
 {
 	StopBackgroundMeasures ();
 	MeasureButtonStopScope _btn(this);
