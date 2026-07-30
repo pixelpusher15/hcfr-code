@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 /////////////////////////////////////////////////////////////////////////////
 
 // Export.h: interface for the CExport class.
@@ -52,6 +52,7 @@ private:
 	CString m_separator;
 	CString m_errorStr;
 	int m_numToReplace;
+	int m_numExistingMeasures;	// count of measures already in the target file (for replace-layout guard)
 	bool m_bExportRaw;			// include raw (uncorrected) sensor XYZ rows/columns
 	bool m_bExportStimulus;		// include RGB stimulus (drive) rows/columns
 

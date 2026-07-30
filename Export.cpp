@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -218,6 +218,7 @@ CExport::CExport(CDataSetDoc *pDoc, ExportType type)
 	m_doReplace=false;
 	m_doBackup=false;
 	m_numToReplace=1;
+	m_numExistingMeasures=0;
 	m_fileName="colorHCFR.xls";
 	m_separator=";";
 	m_bExportRaw=true;
@@ -291,6 +292,7 @@ bool CExport::Save()
 
 			CExportReplaceDialog replaceDialog;
 			bool measureFound=false;
+			int measureCount=0;
 			for(int i=2;i<=generalSS.GetTotalRows();i++)
 			{
 				CRowArray rows;
@@ -298,8 +300,10 @@ bool CExport::Save()
 				{
 					replaceDialog.AddMeasure(rows.GetAt(0)+": "+rows.GetAt(1)+" du "+rows.GetAt(2));
 					measureFound=true;
+					measureCount++;
 				}
 			}
+			m_numExistingMeasures=measureCount;
 
 			if(measureFound)
 			{
@@ -1652,6 +1656,16 @@ bool CExport::SaveGrayScaleSheet()
 	result&=graySS.AddHeaders(Rows,true);
 
 	int grayBlockRows = 9 + (m_bExportRaw?3:0) + (m_bExportStimulus?3:0);
+	// The positional replace below assumes every measure block in the file is the
+	// same height. That height now depends on the Raw/Stimulus options, so if the
+	// existing file was written with different options, replacing would overwrite
+	// the wrong rows. Detect the mismatch and abort rather than corrupt the file.
+	if ( m_doReplace && m_numExistingMeasures > 0 &&
+	     (graySS.GetTotalRows() - 1) != m_numExistingMeasures * grayBlockRows )
+	{
+		m_errorStr = _T("Cannot replace: the selected file was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		return false;
+	}
 	if(m_doReplace)
 		rowNb=(m_numToReplace-1)*grayBlockRows+2;
 	else
@@ -1864,6 +1878,14 @@ bool CExport::SavePrimariesSheet()
 	result&=primariesSS.AddHeaders(Rows,true);
 
 	int primBlockRows = 7 + (m_bExportRaw?3:0) + (m_bExportStimulus?3:0);
+	// See SaveGrayScaleSheet: guard against replacing into a file whose blocks
+	// were written with a different Raw/Stimulus layout (wrong-row overwrite).
+	if ( m_doReplace && m_numExistingMeasures > 0 &&
+	     (primariesSS.GetTotalRows() - 1) != m_numExistingMeasures * primBlockRows )
+	{
+		m_errorStr = _T("Cannot replace: the selected file was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		return false;
+	}
 	if(m_doReplace)
 		rowNb=(m_numToReplace-1)*primBlockRows+2;
 	else
@@ -2292,14 +2314,16 @@ bool CExport::SaveCCSheet()
         size = GetConfig()->m_CCMode==CCSG?96:GetConfig()->m_CCMode==CMS||GetConfig()->m_CCMode==CPS?19:(GetConfig()->m_CCMode==AXIS?71:24);
 
 	// Reconstruct the RGB stimulus (drive) values for each patch, using the same
-	// generator the measurement used. Sized like the measure-time buffer so the
-	// generator cannot overrun it. If the current CC mode isn't supported by the
-	// generator, ccStimValid stays false and a -1 sentinel is written instead.
+	// generator the measurement used. size mirrors the mode's patch count (the
+	// measurement read [0,size)), so the generator fills at least that many; a
+	// small margin guards any off-by-a-few. If the current CC mode isn't
+	// supported by the generator, ccStimValid stays false and a -1 sentinel is
+	// written instead.
 	std::vector<ColorRGBDisplay> ccStim;
 	bool ccStimValid = false;
 	if ( m_bExportStimulus )
 	{
-		ccStim.resize(MAX_USER_CC_PATCH_SIZE + 10);
+		ccStim.resize((size > 0 ? size : 1) + 10);
 		ccStimValid = ( GenerateCC24Colors(GetColorReference(), &ccStim[0], GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) != FALSE );
 	}
 
