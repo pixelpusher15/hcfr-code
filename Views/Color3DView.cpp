@@ -181,6 +181,7 @@ C3DColorView::C3DColorView()
 	, m_pointColor(PTCOLOR_DE), m_deFilter(0), m_showTails(true), m_showProfilePts(true)
 	, m_bDragging(false)
 	, m_selected(-1)
+	, m_reqType(-1), m_reqA(0), m_reqB(0), m_reqC(0)
 	, m_orbKernelR(-1)
 	, m_memDC(NULL), m_memBmp(NULL), m_oldBmp(NULL), m_bits(NULL), m_bw(0), m_bh(0)
 	, m_cx(0), m_cyc(0), m_scale(0), m_ry(1), m_rsy(0), m_rp(1), m_rsp(0)
@@ -359,6 +360,58 @@ static double SceneDiffuseWhiteY( CMeasure * pM )
 	return 1.0;
 }
 
+// dE white for the GRAY FAMILY (grayscale, near-black, near-white). The measures
+// grid normalises their dE by the measured top gray patch (YWhiteGray in
+// UpdateGrid), not by the scene's diffuse-white normaliser. In SDR the two are
+// the same measurement, but in PQ-HDR SceneDiffuseWhiteY returns the TONE-MAPPED
+// diffuse white while the grid uses measured PEAK white -- a ~2.4x difference
+// that lands straight in the Lab luminance term.
+static double GridGrayWhiteY( CMeasure * pM )
+{
+	// Deliberately the same test and fallback as UpdateGrid, down to accepting a
+	// valid-but-zero white: GetDeltaE substitutes 120 for YWhite <= 0 on both
+	// sides, so matching exactly keeps the two paths bit-identical.
+	int n = pM->GetGrayScaleSize();
+	if ( n > 0 && pM->GetGray( n - 1 ).isValid() )
+		return pM->GetGray( n - 1 )[1];
+	return GetConfig()->m_TargetMaxL;      // same fallback as UpdateGrid
+}
+
+// Theoretical target luminance for a gray-family patch at gray level x, as a
+// ratio of the grid's gray white -- mirrors UpdateGrid's valy / tmpColor[2]
+// (MainView.cpp cases 0/3/4) exactly, including the mode-5 nits conversion and
+// the mode-1 black compensation. blackRef is the black the grid feeds
+// getL_EOTF: near-black passes its own first patch, the others the on/off black.
+static double GridGrayTargetRatio( CMeasure * pM, double x, const CColor & blackRef,
+								   double gsWhiteY, double gammaOffset )
+{
+	int mode = GetConfig()->m_GammaOffsetType;
+	if ( GetConfig()->m_colorStandard == sRGB )
+		mode = 99;
+	double valx = GrayLevelToGrayProp( x, GetConfig()->m_bUseRoundDown != FALSE,
+									   GetConfig()->GetUse10bitLevels() != FALSE );
+	if ( mode >= 4 )
+	{
+		double L = getL_EOTF( valx, pM->GetOnOffWhite(), blackRef,
+							  GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,
+							  GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL,
+							  GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL, GetConfig()->m_useToneMap,
+							  FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS,
+							  GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1 );
+		// mode 5 (PQ) is the one EOTF that returns an ABSOLUTE level, in nits/100.
+		return ( mode == 5 ) ? ( gsWhiteY > 0.0 ? L * 100.0 / gsWhiteY : L ) : L;
+	}
+	double vx = ( valx + gammaOffset ) / ( 1.0 + gammaOffset );
+	double v  = pow( vx, GetConfig()->m_useMeasuredGamma ? GetConfig()->m_GammaAvg : GetConfig()->m_GammaRef );
+	if ( mode == 1 )   // black compensation target
+	{
+		double bY = blackRef.isValid() ? blackRef.GetY() : 0.0;
+		if ( gsWhiteY > 0.0 )
+			v = ( bY + v * ( gsWhiteY - bY ) ) / gsWhiteY;
+	}
+	return v;
+}
+
 void C3DColorView::BuildScene()
 {
 	m_points.clear();
@@ -396,6 +449,16 @@ void C3DColorView::BuildScene()
 	// Grayscale (+ near-black/white): reference chromaticity is the target white;
 	// the reference luminance and the YWhite passed to GetDeltaE follow the
 	// measures grid's m_dE_gray convention.
+	//
+	// Two DIFFERENT white normalisers are in play and must not be conflated:
+	// the MARKER ratio is relative to whiteY (the scene's diffuse white, since
+	// AppendMeasure scales markerTarget by whiteY to plot it), while the dE
+	// target is relative to gsWhiteY (the grid's gray white, so GetDeltaE sees
+	// exactly what GetItemText computes). They coincide in SDR and differ by
+	// ~2.4x in PQ-HDR.
+	const double gsWhiteY = GridGrayWhiteY( pMeasure );
+	const double markPerGrid = ( whiteY > 0.0 ) ? gsWhiteY / whiteY : 1.0;
+
 	n = pMeasure->GetGrayScaleSize();
 	double gammaOpt = 2.2, gammaOffset = 0.0;
 	if ( n > 0 && dEgray == 1 && gammaMode < 4 )
@@ -405,33 +468,23 @@ void C3DColorView::BuildScene()
 		CColor c = pMeasure->GetGray( i );
 		if ( !c.isValid() )
 			continue;
-		double measRatio = whiteY > 0.0 ? c[1] / whiteY : c[1];
+		double measRatio = whiteY   > 0.0 ? c[1] / whiteY   : c[1];   // marker: scene white
+		double deRatio   = gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1];   // dE: grid gray white
 		double markRatio = measRatio;         // default: chroma-only target
 		if ( dEgray == 1 )
 		{
 			// theoretical luminance from the target gamma / EOTF curve
-			double x    = pMeasure->GetGrayPercent( i, bRound, b10bit );
-			double valx = GrayLevelToGrayProp( x, bRound, b10bit );
-			if ( gammaMode >= 4 )
-			{
-				double L = getL_EOTF( valx, pMeasure->GetOnOffWhite(), pMeasure->GetOnOffBlack(),
-									  GetConfig()->m_GammaRel, GetConfig()->m_Split, gammaMode,
-									  GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL,
-									  GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL, GetConfig()->m_useToneMap,
-									  FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS,
-									  GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1 );
-				markRatio = ( gammaMode == 5 ) ? L / 100.0 : L;
-			}
-			else
-			{
-				double vx = ( valx + gammaOffset ) / ( 1.0 + gammaOffset );
-				markRatio = pow( vx, GetConfig()->m_useMeasuredGamma ? GetConfig()->m_GammaAvg : GetConfig()->m_GammaRef );
-			}
+			double gridRatio = GridGrayTargetRatio( pMeasure, pMeasure->GetGrayPercent( i, bRound, b10bit ),
+													pMeasure->GetOnOffBlack(), gsWhiteY, gammaOffset );
+			deRatio   = gridRatio;
+			markRatio = gridRatio * markPerGrid;
 		}
 		CColor dET, markT;
-		double ywForDE = whiteY;
+		double ywForDE = gsWhiteY;
 		if ( dEgray > 0 || GetConfig()->m_dE_form == 5 )
-			dET.SetxyYValue( wChroma[0], wChroma[1], ( dEgray == 2 || GetConfig()->m_dE_form == 5 ) ? measRatio : markRatio );
+			dET.SetxyYValue( wChroma[0], wChroma[1],
+							 ( dEgray == 2 || GetConfig()->m_dE_form == 5 ) ? ( gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1] )
+																			: deRatio );
 		else
 		{
 			dET.SetxyYValue( wChroma[0], wChroma[1], 1.0 );   // chroma-only: luminance cancels
@@ -443,7 +496,11 @@ void C3DColorView::BuildScene()
 		AppendMeasure( c, whiteY, ref, dET, markT, true, ywForDE, lbl, SRC_GRAY, i );
 	}
 
-	// Near-black / near-white: chroma-only grayscale targets at the measured level.
+	// Near-black / near-white. These follow the SAME m_dE_gray convention as the
+	// grayscale block above (UpdateGrid cases 3 and 4); they used to be hard-wired
+	// to the chroma-only "Relative Y" branch, which evaluates the chromaticity
+	// error as if the patch were full white and reported ~100x the grid's dE on
+	// the default "Absolute Y w/o gamma" setting.
 	for ( int nb = 0; nb < 2; nb++ )
 	{
 		n = nb ? pMeasure->GetNearWhiteScaleSize() : pMeasure->GetNearBlackScaleSize();
@@ -452,12 +509,35 @@ void C3DColorView::BuildScene()
 			CColor c = nb ? pMeasure->GetNearWhite( i ) : pMeasure->GetNearBlack( i );
 			if ( !c.isValid() )
 				continue;
+			double markRatio = whiteY > 0.0 ? c[1] / whiteY : c[1];
+			double deRatio   = gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1];
+			if ( dEgray == 1 )
+			{
+				// Same stimulus level and black reference the grid feeds the
+				// curve: near-black steps by 2 in PQ and anchors getL_EOTF on
+				// its own first patch; near-white counts back from the clip col.
+				double x = nb ? ArrayIndexToGrayLevel( (int)pMeasure->m_NearWhiteClipCol - n + i, 101, bRound, b10bit )
+							  : ArrayIndexToGrayLevel( i * ( gammaMode == 5 ? 2 : 1 ), 101, bRound, b10bit );
+				CColor blackRef = nb ? pMeasure->GetOnOffBlack() : pMeasure->GetNearBlack( 0 );
+				double gridRatio = GridGrayTargetRatio( pMeasure, x, blackRef, gsWhiteY, gammaOffset );
+				deRatio   = gridRatio;
+				markRatio = gridRatio * markPerGrid;
+			}
 			CColor dET, markT;
-			dET.SetxyYValue( wChroma[0], wChroma[1], 1.0 );
-			markT.SetxyYValue( wChroma[0], wChroma[1], whiteY > 0.0 ? c[1] / whiteY : c[1] );
+			double ywForDE = gsWhiteY;
+			if ( dEgray > 0 || GetConfig()->m_dE_form == 5 )
+				dET.SetxyYValue( wChroma[0], wChroma[1],
+								 ( dEgray == 2 || GetConfig()->m_dE_form == 5 ) ? ( gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1] )
+																				: deRatio );
+			else
+			{
+				dET.SetxyYValue( wChroma[0], wChroma[1], 1.0 );   // chroma-only: luminance cancels
+				ywForDE = c[1];
+			}
+			markT.SetxyYValue( wChroma[0], wChroma[1], markRatio );
 			wchar_t lbl[48];
 			swprintf( lbl, 48, nb ? L"Near white #%d" : L"Near black #%d", i + 1 );
-			AppendMeasure( c, whiteY, ref, dET, markT, true, c[1], lbl, nb ? SRC_NEARWHITE : SRC_NEARBLACK, i );
+			AppendMeasure( c, whiteY, ref, dET, markT, true, ywForDE, lbl, nb ? SRC_NEARWHITE : SRC_NEARBLACK, i );
 		}
 	}
 
@@ -1280,6 +1360,7 @@ void C3DColorView::Render(const CRect& rc)
 	{
 		BuildScene();
 		m_sceneDirty = false;
+		ResolvePendingSelection();   // BuildScene cleared m_selected and renumbered m_points
 	}
 
 	// Clear colour + depth: at fullscreen this touches ~2M pixels per buffer per
@@ -1635,35 +1716,57 @@ void C3DColorView::AppendNewFreeMeasures()
 	CMeasure * pMeasure = pDoc->GetMeasure();
 
 	CColorReference ref = GetColorReference();
-	double whiteY = 1.0;
-	CColor cw = pMeasure->GetPrimeWhite();
-	if ( !cw.isValid() || cw.GetY() <= 0.0 )
-		cw = pMeasure->GetOnOffWhite();
-	if ( cw.isValid() && cw.GetY() > 0.0 )
-		whiteY = cw.GetY();
+	// Same normaliser as the rest of the scene: the local prime/on-off-white
+	// fallback returned PEAK white in PQ-HDR, so free measures were plotted and
+	// scaled against a different white than every other point.
+	double whiteY = SceneDiffuseWhiteY( pMeasure );
+	const double gsWhiteY = GridGrayWhiteY( pMeasure );
+	const int    dEgray   = GetConfig()->m_dE_gray;
 
 	CColor wRef( ref.GetWhite() );
+	ColorxyY wc( wRef.GetxyYValue() );
 	int n = pMeasure->GetMeasurementsSize();
 	for ( int i = m_freeInScene; i < n; i++ )
 	{
 		CColor c = pMeasure->GetMeasurement( i );
 		if ( !c.isValid() )
 			continue;
-		CColor refC = noDataColor;
-		if ( c.GetDeltaxy( wRef, ref ) < kChromaMatch )
-			refC = wRef;
-		else
-		{
-			for ( int k = 0; k < 3 && !refC.isValid(); k++ )
-			{
-				if ( c.GetDeltaxy( pMeasure->GetRefPrimary( k ), ref ) < kChromaMatch )
-					refC = pMeasure->GetRefPrimary( k );
-				else if ( c.GetDeltaxy( pMeasure->GetRefSecondary( k ), ref ) < kChromaMatch )
-					refC = pMeasure->GetRefSecondary( k );
-			}
-		}
 		wchar_t lbl[48];
 		swprintf( lbl, 48, L"Measurement #%d", i + 1 );
+
+		if ( c.GetDeltaxy( wRef, ref ) < kChromaMatch )
+		{
+			// A near-neutral free measure is graded as a grayscale patch (the
+			// grid takes its "m_displayMode == 2 && isGS" branch), so it follows
+			// the m_dE_gray convention. It must NOT be compared against white at
+			// Y = 1.0: that reports dE ~= 100 - L* for anything dark.
+			// A free measure has no stimulus level, so there is no meaningful
+			// "w/ gamma" target -- the grid reads a stale x there. Both dE_gray
+			// 1 and 2 therefore use the perfect-gamma (measured Y) target.
+			CColor dET, markT;
+			double ywForDE = gsWhiteY;
+			if ( dEgray > 0 || GetConfig()->m_dE_form == 5 )
+				dET.SetxyYValue( wc[0], wc[1], gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1] );
+			else
+			{
+				dET.SetxyYValue( wc[0], wc[1], 1.0 );   // chroma-only: luminance cancels
+				ywForDE = c[1];
+			}
+			markT.SetxyYValue( wc[0], wc[1], whiteY > 0.0 ? c[1] / whiteY : c[1] );
+			AppendMeasure( c, whiteY, ref, dET, markT, true, ywForDE, lbl, SRC_FREE, i );
+			continue;
+		}
+
+		CColor refC = noDataColor;
+		for ( int k = 0; k < 3 && !refC.isValid(); k++ )
+		{
+			if ( c.GetDeltaxy( pMeasure->GetRefPrimary( k ), ref ) < kChromaMatch )
+				refC = pMeasure->GetRefPrimary( k );
+			else if ( c.GetDeltaxy( pMeasure->GetRefSecondary( k ), ref ) < kChromaMatch )
+				refC = pMeasure->GetRefSecondary( k );
+		}
+		// refC stays invalid when nothing matches: no recognisable target, so
+		// AppendMeasure gives the point no target and no dE at all.
 		AppendMeasure( c, whiteY, ref, refC, refC, false, whiteY, lbl, SRC_FREE, i );
 	}
 	m_freeInScene = n;
@@ -1730,23 +1833,86 @@ void C3DColorView::AppendNewProfileMeasures()
 	m_profileInScene = lastAppended;
 }
 
-void C3DColorView::SelectProfilePoint(int patchIdx)
+// Consume a pending selection request: find the point matching the requested
+// identity in the CURRENT scene, or clear the selection if it has no point.
+// One-shot by design -- see the m_reqType comment in the header.
+void C3DColorView::ResolvePendingSelection()
 {
-	m_showProfilePts = true;   // an explicit inspect un-hides the layer so the halo is visible
+	if ( m_reqType < 0 )
+		return;
+
+	// A point the user cannot click is a point the grid cannot halo either:
+	// same visibility rules as the hit test in OnLButtonUp, so a filtered-out
+	// point never gets a halo ring with no orb under it.
+	double deThr = -1.0;
+	if ( m_deFilter > 0 )
+	{
+		double good, warn;
+		GetConfig()->GetDEThresholds( good, warn );
+		deThr = ( m_deFilter == 1 ) ? good : warn;
+	}
+
+	m_selected = -1;
 	for ( size_t i = 0; i < m_points.size(); i++ )
 	{
-		if ( m_points[i].srcType == SRC_PROFILE && m_points[i].srcA == patchIdx )
-		{
-			m_selected = (int)i;
-			if ( ::IsWindow( m_hWnd ) )
-				Invalidate( FALSE );
-			return;
-		}
+		const ScenePoint & P = m_points[i];
+		if ( P.srcType != (BYTE)m_reqType || P.srcA != (short)m_reqA
+		  || P.srcB != (short)m_reqB || P.srcC != (short)m_reqC )
+			continue;
+		if ( !m_showProfilePts && P.srcType == SRC_PROFILE )
+			break;   // hidden layer
+		if ( deThr >= 0.0 && P.hasTarget && P.dE < deThr )
+			break;   // hidden by the dE filter
+		m_selected = (int)i;
+		break;
 	}
+	m_reqType = -1;   // consumed
+}
+
+// Halo the point matching a measurement's identity: the grid -> viewer half of
+// the selection sync, driven by CMainView::OnGrayScaleGridEndSelChange.
+// srcType < 0 clears. Resolving is deferred when the scene is stale, so a
+// selection made before the rebuild still lands at the next paint.
+void C3DColorView::SelectMeasurePoint(int srcType, int srcA, int srcB, int srcC)
+{
+	if ( srcType == SRC_PROFILE )
+		m_showProfilePts = true;   // an explicit inspect un-hides the layer so the halo is visible
+
+	if ( srcType < 0 )
+	{
+		m_selected = -1;           // an explicit clear needs no scene
+		m_reqType  = -1;
+	}
+	else
+	{
+		m_reqType = srcType;
+		m_reqA    = srcA;
+		m_reqB    = srcB;
+		m_reqC    = srcC;
+		// m_sceneDirty starts TRUE, so this alone means "the scene is current".
+		// Deliberately NOT also gated on m_points being non-empty: a request
+		// left pending against an up-to-date empty scene would sit there and
+		// fire at some later unrelated rebuild, haloing a measurement the user
+		// never picked. An up-to-date scene without the point means "no point".
+		if ( !m_sceneDirty )
+			ResolvePendingSelection();   // otherwise the pending rebuild consumes it
+	}
+	if ( ::IsWindow( m_hWnd ) )
+		Invalidate( FALSE );
+}
+
+void C3DColorView::SelectProfilePoint(int patchIdx)
+{
+	SelectMeasurePoint( SRC_PROFILE, patchIdx );
 }
 
 void C3DColorView::OnUpdate(CView* /*pSender*/, LPARAM lHint, CObject* /*pHint*/)
 {
+	if ( lHint == UPD_SELECTEDCOLOR )
+		return;   // selection-only hint: no measurement changed, so a rebuild here
+				  // would only throw away the halo the grid just asked for. (The
+				  // dE_gray toggles that also send it broadcast UPD_GRAYSCALE first,
+				  // so a real data change still dirties the scene.)
 	if ( lHint == UPD_FREEMEASUREAPPENDED && !m_sceneDirty && !m_points.empty() )
 	{
 		AppendNewFreeMeasures();
@@ -1871,6 +2037,7 @@ void C3DColorView::OnLButtonUp(UINT nFlags, CPoint point)
 					best     = (int)k;
 				}
 			}
+			m_reqType  = -1;     // a direct click supersedes any queued grid selection
 			m_selected = best;   // -1 (empty space) clears the selection
 			if ( best >= 0 )
 				PushSelectionToMainView( m_points[best] );

@@ -1139,16 +1139,28 @@ double CMeasure::ComputeProfileDE(const CColor & c, int i)
 		return -1.0;
 	ColorXYZ xyz = c.GetXYZValue();
 
-	// White reference, matching the measures grid: prime white normally, but a
-	// primaries run at <100% stimulus leaves prime white dimmer than the
-	// grayscale white -- the grid then uses on/off white (SDR only).
+	// White reference: the SHARED chain, not a copy of it. This used to re-derive
+	// prime-white-then-on/off-then-sub-90% by hand and, in doing so, had dropped
+	// the special-standard (HDTVa/HDTVb) branch that every other consumer of a
+	// profile patch applies - RGBLevelWnd gates it on `m_displayMode > 4`, which
+	// includes profile mode 13 (RGBLevelWnd.cpp ~220). The dE printed for a patch
+	// and the RGB-levels bars drawn beside it therefore normalised by DIFFERENT
+	// whites under those two standards.
+	//
+	// bCC = true because mode 13 shares the color-checker white chain: the
+	// sub-90%-stimulus fallback is gated on `m_displayMode == 11 || 13` in
+	// RGBLevelWnd, not on 11 alone.
+	//
+	// The call is guarded rather than unconditional because GetColorDEWhiteY ends
+	// in the grid's m_TargetMaxL fallback, which would pre-empt the profile-cube
+	// fallback below - the one thing this function must NOT inherit from the grid,
+	// since a standalone profile capture has no grayscale or primaries run at all.
 	CColor prime = GetPrimeWhite();
 	CColor onoff = GetOnOffWhite();
-	CColor w = ( prime.isValid() && prime.GetY() > 0.0 ) ? prime : onoff;
-	if ( onoff.isValid() && onoff.GetY() > 0.0 && prime.isValid() &&
-		 prime.GetY() / onoff.GetY() < 0.9 && GetConfig()->m_GammaOffsetType != 5 )
-		w = onoff;
-	double ywForDE = w.isValid() ? w.GetY() : 0.0;
+	bool bSpecial = ( GetConfig()->m_colorStandard == HDTVa || GetConfig()->m_colorStandard == HDTVb );
+	double ywForDE = 0.0;
+	if ( ( prime.isValid() && prime.GetY() > 0.0 ) || ( onoff.isValid() && onoff.GetY() > 0.0 ) )
+		ywForDE = GetColorDEWhiteY( bSpecial, true, false );
 
 	// Standalone capture (no grayscale/white measured): fall back to the measured
 	// white cube node (stimulus 100/100/100 = last grid patch) so dE still shows.
