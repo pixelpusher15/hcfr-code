@@ -423,6 +423,22 @@ agree), and the gaps below are mostly places their reach stops.
    changes user-visible numbers in exported PDFs/CSVs in exactly those corners,
    and nothing automated covers Export — so it wants doing deliberately rather
    than as a side effect.
+10. **Display-profile mode (13) is never run.** `CMeasure::ComputeProfileDE` is
+   the dE of record for every profile-cube patch — the summary pane, the 3D
+   viewer's profile points and the RGB-levels bars all read it — and the matrix
+   never calls it. That is not hypothetical: it had silently dropped the
+   special-standard (HDTVa/HDTVb) white branch that `RGBLevelWnd` applies to the
+   same patch (`m_displayMode > 4`), so the printed dE and the bars beside it
+   normalized by different whites. Found by review, not by this harness; fixed by
+   routing it through `GetColorDEWhiteY`.
+   Mode 13 is a *third* normalization, not a variant of the other two — it shares
+   the color-checker sub-90% fallback but replaces the grid's `m_TargetMaxL`
+   fallback with a profile-cube-node one, because a standalone capture has no
+   grayscale or primaries run — which is why `GetColorDENorm` asserts
+   `5..11` rather than pretending to answer for it. A profile family would need
+   `RunProfile` to drive a small cube (3³) through the simulated sensor and
+   compare `ComputeProfileDE` against the same pane emulation the `conv*`
+   families use.
 
 Reference result (2026-07-26): `834 combos: 333 pass, 0 FAIL, 501 known-fail`,
 ColorMathTest verify green with no golden movement. (Was `708 combos: 311 pass,

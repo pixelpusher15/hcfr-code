@@ -64,6 +64,17 @@ public:
 	// 1 = hide points below the "good" threshold, 2 = below "warn"
 	// (thresholds read live from the configured tolerance preset).
 	void SetDEFilter(int filter);
+
+	// Which CMeasure array a point came from (so a click can re-fetch the
+	// original CColor, spectrum included, and push it to the main view).
+	// Public because CMainView maps a selected grid column back to one of
+	// these to drive SelectMeasurePoint.
+	enum PointSource { SRC_GRAY = 0, SRC_NEARBLACK, SRC_NEARWHITE, SRC_PRIMARY,
+					   SRC_SECONDARY, SRC_SAT, SRC_CC24, SRC_FREE, SRC_PROFILE };
+
+	// Halo the point a measurement identity resolves to -- the grid -> viewer
+	// half of the selection sync. srcType < 0 (or no matching point) clears it.
+	void SelectMeasurePoint(int srcType, int srcA, int srcB = 0, int srcC = 0);
 	void SelectProfilePoint(int patchIdx);	// halo a profile patch (summary-pane click)
 
 protected:
@@ -72,11 +83,6 @@ protected:
 	virtual ~C3DColorView();
 
 	// ---- scene: measured points in model space (roughly a unit cube) ----
-	// Which CMeasure array a point came from (so a click can re-fetch the
-	// original CColor, spectrum included, and push it to the main view).
-	enum PointSource { SRC_GRAY = 0, SRC_NEARBLACK, SRC_NEARWHITE, SRC_PRIMARY,
-					   SRC_SECONDARY, SRC_SAT, SRC_CC24, SRC_FREE, SRC_PROFILE };
-
 	struct ScenePoint
 	{
 		float mx, my, mz;     // measured position
@@ -155,6 +161,15 @@ protected:
 	CPoint m_lastMouse;
 	CPoint m_downPos;             // to tell a click (select) from a drag (rotate)
 	int    m_selected;            // index into m_points, -1 = none
+	// One-shot pending selection: the IDENTITY of a point to halo, queued when
+	// an external selector (the measures grid) arrives while the scene is stale,
+	// and consumed by the next build. Deliberately NOT persistent state -- an
+	// identity kept across rebuilds re-attaches to whatever later occupies the
+	// same array index (measurements shift on delete, and the saturation level
+	// store renumbers on insert), haloing data the user never picked.
+	// m_reqType < 0 = nothing pending.
+	int    m_reqType, m_reqA, m_reqB, m_reqC;
+	void   ResolvePendingSelection();
 
 	// ---- backbuffer: a top-down 32-bit DIB section + its memory DC ----
 	HDC     m_memDC;

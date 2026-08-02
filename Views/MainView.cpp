@@ -3070,9 +3070,17 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						if (dE > dEmax)
                             dEmax = dE;
 						clr = GetConfig()->GetDEColor(dE, GetConfig()->m_darkTheme);
-                        if (GetConfig()->doHighlight)
-                            { m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
-						m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
+						// nCol is -1 for a free measure (see the else below), and the
+						// guard above admits mode 2/4 REGARDLESS of nCol - so without
+						// this all three calls addressed column -1. GridCtrl returns
+						// FALSE on the missing cell, so Release silently skipped the
+						// highlight; Debug tripped SetItemFont's ASSERT(pCell).
+						if ( nCol >= 1 )
+						{
+							if (GetConfig()->doHighlight)
+								{ m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
+							m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
+						}
 						dEcnt++;
 					}
 					else
@@ -3178,9 +3186,13 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					if (dE > dEmax)
                         dEmax = dE;
 					clr = GetConfig()->GetDEColor(dE, GetConfig()->m_darkTheme);
-                    if (GetConfig()->doHighlight)
-                        { m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
-					m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
+					// Same out-of-range guard as the grayscale branch above.
+					if ( nCol >= 1 )
+					{
+						if (GetConfig()->doHighlight)
+							{ m_pGrayScaleGrid->SetItemBkColour(4, nCol, clr); m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0)); }
+						m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
+					}
 					dEcnt++;
 				}
 			}
@@ -4135,7 +4147,14 @@ void CMainView::UpdateGrid()
 						clrSpecial1 = RGB(255,192,255);
 						clrSpecial2 = RGB(255,224,255);
 					 }
-					 
+					 else
+						refColor = noDataColor;	// no recognisable target: no dE. Without this
+												// the measure falls through to whatever refColor
+												// held -- reference white at Y=1.0 on the first
+												// column (a meaningless dE ~= 100 - L*), or the
+												// PREVIOUS column's primary after that, since
+												// refColor is declared outside the column loop.
+
 					 if ( pDataRef )
 						refDocColor = pDataRef->GetMeasure()->GetMeasurement(j);
 					 else
@@ -5631,6 +5650,86 @@ void CMainView::OnGrayScaleGridEndSelChange(NMHDR *pNotifyStruct,LRESULT* pResul
 	}
 	GetDocument()->UpdateAllViews(this, UPD_SELECTEDCOLOR);
 //	(CMDIFrameWnd *)AfxGetMainWnd()->SendMessage(WM_COMMAND,IDM_REFRESH_CONTROLS,NULL);	// refresh mainframe controls
+
+	// Grid -> 3D viewer half of the selection sync: map the selected column back
+	// to the scene point's source identity (the inverse of the mapping in
+	// C3DColorView::PushSelectionToMainView) and halo it in any live 3D view.
+	// A multi-column or row-header selection resolves to nothing and clears it.
+	// Nothing below runs without a 3D view: the saturation branch has to sync
+	// the stimulus-level store, which is not work a selection should be doing.
+	BOOL bHas3DView = FALSE;
+	POSITION posFind = GetDocument()->GetFirstViewPosition();
+	while ( posFind != NULL && !bHas3DView )
+	{
+		CView * pView = GetDocument()->GetNextView ( posFind );
+		bHas3DView = ( pView != NULL && pView->IsKindOf ( RUNTIME_CLASS ( C3DColorView ) ) );
+	}
+	if ( !bHas3DView )
+		return;
+
+	int srcType = -1, srcA = 0, srcB = 0, srcC = 0;
+	if ( maxCol == minCol && minCol >= 1 )
+	{
+		switch ( m_displayMode )
+		{
+			case 0:  srcType = C3DColorView::SRC_GRAY;      srcA = minCol - 1; break;
+
+			case 1:  if ( minCol < 4 )
+					 {
+						srcType = C3DColorView::SRC_PRIMARY;
+						srcA = minCol - 1;
+					 }
+					 else if ( minCol < 7 )
+					 {
+						srcType = C3DColorView::SRC_SECONDARY;
+						srcA = minCol - 4;
+					 }
+					 break;	// white (7) and black (8) have no scene point
+
+			case 2:  srcType = C3DColorView::SRC_FREE;      srcA = minCol - 1; break;
+
+			case 3:  srcType = C3DColorView::SRC_NEARBLACK; srcA = minCol - 1; break;
+
+			case 4:  srcType = C3DColorView::SRC_NEARWHITE; srcA = minCol - 1; break;
+
+			case 5: case 6: case 7: case 8: case 9: case 10:
+				 {
+					// The scene holds every measured stimulus level, so the
+					// identity also needs the store index of the bound one.
+					CMeasure * pSatMeasure = GetDocument()->GetMeasure();
+					int nLevels = pSatMeasure->GetSatLevelCount();
+					double activeLevel = pSatMeasure->GetActiveSatLevel();
+					srcType = C3DColorView::SRC_SAT;
+					srcA = minCol - 1;
+					srcB = m_displayMode - 5;	// 0=R 1=G 2=B 3=Y 4=C 5=M
+					srcC = -1;					// matches nothing if the bound level is absent
+					for ( int l = 0 ; l < nLevels ; l ++ )
+					{
+						// 1e-4 is the store's own notion of "same level"
+						// (FindSatLevelIndex); a tighter compare could miss.
+						if ( fabs ( pSatMeasure->GetSatLevelAt ( l ) - activeLevel ) < 1e-4 )
+						{
+							srcC = l;
+							break;
+						}
+					}
+				 }
+				 break;
+
+			case 11: srcType = C3DColorView::SRC_CC24;      srcA = minCol - 1; break;
+
+			// 12 (contrast) has no scene points; 13 (display profile) has no grid --
+			// there the profile pane's inspect drives the viewer (OnProfilePaneAction).
+		}
+	}
+
+	POSITION pos3D = GetDocument()->GetFirstViewPosition();
+	while ( pos3D != NULL )
+	{
+		CView * pView = GetDocument()->GetNextView ( pos3D );
+		if ( pView != NULL && pView->IsKindOf ( RUNTIME_CLASS ( C3DColorView ) ) )
+			( (C3DColorView *) pView )->SelectMeasurePoint ( srcType, srcA, srcB, srcC );
+	}
 }
 
 void CMainView::OnXyzRadio() 
@@ -7121,6 +7220,8 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 			clrSpecial1 = RGB(255,192,255);
 			clrSpecial2 = RGB(255,224,255);
 		}
+		else
+			refColor = noDataColor;	// no recognisable target: no dE (same as UpdateGrid case 2)
 
 		CColor refDocColor = noDataColor;
 
