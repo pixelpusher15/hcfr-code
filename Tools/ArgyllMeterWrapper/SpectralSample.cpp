@@ -30,6 +30,8 @@
 #include <stdexcept>
 #include <sstream>
 #include <iomanip>
+#include <fstream>
+#include <vector>
 
 //#define SALONEINSTLIB
 #define ENABLE_USB
@@ -545,6 +547,122 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 	}
 
 	return bRet;
+}
+
+
+bool SpectralSample::createFromColourSpaceCSV(const std::string& csvPath)
+{
+	const int BANDS = 401;
+	const int START_NM = 380;
+	const int END_NM = 780;
+
+	std::ifstream fh(csvPath.c_str(), std::ios::binary);
+	if (!fh.is_open())
+		throw std::logic_error("Cannot open ColourSpace correlation file");
+
+	// Parse every row into 401 spectral values.
+	std::vector< std::vector<double> > rows;
+	std::string line;
+	bool firstLine = true;
+	while (std::getline(fh, line))
+	{
+		if (firstLine && line.size() >= 3 &&
+			(unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF)
+			line.erase(0, 3);						// strip UTF-8 BOM
+		firstLine = false;
+
+		while (!line.empty() && (line[line.size()-1] == '\r' || line[line.size()-1] == '\n'))
+			line.erase(line.size()-1);
+		if (line.find_first_not_of(" \t,") == std::string::npos)
+			continue;								// blank / comma-only line
+
+		std::vector<double> vals;
+		std::stringstream ss(line);
+		std::string cell;
+		while (std::getline(ss, cell, ','))
+		{
+			size_t a = cell.find_first_not_of(" \t");
+			if (a == std::string::npos)
+				continue;							// empty field (e.g. trailing comma)
+			size_t b = cell.find_last_not_of(" \t");
+			vals.push_back(atof(cell.substr(a, b - a + 1).c_str()));
+		}
+		if ((int)vals.size() < BANDS)
+			vals.resize(BANDS, 0.0);				// zero-pad short rows
+		else if ((int)vals.size() > BANDS)
+			throw std::logic_error("ColourSpace correlation row has more than 401 values");
+		rows.push_back(vals);
+	}
+	fh.close();
+
+	// Global max, used both to drop empty rows and to normalize the set.
+	double gmax = 0.0;
+	for (size_t i = 0; i < rows.size(); ++i)
+		for (int j = 0; j < BANDS; ++j)
+			if (rows[i][j] > gmax) gmax = rows[i][j];
+	if (gmax <= 0.0)
+		throw std::logic_error("ColourSpace correlation file has no usable spectral data");
+
+	// Keep only rows with real signal (drops zero/near-zero padding rows).
+	double rowThresh = gmax * 1e-3;
+	std::vector<int> keep;
+	for (size_t i = 0; i < rows.size(); ++i)
+	{
+		double rmax = 0.0;
+		for (int j = 0; j < BANDS; ++j)
+			if (rows[i][j] > rmax) rmax = rows[i][j];
+		if (rmax > rowThresh) keep.push_back((int)i);
+	}
+	if ((int)keep.size() < 3)
+		throw std::logic_error("ColourSpace correlation file needs at least 3 non-empty spectra");
+
+	// Description from the file name (ColourSpace CSVs carry no metadata).
+	std::string display = csvPath;
+	size_t slash = display.find_last_of("/\\");
+	if (slash != std::string::npos) display = display.substr(slash + 1);
+	size_t dot = display.find_last_of('.');
+	if (dot != std::string::npos) display = display.substr(0, dot);
+	setTech("Unknown");
+	setDisplay(display.c_str());
+	setReferenceInstrument("ColourSpace correlation import");
+	setDescription(m_Tech.c_str(), m_Display.c_str());
+
+	int N = (int)keep.size();
+	xspect *samples = new xspect[N];
+	for (int k = 0; k < N; ++k)
+	{
+		const std::vector<double>& r = rows[keep[k]];
+		samples[k].spec_n = BANDS;
+		samples[k].spec_wl_short = START_NM;
+		samples[k].spec_wl_long = END_NM;
+		for (int j = 0; j < BANDS && j < XSPECT_MAX_BANDS; ++j)
+			samples[k].spec[j] = r[j] * 100.0 / gmax;	// normalize the set to a common max
+	}
+
+	bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR ColourSpace import", NULL,
+									(char *)m_Description.c_str(),
+									(char *)m_Display.c_str(),
+									x,
+									-1,
+									NULL,
+									(char *)m_RefInstrument.c_str(), NULL,
+									samples, N);
+	delete [] samples;
+
+	if (!bRet)
+	{
+		std::string errorMessage = "set_ccss failed with '";
+		errorMessage += m_ccss->e.m;
+		errorMessage += "'";
+		throw std::logic_error(errorMessage);
+	}
+	return bRet;
+}
+
+
+int SpectralSample::getNumSamples() const
+{
+    return m_ccss ? m_ccss->no_samp : 0;
 }
 
 

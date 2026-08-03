@@ -52,6 +52,8 @@ public:
     BOOL		m_HiRes;
     BOOL        m_Adapt;
     BOOL        m_DisableAIO;   // Disable Rev. B AIO measurement mode (i1d3 / ColorMunki Display)
+    CString     m_spectralCorrectionPath;   // canonical .ccss loaded onto the meter (empty = none)
+    CString     m_spectralCorrectionDesc;   // description shown in the UI
 private:
     ArgyllMeterWrapper* m_meter;
     SpectralSampleFiles *m_spectralSamples;
@@ -74,6 +76,16 @@ public:
     virtual LPCSTR GetStandardSubDir ()    { return "Etalon_Argyll"; }
 
     void Calibrate();
+
+    // Spectral correction (restores the 2012 ccss apply path, extended to .csv).
+    // Loads a .ccss or ColourSpace .csv onto the meter so Argyll applies a
+    // display-specific correction to every read. Forces the HCFR-side matrix to
+    // identity so the two correction regimes don't stack.
+    bool ApplySpectralCorrection(const CString& filePath);
+    virtual void ClearSpectralCorrection();
+    virtual BOOL HasSpectralCorrection() const { return !m_spectralCorrectionPath.IsEmpty(); }
+    CString GetSpectralCorrectionDesc() const { return m_spectralCorrectionDesc; }
+    bool MeterSupportsSpectralSamples();
 
     virtual void GetUniqueIdentifier( CString & strId );
     static bool isInDebugMode() {return m_debugMode;}

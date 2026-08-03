@@ -27,6 +27,7 @@
 #include "ColorHCFR.h"
 #include "ArgyllSensor.h"
 #include "SpectralSampleFiles.h"
+#include "SpectralSample.h"
 #include "../Generators/GDIGenerator.h"
 #include "../MainFrm.h"
 #include <math.h>
@@ -132,8 +133,10 @@ void CArgyllSensor::Copy(CSensor * p)
     m_HiRes = ((CArgyllSensor*)p)->m_HiRes;
     m_Adapt = ((CArgyllSensor*)p)->m_Adapt;
     m_DisableAIO = ((CArgyllSensor*)p)->m_DisableAIO;
+    m_spectralCorrectionPath = ((CArgyllSensor*)p)->m_spectralCorrectionPath;
+    m_spectralCorrectionDesc = ((CArgyllSensor*)p)->m_spectralCorrectionDesc;
 
- 
+
     if(m_meter >= 0)
     {
         m_meter = ((CArgyllSensor*)p)->m_meter;
@@ -152,7 +155,7 @@ void CArgyllSensor::Serialize(CArchive& archive)
 
     if (archive.IsStoring())
     {
-        int version=5;
+        int version=6;
         archive << version;
         archive << m_DisplayType;
         archive << m_ReadingType;
@@ -162,6 +165,8 @@ void CArgyllSensor::Serialize(CArchive& archive)
         archive << m_intTime;
         archive << m_Adapt;
         archive << m_DisableAIO;
+        archive << m_spectralCorrectionPath;
+        archive << m_spectralCorrectionDesc;
         if(m_meter)
         {
             archive << CString(m_meter->getMeterName().c_str());
@@ -171,7 +176,7 @@ void CArgyllSensor::Serialize(CArchive& archive)
     {
         int version;
         archive >> version;
-        if ( version > 5 )
+        if ( version > 6 )
             AfxThrowArchiveException ( CArchiveException::badSchema );
         archive >> m_DisplayType;
         archive >> m_ReadingType;
@@ -189,6 +194,14 @@ void CArgyllSensor::Serialize(CArchive& archive)
         }
         archive >> m_debugMode;
         archive >> m_HiRes;
+        if ( version > 5 )
+        {
+            // Written right after DisableAIO on store; the store/load field
+            // orders differ but stay byte-aligned (BOOL/UINT are both 4 bytes),
+            // so these two CStrings sit at the same stream position either way.
+            archive >> m_spectralCorrectionPath;
+            archive >> m_spectralCorrectionDesc;
+        }
 
         std::string errorMessage;
         ArgyllMeterWrapper::ArgyllMeterWrappers meters = ArgyllMeterWrapper::getDetectedMeters(errorMessage);
@@ -332,6 +345,30 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
         m_meter->setDisplayType(m_DisplayType);
     }
 
+    // Re-apply a loaded spectral (ccss/CSV) correction so it survives reconnects
+    // and restarts (restores the apply path dropped in 2014). Only meaningful for
+    // spectral-capable colorimeters; failures are swallowed so a stale/missing
+    // file never blocks startup.
+    if ( !m_spectralCorrectionPath.IsEmpty() )
+    {
+        try
+        {
+            if ( m_meter->doesMeterSupportSpectralSamples() )
+            {
+                SpectralSample ss;
+                CString ext = m_spectralCorrectionPath.Right(4); ext.MakeLower();
+                bool ok = ( ext == ".csv" )
+                    ? ss.createFromColourSpaceCSV((LPCSTR)m_spectralCorrectionPath)
+                    : ss.Read((LPCSTR)m_spectralCorrectionPath);
+                if ( ok )
+                    m_meter->loadSpectralSample(ss);
+            }
+        }
+        catch ( std::logic_error & )
+        {
+        }
+    }
+
     //Alert user if in ambient/lux mode
     if (bForSimultaneousMeasures)
     {
@@ -351,6 +388,71 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
 BOOL CArgyllSensor::Release()
 {
     return CSensor::Release();
+}
+
+bool CArgyllSensor::MeterSupportsSpectralSamples()
+{
+    if ( !m_meter )
+        return false;
+    try
+    {
+        return m_meter->doesMeterSupportSpectralSamples();
+    }
+    catch ( std::logic_error & )
+    {
+        return false;
+    }
+}
+
+bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
+{
+    if ( filePath.IsEmpty() )
+        return false;
+
+    SpectralSample ss;
+    try
+    {
+        CString ext = filePath.Right(4); ext.MakeLower();
+        bool ok = ( ext == ".csv" )
+            ? ss.createFromColourSpaceCSV((LPCSTR)filePath)
+            : ss.Read((LPCSTR)filePath);
+        if ( !ok )
+            throw std::logic_error("Could not read the selected spectral correction file.");
+
+        // Apply immediately if the meter is connected and capable.
+        if ( m_meter && m_meter->doesMeterSupportSpectralSamples() )
+            m_meter->loadSpectralSample(ss);
+    }
+    catch ( std::logic_error & e )
+    {
+        GetColorApp()->InMeasureMessageBox( e.what(), "Spectral correction", MB_OK+MB_ICONHAND );
+        return false;
+    }
+
+    m_spectralCorrectionPath = filePath;
+    m_spectralCorrectionDesc = ss.getDescription();
+
+    // The spectral correction is applied inside the Argyll driver, so make it the
+    // sole correction: force HCFR's own sensor matrix to identity (and drop any
+    // Bodner sub-gamut matrices) so the two regimes can't double-correct.
+    SetSensorMatrix(Matrix::IdentityMatrix(3));
+    SetSensorMatrixMod(Matrix::IdentityMatrix(3));
+    ClearBodnerMatrices();
+    SetCalibrationMethod(CALIB_HCFR_DEFAULT);
+    SetModifiedFlag(TRUE);
+    return true;
+}
+
+void CArgyllSensor::ClearSpectralCorrection()
+{
+    if ( m_meter )
+    {
+        try { m_meter->resetSpectralSample(); }
+        catch ( std::logic_error & ) {}
+    }
+    m_spectralCorrectionPath.Empty();
+    m_spectralCorrectionDesc.Empty();
+    SetModifiedFlag(TRUE);
 }
 
 CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int displaymode)

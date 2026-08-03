@@ -114,6 +114,13 @@ public:
 
 	virtual LPCSTR GetStandardSubDir ()	{ return ""; }
 
+	// Spectral (ccss/CSV) correction, applied inside the meter driver. Only
+	// Argyll spectral-capable colorimeters override these; the base is a no-op.
+	// Used to keep the spectral and HCFR-matrix correction regimes mutually
+	// exclusive (avoid double-correction).
+	virtual BOOL HasSpectralCorrection() const { return FALSE; }
+	virtual void ClearSpectralCorrection() {}
+
 	CTime GetCalibrationTime() { return CTime(m_calibrationTime); }
 	int IsCalibrated() 
 	{ 

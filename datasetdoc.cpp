@@ -1667,6 +1667,26 @@ void CDataSetDoc::OnCalibrationExisting()
 
 }
 
+// Auto-exclusive guard between the two colorimeter-correction regimes: a spectral
+// (ccss/CSV) correction is applied inside the Argyll driver, while the matrix
+// methods are applied by HCFR on top of every reading, so running both stacks
+// (double-correction). Before a matrix calibration, if the sensor has a spectral
+// correction active, offer to clear it. Returns false to abort the calibration.
+static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor)
+{
+	if ( pSensor == NULL || !pSensor->HasSpectralCorrection() )
+		return true;
+	int r = GetColorApp()->InMeasureMessageBox(
+		"This sensor uses a spectral (ccss/CSV) correction, applied inside the meter.\n"
+		"Calibrating with a matrix would stack on top of it (double-correction).\n\n"
+		"Clear the spectral correction and calibrate with a matrix instead?",
+		"Spectral correction active", MB_YESNO | MB_ICONQUESTION );
+	if ( r != IDYES )
+		return false;
+	pSensor->ClearSpectralCorrection();
+	return true;
+}
+
 void CDataSetDoc::OnCalibrationManual()
 {
 	int		i;
@@ -1674,6 +1694,9 @@ void CDataSetDoc::OnCalibrationManual()
 	BOOL	bEscape, bReturn;
 	CColor	measuredColor[4];
 	CString	strMsg, Title;
+
+	if ( !ConfirmClearSpectralForMatrixCal(m_pSensor) )
+		return;
 
 	if ( IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_RUN_MANUAL_CALIBRATION), "Manual Calibration", MB_YESNO | MB_ICONQUESTION ) )
 	{
@@ -2338,9 +2361,13 @@ void CDataSetDoc::OnCalibrationSpectralSample()
 	}
 }
 
-BOOL CDataSetDoc::ComputeAdjustmentMatrix() 
+BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 {
 	BOOL			bOk = FALSE;
+
+	if ( !ConfirmClearSpectralForMatrixCal(m_pSensor) )
+		return FALSE;
+
 	CDataSetDoc *	pDataRef = GetDataRef();
 	
 	ASSERT ( pDataRef && pDataRef != this && pDataRef -> m_measure.GetBluePrimary ().isValid() && m_measure.GetBluePrimary ().isValid());

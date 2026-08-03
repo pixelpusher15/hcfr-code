@@ -33,6 +33,13 @@
 static char THIS_FILE[] = __FILE__;
 #endif
 
+// Local control IDs for the programmatically-created spectral-correction row.
+// Kept out of resource.h (and the .rc templates) on purpose; values are well
+// clear of the dialog's template control ids (1266..1292).
+#define IDC_ARGYLL_SPECTRAL_BROWSE   1600
+#define IDC_ARGYLL_SPECTRAL_CLEAR    1601
+#define IDC_ARGYLL_SPECTRAL_STATUS   1602
+
 /////////////////////////////////////////////////////////////////////////////
 // CArgyllSensorPropPage property page
 
@@ -117,6 +124,8 @@ BEGIN_MESSAGE_MAP(CArgyllSensorPropPage, CPropertyPageWithHelp)
     //{{AFX_MSG_MAP(CArgyllSensorPropPage)
     ON_BN_CLICKED(IDC_ARGYLL_CALIBRATE, OnCalibrate)
     //}}AFX_MSG_MAP
+    ON_BN_CLICKED(IDC_ARGYLL_SPECTRAL_BROWSE, OnSpectralBrowse)
+    ON_BN_CLICKED(IDC_ARGYLL_SPECTRAL_CLEAR, OnSpectralClear)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -327,5 +336,73 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
     CWnd* pDbg = GetDlgItem(IDC_ARGYLL_SENSOR_DEBUG_CB);
     if (pDbg != NULL) { CPoint dp = M.at(LBLX + 1, 0); pDbg->MoveWindow(dp.x, calBottom + M.ht(4), M.w(220), M.ht(10)); }
 
+    // Spectral (ccss/CSV) correction row — created only for meters that support
+    // spectral samples (i1D3 etc.). Programmatic so no .rc template is needed.
+    if ( m_pSensor != NULL && m_pSensor->MeterSupportsSpectralSamples() )
+    {
+        int specTop = calBottom + M.ht(4) + M.ht(10) + M.ht(8);
+        CPoint lp = M.at(LBLX, specTop);
+        if ( !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
+            m_spectralStatus.Create("", WS_CHILD | WS_VISIBLE | SS_LEFT,
+                CRect(lp.x, lp.y, lp.x + M.w(280), lp.y + M.ht(18)), this, IDC_ARGYLL_SPECTRAL_STATUS);
+        m_spectralStatus.SetFont(GetFont());
+        m_spectralStatus.MoveWindow(lp.x, lp.y, M.w(280), M.ht(18));
+
+        int btnY = specTop + M.ht(20);
+        int bw = M.w(64), bh = M.ht(14), gap = M.w(6);
+        CPoint bp = M.at(LBLX, btnY);
+        if ( !::IsWindow(m_spectralBrowseBtn.GetSafeHwnd()) )
+            m_spectralBrowseBtn.Create("Browse...", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                CRect(bp.x, bp.y, bp.x + bw, bp.y + bh), this, IDC_ARGYLL_SPECTRAL_BROWSE);
+        m_spectralBrowseBtn.SetFont(GetFont());
+        m_spectralBrowseBtn.MoveWindow(bp.x, bp.y, bw, bh);
+
+        if ( !::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
+            m_spectralClearBtn.Create("Clear", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                CRect(bp.x + bw + gap, bp.y, bp.x + 2*bw + gap, bp.y + bh), this, IDC_ARGYLL_SPECTRAL_CLEAR);
+        m_spectralClearBtn.SetFont(GetFont());
+        m_spectralClearBtn.MoveWindow(bp.x + bw + gap, bp.y, bw, bh);
+
+        RefreshSpectralStatus();
+    }
+
     return bRet;
+}
+
+void CArgyllSensorPropPage::RefreshSpectralStatus()
+{
+    if ( m_pSensor == NULL || !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
+        return;
+    CString s;
+    if ( m_pSensor->HasSpectralCorrection() )
+    {
+        CString desc = m_pSensor->GetSpectralCorrectionDesc();
+        s = "Spectral correction: " + (desc.IsEmpty() ? CString("(loaded)") : desc);
+    }
+    else
+        s = "Spectral correction: None";
+    m_spectralStatus.SetWindowText(s);
+    if ( ::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
+        m_spectralClearBtn.EnableWindow(m_pSensor->HasSpectralCorrection());
+}
+
+void CArgyllSensorPropPage::OnSpectralBrowse()
+{
+    if ( m_pSensor == NULL )
+        return;
+    CFileDialog dlg(TRUE, "ccss", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST,
+        "Spectral correction (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|ColourSpace CSV (*.csv)|*.csv||");
+    if ( dlg.DoModal() == IDOK )
+    {
+        if ( m_pSensor->ApplySpectralCorrection(dlg.GetPathName()) )
+            RefreshSpectralStatus();
+    }
+}
+
+void CArgyllSensorPropPage::OnSpectralClear()
+{
+    if ( m_pSensor == NULL )
+        return;
+    m_pSensor->ClearSpectralCorrection();
+    RefreshSpectralStatus();
 }
