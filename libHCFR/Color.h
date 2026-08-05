@@ -771,16 +771,18 @@ extern void GenerateSaturationColors (const CColorReference& colorReference, Col
 extern bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit = false, bool is16_235 = true);
 extern int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, int cubeN, bool bGrayExtras);
 extern void RemapProfileToTransport (ColorRGBDisplay* GenColors, int n, const CColorReference& colorReference, int mode, bool b10bit, bool is16_235);
-extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries);
+extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries, bool bScaleLuminance = true);
 
 // User-selectable colorimeter correction methods. Shared between CColorHCFRConfig
 // (the user's chosen setting) and CSensor (which method actually produced the
 // matrices a given sensor is using), so keep values in sync between the two.
 enum CalibrationMatrixMethod
 {
-	CALIB_CLASSIC_NIST			= 0,	// simple inverse matrix, no luminance scaling
-	CALIB_HCFR_DEFAULT			= 1,	// current HCFR behaviour: adds luminance scaling
-	CALIB_BODNER_THREEMATRIX	= 2		// RGBW sub-gamut three-matrix method (Bodner & Robinson, SID 2019)
+	// Values are persisted (config + .chc) - never renumber; append new methods.
+	CALIB_CLASSIC_NIST			= 0,	// ASTM E1455-92 "RGB method": 3-primary tristimulus matrix, no white, no luminance scaling
+	CALIB_HCFR_DEFAULT			= 1,	// NIST Four-Color Method (FCMM, Ohno & Hardis 1997) + the paper's optional luminance scaling
+	CALIB_BODNER_THREEMATRIX	= 2,	// RGBW sub-gamut three-matrix method (Bodner & Robinson, SID 2019)
+	CALIB_FCMM_NO_LUM			= 3		// NIST Four-Color Method (FCMM), chromaticity only - no luminance scaling
 };
 
 // Builds the three Bodner sub-gamut matrices (index 0=rgw, 1=gbw, 2=rbw) from the

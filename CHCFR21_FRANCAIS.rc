@@ -3031,6 +3031,10 @@ END
 
 STRINGTABLE
 BEGIN
+    IDS_CALIB_RGB_MATRIX    "RGB matrix (ASTM E1455-92)"
+    IDS_CALIB_FCMM_NOLUM    "NIST Four-Color / FCMM (no luminance scaling)"
+    IDS_CALIB_FCMM_LUM      "NIST Four-Color / FCMM (with luminance scaling)"
+    IDS_CALIB_BODNER        "Bodner-Robinson three-matrix (RGBW displays)"
     IDR_MAINFRAME           "Colorimètre HCFR - 4.1.0.0"
     IDR_MESURETYPE          "\nRelevé\nRelevé\nFichiers ColorHCFR (*.chc)\n.chc\nCOLORHCFR\nRelevé de couleurs HCFR"
 END

@@ -3947,7 +3947,7 @@ ColorXYZ SelectAndApplyBodnerMatrix(const ColorXYZ& rawXYZ, const Matrix rawMatr
     return ColorXYZ(calMatrix[bestSubGamut] * rawXYZ);
 }
 
-Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries)
+Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries, bool bScaleLuminance)
 {
     if (!WhiteTest.isValid() || !WhiteRef.isValid() || bUseOnlyPrimaries)
     {
@@ -3988,15 +3988,22 @@ Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ refere
     // Compute component distribution for measured white
     Matrix M(measuresxyz * km);
 
-    // Compute transformation matrix
+    // Compute transformation matrix (this core is the NIST Four-Color Method /
+    // FCMM: pure chromaticity, independent of Y).
     Matrix transform(N * M.GetInverse());
 
-    // find out error adjustment in white value with this matrix
-    ColorXYZ testResult(transform * WhiteTest);
-    double errorAdjustment(WhiteRef[1] / testResult[1]);
+    // Optional luminance correction from the FCMM paper's conclusion: scale the
+    // matrix so the corrected white luminance matches the reference. Skipped for
+    // CALIB_FCMM_NO_LUM, which keeps the method strictly chromaticity-based.
+    if ( bScaleLuminance )
+    {
+        // find out error adjustment in white value with this matrix
+        ColorXYZ testResult(transform * WhiteTest);
+        double errorAdjustment(WhiteRef[1] / testResult[1]);
 
-    // and scale the matrix with this value
-    transform *= errorAdjustment;
+        // and scale the matrix with this value
+        transform *= errorAdjustment;
+    }
 
     return transform;
 }

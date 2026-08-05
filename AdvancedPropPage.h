@@ -61,6 +61,13 @@ public:
 	BOOL		doHighlight;
 	//}}AFX_DATA
 
+	// Programmatic dropdown that replaces the three calibration-method radios,
+	// so a fourth method can be offered without editing the localized dialog
+	// templates. Items load from the string table (IDS_CALIB_*); item data holds
+	// the CalibrationMatrixMethod enum value.
+	CComboBox	m_calibMethodCombo;
+	void SyncCalibMethodFromCombo();
+
 	virtual UINT GetHelpId ( LPSTR lpszTopic );
 
 // Overrides
@@ -70,6 +77,7 @@ public:
 	virtual BOOL OnApply();
 	virtual BOOL OnSetActive();
 	virtual BOOL OnInitDialog();
+	virtual BOOL OnKillActive();
 	protected:
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
 	//}}AFX_VIRTUAL
@@ -83,6 +91,7 @@ protected:
 	afx_msg void OnSelchangeDeTolerance();
 	//}}AFX_MSG
 	afx_msg void OnControlClicked(UINT nID);
+	afx_msg void OnSelchangeCalibMethod();
 	DECLARE_MESSAGE_MAP()
 
 };

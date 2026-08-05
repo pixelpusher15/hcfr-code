@@ -2037,7 +2037,9 @@ void CDataSetDoc::OnCalibrationManual()
             }
             else
             {
-                Matrix ConvMatrix = ComputeConversionMatrix (measures, references, white, whiteRef, calibrationMethod == CALIB_CLASSIC_NIST );
+                // NIST = RGB method (primaries only); HCFR = FCMM + luminance
+                // scaling; FCMM_NO_LUM = FCMM chromaticity-only.
+                Matrix ConvMatrix = ComputeConversionMatrix (measures, references, white, whiteRef, calibrationMethod == CALIB_CLASSIC_NIST, calibrationMethod != CALIB_FCMM_NO_LUM );
 
                 // check that matrix is inversible
                 if ( ConvMatrix.Determinant() != 0.0 )
@@ -2504,9 +2506,14 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
                                     m_measure.GetBluePrimary().GetRawXYZValue()
                                   };
 
+        // CALIB_CLASSIC_NIST = ASTM RGB method (3 primaries only, ignores white);
+        // CALIB_HCFR_DEFAULT = FCMM with the paper's luminance scaling;
+        // CALIB_FCMM_NO_LUM  = FCMM chromaticity-only (skip luminance scaling).
+        bool bUseOnlyPrimaries = ( calibrationMethod == CALIB_CLASSIC_NIST );
+        bool bScaleLum         = ( calibrationMethod != CALIB_FCMM_NO_LUM );
         Matrix ConvMatrix = haveRaw
-            ? ComputeConversionMatrix ( measuresRaw, references, whiteRaw, whiteRef, calibrationMethod == CALIB_CLASSIC_NIST )
-            : ComputeConversionMatrix ( measures,    references, white,    whiteRef, calibrationMethod == CALIB_CLASSIC_NIST );
+            ? ComputeConversionMatrix ( measuresRaw, references, whiteRaw, whiteRef, bUseOnlyPrimaries, bScaleLum )
+            : ComputeConversionMatrix ( measures,    references, white,    whiteRef, bUseOnlyPrimaries, bScaleLum );
 
         // check that matrix is inversible
         if ( ConvMatrix.Determinant() != 0.0 )
