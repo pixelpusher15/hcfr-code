@@ -1541,25 +1541,78 @@ void CDataSetDoc::OnUpdateExportXls(CCmdUI* pCmdUI)
 	pCmdUI->Enable(isEnabled);
 }
 
-void CDataSetDoc::OnExportXls() 
+// When the calibration method selected in Options no longer matches the one that
+// was actually applied to this document's measurements (i.e. the method was
+// switched in the dropdown but not recomputed via Create using Existing Reference
+// Measures), catch it here rather than silently exporting stale values. Returns
+// FALSE only when the user cancels; silent when nothing is stale.
+bool CDataSetDoc::ConfirmCalibrationMethodInSync()
+{
+	if ( m_pSensor == NULL )
+		return true;
+
+	int selected = GetConfig()->m_calibrationMethod;
+	int applied  = m_pSensor->GetCalibrationMethod();
+	if ( selected == applied )
+		return true;
+
+	// Only a genuinely-applied correction can be stale: a non-identity matrix
+	// (RGB/FCMM) or active Bodner-Robinson sub-gamut matrices.
+	bool bHasCorrection = ( m_pSensor->IsCalibrated() == 1 )
+	                   || ( applied == CALIB_BODNER_THREEMATRIX );
+	if ( !bHasCorrection )
+		return true;
+
+	int r = GetColorApp()->InMeasureMessageBox(
+		"The calibration method selected in Options differs from the one currently "
+		"applied to these measurements - they were not recomputed after the method "
+		"was changed.\n\n"
+		"Yes - recompute now from the reference measurements\n"
+		"No - keep the currently applied correction\n"
+		"Cancel - stop and do nothing",
+		"Calibration method", MB_YESNOCANCEL | MB_ICONQUESTION );
+
+	if ( r == IDCANCEL )
+		return false;
+	if ( r == IDYES )
+	{
+		CDataSetDoc * pRef = GetDataRef();
+		bool canRecompute = ( pRef != NULL && pRef != this
+		                   && m_measure.GetRedPrimary().isValid()
+		                   && pRef->m_measure.GetRedPrimary().isValid() );
+		if ( canRecompute )
+			ComputeAdjustmentMatrix();
+		else
+			GetColorApp()->InMeasureMessageBox(
+				"The correction cannot be recomputed: a reference document with "
+				"primary measurements must be selected first (Create using Existing "
+				"Reference Measures).", "Calibration method", MB_OK | MB_ICONINFORMATION );
+	}
+	return true;
+}
+
+void CDataSetDoc::OnExportXls()
 {
 	StopBackgroundMeasures ();
+	if ( !ConfirmCalibrationMethodInSync() ) return;
 
 	CExport exportVar(this,CExport::XLS);
 	exportVar.Save();
 }
 
-void CDataSetDoc::OnExportPdf() 
+void CDataSetDoc::OnExportPdf()
 {
 	StopBackgroundMeasures ();
+	if ( !ConfirmCalibrationMethodInSync() ) return;
 
 	CExport exportVar(this,CExport::PDF);
 	exportVar.Save();
 }
 
-void CDataSetDoc::OnExportCsv() 
+void CDataSetDoc::OnExportCsv()
 {
 	StopBackgroundMeasures ();
+	if ( !ConfirmCalibrationMethodInSync() ) return;
 
 	CExport exportVar(this,CExport::CSV);
 	exportVar.Save();

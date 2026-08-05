@@ -142,6 +142,7 @@ public:
 
 	void ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886);
 	BOOL ComputeAdjustmentMatrix();
+	bool ConfirmCalibrationMethodInSync();
 
 	void SetSelectedColor ( const CColor & clr )	{ m_SelectedColor = clr; }
 	void SetLastColor ( const CColor & clr )	{ m_LastColor = clr; }
