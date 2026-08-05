@@ -332,39 +332,47 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
     int calBottom = btnY + btnH + M.ht(6);
     if (pCal != NULL) { CPoint cp = M.at(5, 0); pCal->MoveWindow(cp.x, calTopPx, M.w(GRPW), calBottom - calTopPx); }
 
-    // Debug checkbox below the calibration group.
-    CWnd* pDbg = GetDlgItem(IDC_ARGYLL_SENSOR_DEBUG_CB);
-    if (pDbg != NULL) { CPoint dp = M.at(LBLX + 1, 0); pDbg->MoveWindow(dp.x, calBottom + M.ht(4), M.w(220), M.ht(10)); }
-
     // Spectral (ccss/CSV) correction row — created only for meters that support
     // spectral samples (i1D3 etc.). Programmatic so no .rc template is needed.
+    // Placed directly under the calibration group; the Debug checkbox follows it.
+    int rowBottom = calBottom;   // bottom of the last laid-out row
     if ( m_pSensor != NULL && m_pSensor->MeterSupportsSpectralSamples() )
     {
-        int specTop = calBottom + M.ht(4) + M.ht(10) + M.ht(8);
-        CPoint lp = M.at(LBLX, specTop);
+        // NOTE: the mapper M.at() takes design-unit coordinates. calBottom is
+        // already a raw screen Y (built from M.ht() offsets), so only the X is
+        // taken from the mapper; the Y values are used as raw screen pixels.
+        // Feeding calBottom back into M.at() would re-scale it and push the row
+        // far off the page.
+        int specX = M.at(LBLX, 0).x;
+        int specTop = calBottom + M.ht(1);   // just under the calibration group
         if ( !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
             m_spectralStatus.Create("", WS_CHILD | WS_VISIBLE | SS_LEFT,
-                CRect(lp.x, lp.y, lp.x + M.w(280), lp.y + M.ht(18)), this, IDC_ARGYLL_SPECTRAL_STATUS);
+                CRect(specX, specTop, specX + M.w(280), specTop + M.ht(11)), this, IDC_ARGYLL_SPECTRAL_STATUS);
         m_spectralStatus.SetFont(GetFont());
-        m_spectralStatus.MoveWindow(lp.x, lp.y, M.w(280), M.ht(18));
+        m_spectralStatus.MoveWindow(specX, specTop, M.w(280), M.ht(11));
 
-        int btnY = specTop + M.ht(20);
-        int bw = M.w(64), bh = M.ht(14), gap = M.w(6);
-        CPoint bp = M.at(LBLX, btnY);
+        int btnY = specTop + M.ht(11);
+        int bw = M.w(64), bh = M.ht(12), gap = M.w(6);
         if ( !::IsWindow(m_spectralBrowseBtn.GetSafeHwnd()) )
             m_spectralBrowseBtn.Create("Browse...", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-                CRect(bp.x, bp.y, bp.x + bw, bp.y + bh), this, IDC_ARGYLL_SPECTRAL_BROWSE);
+                CRect(specX, btnY, specX + bw, btnY + bh), this, IDC_ARGYLL_SPECTRAL_BROWSE);
         m_spectralBrowseBtn.SetFont(GetFont());
-        m_spectralBrowseBtn.MoveWindow(bp.x, bp.y, bw, bh);
+        m_spectralBrowseBtn.MoveWindow(specX, btnY, bw, bh);
 
         if ( !::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
             m_spectralClearBtn.Create("Clear", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-                CRect(bp.x + bw + gap, bp.y, bp.x + 2*bw + gap, bp.y + bh), this, IDC_ARGYLL_SPECTRAL_CLEAR);
+                CRect(specX + bw + gap, btnY, specX + 2*bw + gap, btnY + bh), this, IDC_ARGYLL_SPECTRAL_CLEAR);
         m_spectralClearBtn.SetFont(GetFont());
-        m_spectralClearBtn.MoveWindow(bp.x + bw + gap, bp.y, bw, bh);
+        m_spectralClearBtn.MoveWindow(specX + bw + gap, btnY, bw, bh);
 
         RefreshSpectralStatus();
+        rowBottom = btnY + bh;
     }
+
+    // Debug checkbox at the bottom — below the spectral row when present, else
+    // directly under the calibration group.
+    CWnd* pDbg = GetDlgItem(IDC_ARGYLL_SENSOR_DEBUG_CB);
+    if (pDbg != NULL) { CPoint dp = M.at(LBLX + 1, 0); pDbg->MoveWindow(dp.x, rowBottom + M.ht(2), M.w(220), M.ht(10)); }
 
     return bRet;
 }

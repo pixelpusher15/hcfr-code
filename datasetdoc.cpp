@@ -584,7 +584,7 @@ BEGIN_MESSAGE_MAP(CDataSetDoc, CDocument)
 	ON_UPDATE_COMMAND_UI(IDM_LOAD_CALIBRATION_FILE, OnUpdateLoadCalibrationFile)
 	ON_UPDATE_COMMAND_UI(IDM_MANUALLY_EDIT_SENSOR, OnUpdateLoadCalibrationFile)
 	ON_UPDATE_COMMAND_UI(IDM_CALIBRATION_MANUAL, OnUpdateLoadCalibrationFile)
-	ON_UPDATE_COMMAND_UI(IDM_CALIBRATION_EXISTING, OnUpdateLoadCalibrationFile)
+	ON_UPDATE_COMMAND_UI(IDM_CALIBRATION_EXISTING, OnUpdateCalibrationExisting)
 	ON_UPDATE_COMMAND_UI(IDM_CALIBRATION_SIM, OnUpdateLoadCalibrationFile)
 	ON_UPDATE_COMMAND_UI(IDM_CALIBRATION_SPECTRAL, OnUpdateLoadCalibrationFile)
 	//}}AFX_MSG_MAP
@@ -2394,17 +2394,55 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
     Matrix oldMatrix = m_pSensor->GetSensorMatrix();
     int calibrationMethod = GetConfig () -> m_calibrationMethod;
 
+    // Select a white that is genuinely MEASURED on the test side (carries a raw
+    // reading) for the raw-based recompute. A primaries-only run can leave Prime
+    // white as an unmeasured reference (valid XYZ but no raw); the grayscale run's
+    // On/Off white is the measured one. Prefer whichever white has raw and take
+    // the reference white from the SAME source so test and reference whites
+    // correspond. Falls back to the existing Prime-preferred whiteRef when no
+    // measured raw white exists (legacy data), leaving old behaviour unchanged.
+    ColorXYZ whiteRaw = white;   // valid default; only used when whiteHasRaw
+    bool whiteHasRaw = true;
+    if ( m_measure.GetPrimeWhite().HasRawXYZValue() )
+    {
+        whiteRaw = m_measure.GetPrimeWhite().GetRawXYZValue();
+        if ( pDataRef->m_measure.GetPrimeWhite().GetXYZValue().isValid() )
+            whiteRef = pDataRef->m_measure.GetPrimeWhite().GetXYZValue();
+    }
+    else if ( m_measure.GetOnOffWhite().HasRawXYZValue() )
+    {
+        whiteRaw = m_measure.GetOnOffWhite().GetRawXYZValue();
+        if ( pDataRef->m_measure.GetOnOffWhite().GetXYZValue().isValid() )
+            whiteRef = pDataRef->m_measure.GetOnOffWhite().GetXYZValue();
+    }
+    else
+    {
+        whiteHasRaw = false;
+    }
+
+    bool primHaveRaw = m_measure.GetRedPrimary().HasRawXYZValue()
+                    && m_measure.GetGreenPrimary().HasRawXYZValue()
+                    && m_measure.GetBluePrimary().HasRawXYZValue();
+
     if ( calibrationMethod == CALIB_BODNER_THREEMATRIX )
     {
         // Sub-gamut selection at measurement time (CSensor::MeasureColor) runs on
         // the sensor's genuinely raw reading, so "measures" here must be raw too
         // (not the already-corrected XYZ that measures[]/white above hold).
         // referencesRGBW (the reference document's own readings) is unaffected.
+        // Bodner needs a measured raw white; bail out cleanly if none exists
+        // rather than feeding a raw-less placeholder white into the solve.
+        if ( !primHaveRaw || !whiteHasRaw )
+        {
+            GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+        }
+        else
+        {
         ColorXYZ measuresRGBW[4] = {
                                         m_measure.GetRedPrimary().GetRawXYZValue(),
                                         m_measure.GetGreenPrimary().GetRawXYZValue(),
                                         m_measure.GetBluePrimary().GetRawXYZValue(),
-                                        m_measure.GetPrimeWhite().isValid() ? m_measure.GetPrimeWhite().GetRawXYZValue() : m_measure.GetOnOffWhite().GetRawXYZValue()
+                                        whiteRaw
                                     };
         ColorXYZ referencesRGBW[4] = { references[0], references[1], references[2], whiteRef };
 
@@ -2430,16 +2468,39 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
         {
             GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
         }
+        }
     }
     else
     {
-        Matrix ConvMatrix = ComputeConversionMatrix (measures, references, white, whiteRef, calibrationMethod == CALIB_CLASSIC_NIST );
+        // Compute the correction from the genuinely raw sensor readings so that
+        // re-running (e.g. switching Classic NIST <-> HCFR default, or rebuilding
+        // an already-calibrated sensor) REPLACES the correction rather than
+        // compounding a residual onto whatever matrix is currently applied. This
+        // matches the Bodner branch above and is what makes retained-raw method
+        // switching actually work. Legacy measures that predate raw retention have
+        // no raw value; fall back to the original corrected-measures + incremental
+        // compose so their behaviour is unchanged. Classic NIST uses only the three
+        // primaries (white is ignored), so it needs raw primaries but not raw white.
+        bool haveRaw = primHaveRaw
+                    && ( whiteHasRaw || calibrationMethod == CALIB_CLASSIC_NIST );
+
+        ColorXYZ measuresRaw[3] = {
+                                    m_measure.GetRedPrimary().GetRawXYZValue(),
+                                    m_measure.GetGreenPrimary().GetRawXYZValue(),
+                                    m_measure.GetBluePrimary().GetRawXYZValue()
+                                  };
+
+        Matrix ConvMatrix = haveRaw
+            ? ComputeConversionMatrix ( measuresRaw, references, whiteRaw, whiteRef, calibrationMethod == CALIB_CLASSIC_NIST )
+            : ComputeConversionMatrix ( measures,    references, white,    whiteRef, calibrationMethod == CALIB_CLASSIC_NIST );
 
         // check that matrix is inversible
         if ( ConvMatrix.Determinant() != 0.0 )
         {
-            // Ok: set adjustment matrix
-            Matrix newMatrix = ConvMatrix * oldMatrix;
+            // With raw available the correction is absolute (maps raw -> reference),
+            // so it replaces the sensor matrix; ReapplyAdjustmentMatrix applies
+            // fullMatrix * raw. Without raw, keep the incremental compose.
+            Matrix newMatrix = haveRaw ? ConvMatrix : ( ConvMatrix * oldMatrix );
             m_measure.ApplySensorAdjustmentMatrix( ConvMatrix, newMatrix );
             m_pSensor->SetSensorMatrix(newMatrix);
             m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
@@ -5211,9 +5272,25 @@ void CDataSetDoc::OnLoadCalibrationFile()
 }
 
 
-void CDataSetDoc::OnUpdateLoadCalibrationFile(CCmdUI* pCmdUI) 
+void CDataSetDoc::OnUpdateLoadCalibrationFile(CCmdUI* pCmdUI)
 {
 	pCmdUI -> Enable ( m_pSensor -> IsCalibrated () != 1 );
+}
+
+void CDataSetDoc::OnUpdateCalibrationExisting(CCmdUI* pCmdUI)
+{
+	// "Create using Existing Reference Measures" may be re-run to switch the
+	// calibration method (Classic NIST / HCFR default / Bodner) because the
+	// correction is now recomputed from the retained raw readings and replaces
+	// the sensor matrix. Allow it whenever a distinct reference document exists
+	// and either the sensor is not yet calibrated OR the primaries carry raw
+	// (so the recompute is clean, not a compounding double-correction on legacy
+	// measures).
+	CDataSetDoc * pDataRef = GetDataRef();
+	BOOL bHaveRef = ( pDataRef != NULL && pDataRef != this );
+	BOOL bCleanRecompute = ( m_pSensor->IsCalibrated() != 1 )
+	                    || m_measure.GetRedPrimary().HasRawXYZValue();
+	pCmdUI -> Enable ( bHaveRef && bCleanRecompute );
 }
 
 void CDataSetDoc::OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI) 

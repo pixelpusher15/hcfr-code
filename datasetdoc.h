@@ -307,6 +307,7 @@ protected:
 	afx_msg void OnLoadCalibrationFile();
 	afx_msg void OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateLoadCalibrationFile(CCmdUI* pCmdUI);
+	afx_msg void OnUpdateCalibrationExisting(CCmdUI* pCmdUI);
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

@@ -32,6 +32,7 @@
 #include <iomanip>
 #include <fstream>
 #include <vector>
+#include <cctype>
 
 //#define SALONEINSTLIB
 #define ENABLE_USB
@@ -616,25 +617,46 @@ bool SpectralSample::createFromColourSpaceCSV(const std::string& csvPath)
 	if ((int)keep.size() < 3)
 		throw std::logic_error("ColourSpace correlation file needs at least 3 non-empty spectra");
 
-	// Description from the file name (ColourSpace CSVs carry no metadata).
+	// Description from the file name (ColourSpace CSVs carry no metadata). The
+	// panel technology is usually spelled out in the file name, so derive it
+	// from there rather than leaving it "Unknown".
 	std::string display = csvPath;
 	size_t slash = display.find_last_of("/\\");
 	if (slash != std::string::npos) display = display.substr(slash + 1);
 	size_t dot = display.find_last_of('.');
 	if (dot != std::string::npos) display = display.substr(0, dot);
-	setTech("Unknown");
+
+	std::string lower = display;
+	for (size_t i = 0; i < lower.size(); ++i) lower[i] = (char)tolower((unsigned char)lower[i]);
+	const char* tech = "Unknown";
+	if      (lower.find("qd-oled") != std::string::npos || lower.find("qd oled") != std::string::npos) tech = "QD OLED";
+	else if (lower.find("wrgb") != std::string::npos || lower.find("woled") != std::string::npos)      tech = "WOLED";
+	else if (lower.find("oled") != std::string::npos)                                                  tech = "OLED";
+	else if (lower.find("mini-led") != std::string::npos || lower.find("miniled") != std::string::npos) tech = "LCD Mini-LED";
+	else if (lower.find("w-led") != std::string::npos || lower.find("wled") != std::string::npos)       tech = "LCD White LED";
+	else if (lower.find("ccfl") != std::string::npos)                                                   tech = "LCD CCFL";
+	else if (lower.find("laser") != std::string::npos)                                                  tech = "DLP Laser";
+	else if (lower.find("crt") != std::string::npos)                                                    tech = "CRT";
+	else if (lower.find("led") != std::string::npos)                                                    tech = "LCD LED";
+
+	setTech(tech);
 	setDisplay(display.c_str());
 	setReferenceInstrument("ColourSpace correlation import");
 	setDescription(m_Tech.c_str(), m_Display.c_str());
 
 	int N = (int)keep.size();
-	xspect *samples = new xspect[N];
+	xspect *samples = new xspect[N]();		// value-init: zero all fields (incl. norm)
 	for (int k = 0; k < N; ++k)
 	{
 		const std::vector<double>& r = rows[keep[k]];
 		samples[k].spec_n = BANDS;
 		samples[k].spec_wl_short = START_NM;
 		samples[k].spec_wl_long = END_NM;
+		samples[k].norm = 100.0;			// spec[] below is on a 0..100 scale; Argyll
+											// divides by norm when integrating the spectrum.
+											// Leaving it uninitialized yields a degenerate
+											// sensor-RGB matrix and a spurious "too few
+											// calibration samples" error on col_cal_spec_set.
 		for (int j = 0; j < BANDS && j < XSPECT_MAX_BANDS; ++j)
 			samples[k].spec[j] = r[j] * 100.0 / gmax;	// normalize the set to a common max
 	}

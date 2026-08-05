@@ -430,7 +430,9 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     }
 
     m_spectralCorrectionPath = filePath;
-    m_spectralCorrectionDesc = ss.getDescription();
+    // Show just the panel name in the UI (the derived tech still goes into the
+    // ccss metadata); getDescription() would nest the tech in parentheses.
+    m_spectralCorrectionDesc = ss.getDisplay();
 
     // The spectral correction is applied inside the Argyll driver, so make it the
     // sole correction: force HCFR's own sensor matrix to identity (and drop any
