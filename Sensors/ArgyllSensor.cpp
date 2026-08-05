@@ -183,24 +183,27 @@ void CArgyllSensor::Serialize(CArchive& archive)
         archive >> m_DisplayType;
         archive >> m_ReadingType;
         archive >> m_SpectralType;
-        if ( version > 3)
-            archive >> m_Adapt;
-        if ( version > 4)
-            archive >> m_DisableAIO;
-        if ( version > 2)
-            archive >> m_intTime;
         if(version == 1)
         {
             UINT dummy;
             archive >> dummy;
         }
+        // Read in the SAME order the store writes: debugMode, HiRes, intTime,
+        // Adapt, DisableAIO. The historical load read these in a different order
+        // than the store (Adapt/DisableAIO/intTime before debugMode/HiRes), which
+        // silently swapped the flag values on every reload. The store order has
+        // only ever grown by appending (intTime@v3, Adapt@v4, DisableAIO@v5), so
+        // this reads every version's stream correctly.
         archive >> m_debugMode;
         archive >> m_HiRes;
+        if ( version > 2)
+            archive >> m_intTime;
+        if ( version > 3)
+            archive >> m_Adapt;
+        if ( version > 4)
+            archive >> m_DisableAIO;
         if ( version > 5 )
         {
-            // Written right after DisableAIO on store; the store/load field
-            // orders differ but stay byte-aligned (BOOL/UINT are both 4 bytes),
-            // so these two CStrings sit at the same stream position either way.
             archive >> m_spectralCorrectionPath;
             archive >> m_spectralCorrectionDesc;
         }

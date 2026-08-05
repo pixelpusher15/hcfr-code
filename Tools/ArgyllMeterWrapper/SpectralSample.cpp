@@ -577,16 +577,28 @@ bool SpectralSample::createFromColourSpaceCSV(const std::string& csvPath)
 		if (line.find_first_not_of(" \t,") == std::string::npos)
 			continue;								// blank / comma-only line
 
-		std::vector<double> vals;
+		std::vector<std::string> cells;
 		std::stringstream ss(line);
 		std::string cell;
 		while (std::getline(ss, cell, ','))
+			cells.push_back(cell);
+		// Drop trailing empty cells (trailing comma / padding), but keep interior
+		// empties: skipping an interior empty would shift every following value to
+		// the wrong wavelength band.
+		while (!cells.empty() && cells.back().find_first_not_of(" \t") == std::string::npos)
+			cells.pop_back();
+
+		std::vector<double> vals;
+		for (size_t k = 0; k < cells.size(); ++k)
 		{
-			size_t a = cell.find_first_not_of(" \t");
+			size_t a = cells[k].find_first_not_of(" \t");
 			if (a == std::string::npos)
-				continue;							// empty field (e.g. trailing comma)
-			size_t b = cell.find_last_not_of(" \t");
-			vals.push_back(atof(cell.substr(a, b - a + 1).c_str()));
+			{
+				vals.push_back(0.0);				// interior empty field -> 0, preserve alignment
+				continue;
+			}
+			size_t b = cells[k].find_last_not_of(" \t");
+			vals.push_back(atof(cells[k].substr(a, b - a + 1).c_str()));
 		}
 		if ((int)vals.size() < BANDS)
 			vals.resize(BANDS, 0.0);				// zero-pad short rows

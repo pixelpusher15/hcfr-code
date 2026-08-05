@@ -1577,9 +1577,15 @@ bool CDataSetDoc::ConfirmCalibrationMethodInSync()
 	if ( r == IDYES )
 	{
 		CDataSetDoc * pRef = GetDataRef();
+		// ComputeAdjustmentMatrix uses (and asserts) all three primaries on both
+		// documents, so require all three here rather than red alone.
 		bool canRecompute = ( pRef != NULL && pRef != this
 		                   && m_measure.GetRedPrimary().isValid()
-		                   && pRef->m_measure.GetRedPrimary().isValid() );
+		                   && m_measure.GetGreenPrimary().isValid()
+		                   && m_measure.GetBluePrimary().isValid()
+		                   && pRef->m_measure.GetRedPrimary().isValid()
+		                   && pRef->m_measure.GetGreenPrimary().isValid()
+		                   && pRef->m_measure.GetBluePrimary().isValid() );
 		if ( canRecompute )
 			ComputeAdjustmentMatrix();
 		else
