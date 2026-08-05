@@ -120,6 +120,9 @@ public:
 	// exclusive (avoid double-correction).
 	virtual BOOL HasSpectralCorrection() const { return FALSE; }
 	virtual void ClearSpectralCorrection() {}
+	// Read-and-reset: TRUE when the last spectral-correction apply asked to LEAVE
+	// existing measurements as-is (mixed) rather than strip them back to raw.
+	virtual BOOL TakePendingSpectralLeaveMeasures() { return FALSE; }
 
 	CTime GetCalibrationTime() { return CTime(m_calibrationTime); }
 	int IsCalibrated() 

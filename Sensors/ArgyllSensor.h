@@ -54,6 +54,7 @@ public:
     BOOL        m_DisableAIO;   // Disable Rev. B AIO measurement mode (i1d3 / ColorMunki Display)
     CString     m_spectralCorrectionPath;   // canonical .ccss loaded onto the meter (empty = none)
     CString     m_spectralCorrectionDesc;   // description shown in the UI
+    BOOL        m_spectralApplyLeaveMeasures; // transient: last apply asked to leave measures mixed (not strip to raw)
 private:
     ArgyllMeterWrapper* m_meter;
     SpectralSampleFiles *m_spectralSamples;
@@ -83,6 +84,7 @@ public:
     // identity so the two correction regimes don't stack.
     bool ApplySpectralCorrection(const CString& filePath);
     virtual void ClearSpectralCorrection();
+    virtual BOOL TakePendingSpectralLeaveMeasures();
     virtual BOOL HasSpectralCorrection() const { return !m_spectralCorrectionPath.IsEmpty(); }
     CString GetSpectralCorrectionDesc() const { return m_spectralCorrectionDesc; }
     bool MeterSupportsSpectralSamples();

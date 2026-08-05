@@ -57,6 +57,7 @@ CArgyllSensor::CArgyllSensor() :
     m_Adapt(0),
     m_DisableAIO(0)
 {
+    m_spectralApplyLeaveMeasures = FALSE;
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
     m_pDevicePage = & m_ArgyllSensorPropertiesPage;  // Add Argyll settings page to property sheet
@@ -92,6 +93,7 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
 
     m_Adapt = GetConfig()->GetProfileInt(meterName.c_str(), "Adapt", 0);
     m_DisableAIO = GetConfig()->GetProfileInt(meterName.c_str(), "DisableAIO", 0);
+    m_spectralApplyLeaveMeasures = FALSE;
 
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
@@ -409,6 +411,7 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     if ( filePath.IsEmpty() )
         return false;
 
+    // Read (and validate) the file first, so we don't prompt then fail.
     SpectralSample ss;
     try
     {
@@ -418,8 +421,39 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
             : ss.Read((LPCSTR)filePath);
         if ( !ok )
             throw std::logic_error("Could not read the selected spectral correction file.");
+    }
+    catch ( std::logic_error & e )
+    {
+        GetColorApp()->InMeasureMessageBox( e.what(), "Spectral correction", MB_OK+MB_ICONHAND );
+        return false;
+    }
 
-        // Apply immediately if the meter is connected and capable.
+    // Confirm before discarding an active matrix calibration. Existing
+    // measurements were taken through that matrix; let the user strip them back
+    // to raw or keep them as-is (mixed with the new spectral-corrected reads).
+    // Cancel aborts the apply entirely (so it really is "before applying").
+    m_spectralApplyLeaveMeasures = FALSE;
+    bool hasMatrixCal = !GetSensorMatrix().IsIdentity()
+                     || GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX;
+    if ( hasMatrixCal )
+    {
+        int r = GetColorApp()->InMeasureMessageBox(
+            "This sensor has a matrix calibration. Applying a spectral correction "
+            "will make it the sole correction for new readings.\n\n"
+            "Existing measurements were taken with the matrix calibration - strip "
+            "them back to raw (uncorrected) sensor values?\n\n"
+            "Yes - strip existing measurements to raw\n"
+            "No - leave them as they are (mixed with new spectral readings)\n"
+            "Cancel - do not apply the spectral correction",
+            "Spectral correction", MB_YESNOCANCEL | MB_ICONQUESTION );
+        if ( r == IDCANCEL )
+            return false;
+        m_spectralApplyLeaveMeasures = ( r == IDNO );
+    }
+
+    // Load onto the meter (Argyll driver) if connected and capable.
+    try
+    {
         if ( m_meter && m_meter->doesMeterSupportSpectralSamples() )
             m_meter->loadSpectralSample(ss);
     }
@@ -455,6 +489,13 @@ void CArgyllSensor::ClearSpectralCorrection()
     m_spectralCorrectionPath.Empty();
     m_spectralCorrectionDesc.Empty();
     SetModifiedFlag(TRUE);
+}
+
+BOOL CArgyllSensor::TakePendingSpectralLeaveMeasures()
+{
+    BOOL leave = m_spectralApplyLeaveMeasures;
+    m_spectralApplyLeaveMeasures = FALSE;
+    return leave;
 }
 
 CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int displaymode)

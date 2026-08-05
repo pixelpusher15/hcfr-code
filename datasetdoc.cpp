@@ -1389,15 +1389,29 @@ void CDataSetDoc::OnConfigureSensor()
 	StopBackgroundMeasures ();
     m_pSensor->SetSensorMatrixMod( m_pSensor->GetSensorMatrix() );
 	m_pSensor->Configure();
+	// A spectral-correction apply may have asked to LEAVE existing measurements
+	// as-is (mixed) instead of stripping them to raw (read-and-reset).
+	BOOL bLeaveSpectralMeasures = m_pSensor->TakePendingSpectralLeaveMeasures();
 	if( m_pSensor->IsModified() )
 	{
-        // Raw-carrying measurements recompute directly from the new full matrix;
-        // legacy measurements (no stored raw value) still need the delta relative
-        // to the previously configured matrix (saved into SensorMatrixMod above).
-        Matrix fullMatrix = m_pSensor->GetSensorMatrix();
-        Matrix deltaMatrix = fullMatrix * m_pSensor->GetSensorMatrixMod().GetInverse();
-		m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix );
-        m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+        if ( bLeaveSpectralMeasures )
+        {
+            // Spectral correction applied; user chose to keep prior measurements
+            // as they are. Don't recompute them - just clear the saved baseline so
+            // a later config change starts clean.
+            m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+        }
+        else
+        {
+            // Raw-carrying measurements recompute directly from the new full matrix
+            // (a spectral apply leaves it identity, which strips them to raw);
+            // legacy measurements (no stored raw value) still need the delta relative
+            // to the previously configured matrix (saved into SensorMatrixMod above).
+            Matrix fullMatrix = m_pSensor->GetSensorMatrix();
+            Matrix deltaMatrix = fullMatrix * m_pSensor->GetSensorMatrixMod().GetInverse();
+            m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix );
+            m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+        }
 		SetModifiedFlag(TRUE);
 		UpdateAllViews ( NULL, UPD_EVERYTHING );
 		AfxGetMainWnd () -> SendMessageToDescendants ( WM_COMMAND, IDM_REFRESH_REFERENCE );
