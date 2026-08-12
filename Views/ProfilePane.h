@@ -68,7 +68,15 @@ protected:
 	enum Hot { HOT_NONE = -1, HOT_PRESET_FIRST = 0, HOT_PRESET_LAST = 4,
 			   HOT_START = 10, HOT_PAUSE = 11, HOT_STOP = 12,
 			   HOT_REFS = 13, HOT_CTX = 14, HOT_CLEAR = 15,		// chrome buttons (client-space)
-			   HOT_WORST_FIRST = 100 };
+			   HOT_FILTER = 16,									// clears the worst-list filter
+			   HOT_WORST_FIRST = 100,
+			   HOT_AREA_FIRST = 200 };							// + colour-area family index
+
+	// Colour-area buckets: hue family x brightness band. Family 0 is the neutral
+	// axis (gray), 1..6 are the RGBCMY hue sectors; bands split on the stimulus
+	// max channel. Both are derived from the GENERATED patch stimulus, never from
+	// the measurement, so the classification is exact and free.
+	enum { AREA_FAMS = 7, AREA_BANDS = 3 };
 
 	// stats over the measured profile, recomputed lazily (m_statsValid)
 	struct SProfStats
@@ -78,20 +86,44 @@ protected:
 		double	pctGood;		// fraction of patches under the good threshold
 		int		histo[16];		// dE histogram, bin width warn/8
 		double	histoBinW;
-		// region rows: 0 gray axis, 1 near black, 2 low sat, 3 high sat
-		double	regAvg[4], regMax[4];
-		int		regCnt[4];
-		std::vector<int> worst;	// patch indices, worst first (up to 20)
+		int		histoOver;		// patches beyond the last bin (they fold INTO histo[15])
+		// RMS split of the total error, in dE units. Squares because the terms
+		// combine in quadrature: rmsL^2+rmsC^2+rmsH^2 reconstructs the overall RMS
+		// dE exactly for CIE76/CIE94, and closely (not exactly) for CIE2000/CMC,
+		// which carry a cross-term GetDeltaLCH does not hand back.
+		double	rmsL, rmsC, rmsH;
+		// area matrix (avg only -- the cells render the mean; a per-cell max was
+		// tracked here for a while with no reader, so it went)
+		double	areaAvg[AREA_FAMS][AREA_BANDS];
+		int		areaCnt[AREA_FAMS][AREA_BANDS];
+		int		famCnt[AREA_FAMS];
+		// EVERY measured patch, worst dE first, as (-dE, patch index). Kept whole
+		// instead of truncated to a top-N so the worst list can be filtered down to
+		// a colour area without recomputing a single dE. 9261 entries at a 21-cube.
+		std::vector<std::pair<double,int> > sorted;
+		// per patch index: family*AREA_BANDS + band, or -1 for a skipped patch
+		std::vector<signed char> bucket;
 
 		SProfStats() { Reset(); }
-		void Reset()	// NEVER memset this struct: it holds a std::vector
+		void Reset()	// NEVER memset this struct: it holds std::vectors
 		{
 			count = 0;
 			avgDE = maxDE = pct95DE = pctGood = 0.0;
 			histoBinW = 0.0;
+			histoOver = 0;
+			rmsL = rmsC = rmsH = 0.0;
 			for ( int i = 0; i < 16; i++ ) histo[i] = 0;
-			for ( int r = 0; r < 4; r++ ) { regAvg[r] = regMax[r] = 0.0; regCnt[r] = 0; }
-			worst.clear();
+			for ( int f = 0; f < AREA_FAMS; f++ )
+			{
+				famCnt[f] = 0;
+				for ( int b = 0; b < AREA_BANDS; b++ )
+				{
+					areaAvg[f][b] = 0.0;
+					areaCnt[f][b] = 0;
+				}
+			}
+			sorted.clear();
+			bucket.clear();
 		}
 	};
 
@@ -144,12 +176,24 @@ protected:
 	CRect			m_rcPresets[5];
 	CRect			m_rcStart, m_rcPause, m_rcStop;
 	std::vector<std::pair<CRect,int> > m_rcWorstRows;	// rect -> patch index
+	std::vector<std::pair<CRect,int> > m_rcAreaHits;	// one rect per family COLUMN -> family index
+	CRect			m_rcFilterChip;				// clears the filter; empty while unfiltered
+
+	// Worst-list filter, driven by the colour-area matrix rather than by a combo
+	// box: the matrix already lists every category, and a real child control here
+	// would punch an opaque hole through the owner-drawn body (see SyncChildren).
+	// A whole family at a time -- a single band of one family is too narrow a slice
+	// to be worth a click, and it made the worst list collapse to a row or two.
+	int				m_filterFam;	// 0..6, or -1 for all
 
 	CMeasure * Measure() const;
-	double WhiteYForDE() const;
 	double PatchDE(int i) const;
 	void ComputeStats();
 	void InvalidateStats() { m_statsValid = false; }
+	bool PatchPassesFilter(int patchIdx) const;	// against m_filterFam
+	CString FilterLabel() const;				// "" while unfiltered
+	void SetFilter(int fam);					// -1 clears; re-picking the same family clears too
+	double ProfileWhiteDrift() const;			// measured white drift across the capture, 0 if unknown
 	void SendAction(Action a, int inspectIdx = -1);
 	int  PatchCountFor(int preset) const;
 	double EstimateSeconds(int patches) const;
