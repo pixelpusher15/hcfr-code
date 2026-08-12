@@ -289,9 +289,18 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 		// while the grayscale families use the active reference (its grayscale
 		// branch passes GetColorReference()). HDTVa/b/CC6 are forced to Rec.709
 		// inside GetDeltaE itself, so they need no branch here.
-		CColorReference dERef = ref;
-		if ( !isGS && ( ref.m_standard == UHDTV3 || ref.m_standard == UHDTV4 ) )
-			dERef = ContainerTransportReference( ref );
+		//
+		// Taken from the ACTIVE reference, not the `ref` parameter: `ref` is the
+		// GEOMETRY reference, which has already had HDTVa/b swapped for Rec.709 so
+		// the solid matches the basis those references were built in. dE must not
+		// follow that swap. GetDeltaE's own substitution is a fixed Rec.709/D65,
+		// so under a custom white target grading against the swapped reference
+		// (Rec.709 + custom white) would silently split the viewer's dE from the
+		// grid's. GetColorReference() returns a reference, so this is the same
+		// single copy the old `= ref` made, not an extra one.
+		CColorReference dERef = GetColorReference();
+		if ( !isGS && ( dERef.m_standard == UHDTV3 || dERef.m_standard == UHDTV4 ) )
+			dERef = ContainerTransportReference( dERef );
 		p.dE = ( dEOverride >= 0.0 ) ? (float)dEOverride
 									 : (float)c.GetDeltaE( ywForDE, dETarget, 1.0, dERef, GetConfig()->m_dE_form, isGS, gw );
 		if ( !( p.dE == p.dE ) || p.dE < 0.0f )   // NaN / negative: no usable dE
@@ -426,7 +435,16 @@ void C3DColorView::BuildScene()
 	if ( pMeasure == NULL )
 		return;
 
-	CColorReference ref = GetColorReference();
+	// HDTVa/HDTVb carry PATCH chromaticities where a gamut belongs (see
+	// SpecialModeGamutReference), so the solid built from them was a small
+	// desaturated triangle while the measurements - whose own references come
+	// from GetRefSat's / SetRGBValue's Rec.709 substitution - legitimately reach
+	// the real Rec.709 boundary. A perfect (simulated) display therefore plotted
+	// its 100%-saturation sweeps and color-checker patches well OUTSIDE the solid
+	// at dE 0.00. Substitute Rec.709 once, here, so every geometry consumer below
+	// (ToModel, BuildGamut, EnsureTongueTexture) agrees.
+	const CColorReference active = GetColorReference();
+	CColorReference ref = SpecialModeGamutReference( active );
 
 	// White luminance reference for L*a*b* / xyY normalisation (mirrors the CIE
 	// chart: prefer the pseudo-colour-space prime white, else grayscale white;
@@ -561,7 +579,9 @@ void C3DColorView::BuildScene()
 	// 105.95640 with tone mapping off (* 100 for the Mascior-style HDR CC
 	// sets, matching the measures grid).
 	const bool hdr10Refs = ( GetConfig()->m_GammaOffsetType == 5 );
-	const bool satSpecial = ( ref.m_standard == HDTVa || ref.m_standard == HDTVb );
+	// ACTIVE standard, not the substituted one: this selects GetRefSat's special
+	// branch, which is what makes those references Rec.709 in the first place.
+	const bool satSpecial = ( active.m_standard == HDTVa || active.m_standard == HDTVb );
 
 	// dE normalisation, separate from the marker geometry below: ask CMeasure
 	// rather than re-deriving it, so this cannot drift from the measures grid
@@ -701,6 +721,10 @@ static void XyYModelPt(const ColorXYZ & xyz, const ColorXYZ & dirXyz, double ref
 // chromaticity while only luminance shrinks), so in xyY the three zero-faces are
 // rebuilt as vertical walls over the triangle sides and the base rim is stored
 // for outlining.
+//
+// `ref` is the caller's already-substituted reference (BuildScene runs it through
+// SpecialModeGamutReference), so there is deliberately no HDTVa/HDTVb branch here:
+// by this point the special standards are plain Rec.709, like everywhere else.
 void C3DColorView::BuildGamut(CColorReference & ref)
 {
 	// Reference primaries already sum to the reference white, so normalise heights
@@ -1715,7 +1739,9 @@ void C3DColorView::AppendNewFreeMeasures()
 		return;
 	CMeasure * pMeasure = pDoc->GetMeasure();
 
-	CColorReference ref = GetColorReference();
+	// Same Rec.709 substitution BuildScene applies, so incrementally appended free
+	// measures use the same model transform as the ones added by a full rebuild.
+	CColorReference ref = SpecialModeGamutReference( GetColorReference() );
 	// Same normaliser as the rest of the scene: the local prime/on-off-white
 	// fallback returned PEAK white in PQ-HDR, so free measures were plotted and
 	// scaled against a different white than every other point.
@@ -1792,7 +1818,8 @@ void C3DColorView::AppendNewProfileMeasures()
 	// The capture remaps the cube inner->transport and the sensor recovers the
 	// INNER (content, e.g. P3) colors, so plot/swatch in the active reference --
 	// the measured cloud then lands inside the P3 gamut solid, not stretched to 2020.
-	CColorReference ref = GetColorReference();
+	// (HDTVa/b substitute Rec.709 for the same reason BuildScene does.)
+	CColorReference ref = SpecialModeGamutReference( GetColorReference() );
 	// Diffuse white (measured, or the standalone-profile fallback) so reference
 	// targets scale into measured units instead of collapsing at whiteY = 1.0.
 	double whiteY = SceneDiffuseWhiteY( pMeasure );

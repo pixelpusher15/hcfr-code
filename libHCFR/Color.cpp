@@ -930,6 +930,24 @@ CColorReference ContainerTransportReference(const CColorReference& active)
 	return active;
 }
 
+// The special standards' "primaries" are NOT a gamut: HDTVa carries the 75%
+// saturation / 75% amplitude PATCH chromaticities and HDTVb the plasma-optimized
+// color-checker ones, both far inside Rec.709. The display being measured is a
+// plain Rec.709 one, which is why every consumer that needs an actual colorspace
+// substitutes it - GetRGBValue, SetRGBValue, GetDeltaE (via SpecialModeReference),
+// GetRefSat's special branch. Use this wherever the substitution is needed on the
+// reference as an OBJECT (primaries, matrices) rather than inside those calls.
+//
+// Unlike the dE-side SpecialModeReference(), which is a fixed Rec.709/D65 and
+// deliberately ignores a custom white target, this keeps the active white: the
+// caller is drawing geometry the measured points must line up with.
+CColorReference SpecialModeGamutReference(const CColorReference& active)
+{
+	if (active.m_standard == HDTVa || active.m_standard == HDTVb || active.m_standard == CC6)
+		return WithWhiteOf(HDTV, active);
+	return active;
+}
+
 ColorRGB ContainerPrimaryLinear(const CColorReference& active, int index)
 {
 	CColorReference inner = ContainerInnerReference(active);

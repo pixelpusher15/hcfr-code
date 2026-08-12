@@ -752,6 +752,7 @@ ostream& operator <<(ostream& ostr, const CColor& obj);
 extern CColorReference GetStandardColorReference(ColorStandard aColorStandard);
 extern CColorReference ContainerInnerReference(const CColorReference& active);
 extern CColorReference ContainerTransportReference(const CColorReference& active);
+extern CColorReference SpecialModeGamutReference(const CColorReference& active);
 extern ColorRGB ContainerPrimaryLinear(const CColorReference& active, int index);
 
 extern CColor theMeasure;

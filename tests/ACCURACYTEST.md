@@ -409,6 +409,16 @@ agree), and the gaps below are mostly places their reach stops.
    user-visible (swatches disagree while dE reads 0) and completely invisible
    here. This is MFC view code; extracting the pure math into a testable
    function is the prerequisite.
+   *Partially narrowed.* This gap is not hypothetical — it shipped. The 3D
+   viewer built its gamut solid straight from `CColorReference::GetRed/Green/
+   Blue`, but HDTVa/HDTVb hold PATCH chromaticities there, not a gamut, so
+   under those standards a perfect simulated display plotted its own targets
+   well outside the solid while every dE read 0.00. The whole matrix was green
+   throughout. `ColorMathTest`'s **T10** now covers the *geometry-basis* slice
+   as a pure libHCFR oracle (the basis a consumer plots in must be the basis
+   its references were built in), which is where that bug lived and is testable
+   without MFC. The rest of this gap — the `Yref` formulas and the widget math
+   above — is still open and still needs the extraction.
 8. **Export is never exercised.** The PDF/CSV/spreadsheet dE paths duplicate the
    grid's normalization and have already drifted from it — their `YWhite` is a
    hand-rolled `special ? OnOff : Prime` (plus the Mascior grayscale top) that

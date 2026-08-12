@@ -37,3 +37,9 @@ tests.xml
 CORRECTION-IMPORT-PLAN.md
 REFERENCES-SIGNAL-SYNC-PLAN.md
 TEN-BIT-PIPELINE-PLAN.md
+
+# /accuracytest writes its report to the CWD (repo root when run from there).
+# Generated output, and a stale one left lying around reads exactly like a
+# passing run when grepped - keep it out of the tree entirely.
+accuracytest_report.txt
+accuracytest_report_quick.txt
