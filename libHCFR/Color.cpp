@@ -938,13 +938,29 @@ CColorReference ContainerTransportReference(const CColorReference& active)
 // GetRefSat's special branch. Use this wherever the substitution is needed on the
 // reference as an OBJECT (primaries, matrices) rather than inside those calls.
 //
-// Unlike the dE-side SpecialModeReference(), which is a fixed Rec.709/D65 and
-// deliberately ignores a custom white target, this keeps the active white: the
-// caller is drawing geometry the measured points must line up with.
+// The white is deliberately NOT carried over, unlike ContainerInner/Transport
+// Reference above. SetRGBValue - which is how these modes' references are
+// actually manufactured - substitutes a fixed CColorReference(HDTV), i.e.
+// Rec.709/D65, whatever white target is active; GetRGBValue and GetDeltaE do the
+// same. A basis that tracked the active white would therefore disagree with the
+// basis those references were built in for every non-D65 white - reintroducing,
+// in a narrower case, the very defect this helper exists to prevent.
+// ColorMathTest T10 pins it: 270 assertions fail if this returns
+// WithWhiteOf(HDTV, active) instead.
+//
+// Callers needing the user's WHITE TARGET (grayscale targets, neutral
+// classification) must read it from the ACTIVE reference, not from this one.
+//
+// CC6 is included to match SetRGBValue and GetDeltaE, the two predicates that
+// decide what a reference IS. GetRGBValue's omits CC6, so for that (unreachable
+// - the enum marks it unused) standard a swatch would decode in the CC6 matrix
+// while geometry used Rec.709. Making GetRGBValue consistent would remove the
+// wart, but that is a live libHCFR behaviour change on a dead path, so the
+// mismatch is left documented rather than fixed here.
 CColorReference SpecialModeGamutReference(const CColorReference& active)
 {
 	if (active.m_standard == HDTVa || active.m_standard == HDTVb || active.m_standard == CC6)
-		return WithWhiteOf(HDTV, active);
+		return CColorReference(HDTV);
 	return active;
 }
 

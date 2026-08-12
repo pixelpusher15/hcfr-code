@@ -414,11 +414,18 @@ agree), and the gaps below are mostly places their reach stops.
    Blue`, but HDTVa/HDTVb hold PATCH chromaticities there, not a gamut, so
    under those standards a perfect simulated display plotted its own targets
    well outside the solid while every dE read 0.00. The whole matrix was green
-   throughout. `ColorMathTest`'s **T10** now covers the *geometry-basis* slice
-   as a pure libHCFR oracle (the basis a consumer plots in must be the basis
-   its references were built in), which is where that bug lived and is testable
-   without MFC. The rest of this gap — the `Yref` formulas and the widget math
-   above — is still open and still needs the extraction.
+   throughout. `ColorMathTest`'s **T10** now pins the *contract* that was
+   violated — the basis a consumer plots geometry in must be the basis its
+   references were built in — as a pure libHCFR oracle.
+   Be precise about what that buys: T10 tests the shared helper, **not any
+   view's use of it**. It cannot link MFC, so if `C3DColorView` stopped calling
+   `SpecialModeGamutReference` T10 would stay green and the bug would return.
+   The mitigation is structural rather than tested — the viewer funnels all
+   three scene-building entry points through one `SceneGamutReference()` — so
+   the display layer itself remains unverified, exactly as this gap says. What
+   genuinely closed is the *helper* half; the `Yref` formulas, the widget math,
+   and every view's application of a reference are still open and still need
+   the extraction.
 8. **Export is never exercised.** The PDF/CSV/spreadsheet dE paths duplicate the
    grid's normalization and have already drifted from it — their `YWhite` is a
    hand-rolled `special ? OnOff : Prime` (plus the Mascior grayscale top) that

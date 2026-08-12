@@ -197,6 +197,20 @@ C3DColorView::~C3DColorView()
 /////////////////////////////////////////////////////////////////////////////
 // scene
 
+// The scene's GEOMETRY reference: the colorspace basis every plotted coordinate
+// and the gamut solid are built in. Single definition on purpose - the three
+// scene-building entry points must not be able to drift apart, which is the way
+// this fix would most plausibly regress (ColorMathTest T10 pins the helper's
+// contract, but cannot see this call site).
+//
+// NOT the white target. For HDTVa/HDTVb this is a fixed Rec.709/D65, matching
+// how SetRGBValue manufactures their references; anything needing the user's
+// active white must read GetColorReference() directly.
+static CColorReference SceneGamutReference()
+{
+	return SpecialModeGamutReference( GetColorReference() );
+}
+
 // Map a measured/reference XYZ to a model-space coordinate (roughly a unit cube)
 // for the current plot space.
 void C3DColorView::ToModel(const ColorXYZ & xyz, double whiteY, CColorReference & ref,
@@ -256,9 +270,16 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 	double mx, my, mz;
 	ToModel( xyz, m_lumTop > 0.0 ? m_lumTop : whiteY, ref, mx, my, mz );
 
+	// Swatches take the ACTIVE reference, not the geometry one. GetRGBValue has
+	// its own HDTVa/b substitution to a fixed Rec.709/D65, which is what the
+	// measures grid's RGB column uses (MainView's bRef); handing it the already-
+	// substituted geometry reference would suppress that branch and, under a
+	// custom white, tint the viewer's dots differently from the grid.
+	const CColorReference & activeRef = GetColorReference();
+
 	ScenePoint p;
 	p.mx = (float)mx; p.my = (float)my; p.mz = (float)mz;
-	p.trueColor = RgbSwatch( c.GetRGBValue( ref ) );
+	p.trueColor = RgbSwatch( c.GetRGBValue( activeRef ) );
 	p.tx = p.ty = p.tz = 0.0f;
 	p.dE = 0.0f;
 	p.hasTarget = false;
@@ -296,9 +317,8 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 		// follow that swap. GetDeltaE's own substitution is a fixed Rec.709/D65,
 		// so under a custom white target grading against the swapped reference
 		// (Rec.709 + custom white) would silently split the viewer's dE from the
-		// grid's. GetColorReference() returns a reference, so this is the same
-		// single copy the old `= ref` made, not an extra one.
-		CColorReference dERef = GetColorReference();
+		// grid's. Same single copy the old `= ref` made, not an extra one.
+		CColorReference dERef = activeRef;
 		if ( !isGS && ( dERef.m_standard == UHDTV3 || dERef.m_standard == UHDTV4 ) )
 			dERef = ContainerTransportReference( dERef );
 		p.dE = ( dEOverride >= 0.0 ) ? (float)dEOverride
@@ -322,7 +342,7 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 
 		// In non-heatmap mode, colour the dot by its TARGET colour: it identifies
 		// which patch this is regardless of how far off the display measured.
-		p.trueColor = RgbSwatch( markerTarget.GetRGBValue( ref ) );
+		p.trueColor = RgbSwatch( markerTarget.GetRGBValue( activeRef ) );
 	}
 	m_points.push_back( p );
 }
@@ -443,8 +463,11 @@ void C3DColorView::BuildScene()
 	// its 100%-saturation sweeps and color-checker patches well OUTSIDE the solid
 	// at dE 0.00. Substitute Rec.709 once, here, so every geometry consumer below
 	// (ToModel, BuildGamut, EnsureTongueTexture) agrees.
-	const CColorReference active = GetColorReference();
-	CColorReference ref = SpecialModeGamutReference( active );
+	//
+	// `active` stays available for the two things that must NOT follow the swap:
+	// the white target, and the satSpecial flag below.
+	const CColorReference & active = GetColorReference();
+	CColorReference ref = SceneGamutReference();
 
 	// White luminance reference for L*a*b* / xyY normalisation (mirrors the CIE
 	// chart: prefer the pseudo-colour-space prime white, else grayscale white;
@@ -458,7 +481,10 @@ void C3DColorView::BuildScene()
 		m_lumTop = GetConfig()->m_TargetMaxL;
 
 	int i, n;
-	ColorxyY wChroma( ref.GetWhite() );
+	// ACTIVE white, not the geometry basis's: this is the grayscale family's target
+	// chromaticity and must follow the user's white target, which the special-mode
+	// substitution deliberately drops.
+	ColorxyY wChroma( active.GetWhite() );
 	const int  gammaMode = GetConfig()->m_GammaOffsetType;
 	const int  dEgray    = GetConfig()->m_dE_gray;
 	const bool bRound    = GetConfig()->m_bUseRoundDown != FALSE;
@@ -1739,9 +1765,9 @@ void C3DColorView::AppendNewFreeMeasures()
 		return;
 	CMeasure * pMeasure = pDoc->GetMeasure();
 
-	// Same Rec.709 substitution BuildScene applies, so incrementally appended free
-	// measures use the same model transform as the ones added by a full rebuild.
-	CColorReference ref = SpecialModeGamutReference( GetColorReference() );
+	// Same geometry basis BuildScene uses, so incrementally appended free measures
+	// get the same model transform as the ones added by a full rebuild.
+	CColorReference ref = SceneGamutReference();
 	// Same normaliser as the rest of the scene: the local prime/on-off-white
 	// fallback returned PEAK white in PQ-HDR, so free measures were plotted and
 	// scaled against a different white than every other point.
@@ -1749,7 +1775,10 @@ void C3DColorView::AppendNewFreeMeasures()
 	const double gsWhiteY = GridGrayWhiteY( pMeasure );
 	const int    dEgray   = GetConfig()->m_dE_gray;
 
-	CColor wRef( ref.GetWhite() );
+	// ACTIVE white, like BuildScene's wChroma: this classifies a free measure as
+	// near-neutral and supplies the gray target, so it follows the user's white
+	// target rather than the geometry basis's fixed D65.
+	CColor wRef( GetColorReference().GetWhite() );
 	ColorxyY wc( wRef.GetxyYValue() );
 	int n = pMeasure->GetMeasurementsSize();
 	for ( int i = m_freeInScene; i < n; i++ )
@@ -1819,7 +1848,7 @@ void C3DColorView::AppendNewProfileMeasures()
 	// INNER (content, e.g. P3) colors, so plot/swatch in the active reference --
 	// the measured cloud then lands inside the P3 gamut solid, not stretched to 2020.
 	// (HDTVa/b substitute Rec.709 for the same reason BuildScene does.)
-	CColorReference ref = SpecialModeGamutReference( GetColorReference() );
+	CColorReference ref = SceneGamutReference();
 	// Diffuse white (measured, or the standalone-profile fallback) so reference
 	// targets scale into measured units instead of collapsing at whiteY = 1.0.
 	double whiteY = SceneDiffuseWhiteY( pMeasure );

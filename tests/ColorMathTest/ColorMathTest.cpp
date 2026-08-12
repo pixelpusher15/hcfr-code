@@ -663,11 +663,24 @@ static void RunT9()
 //      decoding that XYZ in SpecialModeGamutReference(S) must return rgb. Any
 //      standard whose geometry basis disagrees with its construction basis
 //      lands outside the unit cube here. Verified by mutation: reverting the
-//      helper to a plain `return active` fails 72 assertions on HDTVa (red
-//      decodes to 1.267,-0.072,-0.071 instead of 1,0,0), 72 on HDTVb, 36 on
-//      CC6, and none at all on the other eight standards.
+//      helper to a plain `return active` fails 600 assertions - 240 on HDTVa
+//      (red decodes to 1.267,-0.072,-0.071 instead of 1,0,0), 240 on HDTVb,
+//      120 on CC6, and none at all on the other eight standards.
 //   2. Helper agreement. SpecialModeGamutReference must reproduce GetRGBValue's
 //      own inline substitution exactly, so the two cannot drift apart.
+//
+// Each standard runs under three white targets, and that is load-bearing rather
+// than thoroughness for its own sake: the special modes' construction basis is a
+// FIXED Rec.709/D65 (SetRGBValue builds CColorReference(HDTV) unconditionally),
+// so a helper that carried the active white over would pass every default-white
+// case and fail 270 assertions the moment a non-D65 white is selected. The first
+// version of this helper did exactly that.
+//
+// SCOPE: this pins the helper's CONTRACT, not its application. Nothing here can
+// see C3DColorView - if the viewer stopped calling SpecialModeGamutReference, T10
+// would stay green. That call site is funnelled through a single
+// SceneGamutReference() in Color3DView.cpp to keep the blast radius of such a
+// regression to one line; the display itself is still only checked on screen.
 //
 // CUSTOM is deliberately absent: CColorReference's CUSTOM branch writes its
 // primaries THROUGH the default `primaries` pointer, which still aims at the
@@ -692,20 +705,37 @@ static void RunT10()
         {0.5,0,0}, {0,0.5,0}, {0,0,0.5}, {0.5,0.5,0.5},
         {0.75,0.25,0.10}, {0.10,0.75,0.25}, {0.25,0.10,0.75},
     };
+    // White targets matter: the special standards' construction basis is a FIXED
+    // Rec.709/D65 (SetRGBValue builds CColorReference(HDTV) unconditionally), so a
+    // geometry basis that tracked the active white instead would break leg 1 for
+    // every non-D65 white while passing under the default.
+    enum { W_DEFAULT, W_NAMED, W_CUSTOM, W_COUNT };
+    static const char * wName[W_COUNT] = { "D65", "D75", "custom" };
+
     const int nStd = (int)(sizeof(stds) / sizeof(stds[0]));
     const int nRGB = (int)(sizeof(rgbs) / sizeof(rgbs[0]));
 
     for (int s = 0; s < nStd; ++s)
+    for (int w = 0; w < W_COUNT; ++w)
     {
-        CColorReference ref(stds[s].cs);
+        CColorReference ref =
+            (w == W_NAMED)  ? CColorReference(stds[s].cs, D75) :
+            (w == W_CUSTOM) ? CColorReference(stds[s].cs, DCUST, -1.0, " modified",
+                                              ColorXYZ(ColorxyY(0.2900, 0.3000)))
+                            : CColorReference(stds[s].cs);
         CColorReference gref = SpecialModeGamutReference(ref);
+        char tag[48];
+        _snprintf(tag, sizeof(tag) - 1, "%s/%s", stds[s].name, wName[w]);
+        tag[sizeof(tag) - 1] = 0;
 
-        // The helper must never change the white point: the viewer normalises
-        // heights by GetWhite()[1] and plots black at the white chromaticity.
-        for (int k = 0; k < 3; ++k)
-            if (fabs(ref.GetWhite()[k] - gref.GetWhite()[k]) > 1e-12)
-                Fail("T10 %s: helper moved the white, component %d: %.17g -> %.17g",
-                     stds[s].name, k, ref.GetWhite()[k], gref.GetWhite()[k]);
+        // Ordinary standards must come back untouched - the helper is only ever
+        // allowed to act on the special ones.
+        bool special = (stds[s].cs == HDTVa || stds[s].cs == HDTVb || stds[s].cs == CC6);
+        if (!special)
+            for (int k = 0; k < 3; ++k)
+                if (fabs(ref.GetWhite()[k] - gref.GetWhite()[k]) > 1e-12)
+                    Fail("T10 %s: helper altered a non-special reference, white component "
+                         "%d: %.17g -> %.17g", tag, k, ref.GetWhite()[k], gref.GetWhite()[k]);
 
         for (int i = 0; i < nRGB; ++i)
         {
@@ -719,7 +749,7 @@ static void RunT10()
                 if (fabs(back[k] - rgb[k]) > 1e-9)
                     Fail("T10 %s rgb=(%.2f,%.2f,%.2f): reference is outside the plotted "
                          "gamut basis, channel %d came back %.6f (expected %.6f)",
-                         stds[s].name, rgb[0], rgb[1], rgb[2], k, back[k], rgb[k]);
+                         tag, rgb[0], rgb[1], rgb[2], k, back[k], rgb[k]);
 
             // ---- Leg 2: helper == GetRGBValue's own inline substitution.
             if (stds[s].cs == CC6)
@@ -729,7 +759,7 @@ static void RunT10()
                 if (fabs(viaGetter[k] - back[k]) > 1e-9)
                     Fail("T10 %s rgb=(%.2f,%.2f,%.2f): SpecialModeGamutReference disagrees "
                          "with GetRGBValue, channel %d: %.17g vs %.17g",
-                         stds[s].name, rgb[0], rgb[1], rgb[2], k, back[k], viaGetter[k]);
+                         tag, rgb[0], rgb[1], rgb[2], k, back[k], viaGetter[k]);
         }
     }
 }
