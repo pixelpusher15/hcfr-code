@@ -370,8 +370,21 @@ static double SceneDiffuseWhiteY( CMeasure * pM )
 	}
 	// SDR: measured grayscale / prime white (100% == diffuse == peak); for a
 	// standalone profile fall back to the measured white cube node.
-	CColor cw = pM->GetPrimeWhite();
-	if ( !cw.isValid() || cw.GetY() <= 0.0 )
+	//
+	// HDTVa/HDTVb read the ON/OFF white and never the prime white. Their primaries
+	// run measures its white at the 75% anchor (GenColors[6] = 75,75,75), so
+	// GetPrimeWhite comes back at roughly HALF the display's real white - 0.75^2.4
+	// of it under a 2.4 power law. Normalising the scene by that put every
+	// measurement above ~50% stimulus past Y = 1, where ToModel's clamp pinned them
+	// all to the top of the gamut solid; since the solid's cross-section up there
+	// has narrowed to the white point, they fanned out visibly OUTSIDE it while
+	// their dE read fine. The measures grid has always avoided this - see
+	// GetColorDEWhiteY's `bSpecial ? yOnOff` branch, which this now mirrors,
+	// deliberately including its refusal to fall back to the prime white.
+	const bool specialWhite = ( GetColorReference().m_standard == HDTVa ||
+								GetColorReference().m_standard == HDTVb );
+	CColor cw = specialWhite ? pM->GetOnOffWhite() : pM->GetPrimeWhite();
+	if ( !specialWhite && ( !cw.isValid() || cw.GetY() <= 0.0 ) )
 		cw = pM->GetOnOffWhite();
 	if ( cw.isValid() && cw.GetY() > 0.0 )
 		return cw.GetY();
@@ -585,14 +598,33 @@ void C3DColorView::BuildScene()
 		}
 	}
 
+	// The primaries family has its OWN white, and it is not the scene's.
+	// GetRefPrimary/GetRefSecondary are relative to the PRIME white - the one
+	// measured alongside the primaries themselves - which the measures grid also
+	// uses here: MainView's YWhite keeps the prime white for this mode and only
+	// falls back to the on/off white for the saturation/CC modes 4..12 under
+	// HDTVa/HDTVb. In those two standards the primaries run measures its white at
+	// the 75% anchor, so prime white is ~half the on/off white the scene now
+	// normalises by, and sharing one white would plot every primary/secondary
+	// target at ~2x its measurement (dE ~16 on a patch the grid grades at 0.1).
+	// Everywhere else the two coincide and this is the same number as before.
+	// PQ keeps the scene white: there SceneDiffuseWhiteY returns the tone-mapped
+	// diffuse white and GetRefPrimary already carries GetHDRRefScale internally.
+	double primWhiteY = whiteY;
+	if ( GetConfig()->m_GammaOffsetType != 5 )
+	{
+		CColor pw = pMeasure->GetPrimeWhite();
+		if ( pw.isValid() && pw.GetY() > 0.0 )
+			primWhiteY = pw.GetY();
+	}
 	static const wchar_t * primName[3] = { L"Red primary",      L"Green primary",  L"Blue primary" };
 	static const wchar_t * secName[3]  = { L"Yellow secondary", L"Cyan secondary", L"Magenta secondary" };
 	for ( i = 0; i < 3; i++ )
 	{
 		CColor refP = pMeasure->GetRefPrimary( i );
-		AppendMeasure( pMeasure->GetPrimary( i ), whiteY, ref, refP, refP, false, whiteY, primName[i], SRC_PRIMARY, i );
+		AppendMeasure( pMeasure->GetPrimary( i ), primWhiteY, ref, refP, refP, false, primWhiteY, primName[i], SRC_PRIMARY, i );
 		CColor refS = pMeasure->GetRefSecondary( i );
-		AppendMeasure( pMeasure->GetSecondary( i ), whiteY, ref, refS, refS, false, whiteY, secName[i], SRC_SECONDARY, i );
+		AppendMeasure( pMeasure->GetSecondary( i ), primWhiteY, ref, refS, refS, false, primWhiteY, secName[i], SRC_SECONDARY, i );
 	}
 
 	// Saturation sweeps: plot EVERY measured stimulus level from the store, not
@@ -603,8 +635,8 @@ void C3DColorView::BuildScene()
 	// the scene needs the diffuse-white-relative convention (YWhiteRef is 1.0
 	// in AppendMeasure). The scale is 10000 / tone-mapped white - the legacy
 	// 105.95640 with tone mapping off (* 100 for the Mascior-style HDR CC
-	// sets, matching the measures grid).
-	const bool hdr10Refs = ( GetConfig()->m_GammaOffsetType == 5 );
+	// sets, matching the measures grid). It now falls out of the marker/dE white
+	// identity below rather than needing a mode-5 flag of its own.
 	// ACTIVE standard, not the substituted one: this selects GetRefSat's special
 	// branch, which is what makes those references Rec.709 in the first place.
 	const bool satSpecial = ( active.m_standard == HDTVa || active.m_standard == HDTVb );
@@ -624,10 +656,28 @@ void C3DColorView::BuildScene()
 	const ColorDENorm satNorm = pMeasure->GetColorDENorm( 5 );	// any saturation mode
 	const double satDEWhite = ( satNorm.whiteY > 0.0 ) ? satNorm.whiteY : whiteY;
 	const double satDEScale = satNorm.deScale;
-	// Marker geometry: refC * markScale * tmWhite is absolute nits, so a perfect
-	// patch draws no tail. Same number GetHDRRefScale returns - taken from the
-	// helper so there is only one definition of the marker scale.
-	const double hdrRefScale = satNorm.markScale;
+	// Marker geometry, DERIVED from the dE scale rather than taken beside it.
+	// AppendMeasure plots the marker at refMark * whiteY, while GetDeltaE grades
+	// refDE against c / satDEWhite; a patch measuring exactly on target draws no
+	// tail only when refMark * whiteY == refDE * satDEWhite. So the marker scale
+	// is not free - it is satDEScale * satDEWhite / whiteY, and picking it
+	// independently (this used to take satNorm.markScale) splits the marker from
+	// its own dE target by whatever ratio the two whites differ by.
+	//
+	// They differ in exactly the cases this got wrong: HDTVa/HDTVb take the ON/OFF
+	// white for dE (GetColorDEWhiteY's special branch, no prime fallback) while the
+	// scene normalises by SceneDiffuseWhiteY, which prefers the PRIME white - and in
+	// those modes prime white is the 75% anchor, roughly half the on/off white. Every
+	// saturation and color-checker marker therefore plotted at ~0.49x its measurement
+	// while the dE read ~0. The grayscale block has bridged the same two whites all
+	// along (markPerGrid above); sat and CC never did.
+	//
+	// Reduces to the old value wherever those coincide: in PQ, satDEScale is
+	// 10000/satDEWhite and whiteY is tmWhite, so this is 10000/tmWhite - exactly
+	// GetHDRRefScale. In SDR it is the pure white ratio, 1.0 whenever the two
+	// whites agree, which is every standard except HDTVa/HDTVb.
+	const double hdrRefScale = ( whiteY > 0.0 ) ? satDEScale * satDEWhite / whiteY
+												: satNorm.markScale;
 	static const wchar_t * hueName[6] = { L"Red", L"Green", L"Blue", L"Yellow", L"Cyan", L"Magenta" };
 	int nSatLevels = pMeasure->GetSatLevelCount();
 	for ( int L = 0; L < nSatLevels; L++ )
@@ -645,8 +695,11 @@ void C3DColorView::BuildScene()
 				if ( i >= (int) set.sat[h].size() )
 					continue;
 				CColor refC = pMeasure->GetRefSat( h, satRatio, satSpecial, stim );
+				// No longer gated on HDR: in SDR satDEScale is 1.0 (a no-op) but
+				// hdrRefScale is the marker/dE white ratio, which is exactly what
+				// HDTVa/HDTVb need and what gating this on mode 5 used to skip.
 				CColor refMark = refC, refDE = refC;
-				if ( hdr10Refs && refC.isValid() )
+				if ( refC.isValid() )
 				{
 					refMark.SetX( refC.GetX() * hdrRefScale );
 					refMark.SetY( refC.GetY() * hdrRefScale );
@@ -677,11 +730,19 @@ void C3DColorView::BuildScene()
 	// convention against the grayscale top - hence the separate query.
 	const ColorDENorm ccNorm = pMeasure->GetColorDENorm( 11 );
 	const double ccDEWhite   = ( ccNorm.whiteY > 0.0 ) ? ccNorm.whiteY : whiteY;
-	const double ccMarkScale = ccNorm.markScale;
 	// Unconditional, like the saturation block: a bare 1.0 here would leave the
-	// dE reference unscaled while ccMarkScale still plots the marker at * 100 for
-	// a Mascior CC set, so the marker and its own dE target would disagree.
+	// dE reference unscaled while the marker still plots at * 100 for a Mascior
+	// CC set, so the marker and its own dE target would disagree.
 	const double ccDEScale   = ccNorm.deScale;
+	// Derived from the dE scale for the reason spelled out at the saturation
+	// block: refMark * whiteY must equal refDE * ccDEWhite or an on-target patch
+	// grows a tail. Note this also corrects the Mascior HDR CC sets, whose dE
+	// white is the grayscale top while the scene normalises by the tone-mapped
+	// white - the same split, from a different pair of whites. Those sets are
+	// untested (ACCURACYTEST gap 3 - they read their patch list from a CSV), so
+	// that half is derived rather than observed.
+	const double ccMarkScale = ( whiteY > 0.0 ) ? ccDEScale * ccDEWhite / whiteY
+												: ccNorm.markScale;
 	for ( i = 0; i < n; i++ )
 	{
 		CColor c = pMeasure->GetCC24Sat( i );
@@ -690,7 +751,7 @@ void C3DColorView::BuildScene()
 		CColor refC;
 		pMeasure->GetRefCC24Sat( i, refC );
 		CColor refMark = refC, refDE = refC;
-		if ( hdr10Refs && refC.isValid() )
+		if ( refC.isValid() )
 		{
 			refMark.SetX( refC.GetX() * ccMarkScale );
 			refMark.SetY( refC.GetY() * ccMarkScale );
