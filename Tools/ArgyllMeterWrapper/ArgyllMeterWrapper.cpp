@@ -81,6 +81,24 @@ namespace
         CriticalSection m_MeterCritSection;
         std::vector<ArgyllMeterWrapper*> m_meters;
         icompaths* m_ComPaths;
+        std::vector<std::string> m_excludedComNums;	// normalized "COMn" of ports to skip (pattern generators)
+        // Extract a normalized "COMn" token from a serial path/name ("\\.\COM3", "COM3", "com3"
+        // -> "COM3"); empty if none. Comparing the whole number avoids "COM3" matching "COM30".
+        static std::string normComName(const char* s)
+        {
+            if (!s) return std::string();
+            std::string in(s);
+            for (size_t i = 0; i + 3 <= in.size(); ++i)
+            {
+                if ((in[i] == 'c' || in[i] == 'C') && (in[i+1] == 'o' || in[i+1] == 'O') && (in[i+2] == 'm' || in[i+2] == 'M'))
+                {
+                    size_t j = i + 3; std::string num;
+                    while (j < in.size() && in[j] >= '0' && in[j] <= '9') num += in[j++];
+                    if (!num.empty()) return std::string("COM") + num;
+                }
+            }
+            return std::string();
+        }
         ArgyllMeters() :
             m_ComPaths(0)
         {
@@ -102,6 +120,17 @@ namespace
         {
             static ArgyllMeters theInstance;
             return theInstance;
+        }
+
+        void setExcludedPorts(const std::vector<std::string>& comPorts)
+        {
+            CLockWhileInScope usingThis(m_MeterCritSection);
+            m_excludedComNums.clear();
+            for (size_t i = 0; i < comPorts.size(); ++i)
+            {
+                std::string n = normComName(comPorts[i].c_str());
+                if (!n.empty()) m_excludedComNums.push_back(n);
+            }
         }
 
         std::vector<ArgyllMeterWrapper*> getDetectedMeters(std::string& errorMessage)
@@ -131,6 +160,19 @@ namespace
                 
                 for (int i(0); i != m_ComPaths->npaths; ++i)
                 {
+                    // Skip ports registered as pattern generators (DVDO/Murideo). Probing them
+                    // would open the port and stall on Argyll's per-port init_coms timeout while
+                    // waiting for a meter reply that never comes. Match on the serial path's COMn.
+                    if (!m_excludedComNums.empty())
+                    {
+                        std::string com = normComName(m_ComPaths->paths[i]->spath);
+                        if (com.empty()) com = normComName(m_ComPaths->paths[i]->name);
+                        bool excluded = false;
+                        for (size_t x = 0; x < m_excludedComNums.size() && !excluded; ++x)
+                            excluded = (com == m_excludedComNums[x]);
+                        if (excluded) continue;
+                    }
+
                     _inst* meter = 0;
                     try
                     {
@@ -897,6 +939,11 @@ bool ArgyllMeterWrapper::isMeterStillValid() const
 ArgyllMeterWrapper::ArgyllMeterWrappers ArgyllMeterWrapper::getDetectedMeters(std::string& errorMessage)
 {
     return ArgyllMeters::getInstance().getDetectedMeters(errorMessage);
+}
+
+void ArgyllMeterWrapper::setExcludedSerialPorts(const std::vector<std::string>& comPorts)
+{
+    ArgyllMeters::getInstance().setExcludedPorts(comPorts);
 }
 
 bool ArgyllMeterWrapper::isColorimeter()

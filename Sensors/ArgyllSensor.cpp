@@ -190,6 +190,15 @@ void CArgyllSensor::Serialize(CArchive& archive)
         archive >> m_debugMode;
         archive >> m_HiRes;
 
+        // Skip our pattern-generator serial ports (DVDO / Murideo) during meter detection so it
+        // doesn't stall opening them and waiting for a meter reply (see setExcludedSerialPorts).
+        std::vector<std::string> genPorts;
+        CString dvdoCom = GetConfig()->GetProfileString("GDIGenerator", "DvdoComPort", "");
+        if (!dvdoCom.IsEmpty()) genPorts.push_back((LPCSTR)dvdoCom);
+        CString muriCom = GetConfig()->GetProfileString("GDIGenerator", "MuriComPort", "");
+        if (!muriCom.IsEmpty()) genPorts.push_back((LPCSTR)muriCom);
+        ArgyllMeterWrapper::setExcludedSerialPorts(genPorts);
+
         std::string errorMessage;
         ArgyllMeterWrapper::ArgyllMeterWrappers meters = ArgyllMeterWrapper::getDetectedMeters(errorMessage);
         if(version > 1)

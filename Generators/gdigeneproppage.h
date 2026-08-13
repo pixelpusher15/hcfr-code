@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -88,14 +88,30 @@ public:
 	// display-mode radios are hidden and replaced by m_outputCombo.
 	CComboBox	m_outputCombo;
 	CObArray	m_dynAll;     // runtime-created decoration (for cleanup)
-	CButton		*m_grpDisplay, *m_grpMadvr, *m_grpCast, *m_grpPgen, *m_grpSignal, *m_grpPattern, *m_grpBlanking;
+	CButton		*m_grpDisplay, *m_grpMadvr, *m_grpCast, *m_grpPgen, *m_grpSignal, *m_grpPattern, *m_grpBlanking, *m_grpDvdo, *m_grpMuri;
 	CStatic		*m_lblOutput, *m_lblScreen, *m_lblSize, *m_lblApl, *m_lblIntensity;
 	CStatic		*m_lblXoff, *m_lblYoff, *m_lblCastDev, *m_lblRange;
 	CStatic		*m_lblOffset;
+	CStatic		*m_lblDvdoCom, *m_lblDvdoCs, *m_lblDvdoRange, *m_lblDvdoMode;
+	CStatic		*m_lblDvdoFormat, *m_lblDvdoPatCat, *m_lblDvdoPat;
 	CEdit		m_pgenReadout;
 	CButton		m_pgenSettingsBtn;
 	CButton m_pgenRefreshBtn;
+	// DVDO AVLab TPG (DISPLAY_DVDO) config controls, created programmatically.
+	CComboBox	m_dvdoComCombo, m_dvdoCsCombo, m_dvdoRangeCombo, m_dvdoModeCombo;
+	CComboBox	m_dvdoFormatCombo, m_dvdoPatCatCombo, m_dvdoPatCombo;
+	CButton		m_dvdoTestBtn, m_dvdoShowBtn, m_dvdoOffBtn, m_dvdoRefreshBtn, m_dvdoSettingsBtn;
+	CStatic		m_dvdoStatus;
+	CEdit		m_dvdoReadout;
+	// Murideo Seven-G (DISPLAY_MURIDEO) config controls, created programmatically.
+	CStatic		*m_lblMuriCom, *m_lblMuriTimingGrp, *m_lblMuriTiming, *m_lblMuriCs, *m_lblMuriPatGrp, *m_lblMuriPat, *m_lblMuriIp;
+	CComboBox	m_muriComCombo, m_muriTimingGrpCombo, m_muriTimingCombo, m_muriCsCombo, m_muriPatGrpCombo, m_muriPatCombo;
+	CEdit		m_muriIpEdit, m_muriReadout;
+	CButton		m_muriNetCheck, m_muriTestBtn, m_muriApplyBtn, m_muriShowBtn, m_muriRefreshBtn, m_muriSettingsBtn, m_muriEdidBtn;
+	CStatic		m_muriStatus;
 	BOOL m_pgenQuerying;
+	BOOL m_dvdoQuerying;
+	BOOL m_muriQuerying;
 	CBrush m_roBrush;
 	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
 
@@ -125,8 +141,32 @@ protected:
 	afx_msg void On10bitClick();
 	afx_msg void OnPgenSettings();
 	afx_msg void OnPgenRefresh();
+	afx_msg void OnDvdoTest();
+	afx_msg void OnDvdoShow();
+	afx_msg void OnDvdoOff();
+	afx_msg void OnDvdoRefresh();
+	afx_msg void OnDvdoSettings();
+	void RefreshDvdoStatus();
+	afx_msg void OnDvdoCatChange();
+	void PopulateDvdoComPorts();
+	void PopulateDvdoPatternCombo(int cat);
+	afx_msg void OnMuriTest();
+	afx_msg void OnMuriApply();
+	afx_msg void OnMuriShow();
+	afx_msg void OnMuriRefresh();
+	afx_msg void OnMuriSettings();
+	afx_msg void OnMuriEdid();
+	void RefreshMuriStatus();
+	afx_msg void OnMuriTimingGrpChange();
+	afx_msg void OnMuriPatGrpChange();
+	void PopulateMuriComPorts();
+	void PopulateMuriTimingCombo(int grp);
+	void PopulateMuriPatCombo(int grp);
+	void MuriXport(bool& useNet, CString& ip, CString& com);
 	afx_msg void OnDestroy();
 	afx_msg LRESULT OnPgenQueryDone(WPARAM, LPARAM);
+	afx_msg LRESULT OnDvdoQueryDone(WPARAM, LPARAM);
+	afx_msg LRESULT OnMuriQueryDone(WPARAM, LPARAM);
 	CFont m_glyphFont;
 	CToolTipCtrl m_pageTip;
 	virtual BOOL PreTranslateMessage(MSG* pMsg);
@@ -181,6 +221,76 @@ protected:
 	CToolTipCtrl m_tip;
 	CFont m_glyphFontBig;
 	virtual BOOL PreTranslateMessage(MSG* pMsg);
+	DECLARE_MESSAGE_MAP()
+};
+
+// Murideo Seven-G output settings, opened from the generator panel's "Settings..."
+// button. Programmatic controls over the shared IDD_PGEN_SETTINGS shell.
+class CMuriSettingsDlg : public CDialog
+{
+public:
+	CMuriSettingsDlg(CWnd* pParent = NULL);
+	enum { IDD = IDD_PGEN_SETTINGS };
+protected:
+	CStatic  m_lblIp, m_lblCom, m_lblTgrp, m_lblTiming, m_lblFmt, m_lblRange, m_lblGamut, m_lblHdr, m_lblDepth;
+	CButton  m_netCheck;
+	CEdit    m_ipEdit;
+	CComboBox m_comCombo, m_tgrpCombo, m_timingCombo, m_fmtCombo, m_rangeCombo, m_gamutCombo, m_hdrCombo, m_depthCombo;
+	CButton  m_testBtn, m_applyBtn, m_closeBtn;
+	CStatic  m_status;
+	int  ComboCsId();				// derive cat-99 colour-space id from format+range
+	void MuriXport(bool& useNet, CString& ip, CString& com);
+	void PopulateComPorts();
+	void PopulateTimingCombo(int grp);
+	void SaveToConfig();
+	virtual BOOL OnInitDialog();
+	afx_msg void OnTest();
+	afx_msg void OnApply();
+	afx_msg void OnClose2();
+	afx_msg void OnTgrpChange();
+	afx_msg void OnFmtChange();
+	afx_msg void OnNetToggle();
+	void UpdateTransportEnable();
+	DECLARE_MESSAGE_MAP()
+};
+
+// Murideo connected-sink EDID report, opened from the generator panel's "Sink EDID"
+// button. Scrollable read-only decode (General / Video / Audio) with Refresh/Copy/Close.
+class CMuriEdidDlg : public CDialog
+{
+public:
+	CMuriEdidDlg(CWnd* pParent = NULL);
+	enum { IDD = IDD_PGEN_SETTINGS };
+protected:
+	CEdit    m_readout;
+	CButton  m_refreshBtn, m_copyBtn, m_closeBtn;
+	CFont    m_mono;
+	void LoadEdid();
+	virtual BOOL OnInitDialog();
+	afx_msg void OnRefresh();
+	afx_msg void OnCopy();
+	afx_msg void OnClose2();
+	DECLARE_MESSAGE_MAP()
+};
+
+// DVDO AVLab TPG output settings, opened from the generator panel's "DVDO settings..."
+// button. Programmatic controls over the shared IDD_PGEN_SETTINGS shell (mirrors CMuriSettingsDlg).
+class CDvdoSettingsDlg : public CDialog
+{
+public:
+	CDvdoSettingsDlg(CWnd* pParent = NULL);
+	enum { IDD = IDD_PGEN_SETTINGS };
+protected:
+	CStatic   m_lblCom, m_lblRes, m_lblFmt, m_lblRange;
+	CComboBox m_comCombo, m_resCombo, m_fmtCombo, m_rangeCombo;
+	CButton   m_testBtn, m_applyBtn, m_closeBtn;
+	CStatic   m_status;
+	void PopulateComPorts();
+	void SaveToConfig();
+	virtual BOOL OnInitDialog();
+	afx_msg void OnTest();
+	afx_msg void OnApply();
+	afx_msg void OnClose2();
 	DECLARE_MESSAGE_MAP()
 };
 

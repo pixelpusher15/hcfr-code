@@ -1615,9 +1615,10 @@ void video_scale (CxImage *inImage)
 
     				if ( m_b16_235 && !bAnsiSentinel )
 					{
-						ASSERT ( R >= 16 && R <= 235 );
-						ASSERT ( G >= 16 && G <= 235 );
-						ASSERT ( B >= 16 && B <= 235 );
+						// Out-of-[16,235] channels are legitimate here (e.g. ColorChecker
+						// patches with a near-black or near-white primary, or sub-black/
+						// super-white test patterns); the conversion below clamps to
+						// [0,255], so do not ASSERT them in debug builds.
 
 
 						R = (int)(( R - 16 ) * 255 / 219 + 0.5);

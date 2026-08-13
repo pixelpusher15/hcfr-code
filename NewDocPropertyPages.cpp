@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 /////////////////////////////////////////////////////////////////////////////
 
 // NewDocPropertyPages.cpp : implementation file
@@ -82,9 +82,9 @@ END_MESSAGE_MAP()
 
 
 
-BOOL CGeneratorSelectionPropPage::OnSetActive() 
+BOOL CGeneratorSelectionPropPage::OnSetActive()
 {
-	CPropertySheetWithHelp * psheet = (CPropertySheetWithHelp*) GetParent();   
+	CPropertySheetWithHelp * psheet = (CPropertySheetWithHelp*) GetParent();
 	psheet->SetWizardButtons(PSWIZB_NEXT);
 
 	return CPropertyPageWithHelp::OnSetActive();
@@ -133,6 +133,16 @@ void CSensorSelectionPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_SENSORCHOICE_COMBO, m_sensorChoiceCtrl);
     if(m_sensorChoiceCtrl.GetCount() == 0)
     {
+        // Skip our pattern-generator serial ports (DVDO / Murideo) during meter detection -
+        // probing them stalls several seconds per port waiting for a meter reply that never
+        // comes. A generator's COM port never also hosts a meter, so this is safe.
+        std::vector<std::string> genPorts;
+        CString dvdoCom = GetConfig()->GetProfileString("GDIGenerator", "DvdoComPort", "");
+        if (!dvdoCom.IsEmpty()) genPorts.push_back((LPCSTR)dvdoCom);
+        CString muriCom = GetConfig()->GetProfileString("GDIGenerator", "MuriComPort", "");
+        if (!muriCom.IsEmpty()) genPorts.push_back((LPCSTR)muriCom);
+        ArgyllMeterWrapper::setExcludedSerialPorts(genPorts);
+
         std::string errorMessage;
         ArgyllMeterWrapper::ArgyllMeterWrappers argyllMeters = ArgyllMeterWrapper::getDetectedMeters(errorMessage);
         if(!errorMessage.empty())
@@ -174,15 +184,15 @@ BEGIN_MESSAGE_MAP(CSensorSelectionPropPage, CPropertyPageWithHelp)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
-BOOL CSensorSelectionPropPage::OnSetActive() 
+BOOL CSensorSelectionPropPage::OnSetActive()
 {
-	CPropertySheetWithHelp* psheet = (CPropertySheetWithHelp*) GetParent();   
+	CPropertySheetWithHelp* psheet = (CPropertySheetWithHelp*) GetParent();
 	psheet->SetWizardButtons(PSWIZB_BACK |PSWIZB_FINISH);
 
 	BOOL bRet = CPropertyPageWithHelp::OnSetActive();
-	
+
 	OnSelchangeSensorchoiceCombo();
-	
+
 	return bRet;
 }
 

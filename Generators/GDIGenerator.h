@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -60,6 +60,21 @@ public:										// public because of callback
 	BOOL	m_b10bitPGen;
 	BOOL	m_b10bitMadvr;
 	UINT    m_Intensity;
+	// DVDO AVLab TPG (DISPLAY_DVDO) settings, config-backed like the members above.
+	CString	m_dvdoComPort;		// e.g. "COM5"
+	int		m_dvdoCmdMode;		// 0 = auto (AA), 1 = AA (0-255), 2 = AF (%IRE)
+	int		m_dvdoColorSpace;	// 0 = RGB, 1 = YCbCr 4:4:4, 2 = YCbCr 4:2:2
+	int		m_dvdoRange;		// 0 = limited, 1 = full
+	int		m_dvdoOutputFormat;	// device format code (command 61); 0 = Auto
+	int		m_dvdoPatternCode;	// last-selected built-in pattern (command 80); 0 = Off
+	// Murideo Seven-G (DISPLAY_MURIDEO) settings, config-backed like the members above.
+	CString	m_muriComPort;		// e.g. "COM6" (serial transport)
+	CString	m_muriIp;			// e.g. "192.168.2.100" (network/HTTP transport)
+	int		m_muriUseNetwork;	// 1 = HTTP over network (verified), 0 = serial (best-effort)
+	int		m_muriTcpPort;		// raw-TCP API port for the binary protocol (colour patches)
+	int		m_muriTimingId;		// Timing/resolution id (cat 97); -1 = leave device as-is
+	int		m_muriColorSpaceId;	// Colour space id (cat 99): 0=RGB(0-255),1=RGB(16-235),2=YC444,3=YC422,4=YC420
+	int		m_muriPatternId;	// last-selected FPGA pattern (cat 98); -1 = none
 	BOOL	IsOnOtherMonitor ();
 	BOOL	m_bisInited;
 	int		m_nPat;
@@ -79,6 +94,8 @@ public:
 	virtual BOOL DisplayRGBColormadVR(const ColorRGBDisplay& aRGBColor, bool first, UINT nPattern);
 	virtual BOOL DisplayRGBColorrPI(const ColorRGBDisplay& aRGBColor, bool first, UINT nPattern);
 	virtual BOOL DisplayRGBCCast(const ColorRGBDisplay& aRGBColor, bool first, UINT nPattern);
+	virtual BOOL DisplayRGBColorDVDO(const ColorRGBDisplay& aRGBColor, bool first, UINT nPattern);
+	virtual BOOL DisplayRGBColorMurideo(const ColorRGBDisplay& aRGBColor, bool first, UINT nPattern);
 	virtual BOOL CanDisplayAnsiBWRects(); 
 	virtual BOOL CanDisplayAnimatedPatterns(BOOL isSpecialty = TRUE); 
 	virtual BOOL DisplayAnsiBWRects(BOOL bInvert);
