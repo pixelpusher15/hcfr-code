@@ -960,7 +960,21 @@ CColorReference ContainerTransportReference(const CColorReference& active)
 CColorReference SpecialModeGamutReference(const CColorReference& active)
 {
 	if (active.m_standard == HDTVa || active.m_standard == HDTVb || active.m_standard == CC6)
-		return CColorReference(HDTV);
+	{
+		// Built once, for the reason spelled out above SpecialModeReference():
+		// the constructor derives the RGB->XYZ matrix, inverts it and solves four
+		// line intersections for the secondaries, and this value never varies.
+		// AppendNewProfileMeasures reaches here once per appended patch during a
+		// live cube capture - 9261 of them at 21^3.
+		//
+		// Returned BY VALUE, unlike SpecialModeReference: that one takes no
+		// arguments, whereas this returns `active` on the ordinary path, so a
+		// reference return would dangle for any caller passing a temporary. The
+		// copy is a matrix and a string; the construction it now avoids is a
+		// matrix inversion plus four intersections.
+		static const CColorReference s_hdtv(HDTV);
+		return s_hdtv;
+	}
 	return active;
 }
 
