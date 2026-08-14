@@ -1401,6 +1401,16 @@ void CDataSetDoc::OnConfigureSensor()
             // a later config change starts clean.
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
         }
+        else if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
+        {
+            // A Bodner-corrected sensor holds its correction in the sub-gamut matrices, not
+            // m_sensorToXYZMatrix (which is identity). Re-apply those. Otherwise the branch
+            // below reads fullMatrix == identity and ApplySensorAdjustmentMatrix strips every
+            // raw-carrying measurement back to raw - silently wiping the Bodner correction on
+            // any Sensor -> Configure change.
+            m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+            m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+        }
         else
         {
             // Raw-carrying measurements recompute directly from the new full matrix
@@ -2079,6 +2089,14 @@ void CDataSetDoc::OnCalibrationManual()
 
                     m_pSensor->SetBodnerMatrices(rawMatrix, calMatrix);
                     m_pSensor->SetCalibrationMethod(CALIB_BODNER_THREEMATRIX);
+                    // Bodner keeps its correction in the sub-gamut matrices; the single sensor
+                    // matrix is unused. Reset it (and its mod) to identity so a stale matrix
+                    // left by a previous method isn't mistaken for an active single-matrix
+                    // correction - reapplied on a Configure change, or written into a training
+                    // file as if it were the correction. Save/Load/Configure all route Bodner
+                    // through GetCalibrationMethod().
+                    m_pSensor->SetSensorMatrix(Matrix::IdentityMatrix(3));
+                    m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
                     int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
                     SetModifiedFlag(TRUE);
 
@@ -2098,7 +2116,19 @@ void CDataSetDoc::OnCalibrationManual()
             {
                 // NIST = RGB method (primaries only); HCFR = FCMM + luminance
                 // scaling; FCMM_NO_LUM = FCMM chromaticity-only.
-                Matrix ConvMatrix = ComputeConversionMatrix (measures, references, white, whiteRef, calibrationMethod == CALIB_CLASSIC_NIST, calibrationMethod != CALIB_FCMM_NO_LUM );
+                //
+                // NOTE the argument order. In this manual-reference-dialog path the local
+                // names are historically inverted (John Adcock, 2012): "measures[]" holds the
+                // REFERENCE (spectro) values typed in the dialog and "references[]" holds the
+                // COLORIMETER readings. ComputeConversionMatrix(A,B) builds A->B and pairs A with
+                // WhiteTest and B with WhiteRef, and the correction is applied as
+                // corrected = M * raw_colorimeter, so M must map colorimeter -> reference. Pass
+                // the colorimeter (references[], white) as A and the reference (measures[],
+                // whiteRef) as B. This also makes A/WhiteTest and B/WhiteRef internally
+                // consistent, and matches the Bodner branch above and the reference-document
+                // calibration path. (Previously passed (measures, references, ...) = spectro ->
+                // colorimeter, the inverse - it degraded the colorimeter instead of correcting it.)
+                Matrix ConvMatrix = ComputeConversionMatrix (references, measures, white, whiteRef, calibrationMethod == CALIB_CLASSIC_NIST, calibrationMethod != CALIB_FCMM_NO_LUM );
 
                 // check that matrix is inversible
                 if ( ConvMatrix.Determinant() != 0.0 )
@@ -2528,6 +2558,11 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 
             m_pSensor->SetBodnerMatrices(rawMatrix, calMatrix);
             m_pSensor->SetCalibrationMethod(CALIB_BODNER_THREEMATRIX);
+            // Reset the (now unused) single sensor matrix so a stale matrix from a prior
+            // method isn't mistaken for an active single-matrix correction - see the matching
+            // manual-calibration path. Save/Load/Configure route Bodner via GetCalibrationMethod().
+            m_pSensor->SetSensorMatrix(Matrix::IdentityMatrix(3));
+            m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
             int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
             SetModifiedFlag(TRUE);
             bOk = TRUE;
@@ -2581,7 +2616,14 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             // so it replaces the sensor matrix; ReapplyAdjustmentMatrix applies
             // fullMatrix * raw. Without raw, keep the incremental compose.
             Matrix newMatrix = haveRaw ? ConvMatrix : ( ConvMatrix * oldMatrix );
-            m_measure.ApplySensorAdjustmentMatrix( ConvMatrix, newMatrix );
+            // Contract (Measure.h): delta = full * inverse(previousFull), previousFull = oldMatrix.
+            // Passing ConvMatrix as the delta was correct only when !haveRaw (there newMatrix =
+            // ConvMatrix * oldMatrix, so ConvMatrix == newMatrix * oldMatrix.inverse). With haveRaw,
+            // newMatrix == ConvMatrix and the delta must be ConvMatrix * oldMatrix.inverse - else
+            // legacy (no-raw) measurements get ConvMatrix composed onto a value already corrected by
+            // oldMatrix (double correction). Deriving it from newMatrix is correct in both branches.
+            Matrix deltaMatrix = newMatrix * oldMatrix.GetInverse();
+            m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, newMatrix );
             m_pSensor->SetSensorMatrix(newMatrix);
             m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
             m_pSensor->SetCalibrationMethod(calibrationMethod);
@@ -5345,7 +5387,16 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		if(page.m_sensorTrainingMode != 1)
 			m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
 		m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
-		m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
+		// LoadCalibrationFile (COneDeviceSensor::Serialize) has already restored the full
+		// correction from the training file: the calibration method plus either the single
+		// sensor matrix or the three Bodner sub-gamut matrix pairs. Recompute the stored
+		// measurements with whichever method was loaded - a Bodner training file must be
+		// re-applied through its sub-gamut matrices, not stripped back to raw by the identity
+		// single-matrix a Bodner sensor carries.
+		if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
+			m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+		else
+			m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
 		UpdateAllViews ( NULL, UPD_EVERYTHING );
 		SetModifiedFlag(TRUE);
 	}
@@ -5373,7 +5424,13 @@ void CDataSetDoc::OnUpdateCalibrationExisting(CCmdUI* pCmdUI)
 	pCmdUI -> Enable ( bHaveRef && bCleanRecompute );
 }
 
-void CDataSetDoc::OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI) 
+void CDataSetDoc::OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI)
 {
-	pCmdUI -> Enable ( m_pSensor -> IsCalibrated () == 1 );
+	// Enable when there is a correction to save: a single-matrix method (IsCalibrated()==1)
+	// or a Bodner calibration - whose correction lives in the sub-gamut matrices, so the
+	// sensor matrix is identity and IsCalibrated() reports 0. CSensor::Serialize writes the
+	// method and, for Bodner, all three sub-gamut matrix pairs, so the training file
+	// round-trips either correction.
+	pCmdUI -> Enable ( m_pSensor -> IsCalibrated () == 1
+	                || m_pSensor -> GetCalibrationMethod () == CALIB_BODNER_THREEMATRIX );
 }

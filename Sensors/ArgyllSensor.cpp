@@ -475,7 +475,12 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     // sole correction: force HCFR's own sensor matrix to identity (and drop any
     // Bodner sub-gamut matrices) so the two regimes can't double-correct.
     SetSensorMatrix(Matrix::IdentityMatrix(3));
-    SetSensorMatrixMod(Matrix::IdentityMatrix(3));
+    // Deliberately do NOT reset m_sensorToXYZMatrixMod here. OnConfigureSensor saved the
+    // pre-configure matrix into it as the baseline for un-applying the old correction from
+    // legacy (no-raw) measurements: delta = fullMatrix * SensorMatrixMod.inverse. Clearing it
+    // makes that delta identity, so those measurements silently keep the old matrix while the
+    // spectral correction is also live in the driver - double-corrected. OnConfigureSensor
+    // clears the baseline itself once the recompute is done.
     ClearBodnerMatrices();
     SetCalibrationMethod(CALIB_HCFR_DEFAULT);
     SetModifiedFlag(TRUE);

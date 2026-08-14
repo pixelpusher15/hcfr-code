@@ -1940,7 +1940,15 @@ bool CExport::SavePrimariesSheet()
 
 	if ( m_bExportStimulus )
 	{
-		// Fixed drive signals per column (order R,G,B,Y,C,M), in RGB %.
+		// Legacy fallback for measurements with no captured stimulus. The levels
+		// MeasurePrimaries actually drives depend on the transfer function and
+		// colour standard: HDR (m_GammaOffsetType==5) uses 50.22831%, HDTVa/HDTVb send
+		// fractional wire tables, and UHDTV3/UHDTV4 derive their codes from the container
+		// primaries. Reproducing those here would duplicate - and risk drifting from - the
+		// measurement tables, so emit the real drive values only for the plain standards
+		// (pure 0/100% codes) and the -1 "not available" sentinel (same convention as the
+		// Raw rows above) for the modes we don't reproduce. A wrong value would be worse
+		// than none.
 		static const float primStimRGB[6][3] =
 		{
 			{100,   0,   0},	// Red
@@ -1950,12 +1958,25 @@ bool CExport::SavePrimariesSheet()
 			{  0, 100, 100},	// Cyan
 			{100,   0, 100}		// Magenta
 		};
+		int stimMode = GetConfig()->m_GammaOffsetType;
+		int stimStd  = GetColorReference().m_standard;
+		bool stimKnown = ( stimMode != 5 && stimStd != HDTVa && stimStd != HDTVb && stimStd != UHDTV3 && stimStd != UHDTV4 );
+		// Prefer the drive stimulus captured with each measurement (exact for every mode);
+		// the table/sentinel above is only the fallback for data measured before capture.
+		CColor stimPatch[6] = {
+			m_pDoc->GetMeasure()->GetPrimary(0), m_pDoc->GetMeasure()->GetPrimary(1), m_pDoc->GetMeasure()->GetPrimary(2),
+			m_pDoc->GetMeasure()->GetSecondary(0), m_pDoc->GetMeasure()->GetSecondary(1), m_pDoc->GetMeasure()->GetSecondary(2) };
 		for (i=0; i<3; i++)
 		{
 			Rows.RemoveAll();
 			Rows.Add(legendStimRGB[i]);
 			for(j=0;j<6;j++)
-				Rows.Add((float)primStimRGB[j][i]);
+			{
+				if ( stimPatch[j].isValid() && stimPatch[j].HasStimulusValue() )
+					Rows.Add((float)stimPatch[j].GetStimulusValue()[i]);
+				else
+					Rows.Add((float)(stimKnown ? primStimRGB[j][i] : -1.0));
+			}
 			result&=primariesSS.AddRow(Rows,rowNb,m_doReplace);
 			rowNb++;
 		}
@@ -2373,6 +2394,17 @@ bool CExport::SaveCCSheet()
 		Rows.Add(legendStimRGB[2],CRowArray::floatType);
 	}
 	Rows.Add("deltaE",CRowArray::floatType);
+	// See SaveGrayScaleSheet/SavePrimariesSheet: guard against replacing into a file whose
+	// blocks were written with a different layout. Here the Raw/Stimulus options add COLUMNS
+	// (not rows), so compare the existing column count - still current until AddHeaders
+	// rewrites it just below - against the new header width. Replacing a mismatched layout
+	// rewrites the header wider but leaves measures 2..N under the old, narrower one.
+	if ( m_doReplace && m_numExistingMeasures > 0 &&
+	     (int)colorcheckerSS.GetTotalColumns() != (int)Rows.GetSize() )
+	{
+		m_errorStr = _T("Cannot replace: the selected file was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		return false;
+	}
 	result&=colorcheckerSS.AddHeaders(Rows,true);
 
 	int size;
@@ -2385,16 +2417,18 @@ bool CExport::SaveCCSheet()
         size = GetConfig()->m_CCMode==CCSG?96:GetConfig()->m_CCMode==CMS||GetConfig()->m_CCMode==CPS?19:(GetConfig()->m_CCMode==AXIS?71:24);
 
 	// Reconstruct the RGB stimulus (drive) values for each patch, using the same
-	// generator the measurement used. size mirrors the mode's patch count (the
-	// measurement read [0,size)), so the generator fills at least that many; a
-	// small margin guards any off-by-a-few. If the current CC mode isn't
-	// supported by the generator, ccStimValid stays false and a -1 sentinel is
-	// written instead.
+	// generator the measurement used. GenerateCC24Colors re-reads the pattern CSV at
+	// export time and writes up to MAX_USER_CC_PATCH_SIZE entries (or falls back to 24
+	// on a failed read) - independent of the cached `size` used below, which can be
+	// smaller or even 0. Size the buffer off the generator's own maximum, as every
+	// other caller does (Measure.cpp, Controls/TargetWnd.cpp), so it can't overflow.
+	// If the current CC mode isn't supported by the generator, ccStimValid stays false
+	// and a -1 sentinel is written instead.
 	std::vector<ColorRGBDisplay> ccStim;
 	bool ccStimValid = false;
 	if ( m_bExportStimulus )
 	{
-		ccStim.resize((size > 0 ? size : 1) + 10);
+		ccStim.resize(MAX_USER_CC_PATCH_SIZE + 10);
 		ccStimValid = ( GenerateCC24Colors(GetColorReference(), &ccStim[0], GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) != FALSE );
 	}
 
@@ -2544,8 +2578,16 @@ bool CExport::SaveCCSheet()
 
 		if ( m_bExportStimulus )
 		{
+			// Prefer the drive stimulus captured with the measurement; fall back to the
+			// generator reconstruction (ccStim) for patches measured before stimulus capture.
+			CColor ccS = m_pDoc->GetMeasure()->GetCC24Sat(i);
 			for(j=0;j<3;j++)
-				Rows.Add(ccStimValid ? (float)ccStim[i][j] : (float)-1.0);
+			{
+				if ( ccS.isValid() && ccS.HasStimulusValue() )
+					Rows.Add((float)ccS.GetStimulusValue()[j]);
+				else
+					Rows.Add(ccStimValid ? (float)ccStim[i][j] : (float)-1.0);
+			}
 		}
 
 		CColor aColor,aReference;
