@@ -330,28 +330,16 @@ BOOL CReferencesPropPage::OnInitDialog()
 	CPropertyPageWithHelp::OnInitDialog();
 
 	// TODO: Add extra initialization here
+	// The IDC_GAMMA_OFFSET_RADIO* buttons this used to enable/disable here are
+	// hidden for good by BuildRuntimeLayout below and replaced by the
+	// transfer-function dropdown, so their enable state was unobservable. The
+	// SDR-only rule those calls once expressed now lives in
+	// PopulateTransferFuncCombo, which drops PQ/HLG from the list outright.
 	if (m_colorStandard == sRGB)
 	{
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO1)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO2)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO3)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO4)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO5)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO6)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO7)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO8)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO9)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO10)->EnableWindow(FALSE);
 		m_GammaRefEdit.EnableWindow (FALSE);
 		m_eMeasuredGamma.EnableWindow (FALSE);
  		m_manualGOffset = 0.055;
-	}
-	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb)
-	{
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO6)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO8)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO9)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO10)->EnableWindow(FALSE);
 	}
 	m_GammaAvgEdit.EnableWindow(FALSE);
 	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == CC6) 
@@ -597,34 +585,16 @@ void CReferencesPropPage::OnSelchangeColorrefCombo()
 	m_bSave = TRUE;
 	UpdateData(TRUE);
 	UpdateColorSpaceValues();
+	// Radio enable/disable dropped here too - the controls are hidden for good.
+	// See OnInitDialog and PopulateTransferFuncCombo.
 	if (m_colorStandard == sRGB)
 	{
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO1)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO2)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO3)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO4)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO5)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO6)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO7)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO8)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO9)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO10)->EnableWindow(FALSE);
 		m_GammaRefEdit.EnableWindow (FALSE);
 		m_eMeasuredGamma.EnableWindow (FALSE);
  		m_manualGOffset = 0.055;
 	}
 	else
 	{
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO1)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO2)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO3)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO4)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO5)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO6)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO7)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO8)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO9)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO10)->EnableWindow(TRUE);
 		m_GammaRefEdit.EnableWindow (TRUE);
 		if (m_GammaOffsetType < 4)
 			m_eMeasuredGamma.EnableWindow (TRUE);
