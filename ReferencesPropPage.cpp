@@ -635,19 +635,16 @@ void CReferencesPropPage::OnSelchangeColorrefCombo()
 		}
 		m_manualGOffset = 0.099;
 	}
-	if ( !(m_colorStandard == UHDTV || m_colorStandard == UHDTV2 || m_colorStandard == UHDTV3 || m_colorStandard == UHDTV4 || m_colorStandard == HDTV)  )
-	{
-		int bID = GetCheckedRadioButton(IDC_GAMMA_OFFSET_RADIO6, IDC_GAMMA_OFFSET_RADIO10);
-		if (bID == IDC_GAMMA_OFFSET_RADIO6 || bID == IDC_GAMMA_OFFSET_RADIO8 || bID == IDC_GAMMA_OFFSET_RADIO9 || bID == IDC_GAMMA_OFFSET_RADIO10 )
-		{
-			m_GammaOffsetType = 4;
-			CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1,IDC_GAMMA_OFFSET_RADIO1,IDC_GAMMA_OFFSET_RADIO1);
-		}
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO6)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO8)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO9)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO10)->EnableWindow(FALSE);
-	}
+	// SDR-only standards must not keep (or be able to pick) PQ/HLG. This used to
+	// disable the PQ/HLG radio buttons, which the runtime-built page hides - see
+	// PopulateTransferFuncCombo, which now owns the whole rule and rebuilds the
+	// dropdown for the newly chosen standard.
+	//
+	// The old code also had a bug worth not reproducing: it reset the RADIO,
+	// via CheckRadioButton(RADIO1, RADIO1, RADIO1), while assigning
+	// m_GammaOffsetType = 4 - and RADIO1 is type 0, not 4 - so the radio and
+	// the variable disagreed until something re-synced them.
+	PopulateTransferFuncCombo();
 	if (m_colorStandard == CC6)
 		m_CCMode = GCD;
 	// Restore the standard's default white when the user hasn't overridden it,
@@ -811,8 +808,27 @@ static void ShowBucket(CObArray& a, BOOL show)
     }
 }
 
-// transfer-function dropdown order <-> stored m_GammaOffsetType
+// transfer-function dropdown order <-> stored m_GammaOffsetType.
+// Ordered SDR-FIRST on purpose: the two HDR entries are the TAIL of the list,
+// so a standard that may not select them just gets a shorter list and the
+// index -> type mapping below needs no second form. Do not reorder.
 static const int kComboToType[6] = { 0, 1, 4, 6, 5, 7 };
+static const UINT kComboLabel[6] =
+{
+	IDS_TF_GAMMA_POWER, IDS_TF_GAMMA_BLACKCOMP, IDS_TF_BT1886,
+	IDS_TF_LSTAR, IDS_TF_PQ, IDS_TF_HLG,
+};
+static const int kComboSDRCount = 4;	// kComboToType entries before the HDR pair
+
+// The color spaces allowed to select PQ/HLG. Original rule, from the version of
+// OnSelchangeColorrefCombo that gated the radio buttons: everything else is an
+// SDR standard. HDTVa/HDTVb especially - they are fixed Rec.709/D65 SDR pattern
+// conventions (75% and plasma), locked to a D65 white, and HDTVa's 75% white
+// anchor has no meaning under PQ.
+static bool StandardAllowsHDR ( int cs )
+{
+	return ( cs == UHDTV || cs == UHDTV2 || cs == UHDTV3 || cs == UHDTV4 || cs == HDTV );
+}
 
 static int TypeToCombo(int t)
 {
@@ -841,6 +857,45 @@ static int TypeToRadio(int t)
 }
 
 } // namespace
+
+// Fill the transfer-function dropdown for the ACTIVE color standard, offering
+// PQ/HLG only where they are legal, and coerce a stored HDR transfer function
+// that the new standard does not allow.
+//
+// This restriction is original behavior, not a new policy: OnSelchangeColorrefCombo
+// used to enforce it by disabling IDC_GAMMA_OFFSET_RADIO6/8/9/10 (HLG/PQ/DV500/
+// DV400). The runtime-built page HIDES all ten of those radios and drives the
+// transfer function from this dropdown instead, so EnableWindow(FALSE) on a
+// hidden radio enforced nothing and the dropdown offered PQ/HLG under every
+// standard. The hole was order-dependent - picking the transfer function SECOND
+// reached it, because OnSelchangeTransferFuncCombo has no guard of its own -
+// which is how HDTVa + PQ became selectable.
+void CReferencesPropPage::PopulateTransferFuncCombo()
+{
+	if ( !m_transferFuncCombo.GetSafeHwnd() )
+		return;
+
+	bool bHDROk = StandardAllowsHDR(m_colorStandard);
+
+	// Coerce BEFORE repopulating, so the selection below cannot be asked for an
+	// entry the list no longer carries. BT.1886 is the fallback the original
+	// rule used.
+	if ( !bHDROk && ( m_GammaOffsetType == 5 || m_GammaOffsetType == 7 ) )
+		m_GammaOffsetType = 4;
+	if ( !IsKnownType(m_GammaOffsetType) )
+		m_GammaOffsetType = 0;
+
+	int nShown = bHDROk ? 6 : kComboSDRCount;
+	m_transferFuncCombo.ResetContent();
+	for ( int i = 0 ; i < nShown ; i ++ )
+		m_transferFuncCombo.AddString(LS(kComboLabel[i]));
+	m_transferFuncCombo.SetCurSel(TypeToCombo(m_GammaOffsetType));
+
+	// The hidden legacy radios are still the DDX_Radio source for
+	// m_GammaOffsetType, so they have to track the dropdown - otherwise the next
+	// UpdateData(TRUE) reads a stale radio and undoes the coercion above.
+	CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
+}
 
 void CReferencesPropPage::BuildRuntimeLayout()
 {
@@ -914,16 +969,10 @@ void CReferencesPropPage::BuildRuntimeLayout()
         m_transferFuncCombo.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
             CRect(cpt.x, cpt.y, cpt.x + M.w(115), cpt.y + M.ht(120)), this, IDC_TRANSFERFUNC_COMBO);
         m_transferFuncCombo.SetFont(font);
-        m_transferFuncCombo.AddString(LS(IDS_TF_GAMMA_POWER));
-        m_transferFuncCombo.AddString(LS(IDS_TF_GAMMA_BLACKCOMP));
-        m_transferFuncCombo.AddString(LS(IDS_TF_BT1886));
-        m_transferFuncCombo.AddString(LS(IDS_TF_LSTAR));
-        m_transferFuncCombo.AddString(LS(IDS_TF_PQ));
-        m_transferFuncCombo.AddString(LS(IDS_TF_HLG));
     }
-    if (!IsKnownType(m_GammaOffsetType)) m_GammaOffsetType = 0;
-    m_transferFuncCombo.SetCurSel(TypeToCombo(m_GammaOffsetType));
-    CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
+    // Contents are standard-dependent (PQ/HLG only where legal) and carry the
+    // coercion + radio sync this used to do inline.
+    PopulateTransferFuncCombo();
 
     // Override black: common, fixed top-left for every transfer function.
     GetDlgItem(IDC_USER_BLACK)->SetWindowText(LS(IDS_REF_OVERRIDEBLACK));

@@ -150,6 +150,7 @@ protected:
 
 	void BuildRuntimeLayout();
 	void UpdateControlStates();
+	void PopulateTransferFuncCombo();
 
 };
 
