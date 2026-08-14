@@ -168,6 +168,10 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	result.SetZ(max(result.GetZ(),0.00000001));
 
 	result.SetRawXYZValue(result.GetXYZValue());
+	// Capture the drive stimulus that produced this reading, alongside the raw
+	// XYZ, so an export or a later recompute can report the exact signal sent to
+	// the display instead of reconstructing it from the pattern generator.
+	result.SetStimulusValue(aRGBValue);
 
 	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 		result.SetXYZValue(SelectAndApplyBodnerMatrix(result.GetXYZValue(), m_bodnerRawMatrix, m_bodnerCalMatrix));

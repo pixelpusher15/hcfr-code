@@ -2323,6 +2323,7 @@ CColor::CColor():m_XYZValues(1.0,3,1)
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
 }
 
 CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
@@ -2330,6 +2331,7 @@ CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
 
 	if ( aColor.m_pSpectrum )
 		m_pSpectrum = new CSpectrum ( *aColor.m_pSpectrum );
@@ -2339,6 +2341,9 @@ CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 
 	if ( aColor.m_pRawXYZValues )
 		m_pRawXYZValues = new ColorXYZ ( *aColor.m_pRawXYZValues );
+
+	if ( aColor.m_pStimulus )
+		m_pStimulus = new ColorRGBDisplay ( *aColor.m_pStimulus );
 }
 
 CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
@@ -2349,6 +2354,7 @@ CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
 }
 
 CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
@@ -2359,6 +2365,7 @@ CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
 }
 
 CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
@@ -2370,6 +2377,7 @@ CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
 }
 
 CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
@@ -2379,6 +2387,7 @@ CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
     m_pSpectrum = NULL;
     m_pLuxValue = NULL;
     m_pRawXYZValues = NULL;
+    m_pStimulus = NULL;
 
     theFile.read((char*)&version, 4);
     version = littleEndianUint32ToHost(version);
@@ -2418,6 +2427,7 @@ void CColor::ClearSpectrumLux()
 	}
 
 	ClearRawXYZValue();
+	ClearStimulusValue();
 }
 
 void CColor::SetRawXYZValue(const ColorXYZ& aRaw)
@@ -2447,6 +2457,33 @@ ColorXYZ CColor::GetRawXYZValue() const
 	return ( m_pRawXYZValues ? (*m_pRawXYZValues) : m_XYZValues );
 }
 
+void CColor::SetStimulusValue(const ColorRGBDisplay& aStimulus)
+{
+	if ( m_pStimulus )
+		delete m_pStimulus;
+
+	m_pStimulus = new ColorRGBDisplay ( aStimulus );
+}
+
+void CColor::ClearStimulusValue()
+{
+	if ( m_pStimulus )
+	{
+		delete m_pStimulus;
+		m_pStimulus = NULL;
+	}
+}
+
+bool CColor::HasStimulusValue() const
+{
+	return ( m_pStimulus != NULL );
+}
+
+ColorRGBDisplay CColor::GetStimulusValue() const
+{
+	return ( m_pStimulus ? (*m_pStimulus) : ColorRGBDisplay() );
+}
+
 CColor& CColor::operator =(const CColor& aColor)
 {
 	if(&aColor == this)
@@ -2464,6 +2501,9 @@ CColor& CColor::operator =(const CColor& aColor)
 
 	if ( aColor.m_pRawXYZValues )
 		m_pRawXYZValues = new ColorXYZ ( *aColor.m_pRawXYZValues );
+
+	if ( aColor.m_pStimulus )
+		m_pStimulus = new ColorRGBDisplay ( *aColor.m_pStimulus );
 
 	return *this;
 }
@@ -2684,11 +2724,11 @@ ostream& operator <<(ostream& ostr, const CColor& obj)
 void CColor::Serialize(CArchive& archive)
 {
 	// Base version encodes spectrum/lux presence exactly as before (1/3/5/6).
-	// A raw-XYZ value, when present, is signalled by adding 10 to that base
-	// version (11/13/15/16) and appending the raw matrix after everything
-	// else. This keeps every pre-existing file (versions 1-6, no raw data)
-	// byte-for-byte unchanged, while old code paths reading a new file just
-	// need the version check widened.
+	// Optional trailing fields are flagged in the tens digit as a bitfield: bit 0
+	// (+10) = raw XYZ, bit 1 (+20) = drive stimulus. Present fields are appended in
+	// bit order after the base payload. Base versions stay 1/3/5/6, so every
+	// pre-existing file (no optional fields) is byte-for-byte unchanged, and the
+	// earlier raw-only files (11/13/15/16) still decode as base + raw.
 	if (archive.IsStoring())
 	{
 		int version=1;
@@ -2707,6 +2747,8 @@ void CColor::Serialize(CArchive& archive)
 
 		if ( m_pRawXYZValues )
 			version += 10;
+		if ( m_pStimulus )
+			version += 20;
 
 		archive << version;
 		m_XYZValues.Serialize(archive) ;
@@ -2729,16 +2771,24 @@ void CColor::Serialize(CArchive& archive)
 
 		if ( m_pRawXYZValues )
 			m_pRawXYZValues -> Serialize(archive);
+
+		if ( m_pStimulus )
+			m_pStimulus -> Serialize(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
 
-		bool hasRaw = ( version > 10 );
-		int baseVersion = hasRaw ? ( version - 10 ) : version;
+		int baseVersion   = version % 10;
+		int optionalFlags = version / 10;
+		bool hasRaw      = ( optionalFlags & 0x1 ) != 0;
+		bool hasStimulus = ( optionalFlags & 0x2 ) != 0;
 
-		if ( baseVersion > 6 || baseVersion < 1 )
+		// Reject an unknown base version, or an unknown optional-field bit: a newer
+		// file with a trailing field this build can't skip would desync the archive
+		// stream for every object read after it.
+		if ( baseVersion > 6 || baseVersion < 1 || ( optionalFlags & ~0x3 ) )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 
 		m_XYZValues.Serialize(archive) ;
@@ -2762,6 +2812,12 @@ void CColor::Serialize(CArchive& archive)
 		{
 			delete m_pRawXYZValues;
 			m_pRawXYZValues = NULL;
+		}
+
+		if ( m_pStimulus )
+		{
+			delete m_pStimulus;
+			m_pStimulus = NULL;
 		}
 
 		if ( baseVersion == 2 || baseVersion == 4 || baseVersion == 5 || baseVersion == 6 )
@@ -2795,6 +2851,12 @@ void CColor::Serialize(CArchive& archive)
 		{
 			m_pRawXYZValues = new ColorXYZ ( Matrix(0.0,3,1) );
 			m_pRawXYZValues -> Serialize(archive);
+		}
+
+		if ( hasStimulus )
+		{
+			m_pStimulus = new ColorRGBDisplay ( 0.0, 0.0, 0.0 );
+			m_pStimulus -> Serialize(archive);
 		}
 	}
 }

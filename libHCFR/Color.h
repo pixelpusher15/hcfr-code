@@ -309,6 +309,14 @@ public:
 	bool HasRawXYZValue() const;
 	ColorXYZ GetRawXYZValue() const;
 
+	// Drive stimulus (RGB %) that produced this reading, captured at measure time
+	// alongside the raw XYZ. Lets an export or a later recompute report the exact
+	// signal sent to the display rather than reconstructing it from the generator.
+	void SetStimulusValue(const ColorRGBDisplay& aStimulus);
+	void ClearStimulusValue();
+	bool HasStimulusValue() const;
+	ColorRGBDisplay GetStimulusValue() const;
+
     void Output(ostream& ostr) const;
 
 #ifdef LIBHCFR_HAS_MFC
@@ -320,6 +328,7 @@ protected:
 	CSpectrum *	m_pSpectrum;
 	double *	m_pLuxValue;
 	ColorXYZ *	m_pRawXYZValues;
+	ColorRGBDisplay *	m_pStimulus;
 };
 
 class CSpectrum: public Matrix
