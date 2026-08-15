@@ -7855,39 +7855,35 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 	sRef[0].SetxyYValue(ColorxyY(0.419314,0.505251));
 	sRef[1].SetxyYValue(ColorxyY(0.224650,0.328741));
 	sRef[2].SetxyYValue(ColorxyY(0.320913, 0.154177));
-	CColor p3Ref[3];
-	p3Ref[0].SetxyYValue(ColorxyY(0.6800, 0.3200));
-	p3Ref[1].SetxyYValue(ColorxyY(0.265, 0.690));
-	p3Ref[2].SetxyYValue(ColorxyY(0.150, 0.06));
-	CColor p3sRef[3];
-	p3sRef[0].SetxyYValue(ColorxyY(0.437849,0.535894));
-	p3sRef[1].SetxyYValue(ColorxyY(0.199611, 0.331782));				
-	p3sRef[2].SetxyYValue(ColorxyY(0.336194, 0.151341));
-	CColor rRef[3];
-	rRef[0].SetxyYValue(ColorxyY(0.64,	0.33));
-	rRef[1].SetxyYValue(ColorxyY(0.30, 0.60));
-	rRef[2].SetxyYValue(ColorxyY(0.150, 0.06));
-	CColor rsRef[3];
-	rsRef[0].SetxyYValue(ColorxyY(0.419314,0.505251));
-	rsRef[1].SetxyYValue(ColorxyY(0.224650, 0.328741));				
-	rsRef[2].SetxyYValue(ColorxyY(0.320913, 0.154177));
 	int m_cRef=GetColorReference().m_standard;
-	//display rec709 sat points in special colorspace modes	
+	//display rec709 sat points in special colorspace modes
 	if (!special)
 	{
-		if (m_cRef == UHDTV3)
+		if (m_cRef == UHDTV3 || m_cRef == UHDTV4)
 		{
-			if ( i < 3 )
-				refColor = p3Ref[i];
-			else
-				refColor = p3sRef[i-3];
-		}
-		else if (m_cRef == UHDTV4)
-		{
-			if ( i < 3 )
-				refColor = rRef[i];
-			else
-				refColor = rsRef[i-3];
+			// UHDTV3/UHDTV4 are containers: the sweep runs from the active
+			// white out to the INNER gamut's corner (P3 inside 2020, Rec.709
+			// inside 2020). Take that corner from ContainerInnerReference -
+			// exactly the reference GenerateSaturationColors builds the wire
+			// patches from via ContainerPrimaryLinear - so the two sides share
+			// one definition. These endpoints used to be hardcoded xy tables
+			// (p3Ref/p3sRef/rRef/rsRef) evaluated at D65: the primaries are
+			// white-independent so they were merely duplicated, but the
+			// secondaries are white-point MIXTURES (see UpdateSecondary) and
+			// so were wrong under any custom white.
+			//
+			// GetRefPrimary/GetRefSecondary route these two standards BACK
+			// through here (GetRefSat(i, 1.0)), so this must not call them.
+			CColorReference inner = ContainerInnerReference(GetColorReference());
+			switch (i)
+			{
+				case 0:	refColor.SetXYZValue(inner.GetRed());		break;
+				case 1:	refColor.SetXYZValue(inner.GetGreen());		break;
+				case 2:	refColor.SetXYZValue(inner.GetBlue());		break;
+				case 3:	refColor.SetXYZValue(inner.GetYellow());	break;
+				case 4:	refColor.SetXYZValue(inner.GetCyan());		break;
+				case 5:	refColor.SetXYZValue(inner.GetMagenta());	break;
+			}
 		}
 		else
 		{

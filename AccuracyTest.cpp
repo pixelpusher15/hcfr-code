@@ -254,20 +254,11 @@ struct KnownFail
 // the observed max) with headroom, tight enough to still catch a regression.
 static const KnownFail kKnownFails[] =
 {
-	// GetRefSat's UHDTV3/UHDTV4 sweep endpoints come from hardcoded xy tables
-	// (p3Ref/p3sRef/rRef/rsRef, Measure.cpp ~6955-6977). The secondary
-	// entries are white-point mixtures evaluated AT D65, so under any custom
-	// white the reference endpoints no longer match the wire patches built
-	// from ContainerPrimaryLinear (which follows the active white).
-	// GetRefPrimary/GetRefSecondary for these pseudo-spaces route through
-	// GetRefSat(i, 1.0), so the primaries family inherits the same skew.
-	// (observed worst ~8 dE)
-	{ UHDTV3, 999, -1, FAM_PRIM,   GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV3, 999, -1, FAM_SAT100, GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV3, 999, -1, FAM_SAT75,  GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV4, 999, -1, FAM_PRIM,   GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
-	{ UHDTV4, 999, -1, FAM_SAT100, GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
-	{ UHDTV4, 999, -1, FAM_SAT75,  GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
+	// (UHDTV3/UHDTV4 under custom whites used to be known-failed here:
+	// GetRefSat's sweep endpoints were hardcoded xy tables evaluated at D65
+	// whose secondary entries are white-point mixtures. GetRefSat now takes
+	// those endpoints from ContainerInnerReference, the same reference the
+	// wire is built from, so they follow the active white and pass.)
 	// HDTVa/HDTVb under custom whites: the wire tables, the pRef/sRef
 	// reference endpoints, the simulated sensor's decode space and the dE
 	// space are all fixed Rec.709/D65 constructions, while the gray/sat
@@ -1240,11 +1231,22 @@ static double TolFor ( const Combo & c, int fam )
 		// segment) leave a real residual; it is bounded and level-dependent,
 		// not a modeling error. Measured residual ceilings across the full
 		// matrix: pure power law ~0.8 (8-bit dark saturation steps, where a
-		// one-code snap difference moves chroma most; the UHDTV3/4
-		// transport-space encode adds a second quantization), BT.1886/L*/
+		// one-code snap difference moves chroma most), BT.1886/L*/
 		// sRGB ~1.2 (their toes amplify the same one-code difference).
+		//
+		// UHDTV3/UHDTV4 take the wider ceiling at EVERY EOTF: their
+		// transport-space encode quantizes a SECOND time (inner gamut ->
+		// 2020 transport), so the dimmed residual tracks CODE DENSITY rather
+		// than the transfer function's toe. Measured across the full matrix
+		// on the custom whites - only scorable since GetRefSat's endpoints
+		// stopped being hardcoded at D65 - worst 1.350 on 8b-full, 1.169 on
+		// 8b-lim, 0.929 and 0.893 on the two 10-bit grids. The same patch
+		// (UHDTV3 DCI 8b-full, blue sat 25%) reads 1.059 under Power2.2 and
+		// 1.052 under BT.1886: one residual, and only the bucket differed -
+		// which is what made the 0.9 power-law ceiling the wrong one here.
 		if ( fam == FAM_PRIM || fam == FAM_SAT100 || fam == FAM_SAT75 )
-			return ( c.eotf == 0 && c.std != sRGB ) ? 0.9 : 1.5;
+			return ( c.eotf == 0 && c.std != sRGB
+					 && c.std != UHDTV3 && c.std != UHDTV4 ) ? 0.9 : 1.5;
 	}
 	return 0.05;
 }

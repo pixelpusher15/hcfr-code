@@ -45,7 +45,8 @@ those are the branchy axes.
 
 The subset must keep **every `kKnownFails` entry reachable**, or the stale-entry
 sweep turns `quick` into a permanent exit 1. Four things depend on the current
-choice: xyCust covers the custom-white entries, 8b-lim the PQ half-code tie,
+choice: xyCust covers the HDTVa/HDTVb custom-white entries, 8b-lim the PQ
+half-code tie,
 8b-full the full-range gray gap — and 8b-lim is *also* the last limited-range
 grid, which the entire manual-generator pass is gated on, while D65 is *also*
 load-bearing for the HDTVa/b HDR primaries entries. Drop either and seven DVD
@@ -282,10 +283,6 @@ Kept in `kKnownFails` in `AccuracyTest.cpp`, each with the code-level reason
 and (where relevant) a grid filter. An entry that never fires across a whole
 run is reported as STALE. Current entries (expected, pre-existing):
 
-- **UHDTV3/UHDTV4 with custom whites** (`prim`, `sat*`): `GetRefSat`'s sweep
-  endpoints are hardcoded D65 xy tables (`p3Ref`/`p3sRef`/`rRef`/`rsRef`,
-  Measure.cpp ~6955-6977), while the wire patches follow the active white via
-  `ContainerPrimaryLinear`.
 - **HDTVa/HDTVb with custom whites** (`gray`, `prim`, `sat*`): the wire
   tables, `pRef`/`sRef` endpoints, the simulated sensor's decode space and
   the dE space are all fixed Rec.709/D65 constructions, while gray/sat
@@ -457,10 +454,31 @@ agree), and the gaps below are mostly places their reach stops.
    compare `ComputeProfileDE` against the same pane emulation the `conv*`
    families use.
 
-Reference result (2026-07-26): `834 combos: 333 pass, 0 FAIL, 501 known-fail`,
-ColorMathTest verify green with no golden movement. (Was `708 combos: 311 pass,
-0 FAIL, 397 known-fail` before this work: +84 tone-mapped 700-nit combos and +84
-manual-generator combos (limited-range grids only), the latter all landing in
-the new DVD known-fail.
+Reference result (2026-08-13): `834 combos: 441 pass, 0 FAIL, 393 known-fail`,
+ColorMathTest verify green with no golden movement.
+
+Was `834 combos: 333 pass, 0 FAIL, 501 known-fail` (2026-07-26) before
+`GetRefSat` stopped taking its UHDTV3/UHDTV4 sweep endpoints from xy tables
+hardcoded at D65 and started taking them from `ContainerInnerReference` — the
+same reference the wire is built from. That moved **exactly 160 rows**, all of
+them UHDTV3/UHDTV4 at DCI or xyCust (40 each), and **zero D65 rows**: the old
+tables were the correct D65 values, so the change is a no-op there by
+construction. 108 combos went known-fail -> pass and the six
+UHDTV3/UHDTV4-custom-white entries left `kKnownFails`. At full stimulus every
+one of those rows now reads exactly `0.000` on `prim`/`sat100`/`sat75`.
+
+The one combo that did not fall straight under tolerance (UHDTV3 Power2.2 DCI
+8b-full 90%, `sat100` 1.059) turned out to be the dimmed-combo quantization
+residual, not a reference error: the identical patch reads 1.052 under BT.1886,
+where only the tolerance bucket differs, and the residual tracks code density
+(1.350 8b-full / 1.169 8b-lim / 0.929 10b-lim / 0.893 10b-full) rather than the
+transfer function. `TolFor` now puts UHDTV3/UHDTV4 in the same 1.5 dimmed
+bucket as the toe EOTFs, for the reason its own comment already predicted —
+their transport-space encode quantizes a second time. That ceiling was only
+ever calibrated on rows these six entries had been masking.
+
+(Was `708 combos: 311 pass, 0 FAIL, 397 known-fail` before that: +84
+tone-mapped 700-nit combos and +84 manual-generator combos (limited-range grids
+only), the latter all landing in the new DVD known-fail.
 On the GDI half the three convention families read 0.000 across the whole
 matrix.)
