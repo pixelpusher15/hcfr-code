@@ -1778,6 +1778,10 @@
 #define IDS_TF_LSTAR                  59437
 #define IDS_TF_PQ                     59438
 #define IDS_TF_HLG                    59439
+// Shown INSTEAD of the six selectable entries when the color standard is sRGB,
+// which mandates its own transfer function (getL_EOTF mode 99) - kept with its
+// siblings rather than in numeric order.
+#define IDS_TF_SRGB                   59630
 #define IDS_STD_PALSECAM                    59440
 #define IDS_STD_SDTV                        59441
 #define IDS_STD_REC709                      59442

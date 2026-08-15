@@ -845,6 +845,22 @@ void CReferencesPropPage::PopulateTransferFuncCombo()
 	if ( !m_transferFuncCombo.GetSafeHwnd() )
 		return;
 
+	// sRGB mandates its own transfer function: every consumer forces getL_EOTF
+	// mode 99 when m_colorStandard == sRGB (~20 sites) and ignores
+	// m_GammaOffsetType entirely. Offer exactly that one entry, so the
+	// (disabled) dropdown names the curve actually in force instead of
+	// whichever transfer function happened to be selected beforehand.
+	// m_GammaOffsetType is deliberately left ALONE here - it is unused under
+	// sRGB, and preserving it restores the user's choice when they select a
+	// standard that honours it again.
+	if ( m_colorStandard == sRGB )
+	{
+		m_transferFuncCombo.ResetContent();
+		m_transferFuncCombo.AddString(LS(IDS_TF_SRGB));
+		m_transferFuncCombo.SetCurSel(0);
+		return;
+	}
+
 	bool bHDROk = StandardAllowsHDR(m_colorStandard);
 
 	// Coerce BEFORE repopulating, so the selection below cannot be asked for an
@@ -1027,13 +1043,18 @@ void CReferencesPropPage::BuildRuntimeLayout()
 void CReferencesPropPage::UpdateControlStates()
 {
     int t = m_GammaOffsetType;
-    BOOL isPower   = (t == 0 || t == 1);
-    BOOL isBT1886  = (t == 4);
-    BOOL isLstar   = (t == 6);
-    BOOL isPQ      = (t == 5);
-    BOOL isHLG     = (t == 7);
-    BOOL isHDR     = (isPQ || isHLG);
+    // sRGB overrides m_GammaOffsetType outright (getL_EOTF mode 99), so NONE of
+    // the per-transfer-function parameter panels apply - gate all five here
+    // rather than at each use. Without this, arriving at sRGB from BT.1886 left
+    // its Rel/Split fields on screen and editable, advertising parameters that
+    // no longer feed anything; only the power-law gamma edits were ever guarded.
     BOOL isSRGB    = (m_colorStandard == sRGB);
+    BOOL isPower   = !isSRGB && (t == 0 || t == 1);
+    BOOL isBT1886  = !isSRGB && (t == 4);
+    BOOL isLstar   = !isSRGB && (t == 6);
+    BOOL isPQ      = !isSRGB && (t == 5);
+    BOOL isHLG     = !isSRGB && (t == 7);
+    BOOL isHDR     = (isPQ || isHLG);
     BOOL useMeas   = m_useMeasuredGamma;
     BOOL toneMap   = m_useToneMap;
     BOOL manual    = m_bOverRideTargs;
@@ -1060,9 +1081,11 @@ void CReferencesPropPage::UpdateControlStates()
     ShowIds(this, gAvgId, 1, isPower && useMeas);
     static const UINT measId[] = { IDC_USE_MEASURED_GAMMA };
     ShowIds(this, measId, 1, isPower);
-    m_GammaRefEdit.EnableWindow(isPower && !useMeas && !isSRGB);
+    // isPower already excludes sRGB (see above), so the old && !isSRGB here is
+    // now redundant.
+    m_GammaRefEdit.EnableWindow(isPower && !useMeas);
     m_GammaAvgEdit.EnableWindow(FALSE);
-    m_eMeasuredGamma.EnableWindow(isPower && !isSRGB);
+    m_eMeasuredGamma.EnableWindow(isPower);
 
     static const UINT btIds[] = { IDC_EDIT_GAMMA_REL, IDC_EDIT_SPLIT };
     ShowIds(this, btIds, 2, isBT1886);
@@ -1136,6 +1159,11 @@ void CReferencesPropPage::OnSelchangeTransferFuncCombo()
 {
     int sel = m_transferFuncCombo.GetCurSel();
     if (sel < 0) return;
+    // Under sRGB the list holds the single locked "sRGB" entry, which maps to no
+    // kComboToType slot - taking sel 0 there would silently rewrite
+    // m_GammaOffsetType to 0 and lose the user's stored choice. The control is
+    // disabled in that state, so this is belt and braces.
+    if (m_colorStandard == sRGB) return;
     m_GammaOffsetType = kComboToType[sel];
     CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
     m_isModified = TRUE;
