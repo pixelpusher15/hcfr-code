@@ -38,16 +38,30 @@ static char THIS_FILE[] = __FILE__;
 // Cube presets: dyadically nested 5/9/17 plus the odd extras; every N is odd so
 // the 50% point exists on each axis. 21^3 with extras stays under
 // MAX_USER_CC_PATCH_SIZE (10000).
-static const struct { int cubeN; const char * name; } kPresets[5] =
+static const struct { int cubeN; UINT nameId; } kPresets[5] =
 {
-	{ 5,  "Quick"     },
-	{ 9,  "Standard"  },
-	{ 11, "Fine"      },
-	{ 17, "Reference" },
-	{ 21, "Maximum"   },
+	{ 5,  IDS_PP_PRESET_QUICK     },
+	{ 9,  IDS_PP_PRESET_STANDARD  },
+	{ 11, IDS_PP_PRESET_FINE      },
+	{ 17, IDS_PP_PRESET_REFERENCE },
+	{ 21, IDS_PP_PRESET_MAXIMUM   },
 };
 
-static const char * kRegionNames[4] = { "Gray axis", "Near black", "Low saturation", "High saturation" };
+// Colour-area rows: the neutral axis first, then the hue circle from red.
+// The English "Gray" matches the spelling the rest of the UI already uses
+// (grayscale mode, the measures grid) rather than introducing a second one.
+static const UINT kAreaFamIds[7] = { IDS_PP_FAM_GRAY, IDS_PP_FAM_RED, IDS_PP_FAM_YELLOW,
+									 IDS_PP_FAM_GREEN, IDS_PP_FAM_CYAN, IDS_PP_FAM_BLUE,
+									 IDS_PP_FAM_MAGENTA };
+
+// Every visible string in this pane comes from the string table, so all five
+// satellite DLLs carry a translation (CLAUDE.md: localize in the same change).
+static CString S(UINT id)
+{
+	CString s;
+	s.LoadString( id );
+	return s;
+}
 
 // child-control ids (checkboxes)
 #define IDC_PP_GRAYEXTRAS	1
@@ -80,6 +94,7 @@ CProfilePane::CProfilePane()
 	, m_runMaxDE(0.0)
 	, m_runDECount(0)
 	, m_statsValid(false)
+	, m_filterFam(-1)
 	, m_hot(HOT_NONE)
 	, m_pressed(HOT_NONE)
 	, m_trackingMouse(false)
@@ -98,6 +113,7 @@ CProfilePane::CProfilePane()
 	for ( int i = 0; i < 5; i++ ) m_rcPresets[i].SetRectEmpty();
 	m_rcStart.SetRectEmpty(); m_rcPause.SetRectEmpty(); m_rcStop.SetRectEmpty();
 	m_rcRefs.SetRectEmpty(); m_rcCtx.SetRectEmpty(); m_rcClear.SetRectEmpty();
+	m_rcFilterChip.SetRectEmpty();
 }
 
 CProfilePane::~CProfilePane()
@@ -121,9 +137,9 @@ BOOL CProfilePane::Create(const CRect & rc, CWnd * pParent, UINT nID)
 
 	// standard Windows checkboxes as real child controls
 	CRect rcInit( 0, 0, 10, 10 );
-	m_chkGrayExtras.Create( "Extra gray-axis and near-black samples",
+	m_chkGrayExtras.Create( S( IDS_PP_CHK_GRAYEXTRAS ),
 							WS_CHILD | BS_AUTOCHECKBOX, rcInit, this, IDC_PP_GRAYEXTRAS );
-	m_chkDriftComp.Create( "Drift compensation (re-measures white every 64 patches)",
+	m_chkDriftComp.Create( S( IDS_PP_CHK_DRIFTCOMP ),
 						   WS_CHILD | BS_AUTOCHECKBOX, rcInit, this, IDC_PP_DRIFTCOMP );
 	CFont * pFont = pParent->GetFont();
 	if ( pFont )
@@ -211,6 +227,9 @@ void CProfilePane::RefreshState()
 	CMeasure * pMeasure = Measure();
 	m_state = ( pMeasure && pMeasure->HasProfileMeasures() ) ? PS_SUMMARY : PS_SETUP;
 	InvalidateStats();
+	// the data underneath changed; a filter carried over from the previous capture
+	// would silently hide most of the new one
+	m_filterFam = -1;
 	SyncChildren();
 	if ( ::IsWindow( m_hWnd ) )
 		Invalidate( FALSE );
@@ -252,18 +271,6 @@ void CProfilePane::SetPaused(BOOL b)
 		Invalidate( FALSE );
 		UpdateWindow();
 	}
-}
-
-double CProfilePane::WhiteYForDE() const
-{
-	CMeasure * pMeasure = Measure();
-	if ( !pMeasure )
-		return 0.0;
-	// mirror the grid / 3D-view convention: prime white if valid, else on/off white
-	CColor w = pMeasure->GetPrimeWhite();
-	if ( !w.isValid() )
-		w = pMeasure->GetOnOffWhite();
-	return w.isValid() ? w.GetY() : 0.0;
 }
 
 double CProfilePane::PatchDE(int i) const
@@ -423,9 +430,9 @@ static CString FormatDuration(double secs)
 {
 	CString s;
 	if ( secs < 3600.0 )
-		s.Format( "~%d min", max( 1, (int)( secs / 60.0 + 0.5 ) ) );
+		s.Format( S( IDS_PP_MINUTES ), max( 1, (int)( secs / 60.0 + 0.5 ) ) );
 	else
-		s.Format( "~%.1f hr", secs / 3600.0 );
+		s.Format( S( IDS_PP_HOURS ), secs / 3600.0 );
 	return s;
 }
 
@@ -544,6 +551,20 @@ static void DrawStr(Gdiplus::Graphics & g, const CString & s, Gdiplus::Font & f,
 	sf.SetTrimming( Gdiplus::StringTrimmingEllipsisCharacter );
 	CStringW wide( s );
 	g.DrawString( wide, -1, &f, rc, &sf, &br );
+}
+
+// Dismiss mark as two crossed lines, not a font glyph -- the same reasoning as
+// DrawMediaShape further down: exact centring on a point, no dependency on Segoe
+// Fluent Icons being installed, and no MBCS codepoint round-trip. The Fluent
+// glyph also rendered visibly high, since its em box is not centred on the mark.
+static void DrawCloseMark(Gdiplus::Graphics & g, int cx, int cy, int s, const Gdiplus::Color & clr)
+{
+	Gdiplus::Pen pen( clr, max( 1.0f, (float)s / 7.0f ) );
+	pen.SetStartCap( Gdiplus::LineCapRound );
+	pen.SetEndCap( Gdiplus::LineCapRound );
+	float h = (float)s / 2.0f;
+	g.DrawLine( &pen, (float)cx - h, (float)cy - h, (float)cx + h, (float)cy + h );
+	g.DrawLine( &pen, (float)cx - h, (float)cy + h, (float)cx + h, (float)cy - h );
 }
 
 static void DrawButton(Gdiplus::Graphics & g, const CRect & rc, const CString & label,
@@ -697,7 +718,9 @@ void CProfilePane::OnPaint()
 	for ( i = 0; i < 5; i++ ) m_rcPresets[i].SetRectEmpty();
 	m_rcStart.SetRectEmpty(); m_rcPause.SetRectEmpty(); m_rcStop.SetRectEmpty();
 	m_rcRefs.SetRectEmpty(); m_rcCtx.SetRectEmpty(); m_rcClear.SetRectEmpty();
+	m_rcFilterChip.SetRectEmpty();
 	m_rcWorstRows.clear();
+	m_rcAreaHits.clear();
 
 	// The chrome status line shows the summary count, so stats must be current
 	// BEFORE PaintChrome (PaintSummary would otherwise compute them afterwards,
@@ -741,17 +764,17 @@ CString CProfilePane::StatusLine() const
 	switch ( m_state )
 	{
 		case PS_SETUP:
-			s = "Measure an RGB cube grid to characterize this display";
+			s = S( IDS_PP_SETUPSTATUS );
 			break;
 
 		case PS_RUNNING:
 			if ( pMeasure )
 			{
 				int n = pMeasure->GetProfileCubeSize();
-				s.Format( "Profiling %dx%dx%d%s%s%s", n, n, n,
-						  pMeasure->GetProfileGrayExtras() ? " + gray/near-black" : "",
-						  m_driftComp ? ", drift compensation on" : "",
-						  m_paused ? "   -   PAUSED" : "" );
+				s.Format( S( IDS_PP_RUNSTATUS ), n, n, n,
+						  (LPCTSTR)( pMeasure->GetProfileGrayExtras() ? S( IDS_PP_GRAYNEARBLACK ) : CString() ),
+						  (LPCTSTR)( m_driftComp ? S( IDS_PP_DRIFTCOMPON ) : CString() ),
+						  (LPCTSTR)( m_paused ? S( IDS_PP_PAUSED ) : CString() ) );
 			}
 			break;
 
@@ -759,11 +782,23 @@ CString CProfilePane::StatusLine() const
 			if ( pMeasure )
 			{
 				int n = pMeasure->GetProfileCubeSize();
-				s.Format( "%dx%dx%d%s   -   %d of %d patches   -   %s%s", n, n, n,
-						  pMeasure->GetProfileGrayExtras() ? " + gray/near-black" : "",
+				// Report the drift that was actually MEASURED rather than just that
+				// the option was on. The anchors are serialized with the capture, so
+				// this still reads correctly on a reloaded document.
+				CString drift;
+				if ( pMeasure->GetProfileDriftComp() )
+				{
+					double d = ProfileWhiteDrift();
+					if ( d != 0.0 )
+						drift.Format( S( IDS_PP_WHITEDRIFT ), d * 100.0 );
+					else
+						drift = S( IDS_PP_DRIFTCOMPSHORT );
+				}
+				s.Format( S( IDS_PP_SUMSTATUS ), n, n, n,
+						  (LPCTSTR)( pMeasure->GetProfileGrayExtras() ? S( IDS_PP_GRAYNEARBLACK ) : CString() ),
 						  m_stats.count, pMeasure->GetProfileMeasureSize(),
 						  (LPCTSTR)FormatDuration( pMeasure->GetProfileCaptureSeconds() ),
-						  pMeasure->GetProfileDriftComp() ? "   -   Drift comp on" : "" );
+						  (LPCTSTR)drift );
 			}
 			break;
 	}
@@ -790,7 +825,7 @@ void CProfilePane::PaintChrome(Gdiplus::Graphics & g, const CRect & client, bool
 	int padX    = GetConfig()->Scale( 10 );			// horizontal padding inside each chrome button
 
 	// title, left-aligned with the body content (pad), centred on the chrome row
-	DrawStr( g, "Display profile", fTitle,
+	DrawStr( g, S( IDS_PP_TITLE ), fTitle,
 			 Gdiplus::RectF( (float)pad, (float)top, (float)titleW, (float)btnH ),
 			 t.text, Gdiplus::StringAlignmentNear, Gdiplus::StringAlignmentCenter );
 
@@ -802,17 +837,18 @@ void CProfilePane::PaintChrome(Gdiplus::Graphics & g, const CRect & client, bool
 		m_hRefIcon = HCFR_LoadPngHIcon( _T("toolbar"), _T("references"), dark, iconSz, iconSz );
 		m_refIconDark = dark;
 	}
-	int refsW = ContentButtonWidth( g, "References...", fBtn, iconSz, padX );
+	CString refsLbl = S( IDS_PP_REFS );
+	int refsW = ContentButtonWidth( g, refsLbl, fBtn, iconSz, padX );
 	m_rcRefs = CRect( client.right - pad - refsW, top, client.right - pad, top + btnH );
-	DrawIconButton( g, m_rcRefs, "References...", fBtn, m_hRefIcon, 0, NULL, iconSz,
+	DrawIconButton( g, m_rcRefs, refsLbl, fBtn, m_hRefIcon, 0, NULL, iconSz,
 					m_hot == HOT_REFS ? t.cardHot : t.card, t.text, t.btnBorder );
 
 	// per-state context button to the left of References, width fitted to its label
 	m_ctxLabel.Empty();
 	if ( m_state == PS_SUMMARY )
-		m_ctxLabel = "New profile...";
+		m_ctxLabel = S( IDS_PP_NEWPROFILE );
 	else if ( m_state == PS_SETUP && Measure() && Measure()->HasProfileMeasures() )
-		m_ctxLabel = "Back to summary";
+		m_ctxLabel = S( IDS_PP_BACKTOSUMMARY );
 
 	int statusRight = m_rcRefs.left - GetConfig()->Scale( 12 );
 	if ( !m_ctxLabel.IsEmpty() )
@@ -830,10 +866,11 @@ void CProfilePane::PaintChrome(Gdiplus::Graphics & g, const CRect & client, bool
 	// Delete button (summary only) discards the captured profile from the document
 	if ( m_state == PS_SUMMARY && !m_rcCtx.IsRectEmpty() )
 	{
-		int delW = ContentButtonWidth( g, "Delete", fBtn, iconSz, padX );
+		CString delLbl = S( IDS_PP_DELETE );
+			int delW = ContentButtonWidth( g, delLbl, fBtn, iconSz, padX );
 		m_rcClear = CRect( m_rcCtx.left - GetConfig()->Scale( 8 ) - delW, top,
 						   m_rcCtx.left - GetConfig()->Scale( 8 ), top + btnH );
-		DrawIconButton( g, m_rcClear, "Delete", fBtn, NULL, (wchar_t)0xE74D, &fGlyph, iconSz,	// Fluent "Delete"
+		DrawIconButton( g, m_rcClear, delLbl, fBtn, NULL, (wchar_t)0xE74D, &fGlyph, iconSz,	// Fluent "Delete"
 						m_hot == HOT_CLEAR ? t.cardHot : t.card, t.danger, t.btnBorder );
 		statusRight = m_rcClear.left - GetConfig()->Scale( 12 );
 	}
@@ -876,9 +913,9 @@ void CProfilePane::PaintSetup(Gdiplus::Graphics & g, const CRect & rc, bool dark
 
 		int patches = PatchCountFor( p );
 		CString line1, line2, line3;
-		line1 = kPresets[p].name;
-		line2.Format( "%dx%dx%d cube", kPresets[p].cubeN, kPresets[p].cubeN, kPresets[p].cubeN );
-		line3.Format( "%d patches  -  %s", patches, (LPCTSTR)FormatDuration( EstimateSeconds( patches ) ) );
+		line1 = S( kPresets[p].nameId );
+		line2.Format( S( IDS_PP_CUBEFMT ), kPresets[p].cubeN, kPresets[p].cubeN, kPresets[p].cubeN );
+		line3.Format( S( IDS_PP_PATCHESTIME ), patches, (LPCTSTR)FormatDuration( EstimateSeconds( patches ) ) );
 		int tx = rcCard.left + GetConfig()->Scale( 12 );
 		int tw = rcCard.Width() - GetConfig()->Scale( 24 );
 		DrawStr( g, line1, fTitle, Gdiplus::RectF( (float)tx, (float)( y + GetConfig()->Scale( 8 ) ), (float)tw, 24.0f ), t.text );
@@ -896,15 +933,15 @@ void CProfilePane::PaintSetup(Gdiplus::Graphics & g, const CRect & rc, bool dark
 	Gdiplus::Font fGlyph( L"Segoe Fluent Icons", 9.0f );
 	int btnW = GetConfig()->Scale( 130 ), btnH = GetConfig()->Scale( 32 );
 	m_rcStart = CRect( CW - btnW, CH - btnH, CW, CH );
-	DrawIconButton( g, m_rcStart, "Start profile", fBody, NULL, (wchar_t)0xE768, &fGlyph,	// Fluent "Play"
+	DrawIconButton( g, m_rcStart, S( IDS_PP_STARTPROFILE ), fBody, NULL, (wchar_t)0xE768, &fGlyph,	// Fluent "Play"
 					GetConfig()->Scale( 14 ),
 					m_hot == HOT_START ? t.btnFaceHot : t.btnFace, t.btnText, t.borderSel );
 
 	int patches = PatchCountFor( m_preset );
 	CString help;
-	help.Format( "%d patches  -  %s", patches, (LPCTSTR)FormatDuration( EstimateSeconds( patches ) ) );
+	help.Format( S( IDS_PP_PATCHESTIME ), patches, (LPCTSTR)FormatDuration( EstimateSeconds( patches ) ) );
 	if ( hasOld )
-		help += "   (replaces the existing capture)";
+		help += S( IDS_PP_REPLACESEXISTING );
 	int helpLeft = CW / 2 + GetConfig()->Scale( 10 );
 	int helpRight = m_rcStart.left - GetConfig()->Scale( 12 );
 	if ( helpRight - helpLeft > GetConfig()->Scale( 60 ) )
@@ -941,14 +978,14 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	int barW = CW - barX;
 	int etaW = GetConfig()->Scale( 210 );
 	CString line;
-	line.Format( "Patch %d of %d  -  RGB %.0f, %.0f, %.0f", min( cur + 1, total ), total,
+	line.Format( S( IDS_PP_PATCHOF ), min( cur + 1, total ), total,
 				 cur_rgb[0], cur_rgb[1], cur_rgb[2] );
 	DrawStr( g, line, fBody, Gdiplus::RectF( (float)barX, (float)y, (float)( barW - etaW - GetConfig()->Scale( 8 ) ), 22.0f ), t.text );
 
 	double frac = total > 0 ? (double)cur / total : 0.0;
 	int remain = total - cur;
 	CString eta;
-	eta.Format( "%d%%  -  about %s left", (int)( frac * 100.0 + 0.5 ),
+	eta.Format( S( IDS_PP_ETA ), (int)( frac * 100.0 + 0.5 ),
 				(LPCTSTR)FormatDuration( remain * ( m_emaPatchSecs > 0 ? m_emaPatchSecs : 1.8 ) ) );
 	DrawStr( g, eta, fBody, Gdiplus::RectF( (float)( CW - etaW ), (float)y, (float)etaW, 22.0f ),
 			 t.text, Gdiplus::StringAlignmentFar );
@@ -971,7 +1008,7 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	double good = 2.0, warn = 3.0;
 	GetConfig()->GetDEThresholds( good, warn );
 	CString v[4], lbl[4];
-	lbl[0] = "Avg dE";  lbl[1] = "Max dE"; lbl[2] = "Drift"; lbl[3] = "Per patch";
+	lbl[0] = S( IDS_PP_AVGDE );  lbl[1] = S( IDS_PP_MAXDE ); lbl[2] = S( IDS_PP_DRIFT ); lbl[3] = S( IDS_PP_PERPATCH );
 	if ( m_runDECount > 0 )
 	{
 		v[0].Format( "%.1f", m_runSumDE / m_runDECount );
@@ -982,7 +1019,7 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	if ( pMeasure->GetProfileDriftComp() || m_driftComp )
 		v[2].Format( "%+.1f%%", pMeasure->m_profileCurrentDrift * 100.0 );
 	else
-		v[2] = "off";
+		v[2] = S( IDS_PP_OFF );
 	v[3].Format( "%.1f s", m_emaPatchSecs );
 
 	int gap = GetConfig()->Scale( 10 );
@@ -1009,11 +1046,50 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	int glyphSz = GetConfig()->Scale( 12 );
 	m_rcStop  = CRect( CW - cbW, CH - cbH, CW, CH );
 	m_rcPause = CRect( m_rcStop.left - gap - cbW, CH - cbH, m_rcStop.left - gap, CH );
-	DrawMediaButton( g, m_rcStop, "Stop", fBody, MEDIA_STOP, t.danger, glyphSz,
+	DrawMediaButton( g, m_rcStop, S( IDS_PP_STOP ), fBody, MEDIA_STOP, t.danger, glyphSz,
 					 m_hot == HOT_STOP ? t.cardHot : t.card, t.danger, t.danger );
-	DrawMediaButton( g, m_rcPause, m_paused ? "Resume" : "Pause", fBody,
+	DrawMediaButton( g, m_rcPause, m_paused ? S( IDS_PP_RESUME ) : S( IDS_PP_PAUSE ), fBody,
 					 m_paused ? MEDIA_PLAY : MEDIA_PAUSE, t.text, glyphSz,
 					 m_hot == HOT_PAUSE ? t.cardHot : t.card, t.text, t.btnBorder );
+}
+
+// Hue family of a generated patch stimulus: 0 neutral, then 1..6 walking the hue
+// circle from red in 60-degree sectors (R Y G C B M). Taken from the STIMULUS and
+// not from the measurement, so it is exact and costs nothing: the cube's neutral
+// nodes have r == g == b bit-for-bit, and every other node falls unambiguously
+// inside one sector.
+static int HueFamily(const ColorRGBDisplay & rgb)
+{
+	double r = rgb[0], g = rgb[1], b = rgb[2];
+	double mx = max( r, max( g, b ) );
+	double mn = min( r, min( g, b ) );
+	double d = mx - mn;
+	if ( d < 1e-6 )
+		return 0;						// neutral axis (0,0,0 included)
+
+	double h;							// hue in degrees, red at 0
+	if ( mx == r )		h = 60.0 * ( ( g - b ) / d );
+	else if ( mx == g )	h = 60.0 * ( ( b - r ) / d + 2.0 );
+	else				h = 60.0 * ( ( r - g ) / d + 4.0 );
+	if ( h < 0.0 ) h += 360.0;
+
+	// Sectors are CENTRED on the primaries/secondaries rather than starting at
+	// them, so shift by half a sector before bucketing: 330..30 is red, 30..90 is
+	// yellow, and so on. Without the shift a pure red patch would sit on a
+	// boundary and split arbitrarily between red and magenta.
+	return 1 + ( (int)( ( h + 30.0 ) / 60.0 ) % 6 );
+}
+
+// Brightness band from the stimulus max channel, matching the "<35%" / ">70%"
+// column headers. Both comparisons are strict, so the 11- and 21-cubes -- whose
+// grids land a node exactly on 35 and 70 -- put those nodes in Mid. Deterministic
+// either way; it just has to agree with what the headers claim.
+static int ToneBand(const ColorRGBDisplay & rgb)
+{
+	double mx = max( rgb[0], max( rgb[1], rgb[2] ) );
+	if ( mx < 35.0 ) return 0;
+	if ( mx > 70.0 ) return 2;
+	return 1;
 }
 
 void CProfilePane::ComputeStats()
@@ -1035,42 +1111,42 @@ void CProfilePane::ComputeStats()
 	int n = pMeasure->GetProfileMeasureSize();
 	std::vector<double> des;
 	des.reserve( n );
-	std::vector<std::pair<double,int> > order;
+	m_stats.sorted.reserve( n );
+	m_stats.bucket.assign( n, (signed char)-1 );
 	int nGoodCnt = 0;
+	double sumL2 = 0.0, sumC2 = 0.0, sumH2 = 0.0;
 
 	for ( int i = 0; i < n; i++ )
 	{
-		double dE = PatchDE( i );
+		// one call for the total AND its breakdown: the reference model behind it
+		// (GetRefProfileSat) is the expensive part and is shared
+		CMeasure::ProfileDEParts parts;
+		double dE = pMeasure->ComputeProfileDEEx( pMeasure->GetProfileMeasure( i ), i, &parts );
 		if ( dE < 0.0 )
 			continue;
 		des.push_back( dE );
-		order.push_back( std::make_pair( -dE, i ) );
+		m_stats.sorted.push_back( std::make_pair( -dE, i ) );
 		m_stats.avgDE += dE;
 		if ( dE > m_stats.maxDE ) m_stats.maxDE = dE;
 		if ( dE < good ) nGoodCnt++;
+		sumL2 += parts.dL * parts.dL;
+		sumC2 += parts.dC * parts.dC;
+		sumH2 += parts.dH * parts.dH;
+
 		// clamp BOTH sides: an out-of-range float->int cast is undefined and can
 		// go hugely negative, and histo[negative]++ corrupts memory
 		int bin = (int)( dE / m_stats.histoBinW );
 		if ( bin < 0 ) bin = 0;
-		if ( bin > 15 ) bin = 15;
+		if ( bin > 15 ) { bin = 15; m_stats.histoOver++; }	// counted so the axis can say so
 		m_stats.histo[bin]++;
 
-		// region classification from the generated stimulus
+		// colour-area classification from the generated stimulus
 		ColorRGBDisplay rgb = pMeasure->GetProfilePatchRGB( i );
-		double mx = max( rgb[0], max( rgb[1], rgb[2] ) );
-		double mn = min( rgb[0], min( rgb[1], rgb[2] ) );
-		int reg;
-		if ( mx < 10.0 )
-			reg = 1;											// near black
-		else if ( ( mx - mn ) < 1e-6 )
-			reg = 0;											// gray axis
-		else if ( mx > 0.0 && ( mx - mn ) / mx < 0.5 )
-			reg = 2;											// low saturation
-		else
-			reg = 3;											// high saturation
-		m_stats.regAvg[reg] += dE;
-		if ( dE > m_stats.regMax[reg] ) m_stats.regMax[reg] = dE;
-		m_stats.regCnt[reg]++;
+		int fam = HueFamily( rgb ), band = ToneBand( rgb );
+		m_stats.bucket[i] = (signed char)( fam * AREA_BANDS + band );
+		m_stats.areaAvg[fam][band] += dE;
+		m_stats.areaCnt[fam][band]++;
+		m_stats.famCnt[fam]++;
 	}
 
 	m_stats.count = (int)des.size();
@@ -1078,26 +1154,174 @@ void CProfilePane::ComputeStats()
 	{
 		m_stats.avgDE /= m_stats.count;
 		m_stats.pctGood = (double)nGoodCnt / m_stats.count;
-		std::vector<double> sorted( des );
-		std::sort( sorted.begin(), sorted.end() );
-		int i95 = (int)( 0.95 * ( sorted.size() - 1 ) + 0.5 );
-		m_stats.pct95DE = sorted[i95];
+		std::vector<double> sortedDE( des );
+		std::sort( sortedDE.begin(), sortedDE.end() );
+		int i95 = (int)( 0.95 * ( sortedDE.size() - 1 ) + 0.5 );
+		m_stats.pct95DE = sortedDE[i95];
+		// RMS, not mean: the components combine in quadrature, so this is the form
+		// in which they add back up to the overall error
+		m_stats.rmsL = sqrt( sumL2 / m_stats.count );
+		m_stats.rmsC = sqrt( sumC2 / m_stats.count );
+		m_stats.rmsH = sqrt( sumH2 / m_stats.count );
 	}
-	for ( int r = 0; r < 4; r++ )
-		if ( m_stats.regCnt[r] )
-			m_stats.regAvg[r] /= m_stats.regCnt[r];
+	for ( int f = 0; f < AREA_FAMS; f++ )
+		for ( int b = 0; b < AREA_BANDS; b++ )
+			if ( m_stats.areaCnt[f][b] )
+				m_stats.areaAvg[f][b] /= m_stats.areaCnt[f][b];
 
-	std::sort( order.begin(), order.end() );
-	int nw = min( (int)order.size(), 20 );
-	for ( int w = 0; w < nw; w++ )
-		m_stats.worst.push_back( order[w].second );
+	std::sort( m_stats.sorted.begin(), m_stats.sorted.end() );
 }
+
+// Filter predicate for the worst list. Reads the per-patch bucket ComputeStats
+// already assigned, so filtering never re-derives a classification or a dE.
+bool CProfilePane::PatchPassesFilter(int patchIdx) const
+{
+	if ( m_filterFam < 0 )
+		return true;
+	if ( patchIdx < 0 || patchIdx >= (int)m_stats.bucket.size() )
+		return false;
+	int code = m_stats.bucket[patchIdx];
+	if ( code < 0 )
+		return false;					// skipped patch; never reaches the list anyway
+	return ( code / AREA_BANDS == m_filterFam );
+}
+
+// Just the family name. SETTLED: the chip deliberately carries no patch count --
+// the matrix's own totals row already shows it, directly under the highlighted
+// column, and a count inside the chip only added a second rounded shape to a
+// 90px control. Do not reintroduce it.
+CString CProfilePane::FilterLabel() const
+{
+	return ( m_filterFam >= 0 ) ? S( kAreaFamIds[m_filterFam] ) : CString();
+}
+
+// Re-picking the family that is already active clears the filter, so the matrix
+// doubles as its own toggle and there is always a way back to All even if the
+// chip is off-screen in a narrow pane.
+void CProfilePane::SetFilter(int fam)
+{
+	m_filterFam = ( fam == m_filterFam ) ? -1 : fam;
+	if ( ::IsWindow( m_hWnd ) )
+		Invalidate( FALSE );
+}
+
+// Measured white drift across the capture: last drift anchor over the first.
+// Anchors only exist when drift compensation actually ran, and they are
+// serialized with the capture, so this still reports on a reloaded document.
+// The measurements have ALREADY been corrected by this factor -- the number says
+// how far the display moved, not how much error is left behind.
+double CProfilePane::ProfileWhiteDrift() const
+{
+	CMeasure * pMeasure = Measure();
+	if ( !pMeasure || pMeasure->GetProfileDriftAnchorCount() < 2 )
+		return 0.0;
+	CColor first = pMeasure->GetProfileDriftAnchor( 0 );
+	CColor last  = pMeasure->GetProfileDriftAnchor( pMeasure->GetProfileDriftAnchorCount() - 1 );
+	if ( !first.isValid() || !last.isValid() || first.GetY() <= 0.0 )
+		return 0.0;
+	return last.GetY() / first.GetY() - 1.0;
+}
+
+// Round a bin count up to a round number so the histogram's gridlines carry
+// readable labels instead of whatever the tallest bin happened to hold.
+// Works on TENTHS of the leading digit so 1.5x and 2.5x steps exist: with only
+// 1/2/5 available, 124 rounded to 200 and the tallest bar filled 62% of the plot,
+// which makes the count look far smaller than it is. 124 now rounds to 150.
+static int NiceCeil(int v)
+{
+	if ( v <= 5 ) return 5;
+	int mag = 1;
+	while ( v / mag >= 10 ) mag *= 10;
+	// Pick the first candidate that actually covers v. Deriving the step from a
+	// truncated leading digit instead returned a "ceiling" BELOW its input for any
+	// v just past a power of ten (101 -> 100, 1001 -> 1000), which drew the tallest
+	// bar past the top of the plot and mislabelled the axis.
+	static const int kSteps10[] = { 10, 15, 20, 25, 30, 40, 50, 60, 80, 100 };
+	for ( int i = 0; i < 10; i++ )
+	{
+		int cand = ( kSteps10[i] * mag ) / 10;
+		if ( cand >= v )
+			return cand;
+	}
+	return mag * 10;
+}
+
+// Category colours for the error-type split. Deliberately NOT the good/warn/bad
+// ramp: in this pane green/amber/red mean SEVERITY everywhere else, so reusing
+// them made "Luminance" look healthy and "Hue" look broken no matter what the
+// numbers were. A single-hue sequence reads as three parts of one quantity.
+static Gdiplus::Color ErrPartColor(int i, bool dark)
+{
+	if ( dark )
+	{
+		if ( i == 0 ) return Gdiplus::Color( 122, 170, 226 );
+		if ( i == 1 ) return Gdiplus::Color(  86, 126, 178 );
+		return Gdiplus::Color( 58, 86, 124 );
+	}
+	if ( i == 0 ) return Gdiplus::Color(  38, 110, 190 );
+	if ( i == 1 ) return Gdiplus::Color( 104, 152, 212 );
+	return Gdiplus::Color( 162, 194, 230 );
+}
+
+// Column hover in the colour-area matrix: a faint wash rather than a filled card.
+// The band spans a heading, three cells and a total, and at cardHot's brightness a
+// hover read like a selection.
+static Gdiplus::Color ColumnHover(bool dark)
+{
+	return dark ? Gdiplus::Color( 24, 255, 255, 255 ) : Gdiplus::Color( 18, 0, 0, 0 );
+}
+
+// Cell wash for the colour-area matrix: the shared dE ramp at low alpha, so the
+// number stays the primary signal and the tint is only a scan aid. Alpha rises
+// with severity -- at a flat alpha a green and a red cell read equally loud.
+static Gdiplus::Color AreaTint(double dE, double good, double warn)
+{
+	Gdiplus::Color c = DEColor( dE, good, warn );
+	BYTE a = ( dE < good ) ? 70 : ( ( dE < warn ) ? 112 : 140 );
+	return Gdiplus::Color( a, c.GetR(), c.GetG(), c.GetB() );
+}
+
+// Measured width of a string. Every label in this pane is English today but the
+// app ships four translated satellites, where these strings get materially longer
+// (German especially). Layout here is therefore driven by what the text actually
+// measures rather than by constants eyeballed against the English build.
+static int TextW(Gdiplus::Graphics & g, const CString & s, Gdiplus::Font & f)
+{
+	Gdiplus::RectF bb;
+	CStringW w( s );
+	g.MeasureString( w, -1, &f, Gdiplus::PointF( 0.0f, 0.0f ), &bb );
+	return (int)( bb.Width + 0.5f );
+}
+
+// Row labels for the matrix's brightness bands, with the bounds spelled in so the
+// split is self-documenting. One definition so measuring and drawing agree.
+static CString BandLabel(int bnd)
+{
+	if ( bnd == 0 ) return S( IDS_PP_BAND_DARK );
+	if ( bnd == 2 ) return S( IDS_PP_BAND_BRIGHT );
+	return S( IDS_PP_BAND_MID );
+}
+
+// Row chips for the colour-area families, muted so they read as identity marks
+// instead of competing with the dE ramp in the cells beside them.
+static const struct { BYTE r, g, b; } kAreaFamSwatch[7] =
+{
+	{ 154, 154, 158 },	// gray
+	{ 204,  77,  77 },	// red
+	{ 204, 192,  77 },	// yellow
+	{  90, 168,  79 },	// green
+	{  77, 188, 192 },	// cyan
+	{  77, 122, 204 },	// blue
+	{ 176,  77, 188 }	// magenta
+};
 
 void CProfilePane::PaintSummary(Gdiplus::Graphics & g, const CRect & rc, bool dark)
 {
 	SPaneTheme t = PaneTheme( dark );
 	Gdiplus::Font fBig( L"Segoe UI", 12.0f, Gdiplus::FontStyleBold );
 	Gdiplus::Font fSmall( L"Segoe UI", 9.0f );
+	Gdiplus::Font fTiny( L"Segoe UI", 8.5f );
+	Gdiplus::Font fHdr( L"Segoe UI", 9.0f, Gdiplus::FontStyleBold );	// panel headings
 
 	CMeasure * pMeasure = Measure();
 	if ( !pMeasure )
@@ -1109,116 +1333,583 @@ void CProfilePane::PaintSummary(Gdiplus::Graphics & g, const CRect & rc, bool da
 
 	const int CW = rc.Width();
 	const int H  = rc.Height();
-	const int gap = GetConfig()->Scale( 10 );
-	int leftW = CW * 56 / 100;			// tiles + histogram + region line
-	int rightX = leftW + GetConfig()->Scale( 16 );	// worst-patches column
-	int rightW = CW - rightX;
+	const int gap = GetConfig()->Scale( 9 );
 
-	// ---- left column: stat tiles (single row of 4) ----
+	if ( m_stats.count <= 0 )
+	{
+		DrawStr( g, S( IDS_PP_NOMEASUREMENTS ), fSmall,
+				 Gdiplus::RectF( 0.0f, 0.0f, (float)CW, 20.0f ), t.dimtxt );
+		return;
+	}
+
+	// ------------------------------------------------ tile row
+	int tileH = GetConfig()->Scale( 46 );
 	CString v[4], lbl[4];
-	lbl[0] = "Avg dE"; lbl[1] = "95th pct"; lbl[2] = "Max dE"; lbl[3] = "Within target";
+	lbl[0] = S( IDS_PP_AVGDE );
+	lbl[1] = S( IDS_PP_95THPCT );
+	lbl[2] = S( IDS_PP_MAXDE );
+	// Spell the threshold into the label. "Within target (2)" left the 2 unexplained
+	// -- it is the good-dE threshold, so say that outright.
+	lbl[3].Format( S( IDS_PP_WITHINDE ), good );
 	v[0].Format( "%.1f", m_stats.avgDE );
 	v[1].Format( "%.1f", m_stats.pct95DE );
 	v[2].Format( "%.1f", m_stats.maxDE );
 	v[3].Format( "%d%%", (int)( m_stats.pctGood * 100.0 + 0.5 ) );
-	int tileW = max( 1, ( leftW - gap * 3 ) / 4 );
-	int tileH = GetConfig()->Scale( 46 );
-	int x = 0, y = 0;
-	for ( int i = 0; i < 4; i++ )
+
+	int i, x = 0, y = 0;
+	int tpad = GetConfig()->Scale( 10 );
+
+	// Tiles are as wide as their WIDEST caption needs, not a fixed share of the
+	// pane, so a longer translation grows the tile instead of being clipped. The
+	// error-type chip absorbs the difference and keeps a floor of its own.
+	int tileNeed = 0;
+	for ( i = 0; i < 4; i++ )
+		tileNeed = max( tileNeed, TextW( g, lbl[i], fSmall ) );
+	tileNeed += 2 * tpad;
+	int tileW = max( tileNeed, ( CW - CW * 34 / 100 - 4 * gap ) / 4 );
+	int tileMax = ( CW - GetConfig()->Scale( 150 ) - 4 * gap ) / 4;	// leave the chip its minimum
+	if ( tileW > tileMax ) tileW = tileMax;
+	if ( tileW < GetConfig()->Scale( 62 ) ) tileW = GetConfig()->Scale( 62 );
+	for ( i = 0; i < 4; i++ )
 	{
 		CRect rcTile( x, y, x + tileW, y + tileH );
 		FillRound( g, rcTile, 6, t.card );		// filled chip, no border (these are stats, not buttons)
-		DrawStr( g, lbl[i], fSmall, Gdiplus::RectF( (float)x + 10, (float)y + 5, (float)tileW - 20, 16.0f ), t.dimtxt );
+		DrawStr( g, lbl[i], fSmall,
+				 Gdiplus::RectF( (float)( x + tpad ), (float)( y + GetConfig()->Scale( 5 ) ),
+								 (float)( tileW - 2 * tpad + GetConfig()->Scale( 4 ) ), 16.0f ), t.dimtxt );
 		Gdiplus::Color vc = t.text;
 		if ( i == 2 && m_stats.maxDE >= warn ) vc = t.danger;
-		DrawStr( g, v[i], fBig, Gdiplus::RectF( (float)x + 10, (float)y + 20, (float)tileW - 20, 24.0f ), vc );
+		DrawStr( g, v[i], fBig,
+				 Gdiplus::RectF( (float)( x + tpad ), (float)( y + GetConfig()->Scale( 20 ) ),
+								 (float)( tileW - 2 * tpad ), 24.0f ), vc );
 		x += tileW + gap;
 	}
 
-	// ---- left column: dE histogram, sized to leave one axis row + one region
-	// row below it so nothing clips at the pane bottom ----
-	int histoLblY = y + tileH + GetConfig()->Scale( 8 );
-	int histoY = histoLblY + GetConfig()->Scale( 20 );
-	int histoW = leftW;
-	int axisRowH = GetConfig()->Scale( 16 );
-	int regRowH  = GetConfig()->Scale( 18 );
-	int histoBottom = H - regRowH - axisRowH - GetConfig()->Scale( 1 );
-	int histoH = histoBottom - histoY;		// shrinks with the space, never floored
-	DrawStr( g, "dE distribution", fSmall, Gdiplus::RectF( 0.0f, (float)histoLblY, 220.0f, 18.0f ), t.dimtxt );
-	int maxBin = 1;
-	int b;
-	for ( b = 0; b < 16; b++ )
-		if ( m_stats.histo[b] > maxBin ) maxBin = m_stats.histo[b];
-	int bw = max( 1, histoW / 16 );
-	for ( b = 0; histoH > 2 && b < 16; b++ )
+	// Error-type chip: the RMS split of the SAME dE the tiles report. RMS and not
+	// the mean because the components combine in quadrature -- this is the form in
+	// which they add back up to the overall error.
+	int errX = x, errW = CW - errX;
+	if ( errW >= GetConfig()->Scale( 150 ) )
 	{
-		int bh = (int)( (double)m_stats.histo[b] / maxBin * ( histoH - 2 ) );
-		if ( bh < 1 ) continue;
-		int barTop = max( histoY, histoBottom - bh );	// never rise into the label band
-		double binMid = ( b + 0.5 ) * m_stats.histoBinW;
-		CRect rcBar( b * bw, barTop, b * bw + bw - 3, histoBottom );
-		if ( rcBar.Height() > 4 )
-			FillRound( g, rcBar, 2, DEColor( binMid, good, warn ) );
+		CRect rcErr( errX, y, CW, y + tileH );
+		FillRound( g, rcErr, 6, t.card );
+
+		// Under CIE76uv/ab the formula's 2nd and 3rd terms are du/dv and da/db, not
+		// chroma and hue (see CMeasure::ComputeProfileDEEx), so there they collapse
+		// into one honest "Color" term rather than being mislabelled.
+		int deForm = GetConfig()->m_dE_form;
+		bool splitCH = ( deForm >= 2 && deForm <= 5 );
+
+		double parts[3];
+		CString pl[3];
+		int nParts;
+		if ( splitCH )
+		{
+			parts[0] = m_stats.rmsL; parts[1] = m_stats.rmsC; parts[2] = m_stats.rmsH;
+			pl[0].Format( S( IDS_PP_LUMINANCE ), parts[0] );
+			pl[1].Format( S( IDS_PP_CHROMA ), parts[1] );
+			pl[2].Format( S( IDS_PP_HUE ), parts[2] );
+			nParts = 3;
+		}
 		else
 		{
-			Gdiplus::SolidBrush bb( DEColor( binMid, good, warn ) );
-			g.FillRectangle( &bb, rcBar.left, rcBar.top, rcBar.Width(), rcBar.Height() );
+			parts[0] = m_stats.rmsL;
+			parts[1] = sqrt( m_stats.rmsC * m_stats.rmsC + m_stats.rmsH * m_stats.rmsH );
+			parts[2] = 0.0;
+			pl[0].Format( S( IDS_PP_LUMINANCE ), parts[0] );
+			pl[1].Format( S( IDS_PP_COLORTERM ), parts[1] );
+			nParts = 2;
+		}
+		int capW = TextW( g, S( IDS_PP_ERRORTYPE ), fSmall ) + GetConfig()->Scale( 4 );
+		DrawStr( g, S( IDS_PP_ERRORTYPE ), fSmall,
+				 Gdiplus::RectF( (float)( errX + tpad ), (float)( y + GetConfig()->Scale( 5 ) ), (float)capW, 16.0f ), t.dimtxt );
+
+		// Legend: a colour dot keyed to the bar segment, then the label in normal
+		// text. Colouring the LABEL was unreadable at the pale end of the sequence
+		// and, before that, borrowed the severity ramp and implied a verdict.
+		int dotSz = GetConfig()->Scale( 7 );
+		int lw[3], totalLw = 0, legendGap = GetConfig()->Scale( 12 ), p;
+		for ( p = 0; p < nParts; p++ )
+		{
+			lw[p] = dotSz + GetConfig()->Scale( 4 ) + TextW( g, pl[p], fTiny );
+			totalLw += lw[p];
+		}
+		totalLw += legendGap * ( nParts - 1 );
+		int lx = CW - tpad - totalLw;
+		if ( lx > errX + tpad + capW )
+		{
+			// Dot and label share one band and are both centred on it, rather than
+			// the label being top-aligned in a raw 16px box while the dot sits at a
+			// hardcoded +8 -- those two drift apart as soon as DPI scaling makes the
+			// text taller than the box.
+			int legTop = y + GetConfig()->Scale( 5 );
+			int legH   = GetConfig()->Scale( 16 );
+			int lmid   = legTop + legH / 2;
+			for ( p = 0; p < nParts; p++ )
+			{
+				FillRound( g, CRect( lx, lmid - dotSz / 2, lx + dotSz, lmid - dotSz / 2 + dotSz ), 2,
+						   ErrPartColor( p, dark ) );
+				DrawStr( g, pl[p], fTiny,
+						 Gdiplus::RectF( (float)( lx + dotSz + GetConfig()->Scale( 4 ) ), (float)legTop,
+										 (float)( lw[p] + 4 ), (float)legH ), t.text,
+						 Gdiplus::StringAlignmentNear, Gdiplus::StringAlignmentCenter );
+				lx += lw[p] + legendGap;
+			}
+		}
+
+		// stacked bar, segment widths by share of SQUARED error
+		int barY = y + GetConfig()->Scale( 26 ), barH = GetConfig()->Scale( 12 );
+		int barX = errX + tpad, barW = CW - tpad - barX;
+		CRect rcBarAll( barX, barY, barX + barW, barY + barH );
+		FillRound( g, rcBarAll, 3, t.track );
+		double sum2 = 0.0;
+		for ( p = 0; p < nParts; p++ ) sum2 += parts[p] * parts[p];
+		// Below the precision the labels print at, the split is pure noise: a
+		// capture whose components are 0.02 / 0.04 / 0.03 would still fill the bar
+		// edge to edge, reading as a large error while every label says 0.0. Leave
+		// the track empty instead -- there is no error to apportion.
+		if ( sqrt( sum2 ) >= 0.05 && barW > 4 )
+		{
+			// clip to the rounded track so the segments read as one bar
+			Gdiplus::GraphicsPath clipPath;
+			RoundPath( clipPath, rcBarAll, 3 );
+			Gdiplus::GraphicsState st = g.Save();
+			g.SetClip( &clipPath );
+			int px = barX;
+			for ( p = 0; p < nParts; p++ )
+			{
+				int segW = ( p == nParts - 1 ) ? ( barX + barW - px )
+											   : (int)( barW * ( parts[p] * parts[p] ) / sum2 + 0.5 );
+				if ( segW > 0 )
+				{
+					Gdiplus::SolidBrush sb( ErrPartColor( p, dark ) );
+					g.FillRectangle( &sb, px, barY, segW, barH );
+				}
+				px += segW;
+			}
+			g.Restore( st );
 		}
 	}
-	Gdiplus::Pen axPen( t.border, 1.0f );
-	g.DrawLine( &axPen, 0, histoBottom, histoW, histoBottom );
-	CString axM, axR;
-	axM.Format( "%.3g (good)", good );
-	axR.Format( "%.3g+ (warn)", warn );
-	int axY = histoBottom + GetConfig()->Scale( 1 );
-	DrawStr( g, "0", fSmall, Gdiplus::RectF( 0.0f, (float)axY, 40.0f, 16.0f ), t.dimtxt );
-	DrawStr( g, axM, fSmall, Gdiplus::RectF( (float)( (int)( good / m_stats.histoBinW ) * bw - 45 ), (float)axY, 90.0f, 16.0f ), t.dimtxt, Gdiplus::StringAlignmentCenter );
-	DrawStr( g, axR, fSmall, Gdiplus::RectF( (float)( histoW - 90 ), (float)axY, 90.0f, 16.0f ), t.dimtxt, Gdiplus::StringAlignmentFar );
 
-	// ---- left column: region breakdown, one compact line ----
-	CString regLine = "By region";
-	for ( int r = 0; r < 4; r++ )
+	// ------------------------------------------------ three panels below the tiles
+	// Scale(8), not Scale(10): the matrix column headings need the reclaimed room
+	// for the colour key rule to clear the first row of cells. rowsY below adds it
+	// back, so the first data row lands in exactly the same absolute place.
+	int bodyY = tileH + GetConfig()->Scale( 8 );
+	int bodyH = H - bodyY;
+	if ( bodyH < GetConfig()->Scale( 40 ) )
+		return;								// too short for anything but the tiles
+
+	int pgap  = GetConfig()->Scale( 14 );
+	int avail = CW - 2 * pgap;
+
+	// ---- panel widths from measured content, not fixed percentages ----
+	// The matrix is the constrained one: seven column headings plus a row-label
+	// gutter, all of which are translatable. Size it from what it needs, cap it so
+	// it can never eat the pane, then split the remainder.
+	int cellGap = GetConfig()->Scale( 4 );
+	int mLabNeed = TextW( g, S( IDS_PP_PATCHES ), fTiny );
+	int bnd0;
+	for ( bnd0 = 0; bnd0 < AREA_BANDS; bnd0++ )
+		mLabNeed = max( mLabNeed, TextW( g, BandLabel( bnd0 ), fTiny ) );
+	mLabNeed += GetConfig()->Scale( 8 );
+	int mCellNeed = TextW( g, "999.9", fSmall );		// dE is not bounded at two digits
+	int f0;
+	for ( f0 = 0; f0 < AREA_FAMS; f0++ )
+		mCellNeed = max( mCellNeed, TextW( g, S( kAreaFamIds[f0] ), fTiny ) );
+	mCellNeed += GetConfig()->Scale( 8 );
+	int bNeed = mLabNeed + AREA_FAMS * mCellNeed + ( AREA_FAMS - 1 ) * cellGap;
+
+	int bW = min( bNeed, avail * 45 / 100 );
+	int rest = avail - bW;
+	int aW = rest * 38 / 100;
+	int aMin = GetConfig()->Scale( 150 );
+	if ( aW < aMin ) aW = min( aMin, rest / 2 );
+	int aX = 0;
+	int bX = aX + aW + pgap;
+	int cX = bX + bW + pgap;
+	int cW = CW - cX;
+	int hdrH  = GetConfig()->Scale( 16 );
+	// First matrix row: clears its column headings and the colour key rule under
+	// them. The worst list does NOT share this -- it has only a one-line header, and
+	// starting it this far down cost it two of its five rows.
+	int rowsY = bodyY + GetConfig()->Scale( 36 );
+
+	// ---------------- panel A: dE distribution ----------------
 	{
-		CString seg;
-		if ( m_stats.regCnt[r] )
-			seg.Format( "    %s %.1f / %.1f", kRegionNames[r], m_stats.regAvg[r], m_stats.regMax[r] );
-		else
-			seg.Format( "    %s -", kRegionNames[r] );
-		regLine += seg;
+		// No good/warn key here: this panel is the narrowest of the three and the
+		// key never had room, so it rendered as clipped stubs. The dashed rules are
+		// already labelled by their own axis ticks below, warn in the danger colour.
+		DrawStr( g, S( IDS_PP_DEDISTRIBUTION ), fHdr,
+				 Gdiplus::RectF( (float)aX, (float)bodyY, (float)aW, (float)hdrH ), t.text );
+		// no sub-label here: this panel is the narrowest and the heading alone can
+		// already need the full width once translated
+
+		// Ceiling FIRST, then a gutter measured from the widest label it must hold.
+		// A hardcoded Scale(22) gutter ellipsised three-digit counts: a 124-patch
+		// bar against a "200" axis rendered as "20", making the bar read as 12.
+		int b, maxBin = 1;
+		for ( b = 0; b < 16; b++ )
+			if ( m_stats.histo[b] > maxBin ) maxBin = m_stats.histo[b];
+		int ceilCnt = NiceCeil( maxBin );
+		CString widest;
+		widest.Format( "%d", ceilCnt );
+		int gutter = TextW( g, widest, fTiny ) + GetConfig()->Scale( 7 );
+		int plotX = aX + gutter, plotW = aW - gutter;
+		int plotTop = bodyY + GetConfig()->Scale( 18 );
+		int baseY = bodyY + bodyH - GetConfig()->Scale( 15 );
+		int plotH = baseY - plotTop;
+
+		if ( plotH > GetConfig()->Scale( 20 ) && plotW > 32 )
+		{
+			Gdiplus::Pen gridPen( t.border, 1.0f );
+			int gl;
+			for ( gl = 0; gl < 2; gl++ )
+			{
+				int cnt = ( gl == 0 ) ? ceilCnt : ceilCnt / 2;
+				int gy = baseY - (int)( (double)cnt / ceilCnt * plotH );
+				g.DrawLine( &gridPen, plotX, gy, plotX + plotW, gy );
+				CString cl;
+				cl.Format( "%d", cnt );
+				DrawStr( g, cl, fTiny, Gdiplus::RectF( (float)aX, (float)( gy - 7 ), (float)( gutter - 4 ), 14.0f ),
+						 t.dimtxt, Gdiplus::StringAlignmentFar );
+			}
+
+			int bw = max( 1, plotW / 16 );
+			// Threshold rules at their TRUE fractional positions. This used to snap
+			// them to a bin edge and then park the "warn" label at the far right of
+			// the axis -- which is where 16*binW lands, not warn.
+			int goodX = plotX + (int)( good / m_stats.histoBinW * bw + 0.5 );
+			int warnX = plotX + (int)( warn / m_stats.histoBinW * bw + 0.5 );
+			Gdiplus::Pen pGood( t.dimtxt, 1.0f ); pGood.SetDashStyle( Gdiplus::DashStyleDash );
+			Gdiplus::Pen pWarn( t.danger, 1.0f ); pWarn.SetDashStyle( Gdiplus::DashStyleDash );
+			if ( goodX > plotX && goodX < plotX + plotW )
+				g.DrawLine( &pGood, goodX, plotTop, goodX, baseY + GetConfig()->Scale( 3 ) );
+			if ( warnX > plotX && warnX < plotX + plotW )
+				g.DrawLine( &pWarn, warnX, plotTop, warnX, baseY + GetConfig()->Scale( 3 ) );
+
+			// the last bin collects everything above its range; say so
+			if ( m_stats.histoOver > 0 )
+			{
+				Gdiplus::Pen pOver( t.dimtxt, 1.0f ); pOver.SetDashStyle( Gdiplus::DashStyleDot );
+				g.DrawLine( &pOver, plotX + 15 * bw - 2, plotTop, plotX + 15 * bw - 2, baseY );
+			}
+
+			for ( b = 0; b < 16; b++ )
+			{
+				if ( m_stats.histo[b] <= 0 ) continue;
+				int bh = (int)( (double)m_stats.histo[b] / ceilCnt * plotH + 0.5 );
+				if ( bh < 2 ) bh = 2;			// a non-empty bin must stay visible
+				int barTop = max( plotTop, baseY - bh );
+				double binMid = ( b + 0.5 ) * m_stats.histoBinW;
+				CRect rcBar( plotX + b * bw, barTop, plotX + b * bw + max( 1, bw - 3 ), baseY );
+				if ( rcBar.Height() > 4 )
+					FillRound( g, rcBar, 2, DEColor( binMid, good, warn ) );
+				else
+				{
+					Gdiplus::SolidBrush bb( DEColor( binMid, good, warn ) );
+					g.FillRectangle( &bb, rcBar.left, rcBar.top, rcBar.Width(), rcBar.Height() );
+				}
+			}
+
+			Gdiplus::Pen axPen( t.border, 1.0f );
+			g.DrawLine( &axPen, plotX, baseY, plotX + plotW, baseY );
+
+			int axY = baseY + GetConfig()->Scale( 3 );
+			CString ax;
+			DrawStr( g, "0", fTiny, Gdiplus::RectF( (float)plotX, (float)axY, 24.0f, 14.0f ), t.dimtxt );
+			// drop the good label rather than let it collide with warn on tight thresholds
+			if ( goodX < plotX + plotW && warnX - goodX >= GetConfig()->Scale( 30 ) )
+			{
+				ax.Format( "%.3g", good );
+				DrawStr( g, ax, fTiny, Gdiplus::RectF( (float)( goodX - 24 ), (float)axY, 48.0f, 14.0f ),
+						 t.dimtxt, Gdiplus::StringAlignmentCenter );
+			}
+			if ( warnX < plotX + plotW )
+			{
+				ax.Format( "%.3g", warn );
+				DrawStr( g, ax, fTiny, Gdiplus::RectF( (float)( warnX - 24 ), (float)axY, 48.0f, 14.0f ),
+						 t.danger, Gdiplus::StringAlignmentCenter );
+			}
+			ax.Format( "%.3g%s", 16.0 * m_stats.histoBinW, ( m_stats.histoOver > 0 ) ? "+" : "" );
+			DrawStr( g, ax, fTiny, Gdiplus::RectF( (float)( plotX + plotW - 44 ), (float)axY, 44.0f, 14.0f ),
+					 ( m_stats.histoOver > 0 ) ? t.danger : t.dimtxt, Gdiplus::StringAlignmentFar );
+		}
 	}
-	DrawStr( g, regLine, fSmall, Gdiplus::RectF( 0.0f, (float)( axY + axisRowH ), (float)histoW, 18.0f ), t.dimtxt );
 
-	// ---- right column: worst patches, clickable, fills the height ----
-	int wy = 0;
-	DrawStr( g, "Worst patches  -  click to inspect", fSmall,
-			 Gdiplus::RectF( (float)rightX, (float)wy, (float)rightW, 18.0f ), t.dimtxt );
-	wy += GetConfig()->Scale( 22 );
-	int rowH = GetConfig()->Scale( 19 );
-	for ( size_t w = 0; w < m_stats.worst.size(); w++ )
+	// ---------------- panel B: colour-area matrix ----------------
 	{
-		if ( wy + rowH > H )
-			break;
-		int pi = m_stats.worst[w];
-		ColorRGBDisplay rgb = pMeasure->GetProfilePatchRGB( pi );
-		double dE = PatchDE( pi );
-		CRect rcRow( rightX, wy, CW, wy + rowH );
-		m_rcWorstRows.push_back( std::make_pair( rcRow, pi ) );
+		CString bHdr = S( IDS_PP_ERRBYCOLORAREA );
+		int bHdrW = TextW( g, bHdr, fHdr );
+		DrawStr( g, bHdr, fHdr,
+				 Gdiplus::RectF( (float)bX, (float)bodyY, (float)min( bHdrW + 4, bW ), (float)hdrH ), t.text );
+		// the unit sub-label yields to the heading rather than colliding with it
+		CString bSub = S( IDS_PP_AVGDELC );
+		int bSubW = TextW( g, bSub, fTiny );
+		if ( bHdrW + GetConfig()->Scale( 10 ) + bSubW <= bW )
+			DrawStr( g, bSub, fTiny,
+					 Gdiplus::RectF( (float)( bX + bW - bSubW - 2 ), (float)bodyY, (float)( bSubW + 4 ), (float)hdrH ),
+					 t.dimtxt, Gdiplus::StringAlignmentFar );
 
-		if ( m_hot == HOT_WORST_FIRST + (int)w )
-			FillRound( g, rcRow, 4, t.cardHot );
+		// Families across the COLUMNS and brightness bands down the rows. The other
+		// way round needed seven rows, and only four of them ever fitted the pane's
+		// height -- cyan, blue and magenta simply never drew. Three rows always fit,
+		// and this pane has width to spare.
+		// Gutter and cells come from the measured needs computed above, so a longer
+		// translated band label or family name widens its column instead of clipping.
+		int labW = min( mLabNeed, bW / 3 );
+		int cellW = ( bW - labW - ( AREA_FAMS - 1 ) * cellGap ) / AREA_FAMS;
+		int mRowH = GetConfig()->Scale( 19 );
 
-		CRect rcSw( rightX + 3, wy + 3, rightX + rowH - 3, wy + rowH - 3 );
-		FillRound( g, rcSw, 3, SwatchColor( rgb ) );
-		DrawRound( g, rcSw, 3, t.border, 1.0f );
+		if ( cellW >= GetConfig()->Scale( 30 ) )
+		{
+			int f, bnd;
+			int cellX0 = bX + labW;
+			int cntY = rowsY + AREA_BANDS * mRowH;
+			bool showCnt = ( cntY + mRowH <= bodyY + bodyH );
+			// Band starts BELOW the header row: at Scale(13) its top edge cut into
+			// the heading and the "avg dE" label sitting on that line. It runs to the
+			// full bottom of the totals row -- stopping Scale(2) short left the
+			// selection looking cropped against the last row of numbers.
+			int colTop = bodyY + hdrH;		// never inside the heading row
+			int colHdrY = colTop + GetConfig()->Scale( 2 );
+			int colBot = min( bodyY + bodyH,
+							  ( showCnt ? cntY + mRowH : rowsY + AREA_BANDS * mRowH ) + GetConfig()->Scale( 1 ) );
 
-		CString row;
-		row.Format( "RGB %.0f, %.0f, %.0f", rgb[0], rgb[1], rgb[2] );
-		DrawStr( g, row, fSmall, Gdiplus::RectF( (float)( rightX + rowH + 6 ), (float)wy + 1, (float)( rightW - rowH - 60 ), 17.0f ), t.text );
-		CString de;
-		de.Format( "%.1f", dE );
-		DrawStr( g, de, fSmall, Gdiplus::RectF( (float)( CW - 50 ), (float)wy + 1, 48.0f, 17.0f ),
-				 DETextColor( dE, good, warn, dark ), Gdiplus::StringAlignmentFar );
-		wy += rowH;
+			// A whole COLUMN is one target -- heading, three bands and the total.
+			// Per-cell filtering sliced the worst list down to a row or two, which
+			// is not a useful answer to "show me the bad greens".
+			for ( f = 0; f < AREA_FAMS; f++ )
+			{
+				if ( m_stats.famCnt[f] <= 0 )
+					continue;				// an empty family can never select anything
+				int cx = cellX0 + f * ( cellW + cellGap );
+				CRect rcCol( cx - GetConfig()->Scale( 2 ), colTop, cx + cellW + GetConfig()->Scale( 2 ), colBot );
+				m_rcAreaHits.push_back( std::make_pair( rcCol, f ) );
+				if ( m_filterFam == f )
+				{
+					FillRound( g, rcCol, 4, t.cardSel );
+					DrawRound( g, rcCol, 4, t.borderSel, 1.0f );
+				}
+				else if ( m_hot == HOT_AREA_FIRST + f )
+					FillRound( g, rcCol, 4, ColumnHover( dark ) );
+			}
+
+			for ( f = 0; f < AREA_FAMS; f++ )
+			{
+				int cx = cellX0 + f * ( cellW + cellGap );
+				DrawStr( g, S( kAreaFamIds[f] ), fTiny,
+						 Gdiplus::RectF( (float)cx, (float)colHdrY, (float)cellW, (float)GetConfig()->Scale( 13 ) ),
+						 t.text, Gdiplus::StringAlignmentCenter, Gdiplus::StringAlignmentCenter );
+				// family colour as a rule under its heading: a chip beside the text
+				// would need centring maths and eat width the names already want
+				int keyW = cellW * 3 / 5, keyX = cx + ( cellW - keyW ) / 2;
+				int keyY = colHdrY + GetConfig()->Scale( 13 );
+				FillRound( g, CRect( keyX, keyY, keyX + keyW, keyY + GetConfig()->Scale( 3 ) ), 1,
+						   Gdiplus::Color( kAreaFamSwatch[f].r, kAreaFamSwatch[f].g, kAreaFamSwatch[f].b ) );
+			}
+
+			for ( bnd = 0; bnd < AREA_BANDS; bnd++ )
+			{
+				int ry = rowsY + bnd * mRowH;
+				if ( ry + mRowH > bodyY + bodyH )
+					break;
+				// Everything on a row is centred on the SAME band, rather than each
+				// element getting its own top offset and 14/16px rect: the row label
+				// and the cell numbers use different point sizes, so top-aligning
+				// them left their baselines visibly out of step.
+				Gdiplus::RectF rcRowF( (float)bX, (float)ry, (float)( labW - GetConfig()->Scale( 4 ) ), (float)mRowH );
+				DrawStr( g, BandLabel( bnd ), fTiny, rcRowF, t.dimtxt,
+						 Gdiplus::StringAlignmentNear, Gdiplus::StringAlignmentCenter );
+
+				for ( f = 0; f < AREA_FAMS; f++ )
+				{
+					int cx = cellX0 + f * ( cellW + cellGap );
+					// symmetric inset, so the tinted box is centred in the band too
+					CRect rcCell( cx, ry + GetConfig()->Scale( 2 ), cx + cellW, ry + mRowH - GetConfig()->Scale( 2 ) );
+					Gdiplus::RectF rcCellF( (float)cx, (float)rcCell.top, (float)cellW, (float)rcCell.Height() );
+					if ( m_stats.areaCnt[f][bnd] > 0 )
+					{
+						double av = m_stats.areaAvg[f][bnd];
+						FillRound( g, rcCell, 3, AreaTint( av, good, warn ) );
+						CString cv;
+						cv.Format( "%.1f", av );
+						DrawStr( g, cv, fSmall, rcCellF, t.text,
+								 Gdiplus::StringAlignmentCenter, Gdiplus::StringAlignmentCenter );
+					}
+					else
+						DrawStr( g, "-", fSmall, rcCellF, t.dimtxt,
+								 Gdiplus::StringAlignmentCenter, Gdiplus::StringAlignmentCenter );
+				}
+			}
+
+			if ( showCnt )
+			{
+				// same centring rule as the band rows above
+				DrawStr( g, S( IDS_PP_PATCHES ), fTiny,
+						 Gdiplus::RectF( (float)bX, (float)cntY,
+										 (float)( labW - GetConfig()->Scale( 4 ) ), (float)mRowH ), t.dimtxt,
+						 Gdiplus::StringAlignmentNear, Gdiplus::StringAlignmentCenter );
+				for ( f = 0; f < AREA_FAMS; f++ )
+				{
+					int cx = cellX0 + f * ( cellW + cellGap );
+					CString cs;
+					if ( m_stats.famCnt[f] > 0 )
+						cs.Format( "%d", m_stats.famCnt[f] );
+					else
+						cs = "-";
+					DrawStr( g, cs, fTiny,
+							 Gdiplus::RectF( (float)cx, (float)cntY, (float)cellW, (float)mRowH ), t.dimtxt,
+							 Gdiplus::StringAlignmentCenter, Gdiplus::StringAlignmentCenter );
+				}
+			}
+		}
+	}
+
+	// ---------------- panel C: worst patches ----------------
+	{
+		// Measured, not Scale(82): the fixed width clipped "Worst patches" to
+		// "Worst patc..." in the English build, and every translation is longer.
+		CString cHdr = S( IDS_PP_WORSTPATCHES );
+		int hdrLabW = min( TextW( g, cHdr, fHdr ) + GetConfig()->Scale( 4 ), cW );
+		DrawStr( g, cHdr, fHdr,
+				 Gdiplus::RectF( (float)cX, (float)bodyY, (float)hdrLabW, (float)hdrH ), t.text );
+
+		// Active-filter chip, doubling as the clear control: a filtered list that
+		// does not say it is filtered is a trap.
+		CString fl = FilterLabel();
+		int chipRight = cX + hdrLabW;
+		if ( !fl.IsEmpty() && m_filterFam >= 0 )
+		{
+			// Colour dot, family name, dismiss mark. No count by design (see
+			// FilterLabel): the matrix totals row already carries it.
+			bool chipHot = ( m_hot == HOT_FILTER );
+			int pad   = GetConfig()->Scale( 8 );
+			int swz   = GetConfig()->Scale( 8 );
+			// The dot labels the name, so it sits tight against it and the slack
+			// moves to the far side. gapDot + gapX is the constant that matters --
+			// keep their SUM at Scale(14) and the chip width does not change.
+			int gapDot = GetConfig()->Scale( 4 );
+			int gapX   = GetConfig()->Scale( 10 );
+			int nameW = TextW( g, fl, fTiny );
+			int xSz   = GetConfig()->Scale( 8 );
+			int chipH = GetConfig()->Scale( 17 );
+			int chipW = pad + swz + gapDot + nameW + gapX + xSz + pad;
+			int chipX = cX + hdrLabW + GetConfig()->Scale( 6 );
+			int chipY = bodyY + ( hdrH - chipH ) / 2;
+
+			// drop the chip rather than draw it clipped; the matrix still shows the
+			// selection, so nothing is lost when the panel is too narrow
+			if ( chipX + chipW <= cX + cW )
+			{
+				m_rcFilterChip = CRect( chipX, chipY, chipX + chipW, chipY + chipH );
+				FillRound( g, m_rcFilterChip, chipH / 2, chipHot ? t.cardSelHot : t.cardSel );
+				DrawRound( g, m_rcFilterChip, chipH / 2, t.borderSel, 1.0f );
+
+				int mid = chipY + chipH / 2;
+				// the family's own colour, so the chip visibly belongs to that column
+				int fx = chipX + pad;
+				FillRound( g, CRect( fx, mid - swz / 2, fx + swz, mid - swz / 2 + swz ), 2,
+						   Gdiplus::Color( kAreaFamSwatch[m_filterFam].r,
+										   kAreaFamSwatch[m_filterFam].g,
+										   kAreaFamSwatch[m_filterFam].b ) );
+
+				int nx = fx + swz + gapDot;
+				DrawStr( g, fl, fTiny,
+						 Gdiplus::RectF( (float)nx, (float)chipY, (float)( nameW + 4 ), (float)chipH ),
+						 t.text, Gdiplus::StringAlignmentNear, Gdiplus::StringAlignmentCenter );
+
+				// centred on the same midline as the dot and the name, by construction
+				DrawCloseMark( g, nx + nameW + gapX + xSz / 2, mid, xSz,
+							   chipHot ? t.text : t.dimtxt );
+				chipRight = m_rcFilterChip.right;
+			}
+		}
+		// unit label, kept because "25, 25, 25" reads like an 8-bit code otherwise
+		int hintX = chipRight + GetConfig()->Scale( 8 );
+		if ( cX + cW - hintX > GetConfig()->Scale( 60 ) )
+			DrawStr( g, S( IDS_PP_STIMULUSPCT ), fTiny,
+					 Gdiplus::RectF( (float)hintX, (float)bodyY, (float)( cX + cW - hintX ), (float)hdrH ),
+					 t.dimtxt, Gdiplus::StringAlignmentFar );
+
+		// Its own geometry, tighter than the matrix's: one header line to clear
+		// instead of a heading plus column headings, and rows that carry a swatch
+		// and two short strings rather than a tinted cell.
+		int wRowsY = bodyY + GetConfig()->Scale( 18 );
+		int rowH   = GetConfig()->Scale( 18 );
+		int maxRows = ( bodyY + bodyH - wRowsY ) / rowH;
+		if ( maxRows > 0 )
+		{
+			// Column width from what a row actually measures -- widest stimulus
+			// triplet, widest dE, plus the swatch -- then fit as many whole columns
+			// as that allows. The pane is short, so columns are the only way to show
+			// more than a handful of patches.
+			int swSz0 = rowH - GetConfig()->Scale( 8 );
+			// "999.9", not "99.9": ComputeProfileDEEx admits dE well past 100, and a
+			// column measured for two digits ellipsised "128.5" to "12..."
+			int deW   = TextW( g, "999.9", fSmall ) + GetConfig()->Scale( 8 );
+			int colNeed = GetConfig()->Scale( 2 ) + swSz0 + GetConfig()->Scale( 6 )
+						+ TextW( g, "100, 100, 100", fSmall ) + GetConfig()->Scale( 6 )
+						+ deW + GetConfig()->Scale( 4 );
+			int cols = ( colNeed > 0 ) ? ( cW / colNeed ) : 1;
+			if ( cols < 1 ) cols = 1;
+			if ( cols > 3 ) cols = 3;
+			int colGap = GetConfig()->Scale( 8 );
+			int colW = ( cW - ( cols - 1 ) * colGap ) / cols;
+			// Bound the row count to the hot-id block as well as to the geometry:
+			// HOT_WORST_FIRST..HOT_AREA_FIRST is only 100 ids wide, and a tall pane
+			// with three columns can exceed that. Row 100 would otherwise produce
+			// id 200, which ActivateHot reads as a colour-area filter.
+			int cap = cols * maxRows;
+			if ( cap > HOT_AREA_FIRST - HOT_WORST_FIRST )
+				cap = HOT_AREA_FIRST - HOT_WORST_FIRST;
+			int shown = 0;
+			size_t w;
+			for ( w = 0; w < m_stats.sorted.size() && shown < cap; w++ )
+			{
+				int pi = m_stats.sorted[w].second;
+				if ( !PatchPassesFilter( pi ) )
+					continue;
+				int col = shown / maxRows, row = shown % maxRows;
+				int x0 = cX + col * ( colW + colGap );
+				int ry = wRowsY + row * rowH;
+				CRect rcRow( x0, ry, x0 + colW, ry + rowH - GetConfig()->Scale( 1 ) );
+				m_rcWorstRows.push_back( std::make_pair( rcRow, pi ) );
+				if ( m_hot == HOT_WORST_FIRST + shown )
+					FillRound( g, rcRow, 4, t.cardHot );
+
+				ColorRGBDisplay rgb = pMeasure->GetProfilePatchRGB( pi );
+				double dE = -m_stats.sorted[w].first;		// the sort key IS the dE, negated
+
+				// Swatch and both text columns are centred on the row rect's own
+				// midline. Previously the swatch was placed from the row TOP and the
+				// text from a separate offset with a fixed 16px box, so the hover
+				// highlight, the swatch and the baseline all disagreed slightly.
+				int rowMid = ( rcRow.top + rcRow.bottom ) / 2;
+				int swSz = rowH - GetConfig()->Scale( 8 );
+				CRect rcSw( x0 + GetConfig()->Scale( 3 ), rowMid - swSz / 2,
+							x0 + GetConfig()->Scale( 3 ) + swSz, rowMid - swSz / 2 + swSz );
+				FillRound( g, rcSw, 3, SwatchColor( rgb ) );
+				DrawRound( g, rcSw, 3, t.border, 1.0f );
+
+				int txtX = rcSw.right + GetConfig()->Scale( 6 );
+				int rowRight = x0 + colW - GetConfig()->Scale( 4 );
+				int rgbW = rowRight - deW - txtX;	// deW is measured with the column width
+				CString rgbTxt;
+				rgbTxt.Format( "%.0f, %.0f, %.0f", rgb[0], rgb[1], rgb[2] );
+				DrawStr( g, rgbTxt, fSmall,
+						 Gdiplus::RectF( (float)txtX, (float)rcRow.top,
+										 (float)max( 8, rgbW ), (float)rcRow.Height() ), t.text,
+						 Gdiplus::StringAlignmentNear, Gdiplus::StringAlignmentCenter );
+				CString de;
+				de.Format( "%.1f", dE );
+				DrawStr( g, de, fSmall,
+						 Gdiplus::RectF( (float)( rowRight - deW ), (float)rcRow.top, (float)deW, (float)rcRow.Height() ),
+						 DETextColor( dE, good, warn, dark ),
+						 Gdiplus::StringAlignmentFar, Gdiplus::StringAlignmentCenter );
+				shown++;
+			}
+		}
 	}
 }
 
@@ -1253,9 +1944,17 @@ int CProfilePane::HotFromPoint(CPoint clientPt) const
 			break;
 
 		case PS_SUMMARY:
+			// the chip sits in the worst-list header, so test it before the rows
+			if ( !m_rcFilterChip.IsRectEmpty() && m_rcFilterChip.PtInRect( pt ) )
+				return HOT_FILTER;
 			for ( size_t w = 0; w < m_rcWorstRows.size(); w++ )
 				if ( m_rcWorstRows[w].first.PtInRect( pt ) )
 					return HOT_WORST_FIRST + (int)w;
+			// cells are pushed before their row label is tested, and the two never
+			// overlap, so order between them does not matter
+			for ( size_t a = 0; a < m_rcAreaHits.size(); a++ )
+				if ( m_rcAreaHits[a].first.PtInRect( pt ) )
+					return HOT_AREA_FIRST + m_rcAreaHits[a].second;
 			break;
 	}
 	return HOT_NONE;
@@ -1302,6 +2001,16 @@ void CProfilePane::ActivateHot(int id)
 		}
 		return;
 	}
+	// Area ids sit ABOVE the worst-row ids, so they must be tested first: the
+	// open-ended `id >= HOT_WORST_FIRST` below would otherwise swallow them and
+	// index the worst-row vector far out of range.
+	if ( id >= HOT_AREA_FIRST )
+	{
+		int fam = id - HOT_AREA_FIRST;
+		if ( fam >= 0 && fam < AREA_FAMS )
+			SetFilter( fam );
+		return;
+	}
 	if ( id >= HOT_WORST_FIRST )
 	{
 		int w = id - HOT_WORST_FIRST;
@@ -1311,6 +2020,7 @@ void CProfilePane::ActivateHot(int id)
 	}
 	switch ( id )
 	{
+		case HOT_FILTER: SetFilter( -1 ); break;			// the chip clears the filter
 		case HOT_START: SendAction( PA_START ); break;
 		case HOT_PAUSE: SendAction( PA_PAUSE ); break;
 		case HOT_STOP:  SendAction( PA_STOP );  break;

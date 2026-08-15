@@ -279,7 +279,18 @@ public:
 	void ClearProfileMeasures();
 	ColorRGBDisplay GetProfilePatchRGB(int i);		// patch stimulus, regenerated from metadata (cached)
 	void GetRefProfileSat(int i, CColor & ccRef);	// theoretical reference for patch i (grid conventions)
-	double ComputeProfileDE(const CColor & measured, int i);	// dE for profile patch i, matching the measures grid (SDR + PQ HDR); -1 to skip
+	// Breakdown of a profile patch's error, filled on request beside the dE itself:
+	// the unsigned lightness/chroma/hue magnitudes the active m_dE_form weights.
+	struct ProfileDEParts
+	{
+		double dL, dC, dH;
+		ProfileDEParts() : dL(0.0), dC(0.0), dH(0.0) {}
+	};
+	// dE for profile patch i, matching the measures grid (SDR + PQ HDR); -1 to skip.
+	// The breakdown lives here rather than in the pane so the white selection and
+	// the PQ absolute-nits bridge keep ONE definition; pass NULL to skip its cost.
+	double ComputeProfileDEEx(const CColor & measured, int i, ProfileDEParts * pParts);
+	double ComputeProfileDE(const CColor & measured, int i) { return ComputeProfileDEEx( measured, i, NULL ); }
 	double GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) const;	// the white the grid normalises sat/CC dE by (measured, NOT the theoretical tmWhite)
 	ColorDENorm GetColorDENorm(int displayMode) const;	// the whole sat/CC dE normalisation, shared by every consumer
 	// Live profile-capture state (not serialized): the profiling pane pauses/observes through these

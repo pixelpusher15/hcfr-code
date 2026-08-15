@@ -1133,8 +1133,20 @@ void CMeasure::GetRefProfileSat(int i, CColor & ccRef)
 // (mode 5) that scales the normalized reference to absolute nits and adjusts
 // YWhite/RefWhite via tmWhite. SDR (mode != 5) keeps the plain relative path.
 // Returns -1.0 to skip (invalid / blackish / non-finite).
-double CMeasure::ComputeProfileDE(const CColor & c, int i)
+//
+// pdL/pdC/pdH optionally receive the component split of the SAME dE. They are
+// filled here, sharing the reference and white derived below, because a caller
+// that re-derived them would have to duplicate the white-selection chain and the
+// mode-5 nits bridge -- exactly the divergence GetColorDENorm was introduced to
+// stop. Pass NULL (via the ComputeProfileDE wrapper) to skip the extra work.
+double CMeasure::ComputeProfileDEEx(const CColor & c, int i, ProfileDEParts * pParts)
 {
+	// Reset the breakdown up front: every skip path below returns -1.0 early, and
+	// a caller that folded an untouched component into a running sum would be
+	// accumulating whatever the struct happened to hold.
+	if ( pParts )
+		*pParts = ProfileDEParts();
+
 	if ( !c.isValid() )
 		return -1.0;
 	ColorXYZ xyz = c.GetXYZValue();
@@ -1213,6 +1225,27 @@ double CMeasure::ComputeProfileDE(const CColor & c, int i)
 	double dE = c.GetDeltaE( YWhite, refC, RefWhite, bRef, GetConfig()->m_dE_form, false, gw );
 	if ( !( dE == dE ) || dE < 0.0 || dE > 1.0e6 )	// NaN / negative / absurd
 		return -1.0;
+
+	// Component split on request. GetDeltaLCH redoes the Lab/Luv conversion, so
+	// this is gated: the per-patch hot paths (3D viewer rebuild, Export) pass NULL
+	// and pay nothing. The costly part -- GetRefProfileSat above -- is shared.
+	//
+	// Caveat for callers, NOT correctable here: dChrom/dHue are only genuinely
+	// chroma and hue for dE_form 2..5. Form 0 (CIE76uv) fills them with |du|/|dv|
+	// and form 1 (CIE76ab) with |da|/|db|, so a UI labelling them "chroma"/"hue"
+	// under those forms would be lying; combine them into a single colour term
+	// instead. Form 6 (ICtCp) carries its own 240x scaling.
+	if ( pParts )
+	{
+		double dC = 0.0, dH = 0.0;
+		double dL = c.GetDeltaLCH( YWhite, refC, RefWhite, bRef, GetConfig()->m_dE_form, false, gw, dC, dH );
+		// same shape of guard as the total: a non-finite component fed into a
+		// running sum-of-squares would poison every later statistic
+		if ( !( dL == dL ) || dL < 0.0 || dL > 1.0e6 ) dL = 0.0;
+		if ( !( dC == dC ) || dC < 0.0 || dC > 1.0e6 ) dC = 0.0;
+		if ( !( dH == dH ) || dH < 0.0 || dH > 1.0e6 ) dH = 0.0;
+		pParts->dL = dL; pParts->dC = dC; pParts->dH = dH;
+	}
 	return dE;
 }
 

@@ -23,8 +23,22 @@ Guards the 8-bit signal path while the 10-bit work lands. Part of the plan in
   219/255/876/1023 — and its 8-bit limited form must equal the historical
   `floor(v*219+0.5)/219` exactly.
 - **T6** — `GetColorRef` COLORREF packing, vs golden file.
-- **T5** (rPI emission function) arrives with PR 3. **T7** (.chc round-trip) needs app-level
-  linkage and is not in this console harness.
+- **T5** — rPI emission quantizers (`PiPercentToCode` / `PiBackground8ToCode`) across all
+  four grids: endpoints, clamping, monotonicity, and distinct-code counts. No golden file.
+- **T7** — `GenerateProfileColors` determinism: plain and extra patch counts per cube size.
+  No golden file. (This slot was originally reserved for a `.chc` round-trip, which needs
+  app-level linkage and is still not in this console harness.)
+- **T9** — quantizer equivalence oracle (no golden file): the generator grid form, the
+  shared `SnapToVideoGrid`, and the rPI emitter must all select the same integer code for
+  every (bit depth, range) combo, including half-code ties plus/minus dust.
+- **T10** — gamut-basis consistency oracle (no golden file): for every standard in the
+  enum except `CUSTOM`, under three white targets, the basis a consumer plots GEOMETRY in
+  must be the basis its references were BUILT in. Catches the class dE tests are blind to
+  — a point drawn in the wrong place while its dE reads exactly 0.000 — which is how the
+  3D viewer came to draw HDTVa/HDTVb solids from their 75%/plasma PATCH chromaticities
+  instead of Rec.709. `CUSTOM` is excluded because constructing one corrupts the global
+  Rec.601 primaries (see the comment above `RunT10`); `CC6` skips the second leg only.
+  Note this pins the shared helper, **not** any view's use of it — nothing here links MFC.
 
 ## Build & run
 Build `libHCFR` first, then this project (Debug|Win32 only):

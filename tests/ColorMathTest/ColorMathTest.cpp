@@ -7,10 +7,11 @@
 // goldenDir defaults to "golden" relative to the current directory.
 // Exit code 0 = all pass, nonzero = mismatch/failure.
 //
-// T1 needs no golden file: it carries a frozen copy of the legacy quantizer as an oracle.
 // T2/T3/T4/T6 dump deterministic tables and compare them exactly against checked-in goldens.
-// T5 (rPI emission) is added by PR 3. T7 (.chc round-trip) needs app-level linkage and is
-// deliberately not in this console harness.
+// Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
+// copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants, and
+// T10 asserts gamut-basis consistency. The .chc round-trip originally planned for the T7
+// slot needs app-level linkage and is deliberately still not in this console harness.
 
 #include <afx.h>
 #include "../../libHCFR/Color.h"
@@ -643,6 +644,127 @@ static void RunT9()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T10 — gamut-basis consistency oracle (pure assertion, no golden file).
+//
+// Closes a real gap: dE-based tests are blind to which BASIS a consumer plots
+// against, because a point can be drawn in completely the wrong place while its
+// dE reads exactly 0.000. The 3D viewer built its gamut solid straight from
+// CColorReference::GetRed/Green/Blue, but HDTVa/HDTVb do not carry a gamut
+// there - HDTVa holds the 75% saturation/amplitude PATCH chromaticities and
+// HDTVb the plasma-optimized color-checker ones, both far inside Rec.709. So
+// the solid was a small desaturated triangle while the references themselves
+// are manufactured in real Rec.709 by SetRGBValue's substitution, and a perfect
+// simulated display plotted its own targets outside the solid at dE 0.00.
+//
+// The invariant: the basis a consumer uses for GEOMETRY must be the same basis
+// the references were BUILT in. Two legs, over every standard in the enum
+// except CUSTOM (see the carve-outs below):
+//   1. Round trip. SetRGBValue(rgb, S) is how the app manufactures a reference;
+//      decoding that XYZ in SpecialModeGamutReference(S) must return rgb. Any
+//      standard whose geometry basis disagrees with its construction basis
+//      lands outside the unit cube here. Verified by mutation: reverting the
+//      helper to a plain `return active` fails 600 assertions - 240 on HDTVa
+//      (red decodes to 1.267,-0.072,-0.071 instead of 1,0,0), 240 on HDTVb,
+//      120 on CC6, and none at all on the other eight standards.
+//   2. Helper agreement. SpecialModeGamutReference must reproduce GetRGBValue's
+//      own inline substitution exactly, so the two cannot drift apart.
+//
+// Each standard runs under three white targets, and that is load-bearing rather
+// than thoroughness for its own sake: the special modes' construction basis is a
+// FIXED Rec.709/D65 (SetRGBValue builds CColorReference(HDTV) unconditionally),
+// so a helper that carried the active white over would pass every default-white
+// case and fail 270 assertions the moment a non-D65 white is selected. The first
+// version of this helper did exactly that.
+//
+// SCOPE: this pins the helper's CONTRACT, not its application. Nothing here can
+// see C3DColorView - if the viewer stopped calling SpecialModeGamutReference, T10
+// would stay green. That call site is funnelled through a single
+// SceneGamutReference() in Color3DView.cpp to keep the blast radius of such a
+// regression to one line; the display itself is still only checked on screen.
+//
+// CUSTOM is deliberately absent: CColorReference's CUSTOM branch writes its
+// primaries THROUGH the default `primaries` pointer, which still aims at the
+// global primariesRec601 array, so merely constructing one corrupts SDTV for
+// the rest of the process. Constructing it here would poison later tests.
+// CC6 (the unused enum slot) runs leg 1 only: GetRGBValue's substitution
+// predicate omits CC6 while SetRGBValue's and GetDeltaE's include it, a latent
+// inconsistency in dead-but-present code that leg 2 would trip over.
+//////////////////////////////////////////////////////////////////////////
+static void RunT10()
+{
+    printf("T10 gamut-basis consistency oracle...\n");
+    static const struct { ColorStandard cs; const char* name; } stds[] = {
+        { PALSECAM, "PALSECAM" }, { SDTV,   "SDTV"   }, { HDTV,   "HDTV"   },
+        { HDTVa,    "HDTVa"    }, { HDTVb,  "HDTVb"  }, { sRGB,   "sRGB"   },
+        { UHDTV,    "UHDTV"    }, { UHDTV2, "UHDTV2" }, { UHDTV3, "UHDTV3" },
+        { UHDTV4,   "UHDTV4"   }, { CC6,    "CC6"    },
+    };
+    // cube corners, face centres, grey, and a few off-axis points
+    static const double rgbs[][3] = {
+        {0,0,0}, {1,0,0}, {0,1,0}, {0,0,1}, {1,1,0}, {0,1,1}, {1,0,1}, {1,1,1},
+        {0.5,0,0}, {0,0.5,0}, {0,0,0.5}, {0.5,0.5,0.5},
+        {0.75,0.25,0.10}, {0.10,0.75,0.25}, {0.25,0.10,0.75},
+    };
+    // White targets matter: the special standards' construction basis is a FIXED
+    // Rec.709/D65 (SetRGBValue builds CColorReference(HDTV) unconditionally), so a
+    // geometry basis that tracked the active white instead would break leg 1 for
+    // every non-D65 white while passing under the default.
+    enum { W_DEFAULT, W_NAMED, W_CUSTOM, W_COUNT };
+    static const char * wName[W_COUNT] = { "D65", "D75", "custom" };
+
+    const int nStd = (int)(sizeof(stds) / sizeof(stds[0]));
+    const int nRGB = (int)(sizeof(rgbs) / sizeof(rgbs[0]));
+
+    for (int s = 0; s < nStd; ++s)
+    for (int w = 0; w < W_COUNT; ++w)
+    {
+        CColorReference ref =
+            (w == W_NAMED)  ? CColorReference(stds[s].cs, D75) :
+            (w == W_CUSTOM) ? CColorReference(stds[s].cs, DCUST, -1.0, " modified",
+                                              ColorXYZ(ColorxyY(0.2900, 0.3000)))
+                            : CColorReference(stds[s].cs);
+        CColorReference gref = SpecialModeGamutReference(ref);
+        char tag[48];
+        _snprintf(tag, sizeof(tag) - 1, "%s/%s", stds[s].name, wName[w]);
+        tag[sizeof(tag) - 1] = 0;
+
+        // Ordinary standards must come back untouched - the helper is only ever
+        // allowed to act on the special ones.
+        bool special = (stds[s].cs == HDTVa || stds[s].cs == HDTVb || stds[s].cs == CC6);
+        if (!special)
+            for (int k = 0; k < 3; ++k)
+                if (fabs(ref.GetWhite()[k] - gref.GetWhite()[k]) > 1e-12)
+                    Fail("T10 %s: helper altered a non-special reference, white component "
+                         "%d: %.17g -> %.17g", tag, k, ref.GetWhite()[k], gref.GetWhite()[k]);
+
+        for (int i = 0; i < nRGB; ++i)
+        {
+            ColorRGB rgb(rgbs[i][0], rgbs[i][1], rgbs[i][2]);
+            CColor c;
+            c.SetRGBValue(rgb, ref);
+
+            // ---- Leg 1: construction basis == geometry basis.
+            ColorRGB back(c.GetXYZValue(), gref);
+            for (int k = 0; k < 3; ++k)
+                if (fabs(back[k] - rgb[k]) > 1e-9)
+                    Fail("T10 %s rgb=(%.2f,%.2f,%.2f): reference is outside the plotted "
+                         "gamut basis, channel %d came back %.6f (expected %.6f)",
+                         tag, rgb[0], rgb[1], rgb[2], k, back[k], rgb[k]);
+
+            // ---- Leg 2: helper == GetRGBValue's own inline substitution.
+            if (stds[s].cs == CC6)
+                continue;
+            ColorRGB viaGetter = c.GetRGBValue(ref);
+            for (int k = 0; k < 3; ++k)
+                if (fabs(viaGetter[k] - back[k]) > 1e-9)
+                    Fail("T10 %s rgb=(%.2f,%.2f,%.2f): SpecialModeGamutReference disagrees "
+                         "with GetRGBValue, channel %d: %.17g vs %.17g",
+                         tag, rgb[0], rgb[1], rgb[2], k, back[k], viaGetter[k]);
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -668,6 +790,7 @@ int main(int argc, char* argv[])
     RunT7();
     RunT8();
     RunT9();
+    RunT10();
 
     if (g_failures)
     {
