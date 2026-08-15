@@ -730,6 +730,7 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 	PGenSettings st; st.valid = FALSE;
 	st.colorFormat = st.quantRange = st.bitDepth = st.colorimetry = 0;
 	st.isHdr = st.isLLDovi = st.isStdDovi = st.eotf = st.primaries = 0;
+	st.doviMode = 1;
 	st.maxLuma = 1000; st.minLuma = 5; st.maxCll = 1000; st.maxFall = 400;
 	if (m_pGenerator)
 	{
