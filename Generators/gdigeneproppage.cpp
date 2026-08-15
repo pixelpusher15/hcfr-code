@@ -864,7 +864,9 @@ void CPGenSettingsDlg::OnOK()
 		}
 	}
 	if (cmds.GetSize() > 0 && m_pGenerator) { CWaitCursor wait; m_pGenerator->ApplyPGeneratorConf(cmds); }
-	CDialog::OnOK();
+	// "Apply" applies the settings but deliberately does NOT close the dialog: the change
+	// usually needs a Restart to take effect, and closing on Apply forced a reopen just to
+	// reach the Restart button (reported by Dominic, AVSForum). Dismiss with "Close" (IDCANCEL).
 }
 
 void CPGenSettingsDlg::OnFormatChanged()
@@ -1008,8 +1010,13 @@ void CGDIGenePropPage::OnPgenSettings()
 	CPGenSettingsDlg dlg(this);
 	dlg.m_pGenerator = m_pGenerator;
 	dlg.DoModal();
+	// Auto-refresh the status readout after the settings dialog closes (Dominic's request) -
+	// but not when a reboot/restart/shutdown was issued: the device is going down, so a query
+	// would just fail/hang, and we show it disconnected instead.
 	if (dlg.m_action != 0)
 		ShowPgenDisconnected();
+	else
+		QueryPGenerator();
 }
 
 void CGDIGenePropPage::OnOK()
