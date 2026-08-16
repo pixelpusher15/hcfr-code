@@ -3390,214 +3390,58 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
             break;
         }
 
-	case CM10SAT:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 10-Point Saturation (100AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-	case CM10SAT75:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 10-Point Saturation (75AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM4LUM:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\CM 4-Point Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-	case CM5LUM:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\CM 5-Point Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM10LUM:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\CM 10-Point Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM4SAT:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 4-Point Saturation (100AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM4SAT75:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 4-Point Saturation (75AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM5SAT:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 5-Point Saturation (100AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM5SAT75:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 5-Point Saturation (75AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM6NB:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\CM 6-Point Near Black.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-	case MASCIOR50:
-        {//read in user defined colors
-			strcat(appPath, "\\Mascior50_50_BT2020_HDR.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-		case LG54017:
-        {//read in user defined colors
-			strcat(appPath, "\\LG_540_Base_Tone_Curve_2017.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-		case LG100017:
-        {//read in user defined colors
-			strcat(appPath, "\\LG_1000_Base_Tone_Curve_2017.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-		case LG400017:
-        {//read in user defined colors
-			strcat(appPath, "\\LG_4000_Base_Tone_Curve_2017.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-		case LG54016:
-        {//read in user defined colors
-			strcat(appPath, "\\LG_540_Base_Tone_Curve_2016.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-		case LGUK65XX:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_UK65xx_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLEDV12018:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2018_V1_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLEDV22018:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2018_V2_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLEDV32018:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2018_V3_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED102019:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2019_HDR10_10_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED222019:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2019_HDR10_22_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED102020:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2020_HDR10_10_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED222020:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2020_HDR10_22_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED102021:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2021_HDR10_10_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED222021:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2021_HDR10_22_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case CMDNR:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\CM Dynamic Range (Clipping).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-	case RANDOM250:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\Random_250.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case RANDOM500:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\Random_500.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
+	case CM10SAT:  case CM10SAT75:  case CM4SAT:  case CM4SAT75:  case CM5SAT:
+	case CM5SAT75:  case CM4LUM:  case CM5LUM:  case CM10LUM:  case CM6NB:
+	case CMDNR:  case MASCIOR50:  case RANDOM250:  case RANDOM500:  case LG54016:
+	case LG54017:  case LG100017:  case LG400017:  case LGUK65XX:  case LGOLEDV12018:
+	case LGOLEDV22018:  case LGOLEDV32018:  case LGOLED102019:  case LGOLED222019:  case LGOLED102020:
+	case LGOLED222020:  case LGOLED102021:  case LGOLED222021:
+	{
+		// Predefined CSV patch sets: everything that varies is data - the file
+		// (all under appPath) and the HDR-recalc flag. USER stays a separate case
+		// above (it lives in the module dir, not appPath).
+		static const struct { int mode; const char * file; bool recalc; } kCsvSets[] =
+		{
+			{ CM10SAT,      "\\CM 10-Point Saturation (100AMP).csv", true },
+			{ CM10SAT75,    "\\CM 10-Point Saturation (75AMP).csv", true },
+			{ CM4SAT,       "\\CM 4-Point Saturation (100AMP).csv", true },
+			{ CM4SAT75,     "\\CM 4-Point Saturation (75AMP).csv", true },
+			{ CM5SAT,       "\\CM 5-Point Saturation (100AMP).csv", true },
+			{ CM5SAT75,     "\\CM 5-Point Saturation (75AMP).csv", true },
+			{ CM4LUM,       "\\CM 4-Point Luminance.csv", false },
+			{ CM5LUM,       "\\CM 5-Point Luminance.csv", false },
+			{ CM10LUM,      "\\CM 10-Point Luminance.csv", false },
+			{ CM6NB,        "\\CM 6-Point Near Black.csv", false },
+			{ CMDNR,        "\\CM Dynamic Range (Clipping).csv", false },
+			{ MASCIOR50,    "\\Mascior50_50_BT2020_HDR.csv", false },
+			{ RANDOM250,    "\\Random_250.csv", false },
+			{ RANDOM500,    "\\Random_500.csv", false },
+			{ LG54016,      "\\LG_540_Base_Tone_Curve_2016.csv", false },
+			{ LG54017,      "\\LG_540_Base_Tone_Curve_2017.csv", false },
+			{ LG100017,     "\\LG_1000_Base_Tone_Curve_2017.csv", false },
+			{ LG400017,     "\\LG_4000_Base_Tone_Curve_2017.csv", false },
+			{ LGUK65XX,     "\\LG_UK65xx_HDR10_20_Point_Luminance.csv", false },
+			{ LGOLEDV12018, "\\LG_2018_V1_HDR10_20_Point_Luminance.csv", false },
+			{ LGOLEDV22018, "\\LG_2018_V2_HDR10_20_Point_Luminance.csv", false },
+			{ LGOLEDV32018, "\\LG_2018_V3_HDR10_20_Point_Luminance.csv", false },
+			{ LGOLED102019, "\\LG_2019_HDR10_10_Point_Luminance.csv", false },
+			{ LGOLED222019, "\\LG_2019_HDR10_22_Point_Luminance.csv", false },
+			{ LGOLED102020, "\\LG_2020_HDR10_10_Point_Luminance.csv", false },
+			{ LGOLED222020, "\\LG_2020_HDR10_22_Point_Luminance.csv", false },
+			{ LGOLED102021, "\\LG_2021_HDR10_10_Point_Luminance.csv", false },
+			{ LGOLED222021, "\\LG_2021_HDR10_22_Point_Luminance.csv", false },
+			{ 0, 0, false }
+		};
+		for ( int i = 0; kCsvSets[i].file; i++ )
+			if ( kCsvSets[i].mode == aCCMode )
+			{
+				m_bRecalc = kCsvSets[i].recalc;
+				strcat(appPath, kCsvSets[i].file);
+				break;
+			}
+		n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
+		break;
+	}
 	}//switch
 	if (n_elements < 0)
 	{
