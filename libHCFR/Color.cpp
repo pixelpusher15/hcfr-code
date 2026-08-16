@@ -3984,7 +3984,9 @@ int PiPercentToCode ( double percent, bool is16_235, int bits )
         if ( is16_235 )
         {
             code = (int) floor ( percent / 100.0 * 876.0 + 64.5 );
-            code = ( code < 0 ) ? 0 : ( ( code > 940 ) ? 940 : code );
+            // Ceiling is the code max (not legal white 940): pass super-white / WTW.
+            // Legal patchsets are import-clamped to <=100%, so this only affects Extended.
+            code = ( code < 0 ) ? 0 : ( ( code > 1023 ) ? 1023 : code );
         }
         else
         {
@@ -3996,7 +3998,9 @@ int PiPercentToCode ( double percent, bool is16_235, int bits )
     if ( is16_235 )
     {
         code = (int) floor ( percent / 100.0 * 219.0 + 16.5 );
-        code = ( code < 0 ) ? 0 : ( ( code > 235 ) ? 235 : code );
+        // Ceiling is the code max (not legal white 235): pass super-white / WTW (Extended).
+        // Legal patchsets are import-clamped to <=100%, so this only affects Extended.
+        code = ( code < 0 ) ? 0 : ( ( code > 255 ) ? 255 : code );
     }
     else
     {
