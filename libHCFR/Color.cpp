@@ -2944,6 +2944,32 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 	return cnt;
 }
 
+// Reads ONLY the "# BITDEPTH n, RANGE x" header of a CSV (no full load) and returns the
+// declared range for the import-range guard: CSV_RANGE_FULL/LEGAL/EXTENDED, or CSV_RANGE_NONE
+// when the file has no header (legacy HCFR / plain user CSV) or will not open.
+int PeekCsvRange(CString csvPath)
+{
+	ifstream f(csvPath);
+	if (!f)
+		return CSV_RANGE_NONE;
+	std::string line;
+	while (std::getline(f, line))
+	{
+		size_t b0 = line.find_first_not_of(" \t\r\n");
+		if (b0 == std::string::npos)
+			continue;
+		if (line[b0] != '#')
+			return CSV_RANGE_NONE;                 // first non-blank line is data: no header
+		std::string up = line;
+		for (size_t k = 0; k < up.size(); k++) up[k] = (char)toupper((unsigned char)up[k]);
+		if (up.find("EXTENDED") != std::string::npos) return CSV_RANGE_EXTENDED;
+		if (up.find("FULL")     != std::string::npos) return CSV_RANGE_FULL;
+		if (up.find("LEGAL")    != std::string::npos) return CSV_RANGE_LEGAL;
+		return CSV_RANGE_NONE;
+	}
+	return CSV_RANGE_NONE;
+}
+
 static int AppendProfileGray(ColorRGBDisplay* GenColors, int maxEntries, int cnt, int cubeN, double level)
 {
 	if ( cnt < 0 )

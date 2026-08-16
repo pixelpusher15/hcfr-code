@@ -765,6 +765,9 @@ extern int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, in
 extern void RemapProfileToTransport (ColorRGBDisplay* GenColors, int n, const CColorReference& colorReference, int mode, bool b10bit, bool is16_235);
 extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries);
 extern int PiPercentToCode ( double percent, bool is16_235, int bits );
+// Declared RANGE peeked from a CSV header (import-range guard). See PeekCsvRange.
+enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_EXTENDED = 2 };
+extern int PeekCsvRange ( CString csvPath );
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );
