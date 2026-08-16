@@ -685,39 +685,7 @@ void CReferencesPropPage::OnSelchangeCCmodeCombo()
 	UpdateData(TRUE);
 	if (m_colorStandard == CC6)
 		m_CCMode = GCD;
-	// Import-range guard: for a USER patch list, warn if usercolors.csv's declared range
-	// implies an output level that does not match the current RGB-levels setting (a mismatch
-	// silently rescales the codes - see PeekCsvRange). Offer to switch the output to match.
-	if (m_CCMode == USER)
-	{
-		char modPath[MAX_PATH];
-		GetModuleFileName(NULL, modPath, sizeof(modPath));
-		LPSTR pSlash = strrchr(modPath, '\\');
-		if (pSlash) pSlash[1] = '\0';
-		int rng = PeekCsvRange(CString(modPath) + "usercolors.csv");
-		if (rng != CSV_RANGE_NONE)
-		{
-			bool wantFull = (rng == CSV_RANGE_FULL);
-			bool isFull   = (GetConfig()->GetRGB16_235() == FALSE);
-			if (wantFull != isFull)
-			{
-				CString rangeName = wantFull ? "Full (0-255)"
-				                  : (rng == CSV_RANGE_EXTENDED) ? "Extended (16-235 + super-white)"
-				                  : "Legal (16-235)";
-				CString msg;
-				msg.Format("The USER patch list declares %s range, but generator output is set to %s.\n\n"
-				           "Sending it unchanged rescales the codes. Switch output to %s?",
-				           (LPCTSTR)rangeName,
-				           isFull ? "Full (0-255)" : "16-235 (video)",
-				           wantFull ? "Full (0-255)" : "16-235 (video)");
-				if (AfxMessageBox(msg, MB_YESNO | MB_ICONWARNING) == IDYES)
-				{
-					GetConfig()->m_bRGB16_235 = wantFull ? FALSE : TRUE;
-					GetConfig()->WriteProfileInt("GDIGenerator", "RGB_16_235", wantFull ? 0 : 1);
-				}
-			}
-		}
-	}
+	GuardCCModeOutputRange(m_CCMode);
 	GetConfig()->ApplySettings(false);
 	UpdateData(FALSE);
 }

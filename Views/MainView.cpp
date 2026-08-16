@@ -6344,6 +6344,7 @@ void CMainView::OnSelchangeComboSteps()
 			return;
 		GetConfig () -> m_CCMode = (CCPatterns) data;
 		GetConfig () -> m_referencesPropertiesPage.m_CCMode = data;	// keep the dialog's DDX var in sync
+		GuardCCModeOutputRange ( data );	// import-range guard (USER patch list)
 		GetConfig () -> WriteProfileInt ( "References", "CCMode", data );
 		GetConfig () -> GetCColors ();	// reload the set's target colors / patch count
 		GetDocument () -> UpdateAllViews ( NULL, UPD_EVERYTHING );

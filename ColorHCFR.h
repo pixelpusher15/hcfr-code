@@ -92,6 +92,7 @@ class CPropertySheetWithHelp : public CPropertySheet
 class	CDataSetDoc ; //Ki
 CDataSetDoc * GetDataRef();	//Ki
 void SetDataRef(CDataSetDoc *m_pRefData);	//Ki
+void GuardCCModeOutputRange(int ccMode);	// import-range guard (USER patch list)
 void	UpdateDataRef(BOOL ActiveDataRef, CDataSetDoc * pDoc);	//Ki
 
 CColorHCFRConfig * GetConfig();
