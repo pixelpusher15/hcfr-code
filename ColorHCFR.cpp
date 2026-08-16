@@ -187,9 +187,10 @@ CDataSetDoc * GetDataRef()	//Ki
 	return theApp.m_pReferenceData; 
 }
 
-// Import-range guard: for a USER patch list, warn if usercolors.csv's declared range
-// implies an output level that does not match the current RGB-levels setting (a mismatch
-// silently rescales the codes - see PeekCsvRange). Offer to switch the output to match.
+// Import-range guard: an EXTENDED (whiter-than-white) USER patch list carries super-white
+// codes (>100%), and only a 16-235 output can emit them - a Full output clamps 236-255 to
+// 255 at the encoder, silently destroying the gradations. Warn ONLY for that. (Legal/Full
+// vs the radio is a display-range chain setting HCFR cannot verify, so it is not flagged.)
 // Shared by the References prop-page combo and the MainView Color-Checker picker.
 void GuardCCModeOutputRange(int ccMode)
 {
@@ -199,26 +200,17 @@ void GuardCCModeOutputRange(int ccMode)
 	GetModuleFileName(NULL, modPath, sizeof(modPath));
 	LPSTR pSlash = strrchr(modPath, '\\');
 	if (pSlash) pSlash[1] = '\0';
-	int rng = PeekCsvRange(CString(modPath) + "usercolors.csv");
-	if (rng == CSV_RANGE_NONE)
-		return;
-	bool wantFull = (rng == CSV_RANGE_FULL);
-	bool isFull   = (GetConfig()->GetRGB16_235() == FALSE);
-	if (wantFull == isFull)
-		return;
-	CString rangeName = wantFull ? "Full (0-255)"
-	                  : (rng == CSV_RANGE_EXTENDED) ? "Extended (16-235 + super-white)"
-	                  : "Legal (16-235)";
-	CString msg;
-	msg.Format("The USER patch list declares %s range, but generator output is set to %s.\n\n"
-	           "Sending it unchanged rescales the codes. Switch output to %s?",
-	           (LPCTSTR)rangeName,
-	           isFull ? "Full (0-255)" : "16-235 (video)",
-	           wantFull ? "Full (0-255)" : "16-235 (video)");
+	if (PeekCsvRange(CString(modPath) + "usercolors.csv") != CSV_RANGE_EXTENDED)
+		return;                                  // only Extended has super-white to lose
+	if (GetConfig()->GetRGB16_235() != FALSE)
+		return;                                  // already 16-235: super-white is emitted fine
+	CString msg = "The USER patch list is Extended range (whiter-than-white), but generator "
+	              "output is set to Full (0-255), which clamps the super-white codes to 255.\n\n"
+	              "Switch output to 16-235 (video) so they are sent intact?";
 	if (AfxMessageBox(msg, MB_YESNO | MB_ICONWARNING) == IDYES)
 	{
-		GetConfig()->m_bRGB16_235 = wantFull ? FALSE : TRUE;
-		GetConfig()->WriteProfileInt("GDIGenerator", "RGB_16_235", wantFull ? 0 : 1);
+		GetConfig()->m_bRGB16_235 = TRUE;
+		GetConfig()->WriteProfileInt("GDIGenerator", "RGB_16_235", 1);
 	}
 }
 
