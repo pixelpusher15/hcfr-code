@@ -206,12 +206,8 @@ void GuardCCModeOutputRange(int ccMode)
 		return;                                  // already 16-235: super-white is emitted fine
 	CString msg = "The USER patch list is Extended range (whiter-than-white), but generator "
 	              "output is set to Full (0-255), which clamps the super-white codes to 255.\n\n"
-	              "Switch output to 16-235 (video) so they are sent intact?";
-	if (AfxMessageBox(msg, MB_YESNO | MB_ICONWARNING) == IDYES)
-	{
-		GetConfig()->m_bRGB16_235 = TRUE;
-		GetConfig()->WriteProfileInt("GDIGenerator", "RGB_16_235", 1);
-	}
+	              "Set the generator output to 16-235 (video) so the super-white codes are sent intact.";
+	AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
 }
 
 void SetDataRef(CDataSetDoc *m_pRefData)	//Ki

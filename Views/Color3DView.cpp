@@ -761,7 +761,11 @@ void C3DColorView::BuildScene()
 			refDE.SetZ( refC.GetZ() * ccDEScale );
 		}
 		wchar_t lbl[48];
-		swprintf( lbl, 48, L"Color checker #%d", i + 1 );
+		std::string ccName = GetConfig()->GetCColorsN( i );
+		if ( !ccName.empty() )
+			swprintf( lbl, 48, L"%S", ccName.c_str() );
+		else
+			swprintf( lbl, 48, L"Color checker #%d", i + 1 );
 		AppendMeasure( c, whiteY, ref, refDE, refMark, false, ccDEWhite, lbl, SRC_CC24, i );
 	}
 

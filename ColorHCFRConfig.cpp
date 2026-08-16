@@ -1310,10 +1310,15 @@ void CColorHCFRConfig::GetCColors()
 
 			if (colorFile.good()) 
 			{
+				// set-name for the display = file base name (migrated files no longer carry it inline)
+				{ int sl = fName.ReverseFind('\\'); nFile = (LPCTSTR)(sl >= 0 ? fName.Mid(sl + 1) : fName); size_t dp = nFile.rfind(".csv"); if (dp != std::string::npos) nFile.erase(dp); }
+				bool hdr = false;
 				while( getline(colorFile, line) && cnt < MAX_USER_CC_PATCH_SIZE)
-		        {
+				{
+					if (!line.empty() && line[0] == '#') { hdr = true; continue; }   // header-aware (matches ReadColorsFromCsv)
 					std::istringstream s(line);
 					std::string field;
+					if (hdr) { s >> n1; getline(s, field,','); }                     // skip the PatchNumber column
 					s >> n1;
 					getline(s, field,',');
 					s >> n2;
@@ -1321,17 +1326,15 @@ void CColorHCFRConfig::GetCColors()
 					s >> n3;
 					getline(s, field,',');
 					getline(s, n4, ',');
-					if (cnt == 0)
-						getline(s, nFile, ',');
 					cTargetR.push_back(n1);
 					cTargetG.push_back(n2);
 					cTargetB.push_back(n3);
 					cTargetN.push_back(n4);
-	                ++cnt;
-		        }
-				numCC = cnt;
+					++cnt;
+				}
 				colorFile.close();
 			}
+			numCC = cnt;   // set even when the file is missing/unreadable (0) so size matches the cleared target vectors
 }
 
 ColorRGB CColorHCFRConfig::GetCColorsT(int index) 
@@ -1346,8 +1349,10 @@ std::string CColorHCFRConfig::GetCColorsN(int index)
 {
 			if (index == -1)
 			 return nFile;
-			else
+			else if (index >= 0 && index < (int)cTargetN.size())
 		     return cTargetN[index];
+			else
+			 return "";
 }
 
 int CColorHCFRConfig::GetCColorsSize() 
