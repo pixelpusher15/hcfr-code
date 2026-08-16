@@ -2883,8 +2883,9 @@ static double CsvCodeToPercent(double code, int bits, int range)
 
 // Header-aware ColourSpace patch-list importer. An optional first line
 // "# BITDEPTH <8|10>, RANGE <FULL|LEGAL|EXTENDED>" (case-insensitive) declares the encoding;
-// data rows are "R,G,B" or "PatchNumber,R,G,B[,Name]" - a leading patch-number column is
-// detected by field count, a trailing name is ignored. With no header it falls back to the
+// data rows are "R,G,B" or "PatchNumber,R,G,B[,Name]" - the leading patch-number column is
+// read ONLY when a header is present; headerless files (legacy HCFR + plain user CSVs) keep
+// R,G,B in fields 0-2 (extra fields e.g. a name/label are ignored). With no header it falls back to the
 // historical 8-bit-legal, R,G,B parsing so old files load unchanged. Fills genColors
 // sequentially and returns the count (-1 if the file won't open).
 // TODO (csv-patchlist): carry PatchNumber/Name/srcBits/srcRange as provenance; thermal sort.
@@ -2898,6 +2899,7 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 	int cnt  = 0;
 	int bits = 8;
 	int range = CSVRANGE_LEGACY;
+	bool hasHeader = false;
 
 	while (std::getline(colorFile, line) && cnt < maxEntries)
 	{
@@ -2909,6 +2911,7 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 
 		if (line[b0] == '#')
 		{
+			hasHeader = true;
 			std::string up = line;
 			for (size_t k = 0; k < up.size(); k++) up[k] = (char)toupper((unsigned char)up[k]);
 			size_t bp = up.find("BITDEPTH");
@@ -2929,7 +2932,7 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 			continue;
 
 		double r, g, b;
-		if (nf >= 4) { r = num[1]; g = num[2]; b = num[3]; }
+		if (hasHeader && nf >= 4) { r = num[1]; g = num[2]; b = num[3]; }
 		else         { r = num[0]; g = num[1]; b = num[2]; }
 
 		genColors[cnt] = ColorRGBDisplay(
