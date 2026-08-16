@@ -2861,26 +2861,81 @@ void CSpectrum::Serialize(CArchive& archive)
 }
 #endif
 
+// Range a ColourSpace patch-list CSV can declare in its header. Default (no header)
+// keeps the historical 8-bit-legal behaviour so pre-existing user files still load.
+enum CsvRange { CSVRANGE_LEGACY = -1, CSVRANGE_FULL = 0, CSVRANGE_LEGAL = 1, CSVRANGE_EXTENDED = 2 };
+
+// One source code -> HCFR stimulus percentage, honouring the declared bit depth (8 or 10)
+// and range. Full: 0..(2^bits-1) -> 0..100. Legal/Extended: black..white (16..235 at 8-bit,
+// 64..940 at 10-bit) -> 0..100; Extended keeps super-white (>100%), Legal/legacy clamp [0,100].
+static double CsvCodeToPercent(double code, int bits, int range)
+{
+	int maxCode = (1 << bits) - 1;
+	if (range == CSVRANGE_FULL)
+		return code * 100.0 / maxCode;
+	double black = 16.0  * (1 << (bits - 8));
+	double white = 235.0 * (1 << (bits - 8));
+	double pct = ( code - black ) / ( white - black ) * 100.0;
+	if (range == CSVRANGE_EXTENDED)
+		return pct;
+	return ( pct < 0.0 ) ? 0.0 : ( pct > 100.0 ? 100.0 : pct );
+}
+
+// Header-aware ColourSpace patch-list importer. An optional first line
+// "# BITDEPTH <8|10>, RANGE <FULL|LEGAL|EXTENDED>" (case-insensitive) declares the encoding;
+// data rows are "R,G,B" or "PatchNumber,R,G,B[,Name]" - a leading patch-number column is
+// detected by field count, a trailing name is ignored. With no header it falls back to the
+// historical 8-bit-legal, R,G,B parsing so old files load unchanged. Fills genColors
+// sequentially and returns the count (-1 if the file won't open).
+// TODO (csv-patchlist): carry PatchNumber/Name/srcBits/srcRange as provenance; thermal sort.
 int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPath)
 {
 	ifstream colorFile(csvPath);
-	std::string line;
-	int cnt = 0;
-	int n1, n2, n3;
 	if (!colorFile)
-	{
 		return -1;
-	}
+
+	std::string line;
+	int cnt  = 0;
+	int bits = 8;
+	int range = CSVRANGE_LEGACY;
+
 	while (std::getline(colorFile, line) && cnt < maxEntries)
 	{
+		while (!line.empty() && (line[line.size()-1] == '\r' || line[line.size()-1] == ' ' || line[line.size()-1] == '\t'))
+			line.erase(line.size()-1);
+		size_t b0 = line.find_first_not_of(" \t");
+		if (b0 == std::string::npos)
+			continue;
+
+		if (line[b0] == '#')
+		{
+			std::string up = line;
+			for (size_t k = 0; k < up.size(); k++) up[k] = (char)toupper((unsigned char)up[k]);
+			size_t bp = up.find("BITDEPTH");
+			if (bp != std::string::npos) { int v = atoi(up.c_str() + bp + 8); if (v == 8 || v == 10) bits = v; }
+			if      (up.find("EXTENDED") != std::string::npos) range = CSVRANGE_EXTENDED;
+			else if (up.find("FULL")     != std::string::npos) range = CSVRANGE_FULL;
+			else if (up.find("LEGAL")    != std::string::npos) range = CSVRANGE_LEGAL;
+			continue;
+		}
+
+		double num[4] = { 0, 0, 0, 0 };
+		int nf = 0;
 		std::istringstream s(line);
 		std::string field;
-		s >> n1;
-		getline(s, field, ',');
-		s >> n2;
-		getline(s, field, ',');
-		s >> n3;
-		genColors[cnt] = ColorRGBDisplay(((n1 - 16) / 219.) * 100, ((n2 - 16) / 219.) * 100, ((n3 - 16) / 219.) * 100.);
+		while (nf < 4 && std::getline(s, field, ','))
+			num[nf++] = atof(field.c_str());
+		if (nf < 3)
+			continue;
+
+		double r, g, b;
+		if (nf >= 4) { r = num[1]; g = num[2]; b = num[3]; }
+		else         { r = num[0]; g = num[1]; b = num[2]; }
+
+		genColors[cnt] = ColorRGBDisplay(
+			CsvCodeToPercent(r, bits, range),
+			CsvCodeToPercent(g, bits, range),
+			CsvCodeToPercent(b, bits, range));
 		cnt++;
 	}
 	return cnt;
