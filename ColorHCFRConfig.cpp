@@ -1298,43 +1298,23 @@ void CColorHCFRConfig::GetCColors()
 				fName = strcat(appPath, "\\color\\LG_2021_HDR10_22_Point_Luminance.csv");
 				break;
 			}
-			ifstream colorFile(fName);
-            std::string line;
-            int cnt = 0;
-            int n1,n2,n3;
-			std::string n4;
 			cTargetR.clear();
 			cTargetG.clear();
 			cTargetB.clear();
 			cTargetN.clear();
-
-			if (colorFile.good()) 
+			// set-name for the display = file base name (migrated files no longer carry it inline)
+			{ int sl = fName.ReverseFind('\\'); nFile = (LPCTSTR)(sl >= 0 ? fName.Mid(sl + 1) : fName); size_t dp = nFile.rfind(".csv"); if (dp != std::string::npos) nFile.erase(dp); }
+			// Single shared parser (the one ReadColorsFromCsv uses): raw codes + names, header/patch-column aware.
+			std::vector<CsvPatchRow> rows;
+			int nRows = ReadCsvPatchRows(fName, rows, MAX_USER_CC_PATCH_SIZE, NULL, NULL);
+			for (int i = 0; i < nRows; i++)
 			{
-				// set-name for the display = file base name (migrated files no longer carry it inline)
-				{ int sl = fName.ReverseFind('\\'); nFile = (LPCTSTR)(sl >= 0 ? fName.Mid(sl + 1) : fName); size_t dp = nFile.rfind(".csv"); if (dp != std::string::npos) nFile.erase(dp); }
-				bool hdr = false;
-				while( getline(colorFile, line) && cnt < MAX_USER_CC_PATCH_SIZE)
-				{
-					if (!line.empty() && line[0] == '#') { hdr = true; continue; }   // header-aware (matches ReadColorsFromCsv)
-					std::istringstream s(line);
-					std::string field;
-					if (hdr) { s >> n1; getline(s, field,','); }                     // skip the PatchNumber column
-					s >> n1;
-					getline(s, field,',');
-					s >> n2;
-					getline(s, field,',');
-					s >> n3;
-					getline(s, field,',');
-					getline(s, n4, ',');
-					cTargetR.push_back(n1);
-					cTargetG.push_back(n2);
-					cTargetB.push_back(n3);
-					cTargetN.push_back(n4);
-					++cnt;
-				}
-				colorFile.close();
+				cTargetR.push_back(rows[i].r);
+				cTargetG.push_back(rows[i].g);
+				cTargetB.push_back(rows[i].b);
+				cTargetN.push_back(rows[i].name);
 			}
-			numCC = cnt;   // set even when the file is missing/unreadable (0) so size matches the cleared target vectors
+			numCC = (nRows > 0) ? nRows : 0;   // 0 when the file is missing/unreadable, so size matches the vectors
 }
 
 ColorRGB CColorHCFRConfig::GetCColorsT(int index) 
