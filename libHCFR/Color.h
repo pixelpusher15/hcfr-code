@@ -768,6 +768,11 @@ extern int PiPercentToCode ( double percent, bool is16_235, int bits );
 // Declared RANGE peeked from a CSV header (import-range guard). See PeekCsvRange.
 enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_EXTENDED = 2 };
 extern int PeekCsvRange ( CString csvPath );
+// Shared patch-list parsing (one parser: ReadColorsFromCsv percentages + GetCColors codes/names).
+#include <vector>
+#include <string>
+struct CsvPatchRow { int patch, r, g, b; std::string name; };
+extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut );
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );

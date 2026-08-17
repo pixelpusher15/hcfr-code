@@ -2881,27 +2881,24 @@ static double CsvCodeToPercent(double code, int bits, int range)
 	return ( pct < 0.0 ) ? 0.0 : ( pct > 100.0 ? 100.0 : pct );
 }
 
-// Header-aware ColourSpace patch-list importer. An optional first line
-// "# BITDEPTH <8|10>, RANGE <FULL|LEGAL|EXTENDED>" (case-insensitive) declares the encoding;
-// data rows are "R,G,B" or "PatchNumber,R,G,B[,Name]" - the leading patch-number column is
-// read ONLY when a header is present; headerless files (legacy HCFR + plain user CSVs) keep
-// R,G,B in fields 0-2 (extra fields e.g. a name/label are ignored). With no header it falls back to the
-// historical 8-bit-legal, R,G,B parsing so old files load unchanged. Fills genColors
-// sequentially and returns the count (-1 if the file won't open).
-// TODO (csv-patchlist): carry PatchNumber/Name/srcBits/srcRange as provenance; thermal sort.
-int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPath)
+// Shared low-level patch-list parser: reads a CSV into raw code rows (patch#, R,G,B, name),
+// header/patch-column aware, reporting the declared bit depth + range. One parser feeds both
+// ReadColorsFromCsv (percentages) and CColorHCFRConfig::GetCColors (codes + names).
+int ReadCsvPatchRows(CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut)
 {
+	rows.clear();
+	if (bitsOut)  *bitsOut  = 8;
+	if (rangeOut) *rangeOut = CSVRANGE_LEGACY;
 	ifstream colorFile(csvPath);
 	if (!colorFile)
 		return -1;
 
 	std::string line;
-	int cnt  = 0;
 	int bits = 8;
 	int range = CSVRANGE_LEGACY;
 	bool hasHeader = false;
 
-	while (std::getline(colorFile, line) && cnt < maxEntries)
+	while (std::getline(colorFile, line) && (int)rows.size() < maxRows)
 	{
 		while (!line.empty() && (line[line.size()-1] == '\r' || line[line.size()-1] == ' ' || line[line.size()-1] == '\t'))
 			line.erase(line.size()-1);
@@ -2922,26 +2919,56 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 			continue;
 		}
 
-		double num[4] = { 0, 0, 0, 0 };
+		std::string fld[5];
 		int nf = 0;
 		std::istringstream s(line);
 		std::string field;
-		while (nf < 4 && std::getline(s, field, ','))
-			num[nf++] = atof(field.c_str());
-		if (nf < 3)
+		while (nf < 5 && std::getline(s, field, ','))
+			fld[nf++] = field;
+		int base = (hasHeader && nf >= 4) ? 1 : 0;   // skip the leading PatchNumber column when headered
+		if (nf < base + 3)
 			continue;
 
-		double r, g, b;
-		if (hasHeader && nf >= 4) { r = num[1]; g = num[2]; b = num[3]; }
-		else         { r = num[0]; g = num[1]; b = num[2]; }
-
-		genColors[cnt] = ColorRGBDisplay(
-			CsvCodeToPercent(r, bits, range),
-			CsvCodeToPercent(g, bits, range),
-			CsvCodeToPercent(b, bits, range));
-		cnt++;
+		CsvPatchRow pr;
+		pr.patch = base ? atoi(fld[0].c_str()) : (int)rows.size();
+		pr.r = (int)atof(fld[base].c_str());
+		pr.g = (int)atof(fld[base+1].c_str());
+		pr.b = (int)atof(fld[base+2].c_str());
+		if (nf > base + 3)
+		{
+			std::string nm = fld[base+3];
+			size_t s0 = nm.find_first_not_of(" \t");
+			size_t s1 = nm.find_last_not_of(" \t");
+			pr.name = (s0 == std::string::npos) ? std::string() : nm.substr(s0, s1 - s0 + 1);
+		}
+		rows.push_back(pr);
 	}
-	return cnt;
+	if (bitsOut)  *bitsOut  = bits;
+	if (rangeOut) *rangeOut = range;
+	return (int)rows.size();
+}
+
+// Header-aware ColourSpace patch-list importer. An optional first line
+// "# BITDEPTH <8|10>, RANGE <FULL|LEGAL|EXTENDED>" (case-insensitive) declares the encoding;
+// data rows are "R,G,B" or "PatchNumber,R,G,B[,Name]" - the leading patch-number column is
+// read ONLY when a header is present; headerless files (legacy HCFR + plain user CSVs) keep
+// R,G,B in fields 0-2 (extra fields e.g. a name/label are ignored). With no header it falls back to the
+// historical 8-bit-legal, R,G,B parsing so old files load unchanged. Fills genColors
+// sequentially and returns the count (-1 if the file won't open).
+// TODO (csv-patchlist): carry PatchNumber/Name/srcBits/srcRange as provenance; thermal sort.
+int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPath)
+{
+	std::vector<CsvPatchRow> rows;
+	int bits, range;
+	int n = ReadCsvPatchRows(csvPath, rows, maxEntries, &bits, &range);
+	if (n < 0)
+		return -1;
+	for (int i = 0; i < n; i++)
+		genColors[i] = ColorRGBDisplay(
+			CsvCodeToPercent(rows[i].r, bits, range),
+			CsvCodeToPercent(rows[i].g, bits, range),
+			CsvCodeToPercent(rows[i].b, bits, range));
+	return n;
 }
 
 // Reads ONLY the "# BITDEPTH n, RANGE x" header of a CSV (no full load) and returns the
