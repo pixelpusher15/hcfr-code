@@ -172,6 +172,7 @@ public:
     int GetCColorsSize();
     ColorRGB GetCColorsT(int index);
 	std::string GetCColorsN(int index);
+	CColorProvenance GetCColorsProvenance(int index);
     void GetCColors();
 	CString strLang;
 

@@ -1202,6 +1202,7 @@ std::vector<int> cTargetR;
 std::vector<int> cTargetG;
 std::vector<int> cTargetB;
 std::vector<std::string> cTargetN;
+std::vector<int> cTargetP;   // per-patch PatchNumber from the CSV (patch identity for provenance)
 std::string nFile;
 int numCC = 0;
 int cTargetBits = 8;    // bit depth of the loaded patch list (for range-aware target decode)
@@ -1217,6 +1218,7 @@ void CColorHCFRConfig::GetCColors()
 	cTargetG.clear();
 	cTargetB.clear();
 	cTargetN.clear();
+	cTargetP.clear();
 	if (!ResolveCCSetPath(m_CCMode, fName, NULL))
 	{
 		numCC = 0;
@@ -1240,6 +1242,7 @@ void CColorHCFRConfig::GetCColors()
 		cTargetG.push_back(rows[i].g);
 		cTargetB.push_back(rows[i].b);
 		cTargetN.push_back(rows[i].name);
+		cTargetP.push_back(rows[i].patch);
 	}
 	numCC = (nRows > 0) ? nRows : 0;   // 0 when the file is missing/unreadable, so size matches the vectors
 
@@ -1281,6 +1284,23 @@ std::string CColorHCFRConfig::GetCColorsN(int index)
 		     return cTargetN[index];
 			else
 			 return "";
+}
+
+// Assemble the label provenance for patch `index` captured at import (patch#, name, bit
+// depth, range). sequenceIndex stays -1 here - it is set at measure time. Bounds-guarded:
+// an out-of-range index yields default (unknown) provenance.
+CColorProvenance CColorHCFRConfig::GetCColorsProvenance(int index)
+{
+	CColorProvenance p;
+	if (index >= 0 && index < (int)cTargetN.size())
+	{
+		p.patchNumber   = (index < (int)cTargetP.size()) ? cTargetP[index] : index;
+		p.sequenceIndex = -1;
+		p.srcBits       = cTargetBits;
+		p.srcRange      = cTargetRange;
+		p.name          = cTargetN[index];
+	}
+	return p;
 }
 
 int CColorHCFRConfig::GetCColorsSize() 
