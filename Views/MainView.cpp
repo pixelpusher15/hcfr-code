@@ -1714,17 +1714,26 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			
 				if (m_SelectedColor.isValid())
 				{
+					// Bit depth for the code readout: prefer the measurement provenance (what was actually
+					// driven), else the generator 10-bit setting, else 8-bit. Range (video vs PC) still
+					// follows RGB_16_235; provenance-driven range is a later change.
+					int measBits = ( m_SelectedColor.HasProvenance() && m_SelectedColor.GetProvenance().srcBits > 0 )
+					                 ? m_SelectedColor.GetProvenance().srcBits
+					                 : ( GetConfig()->GetUse10bitLevels() ? 10 : 8 );
+					double measSpan  = (measBits == 10) ? 876. : 219.;
+					double measBlack = (measBits == 10) ? 64.  : 16.;
+					double measFull  = (measBits == 10) ? 1023. : 255.;
 					if (GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",0))
 					{
-						m_meas_rd = floor(m_meas_rd*219. + 16.5); //round to video levels for label
-						m_meas_gd = floor(m_meas_gd*219. + 16.5);
-						m_meas_bd = floor(m_meas_bd*219. + 16.5);
+						m_meas_rd = floor(m_meas_rd*measSpan + measBlack + 0.5); //round to video levels for label
+						m_meas_gd = floor(m_meas_gd*measSpan + measBlack + 0.5);
+						m_meas_bd = floor(m_meas_bd*measSpan + measBlack + 0.5);
 					}
 					else
 					{
-						m_meas_rd = floor(m_meas_rd*255. + 0.5); //exact PC levels
-						m_meas_gd = floor(m_meas_gd*255. + 0.5);
-						m_meas_bd = floor(m_meas_bd*255. + 0.5);
+						m_meas_rd = floor(m_meas_rd*measFull + 0.5); //exact PC levels
+						m_meas_gd = floor(m_meas_gd*measFull + 0.5);
+						m_meas_bd = floor(m_meas_bd*measFull + 0.5);
 					}
 						trip1.Format("%d,%d,%d\nMeasure",(int)m_meas_rd,(int)m_meas_gd,(int)m_meas_bd);
 				}
@@ -1742,10 +1751,14 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			trip2.SetString("No\nMeasure\n");				
 			if (m_SelectedColor.isValid())
 			{
+				int refBits = GetConfig()->GetUse10bitLevels() ? 10 : 8;   // reference is transient (no provenance): use the generator setting
+				double refSpan  = (refBits == 10) ? 876. : 219.;   // legal white-black span (940-64 / 235-16)
+				double refBlack = (refBits == 10) ? 64.  : 16.;
+				double refFull  = (refBits == 10) ? 1023. : 255.;
 				if (GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",0))
-					trip2.Format("%d,%d,%d\nReference",((int)floor((m_ref_rd)*219.+0.5)+16),(int)(floor((m_ref_gd)*219.+0.5)+16),(int)(floor((m_ref_bd)*219.+0.5)+16));
+					trip2.Format("%d,%d,%d\nReference",((int)floor((m_ref_rd)*refSpan+0.5)+(int)refBlack),(int)(floor((m_ref_gd)*refSpan+0.5)+(int)refBlack),(int)(floor((m_ref_bd)*refSpan+0.5)+(int)refBlack));
 				else
-					trip2.Format("%d,%d,%d\nReference",((int)floor((m_ref_rd)*255+0.5)),(int)(floor((m_ref_gd)*255.+0.5)),(int)(floor((m_ref_bd)*255.+0.5)));
+					trip2.Format("%d,%d,%d\nReference",((int)floor((m_ref_rd)*refFull+0.5)),(int)(floor((m_ref_gd)*refFull+0.5)),(int)(floor((m_ref_bd)*refFull+0.5)));
 			}
 
 		// Owner-drawn split swatch: push each half its fill colour and numeric
