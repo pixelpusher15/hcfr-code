@@ -1638,6 +1638,13 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			{
 				CColor meas_Color = m_SelectedColor; //for patch color
 				CColor meas_Color2 = meas_Color; //for patch triplet
+				// WTW headroom: for an EXTENDED measurement keep super-white in the CODE-readout vars
+				// (m_meas_*d) - a real headroom display reads above white, and clamping to white here would
+				// hide it (the export captures it; the point display was clamping). Gated on the measurement
+				// own EXTENDED provenance -> only extended patches change; the swatch/xyY vars (m_meas_r/g/b)
+				// stay clamped. clampD is the code-readout clamp: no upper cap when extended, else [0,1].
+				bool bExtMeas = ( m_SelectedColor.HasProvenance() && m_SelectedColor.GetProvenance().srcRange == 2 );
+				auto clampD = [bExtMeas](double v){ double x = (v < 0.0) ? 0.0 : v; return bExtMeas ? x : (x > 1.0 ? 1.0 : x); };
 			
 				if ( (GetConfig ()->m_dE_gray == 2 || GetConfig ()->m_dE_form == 5) && ((m_displayMode == 0 || m_displayMode == 3 || m_displayMode==4) || (m_displayMode == 2 && isGS)))
 				{
@@ -1671,9 +1678,9 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 					m_meas_r = min(max(meas[0]/Yref,0),1);
 					m_meas_g = min(max(meas[1]/Yref,0),1);
 					m_meas_b = min(max(meas[2]/Yref,0),1);
-					m_meas_rd = min(max(meas2[0]/Yref,0),1);
-					m_meas_gd = min(max(meas2[1]/Yref,0),1);
-					m_meas_bd = min(max(meas2[2]/Yref,0),1);
+					m_meas_rd = clampD(meas2[0]/Yref);
+					m_meas_gd = clampD(meas2[1]/Yref);
+					m_meas_bd = clampD(meas2[2]/Yref);
 				}
 				else
 				{
@@ -1682,9 +1689,9 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 					m_meas_r = min(max(meas[0]/m_YWhite,0),1);
 					m_meas_g = min(max(meas[1]/m_YWhite,0),1);
 					m_meas_b = min(max(meas[2]/m_YWhite,0),1);
-					m_meas_rd = min(max(meas2[0]/m_YWhite,0),1);
-					m_meas_gd = min(max(meas2[1]/m_YWhite,0),1);
-					m_meas_bd = min(max(meas2[2]/m_YWhite,0),1);
+					m_meas_rd = clampD(meas2[0]/m_YWhite);
+					m_meas_gd = clampD(meas2[1]/m_YWhite);
+					m_meas_bd = clampD(meas2[2]/m_YWhite);
 				}
 
 				if ( mode >= 4 )
@@ -1713,9 +1720,9 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 					m_meas_r = max(0,min(pow(m_meas_r,1.0/GetConfig()->m_GammaAvg),1)); //exact video or full scale %
 					m_meas_g = max(0,min(pow(m_meas_g,1.0/GetConfig()->m_GammaAvg),1));
 					m_meas_b = max(0,min(pow(m_meas_b,1.0/GetConfig()->m_GammaAvg),1));
-					m_meas_rd = max(0,min(pow(m_meas_rd,1.0/GetConfig()->m_GammaAvg),1)); //exact video or full scale %
-					m_meas_gd = max(0,min(pow(m_meas_gd,1.0/GetConfig()->m_GammaAvg),1));
-					m_meas_bd = max(0,min(pow(m_meas_bd,1.0/GetConfig()->m_GammaAvg),1));
+					m_meas_rd = clampD(pow(m_meas_rd,1.0/GetConfig()->m_GammaAvg)); //exact video or full scale %
+					m_meas_gd = clampD(pow(m_meas_gd,1.0/GetConfig()->m_GammaAvg));
+					m_meas_bd = clampD(pow(m_meas_bd,1.0/GetConfig()->m_GammaAvg));
 				}
 			
 				if (m_SelectedColor.isValid())
