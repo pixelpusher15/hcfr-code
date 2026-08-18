@@ -3499,7 +3499,9 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
 	if (n_elements < 0)
 	{
 		bOk = false;
-		n_elements = 24;
+		n_elements = 0;   // honest empty count on a failed/empty read: fabricating 24 unpopulated
+		                  // patches diverges from GetCColors' numCC (0) and drives the CC/reference
+		                  // loops past the target vectors -> the vector-subscript asserts.
 	}
 
 	//HDR mode target recalculation
