@@ -1319,7 +1319,7 @@ void CColorHCFRConfig::GetCColors()
 
 ColorRGB CColorHCFRConfig::GetCColorsT(int index) 
 {
-	if (!cTargetR.empty())
+	if (index >= 0 && index < (int)cTargetR.size())
 			return ColorRGB(	( (cTargetR[index] -16) / 219.)	, (	(cTargetG[index] - 16) / 219.) , ( (cTargetB[index] - 16) /219. ) );
 	else
 			return ColorRGB( 0.5, 0.5, 0.5 );
