@@ -33,6 +33,13 @@
 static char THIS_FILE[] = __FILE__;
 #endif
 
+// Local control IDs for the programmatically-created spectral-correction row.
+// Kept out of resource.h (and the .rc templates) on purpose; values are well
+// clear of the dialog's template control ids (1266..1292).
+#define IDC_ARGYLL_SPECTRAL_BROWSE   1600
+#define IDC_ARGYLL_SPECTRAL_CLEAR    1601
+#define IDC_ARGYLL_SPECTRAL_STATUS   1602
+
 /////////////////////////////////////////////////////////////////////////////
 // CArgyllSensorPropPage property page
 
@@ -117,6 +124,8 @@ BEGIN_MESSAGE_MAP(CArgyllSensorPropPage, CPropertyPageWithHelp)
     //{{AFX_MSG_MAP(CArgyllSensorPropPage)
     ON_BN_CLICKED(IDC_ARGYLL_CALIBRATE, OnCalibrate)
     //}}AFX_MSG_MAP
+    ON_BN_CLICKED(IDC_ARGYLL_SPECTRAL_BROWSE, OnSpectralBrowse)
+    ON_BN_CLICKED(IDC_ARGYLL_SPECTRAL_CLEAR, OnSpectralClear)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -323,9 +332,85 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
     int calBottom = btnY + btnH + M.ht(6);
     if (pCal != NULL) { CPoint cp = M.at(5, 0); pCal->MoveWindow(cp.x, calTopPx, M.w(GRPW), calBottom - calTopPx); }
 
-    // Debug checkbox below the calibration group.
+    // Spectral (ccss/CSV) correction row — created only for meters that support
+    // spectral samples (i1D3 etc.). Programmatic so no .rc template is needed.
+    // Placed directly under the calibration group; the Debug checkbox follows it.
+    int rowBottom = calBottom;   // bottom of the last laid-out row
+    if ( m_pSensor != NULL && m_pSensor->MeterSupportsSpectralSamples() )
+    {
+        // NOTE: the mapper M.at() takes design-unit coordinates. calBottom is
+        // already a raw screen Y (built from M.ht() offsets), so only the X is
+        // taken from the mapper; the Y values are used as raw screen pixels.
+        // Feeding calBottom back into M.at() would re-scale it and push the row
+        // far off the page.
+        int specX = M.at(LBLX, 0).x;
+        int specTop = calBottom + M.ht(1);   // just under the calibration group
+        if ( !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
+            m_spectralStatus.Create("", WS_CHILD | WS_VISIBLE | SS_LEFT,
+                CRect(specX, specTop, specX + M.w(280), specTop + M.ht(11)), this, IDC_ARGYLL_SPECTRAL_STATUS);
+        m_spectralStatus.SetFont(GetFont());
+        m_spectralStatus.MoveWindow(specX, specTop, M.w(280), M.ht(11));
+
+        int btnY = specTop + M.ht(11);
+        int bw = M.w(64), bh = M.ht(12), gap = M.w(6);
+        if ( !::IsWindow(m_spectralBrowseBtn.GetSafeHwnd()) )
+            m_spectralBrowseBtn.Create("Browse...", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                CRect(specX, btnY, specX + bw, btnY + bh), this, IDC_ARGYLL_SPECTRAL_BROWSE);
+        m_spectralBrowseBtn.SetFont(GetFont());
+        m_spectralBrowseBtn.MoveWindow(specX, btnY, bw, bh);
+
+        if ( !::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
+            m_spectralClearBtn.Create("Clear", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                CRect(specX + bw + gap, btnY, specX + 2*bw + gap, btnY + bh), this, IDC_ARGYLL_SPECTRAL_CLEAR);
+        m_spectralClearBtn.SetFont(GetFont());
+        m_spectralClearBtn.MoveWindow(specX + bw + gap, btnY, bw, bh);
+
+        RefreshSpectralStatus();
+        rowBottom = btnY + bh;
+    }
+
+    // Debug checkbox at the bottom — below the spectral row when present, else
+    // directly under the calibration group.
     CWnd* pDbg = GetDlgItem(IDC_ARGYLL_SENSOR_DEBUG_CB);
-    if (pDbg != NULL) { CPoint dp = M.at(LBLX + 1, 0); pDbg->MoveWindow(dp.x, calBottom + M.ht(4), M.w(220), M.ht(10)); }
+    if (pDbg != NULL) { CPoint dp = M.at(LBLX + 1, 0); pDbg->MoveWindow(dp.x, rowBottom + M.ht(2), M.w(220), M.ht(10)); }
 
     return bRet;
+}
+
+void CArgyllSensorPropPage::RefreshSpectralStatus()
+{
+    if ( m_pSensor == NULL || !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
+        return;
+    CString s;
+    if ( m_pSensor->HasSpectralCorrection() )
+    {
+        CString desc = m_pSensor->GetSpectralCorrectionDesc();
+        s = "Spectral correction: " + (desc.IsEmpty() ? CString("(loaded)") : desc);
+    }
+    else
+        s = "Spectral correction: None";
+    m_spectralStatus.SetWindowText(s);
+    if ( ::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
+        m_spectralClearBtn.EnableWindow(m_pSensor->HasSpectralCorrection());
+}
+
+void CArgyllSensorPropPage::OnSpectralBrowse()
+{
+    if ( m_pSensor == NULL )
+        return;
+    CFileDialog dlg(TRUE, "ccss", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST,
+        "Spectral correction (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|ColourSpace CSV (*.csv)|*.csv||");
+    if ( dlg.DoModal() == IDOK )
+    {
+        if ( m_pSensor->ApplySpectralCorrection(dlg.GetPathName()) )
+            RefreshSpectralStatus();
+    }
+}
+
+void CArgyllSensorPropPage::OnSpectralClear()
+{
+    if ( m_pSensor == NULL )
+        return;
+    m_pSensor->ClearSpectralCorrection();
+    RefreshSpectralStatus();
 }

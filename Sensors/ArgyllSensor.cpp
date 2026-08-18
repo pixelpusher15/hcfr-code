@@ -27,6 +27,7 @@
 #include "ColorHCFR.h"
 #include "ArgyllSensor.h"
 #include "SpectralSampleFiles.h"
+#include "SpectralSample.h"
 #include "../Generators/GDIGenerator.h"
 #include "../MainFrm.h"
 #include <math.h>
@@ -56,6 +57,7 @@ CArgyllSensor::CArgyllSensor() :
     m_Adapt(0),
     m_DisableAIO(0)
 {
+    m_spectralApplyLeaveMeasures = FALSE;
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
     m_pDevicePage = & m_ArgyllSensorPropertiesPage;  // Add Argyll settings page to property sheet
@@ -91,6 +93,7 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
 
     m_Adapt = GetConfig()->GetProfileInt(meterName.c_str(), "Adapt", 0);
     m_DisableAIO = GetConfig()->GetProfileInt(meterName.c_str(), "DisableAIO", 0);
+    m_spectralApplyLeaveMeasures = FALSE;
 
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
@@ -132,8 +135,10 @@ void CArgyllSensor::Copy(CSensor * p)
     m_HiRes = ((CArgyllSensor*)p)->m_HiRes;
     m_Adapt = ((CArgyllSensor*)p)->m_Adapt;
     m_DisableAIO = ((CArgyllSensor*)p)->m_DisableAIO;
+    m_spectralCorrectionPath = ((CArgyllSensor*)p)->m_spectralCorrectionPath;
+    m_spectralCorrectionDesc = ((CArgyllSensor*)p)->m_spectralCorrectionDesc;
 
- 
+
     if(m_meter >= 0)
     {
         m_meter = ((CArgyllSensor*)p)->m_meter;
@@ -152,7 +157,7 @@ void CArgyllSensor::Serialize(CArchive& archive)
 
     if (archive.IsStoring())
     {
-        int version=5;
+        int version=6;
         archive << version;
         archive << m_DisplayType;
         archive << m_ReadingType;
@@ -162,6 +167,8 @@ void CArgyllSensor::Serialize(CArchive& archive)
         archive << m_intTime;
         archive << m_Adapt;
         archive << m_DisableAIO;
+        archive << m_spectralCorrectionPath;
+        archive << m_spectralCorrectionDesc;
         if(m_meter)
         {
             archive << CString(m_meter->getMeterName().c_str());
@@ -171,24 +178,35 @@ void CArgyllSensor::Serialize(CArchive& archive)
     {
         int version;
         archive >> version;
-        if ( version > 5 )
+        if ( version > 6 )
             AfxThrowArchiveException ( CArchiveException::badSchema );
         archive >> m_DisplayType;
         archive >> m_ReadingType;
         archive >> m_SpectralType;
-        if ( version > 3)
-            archive >> m_Adapt;
-        if ( version > 4)
-            archive >> m_DisableAIO;
-        if ( version > 2)
-            archive >> m_intTime;
         if(version == 1)
         {
             UINT dummy;
             archive >> dummy;
         }
+        // Read in the SAME order the store writes: debugMode, HiRes, intTime,
+        // Adapt, DisableAIO. The historical load read these in a different order
+        // than the store (Adapt/DisableAIO/intTime before debugMode/HiRes), which
+        // silently swapped the flag values on every reload. The store order has
+        // only ever grown by appending (intTime@v3, Adapt@v4, DisableAIO@v5), so
+        // this reads every version's stream correctly.
         archive >> m_debugMode;
         archive >> m_HiRes;
+        if ( version > 2)
+            archive >> m_intTime;
+        if ( version > 3)
+            archive >> m_Adapt;
+        if ( version > 4)
+            archive >> m_DisableAIO;
+        if ( version > 5 )
+        {
+            archive >> m_spectralCorrectionPath;
+            archive >> m_spectralCorrectionDesc;
+        }
 
         std::string errorMessage;
         ArgyllMeterWrapper::ArgyllMeterWrappers meters = ArgyllMeterWrapper::getDetectedMeters(errorMessage);
@@ -332,6 +350,30 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
         m_meter->setDisplayType(m_DisplayType);
     }
 
+    // Re-apply a loaded spectral (ccss/CSV) correction so it survives reconnects
+    // and restarts (restores the apply path dropped in 2014). Only meaningful for
+    // spectral-capable colorimeters; failures are swallowed so a stale/missing
+    // file never blocks startup.
+    if ( !m_spectralCorrectionPath.IsEmpty() )
+    {
+        try
+        {
+            if ( m_meter->doesMeterSupportSpectralSamples() )
+            {
+                SpectralSample ss;
+                CString ext = m_spectralCorrectionPath.Right(4); ext.MakeLower();
+                bool ok = ( ext == ".csv" )
+                    ? ss.createFromColourSpaceCSV((LPCSTR)m_spectralCorrectionPath)
+                    : ss.Read((LPCSTR)m_spectralCorrectionPath);
+                if ( ok )
+                    m_meter->loadSpectralSample(ss);
+            }
+        }
+        catch ( std::logic_error & )
+        {
+        }
+    }
+
     //Alert user if in ambient/lux mode
     if (bForSimultaneousMeasures)
     {
@@ -351,6 +393,117 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
 BOOL CArgyllSensor::Release()
 {
     return CSensor::Release();
+}
+
+bool CArgyllSensor::MeterSupportsSpectralSamples()
+{
+    if ( !m_meter )
+        return false;
+    try
+    {
+        return m_meter->doesMeterSupportSpectralSamples();
+    }
+    catch ( std::logic_error & )
+    {
+        return false;
+    }
+}
+
+bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
+{
+    if ( filePath.IsEmpty() )
+        return false;
+
+    // Read (and validate) the file first, so we don't prompt then fail.
+    SpectralSample ss;
+    try
+    {
+        CString ext = filePath.Right(4); ext.MakeLower();
+        bool ok = ( ext == ".csv" )
+            ? ss.createFromColourSpaceCSV((LPCSTR)filePath)
+            : ss.Read((LPCSTR)filePath);
+        if ( !ok )
+            throw std::logic_error("Could not read the selected spectral correction file.");
+    }
+    catch ( std::logic_error & e )
+    {
+        GetColorApp()->InMeasureMessageBox( e.what(), "Spectral correction", MB_OK+MB_ICONHAND );
+        return false;
+    }
+
+    // Confirm before discarding an active matrix calibration. Existing
+    // measurements were taken through that matrix; let the user strip them back
+    // to raw or keep them as-is (mixed with the new spectral-corrected reads).
+    // Cancel aborts the apply entirely (so it really is "before applying").
+    m_spectralApplyLeaveMeasures = FALSE;
+    bool hasMatrixCal = !GetSensorMatrix().IsIdentity()
+                     || GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX;
+    if ( hasMatrixCal )
+    {
+        int r = GetColorApp()->InMeasureMessageBox(
+            "This sensor has a matrix calibration. Applying a spectral correction "
+            "will make it the sole correction for new readings.\n\n"
+            "Existing measurements were taken with the matrix calibration - strip "
+            "them back to raw (uncorrected) sensor values?\n\n"
+            "Yes - strip existing measurements to raw\n"
+            "No - leave them as they are (mixed with new spectral readings)\n"
+            "Cancel - do not apply the spectral correction",
+            "Spectral correction", MB_YESNOCANCEL | MB_ICONQUESTION );
+        if ( r == IDCANCEL )
+            return false;
+        m_spectralApplyLeaveMeasures = ( r == IDNO );
+    }
+
+    // Load onto the meter (Argyll driver) if connected and capable.
+    try
+    {
+        if ( m_meter && m_meter->doesMeterSupportSpectralSamples() )
+            m_meter->loadSpectralSample(ss);
+    }
+    catch ( std::logic_error & e )
+    {
+        GetColorApp()->InMeasureMessageBox( e.what(), "Spectral correction", MB_OK+MB_ICONHAND );
+        return false;
+    }
+
+    m_spectralCorrectionPath = filePath;
+    // Show just the panel name in the UI (the derived tech still goes into the
+    // ccss metadata); getDescription() would nest the tech in parentheses.
+    m_spectralCorrectionDesc = ss.getDisplay();
+
+    // The spectral correction is applied inside the Argyll driver, so make it the
+    // sole correction: force HCFR's own sensor matrix to identity (and drop any
+    // Bodner sub-gamut matrices) so the two regimes can't double-correct.
+    SetSensorMatrix(Matrix::IdentityMatrix(3));
+    // Deliberately do NOT reset m_sensorToXYZMatrixMod here. OnConfigureSensor saved the
+    // pre-configure matrix into it as the baseline for un-applying the old correction from
+    // legacy (no-raw) measurements: delta = fullMatrix * SensorMatrixMod.inverse. Clearing it
+    // makes that delta identity, so those measurements silently keep the old matrix while the
+    // spectral correction is also live in the driver - double-corrected. OnConfigureSensor
+    // clears the baseline itself once the recompute is done.
+    ClearBodnerMatrices();
+    SetCalibrationMethod(CALIB_HCFR_DEFAULT);
+    SetModifiedFlag(TRUE);
+    return true;
+}
+
+void CArgyllSensor::ClearSpectralCorrection()
+{
+    if ( m_meter )
+    {
+        try { m_meter->resetSpectralSample(); }
+        catch ( std::logic_error & ) {}
+    }
+    m_spectralCorrectionPath.Empty();
+    m_spectralCorrectionDesc.Empty();
+    SetModifiedFlag(TRUE);
+}
+
+BOOL CArgyllSensor::TakePendingSpectralLeaveMeasures()
+{
+    BOOL leave = m_spectralApplyLeaveMeasures;
+    m_spectralApplyLeaveMeasures = FALSE;
+    return leave;
 }
 
 CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int displaymode)

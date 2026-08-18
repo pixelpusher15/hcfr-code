@@ -45,6 +45,9 @@ protected:
 	BOOL m_isMeasureValid;
 	Matrix m_sensorToXYZMatrix;
     Matrix m_sensorToXYZMatrixMod;
+	int m_calibrationMethod;					// CalibrationMatrixMethod: which method produced the matrices below
+	Matrix m_bodnerRawMatrix[3];				// Bodner sub-gamut raw-primary matrices (rgw/gbw/rbw), only valid when m_calibrationMethod == CALIB_BODNER_THREEMATRIX
+	Matrix m_bodnerCalMatrix[3];				// Bodner sub-gamut calibration matrices (rgw/gbw/rbw)
 	time_t m_calibrationTime;
 	int		m_PropertySheetTitle;
 	CSensorPropPage m_SensorPropertiesPage;
@@ -75,6 +78,28 @@ public:
 	Matrix GetSensorMatrix() {return m_sensorToXYZMatrix; }
 	Matrix GetSensorMatrixMod() {return m_sensorToXYZMatrixMod; }
 
+	void SetCalibrationMethod(int aMethod) { m_calibrationMethod=aMethod; }
+	int GetCalibrationMethod() const { return m_calibrationMethod; }
+	void SetBodnerMatrices(const Matrix aRawMatrix[3], const Matrix aCalMatrix[3])
+	{
+		for ( int k = 0; k < 3; k++ )
+		{
+			m_bodnerRawMatrix[k] = aRawMatrix[k];
+			m_bodnerCalMatrix[k] = aCalMatrix[k];
+		}
+		m_calibrationTime=time(NULL);
+	}
+	void ClearBodnerMatrices()
+	{
+		for ( int k = 0; k < 3; k++ )
+		{
+			m_bodnerRawMatrix[k] = Matrix::IdentityMatrix(3);
+			m_bodnerCalMatrix[k] = Matrix::IdentityMatrix(3);
+		}
+	}
+	const Matrix * GetBodnerRawMatrices() const { return m_bodnerRawMatrix; }
+	const Matrix * GetBodnerCalMatrices() const { return m_bodnerCalMatrix; }
+
 	virtual BOOL IsMeasureValid() {return m_isMeasureValid; }
 	virtual void SetMeasureValidity(BOOL isValid) { m_isMeasureValid=isValid; }
 	virtual void SetErrorString(CString aString) { m_errorString=aString; }
@@ -88,6 +113,16 @@ public:
 	virtual void SetModifiedFlag( BOOL bModified ) { m_isModified = bModified; }
 
 	virtual LPCSTR GetStandardSubDir ()	{ return ""; }
+
+	// Spectral (ccss/CSV) correction, applied inside the meter driver. Only
+	// Argyll spectral-capable colorimeters override these; the base is a no-op.
+	// Used to keep the spectral and HCFR-matrix correction regimes mutually
+	// exclusive (avoid double-correction).
+	virtual BOOL HasSpectralCorrection() const { return FALSE; }
+	virtual void ClearSpectralCorrection() {}
+	// Read-and-reset: TRUE when the last spectral-correction apply asked to LEAVE
+	// existing measurements as-is (mixed) rather than strip them back to raw.
+	virtual BOOL TakePendingSpectralLeaveMeasures() { return FALSE; }
 
 	CTime GetCalibrationTime() { return CTime(m_calibrationTime); }
 	int IsCalibrated() 

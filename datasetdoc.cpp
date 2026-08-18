@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -584,7 +584,7 @@ BEGIN_MESSAGE_MAP(CDataSetDoc, CDocument)
 	ON_UPDATE_COMMAND_UI(IDM_LOAD_CALIBRATION_FILE, OnUpdateLoadCalibrationFile)
 	ON_UPDATE_COMMAND_UI(IDM_MANUALLY_EDIT_SENSOR, OnUpdateLoadCalibrationFile)
 	ON_UPDATE_COMMAND_UI(IDM_CALIBRATION_MANUAL, OnUpdateLoadCalibrationFile)
-	ON_UPDATE_COMMAND_UI(IDM_CALIBRATION_EXISTING, OnUpdateLoadCalibrationFile)
+	ON_UPDATE_COMMAND_UI(IDM_CALIBRATION_EXISTING, OnUpdateCalibrationExisting)
 	ON_UPDATE_COMMAND_UI(IDM_CALIBRATION_SIM, OnUpdateLoadCalibrationFile)
 	ON_UPDATE_COMMAND_UI(IDM_CALIBRATION_SPECTRAL, OnUpdateLoadCalibrationFile)
 	//}}AFX_MSG_MAP
@@ -1389,12 +1389,39 @@ void CDataSetDoc::OnConfigureSensor()
 	StopBackgroundMeasures ();
     m_pSensor->SetSensorMatrixMod( m_pSensor->GetSensorMatrix() );
 	m_pSensor->Configure();
+	// A spectral-correction apply may have asked to LEAVE existing measurements
+	// as-is (mixed) instead of stripping them to raw (read-and-reset).
+	BOOL bLeaveSpectralMeasures = m_pSensor->TakePendingSpectralLeaveMeasures();
 	if( m_pSensor->IsModified() )
 	{
-        //unapply old - apply new
-        m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrixMod().GetInverse() );
-		m_measure.ApplySensorAdjustmentMatrix(m_pSensor->GetSensorMatrix());
-        m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+        if ( bLeaveSpectralMeasures )
+        {
+            // Spectral correction applied; user chose to keep prior measurements
+            // as they are. Don't recompute them - just clear the saved baseline so
+            // a later config change starts clean.
+            m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+        }
+        else if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
+        {
+            // A Bodner-corrected sensor holds its correction in the sub-gamut matrices, not
+            // m_sensorToXYZMatrix (which is identity). Re-apply those. Otherwise the branch
+            // below reads fullMatrix == identity and ApplySensorAdjustmentMatrix strips every
+            // raw-carrying measurement back to raw - silently wiping the Bodner correction on
+            // any Sensor -> Configure change.
+            m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+            m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+        }
+        else
+        {
+            // Raw-carrying measurements recompute directly from the new full matrix
+            // (a spectral apply leaves it identity, which strips them to raw);
+            // legacy measurements (no stored raw value) still need the delta relative
+            // to the previously configured matrix (saved into SensorMatrixMod above).
+            Matrix fullMatrix = m_pSensor->GetSensorMatrix();
+            Matrix deltaMatrix = fullMatrix * m_pSensor->GetSensorMatrixMod().GetInverse();
+            m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix );
+            m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+        }
 		SetModifiedFlag(TRUE);
 		UpdateAllViews ( NULL, UPD_EVERYTHING );
 		AfxGetMainWnd () -> SendMessageToDescendants ( WM_COMMAND, IDM_REFRESH_REFERENCE );
@@ -1524,25 +1551,84 @@ void CDataSetDoc::OnUpdateExportXls(CCmdUI* pCmdUI)
 	pCmdUI->Enable(isEnabled);
 }
 
-void CDataSetDoc::OnExportXls() 
+// When the calibration method selected in Options no longer matches the one that
+// was actually applied to this document's measurements (i.e. the method was
+// switched in the dropdown but not recomputed via Create using Existing Reference
+// Measures), catch it here rather than silently exporting stale values. Returns
+// FALSE only when the user cancels; silent when nothing is stale.
+bool CDataSetDoc::ConfirmCalibrationMethodInSync()
+{
+	if ( m_pSensor == NULL )
+		return true;
+
+	int selected = GetConfig()->m_calibrationMethod;
+	int applied  = m_pSensor->GetCalibrationMethod();
+	if ( selected == applied )
+		return true;
+
+	// Only a genuinely-applied correction can be stale: a non-identity matrix
+	// (RGB/FCMM) or active Bodner-Robinson sub-gamut matrices.
+	bool bHasCorrection = ( m_pSensor->IsCalibrated() == 1 )
+	                   || ( applied == CALIB_BODNER_THREEMATRIX );
+	if ( !bHasCorrection )
+		return true;
+
+	int r = GetColorApp()->InMeasureMessageBox(
+		"The calibration method selected in Options differs from the one currently "
+		"applied to these measurements - they were not recomputed after the method "
+		"was changed.\n\n"
+		"Yes - recompute now from the reference measurements\n"
+		"No - keep the currently applied correction\n"
+		"Cancel - stop and do nothing",
+		"Calibration method", MB_YESNOCANCEL | MB_ICONQUESTION );
+
+	if ( r == IDCANCEL )
+		return false;
+	if ( r == IDYES )
+	{
+		CDataSetDoc * pRef = GetDataRef();
+		// ComputeAdjustmentMatrix uses (and asserts) all three primaries on both
+		// documents, so require all three here rather than red alone.
+		bool canRecompute = ( pRef != NULL && pRef != this
+		                   && m_measure.GetRedPrimary().isValid()
+		                   && m_measure.GetGreenPrimary().isValid()
+		                   && m_measure.GetBluePrimary().isValid()
+		                   && pRef->m_measure.GetRedPrimary().isValid()
+		                   && pRef->m_measure.GetGreenPrimary().isValid()
+		                   && pRef->m_measure.GetBluePrimary().isValid() );
+		if ( canRecompute )
+			ComputeAdjustmentMatrix();
+		else
+			GetColorApp()->InMeasureMessageBox(
+				"The correction cannot be recomputed: a reference document with "
+				"primary measurements must be selected first (Create using Existing "
+				"Reference Measures).", "Calibration method", MB_OK | MB_ICONINFORMATION );
+	}
+	return true;
+}
+
+void CDataSetDoc::OnExportXls()
 {
 	StopBackgroundMeasures ();
+	if ( !ConfirmCalibrationMethodInSync() ) return;
 
 	CExport exportVar(this,CExport::XLS);
 	exportVar.Save();
 }
 
-void CDataSetDoc::OnExportPdf() 
+void CDataSetDoc::OnExportPdf()
 {
 	StopBackgroundMeasures ();
+	if ( !ConfirmCalibrationMethodInSync() ) return;
 
 	CExport exportVar(this,CExport::PDF);
 	exportVar.Save();
 }
 
-void CDataSetDoc::OnExportCsv() 
+void CDataSetDoc::OnExportCsv()
 {
 	StopBackgroundMeasures ();
+	if ( !ConfirmCalibrationMethodInSync() ) return;
 
 	CExport exportVar(this,CExport::CSV);
 	exportVar.Save();
@@ -1664,6 +1750,26 @@ void CDataSetDoc::OnCalibrationExisting()
 
 }
 
+// Auto-exclusive guard between the two colorimeter-correction regimes: a spectral
+// (ccss/CSV) correction is applied inside the Argyll driver, while the matrix
+// methods are applied by HCFR on top of every reading, so running both stacks
+// (double-correction). Before a matrix calibration, if the sensor has a spectral
+// correction active, offer to clear it. Returns false to abort the calibration.
+static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor)
+{
+	if ( pSensor == NULL || !pSensor->HasSpectralCorrection() )
+		return true;
+	int r = GetColorApp()->InMeasureMessageBox(
+		"This sensor uses a spectral (ccss/CSV) correction, applied inside the meter.\n"
+		"Calibrating with a matrix would stack on top of it (double-correction).\n\n"
+		"Clear the spectral correction and calibrate with a matrix instead?",
+		"Spectral correction active", MB_YESNO | MB_ICONQUESTION );
+	if ( r != IDYES )
+		return false;
+	pSensor->ClearSpectralCorrection();
+	return true;
+}
+
 void CDataSetDoc::OnCalibrationManual()
 {
 	int		i;
@@ -1671,6 +1777,9 @@ void CDataSetDoc::OnCalibrationManual()
 	BOOL	bEscape, bReturn;
 	CColor	measuredColor[4];
 	CString	strMsg, Title;
+
+	if ( !ConfirmClearSpectralForMatrixCal(m_pSensor) )
+		return;
 
 	if ( IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_RUN_MANUAL_CALIBRATION), "Manual Calibration", MB_YESNO | MB_ICONQUESTION ) )
 	{
@@ -1956,22 +2065,88 @@ void CDataSetDoc::OnCalibrationManual()
 
             ColorXYZ white(measuredColor[3].GetXYZValue());
             Matrix oldMatrix = m_pSensor->GetSensorMatrix();
-            Matrix ConvMatrix = ComputeConversionMatrix (measures, references, white, whiteRef, GetConfig () -> m_bUseOnlyPrimaries );
+            int calibrationMethod = GetConfig () -> m_calibrationMethod;
 
-        	// check that matrix is inversible
-	        if ( ConvMatrix.Determinant() != 0.0 )
-	        {
-		        // Ok: set adjustment matrix
-                Matrix newMatrix = ConvMatrix * oldMatrix;
-		        m_measure.ApplySensorAdjustmentMatrix( ConvMatrix );
-                m_pSensor->SetSensorMatrix(newMatrix);
-		        m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
-		        SetModifiedFlag(TRUE);
-	        }
-	        else
-	        {
-		        GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
-	        }
+            if ( calibrationMethod == CALIB_BODNER_THREEMATRIX )
+            {
+                // Sub-gamut selection at measurement time (CSensor::MeasureColor)
+                // runs on the sensor's genuinely raw reading, so the "measures"
+                // side here must be raw too (not measuredColor[]'s already-
+                // corrected XYZ, which is what "references[]"/"white" above hold).
+                // The dialog-entered values have no raw/corrected distinction.
+                ColorXYZ measuresRGBW[4]   = {
+                                                measuredColor[0].GetRawXYZValue(),
+                                                measuredColor[1].GetRawXYZValue(),
+                                                measuredColor[2].GetRawXYZValue(),
+                                                measuredColor[3].GetRawXYZValue()
+                                              };
+                ColorXYZ referencesRGBW[4] = { measures[0], measures[1], measures[2], whiteRef };
+
+                try
+                {
+                    Matrix rawMatrix[3], calMatrix[3];
+                    ComputeBodnerThreeMatrices(measuresRGBW, referencesRGBW, rawMatrix, calMatrix);
+
+                    m_pSensor->SetBodnerMatrices(rawMatrix, calMatrix);
+                    m_pSensor->SetCalibrationMethod(CALIB_BODNER_THREEMATRIX);
+                    // Bodner keeps its correction in the sub-gamut matrices; the single sensor
+                    // matrix is unused. Reset it (and its mod) to identity so a stale matrix
+                    // left by a previous method isn't mistaken for an active single-matrix
+                    // correction - reapplied on a Configure change, or written into a training
+                    // file as if it were the correction. Save/Load/Configure all route Bodner
+                    // through GetCalibrationMethod().
+                    m_pSensor->SetSensorMatrix(Matrix::IdentityMatrix(3));
+                    m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
+                    int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
+                    SetModifiedFlag(TRUE);
+
+                    if ( nSkipped > 0 )
+                    {
+                        CString strSkipMsg;
+                        strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
+                        GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
+                    }
+                }
+                catch ( std::logic_error & )
+                {
+                    GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+                }
+            }
+            else
+            {
+                // NIST = RGB method (primaries only); HCFR = FCMM + luminance
+                // scaling; FCMM_NO_LUM = FCMM chromaticity-only.
+                //
+                // NOTE the argument order. In this manual-reference-dialog path the local
+                // names are historically inverted (John Adcock, 2012): "measures[]" holds the
+                // REFERENCE (spectro) values typed in the dialog and "references[]" holds the
+                // COLORIMETER readings. ComputeConversionMatrix(A,B) builds A->B and pairs A with
+                // WhiteTest and B with WhiteRef, and the correction is applied as
+                // corrected = M * raw_colorimeter, so M must map colorimeter -> reference. Pass
+                // the colorimeter (references[], white) as A and the reference (measures[],
+                // whiteRef) as B. This also makes A/WhiteTest and B/WhiteRef internally
+                // consistent, and matches the Bodner branch above and the reference-document
+                // calibration path. (Previously passed (measures, references, ...) = spectro ->
+                // colorimeter, the inverse - it degraded the colorimeter instead of correcting it.)
+                Matrix ConvMatrix = ComputeConversionMatrix (references, measures, white, whiteRef, calibrationMethod == CALIB_CLASSIC_NIST, calibrationMethod != CALIB_FCMM_NO_LUM );
+
+                // check that matrix is inversible
+                if ( ConvMatrix.Determinant() != 0.0 )
+                {
+                    // Ok: set adjustment matrix
+                    Matrix newMatrix = ConvMatrix * oldMatrix;
+                    m_measure.ApplySensorAdjustmentMatrix( ConvMatrix, newMatrix );
+                    m_pSensor->SetSensorMatrix(newMatrix);
+                    m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
+                    m_pSensor->SetCalibrationMethod(calibrationMethod);
+                    m_pSensor->ClearBodnerMatrices();
+                    SetModifiedFlag(TRUE);
+                }
+                else
+                {
+                    GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+                }
+            }
 
 	        AfxGetMainWnd () -> SendMessageToDescendants ( WM_COMMAND, IDM_REFRESH_REFERENCE );
 
@@ -2291,9 +2466,13 @@ void CDataSetDoc::OnCalibrationSpectralSample()
 	}
 }
 
-BOOL CDataSetDoc::ComputeAdjustmentMatrix() 
+BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 {
 	BOOL			bOk = FALSE;
+
+	if ( !ConfirmClearSpectralForMatrixCal(m_pSensor) )
+		return FALSE;
+
 	CDataSetDoc *	pDataRef = GetDataRef();
 	
 	ASSERT ( pDataRef && pDataRef != this && pDataRef -> m_measure.GetBluePrimary ().isValid() && m_measure.GetBluePrimary ().isValid());
@@ -2318,23 +2497,145 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 
     // check that measure matrix is inversible
     Matrix oldMatrix = m_pSensor->GetSensorMatrix();
-    Matrix ConvMatrix = ComputeConversionMatrix (measures, references, white, whiteRef, GetConfig () -> m_bUseOnlyPrimaries );
+    int calibrationMethod = GetConfig () -> m_calibrationMethod;
 
-	// check that matrix is inversible
-	if ( ConvMatrix.Determinant() != 0.0 )
-	{
-		// Ok: set adjustment matrix
-        Matrix newMatrix = ConvMatrix * oldMatrix;
-		m_measure.ApplySensorAdjustmentMatrix( ConvMatrix );
-        m_pSensor->SetSensorMatrix(newMatrix);
-		m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
-		SetModifiedFlag(TRUE);
-		bOk = TRUE;
-	}
-	else
-	{
-		        GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
-	}
+    // Select a white that is genuinely MEASURED on the test side (carries a raw
+    // reading) for the raw-based recompute. A primaries-only run can leave Prime
+    // white as an unmeasured reference (valid XYZ but no raw); the grayscale run's
+    // On/Off white is the measured one. Prefer whichever white has raw and take
+    // the reference white from the SAME source so test and reference whites
+    // correspond. Falls back to the existing Prime-preferred whiteRef when no
+    // measured raw white exists (legacy data), leaving old behaviour unchanged.
+    ColorXYZ whiteRaw = white;   // valid default; only used when whiteHasRaw
+    bool whiteHasRaw = true;
+    if ( m_measure.GetPrimeWhite().HasRawXYZValue() )
+    {
+        whiteRaw = m_measure.GetPrimeWhite().GetRawXYZValue();
+        if ( pDataRef->m_measure.GetPrimeWhite().GetXYZValue().isValid() )
+            whiteRef = pDataRef->m_measure.GetPrimeWhite().GetXYZValue();
+    }
+    else if ( m_measure.GetOnOffWhite().HasRawXYZValue() )
+    {
+        whiteRaw = m_measure.GetOnOffWhite().GetRawXYZValue();
+        if ( pDataRef->m_measure.GetOnOffWhite().GetXYZValue().isValid() )
+            whiteRef = pDataRef->m_measure.GetOnOffWhite().GetXYZValue();
+    }
+    else
+    {
+        whiteHasRaw = false;
+    }
+
+    bool primHaveRaw = m_measure.GetRedPrimary().HasRawXYZValue()
+                    && m_measure.GetGreenPrimary().HasRawXYZValue()
+                    && m_measure.GetBluePrimary().HasRawXYZValue();
+
+    if ( calibrationMethod == CALIB_BODNER_THREEMATRIX )
+    {
+        // Sub-gamut selection at measurement time (CSensor::MeasureColor) runs on
+        // the sensor's genuinely raw reading, so "measures" here must be raw too
+        // (not the already-corrected XYZ that measures[]/white above hold).
+        // referencesRGBW (the reference document's own readings) is unaffected.
+        // Bodner needs a measured raw white; bail out cleanly if none exists
+        // rather than feeding a raw-less placeholder white into the solve.
+        if ( !primHaveRaw || !whiteHasRaw )
+        {
+            GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+        }
+        else
+        {
+        ColorXYZ measuresRGBW[4] = {
+                                        m_measure.GetRedPrimary().GetRawXYZValue(),
+                                        m_measure.GetGreenPrimary().GetRawXYZValue(),
+                                        m_measure.GetBluePrimary().GetRawXYZValue(),
+                                        whiteRaw
+                                    };
+        ColorXYZ referencesRGBW[4] = { references[0], references[1], references[2], whiteRef };
+
+        try
+        {
+            Matrix rawMatrix[3], calMatrix[3];
+            ComputeBodnerThreeMatrices(measuresRGBW, referencesRGBW, rawMatrix, calMatrix);
+
+            m_pSensor->SetBodnerMatrices(rawMatrix, calMatrix);
+            m_pSensor->SetCalibrationMethod(CALIB_BODNER_THREEMATRIX);
+            // Reset the (now unused) single sensor matrix so a stale matrix from a prior
+            // method isn't mistaken for an active single-matrix correction - see the matching
+            // manual-calibration path. Save/Load/Configure route Bodner via GetCalibrationMethod().
+            m_pSensor->SetSensorMatrix(Matrix::IdentityMatrix(3));
+            m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
+            int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
+            SetModifiedFlag(TRUE);
+            bOk = TRUE;
+
+            if ( nSkipped > 0 )
+            {
+                CString strSkipMsg;
+                strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
+                GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
+            }
+        }
+        catch ( std::logic_error & )
+        {
+            GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+        }
+        }
+    }
+    else
+    {
+        // Compute the correction from the genuinely raw sensor readings so that
+        // re-running (e.g. switching Classic NIST <-> HCFR default, or rebuilding
+        // an already-calibrated sensor) REPLACES the correction rather than
+        // compounding a residual onto whatever matrix is currently applied. This
+        // matches the Bodner branch above and is what makes retained-raw method
+        // switching actually work. Legacy measures that predate raw retention have
+        // no raw value; fall back to the original corrected-measures + incremental
+        // compose so their behaviour is unchanged. Classic NIST uses only the three
+        // primaries (white is ignored), so it needs raw primaries but not raw white.
+        bool haveRaw = primHaveRaw
+                    && ( whiteHasRaw || calibrationMethod == CALIB_CLASSIC_NIST );
+
+        ColorXYZ measuresRaw[3] = {
+                                    m_measure.GetRedPrimary().GetRawXYZValue(),
+                                    m_measure.GetGreenPrimary().GetRawXYZValue(),
+                                    m_measure.GetBluePrimary().GetRawXYZValue()
+                                  };
+
+        // CALIB_CLASSIC_NIST = ASTM RGB method (3 primaries only, ignores white);
+        // CALIB_HCFR_DEFAULT = FCMM with the paper's luminance scaling;
+        // CALIB_FCMM_NO_LUM  = FCMM chromaticity-only (skip luminance scaling).
+        bool bUseOnlyPrimaries = ( calibrationMethod == CALIB_CLASSIC_NIST );
+        bool bScaleLum         = ( calibrationMethod != CALIB_FCMM_NO_LUM );
+        Matrix ConvMatrix = haveRaw
+            ? ComputeConversionMatrix ( measuresRaw, references, whiteRaw, whiteRef, bUseOnlyPrimaries, bScaleLum )
+            : ComputeConversionMatrix ( measures,    references, white,    whiteRef, bUseOnlyPrimaries, bScaleLum );
+
+        // check that matrix is inversible
+        if ( ConvMatrix.Determinant() != 0.0 )
+        {
+            // With raw available the correction is absolute (maps raw -> reference),
+            // so it replaces the sensor matrix; ReapplyAdjustmentMatrix applies
+            // fullMatrix * raw. Without raw, keep the incremental compose.
+            Matrix newMatrix = haveRaw ? ConvMatrix : ( ConvMatrix * oldMatrix );
+            // Contract (Measure.h): delta = full * inverse(previousFull), previousFull = oldMatrix.
+            // Passing ConvMatrix as the delta was correct only when !haveRaw (there newMatrix =
+            // ConvMatrix * oldMatrix, so ConvMatrix == newMatrix * oldMatrix.inverse). With haveRaw,
+            // newMatrix == ConvMatrix and the delta must be ConvMatrix * oldMatrix.inverse - else
+            // legacy (no-raw) measurements get ConvMatrix composed onto a value already corrected by
+            // oldMatrix (double correction). Deriving it from newMatrix is correct in both branches.
+            Matrix deltaMatrix = newMatrix * oldMatrix.GetInverse();
+            m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, newMatrix );
+            m_pSensor->SetSensorMatrix(newMatrix);
+            m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
+            m_pSensor->SetCalibrationMethod(calibrationMethod);
+            m_pSensor->ClearBodnerMatrices();
+            SetModifiedFlag(TRUE);
+            bOk = TRUE;
+        }
+        else
+        {
+            GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+        }
+    }
 	this->UpdateAllViews ( NULL, UPD_EVERYTHING );
 	AfxGetMainWnd () -> SendMessageToDescendants ( WM_COMMAND, IDM_REFRESH_REFERENCE );
 
@@ -5086,19 +5387,50 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		if(page.m_sensorTrainingMode != 1)
 			m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
 		m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
-		m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix() );
+		// LoadCalibrationFile (COneDeviceSensor::Serialize) has already restored the full
+		// correction from the training file: the calibration method plus either the single
+		// sensor matrix or the three Bodner sub-gamut matrix pairs. Recompute the stored
+		// measurements with whichever method was loaded - a Bodner training file must be
+		// re-applied through its sub-gamut matrices, not stripped back to raw by the identity
+		// single-matrix a Bodner sensor carries.
+		if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
+			m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+		else
+			m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
 		UpdateAllViews ( NULL, UPD_EVERYTHING );
 		SetModifiedFlag(TRUE);
 	}
 }
 
 
-void CDataSetDoc::OnUpdateLoadCalibrationFile(CCmdUI* pCmdUI) 
+void CDataSetDoc::OnUpdateLoadCalibrationFile(CCmdUI* pCmdUI)
 {
 	pCmdUI -> Enable ( m_pSensor -> IsCalibrated () != 1 );
 }
 
-void CDataSetDoc::OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI) 
+void CDataSetDoc::OnUpdateCalibrationExisting(CCmdUI* pCmdUI)
 {
-	pCmdUI -> Enable ( m_pSensor -> IsCalibrated () == 1 );
+	// "Create using Existing Reference Measures" may be re-run to switch the
+	// calibration method (Classic NIST / HCFR default / Bodner) because the
+	// correction is now recomputed from the retained raw readings and replaces
+	// the sensor matrix. Allow it whenever a distinct reference document exists
+	// and either the sensor is not yet calibrated OR the primaries carry raw
+	// (so the recompute is clean, not a compounding double-correction on legacy
+	// measures).
+	CDataSetDoc * pDataRef = GetDataRef();
+	BOOL bHaveRef = ( pDataRef != NULL && pDataRef != this );
+	BOOL bCleanRecompute = ( m_pSensor->IsCalibrated() != 1 )
+	                    || m_measure.GetRedPrimary().HasRawXYZValue();
+	pCmdUI -> Enable ( bHaveRef && bCleanRecompute );
+}
+
+void CDataSetDoc::OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI)
+{
+	// Enable when there is a correction to save: a single-matrix method (IsCalibrated()==1)
+	// or a Bodner calibration - whose correction lives in the sub-gamut matrices, so the
+	// sensor matrix is identity and IsCalibrated() reports 0. CSensor::Serialize writes the
+	// method and, for Bodner, all three sub-gamut matrix pairs, so the training file
+	// round-trips either correction.
+	pCmdUI -> Enable ( m_pSensor -> IsCalibrated () == 1
+	                || m_pSensor -> GetCalibrationMethod () == CALIB_BODNER_THREEMATRIX );
 }
