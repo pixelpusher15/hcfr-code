@@ -4015,6 +4015,16 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 			m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[i] );
 		else
 			m_cc24SatMeasureArray[i].ResetLuxValue ();
+		// Stamp per-patch label provenance (patch#/name/bit-depth/range) so the measurement stays
+		// self-describing independent of the patch-list file it came from - this rides alongside the
+		// stimulus/raw-XYZ the sensor already stamped. File-backed sets only (isExtPat); inline modes
+		// (GCD/MCD/...) carry no patch list. sequenceIndex records the order measured.
+		if ( isExtPat )
+		{
+			CColorProvenance prov = GetConfig()->GetCColorsProvenance(i);
+			prov.sequenceIndex = i;
+			m_cc24SatMeasureArray[i].SetProvenance(prov);
+		}
 	}
 
 	GetConfig()->m_isSettling = doSettling;
