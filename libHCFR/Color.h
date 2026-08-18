@@ -36,6 +36,7 @@
 
 #include "libHCFR_Config.h"
 #include "Matrix.h"
+#include <string>   // std::string in CColorProvenance (below), before class CColor
 
 typedef enum 
 {
@@ -242,6 +243,21 @@ public:
 #endif
 };
 
+// Per-measurement label provenance: which patch a reading corresponds to and how its
+// source stimulus was defined (bit depth / range / name). Lets a measurement stay
+// self-describing independent of the patch-list file it came from - the basis for
+// browsable multi-set patch lists and volumetric characterization. Optional, lazily
+// allocated, mirroring the raw-XYZ / stimulus optional fields on CColor.
+struct CColorProvenance
+{
+	int         patchNumber;    // stable identity within the source list (-1 = unknown)
+	int         sequenceIndex;  // order measured within the sweep (-1 = unknown)
+	int         srcBits;        // source bit depth: 8 or 10 (0 = unknown)
+	int         srcRange;       // source CSV range: -1 legacy, 0 full, 1 legal, 2 extended
+	std::string name;           // patch name from the source list ("" = none)
+	CColorProvenance() : patchNumber(-1), sequenceIndex(-1), srcBits(0), srcRange(-1) {}
+};
+
 class CColor
 {
 public:
@@ -317,6 +333,13 @@ public:
 	bool HasStimulusValue() const;
 	ColorRGBDisplay GetStimulusValue() const;
 
+	// Label provenance (patch#/name/bit-depth/range) for a self-describing measurement.
+	// Optional, lazily allocated; mirrors the raw-XYZ / stimulus optional fields.
+	void SetProvenance(const CColorProvenance& aProv);
+	void ClearProvenance();
+	bool HasProvenance() const;
+	CColorProvenance GetProvenance() const;
+
     void Output(ostream& ostr) const;
 
 #ifdef LIBHCFR_HAS_MFC
@@ -329,6 +352,7 @@ protected:
 	double *	m_pLuxValue;
 	ColorXYZ *	m_pRawXYZValues;
 	ColorRGBDisplay *	m_pStimulus;
+	CColorProvenance *	m_pProvenance;
 };
 
 class CSpectrum: public Matrix

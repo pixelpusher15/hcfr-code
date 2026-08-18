@@ -2372,6 +2372,7 @@ CColor::CColor():m_XYZValues(1.0,3,1)
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
+	m_pProvenance = NULL;
 }
 
 CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
@@ -2380,6 +2381,7 @@ CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
+	m_pProvenance = NULL;
 
 	if ( aColor.m_pSpectrum )
 		m_pSpectrum = new CSpectrum ( *aColor.m_pSpectrum );
@@ -2392,6 +2394,9 @@ CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 
 	if ( aColor.m_pStimulus )
 		m_pStimulus = new ColorRGBDisplay ( *aColor.m_pStimulus );
+
+	if ( aColor.m_pProvenance )
+		m_pProvenance = new CColorProvenance ( *aColor.m_pProvenance );
 }
 
 CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
@@ -2403,6 +2408,7 @@ CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
+	m_pProvenance = NULL;
 }
 
 CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
@@ -2414,6 +2420,7 @@ CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
+	m_pProvenance = NULL;
 }
 
 CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
@@ -2426,6 +2433,7 @@ CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
+	m_pProvenance = NULL;
 }
 
 CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
@@ -2436,6 +2444,7 @@ CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
     m_pLuxValue = NULL;
     m_pRawXYZValues = NULL;
     m_pStimulus = NULL;
+    m_pProvenance = NULL;
 
     theFile.read((char*)&version, 4);
     version = littleEndianUint32ToHost(version);
@@ -2476,6 +2485,7 @@ void CColor::ClearSpectrumLux()
 
 	ClearRawXYZValue();
 	ClearStimulusValue();
+	ClearProvenance();
 }
 
 void CColor::SetRawXYZValue(const ColorXYZ& aRaw)
@@ -2532,6 +2542,33 @@ ColorRGBDisplay CColor::GetStimulusValue() const
 	return ( m_pStimulus ? (*m_pStimulus) : ColorRGBDisplay() );
 }
 
+void CColor::SetProvenance(const CColorProvenance& aProv)
+{
+	if ( m_pProvenance )
+		delete m_pProvenance;
+
+	m_pProvenance = new CColorProvenance ( aProv );
+}
+
+void CColor::ClearProvenance()
+{
+	if ( m_pProvenance )
+	{
+		delete m_pProvenance;
+		m_pProvenance = NULL;
+	}
+}
+
+bool CColor::HasProvenance() const
+{
+	return ( m_pProvenance != NULL );
+}
+
+CColorProvenance CColor::GetProvenance() const
+{
+	return ( m_pProvenance ? (*m_pProvenance) : CColorProvenance() );
+}
+
 CColor& CColor::operator =(const CColor& aColor)
 {
 	if(&aColor == this)
@@ -2552,6 +2589,9 @@ CColor& CColor::operator =(const CColor& aColor)
 
 	if ( aColor.m_pStimulus )
 		m_pStimulus = new ColorRGBDisplay ( *aColor.m_pStimulus );
+
+	if ( aColor.m_pProvenance )
+		m_pProvenance = new CColorProvenance ( *aColor.m_pProvenance );
 
 	return *this;
 }
@@ -2797,6 +2837,8 @@ void CColor::Serialize(CArchive& archive)
 			version += 10;
 		if ( m_pStimulus )
 			version += 20;
+		if ( m_pProvenance )
+			version += 40;
 
 		archive << version;
 		m_XYZValues.Serialize(archive) ;
@@ -2822,6 +2864,15 @@ void CColor::Serialize(CArchive& archive)
 
 		if ( m_pStimulus )
 			m_pStimulus -> Serialize(archive);
+
+		if ( m_pProvenance )
+		{
+			archive << m_pProvenance->patchNumber;
+			archive << m_pProvenance->sequenceIndex;
+			archive << m_pProvenance->srcBits;
+			archive << m_pProvenance->srcRange;
+			archive << CString ( m_pProvenance->name.c_str() );
+		}
 	}
 	else
 	{
@@ -2832,11 +2883,12 @@ void CColor::Serialize(CArchive& archive)
 		int optionalFlags = version / 10;
 		bool hasRaw      = ( optionalFlags & 0x1 ) != 0;
 		bool hasStimulus = ( optionalFlags & 0x2 ) != 0;
+		bool hasProvenance = ( optionalFlags & 0x4 ) != 0;
 
 		// Reject an unknown base version, or an unknown optional-field bit: a newer
 		// file with a trailing field this build can't skip would desync the archive
 		// stream for every object read after it.
-		if ( baseVersion > 6 || baseVersion < 1 || ( optionalFlags & ~0x3 ) )
+		if ( baseVersion > 6 || baseVersion < 1 || ( optionalFlags & ~0x7 ) )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 
 		m_XYZValues.Serialize(archive) ;
@@ -2866,6 +2918,12 @@ void CColor::Serialize(CArchive& archive)
 		{
 			delete m_pStimulus;
 			m_pStimulus = NULL;
+		}
+
+		if ( m_pProvenance )
+		{
+			delete m_pProvenance;
+			m_pProvenance = NULL;
 		}
 
 		if ( baseVersion == 2 || baseVersion == 4 || baseVersion == 5 || baseVersion == 6 )
@@ -2905,6 +2963,18 @@ void CColor::Serialize(CArchive& archive)
 		{
 			m_pStimulus = new ColorRGBDisplay ( 0.0, 0.0, 0.0 );
 			m_pStimulus -> Serialize(archive);
+		}
+
+		if ( hasProvenance )
+		{
+			m_pProvenance = new CColorProvenance();
+			archive >> m_pProvenance->patchNumber;
+			archive >> m_pProvenance->sequenceIndex;
+			archive >> m_pProvenance->srcBits;
+			archive >> m_pProvenance->srcRange;
+			CString nm;
+			archive >> nm;
+			m_pProvenance->name = (LPCTSTR)nm;
 		}
 	}
 }
