@@ -3925,6 +3925,14 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 						measuredColor[23-i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				}
 
+				// Stamp provenance HERE (during the sweep), not only in the final commit loop, so the
+				// live point display shows Driven/unclamped as each patch reads - not the clamped Reference.
+				if ( isExtPat )
+				{
+					CColorProvenance prov = GetConfig()->GetCColorsProvenance(i);
+					prov.sequenceIndex = i;
+					measuredColor[i].SetProvenance(prov);
+				}
 				m_cc24SatMeasureArray[i] = measuredColor[i];
 
 				if ( bUseLuxValues )
