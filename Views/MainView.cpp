@@ -471,9 +471,15 @@ void CCompSwatch::OnPaint()
 
 	float pad = (float) MulDiv(2, dpiY, 96);
 	float ty  = swTop + swH + (float) MulDiv(5, dpiY, 96);
-	wchar_t lblBuf[64] = L"";
-	::GetWindowTextW(GetSafeHwnd(), lblBuf, 64);
-	CStringW wlabel(lblBuf);
+	CStringW wlabel;
+	if ( !m_label.IsEmpty() )
+		wlabel = CStringW(m_label);   // per-update override (e.g. "Driven" for WTW/extended)
+	else
+	{
+		wchar_t lblBuf[64] = L"";
+		::GetWindowTextW(GetSafeHwnd(), lblBuf, 64);
+		wlabel = lblBuf;
+	}
 	g.DrawString(wlabel, -1, &labelFont, Gdiplus::RectF(pad, ty, W - 2.0f*pad, labelPx + 4.0f), &fmt, &labelBrush);
 	if ( m_hasColor && !m_value.IsEmpty() )
 	{
@@ -1754,17 +1760,36 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			m_ref_g1 = pow(min(max(ColorRGB(measXYZref,CColorReference(HDTV))[1],0.0),1.0),1./2.22);
 			m_ref_b1 = pow(min(max(ColorRGB(measXYZref,CColorReference(HDTV))[2],0.0),1.0),1./2.22);
 
-			trip2.SetString("No\nMeasure\n");				
+			trip2.SetString("No\nMeasure\n");
+			bool bDrivenMode = false;
 			if (m_SelectedColor.isValid())
 			{
-				int refBits = GetConfig()->GetUse10bitLevels() ? 10 : 8;   // reference is transient (no provenance): use the generator setting
-				double refSpan  = (refBits == 10) ? 876. : 219.;   // legal white-black span (940-64 / 235-16)
-				double refBlack = (refBits == 10) ? 64.  : 16.;
-				double refFull  = (refBits == 10) ? 1023. : 255.;
-				if (GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",0))
-					trip2.Format("%d,%d,%d\nReference",((int)floor((m_ref_rd)*refSpan+0.5)+(int)refBlack),(int)(floor((m_ref_gd)*refSpan+0.5)+(int)refBlack),(int)(floor((m_ref_bd)*refSpan+0.5)+(int)refBlack));
+				// WTW / EXTENDED patches have no gamma-defined reference above white, so show the DRIVEN
+				// code (the measurement own stimulus, encoded via its provenance) in place of the always-
+				// white reference. dE still uses the true white reference internally.
+				if ( m_SelectedColor.HasProvenance() && m_SelectedColor.GetProvenance().srcRange == 2 && m_SelectedColor.HasStimulusValue() )
+				{
+					bDrivenMode = true;
+					int dBits = ( m_SelectedColor.GetProvenance().srcBits > 0 ) ? m_SelectedColor.GetProvenance().srcBits : ( GetConfig()->GetUse10bitLevels() ? 10 : 8 );
+					double dSpan  = (dBits == 10) ? 876. : 219.;
+					double dBlack = (dBits == 10) ? 64.  : 16.;
+					ColorRGBDisplay stim = m_SelectedColor.GetStimulusValue();
+					trip2.Format("%d,%d,%d\nDriven",
+						(int)floor(stim[0]/100.*dSpan + dBlack + 0.5),
+						(int)floor(stim[1]/100.*dSpan + dBlack + 0.5),
+						(int)floor(stim[2]/100.*dSpan + dBlack + 0.5));
+				}
 				else
-					trip2.Format("%d,%d,%d\nReference",((int)floor((m_ref_rd)*refFull+0.5)),(int)(floor((m_ref_gd)*refFull+0.5)),(int)(floor((m_ref_bd)*refFull+0.5)));
+				{
+					int refBits = GetConfig()->GetUse10bitLevels() ? 10 : 8;   // reference is transient (no provenance): generator setting
+					double refSpan  = (refBits == 10) ? 876. : 219.;
+					double refBlack = (refBits == 10) ? 64.  : 16.;
+					double refFull  = (refBits == 10) ? 1023. : 255.;
+					if (GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",0))
+						trip2.Format("%d,%d,%d\nReference",((int)floor((m_ref_rd)*refSpan+0.5)+(int)refBlack),(int)(floor((m_ref_gd)*refSpan+0.5)+(int)refBlack),(int)(floor((m_ref_bd)*refSpan+0.5)+(int)refBlack));
+					else
+						trip2.Format("%d,%d,%d\nReference",((int)floor((m_ref_rd)*refFull+0.5)),(int)(floor((m_ref_gd)*refFull+0.5)),(int)(floor((m_ref_bd)*refFull+0.5)));
+				}
 			}
 
 		// Owner-drawn split swatch: push each half its fill colour and numeric
@@ -1774,7 +1799,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		{
 			BOOL bSel = m_SelectedColor.isValid();
 			m_Ccomp.SetContent(RGB((int)floor(m_meas_r1*255.+0.5),(int)floor(m_meas_g1*255.+0.5),(int)floor(m_meas_b1*255.+0.5)), bSel, trip1.SpanExcluding("\n"));
-			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel, trip2.SpanExcluding("\n"));
+			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel, trip2.SpanExcluding("\n"), bDrivenMode ? "Driven" : NULL);
 		}
 	}
 }

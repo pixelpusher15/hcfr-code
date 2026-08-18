@@ -55,11 +55,12 @@ class CCompSwatch : public CStatic
 public:
 	CCompSwatch() : m_side(0), m_fill(RGB(255,255,255)), m_hasColor(FALSE) {}
 
-	void SetContent(COLORREF fill, BOOL hasColor, LPCSTR value)
+	void SetContent(COLORREF fill, BOOL hasColor, LPCSTR value, LPCSTR label = NULL)
 	{
 		m_fill = fill;
 		m_hasColor = hasColor;
 		m_value = value;
+		m_label = label ? CString(label) : CString();   // per-update label override; empty = use control window text
 		if ( GetSafeHwnd() )
 			Invalidate(FALSE);
 	}
@@ -70,6 +71,7 @@ protected:
 	COLORREF	m_fill;
 	BOOL		m_hasColor;
 	CString		m_value;
+	CString		m_label;
 
 	afx_msg void OnPaint();
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
