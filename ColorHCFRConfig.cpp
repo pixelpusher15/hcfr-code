@@ -1315,6 +1315,27 @@ void CColorHCFRConfig::GetCColors()
 				cTargetN.push_back(rows[i].name);
 			}
 			numCC = (nRows > 0) ? nRows : 0;   // 0 when the file is missing/unreadable, so size matches the vectors
+
+			// Tell the user WHY the set is blank on a genuine open failure (-1), rather than
+			// showing a silent empty grid. For built-in sequences this usually means a broken
+			// install or a different user profile (the %APPDATA%\color file is absent). Gate on
+			// the path so repeat reloads of the same missing file don't stack message boxes;
+			// a successful read re-arms the warning if the file later disappears.
+			static std::string s_lastMissingWarned;
+			if (nRows < 0)
+			{
+				if (s_lastMissingWarned != (LPCTSTR)fName)
+				{
+					s_lastMissingWarned = (LPCTSTR)fName;
+					CString msg;
+					msg.Format(_T("Patch-list file not found:\n\n%s\n\nThe patch set will be empty. For built-in sets this usually means the installation is incomplete or HCFR is running under a different user profile."), (LPCTSTR)fName);
+					AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
+				}
+			}
+			else
+			{
+				s_lastMissingWarned.clear();
+			}
 }
 
 ColorRGB CColorHCFRConfig::GetCColorsT(int index) 
