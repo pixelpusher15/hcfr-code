@@ -1714,16 +1714,22 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			
 				if (m_SelectedColor.isValid())
 				{
-					// Bit depth for the code readout: prefer the measurement provenance (what was actually
-					// driven), else the generator 10-bit setting, else 8-bit. Range (video vs PC) still
-					// follows RGB_16_235; provenance-driven range is a later change.
+					// Bit depth AND range for the code readout come from the measurement own provenance when
+					// present, else the generator settings. Bit depth: provenance srcBits, else the 10-bit-levels
+					// setting, else 8-bit. Range: provenance srcRange (FULL -> PC/full; LEGAL/EXTENDED -> video, so
+					// extended super-white encodes on the legal slope and stays a valid code), else the 16-235 radio.
 					int measBits = ( m_SelectedColor.HasProvenance() && m_SelectedColor.GetProvenance().srcBits > 0 )
 					                 ? m_SelectedColor.GetProvenance().srcBits
 					                 : ( GetConfig()->GetUse10bitLevels() ? 10 : 8 );
 					double measSpan  = (measBits == 10) ? 876. : 219.;
 					double measBlack = (measBits == 10) ? 64.  : 16.;
 					double measFull  = (measBits == 10) ? 1023. : 255.;
-					if (GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",0))
+					bool measVideo;
+					if ( m_SelectedColor.HasProvenance() && m_SelectedColor.GetProvenance().srcRange >= 0 )
+						measVideo = ( m_SelectedColor.GetProvenance().srcRange != 0 );   // 0=FULL->PC; 1/2=LEGAL/EXTENDED->video
+					else
+						measVideo = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",0) != 0;
+					if (measVideo)
 					{
 						m_meas_rd = floor(m_meas_rd*measSpan + measBlack + 0.5); //round to video levels for label
 						m_meas_gd = floor(m_meas_gd*measSpan + measBlack + 0.5);
