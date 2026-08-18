@@ -2868,7 +2868,7 @@ enum CsvRange { CSVRANGE_LEGACY = -1, CSVRANGE_FULL = 0, CSVRANGE_LEGAL = 1, CSV
 // One source code -> HCFR stimulus percentage, honouring the declared bit depth (8 or 10)
 // and range. Full: 0..(2^bits-1) -> 0..100. Legal/Extended: black..white (16..235 at 8-bit,
 // 64..940 at 10-bit) -> 0..100; Extended keeps super-white (>100%), Legal/legacy clamp [0,100].
-static double CsvCodeToPercent(double code, int bits, int range)
+double CsvCodeToPercent(double code, int bits, int range)
 {
 	int maxCode = (1 << bits) - 1;
 	if (range == CSVRANGE_FULL)
@@ -3116,6 +3116,69 @@ void RemapProfileToTransport(ColorRGBDisplay* GenColors, int n, const CColorRefe
 	}
 }
 
+// Resolve a file-backed CC set (predefined CSV or USER) to its patch-list path and HDR-recalc
+// flag. Returns false for inline-array modes (GCD/MCD/CMC/...) that carry no file. Predefined sets
+// live in %APPDATA%\color; USER lives in the module directory (usercolors.csv). Single source of
+// truth shared by GenerateCC24Colors (drive/reference) and CColorHCFRConfig::GetCColors (grid
+// targets + names) so the two can never disagree on which file a CC mode maps to.
+bool ResolveCCSetPath(int aCCMode, CString & outPath, bool * recalcOut)
+{
+	static const struct { int mode; const char * file; bool recalc; } kCsvSets[] =
+	{
+		{ CM10SAT,       "\\CM 10-Point Saturation (100AMP).csv", true },
+		{ CM10SAT75,     "\\CM 10-Point Saturation (75AMP).csv", true },
+		{ CM4SAT,        "\\CM 4-Point Saturation (100AMP).csv", true },
+		{ CM4SAT75,      "\\CM 4-Point Saturation (75AMP).csv", true },
+		{ CM5SAT,        "\\CM 5-Point Saturation (100AMP).csv", true },
+		{ CM5SAT75,      "\\CM 5-Point Saturation (75AMP).csv", true },
+		{ CM4LUM,        "\\CM 4-Point Luminance.csv", false },
+		{ CM5LUM,        "\\CM 5-Point Luminance.csv", false },
+		{ CM10LUM,       "\\CM 10-Point Luminance.csv", false },
+		{ CM6NB,         "\\CM 6-Point Near Black.csv", false },
+		{ CMDNR,         "\\CM Dynamic Range (Clipping).csv", false },
+		{ MASCIOR50,     "\\Mascior50_50_BT2020_HDR.csv", false },
+		{ RANDOM250,     "\\Random_250.csv", false },
+		{ RANDOM500,     "\\Random_500.csv", false },
+		{ LG54016,       "\\LG_540_Base_Tone_Curve_2016.csv", false },
+		{ LG54017,       "\\LG_540_Base_Tone_Curve_2017.csv", false },
+		{ LG100017,      "\\LG_1000_Base_Tone_Curve_2017.csv", false },
+		{ LG400017,      "\\LG_4000_Base_Tone_Curve_2017.csv", false },
+		{ LGUK65XX,      "\\LG_UK65xx_HDR10_20_Point_Luminance.csv", false },
+		{ LGOLEDV12018,  "\\LG_2018_V1_HDR10_20_Point_Luminance.csv", false },
+		{ LGOLEDV22018,  "\\LG_2018_V2_HDR10_20_Point_Luminance.csv", false },
+		{ LGOLEDV32018,  "\\LG_2018_V3_HDR10_20_Point_Luminance.csv", false },
+		{ LGOLED102019,  "\\LG_2019_HDR10_10_Point_Luminance.csv", false },
+		{ LGOLED222019,  "\\LG_2019_HDR10_22_Point_Luminance.csv", false },
+		{ LGOLED102020,  "\\LG_2020_HDR10_10_Point_Luminance.csv", false },
+		{ LGOLED222020,  "\\LG_2020_HDR10_22_Point_Luminance.csv", false },
+		{ LGOLED102021,  "\\LG_2021_HDR10_10_Point_Luminance.csv", false },
+		{ LGOLED222021,  "\\LG_2021_HDR10_22_Point_Luminance.csv", false },
+		{ 0, 0, false }
+	};
+	if (recalcOut) *recalcOut = false;
+
+	if (aCCMode == USER)
+	{
+		char modPath[MAX_PATH];
+		GetModuleFileName(NULL, modPath, sizeof(modPath));
+		char * sl = strrchr(modPath, '\\');
+		if (sl) sl[1] = '\0';
+		outPath = CString(modPath) + "usercolors.csv";
+		return true;   // USER: module-dir usercolors.csv, recalc stays false
+	}
+
+	for (int i = 0; kCsvSets[i].file; i++)
+		if (kCsvSets[i].mode == aCCMode)
+		{
+			char * envp = getenv("APPDATA");
+			CString appPath = CString(envp ? envp : "") + "\\color";
+			if (recalcOut) *recalcOut = kCsvSets[i].recalc;
+			outPath = appPath + kCsvSets[i].file;
+			return true;
+		}
+	return false;   // inline-array modes carry no CSV file
+}
+
 bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit, bool is16_235)
 {
 	//six cases, one for GCD sequence, one for Mascior's disk (Chromapure based), and four different generator only cases
@@ -3123,12 +3186,6 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
 	//MCD
     //CCGS 96 CalMAN ColorChecker SG patterns
     //USER user defined
-	char * path;
-	char appPath[255];
-	path = getenv("APPDATA");
-	if (!path) path = "";
-	_snprintf(appPath, sizeof(appPath), "%s\\color", path);
-	appPath[sizeof(appPath)-1] = 0;
 	bool bOk = true, constant_XYZ = FALSE, m_bRecalc = FALSE;
 	int n_elements=24;
 	switch (aCCMode)
@@ -3432,14 +3489,9 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         }
     case USER:
         {//read in user defined colors
-			m_bRecalc = FALSE;
-            char m_ApplicationPath [MAX_PATH];
-			LPSTR lpStr;
-            GetModuleFileName ( NULL, m_ApplicationPath, sizeof ( m_ApplicationPath ) );
-			lpStr = strrchr ( m_ApplicationPath, (int) '\\' );
-			lpStr [ 1 ] = '\0';
-            CString strPath = m_ApplicationPath;
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, strPath + "usercolors.csv");
+			CString userPath;
+			ResolveCCSetPath(aCCMode, userPath, &m_bRecalc);   // USER -> module-dir usercolors.csv
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, userPath);
             break;
         }
 
@@ -3450,49 +3502,10 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
 	case LGOLEDV22018:  case LGOLEDV32018:  case LGOLED102019:  case LGOLED222019:  case LGOLED102020:
 	case LGOLED222020:  case LGOLED102021:  case LGOLED222021:
 	{
-		// Predefined CSV patch sets: everything that varies is data - the file
-		// (all under appPath) and the HDR-recalc flag. USER stays a separate case
-		// above (it lives in the module dir, not appPath).
-		static const struct { int mode; const char * file; bool recalc; } kCsvSets[] =
-		{
-			{ CM10SAT,      "\\CM 10-Point Saturation (100AMP).csv", true },
-			{ CM10SAT75,    "\\CM 10-Point Saturation (75AMP).csv", true },
-			{ CM4SAT,       "\\CM 4-Point Saturation (100AMP).csv", true },
-			{ CM4SAT75,     "\\CM 4-Point Saturation (75AMP).csv", true },
-			{ CM5SAT,       "\\CM 5-Point Saturation (100AMP).csv", true },
-			{ CM5SAT75,     "\\CM 5-Point Saturation (75AMP).csv", true },
-			{ CM4LUM,       "\\CM 4-Point Luminance.csv", false },
-			{ CM5LUM,       "\\CM 5-Point Luminance.csv", false },
-			{ CM10LUM,      "\\CM 10-Point Luminance.csv", false },
-			{ CM6NB,        "\\CM 6-Point Near Black.csv", false },
-			{ CMDNR,        "\\CM Dynamic Range (Clipping).csv", false },
-			{ MASCIOR50,    "\\Mascior50_50_BT2020_HDR.csv", false },
-			{ RANDOM250,    "\\Random_250.csv", false },
-			{ RANDOM500,    "\\Random_500.csv", false },
-			{ LG54016,      "\\LG_540_Base_Tone_Curve_2016.csv", false },
-			{ LG54017,      "\\LG_540_Base_Tone_Curve_2017.csv", false },
-			{ LG100017,     "\\LG_1000_Base_Tone_Curve_2017.csv", false },
-			{ LG400017,     "\\LG_4000_Base_Tone_Curve_2017.csv", false },
-			{ LGUK65XX,     "\\LG_UK65xx_HDR10_20_Point_Luminance.csv", false },
-			{ LGOLEDV12018, "\\LG_2018_V1_HDR10_20_Point_Luminance.csv", false },
-			{ LGOLEDV22018, "\\LG_2018_V2_HDR10_20_Point_Luminance.csv", false },
-			{ LGOLEDV32018, "\\LG_2018_V3_HDR10_20_Point_Luminance.csv", false },
-			{ LGOLED102019, "\\LG_2019_HDR10_10_Point_Luminance.csv", false },
-			{ LGOLED222019, "\\LG_2019_HDR10_22_Point_Luminance.csv", false },
-			{ LGOLED102020, "\\LG_2020_HDR10_10_Point_Luminance.csv", false },
-			{ LGOLED222020, "\\LG_2020_HDR10_22_Point_Luminance.csv", false },
-			{ LGOLED102021, "\\LG_2021_HDR10_10_Point_Luminance.csv", false },
-			{ LGOLED222021, "\\LG_2021_HDR10_22_Point_Luminance.csv", false },
-			{ 0, 0, false }
-		};
-		for ( int i = 0; kCsvSets[i].file; i++ )
-			if ( kCsvSets[i].mode == aCCMode )
-			{
-				m_bRecalc = kCsvSets[i].recalc;
-				strcat(appPath, kCsvSets[i].file);
-				break;
-			}
-		n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
+		// File-backed predefined sets: path + HDR-recalc come from the shared resolver (one table).
+		CString setPath;
+		ResolveCCSetPath(aCCMode, setPath, &m_bRecalc);
+		n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, setPath);
 		break;
 	}
 	}//switch

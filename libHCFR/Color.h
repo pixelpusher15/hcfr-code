@@ -773,6 +773,10 @@ extern int PeekCsvRange ( CString csvPath );
 #include <string>
 struct CsvPatchRow { int patch, r, g, b; std::string name; };
 extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut );
+// Resolve a CC mode to its patch-list file (predefined CSV or USER) + HDR-recalc flag; false for inline-array modes.
+extern bool ResolveCCSetPath ( int aCCMode, CString & outPath, bool * recalcOut );
+// One source code -> HCFR stimulus percentage for a given bit depth + CSV range (range-aware target readback).
+extern double CsvCodeToPercent ( double code, int bits, int range );
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );

@@ -1194,154 +1194,71 @@ std::vector<int> cTargetB;
 std::vector<std::string> cTargetN;
 std::string nFile;
 int numCC = 0;
+int cTargetBits = 8;    // bit depth of the loaded patch list (for range-aware target decode)
+int cTargetRange = -1;  // CSV range of the loaded patch list (-1 legacy/legal, 0 full, 1 legal, 2 extended)
 
 void CColorHCFRConfig::GetCColors() 
 {
-            char m_ApplicationPath [MAX_PATH];
-			LPSTR lpStr;
-            GetModuleFileName ( NULL, m_ApplicationPath, sizeof ( m_ApplicationPath ) );
-			lpStr = strrchr ( m_ApplicationPath, (int) '\\' );
-			lpStr [ 1 ] = '\0';
-            CString strPath = m_ApplicationPath;
-			CString fName;
-			char * path;
-			char appPath[255];
-			path = getenv("APPDATA");
-			strcpy(appPath, path);
-			switch (m_CCMode)
-			{
-				case USER:
-		        fName=strPath+"usercolors.csv";
-				break;
-				case CM10SAT:
-		        fName=strcat(appPath, "\\color\\CM 10-Point Saturation (100AMP).csv");
-				break;
-				case CM10SAT75:
-		        fName=strcat(appPath, "\\color\\CM 10-Point Saturation (75AMP).csv");
-				break;
-				case CM4LUM:
-		        fName=strcat(appPath,"\\color\\CM 4-Point Luminance.csv");
-				break;
-				case CM5LUM:
-		        fName=strcat(appPath, "\\color\\CM 5-Point Luminance.csv");
-				break;
-				case CM10LUM:
-		        fName=strcat(appPath, "\\color\\CM 10-Point Luminance.csv");
-				break;
-				case CM4SAT:
-		        fName=strcat(appPath, "\\color\\CM 4-Point Saturation (100AMP).csv");
-				break;
-				case CM4SAT75:
-		        fName=strcat(appPath, "\\color\\CM 4-Point Saturation (75AMP).csv");
-				break;
-				case CM5SAT:
-		        fName=strcat(appPath, "\\color\\CM 5-Point Saturation (100AMP).csv");
-				break;
-				case CM5SAT75:
-		        fName=strcat(appPath, "\\color\\CM 5-Point Saturation (75AMP).csv");
-				break;
-				case CM6NB:
-		        fName=strcat(appPath, "\\color\\CM 6-Point Near Black.csv");
-				break;
-				case CMDNR:
-		        fName=strcat(appPath, "\\color\\CM Dynamic Range (Clipping).csv");
-				break;
-				case RANDOM250:
-		        fName=strcat(appPath, "\\color\\Random_250.csv");
-				break;
-				case RANDOM500:
-		        fName=strcat(appPath, "\\color\\Random_500.csv");
-				break;
-				case MASCIOR50:
-		        fName=strcat(appPath, "\\color\\Mascior50_50_BT2020_HDR.csv");
-				break;
-				case LG54016:
-		        fName=strcat(appPath, "\\color\\LG_540_Base_Tone_Curve_2016.csv");
-				break;
-				case LG54017:
-		        fName=strcat(appPath, "\\color\\LG_540_Base_Tone_Curve_2017.csv");
-				break;
-				case LG100017:
-		        fName=strcat(appPath, "\\color\\LG_1000_Base_Tone_Curve_2017.csv");
-				break;
-				case LG400017:
-		        fName=strcat(appPath, "\\color\\LG_4000_Base_Tone_Curve_2017.csv");
-				break;
-				case LGUK65XX:
-				fName = strcat(appPath, "\\color\\LG_UK65xx_HDR10_20_Point_Luminance.csv");
-				break;
-				case LGOLEDV12018:
-				fName = strcat(appPath, "\\color\\LG_2018_V1_HDR10_20_Point_Luminance.csv");
-				break;
-				case LGOLEDV22018:
-				fName = strcat(appPath, "\\color\\LG_2018_V2_HDR10_20_Point_Luminance.csv");
-				break;
-				case LGOLEDV32018:
-				fName = strcat(appPath, "\\color\\LG_2018_V3_HDR10_20_Point_Luminance.csv");
-				break;
-				case LGOLED102019:
-				fName = strcat(appPath, "\\color\\LG_2019_HDR10_10_Point_Luminance.csv");
-				break;
-				case LGOLED222019:
-				fName = strcat(appPath, "\\color\\LG_2019_HDR10_22_Point_Luminance.csv");
-				break;
-				case LGOLED102020:
-				fName = strcat(appPath, "\\color\\LG_2020_HDR10_10_Point_Luminance.csv");
-				break;
-				case LGOLED222020:
-				fName = strcat(appPath, "\\color\\LG_2020_HDR10_22_Point_Luminance.csv");
-				break;
-				case LGOLED102021:
-				fName = strcat(appPath, "\\color\\LG_2021_HDR10_10_Point_Luminance.csv");
-				break;
-				case LGOLED222021:
-				fName = strcat(appPath, "\\color\\LG_2021_HDR10_22_Point_Luminance.csv");
-				break;
-			}
-			cTargetR.clear();
-			cTargetG.clear();
-			cTargetB.clear();
-			cTargetN.clear();
-			// set-name for the display = file base name (migrated files no longer carry it inline)
-			{ int sl = fName.ReverseFind('\\'); nFile = (LPCTSTR)(sl >= 0 ? fName.Mid(sl + 1) : fName); size_t dp = nFile.rfind(".csv"); if (dp != std::string::npos) nFile.erase(dp); }
-			// Single shared parser (the one ReadColorsFromCsv uses): raw codes + names, header/patch-column aware.
-			std::vector<CsvPatchRow> rows;
-			int nRows = ReadCsvPatchRows(fName, rows, MAX_USER_CC_PATCH_SIZE, NULL, NULL);
-			for (int i = 0; i < nRows; i++)
-			{
-				cTargetR.push_back(rows[i].r);
-				cTargetG.push_back(rows[i].g);
-				cTargetB.push_back(rows[i].b);
-				cTargetN.push_back(rows[i].name);
-			}
-			numCC = (nRows > 0) ? nRows : 0;   // 0 when the file is missing/unreadable, so size matches the vectors
+	// One shared resolver (drive/reference GenerateCC24Colors uses the same one) maps the CC mode
+	// to its patch-list file. Inline-array modes (GCD/MCD/CMC/...) carry no CSV - their targets come
+	// straight from GenerateCC24Colors, so clear and bail without touching disk or warning.
+	CString fName;
+	cTargetR.clear();
+	cTargetG.clear();
+	cTargetB.clear();
+	cTargetN.clear();
+	if (!ResolveCCSetPath(m_CCMode, fName, NULL))
+	{
+		numCC = 0;
+		nFile.clear();
+		cTargetBits = 8;
+		cTargetRange = -1;
+		return;
+	}
+	// set-name for the display = file base name (migrated files no longer carry it inline)
+	{ int sl = fName.ReverseFind('\\'); nFile = (LPCTSTR)(sl >= 0 ? fName.Mid(sl + 1) : fName); size_t dp = nFile.rfind(".csv"); if (dp != std::string::npos) nFile.erase(dp); }
+	// Single shared parser (the one ReadColorsFromCsv uses): raw codes + names, plus the declared
+	// bit depth + range so GetCColorsT can decode targets for ANY range (legal / full / extended).
+	std::vector<CsvPatchRow> rows;
+	int bits = 8, range = -1;
+	int nRows = ReadCsvPatchRows(fName, rows, MAX_USER_CC_PATCH_SIZE, &bits, &range);
+	cTargetBits = bits;
+	cTargetRange = range;
+	for (int i = 0; i < nRows; i++)
+	{
+		cTargetR.push_back(rows[i].r);
+		cTargetG.push_back(rows[i].g);
+		cTargetB.push_back(rows[i].b);
+		cTargetN.push_back(rows[i].name);
+	}
+	numCC = (nRows > 0) ? nRows : 0;   // 0 when the file is missing/unreadable, so size matches the vectors
 
-			// Tell the user WHY the set is blank on a genuine open failure (-1), rather than
-			// showing a silent empty grid. For built-in sequences this usually means a broken
-			// install or a different user profile (the %APPDATA%\color file is absent). Gate on
-			// the path so repeat reloads of the same missing file don't stack message boxes;
-			// a successful read re-arms the warning if the file later disappears.
-			static std::string s_lastMissingWarned;
-			if (nRows < 0)
-			{
-				if (s_lastMissingWarned != (LPCTSTR)fName)
-				{
-					s_lastMissingWarned = (LPCTSTR)fName;
-					CString msg;
-					msg.Format(_T("Patch-list file not found:\n\n%s\n\nThe patch set will be empty. For built-in sets this usually means the installation is incomplete or HCFR is running under a different user profile."), (LPCTSTR)fName);
-					AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
-				}
-			}
-			else
-			{
-				s_lastMissingWarned.clear();
-			}
+	// Tell the user WHY the set is blank on a genuine open failure (-1), rather than showing a
+	// silent empty grid. For built-in sequences this usually means a broken install or a different
+	// user profile (the %APPDATA%\color file is absent). Gate on the path so repeat reloads of the
+	// same missing file don't stack message boxes; a successful read re-arms the warning.
+	static std::string s_lastMissingWarned;
+	if (nRows < 0)
+	{
+		if (s_lastMissingWarned != (LPCTSTR)fName)
+		{
+			s_lastMissingWarned = (LPCTSTR)fName;
+			CString msg;
+				msg.Format(_T("Patch-list file not found:\n\n%s\n\nThe patch set will be empty. For built-in sets this usually means the installation is incomplete or HCFR is running under a different user profile."), (LPCTSTR)fName);
+			AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
+		}
+	}
+	else
+	{
+		s_lastMissingWarned.clear();
+	}
 }
-
 ColorRGB CColorHCFRConfig::GetCColorsT(int index) 
 {
 	if (index >= 0 && index < (int)cTargetR.size())
-			return ColorRGB(	( (cTargetR[index] -16) / 219.)	, (	(cTargetG[index] - 16) / 219.) , ( (cTargetB[index] - 16) /219. ) );
+			return ColorRGB( CsvCodeToPercent(cTargetR[index], cTargetBits, cTargetRange) / 100.,
+			                 CsvCodeToPercent(cTargetG[index], cTargetBits, cTargetRange) / 100.,
+			                 CsvCodeToPercent(cTargetB[index], cTargetBits, cTargetRange) / 100. );
 	else
 			return ColorRGB( 0.5, 0.5, 0.5 );
 }
