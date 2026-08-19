@@ -56,9 +56,10 @@ void error_handler  (HPDF_STATUS   error_no,
                 HPDF_STATUS   detail_no,
                 void         *user_data)
 {
-	char msg[50];
-    sprintf (msg,"ERROR: error_no=%04X, detail_no=%04X, File already open?\n", (HPDF_UINT)error_no,
+	char msg[256];
+    _snprintf (msg, sizeof(msg), "ERROR: error_no=%04X, detail_no=%04X, File already open?\n", (HPDF_UINT)error_no,
                 (HPDF_UINT)detail_no);
+    msg[sizeof(msg)-1] = 0;
 			if(GetColorApp()->InMeasureMessageBox(msg,"PDF ERROR, Yes to continue",MB_YESNO)!=IDYES)
     longjmp(env, 1);
 }
@@ -87,9 +88,25 @@ draw_image (HPDF_Doc     pdf,
 
     image = HPDF_LoadPngImageFromFile (pdf, filename1);
 
-    /* Draw image to the canvas. */
-    HPDF_Page_DrawImage (page, image, x, y, HPDF_Image_GetWidth (image),
-                    HPDF_Image_GetHeight (image));
+    /* Draw the logo at a fixed display height (in points), preserving aspect
+       ratio, so its on-page size does not depend on the source PNG's pixel
+       resolution. Passing the raw pixel dimensions to HPDF_Page_DrawImage made
+       the size == pixels (1px -> 1pt): a 100x100 logo rendered 100pt tall and
+       ran off the top of the page. Guard against a failed load (NULL image)
+       instead of dereferencing it. */
+    if ( image )
+    {
+        const HPDF_REAL logoHeight = 72.0f;                 /* 1 inch */
+        HPDF_REAL imgW = (HPDF_REAL) HPDF_Image_GetWidth (image);
+        HPDF_REAL imgH = (HPDF_REAL) HPDF_Image_GetHeight (image);
+        HPDF_REAL logoWidth = ( imgH > 0 ) ? ( logoHeight * imgW / imgH ) : logoHeight;
+        HPDF_Page_DrawImage (page, image, x, y, logoWidth, logoHeight);
+    }
+    else
+        /* Clear the error the failed PNG load left on the doc; otherwise a
+           later HPDF_SaveToFile that actually succeeds still returns
+           HPDF_CheckError() and re-fires error_handler on a good save. */
+        HPDF_ResetError (pdf);
 
     /* Print the text. */
     HPDF_Page_BeginText (page);
@@ -123,8 +140,15 @@ draw_image2 (HPDF_Doc     pdf,
 
     image = HPDF_LoadPngImageFromFile (pdf, filename1);
 
-    /* Draw image to the canvas. */
-    HPDF_Page_DrawImage (page, image, x, y, wX, wY);
+    /* Draw image to the canvas. Guard against a failed load (NULL image):
+       drawing a NULL handle here is what crashes the app when a source PNG is
+       missing and the user clicks "Yes to continue" past the error. */
+    if ( image )
+        HPDF_Page_DrawImage (page, image, x, y, wX, wY);
+    else
+        /* Clear the failed-load error so a successful save doesn't re-fire
+           error_handler (see draw_image). */
+        HPDF_ResetError (pdf);
 
     /* Print the text. */
     HPDF_Page_BeginText (page);
