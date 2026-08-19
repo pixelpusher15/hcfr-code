@@ -790,11 +790,20 @@ static const UINT kComboLabel[6] =
 };
 static const int kComboSDRCount = 4;	// kComboToType entries before the HDR pair
 
-// The color spaces allowed to select PQ/HLG. Original rule, from the version of
+// The color spaces allowed to select PQ/HLG. Taken from the version of
 // OnSelchangeColorrefCombo that gated the radio buttons: everything else is an
 // SDR standard. HDTVa/HDTVb especially - they are fixed Rec.709/D65 SDR pattern
 // conventions (75% and plasma), locked to a D65 white, and HDTVa's 75% white
 // anchor has no meaning under PQ.
+//
+// CUSTOM stays OUT, though it is the one entry whose exclusion looks arguable
+// (nothing about user-supplied primaries is inherently SDR). Three reasons to
+// leave it: it is absent from /accuracytest's kSpaces entirely, so a CUSTOM HDR
+// path would carry no automated coverage; ColorMathTest's T10 excludes it on
+// purpose because merely CONSTRUCTING a CUSTOM reference corrupts the global
+// primariesRec601 array; and that corruption is a known open defect (MATH-007).
+// Offering PQ there would light up an untested HDR path on the one standard
+// both harnesses deliberately avoid.
 static bool StandardAllowsHDR ( int cs )
 {
 	return ( cs == UHDTV || cs == UHDTV2 || cs == UHDTV3 || cs == UHDTV4 || cs == HDTV );
@@ -840,10 +849,12 @@ static int TypeToRadio(int t)
 // standard. The hole was order-dependent - picking the transfer function SECOND
 // reached it, because OnSelchangeTransferFuncCombo has no guard of its own -
 // which is how HDTVa + PQ became selectable.
-void CReferencesPropPage::PopulateTransferFuncCombo()
+// Returns true if it had to CHANGE m_GammaOffsetType to fit the active standard,
+// so the caller can mark the page dirty - see BuildRuntimeLayout.
+bool CReferencesPropPage::PopulateTransferFuncCombo()
 {
 	if ( !m_transferFuncCombo.GetSafeHwnd() )
-		return;
+		return false;
 
 	// sRGB mandates its own transfer function: every consumer forces getL_EOTF
 	// mode 99 when m_colorStandard == sRGB (~20 sites) and ignores
@@ -858,10 +869,11 @@ void CReferencesPropPage::PopulateTransferFuncCombo()
 		m_transferFuncCombo.ResetContent();
 		m_transferFuncCombo.AddString(LS(IDS_TF_SRGB));
 		m_transferFuncCombo.SetCurSel(0);
-		return;
+		return false;
 	}
 
 	bool bHDROk = StandardAllowsHDR(m_colorStandard);
+	int  nWas   = m_GammaOffsetType;
 
 	// Coerce BEFORE repopulating, so the selection below cannot be asked for an
 	// entry the list no longer carries. BT.1886 is the fallback the original
@@ -881,6 +893,8 @@ void CReferencesPropPage::PopulateTransferFuncCombo()
 	// m_GammaOffsetType, so they have to track the dropdown - otherwise the next
 	// UpdateData(TRUE) reads a stale radio and undoes the coercion above.
 	CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
+
+	return ( m_GammaOffsetType != nWas );
 }
 
 void CReferencesPropPage::BuildRuntimeLayout()
@@ -958,7 +972,20 @@ void CReferencesPropPage::BuildRuntimeLayout()
     }
     // Contents are standard-dependent (PQ/HLG only where legal) and carry the
     // coercion + radio sync this used to do inline.
-    PopulateTransferFuncCombo();
+    //
+    // OnInitDialog reaches this, so a config holding a transfer function the
+    // active standard does not allow is corrected the moment the page opens.
+    // Mark the page dirty when that happens: otherwise the correction is
+    // invisible and survives only if the user happens to press OK, while
+    // pressing Cancel leaves the page having displayed BT.1886 all along with
+    // the config still holding PQ - the invalid pairing this lock exists to
+    // remove.
+    if (PopulateTransferFuncCombo())
+    {
+        m_isModified = TRUE;
+        m_bSave = TRUE;
+        SetModified(TRUE);
+    }
 
     // Override black: common, fixed top-left for every transfer function.
     GetDlgItem(IDC_USER_BLACK)->SetWindowText(LS(IDS_REF_OVERRIDEBLACK));
