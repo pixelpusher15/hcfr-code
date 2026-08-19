@@ -44,12 +44,15 @@ color space, transfer function, generator and intensity still runs, because
 those are the branchy axes.
 
 The subset must keep **every `kKnownFails` entry reachable**, or the stale-entry
-sweep turns `quick` into a permanent exit 1. Four things depend on the current
-choice: xyCust covers the custom-white entries, 8b-lim the PQ half-code tie,
-8b-full the full-range gray gap — and 8b-lim is *also* the last limited-range
-grid, which the entire manual-generator pass is gated on, while D65 is *also*
-load-bearing for the HDTVa/b HDR primaries entries. Drop either and seven DVD
-entries go stale at once. An entry that a quick run cannot reach is now reported
+sweep turns `quick` into a permanent exit 1. Three things depend on the current
+choice: xyCust covers the HDTVa/HDTVb custom-white entries and 8b-lim the PQ
+half-code tie — and 8b-lim is *also* the last limited-range grid, which the
+entire manual-generator pass is gated on, while D65 is *also* load-bearing for
+the HDTVa/b HDR primaries entries. Drop either and seven DVD entries go stale at
+once. 8b-full no longer carries a known-fail (the full-range gray gap it covered
+is fixed), but it stays in the subset as the only full-range grid `quick` runs —
+without it a range regression passes the pre-flight. An entry that a quick run
+cannot reach is now reported
 as `NOT REACHABLE in the quick subset` rather than `STALE`, and does not fail
 the run — deleting it on that advice would turn a documented gap into a hard
 FAIL on the full matrix.
@@ -242,15 +245,21 @@ nearby regression). Stale entries print a warning **and fail the run** (nonzero
 exit) — remove them from `kKnownFails` in `AccuracyTest.cpp`. The exit code is
 nonzero if there is any real FAIL **or** any stale entry.
 
-Tolerances: **0.05** for exact-model combos (SnapToVideoGrid's 1e-9
-tie-breaker means no extra slack is needed), **0.005** for the three
-convention families (see above). The Intensity-90% combos get
-**0.9** (power law) / **1.5** (BT.1886, L*, sRGB): the cancellation is exact
-only for an ideal power law — the dimmed code snaps to a different grid point
-than the undimmed one, and non-power EOTFs break the ratio identity — so a
+Tolerances: **0.05** for exact-model combos (SnapToVideoGrid's 1e-9 tie-breaker
+means no extra slack is needed), **0.005** for the three convention families
+(see above). The Intensity-90% combos get **0.9** (power law) / **1.5**
+(BT.1886, L*, sRGB, and UHDTV3/UHDTV4 at a **custom** white): the cancellation
+is exact only for an ideal power law — the dimmed code snaps to a different grid
+point than the undimmed one, and non-power EOTFs break the ratio identity — so a
 bounded, level-dependent residual is expected behavior, not a modeling error
 (measured ceilings ~0.8 and ~1.2 across the full matrix; worst on 8-bit dark
-saturation steps).
+saturation steps). UHDTV3/UHDTV4 join the wider bucket only at a custom white,
+because their inner-to-transport encode quantizes a *second* time, so the
+residual tracks code density rather than the toe (worst 1.350 on 8b-full). Their
+**D65** rows stay at 0.9: the deleted known-fails never covered D65 (`white ==
+999` is custom-only), so those rows were always scored at 0.9 and always passed,
+and widening them would drop 0.6 dE of regression sensitivity on the default
+white.
 
 Harness dE settings (fixed, independent of the user's config): `dE_form=3`
 (CIE2000), `dE_gray=1` (gamma-predicted gray luminance target — the app's
@@ -282,10 +291,6 @@ Kept in `kKnownFails` in `AccuracyTest.cpp`, each with the code-level reason
 and (where relevant) a grid filter. An entry that never fires across a whole
 run is reported as STALE. Current entries (expected, pre-existing):
 
-- **UHDTV3/UHDTV4 with custom whites** (`prim`, `sat*`): `GetRefSat`'s sweep
-  endpoints are hardcoded D65 xy tables (`p3Ref`/`p3sRef`/`rRef`/`rsRef`,
-  Measure.cpp ~6955-6977), while the wire patches follow the active white via
-  `ContainerPrimaryLinear`.
 - **HDTVa/HDTVb with custom whites** (`gray`, `prim`, `sat*`): the wire
   tables, `pRef`/`sRef` endpoints, the simulated sensor's decode space and
   the dE space are all fixed Rec.709/D65 constructions, while gray/sat
@@ -325,12 +330,15 @@ run is reported as STALE. Current entries (expected, pre-existing):
   gap 7's shared `CMeasure` normalization helper: if the viewer, Export and
   RGBLevelWnd all ask `CMeasure` for the normalization, the DVD carve-out lives
   in exactly one place and this divergence cannot exist.
-- **`gray` on the full-range grids**: the gray pipeline (`GetGrayPercent` /
-  `ArrayIndexToGrayLevel` / `GrayLevelToGrayProp`) has no range parameter —
-  ramp codes and references live on the 219/876 limited grids and the
-  full-range re-snap to 255/1023 is unmodeled (≤ ~0.4 dE, worst at the PQ
-  8-bit knee). Fixing requires a range parameter through libHCFR, which
-  moves ColorMathTest T2/T3 goldens — out of scope here.
+*(**`gray` on the full-range grids** used to be listed here — the gray pipeline
+had no range parameter, so ramp codes and references stayed on the 219/876
+limited grids while a full-range wire re-snapped to 255/1023, ≤ ~0.4 dE, worst
+at the PQ 8-bit knee. **Fixed:** `ArrayIndexToGrayLevel`, `GrayLevelToGrayProp`
+and `CMeasure::GetGrayPercent` now take a required `is16_235` and select
+219/255/876/1023 exactly as `SnapToVideoGrid` does. The parameter is
+deliberately **not** defaulted, so the compiler enumerates every call site. The
+ColorMathTest T2/T3 goldens gained a range column; every pre-existing
+limited-range value is byte-identical.)*
 
 ## Coverage gaps — what this harness structurally cannot see
 
@@ -456,11 +464,84 @@ agree), and the gaps below are mostly places their reach stops.
    `RunProfile` to drive a small cube (3³) through the simulated sensor and
    compare `ComputeProfileDE` against the same pane emulation the `conv*`
    families use.
+11. **Near-black and near-white are never run, and the `gray` family sweeps only
+   one shape.** There is no near-black/near-white family at all — the families
+   are `gray, prim, sat100, sat75, ccGCD, ccAXIS, conv*` — and `RunGray` drives
+   a single uniform 11-point ramp (`kGraySize = 11`). Three separate axes of the
+   grayscale pipeline therefore have zero coverage:
+   - **The 101-point grid.** `MeasureNearBlackScale` / `MeasureNearWhiteScale`,
+     `NearBlack/NearWhiteHistoView`, `UpdateGrid` cases 3/4 and `C3DColorView`
+     all call `ArrayIndexToGrayLevel(nCol, 101, ...)` — a **fixed 101-point
+     grid**, not the ramp size.
+     They also anchor differently — near-black steps by 2 in PQ and feeds
+     `getL_EOTF` its own first patch as black, near-white counts back from
+     `m_NearWhiteClipCol` — so neither the levels nor the reference construction
+     is a special case of what `RunGray` covers.
+   - **Every other grayscale size.** Of the presets in `s_grayPresets`
+     (5, 6, 11, 12, 16, 21, 25) plus Custom, only 11 ever runs — and the three
+     near-black-weighted presets (12, 16, 25) are the non-uniform level sets
+     that exercise `GetGrayPercent`'s explicit-level branch rather than
+     `ArrayIndexToGrayLevel`. `RunGray` does set explicit levels, but only a
+     uniform ramp, for which the two branches agree by construction — so the
+     branch that matters is covered by a case that cannot distinguish it.
+   - **Round-down.** `ApplyComboConfig` pins `m_bUseRoundDown = FALSE`
+     unconditionally, so the AVSHD truncating quantizer is never exercised
+     anywhere in the matrix.
+   Not hypothetical: the 2026-08 full-range gray fix changed
+   `ArrayIndexToGrayLevel` for *every* caller, including all three of the above,
+   and the matrix could not see any of it — the 101-point paths had to be
+   verified by hand against values computed from `libHCFR` directly (they were
+   correct, and an exhaustive sweep found 0 non-monotonic steps and 0 duplicate
+   codes on both the 219 and 255 grids). A regression confined to near-black,
+   to a 21-point ramp, or to round-down would read green today.
+   Closing it needs `RunNearBlack` / `RunNearWhite` families mirroring the two
+   measure loops' `GenColors` construction and the cases 3/4 reference
+   conventions, plus lifting `kGraySize` and `m_bUseRoundDown` into axes. The
+   ColorMathTest T2/T3 goldens do cover all sizes and both round-down states at
+   the *function* level, which is why this is a coverage gap rather than an
+   unguarded one — but they pin the helper, not any measure loop's use of it.
 
-Reference result (2026-07-26): `834 combos: 333 pass, 0 FAIL, 501 known-fail`,
-ColorMathTest verify green with no golden movement. (Was `708 combos: 311 pass,
-0 FAIL, 397 known-fail` before this work: +84 tone-mapped 700-nit combos and +84
-manual-generator combos (limited-range grids only), the latter all landing in
-the new DVD known-fail.
+Reference result (2026-08-18): `834 combos: 648 pass, 0 FAIL, 186 known-fail`
+(quick: `285 combos: 220 pass, 0 FAIL, 65 known-fail`), ColorMathTest verify
+green with no golden movement. This stacks two reference fixes, each first
+verified alone against the 2026-07-26 baseline of `834 combos: 333 pass, 0
+FAIL, 501 known-fail`; the stack passes more rows than the two standalone
+gains combined because some rows (e.g. full-range gray on UHDTV3/UHDTV4 at a
+non-D65 white) needed both:
+
+**UHDTV3/UHDTV4 sweep endpoints** (2026-08-13, standalone: `441 pass, 393
+known-fail`): `GetRefSat` stopped taking its UHDTV3/UHDTV4 sweep endpoints
+from xy tables hardcoded at D65 and started taking them from
+`ContainerInnerReference` — the same reference the wire is built from. That
+moved **exactly 160 rows**, all of them UHDTV3/UHDTV4 at DCI or xyCust (40
+each), and **zero D65 rows**: the old tables were the correct D65 values, so
+the change is a no-op there by construction. 108 combos went known-fail ->
+pass and the six UHDTV3/UHDTV4-custom-white entries left `kKnownFails`. At
+full stimulus every one of those rows now reads exactly `0.000` on
+`prim`/`sat100`/`sat75`.
+
+The one combo that did not fall straight under tolerance (UHDTV3 Power2.2 DCI
+8b-full 90%, `sat100` 1.059) turned out to be the dimmed-combo quantization
+residual, not a reference error: the identical patch reads 1.052 under BT.1886,
+where only the tolerance bucket differs, and the residual tracks code density
+(1.350 8b-full / 1.169 8b-lim / 0.929 10b-lim / 0.893 10b-full) rather than the
+transfer function. `TolFor` now puts UHDTV3/UHDTV4 **at a custom white** in
+the same 1.5 dimmed bucket as the toe EOTFs, for the reason its own comment
+already predicted — their transport-space encode quantizes a second time.
+That ceiling was only ever calibrated on rows these six entries had been
+masking, which is also why the D65 rows are left at 0.9 — they were never
+masked, and they pass there.
+
+**Full-range gray** (2026-08-13, standalone: `488 pass, 346 known-fail`): the
+gray pipeline gained the `is16_235` range parameter (see the fixed-gaps note
+above). A confirming run with the old entry still in the table reported the
+identical counts plus `STALE KNOWN-FAIL entry 18 never fired`, i.e. the
+full-range `gray` rows now pass outright rather than being tolerated. Every
+`gray` row still reported as known-fail is an HDTVa/HDTVb custom-white row
+(56 + 56); no `gray` known-fail remains on any non-special standard.
+
+(Was `708 combos: 311 pass, 0 FAIL, 397 known-fail` before the 2026-07-26
+baseline: +84 tone-mapped 700-nit combos and +84 manual-generator combos
+(limited-range grids only), the latter all landing in the DVD known-fail.)
 On the GDI half the three convention families read 0.000 across the whole
-matrix.)
+matrix.

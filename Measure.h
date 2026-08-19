@@ -214,7 +214,8 @@ public:
 	int GetGrayScaleSize() const { return m_grayMeasureArray.GetSize(); }
 	void SetGrayScaleSize(int steps);
 	void SetGrayScaleLevels(const double * pLevels, int count);	// install explicit (possibly non-uniform) IRE levels
-	double GetGrayPercent(int index, bool bUseRoundDown, bool b10bit = FALSE) const;	// IRE % for a gray index
+	// is16_235 is REQUIRED - see the note on ArrayIndexToGrayLevel in Color.h.
+	double GetGrayPercent(int index, bool bUseRoundDown, bool b10bit, bool is16_235) const;	// IRE % for a gray index
 	int GetGrayScalePreset() const;	// matching preset index, or -1 (custom)
 	void SetIREScaleMode(BOOL bIRE);
 	CColor lastColor, previousColor;
