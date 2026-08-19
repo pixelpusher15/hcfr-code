@@ -329,32 +329,13 @@ BOOL CReferencesPropPage::OnInitDialog()
 {
 	CPropertyPageWithHelp::OnInitDialog();
 
-	// TODO: Add extra initialization here
+	// Control enable/show state is owned by UpdateControlStates (called at the
+	// end of this function, after BuildRuntimeLayout) - only variable state is
+	// set up here. The SDR-only transfer-function rule lives in
+	// PopulateTransferFuncCombo, which drops PQ/HLG from the dropdown outright.
 	if (m_colorStandard == sRGB)
-	{
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO1)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO2)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO3)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO4)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO5)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO6)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO7)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO8)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO9)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO10)->EnableWindow(FALSE);
-		m_GammaRefEdit.EnableWindow (FALSE);
-		m_eMeasuredGamma.EnableWindow (FALSE);
  		m_manualGOffset = 0.055;
-	}
-	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb)
-	{
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO6)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO8)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO9)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO10)->EnableWindow(FALSE);
-	}
-	m_GammaAvgEdit.EnableWindow(FALSE);
-	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == CC6) 
+	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == CC6)
 	{
 		m_changeWhiteCheck = FALSE;
 		m_whiteTarget=(int)(GetStandardColorReference((ColorStandard)(m_colorStandard)).m_white);	}
@@ -382,11 +363,7 @@ BOOL CReferencesPropPage::OnInitDialog()
 	if (m_useMeasuredGamma)
 		CheckRadioButton ( IDC_USE_MEASURED_GAMMA, IDC_USE_MEASURED_GAMMA, IDC_USE_MEASURED_GAMMA );
 	if (GetConfig ()->m_GammaOffsetType >= 4)
-    {
-  	  m_GammaRefEdit.EnableWindow (FALSE);
-  	  m_eMeasuredGamma.EnableWindow (FALSE);
 	  m_useMeasuredGamma = FALSE;
-    }
 
 	m_ManualBlackEdit.EnableWindow(m_userBlack);
 	m_bSave = GetConfig()->m_bSave;
@@ -597,57 +574,26 @@ void CReferencesPropPage::OnSelchangeColorrefCombo()
 	m_bSave = TRUE;
 	UpdateData(TRUE);
 	UpdateColorSpaceValues();
+	// Control enable state is owned by UpdateControlStates (called at the end of
+	// this handler) - only variable state is set here.
 	if (m_colorStandard == sRGB)
-	{
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO1)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO2)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO3)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO4)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO5)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO6)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO7)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO8)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO9)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO10)->EnableWindow(FALSE);
-		m_GammaRefEdit.EnableWindow (FALSE);
-		m_eMeasuredGamma.EnableWindow (FALSE);
  		m_manualGOffset = 0.055;
-	}
 	else
 	{
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO1)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO2)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO3)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO4)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO5)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO6)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO7)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO8)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO9)->EnableWindow(TRUE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO10)->EnableWindow(TRUE);
-		m_GammaRefEdit.EnableWindow (TRUE);
-		if (m_GammaOffsetType < 4)
-			m_eMeasuredGamma.EnableWindow (TRUE);
-		else
-		{
-			m_eMeasuredGamma.EnableWindow (FALSE);
+		if (m_GammaOffsetType >= 4)
 	 	    m_useMeasuredGamma = FALSE;
-		}
 		m_manualGOffset = 0.099;
 	}
-	if ( !(m_colorStandard == UHDTV || m_colorStandard == UHDTV2 || m_colorStandard == UHDTV3 || m_colorStandard == UHDTV4 || m_colorStandard == HDTV)  )
-	{
-		int bID = GetCheckedRadioButton(IDC_GAMMA_OFFSET_RADIO6, IDC_GAMMA_OFFSET_RADIO10);
-		if (bID == IDC_GAMMA_OFFSET_RADIO6 || bID == IDC_GAMMA_OFFSET_RADIO8 || bID == IDC_GAMMA_OFFSET_RADIO9 || bID == IDC_GAMMA_OFFSET_RADIO10 )
-		{
-			m_GammaOffsetType = 4;
-			CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1,IDC_GAMMA_OFFSET_RADIO1,IDC_GAMMA_OFFSET_RADIO1);
-		}
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO6)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO8)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO9)->EnableWindow(FALSE);
-		GetDlgItem(IDC_GAMMA_OFFSET_RADIO10)->EnableWindow(FALSE);
-	}
+	// SDR-only standards must not keep (or be able to pick) PQ/HLG. This used to
+	// disable the PQ/HLG radio buttons, which the runtime-built page hides - see
+	// PopulateTransferFuncCombo, which now owns the whole rule and rebuilds the
+	// dropdown for the newly chosen standard.
+	//
+	// The old code also had a bug worth not reproducing: it reset the RADIO,
+	// via CheckRadioButton(RADIO1, RADIO1, RADIO1), while assigning
+	// m_GammaOffsetType = 4 - and RADIO1 is type 0, not 4 - so the radio and
+	// the variable disagreed until something re-synced them.
+	PopulateTransferFuncCombo();
 	if (m_colorStandard == CC6)
 		m_CCMode = GCD;
 	// Restore the standard's default white when the user hasn't overridden it,
@@ -811,8 +757,21 @@ static void ShowBucket(CObArray& a, BOOL show)
     }
 }
 
-// transfer-function dropdown order <-> stored m_GammaOffsetType
+// transfer-function dropdown order <-> stored m_GammaOffsetType.
+// Ordered SDR-FIRST on purpose: the two HDR entries are the TAIL of the list,
+// so a standard that may not select them just gets a shorter list and the
+// index -> type mapping below needs no second form. Do not reorder.
 static const int kComboToType[6] = { 0, 1, 4, 6, 5, 7 };
+static const UINT kComboLabel[6] =
+{
+	IDS_TF_GAMMA_POWER, IDS_TF_GAMMA_BLACKCOMP, IDS_TF_BT1886,
+	IDS_TF_LSTAR, IDS_TF_PQ, IDS_TF_HLG,
+};
+static const int kComboSDRCount = 4;	// kComboToType entries before the HDR pair
+
+// Which standards may select PQ/HLG: StandardAllowsHDR, shared with the
+// load-time coercion - see ColorHCFRConfig.cpp for the rule and the reasoning
+// behind CUSTOM's exclusion.
 
 static int TypeToCombo(int t)
 {
@@ -841,6 +800,67 @@ static int TypeToRadio(int t)
 }
 
 } // namespace
+
+// Fill the transfer-function dropdown for the ACTIVE color standard, offering
+// PQ/HLG only where they are legal, and coerce a stored HDR transfer function
+// that the new standard does not allow.
+//
+// This restriction is original behavior, not a new policy: OnSelchangeColorrefCombo
+// used to enforce it by disabling IDC_GAMMA_OFFSET_RADIO6/8/9/10 (HLG/PQ/DV500/
+// DV400). The runtime-built page HIDES all ten of those radios and drives the
+// transfer function from this dropdown instead, so EnableWindow(FALSE) on a
+// hidden radio enforced nothing and the dropdown offered PQ/HLG under every
+// standard. The hole was order-dependent - picking the transfer function SECOND
+// reached it, because OnSelchangeTransferFuncCombo has no guard of its own -
+// which is how HDTVa + PQ became selectable.
+// Returns true if it had to CHANGE m_GammaOffsetType to fit the active standard,
+// so the caller can mark the page dirty - see BuildRuntimeLayout.
+bool CReferencesPropPage::PopulateTransferFuncCombo()
+{
+	if ( !m_transferFuncCombo.GetSafeHwnd() )
+		return false;
+
+	bool bHDROk = StandardAllowsHDR(m_colorStandard);
+	int  nWas   = m_GammaOffsetType;
+
+	// Coerce BEFORE repopulating, so the selection below cannot be asked for an
+	// entry the list no longer carries. BT.1886 is the fallback the original
+	// rule used. This runs for sRGB too: sRGB is an SDR standard, and although
+	// its own EOTF math ignores m_GammaOffsetType (getL_EOTF mode 99), plenty of
+	// consumers read the raw type with no sRGB guard (Export, the pattern
+	// generators, TargetWnd), so a stale PQ/HLG left behind here would drive
+	// their HDR branches while the app measures sRGB.
+	if ( !bHDROk && ( m_GammaOffsetType == 5 || m_GammaOffsetType == 7 ) )
+		m_GammaOffsetType = 4;
+	if ( !IsKnownType(m_GammaOffsetType) )
+		m_GammaOffsetType = 0;
+
+	if ( m_colorStandard == sRGB )
+	{
+		// sRGB mandates its own transfer function (getL_EOTF mode 99 at every
+		// consumer). Offer exactly that one entry, so the (disabled) dropdown
+		// names the curve actually in force. IDS_STD_SRGB is the same "sRGB"
+		// string the color-standard dropdown uses.
+		m_transferFuncCombo.ResetContent();
+		m_transferFuncCombo.AddString(LS(IDS_STD_SRGB));
+		m_transferFuncCombo.SetCurSel(0);
+	}
+	else
+	{
+		int nShown = bHDROk ? 6 : kComboSDRCount;
+		m_transferFuncCombo.ResetContent();
+		for ( int i = 0 ; i < nShown ; i ++ )
+			m_transferFuncCombo.AddString(LS(kComboLabel[i]));
+		m_transferFuncCombo.SetCurSel(TypeToCombo(m_GammaOffsetType));
+	}
+
+	// The hidden legacy radios are still the DDX_Radio source for
+	// m_GammaOffsetType, so they have to track the dropdown - otherwise the next
+	// UpdateData(TRUE) reads a stale radio and undoes the coercion above.
+	CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
+
+	return ( m_GammaOffsetType != nWas );
+}
 
 void CReferencesPropPage::BuildRuntimeLayout()
 {
@@ -914,16 +934,24 @@ void CReferencesPropPage::BuildRuntimeLayout()
         m_transferFuncCombo.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
             CRect(cpt.x, cpt.y, cpt.x + M.w(115), cpt.y + M.ht(120)), this, IDC_TRANSFERFUNC_COMBO);
         m_transferFuncCombo.SetFont(font);
-        m_transferFuncCombo.AddString(LS(IDS_TF_GAMMA_POWER));
-        m_transferFuncCombo.AddString(LS(IDS_TF_GAMMA_BLACKCOMP));
-        m_transferFuncCombo.AddString(LS(IDS_TF_BT1886));
-        m_transferFuncCombo.AddString(LS(IDS_TF_LSTAR));
-        m_transferFuncCombo.AddString(LS(IDS_TF_PQ));
-        m_transferFuncCombo.AddString(LS(IDS_TF_HLG));
     }
-    if (!IsKnownType(m_GammaOffsetType)) m_GammaOffsetType = 0;
-    m_transferFuncCombo.SetCurSel(TypeToCombo(m_GammaOffsetType));
-    CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
+    // Contents are standard-dependent (PQ/HLG only where legal) and carry the
+    // coercion + radio sync this used to do inline.
+    //
+    // OnInitDialog reaches this, so a page opened on a config holding a transfer
+    // function the active standard does not allow shows the coerced value and is
+    // marked dirty, making the silent correction at least visible in the Apply
+    // button. Note the limit of a page-level fix: the coercion reaches the
+    // config only through OK/Apply - Cancel discards it. The load-time coercion
+    // in CColorHCFRConfig::LoadSettings keeps the registry path valid without
+    // this page's help; a document saved with an invalid pairing still relies on
+    // the user OK-ing this page (see CMeasure::Serialize).
+    if (PopulateTransferFuncCombo())
+    {
+        m_isModified = TRUE;
+        m_bSave = TRUE;
+        SetModified(TRUE);
+    }
 
     // Override black: common, fixed top-left for every transfer function.
     GetDlgItem(IDC_USER_BLACK)->SetWindowText(LS(IDS_REF_OVERRIDEBLACK));
@@ -1008,13 +1036,18 @@ void CReferencesPropPage::BuildRuntimeLayout()
 void CReferencesPropPage::UpdateControlStates()
 {
     int t = m_GammaOffsetType;
-    BOOL isPower   = (t == 0 || t == 1);
-    BOOL isBT1886  = (t == 4);
-    BOOL isLstar   = (t == 6);
-    BOOL isPQ      = (t == 5);
-    BOOL isHLG     = (t == 7);
-    BOOL isHDR     = (isPQ || isHLG);
+    // sRGB overrides m_GammaOffsetType outright (getL_EOTF mode 99), so NONE of
+    // the per-transfer-function parameter panels apply - gate all five here
+    // rather than at each use. Without this, arriving at sRGB from BT.1886 left
+    // its Rel/Split fields on screen and editable, advertising parameters that
+    // no longer feed anything; only the power-law gamma edits were ever guarded.
     BOOL isSRGB    = (m_colorStandard == sRGB);
+    BOOL isPower   = !isSRGB && (t == 0 || t == 1);
+    BOOL isBT1886  = !isSRGB && (t == 4);
+    BOOL isLstar   = !isSRGB && (t == 6);
+    BOOL isPQ      = !isSRGB && (t == 5);
+    BOOL isHLG     = !isSRGB && (t == 7);
+    BOOL isHDR     = (isPQ || isHLG);
     BOOL useMeas   = m_useMeasuredGamma;
     BOOL toneMap   = m_useToneMap;
     BOOL manual    = m_bOverRideTargs;
@@ -1041,9 +1074,11 @@ void CReferencesPropPage::UpdateControlStates()
     ShowIds(this, gAvgId, 1, isPower && useMeas);
     static const UINT measId[] = { IDC_USE_MEASURED_GAMMA };
     ShowIds(this, measId, 1, isPower);
-    m_GammaRefEdit.EnableWindow(isPower && !useMeas && !isSRGB);
+    // isPower already excludes sRGB (see above), so the old && !isSRGB here is
+    // now redundant.
+    m_GammaRefEdit.EnableWindow(isPower && !useMeas);
     m_GammaAvgEdit.EnableWindow(FALSE);
-    m_eMeasuredGamma.EnableWindow(isPower && !isSRGB);
+    m_eMeasuredGamma.EnableWindow(isPower);
 
     static const UINT btIds[] = { IDC_EDIT_GAMMA_REL, IDC_EDIT_SPLIT };
     ShowIds(this, btIds, 2, isBT1886);
@@ -1103,7 +1138,12 @@ void CReferencesPropPage::UpdateControlStates()
 
     MoveWnd(m_pTargetGroup, M, 10, 124, 260, isHLG ? 38 : 106);
     int tfBottom;
-    if (isPower)        tfBottom = 144;
+    // isSRGB must be handled explicitly: it forces all five is* flags FALSE, and
+    // without its own case it would fall into the final else - the PQ height -
+    // leaving a tall empty group. Under sRGB the group holds only the locked
+    // dropdown and the override-black row, the smallest layout of all.
+    if (isSRGB)         tfBottom = 128;
+    else if (isPower)   tfBottom = 144;
     else if (isBT1886)  tfBottom = 146;
     else if (isLstar)   tfBottom = 128;
     else if (isHLG)     tfBottom = 168;
@@ -1117,6 +1157,11 @@ void CReferencesPropPage::OnSelchangeTransferFuncCombo()
 {
     int sel = m_transferFuncCombo.GetCurSel();
     if (sel < 0) return;
+    // Under sRGB the list holds the single locked "sRGB" entry, which maps to no
+    // kComboToType slot - taking sel 0 there would silently rewrite
+    // m_GammaOffsetType to 0 and lose the user's stored choice. The control is
+    // disabled in that state, so this is belt and braces.
+    if (m_colorStandard == sRGB) return;
     m_GammaOffsetType = kComboToType[sel];
     CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
     m_isModified = TRUE;
