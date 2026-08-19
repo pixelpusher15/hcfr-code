@@ -93,13 +93,13 @@ void CColorTempGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	{
 		int colorTemp=pDoc->GetMeasure()->GetGray(i).GetXYZValue().GetColorTemp(GetColorReference());
 		if(colorTemp > 1500 && colorTemp < 12000)
-			m_graphCtrl.AddPoint(m_ColorTempGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() ), colorTemp);
+			m_graphCtrl.AddPoint(m_ColorTempGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), colorTemp);
 
 		if ( m_showDataRef && pDataRef !=NULL && pDataRef != pDoc )
 		{
 			colorTemp = pDataRef->GetMeasure()->GetGray(i).GetXYZValue().GetColorTemp(GetColorReference());
 			if(colorTemp > 1500 && colorTemp < 12000)
-				m_graphCtrl.AddPoint(m_ColorTempDataRefGraphID, pDataRef->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() ), colorTemp);
+				m_graphCtrl.AddPoint(m_ColorTempDataRefGraphID, pDataRef->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), colorTemp);
 		}
 	}
 }

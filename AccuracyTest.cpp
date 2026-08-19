@@ -64,7 +64,9 @@
 //   MT_PRIMARY/MT_SECONDARY/MT_SAT_* patch (grayscale MT_IRE and CC patches
 //   are not dimmed). The cancellation is exact only for a pure power law;
 //   quantization and non-power EOTFs (BT.1886, L*, sRGB) leave a small
-//   residual, so those combos get a looser, documented epsilon.
+//   residual - as does UHDTV3/UHDTV4's second, transport-space
+//   quantization under a custom white - so those combos get a looser,
+//   documented epsilon.
 // * The user's configuration is never touched: all profile reads/writes are
 //   redirected to a scratch ini in %TEMP%, every relevant config member is
 //   set explicitly per combo, settings are never saved, and the process
@@ -173,15 +175,18 @@ static const GridDef kGrids[] =
 //
 // The subset must keep every kKnownFails entry REACHABLE, or the stale-entry
 // sweep turns quick into a permanent exit 1 (see the reachability note in
-// RunAccuracyTest). Four separate things depend on the current choice:
+// RunAccuracyTest). Three separate things depend on the current choice:
 //   - DCUST      the custom-white entries (white == 999)
 //   - 8b-lim     the PQ half-code tie (GRID_8LIM)
-//   - 8b-full    the full-range gray gap (GRID_FULL)
 //   - 8b-lim     ALSO the entire manual-generator pass, which is gated on
 //                kGrids[].lim - drop the last limited-range grid and all seven
 //                GRID_LIM DVD entries go stale at once
 //   - D65        ALSO the HDTVa/b HDR primaries entries, which are preempted
 //                by the custom-white entries and so only fire at a plain white
+// 8b-full is no longer load-bearing for reachability (the full-range gray
+// entry it carried is fixed and gone), but it stays in the subset: it is the
+// only full-range grid quick runs, so it is the only thing standing between a
+// range regression and a green pre-flight.
 // What quick gives up is LEVEL dependence: several modeling gaps are worst on
 // a grid or white it drops, and a real FAIL confined to those rows is
 // invisible. It is a pre-flight, not a substitute.
@@ -244,8 +249,9 @@ struct KnownFail
 
 #define GRID_ANY   0xF
 #define GRID_8LIM  0x1	// kGrids[0]
-#define GRID_FULL  0xA	// kGrids[1] (8b-full) | kGrids[3] (10b-full)
 #define GRID_LIM   0x5	// kGrids[0] (8b-lim) | kGrids[2] (10b-lim)
+// (A GRID_FULL = 0xA - kGrids[1] | kGrids[3] - belongs here if a full-range-only
+// gap is ever recorded again; there is none now, so it is not carried dead.)
 
 // The `ceiling` on each entry bounds the known gap: a matching combo is only
 // downgraded to KNOWN-FAIL while its worst dE stays <= ceiling; a larger dE is
@@ -254,20 +260,11 @@ struct KnownFail
 // the observed max) with headroom, tight enough to still catch a regression.
 static const KnownFail kKnownFails[] =
 {
-	// GetRefSat's UHDTV3/UHDTV4 sweep endpoints come from hardcoded xy tables
-	// (p3Ref/p3sRef/rRef/rsRef, Measure.cpp ~6955-6977). The secondary
-	// entries are white-point mixtures evaluated AT D65, so under any custom
-	// white the reference endpoints no longer match the wire patches built
-	// from ContainerPrimaryLinear (which follows the active white).
-	// GetRefPrimary/GetRefSecondary for these pseudo-spaces route through
-	// GetRefSat(i, 1.0), so the primaries family inherits the same skew.
-	// (observed worst ~8 dE)
-	{ UHDTV3, 999, -1, FAM_PRIM,   GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV3, 999, -1, FAM_SAT100, GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV3, 999, -1, FAM_SAT75,  GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (p3Ref/p3sRef)" },
-	{ UHDTV4, 999, -1, FAM_PRIM,   GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
-	{ UHDTV4, 999, -1, FAM_SAT100, GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
-	{ UHDTV4, 999, -1, FAM_SAT75,  GRID_ANY, -1, 15.0, "hardcoded D65 endpoint xy tables in GetRefSat (rRef/rsRef)" },
+	// (UHDTV3/UHDTV4 under custom whites used to be known-failed here:
+	// GetRefSat's sweep endpoints were hardcoded xy tables evaluated at D65
+	// whose secondary entries are white-point mixtures. GetRefSat now takes
+	// those endpoints from ContainerInnerReference, the same reference the
+	// wire is built from, so they follow the active white and pass.)
 	// HDTVa/HDTVb under custom whites: the wire tables, the pRef/sRef
 	// reference endpoints, the simulated sensor's decode space and the dE
 	// space are all fixed Rec.709/D65 constructions, while the gray/sat
@@ -300,16 +297,9 @@ static const KnownFail kKnownFails[] =
 	// grid/level combination lands on a half-code. (observed worst 0.74)
 	{ HDTVa, -1, 5, FAM_SAT75, GRID_8LIM, -1, 2.0, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
 	{ HDTVb, -1, 5, FAM_SAT75, GRID_8LIM, -1, 2.0, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
-	// Grayscale on the FULL-range grids: the whole gray pipeline
-	// (GetGrayPercent, ArrayIndexToGrayLevel, GrayLevelToGrayProp) has no
-	// range parameter - ramp codes and references live on the 219/876
-	// limited grids, and on a full-range wire the re-snap to 255/1023 is
-	// not modeled (<= ~0.4 dE, worst on the PQ 8-bit knee). Fixing requires
-	// adding a range parameter through libHCFR, which moves ColorMathTest
-	// T2/T3 goldens - out of scope for this harness. Tight ceiling: this
-	// entry is broad (any space/white/eotf), so it must NOT swallow a real
-	// grayscale/EOTF regression that pushes dE past ~2. (observed worst 0.39)
-	{ -1, -1, -1, FAM_GRAY, GRID_FULL, -1, 2.0, "gray ramp codes/references are limited-grid only (no range parameter in GetGrayPercent/GrayLevelToGrayProp)" },
+	// (The FULL-range grayscale entry that used to sit here is GONE: the gray
+	// pipeline now takes is16_235 and quantizes against 219/255/876/1023 like
+	// SnapToVideoGrid, so gray reads dE ~ 0 on every grid.)
 	// MANUAL GENERATOR: the measures grid and the 3D viewer genuinely disagree.
 	// GetItemText keeps the legacy DVD conventions for mode 5 - the Mascior
 	// disc's 92.254965-nit white in place of TmDiffuseWhiteNits, the fixed
@@ -835,7 +825,7 @@ static void RunGray ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 
 	for ( i = 0 ; i < kGraySize ; i ++ )
 	{
-		double x = m.GetGrayPercent(i, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE);
+		double x = m.GetGrayPercent(i, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE, cfg->GetRGB16_235() != FALSE);
 		// MT_IRE patches are never Intensity-dimmed
 		m.SetGray(i, Meas(sensor, ColorRGBDisplay(x, x, x), 1.0));
 	}
@@ -852,19 +842,19 @@ static void RunGray ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 	for ( i = 1 ; i < kGraySize ; i ++ )
 	{
 		CColor aColor = m.GetGray(i);
-		double x = m.GetGrayPercent(i, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE);
+		double x = m.GetGrayPercent(i, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE, cfg->GetRGB16_235() != FALSE);
 		int mode = cfg->m_GammaOffsetType;
 		if ( cfg->m_colorStandard == sRGB ) mode = 99;
 		double valy;
 		if ( mode >= 4 )
 		{
-			double valx = GrayLevelToGrayProp(x, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE);
+			double valx = GrayLevelToGrayProp(x, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE, cfg->GetRGB16_235() != FALSE);
 			valy = getL_EOTF(valx, White, Black, cfg->m_GammaRel, cfg->m_Split, mode, cfg->m_DiffuseL, cfg->m_MasterMinL, cfg->m_MasterMaxL, cfg->m_TargetMinL, cfg->m_TargetMaxL, cfg->m_useToneMap, FALSE, cfg->m_TargetSysGamma, cfg->m_BT2390_BS, cfg->m_BT2390_WS, cfg->m_BT2390_WS1);
 			valy = min(valy, cfg->m_TargetMaxL);
 		}
 		else
 		{
-			double valx = GrayLevelToGrayProp(x, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE);	// Offset = 0
+			double valx = GrayLevelToGrayProp(x, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE, cfg->GetRGB16_235() != FALSE);	// Offset = 0
 			valy = pow(valx, cfg->m_GammaRef);
 		}
 
@@ -1240,11 +1230,31 @@ static double TolFor ( const Combo & c, int fam )
 		// segment) leave a real residual; it is bounded and level-dependent,
 		// not a modeling error. Measured residual ceilings across the full
 		// matrix: pure power law ~0.8 (8-bit dark saturation steps, where a
-		// one-code snap difference moves chroma most; the UHDTV3/4
-		// transport-space encode adds a second quantization), BT.1886/L*/
+		// one-code snap difference moves chroma most), BT.1886/L*/
 		// sRGB ~1.2 (their toes amplify the same one-code difference).
+		//
+		// UHDTV3/UHDTV4 under a CUSTOM white take the wider ceiling: their
+		// transport-space encode quantizes a SECOND time (inner gamut ->
+		// 2020 transport), so the dimmed residual tracks CODE DENSITY rather
+		// than the transfer function's toe. Measured across the full matrix
+		// on the custom whites - only scorable since GetRefSat's endpoints
+		// stopped being hardcoded at D65 - worst 1.350 on 8b-full, 1.169 on
+		// 8b-lim, 0.929 and 0.893 on the two 10-bit grids. The same patch
+		// (UHDTV3 DCI 8b-full, blue sat 25%) reads 1.059 under Power2.2 and
+		// 1.052 under BT.1886: one residual, and only the bucket differed -
+		// which is what made the 0.9 power-law ceiling the wrong one there.
+		// (Only eotf 0 is actually affected: BT.1886/L* already take 1.5,
+		// and PQ/HLG have no dimmed rows - Window Intensity is SDR-only.)
+		//
+		// D65 is deliberately NOT widened. Those rows were never masked by
+		// the deleted UHDTV3/4 known-fails (white == 999 = custom only):
+		// they were scored at 0.9 before this change and still pass there,
+		// so relaxing them would surrender 0.6 dE of regression sensitivity
+		// on the DEFAULT white for no measured reason.
 		if ( fam == FAM_PRIM || fam == FAM_SAT100 || fam == FAM_SAT75 )
-			return ( c.eotf == 0 && c.std != sRGB ) ? 0.9 : 1.5;
+			return ( c.eotf == 0 && c.std != sRGB
+					 && !( ( c.std == UHDTV3 || c.std == UHDTV4 )
+						   && c.white != D65 ) ) ? 0.9 : 1.5;
 	}
 	return 0.05;
 }
@@ -1453,7 +1463,8 @@ int RunAccuracyTest ( const char * pReportPath, bool bQuick )
 	}
 	fprintf(s_fReport, "Columns are the worst dE per patch family; '*' = over tolerance (FAIL),\n");
 	fprintf(s_fReport, "'#' = over tolerance but documented KNOWN-FAIL (see detail below).\n");
-	fprintf(s_fReport, "Tolerance: 0.05; Intensity-90%% combos: 0.9 (power law) / 1.5 (other EOTFs); conv*: 0.005\n");
+	fprintf(s_fReport, "Tolerance: 0.05; Intensity-90%% combos: 0.9 (power law) / 1.5 (other EOTFs,\n");
+	fprintf(s_fReport, "and UHDTV3/UHDTV4 at a custom white); conv*: 0.005\n");
 	fprintf(s_fReport, "dE settings: dE_form=3 (CIE2000), dE_gray=1 (gamma-predicted gray target), gw_Weight=0\n");
 	fprintf(s_fReport, "conv* families are DIFFERENTIAL: |grid dE - 3D-viewer dE| for a perturbed patch\n");
 	fprintf(s_fReport, "(-1.000 = family not run). convPV = nominal whites; convPVw = the three stored\n");

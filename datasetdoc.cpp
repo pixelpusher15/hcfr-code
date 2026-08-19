@@ -2931,7 +2931,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = GetMeasure () -> GetGrayScaleSize ();
 			 for (i = 0; i < nSteps ; i ++ )
 			 {
-				GenIRE [ i ] = GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+				GenIRE [ i ] = GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 				bIRE [ i ] = GetMeasure () -> m_bIREScaleMode;
 				GenColors [ i ] = ColorRGBDisplay(GenIRE[i]);
 			 	mType [ i ] = CGenerator::MT_IRE;
@@ -2973,7 +2973,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nMaxSteps = nSteps;
 			 for (i = 0; i < nSteps ; i ++ )
 			 {
-				GenIRE [ i ] = (int)GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+				GenIRE [ i ] = (int)GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 				bIRE [ i ] = GetMeasure () -> m_bIREScaleMode;
 				GenColors [ i ] = ColorRGBDisplay(GenIRE[i]);
  			 	mType [ i ] = CGenerator::MT_IRE;
@@ -4573,8 +4573,8 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 
 			for (int i=0; i<Size; i++)
 			{
-				x = GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
-				v = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+				x = GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				v = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 				valx[i]=(v+Offset_opt)/(1.0+Offset_opt);
 			}
 
