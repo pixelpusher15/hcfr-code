@@ -1302,25 +1302,33 @@ void CMeasure::SetGrayScaleLevels(const double * pLevels, int count)
 	}
 }
 
-double CMeasure::GetGrayPercent(int index, bool bUseRoundDown, bool b10bit) const
+double CMeasure::GetGrayPercent(int index, bool bUseRoundDown, bool b10bit, bool is16_235) const
 {
 	int size = m_grayMeasureArray.GetSize ();
 
 	if ( m_grayIRELevelArray.GetSize() == size && index >= 0 && index < size )
 	{
-		// Snap the stored nominal IRE % to the active output grid, matching
-		// ArrayIndexToGrayLevel()'s rounding for round-down / 10-bit / 8-bit.
+		// Snap the stored nominal IRE % to the active output grid. The stored
+		// levels are nominal percentages, never codes, so this is the one place
+		// the grid is applied to them - GrayLevelToGrayProp is the same snap
+		// expressed as a 0..1 proportion, so route through it and there is a
+		// single definition of the grid rounding.
 		// For a uniform level set this reproduces ArrayIndexToGrayLevel() exactly.
-		double L = m_grayIRELevelArray[index];
-		if ( bUseRoundDown )
-			return ( floor( L / 100.0 * 219.0 ) / 219.0 * 100.0 );
-		else if ( b10bit )
-			return ( floor( L / 100.0 * (219.0 * 4) + 0.5 ) / (219.0 * 4) * 100.0 );
-		else
-			return ( floor( L / 100.0 * 219.0 + 0.5 ) / 219.0 * 100.0 );
+		//
+		// SAVED DOCUMENTS: m_grayIRELevelArray serializes the NOMINAL levels, so
+		// nothing on disk is rewritten by the grid choice - the snap is applied
+		// live, at display time, from the CURRENT config. A .chc saved while the
+		// wire was full-range therefore reloads with 255-grid IRE labels (10.196%
+		// where the limited grid reads 10.046%), and the same document opened on
+		// a limited-range setup reads the limited labels. That is the same
+		// already-established behavior as toggling the 10-bit checkbox, and it is
+		// the correct one: the label must describe the grid the user is measuring
+		// on now, not the one the file happened to be captured on. The stored
+		// measurements are untouched either way.
+		return GrayLevelToGrayProp ( m_grayIRELevelArray[index], bUseRoundDown, b10bit, is16_235 ) * 100.0;
 	}
 
-	return ArrayIndexToGrayLevel ( index, size, bUseRoundDown, b10bit );
+	return ArrayIndexToGrayLevel ( index, size, bUseRoundDown, b10bit, is16_235 );
 }
 
 int CMeasure::GetGrayScalePreset() const
@@ -1707,7 +1715,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 		
 		if (!i && (GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) == DISPLAY_GDI_Hide) )
 			UpdateTstWnd(pDoc, -1);
-		if( pGenerator->DisplayGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()),CGenerator::MT_IRE ,!bRetry))
+		if( pGenerator->DisplayGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()),CGenerator::MT_IRE ,!bRetry))
 		{
 			UpdateTstWnd(pDoc, i);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
@@ -1718,7 +1726,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
 
 				m_grayMeasureArray[i] = measuredColor[i];
 				
@@ -1935,7 +1943,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 		if (!i && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) == DISPLAY_GDI_Hide)
 			UpdateTstWnd(pDoc, -1);
 
-		if( pGenerator->DisplayGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()),CGenerator::MT_IRE ,!bRetry))
+		if( pGenerator->DisplayGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()),CGenerator::MT_IRE ,!bRetry))
 		{
 			UpdateTstWnd(pDoc, i);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
@@ -1946,7 +1954,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() )));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() )));
 				m_grayMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -2390,7 +2398,7 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 			UpdateTstWnd(pDoc, -1);
 
 		int nCol = i * (GetConfig()->m_GammaOffsetType == 5 ? 2 : 1);
-		if( pGenerator->DisplayGray((ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())),CGenerator::MT_NEARBLACK,!bRetry) )
+		if( pGenerator->DisplayGray((ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())),CGenerator::MT_NEARBLACK,!bRetry) )
 		{
 			UpdateTstWnd(pDoc, nCol);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
@@ -2401,7 +2409,7 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
 				m_nearBlackMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -2613,7 +2621,7 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 		else
 			m_NearWhiteClipCol = 101;
 
-		if( pGenerator->DisplayGray( (ArrayIndexToGrayLevel ( m_NearWhiteClipCol - size + i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) ),CGenerator::MT_NEARWHITE,!bRetry ) )
+		if( pGenerator->DisplayGray( (ArrayIndexToGrayLevel ( m_NearWhiteClipCol - size + i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) ),CGenerator::MT_NEARWHITE,!bRetry ) )
 		{
 			UpdateTstWnd(pDoc, i);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
@@ -2624,7 +2632,7 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( m_NearWhiteClipCol - size+i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( m_NearWhiteClipCol - size+i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
 				m_nearWhiteMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -7855,39 +7863,49 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 	sRef[0].SetxyYValue(ColorxyY(0.419314,0.505251));
 	sRef[1].SetxyYValue(ColorxyY(0.224650,0.328741));
 	sRef[2].SetxyYValue(ColorxyY(0.320913, 0.154177));
-	CColor p3Ref[3];
-	p3Ref[0].SetxyYValue(ColorxyY(0.6800, 0.3200));
-	p3Ref[1].SetxyYValue(ColorxyY(0.265, 0.690));
-	p3Ref[2].SetxyYValue(ColorxyY(0.150, 0.06));
-	CColor p3sRef[3];
-	p3sRef[0].SetxyYValue(ColorxyY(0.437849,0.535894));
-	p3sRef[1].SetxyYValue(ColorxyY(0.199611, 0.331782));				
-	p3sRef[2].SetxyYValue(ColorxyY(0.336194, 0.151341));
-	CColor rRef[3];
-	rRef[0].SetxyYValue(ColorxyY(0.64,	0.33));
-	rRef[1].SetxyYValue(ColorxyY(0.30, 0.60));
-	rRef[2].SetxyYValue(ColorxyY(0.150, 0.06));
-	CColor rsRef[3];
-	rsRef[0].SetxyYValue(ColorxyY(0.419314,0.505251));
-	rsRef[1].SetxyYValue(ColorxyY(0.224650, 0.328741));				
-	rsRef[2].SetxyYValue(ColorxyY(0.320913, 0.154177));
 	int m_cRef=GetColorReference().m_standard;
-	//display rec709 sat points in special colorspace modes	
+	// One basis for the endpoint below AND the YLuma switch further down.
+	// Both used to build this reference independently, which cost an extra
+	// matrix inversion + secondary solve on every call - and GetRefSat runs
+	// per hue per saturation step on the CIE-chart and 3D-viewer redraw paths.
+	const CColorReference basis = special ? CColorReference(HDTV)
+										  : ContainerInnerReference(GetColorReference());
+	//display rec709 sat points in special colorspace modes
 	if (!special)
 	{
-		if (m_cRef == UHDTV3)
+		if (m_cRef == UHDTV3 || m_cRef == UHDTV4)
 		{
-			if ( i < 3 )
-				refColor = p3Ref[i];
-			else
-				refColor = p3sRef[i-3];
-		}
-		else if (m_cRef == UHDTV4)
-		{
-			if ( i < 3 )
-				refColor = rRef[i];
-			else
-				refColor = rsRef[i-3];
+			// UHDTV3/UHDTV4 are containers: the sweep runs from the active
+			// white out to the INNER gamut's corner (P3 inside 2020, Rec.709
+			// inside 2020). Take that corner from ContainerInnerReference -
+			// the same reference GenerateSaturationColors builds the wire
+			// patches in (its cRef) and the same one ContainerPrimaryLinear
+			// indexes for the primaries wire - so reference and wire follow
+			// one white. Note the sat wire derives its corner as the primary
+			// SUM, ColorXYZ(ColorRGB(1,1,0), cRef), while this reads
+			// UpdateSecondary's line intersection: equal by construction
+			// (R+G = white-B lies on both lines), but two formulas - a change
+			// to either must keep them in step.
+			// These endpoints used to be hardcoded xy tables
+			// (p3Ref/p3sRef/rRef/rsRef) evaluated at D65: the primaries are
+			// white-independent so they were merely duplicated, but the
+			// secondaries are white-point MIXTURES (see UpdateSecondary) and
+			// so were wrong under any custom white.
+			//
+			// GetRefPrimary/GetRefSecondary route these two standards BACK
+			// through here (GetRefSat(i, 1.0)), so this must not call them.
+			switch (i)
+			{
+				case 0:	refColor.SetXYZValue(basis.GetRed());		break;
+				case 1:	refColor.SetXYZValue(basis.GetGreen());		break;
+				case 2:	refColor.SetXYZValue(basis.GetBlue());		break;
+				case 3:	refColor.SetXYZValue(basis.GetYellow());	break;
+				case 4:	refColor.SetXYZValue(basis.GetCyan());		break;
+				case 5:	refColor.SetXYZValue(basis.GetMagenta());	break;
+				// Fail the way GetRefPrimary/GetRefSecondary do rather than
+				// returning a plausible-looking chromaticity for a bad index.
+				default: ASSERT(0); return noDataColor;
+			}
 		}
 		else
 		{
@@ -7908,22 +7926,22 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 	switch (i)
 	{
 		case 0:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetRedReferenceLuma(true);
+			YLuma = basis.GetRedReferenceLuma(true);
 			break;
 		case 1:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetGreenReferenceLuma(true);
+			YLuma = basis.GetGreenReferenceLuma(true);
 			break;
 		case 2:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetBlueReferenceLuma(true);
+			YLuma = basis.GetBlueReferenceLuma(true);
 			break;
 		case 3:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetYellowReferenceLuma(true);
+			YLuma = basis.GetYellowReferenceLuma(true);
 			break;
 		case 4:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetCyanReferenceLuma(true);
+			YLuma = basis.GetCyanReferenceLuma(true);
 			break;
 		case 5:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetMagentaReferenceLuma(true);
+			YLuma = basis.GetMagentaReferenceLuma(true);
 			break;
 	}
 	

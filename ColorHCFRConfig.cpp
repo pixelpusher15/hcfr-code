@@ -58,6 +58,25 @@ CString GetColorStandardName(int nStandard)
 	return s;
 }
 
+// The color spaces allowed to select PQ/HLG - everything else is an SDR
+// standard whose stored transfer function must never be 5 (PQ) or 7 (HLG).
+// HDTVa/HDTVb especially: they are fixed Rec.709/D65 SDR pattern conventions
+// (75% and plasma), locked to a D65 white, and HDTVa's 75% white anchor has no
+// meaning under PQ.
+//
+// CUSTOM stays OUT, though it is the one entry whose exclusion looks arguable
+// (nothing about user-supplied primaries is inherently SDR). Three reasons to
+// leave it: it is absent from /accuracytest's kSpaces entirely, so a CUSTOM HDR
+// path would carry no automated coverage; ColorMathTest's T10 excludes it on
+// purpose because merely CONSTRUCTING a CUSTOM reference corrupts the global
+// primariesRec601 array; and that corruption is a known open defect (MATH-007).
+// Offering PQ there would light up an untested HDR path on the one standard
+// both harnesses deliberately avoid.
+bool StandardAllowsHDR(int nStandard)
+{
+	return ( nStandard == UHDTV || nStandard == UHDTV2 || nStandard == UHDTV3 || nStandard == UHDTV4 || nStandard == HDTV );
+}
+
 static struct
 { LPCSTR	lpszLangCode;
   LPCSTR	lpszHelpName;
@@ -577,6 +596,14 @@ BOOL CColorHCFRConfig::LoadSettings()
 		if(m_colorStandard == sRGB)
 			m_manualGOffset = 0.055;
 	}
+
+	// An SDR-only standard must not carry a PQ/HLG transfer function. The
+	// References page enforces this in its dropdown, but a registry written by
+	// an older build (or hand-edited) can hold the invalid pairing, and most
+	// consumers read m_GammaOffsetType raw - so normalize it at the source,
+	// with the same BT.1886 fallback the page uses.
+	if ( !StandardAllowsHDR(m_colorStandard) && (m_GammaOffsetType == 5 || m_GammaOffsetType == 7) )
+		m_GammaOffsetType = 4;
 
 	m_bWhiteBkgndOnScreen=GetProfileInt("Appearance","WhiteBkgndOnScreen",FALSE);
 	m_bWhiteBkgndOnFile=GetProfileInt("Appearance","WhiteBkgndOnFile",FALSE);
