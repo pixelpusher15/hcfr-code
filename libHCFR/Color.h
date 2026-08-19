@@ -810,8 +810,11 @@ extern int PiPercentToCode ( double percent, bool is16_235, int bits );
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );
-double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit = FALSE );
-double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit = FALSE );
+// is16_235 is REQUIRED (no default): it selects the 219/255/876/1023 code grid
+// exactly as SnapToVideoGrid does, and a default would silently leave any
+// un-updated call site quantizing a full-range wire against the limited grid.
+double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 );
+double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 );
 double getL_EOTF ( double x, CColor White, CColor Black, double g_rel, double split, int mode, double m_DiffuseL = 94.37844, double m_MasterMinL = 0.0, double m_MasterMaxL = 4000.0, double m_TargetMinL = 0.00, double m_TargetMaxL = 700.0, bool ToneMap = FALSE, bool cBT2390 = FALSE, double m_TargetSysGamma = 1.2, double b_fact = 1.0, double E2_fact = 0.0, double E2_fact1 = 1.1 );
 
 #endif // !defined(COLOR_H_INCLUDED_)
