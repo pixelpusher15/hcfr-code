@@ -2307,6 +2307,73 @@ bool CGDIGenerator_MuriQueryReadout(const CString& ip, CString& readoutOut)
 	return MuriStatusReadout(readoutOut);
 }
 
+// timing id -> resolution name (kMuriTimings command-id table); "id N" if unknown.
+static CString MuriTimingNameForId(int id)
+{
+	for (int i = 0; i < kMuriTimingN; ++i)
+		if (kMuriTimings[i].id == id) return CString(kMuriTimings[i].name);
+	CString s; s.Format(_T("id %d"), id); return s;
+}
+
+// Query one read keyword (0x80xx) over the already-open serial port; return its first
+// data byte, or -1 on no/short reply. The device answers a read with an 0xAB frame
+//   AB 00 00 <LEN> 00 00 00 <kwlo> <kwhi> <data> <cksum>   (data at header + 9)
+// and reports the SAME command-id numbering the HTTP VIDEOGEN echo uses - verified on
+// hardware: 0x8061 returns the kMuriTimings id (e.g. 20 = 1080p60, matching HEX61NUM20).
+static int MuriSerialReadValue(int readKeyword)
+{
+	std::string reply;
+	if (!MuriSerialXfer(MuriBuildFrame(readKeyword, std::vector<BYTE>()), reply, 32)) return -1;
+	for (size_t k = 0; k + 10 <= reply.size(); ++k)
+		if ((BYTE)reply[k] == 0xAB) return (BYTE)reply[k + 9];
+	return -1;
+}
+
+// Serial equivalent of MuriStatusReadout: query the individual read keywords and map
+// them to the same labelled lines. Assumes the port is open. Fields/labels/order match
+// the HTTP readout so the panel looks identical in either transport.
+static bool MuriSerialStatusReadout(CString& out)
+{
+	int timing = MuriSerialReadValue(0x8061);	// cat 97  -> resolution (kMuriTimings id)
+	int cs     = MuriSerialReadValue(0x8063);	// cat 99  -> colour space 0..4
+	int depth  = MuriSerialReadValue(0x8064);	// cat 100 -> 0=8bit,1=10bit,2=12bit
+	int hdcp   = MuriSerialReadValue(0x8065);	// cat 101 -> 0=off,1=on
+	int output = MuriSerialReadValue(0x8066);	// cat 102 -> 1=HDMI,0=DVI
+	int hdr    = MuriSerialReadValue(0x806F);	// cat 111 -> 0=SDR,1=HDR,2=HLG
+	int bt2020 = MuriSerialReadValue(0x8070);	// cat 112 -> 0=BT.709,1=BT.2020
+	if (timing < 0 && cs < 0) { out.Empty(); return false; }	// nothing answered
+
+	CString res   = (timing >= 0) ? MuriTimingNameForId(timing) : CString(_T("?"));
+	CString dyn   = (hdr == 0) ? _T("SDR") : (hdr == 1) ? _T("HDR") : (hdr == 2) ? _T("HLG") : _T("?");
+	CString dep   = (depth == 0) ? _T("8Bit") : (depth == 1) ? _T("10Bit") : (depth == 2) ? _T("12Bit") : _T("?");
+	CString gamut = (bt2020 == 0) ? _T("BT.709") : (bt2020 == 1) ? _T("BT.2020") : _T("?");
+	CString fmt   = (cs == 0 || cs == 1) ? _T("RGB") : (cs >= 2 && cs <= 4) ? _T("YCbCr") : _T("?");
+	CString rng   = (cs == 0) ? _T("Full") : (cs >= 1 && cs <= 4) ? _T("Limited") : _T("?");
+	CString outp  = (output == 1) ? _T("HDMI") : (output == 0) ? _T("DVI") : _T("?");
+	CString hdcpS = (hdcp == 1) ? _T("ON") : (hdcp == 0) ? _T("OFF") : _T("?");
+
+	out.Empty();
+	out += CString(_T("Dynamic range\t")) + dyn   + _T("\r\n");
+	out += CString(_T("Resolution\t"))    + res   + _T("\r\n");
+	out += CString(_T("Bit depth\t"))     + dep   + _T("\r\n");
+	out += CString(_T("Color space\t"))   + gamut + _T("\r\n");
+	out += CString(_T("Color format\t"))  + fmt   + _T("\r\n");
+	out += CString(_T("Signal range\t"))  + rng   + _T("\r\n");
+	out += CString(_T("Output\t"))        + outp  + _T("\r\n");
+	out += CString(_T("HDCP\t"))          + hdcpS;
+	return true;
+}
+
+// Serial status readout: open the port, query the read keywords, close (mirrors the
+// Detect lifecycle). Used when the panel is in serial (non-network) transport mode.
+bool CGDIGenerator_MuriQueryReadoutSerial(const CString& comPort, CString& readoutOut)
+{
+	if (!MuriConnect(false, CString(), comPort)) { readoutOut.Empty(); return false; }
+	bool ok = MuriSerialStatusReadout(readoutOut);
+	MuriClose();
+	return ok && !readoutOut.IsEmpty();
+}
+
 BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*first*/, UINT /*nPattern*/ )
 {
 	if (!s_dvdoOpen) return FALSE;

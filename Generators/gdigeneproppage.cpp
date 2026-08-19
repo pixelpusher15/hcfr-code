@@ -128,6 +128,7 @@ extern bool        CGDIGenerator_MuriReadSinkInfo(bool useNet, const CString& ip
 extern bool        CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString& comPort, int patternId, int patternBer, CString& msgOut);
 extern bool        CGDIGenerator_MuriQueryStatus(const CString& ip, CString& summaryOut);
 extern bool        CGDIGenerator_MuriQueryReadout(const CString& ip, CString& readoutOut);
+extern bool        CGDIGenerator_MuriQueryReadoutSerial(const CString& comPort, CString& readoutOut);
 
 IMPLEMENT_DYNCREATE(CGDIGenePropPage, CPropertyPageWithHelp)
 
@@ -2021,15 +2022,24 @@ void CGDIGenePropPage::OnMuriApply()
 // Threaded Murideo status query (mirrors QueryPGenerator) so the HTTP round-trip (up to a
 // multi-second timeout) never freezes the UI. Serial mode has no HTTP readback, so it stays
 // synchronous/instant. AWAITING HW VALIDATION next session (network path unchanged in effect).
-struct MuriQueryCtx { HWND hwnd; CString ip; CString text; };
+struct MuriQueryCtx { HWND hwnd; bool net; CString ip; CString com; CString text; };
 
 static UINT AFX_CDECL MuriQueryThread(LPVOID p)
 {
 	MuriQueryCtx* c = (MuriQueryCtx*)p;
 	CString ro;
-	BOOL ok = CGDIGenerator_MuriQueryReadout(c->ip, ro) && !ro.IsEmpty();
-	c->text = ok ? (CString(_T("IP address\t")) + c->ip + _T("\r\n") + ro)
-	             : (CString(_T("(no response from ")) + c->ip + _T(")"));
+	if (c->net)
+	{
+		BOOL ok = CGDIGenerator_MuriQueryReadout(c->ip, ro) && !ro.IsEmpty();
+		c->text = ok ? (CString(_T("IP address\t")) + c->ip + _T("\r\n") + ro)
+		             : (CString(_T("(no response from ")) + c->ip + _T(")"));
+	}
+	else
+	{
+		BOOL ok = CGDIGenerator_MuriQueryReadoutSerial(c->com, ro) && !ro.IsEmpty();
+		c->text = ok ? (CString(_T("COM port\t")) + c->com + _T("\r\n") + ro)
+		             : (CString(_T("(no response on ")) + c->com + _T(" - is the Murideo connected?)"));
+	}
 	if (!(c->hwnd && IsWindow(c->hwnd) && ::PostMessage(c->hwnd, WM_MURI_QUERY_DONE, 0, (LPARAM)c)))
 		delete c;
 	return 0;
@@ -2042,11 +2052,13 @@ void CGDIGenePropPage::RefreshMuriStatus()
 	// Tab stop so the value column aligns (matches the PGenerator readout).
 	int tabs = 80; m_muriReadout.SendMessage(EM_SETTABSTOPS, 1, (LPARAM)&tabs);
 	bool net; CString ip, com; MuriXport(net, ip, com);
-	if (!net) { m_muriReadout.SetWindowText(_T("(serial mode - status readback is HTTP-only)")); return; }
-	if (ip.IsEmpty()) { m_muriReadout.SetWindowText(_T("(enter the Murideo IP, then Refresh)")); return; }
+	if (net && ip.IsEmpty())  { m_muriReadout.SetWindowText(_T("(enter the Murideo IP, then Refresh)")); return; }
+	if (!net && com.IsEmpty()) { m_muriReadout.SetWindowText(_T("(select the Murideo COM port, then Refresh)")); return; }
 	MuriQueryCtx* c = new MuriQueryCtx;
 	c->hwnd = GetSafeHwnd();
+	c->net  = net;
 	c->ip   = ip;
+	c->com  = com;
 	m_muriQuerying = TRUE;
 	m_muriReadout.SetWindowText(_T("Querying..."));
 	AfxBeginThread(MuriQueryThread, c);
