@@ -2941,8 +2941,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			}
 			else 
 			{
-				if ( GetDocument()->m_pSensor->IsCalibrated() == 1 ) 
-				{ 
+				if ( GetDocument()->m_pSensor->IsCorrectionActive() )
+				{
 					m_grayScaleGroup.SetHilighted(2);
 					m_sensorGroup.SetHilighted(2);
 					m_generatorGroup.SetHilighted(2);
@@ -2973,9 +2973,9 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		}
 		
 		m_AdjustXYZCheckButton.EnableWindow ( GetDocument()->m_pSensor->IsCalibrated () > 0 );
-		m_AdjustXYZCheckButton.SetCheck ( GetDocument()->m_pSensor->IsCalibrated () == 1 );
+		m_AdjustXYZCheckButton.SetCheck ( GetDocument()->m_pSensor->IsCorrectionActive () );
 
-		if ( GetDocument()->m_pSensor->IsCalibrated () == 1 || m_displayType == HCFR_xyz2_VIEW )
+		if ( GetDocument()->m_pSensor->IsCorrectionActive () || m_displayType == HCFR_xyz2_VIEW )
 		{
 			if ( m_editCheckButton.GetCheck () )
 			{

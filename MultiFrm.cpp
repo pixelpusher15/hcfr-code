@@ -2258,7 +2258,7 @@ BOOL CMultiFrame::DdeCmdExec ( CString & strCommand, BOOL bCanSendAckMsg, HWND h
 	BOOL		bDisplay = FALSE;
 	BOOL		bNoWait = FALSE;
 	BOOL		bUpdateName = FALSE;
-	int			bSensorCalibrated = GetDocument() -> m_pSensor -> IsCalibrated ();
+	int			bSensorCalibrated = GetDocument() -> m_pSensor -> IsCorrectionActive ();
 	LPARAM		lHint = UPD_EVERYTHING;
 	Matrix		SensorMatrix ( 0.0, 3, 3 );
 	Matrix		WhiteMatrix ( 0.0, 3, 1 );

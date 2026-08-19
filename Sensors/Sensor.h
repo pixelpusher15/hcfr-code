@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 /////////////////////////////////////////////////////////////////////////////
 
 // Sensor.h: interface for the CSensor class.
@@ -125,14 +125,25 @@ public:
 	virtual BOOL TakePendingSpectralLeaveMeasures() { return FALSE; }
 
 	CTime GetCalibrationTime() { return CTime(m_calibrationTime); }
-	int IsCalibrated() 
-	{ 
+	int IsCalibrated()
+	{
 		if (m_sensorToXYZMatrix.IsIdentity () && m_sensorToXYZMatrixMod.IsIdentity ())
 			return 0;
 		else
 			if (!m_sensorToXYZMatrix.IsIdentity ())
 				return 1;
 		return 2;
+	}
+
+	// True when a correction is actually being applied to every MeasureColor reading:
+	// a live non-identity sensor matrix (RGB/FCMM), OR the Bodner sub-gamut matrices.
+	// IsCalibrated() alone returns 0 for a Bodner sensor (its m_sensorToXYZMatrix is
+	// identity - the correction lives in m_bodnerRawMatrix[]), so UI gates that ask
+	// "is a correction live?" must use this to see the Bodner case. Mirrors the
+	// bHasCorrection test in datasetdoc.cpp.
+	bool IsCorrectionActive()
+	{
+		return ( IsCalibrated() == 1 ) || ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX );
 	}
 	
 	
