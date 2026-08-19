@@ -4804,7 +4804,7 @@ void CMainView::UpdateGrid()
 				sdrstr.Format(" SDR, Power law (black compensation) w/gamma = %3.2f", GetConfig()->m_GammaAvg);
 			break;
 			case 2:
-				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2", GetConfig()->m_GammaAvg);
+				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2f", GetConfig()->m_GammaAvg);
 			break;
 			case 3:
 				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2f", GetConfig()->m_GammaAvg);

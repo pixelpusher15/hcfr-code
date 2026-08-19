@@ -39,6 +39,7 @@
 #include "ToolbarPropPage.h"
 #include <map>
 extern CString GetColorStandardName(int nStandard);
+extern bool StandardAllowsHDR(int nStandard);
 
 class CColorHCFRConfig
 {
