@@ -3981,11 +3981,23 @@ int PiBackground8ToCode ( double v255, bool is16_235, int bits )
     return code;
 }
 
+// The native code grid for the active bit depth AND range: 219 limited /
+// 255 full (8-bit), 876 limited / 1023 full (10-bit). The ONE definition,
+// shared by the wire quantizer (SnapToVideoGrid) and the grayscale ramp
+// (ArrayIndexToGrayLevel / GrayLevelToGrayProp): the ramp, the patch
+// generators, the dE references and the simulated sensor must all quantize
+// against the SAME grid, or a full-range wire re-snaps to 255/1023 under a
+// reference still living on 219/876 (the /accuracytest FAM_GRAY GRID_FULL
+// gap, <= ~0.4 dE).
+static double VideoCodeGrid ( bool b10bit, bool is16_235 )
+{
+    return b10bit ? ( is16_235 ? 876. : 1023. ) : ( is16_235 ? 219. : 255. );
+}
+
 // Snap a normalized 0..1 signal value to the native code grid for the active
 // bit depth AND range, so a deltaE reference lands on the exact code the patch
-// generators emit (reference == signal) with a SINGLE rounding: 219 limited /
-// 255 full (8-bit), 876 limited / 1023 full (10-bit) - never a limited->full
-// stretch. 8-bit limited is the historic 219 form, byte-for-byte.
+// generators emit (reference == signal) with a SINGLE rounding - never a
+// limited->full stretch. 8-bit limited is the historic 219 form, byte-for-byte.
 // The 1e-9 tie-breaker makes exact half-code inputs round UP deterministically
 // on every path. Nominal levels sit exactly on rounding ties (50% * 219 = 109.5):
 // a directly-quantized signal computes the tie exactly and rounds up, but a
@@ -3995,7 +4007,7 @@ int PiBackground8ToCode ( double v255, bool is16_235, int bits )
 // signal difference (half a 10-bit full-range code is ~5e-4).
 double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 )
 {
-    const double grid = b10bit ? ( is16_235 ? 876. : 1023. ) : ( is16_235 ? 219. : 255. );
+    const double grid = VideoCodeGrid ( b10bit, is16_235 );
     return floor( v * grid + 0.5 + 1e-9 ) / grid;
 }
 
@@ -4015,23 +4027,14 @@ double HLG_SignalToScene ( double v )
 	return ( exp( ( v - c ) / a ) + b ) / 12.0;
 }
 
-// The grayscale ramp's native code grid, for the active bit depth AND range:
-// 219 limited / 255 full (8-bit), 876 limited / 1023 full (10-bit). Identical
-// to SnapToVideoGrid's selection - the ramp, the patch generators, the dE
-// references and the simulated sensor must all quantize against the SAME grid,
-// or a full-range wire re-snaps to 255/1023 under a reference still living on
-// 219/876 (the /accuracytest FAM_GRAY GRID_FULL gap, <= ~0.4 dE).
-//
-// The legacy limited-range forms carried the black offset explicitly
-// (floor(x + 16.5) - 16.0, and 64.5 / 64.0 at 10 bits). Since 16 and 64 are
-// integers, floor(x + 16.5) - 16 == floor(x + 0.5) exactly, so the offset is a
-// no-op that only ever described the limited grid; full range needs no offset
-// at all. Dropping it leaves every limited-range value byte-identical (pinned
-// by the ColorMathTest T2/T3 goldens) and makes the full-range form fall out.
-static double GrayCodeGrid ( bool b10bit, bool is16_235 )
-{
-    return b10bit ? ( is16_235 ? 876. : 1023. ) : ( is16_235 ? 219. : 255. );
-}
+// The two gray-ramp quantizers below select their grid via VideoCodeGrid (see
+// SnapToVideoGrid above). Their legacy limited-range forms carried the black
+// offset explicitly (floor(x + 16.5) - 16.0, and 64.5 / 64.0 at 10 bits).
+// Since 16 and 64 are integers, floor(x + 16.5) - 16 == floor(x + 0.5)
+// exactly, so the offset is a no-op that only ever described the limited grid;
+// full range needs no offset at all. Dropping it leaves every limited-range
+// value byte-identical (pinned by the ColorMathTest T2/T3 goldens) and makes
+// the full-range form fall out.
 
 double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 )
 {
@@ -4041,15 +4044,18 @@ double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m
 	if ( nSize < 2 )
 		return 0.0;						// a one-point scale has no ramp; avoid /0
 
-	const double grid = GrayCodeGrid ( m_b10bit, is16_235 );
+	const double grid = VideoCodeGrid ( m_b10bit, is16_235 );
 	const double v = (double)nCol / (double)(nSize-1) * grid;
 
 	// Round-down is the AVSHD disc's truncating quantizer. It applies to the
-	// active grid like any other, but note it is UI-reachable only on the
-	// manual (disc) generator, for which RefreshUse10bitLevels() forces
-	// is16_235 = TRUE and the 10-bit checkbox off - so round-down + full range
-	// and round-down + 10 bit are unreachable configurations, and this stays
-	// the historic 219 truncation in every case a user can actually produce.
+	// active grid like any other. Two separate mechanisms keep it on the
+	// historic 219 grid in practice: RefreshUse10bitLevels() forces is16_235 =
+	// TRUE for the manual (disc) generator, and the General property page only
+	// enables the round-down checkbox on that generator (non-PQ), forcing the
+	// 10-bit checkbox off alongside it. The flag does persist in the registry,
+	// so a stale round-down can survive a generator switch until that page is
+	// next opened - it then truncates on the new wire's own grid, which is
+	// exactly the grid-follows-wire convention this file establishes.
 	if (m_bUseRoundDown)
 		return ( floor(v) / grid * 100.0 );
 
@@ -4060,7 +4066,7 @@ double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, 
 {
     // Gray Level: return a value between 0 and 1 based on percentage level input
     //    normal rounding (GCD disk), round down (AVSHD disk)
-	const double grid = GrayCodeGrid ( m_b10bit, is16_235 );
+	const double grid = VideoCodeGrid ( m_b10bit, is16_235 );
 	const double v = Level / 100.0 * grid;
 
 	if (m_bUseRoundDown)
