@@ -1681,7 +1681,7 @@ bool CExport::SaveGrayScaleSheet()
 	Rows.Add(bIRE ? "IRE" : GetConfig()->m_PercentGray);
 	for(j=0;j<size;j++)
 	{
-		Rows.Add((float)(m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())));
+		Rows.Add((float)(m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
 	}
 	result&=graySS.AddRow(Rows,rowNb,m_doReplace);
 	rowNb++;
@@ -1731,7 +1731,7 @@ bool CExport::SaveGrayScaleSheet()
 		// Determine Reference Y luminance for Delta E calculus
 		if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
 		{
-		    double x = m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
+		    double x = m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
             double valy;
 			CColor White = m_pDoc -> GetMeasure () -> GetOnOffWhite();
 			CColor Black = m_pDoc -> GetMeasure () -> GetOnOffBlack();
@@ -1739,13 +1739,13 @@ bool CExport::SaveGrayScaleSheet()
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if (  (mode >= 4) )
 			{
-				double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+				double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 				valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //				valy = min(valy, GetConfig()->m_TargetMaxL);
 			 }
 			 else
 			 {
-				double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+Offset)/(1.0+Offset);
+				double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 				valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 				if (mode == 1) //black compensation target
 					valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;

@@ -221,14 +221,17 @@ static void AppendF(std::string& s, const char* fmt, ...)
 }
 
 //////////////////////////////////////////////////////////////////////////
-// T2 — ArrayIndexToGrayLevel over all sizes x three rounding modes.
+// T2 — ArrayIndexToGrayLevel over all sizes x three rounding modes x both
+// wire ranges. The range column selects the native code grid (219 limited /
+// 255 full at 8 bits, 876 / 1023 at 10) exactly as SnapToVideoGrid does; the
+// lim=1 rows are the historic values and must never move.
 //////////////////////////////////////////////////////////////////////////
 static void RunT2()
 {
     printf("T2 grey-level tables...\n");
     std::string out;
     static const int sizes[] = { 2, 5, 6, 11, 12, 16, 21, 25, 101 };
-    out += "# ArrayIndexToGrayLevel(index,size,roundDown,b10bit) %.17g\n";
+    out += "# ArrayIndexToGrayLevel: size,mode,is16_235,index,%.17g\n";
     for (int s = 0; s < sizeof(sizes)/sizeof(sizes[0]); ++s)
     {
         int size = sizes[s];
@@ -236,29 +239,32 @@ static void RunT2()
         {
             bool rd  = (mode == 1);
             bool b10 = (mode == 2);
-            for (int i = 0; i < size; ++i)
-                AppendF(out, "%d,%d,%d,%d,%.17g\n", size, mode, i, 0,
-                        ArrayIndexToGrayLevel(i, size, rd, b10));
+            for (int lim = 1; lim >= 0; --lim)
+                for (int i = 0; i < size; ++i)
+                    AppendF(out, "%d,%d,%d,%d,%.17g\n", size, mode, lim, i,
+                            ArrayIndexToGrayLevel(i, size, rd, b10, lim != 0));
         }
     }
     HandleTable("T2_graylevels.txt", out);
 }
 
 //////////////////////////////////////////////////////////////////////////
-// T3 — GrayLevelToGrayProp over a dense level sweep x three rounding modes.
+// T3 — GrayLevelToGrayProp over a dense level sweep x three rounding modes x
+// both wire ranges (see T2 on the range column).
 //////////////////////////////////////////////////////////////////////////
 static void RunT3()
 {
     printf("T3 grey-level props...\n");
     std::string out;
-    out += "# GrayLevelToGrayProp(level,roundDown,b10bit) %.17g, level = i*0.25\n";
+    out += "# GrayLevelToGrayProp: mode,is16_235,i,%.17g, level = i*0.25\n";
     for (int mode = 0; mode < 3; ++mode)
     {
         bool rd  = (mode == 1);
         bool b10 = (mode == 2);
-        for (int i = 0; i <= 400; ++i)          // 0..100 step 0.25
-            AppendF(out, "%d,%d,%.17g\n", mode, i,
-                    GrayLevelToGrayProp(i * 0.25, rd, b10));
+        for (int lim = 1; lim >= 0; --lim)
+            for (int i = 0; i <= 400; ++i)      // 0..100 step 0.25
+                AppendF(out, "%d,%d,%d,%.17g\n", mode, lim, i,
+                        GrayLevelToGrayProp(i * 0.25, rd, b10, lim != 0));
     }
     HandleTable("T3_graylevelprop.txt", out);
 }

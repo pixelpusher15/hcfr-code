@@ -175,15 +175,18 @@ static const GridDef kGrids[] =
 //
 // The subset must keep every kKnownFails entry REACHABLE, or the stale-entry
 // sweep turns quick into a permanent exit 1 (see the reachability note in
-// RunAccuracyTest). Four separate things depend on the current choice:
+// RunAccuracyTest). Three separate things depend on the current choice:
 //   - DCUST      the custom-white entries (white == 999)
 //   - 8b-lim     the PQ half-code tie (GRID_8LIM)
-//   - 8b-full    the full-range gray gap (GRID_FULL)
 //   - 8b-lim     ALSO the entire manual-generator pass, which is gated on
 //                kGrids[].lim - drop the last limited-range grid and all seven
 //                GRID_LIM DVD entries go stale at once
 //   - D65        ALSO the HDTVa/b HDR primaries entries, which are preempted
 //                by the custom-white entries and so only fire at a plain white
+// 8b-full is no longer load-bearing for reachability (the full-range gray
+// entry it carried is fixed and gone), but it stays in the subset: it is the
+// only full-range grid quick runs, so it is the only thing standing between a
+// range regression and a green pre-flight.
 // What quick gives up is LEVEL dependence: several modeling gaps are worst on
 // a grid or white it drops, and a real FAIL confined to those rows is
 // invisible. It is a pre-flight, not a substitute.
@@ -246,8 +249,9 @@ struct KnownFail
 
 #define GRID_ANY   0xF
 #define GRID_8LIM  0x1	// kGrids[0]
-#define GRID_FULL  0xA	// kGrids[1] (8b-full) | kGrids[3] (10b-full)
 #define GRID_LIM   0x5	// kGrids[0] (8b-lim) | kGrids[2] (10b-lim)
+// (A GRID_FULL = 0xA - kGrids[1] | kGrids[3] - belongs here if a full-range-only
+// gap is ever recorded again; there is none now, so it is not carried dead.)
 
 // The `ceiling` on each entry bounds the known gap: a matching combo is only
 // downgraded to KNOWN-FAIL while its worst dE stays <= ceiling; a larger dE is
@@ -293,16 +297,9 @@ static const KnownFail kKnownFails[] =
 	// grid/level combination lands on a half-code. (observed worst 0.74)
 	{ HDTVa, -1, 5, FAM_SAT75, GRID_8LIM, -1, 2.0, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
 	{ HDTVb, -1, 5, FAM_SAT75, GRID_8LIM, -1, 2.0, "PQ 50% anchor (code 110/219) x 0.75 stim = exact half-code tie; generator/reference dust splits it" },
-	// Grayscale on the FULL-range grids: the whole gray pipeline
-	// (GetGrayPercent, ArrayIndexToGrayLevel, GrayLevelToGrayProp) has no
-	// range parameter - ramp codes and references live on the 219/876
-	// limited grids, and on a full-range wire the re-snap to 255/1023 is
-	// not modeled (<= ~0.4 dE, worst on the PQ 8-bit knee). Fixing requires
-	// adding a range parameter through libHCFR, which moves ColorMathTest
-	// T2/T3 goldens - out of scope for this harness. Tight ceiling: this
-	// entry is broad (any space/white/eotf), so it must NOT swallow a real
-	// grayscale/EOTF regression that pushes dE past ~2. (observed worst 0.39)
-	{ -1, -1, -1, FAM_GRAY, GRID_FULL, -1, 2.0, "gray ramp codes/references are limited-grid only (no range parameter in GetGrayPercent/GrayLevelToGrayProp)" },
+	// (The FULL-range grayscale entry that used to sit here is GONE: the gray
+	// pipeline now takes is16_235 and quantizes against 219/255/876/1023 like
+	// SnapToVideoGrid, so gray reads dE ~ 0 on every grid.)
 	// MANUAL GENERATOR: the measures grid and the 3D viewer genuinely disagree.
 	// GetItemText keeps the legacy DVD conventions for mode 5 - the Mascior
 	// disc's 92.254965-nit white in place of TmDiffuseWhiteNits, the fixed
@@ -828,7 +825,7 @@ static void RunGray ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 
 	for ( i = 0 ; i < kGraySize ; i ++ )
 	{
-		double x = m.GetGrayPercent(i, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE);
+		double x = m.GetGrayPercent(i, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE, cfg->GetRGB16_235() != FALSE);
 		// MT_IRE patches are never Intensity-dimmed
 		m.SetGray(i, Meas(sensor, ColorRGBDisplay(x, x, x), 1.0));
 	}
@@ -845,19 +842,19 @@ static void RunGray ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 	for ( i = 1 ; i < kGraySize ; i ++ )
 	{
 		CColor aColor = m.GetGray(i);
-		double x = m.GetGrayPercent(i, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE);
+		double x = m.GetGrayPercent(i, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE, cfg->GetRGB16_235() != FALSE);
 		int mode = cfg->m_GammaOffsetType;
 		if ( cfg->m_colorStandard == sRGB ) mode = 99;
 		double valy;
 		if ( mode >= 4 )
 		{
-			double valx = GrayLevelToGrayProp(x, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE);
+			double valx = GrayLevelToGrayProp(x, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE, cfg->GetRGB16_235() != FALSE);
 			valy = getL_EOTF(valx, White, Black, cfg->m_GammaRel, cfg->m_Split, mode, cfg->m_DiffuseL, cfg->m_MasterMinL, cfg->m_MasterMaxL, cfg->m_TargetMinL, cfg->m_TargetMaxL, cfg->m_useToneMap, FALSE, cfg->m_TargetSysGamma, cfg->m_BT2390_BS, cfg->m_BT2390_WS, cfg->m_BT2390_WS1);
 			valy = min(valy, cfg->m_TargetMaxL);
 		}
 		else
 		{
-			double valx = GrayLevelToGrayProp(x, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE);	// Offset = 0
+			double valx = GrayLevelToGrayProp(x, cfg->m_bUseRoundDown != FALSE, cfg->GetUse10bitLevels() != FALSE, cfg->GetRGB16_235() != FALSE);	// Offset = 0
 			valy = pow(valx, cfg->m_GammaRef);
 		}
 

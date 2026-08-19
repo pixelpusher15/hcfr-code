@@ -431,7 +431,8 @@ static double GridGrayTargetRatio( CMeasure * pM, double x, const CColor & black
 	if ( GetConfig()->m_colorStandard == sRGB )
 		mode = 99;
 	double valx = GrayLevelToGrayProp( x, GetConfig()->m_bUseRoundDown != FALSE,
-									   GetConfig()->GetUse10bitLevels() != FALSE );
+									   GetConfig()->GetUse10bitLevels() != FALSE,
+									   GetConfig()->GetRGB16_235() != FALSE );
 	if ( mode >= 4 )
 	{
 		double L = getL_EOTF( valx, pM->GetOnOffWhite(), blackRef,
@@ -502,6 +503,7 @@ void C3DColorView::BuildScene()
 	const int  dEgray    = GetConfig()->m_dE_gray;
 	const bool bRound    = GetConfig()->m_bUseRoundDown != FALSE;
 	const bool b10bit    = GetConfig()->GetUse10bitLevels() != FALSE;
+	const bool bLimRange = GetConfig()->GetRGB16_235() != FALSE;
 
 	// Grayscale (+ near-black/white): reference chromaticity is the target white;
 	// the reference luminance and the YWhite passed to GetDeltaE follow the
@@ -531,7 +533,7 @@ void C3DColorView::BuildScene()
 		if ( dEgray == 1 )
 		{
 			// theoretical luminance from the target gamma / EOTF curve
-			double gridRatio = GridGrayTargetRatio( pMeasure, pMeasure->GetGrayPercent( i, bRound, b10bit ),
+			double gridRatio = GridGrayTargetRatio( pMeasure, pMeasure->GetGrayPercent( i, bRound, b10bit, bLimRange ),
 													pMeasure->GetOnOffBlack(), gsWhiteY, gammaOffset );
 			deRatio   = gridRatio;
 			markRatio = gridRatio * markPerGrid;
@@ -549,7 +551,7 @@ void C3DColorView::BuildScene()
 		}
 		markT.SetxyYValue( wChroma[0], wChroma[1], markRatio );
 		wchar_t lbl[48];
-		swprintf( lbl, 48, L"Gray %d%%", (int)( pMeasure->GetGrayPercent( i, bRound, b10bit ) + 0.5 ) );
+		swprintf( lbl, 48, L"Gray %d%%", (int)( pMeasure->GetGrayPercent( i, bRound, b10bit, bLimRange ) + 0.5 ) );
 		AppendMeasure( c, whiteY, ref, dET, markT, true, ywForDE, lbl, SRC_GRAY, i );
 	}
 
@@ -573,8 +575,8 @@ void C3DColorView::BuildScene()
 				// Same stimulus level and black reference the grid feeds the
 				// curve: near-black steps by 2 in PQ and anchors getL_EOTF on
 				// its own first patch; near-white counts back from the clip col.
-				double x = nb ? ArrayIndexToGrayLevel( (int)pMeasure->m_NearWhiteClipCol - n + i, 101, bRound, b10bit )
-							  : ArrayIndexToGrayLevel( i * ( gammaMode == 5 ? 2 : 1 ), 101, bRound, b10bit );
+				double x = nb ? ArrayIndexToGrayLevel( (int)pMeasure->m_NearWhiteClipCol - n + i, 101, bRound, b10bit, bLimRange )
+							  : ArrayIndexToGrayLevel( i * ( gammaMode == 5 ? 2 : 1 ), 101, bRound, b10bit, bLimRange );
 				CColor blackRef = nb ? pMeasure->GetOnOffBlack() : pMeasure->GetNearBlack( 0 );
 				double gridRatio = GridGrayTargetRatio( pMeasure, x, blackRef, gsWhiteY, gammaOffset );
 				deRatio   = gridRatio;

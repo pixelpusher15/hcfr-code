@@ -1302,25 +1302,33 @@ void CMeasure::SetGrayScaleLevels(const double * pLevels, int count)
 	}
 }
 
-double CMeasure::GetGrayPercent(int index, bool bUseRoundDown, bool b10bit) const
+double CMeasure::GetGrayPercent(int index, bool bUseRoundDown, bool b10bit, bool is16_235) const
 {
 	int size = m_grayMeasureArray.GetSize ();
 
 	if ( m_grayIRELevelArray.GetSize() == size && index >= 0 && index < size )
 	{
-		// Snap the stored nominal IRE % to the active output grid, matching
-		// ArrayIndexToGrayLevel()'s rounding for round-down / 10-bit / 8-bit.
+		// Snap the stored nominal IRE % to the active output grid. The stored
+		// levels are nominal percentages, never codes, so this is the one place
+		// the grid is applied to them - GrayLevelToGrayProp is the same snap
+		// expressed as a 0..1 proportion, so route through it and there is a
+		// single definition of the grid rounding.
 		// For a uniform level set this reproduces ArrayIndexToGrayLevel() exactly.
-		double L = m_grayIRELevelArray[index];
-		if ( bUseRoundDown )
-			return ( floor( L / 100.0 * 219.0 ) / 219.0 * 100.0 );
-		else if ( b10bit )
-			return ( floor( L / 100.0 * (219.0 * 4) + 0.5 ) / (219.0 * 4) * 100.0 );
-		else
-			return ( floor( L / 100.0 * 219.0 + 0.5 ) / 219.0 * 100.0 );
+		//
+		// SAVED DOCUMENTS: m_grayIRELevelArray serializes the NOMINAL levels, so
+		// nothing on disk is rewritten by the grid choice - the snap is applied
+		// live, at display time, from the CURRENT config. A .chc saved while the
+		// wire was full-range therefore reloads with 255-grid IRE labels (10.196%
+		// where the limited grid reads 10.046%), and the same document opened on
+		// a limited-range setup reads the limited labels. That is the same
+		// already-established behavior as toggling the 10-bit checkbox, and it is
+		// the correct one: the label must describe the grid the user is measuring
+		// on now, not the one the file happened to be captured on. The stored
+		// measurements are untouched either way.
+		return GrayLevelToGrayProp ( m_grayIRELevelArray[index], bUseRoundDown, b10bit, is16_235 ) * 100.0;
 	}
 
-	return ArrayIndexToGrayLevel ( index, size, bUseRoundDown, b10bit );
+	return ArrayIndexToGrayLevel ( index, size, bUseRoundDown, b10bit, is16_235 );
 }
 
 int CMeasure::GetGrayScalePreset() const
@@ -1707,7 +1715,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 		
 		if (!i && (GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) == DISPLAY_GDI_Hide) )
 			UpdateTstWnd(pDoc, -1);
-		if( pGenerator->DisplayGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()),CGenerator::MT_IRE ,!bRetry))
+		if( pGenerator->DisplayGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()),CGenerator::MT_IRE ,!bRetry))
 		{
 			UpdateTstWnd(pDoc, i);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
@@ -1718,7 +1726,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
 
 				m_grayMeasureArray[i] = measuredColor[i];
 				
@@ -1935,7 +1943,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 		if (!i && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) == DISPLAY_GDI_Hide)
 			UpdateTstWnd(pDoc, -1);
 
-		if( pGenerator->DisplayGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()),CGenerator::MT_IRE ,!bRetry))
+		if( pGenerator->DisplayGray(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()),CGenerator::MT_IRE ,!bRetry))
 		{
 			UpdateTstWnd(pDoc, i);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
@@ -1946,7 +1954,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() )));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() )));
 				m_grayMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -2390,7 +2398,7 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 			UpdateTstWnd(pDoc, -1);
 
 		int nCol = i * (GetConfig()->m_GammaOffsetType == 5 ? 2 : 1);
-		if( pGenerator->DisplayGray((ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())),CGenerator::MT_NEARBLACK,!bRetry) )
+		if( pGenerator->DisplayGray((ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())),CGenerator::MT_NEARBLACK,!bRetry) )
 		{
 			UpdateTstWnd(pDoc, nCol);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
@@ -2401,7 +2409,7 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
 				m_nearBlackMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
@@ -2613,7 +2621,7 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 		else
 			m_NearWhiteClipCol = 101;
 
-		if( pGenerator->DisplayGray( (ArrayIndexToGrayLevel ( m_NearWhiteClipCol - size + i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) ),CGenerator::MT_NEARWHITE,!bRetry ) )
+		if( pGenerator->DisplayGray( (ArrayIndexToGrayLevel ( m_NearWhiteClipCol - size + i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) ),CGenerator::MT_NEARWHITE,!bRetry ) )
 		{
 			UpdateTstWnd(pDoc, i);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
@@ -2624,7 +2632,7 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( bUseLuxValues )
 					StartLuxMeasure ();
 
-				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( m_NearWhiteClipCol - size+i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())));
+				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( m_NearWhiteClipCol - size+i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
 				m_nearWhiteMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )

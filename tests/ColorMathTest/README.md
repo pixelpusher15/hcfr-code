@@ -8,8 +8,12 @@ Guards the 8-bit signal path while the 10-bit work lands. Part of the plan in
   legacy implementation carried inside the test (no golden file). This is the core 8-bit
   contract; ~1M-point sweep per range plus grid and clamp edges. **Never update the frozen
   copy** — if T1 fails, the live quantizer changed behavior.
-- **T2/T3** — `ArrayIndexToGrayLevel` / `GrayLevelToGrayProp` tables for all grayscale sizes
-  and all three rounding modes (normal / round-down / 10-bit disc), vs golden files.
+- **T2/T3** — `ArrayIndexToGrayLevel` / `GrayLevelToGrayProp` tables for all grayscale sizes,
+  all three rounding modes (normal / round-down / 10-bit disc) **and both wire ranges**, vs
+  golden files. The `is16_235` column selects the native code grid (219 limited / 255 full at
+  8 bits, 876 / 1023 at 10) exactly as `SnapToVideoGrid` does. The `is16_235=1` rows are the
+  historic values and are byte-identical to the pre-range goldens — if one of those moves, the
+  limited-range gray path changed and that is a regression, not a re-baseline.
 - **T4** — `GenerateSaturationColors` (5 standards x 6 color combos x 3 sizes x 3 EOTF modes)
   and the hardcoded `GenerateCC24Colors` modes (GCD/MCD/CCSG), vs golden files. Emitted for
   every native grid the generators can quantize to: 8-bit limited (`SAT`/`CC` rows — the

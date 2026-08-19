@@ -4015,41 +4015,57 @@ double HLG_SignalToScene ( double v )
 	return ( exp( ( v - c ) / a ) + b ) / 12.0;
 }
 
-double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit)
+// The grayscale ramp's native code grid, for the active bit depth AND range:
+// 219 limited / 255 full (8-bit), 876 limited / 1023 full (10-bit). Identical
+// to SnapToVideoGrid's selection - the ramp, the patch generators, the dE
+// references and the simulated sensor must all quantize against the SAME grid,
+// or a full-range wire re-snaps to 255/1023 under a reference still living on
+// 219/876 (the /accuracytest FAM_GRAY GRID_FULL gap, <= ~0.4 dE).
+//
+// The legacy limited-range forms carried the black offset explicitly
+// (floor(x + 16.5) - 16.0, and 64.5 / 64.0 at 10 bits). Since 16 and 64 are
+// integers, floor(x + 16.5) - 16 == floor(x + 0.5) exactly, so the offset is a
+// no-op that only ever described the limited grid; full range needs no offset
+// at all. Dropping it leaves every limited-range value byte-identical (pinned
+// by the ColorMathTest T2/T3 goldens) and makes the full-range form fall out.
+static double GrayCodeGrid ( bool b10bit, bool is16_235 )
+{
+    return b10bit ? ( is16_235 ? 876. : 1023. ) : ( is16_235 ? 219. : 255. );
+}
+
+double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 )
 {
     // Gray percent: return a value between 0 and 100 corresponding to whole number level based on
 	// normal rounding (GCD disk), round down (AVSHD disk)
 	// 10-bit target levels used for HDR/Ryan Mascior's disk
-	
-		if (m_bUseRoundDown)
-		{
-			return (  floor((double)nCol / (double)(nSize-1) * 219.0) / 219.0 * 100.0 );
-		}
-		else if (m_b10bit)
-		{
-			return (  floor((double)nCol / (double)(nSize-1) * (219.0 * 4) + 0.5) / ( 219.0 * 4) * 100.0 ); //test 10-bit rounding
-		}
-		else
-		{
-			return ( floor((double)nCol / (double)(nSize-1) * 219.0 + 0.5) / 219.0 * 100.0 );
-		}
+	if ( nSize < 2 )
+		return 0.0;						// a one-point scale has no ramp; avoid /0
+
+	const double grid = GrayCodeGrid ( m_b10bit, is16_235 );
+	const double v = (double)nCol / (double)(nSize-1) * grid;
+
+	// Round-down is the AVSHD disc's truncating quantizer. It applies to the
+	// active grid like any other, but note it is UI-reachable only on the
+	// manual (disc) generator, for which RefreshUse10bitLevels() forces
+	// is16_235 = TRUE and the 10-bit checkbox off - so round-down + full range
+	// and round-down + 10 bit are unreachable configurations, and this stays
+	// the historic 219 truncation in every case a user can actually produce.
+	if (m_bUseRoundDown)
+		return ( floor(v) / grid * 100.0 );
+
+	return ( floor(v + 0.5) / grid * 100.0 );
 }
 
-double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit)
+double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 )
 {
     // Gray Level: return a value between 0 and 1 based on percentage level input
     //    normal rounding (GCD disk), round down (AVSHD disk)
+	const double grid = GrayCodeGrid ( m_b10bit, is16_235 );
+	const double v = Level / 100.0 * grid;
+
 	if (m_bUseRoundDown)
-	{
-    	return Level = (floor(Level / 100.0 * 219.0 + 16.0) - 16.0) / 219.0;
-	}
-	else if (m_b10bit)
-	{
-    	return Level = (floor(Level / 100.0 * (219.0 * 4) + (64.5)) - (16.0 * 4.0)) / (219.0 * 4.0);
-	}
-	else
-	{
-		return Level = (floor(Level / 100.0 * 219.0 + 16.5) - 16.0) / 219.0;
-	}
+		return floor(v) / grid;
+
+	return floor(v + 0.5) / grid;
 }
 
