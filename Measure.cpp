@@ -7856,6 +7856,12 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 	sRef[1].SetxyYValue(ColorxyY(0.224650,0.328741));
 	sRef[2].SetxyYValue(ColorxyY(0.320913, 0.154177));
 	int m_cRef=GetColorReference().m_standard;
+	// One basis for the endpoint below AND the YLuma switch further down.
+	// Both used to build this reference independently, which cost an extra
+	// matrix inversion + secondary solve on every call - and GetRefSat runs
+	// per hue per saturation step on the CIE-chart and 3D-viewer redraw paths.
+	const CColorReference basis = special ? CColorReference(HDTV)
+										  : ContainerInnerReference(GetColorReference());
 	//display rec709 sat points in special colorspace modes
 	if (!special)
 	{
@@ -7864,9 +7870,15 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 			// UHDTV3/UHDTV4 are containers: the sweep runs from the active
 			// white out to the INNER gamut's corner (P3 inside 2020, Rec.709
 			// inside 2020). Take that corner from ContainerInnerReference -
-			// exactly the reference GenerateSaturationColors builds the wire
-			// patches from via ContainerPrimaryLinear - so the two sides share
-			// one definition. These endpoints used to be hardcoded xy tables
+			// the same reference GenerateSaturationColors builds the wire
+			// patches in (its cRef) and the same one ContainerPrimaryLinear
+			// indexes for the primaries wire - so reference and wire follow
+			// one white. Note the sat wire derives its corner as the primary
+			// SUM, ColorXYZ(ColorRGB(1,1,0), cRef), while this reads
+			// UpdateSecondary's line intersection: equal by construction
+			// (R+G = white-B lies on both lines), but two formulas - a change
+			// to either must keep them in step.
+			// These endpoints used to be hardcoded xy tables
 			// (p3Ref/p3sRef/rRef/rsRef) evaluated at D65: the primaries are
 			// white-independent so they were merely duplicated, but the
 			// secondaries are white-point MIXTURES (see UpdateSecondary) and
@@ -7874,15 +7886,17 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 			//
 			// GetRefPrimary/GetRefSecondary route these two standards BACK
 			// through here (GetRefSat(i, 1.0)), so this must not call them.
-			CColorReference inner = ContainerInnerReference(GetColorReference());
 			switch (i)
 			{
-				case 0:	refColor.SetXYZValue(inner.GetRed());		break;
-				case 1:	refColor.SetXYZValue(inner.GetGreen());		break;
-				case 2:	refColor.SetXYZValue(inner.GetBlue());		break;
-				case 3:	refColor.SetXYZValue(inner.GetYellow());	break;
-				case 4:	refColor.SetXYZValue(inner.GetCyan());		break;
-				case 5:	refColor.SetXYZValue(inner.GetMagenta());	break;
+				case 0:	refColor.SetXYZValue(basis.GetRed());		break;
+				case 1:	refColor.SetXYZValue(basis.GetGreen());		break;
+				case 2:	refColor.SetXYZValue(basis.GetBlue());		break;
+				case 3:	refColor.SetXYZValue(basis.GetYellow());	break;
+				case 4:	refColor.SetXYZValue(basis.GetCyan());		break;
+				case 5:	refColor.SetXYZValue(basis.GetMagenta());	break;
+				// Fail the way GetRefPrimary/GetRefSecondary do rather than
+				// returning a plausible-looking chromaticity for a bad index.
+				default: ASSERT(0); return noDataColor;
 			}
 		}
 		else
@@ -7904,22 +7918,22 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 	switch (i)
 	{
 		case 0:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetRedReferenceLuma(true);
+			YLuma = basis.GetRedReferenceLuma(true);
 			break;
 		case 1:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetGreenReferenceLuma(true);
+			YLuma = basis.GetGreenReferenceLuma(true);
 			break;
 		case 2:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetBlueReferenceLuma(true);
+			YLuma = basis.GetBlueReferenceLuma(true);
 			break;
 		case 3:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetYellowReferenceLuma(true);
+			YLuma = basis.GetYellowReferenceLuma(true);
 			break;
 		case 4:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetCyanReferenceLuma(true);
+			YLuma = basis.GetCyanReferenceLuma(true);
 			break;
 		case 5:
-			YLuma = (special?CColorReference(HDTV):ContainerInnerReference(GetColorReference())).GetMagentaReferenceLuma(true);
+			YLuma = basis.GetMagentaReferenceLuma(true);
 			break;
 	}
 	

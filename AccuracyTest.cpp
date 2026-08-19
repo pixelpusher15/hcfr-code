@@ -64,7 +64,9 @@
 //   MT_PRIMARY/MT_SECONDARY/MT_SAT_* patch (grayscale MT_IRE and CC patches
 //   are not dimmed). The cancellation is exact only for a pure power law;
 //   quantization and non-power EOTFs (BT.1886, L*, sRGB) leave a small
-//   residual, so those combos get a looser, documented epsilon.
+//   residual - as does UHDTV3/UHDTV4's second, transport-space
+//   quantization under a custom white - so those combos get a looser,
+//   documented epsilon.
 // * The user's configuration is never touched: all profile reads/writes are
 //   redirected to a scratch ini in %TEMP%, every relevant config member is
 //   set explicitly per combo, settings are never saved, and the process
@@ -1234,7 +1236,7 @@ static double TolFor ( const Combo & c, int fam )
 		// one-code snap difference moves chroma most), BT.1886/L*/
 		// sRGB ~1.2 (their toes amplify the same one-code difference).
 		//
-		// UHDTV3/UHDTV4 take the wider ceiling at EVERY EOTF: their
+		// UHDTV3/UHDTV4 under a CUSTOM white take the wider ceiling: their
 		// transport-space encode quantizes a SECOND time (inner gamut ->
 		// 2020 transport), so the dimmed residual tracks CODE DENSITY rather
 		// than the transfer function's toe. Measured across the full matrix
@@ -1243,10 +1245,19 @@ static double TolFor ( const Combo & c, int fam )
 		// 8b-lim, 0.929 and 0.893 on the two 10-bit grids. The same patch
 		// (UHDTV3 DCI 8b-full, blue sat 25%) reads 1.059 under Power2.2 and
 		// 1.052 under BT.1886: one residual, and only the bucket differed -
-		// which is what made the 0.9 power-law ceiling the wrong one here.
+		// which is what made the 0.9 power-law ceiling the wrong one there.
+		// (Only eotf 0 is actually affected: BT.1886/L* already take 1.5,
+		// and PQ/HLG have no dimmed rows - Window Intensity is SDR-only.)
+		//
+		// D65 is deliberately NOT widened. Those rows were never masked by
+		// the deleted UHDTV3/4 known-fails (white == 999 = custom only):
+		// they were scored at 0.9 before this change and still pass there,
+		// so relaxing them would surrender 0.6 dE of regression sensitivity
+		// on the DEFAULT white for no measured reason.
 		if ( fam == FAM_PRIM || fam == FAM_SAT100 || fam == FAM_SAT75 )
 			return ( c.eotf == 0 && c.std != sRGB
-					 && c.std != UHDTV3 && c.std != UHDTV4 ) ? 0.9 : 1.5;
+					 && !( ( c.std == UHDTV3 || c.std == UHDTV4 )
+						   && c.white != D65 ) ) ? 0.9 : 1.5;
 	}
 	return 0.05;
 }
@@ -1455,7 +1466,8 @@ int RunAccuracyTest ( const char * pReportPath, bool bQuick )
 	}
 	fprintf(s_fReport, "Columns are the worst dE per patch family; '*' = over tolerance (FAIL),\n");
 	fprintf(s_fReport, "'#' = over tolerance but documented KNOWN-FAIL (see detail below).\n");
-	fprintf(s_fReport, "Tolerance: 0.05; Intensity-90%% combos: 0.9 (power law) / 1.5 (other EOTFs); conv*: 0.005\n");
+	fprintf(s_fReport, "Tolerance: 0.05; Intensity-90%% combos: 0.9 (power law) / 1.5 (other EOTFs,\n");
+	fprintf(s_fReport, "and UHDTV3/UHDTV4 at a custom white); conv*: 0.005\n");
 	fprintf(s_fReport, "dE settings: dE_form=3 (CIE2000), dE_gray=1 (gamma-predicted gray target), gw_Weight=0\n");
 	fprintf(s_fReport, "conv* families are DIFFERENTIAL: |grid dE - 3D-viewer dE| for a perturbed patch\n");
 	fprintf(s_fReport, "(-1.000 = family not run). convPV = nominal whites; convPVw = the three stored\n");

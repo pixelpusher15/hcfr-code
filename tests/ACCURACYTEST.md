@@ -46,14 +46,13 @@ those are the branchy axes.
 The subset must keep **every `kKnownFails` entry reachable**, or the stale-entry
 sweep turns `quick` into a permanent exit 1. Four things depend on the current
 choice: xyCust covers the HDTVa/HDTVb custom-white entries, 8b-lim the PQ
-half-code tie,
-8b-full the full-range gray gap — and 8b-lim is *also* the last limited-range
-grid, which the entire manual-generator pass is gated on, while D65 is *also*
-load-bearing for the HDTVa/b HDR primaries entries. Drop either and seven DVD
-entries go stale at once. An entry that a quick run cannot reach is now reported
-as `NOT REACHABLE in the quick subset` rather than `STALE`, and does not fail
-the run — deleting it on that advice would turn a documented gap into a hard
-FAIL on the full matrix.
+half-code tie, 8b-full the full-range gray gap — and 8b-lim is *also* the last
+limited-range grid, which the entire manual-generator pass is gated on, while
+D65 is *also* load-bearing for the HDTVa/b HDR primaries entries. Drop either
+and seven DVD entries go stale at once. An entry that a quick run cannot reach
+is now reported as `NOT REACHABLE in the quick subset` rather than `STALE`, and
+does not fail the run — deleting it on that advice would turn a documented gap
+into a hard FAIL on the full matrix.
 
 **A FAIL in a quick run is as real as in a full one; exit 0 is not.** The
 converse does not hold: a regression confined to a dropped white or grid is
@@ -243,15 +242,21 @@ nearby regression). Stale entries print a warning **and fail the run** (nonzero
 exit) — remove them from `kKnownFails` in `AccuracyTest.cpp`. The exit code is
 nonzero if there is any real FAIL **or** any stale entry.
 
-Tolerances: **0.05** for exact-model combos (SnapToVideoGrid's 1e-9
-tie-breaker means no extra slack is needed), **0.005** for the three
-convention families (see above). The Intensity-90% combos get
-**0.9** (power law) / **1.5** (BT.1886, L*, sRGB): the cancellation is exact
-only for an ideal power law — the dimmed code snaps to a different grid point
-than the undimmed one, and non-power EOTFs break the ratio identity — so a
+Tolerances: **0.05** for exact-model combos (SnapToVideoGrid's 1e-9 tie-breaker
+means no extra slack is needed), **0.005** for the three convention families
+(see above). The Intensity-90% combos get **0.9** (power law) / **1.5**
+(BT.1886, L*, sRGB, and UHDTV3/UHDTV4 at a **custom** white): the cancellation
+is exact only for an ideal power law — the dimmed code snaps to a different grid
+point than the undimmed one, and non-power EOTFs break the ratio identity — so a
 bounded, level-dependent residual is expected behavior, not a modeling error
 (measured ceilings ~0.8 and ~1.2 across the full matrix; worst on 8-bit dark
-saturation steps).
+saturation steps). UHDTV3/UHDTV4 join the wider bucket only at a custom white,
+because their inner-to-transport encode quantizes a *second* time, so the
+residual tracks code density rather than the toe (worst 1.350 on 8b-full). Their
+**D65** rows stay at 0.9: the deleted known-fails never covered D65 (`white ==
+999` is custom-only), so those rows were always scored at 0.9 and always passed,
+and widening them would drop 0.6 dE of regression sensitivity on the default
+white.
 
 Harness dE settings (fixed, independent of the user's config): `dE_form=3`
 (CIE2000), `dE_gray=1` (gamma-predicted gray luminance target — the app's
@@ -472,10 +477,12 @@ The one combo that did not fall straight under tolerance (UHDTV3 Power2.2 DCI
 residual, not a reference error: the identical patch reads 1.052 under BT.1886,
 where only the tolerance bucket differs, and the residual tracks code density
 (1.350 8b-full / 1.169 8b-lim / 0.929 10b-lim / 0.893 10b-full) rather than the
-transfer function. `TolFor` now puts UHDTV3/UHDTV4 in the same 1.5 dimmed
-bucket as the toe EOTFs, for the reason its own comment already predicted —
-their transport-space encode quantizes a second time. That ceiling was only
-ever calibrated on rows these six entries had been masking.
+transfer function. `TolFor` now puts UHDTV3/UHDTV4 **at a custom white** in
+the same 1.5 dimmed bucket as the toe EOTFs, for the reason its own comment
+already predicted — their transport-space encode quantizes a second time.
+That ceiling was only ever calibrated on rows these six entries had been
+masking, which is also why the D65 rows are left at 0.9 — they were never
+masked, and they pass there.
 
 (Was `708 combos: 311 pass, 0 FAIL, 397 known-fail` before that: +84
 tone-mapped 700-nit combos and +84 manual-generator combos (limited-range grids
