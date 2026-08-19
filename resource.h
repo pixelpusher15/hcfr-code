@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
 // fichier Include Microsoft Visual C++.
-// Utilisé par CHCFR21_FRANCAIS.rc
+// Utilisï¿½ par CHCFR21_FRANCAIS.rc
 //
 #define IDS_STRING_VERSION              1
 #define IDS_STRING_VERSION_WEB          2
@@ -1972,9 +1972,6 @@
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
-#define IDC_RADIO_CALIB_CLASSIC_NIST    1559
-#define IDC_RADIO_CALIB_HCFR_DEFAULT    1560
-#define IDC_RADIO_CALIB_BODNER          1561
 #define IDC_CHECK_EXPORT_RAW            1562
 #define IDC_CHECK_EXPORT_STIMULUS       1563
 #define ID_TARGET_TOL_FIRST             33108
