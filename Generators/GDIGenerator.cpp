@@ -1987,7 +1987,7 @@ namespace {
 							if (body[idx] & 0x80) three_d = _T("supported");
 							int hvl = (body[idx + 1] >> 5) & 7; idx += 2;
 							static const TCHAR* HV[] = { _T("-"),_T("3840x2160 @ 30 Hz"),_T("3840x2160 @ 25 Hz"),_T("3840x2160 @ 24 Hz"),_T("4096x2160 @ 24 Hz") };
-							for (int k = 0; k < hvl && idx + k <= ln; ++k)
+							for (int k = 0; k < hvl && idx + k < ln; ++k)
 							{
 								int hv = body[idx + k];
 								if (hv >= 1 && hv <= 4) hdmi4k.push_back(CString(HV[hv]));
@@ -2091,7 +2091,12 @@ namespace {
 	bool MuriCmdDouble(int cat, int a, int b2)
 	{
 		if (s_muriUseNet) { char b[64]; sprintf(b, "HEX%02XNUM%dBER%d", cat, a, b2); return MuriHttpGet("AudSendCmd.CGI", b); }
-		std::vector<BYTE> d; d.push_back((BYTE)a); d.push_back((BYTE)b2);
+		// Serial carries the pattern as one little-endian 2-byte id = num + bank*256.
+		// A bare (BYTE)a would truncate the bank-0 UHD SDR ids 256-347; the bank-1
+		// groups store num<256 so [num,bank] already equalled the LE full id - only
+		// bank-0 ids above 255 spill into the high byte and were being lost.
+		int fullId = a + (b2 << 8);
+		std::vector<BYTE> d; d.push_back((BYTE)(fullId & 0xFF)); d.push_back((BYTE)((fullId >> 8) & 0xFF));
 		return MuriSerialWriteRaw(MuriBuildFrame(cat, d));
 	}
 	// IRE window (keyword 0x78FB): grayscale box at level 0-255, size %. HTTP maps it as

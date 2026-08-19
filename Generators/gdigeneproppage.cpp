@@ -1877,7 +1877,14 @@ void CGDIGenePropPage::RefreshDvdoStatus()
 	c->lim  = (m_b16_235 != 0);
 	m_dvdoQuerying = TRUE;
 	m_dvdoReadout.SetWindowText(_T("Querying..."));
-	AfxBeginThread(DvdoQueryThread, c);
+	// If the worker never starts, clear the guard and free the ctx here - otherwise
+	// m_dvdoQuerying stays TRUE (only OnDvdoQueryDone clears it) and every later
+	// Refresh returns early, wedging the panel on "Querying...".
+	if (!AfxBeginThread(DvdoQueryThread, c))
+	{
+		m_dvdoQuerying = FALSE; delete c;
+		m_dvdoReadout.SetWindowText(_T("(could not start status query)"));
+	}
 }
 
 LRESULT CGDIGenePropPage::OnDvdoQueryDone(WPARAM, LPARAM lp)
@@ -2061,7 +2068,14 @@ void CGDIGenePropPage::RefreshMuriStatus()
 	c->com  = com;
 	m_muriQuerying = TRUE;
 	m_muriReadout.SetWindowText(_T("Querying..."));
-	AfxBeginThread(MuriQueryThread, c);
+	// If the worker never starts, clear the guard and free the ctx here - otherwise
+	// m_muriQuerying stays TRUE (only OnMuriQueryDone clears it) and every later
+	// Refresh returns early, wedging the panel on "Querying...".
+	if (!AfxBeginThread(MuriQueryThread, c))
+	{
+		m_muriQuerying = FALSE; delete c;
+		m_muriReadout.SetWindowText(_T("(could not start status query)"));
+	}
 }
 
 LRESULT CGDIGenePropPage::OnMuriQueryDone(WPARAM, LPARAM lp)
