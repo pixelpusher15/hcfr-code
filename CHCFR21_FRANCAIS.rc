@@ -2178,6 +2178,7 @@ BEGIN
         MENUITEM "Affiche les Delta E = 3 et 10", IDM_CIE_SHOWDELTAE
         MENUITEM "Mode CIE u'v'",               IDM_CIE_UV
         MENUITEM "Mode CIE a*b*",               IDM_CIE_AB
+        MENUITEM "Always recalc coverage %", IDM_CIE_COV_ALWAYS_RECALC
         MENUITEM "Worst 10%",                   IDM_CIE_WORST10
         MENUITEM "Affiche les références",      IDM_CIE_SHOWREFERENCES
         MENUITEM "Enregistrer...",              IDM_CIE_SAVECHART

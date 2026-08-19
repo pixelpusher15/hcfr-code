@@ -6,6 +6,7 @@
 
 #include <math.h>
 #include <vector>
+#include <algorithm>
 
 void xyToUv(double x, double y, double & u, double & v)
 {
@@ -59,13 +60,15 @@ namespace
     }
 
     // Sutherland-Hodgman: clip a polygon against a convex, CCW-wound clip
-    // triangle.
-    std::vector<Pt> clipPolygon(std::vector<Pt> poly, const Pt clip[3])
+    // polygon of any vertex count (a triangle for the xy/u'v' path, a hull
+    // of arbitrary size for the a*b* path).
+    std::vector<Pt> clipPolygon(std::vector<Pt> poly, const std::vector<Pt> & clip)
     {
-        for (int e = 0; e < 3 && !poly.empty(); e++)
+        size_t nClip = clip.size();
+        for (size_t e = 0; e < nClip && !poly.empty(); e++)
         {
             const Pt & a = clip[e];
-            const Pt & b = clip[(e + 1) % 3];
+            const Pt & b = clip[(e + 1) % nClip];
             std::vector<Pt> out;
             size_t n = poly.size();
             for (size_t i = 0; i < n; i++)
@@ -98,15 +101,54 @@ namespace
         return p;
     }
 
-    // Ensure counter-clockwise winding.
-    void makeCCW(std::vector<Pt> & tri)
+    // Ensure counter-clockwise winding, for a polygon of any vertex count.
+    void makeCCW(std::vector<Pt> & poly)
     {
-        if (signedArea2(tri) < 0.0)
+        if (signedArea2(poly) < 0.0)
+            std::reverse(poly.begin(), poly.end());
+    }
+
+    bool ptLess(const Pt & a, const Pt & b)
+    {
+        return (a.x < b.x) || (a.x == b.x && a.y < b.y);
+    }
+
+    // Andrew's monotone chain: convex hull of an arbitrary point set, CCW
+    // wound, duplicate/collinear points on an edge dropped. Needed because a
+    // hexagon of real display primaries+secondaries is not guaranteed
+    // convex on its own (e.g. an undersaturated secondary can sit inside the
+    // chord between its two neighbors), and clipPolygon's clip argument must
+    // be a valid convex polygon.
+    std::vector<Pt> convexHull(std::vector<Pt> pts)
+    {
+        size_t n = pts.size();
+        if (n < 3)
+            return std::vector<Pt>();
+
+        std::sort(pts.begin(), pts.end(), ptLess);
+        pts.erase(std::unique(pts.begin(), pts.end(),
+            [](const Pt & a, const Pt & b) { return a.x == b.x && a.y == b.y; }), pts.end());
+        n = pts.size();
+        if (n < 3)
+            return std::vector<Pt>();
+
+        std::vector<Pt> hull(2 * n);
+        int k = 0;
+        for (size_t i = 0; i < n; i++)  // lower chain
         {
-            Pt tmp = tri[1];
-            tri[1] = tri[2];
-            tri[2] = tmp;
+            while (k >= 2 && cross(hull[k-2], hull[k-1], pts[i]) <= 0.0)
+                k--;
+            hull[k++] = pts[i];
         }
+        int lower = k + 1;
+        for (int i = (int)n - 2; i >= 0; i--)  // upper chain
+        {
+            while (k >= lower && cross(hull[k-2], hull[k-1], pts[i]) <= 0.0)
+                k--;
+            hull[k++] = pts[i];
+        }
+        hull.resize(k - 1);  // last point == first point, drop the dup
+        return hull;
     }
 }
 
@@ -128,8 +170,35 @@ double GamutCoverage(const ColorxyY measured[3], const ColorxyY reference[3], Ga
     if (refArea2 <= kAreaEpsilon || fabs(signedArea2(meas)) <= kAreaEpsilon)
         return 0.0;
 
-    Pt clip[3] = { ref[0], ref[1], ref[2] };
-    std::vector<Pt> inter = clipPolygon(meas, clip);
+    std::vector<Pt> inter = clipPolygon(meas, ref);
+    if (inter.size() < 3)
+        return 0.0;
+
+    return fabs(signedArea2(inter)) / refArea2;
+}
+
+double GamutCoveragePolygon(const std::vector<GamutPoint> & measured, const std::vector<GamutPoint> & reference)
+{
+    std::vector<Pt> measPts(measured.size()), refPts(reference.size());
+    for (size_t i = 0; i < measured.size(); i++)
+        measPts[i] = Pt{ measured[i].x, measured[i].y };
+    for (size_t i = 0; i < reference.size(); i++)
+        refPts[i] = Pt{ reference[i].x, reference[i].y };
+
+    std::vector<Pt> measHull = convexHull(measPts);
+    std::vector<Pt> refHull = convexHull(refPts);
+    if (measHull.size() < 3 || refHull.size() < 3)
+        return 0.0;
+
+    makeCCW(measHull);
+    makeCCW(refHull);
+
+    const double kAreaEpsilon = 1e-12;
+    double refArea2 = signedArea2(refHull);
+    if (refArea2 <= kAreaEpsilon || fabs(signedArea2(measHull)) <= kAreaEpsilon)
+        return 0.0;
+
+    std::vector<Pt> inter = clipPolygon(measHull, refHull);
     if (inter.size() < 3)
         return 0.0;
 

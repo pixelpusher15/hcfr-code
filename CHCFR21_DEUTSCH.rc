@@ -1796,6 +1796,7 @@ BEGIN
         MENUITEM "Delta E = 3 und 10 anzeigen", IDM_CIE_SHOWDELTAE
         MENUITEM "CIE u'v' Modus",              IDM_CIE_UV
         MENUITEM "CIE a*b* Modus",              IDM_CIE_AB
+        MENUITEM "Always recalc coverage %", IDM_CIE_COV_ALWAYS_RECALC
         MENUITEM "Worst 10%",                   IDM_CIE_WORST10
         MENUITEM "Referenzen anzeigen",         IDM_CIE_SHOWREFERENCES
         MENUITEM "Speichern...",                IDM_CIE_SAVECHART
