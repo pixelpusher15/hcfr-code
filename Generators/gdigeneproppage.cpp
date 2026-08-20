@@ -39,13 +39,7 @@ static char THIS_FILE[] = __FILE__;
 // CGDIGenePropPage property page
 
 // Local child-control ids for the programmatic DVDO AVLab TPG config panel.
-#define IDC_DVDO_COM_COMBO    1700
-#define IDC_DVDO_CS_COMBO     1701
-#define IDC_DVDO_RANGE_COMBO  1702
-#define IDC_DVDO_MODE_COMBO   1703
-#define IDC_DVDO_TEST_BTN     1704
 #define IDC_DVDO_STATUS       1705
-#define IDC_DVDO_FORMAT_COMBO 1706
 #define IDC_DVDO_PATCAT_COMBO 1707
 #define IDC_DVDO_PAT_COMBO    1708
 #define IDC_DVDO_SHOW_BTN     1709
@@ -64,7 +58,6 @@ static char THIS_FILE[] = __FILE__;
 #define IDC_MURI_COM_COMBO    1720
 #define IDC_MURI_TGRP_COMBO   1721
 #define IDC_MURI_TIMING_COMBO 1722
-#define IDC_MURI_CS_COMBO     1723
 #define IDC_MURI_PGRP_COMBO   1724
 #define IDC_MURI_PAT_COMBO    1725
 #define IDC_MURI_TEST_BTN     1726
@@ -165,9 +158,8 @@ CGDIGenePropPage::CGDIGenePropPage() : CPropertyPageWithHelp(CGDIGenePropPage::I
 	m_grpDisplay = m_grpMadvr = m_grpCast = m_grpPgen = m_grpSignal = m_grpPattern = m_grpBlanking = m_grpDvdo = m_grpMuri = NULL;
 	m_lblOutput = m_lblScreen = m_lblSize = m_lblApl = m_lblIntensity = NULL;
 	m_lblXoff = m_lblYoff = m_lblCastDev = m_lblRange = m_lblOffset = NULL;
-	m_lblDvdoCom = m_lblDvdoCs = m_lblDvdoRange = m_lblDvdoMode = NULL;
-	m_lblDvdoFormat = m_lblDvdoPatCat = m_lblDvdoPat = NULL;
-	m_lblMuriCom = m_lblMuriTimingGrp = m_lblMuriTiming = m_lblMuriCs = m_lblMuriPatGrp = m_lblMuriPat = m_lblMuriIp = NULL;
+	m_lblDvdoPatCat = m_lblDvdoPat = NULL;
+	m_lblMuriPatGrp = m_lblMuriPat = NULL;
 }
 
 CGDIGenePropPage::~CGDIGenePropPage()
@@ -224,19 +216,15 @@ BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	ON_BN_CLICKED(IDC_PGEN_10BIT_CHECK, On10bitClick)
 	ON_BN_CLICKED(IDC_PGEN_SETTINGS_BTN, OnPgenSettings)
 	ON_BN_CLICKED(IDC_PGEN_REFRESH_BTN, OnPgenRefresh)
-	ON_BN_CLICKED(IDC_DVDO_TEST_BTN, OnDvdoTest)
 	ON_BN_CLICKED(IDC_DVDO_SHOW_BTN, OnDvdoShow)
 	ON_BN_CLICKED(IDC_DVDO_OFF_BTN, OnDvdoOff)
 	ON_BN_CLICKED(IDC_DVDO_REFRESH_BTN, OnDvdoRefresh)
 	ON_BN_CLICKED(IDC_DVDO_SETTINGS_BTN, OnDvdoSettings)
 	ON_CBN_SELCHANGE(IDC_DVDO_PATCAT_COMBO, OnDvdoCatChange)
-	ON_BN_CLICKED(IDC_MURI_TEST_BTN, OnMuriTest)
-	ON_BN_CLICKED(IDC_MURI_APPLY_BTN, OnMuriApply)
 	ON_BN_CLICKED(IDC_MURI_SHOW_BTN, OnMuriShow)
 	ON_BN_CLICKED(IDC_MURI_REFRESH_BTN, OnMuriRefresh)
 	ON_BN_CLICKED(IDC_MURI_SETTINGS_BTN, OnMuriSettings)
 	ON_BN_CLICKED(IDC_MURI_EDID_BTN, OnMuriEdid)
-	ON_CBN_SELCHANGE(IDC_MURI_TGRP_COMBO, OnMuriTimingGrpChange)
 	ON_CBN_SELCHANGE(IDC_MURI_PGRP_COMBO, OnMuriPatGrpChange)
 	ON_MESSAGE(WM_PGEN_QUERY_DONE, OnPgenQueryDone)
 	ON_MESSAGE(WM_DVDO_QUERY_DONE, OnDvdoQueryDone)
@@ -439,9 +427,8 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	m_grpDisplay = m_grpMadvr = m_grpCast = m_grpPgen = m_grpSignal = m_grpPattern = m_grpBlanking = m_grpDvdo = m_grpMuri = NULL;
 	m_lblOutput = m_lblScreen = m_lblSize = m_lblApl = m_lblIntensity = NULL;
 	m_lblXoff = m_lblYoff = m_lblCastDev = m_lblRange = m_lblOffset = NULL;
-	m_lblDvdoCom = m_lblDvdoCs = m_lblDvdoRange = m_lblDvdoMode = NULL;
-	m_lblDvdoFormat = m_lblDvdoPatCat = m_lblDvdoPat = NULL;
-	m_lblMuriCom = m_lblMuriTimingGrp = m_lblMuriTiming = m_lblMuriCs = m_lblMuriPatGrp = m_lblMuriPat = m_lblMuriIp = NULL;
+	m_lblDvdoPatCat = m_lblDvdoPat = NULL;
+	m_lblMuriPatGrp = m_lblMuriPat = NULL;
 
 	DlgMap M; M.h = GetSafeHwnd();
 	CFont* font = GetFont();
@@ -542,36 +529,17 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	// the group frame and labels are recreated with the rest of m_dynAll.
 	m_grpDvdo = new CButton();
 	{ CPoint gp = M.at(GRP_X, 26); m_grpDvdo->Create(_T("DVDO AVLab TPG"), WS_CHILD | WS_VISIBLE | BS_GROUPBOX, CRect(gp.x, gp.y, gp.x + M.w(GRP_W), gp.y + M.ht(80)), this, (UINT)IDC_STATIC); m_grpDvdo->SetFont(font); m_dynAll.Add(m_grpDvdo); }
-	m_lblDvdoCom    = AddText(this, m_dynAll, font, M, _T("COM port"),      LBL_X, 0, 60, 9);
-	m_lblDvdoCs     = AddText(this, m_dynAll, font, M, _T("Color format"),  LBL_X, 0, 60, 9);
-	m_lblDvdoRange  = AddText(this, m_dynAll, font, M, _T("Output range"),  LBL_X, 0, 60, 9);
-	m_lblDvdoFormat = AddText(this, m_dynAll, font, M, _T("Output format"), LBL_X, 0, 60, 9);
-	m_lblDvdoMode   = AddText(this, m_dynAll, font, M, _T("Command"),       LBL_X, 0, 60, 9);
 	m_lblDvdoPatCat = AddText(this, m_dynAll, font, M, _T("Pattern group"), LBL_X, 0, 60, 9);
 	m_lblDvdoPat    = AddText(this, m_dynAll, font, M, _T("Pattern"),       LBL_X, 0, 60, 9);
-	if (!m_dvdoComCombo.GetSafeHwnd())   { m_dvdoComCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWN | WS_VSCROLL, CRect(0,0,M.w(80),M.ht(120)), this, IDC_DVDO_COM_COMBO); m_dvdoComCombo.SetFont(font); }
-	if (!m_dvdoCsCombo.GetSafeHwnd())    { m_dvdoCsCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(90),M.ht(90)), this, IDC_DVDO_CS_COMBO); m_dvdoCsCombo.SetFont(font); m_dvdoCsCombo.AddString(_T("RGB")); m_dvdoCsCombo.AddString(_T("YCbCr 4:4:4")); m_dvdoCsCombo.AddString(_T("YCbCr 4:2:2")); }
-	if (!m_dvdoRangeCombo.GetSafeHwnd()) { m_dvdoRangeCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(100),M.ht(90)), this, IDC_DVDO_RANGE_COMBO); m_dvdoRangeCombo.SetFont(font); m_dvdoRangeCombo.AddString(_T("Limited (16-235)")); m_dvdoRangeCombo.AddString(_T("Full (0-255)")); }
-	if (!m_dvdoModeCombo.GetSafeHwnd())  { m_dvdoModeCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(120),M.ht(90)), this, IDC_DVDO_MODE_COMBO); m_dvdoModeCombo.SetFont(font); m_dvdoModeCombo.AddString(_T("Auto (AA 0-255)")); m_dvdoModeCombo.AddString(_T("AA full triplet (0-255)")); m_dvdoModeCombo.AddString(_T("AF %IRE (0-100)")); }
-	if (!m_dvdoFormatCombo.GetSafeHwnd()) { m_dvdoFormatCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(100),M.ht(200)), this, IDC_DVDO_FORMAT_COMBO); m_dvdoFormatCombo.SetFont(font);
-		for (int i = 0; i < CGDIGenerator_DvdoFmtCount(); ++i) m_dvdoFormatCombo.AddString(CString(CGDIGenerator_DvdoFmtName(i))); }
 	if (!m_dvdoPatCatCombo.GetSafeHwnd()) { m_dvdoPatCatCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(120),M.ht(140)), this, IDC_DVDO_PATCAT_COMBO); m_dvdoPatCatCombo.SetFont(font);
 		for (int i = 0; i < CGDIGenerator_DvdoCatCount(); ++i) m_dvdoPatCatCombo.AddString(CString(CGDIGenerator_DvdoCatName(i))); }
 	if (!m_dvdoPatCombo.GetSafeHwnd())    { m_dvdoPatCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(120),M.ht(200)), this, IDC_DVDO_PAT_COMBO); m_dvdoPatCombo.SetFont(font); }
-	if (!m_dvdoTestBtn.GetSafeHwnd())    { m_dvdoTestBtn.Create(_T("Detect / Test"), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(70),M.ht(14)), this, IDC_DVDO_TEST_BTN); m_dvdoTestBtn.SetFont(font); }
 	if (!m_dvdoShowBtn.GetSafeHwnd())    { m_dvdoShowBtn.Create(_T("Show pattern"), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(64),M.ht(14)), this, IDC_DVDO_SHOW_BTN); m_dvdoShowBtn.SetFont(font); }
 	if (!m_dvdoOffBtn.GetSafeHwnd())     { m_dvdoOffBtn.Create(_T("Patterns off"), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(60),M.ht(14)), this, IDC_DVDO_OFF_BTN); m_dvdoOffBtn.SetFont(font); }
 	if (!m_dvdoStatus.GetSafeHwnd())     { m_dvdoStatus.Create(_T(""), WS_CHILD | SS_LEFT, CRect(0,0,M.w(150),M.ht(9)), this, IDC_DVDO_STATUS); m_dvdoStatus.SetFont(font); }
 	if (!m_dvdoReadout.GetSafeHwnd())    { m_dvdoReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP, CRect(0,0,M.w(166),M.ht(72)), this, IDC_DVDO_READOUT); m_dvdoReadout.SetFont(font); }
 	if (!m_dvdoRefreshBtn.GetSafeHwnd()) { m_dvdoRefreshBtn.Create(_T("Refresh"), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(44),M.ht(14)), this, IDC_DVDO_REFRESH_BTN); m_dvdoRefreshBtn.SetFont(font); }
 	if (!m_dvdoSettingsBtn.GetSafeHwnd()) { m_dvdoSettingsBtn.Create(_T("DVDO settings..."), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(96),M.ht(14)), this, IDC_DVDO_SETTINGS_BTN); m_dvdoSettingsBtn.SetFont(font); }
-	PopulateDvdoComPorts();
-	m_dvdoCsCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0));
-	// Output range IS HCFR's global RGB range (m_b16_235): 0 = Limited (16-235), 1 = Full
-	// (0-255). Driving m_b16_235 keeps the main-page stimulus values and what we send in sync.
-	m_dvdoRangeCombo.SetCurSel(m_b16_235 ? 0 : 1);
-	m_dvdoModeCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","DvdoCmdMode",0));
-	m_dvdoFormatCombo.SetCurSel(CGDIGenerator_DvdoFmtIndexForCode(GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0)));
 	{
 		// Restore the pattern pickers from the saved pattern code (default: first group).
 		int ci = 0, pi = 0;
@@ -584,41 +552,17 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	// --- Murideo Seven-G config panel (programmatic, mirrors the DVDO panel) ---
 	m_grpMuri = new CButton();
 	{ CPoint gp = M.at(GRP_X, 26); m_grpMuri->Create(_T("Murideo Seven-G"), WS_CHILD | WS_VISIBLE | BS_GROUPBOX, CRect(gp.x, gp.y, gp.x + M.w(GRP_W), gp.y + M.ht(80)), this, (UINT)IDC_STATIC); m_grpMuri->SetFont(font); m_dynAll.Add(m_grpMuri); }
-	m_lblMuriIp        = AddText(this, m_dynAll, font, M, _T("IP address"),    LBL_X, 0, 60, 9);
-	m_lblMuriCom       = AddText(this, m_dynAll, font, M, _T("COM port"),      LBL_X, 0, 60, 9);
-	m_lblMuriTimingGrp = AddText(this, m_dynAll, font, M, _T("Resolution grp"), LBL_X, 0, 60, 9);
-	m_lblMuriTiming    = AddText(this, m_dynAll, font, M, _T("Resolution"),     LBL_X, 0, 60, 9);
-	m_lblMuriCs        = AddText(this, m_dynAll, font, M, _T("Color space"),    LBL_X, 0, 60, 9);
 	m_lblMuriPatGrp    = AddText(this, m_dynAll, font, M, _T("Pattern group"),  LBL_X, 0, 60, 9);
 	m_lblMuriPat       = AddText(this, m_dynAll, font, M, _T("Pattern"),        LBL_X, 0, 60, 9);
 	if (!m_muriReadout.GetSafeHwnd())      { m_muriReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP, CRect(0,0,M.w(166),M.ht(88)), this, IDC_MURI_READOUT); m_muriReadout.SetFont(font); }
 	if (!m_muriRefreshBtn.GetSafeHwnd())   { m_muriRefreshBtn.Create(_T("Refresh"), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(44),M.ht(14)), this, IDC_MURI_REFRESH_BTN); m_muriRefreshBtn.SetFont(font); }
 	if (!m_muriSettingsBtn.GetSafeHwnd())  { m_muriSettingsBtn.Create(_T("Murideo settings..."), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(100),M.ht(14)), this, IDC_MURI_SETTINGS_BTN); m_muriSettingsBtn.SetFont(font); }
 	if (!m_muriEdidBtn.GetSafeHwnd())       { m_muriEdidBtn.Create(_T("Sink EDID..."), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(70),M.ht(14)), this, IDC_MURI_EDID_BTN); m_muriEdidBtn.SetFont(font); }
-	if (!m_muriNetCheck.GetSafeHwnd())     { m_muriNetCheck.Create(_T("Use network (HTTP)"), WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX, CRect(0,0,M.w(110),M.ht(12)), this, IDC_MURI_NET_CHECK); m_muriNetCheck.SetFont(font); }
-	if (!m_muriIpEdit.GetSafeHwnd())       { m_muriIpEdit.Create(WS_CHILD | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL, CRect(0,0,M.w(90),M.ht(12)), this, IDC_MURI_IP_EDIT); m_muriIpEdit.SetFont(font); }
-	if (!m_muriComCombo.GetSafeHwnd())     { m_muriComCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWN | WS_VSCROLL, CRect(0,0,M.w(80),M.ht(120)), this, IDC_MURI_COM_COMBO); m_muriComCombo.SetFont(font); }
-	if (!m_muriTimingGrpCombo.GetSafeHwnd()){ m_muriTimingGrpCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(90),M.ht(120)), this, IDC_MURI_TGRP_COMBO); m_muriTimingGrpCombo.SetFont(font);
-		for (int i = 0; i < CGDIGenerator_MuriTimingGroups(); ++i) m_muriTimingGrpCombo.AddString(CString(CGDIGenerator_MuriTimingGroupName(i))); }
-	if (!m_muriTimingCombo.GetSafeHwnd())  { m_muriTimingCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(120),M.ht(200)), this, IDC_MURI_TIMING_COMBO); m_muriTimingCombo.SetFont(font); }
-	if (!m_muriCsCombo.GetSafeHwnd())      { m_muriCsCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(120),M.ht(120)), this, IDC_MURI_CS_COMBO); m_muriCsCombo.SetFont(font);
-		for (int i = 0; i < CGDIGenerator_MuriCsCount(); ++i) m_muriCsCombo.AddString(CString(CGDIGenerator_MuriCsName(i))); }
 	if (!m_muriPatGrpCombo.GetSafeHwnd())  { m_muriPatGrpCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(90),M.ht(120)), this, IDC_MURI_PGRP_COMBO); m_muriPatGrpCombo.SetFont(font);
 		for (int i = 0; i < CGDIGenerator_MuriPatGroups(); ++i) m_muriPatGrpCombo.AddString(CString(CGDIGenerator_MuriPatGroupName(i))); }
 	if (!m_muriPatCombo.GetSafeHwnd())     { m_muriPatCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(120),M.ht(200)), this, IDC_MURI_PAT_COMBO); m_muriPatCombo.SetFont(font); }
-	if (!m_muriTestBtn.GetSafeHwnd())      { m_muriTestBtn.Create(_T("Detect / Test"), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(70),M.ht(14)), this, IDC_MURI_TEST_BTN); m_muriTestBtn.SetFont(font); }
-	if (!m_muriApplyBtn.GetSafeHwnd())     { m_muriApplyBtn.Create(_T("Apply output"), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(64),M.ht(14)), this, IDC_MURI_APPLY_BTN); m_muriApplyBtn.SetFont(font); }
 	if (!m_muriShowBtn.GetSafeHwnd())      { m_muriShowBtn.Create(_T("Show pattern"), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(64),M.ht(14)), this, IDC_MURI_SHOW_BTN); m_muriShowBtn.SetFont(font); }
 	if (!m_muriStatus.GetSafeHwnd())       { m_muriStatus.Create(_T(""), WS_CHILD | SS_LEFT, CRect(0,0,M.w(150),M.ht(9)), this, IDC_MURI_STATUS); m_muriStatus.SetFont(font); }
-	PopulateMuriComPorts();
-	m_muriIpEdit.SetWindowText(GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239"));
-	m_muriNetCheck.SetCheck(GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1) ? BST_CHECKED : BST_UNCHECKED);
-	m_muriCsCombo.SetCurSel(CGDIGenerator_MuriCsIndexForId(GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0)));
-	{
-		int gi = 0, ii = 0;
-		if (CGDIGenerator_MuriFindTiming(GetConfig()->GetProfileInt("GDIGenerator","MuriTimingId",-1), gi, ii)) { m_muriTimingGrpCombo.SetCurSel(gi); PopulateMuriTimingCombo(gi); m_muriTimingCombo.SetCurSel(ii); }
-		else { m_muriTimingGrpCombo.SetCurSel(0); PopulateMuriTimingCombo(0); }
-	}
 	{
 		int gi = 0, ii = 0;
 		if (CGDIGenerator_MuriFindPat(GetConfig()->GetProfileInt("GDIGenerator","MuriPatternId",-1), GetConfig()->GetProfileInt("GDIGenerator","MuriPatternBer",0), gi, ii)) { m_muriPatGrpCombo.SetCurSel(gi); PopulateMuriPatCombo(gi); m_muriPatCombo.SetCurSel(ii); }
@@ -672,16 +616,14 @@ void CGDIGenePropPage::Relayout()
 	if (m_tenBitCheck.GetSafeHwnd()) m_tenBitCheck.ShowWindow(SW_HIDE);
 	if (m_tenBitMadvrCheck.GetSafeHwnd()) m_tenBitMadvrCheck.ShowWindow(SW_HIDE);
 	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.ShowWindow(SW_HIDE);
-	{ CWnd* dv[] = { &m_dvdoComCombo, &m_dvdoCsCombo, &m_dvdoRangeCombo, &m_dvdoModeCombo, &m_dvdoTestBtn, &m_dvdoStatus,
-	                 &m_dvdoFormatCombo, &m_dvdoPatCatCombo, &m_dvdoPatCombo, &m_dvdoShowBtn, &m_dvdoOffBtn, &m_dvdoReadout, &m_dvdoRefreshBtn, &m_dvdoSettingsBtn };
+	{ CWnd* dv[] = { &m_dvdoStatus, &m_dvdoPatCatCombo, &m_dvdoPatCombo, &m_dvdoShowBtn, &m_dvdoOffBtn, &m_dvdoReadout, &m_dvdoRefreshBtn, &m_dvdoSettingsBtn };
 	  for (int i = 0; i < (int)(sizeof(dv)/sizeof(dv[0])); i++) if (dv[i]->GetSafeHwnd()) dv[i]->ShowWindow(SW_HIDE); }
-	{ CWnd* mu[] = { &m_muriComCombo, &m_muriTimingGrpCombo, &m_muriTimingCombo, &m_muriCsCombo, &m_muriPatGrpCombo, &m_muriPatCombo,
-	                 &m_muriTestBtn, &m_muriApplyBtn, &m_muriShowBtn, &m_muriStatus, &m_muriIpEdit, &m_muriNetCheck,
+	{ CWnd* mu[] = { &m_muriPatGrpCombo, &m_muriPatCombo, &m_muriShowBtn, &m_muriStatus,
 	                 &m_muriReadout, &m_muriRefreshBtn, &m_muriSettingsBtn, &m_muriEdidBtn };
 	  for (int i = 0; i < (int)(sizeof(mu)/sizeof(mu[0])); i++) if (mu[i]->GetSafeHwnd()) mu[i]->ShowWindow(SW_HIDE); }
 	CWnd* labels[] = { m_lblScreen, m_lblSize, m_lblApl, m_lblIntensity, m_lblXoff, m_lblYoff, m_lblCastDev, m_lblRange, m_lblOffset,
-	                   m_lblDvdoCom, m_lblDvdoCs, m_lblDvdoRange, m_lblDvdoMode, m_lblDvdoFormat, m_lblDvdoPatCat, m_lblDvdoPat,
-	                   m_lblMuriCom, m_lblMuriTimingGrp, m_lblMuriTiming, m_lblMuriCs, m_lblMuriPatGrp, m_lblMuriPat, m_lblMuriIp };
+	                   m_lblDvdoPatCat, m_lblDvdoPat,
+	                   m_lblMuriPatGrp, m_lblMuriPat };
 	for (int i = 0; i < (int)(sizeof(labels)/sizeof(labels[0])); i++) if (labels[i]) labels[i]->ShowWindow(SW_HIDE);
 
 	int y = 26;
@@ -1760,48 +1702,6 @@ BOOL CGDIGenePropPage::OnSetActive()
 	return CPropertyPageWithHelp::OnSetActive();
 }
 
-void CGDIGenePropPage::PopulateDvdoComPorts()
-{
-	if (!m_dvdoComCombo.GetSafeHwnd()) return;
-	CString current = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
-	m_dvdoComCombo.ResetContent();
-	HKEY hKey;
-	if (ERROR_SUCCESS == RegOpenKeyEx(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &hKey))
-	{
-		char name[256], val[256]; DWORD idx = 0, cbN = sizeof(name), cbV = sizeof(val), type;
-		while (ERROR_SUCCESS == RegEnumValue(hKey, idx, name, &cbN, NULL, &type, (LPBYTE)val, &cbV))
-		{
-			if (type == REG_SZ && _strnicmp(val, "COM", 3) == 0 && m_dvdoComCombo.FindStringExact(-1, val) == CB_ERR)
-				m_dvdoComCombo.AddString(val);
-			idx++; cbN = sizeof(name); cbV = sizeof(val);
-		}
-		RegCloseKey(hKey);
-	}
-	if (!current.IsEmpty() && m_dvdoComCombo.FindStringExact(-1, current) == CB_ERR)
-		m_dvdoComCombo.AddString(current);
-	int sel = current.IsEmpty() ? CB_ERR : m_dvdoComCombo.FindStringExact(-1, current);
-	if (sel != CB_ERR) m_dvdoComCombo.SetCurSel(sel);
-	else if (m_dvdoComCombo.GetCount() > 0) m_dvdoComCombo.SetCurSel(0);
-}
-
-void CGDIGenePropPage::OnDvdoTest()
-{
-	CString com; m_dvdoComCombo.GetWindowText(com); com.Trim();
-	if (com.IsEmpty()) { m_dvdoStatus.SetWindowText(_T("Select a COM port first.")); return; }
-	int cmd = m_dvdoModeCombo.GetSafeHwnd() ? m_dvdoModeCombo.GetCurSel() : 0; if (cmd < 0) cmd = 0;
-	int cs  = m_dvdoCsCombo.GetSafeHwnd() ? m_dvdoCsCombo.GetCurSel() : 0; if (cs < 0) cs = 0;
-	int rng = m_dvdoRangeCombo.GetSafeHwnd() ? m_dvdoRangeCombo.GetCurSel() : 0; if (rng < 0) rng = 0;
-
-	m_dvdoStatus.SetWindowText(_T("Connecting..."));
-	CString msg;
-	CGDIGenerator_DvdoTestConnection(com, cmd, cs, rng, msg);
-	if (msg.IsEmpty()) msg = _T("Could not open the port - check the DVDO driver / COM selection.");
-	m_dvdoStatus.SetWindowText(msg);
-	// The status static is narrow; also show the full result (incl. byte count) in a
-	// box so nothing is clipped.
-	MessageBox(msg, _T("DVDO AVLab TPG - Detect / Test"), MB_OK | MB_ICONINFORMATION);
-}
-
 // Refill the specific-pattern dropdown for the given category, preserving nothing.
 void CGDIGenePropPage::PopulateDvdoPatternCombo(int cat)
 {
@@ -1927,37 +1827,6 @@ void CGDIGenePropPage::OnDvdoSettings()
 }
 
 // ---- Murideo Seven-G handlers ------------------------------------------------
-void CGDIGenePropPage::PopulateMuriComPorts()
-{
-	if (!m_muriComCombo.GetSafeHwnd()) return;
-	CString current = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
-	m_muriComCombo.ResetContent();
-	HKEY hKey;
-	if (ERROR_SUCCESS == RegOpenKeyEx(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &hKey))
-	{
-		char name[256], val[256]; DWORD idx = 0, cbN = sizeof(name), cbV = sizeof(val), type;
-		while (ERROR_SUCCESS == RegEnumValue(hKey, idx, name, &cbN, NULL, &type, (LPBYTE)val, &cbV))
-		{
-			if (type == REG_SZ && _strnicmp(val, "COM", 3) == 0 && m_muriComCombo.FindStringExact(-1, val) == CB_ERR)
-				m_muriComCombo.AddString(val);
-			idx++; cbN = sizeof(name); cbV = sizeof(val);
-		}
-		RegCloseKey(hKey);
-	}
-	if (!current.IsEmpty() && m_muriComCombo.FindStringExact(-1, current) == CB_ERR) m_muriComCombo.AddString(current);
-	int sel = current.IsEmpty() ? CB_ERR : m_muriComCombo.FindStringExact(-1, current);
-	if (sel != CB_ERR) m_muriComCombo.SetCurSel(sel); else if (m_muriComCombo.GetCount() > 0) m_muriComCombo.SetCurSel(0);
-}
-
-void CGDIGenePropPage::PopulateMuriTimingCombo(int grp)
-{
-	if (!m_muriTimingCombo.GetSafeHwnd()) return;
-	m_muriTimingCombo.ResetContent();
-	int n = CGDIGenerator_MuriTimingCount(grp);
-	for (int i = 0; i < n; ++i) m_muriTimingCombo.AddString(CString(CGDIGenerator_MuriTimingName(grp, i)));
-	if (n > 0) m_muriTimingCombo.SetCurSel(0);
-}
-
 void CGDIGenePropPage::PopulateMuriPatCombo(int grp)
 {
 	if (!m_muriPatCombo.GetSafeHwnd()) return;
@@ -1965,12 +1834,6 @@ void CGDIGenePropPage::PopulateMuriPatCombo(int grp)
 	int n = CGDIGenerator_MuriPatCount(grp);
 	for (int i = 0; i < n; ++i) m_muriPatCombo.AddString(CString(CGDIGenerator_MuriPatName(grp, i)));
 	if (n > 0) m_muriPatCombo.SetCurSel(0);
-}
-
-void CGDIGenePropPage::OnMuriTimingGrpChange()
-{
-	int g = m_muriTimingGrpCombo.GetSafeHwnd() ? m_muriTimingGrpCombo.GetCurSel() : 0; if (g < 0) g = 0;
-	PopulateMuriTimingCombo(g);
 }
 
 void CGDIGenePropPage::OnMuriPatGrpChange()
@@ -2009,38 +1872,7 @@ void CGDIGenePropPage::OnMuriEdid()
 	dlg.DoModal();
 }
 
-void CGDIGenePropPage::OnMuriTest()
-{
-	bool net; CString ip, com; MuriXport(net, ip, com);
-	if (net && ip.IsEmpty()) { m_muriStatus.SetWindowText(_T("Enter the Murideo's IP address first.")); return; }
-	if (!net && com.IsEmpty()) { m_muriStatus.SetWindowText(_T("Select a COM port first.")); return; }
-	m_muriStatus.SetWindowText(_T("Connecting..."));
-	CString msg;
-	CGDIGenerator_MuriTestConnection(net, ip, com, msg);
-	m_muriStatus.SetWindowText(msg);
-	RefreshMuriStatus();
-	MessageBox(msg, _T("Murideo Seven-G - Detect / Test"), MB_OK | MB_ICONINFORMATION);
-}
 
-void CGDIGenePropPage::OnMuriApply()
-{
-	bool net; CString ip, com; MuriXport(net, ip, com);
-	if (net && ip.IsEmpty()) { m_muriStatus.SetWindowText(_T("Enter the Murideo's IP address first.")); return; }
-	int tg = m_muriTimingGrpCombo.GetSafeHwnd() ? m_muriTimingGrpCombo.GetCurSel() : 0; if (tg < 0) tg = 0;
-	int ti = m_muriTimingCombo.GetSafeHwnd() ? m_muriTimingCombo.GetCurSel() : 0; if (ti < 0) ti = 0;
-	int timingId = CGDIGenerator_MuriTimingId(tg, ti);
-	int csId = m_muriCsCombo.GetSafeHwnd() ? CGDIGenerator_MuriCsId(m_muriCsCombo.GetCurSel()) : 0;
-	CString msg;
-	bool ok = CGDIGenerator_MuriApplyOutput(net, ip, com, timingId, csId, -1, -1, -1, msg);
-	if (ok)
-	{
-		CString tn, cn; m_muriTimingCombo.GetLBText(ti, tn); m_muriCsCombo.GetLBText(m_muriCsCombo.GetCurSel(), cn);
-		CString s; s.Format(_T("Applied %s / %s."), (LPCTSTR)tn, (LPCTSTR)cn);
-		m_muriStatus.SetWindowText(s);
-		RefreshMuriStatus();		// reflect the new device state in the readout
-	}
-	else m_muriStatus.SetWindowText(msg);		// show the HTTP diagnostic only on failure
-}
 
 // Threaded Murideo status query (mirrors QueryPGenerator) so the HTTP round-trip (up to a
 // multi-second timeout) never freezes the UI. Serial mode has no HTTP readback, so it stays
