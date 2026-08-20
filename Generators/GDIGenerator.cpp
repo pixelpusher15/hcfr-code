@@ -2373,11 +2373,11 @@ static bool MuriSerialStatusReadout(CString& out)
 	out.Empty();
 	out += (LS(IDS_GEN_DYNAMIC_RANGE) + _T("\t")) + dyn   + _T("\r\n");
 	out += (LS(IDS_GEN_RESOLUTION) + _T("\t"))    + res   + _T("\r\n");
-	out += CString(_T("Bit depth\t"))     + dep   + _T("\r\n");
+	out += (LS(IDS_GEN_BIT_DEPTH) + _T("\t"))     + dep   + _T("\r\n");
 	out += (LS(IDS_GEN_COLOR_SPACE) + _T("\t"))   + gamut + _T("\r\n");
 	out += (LS(IDS_GEN_COLOR_FORMAT) + _T("\t"))  + fmt   + _T("\r\n");
 	out += (LS(IDS_GEN_SIGNAL_RANGE) + _T("\t"))  + rng   + _T("\r\n");
-	out += CString(_T("Output\t"))        + outp  + _T("\r\n");
+	out += (LS(IDS_GEN_LBL_OUTPUT) + _T("\t"))        + outp  + _T("\r\n");
 	out += CString(_T("HDCP\t"))          + hdcpS;
 	return true;
 }
