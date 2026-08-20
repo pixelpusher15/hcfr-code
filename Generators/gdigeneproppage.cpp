@@ -117,7 +117,7 @@ extern int         CGDIGenerator_MuriPatCount(int gi);
 extern const char* CGDIGenerator_MuriPatName(int gi, int i);
 extern int         CGDIGenerator_MuriPatId(int gi, int i);
 extern int         CGDIGenerator_MuriPatBer(int gi, int i);
-extern bool        CGDIGenerator_MuriFindPat(int id, int& gi, int& ii);
+extern bool        CGDIGenerator_MuriFindPat(int id, int ber, int& gi, int& ii);
 extern int         CGDIGenerator_MuriCsCount();
 extern const char* CGDIGenerator_MuriCsName(int i);
 extern int         CGDIGenerator_MuriCsId(int i);
@@ -622,7 +622,7 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	}
 	{
 		int gi = 0, ii = 0;
-		if (CGDIGenerator_MuriFindPat(GetConfig()->GetProfileInt("GDIGenerator","MuriPatternId",-1), gi, ii)) { m_muriPatGrpCombo.SetCurSel(gi); PopulateMuriPatCombo(gi); m_muriPatCombo.SetCurSel(ii); }
+		if (CGDIGenerator_MuriFindPat(GetConfig()->GetProfileInt("GDIGenerator","MuriPatternId",-1), GetConfig()->GetProfileInt("GDIGenerator","MuriPatternBer",0), gi, ii)) { m_muriPatGrpCombo.SetCurSel(gi); PopulateMuriPatCombo(gi); m_muriPatCombo.SetCurSel(ii); }
 		else { m_muriPatGrpCombo.SetCurSel(0); PopulateMuriPatCombo(0); }
 	}
 
@@ -1722,7 +1722,11 @@ void CGDIGenePropPage::OnOK()
 	if (m_nDisplayMode == DISPLAY_MURIDEO)
 		m_b16_235 = (GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0) == 0) ? FALSE : TRUE;
 	if (m_muriPatGrpCombo.GetSafeHwnd() && m_muriPatCombo.GetSafeHwnd() && m_muriPatGrpCombo.GetCurSel() >= 0 && m_muriPatCombo.GetCurSel() >= 0)
-		GetConfig()->WriteProfileInt("GDIGenerator","MuriPatternId",CGDIGenerator_MuriPatId(m_muriPatGrpCombo.GetCurSel(), m_muriPatCombo.GetCurSel()));
+	{
+		int pg = m_muriPatGrpCombo.GetCurSel(), pi = m_muriPatCombo.GetCurSel();
+		GetConfig()->WriteProfileInt("GDIGenerator","MuriPatternId", CGDIGenerator_MuriPatId(pg, pi));
+		GetConfig()->WriteProfileInt("GDIGenerator","MuriPatternBer", CGDIGenerator_MuriPatBer(pg, pi));	// bank, so restore/Show pick the right one (ids collide across banks)
+	}
 
 	if (GetConfig()->m_GammaOffsetType == 5)
 		m_Intensity = 100;

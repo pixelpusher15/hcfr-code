@@ -2225,10 +2225,12 @@ int         CGDIGenerator_MuriPatCount(int gi)     { int idx[256]; return MuriIt
 const char* CGDIGenerator_MuriPatName(int gi,int i){ int idx[256]; int n=MuriItemsInGroup(kMuriPatterns,kMuriPatternN,gi,idx,256); return (i>=0&&i<n)?kMuriPatterns[idx[i]].name:""; }
 int         CGDIGenerator_MuriPatId(int gi,int i)  { int idx[256]; int n=MuriItemsInGroup(kMuriPatterns,kMuriPatternN,gi,idx,256); return (i>=0&&i<n)?kMuriPatterns[idx[i]].id:-1; }
 int         CGDIGenerator_MuriPatBer(int gi,int i) { int idx[256]; int n=MuriItemsInGroup(kMuriPatterns,kMuriPatternN,gi,idx,256); return (i>=0&&i<n)?kMuriPatterns[idx[i]].ber:0; }
-bool        CGDIGenerator_MuriFindPat(int id,int& gi,int& ii)
+bool        CGDIGenerator_MuriFindPat(int id,int ber,int& gi,int& ii)
 {
+	// Match id AND bank: 111 of the 459 ids collide across bank 0 / bank 1, so id alone would
+	// resolve to whichever bank sorts first and restore the wrong group/pattern.
 	const char* g[24]; int ng=MuriGroups(kMuriPatterns,kMuriPatternN,g,24);
-	for (int a=0;a<ng;++a){int idx[256];int n=MuriItemsInGroup(kMuriPatterns,kMuriPatternN,a,idx,256);for(int b=0;b<n;++b)if(kMuriPatterns[idx[b]].id==id){gi=a;ii=b;return true;}}
+	for (int a=0;a<ng;++a){int idx[256];int n=MuriItemsInGroup(kMuriPatterns,kMuriPatternN,a,idx,256);for(int b=0;b<n;++b)if(kMuriPatterns[idx[b]].id==id&&kMuriPatterns[idx[b]].ber==ber){gi=a;ii=b;return true;}}
 	return false;
 }
 
