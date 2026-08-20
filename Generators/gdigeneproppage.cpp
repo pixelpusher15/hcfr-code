@@ -1837,7 +1837,8 @@ void CGDIGenePropPage::OnDvdoShow()
 	m_dvdoStatus.SetWindowText(msg);
 }
 
-// Turn built-in patterns off (command 80 = 0); the device resumes colour patches.
+// Turn built-in patterns off: maps to 80=35 (full-black field, keeps the TPG armed) - never
+// 80=0, which disarms it; the next AA/AF patch then displays normally.
 void CGDIGenePropPage::OnDvdoOff()
 {
 	CString com = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");

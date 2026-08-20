@@ -1248,9 +1248,9 @@ namespace {
 	// Show-pattern 80). FlushFileBuffers blocks until the bytes are actually sent.
 	void DvdoClose() { if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; } }
 
-	// Pre-Defined Test Patterns (command 80): value is the pattern code (0 = Off, which
-	// returns the device to the custom AA/AF patch it was last given). Requires the port
-	// open and the internal generator enabled (EA=0, sent by DvdoOpen's setup step).
+	// Pre-Defined Test Patterns (command 80): value is the pattern code. Requires the port
+	// open. No EA/Pass-Through command is ever sent (see the "do NOT send EA" note above),
+	// and callers map "off" to 80=35 (full black), never 80=0 - which would disarm the TPG.
 	bool DvdoSendPattern(int code)
 	{
 		if (!s_dvdoOpen) return false;
@@ -1438,7 +1438,7 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int o
 // the port is left open (a resolution change persists; the next Init/Show reclaims it).
 bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int formatCode, CString& msgOut)
 {
-	CString fw;	// DvdoOpen closes any already-open port itself, then re-sends setup (6C + 61)
+	CString fw;	// DvdoOpen reuses an already-open port (it does not close it); with sendSetup it re-sends 6C + 61
 	if (!DvdoOpen(comPort, 1 /*cmd mode unused*/, colorSpace, 0, formatCode, &fw, true /*send setup -> 6C + 61*/))
 	{
 		msgOut = s_dvdoDiag;
