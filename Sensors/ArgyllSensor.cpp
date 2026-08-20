@@ -190,13 +190,21 @@ void CArgyllSensor::Serialize(CArchive& archive)
         archive >> m_debugMode;
         archive >> m_HiRes;
 
-        // Skip our pattern-generator serial ports (DVDO / Murideo) during meter detection so it
-        // doesn't stall opening them and waiting for a meter reply (see setExcludedSerialPorts).
+        // Skip only the ACTIVE pattern-generator's serial port during meter detection (see
+        // setExcludedSerialPorts). Gating on the display mode avoids hiding a real spectrometer
+        // that enumerates on a stale DvdoComPort/MuriComPort; Murideo only holds a COM in serial.
         std::vector<std::string> genPorts;
-        CString dvdoCom = GetConfig()->GetProfileString("GDIGenerator", "DvdoComPort", "");
-        if (!dvdoCom.IsEmpty()) genPorts.push_back((LPCSTR)dvdoCom);
-        CString muriCom = GetConfig()->GetProfileString("GDIGenerator", "MuriComPort", "");
-        if (!muriCom.IsEmpty()) genPorts.push_back((LPCSTR)muriCom);
+        int genMode = GetConfig()->GetProfileInt("GDIGenerator", "DisplayMode", DISPLAY_DEFAULT_MODE);
+        if (genMode == DISPLAY_DVDO)
+        {
+            CString dvdoCom = GetConfig()->GetProfileString("GDIGenerator", "DvdoComPort", "");
+            if (!dvdoCom.IsEmpty()) genPorts.push_back((LPCSTR)dvdoCom);
+        }
+        else if (genMode == DISPLAY_MURIDEO && GetConfig()->GetProfileInt("GDIGenerator", "MuriUseNetwork", 1) == 0)
+        {
+            CString muriCom = GetConfig()->GetProfileString("GDIGenerator", "MuriComPort", "");
+            if (!muriCom.IsEmpty()) genPorts.push_back((LPCSTR)muriCom);
+        }
         ArgyllMeterWrapper::setExcludedSerialPorts(genPorts);
 
         std::string errorMessage;
