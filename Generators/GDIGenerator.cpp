@@ -561,7 +561,7 @@ void CGDIGenerator::GetPropertiesSheetValues()
 // Forward declarations for the DVDO serial helpers defined further down (both in
 // an anonymous namespace => internal linkage within this translation unit).
 namespace { bool DvdoOpen(const CString& comPort, int cmdMode, int colorSpace, int range, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
-namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com); void MuriDisconnect(); bool MuriCmdIreWindow(int size, int level); void MuriSetTcpPort(int port); }
+namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com); void MuriDisconnect(); void MuriSetTcpPort(int port); }
 
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
@@ -2135,15 +2135,6 @@ namespace {
 	}
 	// IRE window (keyword 0x78FB): grayscale box at level 0-255, size %. HTTP maps it as
 	// HEXFBNUM<size>IRE<level>; the binary frame data is [level, size].
-	bool MuriCmdIreWindow(int size, int level)
-	{
-		if (size < 1) size = 1; if (size > 100) size = 100;
-		if (level < 0) level = 0; if (level > 255) level = 255;
-		if (s_muriUseNet) { char b[64]; sprintf(b, "HEXFBNUM%dIRE%d", size, level); return MuriHttpGet("BtnSendCmd.CGI", b); }
-		std::vector<BYTE> d; d.push_back((BYTE)level); d.push_back((BYTE)size);
-		return MuriSerialWriteRaw(MuriBuildFrame(0x78FB, d));
-	}
-
 	// Select the transport for subsequent commands. For serial, opens the port.
 	bool MuriConnect(bool useNet, const CString& ip, const CString& com)
 	{
@@ -2332,13 +2323,6 @@ bool CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString
 	msgOut.Format(_T("Sent pattern id %d (bank %d) via %s. %s"),
 		patternId, patternBer, useNet ? _T("HTTP") : _T("serial"), (LPCTSTR)s_muriDiag);
 	return ok;
-}
-
-// Query the live VIDEOGEN status (network only). summaryOut = "<res>, <cs>, <depth>".
-bool CGDIGenerator_MuriQueryStatus(const CString& ip, CString& summaryOut)
-{
-	s_muriUseNet = true; s_muriIp = ip;
-	return MuriStatusSummary(summaryOut);
 }
 
 // Multi-line labeled readout (label\tvalue lines) for the panel status box.

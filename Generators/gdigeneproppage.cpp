@@ -126,7 +126,6 @@ extern bool        CGDIGenerator_MuriTestConnection(bool useNet, const CString& 
 extern bool        CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString& comPort, int timingId, int csId, int bt2020, int hdrMode, int bitDepth, CString& msgOut);
 extern bool        CGDIGenerator_MuriReadSinkInfo(bool useNet, const CString& ip, const CString& comPort, int tcpPort, CString& summaryOut);
 extern bool        CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString& comPort, int patternId, int patternBer, CString& msgOut);
-extern bool        CGDIGenerator_MuriQueryStatus(const CString& ip, CString& summaryOut);
 extern bool        CGDIGenerator_MuriQueryReadout(const CString& ip, CString& readoutOut);
 extern bool        CGDIGenerator_MuriQueryReadoutSerial(const CString& comPort, CString& readoutOut);
 
