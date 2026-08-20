@@ -673,6 +673,23 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 	bOk = CGenerator::Init (nbMeasure );
 	m_displayWindow.m_rPiSock = sock;
 
+	// Re-load the DVDO/Murideo transport settings from config: the "... settings..." dialogs
+	// write these keys directly, but the generator's copies are set only in the constructor
+	// (built once per document, in CreateGenerator), so without this Init would open the
+	// constructor-time port/IP and ignore anything the dialog changed this session.
+	if ( m_nDisplayMode == DISPLAY_DVDO || m_nDisplayMode == DISPLAY_MURIDEO )
+	{
+		m_dvdoComPort      = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
+		m_dvdoCmdMode      = GetConfig()->GetProfileInt("GDIGenerator","DvdoCmdMode",0);
+		m_dvdoColorSpace   = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
+		m_dvdoRange        = GetConfig()->GetProfileInt("GDIGenerator","DvdoRange",0);
+		m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+		m_muriComPort      = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
+		m_muriIp           = GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239");
+		m_muriUseNetwork   = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
+		m_muriTcpPort      = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
+	}
+
 	if ( m_nDisplayMode == DISPLAY_DVDO )
 	{
 		CString fw;
