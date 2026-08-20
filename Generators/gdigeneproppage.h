@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -96,6 +96,7 @@ public:
 	CButton		m_pgenSettingsBtn;
 	CButton m_pgenRefreshBtn;
 	BOOL m_pgenQuerying;
+	BOOL m_pgenQuerySettle;		// post-Apply query: settle + retry through the daemon restart
 	CBrush m_roBrush;
 	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
 
@@ -148,6 +149,7 @@ public:
 	enum { IDD = IDD_PGEN_SETTINGS };
 	CGDIGenerator* m_pGenerator;
 	int m_action;
+	BOOL m_applied;		// TRUE once Apply actually sent a command batch (gates the caller's auto-refresh)
 protected:
 	CComboBox m_avi[6];
 	CStatic m_aviL[6];

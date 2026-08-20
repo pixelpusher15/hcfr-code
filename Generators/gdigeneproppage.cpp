@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -46,6 +46,7 @@ CGDIGenePropPage::CGDIGenePropPage() : CPropertyPageWithHelp(CGDIGenePropPage::I
 	m_rectSizePercent = 0;
 	m_offsetx = 0;
 	m_pgenQuerying = FALSE;
+	m_pgenQuerySettle = FALSE;
 	m_offsety =0;
 	m_bgStimPercent = 0;
 	m_Intensity = 0;
@@ -640,8 +641,12 @@ static UINT AFX_CDECL PgenQueryThread(LPVOID p)
 	CGDIGenePropPage* pg = (CGDIGenePropPage*)p;
 	CGDIGenerator* gen = pg->m_pGenerator;
 	HWND hwnd = pg->GetSafeHwnd();
+	bool settle = (pg->m_pgenQuerySettle != FALSE); pg->m_pgenQuerySettle = FALSE;
 	PgenQueryResult* r = new PgenQueryResult;
+	if (settle) Sleep(1200);		// the daemon is restarting after a successful Apply
 	r->ok = gen ? gen->QueryPGeneratorInfo(r->vals, r->err) : FALSE;
+	if (settle && !r->ok)			// one retry through the restart window before giving up
+	{ Sleep(1500); r->ok = gen ? gen->QueryPGeneratorInfo(r->vals, r->err) : FALSE; }
 	if (!(hwnd && IsWindow(hwnd) && ::PostMessage(hwnd, WM_PGEN_QUERY_DONE, 0, (LPARAM)r)))
 		delete r;
 	return 0;
@@ -698,6 +703,7 @@ CPGenSettingsDlg::CPGenSettingsDlg(CWnd* pParent) : CDialog(CPGenSettingsDlg::ID
 {
 	m_pGenerator = NULL;
 	m_action = 0;
+	m_applied = FALSE;
 }
 
 static const TCHAR* const kPgCF[] = { _T("RGB"), _T("YCbCr 4:4:4"), _T("YCbCr 4:2:2") };
@@ -863,10 +869,13 @@ void CPGenSettingsDlg::OnOK()
 			CString c; c.Format(_T("CMD:%s:%d"), nm[i], v); cmds.Add(c);
 		}
 	}
-	if (cmds.GetSize() > 0 && m_pGenerator) { CWaitCursor wait; m_pGenerator->ApplyPGeneratorConf(cmds); }
-	// "Apply" applies the settings but deliberately does NOT close the dialog: the change
-	// usually needs a Restart to take effect, and closing on Apply forced a reopen just to
-	// reach the Restart button (reported by Dominic, AVSForum). Dismiss with "Close" (IDCANCEL).
+	if (cmds.GetSize() > 0 && m_pGenerator) { CWaitCursor wait; m_pGenerator->ApplyPGeneratorConf(cmds); m_applied = TRUE; }
+	// Apply applies and closes. ApplyPGeneratorConf already ends every batch with
+	// RESTARTPGENERATOR:, so the settings take effect without a manual restart; closing here
+	// also avoids the stale-baseline hazards of a kept-open dialog (the *Init change-detection
+	// baselines are captured once in OnInitDialog). The caller auto-refreshes the main panel
+	// when m_applied, so the change is still reflected without reopening.
+	CDialog::OnOK();
 }
 
 void CPGenSettingsDlg::OnFormatChanged()
@@ -1010,13 +1019,19 @@ void CGDIGenePropPage::OnPgenSettings()
 	CPGenSettingsDlg dlg(this);
 	dlg.m_pGenerator = m_pGenerator;
 	dlg.DoModal();
-	// Auto-refresh the status readout after the settings dialog closes (Dominic's request) -
-	// but not when a reboot/restart/shutdown was issued: the device is going down, so a query
-	// would just fail/hang, and we show it disconnected instead.
+	// Auto-refresh the status readout after the settings dialog closes (Dominic's request):
+	// - a reboot/restart/shutdown (m_action) takes the device down -> show it disconnected;
+	// - otherwise refresh only when Apply actually sent a batch (m_applied) - Close/Escape with
+	//   no change shouldn't blank the readout for nothing. Apply ends with a daemon restart, so
+	//   arm a settle+retry (m_pgenQuerySettle) or the query lands on "Not connected" right after
+	//   a successful Apply.
 	if (dlg.m_action != 0)
 		ShowPgenDisconnected();
-	else
+	else if (dlg.m_applied)
+	{
+		m_pgenQuerySettle = TRUE;
 		QueryPGenerator();
+	}
 }
 
 void CGDIGenePropPage::OnOK()
