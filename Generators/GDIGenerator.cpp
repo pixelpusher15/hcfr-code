@@ -700,7 +700,7 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 		if ( ! opened )
 		{
 			if ( ! m_initShowedError )
-				GetColorApp()->InMeasureMessageBox("Could not open the DVDO AVLab TPG serial port.\nSelect the correct COM port in the generator options.", "DVDO AVLab TPG", MB_ICONERROR);
+				GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_DVDO_INIT_FAIL), "DVDO AVLab TPG", MB_ICONERROR);
 			m_initShowedError = TRUE;
 		}
 		bOk = bOk && opened;	// combine with the base CGenerator::Init result, don't mask its failure
@@ -713,7 +713,7 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 		if ( ! connected )
 		{
 			if ( ! m_initShowedError )
-				GetColorApp()->InMeasureMessageBox("Could not reach the Murideo Seven-G.\nCheck the IP address (network) or COM port (serial) in the generator options.", "Murideo Seven-G", MB_ICONERROR);
+				GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_MURI_INIT_FAIL), "Murideo Seven-G", MB_ICONERROR);
 			m_initShowedError = TRUE;
 		}
 		bOk = bOk && connected;	// combine with the base CGenerator::Init result, don't mask its failure

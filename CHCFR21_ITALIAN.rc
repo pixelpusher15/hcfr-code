@@ -4334,6 +4334,8 @@ BEGIN
     IDS_GEN_LBL_NAME                "Nome"
     IDS_GEN_LBL_FIRMWARE            "Firmware"
     IDS_GEN_LBL_OUTPUT              "Uscita"
+    IDS_GEN_DVDO_INIT_FAIL          "Impossibile aprire la porta seriale del DVDO AVLab TPG.\nSelezionare la porta COM corretta nelle opzioni del generatore."
+    IDS_GEN_MURI_INIT_FAIL          "Impossibile raggiungere il Murideo Seven-G.\nControllare l'indirizzo IP (rete) o la porta COM (seriale) nelle opzioni del generatore."
 END
 
 #endif    // Italienisch (Italien) resources

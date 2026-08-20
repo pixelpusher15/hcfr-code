@@ -2047,6 +2047,8 @@
 #define IDS_GEN_LBL_NAME                  59710
 #define IDS_GEN_LBL_FIRMWARE              59711
 #define IDS_GEN_LBL_OUTPUT                59712
+#define IDS_GEN_DVDO_INIT_FAIL            59713
+#define IDS_GEN_MURI_INIT_FAIL            59714
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
