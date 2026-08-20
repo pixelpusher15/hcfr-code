@@ -2863,7 +2863,8 @@ void CSpectrum::Serialize(CArchive& archive)
 
 // Range a ColourSpace patch-list CSV can declare in its header. Default (no header)
 // keeps the historical 8-bit-legal behaviour so pre-existing user files still load.
-enum CsvRange { CSVRANGE_LEGACY = -1, CSVRANGE_FULL = 0, CSVRANGE_LEGAL = 1, CSVRANGE_EXTENDED = 2 };
+// Range values are the shared CSV_RANGE_* enum from Color.h (CSV_RANGE_NONE = -1 is the
+// no-header legacy default). One spelling for producers and consumers, not two coupled by luck.
 
 // One source code -> HCFR stimulus percentage, honouring the declared bit depth (8 or 10)
 // and range. Full: 0..(2^bits-1) -> 0..100. Legal/Extended: black..white (16..235 at 8-bit,
@@ -2871,12 +2872,12 @@ enum CsvRange { CSVRANGE_LEGACY = -1, CSVRANGE_FULL = 0, CSVRANGE_LEGAL = 1, CSV
 double CsvCodeToPercent(double code, int bits, int range)
 {
 	int maxCode = (1 << bits) - 1;
-	if (range == CSVRANGE_FULL)
+	if (range == CSV_RANGE_FULL)
 		return code * 100.0 / maxCode;
 	double black = 16.0  * (1 << (bits - 8));
 	double white = 235.0 * (1 << (bits - 8));
 	double pct = ( code - black ) / ( white - black ) * 100.0;
-	if (range == CSVRANGE_EXTENDED)
+	if (range == CSV_RANGE_EXTENDED)
 		return pct;
 	return ( pct < 0.0 ) ? 0.0 : ( pct > 100.0 ? 100.0 : pct );
 }
@@ -2888,14 +2889,14 @@ int ReadCsvPatchRows(CString csvPath, std::vector<CsvPatchRow> & rows, int maxRo
 {
 	rows.clear();
 	if (bitsOut)  *bitsOut  = 8;
-	if (rangeOut) *rangeOut = CSVRANGE_LEGACY;
+	if (rangeOut) *rangeOut = CSV_RANGE_NONE;
 	ifstream colorFile(csvPath);
 	if (!colorFile)
 		return -1;
 
 	std::string line;
 	int bits = 8;
-	int range = CSVRANGE_LEGACY;
+	int range = CSV_RANGE_NONE;
 	bool hasHeader = false;
 
 	while (std::getline(colorFile, line) && (int)rows.size() < maxRows)
@@ -2908,14 +2909,34 @@ int ReadCsvPatchRows(CString csvPath, std::vector<CsvPatchRow> & rows, int maxRo
 
 		if (line[b0] == '#')
 		{
-			hasHeader = true;
-			std::string up = line;
-			for (size_t k = 0; k < up.size(); k++) up[k] = (char)toupper((unsigned char)up[k]);
-			size_t bp = up.find("BITDEPTH");
-			if (bp != std::string::npos) { int v = atoi(up.c_str() + bp + 8); if (v == 8 || v == 10) bits = v; }
-			if      (up.find("EXTENDED") != std::string::npos) range = CSVRANGE_EXTENDED;
-			else if (up.find("FULL")     != std::string::npos) range = CSVRANGE_FULL;
-			else if (up.find("LEGAL")    != std::string::npos) range = CSVRANGE_LEGAL;
+			// Only a leading '#' line (before any data) that carries a BITDEPTH or RANGE
+			// directive declares the format - and that declaration is what marks the file
+			// headered (schema = PatchNumber,R,G,B[,Name]). A plain comment must NOT flip a
+			// legacy R,G,B[,Name] file's columns, and the range must come from the RANGE
+			// token (not a bare "full"/"legal"/"extended" substring that "# full sweep" or
+			// "# illegal codes" would trip). Later '#' lines are treated as comments.
+			if (rows.empty())
+			{
+				std::string up = line;
+				for (size_t k = 0; k < up.size(); k++) up[k] = (char)toupper((unsigned char)up[k]);
+				size_t bp = up.find("BITDEPTH");
+				if (bp != std::string::npos)
+				{
+					int v = atoi(up.c_str() + bp + 8);
+					if (v == 8 || v == 10) { bits = v; hasHeader = true; }
+				}
+				size_t rp = up.find("RANGE");
+				if (rp != std::string::npos)
+				{
+					size_t p = rp + 5;			// first token after "RANGE"
+					while (p < up.size() && (up[p] == ' ' || up[p] == '\t' || up[p] == ',' || up[p] == '=' || up[p] == ':')) p++;
+					int r = -2;
+					if      (up.compare(p, 8, "EXTENDED") == 0) r = CSV_RANGE_EXTENDED;
+					else if (up.compare(p, 4, "FULL")     == 0) r = CSV_RANGE_FULL;
+					else if (up.compare(p, 5, "LEGAL")    == 0) r = CSV_RANGE_LEGAL;
+					if (r != -2) { range = r; hasHeader = true; }
+				}
+			}
 			continue;
 		}
 
@@ -2969,32 +2990,6 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 			CsvCodeToPercent(rows[i].g, bits, range),
 			CsvCodeToPercent(rows[i].b, bits, range));
 	return n;
-}
-
-// Reads ONLY the "# BITDEPTH n, RANGE x" header of a CSV (no full load) and returns the
-// declared range for the import-range guard: CSV_RANGE_FULL/LEGAL/EXTENDED, or CSV_RANGE_NONE
-// when the file has no header (legacy HCFR / plain user CSV) or will not open.
-int PeekCsvRange(CString csvPath)
-{
-	ifstream f(csvPath);
-	if (!f)
-		return CSV_RANGE_NONE;
-	std::string line;
-	while (std::getline(f, line))
-	{
-		size_t b0 = line.find_first_not_of(" \t\r\n");
-		if (b0 == std::string::npos)
-			continue;
-		if (line[b0] != '#')
-			return CSV_RANGE_NONE;                 // first non-blank line is data: no header
-		std::string up = line;
-		for (size_t k = 0; k < up.size(); k++) up[k] = (char)toupper((unsigned char)up[k]);
-		if (up.find("EXTENDED") != std::string::npos) return CSV_RANGE_EXTENDED;
-		if (up.find("FULL")     != std::string::npos) return CSV_RANGE_FULL;
-		if (up.find("LEGAL")    != std::string::npos) return CSV_RANGE_LEGAL;
-		return CSV_RANGE_NONE;
-	}
-	return CSV_RANGE_NONE;
 }
 
 static int AppendProfileGray(ColorRGBDisplay* GenColors, int maxEntries, int cnt, int cubeN, double level)
@@ -3900,7 +3895,9 @@ int PiPercentToCode ( double percent, bool is16_235, int bits )
         {
             code = (int) floor ( percent / 100.0 * 876.0 + 64.5 );
             // Ceiling is the code max (not legal white 940): pass super-white / WTW.
-            // Legal patchsets are import-clamped to <=100%, so this only affects Extended.
+            // Legal CSV patchsets import-clamp to <=100%, so in practice this passes the
+            // Extended CSV super-white; a degenerate HDR near-white sweep (no measured
+            // white, tone-map on) can also reach here on the rPI path.
             code = ( code < 0 ) ? 0 : ( ( code > 1023 ) ? 1023 : code );
         }
         else
@@ -3914,7 +3911,9 @@ int PiPercentToCode ( double percent, bool is16_235, int bits )
     {
         code = (int) floor ( percent / 100.0 * 219.0 + 16.5 );
         // Ceiling is the code max (not legal white 235): pass super-white / WTW (Extended).
-        // Legal patchsets are import-clamped to <=100%, so this only affects Extended.
+        // Legal CSV patchsets import-clamp to <=100%, so in practice this passes the Extended
+        // CSV super-white; a degenerate HDR near-white sweep (no measured white, tone-map on)
+        // can also reach here on the rPI path.
         code = ( code < 0 ) ? 0 : ( ( code > 255 ) ? 255 : code );
     }
     else

@@ -4013,6 +4013,8 @@ BEGIN
     IDS_PP_STIMULUSPCT      "Stimulus %"
     IDS_PP_MINUTES          "~%d Min"
     IDS_PP_HOURS            "~%.1f Std"
+    IDS_CSV_FILE_NOT_FOUND  "Patch-Listen-Datei nicht gefunden:\n\n%s\n\nDer Patch-Satz ist leer. Bei integrierten S‰tzen bedeutet dies meist, dass die Installation unvollst‰ndig ist oder HCFR unter einem anderen Benutzerprofil l‰uft."
+    IDS_CSV_RANGE_EXTENDED_WARN  "Die USER-Patch-Liste ist im erweiterten Bereich (weiﬂer als Weiﬂ), aber der Generatorausgang ist auf Voll (0-255) eingestellt, wodurch die Super-Weiﬂ-Codes auf 255 begrenzt werden.\n\nStellen Sie den Generatorausgang auf 16-235 (Video) ein, damit die Super-Weiﬂ-Codes unver‰ndert gesendet werden."
 END
 
 #endif    // Deutsch (Deutschland) resources

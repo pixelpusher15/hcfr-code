@@ -4175,6 +4175,8 @@ BEGIN
     IDS_PP_STIMULUSPCT      "estímulo %"
     IDS_PP_MINUTES          "~%d min"
     IDS_PP_HOURS            "~%.1f h"
+    IDS_CSV_FILE_NOT_FOUND  "Archivo de lista de parches no encontrado:\n\n%s\n\nEl conjunto de parches estará vacío. Para los conjuntos integrados, esto suele significar que la instalación está incompleta o que HCFR se ejecuta con un perfil de usuario diferente."
+    IDS_CSV_RANGE_EXTENDED_WARN  "La lista de parches USER es de rango Extendido (más blanco que el blanco), pero la salida del generador está configurada en Completo (0-255), lo que recorta los códigos superblancos a 255.\n\nConfigure la salida del generador en 16-235 (vídeo) para que los códigos superblancos se envíen intactos."
 END
 
 #endif    // Spanish (Spain, International Sort) resources

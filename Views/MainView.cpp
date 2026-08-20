@@ -2050,10 +2050,11 @@ void CMainView::InitGrid(bool sizeGrid)
                  }
                  else if (isExtPat)
                  {
-                     char aBuf[50];
-					 std::string name = GetConfig()->GetCColorsN(i);
-                     sprintf(aBuf,"%s", name.c_str());
-                     Item.strText.SetString(aBuf);
+                     // Pass the name straight through - a user CSV name can exceed any fixed
+                     // buffer (the char[50]+sprintf here overran the stack); same class as the
+                     // CIEChartView '%'/length fix in this PR.
+                     std::string name = GetConfig()->GetCColorsN(i);
+                     Item.strText.SetString(name.c_str());
                  }
                  else {
 				 switch ( i )

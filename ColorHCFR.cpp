@@ -196,17 +196,21 @@ void GuardCCModeOutputRange(int ccMode)
 {
 	if (ccMode != USER)
 		return;
+	if (GetConfig()->GetRGB16_235() != FALSE)
+		return;                                  // already 16-235: super-white is emitted fine (no file read needed)
 	char modPath[MAX_PATH];
 	GetModuleFileName(NULL, modPath, sizeof(modPath));
 	LPSTR pSlash = strrchr(modPath, '\\');
 	if (pSlash) pSlash[1] = '\0';
-	if (PeekCsvRange(CString(modPath) + "usercolors.csv") != CSV_RANGE_EXTENDED)
+	// Read the declared range from the loader itself (rangeOut) so the guard can't disagree
+	// with what actually gets loaded. maxRows=1 reads just the header + first row.
+	std::vector<CsvPatchRow> rows;
+	int bits = 8, range = CSV_RANGE_NONE;
+	ReadCsvPatchRows(CString(modPath) + "usercolors.csv", rows, 1, &bits, &range);
+	if (range != CSV_RANGE_EXTENDED)
 		return;                                  // only Extended has super-white to lose
-	if (GetConfig()->GetRGB16_235() != FALSE)
-		return;                                  // already 16-235: super-white is emitted fine
-	CString msg = "The USER patch list is Extended range (whiter-than-white), but generator "
-	              "output is set to Full (0-255), which clamps the super-white codes to 255.\n\n"
-	              "Set the generator output to 16-235 (video) so the super-white codes are sent intact.";
+	CString msg;
+	msg.LoadString(IDS_CSV_RANGE_EXTENDED_WARN);
 	AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
 }
 

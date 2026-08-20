@@ -1243,8 +1243,9 @@ void CColorHCFRConfig::GetCColors()
 		if (s_lastMissingWarned != (LPCTSTR)fName)
 		{
 			s_lastMissingWarned = (LPCTSTR)fName;
-			CString msg;
-				msg.Format(_T("Patch-list file not found:\n\n%s\n\nThe patch set will be empty. For built-in sets this usually means the installation is incomplete or HCFR is running under a different user profile."), (LPCTSTR)fName);
+			CString fmt, msg;
+			fmt.LoadString(IDS_CSV_FILE_NOT_FOUND);
+			msg.Format(fmt, (LPCTSTR)fName);
 			AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
 		}
 	}

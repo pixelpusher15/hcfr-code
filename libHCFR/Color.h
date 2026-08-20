@@ -765,9 +765,10 @@ extern int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, in
 extern void RemapProfileToTransport (ColorRGBDisplay* GenColors, int n, const CColorReference& colorReference, int mode, bool b10bit, bool is16_235);
 extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries);
 extern int PiPercentToCode ( double percent, bool is16_235, int bits );
-// Declared RANGE peeked from a CSV header (import-range guard). See PeekCsvRange.
+// Range a ColourSpace patch-list CSV can declare in its header (import-range guard).
+// CSV_RANGE_NONE = no header / legacy default. The loader (ReadCsvPatchRows) reports the
+// declared range via its rangeOut - the guard reads it from there so they can't diverge.
 enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_EXTENDED = 2 };
-extern int PeekCsvRange ( CString csvPath );
 // Shared patch-list parsing (one parser: ReadColorsFromCsv percentages + GetCColors codes/names).
 #include <vector>
 #include <string>
