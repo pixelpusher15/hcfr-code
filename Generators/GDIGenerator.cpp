@@ -696,29 +696,27 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 		// Just open the port for AA patches; do NOT re-send resolution/colour-space here (the
 		// "DVDO settings..." dialog's Apply owns those - the device retains them). Re-sending
 		// 6C/61 every measurement would needlessly re-lock the display. Mirrors the Murideo.
-		if ( DvdoOpen(m_dvdoComPort, m_dvdoCmdMode, m_dvdoColorSpace, m_dvdoRange, m_dvdoOutputFormat, &fw, false /*no setup*/) )
-			bOk = TRUE;
-		else
+		BOOL opened = DvdoOpen(m_dvdoComPort, m_dvdoCmdMode, m_dvdoColorSpace, m_dvdoRange, m_dvdoOutputFormat, &fw, false /*no setup*/);
+		if ( ! opened )
 		{
 			if ( ! m_initShowedError )
 				GetColorApp()->InMeasureMessageBox("Could not open the DVDO AVLab TPG serial port.\nSelect the correct COM port in the generator options.", "DVDO AVLab TPG", MB_ICONERROR);
 			m_initShowedError = TRUE;
-			bOk = FALSE;
 		}
+		bOk = bOk && opened;	// combine with the base CGenerator::Init result, don't mask its failure
 	}
 
 	if ( m_nDisplayMode == DISPLAY_MURIDEO )
 	{
 		MuriSetTcpPort((m_muriTcpPort > 0) ? m_muriTcpPort : 4001);	// raw-TCP port for colour patches
-		if ( MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort) )
-			bOk = TRUE;
-		else
+		BOOL connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
+		if ( ! connected )
 		{
 			if ( ! m_initShowedError )
 				GetColorApp()->InMeasureMessageBox("Could not reach the Murideo Seven-G.\nCheck the IP address (network) or COM port (serial) in the generator options.", "Murideo Seven-G", MB_ICONERROR);
 			m_initShowedError = TRUE;
-			bOk = FALSE;
 		}
+		bOk = bOk && connected;	// combine with the base CGenerator::Init result, don't mask its failure
 	}
 
 	if ( ! bOnOtherMonitor )
