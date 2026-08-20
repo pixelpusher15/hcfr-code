@@ -7,6 +7,9 @@
 #define IDC_CLEAR_BUTTON                3
 #define IDC_INVERT_BUTTON               4
 #define IDR_SPLASH_SCREEN               5
+#define IDR_SOUND_SHUTTER               1400
+#define IDR_SOUND_CLICK                 1401
+#define IDR_SOUND_BUTTON                1402
 #define IDD_ABOUTBOX                    100
 #define IDD_COLORHCFR_FORM              101
 #define IDD_GRAPH_PROP_PAGE             102
@@ -1063,6 +1066,10 @@
 #define IDM_MEASURE_SAT_MAGENTA         32991
 #define IDM_MEASURE_SAT_ALL             32992
 #define IDM_MEASURE_SAT_ALL_LEVELS      33113
+#define IDM_SOUND_NONE                  33114
+#define IDM_SOUND_SHUTTER               33115
+#define IDM_SOUND_CLICK                 33116
+#define IDM_SOUND_BUTTON                33117
 #define IDM_MEASURE_GRAYSCALE_COLORS    32993
 #define IDM_SIM_NEARBLACK               32994
 #define IDM_SIM_NEARWHITE               32995
@@ -1974,8 +1981,8 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
-#define _APS_NEXT_RESOURCE_VALUE        385
-#define _APS_NEXT_COMMAND_VALUE         33114
+#define _APS_NEXT_RESOURCE_VALUE        1403
+#define _APS_NEXT_COMMAND_VALUE         33118
 #define _APS_NEXT_CONTROL_VALUE         1559
 #define _APS_NEXT_SYMED_VALUE           143
 #endif

@@ -112,6 +112,15 @@ IDR_SPLASH_SCREEN       SPLASHSCREEN            "res\\splash_screen.png"
 
 /////////////////////////////////////////////////////////////////////////////
 //
+// WAVE
+//
+
+IDR_SOUND_SHUTTER       WAVE                    "res\\camera_shutter.wav"
+IDR_SOUND_CLICK         WAVE                    "res\\keyboard_click.wav"
+IDR_SOUND_BUTTON        WAVE                    "res\\button_press.wav"
+
+/////////////////////////////////////////////////////////////////////////////
+//
 // Dialog
 //
 
