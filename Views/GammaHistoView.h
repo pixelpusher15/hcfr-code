@@ -61,6 +61,8 @@ class CGammaGrapher
 	long m_blueLumDataRefLogGraphID;	//Ki
 
 	std::vector<double> m_yref_abs;	// per-view reference luminance (was a file-scope global -> cross-doc corruption)
+	double m_refGammaWhite;			// target gamma at reference white
+	BOOL   m_bRefGammaWhiteValid;
 
 	// Updatable flags. Initialized with default values in constructor, can be changed before calling UpdateGraph
 	BOOL m_showReference;

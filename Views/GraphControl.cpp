@@ -535,7 +535,11 @@ int CGraphControl::GetGraphX(double x,CRect rect)
 		if ( fabs(x-snapped) < min(0.5, m_xAxisStep*0.25) )
 			x = snapped;
 	}
-	return (int)((x-m_minX)*(double)rect.Width()*m_xScale);	// graph is from 0 to m_xScale in width
+	// Width()-1, not Width(): m_maxX has to land on the last VISIBLE column, the
+	// mirror of m_minX landing on the first. Mapping to Width() put it one column
+	// past the edge, so the top grid line was clipped away and a data point on
+	// m_maxX - the 100% white patch - was drawn outside the chart.
+	return (int)((x-m_minX)*(double)(rect.Width()-1)*m_xScale);	// graph is from 0 to m_xScale in width
 }
 
 int CGraphControl::GetGraphY(double y,CRect rect) 
@@ -727,7 +731,9 @@ static double spectral_chromaticities[][2] = {
 
 	for ( x = 0; x < rect.right ; x += 3 )
 	{
-		nWaveIndex = ( x + 1 ) * 1000 / rect.right;
+		// min(): the last strip indexes 1000 into a 1000-entry table when
+		// rect.right-1 falls on a multiple of 3.
+		nWaveIndex = min ( 999, ( x + 1 ) * 1000 / rect.right );
 
 		CBrush	br(m_pSpectrumColors [ nWaveIndex ]);
 		CRect	r(x, 0, x + 3, rect.bottom);
@@ -898,7 +904,40 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 	pDC->SetTextColor(bWhiteBkgnd?RGB(64,64,64):RGB(192,192,192));
 	double xVal=m_minX;
 	double lastStrEndX=0;
-	for(int i=0;i<(m_maxX-m_minX)/m_xAxisStep;i++)
+	// Whole steps that fit in the range; the loop runs to <= nSteps so the m_maxX
+	// grid line is drawn. It used to stop one step short, which left a 0..100 axis
+	// stepped by 10 ending at 90, with the top of the scale never drawn or labelled
+	// whatever the data was. The epsilon keeps an exact division from losing that
+	// last step to rounding; a range that is not a whole number of steps still
+	// stops at the last step inside m_maxX, as before.
+	int nSteps = ( m_xAxisStep > 0 ? (int)((m_maxX-m_minX)/m_xAxisStep+1e-9) : -1 );
+
+	// Tick labels are bare numbers - the unit is on the tooltips, and repeating
+	// it on every tick made the labels wider than the tick spacing.
+	//
+	// nLabelStride thins the labels out where even bare numbers do not fit, and
+	// xTopLabel reserves the box of the top-of-scale label: that one is drawn to
+	// the LEFT of its grid line (the line is the last column), so without the
+	// reservation the label before it would take the space and the end of the
+	// scale would be the one dropped. Grid lines are untouched either way.
+	int nLabelStride=1;
+	int xTopLabel=rect.right;
+	if(m_doShowXLabel && nSteps > 0)
+	{
+		CString strFirst,strLast;
+		strFirst.Format("%g",m_minX+m_xAxisStep);
+		strLast.Format("%g",m_minX+nSteps*m_xAxisStep);
+		int cxLast=pDC->GetTextExtent(strLast).cx;
+		int cxLabel=max(pDC->GetTextExtent(strFirst).cx,cxLast);
+		int nPitch=max(1,GetGraphX(m_minX+m_xAxisStep,rect)-GetGraphX(m_minX,rect));
+		int xLastLine=GetGraphX(m_minX+nSteps*m_xAxisStep,rect);
+
+		nLabelStride=max(1,(cxLabel+4+nPitch-1)/nPitch);
+		if(xLastLine+2+cxLast > rect.right)
+			xTopLabel=xLastLine-cxLast-2;
+	}
+
+	for(int i=0;i<=nSteps;i++)
 	{
 		int x=GetGraphX(xVal,rect);
 		// Draw axis line
@@ -912,15 +951,25 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 		{
 			CString str;
 			str.Format("%g",xVal);
-			if(m_pXUnitStr)
-				str+=m_pXUnitStr;
 			if ( ! bWhiteBkgnd && m_doGradientBg )
-				pDC->SetTextColor(RGB(200+xVal*0.55,200+xVal*0.55,200+xVal*0.55));
-			if(i &&  x > lastStrEndX)
+			{
+				// CIE-018: 200+xVal*0.55 only stays inside a byte for xVal in
+				// 0..100. The scale dialog does not validate Max X, so a hand-set
+				// scale used to wrap the channel and mis-colour the labels.
+				int nTint=min(255,max(0,(int)(200+xVal*0.55)));
+				pDC->SetTextColor(RGB(nTint,nTint,nTint));
+			}
+			int cxStr=pDC->GetTextExtent(str).cx;
+			int xStr=x+2;
+			// The m_maxX line is the last column, so its label goes to the left of
+			// the line instead of off the edge.
+			if(xStr+cxStr > rect.right)
+				xStr=x-cxStr-2;
+			if(i && ((nSteps-i) % nLabelStride) == 0 && xStr > lastStrEndX && ( i == nSteps || xStr+cxStr < xTopLabel ))
 			{
 				int shade = m_doGradientBg ? 10+37*x/max((int)rect.right,1) : 0;
-				DrawHaloText(pDC,x+2,rect.bottom,str,bWhiteBkgnd ? RGB(255,255,255) : RGB(shade,shade,shade));
-				lastStrEndX=x+pDC->GetTextExtent(str).cx+2;
+				DrawHaloText(pDC,xStr,rect.bottom,str,bWhiteBkgnd ? RGB(255,255,255) : RGB(shade,shade,shade));
+				lastStrEndX=xStr+cxStr+2;
 			}
 		}
 		xVal+=m_xAxisStep;
