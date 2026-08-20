@@ -49,6 +49,9 @@ static char THIS_FILE[]=__FILE__;
 #define new DEBUG_NEW
 #endif
 
+// Load a UI string from the active language resource (mirrors gdigeneproppage.cpp).
+static CString LS(UINT id) { CString s; if (id) s.LoadString(id); return s; }
+
 // we use multimon stubs to
 // allow backwards compatibilty and
 // this doesn't get defined
@@ -1173,13 +1176,13 @@ namespace {
 
 	bool DvdoOpen(const CString& comPort, int colorSpace, int /*range*/, int outputFormat, CString* fwOut, bool sendSetup)
 	{
-		if (comPort.IsEmpty()) { s_dvdoDiag = _T("No COM port selected."); return false; }
+		if (comPort.IsEmpty()) { s_dvdoDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
 		if (!s_dvdoOpen)	// REUSE an already-open port; a close-then-immediate-reopen can fail
 		{					// on the virtual COM driver (and would drop settings set via Apply).
 			if (!s_dvdoPort.OpenPort(comPort))					// OpenPort prepends //./ so COM10+ works
 			{
 				DWORD e = GetLastError();
-				s_dvdoDiag.Format(_T("Could not open %s - %s"), (LPCTSTR)comPort, (LPCTSTR)DvdoErrText(e));
+				s_dvdoDiag.Format(LS(IDS_GEN_DVDO_OPEN_FAIL), (LPCTSTR)comPort, (LPCTSTR)DvdoErrText(e));
 				return false;
 			}
 			if (!s_dvdoPort.ConfigurePort(115200, 8, FALSE, NOPARITY, ONESTOPBIT) ||
@@ -1188,7 +1191,7 @@ namespace {
 				// CSerialCom already CloseHandle()s on these failures - do NOT ClosePort again
 				// (double-close) and do NOT set s_dvdoOpen, so no write hits a dead handle and
 				// DvdoClose stays a no-op.
-				s_dvdoDiag.Format(_T("Could not configure %s (driver rejected 115200 8N1)."), (LPCTSTR)comPort);
+				s_dvdoDiag.Format(LS(IDS_GEN_DVDO_CONFIG_FAIL), (LPCTSTR)comPort);
 				return false;
 			}
 			// NB: do NOT toggle DTR/RTS - the AVLab TPG locks up (needs a power cycle)
@@ -1205,7 +1208,7 @@ namespace {
 		if (fwOut) fwOut->Empty();
 		s_dvdoArmed = false;				// re-arm on the first AA patch of this session (see DisplayRGBColorDVDO)
 
-		s_dvdoDiag.Format(_T("Opened %s - using AA full-triplet (0-255)."), (LPCTSTR)comPort);
+		s_dvdoDiag.Format(LS(IDS_GEN_DVDO_OPENED), (LPCTSTR)comPort);
 
 		// Only when actually starting output (not during a Detect/Test probe): set the
 		// output colour space (6C: 1=RGB, 2=YC444, 3=YC422). AA carries colour space per
@@ -1417,8 +1420,8 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int o
 	bool ok = DvdoSendPattern(code);
 	FlushFileBuffers(s_dvdoPort.hComm);		// push the bytes out; keep the port OPEN so the pattern persists
 	s_dvdoArmed = true;						// an 80 pattern leaves the TPG armed for subsequent AA patches
-	msgOut.Format(_T("%s: EA=1 (Test Patterns) then command 80 value %d%s on %s (%s)."),
-		wasOpen ? _T("Reused open port") : _T("Opened port"),
+	msgOut.Format(LS(IDS_GEN_DVDO_TEST_OK),
+		wasOpen ? LS(IDS_GEN_DVDO_REUSED_PORT) : LS(IDS_GEN_DVDO_OPENED_PORT),
 		code, (patternCode > 0 ? _T("") : _T(" (off = full black)")), (LPCTSTR)comPort, ok ? _T("write OK") : _T("WRITE FAILED"));
 	return ok;
 }
@@ -1435,7 +1438,7 @@ bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int f
 		return false;
 	}
 	FlushFileBuffers(s_dvdoPort.hComm);
-	msgOut.Format(_T("Set DVDO output format (code %d) on %s."), formatCode, (LPCTSTR)comPort);
+	msgOut.Format(LS(IDS_GEN_DVDO_FMT_SET), formatCode, (LPCTSTR)comPort);
 	return true;
 }
 
@@ -1560,9 +1563,9 @@ namespace {
 
 	bool MuriHttpGet(const char* cgi, const std::string& button)
 	{
-		if (s_muriIp.IsEmpty()) { s_muriDiag = _T("No IP address set."); return false; }
+		if (s_muriIp.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_IP_SET); return false; }
 		HINTERNET hI = MuriInet();
-		if (!hI) { s_muriDiag = _T("InternetOpen failed."); return false; }
+		if (!hI) { s_muriDiag = LS(IDS_GEN_INTERNETOPEN_FAIL); return false; }
 		CString url;
 		url.Format(_T("http://%s/%s?button=%s+%u"), (LPCTSTR)s_muriIp, CString(cgi), CString(button.c_str()), (unsigned)GetTickCount());
 		HINTERNET hU = InternetOpenUrl(hI, url, NULL, 0,
@@ -1577,7 +1580,7 @@ namespace {
 			InternetCloseHandle(hU);
 		}
 		if (ok) s_muriDiag.Format(_T("HTTP %lu  %s"), (unsigned long)status, (LPCTSTR)url);
-		else { DWORD e = GetLastError(); s_muriDiag.Format(_T("HTTP GET failed (err %lu): %s"), (unsigned long)e, (LPCTSTR)url); }
+		else { DWORD e = GetLastError(); s_muriDiag.Format(LS(IDS_GEN_HTTP_GET_FAIL), (unsigned long)e, (LPCTSTR)url); }
 		return ok;
 	}
 
@@ -1688,23 +1691,23 @@ namespace {
 	bool MuriSerialOpen(const CString& comPort)
 	{
 		if (s_muriOpen) return true;
-		if (comPort.IsEmpty()) { s_muriDiag = _T("No COM port selected."); return false; }
+		if (comPort.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
 		if (!s_muriPort.OpenPort(comPort))
 		{
 			DWORD e = GetLastError();
-			s_muriDiag.Format(_T("Could not open %s (Windows error %lu)."), (LPCTSTR)comPort, (unsigned long)e);
+			s_muriDiag.Format(LS(IDS_GEN_MURI_OPEN_FAIL), (LPCTSTR)comPort, (unsigned long)e);
 			return false;
 		}
 		if (!s_muriPort.ConfigurePort(MURI_BAUD, 8, FALSE, NOPARITY, ONESTOPBIT) ||
 		    !s_muriPort.SetCommunicationTimeouts(20, 0, 80, 0, 300))
 		{
 			// CSerialCom closed the handle on failure - leave s_muriOpen false, don't double-close.
-			s_muriDiag.Format(_T("Could not configure %s (driver rejected %lu 8N1)."), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
+			s_muriDiag.Format(LS(IDS_GEN_MURI_CONFIG_FAIL), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
 			return false;
 		}
 		PurgeComm(s_muriPort.hComm, PURGE_RXCLEAR | PURGE_TXCLEAR);
 		s_muriOpen = true;
-		s_muriDiag.Format(_T("Opened %s at %lu 8N1 (serial)."), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
+		s_muriDiag.Format(LS(IDS_GEN_MURI_OPENED), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
 		return true;
 	}
 	void MuriClose() { if (s_muriOpen) { FlushFileBuffers(s_muriPort.hComm); Sleep(40); s_muriPort.ClosePort(); s_muriOpen = false; } }
@@ -1766,11 +1769,11 @@ namespace {
 	// wrong IP/port can't stall the measurement loop (same rationale as HTTP DIRECT).
 	bool MuriTcpSendRaw(const std::string& bytes)
 	{
-		if (s_muriIp.IsEmpty()) { s_muriDiag = _T("No IP address set."); return false; }
+		if (s_muriIp.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_IP_SET); return false; }
 		static bool wsaInit = false;
-		if (!wsaInit) { WSADATA w; if (WSAStartup(MAKEWORD(2, 2), &w) != 0) { s_muriDiag = _T("WSAStartup failed."); return false; } wsaInit = true; }
+		if (!wsaInit) { WSADATA w; if (WSAStartup(MAKEWORD(2, 2), &w) != 0) { s_muriDiag = LS(IDS_GEN_WSASTARTUP_FAIL); return false; } wsaInit = true; }
 		SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-		if (s == INVALID_SOCKET) { s_muriDiag = _T("socket() failed."); return false; }
+		if (s == INVALID_SOCKET) { s_muriDiag = LS(IDS_GEN_SOCKET_FAIL); return false; }
 		sockaddr_in a; memset(&a, 0, sizeof(a));
 		a.sin_family = AF_INET; a.sin_port = htons((u_short)s_muriTcpPort);
 		a.sin_addr.s_addr = inet_addr((LPCSTR)CStringA(s_muriIp));
@@ -1805,8 +1808,8 @@ namespace {
 				}
 			}
 		}
-		if (ok) s_muriDiag.Format(_T("Sent %d bytes to %s:%d (TCP)."), (int)bytes.size(), (LPCTSTR)s_muriIp, s_muriTcpPort);
-		else    s_muriDiag.Format(_T("TCP send to %s:%d failed."), (LPCTSTR)s_muriIp, s_muriTcpPort);
+		if (ok) s_muriDiag.Format(LS(IDS_GEN_TCP_SENT), (int)bytes.size(), (LPCTSTR)s_muriIp, s_muriTcpPort);
+		else    s_muriDiag.Format(LS(IDS_GEN_TCP_SEND_FAIL), (LPCTSTR)s_muriIp, s_muriTcpPort);
 		closesocket(s);
 		return ok;
 	}
@@ -1817,11 +1820,11 @@ namespace {
 	bool MuriTcpXfer(const std::string& sendBytes, std::string& replyOut, int readTimeoutMs, size_t wantBytes)
 	{
 		replyOut.clear();
-		if (s_muriIp.IsEmpty()) { s_muriDiag = _T("No IP address set."); return false; }
+		if (s_muriIp.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_IP_SET); return false; }
 		static bool wsaInit = false;
-		if (!wsaInit) { WSADATA w; if (WSAStartup(MAKEWORD(2, 2), &w) != 0) { s_muriDiag = _T("WSAStartup failed."); return false; } wsaInit = true; }
+		if (!wsaInit) { WSADATA w; if (WSAStartup(MAKEWORD(2, 2), &w) != 0) { s_muriDiag = LS(IDS_GEN_WSASTARTUP_FAIL); return false; } wsaInit = true; }
 		SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-		if (s == INVALID_SOCKET) { s_muriDiag = _T("socket() failed."); return false; }
+		if (s == INVALID_SOCKET) { s_muriDiag = LS(IDS_GEN_SOCKET_FAIL); return false; }
 		sockaddr_in a; memset(&a, 0, sizeof(a));
 		a.sin_family = AF_INET; a.sin_port = htons((u_short)s_muriTcpPort);
 		a.sin_addr.s_addr = inet_addr((LPCSTR)CStringA(s_muriIp));
@@ -1865,7 +1868,7 @@ namespace {
 		out.clear();
 		std::string frame = MuriBuildFrame(0xB838, std::vector<BYTE>(1, 0x01)), reply;
 		bool got = s_muriUseNet ? MuriTcpXfer(frame, reply, 2000, 300) : MuriSerialXfer(frame, reply, 400);
-		if (!got) { s_muriDiag = _T("No reply from device."); return false; }
+		if (!got) { s_muriDiag = LS(IDS_GEN_NO_REPLY); return false; }
 		static const BYTE hdr[8] = { 0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00 };
 		size_t idx = std::string::npos;
 		for (size_t i = 0; i + 8 <= reply.size(); ++i)
@@ -1873,7 +1876,7 @@ namespace {
 			bool m = true; for (int j = 0; j < 8; ++j) if ((BYTE)reply[i + j] != hdr[j]) { m = false; break; }
 			if (m) { idx = i; break; }
 		}
-		if (idx == std::string::npos) { s_muriDiag = _T("No EDID in reply (sink connected?)."); return false; }
+		if (idx == std::string::npos) { s_muriDiag = LS(IDS_GEN_NO_EDID); return false; }
 		size_t n = min((size_t)256, reply.size() - idx);
 		out.assign((const BYTE*)reply.data() + idx, (const BYTE*)reply.data() + idx + n);
 		return out.size() >= 128;
@@ -2131,8 +2134,8 @@ namespace {
 		s_muriUseNet = useNet; s_muriIp = ip;
 		if (useNet)
 		{
-			if (ip.IsEmpty()) { s_muriDiag = _T("No IP address set."); return false; }
-			s_muriDiag.Format(_T("Network mode: %s (HTTP)."), (LPCTSTR)ip);
+			if (ip.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_IP_SET); return false; }
+			s_muriDiag.Format(LS(IDS_GEN_NETWORK_MODE), (LPCTSTR)ip);
 			return true;		// HTTP is connectionless; nothing to open
 		}
 		return MuriSerialOpen(com);
@@ -2246,7 +2249,7 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 	if (useNet)
 	{
 		s_muriUseNet = true; s_muriIp = ip;
-		if (ip.IsEmpty()) { msgOut = _T("Enter the Murideo's IP address first."); return false; }
+		if (ip.IsEmpty()) { msgOut = LS(IDS_GEN_ENTER_MURI_IP_FIRST); return false; }
 		HINTERNET hI = MuriInet();
 		CString url; url.Format(_T("http://%s/"), (LPCTSTR)ip);
 		HINTERNET hU = hI ? InternetOpenUrl(hI, url, NULL, 0, INTERNET_FLAG_NO_UI | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0) : NULL;
@@ -2256,11 +2259,11 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 		{
 			CString sum;
 			if (MuriStatusSummary(sum) && !sum.IsEmpty())
-				msgOut.Format(_T("Connected to Murideo at %s.  Current: %s."), (LPCTSTR)ip, (LPCTSTR)sum);
+				msgOut.Format(LS(IDS_GEN_MURI_CONNECTED_NET), (LPCTSTR)ip, (LPCTSTR)sum);
 			else
-				msgOut.Format(_T("Reached %s (HTTP %lu) but got no Murideo status - is this the right device?"), (LPCTSTR)ip, (unsigned long)st);
+				msgOut.Format(LS(IDS_GEN_MURI_REACHED_NOSTATUS), (LPCTSTR)ip, (unsigned long)st);
 		}
-		else { DWORD e = GetLastError(); msgOut.Format(_T("Could not reach %s over HTTP (err %lu)."), (LPCTSTR)ip, (unsigned long)e); }
+		else { DWORD e = GetLastError(); msgOut.Format(LS(IDS_GEN_MURI_UNREACHABLE), (LPCTSTR)ip, (unsigned long)e); }
 		return ok;
 	}
 	// Serial: open the port, then round-trip a read command (0x8061 read-timing-status)
@@ -2270,9 +2273,9 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 	bool got = MuriSerialXfer(MuriBuildFrame(0x8061, std::vector<BYTE>()), reply, 32);
 	bool isMuri = false;
 	for (size_t k = 0; k < reply.size(); ++k) if ((BYTE)reply[k] == 0xAB) { isMuri = true; break; }
-	if (isMuri)      msgOut.Format(_T("Connected to Murideo on %s (serial, %d bytes replied)."), (LPCTSTR)comPort, (int)reply.size());
-	else if (got)    msgOut.Format(_T("Opened %s and got %d bytes, but no Murideo reply - wrong device/port?"), (LPCTSTR)comPort, (int)reply.size());
-	else             msgOut.Format(_T("Opened %s but the device did not respond - check the cable/port and that USB control is enabled."), (LPCTSTR)comPort);
+	if (isMuri)      msgOut.Format(LS(IDS_GEN_MURI_CONNECTED_SERIAL), (LPCTSTR)comPort, (int)reply.size());
+	else if (got)    msgOut.Format(LS(IDS_GEN_MURI_WRONG_DEVICE), (LPCTSTR)comPort, (int)reply.size());
+	else             msgOut.Format(LS(IDS_GEN_MURI_NO_RESPOND), (LPCTSTR)comPort);
 	MuriClose();
 	return isMuri;
 }
@@ -2290,7 +2293,7 @@ bool CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString
 	if (bt2020 >= 0)   ok = MuriCmdSingle(112, bt2020) && ok;
 	if (hdrMode >= 0)  ok = MuriCmdSingle(111, hdrMode) && ok;
 	if (bitDepth >= 0) ok = MuriCmdSingle(100, bitDepth) && ok;
-	msgOut.Format(_T("Applied output via %s. %s"), useNet ? _T("HTTP") : _T("serial"), (LPCTSTR)s_muriDiag);
+	msgOut.Format(LS(IDS_GEN_MURI_APPLIED), useNet ? _T("HTTP") : _T("serial"), (LPCTSTR)s_muriDiag);
 	return ok;
 }
 
@@ -2300,7 +2303,7 @@ bool CGDIGenerator_MuriReadSinkInfo(bool useNet, const CString& ip, const CStrin
 	if (!MuriConnect(useNet, ip, comPort)) { summaryOut = s_muriDiag; return false; }
 	if (useNet && tcpPort > 0) MuriSetTcpPort(tcpPort);
 	std::vector<BYTE> edid;
-	if (!MuriReadEdidBytes(edid)) { summaryOut = _T("Could not read EDID: ") + s_muriDiag; return false; }
+	if (!MuriReadEdidBytes(edid)) { summaryOut = LS(IDS_GEN_EDID_READ_FAIL) + s_muriDiag; return false; }
 	summaryOut = MuriParseEdid(edid);
 	return true;
 }
@@ -2310,7 +2313,7 @@ bool CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString
 {
 	if (!MuriConnect(useNet, ip, comPort)) { msgOut = s_muriDiag; return false; }
 	bool ok = MuriCmdDouble(98, patternId, patternBer);
-	msgOut.Format(_T("Sent pattern id %d (bank %d) via %s. %s"),
+	msgOut.Format(LS(IDS_GEN_MURI_SENT_PATTERN),
 		patternId, patternBer, useNet ? _T("HTTP") : _T("serial"), (LPCTSTR)s_muriDiag);
 	return ok;
 }
