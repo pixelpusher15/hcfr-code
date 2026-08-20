@@ -4322,6 +4322,15 @@ BEGIN
     IDS_GEN_MURI_APPLIED            "Sortie appliquée via %s. %s"
     IDS_GEN_MURI_SENT_PATTERN       "Mire id %d (banque %d) envoyée via %s. %s"
     IDS_GEN_EDID_READ_FAIL          "Impossible de lire l'EDID : "
+    IDS_GEN_DVDO_ERR_NOTFOUND       "port introuvable (le DVDO est-il connecté ?)"
+    IDS_GEN_DVDO_ERR_ACCESS         "accès refusé (port déjà utilisé par un autre programme ?)"
+    IDS_GEN_ERR_WINDOWS             "erreur Windows %lu"
+    IDS_GEN_TEST_OFF_BLACK          " (désactivé = noir plein)"
+    IDS_GEN_WRITE_OK                "écriture OK"
+    IDS_GEN_WRITE_FAILED            "ÉCHEC D'ÉCRITURE"
+    IDS_GEN_LBL_NAME                "Nom"
+    IDS_GEN_LBL_FIRMWARE            "Firmware"
+    IDS_GEN_LBL_OUTPUT              "Sortie"
 END
 
 #endif    // Französisch (Frankreich) resources

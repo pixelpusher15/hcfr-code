@@ -1167,9 +1167,9 @@ namespace {
 		CString s;
 		switch (e)
 		{
-		case ERROR_FILE_NOT_FOUND: s = _T("port not found (is the DVDO connected?)"); break;
-		case ERROR_ACCESS_DENIED:  s = _T("access denied (port already in use by another program?)"); break;
-		default: s.Format(_T("Windows error %lu"), (unsigned long)e); break;
+		case ERROR_FILE_NOT_FOUND: s = LS(IDS_GEN_DVDO_ERR_NOTFOUND); break;
+		case ERROR_ACCESS_DENIED:  s = LS(IDS_GEN_DVDO_ERR_ACCESS); break;
+		default: s.Format(LS(IDS_GEN_ERR_WINDOWS), (unsigned long)e); break;
 		}
 		return s;
 	}
@@ -1422,7 +1422,7 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int o
 	s_dvdoArmed = true;						// an 80 pattern leaves the TPG armed for subsequent AA patches
 	msgOut.Format(LS(IDS_GEN_DVDO_TEST_OK),
 		wasOpen ? LS(IDS_GEN_DVDO_REUSED_PORT) : LS(IDS_GEN_DVDO_OPENED_PORT),
-		code, (patternCode > 0 ? _T("") : _T(" (off = full black)")), (LPCTSTR)comPort, ok ? _T("write OK") : _T("WRITE FAILED"));
+		code, (patternCode > 0 ? _T("") : LS(IDS_GEN_TEST_OFF_BLACK)), (LPCTSTR)comPort, ok ? LS(IDS_GEN_WRITE_OK) : LS(IDS_GEN_WRITE_FAILED));
 	return ok;
 }
 
@@ -1466,14 +1466,14 @@ bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool l
 	bool forced420 = (resStatus == 10 || resStatus == 18);
 	const TCHAR* fmt = forced420 ? _T("YCbCr 4:2:0 (forced)") : (csConfig == 0) ? _T("RGB") : _T("YCbCr");
 	// The AVLab TPG is SDR / BT.709 only (no HDR, no BT.2020), so those are fixed.
-	out  = CString(_T("Name\t"))         + (name.IsEmpty() ? _T("?") : (LPCTSTR)name) + _T("\r\n");
-	out += CString(_T("COM port\t"))     + comPort + _T("\r\n");
-	out += CString(_T("Firmware\t"))     + (fwv.IsEmpty() ? _T("?") : (LPCTSTR)fwv) + _T("\r\n");
-	out += CString(_T("Dynamic range\t"))+ CString(_T("SDR")) + _T("\r\n");
-	out += CString(_T("Resolution\t"))   + res + _T("\r\n");
-	out += CString(_T("Color space\t"))  + CString(_T("BT.709")) + _T("\r\n");
-	out += CString(_T("Color format\t")) + fmt + _T("\r\n");
-	out += CString(_T("Signal range\t")) + (lim ? _T("Limited (16-235)") : _T("Full (0-255)"));
+	out  = (LS(IDS_GEN_LBL_NAME) + _T("\t"))         + (name.IsEmpty() ? _T("?") : (LPCTSTR)name) + _T("\r\n");
+	out += (LS(IDS_GEN_COM_PORT) + _T("\t"))     + comPort + _T("\r\n");
+	out += (LS(IDS_GEN_LBL_FIRMWARE) + _T("\t"))     + (fwv.IsEmpty() ? _T("?") : (LPCTSTR)fwv) + _T("\r\n");
+	out += (LS(IDS_GEN_DYNAMIC_RANGE) + _T("\t"))+ CString(_T("SDR")) + _T("\r\n");
+	out += (LS(IDS_GEN_RESOLUTION) + _T("\t"))   + res + _T("\r\n");
+	out += (LS(IDS_GEN_COLOR_SPACE) + _T("\t"))  + CString(_T("BT.709")) + _T("\r\n");
+	out += (LS(IDS_GEN_COLOR_FORMAT) + _T("\t")) + fmt + _T("\r\n");
+	out += (LS(IDS_GEN_SIGNAL_RANGE) + _T("\t")) + (lim ? _T("Limited (16-235)") : _T("Full (0-255)"));
 	return !name.IsEmpty() || haveRes;
 }
 
@@ -1673,15 +1673,15 @@ namespace {
 		CString dyn = (dynMode == 0) ? _T("SDR") : (dynMode == 1) ? _T("HDR") : (dynMode == 2) ? _T("HLG") : _T("?");
 		// Colour space = the gamut, from the BT.2020 field (Disable = BT.709, Enable = BT.2020).
 		CString colorSpace = (bt2020.CompareNoCase(_T("Enable")) == 0) ? _T("BT.2020") : (bt2020.CompareNoCase(_T("Disable")) == 0) ? _T("BT.709") : _T("?");
-		#define MURI_LINE(lbl,val) out += _T(lbl) _T("\t") + (val.IsEmpty()?CString(_T("?")):val) + _T("\r\n")
+		#define MURI_LINE(lbl,val) out += (lbl) + _T("\t") + (val.IsEmpty()?CString(_T("?")):val) + _T("\r\n")
 		out.Empty();
-		out += CString(_T("Dynamic range\t")) + dyn + _T("\r\n");
-		MURI_LINE("Resolution",   res);
-		MURI_LINE("Bit depth",    depth);
-		out += CString(_T("Color space\t"))  + colorSpace + _T("\r\n");
-		out += CString(_T("Color format\t")) + fmt + _T("\r\n");
-		out += CString(_T("Signal range\t")) + rng + _T("\r\n");
-		MURI_LINE("Output",       output);
+		out += (LS(IDS_GEN_DYNAMIC_RANGE) + _T("\t")) + dyn + _T("\r\n");
+		MURI_LINE(LS(IDS_GEN_RESOLUTION),   res);
+		MURI_LINE(LS(IDS_GEN_BIT_DEPTH),    depth);
+		out += (LS(IDS_GEN_COLOR_SPACE) + _T("\t"))  + colorSpace + _T("\r\n");
+		out += (LS(IDS_GEN_COLOR_FORMAT) + _T("\t")) + fmt + _T("\r\n");
+		out += (LS(IDS_GEN_SIGNAL_RANGE) + _T("\t")) + rng + _T("\r\n");
+		MURI_LINE(LS(IDS_GEN_LBL_OUTPUT),       output);
 		out += CString(_T("HDCP\t")) + (hdcp.IsEmpty()?CString(_T("?")):hdcp);
 		#undef MURI_LINE
 		return true;
@@ -2371,12 +2371,12 @@ static bool MuriSerialStatusReadout(CString& out)
 	CString hdcpS = (hdcp == 1) ? _T("ON") : (hdcp == 0) ? _T("OFF") : _T("?");
 
 	out.Empty();
-	out += CString(_T("Dynamic range\t")) + dyn   + _T("\r\n");
-	out += CString(_T("Resolution\t"))    + res   + _T("\r\n");
+	out += (LS(IDS_GEN_DYNAMIC_RANGE) + _T("\t")) + dyn   + _T("\r\n");
+	out += (LS(IDS_GEN_RESOLUTION) + _T("\t"))    + res   + _T("\r\n");
 	out += CString(_T("Bit depth\t"))     + dep   + _T("\r\n");
-	out += CString(_T("Color space\t"))   + gamut + _T("\r\n");
-	out += CString(_T("Color format\t"))  + fmt   + _T("\r\n");
-	out += CString(_T("Signal range\t"))  + rng   + _T("\r\n");
+	out += (LS(IDS_GEN_COLOR_SPACE) + _T("\t"))   + gamut + _T("\r\n");
+	out += (LS(IDS_GEN_COLOR_FORMAT) + _T("\t"))  + fmt   + _T("\r\n");
+	out += (LS(IDS_GEN_SIGNAL_RANGE) + _T("\t"))  + rng   + _T("\r\n");
 	out += CString(_T("Output\t"))        + outp  + _T("\r\n");
 	out += CString(_T("HDCP\t"))          + hdcpS;
 	return true;

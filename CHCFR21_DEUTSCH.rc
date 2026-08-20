@@ -4085,6 +4085,15 @@ BEGIN
     IDS_GEN_MURI_APPLIED            "Ausgabe angewendet über %s. %s"
     IDS_GEN_MURI_SENT_PATTERN       "Muster-ID %d (Bank %d) gesendet über %s. %s"
     IDS_GEN_EDID_READ_FAIL          "EDID konnte nicht gelesen werden: "
+    IDS_GEN_DVDO_ERR_NOTFOUND       "Anschluss nicht gefunden (ist der DVDO verbunden?)"
+    IDS_GEN_DVDO_ERR_ACCESS         "Zugriff verweigert (Anschluss bereits von einem anderen Programm belegt?)"
+    IDS_GEN_ERR_WINDOWS             "Windows-Fehler %lu"
+    IDS_GEN_TEST_OFF_BLACK          " (aus = Vollschwarz)"
+    IDS_GEN_WRITE_OK                "Schreiben OK"
+    IDS_GEN_WRITE_FAILED            "SCHREIBEN FEHLGESCHLAGEN"
+    IDS_GEN_LBL_NAME                "Name"
+    IDS_GEN_LBL_FIRMWARE            "Firmware"
+    IDS_GEN_LBL_OUTPUT              "Ausgang"
 END
 
 #endif    // Deutsch (Deutschland) resources

@@ -4129,6 +4129,15 @@ BEGIN
     IDS_GEN_MURI_APPLIED            "Applied output via %s. %s"
     IDS_GEN_MURI_SENT_PATTERN       "Sent pattern id %d (bank %d) via %s. %s"
     IDS_GEN_EDID_READ_FAIL          "Could not read EDID: "
+    IDS_GEN_DVDO_ERR_NOTFOUND       "port not found (is the DVDO connected?)"
+    IDS_GEN_DVDO_ERR_ACCESS         "access denied (port already in use by another program?)"
+    IDS_GEN_ERR_WINDOWS             "Windows error %lu"
+    IDS_GEN_TEST_OFF_BLACK          " (off = full black)"
+    IDS_GEN_WRITE_OK                "write OK"
+    IDS_GEN_WRITE_FAILED            "WRITE FAILED"
+    IDS_GEN_LBL_NAME                "Name"
+    IDS_GEN_LBL_FIRMWARE            "Firmware"
+    IDS_GEN_LBL_OUTPUT              "Output"
 END
 
 #endif    // English (United States) resources

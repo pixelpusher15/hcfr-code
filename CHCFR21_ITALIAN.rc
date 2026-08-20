@@ -4325,6 +4325,15 @@ BEGIN
     IDS_GEN_MURI_APPLIED            "Uscita applicata tramite %s. %s"
     IDS_GEN_MURI_SENT_PATTERN       "Pattern id %d (banco %d) inviato tramite %s. %s"
     IDS_GEN_EDID_READ_FAIL          "Impossibile leggere l'EDID: "
+    IDS_GEN_DVDO_ERR_NOTFOUND       "porta non trovata (il DVDO è connesso?)"
+    IDS_GEN_DVDO_ERR_ACCESS         "accesso negato (porta già in uso da un altro programma?)"
+    IDS_GEN_ERR_WINDOWS             "errore Windows %lu"
+    IDS_GEN_TEST_OFF_BLACK          " (disattivato = nero pieno)"
+    IDS_GEN_WRITE_OK                "scrittura OK"
+    IDS_GEN_WRITE_FAILED            "SCRITTURA NON RIUSCITA"
+    IDS_GEN_LBL_NAME                "Nome"
+    IDS_GEN_LBL_FIRMWARE            "Firmware"
+    IDS_GEN_LBL_OUTPUT              "Uscita"
 END
 
 #endif    // Italienisch (Italien) resources

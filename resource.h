@@ -2038,6 +2038,15 @@
 #define IDS_GEN_MURI_APPLIED              59701
 #define IDS_GEN_MURI_SENT_PATTERN         59702
 #define IDS_GEN_EDID_READ_FAIL            59703
+#define IDS_GEN_DVDO_ERR_NOTFOUND         59704
+#define IDS_GEN_DVDO_ERR_ACCESS           59705
+#define IDS_GEN_ERR_WINDOWS               59706
+#define IDS_GEN_TEST_OFF_BLACK            59707
+#define IDS_GEN_WRITE_OK                  59708
+#define IDS_GEN_WRITE_FAILED              59709
+#define IDS_GEN_LBL_NAME                  59710
+#define IDS_GEN_LBL_FIRMWARE              59711
+#define IDS_GEN_LBL_OUTPUT                59712
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550

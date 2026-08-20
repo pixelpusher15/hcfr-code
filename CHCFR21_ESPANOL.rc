@@ -4247,6 +4247,15 @@ BEGIN
     IDS_GEN_MURI_APPLIED            "Salida aplicada vía %s. %s"
     IDS_GEN_MURI_SENT_PATTERN       "Patrón id %d (banco %d) enviado vía %s. %s"
     IDS_GEN_EDID_READ_FAIL          "No se pudo leer el EDID: "
+    IDS_GEN_DVDO_ERR_NOTFOUND       "puerto no encontrado (¿está conectado el DVDO?)"
+    IDS_GEN_DVDO_ERR_ACCESS         "acceso denegado (¿puerto ya en uso por otro programa?)"
+    IDS_GEN_ERR_WINDOWS             "error de Windows %lu"
+    IDS_GEN_TEST_OFF_BLACK          " (desactivado = negro pleno)"
+    IDS_GEN_WRITE_OK                "escritura OK"
+    IDS_GEN_WRITE_FAILED            "ERROR DE ESCRITURA"
+    IDS_GEN_LBL_NAME                "Nombre"
+    IDS_GEN_LBL_FIRMWARE            "Firmware"
+    IDS_GEN_LBL_OUTPUT              "Salida"
 END
 
 #endif    // Spanish (Spain, International Sort) resources
