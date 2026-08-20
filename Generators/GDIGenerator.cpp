@@ -1954,6 +1954,8 @@ namespace {
 		{
 			const BYTE* x = &e[128];
 			dtdOff = x[2];
+			if (dtdOff > 127) dtdOff = 127;		// offset within the 128-byte extension; a bogus
+												// device value must not push either walk out of bounds
 			nativeCount = x[3] & 0x0F;
 			if (x[3] & 0x40) extSupp += _T("Base Audio, ");
 			if (x[3] & 0x20) extSupp += _T("YCbCr 4:4:4, ");
@@ -1962,6 +1964,8 @@ namespace {
 			while (i < dtdOff && i < 128)
 			{
 				int tag = (x[i] >> 5) & 7, ln = x[i] & 0x1F; const BYTE* body = &x[i + 1];
+				if (i + 1 + ln > 128) break;	// block body would run past the 128-byte extension
+												// (device-supplied len); stop rather than read e[256+]
 				if (tag == 2)			// Short Video Descriptors
 				{
 					for (int k = 0; k < ln; ++k) { int b = body[k]; if (b >= 129 && b <= 192) { svdVic.push_back(b - 128); svdNat.push_back(1); } else { svdVic.push_back(b & 0x7F); svdNat.push_back(0); } }
@@ -2037,10 +2041,13 @@ namespace {
 				}
 				i += 1 + ln;
 			}
-			for (int j = dtdOff; j + 18 <= 128 && (x[j] || x[j + 1]); j += 18)	// extension DTDs
-			{
-				CString d; if (MuriDtdStr(&x[j], d)) extDtds.push_back(d);
-			}
+			// dtdOff == 0 means "no DTDs" in CEA-861; only walk when it is a real offset (>= 4),
+			// otherwise the loop would parse the extension header (x[0]=0x02,x[1]=0x03) as a DTD.
+			if (dtdOff >= 4)
+				for (int j = dtdOff; j + 18 <= 128 && (x[j] || x[j + 1]); j += 18)	// extension DTDs
+				{
+					CString d; if (MuriDtdStr(&x[j], d)) extDtds.push_back(d);
+				}
 		}
 		#define MURI_TRIM2(cs) if ((cs).GetLength() >= 2 && (cs).Right(2) == _T(", ")) (cs) = (cs).Left((cs).GetLength() - 2)
 		MURI_TRIM2(extSupp); MURI_TRIM2(deepColor); MURI_TRIM2(hdr); MURI_TRIM2(colorim);
