@@ -9,8 +9,8 @@
 //
 // T2/T3/T4/T6 dump deterministic tables and compare them exactly against checked-in goldens.
 // Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
-// copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants, and
-// T10 asserts gamut-basis consistency. The .chc round-trip originally planned for the T7
+// copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
+// T10 asserts gamut-basis consistency, and T11 asserts BT.2390 tone-map monotonicity. The .chc round-trip originally planned for the T7
 // slot needs app-level linkage and is deliberately still not in this console harness.
 
 #include <afx.h>
@@ -771,6 +771,79 @@ static void RunT10()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T11 - BT.2390 tone-map monotonicity oracle (pure assertion, no golden file).
+//
+// Closes the near-black half of the tone-mapping curve, which no dE-based
+// harness can see: /accuracytest runs every tone-map combo with MasterMinL and
+// TargetMinL pinned to 0, and a reference that is wrong in exactly the same way
+// as the modelled sensor still reads dE 0.000.
+//
+// The bug this pins: getL_EOTF case 10 normalises the signal against the
+// mastering display's black (E1 = (E - PQ(MinML)) / d) and then only applies
+// BT.2390's black lift when E2 landed inside [0,1]. Anything below the
+// mastering black fell out of that window and dropped to the raw, UN-tone-mapped
+// PQ curve, so the near-black targets got no lift at all while the highlights
+// were still rolled off - Y target at 0% (which returns the display black
+// target directly) could come out ABOVE Y target at 1-5%.
+//
+// The invariant is the weakest thing that catches it and stays true of any sane
+// EOTF: an electro-optical transfer function must be non-decreasing in the
+// signal. Verified by mutation - dropping the E1 clamp in Color.cpp fails 768
+// of the 1440 configurations swept here.
+//
+// The grid deliberately mixes MasterMinL above and below TargetMinL: the
+// dead zone only opens when the mastering black is nonzero, and case 10's own
+// `if (m_MinML > m_MinTL) m_MinML = m_MinTL` clamp shrinks it again from the
+// other side.
+//////////////////////////////////////////////////////////////////////////
+static void RunT11()
+{
+    printf("T11 BT.2390 tone-map monotonicity oracle...\n");
+
+    static const double minMLs[] = { 0.0, 0.0001, 0.001, 0.005, 0.05, 0.5 };
+    static const double maxMLs[] = { 1000.0, 4000.0, 10000.0 };
+    static const double minTLs[] = { 0.0, 0.005, 0.05, 0.1, 0.3 };
+    static const double maxTLs[] = { 120.0, 400.0 };
+    static const double diffuses[] = { 94.37844, 203.0 };
+    static const double bFacts[] = { 1.0, 2.0 };          // m_BT2390_BS
+    static const double e2Facts[] = { 0.0, 1.0 };         // m_BT2390_WS
+
+    const int steps = 400;
+    int configs = 0;
+
+    for (int a = 0; a < _countof(minMLs); a++)
+    for (int b = 0; b < _countof(maxMLs); b++)
+    for (int c = 0; c < _countof(minTLs); c++)
+    for (int d = 0; d < _countof(maxTLs); d++)
+    for (int e = 0; e < _countof(diffuses); e++)
+    for (int f = 0; f < _countof(bFacts); f++)
+    for (int g = 0; g < _countof(e2Facts); g++)
+    {
+        configs++;
+        double prev = -1.0;
+        for (int i = 0; i <= steps; i++)
+        {
+            const double valx = (double)i / steps;
+            const double y = getL_EOTF(valx, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                       diffuses[e], minMLs[a], maxMLs[b],
+                                       minTLs[c], maxTLs[d], true, false, 1.2,
+                                       bFacts[f], e2Facts[g], 25.0) * 100.0;
+            if (y < prev - 1e-9)
+            {
+                Fail("T11 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g "
+                     "diffuse=%g BS=%g WS=%g: tone-mapped PQ target falls from "
+                     "%.6f to %.6f cd/m2 at signal %.4f",
+                     minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], diffuses[e],
+                     bFacts[f], e2Facts[g], prev, y, valx);
+                break;      // one report per configuration
+            }
+            prev = y;
+        }
+    }
+    printf("  %d tone-map configurations swept\n", configs);
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -797,6 +870,7 @@ int main(int argc, char* argv[])
     RunT8();
     RunT9();
     RunT10();
+    RunT11();
 
     if (g_failures)
     {

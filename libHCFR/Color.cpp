@@ -1584,7 +1584,6 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 			double E1,E2,E4,b,d,KS,T,p;
 			if (!cBT2390)
 			{
-				double tmWhite = getL_EOTF(0.5022283, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact) * 100.0;
 				m_MaxML = m_MaxML * m_diffuseL / 94.37844 ; 
 
 				if (m_MinML > m_MinTL)
@@ -1593,6 +1592,14 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 				E1 = valx - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
 				d = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2) - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
 				E1 = E1 / d;
+				// BT.2390's EETF is defined on the normalised [0,1] range. Signals below
+				// the mastering display's black (E1 < 0) or above its peak (E1 > 1) used
+				// to leave E2 outside [0,1] and fall through to the un-tone-mapped PQ
+				// branch below, so near-black got no black lift at all: Y target at 0%
+				// (which returns the display black target) could come out ABOVE Y target
+				// at 1-5%. Clamp instead - sub-black maps to the black target, above-peak
+				// to the peak target - which keeps the tone curve monotonic.
+				E1 = min(max(E1, 0.0), 1.0);
 				minL = (pow( (c1 + c2 * pow(m_MinTL/Scale,m1)) / (1 + c3 * pow(m_MinTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
 				maxL = (pow( (c1 + c2 * pow(m_MaxTL/Scale,m1)) / (1 + c3 * pow(m_MaxTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
 				KS = 1.5 * maxL - 0.5;
@@ -1660,6 +1667,14 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 					E1 = valx - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
 					d = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2) - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
 					E1 = E1 / d;
+					// BT.2390's EETF is defined on the normalised [0,1] range. Signals below
+					// the mastering display's black (E1 < 0) or above its peak (E1 > 1) used
+					// to leave E2 outside [0,1] and fall through to the un-tone-mapped PQ
+					// branch below, so near-black got no black lift at all: Y target at 0%
+					// (which returns the display black target) could come out ABOVE Y target
+					// at 1-5%. Clamp instead - sub-black maps to the black target, above-peak
+					// to the peak target - which keeps the tone curve monotonic.
+					E1 = min(max(E1, 0.0), 1.0);
 					minL = (pow( (c1 + c2 * pow(m_MinTL/Scale,m1)) / (1 + c3 * pow(m_MinTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
 					maxL = (pow( (c1 + c2 * pow(m_MaxTL/Scale,m1)) / (1 + c3 * pow(m_MaxTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
 					KS = 1.5 * maxL - 0.5;
@@ -1706,9 +1721,6 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 		break;
 		case -10: //BT.2084/2390 inverse curve look-up
 			{
-//				double tmWhite = getL_EOTF(0.5022283, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact, E2_fact1) * 100.0;
-//				m_MaxML = m_MaxML * tmWhite / 94.37844;
-//				m_MaxML = m_MaxML * m_diffuseL / 94.37844 ; 
 				getL_EOTF(valx, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact, E2_fact1);
 				value = abs(valx - BT2390y[0]);
 				outL = BT2390x[0];
