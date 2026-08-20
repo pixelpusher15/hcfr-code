@@ -1186,8 +1186,15 @@ namespace {
 				s_dvdoDiag.Format(_T("Could not open %s - %s"), (LPCTSTR)comPort, (LPCTSTR)DvdoErrText(e));
 				return false;
 			}
-			s_dvdoPort.ConfigurePort(115200, 8, FALSE, NOPARITY, ONESTOPBIT);
-			s_dvdoPort.SetCommunicationTimeouts(20, 0, 80, 0, 300);
+			if (!s_dvdoPort.ConfigurePort(115200, 8, FALSE, NOPARITY, ONESTOPBIT) ||
+			    !s_dvdoPort.SetCommunicationTimeouts(20, 0, 80, 0, 300))
+			{
+				// CSerialCom already CloseHandle()s on these failures - do NOT ClosePort again
+				// (double-close) and do NOT set s_dvdoOpen, so no write hits a dead handle and
+				// DvdoClose stays a no-op.
+				s_dvdoDiag.Format(_T("Could not configure %s (driver rejected 115200 8N1)."), (LPCTSTR)comPort);
+				return false;
+			}
 			// NB: do NOT toggle DTR/RTS - the AVLab TPG locks up (needs a power cycle)
 			// when the host asserts them. It receives host bytes without it.
 			PurgeComm(s_dvdoPort.hComm, PURGE_RXCLEAR | PURGE_TXCLEAR);
@@ -1698,8 +1705,13 @@ namespace {
 			s_muriDiag.Format(_T("Could not open %s (Windows error %lu)."), (LPCTSTR)comPort, (unsigned long)e);
 			return false;
 		}
-		s_muriPort.ConfigurePort(MURI_BAUD, 8, FALSE, NOPARITY, ONESTOPBIT);
-		s_muriPort.SetCommunicationTimeouts(20, 0, 80, 0, 300);
+		if (!s_muriPort.ConfigurePort(MURI_BAUD, 8, FALSE, NOPARITY, ONESTOPBIT) ||
+		    !s_muriPort.SetCommunicationTimeouts(20, 0, 80, 0, 300))
+		{
+			// CSerialCom closed the handle on failure - leave s_muriOpen false, don't double-close.
+			s_muriDiag.Format(_T("Could not configure %s (driver rejected %lu 8N1)."), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
+			return false;
+		}
 		PurgeComm(s_muriPort.hComm, PURGE_RXCLEAR | PURGE_TXCLEAR);
 		s_muriOpen = true;
 		s_muriDiag.Format(_T("Opened %s at %lu 8N1 (serial)."), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
