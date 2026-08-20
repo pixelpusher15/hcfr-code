@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -652,11 +652,13 @@ static UINT AFX_CDECL PgenQueryThread(LPVOID p)
 	return 0;
 }
 
-void CGDIGenePropPage::QueryPGenerator()
+void CGDIGenePropPage::QueryPGenerator(bool settle)
 {
 	if (!m_pgenReadout.GetSafeHwnd()) return;
 	if (m_pgenQuerying) return;
 	m_pgenQuerying = TRUE;
+	m_pgenQuerySettle = settle;		// armed only once we actually start the worker, so an
+									// early-return above can't leak it into the next query
 	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.EnableWindow(FALSE);
 	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(FALSE);
 	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(FALSE);
@@ -1023,15 +1025,12 @@ void CGDIGenePropPage::OnPgenSettings()
 	// - a reboot/restart/shutdown (m_action) takes the device down -> show it disconnected;
 	// - otherwise refresh only when Apply actually sent a batch (m_applied) - Close/Escape with
 	//   no change shouldn't blank the readout for nothing. Apply ends with a daemon restart, so
-	//   arm a settle+retry (m_pgenQuerySettle) or the query lands on "Not connected" right after
-	//   a successful Apply.
+	//   pass settle=true: the query settles+retries through the restart window instead of
+	//   landing on "Not connected".
 	if (dlg.m_action != 0)
 		ShowPgenDisconnected();
 	else if (dlg.m_applied)
-	{
-		m_pgenQuerySettle = TRUE;
-		QueryPGenerator();
-	}
+		QueryPGenerator(true);
 }
 
 void CGDIGenePropPage::OnOK()

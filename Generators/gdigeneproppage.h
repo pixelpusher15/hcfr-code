@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -135,7 +135,7 @@ protected:
 
 	void BuildRuntimeLayout();
 	void Relayout();
-	void QueryPGenerator();
+	void QueryPGenerator(bool settle = false);
 	void ShowPgenDisconnected();
 	void PopulateCast();
 	int  ComboToMode(int sel);
