@@ -196,7 +196,10 @@ void GuardCCModeOutputRange(int ccMode)
 {
 	if (ccMode != USER)
 		return;
-	if (GetConfig()->GetRGB16_235() != FALSE)
+	// Read the committed output range from the profile (the source the generator + settings
+	// write) rather than the cached GetRGB16_235(), so the guard is correct even when called
+	// from the settings OnOK before ApplySettings has re-synced the cache.
+	if (GetConfig()->GetProfileInt("GDIGenerator", "RGB_16_235", 0) != 0)
 		return;                                  // already 16-235: super-white is emitted fine (no file read needed)
 	char modPath[MAX_PATH];
 	GetModuleFileName(NULL, modPath, sizeof(modPath));
