@@ -1889,12 +1889,24 @@ void CGDIGenePropPage::RefreshDvdoStatus()
 		m_dvdoQuerying = FALSE; delete c;
 		m_dvdoReadout.SetWindowText(_T("(could not start status query)"));
 	}
+	else
+	{
+		// The worker owns s_dvdoPort until it posts WM_DVDO_QUERY_DONE - lock out the controls
+		// that also drive the port so a click can't interleave a write, or close the handle,
+		// mid-query. Re-enabled in OnDvdoQueryDone.
+		if (m_dvdoShowBtn.GetSafeHwnd())     m_dvdoShowBtn.EnableWindow(FALSE);
+		if (m_dvdoOffBtn.GetSafeHwnd())      m_dvdoOffBtn.EnableWindow(FALSE);
+		if (m_dvdoSettingsBtn.GetSafeHwnd()) m_dvdoSettingsBtn.EnableWindow(FALSE);
+	}
 }
 
 LRESULT CGDIGenePropPage::OnDvdoQueryDone(WPARAM, LPARAM lp)
 {
 	DvdoQueryCtx* c = (DvdoQueryCtx*)lp;
 	m_dvdoQuerying = FALSE;
+	if (m_dvdoShowBtn.GetSafeHwnd())     m_dvdoShowBtn.EnableWindow(TRUE);		// re-enable the port-sharing controls
+	if (m_dvdoOffBtn.GetSafeHwnd())      m_dvdoOffBtn.EnableWindow(TRUE);
+	if (m_dvdoSettingsBtn.GetSafeHwnd()) m_dvdoSettingsBtn.EnableWindow(TRUE);
 	if (m_dvdoReadout.GetSafeHwnd()) m_dvdoReadout.SetWindowText(c->text);
 	delete c;
 	return 0;
@@ -2080,12 +2092,23 @@ void CGDIGenePropPage::RefreshMuriStatus()
 		m_muriQuerying = FALSE; delete c;
 		m_muriReadout.SetWindowText(_T("(could not start status query)"));
 	}
+	else
+	{
+		// Lock out the controls that also drive s_muriPort (serial) / the device while the
+		// worker queries, so a click can't interleave with it. Re-enabled in OnMuriQueryDone.
+		if (m_muriShowBtn.GetSafeHwnd())     m_muriShowBtn.EnableWindow(FALSE);
+		if (m_muriSettingsBtn.GetSafeHwnd()) m_muriSettingsBtn.EnableWindow(FALSE);
+		if (m_muriEdidBtn.GetSafeHwnd())     m_muriEdidBtn.EnableWindow(FALSE);
+	}
 }
 
 LRESULT CGDIGenePropPage::OnMuriQueryDone(WPARAM, LPARAM lp)
 {
 	MuriQueryCtx* c = (MuriQueryCtx*)lp;
 	m_muriQuerying = FALSE;
+	if (m_muriShowBtn.GetSafeHwnd())     m_muriShowBtn.EnableWindow(TRUE);		// re-enable the port-sharing controls
+	if (m_muriSettingsBtn.GetSafeHwnd()) m_muriSettingsBtn.EnableWindow(TRUE);
+	if (m_muriEdidBtn.GetSafeHwnd())     m_muriEdidBtn.EnableWindow(TRUE);
 	if (m_muriReadout.GetSafeHwnd()) m_muriReadout.SetWindowText(c->text);
 	delete c;
 	return 0;
