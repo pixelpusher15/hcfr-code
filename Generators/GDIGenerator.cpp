@@ -106,7 +106,6 @@ CGDIGenerator::CGDIGenerator()
 	m_b10bitPGen = GetConfig()->GetProfileInt("GDIGenerator","TenBitPGen",0);
 	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
 	m_dvdoComPort = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
-	m_dvdoCmdMode = GetConfig()->GetProfileInt("GDIGenerator","DvdoCmdMode",0);
 	m_dvdoColorSpace = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
 	m_dvdoRange = GetConfig()->GetProfileInt("GDIGenerator","DvdoRange",0);
 	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
@@ -166,7 +165,6 @@ CGDIGenerator::CGDIGenerator(int nDisplayMode, BOOL b16_235)
 	m_b10bitPGen = GetConfig()->GetProfileInt("GDIGenerator","TenBitPGen",0);
 	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
 	m_dvdoComPort = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
-	m_dvdoCmdMode = GetConfig()->GetProfileInt("GDIGenerator","DvdoCmdMode",0);
 	m_dvdoColorSpace = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
 	m_dvdoRange = GetConfig()->GetProfileInt("GDIGenerator","DvdoRange",0);
 	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
@@ -560,7 +558,7 @@ void CGDIGenerator::GetPropertiesSheetValues()
 
 // Forward declarations for the DVDO serial helpers defined further down (both in
 // an anonymous namespace => internal linkage within this translation unit).
-namespace { bool DvdoOpen(const CString& comPort, int cmdMode, int colorSpace, int range, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
+namespace { bool DvdoOpen(const CString& comPort, int colorSpace, int range, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
 namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com); void MuriDisconnect(); void MuriSetTcpPort(int port); }
 
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
@@ -680,7 +678,6 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 	if ( m_nDisplayMode == DISPLAY_DVDO || m_nDisplayMode == DISPLAY_MURIDEO )
 	{
 		m_dvdoComPort      = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
-		m_dvdoCmdMode      = GetConfig()->GetProfileInt("GDIGenerator","DvdoCmdMode",0);
 		m_dvdoColorSpace   = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
 		m_dvdoRange        = GetConfig()->GetProfileInt("GDIGenerator","DvdoRange",0);
 		m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
@@ -696,7 +693,7 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 		// Just open the port for AA patches; do NOT re-send resolution/colour-space here (the
 		// "DVDO settings..." dialog's Apply owns those - the device retains them). Re-sending
 		// 6C/61 every measurement would needlessly re-lock the display. Mirrors the Murideo.
-		BOOL opened = DvdoOpen(m_dvdoComPort, m_dvdoCmdMode, m_dvdoColorSpace, m_dvdoRange, m_dvdoOutputFormat, &fw, false /*no setup*/);
+		BOOL opened = DvdoOpen(m_dvdoComPort, m_dvdoColorSpace, m_dvdoRange, m_dvdoOutputFormat, &fw, false /*no setup*/);
 		if ( ! opened )
 		{
 			if ( ! m_initShowedError )
@@ -1065,7 +1062,6 @@ return TRUE;
 namespace {
 	CSerialCom	s_dvdoPort;
 	bool		s_dvdoOpen  = false;
-	bool		s_dvdoUseAA = true;			// resolved at open from firmware / cmd-mode
 	bool		s_dvdoArmed = false;		// TPG armed for AA patches? (see the first-patch arm in DisplayRGBColorDVDO)
 	CString		s_dvdoDiag;					// human-readable status from the last DvdoOpen
 	const int	kDvdoArmPattern = 35;		// 80=35 = "Black" (0 IRE full field, User's Guide page 14): arms the internal TPG with no visible flash
@@ -1175,7 +1171,7 @@ namespace {
 		return s;
 	}
 
-	bool DvdoOpen(const CString& comPort, int cmdMode, int colorSpace, int /*range*/, int outputFormat, CString* fwOut, bool sendSetup)
+	bool DvdoOpen(const CString& comPort, int colorSpace, int /*range*/, int outputFormat, CString* fwOut, bool sendSetup)
 	{
 		if (comPort.IsEmpty()) { s_dvdoDiag = _T("No COM port selected."); return false; }
 		if (!s_dvdoOpen)	// REUSE an already-open port; a close-then-immediate-reopen can fail
@@ -1204,18 +1200,12 @@ namespace {
 
 		// IMPORTANT: do NOT send any firmware/version query here. On the AVLab TPG the
 		// type-20 query locks the device up - it stops responding to serial AND to its
-		// IR remote until a power cycle - and it never replies anyway. So the AA/AF
-		// choice is driven purely by the user's Command setting: "Auto" and "AF" both
-		// use AF %IRE (supported by every firmware, hardware-confirmed working); pick
-		// "AA full triplet" explicitly for 0-255 precision on F/W 1.01+.
+		// IR remote until a power cycle - and it never replies anyway. Patches always use
+		// AA full-triplet (0-255), which carries the exact RGB and works on F/W 1.01+.
 		if (fwOut) fwOut->Empty();
-		(void)cmdMode; s_dvdoUseAA = true;	// always AA full-triplet (0-255) - AF %IRE is not used
 		s_dvdoArmed = false;				// re-arm on the first AA patch of this session (see DisplayRGBColorDVDO)
 
-		if (s_dvdoUseAA)
-			s_dvdoDiag.Format(_T("Opened %s - using AA full-triplet (0-255)."), (LPCTSTR)comPort);
-		else
-			s_dvdoDiag.Format(_T("Opened %s - using AF %%IRE (0-100)."), (LPCTSTR)comPort);
+		s_dvdoDiag.Format(_T("Opened %s - using AA full-triplet (0-255)."), (LPCTSTR)comPort);
 
 		// Only when actually starting output (not during a Detect/Test probe): set the
 		// output colour space (6C: 1=RGB, 2=YC444, 3=YC422). AA carries colour space per
@@ -1260,11 +1250,11 @@ namespace {
 } // namespace
 
 // Returns TRUE if the port opened. msgOut carries a full human-readable status
-// (the AA/AF decision on success, or the failure reason).
-bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int cmdMode, int colorSpace, int range, CString& msgOut)
+// (the AA transport note on success, or the failure reason).
+bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, int range, CString& msgOut)
 {
 	CString fw;
-	bool opened = DvdoOpen(comPort, cmdMode, colorSpace, range, 0 /*format n/a for probe*/, &fw, false /*probe only*/);
+	bool opened = DvdoOpen(comPort, colorSpace, range, 0 /*format n/a for probe*/, &fw, false /*probe only*/);
 	msgOut = s_dvdoDiag;
 	DvdoClose();
 	return opened;
@@ -1407,7 +1397,7 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int o
 	if (!s_dvdoOpen)
 	{
 		CString fw;
-		if (!DvdoOpen(comPort, 1 /*cmd mode unused here*/, colorSpace, 0, outputFormat, &fw, true /*send setup*/))
+		if (!DvdoOpen(comPort, colorSpace, 0, outputFormat, &fw, true /*send setup*/))
 		{
 			msgOut = s_dvdoDiag;
 			return false;
@@ -1439,7 +1429,7 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int o
 bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int formatCode, CString& msgOut)
 {
 	CString fw;	// DvdoOpen reuses an already-open port (it does not close it); with sendSetup it re-sends 6C + 61
-	if (!DvdoOpen(comPort, 1 /*cmd mode unused*/, colorSpace, 0, formatCode, &fw, true /*send setup -> 6C + 61*/))
+	if (!DvdoOpen(comPort, colorSpace, 0, formatCode, &fw, true /*send setup -> 6C + 61*/))
 	{
 		msgOut = s_dvdoDiag;
 		return false;
@@ -1458,7 +1448,7 @@ bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool l
 	out.Empty();
 	if (comPort.IsEmpty()) return false;
 	bool wasOpen = s_dvdoOpen;
-	if (!s_dvdoOpen) { CString fw; if (!DvdoOpen(comPort, 0, csConfig, 0, 0 /*don't change format*/, &fw, false /*query only*/)) { out = s_dvdoDiag; return false; } }
+	if (!s_dvdoOpen) { CString fw; if (!DvdoOpen(comPort, csConfig, 0, 0 /*don't change format*/, &fw, false /*query only*/)) { out = s_dvdoDiag; return false; } }
 	CString name, fwv, resv;
 	DvdoQuery("A8", name);
 	DvdoQuery("A9", fwv);
@@ -2409,7 +2399,6 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 	int win = (int)m_displayWindow.m_rectSizePercent;
 	if (win <= 0 || win > 100) win = 100;
 
-	if (s_dvdoUseAA)
 	{
 		// Arm the internal TPG on the first AA patch of the session. On this firmware the TPG can
 		// be left DISARMED - by an 80=0 "patterns off" or the device's own remote - and then AA
@@ -2437,17 +2426,6 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 		char val[96];
 		sprintf(val, "%d %d %d %d %d %d %d %d", r, g, b, win, bg, rng, m_dvdoColorSpace, rng);
 		DvdoCommand("AA", std::vector<std::string>(1, val));
-	}
-	else
-	{
-		// AF %IRE: R, G, B (0-100) + Window (%). Output follows the device settings.
-		char r[8], g[8], b[8], w[8];
-		sprintf(r, "%d", (int)(clr[0] + 0.5));
-		sprintf(g, "%d", (int)(clr[1] + 0.5));
-		sprintf(b, "%d", (int)(clr[2] + 0.5));
-		sprintf(w, "%d", win);
-		std::vector<std::string> p; p.push_back(r); p.push_back(g); p.push_back(b); p.push_back(w);
-		DvdoCommand("AF", p);
 	}
 
 	// Courtesy settle wait, mirroring the other external wires.

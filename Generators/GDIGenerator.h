@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -62,7 +62,6 @@ public:										// public because of callback
 	UINT    m_Intensity;
 	// DVDO AVLab TPG (DISPLAY_DVDO) settings, config-backed like the members above.
 	CString	m_dvdoComPort;		// e.g. "COM5"
-	int		m_dvdoCmdMode;		// 0 = auto (AA), 1 = AA (0-255), 2 = AF (%IRE)
 	int		m_dvdoColorSpace;	// 0 = RGB, 1 = YCbCr 4:4:4, 2 = YCbCr 4:2:2
 	int		m_dvdoRange;		// 0 = limited, 1 = full
 	int		m_dvdoOutputFormat;	// device format code (command 61); 0 = Auto
