@@ -199,8 +199,11 @@ void GuardCCModeOutputRange(int ccMode)
 	// Read the committed output range from the profile (the source the generator + settings
 	// write) rather than the cached GetRGB16_235(), so the guard is correct even when called
 	// from the settings OnOK before ApplySettings has re-synced the cache.
-	if (GetConfig()->GetProfileInt("GDIGenerator", "RGB_16_235", 0) != 0)
-		return;                                  // already 16-235: super-white is emitted fine (no file read needed)
+	if (GetConfig()->GetProfileInt("GDIGenerator", "RGB_16_235", 1) != 0)
+		return;                                  // already 16-235: super-white is emitted fine (no file read needed).
+	                                             // Default 1 matches the canonical RGB_16_235 default (ColorHCFRConfig
+	                                             // / GDIGenerator) - the INI ships without this key, so a 0 default here
+	                                             // would warn spuriously when output actually defaults to 16-235.
 	char modPath[MAX_PATH];
 	GetModuleFileName(NULL, modPath, sizeof(modPath));
 	LPSTR pSlash = strrchr(modPath, '\\');
