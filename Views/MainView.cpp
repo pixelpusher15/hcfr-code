@@ -2758,6 +2758,11 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		if ( m_pInfoWnd ) //in case colorchecker slot is updated
 		{
 				m_pInfoWnd -> SetWindowTextA(GetDocument()->GetMeasure()->GetInfoString());
+				// The text just came from the document, so the recorded commands
+				// describe text that is no longer there: drop them.
+				CEditEx * pSummaryEdit = DYNAMIC_DOWNCAST ( CEditEx, m_pInfoWnd );
+				if ( pSummaryEdit )
+					pSummaryEdit -> EmptyUndoBuffer ();
 				m_pInfoWnd -> Invalidate ();
 				m_pInfoWnd -> UpdateWindow();			
 		}
@@ -7839,8 +7844,17 @@ HBRUSH CMainView::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 			pDC->SetTextColor(FxGetSysColor(COLOR_MENUTEXT));
 			return *m_pBgBrush;
 			break;
-		case CTLCOLOR_BTN:
 		case CTLCOLOR_EDIT:
+			// An edit control repaints incrementally as its text changes and only
+			// erases its background on a full repaint. With TRANSPARENT the previous
+			// glyphs stay on screen underneath the new ones - inserting a line leaves
+			// a copy of the line it pushed down until something forces a redraw - so
+			// its text must be drawn opaque, over the colour it is erased with.
+			pDC->SetBkMode(OPAQUE);
+			pDC->SetBkColor(FxGetMenuBgColor());
+			pDC->SetTextColor(FxGetSysColor(COLOR_MENUTEXT));
+			return *m_pBgBrush;
+		case CTLCOLOR_BTN:
 		default:
 			pDC->SetBkMode(TRANSPARENT);
 			pDC->SetTextColor(FxGetSysColor(COLOR_MENUTEXT));
@@ -8242,6 +8256,11 @@ void CMainView::OnSelchangeInfoDisplay()
 			 pEdit -> Create (WS_VISIBLE | WS_CHILD | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN, Rect, this, IDC_INFO_VIEW );
 			 pEdit -> SetFont ( GetFont () );		 
 			 pEdit -> SetWindowText ( GetDocument()->GetMeasure()->GetInfoString() );
+
+			 // The initial fill reaches the control as WM_SETTEXT, which CEditEx
+			 // records as an undoable change; without this the first Ctrl+Z would
+			 // blank the summary instead of undoing what the user typed.
+			 ( (CEditEx *) pEdit ) -> EmptyUndoBuffer ();
 
 			 m_pInfoWnd = pEdit;
 			 m_pInfoWnd -> SetWindowPos ( pWnd, Rect.left, Rect.top, (Rect.right - Rect.left), (Rect.bottom - Rect.top), SWP_NOACTIVATE );
@@ -9516,12 +9535,32 @@ void CMainView::OnUpdateEditPaste(CCmdUI* pCmdUI)
 		m_pGrayScaleGrid -> OnUpdateEditPaste(pCmdUI);
 }
 
+// The Summary info window is the only editable text this view owns, so the Edit
+// menu's Undo (and its Ctrl+Z / Alt+Backspace accelerators) act on it. CEditEx
+// keeps its own command history - the edit control's built-in undo is not used.
+static CEditEx * GetSummaryEdit ( CWnd * pInfoWnd )
+{
+	CEditEx * pEdit = DYNAMIC_DOWNCAST ( CEditEx, pInfoWnd );
+
+	if ( pEdit == NULL || ! ::IsWindow ( pEdit -> GetSafeHwnd () ) )
+		return NULL;
+
+	return pEdit;
+}
+
 void CMainView::OnEditUndo() 
 {
+	CEditEx * pEdit = GetSummaryEdit ( m_pInfoWnd );
+
+	if ( pEdit )
+		pEdit -> Undo ();
 }
 
 void CMainView::OnUpdateEditUndo(CCmdUI* pCmdUI) 
 {
+	CEditEx * pEdit = GetSummaryEdit ( m_pInfoWnd );
+
+	pCmdUI -> Enable ( pEdit != NULL && pEdit -> CanUndo () );
 }
 
 void CMainView::UpdateAllGrids() 

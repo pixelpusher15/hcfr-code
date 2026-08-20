@@ -79,19 +79,6 @@ class CEditEx : public CEdit
 		CursorOnUndo m_cursorOnUndo;
 	};
 
-	class CDeleteCharacterCommand : public CEditExCommand
-	{
-	public:
-		CDeleteCharacterCommand(CEditEx* pEditControl, bool isBackspace);
-	protected:
-		virtual void DoUndo();
-		virtual void DoExecute();
-	private:
-		TCHAR m_charDeleted;
-		int m_nStart;
-		bool m_isBackspace;
-	};
-
 	class CReplaceSelectionCommand : public CEditExCommand
 	{
 	public:
@@ -126,6 +113,7 @@ class CEditEx : public CEdit
 		~CCommandHistory();
 
 		void AddCommand(CEditExCommand* pCommand);
+		void Clear();
 		bool Undo();
 		bool Redo();
 
@@ -163,10 +151,10 @@ public:
 	BOOL Redo();
 	BOOL CanUndo() const;
 	BOOL CanRedo() const;
+	void EmptyUndoBuffer();
 
 	// command pattern receiver methods
 	void InsertText(const CString& textToInsert, int nStart);
-	void InsertChar(TCHAR charToInsert, int nStart);
 	void DeleteText(int nStart, int nLen);
 
 public:
