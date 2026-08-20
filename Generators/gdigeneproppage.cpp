@@ -1792,11 +1792,11 @@ void CGDIGenePropPage::OnDvdoTest()
 	m_dvdoStatus.SetWindowText(_T("Connecting..."));
 	CString msg;
 	CGDIGenerator_DvdoTestConnection(com, cmd, cs, rng, msg);
-	if (msg.IsEmpty()) msg = _T("Could not open the port — check the DVDO driver / COM selection.");
+	if (msg.IsEmpty()) msg = _T("Could not open the port - check the DVDO driver / COM selection.");
 	m_dvdoStatus.SetWindowText(msg);
 	// The status static is narrow; also show the full result (incl. byte count) in a
 	// box so nothing is clipped.
-	MessageBox(msg, _T("DVDO AVLab TPG — Detect / Test"), MB_OK | MB_ICONINFORMATION);
+	MessageBox(msg, _T("DVDO AVLab TPG - Detect / Test"), MB_OK | MB_ICONINFORMATION);
 }
 
 // Refill the specific-pattern dropdown for the given category, preserving nothing.
@@ -2003,7 +2003,7 @@ void CGDIGenePropPage::OnMuriTest()
 	CGDIGenerator_MuriTestConnection(net, ip, com, msg);
 	m_muriStatus.SetWindowText(msg);
 	RefreshMuriStatus();
-	MessageBox(msg, _T("Murideo Seven-G — Detect / Test"), MB_OK | MB_ICONINFORMATION);
+	MessageBox(msg, _T("Murideo Seven-G - Detect / Test"), MB_OK | MB_ICONINFORMATION);
 }
 
 void CGDIGenePropPage::OnMuriApply()
