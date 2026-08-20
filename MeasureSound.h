@@ -42,10 +42,18 @@ public:
 	void Close();
 
 private:
-	// Copies the resource's PCM payload and format into m_pData/m_format.
-	// Caches by resource id, so a sweep re-uses the copy it already made.
+	// Copies the resource's PCM payload and format into m_pData/m_format,
+	// replacing whatever was cached before. Caches by resource id, so a sweep
+	// re-uses the copy it already made. Only ever called with the header already
+	// unprepared -- see StopAndUnprepare.
 	BOOL LoadWave(UINT nResource);
 	BOOL OpenDevice();
+
+	// Stops the cue in flight and hands back the header's page-lock on m_pData.
+	// waveOutPrepareHeader locks that buffer and keeps it locked until the
+	// matching unprepare, so this has to run before anything frees, replaces or
+	// re-writes m_pData. Leaves the header zeroed and the device open.
+	void StopAndUnprepare();
 
 	// Device only, keeping the cached wave. Play() needs this to reopen for a
 	// wave in a different format: Close() would free the very buffer that the

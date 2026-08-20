@@ -2166,7 +2166,7 @@ BEGIN
         END
         MENUITEM "Para&meters...",              IDM_MEASURE_DEFINESCALE
         MENUITEM SEPARATOR
-        POPUP "Measure s&ound"
+        POPUP "Measure sou&nd"
         BEGIN
             MENUITEM "&None",                                IDM_SOUND_NONE
             MENUITEM "Camera &shutter",                      IDM_SOUND_SHUTTER

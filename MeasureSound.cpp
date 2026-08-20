@@ -109,6 +109,8 @@ BOOL CMeasureSoundPlayer::LoadWave(UINT nResource)
 
 	memcpy(pCopy, pPcm, dwPcmSize);
 
+	// Safe to drop the old buffer only because Play() unprepares the header
+	// first: until it does, that buffer is still page-locked by the device.
 	delete [] m_pData;
 	m_pData = pCopy;
 	m_dwDataSize = dwPcmSize;
@@ -138,48 +140,53 @@ void CMeasureSoundPlayer::Play(UINT nResource)
 {
 	EnterCriticalSection(&m_cs);
 
-	UINT nPrevious = m_nLoadedResource;
-	if (LoadWave(nResource))
+	// Order matters here. The prepared header page-locks m_pData and holds that
+	// lock until the matching unprepare, so the cue in flight has to be stopped
+	// and the header released BEFORE LoadWave() is allowed to replace the
+	// buffer. Unpreparing afterwards -- as this did originally -- means every
+	// change of cue frees a block the driver may still be reading and then
+	// unprepares a header pointing into freed memory.
+	StopAndUnprepare();
+
+	// A different wave may want a different device format. In practice all
+	// three cues share one, so this reopen never fires during a sweep.
+	if (m_hWaveOut && m_nLoadedResource != nResource)
+		CloseDevice();
+
+	if (LoadWave(nResource) && OpenDevice())
 	{
-		// A different wave may want a different device format. In practice all
-		// three cues share one, so this reopen never fires during a sweep.
-		if (m_hWaveOut && nPrevious != nResource)
-			CloseDevice();
+		m_header.lpData = (LPSTR) m_pData;
+		m_header.dwBufferLength = m_dwDataSize;
 
-		if (OpenDevice())
+		if (::waveOutPrepareHeader(m_hWaveOut, &m_header, sizeof(m_header)) == MMSYSERR_NOERROR)
 		{
-			if (m_bPrepared)
-			{
-				::waveOutReset(m_hWaveOut);		// also marks the buffer done
-				::waveOutUnprepareHeader(m_hWaveOut, &m_header, sizeof(m_header));
-				m_bPrepared = FALSE;
-			}
-
-			ZeroMemory(&m_header, sizeof(m_header));
-			m_header.lpData = (LPSTR) m_pData;
-			m_header.dwBufferLength = m_dwDataSize;
-
-			if (::waveOutPrepareHeader(m_hWaveOut, &m_header, sizeof(m_header)) == MMSYSERR_NOERROR)
-			{
-				m_bPrepared = TRUE;
-				::waveOutWrite(m_hWaveOut, &m_header, sizeof(m_header));
-			}
+			m_bPrepared = TRUE;
+			::waveOutWrite(m_hWaveOut, &m_header, sizeof(m_header));
 		}
 	}
 
 	LeaveCriticalSection(&m_cs);
 }
 
+void CMeasureSoundPlayer::StopAndUnprepare()
+{
+	// m_bPrepared implies an open device: it is only set after a successful
+	// prepare, and cleared here before any close.
+	if (m_bPrepared)
+	{
+		::waveOutReset(m_hWaveOut);		// also marks the buffer done
+		::waveOutUnprepareHeader(m_hWaveOut, &m_header, sizeof(m_header));
+		m_bPrepared = FALSE;
+	}
+
+	ZeroMemory(&m_header, sizeof(m_header));
+}
+
 void CMeasureSoundPlayer::CloseDevice()
 {
 	if (m_hWaveOut)
 	{
-		::waveOutReset(m_hWaveOut);
-		if (m_bPrepared)
-		{
-			::waveOutUnprepareHeader(m_hWaveOut, &m_header, sizeof(m_header));
-			m_bPrepared = FALSE;
-		}
+		StopAndUnprepare();
 		::waveOutClose(m_hWaveOut);
 		m_hWaveOut = NULL;
 	}
