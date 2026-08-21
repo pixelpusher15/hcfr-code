@@ -4069,6 +4069,8 @@ BEGIN
     IDS_PP_STIMULUSPCT      "stimulus %"
     IDS_PP_MINUTES          "~%d min"
     IDS_PP_HOURS            "~%.1f hr"
+    IDS_CSV_FILE_NOT_FOUND  "Patch-list file not found:\n\n%s\n\nThe patch set will be empty. For built-in sets this usually means the installation is incomplete or HCFR is running under a different user profile."
+    IDS_CSV_RANGE_EXTENDED_WARN  "The USER patch list is Extended range (whiter-than-white), but generator output is set to Full (0-255), which clamps the super-white codes to 255.\n\nSet the generator output to 16-235 (video) so the super-white codes are sent intact."
 END
 
 #endif    // English (United States) resources

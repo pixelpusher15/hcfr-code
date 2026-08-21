@@ -2268,11 +2268,11 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
                 {
                     for (int i=0; i < GetConfig()->GetCColorsSize(); i++)
                     {
-                        char aBuf[50];
 						std::string name = GetConfig()->GetCColorsN(i);
-						sprintf(aBuf,"Color %s Reference", name.c_str());
-                        Msg.SetString(aBuf);
-	        		    str.Format(Msg, 10);
+						// Patch name is user data and may contain '%' (e.g. "Gray 50%"); build the label directly and
+						// NEVER pass it through a Format template, or the '%' is read as a bad conversion specifier
+						// (crash). CString concat also avoids the fixed-buffer overflow on a long name.
+						str = CString("Color ") + name.c_str() + " Reference";
 		        	    pDoc->GetMeasure()->GetRefCC24Sat(i, ccolor);
 		        	    CCIEGraphPoint cc24Point(ccolor.GetXYZValue(),
 			        					  YWhiteRef,
@@ -2657,11 +2657,9 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
              {
                     for (int i=0; i < GetConfig()->GetCColorsSize(); i++)
                     {
-						char aBuf[50];
 						std::string name = GetConfig()->GetCColorsN(i);
-                        sprintf(aBuf,"Color %s", name.c_str());
-                        Msg.SetString(aBuf);
-	        		    str.Format(Msg, 10);
+						// Patch name may contain '%' - build the label directly, never as a Format template (see above).
+						str = CString("Color ") + name.c_str();
 		        	    pDoc->GetMeasure()->GetRefCC24Sat(i, ccolor);
 		        	    CCIEGraphPoint cc24PointRef(ccolor.GetXYZValue(),
 								  YWhiteRef,

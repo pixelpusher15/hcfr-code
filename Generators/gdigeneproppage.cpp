@@ -1060,9 +1060,19 @@ void CGDIGenePropPage::OnOK()
 	if (m_nDisplayMode != DISPLAY_GDI)
 		m_busePic = FALSE;
 
+	// Capture the previous output range so a change can re-fire the USER Extended-range guard.
+	// Default 1 = the canonical RGB_16_235 default: on a fresh install (no INI key) the dialog
+	// shows 16-235 from the generator's default, so oldRange must default the same way or a real
+	// 16-235 -> Full uncheck would look unchanged and skip the guard.
+	BOOL oldRange = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? TRUE : FALSE;
 	GetConfig()->WriteProfileInt("GDIGenerator","DisplayMode",m_nDisplayMode);
 	GetConfig()->WriteProfileInt("GDIGenerator","RGB_16_235",m_b16_235);
 	GetConfig()->WriteProfileInt("GDIGenerator","EnableHDR10",m_bHdr10);
+	// The guard otherwise only fires on a CC-mode switch; re-run it here so flipping the
+	// output range to Full after loading an Extended USER set warns instead of silently
+	// clamping super-white (it no-ops unless CC mode is USER and the set is Extended).
+	if ((m_b16_235 ? TRUE : FALSE) != oldRange)
+		GuardCCModeOutputRange(GetConfig()->m_CCMode);
 	if (m_nDisplayMode == DISPLAY_ccast && m_castHasDevice)
 	{
 		CString name; m_cCastComboCtrl.GetWindowText(name);

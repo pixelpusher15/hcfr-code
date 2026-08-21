@@ -2050,10 +2050,11 @@ void CMainView::InitGrid(bool sizeGrid)
                  }
                  else if (isExtPat)
                  {
-                     char aBuf[50];
-					 std::string name = GetConfig()->GetCColorsN(i);
-                     sprintf(aBuf,"%s", name.c_str());
-                     Item.strText.SetString(aBuf);
+                     // Pass the name straight through - a user CSV name can exceed any fixed
+                     // buffer (the char[50]+sprintf here overran the stack); same class as the
+                     // CIEChartView '%'/length fix in this PR.
+                     std::string name = GetConfig()->GetCColorsN(i);
+                     Item.strText.SetString(name.c_str());
                  }
                  else {
 				 switch ( i )
@@ -6355,6 +6356,7 @@ void CMainView::OnSelchangeComboSteps()
 			return;
 		GetConfig () -> m_CCMode = (CCPatterns) data;
 		GetConfig () -> m_referencesPropertiesPage.m_CCMode = data;	// keep the dialog's DDX var in sync
+		GuardCCModeOutputRange ( data );	// import-range guard (USER patch list)
 		GetConfig () -> WriteProfileInt ( "References", "CCMode", data );
 		GetConfig () -> GetCColors ();	// reload the set's target colors / patch count
 		GetDocument () -> UpdateAllViews ( NULL, UPD_EVERYTHING );

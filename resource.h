@@ -1971,6 +1971,8 @@
 #define IDS_PP_STIMULUSPCT              59627
 #define IDS_PP_MINUTES                  59628
 #define IDS_PP_HOURS                    59629
+#define IDS_CSV_FILE_NOT_FOUND          59630
+#define IDS_CSV_RANGE_EXTENDED_WARN     59631
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550

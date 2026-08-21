@@ -4265,6 +4265,8 @@ BEGIN
     IDS_PP_STIMULUSPCT      "stimolo %"
     IDS_PP_MINUTES          "~%d min"
     IDS_PP_HOURS            "~%.1f h"
+    IDS_CSV_FILE_NOT_FOUND  "File dell'elenco di patch non trovato:\n\n%s\n\nIl set di patch sarà vuoto. Per i set integrati, ciò di solito significa che l'installazione è incompleta o che HCFR è in esecuzione con un profilo utente diverso."
+    IDS_CSV_RANGE_EXTENDED_WARN  "L'elenco di patch USER è in gamma Estesa (più bianco del bianco), ma l'uscita del generatore è impostata su Completa (0-255), che limita i codici super-bianchi a 255.\n\nImpostare l'uscita del generatore su 16-235 (video) affinché i codici super-bianchi vengano inviati intatti."
 END
 
 #endif    // Italienisch (Italien) resources
