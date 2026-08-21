@@ -410,6 +410,7 @@ void CColorHCFRConfig::InitDefaults()
 	m_ablDuration = 500;
 	m_ablLevel = 50;
 	m_bLatencyBeep=FALSE;
+	m_measureSound=1;
 	bDisplayRT=TRUE;
 	m_bABL=FALSE;
 	m_bDisableHighDPI=FALSE;
@@ -555,6 +556,7 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_ablDuration=GetProfileInt("References","AblFrameDuration",500);
 	m_ablLevel=GetProfileInt("References","AblFrameLevel",50);
 	m_bLatencyBeep=GetProfileInt("References","IrisLatencyBeep",0);
+	m_measureSound=GetProfileInt("References","MeasureSound",1);
 	bDisplayRT=GetProfileInt("References","Display RT",1);
 	m_bABL=GetProfileInt("References","ABL Inhibitor",0);
 	m_bDisableHighDPI=GetProfileInt("References","High DPI",0);
@@ -676,6 +678,7 @@ void CColorHCFRConfig::SaveSettings()
 	WriteProfileInt("References","AblFrameDuration",m_ablDuration);
 	WriteProfileInt("References","AblFrameLevel",m_ablLevel);
 	WriteProfileInt("References","IrisLatencyBeep",m_bLatencyBeep);
+	WriteProfileInt("References","MeasureSound",m_measureSound);
 	WriteProfileInt("References","Display RT",bDisplayRT);
 	WriteProfileInt("References","ABL Inhibitor",m_bABL);
 	WriteProfileInt("References","High DPI",m_bDisableHighDPI);
