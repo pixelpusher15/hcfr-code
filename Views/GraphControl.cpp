@@ -119,7 +119,8 @@ CGraphControl::~CGraphControl()
 {
 	if ( m_pSpectrumColors )
 	{
-		delete m_pSpectrumColors;
+		// CIE-010: allocated with new COLORREF[1000], so it has to be delete[].
+		delete [] m_pSpectrumColors;
 		m_pSpectrumColors = NULL;
 	}
 }
@@ -965,7 +966,12 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 			// the line instead of off the edge.
 			if(xStr+cxStr > rect.right)
 				xStr=x-cxStr-2;
-			if(i && ((nSteps-i) % nLabelStride) == 0 && xStr > lastStrEndX && ( i == nSteps || xStr+cxStr < xTopLabel ))
+			// "+2" on the reservation test, to match the +2 lastStrEndX adds:
+			// a label that merely ENDS before xTopLabel still pushes lastStrEndX
+			// past it, and the top-of-scale label - whose xStr IS xTopLabel -
+			// then fails the overlap test and gets dropped, which is the exact
+			// thing the reservation exists to prevent.
+			if(i && ((nSteps-i) % nLabelStride) == 0 && xStr > lastStrEndX && ( i == nSteps || xStr+cxStr+2 < xTopLabel ))
 			{
 				int shade = m_doGradientBg ? 10+37*x/max((int)rect.right,1) : 0;
 				DrawHaloText(pDC,xStr,rect.bottom,str,bWhiteBkgnd ? RGB(255,255,255) : RGB(shade,shade,shade));

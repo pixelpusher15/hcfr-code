@@ -158,7 +158,6 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
 	m_graphCtrl.SetXAxisProps(bIRE?"IRE":(LPSTR)(LPCSTR)GetConfig()->m_PercentGray, 10, 0, 100);
 	m_graphCtrl.SetYAxisProps(isHDR?"cd m-2":"", isHDR?1:0.1, isHDR?-100:1, isHDR?100:4);
-	m_graphCtrl. SetYAxisProps(isHDR?"cd m-2":"", isHDR?1:0.1, isHDR?-100:1, isHDR?100:4);
 	CString strGamma;
 	strGamma.LoadString ( isHDR ? IDS_GRAPH_DELTALUMREFMEAS : IDS_GRAPH_REFMEASGAMMA );
 	m_graphCtrl.m_graphArray[2].m_Title=strGamma;
