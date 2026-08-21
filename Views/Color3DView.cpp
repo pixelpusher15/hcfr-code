@@ -45,6 +45,20 @@ static char THIS_FILE[] = __FILE__;
 // floor (the plain DrawCIEChart wrapper keeps them for the 2D CIE chart).
 extern void DrawCIEChartEx(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowBlack, BOOL bCIEuv, BOOL bCIEab, BOOL bHideLabels);
 
+// The satellite resource DLLs are MBCS; GDI+ and the point labels are wide,
+// so every string this view shows has to be widened on the way out.
+static std::wstring LoadResWide( UINT nID )
+{
+	CString s;
+	s.LoadString( nID );
+	int n = MultiByteToWideChar( CP_ACP, 0, (LPCSTR)s, s.GetLength(), NULL, 0 );
+	std::wstring w;
+	w.resize( (size_t)n );
+	if ( n )
+		MultiByteToWideChar( CP_ACP, 0, (LPCSTR)s, s.GetLength(), &w[0], n );
+	return w;
+}
+
 static const double k2PI = 6.283185307179586;
 
 // Chromaticity rectangle the tongue floor covers (must match the tex mapping).
@@ -551,7 +565,8 @@ void C3DColorView::BuildScene()
 		}
 		markT.SetxyYValue( wChroma[0], wChroma[1], markRatio );
 		wchar_t lbl[48];
-		swprintf( lbl, 48, L"Gray %d%%", (int)( pMeasure->GetGrayPercent( i, bRound, b10bit, bLimRange ) + 0.5 ) );
+		std::wstring grayFmt = LoadResWide( IDS_3D_GRAYPCT );
+		swprintf( lbl, 48, grayFmt.c_str(), (int)( pMeasure->GetGrayPercent( i, bRound, b10bit, bLimRange ) + 0.5 ) );
 		AppendMeasure( c, whiteY, ref, dET, markT, true, ywForDE, lbl, SRC_GRAY, i );
 	}
 
@@ -619,14 +634,18 @@ void C3DColorView::BuildScene()
 		if ( pw.isValid() && pw.GetY() > 0.0 )
 			primWhiteY = pw.GetY();
 	}
-	static const wchar_t * primName[3] = { L"Red primary",      L"Green primary",  L"Blue primary" };
-	static const wchar_t * secName[3]  = { L"Yellow secondary", L"Cyan secondary", L"Magenta secondary" };
+	const std::wstring primName[3] = { LoadResWide( IDS_REDPRIMARY ),
+	                                   LoadResWide( IDS_GREENPRIMARY ),
+	                                   LoadResWide( IDS_BLUEPRIMARY ) };
+	const std::wstring secName[3]  = { LoadResWide( IDS_YELLOWSECONDARY ),
+	                                   LoadResWide( IDS_CYANSECONDARY ),
+	                                   LoadResWide( IDS_MAGENTASECONDARY ) };
 	for ( i = 0; i < 3; i++ )
 	{
 		CColor refP = pMeasure->GetRefPrimary( i );
-		AppendMeasure( pMeasure->GetPrimary( i ), primWhiteY, ref, refP, refP, false, primWhiteY, primName[i], SRC_PRIMARY, i );
+		AppendMeasure( pMeasure->GetPrimary( i ), primWhiteY, ref, refP, refP, false, primWhiteY, primName[i].c_str(), SRC_PRIMARY, i );
 		CColor refS = pMeasure->GetRefSecondary( i );
-		AppendMeasure( pMeasure->GetSecondary( i ), primWhiteY, ref, refS, refS, false, primWhiteY, secName[i], SRC_SECONDARY, i );
+		AppendMeasure( pMeasure->GetSecondary( i ), primWhiteY, ref, refS, refS, false, primWhiteY, secName[i].c_str(), SRC_SECONDARY, i );
 	}
 
 	// Saturation sweeps: plot EVERY measured stimulus level from the store, not
@@ -1695,9 +1714,10 @@ void C3DColorView::Render(const CRect& rc)
 		// overlay text
 		Gdiplus::SolidBrush dim( Gdiplus::Color( 210, 185, 185, 190 ) );
 		Gdiplus::Font       fontSmall( L"Segoe UI", 8.0f );   // NB: 'small' is a Windows SDK macro (=char)
-		const wchar_t * spaceName = ( m_space == SPACE_LAB ) ? L"CIE L*a*b*"
-								   : ( m_space == SPACE_RGB ) ? L"RGB cube"
-								   :                            L"CIE xyY";
+		const std::wstring spaceNameStr = ( m_space == SPACE_LAB ) ? std::wstring( L"CIE L*a*b*" )
+								   : ( m_space == SPACE_RGB ) ? LoadResWide( IDS_3D_RGBCUBE )
+								   :                            std::wstring( L"CIE xyY" );
+		const wchar_t * spaceName = spaceNameStr.c_str();
 		double sumDE = 0.0, maxDE = 0.0;
 		int nDE = 0, nHidden = 0, nVisible = 0;
 		for ( size_t k = 0; k < m_points.size(); k++ )
@@ -1791,7 +1811,8 @@ void C3DColorView::Render(const CRect& rc)
 			sf.SetAlignment( Gdiplus::StringAlignmentCenter );
 			sf.SetLineAlignment( Gdiplus::StringAlignmentCenter );
 			Gdiplus::RectF box( 0, 0, (float)w, (float)h );
-			g.DrawString( L"No measurement data to display", -1, &big, box, &sf, &wb );
+			std::wstring noData = LoadResWide( IDS_3D_NODATA );
+			g.DrawString( noData.c_str(), -1, &big, box, &sf, &wb );
 		}
 	} // Graphics flushed here, before the blit in OnDraw
 }
