@@ -99,6 +99,8 @@ BEGIN_MESSAGE_MAP(CMainFrame, CNewMDIFrameWnd)
 	ON_COMMAND(ID_VIEW_MEASURE_SAT_BAR, OnViewMeasureSatBar)
 	ON_UPDATE_COMMAND_UI(ID_VIEW_MEASURE_SAT_BAR, OnUpdateViewMeasureSatBar)
 	//}}AFX_MSG_MAP
+	ON_COMMAND_RANGE(IDM_SOUND_NONE, IDM_SOUND_BUTTON, OnMeasureSound)
+	ON_UPDATE_COMMAND_UI_RANGE(IDM_SOUND_NONE, IDM_SOUND_BUTTON, OnUpdateMeasureSound)
 	ON_MESSAGE(WM_DDE_INITIATE, OnDDEInitiate)
 	ON_MESSAGE(WM_DDE_EXECUTE, OnDDEExecute)
 	ON_MESSAGE(WM_DDE_REQUEST, OnDDERequest)
@@ -672,6 +674,24 @@ void CMainFrame::OnUpdateViewMeasureSatBar(CCmdUI* pCmdUI)
 	pCmdUI->Enable();
 	pCmdUI->SetCheck(m_wndToolBarMeasuresSat.IsVisible());
 }
+
+// None plus the three cues are contiguous IDs, so the menu index is the stored
+// setting. Playing it back on selection lets the user audition without taking a
+// measure. Written through on the spot rather than via SaveSettings(), which
+// rewrites the whole configuration.
+void CMainFrame::OnMeasureSound(UINT nID)
+{
+	GetConfig()->m_measureSound = nID - IDM_SOUND_NONE;
+	GetConfig()->WriteProfileInt("References", "MeasureSound", GetConfig()->m_measureSound);
+	GetColorApp()->PlayMeasureSound();
+}
+
+void CMainFrame::OnUpdateMeasureSound(CCmdUI* pCmdUI)
+{
+	pCmdUI->Enable();
+	pCmdUI->SetRadio((UINT)(pCmdUI->m_nID - IDM_SOUND_NONE) == (UINT)GetConfig()->m_measureSound);
+}
+
 void CMainFrame::OnViewToolbar() 
 {
 	BOOL bShow = m_wndToolBar.IsVisible();

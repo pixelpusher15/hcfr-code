@@ -2318,6 +2318,14 @@ BEGIN
             MENUITEM "&Seleziona...",             IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&metri...",               IDM_MEASURE_DEFINESCALE
+        MENUITEM SEPARATOR
+        POPUP "S&uono di misura"
+        BEGIN
+            MENUITEM "&Nessuno",                             IDM_SOUND_NONE
+            MENUITEM "&Scatto fotografico",                  IDM_SOUND_SHUTTER
+            MENUITEM "&Clic di tastiera",                    IDM_SOUND_CLICK
+            MENUITEM "&Pressione di pulsante",               IDM_SOUND_BUTTON
+        END
     END
     POPUP "&Graphs"
     BEGIN
@@ -4108,6 +4116,10 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Misura i colori primari\nMisurare i colori primari"
     IDM_MEASURE_SECONDARIES "Misura i colori primari e secondari\nMisurare i colori primari e secondari"
     IDM_MEASURE_DEFINESCALE "Definire i parametri di misura (numero di livelli)"
+    IDM_SOUND_NONE          "Non riprodurre alcun suono dopo una misura"
+    IDM_SOUND_SHUTTER       "Riproduce uno scatto fotografico dopo ogni misura"
+    IDM_SOUND_CLICK         "Riproduce un clic di tastiera dopo ogni misura"
+    IDM_SOUND_BUTTON        "Riproduce la pressione di un pulsante dopo ogni misura"
     IDM_MEASURE_NEARBLACK   "Misura near black in scala di grigi\nMisura near black in scala di grigi"
     IDM_MEASURE_NEARWHITE   "Misura near white in scala di grigi\nMisura near white in scala di grigi"
     IDM_MEASURE_SAT_RED     "Misura la scala di saturazione del rosso\nMisura la scala di saturazione del rosso"

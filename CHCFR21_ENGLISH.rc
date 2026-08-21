@@ -2177,6 +2177,14 @@ BEGIN
             MENUITEM "&Select...",                  IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&meters...",              IDM_MEASURE_DEFINESCALE
+        MENUITEM SEPARATOR
+        POPUP "Measure sou&nd"
+        BEGIN
+            MENUITEM "&None",                                IDM_SOUND_NONE
+            MENUITEM "Camera &shutter",                      IDM_SOUND_SHUTTER
+            MENUITEM "&Keyboard click",                      IDM_SOUND_CLICK
+            MENUITEM "&Button press",                        IDM_SOUND_BUTTON
+        END
     END
     POPUP "&Graphs"
     BEGIN
@@ -3912,6 +3920,10 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Measure primary colors\nMeasure primary colors"
     IDM_MEASURE_SECONDARIES "Measure primary and secondary colors\nMeasure primary and secondary colors"
     IDM_MEASURE_DEFINESCALE "Define measure parameters (number of levels)"
+    IDM_SOUND_NONE          "Play no sound after a measure"
+    IDM_SOUND_SHUTTER       "Play a camera shutter after each measure"
+    IDM_SOUND_CLICK         "Play a keyboard click after each measure"
+    IDM_SOUND_BUTTON        "Play a button press after each measure"
     IDM_MEASURE_NEARBLACK   "Measure near black gray scale\nMeasure near black gray scale"
     IDM_MEASURE_NEARWHITE   "Measure near white gray scale\nMeasure near white gray scale"
     IDM_MEASURE_SAT_RED     "Measure red saturation scale\nMeasure red saturation scale"

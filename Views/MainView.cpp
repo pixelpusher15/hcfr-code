@@ -4774,7 +4774,14 @@ void CMainView::UpdateGrid()
 			m_grayScaleGroup.SetText ( Msg );
 		}
 	}
-		bool isHDR = GetConfig()->m_GammaOffsetType == 5;
+		// sRGB overrides m_GammaOffsetType outright (getL_EOTF mode 99), so the
+		// stored transfer function must not be reported as the active one -
+		// neither the HDR branches nor the SDR switch below describe what the
+		// app is actually computing with. Without this the info line names PQ's
+		// "HDR10" whenever sRGB is selected while a PQ choice is still stored,
+		// and names a power law in the ordinary case, for every sRGB user.
+		bool isSRGBtf = ( GetConfig()->m_colorStandard == sRGB );
+		bool isHDR = !isSRGBtf && GetConfig()->m_GammaOffsetType == 5;
 		double 	BBC_gamma = GetConfig()->m_TargetSysGamma;
 		CString dWhitestr;
 		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor);
@@ -4797,7 +4804,7 @@ void CMainView::UpdateGrid()
 				sdrstr.Format(" SDR, Power law (black compensation) w/gamma = %3.2f", GetConfig()->m_GammaAvg);
 			break;
 			case 2:
-				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2", GetConfig()->m_GammaAvg);
+				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2f", GetConfig()->m_GammaAvg);
 			break;
 			case 3:
 				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2f", GetConfig()->m_GammaAvg);
@@ -4812,7 +4819,11 @@ void CMainView::UpdateGrid()
 				sdrstr.SetString(" SDR, L*");
 			break;
 		}
-		m_infoLine = "Color Space: "+CS+", White Point: "+WP+", EOTF: "+(isHDR ? " HDR10, "+ dWhitestr:GetConfig()->m_GammaOffsetType == 7?" HLG, "+bbcstr:sdrstr);
+		// sRGB's curve is fixed and is none of the cases above, so the switch
+		// left sdrstr holding whichever stored transfer function was inactive.
+		if (isSRGBtf)
+			sdrstr.SetString(" SDR, sRGB");
+		m_infoLine = "Color Space: "+CS+", White Point: "+WP+", EOTF: "+(isHDR ? " HDR10, "+ dWhitestr:(!isSRGBtf && GetConfig()->m_GammaOffsetType == 7)?" HLG, "+bbcstr:sdrstr);
 		CString t = CTime::GetCurrentTime().Format(" [%H:%M:%S]");
 		CWnd * pWnd = GetDlgItem(IDC_INFOLINE);
 		CString nMeasures;

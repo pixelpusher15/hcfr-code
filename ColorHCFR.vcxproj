@@ -288,6 +288,12 @@
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
+    <ClCompile Include="MeasureSound.cpp">
+      <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="AsyncMeasurer.cpp">
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -910,6 +916,7 @@
     <ClInclude Include="Tools\MainWndPlacement.h" />
     <ClInclude Include="AccuracyTest.h" />
     <ClInclude Include="AsyncMeasurer.h" />
+    <ClInclude Include="MeasureSound.h" />
     <ClInclude Include="Measure.h" />
     <ClInclude Include="ModelessPropertySheet.h" />
     <ClInclude Include="MultiFrm.h" />
@@ -1040,12 +1047,20 @@
     <None Include="res\splash_screen.png" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="CHCFR21_ENGLISH.vcxproj">
+      <Project>{3da96afb-1cfd-4d88-aaa4-5d0d378ec755}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
     <ProjectReference Include="CHCFR21_DEUTSCH.vcxproj">
       <Project>{91467326-9edb-43a2-990d-9ee94b6b2516}</Project>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
     <ProjectReference Include="CHCFR21_ESPANOL.vcxproj">
       <Project>{7c05072e-82a7-40b5-96a0-06aa0c5ed700}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="CHCFR21_ITALIAN.vcxproj">
+      <Project>{ba5c7d32-633f-483d-b23c-a1f509898bf6}</Project>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
     <ProjectReference Include="CHCFR21_FRANCAIS.vcxproj">

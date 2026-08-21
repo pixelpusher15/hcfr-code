@@ -163,6 +163,10 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	else
 		result = MeasureColorInternal(aRGBValue);
 	
+	// A failed read comes back as noDataColor, which the clamps below would turn
+	// into a valid-looking color, so decide success before they run.
+	BOOL bMeasureOk = ( IsMeasureValid() && result.isValid() );
+
 	result.SetX(max(result.GetX(),0.00000001));
 	result.SetY(max(result.GetY(),0.00000001));
 	result.SetZ(max(result.GetZ(),0.00000001));
@@ -177,6 +181,9 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 		result.SetXYZValue(SelectAndApplyBodnerMatrix(result.GetXYZValue(), m_bodnerRawMatrix, m_bodnerCalMatrix));
 	else
 		result.applyAdjustmentMatrix(m_sensorToXYZMatrix);
+
+	if ( bMeasureOk )
+		GetColorApp()->PlayMeasureSound();
 
     return result;
 }

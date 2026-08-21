@@ -2122,6 +2122,14 @@ BEGIN
             MENUITEM "&Auswählen...",               IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&meter...",               IDM_MEASURE_DEFINESCALE
+        MENUITEM SEPARATOR
+        POPUP "Mess&ton"
+        BEGIN
+            MENUITEM "&Ohne Ton",                            IDM_SOUND_NONE
+            MENUITEM "Kamera-&Auslöser",                     IDM_SOUND_SHUTTER
+            MENUITEM "&Tastaturklick",                       IDM_SOUND_CLICK
+            MENUITEM "&Knopfdruck",                          IDM_SOUND_BUTTON
+        END
     END
     POPUP "&Diagramme"
     BEGIN
@@ -3884,6 +3892,10 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Primärfarben messen\nPrimärfarben messen"
     IDM_MEASURE_SECONDARIES "Primär- und Sekundärfarben messen\nPrimär- und Sekundärfarben messen"
     IDM_MEASURE_DEFINESCALE "Messparameter definieren (Anzahl der Werte)"
+    IDM_SOUND_NONE          "Nach einer Messung keinen Ton abspielen"
+    IDM_SOUND_SHUTTER       "Spielt nach jeder Messung einen Kamera-Auslöser ab"
+    IDM_SOUND_CLICK         "Spielt nach jeder Messung einen Tastaturklick ab"
+    IDM_SOUND_BUTTON        "Spielt nach jeder Messung einen Knopfdruck ab"
     IDM_MEASURE_NEARBLACK   "Nahe Schwarz Abstufung messen\nNahe Schwarz Abstufung messen"
     IDM_MEASURE_NEARWHITE   "Nahe Weiß Abstufung messen\nNahe Weiß Abstufung messen"
     IDM_MEASURE_SAT_RED     "Abstufung der Rot Sättigung messen\nAbstufung der Rot Sättigung messen"
