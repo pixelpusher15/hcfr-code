@@ -737,7 +737,8 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 	int curMode = -1;
 	PGenSettings st; st.valid = FALSE;
 	st.colorFormat = st.quantRange = st.bitDepth = st.colorimetry = 0;
-	st.isHdr = st.isLLDovi = st.eotf = st.primaries = 0;
+	st.isHdr = st.isLLDovi = st.isStdDovi = st.eotf = st.primaries = 0;
+	st.doviMode = 1;
 	st.maxLuma = 1000; st.minLuma = 5; st.maxCll = 1000; st.maxFall = 400;
 	if (m_pGenerator)
 	{
@@ -758,7 +759,7 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 		CPoint lp = M.at(LX, y + 2); m_aviL[5].Create(LS(IDS_PGEN_DYNRANGE), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[5].SetFont(font);
 		CPoint cp = M.at(CX, y); m_avi[5].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_AVI_BASE + 5); m_avi[5].SetFont(font);
 		for (int j = 0; j < 3; j++) m_avi[5].AddString(kPgDR[j]);
-		int sel = st.isLLDovi ? 2 : (st.isHdr ? 1 : 0);
+		int sel = (st.isLLDovi || st.isStdDovi) ? 2 : (st.isHdr ? 1 : 0);
 		m_avi[5].SetCurSel(sel); m_aviInit[5] = sel;
 	}
 	{
@@ -852,10 +853,10 @@ void CPGenSettingsDlg::OnOK()
 			CString c;
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_SDR:%d"), isSdr); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_HDR:%d"), isHdr); cmds.Add(c);
-			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:%d"), 0); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_STD_DOVI:%d"), dovi); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_STATUS:%d"), dovi); cmds.Add(c);
-			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), 0); cmds.Add(c);
 		}
 	}
 	{ int sel = m_doviCombo.GetCurSel(); if (sel >= 0 && sel != m_doviInit && drSel == 2) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_MAP_MODE:%d"), (sel == 1) ? 2 : 1); cmds.Add(c); } }
