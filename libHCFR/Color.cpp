@@ -1721,7 +1721,15 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 		break;
 		case -10: //BT.2084/2390 inverse curve look-up
 			{
-				getL_EOTF(valx, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact, E2_fact1);
+				// Build the LUT before reading it. valx == 0 would trip the
+				// `valx == 0 && mode > 4` early return at the top of this function,
+				// coming back before the cBT2390 branch ran and leaving BT2390x/y
+				// untouched - empty on the first such call, so the lookup below
+				// indexed BT2390y[0] out of bounds (MATH-008). Substitute the first
+				// LUT step: it is off the diffuse-white fast path, so the full
+				// 1024-entry table gets built, which is what this nearest-neighbour
+				// search wants anyway. The search still runs on the caller's valx.
+				getL_EOTF(valx > 0.0 ? valx : 1.0 / 1024.0, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact, E2_fact1);
 				value = abs(valx - BT2390y[0]);
 				outL = BT2390x[0];
 				for (int i = 0; i < (int)BT2390y.size(); i++)

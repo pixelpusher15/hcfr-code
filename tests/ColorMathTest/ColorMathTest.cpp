@@ -10,7 +10,8 @@
 // T2/T3/T4/T6 dump deterministic tables and compare them exactly against checked-in goldens.
 // Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
-// T10 asserts gamut-basis consistency, and T11 asserts BT.2390 tone-map monotonicity. The .chc round-trip originally planned for the T7
+// T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
+// and T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table. The .chc round-trip originally planned for the T7
 // slot needs app-level linkage and is deliberately still not in this console harness.
 
 #include <afx.h>
@@ -808,7 +809,9 @@ static void RunT11()
     static const double bFacts[] = { 1.0, 2.0 };          // m_BT2390_BS
     static const double e2Facts[] = { 0.0, 1.0 };         // m_BT2390_WS
 
-    const int steps = 400;
+    // Sample on the inverse LUT's own 1/1024 grid rather than a coarser one, so
+    // the oracle's resolution is not the thing that decides what it can see.
+    const int steps = 1024;
     int configs = 0;
 
     for (int a = 0; a < _countof(minMLs); a++)
@@ -844,6 +847,95 @@ static void RunT11()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T12 - BT.2390 inverse-LUT oracle (pure assertion, no golden file).
+//
+// T11 only reaches the FORWARD direct path: its getL_EOTF call passes
+// cBT2390 = false, so the second copy of the E1 clamp - the one inside the
+// branch that builds BT2390x/y - and all of case -10 had no coverage at all.
+// This closes that, and pins two things the inverse side gets wrong on its own:
+//
+// 1. MATH-008, the empty-LUT fault. case -10 builds the table by re-entering
+//    getL_EOTF with mode 5, but a valx of 0 trips the `valx == 0 && mode > 4`
+//    early return at the top of the function, which comes back BEFORE the
+//    cBT2390 branch runs. The vectors are then whatever they already held -
+//    empty on the first such call - and the nearest-neighbour search below
+//    reads BT2390y[0] out of bounds. It went unnoticed because the dead
+//    tmWhite call in the forward branch happened to leave exactly one entry
+//    behind on every forward tone-mapped call; deleting that dead code (same
+//    commit) exposed the fault, so this test is what keeps it dead.
+//    Verified by mutation: reverting the case -10 build call to a bare
+//    `getL_EOTF(valx, ...)` aborts this test with "vector subscript out of
+//    range" on the first configuration.
+//
+// 2. Round trip, stated in LUMINANCE: forward(inverse(y)) == y. Signal ->
+//    signal is the wrong invariant here, because the tone curve is not
+//    injective - the clamp deliberately maps every signal below the mastering
+//    black onto the black target, and the peak cap flattens the highlights the
+//    same way, so several signals share one luminance and the inverse is
+//    legitimately free to return any of them. What must hold is that whichever
+//    it returns lands back on the luminance asked for. The LUT stores
+//    nits/10000 while mode 5 returns nits/100, hence the /100 bridge below.
+//////////////////////////////////////////////////////////////////////////
+static void RunT12()
+{
+    printf("T12 BT.2390 inverse-LUT oracle...\n");
+
+    static const double minMLs[] = { 0.0, 0.005, 0.05 };
+    static const double maxMLs[] = { 1000.0, 4000.0 };
+    static const double minTLs[] = { 0.0, 0.005, 0.05, 0.1 };
+    static const double maxTLs[] = { 120.0, 1000.0 };
+
+    int configs = 0;
+
+    for (int a = 0; a < _countof(minMLs); a++)
+    for (int b = 0; b < _countof(maxMLs); b++)
+    for (int c = 0; c < _countof(minTLs); c++)
+    for (int d = 0; d < _countof(maxTLs); d++)
+    {
+        configs++;
+
+        // (1) MATH-008 guard. Deliberately the FIRST getL_EOTF call for this
+        // configuration, so the LUT is stale or empty exactly as it would be
+        // when something inverts before anything has run the forward curve.
+        const double zero = getL_EOTF(0.0, noDataColor, noDataColor, 0.0, 0.0, -5,
+                                      94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                      true, false, 1.2, 1.0, 0.0, 25.0);
+        if (zero != 0.0)
+            Fail("T12 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g: inverse of 0 "
+                 "returned %.6f, expected 0 (the signal that produces black)",
+                 minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], zero);
+
+        // (2) forward -> inverse round trip over near black
+        for (int i = 0; i <= 40; i++)
+        {
+            const double sig = (double)i / 1024.0;
+            const double raw = getL_EOTF(sig, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                         94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                         true, false, 1.2, 1.0, 0.0, 25.0);
+            const double y    = raw / 100.0;                  // LUT units, nits/10000
+            const double back = getL_EOTF(y, noDataColor, noDataColor, 0.0, 0.0, -5,
+                                          94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                          true, false, 1.2, 1.0, 0.0, 25.0);
+            const double y2   = getL_EOTF(back, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                          94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                          true, false, 1.2, 1.0, 0.0, 25.0) / 100.0;
+            // sig sits on the LUT's own grid, so the search should land on an
+            // exact table entry; only floating-point dust is allowed.
+            const double tol = 1e-12 + 1e-6 * fabs(y);
+            if (fabs(y2 - y) > tol)
+            {
+                Fail("T12 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g: signal %.6f "
+                     "-> %.8f -> inverse %.6f -> %.8f (off by %.3g, tolerance %.3g)",
+                     minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], sig, y, back, y2,
+                     fabs(y2 - y), tol);
+                break;      // one report per configuration
+            }
+        }
+    }
+    printf("  %d inverse configurations swept\n", configs);
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -871,6 +963,7 @@ int main(int argc, char* argv[])
     RunT9();
     RunT10();
     RunT11();
+    RunT12();
 
     if (g_failures)
     {
