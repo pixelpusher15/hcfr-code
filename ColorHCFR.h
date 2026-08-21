@@ -142,6 +142,8 @@ public:
 	void BeginMeasureCursor ();
 	void RestoreMeasureCursor ();
 	void EndMeasureCursor ();
+	void PlayMeasureSound ();
+	static UINT MeasureSoundResource ( int nSound );
 	int InMeasureMessageBox(LPCSTR lpText, LPCSTR lpCaption = NULL, UINT uType = MB_OK);
 	LRESULT CALLBACK MsgBoxHookProc(int nCode, WPARAM wParam, LPARAM lParam);
 	
