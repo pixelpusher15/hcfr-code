@@ -9545,6 +9545,17 @@ static CEditEx * GetSummaryEdit ( CWnd * pInfoWnd )
 	if ( pEdit == NULL || ! ::IsWindow ( pEdit -> GetSafeHwnd () ) )
 		return NULL;
 
+	// Ctrl+Z and Alt+Backspace are frame accelerators, so ID_EDIT_UNDO is routed to
+	// this view whatever holds the focus. The competitor is the grid's in-place cell
+	// editor: CInPlaceEdit is a CEdit with its own undo, and it only swallows
+	// WM_SYSCHAR in PreTranslateMessage, so Ctrl+Z pressed while editing a cell still
+	// reaches the accelerator and would roll back the Summary pane instead - a
+	// rollback that goes on to rewrite the document's info string through EN_CHANGE.
+	// OnEditCut / OnEditPaste gate on the focus the same way, including the explicit
+	// ::GetParent ( ::GetFocus () ) branch for that same in-place editor.
+	if ( pEdit -> m_hWnd != ::GetFocus () )
+		return NULL;
+
 	return pEdit;
 }
 

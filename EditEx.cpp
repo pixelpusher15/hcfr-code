@@ -351,6 +351,24 @@ BOOL CEditEx::PreTranslateMessage(MSG* pMsg)
 	return CEdit::PreTranslateMessage(pMsg);
 }
 
+// True when the edit control will insert this WM_CHAR character. The undo history
+// has to mirror that exactly: recording an insert the control does not make - or
+// missing one it does - leaves the offsets held by the earlier commands describing
+// text that has since shifted, and a later undo then deletes the wrong characters.
+// The set below was measured against the Win32 control rather than taken from
+// iswprint(), which rejects both Tab and Return: a multiline control inserts Tab and
+// turns CR or LF into a CR/LF pair (with or without ES_WANTRETURN), a single-line one
+// drops all three, and both insert everything from 0x1E up. The remaining control
+// characters are swallowed, except Ctrl+C / Ctrl+X / Ctrl+V which arrive separately
+// as WM_COPY / WM_CUT / WM_PASTE.
+bool CEditEx::IsInsertedOnChar(wchar_t wChar) const
+{
+	if (wChar == _T('\t') || wChar == _T('\r') || wChar == _T('\n'))
+		return IsMultiLine();
+
+	return wChar >= 0x1E;
+}
+
 // intercept commands to add them to the history
 LRESULT CEditEx::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -359,22 +377,24 @@ LRESULT CEditEx::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 	case WM_CHAR:
 		{
 			wchar_t wChar = static_cast<wchar_t>(wParam);
+			// The control inserts one copy per repeat. A WM_CHAR synthesised outside
+			// the keyboard (the context menu's Unicode control characters) carries a
+			// count of 0 and stands for a single character.
 			int nCount = lParam & 0xFF;
-			// Return inserts a CR/LF pair in a multiline control; iswprint() rejects
-			// it, so it has to be recorded explicitly or a new line cannot be undone.
-			if ((wChar == _T('\r') || wChar == _T('\n')) && IsMultiLine() && (GetStyle() & ES_WANTRETURN))
+			if (nCount == 0)
+				nCount = 1;
+			if (IsInsertedOnChar(wChar))
 			{
-				CreateInsertTextCommand(_T("\r\n"));
-			}
-			else if (iswprint(wChar))
-			{
-				CString newText(wChar, nCount);
-				CreateInsertTextCommand(newText);
-			}
-			// special case for Unicode control characters inserted from the context menu
-			else if (nCount == 0)
-			{
-				CString newText(wChar);
+				CString newText;
+				// Return and Ctrl+Return both insert a CR/LF pair rather than the
+				// character that was typed.
+				if (wChar == _T('\r') || wChar == _T('\n'))
+				{
+					for (int i = 0; i < nCount; i++)
+						newText += _T("\r\n");
+				}
+				else
+					newText = CString(wChar, nCount);
 				CreateInsertTextCommand(newText);
 			}
 		}

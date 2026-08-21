@@ -151,6 +151,11 @@ public:
 	BOOL Redo();
 	BOOL CanUndo() const;
 	BOOL CanRedo() const;
+	// Hides the non-virtual CEdit::EmptyUndoBuffer rather than overriding it, so it
+	// clears m_commandHistory only when it is called through a CEditEx*. Reset the
+	// control through this class, never through a CEdit* or CWnd*: a base-class call
+	// dispatches statically past the Clear() and leaves behind the stale commands
+	// that used to make the first Ctrl+Z blank the summary.
 	void EmptyUndoBuffer();
 
 	// command pattern receiver methods
@@ -169,6 +174,7 @@ public:
 	afx_msg void OnEnterIdle(UINT nWhy, CWnd* pWho);
 
 private:
+	bool IsInsertedOnChar(wchar_t wChar) const;
 	void CreateInsertTextCommand(const CString& newText);
 	BOOL PreTranslateKeyDownMessage(WPARAM wParam);
 
