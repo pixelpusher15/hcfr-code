@@ -4793,6 +4793,7 @@ void CMainView::UpdateGrid()
 					    m_grayScaleGroup.SetBorderColor (fxUseCustomColor ? FxGetSysColor(COLOR_BTNFACE) : FxGetSysColor(COLOR_3DSHADOW));
 			}
 			m_statsBar.SetNameZoneCommand ( 0 );	// name chip is the picker only in mode 11
+			m_statsBar.SetNameText ( _T("") );
 			m_grayScaleGroup.SetText ( Msg );
 		} else if (m_displayMode == 11)
 		{
@@ -4802,6 +4803,7 @@ void CMainView::UpdateGrid()
 			BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 			isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
 			Msg += (GetConfig()->m_CCMode == GCD?"Classic GCD":(GetConfig()->m_CCMode==MCD?"Classic MCD":(GetConfig()->m_CCMode==SKIN?"Pantone skin tones":(GetConfig()->m_CCMode==CCSG?"CalMan SG":isExtPat?GetConfig()->GetCColorsN(-1).c_str():(GetConfig()->m_CCMode==CMS?"CalMAN SG skin tones":(GetConfig()->m_CCMode==CPS?"ChromaPure skin tones":(GetConfig()->m_CCMode==CMC?"Classic CalMAN":"RGB Luminance Ramps")))))));
+			m_statsBar.SetNameText ( Msg );	// verbatim: set names may contain parens ("name (2)")
 			m_grayScaleGroup.SetText ( Msg );
 			{
 				char	szBuf [ 256 ];

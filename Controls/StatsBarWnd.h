@@ -55,6 +55,13 @@ public:
 	// 0 disables (the chip paints as a plain segment again).
 	void SetNameZoneCommand(int cmdId);
 
+	// Exact text of the leading set-name chip. The parser splits the fed
+	// string on parentheses/brackets, so a name containing them ("set (2)")
+	// would be chopped; a declared name is emitted as ONE verbatim chip and
+	// only the remainder is bracket-split. Empty = no declared name (parse
+	// everything, the pre-existing behavior).
+	void SetNameText(LPCTSTR lpszName);
+
 // Implementation
 public:
 	virtual ~CStatsBarWnd();
@@ -65,6 +72,7 @@ protected:
 	void EnsureFont(CDC* pDC);	// build the bold chip font once (DPI-scaled)
 
 	CString			m_strText;	// last text received (to skip redundant repaints)
+	CString			m_namePrefix;	// declared set name, emitted as one verbatim leading chip
 	CStringArray	m_segments;	// parsed display segments
 	CFont			m_font;		// larger bold font for the header chips
 

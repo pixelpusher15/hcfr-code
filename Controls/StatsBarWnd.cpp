@@ -40,6 +40,17 @@ CStatsBarWnd::CStatsBarWnd()
 	m_rcNameZone.SetRectEmpty();
 }
 
+void CStatsBarWnd::SetNameText(LPCTSTR lpszName)
+{
+	CString strName(lpszName);
+	if (strName == m_namePrefix)
+		return;
+	m_namePrefix = strName;
+	Parse(m_strText);	// re-split: the declared name is one verbatim chip
+	if (::IsWindow(GetSafeHwnd()))
+		Invalidate(FALSE);
+}
+
 void CStatsBarWnd::SetNameZoneCommand(int cmdId)
 {
 	if (m_nameZoneCmd == cmdId)
@@ -157,6 +168,17 @@ void CStatsBarWnd::Parse(LPCTSTR lpszText)
 	CString s(lpszText);
 	s.TrimLeft();
 	s.TrimRight();
+
+	// A declared set name is one verbatim chip: names may themselves contain
+	// parentheses or brackets ("set (2)") which the group splitter below would
+	// otherwise chop into separate chips.
+	if (!m_namePrefix.IsEmpty() && s.GetLength() >= m_namePrefix.GetLength()
+			&& s.Left(m_namePrefix.GetLength()) == m_namePrefix)
+	{
+		m_segments.Add(m_namePrefix);
+		s = s.Mid(m_namePrefix.GetLength());
+		s.TrimLeft();
+	}
 	int n = s.GetLength();
 	int i = 0;
 	int plainStart = 0;		// start of the current run of non-bracket text
