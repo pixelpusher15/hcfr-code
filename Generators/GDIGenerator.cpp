@@ -42,6 +42,7 @@
 #include <string>
 #include <vector>
 #include <float.h>
+#include <afxmt.h>					// CCriticalSection/CSingleLock for the generator serial lock
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -561,11 +562,26 @@ void CGDIGenerator::GetPropertiesSheetValues()
 
 // Forward declarations for the DVDO serial helpers defined further down (both in
 // an anonymous namespace => internal linkage within this translation unit).
+namespace
+{
+	// One lock serializes every DVDO/Murideo transaction: the panel's status
+	// workers, the settings dialogs, and the measurement path all share the
+	// s_dvdoPort/s_muriPort statics (and the s_muri* transport settings). A
+	// worker orphaned by a closing property sheet then simply finishes its
+	// transaction before the next user of the port proceeds - no interleaved
+	// writes, no CloseHandle out from under a reader. The underlying
+	// CRITICAL_SECTION is recursive, so nested internal calls are fine.
+	CCriticalSection s_genSerialLock;
+}
 namespace { bool DvdoOpen(const CString& comPort, int colorSpace, int range, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
 namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com); void MuriDisconnect(); void MuriSetTcpPort(int port); }
 
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
+	// Hold the generator serial lock for the whole Init: the transport re-read
+	// plus the DVDO/Murideo open must be atomic against a status worker that a
+	// closing property sheet may have orphaned mid-transaction.
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 //	GetColorApp()->InMeasureMessageBox( "    ** GDI Generator Init **", "Error", MB_ICONINFORMATION);
 	BOOL	bOk, bOnOtherMonitor;
 	GetMonitorList();
@@ -1131,12 +1147,17 @@ namespace {
 		char cnt[8]; sprintf(cnt, "%02X", (unsigned)body.size());
 		std::string q; q += (char)0x02; q += "20"; q += cnt; q += body; q += (char)0x03;
 		PurgeComm(s_dvdoPort.hComm, PURGE_RXCLEAR);
-		s_dvdoPort.SetCommunicationTimeouts(40, 0, 500, 0, 300);	// wait for the reply
+		// SetCommTimeouts fails when the virtual COM vanishes mid-session (cable
+		// pulled); CSerialCom then CloseHandle()s the port, so mark it closed
+		// instead of writing to - and later double-closing - a stale handle.
+		if (!s_dvdoPort.SetCommunicationTimeouts(40, 0, 500, 0, 300))	// wait for the reply
+		{ s_dvdoOpen = false; return false; }
 		for (size_t i = 0; i < q.size(); ++i) s_dvdoPort.WriteByte((BYTE)q[i]);
 		FlushFileBuffers(s_dvdoPort.hComm);
 		std::string r; BYTE b; int guard = 0;
 		while (guard++ < 128 && s_dvdoPort.ReadByte(b)) { r += (char)b; if (b == 0x03) break; }
-		s_dvdoPort.SetCommunicationTimeouts(20, 0, 80, 0, 300);		// restore
+		if (!s_dvdoPort.SetCommunicationTimeouts(20, 0, 80, 0, 300))	// restore
+		{ s_dvdoOpen = false; return false; }
 		// value is between the 1st and 2nd NUL
 		size_t n1 = r.find('\0'); if (n1 == std::string::npos) return false;
 		size_t n2 = r.find('\0', n1 + 1); if (n2 == std::string::npos) return false;
@@ -1176,6 +1197,7 @@ namespace {
 
 	bool DvdoOpen(const CString& comPort, int colorSpace, int /*range*/, int outputFormat, CString* fwOut, bool sendSetup)
 	{
+		CSingleLock lock ( &s_genSerialLock, TRUE );
 		if (comPort.IsEmpty()) { s_dvdoDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
 		if (!s_dvdoOpen)	// REUSE an already-open port; a close-then-immediate-reopen can fail
 		{					// on the virtual COM driver (and would drop settings set via Apply).
@@ -1239,7 +1261,7 @@ namespace {
 	// Flush any pending TX before closing: closing a COM handle can discard bytes still
 	// in the driver's transmit buffer, which drops a fire-and-close command (e.g. a
 	// Show-pattern 80). FlushFileBuffers blocks until the bytes are actually sent.
-	void DvdoClose() { if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; } }
+	void DvdoClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; } }
 
 	// Pre-Defined Test Patterns (command 80): value is the pattern code. Requires the port
 	// open. No EA/Pass-Through command is ever sent (see the "do NOT send EA" note above),
@@ -1256,10 +1278,15 @@ namespace {
 // (the AA transport note on success, or the failure reason).
 bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, int range, CString& msgOut)
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 	CString fw;
+	bool wasOpen = s_dvdoOpen;	// Show deliberately leaves the port open (pattern persists);
+								// close-then-immediate-reopen can fail on the virtual COM driver,
+								// so the probe must only close what it opened itself.
 	bool opened = DvdoOpen(comPort, colorSpace, range, 0 /*format n/a for probe*/, &fw, false /*probe only*/);
 	msgOut = s_dvdoDiag;
-	DvdoClose();
+	if (!wasOpen)
+		DvdoClose();
 	return opened;
 }
 
@@ -1393,6 +1420,7 @@ bool CGDIGenerator_DvdoFindPattern(int code, int& ciOut, int& piOut)
 // TPG keeps displaying the pattern after the port closes.
 bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int outputFormat, int patternCode, CString& msgOut)
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 	// Reuse an already-open port (e.g. left open by a prior Show or a live session) - a
 	// close-then-immediate-reopen can fail on the virtual COM driver. Only open fresh if
 	// nothing is open yet.
@@ -1431,6 +1459,7 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int o
 // the port is left open (a resolution change persists; the next Init/Show reclaims it).
 bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int formatCode, CString& msgOut)
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 	CString fw;	// DvdoOpen reuses an already-open port (it does not close it); with sendSetup it re-sends 6C + 61
 	if (!DvdoOpen(comPort, colorSpace, 0, formatCode, &fw, true /*send setup -> 6C + 61*/))
 	{
@@ -1448,6 +1477,7 @@ bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int f
 // the sink). csConfig: 0=RGB, 1=YCbCr444, 2=YCbCr422; lim = limited (16-235) range.
 bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool lim, CString& out)
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 	out.Empty();
 	if (comPort.IsEmpty()) return false;
 	bool wasOpen = s_dvdoOpen;
@@ -1690,6 +1720,7 @@ namespace {
 	// ---- serial transport (binary UART protocol, per official API) ----
 	bool MuriSerialOpen(const CString& comPort)
 	{
+		CSingleLock lock ( &s_genSerialLock, TRUE );
 		if (s_muriOpen) return true;
 		if (comPort.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
 		if (!s_muriPort.OpenPort(comPort))
@@ -1710,7 +1741,7 @@ namespace {
 		s_muriDiag.Format(LS(IDS_GEN_MURI_OPENED), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
 		return true;
 	}
-	void MuriClose() { if (s_muriOpen) { FlushFileBuffers(s_muriPort.hComm); Sleep(40); s_muriPort.ClosePort(); s_muriOpen = false; } }
+	void MuriClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_muriOpen) { FlushFileBuffers(s_muriPort.hComm); Sleep(40); s_muriPort.ClosePort(); s_muriOpen = false; } }
 
 	// ---- binary UART protocol (official SEVEN-G UART API) --------------------
 	// Frame:  AA 00 00 <LEN> 00 00 00 <KWlo> <KWhi> <data...> <CKSUM>
@@ -1757,11 +1788,15 @@ namespace {
 		for (size_t i = 0; i < sendBytes.size(); ++i)
 			if (!s_muriPort.WriteByte((BYTE)sendBytes[i])) return false;
 		FlushFileBuffers(s_muriPort.hComm);
-		s_muriPort.SetCommunicationTimeouts(40, 0, 700, 0, 300);	// wait for a possibly-lagging reply
+		// Same mid-session guard as DvdoQuery: a failed SetCommTimeouts means
+		// CSerialCom closed the handle (device unplugged) - mark closed and bail.
+		if (!s_muriPort.SetCommunicationTimeouts(40, 0, 700, 0, 300))	// wait for a possibly-lagging reply
+		{ s_muriOpen = false; return false; }
 		BYTE b;
 		while (replyOut.size() < wantBytes && s_muriPort.ReadByte(b))
 			replyOut.push_back((char)b);
-		s_muriPort.SetCommunicationTimeouts(20, 0, 80, 0, 300);	// restore send-oriented timeouts
+		if (!s_muriPort.SetCommunicationTimeouts(20, 0, 80, 0, 300))	// restore send-oriented timeouts
+		{ s_muriOpen = false; return false; }
 		return !replyOut.empty();
 	}
 
@@ -2131,6 +2166,7 @@ namespace {
 	// Select the transport for subsequent commands. For serial, opens the port.
 	bool MuriConnect(bool useNet, const CString& ip, const CString& com)
 	{
+		CSingleLock lock ( &s_genSerialLock, TRUE );	// guards the s_muri* transport statics too
 		s_muriUseNet = useNet; s_muriIp = ip;
 		if (useNet)
 		{
@@ -2246,6 +2282,7 @@ int         CGDIGenerator_MuriCsIndexForId(int id) { for(int i=0;i<kMuriCsN;++i)
 // serial, open the port and report.
 bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CString& comPort, CString& msgOut)
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 	if (useNet)
 	{
 		s_muriUseNet = true; s_muriIp = ip;
@@ -2268,6 +2305,7 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 	}
 	// Serial: open the port, then round-trip a read command (0x8061 read-timing-status)
 	// and look for the device's 0xAB reply to confirm it's really the Murideo on this port.
+	bool wasOpen = s_muriOpen;	// same only-close-what-we-opened rule as the DVDO probe
 	if (!MuriConnect(false, ip, comPort)) { msgOut = s_muriDiag; return false; }
 	std::string reply;
 	bool got = MuriSerialXfer(MuriBuildFrame(0x8061, std::vector<BYTE>()), reply, 32);
@@ -2276,7 +2314,8 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 	if (isMuri)      msgOut.Format(LS(IDS_GEN_MURI_CONNECTED_SERIAL), (LPCTSTR)comPort, (int)reply.size());
 	else if (got)    msgOut.Format(LS(IDS_GEN_MURI_WRONG_DEVICE), (LPCTSTR)comPort, (int)reply.size());
 	else             msgOut.Format(LS(IDS_GEN_MURI_NO_RESPOND), (LPCTSTR)comPort);
-	MuriClose();
+	if (!wasOpen)
+		MuriClose();
 	return isMuri;
 }
 
@@ -2286,6 +2325,7 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 bool CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString& comPort,
 	int timingId, int csId, int bt2020, int hdrMode, int bitDepth, CString& msgOut)
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 	if (!MuriConnect(useNet, ip, comPort)) { msgOut = s_muriDiag; return false; }
 	bool ok = true;
 	if (timingId >= 0) ok = MuriCmdSingle(97, timingId) && ok;
@@ -2300,6 +2340,7 @@ bool CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString
 // Read the connected sink's EDID and return a parsed summary. Network transport only.
 bool CGDIGenerator_MuriReadSinkInfo(bool useNet, const CString& ip, const CString& comPort, int tcpPort, CString& summaryOut)
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 	if (!MuriConnect(useNet, ip, comPort)) { summaryOut = s_muriDiag; return false; }
 	if (useNet && tcpPort > 0) MuriSetTcpPort(tcpPort);
 	std::vector<BYTE> edid;
@@ -2311,6 +2352,7 @@ bool CGDIGenerator_MuriReadSinkInfo(bool useNet, const CString& ip, const CStrin
 // Show a preset pattern (cat 98, double command): NUM=id, BER=bank (0 video, 1 stills).
 bool CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString& comPort, int patternId, int patternBer, CString& msgOut)
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 	if (!MuriConnect(useNet, ip, comPort)) { msgOut = s_muriDiag; return false; }
 	bool ok = MuriCmdDouble(98, patternId, patternBer);
 	msgOut.Format(LS(IDS_GEN_MURI_SENT_PATTERN),
@@ -2321,6 +2363,7 @@ bool CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString
 // Multi-line labeled readout (label\tvalue lines) for the panel status box.
 bool CGDIGenerator_MuriQueryReadout(const CString& ip, CString& readoutOut)
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 	s_muriUseNet = true; s_muriIp = ip;
 	return MuriStatusReadout(readoutOut);
 }
@@ -2386,14 +2429,18 @@ static bool MuriSerialStatusReadout(CString& out)
 // Detect lifecycle). Used when the panel is in serial (non-network) transport mode.
 bool CGDIGenerator_MuriQueryReadoutSerial(const CString& comPort, CString& readoutOut)
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	bool wasOpen = s_muriOpen;	// only close what this readout opened (Show keeps the port)
 	if (!MuriConnect(false, CString(), comPort)) { readoutOut.Empty(); return false; }
 	bool ok = MuriSerialStatusReadout(readoutOut);
-	MuriClose();
+	if (!wasOpen)
+		MuriClose();
 	return ok && !readoutOut.IsEmpty();
 }
 
 BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*first*/, UINT /*nPattern*/ )
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 	if (!s_dvdoOpen) return FALSE;
 
 	// Use the live window value (kept in sync with the prop page + config by
@@ -2445,6 +2492,7 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 
 BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*first*/, UINT /*nPattern*/ )
 {
+	CSingleLock lock ( &s_genSerialLock, TRUE );
 	// Make sure the transport is selected (Init did this too, but be safe).
 	MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
 

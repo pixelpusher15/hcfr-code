@@ -1203,25 +1203,33 @@ void CMuriSettingsDlg::MuriXport(bool& useNet, CString& ip, CString& com)
 	m_comCombo.GetWindowText(com); com.Trim();
 }
 
-void CMuriSettingsDlg::PopulateComPorts()
+// Shared COM-port enumerator for the DVDO/Murideo settings dialogs: fills the
+// combo from the SERIALCOMM registry map, keeps the configured port listed even
+// when it is not currently enumerated, and selects it (else the first entry).
+static void PopulateComPortCombo(CComboBox& combo, const char* configKey)
 {
-	CString current = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
-	m_comCombo.ResetContent();
+	CString current = GetConfig()->GetProfileString("GDIGenerator", configKey, "");
+	combo.ResetContent();
 	HKEY hKey;
-	if (ERROR_SUCCESS == RegOpenKeyEx(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &hKey))
+	if (ERROR_SUCCESS == RegOpenKeyEx(HKEY_LOCAL_MACHINE, "HARDWARE\DEVICEMAP\SERIALCOMM", 0, KEY_READ, &hKey))
 	{
 		char name[256], val[256]; DWORD idx = 0, cbN = sizeof(name), cbV = sizeof(val), type;
 		while (ERROR_SUCCESS == RegEnumValue(hKey, idx, name, &cbN, NULL, &type, (LPBYTE)val, &cbV))
 		{
-			if (type == REG_SZ && _strnicmp(val, "COM", 3) == 0 && m_comCombo.FindStringExact(-1, val) == CB_ERR)
-				m_comCombo.AddString(val);
+			if (type == REG_SZ && _strnicmp(val, "COM", 3) == 0 && combo.FindStringExact(-1, val) == CB_ERR)
+				combo.AddString(val);
 			idx++; cbN = sizeof(name); cbV = sizeof(val);
 		}
 		RegCloseKey(hKey);
 	}
-	if (!current.IsEmpty() && m_comCombo.FindStringExact(-1, current) == CB_ERR) m_comCombo.AddString(current);
-	int sel = current.IsEmpty() ? CB_ERR : m_comCombo.FindStringExact(-1, current);
-	if (sel != CB_ERR) m_comCombo.SetCurSel(sel); else if (m_comCombo.GetCount() > 0) m_comCombo.SetCurSel(0);
+	if (!current.IsEmpty() && combo.FindStringExact(-1, current) == CB_ERR) combo.AddString(current);
+	int sel = current.IsEmpty() ? CB_ERR : combo.FindStringExact(-1, current);
+	if (sel != CB_ERR) combo.SetCurSel(sel); else if (combo.GetCount() > 0) combo.SetCurSel(0);
+}
+
+void CMuriSettingsDlg::PopulateComPorts()
+{
+	PopulateComPortCombo(m_comCombo, "MuriComPort");
 }
 
 void CMuriSettingsDlg::PopulateTimingCombo(int grp)
@@ -1399,6 +1407,12 @@ void CMuriSettingsDlg::SaveToConfig()
 
 void CMuriSettingsDlg::OnClose2() { SaveToConfig(); EndDialog(IDOK); }
 
+// Enter fires the hidden template IDOK (still the dialog DEFID), and CDialog::OnOK
+// would EndDialog(IDOK) without saving - while the caller treats IDOK as saved.
+// Route it through the same save+close as the Close button (CPGenSettingsDlg's own
+// OnOK exists for the same reason).
+void CMuriSettingsDlg::OnOK() { OnClose2(); }
+
 // ---- Murideo connected-sink EDID report dialog ------------------------------
 CMuriEdidDlg::CMuriEdidDlg(CWnd* pParent) : CDialog(CMuriEdidDlg::IDD, pParent) {}
 
@@ -1477,22 +1491,7 @@ END_MESSAGE_MAP()
 
 void CDvdoSettingsDlg::PopulateComPorts()
 {
-	CString current = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
-	m_comCombo.ResetContent();
-	HKEY hKey;
-	if (ERROR_SUCCESS == RegOpenKeyEx(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &hKey))
-	{
-		char name[256], val[256]; DWORD idx = 0, cbN = sizeof(name), cbV = sizeof(val), type;
-		while (ERROR_SUCCESS == RegEnumValue(hKey, idx, name, &cbN, NULL, &type, (LPBYTE)val, &cbV))
-		{
-			if (type == REG_SZ && _strnicmp(val, "COM", 3) == 0 && m_comCombo.FindStringExact(-1, val) == CB_ERR) m_comCombo.AddString(val);
-			idx++; cbN = sizeof(name); cbV = sizeof(val);
-		}
-		RegCloseKey(hKey);
-	}
-	if (!current.IsEmpty() && m_comCombo.FindStringExact(-1, current) == CB_ERR) m_comCombo.AddString(current);
-	int sel = current.IsEmpty() ? CB_ERR : m_comCombo.FindStringExact(-1, current);
-	if (sel != CB_ERR) m_comCombo.SetCurSel(sel); else if (m_comCombo.GetCount() > 0) m_comCombo.SetCurSel(0);
+	PopulateComPortCombo(m_comCombo, "DvdoComPort");
 }
 
 BOOL CDvdoSettingsDlg::OnInitDialog()
@@ -1575,6 +1574,9 @@ void CDvdoSettingsDlg::SaveToConfig()
 
 void CDvdoSettingsDlg::OnClose2() { SaveToConfig(); EndDialog(IDOK); }
 
+// Same Enter-commits contract as CMuriSettingsDlg::OnOK.
+void CDvdoSettingsDlg::OnOK() { OnClose2(); }
+
 BOOL CGDIGenePropPage::PreTranslateMessage(MSG* pMsg)
 {
 	if (m_pageTip.GetSafeHwnd()) m_pageTip.RelayEvent(pMsg);
@@ -1603,6 +1605,17 @@ void CPGenSettingsDlg::OnDestroy()
 
 void CGDIGenePropPage::OnDestroy()
 {
+	// A status query may still be in flight when the sheet closes. Its worker
+	// will find the window gone (IsWindow fails), delete its context, and never
+	// reach On*QueryDone - which is the ONLY place these flags are cleared. The
+	// page object outlives the window (it is a CGDIGenerator member), so a
+	// stale flag would wedge every later Refresh at the m_*Querying early-out
+	// until app restart. The orphaned worker itself is safe: every serial
+	// transaction now runs under s_genSerialLock (GDIGenerator.cpp), so it
+	// simply completes before the port's next user proceeds.
+	m_pgenQuerying = FALSE;
+	m_dvdoQuerying = FALSE;
+	m_muriQuerying = FALSE;
 	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.Detach();
 	CPropertyPageWithHelp::OnDestroy();
 }

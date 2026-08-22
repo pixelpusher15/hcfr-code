@@ -239,6 +239,7 @@ protected:
 	virtual BOOL OnInitDialog();
 	afx_msg void OnTest();
 	afx_msg void OnApply();
+	virtual void OnOK();		// Enter commits (save+close), not a silent discard
 	afx_msg void OnClose2();
 	afx_msg void OnTgrpChange();
 	afx_msg void OnFmtChange();
@@ -283,6 +284,7 @@ protected:
 	virtual BOOL OnInitDialog();
 	afx_msg void OnTest();
 	afx_msg void OnApply();
+	virtual void OnOK();		// Enter commits (save+close), not a silent discard
 	afx_msg void OnClose2();
 	DECLARE_MESSAGE_MAP()
 };
