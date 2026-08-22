@@ -1300,10 +1300,12 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	Msg.LoadString ( (GetColorReference().m_standard!=CC6)?IDS_MAGENTASECONDARYREF:IDS_CC6MAGENTASECONDARYREF );
 	CCIEGraphPoint refMagentaSecondaryPoint(aColor[5].GetXYZValue(), YWhiteRef, Msg, m_bCIEuv, m_bCIEab);
 
-	CCIEGraphPoint illuminantA(ColorXYZ(ColorxyY(0.4476,0.4074)),1.0, "Illuminant A", m_bCIEuv, m_bCIEab);
-	CCIEGraphPoint illuminantB(ColorXYZ(ColorxyY(0.3484,0.3516)), 1.0, "Illuminant B", m_bCIEuv, m_bCIEab);
-	CCIEGraphPoint illuminantC(ColorXYZ(ColorxyY(0.3101,0.3162)), 1.0, "Illuminant C", m_bCIEuv, m_bCIEab);
-	CCIEGraphPoint illuminantD65(ColorXYZ(ColorxyY(0.3127,0.3291)), 1.0, "Illuminant D65", m_bCIEuv, m_bCIEab);
+	CString strIll;
+	strIll.LoadString ( IDS_CIE_ILLUMINANT );
+	CCIEGraphPoint illuminantA(ColorXYZ(ColorxyY(0.4476,0.4074)),1.0, strIll+" A", m_bCIEuv, m_bCIEab);
+	CCIEGraphPoint illuminantB(ColorXYZ(ColorxyY(0.3484,0.3516)), 1.0, strIll+" B", m_bCIEuv, m_bCIEab);
+	CCIEGraphPoint illuminantC(ColorXYZ(ColorxyY(0.3101,0.3162)), 1.0, strIll+" C", m_bCIEuv, m_bCIEab);
+	CCIEGraphPoint illuminantD65(ColorXYZ(ColorxyY(0.3127,0.3291)), 1.0, strIll+" D65", m_bCIEuv, m_bCIEab);
 
 	Msg.LoadString ( IDS_TEMPERATURE );
 	CCIEGraphPoint colorTempPoint2700(ColorXYZ(ColorxyY(0.4614,0.4158)), 1.0, Msg+" 2700", m_bCIEuv, m_bCIEab);   
@@ -2268,11 +2270,12 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
                 {
                     for (int i=0; i < GetConfig()->GetCColorsSize(); i++)
                     {
-                        char aBuf[50];
 						std::string name = GetConfig()->GetCColorsN(i);
-						sprintf(aBuf,"Color %s Reference", name.c_str());
-                        Msg.SetString(aBuf);
-	        		    str.Format(Msg, 10);
+						// Patch name is user data and may contain '%' (e.g. "Gray 50%"). Passing it as a Format
+						// ARGUMENT keeps it inert - only the resource string is read as a template - and CString
+						// sizes itself, so there is no fixed-buffer overflow on a long name either.
+						CString ccFmt; ccFmt.LoadString ( IDS_CC_COLORNAMEREF );
+						str.Format( (LPCSTR)ccFmt, name.c_str() );
 		        	    pDoc->GetMeasure()->GetRefCC24Sat(i, ccolor);
 		        	    CCIEGraphPoint cc24Point(ccolor.GetXYZValue(),
 			        					  YWhiteRef,
@@ -2657,11 +2660,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
              {
                     for (int i=0; i < GetConfig()->GetCColorsSize(); i++)
                     {
-						char aBuf[50];
 						std::string name = GetConfig()->GetCColorsN(i);
-                        sprintf(aBuf,"Color %s", name.c_str());
-                        Msg.SetString(aBuf);
-	        		    str.Format(Msg, 10);
+						// Patch name may contain '%' - passed as a Format argument, never as the template (see above).
+						CString ccFmt; ccFmt.LoadString ( IDS_CC_COLORNAME );
+						str.Format( (LPCSTR)ccFmt, name.c_str() );
 		        	    pDoc->GetMeasure()->GetRefCC24Sat(i, ccolor);
 		        	    CCIEGraphPoint cc24PointRef(ccolor.GetXYZValue(),
 								  YWhiteRef,

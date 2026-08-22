@@ -410,7 +410,9 @@ static void RunT5()
 {
     printf("T5 rPI emission quantizers...\n");
     // bits=8 patch == frozen legacy formulas
-    for (int i = 0; i <= 1000000; ++i)
+    // sweep 0..120% so super-white (>100%) is covered: limited now clamps at the
+    // code max (255), not legal white (235); full is unchanged.
+    for (int i = 0; i <= 1200000; ++i)
     {
         double pct = i * 1e-4;
         int lgFull = (int)floor(pct / 100.0 * 255.0 + 0.5);
@@ -418,7 +420,7 @@ static void RunT5()
         if (PiPercentToCode(pct, false, 8) != lgFull)
             Fail("T5 full8 pct=%.17g", pct);
         int lgLim = (int)floor(pct / 100.0 * 219.0 + 16.5);
-        lgLim = lgLim < 0 ? 0 : (lgLim > 235 ? 235 : lgLim);
+        lgLim = lgLim < 0 ? 0 : (lgLim > 255 ? 255 : lgLim);
         if (PiPercentToCode(pct, true, 8) != lgLim)
             Fail("T5 lim8 pct=%.17g", pct);
     }
@@ -438,7 +440,7 @@ static void RunT5()
     if (PiPercentToCode(100.0, true, 10) != 940)   Fail("T5 lim10 100%%");
     if (PiPercentToCode(-5.0, false, 10) != 0)     Fail("T5 full10 clamp low");
     if (PiPercentToCode(200.0, false, 10) != 1023) Fail("T5 full10 clamp high");
-    if (PiPercentToCode(200.0, true, 10) != 940)   Fail("T5 lim10 clamp high");
+    if (PiPercentToCode(200.0, true, 10) != 1023)  Fail("T5 lim10 clamp high");
     if (PiBackground8ToCode(0.0, true, 10) != 64)    Fail("T5 bglim10 0");
     if (PiBackground8ToCode(255.0, true, 10) != 940) Fail("T5 bglim10 255");
     if (PiBackground8ToCode(255.0, false, 10) != 1023) Fail("T5 bgfull10 255");
@@ -448,7 +450,7 @@ static void RunT5()
         bool lim = (r != 0);
         int prev = -1;
         std::vector<char> seen(1024, 0);
-        for (int i = 0; i <= 1000000; ++i)
+        for (int i = 0; i <= 1200000; ++i)
         {
             int code = PiPercentToCode(i * 1e-4, lim, 10);
             if (code < prev) Fail("T5 10bit non-monotonic range=%d pct=%.17g", r, i * 1e-4);
@@ -457,7 +459,7 @@ static void RunT5()
         }
         int distinct = 0;
         for (int c = 0; c < 1024; ++c) distinct += seen[c];
-        if (lim && distinct != 877) Fail("T5 lim10 grid: %d distinct, expected 877", distinct);
+        if (lim && distinct != 960) Fail("T5 lim10 grid: %d distinct, expected 960", distinct);
         if (!lim && distinct != 1024) Fail("T5 full10 grid: %d distinct, expected 1024", distinct);
     }
 }

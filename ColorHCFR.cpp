@@ -193,6 +193,39 @@ CDataSetDoc * GetDataRef()	//Ki
 	return theApp.m_pReferenceData; 
 }
 
+// Import-range guard: an EXTENDED (whiter-than-white) USER patch list carries super-white
+// codes (>100%), and only a 16-235 output can emit them - a Full output clamps 236-255 to
+// 255 at the encoder, silently destroying the gradations. Warn ONLY for that. (Legal/Full
+// vs the radio is a display-range chain setting HCFR cannot verify, so it is not flagged.)
+// Shared by the References prop-page combo and the MainView Color-Checker picker.
+void GuardCCModeOutputRange(int ccMode)
+{
+	if (ccMode != USER)
+		return;
+	// Read the committed output range from the profile (the source the generator + settings
+	// write) rather than the cached GetRGB16_235(), so the guard is correct even when called
+	// from the settings OnOK before ApplySettings has re-synced the cache.
+	if (GetConfig()->GetProfileInt("GDIGenerator", "RGB_16_235", 1) != 0)
+		return;                                  // already 16-235: super-white is emitted fine (no file read needed).
+	                                             // Default 1 matches the canonical RGB_16_235 default (ColorHCFRConfig
+	                                             // / GDIGenerator) - the INI ships without this key, so a 0 default here
+	                                             // would warn spuriously when output actually defaults to 16-235.
+	char modPath[MAX_PATH];
+	GetModuleFileName(NULL, modPath, sizeof(modPath));
+	LPSTR pSlash = strrchr(modPath, '\\');
+	if (pSlash) pSlash[1] = '\0';
+	// Read the declared range from the loader itself (rangeOut) so the guard can't disagree
+	// with what actually gets loaded. maxRows=1 reads just the header + first row.
+	std::vector<CsvPatchRow> rows;
+	int bits = 8, range = CSV_RANGE_NONE;
+	ReadCsvPatchRows(CString(modPath) + "usercolors.csv", rows, 1, &bits, &range);
+	if (range != CSV_RANGE_EXTENDED)
+		return;                                  // only Extended has super-white to lose
+	CString msg;
+	msg.LoadString(IDS_CSV_RANGE_EXTENDED_WARN);
+	AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
+}
+
 void SetDataRef(CDataSetDoc *m_pRefData)	//Ki
 { 
 	theApp.m_pReferenceData = m_pRefData; 

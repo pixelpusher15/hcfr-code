@@ -4152,6 +4152,36 @@ BEGIN
     IDS_GEN_LBL_OUTPUT              "Output"
     IDS_GEN_DVDO_INIT_FAIL          "Could not open the DVDO AVLab TPG serial port.\nSelect the correct COM port in the generator options."
     IDS_GEN_MURI_INIT_FAIL          "Could not reach the Murideo Seven-G.\nCheck the IP address (network) or COM port (serial) in the generator options."
+    IDS_CSV_FILE_NOT_FOUND  "Patch-list file not found:\n\n%s\n\nThe patch set will be empty. For built-in sets this usually means the installation is incomplete or HCFR is running under a different user profile."
+    IDS_CSV_RANGE_EXTENDED_WARN  "The USER patch list is Extended range (whiter-than-white), but generator output is set to Full (0-255), which clamps the super-white codes to 255.\n\nSet the generator output to 16-235 (video) so the super-white codes are sent intact."
+END
+
+STRINGTABLE
+BEGIN
+    IDS_GRAPH_LUMRESPONSE       "Luminance Response"
+    IDS_GRAPH_NBLUMRESPONSE     "Near Black Luminance Response"
+    IDS_GRAPH_NWLUMRESPONSE     "Near White Luminance Response"
+    IDS_GRAPH_SATSWEEPLUM       "Saturation Sweep Luminance"
+    IDS_GRAPH_SATSCANSHIFTS     "Saturation Scan Shifts"
+    IDS_GRAPH_GSBALGAMMA        "Gray Scale Balance w/gamma"
+    IDS_GRAPH_GSBALNOGAMMA      "Gray Scale Balance w/o gamma"
+    IDS_GRAPH_EOTFGAMMA         "EOTF(Gamma)"
+    IDS_GRAPH_REFMEASGAMMA      "Reference Measure Gamma"
+    IDS_GRAPH_DELTALUM          "delta Luminance"
+    IDS_GRAPH_DELTALUMREF       "delta Luminance Ref"
+    IDS_GRAPH_DELTALUMREFMEAS   "delta Luminance Ref Measure"
+    IDS_GRAPH_TRK_GRAYSCALE     "% (Gray scale)"
+    IDS_GRAPH_TRK_NEARBLACK     "% (Near black scale)"
+    IDS_GRAPH_TRK_NEARWHITE     "% (Near white scale)"
+    IDS_GRAPH_COLORTEMPSHORT    "Color Temp"
+    IDS_GRAPH_TRACKINGLEVEL     "Tracking level: "
+    IDS_GRAPH_TRACKINGOFF       "Tracking off..."
+    IDS_3D_RGBCUBE              "RGB cube"
+    IDS_3D_NODATA               "No measurement data to display"
+    IDS_3D_GRAYPCT              "Gray %d%%"
+    IDS_CIE_ILLUMINANT          "Illuminant"
+    IDS_CC_COLORNAME            "Color %s"
+    IDS_CC_COLORNAMEREF         "Color %s Reference"
 END
 
 #endif    // English (United States) resources

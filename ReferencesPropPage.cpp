@@ -631,6 +631,7 @@ void CReferencesPropPage::OnSelchangeCCmodeCombo()
 	UpdateData(TRUE);
 	if (m_colorStandard == CC6)
 		m_CCMode = GCD;
+	GuardCCModeOutputRange(m_CCMode);
 	GetConfig()->ApplySettings(false);
 	UpdateData(FALSE);
 }
