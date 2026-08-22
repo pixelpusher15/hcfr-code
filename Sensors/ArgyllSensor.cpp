@@ -499,6 +499,51 @@ void CArgyllSensor::ClearSpectralCorrection()
     SetModifiedFlag(TRUE);
 }
 
+void CArgyllSensor::BeginConfigure()
+{
+    CSensor::BeginConfigure();
+    m_cfgSnapSpectralPath = m_spectralCorrectionPath;
+    m_cfgSnapSpectralDesc = m_spectralCorrectionDesc;
+}
+
+// A spectral apply (or clear) from the property page committed before the
+// sheet closed; a cancelled sheet restores the previous state - members here,
+// and the meter itself where connected. Errors pushing to the meter are
+// non-fatal: the restored path is re-applied by Init() on every connect.
+void CArgyllSensor::CancelConfigure()
+{
+    if ( m_spectralCorrectionPath != m_cfgSnapSpectralPath )
+    {
+        if ( m_cfgSnapSpectralPath.IsEmpty() )
+        {
+            if ( m_meter )
+            {
+                try { m_meter->resetSpectralSample(); }
+                catch ( std::logic_error & ) {}
+            }
+        }
+        else
+        {
+            // Same re-apply Init() performs on connect.
+            try
+            {
+                SpectralSample ss;
+                CString ext = m_cfgSnapSpectralPath.Right(4); ext.MakeLower();
+                bool ok = ( ext == ".csv" )
+                    ? ss.createFromColourSpaceCSV((LPCSTR)m_cfgSnapSpectralPath)
+                    : ss.Read((LPCSTR)m_cfgSnapSpectralPath);
+                if ( ok && m_meter && m_meter->doesMeterSupportSpectralSamples() )
+                    m_meter->loadSpectralSample(ss);
+            }
+            catch ( std::logic_error & ) {}
+        }
+        m_spectralCorrectionPath = m_cfgSnapSpectralPath;
+        m_spectralCorrectionDesc = m_cfgSnapSpectralDesc;
+    }
+    m_spectralApplyLeaveMeasures = FALSE;
+    CSensor::CancelConfigure();
+}
+
 BOOL CArgyllSensor::TakePendingSpectralLeaveMeasures()
 {
     BOOL leave = m_spectralApplyLeaveMeasures;

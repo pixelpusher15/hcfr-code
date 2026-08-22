@@ -55,6 +55,8 @@ public:
     CString     m_spectralCorrectionPath;   // canonical .ccss loaded onto the meter (empty = none)
     CString     m_spectralCorrectionDesc;   // description shown in the UI
     BOOL        m_spectralApplyLeaveMeasures; // transient: last apply asked to leave measures mixed (not strip to raw)
+    CString     m_cfgSnapSpectralPath;      // BeginConfigure/CancelConfigure snapshot
+    CString     m_cfgSnapSpectralDesc;
 private:
     ArgyllMeterWrapper* m_meter;
     SpectralSampleFiles *m_spectralSamples;
@@ -87,6 +89,10 @@ public:
     virtual BOOL TakePendingSpectralLeaveMeasures();
     virtual BOOL HasSpectralCorrection() const { return !m_spectralCorrectionPath.IsEmpty(); }
     CString GetSpectralCorrectionDesc() const { return m_spectralCorrectionDesc; }
+    // Extend the base snapshot with the spectral state, which a Browse in the
+    // property page commits (device + members) before the sheet closes.
+    virtual void BeginConfigure();
+    virtual void CancelConfigure();
     bool MeterSupportsSpectralSamples();
 
     virtual void GetUniqueIdentifier( CString & strId );

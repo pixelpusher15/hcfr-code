@@ -48,6 +48,11 @@ protected:
 	int m_calibrationMethod;					// CalibrationMatrixMethod: which method produced the matrices below
 	Matrix m_bodnerRawMatrix[3];				// Bodner sub-gamut raw-primary matrices (rgw/gbw/rbw), only valid when m_calibrationMethod == CALIB_BODNER_THREEMATRIX
 	Matrix m_bodnerCalMatrix[3];				// Bodner sub-gamut calibration matrices (rgw/gbw/rbw)
+	// Configure() snapshot (BeginConfigure/CancelConfigure)
+	Matrix m_cfgSnapMatrix;
+	Matrix m_cfgSnapBodnerRaw[3], m_cfgSnapBodnerCal[3];
+	int  m_cfgSnapMethod;
+	BOOL m_cfgSnapModified;
 	time_t m_calibrationTime;
 	int		m_PropertySheetTitle;
 	CSensorPropPage m_SensorPropertiesPage;
@@ -111,6 +116,13 @@ public:
 
 	virtual BOOL IsModified() { return m_isModified; }
 	virtual void SetModifiedFlag( BOOL bModified ) { m_isModified = bModified; }
+
+	// Snapshot/restore of the correction state around Configure(). Needed because
+	// the Argyll spectral Browse commits immediately (device sample + matrices +
+	// modified flag) - a cancelled sheet must restore all of it. Derived classes
+	// extend both (see CArgyllSensor).
+	virtual void BeginConfigure();
+	virtual void CancelConfigure();
 
 	virtual LPCSTR GetStandardSubDir ()	{ return ""; }
 

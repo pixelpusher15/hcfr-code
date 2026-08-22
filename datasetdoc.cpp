@@ -1388,7 +1388,15 @@ void CDataSetDoc::OnConfigureSensor()
 	if ( IsMeasureSweepActive() ) return;
 	StopBackgroundMeasures ();
     m_pSensor->SetSensorMatrixMod( m_pSensor->GetSensorMatrix() );
-	m_pSensor->Configure();
+	m_pSensor->BeginConfigure();
+	if ( !m_pSensor->Configure() )
+	{
+		// Cancel really cancels. The Argyll spectral Browse commits immediately
+		// (meter sample + matrices + modified flag), so restore the pre-sheet
+		// state instead of letting the IsModified() block below recompute every
+		// measurement from a correction the user just declined.
+		m_pSensor->CancelConfigure();
+	}
 	// A spectral-correction apply may have asked to LEAVE existing measurements
 	// as-is (mixed) instead of stripping them to raw (read-and-reset).
 	BOOL bLeaveSpectralMeasures = m_pSensor->TakePendingSpectralLeaveMeasures();
@@ -5383,6 +5391,11 @@ void CDataSetDoc::OnLoadCalibrationFile()
 	page.m_sensorChoice=m_pSensor->GetName(); 	// default selection is current sensor
 	if( propSheet.DoModal() == IDOK )
 	{
+		// Loading a matrix calibration onto a ccss-corrected meter would
+		// double-correct (Init re-applies the ccss on every connect) - same
+		// guard as manual and existing-reference calibration.
+		if ( !ConfirmClearSpectralForMatrixCal(m_pSensor) )
+			return;
 
 		if(page.m_sensorTrainingMode != 1)
 			m_pSensor->LoadCalibrationFile(page.m_trainingFileName);

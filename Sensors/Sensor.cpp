@@ -122,10 +122,42 @@ void CSensor::Serialize(CArchive& archive)
 		}
 		else
 		{
-			// Pre-existing sensor files predate this feature: they were always
-			// using HCFR's default single-matrix method.
-			m_calibrationMethod = CALIB_HCFR_DEFAULT;
+			// Pre-existing sensor files predate the method field. They were
+			// calibrated under the legacy "UseOnlyPrimaries" checkbox, so derive
+			// the method from the same profile key the config migration uses -
+			// hardcoding HCFR_DEFAULT made every old NIST-calibrated .chc trip
+			// the method-sync prompt on export, inviting a wrong rewrite.
+			m_calibrationMethod = GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0)
+									? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
 		}
+	}
+}
+
+void CSensor::BeginConfigure()
+{
+	m_cfgSnapMatrix   = m_sensorToXYZMatrix;
+	m_cfgSnapMethod   = m_calibrationMethod;
+	m_cfgSnapModified = m_isModified;
+	for ( int k = 0; k < 3; k++ )
+	{
+		m_cfgSnapBodnerRaw[k] = m_bodnerRawMatrix[k];
+		m_cfgSnapBodnerCal[k] = m_bodnerCalMatrix[k];
+	}
+}
+
+// Restores everything BeginConfigure snapshotted. Used when Configure()'s
+// property sheet is cancelled: the spectral Browse commits its changes
+// immediately, so cancelling the sheet has to put the previous correction
+// back rather than trusting nothing happened.
+void CSensor::CancelConfigure()
+{
+	m_sensorToXYZMatrix = m_cfgSnapMatrix;
+	m_calibrationMethod = m_cfgSnapMethod;
+	m_isModified        = m_cfgSnapModified;
+	for ( int k = 0; k < 3; k++ )
+	{
+		m_bodnerRawMatrix[k] = m_cfgSnapBodnerRaw[k];
+		m_bodnerCalMatrix[k] = m_cfgSnapBodnerCal[k];
 	}
 }
 
