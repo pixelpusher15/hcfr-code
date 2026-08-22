@@ -48,6 +48,10 @@ protected:
 	int m_calibrationMethod;					// CalibrationMatrixMethod: which method produced the matrices below
 	Matrix m_bodnerRawMatrix[3];				// Bodner sub-gamut raw-primary matrices (rgw/gbw/rbw), only valid when m_calibrationMethod == CALIB_BODNER_THREEMATRIX
 	Matrix m_bodnerCalMatrix[3];				// Bodner sub-gamut calibration matrices (rgw/gbw/rbw)
+	// Configure() snapshot (BeginConfigure/CancelConfigure)
+	Matrix m_cfgSnapMatrix;
+	Matrix m_cfgSnapBodnerRaw[3], m_cfgSnapBodnerCal[3];
+	int  m_cfgSnapMethod;
 	time_t m_calibrationTime;
 	int		m_PropertySheetTitle;
 	CSensorPropPage m_SensorPropertiesPage;
@@ -112,6 +116,13 @@ public:
 	virtual BOOL IsModified() { return m_isModified; }
 	virtual void SetModifiedFlag( BOOL bModified ) { m_isModified = bModified; }
 
+	// Snapshot/restore of the correction state around Configure(). Needed because
+	// the Argyll spectral Browse commits immediately (device sample + matrices +
+	// modified flag) - a cancelled sheet must restore all of it. Derived classes
+	// extend both (see CArgyllSensor).
+	virtual void BeginConfigure();
+	virtual void CancelConfigure();
+
 	virtual LPCSTR GetStandardSubDir ()	{ return ""; }
 
 	// Spectral (ccss/CSV) correction, applied inside the meter driver. Only
@@ -125,14 +136,25 @@ public:
 	virtual BOOL TakePendingSpectralLeaveMeasures() { return FALSE; }
 
 	CTime GetCalibrationTime() { return CTime(m_calibrationTime); }
-	int IsCalibrated() 
-	{ 
+	int IsCalibrated()
+	{
 		if (m_sensorToXYZMatrix.IsIdentity () && m_sensorToXYZMatrixMod.IsIdentity ())
 			return 0;
 		else
 			if (!m_sensorToXYZMatrix.IsIdentity ())
 				return 1;
 		return 2;
+	}
+
+	// True when a correction is actually being applied to every MeasureColor reading:
+	// a live non-identity sensor matrix (RGB/FCMM), OR the Bodner sub-gamut matrices.
+	// IsCalibrated() alone returns 0 for a Bodner sensor (its m_sensorToXYZMatrix is
+	// identity - the correction lives in m_bodnerRawMatrix[]), so UI gates that ask
+	// "is a correction live?" must use this to see the Bodner case. Mirrors the
+	// bHasCorrection test in datasetdoc.cpp.
+	bool IsCorrectionActive()
+	{
+		return ( IsCalibrated() == 1 ) || ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX );
 	}
 	
 	

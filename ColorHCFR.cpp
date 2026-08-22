@@ -48,6 +48,7 @@
 #include "HcfrUpdateUI.h"
 #include "AccuracyTest.h"
 #include <time.h>
+#include "MeasureSound.h"
 
 #ifdef USE_NON_FREE_CODE
 // Include for device interface (this device interface is outside GNU GPL license)
@@ -60,6 +61,11 @@
 #undef THIS_FILE
 static char THIS_FILE[] = __FILE__;
 #endif
+
+// Cue playback. Holding the wave device open is what makes a sweep audible --
+// see MeasureSound.h. Closed from ExitInstance() rather than left to static
+// teardown, which would run after winmm may already be gone.
+static CMeasureSoundPlayer s_MeasureSoundPlayer;
 
 /////////////////////////////////////////////////////////////////////////////
 // CColorHCFRApp
@@ -196,17 +202,27 @@ void GuardCCModeOutputRange(int ccMode)
 {
 	if (ccMode != USER)
 		return;
+	// Read the committed output range from the profile (the source the generator + settings
+	// write) rather than the cached GetRGB16_235(), so the guard is correct even when called
+	// from the settings OnOK before ApplySettings has re-synced the cache.
+	if (GetConfig()->GetProfileInt("GDIGenerator", "RGB_16_235", 1) != 0)
+		return;                                  // already 16-235: super-white is emitted fine (no file read needed).
+	                                             // Default 1 matches the canonical RGB_16_235 default (ColorHCFRConfig
+	                                             // / GDIGenerator) - the INI ships without this key, so a 0 default here
+	                                             // would warn spuriously when output actually defaults to 16-235.
 	char modPath[MAX_PATH];
 	GetModuleFileName(NULL, modPath, sizeof(modPath));
 	LPSTR pSlash = strrchr(modPath, '\\');
 	if (pSlash) pSlash[1] = '\0';
-	if (PeekCsvRange(CString(modPath) + "usercolors.csv") != CSV_RANGE_EXTENDED)
+	// Read the declared range from the loader itself (rangeOut) so the guard can't disagree
+	// with what actually gets loaded. maxRows=1 reads just the header + first row.
+	std::vector<CsvPatchRow> rows;
+	int bits = 8, range = CSV_RANGE_NONE;
+	ReadCsvPatchRows(CString(modPath) + "usercolors.csv", rows, 1, &bits, &range);
+	if (range != CSV_RANGE_EXTENDED)
 		return;                                  // only Extended has super-white to lose
-	if (GetConfig()->GetRGB16_235() != FALSE)
-		return;                                  // already 16-235: super-white is emitted fine
-	CString msg = "The USER patch list is Extended range (whiter-than-white), but generator "
-	              "output is set to Full (0-255), which clamps the super-white codes to 255.\n\n"
-	              "Set the generator output to 16-235 (video) so the super-white codes are sent intact.";
+	CString msg;
+	msg.LoadString(IDS_CSV_RANGE_EXTENDED_WARN);
 	AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
 }
 
@@ -557,6 +573,8 @@ void CColorHCFRApp::OnAppAbout()
 
 int CColorHCFRApp::ExitInstance() 
 {
+	s_MeasureSoundPlayer.Close ();
+
 #ifdef USE_NON_FREE_CODE
 	DisconnectDevice3();
 #endif
@@ -957,6 +975,38 @@ void CColorHCFRApp::BeginMeasureCursor ()
 {
 	EndMeasureCursor ();
 	m_hSavedCursor = ::SetCursor ( m_hCursorMeasure );
+}
+
+// Maps a stored m_measureSound index onto its wave resource. 0 is the "None"
+// choice and has no wave; neither does anything out of range, which is where a
+// hand-edited registry entry lands.
+UINT CColorHCFRApp::MeasureSoundResource ( int nSound )
+{
+	switch ( nSound )
+	{
+		case 1:  return IDR_SOUND_SHUTTER;
+		case 2:  return IDR_SOUND_CLICK;
+		case 3:  return IDR_SOUND_BUTTON;
+		default: return 0;
+	}
+}
+
+// The cue confirming one successful sensor read. Asynchronous so a sweep never
+// waits on audio, and silent for the "None" choice or when the headless
+// accuracy harness is driving thousands of simulated reads.
+void CColorHCFRApp::PlayMeasureSound ()
+{
+	if ( CColorHCFRConfig::s_bHeadless )
+		return;
+
+	UINT nResource = MeasureSoundResource ( GetConfig () -> m_measureSound );
+	if ( nResource == 0 )
+		return;
+
+	// The waves live in the executable's own resources, not in the active
+	// satellite language DLL that AfxGetResourceHandle() points at, so the player
+	// reads them through AfxGetInstanceHandle().
+	s_MeasureSoundPlayer.Play ( nResource );
 }
 
 void CColorHCFRApp::RestoreMeasureCursor ()

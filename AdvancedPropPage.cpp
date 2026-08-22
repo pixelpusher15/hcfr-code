@@ -92,7 +92,6 @@ BEGIN_MESSAGE_MAP(CAdvancedPropPage, CPropertyPageWithHelp)
     ON_CONTROL_RANGE(BN_CLICKED, IDC_CHECK_DELTAE_GRAY_LUMA, IDC_CHECK_DELTAE_GRAY_LUMA, OnControlClicked)
     ON_CONTROL_RANGE(BN_CLICKED, IDC_RADIO1, IDC_RADIO3, OnControlClicked)
     ON_CONTROL_RANGE(BN_CLICKED, IDC_HIGHLIGHT, IDC_HIGHLIGHT, OnControlClicked)
-    ON_CONTROL_RANGE(BN_CLICKED, IDC_RADIO_CALIB_CLASSIC_NIST, IDC_RADIO_CALIB_BODNER, OnControlClicked)
     ON_CBN_SELCHANGE(IDC_ADV_CALIB_COMBO, OnSelchangeCalibMethod)
 
 	//{{AFX_MSG_MAP(CAdvancedPropPage)
@@ -207,43 +206,36 @@ BOOL CAdvancedPropPage::OnInitDialog()
 		m_dE_preset = 1;
 	m_dEtolCombo.SetCurSel(m_dE_preset);
 
-	// Replace the three calibration-method radios with a single dropdown so a
-	// fourth method fits without editing the localized dialog templates. Hide the
-	// radios and drop a combobox over the first radio's position; items come from
-	// the string table and carry their CalibrationMatrixMethod value as item data.
+	// A single dropdown replaces what used to be three calibration-method radios,
+	// so a fourth method fits without editing the localized dialog templates. Place
+	// the combobox where the first radio sat - x=13, y=48 in dialog units, the same
+	// in every localized .rc, inside the "Calibration files" group box. Items come
+	// from the string table and carry their CalibrationMatrixMethod value as item data.
 	if ( !::IsWindow(m_calibMethodCombo.GetSafeHwnd()) )
 	{
-		CWnd* pR1 = GetDlgItem(IDC_RADIO_CALIB_CLASSIC_NIST);
-		if ( pR1 != NULL )
+		CRect comboRect(13, 48, 13 + 180, 48 + 9);	// dialog units
+		MapDialogRect(&comboRect);					// -> client pixels
+		comboRect.bottom = comboRect.top + 120;		// add the drop-down list extent
+		m_calibMethodCombo.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
+			comboRect, this, IDC_ADV_CALIB_COMBO);
+		m_calibMethodCombo.SetFont(GetFont());
+
+		static const struct { UINT ids; int method; } kItems[] = {
+			{ IDS_CALIB_RGB_MATRIX, CALIB_CLASSIC_NIST },
+			{ IDS_CALIB_FCMM_NOLUM, CALIB_FCMM_NO_LUM },
+			{ IDS_CALIB_FCMM_LUM,   CALIB_HCFR_DEFAULT },
+			{ IDS_CALIB_BODNER,     CALIB_BODNER_THREEMATRIX },
+		};
+		for ( int i = 0; i < 4; i++ )
 		{
-			GetDlgItem(IDC_RADIO_CALIB_CLASSIC_NIST)->ShowWindow(SW_HIDE);
-			CWnd* pR2 = GetDlgItem(IDC_RADIO_CALIB_HCFR_DEFAULT); if ( pR2 ) pR2->ShowWindow(SW_HIDE);
-			CWnd* pR3 = GetDlgItem(IDC_RADIO_CALIB_BODNER);       if ( pR3 ) pR3->ShowWindow(SW_HIDE);
-
-			CRect rc; pR1->GetWindowRect(&rc); ScreenToClient(&rc);
-			// Combobox height includes the drop-down list extent.
-			CRect comboRect(rc.left, rc.top, rc.right, rc.top + 120);
-			m_calibMethodCombo.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
-				comboRect, this, IDC_ADV_CALIB_COMBO);
-			m_calibMethodCombo.SetFont(GetFont());
-
-			static const struct { UINT ids; int method; } kItems[] = {
-				{ IDS_CALIB_RGB_MATRIX, CALIB_CLASSIC_NIST },
-				{ IDS_CALIB_FCMM_NOLUM, CALIB_FCMM_NO_LUM },
-				{ IDS_CALIB_FCMM_LUM,   CALIB_HCFR_DEFAULT },
-				{ IDS_CALIB_BODNER,     CALIB_BODNER_THREEMATRIX },
-			};
-			for ( int i = 0; i < 4; i++ )
-			{
-				CString s; s.LoadString(kItems[i].ids);
-				int idx = m_calibMethodCombo.AddString(s);
-				m_calibMethodCombo.SetItemData(idx, kItems[i].method);
-				if ( kItems[i].method == m_calibrationMethod )
-					m_calibMethodCombo.SetCurSel(idx);
-			}
-			if ( m_calibMethodCombo.GetCurSel() == CB_ERR )
-				m_calibMethodCombo.SetCurSel(0);
+			CString s; s.LoadString(kItems[i].ids);
+			int idx = m_calibMethodCombo.AddString(s);
+			m_calibMethodCombo.SetItemData(idx, kItems[i].method);
+			if ( kItems[i].method == m_calibrationMethod )
+				m_calibMethodCombo.SetCurSel(idx);
 		}
+		if ( m_calibMethodCombo.GetCurSel() == CB_ERR )
+			m_calibMethodCombo.SetCurSel(0);
 	}
 
 	return TRUE;

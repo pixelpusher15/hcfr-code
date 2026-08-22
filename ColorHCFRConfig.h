@@ -39,6 +39,7 @@
 #include "ToolbarPropPage.h"
 #include <map>
 extern CString GetColorStandardName(int nStandard);
+extern bool StandardAllowsHDR(int nStandard);
 
 class CColorHCFRConfig
 {
@@ -85,6 +86,7 @@ public:
 	int m_ablDuration;
 	int m_ablLevel;
 	BOOL m_bLatencyBeep;
+	int m_measureSound;		// index into CColorHCFRApp::MeasureSoundResource; 0 = none
 	BOOL bDisplayRT;
 	BOOL m_bABL;
 	BOOL m_bDisableHighDPI;

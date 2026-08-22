@@ -89,7 +89,9 @@ CSatLumGrapher::CSatLumGrapher ()
 	m_showPrimaries=GetConfig()->GetProfileInt("Saturation Luminance Histo","Show Primaries",TRUE);
 	m_showSecondaries=GetConfig()->GetProfileInt("Saturation Luminance Histo","Show Secondaries",FALSE);
 	m_showDataRef=GetConfig()->GetProfileInt("Saturation Luminance Histo","Show Reference Data",TRUE);
-	m_graphCtrl.m_graphArray[0].p_Title="Saturation Sweep Luminance";
+	CString strTitle;
+	strTitle.LoadString ( IDS_GRAPH_SATSWEEPLUM );
+	m_graphCtrl.m_graphArray[0].p_Title=strTitle;
 
 }
 

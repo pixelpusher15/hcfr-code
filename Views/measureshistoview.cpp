@@ -451,13 +451,16 @@ void CMeasuresHistoView::OnDraw(CDC* pDC)
 	int			i, NbGraphCtrl;
 	BOOL		bWhiteBkgnd = GetConfig () -> m_bWhiteBkgndOnScreen;
 	LPCSTR		lpszTexts [ 4 ];
+	CString		strTrkSuffix, strLegLum, strLegRGB, strLegDE, strLegCT;
 	COLORREF	clr [ 4 ];
 	RECT		rect, rect2;
 	CSize		size;
 	CFont		font, font2;
 	CFont *		pOldFont2;
 	CFont *		pOldFont;
-	LPCSTR		trkTxt = "Tracking level: ";
+	CString		strTrk;
+	strTrk.LoadString ( IDS_GRAPH_TRACKINGLEVEL );
+	LPCSTR		trkTxt = (LPCSTR)strTrk;
 	char		szBuf[10];
 	TCHAR		trkPerc[100] = _T("");
 
@@ -484,37 +487,45 @@ void CMeasuresHistoView::OnDraw(CDC* pDC)
 	switch (l_Display)
 	{
 	case (0):
-		StringCchCat(trkPerc, _countof(trkPerc), _T("% (Gray scale)"));
+		strTrkSuffix.LoadString ( IDS_GRAPH_TRK_GRAYSCALE );
+		StringCchCat(trkPerc, _countof(trkPerc), strTrkSuffix);
 		break;
 	case (3):
-		StringCchCat(trkPerc, _countof(trkPerc), _T("% (Near black scale)"));
+		strTrkSuffix.LoadString ( IDS_GRAPH_TRK_NEARBLACK );
+		StringCchCat(trkPerc, _countof(trkPerc), strTrkSuffix);
 		break;
 	case (4):
-		StringCchCat(trkPerc, _countof(trkPerc), _T("% (Near white scale)"));
+		strTrkSuffix.LoadString ( IDS_GRAPH_TRK_NEARWHITE );
+		StringCchCat(trkPerc, _countof(trkPerc), strTrkSuffix);
 		break;
 	default:
-	StringCchCat(trkPerc, _countof(trkPerc), _T("Tracking off..."));
+	strTrkSuffix.LoadString ( IDS_GRAPH_TRACKINGOFF );
+	StringCchCat(trkPerc, _countof(trkPerc), strTrkSuffix);
 	}
 						
 	if ( m_showLuminance )
 	{
 		clr [ NbGraphCtrl ] = bWhiteBkgnd ? RGB (127,127,0) : RGB(255,255,0);
-		lpszTexts [ NbGraphCtrl ++ ] = "Luminance";
+		strLegLum.LoadString ( IDS_LUMINANCE );
+		lpszTexts [ NbGraphCtrl ++ ] = (LPCSTR)strLegLum;
 	}
 
 	clr [ NbGraphCtrl ] = bWhiteBkgnd ? RGB(0,0,0) : RGB(255,255,255);
-	lpszTexts [ NbGraphCtrl ++ ] = "RGB Levels";
+	strLegRGB.LoadString ( IDS_RGBLEVELS );
+	lpszTexts [ NbGraphCtrl ++ ] = (LPCSTR)strLegRGB;
 	
 	if ( m_showDeltaE )
 	{
 		clr [ NbGraphCtrl ] = RGB(255,0,255);
-		lpszTexts [ NbGraphCtrl ++ ] = "Delta E";
+		strLegDE.LoadString ( IDS_DELTAE );
+		lpszTexts [ NbGraphCtrl ++ ] = (LPCSTR)strLegDE;
 	}
 
 	if ( m_showColorTemp )
 	{
 		clr [ NbGraphCtrl ] = bWhiteBkgnd ? RGB(0,192,192) : RGB(0,255,255);
-		lpszTexts [ NbGraphCtrl ++ ] = "Color temp";
+		strLegCT.LoadString ( IDS_GRAPH_COLORTEMPSHORT );
+		lpszTexts [ NbGraphCtrl ++ ] = (LPCSTR)strLegCT;
 	}
 
 	// Declare a "vertical" font

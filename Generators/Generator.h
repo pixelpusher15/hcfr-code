@@ -46,7 +46,7 @@ typedef char * (__stdcall *RB8PG_get)(SOCKET sock,const char *message);
 struct PGenSettings
 {
 	int colorFormat, quantRange, bitDepth, colorimetry;
-	int isHdr, isLLDovi;
+	int isHdr, isLLDovi, isStdDovi;
 	int eotf, primaries, doviMode;
 	int maxLuma, minLuma, maxCll, maxFall;
 	BOOL valid;

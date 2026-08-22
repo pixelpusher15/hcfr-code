@@ -46,6 +46,7 @@ CGDIGenePropPage::CGDIGenePropPage() : CPropertyPageWithHelp(CGDIGenePropPage::I
 	m_rectSizePercent = 0;
 	m_offsetx = 0;
 	m_pgenQuerying = FALSE;
+	m_pgenQuerySettle = FALSE;
 	m_offsety =0;
 	m_bgStimPercent = 0;
 	m_Intensity = 0;
@@ -640,18 +641,24 @@ static UINT AFX_CDECL PgenQueryThread(LPVOID p)
 	CGDIGenePropPage* pg = (CGDIGenePropPage*)p;
 	CGDIGenerator* gen = pg->m_pGenerator;
 	HWND hwnd = pg->GetSafeHwnd();
+	bool settle = (pg->m_pgenQuerySettle != FALSE); pg->m_pgenQuerySettle = FALSE;
 	PgenQueryResult* r = new PgenQueryResult;
+	if (settle) Sleep(1200);		// the daemon is restarting after a successful Apply
 	r->ok = gen ? gen->QueryPGeneratorInfo(r->vals, r->err) : FALSE;
+	if (settle && !r->ok)			// one retry through the restart window before giving up
+	{ Sleep(1500); r->ok = gen ? gen->QueryPGeneratorInfo(r->vals, r->err) : FALSE; }
 	if (!(hwnd && IsWindow(hwnd) && ::PostMessage(hwnd, WM_PGEN_QUERY_DONE, 0, (LPARAM)r)))
 		delete r;
 	return 0;
 }
 
-void CGDIGenePropPage::QueryPGenerator()
+void CGDIGenePropPage::QueryPGenerator(bool settle)
 {
 	if (!m_pgenReadout.GetSafeHwnd()) return;
 	if (m_pgenQuerying) return;
 	m_pgenQuerying = TRUE;
+	m_pgenQuerySettle = settle;		// armed only once we actually start the worker, so an
+									// early-return above can't leak it into the next query
 	if (m_pgenSettingsBtn.GetSafeHwnd()) m_pgenSettingsBtn.EnableWindow(FALSE);
 	if (GetDlgItem(IDC_XOFFSET_EDIT)) GetDlgItem(IDC_XOFFSET_EDIT)->EnableWindow(FALSE);
 	if (GetDlgItem(IDC_YOFFSET_EDIT)) GetDlgItem(IDC_YOFFSET_EDIT)->EnableWindow(FALSE);
@@ -698,6 +705,7 @@ CPGenSettingsDlg::CPGenSettingsDlg(CWnd* pParent) : CDialog(CPGenSettingsDlg::ID
 {
 	m_pGenerator = NULL;
 	m_action = 0;
+	m_applied = FALSE;
 }
 
 static const TCHAR* const kPgCF[] = { _T("RGB"), _T("YCbCr 4:4:4"), _T("YCbCr 4:2:2") };
@@ -729,7 +737,8 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 	int curMode = -1;
 	PGenSettings st; st.valid = FALSE;
 	st.colorFormat = st.quantRange = st.bitDepth = st.colorimetry = 0;
-	st.isHdr = st.isLLDovi = st.eotf = st.primaries = 0;
+	st.isHdr = st.isLLDovi = st.isStdDovi = st.eotf = st.primaries = 0;
+	st.doviMode = 1;
 	st.maxLuma = 1000; st.minLuma = 5; st.maxCll = 1000; st.maxFall = 400;
 	if (m_pGenerator)
 	{
@@ -750,7 +759,7 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 		CPoint lp = M.at(LX, y + 2); m_aviL[5].Create(LS(IDS_PGEN_DYNRANGE), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[5].SetFont(font);
 		CPoint cp = M.at(CX, y); m_avi[5].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_AVI_BASE + 5); m_avi[5].SetFont(font);
 		for (int j = 0; j < 3; j++) m_avi[5].AddString(kPgDR[j]);
-		int sel = st.isLLDovi ? 2 : (st.isHdr ? 1 : 0);
+		int sel = (st.isLLDovi || st.isStdDovi) ? 2 : (st.isHdr ? 1 : 0);
 		m_avi[5].SetCurSel(sel); m_aviInit[5] = sel;
 	}
 	{
@@ -844,10 +853,10 @@ void CPGenSettingsDlg::OnOK()
 			CString c;
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_SDR:%d"), isSdr); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_HDR:%d"), isHdr); cmds.Add(c);
-			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:%d"), 0); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_STD_DOVI:%d"), dovi); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_STATUS:%d"), dovi); cmds.Add(c);
-			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), 0); cmds.Add(c);
 		}
 	}
 	{ int sel = m_doviCombo.GetCurSel(); if (sel >= 0 && sel != m_doviInit && drSel == 2) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_MAP_MODE:%d"), (sel == 1) ? 2 : 1); cmds.Add(c); } }
@@ -863,7 +872,12 @@ void CPGenSettingsDlg::OnOK()
 			CString c; c.Format(_T("CMD:%s:%d"), nm[i], v); cmds.Add(c);
 		}
 	}
-	if (cmds.GetSize() > 0 && m_pGenerator) { CWaitCursor wait; m_pGenerator->ApplyPGeneratorConf(cmds); }
+	if (cmds.GetSize() > 0 && m_pGenerator) { CWaitCursor wait; m_pGenerator->ApplyPGeneratorConf(cmds); m_applied = TRUE; }
+	// Apply applies and closes. ApplyPGeneratorConf already ends every batch with
+	// RESTARTPGENERATOR:, so the settings take effect without a manual restart; closing here
+	// also avoids the stale-baseline hazards of a kept-open dialog (the *Init change-detection
+	// baselines are captured once in OnInitDialog). The caller auto-refreshes the main panel
+	// when m_applied, so the change is still reflected without reopening.
 	CDialog::OnOK();
 }
 
@@ -1008,8 +1022,16 @@ void CGDIGenePropPage::OnPgenSettings()
 	CPGenSettingsDlg dlg(this);
 	dlg.m_pGenerator = m_pGenerator;
 	dlg.DoModal();
+	// Auto-refresh the status readout after the settings dialog closes (Dominic's request):
+	// - a reboot/restart/shutdown (m_action) takes the device down -> show it disconnected;
+	// - otherwise refresh only when Apply actually sent a batch (m_applied) - Close/Escape with
+	//   no change shouldn't blank the readout for nothing. Apply ends with a daemon restart, so
+	//   pass settle=true: the query settles+retries through the restart window instead of
+	//   landing on "Not connected".
 	if (dlg.m_action != 0)
 		ShowPgenDisconnected();
+	else if (dlg.m_applied)
+		QueryPGenerator(true);
 }
 
 void CGDIGenePropPage::OnOK()
@@ -1038,9 +1060,19 @@ void CGDIGenePropPage::OnOK()
 	if (m_nDisplayMode != DISPLAY_GDI)
 		m_busePic = FALSE;
 
+	// Capture the previous output range so a change can re-fire the USER Extended-range guard.
+	// Default 1 = the canonical RGB_16_235 default: on a fresh install (no INI key) the dialog
+	// shows 16-235 from the generator's default, so oldRange must default the same way or a real
+	// 16-235 -> Full uncheck would look unchanged and skip the guard.
+	BOOL oldRange = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? TRUE : FALSE;
 	GetConfig()->WriteProfileInt("GDIGenerator","DisplayMode",m_nDisplayMode);
 	GetConfig()->WriteProfileInt("GDIGenerator","RGB_16_235",m_b16_235);
 	GetConfig()->WriteProfileInt("GDIGenerator","EnableHDR10",m_bHdr10);
+	// The guard otherwise only fires on a CC-mode switch; re-run it here so flipping the
+	// output range to Full after loading an Extended USER set warns instead of silently
+	// clamping super-white (it no-ops unless CC mode is USER and the set is Extended).
+	if ((m_b16_235 ? TRUE : FALSE) != oldRange)
+		GuardCCModeOutputRange(GetConfig()->m_CCMode);
 	if (m_nDisplayMode == DISPLAY_ccast && m_castHasDevice)
 	{
 		CString name; m_cCastComboCtrl.GetWindowText(name);

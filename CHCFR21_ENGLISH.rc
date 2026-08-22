@@ -837,12 +837,6 @@ BEGIN
     GROUPBOX        "Measure launch",IDC_STATIC,7,7,199,28,WS_GROUP
     CONTROL         "Confirmation message",IDC_CHECK_CONFIRM,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,19,85,10
     GROUPBOX        "Calibration files - Advanced use",IDC_STATIC,7,38,199,40,WS_GROUP
-    CONTROL         "Classic NIST (no luminance scaling)",IDC_RADIO_CALIB_CLASSIC_NIST,
-                    "Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,48,180,9
-    CONTROL         "HCFR default (with luminance scaling)",IDC_RADIO_CALIB_HCFR_DEFAULT,
-                    "Button",BS_AUTORADIOBUTTON,13,58,180,9
-    CONTROL         "Bodner three-matrix (RGBW displays)",IDC_RADIO_CALIB_BODNER,
-                    "Button",BS_AUTORADIOBUTTON,13,68,180,9
     GROUPBOX        "Luxmeter LX-1108",IDC_STATIC,8,82,198,86,WS_GROUP
     LTEXT           "COM Port",IDC_STATIC,17,95,43,8,0,0,HIDC_STATIC
     COMBOBOX        IDC_LUXMETER_COM_COMBO,65,92,52,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
@@ -2183,6 +2177,14 @@ BEGIN
             MENUITEM "&Select...",                  IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&meters...",              IDM_MEASURE_DEFINESCALE
+        MENUITEM SEPARATOR
+        POPUP "Measure sou&nd"
+        BEGIN
+            MENUITEM "&None",                                IDM_SOUND_NONE
+            MENUITEM "Camera &shutter",                      IDM_SOUND_SHUTTER
+            MENUITEM "&Keyboard click",                      IDM_SOUND_CLICK
+            MENUITEM "&Button press",                        IDM_SOUND_BUTTON
+        END
     END
     POPUP "&Graphs"
     BEGIN
@@ -3918,6 +3920,10 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Measure primary colors\nMeasure primary colors"
     IDM_MEASURE_SECONDARIES "Measure primary and secondary colors\nMeasure primary and secondary colors"
     IDM_MEASURE_DEFINESCALE "Define measure parameters (number of levels)"
+    IDM_SOUND_NONE          "Play no sound after a measure"
+    IDM_SOUND_SHUTTER       "Play a camera shutter after each measure"
+    IDM_SOUND_CLICK         "Play a keyboard click after each measure"
+    IDM_SOUND_BUTTON        "Play a button press after each measure"
     IDM_MEASURE_NEARBLACK   "Measure near black gray scale\nMeasure near black gray scale"
     IDM_MEASURE_NEARWHITE   "Measure near white gray scale\nMeasure near white gray scale"
     IDM_MEASURE_SAT_RED     "Measure red saturation scale\nMeasure red saturation scale"
@@ -4079,6 +4085,36 @@ BEGIN
     IDS_PP_STIMULUSPCT      "stimulus %"
     IDS_PP_MINUTES          "~%d min"
     IDS_PP_HOURS            "~%.1f hr"
+    IDS_CSV_FILE_NOT_FOUND  "Patch-list file not found:\n\n%s\n\nThe patch set will be empty. For built-in sets this usually means the installation is incomplete or HCFR is running under a different user profile."
+    IDS_CSV_RANGE_EXTENDED_WARN  "The USER patch list is Extended range (whiter-than-white), but generator output is set to Full (0-255), which clamps the super-white codes to 255.\n\nSet the generator output to 16-235 (video) so the super-white codes are sent intact."
+END
+
+STRINGTABLE
+BEGIN
+    IDS_GRAPH_LUMRESPONSE       "Luminance Response"
+    IDS_GRAPH_NBLUMRESPONSE     "Near Black Luminance Response"
+    IDS_GRAPH_NWLUMRESPONSE     "Near White Luminance Response"
+    IDS_GRAPH_SATSWEEPLUM       "Saturation Sweep Luminance"
+    IDS_GRAPH_SATSCANSHIFTS     "Saturation Scan Shifts"
+    IDS_GRAPH_GSBALGAMMA        "Gray Scale Balance w/gamma"
+    IDS_GRAPH_GSBALNOGAMMA      "Gray Scale Balance w/o gamma"
+    IDS_GRAPH_EOTFGAMMA         "EOTF(Gamma)"
+    IDS_GRAPH_REFMEASGAMMA      "Reference Measure Gamma"
+    IDS_GRAPH_DELTALUM          "delta Luminance"
+    IDS_GRAPH_DELTALUMREF       "delta Luminance Ref"
+    IDS_GRAPH_DELTALUMREFMEAS   "delta Luminance Ref Measure"
+    IDS_GRAPH_TRK_GRAYSCALE     "% (Gray scale)"
+    IDS_GRAPH_TRK_NEARBLACK     "% (Near black scale)"
+    IDS_GRAPH_TRK_NEARWHITE     "% (Near white scale)"
+    IDS_GRAPH_COLORTEMPSHORT    "Color Temp"
+    IDS_GRAPH_TRACKINGLEVEL     "Tracking level: "
+    IDS_GRAPH_TRACKINGOFF       "Tracking off..."
+    IDS_3D_RGBCUBE              "RGB cube"
+    IDS_3D_NODATA               "No measurement data to display"
+    IDS_3D_GRAYPCT              "Gray %d%%"
+    IDS_CIE_ILLUMINANT          "Illuminant"
+    IDS_CC_COLORNAME            "Color %s"
+    IDS_CC_COLORNAMEREF         "Color %s Reference"
 END
 
 #endif    // English (United States) resources

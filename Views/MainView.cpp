@@ -2101,10 +2101,11 @@ void CMainView::InitGrid(bool sizeGrid)
                  }
                  else if (isExtPat)
                  {
-                     char aBuf[50];
-					 std::string name = GetConfig()->GetCColorsN(i);
-                     sprintf(aBuf,"%s", name.c_str());
-                     Item.strText.SetString(aBuf);
+                     // Pass the name straight through - a user CSV name can exceed any fixed
+                     // buffer (the char[50]+sprintf here overran the stack); same class as the
+                     // CIEChartView '%'/length fix in this PR.
+                     std::string name = GetConfig()->GetCColorsN(i);
+                     Item.strText.SetString(name.c_str());
                  }
                  else {
 				 switch ( i )
@@ -2808,6 +2809,11 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		if ( m_pInfoWnd ) //in case colorchecker slot is updated
 		{
 				m_pInfoWnd -> SetWindowTextA(GetDocument()->GetMeasure()->GetInfoString());
+				// The text just came from the document, so the recorded commands
+				// describe text that is no longer there: drop them.
+				CEditEx * pSummaryEdit = DYNAMIC_DOWNCAST ( CEditEx, m_pInfoWnd );
+				if ( pSummaryEdit )
+					pSummaryEdit -> EmptyUndoBuffer ();
 				m_pInfoWnd -> Invalidate ();
 				m_pInfoWnd -> UpdateWindow();			
 		}
@@ -2992,8 +2998,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			}
 			else 
 			{
-				if ( GetDocument()->m_pSensor->IsCalibrated() == 1 ) 
-				{ 
+				if ( GetDocument()->m_pSensor->IsCorrectionActive() )
+				{
 					m_grayScaleGroup.SetHilighted(2);
 					m_sensorGroup.SetHilighted(2);
 					m_generatorGroup.SetHilighted(2);
@@ -3024,9 +3030,9 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		}
 		
 		m_AdjustXYZCheckButton.EnableWindow ( GetDocument()->m_pSensor->IsCalibrated () > 0 );
-		m_AdjustXYZCheckButton.SetCheck ( GetDocument()->m_pSensor->IsCalibrated () == 1 );
+		m_AdjustXYZCheckButton.SetCheck ( GetDocument()->m_pSensor->IsCorrectionActive () );
 
-		if ( GetDocument()->m_pSensor->IsCalibrated () == 1 || m_displayType == HCFR_xyz2_VIEW )
+		if ( GetDocument()->m_pSensor->IsCorrectionActive () || m_displayType == HCFR_xyz2_VIEW )
 		{
 			if ( m_editCheckButton.GetCheck () )
 			{
@@ -4825,7 +4831,14 @@ void CMainView::UpdateGrid()
 			m_grayScaleGroup.SetText ( Msg );
 		}
 	}
-		bool isHDR = GetConfig()->m_GammaOffsetType == 5;
+		// sRGB overrides m_GammaOffsetType outright (getL_EOTF mode 99), so the
+		// stored transfer function must not be reported as the active one -
+		// neither the HDR branches nor the SDR switch below describe what the
+		// app is actually computing with. Without this the info line names PQ's
+		// "HDR10" whenever sRGB is selected while a PQ choice is still stored,
+		// and names a power law in the ordinary case, for every sRGB user.
+		bool isSRGBtf = ( GetConfig()->m_colorStandard == sRGB );
+		bool isHDR = !isSRGBtf && GetConfig()->m_GammaOffsetType == 5;
 		double 	BBC_gamma = GetConfig()->m_TargetSysGamma;
 		CString dWhitestr;
 		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor);
@@ -4848,7 +4861,7 @@ void CMainView::UpdateGrid()
 				sdrstr.Format(" SDR, Power law (black compensation) w/gamma = %3.2f", GetConfig()->m_GammaAvg);
 			break;
 			case 2:
-				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2", GetConfig()->m_GammaAvg);
+				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2f", GetConfig()->m_GammaAvg);
 			break;
 			case 3:
 				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2f", GetConfig()->m_GammaAvg);
@@ -4863,7 +4876,11 @@ void CMainView::UpdateGrid()
 				sdrstr.SetString(" SDR, L*");
 			break;
 		}
-		m_infoLine = "Color Space: "+CS+", White Point: "+WP+", EOTF: "+(isHDR ? " HDR10, "+ dWhitestr:GetConfig()->m_GammaOffsetType == 7?" HLG, "+bbcstr:sdrstr);
+		// sRGB's curve is fixed and is none of the cases above, so the switch
+		// left sdrstr holding whichever stored transfer function was inactive.
+		if (isSRGBtf)
+			sdrstr.SetString(" SDR, sRGB");
+		m_infoLine = "Color Space: "+CS+", White Point: "+WP+", EOTF: "+(isHDR ? " HDR10, "+ dWhitestr:(!isSRGBtf && GetConfig()->m_GammaOffsetType == 7)?" HLG, "+bbcstr:sdrstr);
 		CString t = CTime::GetCurrentTime().Format(" [%H:%M:%S]");
 		CWnd * pWnd = GetDlgItem(IDC_INFOLINE);
 		CString nMeasures;
@@ -5183,9 +5200,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetGray(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetGray(i, aNewColor);
 				}
 			}
@@ -5194,18 +5209,14 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetPrimary(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetPrimary(i, aNewColor);
 				}
 
 				aNewColor = GetDocument()->GetMeasure()->GetSecondary(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetSecondary(i, aNewColor);
 				}
 			}
@@ -5215,9 +5226,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetMeasurement(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetMeasurements(i, aNewColor);
 				}
 			}
@@ -5227,49 +5236,37 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetRedSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetRedSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetBlueSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetBlueSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetGreenSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetGreenSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetYellowSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetYellowSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetCyanSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetCyanSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetMagentaSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetMagentaSat(i, aNewColor);
 				}
 			}
@@ -5279,9 +5276,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetCC24MasterSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetCC24MasterSat(i, aNewColor);
 				}
 			}
@@ -5291,9 +5286,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetNearBlack(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetNearBlack(i, aNewColor);
 				}
 			}
@@ -5303,35 +5296,25 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetNearWhite(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetNearWhite(i, aNewColor);
 				}
 			}
 
 			aNewColor = GetDocument()->GetMeasure()->GetPrimeWhite();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
+			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 			GetDocument()->GetMeasure()->SetPrimeWhite(aNewColor);
 
 			aNewColor = GetDocument()->GetMeasure()->GetOnOffWhite();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
+			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 			GetDocument()->GetMeasure()->SetOnOffWhite(aNewColor);
 
 			aNewColor = GetDocument()->GetMeasure()->GetAnsiWhite();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
+			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 			GetDocument()->GetMeasure()->SetAnsiWhite(aNewColor);
 
 			aNewColor = GetDocument()->GetMeasure()->GetAnsiBlack();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
+			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 			GetDocument()->GetMeasure()->SetAnsiBlack(aNewColor);
 			isSelectedWhiteY = FALSE;
 			lHint = UPD_EVERYTHING;
@@ -5378,6 +5361,12 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				break;
 		}
 		
+		// A hand-edited value overrides what the sensor read: the stored raw no
+		// longer produces this XYZ, and a later recalibration recomputing from
+		// it would silently discard the edit. Drop the raw - the point falls
+		// back to the legacy delta-compose path, where edits survive.
+		aColorMeasure.ClearRawXYZValue();
+
 		// Update document XYZ value
 		switch ( m_displayMode )
 		{
@@ -7878,8 +7867,17 @@ HBRUSH CMainView::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 			pDC->SetTextColor(FxGetSysColor(COLOR_MENUTEXT));
 			return *m_pBgBrush;
 			break;
-		case CTLCOLOR_BTN:
 		case CTLCOLOR_EDIT:
+			// An edit control repaints incrementally as its text changes and only
+			// erases its background on a full repaint. With TRANSPARENT the previous
+			// glyphs stay on screen underneath the new ones - inserting a line leaves
+			// a copy of the line it pushed down until something forces a redraw - so
+			// its text must be drawn opaque, over the colour it is erased with.
+			pDC->SetBkMode(OPAQUE);
+			pDC->SetBkColor(FxGetMenuBgColor());
+			pDC->SetTextColor(FxGetSysColor(COLOR_MENUTEXT));
+			return *m_pBgBrush;
+		case CTLCOLOR_BTN:
 		default:
 			pDC->SetBkMode(TRANSPARENT);
 			pDC->SetTextColor(FxGetSysColor(COLOR_MENUTEXT));
@@ -8281,6 +8279,11 @@ void CMainView::OnSelchangeInfoDisplay()
 			 pEdit -> Create (WS_VISIBLE | WS_CHILD | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN, Rect, this, IDC_INFO_VIEW );
 			 pEdit -> SetFont ( GetFont () );		 
 			 pEdit -> SetWindowText ( GetDocument()->GetMeasure()->GetInfoString() );
+
+			 // The initial fill reaches the control as WM_SETTEXT, which CEditEx
+			 // records as an undoable change; without this the first Ctrl+Z would
+			 // blank the summary instead of undoing what the user typed.
+			 ( (CEditEx *) pEdit ) -> EmptyUndoBuffer ();
 
 			 m_pInfoWnd = pEdit;
 			 m_pInfoWnd -> SetWindowPos ( pWnd, Rect.left, Rect.top, (Rect.right - Rect.left), (Rect.bottom - Rect.top), SWP_NOACTIVATE );
@@ -9555,12 +9558,43 @@ void CMainView::OnUpdateEditPaste(CCmdUI* pCmdUI)
 		m_pGrayScaleGrid -> OnUpdateEditPaste(pCmdUI);
 }
 
+// The Summary info window is the only editable text this view owns, so the Edit
+// menu's Undo (and its Ctrl+Z / Alt+Backspace accelerators) act on it. CEditEx
+// keeps its own command history - the edit control's built-in undo is not used.
+static CEditEx * GetSummaryEdit ( CWnd * pInfoWnd )
+{
+	CEditEx * pEdit = DYNAMIC_DOWNCAST ( CEditEx, pInfoWnd );
+
+	if ( pEdit == NULL || ! ::IsWindow ( pEdit -> GetSafeHwnd () ) )
+		return NULL;
+
+	// Ctrl+Z and Alt+Backspace are frame accelerators, so ID_EDIT_UNDO is routed to
+	// this view whatever holds the focus. The competitor is the grid's in-place cell
+	// editor: CInPlaceEdit is a CEdit with its own undo, and it only swallows
+	// WM_SYSCHAR in PreTranslateMessage, so Ctrl+Z pressed while editing a cell still
+	// reaches the accelerator and would roll back the Summary pane instead - a
+	// rollback that goes on to rewrite the document's info string through EN_CHANGE.
+	// OnEditCut / OnEditPaste gate on the focus the same way, including the explicit
+	// ::GetParent ( ::GetFocus () ) branch for that same in-place editor.
+	if ( pEdit -> m_hWnd != ::GetFocus () )
+		return NULL;
+
+	return pEdit;
+}
+
 void CMainView::OnEditUndo() 
 {
+	CEditEx * pEdit = GetSummaryEdit ( m_pInfoWnd );
+
+	if ( pEdit )
+		pEdit -> Undo ();
 }
 
 void CMainView::OnUpdateEditUndo(CCmdUI* pCmdUI) 
 {
+	CEditEx * pEdit = GetSummaryEdit ( m_pInfoWnd );
+
+	pCmdUI -> Enable ( pEdit != NULL && pEdit -> CanUndo () );
 }
 
 void CMainView::UpdateAllGrids() 

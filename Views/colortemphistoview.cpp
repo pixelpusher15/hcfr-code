@@ -57,7 +57,9 @@ CColorTempGrapher::CColorTempGrapher()
 	m_showDataRef=GetConfig()->GetProfileInt("ColorTemp Histo","Show Reference Data",TRUE);	//Ki
 
 	m_graphCtrl.ReadSettings("ColorTemp Histo");
-	m_graphCtrl.m_graphArray[0].p_Title="Color Temperature";
+	CString strTitle;
+	strTitle.LoadString ( IDS_COLORTEMP );
+	m_graphCtrl.m_graphArray[0].p_Title=strTitle;
 }
 
 void CColorTempGrapher::UpdateGraph ( CDataSetDoc * pDoc )

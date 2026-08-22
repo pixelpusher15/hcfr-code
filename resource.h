@@ -1,12 +1,15 @@
 //{{NO_DEPENDENCIES}}
 // fichier Include Microsoft Visual C++.
-// Utilisé par CHCFR21_FRANCAIS.rc
+// Utilisï¿½ par CHCFR21_FRANCAIS.rc
 //
 #define IDS_STRING_VERSION              1
 #define IDS_STRING_VERSION_WEB          2
 #define IDC_CLEAR_BUTTON                3
 #define IDC_INVERT_BUTTON               4
 #define IDR_SPLASH_SCREEN               5
+#define IDR_SOUND_SHUTTER               1400
+#define IDR_SOUND_CLICK                 1401
+#define IDR_SOUND_BUTTON                1402
 #define IDD_ABOUTBOX                    100
 #define IDD_COLORHCFR_FORM              101
 #define IDD_GRAPH_PROP_PAGE             102
@@ -119,7 +122,7 @@
 #define IDD_GENERAL_PROP_PAGE           224
 #define IDB_ANSICONTRAST_BITMAP         226
 #define IDD_EXPORTXLS_DIALOG            227
-#define IDD_EXPORT_OPTIONS_DIALOG       385
+#define IDD_EXPORT_OPTIONS_DIALOG       1403
 #define IDR_WHATS_THIS                  228
 #define IDR_NEARBLACK_GRAPH_MENU        229
 #define IDR_NEARWHITE_GRAPH_MENU        230
@@ -734,7 +737,6 @@
 #define IDC_BK_WHITE_FILE2              1251
 #define IDC_MOVE_MESSAGE                1251
 #define IDC_EDIT_INFOS                  1252
-#define IDC_CHECK_CALIBRATION_OLD       1252
 #define IDC_CHECK_IMPERIAL              1253
 #define IDC_CHECK_PREFER_LUXMETER       1254
 #define IDC_DISPLAY_MATRIX              1255
@@ -1064,6 +1066,10 @@
 #define IDM_MEASURE_SAT_MAGENTA         32991
 #define IDM_MEASURE_SAT_ALL             32992
 #define IDM_MEASURE_SAT_ALL_LEVELS      33113
+#define IDM_SOUND_NONE                  33114
+#define IDM_SOUND_SHUTTER               33115
+#define IDM_SOUND_CLICK                 33116
+#define IDM_SOUND_BUTTON                33117
 #define IDM_MEASURE_GRAYSCALE_COLORS    32993
 #define IDM_SIM_NEARBLACK               32994
 #define IDM_SIM_NEARWHITE               32995
@@ -1539,6 +1545,30 @@
 #define IDS_UPDLG_DOWNLOAD_FAILED       41989
 #define IDS_UPDLG_DOWNLOAD_OK           41990
 #define IDS_UPDLG_CANT_LAUNCH           41991
+#define IDS_GRAPH_LUMRESPONSE           41992
+#define IDS_GRAPH_NBLUMRESPONSE         41993
+#define IDS_GRAPH_NWLUMRESPONSE         41994
+#define IDS_GRAPH_SATSWEEPLUM           41995
+#define IDS_GRAPH_SATSCANSHIFTS         41996
+#define IDS_GRAPH_GSBALGAMMA            41997
+#define IDS_GRAPH_GSBALNOGAMMA          41998
+#define IDS_GRAPH_EOTFGAMMA             41999
+#define IDS_GRAPH_REFMEASGAMMA          42000
+#define IDS_GRAPH_DELTALUM              42001
+#define IDS_GRAPH_DELTALUMREF           42002
+#define IDS_GRAPH_DELTALUMREFMEAS       42003
+#define IDS_GRAPH_TRK_GRAYSCALE         42004
+#define IDS_GRAPH_COLORTEMPSHORT        42005
+#define IDS_GRAPH_TRACKINGLEVEL         42006
+#define IDS_GRAPH_TRACKINGOFF           42007
+#define IDS_3D_RGBCUBE                  42008
+#define IDS_3D_NODATA                   42009
+#define IDS_3D_GRAYPCT                  42010
+#define IDS_CIE_ILLUMINANT              42011
+#define IDS_CC_COLORNAME                42012
+#define IDS_CC_COLORNAMEREF             42013
+#define IDS_GRAPH_TRK_NEARBLACK         42014
+#define IDS_GRAPH_TRK_NEARWHITE         42015
 #define IDS_CONTRAST                    41777
 #define IDS_OFFSET                      41778
 #define IDS_CONFIRMTRAINING             41779
@@ -1969,12 +1999,11 @@
 #define IDS_PP_STIMULUSPCT              59627
 #define IDS_PP_MINUTES                  59628
 #define IDS_PP_HOURS                    59629
+#define IDS_CSV_FILE_NOT_FOUND          59630
+#define IDS_CSV_RANGE_EXTENDED_WARN     59631
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
-#define IDC_RADIO_CALIB_CLASSIC_NIST    1559
-#define IDC_RADIO_CALIB_HCFR_DEFAULT    1560
-#define IDC_RADIO_CALIB_BODNER          1561
 #define IDC_CHECK_EXPORT_RAW            1562
 #define IDC_CHECK_EXPORT_STIMULUS       1563
 #define ID_TARGET_TOL_FIRST             33108
@@ -1984,8 +2013,8 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
-#define _APS_NEXT_RESOURCE_VALUE        386
-#define _APS_NEXT_COMMAND_VALUE         33114
+#define _APS_NEXT_RESOURCE_VALUE        1404
+#define _APS_NEXT_COMMAND_VALUE         33118
 #define _APS_NEXT_CONTROL_VALUE         1564
 #define _APS_NEXT_SYMED_VALUE           143
 #endif

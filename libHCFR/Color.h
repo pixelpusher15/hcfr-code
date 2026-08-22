@@ -322,6 +322,7 @@ public:
 	// onto an already-corrected value (needed for per-sub-gamut Bodner recalibration).
 	void SetRawXYZValue(const ColorXYZ& aRaw);
 	void ClearRawXYZValue();
+	void ScaleXYZ(double fScale);
 	bool HasRawXYZValue() const;
 	ColorXYZ GetRawXYZValue() const;
 
@@ -831,9 +832,10 @@ extern void ComputeBodnerThreeMatrices(const ColorXYZ measuresRGBW[4], const Col
 // non-negative "drive value" test from the paper) and returns the corrected XYZ.
 extern ColorXYZ SelectAndApplyBodnerMatrix(const ColorXYZ& rawXYZ, const Matrix rawMatrix[3], const Matrix calMatrix[3]);
 extern int PiPercentToCode ( double percent, bool is16_235, int bits );
-// Declared RANGE peeked from a CSV header (import-range guard). See PeekCsvRange.
+// Range a ColourSpace patch-list CSV can declare in its header (import-range guard).
+// CSV_RANGE_NONE = no header / legacy default. The loader (ReadCsvPatchRows) reports the
+// declared range via its rangeOut - the guard reads it from there so they can't diverge.
 enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_EXTENDED = 2 };
-extern int PeekCsvRange ( CString csvPath );
 // Shared patch-list parsing (one parser: ReadColorsFromCsv percentages + GetCColors codes/names).
 #include <vector>
 #include <string>

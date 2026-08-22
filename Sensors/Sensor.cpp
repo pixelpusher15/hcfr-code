@@ -122,10 +122,58 @@ void CSensor::Serialize(CArchive& archive)
 		}
 		else
 		{
-			// Pre-existing sensor files predate this feature: they were always
-			// using HCFR's default single-matrix method.
-			m_calibrationMethod = CALIB_HCFR_DEFAULT;
+			// Pre-existing sensor files predate the method field. The legacy HCFR
+			// correction is NIST four color / FCMM with luminance scaling
+			// (CALIB_HCFR_DEFAULT): ComputeConversionMatrix's primary path, and
+			// the fresh-document default. The three-color RGB / ASTM E1455-92
+			// path (CALIB_CLASSIC_NIST - the enum name is a holdover) was only a
+			// FALLBACK: taken automatically when no valid white was measured, or
+			// forced by the "Do not use white in matrix calculus (R1.x)" checkbox
+			// (the UseOnlyPrimaries key). So derive the method from that key: set
+			// -> three-color, clear -> FCMM with luminance scaling. (The no-white auto-fallback cohort
+			// is undetectable from any key; those rare files load as FCMM
+			// with luminance scaling.)
+			// The legacy key is only trustworthy before the migration: once the
+			// user picks a method in the new dropdown, SaveSettings rewrites
+			// UseOnlyPrimaries from that selection (downgrade safety), so it no
+			// longer describes what old files were calibrated with.
+			m_calibrationMethod = ( GetConfig()->GetProfileInt("Advanced","CalibrationMethod",-1) == -1
+								 &&  GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0) )
+									? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
 		}
+	}
+}
+
+void CSensor::BeginConfigure()
+{
+	m_cfgSnapMatrix   = m_sensorToXYZMatrix;
+	m_cfgSnapMethod   = m_calibrationMethod;
+	for ( int k = 0; k < 3; k++ )
+	{
+		m_cfgSnapBodnerRaw[k] = m_bodnerRawMatrix[k];
+		m_cfgSnapBodnerCal[k] = m_bodnerCalMatrix[k];
+	}
+}
+
+// Restores everything BeginConfigure snapshotted. Used when Configure()'s
+// property sheet is cancelled: the spectral Browse commits its changes
+// immediately, so cancelling the sheet has to put the previous correction
+// back rather than trusting nothing happened.
+void CSensor::CancelConfigure()
+{
+	m_sensorToXYZMatrix = m_cfgSnapMatrix;
+	m_calibrationMethod = m_cfgSnapMethod;
+	// m_isModified is deliberately NOT restored: the Argyll page's Calibrate
+	// button commits device settings (reading/display type, adapt, ...) and
+	// re-inits the meter mid-dialog, and those legitimately survive a Cancel.
+	// Forcing the flag back would hide them. With the correction state
+	// restored above, the caller's IsModified recompute degenerates to a
+	// harmless re-apply of the unchanged correction.
+
+	for ( int k = 0; k < 3; k++ )
+	{
+		m_bodnerRawMatrix[k] = m_cfgSnapBodnerRaw[k];
+		m_bodnerCalMatrix[k] = m_cfgSnapBodnerCal[k];
 	}
 }
 
@@ -163,6 +211,10 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	else
 		result = MeasureColorInternal(aRGBValue);
 	
+	// A failed read comes back as noDataColor, which the clamps below would turn
+	// into a valid-looking color, so decide success before they run.
+	BOOL bMeasureOk = ( IsMeasureValid() && result.isValid() );
+
 	result.SetX(max(result.GetX(),0.00000001));
 	result.SetY(max(result.GetY(),0.00000001));
 	result.SetZ(max(result.GetZ(),0.00000001));
@@ -177,6 +229,9 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 		result.SetXYZValue(SelectAndApplyBodnerMatrix(result.GetXYZValue(), m_bodnerRawMatrix, m_bodnerCalMatrix));
 	else
 		result.applyAdjustmentMatrix(m_sensorToXYZMatrix);
+
+	if ( bMeasureOk )
+		GetColorApp()->PlayMeasureSound();
 
     return result;
 }

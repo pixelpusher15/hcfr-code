@@ -114,7 +114,9 @@ CLuminanceGrapher::CLuminanceGrapher()
 	m_showGreenLum=GetConfig()->GetProfileInt("Luminance Histo","Show Green",FALSE);
 	m_showBlueLum=GetConfig()->GetProfileInt("Luminance Histo","Show Blue",FALSE);
 	m_showDataRef=GetConfig()->GetProfileInt("Luminance Histo","Show Reference Data",TRUE);	//Ki
-	m_graphCtrl.m_graphArray[0].p_Title="Luminance Response";
+	CString strTitle;
+	strTitle.LoadString ( IDS_GRAPH_LUMRESPONSE );
+	m_graphCtrl.m_graphArray[0].p_Title=strTitle;
 
 }
 

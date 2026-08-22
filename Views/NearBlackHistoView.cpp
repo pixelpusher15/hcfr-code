@@ -117,8 +117,10 @@ CNearBlackGrapher::CNearBlackGrapher()
 	m_showGreenLum=GetConfig()->GetProfileInt("Near Black Histo","Show Green",FALSE);
 	m_showBlueLum=GetConfig()->GetProfileInt("Near Black Histo","Show Blue",FALSE);
 	m_showDataRef=GetConfig()->GetProfileInt("Near Black Histo","Show Reference Data",TRUE);	//Ki
-	m_graphCtrl.m_graphArray[0].p_Title="Near Black Luminance Response";
-	m_logGraphCtrl.m_graphArray[0].p_Title="Near Black Luminance Response";
+	CString strTitle;
+	strTitle.LoadString ( IDS_GRAPH_NBLUMRESPONSE );
+	m_graphCtrl.m_graphArray[0].p_Title=strTitle;
+	m_logGraphCtrl.m_graphArray[0].p_Title=strTitle;
 }
 
 void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )

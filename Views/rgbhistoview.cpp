@@ -485,10 +485,9 @@ void CRGBHistoView::OnSize(UINT nType, int cx, int cy)
 
 void CRGBHistoView::OnDraw(CDC* pDC) 
 {
-	if (GetConfig()->m_dE_gray == 1)
-		m_Grapher.m_graphCtrl.m_graphArray[0].p_Title="Gray Scale Balance w/gamma";
-	else
-		m_Grapher.m_graphCtrl.m_graphArray[0].p_Title="Gray Scale Balance w/o gamma";
+	CString strTitle;
+	strTitle.LoadString ( GetConfig()->m_dE_gray == 1 ? IDS_GRAPH_GSBALGAMMA : IDS_GRAPH_GSBALNOGAMMA );
+	m_Grapher.m_graphCtrl.m_graphArray[0].p_Title=strTitle;
 }
 
 BOOL CRGBHistoView::OnEraseBkgnd(CDC* pDC) 

@@ -744,6 +744,11 @@ void CGraphControl::DrawGraphs(CDC *pDC, CRect rect)
 	int lineWidth=2;
 	m_tooltip.RemoveAllTools();
 
+	// series titles come from the satellite DLL, so match on the loaded text
+	CString strRedTitle, strRgbRefTitle;
+	strRedTitle.LoadString ( IDS_RED );
+	strRgbRefTitle.LoadString ( IDS_RGBREFERENCE );
+
 	// Anti-aliased pass: data polylines and point markers. Scoped so the
 	// Graphics object releases the DC before the GDI text/tooltip pass below.
 	{
@@ -837,7 +842,7 @@ void CGraphControl::DrawGraphs(CDC *pDC, CRect rect)
 				CRect pointRect(pointPos,pointSize);
 				m_tooltip.AddTool(this, "<b>"+m_graphArray[j].m_Title +"</b> \n" +str,&pointRect);
 
-				if (this->m_doShowDataLabel && (j==0 || this->m_graphArray[0].m_Title == "Red") && j<6 && this->m_graphArray[0].m_Title != "RGB Reference") //only label 1st graph of series unless Luminance from sat sweep
+				if (this->m_doShowDataLabel && (j==0 || this->m_graphArray[0].m_Title == strRedTitle) && j<6 && this->m_graphArray[0].m_Title != strRgbRefTitle) //only label 1st graph of series unless Luminance from sat sweep
 				{
 					CFont font;
 				font.CreateFont(GetConfig()->Scale(16),0,300,300,FW_SEMIBOLD,FALSE,FALSE,FALSE,0,OUT_STRING_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
@@ -1018,7 +1023,8 @@ void CGraphControl::OnPaint()
 	// CIE-005: dropped uninitialised-font SelectObject + red-bg SetBkColor;
 	// real select + bg-color assignment happens below, after CreateFont.
 	font.CreateFont( GetConfig()->ScaleFloor(18,22), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_CHARACTER_PRECIS, DEFAULT_QUALITY, VARIABLE_PITCH | FF_DONTCARE, "Segoe UI" );
-	pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );	if (GTxt == "Near White Luminance Response")		pDC -> SetTextColor ( RGB(220,120,220) );
+	pOldFont = pDC -> SelectObject ( & font );	pDC -> SetBkColor ( bWhiteBkgnd?RGB(255,255,255):RGB(0,0,0) );	CString strNW; strNW.LoadString ( IDS_GRAPH_NWLUMRESPONSE );
+	if (GTxt == strNW)		pDC -> SetTextColor ( RGB(220,120,220) );
 	else
 		pDC -> SetTextColor ( bWhiteBkgnd ? RGB(64,64,64) : RGB(255,255,255) );
 
