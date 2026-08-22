@@ -987,16 +987,31 @@ void CMainView::LayoutTopRow()
 void CMainView::OnActivateView(BOOL bActivate, CView* pActivateView, CView* pDeactiveView)
 {
 	CFormView::OnActivateView(bActivate, pActivateView, pDeactiveView);
-	if ( bActivate && GetConfig () -> m_CCMode == USER )
+	if ( bActivate && GetConfig () -> m_CCMode == USER && IsMdiActiveDocument () )
 	{
-		CUserPatchSet * pSet = GetDocument () -> GetMeasure () -> GetActiveUserPatchSet ();
-		if ( pSet != NULL && GetActiveDocUserPatchSet () == pSet )
-		{
-			GetConfig () -> GetCColors ();
-			if ( m_displayMode == 11 )
-				OnUpdate ( NULL, UPD_CC24SAT, NULL );
-		}
+		// Refresh whether or not this document HAS a set: a document with an
+		// empty collection must also displace the previous document's set from
+		// the global cache (GetCColors falls back to the legacy usercolors
+		// path), or its name and targets linger.
+		GetConfig () -> GetCColors ();
+		if ( m_displayMode == 11 )
+			OnUpdate ( NULL, UPD_CC24SAT, NULL );
 	}
+}
+
+// TRUE when the MDI frame's active document is this view's document - the
+// activation-ordering guard for the per-document cache refreshes: GetCColors
+// resolves the active set through the MDI walk, so refreshing while the walk
+// still points at another document would fill the cache from the wrong one.
+BOOL CMainView::IsMdiActiveDocument()
+{
+	CMDIFrameWnd * pMainWnd = (CMDIFrameWnd *) AfxGetMainWnd ();
+	if ( pMainWnd == NULL )
+		return FALSE;
+	CMDIChildWnd * pChild = pMainWnd -> MDIGetActive ();
+	if ( pChild == NULL )
+		return FALSE;
+	return pChild -> GetActiveDocument () == (CDocument *) GetDocument ();
 }
 
 void CMainView::OnInitialUpdate()
@@ -1062,15 +1077,12 @@ void CMainView::OnInitialUpdate()
 	if(AfxGetMainWnd()) FxApplyDarkModeTree(AfxGetMainWnd()->GetSafeHwnd(), GetConfig()->m_darkTheme);
 
 	// A just-opened document may carry a (possibly migrated) active user patch
-	// set; refill the process-wide target cache from it here. Serialize itself
-	// must not call GetCColors - the MDI active frame does not point at this
-	// document until its view exists.
-	if ( GetConfig () -> m_CCMode == USER )
-	{
-		CUserPatchSet * pSet = GetDocument () -> GetMeasure () -> GetActiveUserPatchSet ();
-		if ( pSet != NULL && GetActiveDocUserPatchSet () == pSet )
-			GetConfig () -> GetCColors ();
-	}
+	// set - or none, which must equally displace a previous document's set
+	// from the process-wide cache. Serialize itself must not call GetCColors -
+	// the MDI active frame does not point at this document until its view
+	// exists.
+	if ( GetConfig () -> m_CCMode == USER && IsMdiActiveDocument () )
+		GetConfig () -> GetCColors ();
 
 	if (m_displayMode != 0)
 		OnSelchangeComboMode();
