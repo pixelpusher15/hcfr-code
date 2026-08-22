@@ -2143,6 +2143,7 @@ BEGIN
             MENUITEM "&Auswählen...",               IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&meter...",               IDM_MEASURE_DEFINESCALE
+        MENUITEM "Open patch &list...",         IDM_MEASURE_OPEN_PATCHLIST
         MENUITEM SEPARATOR
         POPUP "Mess&ton"
         BEGIN
@@ -3923,6 +3924,7 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Primärfarben messen\nPrimärfarben messen"
     IDM_MEASURE_SECONDARIES "Primär- und Sekundärfarben messen\nPrimär- und Sekundärfarben messen"
     IDM_MEASURE_DEFINESCALE "Messparameter definieren (Anzahl der Werte)"
+    IDM_MEASURE_OPEN_PATCHLIST "Load a patch list CSV as a user patch set"
     IDM_SOUND_NONE          "Nach einer Messung keinen Ton abspielen"
     IDM_SOUND_SHUTTER       "Spielt nach jeder Messung einen Kamera-Auslöser ab"
     IDM_SOUND_CLICK         "Spielt nach jeder Messung einen Tastaturklick ab"

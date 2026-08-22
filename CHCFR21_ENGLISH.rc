@@ -2177,6 +2177,7 @@ BEGIN
             MENUITEM "&Select...",                  IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&meters...",              IDM_MEASURE_DEFINESCALE
+        MENUITEM "Open patch &list...",         IDM_MEASURE_OPEN_PATCHLIST
         MENUITEM SEPARATOR
         POPUP "Measure sou&nd"
         BEGIN
@@ -3920,6 +3921,7 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Measure primary colors\nMeasure primary colors"
     IDM_MEASURE_SECONDARIES "Measure primary and secondary colors\nMeasure primary and secondary colors"
     IDM_MEASURE_DEFINESCALE "Define measure parameters (number of levels)"
+    IDM_MEASURE_OPEN_PATCHLIST "Load a patch list CSV as a user patch set"
     IDM_SOUND_NONE          "Play no sound after a measure"
     IDM_SOUND_SHUTTER       "Play a camera shutter after each measure"
     IDM_SOUND_CLICK         "Play a keyboard click after each measure"

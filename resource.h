@@ -1066,6 +1066,7 @@
 #define IDM_MEASURE_SAT_MAGENTA         32991
 #define IDM_MEASURE_SAT_ALL             32992
 #define IDM_MEASURE_SAT_ALL_LEVELS      33113
+#define IDM_MEASURE_OPEN_PATCHLIST      33118
 #define IDM_SOUND_NONE                  33114
 #define IDM_SOUND_SHUTTER               33115
 #define IDM_SOUND_CLICK                 33116
@@ -2014,7 +2015,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        1404
-#define _APS_NEXT_COMMAND_VALUE         33118
+#define _APS_NEXT_COMMAND_VALUE         33119
 #define _APS_NEXT_CONTROL_VALUE         1564
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
