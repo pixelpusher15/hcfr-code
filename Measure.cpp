@@ -7927,6 +7927,10 @@ CString CMeasure::GetCCStr() const
 		"Random 500 \r\n",
 		"User\r\n"
 	};
+	// Band bases follow the enum via PATTERN_SIZE (= RANDOM250*100). The old
+	// hardcoded 2300-based literals froze the pre-LG enum layout (RANDOM250==24
+	// in 2018), so after the LG sets grew the enum these probes landed inside
+	// LG bands and the RANDOM250/RANDOM500/User lines reported wrong slots.
 	for (int i=0;i<=USER;i++)
 	{
 		if (i<RANDOM250)
@@ -7946,13 +7950,13 @@ CString CMeasure::GetCCStr() const
 				}
 		}
 		if (i==RANDOM250)
-			if (m_cc24SatMeasureArray_master[2300+100].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE].isValid())
 				mStr+=sweeps[i];
 		if (i==RANDOM500)
-			if (m_cc24SatMeasureArray_master[2300+100+250].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250].isValid())
 				mStr+=sweeps[i];
 		if (i==USER)
-			if (m_cc24SatMeasureArray_master[2300+100+250+500].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250+500].isValid())
 				mStr+=sweeps[i];
 	}
 	return mStr+="\r\n";
