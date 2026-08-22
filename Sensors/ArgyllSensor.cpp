@@ -352,10 +352,14 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
 
     // Re-apply a loaded spectral (ccss/CSV) correction so it survives reconnects
     // and restarts (restores the apply path dropped in 2014). Only meaningful for
-    // spectral-capable colorimeters; failures are swallowed so a stale/missing
-    // file never blocks startup.
+    // spectral-capable colorimeters. A failure must not pass silently: the stored
+    // path/description keep telling the UI a correction is active while every
+    // reading is uncorrected (a moved/edited file, or a meter without spectral
+    // support), so warn once per session and leave the state for the user to
+    // re-apply or clear in the sensor properties. Startup itself is never blocked.
     if ( !m_spectralCorrectionPath.IsEmpty() )
     {
+        bool applied = false;
         try
         {
             if ( m_meter->doesMeterSupportSpectralSamples() )
@@ -366,11 +370,27 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
                     ? ss.createFromColourSpaceCSV((LPCSTR)m_spectralCorrectionPath)
                     : ss.Read((LPCSTR)m_spectralCorrectionPath);
                 if ( ok )
+                {
                     m_meter->loadSpectralSample(ss);
+                    applied = true;
+                }
             }
         }
         catch ( std::logic_error & )
         {
+        }
+        if ( !applied )
+        {
+            static BOOL s_warnedSpectralReapply = FALSE;
+            if ( !s_warnedSpectralReapply )
+            {
+                s_warnedSpectralReapply = TRUE;
+                CString msg;
+                msg.Format ( "The stored spectral correction could not be re-applied to the meter:\n%s\n\n"
+                             "Readings are UNCORRECTED until it is re-applied or cleared in the sensor properties.",
+                             (LPCSTR) m_spectralCorrectionPath );
+                GetColorApp()->InMeasureMessageBox ( msg, "Spectral correction", MB_OK | MB_ICONWARNING );
+            }
         }
     }
 

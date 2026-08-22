@@ -52,7 +52,6 @@ protected:
 	Matrix m_cfgSnapMatrix;
 	Matrix m_cfgSnapBodnerRaw[3], m_cfgSnapBodnerCal[3];
 	int  m_cfgSnapMethod;
-	BOOL m_cfgSnapModified;
 	time_t m_calibrationTime;
 	int		m_PropertySheetTitle;
 	CSensorPropPage m_SensorPropertiesPage;

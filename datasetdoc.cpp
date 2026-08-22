@@ -72,6 +72,10 @@
 #define new DEBUG_NEW
 #undef THIS_FILE
 static char THIS_FILE[] = __FILE__;
+
+// Defined below (near the calibration entry points); used by the new-document
+// wizard's Argyll branch as well.
+static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor);
 #endif
 
 /////////////////////////////////////////////////////////////////////////////
@@ -886,10 +890,19 @@ BOOL CDataSetDoc::OnNewDocument()
 				}
                 else if(propSheet.m_Page2.GetCurrentID() > 6)
                 {
-                    m_pSensor->Configure();
+                    // Same pairing as OnConfigureSensor: a Browse in the sheet
+                    // commits a spectral apply immediately, so Cancel restores it.
+                    m_pSensor->BeginConfigure();
+                    if ( !m_pSensor->Configure() )
+                        m_pSensor->CancelConfigure();
                     if(propSheet.m_Page2.m_sensorTrainingMode != 1)
                     {
-                        m_pSensor->LoadCalibrationFile(propSheet.m_Page2.m_trainingFileName);
+                        // Loading a matrix training file onto a ccss-corrected
+                        // meter would double-correct - same guard as the other
+                        // calibration entry points. Declining keeps the spectral
+                        // correction and skips the training file.
+                        if ( ConfirmClearSpectralForMatrixCal(m_pSensor) )
+                            m_pSensor->LoadCalibrationFile(propSheet.m_Page2.m_trainingFileName);
                     }
                 }
 				else

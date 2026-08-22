@@ -127,7 +127,12 @@ void CSensor::Serialize(CArchive& archive)
 			// the method from the same profile key the config migration uses -
 			// hardcoding HCFR_DEFAULT made every old NIST-calibrated .chc trip
 			// the method-sync prompt on export, inviting a wrong rewrite.
-			m_calibrationMethod = GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0)
+			// The legacy key is only trustworthy before the migration: once the
+			// user picks a method in the new dropdown, SaveSettings rewrites
+			// UseOnlyPrimaries from that selection (downgrade safety), so it no
+			// longer describes what old files were calibrated with.
+			m_calibrationMethod = ( GetConfig()->GetProfileInt("Advanced","CalibrationMethod",-1) == -1
+								 &&  GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0) )
 									? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
 		}
 	}
@@ -137,7 +142,6 @@ void CSensor::BeginConfigure()
 {
 	m_cfgSnapMatrix   = m_sensorToXYZMatrix;
 	m_cfgSnapMethod   = m_calibrationMethod;
-	m_cfgSnapModified = m_isModified;
 	for ( int k = 0; k < 3; k++ )
 	{
 		m_cfgSnapBodnerRaw[k] = m_bodnerRawMatrix[k];
@@ -153,7 +157,13 @@ void CSensor::CancelConfigure()
 {
 	m_sensorToXYZMatrix = m_cfgSnapMatrix;
 	m_calibrationMethod = m_cfgSnapMethod;
-	m_isModified        = m_cfgSnapModified;
+	// m_isModified is deliberately NOT restored: the Argyll page's Calibrate
+	// button commits device settings (reading/display type, adapt, ...) and
+	// re-inits the meter mid-dialog, and those legitimately survive a Cancel.
+	// Forcing the flag back would hide them. With the correction state
+	// restored above, the caller's IsModified recompute degenerates to a
+	// harmless re-apply of the unchanged correction.
+
 	for ( int k = 0; k < 3; k++ )
 	{
 		m_bodnerRawMatrix[k] = m_cfgSnapBodnerRaw[k];
