@@ -2495,6 +2495,25 @@ void CColor::ClearRawXYZValue()
 	}
 }
 
+// Scales the corrected XYZ and, when present, the raw sensor XYZ by the same
+// factor. For scalar renormalizations (the set-white-Y rescale, profile-drift
+// compensation) this keeps raw provenance exact: a scalar commutes with any
+// linear correction - including Bodner's, whose sub-gamut selection depends
+// only on the raw chromaticity, which uniform scaling preserves - so a later
+// recompute-from-raw reproduces the rescaled value instead of resurrecting
+// the pre-rescale reading.
+void CColor::ScaleXYZ(double fScale)
+{
+	SetX(GetX()*fScale);
+	SetY(GetY()*fScale);
+	SetZ(GetZ()*fScale);
+	if ( HasRawXYZValue() )
+	{
+		ColorXYZ raw = GetRawXYZValue();
+		SetRawXYZValue(ColorXYZ(raw[0]*fScale, raw[1]*fScale, raw[2]*fScale));
+	}
+}
+
 bool CColor::HasRawXYZValue() const
 {
 	return ( m_pRawXYZValues != NULL );

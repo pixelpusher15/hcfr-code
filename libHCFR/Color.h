@@ -306,6 +306,7 @@ public:
 	// onto an already-corrected value (needed for per-sub-gamut Bodner recalibration).
 	void SetRawXYZValue(const ColorXYZ& aRaw);
 	void ClearRawXYZValue();
+	void ScaleXYZ(double fScale);
 	bool HasRawXYZValue() const;
 	ColorXYZ GetRawXYZValue() const;
 

@@ -4065,10 +4065,10 @@ void CMeasure::ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, do
 		double f = fFrom + t * ( fTo - fFrom );
 		if ( f <= 0.0 )
 			continue;
-		double x = m_profileMeasureArray[j].GetX() / f;
-		double y = m_profileMeasureArray[j].GetY() / f;
-		double z = m_profileMeasureArray[j].GetZ() / f;
-		m_profileMeasureArray[j].SetXYZValue ( ColorXYZ(x, y, z) );
+		// Scalar drift compensation: write it through the stored raw as well
+		// (a scalar commutes with the correction matrix), so the raw stays in
+		// step with the corrected value it is supposed to reproduce.
+		m_profileMeasureArray[j].ScaleXYZ ( 1.0 / f );
 	}
 }
 
