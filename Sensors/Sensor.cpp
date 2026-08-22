@@ -122,11 +122,17 @@ void CSensor::Serialize(CArchive& archive)
 		}
 		else
 		{
-			// Pre-existing sensor files predate the method field. They were
-			// calibrated under the legacy "UseOnlyPrimaries" checkbox, so derive
-			// the method from the same profile key the config migration uses -
-			// hardcoding HCFR_DEFAULT made every old NIST-calibrated .chc trip
-			// the method-sync prompt on export, inviting a wrong rewrite.
+			// Pre-existing sensor files predate the method field. The legacy HCFR
+			// correction is NIST four color / FCMM with luminance scaling
+			// (CALIB_HCFR_DEFAULT): ComputeConversionMatrix's primary path, and
+			// the fresh-document default. The three-color RGB / ASTM E1455-92
+			// path (CALIB_CLASSIC_NIST - the enum name is a holdover) was only a
+			// FALLBACK: taken automatically when no valid white was measured, or
+			// forced by the "Do not use white in matrix calculus (R1.x)" checkbox
+			// (the UseOnlyPrimaries key). So derive the method from that key: set
+			// -> three-color, clear -> FCMM with luminance scaling. (The no-white auto-fallback cohort
+			// is undetectable from any key; those rare files load as FCMM
+			// with luminance scaling.)
 			// The legacy key is only trustworthy before the migration: once the
 			// user picks a method in the new dropdown, SaveSettings rewrites
 			// UseOnlyPrimaries from that selection (downgrade safety), so it no
