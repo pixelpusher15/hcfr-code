@@ -42,6 +42,9 @@ static char THIS_FILE[]=__FILE__;
 #endif
 
 #define PATTERN_SIZE (RANDOM250 * 100)
+// Base slot of the USER band inside m_cc24SatMeasureArray_master - the same
+// expression every CC read/write site uses for m_CCMode == USER.
+#define USER_BAND_BASE (PATTERN_SIZE + 250 + 500)
 
 //////////////////////////////////////////////////////////////////////
 // Grayscale level presets
@@ -189,6 +192,7 @@ CMeasure::CMeasure()
 	m_cc24SatMeasureArray_master.SetSize(5 * MAX_USER_CC_PATCH_SIZE);
 
 	m_activeSatLevel = 1.0;
+	m_activeUserSet = -1;
 
 	ClearProfileMeasures();
 	m_bProfilePause = FALSE;
@@ -301,6 +305,8 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 				m_cc24SatMeasureArray[i]=p->m_cc24SatMeasureArray[i];
 			for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)
 				m_cc24SatMeasureArray_master[i]=p->m_cc24SatMeasureArray_master[i];
+			m_userPatchSets = p->m_userPatchSets;
+			m_activeUserSet = p->m_activeUserSet;
 			break;
 
 		case DUPLSECONDARIESSAT:		// Secondaries saturation measure
@@ -322,6 +328,8 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 				m_cc24SatMeasureArray[i]=p->m_cc24SatMeasureArray[i];
 			for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)
 				m_cc24SatMeasureArray_master[i]=p->m_cc24SatMeasureArray_master[i];
+			m_userPatchSets = p->m_userPatchSets;
+			m_activeUserSet = p->m_activeUserSet;
 			break;
 
 		case DUPLPRIMARIESCOL:		// Primaries measure
@@ -7517,7 +7525,82 @@ CString CMeasure::GetCCStr() const
 	return mStr+="\r\n";
 }
 
-CColor CMeasure::GetPrimary(int i) const 
+//////////////////////////////////////////////////////////////////////
+// User patch set collection (multi-set picker)
+//
+// The USER band of m_cc24SatMeasureArray_master (and the working array,
+// which mirrors it after every sweep) stays the live storage for whichever
+// set is active, so all sweep/commit/stamp/reapply paths work unchanged.
+// The collection only touches the band when the active set changes and
+// when the document is saved.
+//////////////////////////////////////////////////////////////////////
+
+CUserPatchSet * CMeasure::GetUserPatchSet(int idx)
+{
+	if ( idx < 0 || idx >= (int)m_userPatchSets.size() )
+		return NULL;
+	return &m_userPatchSets[idx];
+}
+
+CUserPatchSet * CMeasure::GetActiveUserPatchSet()
+{
+	return GetUserPatchSet ( m_activeUserSet );
+}
+
+int CMeasure::AddUserPatchSet(const CUserPatchSet & set)
+{
+	int pos = 0;
+	while ( pos < (int)m_userPatchSets.size() && _stricmp ( m_userPatchSets[pos].name.c_str(), set.name.c_str() ) < 0 )
+		pos++;
+	m_userPatchSets.insert ( m_userPatchSets.begin() + pos, set );
+	if ( m_activeUserSet >= pos )
+		m_activeUserSet++;
+	m_isModified = TRUE;
+	return pos;
+}
+
+void CMeasure::SyncActiveUserPatchSetFromBand()
+{
+	if ( m_activeUserSet < 0 || m_activeUserSet >= (int)m_userPatchSets.size() )
+		return;
+	CUserPatchSet & set = m_userPatchSets[m_activeUserSet];
+	// Harvest at least the definition's worth of slots, plus anything valid
+	// beyond it (defensive: migration can leave more measures than rows).
+	int n = (int)set.rows.size();
+	if ( n > MAX_USER_CC_PATCH_SIZE )
+		n = MAX_USER_CC_PATCH_SIZE;
+	for ( int i = n; i < MAX_USER_CC_PATCH_SIZE; i++ )
+		if ( m_cc24SatMeasureArray_master[USER_BAND_BASE + i].isValid() )
+			n = i + 1;
+	set.measures.assign ( n, noDataColor );
+	for ( int i = 0; i < n; i++ )
+		set.measures[i] = m_cc24SatMeasureArray_master[USER_BAND_BASE + i];
+}
+
+void CMeasure::ActivateUserPatchSet(int idx)
+{
+	if ( idx == m_activeUserSet )
+		return;
+	if ( idx < 0 || idx >= (int)m_userPatchSets.size() )
+		return;
+
+	SyncActiveUserPatchSetFromBand ();	// harvest the outgoing set (no-op when none active)
+	m_activeUserSet = idx;
+
+	// Mimic post-sweep state: both the working array and the USER band hold
+	// the incoming set's measures, so every consumer (with or without
+	// m_binMeasure, single-slot re-measure, reapply passes) sees the same data.
+	const CUserPatchSet & set = m_userPatchSets[idx];
+	for ( int i = 0; i < MAX_USER_CC_PATCH_SIZE; i++ )
+	{
+		const CColor & c = ( i < (int)set.measures.size() ) ? set.measures[i] : noDataColor;
+		m_cc24SatMeasureArray[i] = c;
+		m_cc24SatMeasureArray_master[USER_BAND_BASE + i] = c;
+	}
+	m_isModified = TRUE;
+}
+
+CColor CMeasure::GetPrimary(int i) const
 { 
 	return m_primariesArray[i]; 
 } 
