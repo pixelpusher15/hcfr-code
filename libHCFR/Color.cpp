@@ -3101,6 +3101,28 @@ double CsvCodeToPercent(double code, int bits, int range)
 	return ( pct < 0.0 ) ? 0.0 : ( pct > 100.0 ? 100.0 : pct );
 }
 
+// Exact inverse of CsvCodeToPercent for percentages that came off the native
+// grid (round-to-nearest, clamped to [0, maxCode]); reconstructs definition
+// codes from stored stimuli during legacy .chc migration. Extended super-white
+// (>100%) maps back onto the legal slope up to the grid ceiling.
+int CsvPercentToCode(double percent, int bits, int range)
+{
+	int maxCode = (1 << bits) - 1;
+	double code;
+	if (range == CSV_RANGE_FULL)
+		code = percent * maxCode / 100.0;
+	else
+	{
+		double black = 16.0  * (1 << (bits - 8));
+		double white = 235.0 * (1 << (bits - 8));
+		code = black + percent * ( white - black ) / 100.0;
+	}
+	int c = (int) floor ( code + 0.5 );
+	if ( c < 0 ) c = 0;
+	if ( c > maxCode ) c = maxCode;
+	return c;
+}
+
 // Shared low-level patch-list parser: reads a CSV into raw code rows (patch#, R,G,B, name),
 // header/patch-column aware, reporting the declared bit depth + range. One parser feeds both
 // ReadColorsFromCsv (percentages) and CColorHCFRConfig::GetCColors (codes + names).

@@ -773,6 +773,45 @@ static void RunT10()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T11 — CsvPercentToCode inverse oracle (pure assertion, no golden file).
+// CsvPercentToCode must be the exact round-trip inverse of CsvCodeToPercent
+// over every code the decode can distinguish: the whole grid for FULL, the
+// legal span (black..white) for LEGAL and the no-header legacy default (whose
+// decode clamps codes outside it), and black..maxCode for EXTENDED (whose
+// super-white percentages stay linear on the legal slope). 8-bit and 10-bit.
+//////////////////////////////////////////////////////////////////////////
+static void RunT11()
+{
+    printf("T11 CsvPercentToCode inverse oracle...\n");
+    static const int bitsList[] = { 8, 10 };
+    static const int ranges[]   = { CSV_RANGE_FULL, CSV_RANGE_LEGAL, CSV_RANGE_EXTENDED, CSV_RANGE_NONE };
+    for (int b = 0; b < 2; ++b)
+    {
+        const int bits    = bitsList[b];
+        const int maxCode = (1 << bits) - 1;
+        const int black   = 16  << (bits - 8);
+        const int white   = 235 << (bits - 8);
+        for (int r = 0; r < 4; ++r)
+        {
+            const int range = ranges[r];
+            int lo = (range == CSV_RANGE_FULL) ? 0 : black;
+            int hi = (range == CSV_RANGE_FULL || range == CSV_RANGE_EXTENDED) ? maxCode : white;
+            for (int code = lo; code <= hi; ++code)
+            {
+                int back = CsvPercentToCode(CsvCodeToPercent(code, bits, range), bits, range);
+                if (back != code)
+                    Fail("T11 bits=%d range=%d code=%d back=%d", bits, range, code, back);
+            }
+        }
+        // clamped ends: out-of-span codes decode to the span edge and must map back onto it
+        if (CsvPercentToCode(CsvCodeToPercent(0, bits, CSV_RANGE_LEGAL), bits, CSV_RANGE_LEGAL) != black)
+            Fail("T11 bits=%d legal sub-black clamp", bits);
+        if (CsvPercentToCode(CsvCodeToPercent(maxCode, bits, CSV_RANGE_LEGAL), bits, CSV_RANGE_LEGAL) != white)
+            Fail("T11 bits=%d legal super-white clamp", bits);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -799,6 +838,7 @@ int main(int argc, char* argv[])
     RunT8();
     RunT9();
     RunT10();
+    RunT11();
 
     if (g_failures)
     {

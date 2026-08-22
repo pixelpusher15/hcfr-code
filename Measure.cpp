@@ -378,12 +378,14 @@ void CMeasure::Serialize(CArchive& ar)
 
 	if (ar.IsStoring())
 	{
-		// Version 20 only when a display profile exists: documents without one keep
-		// version 19 so they stay readable by older builds.
-	    int version = HasProfileMeasures() ? 20 : 19;
+		// Version 21 only when user patch sets exist, version 20 only when a
+		// display profile exists: documents without either keep version 19 so
+		// they stay readable by older builds.
+	    int version = !m_userPatchSets.empty() ? 21 : (HasProfileMeasures() ? 20 : 19);
 		ar << version;
 
 		StoreActiveSatLevel();	// capture the bound sweeps before writing the store
+		SyncActiveUserPatchSetFromBand();	// harvest the active set's measures from the USER band
 
 		ar << GetConfig()->m_BT2390_BS;
 		ar << GetConfig()->m_BT2390_WS;
@@ -555,6 +557,54 @@ void CMeasure::Serialize(CArchive& ar)
 				m_profileDriftAnchors[i].Serialize(ar);
 			}
 		}
+		else if ( version >= 21 )
+		{
+			// A version 21 document ALWAYS carries the profile block (the loader
+			// consumes it unconditionally past version 19), so without profile
+			// data it is written in its empty form: zero counts the existing
+			// loader parses with no changes.
+			ar << (int) 0;			// m_profileCubeSize
+			ar << (int) 0;			// m_profileGrayExtras
+			ar << (int) 0;			// m_profileDriftComp
+			ar << (double) 0.0;		// m_profileCaptureSeconds
+			ar << (int) 0;			// measure count (sparse stream: marker only)
+			MarkerColor.Serialize(ar);
+			ar << (int) 0;			// drift anchor count
+		}
+
+		// Version 21: user patch set collection (multi-set picker). Definition
+		// rows + sparse index-tagged measures per set, same sentinel scheme as
+		// the CC arrays above. The USER band was written as usual, so on reload
+		// the band already equals the active set's measures.
+		if ( version >= 21 )
+		{
+			ar << (int) m_userPatchSets.size();
+			ar << m_activeUserSet;
+			for ( size_t s = 0; s < m_userPatchSets.size(); s++ )
+			{
+				CUserPatchSet & set = m_userPatchSets[s];
+				ar << CString(set.name.c_str());
+				ar << CString(set.srcPath.c_str());
+				ar << set.bits;
+				ar << set.range;
+				ar << (int) set.rows.size();
+				for ( size_t i = 0; i < set.rows.size(); i++ )
+				{
+					ar << set.rows[i].patch << set.rows[i].r << set.rows[i].g << set.rows[i].b;
+					ar << CString(set.rows[i].name.c_str());
+				}
+				ar << (int) set.measures.size();
+				for ( size_t i = 0; i < set.measures.size(); i++ )
+				{
+					if ( set.measures[i].isValid() )
+					{
+						set.measures[i].Serialize(ar);
+						ar << (int) i;
+					}
+				}
+				MarkerColor.Serialize(ar);
+			}
+		}
 	}
 	else
 	{
@@ -562,7 +612,7 @@ void CMeasure::Serialize(CArchive& ar)
 		ar >> version;
 
 
-		if ( version > 20 )
+		if ( version > 21 )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 
 
@@ -970,6 +1020,65 @@ void CMeasure::Serialize(CArchive& ar)
 				m_profileDriftAnchors[i].Serialize(ar);
 			}
 		}
+
+		// Version 21: user patch set collection (multi-set picker). Pre-21
+		// documents get their legacy USER-band measures wrapped into one set.
+		m_userPatchSets.clear();
+		m_activeUserSet = -1;
+		if ( version > 20 )
+		{
+			int nSets = 0;
+			ar >> nSets;
+			// same corrupt-stream reasoning as the profile block above: counts
+			// beyond what the app can ever write mean a garbage stream
+			if ( nSets < 0 || nSets > 256 )
+				AfxThrowArchiveException ( CArchiveException::badIndex, NULL );
+			ar >> m_activeUserSet;
+			m_userPatchSets.resize ( nSets );
+			for ( int s = 0; s < nSets; s++ )
+			{
+				CUserPatchSet & set = m_userPatchSets[s];
+				CString str;
+				ar >> str;	set.name = (LPCTSTR)str;
+				ar >> str;	set.srcPath = (LPCTSTR)str;
+				ar >> set.bits;
+				ar >> set.range;
+				int nRows = 0;
+				ar >> nRows;
+				if ( nRows < 0 || nRows > MAX_USER_CC_PATCH_SIZE )
+					AfxThrowArchiveException ( CArchiveException::badIndex, NULL );
+				set.rows.resize ( nRows );
+				for ( int i = 0; i < nRows; i++ )
+				{
+					ar >> set.rows[i].patch >> set.rows[i].r >> set.rows[i].g >> set.rows[i].b;
+					ar >> str;
+					set.rows[i].name = (LPCTSTR)str;
+				}
+				int nMeas = 0;
+				ar >> nMeas;
+				if ( nMeas < 0 || nMeas > MAX_USER_CC_PATCH_SIZE )
+					AfxThrowArchiveException ( CArchiveException::badIndex, NULL );
+				set.measures.assign ( nMeas, noDataColor );
+				// size+1 iterations: the end marker must be consumed (see the
+				// CC array loads above)
+				for ( int i = 0; i < nMeas + 1; i++ )
+				{
+					CColor inColor;
+					int j = 0;
+					inColor.Serialize(ar);
+					if (inColor.GetX() == 0.123 && inColor.GetY() == 0.456 && inColor.GetZ() == 0.789)
+						break;
+					ar >> j;
+					if ( j >= 0 && j < nMeas )
+						set.measures[j] = inColor;
+				}
+			}
+			if ( m_activeUserSet < -1 || m_activeUserSet >= nSets )
+				m_activeUserSet = -1;
+		}
+		else
+			MigrateLegacyUserBand ();
+
 		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
 
 	}
@@ -7598,6 +7707,97 @@ void CMeasure::ActivateUserPatchSet(int idx)
 		m_cc24SatMeasureArray_master[USER_BAND_BASE + i] = c;
 	}
 	m_isModified = TRUE;
+}
+
+void CMeasure::MigrateLegacyUserBand()
+{
+	// Wrap pre-collection USER-band measures into one set so they appear in the
+	// picker and stay bound to a definition. Called on load of a pre-21 document
+	// and before the first AddUserPatchSet on a document that measured legacy
+	// USER data in this session. The band stays in place - it is now the active
+	// set's window.
+	if ( !m_userPatchSets.empty() )
+		return;
+
+	int count = 0;
+	for ( int i = 0; i < MAX_USER_CC_PATCH_SIZE; i++ )
+		if ( m_cc24SatMeasureArray_master[USER_BAND_BASE + i].isValid() )
+			count = i + 1;
+	if ( count == 0 )
+		return;
+
+	CUserPatchSet set;
+	set.measures.assign ( count, noDataColor );
+	for ( int i = 0; i < count; i++ )
+		set.measures[i] = m_cc24SatMeasureArray_master[USER_BAND_BASE + i];
+
+	// Definition reconstruction, best source first.
+	// 1) Every valid point carries label provenance + its driven stimulus
+	//    (documents measured since the provenance work): rebuild the rows from
+	//    the measurements themselves - authoritative, survives file drift.
+	bool allStamped = true;
+	for ( int i = 0; i < count && allStamped; i++ )
+		if ( set.measures[i].isValid() && ( !set.measures[i].HasProvenance() || !set.measures[i].HasStimulusValue() ) )
+			allStamped = false;
+	if ( allStamped )
+	{
+		CColorProvenance firstProv;
+		for ( int i = 0; i < count; i++ )
+			if ( set.measures[i].isValid() ) { firstProv = set.measures[i].GetProvenance(); break; }
+		set.name = "User (migrated)";
+		set.bits = ( firstProv.srcBits == 10 ) ? 10 : 8;
+		set.range = firstProv.srcRange;
+		set.rows.resize ( count );
+		for ( int i = 0; i < count; i++ )
+		{
+			CsvPatchRow & row = set.rows[i];
+			if ( set.measures[i].isValid() )
+			{
+				CColorProvenance prov = set.measures[i].GetProvenance();
+				ColorRGBDisplay stim = set.measures[i].GetStimulusValue();
+				row.patch = prov.patchNumber;
+				row.name = prov.name;
+				row.r = CsvPercentToCode ( stim[0], set.bits, set.range );
+				row.g = CsvPercentToCode ( stim[1], set.bits, set.range );
+				row.b = CsvPercentToCode ( stim[2], set.bits, set.range );
+			}
+			else
+			{
+				row.patch = i;
+				row.r = row.g = row.b = 0;
+			}
+		}
+	}
+	else
+	{
+		// 2) usercolors.csv still describes this data (the pre-collection
+		//    definition source) when its row count matches; 3) otherwise keep
+		//    the measures with an empty definition rather than lose them.
+		CString userPath;
+		std::vector<CsvPatchRow> rows;
+		int bits = 8, range = CSV_RANGE_NONE;
+		int nRows = -1;
+		if ( ResolveCCSetPath ( USER, userPath, NULL ) )
+			nRows = ReadCsvPatchRows ( userPath, rows, MAX_USER_CC_PATCH_SIZE, &bits, &range );
+		if ( nRows == count )
+		{
+			int sl = userPath.ReverseFind ( '\\' );
+			std::string base = (LPCTSTR)( sl >= 0 ? userPath.Mid ( sl + 1 ) : userPath );
+			size_t dp = base.rfind ( ".csv" );
+			if ( dp != std::string::npos )
+				base.erase ( dp );
+			set.name = base;
+			set.srcPath = (LPCTSTR)userPath;
+			set.bits = bits;
+			set.range = range;
+			set.rows = rows;
+		}
+		else
+			set.name = "User (migrated)";
+	}
+
+	m_userPatchSets.push_back ( set );
+	m_activeUserSet = 0;
 }
 
 CColor CMeasure::GetPrimary(int i) const

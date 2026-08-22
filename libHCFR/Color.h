@@ -845,6 +845,9 @@ extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, 
 extern bool ResolveCCSetPath ( int aCCMode, CString & outPath, bool * recalcOut );
 // One source code -> HCFR stimulus percentage for a given bit depth + CSV range (range-aware target readback).
 extern double CsvCodeToPercent ( double code, int bits, int range );
+// Exact inverse (round-to-nearest, clamped to the grid): stimulus percentage -> source code.
+// Used to reconstruct definition codes from stored stimuli during legacy .chc migration.
+extern int CsvPercentToCode ( double percent, int bits, int range );
 // Active user patch set override (multi-set picker): the app installs the active set's
 // stored definition here so the USER drive path (GenerateCC24Colors) is self-contained -
 // no file read, and the source CSV may have changed or be gone. Copied, not referenced.
