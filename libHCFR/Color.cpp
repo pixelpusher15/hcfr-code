@@ -3211,6 +3211,33 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 	return n;
 }
 
+// Active user patch set override (multi-set picker). The app copies the active
+// set's stored definition in here (via SetUserPatchOverride, from GetCColors) so
+// the USER case of GenerateCC24Colors below is self-contained - the source CSV
+// may have changed or be gone. An owned copy, so no dangling pointers into
+// document-owned vectors; installed/cleared exclusively by GetCColors so it
+// cannot drift from the target cache.
+static std::vector<CsvPatchRow> s_userOverrideRows;
+static int s_userOverrideBits = 8;
+static int s_userOverrideRange = CSV_RANGE_NONE;
+static bool s_userOverrideSet = false;
+
+void SetUserPatchOverride ( const std::vector<CsvPatchRow> & rows, int bits, int range )
+{
+	s_userOverrideRows = rows;
+	s_userOverrideBits = bits;
+	s_userOverrideRange = range;
+	s_userOverrideSet = true;
+}
+
+void ClearUserPatchOverride ()
+{
+	s_userOverrideRows.clear();
+	s_userOverrideBits = 8;
+	s_userOverrideRange = CSV_RANGE_NONE;
+	s_userOverrideSet = false;
+}
+
 static int AppendProfileGray(ColorRGBDisplay* GenColors, int maxEntries, int cnt, int cubeN, double level)
 {
 	if ( cnt < 0 )
@@ -3703,6 +3730,21 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         }
     case USER:
         {//read in user defined colors
+			if (s_userOverrideSet)
+			{
+				// Multi-set picker: drive colors come from the active set's stored
+				// definition, decoded exactly like ReadColorsFromCsv decodes the file.
+				n_elements = (int)s_userOverrideRows.size();
+				if (n_elements > MAX_USER_CC_PATCH_SIZE)
+					n_elements = MAX_USER_CC_PATCH_SIZE;
+				for (int i = 0; i < n_elements; i++)
+					GenColors[i] = ColorRGBDisplay(
+						CsvCodeToPercent(s_userOverrideRows[i].r, s_userOverrideBits, s_userOverrideRange),
+						CsvCodeToPercent(s_userOverrideRows[i].g, s_userOverrideBits, s_userOverrideRange),
+						CsvCodeToPercent(s_userOverrideRows[i].b, s_userOverrideBits, s_userOverrideRange));
+				m_bRecalc = false;   // USER never HDR-recalcs (same as the resolver reports)
+				break;
+			}
 			CString userPath;
 			ResolveCCSetPath(aCCMode, userPath, &m_bRecalc);   // USER -> module-dir usercolors.csv
 			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, userPath);

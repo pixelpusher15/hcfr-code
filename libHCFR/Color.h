@@ -845,6 +845,11 @@ extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, 
 extern bool ResolveCCSetPath ( int aCCMode, CString & outPath, bool * recalcOut );
 // One source code -> HCFR stimulus percentage for a given bit depth + CSV range (range-aware target readback).
 extern double CsvCodeToPercent ( double code, int bits, int range );
+// Active user patch set override (multi-set picker): the app installs the active set's
+// stored definition here so the USER drive path (GenerateCC24Colors) is self-contained -
+// no file read, and the source CSV may have changed or be gone. Copied, not referenced.
+extern void SetUserPatchOverride ( const std::vector<CsvPatchRow> & rows, int bits, int range );
+extern void ClearUserPatchOverride ();
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );

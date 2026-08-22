@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -82,9 +82,9 @@ static struct
   LPCSTR	lpszHelpName;
 } g_HelpFileNames [] = { 
 						{ "en", "English help" },
-						{ "fr", "Aide en Français" },
+						{ "fr", "Aide en Franï¿½ais" },
 						{ "de", "Hilfe in Deutsch" },
-						{ "es", "Ayuda en español" }
+						{ "es", "Ayuda en espaï¿½ol" }
 					   };
 
 
@@ -1249,6 +1249,33 @@ void CColorHCFRConfig::GetCColors()
 	cTargetB.clear();
 	cTargetN.clear();
 	cTargetP.clear();
+	// Multi-set picker: when the active document has an active user patch set, the
+	// definition comes from the set itself (self-contained - the source CSV may have
+	// changed or be gone), and the same rows are installed as the libHCFR USER drive
+	// override so target and drive stay consistent by construction. Every other path
+	// through here clears the override, so it can never outlive this cache.
+	if (m_CCMode == USER)
+	{
+		CUserPatchSet * pSet = GetActiveDocUserPatchSet();
+		if (pSet)
+		{
+			nFile = pSet->name;
+			cTargetBits = pSet->bits;
+			cTargetRange = pSet->range;
+			for (size_t i = 0; i < pSet->rows.size(); i++)
+			{
+				cTargetR.push_back(pSet->rows[i].r);
+				cTargetG.push_back(pSet->rows[i].g);
+				cTargetB.push_back(pSet->rows[i].b);
+				cTargetN.push_back(pSet->rows[i].name);
+				cTargetP.push_back(pSet->rows[i].patch);
+			}
+			numCC = (int)pSet->rows.size();
+			SetUserPatchOverride(pSet->rows, pSet->bits, pSet->range);
+			return;
+		}
+	}
+	ClearUserPatchOverride();
 	if (!ResolveCCSetPath(m_CCMode, fName, NULL))
 	{
 		numCC = 0;
