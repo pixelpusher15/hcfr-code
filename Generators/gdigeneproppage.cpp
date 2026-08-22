@@ -737,7 +737,8 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 	int curMode = -1;
 	PGenSettings st; st.valid = FALSE;
 	st.colorFormat = st.quantRange = st.bitDepth = st.colorimetry = 0;
-	st.isHdr = st.isLLDovi = st.eotf = st.primaries = 0;
+	st.isHdr = st.isLLDovi = st.isStdDovi = st.eotf = st.primaries = 0;
+	st.doviMode = 1;
 	st.maxLuma = 1000; st.minLuma = 5; st.maxCll = 1000; st.maxFall = 400;
 	if (m_pGenerator)
 	{
@@ -758,7 +759,7 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 		CPoint lp = M.at(LX, y + 2); m_aviL[5].Create(LS(IDS_PGEN_DYNRANGE), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[5].SetFont(font);
 		CPoint cp = M.at(CX, y); m_avi[5].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_AVI_BASE + 5); m_avi[5].SetFont(font);
 		for (int j = 0; j < 3; j++) m_avi[5].AddString(kPgDR[j]);
-		int sel = st.isLLDovi ? 2 : (st.isHdr ? 1 : 0);
+		int sel = (st.isLLDovi || st.isStdDovi) ? 2 : (st.isHdr ? 1 : 0);
 		m_avi[5].SetCurSel(sel); m_aviInit[5] = sel;
 	}
 	{
@@ -852,10 +853,10 @@ void CPGenSettingsDlg::OnOK()
 			CString c;
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_SDR:%d"), isSdr); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_HDR:%d"), isHdr); cmds.Add(c);
-			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:%d"), 0); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_STD_DOVI:%d"), dovi); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_STATUS:%d"), dovi); cmds.Add(c);
-			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), dovi); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), 0); cmds.Add(c);
 		}
 	}
 	{ int sel = m_doviCombo.GetCurSel(); if (sel >= 0 && sel != m_doviInit && drSel == 2) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_MAP_MODE:%d"), (sel == 1) ? 2 : 1); cmds.Add(c); } }
@@ -1059,9 +1060,19 @@ void CGDIGenePropPage::OnOK()
 	if (m_nDisplayMode != DISPLAY_GDI)
 		m_busePic = FALSE;
 
+	// Capture the previous output range so a change can re-fire the USER Extended-range guard.
+	// Default 1 = the canonical RGB_16_235 default: on a fresh install (no INI key) the dialog
+	// shows 16-235 from the generator's default, so oldRange must default the same way or a real
+	// 16-235 -> Full uncheck would look unchanged and skip the guard.
+	BOOL oldRange = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? TRUE : FALSE;
 	GetConfig()->WriteProfileInt("GDIGenerator","DisplayMode",m_nDisplayMode);
 	GetConfig()->WriteProfileInt("GDIGenerator","RGB_16_235",m_b16_235);
 	GetConfig()->WriteProfileInt("GDIGenerator","EnableHDR10",m_bHdr10);
+	// The guard otherwise only fires on a CC-mode switch; re-run it here so flipping the
+	// output range to Full after loading an Extended USER set warns instead of silently
+	// clamping super-white (it no-ops unless CC mode is USER and the set is Extended).
+	if ((m_b16_235 ? TRUE : FALSE) != oldRange)
+		GuardCCModeOutputRange(GetConfig()->m_CCMode);
 	if (m_nDisplayMode == DISPLAY_ccast && m_castHasDevice)
 	{
 		CString name; m_cCastComboCtrl.GetWindowText(name);

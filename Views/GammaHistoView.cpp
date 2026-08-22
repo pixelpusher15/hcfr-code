@@ -101,10 +101,15 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	m_graphCtrl.SetXAxisProps(bIRE?"IRE":(LPSTR)(LPCSTR)GetConfig()->m_PercentGray, 10, 0, 100);
 	m_graphCtrl.SetYAxisProps(isHDR?"cd m-2":"", isHDR?1:0.1, isHDR?-100:1, isHDR?100:4);
 	m_graphCtrl. SetYAxisProps(isHDR?"cd m-2":"", isHDR?1:0.1, isHDR?-100:1, isHDR?100:4);
-	m_graphCtrl.m_graphArray[2].m_Title=isHDR?"delta Luminance Ref Measure":"Reference Measure Gamma";
-	m_graphCtrl.m_graphArray[1].m_Title=isHDR?"delta Luminance Ref":"Gamma Reference";
-	m_graphCtrl.m_graphArray[0].m_Title=isHDR?"delta Luminance":"Gamma";
-	m_graphCtrl.m_graphArray[0].p_Title=isHDR?"delta Luminance":"EOTF(Gamma)";
+	CString strGamma;
+	strGamma.LoadString ( isHDR ? IDS_GRAPH_DELTALUMREFMEAS : IDS_GRAPH_REFMEASGAMMA );
+	m_graphCtrl.m_graphArray[2].m_Title=strGamma;
+	strGamma.LoadString ( isHDR ? IDS_GRAPH_DELTALUMREF : IDS_GAMMAREFERENCE );
+	m_graphCtrl.m_graphArray[1].m_Title=strGamma;
+	strGamma.LoadString ( isHDR ? IDS_GRAPH_DELTALUM : IDS_GAMMA );
+	m_graphCtrl.m_graphArray[0].m_Title=strGamma;
+	strGamma.LoadString ( isHDR ? IDS_GRAPH_DELTALUM : IDS_GRAPH_EOTFGAMMA );
+	m_graphCtrl.m_graphArray[0].p_Title=strGamma;
 
 	CDataSetDoc *pDataRef = GetDataRef();
 	int size=pDoc->GetMeasure()->GetGrayScaleSize();

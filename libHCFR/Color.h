@@ -807,6 +807,19 @@ extern void ComputeBodnerThreeMatrices(const ColorXYZ measuresRGBW[4], const Col
 // non-negative "drive value" test from the paper) and returns the corrected XYZ.
 extern ColorXYZ SelectAndApplyBodnerMatrix(const ColorXYZ& rawXYZ, const Matrix rawMatrix[3], const Matrix calMatrix[3]);
 extern int PiPercentToCode ( double percent, bool is16_235, int bits );
+// Range a ColourSpace patch-list CSV can declare in its header (import-range guard).
+// CSV_RANGE_NONE = no header / legacy default. The loader (ReadCsvPatchRows) reports the
+// declared range via its rangeOut - the guard reads it from there so they can't diverge.
+enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_EXTENDED = 2 };
+// Shared patch-list parsing (one parser: ReadColorsFromCsv percentages + GetCColors codes/names).
+#include <vector>
+#include <string>
+struct CsvPatchRow { int patch, r, g, b; std::string name; };
+extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut );
+// Resolve a CC mode to its patch-list file (predefined CSV or USER) + HDR-recalc flag; false for inline-array modes.
+extern bool ResolveCCSetPath ( int aCCMode, CString & outPath, bool * recalcOut );
+// One source code -> HCFR stimulus percentage for a given bit depth + CSV range (range-aware target readback).
+extern double CsvCodeToPercent ( double code, int bits, int range );
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );

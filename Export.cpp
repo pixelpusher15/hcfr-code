@@ -2482,10 +2482,10 @@ bool CExport::SaveCCSheet()
         }
         else if (isExtPat)
         {
-            char aBuf[50];
-			std::string name = GetConfig()->GetCColorsN(i);
-            sprintf(aBuf,"%s", name.c_str());
-            Rows.Add(aBuf);
+            // Pass the name straight through - a user CSV name can exceed any fixed buffer
+            // (the char[50]+sprintf here overran the stack on export).
+            std::string name = GetConfig()->GetCColorsN(i);
+            Rows.Add(name.c_str());
         }
         else 
 		{
