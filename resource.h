@@ -122,7 +122,7 @@
 #define IDD_GENERAL_PROP_PAGE           224
 #define IDB_ANSICONTRAST_BITMAP         226
 #define IDD_EXPORTXLS_DIALOG            227
-#define IDD_EXPORT_OPTIONS_DIALOG       385
+#define IDD_EXPORT_OPTIONS_DIALOG       1403
 #define IDR_WHATS_THIS                  228
 #define IDR_NEARBLACK_GRAPH_MENU        229
 #define IDR_NEARWHITE_GRAPH_MENU        230
@@ -737,7 +737,6 @@
 #define IDC_BK_WHITE_FILE2              1251
 #define IDC_MOVE_MESSAGE                1251
 #define IDC_EDIT_INFOS                  1252
-#define IDC_CHECK_CALIBRATION_OLD       1252
 #define IDC_CHECK_IMPERIAL              1253
 #define IDC_CHECK_PREFER_LUXMETER       1254
 #define IDC_DISPLAY_MATRIX              1255
@@ -2014,7 +2013,7 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
-#define _APS_NEXT_RESOURCE_VALUE        1403
+#define _APS_NEXT_RESOURCE_VALUE        1404
 #define _APS_NEXT_COMMAND_VALUE         33118
 #define _APS_NEXT_CONTROL_VALUE         1564
 #define _APS_NEXT_SYMED_VALUE           143
