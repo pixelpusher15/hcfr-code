@@ -72,11 +72,11 @@
 #define new DEBUG_NEW
 #undef THIS_FILE
 static char THIS_FILE[] = __FILE__;
+#endif
 
 // Defined below (near the calibration entry points); used by the new-document
 // wizard's Argyll branch as well.
 static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor);
-#endif
 
 /////////////////////////////////////////////////////////////////////////////
 // Current file format version. 
