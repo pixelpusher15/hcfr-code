@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -82,9 +82,9 @@ static struct
   LPCSTR	lpszHelpName;
 } g_HelpFileNames [] = { 
 						{ "en", "English help" },
-						{ "fr", "Aide en Franï¿½ais" },
+						{ "fr", "Aide en Français" },
 						{ "de", "Hilfe in Deutsch" },
-						{ "es", "Ayuda en espaï¿½ol" }
+						{ "es", "Ayuda en español" }
 					   };
 
 
