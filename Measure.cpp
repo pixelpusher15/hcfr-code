@@ -3792,6 +3792,21 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 	return TRUE;
 }
 
+// Shared stamp for every path that commits a measured CC patch (foreground
+// sweep, all-saturations sweep, background validate, single-slot re-measure).
+// Rides alongside the stimulus/raw-XYZ the sensor already captured; label
+// provenance only exists for file-backed sets, so inline modes no-op here.
+void CMeasure::StampCCProvenance ( CColor & c, int slotIndex )
+{
+	BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
+	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
+	if ( !isExtPat )
+		return;
+	CColorProvenance prov = GetConfig()->GetCColorsProvenance(slotIndex);
+	prov.sequenceIndex = slotIndex;
+	c.SetProvenance(prov);
+}
+
 BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
 	SweepActiveGuard _sweepGuard(this);
@@ -3935,12 +3950,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 				// Stamp provenance HERE (during the sweep), not only in the final commit loop, so the
 				// live point display shows Driven/unclamped as each patch reads - not the clamped Reference.
-				if ( isExtPat )
-				{
-					CColorProvenance prov = GetConfig()->GetCColorsProvenance(i);
-					prov.sequenceIndex = i;
-					measuredColor[i].SetProvenance(prov);
-				}
+				StampCCProvenance ( measuredColor[i], i );
 				m_cc24SatMeasureArray[i] = measuredColor[i];
 
 				if ( bUseLuxValues )
@@ -4035,12 +4045,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		// self-describing independent of the patch-list file it came from - this rides alongside the
 		// stimulus/raw-XYZ the sensor already stamped. File-backed sets only (isExtPat); inline modes
 		// (GCD/MCD/...) carry no patch list. sequenceIndex records the order measured.
-		if ( isExtPat )
-		{
-			CColorProvenance prov = GetConfig()->GetCColorsProvenance(i);
-			prov.sequenceIndex = i;
-			m_cc24SatMeasureArray[i].SetProvenance(prov);
-		}
+		StampCCProvenance ( m_cc24SatMeasureArray[i], i );
 	}
 
 	GetConfig()->m_isSettling = doSettling;
@@ -4582,11 +4587,11 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 						if ((i+j*size)<6*size&&(i+j*size)>=5*size)
 							m_magentaSatMeasureArray[i] = measuredColor[j*size+i];
 						if ((i+j*size)>=6*size)
-							m_cc24SatMeasureArray[i] = measuredColor[j*size+i];
+							{ m_cc24SatMeasureArray[i] = measuredColor[j*size+i]; StampCCProvenance ( m_cc24SatMeasureArray[i], i ); }
 					} else
 					{
 						if ((i+j*size)>=3*size)
-							m_cc24SatMeasureArray[i] = measuredColor[j*size+i];
+							{ m_cc24SatMeasureArray[i] = measuredColor[j*size+i]; StampCCProvenance ( m_cc24SatMeasureArray[i], i ); }
 					}
 					if ( bUseLuxValues )
 					{
@@ -4735,6 +4740,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 				if (GetConfig()->m_CCMode != MCD)
 				{
 					m_cc24SatMeasureArray[i] = measuredColor[(6*size)+i];
+					StampCCProvenance ( m_cc24SatMeasureArray[i], i );
 				}
 				else
 				{
@@ -6881,26 +6887,29 @@ void CMeasure::FreeMeasurementAppended(int isPrimary, int last_minCol)
 			break;
 		case 11: //color checker
 			SetCC24Sat(last_minCol - 1, m_measurementsArray[n-1]);
+			// A re-measured slot gets its label provenance back (the free-measure
+			// record itself stays unlabeled); the master copies below then carry it.
+			StampCCProvenance ( m_cc24SatMeasureArray[last_minCol - 1], last_minCol - 1 );
 			int iCC=GetConfig()->m_CCMode, i;
 			if (iCC < RANDOM250)
 			{
 				i = 0 + 100*iCC + last_minCol - 1;
-						m_cc24SatMeasureArray_master[i] = m_measurementsArray[n-1];
+						m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[last_minCol - 1];
 			}
 			else if (iCC == RANDOM250)
 			{
 				i = PATTERN_SIZE + last_minCol -1;
-						m_cc24SatMeasureArray_master[i] = m_measurementsArray[n-1];
+						m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[last_minCol - 1];
 			}
 			else if (iCC == RANDOM500)
 			{
 				i = PATTERN_SIZE + 250 + last_minCol -1;
-						m_cc24SatMeasureArray_master[i] = m_measurementsArray[n-1];
+						m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[last_minCol - 1];
 			}
 			else if (iCC == USER) 
 			{
 				i = PATTERN_SIZE + 250 + 500 + last_minCol - 1;
-						m_cc24SatMeasureArray_master[i] = m_measurementsArray[n-1];
+						m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[last_minCol - 1];
 			}
 			break;
 		}
@@ -7320,6 +7329,7 @@ BOOL CMeasure::ValidateBackgroundCC24SatScale ( BOOL bUseLuxValues, double * pLu
 		for ( int i = 0; i<m_cc24SatMeasureArray.GetSize() ; i++ )
 		{
 			m_cc24SatMeasureArray[i] = (*m_pBkMeasuredColor)[i];
+			StampCCProvenance ( m_cc24SatMeasureArray[i], i );
 
 			if ( bUseLuxValues )
 				m_cc24SatMeasureArray[i].SetLuxValue ( pLuxValues[i] );

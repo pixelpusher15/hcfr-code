@@ -1318,6 +1318,15 @@ void CMainView::HighlightMeasuringColumn(int gridCol)
 	m_pGrayScaleGrid->UpdateWindow();
 }
 
+// One video-level table for the comparator's three code-readout encoders
+// (measure, Driven, reference): bits -> {legal span, black offset, full max}.
+struct CodeLevels { double span, black, full; };
+static CodeLevels CodeLevelsFor(int bits)
+{
+	CodeLevels L = { (bits == 10) ? 876. : 219., (bits == 10) ? 64. : 16., (bits == 10) ? 1023. : 255. };
+	return L;
+}
+
 void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 {
 	int		i, aColorTemp;
@@ -1710,9 +1719,20 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 						m_meas_r = getL_EOTF(m_meas_r,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);//,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, 1.0, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 						m_meas_g = getL_EOTF(m_meas_g,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);//,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, 1.0, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 						m_meas_b = getL_EOTF(m_meas_b,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);//,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, 1.0, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
-						m_meas_rd = getL_EOTF(m_meas_rd,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);//,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, 1.0, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
-						m_meas_gd = getL_EOTF(m_meas_gd,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);//,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, 1.0, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
-						m_meas_bd = getL_EOTF(m_meas_bd,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);//,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, 1.0, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
+						// Above white the EOTF has no defined inverse - getL_EOTF clamps
+						// >1 to white, which hid WTW headroom under BT.1886/sRGB (the same
+						// clamp #6b removed for power gamma). For an EXTENDED measurement
+						// continue with the pure-power tail the curve converges to (exact
+						// for black=0), so a climbing WTW read stays visible. HDR modes are
+						// deliberately excluded (see the clampD note above).
+						auto invEotfExt = [&](double v) {
+							if (bExtMeas && v > 1.0)
+								return pow(v, 1.0/2.4);
+							return getL_EOTF(v,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, -1*mode);
+						};
+						m_meas_rd = invEotfExt(m_meas_rd);//,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, 1.0, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
+						m_meas_gd = invEotfExt(m_meas_gd);//,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, 1.0, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
+						m_meas_bd = invEotfExt(m_meas_bd);//,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, 1.0, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 					}
 				}
 				else
@@ -1734,9 +1754,10 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 					int measBits = ( m_SelectedColor.HasProvenance() && m_SelectedColor.GetProvenance().srcBits > 0 )
 					                 ? m_SelectedColor.GetProvenance().srcBits
 					                 : ( GetConfig()->GetUse10bitLevels() ? 10 : 8 );
-					double measSpan  = (measBits == 10) ? 876. : 219.;
-					double measBlack = (measBits == 10) ? 64.  : 16.;
-					double measFull  = (measBits == 10) ? 1023. : 255.;
+					CodeLevels ml = CodeLevelsFor(measBits);
+					double measSpan  = ml.span;
+					double measBlack = ml.black;
+					double measFull  = ml.full;
 					bool measVideo;
 					if ( m_SelectedColor.HasProvenance() && m_SelectedColor.GetProvenance().srcRange >= 0 )
 						measVideo = ( m_SelectedColor.GetProvenance().srcRange != 0 );   // 0=FULL->PC; 1/2=LEGAL/EXTENDED->video
@@ -1778,8 +1799,9 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 				{
 					bDrivenMode = true;
 					int dBits = ( m_SelectedColor.GetProvenance().srcBits > 0 ) ? m_SelectedColor.GetProvenance().srcBits : ( GetConfig()->GetUse10bitLevels() ? 10 : 8 );
-					double dSpan  = (dBits == 10) ? 876. : 219.;
-					double dBlack = (dBits == 10) ? 64.  : 16.;
+					CodeLevels dl = CodeLevelsFor(dBits);
+					double dSpan  = dl.span;
+					double dBlack = dl.black;
 					ColorRGBDisplay stim = m_SelectedColor.GetStimulusValue();
 					trip2.Format("%d,%d,%d\nDriven",
 						(int)floor(stim[0]/100.*dSpan + dBlack + 0.5),
@@ -1789,9 +1811,10 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 				else
 				{
 					int refBits = GetConfig()->GetUse10bitLevels() ? 10 : 8;   // reference is transient (no provenance): generator setting
-					double refSpan  = (refBits == 10) ? 876. : 219.;
-					double refBlack = (refBits == 10) ? 64.  : 16.;
-					double refFull  = (refBits == 10) ? 1023. : 255.;
+					CodeLevels rl = CodeLevelsFor(refBits);
+					double refSpan  = rl.span;
+					double refBlack = rl.black;
+					double refFull  = rl.full;
 					if (GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",0))
 						trip2.Format("%d,%d,%d\nReference",((int)floor((m_ref_rd)*refSpan+0.5)+(int)refBlack),(int)(floor((m_ref_gd)*refSpan+0.5)+(int)refBlack),(int)(floor((m_ref_bd)*refSpan+0.5)+(int)refBlack));
 					else

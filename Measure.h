@@ -404,6 +404,10 @@ public:
 	BOOL ValidateBackgroundCyanSatScale ( BOOL bUseLuxValues, double * pLuxValues );
 	BOOL ValidateBackgroundMagentaSatScale ( BOOL bUseLuxValues, double * pLuxValues );
 	BOOL ValidateBackgroundCC24SatScale ( BOOL bUseLuxValues, double * pLuxValues );
+	// Stamp label provenance (patch#/name/srcBits/srcRange) onto a measured CC
+	// patch. File-backed sets only (no-op for the inline GCD/MCD/... modes);
+	// slotIndex is the m_cc24SatMeasureArray slot and doubles as sequenceIndex.
+	void StampCCProvenance ( CColor & c, int slotIndex );
 	BOOL ValidateBackgroundGrayScaleAndColors ( BOOL bUseLuxValues, double * pLuxValues );
 	BOOL ValidateBackgroundSingleMeasurement ( BOOL bUseLuxValues, double * pLuxValues );
 
