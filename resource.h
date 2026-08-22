@@ -783,6 +783,7 @@
 #define IDC_DISPLAYTYPE_COMBO           1543
 #define IDC_SIZE_PLUS                   1544
 #define IDC_SIZE_MINUS                  1545
+#define IDC_CCSET_NAME                  1564
 #define IDC_PARAMSTEPS_COMBO            1551
 #define IDC_STIMLEVEL_COMBO             1552
 #define IDC_MODE_LABEL                  1553
@@ -2016,7 +2017,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        1404
 #define _APS_NEXT_COMMAND_VALUE         33119
-#define _APS_NEXT_CONTROL_VALUE         1564
+#define _APS_NEXT_CONTROL_VALUE         1565
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

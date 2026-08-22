@@ -525,6 +525,7 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_CBN_SELCHANGE(IDC_PARAMSTEPS_COMBO, OnSelchangeComboSteps)
 	ON_CBN_SELCHANGE(IDC_STIMLEVEL_COMBO, OnSelchangeComboStimLevel)
 	ON_BN_CLICKED(IDC_SIZE_PLUS, OnSizePlus)
+	ON_BN_CLICKED(IDC_CCSET_NAME, OnCcSetNamePicker)
 	ON_BN_CLICKED(IDC_SIZE_MINUS, OnSizeMinus)
 	ON_COMMAND(IDM_HELP, OnHelp)
 	ON_COMMAND(ID_EDIT_COPY, OnEditCopy)
@@ -4756,9 +4757,12 @@ void CMainView::UpdateGrid()
                     if (GetConfig()->doHighlight) 
 					    m_grayScaleGroup.SetBorderColor (fxUseCustomColor ? FxGetSysColor(COLOR_BTNFACE) : FxGetSysColor(COLOR_3DSHADOW));
 			}
+			m_statsBar.SetNameZoneCommand ( 0 );	// name chip is the picker only in mode 11
 			m_grayScaleGroup.SetText ( Msg );
 		} else if (m_displayMode == 11)
 		{
+			// The leading set-name chip doubles as the patch-set picker.
+			m_statsBar.SetNameZoneCommand ( IDC_CCSET_NAME );
 			CString	Msg="", Tmp;
 			BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 			isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
@@ -6383,6 +6387,48 @@ void CMainView::UpdateParamCombos()
 		sCap.LoadString ( IDS_PARAM_STIMULUS ); m_lblStim.SetWindowText ( sCap );
 		m_lblStim.ShowWindow ( bShowStim ? SW_SHOW : SW_HIDE );
 	}
+}
+
+// Stats-bar name-chip picker (display mode 11): a popup of the document's
+// loaded user patch sets (checkmark on the active one) plus "Open patch
+// list...". Selecting a set switches via the same recipe as the CC-set combo;
+// built-in CC modes keep the combo - this picker is the USER collection's UI.
+// TPM_RETURNCMD hands the choice back as the return value, so the dynamic ids
+// never enter any message map and cannot collide with real commands.
+#define IDM_CCSET_PICKER_FIRST	50000
+#define IDM_CCSET_PICKER_MAX	256
+#define IDM_CCSET_PICKER_OPEN	(IDM_CCSET_PICKER_FIRST + IDM_CCSET_PICKER_MAX)
+
+void CMainView::OnCcSetNamePicker()
+{
+	if ( m_displayMode != 11 )
+		return;
+	CDataSetDoc *	pDoc = GetDocument ();
+	CMeasure *		pMeasure = pDoc -> GetMeasure ();
+
+	CMenu menu;
+	menu.CreatePopupMenu ();
+	int n = pMeasure -> GetUserPatchSetCount ();
+	if ( n > IDM_CCSET_PICKER_MAX )
+		n = IDM_CCSET_PICKER_MAX;
+	for ( int i = 0; i < n; i++ )
+	{
+		UINT flags = MF_STRING;
+		if ( GetConfig () -> m_CCMode == USER && i == pMeasure -> GetActiveUserPatchSetIndex () )
+			flags |= MF_CHECKED;
+		menu.AppendMenu ( flags, IDM_CCSET_PICKER_FIRST + i, CString ( pMeasure -> GetUserPatchSet ( i ) -> name.c_str () ) );
+	}
+	if ( n > 0 )
+		menu.AppendMenu ( MF_SEPARATOR );
+	menu.AppendMenu ( MF_STRING, IDM_CCSET_PICKER_OPEN, _T("Open patch list...") );
+
+	CPoint pt;
+	GetCursorPos ( &pt );
+	int cmd = (int) menu.TrackPopupMenu ( TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, this );
+	if ( cmd >= IDM_CCSET_PICKER_FIRST && cmd < IDM_CCSET_PICKER_FIRST + n )
+		pDoc -> SwitchUserPatchSet ( cmd - IDM_CCSET_PICKER_FIRST );
+	else if ( cmd == IDM_CCSET_PICKER_OPEN )
+		AfxGetMainWnd () -> PostMessage ( WM_COMMAND, IDM_MEASURE_OPEN_PATCHLIST );	// routes to the active doc's handler
 }
 
 void CMainView::OnSelchangeComboSteps()

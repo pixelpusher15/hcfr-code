@@ -294,6 +294,7 @@ public:
 	afx_msg void OnMeasureSatColorAllLevels();
 	afx_msg void OnSizePlus();
 	afx_msg void OnSizeMinus();
+	afx_msg void OnCcSetNamePicker();	// stats-bar name chip: user patch set picker (mode 11)
 
 // Generated message map functions
 protected:

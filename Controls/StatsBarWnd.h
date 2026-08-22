@@ -49,6 +49,12 @@ public:
 	//   pGlyphFont : Segoe Fluent Icons font for the +/- and checkmark glyphs
 	void SetHeaderModel(CButton* pEditBtn, CFont* pGlyphFont);
 
+	// Make the FIRST chip (the leading plain-text segment - the CC set name in
+	// display mode 11) a clickable zone that posts WM_COMMAND(cmdId, BN_CLICKED)
+	// to the parent, with the same hover/press affordance as the +/- buttons.
+	// 0 disables (the chip paints as a plain segment again).
+	void SetNameZoneCommand(int cmdId);
+
 // Implementation
 public:
 	virtual ~CStatsBarWnd();
@@ -66,6 +72,8 @@ protected:
 	CButton*		m_pEditBtn;		// hidden control holding the edit-grid state
 	CFont*			m_pGlyphFont;	// Segoe Fluent Icons (not owned)
 	CRect			m_rcEditZone, m_rcPlusZone, m_rcMinusZone;	// hit rects (client px)
+	CRect			m_rcNameZone;	// first chip's rect while SetNameZoneCommand is armed
+	int				m_nameZoneCmd;	// command id the name chip posts, or 0 (disabled)
 	int				m_pressZone;	// control id being pressed, or 0
 	int				m_hoverZone;	// +/- control id under the mouse, or 0
 
