@@ -975,6 +975,30 @@ void CMainView::LayoutTopRow()
 		}
 	}
 
+// MDI child activation: the CC target cache (GetCColors' file-scope globals)
+// is process-wide but the user patch set collection is per-document, so when a
+// different document's view comes to front under USER mode the cache must be
+// refilled from THAT document's active set. Refresh view-locally via the
+// existing UPD_CC24SAT special case, not UpdateAllViews - broadcasting from an
+// activation hook would ping-pong between documents. The pointer equality
+// check skips the refresh if the MDI walk does not resolve to this document
+// yet (activation ordering), leaving at worst the same staleness the global
+// cache always had.
+void CMainView::OnActivateView(BOOL bActivate, CView* pActivateView, CView* pDeactiveView)
+{
+	CFormView::OnActivateView(bActivate, pActivateView, pDeactiveView);
+	if ( bActivate && GetConfig () -> m_CCMode == USER )
+	{
+		CUserPatchSet * pSet = GetDocument () -> GetMeasure () -> GetActiveUserPatchSet ();
+		if ( pSet != NULL && GetActiveDocUserPatchSet () == pSet )
+		{
+			GetConfig () -> GetCColors ();
+			if ( m_displayMode == 11 )
+				OnUpdate ( NULL, UPD_CC24SAT, NULL );
+		}
+	}
+}
+
 void CMainView::OnInitialUpdate()
 {
 	CFormView::OnInitialUpdate();	// called first to initialize dialog elements
@@ -1036,6 +1060,17 @@ void CMainView::OnInitialUpdate()
 	InitButtons();
 	InitGroups();
 	if(AfxGetMainWnd()) FxApplyDarkModeTree(AfxGetMainWnd()->GetSafeHwnd(), GetConfig()->m_darkTheme);
+
+	// A just-opened document may carry a (possibly migrated) active user patch
+	// set; refill the process-wide target cache from it here. Serialize itself
+	// must not call GetCColors - the MDI active frame does not point at this
+	// document until its view exists.
+	if ( GetConfig () -> m_CCMode == USER )
+	{
+		CUserPatchSet * pSet = GetDocument () -> GetMeasure () -> GetActiveUserPatchSet ();
+		if ( pSet != NULL && GetActiveDocUserPatchSet () == pSet )
+			GetConfig () -> GetCColors ();
+	}
 
 	if (m_displayMode != 0)
 		OnSelchangeComboMode();
