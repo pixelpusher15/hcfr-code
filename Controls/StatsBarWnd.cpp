@@ -58,7 +58,25 @@ void CStatsBarWnd::SetNameZoneCommand(int cmdId)
 	m_nameZoneCmd = cmdId;
 	m_rcNameZone.SetRectEmpty();	// recomputed on the next paint
 	if (::IsWindow(GetSafeHwnd()))
+	{
+		if (cmdId != 0)
+			EnableToolTips(TRUE);	// idempotent; feeds OnToolHitTest below
 		Invalidate(FALSE);
+	}
+}
+
+INT_PTR CStatsBarWnd::OnToolHitTest(CPoint point, TOOLINFO* pTI) const
+{
+	if (m_nameZoneCmd != 0 && m_rcNameZone.PtInRect(point))
+	{
+		pTI->hwnd = m_hWnd;
+		pTI->uId = 1;
+		pTI->uFlags &= ~TTF_IDISHWND;
+		pTI->rect = m_rcNameZone;
+		pTI->lpszText = _tcsdup(_T("Click to select a sequence"));	// MFC frees with free()
+		return 1;
+	}
+	return CWnd::OnToolHitTest(point, pTI);
 }
 
 void CStatsBarWnd::SetHeaderModel(CButton* pEditBtn, CFont* pGlyphFont)

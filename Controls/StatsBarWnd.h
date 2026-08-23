@@ -66,6 +66,10 @@ public:
 public:
 	virtual ~CStatsBarWnd();
 
+	// Tooltip for the clickable name chip ("Click to select a sequence").
+	// Rect-based tool: hit-tested against m_rcNameZone while the zone is armed.
+	virtual INT_PTR OnToolHitTest(CPoint point, TOOLINFO* pTI) const;
+
 protected:
 	void Parse(LPCTSTR lpszText);
 	void AddGroup(const CString& strGroup, BOOL bSplitCommas);
