@@ -1460,7 +1460,7 @@ double ColorXYZ::GetDeltaLCH(double YWhite, const ColorXYZ& refColor, double YWh
 	return dLight;
 }
 
-double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double split, int mode, double m_diffuseL, double m_MinML, double m_MaxML, double m_MinTL, double m_MaxTL, bool ToneMap, bool cBT2390, double bbc_gamma, double b_fact, double E2_fact, double E2_fact1)
+double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double split, int mode, double m_diffuseL, double m_MinML, double m_MaxML, double m_MinTL, double m_MaxTL, bool ToneMap, bool cBT2390, double bbc_gamma, double b_fact, double E2_fact, double E2_fact1, bool bExtendSDR)
 {
 	if (valx == 0 && mode > 4) return (ToneMap?m_MinTL / 100.:0.0);
 	if (valx < 0)
@@ -1469,8 +1469,13 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 	{
 		if (mode == 5)
 			return 100.;
+		// WTW: EXTENDED-range patch sets carry stimulus to ~109.5% (10-bit 1023).
+		// Extrapolate the relative SDR curves instead of clipping (see
+		// CMeasure::GetRefCC24Sat for the display-model assumption). Bounded 1.1.
+		else if (bExtendSDR && (mode == 4 || mode == 6 || mode == 99))
+			valx = min(valx, 1.1);
 		else
-			return 1.;
+			return 1.;   // HLG(7), DV(8/9), inverse modes: unchanged
 	}
 	if (ToneMap && mode == 5)
 		mode = 10;

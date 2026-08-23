@@ -812,6 +812,133 @@ static void RunT11()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T12 - WTW (whiter-than-white) reference EOTF extension oracle (pure
+// assertion, no golden file).
+//
+// EXTENDED-range patch sets drive stimulus up to ~109.5% (10-bit code 1023).
+// getL_EOTF gained a defaulted bExtendSDR flag: when TRUE and the mode is a
+// relative SDR curve (BT.1886=4, L*=6, sRGB=99), a stimulus above 1.0 is
+// capped at 1.1 and fed through the normal formula instead of returning flat
+// white, so a WTW reference follows the extrapolated curve. Everything else -
+// every existing call site (flag defaults FALSE), PQ, HLG, inverse modes -
+// must be bit-identical to the old clip behavior. This oracle pins:
+//   (a) the default-arg contract: no flag => exactly the old clip values;
+//       HLG stays clipped even WITH the flag (scope guard);
+//   (b) seam continuity at 1.0 (the formulas equal 1.0 there, so the strict
+//       valx>1 gate cannot introduce a step);
+//   (c) monotone growth over (1, 1.1] and a hard cap binding above 1.1;
+//   (d) known closed-form values for each extended curve;
+//   (e) the importer chain: real EXTENDED max codes decode below the 1.1
+//       cap, so the cap never distorts a real patch list.
+//////////////////////////////////////////////////////////////////////////
+static double EotfPlain(double v, int mode, double split = 0.0)
+{
+    return getL_EOTF(v, noDataColor, noDataColor, 0.0, split, mode);
+}
+static double EotfExt(double v, int mode, double split = 0.0)
+{
+    return getL_EOTF(v, noDataColor, noDataColor, 0.0, split, mode,
+                     94.37844, 0.0, 4000.0, 0.00, 700.0, false, false,
+                     1.2, 1.0, 0.0, 1.1, true);
+}
+
+static void RunT12()
+{
+    printf("T12 WTW reference EOTF extension oracle...\n");
+
+    static const int sdrModes[] = { 4, 6, 99 };   // BT.1886, L*, sRGB
+
+    // (a) default-arg regression: without the flag, >1 still clips exactly
+    static const double overs[] = { 1.0 + 1e-9, 1.05, 1.09, 5.0 };
+    for (int m = 0; m < _countof(sdrModes); m++)
+        for (int v = 0; v < _countof(overs); v++)
+            if (EotfPlain(overs[v], sdrModes[m]) != 1.0)
+                Fail("T12a mode=%d valx=%g: unflagged over-range no longer clips to 1.0",
+                     sdrModes[m], overs[v]);
+    for (int v = 0; v < _countof(overs); v++)
+    {
+        if (EotfPlain(overs[v], 5) != 100.0)
+            Fail("T12a PQ valx=%g: over-range no longer returns 100", overs[v]);
+        if (EotfExt(overs[v], 7) != 1.0)
+            Fail("T12a HLG valx=%g: over-range extended flag must stay clipped", overs[v]);
+    }
+
+    // (b) seam continuity at 1.0: extended value just above the seam matches
+    // the unflagged value at exactly 1.0 (formula equals 1.0 there)
+    for (int m = 0; m < _countof(sdrModes); m++)
+    {
+        double at1  = EotfPlain(1.0, sdrModes[m]);
+        double just = EotfExt(1.0 + 1e-9, sdrModes[m]);
+        if (fabs(just - at1) > 1e-6)
+            Fail("T12b mode=%d: seam step %.9f -> %.9f", sdrModes[m], at1, just);
+    }
+    // BT.1886 with a black-offset split engaged: seam still continuous
+    {
+        double at1  = EotfPlain(1.0, 4, 75.0);
+        double just = EotfExt(1.0 + 1e-9, 4, 75.0);
+        if (fabs(just - at1) > 1e-6)
+            Fail("T12b BT.1886 split=75: seam step %.9f -> %.9f", at1, just);
+    }
+
+    // (c) monotone over (1, 1.1], capped and bounded above 1.1
+    for (int m = 0; m < _countof(sdrModes); m++)
+    {
+        double prev = EotfExt(1.0 + 1e-9, sdrModes[m]);
+        for (double v = 1.005; v <= 1.1 + 1e-12; v += 0.005)
+        {
+            double y = EotfExt(v, sdrModes[m]);
+            if (y < prev - 1e-12)
+            {
+                Fail("T12c mode=%d: extended curve falls %.9f -> %.9f at %.3f",
+                     sdrModes[m], prev, y, v);
+                break;
+            }
+            if (y <= 1.0 - 1e-9 || y >= 2.0)
+            {
+                Fail("T12c mode=%d: extended value %.9f out of (1,2) at %.3f",
+                     sdrModes[m], y, v);
+                break;
+            }
+            prev = y;
+        }
+        if (EotfExt(1.12, sdrModes[m]) != EotfExt(1.1, sdrModes[m]))
+            Fail("T12c mode=%d: 1.1 cap not binding above 1.1", sdrModes[m]);
+    }
+
+    // (d) known closed-form values (formulas from getL_EOTF with noDataColor:
+    // maxL=100, minL=0.012, split=0, exp0=2.4)
+    {
+        double v = 1.087;
+        double want = pow((v + 0.055) / 1.055, 2.4);
+        if (fabs(EotfExt(v, 99) - want) > 1e-12)
+            Fail("T12d sRGB(%g): %.15f != %.15f", v, EotfExt(v, 99), want);
+        v = 1.05;
+        want = pow((v * 100.0 + 16.0) / 116.0, 3.0);
+        if (fabs(EotfExt(v, 6) - want) > 1e-12)
+            Fail("T12d L*(%g): %.15f != %.15f", v, EotfExt(v, 6), want);
+        want = (100.0 * pow(v, 2.4) + 0.012) / 100.012;
+        if (fabs(EotfExt(v, 4) - want) > 1e-12)
+            Fail("T12d BT.1886(%g): %.15f != %.15f", v, EotfExt(v, 4), want);
+    }
+
+    // (e) importer chain: real EXTENDED max codes stay under the 1.1 cap and
+    // extend through the curve
+    {
+        double v8  = CsvCodeToPercent(255, 8, CSV_RANGE_EXTENDED) / 100.0;   // (255-16)/219
+        double v10 = CsvCodeToPercent(1023, 10, CSV_RANGE_EXTENDED) / 100.0; // (1023-64)/876
+        if (fabs(v8 - (255.0 - 16.0) / 219.0) > 1e-12 || v8 >= 1.1)
+            Fail("T12e 8-bit extended max decodes to %.9f (cap would bind)", v8);
+        if (fabs(v10 - (1023.0 - 64.0) / 876.0) > 1e-12 || v10 >= 1.1)
+            Fail("T12e 10-bit extended max decodes to %.9f (cap would bind)", v10);
+        double want = pow((v8 + 0.055) / 1.055, 2.4);
+        if (fabs(EotfExt(v8, 99) - want) > 1e-12)
+            Fail("T12e sRGB chain: %.15f != %.15f", EotfExt(v8, 99), want);
+        if (pow(min(v8, 1.1), 2.4) <= 1.0)   // the mode<4 call-site shape
+            Fail("T12e power-gamma chain not above white");
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -839,6 +966,7 @@ int main(int argc, char* argv[])
     RunT9();
     RunT10();
     RunT11();
+    RunT12();
 
     if (g_failures)
     {
