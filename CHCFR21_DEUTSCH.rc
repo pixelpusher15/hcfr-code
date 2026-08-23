@@ -3895,6 +3895,7 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Standard (10%-Schritte)"
     IDS_STIMPRESET_FINE     "Fein (5%-Schritte)"
     IDS_DISPLAYPROFILE      "Display-Profil"
+    IDS_CUSTOMSEQUENCES     "Custom Sequences"
     IDS_MEASUREDISPLAYPROFILE "Display-Profil messen"
     IDS_DELETEDISPLAYPROFILE "Display-Profil löschen"
     IDS_SATLUMSHIFT         "Sättigungsverschiebung"

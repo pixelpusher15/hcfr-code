@@ -1274,6 +1274,17 @@ void CColorHCFRConfig::GetCColors()
 			SetUserPatchOverride(pSet->rows, pSet->bits, pSet->range);
 			return;
 		}
+		// One door: with no loaded sequence USER is an EMPTY state. The legacy
+		// silent usercolors.csv read retired with the Custom Sequences mode -
+		// any file, usercolors.csv included, is loaded via Open patch list.
+		// (Legacy-document migration reads usercolors.csv by explicit path and
+		// is unaffected.)
+		ClearUserPatchOverride();
+		numCC = 0;
+		nFile = "No sequence loaded";
+		cTargetBits = 8;
+		cTargetRange = -1;
+		return;
 	}
 	ClearUserPatchOverride();
 	if (!ResolveCCSetPath(m_CCMode, fName, NULL))

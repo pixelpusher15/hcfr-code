@@ -4133,6 +4133,7 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Standard (pas de 10 %)"
     IDS_STIMPRESET_FINE     "Fin (pas de 5 %)"
     IDS_DISPLAYPROFILE      "Profil d'affichage"
+    IDS_CUSTOMSEQUENCES     "Custom Sequences"
     IDS_MEASUREDISPLAYPROFILE "Mesurer le profil d'affichage"
     IDS_DELETEDISPLAYPROFILE "Supprimer le profil d'affichage"
     IDS_SATLUMSHIFT         "Saturation - écarts"

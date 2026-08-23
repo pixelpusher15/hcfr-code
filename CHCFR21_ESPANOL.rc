@@ -4010,6 +4010,7 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Estándar (pasos del 10%)"
     IDS_STIMPRESET_FINE     "Fino (pasos del 5%)"
     IDS_DISPLAYPROFILE      "Perfil de pantalla"
+    IDS_CUSTOMSEQUENCES     "Custom Sequences"
     IDS_MEASUREDISPLAYPROFILE "Medir el perfil de pantalla"
     IDS_DELETEDISPLAYPROFILE "Borrar el perfil de pantalla"
     IDS_SATLUMSHIFT         "Saturación - desviaciones"

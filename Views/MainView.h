@@ -257,6 +257,7 @@ protected:
 	virtual void OnInitialUpdate(); // called first time after construct
 	virtual void OnActivateView(BOOL bActivate, CView* pActivateView, CView* pDeactiveView);	// per-doc patch-set cache refresh
 	BOOL IsMdiActiveDocument();	// MDI walk resolves to this view's document (activation-ordering guard)
+	int ModeComboIndexFor(int mode);	// display mode -> mode-combo item ("Custom Sequences" alias for 11+USER)
 	virtual BOOL OnPreparePrinting(CPrintInfo* pInfo);
 	virtual void OnBeginPrinting(CDC* pDC, CPrintInfo* pInfo);
 	virtual void OnEndPrinting(CDC* pDC, CPrintInfo* pInfo);

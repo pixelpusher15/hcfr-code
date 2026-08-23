@@ -3892,6 +3892,7 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Standard (10% steps)"
     IDS_STIMPRESET_FINE     "Fine (5% steps)"
     IDS_DISPLAYPROFILE      "Display profile"
+    IDS_CUSTOMSEQUENCES     "Custom Sequences"
     IDS_MEASUREDISPLAYPROFILE "Measure display profile (cube capture)"
     IDS_DELETEDISPLAYPROFILE "Delete display profile"
     IDS_SATLUMSHIFT         "Saturation - shifts"

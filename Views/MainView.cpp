@@ -1278,10 +1278,23 @@ LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 			m_comboMode.AddString ( strProf );
 	}
 
+	// And again: "Custom Sequences" becomes combo index 14 - an ALIAS of the
+	// Color Checker grid (m_displayMode stays 11) with m_CCMode == USER, the
+	// loaded-patch-sequence path. See ModeComboIndexFor / OnSelchangeComboMode.
+	if ( m_comboMode.GetSafeHwnd () )
+	{
+		CString strSeq;
+		strSeq.LoadString ( IDS_CUSTOMSEQUENCES );
+		if ( !strSeq.IsEmpty () && m_comboMode.FindStringExact ( -1, strSeq ) == CB_ERR )
+			m_comboMode.AddString ( strSeq );
+	}
+
 	if ( m_dwInitialUserInfo != 0 )
 	{
-		// Set m_displayMode
-		m_comboMode.SetCurSel ( m_dwInitialUserInfo & 0x003F );
+		// Set m_displayMode (mapped: a USER-mode document restores onto the
+		// Custom Sequences alias item, not the Color Checker item - selecting
+		// 11 there would bounce m_CCMode back to the remembered built-in)
+		m_comboMode.SetCurSel ( ModeComboIndexFor ( (int)( m_dwInitialUserInfo & 0x003F ) ) );
 		OnSelchangeComboMode();
 
 		// Set m_displayType
@@ -2784,7 +2797,7 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 		if ( nForceMode >= 0 )
 		{
-			m_comboMode.SetCurSel ( nForceMode );
+			m_comboMode.SetCurSel ( ModeComboIndexFor ( nForceMode ) );
 			OnSelchangeComboMode();
 		}
 	}
@@ -2822,7 +2835,7 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		if (m_displayMode != (lHint - UPD_REALTIME)) //need to change to correct sequence
 		{
 			m_displayMode = (lHint - UPD_REALTIME);
-			m_comboMode.SetCurSel (m_displayMode);
+			m_comboMode.SetCurSel ( ModeComboIndexFor ( m_displayMode ) );
 			OnSelchangeComboMode();
 			minCol = 1;
 			last_minCol = minCol;
@@ -5956,10 +5969,38 @@ void CMainView::On3DDEFilterClicked()
 	}
 }
 
-void CMainView::OnSelchangeComboMode() 
+// The measurement-mode combo carries one more item than there are display
+// modes: index 14, "Custom Sequences" (appended in OnInitialUpdate), is an
+// ALIAS of the Color Checker grid - m_displayMode stays 11 with m_CCMode ==
+// USER (the loaded-sequence path). Every SetCurSel must map internal state to
+// the combo item through this helper so the alias round-trips.
+#define MODECOMBO_CUSTOM_SEQUENCES	14
+
+int CMainView::ModeComboIndexFor(int mode)
+{
+	if ( mode == 11 && GetConfig () -> m_CCMode == USER )
+		return MODECOMBO_CUSTOM_SEQUENCES;
+	return mode;
+}
+
+void CMainView::OnSelchangeComboMode()
 {
 	int	nNewMode = m_comboMode.GetCurSel ();
 	CString	Msg, MsgAdd;
+
+	BOOL bCustomSeq = ( nNewMode == MODECOMBO_CUSTOM_SEQUENCES );
+	if ( bCustomSeq )
+		nNewMode = 11;
+
+	// No CC-mode flips mid-sweep (same rule as the steps combo): revert the
+	// selection and bail when the alias transition would change m_CCMode.
+	if ( IsMeasureSweepActive () &&
+	     ( ( bCustomSeq && GetConfig () -> m_CCMode != USER ) ||
+	       ( ! bCustomSeq && nNewMode == 11 && GetConfig () -> m_CCMode == USER ) ) )
+	{
+		m_comboMode.SetCurSel ( ModeComboIndexFor ( m_displayMode ) );
+		return;
+	}
 
 	StopBackgroundMeasures ();
 	if (m_displayMode == 2 && nNewMode != 2)
@@ -5970,6 +6011,38 @@ void CMainView::OnSelchangeComboMode()
 	}
 
 	m_displayMode = nNewMode;
+
+	// Custom Sequences <-> Color Checker: the alias also switches the CC mode.
+	// Done inline WITHOUT an UpdateAllViews broadcast - the rest of this
+	// handler rebuilds this view's combos and grid, which is exactly how a
+	// plain mode change refreshes; other views catch up on the next hint.
+	if ( bCustomSeq && GetConfig () -> m_CCMode != USER )
+	{
+		CMeasure * pM = GetDocument () -> GetMeasure ();
+		if ( pM -> GetUserPatchSetCount () > 0 )
+		{
+			int idx = pM -> GetActiveUserPatchSetIndex ();
+			pM -> ActivateUserPatchSet ( idx >= 0 ? idx : 0 );
+		}
+		GetConfig () -> m_CCMode = USER;
+		GetConfig () -> m_referencesPropertiesPage.m_CCMode = USER;
+		GuardCCModeOutputRange ( USER );
+		GetConfig () -> WriteProfileInt ( "References", "CCMode", USER );
+		GetConfig () -> GetCColors ();
+	}
+	else if ( ! bCustomSeq && m_displayMode == 11 && GetConfig () -> m_CCMode == USER )
+	{
+		// The real Color Checker item selected while a sequence was active:
+		// return to the remembered built-in set (one door - USER is reachable
+		// only through the Custom Sequences item now).
+		int nBuiltin = GetConfig () -> GetProfileInt ( "References", "LastBuiltinCCMode", GCD );
+		if ( nBuiltin < GCD || nBuiltin >= USER )
+			nBuiltin = GCD;
+		GetConfig () -> m_CCMode = (CCPatterns) nBuiltin;
+		GetConfig () -> m_referencesPropertiesPage.m_CCMode = nBuiltin;
+		GetConfig () -> WriteProfileInt ( "References", "CCMode", nBuiltin );
+		GetConfig () -> GetCColors ();
+	}
 
 	if ( m_displayMode == 12 )
 	{
@@ -6340,10 +6413,28 @@ void CMainView::UpdateParamCombos()
 			 }
 			 break;
 
-		case 11:	// Color Checker: the CC set list (same order/labels as the References dialog)
+		case 11:	// Color Checker / Custom Sequences
 			 {
+				if ( GetConfig () -> m_CCMode == USER )
+				{
+					// Custom Sequences (mode-combo alias state): the combo lists
+					// the document's loaded sequences; item data = set index.
+					// Complements the stats-bar name-chip picker in the standard
+					// switcher position.
+					for ( int k = 0; k < pMeasure -> GetUserPatchSetCount (); k++ )
+					{
+						int idx = m_comboSteps.AddString ( CString ( pMeasure -> GetUserPatchSet ( k ) -> name.c_str () ) );
+						m_comboSteps.SetItemData ( idx, k );
+						if ( k == pMeasure -> GetActiveUserPatchSetIndex () )
+							m_comboSteps.SetCurSel ( idx );
+					}
+					m_comboSteps.SetDroppedWidth ( GetConfig () -> Scale ( 240 ) );	// sequence names can be long
+					bShowSteps = TRUE;
+					break;
+				}
 				// Names indexed by CCPatterns value (see libHCFR/Color.h); English-only,
-				// matching the other runtime-built UI on this branch.
+				// matching the other runtime-built UI on this branch. USER is absent by
+				// design: custom sequences have their own mode-combo entry (one door).
 				static const char * const kCCSetNames [] = {
 					"GCD classic", "MCD classic", "Pantone skin tones", "CalMAN Classic",
 					"CalMAN SG skin tones", "ChromaPure skin tones", "CalMAN SG", "RGB Luminance Axis",
@@ -6356,7 +6447,7 @@ void CMainView::UpdateParamCombos()
 					"LG 2018 OLED V1 20-Point", "LG 2018 OLED V2 20-Point", "LG 2018 OLED V3 20-Point",
 					"LG 2019 OLED 10-Point", "LG 2019 OLED 22-Point", "LG 2020 OLED 10-Point",
 					"LG 2020 OLED 22-Point", "LG 2021 OLED 10-Point", "LG 2021 OLED 22-Point",
-					"Random 250", "Random 500", "User defined"
+					"Random 250", "Random 500"
 				};
 				int nCCMode = (int) GetConfig () -> m_CCMode;
 				for ( int k = 0; k < (int)( sizeof(kCCSetNames)/sizeof(kCCSetNames[0]) ); k++ )
@@ -6496,6 +6587,13 @@ void CMainView::OnSelchangeComboSteps()
 
 	if ( m_displayMode == 11 )
 	{
+		if ( GetConfig () -> m_CCMode == USER )
+		{
+			// Custom Sequences (mode-combo alias state): the dropdown lists the
+			// loaded sequences, so the data is a set index.
+			GetDocument () -> SwitchUserPatchSet ( data );
+			return;
+		}
 		// Color Checker: the dropdown selects the global CC pattern set (m_CCMode),
 		// exactly as the References dialog does. Reload the set's colors and refresh.
 		if ( data == (int) GetConfig () -> m_CCMode )
@@ -6504,6 +6602,7 @@ void CMainView::OnSelchangeComboSteps()
 		GetConfig () -> m_referencesPropertiesPage.m_CCMode = data;	// keep the dialog's DDX var in sync
 		GuardCCModeOutputRange ( data );	// import-range guard (USER patch list)
 		GetConfig () -> WriteProfileInt ( "References", "CCMode", data );
+		GetConfig () -> WriteProfileInt ( "References", "LastBuiltinCCMode", data );	// alias-exit restore target
 		GetConfig () -> GetCColors ();	// reload the set's target colors / patch count
 		GetDocument () -> UpdateAllViews ( NULL, UPD_EVERYTHING );
 		return;

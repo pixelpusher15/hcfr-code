@@ -1937,6 +1937,8 @@
 #define IDS_STIMPRESET_STANDARD         59559
 #define IDS_STIMPRESET_FINE             59560
 #define IDS_DISPLAYPROFILE              59561
+// 59632-59714 reserved by the generators branch (#175); next free above it:
+#define IDS_CUSTOMSEQUENCES             59715
 #define IDS_MEASUREDISPLAYPROFILE       59562
 #define IDS_DELETEDISPLAYPROFILE        59563
 // Display-profile pane (Views/ProfilePane.cpp). Every visible string in that pane
