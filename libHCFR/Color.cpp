@@ -1592,14 +1592,21 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 				E1 = valx - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
 				d = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2) - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
 				E1 = E1 / d;
-				// BT.2390's EETF is defined on the normalised [0,1] range. Signals below
-				// the mastering display's black (E1 < 0) or above its peak (E1 > 1) used
-				// to leave E2 outside [0,1] and fall through to the un-tone-mapped PQ
-				// branch below, so near-black got no black lift at all: Y target at 0%
-				// (which returns the display black target) could come out ABOVE Y target
-				// at 1-5%. Clamp instead - sub-black maps to the black target, above-peak
-				// to the peak target - which keeps the tone curve monotonic.
-				E1 = min(max(E1, 0.0), 1.0);
+				// Signals below the mastering display's black make E1 negative, which
+				// left E2 outside [0,1] and fell through to the un-tone-mapped PQ branch
+				// below, so near-black got no black lift at all: Y target at 0% (which
+				// returns the display black target) could come out ABOVE Y target at
+				// 1-5%. Floor E1 so sub-black maps to the black target instead.
+				//
+				// Only the LOW end. E1 > 1 - a signal above the mastering peak - must keep
+				// falling through: when TargetMaxL > MasterMaxL (a display brighter than
+				// the disc, both fields user-editable) maxL > 1, so KS = 1.5*maxL - 0.5 > 1
+				// and the knee never fires. Capping E1 at 1 would then pin every signal
+				// above the mastering peak to PQ(MasterMaxL) - a 1000-nit-mastered disc on
+				// a 4000-nit target flat-lined the whole top quarter of the grid at 1000
+				// instead of tracking PQ up to TargetMaxL. The fall-through returns true PQ
+				// capped at m_MaxTL, which is what the expansion region wants.
+				E1 = max(E1, 0.0);
 				minL = (pow( (c1 + c2 * pow(m_MinTL/Scale,m1)) / (1 + c3 * pow(m_MinTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
 				maxL = (pow( (c1 + c2 * pow(m_MaxTL/Scale,m1)) / (1 + c3 * pow(m_MaxTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
 				KS = 1.5 * maxL - 0.5;
@@ -1644,37 +1651,41 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 			{
 				BT2390x.clear();
 				BT2390y.clear();
-				int ii = 1024;
 
 				if (m_MinML > m_MinTL)
 					m_MinML = m_MinTL;
 				m_MaxML = m_MaxML * m_diffuseL / 94.37844; 
 
-				// Diffuse-white fast path: compute the tone-mapped white
-				// directly for the requested signal instead of building the
-				// 1024-entry inverse LUT. Tolerance instead of exact equality:
-				// the white patch reaches the display grid-quantized (110/219,
-				// 128/255, 440/876, 514/1023 are all within 3.2e-4 of the
-				// nominal 0.5022283), and the snapped code must take the same
-				// exact path as the nominal constant.
-				if (fabs(valx - 0.5022283) < 5e-4)
-					ii = 1;
-				for (int i=0; i < ii;i++)
+				// The whole table, every time. The diffuse-white fast path that
+				// used to short this to a single entry when valx landed within
+				// 5e-4 of 0.5022283 existed only for the tmWhite call deleted
+				// above; case -10 is now the sole cBT2390 caller and it needs the
+				// full curve to search. Leaving it in was a live hazard: a caller
+				// inverting a luminance inside that window got a one-entry table
+				// and a nearest-neighbour search with exactly one candidate, so it
+				// returned its own input as the answer.
+				for (int i=0; i < 1024; i++)
 				{
-					if (ii != 1)
-						valx = i / 1024.;
+					valx = i / 1024.;
 
 					E1 = valx - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
 					d = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2) - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
 					E1 = E1 / d;
-					// BT.2390's EETF is defined on the normalised [0,1] range. Signals below
-					// the mastering display's black (E1 < 0) or above its peak (E1 > 1) used
-					// to leave E2 outside [0,1] and fall through to the un-tone-mapped PQ
-					// branch below, so near-black got no black lift at all: Y target at 0%
-					// (which returns the display black target) could come out ABOVE Y target
-					// at 1-5%. Clamp instead - sub-black maps to the black target, above-peak
-					// to the peak target - which keeps the tone curve monotonic.
-					E1 = min(max(E1, 0.0), 1.0);
+					// Signals below the mastering display's black make E1 negative, which
+					// left E2 outside [0,1] and fell through to the un-tone-mapped PQ branch
+					// below, so near-black got no black lift at all: Y target at 0% (which
+					// returns the display black target) could come out ABOVE Y target at
+					// 1-5%. Floor E1 so sub-black maps to the black target instead.
+					//
+					// Only the LOW end. E1 > 1 - a signal above the mastering peak - must keep
+					// falling through: when TargetMaxL > MasterMaxL (a display brighter than
+					// the disc, both fields user-editable) maxL > 1, so KS = 1.5*maxL - 0.5 > 1
+					// and the knee never fires. Capping E1 at 1 would then pin every signal
+					// above the mastering peak to PQ(MasterMaxL) - a 1000-nit-mastered disc on
+					// a 4000-nit target flat-lined the whole top quarter of the grid at 1000
+					// instead of tracking PQ up to TargetMaxL. The fall-through returns true PQ
+					// capped at m_MaxTL, which is what the expansion region wants.
+					E1 = max(E1, 0.0);
 					minL = (pow( (c1 + c2 * pow(m_MinTL/Scale,m1)) / (1 + c3 * pow(m_MinTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
 					maxL = (pow( (c1 + c2 * pow(m_MaxTL/Scale,m1)) / (1 + c3 * pow(m_MaxTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
 					KS = 1.5 * maxL - 0.5;
@@ -1721,15 +1732,16 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 		break;
 		case -10: //BT.2084/2390 inverse curve look-up
 			{
-				// Build the LUT before reading it. valx == 0 would trip the
-				// `valx == 0 && mode > 4` early return at the top of this function,
-				// coming back before the cBT2390 branch ran and leaving BT2390x/y
-				// untouched - empty on the first such call, so the lookup below
-				// indexed BT2390y[0] out of bounds (MATH-008). Substitute the first
-				// LUT step: it is off the diffuse-white fast path, so the full
-				// 1024-entry table gets built, which is what this nearest-neighbour
-				// search wants anyway. The search still runs on the caller's valx.
-				getL_EOTF(valx > 0.0 ? valx : 1.0 / 1024.0, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact, E2_fact1);
+				// Build the LUT before reading it. The signal passed here is dead - the
+				// builder overwrites valx on every iteration and its return is discarded -
+				// so pass a fixed one rather than the caller's. Forwarding the caller's
+				// value was two bugs: valx == 0 tripped the `valx == 0 && mode > 4` early
+				// return at the top of this function, coming back before the cBT2390 branch
+				// ran and leaving BT2390x/y empty for the lookup below to index out of
+				// bounds (MATH-008); and a value near 0.5022283 used to trip the
+				// diffuse-white fast path into a one-entry table. The search itself still
+				// runs on the caller's valx.
+				getL_EOTF(1.0 / 1024.0, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact, E2_fact1);
 				value = abs(valx - BT2390y[0]);
 				outL = BT2390x[0];
 				for (int i = 0; i < (int)BT2390y.size(); i++)

@@ -804,7 +804,10 @@ static void RunT11()
     static const double minMLs[] = { 0.0, 0.0001, 0.001, 0.005, 0.05, 0.5 };
     static const double maxMLs[] = { 1000.0, 4000.0, 10000.0 };
     static const double minTLs[] = { 0.0, 0.005, 0.05, 0.1, 0.3 };
-    static const double maxTLs[] = { 120.0, 400.0 };
+    // 2000 is above the 1000-nit mastering peak on purpose: that is the
+    // EXPANSION region (a display brighter than the disc), which the original
+    // grid never entered and where a bad clamp flat-lines the top of the curve.
+    static const double maxTLs[] = { 120.0, 400.0, 2000.0 };
     static const double diffuses[] = { 94.37844, 203.0 };
     static const double bFacts[] = { 1.0, 2.0 };          // m_BT2390_BS
     static const double e2Facts[] = { 0.0, 1.0 };         // m_BT2390_WS
@@ -842,6 +845,24 @@ static void RunT11()
             }
             prev = y;
         }
+
+        // Peak reach. Monotonicity alone cannot see a curve that goes FLAT
+        // early - that is still non-decreasing - so pin the endpoint too: full
+        // signal must land on the display's peak, whatever the mastering peak
+        // was. Clamping E1's top end broke exactly this, pinning everything
+        // above the mastering peak to PQ(MasterMaxL): a 1000-nit-mastered disc
+        // on a 2000-nit target returned 1000 here instead of 2000, flat across
+        // the whole top of the grid, with T11 none the wiser.
+        const double peak = getL_EOTF(1.0, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                      diffuses[e], minMLs[a], maxMLs[b],
+                                      minTLs[c], maxTLs[d], true, false, 1.2,
+                                      bFacts[f], e2Facts[g], 25.0) * 100.0;
+        if (fabs(peak - maxTLs[d]) > 1e-6 * maxTLs[d])
+            Fail("T11 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g "
+                 "diffuse=%g BS=%g WS=%g: full signal reaches %.4f cd/m2, "
+                 "expected the display peak %.4f",
+                 minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], diffuses[e],
+                 bFacts[f], e2Facts[g], peak, maxTLs[d]);
     }
     printf("  %d tone-map configurations swept\n", configs);
 }
@@ -932,6 +953,32 @@ static void RunT12()
             }
         }
     }
+    // (3) The old diffuse-white fast path. Building the table used to short to a
+    // SINGLE entry whenever the signal handed to the builder landed within 5e-4
+    // of 0.5022283, leaving the nearest-neighbour search one candidate and making
+    // it hand back its own input as the answer. The window is a real luminance -
+    // the LUT is in nits/10000, so it is ~5022 cd/m2, inside a 10000-nit target -
+    // and it was reachable from the near-white autoscale in Measure.cpp, where the
+    // inverted value is a free-ranging measured luminance. Walk straight across it.
+    {
+        const double lo = 0.5022283 - 8e-4, hi = 0.5022283 + 8e-4;
+        for (int i = 0; i <= 16; i++)
+        {
+            const double y = lo + (hi - lo) * i / 16.0;
+            const double sig = getL_EOTF(y, noDataColor, noDataColor, 0.0, 0.0, -5,
+                                         94.37844, 0.0, 10000.0, 0.0, 10000.0,
+                                         true, false, 1.2, 1.0, 0.0, 25.0);
+            const double y2 = getL_EOTF(sig, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                        94.37844, 0.0, 10000.0, 0.0, 10000.0,
+                                        true, false, 1.2, 1.0, 0.0, 25.0) / 100.0;
+            // one LUT step is 1/1024 in signal; allow the luminance that spans
+            if (fabs(y2 - y) > 0.02 * y)
+                Fail("T12 fast-path window: inverse of %.7f returned signal %.6f, "
+                     "which forwards to %.7f (off by %.3g) - one-entry table?",
+                     y, sig, y2, fabs(y2 - y));
+        }
+    }
+
     printf("  %d inverse configurations swept\n", configs);
 }
 
