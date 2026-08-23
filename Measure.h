@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -127,7 +127,7 @@ void					GetSatStimLevelPercents ( std::vector<int> & pcts );
 struct CSatLevelSet
 {
 	double stimLevel;
-	std::vector<CColor> sat[6];	// R,G,B,Y,C,M â€” GetSaturationSize() entries each
+	std::vector<CColor> sat[6];	// R,G,B,Y,C,M — GetSaturationSize() entries each
 };
 
 

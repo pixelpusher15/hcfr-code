@@ -135,7 +135,7 @@ void Matrix::readFromFile(ifstream &theFile)
     uint32_t header1, header2, version;
     uint32_t nbColumns, nbRows;
 
-    // les dÃ©trompeurs
+    // les détrompeurs
     theFile.read((char*)&header1, 4);
     header1 = littleEndianUint32ToHost(header1);
     theFile.read((char*)&header2, 4);
@@ -147,7 +147,7 @@ void Matrix::readFromFile(ifstream &theFile)
         throw Exception("Invalid file format");
     }      
 
-    // le numÃ©ro de version de la classe Matrix (c'est toujours 1)
+    // le numéro de version de la classe Matrix (c'est toujours 1)
     theFile.read((char*)&version, 4);
     version = littleEndianUint32ToHost(version);
 
@@ -157,7 +157,7 @@ void Matrix::readFromFile(ifstream &theFile)
     theFile.read((char*)&nbRows, 4);
     m_nRows = littleEndianUint32ToHost(nbRows);
 
-    // on crÃ©e l'espace de stockage  
+    // on crée l'espace de stockage  
     m_pData.resize(m_nRows * m_nCols);
 
     // puis on le remplie

@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 //	Benoit SEGUIN
 /////////////////////////////////////////////////////////////////////////////
@@ -187,8 +187,8 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 	if (m_showAverage && m_avgLogGraphID != -1 && size > 0 && bDataPresent && !(GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 ))
 	{	
-		// Le calcul de la moyenne des gamma et la reprï¿½sentation en ï¿½chelle log 
-		// ne se fait plus avec l'ï¿½chelle des x = % de blanc mais avec la formule : 
+		// Le calcul de la moyenne des gamma et la représentation en échelle log 
+		// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 		// (x + offset) / (1+offset) 
 		for (int i=1; i<size-1; i++)
 			m_graphCtrl.AddPoint(m_avgLogGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), GammaOpt);
@@ -198,8 +198,8 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	{
 		if (m_showAverage && m_luxmeterAvgLogGraphID != -1 && size > 0 && bDataPresent && pDoc->GetMeasure()->GetGray(0).HasLuxValue() )
 		{	
-			// Le calcul de la moyenne des gamma et la reprï¿½sentation en ï¿½chelle log 
-			// ne se fait plus avec l'ï¿½chelle des x = % de blanc mais avec la formule : 
+			// Le calcul de la moyenne des gamma et la représentation en échelle log 
+			// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 			// (x + offset) / (1+offset) 
 			for (int i=1; i<size-1; i++)
 				m_graphCtrl.AddPoint(m_luxmeterAvgLogGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), LuxGammaOpt);
@@ -342,8 +342,8 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 		lpMsg = szBuf;
 	}
 	
-	// Le calcul de la moyenne des gamma et la reprï¿½sentation en ï¿½chelle log 
-	// ne se fait plus avec l'ï¿½chelle des x = % de blanc mais avec la formule : 
+	// Le calcul de la moyenne des gamma et la représentation en échelle log 
+	// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 	// (x + offset) / (1+offset) 
 
 	if((GraphID != -1)&&((PointIndex != 0 && PointIndex != (Size-1)) && colorlevel > 0.0001) || (GraphID != -1&&(GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 )))	// log scale is not valid for first and last value nor for negative values
