@@ -23,6 +23,10 @@ namespace
     const double kMinFitSignal = 0.02;    // gamma regression uses samples above this
     const double kMaxFitSignal = 0.999;   // and below this (peak still pins the matrix)
     const double kSignalTol    = 1e-9;    // contract tolerance on the [0..1] stimulus range
+    const double kGrayTol      = 1e-6;    // gray classification: absorbs per-channel
+                                          // quantization jitter (10/12-bit rounding);
+                                          // safe to be loose - grays are only ever the
+                                          // fallback pool, never preferred over ramps
     const double kGammaMin     = 0.5;
     const double kGammaMax     = 5.0;
     const double kDefaultGamma = 2.2;
@@ -114,6 +118,10 @@ DisplayModel::DisplayModel()
     m_gamma[0] = m_gamma[1] = m_gamma[2] = kDefaultGamma;
     m_valid = false;
     memset(&m_report, 0, sizeof(m_report));
+    // Never claim measured provenance before a fit: FITTED is enum value 0.
+    for (int c = 0; c < 3; ++c)
+        m_report.gammaSource[c] = DM_PARAM_ASSUMED;
+    m_report.blackSource = DM_PARAM_ASSUMED;
 }
 
 bool DisplayModel::Fit(const std::vector<DisplayModelSample>& samples)
@@ -129,9 +137,9 @@ bool DisplayModel::Fit(const std::vector<DisplayModelSample>& samples)
     for (size_t i = 0; i < samples.size(); ++i)
     {
         const DisplayModelSample& s = samples[i];
-        if (!Finite(s.weight))
+        if (!Finite(s.weight) || s.weight < 0.0)
             return false;
-        if (s.weight <= 0.0)
+        if (s.weight == 0.0)
             continue;
         for (int k = 0; k < 3; ++k)
         {
@@ -182,8 +190,8 @@ bool DisplayModel::Fit(const std::vector<DisplayModelSample>& samples)
                 s.rgb[c] > kMinFitSignal && s.rgb[c] < kMaxFitSignal)
                 channelPool[c].Add(log(s.rgb[c]), log(mag), s.weight);
         }
-        if (fabs(s.rgb[0] - s.rgb[1]) <= kSignalTol &&
-            fabs(s.rgb[1] - s.rgb[2]) <= kSignalTol &&
+        if (fabs(s.rgb[0] - s.rgb[1]) <= kGrayTol &&
+            fabs(s.rgb[1] - s.rgb[2]) <= kGrayTol &&
             s.rgb[0] > kMinFitSignal && s.rgb[0] < kMaxFitSignal)
             grayPool.Add(log(s.rgb[0]), log(mag), s.weight);
     }

@@ -11,9 +11,11 @@
 // Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
 // T10 asserts gamut-basis consistency, and T13 asserts DisplayModel fit recovery and its
-// input contracts. T11/T12 are RESERVED for PR #178's BT.2390 oracles - do not reuse the
-// numbers. The .chc round-trip originally planned for the T7 slot needs app-level linkage
-// and is deliberately still not in this console harness.
+// input contracts. T11/T12 are deliberately skipped here: they are claimed by in-flight
+// branches (PR #178's BT.2390 oracles; the csv-provenance/wtw-reference branches carry
+// their own T11/T12 and renumber when they rebase) - check open branches before assigning
+// any new T number. The .chc round-trip originally planned for the T7 slot needs
+// app-level linkage and is deliberately still not in this console harness.
 
 #include <afx.h>
 #include "../../libHCFR/Color.h"
@@ -872,25 +874,36 @@ static void RunT13()
     poisoned.push_back(bad);
     DisplayModel mz;
     if (!mz.Fit(poisoned))
-        { Fail("T13 weight-0 fit rejected"); return; }
-    for (int r = 0; r < 3; ++r)
+        Fail("T13 weight-0 fit rejected");
+    else
+    {
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 3; ++c)
+                if (fabs(mz.MatrixRow(r)[c] - m.MatrixRow(r)[c]) > 1e-12)
+                    Fail("T13 weight-0 sample altered the fit at M[%d][%d]", r, c);
         for (int c = 0; c < 3; ++c)
-            if (fabs(mz.MatrixRow(r)[c] - m.MatrixRow(r)[c]) > 1e-12)
-                Fail("T13 weight-0 sample altered the fit at M[%d][%d]", r, c);
+            if (mz.Gamma(c) != m.Gamma(c) || mz.BlackXYZ()[c] != m.BlackXYZ()[c])
+                Fail("T13 weight-0 sample altered gamma/black[%d]", c);
+        if (mz.Report().samplesUsed != m.Report().samplesUsed)
+            Fail("T13 weight-0 sample counted in samplesUsed");
+    }
 
     // ...and the same sample at a heavy weight must pull the fit measurably.
     poisoned.back().weight = 25.0;
     DisplayModel mh;
     if (!mh.Fit(poisoned))
-        { Fail("T13 heavy-weight fit rejected"); return; }
-    double drift = 0.0;
-    for (int r = 0; r < 3; ++r)
-        for (int c = 0; c < 3; ++c)
-            drift += fabs(mh.MatrixRow(r)[c] - m.MatrixRow(r)[c]);
-    if (drift < 1e-3)
-        Fail("T13 heavy corrupt sample did not influence the fit (drift=%.3g)", drift);
-    if (mh.Report().rmsXYZ <= m.Report().rmsXYZ)
-        Fail("T13 heavy corrupt sample did not raise fit residuals");
+        Fail("T13 heavy-weight fit rejected");
+    else
+    {
+        double drift = 0.0;
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 3; ++c)
+                drift += fabs(mh.MatrixRow(r)[c] - m.MatrixRow(r)[c]);
+        if (drift < 1e-3)
+            Fail("T13 heavy corrupt sample did not influence the fit (drift=%.3g)", drift);
+        if (mh.Report().rmsXYZ <= m.Report().rmsXYZ)
+            Fail("T13 heavy corrupt sample did not raise fit residuals");
+    }
 
     // Inverse round-trip across an in-gamut lattice.
     for (int r = 0; r <= 4; ++r)
@@ -940,6 +953,8 @@ static void RunT13()
         DisplayModel a; if (a.Fit(v)) Fail("T13 fit accepted a NaN XYZ");
         v = set; v[3].weight = kNan;
         DisplayModel b; if (b.Fit(v)) Fail("T13 fit accepted a NaN weight");
+        v = set; v[3].weight = -1.0;
+        DisplayModel n2; if (n2.Fit(v)) Fail("T13 fit accepted a negative weight");
         v = set; v[3].rgb[0] = 235.0 / 219.0;   // WTW stimulus, outside [0,1]
         DisplayModel c; if (c.Fit(v)) Fail("T13 fit accepted rgb > 1");
         v = set; v[3].XYZ[2] = -0.001;          // probe noise near black: legal
@@ -947,30 +962,32 @@ static void RunT13()
     }
 
     // A failed re-fit must leave the previous model fully intact.
+    // (Reuses `flat` above: the same no-variation set the first-fit case rejects.)
     {
         DisplayModel r;
-        if (!r.Fit(set)) { Fail("T13 refit baseline rejected"); return; }
-        double beforeXYZ[3], probeRgb[3] = { 0.5, 0.5, 0.5 };
-        r.SignalToXYZ(probeRgb, beforeXYZ);
-        std::vector<DisplayModelSample> degenerate;
-        for (int i = 0; i < 12; ++i)
-            Add(degenerate, 0.5, 0.5, 0.5, 1);
-        if (r.Fit(degenerate))
-            { Fail("T13 refit accepted a degenerate set"); return; }
-        if (!r.IsValid())
-            Fail("T13 failed refit invalidated the previous model");
-        for (int c2 = 0; c2 < 3; ++c2)
-            if (r.Gamma(c2) != m.Gamma(c2))
-                Fail("T13 failed refit altered gamma[%d]", c2);
-        for (int r2 = 0; r2 < 3; ++r2)
+        if (!r.Fit(set))
+            Fail("T13 refit baseline rejected");
+        else if (r.Fit(flat))
+            Fail("T13 refit accepted a degenerate set");
+        else
+        {
+            double beforeXYZ[3], probeRgb[3] = { 0.5, 0.5, 0.5 };
+            m.SignalToXYZ(probeRgb, beforeXYZ);
+            if (!r.IsValid())
+                Fail("T13 failed refit invalidated the previous model");
             for (int c2 = 0; c2 < 3; ++c2)
-                if (r.MatrixRow(r2)[c2] != m.MatrixRow(r2)[c2])
-                    Fail("T13 failed refit altered M[%d][%d]", r2, c2);
-        double afterXYZ[3];
-        r.SignalToXYZ(probeRgb, afterXYZ);
-        for (int k = 0; k < 3; ++k)
-            if (afterXYZ[k] != beforeXYZ[k])
-                Fail("T13 failed refit changed the forward transform");
+                if (r.Gamma(c2) != m.Gamma(c2))
+                    Fail("T13 failed refit altered gamma[%d]", c2);
+            for (int r2 = 0; r2 < 3; ++r2)
+                for (int c2 = 0; c2 < 3; ++c2)
+                    if (r.MatrixRow(r2)[c2] != m.MatrixRow(r2)[c2])
+                        Fail("T13 failed refit altered M[%d][%d]", r2, c2);
+            double afterXYZ[3];
+            r.SignalToXYZ(probeRgb, afterXYZ);
+            for (int k = 0; k < 3; ++k)
+                if (afterXYZ[k] != beforeXYZ[k])
+                    Fail("T13 failed refit changed the forward transform");
+        }
     }
 
     // Transforms on a never-fitted model must refuse, not fabricate.
@@ -992,14 +1009,17 @@ static void RunT13()
         for (size_t i = 0; i < scaled.size(); ++i)
             scaled[i].weight *= 1e-13;
         DisplayModel s;
-        if (!s.Fit(scaled)) { Fail("T13 tiny-weight fit rejected"); return; }
-        for (int c2 = 0; c2 < 3; ++c2)
-            if (fabs(s.Gamma(c2) - m.Gamma(c2)) > 1e-9)
-                Fail("T13 weight rescale changed gamma[%d]: %.9f vs %.9f",
-                     c2, s.Gamma(c2), m.Gamma(c2));
-        for (int c2 = 0; c2 < 3; ++c2)
-            if (s.Report().gammaSource[c2] != DM_PARAM_FITTED)
-                Fail("T13 tiny-weight gammaSource[%d] not FITTED", c2);
+        if (!s.Fit(scaled))
+            Fail("T13 tiny-weight fit rejected");
+        else
+            for (int c2 = 0; c2 < 3; ++c2)
+            {
+                if (fabs(s.Gamma(c2) - m.Gamma(c2)) > 1e-9)
+                    Fail("T13 weight rescale changed gamma[%d]: %.9f vs %.9f",
+                         c2, s.Gamma(c2), m.Gamma(c2));
+                if (s.Report().gammaSource[c2] != DM_PARAM_FITTED)
+                    Fail("T13 tiny-weight gammaSource[%d] not FITTED", c2);
+            }
     }
 
     // Repeated single-channel reads at one drive level carry no slope
@@ -1019,33 +1039,80 @@ static void RunT13()
             s.weight = 1;
             v.push_back(s);
         }
-        for (int c2 = 0; c2 < 3; ++c2)      // one 50% patch per channel...
+        for (int c2 = 0; c2 < 3; ++c2)      // one 50% patch per channel
         {
-            for (int rep = 0; rep < (c2 == 0 ? 2 : 1); ++rep)   // ...red twice
-            {
-                s.rgb[0] = s.rgb[1] = s.rgb[2] = 0.0;
-                s.rgb[c2] = 0.5;
-                double L = pow(0.5, eqGamma);
-                for (int k = 0; k < 3; ++k)
-                    s.XYZ[k] = kBlack[k] + kM[k][c2] * L;
-                s.weight = 1;
-                v.push_back(s);
-            }
+            s.rgb[0] = s.rgb[1] = s.rgb[2] = 0.0;
+            s.rgb[c2] = 0.5;
+            double L = pow(0.5, eqGamma);
+            for (int k = 0; k < 3; ++k)
+                s.XYZ[k] = kBlack[k] + kM[k][c2] * L;
+            s.weight = 1;
+            v.push_back(s);
         }
+        // Red again, verbatim repeat of the first per-channel patch: a second
+        // read at the same drive level carries no slope information, so this
+        // is what forces the gray fallback down the zero-variance path.
+        v.push_back(v[v.size() - 3]);
         DisplayModel g;
-        if (!g.Fit(v)) { Fail("T13 gray-fallback fit rejected"); return; }
-        // Red has two reads at one level (no slope), green/blue one each:
-        // all three must resolve from the gray ramp, exactly.
-        for (int c2 = 0; c2 < 3; ++c2)
+        if (!g.Fit(v))
+            Fail("T13 gray-fallback fit rejected");
+        else
         {
-            if (fabs(g.Gamma(c2) - eqGamma) > 1e-6)
-                Fail("T13 gamma[%d]=%.6f, expected gray-derived %.6f",
-                     c2, g.Gamma(c2), eqGamma);
-            if (g.Report().gammaSource[c2] != DM_PARAM_FROM_GRAYS)
-                Fail("T13 gammaSource[%d] should be FROM_GRAYS", c2);
+            // Red has two reads at one level (no slope), green/blue one each:
+            // all three must resolve from the gray ramp, exactly.
+            for (int c2 = 0; c2 < 3; ++c2)
+            {
+                if (fabs(g.Gamma(c2) - eqGamma) > 1e-6)
+                    Fail("T13 gamma[%d]=%.6f, expected gray-derived %.6f",
+                         c2, g.Gamma(c2), eqGamma);
+                if (g.Report().gammaSource[c2] != DM_PARAM_FROM_GRAYS)
+                    Fail("T13 gammaSource[%d] should be FROM_GRAYS", c2);
+            }
+            if (g.Report().blackSource != DM_PARAM_FITTED)
+                Fail("T13 ramp includes true black; blackSource should be FITTED");
         }
-        if (g.Report().blackSource != DM_PARAM_FITTED)
-            Fail("T13 ramp includes true black; blackSource should be FITTED");
+
+        // Quantization jitter must not empty the gray pool: the same display,
+        // a gray ramp whose channels differ by ~1e-7 (per-channel rounding),
+        // still resolves the gammas from grays to good accuracy.
+        std::vector<DisplayModelSample> vj;
+        for (int i = 0; i <= 10; ++i)
+        {
+            double lv = i / 10.0;
+            s.rgb[0] = lv;
+            s.rgb[1] = (lv > 0.0 && lv < 1.0) ? lv + 1e-7 : lv;
+            s.rgb[2] = (lv > 1e-7) ? lv - 1e-7 : 0.0;
+            for (int k = 0; k < 3; ++k)
+            {
+                s.XYZ[k] = kBlack[k];
+                for (int c2 = 0; c2 < 3; ++c2)
+                    s.XYZ[k] += kM[k][c2] * ((s.rgb[c2] <= 0.0) ? 0.0 : pow(s.rgb[c2], eqGamma));
+            }
+            s.weight = 1;
+            vj.push_back(s);
+        }
+        for (int c2 = 0; c2 < 3; ++c2)      // rank-3: one patch per channel
+        {
+            s.rgb[0] = s.rgb[1] = s.rgb[2] = 0.0;
+            s.rgb[c2] = 0.5;
+            double L = pow(0.5, eqGamma);
+            for (int k = 0; k < 3; ++k)
+                s.XYZ[k] = kBlack[k] + kM[k][c2] * L;
+            s.weight = 1;
+            vj.push_back(s);
+        }
+        DisplayModel gj;
+        if (!gj.Fit(vj))
+            Fail("T13 jittered-gray fit rejected");
+        else
+            for (int c2 = 0; c2 < 3; ++c2)
+            {
+                if (gj.Report().gammaSource[c2] != DM_PARAM_FROM_GRAYS)
+                    Fail("T13 jittered grays fell out of the gray pool (channel %d)", c2);
+                if (fabs(gj.Gamma(c2) - eqGamma) > 1e-3)
+                    Fail("T13 jittered-gray gamma[%d]=%.6f expected ~%.6f",
+                         c2, gj.Gamma(c2), eqGamma);
+            }
     }
 
     // An unconstrained-shaper set (mixed colors only) must still fit the
@@ -1063,10 +1130,12 @@ static void RunT13()
         Add(v, 0.50, 0.30, 0.80, 1);
         Add(v, 0.40, 0.70, 0.90, 1);
         DisplayModel a;
-        if (!a.Fit(v)) { Fail("T13 mixed-color fit rejected"); return; }
-        for (int c2 = 0; c2 < 3; ++c2)
-            if (a.Report().gammaSource[c2] != DM_PARAM_ASSUMED)
-                Fail("T13 mixed-color gammaSource[%d] should be ASSUMED", c2);
+        if (!a.Fit(v))
+            Fail("T13 mixed-color fit rejected");
+        else
+            for (int c2 = 0; c2 < 3; ++c2)
+                if (a.Report().gammaSource[c2] != DM_PARAM_ASSUMED)
+                    Fail("T13 mixed-color gammaSource[%d] should be ASSUMED", c2);
     }
 
     // A lit near-black patch must not pollute the flare estimate.
@@ -1074,13 +1143,17 @@ static void RunT13()
         std::vector<DisplayModelSample> v = set;
         Add(v, 0.005, 0.005, 0.005, 1);   // 0.5% gray: lit, not black
         DisplayModel nb;
-        if (!nb.Fit(v)) { Fail("T13 near-black fit rejected"); return; }
-        for (int k = 0; k < 3; ++k)
-            if (fabs(nb.BlackXYZ()[k] - kBlack[k]) > 1e-9)
-                Fail("T13 near-black patch polluted black[%d]: %.9f expected %.9f",
-                     k, nb.BlackXYZ()[k], kBlack[k]);
-        if (nb.Report().blackSource != DM_PARAM_FITTED)
-            Fail("T13 blackSource should be FITTED when a true black is present");
+        if (!nb.Fit(v))
+            Fail("T13 near-black fit rejected");
+        else
+        {
+            for (int k = 0; k < 3; ++k)
+                if (fabs(nb.BlackXYZ()[k] - kBlack[k]) > 1e-9)
+                    Fail("T13 near-black patch polluted black[%d]: %.9f expected %.9f",
+                         k, nb.BlackXYZ()[k], kBlack[k]);
+            if (nb.Report().blackSource != DM_PARAM_FITTED)
+                Fail("T13 blackSource should be FITTED when a true black is present");
+        }
     }
 }
 

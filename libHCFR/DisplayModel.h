@@ -27,12 +27,12 @@
 
 #include <vector>
 
-// One characterization sample. weight >= 0; weight 0 excludes the sample.
-// For samples with weight > 0, Fit requires every field finite and each
-// stimulus channel within [0..1]; a violating sample rejects the whole fit
-// rather than being silently dropped or misused. Measured XYZ may be
-// slightly negative (instrument noise near black) - only finiteness is
-// required of it.
+// One characterization sample. weight 0 excludes the sample; a negative or
+// non-finite weight rejects the whole fit. For samples with weight > 0, Fit
+// requires every field finite and each stimulus channel within [0..1]; a
+// violating sample rejects the whole fit rather than being silently dropped
+// or misused. Measured XYZ may be slightly negative (instrument noise near
+// black) - only finiteness is required of it.
 struct DisplayModelSample
 {
     double rgb[3];    // stimulus, normalized signal 0..1
@@ -55,6 +55,11 @@ struct DisplayModelReport
     int    samplesUsed;   // samples with weight > 0 that entered the fit
     double rmsXYZ;        // weighted RMS of residual vector magnitude, XYZ units
     double maxXYZ;        // largest residual magnitude among used samples
+    // NOTE: gammas are regressed against the black estimate, so when
+    // blackSource is DM_PARAM_ASSUMED the gammas inherit that assumption
+    // even where gammaSource reads FITTED (on a flare-heavy display with no
+    // true-black sample, fitted slopes are biased low near black). Treat
+    // blackSource as qualifying the whole shaper tier.
     DisplayModelParamSource gammaSource[3];
     DisplayModelParamSource blackSource;
 };
