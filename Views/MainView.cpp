@@ -4822,8 +4822,11 @@ void CMainView::UpdateGrid()
 			m_grayScaleGroup.SetText ( Msg );
 		} else if (m_displayMode == 11)
 		{
-			// The leading set-name chip doubles as the patch-set picker.
-			m_statsBar.SetNameZoneCommand ( IDC_CCSET_NAME );
+			// The leading set-name chip doubles as the sequence picker - but only
+			// in the Custom Sequences state. On the built-in Color Checker sets
+			// the chip is a plain label (switching there is the steps combo's
+			// job; a picker click would flip m_CCMode under the mode combo).
+			m_statsBar.SetNameZoneCommand ( GetConfig () -> m_CCMode == USER ? IDC_CCSET_NAME : 0 );
 			CString	Msg="", Tmp;
 			BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 			isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
@@ -6043,6 +6046,12 @@ void CMainView::OnSelchangeComboMode()
 		GetConfig () -> WriteProfileInt ( "References", "CCMode", nBuiltin );
 		GetConfig () -> GetCColors ();
 	}
+
+	// Arm/disarm the stats-bar name-chip picker centrally: the stats-string
+	// builders also set this, but not every mode's string path runs through
+	// the branch that disarms it, so a mode change is the reliable point.
+	if ( m_statsBar.GetSafeHwnd () )
+		m_statsBar.SetNameZoneCommand ( ( m_displayMode == 11 && GetConfig () -> m_CCMode == USER ) ? IDC_CCSET_NAME : 0 );
 
 	if ( m_displayMode == 12 )
 	{
