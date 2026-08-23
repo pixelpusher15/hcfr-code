@@ -19,12 +19,18 @@
 
 namespace
 {
-    const double kNearZeroSignal = 0.01;   // at or below: counts as channel off
-    const double kMinFitSignal   = 0.02;   // regression uses samples above this
-    const double kMaxFitSignal   = 0.999;  // and below this (peak pins the matrix)
-    const double kGammaMin       = 0.5;
-    const double kGammaMax       = 5.0;
-    const double kDefaultGamma   = 2.2;
+    const double kZeroSignal   = 1e-9;    // at or below: channel is truly off
+    const double kMinFitSignal = 0.02;    // gamma regression uses samples above this
+    const double kMaxFitSignal = 0.999;   // and below this (peak still pins the matrix)
+    const double kSignalTol    = 1e-9;    // contract tolerance on the [0..1] stimulus range
+    const double kGammaMin     = 0.5;
+    const double kGammaMax     = 5.0;
+    const double kDefaultGamma = 2.2;
+
+    bool Finite(double v)
+    {
+        return std::isfinite(v);
+    }
 
     double Norm3(const double v[3])
     {
@@ -32,7 +38,7 @@ namespace
     }
 
     // 3x3 inverse via adjugate. Returns false when |det| is degenerate
-    // relative to the matrix magnitude.
+    // relative to the matrix magnitude, or not finite.
     bool Invert3x3(const double a[3][3], double out[3][3])
     {
         double c00 = a[1][1] * a[2][2] - a[1][2] * a[2][1];
@@ -44,7 +50,7 @@ namespace
         for (int i = 0; i < 3; ++i)
             for (int j = 0; j < 3; ++j)
                 scale += fabs(a[i][j]);
-        if (fabs(det) <= 1e-12 * scale * scale * scale || det == 0.0)
+        if (!Finite(det) || fabs(det) <= 1e-12 * scale * scale * scale)
             return false;
 
         out[0][0] = c00 / det;
@@ -59,26 +65,44 @@ namespace
         return true;
     }
 
-    // Weighted linear regression of y on x: returns slope, or fallback when
-    // fewer than two distinct x values carry weight.
-    double WeightedSlope(const std::vector<double>& x, const std::vector<double>& y,
-                         const std::vector<double>& w, double fallback)
+    // Streaming weighted linear regression of y on x. The degeneracy test is
+    // relative to the accumulated weight, so uniformly rescaling all weights
+    // cannot change whether the slope resolves (the weight contract is
+    // "arbitrary-scale relative confidence").
+    struct SlopeAccum
     {
-        double sw = 0.0, sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
-        for (size_t i = 0; i < x.size(); ++i)
+        int    n;
+        double sw, sx, sy, sxx, sxy;
+
+        SlopeAccum() : n(0), sw(0.0), sx(0.0), sy(0.0), sxx(0.0), sxy(0.0) {}
+
+        void Add(double x, double y, double w)
         {
-            sw  += w[i];
-            sx  += w[i] * x[i];
-            sy  += w[i] * y[i];
-            sxx += w[i] * x[i] * x[i];
-            sxy += w[i] * x[i] * y[i];
+            ++n;
+            sw  += w;
+            sx  += w * x;
+            sy  += w * y;
+            sxx += w * x * x;
+            sxy += w * x * y;
         }
-        if (sw <= 0.0)
-            return fallback;
-        double denom = sxx - sx * sx / sw;
-        if (denom <= 1e-12)
-            return fallback;
-        return (sxy - sx * sy / sw) / denom;
+
+        bool Slope(double* out) const
+        {
+            if (n < 2 || sw <= 0.0)
+                return false;
+            double denom = sxx - sx * sx / sw;   // sw * weighted Var(x)
+            if (!Finite(denom) || denom <= 1e-12 * sw)
+                return false;
+            *out = (sxy - sx * sy / sw) / denom;
+            return Finite(*out);
+        }
+    };
+
+    double ClampGamma(double g)
+    {
+        if (g < kGammaMin) return kGammaMin;
+        if (g > kGammaMax) return kGammaMax;
+        return g;
     }
 }
 
@@ -94,20 +118,31 @@ DisplayModel::DisplayModel()
 
 bool DisplayModel::Fit(const std::vector<DisplayModelSample>& samples)
 {
-    m_valid = false;
-    memset(&m_report, 0, sizeof(m_report));
+    // The fit computes into locals and commits to members only on success, so
+    // a failed (re-)fit leaves the previous model fully intact.
 
-    // ---- Pass 1: black offset = weighted mean XYZ of all-channels-off samples.
+    // ---- Contract validation + black offset in one pass.
+    // Black offset = weighted mean XYZ of the truly-black samples (all
+    // channels off); a lit near-black patch must not be pooled into flare.
     double blackW = 0.0, blackSum[3] = { 0.0, 0.0, 0.0 };
     int usable = 0;
     for (size_t i = 0; i < samples.size(); ++i)
     {
         const DisplayModelSample& s = samples[i];
+        if (!Finite(s.weight))
+            return false;
         if (s.weight <= 0.0)
             continue;
+        for (int k = 0; k < 3; ++k)
+        {
+            if (!Finite(s.rgb[k]) || !Finite(s.XYZ[k]))
+                return false;
+            if (s.rgb[k] < -kSignalTol || s.rgb[k] > 1.0 + kSignalTol)
+                return false;
+        }
         ++usable;
-        if (s.rgb[0] <= kNearZeroSignal && s.rgb[1] <= kNearZeroSignal &&
-            s.rgb[2] <= kNearZeroSignal)
+        if (s.rgb[0] <= kZeroSignal && s.rgb[1] <= kZeroSignal &&
+            s.rgb[2] <= kZeroSignal)
         {
             blackW += s.weight;
             for (int k = 0; k < 3; ++k)
@@ -116,62 +151,69 @@ bool DisplayModel::Fit(const std::vector<DisplayModelSample>& samples)
     }
     if (usable < 8)
         return false;
-    for (int k = 0; k < 3; ++k)
-        m_black[k] = (blackW > 0.0) ? blackSum[k] / blackW : 0.0;
 
-    // ---- Pass 2: per-channel gamma from single-channel samples, gray fallback.
+    double black[3];
+    for (int k = 0; k < 3; ++k)
+        black[k] = (blackW > 0.0) ? blackSum[k] / blackW : 0.0;
+    DisplayModelParamSource blackSource =
+        (blackW > 0.0) ? DM_PARAM_FITTED : DM_PARAM_ASSUMED;
+
+    // ---- Gamma per channel, classified in a single pass over the samples.
     // Above black, a single-channel drive gives (XYZ - black) = column_c * s^gamma,
     // so ln|XYZ - black| is linear in ln s with slope gamma. Grays obey the same
     // relation only when all channels share a gamma, so they are the fallback
     // pool, not the primary one.
-    std::vector<double> grayX, grayY, grayW;
-    for (int c = 0; c < 3; ++c)
+    SlopeAccum channelPool[3], grayPool;
+    for (size_t i = 0; i < samples.size(); ++i)
     {
-        std::vector<double> lx, ly, lw;
-        for (size_t i = 0; i < samples.size(); ++i)
+        const DisplayModelSample& s = samples[i];
+        if (s.weight <= 0.0)
+            continue;
+        double delta[3];
+        for (int k = 0; k < 3; ++k)
+            delta[k] = s.XYZ[k] - black[k];
+        double mag = Norm3(delta);
+        if (mag <= 0.0)
+            continue;
+        for (int c = 0; c < 3; ++c)
         {
-            const DisplayModelSample& s = samples[i];
-            if (s.weight <= 0.0)
-                continue;
             int o1 = (c + 1) % 3, o2 = (c + 2) % 3;
-            bool single = s.rgb[o1] <= kNearZeroSignal && s.rgb[o2] <= kNearZeroSignal &&
-                          s.rgb[c] > kMinFitSignal && s.rgb[c] < kMaxFitSignal;
-            bool gray = c == 0 &&   // collect grays once
-                        fabs(s.rgb[0] - s.rgb[1]) <= 1e-9 && fabs(s.rgb[1] - s.rgb[2]) <= 1e-9 &&
-                        s.rgb[0] > kMinFitSignal && s.rgb[0] < kMaxFitSignal;
-            double delta[3];
-            for (int k = 0; k < 3; ++k)
-                delta[k] = s.XYZ[k] - m_black[k];
-            double mag = Norm3(delta);
-            if (mag <= 0.0)
-                continue;
-            if (single)
-            {
-                lx.push_back(log(s.rgb[c]));
-                ly.push_back(log(mag));
-                lw.push_back(s.weight);
-            }
-            if (gray)
-            {
-                grayX.push_back(log(s.rgb[0]));
-                grayY.push_back(log(mag));
-                grayW.push_back(s.weight);
-            }
+            if (s.rgb[o1] <= kZeroSignal && s.rgb[o2] <= kZeroSignal &&
+                s.rgb[c] > kMinFitSignal && s.rgb[c] < kMaxFitSignal)
+                channelPool[c].Add(log(s.rgb[c]), log(mag), s.weight);
         }
-        m_gamma[c] = (lx.size() >= 2)
-            ? WeightedSlope(lx, ly, lw, kDefaultGamma)
-            : 0.0;   // resolved from grays below
-    }
-    double grayGamma = WeightedSlope(grayX, grayY, grayW, kDefaultGamma);
-    for (int c = 0; c < 3; ++c)
-    {
-        if (m_gamma[c] == 0.0)
-            m_gamma[c] = grayGamma;
-        if (m_gamma[c] < kGammaMin) m_gamma[c] = kGammaMin;
-        if (m_gamma[c] > kGammaMax) m_gamma[c] = kGammaMax;
+        if (fabs(s.rgb[0] - s.rgb[1]) <= kSignalTol &&
+            fabs(s.rgb[1] - s.rgb[2]) <= kSignalTol &&
+            s.rgb[0] > kMinFitSignal && s.rgb[0] < kMaxFitSignal)
+            grayPool.Add(log(s.rgb[0]), log(mag), s.weight);
     }
 
-    // ---- Pass 3: matrix by weighted least squares over ALL usable samples.
+    double graySlope = 0.0;
+    bool grayResolved = grayPool.Slope(&graySlope);
+
+    double gamma[3];
+    DisplayModelParamSource gammaSource[3];
+    for (int c = 0; c < 3; ++c)
+    {
+        double slope = 0.0;
+        if (channelPool[c].Slope(&slope))
+        {
+            gamma[c] = ClampGamma(slope);
+            gammaSource[c] = DM_PARAM_FITTED;
+        }
+        else if (grayResolved)
+        {
+            gamma[c] = ClampGamma(graySlope);
+            gammaSource[c] = DM_PARAM_FROM_GRAYS;
+        }
+        else
+        {
+            gamma[c] = kDefaultGamma;
+            gammaSource[c] = DM_PARAM_ASSUMED;
+        }
+    }
+
+    // ---- Matrix by weighted least squares over ALL usable samples.
     // (XYZ - black) ~= M * L, L_c = rgb_c^gamma_c.
     // M = A * B^-1 with A = sum w * (XYZ-black) * L^T, B = sum w * L * L^T.
     double A[3][3] = { { 0 } }, B[3][3] = { { 0 } };
@@ -183,8 +225,8 @@ bool DisplayModel::Fit(const std::vector<DisplayModelSample>& samples)
         double L[3], delta[3];
         for (int k = 0; k < 3; ++k)
         {
-            L[k] = (s.rgb[k] <= 0.0) ? 0.0 : pow(s.rgb[k], m_gamma[k]);
-            delta[k] = s.XYZ[k] - m_black[k];
+            L[k] = (s.rgb[k] <= 0.0) ? 0.0 : pow(s.rgb[k], gamma[k]);
+            delta[k] = s.XYZ[k] - black[k];
         }
         for (int r = 0; r < 3; ++r)
             for (int c = 0; c < 3; ++c)
@@ -193,21 +235,27 @@ bool DisplayModel::Fit(const std::vector<DisplayModelSample>& samples)
                 B[r][c] += s.weight * L[r] * L[c];
             }
     }
-    double Binv[3][3];
+    double Binv[3][3], M[3][3], Minv[3][3];
     if (!Invert3x3(B, Binv))
         return false;
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 3; ++c)
         {
-            m_M[r][c] = 0.0;
+            M[r][c] = 0.0;
             for (int k = 0; k < 3; ++k)
-                m_M[r][c] += A[r][k] * Binv[k][c];
+                M[r][c] += A[r][k] * Binv[k][c];
         }
-    if (!Invert3x3(m_M, m_Minv))
+    if (!Invert3x3(M, Minv))
         return false;
 
-    // ---- Residual report over the samples the fit saw.
-    m_valid = true;   // SignalToXYZ needs the fitted state
+    // ---- Success: commit the fitted state, then report residuals through
+    // the same forward path callers will use.
+    memcpy(m_M, M, sizeof(m_M));
+    memcpy(m_Minv, Minv, sizeof(m_Minv));
+    memcpy(m_black, black, sizeof(m_black));
+    memcpy(m_gamma, gamma, sizeof(m_gamma));
+    m_valid = true;
+
     double sw = 0.0, swr2 = 0.0, maxR = 0.0;
     for (size_t i = 0; i < samples.size(); ++i)
     {
@@ -228,13 +276,18 @@ bool DisplayModel::Fit(const std::vector<DisplayModelSample>& samples)
     m_report.rmsXYZ = (sw > 0.0) ? sqrt(swr2 / sw) : 0.0;
     m_report.maxXYZ = maxR;
     for (int c = 0; c < 3; ++c)
-        m_report.gamma[c] = m_gamma[c];
-    m_report.valid = true;
+        m_report.gammaSource[c] = gammaSource[c];
+    m_report.blackSource = blackSource;
     return true;
 }
 
 void DisplayModel::SignalToXYZ(const double rgb[3], double XYZ[3]) const
 {
+    if (!m_valid)
+    {
+        XYZ[0] = XYZ[1] = XYZ[2] = 0.0;
+        return;
+    }
     double L[3];
     for (int k = 0; k < 3; ++k)
     {
@@ -253,6 +306,11 @@ void DisplayModel::SignalToXYZ(const double rgb[3], double XYZ[3]) const
 
 bool DisplayModel::XYZToSignal(const double XYZ[3], double rgb[3]) const
 {
+    if (!m_valid)
+    {
+        rgb[0] = rgb[1] = rgb[2] = 0.0;
+        return false;
+    }
     const double kClipTolerance = 1e-9;
     double delta[3], L[3];
     for (int k = 0; k < 3; ++k)
