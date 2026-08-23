@@ -15,6 +15,7 @@
 
 #include <afx.h>
 #include "../../libHCFR/Color.h"
+#include "../../libHCFR/DisplayModel.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -773,6 +774,162 @@ static void RunT10()
 }
 
 //////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+// T13 — DisplayModel v1 recovery oracle (pure assertion, no golden file).
+// A synthetic display with known per-channel gammas, primary matrix, and
+// black offset generates noise-free samples; the fitted model must recover
+// the parameters, the weight input must behave as a weight (0 excludes, a
+// heavy corrupt sample must pull the fit), and the inverse must round-trip
+// in-gamut colors and flag out-of-gamut ones.
+//////////////////////////////////////////////////////////////////////////
+
+namespace T13
+{
+    // Rec.709-ish primary columns scaled to Y=100 white, arbitrary but fixed.
+    static const double kM[3][3] = {
+        { 41.24, 35.76, 18.05 },
+        { 21.26, 71.52,  7.22 },
+        {  1.93, 11.92, 95.05 },
+    };
+    static const double kGamma[3] = { 2.35, 2.20, 2.05 };
+    static const double kBlack[3] = { 0.04, 0.05, 0.06 };
+
+    static void Emit(const double rgb[3], double XYZ[3])
+    {
+        double L[3];
+        for (int k = 0; k < 3; ++k)
+            L[k] = (rgb[k] <= 0.0) ? 0.0 : pow(rgb[k], kGamma[k]);
+        for (int r = 0; r < 3; ++r)
+            XYZ[r] = kBlack[r] + kM[r][0] * L[0] + kM[r][1] * L[1] + kM[r][2] * L[2];
+    }
+
+    static void Add(std::vector<DisplayModelSample>& v, double r, double g, double b, double w)
+    {
+        DisplayModelSample s;
+        s.rgb[0] = r; s.rgb[1] = g; s.rgb[2] = b;
+        Emit(s.rgb, s.XYZ);
+        s.weight = w;
+        v.push_back(s);
+    }
+
+    static void BuildSet(std::vector<DisplayModelSample>& v)
+    {
+        Add(v, 0, 0, 0, 1);                              // black
+        for (int i = 1; i <= 10; ++i)                    // gray ramp incl. white
+            Add(v, i / 10.0, i / 10.0, i / 10.0, 1);
+        for (int c = 0; c < 3; ++c)                      // channel ramps incl. peaks
+            for (int i = 1; i <= 8; ++i)
+            {
+                double s[3] = { 0, 0, 0 };
+                s[c] = i / 8.0;
+                Add(v, s[0], s[1], s[2], 1);
+            }
+        Add(v, 0.75, 0.50, 0.25, 1);                     // a few mixed colors
+        Add(v, 0.25, 0.50, 0.75, 1);
+        Add(v, 0.60, 0.60, 0.20, 1);
+    }
+}
+
+static void RunT13()
+{
+    printf("T13 DisplayModel v1 recovery oracle...\n");
+    using namespace T13;
+
+    std::vector<DisplayModelSample> set;
+    BuildSet(set);
+
+    DisplayModel m;
+    if (!m.Fit(set) || !m.IsValid())
+        { Fail("T13 fit rejected a well-formed sample set"); return; }
+
+    // Parameter recovery on noise-free data.
+    for (int c = 0; c < 3; ++c)
+        if (fabs(m.Gamma(c) - kGamma[c]) > 1e-6)
+            Fail("T13 gamma[%d]=%.9f expected %.9f", c, m.Gamma(c), kGamma[c]);
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c)
+            if (fabs(m.MatrixRow(r)[c] - kM[r][c]) > 1e-6)
+                Fail("T13 M[%d][%d]=%.9f expected %.9f", r, c, m.MatrixRow(r)[c], kM[r][c]);
+    for (int k = 0; k < 3; ++k)
+        if (fabs(m.BlackXYZ()[k] - kBlack[k]) > 1e-9)
+            Fail("T13 black[%d]=%.9f expected %.9f", k, m.BlackXYZ()[k], kBlack[k]);
+    if (m.Report().rmsXYZ > 1e-6 || m.Report().maxXYZ > 1e-6)
+        Fail("T13 residuals on exact data: rms=%.3g max=%.3g",
+             m.Report().rmsXYZ, m.Report().maxXYZ);
+    if (m.Report().samplesUsed != (int)set.size())
+        Fail("T13 samplesUsed=%d expected %d", m.Report().samplesUsed, (int)set.size());
+
+    // Weight semantics: a corrupted sample at weight 0 must change nothing...
+    std::vector<DisplayModelSample> poisoned = set;
+    DisplayModelSample bad;
+    bad.rgb[0] = bad.rgb[1] = bad.rgb[2] = 0.5;
+    Emit(bad.rgb, bad.XYZ);
+    for (int k = 0; k < 3; ++k)
+        bad.XYZ[k] *= 1.5;
+    bad.weight = 0.0;
+    poisoned.push_back(bad);
+    DisplayModel mz;
+    if (!mz.Fit(poisoned))
+        { Fail("T13 weight-0 fit rejected"); return; }
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c)
+            if (fabs(mz.MatrixRow(r)[c] - m.MatrixRow(r)[c]) > 1e-12)
+                Fail("T13 weight-0 sample altered the fit at M[%d][%d]", r, c);
+
+    // ...and the same sample at a heavy weight must pull the fit measurably.
+    poisoned.back().weight = 25.0;
+    DisplayModel mh;
+    if (!mh.Fit(poisoned))
+        { Fail("T13 heavy-weight fit rejected"); return; }
+    double drift = 0.0;
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c)
+            drift += fabs(mh.MatrixRow(r)[c] - m.MatrixRow(r)[c]);
+    if (drift < 1e-3)
+        Fail("T13 heavy corrupt sample did not influence the fit (drift=%.3g)", drift);
+    if (mh.Report().rmsXYZ <= m.Report().rmsXYZ)
+        Fail("T13 heavy corrupt sample did not raise fit residuals");
+
+    // Inverse round-trip across an in-gamut lattice.
+    for (int r = 0; r <= 4; ++r)
+        for (int g = 0; g <= 4; ++g)
+            for (int b = 0; b <= 4; ++b)
+            {
+                double rgb[3] = { r / 4.0, g / 4.0, b / 4.0 };
+                double XYZ[3], back[3], again[3];
+                m.SignalToXYZ(rgb, XYZ);
+                if (!m.XYZToSignal(XYZ, back))
+                    { Fail("T13 inverse flagged in-gamut %d %d %d", r, g, b); continue; }
+                m.SignalToXYZ(back, again);
+                for (int k = 0; k < 3; ++k)
+                    if (fabs(again[k] - XYZ[k]) > 1e-9)
+                        Fail("T13 round-trip drift at %d %d %d comp %d: %.3g",
+                             r, g, b, k, fabs(again[k] - XYZ[k]));
+            }
+
+    // Out-of-gamut must be flagged and clamped.
+    double outXYZ[3] = { 150.0, 20.0, 10.0 };   // far beyond the red primary
+    double clamped[3];
+    if (m.XYZToSignal(outXYZ, clamped))
+        Fail("T13 out-of-gamut XYZ not flagged");
+    for (int k = 0; k < 3; ++k)
+        if (clamped[k] < 0.0 || clamped[k] > 1.0)
+            Fail("T13 clamped signal escaped [0,1]: %.6f", clamped[k]);
+
+    // Degenerate input must be rejected: too few samples, and no variation.
+    std::vector<DisplayModelSample> tiny(set.begin(), set.begin() + 5);
+    DisplayModel mt;
+    if (mt.Fit(tiny) || mt.IsValid())
+        Fail("T13 fit accepted a 5-sample set");
+    std::vector<DisplayModelSample> flat;
+    for (int i = 0; i < 12; ++i)
+        Add(flat, 0.5, 0.5, 0.5, 1);
+    DisplayModel mf;
+    if (mf.Fit(flat))
+        Fail("T13 fit accepted a no-variation set");
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -799,6 +956,7 @@ int main(int argc, char* argv[])
     RunT8();
     RunT9();
     RunT10();
+    RunT13();
 
     if (g_failures)
     {
