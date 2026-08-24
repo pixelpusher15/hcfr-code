@@ -10,7 +10,8 @@
 // T2/T3/T4/T6 dump deterministic tables and compare them exactly against checked-in goldens.
 // Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
-// T10 asserts gamut-basis consistency, and T15 asserts the CubeLUT .cube format contract.
+// T10 asserts gamut-basis consistency, and T15 asserts the CubeLUT .cube format contract
+// and its tetrahedral evaluator.
 // T11-T14 are deliberately skipped here: they are claimed by in-flight branches (PR #178's
 // BT.2390 oracles = T11/T12, the display-model series = T13, csv-provenance's CSV oracle
 // renumbers to T14 on rebase) - check open branches before assigning any new T number.
@@ -1185,6 +1186,294 @@ static void RunT15()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T15 interp — CubeLUT tetrahedral evaluator oracle (pure assertion).
+// The pinned properties are theorems of tetrahedral interpolation, so the
+// tolerances are rounding-level: exact at nodes, exact everywhere for a
+// lattice sampled from an affine function, the 6-tetrahedron barycentric
+// weight table on indicator lattices (which trilinear interpolation fails,
+// so the technique itself is pinned, not just its boundary behavior),
+// continuity across cell faces and diagonal planes, domain mapping,
+// clamping, and rejection of invalid/non-finite evaluation.
+//////////////////////////////////////////////////////////////////////////
+
+namespace T15Interp
+{
+    // Fixed affine map out = A*in + c, arbitrary but nonsingular.
+    static const double kA[3][3] = {
+        {  0.7,  0.2, -0.1 },
+        { -0.3,  1.1,  0.4 },
+        {  0.5, -0.6,  0.9 },
+    };
+    static const double kC[3] = { 0.25, -0.5, 0.125 };
+
+    static void Affine(const double in[3], double out[3])
+    {
+        for (int r = 0; r < 3; ++r)
+            out[r] = kC[r] + kA[r][0] * in[0] + kA[r][1] * in[1] + kA[r][2] * in[2];
+    }
+
+    // Fills every entry with the affine image of that node's DOMAIN position.
+    static void FillAffine(CubeLUT& lut)
+    {
+        int n = lut.Size();
+        double dmin[3], dmax[3];
+        lut.GetDomain(dmin, dmax);
+        for (int b = 0; b < n; ++b)
+            for (int g = 0; g < n; ++g)
+                for (int r = 0; r < n; ++r)
+                {
+                    double pos[3] = {
+                        dmin[0] + r / (double)(n - 1) * (dmax[0] - dmin[0]),
+                        dmin[1] + g / (double)(n - 1) * (dmax[1] - dmin[1]),
+                        dmin[2] + b / (double)(n - 1) * (dmax[2] - dmin[2]),
+                    };
+                    double v[3];
+                    Affine(pos, v);
+                    if (!lut.SetEntry(r, g, b, v))
+                        Fail("T15 interp FillAffine SetEntry(%d,%d,%d) failed", r, g, b);
+                }
+    }
+}
+
+static void RunT15Interp()
+{
+    printf("T15 CubeLUT tetrahedral evaluator oracle...\n");
+    using namespace T15Interp;
+    using T15Cube::Lcg;
+
+    // Invalid object and non-finite input reject with zeroed output.
+    {
+        CubeLUT fresh;
+        double in[3] = { 0.5, 0.5, 0.5 }, out[3] = { 9, 9, 9 };
+        if (fresh.Evaluate(in, out))
+            Fail("T15 interp Evaluate succeeded on an invalid object");
+        if (out[0] != 0.0 || out[1] != 0.0 || out[2] != 0.0)
+            Fail("T15 interp invalid Evaluate did not zero the output");
+        CubeLUT lut;
+        lut.Create(2);
+        double bad[3] = { sqrt(-1.0), 0.5, 0.5 };
+        out[0] = out[1] = out[2] = 9.0;
+        if (lut.Evaluate(bad, out))
+            Fail("T15 interp Evaluate accepted a NaN input");
+        if (out[0] != 0.0 || out[1] != 0.0 || out[2] != 0.0)
+            Fail("T15 interp NaN Evaluate did not zero the output");
+    }
+
+    // Identity lattice evaluates to the identity everywhere in the domain.
+    {
+        CubeLUT lut;
+        lut.Create(5);
+        Lcg g(52413u);
+        for (int i = 0; i < 200; ++i)
+        {
+            double in[3] = { g.Next01(), g.Next01(), g.Next01() }, out[3];
+            if (!lut.Evaluate(in, out))
+                { Fail("T15 interp identity Evaluate failed"); break; }
+            for (int k = 0; k < 3; ++k)
+                if (fabs(out[k] - in[k]) > 1e-12)
+                    Fail("T15 interp identity off at probe %d comp %d: %.3g",
+                         i, k, fabs(out[k] - in[k]));
+        }
+    }
+
+    // A lattice sampled from an affine function reproduces it EXACTLY
+    // everywhere, not just at nodes - the defining property of barycentric-
+    // linear interpolation.
+    {
+        CubeLUT lut;
+        lut.Create(4);
+        FillAffine(lut);
+        Lcg g(90125u);
+        for (int i = 0; i < 200; ++i)
+        {
+            double in[3] = { g.Next01(), g.Next01(), g.Next01() };
+            double out[3], want[3];
+            if (!lut.Evaluate(in, out))
+                { Fail("T15 interp affine Evaluate failed"); break; }
+            Affine(in, want);
+            for (int k = 0; k < 3; ++k)
+                if (fabs(out[k] - want[k]) > 1e-12)
+                    Fail("T15 interp affine off at probe %d comp %d: %.3g",
+                         i, k, fabs(out[k] - want[k]));
+        }
+    }
+
+    // Exact at every node of a non-affine (random) lattice.
+    {
+        CubeLUT lut;
+        lut.Create(4);
+        T15Cube::FillLattice(lut, 86420u);
+        for (int b = 0; b < 4; ++b)
+            for (int g = 0; g < 4; ++g)
+                for (int r = 0; r < 4; ++r)
+                {
+                    double in[3] = { r / 3.0, g / 3.0, b / 3.0 };
+                    double out[3], want[3];
+                    lut.GetEntry(r, g, b, want);
+                    if (!lut.Evaluate(in, out))
+                        { Fail("T15 interp node Evaluate failed"); continue; }
+                    for (int k = 0; k < 3; ++k)
+                        if (fabs(out[k] - want[k]) > 1e-12)
+                            Fail("T15 interp node (%d,%d,%d) comp %d off by %.3g",
+                                 r, g, b, k, fabs(out[k] - want[k]));
+                }
+    }
+
+    // The 6-tetrahedron weight table itself, pinned on indicator lattices.
+    // For cell fractions f with distinct values and hi/mid/lo the axis
+    // order, the only corners with weight are c000 (1-f[hi]), the corner
+    // with a 1 on the hi axis (f[hi]-f[mid]), the corner with 1s on hi+mid
+    // (f[mid]-f[lo]), and c111 (f[lo]). Trilinear interpolation fails this.
+    {
+        static const double perms[6][3] = {
+            { 0.6, 0.3, 0.1 }, { 0.6, 0.1, 0.3 },
+            { 0.3, 0.6, 0.1 }, { 0.1, 0.6, 0.3 },
+            { 0.3, 0.1, 0.6 }, { 0.1, 0.3, 0.6 },
+        };
+        for (int p = 0; p < 6; ++p)
+        {
+            const double* f = perms[p];
+            int hi = 0, lo = 0;
+            for (int k = 1; k < 3; ++k)
+            {
+                if (f[k] > f[hi]) hi = k;
+                if (f[k] < f[lo]) lo = k;
+            }
+            int mid = 3 - hi - lo;
+            for (int corner = 0; corner < 8; ++corner)
+            {
+                int bits[3] = { corner & 1, (corner >> 1) & 1, (corner >> 2) & 1 };
+                CubeLUT lut;
+                lut.Create(2);
+                // zero everything, then the indicator
+                double z[3] = { 0.0, 0.0, 0.0 };
+                for (int c = 0; c < 8; ++c)
+                    lut.SetEntry(c & 1, (c >> 1) & 1, (c >> 2) & 1, z);
+                double one[3] = { 1.0, 0.0, 0.0 };
+                lut.SetEntry(bits[0], bits[1], bits[2], one);
+
+                double want;
+                int setCount = bits[0] + bits[1] + bits[2];
+                if (setCount == 0)
+                    want = 1.0 - f[hi];
+                else if (setCount == 3)
+                    want = f[lo];
+                else if (setCount == 1 && bits[hi] == 1)
+                    want = f[hi] - f[mid];
+                else if (setCount == 2 && bits[hi] == 1 && bits[mid] == 1)
+                    want = f[mid] - f[lo];
+                else
+                    want = 0.0;
+
+                double out[3];
+                if (!lut.Evaluate(f, out))
+                    { Fail("T15 interp weight-table Evaluate failed"); continue; }
+                if (fabs(out[0] - want) > 1e-12)
+                    Fail("T15 interp weight perm %d corner %d = %.17g expected %.17g "
+                         "(tetrahedral, not trilinear)", p, corner, out[0], want);
+            }
+        }
+    }
+
+    // Custom domain: the same affine exactness must hold when the lattice
+    // spans a non-default box, and out-of-domain inputs clamp to the face.
+    {
+        CubeLUT lut;
+        lut.Create(3);
+        double dmin[3] = { -1.0, 0.0, -0.5 }, dmax[3] = { 3.0, 2.0, 0.5 };
+        if (!lut.SetDomain(dmin, dmax))
+            Fail("T15 interp SetDomain failed");
+        FillAffine(lut);
+        Lcg g(19283u);
+        for (int i = 0; i < 100; ++i)
+        {
+            double in[3], out[3], want[3];
+            for (int k = 0; k < 3; ++k)
+                in[k] = dmin[k] + g.Next01() * (dmax[k] - dmin[k]);
+            if (!lut.Evaluate(in, out))
+                { Fail("T15 interp domain Evaluate failed"); break; }
+            Affine(in, want);
+            for (int k = 0; k < 3; ++k)
+                if (fabs(out[k] - want[k]) > 1e-12)
+                    Fail("T15 interp domain probe %d comp %d off by %.3g",
+                         i, k, fabs(out[k] - want[k]));
+        }
+        double outside[3] = { 5.0, -1.0, 0.2 };
+        double clamped[3] = { 3.0,  0.0, 0.2 };
+        double a[3], b[3];
+        lut.Evaluate(outside, a);
+        lut.Evaluate(clamped, b);
+        for (int k = 0; k < 3; ++k)
+            if (a[k] != b[k])
+                Fail("T15 interp out-of-domain input did not clamp (comp %d)", k);
+    }
+
+    // Continuity across cell faces and across the diagonal planes where
+    // the fraction ordering (and thus the tetrahedron) changes.
+    {
+        CubeLUT lut;
+        lut.Create(5);
+        T15Cube::FillLattice(lut, 75319u);
+        const double eps = 1e-9;
+        // cell faces: x = k/4 crossed along each axis
+        for (int axis = 0; axis < 3; ++axis)
+            for (int k = 1; k < 4; ++k)
+            {
+                double lo[3] = { 0.37, 0.61, 0.23 };
+                double hi[3] = { 0.37, 0.61, 0.23 };
+                lo[axis] = k / 4.0 - eps;
+                hi[axis] = k / 4.0 + eps;
+                double a[3], b[3];
+                lut.Evaluate(lo, a);
+                lut.Evaluate(hi, b);
+                for (int c = 0; c < 3; ++c)
+                    if (fabs(a[c] - b[c]) > 1e-6)
+                        Fail("T15 interp discontinuity across face axis %d k=%d: %.3g",
+                             axis, k, fabs(a[c] - b[c]));
+            }
+        // diagonal planes: equal fractions inside one cell, straddled by
+        // nudging one axis in each direction
+        static const double base[3][3] = {
+            { 0.30, 0.30, 0.10 },   // fr == fg
+            { 0.30, 0.10, 0.30 },   // fr == fb
+            { 0.10, 0.30, 0.30 },   // fg == fb
+        };
+        for (int t = 0; t < 3; ++t)
+        {
+            int axis = (t == 0) ? 0 : (t == 1) ? 0 : 1;   // one of the tied axes
+            double lo[3], hi[3];
+            for (int c = 0; c < 3; ++c)
+            {
+                lo[c] = base[t][c];
+                hi[c] = base[t][c];
+            }
+            lo[axis] -= eps;
+            hi[axis] += eps;
+            double a[3], b[3];
+            lut.Evaluate(lo, a);
+            lut.Evaluate(hi, b);
+            for (int c = 0; c < 3; ++c)
+                if (fabs(a[c] - b[c]) > 1e-6)
+                    Fail("T15 interp discontinuity across diagonal %d: %.3g",
+                         t, fabs(a[c] - b[c]));
+        }
+    }
+
+    // Deterministic.
+    {
+        CubeLUT lut;
+        lut.Create(4);
+        T15Cube::FillLattice(lut, 31415u);
+        double in[3] = { 0.31, 0.77, 0.52 }, a[3], b[3];
+        lut.Evaluate(in, a);
+        lut.Evaluate(in, b);
+        for (int k = 0; k < 3; ++k)
+            if (a[k] != b[k])
+                Fail("T15 interp nondeterministic (comp %d)", k);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -1212,6 +1501,7 @@ int main(int argc, char* argv[])
     RunT9();
     RunT10();
     RunT15();   // T11-T14 are claimed by in-flight branches; see the header
+    RunT15Interp();
 
     if (g_failures)
     {

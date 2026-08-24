@@ -244,6 +244,15 @@ void CubeLUT::GetDomain(double dmin[3], double dmax[3]) const
     }
 }
 
+// RED-BASELINE STUB for the tetrahedral evaluator; the real implementation
+// replaces this function. See CubeLUT.h for the contract.
+bool CubeLUT::Evaluate(const double in[3], double out[3]) const
+{
+    (void)in;
+    out[0] = out[1] = out[2] = 0.0;
+    return false;
+}
+
 bool CubeLUT::WriteToString(std::string& out) const
 {
     out.clear();

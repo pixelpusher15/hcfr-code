@@ -80,6 +80,25 @@ public:
     bool SetDomain(const double dmin[3], const double dmax[3]);
     void GetDomain(double dmin[3], double dmax[3]) const;
 
+    // Apply the LUT: map an input color through the lattice by tetrahedral
+    // interpolation - the classic 6-tetrahedron decomposition of each
+    // lattice cell along its main diagonal, where the cube is split by the
+    // ordering of the three cell-local fractions and the output is the
+    // barycentric blend along the path c000 -> (largest axis) -> (largest+
+    // middle axes) -> c111 with weights (1-max, max-mid, mid-min, min).
+    // (Interpolation technique analyzed in Kasson & Plouffe, "An Analysis
+    // of Selected Computer Interchange Color Spaces", ACM Trans. Graphics
+    // 11(4), 1992; long-standard in color LUT hardware and ICC pipelines.)
+    //
+    // Input is in DOMAIN coordinates: each component is mapped through
+    // (in - domainMin) / (domainMax - domainMin) and clamped to the domain
+    // box first, so out-of-domain inputs evaluate at the nearest box face.
+    // Exact at every lattice node, exact for a lattice sampled from an
+    // affine function, and continuous across cell and tetrahedron
+    // boundaries. Returns false (with out zeroed) only on an object that
+    // is not valid or a non-finite input component.
+    bool Evaluate(const double in[3], double out[3]) const;
+
     // Serialization per the format contract above. The Write pair returns
     // false on an invalid object (or an unwritable path); the Read pair
     // returns false on any format violation with the previous state kept.
