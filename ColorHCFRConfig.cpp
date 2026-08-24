@@ -621,7 +621,15 @@ BOOL CColorHCFRConfig::LoadSettings()
 		// is loaded; once "CalibrationMethod" has been written, it takes over.
 		int storedMethod = GetProfileInt("Advanced","CalibrationMethod",-1);
 		if ( storedMethod == -1 )
-			m_calibrationMethod = GetProfileInt("Advanced","UseOnlyPrimaries",0) ? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
+		{
+			int legacyOnly = GetProfileInt("Advanced","UseOnlyPrimaries",0);
+			m_calibrationMethod = legacyOnly ? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
+			// Freeze the pre-migration checkbox value under its own key:
+			// SaveSettings rewrites UseOnlyPrimaries from the dropdown on every
+			// save (downgrade safety), so this frozen copy is what v1 sensor
+			// files must derive their method from (Sensors/Sensor.cpp).
+			WriteProfileInt("Advanced","LegacyUseOnlyPrimaries", legacyOnly);
+		}
 		else
 			m_calibrationMethod = storedMethod;
 	}

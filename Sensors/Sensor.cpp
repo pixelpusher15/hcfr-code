@@ -133,13 +133,16 @@ void CSensor::Serialize(CArchive& archive)
 			// -> three-color, clear -> FCMM with luminance scaling. (The no-white auto-fallback cohort
 			// is undetectable from any key; those rare files load as FCMM
 			// with luminance scaling.)
-			// The legacy key is only trustworthy before the migration: once the
-			// user picks a method in the new dropdown, SaveSettings rewrites
-			// UseOnlyPrimaries from that selection (downgrade safety), so it no
-			// longer describes what old files were calibrated with.
-			m_calibrationMethod = ( GetConfig()->GetProfileInt("Advanced","CalibrationMethod",-1) == -1
-								 &&  GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0) )
-									? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
+			// The live legacy key is rewritten by SaveSettings on every save
+			// (downgrade safety), so consult the copy frozen at migration time
+			// (ColorHCFRConfig.cpp) instead. A profile migrated before the
+			// frozen key existed has lost the information; those files load as
+			// FCMM with luminance scaling, matching prior behavior.
+			int legacyOnly = GetConfig()->GetProfileInt("Advanced","LegacyUseOnlyPrimaries",-1);
+			if ( legacyOnly == -1 )
+				legacyOnly = ( GetConfig()->GetProfileInt("Advanced","CalibrationMethod",-1) == -1 )
+					? GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0) : 0;
+			m_calibrationMethod = legacyOnly ? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
 		}
 	}
 }

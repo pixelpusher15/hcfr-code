@@ -245,8 +245,11 @@ CExport::CExport(CDataSetDoc *pDoc, ExportType type)
 	m_numExistingMeasures=0;
 	m_fileName="colorHCFR.xls";
 	m_separator=";";
-	m_bExportRaw=true;
-	m_bExportStimulus=true;
+	// Default the extra columns OFF so the default block layout matches
+	// pre-raw-retention exports (Append/Replace need consistent heights);
+	// remember the user's last choice across sessions.
+	m_bExportRaw = GetConfig()->GetProfileInt("Export","IncludeRawColumns",0) != 0;
+	m_bExportStimulus = GetConfig()->GetProfileInt("Export","IncludeStimulusColumns",0) != 0;
 }
 
 CExport::~CExport()
@@ -271,10 +274,14 @@ bool CExport::Save()
 	if ( m_type == XLS || m_type == CSV )
 	{
 		CExportOptionsDialog optionsDialog;
+		optionsDialog.m_bExportRaw = m_bExportRaw ? TRUE : FALSE;
+		optionsDialog.m_bExportStimulus = m_bExportStimulus ? TRUE : FALSE;
 		if ( optionsDialog.DoModal() != IDOK )
 			return false;
 		m_bExportRaw = ( optionsDialog.m_bExportRaw != FALSE );
 		m_bExportStimulus = ( optionsDialog.m_bExportStimulus != FALSE );
+		GetConfig()->WriteProfileInt("Export","IncludeRawColumns", m_bExportRaw ? 1 : 0);
+		GetConfig()->WriteProfileInt("Export","IncludeStimulusColumns", m_bExportStimulus ? 1 : 0);
 	}
 
 	CFileDialog fileSaveDialog( FALSE, ext[(int)m_type], NULL, flag, filter[(int)m_type]);

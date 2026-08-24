@@ -6363,6 +6363,10 @@ void CMeasure::ApplySensorAdjustmentMatrix(const Matrix& deltaMatrix, const Matr
 	{
 		ReapplyAdjustmentMatrix(m_cc24SatMeasureArray_master[i], deltaMatrix, fullMatrix);
 	}
+	for(int i=0;i<m_profileMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_profileMeasureArray[i], deltaMatrix, fullMatrix);
+	}
 	for(int i=0;i<3;i++)
 	{
 		ReapplyAdjustmentMatrix(m_primariesArray[i], deltaMatrix, fullMatrix);
@@ -6417,6 +6421,8 @@ int CMeasure::ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Ma
 		BODNER_REAPPLY(m_cc24SatMeasureArray[i]);
 	for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)
 		BODNER_REAPPLY(m_cc24SatMeasureArray_master[i]);
+	for(int i=0;i<m_profileMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_profileMeasureArray[i]);
 	for(int i=0;i<3;i++)
 		BODNER_REAPPLY(m_primariesArray[i]);
 	for(int i=0;i<3;i++)

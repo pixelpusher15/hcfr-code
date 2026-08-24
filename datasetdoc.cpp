@@ -85,7 +85,7 @@ static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor);
 // Version 2 is for ColorHCFR version >= 1.12 beta 62
 // Version 3 is for ColorHCFR version >= 2.0 beta 144
 
-#define CURRENT_FILE_FORMAT_VERSION	3
+#define CURRENT_FILE_FORMAT_VERSION	4	// 4 = CColor optional-field versions + CSensor v2 (Bodner / raw retention)
 #define _S(id) (CString(LPCTSTR(id))) 
 
 extern CPtrList gOpenedFramesList;	// Implemented in MultiFrm.cpp
@@ -1429,8 +1429,14 @@ void CDataSetDoc::OnConfigureSensor()
             // below reads fullMatrix == identity and ApplySensorAdjustmentMatrix strips every
             // raw-carrying measurement back to raw - silently wiping the Bodner correction on
             // any Sensor -> Configure change.
-            m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+            int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+            if ( nSkipped > 0 )
+            {
+                CString strSkipMsg;
+                strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
+                GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
+            }
         }
         else
         {
@@ -2525,21 +2531,22 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
     // white as an unmeasured reference (valid XYZ but no raw); the grayscale run's
     // On/Off white is the measured one. Prefer whichever white has raw and take
     // the reference white from the SAME source so test and reference whites
-    // correspond. Falls back to the existing Prime-preferred whiteRef when no
-    // measured raw white exists (legacy data), leaving old behaviour unchanged.
+    // correspond (whiteRefRaw); the no-raw fallback keeps the original
+    // Prime-preferred whiteRef pairing untouched (legacy data, old behaviour).
     ColorXYZ whiteRaw = white;   // valid default; only used when whiteHasRaw
+    ColorXYZ whiteRefRaw = whiteRef;   // reference white paired with whiteRaw
     bool whiteHasRaw = true;
     if ( m_measure.GetPrimeWhite().HasRawXYZValue() )
     {
         whiteRaw = m_measure.GetPrimeWhite().GetRawXYZValue();
         if ( pDataRef->m_measure.GetPrimeWhite().GetXYZValue().isValid() )
-            whiteRef = pDataRef->m_measure.GetPrimeWhite().GetXYZValue();
+            whiteRefRaw = pDataRef->m_measure.GetPrimeWhite().GetXYZValue();
     }
     else if ( m_measure.GetOnOffWhite().HasRawXYZValue() )
     {
         whiteRaw = m_measure.GetOnOffWhite().GetRawXYZValue();
         if ( pDataRef->m_measure.GetOnOffWhite().GetXYZValue().isValid() )
-            whiteRef = pDataRef->m_measure.GetOnOffWhite().GetXYZValue();
+            whiteRefRaw = pDataRef->m_measure.GetOnOffWhite().GetXYZValue();
     }
     else
     {
@@ -2570,7 +2577,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
                                         m_measure.GetBluePrimary().GetRawXYZValue(),
                                         whiteRaw
                                     };
-        ColorXYZ referencesRGBW[4] = { references[0], references[1], references[2], whiteRef };
+        ColorXYZ referencesRGBW[4] = { references[0], references[1], references[2], whiteRefRaw };
 
         try
         {
@@ -2627,7 +2634,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
         bool bUseOnlyPrimaries = ( calibrationMethod == CALIB_CLASSIC_NIST );
         bool bScaleLum         = ( calibrationMethod != CALIB_FCMM_NO_LUM );
         Matrix ConvMatrix = haveRaw
-            ? ComputeConversionMatrix ( measuresRaw, references, whiteRaw, whiteRef, bUseOnlyPrimaries, bScaleLum )
+            ? ComputeConversionMatrix ( measuresRaw, references, whiteRaw, whiteRefRaw, bUseOnlyPrimaries, bScaleLum )
             : ComputeConversionMatrix ( measures,    references, white,    whiteRef, bUseOnlyPrimaries, bScaleLum );
 
         // check that matrix is inversible
@@ -5420,7 +5427,15 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		// re-applied through its sub-gamut matrices, not stripped back to raw by the identity
 		// single-matrix a Bodner sensor carries.
 		if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
-			m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+		{
+			int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+			if ( nSkipped > 0 )
+			{
+				CString strSkipMsg;
+				strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
+				GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
+			}
+		}
 		else
 			m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
 		UpdateAllViews ( NULL, UPD_EVERYTHING );
