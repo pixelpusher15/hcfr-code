@@ -12,9 +12,11 @@
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
 // T10 asserts gamut-basis consistency, and T15 asserts the CubeLUT .cube format contract
 // and its tetrahedral evaluator.
-// T11-T14 are deliberately skipped here: they are claimed by in-flight branches (PR #178's
-// BT.2390 oracles = T11/T12, the display-model series = T13, csv-provenance's CSV oracle
-// renumbers to T14 on rebase) - check open branches before assigning any new T number.
+// T11-T14 are deliberately skipped here, reserved for in-flight branches: PR #178 claims
+// T11/T12 (BT.2390 oracles); the csv-provenance and wtw-reference branches carry their
+// own T11/T12 copies TODAY and renumber when they rebase (T14 is held for that
+// renumbering; a branch needing a second slot takes the next free number, T16); the
+// display-model series owns T13. Check open branches before assigning any new T number.
 // The .chc round-trip originally planned for the T7 slot needs app-level linkage and is
 // deliberately still not in this console harness.
 
@@ -25,6 +27,7 @@
 #include <cstdio>
 #include <cstdarg>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -971,6 +974,9 @@ static void RunT15()
                     for (int d = 0; d < 8; ++d)
                     {
                         double expect = (d % 2) + 10.0 * ((d / 2) % 2) + 100.0 * (d / 4);
+                        // The tagged first components are integers, so this
+                        // atof never sees a decimal separator and is safe
+                        // under any LC_NUMERIC.
                         double got = atof(data[(size_t)d].c_str());
                         if (got != expect)
                             Fail("T15 data line %d starts with %.17g expected %.17g "
@@ -1038,6 +1044,33 @@ static void RunT15()
                 if (dmin[k] != 0.0 || dmax[k] != 1.0)
                     Fail("T15 minimal fixture domain not default (comp %d)", k);
         }
+
+        // A leading UTF-8 BOM (Notepad, some LUT exporters) must not reject
+        // an otherwise valid file.
+        std::string bommed = std::string("\xEF\xBB\xBF") + minimal;
+        CubeLUT bl;
+        if (!bl.ReadFromString(bommed))
+            Fail("T15 BOM-prefixed fixture rejected: %s", bl.LastError().c_str());
+        else if (bl.Size() != 2)
+            Fail("T15 BOM-prefixed fixture size %d expected 2", bl.Size());
+
+        // Resolve/IRIDAS LUT_3D_INPUT_RANGE shorthand maps onto the domain.
+        const char* ranged =
+            "LUT_3D_SIZE 2\n"
+            "LUT_3D_INPUT_RANGE 0.0 2.0\n"
+            "0 0 0\n" "1 0 0\n" "0 1 0\n" "1 1 0\n"
+            "0 0 1\n" "1 0 1\n" "0 1 1\n" "1 1 1\n";
+        CubeLUT rl;
+        if (!rl.ReadFromString(ranged))
+            Fail("T15 LUT_3D_INPUT_RANGE fixture rejected: %s", rl.LastError().c_str());
+        else
+        {
+            double dmin[3], dmax[3];
+            rl.GetDomain(dmin, dmax);
+            for (int k = 0; k < 3; ++k)
+                if (dmin[k] != 0.0 || dmax[k] != 2.0)
+                    Fail("T15 LUT_3D_INPUT_RANGE domain wrong (comp %d)", k);
+        }
     }
 
     // Malformed input: every case must be rejected, and a rejected read
@@ -1075,6 +1108,16 @@ static void RunT15()
                                  "0 0 0\n0 0 0\n0 0 0\n0 0 0\n0 0 0\n0 0 0\n" },
             { "data before size","0 0 0\nLUT_3D_SIZE 2\n" },
             { "empty input",     "" },
+            { "truncated size-256 header", "LUT_3D_SIZE 256\n" },
+            { "overflowing domain span", "LUT_3D_SIZE 2\nDOMAIN_MIN -1e308 0 0\n"
+                                 "DOMAIN_MAX 1e308 1 1\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n" },
+            { "duplicate input range", "LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE 0 1\n"
+                                 "LUT_3D_INPUT_RANGE 0 2\n" },
+            { "input range + domain conflict", "LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE 0 1\n"
+                                 "DOMAIN_MIN 0 0 0\n" },
+            { "inverted input range", "LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE 1 0\n" },
         };
 
         CubeLUT keeper;
@@ -1127,6 +1170,11 @@ static void RunT15()
         double dmin[3] = { 0.0, 0.0, 0.0 }, dmax[3] = { 1.0, 0.0, 1.0 };
         if (lut.SetDomain(dmin, dmax))
             Fail("T15 SetDomain accepted max <= min");
+        // Finite endpoints whose span overflows would make Evaluate divide
+        // by +inf and return a constant; the domain must be rejected whole.
+        double huge0[3] = { -1e308, 0.0, 0.0 }, huge1[3] = { 1e308, 1.0, 1.0 };
+        if (lut.SetDomain(huge0, huge1))
+            Fail("T15 SetDomain accepted an overflowing span");
         CubeLUT fresh;
         std::string out;
         if (fresh.WriteToString(out))
@@ -1138,8 +1186,17 @@ static void RunT15()
     {
         const char* prev = setlocale(LC_NUMERIC, NULL);
         std::string saved = prev ? prev : "C";
-        if (!setlocale(LC_NUMERIC, "French_France.1252"))
-            Fail("T15 could not activate the French locale for the test");
+        // Any comma-decimal locale exercises the assertion; try a few names
+        // so the oracle does not fail on hosts missing one locale pack.
+        static const char* commaLocales[] = {
+            "French_France.1252", "fr-FR", "German_Germany.1252", "de-DE",
+        };
+        const char* active = 0;
+        for (size_t i = 0; i < sizeof(commaLocales) / sizeof(commaLocales[0]); ++i)
+            if (setlocale(LC_NUMERIC, commaLocales[i]))
+                { active = commaLocales[i]; break; }
+        if (!active)
+            Fail("T15 could not activate any comma-decimal locale for the test");
         else
         {
             CubeLUT lut;
@@ -1401,11 +1458,12 @@ static void RunT15Interp()
         double outside[3] = { 5.0, -1.0, 0.2 };
         double clamped[3] = { 3.0,  0.0, 0.2 };
         double a[3], b[3];
-        lut.Evaluate(outside, a);
-        lut.Evaluate(clamped, b);
-        for (int k = 0; k < 3; ++k)
-            if (a[k] != b[k])
-                Fail("T15 interp out-of-domain input did not clamp (comp %d)", k);
+        if (!lut.Evaluate(outside, a) || !lut.Evaluate(clamped, b))
+            Fail("T15 interp clamp Evaluate failed");
+        else
+            for (int k = 0; k < 3; ++k)
+                if (a[k] != b[k])
+                    Fail("T15 interp out-of-domain input did not clamp (comp %d)", k);
     }
 
     // Continuity across cell faces and across the diagonal planes where
@@ -1424,8 +1482,8 @@ static void RunT15Interp()
                 lo[axis] = k / 4.0 - eps;
                 hi[axis] = k / 4.0 + eps;
                 double a[3], b[3];
-                lut.Evaluate(lo, a);
-                lut.Evaluate(hi, b);
+                if (!lut.Evaluate(lo, a) || !lut.Evaluate(hi, b))
+                    { Fail("T15 interp face Evaluate failed"); continue; }
                 for (int c = 0; c < 3; ++c)
                     if (fabs(a[c] - b[c]) > 1e-6)
                         Fail("T15 interp discontinuity across face axis %d k=%d: %.3g",
@@ -1450,8 +1508,8 @@ static void RunT15Interp()
             lo[axis] -= eps;
             hi[axis] += eps;
             double a[3], b[3];
-            lut.Evaluate(lo, a);
-            lut.Evaluate(hi, b);
+            if (!lut.Evaluate(lo, a) || !lut.Evaluate(hi, b))
+                { Fail("T15 interp diagonal Evaluate failed"); continue; }
             for (int c = 0; c < 3; ++c)
                 if (fabs(a[c] - b[c]) > 1e-6)
                     Fail("T15 interp discontinuity across diagonal %d: %.3g",
@@ -1465,11 +1523,29 @@ static void RunT15Interp()
         lut.Create(4);
         T15Cube::FillLattice(lut, 31415u);
         double in[3] = { 0.31, 0.77, 0.52 }, a[3], b[3];
-        lut.Evaluate(in, a);
-        lut.Evaluate(in, b);
+        if (!lut.Evaluate(in, a) || !lut.Evaluate(in, b))
+            Fail("T15 interp determinism Evaluate failed");
+        else
+            for (int k = 0; k < 3; ++k)
+                if (a[k] != b[k])
+                    Fail("T15 interp nondeterministic (comp %d)", k);
+    }
+
+    // In-place evaluation: in and out may alias per the contract.
+    {
+        CubeLUT lut;
+        lut.Create(5);
+        T15Cube::FillLattice(lut, 62831u);
+        double p[3] = { 0.31, 0.77, 0.52 };
+        double want[3];
+        if (!lut.Evaluate(p, want))
+            Fail("T15 interp aliasing reference Evaluate failed");
+        double inout[3] = { 0.31, 0.77, 0.52 };
+        if (!lut.Evaluate(inout, inout))
+            Fail("T15 interp in-place Evaluate failed");
         for (int k = 0; k < 3; ++k)
-            if (a[k] != b[k])
-                Fail("T15 interp nondeterministic (comp %d)", k);
+            if (inout[k] != want[k])
+                Fail("T15 interp in-place evaluation differs from two-buffer (comp %d)", k);
     }
 }
 
@@ -1500,7 +1576,7 @@ int main(int argc, char* argv[])
     RunT8();
     RunT9();
     RunT10();
-    RunT15();   // T11-T14 are claimed by in-flight branches; see the header
+    RunT15();   // T11-T14 reserved for in-flight branches; see the header comment
     RunT15Interp();
 
     if (g_failures)

@@ -24,10 +24,10 @@
     <ClCompile Include="..\Color.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\CubeLUT.cpp">
+    <ClCompile Include="..\CriticalSection.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\CriticalSection.cpp">
+    <ClCompile Include="..\CubeLUT.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\Endianness.cpp">
@@ -59,10 +59,10 @@
     <ClInclude Include="..\Color.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\CubeLUT.h">
+    <ClInclude Include="..\CriticalSection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\CriticalSection.h">
+    <ClInclude Include="..\CubeLUT.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\Endianness.h">

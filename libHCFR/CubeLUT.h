@@ -30,18 +30,24 @@
 //   Numbers print with %.17g so a read-back reproduces every double
 //   exactly, and always with '.' as the decimal separator regardless of
 //   the global C locale.
-// - Reader accepts LF or CRLF, blank lines, and '#' comments anywhere;
-//   keyword lines TITLE "quoted string" (no embedded quote), DOMAIN_MIN,
-//   DOMAIN_MAX, LUT_3D_SIZE in any order but all before the first data
-//   line; then exactly N^3 data lines of 3 finite numbers ('.' decimal
-//   separator only, standard C float syntax). Anything else is an error:
-//   unknown or duplicate keywords, LUT_1D_SIZE (1D LUTs are not supported
-//   here), a missing or out-of-range size, non-numeric or non-finite data,
-//   too few or too many data lines, an unquoted title, or a domain with
-//   min >= max in any component.
+// - Reader accepts LF or CRLF, a leading UTF-8 BOM, blank lines, and '#'
+//   comments anywhere; keyword lines TITLE "quoted string" (no embedded
+//   quote), DOMAIN_MIN, DOMAIN_MAX, LUT_3D_SIZE, and the Resolve/IRIDAS
+//   LUT_3D_INPUT_RANGE lo hi (applied to all three components; may not be
+//   combined with DOMAIN_MIN/MAX) in any order but all before the first
+//   data line; then exactly N^3 data lines of 3 finite numbers ('.'
+//   decimal separator only, standard C float syntax). Anything else is an
+//   error: unknown or duplicate keywords, LUT_1D_SIZE (1D LUTs are not
+//   supported here), a missing or out-of-range size, non-numeric or
+//   non-finite data, too few or too many data lines, an unquoted title,
+//   or a domain with min >= max or a non-finite span in any component.
 // - Any failed Read/Create/Set leaves the object exactly as it was (the
 //   last good state, or the never-loaded invalid state), and a failed
-//   Read/Write records a one-line reason in LastError().
+//   Read/Write records a one-line reason in LastError(). Allocation
+//   failure on a large lattice reports the same way (false + LastError),
+//   never an escaping exception. WriteFile writes to a temporary file in
+//   the same directory and renames it over the target, so a failed write
+//   never destroys an existing file.
 
 #ifndef CUBELUT_H
 #define CUBELUT_H
@@ -74,9 +80,9 @@ public:
     bool SetTitle(const std::string& title);
     const std::string& Title() const { return m_title; }
 
-    // Domain: every component finite and max > min per component, else
-    // false with the old domain kept. Valid whether or not a lattice is
-    // loaded (Create resets it to 0..1).
+    // Domain: every component finite, max > min per component, and the
+    // span (max - min) itself finite, else false with the old domain kept.
+    // Valid whether or not a lattice is loaded (Create resets it to 0..1).
     bool SetDomain(const double dmin[3], const double dmax[3]);
     void GetDomain(double dmin[3], double dmax[3]) const;
 
@@ -95,8 +101,9 @@ public:
     // box first, so out-of-domain inputs evaluate at the nearest box face.
     // Exact at every lattice node, exact for a lattice sampled from an
     // affine function, and continuous across cell and tetrahedron
-    // boundaries. Returns false (with out zeroed) only on an object that
-    // is not valid or a non-finite input component.
+    // boundaries. in and out may alias (in-place evaluation is safe).
+    // Returns false (with out zeroed) only on an object that is not valid
+    // or a non-finite input component.
     bool Evaluate(const double in[3], double out[3]) const;
 
     // Serialization per the format contract above. The Write pair returns
@@ -111,6 +118,9 @@ public:
     const std::string& LastError() const { return m_lastError; }
 
 private:
+    bool ReadParsed(const std::string& text);
+    bool WriteBody(std::string& out) const;
+
     // Entry (r,g,b) lives at ((b*N + g)*N + r)*3 - red fastest, matching
     // the file ordering so data lines stream straight through.
     int m_size;                     // 0 = invalid

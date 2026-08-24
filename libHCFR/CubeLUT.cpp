@@ -30,6 +30,7 @@
 #include <string.h>
 #include <locale.h>
 #include <float.h>
+#include <new>
 
 namespace
 {
@@ -54,7 +55,28 @@ namespace
         buf[0] = '\0';
         _snprintf_l(buf, sizeof(buf) - 1, "%.17g", CNumericLocale(), v);
         buf[sizeof(buf) - 1] = '\0';
+        // Belt and braces: if _create_locale ever failed (NULL makes the
+        // CRT fall back to the current locale), rewrite a comma decimal to
+        // the '.' the format requires.
+        for (char* p = buf; *p; ++p)
+            if (*p == ',')
+                *p = '.';
         out += buf;
+    }
+
+    // The single source of truth for the lattice layout: entry (r,g,b) of
+    // an n^3 lattice lives at ((b*n + g)*n + r)*3 - red fastest, matching
+    // the file ordering.
+    size_t LatticeOffset(int n, int r, int g, int b)
+    {
+        return (((size_t)b * (size_t)n + (size_t)g) * (size_t)n
+                + (size_t)r) * 3;
+    }
+
+    bool LatticeInRange(int n, int r, int g, int b)
+    {
+        return n != 0 &&
+               r >= 0 && r < n && g >= 0 && g < n && b >= 0 && b < n;
     }
 
     bool IsSpaceChar(char c)
@@ -151,15 +173,23 @@ bool CubeLUT::Create(int size)
         return false;
 
     // Build the whole lattice before touching any member, so a failure
-    // (only bad_alloc here) cannot leave a half-built object.
-    std::vector<double> data((size_t)size * (size_t)size * (size_t)size * 3, 0.0);
+    // cannot leave a half-built object; a 256^3 lattice is ~400 MB, so
+    // allocation failure is a real (reportable) outcome, not an escape.
+    std::vector<double> data;
+    try
+    {
+        data.assign((size_t)size * (size_t)size * (size_t)size * 3, 0.0);
+    }
+    catch (std::bad_alloc&)
+    {
+        return false;
+    }
     const double last = (double)(size - 1);
     for (int b = 0; b < size; ++b)
         for (int g = 0; g < size; ++g)
             for (int r = 0; r < size; ++r)
             {
-                size_t base = (((size_t)b * (size_t)size + (size_t)g) * (size_t)size
-                               + (size_t)r) * 3;
+                size_t base = LatticeOffset(size, r, g, b);
                 data[base + 0] = r / last;
                 data[base + 1] = g / last;
                 data[base + 2] = b / last;
@@ -175,16 +205,13 @@ bool CubeLUT::Create(int size)
 
 bool CubeLUT::SetEntry(int r, int g, int b, const double rgb[3])
 {
-    if (m_size == 0 || rgb == 0)
-        return false;
-    if (r < 0 || r >= m_size || g < 0 || g >= m_size || b < 0 || b >= m_size)
+    if (rgb == 0 || !LatticeInRange(m_size, r, g, b))
         return false;
     for (int k = 0; k < 3; ++k)
         if (!IsFiniteValue(rgb[k]))
             return false;
 
-    size_t base = (((size_t)b * (size_t)m_size + (size_t)g) * (size_t)m_size
-                   + (size_t)r) * 3;
+    size_t base = LatticeOffset(m_size, r, g, b);
     for (int k = 0; k < 3; ++k)
         m_data[base + (size_t)k] = rgb[k];
     return true;
@@ -192,13 +219,10 @@ bool CubeLUT::SetEntry(int r, int g, int b, const double rgb[3])
 
 bool CubeLUT::GetEntry(int r, int g, int b, double rgb[3]) const
 {
-    if (m_size == 0 || rgb == 0)
-        return false;
-    if (r < 0 || r >= m_size || g < 0 || g >= m_size || b < 0 || b >= m_size)
+    if (rgb == 0 || !LatticeInRange(m_size, r, g, b))
         return false;
 
-    size_t base = (((size_t)b * (size_t)m_size + (size_t)g) * (size_t)m_size
-                   + (size_t)r) * 3;
+    size_t base = LatticeOffset(m_size, r, g, b);
     for (int k = 0; k < 3; ++k)
         rgb[k] = m_data[base + (size_t)k];
     return true;
@@ -206,11 +230,7 @@ bool CubeLUT::GetEntry(int r, int g, int b, double rgb[3]) const
 
 bool CubeLUT::SetTitle(const std::string& title)
 {
-    if (title.find('"') != std::string::npos)
-        return false;
-    if (title.find('\r') != std::string::npos)
-        return false;
-    if (title.find('\n') != std::string::npos)
+    if (title.find_first_of("\"\r\n") != std::string::npos)
         return false;
     m_title = title;
     return true;
@@ -225,6 +245,10 @@ bool CubeLUT::SetDomain(const double dmin[3], const double dmax[3])
         if (!IsFiniteValue(dmin[k]) || !IsFiniteValue(dmax[k]))
             return false;
         if (!(dmax[k] > dmin[k]))
+            return false;
+        // Both ends finite is not enough: (-1e308, 1e308) overflows the
+        // span Evaluate divides by, turning every evaluation constant.
+        if (!IsFiniteValue(dmax[k] - dmin[k]))
             return false;
     }
     for (int k = 0; k < 3; ++k)
@@ -255,43 +279,45 @@ bool CubeLUT::Evaluate(const double in[3], double out[3]) const
 {
     if (out == 0)
         return false;
-    out[0] = out[1] = out[2] = 0.0;
     if (m_size == 0 || in == 0)
+    {
+        out[0] = out[1] = out[2] = 0.0;
         return false;
+    }
+    // Copy the input before zeroing the output: in and out may alias.
+    const double src[3] = { in[0], in[1], in[2] };
+    out[0] = out[1] = out[2] = 0.0;
     for (int k = 0; k < 3; ++k)
-        if (!IsFiniteValue(in[k]))
+        if (!IsFiniteValue(src[k]))
             return false;
 
     // Map into the domain box (clamping out-of-domain inputs to the nearest
     // face), then split into a cell index and a cell-local fraction. The
     // last cell keeps f = 1 rather than starting a cell that does not exist,
     // so the top face of the lattice evaluates exactly at its nodes.
-    // SetDomain guarantees max > min, so the division cannot divide by zero.
+    // SetDomain guarantees max > min with a finite span, so the division
+    // can neither divide by zero nor overflow.
     const int lastCell = m_size - 2;
     int index[3];
     double frac[3];
     for (int k = 0; k < 3; ++k)
     {
-        double t = (in[k] - m_domainMin[k]) / (m_domainMax[k] - m_domainMin[k]);
+        double t = (src[k] - m_domainMin[k]) / (m_domainMax[k] - m_domainMin[k]);
         if (t < 0.0)
             t = 0.0;
         else if (t > 1.0)
             t = 1.0;
 
+        // t in [0,1] makes s in [0, m_size-1]: i needs only the top clamp
+        // (s = m_size-1 truncates to one past the last cell), and f = s - i
+        // then lands in [0,1] with no clamp at all.
         double s = t * (double)(m_size - 1);
         int i = (int)s;                     // s >= 0, so this truncates down
-        if (i < 0)
-            i = 0;
-        else if (i > lastCell)
+        if (i > lastCell)
             i = lastCell;
-        double f = s - (double)i;
-        if (f < 0.0)
-            f = 0.0;
-        else if (f > 1.0)
-            f = 1.0;
 
         index[k] = i;
-        frac[k] = f;
+        frac[k] = s - (double)i;
     }
 
     // Order the axes by descending fraction. Ties may break either way: the
@@ -303,16 +329,15 @@ bool CubeLUT::Evaluate(const double in[3], double out[3]) const
     if (frac[lo] > frac[mid]) { int t = mid; mid = lo; lo = t; }
     if (frac[mid] > frac[hi]) { int t = hi; hi = mid; mid = t; }
 
-    // Storage steps of one lattice unit along red, green and blue, matching
-    // the ((b*N + g)*N + r)*3 layout.
-    const size_t n = (size_t)m_size;
+    // Storage steps of one lattice unit along red, green and blue, derived
+    // from the same LatticeOffset that Create/SetEntry/GetEntry use so the
+    // layout has one source of truth.
     size_t step[3];
-    step[0] = 3;
-    step[1] = n * 3;
-    step[2] = n * n * 3;
+    step[0] = LatticeOffset(m_size, 1, 0, 0);
+    step[1] = LatticeOffset(m_size, 0, 1, 0);
+    step[2] = LatticeOffset(m_size, 0, 0, 1);
 
-    size_t base = ((size_t)index[2] * n + (size_t)index[1]) * n * 3
-                  + (size_t)index[0] * 3;
+    size_t base = LatticeOffset(m_size, index[0], index[1], index[2]);
     size_t p1 = base + step[hi];
     size_t p2 = p1 + step[mid];
     size_t p3 = p2 + step[lo];
@@ -341,8 +366,26 @@ bool CubeLUT::WriteToString(std::string& out) const
         m_lastError = "no lattice to write";
         return false;
     }
+    try
+    {
+        WriteBody(out);
+    }
+    catch (std::bad_alloc&)
+    {
+        out.clear();
+        m_lastError = "out of memory building the file text";
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
 
+bool CubeLUT::WriteBody(std::string& out) const
+{
     std::string text;
+    // ~66 bytes per %.17g data line; reserving avoids the geometric
+    // regrowth that at N=256 would otherwise double the ~1 GB peak.
+    text.reserve(m_data.size() / 3 * 72 + 256);
     if (!m_title.empty())
     {
         text += "TITLE \"";
@@ -352,8 +395,7 @@ bool CubeLUT::WriteToString(std::string& out) const
 
     char sizeBuf[32];
     sizeBuf[0] = '\0';
-    _snprintf_l(sizeBuf, sizeof(sizeBuf) - 1, "LUT_3D_SIZE %d\n", CNumericLocale(),
-                m_size);
+    _snprintf(sizeBuf, sizeof(sizeBuf) - 1, "LUT_3D_SIZE %d\n", m_size);
     sizeBuf[sizeof(sizeBuf) - 1] = '\0';
     text += sizeBuf;
 
@@ -385,11 +427,23 @@ bool CubeLUT::WriteToString(std::string& out) const
     }
 
     out.swap(text);
-    m_lastError.clear();
     return true;
 }
 
 bool CubeLUT::ReadFromString(const std::string& text)
+{
+    try
+    {
+        return ReadParsed(text);
+    }
+    catch (std::bad_alloc&)
+    {
+        m_lastError = "out of memory reading the LUT";
+        return false;
+    }
+}
+
+bool CubeLUT::ReadParsed(const std::string& text)
 {
     // Everything is parsed into locals; the members are only touched once
     // the whole input has validated.
@@ -398,6 +452,7 @@ bool CubeLUT::ReadFromString(const std::string& text)
     bool haveTitle = false;
     bool haveMin = false;
     bool haveMax = false;
+    bool haveRange = false;
     bool inData = false;
     std::string title;
     double dmin[3] = { 0.0, 0.0, 0.0 };
@@ -407,6 +462,12 @@ bool CubeLUT::ReadFromString(const std::string& text)
 
     std::vector<std::string> lines;
     SplitLines(text, lines);
+
+    // Tolerate a leading UTF-8 BOM (editors and some LUT exporters emit
+    // one); anything else non-ASCII still fails the normal way.
+    if (!lines.empty() && lines[0].size() >= 3 &&
+        lines[0].compare(0, 3, "\xEF\xBB\xBF") == 0)
+        lines[0].erase(0, 3);
 
     std::vector<std::string> tokens;
     for (size_t li = 0; li < lines.size(); ++li)
@@ -424,14 +485,15 @@ bool CubeLUT::ReadFromString(const std::string& text)
         const std::string& key = tokens[0];
 
         bool isKeyword = (key == "TITLE" || key == "DOMAIN_MIN" ||
-                          key == "DOMAIN_MAX" || key == "LUT_3D_SIZE");
+                          key == "DOMAIN_MAX" || key == "LUT_3D_SIZE" ||
+                          key == "LUT_3D_INPUT_RANGE");
+        double firstValue = 0.0;
         if (!isKeyword)
         {
             // A token that converts completely to a number starts the data
-            // section; anything else beginning with a letter is a keyword we
-            // do not accept.
-            double probe = 0.0;
-            if (!ParseNumberToken(key, probe))
+            // section (the parsed value is kept and reused below); anything
+            // else beginning with a letter is a keyword we do not accept.
+            if (!ParseNumberToken(key, firstValue))
             {
                 if (key == "LUT_1D_SIZE")
                     m_lastError = "LUT_1D_SIZE: 1D LUTs are not supported";
@@ -471,7 +533,12 @@ bool CubeLUT::ReadFromString(const std::string& text)
                 size = v;
                 haveSize = true;
                 expected = (size_t)size * (size_t)size * (size_t)size;
-                data.reserve(expected * 3);
+                // Reserve no more than the input could possibly hold (a
+                // data value needs at least 2 bytes of text), so a 16-byte
+                // file claiming LUT_3D_SIZE 256 cannot demand 400 MB up
+                // front - it just fails "too few data lines" cheaply.
+                size_t bound = text.size() / 2 + 3;
+                data.reserve(expected * 3 < bound ? expected * 3 : bound);
             }
             else if (key == "TITLE")
             {
@@ -504,12 +571,46 @@ bool CubeLUT::ReadFromString(const std::string& text)
                 title = line.substr(p + 1, close - p - 1);
                 haveTitle = true;
             }
+            else if (key == "LUT_3D_INPUT_RANGE")
+            {
+                // Resolve/IRIDAS shorthand: one lo/hi pair applied to all
+                // three components.
+                if (haveRange)
+                {
+                    m_lastError = "duplicate LUT_3D_INPUT_RANGE";
+                    return false;
+                }
+                if (haveMin || haveMax)
+                {
+                    m_lastError = "LUT_3D_INPUT_RANGE conflicts with DOMAIN_MIN/DOMAIN_MAX";
+                    return false;
+                }
+                double lo = 0.0, hi = 0.0;
+                if (tokens.size() != 3 ||
+                    !ParseFiniteToken(tokens[1], lo) ||
+                    !ParseFiniteToken(tokens[2], hi))
+                {
+                    m_lastError = "LUT_3D_INPUT_RANGE needs two numbers";
+                    return false;
+                }
+                for (int k = 0; k < 3; ++k)
+                {
+                    dmin[k] = lo;
+                    dmax[k] = hi;
+                }
+                haveRange = true;
+            }
             else
             {
                 bool isMin = (key == "DOMAIN_MIN");
                 if ((isMin && haveMin) || (!isMin && haveMax))
                 {
                     m_lastError = "duplicate " + key;
+                    return false;
+                }
+                if (haveRange)
+                {
+                    m_lastError = key + " conflicts with LUT_3D_INPUT_RANGE";
                     return false;
                 }
                 if (tokens.size() != 4)
@@ -558,10 +659,16 @@ bool CubeLUT::ReadFromString(const std::string& text)
         }
         for (int k = 0; k < 3; ++k)
         {
-            double v = 0.0;
-            if (!ParseFiniteToken(tokens[(size_t)k], v))
+            // tokens[0] was already converted by the classification probe.
+            double v = firstValue;
+            if (k != 0 && !ParseNumberToken(tokens[(size_t)k], v))
             {
-                m_lastError = "data line has a non-numeric or non-finite value";
+                m_lastError = "data line has a non-numeric value";
+                return false;
+            }
+            if (!IsFiniteValue(v))
+            {
+                m_lastError = "data line has a non-finite value";
                 return false;
             }
             data.push_back(v);
@@ -579,9 +686,9 @@ bool CubeLUT::ReadFromString(const std::string& text)
         return false;
     }
     for (int k = 0; k < 3; ++k)
-        if (!(dmax[k] > dmin[k]))
+        if (!(dmax[k] > dmin[k]) || !IsFiniteValue(dmax[k] - dmin[k]))
         {
-            m_lastError = "DOMAIN_MAX must be greater than DOMAIN_MIN in every component";
+            m_lastError = "domain must have max > min with a finite span in every component";
             return false;
         }
 
@@ -608,10 +715,14 @@ bool CubeLUT::WriteFile(const char* path) const
     if (!WriteToString(text))
         return false;                       // WriteToString set m_lastError
 
-    FILE* f = fopen(path, "wb");
+    // Write to a sibling temp file and rename it over the target, so a
+    // failure mid-write (full disk, pulled drive) never truncates or
+    // half-overwrites an existing good file.
+    std::string tmp = std::string(path) + ".tmp";
+    FILE* f = fopen(tmp.c_str(), "wb");
     if (f == 0)
     {
-        m_lastError = std::string("cannot open '") + path + "' for writing";
+        m_lastError = std::string("cannot open '") + tmp + "' for writing";
         return false;
     }
     size_t written = text.empty() ? 0 : fwrite(text.c_str(), 1, text.size(), f);
@@ -620,7 +731,15 @@ bool CubeLUT::WriteFile(const char* path) const
         ok = false;
     if (!ok)
     {
-        m_lastError = std::string("cannot write '") + path + "'";
+        remove(tmp.c_str());
+        m_lastError = std::string("cannot write '") + tmp + "'";
+        return false;
+    }
+    remove(path);                           // rename cannot replace on Windows
+    if (rename(tmp.c_str(), path) != 0)
+    {
+        remove(tmp.c_str());
+        m_lastError = std::string("cannot rename '") + tmp + "' to '" + path + "'";
         return false;
     }
     m_lastError.clear();
@@ -643,13 +762,27 @@ bool CubeLUT::ReadFile(const char* path)
 
     std::string text;
     char buf[4096];
-    for (;;)
+    fseek(f, 0, SEEK_END);
+    long fileLen = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    try
     {
-        size_t got = fread(buf, 1, sizeof(buf), f);
-        if (got > 0)
-            text.append(buf, got);
-        if (got < sizeof(buf))
-            break;
+        if (fileLen > 0)
+            text.reserve((size_t)fileLen);
+        for (;;)
+        {
+            size_t got = fread(buf, 1, sizeof(buf), f);
+            if (got > 0)
+                text.append(buf, got);
+            if (got < sizeof(buf))
+                break;
+        }
+    }
+    catch (std::bad_alloc&)
+    {
+        fclose(f);
+        m_lastError = std::string("out of memory reading '") + path + "'";
+        return false;
     }
     bool ioError = (ferror(f) != 0);
     fclose(f);
