@@ -94,6 +94,7 @@
     <ClCompile Include="..\CalibrationFile.cpp" />
     <ClCompile Include="..\CHCFile.cpp" />
     <ClCompile Include="..\Color.cpp" />
+    <ClCompile Include="..\CubeLUT.cpp" />
     <ClCompile Include="..\CriticalSection.cpp" />
     <ClCompile Include="..\Endianness.cpp" />
     <ClCompile Include="..\Exceptions.cpp" />
@@ -106,6 +107,7 @@
     <ClInclude Include="..\CalibrationFile.h" />
     <ClInclude Include="..\CHCFile.h" />
     <ClInclude Include="..\Color.h" />
+    <ClInclude Include="..\CubeLUT.h" />
     <ClInclude Include="..\CriticalSection.h" />
     <ClInclude Include="..\Endianness.h" />
     <ClInclude Include="..\Exceptions.h" />

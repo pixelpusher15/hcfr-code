@@ -9,12 +9,17 @@
 //
 // T2/T3/T4/T6 dump deterministic tables and compare them exactly against checked-in goldens.
 // Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
-// copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants, and
-// T10 asserts gamut-basis consistency. The .chc round-trip originally planned for the T7
-// slot needs app-level linkage and is deliberately still not in this console harness.
+// copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
+// T10 asserts gamut-basis consistency, and T15 asserts the CubeLUT .cube format contract.
+// T11-T14 are deliberately skipped here: they are claimed by in-flight branches (PR #178's
+// BT.2390 oracles = T11/T12, the display-model series = T13, csv-provenance's CSV oracle
+// renumbers to T14 on rebase) - check open branches before assigning any new T number.
+// The .chc round-trip originally planned for the T7 slot needs app-level linkage and is
+// deliberately still not in this console harness.
 
 #include <afx.h>
 #include "../../libHCFR/Color.h"
+#include "../../libHCFR/CubeLUT.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -773,6 +778,413 @@ static void RunT10()
 }
 
 //////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+// T15 — CubeLUT .cube format oracle (pure assertion, no golden file).
+// Pins the Adobe Cube 1.0 contract stated in CubeLUT.h: identity creation,
+// exact write/read round-trip (%.17g), red-fastest data ordering verified
+// against the emitted text, a hand-authored fixture with CRLF/comments/
+// blank lines, strict rejection of malformed input with bit-identical
+// keep-state, locale independence of both writer and reader, and the
+// file-path I/O leg.
+//////////////////////////////////////////////////////////////////////////
+
+#include <clocale>
+
+namespace T15Cube
+{
+    // 32-bit LCG (Numerical Recipes constants), deterministic everywhere.
+    struct Lcg
+    {
+        unsigned int s;
+        explicit Lcg(unsigned int seed) : s(seed) {}
+        double Next01()
+        {
+            s = 1664525u * s + 1013904223u;
+            return s / 4294967296.0;
+        }
+    };
+
+    // Fills a size^3 lattice with deterministic values spanning negatives
+    // and values above 1 (both legal in .cube).
+    static void FillLattice(CubeLUT& lut, unsigned int seed)
+    {
+        Lcg g(seed);
+        int n = lut.Size();
+        for (int b = 0; b < n; ++b)
+            for (int gg = 0; gg < n; ++gg)
+                for (int r = 0; r < n; ++r)
+                {
+                    double v[3] = { g.Next01() * 4.0 - 1.0,
+                                    g.Next01() * 4.0 - 1.0,
+                                    g.Next01() * 4.0 - 1.0 };
+                    if (!lut.SetEntry(r, gg, b, v))
+                        Fail("T15 SetEntry(%d,%d,%d) rejected a finite value", r, gg, b);
+                }
+    }
+
+    static bool SameLattice(const CubeLUT& a, const CubeLUT& b)
+    {
+        if (a.Size() != b.Size())
+            return false;
+        int n = a.Size();
+        for (int bb = 0; bb < n; ++bb)
+            for (int gg = 0; gg < n; ++gg)
+                for (int r = 0; r < n; ++r)
+                {
+                    double va[3], vb[3];
+                    if (!a.GetEntry(r, gg, bb, va) || !b.GetEntry(r, gg, bb, vb))
+                        return false;
+                    for (int k = 0; k < 3; ++k)
+                        if (va[k] != vb[k])
+                            return false;
+                }
+        return true;
+    }
+}
+
+static void RunT15()
+{
+    printf("T15 CubeLUT .cube format oracle...\n");
+    using namespace T15Cube;
+
+    // Identity creation: default domain, exact node values.
+    {
+        CubeLUT lut;
+        if (!lut.Create(3) || !lut.IsValid() || lut.Size() != 3)
+            Fail("T15 Create(3) failed");
+        else
+        {
+            for (int b = 0; b < 3; ++b)
+                for (int g = 0; g < 3; ++g)
+                    for (int r = 0; r < 3; ++r)
+                    {
+                        double v[3];
+                        if (!lut.GetEntry(r, g, b, v))
+                            { Fail("T15 GetEntry(%d,%d,%d) failed", r, g, b); continue; }
+                        double e[3] = { r / 2.0, g / 2.0, b / 2.0 };
+                        for (int k = 0; k < 3; ++k)
+                            if (v[k] != e[k])
+                                Fail("T15 identity entry (%d,%d,%d) comp %d = %.17g expected %.17g",
+                                     r, g, b, k, v[k], e[k]);
+                    }
+            double dmin[3], dmax[3];
+            lut.GetDomain(dmin, dmax);
+            for (int k = 0; k < 3; ++k)
+                if (dmin[k] != 0.0 || dmax[k] != 1.0)
+                    Fail("T15 Create left a non-default domain (comp %d)", k);
+            if (!lut.Title().empty())
+                Fail("T15 Create left a non-empty title");
+        }
+        if (lut.Create(1))
+            Fail("T15 Create accepted size 1");
+        if (lut.Create(257))
+            Fail("T15 Create accepted size 257");
+        if (lut.Size() != 3)
+            Fail("T15 failed Create changed the lattice (size %d)", lut.Size());
+    }
+
+    // Exact round-trip through the string form, with title and custom domain.
+    {
+        CubeLUT lut;
+        if (!lut.Create(5))
+            Fail("T15 Create(5) failed");
+        else
+        {
+            FillLattice(lut, 24680u);
+            if (!lut.SetTitle("HCFR round-trip fixture"))
+                Fail("T15 SetTitle rejected a plain title");
+            double dmin[3] = { -0.125, 0.0, -1.0 };
+            double dmax[3] = { 1.25, 1.0, 2.0 };
+            if (!lut.SetDomain(dmin, dmax))
+                Fail("T15 SetDomain rejected a valid domain");
+
+            std::string text;
+            if (!lut.WriteToString(text) || text.empty())
+                Fail("T15 WriteToString failed on a valid lattice");
+            else
+            {
+                // Deterministic writer.
+                std::string text2;
+                if (!lut.WriteToString(text2) || text2 != text)
+                    Fail("T15 writer is not deterministic");
+
+                CubeLUT back;
+                if (!back.ReadFromString(text))
+                    Fail("T15 ReadFromString rejected our own output: %s",
+                         back.LastError().c_str());
+                else
+                {
+                    if (back.Title() != lut.Title())
+                        Fail("T15 title did not round-trip");
+                    double rmin[3], rmax[3];
+                    back.GetDomain(rmin, rmax);
+                    for (int k = 0; k < 3; ++k)
+                        if (rmin[k] != dmin[k] || rmax[k] != dmax[k])
+                            Fail("T15 domain did not round-trip (comp %d)", k);
+                    if (!SameLattice(lut, back))
+                        Fail("T15 lattice did not round-trip exactly");
+                }
+            }
+        }
+    }
+
+    // Data ordering pinned against the emitted text: red varies fastest.
+    {
+        CubeLUT lut;
+        if (!lut.Create(2))
+            Fail("T15 Create(2) failed");
+        else
+        {
+            for (int b = 0; b < 2; ++b)
+                for (int g = 0; g < 2; ++g)
+                    for (int r = 0; r < 2; ++r)
+                    {
+                        double v[3] = { r + 10.0 * g + 100.0 * b, 0.5, -0.5 };
+                        lut.SetEntry(r, g, b, v);
+                    }
+            std::string text;
+            if (!lut.WriteToString(text))
+                Fail("T15 ordering write failed");
+            else
+            {
+                // Collect data lines: lines whose first non-space char is a
+                // digit, '-', or '.'.
+                std::vector<std::string> data;
+                size_t pos = 0;
+                while (pos <= text.size())
+                {
+                    size_t nl = text.find('\n', pos);
+                    std::string line = text.substr(pos, (nl == std::string::npos ?
+                                                         text.size() : nl) - pos);
+                    pos = (nl == std::string::npos) ? text.size() + 1 : nl + 1;
+                    size_t i = line.find_first_not_of(" \t\r");
+                    if (i == std::string::npos)
+                        continue;
+                    char c = line[i];
+                    if ((c >= '0' && c <= '9') || c == '-' || c == '.')
+                        data.push_back(line);
+                }
+                if (data.size() != 8)
+                    Fail("T15 expected 8 data lines, found %d", (int)data.size());
+                else
+                    for (int d = 0; d < 8; ++d)
+                    {
+                        double expect = (d % 2) + 10.0 * ((d / 2) % 2) + 100.0 * (d / 4);
+                        double got = atof(data[(size_t)d].c_str());
+                        if (got != expect)
+                            Fail("T15 data line %d starts with %.17g expected %.17g "
+                                 "(red must vary fastest)", d, got, expect);
+                    }
+            }
+        }
+    }
+
+    // Hand-authored fixture: CRLF, comments, blank lines, keywords after
+    // one another in a different order than we write them.
+    {
+        const char* fixture =
+            "# hand-authored fixture\r\n"
+            "\r\n"
+            "LUT_3D_SIZE 2\r\n"
+            "TITLE \"fixture with spaces\"\r\n"
+            "# domain comes after the size here\r\n"
+            "DOMAIN_MIN 0 0 0\r\n"
+            "DOMAIN_MAX 1 1 2\r\n"
+            "\r\n"
+            "0 0 0\r\n"
+            "0.25 0 0\r\n"
+            "0 0.5 0\r\n"
+            "0.25 0.5 0\r\n"
+            "0 0 1.5\r\n"
+            "0.25 0 1.5\r\n"
+            "0 0.5 1.5\r\n"
+            "0.25 0.5 1.5\r\n";
+        CubeLUT lut;
+        if (!lut.ReadFromString(fixture))
+            Fail("T15 fixture rejected: %s", lut.LastError().c_str());
+        else
+        {
+            if (lut.Size() != 2)
+                Fail("T15 fixture size %d expected 2", lut.Size());
+            if (lut.Title() != "fixture with spaces")
+                Fail("T15 fixture title '%s'", lut.Title().c_str());
+            double dmin[3], dmax[3];
+            lut.GetDomain(dmin, dmax);
+            if (dmax[2] != 2.0)
+                Fail("T15 fixture domain max b = %.17g expected 2", dmax[2]);
+            double v[3];
+            if (!lut.GetEntry(1, 0, 0, v) || v[0] != 0.25 || v[1] != 0.0 || v[2] != 0.0)
+                Fail("T15 fixture entry (1,0,0) wrong");
+            if (!lut.GetEntry(0, 1, 1, v) || v[0] != 0.0 || v[1] != 0.5 || v[2] != 1.5)
+                Fail("T15 fixture entry (0,1,1) wrong");
+        }
+
+        // Minimal fixture without title/domain: defaults apply.
+        const char* minimal =
+            "LUT_3D_SIZE 2\n"
+            "0 0 0\n" "1 0 0\n" "0 1 0\n" "1 1 0\n"
+            "0 0 1\n" "1 0 1\n" "0 1 1\n" "1 1 1\n";
+        CubeLUT ml;
+        if (!ml.ReadFromString(minimal))
+            Fail("T15 minimal fixture rejected: %s", ml.LastError().c_str());
+        else
+        {
+            if (!ml.Title().empty())
+                Fail("T15 minimal fixture grew a title");
+            double dmin[3], dmax[3];
+            ml.GetDomain(dmin, dmax);
+            for (int k = 0; k < 3; ++k)
+                if (dmin[k] != 0.0 || dmax[k] != 1.0)
+                    Fail("T15 minimal fixture domain not default (comp %d)", k);
+        }
+    }
+
+    // Malformed input: every case must be rejected, and a rejected read
+    // must leave a previously loaded object bit-identical.
+    {
+        static const struct { const char* what; const char* text; } bad[] = {
+            { "size 1",          "LUT_3D_SIZE 1\n0 0 0\n" },
+            { "size 257",        "LUT_3D_SIZE 257\n" },
+            { "size 0",          "LUT_3D_SIZE 0\n" },
+            { "negative size",   "LUT_3D_SIZE -3\n" },
+            { "non-numeric size","LUT_3D_SIZE abc\n" },
+            { "missing size",    "TITLE \"x\"\n0 0 0\n" },
+            { "1D LUT",          "LUT_1D_SIZE 10\n" },
+            { "unknown keyword", "FOO 1\nLUT_3D_SIZE 2\n" },
+            { "duplicate size",  "LUT_3D_SIZE 2\nLUT_3D_SIZE 2\n" },
+            { "too few rows",    "LUT_3D_SIZE 2\n0 0 0\n1 1 1\n" },
+            { "too many rows",   "LUT_3D_SIZE 2\n0 0 0\n0 0 0\n0 0 0\n0 0 0\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n0 0 0\n" },
+            { "2-number row",    "LUT_3D_SIZE 2\n0 0\n0 0 0\n0 0 0\n0 0 0\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n" },
+            { "junk in row",     "LUT_3D_SIZE 2\n0 zero 0\n0 0 0\n0 0 0\n0 0 0\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n" },
+            { "nan in row",      "LUT_3D_SIZE 2\nnan 0 0\n0 0 0\n0 0 0\n0 0 0\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n" },
+            { "inf in row",      "LUT_3D_SIZE 2\ninf 0 0\n0 0 0\n0 0 0\n0 0 0\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n" },
+            { "comma decimal",   "LUT_3D_SIZE 2\n0,5 0 0\n0 0 0\n0 0 0\n0 0 0\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n" },
+            { "domain min>=max", "LUT_3D_SIZE 2\nDOMAIN_MIN 0 0 1\nDOMAIN_MAX 1 1 1\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n" },
+            { "unquoted title",  "TITLE naked\nLUT_3D_SIZE 2\n0 0 0\n0 0 0\n0 0 0\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n0 0 0\n" },
+            { "keyword after data", "LUT_3D_SIZE 2\n0 0 0\nDOMAIN_MIN 0 0 0\n0 0 0\n"
+                                 "0 0 0\n0 0 0\n0 0 0\n0 0 0\n0 0 0\n0 0 0\n" },
+            { "data before size","0 0 0\nLUT_3D_SIZE 2\n" },
+            { "empty input",     "" },
+        };
+
+        CubeLUT keeper;
+        keeper.Create(2);
+        FillLattice(keeper, 13579u);
+        keeper.SetTitle("survivor");
+        std::string before;
+        keeper.WriteToString(before);
+
+        for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i)
+        {
+            CubeLUT fresh;
+            if (fresh.ReadFromString(bad[i].text))
+                Fail("T15 reader accepted %s", bad[i].what);
+            else if (fresh.IsValid())
+                Fail("T15 rejected read (%s) left a fresh object valid", bad[i].what);
+            if (fresh.LastError().empty())
+                Fail("T15 rejected read (%s) set no LastError", bad[i].what);
+
+            CubeLUT k2;
+            k2.Create(2);
+            FillLattice(k2, 13579u);
+            k2.SetTitle("survivor");
+            if (k2.ReadFromString(bad[i].text))
+                Fail("T15 loaded reader accepted %s", bad[i].what);
+            std::string after;
+            if (!k2.WriteToString(after) || after != before)
+                Fail("T15 rejected read (%s) changed a loaded object", bad[i].what);
+        }
+    }
+
+    // Entry and metadata contract violations.
+    {
+        CubeLUT lut;
+        lut.Create(2);
+        double v[3] = { 0.0, 0.0, 0.0 };
+        if (lut.SetEntry(2, 0, 0, v) || lut.SetEntry(-1, 0, 0, v))
+            Fail("T15 SetEntry accepted an out-of-range index");
+        double nanv[3] = { sqrt(-1.0), 0.0, 0.0 };
+        if (lut.SetEntry(0, 0, 0, nanv))
+            Fail("T15 SetEntry accepted a NaN value");
+        double probe[3];
+        lut.GetEntry(0, 0, 0, probe);
+        if (probe[0] != 0.0)
+            Fail("T15 rejected SetEntry modified the entry");
+        if (lut.SetTitle("bad \" quote"))
+            Fail("T15 SetTitle accepted an embedded quote");
+        if (lut.SetTitle("bad\nnewline"))
+            Fail("T15 SetTitle accepted an embedded newline");
+        double dmin[3] = { 0.0, 0.0, 0.0 }, dmax[3] = { 1.0, 0.0, 1.0 };
+        if (lut.SetDomain(dmin, dmax))
+            Fail("T15 SetDomain accepted max <= min");
+        CubeLUT fresh;
+        std::string out;
+        if (fresh.WriteToString(out))
+            Fail("T15 WriteToString succeeded on an invalid object");
+    }
+
+    // Locale independence: with a comma-decimal locale active the writer
+    // must still emit '.' and the reader must still parse '.'.
+    {
+        const char* prev = setlocale(LC_NUMERIC, NULL);
+        std::string saved = prev ? prev : "C";
+        if (!setlocale(LC_NUMERIC, "French_France.1252"))
+            Fail("T15 could not activate the French locale for the test");
+        else
+        {
+            CubeLUT lut;
+            lut.Create(2);
+            FillLattice(lut, 11111u);
+            std::string text;
+            if (!lut.WriteToString(text))
+                Fail("T15 locale write failed");
+            else if (text.find(',') != std::string::npos)
+                Fail("T15 writer used ',' as a decimal separator under a comma locale");
+            else
+            {
+                CubeLUT back;
+                if (!back.ReadFromString(text) || !SameLattice(lut, back))
+                    Fail("T15 locale round-trip failed");
+            }
+        }
+        setlocale(LC_NUMERIC, saved.c_str());
+    }
+
+    // File-path leg: write to a temp file, read it back, clean up.
+    {
+        CubeLUT lut;
+        lut.Create(4);
+        FillLattice(lut, 97531u);
+        const char* path = "T15_tmp.cube";
+        if (!lut.WriteFile(path))
+            Fail("T15 WriteFile failed: %s", lut.LastError().c_str());
+        else
+        {
+            CubeLUT back;
+            if (!back.ReadFile(path))
+                Fail("T15 ReadFile failed: %s", back.LastError().c_str());
+            else if (!SameLattice(lut, back))
+                Fail("T15 file round-trip lattice mismatch");
+            remove(path);
+        }
+        CubeLUT nf;
+        if (nf.ReadFile("T15_no_such_file.cube"))
+            Fail("T15 ReadFile succeeded on a missing file");
+        if (lut.WriteFile("no_such_dir_T15\\x\\y.cube"))
+            Fail("T15 WriteFile succeeded on an unwritable path");
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -799,6 +1211,7 @@ int main(int argc, char* argv[])
     RunT8();
     RunT9();
     RunT10();
+    RunT15();   // T11-T14 are claimed by in-flight branches; see the header
 
     if (g_failures)
     {
