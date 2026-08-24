@@ -244,13 +244,93 @@ void CubeLUT::GetDomain(double dmin[3], double dmax[3]) const
     }
 }
 
-// RED-BASELINE STUB for the tetrahedral evaluator; the real implementation
-// replaces this function. See CubeLUT.h for the contract.
+// Tetrahedral interpolation: each lattice cell is cut along its main
+// diagonal into six tetrahedra, one per ordering of the three cell-local
+// fractions, and the output is the barycentric blend along the path
+// c000 -> +hi axis -> +hi+mid axes -> c111 with weights (1-f[hi],
+// f[hi]-f[mid], f[mid]-f[lo], f[lo]). Technique analyzed in Kasson &
+// Plouffe, "An Analysis of Selected Computer Interchange Color Spaces",
+// ACM Trans. Graphics 11(4), 1992. See CubeLUT.h for the contract.
 bool CubeLUT::Evaluate(const double in[3], double out[3]) const
 {
-    (void)in;
+    if (out == 0)
+        return false;
     out[0] = out[1] = out[2] = 0.0;
-    return false;
+    if (m_size == 0 || in == 0)
+        return false;
+    for (int k = 0; k < 3; ++k)
+        if (!IsFiniteValue(in[k]))
+            return false;
+
+    // Map into the domain box (clamping out-of-domain inputs to the nearest
+    // face), then split into a cell index and a cell-local fraction. The
+    // last cell keeps f = 1 rather than starting a cell that does not exist,
+    // so the top face of the lattice evaluates exactly at its nodes.
+    // SetDomain guarantees max > min, so the division cannot divide by zero.
+    const int lastCell = m_size - 2;
+    int index[3];
+    double frac[3];
+    for (int k = 0; k < 3; ++k)
+    {
+        double t = (in[k] - m_domainMin[k]) / (m_domainMax[k] - m_domainMin[k]);
+        if (t < 0.0)
+            t = 0.0;
+        else if (t > 1.0)
+            t = 1.0;
+
+        double s = t * (double)(m_size - 1);
+        int i = (int)s;                     // s >= 0, so this truncates down
+        if (i < 0)
+            i = 0;
+        else if (i > lastCell)
+            i = lastCell;
+        double f = s - (double)i;
+        if (f < 0.0)
+            f = 0.0;
+        else if (f > 1.0)
+            f = 1.0;
+
+        index[k] = i;
+        frac[k] = f;
+    }
+
+    // Order the axes by descending fraction. Ties may break either way: the
+    // two paths differ only in a vertex whose weight is zero when the
+    // fractions are equal, so the result is the same and the evaluator stays
+    // continuous across the diagonal planes.
+    int hi = 0, mid = 1, lo = 2;
+    if (frac[mid] > frac[hi]) { int t = hi; hi = mid; mid = t; }
+    if (frac[lo] > frac[mid]) { int t = mid; mid = lo; lo = t; }
+    if (frac[mid] > frac[hi]) { int t = hi; hi = mid; mid = t; }
+
+    // Storage steps of one lattice unit along red, green and blue, matching
+    // the ((b*N + g)*N + r)*3 layout.
+    const size_t n = (size_t)m_size;
+    size_t step[3];
+    step[0] = 3;
+    step[1] = n * 3;
+    step[2] = n * n * 3;
+
+    size_t base = ((size_t)index[2] * n + (size_t)index[1]) * n * 3
+                  + (size_t)index[0] * 3;
+    size_t p1 = base + step[hi];
+    size_t p2 = p1 + step[mid];
+    size_t p3 = p2 + step[lo];
+
+    const double w0 = 1.0 - frac[hi];
+    const double w1 = frac[hi] - frac[mid];
+    const double w2 = frac[mid] - frac[lo];
+    const double w3 = frac[lo];
+
+    for (int k = 0; k < 3; ++k)
+    {
+        size_t o = (size_t)k;
+        out[k] = w0 * m_data[base + o]
+               + w1 * m_data[p1 + o]
+               + w2 * m_data[p2 + o]
+               + w3 * m_data[p3 + o];
+    }
+    return true;
 }
 
 bool CubeLUT::WriteToString(std::string& out) const
