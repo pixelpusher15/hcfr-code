@@ -22,7 +22,10 @@
 // OUTPUT objects are left exactly as they were, and when the caller passes
 // a non-null err string a one-line lowercase reason is written to it; a
 // successful call clears err. Output objects may alias input objects
-// (results are computed to the side and committed only on success).
+// (results are computed to the side and committed only on success, by
+// noexcept moves - so an output is never torn). Allocation failure on a
+// large lattice reports the same way (false + err), never as an escaping
+// exception.
 
 #ifndef LUTOPS_H
 #define LUTOPS_H
@@ -89,7 +92,9 @@ private:
 
 // out = second(first(x)), materialized as an outSize^3 lattice: entry at
 // lattice node p (in FIRST's domain, node convention dmin + i/(N-1)*span
-// per component) is second.Evaluate(first.Evaluate(p)). The result keeps
+// per component, computed in the endpoint-exact symmetric form
+// dmin*(1-u) + dmax*u; interior nodes carry ordinary last-place rounding)
+// is second.Evaluate(first.Evaluate(p)). The result keeps
 // first's domain and an empty title. Values of first that fall outside
 // second's domain are clamped by second's evaluator (the documented
 // CubeLUT::Evaluate domain-box clamp) - the contract gate below is the
@@ -108,10 +113,12 @@ bool ComposeCube(const CubeLUT& first, const CubeLUT& second, int outSize,
 
 // out = src re-sampled through its own evaluator on a newSize^3 lattice
 // over src's domain: entry at node p is src.Evaluate(p). Keeps src's
-// domain and contract; the title starts empty. Because the evaluator is
-// exact at lattice nodes, a same-size resample reproduces every entry of
-// src exactly. Refuses (nothing written) on an invalid src or newSize
-// outside 2..256. out may alias src.
+// domain and contract; the title starts empty. A same-size resample is a
+// verbatim copy of the lattice, so it reproduces every entry of src
+// exactly for any size and domain (round-tripping node positions through
+// the evaluator could pick up last-place rounding; a copy cannot).
+// Refuses (nothing written) on an invalid src or newSize outside 2..256.
+// out may alias src.
 bool ResampleCube(const CubeLUT& src, int newSize, CubeLUT& out,
                   std::string* err);
 
@@ -134,11 +141,12 @@ bool ExtractNeutralShaper(const CubeLUT& lut, ShaperCurve& shaper,
 // materialized as a cubeSize^3 lattice over the shaper's VALUE RANGE:
 // cube's domain component c is [shaper sample 0, shaper sample K-1] of
 // channel c (so the cube's input domain is exactly what the shaper can
-// emit). Consequences the caller may rely on: cube(shaper(x)) reproduces
-// src(x); along the shaper's image of the gray diagonal the cube is the
-// identity (the neutral response lives entirely in the shaper); and for a
-// src that is purely per-channel 1D the whole cube collapses to the
-// identity lattice.
+// emit). Consequences the caller may rely on, each up to last-place
+// rounding of the chained evaluations: cube(shaper(x)) reproduces src(x);
+// along the shaper's image of the gray diagonal the cube is the identity
+// (the neutral response lives entirely in the shaper); and for a src that
+// is purely per-channel 1D the whole cube collapses to the identity
+// lattice.
 //
 // Contracts: cube is stamped with an UNSPECIFIED input signal (the
 // intermediate point has no standard name) and src's output signal.

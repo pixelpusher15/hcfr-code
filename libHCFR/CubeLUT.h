@@ -62,6 +62,17 @@ class CubeLUT
 public:
     CubeLUT();
 
+    // Shared lattice policy, referenced by the LUT-algebra layer (LutOps)
+    // as well, so the rules live in exactly one place.
+    static const int kMinSize = 2;
+    static const int kMaxSize = 256;
+    static bool ValidSize(int size);
+    static bool IsFiniteValue(double v);
+    // The one domain-component rule: both ends finite, max > min, and the
+    // span itself finite - (-1e308, 1e308) has finite ends but overflows
+    // the span Evaluate divides by, turning every evaluation constant.
+    static bool ValidDomainComponent(double dmin, double dmax);
+
     // Allocate an N^3 identity lattice (2 <= size <= 256): entry (r,g,b) =
     // domain min + index/(N-1) * (domain span), using the DEFAULT domain
     // 0..1, which Create also resets along with the title. Returns false

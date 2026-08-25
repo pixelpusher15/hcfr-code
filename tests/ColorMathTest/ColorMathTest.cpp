@@ -2211,6 +2211,27 @@ static void RunT16()
             }
         }
 
+        // Same-size resample is bit-exact on a HOSTILE domain too - one
+        // where round-tripping node positions through the evaluator picks
+        // up last-place rounding (0.1..0.9 at size 5: the recovered scaled
+        // position overshoots its node by an ulp). Pins the verbatim-copy
+        // fast path: an evaluate-per-node implementation fails this
+        // bit-exact compare.
+        {
+            CubeLUT hostile, hout;
+            hostile.Create(5);
+            T15Cube::FillLattice(hostile, 42424u);
+            double hmin[3] = { 0.1, 0.1, 0.1 }, hmax[3] = { 0.9, 0.9, 0.9 };
+            if (!hostile.SetDomain(hmin, hmax))
+                Fail("T16 resample: hostile SetDomain failed");
+            if (!ResampleCube(hostile, 5, hout, &err))
+                Fail("T16 resample: hostile same-size resample refused: %s",
+                     err.c_str());
+            else if (!SameLattice(hout, hostile))
+                Fail("T16 resample: hostile-domain same-size resample "
+                     "changed entries");
+        }
+
         // Refusals leave the output untouched; aliasing works.
         CubeLUT sent;
         MakeSentinel(sent);
