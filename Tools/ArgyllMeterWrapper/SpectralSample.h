@@ -48,10 +48,10 @@ public:
 	bool loadMeasurementsFromTI3(const std::string& ti3Path, CColor** readings, int& nReadings);
 	bool createFromTI3(const std::string& ti3Path);
 	bool createFromMeasurements(const CColor spectralReadings[], const int nReadings);
-	// Build the sample set from a ColourSpace correlation .csv (N rows, each 401
+	// Build the sample set from a spectral-correlation .csv (N rows, each 401
 	// comma-separated spectral values at 380..780nm @ 1nm). Tolerates a UTF-8 BOM,
 	// a trailing comma, and short rows (zero-padded); skips empty/near-zero rows.
-	bool createFromColourSpaceCSV(const std::string& csvPath);
+	bool createFromCorrelationCSV(const std::string& csvPath);
 
     // Get information about the sample. Currently we're only using getDescription()
     // getTech() and getDisplay() are included for future flexibility

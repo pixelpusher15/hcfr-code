@@ -47,7 +47,12 @@ protected:
     Matrix m_sensorToXYZMatrixMod;
 	int m_calibrationMethod;					// CalibrationMatrixMethod: which method produced the matrices below
 	Matrix m_bodnerRawMatrix[3];				// Bodner sub-gamut raw-primary matrices (rgw/gbw/rbw), only valid when m_calibrationMethod == CALIB_BODNER_THREEMATRIX
-	Matrix m_bodnerCalMatrix[3];				// Bodner sub-gamut calibration matrices (rgw/gbw/rbw)
+	Matrix m_bodnerCalMatrix[3];
+	// Cached inverses of m_bodnerRawMatrix (maintained by
+	// UpdateBodnerInverseCache): the sub-gamut selection needs them for
+	// every reading, and Gauss-Jordan per reading is measurably slow.
+	Matrix m_bodnerRawInverse[3];
+	bool   m_bodnerRawInvertible[3];				// Bodner sub-gamut calibration matrices (rgw/gbw/rbw)
 	// Configure() snapshot (BeginConfigure/CancelConfigure)
 	Matrix m_cfgSnapMatrix;
 	Matrix m_cfgSnapBodnerRaw[3], m_cfgSnapBodnerCal[3];
@@ -84,6 +89,7 @@ public:
 
 	void SetCalibrationMethod(int aMethod) { m_calibrationMethod=aMethod; }
 	int GetCalibrationMethod() const { return m_calibrationMethod; }
+	void UpdateBodnerInverseCache();
 	void SetBodnerMatrices(const Matrix aRawMatrix[3], const Matrix aCalMatrix[3])
 	{
 		for ( int k = 0; k < 3; k++ )
@@ -91,6 +97,7 @@ public:
 			m_bodnerRawMatrix[k] = aRawMatrix[k];
 			m_bodnerCalMatrix[k] = aCalMatrix[k];
 		}
+		UpdateBodnerInverseCache();
 		m_calibrationTime=time(NULL);
 	}
 	void ClearBodnerMatrices()
@@ -100,6 +107,7 @@ public:
 			m_bodnerRawMatrix[k] = Matrix::IdentityMatrix(3);
 			m_bodnerCalMatrix[k] = Matrix::IdentityMatrix(3);
 		}
+		UpdateBodnerInverseCache();
 	}
 	const Matrix * GetBodnerRawMatrices() const { return m_bodnerRawMatrix; }
 	const Matrix * GetBodnerCalMatrices() const { return m_bodnerCalMatrix; }

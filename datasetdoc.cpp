@@ -904,6 +904,11 @@ BOOL CDataSetDoc::OnNewDocument()
                         if ( ConfirmClearSpectralForMatrixCal(m_pSensor) )
                             m_pSensor->LoadCalibrationFile(propSheet.m_Page2.m_trainingFileName);
                     }
+                    // Drain the leave-measures answer a spectral Browse may
+                    // have latched: a new document has no measurements to
+                    // recompute, and leaving it set would leak into the NEXT
+                    // Sensor->Configure on this document.
+                    (void) m_pSensor->TakePendingSpectralLeaveMeasures();
                 }
 				else
 				{
@@ -1402,7 +1407,8 @@ void CDataSetDoc::OnConfigureSensor()
 	StopBackgroundMeasures ();
     m_pSensor->SetSensorMatrixMod( m_pSensor->GetSensorMatrix() );
 	m_pSensor->BeginConfigure();
-	if ( !m_pSensor->Configure() )
+	BOOL bConfigOk = m_pSensor->Configure();
+	if ( !bConfigOk )
 	{
 		// Cancel really cancels. The Argyll spectral Browse commits immediately
 		// (meter sample + matrices + modified flag), so restore the pre-sheet
@@ -1413,7 +1419,9 @@ void CDataSetDoc::OnConfigureSensor()
 	// A spectral-correction apply may have asked to LEAVE existing measurements
 	// as-is (mixed) instead of stripping them to raw (read-and-reset).
 	BOOL bLeaveSpectralMeasures = m_pSensor->TakePendingSpectralLeaveMeasures();
-	if( m_pSensor->IsModified() )
+	// After a Cancel the correction state was restored bit-identically, so the
+	// recompute below would be a no-op plus a spurious skip dialog - skip it.
+	if( bConfigOk && m_pSensor->IsModified() )
 	{
         if ( bLeaveSpectralMeasures )
         {
@@ -1593,45 +1601,23 @@ bool CDataSetDoc::ConfirmCalibrationMethodInSync()
 	if ( selected == applied )
 		return true;
 
-	// Only a genuinely-applied correction can be stale: a non-identity matrix
-	// (RGB/FCMM) or active Bodner-Robinson sub-gamut matrices.
-	bool bHasCorrection = ( m_pSensor->IsCalibrated() == 1 )
-	                   || ( applied == CALIB_BODNER_THREEMATRIX );
-	if ( !bHasCorrection )
+	// Only a genuinely-applied correction can be stale.
+	if ( !m_pSensor->IsCorrectionActive() )
 		return true;
 
+	// Warn-only: export must stay read-only. Recomputing (and the spectral-
+	// clear guard it can trigger) belongs to the calibration commands - a
+	// Yes here used to rewrite an archived document's measurements as a
+	// side effect of printing it.
 	int r = GetColorApp()->InMeasureMessageBox(
 		"The calibration method selected in Options differs from the one currently "
 		"applied to these measurements - they were not recomputed after the method "
-		"was changed.\n\n"
-		"Yes - recompute now from the reference measurements\n"
-		"No - keep the currently applied correction\n"
-		"Cancel - stop and do nothing",
-		"Calibration method", MB_YESNOCANCEL | MB_ICONQUESTION );
-
-	if ( r == IDCANCEL )
-		return false;
-	if ( r == IDYES )
-	{
-		CDataSetDoc * pRef = GetDataRef();
-		// ComputeAdjustmentMatrix uses (and asserts) all three primaries on both
-		// documents, so require all three here rather than red alone.
-		bool canRecompute = ( pRef != NULL && pRef != this
-		                   && m_measure.GetRedPrimary().isValid()
-		                   && m_measure.GetGreenPrimary().isValid()
-		                   && m_measure.GetBluePrimary().isValid()
-		                   && pRef->m_measure.GetRedPrimary().isValid()
-		                   && pRef->m_measure.GetGreenPrimary().isValid()
-		                   && pRef->m_measure.GetBluePrimary().isValid() );
-		if ( canRecompute )
-			ComputeAdjustmentMatrix();
-		else
-			GetColorApp()->InMeasureMessageBox(
-				"The correction cannot be recomputed: a reference document with "
-				"primary measurements must be selected first (Create using Existing "
-				"Reference Measures).", "Calibration method", MB_OK | MB_ICONINFORMATION );
-	}
-	return true;
+		"was changed. The export will reflect the APPLIED method.\n\n"
+		"To recompute first, cancel and run Create using Existing Reference "
+		"Measures (or a calibration command).\n\n"
+		"Continue with the export?",
+		"Calibration method", MB_OKCANCEL | MB_ICONINFORMATION );
+	return ( r == IDOK );
 }
 
 void CDataSetDoc::OnExportXls()
@@ -2532,7 +2518,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
     // On/Off white is the measured one. Prefer whichever white has raw and take
     // the reference white from the SAME source so test and reference whites
     // correspond (whiteRefRaw); the no-raw fallback keeps the original
-    // Prime-preferred whiteRef pairing untouched (legacy data, old behaviour).
+    // Prime-preferred whiteRef pairing untouched (legacy data, old behavior).
     ColorXYZ whiteRaw = white;   // valid default; only used when whiteHasRaw
     ColorXYZ whiteRefRaw = whiteRef;   // reference white paired with whiteRaw
     bool whiteHasRaw = true;
@@ -2617,7 +2603,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
         // matches the Bodner branch above and is what makes retained-raw method
         // switching actually work. Legacy measures that predate raw retention have
         // no raw value; fall back to the original corrected-measures + incremental
-        // compose so their behaviour is unchanged. Classic NIST uses only the three
+        // compose so their behavior is unchanged. Classic NIST uses only the three
         // primaries (white is ignored), so it needs raw primaries but not raw white.
         bool haveRaw = primHaveRaw
                     && ( whiteHasRaw || calibrationMethod == CALIB_CLASSIC_NIST );
@@ -5446,7 +5432,12 @@ void CDataSetDoc::OnLoadCalibrationFile()
 
 void CDataSetDoc::OnUpdateLoadCalibrationFile(CCmdUI* pCmdUI)
 {
-	pCmdUI -> Enable ( m_pSensor -> IsCalibrated () != 1 );
+	// A live correction of ANY kind must disable these re-fit commands. A
+	// Bodner correction deliberately keeps the single matrix at identity
+	// (IsCalibrated()==0), and every command routed here is single-matrix
+	// machinery: re-fitting through it would compute a matrix against
+	// Bodner-corrected readings and apply it to raw ones.
+	pCmdUI -> Enable ( !m_pSensor -> IsCorrectionActive () );
 }
 
 void CDataSetDoc::OnUpdateCalibrationExisting(CCmdUI* pCmdUI)
@@ -5459,7 +5450,13 @@ void CDataSetDoc::OnUpdateCalibrationExisting(CCmdUI* pCmdUI)
 	// (so the recompute is clean, not a compounding double-correction on legacy
 	// measures).
 	CDataSetDoc * pDataRef = GetDataRef();
-	BOOL bHaveRef = ( pDataRef != NULL && pDataRef != this );
+	// ComputeAdjustmentMatrix asserts the reference primaries are valid;
+	// in Release the assert is compiled out and an empty reference would
+	// feed noDataColor into the solve. Gate on them here.
+	BOOL bHaveRef = ( pDataRef != NULL && pDataRef != this
+	               && pDataRef->m_measure.GetRedPrimary().GetXYZValue().isValid()
+	               && pDataRef->m_measure.GetGreenPrimary().GetXYZValue().isValid()
+	               && pDataRef->m_measure.GetBluePrimary().GetXYZValue().isValid() );
 	BOOL bCleanRecompute = ( m_pSensor->IsCalibrated() != 1 )
 	                    || m_measure.GetRedPrimary().HasRawXYZValue();
 	pCmdUI -> Enable ( bHaveRef && bCleanRecompute );
@@ -5472,6 +5469,5 @@ void CDataSetDoc::OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI)
 	// sensor matrix is identity and IsCalibrated() reports 0. CSensor::Serialize writes the
 	// method and, for Bodner, all three sub-gamut matrix pairs, so the training file
 	// round-trips either correction.
-	pCmdUI -> Enable ( m_pSensor -> IsCalibrated () == 1
-	                || m_pSensor -> GetCalibrationMethod () == CALIB_BODNER_THREEMATRIX );
+	pCmdUI -> Enable ( m_pSensor -> IsCorrectionActive () );
 }

@@ -50,6 +50,7 @@ CSensor::CSensor()
 		m_bodnerRawMatrix[k]=IdentityMatrix(3);
 		m_bodnerCalMatrix[k]=IdentityMatrix(3);
 	}
+	UpdateBodnerInverseCache();
 
 	m_calibrationTime=0;
 
@@ -71,6 +72,7 @@ void CSensor::Copy(CSensor * p)
 	m_errorString = p->m_errorString;
 	m_isMeasureValid = p->m_isMeasureValid;
 	m_sensorToXYZMatrix = p->m_sensorToXYZMatrix;
+	m_sensorToXYZMatrixMod = p->m_sensorToXYZMatrixMod;
 	m_calibrationTime = p->m_calibrationTime;
 	m_calibrationMethod = p->m_calibrationMethod;
 	for ( int k = 0; k < 3; k++ )
@@ -78,7 +80,18 @@ void CSensor::Copy(CSensor * p)
 		m_bodnerRawMatrix[k] = p->m_bodnerRawMatrix[k];
 		m_bodnerCalMatrix[k] = p->m_bodnerCalMatrix[k];
 	}
+	UpdateBodnerInverseCache();
 	m_name = p->m_name;
+}
+
+void CSensor::UpdateBodnerInverseCache()
+{
+	for ( int k = 0; k < 3; k++ )
+	{
+		m_bodnerRawInvertible[k] = ( m_bodnerRawMatrix[k].Determinant() != 0.0 );
+		m_bodnerRawInverse[k] = m_bodnerRawInvertible[k]
+			? m_bodnerRawMatrix[k].GetInverse() : IdentityMatrix(3);
+	}
 }
 
 void CSensor::Serialize(CArchive& archive)
@@ -87,16 +100,26 @@ void CSensor::Serialize(CArchive& archive)
 	m_sensorToXYZMatrix.Serialize(archive);
 	if (archive.IsStoring())
 	{
-		int version=2;
+		// Honor the Debug\SaveOldCalibrationFile downgrade switch (see
+		// COneDeviceSensor::Serialize): a v1 stream omits the method field and
+		// loads in pre-method builds; the v1 loader's frozen-key derivation
+		// recovers the method on re-import. A Bodner correction has no v1
+		// representation, so it always writes v2.
+		int version = ( m_calibrationMethod != CALIB_BODNER_THREEMATRIX
+		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
+						? 1 : 2;
 		archive << version;
 		archive << m_calibrationTime;
-		archive << m_calibrationMethod;
-		if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
+		if ( version >= 2 )
 		{
-			for ( int k = 0; k < 3; k++ )
+			archive << m_calibrationMethod;
+			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 			{
-				m_bodnerRawMatrix[k].Serialize(archive);
-				m_bodnerCalMatrix[k].Serialize(archive);
+				for ( int k = 0; k < 3; k++ )
+				{
+					m_bodnerRawMatrix[k].Serialize(archive);
+					m_bodnerCalMatrix[k].Serialize(archive);
+				}
 			}
 		}
 	}
@@ -144,6 +167,9 @@ void CSensor::Serialize(CArchive& archive)
 					? GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0) : 0;
 			m_calibrationMethod = legacyOnly ? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
 		}
+		// Loaded (v2 Bodner) or defaulted matrices either way: refresh the
+		// sub-gamut inverse cache for this deserialized state.
+		UpdateBodnerInverseCache();
 	}
 }
 
@@ -178,6 +204,7 @@ void CSensor::CancelConfigure()
 		m_bodnerRawMatrix[k] = m_cfgSnapBodnerRaw[k];
 		m_bodnerCalMatrix[k] = m_cfgSnapBodnerCal[k];
 	}
+	UpdateBodnerInverseCache();
 }
 
 void CSensor::SetPropertiesSheetValues()
@@ -229,7 +256,7 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	result.SetStimulusValue(aRGBValue);
 
 	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
-		result.SetXYZValue(SelectAndApplyBodnerMatrix(result.GetXYZValue(), m_bodnerRawMatrix, m_bodnerCalMatrix));
+		result.SetXYZValue(SelectAndApplyBodnerMatrixInv(result.GetXYZValue(), m_bodnerRawInverse, m_bodnerRawInvertible, m_bodnerCalMatrix));
 	else
 		result.applyAdjustmentMatrix(m_sensorToXYZMatrix);
 

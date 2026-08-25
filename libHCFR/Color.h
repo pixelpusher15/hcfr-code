@@ -807,6 +807,9 @@ extern void ComputeBodnerThreeMatrices(const ColorXYZ measuresRGBW[4], const Col
 // Picks which of the three sub-gamut matrices applies to a raw XYZ reading (via the
 // non-negative "drive value" test from the paper) and returns the corrected XYZ.
 extern ColorXYZ SelectAndApplyBodnerMatrix(const ColorXYZ& rawXYZ, const Matrix rawMatrix[3], const Matrix calMatrix[3]);
+// Precomputed-inverse variant for hot paths (per-reading / per-sweep): rawInv[k]
+// and rawInvertible[k] must describe the corresponding raw sub-gamut matrix.
+extern ColorXYZ SelectAndApplyBodnerMatrixInv(const ColorXYZ& rawXYZ, const Matrix rawInv[3], const bool rawInvertible[3], const Matrix calMatrix[3]);
 extern int PiPercentToCode ( double percent, bool is16_235, int bits );
 // Range a ColourSpace patch-list CSV can declare in its header (import-range guard).
 // CSV_RANGE_NONE = no header / legacy default. The loader (ReadCsvPatchRows) reports the

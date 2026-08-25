@@ -58,6 +58,7 @@ CArgyllSensor::CArgyllSensor() :
     m_DisableAIO(0)
 {
     m_spectralApplyLeaveMeasures = FALSE;
+    m_spectralCacheValid = false;
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
     m_pDevicePage = & m_ArgyllSensorPropertiesPage;  // Add Argyll settings page to property sheet
@@ -94,6 +95,7 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
     m_Adapt = GetConfig()->GetProfileInt(meterName.c_str(), "Adapt", 0);
     m_DisableAIO = GetConfig()->GetProfileInt(meterName.c_str(), "DisableAIO", 0);
     m_spectralApplyLeaveMeasures = FALSE;
+    m_spectralCacheValid = false;
 
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
@@ -364,14 +366,28 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
         {
             if ( m_meter->doesMeterSupportSpectralSamples() )
             {
-                SpectralSample ss;
-                CString ext = m_spectralCorrectionPath.Right(4); ext.MakeLower();
-                bool ok = ( ext == ".csv" )
-                    ? ss.createFromColourSpaceCSV((LPCSTR)m_spectralCorrectionPath)
-                    : ss.Read((LPCSTR)m_spectralCorrectionPath);
+                // Parse once and cache: Init runs per sweep (and per single
+                // measurement via AddMeasurement); the file does not change
+                // underneath us. Re-read only when the path changed.
+                bool ok = m_spectralCacheValid
+                       && m_spectralCachePath == m_spectralCorrectionPath;
+                if ( !ok )
+                {
+                    SpectralSample ss;
+                    CString ext = m_spectralCorrectionPath.Right(4); ext.MakeLower();
+                    ok = ( ext == ".csv" )
+                        ? ss.createFromCorrelationCSV((LPCSTR)m_spectralCorrectionPath)
+                        : ss.Read((LPCSTR)m_spectralCorrectionPath);
+                    if ( ok )
+                    {
+                        m_spectralSampleCache = ss;
+                        m_spectralCachePath = m_spectralCorrectionPath;
+                        m_spectralCacheValid = true;
+                    }
+                }
                 if ( ok )
                 {
-                    m_meter->loadSpectralSample(ss);
+                    m_meter->loadSpectralSample(m_spectralSampleCache);
                     applied = true;
                 }
             }
@@ -440,7 +456,7 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     {
         CString ext = filePath.Right(4); ext.MakeLower();
         bool ok = ( ext == ".csv" )
-            ? ss.createFromColourSpaceCSV((LPCSTR)filePath)
+            ? ss.createFromCorrelationCSV((LPCSTR)filePath)
             : ss.Read((LPCSTR)filePath);
         if ( !ok )
             throw std::logic_error("Could not read the selected spectral correction file.");
@@ -503,6 +519,7 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     // clears the baseline itself once the recompute is done.
     ClearBodnerMatrices();
     SetCalibrationMethod(CALIB_HCFR_DEFAULT);
+    m_spectralCacheValid = false;
     SetModifiedFlag(TRUE);
     return true;
 }
@@ -516,11 +533,13 @@ void CArgyllSensor::ClearSpectralCorrection()
     }
     m_spectralCorrectionPath.Empty();
     m_spectralCorrectionDesc.Empty();
+    m_spectralCacheValid = false;
     SetModifiedFlag(TRUE);
 }
 
 void CArgyllSensor::BeginConfigure()
 {
+    m_spectralCacheValid = false;   // path may change during the sheet
     CSensor::BeginConfigure();
     m_cfgSnapSpectralPath = m_spectralCorrectionPath;
     m_cfgSnapSpectralDesc = m_spectralCorrectionDesc;
@@ -550,7 +569,7 @@ void CArgyllSensor::CancelConfigure()
                 SpectralSample ss;
                 CString ext = m_cfgSnapSpectralPath.Right(4); ext.MakeLower();
                 bool ok = ( ext == ".csv" )
-                    ? ss.createFromColourSpaceCSV((LPCSTR)m_cfgSnapSpectralPath)
+                    ? ss.createFromCorrelationCSV((LPCSTR)m_cfgSnapSpectralPath)
                     : ss.Read((LPCSTR)m_cfgSnapSpectralPath);
                 if ( ok && m_meter && m_meter->doesMeterSupportSpectralSamples() )
                     m_meter->loadSpectralSample(ss);

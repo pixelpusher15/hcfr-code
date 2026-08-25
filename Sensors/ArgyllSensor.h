@@ -35,6 +35,8 @@
 #include "Argyllsensorproppage.h"
 #include "ArgyllMeterWrapper.h"
 
+#include "../Tools/ArgyllMeterWrapper/SpectralSample.h"
+
 class CArgyllSensor : public COneDeviceSensor  
 {
 public:
@@ -57,6 +59,11 @@ public:
     BOOL        m_spectralApplyLeaveMeasures; // transient: last apply asked to leave measures mixed (not strip to raw)
     CString     m_cfgSnapSpectralPath;      // BeginConfigure/CancelConfigure snapshot
     CString     m_cfgSnapSpectralDesc;
+    // Parsed-spectral-sample cache so Init does not re-read the file per
+    // sweep/measurement; invalidated whenever the correction state changes.
+    SpectralSample m_spectralSampleCache;
+    bool        m_spectralCacheValid;
+    CString     m_spectralCachePath;
 private:
     ArgyllMeterWrapper* m_meter;
     SpectralSampleFiles *m_spectralSamples;

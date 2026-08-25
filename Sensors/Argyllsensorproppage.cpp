@@ -332,7 +332,7 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
     int calBottom = btnY + btnH + M.ht(6);
     if (pCal != NULL) { CPoint cp = M.at(5, 0); pCal->MoveWindow(cp.x, calTopPx, M.w(GRPW), calBottom - calTopPx); }
 
-    // Spectral (ccss/CSV) correction row — created only for meters that support
+    // Spectral (ccss/CSV) correction row - created only for meters that support
     // spectral samples (i1D3 etc.). Programmatic so no .rc template is needed.
     // Placed directly under the calibration group; the Debug checkbox follows it.
     int rowBottom = calBottom;   // bottom of the last laid-out row
@@ -369,7 +369,7 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
         rowBottom = btnY + bh;
     }
 
-    // Debug checkbox at the bottom — below the spectral row when present, else
+    // Debug checkbox at the bottom - below the spectral row when present, else
     // directly under the calibration group.
     CWnd* pDbg = GetDlgItem(IDC_ARGYLL_SENSOR_DEBUG_CB);
     if (pDbg != NULL) { CPoint dp = M.at(LBLX + 1, 0); pDbg->MoveWindow(dp.x, rowBottom + M.ht(2), M.w(220), M.ht(10)); }
@@ -399,7 +399,7 @@ void CArgyllSensorPropPage::OnSpectralBrowse()
     if ( m_pSensor == NULL )
         return;
     CFileDialog dlg(TRUE, "ccss", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST,
-        "Spectral correction (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|ColourSpace CSV (*.csv)|*.csv||");
+        "Spectral correction (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|Correlation CSV (*.csv)|*.csv||");
     if ( dlg.DoModal() == IDOK )
     {
         if ( m_pSensor->ApplySpectralCorrection(dlg.GetPathName()) )
@@ -411,6 +411,11 @@ void CArgyllSensorPropPage::OnSpectralClear()
 {
     if ( m_pSensor == NULL )
         return;
+    // Clear after a Browse must not leave the identity matrix the apply
+    // installed: revert this sheet session's correction state first, then
+    // drop the spectral fields. (CancelConfigure restores from the sheet's
+    // opening snapshot and is idempotent, so a later Cancel still works.)
+    m_pSensor->CancelConfigure();
     m_pSensor->ClearSpectralCorrection();
     RefreshSpectralStatus();
 }

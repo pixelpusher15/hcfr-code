@@ -2978,7 +2978,14 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				m_datarefCheckButton = FALSE;
 		}
 		
-		m_AdjustXYZCheckButton.EnableWindow ( GetDocument()->m_pSensor->IsCalibrated () > 0 );
+		// DESIGN: a Bodner correction is deliberately checked-but-disabled here.
+		// OnAdjustXYZCheck's toggle machinery is single-matrix only - on a Bodner
+		// sensor one off/on round-trip would strip every raw-carrying measurement
+		// and restore an identity, silently destroying the correction. The method
+		// check also covers IsCalibrated()==2 (a parked Mod after a cancelled
+		// Configure), which would otherwise enable the toggle on a Bodner sensor.
+		m_AdjustXYZCheckButton.EnableWindow ( GetDocument()->m_pSensor->IsCalibrated () > 0
+			&& GetDocument()->m_pSensor->GetCalibrationMethod () != CALIB_BODNER_THREEMATRIX );
 		m_AdjustXYZCheckButton.SetCheck ( GetDocument()->m_pSensor->IsCorrectionActive () );
 
 		if ( GetDocument()->m_pSensor->IsCorrectionActive () || m_displayType == HCFR_xyz2_VIEW )
@@ -9387,6 +9394,10 @@ void CMainView::OnAvgLowLightCheck()
 
 void CMainView::OnAdjustXYZCheck()
 {
+	// Defense in depth for the gate above: this handler cannot represent a
+	// Bodner correction and must never run against one.
+	if ( GetDocument ()->m_pSensor->GetCalibrationMethod () == CALIB_BODNER_THREEMATRIX )
+		return;
 	BOOL	bAdjust = m_AdjustXYZCheckButton.GetCheck ();
 	Matrix CurrentMatrix = GetDocument ()->m_pSensor->GetSensorMatrix();
 	

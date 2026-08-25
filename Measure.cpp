@@ -6283,7 +6283,7 @@ BOOL CMeasure::AddMeasurement(CSensor *pSensor, CGenerator *pGenerator,  CGenera
 // original raw (uncorrected) sensor reading, fullMatrix is applied to that raw
 // value directly; otherwise (legacy data recorded before raw-value capture was
 // added) fall back to composing deltaMatrix onto the already-corrected value,
-// matching this function's previous behaviour. deltaMatrix and fullMatrix must
+// matching this function's previous behavior. deltaMatrix and fullMatrix must
 // be equivalent (deltaMatrix = fullMatrix * inverse(previous full matrix)) -
 // passing the same matrix for both is fine when there is no meaningful "delta"
 // (e.g. a freshly loaded calibration file replacing everything wholesale).
@@ -6301,7 +6301,7 @@ static void ReapplyAdjustmentMatrix(CColor& color, const Matrix& deltaMatrix, co
 // measurement (isValid()) but has no raw value (legacy data). Slots that were
 // simply never measured (still noDataColor) are left alone and don't count as a
 // recalibration failure.
-static bool ReapplyBodnerMatrix(CColor& color, const Matrix rawMatrix[3], const Matrix calMatrix[3])
+static bool ReapplyBodnerMatrix(CColor& color, const Matrix rawInv[3], const bool rawOk[3], const Matrix calMatrix[3])
 {
 	if ( !color.isValid() )
 		return true;
@@ -6309,7 +6309,7 @@ static bool ReapplyBodnerMatrix(CColor& color, const Matrix rawMatrix[3], const 
 	if ( !color.HasRawXYZValue() )
 		return false;
 
-	color.SetXYZValue(SelectAndApplyBodnerMatrix(color.GetRawXYZValue(), rawMatrix, calMatrix));
+	color.SetXYZValue(SelectAndApplyBodnerMatrixInv(color.GetRawXYZValue(), rawInv, rawOk, calMatrix));
 	return true;
 }
 
@@ -6391,7 +6391,16 @@ void CMeasure::ApplySensorAdjustmentMatrix(const Matrix& deltaMatrix, const Matr
 int CMeasure::ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Matrix calMatrix[3])
 {
 	int nSkipped = 0;
-	#define BODNER_REAPPLY(color) if (!ReapplyBodnerMatrix((color), rawMatrix, calMatrix)) nSkipped++;
+	// The sub-gamut inverses are invariant across the whole sweep - compute
+	// them once instead of per measurement (Gauss-Jordan per call).
+	Matrix rawInv[3];
+	bool rawOk[3];
+	for ( int k = 0; k < 3; k++ )
+	{
+		rawOk[k] = ( rawMatrix[k].Determinant() != 0.0 );
+		rawInv[k] = rawOk[k] ? rawMatrix[k].GetInverse() : Matrix::IdentityMatrix(3);
+	}
+	#define BODNER_REAPPLY(color) if (!ReapplyBodnerMatrix((color), rawInv, rawOk, calMatrix)) nSkipped++;
 
 	for(int i=0;i<m_grayMeasureArray.GetSize();i++)  // Preserve sensor values
 	{

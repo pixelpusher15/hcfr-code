@@ -4005,15 +4005,27 @@ void ComputeBodnerThreeMatrices(const ColorXYZ measuresRGBW[4], const ColorXYZ r
 
 ColorXYZ SelectAndApplyBodnerMatrix(const ColorXYZ& rawXYZ, const Matrix rawMatrix[3], const Matrix calMatrix[3])
 {
+    Matrix rawInv[3];
+    bool rawOk[3];
+    for ( int k = 0; k < 3; k++ )
+    {
+        rawOk[k] = ( rawMatrix[k].Determinant() != 0 );
+        rawInv[k] = rawOk[k] ? rawMatrix[k].GetInverse() : Matrix::IdentityMatrix(3);
+    }
+    return SelectAndApplyBodnerMatrixInv(rawXYZ, rawInv, rawOk, calMatrix);
+}
+
+ColorXYZ SelectAndApplyBodnerMatrixInv(const ColorXYZ& rawXYZ, const Matrix rawInv[3], const bool rawInvertible[3], const Matrix calMatrix[3])
+{
     double worstNegativeSum = -1.0;
     int bestSubGamut = 0;
 
     for ( int k = 0; k < 3; k++ )
     {
-        if ( rawMatrix[k].Determinant() == 0 )
+        if ( !rawInvertible[k] )
             continue;
 
-        Matrix drive = rawMatrix[k].GetInverse() * rawXYZ;
+        Matrix drive = rawInv[k] * rawXYZ;
 
         double negativeSum = 0.0;
         for ( int row = 0; row < 3; row++ )

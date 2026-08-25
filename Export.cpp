@@ -1705,10 +1705,13 @@ bool CExport::SaveGrayScaleSheet()
 	// same height. That height now depends on the Raw/Stimulus options, so if the
 	// existing file was written with different options, replacing would overwrite
 	// the wrong rows. Detect the mismatch and abort rather than corrupt the file.
-	if ( m_doReplace && m_numExistingMeasures > 0 &&
-	     (graySS.GetTotalRows() - 1) != m_numExistingMeasures * grayBlockRows )
+	int grayBlockRowsExisting = graySS.GetTotalRows() - 1;
+	if ( ( m_doReplace && m_numExistingMeasures > 0 &&
+	       grayBlockRowsExisting != m_numExistingMeasures * grayBlockRows )
+	  || ( !m_doReplace && grayBlockRowsExisting > 0 &&
+	       ( grayBlockRowsExisting % grayBlockRows ) != 0 ) )
 	{
-		m_errorStr = _T("Cannot replace: the selected file was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		m_errorStr = _T("Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
 		return false;
 	}
 	if(m_doReplace)
@@ -1925,10 +1928,13 @@ bool CExport::SavePrimariesSheet()
 	int primBlockRows = 7 + (m_bExportRaw?3:0) + (m_bExportStimulus?3:0);
 	// See SaveGrayScaleSheet: guard against replacing into a file whose blocks
 	// were written with a different Raw/Stimulus layout (wrong-row overwrite).
-	if ( m_doReplace && m_numExistingMeasures > 0 &&
-	     (primariesSS.GetTotalRows() - 1) != m_numExistingMeasures * primBlockRows )
+	int primBlockRowsExisting = primariesSS.GetTotalRows() - 1;
+	if ( ( m_doReplace && m_numExistingMeasures > 0 &&
+	       primBlockRowsExisting != m_numExistingMeasures * primBlockRows )
+	  || ( !m_doReplace && primBlockRowsExisting > 0 &&
+	       ( primBlockRowsExisting % primBlockRows ) != 0 ) )
 	{
-		m_errorStr = _T("Cannot replace: the selected file was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		m_errorStr = _T("Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
 		return false;
 	}
 	if(m_doReplace)
@@ -1973,7 +1979,7 @@ bool CExport::SavePrimariesSheet()
 	{
 		// Legacy fallback for measurements with no captured stimulus. The levels
 		// MeasurePrimaries actually drives depend on the transfer function and
-		// colour standard: HDR (m_GammaOffsetType==5) uses 50.22831%, HDTVa/HDTVb send
+		// color standard: HDR (m_GammaOffsetType==5) uses 50.22831%, HDTVa/HDTVb send
 		// fractional wire tables, and UHDTV3/UHDTV4 derive their codes from the container
 		// primaries. Reproducing those here would duplicate - and risk drifting from - the
 		// measurement tables, so emit the real drive values only for the plain standards
@@ -2430,10 +2436,12 @@ bool CExport::SaveCCSheet()
 	// (not rows), so compare the existing column count - still current until AddHeaders
 	// rewrites it just below - against the new header width. Replacing a mismatched layout
 	// rewrites the header wider but leaves measures 2..N under the old, narrower one.
-	if ( m_doReplace && m_numExistingMeasures > 0 &&
+	bool ccHasExisting = m_doReplace ? ( m_numExistingMeasures > 0 )
+	                                 : ( colorcheckerSS.GetTotalRows() > 0 );
+	if ( ccHasExisting &&
 	     (int)colorcheckerSS.GetTotalColumns() != (int)Rows.GetSize() )
 	{
-		m_errorStr = _T("Cannot replace: the selected file was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		m_errorStr = _T("Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
 		return false;
 	}
 	result&=colorcheckerSS.AddHeaders(Rows,true);
@@ -2595,29 +2603,32 @@ bool CExport::SaveCCSheet()
 				Rows.Add(-1.0);
 		}
 
-		if ( m_bExportRaw )
+		if ( m_bExportRaw || m_bExportStimulus )
 		{
+			// One fetch shared by both blocks: GetCC24Sat returns CColor by value
+			// (a deep copy including any spectrum), so fetch once per patch.
 			CColor cc = m_pDoc->GetMeasure()->GetCC24Sat(i);
-			for(j=0;j<3;j++)
+			if ( m_bExportRaw )
 			{
-				if (cc.isValid() && cc.HasRawXYZValue())
-					Rows.Add((float)cc.GetRawXYZValue()[j]);
-				else
-					Rows.Add(-1.0);
+				for(j=0;j<3;j++)
+				{
+					if (cc.isValid() && cc.HasRawXYZValue())
+						Rows.Add((float)cc.GetRawXYZValue()[j]);
+					else
+						Rows.Add(-1.0);
+				}
 			}
-		}
-
-		if ( m_bExportStimulus )
-		{
-			// Prefer the drive stimulus captured with the measurement; fall back to the
-			// generator reconstruction (ccStim) for patches measured before stimulus capture.
-			CColor ccS = m_pDoc->GetMeasure()->GetCC24Sat(i);
-			for(j=0;j<3;j++)
+			if ( m_bExportStimulus )
 			{
-				if ( ccS.isValid() && ccS.HasStimulusValue() )
-					Rows.Add((float)ccS.GetStimulusValue()[j]);
-				else
-					Rows.Add(ccStimValid ? (float)ccStim[i][j] : (float)-1.0);
+				// Prefer the drive stimulus captured with the measurement; fall back to the
+				// generator reconstruction (ccStim) for patches measured before stimulus capture.
+				for(j=0;j<3;j++)
+				{
+					if ( cc.isValid() && cc.HasStimulusValue() )
+						Rows.Add((float)cc.GetStimulusValue()[j]);
+					else
+						Rows.Add(ccStimValid ? (float)ccStim[i][j] : (float)-1.0);
+				}
 			}
 		}
 

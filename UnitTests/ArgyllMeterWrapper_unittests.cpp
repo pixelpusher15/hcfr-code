@@ -18,7 +18,7 @@ class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
 {
     CPPUNIT_TEST_SUITE(THIS_TEST_CASE);
     CPPUNIT_TEST( autoDetectMeter );
-    CPPUNIT_TEST( colourSpaceCsvRoundTrip );
+    CPPUNIT_TEST( correlationCsvRoundTrip );
     CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -27,10 +27,10 @@ public:
     }
 
 protected:
-    // ColourSpace correlation CSV -> SpectralSample -> .ccss -> back. Exercises
+    // Correlation CSV -> SpectralSample -> .ccss -> back. Exercises
     // BOM tolerance, trailing-comma tolerance, and empty-row dropping, and that
     // the result survives an Argyll write/read round-trip.
-    void colourSpaceCsvRoundTrip()
+    void correlationCsvRoundTrip()
     {
         const char* csvPath = "cs_roundtrip_tmp.csv";
         const char* ccssPath = "cs_roundtrip_tmp.ccss";
@@ -54,7 +54,7 @@ protected:
         }
 
         SpectralSample ss;
-        CPPUNIT_ASSERT( ss.createFromColourSpaceCSV(csvPath) );
+        CPPUNIT_ASSERT( ss.createFromCorrelationCSV(csvPath) );
         CPPUNIT_ASSERT_EQUAL( 4, ss.getNumSamples() );          // empty row dropped
 
         CPPUNIT_ASSERT( ss.Write(ccssPath) );
