@@ -1147,8 +1147,30 @@ static void RunT17()
             Fail("T17 AddPatch accepted a comma in the name");
         if (s.AddPatch(50, 50, 50, "bad\nname"))
             Fail("T17 AddPatch accepted a newline in the name");
+        // The importer trims edge whitespace from names, so names that
+        // would not round-trip byte-for-byte are refused up front.
+        if (s.AddPatch(50, 50, 50, " padded") || s.AddPatch(50, 50, 50, "padded ")
+            || s.AddPatch(50, 50, 50, "  "))
+            Fail("T17 AddPatch accepted edge whitespace in the name");
+        if (s.AddPatch(50, 50, 50, "tab\tname") || s.AddPatch(50, 50, 50, "nul\x01"))
+            Fail("T17 AddPatch accepted a non-printable name byte");
+        if (s.AddPatch(50, 50, 50, "caf\xC3\xA9"))
+            Fail("T17 AddPatch accepted a non-ASCII name byte");
         if (s.Count() != 0)
             Fail("T17 refused AddPatch changed the sequence");
+        // Negative zero is stored as +0.0 (one bit pattern per value, and
+        // no "-0" in generated names).
+        if (!s.AddPatch(-0.0, 0.0, 100.0, "negzero"))
+            Fail("T17 AddPatch refused -0.0");
+        else
+        {
+            double rgb[3];
+            if (!s.GetPatch(0, rgb, 0))
+                Fail("T17 negzero GetPatch failed");
+            else if (memcmp(&rgb[0], &rgb[1], sizeof(double)) != 0)
+                Fail("T17 -0.0 not normalized to +0.0");
+            s.Clear();
+        }
         if (!s.AddPatch(0, 0, 0, "Black") || !s.AddPatch(100, 100, 100, "White"))
             Fail("T17 AddPatch refused valid patches");
         double rgb[3];

@@ -18,10 +18,25 @@
 
 #include "PatchSequence.h"
 
+#include "libHCFR_Config.h"
+
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+
+#include <set>
+
+#ifdef LIBHCFR_HAS_WIN32_API
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
+// The percent -> device-code quantizer of the live signal path
+// (Color.cpp). Declared here instead of including Color.h, which drags MFC
+// types into the translation unit; the signature is plain types, so any
+// drift is a link error.
+extern int PiPercentToCode(double percent, bool is16_235, int bits);
 
 namespace
 {
@@ -30,7 +45,8 @@ namespace
     // CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1,
     // CSV_RANGE_EXTENDED = 2). They are restated here as plain ints
     // because Color.h drags MFC types into its declarations and this
-    // translation unit must stay MFC-free.
+    // translation unit must stay MFC-free; the T17 round trip through the
+    // real importer is the executable proof the numbers agree.
     const int kRangeFull     = 0;
     const int kRangeLegal    = 1;
     const int kRangeExtended = 2;
@@ -42,9 +58,30 @@ namespace
         return (v >= 0.0 && v <= 100.0);
     }
 
+    // Stored values carry one bit pattern per value: fold -0.0 into +0.0
+    // (which keeps Deduplicate's bit-pattern rule exact and "%g" names
+    // free of "-0").
+    double NormalizeComponent(double v)
+    {
+        return (v == 0.0) ? 0.0 : v;
+    }
+
+    // Printable ASCII, no ',' (the CSV delimiter), no leading/trailing
+    // spaces (the importer trims them, which would break the documented
+    // name round trip). Empty is allowed.
     bool ValidName(const std::string& name)
     {
-        return name.find_first_of(",\r\n") == std::string::npos;
+        if (name.empty())
+            return true;
+        if (name[0] == ' ' || name[name.size() - 1] == ' ')
+            return false;
+        for (size_t i = 0; i < name.size(); ++i)
+        {
+            unsigned char c = (unsigned char)name[i];
+            if (c < 0x20 || c > 0x7E || c == ',')
+                return false;
+        }
+        return true;
     }
 
     // Endpoint-exact uniform grid: level i of count over [lo,hi].
@@ -78,17 +115,13 @@ namespace
     }
 
     // Nearest-integer inverse of CsvCodeToPercent (Color.cpp) for the
-    // chosen encoding. Percents here are always within 0..100.
+    // chosen encoding - which is exactly the live signal path's
+    // PiPercentToCode: FULL is the full 0..2^bits-1 code range, LEGAL and
+    // EXTENDED the video range, and its clamps are no-ops for the 0..100
+    // percents this class guarantees.
     int PercentToCode(double pct, int bits, int range)
     {
-        if (range == kRangeFull)
-        {
-            double maxCode = (double)((1 << bits) - 1);
-            return (int)floor(pct * maxCode / 100.0 + 0.5);
-        }
-        double black = 16.0  * (double)(1 << (bits - 8));
-        double white = 235.0 * (double)(1 << (bits - 8));
-        return (int)floor(black + pct * (white - black) / 100.0 + 0.5);
+        return PiPercentToCode(pct, range != kRangeFull, bits);
     }
 
     const char* RangeWord(int range)
@@ -99,10 +132,22 @@ namespace
             return "LEGAL";
         return "EXTENDED";
     }
-}
 
-PatchSequence::PatchSequence()
-{
+    // Lexicographic component order for the duplicate-detection set. Stored
+    // values are never NaN and never -0.0, so operator< is a strict weak
+    // ordering that agrees with bit-pattern identity.
+    struct RgbLess
+    {
+        bool operator()(const double* a, const double* b) const
+        {
+            for (int k = 0; k < 3; ++k)
+            {
+                if (a[k] < b[k]) return true;
+                if (b[k] < a[k]) return false;
+            }
+            return false;
+        }
+    };
 }
 
 int PatchSequence::Count() const
@@ -131,97 +176,78 @@ bool PatchSequence::AddPatch(double rPct, double gPct, double bPct,
     if (!ValidName(name))
         return false;
     Entry e;
-    e.rgb[0] = rPct;
-    e.rgb[1] = gPct;
-    e.rgb[2] = bPct;
+    e.rgb[0] = NormalizeComponent(rPct);
+    e.rgb[1] = NormalizeComponent(gPct);
+    e.rgb[2] = NormalizeComponent(bPct);
     e.name = name;
     m_entries.push_back(e);
     return true;
 }
 
-bool PatchSequence::AddGrayRamp(int count, double loPct, double hiPct)
+// channel -1 = neutral (all three components at the level, word "Gray");
+// 0..2 = that component at the level, the others 0. Validation exhausts
+// every refusal before the first append, so a false return has touched
+// nothing.
+bool PatchSequence::AppendRamp(int channel, int count,
+                               double loPct, double hiPct)
 {
+    if (channel < -1 || channel > 2)
+        return false;
     if (!ValidRampArgs(count, loPct, hiPct))
         return false;
 
-    std::vector<Entry> built;
-    built.reserve((size_t)count);
+    static const char* kWords[4] = { "Gray", "Red", "Green", "Blue" };
+    const char* word = kWords[channel + 1];
+
+    m_entries.reserve(m_entries.size() + (size_t)count);
     for (int i = 0; i < count; ++i)
     {
-        double level = GridLevel(i, count, loPct, hiPct);
+        double level = NormalizeComponent(GridLevel(i, count, loPct, hiPct));
         Entry e;
-        e.rgb[0] = level;
-        e.rgb[1] = level;
-        e.rgb[2] = level;
-        e.name = FormatLevelName("Gray", level);
-        built.push_back(e);
+        if (channel < 0)
+        {
+            e.rgb[0] = level;
+            e.rgb[1] = level;
+            e.rgb[2] = level;
+        }
+        else
+        {
+            e.rgb[0] = 0.0;
+            e.rgb[1] = 0.0;
+            e.rgb[2] = 0.0;
+            e.rgb[channel] = level;
+        }
+        e.name = FormatLevelName(word, level);
+        m_entries.push_back(e);
     }
-    m_entries.insert(m_entries.end(), built.begin(), built.end());
     return true;
+}
+
+bool PatchSequence::AddGrayRamp(int count, double loPct, double hiPct)
+{
+    return AppendRamp(-1, count, loPct, hiPct);
 }
 
 bool PatchSequence::AddChannelRamp(int channel, int count,
                                    double loPct, double hiPct)
 {
-    if (channel < 0 || channel > 2)
-        return false;
-    if (!ValidRampArgs(count, loPct, hiPct))
-        return false;
-
-    static const char* kWords[3] = { "Red", "Green", "Blue" };
-
-    std::vector<Entry> built;
-    built.reserve((size_t)count);
-    for (int i = 0; i < count; ++i)
-    {
-        double level = GridLevel(i, count, loPct, hiPct);
-        Entry e;
-        e.rgb[0] = 0.0;
-        e.rgb[1] = 0.0;
-        e.rgb[2] = 0.0;
-        e.rgb[channel] = level;
-        e.name = FormatLevelName(kWords[channel], level);
-        built.push_back(e);
-    }
-    m_entries.insert(m_entries.end(), built.begin(), built.end());
-    return true;
+    if (channel < 0)
+        return false;                       // -1 is AppendRamp's gray code
+    return AppendRamp(channel, count, loPct, hiPct);
 }
 
-bool PatchSequence::AddCubeGrid(int n)
+// One lattice walker for grid and shell, so the two can never disagree on
+// order, node values, or names.
+bool PatchSequence::AppendLattice(int n, bool shellOnly)
 {
     if (n < 2 || n > 33)
         return false;
 
-    std::vector<Entry> built;
-    built.reserve((size_t)n * (size_t)n * (size_t)n);
-    for (int r = 0; r < n; ++r)
-    {
-        double rv = GridLevel(r, n, 0.0, 100.0);
-        for (int g = 0; g < n; ++g)
-        {
-            double gv = GridLevel(g, n, 0.0, 100.0);
-            for (int b = 0; b < n; ++b)
-            {
-                double bv = GridLevel(b, n, 0.0, 100.0);
-                Entry e;
-                e.rgb[0] = rv;
-                e.rgb[1] = gv;
-                e.rgb[2] = bv;
-                e.name = FormatCubeName(rv, gv, bv);
-                built.push_back(e);
-            }
-        }
-    }
-    m_entries.insert(m_entries.end(), built.begin(), built.end());
-    return true;
-}
+    size_t total = (size_t)n * (size_t)n * (size_t)n;
+    if (shellOnly)
+        total -= (size_t)(n - 2) * (size_t)(n - 2) * (size_t)(n - 2);
+    m_entries.reserve(m_entries.size() + total);
 
-bool PatchSequence::AddCubeShell(int n)
-{
-    if (n < 2 || n > 33)
-        return false;
-
-    std::vector<Entry> built;
     for (int r = 0; r < n; ++r)
     {
         double rv = GridLevel(r, n, 0.0, 100.0);
@@ -233,7 +259,7 @@ bool PatchSequence::AddCubeShell(int n)
             for (int b = 0; b < n; ++b)
             {
                 bool bEdge = (b == 0 || b == n - 1);
-                if (!rEdge && !gEdge && !bEdge)
+                if (shellOnly && !rEdge && !gEdge && !bEdge)
                     continue;               // interior node
                 double bv = GridLevel(b, n, 0.0, 100.0);
                 Entry e;
@@ -241,35 +267,31 @@ bool PatchSequence::AddCubeShell(int n)
                 e.rgb[1] = gv;
                 e.rgb[2] = bv;
                 e.name = FormatCubeName(rv, gv, bv);
-                built.push_back(e);
+                m_entries.push_back(e);
             }
         }
     }
-    m_entries.insert(m_entries.end(), built.begin(), built.end());
     return true;
+}
+
+bool PatchSequence::AddCubeGrid(int n)
+{
+    return AppendLattice(n, false);
+}
+
+bool PatchSequence::AddCubeShell(int n)
+{
+    return AppendLattice(n, true);
 }
 
 int PatchSequence::Deduplicate()
 {
+    std::set<const double*, RgbLess> seen;
     std::vector<Entry> kept;
     kept.reserve(m_entries.size());
     for (size_t i = 0; i < m_entries.size(); ++i)
-    {
-        const Entry& e = m_entries[i];
-        bool seen = false;
-        for (size_t k = 0; k < kept.size(); ++k)
-        {
-            if (kept[k].rgb[0] == e.rgb[0]
-                && kept[k].rgb[1] == e.rgb[1]
-                && kept[k].rgb[2] == e.rgb[2])
-            {
-                seen = true;
-                break;
-            }
-        }
-        if (!seen)
-            kept.push_back(e);
-    }
+        if (seen.insert(m_entries[i].rgb).second)
+            kept.push_back(m_entries[i]);
     int removed = (int)(m_entries.size() - kept.size());
     m_entries.swap(kept);
     return removed;
@@ -300,6 +322,7 @@ bool PatchSequence::WriteCsv(std::string& out, int bits, int range) const
 
     char buf[256];
     std::string text;
+    text.reserve(m_entries.size() * 48 + 32);
     snprintf(buf, sizeof(buf), "# BITDEPTH %d, RANGE %s\n", bits,
              RangeWord(range));
     text = buf;
@@ -320,7 +343,7 @@ bool PatchSequence::WriteCsv(std::string& out, int bits, int range) const
         text += "\n";
     }
 
-    out = text;
+    out.swap(text);
     m_lastError.clear();
     return true;
 }
@@ -337,7 +360,7 @@ bool PatchSequence::WriteCsvFile(const char* path, int bits, int range) const
     if (!WriteCsv(text, bits, range))
         return false;                       // WriteCsv set m_lastError
 
-    // Write a sibling temporary file, then rename it over the target, so a
+    // Write a sibling temporary file, then move it over the target, so a
     // failed write never destroys an existing file.
     std::string tmp = std::string(path) + ".tmp";
     FILE* f = fopen(tmp.c_str(), "wb");
@@ -358,19 +381,32 @@ bool PatchSequence::WriteCsvFile(const char* path, int bits, int range) const
         return false;
     }
 
-    // rename() does not overwrite an existing destination on Windows, so
-    // fall back to remove-then-rename. The destination is only removed once
-    // the complete temporary file is safely on disk.
+#ifdef LIBHCFR_HAS_WIN32_API
+    // Atomic replace: at every instant the destination is either the old
+    // file or the new one, so neither version can be lost.
+    if (!MoveFileExA(tmp.c_str(), path, MOVEFILE_REPLACE_EXISTING))
+    {
+        remove(tmp.c_str());                // destination is untouched
+        m_lastError = "cannot replace output file";
+        return false;
+    }
+#else
+    // rename() does not overwrite an existing destination everywhere, so
+    // fall back to remove-then-rename. The destination is only removed
+    // once the complete temporary is safely on disk, and if the second
+    // rename STILL fails the temporary is left in place so the new
+    // content survives too.
     if (rename(tmp.c_str(), path) != 0)
     {
         remove(path);
         if (rename(tmp.c_str(), path) != 0)
         {
-            remove(tmp.c_str());
-            m_lastError = "cannot replace output file";
+            m_lastError = "cannot replace output file; new content kept in "
+                          + tmp;
             return false;
         }
     }
+#endif
 
     m_lastError.clear();
     return true;

@@ -33,9 +33,13 @@
 //
 // Units: stimulus percent per component, 0..100 inclusive (the house unit
 // of ColorRGBDisplay). Every Add refuses non-finite or out-of-range
-// components. Names are ASCII metadata carried into the CSV name column;
-// because that column is comma-delimited, names containing ',', CR, or LF
-// are refused at Add time.
+// components, and stores a negative zero as +0.0 so stored values have one
+// bit pattern per value (which is what makes Deduplicate's bit-pattern
+// rule exact). Names are metadata carried into the CSV name column; so
+// that every accepted name survives the importer byte-for-byte, a name
+// must be printable ASCII (0x20..0x7E), contain no ',' (the column
+// delimiter), and carry no leading or trailing spaces (the importer trims
+// them). Anything else is refused at Add time; empty names are fine.
 //
 // Error convention: Add*/Write* return bool. A refused call leaves the
 // sequence (and any output object/file) exactly as it was. File and
@@ -51,8 +55,6 @@
 class PatchSequence
 {
 public:
-    PatchSequence();
-
     int Count() const;
 
     // Reads patch `index` (0-based, generation order): rgb = stimulus
@@ -61,7 +63,8 @@ public:
     bool GetPatch(int index, double rgb[3], std::string* name) const;
 
     // Appends one explicit patch. Refuses non-finite components,
-    // components outside 0..100, or a name containing ',', CR, or LF.
+    // components outside 0..100, or a name outside the rules above
+    // (non-printable or non-ASCII bytes, ',', leading/trailing spaces).
     bool AddPatch(double rPct, double gPct, double bPct,
                   const std::string& name);
 
@@ -83,10 +86,13 @@ public:
 
     // Appends the full n^3 signal-space lattice (2 <= n <= 33), red
     // slowest / blue fastest - the same nesting GenerateProfileColors
-    // uses - with each channel at i*100/(n-1) percent (endpoint-exact
-    // form as above, which for the 0..100 span is exact at every node
-    // that i*100 divides evenly; endpoints are always exact). Names are
-    // "Cube <r>/<g>/<b>" (percents, "%g"). Refuses n outside 2..33.
+    // uses - with each channel at the AddGrayRamp grid level for its
+    // index over 0..100 (the endpoint-exact 0*(1-u)+100*u form; note
+    // GenerateProfileColors computes its nodes as i*(100/(n-1)), which
+    // can differ from this form in the last ulp at non-exact nodes, so
+    // the two generators agree on the nesting, not bit-for-bit on every
+    // node value). Names are "Cube <r>/<g>/<b>" (percents, "%g").
+    // Refuses n outside 2..33.
     bool AddCubeGrid(int n);
 
     // Appends only the SURFACE of the n^3 lattice - the signal-space
@@ -120,8 +126,12 @@ public:
     // CSV_RANGE_FULL / CSV_RANGE_LEGAL / CSV_RANGE_EXTENDED (Color.h).
     bool WriteCsv(std::string& out, int bits, int range) const;
 
-    // WriteCsv to a file, via a sibling temporary file renamed over the
-    // target, so a failed write never destroys an existing file.
+    // WriteCsv to a file, via a sibling temporary file moved over the
+    // target - an atomic replace (MoveFileEx) on Windows - so a failed
+    // write never destroys an existing file. On the non-Windows fallback
+    // path, if replacing the destination fails after its removal the
+    // fully-written temporary is LEFT ON DISK (path + ".tmp") so the new
+    // content is never lost either.
     bool WriteCsvFile(const char* path, int bits, int range) const;
 
     const std::string& LastError() const { return m_lastError; }
@@ -132,6 +142,13 @@ private:
         double rgb[3];
         std::string name;
     };
+
+    // One walker per shape, shared by the public primitives so grid and
+    // shell (and gray and channel ramps) can never drift apart:
+    // channel -1 = neutral ramp; shellOnly skips interior lattice nodes.
+    bool AppendRamp(int channel, int count, double loPct, double hiPct);
+    bool AppendLattice(int n, bool shellOnly);
+
     std::vector<Entry> m_entries;
     mutable std::string m_lastError;
 };
