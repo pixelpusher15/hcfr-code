@@ -200,6 +200,7 @@ bool CubeLUT::Create(int size)
     m_title.clear();
     m_domainMin[0] = m_domainMin[1] = m_domainMin[2] = 0.0;
     m_domainMax[0] = m_domainMax[1] = m_domainMax[2] = 1.0;
+    m_contract = LutContract();
     return true;
 }
 
@@ -700,7 +701,16 @@ bool CubeLUT::ReadParsed(const std::string& text)
         m_domainMin[k] = dmin[k];
         m_domainMax[k] = dmax[k];
     }
+    m_contract = LutContract();     // the file format carries no contract
     m_lastError.clear();
+    return true;
+}
+
+bool CubeLUT::SetContract(const LutContract& contract)
+{
+    if (!ValidContract(contract))
+        return false;
+    m_contract = contract;
     return true;
 }
 
