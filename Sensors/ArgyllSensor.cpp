@@ -537,6 +537,13 @@ void CArgyllSensor::ClearSpectralCorrection()
     SetModifiedFlag(TRUE);
 }
 
+bool CArgyllSensor::CorrectionChangedSinceBeginConfigure() const
+{
+    return CSensor::CorrectionChangedSinceBeginConfigure()
+        || m_spectralCorrectionPath != m_cfgSnapSpectralPath
+        || m_spectralCorrectionDesc != m_cfgSnapSpectralDesc;
+}
+
 void CArgyllSensor::BeginConfigure()
 {
     m_spectralCacheValid = false;   // path may change during the sheet

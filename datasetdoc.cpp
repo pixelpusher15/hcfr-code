@@ -1401,6 +1401,16 @@ void CDataSetDoc::AddMeasurement()
 }
 
 
+// One skipped-measurements notice shared by every Bodner recalibration path.
+static void ShowBodnerSkipCount(int nSkipped)
+{
+	if ( nSkipped <= 0 )
+		return;
+	CString strSkipMsg;
+	strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
+	GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
+}
+
 void CDataSetDoc::OnConfigureSensor() 
 {
 	if ( IsMeasureSweepActive() ) return;
@@ -1423,6 +1433,12 @@ void CDataSetDoc::OnConfigureSensor()
 	// recompute below would be a no-op plus a spurious skip dialog - skip it.
 	if( bConfigOk && m_pSensor->IsModified() )
 	{
+		// Recompute only when the CORRECTION actually changed in this sheet:
+		// the modified flag also survives device-setting commits (and a prior
+		// Cancel), and re-running the recompute then would re-show the Bodner
+		// skip dialog on a sheet where nothing changed.
+		if ( m_pSensor->CorrectionChangedSinceBeginConfigure() )
+		{
         if ( bLeaveSpectralMeasures )
         {
             // Spectral correction applied; user chose to keep prior measurements
@@ -1439,12 +1455,7 @@ void CDataSetDoc::OnConfigureSensor()
             // any Sensor -> Configure change.
             int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
-            if ( nSkipped > 0 )
-            {
-                CString strSkipMsg;
-                strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
-                GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
-            }
+            ShowBodnerSkipCount ( nSkipped );
         }
         else
         {
@@ -1457,6 +1468,7 @@ void CDataSetDoc::OnConfigureSensor()
             m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix );
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
         }
+		}
 		SetModifiedFlag(TRUE);
 		UpdateAllViews ( NULL, UPD_EVERYTHING );
 		AfxGetMainWnd () -> SendMessageToDescendants ( WM_COMMAND, IDM_REFRESH_REFERENCE );
@@ -2113,12 +2125,7 @@ void CDataSetDoc::OnCalibrationManual()
                     int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
                     SetModifiedFlag(TRUE);
 
-                    if ( nSkipped > 0 )
-                    {
-                        CString strSkipMsg;
-                        strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
-                        GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
-                    }
+                    ShowBodnerSkipCount ( nSkipped );
                 }
                 catch ( std::logic_error & )
                 {
@@ -2489,6 +2496,21 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 	CDataSetDoc *	pDataRef = GetDataRef();
 	
 	ASSERT ( pDataRef && pDataRef != this && pDataRef -> m_measure.GetBluePrimary ().isValid() && m_measure.GetBluePrimary ().isValid());
+	// Release-safe form of the ASSERT above: Sim and the method-switch path
+	// can reach here with unmeasured primaries on either document, and
+	// noDataColor rows would otherwise solve into a plausible-looking
+	// garbage matrix that is silently applied everywhere.
+	if ( pDataRef == NULL || pDataRef == this
+	  || !m_measure.GetRedPrimary().GetXYZValue().isValid()
+	  || !m_measure.GetGreenPrimary().GetXYZValue().isValid()
+	  || !m_measure.GetBluePrimary().GetXYZValue().isValid()
+	  || !pDataRef->m_measure.GetRedPrimary().GetXYZValue().isValid()
+	  || !pDataRef->m_measure.GetGreenPrimary().GetXYZValue().isValid()
+	  || !pDataRef->m_measure.GetBluePrimary().GetXYZValue().isValid() )
+	{
+		GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+		return FALSE;
+	}
 
         ColorXYZ measures[3] = {
                                     m_measure.GetRedPrimary().GetXYZValue(),
@@ -2581,12 +2603,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             SetModifiedFlag(TRUE);
             bOk = TRUE;
 
-            if ( nSkipped > 0 )
-            {
-                CString strSkipMsg;
-                strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
-                GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
-            }
+            ShowBodnerSkipCount ( nSkipped );
         }
         catch ( std::logic_error & )
         {
@@ -5415,12 +5432,7 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
 		{
 			int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
-			if ( nSkipped > 0 )
-			{
-				CString strSkipMsg;
-				strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
-				GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
-			}
+			ShowBodnerSkipCount ( nSkipped );
 		}
 		else
 			m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );

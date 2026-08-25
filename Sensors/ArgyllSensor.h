@@ -99,6 +99,7 @@ public:
     // Extend the base snapshot with the spectral state, which a Browse in the
     // property page commits (device + members) before the sheet closes.
     virtual void BeginConfigure();
+    virtual bool CorrectionChangedSinceBeginConfigure() const;
     virtual void CancelConfigure();
     bool MeterSupportsSpectralSamples();
 

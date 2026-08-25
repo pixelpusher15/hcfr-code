@@ -103,9 +103,12 @@ void CSensor::Serialize(CArchive& archive)
 		// Honor the Debug\SaveOldCalibrationFile downgrade switch (see
 		// COneDeviceSensor::Serialize): a v1 stream omits the method field and
 		// loads in pre-method builds; the v1 loader's frozen-key derivation
-		// recovers the method on re-import. A Bodner correction has no v1
-		// representation, so it always writes v2.
-		int version = ( m_calibrationMethod != CALIB_BODNER_THREEMATRIX
+		// recovers the method on re-import. Only the DEFAULT method is written
+		// as v1: any other method (Bodner, three-color, FCMM-no-lum) would
+		// silently change identity through the v1 round-trip. Document saves
+		// under the key also produce v1 sensor blocks - harmless for the
+		// default method, and the v4 document header gates old builds anyway.
+		int version = ( m_calibrationMethod == CALIB_HCFR_DEFAULT
 		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
 						? 1 : 2;
 		archive << version;
@@ -205,6 +208,22 @@ void CSensor::CancelConfigure()
 		m_bodnerCalMatrix[k] = m_cfgSnapBodnerCal[k];
 	}
 	UpdateBodnerInverseCache();
+}
+
+// Whether the correction state differs from the BeginConfigure snapshot -
+// i.e. whether this sheet session actually changed the correction (as
+// opposed to device settings, which also set the modified flag).
+bool CSensor::CorrectionChangedSinceBeginConfigure() const
+{
+	if ( m_calibrationMethod != m_cfgSnapMethod )
+		return true;
+	if ( m_sensorToXYZMatrix != m_cfgSnapMatrix )
+		return true;
+	for ( int k = 0; k < 3; k++ )
+		if ( m_bodnerRawMatrix[k] != m_cfgSnapBodnerRaw[k]
+		  || m_bodnerCalMatrix[k] != m_cfgSnapBodnerCal[k] )
+			return true;
+	return false;
 }
 
 void CSensor::SetPropertiesSheetValues()

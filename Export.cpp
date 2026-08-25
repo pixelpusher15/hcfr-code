@@ -1703,12 +1703,18 @@ bool CExport::SaveGrayScaleSheet()
 	int grayBlockRows = 9 + (m_bExportRaw?3:0) + (m_bExportStimulus?3:0);
 	// The positional replace below assumes every measure block in the file is the
 	// same height. That height now depends on the Raw/Stimulus options, so if the
-	// existing file was written with different options, replacing would overwrite
-	// the wrong rows. Detect the mismatch and abort rather than corrupt the file.
+	// existing file was written with different options, adding to it would
+	// corrupt the positional arithmetic. When the general sheet gave us the
+	// existing measure count, appends are checked exactly; the modulo form is
+	// a weaker fallback for CSV, where that count is unavailable (an old
+	// count x old height that happens to be a multiple of the new height
+	// still passes there).
 	int grayBlockRowsExisting = graySS.GetTotalRows() - 1;
 	if ( ( m_doReplace && m_numExistingMeasures > 0 &&
 	       grayBlockRowsExisting != m_numExistingMeasures * grayBlockRows )
-	  || ( !m_doReplace && grayBlockRowsExisting > 0 &&
+	  || ( !m_doReplace && m_numExistingMeasures > 0 &&
+	       grayBlockRowsExisting != m_numExistingMeasures * grayBlockRows )
+	  || ( !m_doReplace && m_numExistingMeasures == 0 && grayBlockRowsExisting > 0 &&
 	       ( grayBlockRowsExisting % grayBlockRows ) != 0 ) )
 	{
 		m_errorStr = _T("Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
@@ -1931,7 +1937,9 @@ bool CExport::SavePrimariesSheet()
 	int primBlockRowsExisting = primariesSS.GetTotalRows() - 1;
 	if ( ( m_doReplace && m_numExistingMeasures > 0 &&
 	       primBlockRowsExisting != m_numExistingMeasures * primBlockRows )
-	  || ( !m_doReplace && primBlockRowsExisting > 0 &&
+	  || ( !m_doReplace && m_numExistingMeasures > 0 &&
+	       primBlockRowsExisting != m_numExistingMeasures * primBlockRows )
+	  || ( !m_doReplace && m_numExistingMeasures == 0 && primBlockRowsExisting > 0 &&
 	       ( primBlockRowsExisting % primBlockRows ) != 0 ) )
 	{
 		m_errorStr = _T("Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
