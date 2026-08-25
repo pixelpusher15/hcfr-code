@@ -57,7 +57,7 @@ static const HCFR_IconMap g_iconMap[] =
   { IDM_MEASURE_NEARWHITE,                _T("measure-near-white") },
   { IDM_MEASURE_SAT_PRIMARIES_SECONDARIES, _T("measure-sat-primaries-secondaries") },
   { IDM_MEASURE_SAT_ALL,                  _T("measure-sat-all") },
-  { IDM_MEASURE_SAT_ALL_LEVELS,           _T("measure-sat-all") },
+  { IDM_MEASURE_SAT_ALL_LEVELS,           _T("measure-all-sat-stim") },
   { ID_MEASURES_FULLTILTBOOGIE,           _T("measure-complete") },
   // Measures-Sat toolbar
   { IDM_MEASURE_SAT_RED,                  _T("sat-red") },
