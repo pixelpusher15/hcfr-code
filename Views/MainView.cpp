@@ -6573,7 +6573,7 @@ void CMainView::SetAllLevelsButtonStop(BOOL bStop)
 	}
 	else
 	{
-		m_satAllLevelsButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-sat-all"), (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(24,GetSafeHwnd()), HCFR_ScaleIconPx(24,GetSafeHwnd()) ), (HICON)NULL );
+		m_satAllLevelsButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-all-sat-stim"), (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(24,GetSafeHwnd()), HCFR_ScaleIconPx(24,GetSafeHwnd()) ), (HICON)NULL );
 		CString sBtn; sBtn.LoadString ( IDS_ALLSTIM_BTN ); m_satAllLevelsButton.SetWindowText ( sBtn );
 		CString sTip; sTip.LoadString ( IDS_ALLSTIM_TIP ); m_satAllLevelsButton.SetTooltipText ( sTip );
 		m_satAllLevelsButton.SetRoundedBorder ( ButtonBorderColor() );
@@ -7587,7 +7587,7 @@ void CMainView::InitButtons()
 	}
 	if (m_satAllLevelsButton.GetSafeHwnd())
 	{
-		m_satAllLevelsButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-sat-all"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
+		m_satAllLevelsButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-all-sat-stim"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 		m_satAllLevelsButton.SetFont(GetFont());
 		m_satAllLevelsButton.EnableBalloonTooltip();
 		CString sTip; sTip.LoadString ( IDS_ALLSTIM_TIP );
