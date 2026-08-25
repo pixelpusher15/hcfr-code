@@ -789,8 +789,8 @@ static void RunT10()
 //
 // The invariant is the weakest thing that catches it and stays true of any sane
 // EOTF: an electro-optical transfer function must be non-decreasing in the
-// signal. Verified by mutation - dropping the E1 clamp in Color.cpp fails 768
-// of the 1440 configurations swept here.
+// signal. Verified by mutation - dropping the forward-path E1 clamp in Color.cpp
+// fails 1440 of the 2160 configurations swept here.
 //
 // The grid deliberately mixes MasterMinL above and below TargetMinL: the
 // dead zone only opens when the mastering black is nonzero, and case 10's own
