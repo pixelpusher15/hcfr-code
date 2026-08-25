@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//  JÃ©rÃ´me Duquennoy
+//  Jérôme Duquennoy
 /////////////////////////////////////////////////////////////////////////////
 
 #include "Endianness.h"
@@ -87,7 +87,7 @@ float littleEndianFloatToHost (float value)
 {
   float result;
   
-  // on copie les donnÃ©es, tout simplement.
+  // on copie les données, tout simplement.
   memcpy (&result, &value, 4);
   
   return result;
@@ -96,7 +96,7 @@ double littleEndianDoubleToHost (double value)
 {
   double result;
   
-  // on copie les donnÃ©es, tout simplement.
+  // on copie les données, tout simplement.
   memcpy (&result, &value, 8);
   
   return result;
