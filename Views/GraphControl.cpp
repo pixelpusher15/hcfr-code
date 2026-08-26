@@ -97,6 +97,7 @@ CGraphControl::CGraphControl()
 	m_doSpectrumBg=FALSE;
 	m_doShowAxis=TRUE;
 	m_doShowXLabel=TRUE;
+	m_doShowXUnitOnAxis=FALSE;
 	m_doShowYLabel=TRUE;
 	m_doShowAllPoints=FALSE;
 	m_doShowAllToolTips=TRUE;
@@ -471,17 +472,33 @@ void CGraphControl::FitYScale(BOOL doRound, double roundStep, bool isGamma)
 	double	minY=9999999.99;
 	double	maxY=-9999999.99;
 
-	for(int j=0;j<m_graphArray.GetSize();j++)
-		for(int i=0; i<m_graphArray[j].m_pointArray.GetSize(); i++)
-		{
-			if(m_graphArray[j].m_pointArray[i].x >= m_minX && m_graphArray[j].m_pointArray[i].x <= m_maxX )
+	// A gamma chart's black endpoint is an anchor rather than a measurement, and
+	// for targets with no single exponent near black - sRGB's linear toe, L* -
+	// the anchor sits well under the band the rest of the curve occupies. Leave
+	// it out of the fit so it clips off the bottom instead of dragging the whole
+	// range down and flattening what is actually being read. Costs nothing for
+	// the power-law and BT.1886 targets, where the anchor is in band anyway.
+	// Second pass keeps it, for a graph where it is the only thing plotted.
+	for(int nPass=0; nPass<2; nPass++)
+	{
+		bool bDropBlack = ( isGamma && nPass == 0 );
+
+		for(int j=0;j<m_graphArray.GetSize();j++)
+			for(int i=0; i<m_graphArray[j].m_pointArray.GetSize(); i++)
 			{
-				if(m_graphArray[j].m_pointArray[i].y < minY)
-					minY=m_graphArray[j].m_pointArray[i].y;
-				if(m_graphArray[j].m_pointArray[i].y > maxY)
-					maxY=m_graphArray[j].m_pointArray[i].y;
+				double x = m_graphArray[j].m_pointArray[i].x;
+				if( x >= m_minX && x <= m_maxX && !( bDropBlack && x <= m_minX ) )
+				{
+					if(m_graphArray[j].m_pointArray[i].y < minY)
+						minY=m_graphArray[j].m_pointArray[i].y;
+					if(m_graphArray[j].m_pointArray[i].y > maxY)
+						maxY=m_graphArray[j].m_pointArray[i].y;
+				}
 			}
-		}
+
+		if( minY <= maxY || !bDropBlack )
+			break;
+	}
 
 	if(doRound)
 	{
@@ -887,6 +904,21 @@ static void DrawHaloText(CDC *pDC, int x, int y, const CString & str, COLORREF h
 	pDC->TextOut(x,y,str);
 }
 
+// X tick label. Bare numbers by default: repeating the unit on every tick made
+// the labels wider than the tick spacing on the grayscale charts, where "%" or
+// "IRE" is implied by the chart anyway. An axis whose unit is NOT implied - the
+// spectrum's wavelengths - sets m_doShowXUnitOnAxis and keeps it. Everything
+// that measures label widths goes through here so the fit math sees the same
+// string that gets drawn.
+static CString FormatXAxisLabel(double v, LPCSTR pUnitStr, BOOL bWithUnit)
+{
+	CString str;
+	str.Format("%g",v);
+	if(bWithUnit && pUnitStr)
+		str+=pUnitStr;
+	return str;
+}
+
 void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 {
     CPen axisPen(PS_SOLID,1,RGB(64,64,64));
@@ -925,9 +957,8 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 	int xTopLabel=rect.right;
 	if(m_doShowXLabel && nSteps > 0)
 	{
-		CString strFirst,strLast;
-		strFirst.Format("%g",m_minX+m_xAxisStep);
-		strLast.Format("%g",m_minX+nSteps*m_xAxisStep);
+		CString strFirst=FormatXAxisLabel(m_minX+m_xAxisStep,m_pXUnitStr,m_doShowXUnitOnAxis);
+		CString strLast=FormatXAxisLabel(m_minX+nSteps*m_xAxisStep,m_pXUnitStr,m_doShowXUnitOnAxis);
 		int cxLast=pDC->GetTextExtent(strLast).cx;
 		int cxLabel=max(pDC->GetTextExtent(strFirst).cx,cxLast);
 		int nPitch=max(1,GetGraphX(m_minX+m_xAxisStep,rect)-GetGraphX(m_minX,rect));
@@ -950,8 +981,7 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 		// Draw Label
 		if(m_doShowXLabel)
 		{
-			CString str;
-			str.Format("%g",xVal);
+			CString str=FormatXAxisLabel(xVal,m_pXUnitStr,m_doShowXUnitOnAxis);
 			if ( ! bWhiteBkgnd && m_doGradientBg )
 			{
 				// CIE-018: 200+xVal*0.55 only stays inside a byte for xVal in
@@ -971,7 +1001,12 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 			// past it, and the top-of-scale label - whose xStr IS xTopLabel -
 			// then fails the overlap test and gets dropped, which is the exact
 			// thing the reservation exists to prevent.
-			if(i && ((nSteps-i) % nLabelStride) == 0 && xStr > lastStrEndX && ( i == nSteps || xStr+cxStr+2 < xTopLabel ))
+			// Both ends of the scale are labelled: i == 0 used to be skipped, so a
+			// 0..100 axis read 10..100 and looked like it began at 10. The two
+			// endpoints are exempt from the thinning stride - they are the labels
+			// that say what the axis spans - and 0, being first, can never be
+			// pushed out by lastStrEndX.
+			if((i == 0 || i == nSteps || ((nSteps-i) % nLabelStride) == 0) && xStr > lastStrEndX && ( i == nSteps || xStr+cxStr+2 < xTopLabel ))
 			{
 				int shade = m_doGradientBg ? 10+37*x/max((int)rect.right,1) : 0;
 				DrawHaloText(pDC,xStr,rect.bottom,str,bWhiteBkgnd ? RGB(255,255,255) : RGB(shade,shade,shade));

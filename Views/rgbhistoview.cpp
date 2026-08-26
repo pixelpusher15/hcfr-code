@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 //	Benoit SEGUIN
 /////////////////////////////////////////////////////////////////////////////
@@ -142,7 +142,9 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 		YWhite = pDoc->GetMeasure()->GetOnOffWhite()[1];
 
-		for (int i=1; i<size; i++)
+		// From 0: the black patch's BALANCE is a real reading - see the guard on
+		// the plot below for the two conditions that make it one.
+		for (int i=0; i<size; i++)
 		{
 			double x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
             double valy;
@@ -192,14 +194,29 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 			ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 			ColorRGB normColor(aMeasure, GetColorReference());
-			if (aColor.isValid())
+			// Point 0 needs two things the others do not. The w/gamma
+			// normalisation (m_dE_gray == 1) divides by the TARGET luminance,
+			// which is exactly 0 at black - inf, or NaN when the measurement is
+			// zero too; only the chromaticity-only normalisations survive there.
+			// And black itself has to have light in it: with Y == 0 the xy is a
+			// 0/0 fallback that would plot as a plausible-looking tint reading
+			// out of nothing.
+			if (aColor.isValid() && ( i > 0 || ( GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0 ) ))
 			{
 				m_graphCtrl.AddPoint(m_redGraphID, x, normColor[0]*100.0);
 				m_graphCtrl.AddPoint(m_greenGraphID, x, normColor[1]*100.0);
 				m_graphCtrl.AddPoint(m_blueGraphID, x, normColor[2]*100.0);
 			}
 
-			if(m_showDeltaE) 
+			// Black gets a dE only where the normalisation makes it mean
+			// something. m_dE_gray == 2 (and dE_form 5) set the target's
+			// luminance to the MEASURED one a few lines up, so what is left is
+			// the chromaticity error - "is my black tinted" - which is the same
+			// quantity CalMAN prints at 0% and why its number lands under 1
+			// instead of being an error against an ideal zero. The other
+			// normalisations leave the target at Y=0 there. Y > 0 because a
+			// patch with no light has no chromaticity to be wrong about.
+			if(m_showDeltaE && ( i > 0 || ( ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) && aColor[2] > 0.0 ) ))
 			{
 				if (aColor.isValid())
 				{
@@ -223,7 +240,8 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		YWhiteRefDoc = pDataRef->GetMeasure()->GetOnOffWhite()[1];
 		ColorxyY tmpColor(GetColorReference().GetWhite());
 
-		for (int i=1; i<size; i++)
+		// From 0, same as the primary document above.
+		for (int i=0; i<size; i++)
 		{
 			ColorxyY aColor, aColor2;
 		    double x = pDataRef->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
@@ -282,14 +300,14 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 			ColorRGB normColor(aMeasure, GetColorReference());
 
-			if (aColor.isValid())
+			if (aColor.isValid() && ( i > 0 || ( GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0 ) ))
 			{
 				m_graphCtrl.AddPoint(m_redDataRefGraphID, x, normColor[0]*100.0);
 				m_graphCtrl.AddPoint(m_greenDataRefGraphID, x, normColor[1]*100.0);
 				m_graphCtrl.AddPoint(m_blueDataRefGraphID, x, normColor[2]*100.0);
 			}
 
-			if(m_showDeltaE) 
+			if(m_showDeltaE && ( i > 0 || ( ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) && aColor[2] > 0.0 ) ))
 			{
 				if (aColor.isValid())
 				{
