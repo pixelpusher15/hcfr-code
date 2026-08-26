@@ -96,11 +96,18 @@ struct SweepActiveGuard
     // Clearing m_binMeasure here covers every early return (ESC cancel, sensor
     // abort, init failure); success paths still clear it explicitly before
     // their final UpdateViews so views repaint with the flag already down.
+    // m_bAbortSweep is cleared for the same reason: an abort request belongs to
+    // the sweep it interrupted. Clearing it only on the NEXT sweep's entry left
+    // it TRUE in between, which was harmless while it was read only inside sweep
+    // loops but is not now that WaitForDynamicIris consults it -- that runs
+    // outside any sweep as well (PerformSimultaneousMeasures, MultiFrm), where a
+    // stale TRUE would cancel the next measurement before it started.
     ~SweepActiveGuard()
     {
         if (m_owned)
         {
             m_pMeasure->m_binMeasure = FALSE;
+            m_pMeasure->m_bAbortSweep = FALSE;
             g_bMeasureSweepActive = FALSE;
         }
     }
@@ -4082,7 +4089,15 @@ bool CMeasure::MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor,
 	if ( ! pGenerator->DisplayRGBColor ( whiteRGB, CGenerator::MT_SAT_CC24_USER, patchIdx, TRUE ) )
 		return false;
 	if ( WaitForDynamicIris ( FALSE, pDoc ) )
+	{
+		// Aborted mid-settle: return without reading. Measuring anyway yielded an
+		// unsettled anchor that, if it passed the validity gate below, became the
+		// drift factor and retroactively rescaled the whole previous segment --
+		// corrupting the partial capture the abort is meant to preserve. The
+		// caller breaks on m_bAbortSweep right after this returns.
 		m_bAbortSweep = TRUE;
+		return true;
+	}
 	CColor anchor = PumpedRead ( am, pSensor, whiteRGB, displaymode );
 	if ( ! pSensor->IsMeasureValid() || ! anchor.isValid() || anchor.GetY() <= 0.0 )
 		return true;
