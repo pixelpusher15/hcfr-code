@@ -639,6 +639,8 @@ CMainView::CMainView()
 	dEcnt=0;
 	dE10=0.;
 	dE10min=0.;
+	m_nGridIncrCol = -1;
+	m_nGridLastRTCol = -1;
 	m_userBlack = FALSE;
 	m_oldBlackGS = noDataColor;
 	m_oldBlackNB = noDataColor;
@@ -2753,8 +2755,17 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			}
 		}
 
+		// Color checker / user sequences store exactly one new patch per realtime
+		// hint, so ask UpdateGrid for an incremental pass over just that column
+		// (plus any the catch-up window covers) instead of repopulating all N --
+		// a large custom sequence otherwise costs O(N^2) grid work per sweep.
+		// Single-shot request: UpdateGrid consumes it and falls back to a full
+		// rebuild unless its column cache matches the current patch count.
+		if ( m_displayMode == 11 && minCol >= 1 && m_pGrayScaleGrid )
+			m_nGridIncrCol = minCol;
 		RefreshSelection(FALSE); //this will update grid
-		
+		m_nGridIncrCol = -1;
+
 		if ( m_pInfoWnd ) //in case colorchecker slot is updated
 		{
 				m_pInfoWnd -> SetWindowTextA(GetDocument()->GetMeasure()->GetInfoString());
@@ -3180,6 +3191,18 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					dLavg+=(isNan(dL)?dLavg:dL);
 					dCavg+=(isNan(dC)?dCavg:dC);
 					dHavg+=(isNan(dH)?dHavg:dH);
+
+					// Per-column cache backing the incremental sweep path's summary
+					// re-aggregation (UpdateGrid). Valid dE only: a NaN dE (broken
+					// reading) stays at the -1 sentinel and is excluded there, where
+					// the classic accumulation above pushed a garbage running sum.
+					if ( m_displayMode == 11 && nCol >= 1 && nCol <= (int)m_ccDECache.size() && !isNan(dE) )
+					{
+						m_ccDECache[nCol-1] = dE;
+						m_ccDLCache[nCol-1] = dL;
+						m_ccDCCache[nCol-1] = dC;
+						m_ccDHCache[nCol-1] = dH;
+					}
 
 					if (nCol == minCol)
 					{
@@ -3644,6 +3667,11 @@ LPSTR CMainView::GetGridRowLabel(int aComponentNum)
 
 void CMainView::UpdateGrid()
 {
+	// Single-shot incremental request from the realtime sweep path (OnUpdate);
+	// consumed here so every other caller keeps full-rebuild semantics.
+	int nIncrCol = m_nGridIncrCol;
+	m_nGridIncrCol = -1;
+
 	// display profile (mode 13): the grid is hidden and the pane owns that area,
 	// so skip the grid population -- but still fall through to the View-pane info
 	// line at the end of this function. That line must track reference / EOTF
@@ -3964,7 +3992,41 @@ void CMainView::UpdateGrid()
 					
 		YWhite_for_color_comp = YWhite;
 
-		for( int j = 0 ; j < nCount ; j ++ )
+		// Incremental pass eligibility: mode 11 with a column cache built by a
+		// prior full pass over the SAME patch count. Anything else (first pass,
+		// CC set switched, manual edits) takes the full rebuild, which (re)sizes
+		// the cache -- the grid analog of the 3D viewer's stale-scene guard.
+		int jFirst = 0, jLast = nCount - 1;
+		bool bIncrPass = ( nIncrCol >= 1 && nIncrCol <= nCount &&
+						   m_displayMode == 11 && (int)m_ccDECache.size() == nCount );
+		if ( bIncrPass )
+		{
+			// Catch-up window: refresh every column measured since the last
+			// incremental pass. A sensor/pattern retry steps the sweep index
+			// back, so span from the older of (last refreshed, requested).
+			jFirst = nIncrCol - 1;
+			if ( m_nGridLastRTCol >= 1 && m_nGridLastRTCol <= nCount && m_nGridLastRTCol < nIncrCol )
+				jFirst = m_nGridLastRTCol - 1;
+			jLast = nIncrCol - 1;
+			m_nGridLastRTCol = nIncrCol;
+			for ( int j = jFirst ; j <= jLast ; j ++ )
+			{
+				m_ccDECache[j] = -1.0;
+				m_ccDLCache[j] = -1.0;
+				m_ccDCCache[j] = -1.0;
+				m_ccDHCache[j] = -1.0;
+			}
+		}
+		else if ( m_displayMode == 11 )
+		{
+			m_ccDECache.assign ( nCount, -1.0 );
+			m_ccDLCache.assign ( nCount, -1.0 );
+			m_ccDCCache.assign ( nCount, -1.0 );
+			m_ccDHCache.assign ( nCount, -1.0 );
+			m_nGridLastRTCol = -1;
+		}
+
+		for( int j = jFirst ; j <= jLast ; j ++ )
 		{
             int i = GetDocument() -> GetMeasure () -> GetGrayScaleSize ();
             ColorxyY tmpColor(GetColorReference().GetWhite());
@@ -4412,6 +4474,37 @@ void CMainView::UpdateGrid()
 			}
 		}
 		
+		// Mode 11 summary stats are re-aggregated from the per-column cache so a
+		// narrowed (incremental) pass yields the identical summary a full rebuild
+		// would: reset the classic accumulators GetItemText just fed and refill
+		// in column order, reproducing the full-loop fill exactly. Plain float
+		// adds over N entries -- no colorimetric math, no grid access.
+		if ( m_displayMode == 11 && (int)m_ccDECache.size() == nCount )
+		{
+			dEavg = 0.0; dLavg = 0.0; dCavg = 0.0; dHavg = 0.0;
+			dEmax = 0.0; dEcnt = 0; dE10 = 0.0;
+			dEvector.clear();
+			dLvector.clear();
+			dCvector.clear();
+			dHvector.clear();
+			for ( int j = 0 ; j < nCount ; j ++ )
+			{
+				if ( m_ccDECache[j] < 0.0 )
+					continue;
+				dEvector.push_back ( m_ccDECache[j] );
+				dLvector.push_back ( m_ccDLCache[j] );
+				dCvector.push_back ( m_ccDCCache[j] );
+				dHvector.push_back ( m_ccDHCache[j] );
+				dEavg += m_ccDECache[j];
+				dLavg += m_ccDLCache[j];
+				dCavg += m_ccDCCache[j];
+				dHavg += m_ccDHCache[j];
+				if ( m_ccDECache[j] > dEmax )
+					dEmax = m_ccDECache[j];
+				dEcnt ++;
+			}
+		}
+
 		if ( bAddedCol )
 		{
 			int width = m_pGrayScaleGrid -> GetColumnWidth ( 0 );
