@@ -3963,6 +3963,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 			if ( bEscape )
 			{
+				SalvageCC24SatPartial ( bUseLuxValues, measuredLux );
 				pSensor->Release();
 				pGenerator->Release();
 				strMsg.LoadString ( IDS_MEASURESCANCELED );
@@ -3977,6 +3978,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				int result=GetColorApp()->InMeasureMessageBox(strMsg+pSensor->GetErrorString(),Title,MB_ABORTRETRYIGNORE | MB_ICONERROR);
 				if(result == IDABORT)
 				{
+					SalvageCC24SatPartial ( bUseLuxValues, measuredLux );
 					pSensor->Release();
 					pGenerator->Release();
 					return FALSE;
@@ -4004,6 +4006,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		}
 		else
 		{
+			SalvageCC24SatPartial ( bUseLuxValues, measuredLux );
 			pSensor->Release();
 			pGenerator->Release();
 			return FALSE;
@@ -7347,6 +7350,41 @@ CColor CMeasure::GetCC24Sat(int i)
 
 	return m_cc24SatMeasureArray_master[i + (iCC<=RANDOM250?(iCC * 100):(iCC==RANDOM500?PATTERN_SIZE+250:PATTERN_SIZE+250+500))];  //index increments by 100 until slot 19 (then 250 & 500 & user MAX_USER_CC_PATCH_SIZE & 2020_50)
 } 
+
+// An aborted color-checker sweep leaves its measured patches only in the live
+// array: SweepActiveGuard clears m_binMeasure on every early return, after
+// which GetCC24Sat reads the per-set master array -- whose band is copied from
+// the live array only on sweep COMPLETION. The partial data was therefore
+// unreachable (grid went blank on stop). Publish the live band to the master
+// before an abort return; unmeasured entries are noDataColor, so the set's
+// stale remainder is wiped exactly like the sweep start wiped the live array.
+// Band mapping mirrors the completion copy at the end of MeasureCC24SatScale.
+void CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux)
+{
+	for (int i = 0; i < measuredLux.GetSize() && i < m_cc24SatMeasureArray.GetSize(); i++)
+	{
+		if ( ! m_cc24SatMeasureArray[i].isValid() )
+			continue;
+		if ( bUseLuxValues )
+			m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[i] );
+		else
+			m_cc24SatMeasureArray[i].ResetLuxValue ();
+	}
+
+	int iCC = GetConfig()->m_CCMode;
+	if (iCC < RANDOM250)
+		for (int i=0+100*iCC;i<100*(iCC+1);i++)
+				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-iCC*100];
+	else if (iCC == RANDOM250)
+		for (int i=PATTERN_SIZE;i<PATTERN_SIZE+250;i++)
+				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-PATTERN_SIZE];
+	else if (iCC == RANDOM500)
+		for (int i=PATTERN_SIZE+250;i<PATTERN_SIZE+250+500;i++)
+				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-(PATTERN_SIZE+250)];
+	else if (iCC == USER)
+		for (int i=PATTERN_SIZE+250+500;i<PATTERN_SIZE+250+500+MAX_USER_CC_PATCH_SIZE;i++)
+				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-(PATTERN_SIZE+250+500)];
+}
 
 CString CMeasure::GetCCStr() const
 {
