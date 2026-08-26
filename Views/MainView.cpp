@@ -3199,9 +3199,12 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					if ( m_displayMode == 11 && nCol >= 1 && nCol <= (int)m_ccDECache.size() && !isNan(dE) )
 					{
 						m_ccDECache[nCol-1] = dE;
-						m_ccDLCache[nCol-1] = dL;
-						m_ccDCCache[nCol-1] = dC;
-						m_ccDHCache[nCol-1] = dH;
+						// a NaN component with a finite dE (degenerate XYZ under some
+						// dE forms) must not poison the re-aggregated averages into
+						// "nan"; contribute zero for that component instead
+						m_ccDLCache[nCol-1] = isNan(dL) ? 0.0 : dL;
+						m_ccDCCache[nCol-1] = isNan(dC) ? 0.0 : dC;
+						m_ccDHCache[nCol-1] = isNan(dH) ? 0.0 : dH;
 					}
 
 					if (nCol == minCol)

@@ -3907,6 +3907,13 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		else
 			doSettling = GetConfig()->m_isSettling;
 
+		// MCD displays its patches permuted: iteration i's reading lands in
+		// measuredColor slot i+6 / 23-i. All per-patch live-array traffic must
+		// use THAT slot -- the unpermuted [i] mirrored a default-constructed
+		// (thus "valid") placeholder for slots 0-5, which the live display
+		// showed mid-sweep and the abort salvage would publish.
+		int nSlot = (GetConfig()->m_CCMode != MCD) ? i : (i < 18 ? i + 6 : 23 - i);
+
 		UpdateViews(pDoc, 11);
 
 		if (!i && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) == DISPLAY_GDI_Hide)
@@ -3933,7 +3940,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 						measuredColor[23-i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				}
 
-				m_cc24SatMeasureArray[i] = measuredColor[i];
+				m_cc24SatMeasureArray[nSlot] = measuredColor[nSlot];
 
 				if ( bUseLuxValues )
 				{
@@ -3948,6 +3955,9 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 							 break;
 
 						case LUX_CANCELED:
+							 // no lux captured for this patch; keep salvage from
+							 // stamping the array-default 0.0 on it
+							 measuredLux[i] = -1.0;
 							 bEscape = TRUE;
 							 break;
 					}
@@ -3978,6 +3988,9 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				int result=GetColorApp()->InMeasureMessageBox(strMsg+pSensor->GetErrorString(),Title,MB_ABORTRETRYIGNORE | MB_ICONERROR);
 				if(result == IDABORT)
 				{
+					// the reading that raised this dialog is known bad; only an
+					// explicit Ignore keeps it -- drop it before salvage publishes
+					m_cc24SatMeasureArray[nSlot] = noDataColor;
 					SalvageCC24SatPartial ( bUseLuxValues, measuredLux );
 					pSensor->Release();
 					pGenerator->Release();
@@ -7361,15 +7374,24 @@ CColor CMeasure::GetCC24Sat(int i)
 // Band mapping mirrors the completion copy at the end of MeasureCC24SatScale.
 void CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux)
 {
+	// Nothing measured -> leave the master untouched. Publishing the freshly
+	// wiped live band on a zero-progress abort (generator failure at patch 0,
+	// escape during the first iris wait) would destroy the set's previous
+	// completed run for no salvageable data.
+	BOOL bAnyValid = FALSE;
 	for (int i = 0; i < measuredLux.GetSize() && i < m_cc24SatMeasureArray.GetSize(); i++)
 	{
 		if ( ! m_cc24SatMeasureArray[i].isValid() )
 			continue;
-		if ( bUseLuxValues )
+		bAnyValid = TRUE;
+		// measuredLux < 0 marks a patch whose lux capture was canceled
+		if ( bUseLuxValues && measuredLux[i] >= 0.0 )
 			m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[i] );
 		else
 			m_cc24SatMeasureArray[i].ResetLuxValue ();
 	}
+	if ( ! bAnyValid )
+		return;
 
 	int iCC = GetConfig()->m_CCMode;
 	if (iCC < RANDOM250)
@@ -7384,6 +7406,12 @@ void CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int
 	else if (iCC == USER)
 		for (int i=PATTERN_SIZE+250+500;i<PATTERN_SIZE+250+500+MAX_USER_CC_PATCH_SIZE;i++)
 				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-(PATTERN_SIZE+250+500)];
+
+	// Same bookkeeping as the completion path: the master changed, so the
+	// document must learn it is modified (save prompt on close) and the
+	// sweeps-active info string must reflect the new contents.
+	m_isModified = TRUE;
+	m_CCStr = GetCCStr();
 }
 
 CString CMeasure::GetCCStr() const
