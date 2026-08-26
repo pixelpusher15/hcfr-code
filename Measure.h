@@ -266,7 +266,7 @@ public:
 	CString GetCCStr() const;
 	// Publish an aborted color-checker sweep's partial live data to the
 	// per-set master array (the post-sweep read source); see Measure.cpp.
-	void SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux);
+	BOOL SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux);
 
 	// Display profile capture
 	CColor GetProfileMeasure(int i) const;

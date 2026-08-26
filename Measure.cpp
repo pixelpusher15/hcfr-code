@@ -3973,7 +3973,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 			if ( bEscape )
 			{
-				SalvageCC24SatPartial ( bUseLuxValues, measuredLux );
+				if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux ) && pDoc )
+					pDoc->SetModifiedFlag ( TRUE );
 				pSensor->Release();
 				pGenerator->Release();
 				strMsg.LoadString ( IDS_MEASURESCANCELED );
@@ -3991,7 +3992,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 					// the reading that raised this dialog is known bad; only an
 					// explicit Ignore keeps it -- drop it before salvage publishes
 					m_cc24SatMeasureArray[nSlot] = noDataColor;
-					SalvageCC24SatPartial ( bUseLuxValues, measuredLux );
+					if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux ) && pDoc )
+						pDoc->SetModifiedFlag ( TRUE );
 					pSensor->Release();
 					pGenerator->Release();
 					return FALSE;
@@ -4019,7 +4021,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		}
 		else
 		{
-			SalvageCC24SatPartial ( bUseLuxValues, measuredLux );
+			if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux ) && pDoc )
+				pDoc->SetModifiedFlag ( TRUE );
 			pSensor->Release();
 			pGenerator->Release();
 			return FALSE;
@@ -7372,7 +7375,12 @@ CColor CMeasure::GetCC24Sat(int i)
 // before an abort return; unmeasured entries are noDataColor, so the set's
 // stale remainder is wiped exactly like the sweep start wiped the live array.
 // Band mapping mirrors the completion copy at the end of MeasureCC24SatScale.
-void CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux)
+// Returns TRUE when partial data was published (the caller then owns marking
+// the DOCUMENT modified -- the measure-level m_isModified set below never
+// reaches the doc on an aborted sweep, whose FALSE return skips the doc's
+// SetModifiedFlag call, so without this the salvaged data drew no save prompt
+// when realtime display was off).
+BOOL CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux)
 {
 	// Nothing measured -> leave the master untouched. Publishing the freshly
 	// wiped live band on a zero-progress abort (generator failure at patch 0,
@@ -7391,7 +7399,7 @@ void CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int
 			m_cc24SatMeasureArray[i].ResetLuxValue ();
 	}
 	if ( ! bAnyValid )
-		return;
+		return FALSE;
 
 	int iCC = GetConfig()->m_CCMode;
 	if (iCC < RANDOM250)
@@ -7412,6 +7420,7 @@ void CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int
 	// sweeps-active info string must reflect the new contents.
 	m_isModified = TRUE;
 	m_CCStr = GetCCStr();
+	return TRUE;
 }
 
 CString CMeasure::GetCCStr() const
