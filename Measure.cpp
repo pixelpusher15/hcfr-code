@@ -6391,6 +6391,17 @@ BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
 				TranslateMessage ( & Msg );
 				DispatchMessage ( & Msg );
 			}
+
+			// A Stop-button click dispatched just above sets the abort flag;
+			// honor it here exactly like ESC. Without this the wait ran its full
+			// latency window and the sweep still displayed and measured the
+			// current patch before noticing the abort, so Stop felt unresponsive
+			// (and invited repeat presses) where ESC was immediate. Gated on
+			// bIgnoreEscape so the callers that opt out of user interruption
+			// keep their current behavior.
+			if ( ! bIgnoreEscape && m_bAbortSweep )
+				bEscape = TRUE;
+
 			dwNow = GetTickCount();
 		}
 	}
