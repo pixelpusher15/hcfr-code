@@ -124,8 +124,12 @@ static double NudgeOffBlack(double valx, bool isHDR)
 //
 // White and Black belong to the document being plotted and are passed in rather
 // than fetched here: modes >= 4 feed them to getL_EOTF, so the value differs per
-// document, and CColor copies deep-copy the attached spectrum - fetching them
-// per call would do that once per grayscale point.
+// document. Passing by const reference also saves one CColor copy per call, and
+// CColor copies deep-copy the attached spectrum - but only one of the two: this
+// hands them straight to getL_EOTF, which still takes White and Black BY VALUE,
+// so a spectrum copy per grayscale point remains. Removing that one means
+// changing the signature in libHCFR/Color.h and every call site in the tree,
+// which is a wider change than this file.
 static BOOL ReferenceGammaAt(const CColor & White, const CColor & Black, double x, double GammaOffset, double *pGamma, double *pValY, bool bNudgeBlack = true)
 {
 	int		mode = GetConfig()->m_GammaOffsetType;

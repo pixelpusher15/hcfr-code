@@ -288,8 +288,12 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		        }
 		        else
 		        {
-			        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
-			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+Offset;
+			        // HIST-007: OffsetRef is what ComputeGammaAndOffset fitted on
+			        // pDataRef a few lines up. Offset belongs to the primary document,
+			        // so the comparison curve was built from the wrong fit - and
+			        // OffsetRef was computed and then never read.
+			        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+OffsetRef)/(1.0+OffsetRef);
+			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+OffsetRef;
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhiteRefDoc - Black.GetY() ) )) / YWhiteRefDoc;
 		        }
