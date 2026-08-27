@@ -1242,10 +1242,12 @@ namespace {
 			Sleep(150);		// let the USB virtual-COM link settle after open
 		}
 
-		// IMPORTANT: do NOT send any firmware/version query here. On the AVLab TPG the
-		// type-20 query locks the device up - it stops responding to serial AND to its
-		// IR remote until a power cycle - and it never replies anyway. Patches always use
-		// AA full-triplet (0-255), which carries the exact RGB and works on F/W 1.01+.
+		// No firmware/version query here - not because queries are unsafe (they are documented
+		// and work; see DvdoQuery), but because opening the port for patches should not pay for
+		// a round trip. An earlier comment here claimed the type-20 query locked the device up
+		// permanently; that was the single-digit DataCount bug, fixed, and the status readout now
+		// queries A8/A9/61 on every Refresh without incident. Patches always use AA full-triplet
+		// (0-255), which carries the exact RGB and works on F/W 1.01+.
 		if (fwOut) fwOut->Empty();
 		s_dvdoArmed = false;				// re-arm on the first AA patch of this session (see DisplayRGBColorDVDO)
 
@@ -1313,10 +1315,25 @@ bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, CS
 								// close-then-immediate-reopen can fail on the virtual COM driver,
 								// so the probe must only close what it opened itself.
 	bool opened = DvdoOpen(comPort, colorSpace, 0 /*format n/a for probe*/, &fw, false /*probe only*/);
-	msgOut = s_dvdoDiag;
+	if (!opened)
+	{
+		msgOut = s_dvdoDiag;
+		if (!wasOpen) DvdoClose();
+		return false;
+	}
+	// Opening a COM port only proves the PORT exists - a port belonging to any other adapter
+	// opens just as happily, so "opened" is not detection. Round-trip the documented Product
+	// Name query (transaction type 20, ID A8 - User's Guide 1.01 "Queries": "Queries allow an
+	// attached computer to query the status of AVLab", and A8/A9/61/6C/EA/E5 are listed as
+	// queryable) and require an answer. Same confirmation the Murideo probe gets from its 0xAB
+	// reply. Without this, pointing the DVDO at the Murideo's port reported success.
+	CString name;
+	bool answered = DvdoQuery("A8", name) && !name.IsEmpty();
+	if (answered) msgOut.Format(LS(IDS_GEN_DVDO_CONNECTED), (LPCTSTR)comPort, (LPCTSTR)name);
+	else          msgOut.Format(LS(IDS_GEN_DVDO_NO_RESPOND), (LPCTSTR)comPort);
 	if (!wasOpen)
 		DvdoClose();
-	return opened;
+	return answered;
 }
 
 // ---------------------------------------------------------------------------

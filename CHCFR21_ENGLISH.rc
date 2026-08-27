@@ -4155,6 +4155,8 @@ BEGIN
     IDS_GEN_SERIAL_LINK_LOST        "The generator stopped responding on its serial port.\nReconnect it and choose Retry, or Cancel to stop the sequence."
     IDS_GEN_NETWORK_LINK_LOST       "The generator stopped responding on the network.\nCheck the connection and choose Retry, or Cancel to stop the sequence."
     IDS_GEN_CONFIGURED              "(configured)"
+    IDS_GEN_DVDO_CONNECTED          "Connected to the DVDO AVLab TPG on %s (%s) - using AA full-triplet (0-255)."
+    IDS_GEN_DVDO_NO_RESPOND         "Opened %s but no DVDO AVLab replied - wrong port, or the device is off?"
     IDS_CSV_FILE_NOT_FOUND  "Patch-list file not found:\n\n%s\n\nThe patch set will be empty. For built-in sets this usually means the installation is incomplete or HCFR is running under a different user profile."
     IDS_CSV_RANGE_EXTENDED_WARN  "The USER patch list is Extended range (whiter-than-white), but generator output is set to Full (0-255), which clamps the super-white codes to 255.\n\nSet the generator output to 16-235 (video) so the super-white codes are sent intact."
 END

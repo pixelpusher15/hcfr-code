@@ -2083,6 +2083,8 @@
 #define IDS_GEN_SERIAL_LINK_LOST          59715
 #define IDS_GEN_NETWORK_LINK_LOST         59716
 #define IDS_GEN_CONFIGURED                59717
+#define IDS_GEN_DVDO_CONNECTED            59718
+#define IDS_GEN_DVDO_NO_RESPOND           59719
 #define IDS_CSV_FILE_NOT_FOUND          59630
 #define IDS_CSV_RANGE_EXTENDED_WARN     59631
 #define IDC_PROFILE_PANE                1558
