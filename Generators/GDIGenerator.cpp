@@ -1084,7 +1084,6 @@ namespace {
 	bool		s_dvdoArmed = false;		// TPG armed for AA patches? (see the first-patch arm in DisplayRGBColorDVDO)
 	bool		s_dvdoLastWriteOk = false;	// did the last DvdoWrite reach the port? lets the patch retry tell a
 											// dead handle (needs a reopen) from a merely missing ack (resend only)
-	bool		s_dvdoPatchFailShown = false;	// "patch did not reach the device" box is shown once per open
 	CString		s_dvdoDiag;					// human-readable status from the last DvdoOpen
 	const int	kDvdoArmPattern = 35;		// 80=35 = "Black" (0 IRE full field, User's Guide page 14): arms the internal TPG with no visible flash
 
@@ -1240,7 +1239,6 @@ namespace {
 		// AA full-triplet (0-255), which carries the exact RGB and works on F/W 1.01+.
 		if (fwOut) fwOut->Empty();
 		s_dvdoArmed = false;				// re-arm on the first AA patch of this session (see DisplayRGBColorDVDO)
-		s_dvdoPatchFailShown = false;
 
 		s_dvdoDiag.Format(LS(IDS_GEN_DVDO_OPENED), (LPCTSTR)comPort);
 
@@ -1577,7 +1575,6 @@ namespace {
 	CSerialCom	s_muriPort;
 	bool		s_muriOpen   = false;
 	bool		s_muriUseNet = true;			// current transport (set by MuriConnect)
-	bool		s_muriPatchFailShown = false;	// "patch did not reach the device" box is shown once per open
 	CString		s_muriIp;
 	int			s_muriTcpPort = 23;				// raw-TCP API port (config MuriTcpPort; device default = 23 / telnet)
 	CString		s_muriDiag;
@@ -1754,7 +1751,6 @@ namespace {
 		}
 		PurgeComm(s_muriPort.hComm, PURGE_RXCLEAR | PURGE_TXCLEAR);
 		s_muriOpen = true;
-		s_muriPatchFailShown = false;
 		s_muriDiag.Format(LS(IDS_GEN_MURI_OPENED), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
 		return true;
 	}
@@ -2476,61 +2472,66 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 	const DWORD dwRetryPause = 200;
 	bool sent = false;
 
-	for (int attempt = 1; attempt <= maxTries && !sent; ++attempt)
+	// Outer loop = the user's decision; inner loop = the automatic attempts. Retry runs the
+	// attempts again, so a device that is still disconnected simply brings the box straight
+	// back rather than letting the sweep continue against a frozen patch.
+	for (;;)
 	{
-		if (attempt > 1)
+		for (int attempt = 1; attempt <= maxTries && !sent; ++attempt)
 		{
-			// Only a failed WRITE means the handle is dead and needs replacing; a merely missing
-			// ack is retried on the same handle, because close-then-immediate-reopen can itself
-			// fail on the virtual COM driver (see DvdoOpen).
-			Sleep(dwRetryPause);
-			if (!s_dvdoLastWriteOk)
+			if (attempt > 1)
 			{
-				CString fw;
-				DvdoClose();
-				if (!DvdoOpen(m_dvdoComPort, m_dvdoColorSpace, m_dvdoRange, m_dvdoOutputFormat, &fw, false /*no setup*/))
-					continue;		// device still gone - try again until the attempts run out
+				// Only a failed WRITE means the handle is dead and needs replacing; a merely missing
+				// ack is retried on the same handle, because close-then-immediate-reopen can itself
+				// fail on the virtual COM driver (see DvdoOpen).
+				Sleep(dwRetryPause);
+				if (!s_dvdoLastWriteOk)
+				{
+					CString fw;
+					DvdoClose();
+					if (!DvdoOpen(m_dvdoComPort, m_dvdoColorSpace, m_dvdoRange, m_dvdoOutputFormat, &fw, false /*no setup*/))
+						continue;		// device still gone - try again until the attempts run out
+				}
 			}
-		}
-		if (!s_dvdoOpen) continue;
+			if (!s_dvdoOpen) continue;
 
-		// Arm the internal TPG on the first AA patch of the session. On this firmware the TPG can
-		// be left DISARMED - by an 80=0 "patterns off" or the device's own remote - and then AA
-		// custom patches silently do NOT render (screen stays blank/blue) until an 80 pattern
-		// re-arms it; 6C/61/repeated AA do not (hardware-confirmed 2026-08-08). 80=35 is a
-		// full-black field (0% IRE) so this arm is visually invisible, and it is sent back-to-back
-		// with the AA below (< 1 frame). Only the first patch pays this; DvdoCommand drains the ack.
-		if (!s_dvdoArmed)
-		{
-			DvdoSendPattern(kDvdoArmPattern);
-			s_dvdoArmed = true;
+			// Arm the internal TPG on the first AA patch of the session. On this firmware the TPG can
+			// be left DISARMED - by an 80=0 "patterns off" or the device's own remote - and then AA
+			// custom patches silently do NOT render (screen stays blank/blue) until an 80 pattern
+			// re-arms it; 6C/61/repeated AA do not (hardware-confirmed 2026-08-08). 80=35 is a
+			// full-black field (0% IRE) so this arm is visually invisible, and it is sent back-to-back
+			// with the AA below (< 1 frame). Only the first patch pays this; DvdoCommand drains the ack.
+			if (!s_dvdoArmed)
+			{
+				DvdoSendPattern(kDvdoArmPattern);
+				s_dvdoArmed = true;
+			}
+			// AA full triplet: R G B Window BackgroundIRE InputRange OutColourSpace OutRange.
+			// Encode R/G/B in HCFR's selected range (m_b16_235): limited -> 16-235, full ->
+			// 0-255, exactly matching the main-page stimulus values. InputRange must match the
+			// encoding so the device interprets the numbers correctly; OutRange is set the same
+			// (the AVLab ignores it on current firmware - actual output range is set on its OSD).
+			bool lim = (m_b16_235 != 0);
+			int rng = lim ? 0 : 1;		// AA range param: 0 = Limited (16-235), 1 = Full (0-255)
+			int r = ColorRGBDisplay::ConvertPercentToBYTE(clr[0], lim);
+			int g = ColorRGBDisplay::ConvertPercentToBYTE(clr[1], lim);
+			int b = ColorRGBDisplay::ConvertPercentToBYTE(clr[2], lim);
+			// APL surround: BackgroundIRE (5th AA param), same scale as R/G/B. Live prop value.
+			int bg = ColorRGBDisplay::ConvertPercentToBYTE((double)m_displayWindow.m_bgStimPercent, lim);
+			char val[96];
+			sprintf(val, "%d %d %d %d %d %d %d %d", r, g, b, win, bg, rng, m_dvdoColorSpace, rng);
+			sent = DvdoCommand("AA", std::vector<std::string>(1, val));
 		}
-		// AA full triplet: R G B Window BackgroundIRE InputRange OutColourSpace OutRange.
-		// Encode R/G/B in HCFR's selected range (m_b16_235): limited -> 16-235, full ->
-		// 0-255, exactly matching the main-page stimulus values. InputRange must match the
-		// encoding so the device interprets the numbers correctly; OutRange is set the same
-		// (the AVLab ignores it on current firmware - actual output range is set on its OSD).
-		bool lim = (m_b16_235 != 0);
-		int rng = lim ? 0 : 1;		// AA range param: 0 = Limited (16-235), 1 = Full (0-255)
-		int r = ColorRGBDisplay::ConvertPercentToBYTE(clr[0], lim);
-		int g = ColorRGBDisplay::ConvertPercentToBYTE(clr[1], lim);
-		int b = ColorRGBDisplay::ConvertPercentToBYTE(clr[2], lim);
-		// APL surround: BackgroundIRE (5th AA param), same scale as R/G/B. Live prop value.
-		int bg = ColorRGBDisplay::ConvertPercentToBYTE((double)m_displayWindow.m_bgStimPercent, lim);
-		char val[96];
-		sprintf(val, "%d %d %d %d %d %d %d %d", r, g, b, win, bg, rng, m_dvdoColorSpace, rng);
-		sent = DvdoCommand("AA", std::vector<std::string>(1, val));
+		if (sent) break;
+		// MB_TOPMOST|MB_SETFOREGROUND because InMeasureMessageBox owns the box to NULL; without
+		// them it can end up behind the main window, where it blocks the app invisibly.
+		if (GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_SERIAL_LINK_LOST), "DVDO AVLab TPG",
+			MB_RETRYCANCEL | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND) != IDRETRY)
+			break;
 	}
 
 	if (!sent)
-	{
-		if (!s_dvdoPatchFailShown)
-		{
-			GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_DVDO_INIT_FAIL), "DVDO AVLab TPG", MB_ICONERROR);
-			s_dvdoPatchFailShown = true;
-		}
 		return FALSE;		// stop the sequence rather than measure a stale patch
-	}
 
 	// Courtesy settle wait, mirroring the other external wires.
 	DWORD dwWait = GetConfig()->GetProfileInt("Debug","WaitAfterDisplayPattern",80);
@@ -2581,28 +2582,31 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 	if (maxTries < 1) maxTries = 1;
 	if (maxTries > 10) maxTries = 10;
 	bool sent = false;
-	for (int attempt = 1; attempt <= maxTries && !sent; ++attempt)
+	for (;;)
 	{
-		if (attempt > 1)
+		for (int attempt = 1; attempt <= maxTries && !sent; ++attempt)
 		{
-			Sleep(200);
-			if (!m_muriUseNetwork)		// serial: replace a handle whose device has gone away
-				MuriDisconnect();
-			connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
+			if (attempt > 1)
+			{
+				Sleep(200);
+				if (!m_muriUseNetwork)		// serial: replace a handle whose device has gone away
+					MuriDisconnect();
+				connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
+			}
+			if (!connected) continue;
+			sent = MuriCmdRgbTriplet(r, g, b, bgR, bgG, bgB, win, (bits == 10) ? 1 : 0, lim ? 1 : 0);
 		}
-		if (!connected) continue;
-		sent = MuriCmdRgbTriplet(r, g, b, bgR, bgG, bgB, win, (bits == 10) ? 1 : 0, lim ? 1 : 0);
+		if (sent) break;
+		// Same message pair serves every wired generator; the caption names the device. The
+		// Seven-G reaches both arms of this depending on the transport it is configured for.
+		UINT nLostMsg = m_muriUseNetwork ? IDS_GEN_NETWORK_LINK_LOST : IDS_GEN_SERIAL_LINK_LOST;
+		if (GetColorApp()->InMeasureMessageBox(LS(nLostMsg), "Murideo Seven-G",
+			MB_RETRYCANCEL | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND) != IDRETRY)
+			break;
 	}
 
 	if (!sent)
-	{
-		if (!s_muriPatchFailShown)
-		{
-			GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_MURI_INIT_FAIL), "Murideo Seven-G", MB_ICONERROR);
-			s_muriPatchFailShown = true;
-		}
 		return FALSE;		// stop the sequence rather than measure a stale patch
-	}
 	return TRUE;
 }
 
@@ -2620,6 +2624,11 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 	//see if we need to reconnect generator
 	if (!this->m_bisInited)
 		Init();
+
+	// Only the DVDO/Murideo arms below report failure; every other branch keeps the historical
+	// unconditional TRUE. Without this the patch-send failure never reaches the measurement
+	// loop, which stops on FALSE (Measure.cpp), and a sweep would run on against a dead link.
+	BOOL bDisplayOk = TRUE;
 
 	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_GDI_Hide && nPatternType != MT_SPECIAL && nPatternType != MT_CONTRAST)
 	{
@@ -2655,14 +2664,14 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 		else if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_rPI)
 			DisplayRGBColorrPI (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
 		else if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
-			DisplayRGBColorDVDO (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
+			bDisplayOk = DisplayRGBColorDVDO (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
 		else if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_MURIDEO)
-			DisplayRGBColorMurideo (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
+			bDisplayOk = DisplayRGBColorMurideo (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
 		else
 			m_displayWindow.DisplayRGBColor(do_Intensity?p_clr:clr, nPatternInfo);
 	}
 
-	return TRUE;
+	return bDisplayOk;
 }
 
 

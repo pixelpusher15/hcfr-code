@@ -2080,6 +2080,8 @@
 #define IDS_GEN_LBL_OUTPUT                59712
 #define IDS_GEN_DVDO_INIT_FAIL            59713
 #define IDS_GEN_MURI_INIT_FAIL            59714
+#define IDS_GEN_SERIAL_LINK_LOST          59715
+#define IDS_GEN_NETWORK_LINK_LOST         59716
 #define IDS_CSV_FILE_NOT_FOUND          59630
 #define IDS_CSV_RANGE_EXTENDED_WARN     59631
 #define IDC_PROFILE_PANE                1558

@@ -4377,6 +4377,8 @@ BEGIN
     IDS_GEN_LBL_OUTPUT              "Sortie"
     IDS_GEN_DVDO_INIT_FAIL          "Impossible d'ouvrir le port série du DVDO AVLab TPG.\nSélectionnez le bon port COM dans les options du générateur."
     IDS_GEN_MURI_INIT_FAIL          "Impossible de joindre le Murideo Seven-G.\nVérifiez l'adresse IP (réseau) ou le port COM (série) dans les options du générateur."
+    IDS_GEN_SERIAL_LINK_LOST        "Le générateur ne répond plus sur son port série.\nReconnectez-le puis choisissez Réessayer, ou Annuler pour arrêter la séquence."
+    IDS_GEN_NETWORK_LINK_LOST       "Le générateur ne répond plus sur le réseau.\nVérifiez la connexion puis choisissez Réessayer, ou Annuler pour arrêter la séquence."
     IDS_CSV_FILE_NOT_FOUND  "Fichier de liste de patchs introuvable :\n\n%s\n\nL'ensemble de patchs sera vide. Pour les ensembles intégrés, cela signifie généralement que l'installation est incomplète ou que HCFR s'exécute sous un profil utilisateur différent."
     IDS_CSV_RANGE_EXTENDED_WARN  "La liste de patchs USER est en plage Étendue (plus blanc que blanc), mais la sortie du générateur est réglée sur Complète (0-255), ce qui écrête les codes super-blancs à 255.\n\nRéglez la sortie du générateur sur 16-235 (vidéo) afin que les codes super-blancs soient envoyés intacts."
 END
