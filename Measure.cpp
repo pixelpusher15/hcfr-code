@@ -3975,6 +3975,10 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 			{
 				if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux ) && pDoc )
 					pDoc->SetModifiedFlag ( TRUE );
+				// the loop clears m_isSettling from patch 1 on and the config is
+				// persisted, so an abort that skipped this left the user's settling
+				// preference permanently off (completion path restores it below)
+				GetConfig()->m_isSettling = doSettling;
 				pSensor->Release();
 				pGenerator->Release();
 				strMsg.LoadString ( IDS_MEASURESCANCELED );
@@ -3994,6 +3998,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 					m_cc24SatMeasureArray[nSlot] = noDataColor;
 					if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux ) && pDoc )
 						pDoc->SetModifiedFlag ( TRUE );
+					GetConfig()->m_isSettling = doSettling;
 					pSensor->Release();
 					pGenerator->Release();
 					return FALSE;
@@ -4007,7 +4012,12 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 			else
 			{
 				previousColor = lastColor;			
-				lastColor = measuredColor[i];
+				// same permutation as nSlot: the unpermuted [i] handed the selected-
+				// color widget (UpdateViews -> SetSelectedColor) and the generator's
+				// pattern-change check a default-constructed color for MCD's first
+				// six patches -- two of those in a row read as "pattern unchanged"
+				// and forced a retry on input that had in fact changed
+				lastColor = measuredColor[nSlot];
 	
 				if(i != 0)
 				{
@@ -4023,6 +4033,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		{
 			if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux ) && pDoc )
 				pDoc->SetModifiedFlag ( TRUE );
+			GetConfig()->m_isSettling = doSettling;
 			pSensor->Release();
 			pGenerator->Release();
 			return FALSE;
@@ -7382,26 +7393,34 @@ CColor CMeasure::GetCC24Sat(int i)
 // when realtime display was off).
 BOOL CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux)
 {
+	int iCC = GetConfig()->m_CCMode;
+
 	// Nothing measured -> leave the master untouched. Publishing the freshly
 	// wiped live band on a zero-progress abort (generator failure at patch 0,
 	// escape during the first iris wait) would destroy the set's previous
 	// completed run for no salvageable data.
 	BOOL bAnyValid = FALSE;
-	for (int i = 0; i < measuredLux.GetSize() && i < m_cc24SatMeasureArray.GetSize(); i++)
+	for (int i = 0; i < m_cc24SatMeasureArray.GetSize(); i++)
 	{
 		if ( ! m_cc24SatMeasureArray[i].isValid() )
 			continue;
 		bAnyValid = TRUE;
+		// measuredLux is filled by ITERATION index while the live array is
+		// addressed by SLOT index, and MCD permutes the two (iteration j lands
+		// in slot j+6 / 23-j). Invert that permutation here: reading straight
+		// through paired each salvaged patch with another patch's lux and, past
+		// the point the sweep reached, stamped the zero-filled tail (CArray
+		// SetSize zero-fills doubles) as a real 0.0 reading.
+		int nIter = ( iCC != MCD ) ? i : ( i >= 6 ? i - 6 : 23 - i );
 		// measuredLux < 0 marks a patch whose lux capture was canceled
-		if ( bUseLuxValues && measuredLux[i] >= 0.0 )
-			m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[i] );
+		if ( bUseLuxValues && nIter < measuredLux.GetSize() && measuredLux[nIter] >= 0.0 )
+			m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[nIter] );
 		else
 			m_cc24SatMeasureArray[i].ResetLuxValue ();
 	}
 	if ( ! bAnyValid )
 		return FALSE;
 
-	int iCC = GetConfig()->m_CCMode;
 	if (iCC < RANDOM250)
 		for (int i=0+100*iCC;i<100*(iCC+1);i++)
 				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-iCC*100];

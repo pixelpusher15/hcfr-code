@@ -4529,7 +4529,18 @@ void CMainView::UpdateGrid()
 		case 8: bHasMeas = GetDocument()->GetMeasure()->GetYellowSat(0).isValid(); break;
 		case 9: bHasMeas = GetDocument()->GetMeasure()->GetCyanSat(0).isValid(); break;
 		case 10: bHasMeas = GetDocument()->GetMeasure()->GetMagentaSat(0).isValid(); break;
-		case 11: bHasMeas = GetDocument()->GetMeasure()->GetCC24Sat(0).isValid(); break;
+		case 11:
+			// Color checker sets are not filled front to back: MCD measures its
+			// patches permuted (slot 0 lands on the LAST iteration) and an
+			// aborted sweep salvages only the slots it reached, so probing patch
+			// 0 alone reported "no measurements" -- zeroing the dE header below
+			// -- next to visibly populated columns. The per-column cache this
+			// same UpdateGrid pass just built answers it for the whole set, and
+			// costs no extra GetCC24Sat call (whose i == 0 branch drives the
+			// pre-3.3.0 load prompt and its retry counter).
+			for ( int j = 0 ; ! bHasMeas && j < (int)m_ccDECache.size() ; j ++ )
+				bHasMeas = ( m_ccDECache[j] >= 0.0 );
+			break;
 		}
 		if ( ! bHasMeas )
 		{
