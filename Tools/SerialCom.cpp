@@ -38,6 +38,7 @@ static char THIS_FILE[] = __FILE__;
 
 CSerialCom::CSerialCom()
 {
+	m_bQuiet = FALSE;
 }
 
 CSerialCom::~CSerialCom()
@@ -77,7 +78,7 @@ hComm = CreateFile(portname,
 BOOL CSerialCom::ConfigurePort(DWORD BaudRate, BYTE ByteSize, DWORD fParity, BYTE Parity, BYTE StopBits)
 {
 	if((m_bPortReady = GetCommState(hComm, &m_dcb))==0){
-		MessageBox("GetCommState Error","Error",MB_OK+MB_ICONERROR);
+		if(!m_bQuiet) MessageBox("GetCommState Error","Error",MB_OK+MB_ICONERROR);
 		CloseHandle(hComm);
 	return false;}
 m_dcb.BaudRate =BaudRate;
@@ -101,7 +102,7 @@ m_dcb.fOutxCtsFlow=false;
 
 m_bPortReady = SetCommState(hComm, &m_dcb);
 if(m_bPortReady ==0){
-		MessageBox("SetCommState Error","Error",MB_OK+MB_ICONERROR);
+		if(!m_bQuiet) MessageBox("SetCommState Error","Error",MB_OK+MB_ICONERROR);
 		CloseHandle(hComm);
 	return false;}
 return true;
@@ -109,8 +110,9 @@ return true;
 
 BOOL CSerialCom::SetCommunicationTimeouts(DWORD ReadIntervalTimeout, DWORD ReadTotalTimeoutMultiplier, DWORD ReadTotalTimeoutConstant, DWORD WriteTotalTimeoutMultiplier, DWORD WriteTotalTimeoutConstant)
 {
-if((m_bPortReady = GetCommTimeouts (hComm, &m_CommTimeouts))==0)
-   return false;
+if((m_bPortReady = GetCommTimeouts (hComm, &m_CommTimeouts))==0){
+		CloseHandle(hComm);
+	return false;}
 m_CommTimeouts.ReadIntervalTimeout =ReadIntervalTimeout;
 m_CommTimeouts.ReadTotalTimeoutConstant =ReadTotalTimeoutConstant;
 m_CommTimeouts.ReadTotalTimeoutMultiplier =ReadTotalTimeoutMultiplier;
@@ -118,7 +120,7 @@ m_CommTimeouts.WriteTotalTimeoutConstant = WriteTotalTimeoutConstant;
 m_CommTimeouts.WriteTotalTimeoutMultiplier =WriteTotalTimeoutMultiplier;
 		m_bPortReady = SetCommTimeouts (hComm, &m_CommTimeouts);
 		if(m_bPortReady ==0){
-MessageBox("StCommTimeouts function failed","Com Port Error",MB_OK+MB_ICONERROR);
+if(!m_bQuiet) MessageBox("StCommTimeouts function failed","Com Port Error",MB_OK+MB_ICONERROR);
 		CloseHandle(hComm);
 		return false;}
 		return true;

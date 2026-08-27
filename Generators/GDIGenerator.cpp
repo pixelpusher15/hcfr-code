@@ -1201,6 +1201,9 @@ namespace {
 		if (comPort.IsEmpty()) { s_dvdoDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
 		if (!s_dvdoOpen)	// REUSE an already-open port; a close-then-immediate-reopen can fail
 		{					// on the virtual COM driver (and would drop settings set via Apply).
+			// Failures surface through s_dvdoDiag; a modal box from the status-query worker
+			// would block the UI thread behind s_genSerialLock until someone dismissed it.
+			s_dvdoPort.m_bQuiet = TRUE;
 			if (!s_dvdoPort.OpenPort(comPort))					// OpenPort prepends //./ so COM10+ works
 			{
 				DWORD e = GetLastError();
@@ -1723,6 +1726,9 @@ namespace {
 		CSingleLock lock ( &s_genSerialLock, TRUE );
 		if (s_muriOpen) return true;
 		if (comPort.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
+		// Same reason as the DVDO path: s_muriDiag carries the error, and a modal box on
+		// the query worker would wedge the UI behind s_genSerialLock.
+		s_muriPort.m_bQuiet = TRUE;
 		if (!s_muriPort.OpenPort(comPort))
 		{
 			DWORD e = GetLastError();

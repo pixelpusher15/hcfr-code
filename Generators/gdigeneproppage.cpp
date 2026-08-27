@@ -1211,7 +1211,7 @@ static void PopulateComPortCombo(CComboBox& combo, const char* configKey)
 	CString current = GetConfig()->GetProfileString("GDIGenerator", configKey, "");
 	combo.ResetContent();
 	HKEY hKey;
-	if (ERROR_SUCCESS == RegOpenKeyEx(HKEY_LOCAL_MACHINE, "HARDWARE\DEVICEMAP\SERIALCOMM", 0, KEY_READ, &hKey))
+	if (ERROR_SUCCESS == RegOpenKeyEx(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &hKey))
 	{
 		char name[256], val[256]; DWORD idx = 0, cbN = sizeof(name), cbV = sizeof(val), type;
 		while (ERROR_SUCCESS == RegEnumValue(hKey, idx, name, &cbN, NULL, &type, (LPBYTE)val, &cbV))
