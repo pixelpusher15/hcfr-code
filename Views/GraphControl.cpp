@@ -472,22 +472,32 @@ void CGraphControl::FitYScale(BOOL doRound, double roundStep, bool isGamma)
 	double	minY=9999999.99;
 	double	maxY=-9999999.99;
 
-	// A gamma chart's black endpoint is an anchor rather than a measurement, and
-	// for targets with no single exponent near black - sRGB's linear toe, L* -
+	// mode 5/7 plot an absolute cd/m2 delta rather than a log ratio.
+	bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
+
+	// An SDR gamma chart's black endpoint is an anchor rather than a measurement,
+	// and for targets with no single exponent near black - sRGB's linear toe, L* -
 	// the anchor sits well under the band the rest of the curve occupies. Leave
 	// it out of the fit so it clips off the bottom instead of dragging the whole
 	// range down and flattening what is actually being read. Costs nothing for
 	// the power-law and BT.1886 targets, where the anchor is in band anyway.
 	// Second pass keeps it, for a graph where it is the only thing plotted.
+	//
+	// HDR is excluded: there the 0% point is an absolute cd/m2 black-level
+	// error - a real measurement, and often the largest deviation on the chart.
 	for(int nPass=0; nPass<2; nPass++)
 	{
-		bool bDropBlack = ( isGamma && nPass == 0 );
+		bool bDropBlack = ( isGamma && !isHDR && nPass == 0 );
 
 		for(int j=0;j<m_graphArray.GetSize();j++)
 			for(int i=0; i<m_graphArray[j].m_pointArray.GetSize(); i++)
 			{
 				double x = m_graphArray[j].m_pointArray[i].x;
-				if( x >= m_minX && x <= m_maxX && !( bDropBlack && x <= m_minX ) )
+				// x <= 0.0, not x <= m_minX: only the black anchor is exempt. Keyed
+				// on m_minX this also dropped the leftmost VISIBLE point once the X
+				// scale was zoomed (GrowXScale(+10,-10) makes m_minX 10) - that one
+				// is a measurement, not the anchor.
+				if( x >= m_minX && x <= m_maxX && !( bDropBlack && x <= 0.0 ) )
 				{
 					if(m_graphArray[j].m_pointArray[i].y < minY)
 						minY=m_graphArray[j].m_pointArray[i].y;
@@ -526,7 +536,7 @@ void CGraphControl::FitYScale(BOOL doRound, double roundStep, bool isGamma)
 			
 	} else
 	{
-		if (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7)
+		if (isHDR)
 		{
 
 		double delta = (maxY - minY);
@@ -1020,7 +1030,13 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 	pDC->SetTextColor(bWhiteBkgnd?RGB(64,64,64):RGB(192,192,192));
 	double yVal=m_minY;
 	double lastStrEndY=GetGraphY(yVal,rect);
-	for(int i=0;i<(m_maxY-m_minY)/m_yAxisStep;i++)
+	// Same zero-step guard as the X loop above: the scale dialog has no DDV,
+	// so a hand-set step of 0 made (m_maxY-m_minY)/0.0 evaluate to +INF and
+	// this loop never terminated. Deliberately NOT the rest of the X-axis work
+	// - drawing the m_maxY line and labelling m_minY needs GetGraphY to mirror
+	// GetGraphX's Width()-1, which moves every point on every chart.
+	double nYSteps = ( m_yAxisStep > 0 ? (m_maxY-m_minY)/m_yAxisStep : 0.0 );
+	for(int i=0;i<nYSteps;i++)
 	{
 		int y=GetGraphY(yVal,rect);
 		if(m_doShowAxis)

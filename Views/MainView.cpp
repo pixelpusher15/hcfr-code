@@ -3111,7 +3111,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						// average is over the measured ramp; folding black in would move
 						// a headline number that reaches the export and break comparison
 						// with every document measured before this.
-						if ( nCol == 1 && aReference.isValid() && aMeasure.GetY() > 0.0
+						if ( nCol == 1 && aMeasure.GetY() > 0.0
 							 && ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) )
 						{
 							double dEblack = aMeasure.GetDeltaE ( YWhite, aReference, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->m_GammaOffsetType == 5?3:GetConfig()->gw_Weight );
@@ -3121,6 +3121,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 								m_pGrayScaleGrid->SetItemBkColour(4, nCol, GetConfig()->GetDEColor(dEblack, GetConfig()->m_darkTheme));
 								m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0));
 							}
+							m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
 						}
 						else
 							str.Empty ();
