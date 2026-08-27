@@ -3920,7 +3920,15 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 			UpdateTstWnd(pDoc, -1);
 		if( pGenerator->DisplayRGBColor(GenColors[i], nPattern , i, !bRetry))
 		{
-			UpdateTstWnd(pDoc, i);
+			// UpdateTstWnd drives GRID-side state: minCol/last_minCol (which feed
+			// the realtime refresh column and the comparator's reference pick),
+			// the measuring-column highlight, and CTargetWnd::Refresh -- and all
+			// of those index by SLOT (TargetWnd's mode-11 branch takes a slot
+			// column and derives the display index with the inverse of the
+			// permutation below). Passing the ITERATION put every one of them six
+			// columns off under MCD and made TargetWnd permute an already-
+			// permuted index. The generator still gets the display index i.
+			UpdateTstWnd(pDoc, nSlot);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
 			bRetry = FALSE;
 
