@@ -4141,6 +4141,7 @@ BEGIN
     IDS_GEN_MURI_INIT_FAIL          "Der Murideo Seven-G konnte nicht erreicht werden.\nPrüfen Sie die IP-Adresse (Netzwerk) oder den COM-Anschluss (seriell) in den Generatoroptionen."
     IDS_GEN_SERIAL_LINK_LOST        "Der Generator antwortet nicht mehr über seinen seriellen Anschluss.\nSchließen Sie ihn wieder an und wählen Sie Wiederholen, oder Abbrechen, um die Sequenz zu beenden."
     IDS_GEN_NETWORK_LINK_LOST       "Der Generator antwortet nicht mehr über das Netzwerk.\nPrüfen Sie die Verbindung und wählen Sie Wiederholen, oder Abbrechen, um die Sequenz zu beenden."
+    IDS_GEN_CONFIGURED              "(konfiguriert)"
     IDS_CSV_FILE_NOT_FOUND  "Patch-Listen-Datei nicht gefunden:\n\n%s\n\nDer Patch-Satz ist leer. Bei integrierten Sätzen bedeutet dies meist, dass die Installation unvollständig ist oder HCFR unter einem anderen Benutzerprofil läuft."
     IDS_CSV_RANGE_EXTENDED_WARN  "Die USER-Patch-Liste ist im erweiterten Bereich (weißer als Weiß), aber der Generatorausgang ist auf Voll (0-255) eingestellt, wodurch die Super-Weiß-Codes auf 255 begrenzt werden.\n\nStellen Sie den Generatorausgang auf 16-235 (Video) ein, damit die Super-Weiß-Codes unverändert gesendet werden."
 END

@@ -83,6 +83,8 @@ static char THIS_FILE[] = __FILE__;
 
 // Implemented in GDIGenerator.cpp: open the port, run output setup, then close.
 extern bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, CString& fwOut);
+extern CString CGDIGenerator_MuriActivePort();	// port actually open, empty if none
+extern CString CGDIGenerator_MuriActiveIp();	// address actually in use, empty if none
 // Built-in pattern (command 80) + output format (command 61) tables & actions.
 extern int         CGDIGenerator_DvdoCatCount();
 extern const char* CGDIGenerator_DvdoCatName(int ci);
@@ -1360,6 +1362,7 @@ void CMuriSettingsDlg::OnTest()
 	bool net; CString ip, com; MuriXport(net, ip, com);
 	if (net && ip.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_ENTER_MURI_IP_FIRST)); return; }
 	if (!net && com.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_SELECT_COM_FIRST)); return; }
+	SaveToConfig();		// every button here commits what is on screen; only the device action differs
 	m_status.SetWindowText(LS(IDS_GEN_CONNECTING));
 	CString msg; CGDIGenerator_MuriTestConnection(net, ip, com, msg);
 	m_status.SetWindowText(msg);
@@ -1370,6 +1373,8 @@ void CMuriSettingsDlg::OnApply()
 {
 	bool net; CString ip, com; MuriXport(net, ip, com);
 	if (net && ip.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_ENTER_MURI_IP_FIRST)); return; }
+	if (!net && com.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_SELECT_COM_FIRST)); return; }
+	SaveToConfig();		// Apply = adopt the transport AND push the settings
 	int tg = m_tgrpCombo.GetCurSel(); if (tg < 0) tg = 0;
 	int ti = m_timingCombo.GetCurSel(); if (ti < 0) ti = 0;
 	int timingId = CGDIGenerator_MuriTimingId(tg, ti);
@@ -1405,6 +1410,7 @@ void CMuriSettingsDlg::SaveToConfig()
 			CGDIGenerator_MuriTimingId(m_tgrpCombo.GetCurSel(), m_timingCombo.GetCurSel()));
 }
 
+// Close records your choices and does NOT touch the device - that is what Apply is for.
 void CMuriSettingsDlg::OnClose2() { SaveToConfig(); EndDialog(IDOK); }
 
 // Enter fires the hidden template IDOK (still the dialog DEFID), and CDialog::OnOK
@@ -1547,6 +1553,7 @@ void CDvdoSettingsDlg::OnTest()
 {
 	CString com; m_comCombo.GetWindowText(com); com.Trim();
 	if (com.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_SELECT_COM_FIRST)); return; }
+	SaveToConfig();		// see CMuriSettingsDlg::OnTest
 	int cs = (m_fmtCombo.GetCurSel() >= 0) ? m_fmtCombo.GetCurSel() : 0;
 	m_status.SetWindowText(LS(IDS_GEN_CONNECTING));
 	CString msg; CGDIGenerator_DvdoTestConnection(com, cs, msg);
@@ -1557,6 +1564,7 @@ void CDvdoSettingsDlg::OnApply()
 {
 	CString com; m_comCombo.GetWindowText(com); com.Trim();
 	if (com.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_SELECT_COM_FIRST)); return; }
+	SaveToConfig();		// Apply = adopt the transport AND push the settings
 	int cs  = (m_fmtCombo.GetCurSel() >= 0) ? m_fmtCombo.GetCurSel() : 0;
 	int res = (m_resCombo.GetCurSel() >= 0) ? CGDIGenerator_DvdoFmtCode(m_resCombo.GetCurSel()) : 0;
 	CString msg; CGDIGenerator_DvdoApplyOutput(com, cs, res, msg);
@@ -1572,6 +1580,7 @@ void CDvdoSettingsDlg::SaveToConfig()
 	if (m_rangeCombo.GetCurSel() >= 0) GetConfig()->WriteProfileInt("GDIGenerator","RGB_16_235",(m_rangeCombo.GetCurSel() == 0) ? 1 : 0);
 }
 
+// See CMuriSettingsDlg::OnClose2 - records only, never acts.
 void CDvdoSettingsDlg::OnClose2() { SaveToConfig(); EndDialog(IDOK); }
 
 // Same Enter-commits contract as CMuriSettingsDlg::OnOK.
@@ -1934,14 +1943,19 @@ static UINT AFX_CDECL MuriQueryThread(LPVOID p)
 	if (c->net)
 	{
 		BOOL ok = CGDIGenerator_MuriQueryReadout(c->ip, ro) && !ro.IsEmpty();
-		c->text = ok ? (LS(IDS_GEN_IP_ADDRESS) + _T("\t") + c->ip + _T("\r\n") + ro)
-		             : LSf(IDS_GEN_NO_RESPONSE_FROM, c->ip);
+		// Report the address actually in use: a settings dialog that was only Closed records an
+		// intention, and the session is still on the previous address.
+		CString live = CGDIGenerator_MuriActiveIp(); if (live.IsEmpty()) live = c->ip;
+		c->text = ok ? (LS(IDS_GEN_IP_ADDRESS) + _T("\t") + live + _T("\r\n") + ro)
+		             : LSf(IDS_GEN_NO_RESPONSE_FROM, live);
 	}
 	else
 	{
 		BOOL ok = CGDIGenerator_MuriQueryReadoutSerial(c->com, ro) && !ro.IsEmpty();
-		c->text = ok ? (LS(IDS_GEN_COM_PORT) + _T("\t") + c->com + _T("\r\n") + ro)
-		             : LSf(IDS_GEN_NO_RESPONSE_ON, c->com);
+		// See the network branch above - show the port actually in use.
+		CString live = CGDIGenerator_MuriActivePort(); if (live.IsEmpty()) live = c->com;
+		c->text = ok ? (LS(IDS_GEN_COM_PORT) + _T("\t") + live + _T("\r\n") + ro)
+		             : LSf(IDS_GEN_NO_RESPONSE_ON, live);
 	}
 	if (!(c->hwnd && IsWindow(c->hwnd) && ::PostMessage(c->hwnd, WM_MURI_QUERY_DONE, 0, (LPARAM)c)))
 		delete c;

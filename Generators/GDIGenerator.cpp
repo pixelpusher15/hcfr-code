@@ -572,7 +572,7 @@ namespace
 	CCriticalSection s_genSerialLock;
 }
 namespace { bool DvdoOpen(const CString& comPort, int colorSpace, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
-namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com); void MuriDisconnect(); void MuriSetTcpPort(int port); void MuriClose(); }
+namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com, bool establish = false); void MuriDisconnect(); void MuriSetTcpPort(int port); void MuriClose(); }
 
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
@@ -1210,14 +1210,10 @@ namespace {
 	{
 		CSingleLock lock ( &s_genSerialLock, TRUE );
 		if (comPort.IsEmpty()) { s_dvdoDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
-		// The COM port is a TRANSPORT setting: changing it in the settings dialog has to take
-		// effect, exactly as changing the Murideo's IP does (that path is connectionless, so it
-		// always did). Without this the reuse below never looks at comPort, so the status panel
-		// would report the newly selected port while every byte still went out the old handle -
-		// and the port could not be changed at all without restarting HCFR. The reuse hazard
-		// this guards against is churning the SAME port; a different port is a different device.
-		if (s_dvdoOpen && s_dvdoOpenPort.CompareNoCase(comPort) != 0)
-			DvdoClose();
+		// A differing comPort does NOT switch the transport here. Choosing a port in the
+		// settings dialog records an INTENTION; only Detect/Test or Apply acts on it. Switching
+		// here would tear down a working connection on a mere Close, and Close must do nothing
+		// to the device - see CGDIGenerator_DvdoTestConnection for where the switch happens.
 		if (!s_dvdoOpen)	// REUSE an already-open port; a close-then-immediate-reopen can fail
 		{					// on the virtual COM driver (and would drop settings set via Apply).
 			// Failures surface through s_dvdoDiag; a modal box from the status-query worker
@@ -1284,6 +1280,12 @@ namespace {
 	// Flush any pending TX before closing: closing a COM handle can discard bytes still
 	// in the driver's transmit buffer, which drops a fire-and-close command (e.g. a
 	// Show-pattern 80). FlushFileBuffers blocks until the bytes are actually sent.
+	// The port a transport is REALLY on, empty when nothing is open. The status panel reports
+	// this instead of the configured port: a settings dialog records an intention, and until
+	// Detect/Test or Apply acts on it the device is still on the old port. Showing the config
+	// value made the panel claim a port it was not using.
+	CString DvdoActivePort() { return s_dvdoOpen ? s_dvdoOpenPort : CString(); }
+
 	void DvdoClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; s_dvdoOpenPort.Empty(); s_dvdoLastWriteOk = false; } }
 
 	// Pre-Defined Test Patterns (command 80): value is the pattern code. Requires the port
@@ -1302,6 +1304,10 @@ namespace {
 bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, CString& msgOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
+	// Detect/Test acts on what is SELECTED: if that differs from the live port, adopt it, so
+	// choosing the wrong port fails here instead of appearing to work on the old one.
+	if (s_dvdoOpen && !comPort.IsEmpty() && s_dvdoOpenPort.CompareNoCase(comPort) != 0)
+		DvdoClose();
 	CString fw;
 	bool wasOpen = s_dvdoOpen;	// Show deliberately leaves the port open (pattern persists);
 								// close-then-immediate-reopen can fail on the virtual COM driver,
@@ -1480,9 +1486,14 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int o
 // Apply the output format (command 61) live - used when the user changes the resolution
 // in the DVDO settings and clicks OK. DvdoOpen's setup step sends 6C + 61 (with a settle);
 // the port is left open (a resolution change persists; the next Init/Show reclaims it).
+CString CGDIGenerator_DvdoActivePort() { CSingleLock lock ( &s_genSerialLock, TRUE ); return DvdoActivePort(); }
+
 bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int formatCode, CString& msgOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
+	// Apply adopts the selected port first - see CGDIGenerator_DvdoTestConnection.
+	if (s_dvdoOpen && !comPort.IsEmpty() && s_dvdoOpenPort.CompareNoCase(comPort) != 0)
+		DvdoClose();
 	CString fw;	// DvdoOpen reuses an already-open port (it does not close it); with sendSetup it re-sends 6C + 61
 	if (!DvdoOpen(comPort, colorSpace, formatCode, &fw, true /*send setup -> 6C + 61*/))
 	{
@@ -1520,13 +1531,20 @@ bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool l
 	const TCHAR* fmt = forced420 ? _T("YCbCr 4:2:0 (forced)") : (csConfig == 0) ? _T("RGB") : _T("YCbCr");
 	// The AVLab TPG is SDR / BT.709 only (no HDR, no BT.2020), so those are fixed.
 	out  = (LS(IDS_GEN_LBL_NAME) + _T("\t"))         + (name.IsEmpty() ? _T("?") : (LPCTSTR)name) + _T("\r\n");
-	out += (LS(IDS_GEN_COM_PORT) + _T("\t"))     + comPort + _T("\r\n");
+	// The port actually in use, not the configured one (see DvdoActivePort).
+	{ CString live = DvdoActivePort();
+	  out += (LS(IDS_GEN_COM_PORT) + _T("\t")) + (live.IsEmpty() ? comPort : live) + _T("\r\n"); }
 	out += (LS(IDS_GEN_LBL_FIRMWARE) + _T("\t"))     + (fwv.IsEmpty() ? _T("?") : (LPCTSTR)fwv) + _T("\r\n");
 	out += (LS(IDS_GEN_DYNAMIC_RANGE) + _T("\t"))+ CString(_T("SDR")) + _T("\r\n");
 	out += (LS(IDS_GEN_RESOLUTION) + _T("\t"))   + res + _T("\r\n");
 	out += (LS(IDS_GEN_COLOR_SPACE) + _T("\t"))  + CString(_T("BT.709")) + _T("\r\n");
-	out += (LS(IDS_GEN_COLOR_FORMAT) + _T("\t")) + fmt + _T("\r\n");
-	out += (LS(IDS_GEN_SIGNAL_RANGE) + _T("\t")) + (lim ? _T("Limited (16-235)") : _T("Full (0-255)"));
+	// Colour format and signal range are HCFR's SETTINGS, not device readback - the AVLab does
+	// not report colour space reliably (it negotiates it with the sink). Mark them so the panel
+	// never implies it knows more than it does. The forced-4:2:0 case is derived from the
+	// queried resolution, so it is real and stays unmarked.
+	CString cfgTag = _T(" ") + LS(IDS_GEN_CONFIGURED);
+	out += (LS(IDS_GEN_COLOR_FORMAT) + _T("\t")) + fmt + (forced420 ? CString() : cfgTag) + _T("\r\n");
+	out += (LS(IDS_GEN_SIGNAL_RANGE) + _T("\t")) + (lim ? _T("Limited (16-235)") : _T("Full (0-255)")) + cfgTag;
 	return !name.IsEmpty() || haveRes;
 }
 
@@ -1748,10 +1766,7 @@ namespace {
 	bool MuriSerialOpen(const CString& comPort)
 	{
 		CSingleLock lock ( &s_genSerialLock, TRUE );
-		// Same transport-setting rule as DvdoOpen: a changed COM port must actually be used,
-		// not silently ignored because something is already open.
-		if (s_muriOpen && !comPort.IsEmpty() && s_muriOpenPort.CompareNoCase(comPort) != 0)
-			MuriClose();
+		// Same rule as DvdoOpen: a differing comPort does not switch the transport here.
 		if (s_muriOpen) return true;
 		if (comPort.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
 		// Same reason as the DVDO path: s_muriDiag carries the error, and a modal box on
@@ -1776,6 +1791,11 @@ namespace {
 		s_muriDiag.Format(LS(IDS_GEN_MURI_OPENED), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
 		return true;
 	}
+	// See DvdoActivePort. For the network transport the live address is s_muriIp, which only
+	// an explicit establish replaces - so Closing the dialog cannot redirect a live session.
+	CString MuriActivePort() { return s_muriOpen ? s_muriOpenPort : CString(); }
+	CString MuriActiveIp()   { return s_muriIp; }
+
 	void MuriClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_muriOpen) { FlushFileBuffers(s_muriPort.hComm); Sleep(40); s_muriPort.ClosePort(); s_muriOpen = false; s_muriOpenPort.Empty(); } }
 
 	// ---- binary UART protocol (official SEVEN-G UART API) --------------------
@@ -2210,16 +2230,24 @@ namespace {
 	// IRE window (keyword 0x78FB): grayscale box at level 0-255, size %. HTTP maps it as
 	// HEXFBNUM<size>IRE<level>; the binary frame data is [level, size].
 	// Select the transport for subsequent commands. For serial, opens the port.
-	bool MuriConnect(bool useNet, const CString& ip, const CString& com)
+	// establish = an explicit user action on the transport (Detect/Test, Apply). Only those
+	// adopt a newly chosen address or port; every ordinary operation keeps using whatever is
+	// already live, so Closing the settings dialog changes nothing about the running session.
+	// Without this the network path would adopt a new IP immediately - the very asymmetry with
+	// the serial path that made the port look "special".
+	bool MuriConnect(bool useNet, const CString& ip, const CString& com, bool establish)
 	{
 		CSingleLock lock ( &s_genSerialLock, TRUE );	// guards the s_muri* transport statics too
-		s_muriUseNet = useNet; s_muriIp = ip;
+		s_muriUseNet = useNet;
 		if (useNet)
 		{
-			if (ip.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_IP_SET); return false; }
-			s_muriDiag.Format(LS(IDS_GEN_NETWORK_MODE), (LPCTSTR)ip);
+			if (establish || s_muriIp.IsEmpty()) s_muriIp = ip;
+			if (s_muriIp.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_IP_SET); return false; }
+			s_muriDiag.Format(LS(IDS_GEN_NETWORK_MODE), (LPCTSTR)s_muriIp);
 			return true;		// HTTP is connectionless; nothing to open
 		}
+		if (establish && s_muriOpen && !com.IsEmpty() && s_muriOpenPort.CompareNoCase(com) != 0)
+			MuriClose();		// adopt the newly chosen port
 		return MuriSerialOpen(com);
 	}
 	void MuriDisconnect() { MuriClose(); }
@@ -2336,7 +2364,7 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 	CSingleLock lock ( &s_genSerialLock, TRUE );
 	if (useNet)
 	{
-		s_muriUseNet = true; s_muriIp = ip;
+		s_muriUseNet = true; s_muriIp = ip;	// Detect/Test adopts the address it is testing
 		if (ip.IsEmpty()) { msgOut = LS(IDS_GEN_ENTER_MURI_IP_FIRST); return false; }
 		HINTERNET hI = MuriInet();
 		CString url; url.Format(_T("http://%s/"), (LPCTSTR)ip);
@@ -2357,7 +2385,7 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 	// Serial: open the port, then round-trip a read command (0x8061 read-timing-status)
 	// and look for the device's 0xAB reply to confirm it's really the Murideo on this port.
 	bool wasOpen = s_muriOpen;	// same only-close-what-we-opened rule as the DVDO probe
-	if (!MuriConnect(false, ip, comPort)) { msgOut = s_muriDiag; return false; }
+	if (!MuriConnect(false, ip, comPort, true /*Detect/Test adopts the selected port*/)) { msgOut = s_muriDiag; return false; }
 	std::string reply;
 	bool got = MuriSerialXfer(MuriBuildFrame(0x8061, std::vector<BYTE>()), reply, 32);
 	bool isMuri = false;
@@ -2373,11 +2401,14 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 // Apply output settings. Each is skipped when < 0: timing (cat 97), colour space
 // (cat 99), BT.2020 gamut (cat 112: 0=BT.709,1=BT.2020), HDR mode (cat 0x6F:
 // 0=SDR,1=HDR,2=HLG), colour depth (cat 100: 0=8bit,1=10bit).
+CString CGDIGenerator_MuriActivePort() { CSingleLock lock ( &s_genSerialLock, TRUE ); return MuriActivePort(); }
+CString CGDIGenerator_MuriActiveIp()   { CSingleLock lock ( &s_genSerialLock, TRUE ); return MuriActiveIp(); }
+
 bool CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString& comPort,
 	int timingId, int csId, int bt2020, int hdrMode, int bitDepth, CString& msgOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
-	if (!MuriConnect(useNet, ip, comPort)) { msgOut = s_muriDiag; return false; }
+	if (!MuriConnect(useNet, ip, comPort, true /*Apply adopts the selected transport*/)) { msgOut = s_muriDiag; return false; }
 	bool ok = true;
 	if (timingId >= 0) ok = MuriCmdSingle(97, timingId) && ok;
 	if (csId >= 0)     ok = MuriCmdSingle(99, csId) && ok;
@@ -2415,7 +2446,8 @@ bool CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString
 bool CGDIGenerator_MuriQueryReadout(const CString& ip, CString& readoutOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
-	s_muriUseNet = true; s_muriIp = ip;
+	// Ordinary read: use whatever address is live, never adopt the configured one.
+	if (!MuriConnect(true, ip, CString(), false)) { readoutOut.Empty(); return false; }
 	return MuriStatusReadout(readoutOut);
 }
 
