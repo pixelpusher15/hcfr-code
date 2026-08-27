@@ -2784,6 +2784,38 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		if ( !( (lHint >= UPD_PRIMARIES && lHint <= UPD_FREEMEASURES) || lHint == UPD_CC24SAT ) )
 			CFormView::OnUpdate(pSender, lHint, pHint);
 
+		// m_CCStr is rebuilt when a color checker sweep ends -- on completion,
+		// and on the abort salvage. Both are AFTER the sweep's last realtime
+		// hint, and UPD_CC24SAT (25) is below UPD_REALTIME (26), so the summary
+		// pane's only other refresh (in the realtime branch above) never saw the
+		// new string: the sweeps-active list stayed as it was when the pane was
+		// last created. Refresh it here, and only when the text really changed,
+		// so a summary the user is part-way through typing is left alone.
+		// Only info display entry 0 owns this text: m_pInfoWnd is a CTargetWnd,
+		// CSpectrumWnd or CSubFrame for every other entry, and those return empty
+		// window text -- so an ungated write would never compare equal and would
+		// retitle and repaint an unrelated widget on every sweep end. Gate on the
+		// downcast rather than testing it after the write.
+		if ( lHint == UPD_CC24SAT && m_pInfoWnd )
+		{
+			CEditEx * pSummaryEdit = DYNAMIC_DOWNCAST ( CEditEx, m_pInfoWnd );
+			if ( pSummaryEdit )
+			{
+				CString strNew = GetDocument()->GetMeasure()->GetInfoString();
+				CString strOld;
+				pSummaryEdit -> GetWindowText ( strOld );
+				if ( strOld != strNew )
+				{
+					pSummaryEdit -> SetWindowTextA ( strNew );
+					// the text came from the document, so the control's recorded
+					// commands describe text that is no longer there
+					pSummaryEdit -> EmptyUndoBuffer ();
+					pSummaryEdit -> Invalidate ();
+					pSummaryEdit -> UpdateWindow ();
+				}
+			}
+		}
+
 		if ( m_displayType == HCFR_SENSORRGB_VIEW )
 		{
 			m_displayType = HCFR_xyY_VIEW;

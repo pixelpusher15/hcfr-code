@@ -7492,8 +7492,21 @@ CString CMeasure::GetCCStr() const
 	for (int i=0;i<=USER;i++)
 	{
 		if (i<RANDOM250)
-			if (m_cc24SatMeasureArray_master[i*100].isValid())
-				mStr+=sweeps[i];
+		{
+			// ANY measured patch marks the set as present. Probing only the
+			// band's first slot missed MCD, which stores its darkest gray there
+			// and writes it on the sweep's LAST iteration: a sweep stopped
+			// partway salvaged real data that this string then denied. Same
+			// patch-0 assumption the grid's dE header carried. The band is 100
+			// slots wide, matching the copy that fills it; every slot past the
+			// set size is noDataColor from the sweep-start wipe.
+			for (int j=0;j<100;j++)
+				if (m_cc24SatMeasureArray_master[i*100+j].isValid())
+				{
+					mStr+=sweeps[i];
+					break;
+				}
+		}
 		if (i==RANDOM250)
 			if (m_cc24SatMeasureArray_master[2300+100].isValid())
 				mStr+=sweeps[i];
