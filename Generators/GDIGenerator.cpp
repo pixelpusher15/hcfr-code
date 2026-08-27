@@ -574,7 +574,7 @@ namespace
 	CCriticalSection s_genSerialLock;
 }
 namespace { bool DvdoOpen(const CString& comPort, int colorSpace, int range, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
-namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com); void MuriDisconnect(); void MuriSetTcpPort(int port); }
+namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com); void MuriDisconnect(); void MuriSetTcpPort(int port); void MuriClose(); }
 
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
@@ -1081,6 +1081,7 @@ return TRUE;
 namespace {
 	CSerialCom	s_dvdoPort;
 	bool		s_dvdoOpen  = false;
+	CString		s_dvdoOpenPort;				// the port s_dvdoPort is actually open on (see DvdoOpen)
 	bool		s_dvdoArmed = false;		// TPG armed for AA patches? (see the first-patch arm in DisplayRGBColorDVDO)
 	bool		s_dvdoLastWriteOk = false;	// did the last DvdoWrite reach the port? lets the patch retry tell a
 											// dead handle (needs a reopen) from a merely missing ack (resend only)
@@ -1206,6 +1207,14 @@ namespace {
 	{
 		CSingleLock lock ( &s_genSerialLock, TRUE );
 		if (comPort.IsEmpty()) { s_dvdoDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
+		// The COM port is a TRANSPORT setting: changing it in the settings dialog has to take
+		// effect, exactly as changing the Murideo's IP does (that path is connectionless, so it
+		// always did). Without this the reuse below never looks at comPort, so the status panel
+		// would report the newly selected port while every byte still went out the old handle -
+		// and the port could not be changed at all without restarting HCFR. The reuse hazard
+		// this guards against is churning the SAME port; a different port is a different device.
+		if (s_dvdoOpen && s_dvdoOpenPort.CompareNoCase(comPort) != 0)
+			DvdoClose();
 		if (!s_dvdoOpen)	// REUSE an already-open port; a close-then-immediate-reopen can fail
 		{					// on the virtual COM driver (and would drop settings set via Apply).
 			// Failures surface through s_dvdoDiag; a modal box from the status-query worker
@@ -1230,6 +1239,7 @@ namespace {
 			// when the host asserts them. It receives host bytes without it.
 			PurgeComm(s_dvdoPort.hComm, PURGE_RXCLEAR | PURGE_TXCLEAR);
 			s_dvdoOpen = true;
+			s_dvdoOpenPort = comPort;
 			Sleep(150);		// let the USB virtual-COM link settle after open
 		}
 
@@ -1271,7 +1281,7 @@ namespace {
 	// Flush any pending TX before closing: closing a COM handle can discard bytes still
 	// in the driver's transmit buffer, which drops a fire-and-close command (e.g. a
 	// Show-pattern 80). FlushFileBuffers blocks until the bytes are actually sent.
-	void DvdoClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; } }
+	void DvdoClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; s_dvdoOpenPort.Empty(); } }
 
 	// Pre-Defined Test Patterns (command 80): value is the pattern code. Requires the port
 	// open. No EA/Pass-Through command is ever sent (see the "do NOT send EA" note above),
@@ -1574,6 +1584,7 @@ int         CGDIGenerator_DvdoFmtIndexForCode(int code)
 namespace {
 	CSerialCom	s_muriPort;
 	bool		s_muriOpen   = false;
+	CString		s_muriOpenPort;					// the port s_muriPort is actually open on (see MuriSerialOpen)
 	bool		s_muriUseNet = true;			// current transport (set by MuriConnect)
 	CString		s_muriIp;
 	int			s_muriTcpPort = 23;				// raw-TCP API port (config MuriTcpPort; device default = 23 / telnet)
@@ -1731,6 +1742,10 @@ namespace {
 	bool MuriSerialOpen(const CString& comPort)
 	{
 		CSingleLock lock ( &s_genSerialLock, TRUE );
+		// Same transport-setting rule as DvdoOpen: a changed COM port must actually be used,
+		// not silently ignored because something is already open.
+		if (s_muriOpen && !comPort.IsEmpty() && s_muriOpenPort.CompareNoCase(comPort) != 0)
+			MuriClose();
 		if (s_muriOpen) return true;
 		if (comPort.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
 		// Same reason as the DVDO path: s_muriDiag carries the error, and a modal box on
@@ -1751,10 +1766,11 @@ namespace {
 		}
 		PurgeComm(s_muriPort.hComm, PURGE_RXCLEAR | PURGE_TXCLEAR);
 		s_muriOpen = true;
+		s_muriOpenPort = comPort;
 		s_muriDiag.Format(LS(IDS_GEN_MURI_OPENED), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
 		return true;
 	}
-	void MuriClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_muriOpen) { FlushFileBuffers(s_muriPort.hComm); Sleep(40); s_muriPort.ClosePort(); s_muriOpen = false; } }
+	void MuriClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_muriOpen) { FlushFileBuffers(s_muriPort.hComm); Sleep(40); s_muriPort.ClosePort(); s_muriOpen = false; s_muriOpenPort.Empty(); } }
 
 	// ---- binary UART protocol (official SEVEN-G UART API) --------------------
 	// Frame:  AA 00 00 <LEN> 00 00 00 <KWlo> <KWhi> <data...> <CKSUM>
