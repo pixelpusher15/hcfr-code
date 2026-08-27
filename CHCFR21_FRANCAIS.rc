@@ -4094,6 +4094,8 @@ BEGIN
     IDS_3DVIEW_SHOWFLOOR    "Afficher le sol CIE (xyY)"
     IDS_3DVIEW_SHOWTAILS    "Afficher les traits vers la cible"
     IDS_3DVIEW_SHOWPROFILE  "Afficher les points de profil"
+    IDS_3DVIEW_GAMUTCOV     "Couverture %.1f%%"
+    IDS_3DVIEW_GAMUTVOL     "Volume %.1f%%"
     IDS_3DVIEW_RESETVIEW    "Réinitialiser la vue"
     IDS_3DVIEW_FILTER_ALL   "Tout afficher"
     IDS_3DVIEW_FILTER_HIDE  "Masquer < %s dE"

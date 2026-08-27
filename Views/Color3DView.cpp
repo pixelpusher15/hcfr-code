@@ -27,6 +27,8 @@
 #include "DocTempl.h"
 #include "Color3DView.h"
 #include "MainView.h"
+#include "ciechartview.h"	// GamutShortName: the chips label their gamut the same way
+#include "GamutVolume.h"
 #include "GdiPlusAA.h"
 #include "math.h"
 #include <stdio.h>
@@ -185,6 +187,7 @@ C3DColorView::C3DColorView()
 	, m_freeInScene(0)
 	, m_profileInScene(0)
 	, m_lumTop(1.0)
+	, m_volValid(false), m_volDirty(true), m_volPct(0.0), m_covPct(0.0)
 	, m_baseValid(false)
 	, m_gamutValid(false)
 	, m_texDC(NULL), m_texBmp(NULL), m_texOld(NULL), m_texBits(NULL), m_texW(0), m_texH(0), m_texSig(-1)
@@ -474,6 +477,7 @@ void C3DColorView::BuildScene()
 	m_points.clear();
 	m_gamutValid = false;
 	m_baseValid  = false;
+	m_volDirty   = true;  // reference, white or cube may all have moved
 	m_selected   = -1;    // indices are invalid after a rebuild
 
 	CDataSetDoc * pDoc = GetDocument();
@@ -1748,6 +1752,49 @@ void C3DColorView::Render(const CRect& rc)
 			swprintf( buf + len, 160 - len, L"   \x2022   %d hidden", nHidden );
 		}
 		g.DrawString( buf, -1, &fontSmall, Gdiplus::PointF( 8.0f, 6.0f ), &dim );
+
+		// Gamut volume / coverage chips, top right: the volumetric counterpart of
+		// the CIE chart's coverage row, drawn with the same pills. Only a display-
+		// profile cube can produce them; without one the row is simply absent,
+		// exactly as the CIE chart hides its percentages when the primaries are
+		// missing. The lazy recompute lands here (not in Render's hot path) so a
+		// rotation never pays for it.
+		if ( m_volDirty )
+			UpdateGamutVolume();
+		if ( m_volValid )
+		{
+			WCHAR gamutName[64], covBuf[64], volBuf[64];
+			GamutShortName( SceneGamutReference(), gamutName, 64 );
+			swprintf( covBuf, 64, LoadResWide( IDS_3DVIEW_GAMUTCOV ).c_str(), m_covPct );
+			swprintf( volBuf, 64, LoadResWide( IDS_3DVIEW_GAMUTVOL ).c_str(), m_volPct );
+
+			Gdiplus::Font  chipFont( L"Segoe UI", 12.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel );
+			Gdiplus::Color cFill( 255, 42, 42, 42 ), cBorder( 255, 72, 72, 72 ), cText( 255, 215, 215, 215 );
+
+			// Visual order is [gamut] [coverage] [volume]; when the row will not
+			// fit beside the header text, volume drops first, then coverage --
+			// coverage is the headline, and the gamut name keeps it unambiguous.
+			const WCHAR * ordered[3] = { gamutName, covBuf, volBuf };
+			int nChips = 3;
+			const Gdiplus::REAL pad = 8.0f, gap = 6.0f;
+			Gdiplus::RectF hdrBounds;
+			g.MeasureString( buf, -1, &fontSmall, Gdiplus::PointF( 0.0f, 0.0f ), &hdrBounds );
+			Gdiplus::REAL avail = (Gdiplus::REAL)w - 2.0f * pad - hdrBounds.Width - 2.0f * gap;
+			Gdiplus::REAL rowW = 0.0f;   // not "total": Render already has one
+			for ( int ci = 0; ci < nChips; ci++ )
+				rowW += MeasureStatChip( g, chipFont, ordered[ci] ).Width + ( ci ? gap : 0.0f );
+			while ( nChips > 1 && rowW > avail )
+				rowW -= MeasureStatChip( g, chipFont, ordered[--nChips] ).Width + gap;
+
+			if ( rowW <= avail )
+			{
+				Gdiplus::REAL bottom = pad + MeasureStatChip( g, chipFont, gamutName ).Height;
+				Gdiplus::REAL xRight = (Gdiplus::REAL)w - pad;
+				for ( int ci = nChips - 1; ci >= 0; ci-- )
+					xRight -= DrawStatChip( g, chipFont, ordered[ci], xRight, bottom, cFill, cBorder, cText ) + gap;
+			}
+		}
+
 		g.DrawString( L"drag: rotate    shift+drag: pan    wheel: zoom    click: inspect    right-click: options",
 					  -1, &fontSmall, Gdiplus::PointF( 8.0f, (float)( h - 20 ) ), &dim );
 
@@ -1975,6 +2022,66 @@ void C3DColorView::AppendNewProfileMeasures()
 		lastAppended = i + 1;	// keep m_profileInScene-1 pointing at a valid patch
 	}
 	m_profileInScene = lastAppended;
+	m_volDirty = true;		// the cube grew: the chips owe a fresh number
+}
+
+// Volume and coverage of the measured display gamut against the reference one,
+// both as a percentage of the reference solid (see libHCFR/GamutVolume.h).
+//
+// The source is the display-profile cube and nothing else: an N^3 grid is what
+// makes the solid's interior known, and hence the intersection computable. The
+// primaries/secondaries alone would give only 8 corners (~10% low on volume,
+// and no way to tell inside from outside), and ramps plus saturation sweeps
+// would assume the display is additive - the very thing this measures.
+//
+// The white anchor lives inside the cube (its own 100% corner), not in the
+// scene's m_lumTop: coverage is a media-relative question about gamut shape, and
+// in HDR-10 normalising by the TargetMaxL peak would report a display's
+// luminance headroom as missing gamut. The chips can therefore read near 100%
+// while the cloud visibly sits low inside a peak-normalised solid -- different
+// questions, both answered elsewhere on screen.
+void C3DColorView::UpdateGamutVolume()
+{
+	m_volDirty = false;
+	m_volValid = false;
+
+	CDataSetDoc * pDoc = GetDocument();
+	CMeasure * pMeasure = ( pDoc != NULL ) ? pDoc->GetMeasure() : NULL;
+	if ( pMeasure == NULL || !pMeasure->HasProfileMeasures() )
+		return;
+
+	int cubeN = pMeasure->GetProfileCubeSize();
+	if ( cubeN < 2 )
+		return;
+	int need = cubeN * cubeN * cubeN;
+	if ( pMeasure->GetProfileMeasureSize() < need )
+		return;		// stopped before the cube closed
+
+	// The array is pre-sized to the whole patch list at capture start, so size
+	// alone says nothing about progress. Patch need-1 is the cube's last node
+	// (white), measured last: one lookup rules out a capture still in flight,
+	// which matters because every appended patch re-dirties this and a live
+	// sweep would otherwise walk the whole cube on every repaint.
+	if ( !pMeasure->GetProfileMeasure( need - 1 ).isValid() )
+		return;
+
+	std::vector<ColorXYZ> cube( (size_t)need );
+	for ( int i = 0; i < need; i++ )
+	{
+		CColor c = pMeasure->GetProfileMeasure( i );
+		if ( !c.isValid() )
+			return;	// a hole anywhere leaves the solid undefined: show no number
+		cube[i] = c.GetXYZValue();
+	}
+
+	CColorReference ref = SceneGamutReference();
+	GamutVolumeResult r = ComputeGamutVolume( &cube[0], cubeN, ref );
+	if ( !r.valid )
+		return;
+
+	m_volPct   = r.VolumeRatio();
+	m_covPct   = r.Coverage();
+	m_volValid = true;
 }
 
 // Consume a pending selection request: find the point matching the requested
