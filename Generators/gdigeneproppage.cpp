@@ -82,7 +82,7 @@ static char THIS_FILE[] = __FILE__;
 #define IDC_MURI_EDID_CLOSE_BTN   1745
 
 // Implemented in GDIGenerator.cpp: open the port, run output setup, then close.
-extern bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, int range, CString& fwOut);
+extern bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, CString& fwOut);
 // Built-in pattern (command 80) + output format (command 61) tables & actions.
 extern int         CGDIGenerator_DvdoCatCount();
 extern const char* CGDIGenerator_DvdoCatName(int ci);
@@ -1549,7 +1549,7 @@ void CDvdoSettingsDlg::OnTest()
 	if (com.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_SELECT_COM_FIRST)); return; }
 	int cs = (m_fmtCombo.GetCurSel() >= 0) ? m_fmtCombo.GetCurSel() : 0;
 	m_status.SetWindowText(LS(IDS_GEN_CONNECTING));
-	CString msg; CGDIGenerator_DvdoTestConnection(com, cs, 0, msg);
+	CString msg; CGDIGenerator_DvdoTestConnection(com, cs, msg);
 	m_status.SetWindowText(msg);
 }
 

@@ -63,7 +63,6 @@ public:										// public because of callback
 	// DVDO AVLab TPG (DISPLAY_DVDO) settings, config-backed like the members above.
 	CString	m_dvdoComPort;		// e.g. "COM5"
 	int		m_dvdoColorSpace;	// 0 = RGB, 1 = YCbCr 4:4:4, 2 = YCbCr 4:2:2
-	int		m_dvdoRange;		// 0 = limited, 1 = full
 	int		m_dvdoOutputFormat;	// device format code (command 61); 0 = Auto
 	int		m_dvdoPatternCode;	// last-selected built-in pattern (command 80); 0 = Off
 	// Murideo Seven-G (DISPLAY_MURIDEO) settings, config-backed like the members above.

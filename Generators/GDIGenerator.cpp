@@ -111,7 +111,6 @@ CGDIGenerator::CGDIGenerator()
 	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
 	m_dvdoComPort = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
 	m_dvdoColorSpace = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
-	m_dvdoRange = GetConfig()->GetProfileInt("GDIGenerator","DvdoRange",0);
 	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
 	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
 	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
@@ -170,7 +169,6 @@ CGDIGenerator::CGDIGenerator(int nDisplayMode, BOOL b16_235)
 	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
 	m_dvdoComPort = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
 	m_dvdoColorSpace = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
-	m_dvdoRange = GetConfig()->GetProfileInt("GDIGenerator","DvdoRange",0);
 	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
 	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
 	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
@@ -573,15 +571,11 @@ namespace
 	// CRITICAL_SECTION is recursive, so nested internal calls are fine.
 	CCriticalSection s_genSerialLock;
 }
-namespace { bool DvdoOpen(const CString& comPort, int colorSpace, int range, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
+namespace { bool DvdoOpen(const CString& comPort, int colorSpace, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
 namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com); void MuriDisconnect(); void MuriSetTcpPort(int port); void MuriClose(); }
 
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
-	// Hold the generator serial lock for the whole Init: the transport re-read
-	// plus the DVDO/Murideo open must be atomic against a status worker that a
-	// closing property sheet may have orphaned mid-transaction.
-	CSingleLock lock ( &s_genSerialLock, TRUE );
 //	GetColorApp()->InMeasureMessageBox( "    ** GDI Generator Init **", "Error", MB_ICONINFORMATION);
 	BOOL	bOk, bOnOtherMonitor;
 	GetMonitorList();
@@ -694,45 +688,53 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 	// write these keys directly, but the generator's copies are set only in the constructor
 	// (built once per document, in CreateGenerator), so without this Init would open the
 	// constructor-time port/IP and ignore anything the dialog changed this session.
+	// The generator serial lock is taken HERE rather than across the whole of Init, so a status
+	// query in flight (~1.5 s on the DVDO) no longer delays the start of an unrelated GDI or
+	// madVR measurement - those share nothing with the serial transports. The re-read and the
+	// open still happen atomically with respect to a status worker that a closing property
+	// sheet may have orphaned mid-transaction, which is the ordering the lock exists for.
 	if ( m_nDisplayMode == DISPLAY_DVDO || m_nDisplayMode == DISPLAY_MURIDEO )
 	{
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+
 		m_dvdoComPort      = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
 		m_dvdoColorSpace   = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
-		m_dvdoRange        = GetConfig()->GetProfileInt("GDIGenerator","DvdoRange",0);
 		m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
 		m_muriComPort      = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
 		m_muriIp           = GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239");
 		m_muriUseNetwork   = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
 		m_muriTcpPort      = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
-	}
 
-	if ( m_nDisplayMode == DISPLAY_DVDO )
-	{
-		CString fw;
-		// Just open the port for AA patches; do NOT re-send resolution/colour-space here (the
-		// "DVDO settings..." dialog's Apply owns those - the device retains them). Re-sending
-		// 6C/61 every measurement would needlessly re-lock the display. Mirrors the Murideo.
-		BOOL opened = DvdoOpen(m_dvdoComPort, m_dvdoColorSpace, m_dvdoRange, m_dvdoOutputFormat, &fw, false /*no setup*/);
-		if ( ! opened )
+		if ( m_nDisplayMode == DISPLAY_DVDO )
 		{
-			if ( ! m_initShowedError )
-				GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_DVDO_INIT_FAIL), "DVDO AVLab TPG", MB_ICONERROR);
-			m_initShowedError = TRUE;
+			CString fw;
+			// Just open the port for AA patches; do NOT re-send resolution/colour-space here (the
+			// "DVDO settings..." dialog's Apply owns those - the device retains them). Re-sending
+			// 6C/61 every measurement would needlessly re-lock the display. Mirrors the Murideo.
+			BOOL opened = DvdoOpen(m_dvdoComPort, m_dvdoColorSpace, m_dvdoOutputFormat, &fw, false /*no setup*/);
+			if ( ! opened )
+			{
+				if ( ! m_initShowedError )
+					GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_DVDO_INIT_FAIL), "DVDO AVLab TPG", MB_ICONERROR);
+				m_initShowedError = TRUE;
+			}
+			bOk = bOk && opened;	// combine with the base CGenerator::Init result, don't mask its failure
 		}
-		bOk = bOk && opened;	// combine with the base CGenerator::Init result, don't mask its failure
-	}
 
-	if ( m_nDisplayMode == DISPLAY_MURIDEO )
-	{
-		MuriSetTcpPort((m_muriTcpPort > 0) ? m_muriTcpPort : 4001);	// raw-TCP port for colour patches
-		BOOL connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
-		if ( ! connected )
+		if ( m_nDisplayMode == DISPLAY_MURIDEO )
 		{
-			if ( ! m_initShowedError )
-				GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_MURI_INIT_FAIL), "Murideo Seven-G", MB_ICONERROR);
-			m_initShowedError = TRUE;
+			// Same default as the config read above (23 = the device's telnet / raw-TCP port);
+			// the guard now only catches a hand-edited 0 in the INI.
+			MuriSetTcpPort((m_muriTcpPort > 0) ? m_muriTcpPort : 23);	// raw-TCP port for colour patches
+			BOOL connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
+			if ( ! connected )
+			{
+				if ( ! m_initShowedError )
+					GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_MURI_INIT_FAIL), "Murideo Seven-G", MB_ICONERROR);
+				m_initShowedError = TRUE;
+			}
+			bOk = bOk && connected;	// combine with the base CGenerator::Init result, don't mask its failure
 		}
-		bOk = bOk && connected;	// combine with the base CGenerator::Init result, don't mask its failure
 	}
 
 	if ( ! bOnOtherMonitor )
@@ -1203,7 +1205,7 @@ namespace {
 		return s;
 	}
 
-	bool DvdoOpen(const CString& comPort, int colorSpace, int /*range*/, int outputFormat, CString* fwOut, bool sendSetup)
+	bool DvdoOpen(const CString& comPort, int colorSpace, int outputFormat, CString* fwOut, bool sendSetup)
 	{
 		CSingleLock lock ( &s_genSerialLock, TRUE );
 		if (comPort.IsEmpty()) { s_dvdoDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
@@ -1296,14 +1298,14 @@ namespace {
 
 // Returns TRUE if the port opened. msgOut carries a full human-readable status
 // (the AA transport note on success, or the failure reason).
-bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, int range, CString& msgOut)
+bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, CString& msgOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
 	CString fw;
 	bool wasOpen = s_dvdoOpen;	// Show deliberately leaves the port open (pattern persists);
 								// close-then-immediate-reopen can fail on the virtual COM driver,
 								// so the probe must only close what it opened itself.
-	bool opened = DvdoOpen(comPort, colorSpace, range, 0 /*format n/a for probe*/, &fw, false /*probe only*/);
+	bool opened = DvdoOpen(comPort, colorSpace, 0 /*format n/a for probe*/, &fw, false /*probe only*/);
 	msgOut = s_dvdoDiag;
 	if (!wasOpen)
 		DvdoClose();
@@ -1448,7 +1450,7 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int o
 	if (!s_dvdoOpen)
 	{
 		CString fw;
-		if (!DvdoOpen(comPort, colorSpace, 0, outputFormat, &fw, true /*send setup*/))
+		if (!DvdoOpen(comPort, colorSpace, outputFormat, &fw, true /*send setup*/))
 		{
 			msgOut = s_dvdoDiag;
 			return false;
@@ -1481,7 +1483,7 @@ bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int f
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
 	CString fw;	// DvdoOpen reuses an already-open port (it does not close it); with sendSetup it re-sends 6C + 61
-	if (!DvdoOpen(comPort, colorSpace, 0, formatCode, &fw, true /*send setup -> 6C + 61*/))
+	if (!DvdoOpen(comPort, colorSpace, formatCode, &fw, true /*send setup -> 6C + 61*/))
 	{
 		msgOut = s_dvdoDiag;
 		return false;
@@ -1501,7 +1503,7 @@ bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool l
 	out.Empty();
 	if (comPort.IsEmpty()) return false;
 	bool wasOpen = s_dvdoOpen;
-	if (!s_dvdoOpen) { CString fw; if (!DvdoOpen(comPort, csConfig, 0, 0 /*don't change format*/, &fw, false /*query only*/)) { out = s_dvdoDiag; return false; } }
+	if (!s_dvdoOpen) { CString fw; if (!DvdoOpen(comPort, csConfig, 0 /*don't change format*/, &fw, false /*query only*/)) { out = s_dvdoDiag; return false; } }
 	CString name, fwv, resv;
 	DvdoQuery("A8", name);
 	DvdoQuery("A9", fwv);
@@ -2505,7 +2507,7 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 				{
 					CString fw;
 					DvdoClose();
-					if (!DvdoOpen(m_dvdoComPort, m_dvdoColorSpace, m_dvdoRange, m_dvdoOutputFormat, &fw, false /*no setup*/))
+					if (!DvdoOpen(m_dvdoComPort, m_dvdoColorSpace, m_dvdoOutputFormat, &fw, false /*no setup*/))
 						continue;		// device still gone - try again until the attempts run out
 				}
 			}
