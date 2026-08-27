@@ -182,11 +182,25 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				refColor.SetxyYValue(tmpColor);
 			}
 			//RGB plots now include luminance offset when grayscale dE handling includes it
+			// dE_gray 0 normalises each patch against its OWN luminance, so the dE
+			// it reports is chromaticity only. That per-patch value stays a LOCAL:
+			// written back into YWhite it is loop-carried, and the reference block at
+			// the top of the NEXT iteration would divide by the previous patch's
+			// luminance instead of the display white - a black that reads 0, with the
+			// loop now starting there, gives inf.
+			//
+			// Defensive, not a live fix: that block only runs for dE_form 5, and the
+			// preferences dialog forces dE_gray to 2 whenever dE_form is 5 and greys
+			// the combo out (AdvancedPropPage.cpp OnApply/OnSetActive, there since
+			// 3.1.0.4), so the pair is unreachable from the UI. AccuracyTest.cpp does
+			// set m_dE_gray directly though, and MainView (case 0) and Export.cpp both
+			// keep YWhite intact - this brings the outlier into line.
 			double fact;
+			double YWhitePatch = YWhite;
 			if ( GetConfig ()->m_dE_gray == 0 )
 			{
 				// Use actual gray luminance as correct reference (absolute)
-	    		YWhite = aColor [ 2 ];
+				YWhitePatch = aColor [ 2 ];
 				fact = 1.0;
 			}
 			else
@@ -221,9 +235,9 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				if (aColor.isValid())
 				{
 					CString str;
-					ColorLab aColorLab = pDoc->GetMeasure()->GetGray(i).GetLabValue(YWhite, GetColorReference());
+					ColorLab aColorLab = pDoc->GetMeasure()->GetGray(i).GetLabValue(YWhitePatch, GetColorReference());
 					str.Format("L*a*b*:%.2f %.2f %.2f",aColorLab[0],aColorLab[1],aColorLab[2]);
-					m_graphCtrl2.AddPoint(m_deltaEGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhite, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight), str);
+					m_graphCtrl2.AddPoint(m_deltaEGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhitePatch, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight), str);
 				}
 			}
 		}
@@ -282,20 +296,26 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				refColor.SetxyYValue(tmpColor);
 			}
 			//RGB plots now include luminance offset when grayscale dE handling includes it
+			// Same per-patch locals as the primary loop above - see the comment
+			// there. YWhite / YWhiteRefDoc stay the documents' own white.
 			double fact;
+			double YWhiteRefPatch = YWhiteRefDoc;
 			if ( GetConfig ()->m_dE_gray == 0 )
 			{
 				// Use actual gray luminance as correct reference (absolute)
-	    		YWhiteRefDoc = aColor [ 2 ];
-				if ( bMainDocHasColors )
-					YWhite = aColor2 [ 2 ];
+				YWhiteRefPatch = aColor [ 2 ];
 				fact = 1.0;
 			}
 			else
 				fact = aColor[2] / (tmpColor[2] * pDataRef->GetMeasure()->GetOnOffWhite()[1]);
 
+			double YWhitePatch;
 			if ( !bMainDocHasColors )
-				YWhite = YWhiteRefDoc;
+				YWhitePatch = YWhiteRefPatch;
+			else if ( GetConfig ()->m_dE_gray == 0 )
+				YWhitePatch = aColor2 [ 2 ];
+			else
+				YWhitePatch = YWhite;
 
 			ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 			ColorRGB normColor(aMeasure, GetColorReference());
@@ -312,13 +332,13 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				if (aColor.isValid())
 				{
 					CString str;
-					ColorLab aColorLab = pDataRef->GetMeasure()->GetGray(i).GetLabValue(YWhiteRefDoc, GetColorReference());
+					ColorLab aColorLab = pDataRef->GetMeasure()->GetGray(i).GetLabValue(YWhiteRefPatch, GetColorReference());
 					str.Format("L*a*b*:%.2f %.2f %.2f",aColorLab[0],aColorLab[1],aColorLab[2]);
-					m_graphCtrl2.AddPoint(m_deltaEDataRefGraphID, x, pDataRef->GetMeasure()->GetGray(i).GetDeltaE(YWhiteRefDoc, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight ), str);
+					m_graphCtrl2.AddPoint(m_deltaEDataRefGraphID, x, pDataRef->GetMeasure()->GetGray(i).GetDeltaE(YWhiteRefPatch, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight ), str);
 				}
 				
 				if (bMainDocHasColors && aColor.isValid())
-						m_graphCtrl2.AddPoint(m_deltaEBetweenGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhite,pDataRef->GetMeasure()->GetGray(i),YWhiteRefDoc, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight)); //Ki
+						m_graphCtrl2.AddPoint(m_deltaEBetweenGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhitePatch,pDataRef->GetMeasure()->GetGray(i),YWhiteRefPatch, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight)); //Ki
 			}
 		}
 	}
