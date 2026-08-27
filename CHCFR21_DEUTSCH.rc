@@ -3856,6 +3856,8 @@ BEGIN
     IDS_3DVIEW_SHOWFLOOR    "CIE-Boden anzeigen (xyY)"
     IDS_3DVIEW_SHOWTAILS    "Ziellinien anzeigen"
     IDS_3DVIEW_SHOWPROFILE  "Profilpunkte anzeigen"
+    IDS_3DVIEW_GAMUTCOV     "Abdeckung %.1f%%"
+    IDS_3DVIEW_GAMUTVOL     "Volumen %.1f%%"
     IDS_3DVIEW_RESETVIEW    "Ansicht zurücksetzen"
     IDS_3DVIEW_FILTER_ALL   "Alle anzeigen"
     IDS_3DVIEW_FILTER_HIDE  "Ausblenden < %s dE"

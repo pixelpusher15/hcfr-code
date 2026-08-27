@@ -3970,6 +3970,8 @@ BEGIN
     IDS_3DVIEW_SHADEGAMUT   "Sombrear caras del gamut"
     IDS_3DVIEW_SHOWFLOOR    "Mostrar suelo CIE (xyY)"
     IDS_3DVIEW_SHOWPROFILE  "Mostrar puntos de perfil"
+    IDS_3DVIEW_GAMUTCOV     "Cobertura %.1f%%"
+    IDS_3DVIEW_GAMUTVOL     "Volumen %.1f%%"
     IDS_3DVIEW_SHOWTAILS    "Mostrar líneas al objetivo"
     IDS_3DVIEW_RESETVIEW    "Restablecer vista"
     IDS_3DVIEW_FILTER_ALL   "Mostrar todo"

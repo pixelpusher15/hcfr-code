@@ -3853,6 +3853,8 @@ BEGIN
     IDS_3DVIEW_SHOWFLOOR    "Show CIE floor (xyY)"
     IDS_3DVIEW_SHOWTAILS    "Show target tails"
     IDS_3DVIEW_SHOWPROFILE  "Show display-profile points"
+    IDS_3DVIEW_GAMUTCOV     "Coverage %.1f%%"
+    IDS_3DVIEW_GAMUTVOL     "Volume %.1f%%"
     IDS_3DVIEW_RESETVIEW    "Reset view"
     IDS_3DVIEW_FILTER_ALL   "Show all"
     IDS_3DVIEW_FILTER_HIDE  "Hide < %s dE"
