@@ -206,17 +206,25 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			else
 				fact = aColor[2] / (tmpColor[2] * pDoc->GetMeasure()->GetOnOffWhite()[1]);
 
-			ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
-			ColorRGB normColor(aMeasure, GetColorReference());
-			// Point 0 needs two things the others do not. The w/gamma
+			// HIST-011: aColor[1] is the CIE y chromaticity, and it is the divisor for
+			// both X and Z below. A degenerate black reading - y == 0 while Y is still
+			// above zero - made both terms inf, and the guard tested Y, not y, so the
+			// point was plotted and took the chart scale with it. Latent while the loop
+			// started at 1; point 0 is exactly where a meter hands back a degenerate
+			// chromaticity. Built inside the guard so the division does not happen at
+			// all when there is nothing to plot.
+			//
+			// Point 0 needs two more things the others do not. The w/gamma
 			// normalisation (m_dE_gray == 1) divides by the TARGET luminance,
 			// which is exactly 0 at black - inf, or NaN when the measurement is
 			// zero too; only the chromaticity-only normalisations survive there.
 			// And black itself has to have light in it: with Y == 0 the xy is a
 			// 0/0 fallback that would plot as a plausible-looking tint reading
 			// out of nothing.
-			if (aColor.isValid() && ( i > 0 || ( GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0 ) ))
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0 ) ))
 			{
+				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
+				ColorRGB normColor(aMeasure, GetColorReference());
 				m_graphCtrl.AddPoint(m_redGraphID, x, normColor[0]*100.0);
 				m_graphCtrl.AddPoint(m_greenGraphID, x, normColor[1]*100.0);
 				m_graphCtrl.AddPoint(m_blueGraphID, x, normColor[2]*100.0);
@@ -317,11 +325,17 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			else
 				YWhitePatch = YWhite;
 
-			ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
-			ColorRGB normColor(aMeasure, GetColorReference());
-
-			if (aColor.isValid() && ( i > 0 || ( GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0 ) ))
+			// HIST-011: aColor[1] is the CIE y chromaticity, and it is the divisor for
+			// both X and Z below. A degenerate black reading - y == 0 while Y is still
+			// above zero - made both terms inf, and the guard tested Y, not y, so the
+			// point was plotted and took the chart scale with it. Latent while the loop
+			// started at 1; point 0 is exactly where a meter hands back a degenerate
+			// chromaticity. Built inside the guard so the division does not happen at
+			// all when there is nothing to plot.
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0 ) ))
 			{
+				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
+				ColorRGB normColor(aMeasure, GetColorReference());
 				m_graphCtrl.AddPoint(m_redDataRefGraphID, x, normColor[0]*100.0);
 				m_graphCtrl.AddPoint(m_greenDataRefGraphID, x, normColor[1]*100.0);
 				m_graphCtrl.AddPoint(m_blueDataRefGraphID, x, normColor[2]*100.0);
