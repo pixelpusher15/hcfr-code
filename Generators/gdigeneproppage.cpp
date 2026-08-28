@@ -1187,7 +1187,7 @@ BOOL CPGenSettingsDlg::PreTranslateMessage(MSG* pMsg)
 }
 
 // ---- Murideo Seven-G settings dialog ----------------------------------------
-CMuriSettingsDlg::CMuriSettingsDlg(CWnd* pParent) : CDialog(CMuriSettingsDlg::IDD, pParent), m_loading(false) {}
+CMuriSettingsDlg::CMuriSettingsDlg(CWnd* pParent) : CDialog(CMuriSettingsDlg::IDD, pParent) {}
 
 BEGIN_MESSAGE_MAP(CMuriSettingsDlg, CDialog)
 	ON_BN_CLICKED(IDC_MURI_TEST_BTN, OnTest)
@@ -1261,8 +1261,8 @@ int CMuriSettingsDlg::ComboCsId()
 void CMuriSettingsDlg::OnFmtChange()
 {
 	bool isRgb = (m_fmtCombo.GetCurSel() <= 0);
-	// See CDvdoSettingsDlg::OnFmtChange - never force while loading, RGB_16_235 is global.
-	if (!isRgb && !m_loading) m_rangeCombo.SetCurSel(1);		// Limited
+	// See CDvdoSettingsDlg::OnFmtChange - forcing on load is deliberate.
+	if (!isRgb) m_rangeCombo.SetCurSel(1);		// Limited
 	m_rangeCombo.EnableWindow(isRgb);
 }
 
@@ -1353,7 +1353,7 @@ BOOL CMuriSettingsDlg::OnInitDialog()
 		{ m_tgrpCombo.SetCurSel(gi); PopulateTimingCombo(gi); m_timingCombo.SetCurSel(ii); }
 		else { m_tgrpCombo.SetCurSel(0); PopulateTimingCombo(0); }
 	}
-	m_loading = true;  OnFmtChange();  m_loading = false;
+	OnFmtChange();
 	UpdateTransportEnable();
 	return TRUE;
 }
@@ -1488,7 +1488,7 @@ void CMuriEdidDlg::OnCopy()
 void CMuriEdidDlg::OnClose2() { EndDialog(IDOK); }
 
 // ---- DVDO AVLab TPG settings dialog (mirrors CMuriSettingsDlg) ---------------
-CDvdoSettingsDlg::CDvdoSettingsDlg(CWnd* pParent) : CDialog(CDvdoSettingsDlg::IDD, pParent), m_loading(false) {}
+CDvdoSettingsDlg::CDvdoSettingsDlg(CWnd* pParent) : CDialog(CDvdoSettingsDlg::IDD, pParent) {}
 
 BEGIN_MESSAGE_MAP(CDvdoSettingsDlg, CDialog)
 	ON_BN_CLICKED(IDC_DVDO_DLG_TEST, OnTest)
@@ -1548,7 +1548,7 @@ BOOL CDvdoSettingsDlg::OnInitDialog()
 	m_resCombo.SetCurSel(CGDIGenerator_DvdoFmtIndexForCode(GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0)));
 	m_fmtCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0));
 	m_rangeCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 0 : 1);
-	m_loading = true;  OnFmtChange();  m_loading = false;	// reflect the lock, change nothing
+	OnFmtChange();		// YCbCr forces Limited - see OnFmtChange for why that is right on load
 	return TRUE;
 }
 
@@ -1560,11 +1560,12 @@ BOOL CDvdoSettingsDlg::OnInitDialog()
 void CDvdoSettingsDlg::OnFmtChange()
 {
 	bool isRgb = (m_fmtCombo.GetCurSel() <= 0);
-	// Only a USER format change forces the range. Doing it while loading would let merely
-	// opening and closing this dialog rewrite RGB_16_235, which is HCFR's GLOBAL output-range
-	// key (ColorHCFR.cpp, ColorHCFRConfig::m_bRGB16_235, FullScreenWindow) - it would change
-	// the stimulus encoding for every generator and document without the user touching a thing.
-	if (!isRgb && !m_loading) m_rangeCombo.SetCurSel(0);		// Limited (16-235)
+	// Forcing this on load is deliberate. RGB_16_235 is HCFR's GLOBAL stimulus-range flag, and
+	// the AVLab only outputs YCbCr as 16-235, so leaving a stale "Full" there would make HCFR
+	// encode full-range patch values into a limited-range output - a silent measurement error.
+	// This dialog is only reachable while the DVDO is the active generator (the button is
+	// hidden otherwise), so reconciling the flag here cannot disturb another generator.
+	if (!isRgb) m_rangeCombo.SetCurSel(0);		// Limited (16-235)
 	m_rangeCombo.EnableWindow(isRgb);
 }
 
@@ -1598,7 +1599,15 @@ void CDvdoSettingsDlg::SaveToConfig()
 	GetConfig()->WriteProfileString("GDIGenerator","DvdoComPort",com);
 	if (m_fmtCombo.GetCurSel() >= 0)   GetConfig()->WriteProfileInt("GDIGenerator","DvdoColorSpace",m_fmtCombo.GetCurSel());
 	if (m_resCombo.GetCurSel() >= 0)   GetConfig()->WriteProfileInt("GDIGenerator","DvdoOutputFormat",CGDIGenerator_DvdoFmtCode(m_resCombo.GetCurSel()));
-	if (m_rangeCombo.GetCurSel() >= 0) GetConfig()->WriteProfileInt("GDIGenerator","RGB_16_235",(m_rangeCombo.GetCurSel() == 0) ? 1 : 0);
+	// Effective range (YCbCr is always Limited on the AVLab) -> HCFR's stimulus flag, derived
+	// rather than copied from the combo so the flag can never disagree with what the device
+	// will actually output. Mirrors CMuriSettingsDlg::SaveToConfig.
+	if (m_rangeCombo.GetCurSel() >= 0)
+	{
+		int fmt = (m_fmtCombo.GetCurSel() >= 0) ? m_fmtCombo.GetCurSel() : 0;
+		int effRange = (fmt == 0) ? ((m_rangeCombo.GetCurSel() == 0) ? 1 : 0) : 1;
+		GetConfig()->WriteProfileInt("GDIGenerator","RGB_16_235", effRange);
+	}
 }
 
 // See CMuriSettingsDlg::OnClose2 - records only, never acts.
