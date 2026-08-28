@@ -703,6 +703,7 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 		m_muriComPort      = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
 		m_muriIp           = GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239");
 		m_muriUseNetwork   = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
+		m_muriColorSpaceId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0);
 		m_muriTcpPort      = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
 
 		if ( m_nDisplayMode == DISPLAY_DVDO )
@@ -2160,14 +2161,25 @@ namespace {
 	}
 
 	// 0x008C "10/12bit RGB triplet": foreground + background RGB (16-bit little-endian
-	// each), window size %, colour depth (0=8/1=10/2=12 bit), colour space (0=RGB full,
-	// 1=RGB limited). This is the arbitrary-colour patch command for calibration.
-	bool MuriCmdRgbTriplet(int r, int g, int b, int bgR, int bgG, int bgB, int size, int depth, int csFullLim)
+	// each), window size %, colour depth (0=8/1=10/2=12 bit), colour space. This is the
+	// arbitrary-colour patch command for calibration.
+	//
+	// The last byte is the SAME colour-space register cat 99 writes, on the same enum:
+	// 0=RGB full, 1=RGB limited, 2=YC444, 3=YC422, 4=YC420. It is NOT a two-value range flag,
+	// whatever the UART document's table says. Measured 2026-08-28: with the device applied to
+	// YC444 (cat 99 = 2), a patch sent this byte as 1 and the device read back as RGB limited -
+	// which IS cat-99 id 1. A byte that can move the register to 1 is writing the register, so
+	// it takes the register's whole enum. Passing the configured id therefore makes each patch
+	// RE-ASSERT the applied colour space instead of dropping the device to RGB for the sweep.
+	bool MuriCmdRgbTriplet(int r, int g, int b, int bgR, int bgG, int bgB, int size, int depth, int csId)
 	{
 		std::vector<BYTE> d;
 		const int v[6] = { r, g, b, bgR, bgG, bgB };
 		for (int i = 0; i < 6; ++i) { d.push_back((BYTE)(v[i] & 0xFF)); d.push_back((BYTE)((v[i] >> 8) & 0xFF)); }
-		d.push_back((BYTE)size); d.push_back((BYTE)depth); d.push_back((BYTE)csFullLim);
+		// Clamp: csId reaches here from an INI value that nothing else validates, and the cast
+		// below would turn 300 into 44 or -1 into 255 - a garbage colour space on every patch.
+		if (csId < 0 || csId > 4) csId = 0;
+		d.push_back((BYTE)size); d.push_back((BYTE)depth); d.push_back((BYTE)csId);
 		return MuriSendFrame(0x008C, d);
 	}
 
@@ -2573,8 +2585,9 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 	// is the reference model. Foreground uses PiPercentToCode; the surround is the APL
 	// background (PiBackground8ToCode) so window patches hit the target average level.
 	// Bit depth is the page's level depth (GetUse10bitLevels, now Murideo-aware) so the
-	// codes we send are byte-for-byte the triplet HCFR displays. depth 0=8bit/1=10bit;
-	// colour space 0=RGB full / 1=RGB limited from the range flag.
+	// codes we send are byte-for-byte the triplet HCFR displays. depth 0=8bit/1=10bit; the
+	// colour-space byte is the cat-99 id 0..4 the settings dialog applied - NOT a range flag,
+	// see MuriCmdRgbTriplet. Deriving it from HCFR's range flag is what broke YCbCr.
 	bool lim = (m_b16_235 != 0);
 	double bgstim = m_displayWindow.m_bgStimPercent / 100.;
 	double rect   = (double)m_displayWindow.m_rectSizePercent;
@@ -2612,7 +2625,11 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 				connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
 			}
 			if (!connected) continue;
-			sent = MuriCmdRgbTriplet(r, g, b, bgR, bgG, bgB, win, (bits == 10) ? 1 : 0, lim ? 1 : 0);
+			// The DEVICE's colour space and range both live in the cat-99 id the settings dialog
+			// applied, and must NOT be derived from HCFR's encoding flag: deriving them made the
+			// first patch of a sweep overwrite whatever the dialog had applied, so a device set to
+			// YCbCr dropped to RGB and stayed there for the whole measurement.
+			sent = MuriCmdRgbTriplet(r, g, b, bgR, bgG, bgB, win, (bits == 10) ? 1 : 0, m_muriColorSpaceId);
 		}
 		if (sent) break;
 		// Same message pair serves every wired generator; the caption names the device. The
