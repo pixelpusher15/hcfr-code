@@ -1284,7 +1284,7 @@ namespace {
 	// Flush any pending TX before closing: closing a COM handle can discard bytes still
 	// in the driver's transmit buffer, which drops a fire-and-close command (e.g. a
 	// Show-pattern 80). FlushFileBuffers blocks until the bytes are actually sent.
-	void DvdoClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; s_dvdoOpenPort.Empty(); } }
+	void DvdoClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; s_dvdoOpenPort.Empty(); s_dvdoLastWriteOk = false; } }
 
 	// Pre-Defined Test Patterns (command 80): value is the pattern code. Requires the port
 	// open. No EA/Pass-Through command is ever sent (see the "do NOT send EA" note above),
@@ -2511,11 +2511,16 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 		{
 			if (attempt > 1)
 			{
-				// Only a failed WRITE means the handle is dead and needs replacing; a merely missing
-				// ack is retried on the same handle, because close-then-immediate-reopen can itself
-				// fail on the virtual COM driver (see DvdoOpen).
+				// A merely missing ack is retried on the same handle, because close-then-immediate-
+				// reopen can itself fail on the virtual COM driver (see DvdoOpen). Reopen when the
+				// write failed OR the port is simply not open - the second case used to be
+				// unreachable, because s_dvdoLastWriteOk is cleared only by DvdoWrite, DvdoWrite
+				// cannot run with the port closed, and the guard below skipped the attempt first. The
+				// flag stayed true from the last good write and the reopen never fired, so the loop
+				// spun on a dead port - the exact failure it exists to recover from. DvdoClose now
+				// clears the flag too.
 				Sleep(dwRetryPause);
-				if (!s_dvdoLastWriteOk)
+				if (!s_dvdoLastWriteOk || !s_dvdoOpen)
 				{
 					CString fw;
 					DvdoClose();
@@ -2558,6 +2563,11 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 		if (GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_SERIAL_LINK_LOST), "DVDO AVLab TPG",
 			MB_RETRYCANCEL | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND) != IDRETRY)
 			break;
+		// Retry is the user telling us they have reconnected the device, so force a reopen rather
+		// than trusting s_dvdoLastWriteOk. CSerialCom::WriteByte returns TRUE whenever WriteFile
+		// returns nonzero - it never checks iBytesWritten - so a write into a handle whose device
+		// has gone can still look successful, leaving the flag set and the reopen unreachable.
+		DvdoClose();
 	}
 
 	if (!sent)
