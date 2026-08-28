@@ -4144,6 +4144,7 @@ BEGIN
     IDS_GEN_CONFIGURED              "(konfiguriert)"
     IDS_GEN_DVDO_CONNECTED          "Mit dem DVDO AVLab TPG an %s verbunden (%s) - AA-Volltriplett (0-255)."
     IDS_GEN_DVDO_NO_RESPOND         "%s geˆffnet, aber kein DVDO AVLab hat geantwortet - falscher Anschluss, oder Ger‰t aus?"
+    IDS_GEN_DVDO_NO_STATUS          "Kein Status vom DVDO AVLab an %s.\nEs antwortet nur, w‰hrend ein Testbild angezeigt wird - zeigen Sie eines an und aktualisieren Sie."
     IDS_CSV_FILE_NOT_FOUND  "Patch-Listen-Datei nicht gefunden:\n\n%s\n\nDer Patch-Satz ist leer. Bei integrierten S‰tzen bedeutet dies meist, dass die Installation unvollst‰ndig ist oder HCFR unter einem anderen Benutzerprofil l‰uft."
     IDS_CSV_RANGE_EXTENDED_WARN  "Die USER-Patch-Liste ist im erweiterten Bereich (weiﬂer als Weiﬂ), aber der Generatorausgang ist auf Voll (0-255) eingestellt, wodurch die Super-Weiﬂ-Codes auf 255 begrenzt werden.\n\nStellen Sie den Generatorausgang auf 16-235 (Video) ein, damit die Super-Weiﬂ-Codes unver‰ndert gesendet werden."
 END

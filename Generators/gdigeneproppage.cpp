@@ -97,7 +97,7 @@ extern bool        CGDIGenerator_DvdoQueryReadout(const CString& comPort, int cs
 extern int         CGDIGenerator_DvdoFmtCount();
 extern const char* CGDIGenerator_DvdoFmtName(int i);
 extern int         CGDIGenerator_DvdoFmtCode(int i);
-extern bool        CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int formatCode, CString& msgOut);
+extern bool        CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int formatCode, int limitedRange, CString& msgOut);
 extern int         CGDIGenerator_DvdoFmtIndexForCode(int code);
 // Murideo Seven-G preset tables + actions (GDIGenerator.cpp).
 extern int         CGDIGenerator_MuriTimingGroups();
@@ -543,7 +543,7 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	if (!m_dvdoShowBtn.GetSafeHwnd())    { m_dvdoShowBtn.Create(LS(IDS_GEN_SHOW_PATTERN), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(64),M.ht(14)), this, IDC_DVDO_SHOW_BTN); m_dvdoShowBtn.SetFont(font); }
 	if (!m_dvdoOffBtn.GetSafeHwnd())     { m_dvdoOffBtn.Create(LS(IDS_GEN_PATTERNS_OFF), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(60),M.ht(14)), this, IDC_DVDO_OFF_BTN); m_dvdoOffBtn.SetFont(font); }
 	if (!m_dvdoStatus.GetSafeHwnd())     { m_dvdoStatus.Create(_T(""), WS_CHILD | SS_LEFT, CRect(0,0,M.w(150),M.ht(9)), this, IDC_DVDO_STATUS); m_dvdoStatus.SetFont(font); }
-	if (!m_dvdoReadout.GetSafeHwnd())    { m_dvdoReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP, CRect(0,0,M.w(166),M.ht(72)), this, IDC_DVDO_READOUT); m_dvdoReadout.SetFont(font); }
+	if (!m_dvdoReadout.GetSafeHwnd())    { m_dvdoReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP | WS_VSCROLL | ES_AUTOVSCROLL, CRect(0,0,M.w(166),M.ht(72)), this, IDC_DVDO_READOUT); m_dvdoReadout.SetFont(font); }
 	if (!m_dvdoRefreshBtn.GetSafeHwnd()) { m_dvdoRefreshBtn.Create(LS(IDS_GEN_REFRESH), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(44),M.ht(14)), this, IDC_DVDO_REFRESH_BTN); m_dvdoRefreshBtn.SetFont(font); }
 	if (!m_dvdoSettingsBtn.GetSafeHwnd()) { m_dvdoSettingsBtn.Create(LS(IDS_GEN_DVDO_SETTINGS_BTN), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(96),M.ht(14)), this, IDC_DVDO_SETTINGS_BTN); m_dvdoSettingsBtn.SetFont(font); }
 	{
@@ -560,7 +560,7 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	{ CPoint gp = M.at(GRP_X, 26); m_grpMuri->Create(_T("Murideo Seven-G"), WS_CHILD | WS_VISIBLE | BS_GROUPBOX, CRect(gp.x, gp.y, gp.x + M.w(GRP_W), gp.y + M.ht(80)), this, (UINT)IDC_STATIC); m_grpMuri->SetFont(font); m_dynAll.Add(m_grpMuri); }
 	m_lblMuriPatGrp    = AddText(this, m_dynAll, font, M, LS(IDS_GEN_PATTERN_GROUP),  LBL_X, 0, 60, 9);
 	m_lblMuriPat       = AddText(this, m_dynAll, font, M, LS(IDS_GEN_PATTERN),        LBL_X, 0, 60, 9);
-	if (!m_muriReadout.GetSafeHwnd())      { m_muriReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP, CRect(0,0,M.w(166),M.ht(88)), this, IDC_MURI_READOUT); m_muriReadout.SetFont(font); }
+	if (!m_muriReadout.GetSafeHwnd())      { m_muriReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP | WS_VSCROLL | ES_AUTOVSCROLL, CRect(0,0,M.w(166),M.ht(88)), this, IDC_MURI_READOUT); m_muriReadout.SetFont(font); }
 	if (!m_muriRefreshBtn.GetSafeHwnd())   { m_muriRefreshBtn.Create(LS(IDS_GEN_REFRESH), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(44),M.ht(14)), this, IDC_MURI_REFRESH_BTN); m_muriRefreshBtn.SetFont(font); }
 	if (!m_muriSettingsBtn.GetSafeHwnd())  { m_muriSettingsBtn.Create(LS(IDS_GEN_MURI_SETTINGS_BTN), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(100),M.ht(14)), this, IDC_MURI_SETTINGS_BTN); m_muriSettingsBtn.SetFont(font); }
 	if (!m_muriEdidBtn.GetSafeHwnd())       { m_muriEdidBtn.Create(LS(IDS_GEN_MURI_EDID_BTN), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(70),M.ht(14)), this, IDC_MURI_EDID_BTN); m_muriEdidBtn.SetFont(font); }
@@ -1493,6 +1493,7 @@ BEGIN_MESSAGE_MAP(CDvdoSettingsDlg, CDialog)
 	ON_BN_CLICKED(IDC_DVDO_DLG_TEST, OnTest)
 	ON_BN_CLICKED(IDC_DVDO_DLG_APPLY, OnApply)
 	ON_BN_CLICKED(IDC_DVDO_DLG_CLOSE, OnClose2)
+	ON_CBN_SELCHANGE(IDC_DVDO_DLG_FMT, OnFmtChange)
 END_MESSAGE_MAP()
 
 void CDvdoSettingsDlg::PopulateComPorts()
@@ -1546,7 +1547,20 @@ BOOL CDvdoSettingsDlg::OnInitDialog()
 	m_resCombo.SetCurSel(CGDIGenerator_DvdoFmtIndexForCode(GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0)));
 	m_fmtCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0));
 	m_rangeCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 0 : 1);
+	OnFmtChange();		// enforce the YCbCr limited-range rule on the values just loaded
 	return TRUE;
+}
+
+// The AVLab only outputs YCbCr as 16-235, so Full is not a legal choice there - confirmed on
+// hardware 2026-08-27, and it matches what the device reports back through 6C (values 3 and 4
+// are both "(16-235)"). Mirrors CMuriSettingsDlg::OnFmtChange.
+// CAUTION: this dialog's range combo is ordered Limited(0) / Full(1) - the REVERSE of the
+// Murideo's Full(0) / Limited(1). Selecting index 1 here would pick Full, not Limited.
+void CDvdoSettingsDlg::OnFmtChange()
+{
+	bool isRgb = (m_fmtCombo.GetCurSel() <= 0);
+	if (!isRgb) m_rangeCombo.SetCurSel(0);		// Limited (16-235)
+	m_rangeCombo.EnableWindow(isRgb);
 }
 
 void CDvdoSettingsDlg::OnTest()
@@ -1567,7 +1581,9 @@ void CDvdoSettingsDlg::OnApply()
 	SaveToConfig();		// Apply = adopt the transport AND push the settings
 	int cs  = (m_fmtCombo.GetCurSel() >= 0) ? m_fmtCombo.GetCurSel() : 0;
 	int res = (m_resCombo.GetCurSel() >= 0) ? CGDIGenerator_DvdoFmtCode(m_resCombo.GetCurSel()) : 0;
-	CString msg; CGDIGenerator_DvdoApplyOutput(com, cs, res, msg);
+	// range combo is Limited(0) / Full(1) here - the REVERSE of the Murideo dialog's order
+	int limited = (m_rangeCombo.GetCurSel() == 0) ? 1 : 0;
+	CString msg; CGDIGenerator_DvdoApplyOutput(com, cs, res, limited, msg);
 	m_status.SetWindowText(msg);
 }
 

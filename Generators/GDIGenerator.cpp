@@ -1086,6 +1086,7 @@ namespace {
 	bool		s_dvdoOpen  = false;
 	CString		s_dvdoOpenPort;				// the port s_dvdoPort is actually open on (see DvdoOpen)
 	bool		s_dvdoArmed = false;		// TPG armed for AA patches? (see the first-patch arm in DisplayRGBColorDVDO)
+	int			s_dvdoLastPattern = -1;		// last 80 pattern HCFR showed, -1 = none (see DvdoSendPattern)
 	bool		s_dvdoLastWriteOk = false;	// did the last DvdoWrite reach the port? lets the patch retry tell a
 											// dead handle (needs a reopen) from a merely missing ack (resend only)
 	CString		s_dvdoDiag;					// human-readable status from the last DvdoOpen
@@ -1254,15 +1255,17 @@ namespace {
 		s_dvdoDiag.Format(LS(IDS_GEN_DVDO_OPENED), (LPCTSTR)comPort);
 
 		// Only when actually starting output (not during a Detect/Test probe): set the
-		// output colour space (6C: 1=RGB, 2=YC444, 3=YC422). AA carries colour space per
-		// pattern anyway, so this is mainly for the 80 predefined patterns.
+		// Colour space is NOT sent through 6C any more - see CGDIGenerator_DvdoApplyOutput. 6C's
+		// SET table (1=RGB, 2=YC444, 3=YC422) and its GET encoding (1=RGB Full, 2=RGB Limited,
+		// 3=YC422, 4=YC444) are different code spaces, and 6C has no value for RGB Limited at all.
+		// AA carries colour space and range together, both measured to work and to stick, so we
+		// write through AA only and use 6C purely for reading back.
 		// NOTE 1: do NOT send EA (Pass-Through mode). Hardware shows EA=0 puts the TPG into
 		// pass-through/auto, which kicks it OUT of Test-Patterns mode - so 80 predefined
 		// patterns then display nothing (AA still works because it overrides pass-through).
 		// The device stays in whatever Pass-Through Mode the user set on its OSD/remote.
 		if (sendSetup)
 		{
-			char cs[8]; sprintf(cs, "%d", colorSpace + 1); DvdoCommand("6C", std::vector<std::string>(1, cs));
 			// Output format (command 61): decimal code from kDvdoFormats, verified against the
 			// User's Guide 1.01 Appendix A table (1080p60 = 13). Only sent for a specific format
 			// (code 0 = "Auto" leaves the device/OSD resolution untouched, so a working display is
@@ -1297,7 +1300,13 @@ namespace {
 	{
 		if (!s_dvdoOpen) return false;
 		char v[8]; sprintf(v, "%d", code);
-		return DvdoCommand("80", std::vector<std::string>(1, v));
+		bool ok = DvdoCommand("80", std::vector<std::string>(1, v));
+		// Remember what is on screen so Apply can put it back. The device cannot tell us: 80 is
+		// NOT queryable (measured 2026-08-27 - it never replies), despite the User's Guide saying
+		// "All commands can be queried unless otherwise specified". The arm field is excluded
+		// because it is an internal black flash, not something the user asked to see.
+		if (code != kDvdoArmPattern) s_dvdoLastPattern = code;	// 0 ("patterns off") is recorded but NEVER restored
+		return ok;
 	}
 } // namespace
 
@@ -1505,27 +1514,58 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int o
 // the port is left open (a resolution change persists; the next Init/Show reclaims it).
 CString CGDIGenerator_DvdoActivePort() { CSingleLock lock ( &s_genSerialLock, TRUE ); return DvdoActivePort(); }
 
-bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int formatCode, CString& msgOut)
+// limitedRange: 1 = 16-235, 0 = 0-255. Applies resolution (61) and then colour space AND
+// output range together through a single black AA patch, because that is the only mechanism
+// that can express every combination (all measured on hardware 2026-08-27):
+//   - AA OUTC  0/1/2 -> RGB / YC444 / YC422, read back through 6C as 1 / 4 / 3
+//   - AA OutRange 0/1 -> Limited / Full, and 6C reports it
+//   - both stick with no further patches
+// 6C's own SET table cannot express RGB Limited at all, which is why Apply used to leave the
+// device in Full however the dialog was set. The patch is BLACK so this is visually silent in
+// either range, and the TPG must be armed first or AA does not render.
+bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int formatCode, int limitedRange, CString& msgOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
 	// Apply adopts the selected port first - see CGDIGenerator_DvdoTestConnection.
 	if (s_dvdoOpen && !comPort.IsEmpty() && s_dvdoOpenPort.CompareNoCase(comPort) != 0)
 		DvdoClose();
-	CString fw;	// DvdoOpen reuses an already-open port (it does not close it); with sendSetup it re-sends 6C + 61
-	if (!DvdoOpen(comPort, colorSpace, formatCode, &fw, true /*send setup -> 6C + 61*/))
+	CString fw;	// DvdoOpen reuses an already-open port (it does not close it); sendSetup re-sends 61
+	if (!DvdoOpen(comPort, colorSpace, formatCode, &fw, true /*send setup -> 61*/))
 	{
 		msgOut = s_dvdoDiag;
 		return false;
 	}
+	if (!s_dvdoArmed) { DvdoSendPattern(kDvdoArmPattern); s_dvdoArmed = true; Sleep(300); }
+	int rng = limitedRange ? 0 : 1;		// AA range param: 0 = Limited (16-235), 1 = Full (0-255)
+	char v[96];
+	sprintf(v, "%d %d %d %d %d %d %d %d", 0, 0, 0, 100, 0, rng, colorSpace, rng);
+	// The result is deliberately ignored: changing colour space or range re-locks the output and
+	// the device does not acknowledge a command that makes it re-sync (measured). Checking this
+	// return would make every SUCCESSFUL Apply report failure.
+	DvdoCommand("AA", std::vector<std::string>(1, v));
+	Sleep(GetConfig()->GetProfileInt("Debug", "DvdoApplySettleMs", 600));
+	// Put back whatever pattern the user had showing - the black patch above replaced it.
+	// STRICTLY > 0: pattern 0 is "patterns off", which DISARMS the TPG. A disarmed device
+	// renders no AA patches and answers no queries, so restoring it would leave the generator
+	// unreachable until the user showed a pattern by hand - and a power cycle would not help,
+	// because the state lives in the device. Leaving the black AA patch up keeps it armed.
+	if (s_dvdoLastPattern > 0)
+		DvdoSendPattern(s_dvdoLastPattern);
 	FlushFileBuffers(s_dvdoPort.hComm);
 	msgOut.Format(LS(IDS_GEN_DVDO_FMT_SET), formatCode, (LPCTSTR)comPort);
 	return true;
 }
 
 // Live status readout for the DVDO panel (PGenerator/Murideo-style, tab-separated label\tvalue).
-// Name/Firmware/Resolution are queried live from the device; colour space / format / range come
-// from HCFR's settings (the device doesn't report colour space reliably - it negotiates it with
-// the sink). csConfig: 0=RGB, 1=YCbCr444, 2=YCbCr422; lim = limited (16-235) range.
+// Name/Firmware/Resolution/ColourSpace are queried live; anything that cannot be read back is
+// marked "(configured)" so the panel never implies it knows more than it does.
+//
+// The TPG answers queries ONLY while it is displaying a pattern (hardware-confirmed
+// 2026-08-27: an unarmed device returns nothing to A8/A9/61/6C; show any pattern and the same
+// queries answer). That is almost certainly the origin of the old "it never replies anyway"
+// comment. We deliberately do NOT arm here - arming sends a full black field, which would wipe
+// whatever the user is looking at - so an unarmed device gets a message saying why instead.
+// csConfig: 0=RGB, 1=YCbCr444, 2=YCbCr422; lim = limited (16-235) range.
 bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool lim, CString& out)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
@@ -1537,15 +1577,38 @@ bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool l
 	DvdoQuery("A8", name);
 	DvdoQuery("A9", fwv);
 	bool haveRes = DvdoQuery("61", resv);
+	// Colour space IS readable (command 6C). The value table in the User's Guide 1.01 is WRONG:
+	// it lists RGB=1 / YCBCR444=2 / YCBCR422=3, but the device - checked against its own remote
+	// and OSD, 2026-08-27 - actually reports 1=RGB Full, 2=RGB Limited, 3=YC422 (16-235),
+	// 4=YC444 (16-235). So 6C encodes colour space AND range together, and both rows below can
+	// be real device state rather than a repeat of our own settings.
+	CString csv;
+	int csDev = DvdoQuery("6C", csv) ? _ttoi(csv) : -1;
 	int resStatus = haveRes ? _ttoi(resv) : -1;
 	CString res = haveRes ? CString(DvdoResNameFromStatus(resStatus)) : CString(_T("?"));
 	if (!wasOpen) DvdoClose();
+	// Nothing answered at all: the port opened but no AVLab is there, or it is not displaying a
+	// pattern. Say so rather than returning a readout full of "?" - a populated-looking panel
+	// for a device that never replied is the same "the port opened, so it must be fine" mistake
+	// that CGDIGenerator_DvdoTestConnection used to make.
+	if (name.IsEmpty() && !haveRes && csDev < 0)
+	{
+		out.Format(LS(IDS_GEN_DVDO_NO_STATUS), (LPCTSTR)comPort);
+		return false;
+	}
 	// At 4K/50 and 4K/60 the AVLab forces 4:2:0 chroma subsampling regardless of the RGB/YCbCr
 	// setting (User's Guide 1.01: "output the color in RGB, YC 444, YC 422 except in 4K/60 where
 	// it is 4:2:0"). Status values 10 = 4K50, 18 = 4K60. Report the actual output so the user
 	// knows patches at those resolutions are subsampled (not ideal for colour measurement).
 	bool forced420 = (resStatus == 10 || resStatus == 18);
-	const TCHAR* fmt = forced420 ? _T("YCbCr 4:2:0 (forced)") : (csConfig == 0) ? _T("RGB") : _T("YCbCr");
+	// Prefer what the device reports; fall back to our setting (tagged) only when 6C is silent.
+	bool haveCs = (csDev >= 1 && csDev <= 4);
+	CString fmt, rng;
+	if (forced420)        { fmt = _T("YCbCr 4:2:0 (forced)"); }
+	else if (haveCs)      { fmt = (csDev <= 2) ? _T("RGB") : (csDev == 3) ? _T("YCbCr 4:2:2") : _T("YCbCr 4:4:4"); }
+	else                  { fmt = (csConfig == 0) ? _T("RGB") : _T("YCbCr"); }
+	if (haveCs)           { rng = (csDev == 1) ? _T("Full (0-255)") : _T("Limited (16-235)"); }
+	else                  { rng = lim ? _T("Limited (16-235)") : _T("Full (0-255)"); }
 	// The AVLab TPG is SDR / BT.709 only (no HDR, no BT.2020), so those are fixed.
 	out  = (LS(IDS_GEN_LBL_NAME) + _T("\t"))         + (name.IsEmpty() ? _T("?") : (LPCTSTR)name) + _T("\r\n");
 	// The port actually in use, not the configured one (see DvdoActivePort).
@@ -1559,9 +1622,12 @@ bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool l
 	// not report colour space reliably (it negotiates it with the sink). Mark them so the panel
 	// never implies it knows more than it does. The forced-4:2:0 case is derived from the
 	// queried resolution, so it is real and stays unmarked.
+	// Tag only what we could NOT read back. forced420 is derived from the queried resolution, so
+	// it is real; a 6C answer makes both rows real too.
 	CString cfgTag = _T(" ") + LS(IDS_GEN_CONFIGURED);
-	out += (LS(IDS_GEN_COLOR_FORMAT) + _T("\t")) + fmt + (forced420 ? CString() : cfgTag) + _T("\r\n");
-	out += (LS(IDS_GEN_SIGNAL_RANGE) + _T("\t")) + (lim ? _T("Limited (16-235)") : _T("Full (0-255)")) + cfgTag;
+	out += (LS(IDS_GEN_COLOR_FORMAT) + _T("\t")) + fmt + ((forced420 || haveCs) ? CString() : cfgTag) + _T("\r\n");
+	out += (LS(IDS_GEN_SIGNAL_RANGE) + _T("\t")) + rng + (haveCs ? CString() : cfgTag);
+
 	return !name.IsEmpty() || haveRes;
 }
 

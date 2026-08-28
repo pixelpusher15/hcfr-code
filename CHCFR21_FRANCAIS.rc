@@ -4382,6 +4382,7 @@ BEGIN
     IDS_GEN_CONFIGURED              "(configuré)"
     IDS_GEN_DVDO_CONNECTED          "Connecté au DVDO AVLab TPG sur %s (%s) - triplet AA complet (0-255)."
     IDS_GEN_DVDO_NO_RESPOND         "Port %s ouvert mais aucune réponse du DVDO AVLab - mauvais port, ou appareil éteint ?"
+    IDS_GEN_DVDO_NO_STATUS          "Aucun statut du DVDO AVLab sur %s.\nIl ne répond aux requêtes que lorsqu'une mire est affichée - affichez-en une, puis actualisez."
     IDS_CSV_FILE_NOT_FOUND  "Fichier de liste de patchs introuvable :\n\n%s\n\nL'ensemble de patchs sera vide. Pour les ensembles intégrés, cela signifie généralement que l'installation est incomplète ou que HCFR s'exécute sous un profil utilisateur différent."
     IDS_CSV_RANGE_EXTENDED_WARN  "La liste de patchs USER est en plage Étendue (plus blanc que blanc), mais la sortie du générateur est réglée sur Complète (0-255), ce qui écrête les codes super-blancs à 255.\n\nRéglez la sortie du générateur sur 16-235 (vidéo) afin que les codes super-blancs soient envoyés intacts."
 END
