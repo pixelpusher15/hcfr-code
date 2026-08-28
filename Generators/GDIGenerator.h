@@ -68,7 +68,7 @@ public:										// public because of callback
 	// Murideo Seven-G (DISPLAY_MURIDEO) settings, config-backed like the members above.
 	CString	m_muriComPort;		// e.g. "COM6" (serial transport)
 	CString	m_muriIp;			// e.g. "192.168.2.100" (network/HTTP transport)
-	int		m_muriUseNetwork;	// 1 = HTTP over network (verified), 0 = serial (best-effort)
+	int		m_muriUseNetwork;	// 1 = network (HTTP for presets/status, raw TCP for patches), 0 = serial
 	int		m_muriTcpPort;		// raw-TCP API port for the binary protocol (colour patches)
 	int		m_muriTimingId;		// Timing/resolution id (cat 97); -1 = leave device as-is
 	int		m_muriColorSpaceId;	// Colour space id (cat 99): 0=RGB(0-255),1=RGB(16-235),2=YC444,3=YC422,4=YC420

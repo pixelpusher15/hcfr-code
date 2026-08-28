@@ -1580,9 +1580,12 @@ int         CGDIGenerator_DvdoFmtIndexForCode(int code)
 //   double (pattern):                 GET /AudSendCmd.CGI?button=HEX<catHex>NUM<a>BER<b>
 //   IRE window (grayscale patch):     GET /BtnSendCmd.CGI?button=HEXFBNUM<size>IRE<level0-255>
 // A trailing "+<cachebuster>" (URL-encoded space + number) mirrors the web UI.
-// SECONDARY transport = serial (SENDSINGLE/SENDDOUBLE framing) - UNVERIFIED, kept
-// as a best-effort fallback. Colour (non-grey) patches await the RGB-triplet
-// command (from a ColourSpace capture).
+// SECONDARY transport = raw TCP to the unit's API port (default 23) and the USB/RS-232
+// serial port. Both carry the binary UART protocol from the official SEVEN-G UART command
+// document supplied by Murideo - see MuriBuildFrame, whose framing and checksum are verified
+// byte-exact against the three worked examples in that document. Every measurement patch goes
+// this way, over TCP or serial, using the 0x008C RGB triplet; the CGI forms above drive the
+// presets and the status readout. Nothing here comes from any third party's software.
 // ===========================================================================
 namespace {
 	CSerialCom	s_muriPort;
@@ -1592,7 +1595,7 @@ namespace {
 	CString		s_muriIp;
 	int			s_muriTcpPort = 23;				// raw-TCP API port (config MuriTcpPort; device default = 23 / telnet)
 	CString		s_muriDiag;
-	const DWORD	MURI_BAUD = 115200;				// serial placeholder 8N1
+	const DWORD	MURI_BAUD = 115200;				// 115200 8N1, no flow control - per the official UART document
 
 	// ---- HTTP transport ----
 	// One reusable session. DIRECT (not PRECONFIG) so we never trigger WPAD proxy
@@ -2260,6 +2263,11 @@ static const MuriPat kMuriPatterns[] =
 static const int kMuriPatternN = sizeof(kMuriPatterns) / sizeof(kMuriPatterns[0]);
 
 struct MuriCs { const char* name; int id; };
+// The cat-99 colour-space enum, canonical. NOTE: nothing calls the accessors below - the
+// settings dialog has separate Format and Range combos rather than one colour-space combo, and
+// derives the same id arithmetically in CMuriSettingsDlg::ComboCsId. This table is therefore
+// documentation, not the live path: keep the two in step, and do not assume editing this changes
+// behaviour. The id also travels in every 0x008C patch - see MuriCmdRgbTriplet.
 static const MuriCs kMuriColorSpaces[] =
 {
 	{ "RGB (0-255)", 0 }, { "RGB (16-235)", 1 }, { "YC 4:4:4 (16-235)", 2 },
