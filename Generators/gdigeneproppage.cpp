@@ -600,7 +600,13 @@ void CGDIGenePropPage::Relayout()
 	BOOL isPgen    = (mode == DISPLAY_rPI);
 	BOOL isDvdo    = (mode == DISPLAY_DVDO);
 	BOOL isMuri    = (mode == DISPLAY_MURIDEO);
-	BOOL hasSignal = (isDesktop || isPgen);
+	// The 0-255 / 16-235 radios are HCFR's ENCODING choice - which triplet values it computes -
+	// and every generator uses it (PiPercentToCode / ConvertPercentToBYTE / GetColorRef). It is
+	// independent of the range the DEVICE is set to, which each generator's own settings dialog
+	// owns, exactly as PGenerator has always worked. The DVDO and Murideo used to hide these and
+	// let their dialogs drive the global flag instead, which made "HCFR full, device limited"
+	// unreachable - the combination you need when a display flips to computer mode on full range.
+	BOOL hasSignal = (isDesktop || isPgen || isDvdo || isMuri);
 
 	DlgMap M; M.h = GetSafeHwnd();
 
@@ -768,7 +774,10 @@ void CGDIGenePropPage::Relayout()
 			PlaceChk(GetDlgItem(IDC_ENBL_HDR), M, cy); cy += ROW_C;
 			PlaceChk(GetDlgItem(IDC_DISP_TRIP2), M, cy); cy += ROW_C;
 		}
-		PlaceChk(GetDlgItem(IDC_DISP_TRIP), M, cy); cy += ROW_C;
+		// "Display Triplets" draws the RGB values on the pattern itself - a desktop/PGenerator
+		// feature. It lived here because only those two modes reached this block; widening it to
+		// the DVDO and Murideo for the range radios dragged this in with it.
+		if (isDesktop || isPgen) { PlaceChk(GetDlgItem(IDC_DISP_TRIP), M, cy); cy += ROW_C; }
 		int fb = cy + BOT_PAD;
 		PlaceGroup(m_grpSignal, M, top, fb - top, grpRightPx);
 		y = fb + GRP_GAP;
@@ -1403,9 +1412,10 @@ void CMuriSettingsDlg::SaveToConfig()
 	GetConfig()->WriteProfileInt("GDIGenerator","MuriHdrMode", m_hdrCombo.GetCurSel() < 0 ? 0 : m_hdrCombo.GetCurSel());
 	GetConfig()->WriteProfileInt("GDIGenerator","MuriBitDepth", m_depthCombo.GetCurSel() < 0 ? 0 : m_depthCombo.GetCurSel());
 	GetConfig()->WriteProfileInt("GDIGenerator","MuriColorSpaceId", ComboCsId());
-	// Effective range (YCbCr is always Limited) -> HCFR range flag for the main-page stimulus.
-	int effRange = (fmt == 0) ? rng : 1;
-	GetConfig()->WriteProfileInt("GDIGenerator","RGB_16_235", effRange);
+	// The Seven-G's own range already rides in MuriColorSpaceId (cat 99) above, so nothing more
+	// is needed here. RGB_16_235 is HCFR's ENCODING and belongs to the generator page's radios -
+	// writing it from this dialog used to tie the two together, making "HCFR full, device
+	// limited" unreachable. See the hasSignal note in BuildRuntimeLayout.
 	if (m_tgrpCombo.GetCurSel() >= 0 && m_timingCombo.GetCurSel() >= 0)
 		GetConfig()->WriteProfileInt("GDIGenerator","MuriTimingId",
 			CGDIGenerator_MuriTimingId(m_tgrpCombo.GetCurSel(), m_timingCombo.GetCurSel()));
@@ -1522,8 +1532,11 @@ BOOL CDvdoSettingsDlg::OnInitDialog()
 	DK_LBL(m_lblFmt, LS(IDS_GEN_COLOR_FORMAT)); DK_CB(m_fmtCombo, IDC_DVDO_DLG_FMT, 100);
 	m_fmtCombo.AddString(_T("RGB")); m_fmtCombo.AddString(_T("YCbCr 4:4:4")); m_fmtCombo.AddString(_T("YCbCr 4:2:2"));
 	y += 15;
-	DK_LBL(m_lblRange, LS(IDS_GEN_SIGNAL_RANGE)); DK_CB(m_rangeCombo, IDC_DVDO_DLG_RANGE, 80);
-	m_rangeCombo.AddString(_T("Limited (16-235)")); m_rangeCombo.AddString(_T("Full (0-255)"));
+	// Device output range, in PGenerator's order and wording (kPgQR) so the two dialogs read
+	// the same way: Full first, Limited second. NOTE this is the DEVICE's range, not HCFR's
+	// encoding - that lives on the generator page's 0-255 / 16-235 radios.
+	DK_LBL(m_lblRange, LS(IDS_PGEN_RO_SIGRANGE)); DK_CB(m_rangeCombo, IDC_DVDO_DLG_RANGE, 80);
+	m_rangeCombo.AddString(_T("Full")); m_rangeCombo.AddString(_T("Limited"));
 	y += 17;
 	{ CPoint p = M.at(CX, y); m_testBtn.Create(LS(IDS_GEN_DETECT_TEST), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(72), p.y + M.ht(14)), this, IDC_DVDO_DLG_TEST); m_testBtn.SetFont(font); }
 	y += 17;
@@ -1547,7 +1560,9 @@ BOOL CDvdoSettingsDlg::OnInitDialog()
 	PopulateComPorts();
 	m_resCombo.SetCurSel(CGDIGenerator_DvdoFmtIndexForCode(GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0)));
 	m_fmtCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0));
-	m_rangeCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 0 : 1);
+	// Seed from the old tied key the first time, so an existing setup keeps its behaviour.
+	m_rangeCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0));
 	OnFmtChange();		// YCbCr forces Limited - see OnFmtChange for why that is right on load
 	return TRUE;
 }
@@ -1560,12 +1575,10 @@ BOOL CDvdoSettingsDlg::OnInitDialog()
 void CDvdoSettingsDlg::OnFmtChange()
 {
 	bool isRgb = (m_fmtCombo.GetCurSel() <= 0);
-	// Forcing this on load is deliberate. RGB_16_235 is HCFR's GLOBAL stimulus-range flag, and
-	// the AVLab only outputs YCbCr as 16-235, so leaving a stale "Full" there would make HCFR
-	// encode full-range patch values into a limited-range output - a silent measurement error.
-	// This dialog is only reachable while the DVDO is the active generator (the button is
-	// hidden otherwise), so reconciling the flag here cannot disturb another generator.
-	if (!isRgb) m_rangeCombo.SetCurSel(0);		// Limited (16-235)
+	// YCbCr is 16-235 by definition, so the device cannot output it as full range. Forcing on
+	// load is deliberate - it reflects a device capability, not a user preference. Combo order
+	// now matches PGenerator: Full(0) / Limited(1).
+	if (!isRgb) m_rangeCombo.SetCurSel(1);		// Limited
 	m_rangeCombo.EnableWindow(isRgb);
 }
 
@@ -1587,8 +1600,10 @@ void CDvdoSettingsDlg::OnApply()
 	SaveToConfig();		// Apply = adopt the transport AND push the settings
 	int cs  = (m_fmtCombo.GetCurSel() >= 0) ? m_fmtCombo.GetCurSel() : 0;
 	int res = (m_resCombo.GetCurSel() >= 0) ? CGDIGenerator_DvdoFmtCode(m_resCombo.GetCurSel()) : 0;
-	// range combo is Limited(0) / Full(1) here - the REVERSE of the Murideo dialog's order
-	int limited = (m_rangeCombo.GetCurSel() == 0) ? 1 : 0;
+	// The combo is Full(0) / Limited(1), matching PGenerator and the DvdoOutputRange key, so
+	// the selection index IS the limited flag. It used to be the other way round and this line
+	// was not updated with it, which inverted Apply: choosing Full set the device to Limited.
+	int limited = (m_rangeCombo.GetCurSel() == 1) ? 1 : 0;
 	CString msg; CGDIGenerator_DvdoApplyOutput(com, cs, res, limited, msg);
 	m_status.SetWindowText(msg);
 }
@@ -1599,15 +1614,10 @@ void CDvdoSettingsDlg::SaveToConfig()
 	GetConfig()->WriteProfileString("GDIGenerator","DvdoComPort",com);
 	if (m_fmtCombo.GetCurSel() >= 0)   GetConfig()->WriteProfileInt("GDIGenerator","DvdoColorSpace",m_fmtCombo.GetCurSel());
 	if (m_resCombo.GetCurSel() >= 0)   GetConfig()->WriteProfileInt("GDIGenerator","DvdoOutputFormat",CGDIGenerator_DvdoFmtCode(m_resCombo.GetCurSel()));
-	// Effective range (YCbCr is always Limited on the AVLab) -> HCFR's stimulus flag, derived
-	// rather than copied from the combo so the flag can never disagree with what the device
-	// will actually output. Mirrors CMuriSettingsDlg::SaveToConfig.
+	// The DEVICE's range, in its own key. RGB_16_235 is HCFR's encoding and is not touched
+	// here - see the note on hasSignal in BuildRuntimeLayout.
 	if (m_rangeCombo.GetCurSel() >= 0)
-	{
-		int fmt = (m_fmtCombo.GetCurSel() >= 0) ? m_fmtCombo.GetCurSel() : 0;
-		int effRange = (fmt == 0) ? ((m_rangeCombo.GetCurSel() == 0) ? 1 : 0) : 1;
-		GetConfig()->WriteProfileInt("GDIGenerator","RGB_16_235", effRange);
-	}
+		GetConfig()->WriteProfileInt("GDIGenerator","DvdoOutputRange", m_rangeCombo.GetCurSel());
 }
 
 // See CMuriSettingsDlg::OnClose2 - records only, never acts.
@@ -1721,14 +1731,8 @@ void CGDIGenePropPage::OnOK()
 	// Default 1 = the canonical RGB_16_235 default: on a fresh install (no INI key) the dialog
 	// shows 16-235 from the generator's default, so oldRange must default the same way or a real
 	// 16-235 -> Full uncheck would look unchanged and skip the guard.
-	// The DVDO/Murideo settings dialogs own the range and may have saved it since this page was
-	// built, so adopt theirs BEFORE the write below - it used to happen after, which meant the
-	// page's stale copy clobbered the dialog's choice and the read-back then returned the
-	// clobbered value. A sheet dismissed with Escape/X never reached the old mirror at all.
-	if (m_nDisplayMode == DISPLAY_DVDO)
-		m_b16_235 = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235", m_b16_235);
-	else if (m_nDisplayMode == DISPLAY_MURIDEO)
-		m_b16_235 = (GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0) == 0) ? FALSE : TRUE;
+	// No mirroring from the device dialogs any more: RGB_16_235 is owned solely by the radios
+	// above, for every generator alike.
 	BOOL oldRange = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? TRUE : FALSE;
 	GetConfig()->WriteProfileInt("GDIGenerator","DisplayMode",m_nDisplayMode);
 	GetConfig()->WriteProfileInt("GDIGenerator","RGB_16_235",m_b16_235);

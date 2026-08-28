@@ -64,6 +64,7 @@ public:										// public because of callback
 	CString	m_dvdoComPort;		// e.g. "COM5"
 	int		m_dvdoColorSpace;	// 0 = RGB, 1 = YCbCr 4:4:4, 2 = YCbCr 4:2:2
 	int		m_dvdoOutputFormat;	// device format code (command 61); 0 = Auto
+	int		m_dvdoOutputRange;	// DEVICE output range: 0 = Full, 1 = Limited (config DvdoOutputRange)
 	int		m_dvdoPatternCode;	// last-selected built-in pattern (command 80); 0 = Off
 	// Murideo Seven-G (DISPLAY_MURIDEO) settings, config-backed like the members above.
 	CString	m_muriComPort;		// e.g. "COM6" (serial transport)

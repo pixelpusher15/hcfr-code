@@ -111,7 +111,9 @@ CGDIGenerator::CGDIGenerator()
 	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
 	m_dvdoComPort = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
 	m_dvdoColorSpace = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
-	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
 	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
 	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
 	m_muriIp = GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239");
@@ -169,7 +171,9 @@ CGDIGenerator::CGDIGenerator(int nDisplayMode, BOOL b16_235)
 	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
 	m_dvdoComPort = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
 	m_dvdoColorSpace = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
-	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
 	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
 	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
 	m_muriIp = GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239");
@@ -699,7 +703,11 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 
 		m_dvdoComPort      = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
 		m_dvdoColorSpace   = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
-		m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+		m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+		m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+			GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
+	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
 		m_muriComPort      = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
 		m_muriIp           = GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239");
 		m_muriUseNetwork   = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
@@ -2687,8 +2695,17 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 			// 0-255, exactly matching the main-page stimulus values. InputRange must match the
 			// encoding so the device interprets the numbers correctly; OutRange is set the same
 			// (the AVLab ignores it on current firmware - actual output range is set on its OSD).
+			// HCFR's encoding - which numbers we compute - from the generator page's radios.
 			bool lim = (m_b16_235 != 0);
-			int rng = lim ? 0 : 1;		// AA range param: 0 = Limited (16-235), 1 = Full (0-255)
+			// The DEVICE's range, set independently in the DVDO settings dialog. MEASURED on an
+			// AVLab (fw 1.03, 2026-08-27): the 6th AA parameter is the ONLY range control - it sets
+			// what the device outputs, confirmed against its own OSD menu - and the 8th, which the
+			// User's Guide calls OutRange, has no effect at all (flipping it moved the measured
+			// luminance by 0.3%, inside meter repeatability, and left the OSD unchanged). The Guide
+			// documents two fields because it covers a family of devices; its one worked example
+			// sets both to 1, so it can never show the collapse. They are sent the same value here
+			// to match the documented form - do NOT "simplify" one away without re-measuring.
+			int rng = (m_dvdoOutputRange != 0) ? 0 : 1;	// 0 = Limited (16-235), 1 = Full (0-255)
 			int r = ColorRGBDisplay::ConvertPercentToBYTE(clr[0], lim);
 			int g = ColorRGBDisplay::ConvertPercentToBYTE(clr[1], lim);
 			int b = ColorRGBDisplay::ConvertPercentToBYTE(clr[2], lim);
@@ -2739,7 +2756,14 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 	// codes we send are byte-for-byte the triplet HCFR displays. depth 0=8bit/1=10bit; the
 	// colour-space byte is the cat-99 id 0..4 the settings dialog applied - NOT a range flag,
 	// see MuriCmdRgbTriplet. Deriving it from HCFR's range flag is what broke YCbCr.
+	// HCFR's encoding - which numbers we compute - from the generator page's radios.
 	bool lim = (m_b16_235 != 0);
+	// The DEVICE's colour space and range both live in the cat-99 id the settings dialog
+	// applied, and must NOT be derived from the flag above: deriving them made the first patch
+	// of a sweep overwrite whatever the dialog had applied. Sending the id itself re-asserts
+	// it - see MuriCmdRgbTriplet. Range for RGB rides in the id (0 = full, 1 = limited), so
+	// there is no separate range to send; YCbCr is 16-235 by definition.
+	int devCs = m_muriColorSpaceId;
 	double bgstim = m_displayWindow.m_bgStimPercent / 100.;
 	double rect   = (double)m_displayWindow.m_rectSizePercent;
 	double R1 = 0., G1 = 0., B1 = 0.;
@@ -2776,11 +2800,7 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 				connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
 			}
 			if (!connected) continue;
-			// The DEVICE's colour space and range both live in the cat-99 id the settings dialog
-			// applied, and must NOT be derived from HCFR's encoding flag: deriving them made the
-			// first patch of a sweep overwrite whatever the dialog had applied, so a device set to
-			// YCbCr dropped to RGB and stayed there for the whole measurement.
-			sent = MuriCmdRgbTriplet(r, g, b, bgR, bgG, bgB, win, (bits == 10) ? 1 : 0, m_muriColorSpaceId);
+			sent = MuriCmdRgbTriplet(r, g, b, bgR, bgG, bgB, win, (bits == 10) ? 1 : 0, devCs);
 		}
 		if (sent) break;
 		// Same message pair serves every wired generator; the caption names the device. The
