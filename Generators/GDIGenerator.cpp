@@ -111,8 +111,8 @@ CGDIGenerator::CGDIGenerator()
 	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
 	m_dvdoComPort = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
 	m_dvdoColorSpace = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
-	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
-	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
 		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
 	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
 	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
@@ -171,8 +171,8 @@ CGDIGenerator::CGDIGenerator(int nDisplayMode, BOOL b16_235)
 	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
 	m_dvdoComPort = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
 	m_dvdoColorSpace = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
-	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
-	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
 		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
 	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
 	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
@@ -703,11 +703,9 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 
 		m_dvdoComPort      = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
 		m_dvdoColorSpace   = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
-		m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
-		m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
-			GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
-	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
-		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
+		m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+		m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+			GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
 		m_muriComPort      = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
 		m_muriIp           = GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239");
 		m_muriUseNetwork   = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
@@ -1262,16 +1260,17 @@ namespace {
 
 		s_dvdoDiag.Format(LS(IDS_GEN_DVDO_OPENED), (LPCTSTR)comPort);
 
-		// Only when actually starting output (not during a Detect/Test probe): set the
 		// Colour space is NOT sent through 6C any more - see CGDIGenerator_DvdoApplyOutput. 6C's
 		// SET table (1=RGB, 2=YC444, 3=YC422) and its GET encoding (1=RGB Full, 2=RGB Limited,
 		// 3=YC422, 4=YC444) are different code spaces, and 6C has no value for RGB Limited at all.
 		// AA carries colour space and range together, both measured to work and to stick, so we
 		// write through AA only and use 6C purely for reading back.
-		// NOTE 1: do NOT send EA (Pass-Through mode). Hardware shows EA=0 puts the TPG into
-		// pass-through/auto, which kicks it OUT of Test-Patterns mode - so 80 predefined
-		// patterns then display nothing (AA still works because it overrides pass-through).
-		// The device stays in whatever Pass-Through Mode the user set on its OSD/remote.
+		// NOTE 1: never send EA=0 here. Hardware shows EA=0 puts the TPG into pass-through/auto,
+		// which kicks it OUT of Test-Patterns mode - so 80 predefined patterns then display
+		// nothing (AA still works because it overrides pass-through). Open sends no EA at all and
+		// leaves the device in whatever Pass-Through Mode the user set on its OSD/remote. The one
+		// place EA is sent is DvdoShowPattern, as EA=1 (Test Patterns), because an 80 pattern
+		// needs that mode to display - see the note there.
 		if (sendSetup)
 		{
 			// Output format (command 61): decimal code from kDvdoFormats, verified against the
@@ -1290,15 +1289,15 @@ namespace {
 		return true;
 	}
 
-	// Flush any pending TX before closing: closing a COM handle can discard bytes still
-	// in the driver's transmit buffer, which drops a fire-and-close command (e.g. a
-	// Show-pattern 80). FlushFileBuffers blocks until the bytes are actually sent.
 	// The port a transport is REALLY on, empty when nothing is open. The status panel reports
 	// this instead of the configured port: a settings dialog records an intention, and until
 	// Detect/Test or Apply acts on it the device is still on the old port. Showing the config
 	// value made the panel claim a port it was not using.
 	CString DvdoActivePort() { return s_dvdoOpen ? s_dvdoOpenPort : CString(); }
 
+	// Flush any pending TX before closing: closing a COM handle can discard bytes still in the
+	// driver's transmit buffer, which drops a fire-and-close command (e.g. a Show-pattern 80).
+	// FlushFileBuffers blocks until the bytes are actually sent.
 	// Closing forgets the remembered pattern: it belongs to the device on THAT port, and the
 	// next open may be a different one. Without this, changing ports and pressing Apply would
 	// restore a pattern the new device was never showing. It also clears s_dvdoLastWriteOk, or
@@ -1306,8 +1305,9 @@ namespace {
 	void DvdoClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; s_dvdoOpenPort.Empty(); s_dvdoLastPattern = -1; s_dvdoLastWriteOk = false; } }
 
 	// Pre-Defined Test Patterns (command 80): value is the pattern code. Requires the port
-	// open. No EA/Pass-Through command is ever sent (see the "do NOT send EA" note above),
-	// and callers map "off" to 80=35 (full black), never 80=0 - which would disarm the TPG.
+	// open. Sends no EA itself (DvdoShowPattern sends EA=1 before calling this - see the EA
+	// note in DvdoOpen), and callers map "off" to 80=35 (full black), never 80=0 - which
+	// would disarm the TPG.
 	bool DvdoSendPattern(int code)
 	{
 		if (!s_dvdoOpen) return false;
@@ -1487,8 +1487,9 @@ bool CGDIGenerator_DvdoFindPattern(int code, int& ciOut, int& piOut)
 	return false;
 }
 
-// Open the port (setup format/EA/6C), send pattern code (<0 or 0 = Off), close. The
-// TPG keeps displaying the pattern after the port closes.
+// Open the port, send EA=1 (Test Patterns) and then the pattern code (<0 or 0 = Off). The
+// port is deliberately left OPEN so the pattern persists - see the FlushFileBuffers note
+// below. Open itself sends only 61; it sends no EA and no 6C (see NOTE 1 in DvdoOpen).
 bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int outputFormat, int patternCode, CString& msgOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
@@ -1512,8 +1513,9 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int outputFormat, int
 	// measurement's AA patches still display.
 	int code = patternCode > 0 ? patternCode : kDvdoArmPattern;
 	// An 80 predefined pattern only displays when the serial Pass-Through Mode is set to
-	// "Test Patterns" (AA ignores this and always shows; 80 respects it). Set it via EA
-	// before selecting the pattern. EA=0 did not work, so try EA=1 = Test Patterns.
+	// "Test Patterns" (AA ignores this and always shows; 80 respects it), so set that via EA
+	// before selecting the pattern. EA=1 is Test Patterns; EA=0 is pass-through/auto and
+	// kicks the TPG out of pattern mode entirely - see NOTE 1 in DvdoOpen.
 	DvdoCommand("EA", std::vector<std::string>(1, "1"));
 	Sleep(120);
 	bool ok = DvdoSendPattern(code);
@@ -1525,16 +1527,14 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int outputFormat, int
 	return ok;
 }
 
-// Apply the output format (command 61) live - used when the user changes the resolution
-// in the DVDO settings and clicks OK. DvdoOpen's setup step sends 6C + 61 (with a settle);
-// the port is left open (a resolution change persists; the next Init/Show reclaims it).
 CString CGDIGenerator_DvdoActivePort() { CSingleLock lock ( &s_genSerialLock, TRUE ); return DvdoActivePort(); }
 
 // limitedRange: 1 = 16-235, 0 = 0-255. Applies resolution (61) and then colour space AND
 // output range together through a single black AA patch, because that is the only mechanism
 // that can express every combination (all measured on hardware 2026-08-27):
 //   - AA OUTC  0/1/2 -> RGB / YC444 / YC422, read back through 6C as 1 / 4 / 3
-//   - AA OutRange 0/1 -> Limited / Full, and 6C reports it
+//   - AA's 6TH field (the Guide calls it InputRange) 0/1 -> Limited / Full output, and 6C
+//     reports it. The 8th field ("OutRange") is inert - see DisplayRGBColorDVDO.
 //   - both stick with no further patches
 // 6C's own SET table cannot express RGB Limited at all, which is why Apply used to leave the
 // device in Full however the dialog was set. The patch is BLACK so this is visually silent in
@@ -1576,11 +1576,19 @@ bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int f
 // Name/Firmware/Resolution/ColourSpace are queried live; anything that cannot be read back is
 // marked "(configured)" so the panel never implies it knows more than it does.
 //
-// The TPG answers queries ONLY while it is displaying a pattern (hardware-confirmed
-// 2026-08-27: an unarmed device returns nothing to A8/A9/61/6C; show any pattern and the same
-// queries answer). That is almost certainly the origin of the old "it never replies anyway"
-// comment. We deliberately do NOT arm here - arming sends a full black field, which would wipe
-// whatever the user is looking at - so an unarmed device gets a message saying why instead.
+// Arming is NOT required to query. Measured 2026-08-28 with the AVLab power-cycled, its test
+// patterns switched off and the monitor showing the no-signal blue screen - genuinely unarmed -
+// A8, A9, 61 and 6C all answered and the panel filled in completely.
+//
+// This corrects a note that stood here claiming the opposite, marked hardware-confirmed
+// 2026-08-27: "an unarmed device returns nothing to A8/A9/61/6C". That was wrong. The likeliest
+// source is the serial wedge seen during the same session's probing, which stopped ALL replies
+// until a power cycle and was mistaken for an arming rule. Rendering is the thing that needs
+// arming - AA patches do not display until an 80 pattern arms the TPG - and the two got
+// conflated. Do not reinstate the arming claim without repeating the power-cycle test above.
+//
+// We still do not arm here: arming sends a full black field, which would wipe whatever the user
+// is looking at, and there is now no reason to.
 // csConfig: 0=RGB, 1=YCbCr444, 2=YCbCr422; lim = limited (16-235) range.
 bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool lim, CString& out)
 {
@@ -1603,10 +1611,11 @@ bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool l
 	int resStatus = haveRes ? _ttoi(resv) : -1;
 	CString res = haveRes ? CString(DvdoResNameFromStatus(resStatus)) : CString(_T("?"));
 	if (!wasOpen) DvdoClose();
-	// Nothing answered at all: the port opened but no AVLab is there, or it is not displaying a
-	// pattern. Say so rather than returning a readout full of "?" - a populated-looking panel
-	// for a device that never replied is the same "the port opened, so it must be fine" mistake
-	// that CGDIGenerator_DvdoTestConnection used to make.
+	// Nothing answered at all: the port opened, but no AVLab is on the other end of it. Say so
+	// rather than returning a readout full of "?" - a populated-looking panel for a device that
+	// never replied is the same "the port opened, so it must be fine" mistake that
+	// CGDIGenerator_DvdoTestConnection used to make. An unarmed device is NOT one of the causes;
+	// see the note on this function.
 	if (name.IsEmpty() && !haveRes && csDev < 0)
 	{
 		out.Format(LS(IDS_GEN_DVDO_NO_STATUS), (LPCTSTR)comPort);
@@ -2655,8 +2664,9 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 		{
 			if (attempt > 1)
 			{
-				// A merely missing ack is retried on the same handle, because close-then-immediate-
-				// reopen can itself fail on the virtual COM driver (see DvdoOpen).
+				// Only a failed WRITE means the handle is dead and needs replacing; a merely missing
+				// ack is retried on the same handle, because close-then-immediate-reopen can itself
+				// fail on the virtual COM driver (see DvdoOpen).
 				// A write that SUCCEEDED but was not acked is the re-lock signature: a patch that
 				// changes colour space or range makes the device re-sync, and it answers nothing
 				// until that finishes (~2 s, cf. DvdoFormatSettleMs). Waiting it out beats spending
@@ -2664,11 +2674,12 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 				Sleep(s_dvdoLastWriteOk
 					? (DWORD)GetConfig()->GetProfileInt("Debug", "DvdoRelockWaitMs", 2000)
 					: dwRetryPause);
-				// Reopen when the write failed OR the port is simply not open - the second case used to
-				// be unreachable, because s_dvdoLastWriteOk is cleared only by DvdoWrite, DvdoWrite
-				// cannot run with the port closed, and the guard below skipped the attempt first. The
-				// flag stayed true from the last good write and the reopen never fired, so the loop spun
-				// on a dead port - the exact failure it exists to recover from. DvdoClose clears it too.
+				// Reopen when the handle is dead OR the port is simply not open. The second case
+				// used to be unreachable: s_dvdoLastWriteOk is cleared only by DvdoWrite, DvdoWrite
+				// cannot run with the port closed, and the guard below skipped the attempt - so the
+				// flag stayed true from the last good write and the reopen never fired. The retry
+				// loop then spun on the same dead port forever, which is the exact failure it exists
+				// to recover from. DvdoClose now clears the flag too.
 				if (!s_dvdoLastWriteOk || !s_dvdoOpen)
 				{
 					CString fw;
@@ -2691,10 +2702,13 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 				s_dvdoArmed = true;
 			}
 			// AA full triplet: R G B Window BackgroundIRE InputRange OutColourSpace OutRange.
-			// Encode R/G/B in HCFR's selected range (m_b16_235): limited -> 16-235, full ->
-			// 0-255, exactly matching the main-page stimulus values. InputRange must match the
-			// encoding so the device interprets the numbers correctly; OutRange is set the same
-			// (the AVLab ignores it on current firmware - actual output range is set on its OSD).
+			// R/G/B are encoded in HCFR's selected range (m_b16_235), exactly matching the
+			// main-page stimulus values: limited -> 16-235, full -> 0-255. Nothing in the AA frame
+			// tells the device how those numbers are encoded - the 6th field sets its OUTPUT range,
+			// per the measurement below - so encoding and device range are genuinely independent.
+			// That is why they are separate settings, and why mismatching them is a real user error
+			// the UI does not yet warn about (16-235 codes into a full-range output put white
+			// at about 92%).
 			// HCFR's encoding - which numbers we compute - from the generator page's radios.
 			bool lim = (m_b16_235 != 0);
 			// The DEVICE's range, set independently in the DVDO settings dialog. MEASURED on an
@@ -2760,9 +2774,10 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 	bool lim = (m_b16_235 != 0);
 	// The DEVICE's colour space and range both live in the cat-99 id the settings dialog
 	// applied, and must NOT be derived from the flag above: deriving them made the first patch
-	// of a sweep overwrite whatever the dialog had applied. Sending the id itself re-asserts
-	// it - see MuriCmdRgbTriplet. Range for RGB rides in the id (0 = full, 1 = limited), so
-	// there is no separate range to send; YCbCr is 16-235 by definition.
+	// of a sweep silently overwrite whatever the dialog had applied. Sending the id itself
+	// re-asserts it - see MuriCmdRgbTriplet for why the byte takes the full cat-99 enum.
+	// Range for RGB rides in the id (0 = full, 1 = limited), so there is no separate range to
+	// send; YCbCr is 16-235 by definition.
 	int devCs = m_muriColorSpaceId;
 	double bgstim = m_displayWindow.m_bgStimPercent / 100.;
 	double rect   = (double)m_displayWindow.m_rectSizePercent;

@@ -1570,8 +1570,9 @@ BOOL CDvdoSettingsDlg::OnInitDialog()
 // The AVLab only outputs YCbCr as 16-235, so Full is not a legal choice there - confirmed on
 // hardware 2026-08-27, and it matches what the device reports back through 6C (values 3 and 4
 // are both "(16-235)"). Mirrors CMuriSettingsDlg::OnFmtChange.
-// CAUTION: this dialog's range combo is ordered Limited(0) / Full(1) - the REVERSE of the
-// Murideo's Full(0) / Limited(1). Selecting index 1 here would pick Full, not Limited.
+// Both device dialogs order the range combo Full(0) / Limited(1), matching PGenerator and
+// the DvdoOutputRange / MuriRange keys. This dialog used to be the other way round; the flip
+// inverted Apply until every reader was updated with it, so keep the two dialogs in step.
 void CDvdoSettingsDlg::OnFmtChange()
 {
 	bool isRgb = (m_fmtCombo.GetCurSel() <= 0);
@@ -1587,7 +1588,6 @@ void CDvdoSettingsDlg::OnTest()
 	CString com; m_comCombo.GetWindowText(com); com.Trim();
 	if (com.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_SELECT_COM_FIRST)); return; }
 	SaveToConfig();		// see CMuriSettingsDlg::OnTest
-	int cs = (m_fmtCombo.GetCurSel() >= 0) ? m_fmtCombo.GetCurSel() : 0;
 	m_status.SetWindowText(LS(IDS_GEN_CONNECTING));
 	CString msg; CGDIGenerator_DvdoTestConnection(com, msg);
 	m_status.SetWindowText(msg);
@@ -1748,15 +1748,14 @@ void CGDIGenePropPage::OnOK()
 		GetConfig()->WriteProfileInt("GDIGenerator","CCastIp",m_GCast.getCcastIpAddress(m_GCast[(LPCTSTR)name]));
 	}
 
-	// DVDO AVLab TPG: output config (COM / resolution / colour format / range) is owned by the
-	// "DVDO settings..." dialog; here we only mirror the range flag from what that dialog saved,
-	// and persist the pattern selected in the main-panel picker.
+	// DVDO AVLab TPG: output config (COM / resolution / colour format / device range) is owned
+	// by the "DVDO settings..." dialog. Nothing is mirrored from it - HCFR's own encoding flag
+	// belongs to this page's radios. Here we only persist the main-panel pattern picker.
 	if (m_dvdoPatCatCombo.GetSafeHwnd() && m_dvdoPatCombo.GetSafeHwnd() && m_dvdoPatCatCombo.GetCurSel() >= 0 && m_dvdoPatCombo.GetCurSel() >= 0)
 		GetConfig()->WriteProfileInt("GDIGenerator","DvdoPatternCode",CGDIGenerator_DvdoPatCode(m_dvdoPatCatCombo.GetCurSel(), m_dvdoPatCombo.GetCurSel()));
 
-	// Murideo Seven-G: output config (IP/transport/resolution/colour space) is saved by
-	// the Settings dialog; here we only persist the selected pattern. If Murideo is the
-	// active mode, mirror the range flag from the colour space the dialog stored.
+	// Murideo Seven-G: output config (IP/transport/resolution/colour space/device range) is
+	// saved by the Settings dialog and not mirrored here; we only persist the selected pattern.
 	if (m_muriPatGrpCombo.GetSafeHwnd() && m_muriPatCombo.GetSafeHwnd() && m_muriPatGrpCombo.GetCurSel() >= 0 && m_muriPatCombo.GetCurSel() >= 0)
 	{
 		int pg = m_muriPatGrpCombo.GetCurSel(), pi = m_muriPatCombo.GetCurSel();
@@ -1819,7 +1818,6 @@ void CGDIGenePropPage::OnDvdoShow()
 {
 	CString com = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");	// owned by the settings dialog
 	if (com.IsEmpty()) { m_dvdoStatus.SetWindowText(LS(IDS_GEN_SET_DVDO_COM_SETTINGS)); return; }
-	int cs  = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
 	int fmt = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
 	int cat = m_dvdoPatCatCombo.GetSafeHwnd() ? m_dvdoPatCatCombo.GetCurSel() : 0; if (cat < 0) cat = 0;
 	int pi  = m_dvdoPatCombo.GetSafeHwnd() ? m_dvdoPatCombo.GetCurSel() : 0; if (pi < 0) pi = 0;
@@ -1837,7 +1835,6 @@ void CGDIGenePropPage::OnDvdoOff()
 {
 	CString com = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
 	if (com.IsEmpty()) { m_dvdoStatus.SetWindowText(LS(IDS_GEN_SET_DVDO_COM_SETTINGS)); return; }
-	int cs  = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
 	int fmt = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
 
 	CString msg;
@@ -1873,7 +1870,11 @@ void CGDIGenePropPage::RefreshDvdoStatus()
 	c->hwnd = GetSafeHwnd();
 	c->com  = com;
 	c->cs   = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
-	c->lim  = (m_b16_235 != 0);
+	// The DEVICE's range, not HCFR's encoding: this row is labelled "(configured)" and is the
+	// fallback shown when 6C does not answer, so feeding it m_b16_235 made it report the page
+	// radios as though they were the device's setting.
+	c->lim  = (GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0) != 0);
 	m_dvdoQuerying = TRUE;
 	m_dvdoReadout.SetWindowText(LS(IDS_GEN_QUERYING));
 	// If the worker never starts, clear the guard and free the ctx here - otherwise
@@ -1914,9 +1915,8 @@ void CGDIGenePropPage::OnDvdoSettings()
 	CDvdoSettingsDlg dlg(this);
 	if (dlg.DoModal() == IDOK)
 	{
-		// The dialog wrote RGB_16_235 from the chosen range; sync our flag so the main-page
-		// stimulus follows, then refresh the readout.
-		m_b16_235 = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235", m_b16_235);
+		// No RGB_16_235 sync: the dialog owns the DEVICE range only, and re-reading the key
+		// here would overwrite an unsaved radio change the user just made on this page.
 		RefreshDvdoStatus();
 	}
 }
@@ -1951,9 +1951,7 @@ void CGDIGenePropPage::OnMuriSettings()
 	CMuriSettingsDlg dlg(this);
 	if (dlg.DoModal() == IDOK)
 	{
-		// The dialog wrote RGB_16_235 from the chosen colour space; sync our flag so the
-		// main-page stimulus follows, then refresh the readout.
-		m_b16_235 = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235", m_b16_235);
+		// No RGB_16_235 sync - see CGDIGenePropPage::OnDvdoSettings.
 		// Bit-depth may have changed: recompute the page's 10-bit-levels flag so the
 		// reference grid matches what we'll send (see RefreshUse10bitLevels).
 		GetConfig()->RefreshUse10bitLevels();

@@ -4351,9 +4351,9 @@ BEGIN
     IDS_GEN_SERIAL_LINK_LOST        "Il generatore non risponde più sulla porta seriale.\nRicollegarlo e scegliere Riprova, oppure Annulla per interrompere la sequenza."
     IDS_GEN_NETWORK_LINK_LOST       "Il generatore non risponde più sulla rete.\nControllare la connessione e scegliere Riprova, oppure Annulla per interrompere la sequenza."
     IDS_GEN_CONFIGURED              "(configurato)"
-    IDS_GEN_DVDO_CONNECTED          "Connesso al DVDO AVLab TPG su %s (%s) - tripletta AA completa (0-255)."
+    IDS_GEN_DVDO_CONNECTED          "Connesso al DVDO AVLab TPG su %s (%s) - patch con tripletta completa AA."
     IDS_GEN_DVDO_NO_RESPOND         "%s aperta ma nessun DVDO AVLab ha risposto - porta sbagliata o dispositivo spento?"
-    IDS_GEN_DVDO_NO_STATUS          "Nessuno stato dal DVDO AVLab su %s.\nRisponde solo mentre visualizza un pattern - visualizzarne uno, poi aggiornare."
+    IDS_GEN_DVDO_NO_STATUS          "Nessuno stato dal DVDO AVLab su %s.\nControllare la porta, il cavo e che il dispositivo sia acceso."
     IDS_CSV_FILE_NOT_FOUND  "File dell'elenco di patch non trovato:\n\n%s\n\nIl set di patch sarà vuoto. Per i set integrati, ciò di solito significa che l'installazione è incompleta o che HCFR è in esecuzione con un profilo utente diverso."
     IDS_CSV_RANGE_EXTENDED_WARN  "L'elenco di patch USER è in gamma Estesa (più bianco del bianco), ma l'uscita del generatore è impostata su Completa (0-255), che limita i codici super-bianchi a 255.\n\nImpostare l'uscita del generatore su 16-235 (video) affinché i codici super-bianchi vengano inviati intatti."
 END

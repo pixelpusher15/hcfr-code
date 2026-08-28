@@ -4142,9 +4142,9 @@ BEGIN
     IDS_GEN_SERIAL_LINK_LOST        "Der Generator antwortet nicht mehr über seinen seriellen Anschluss.\nSchließen Sie ihn wieder an und wählen Sie Wiederholen, oder Abbrechen, um die Sequenz zu beenden."
     IDS_GEN_NETWORK_LINK_LOST       "Der Generator antwortet nicht mehr über das Netzwerk.\nPrüfen Sie die Verbindung und wählen Sie Wiederholen, oder Abbrechen, um die Sequenz zu beenden."
     IDS_GEN_CONFIGURED              "(konfiguriert)"
-    IDS_GEN_DVDO_CONNECTED          "Mit dem DVDO AVLab TPG an %s verbunden (%s) - AA-Volltriplett (0-255)."
+    IDS_GEN_DVDO_CONNECTED          "Verbunden mit dem DVDO AVLab TPG an %s (%s) - Testbilder über AA-Volltripel."
     IDS_GEN_DVDO_NO_RESPOND         "%s geöffnet, aber kein DVDO AVLab hat geantwortet - falscher Anschluss, oder Gerät aus?"
-    IDS_GEN_DVDO_NO_STATUS          "Kein Status vom DVDO AVLab an %s.\nEs antwortet nur, während ein Testbild angezeigt wird - zeigen Sie eines an und aktualisieren Sie."
+    IDS_GEN_DVDO_NO_STATUS          "Kein Status vom DVDO AVLab an %s.\nPrüfen Sie Anschluss, Kabel und ob das Gerät eingeschaltet ist."
     IDS_CSV_FILE_NOT_FOUND  "Patch-Listen-Datei nicht gefunden:\n\n%s\n\nDer Patch-Satz ist leer. Bei integrierten Sätzen bedeutet dies meist, dass die Installation unvollständig ist oder HCFR unter einem anderen Benutzerprofil läuft."
     IDS_CSV_RANGE_EXTENDED_WARN  "Die USER-Patch-Liste ist im erweiterten Bereich (weißer als Weiß), aber der Generatorausgang ist auf Voll (0-255) eingestellt, wodurch die Super-Weiß-Codes auf 255 begrenzt werden.\n\nStellen Sie den Generatorausgang auf 16-235 (Video) ein, damit die Super-Weiß-Codes unverändert gesendet werden."
 END

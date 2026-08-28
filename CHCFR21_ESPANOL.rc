@@ -4273,9 +4273,9 @@ BEGIN
     IDS_GEN_SERIAL_LINK_LOST        "El generador ha dejado de responder en su puerto serie.\nVuelva a conectarlo y elija Reintentar, o Cancelar para detener la secuencia."
     IDS_GEN_NETWORK_LINK_LOST       "El generador ha dejado de responder en la red.\nCompruebe la conexión y elija Reintentar, o Cancelar para detener la secuencia."
     IDS_GEN_CONFIGURED              "(configurado)"
-    IDS_GEN_DVDO_CONNECTED          "Conectado al DVDO AVLab TPG en %s (%s) - triplete AA completo (0-255)."
+    IDS_GEN_DVDO_CONNECTED          "Conectado al DVDO AVLab TPG en %s (%s) - usando parches AA de triplete completo."
     IDS_GEN_DVDO_NO_RESPOND         "Se abrió %s pero ningún DVDO AVLab respondió - ¿puerto incorrecto o dispositivo apagado?"
-    IDS_GEN_DVDO_NO_STATUS          "Sin estado del DVDO AVLab en %s.\nSolo responde mientras muestra un patrón - muestre uno y actualice."
+    IDS_GEN_DVDO_NO_STATUS          "Sin estado del DVDO AVLab en %s.\nCompruebe el puerto, el cable y que el dispositivo esté encendido."
     IDS_CSV_FILE_NOT_FOUND  "Archivo de lista de parches no encontrado:\n\n%s\n\nEl conjunto de parches estará vacío. Para los conjuntos integrados, esto suele significar que la instalación está incompleta o que HCFR se ejecuta con un perfil de usuario diferente."
     IDS_CSV_RANGE_EXTENDED_WARN  "La lista de parches USER es de rango Extendido (más blanco que el blanco), pero la salida del generador está configurada en Completo (0-255), lo que recorta los códigos superblancos a 255.\n\nConfigure la salida del generador en 16-235 (vídeo) para que los códigos superblancos se envíen intactos."
 END
