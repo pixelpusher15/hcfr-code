@@ -27,7 +27,7 @@
 #include "DocTempl.h"
 #include "Color3DView.h"
 #include "MainView.h"
-#include "ciechartview.h"	// GamutShortName: the chips label their gamut the same way
+#include "GamutName.h"		// the chips label their gamut like the CIE chart does
 #include "GamutVolume.h"
 #include "GdiPlusAA.h"
 #include "math.h"
@@ -59,6 +59,32 @@ static std::wstring LoadResWide( UINT nID )
 	if ( n )
 		MultiByteToWideChar( CP_ACP, 0, (LPCSTR)s, s.GetLength(), &w[0], n );
 	return w;
+}
+
+// Text for one of the gamut-volume chips. The format string lives in the
+// satellite resource DLL, so it can come back empty (a language DLL that was not
+// rebuilt -- building only ColorHCFR leaves them stale) or with a conversion a
+// translator mistyped. "%.1f" is the part that is never translated, so require
+// it and otherwise fall back to the bare percentage: an unlabelled number beats
+// an empty pill, and beats handing swprintf a spec that does not match the
+// double it is passed.
+static void ProfilePctChip( wchar_t (&out)[64], UINT nID, double pct )
+{
+	// Safe means EXACTLY one "%.1f" and no other conversion: a translation that
+	// kept the float but added a stray "%s" would otherwise reach swprintf and
+	// have it read a second argument that was never passed.
+	std::wstring fmt = LoadResWide( nID );
+	bool ok = false;
+	for ( size_t i = 0; i < fmt.size(); i++ )
+	{
+		if ( fmt[i] != L'%' )
+			continue;
+		if ( fmt.compare( i, 2, L"%%" ) == 0 )          { i++; continue; }
+		if ( fmt.compare( i, 4, L"%.1f" ) == 0 && !ok ) { ok = true; i += 3; continue; }
+		ok = false;
+		break;
+	}
+	swprintf( out, 64, ok ? fmt.c_str() : L"%.1f%%", pct );
 }
 
 static const double k2PI = 6.283185307179586;
@@ -187,7 +213,7 @@ C3DColorView::C3DColorView()
 	, m_freeInScene(0)
 	, m_profileInScene(0)
 	, m_lumTop(1.0)
-	, m_volValid(false), m_volDirty(true), m_volPct(0.0), m_covPct(0.0)
+	, m_volValid(false), m_volDirty(true), m_volPct(0.0), m_covPct(0.0), m_volKeyValid(false)
 	, m_baseValid(false)
 	, m_gamutValid(false)
 	, m_texDC(NULL), m_texBmp(NULL), m_texOld(NULL), m_texBits(NULL), m_texW(0), m_texH(0), m_texSig(-1)
@@ -1761,14 +1787,23 @@ void C3DColorView::Render(const CRect& rc)
 		// rotation never pays for it.
 		if ( m_volDirty )
 			UpdateGamutVolume();
-		if ( m_volValid )
+		// The cube is the only source for these numbers, so they follow its layer:
+		// with the profile points hidden the cloud and the point count above drop
+		// them, and a percentage still sitting up here would read as if it
+		// described whatever sweep is left on screen.
+		if ( m_volValid && m_showProfilePts )
 		{
 			WCHAR gamutName[64], covBuf[64], volBuf[64];
 			GamutShortName( SceneGamutReference(), gamutName, 64 );
-			swprintf( covBuf, 64, LoadResWide( IDS_3DVIEW_GAMUTCOV ).c_str(), m_covPct );
-			swprintf( volBuf, 64, LoadResWide( IDS_3DVIEW_GAMUTVOL ).c_str(), m_volPct );
+			ProfilePctChip( covBuf, IDS_3DVIEW_GAMUTCOV, m_covPct );
+			ProfilePctChip( volBuf, IDS_3DVIEW_GAMUTVOL, m_volPct );
 
-			Gdiplus::Font  chipFont( L"Segoe UI", 12.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel );
+			// UnitPixel, so unlike the UnitPoint overlay text it does not follow the
+			// display DPI on its own -- scale it, or on a 200% display the pills
+			// stay 12px beside a header at twice the size, and `avail` below then
+			// compares a scaled header width against unscaled chips.
+			Gdiplus::Font  chipFont( L"Segoe UI", (Gdiplus::REAL)GetConfig()->Scale( 12 ),
+									 Gdiplus::FontStyleRegular, Gdiplus::UnitPixel );
 			Gdiplus::Color cFill( 255, 42, 42, 42 ), cBorder( 255, 72, 72, 72 ), cText( 255, 215, 215, 215 );
 
 			// Visual order is [gamut] [coverage] [volume]; when the row will not
@@ -1776,7 +1811,8 @@ void C3DColorView::Render(const CRect& rc)
 			// coverage is the headline, and the gamut name keeps it unambiguous.
 			const WCHAR * ordered[3] = { gamutName, covBuf, volBuf };
 			int nChips = 3;
-			const Gdiplus::REAL pad = 8.0f, gap = 6.0f;
+			const Gdiplus::REAL pad = (Gdiplus::REAL)GetConfig()->Scale( 8 ),
+								gap = (Gdiplus::REAL)GetConfig()->Scale( 6 );
 			Gdiplus::RectF hdrBounds;
 			g.MeasureString( buf, -1, &fontSmall, Gdiplus::PointF( 0.0f, 0.0f ), &hdrBounds );
 			Gdiplus::REAL avail = (Gdiplus::REAL)w - 2.0f * pad - hdrBounds.Width - 2.0f * gap;
@@ -2043,27 +2079,56 @@ void C3DColorView::AppendNewProfileMeasures()
 void C3DColorView::UpdateGamutVolume()
 {
 	m_volDirty = false;
-	m_volValid = false;
 
 	CDataSetDoc * pDoc = GetDocument();
 	CMeasure * pMeasure = ( pDoc != NULL ) ? pDoc->GetMeasure() : NULL;
 	if ( pMeasure == NULL || !pMeasure->HasProfileMeasures() )
-		return;
+		{ m_volValid = m_volKeyValid = false; return; }
 
 	int cubeN = pMeasure->GetProfileCubeSize();
 	if ( cubeN < 2 )
-		return;
+		{ m_volValid = m_volKeyValid = false; return; }
 	int need = cubeN * cubeN * cubeN;
 	if ( pMeasure->GetProfileMeasureSize() < need )
-		return;		// stopped before the cube closed
+		{ m_volValid = m_volKeyValid = false; return; }	// stopped before the cube closed
 
 	// The array is pre-sized to the whole patch list at capture start, so size
 	// alone says nothing about progress. Patch need-1 is the cube's last node
 	// (white), measured last: one lookup rules out a capture still in flight,
 	// which matters because every appended patch re-dirties this and a live
 	// sweep would otherwise walk the whole cube on every repaint.
-	if ( !pMeasure->GetProfileMeasure( need - 1 ).isValid() )
-		return;
+	CColor whiteCorner = pMeasure->GetProfileMeasure( need - 1 );
+	if ( !whiteCorner.isValid() )
+		{ m_volValid = m_volKeyValid = false; return; }
+
+	CColorReference ref = SceneGamutReference();
+
+	// BuildScene re-dirties this, and a rebuild follows essentially any document
+	// hint -- so with a cube already in the document a grayscale or saturation
+	// sweep would re-walk 9261 vertices and ~150k tetrahedra on every repaint
+	// (31 ms at 21^3 in a Debug build) only to arrive at the same number. So key
+	// the recompute on what it actually depends on. Patch need-1 is the cube's
+	// last node AND the last value the capture settles -- the closing drift
+	// anchor rescales it -- so it stands in for the cube's contents; nothing in
+	// the app edits a profile node on its own (SetProfileMeasure has no callers).
+	double key[VOL_KEY_LEN];
+	ColorXYZ wc = whiteCorner.GetXYZValue();
+	ColorXYZ rw = ref.GetWhite(), rr = ref.GetRed(), rg = ref.GetGreen(), rb = ref.GetBlue();
+	int k = 0;
+	key[k++] = cubeN;
+	key[k++] = pMeasure->GetProfileMeasureSize();
+	key[k++] = ref.m_standard;
+	for ( int i = 0; i < 3; i++ )
+	{
+		key[k++] = wc[i];  key[k++] = rw[i];  key[k++] = rr[i];
+		key[k++] = rg[i];  key[k++] = rb[i];
+	}
+	ASSERT( k == VOL_KEY_LEN );		// every slot written, or the tail is garbage
+	if ( m_volKeyValid && memcmp( key, m_volKey, sizeof( key ) ) == 0 )
+		return;		// same cube, same reference: the number already on screen stands
+	memcpy( m_volKey, key, sizeof( key ) );
+	m_volKeyValid = true;
+	m_volValid    = false;
 
 	std::vector<ColorXYZ> cube( (size_t)need );
 	for ( int i = 0; i < need; i++ )
@@ -2074,7 +2139,6 @@ void C3DColorView::UpdateGamutVolume()
 		cube[i] = c.GetXYZValue();
 	}
 
-	CColorReference ref = SceneGamutReference();
 	GamutVolumeResult r = ComputeGamutVolume( &cube[0], cubeN, ref );
 	if ( !r.valid )
 		return;

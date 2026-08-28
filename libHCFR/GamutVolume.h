@@ -38,7 +38,8 @@
 
 struct GamutVolumeResult
 {
-    bool   valid;           // false when the cube is absent, short or has holes
+    bool   valid;           // false when the cube is absent, short, holed, or
+                            // carries no usable gray ramp to share a grid with
     double measured;        // L*a*b* volume of the measured solid
     double reference;       // L*a*b* volume of the reference gamut solid
     double intersection;    // L*a*b* volume of measured INTERSECT reference

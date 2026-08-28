@@ -9,9 +9,9 @@
 
 namespace
 {
-    // Fallback reference sampling, used only when the measurement carries no
-    // usable gray ramp to mirror (see BuildReferenceLevels). The reference gamut
-    // is synthetic, so its density costs nothing to measure -- only to compute.
+    // Sampling density for a reference gamut measured on its own, with no
+    // measurement to mirror (ReferenceGamutVolume). The reference gamut is
+    // synthetic, so its density costs nothing to measure -- only to compute.
     const int kRefCubeN = 17;
 
     // L*a*b* is cube-root compressed, so a cube sampled uniformly in LINEAR light
@@ -93,11 +93,24 @@ namespace
 
     // Fraction of a tetrahedron that lies inside the reference gamut.
     //
-    // The reference gamut is the CONVEX set { rgb : 0 <= r,g,b <= 1 }, and rgb is
-    // an affine function of the tet's barycentric coordinates, so:
+    // The reference gamut is the CONVEX set { rgb : 0 <= r,g,b <= 1 }. Read as a
+    // question about the tet's XYZ-linear hull, two cases fall out at the corners:
     //   - all four corners satisfying all six constraints  => wholly inside (1.0),
     //   - one constraint violated by all four corners      => wholly outside (0.0),
-    // both exact. Only the remainder gets sampled.
+    // and the first is what makes a display measured against its own reference
+    // read exactly 100.0 -- there every tet takes it. They remain CORNER tests,
+    // which is an approximation rather than a proof for the solid this module
+    // actually integrates: TetVolume charges for the L*a*b*-LINEAR interpolant,
+    // and L*a*b* -> XYZ is not affine, so a Lab chord joining two in-gamut
+    // corners can bow slightly outside. The gap is second order in the cell size,
+    // and it only reaches tets that the shortcuts settle outright.
+    //
+    // The straddling remainder is sampled the same way, mixing the corner RGBs.
+    // Sampling the L*a*b* mix instead and converting each sample back through the
+    // reference matrix -- consistent with the interpolant, and cheap, since the
+    // forward cube root inverts to a cube -- was tried and measured: it does not
+    // move a single sample across the boundary at either 5^3 or 9^3, so the extra
+    // work buys nothing and the straightforward mix stays.
     double InsideFraction(const Vertex * const corner[4])
     {
         const double lo = -kGamutEpsilon, hi = 1.0 + kGamutEpsilon;
@@ -142,15 +155,16 @@ namespace
                         inside++;
                     total++;
                 }
-        return ( total > 0 ) ? (double)inside / total : 0.0;
+        return (double)inside / total;
     }
 
-    // Sum the tetrahedra of an N^3 vertex grid. When refRgb is true each tet is
-    // also weighted by the fraction of it inside the reference gamut, and the
-    // result is the intersection volume instead of the whole volume.
-    double SumTets(const std::vector<Vertex> & v, int N, bool clipToReference)
+    // Sum the tetrahedra of an N^3 vertex grid, in ONE pass. Returns the whole
+    // volume; with clipToReference set, *clipped additionally receives the volume
+    // inside the reference gamut, so the six determinants per cell are evaluated
+    // once for both figures instead of once each.
+    double SumTets(const std::vector<Vertex> & v, int N, bool clipToReference, double * clipped)
     {
-        double total = 0.0;
+        double total = 0.0, insideVol = 0.0;
         for (int r = 0; r + 1 < N; r++)
             for (int g = 0; g + 1 < N; g++)
                 for (int b = 0; b + 1 < N; b++)
@@ -166,9 +180,13 @@ namespace
                         double vol = TetVolume( *corner[0], *corner[1], *corner[2], *corner[3] );
                         if ( vol <= 0.0 )
                             continue;
-                        total += clipToReference ? vol * InsideFraction( corner ) : vol;
+                        total += vol;
+                        if ( clipToReference )
+                            insideVol += vol * InsideFraction( corner );
                     }
                 }
+        if ( clipped != NULL )
+            *clipped = insideVol;
         return total;
     }
 
@@ -193,7 +211,14 @@ namespace
                     for (int i = 0; i < 3; i++)
                         xyz[i] = levels[ri] * R[i] + levels[gi] * G[i] + levels[bi] * B[i];
                     ToLab( xyz, white, out[idx].lab );
-                    out[idx].rgb[0] = out[idx].rgb[1] = out[idx].rgb[2] = 0.0;   // unused
+                    // By construction: the vertex IS r*R + g*G + b*B, so its
+                    // reference RGB is the three levels. Filled rather than left
+                    // at zero because zero reads as IN gamut, which would make a
+                    // clipped sum over this grid quietly report "100% inside"
+                    // instead of failing.
+                    out[idx].rgb[0] = levels[ri];
+                    out[idx].rgb[1] = levels[gi];
+                    out[idx].rgb[2] = levels[bi];
                 }
     }
 
@@ -209,8 +234,9 @@ namespace
     // for free, since it IS the display's measured ramp.
     //
     // The reference SET is unchanged by this (it still spans the primaries from
-    // black to white) -- only where it gets sampled. Returns false if the ramp is
-    // unusable, leaving the caller on the fixed fallback grid.
+    // black to white) -- only where it gets sampled. Returns false if the ramp
+    // carries no usable direction at all, which leaves the caller with no shared
+    // grid and therefore no number worth publishing.
     bool BuildReferenceLevels(const ColorXYZ * cube, int N, std::vector<double> & levels)
     {
         double black = cube[0][1];
@@ -225,12 +251,60 @@ namespace
             size_t gray = ( (size_t)i * N + i ) * N + i;      // the cube's r=g=b diagonal
             double t = ( cube[gray][1] - black ) / ( white - black );
             if ( t < prev ) t = prev;                          // a dip in the ramp must not fold the mesh
-            if ( t > 1.0 ) t = 1.0;
+            if ( t > 1.0 ) t = 1.0;                            // nor may an ABL peak overshoot white
             levels[i] = t;
             prev = t;
         }
         levels[0] = 0.0;
         levels[N - 1] = 1.0;
+
+        // The steps then have to be made strictly increasing again. A display
+        // that CLIPS (an HDR panel peaking well below the container, so every
+        // gray above its roll-off reads the same luminance) or CRUSHES (a raised
+        // black floor swallowing the bottom steps) returns one luminance for a
+        // run of consecutive gray patches, and the two clamps above collapse that
+        // run onto a single level. The measured mesh does not lose those layers
+        // -- an off-diagonal node such as (100%,0,0) does not clip when the
+        // diagonal does -- so leaving them coincident in the reference mesh
+        // alone is exactly what breaks the cancellation the ratio depends on,
+        // and it biases BOTH percentages high.
+        //
+        // So keep the steps the ramp genuinely resolves and respace the rest
+        // between them. Where the ramp is informative the grid still IS the
+        // measured ramp -- a monotone ramp is left bit-for-bit untouched, so a
+        // flawless display still reads exactly 100.0 -- and where it is not, the
+        // reference gets a sane spacing rather than losing a layer. Respacing is
+        // even in CUBE ROOT of the level, i.e. even in L*, for the reason
+        // RefWarp exists: layers spaced evenly in linear light bunch at the top
+        // and leave the dark half of the solid to one coarse chord. Across a
+        // whole collapsed ramp this reduces to RefWarp exactly.
+        //
+        // Sized by measurement, in RampDegradationTest: on a panel that is ideal
+        // apart from its ramp -- so the truth is exactly 100 / 100 however few
+        // steps survive -- dropping to two resolved steps costs 0.13 points with
+        // this respacing and 10 points without it. Without it the overshoot also
+        // HIDES: coverage saturates at a clean-looking 100 while the volume reads
+        // 110, so the pair stops disagreeing in the way that would show it up.
+        const double kMinStep = 1e-9;
+        std::vector<int> anchor;
+        anchor.push_back( 0 );
+        for (int i = 1; i < N - 1; i++)
+            if ( levels[i] > levels[ anchor.back() ] + kMinStep && levels[i] < 1.0 - kMinStep )
+                anchor.push_back( i );
+        anchor.push_back( N - 1 );
+        for (size_t a = 1; a < anchor.size(); a++)
+        {
+            int p = anchor[a - 1], q = anchor[a];
+            if ( q <= p + 1 )
+                continue;
+            double cLo = pow( levels[p], 1.0 / 3.0 ), cHi = pow( levels[q], 1.0 / 3.0 );
+            for (int i = p + 1; i < q; i++)
+            {
+                double u = (double)( i - p ) / (double)( q - p );
+                double c = cLo + ( cHi - cLo ) * u;
+                levels[i] = c * c * c;
+            }
+        }
         return true;
     }
 }
@@ -244,7 +318,7 @@ double ReferenceGamutVolume(const CColorReference & ref)
         levels[i] = RefWarp( (double)i / ( kRefCubeN - 1 ) );
     std::vector<Vertex> grid;
     BuildReferenceGrid( ref, &levels[0], kRefCubeN, grid );
-    return SumTets( grid, kRefCubeN, false );
+    return SumTets( grid, kRefCubeN, false, NULL );
 }
 
 GamutVolumeResult ComputeGamutVolume(const ColorXYZ * cube, int cubeN,
@@ -279,20 +353,21 @@ GamutVolumeResult ComputeGamutVolume(const ColorXYZ * cube, int cubeN,
         ToRefRGB( xyz, ref.XYZtoRGBMatrix, grid[i].rgb );
     }
 
-    res.measured     = SumTets( grid, cubeN, false );
-    res.intersection = SumTets( grid, cubeN, true );
-
     // Reference solid on the measured cube's own grid, so the tessellation error
-    // cancels out of both ratios (see BuildReferenceLevels).
+    // cancels out of both ratios (see BuildReferenceLevels). Without a usable
+    // ramp there is no grid to share, and hence no number worth showing: a
+    // reference tessellated on some other grid does not cancel, so the chips
+    // would publish a ratio several points off with nothing to flag it. Same
+    // rule as a hole in the cube -- no number beats a wrong one.
     std::vector<double> levels;
-    if ( BuildReferenceLevels( cube, cubeN, levels ) )
-    {
-        std::vector<Vertex> refGrid;
-        BuildReferenceGrid( ref, &levels[0], cubeN, refGrid );
-        res.reference = SumTets( refGrid, cubeN, false );
-    }
-    else
-        res.reference = ReferenceGamutVolume( ref );
+    if ( !BuildReferenceLevels( cube, cubeN, levels ) )
+        return res;
+
+    res.measured = SumTets( grid, cubeN, true, &res.intersection );
+
+    std::vector<Vertex> refGrid;
+    BuildReferenceGrid( ref, &levels[0], cubeN, refGrid );
+    res.reference = SumTets( refGrid, cubeN, false, NULL );
 
     res.valid = ( res.reference > 0.0 );
     return res;

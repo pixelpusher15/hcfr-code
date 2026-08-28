@@ -33,6 +33,7 @@
 #include "graphcontrol.h"
 #include "GdiPlusAA.h"
 #include "GamutCoverage.h"
+#include "GamutName.h"
 #include "Views\MainView.h"
 
 #ifdef _DEBUG
@@ -729,22 +730,6 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 		}
 	}
 
-}
-
-// Short names for the mainstream gamuts; everything else (incl. the
-// reduced-primary HDTVa/HDTVb pseudo-gamuts) uses its own reference name so the
-// label always matches the gamut actually drawn.
-void GamutShortName(const CColorReference & ref, WCHAR * out, size_t cch)
-{
-	switch (ref.m_standard)
-	{
-		case HDTV: case UHDTV4:  wcscpy_s(out, cch, L"Rec.709");  break;
-		case UHDTV: case UHDTV3: wcscpy_s(out, cch, L"DCI-P3");   break;
-		case UHDTV2:             wcscpy_s(out, cch, L"Rec.2020"); break;
-		default:
-			swprintf_s(out, cch, L"%S", ref.GetName().c_str());
-			break;
-	}
 }
 
 // Gamut coverage chips (top right): [gamut] [xy: n%] [u'v': n%]. The

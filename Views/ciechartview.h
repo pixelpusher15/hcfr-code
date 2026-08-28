@@ -35,11 +35,6 @@
 #endif
 
 class CDataSetDoc;
-class CColorReference;
-
-// Short label for a reference gamut (see CIEChartView.cpp). Shared by the CIE
-// chart's coverage chips and the 3D viewer's gamut-volume chips.
-void GamutShortName(const CColorReference & ref, WCHAR * out, size_t cch);
 
 #include "PPTooltip.h" 
 
