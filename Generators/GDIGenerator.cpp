@@ -571,7 +571,7 @@ namespace
 	// CRITICAL_SECTION is recursive, so nested internal calls are fine.
 	CCriticalSection s_genSerialLock;
 }
-namespace { bool DvdoOpen(const CString& comPort, int colorSpace, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
+namespace { bool DvdoOpen(const CString& comPort, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
 namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com, bool establish = false); void MuriDisconnect(); void MuriSetTcpPort(int port); void MuriClose(); }
 
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
@@ -712,7 +712,7 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 			// Just open the port for AA patches; do NOT re-send resolution/colour-space here (the
 			// "DVDO settings..." dialog's Apply owns those - the device retains them). Re-sending
 			// 6C/61 every measurement would needlessly re-lock the display. Mirrors the Murideo.
-			BOOL opened = DvdoOpen(m_dvdoComPort, m_dvdoColorSpace, m_dvdoOutputFormat, &fw, false /*no setup*/);
+			BOOL opened = DvdoOpen(m_dvdoComPort, m_dvdoOutputFormat, &fw, false /*no setup*/);
 			if ( ! opened )
 			{
 				if ( ! m_initShowedError )
@@ -1207,7 +1207,7 @@ namespace {
 		return s;
 	}
 
-	bool DvdoOpen(const CString& comPort, int colorSpace, int outputFormat, CString* fwOut, bool sendSetup)
+	bool DvdoOpen(const CString& comPort, int outputFormat, CString* fwOut, bool sendSetup)
 	{
 		CSingleLock lock ( &s_genSerialLock, TRUE );
 		if (comPort.IsEmpty()) { s_dvdoDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
@@ -1291,7 +1291,11 @@ namespace {
 	// value made the panel claim a port it was not using.
 	CString DvdoActivePort() { return s_dvdoOpen ? s_dvdoOpenPort : CString(); }
 
-	void DvdoClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; s_dvdoOpenPort.Empty(); s_dvdoLastWriteOk = false; } }
+	// Closing forgets the remembered pattern: it belongs to the device on THAT port, and the
+	// next open may be a different one. Without this, changing ports and pressing Apply would
+	// restore a pattern the new device was never showing. It also clears s_dvdoLastWriteOk, or
+	// the patch retry loop would read a stale "last write succeeded" and skip its reopen.
+	void DvdoClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; s_dvdoOpenPort.Empty(); s_dvdoLastPattern = -1; s_dvdoLastWriteOk = false; } }
 
 	// Pre-Defined Test Patterns (command 80): value is the pattern code. Requires the port
 	// open. No EA/Pass-Through command is ever sent (see the "do NOT send EA" note above),
@@ -1312,7 +1316,7 @@ namespace {
 
 // Returns TRUE if the port opened. msgOut carries a full human-readable status
 // (the AA transport note on success, or the failure reason).
-bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, CString& msgOut)
+bool CGDIGenerator_DvdoTestConnection(const CString& comPort, CString& msgOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
 	// Detect/Test acts on what is SELECTED: if that differs from the live port, adopt it, so
@@ -1323,7 +1327,7 @@ bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, CS
 	bool wasOpen = s_dvdoOpen;	// Show deliberately leaves the port open (pattern persists);
 								// close-then-immediate-reopen can fail on the virtual COM driver,
 								// so the probe must only close what it opened itself.
-	bool opened = DvdoOpen(comPort, colorSpace, 0 /*format n/a for probe*/, &fw, false /*probe only*/);
+	bool opened = DvdoOpen(comPort, 0 /*format n/a for probe*/, &fw, false /*probe only*/);
 	if (!opened)
 	{
 		msgOut = s_dvdoDiag;
@@ -1473,7 +1477,7 @@ bool CGDIGenerator_DvdoFindPattern(int code, int& ciOut, int& piOut)
 
 // Open the port (setup format/EA/6C), send pattern code (<0 or 0 = Off), close. The
 // TPG keeps displaying the pattern after the port closes.
-bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int outputFormat, int patternCode, CString& msgOut)
+bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int outputFormat, int patternCode, CString& msgOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
 	// Reuse an already-open port (e.g. left open by a prior Show or a live session) - a
@@ -1483,7 +1487,7 @@ bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int o
 	if (!s_dvdoOpen)
 	{
 		CString fw;
-		if (!DvdoOpen(comPort, colorSpace, outputFormat, &fw, true /*send setup*/))
+		if (!DvdoOpen(comPort, outputFormat, &fw, true /*send setup*/))
 		{
 			msgOut = s_dvdoDiag;
 			return false;
@@ -1530,7 +1534,7 @@ bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int f
 	if (s_dvdoOpen && !comPort.IsEmpty() && s_dvdoOpenPort.CompareNoCase(comPort) != 0)
 		DvdoClose();
 	CString fw;	// DvdoOpen reuses an already-open port (it does not close it); sendSetup re-sends 61
-	if (!DvdoOpen(comPort, colorSpace, formatCode, &fw, true /*send setup -> 61*/))
+	if (!DvdoOpen(comPort, formatCode, &fw, true /*send setup -> 61*/))
 	{
 		msgOut = s_dvdoDiag;
 		return false;
@@ -1572,7 +1576,7 @@ bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool l
 	out.Empty();
 	if (comPort.IsEmpty()) return false;
 	bool wasOpen = s_dvdoOpen;
-	if (!s_dvdoOpen) { CString fw; if (!DvdoOpen(comPort, csConfig, 0 /*don't change format*/, &fw, false /*query only*/)) { out = s_dvdoDiag; return false; } }
+	if (!s_dvdoOpen) { CString fw; if (!DvdoOpen(comPort, 0 /*don't change format*/, &fw, false /*query only*/)) { out = s_dvdoDiag; return false; } }
 	CString name, fwv, resv;
 	DvdoQuery("A8", name);
 	DvdoQuery("A9", fwv);
@@ -2647,7 +2651,7 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 				{
 					CString fw;
 					DvdoClose();
-					if (!DvdoOpen(m_dvdoComPort, m_dvdoColorSpace, m_dvdoOutputFormat, &fw, false /*no setup*/))
+					if (!DvdoOpen(m_dvdoComPort, m_dvdoOutputFormat, &fw, false /*no setup*/))
 						continue;		// device still gone - try again until the attempts run out
 				}
 			}

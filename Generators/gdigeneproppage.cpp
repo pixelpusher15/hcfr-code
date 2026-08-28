@@ -82,7 +82,7 @@ static char THIS_FILE[] = __FILE__;
 #define IDC_MURI_EDID_CLOSE_BTN   1745
 
 // Implemented in GDIGenerator.cpp: open the port, run output setup, then close.
-extern bool CGDIGenerator_DvdoTestConnection(const CString& comPort, int colorSpace, CString& fwOut);
+extern bool CGDIGenerator_DvdoTestConnection(const CString& comPort, CString& fwOut);
 extern CString CGDIGenerator_MuriActivePort();	// port actually open, empty if none
 extern CString CGDIGenerator_MuriActiveIp();	// address actually in use, empty if none
 // Built-in pattern (command 80) + output format (command 61) tables & actions.
@@ -92,7 +92,7 @@ extern int         CGDIGenerator_DvdoPatCountInCat(int ci);
 extern const char* CGDIGenerator_DvdoPatName(int ci, int pi);
 extern int         CGDIGenerator_DvdoPatCode(int ci, int pi);
 extern bool        CGDIGenerator_DvdoFindPattern(int code, int& ciOut, int& piOut);
-extern bool        CGDIGenerator_DvdoShowPattern(const CString& comPort, int colorSpace, int outputFormat, int patternCode, CString& msgOut);
+extern bool        CGDIGenerator_DvdoShowPattern(const CString& comPort, int outputFormat, int patternCode, CString& msgOut);
 extern bool        CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool lim, CString& out);
 extern int         CGDIGenerator_DvdoFmtCount();
 extern const char* CGDIGenerator_DvdoFmtName(int i);
@@ -1570,7 +1570,7 @@ void CDvdoSettingsDlg::OnTest()
 	SaveToConfig();		// see CMuriSettingsDlg::OnTest
 	int cs = (m_fmtCombo.GetCurSel() >= 0) ? m_fmtCombo.GetCurSel() : 0;
 	m_status.SetWindowText(LS(IDS_GEN_CONNECTING));
-	CString msg; CGDIGenerator_DvdoTestConnection(com, cs, msg);
+	CString msg; CGDIGenerator_DvdoTestConnection(com, msg);
 	m_status.SetWindowText(msg);
 }
 
@@ -1805,7 +1805,7 @@ void CGDIGenePropPage::OnDvdoShow()
 
 	m_dvdoStatus.SetWindowText(LS(IDS_GEN_SENDING_PATTERN));
 	CString msg;
-	CGDIGenerator_DvdoShowPattern(com, cs, fmt, code, msg);
+	CGDIGenerator_DvdoShowPattern(com, fmt, code, msg);
 	m_dvdoStatus.SetWindowText(msg);
 }
 
@@ -1819,7 +1819,7 @@ void CGDIGenePropPage::OnDvdoOff()
 	int fmt = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
 
 	CString msg;
-	CGDIGenerator_DvdoShowPattern(com, cs, fmt, 0 /*Off*/, msg);
+	CGDIGenerator_DvdoShowPattern(com, fmt, 0 /*Off*/, msg);
 	m_dvdoStatus.SetWindowText(msg);
 }
 
