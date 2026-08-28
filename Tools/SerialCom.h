@@ -55,8 +55,9 @@ public:
 	BOOL ReadByte(BYTE &resp);
 	BOOL WriteByte(BYTE bybyte);
 	BOOL OpenPort(CString portname);
-	// Both of the following CloseHandle(hComm) on EVERY failure path, so a caller that
-	// gets FALSE must not close the port again.
+	// Both of the following CloseHandle(hComm) on EVERY failure path AND set hComm to
+	// INVALID_HANDLE_VALUE, so a caller that gets FALSE may safely call ClosePort anyway -
+	// ClosePort is guarded and idempotent.
 	BOOL SetCommunicationTimeouts(DWORD ReadIntervalTimeout,DWORD ReadTotalTimeoutMultiplier,DWORD ReadTotalTimeoutConstant,DWORD WriteTotalTimeoutMultiplier,DWORD WriteTotalTimeoutConstant);
 	BOOL ConfigurePort(DWORD BaudRate,BYTE ByteSize,DWORD fParity,BYTE  Parity,BYTE StopBits);
 	// When TRUE, ConfigurePort/SetCommunicationTimeouts report failure through their

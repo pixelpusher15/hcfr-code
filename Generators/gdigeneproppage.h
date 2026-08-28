@@ -231,6 +231,7 @@ protected:
 	CComboBox m_comCombo, m_tgrpCombo, m_timingCombo, m_fmtCombo, m_rangeCombo, m_gamutCombo, m_hdrCombo, m_depthCombo;
 	CButton  m_testBtn, m_applyBtn, m_closeBtn;
 	CStatic  m_status;
+	bool m_loading;					// true only inside OnInitDialog (see OnFmtChange)
 	int  ComboCsId();				// derive cat-99 colour-space id from format+range
 	void MuriXport(bool& useNet, CString& ip, CString& com);
 	void PopulateComPorts();
@@ -287,6 +288,7 @@ protected:
 	virtual void OnOK();		// Enter commits (save+close), not a silent discard
 	afx_msg void OnClose2();
 	afx_msg void OnFmtChange();	// YCbCr is limited-range only - see the implementation
+	bool m_loading;				// true only inside OnInitDialog (see OnFmtChange)
 	DECLARE_MESSAGE_MAP()
 };
 

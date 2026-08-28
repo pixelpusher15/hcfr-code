@@ -1187,7 +1187,7 @@ BOOL CPGenSettingsDlg::PreTranslateMessage(MSG* pMsg)
 }
 
 // ---- Murideo Seven-G settings dialog ----------------------------------------
-CMuriSettingsDlg::CMuriSettingsDlg(CWnd* pParent) : CDialog(CMuriSettingsDlg::IDD, pParent) {}
+CMuriSettingsDlg::CMuriSettingsDlg(CWnd* pParent) : CDialog(CMuriSettingsDlg::IDD, pParent), m_loading(false) {}
 
 BEGIN_MESSAGE_MAP(CMuriSettingsDlg, CDialog)
 	ON_BN_CLICKED(IDC_MURI_TEST_BTN, OnTest)
@@ -1261,7 +1261,8 @@ int CMuriSettingsDlg::ComboCsId()
 void CMuriSettingsDlg::OnFmtChange()
 {
 	bool isRgb = (m_fmtCombo.GetCurSel() <= 0);
-	if (!isRgb) m_rangeCombo.SetCurSel(1);		// Limited
+	// See CDvdoSettingsDlg::OnFmtChange - never force while loading, RGB_16_235 is global.
+	if (!isRgb && !m_loading) m_rangeCombo.SetCurSel(1);		// Limited
 	m_rangeCombo.EnableWindow(isRgb);
 }
 
@@ -1352,7 +1353,7 @@ BOOL CMuriSettingsDlg::OnInitDialog()
 		{ m_tgrpCombo.SetCurSel(gi); PopulateTimingCombo(gi); m_timingCombo.SetCurSel(ii); }
 		else { m_tgrpCombo.SetCurSel(0); PopulateTimingCombo(0); }
 	}
-	OnFmtChange();
+	m_loading = true;  OnFmtChange();  m_loading = false;
 	UpdateTransportEnable();
 	return TRUE;
 }
@@ -1487,7 +1488,7 @@ void CMuriEdidDlg::OnCopy()
 void CMuriEdidDlg::OnClose2() { EndDialog(IDOK); }
 
 // ---- DVDO AVLab TPG settings dialog (mirrors CMuriSettingsDlg) ---------------
-CDvdoSettingsDlg::CDvdoSettingsDlg(CWnd* pParent) : CDialog(CDvdoSettingsDlg::IDD, pParent) {}
+CDvdoSettingsDlg::CDvdoSettingsDlg(CWnd* pParent) : CDialog(CDvdoSettingsDlg::IDD, pParent), m_loading(false) {}
 
 BEGIN_MESSAGE_MAP(CDvdoSettingsDlg, CDialog)
 	ON_BN_CLICKED(IDC_DVDO_DLG_TEST, OnTest)
@@ -1547,7 +1548,7 @@ BOOL CDvdoSettingsDlg::OnInitDialog()
 	m_resCombo.SetCurSel(CGDIGenerator_DvdoFmtIndexForCode(GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0)));
 	m_fmtCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0));
 	m_rangeCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 0 : 1);
-	OnFmtChange();		// enforce the YCbCr limited-range rule on the values just loaded
+	m_loading = true;  OnFmtChange();  m_loading = false;	// reflect the lock, change nothing
 	return TRUE;
 }
 
@@ -1559,7 +1560,11 @@ BOOL CDvdoSettingsDlg::OnInitDialog()
 void CDvdoSettingsDlg::OnFmtChange()
 {
 	bool isRgb = (m_fmtCombo.GetCurSel() <= 0);
-	if (!isRgb) m_rangeCombo.SetCurSel(0);		// Limited (16-235)
+	// Only a USER format change forces the range. Doing it while loading would let merely
+	// opening and closing this dialog rewrite RGB_16_235, which is HCFR's GLOBAL output-range
+	// key (ColorHCFR.cpp, ColorHCFRConfig::m_bRGB16_235, FullScreenWindow) - it would change
+	// the stimulus encoding for every generator and document without the user touching a thing.
+	if (!isRgb && !m_loading) m_rangeCombo.SetCurSel(0);		// Limited (16-235)
 	m_rangeCombo.EnableWindow(isRgb);
 }
 
@@ -1707,6 +1712,14 @@ void CGDIGenePropPage::OnOK()
 	// Default 1 = the canonical RGB_16_235 default: on a fresh install (no INI key) the dialog
 	// shows 16-235 from the generator's default, so oldRange must default the same way or a real
 	// 16-235 -> Full uncheck would look unchanged and skip the guard.
+	// The DVDO/Murideo settings dialogs own the range and may have saved it since this page was
+	// built, so adopt theirs BEFORE the write below - it used to happen after, which meant the
+	// page's stale copy clobbered the dialog's choice and the read-back then returned the
+	// clobbered value. A sheet dismissed with Escape/X never reached the old mirror at all.
+	if (m_nDisplayMode == DISPLAY_DVDO)
+		m_b16_235 = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235", m_b16_235);
+	else if (m_nDisplayMode == DISPLAY_MURIDEO)
+		m_b16_235 = (GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0) == 0) ? FALSE : TRUE;
 	BOOL oldRange = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? TRUE : FALSE;
 	GetConfig()->WriteProfileInt("GDIGenerator","DisplayMode",m_nDisplayMode);
 	GetConfig()->WriteProfileInt("GDIGenerator","RGB_16_235",m_b16_235);
@@ -1725,16 +1738,12 @@ void CGDIGenePropPage::OnOK()
 	// DVDO AVLab TPG: output config (COM / resolution / colour format / range) is owned by the
 	// "DVDO settings..." dialog; here we only mirror the range flag from what that dialog saved,
 	// and persist the pattern selected in the main-panel picker.
-	if (m_nDisplayMode == DISPLAY_DVDO)
-		m_b16_235 = GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235", m_b16_235);
 	if (m_dvdoPatCatCombo.GetSafeHwnd() && m_dvdoPatCombo.GetSafeHwnd() && m_dvdoPatCatCombo.GetCurSel() >= 0 && m_dvdoPatCombo.GetCurSel() >= 0)
 		GetConfig()->WriteProfileInt("GDIGenerator","DvdoPatternCode",CGDIGenerator_DvdoPatCode(m_dvdoPatCatCombo.GetCurSel(), m_dvdoPatCombo.GetCurSel()));
 
 	// Murideo Seven-G: output config (IP/transport/resolution/colour space) is saved by
 	// the Settings dialog; here we only persist the selected pattern. If Murideo is the
 	// active mode, mirror the range flag from the colour space the dialog stored.
-	if (m_nDisplayMode == DISPLAY_MURIDEO)
-		m_b16_235 = (GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0) == 0) ? FALSE : TRUE;
 	if (m_muriPatGrpCombo.GetSafeHwnd() && m_muriPatCombo.GetSafeHwnd() && m_muriPatGrpCombo.GetCurSel() >= 0 && m_muriPatCombo.GetCurSel() >= 0)
 	{
 		int pg = m_muriPatGrpCombo.GetCurSel(), pi = m_muriPatCombo.GetCurSel();

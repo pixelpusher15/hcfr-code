@@ -1309,7 +1309,9 @@ namespace {
 		// NOT queryable (measured 2026-08-27 - it never replies), despite the User's Guide saying
 		// "All commands can be queried unless otherwise specified". The arm field is excluded
 		// because it is an internal black flash, not something the user asked to see.
-		if (code != kDvdoArmPattern) s_dvdoLastPattern = code;	// 0 ("patterns off") is recorded but NEVER restored
+		// Only remember a send that succeeded - restoring a pattern the device never displayed
+		// would be worse than restoring nothing. 0 ("patterns off") is never restored either.
+		if (ok && code != kDvdoArmPattern) s_dvdoLastPattern = code;
 		return ok;
 	}
 } // namespace
@@ -1319,12 +1321,14 @@ namespace {
 bool CGDIGenerator_DvdoTestConnection(const CString& comPort, CString& msgOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
+	// Capture this BEFORE the adopting close below, or a port switch looks like "nothing was
+	// open" and the probe closes the port it just adopted, leaving the generator with nothing.
+	bool wasOpen = s_dvdoOpen;
 	// Detect/Test acts on what is SELECTED: if that differs from the live port, adopt it, so
 	// choosing the wrong port fails here instead of appearing to work on the old one.
 	if (s_dvdoOpen && !comPort.IsEmpty() && s_dvdoOpenPort.CompareNoCase(comPort) != 0)
 		DvdoClose();
-	CString fw;
-	bool wasOpen = s_dvdoOpen;	// Show deliberately leaves the port open (pattern persists);
+	CString fw;	// Show deliberately leaves the port open (pattern persists);
 								// close-then-immediate-reopen can fail on the virtual COM driver,
 								// so the probe must only close what it opened itself.
 	bool opened = DvdoOpen(comPort, 0 /*format n/a for probe*/, &fw, false /*probe only*/);
@@ -2337,7 +2341,10 @@ namespace {
 			MuriClose();		// adopt the newly chosen port
 		return MuriSerialOpen(com);
 	}
-	void MuriDisconnect() { MuriClose(); }
+	// Also forget the live address. The serial side re-adopts config on the next open because
+	// the port is closed; without this the network side kept the first IP for the life of the
+	// process, so a changed IP never took effect even across Release/Init.
+	void MuriDisconnect() { MuriClose(); s_muriIp.Empty(); }
 	void MuriSetTcpPort(int port) { if (port > 0 && port < 65536) s_muriTcpPort = port; }
 }
 
@@ -2611,7 +2618,9 @@ bool CGDIGenerator_MuriQueryReadoutSerial(const CString& comPort, CString& reado
 BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*first*/, UINT /*nPattern*/ )
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
-	if (!s_dvdoOpen) return FALSE;
+	// NOTE: no "if (!s_dvdoOpen) return FALSE" here. A closed port is exactly what the retry
+	// loop below exists to recover from - the cable-pull case - and returning early aborted the
+	// whole sweep with no reopen attempt and no Retry/Cancel prompt.
 
 	// Use the live window value (kept in sync with the prop page + config by
 	// GetPropertiesSheetValues); the generator's own m_rectSizePercent is only set
@@ -2639,14 +2648,19 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 			if (attempt > 1)
 			{
 				// A merely missing ack is retried on the same handle, because close-then-immediate-
-				// reopen can itself fail on the virtual COM driver (see DvdoOpen). Reopen when the
-				// write failed OR the port is simply not open - the second case used to be
-				// unreachable, because s_dvdoLastWriteOk is cleared only by DvdoWrite, DvdoWrite
+				// reopen can itself fail on the virtual COM driver (see DvdoOpen).
+				// A write that SUCCEEDED but was not acked is the re-lock signature: a patch that
+				// changes colour space or range makes the device re-sync, and it answers nothing
+				// until that finishes (~2 s, cf. DvdoFormatSettleMs). Waiting it out beats spending
+				// every retry inside the dead window and then raising a spurious "link lost" prompt.
+				Sleep(s_dvdoLastWriteOk
+					? (DWORD)GetConfig()->GetProfileInt("Debug", "DvdoRelockWaitMs", 2000)
+					: dwRetryPause);
+				// Reopen when the write failed OR the port is simply not open - the second case used to
+				// be unreachable, because s_dvdoLastWriteOk is cleared only by DvdoWrite, DvdoWrite
 				// cannot run with the port closed, and the guard below skipped the attempt first. The
-				// flag stayed true from the last good write and the reopen never fired, so the loop
-				// spun on a dead port - the exact failure it exists to recover from. DvdoClose now
-				// clears the flag too.
-				Sleep(dwRetryPause);
+				// flag stayed true from the last good write and the reopen never fired, so the loop spun
+				// on a dead port - the exact failure it exists to recover from. DvdoClose clears it too.
 				if (!s_dvdoLastWriteOk || !s_dvdoOpen)
 				{
 					CString fw;

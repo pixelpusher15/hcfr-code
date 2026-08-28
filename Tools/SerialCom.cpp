@@ -39,6 +39,7 @@ static char THIS_FILE[] = __FILE__;
 CSerialCom::CSerialCom()
 {
 	m_bQuiet = FALSE;
+	hComm = INVALID_HANDLE_VALUE;
 }
 
 CSerialCom::~CSerialCom()
@@ -79,7 +80,7 @@ BOOL CSerialCom::ConfigurePort(DWORD BaudRate, BYTE ByteSize, DWORD fParity, BYT
 {
 	if((m_bPortReady = GetCommState(hComm, &m_dcb))==0){
 		if(!m_bQuiet) MessageBox("GetCommState Error","Error",MB_OK+MB_ICONERROR);
-		CloseHandle(hComm);
+		CloseHandle(hComm); hComm = INVALID_HANDLE_VALUE;
 	return false;}
 m_dcb.BaudRate =BaudRate;
 m_dcb.ByteSize = ByteSize;
@@ -103,7 +104,7 @@ m_dcb.fOutxCtsFlow=false;
 m_bPortReady = SetCommState(hComm, &m_dcb);
 if(m_bPortReady ==0){
 		if(!m_bQuiet) MessageBox("SetCommState Error","Error",MB_OK+MB_ICONERROR);
-		CloseHandle(hComm);
+		CloseHandle(hComm); hComm = INVALID_HANDLE_VALUE;
 	return false;}
 return true;
 }
@@ -111,7 +112,7 @@ return true;
 BOOL CSerialCom::SetCommunicationTimeouts(DWORD ReadIntervalTimeout, DWORD ReadTotalTimeoutMultiplier, DWORD ReadTotalTimeoutConstant, DWORD WriteTotalTimeoutMultiplier, DWORD WriteTotalTimeoutConstant)
 {
 if((m_bPortReady = GetCommTimeouts (hComm, &m_CommTimeouts))==0){
-		CloseHandle(hComm);
+		CloseHandle(hComm); hComm = INVALID_HANDLE_VALUE;
 	return false;}
 m_CommTimeouts.ReadIntervalTimeout =ReadIntervalTimeout;
 m_CommTimeouts.ReadTotalTimeoutConstant =ReadTotalTimeoutConstant;
@@ -121,7 +122,7 @@ m_CommTimeouts.WriteTotalTimeoutMultiplier =WriteTotalTimeoutMultiplier;
 		m_bPortReady = SetCommTimeouts (hComm, &m_CommTimeouts);
 		if(m_bPortReady ==0){
 if(!m_bQuiet) MessageBox("StCommTimeouts function failed","Com Port Error",MB_OK+MB_ICONERROR);
-		CloseHandle(hComm);
+		CloseHandle(hComm); hComm = INVALID_HANDLE_VALUE;
 		return false;}
 		return true;
 }
@@ -152,6 +153,11 @@ if (ReadFile (hComm, &rx, 1, &dwBytesTransferred, 0)){
 
 void CSerialCom::ClosePort()
 {
-CloseHandle(hComm);
+	// Guarded and self-invalidating: ConfigurePort and SetCommunicationTimeouts already close
+	// the handle on failure, and several callers (KiGenerator, KiSensor) call ClosePort anyway,
+	// which used to be a double close on a stale handle value.
+	if (hComm != INVALID_HANDLE_VALUE && hComm != NULL)
+		CloseHandle(hComm);
+	hComm = INVALID_HANDLE_VALUE;
 return;
 }
