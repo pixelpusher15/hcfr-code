@@ -231,15 +231,22 @@ protected:
 	CComboBox m_comCombo, m_tgrpCombo, m_timingCombo, m_fmtCombo, m_rangeCombo, m_gamutCombo, m_hdrCombo, m_depthCombo;
 	CButton  m_testBtn, m_applyBtn, m_closeBtn;
 	CStatic  m_status;
+public:
+	BOOL m_applied;		// TRUE once Apply pushed something the device took (gates the caller's refresh)
+protected:
+	// What each control held when the dialog opened. Apply sends only what differs, the way
+	// CPGenSettingsDlg does, so an unreachable device costs one timeout instead of five.
+	int  m_initTiming, m_initCs, m_initGamut, m_initHdr, m_initDepth;
+	void PersistTransport();
+	void PersistSetting(int idx);
 	int  ComboCsId();				// derive cat-99 colour-space id from format+range
 	void MuriXport(bool& useNet, CString& ip, CString& com);
 	void PopulateComPorts();
 	void PopulateTimingCombo(int grp);
-	void SaveToConfig();
 	virtual BOOL OnInitDialog();
 	afx_msg void OnTest();
 	afx_msg void OnApply();
-	virtual void OnOK();		// Enter commits (save+close), not a silent discard
+	virtual void OnOK();		// Enter reads as Apply - see the implementation
 	afx_msg void OnClose2();
 	afx_msg void OnTgrpChange();
 	afx_msg void OnFmtChange();
@@ -279,12 +286,16 @@ protected:
 	CComboBox m_comCombo, m_resCombo, m_fmtCombo, m_rangeCombo;
 	CButton   m_testBtn, m_applyBtn, m_closeBtn;
 	CStatic   m_status;
+public:
+	BOOL m_applied;		// TRUE once Apply pushed something the device took (gates the caller's refresh)
+protected:
 	void PopulateComPorts();
+	void PersistTransport();
 	void SaveToConfig();
 	virtual BOOL OnInitDialog();
 	afx_msg void OnTest();
 	afx_msg void OnApply();
-	virtual void OnOK();		// Enter commits (save+close), not a silent discard
+	virtual void OnOK();		// Enter reads as Apply - see the implementation
 	afx_msg void OnClose2();
 	afx_msg void OnFmtChange();	// YCbCr is limited-range only - see the implementation
 	DECLARE_MESSAGE_MAP()

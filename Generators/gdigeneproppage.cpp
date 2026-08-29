@@ -118,7 +118,7 @@ extern const char* CGDIGenerator_MuriCsName(int i);
 extern int         CGDIGenerator_MuriCsId(int i);
 extern int         CGDIGenerator_MuriCsIndexForId(int id);
 extern bool        CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CString& comPort, CString& msgOut);
-extern bool        CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString& comPort, int timingId, int csId, int bt2020, int hdrMode, int bitDepth, CString& msgOut);
+extern bool        CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString& comPort, int timingId, int csId, int bt2020, int hdrMode, int bitDepth, CString& msgOut, DWORD* appliedOut = NULL);
 extern bool        CGDIGenerator_MuriReadSinkInfo(bool useNet, const CString& ip, const CString& comPort, int tcpPort, CString& summaryOut);
 extern bool        CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString& comPort, int patternId, int patternBer, CString& msgOut);
 extern bool        CGDIGenerator_MuriQueryReadout(const CString& ip, CString& readoutOut);
@@ -1196,7 +1196,8 @@ BOOL CPGenSettingsDlg::PreTranslateMessage(MSG* pMsg)
 }
 
 // ---- Murideo Seven-G settings dialog ----------------------------------------
-CMuriSettingsDlg::CMuriSettingsDlg(CWnd* pParent) : CDialog(CMuriSettingsDlg::IDD, pParent) {}
+CMuriSettingsDlg::CMuriSettingsDlg(CWnd* pParent) : CDialog(CMuriSettingsDlg::IDD, pParent),
+	m_applied(FALSE), m_initTiming(-1), m_initCs(-1), m_initGamut(-1), m_initHdr(-1), m_initDepth(-1) {}
 
 BEGIN_MESSAGE_MAP(CMuriSettingsDlg, CDialog)
 	ON_BN_CLICKED(IDC_MURI_TEST_BTN, OnTest)
@@ -1235,7 +1236,10 @@ static void PopulateComPortCombo(CComboBox& combo, const char* configKey)
 	}
 	if (!current.IsEmpty() && combo.FindStringExact(-1, current) == CB_ERR) combo.AddString(current);
 	int sel = current.IsEmpty() ? CB_ERR : combo.FindStringExact(-1, current);
-	if (sel != CB_ERR) combo.SetCurSel(sel); else if (combo.GetCount() > 0) combo.SetCurSel(0);
+	// Select ONLY what is actually configured. Falling back to the first enumerated port
+	// showed a port the user never chose and that nothing had connected to - and one
+	// unread Apply would then commit it. Nothing configured must look like nothing chosen.
+	if (sel != CB_ERR) combo.SetCurSel(sel);
 }
 
 void CMuriSettingsDlg::PopulateComPorts()
@@ -1333,8 +1337,8 @@ BOOL CMuriSettingsDlg::OnInitDialog()
 	MK_LBL(m_lblDepth, LS(IDS_GEN_BIT_DEPTH)); MK_CB(m_depthCombo, IDC_MURI_DEPTH_COMBO, 60);
 	m_depthCombo.AddString(_T("8 bit")); m_depthCombo.AddString(_T("10 bit"));
 	y += 20;
-	{ CPoint p = M.at(CX, y); m_applyBtn.Create(LS(IDS_GEN_APPLY), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(58), p.y + M.ht(14)), this, IDC_MURI_APPLY_BTN); m_applyBtn.SetFont(font); }
-	{ CPoint p = M.at(CX + 66, y); m_closeBtn.Create(LS(IDS_GEN_CLOSE), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, CRect(p.x, p.y, p.x + M.w(58), p.y + M.ht(14)), this, IDC_MURI_CLOSE_BTN); m_closeBtn.SetFont(font); }
+	{ CPoint p = M.at(CX, y); m_applyBtn.Create(LS(IDS_GEN_APPLY), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, CRect(p.x, p.y, p.x + M.w(58), p.y + M.ht(14)), this, IDC_MURI_APPLY_BTN); m_applyBtn.SetFont(font); }
+	{ CPoint p = M.at(CX + 66, y); m_closeBtn.Create(LS(IDS_GEN_CLOSE), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(58), p.y + M.ht(14)), this, IDC_MURI_CLOSE_BTN); m_closeBtn.SetFont(font); }
 	int bottomY = y + 20;
 	#undef MK_LBL
 	#undef MK_CB
@@ -1354,21 +1358,43 @@ BOOL CMuriSettingsDlg::OnInitDialog()
 
 	// Load current values from config.
 	m_netCheck.SetCheck(GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1) ? BST_CHECKED : BST_UNCHECKED);
-	m_ipEdit.SetWindowText(GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239"));
+	m_ipEdit.SetWindowText(GetConfig()->GetProfileString("GDIGenerator","MuriIp",""));
 	PopulateComPorts();
-	m_fmtCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","MuriColorFormat",0));
-	m_rangeCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","MuriRange",0));
-	m_gamutCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","MuriBt2020",0));
-	m_hdrCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","MuriHdrMode",0));
-	m_depthCombo.SetCurSel(GetConfig()->GetProfileInt("GDIGenerator","MuriBitDepth",0));
+	// Read with a -1 default so an ABSENT key is distinguishable from a stored 0. What the
+	// configuration holds is the last thing this dialog told the device; where it holds
+	// nothing, the device's state is unknown and Apply must send the value rather than
+	// assume it already matches. Without this, on a fresh configuration the value a combo
+	// happens to default to could never be applied - it always compared equal.
+	int iFmt   = GetConfig()->GetProfileInt("GDIGenerator","MuriColorFormat",-1);
+	int iRange = GetConfig()->GetProfileInt("GDIGenerator","MuriRange",-1);
+	int iGamut = GetConfig()->GetProfileInt("GDIGenerator","MuriBt2020",-1);
+	int iHdr   = GetConfig()->GetProfileInt("GDIGenerator","MuriHdrMode",-1);
+	int iDepth = GetConfig()->GetProfileInt("GDIGenerator","MuriBitDepth",-1);
+	m_fmtCombo.SetCurSel(iFmt     < 0 ? 0 : iFmt);
+	m_rangeCombo.SetCurSel(iRange < 0 ? 0 : iRange);
+	m_gamutCombo.SetCurSel(iGamut < 0 ? 0 : iGamut);
+	m_hdrCombo.SetCurSel(iHdr     < 0 ? 0 : iHdr);
+	m_depthCombo.SetCurSel(iDepth < 0 ? 0 : iDepth);
+	bool haveTiming = false;
 	{
 		int gi = 0, ii = 0;
 		if (CGDIGenerator_MuriFindTiming(GetConfig()->GetProfileInt("GDIGenerator","MuriTimingId",-1), gi, ii))
-		{ m_tgrpCombo.SetCurSel(gi); PopulateTimingCombo(gi); m_timingCombo.SetCurSel(ii); }
+		{ m_tgrpCombo.SetCurSel(gi); PopulateTimingCombo(gi); m_timingCombo.SetCurSel(ii); haveTiming = true; }
 		else { m_tgrpCombo.SetCurSel(0); PopulateTimingCombo(0); }
 	}
 	OnFmtChange();
 	UpdateTransportEnable();
+	// Baselines, taken after the controls are loaded: Apply sends only what the user
+	// actually changed. Five commands to an unreachable device cost five timeouts.
+	// -1 = unknown, which never compares equal, so the setting is always sent.
+	m_initTiming = haveTiming
+		? CGDIGenerator_MuriTimingId(m_tgrpCombo.GetCurSel(), m_timingCombo.GetCurSel())
+		: -1;
+	// Both halves feed cat 99, so either one missing leaves the combined value unknown.
+	m_initCs    = (iFmt < 0 || iRange < 0) ? -1 : ComboCsId();
+	m_initGamut = iGamut;
+	m_initHdr   = iHdr;
+	m_initDepth = iDepth;
 	return TRUE;
 }
 
@@ -1377,10 +1403,14 @@ void CMuriSettingsDlg::OnTest()
 	bool net; CString ip, com; MuriXport(net, ip, com);
 	if (net && ip.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_ENTER_MURI_IP_FIRST)); return; }
 	if (!net && com.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_SELECT_COM_FIRST)); return; }
-	SaveToConfig();		// every button here commits what is on screen; only the device action differs
 	m_status.SetWindowText(LS(IDS_GEN_CONNECTING));
-	CString msg; CGDIGenerator_MuriTestConnection(net, ip, com, msg);
+	m_status.UpdateWindow();
+	CString msg;
+	bool ok;
+	{ CWaitCursor wait; ok = CGDIGenerator_MuriTestConnection(net, ip, com, msg); }
 	m_status.SetWindowText(msg);
+	// A transport becomes the configured one by connecting on it, not by being typed in.
+	if (ok) { PersistTransport(); m_applied = TRUE; }
 }
 
 
@@ -1389,7 +1419,6 @@ void CMuriSettingsDlg::OnApply()
 	bool net; CString ip, com; MuriXport(net, ip, com);
 	if (net && ip.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_ENTER_MURI_IP_FIRST)); return; }
 	if (!net && com.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_SELECT_COM_FIRST)); return; }
-	SaveToConfig();		// Apply = adopt the transport AND push the settings
 	int tg = m_tgrpCombo.GetCurSel(); if (tg < 0) tg = 0;
 	int ti = m_timingCombo.GetCurSel(); if (ti < 0) ti = 0;
 	int timingId = CGDIGenerator_MuriTimingId(tg, ti);
@@ -1397,43 +1426,90 @@ void CMuriSettingsDlg::OnApply()
 	int gamut = m_gamutCombo.GetCurSel(); if (gamut < 0) gamut = 0;	// 0=BT.709,1=BT.2020 -> cat112
 	int hdr   = m_hdrCombo.GetCurSel();   if (hdr < 0) hdr = 0;
 	int depth = m_depthCombo.GetCurSel(); if (depth < 0) depth = 0;	// 0=8bit,1=10bit -> cat100
-	CString msg;
-	CGDIGenerator_MuriApplyOutput(net, ip, com, timingId, csId, gamut, hdr, depth, msg);
-	m_status.SetWindowText(msg);
+	// -1 means "unchanged since this dialog opened" and is skipped by MuriApplyOutput.
+	if (timingId == m_initTiming) timingId = -1;
+	if (csId     == m_initCs)     csId     = -1;
+	if (gamut    == m_initGamut)  gamut    = -1;
+	if (hdr      == m_initHdr)    hdr      = -1;
+	if (depth    == m_initDepth)  depth    = -1;
+	m_status.SetWindowText(LS(IDS_GEN_CONNECTING));
+	m_status.UpdateWindow();
+	CString msg; DWORD landed = 0; bool ok;
+	{ CWaitCursor wait; ok = CGDIGenerator_MuriApplyOutput(net, ip, com, timingId, csId, gamut, hdr, depth, msg, &landed); }
+	// Record exactly what the device took. A partial apply is still a real device state,
+	// and pretending otherwise would leave the configuration describing a machine that
+	// no longer matches it.
+	if (ok || landed) PersistTransport();
+	for (int i = 0; i < 5; ++i) if (landed & (1u << i)) PersistSetting(i);	// 5 = the cmds[] count
+	if (!ok)
+	{
+		// Stay open: the status line is the only place this failure is reported.
+		if (landed) m_applied = TRUE;
+		m_status.SetWindowText(msg);
+		return;
+	}
+	m_applied = TRUE;
+	EndDialog(IDOK);
 }
 
-void CMuriSettingsDlg::SaveToConfig()
+// The transport is written only once something has actually connected on it - Detect/Test
+// proving it, or Apply reaching the device. Typing an address and pressing Close leaves
+// the configuration alone, because nothing was established.
+void CMuriSettingsDlg::PersistTransport()
 {
-	CString ip; m_ipEdit.GetWindowText(ip); ip.Trim();
-	CString com; m_comCombo.GetWindowText(com); com.Trim();
-	GetConfig()->WriteProfileString("GDIGenerator","MuriIp",ip);
-	GetConfig()->WriteProfileString("GDIGenerator","MuriComPort",com);
-	GetConfig()->WriteProfileInt("GDIGenerator","MuriUseNetwork", m_netCheck.GetCheck() == BST_CHECKED ? 1 : 0);
-	int fmt = m_fmtCombo.GetCurSel() < 0 ? 0 : m_fmtCombo.GetCurSel();
-	int rng = m_rangeCombo.GetCurSel() < 0 ? 0 : m_rangeCombo.GetCurSel();
-	GetConfig()->WriteProfileInt("GDIGenerator","MuriColorFormat", fmt);
-	GetConfig()->WriteProfileInt("GDIGenerator","MuriRange", rng);
-	GetConfig()->WriteProfileInt("GDIGenerator","MuriBt2020", m_gamutCombo.GetCurSel() < 0 ? 0 : m_gamutCombo.GetCurSel());
-	GetConfig()->WriteProfileInt("GDIGenerator","MuriHdrMode", m_hdrCombo.GetCurSel() < 0 ? 0 : m_hdrCombo.GetCurSel());
-	GetConfig()->WriteProfileInt("GDIGenerator","MuriBitDepth", m_depthCombo.GetCurSel() < 0 ? 0 : m_depthCombo.GetCurSel());
-	GetConfig()->WriteProfileInt("GDIGenerator","MuriColorSpaceId", ComboCsId());
-	// The Seven-G's own range already rides in MuriColorSpaceId (cat 99) above, so nothing more
-	// is needed here. RGB_16_235 is HCFR's ENCODING and belongs to the generator page's radios -
-	// writing it from this dialog used to tie the two together, making "HCFR full, device
-	// limited" unreachable. See the hasSignal note in BuildRuntimeLayout.
-	if (m_tgrpCombo.GetCurSel() >= 0 && m_timingCombo.GetCurSel() >= 0)
-		GetConfig()->WriteProfileInt("GDIGenerator","MuriTimingId",
-			CGDIGenerator_MuriTimingId(m_tgrpCombo.GetCurSel(), m_timingCombo.GetCurSel()));
+	// Only the transport that was actually proven. Writing both would commit the OTHER
+	// one's untested value on the strength of this one's success - the same "typing it
+	// makes it configured" mistake this function exists to avoid.
+	bool useNet = (m_netCheck.GetCheck() == BST_CHECKED);
+	if (useNet)
+	{
+		CString ip; m_ipEdit.GetWindowText(ip); ip.Trim();
+		GetConfig()->WriteProfileString("GDIGenerator","MuriIp",ip);
+	}
+	else
+	{
+		CString com; m_comCombo.GetWindowText(com); com.Trim();
+		GetConfig()->WriteProfileString("GDIGenerator","MuriComPort",com);
+	}
+	GetConfig()->WriteProfileInt("GDIGenerator","MuriUseNetwork", useNet ? 1 : 0);
 }
 
-// Close records your choices and does NOT touch the device - that is what Apply is for.
-void CMuriSettingsDlg::OnClose2() { SaveToConfig(); EndDialog(IDOK); }
+// One setting, by its index in the Apply batch. Called only for the ones the device
+// accepted, so the configuration records what the hardware was actually told.
+//
+// The index is a bit position in the mask CGDIGenerator_MuriApplyOutput fills in, so this
+// switch MUST stay in step with the cmds[] array there: 0 timing (cat 97), 1 colour space
+// (cat 99), 2 gamut (cat 112), 3 HDR mode (cat 111), 4 bit depth (cat 100). Reordering one
+// without the other would persist the wrong key for every setting, silently.
+void CMuriSettingsDlg::PersistSetting(int idx)
+{
+	switch (idx)
+	{
+	case 0:
+		if (m_tgrpCombo.GetCurSel() >= 0 && m_timingCombo.GetCurSel() >= 0)
+			GetConfig()->WriteProfileInt("GDIGenerator","MuriTimingId",
+				CGDIGenerator_MuriTimingId(m_tgrpCombo.GetCurSel(), m_timingCombo.GetCurSel()));
+		break;
+	case 1:	// cat 99 carries colour format AND the device's range together
+		GetConfig()->WriteProfileInt("GDIGenerator","MuriColorSpaceId", ComboCsId());
+		GetConfig()->WriteProfileInt("GDIGenerator","MuriColorFormat", m_fmtCombo.GetCurSel() < 0 ? 0 : m_fmtCombo.GetCurSel());
+		GetConfig()->WriteProfileInt("GDIGenerator","MuriRange",       m_rangeCombo.GetCurSel() < 0 ? 0 : m_rangeCombo.GetCurSel());
+		break;
+	case 2: GetConfig()->WriteProfileInt("GDIGenerator","MuriBt2020",  m_gamutCombo.GetCurSel() < 0 ? 0 : m_gamutCombo.GetCurSel()); break;
+	case 3: GetConfig()->WriteProfileInt("GDIGenerator","MuriHdrMode", m_hdrCombo.GetCurSel()   < 0 ? 0 : m_hdrCombo.GetCurSel());   break;
+	case 4: GetConfig()->WriteProfileInt("GDIGenerator","MuriBitDepth",m_depthCombo.GetCurSel() < 0 ? 0 : m_depthCombo.GetCurSel()); break;
+	}
+}
 
-// Enter fires the hidden template IDOK (still the dialog DEFID), and CDialog::OnOK
-// would EndDialog(IDOK) without saving - while the caller treats IDOK as saved.
-// Route it through the same save+close as the Close button (CPGenSettingsDlg's own
-// OnOK exists for the same reason).
-void CMuriSettingsDlg::OnOK() { OnClose2(); }
+// Close leaves. It writes nothing and sends nothing: a control you changed and did not
+// Apply was never told to the device, so recording it would make the configuration
+// describe a machine that was never set that way. Same contract as CPGenSettingsDlg,
+// where Close is the template's own IDCANCEL.
+void CMuriSettingsDlg::OnClose2() { EndDialog(IDCANCEL); }
+
+// Enter fires the hidden template IDOK (still the dialog DEFID). The button it reads as
+// is Apply, so send it there rather than to CDialog::OnOK, which would close silently.
+void CMuriSettingsDlg::OnOK() { OnApply(); }
 
 // ---- Murideo connected-sink EDID report dialog ------------------------------
 CMuriEdidDlg::CMuriEdidDlg(CWnd* pParent) : CDialog(CMuriEdidDlg::IDD, pParent) {}
@@ -1475,7 +1551,7 @@ BOOL CMuriEdidDlg::OnInitDialog()
 void CMuriEdidDlg::LoadEdid()
 {
 	bool net = GetConfig()->GetProfileInt("GDIGenerator", "MuriUseNetwork", 1) != 0;
-	CString ip = GetConfig()->GetProfileString("GDIGenerator", "MuriIp", "192.168.1.239");
+	CString ip = GetConfig()->GetProfileString("GDIGenerator", "MuriIp", "");
 	CString com = GetConfig()->GetProfileString("GDIGenerator", "MuriComPort", "");
 	int port = GetConfig()->GetProfileInt("GDIGenerator", "MuriTcpPort", 23);
 	if (net && ip.IsEmpty()) { m_readout.SetWindowText(LS(IDS_GEN_SET_MURI_IP_SETTINGS)); return; }
@@ -1503,7 +1579,7 @@ void CMuriEdidDlg::OnCopy()
 void CMuriEdidDlg::OnClose2() { EndDialog(IDOK); }
 
 // ---- DVDO AVLab TPG settings dialog (mirrors CMuriSettingsDlg) ---------------
-CDvdoSettingsDlg::CDvdoSettingsDlg(CWnd* pParent) : CDialog(CDvdoSettingsDlg::IDD, pParent) {}
+CDvdoSettingsDlg::CDvdoSettingsDlg(CWnd* pParent) : CDialog(CDvdoSettingsDlg::IDD, pParent), m_applied(FALSE) {}
 
 BEGIN_MESSAGE_MAP(CDvdoSettingsDlg, CDialog)
 	ON_BN_CLICKED(IDC_DVDO_DLG_TEST, OnTest)
@@ -1547,8 +1623,8 @@ BOOL CDvdoSettingsDlg::OnInitDialog()
 	y += 17;
 	{ CPoint p = M.at(LX, y + 1); m_status.Create(_T(""), WS_CHILD | WS_VISIBLE | SS_LEFT, CRect(p.x, p.y, p.x + M.w(LW + CW), p.y + M.ht(18)), this); m_status.SetFont(font); }
 	y += 24;
-	{ CPoint p = M.at(CX, y); m_applyBtn.Create(LS(IDS_GEN_APPLY), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(58), p.y + M.ht(14)), this, IDC_DVDO_DLG_APPLY); m_applyBtn.SetFont(font); }
-	{ CPoint p = M.at(CX + 66, y); m_closeBtn.Create(LS(IDS_GEN_CLOSE), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, CRect(p.x, p.y, p.x + M.w(58), p.y + M.ht(14)), this, IDC_DVDO_DLG_CLOSE); m_closeBtn.SetFont(font); }
+	{ CPoint p = M.at(CX, y); m_applyBtn.Create(LS(IDS_GEN_APPLY), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, CRect(p.x, p.y, p.x + M.w(58), p.y + M.ht(14)), this, IDC_DVDO_DLG_APPLY); m_applyBtn.SetFont(font); }
+	{ CPoint p = M.at(CX + 66, y); m_closeBtn.Create(LS(IDS_GEN_CLOSE), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(58), p.y + M.ht(14)), this, IDC_DVDO_DLG_CLOSE); m_closeBtn.SetFont(font); }
 	int bottomY = y + 20;
 	#undef DK_LBL
 	#undef DK_CB
@@ -1592,25 +1668,42 @@ void CDvdoSettingsDlg::OnTest()
 {
 	CString com; m_comCombo.GetWindowText(com); com.Trim();
 	if (com.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_SELECT_COM_FIRST)); return; }
-	SaveToConfig();		// see CMuriSettingsDlg::OnTest
 	m_status.SetWindowText(LS(IDS_GEN_CONNECTING));
-	CString msg; CGDIGenerator_DvdoTestConnection(com, msg);
+	m_status.UpdateWindow();
+	CString msg;
+	bool ok;
+	{ CWaitCursor wait; ok = CGDIGenerator_DvdoTestConnection(com, msg); }
 	m_status.SetWindowText(msg);
+	if (ok) { PersistTransport(); m_applied = TRUE; }	// see CMuriSettingsDlg::OnTest
 }
 
 void CDvdoSettingsDlg::OnApply()
 {
 	CString com; m_comCombo.GetWindowText(com); com.Trim();
 	if (com.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_SELECT_COM_FIRST)); return; }
-	SaveToConfig();		// Apply = adopt the transport AND push the settings
 	int cs  = (m_fmtCombo.GetCurSel() >= 0) ? m_fmtCombo.GetCurSel() : 0;
 	int res = (m_resCombo.GetCurSel() >= 0) ? CGDIGenerator_DvdoFmtCode(m_resCombo.GetCurSel()) : 0;
 	// The combo is Full(0) / Limited(1), matching PGenerator and the DvdoOutputRange key, so
 	// the selection index IS the limited flag. It used to be the other way round and this line
 	// was not updated with it, which inverted Apply: choosing Full set the device to Limited.
 	int limited = (m_rangeCombo.GetCurSel() == 1) ? 1 : 0;
-	CString msg; CGDIGenerator_DvdoApplyOutput(com, cs, res, limited, msg);
-	m_status.SetWindowText(msg);
+	m_status.SetWindowText(LS(IDS_GEN_CONNECTING));
+	m_status.UpdateWindow();
+	CString msg;
+	bool ok;
+	{ CWaitCursor wait; ok = CGDIGenerator_DvdoApplyOutput(com, cs, res, limited, msg); }
+	if (!ok)
+	{
+		// Nothing reached the device, so nothing is recorded. Stay open - the status line
+		// is the only place this failure is reported.
+		m_status.SetWindowText(msg);
+		return;
+	}
+	// Unlike the Murideo, the AVLab takes format, colour space and range in one command,
+	// so this succeeds or fails whole - there is no partial state to record.
+	SaveToConfig();
+	m_applied = TRUE;
+	EndDialog(IDOK);
 }
 
 void CDvdoSettingsDlg::SaveToConfig()
@@ -1625,11 +1718,18 @@ void CDvdoSettingsDlg::SaveToConfig()
 		GetConfig()->WriteProfileInt("GDIGenerator","DvdoOutputRange", m_rangeCombo.GetCurSel());
 }
 
-// See CMuriSettingsDlg::OnClose2 - records only, never acts.
-void CDvdoSettingsDlg::OnClose2() { SaveToConfig(); EndDialog(IDOK); }
+// See CMuriSettingsDlg::PersistTransport.
+void CDvdoSettingsDlg::PersistTransport()
+{
+	CString com; m_comCombo.GetWindowText(com); com.Trim();
+	GetConfig()->WriteProfileString("GDIGenerator","DvdoComPort",com);
+}
 
-// Same Enter-commits contract as CMuriSettingsDlg::OnOK.
-void CDvdoSettingsDlg::OnOK() { OnClose2(); }
+// See CMuriSettingsDlg::OnClose2 - leaves without writing or sending anything.
+void CDvdoSettingsDlg::OnClose2() { EndDialog(IDCANCEL); }
+
+// Same Enter-is-Apply contract as CMuriSettingsDlg::OnOK.
+void CDvdoSettingsDlg::OnOK() { OnApply(); }
 
 BOOL CGDIGenePropPage::PreTranslateMessage(MSG* pMsg)
 {
@@ -1918,7 +2018,10 @@ void CGDIGenePropPage::OnDvdoRefresh() { RefreshDvdoStatus(); }
 void CGDIGenePropPage::OnDvdoSettings()
 {
 	CDvdoSettingsDlg dlg(this);
-	if (dlg.DoModal() == IDOK)
+	dlg.DoModal();
+	// m_applied, not the return code: Detect and a partial Apply both change the device
+	// and the configuration while leaving the dialog open, so the user can then Close it.
+	if (dlg.m_applied)
 	{
 		// No RGB_16_235 sync: the dialog owns the DEVICE range only, and re-reading the key
 		// here would overwrite an unsaved radio change the user just made on this page.
@@ -1946,7 +2049,7 @@ void CGDIGenePropPage::OnMuriPatGrpChange()
 void CGDIGenePropPage::MuriXport(bool& useNet, CString& ip, CString& com)
 {
 	useNet = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1) != 0;
-	ip = GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239");
+	ip = GetConfig()->GetProfileString("GDIGenerator","MuriIp","");
 	com = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
 }
 
@@ -1954,7 +2057,8 @@ void CGDIGenePropPage::MuriXport(bool& useNet, CString& ip, CString& com)
 void CGDIGenePropPage::OnMuriSettings()
 {
 	CMuriSettingsDlg dlg(this);
-	if (dlg.DoModal() == IDOK)
+	dlg.DoModal();
+	if (dlg.m_applied)		// see CGDIGenePropPage::OnDvdoSettings
 	{
 		// No RGB_16_235 sync - see CGDIGenePropPage::OnDvdoSettings.
 		// Bit-depth may have changed: recompute the page's 10-bit-levels flag so the

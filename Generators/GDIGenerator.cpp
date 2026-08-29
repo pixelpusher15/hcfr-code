@@ -37,6 +37,7 @@
 #include <wininet.h>
 #pragma comment(lib, "wininet.lib")
 #include <winsock2.h>				// raw-TCP transport for the binary UART protocol
+#include <ws2tcpip.h>				// InetPtonA - inet_addr is deprecated and cannot report failure
 #pragma comment(lib, "ws2_32.lib")	// (stdafx defines VC_EXTRALEAN, so windows.h skips winsock.h - no conflict)
 
 #include <string>
@@ -116,7 +117,7 @@ CGDIGenerator::CGDIGenerator()
 		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
 	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
 	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
-	m_muriIp = GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239");
+	m_muriIp = GetConfig()->GetProfileString("GDIGenerator","MuriIp","");
 	m_muriUseNetwork = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
 	m_muriTcpPort = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
 	m_muriTimingId = GetConfig()->GetProfileInt("GDIGenerator","MuriTimingId",-1);
@@ -176,7 +177,7 @@ CGDIGenerator::CGDIGenerator(int nDisplayMode, BOOL b16_235)
 		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
 	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
 	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
-	m_muriIp = GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239");
+	m_muriIp = GetConfig()->GetProfileString("GDIGenerator","MuriIp","");
 	m_muriUseNetwork = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
 	m_muriTcpPort = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
 	m_muriTimingId = GetConfig()->GetProfileInt("GDIGenerator","MuriTimingId",-1);
@@ -707,7 +708,7 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 		m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
 			GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
 		m_muriComPort      = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
-		m_muriIp           = GetConfig()->GetProfileString("GDIGenerator","MuriIp","192.168.1.239");
+		m_muriIp           = GetConfig()->GetProfileString("GDIGenerator","MuriIp","");
 		m_muriUseNetwork   = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
 		m_muriColorSpaceId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0);
 		m_muriTcpPort      = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
@@ -1123,7 +1124,11 @@ namespace {
 		s_dvdoLastWriteOk = false;
 		if (!s_dvdoOpen) return false;
 		for (size_t i = 0; i < pkt.size(); ++i)
-			if (!s_dvdoPort.WriteByte((BYTE)pkt[i])) return false;
+			if (!s_dvdoPort.WriteByte((BYTE)pkt[i]))
+			{
+				DvdoClose();	// see MuriSerialWriteRaw - a failed write leaves a dead, still-locked handle
+				return false;
+			}
 		s_dvdoLastWriteOk = true;
 		return true;
 	}
@@ -1546,6 +1551,30 @@ bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int f
 	if (s_dvdoOpen && !comPort.IsEmpty() && s_dvdoOpenPort.CompareNoCase(comPort) != 0)
 		DvdoClose();
 	CString fw;	// DvdoOpen reuses an already-open port (it does not close it); sendSetup re-sends 61
+	// Identify the device BEFORE sending it anything, exactly as Detect does. Opening the
+	// port proves only that the port exists; any other adapter opens just as happily and
+	// swallows every byte. Measured on the Murideo 2026-08-29: Apply on the wrong port
+	// reported success and persisted a setting the hardware never received.
+	//
+	// This is a probe-only open (sendSetup false) because the setup open sends command 61,
+	// and a resolution change must not go out to an unidentified device. The second open
+	// below reuses this handle and only does the setup.
+	if (!DvdoOpen(comPort, 0 /*format n/a for probe*/, &fw, false /*probe only*/))
+	{
+		msgOut = s_dvdoDiag;
+		return false;		// the open failed, so there is nothing of ours to close
+	}
+	CString name;
+	if (!(DvdoQuery("A8", name) && !name.IsEmpty()))
+	{
+		msgOut.Format(LS(IDS_GEN_DVDO_NO_RESPOND), (LPCTSTR)comPort);
+		// Unconditionally, without the only-close-what-we-opened guard DvdoTestConnection
+		// uses: that guard samples whatever port was live BEFORE the adopting close above,
+		// which may be a different port entirely. What is open now is the port that just
+		// failed to identify, and it must not stay adopted.
+		DvdoClose();		// nothing was sent, and this port is not the AVLab
+		return false;
+	}
 	if (!DvdoOpen(comPort, formatCode, &fw, true /*send setup -> 61*/))
 	{
 		msgOut = s_dvdoDiag;
@@ -1559,6 +1588,16 @@ bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int f
 	// the device does not acknowledge a command that makes it re-sync (measured). Checking this
 	// return would make every SUCCESSFUL Apply report failure.
 	DvdoCommand("AA", std::vector<std::string>(1, v));
+	// The ACK is ignored (above), but a write that never left the host is not an Apply.
+	// DvdoWrite now closes the port when WriteFile fails, so reporting success here would
+	// persist a setting with no device and no open port behind it. This does NOT prove the
+	// device received it - CSerialCom::WriteByte never checks iBytesWritten (see the note
+	// in DisplayRGBColorDVDO) - it only catches the hard failure.
+	if (!s_dvdoLastWriteOk)
+	{
+		msgOut = s_dvdoDiag;
+		return false;
+	}
 	Sleep(GetConfig()->GetProfileInt("Debug", "DvdoApplySettleMs", 600));
 	// Put back whatever pattern the user had showing - the black patch above replaced it.
 	// STRICTLY > 0: pattern 0 is "patterns off", which DISARMS the TPG. A disarmed device
@@ -1742,6 +1781,23 @@ namespace {
 			}
 		}
 		return s_muriHInet;
+	}
+
+	// One round trip that proves the device is actually answering. HTTP is connectionless,
+	// so MuriConnect adopting an address proves nothing at all - without this, applying
+	// five settings to an absent device meant five WinINet timeouts in a row.
+	bool MuriHttpReachable(DWORD& errOut)
+	{
+		errOut = 0;
+		if (s_muriIp.IsEmpty()) return false;
+		HINTERNET hI = MuriInet();
+		if (!hI) { errOut = GetLastError(); return false; }
+		CString url; url.Format(_T("http://%s/"), (LPCTSTR)s_muriIp);
+		HINTERNET hU = InternetOpenUrl(hI, url, NULL, 0,
+			INTERNET_FLAG_NO_UI | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0);
+		if (!hU) { errOut = GetLastError(); return false; }
+		InternetCloseHandle(hU);
+		return true;
 	}
 
 	bool MuriHttpGet(const char* cgi, const std::string& button)
@@ -1952,7 +2008,19 @@ namespace {
 	{
 		if (!s_muriOpen) return false;
 		for (size_t i = 0; i < bytes.size(); ++i)
-			if (!s_muriPort.WriteByte((BYTE)bytes[i])) return false;
+			if (!s_muriPort.WriteByte((BYTE)bytes[i]))
+			{
+				// The write failed, so the port is no longer usable - the cable is out, or the
+				// driver went away. Unlike the SetCommTimeouts paths in MuriSerialXfer, a failed
+				// WriteByte does NOT close the handle (CSerialCom::WriteByte just returns false),
+				// so leaving s_muriOpen set would keep every later operation writing into a dead
+				// handle AND keep the COM port locked against other applications. MuriSerialOpen
+				// reuses an open port without revalidating it, and MuriConnect only forces a close
+				// when a DIFFERENT port is chosen - so without this, the state cleared only by
+				// selecting another port and coming back.
+				MuriClose();
+				return false;
+			}
 		FlushFileBuffers(s_muriPort.hComm);
 		// Same pacing as the TCP path: give the device time to process/render before the
 		// next command or the sensor read. Tunable via Debug/MuriSendLingerMs.
@@ -1969,7 +2037,8 @@ namespace {
 		if (!s_muriOpen) return false;
 		PurgeComm(s_muriPort.hComm, PURGE_RXCLEAR);
 		for (size_t i = 0; i < sendBytes.size(); ++i)
-			if (!s_muriPort.WriteByte((BYTE)sendBytes[i])) return false;
+			if (!s_muriPort.WriteByte((BYTE)sendBytes[i]))
+				{ MuriClose(); return false; }	// see MuriSerialWriteRaw
 		FlushFileBuffers(s_muriPort.hComm);
 		// Same mid-session guard as DvdoQuery: a failed SetCommTimeouts means
 		// CSerialCom closed the handle (device unplugged) - mark closed and bail.
@@ -1994,7 +2063,13 @@ namespace {
 		if (s == INVALID_SOCKET) { s_muriDiag = LS(IDS_GEN_SOCKET_FAIL); return false; }
 		sockaddr_in a; memset(&a, 0, sizeof(a));
 		a.sin_family = AF_INET; a.sin_port = htons((u_short)s_muriTcpPort);
-		a.sin_addr.s_addr = inet_addr((LPCSTR)CStringA(s_muriIp));
+		if (InetPtonA(AF_INET, (LPCSTR)CStringA(s_muriIp), &a.sin_addr) != 1)
+		{	// a malformed address used to become INADDR_NONE and surface as an unreachable
+			// device three seconds later; say what it actually is.
+			closesocket(s);
+			s_muriDiag.Format(LS(IDS_GEN_MURI_BAD_IP), (LPCTSTR)s_muriIp);
+			return false;
+		}
 		u_long nb = 1; ioctlsocket(s, FIONBIO, &nb);				// non-blocking for timed connect
 		connect(s, (sockaddr*)&a, sizeof(a));
 		fd_set wf; FD_ZERO(&wf); FD_SET(s, &wf);
@@ -2045,7 +2120,13 @@ namespace {
 		if (s == INVALID_SOCKET) { s_muriDiag = LS(IDS_GEN_SOCKET_FAIL); return false; }
 		sockaddr_in a; memset(&a, 0, sizeof(a));
 		a.sin_family = AF_INET; a.sin_port = htons((u_short)s_muriTcpPort);
-		a.sin_addr.s_addr = inet_addr((LPCSTR)CStringA(s_muriIp));
+		if (InetPtonA(AF_INET, (LPCSTR)CStringA(s_muriIp), &a.sin_addr) != 1)
+		{	// a malformed address used to become INADDR_NONE and surface as an unreachable
+			// device three seconds later; say what it actually is.
+			closesocket(s);
+			s_muriDiag.Format(LS(IDS_GEN_MURI_BAD_IP), (LPCTSTR)s_muriIp);
+			return false;
+		}
 		u_long nb = 1; ioctlsocket(s, FIONBIO, &nb);
 		connect(s, (sockaddr*)&a, sizeof(a));
 		fd_set wf; FD_ZERO(&wf); FD_SET(s, &wf);
@@ -2377,14 +2458,47 @@ namespace {
 			s_muriDiag.Format(LS(IDS_GEN_NETWORK_MODE), (LPCTSTR)s_muriIp);
 			return true;		// HTTP is connectionless; nothing to open
 		}
-		if (establish && s_muriOpen && !com.IsEmpty() && s_muriOpenPort.CompareNoCase(com) != 0)
-			MuriClose();		// adopt the newly chosen port
+		// An explicit user action gets a FRESH port, even when it is the port already open.
+		// MuriSerialOpen returns early on an already-open port, skipping ConfigurePort,
+		// SetCommunicationTimeouts and PurgeComm - so a handle that is open but not usable
+		// could never be recovered by pressing Detect again. Measured 2026-08-29: Detect on
+		// COM4 failed and kept failing on retry, and ONLY selecting another port and coming
+		// back fixed it - because that path was the only one that forced a close. Reopening
+		// is what the user asked for by pressing the button; ordinary operations still reuse.
+		if (establish && s_muriOpen && !com.IsEmpty())
+		{
+			MuriClose();		// adopt the newly chosen port, or re-establish the current one
+			// Settle before reopening. DvdoOpen notes twice that a close-then-immediate-reopen
+			// can fail on a virtual COM driver, and re-establishing the SAME port is exactly
+			// that sequence. MuriClose already flushes and waits 40ms before closing; this is
+			// the driver's turn. Tunable via Debug/MuriReopenSettleMs for the bench.
+			Sleep((DWORD)GetConfig()->GetProfileInt("Debug", "MuriReopenSettleMs", 150));
+		}
 		return MuriSerialOpen(com);
 	}
 	// Also forget the live address. The serial side re-adopts config on the next open because
 	// the port is closed; without this the network side kept the first IP for the life of the
 	// process, so a changed IP never took effect even across Release/Init.
 	void MuriDisconnect() { MuriClose(); s_muriIp.Empty(); }
+
+	// Is the Murideo really on the far end of the OPEN serial port? Round-trip a read
+	// command (0x8061 read-timing-status) and look for the device's 0xAB reply.
+	//
+	// Opening a COM port proves nothing about what is attached to it: a USB-serial adapter
+	// with the generator on some OTHER port opens perfectly and swallows every byte written
+	// to it. Measured 2026-08-29 - Apply on the wrong port reported success and persisted a
+	// resolution the hardware never received. Both Detect and Apply go through here.
+	bool MuriSerialIdentify(const CString& comPort, CString& msgOut)
+	{
+		std::string reply;
+		bool got = MuriSerialXfer(MuriBuildFrame(0x8061, std::vector<BYTE>()), reply, 32);
+		bool isMuri = false;
+		for (size_t k = 0; k < reply.size(); ++k) if ((BYTE)reply[k] == 0xAB) { isMuri = true; break; }
+		if (isMuri)      msgOut.Format(LS(IDS_GEN_MURI_CONNECTED_SERIAL), (LPCTSTR)comPort, (int)reply.size());
+		else if (got)    msgOut.Format(LS(IDS_GEN_MURI_WRONG_DEVICE), (LPCTSTR)comPort, (int)reply.size());
+		else             msgOut.Format(LS(IDS_GEN_MURI_NO_RESPOND), (LPCTSTR)comPort);
+		return isMuri;
+	}
 	void MuriSetTcpPort(int port) { if (port > 0 && port < 65536) s_muriTcpPort = port; }
 }
 
@@ -2536,17 +2650,10 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 		else { DWORD e = GetLastError(); msgOut.Format(LS(IDS_GEN_MURI_UNREACHABLE), (LPCTSTR)ip, (unsigned long)e); }
 		return ok;
 	}
-	// Serial: open the port, then round-trip a read command (0x8061 read-timing-status)
-	// and look for the device's 0xAB reply to confirm it's really the Murideo on this port.
+	// Serial: open the port, then identify the device on it.
 	bool wasOpen = s_muriOpen;	// same only-close-what-we-opened rule as the DVDO probe
 	if (!MuriConnect(false, ip, comPort, true /*Detect/Test adopts the selected port*/)) { msgOut = s_muriDiag; return false; }
-	std::string reply;
-	bool got = MuriSerialXfer(MuriBuildFrame(0x8061, std::vector<BYTE>()), reply, 32);
-	bool isMuri = false;
-	for (size_t k = 0; k < reply.size(); ++k) if ((BYTE)reply[k] == 0xAB) { isMuri = true; break; }
-	if (isMuri)      msgOut.Format(LS(IDS_GEN_MURI_CONNECTED_SERIAL), (LPCTSTR)comPort, (int)reply.size());
-	else if (got)    msgOut.Format(LS(IDS_GEN_MURI_WRONG_DEVICE), (LPCTSTR)comPort, (int)reply.size());
-	else             msgOut.Format(LS(IDS_GEN_MURI_NO_RESPOND), (LPCTSTR)comPort);
+	bool isMuri = MuriSerialIdentify(comPort, msgOut);
 	if (!wasOpen)
 		MuriClose();
 	return isMuri;
@@ -2559,18 +2666,51 @@ CString CGDIGenerator_MuriActivePort() { CSingleLock lock ( &s_genSerialLock, TR
 CString CGDIGenerator_MuriActiveIp()   { CSingleLock lock ( &s_genSerialLock, TRUE ); return MuriActiveIp(); }
 
 bool CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString& comPort,
-	int timingId, int csId, int bt2020, int hdrMode, int bitDepth, CString& msgOut)
+	int timingId, int csId, int bt2020, int hdrMode, int bitDepth, CString& msgOut, DWORD* appliedOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
+	if (appliedOut) *appliedOut = 0;	// defined on every path out, including the failures below
 	if (!MuriConnect(useNet, ip, comPort, true /*Apply adopts the selected transport*/)) { msgOut = s_muriDiag; return false; }
-	bool ok = true;
-	if (timingId >= 0) ok = MuriCmdSingle(97, timingId) && ok;
-	if (csId >= 0)     ok = MuriCmdSingle(99, csId) && ok;
-	if (bt2020 >= 0)   ok = MuriCmdSingle(112, bt2020) && ok;
-	if (hdrMode >= 0)  ok = MuriCmdSingle(111, hdrMode) && ok;
-	if (bitDepth >= 0) ok = MuriCmdSingle(100, bitDepth) && ok;
+	// Ask the device once before sending it anything, on EITHER transport. Neither one is
+	// proven by MuriConnect: the network arm only records the address, and opening a COM
+	// port says nothing about what is on the other end. Without this, an unreachable
+	// address costs five timeouts, and the wrong COM port reports "Applied" having sent
+	// the settings into a void. Apply now fails the same way Detect does.
+	if (useNet)
+	{
+		DWORD e = 0;
+		if (!MuriHttpReachable(e))
+		{
+			msgOut.Format(LS(IDS_GEN_MURI_UNREACHABLE), (LPCTSTR)s_muriIp, (unsigned long)e);
+			return false;
+		}
+	}
+	else if (!MuriSerialIdentify(comPort, msgOut))
+	{
+		// Release it. MuriConnect adopted this port on the way in, so leaving it open would
+		// leave the generator pointed at a device that just failed to identify - and the
+		// measurement path reuses an open handle without re-checking it, so every later
+		// patch would be written into the wrong adapter and appear to succeed.
+		MuriClose();
+		return false;		// msgOut already says whether it was silent or answered as something else
+	}
+	// Stop at the FIRST failure rather than accumulating one. A device can also drop out
+	// part-way through, after an earlier setting has landed; carrying on would spend a
+	// fresh timeout on every remaining one. s_muriDiag already names what failed.
+	// ORDER IS LOAD-BEARING: the index here is the bit position reported through appliedOut,
+	// and CMuriSettingsDlg::PersistSetting switches on it to decide which config key to
+	// write. Reordering this array without that switch would persist the wrong settings.
+	const struct { int cat; int val; } cmds[] = {
+		{  97, timingId }, {  99, csId    }, { 112, bt2020 },
+		{ 111, hdrMode  }, { 100, bitDepth } };
+	for (int i = 0; i < (int)(sizeof(cmds) / sizeof(cmds[0])); ++i)
+	{
+		if (cmds[i].val < 0) continue;		// unchanged since the dialog opened - nothing to send
+		if (!MuriCmdSingle(cmds[i].cat, cmds[i].val)) { msgOut = s_muriDiag; return false; }
+		if (appliedOut) *appliedOut |= (1u << i);	// the device took this one; it is now state
+	}
 	msgOut.Format(LS(IDS_GEN_MURI_APPLIED), useNet ? _T("HTTP") : _T("serial"), (LPCTSTR)s_muriDiag);
-	return ok;
+	return true;
 }
 
 // Read the connected sink's EDID and return a parsed summary. Network transport only.

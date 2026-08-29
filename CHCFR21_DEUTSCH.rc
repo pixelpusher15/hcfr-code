@@ -4107,6 +4107,7 @@ BEGIN
     IDS_GEN_DVDO_OPENED_PORT        "Anschluss geöffnet"
     IDS_GEN_DVDO_FMT_SET            "DVDO-Ausgabeformat gesetzt (Code %d) auf %s."
     IDS_GEN_NO_IP_SET               "Keine IP-Adresse festgelegt."
+    IDS_GEN_MURI_BAD_IP               "Keine gültige IP-Adresse: %s"
     IDS_GEN_INTERNETOPEN_FAIL       "InternetOpen fehlgeschlagen."
     IDS_GEN_HTTP_GET_FAIL           "HTTP GET fehlgeschlagen (Fehler %lu): %s"
     IDS_GEN_MURI_OPEN_FAIL          "%s konnte nicht geöffnet werden (Windows-Fehler %lu)."
