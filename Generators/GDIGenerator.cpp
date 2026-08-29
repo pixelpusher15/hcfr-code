@@ -2327,10 +2327,10 @@ namespace {
 	bool MuriCmdDouble(int cat, int a, int b2)
 	{
 		if (s_muriUseNet) { char b[64]; sprintf(b, "HEX%02XNUM%dBER%d", cat, a, b2); return MuriHttpGet("AudSendCmd.CGI", b); }
-		// Serial carries the pattern as one little-endian 2-byte id = num + bank*256.
-		// A bare (BYTE)a would truncate the bank-0 UHD SDR ids 256-347; the bank-1
-		// groups store num<256 so [num,bank] already equalled the LE full id - only
-		// bank-0 ids above 255 spill into the high byte and were being lost.
+		// Serial carries the pattern as one little-endian 2-byte id = num + bank*256,
+		// matching the NUM/BER split the HTTP form sends. Banks 0, 1 and 2 are all in
+		// use; bank 2 is reached only by the DVS HLG run, whose clipping section crosses
+		// from BER 1 NUM 255 to BER 2 NUM 0.
 		int fullId = a + (b2 << 8);
 		std::vector<BYTE> d; d.push_back((BYTE)(fullId & 0xFF)); d.push_back((BYTE)((fullId >> 8) & 0xFF));
 		return MuriSerialWriteRaw(MuriBuildFrame(cat, d));
@@ -2365,35 +2365,54 @@ namespace {
 	void MuriSetTcpPort(int port) { if (port > 0 && port < 65536) s_muriTcpPort = port; }
 }
 
-// --- Preset tables (community 8K codes; unverified for RS-232 SEVEN-G) --------
+// --- Preset tables, derived from the SEVEN-G itself ---------------------------
+// Both tables below are extracted from the generator's own web interface, where each
+// button's HTML id IS the command it sends - id='HEX61NUM12' is cat 0x61 timing 12,
+// id='HEX62NUM196BER1' is cat 0x62 NUM 196 BER 1 - with the name in the adjacent cell.
+// Spot-confirmed against hardware through WebReq.CGI?button=VIDEOGEN, which echoes the
+// device's settled state (timing 31 came back as 3840x2160@24Hz).
 struct MuriItem { const char* group; const char* name; int id; };
 
 static const MuriItem kMuriTimings[] =
 {
-	{ "HD",  "720p 60Hz",       12 }, { "HD",  "720p 59.94Hz",    13 }, { "HD",  "1080i 60Hz",      14 },
-	{ "HD",  "1080i 59.94Hz",   15 }, { "HD",  "1080p 30Hz",      16 }, { "HD",  "1080p 29.97Hz",   17 },
-	{ "HD",  "1080p 24Hz",      18 }, { "HD",  "1080p 23.976Hz",  19 }, { "HD",  "1080p 60Hz",      20 },
-	{ "HD",  "1080p 59.94Hz",   21 }, { "HD",  "720p 50Hz",       24 }, { "HD",  "1080i 50Hz",      25 },
-	{ "HD",  "1080p 25Hz",      26 },
-	{ "UHD", "2160p 30Hz",      28 }, { "UHD", "2160p 29.97Hz",   29 }, { "UHD", "2160p 25Hz",      30 },
-	{ "UHD", "2160p 24Hz",      31 }, { "UHD", "2160p 23.98Hz",   32 }, { "UHD", "2160p 60Hz",      34 },
-	{ "UHD", "2160p 59.94Hz",   35 }, { "UHD", "2160p 50Hz",      36 }, { "UHD", "2160p 48Hz",     103 },
-	{ "UHD", "2160p 47.95Hz",  104 }, { "UHD", "2160p 100Hz",    107 }, { "UHD", "2160p 120Hz",    108 },
-	{ "UHD", "2160p 119.88Hz", 109 },
-	{ "4K-DCI", "4096x2160 30Hz",     53 }, { "4K-DCI", "4096x2160 29.97Hz",  54 }, { "4K-DCI", "4096x2160 25Hz",     55 },
-	{ "4K-DCI", "4096x2160 24Hz",     44 }, { "4K-DCI", "4096x2160 23.976Hz", 56 }, { "4K-DCI", "4096x2160 60Hz",     57 },
-	{ "4K-DCI", "4096x2160 59.94Hz",  58 }, { "4K-DCI", "4096x2160 50Hz",     59 },
-	{ "2K-DCI", "2048x1080 30Hz",     73 }, { "2K-DCI", "2048x1080 24Hz",     76 }, { "2K-DCI", "2048x1080 60Hz",     78 },
-	{ "2K-DCI", "2048x1080 50Hz",     80 },
-	{ "8K",  "7680x4320 30Hz",  110 }, { "8K",  "7680x4320 24Hz",  113 }, { "8K",  "7680x4320 60Hz",  115 },
-	{ "8K",  "7680x4320 50Hz",  117 },
+	{ "HD",     "720p 60Hz",               12 }, { "HD",     "720p 59.94Hz",            13 }, { "HD",     "1080i 60Hz",              14 },
+	{ "HD",     "1080i 59.94Hz",           15 }, { "HD",     "1080p 30Hz",              16 }, { "HD",     "1080p 29.97Hz",           17 },
+	{ "HD",     "1080p 24Hz",              18 }, { "HD",     "1080p 23.976Hz",          19 }, { "HD",     "1080p 60Hz",              20 },
+	{ "HD",     "1080p 59.94Hz",           21 }, { "HD",     "720p 50Hz",               24 }, { "HD",     "1080i 50Hz",              25 },
+	{ "HD",     "1080p 25Hz",              26 }, { "HD",     "1080p 50Hz",              27 },
+	{ "UHD",    "2160p 30Hz",              28 }, { "UHD",    "2160p 29.97Hz",           29 }, { "UHD",    "2160p 25Hz",              30 },
+	{ "UHD",    "2160p 24Hz",              31 }, { "UHD",    "2160p 23.98Hz",           32 }, { "UHD",    "2160p 60Hz",              34 },
+	{ "UHD",    "2160p 59.94Hz",           35 }, { "UHD",    "2160p 50Hz",              36 },
+	{ "4K-DCI", "4096x2160 30Hz",          53 }, { "4K-DCI", "4096x2160 29.97Hz",       54 }, { "4K-DCI", "4096x2160 25Hz",          55 },
+	{ "4K-DCI", "4096x2160 24Hz",          33 }, { "4K-DCI", "4096x2160 23.976Hz",      56 }, { "4K-DCI", "4096x2160 60Hz",          57 },
+	{ "4K-DCI", "4096x2160 59.94Hz",       58 }, { "4K-DCI", "4096x2160 50Hz",          59 },
+	{ "2K-DCI", "2048x1080 30Hz",          73 }, { "2K-DCI", "2048x1080 29.97Hz",       74 }, { "2K-DCI", "2048x1080 25Hz",          75 },
+	{ "2K-DCI", "2048x1080 24Hz",          76 }, { "2K-DCI", "2048x1080 23.976Hz",      77 }, { "2K-DCI", "2048x1080 60Hz",          78 },
+	{ "2K-DCI", "2048x1080 59.94Hz",       79 }, { "2K-DCI", "2048x1080 50Hz",          80 },
+	{ "VESA",   "VGA 640x480",              0 }, { "VESA",   "SVGA 800x600",             1 }, { "VESA",   "XGA 1024x768",             2 },
+	{ "VESA",   "XGA+ 1152x864",           72 }, { "VESA",   "WXGA 1280x768",            3 }, { "VESA",   "HD 1360x768",              4 },
+	{ "VESA",   "SXGA+ 1280x960",           5 }, { "VESA",   "SXGA+ 1400x1050",          7 }, { "VESA",   "WXGA+ 1440x900",          69 },
+	{ "VESA",   "HD 1600x900",             70 }, { "VESA",   "UXGA 1600x1200",           8 }, { "VESA",   "WUXGA 1920x1200",          9 },
+	{ "SD",     "480i 59.94Hz",            10 }, { "SD",     "480p 59.94Hz",            11 }, { "SD",     "576i 50Hz",               22 },
+	{ "SD",     "576p 50Hz",               23 },
+	{ "3D",     "720p 60Hz (3D-FP)",       37 }, { "3D",     "720p 59.94Hz (3D-FP)",    38 }, { "3D",     "1080p 24Hz (3D-FP)",      39 },
+	{ "3D",     "1080p 23.976Hz (3D-FP)",  40 }, { "3D",     "720p 50Hz (3D-FP)",       41 },
+	{ "Auto",   "TV Preferred Timing",     42 },
+	{ "Custom", "USER-1",                  43 }, { "Custom", "USER-2",                  44 }, { "Custom", "USER-3",                  45 },
+	{ "Custom", "USER-4",                  46 }, { "Custom", "USER-5",                  47 }, { "Custom", "USER-6",                  48 },
+	{ "Custom", "USER-7",                  49 }, { "Custom", "USER-8",                  50 }, { "Custom", "USER-9",                  51 },
+	{ "Custom", "USER-10",                 52 },
 };
 static const int kMuriTimingN = sizeof(kMuriTimings) / sizeof(kMuriTimings[0]);
 
-// Patterns carry a bank (BER): 0 = built-in video banks (FPGA/ISF/DVS/UHD SDR/HD/PVA/
-// SPE, ids match the community codes), 1 = stills banks (Spears & Munsil at NUM 200+,
-// hardware-anchored). Ids for the higher video groups come from the 8K reference and
-// are UNVERIFIED on the SEVEN-G HTTP (FPGA/ISF/DVS-HDR confirmed).
+// Patterns carry a bank (BER) and the wire id is NUM | BER<<8 - see MuriCmdDouble. NUM
+// is therefore a byte and never exceeds 255; a bank is not a category. Bank 0 holds the
+// built-in video groups, bank 1 the stills groups and the Dolby Vision run, and banks 1
+// and 2 the DVS DV and HLG image sets (composed ids 472-578). Those two have no button
+// anywhere in the device's web interface: their ids come from the SEVEN-G UART command
+// spec v2.04 table 6, confirmed on hardware at 472, 511 and 578, and their names were
+// read off the device's OSD. Each DV/HLG row in MuriPatterns.inc carries the spec's
+// asset name in a trailing comment so any id can be traced back.
 struct MuriPat { const char* group; const char* name; int id; int ber; };
 static const MuriPat kMuriPatterns[] =
 {
@@ -2542,7 +2561,7 @@ bool CGDIGenerator_MuriReadSinkInfo(bool useNet, const CString& ip, const CStrin
 	return true;
 }
 
-// Show a preset pattern (cat 98, double command): NUM=id, BER=bank (0 video, 1 stills).
+// Show a preset pattern (cat 98, double command): NUM = low byte, BER = bank (0, 1 or 2).
 bool CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString& comPort, int patternId, int patternBer, CString& msgOut)
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );
