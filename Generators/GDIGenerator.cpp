@@ -1762,7 +1762,11 @@ namespace {
 			char buf[256]; DWORD rd = 0; while (InternetReadFile(hU, buf, sizeof(buf), &rd) && rd) {}
 			InternetCloseHandle(hU);
 		}
+		// A 404/500 is not a delivered command. status stays 0 if HttpQueryInfo failed, in
+		// which case fall back to "the request went out" rather than inventing a failure.
+		if (ok && status != 0 && (status < 200 || status > 299)) ok = false;
 		if (ok) s_muriDiag.Format(_T("HTTP %lu  %s"), (unsigned long)status, (LPCTSTR)url);
+		else if (hU) s_muriDiag.Format(_T("HTTP %lu  %s"), (unsigned long)status, (LPCTSTR)url);
 		else { DWORD e = GetLastError(); s_muriDiag.Format(LS(IDS_GEN_HTTP_GET_FAIL), (unsigned long)e, (LPCTSTR)url); }
 		return ok;
 	}
@@ -2365,6 +2369,9 @@ namespace {
 		s_muriUseNet = useNet;
 		if (useNet)
 		{
+			// Changing transport releases the other one. A serial handle left open would keep the
+			// COM port locked against other applications for the rest of the session.
+			if (s_muriOpen) MuriClose();
 			if (establish || s_muriIp.IsEmpty()) s_muriIp = ip;
 			if (s_muriIp.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_IP_SET); return false; }
 			s_muriDiag.Format(LS(IDS_GEN_NETWORK_MODE), (LPCTSTR)s_muriIp);
@@ -2510,6 +2517,7 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 	CSingleLock lock ( &s_genSerialLock, TRUE );
 	if (useNet)
 	{
+		if (s_muriOpen) MuriClose();		// switching transports releases the COM handle
 		s_muriUseNet = true; s_muriIp = ip;	// Detect/Test adopts the address it is testing
 		if (ip.IsEmpty()) { msgOut = LS(IDS_GEN_ENTER_MURI_IP_FIRST); return false; }
 		HINTERNET hI = MuriInet();
@@ -3184,7 +3192,12 @@ BOOL CGDIGenerator::DisplayUser6()
 
 BOOL CGDIGenerator::DisplaySharp()
 {
-	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO) { DvdoSendPattern(40 /*Sharpness*/); return TRUE; }
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(40 /*Sharpness*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplaySharp();
 	return TRUE;
 }
@@ -3269,14 +3282,24 @@ BOOL CGDIGenerator::DisplayZONE()
 
 BOOL CGDIGenerator::DisplayDotPattern( const ColorRGBDisplay& clr , BOOL dot2, UINT nPads)
 {
-	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO) { DvdoSendPattern(3 /*EVOT pixel*/); return TRUE; }
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(3 /*EVOT pixel*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplayDotPattern(clr, dot2, nPads);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayHVLinesPattern( const ColorRGBDisplay& clr , BOOL dot2, BOOL vLines)
 {
-	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO) { DvdoSendPattern(vLines ? 4 /*EVOT H/V line*/ : 5 /*EVOT H line*/); return TRUE; }
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(vLines ? 4 /*EVOT H/V line*/ : 5 /*EVOT H line*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplayHVLinesPattern(clr, dot2, vLines);
 	return TRUE;
 }
@@ -3289,21 +3312,36 @@ BOOL CGDIGenerator::DisplayColorLevelPattern( INT clrLevel , BOOL dot2, UINT nPa
 
 BOOL CGDIGenerator::DisplayGeomPattern( BOOL dot2, UINT nPads)
 {
-	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO) { DvdoSendPattern(1 /*FRMGEOM*/); return TRUE; }
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(1 /*FRMGEOM*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplayGeomPattern(dot2, nPads);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayConvPattern( BOOL dot2, UINT nPads)
 {
-	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO) { DvdoSendPattern(21 /*Crosshatch fine*/); return TRUE; }
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(21 /*Crosshatch fine*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplayConvPattern(dot2, nPads);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayColorPattern( BOOL dot2)
 {
-	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO) { DvdoSendPattern(8 /*8-bar 100%*/); return TRUE; }
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(8 /*8-bar 100%*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplayColorPattern(dot2);
 	return TRUE;
 }
