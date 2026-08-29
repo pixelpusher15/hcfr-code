@@ -1323,7 +1323,12 @@ BOOL CMuriSettingsDlg::OnInitDialog()
 	m_gamutCombo.AddString(_T("BT.709")); m_gamutCombo.AddString(_T("BT.2020"));
 	y += 15;
 	MK_LBL(m_lblHdr, LS(IDS_GEN_DYNAMIC_RANGE)); MK_CB(m_hdrCombo, IDC_MURI_HDR_COMBO, 80);
-	m_hdrCombo.AddString(_T("SDR")); m_hdrCombo.AddString(_T("HDR")); m_hdrCombo.AddString(_T("HLG"));
+	// The combo index IS the cat-0x6F value sent, so the order is the device's and the
+	// first three keep their existing values (an INI written by an older build still
+	// selects the same mode). The device accepts 0-10; the eight Custom slots were
+	// unreachable from HCFR entirely.
+	m_hdrCombo.AddString(_T("SDR")); m_hdrCombo.AddString(_T("HDR10")); m_hdrCombo.AddString(_T("HLG"));
+	for (int hc = 1; hc <= 8; ++hc) { CString s; s.Format(_T("Custom %d"), hc); m_hdrCombo.AddString(s); }
 	y += 15;
 	MK_LBL(m_lblDepth, LS(IDS_GEN_BIT_DEPTH)); MK_CB(m_depthCombo, IDC_MURI_DEPTH_COMBO, 60);
 	m_depthCombo.AddString(_T("8 bit")); m_depthCombo.AddString(_T("10 bit"));

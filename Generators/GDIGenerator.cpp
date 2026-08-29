@@ -1826,7 +1826,7 @@ namespace {
 		CString body;
 		if (!MuriHttpGetBody("WebReq.CGI", "VIDEOGEN", body) || body.IsEmpty()) { out.Empty(); return false; }
 		CString res, cs, depth, output, hdcp, bt2020;
-		int dynMode = -1;		// HDR mode from the HEX6f echo: 0=SDR, 1=HDR, 2=HLG
+		int dynMode = -1;		// HDR mode from the HEX6f echo (cat 0x6F), 0-10
 		int pos = 0, len = body.GetLength();
 		while (pos < len)
 		{
@@ -1850,10 +1850,26 @@ namespace {
 			pos = d + 1;
 		}
 		if (res.IsEmpty() && cs.IsEmpty()) { out.Empty(); return false; }
-		CString fmt = (cs.Find(_T("RGB")) >= 0) ? _T("RGB") : (cs.Find(_T("YC")) >= 0 ? _T("YCbCr") : _T("?"));
+		// Report the chroma subsampling, not just "YCbCr". 4:2:2 halves and 4:2:0 quarters
+		// the chroma resolution, which changes what a meter reads off a colour patch - the
+		// DVDO panel warns about exactly this. The device names it in the field itself
+		// (e.g. "YC444(16-235)"), so it costs nothing to keep.
+		CString fmt = (cs.Find(_T("RGB")) >= 0) ? _T("RGB")
+		            : (cs.Find(_T("444")) >= 0) ? _T("YCbCr 4:4:4")
+		            : (cs.Find(_T("422")) >= 0) ? _T("YCbCr 4:2:2")
+		            : (cs.Find(_T("420")) >= 0) ? _T("YCbCr 4:2:0")
+		            : (cs.Find(_T("YC"))  >= 0) ? _T("YCbCr") : _T("?");
 		CString rng = (cs.Find(_T("0-255")) >= 0) ? _T("Full") : (cs.Find(_T("16-235")) >= 0 ? _T("Limited") : _T("?"));
-		// Dynamic range comes from the HDR-mode field (HEX6f): 0=SDR, 1=HDR, 2=HLG.
-		CString dyn = (dynMode == 0) ? _T("SDR") : (dynMode == 1) ? _T("HDR") : (dynMode == 2) ? _T("HLG") : _T("?");
+		// Dynamic range comes from the HDR-mode field (HEX6f), cat 0x6F. The device takes
+		// 0-10: SDR, HDR10, HLG and eight user-defined slots (VIDEOGEN_HDR_TABLE lists them
+		// as HDR Custom 1-8). Reporting "?" for a device sitting in one of those is worse
+		// than useless in a status panel.
+		CString dyn;
+		if      (dynMode == 0) dyn = _T("SDR");
+		else if (dynMode == 1) dyn = _T("HDR10");
+		else if (dynMode == 2) dyn = _T("HLG");
+		else if (dynMode >= 3 && dynMode <= 10) dyn.Format(_T("Custom %d"), dynMode - 2);
+		else dyn = _T("?");
 		// Colour space = the gamut, from the BT.2020 field (Disable = BT.709, Enable = BT.2020).
 		CString colorSpace = (bt2020.CompareNoCase(_T("Enable")) == 0) ? _T("BT.2020") : (bt2020.CompareNoCase(_T("Disable")) == 0) ? _T("BT.709") : _T("?");
 		#define MURI_LINE(lbl,val) out += (lbl) + _T("\t") + (val.IsEmpty()?CString(_T("?")):val) + _T("\r\n")
@@ -2613,15 +2629,21 @@ static bool MuriSerialStatusReadout(CString& out)
 	int depth  = MuriSerialReadValue(0x8064);	// cat 100 -> 0=8bit,1=10bit,2=12bit
 	int hdcp   = MuriSerialReadValue(0x8065);	// cat 101 -> 0=off,1=on
 	int output = MuriSerialReadValue(0x8066);	// cat 102 -> 1=HDMI,0=DVI
-	int hdr    = MuriSerialReadValue(0x806F);	// cat 111 -> 0=SDR,1=HDR,2=HLG
+	int hdr    = MuriSerialReadValue(0x806F);	// cat 111 -> 0=SDR,1=HDR10,2=HLG,3-10=Custom 1-8
 	int bt2020 = MuriSerialReadValue(0x8070);	// cat 112 -> 0=BT.709,1=BT.2020
 	if (timing < 0 && cs < 0) { out.Empty(); return false; }	// nothing answered
 
 	CString res   = (timing >= 0) ? MuriTimingNameForId(timing) : CString(_T("?"));
-	CString dyn   = (hdr == 0) ? _T("SDR") : (hdr == 1) ? _T("HDR") : (hdr == 2) ? _T("HLG") : _T("?");
+	CString dyn;
+	if      (hdr == 0) dyn = _T("SDR");
+	else if (hdr == 1) dyn = _T("HDR10");
+	else if (hdr == 2) dyn = _T("HLG");
+	else if (hdr >= 3 && hdr <= 10) dyn.Format(_T("Custom %d"), hdr - 2);
+	else dyn = _T("?");
 	CString dep   = (depth == 0) ? _T("8Bit") : (depth == 1) ? _T("10Bit") : (depth == 2) ? _T("12Bit") : _T("?");
 	CString gamut = (bt2020 == 0) ? _T("BT.709") : (bt2020 == 1) ? _T("BT.2020") : _T("?");
-	CString fmt   = (cs == 0 || cs == 1) ? _T("RGB") : (cs >= 2 && cs <= 4) ? _T("YCbCr") : _T("?");
+	CString fmt   = (cs == 0 || cs == 1) ? _T("RGB") : (cs == 2) ? _T("YCbCr 4:4:4")
+	              : (cs == 3) ? _T("YCbCr 4:2:2") : (cs == 4) ? _T("YCbCr 4:2:0") : _T("?");
 	CString rng   = (cs == 0) ? _T("Full") : (cs >= 1 && cs <= 4) ? _T("Limited") : _T("?");
 	CString outp  = (output == 1) ? _T("HDMI") : (output == 0) ? _T("DVI") : _T("?");
 	CString hdcpS = (hdcp == 1) ? _T("ON") : (hdcp == 0) ? _T("OFF") : _T("?");
