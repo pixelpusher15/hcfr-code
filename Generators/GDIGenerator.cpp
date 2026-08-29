@@ -2681,7 +2681,11 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 	{
 		for (int attempt = 1; attempt <= maxTries && !sent; ++attempt)
 		{
-			if (attempt > 1)
+			// Also on the first attempt when the port is not open: with Debug/PatchSendRetries
+			// set to 1 the inner loop runs once, so a guard of attempt > 1 alone made the reopen
+			// unreachable after the user clicked Retry (which closes the port), leaving Cancel -
+			// abandoning the sweep - as the only way out.
+			if (attempt > 1 || !s_dvdoOpen)
 			{
 				// Only a failed WRITE means the handle is dead and needs replacing; a merely missing
 				// ack is retried on the same handle, because close-then-immediate-reopen can itself
@@ -2826,7 +2830,7 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 	{
 		for (int attempt = 1; attempt <= maxTries && !sent; ++attempt)
 		{
-			if (attempt > 1)
+			if (attempt > 1 || !connected)		// see the DVDO loop: reachable when maxTries is 1
 			{
 				Sleep(200);
 				if (!m_muriUseNetwork)		// serial: replace a handle whose device has gone away
@@ -2843,6 +2847,10 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 		if (GetColorApp()->InMeasureMessageBox(LS(nLostMsg), "Murideo Seven-G",
 			MB_RETRYCANCEL | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND) != IDRETRY)
 			break;
+		// Retry is the user saying they have reconnected the device. MuriCmdRgbTriplet
+		// failing does not clear this flag, so without forcing it the guard above would
+		// never fire and the loop would keep writing into the same dead transport.
+		connected = false;
 	}
 
 	if (!sent)
@@ -3285,13 +3293,26 @@ BOOL CGDIGenerator::DisplayPatternPicture(HMODULE hInst, UINT nIDResource, BOOL 
 }
 
 
+// Report the COM ports the generator currently HOLDS OPEN, whatever display mode is
+// configured. Argyll's meter detection must skip these: probing a port this process has
+// open stalls for seconds and then reports a spurious meter error. Gating the exclusion
+// on the configured mode alone misses a port that Show or Apply left open before the
+// user switched the output back to GDI - the mode says GDI, but the handle is still ours.
+void CGDIGenerator_OpenGeneratorComPorts(std::vector<std::string>& out)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	if (s_dvdoOpen && !s_dvdoOpenPort.IsEmpty()) out.push_back((LPCSTR)s_dvdoOpenPort);
+	if (s_muriOpen && !s_muriOpenPort.IsEmpty()) out.push_back((LPCSTR)s_muriOpenPort);
+}
+
 BOOL CGDIGenerator::Release(INT nbNext)
 {
 	GetColorApp() -> SetPatternWindow ( NULL );
-	if ( m_nDisplayMode == DISPLAY_DVDO )
-		DvdoClose();
-	if ( m_nDisplayMode == DISPLAY_MURIDEO )
-		MuriDisconnect();
+	// Unconditional: Show and Apply deliberately leave the port open, so a session that
+	// ends after the user has switched the output back to GDI would otherwise strand the
+	// handle. Both closers are no-ops when nothing is open.
+	DvdoClose();
+	MuriDisconnect();
 	m_displayWindow.Hide();
 	m_displayWindow.SetDisplayMode(GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE));
 	m_displayWindow.m_nPat = 0;

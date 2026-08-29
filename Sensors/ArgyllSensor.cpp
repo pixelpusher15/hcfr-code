@@ -152,6 +152,7 @@ void CArgyllSensor::Copy(CSensor * p)
 // unconditionally would hide a real spectrometer that later enumerates on that
 // COM number; Murideo only holds a COM in serial transport. Shared by every
 // getDetectedMeters call site (here and NewDocPropertyPages.cpp).
+extern void CGDIGenerator_OpenGeneratorComPorts(std::vector<std::string>& out);	// GDIGenerator.cpp
 void ArgyllExcludeActiveGeneratorComPorts()
 {
     std::vector<std::string> genPorts;
@@ -165,6 +166,18 @@ void ArgyllExcludeActiveGeneratorComPorts()
     {
         CString muriCom = GetConfig()->GetProfileString("GDIGenerator", "MuriComPort", "");
         if (!muriCom.IsEmpty()) genPorts.push_back((LPCSTR)muriCom);
+    }
+    // Plus anything actually open right now. The config gate above reflects the mode the
+    // user has selected; it does not know about a port a Show or Apply left open under a
+    // mode they have since changed away from.
+    std::vector<std::string> live;
+    CGDIGenerator_OpenGeneratorComPorts(live);
+    for (size_t i = 0; i < live.size(); ++i)
+    {
+        bool dup = false;
+        for (size_t j = 0; j < genPorts.size() && !dup; ++j)
+            dup = (genPorts[j] == live[i]);
+        if (!dup) genPorts.push_back(live[i]);
     }
     ArgyllMeterWrapper::setExcludedSerialPorts(genPorts);
 }
