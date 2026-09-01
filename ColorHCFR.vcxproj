@@ -915,6 +915,7 @@
     <ClInclude Include="ModelessPropertySheet.h" />
     <ClInclude Include="MultiFrm.h" />
     <ClInclude Include="PatternDisplay.h" />
+    <ClInclude Include="RadioExchange.h" />
     <ClInclude Include="RefColorDlg.h" />
     <ClInclude Include="ReferencesPropPage.h" />
     <ClInclude Include="ScaleSizes.h" />

@@ -23,6 +23,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "AdvancedPropPage.h"
+#include "RadioExchange.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -74,7 +75,9 @@ void CAdvancedPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Check(pDX, IDC_CHECK_CALIBRATION_OLD, m_bUseOnlyPrimaries);
 	DDX_Check(pDX, IDC_HIGHLIGHT, doHighlight);
 	DDX_Check(pDX, IDC_CHECK_IMPERIAL, m_bUseImperialUnits);
-	DDX_Radio(pDX, IDC_RADIO1, m_nLuminanceCurveMode);
+	static const UINT kLuminanceCurveRadios[] =
+		{ IDC_RADIO1, IDC_RADIO2, IDC_RADIO3 };
+	DDX_RadioByID(pDX, m_nLuminanceCurveMode, kLuminanceCurveRadios);
 	DDX_Check(pDX, IDC_CHECK_PREFER_LUXMETER, m_bPreferLuxmeter);
 	//}}AFX_DATA_MAP
 	DDX_CBIndex(pDX, IDC_COMBO_DE_TOLERANCE, m_dE_preset);

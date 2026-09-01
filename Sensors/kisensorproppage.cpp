@@ -25,6 +25,7 @@
 #include "ColorHCFR.h"
 #include "KiSensor.h"
 #include "KiSensorPropPage.h"
+#include "..\RadioExchange.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -68,8 +69,12 @@ void CKiSensorPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Check(pDX, IDC_KISENSOR_DEBUG_CB, m_debugMode);
 	DDX_Text(pDX, IDC_TIMEOUT_MESURE_EDIT, m_timeoutMesure);
 	DDV_MinMaxInt(pDX, m_timeoutMesure, 500, 120000);
-	DDX_Radio(pDX, IDC_KISENSOR_TAOS_0, m_nSensorsUsed);
-	DDX_Radio(pDX, IDC_KISENSOR_INTERLACE_0, m_nInterlaceMode);
+	static const UINT kSensorsUsedRadios[] =
+		{ IDC_KISENSOR_TAOS_0, IDC_KISENSOR_TAOS_1, IDC_KISENSOR_TAOS_2 };
+	DDX_RadioByID(pDX, m_nSensorsUsed, kSensorsUsedRadios);
+	static const UINT kInterlaceRadios[] =
+		{ IDC_KISENSOR_INTERLACE_0, IDC_KISENSOR_INTERLACE_1, IDC_KISENSOR_INTERLACE_2 };
+	DDX_RadioByID(pDX, m_nInterlaceMode, kInterlaceRadios);
 	DDX_Check(pDX, IDC_KISENSOR_WHITE, m_bMeasureWhite);
 	DDX_Check(pDX, IDC_KISENSOR_FASTMEASURE, m_bFastMeasure);
 	//}}AFX_DATA_MAP
