@@ -355,7 +355,16 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 					m_graphCtrl2.AddPoint(m_deltaEDataRefGraphID, x, pDataRef->GetMeasure()->GetGray(i).GetDeltaE(YWhiteRefPatch, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight ), str);
 				}
 				
-				if (bMainDocHasColors && aColor.isValid())
+				// The enclosing guard checks the COMPARISON document's black
+				// (aColor[2]); this point normalises with the PRIMARY document's,
+				// because m_dE_gray == 0 makes YWhitePatch aColor2[2]. ColorLab's
+				// constructor divides by it, so a primary document whose black read
+				// zero handed it a 0 divisor. Latent while the loop started at 1,
+				// and reachable at point 0 with dE_form 5 + dE_gray 0: the pair is
+				// blocked in AdvancedPropPage but Measure.cpp restores both straight
+				// out of a loaded .chc. Test both divisors, since YWhiteRefPatch is
+				// the comparison patch's own luminance under the same setting.
+				if (bMainDocHasColors && aColor.isValid() && YWhitePatch > 0.0 && YWhiteRefPatch > 0.0)
 						m_graphCtrl2.AddPoint(m_deltaEBetweenGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhitePatch,pDataRef->GetMeasure()->GetGray(i),YWhiteRefPatch, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight)); //Ki
 			}
 		}

@@ -169,25 +169,53 @@ static BOOL ReferenceGammaAt(const CColor & White, const CColor & Black, double 
 	return TRUE;
 }
 
-// The gamma the scale converges to at BLACK.
+// The value the scale carries at BLACK.
 //
 // This chart plots gamma relative to the display's own black and white, and the
 // transfer function is anchored at both of those by construction: 0% stimulus
-// puts out the display's black, 100% puts out its white. So both endpoints are
-// 0/0, and both limits are the target's exponent - if the display tracks a 2.2
-// power, its gamma at black is 2.2, the same way its gamma at white is. Neither
-// endpoint carries a measurement; they carry the anchor.
+// puts out the display's black, 100% puts out its white. Both endpoints are
+// therefore 0/0, and neither carries a measurement - they carry the anchor.
 //
-// The raw log(y)/log(x) does NOT show that, because it divides by white without
-// removing black: a real black is a finite fraction of white while log(x) runs
-// to -infinity, so it collapses toward 0 (~0.8 at 1655:1) and lands off the
-// bottom of any gamma axis, on every display ever made. Taking the target's own
-// floor out first - (y(e) - y(0)) / (1 - y(0)) - recovers the exponent, and does
-// it for the floor-bearing targets (BT.1886, L*) as well as the pure powers.
+// The two ends are NOT symmetric, and it is worth being exact about that. At
+// white the limit is the target's exponent and it is exact: log(x^g)/log(x) == g
+// for any x, so evaluating a hair below white recovers g whatever the nudge. At
+// black no such clean limit exists for every target, and this function does not
+// pretend to find one.
 //
-// Where the target genuinely has no single exponent near black - sRGB's linear
-// toe, L* - this follows the target's real local slope, which is what the
-// reference curve is doing right beside it.
+// What it does is take out the black-elevation term. The raw log(y)/log(x)
+// divides by white without removing black: a real black is a finite fraction of
+// white while log(x) runs to -infinity, so the ratio collapses toward 0 (~0.8 at
+// 1655:1) and lands off the bottom of any gamma axis, on every display ever
+// made. Removing the target's own floor first - (y(e) - y(0)) / (1 - y(0)) -
+// leaves the SHAPE of the target curve near black instead of its contrast ratio.
+//
+// What that shape evaluates to depends on the target:
+//
+//   Pure power (modes < 4, and any mode >= 4 target of the form
+//   y = y0 + (1-y0)*x^g): the removal reduces the curve to x^g exactly, so the
+//   answer is g, independent of e. This is the case the "gamma at black is 2.2
+//   for a 2.2 display" intuition is true for, and only this one.
+//
+//   BT.1886 with split > 0: y = a*(x+b)^g / maxL, and y(0) = minL/maxL - the
+//   target's floor IS the measured black (getL_EOTF case 4: offset = split/100
+//   * minL, and a*b^g = offset). y(e) - y(0) is then LINEAR in e, so log/log
+//   tends to 1, not to g, and the value depends on e. At the e below, a 1220:1
+//   panel on a g 2.4 target reads 1.361 (1.240 at e = 1e-6). That is not the
+//   exponent - and BT.1886 does not reach its exponent anywhere: the same
+//   reference curve runs 1.455 at 1%, 2.001 at 10%, 2.225 at 50%, 2.276 at
+//   white. Only split = 0 returns a flat 2.4.
+//
+//   sRGB, L*: y(0) == 0, so there is no floor and the removal is arithmetically
+//   a no-op. Their linear toe makes y proportional to x near black, so this is
+//   again the target's own local log/log slope - 1.239 for L* at the e below -
+//   and again e-dependent.
+//
+// So on every target but the pure powers this is the target curve SAMPLED at e,
+// not a limit; e is what fixes the sampled value, and the white endpoint has no
+// equivalent freedom. That is acceptable because of what the chart needs from
+// the point: on all three it lands on the reference curve drawn beside it and
+// continues it, which bench measurement confirms is also where the measured
+// trace extrapolates. It is an anchor, not a reading.
 static BOOL ReferenceGammaAtBlack(const CColor & White, const CColor & Black, double GammaOffset, double *pGamma)
 {
 	double	gNudged, valyNudged, gZero, valyZero;
