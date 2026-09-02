@@ -4083,12 +4083,20 @@ void CMeasure::ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, do
 // closes the previous segment (retroactive correction) and becomes the new
 // segment start; an invalid sensor read is skipped rather than aborting an
 // hours-long capture. Returns false only when the generator itself fails.
-bool CMeasure::MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx)
+// bIgnoreAbort is for the closing anchor after a Stop, which must still run:
+// m_bAbortSweep is TRUE there until the SweepActiveGuard destructor, so the
+// settle below would return immediately and the anchor would be skipped,
+// leaving the last segment raw while every earlier one is drift-corrected.
+// It also makes the settle itself uninterruptible, which is required -- an
+// anchor read before the display settles becomes the drift factor and
+// rescales the whole previous segment, the very corruption the abort check
+// below exists to prevent. One latency window, on the last patch of a run.
+bool CMeasure::MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx, BOOL bIgnoreAbort)
 {
 	ColorRGBDisplay whiteRGB ( 100.0, 100.0, 100.0 );
 	if ( ! pGenerator->DisplayRGBColor ( whiteRGB, CGenerator::MT_SAT_CC24_USER, patchIdx, TRUE ) )
 		return false;
-	if ( WaitForDynamicIris ( FALSE, pDoc ) )
+	if ( WaitForDynamicIris ( bIgnoreAbort, pDoc ) )
 	{
 		// Aborted mid-settle: return without reading. Measuring anyway yielded an
 		// unsettled anchor that, if it passed the validity gate below, became the
@@ -4213,11 +4221,21 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		ColorRGBDisplay whRGB ( 100.0, 100.0, 100.0 );
 		if ( pGenerator->DisplayRGBColor ( whRGB, nPattern, 0, TRUE ) )
 		{
+			// Aborted mid-settle: skip the read. An unsettled reading still passes
+			// the validity gate below and permanently replaces the app-wide
+			// reference -- the nDone == 0 path calls ClearProfileMeasures() but
+			// does not restore the white, so it stays "valid", a later profile run
+			// will not re-measure it, and ComputeProfileDE, the 3D viewer, the
+			// RGB-levels widget and the export paths all normalize to it. Leaving
+			// it invalid makes the next run measure it properly.
 			if ( WaitForDynamicIris ( FALSE, pDoc ) )
 				m_bAbortSweep = TRUE;
-			CColor wh = PumpedRead ( asyncMeasure, pSensor, whRGB, displaymode );
-			if ( pSensor->IsMeasureValid() && wh.isValid() && wh.GetY() > 0.0 )
-				m_OnOffWhite = wh;
+			else
+			{
+				CColor wh = PumpedRead ( asyncMeasure, pSensor, whRGB, displaymode );
+				if ( pSensor->IsMeasureValid() && wh.isValid() && wh.GetY() > 0.0 )
+					m_OnOffWhite = wh;
+			}
 		}
 	}
 	if ( ! m_bAbortSweep && ! m_OnOffBlack.isValid() )
@@ -4225,11 +4243,16 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		ColorRGBDisplay bkRGB ( 0.0, 0.0, 0.0 );
 		if ( pGenerator->DisplayRGBColor ( bkRGB, nPattern, 0, TRUE ) )
 		{
+			// Same as the white above: an unsettled black would stick as the
+			// app-wide reference and never be re-measured.
 			if ( WaitForDynamicIris ( FALSE, pDoc ) )
 				m_bAbortSweep = TRUE;
-			CColor bk = PumpedRead ( asyncMeasure, pSensor, bkRGB, displaymode );
-			if ( pSensor->IsMeasureValid() && bk.isValid() )
-				m_OnOffBlack = bk;
+			else
+			{
+				CColor bk = PumpedRead ( asyncMeasure, pSensor, bkRGB, displaymode );
+				if ( pSensor->IsMeasureValid() && bk.isValid() )
+					m_OnOffBlack = bk;
+			}
 		}
 	}
 
@@ -4367,9 +4390,12 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		}
 	}
 
-	// final drift anchor closes the last open segment (also after Stop)
+	// Final drift anchor closes the last open segment (also after Stop, hence
+	// bIgnoreAbort -- see the helper: m_bAbortSweep is still TRUE here and would
+	// otherwise short-circuit this call into a no-op, and ESC would take the
+	// anchor while Stop would not, giving the same user intent different data).
 	if ( bDriftComp && firstAnchorY > 0.0 && nDone > prevAnchorIdx )
-		MeasureProfileDriftAnchor ( asyncMeasure, pSensor, pGenerator, pDoc, nDone, firstAnchorY, prevAnchorFactor, prevAnchorIdx );
+		MeasureProfileDriftAnchor ( asyncMeasure, pSensor, pGenerator, pDoc, nDone, firstAnchorY, prevAnchorFactor, prevAnchorIdx, TRUE );
 
 	pSensor->Release();
 	pGenerator->Release();
