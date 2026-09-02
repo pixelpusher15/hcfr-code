@@ -400,6 +400,74 @@ void COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 	m_CalibrationFileName = loadFile.GetFileTitle ();
 }
 
+// Compare two directories as file system locations rather than as strings:
+// 8.3 short names, relative forms, subst drives, junctions and UNC shares all
+// spell the same folder differently.
+static BOOL IsSameDirectory ( LPCSTR lpszDir1, LPCSTR lpszDir2 )
+{
+	char						szDir [ 2 ] [ MAX_PATH ];
+	HANDLE						hDir [ 2 ];
+	BY_HANDLE_FILE_INFORMATION	fileInfo [ 2 ];
+	BOOL						bHaveInfo = TRUE;
+	int							i;
+
+	for ( i = 0; i < 2; i ++ )
+	{
+		LPCSTR	lpszSrc = ( i == 0 ? lpszDir1 : lpszDir2 );
+		DWORD	dwLen;
+		int		nLen;
+
+		// A path too long for the buffer leaves it untouched and returns the
+		// size it would need. Nothing here can canonicalize such a path, and
+		// a truncated copy would make two different folders look identical,
+		// so compare the two names exactly as they were given.
+		dwLen = GetFullPathName ( lpszSrc, MAX_PATH, szDir [ i ], NULL );
+		if ( dwLen == 0 || dwLen >= MAX_PATH )
+			return ( _stricmp ( lpszDir1, lpszDir2 ) == 0 );
+
+		// Drop the trailing backslash, except on a root like "C:\"
+		nLen = strlen ( szDir [ i ] );
+		while ( nLen > 1 && szDir [ i ] [ nLen - 1 ] == '\\' && szDir [ i ] [ nLen - 2 ] != ':' )
+			szDir [ i ] [ -- nLen ] = '\0';
+	}
+
+	// When both folders exist, compare the volume and file id the file system
+	// itself reports: that is immune to every way of spelling a path.
+	for ( i = 0; i < 2; i ++ )
+	{
+		hDir [ i ] = CreateFile ( szDir [ i ], 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL );
+
+		if ( hDir [ i ] == INVALID_HANDLE_VALUE || ! GetFileInformationByHandle ( hDir [ i ], & fileInfo [ i ] ) )
+			bHaveInfo = FALSE;
+	}
+
+	for ( i = 0; i < 2; i ++ )
+	{
+		if ( hDir [ i ] != INVALID_HANDLE_VALUE )
+			CloseHandle ( hDir [ i ] );
+	}
+
+	if ( bHaveInfo )
+	{
+		return ( fileInfo [ 0 ].dwVolumeSerialNumber == fileInfo [ 1 ].dwVolumeSerialNumber
+			  && fileInfo [ 0 ].nFileIndexHigh == fileInfo [ 1 ].nFileIndexHigh
+			  && fileInfo [ 0 ].nFileIndexLow == fileInfo [ 1 ].nFileIndexLow );
+	}
+
+	// One of them cannot be opened (it does not exist yet, or is not readable):
+	// fall back to a text comparison with any short name expanded.
+	for ( i = 0; i < 2; i ++ )
+	{
+		char	szLong [ MAX_PATH ];
+		DWORD	dwLen = GetLongPathName ( szDir [ i ], szLong, MAX_PATH );
+
+		if ( dwLen != 0 && dwLen < MAX_PATH )
+			lstrcpyn ( szDir [ i ], szLong, MAX_PATH );
+	}
+
+	return ( _stricmp ( szDir [ 0 ], szDir [ 1 ] ) == 0 );
+}
+
 void COneDeviceSensor::SaveCalibrationFile()
 {
 	BOOL			bContinue = FALSE;
@@ -414,21 +482,33 @@ void COneDeviceSensor::SaveCalibrationFile()
 	{
 		strPath += strSubDir;
 		strPath += '\\';
+
+		// That subdirectory is the only place the sensor selection page looks
+		// for training files, so create it before offering to save into it.
+		GetConfig () -> EnsurePathExists ( strPath );
 	}
 
 	do
 	{
 		bContinue = FALSE;
 
-		CFileDialog fileSaveDialog( FALSE, "thc", ( strFileName.IsEmpty () ? NULL : (LPCSTR) strFileName ), OFN_HIDEREADONLY | OFN_NOCHANGEDIR, "Sensor Training File (*.thc)|*.thc||" );
+		// Name the target folder in lpstrFile and not only in lpstrInitialDir:
+		// from Vista on, lpstrInitialDir loses to the shell's last visited
+		// folder once the dialog has been used, which would open the dialog
+		// somewhere the file cannot be saved.
+		CString	strInitialPath = strPath + strFileName;
+
+		CFileDialog fileSaveDialog( FALSE, "thc", (LPCSTR) strInitialPath, OFN_HIDEREADONLY | OFN_NOCHANGEDIR, "Sensor Training File (*.thc)|*.thc||" );
 		fileSaveDialog.m_ofn.lpstrInitialDir = (LPCSTR) strPath;
 
 		if(fileSaveDialog.DoModal() == IDOK)
 		{
-			strFileName = strPath + fileSaveDialog.GetFileName();
-			if ( strFileName.CompareNoCase ( fileSaveDialog.GetPathName() ) == 0 )
+			CString	strChosenPath = fileSaveDialog.GetPathName();
+			CString	strChosenDir = strChosenPath.Left ( strChosenPath.ReverseFind ( '\\' ) + 1 );
+
+			if ( IsSameDirectory ( strChosenDir, strPath ) )
 			{
-				CFile loadFile(fileSaveDialog.GetPathName(),CFile::modeCreate|CFile::modeWrite);
+				CFile loadFile(strChosenPath,CFile::modeCreate|CFile::modeWrite);
 				CArchive ar(&loadFile,CArchive::store);
 				
 				m_CalibrationFileName.Empty();
@@ -439,8 +519,12 @@ void COneDeviceSensor::SaveCalibrationFile()
 			}
 			else
 			{
+				// Name the folder in the message: "current directory" on its own
+				// leaves the user no way to tell where the file has to go.
 				CString Msg;
 				Msg.LoadString ( IDS_MUSTSAVEINSUBDIR );
+				Msg += "\n\n";
+				Msg += strPath;
 				AfxMessageBox ( Msg );
 				strFileName = fileSaveDialog.GetFileName();
 				lpStr = strrchr ( (LPSTR)(LPCSTR) strFileName, '.' );
