@@ -196,14 +196,20 @@ static BOOL ReferenceGammaAt(const CColor & White, const CColor & Black, double 
 //   answer is g, independent of e. This is the case the "gamma at black is 2.2
 //   for a 2.2 display" intuition is true for, and only this one.
 //
-//   BT.1886 with split > 0: y = a*(x+b)^g / maxL, and y(0) = minL/maxL - the
-//   target's floor IS the measured black (getL_EOTF case 4: offset = split/100
-//   * minL, and a*b^g = offset). y(e) - y(0) is then LINEAR in e, so log/log
-//   tends to 1, not to g, and the value depends on e. At the e below, a 1220:1
-//   panel on a g 2.4 target reads 1.361 (1.240 at e = 1e-6). That is not the
-//   exponent - and BT.1886 does not reach its exponent anywhere: the same
-//   reference curve runs 1.455 at 1%, 2.001 at 10%, 2.225 at 50%, 2.276 at
-//   white. Only split = 0 returns a flat 2.4.
+//   BT.1886 with split > 0: getL_EOTF case 4 is
+//   y = (a*(x+b)^g + minL*(1-split/100)) / (maxL + minL*(1-split/100)), and
+//   a*b^g = offset = split/100 * minL, so y(0) = minL / (maxL +
+//   minL*(1-split/100)) - the target's floor IS the measured black. At the
+//   default Split of 100 that is exactly minL/maxL and the curve reduces to
+//   a*(x+b)^g / maxL; at a lower split the floor sits slightly below minL/maxL
+//   and the endpoint slightly above, so the value is Split-dependent too (1.361
+//   at split 100, 1.403 at split 50, on the panel below). Either way
+//   y(e) - y(0) is LINEAR in e, so log/log tends to 1, not to g, and the value
+//   depends on e. At the e below, a 1220:1 panel on a g 2.4 target at the
+//   default split reads 1.361 (1.240 at e = 1e-6). That is not the exponent -
+//   and BT.1886 does not reach its exponent anywhere: the same reference curve
+//   runs 1.455 at 1%, 2.001 at 10%, 2.225 at 50%, 2.276 at white. Only
+//   split = 0 returns a flat 2.4.
 //
 //   sRGB, L*: y(0) == 0, so there is no floor and the removal is arithmetically
 //   a no-op. Their linear toe makes y proportional to x near black, so this is

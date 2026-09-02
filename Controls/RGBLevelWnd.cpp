@@ -235,6 +235,22 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			}
 		} 
 
+		// Neither ladder claims every column, and a call that claims none leaves
+		// aReference holding the previous selection's. The reference-relative
+		// branch below - the only one that reads it - then skips silently, so the
+		// level members keep the last selection's numbers while the pane still
+		// draws them as data. That is how the black column's own case escaped: pick
+		// Black in Primaries (aReference = noDataColor, levels zeroed), then let a
+		// measuring refresh arrive on the minCol <= 0 path with detect-primaries
+		// off - all seven of its branches are gated on it and there is no final
+		// else - and the pane paints three enabled bars reading 0.0%, the
+		// reading-shaped zero this column exists to avoid. Placed after the ladders
+		// so m_bLumaMode is final; the HDR rescale below runs only for display
+		// modes whose ladder always claims a target. The other branch computes its
+		// levels without aReference, so it is not gated on one.
+		if ( m_bLumaMode && !aReference.isValid() )
+			m_bHasReference = FALSE;
+
 		BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 && (m_displayMode == 1 || m_displayMode >= 5 && m_displayMode <= 11 || m_displayMode == 13) );
 		CColor white = m_pDocument->GetMeasure()->GetPrimeWhite();
 
@@ -363,8 +379,13 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
             // same terms the chart uses (rgbhistoview.cpp) - the w/gamma
             // normalisation divides by a target luminance that is exactly 0 at
             // black, so only the chromaticity-only settings survive there, and the
-            // patch needs light in it for its xy to mean anything. Other pages that
-            // reach here with minCol 1 (free measures) are left as they were.
+            // patch needs light in it for its xy to mean anything. Free measures
+            // reach here with minCol 1 meaning something else, and carrying a stale
+            // m_displayMode - MainView's case 2 assigns none of last_Col, last_Size
+            // or last_Display - so one selected after a grayscale or near-black
+            // column arrives labelled as that page and does take this clause. What
+            // it then reports agrees with the other free-measure columns, so it is
+            // left that way.
             if(aColor[1] > 0.0 && (minCol != 1 || m_displayMode == 4
                 || ((m_displayMode == 0 || m_displayMode == 3) && GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0)))
             {

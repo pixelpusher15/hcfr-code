@@ -357,14 +357,26 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				
 				// The enclosing guard checks the COMPARISON document's black
 				// (aColor[2]); this point normalises with the PRIMARY document's,
-				// because m_dE_gray == 0 makes YWhitePatch aColor2[2]. ColorLab's
-				// constructor divides by it, so a primary document whose black read
-				// zero handed it a 0 divisor. Latent while the loop started at 1,
-				// and reachable at point 0 with dE_form 5 + dE_gray 0: the pair is
-				// blocked in AdvancedPropPage but Measure.cpp restores both straight
-				// out of a loaded .chc. Test both divisors, since YWhiteRefPatch is
-				// the comparison patch's own luminance under the same setting.
-				if (bMainDocHasColors && aColor.isValid() && YWhitePatch > 0.0 && YWhiteRefPatch > 0.0)
+				// because m_dE_gray == 0 makes YWhitePatch aColor2[2] - the black
+				// patch's own luminance, and point 0 is the one place on the ramp
+				// where that is legitimately zero.
+				//
+				// Not a divide by zero: ColorXYZ::GetDeltaE clamps a non-positive
+				// YWhite to 120 and YWhiteRef to 1.0 before it builds any Lab. That
+				// is the reason to suppress the point, not to keep it - it gets
+				// drawn, as a dE against a white nobody chose. Reachable at point 0
+				// with dE_form 5 + dE_gray 0: the pair is blocked in
+				// AdvancedPropPage, but Measure.cpp restores both straight out of a
+				// loaded .chc.
+				//
+				// Point 0 only. Under every other m_dE_gray both divisors are
+				// document-wide (GetOnOffWhite), so testing them there would drop
+				// the whole trace for a grayscale typed into the grid rather than
+				// measured - SetGray writes only m_grayMeasureArray, leaving
+				// m_OnOffWhite at noDataColor - and that is a change to every point,
+				// not to black.
+				if (bMainDocHasColors && aColor.isValid()
+					&& ( i > 0 || ( YWhitePatch > 0.0 && YWhiteRefPatch > 0.0 ) ))
 						m_graphCtrl2.AddPoint(m_deltaEBetweenGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhitePatch,pDataRef->GetMeasure()->GetGray(i),YWhiteRefPatch, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight)); //Ki
 			}
 		}
