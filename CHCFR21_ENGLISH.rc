@@ -4032,6 +4032,7 @@ BEGIN
     IDS_PP_PAUSED           "   -   PAUSED"
     IDS_PP_PATCHOF          "Patch %d of %d  -  RGB %.0f, %.0f, %.0f"
     IDS_PP_ETA              "%d%%  -  about %s left"
+    IDS_PP_MEASURINGWHITE   "Measuring white reference..."
     IDS_PP_AVGDE            "Avg dE"
     IDS_PP_MAXDE            "Max dE"
     IDS_PP_DRIFT            "Drift"

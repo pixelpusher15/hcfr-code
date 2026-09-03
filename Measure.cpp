@@ -199,6 +199,7 @@ CMeasure::CMeasure()
 
 	ClearProfileMeasures();
 	m_bProfilePause = FALSE;
+	m_bProfileMeasuringWhite = FALSE;
 	m_profileCurrentDrift = 0.0;
 
 	m_primariesArray[0]=m_primariesArray[1]=m_primariesArray[2]=noDataColor;
@@ -228,7 +229,9 @@ CMeasure::CMeasure()
 	for ( int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++ )	m_cc24SatMeasureArray_master[i]=noDataColor;
 //pre-load typical display values
 	m_OnOffWhite.SetXYZValue(ColorXYZ(95.047,GetConfig()->m_TargetMaxL,108.883));
+	m_bOnOffWhiteMeasured = FALSE;	// likewise a placeholder
 	m_PrimeWhite.SetXYZValue(ColorXYZ(GetConfig()->m_TargetMaxL*0.95047,GetConfig()->m_TargetMaxL,GetConfig()->m_TargetMaxL*1.08883));
+	m_bPrimeWhiteMeasured = FALSE;	// the line above is a placeholder for the charts, not a reading
 	m_OnOffBlack.SetXYZValue(ColorXYZ(GetConfig()->m_TargetMinL*0.95047,GetConfig()->m_TargetMinL,GetConfig()->m_TargetMinL*1.08833));
 	m_AnsiBlack=m_AnsiWhite=noDataColor;
 	m_CCStr = (CString)"";
@@ -273,6 +276,7 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 			m_grayIRELevelArray.Copy(p->m_grayIRELevelArray);
 			m_bIREScaleMode=p->m_bIREScaleMode;
 			m_OnOffWhite=p->m_OnOffWhite;
+			m_bOnOffWhiteMeasured=p->m_bOnOffWhiteMeasured;
 			for(int i=0;i<m_grayMeasureArray.GetSize();i++)
     			m_grayMeasureArray[i]=p->m_grayMeasureArray[i];
 			break;
@@ -335,17 +339,20 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 			for(int i=0;i<m_primariesArray.GetSize();i++)
 				m_primariesArray[i]=p->m_primariesArray[i];	
 				m_PrimeWhite = p->m_PrimeWhite;
+				m_bPrimeWhiteMeasured = p->m_bPrimeWhiteMeasured;
 			break;
 
 		case DUPLSECONDARIESCOL:		// Secondaries measure
 			for(int i=0;i<m_secondariesArray.GetSize();i++)
 				m_secondariesArray[i]=p->m_secondariesArray[i];
 				m_PrimeWhite = p->m_PrimeWhite;
+				m_bPrimeWhiteMeasured = p->m_bPrimeWhiteMeasured;
 			break;
 
 		case DUPLCONTRAST:		// Contrast measure
 			m_OnOffBlack=p->m_OnOffBlack;
 			m_OnOffWhite=p->m_OnOffWhite;
+			m_bOnOffWhiteMeasured=p->m_bOnOffWhiteMeasured;
 			m_AnsiBlack=p->m_AnsiBlack;
 			m_AnsiBlack=p->m_AnsiBlack;
 			break;
@@ -508,7 +515,17 @@ void CMeasure::Serialize(CArchive& ar)
 		m_AnsiBlack.Serialize(ar);
 		m_AnsiWhite.Serialize(ar);
 //version 9
-		m_PrimeWhite.Serialize(ar);
+		// An unmeasured prime white is the constructor's placeholder, not data, and
+		// on disk the two are indistinguishable. Store "no data" instead, so a
+		// reload cannot mistake it for a reading -- that is what lets the flag be
+		// re-derived on load without a file-format version bump.
+		if ( m_bPrimeWhiteMeasured )
+			m_PrimeWhite.Serialize(ar);
+		else
+		{
+			CColor noWhite = noDataColor;
+			noWhite.Serialize(ar);
+		}
 
 		ar << m_infoStr;
 
@@ -875,6 +892,14 @@ void CMeasure::Serialize(CArchive& ar)
 			if (gsize > 0)
 				m_OnOffWhite = m_grayMeasureArray[gsize-1];
 		}
+		// The store writes noDataColor for an unmeasured prime white, so an invalid
+		// value here means this document never had one -- the same state a document
+		// whose primaries were deleted has always loaded in, so nothing downstream
+		// sees a value it could not already see. Documents written by builds that
+		// predate this carry a saved placeholder and still read as measured, so a
+		// profile will not fill their white in -- exactly as today.
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
+		m_bOnOffWhiteMeasured = m_OnOffWhite.isValid();
 
 		ar >> m_infoStr;
 		if (m_infoStr.Find("\n") < 1)
@@ -1867,6 +1892,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	}
 
 	m_OnOffWhite = measuredColor[size-1];
+	m_bOnOffWhiteMeasured = TRUE;
 	if (m_bOverRideBlack)
 		m_OnOffBlack = m_userBlack;
 	else		
@@ -2312,6 +2338,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 	}
 
 	m_OnOffWhite = measuredColor[size-1];
+	m_bOnOffWhiteMeasured = TRUE;
 	if (m_bOverRideBlack)
 		m_OnOffBlack = m_userBlack;
 	else
@@ -2335,6 +2362,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 			m_PrimeWhite.SetLuxValue ( measuredLux[size+6] );
 		else
 			m_PrimeWhite.ResetLuxValue ();
+		m_bPrimeWhiteMeasured = TRUE;
 	}
 	GetConfig()->m_isSettling = doSettling;
 		
@@ -4057,6 +4085,32 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 static const int kProfileAnchorInterval = 64;	// patches between drift-compensation white anchors
 
+// The stimulus a PRIME white is measured at, mirroring MeasurePrimaries'
+// primaryIRELevel exactly: 100% in SDR, the 50.22831% diffuse-white code in PQ
+// -- the same code TmDiffuseWhiteNits evaluates, so the reading is a diffuse
+// white and not peak -- 50.00% for Mascior's HDR disc, and the 75% anchor the
+// HDTVa special standard uses. A profile publishes its reading AS the document's
+// prime white, so it has to be the same measurement the primaries sweep would
+// have taken; anything else would be a third white to reconcile. Keep in step
+// with MeasurePrimaries if that ever changes.
+static double ProfilePrimeWhiteIRELevel(CGenerator * pGenerator)
+{
+	double primaryIRELevel = 100.0;
+	ColorStandard cstd = GetColorReference().m_standard;
+	if ( GetConfig()->m_GammaOffsetType == 5 )
+	{
+		primaryIRELevel = 50.22831;
+		CString strDVD;
+		strDVD.LoadString ( IDS_MANUALDVDGENERATOR_NAME );
+		if ( pGenerator->GetName() == strDVD &&
+			 ( cstd == UHDTV4 || cstd == UHDTV3 || cstd == UHDTV2 || cstd == UHDTV || cstd == HDTV ) )
+			primaryIRELevel = 50.00;
+	}
+	if ( cstd == HDTVa )
+		primaryIRELevel = 75.0;
+	return primaryIRELevel;
+}
+
 // Rescale the XYZ of profile patches [fromIdx, toIdx) by the reciprocal of a
 // drift factor interpolated linearly from fFrom (at the previous anchor) to
 // fTo (at the anchor just measured). Luminance-only correction: all three
@@ -4209,51 +4263,54 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	m_binMeasure = TRUE;
 	m_currentIndex = 0;
 
-	// Self-contained white/black reference. A profile inherently drives its own
-	// 0/0/0 and 100/100/100 cube corners, so measure them up front and publish
-	// the app-wide On/Off white+black -- the user can come straight in and start a
-	// profile with no separate grayscale/contrast pass first, because every
-	// white-relative consumer (ComputeProfileDE, the 3D viewer, the RGB-levels
-	// widget) reads GetOnOffWhite/GetOnOffBlack. Measured only when not already
-	// present, so an existing contrast/grayscale run is never overwritten.
-	if ( ! m_bAbortSweep && ( ! m_OnOffWhite.isValid() || m_OnOffWhite.GetY() <= 0.0 ) )
+	// Self-contained white reference. Every white-relative consumer of a profile
+	// -- ComputeProfileDE, the 3D viewer, the RGB-levels widget, the export paths
+	// -- normalises by the PRIME white, and until now only the primaries sweep
+	// ever wrote one. So a standalone capture scored its whole cube against the
+	// constructor's nominal placeholder, and only came right once the user went
+	// and ran primaries afterwards.
+	//
+	// Measure it here instead, before the first patch, at the SAME stimulus
+	// MeasurePrimaries uses (ProfilePrimeWhiteIRELevel): the reading IS a prime
+	// white by construction, which is what lets it be published as one rather
+	// than becoming a third white the user has to reconcile.
+	//
+	// The guard is the explicit m_bPrimeWhiteMeasured, not isValid(): the
+	// placeholder passes both isValid() and GetY() > 0, which is precisely why the
+	// version of this block that tested the color could never fire. A real
+	// primaries run is still never overwritten.
+	//
+	// Black is deliberately NOT published here. The cube's own 0/0/0 corner is
+	// patch 0, so a profile does measure black; but m_OnOffBlack has no equivalent
+	// "was it measured" flag and ~20 writers, so filling it in could not be done
+	// safely without a wider change than this one.
+	if ( ! m_bAbortSweep && ! m_bPrimeWhiteMeasured )
 	{
-		ColorRGBDisplay whRGB ( 100.0, 100.0, 100.0 );
+		double wIRE = ProfilePrimeWhiteIRELevel ( pGenerator );
+		ColorRGBDisplay whRGB ( wIRE, wIRE, wIRE );
+		m_bProfileMeasuringWhite = TRUE;
+		UpdateViews(pDoc, 13);		// so the pane says what the wait is for
 		if ( pGenerator->DisplayRGBColor ( whRGB, nPattern, 0, TRUE ) )
 		{
-			// Aborted mid-settle: skip the read. An unsettled reading still passes
-			// the validity gate below and permanently replaces the app-wide
-			// reference -- the nDone == 0 path calls ClearProfileMeasures() but
-			// does not restore the white, so it stays "valid", a later profile run
-			// will not re-measure it, and ComputeProfileDE, the 3D viewer, the
-			// RGB-levels widget and the export paths all normalize to it. Leaving
-			// it invalid makes the next run measure it properly.
+			// Aborted mid-settle: skip the read. An unsettled reading would still
+			// pass the validity gate below and become the document's prime white --
+			// and because storing it also sets the measured flag, no later run would
+			// replace it. The nDone == 0 path clears the cube but cannot undo that.
 			if ( WaitForDynamicIris ( FALSE, pDoc ) )
 				m_bAbortSweep = TRUE;
 			else
 			{
 				CColor wh = PumpedRead ( asyncMeasure, pSensor, whRGB, displaymode );
 				if ( pSensor->IsMeasureValid() && wh.isValid() && wh.GetY() > 0.0 )
-					m_OnOffWhite = wh;
+				{
+					wh.ResetLuxValue ();	// no luxmeter reading was taken alongside it
+					m_PrimeWhite = wh;
+					m_bPrimeWhiteMeasured = TRUE;
+					m_isModified = TRUE;
+				}
 			}
 		}
-	}
-	if ( ! m_bAbortSweep && ! m_OnOffBlack.isValid() )
-	{
-		ColorRGBDisplay bkRGB ( 0.0, 0.0, 0.0 );
-		if ( pGenerator->DisplayRGBColor ( bkRGB, nPattern, 0, TRUE ) )
-		{
-			// Same as the white above: an unsettled black would stick as the
-			// app-wide reference and never be re-measured.
-			if ( WaitForDynamicIris ( FALSE, pDoc ) )
-				m_bAbortSweep = TRUE;
-			else
-			{
-				CColor bk = PumpedRead ( asyncMeasure, pSensor, bkRGB, displaymode );
-				if ( pSensor->IsMeasureValid() && bk.isValid() )
-					m_OnOffBlack = bk;
-			}
-		}
+		m_bProfileMeasuringWhite = FALSE;
 	}
 
 	for(int i=0;i<size;i++)
@@ -5326,6 +5383,8 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	{
 		m_PrimeWhite=noDataColor;
 	}
+	// covers both branches: a measured white is valid, noDataColor is not
+	m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 
 	if ( GetConfig () -> m_BWColorsToAdd > 1 )
 	{
@@ -5617,6 +5676,8 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 	{
 		m_PrimeWhite=noDataColor;
 	}
+	// covers both branches: a measured white is valid, noDataColor is not
+	m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 
 	if ( GetConfig () -> m_BWColorsToAdd > 1 )
 	{
@@ -5897,6 +5958,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 				else
 				{
 					m_OnOffWhite = measure;
+					m_bOnOffWhiteMeasured = TRUE;
 
 					if ( bUseLuxValues )
 					{
@@ -6947,6 +7009,7 @@ BOOL CMeasure::ValidateBackgroundPrimaries ( BOOL bUseLuxValues, double * pLuxVa
 		}
 		else
 			m_PrimeWhite = noDataColor;
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 
 		if ( m_nBkMeasureStepCount >= 5 )
 		{
@@ -7009,6 +7072,7 @@ BOOL CMeasure::ValidateBackgroundSecondaries ( BOOL bUseLuxValues, double * pLux
 		}
 		else
 			m_PrimeWhite = noDataColor;
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 
 		if ( m_nBkMeasureStepCount >= 8 )
 		{
@@ -7072,6 +7136,7 @@ BOOL CMeasure::ValidateBackgroundGrayScaleAndColors ( BOOL bUseLuxValues, double
 		}
 
 		m_PrimeWhite = (*m_pBkMeasuredColor)[m_nBkMeasureStepCount-7];
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 		if (m_bOverRideBlack)
 			m_OnOffBlack = m_userBlack;
 		else
@@ -7601,7 +7666,12 @@ double CMeasure::GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) cons
 	// special standards read the on/off white directly and do NOT fall back to
 	// prime - the grid goes straight from a missing on/off white to TargetMaxL.
 	double y = bSpecial ? yOnOff : ( yPrime > 0.0 ? yPrime : yOnOff );
-	if ( bCC && onoff.isValid() && !isHDR && yOnOff > 0.0 && yPrime / yOnOff < 0.9 )
+	// m_bOnOffWhiteMeasured, not isValid(): the constructor's placeholder passes
+	// isValid() at m_TargetMaxL, so on a document with no grayscale or contrast
+	// run this override used to swap a REAL prime white for a nominal 120 nits
+	// whenever the display measured more than 10% below target -- which is most
+	// of them, and exactly the state a standalone display profile starts in.
+	if ( bCC && m_bOnOffWhiteMeasured && onoff.isValid() && !isHDR && yOnOff > 0.0 && yPrime / yOnOff < 0.9 )
 		y = yOnOff;
 
 	if ( y <= 0.0 )

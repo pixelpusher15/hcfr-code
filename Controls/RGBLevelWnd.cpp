@@ -221,7 +221,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			white = m_pDocument -> GetMeasure () ->GetOnOffWhite();
 
 		//special case check if user has done a less than 100% primaries run and use grayscale white instead for colorchecker
-		if (m_pDocument->GetMeasure()->GetOnOffWhite().isValid())
+		if (m_pDocument->GetMeasure()->IsOnOffWhiteMeasured() && m_pDocument->GetMeasure()->GetOnOffWhite().isValid())
 			if ((m_pDocument->GetMeasure()->GetPrimeWhite()[1] / m_pDocument->GetMeasure()->GetOnOffWhite()[1] < 0.9) && (m_displayMode == 11 || m_displayMode == 13)  && GetConfig()->m_GammaOffsetType != 5)
 				white = m_pDocument -> GetMeasure () ->GetOnOffWhite();
 		
