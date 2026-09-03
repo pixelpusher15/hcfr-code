@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -1565,7 +1565,7 @@ BOOL CAboutDlg::OnInitDialog()
 	char *auteurStyle[2]={"<p><font style='b' size='14' color='56,76,104'>","<br><font style='i' size='12' color='64,64,64'>"};
 	char *auteurStrings[]={	"Patrice AFFLATET",szSensor,
 							"Benoit SEGUIN",szSensorAndApp,
-							"Franï¿½ois-Xavier CHABOUD",szDevApp,
+							"François-Xavier CHABOUD",szDevApp,
 							"Georges GALLERAND",szDevApp,
 							"Laurent GARNIER",szDevApp,
 							"Michel de LILLERS",szExpert,

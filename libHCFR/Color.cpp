@@ -14,15 +14,15 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	FranÃois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //  Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 //  Modifications:
-//  JÃˆrÃ™me Duquennoy -> made OS agnostic
+//  Jérôme Duquennoy -> made OS agnostic
 //    ASSERT -> assert
 //    CRITICAL_SECTION -> pthreads mutex
 //    CString -> std::string
-//      CString.LoadString -> string passÃˆe en argument
+//      CString.LoadString -> string passée en argument
 //    BOOL, FALSE, TRUE -> bool, false, true
 //    const added to the param of the copy constructor
 //    GetColorReference linked to global app var -> replaced by arguments in impacted functions
@@ -2440,7 +2440,7 @@ CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
     theFile.read((char*)&version, 4);
     version = littleEndianUint32ToHost(version);
 
-    // les donnÃ©es XYZ (on utilise le constructeur de Matrix)
+    // les données XYZ (on utilise le constructeur de Matrix)
     m_XYZValues = ColorXYZ(Matrix(theFile));
 
     Matrix XYZtoSensorMatrix = Matrix(theFile);

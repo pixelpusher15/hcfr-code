@@ -127,7 +127,7 @@ void					GetSatStimLevelPercents ( std::vector<int> & pcts );
 struct CSatLevelSet
 {
 	double stimLevel;
-	std::vector<CColor> sat[6];	// R,G,B,Y,C,M â€” GetSaturationSize() entries each
+	std::vector<CColor> sat[6];	// R,G,B,Y,C,M — GetSaturationSize() entries each
 };
 
 
@@ -299,7 +299,7 @@ public:
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0
 
 protected:
-	bool MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx);
+	bool MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx, BOOL bIgnoreAbort = FALSE);
 	void ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, double fTo);
 public:
 

@@ -1299,6 +1299,8 @@ void CDataSetDoc::MeasureMagentaSatScale()
 void CDataSetDoc::MeasureCC24SatScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
+
 	if(m_measure.MeasureCC24SatScale(m_pSensor,m_pGenerator,this))
 		SetModifiedFlag(m_measure.IsModified());
 	UpdateAllViews(NULL, UPD_CC24SAT);
