@@ -805,6 +805,20 @@ static void RunT10()
 // sub-black dead zone only opens when the mastering black is nonzero, and
 // BT2390ToneMap's own `if (m_MinML > m_MinTL) m_MinML = m_MinTL` clamp shrinks
 // it again from the other side.
+//
+// Where the grid deliberately does NOT go. The invariant below is stated
+// absolutely, but it is only swept over a band where it currently holds: the
+// black lift's exponent p = min(1/b, 4*BS) falls under 1 when Black Slope drops
+// below 0.25, or when b exceeds 1 from a high target black against a low
+// diffuse white. p < 1 makes the lift's slope diverge as E2 -> 1 and turns the
+// curve over MID-SCALE - a third non-monotonic band, distinct from both
+// near-black mechanisms above, pre-existing and untouched by the E2 floor (225
+// of 5760 UI-reachable configurations, every one at BS = 0.1, and identical on
+// main). BS is pinned to {1.0, 2.0} and diffuse to {94.37844, 203} to stay
+// clear of both entrances; widen either and T11 becomes a test of that band
+// instead of this fix. (203 is BT.2408's reference white and sits just above
+// the References page's own DiffuseL cap of 200, so it reaches libHCFR only
+// through an INI - a separate question from what this test covers.)
 //////////////////////////////////////////////////////////////////////////
 static void RunT11()
 {
@@ -829,6 +843,7 @@ static void RunT11()
     //    full white reads as black. 1000 is the same equality lower down, where
     //    PQ(MasterMaxL) < 1 keeps E1 away from the singular point.
     static const double maxTLs[] = { 30.0, 120.0, 400.0, 1000.0, 2000.0, 10000.0 };
+    // Both pinned clear of the p < 1 band described above, not for coverage.
     static const double diffuses[] = { 94.37844, 203.0 };
     static const double bFacts[] = { 1.0, 2.0 };          // m_BT2390_BS
     static const double e2Facts[] = { 0.0, 1.0 };         // m_BT2390_WS
@@ -887,9 +902,13 @@ static void RunT11()
     }
     printf("  %d tone-map configurations swept\n", configs);
 
-    // Degenerate mastering metadata. MasterMaxL = 0 - blank ST.2086 fields typed
-    // in as 0 - makes the PQ span d zero or negative, so E1, minL and maxL all
-    // come out +/-inf or NaN. The E2 floor has to stay OFF for those: an infinite
+    // Degenerate mastering metadata. MasterMaxL = 0 makes the PQ span d zero or
+    // negative, so E1, minL and maxL all come out +/-inf or NaN. The References
+    // page cannot produce it - it validates MasterMaxL to [100, 10000] and
+    // MasterMinL to [0, 0.5], and the smallest d over the corners of all four
+    // luminance fields is 0.0733 - so it arrives from a hand-edited INI, which
+    // is read back without re-validation, or from a direct caller of the public
+    // getL_EOTF. The E2 floor has to stay OFF for those: an infinite
     // b turns the black lift into a NaN, and min(NaN, cap) resolves to the full
     // target peak, so a signal of 1e-7 returned the whole 1000-nit target peak
     // while 1e-5 next door returned 4e-9. Sampled on a sub-grid ladder because

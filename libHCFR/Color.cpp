@@ -1503,14 +1503,21 @@ static double BT2390ToneMap ( double valx, double m_diffuseL, double m_MinML, do
 	// which is what the expansion region wants.
 
 	// d <= 0 is degenerate mastering metadata - a mastering peak at or below the
-	// mastering black, which is what blank ST.2086 fields entered as 0 produce
-	// (MasterMinL = MasterMaxL = 0 gives d == 0 exactly). E1, minL and maxL are
-	// then all +/-inf or NaN, and the floor below would turn a sub-black E2 of
-	// -inf into 0 and route a near-zero signal into the tone-map branch, where an
-	// infinite b yields a NaN that min(NaN, cap) resolves to the FULL target peak:
-	// 1000 cd/m2 for a signal of 1e-7. Leave the floor off for those and the
-	// values keep falling through to raw PQ, which is what this returned before
-	// the floor existed.
+	// mastering black. E1, minL and maxL are then all +/-inf or NaN, and the floor
+	// below would turn a sub-black E2 of -inf into 0 and route a near-zero signal
+	// into the tone-map branch, where an infinite b yields a NaN that
+	// min(NaN, cap) resolves to the FULL target peak: 1000 cd/m2 for a signal of
+	// 1e-7. Leave the floor off for those and the values keep falling through to
+	// raw PQ, which is what this returned before the floor existed.
+	//
+	// The References page cannot produce it: MasterMaxL is validated to
+	// [100, 10000] and MasterMinL to [0, 0.5], and over the corners of all four
+	// luminance fields - DiffuseL's [1, 200] included - the smallest d is 0.0733.
+	// It arrives from a hand-edited INI (ColorHCFRConfig.cpp:566 reads the value
+	// back with GetProfileDouble and does not re-validate) or from a direct caller
+	// of this public API. d == 0 exactly for MasterMinL = MasterMaxL = 0; d is
+	// negative and finite for MasterMinL > MasterMaxL, where every normalised
+	// value is a sign-flipped fiction, and the same guard covers it.
 	bool bMappable = (d > 0.0);
 
 	minL = (pow( (c1 + c2 * pow(m_MinTL/Scale,m1)) / (1 + c3 * pow(m_MinTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
@@ -1572,6 +1579,15 @@ static double BT2390ToneMap ( double valx, double m_diffuseL, double m_MinML, do
 
 	if (E2 >= 0.0 && E2 <= 1.0)
 	{
+		// Pre-existing and deliberately left alone: p < 1 makes the slope of the
+		// black lift b(1 - E2)^p diverge as E2 -> 1, so the curve turns over
+		// MID-SCALE rather than near black - neither of the two dead-zone
+		// mechanisms above, and not something the E2 floor touches. Two entrances,
+		// both reachable from the References page: a Black Slope below 0.25
+		// (4 * b_fact < 1), or b > 1 from a high target black against a low diffuse
+		// white. Bounding p at 1 clears it but moves ~400k of 5.9M rows by up to
+		// 6617 cd/m2 - a different change from this one, and listed under "still
+		// not monotonic" rather than fixed here.
 		p = min(1.0 / b, 4 * b_fact);
 		E3 = E2 + b * pow((1.0 - E2),p);
 		E3 = (E3 * d + pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2));
@@ -1733,7 +1749,17 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 				// cBT2390 asks for the inverse LUT to be rebuilt rather than for a
 				// value; the table is the product and the return has never been read.
 				// case -10 no longer arrives through here - it calls the builder
-				// directly - so this is only the public API's way in.
+				// directly - so this is only the public API's way in, and nothing in
+				// the tree rebuilds the table this way any more.
+				//
+				// Which is just as well, because getting here is still gated on the
+				// SIGNAL as well as on `ToneMap && mode == 5` promoting to case 10: a
+				// caller asking for a rebuild with valx == 0 takes the
+				// `valx == 0 && mode > 4` early return at the top of this function and
+				// builds nothing, leaving BT2390x/y as they were. That is the half of
+				// MATH-008 case -10 used to be exposed to; it is why case -10 calls
+				// BuildBT2390Table itself rather than coming through here, and it is
+				// what any future caller of this branch has to know.
 				BuildBT2390Table(m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, b_fact, E2_fact, E2_fact1);
 				outL = 0.0;
 			}
