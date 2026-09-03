@@ -4019,6 +4019,7 @@ BEGIN
     IDS_PP_PAUSED           "   -   PAUSIERT"
     IDS_PP_PATCHOF          "Muster %d von %d  -  RGB %.0f, %.0f, %.0f"
     IDS_PP_ETA              "%d%%  -  noch etwa %s"
+    IDS_PP_MEASURINGWHITE   "Weiﬂreferenz wird gemessen..."
     IDS_PP_AVGDE            "Mittl. dE"
     IDS_PP_MAXDE            "Max. dE"
     IDS_PP_DRIFT            "Drift"

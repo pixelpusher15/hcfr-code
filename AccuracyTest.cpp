@@ -462,7 +462,11 @@ static double GridYWhite ( const CMeasure & m, bool bSpecial, bool bCC )
 		y = GetConfig()->m_TargetMaxL;
 	// CC only, SDR only: a primaries run made below 90% stimulus (UpdateGrid
 	// ~3819-3826).
-	if ( bCC && onoff.isValid() && GetConfig()->m_GammaOffsetType != 5
+	// Mirrors GetColorDEWhiteY's gate exactly, m_bOnOffWhiteMeasured included:
+	// the ctor's placeholder on/off white is isValid() at m_TargetMaxL, so
+	// without this the harness would keep applying an override production no
+	// longer applies -- a phantom grid-vs-viewer split in the convPV families.
+	if ( bCC && m.IsOnOffWhiteMeasured() && onoff.isValid() && GetConfig()->m_GammaOffsetType != 5
 		 && yOnOff > 0 && yPrime / yOnOff < 0.9 )
 		y = yOnOff;
 	return y;

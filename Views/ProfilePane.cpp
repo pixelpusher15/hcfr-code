@@ -970,6 +970,12 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	int y = 0;
 	ColorRGBDisplay cur_rgb = ( total > 0 ) ? pMeasure->GetProfilePatchRGB( min( cur, total - 1 ) )
 											: ColorRGBDisplay( 0.0 );
+	// The capture measures its own white reference before patch 0. That read is
+	// long enough to look hung, and labelling it "Patch 1 of N" would be wrong --
+	// no cube patch has been measured yet.
+	const bool bWhiteRef = ( pMeasure->m_bProfileMeasuringWhite != FALSE );
+	if ( bWhiteRef )
+		cur_rgb = ColorRGBDisplay( 100.0, 100.0, 100.0 );
 	CRect rcSw( 0, y, swSz, y + swSz );
 	FillRound( g, rcSw, 5, SwatchColor( cur_rgb ) );
 	DrawRound( g, rcSw, 5, t.border, 1.0f );
@@ -978,8 +984,11 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	int barW = CW - barX;
 	int etaW = GetConfig()->Scale( 210 );
 	CString line;
-	line.Format( S( IDS_PP_PATCHOF ), min( cur + 1, total ), total,
-				 cur_rgb[0], cur_rgb[1], cur_rgb[2] );
+	if ( bWhiteRef )
+		line = S( IDS_PP_MEASURINGWHITE );
+	else
+		line.Format( S( IDS_PP_PATCHOF ), min( cur + 1, total ), total,
+					 cur_rgb[0], cur_rgb[1], cur_rgb[2] );
 	DrawStr( g, line, fBody, Gdiplus::RectF( (float)barX, (float)y, (float)( barW - etaW - GetConfig()->Scale( 8 ) ), 22.0f ), t.text );
 
 	double frac = total > 0 ? (double)cur / total : 0.0;
