@@ -1585,9 +1585,92 @@ bool CExport::SavePDF()
 	return true;
 }
 
+// Every per-sheet layout guard below rejects AFTER SaveGeneralSheet has already
+// appended its index row and committed it, so a rejected append used to leave the
+// workbook claiming N+1 measures with N data blocks - and the next export then read
+// m_numExistingMeasures as N+1 against N blocks of data, so the guard rejected
+// forever, even with the options put back. Replace-by-index was off by one from then
+// on too. Validate every sheet the options can reshape BEFORE the first write.
+//
+// The three block heights are the ones the guards themselves use: gray 9 rows,
+// primaries 7 rows, and the colorchecker's header WIDTH of 8 columns, each plus 3
+// per enabled option. They are duplicated rather than shared because each guard sits
+// after its own sheet's header has been built; keeping both means a future sheet that
+// forgets the pre-check is still caught before it corrupts anything.
+bool CExport::CheckExistingLayout()
+{
+	const int extraPerOption = ( m_bExportRaw ? 3 : 0 ) + ( m_bExportStimulus ? 3 : 0 );
+
+	struct { const char * sheet; int blockRows; } rowSheets[] =
+	{
+		{ "GrayScaleSheet", 9 + extraPerOption },
+		{ "PrimariesSheet", 7 + extraPerOption },
+	};
+
+	for ( int s = 0; s < 2; s++ )
+	{
+		CString SheetOrSeparator = rowSheets[s].sheet;
+		CString aFileName;
+		if ( m_type == CSV )
+		{
+			aFileName = m_fileName + "." + SheetOrSeparator + ".csv";
+			SheetOrSeparator = m_separator;
+		}
+		else
+			aFileName = m_fileName;
+
+		CSpreadSheet ss( aFileName, SheetOrSeparator, false );
+		int existing = ss.GetTotalRows() - 1;
+		int blockRows = rowSheets[s].blockRows;
+		if ( ( m_numExistingMeasures > 0 &&
+		       existing != m_numExistingMeasures * blockRows )
+		  || ( !m_doReplace && m_numExistingMeasures == 0 && existing > 0 &&
+		       ( existing % blockRows ) != 0 ) )
+		{
+			m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+			return false;
+		}
+	}
+
+	// The colorchecker's options add COLUMNS, not rows: "Color" + 3 legend pairs +
+	// 3 per enabled option + "deltaE".
+	{
+		CString SheetOrSeparator = "ColorCheckerSheet";
+		CString aFileName;
+		if ( m_type == CSV )
+		{
+			aFileName = m_fileName + "." + SheetOrSeparator + ".csv";
+			SheetOrSeparator = m_separator;
+		}
+		else
+			aFileName = m_fileName;
+
+		CSpreadSheet ccSS( aFileName, SheetOrSeparator, false );
+		bool ccHasExisting = m_doReplace ? ( m_numExistingMeasures > 0 )
+		                                 : ( ccSS.GetTotalRows() > 0 );
+		if ( ccHasExisting &&
+		     (int)ccSS.GetTotalColumns() != 8 + extraPerOption )
+		{
+			m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+			return false;
+		}
+	}
+
+	return true;
+}
+
 bool CExport::SaveSheets()
 {
 	bool result;
+
+	if ( !CheckExistingLayout() )
+	{
+		CString	Msg, Title;
+		Msg.LoadString ( IDS_ERREXPORT );
+		Title.LoadString ( IDS_EXPORT );
+		GetColorApp()->InMeasureMessageBox(Msg+"\n"+m_errorStr,Title,MB_OK);
+		return false;
+	}
 
 	result=SaveGeneralSheet();
 	result&=SaveGrayScaleSheet();
@@ -1710,14 +1793,13 @@ bool CExport::SaveGrayScaleSheet()
 	// count x old height that happens to be a multiple of the new height
 	// still passes there).
 	int grayBlockRowsExisting = graySS.GetTotalRows() - 1;
-	if ( ( m_doReplace && m_numExistingMeasures > 0 &&
-	       grayBlockRowsExisting != m_numExistingMeasures * grayBlockRows )
-	  || ( !m_doReplace && m_numExistingMeasures > 0 &&
+	// (The append and replace cases test the same thing, so they are one clause.)
+	if ( ( m_numExistingMeasures > 0 &&
 	       grayBlockRowsExisting != m_numExistingMeasures * grayBlockRows )
 	  || ( !m_doReplace && m_numExistingMeasures == 0 && grayBlockRowsExisting > 0 &&
 	       ( grayBlockRowsExisting % grayBlockRows ) != 0 ) )
 	{
-		m_errorStr = _T("Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
 		return false;
 	}
 	if(m_doReplace)
@@ -1935,14 +2017,13 @@ bool CExport::SavePrimariesSheet()
 	// See SaveGrayScaleSheet: guard against replacing into a file whose blocks
 	// were written with a different Raw/Stimulus layout (wrong-row overwrite).
 	int primBlockRowsExisting = primariesSS.GetTotalRows() - 1;
-	if ( ( m_doReplace && m_numExistingMeasures > 0 &&
-	       primBlockRowsExisting != m_numExistingMeasures * primBlockRows )
-	  || ( !m_doReplace && m_numExistingMeasures > 0 &&
+	// (The append and replace cases test the same thing, so they are one clause.)
+	if ( ( m_numExistingMeasures > 0 &&
 	       primBlockRowsExisting != m_numExistingMeasures * primBlockRows )
 	  || ( !m_doReplace && m_numExistingMeasures == 0 && primBlockRowsExisting > 0 &&
 	       ( primBlockRowsExisting % primBlockRows ) != 0 ) )
 	{
-		m_errorStr = _T("Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
 		return false;
 	}
 	if(m_doReplace)
@@ -2449,7 +2530,7 @@ bool CExport::SaveCCSheet()
 	if ( ccHasExisting &&
 	     (int)colorcheckerSS.GetTotalColumns() != (int)Rows.GetSize() )
 	{
-		m_errorStr = _T("Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
 		return false;
 	}
 	result&=colorcheckerSS.AddHeaders(Rows,true);

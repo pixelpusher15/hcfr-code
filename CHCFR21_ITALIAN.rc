@@ -4311,6 +4311,21 @@ BEGIN
     IDS_CIE_ILLUMINANT          "Illuminante"
     IDS_CC_COLORNAME            "Colore %s"
     IDS_CC_COLORNAMEREF         "Colore %s riferimento"
+    IDS_SPECTRAL_TITLE          "Correzione spettrale"
+    IDS_SPECTRAL_BROWSE         "Sfoglia..."
+    IDS_SPECTRAL_CLEAR          "Cancella"
+    IDS_SPECTRAL_STATUS_FMT     "Correzione spettrale: %s"
+    IDS_SPECTRAL_LOADED         "(caricata)"
+    IDS_SPECTRAL_NONE           "Nessuna"
+    IDS_SPECTRAL_FILEFILTER     "Correzione spettrale (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|CSV di correlazione (*.csv)|*.csv||"
+    IDS_SPECTRAL_REAPPLY_FAILED "Non è stato possibile riapplicare al misuratore la correzione spettrale memorizzata:\n%s\n\nLe letture sono NON CORRETTE finché non viene riapplicata o cancellata nelle proprietà del sensore."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "Questo sensore ha una calibrazione a matrice. Applicando una correzione spettrale, questa diventerà l'unica correzione per le nuove letture.\n\nLe misure esistenti sono state acquisite con la calibrazione a matrice: riportarle ai valori grezzi (non corretti) del sensore?\n\nSì - riporta le misure esistenti ai valori grezzi\nNo - lasciarle come sono (miste alle nuove letture spettrali)\nAnnulla - non applicare la correzione spettrale"
+    IDS_SPECTRAL_ACTIVE_TITLE   "Correzione spettrale attiva"
+    IDS_SPECTRAL_CLEAR_FOR_MATRIX "Questo sensore usa una correzione spettrale (ccss/CSV), applicata nel misuratore.\nUna calibrazione a matrice si sommerebbe ad essa (doppia correzione).\n\nCancellare la correzione spettrale e calibrare invece con una matrice?"
+    IDS_CALIB_METHOD_TITLE      "Metodo di calibrazione"
+    IDS_CALIB_METHOD_OUT_OF_SYNC "Il metodo di calibrazione selezionato nelle Opzioni differisce da quello attualmente applicato a queste misure: non sono state ricalcolate dopo il cambio di metodo. L'esportazione rifletterà il metodo APPLICATO.\n\nPer ricalcolare prima, annulla ed esegui 'Crea usando misure di riferimento esistenti' (o un comando di calibrazione).\n\nContinuare con l'esportazione?"
+    IDS_BODNER_SKIPPED_FMT      "Non è stato possibile ricalibrare %d misura(e) registrate prima dell'attivazione di questa funzione."
+    IDS_EXPORT_LAYOUT_MISMATCH  "Impossibile aggiungere a questo file: è stato esportato con opzioni Grezzo/Stimolo diverse. Esporta in un nuovo file, o ripeti l'esportazione con le stesse opzioni dei dati esistenti."
 END
 
 #endif    // Italienisch (Italien) resources

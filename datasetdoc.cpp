@@ -1407,8 +1407,11 @@ static void ShowBodnerSkipCount(int nSkipped)
 	if ( nSkipped <= 0 )
 		return;
 	CString strSkipMsg;
-	strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
-	GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
+	CString strSkipFmt, strSkipTitle;
+	strSkipFmt.LoadString ( IDS_BODNER_SKIPPED_FMT );
+	strSkipTitle.LoadString ( IDS_INFORMATION );
+	strSkipMsg.Format ( strSkipFmt, nSkipped );
+	GetColorApp()->InMeasureMessageBox( strSkipMsg, strSkipTitle, MB_OK | MB_ICONINFORMATION );
 }
 
 void CDataSetDoc::OnConfigureSensor() 
@@ -1621,14 +1624,11 @@ bool CDataSetDoc::ConfirmCalibrationMethodInSync()
 	// clear guard it can trigger) belongs to the calibration commands - a
 	// Yes here used to rewrite an archived document's measurements as a
 	// side effect of printing it.
-	int r = GetColorApp()->InMeasureMessageBox(
-		"The calibration method selected in Options differs from the one currently "
-		"applied to these measurements - they were not recomputed after the method "
-		"was changed. The export will reflect the APPLIED method.\n\n"
-		"To recompute first, cancel and run Create using Existing Reference "
-		"Measures (or a calibration command).\n\n"
-		"Continue with the export?",
-		"Calibration method", MB_OKCANCEL | MB_ICONINFORMATION );
+	CString msg, title;
+	msg.LoadString ( IDS_CALIB_METHOD_OUT_OF_SYNC );
+	title.LoadString ( IDS_CALIB_METHOD_TITLE );
+	int r = GetColorApp()->InMeasureMessageBox( msg, title,
+		MB_OKCANCEL | MB_ICONINFORMATION );
 	return ( r == IDOK );
 }
 
@@ -1784,11 +1784,11 @@ static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor)
 {
 	if ( pSensor == NULL || !pSensor->HasSpectralCorrection() )
 		return true;
-	int r = GetColorApp()->InMeasureMessageBox(
-		"This sensor uses a spectral (ccss/CSV) correction, applied inside the meter.\n"
-		"Calibrating with a matrix would stack on top of it (double-correction).\n\n"
-		"Clear the spectral correction and calibrate with a matrix instead?",
-		"Spectral correction active", MB_YESNO | MB_ICONQUESTION );
+	CString msg, title;
+	msg.LoadString ( IDS_SPECTRAL_CLEAR_FOR_MATRIX );
+	title.LoadString ( IDS_SPECTRAL_ACTIVE_TITLE );
+	int r = GetColorApp()->InMeasureMessageBox( msg, title,
+		MB_YESNO | MB_ICONQUESTION );
 	if ( r != IDYES )
 		return false;
 	pSensor->ClearSpectralCorrection();

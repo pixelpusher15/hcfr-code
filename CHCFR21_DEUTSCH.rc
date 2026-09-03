@@ -4133,6 +4133,21 @@ BEGIN
     IDS_CIE_ILLUMINANT          "Normlichtart"
     IDS_CC_COLORNAME            "Farbe %s"
     IDS_CC_COLORNAMEREF         "Farbe %s Referenz"
+    IDS_SPECTRAL_TITLE          "Spektralkorrektur"
+    IDS_SPECTRAL_BROWSE         "Durchsuchen..."
+    IDS_SPECTRAL_CLEAR          "Löschen"
+    IDS_SPECTRAL_STATUS_FMT     "Spektralkorrektur: %s"
+    IDS_SPECTRAL_LOADED         "(geladen)"
+    IDS_SPECTRAL_NONE           "Keine"
+    IDS_SPECTRAL_FILEFILTER     "Spektralkorrektur (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|Korrelations-CSV (*.csv)|*.csv||"
+    IDS_SPECTRAL_REAPPLY_FAILED "Die gespeicherte Spektralkorrektur konnte nicht erneut auf das Messgerät angewendet werden:\n%s\n\nDie Messwerte sind UNKORRIGIERT, bis sie in den Sensoreigenschaften erneut angewendet oder gelöscht wird."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "Dieser Sensor hat eine Matrixkalibrierung. Wenn Sie eine Spektralkorrektur anwenden, wird sie die einzige Korrektur für neue Messungen.\n\nVorhandene Messungen wurden mit der Matrixkalibrierung aufgenommen - auf die unkorrigierten Rohwerte des Sensors zurücksetzen?\n\nJa - vorhandene Messungen auf Rohwerte zurücksetzen\nNein - unverändert lassen (gemischt mit neuen Spektralmessungen)\nAbbrechen - die Spektralkorrektur nicht anwenden"
+    IDS_SPECTRAL_ACTIVE_TITLE   "Spektralkorrektur aktiv"
+    IDS_SPECTRAL_CLEAR_FOR_MATRIX "Dieser Sensor verwendet eine Spektralkorrektur (ccss/CSV), die im Messgerät angewendet wird.\nEine Matrixkalibrierung würde sich darüberlegen (Doppelkorrektur).\n\nDie Spektralkorrektur löschen und stattdessen mit einer Matrix kalibrieren?"
+    IDS_CALIB_METHOD_TITLE      "Kalibrierungsmethode"
+    IDS_CALIB_METHOD_OUT_OF_SYNC "Die in den Optionen gewählte Kalibrierungsmethode weicht von der ab, die derzeit auf diese Messungen angewendet ist - sie wurden nach dem Wechsel der Methode nicht neu berechnet. Der Export gibt die ANGEWENDETE Methode wieder.\n\nUm zuerst neu zu berechnen, brechen Sie ab und führen Sie 'Mit vorhandenen Referenzmessungen erstellen' (oder einen Kalibrierungsbefehl) aus.\n\nMit dem Export fortfahren?"
+    IDS_BODNER_SKIPPED_FMT      "%d Messung(en), die vor Aktivierung dieser Funktion aufgezeichnet wurden, konnten nicht neu kalibriert werden."
+    IDS_EXPORT_LAYOUT_MISMATCH  "Zu dieser Datei kann nichts hinzugefügt werden: Sie wurde mit anderen Rohdaten-/Stimulus-Optionen exportiert. Exportieren Sie in eine neue Datei oder wiederholen Sie den Export mit denselben Optionen wie die vorhandenen Daten."
 END
 
 #endif    // Deutsch (Deutschland) resources

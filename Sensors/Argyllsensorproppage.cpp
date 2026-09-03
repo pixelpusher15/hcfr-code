@@ -332,11 +332,22 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
     int calBottom = btnY + btnH + M.ht(6);
     if (pCal != NULL) { CPoint cp = M.at(5, 0); pCal->MoveWindow(cp.x, calTopPx, M.w(GRPW), calBottom - calTopPx); }
 
-    // Spectral (ccss/CSV) correction row - created only for meters that support
-    // spectral samples (i1D3 etc.). Programmatic so no .rc template is needed.
+    // Spectral (ccss/CSV) correction row - for meters that support spectral samples
+    // (i1D3 etc.), and ALSO whenever a correction is already loaded. That second case
+    // matters because MeterSupportsSpectralSamples() is false the moment m_meter is
+    // NULL, which is exactly the state Init() warns about on a failed connect: it
+    // tells the user the readings are uncorrected "until it is re-applied or cleared
+    // in the sensor properties". With the meter unplugged - or the .ccss moved - the
+    // row was not built at all, so there was no Clear button to obey that instruction
+    // with, nothing else clears m_spectralCorrectionPath, and the stale correction
+    // kept HasSpectralCorrection() TRUE, which additionally blocks every matrix
+    // calibration behind ConfirmClearSpectralForMatrixCal. Browse is disabled instead
+    // of hidden in that state, since loading a new sample needs a live meter.
+    // Programmatic so no .rc template is needed.
     // Placed directly under the calibration group; the Debug checkbox follows it.
     int rowBottom = calBottom;   // bottom of the last laid-out row
-    if ( m_pSensor != NULL && m_pSensor->MeterSupportsSpectralSamples() )
+    if ( m_pSensor != NULL && ( m_pSensor->MeterSupportsSpectralSamples()
+                             || m_pSensor->HasSpectralCorrection() ) )
     {
         // NOTE: the mapper M.at() takes design-unit coordinates. calBottom is
         // already a raw screen Y (built from M.ht() offsets), so only the X is
@@ -354,14 +365,23 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
         int btnY = specTop + M.ht(11);
         int bw = M.w(64), bh = M.ht(12), gap = M.w(6);
         if ( !::IsWindow(m_spectralBrowseBtn.GetSafeHwnd()) )
-            m_spectralBrowseBtn.Create("Browse...", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+        {
+            CString sBrowse; sBrowse.LoadString(IDS_SPECTRAL_BROWSE);
+            m_spectralBrowseBtn.Create(sBrowse, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                 CRect(specX, btnY, specX + bw, btnY + bh), this, IDC_ARGYLL_SPECTRAL_BROWSE);
+        }
         m_spectralBrowseBtn.SetFont(GetFont());
         m_spectralBrowseBtn.MoveWindow(specX, btnY, bw, bh);
+        // Needs a live meter to read a sample into; Clear stays available so a stale
+        // correction can always be removed.
+        m_spectralBrowseBtn.EnableWindow( m_pSensor->MeterSupportsSpectralSamples() );
 
         if ( !::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
-            m_spectralClearBtn.Create("Clear", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+        {
+            CString sClear; sClear.LoadString(IDS_SPECTRAL_CLEAR);
+            m_spectralClearBtn.Create(sClear, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                 CRect(specX + bw + gap, btnY, specX + 2*bw + gap, btnY + bh), this, IDC_ARGYLL_SPECTRAL_CLEAR);
+        }
         m_spectralClearBtn.SetFont(GetFont());
         m_spectralClearBtn.MoveWindow(specX + bw + gap, btnY, bw, bh);
 
@@ -381,14 +401,20 @@ void CArgyllSensorPropPage::RefreshSpectralStatus()
 {
     if ( m_pSensor == NULL || !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
         return;
-    CString s;
+    CString s, fmt;
+    fmt.LoadString(IDS_SPECTRAL_STATUS_FMT);
     if ( m_pSensor->HasSpectralCorrection() )
     {
         CString desc = m_pSensor->GetSpectralCorrectionDesc();
-        s = "Spectral correction: " + (desc.IsEmpty() ? CString("(loaded)") : desc);
+        if ( desc.IsEmpty() )
+            desc.LoadString(IDS_SPECTRAL_LOADED);
+        s.Format(fmt, (LPCSTR)desc);
     }
     else
-        s = "Spectral correction: None";
+    {
+        CString none; none.LoadString(IDS_SPECTRAL_NONE);
+        s.Format(fmt, (LPCSTR)none);
+    }
     m_spectralStatus.SetWindowText(s);
     if ( ::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
         m_spectralClearBtn.EnableWindow(m_pSensor->HasSpectralCorrection());
@@ -398,8 +424,8 @@ void CArgyllSensorPropPage::OnSpectralBrowse()
 {
     if ( m_pSensor == NULL )
         return;
-    CFileDialog dlg(TRUE, "ccss", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST,
-        "Spectral correction (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|Correlation CSV (*.csv)|*.csv||");
+    CString sFilter; sFilter.LoadString(IDS_SPECTRAL_FILEFILTER);
+    CFileDialog dlg(TRUE, "ccss", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST, sFilter);
     if ( dlg.DoModal() == IDOK )
     {
         if ( m_pSensor->ApplySpectralCorrection(dlg.GetPathName()) )

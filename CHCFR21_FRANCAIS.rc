@@ -4361,6 +4361,21 @@ BEGIN
     IDS_CIE_ILLUMINANT          "Illuminant"
     IDS_CC_COLORNAME            "Couleur %s"
     IDS_CC_COLORNAMEREF         "Couleur %s référence"
+    IDS_SPECTRAL_TITLE          "Correction spectrale"
+    IDS_SPECTRAL_BROWSE         "Parcourir..."
+    IDS_SPECTRAL_CLEAR          "Effacer"
+    IDS_SPECTRAL_STATUS_FMT     "Correction spectrale : %s"
+    IDS_SPECTRAL_LOADED         "(chargée)"
+    IDS_SPECTRAL_NONE           "Aucune"
+    IDS_SPECTRAL_FILEFILTER     "Correction spectrale (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|CSV de corrélation (*.csv)|*.csv||"
+    IDS_SPECTRAL_REAPPLY_FAILED "La correction spectrale enregistrée n'a pas pu être réappliquée à la sonde :\n%s\n\nLes mesures sont NON CORRIGÉES tant qu'elle n'est pas réappliquée ou effacée dans les propriétés du capteur."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "Ce capteur possède un étalonnage par matrice. Appliquer une correction spectrale en fera la seule correction pour les nouvelles mesures.\n\nLes mesures existantes ont été prises avec l'étalonnage par matrice - les ramener aux valeurs brutes (non corrigées) du capteur ?\n\nOui - ramener les mesures existantes aux valeurs brutes\nNon - les laisser telles quelles (mélangées aux nouvelles mesures spectrales)\nAnnuler - ne pas appliquer la correction spectrale"
+    IDS_SPECTRAL_ACTIVE_TITLE   "Correction spectrale active"
+    IDS_SPECTRAL_CLEAR_FOR_MATRIX "Ce capteur utilise une correction spectrale (ccss/CSV), appliquée dans la sonde.\nUn étalonnage par matrice viendrait s'y ajouter (double correction).\n\nEffacer la correction spectrale et étalonner par matrice à la place ?"
+    IDS_CALIB_METHOD_TITLE      "Méthode d'étalonnage"
+    IDS_CALIB_METHOD_OUT_OF_SYNC "La méthode d'étalonnage sélectionnée dans les Options diffère de celle actuellement appliquée à ces mesures - elles n'ont pas été recalculées après le changement de méthode. L'export reflétera la méthode APPLIQUÉE.\n\nPour recalculer d'abord, annulez et lancez 'Créer à partir des mesures de référence existantes' (ou une commande d'étalonnage).\n\nContinuer l'export ?"
+    IDS_BODNER_SKIPPED_FMT      "%d mesure(s) enregistrée(s) avant l'activation de cette fonction n'ont pas pu être réétalonnées."
+    IDS_EXPORT_LAYOUT_MISMATCH  "Impossible d'ajouter à ce fichier : il a été exporté avec des options Brut/Stimulus différentes. Exportez vers un nouveau fichier, ou refaites l'export avec les mêmes options que les données existantes."
 END
 
 #endif    // Französisch (Frankreich) resources

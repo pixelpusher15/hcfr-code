@@ -4115,6 +4115,21 @@ BEGIN
     IDS_CIE_ILLUMINANT          "Illuminant"
     IDS_CC_COLORNAME            "Color %s"
     IDS_CC_COLORNAMEREF         "Color %s Reference"
+    IDS_SPECTRAL_TITLE          "Spectral correction"
+    IDS_SPECTRAL_BROWSE         "Browse..."
+    IDS_SPECTRAL_CLEAR          "Clear"
+    IDS_SPECTRAL_STATUS_FMT     "Spectral correction: %s"
+    IDS_SPECTRAL_LOADED         "(loaded)"
+    IDS_SPECTRAL_NONE           "None"
+    IDS_SPECTRAL_FILEFILTER     "Spectral correction (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|Correlation CSV (*.csv)|*.csv||"
+    IDS_SPECTRAL_REAPPLY_FAILED "The stored spectral correction could not be re-applied to the meter:\n%s\n\nReadings are UNCORRECTED until it is re-applied or cleared in the sensor properties."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "This sensor has a matrix calibration. Applying a spectral correction will make it the sole correction for new readings.\n\nExisting measurements were taken with the matrix calibration - strip them back to raw (uncorrected) sensor values?\n\nYes - strip existing measurements to raw\nNo - leave them as they are (mixed with new spectral readings)\nCancel - do not apply the spectral correction"
+    IDS_SPECTRAL_ACTIVE_TITLE   "Spectral correction active"
+    IDS_SPECTRAL_CLEAR_FOR_MATRIX "This sensor uses a spectral (ccss/CSV) correction, applied inside the meter.\nCalibrating with a matrix would stack on top of it (double-correction).\n\nClear the spectral correction and calibrate with a matrix instead?"
+    IDS_CALIB_METHOD_TITLE      "Calibration method"
+    IDS_CALIB_METHOD_OUT_OF_SYNC "The calibration method selected in Options differs from the one currently applied to these measurements - they were not recomputed after the method was changed. The export will reflect the APPLIED method.\n\nTo recompute first, cancel and run Create using Existing Reference Measures (or a calibration command).\n\nContinue with the export?"
+    IDS_BODNER_SKIPPED_FMT      "%d measurement(s) recorded before this feature was enabled could not be recalibrated."
+    IDS_EXPORT_LAYOUT_MISMATCH  "Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data."
 END
 
 #endif    // English (United States) resources

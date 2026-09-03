@@ -401,11 +401,11 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
             if ( !s_warnedSpectralReapply )
             {
                 s_warnedSpectralReapply = TRUE;
-                CString msg;
-                msg.Format ( "The stored spectral correction could not be re-applied to the meter:\n%s\n\n"
-                             "Readings are UNCORRECTED until it is re-applied or cleared in the sensor properties.",
-                             (LPCSTR) m_spectralCorrectionPath );
-                GetColorApp()->InMeasureMessageBox ( msg, "Spectral correction", MB_OK | MB_ICONWARNING );
+                CString msg, fmt, title;
+                fmt.LoadString ( IDS_SPECTRAL_REAPPLY_FAILED );
+                title.LoadString ( IDS_SPECTRAL_TITLE );
+                msg.Format ( fmt, (LPCSTR) m_spectralCorrectionPath );
+                GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
             }
         }
     }
@@ -463,7 +463,8 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     }
     catch ( std::logic_error & e )
     {
-        GetColorApp()->InMeasureMessageBox( e.what(), "Spectral correction", MB_OK+MB_ICONHAND );
+        CString sTitle; sTitle.LoadString( IDS_SPECTRAL_TITLE );
+        GetColorApp()->InMeasureMessageBox( e.what(), sTitle, MB_OK+MB_ICONHAND );
         return false;
     }
 
@@ -476,15 +477,11 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
                      || GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX;
     if ( hasMatrixCal )
     {
-        int r = GetColorApp()->InMeasureMessageBox(
-            "This sensor has a matrix calibration. Applying a spectral correction "
-            "will make it the sole correction for new readings.\n\n"
-            "Existing measurements were taken with the matrix calibration - strip "
-            "them back to raw (uncorrected) sensor values?\n\n"
-            "Yes - strip existing measurements to raw\n"
-            "No - leave them as they are (mixed with new spectral readings)\n"
-            "Cancel - do not apply the spectral correction",
-            "Spectral correction", MB_YESNOCANCEL | MB_ICONQUESTION );
+        CString prompt, title;
+        prompt.LoadString ( IDS_SPECTRAL_MATRIXCAL_PROMPT );
+        title.LoadString ( IDS_SPECTRAL_TITLE );
+        int r = GetColorApp()->InMeasureMessageBox( prompt, title,
+            MB_YESNOCANCEL | MB_ICONQUESTION );
         if ( r == IDCANCEL )
             return false;
         m_spectralApplyLeaveMeasures = ( r == IDNO );
@@ -498,7 +495,8 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     }
     catch ( std::logic_error & e )
     {
-        GetColorApp()->InMeasureMessageBox( e.what(), "Spectral correction", MB_OK+MB_ICONHAND );
+        CString sTitle; sTitle.LoadString( IDS_SPECTRAL_TITLE );
+        GetColorApp()->InMeasureMessageBox( e.what(), sTitle, MB_OK+MB_ICONHAND );
         return false;
     }
 

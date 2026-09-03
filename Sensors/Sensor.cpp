@@ -229,12 +229,24 @@ bool CSensor::CorrectionChangedSinceBeginConfigure() const
 void CSensor::SetPropertiesSheetValues()
 {
 	m_SensorPropertiesPage.SetMatrix(m_sensorToXYZMatrix);
+	m_sheetMatrixShown = m_sensorToXYZMatrix;
 	m_SensorPropertiesPage.m_calibrationDate=GetCalibrationTime().Format("%#c");
 }
 
 void CSensor::GetPropertiesSheetValues()
 {
-	if(	m_sensorToXYZMatrix != m_SensorPropertiesPage.GetMatrix() )
+	// Compare against what the page was SHOWN, not against the live matrix. Code can
+	// change m_sensorToXYZMatrix while the sheet is open - loading a spectral .ccss on
+	// the Argyll page forces it to identity so the meter's own correction is the only
+	// one in play - and m_SensorPropertiesPage still holds the value we put there in
+	// SetPropertiesSheetValues. Testing the live matrix makes that stale page value look
+	// like an edit, so OK silently restored the matrix the .ccss had just retired and
+	// every later reading was corrected twice, in the meter and again here.
+	//
+	// Only a real grid edit moves the page away from m_sheetMatrixShown, and that still
+	// wins - a matrix typed in by hand while a spectral correction is loaded is the user
+	// asking for it, and ConfirmClearSpectralForMatrixCal covers the calibration paths.
+	if(	m_SensorPropertiesPage.GetMatrix() != m_sheetMatrixShown )
 	{
 		m_sensorToXYZMatrix=m_SensorPropertiesPage.GetMatrix();
 		SetModifiedFlag(TRUE);
