@@ -447,7 +447,13 @@ static BOOL IsSameDirectory ( LPCSTR lpszDir1, LPCSTR lpszDir2 )
 			CloseHandle ( hDir [ i ] );
 	}
 
-	if ( bHaveInfo )
+	// FAT32, exFAT and some network redirectors keep no per-file id and report
+	// zero for every entry, which would make two unrelated folders on one volume
+	// compare equal. Only an id that is actually there says anything; a zero one
+	// falls through to the text comparison below.
+	if ( bHaveInfo
+	  && ( fileInfo [ 0 ].nFileIndexHigh | fileInfo [ 0 ].nFileIndexLow ) != 0
+	  && ( fileInfo [ 1 ].nFileIndexHigh | fileInfo [ 1 ].nFileIndexLow ) != 0 )
 	{
 		return ( fileInfo [ 0 ].dwVolumeSerialNumber == fileInfo [ 1 ].dwVolumeSerialNumber
 			  && fileInfo [ 0 ].nFileIndexHigh == fileInfo [ 1 ].nFileIndexHigh
@@ -468,6 +474,36 @@ static BOOL IsSameDirectory ( LPCSTR lpszDir1, LPCSTR lpszDir2 )
 	return ( _stricmp ( szDir [ 0 ], szDir [ 1 ] ) == 0 );
 }
 
+// Say why a save failed, naming the path and the reason Windows gave. Without
+// this the exception unwinds to CWinThread::ProcessWndProcException and the
+// user is told only "Command failed".
+static void ReportCalibrationSaveFailure ( LPCSTR lpszPath, DWORD dwError )
+{
+	CString	strWhere ( lpszPath );
+	CString	strMsg;
+	LPSTR	lpszSysMsg = NULL;
+
+	if ( dwError != 0
+	  && FormatMessage ( FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+						   NULL, dwError, 0, (LPSTR) & lpszSysMsg, 0, NULL ) != 0
+	  && lpszSysMsg != NULL )
+	{
+		CString	strSysMsg ( lpszSysMsg );
+
+		LocalFree ( lpszSysMsg );
+		strSysMsg.TrimRight ( "\r\n" );
+
+		if ( ! strSysMsg.IsEmpty () )
+		{
+			strWhere += "\n\n";
+			strWhere += strSysMsg;
+		}
+	}
+
+	strMsg.Format ( IDS_THC_SAVE_FAILED, (LPCSTR) strWhere );
+	AfxMessageBox ( strMsg, MB_OK | MB_ICONEXCLAMATION );
+}
+
 void COneDeviceSensor::SaveCalibrationFile()
 {
 	BOOL			bContinue = FALSE;
@@ -475,6 +511,8 @@ void COneDeviceSensor::SaveCalibrationFile()
 	CString			strSubDir;
 	CString			strFileName;
 	LPSTR			lpStr;
+	DWORD			dwError;
+	DWORD			dwAttributes;
 
 	strPath = GetConfig () -> m_ApplicationPath;
 	strSubDir = GetStandardSubDir ();
@@ -485,7 +523,20 @@ void COneDeviceSensor::SaveCalibrationFile()
 
 		// That subdirectory is the only place the sensor selection page looks
 		// for training files, so create it before offering to save into it.
+		// EnsurePathExists cannot report failure, and under an installation in
+		// Program Files a standard user cannot create the folder at all, so ask
+		// whether it is there afterwards: carrying on regardless would leave the
+		// user in the reopen-until-cancel loop this is meant to end.
+		SetLastError ( ERROR_SUCCESS );
 		GetConfig () -> EnsurePathExists ( strPath );
+		dwError = GetLastError ();
+
+		dwAttributes = GetFileAttributes ( strPath );
+		if ( dwAttributes == INVALID_FILE_ATTRIBUTES || ! ( dwAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+		{
+			ReportCalibrationSaveFailure ( strPath, dwError );
+			return;
+		}
 	}
 
 	do
@@ -508,14 +559,43 @@ void COneDeviceSensor::SaveCalibrationFile()
 
 			if ( IsSameDirectory ( strChosenDir, strPath ) )
 			{
-				CFile loadFile(strChosenPath,CFile::modeCreate|CFile::modeWrite);
-				CArchive ar(&loadFile,CArchive::store);
-				
-				m_CalibrationFileName.Empty();
-				COneDeviceSensor::Serialize(ar);
+				CString	strPreviousName = m_CalibrationFileName;
 
-				m_CalibrationFileName = loadFile.GetFileTitle ();
-				
+				// The folder can exist and still refuse the write, which is what a
+				// Program Files installation does to a standard user. Say so here
+				// rather than letting the exception reach MFC's default handler.
+				TRY
+				{
+					CFile saveFile(strChosenPath,CFile::modeCreate|CFile::modeWrite);
+					CArchive ar(&saveFile,CArchive::store);
+					CString	strTitle = saveFile.GetFileTitle ();
+
+					// The archive records the correction this sensor was built from,
+					// and this file is that correction, so it stores an empty name.
+					m_CalibrationFileName.Empty();
+					COneDeviceSensor::Serialize(ar);
+
+					// Flush through the archive and the file while the exception can
+					// still be caught: both destructors swallow a late write error.
+					ar.Close ();
+					saveFile.Close ();
+
+					m_CalibrationFileName = strTitle;
+				}
+				CATCH_ALL ( e )
+				{
+					DWORD	dwSaveError = 0;
+
+					// Nothing reached the disk, so keep the name the sensor already
+					// had: the empty one above was only meant to reach the file.
+					m_CalibrationFileName = strPreviousName;
+
+					if ( e -> IsKindOf ( RUNTIME_CLASS ( CFileException ) ) )
+						dwSaveError = (DWORD) ( (CFileException *) e ) -> m_lOsError;
+
+					ReportCalibrationSaveFailure ( strChosenPath, dwSaveError );
+				}
+				END_CATCH_ALL
 			}
 			else
 			{
