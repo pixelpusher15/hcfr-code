@@ -1218,12 +1218,104 @@ void CColorHCFRConfig::EnsurePathExists ( CString strPath )
 	CreateDirectory ( strPath, NULL );
 }
 // ---- Sensor correction files (.thc) ----
-// Copy every .thc from one folder into the per-user folder. CopyFile with
-// bFailIfExists TRUE never overwrites, so a file already in the destination
-// always wins over an older copy found in the install tree.
+// The part of a source folder's name that tells its files apart from another
+// folder's: "Etalon_Argyll" gives "Argyll".
+static void HcfrThcFolderTag ( LPCSTR lpszSrcDir, LPSTR lpszTag, int nTagSize )
+{
+	char			szDir [ MAX_PATH ];
+	const char *	pLeaf;
+	int				nLen;
+
+	lstrcpyn ( szDir, lpszSrcDir, MAX_PATH );
+	nLen = strlen ( szDir );
+	while ( nLen > 1 && szDir [ nLen - 1 ] == '\\' && szDir [ nLen - 2 ] != ':' )
+		szDir [ -- nLen ] = '\0';
+
+	pLeaf = strrchr ( szDir, '\\' );
+	pLeaf = pLeaf ? pLeaf + 1 : szDir;
+
+	// Every folder reaching here matched Etalon_*, but do not depend on it.
+	if ( _strnicmp ( pLeaf, "Etalon_", 7 ) == 0 )
+		pLeaf += 7;
+	if ( * pLeaf == '\0' )
+		pLeaf = "old";
+
+	lstrcpyn ( lpszTag, pLeaf, nTagSize );
+}
+
+// A file already at the destination with the same size and last-write time is
+// this same file, brought across by an earlier sweep: CopyFile preserves both.
+// The migration is meant to run once, but the flag recording it lives in the
+// INI, which a user can lose or start afresh, so a second sweep must not turn
+// everything it already copied into a numbered duplicate.
+static BOOL HcfrThcAlreadyCopied ( const WIN32_FIND_DATA * pSrc, LPCSTR lpszDst )
+{
+	WIN32_FILE_ATTRIBUTE_DATA	fad;
+
+	if ( ! GetFileAttributesEx ( lpszDst, GetFileExInfoStandard, & fad ) )
+		return FALSE;
+
+	return ( fad.nFileSizeHigh == pSrc -> nFileSizeHigh
+	      && fad.nFileSizeLow == pSrc -> nFileSizeLow
+	      && CompareFileTime ( & fad.ftLastWriteTime, & pSrc -> ftLastWriteTime ) == 0 );
+}
+
+// Copy one .thc into the per-user folder. Every sensor used to have a folder of
+// its own, so the same file name can appear in several of them; gathered into
+// one folder they collide. CopyFile with bFailIfExists TRUE would simply not
+// copy the second, leaving enumeration order to decide which of the two the
+// user keeps and saying nothing about the one that went. Name the collider
+// after the folder it came from - the very thing that told the two apart
+// before - rather than losing it.
+static void HcfrCopyOneThc ( LPCSTR lpszSrc, const WIN32_FIND_DATA * pwfd, LPCSTR lpszDestDir, LPCSTR lpszTag )
+{
+	char	szDst [ MAX_PATH ];
+	char	szBase [ MAX_PATH ];
+	char	szExt [ MAX_PATH ];
+	char *	pExt;
+	int		nLen;
+	int		nTry;
+
+	nLen = _snprintf ( szDst, sizeof ( szDst ), "%s%s", lpszDestDir, pwfd -> cFileName );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szDst ) )
+		return;
+
+	if ( CopyFile ( lpszSrc, szDst, TRUE ) )
+		return;
+	if ( GetLastError () != ERROR_FILE_EXISTS || HcfrThcAlreadyCopied ( pwfd, szDst ) )
+		return;
+
+	// Keep the tag out of the extension, so the copy is still a .thc.
+	lstrcpyn ( szBase, pwfd -> cFileName, MAX_PATH );
+	szExt [ 0 ] = '\0';
+	pExt = strrchr ( szBase, '.' );
+	if ( pExt )
+	{
+		lstrcpyn ( szExt, pExt, MAX_PATH );
+		* pExt = '\0';
+	}
+
+	for ( nTry = 1 ; nTry <= 99 ; nTry ++ )
+	{
+		if ( nTry == 1 )
+			nLen = _snprintf ( szDst, sizeof ( szDst ), "%s%s (%s)%s", lpszDestDir, szBase, lpszTag, szExt );
+		else
+			nLen = _snprintf ( szDst, sizeof ( szDst ), "%s%s (%s %d)%s", lpszDestDir, szBase, lpszTag, nTry, szExt );
+
+		if ( nLen < 0 || nLen >= (int) sizeof ( szDst ) )
+			return;
+		if ( CopyFile ( lpszSrc, szDst, TRUE ) )
+			return;
+		if ( GetLastError () != ERROR_FILE_EXISTS || HcfrThcAlreadyCopied ( pwfd, szDst ) )
+			return;
+	}
+}
+
+// Copy every .thc from one folder into the per-user folder.
 static void HcfrCopyThcFiles ( LPCSTR lpszSrcDir, LPCSTR lpszDestDir )
 {
 	char			szPattern [ MAX_PATH ];
+	char			szTag [ MAX_PATH ];
 	WIN32_FIND_DATA	wfd;
 	HANDLE			hFind;
 	int				nLen;
@@ -1232,22 +1324,23 @@ static void HcfrCopyThcFiles ( LPCSTR lpszSrcDir, LPCSTR lpszDestDir )
 	if ( nLen < 0 || nLen >= (int) sizeof ( szPattern ) )
 		return;
 
+	HcfrThcFolderTag ( lpszSrcDir, szTag, sizeof ( szTag ) );
+
 	hFind = FindFirstFile ( szPattern, & wfd );
 	if ( hFind == INVALID_HANDLE_VALUE )
 		return;
 
 	do
 	{
-		char	szSrc [ MAX_PATH ], szDst [ MAX_PATH ];
-		int		nSrc, nDst;
+		char	szSrc [ MAX_PATH ];
+		int		nSrc;
 
 		if ( wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY )
 			continue;
 
 		nSrc = _snprintf ( szSrc, sizeof ( szSrc ), "%s\\%s", lpszSrcDir, wfd.cFileName );
-		nDst = _snprintf ( szDst, sizeof ( szDst ), "%s%s", lpszDestDir, wfd.cFileName );
-		if ( nSrc > 0 && nSrc < (int) sizeof ( szSrc ) && nDst > 0 && nDst < (int) sizeof ( szDst ) )
-			CopyFile ( szSrc, szDst, TRUE );
+		if ( nSrc > 0 && nSrc < (int) sizeof ( szSrc ) )
+			HcfrCopyOneThc ( szSrc, & wfd, lpszDestDir, szTag );
 	} while ( FindNextFile ( hFind, & wfd ) );
 
 	FindClose ( hFind );
@@ -1391,10 +1484,10 @@ BOOL CColorHCFRConfig::GetEtalonPath ( CString & strPath )
 			return FALSE;
 		}
 
-		// The folder exists, but that alone does not mean the files came across:
-		// the first run may have failed every copy, and a roaming profile arrives
-		// on a second machine already carrying the folder and none of its files.
-		// Retry while it still holds nothing, then leave it alone for good.
+		// The folder existing does not say the migration has run: an earlier run
+		// may have created it and then failed every copy, and the user can have
+		// made it by hand. Whether to sweep is decided by the once-flag in the
+		// INI and by nothing about the folder itself - see HcfrMigrateThcOnce.
 		HcfrMigrateThcOnce ( this, m_ApplicationPath, strPath );
 		return TRUE;
 	}

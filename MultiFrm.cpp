@@ -2594,22 +2594,41 @@ BOOL CMultiFrame::DdeCmdExec ( CString & strCommand, BOOL bCanSendAckMsg, HWND h
 						// A write that throws here has no handler of its own: this is a
 						// script command, so report the failure through bOk instead of
 						// letting it unwind to MFC as "Command failed".
-						// Let Windows name the temporary: the caller supplies this path and
-						// nothing bounds its length, so appending could exceed MAX_PATH.
 						CString strTempPath;
 						CString strDir = str.Left ( str.ReverseFind ( '\\' ) + 1 );
-						char	szTempName [ MAX_PATH ];
 
 						if ( strDir.IsEmpty () )
 							strDir = ".\\";
-						if ( GetTempFileName ( strDir, "thc", 0, szTempName ) != 0 )
-							strTempPath = szTempName;
-						else
-							bOk = FALSE;
 
-						if ( bOk )
 						TRY
 						{
+							char	szTempName [ MAX_PATH ];
+
+							// Ask for write access on the target before writing anything,
+							// the same way the interactive save does. The MoveFileEx below
+							// needs rights on the folder and not on the file, so a
+							// correction whose own ACL denies this user write is replaced
+							// by the rename even though the user cannot open it to write.
+							// The CFile::modeCreate this code replaced was refused in that
+							// case, so without the probe a script command destroys a file
+							// 4.1.0 would not touch. The read-only attribute is not the
+							// case to reason about: MoveFileEx refuses that one by itself.
+							// Opening without modeCreate is what keeps the probe from
+							// truncating: MFC maps to CREATE_ALWAYS or OPEN_ALWAYS only
+							// when modeCreate is set, and to OPEN_EXISTING otherwise.
+							if ( GetFileAttributes ( str ) != INVALID_FILE_ATTRIBUTES )
+							{
+								CFile probeFile ( str, CFile::modeWrite );
+								probeFile.Close ();
+							}
+
+							// Let Windows name the temporary: the caller supplies this path
+							// and nothing bounds its length, so appending could exceed
+							// MAX_PATH.
+							if ( GetTempFileName ( strDir, "thc", 0, szTempName ) == 0 )
+								AfxThrowFileException ( CFileException::genericException, (LONG) GetLastError (), str );
+							strTempPath = szTempName;
+
 							CFile ThcFile ( strTempPath, CFile::modeCreate | CFile::modeWrite );
 							CArchive ar ( & ThcFile, CArchive::store );
 

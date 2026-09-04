@@ -651,13 +651,17 @@ void COneDeviceSensor::SaveCalibrationFile()
 					char			szTempName [ MAX_PATH ];
 
 					// Ask for write access on the target before writing anything. The
-					// rename below replaces a file on the strength of directory rights
-					// alone, so without this a correction the user has write-protected
-					// would be silently replaced. modeNoTruncate keeps the probe from
-					// being the very truncation this temporary file exists to avoid.
+					// rename below needs rights on the folder and not on the file, so a
+					// correction whose own ACL denies this user write would be replaced
+					// by it even though the user cannot open the file to write. The
+					// read-only attribute is not the case to reason about: MoveFileEx
+					// refuses that one by itself. Opening without modeCreate is what
+					// keeps the probe itself from truncating: MFC maps to CREATE_ALWAYS
+					// or OPEN_ALWAYS only when modeCreate is set, and to OPEN_EXISTING
+					// otherwise, so modeNoTruncate would have no say here.
 					if ( GetFileAttributes ( strChosenPath ) != INVALID_FILE_ATTRIBUTES )
 					{
-						CFile probeFile(strChosenPath,CFile::modeWrite|CFile::modeNoTruncate);
+						CFile probeFile(strChosenPath,CFile::modeWrite);
 						probeFile.Close ();
 					}
 
