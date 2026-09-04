@@ -4150,6 +4150,7 @@ BEGIN
     IDS_PP_PAUSED           "   -   EN PAUSA"
     IDS_PP_PATCHOF          "Patrón %d de %d  -  RGB %.0f, %.0f, %.0f"
     IDS_PP_ETA              "%d%%  -  quedan unos %s"
+    IDS_PP_MEASURINGWHITE   "Midiendo el blanco de referencia..."
     IDS_PP_AVGDE            "dE medio"
     IDS_PP_MAXDE            "dE máx"
     IDS_PP_DRIFT            "Deriva"
