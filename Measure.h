@@ -149,18 +149,27 @@ protected:
 	// Same placeholder problem as m_bPrimeWhiteMeasured below, for the on/off
 	// white. Only the sub-90%-stimulus OVERRIDE consults this: the plain
 	// fallbacks are still free to use the placeholder, because standing in for a
-	// white nobody measured is what it is for. Deliberately NOT given the
-	// store-as-noDataColor treatment m_PrimeWhite gets -- documents saved by
-	// earlier builds keep reading exactly as they do today.
+	// white nobody measured is what it is for.
 	BOOL m_bOnOffWhiteMeasured;
 	CColor m_PrimeWhite;
 	// TRUE once a real reading has been written to m_PrimeWhite. The constructor
 	// pre-loads a nominal D65 at m_TargetMaxL so the charts always have something
 	// to draw, and that placeholder is indistinguishable from a measurement --
 	// isValid() and GetY() > 0 both pass -- so anything that needs to know whether
-	// white was ever MEASURED has to ask this, not the color. Not serialized as a
-	// field: the store writes noDataColor for an unmeasured white and the loader
-	// re-derives the flag, which keeps the file format at version 19/20.
+	// white was ever MEASURED has to ask this, not the color.
+	//
+	// PERSISTENCE (both flags): stored verbatim in file version 21, which is the
+	// version a document with a display profile now gets. A document WITHOUT one
+	// still writes version 19 so older builds can read it, and its flags are
+	// re-derived on load as isValid() -- i.e. exactly the behaviour every build
+	// before this one had. That re-derivation cannot tell the placeholder from a
+	// reading, so it reads as measured; the whites themselves are stored verbatim
+	// either way, so nothing downstream ever sees a value it could not already
+	// see. An earlier revision tried to encode "unmeasured" by writing
+	// noDataColor into the version-19 prime-white slot: that conflated "never
+	// measured" with "primaries deleted", which loads as INVALID, and handed
+	// Export's unguarded GetPrimeWhite().GetY() sites (Export.cpp ~558/~814)
+	// FX_NODATA where they used to get the placeholder. Do not reintroduce it.
 	BOOL m_bPrimeWhiteMeasured;
 	CColor m_AnsiBlack;
 	CColor m_AnsiWhite;
@@ -312,6 +321,7 @@ public:
 	// Live profile-capture state (not serialized): the profiling pane pauses/observes through these
 	volatile BOOL m_bProfilePause;
 	volatile BOOL m_bProfileMeasuringWhite;	// capture is on its up-front white reference, not a cube patch
+	double m_profileWhiteIRE;		// the stimulus that white reference is being driven at (percent)
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0
 
 protected:
