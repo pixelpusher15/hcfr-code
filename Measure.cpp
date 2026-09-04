@@ -4054,18 +4054,29 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	if (bPatternRetry)
 		AfxMessageBox(pGenerator->GetRetryMessage(), MB_OK | MB_ICONWARNING);
 
+	int iCC=GetConfig()->m_CCMode;
+
 	for(int i=0;i<size;i++)
 	{
 		m_cc24SatMeasureArray[i] = measuredColor[i];
+		// measuredColor and the live array are addressed by SLOT (see nSlot in
+		// the sweep loop), but measuredLux is filled by ITERATION, and MCD
+		// permutes the two. Reading measuredLux straight through paired every
+		// patch with another patch's lux: a six-position shift for slots 6-23,
+		// reversed for slots 0-5. Invert the permutation with the same expression
+		// SalvageCC24SatPartial uses, so an aborted sweep and a completed one
+		// agree on the lux column. (Unlike the salvage this loop needs no
+		// "lux canceled" test: LUX_CANCELED sets bEscape, which returns through
+		// the salvage path and never reaches here.)
+		int nIter = ( iCC != MCD ) ? i : ( i >= 6 ? i - 6 : 23 - i );
 		if ( bUseLuxValues )
-			m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[i] );
+			m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[nIter] );
 		else
 			m_cc24SatMeasureArray[i].ResetLuxValue ();
 	}
 
 	GetConfig()->m_isSettling = doSettling;
 
-	int iCC=GetConfig()->m_CCMode;
 	if (iCC < RANDOM250)
 		for (int i=0+100*iCC;i<100*(iCC+1);i++)
 				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-iCC*100];
