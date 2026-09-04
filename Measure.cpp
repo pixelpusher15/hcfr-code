@@ -31,6 +31,7 @@
 #include "LuxScaleAdvisor.h"
 #include "DataSetDoc.h"
 #include "Views\MainView.h"
+#include "MeasurePerf.h"
 
 #include <math.h>
 #include <sstream>
@@ -85,13 +86,135 @@ static void FillUniformGrayLevels(CArray<double,double> & levels, int nPoints)
 static volatile BOOL g_bMeasureSweepActive = FALSE;
 BOOL IsMeasureSweepActive() { return g_bMeasureSweepActive; }
 namespace {
+
+// ---------------------------------------------------------------------------
+// Measurement performance logging (baseline profiling).
+//
+// Splits each measured patch into phases and writes ONE summary line per sweep
+// to "hcfr_perf.log" next to the app's INI. Phases (per measured patch, averaged
+// over the sweep):
+//   read  - sensor integration          (PumpedRead)
+//   disp  - patch generation + display  (CGDIGenerator::DisplayRGBColor, incl.
+//           the generator's built-in pattern settle)
+//   iris  - latency / dynamic-iris wait (CMeasure::WaitForDynamicIris, m_latencyTime)
+//   view  - chart/grid refresh          (CMeasure::UpdateViews)
+//   other - sweep setup/teardown + misc (= total - read - disp - iris - view)
+// Per-patch times are accumulated in memory (no per-patch file I/O), so the
+// logging does not perturb the numbers. Toggle with [Debug] PerfLog=0 (default on).
+// ---------------------------------------------------------------------------
+struct PerfState
+{
+    bool          enabled;
+    bool          inSweep;
+    LARGE_INTEGER freq;
+    LARGE_INTEGER sweepStart;
+    const char *  name;
+    int           displayMode;
+    int           realtime;
+    int           readCount;
+    double        readSumMs;
+    double        readMaxMs;
+    double        dispSumMs;
+    double        dispMaxMs;
+    double        settleSumMs;
+    double        viewSumMs;
+};
+static PerfState g_perf = { false };
+
+static CString PerfLogPath()
+{
+    // Alongside the app's INI, which is by definition writable (the app writes
+    // settings there) and easy for the user to find.
+    CString ini = GetConfig()->m_iniFileName;
+    int slash = ini.ReverseFind('\\');
+    CString dir = (slash >= 0) ? ini.Left(slash) : CString(".");
+    return dir + "\\hcfr_perf.log";
+}
+
+static void PerfWriteLine(LPCTSTR text)
+{
+    FILE * f = fopen(PerfLogPath(), "a");
+    if (!f) return;
+    SYSTEMTIME st; GetLocalTime(&st);
+    fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d  %s\n",
+            st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, text);
+    fclose(f);
+}
+
+static void PerfSweepBegin(const char * name)
+{
+    g_perf.enabled = GetConfig()->GetProfileInt("Debug", "PerfLog", 1) != 0;
+    if (!g_perf.enabled) return;
+    QueryPerformanceFrequency(&g_perf.freq);
+    QueryPerformanceCounter(&g_perf.sweepStart);
+    g_perf.inSweep     = true;
+    g_perf.name        = name;
+    g_perf.displayMode = GetConfig()->GetProfileInt("GDIGenerator", "DisplayMode", 0);
+    g_perf.realtime    = GetConfig()->bDisplayRT ? 1 : 0;
+    g_perf.readCount   = 0;
+    g_perf.readSumMs   = 0.0;
+    g_perf.readMaxMs   = 0.0;
+    g_perf.dispSumMs   = 0.0;
+    g_perf.dispMaxMs   = 0.0;
+    g_perf.settleSumMs = 0.0;
+    g_perf.viewSumMs   = 0.0;
+}
+
+static void PerfRecordRead(double ms)
+{
+    if (!g_perf.enabled || !g_perf.inSweep) return;
+    if (ms > g_perf.readMaxMs) g_perf.readMaxMs = ms;
+    g_perf.readSumMs += ms;
+    g_perf.readCount++;
+}
+
+static void PerfRecordView(double ms)
+{
+    if (!g_perf.enabled || !g_perf.inSweep) return;
+    g_perf.viewSumMs += ms;
+}
+
+static void PerfRecordSettle(double ms)
+{
+    if (!g_perf.enabled || !g_perf.inSweep) return;
+    g_perf.settleSumMs += ms;
+}
+
+static void PerfSweepEnd()
+{
+    if (!g_perf.enabled || !g_perf.inSweep) return;
+    LARGE_INTEGER now; QueryPerformanceCounter(&now);
+    double totalMs = 1000.0 * (double)(now.QuadPart - g_perf.sweepStart.QuadPart)
+                            / (double)g_perf.freq.QuadPart;
+    int    n         = g_perf.readCount;
+    double inv       = n ? 1.0 / n : 0.0;
+    double perMeas   = totalMs            * inv;
+    double readAvg   = g_perf.readSumMs   * inv;
+    double dispAvg   = g_perf.dispSumMs   * inv;
+    double settleAvg = g_perf.settleSumMs * inv;
+    double viewAvg   = g_perf.viewSumMs   * inv;
+    double otherAvg  = (totalMs - g_perf.readSumMs - g_perf.dispSumMs
+                        - g_perf.settleSumMs - g_perf.viewSumMs) * inv;
+    CString line;
+    line.Format("SWEEP %-20s mode=%d rt=%d n=%3d total=%8.2fs avg/meas=%6.3fs | "
+                "read=%6.3fs disp=%6.3fs iris=%6.3fs view=%6.3fs other=%6.3fs | "
+                "read_max=%6.3fs disp_max=%6.3fs",
+                g_perf.name, g_perf.displayMode, g_perf.realtime, n,
+                totalMs / 1000.0, perMeas / 1000.0,
+                readAvg / 1000.0, dispAvg / 1000.0, settleAvg / 1000.0,
+                viewAvg / 1000.0, otherAvg / 1000.0,
+                g_perf.readMaxMs / 1000.0, g_perf.dispMaxMs / 1000.0);
+    PerfWriteLine(line);
+    g_perf.inSweep = false;
+}
+
 struct SweepActiveGuard
 {
     BOOL m_owned;
     CMeasure * m_pMeasure;
-    explicit SweepActiveGuard(CMeasure * p) : m_owned(!g_bMeasureSweepActive), m_pMeasure(p)
+    explicit SweepActiveGuard(CMeasure * p, const char * name = "sweep") : m_owned(!g_bMeasureSweepActive), m_pMeasure(p)
     {
-        if (m_owned) { g_bMeasureSweepActive = TRUE; p->m_bAbortSweep = FALSE; }
+        if (m_owned) { g_bMeasureSweepActive = TRUE; p->m_bAbortSweep = FALSE; PerfSweepBegin(name); }
     }
     // Clearing m_binMeasure here covers every early return (ESC cancel, sensor
     // abort, init failure); success paths still clear it explicitly before
@@ -106,6 +229,7 @@ struct SweepActiveGuard
     {
         if (m_owned)
         {
+            PerfSweepEnd();
             m_pMeasure->m_binMeasure = FALSE;
             m_pMeasure->m_bAbortSweep = FALSE;
             g_bMeasureSweepActive = FALSE;
@@ -113,15 +237,30 @@ struct SweepActiveGuard
     }
     BOOL Owned() const { return m_owned; }
 };
+} // anonymous namespace
+
+// External linkage (declared in MeasurePerf.h): the generator TU records patch-
+// generation time here via PerfDisplayScope. Runs on the UI thread, same as the
+// rest of the sweep, so the shared g_perf needs no locking.
+void HcfrPerfRecordDisplay(double ms)
+{
+    if (!g_perf.enabled || !g_perf.inSweep) return;
+    if (ms > g_perf.dispMaxMs) g_perf.dispMaxMs = ms;
+    g_perf.dispSumMs += ms;
 }
 
 static CColor PumpedRead(CAsyncMeasurer & am, CSensor * pSensor, const ColorRGBDisplay & rgb, int displaymode = 0)
 {
 	CColor c;
+	LARGE_INTEGER t0, t1, fr;
+	QueryPerformanceFrequency(&fr);
+	QueryPerformanceCounter(&t0);
 	if (am.IsRunning())
 		am.MeasurePumped(rgb, c, displaymode);
 	else
 		c = pSensor->MeasureColor(rgb, displaymode);
+	QueryPerformanceCounter(&t1);
+	PerfRecordRead(1000.0 * (double)(t1.QuadPart - t0.QuadPart) / (double)fr.QuadPart);
 	return c;
 }
 
@@ -1664,7 +1803,7 @@ bool doSettling = FALSE;
 
 BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "GrayScale");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
@@ -1891,7 +2030,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 
 BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "GrayScale+Colors");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
@@ -2346,7 +2485,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 
 BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "NearBlack");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
@@ -2555,7 +2694,7 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "NearWhite");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG		Msg;
 	BOOL	bEscape;
@@ -2741,7 +2880,7 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "RedSaturation");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
@@ -2917,7 +3056,7 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 
 BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "GreenSaturation");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
@@ -3092,7 +3231,7 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 
 BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "BlueSaturation");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
@@ -3269,7 +3408,7 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "YellowSaturation");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
@@ -3446,7 +3585,7 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "CyanSaturation");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
@@ -3624,7 +3763,7 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "MagentaSaturation");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
@@ -3801,7 +3940,7 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 
 BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "ColorChecker");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape;
@@ -4424,7 +4563,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 
 BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerator, BOOL bPrimaryOnly, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "AllSaturations");
 	if (!_sweepGuard.Owned()) return FALSE;
 	int			i, j;
 	MSG			Msg;
@@ -4812,7 +4951,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 
 BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenerator *pGenerator, BOOL bPrimaryOnly, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "PrimSecSaturations");
 	if (!_sweepGuard.Owned()) return FALSE;
 	int			i, j;
 	MSG			Msg;
@@ -5067,7 +5206,7 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 
 BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "Primaries");
 	if (!_sweepGuard.Owned()) return FALSE;
 	int		i;
 	MSG		Msg;
@@ -5358,7 +5497,7 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 
 BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "Secondaries");
 	if (!_sweepGuard.Owned()) return FALSE;
 	int		i;
 	MSG		Msg;
@@ -5649,7 +5788,7 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 
 BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "Contrast");
 	if (!_sweepGuard.Owned()) return FALSE;
 	int		i;
 	MSG		Msg;
@@ -6393,6 +6532,9 @@ void CMeasure::ApplySensorAdjustmentMatrix(const Matrix& aMatrix)
 
 BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
 {
+	LARGE_INTEGER _st0, _st1, _sfr;
+	QueryPerformanceFrequency(&_sfr);
+	QueryPerformanceCounter(&_st0);
 	BOOL bEscape = FALSE;
 	int nLatencyTime = GetConfig()->m_latencyTime;
 	UINT nLoopTime = 10;
@@ -6410,12 +6552,16 @@ BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
 
 	if ( nLoopTime > 0 )
 	{
-		// Sleep nLatencyTime ms while dispatching messages
+		// Wait nLoopTime ms (the user's settle-delay setting) while dispatching
+		// messages. This delay, plus the generator's ~80ms WaitAfterDisplayPattern,
+		// is the settle before the meter integrates. The wait is exactly the
+		// setting (no hidden padding); the 120ms default + ~80ms ~= Argyll's
+		// ~200ms display-update-delay default.
 		MSG	Msg;
 		DWORD dwStart = GetTickCount();
 		DWORD dwNow = dwStart;
 
-		while((!bEscape) && ((dwNow - dwStart) < nLoopTime + 100))
+		while((!bEscape) && ((dwNow - dwStart) < nLoopTime))
 		{
 			Sleep(0);
 			while(PeekMessage(&Msg, NULL, NULL, NULL, TRUE ))
@@ -6450,6 +6596,8 @@ BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
 	if ( GetConfig () -> m_bLatencyBeep && ! bEscape )
 		MessageBeep (-1);
 
+	QueryPerformanceCounter(&_st1);
+	PerfRecordSettle(1000.0 * (double)(_st1.QuadPart - _st0.QuadPart) / (double)_sfr.QuadPart);
 	return bEscape;
 }
 BOOL CMeasure::CheckBlackOverride ( )
@@ -6462,6 +6610,9 @@ BOOL CMeasure::CheckBlackOverride ( )
 
 void CMeasure::UpdateViews ( CDataSetDoc *pDoc, int Sequence )
 {
+	LARGE_INTEGER _vt0, _vt1, _vfr;
+	QueryPerformanceFrequency(&_vfr);
+	QueryPerformanceCounter(&_vt0);
 	if (pDoc )
 	{
 		POSITION pos = pDoc -> GetFirstViewPosition ();
@@ -6481,7 +6632,8 @@ void CMeasure::UpdateViews ( CDataSetDoc *pDoc, int Sequence )
 			pDoc ->UpdateAllViews(NULL, UPD_REALTIME + Sequence);
 		}
 	}
-
+	QueryPerformanceCounter(&_vt1);
+	PerfRecordView(1000.0 * (double)(_vt1.QuadPart - _vt0.QuadPart) / (double)_vfr.QuadPart);
 }
 
 void CMeasure::UpdateTstWnd (CDataSetDoc *pDoc, int i )

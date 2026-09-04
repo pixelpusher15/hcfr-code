@@ -296,8 +296,8 @@ BEGIN
     CONTROL         "Fortlaufendes Messen",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,76,85,10
     CONTROL         "Grau/Primärfarben bei User-Messungen erkennen",IDC_CHECK_DETECT_PRIMARIES,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,87,175,10
-    GROUPBOX        "Dynamische Iris",IDC_STATIC,7,106,203,71,WS_GROUP
-    LTEXT           "Latenzzeit",IDC_STATIC,14,117,34,8
+    GROUPBOX        "Messstabilisierung",IDC_STATIC,7,106,203,71,WS_GROUP
+    LTEXT           "Wartezeit",IDC_STATIC,14,117,34,8
     EDITTEXT        IDC_EDIT_IRIS_TIME,60,114,21,14,ES_AUTOHSCROLL | WS_GROUP
     LTEXT           "ms",IDC_STATIC,87,117,15,8
     CONTROL         "Signal bei Beginn der Messung (Latenzeinstellungshilfe)",IDC_CHECK_BEEP,

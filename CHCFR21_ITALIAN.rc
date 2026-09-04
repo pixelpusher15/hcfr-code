@@ -286,8 +286,8 @@ BEGIN
     CONTROL         "Misurazione continua",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,79,83,10
     CONTROL         "Rileva grigio/primari durante le misurazione utente",IDC_CHECK_DETECT_PRIMARIES,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,91,175,10
-    GROUPBOX        "Iris dinamica",IDC_STATIC,7,109,203,65,WS_GROUP
-    LTEXT           "Latenca",IDC_STATIC,14,120,40,8
+    GROUPBOX        "Stabilizzazione misura",IDC_STATIC,7,109,203,65,WS_GROUP
+    LTEXT           "Ritardo",IDC_STATIC,14,120,40,8
     EDITTEXT        IDC_EDIT_IRIS_TIME,60,118,21,14,ES_AUTOHSCROLL | WS_GROUP
     LTEXT           "ms",IDC_STATIC,86,120,10,8
     CONTROL         "Bip all ìnitio della misurazione (aiuta a definire la lantenza)",IDC_CHECK_BEEP,

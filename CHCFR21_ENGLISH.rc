@@ -284,8 +284,8 @@ BEGIN
     CONTROL         "Continuous measuring",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,79,85,10
     CONTROL         "Detect gray/primary colors during user measures",IDC_CHECK_DETECT_PRIMARIES,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,91,168,10
-    GROUPBOX        "Dynamic iris",IDC_STATIC,7,109,203,65,WS_GROUP
-    LTEXT           "Latency time",IDC_STATIC,14,120,40,8
+    GROUPBOX        "Measurement settle",IDC_STATIC,7,109,203,65,WS_GROUP
+    LTEXT           "Settle delay",IDC_STATIC,14,120,40,8
     EDITTEXT        IDC_EDIT_IRIS_TIME,60,118,21,14,ES_AUTOHSCROLL | WS_GROUP
     LTEXT           "ms",IDC_STATIC,86,120,10,8
     CONTROL         "Bip at the beginning of measure (latency definition help)",IDC_CHECK_BEEP,
