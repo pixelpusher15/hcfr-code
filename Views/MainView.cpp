@@ -2638,10 +2638,11 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				 break;
 
 			case UPD_CC24SAT:
+				 // The grid refresh this used to do here (a bare UpdateGrid) now
+				 // happens in the rebuild block below, which pairs it with InitGrid;
+				 // see the comment there for why the InitGrid is the load-bearing part.
 				 if ( m_displayMode != 11 )
 					nForceMode = 11;
-				 else
-					 UpdateGrid();
 				 break;
 
 			case UPD_ALLSATURATIONS:
@@ -2826,7 +2827,24 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		GetDlgItem ( IDC_SENSORRGB_RADIO ) -> EnableWindow ( FALSE );
 
 
-		if ( ( lHint >= UPD_EVERYTHING && lHint <= UPD_FREEMEASURES ) || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA )
+		// UPD_CC24SAT is the color checker sweep's end-of-run hint (sent on BOTH
+		// completion and abort by CDataSetDoc::MeasureCC24SatScale, and also by the
+		// background CC validation and the MultiFrm "colorchecker" command). It was
+		// already getting a full column repaint -- the switch above called
+		// UpdateGrid, and by sweep end the single-shot incremental request has been
+		// consumed, so that pass covers all N columns. What it never got was
+		// InitGrid, which owns the grid's ROW count (the only SetRowCount call).
+		//
+		// That matters because a sweep can change the row count. GetCC24Sat reads
+		// the live array while m_binMeasure is TRUE and the per-set master array
+		// afterwards, and lux values are stamped onto the array only at the end of
+		// the sweep -- so with a lux meter attached bHasLuxValues is FALSE for the
+		// whole sweep and TRUE once it ends, and InitGrid's nRows grows by one.
+		// With no InitGrid on this path the grid kept the row count it was built
+		// with and the Lux row never appeared, on completion or on abort.
+		// Running the rebuild block also drops the duplicate pass the switch used
+		// to make, so a sweep end still costs exactly one grid rebuild.
+		if ( ( lHint >= UPD_EVERYTHING && lHint <= UPD_FREEMEASURES ) || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA || lHint == UPD_CC24SAT )
 		{
 			if ( lHint == UPD_EVERYTHING || lHint == UPD_ARRAYSIZES )
 			{
