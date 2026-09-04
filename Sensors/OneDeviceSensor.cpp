@@ -434,14 +434,15 @@ static void ReportCalibrationLoadFailure ( LPCSTR lpszPath, CException * e )
 	AfxMessageBox ( strMsg, MB_OK | MB_ICONEXCLAMATION );
 }
 
-void COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
+BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 {
 	// Serialize's load branch overwrites the sensor field by field and frees
 	// m_pCalibrationInfo before the version-gated read, so a file that is
 	// rejected part-way through - a truncated one, or a schema this build does
-	// not know - leaves the sensor carrying pieces of it. Every caller applies
-	// the sensor matrix as soon as this returns, so hold the whole of the old
-	// state and put it back: a file that could not be read changes nothing.
+	// not know - leaves the sensor carrying pieces of it. So hold the whole of
+	// the old state and put it back: a file that could not be read changes
+	// nothing, and FALSE says so to the caller that has to decide whether the
+	// document changed with it.
 	Matrix				previousMatrix = m_sensorToXYZMatrix;
 	time_t				previousTime = m_calibrationTime;
 	float				previousIRELevel = m_calibrationIRELevel;
@@ -454,6 +455,7 @@ void COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 	CString				strPreviousRef = m_calibrationReferenceName;
 	CString				strPreviousName = m_CalibrationFileName;
 	CCalibrationInfo *	pPreviousInfo = m_pCalibrationInfo;
+	BOOL				bLoaded = FALSE;
 
 	// Detach it first: Serialize deletes whatever the member points at, and
 	// that is the copy we are keeping.
@@ -469,6 +471,8 @@ void COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 		m_CalibrationFileName = loadFile.GetFileTitle ();
 
 		delete pPreviousInfo;
+
+		bLoaded = TRUE;
 	}
 	CATCH_ALL ( e )
 	{
@@ -490,6 +494,8 @@ void COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 		ReportCalibrationLoadFailure ( aFileName, e );
 	}
 	END_CATCH_ALL
+
+	return bLoaded;
 }
 
 // Compare two directories as file system locations rather than as strings:
