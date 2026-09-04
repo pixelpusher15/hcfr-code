@@ -142,12 +142,15 @@ class CCIEChartGrapher
 	double	m_bgWhitex, m_bgWhitey;
 
 	// Gamut-coverage chip staleness tracking: the standard and measured
-	// primaries the last shown coverage % was computed for. When the gamut is
-	// changed but the primaries have not been re-measured, the percentages are
-	// hidden (the gamut-name chip still shows).
+	// primaries/secondaries the last shown coverage % was computed for.
+	// When the gamut is changed but the relevant data has not been
+	// re-measured, the affected percentage(s) are hidden (the gamut-name
+	// chip still shows) -- xy/u'v' only depend on the primaries, a*b*
+	// additionally depends on the secondaries.
 	BOOL			m_covValid;
 	ColorStandard	m_covStandard;
 	ColorXYZ		m_covPrimaries[3];
+	ColorXYZ		m_covSecondaries[3];	// yellow, cyan, magenta -- a*b* path only
 
 	// Zoom handling, for window mode
 	UINT	m_ZoomFactor;	// Zoom factor = 1000 for 1:1 scale, 2000 for 2x zoom, and so on
