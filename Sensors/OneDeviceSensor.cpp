@@ -392,12 +392,104 @@ void COneDeviceSensor::GetPropertiesSheetValues()
 	}
 }
 
+// Say why a correction file could not be read, naming the file. A CArchive
+// exception carries no file name of its own, so MFC's handler reported these
+// as "an unnamed file contains an incorrect schema"; fill the name in the way
+// CDocument::ReportSaveLoadException does for a file exception, then let MFC
+// describe the cause.
+static void ReportCalibrationLoadFailure ( LPCSTR lpszPath, CException * e )
+{
+	CString	strWhat ( lpszPath );
+	CString	strMsg;
+	char	szCause [ 512 ];
+
+	if ( e != NULL )
+	{
+		if ( e -> IsKindOf ( RUNTIME_CLASS ( CArchiveException ) ) )
+		{
+			CArchiveException *	pEx = (CArchiveException *) e;
+
+			if ( pEx -> m_strFileName.IsEmpty () )
+				pEx -> m_strFileName = lpszPath;
+		}
+		else if ( e -> IsKindOf ( RUNTIME_CLASS ( CFileException ) ) )
+		{
+			CFileException *	pEx = (CFileException *) e;
+
+			if ( pEx -> m_strFileName.IsEmpty () )
+				pEx -> m_strFileName = lpszPath;
+		}
+
+		if ( e -> GetErrorMessage ( szCause, sizeof ( szCause ) ) )
+		{
+			CString	strCause ( szCause );
+
+			strCause.TrimRight ( "\r\n" );
+			if ( ! strCause.IsEmpty () )
+				strWhat = strCause;
+		}
+	}
+
+	strMsg.Format ( IDS_THC_LOAD_FAILED, (LPCSTR) strWhat );
+	AfxMessageBox ( strMsg, MB_OK | MB_ICONEXCLAMATION );
+}
+
 void COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 {
-	CFile loadFile(aFileName,CFile::modeRead);
-	CArchive ar(&loadFile,CArchive::load);
-	COneDeviceSensor::Serialize(ar);
-	m_CalibrationFileName = loadFile.GetFileTitle ();
+	// Serialize's load branch overwrites the sensor field by field and frees
+	// m_pCalibrationInfo before the version-gated read, so a file that is
+	// rejected part-way through - a truncated one, or a schema this build does
+	// not know - leaves the sensor carrying pieces of it. Every caller applies
+	// the sensor matrix as soon as this returns, so hold the whole of the old
+	// state and put it back: a file that could not be read changes nothing.
+	Matrix				previousMatrix = m_sensorToXYZMatrix;
+	time_t				previousTime = m_calibrationTime;
+	float				previousIRELevel = m_calibrationIRELevel;
+	BOOL				bPreviousBlackComp = m_doBlackCompensation;
+	BOOL				bPreviousVerifyAdd = m_doVerifyAdditivity;
+	BOOL				bPreviousShowAdd = m_showAdditivityResults;
+	int					nPreviousMaxAddErr = m_maxAdditivityErrorPercent;
+	Matrix				previousPrimaries = m_primariesChromacities;
+	Matrix				previousWhite = m_whiteChromacity;
+	CString				strPreviousRef = m_calibrationReferenceName;
+	CString				strPreviousName = m_CalibrationFileName;
+	CCalibrationInfo *	pPreviousInfo = m_pCalibrationInfo;
+
+	// Detach it first: Serialize deletes whatever the member points at, and
+	// that is the copy we are keeping.
+	m_pCalibrationInfo = NULL;
+
+	TRY
+	{
+		CFile loadFile(aFileName,CFile::modeRead);
+		CArchive ar(&loadFile,CArchive::load);
+
+		COneDeviceSensor::Serialize(ar);
+
+		m_CalibrationFileName = loadFile.GetFileTitle ();
+
+		delete pPreviousInfo;
+	}
+	CATCH_ALL ( e )
+	{
+		delete m_pCalibrationInfo;
+
+		m_sensorToXYZMatrix = previousMatrix;
+		m_calibrationTime = previousTime;
+		m_calibrationIRELevel = previousIRELevel;
+		m_doBlackCompensation = bPreviousBlackComp;
+		m_doVerifyAdditivity = bPreviousVerifyAdd;
+		m_showAdditivityResults = bPreviousShowAdd;
+		m_maxAdditivityErrorPercent = nPreviousMaxAddErr;
+		m_primariesChromacities = previousPrimaries;
+		m_whiteChromacity = previousWhite;
+		m_calibrationReferenceName = strPreviousRef;
+		m_CalibrationFileName = strPreviousName;
+		m_pCalibrationInfo = pPreviousInfo;
+
+		ReportCalibrationLoadFailure ( aFileName, e );
+	}
+	END_CATCH_ALL
 }
 
 // Compare two directories as file system locations rather than as strings:
@@ -508,35 +600,19 @@ void COneDeviceSensor::SaveCalibrationFile()
 {
 	BOOL			bContinue = FALSE;
 	CString			strPath;
-	CString			strSubDir;
 	CString			strFileName;
-	LPSTR			lpStr;
-	DWORD			dwError;
-	DWORD			dwAttributes;
+	int				nDot;
 
-	strPath = GetConfig () -> m_ApplicationPath;
-	strSubDir = GetStandardSubDir ();
-	if ( ! strSubDir.IsEmpty () )
+	// Correction files live under the user's profile, not beside the exe: the
+	// install directory is read-only under Program Files, and an uninstall
+	// removes everything in it. GetEtalonPath creates the folder and says
+	// whether it is really there - carrying on regardless would leave the user
+	// in the reopen-until-cancel loop this is meant to end.
+	SetLastError ( ERROR_SUCCESS );
+	if ( ! GetConfig () -> GetEtalonPath ( strPath ) )
 	{
-		strPath += strSubDir;
-		strPath += '\\';
-
-		// That subdirectory is the only place the sensor selection page looks
-		// for training files, so create it before offering to save into it.
-		// EnsurePathExists cannot report failure, and under an installation in
-		// Program Files a standard user cannot create the folder at all, so ask
-		// whether it is there afterwards: carrying on regardless would leave the
-		// user in the reopen-until-cancel loop this is meant to end.
-		SetLastError ( ERROR_SUCCESS );
-		GetConfig () -> EnsurePathExists ( strPath );
-		dwError = GetLastError ();
-
-		dwAttributes = GetFileAttributes ( strPath );
-		if ( dwAttributes == INVALID_FILE_ATTRIBUTES || ! ( dwAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
-		{
-			ReportCalibrationSaveFailure ( strPath, dwError );
-			return;
-		}
+		ReportCalibrationSaveFailure ( strPath, GetLastError () );
+		return;
 	}
 
 	do
@@ -560,15 +636,51 @@ void COneDeviceSensor::SaveCalibrationFile()
 			if ( IsSameDirectory ( strChosenDir, strPath ) )
 			{
 				CString	strPreviousName = m_CalibrationFileName;
+				CString	strTempPath;
 
 				// The folder can exist and still refuse the write, which is what a
 				// Program Files installation does to a standard user. Say so here
 				// rather than letting the exception reach MFC's default handler.
+				//
+				// Write to a temporary in the same folder and rename it into place:
+				// CFile::modeCreate truncates the target as it opens, so writing
+				// straight to it would destroy the correction the user already had
+				// before finding out whether the new one can be written at all.
 				TRY
 				{
-					CFile saveFile(strChosenPath,CFile::modeCreate|CFile::modeWrite);
+					char			szTempName [ MAX_PATH ];
+
+					// Ask for write access on the target before writing anything. The
+					// rename below replaces a file on the strength of directory rights
+					// alone, so without this a correction the user has write-protected
+					// would be silently replaced. modeNoTruncate keeps the probe from
+					// being the very truncation this temporary file exists to avoid.
+					if ( GetFileAttributes ( strChosenPath ) != INVALID_FILE_ATTRIBUTES )
+					{
+						CFile probeFile(strChosenPath,CFile::modeWrite|CFile::modeNoTruncate);
+						probeFile.Close ();
+					}
+
+					// Let Windows name the temporary. Appending to the chosen path could
+					// push it past MAX_PATH, because the dialog already accepts a name
+					// right up to that limit.
+					if ( GetTempFileName ( strChosenDir, "thc", 0, szTempName ) == 0 )
+						AfxThrowFileException ( CFileException::genericException, (LONG) GetLastError (), strChosenPath );
+					strTempPath = szTempName;
+
+					CFile saveFile(strTempPath,CFile::modeCreate|CFile::modeWrite);
 					CArchive ar(&saveFile,CArchive::store);
-					CString	strTitle = saveFile.GetFileTitle ();
+					CString	strTitle;
+					char			szTitle [ _MAX_FNAME ];
+
+					// The name CFile::GetFileTitle would give, taken from the path the
+					// file will carry once renamed into place. MFC wraps this API in a
+					// helper that is not public, so call it directly and fall back to the
+					// bare file name the same way that helper does.
+					if ( ::GetFileTitle ( strChosenPath, szTitle, (WORD) sizeof ( szTitle ) ) == 0 )
+						strTitle = szTitle;
+					else
+						strTitle = strChosenPath.Mid ( strChosenPath.ReverseFind ( '\\' ) + 1 );
 
 					// The archive records the correction this sensor was built from,
 					// and this file is that correction, so it stores an empty name.
@@ -580,14 +692,19 @@ void COneDeviceSensor::SaveCalibrationFile()
 					ar.Close ();
 					saveFile.Close ();
 
+					if ( ! MoveFileEx ( strTempPath, strChosenPath, MOVEFILE_REPLACE_EXISTING ) )
+						AfxThrowFileException ( CFileException::genericException, (LONG) GetLastError (), strChosenPath );
+
 					m_CalibrationFileName = strTitle;
 				}
 				CATCH_ALL ( e )
 				{
 					DWORD	dwSaveError = 0;
 
-					// Nothing reached the disk, so keep the name the sensor already
-					// had: the empty one above was only meant to reach the file.
+					// The file the user already had was never opened, so it still
+					// stands; only the temporary is discarded.
+					if ( ! strTempPath.IsEmpty () )
+						DeleteFile ( strTempPath );
 					m_CalibrationFileName = strPreviousName;
 
 					if ( e -> IsKindOf ( RUNTIME_CLASS ( CFileException ) ) )
@@ -606,10 +723,13 @@ void COneDeviceSensor::SaveCalibrationFile()
 				Msg += "\n\n";
 				Msg += strPath;
 				AfxMessageBox ( Msg );
+				// Drop the extension through CString, not by writing a NUL into its
+				// buffer: that leaves the stored length stale, and strPath + strFileName
+				// above concatenates by length, not to the first NUL.
 				strFileName = fileSaveDialog.GetFileName();
-				lpStr = strrchr ( (LPSTR)(LPCSTR) strFileName, '.' );
-				if ( lpStr )
-					lpStr [ 0 ] = '\0';
+				nDot = strFileName.ReverseFind ( '.' );
+				if ( nDot > 0 )
+					strFileName = strFileName.Left ( nDot );
 				bContinue = TRUE;
 			}
 		}

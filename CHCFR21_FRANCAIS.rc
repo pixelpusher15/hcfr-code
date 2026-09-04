@@ -3478,6 +3478,7 @@ BEGIN
     IDS_INVALIDSENSORMATRIX "La matrice capteur est invalide"
     IDS_MUSTSAVEINSUBDIR    "Vous devez impérativement sauver cet étalon dans le répertoire indiqué pour qu'il soit pris en compte."
     IDS_THC_SAVE_FAILED     "Le fichier de correction n'a pas pu être enregistré.\n\n%s"
+    IDS_THC_LOAD_FAILED     "Le fichier de correction n'a pas pu être lu.\n\n%s"
     IDS_RUNCONTINUOUS       "Lance les mesures en continu - F8"
     IDS_ONEMEASURE          "Effectue une mesure - F7"
     IDS_CONFIGURESENSOR     "Configure le capteur"

@@ -1570,6 +1570,7 @@
 #define IDS_GRAPH_TRK_NEARBLACK         42014
 #define IDS_GRAPH_TRK_NEARWHITE         42015
 #define IDS_THC_SAVE_FAILED             42016
+#define IDS_THC_LOAD_FAILED             42017
 #define IDS_CONTRAST                    41777
 #define IDS_OFFSET                      41778
 #define IDS_CONFIRMTRAINING             41779
