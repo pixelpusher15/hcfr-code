@@ -33,16 +33,26 @@
 #include "../libccast/ccwin.h"
 #include "../libccast/ccast.h"
 #include "../MainFrm.h"
+#include "../Tools/SerialCom.h"
+#include <wininet.h>
+#pragma comment(lib, "wininet.lib")
+#include <winsock2.h>				// raw-TCP transport for the binary UART protocol
+#include <ws2tcpip.h>				// InetPtonA - inet_addr is deprecated and cannot report failure
+#pragma comment(lib, "ws2_32.lib")	// (stdafx defines VC_EXTRALEAN, so windows.h skips winsock.h - no conflict)
 
 #include <string>
 #include <vector>
 #include <float.h>
+#include <afxmt.h>					// CCriticalSection/CSingleLock for the generator serial lock
 
 #ifdef _DEBUG
 #undef THIS_FILE
 static char THIS_FILE[]=__FILE__;
 #define new DEBUG_NEW
 #endif
+
+// Load a UI string from the active language resource (mirrors gdigeneproppage.cpp).
+static CString LS(UINT id) { CString s; if (id) s.LoadString(id); return s; }
 
 // we use multimon stubs to
 // allow backwards compatibilty and
@@ -100,6 +110,19 @@ CGDIGenerator::CGDIGenerator()
 	m_brPi_user = GetConfig()->GetProfileInt("GDIGenerator","DISPLAYRPIUSER",0);
 	m_b10bitPGen = GetConfig()->GetProfileInt("GDIGenerator","TenBitPGen",0);
 	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
+	m_dvdoComPort = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
+	m_dvdoColorSpace = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
+	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
+	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
+	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
+	m_muriIp = GetConfig()->GetProfileString("GDIGenerator","MuriIp","");
+	m_muriUseNetwork = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
+	m_muriTcpPort = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
+	m_muriTimingId = GetConfig()->GetProfileInt("GDIGenerator","MuriTimingId",-1);
+	m_muriColorSpaceId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0);
+	m_muriPatternId = GetConfig()->GetProfileInt("GDIGenerator","MuriPatternId",-1);
     m_madVR_3d = GetConfig()->GetProfileInt("GDIGenerator","MADVR3D",1);
     m_madVR_vLUT = GetConfig()->GetProfileInt("GDIGenerator","MADVRvLUT",1);
     m_madVR_HDR = GetConfig()->GetProfileInt("GDIGenerator","MADVRHDR",0);
@@ -147,6 +170,19 @@ CGDIGenerator::CGDIGenerator(int nDisplayMode, BOOL b16_235)
 	m_b16_235 = b16_235;
 	m_b10bitPGen = GetConfig()->GetProfileInt("GDIGenerator","TenBitPGen",0);
 	m_b10bitMadvr = GetConfig()->GetProfileInt("GDIGenerator","TenBitMadvr",0);
+	m_dvdoComPort = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
+	m_dvdoColorSpace = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
+	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
+	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
+	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
+	m_muriIp = GetConfig()->GetProfileString("GDIGenerator","MuriIp","");
+	m_muriUseNetwork = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
+	m_muriTcpPort = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
+	m_muriTimingId = GetConfig()->GetProfileInt("GDIGenerator","MuriTimingId",-1);
+	m_muriColorSpaceId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0);
+	m_muriPatternId = GetConfig()->GetProfileInt("GDIGenerator","MuriPatternId",-1);
 	m_displayWindow.SetDisplayMode(nDisplayMode);
 
 	CString str;
@@ -527,6 +563,22 @@ void CGDIGenerator::GetPropertiesSheetValues()
 	GetConfig()->RefreshUse10bitLevels();
 }
 
+// Forward declarations for the DVDO serial helpers defined further down (both in
+// an anonymous namespace => internal linkage within this translation unit).
+namespace
+{
+	// One lock serializes every DVDO/Murideo transaction: the panel's status
+	// workers, the settings dialogs, and the measurement path all share the
+	// s_dvdoPort/s_muriPort statics (and the s_muri* transport settings). A
+	// worker orphaned by a closing property sheet then simply finishes its
+	// transaction before the next user of the port proceeds - no interleaved
+	// writes, no CloseHandle out from under a reader. The underlying
+	// CRITICAL_SECTION is recursive, so nested internal calls are fine.
+	CCriticalSection s_genSerialLock;
+}
+namespace { bool DvdoOpen(const CString& comPort, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
+namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com, bool establish = false); void MuriDisconnect(); void MuriSetTcpPort(int port); void MuriClose(); }
+
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
 //	GetColorApp()->InMeasureMessageBox( "    ** GDI Generator Init **", "Error", MB_ICONINFORMATION);
@@ -625,7 +677,7 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 	
 	bOnOtherMonitor = IsOnOtherMonitor ();
 
-	BOOL bExternalSurface = ( m_nDisplayMode == DISPLAY_rPI || m_nDisplayMode == DISPLAY_ccast );
+	BOOL bExternalSurface = ( m_nDisplayMode == DISPLAY_rPI || m_nDisplayMode == DISPLAY_ccast || m_nDisplayMode == DISPLAY_DVDO || m_nDisplayMode == DISPLAY_MURIDEO );
 
 	if ( ! bOnOtherMonitor && ! bExternalSurface )
 	{
@@ -633,9 +685,65 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 		m_bBlankingCanceled = m_doScreenBlanking;
 		m_doScreenBlanking = FALSE;
 	}
-	
+
 	bOk = CGenerator::Init (nbMeasure );
 	m_displayWindow.m_rPiSock = sock;
+
+	// Re-load the DVDO/Murideo transport settings from config: the "... settings..." dialogs
+	// write these keys directly, but the generator's copies are set only in the constructor
+	// (built once per document, in CreateGenerator), so without this Init would open the
+	// constructor-time port/IP and ignore anything the dialog changed this session.
+	// The generator serial lock is taken HERE rather than across the whole of Init, so a status
+	// query in flight (~1.5 s on the DVDO) no longer delays the start of an unrelated GDI or
+	// madVR measurement - those share nothing with the serial transports. The re-read and the
+	// open still happen atomically with respect to a status worker that a closing property
+	// sheet may have orphaned mid-transaction, which is the ordering the lock exists for.
+	if ( m_nDisplayMode == DISPLAY_DVDO || m_nDisplayMode == DISPLAY_MURIDEO )
+	{
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+
+		m_dvdoComPort      = GetConfig()->GetProfileString("GDIGenerator","DvdoComPort","");
+		m_dvdoColorSpace   = GetConfig()->GetProfileInt("GDIGenerator","DvdoColorSpace",0);
+		m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
+		m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
+			GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
+		m_muriComPort      = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
+		m_muriIp           = GetConfig()->GetProfileString("GDIGenerator","MuriIp","");
+		m_muriUseNetwork   = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
+		m_muriColorSpaceId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0);
+		m_muriTcpPort      = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
+
+		if ( m_nDisplayMode == DISPLAY_DVDO )
+		{
+			CString fw;
+			// Just open the port for AA patches; do NOT re-send resolution/colour-space here (the
+			// "DVDO settings..." dialog's Apply owns those - the device retains them). Re-sending
+			// 6C/61 every measurement would needlessly re-lock the display. Mirrors the Murideo.
+			BOOL opened = DvdoOpen(m_dvdoComPort, m_dvdoOutputFormat, &fw, false /*no setup*/);
+			if ( ! opened )
+			{
+				if ( ! m_initShowedError )
+					GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_DVDO_INIT_FAIL), "DVDO AVLab TPG", MB_ICONERROR);
+				m_initShowedError = TRUE;
+			}
+			bOk = bOk && opened;	// combine with the base CGenerator::Init result, don't mask its failure
+		}
+
+		if ( m_nDisplayMode == DISPLAY_MURIDEO )
+		{
+			// Same default as the config read above (23 = the device's telnet / raw-TCP port);
+			// the guard now only catches a hand-edited 0 in the INI.
+			MuriSetTcpPort((m_muriTcpPort > 0) ? m_muriTcpPort : 23);	// raw-TCP port for colour patches
+			BOOL connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
+			if ( ! connected )
+			{
+				if ( ! m_initShowedError )
+					GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_MURI_INIT_FAIL), "Murideo Seven-G", MB_ICONERROR);
+				m_initShowedError = TRUE;
+			}
+			bOk = bOk && connected;	// combine with the base CGenerator::Init result, don't mask its failure
+		}
+	}
 
 	if ( ! bOnOtherMonitor )
 	{
@@ -974,6 +1082,1952 @@ return TRUE;
 
 }
 
+// ---------------------------------------------------------------------------
+// DVDO AVLab TPG (DISPLAY_DVDO) serial control. Protocol per the AVLab TPG
+// User's Guide, Appendix A: "STX '30' DataCount ID NUL <params> NUL ETX" at
+// 115200 8N1 over the USB virtual serial port. DataCount is the decimal-ASCII
+// byte count of everything from ID through the final NUL.
+// ---------------------------------------------------------------------------
+namespace {
+	CSerialCom	s_dvdoPort;
+	bool		s_dvdoOpen  = false;
+	CString		s_dvdoOpenPort;				// the port s_dvdoPort is actually open on (see DvdoOpen)
+	bool		s_dvdoArmed = false;		// TPG armed for AA patches? (see the first-patch arm in DisplayRGBColorDVDO)
+	int			s_dvdoLastPattern = -1;		// last 80 pattern HCFR showed, -1 = none (see DvdoSendPattern)
+	bool		s_dvdoLastWriteOk = false;	// did the last DvdoWrite reach the port? lets the patch retry tell a
+											// dead handle (needs a reopen) from a merely missing ack (resend only)
+	CString		s_dvdoDiag;					// human-readable status from the last DvdoOpen
+	const int	kDvdoArmPattern = 35;		// 80=35 = "Black" (0 IRE full field, User's Guide page 14): arms the internal TPG with no visible flash
+
+	// params are NUL-separated with a trailing NUL. A single-element vector gives
+	// the "ID NUL value NUL" form (used for AA's space-joined value); several
+	// elements give AF's "ID (NUL p)* NUL" form.
+	std::string DvdoFrame(const char* id, const std::vector<std::string>& params)
+	{
+		std::string body = id;
+		for (size_t i = 0; i < params.size(); ++i) { body += '\0'; body += params[i]; }
+		body += '\0';
+		// DataCount is UPPER-CASE HEX, ZERO-PADDED to at least 2 digits. This padding is
+		// the crux: the firmware's parser reads a fixed 2-char count field, so a single-digit
+		// count (e.g. "6") desyncs it and the whole command is silently ignored. That is why
+		// only AA/AF ever worked (their counts are >=16 -> already 2 hex digits "16"/"1A"),
+		// while 61/80/EA/6C (small counts) appeared "unsupported" - they were mis-framed.
+		// Verified on hardware 2026-08-08: "06"/"05" made 61 (resolution) and 80 (patterns) work.
+		char cnt[16]; sprintf(cnt, "%02X", (unsigned)body.size());
+		std::string pkt;
+		pkt += (char)0x02; pkt += "30"; pkt += cnt; pkt += body; pkt += (char)0x03;
+		return pkt;
+	}
+
+	bool DvdoWrite(const std::string& pkt)
+	{
+		s_dvdoLastWriteOk = false;
+		if (!s_dvdoOpen) return false;
+		for (size_t i = 0; i < pkt.size(); ++i)
+			if (!s_dvdoPort.WriteByte((BYTE)pkt[i]))
+			{
+				DvdoClose();	// see MuriSerialWriteRaw - a failed write leaves a dead, still-locked handle
+				return false;
+			}
+		s_dvdoLastWriteOk = true;
+		return true;
+	}
+
+	// Every 0x30 command elicits a Response packet (STX "01" .. ETX). The User's Guide 1.01
+	// section "Command (30) and Response (01)" states the AVLab ALWAYS responds. If we never
+	// read it, the acks back up in the device and, after a resolution change (61), it stops
+	// displaying subsequent AA custom patches. Draining the ack after each command keeps the
+	// device in sync. Hardware-confirmed 2026-08-08: with the drain, 61 -> AA displays reliably;
+	// without it the AA patch blanks. The ack is immediate (~11 ms) - it is NOT a re-lock-done
+	// signal - so a separate settle is still used after 61.
+	// Returns true only if the ETX-terminated ack actually arrived. The device always
+	// responds (above), so a missing ack means the command did not land - which is the only
+	// way to notice a patch that was written into a handle whose device has gone away.
+	bool DvdoDrainResponse()
+	{
+		if (!s_dvdoOpen) return false;
+		BYTE b; int guard = 0;
+		while (guard++ < 64 && s_dvdoPort.ReadByte(b)) { if (b == 0x03) return true; }
+		return false;
+	}
+
+	bool DvdoCommand(const char* id, const std::vector<std::string>& params)
+	{
+		if (!DvdoWrite(DvdoFrame(id, params))) return false;
+		FlushFileBuffers(s_dvdoPort.hComm);
+		return DvdoDrainResponse();		// no ack = the command did not reach the device
+	}
+
+	// Type-20 query: STX "20" <2-hex count> <id> NUL ETX. Reply is
+	// STX "21" <count> <id> NUL <value> NUL <cksum> ETX; return the <value> between the NULs.
+	// (These queries only ever "locked up" the device before because of the single-digit
+	// count bug - with the 2-digit fix they answer cleanly.)
+	bool DvdoQuery(const char* id, CString& valueOut)
+	{
+		valueOut.Empty();
+		if (!s_dvdoOpen) return false;
+		std::string body = id; body += '\0';
+		char cnt[8]; sprintf(cnt, "%02X", (unsigned)body.size());
+		std::string q; q += (char)0x02; q += "20"; q += cnt; q += body; q += (char)0x03;
+		PurgeComm(s_dvdoPort.hComm, PURGE_RXCLEAR);
+		// SetCommTimeouts fails when the virtual COM vanishes mid-session (cable
+		// pulled); CSerialCom then CloseHandle()s the port, so mark it closed
+		// instead of writing to - and later double-closing - a stale handle.
+		if (!s_dvdoPort.SetCommunicationTimeouts(40, 0, 500, 0, 300))	// wait for the reply
+		{ s_dvdoOpen = false; return false; }
+		for (size_t i = 0; i < q.size(); ++i) s_dvdoPort.WriteByte((BYTE)q[i]);
+		FlushFileBuffers(s_dvdoPort.hComm);
+		std::string r; BYTE b; int guard = 0;
+		while (guard++ < 128 && s_dvdoPort.ReadByte(b)) { r += (char)b; if (b == 0x03) break; }
+		if (!s_dvdoPort.SetCommunicationTimeouts(20, 0, 80, 0, 300))	// restore
+		{ s_dvdoOpen = false; return false; }
+		// value is between the 1st and 2nd NUL
+		size_t n1 = r.find('\0'); if (n1 == std::string::npos) return false;
+		size_t n2 = r.find('\0', n1 + 1); if (n2 == std::string::npos) return false;
+		valueOut = CString(r.substr(n1 + 1, n2 - n1 - 1).c_str());
+		return true;
+	}
+
+	// Device status-value -> resolution name (the query numbering is the AVLab's own internal
+	// timing table, NOT the command-61 codes; mapped empirically on hardware 2026-08-08).
+	const char* DvdoResNameFromStatus(int v)
+	{
+		switch (v)
+		{
+		case 0: return "Auto";           case 5: return "576i";           case 6: return "576p";
+		case 7: return "720p50";         case 8: return "1080i50";        case 9: return "1080p50";
+		case 10: return "4K50 (4:2:0)";  case 13: return "480i";          case 14: return "480p";
+		case 15: return "720p60";        case 16: return "1080i60";       case 17: return "1080p60";
+		case 18: return "4K60 (4:2:0)";  case 21: return "1080p24";       case 22: return "4K24 (3840)";
+		case 23: return "4K24 (4096)";   case 24: return "1080p25";       case 25: return "4K25";
+		case 26: return "1080p30";       case 27: return "4K30";          case 28: return "VGA60";
+		case 29: return "SVGA60";        case 30: return "XGA60";         case 31: return "SXGA60";
+		default: return "?";
+		}
+	}
+
+	CString DvdoErrText(DWORD e)
+	{
+		CString s;
+		switch (e)
+		{
+		case ERROR_FILE_NOT_FOUND: s = LS(IDS_GEN_DVDO_ERR_NOTFOUND); break;
+		case ERROR_ACCESS_DENIED:  s = LS(IDS_GEN_DVDO_ERR_ACCESS); break;
+		default: s.Format(LS(IDS_GEN_ERR_WINDOWS), (unsigned long)e); break;
+		}
+		return s;
+	}
+
+	bool DvdoOpen(const CString& comPort, int outputFormat, CString* fwOut, bool sendSetup)
+	{
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		if (comPort.IsEmpty()) { s_dvdoDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
+		// A differing comPort does NOT switch the transport here. Choosing a port in the
+		// settings dialog records an INTENTION; only Detect/Test or Apply acts on it. Switching
+		// here would tear down a working connection on a mere Close, and Close must do nothing
+		// to the device - see CGDIGenerator_DvdoTestConnection for where the switch happens.
+		if (!s_dvdoOpen)	// REUSE an already-open port; a close-then-immediate-reopen can fail
+		{					// on the virtual COM driver (and would drop settings set via Apply).
+			// Failures surface through s_dvdoDiag; a modal box from the status-query worker
+			// would block the UI thread behind s_genSerialLock until someone dismissed it.
+			s_dvdoPort.m_bQuiet = TRUE;
+			if (!s_dvdoPort.OpenPort(comPort))					// OpenPort prepends //./ so COM10+ works
+			{
+				DWORD e = GetLastError();
+				s_dvdoDiag.Format(LS(IDS_GEN_DVDO_OPEN_FAIL), (LPCTSTR)comPort, (LPCTSTR)DvdoErrText(e));
+				return false;
+			}
+			if (!s_dvdoPort.ConfigurePort(115200, 8, FALSE, NOPARITY, ONESTOPBIT) ||
+			    !s_dvdoPort.SetCommunicationTimeouts(20, 0, 80, 0, 300))
+			{
+				// CSerialCom already CloseHandle()s on these failures - do NOT ClosePort again
+				// (double-close) and do NOT set s_dvdoOpen, so no write hits a dead handle and
+				// DvdoClose stays a no-op.
+				s_dvdoDiag.Format(LS(IDS_GEN_DVDO_CONFIG_FAIL), (LPCTSTR)comPort);
+				return false;
+			}
+			// NB: do NOT toggle DTR/RTS - the AVLab TPG locks up (needs a power cycle)
+			// when the host asserts them. It receives host bytes without it.
+			PurgeComm(s_dvdoPort.hComm, PURGE_RXCLEAR | PURGE_TXCLEAR);
+			s_dvdoOpen = true;
+			s_dvdoOpenPort = comPort;
+			Sleep(150);		// let the USB virtual-COM link settle after open
+		}
+
+		// No firmware/version query here - not because queries are unsafe (they are documented
+		// and work; see DvdoQuery), but because opening the port for patches should not pay for
+		// a round trip. An earlier comment here claimed the type-20 query locked the device up
+		// permanently; that was the single-digit DataCount bug, fixed, and the status readout now
+		// queries A8/A9/61 on every Refresh without incident. Patches always use AA full-triplet
+		// (0-255), which carries the exact RGB and works on F/W 1.01+.
+		if (fwOut) fwOut->Empty();
+		s_dvdoArmed = false;				// re-arm on the first AA patch of this session (see DisplayRGBColorDVDO)
+
+		s_dvdoDiag.Format(LS(IDS_GEN_DVDO_OPENED), (LPCTSTR)comPort);
+
+		// Colour space is NOT sent through 6C any more - see CGDIGenerator_DvdoApplyOutput. 6C's
+		// SET table (1=RGB, 2=YC444, 3=YC422) and its GET encoding (1=RGB Full, 2=RGB Limited,
+		// 3=YC422, 4=YC444) are different code spaces, and 6C has no value for RGB Limited at all.
+		// AA carries colour space and range together, both measured to work and to stick, so we
+		// write through AA only and use 6C purely for reading back.
+		// NOTE 1: never send EA=0 here. Hardware shows EA=0 puts the TPG into pass-through/auto,
+		// which kicks it OUT of Test-Patterns mode - so 80 predefined patterns then display
+		// nothing (AA still works because it overrides pass-through). Open sends no EA at all and
+		// leaves the device in whatever Pass-Through Mode the user set on its OSD/remote. The one
+		// place EA is sent is DvdoShowPattern, as EA=1 (Test Patterns), because an 80 pattern
+		// needs that mode to display - see the note there.
+		if (sendSetup)
+		{
+			// Output format (command 61): decimal code from kDvdoFormats, verified against the
+			// User's Guide 1.01 Appendix A table (1080p60 = 13). Only sent for a specific format
+			// (code 0 = "Auto" leaves the device/OSD resolution untouched, so a working display is
+			// never blanked). Now safe alongside AA patches because DvdoCommand drains the response
+			// ack after every command (see DvdoDrainResponse) - previously the un-read ack backed
+			// up and 61 would leave AA blanking. Changing resolution re-locks the HDMI link, so
+			// settle before the first patch is sent.
+			if (outputFormat > 0)
+			{
+				char fc[8]; sprintf(fc, "%d", outputFormat); DvdoCommand("61", std::vector<std::string>(1, fc));
+				Sleep(GetConfig()->GetProfileInt("Debug", "DvdoFormatSettleMs", 2000));
+			}
+		}
+		return true;
+	}
+
+	// The port a transport is REALLY on, empty when nothing is open. The status panel reports
+	// this instead of the configured port: a settings dialog records an intention, and until
+	// Detect/Test or Apply acts on it the device is still on the old port. Showing the config
+	// value made the panel claim a port it was not using.
+	CString DvdoActivePort() { return s_dvdoOpen ? s_dvdoOpenPort : CString(); }
+
+	// Flush any pending TX before closing: closing a COM handle can discard bytes still in the
+	// driver's transmit buffer, which drops a fire-and-close command (e.g. a Show-pattern 80).
+	// FlushFileBuffers blocks until the bytes are actually sent.
+	// Closing forgets the remembered pattern: it belongs to the device on THAT port, and the
+	// next open may be a different one. Without this, changing ports and pressing Apply would
+	// restore a pattern the new device was never showing. It also clears s_dvdoLastWriteOk, or
+	// the patch retry loop would read a stale "last write succeeded" and skip its reopen.
+	void DvdoClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_dvdoOpen) { FlushFileBuffers(s_dvdoPort.hComm); Sleep(60); s_dvdoPort.ClosePort(); s_dvdoOpen = false; s_dvdoOpenPort.Empty(); s_dvdoLastPattern = -1; s_dvdoLastWriteOk = false; } }
+
+	// Pre-Defined Test Patterns (command 80): value is the pattern code. Requires the port
+	// open. Sends no EA itself (DvdoShowPattern sends EA=1 before calling this - see the EA
+	// note in DvdoOpen), and callers map "off" to 80=35 (full black), never 80=0 - which
+	// would disarm the TPG.
+	bool DvdoSendPattern(int code)
+	{
+		if (!s_dvdoOpen) return false;
+		char v[8]; sprintf(v, "%d", code);
+		bool ok = DvdoCommand("80", std::vector<std::string>(1, v));
+		// Remember what is on screen so Apply can put it back. The device cannot tell us: 80 is
+		// NOT queryable (measured 2026-08-27 - it never replies), despite the User's Guide saying
+		// "All commands can be queried unless otherwise specified". The arm field is excluded
+		// because it is an internal black flash, not something the user asked to see.
+		// Only remember a send that succeeded - restoring a pattern the device never displayed
+		// would be worse than restoring nothing. 0 ("patterns off") is never restored either.
+		if (ok && code != kDvdoArmPattern) s_dvdoLastPattern = code;
+		return ok;
+	}
+} // namespace
+
+// Returns TRUE if the port opened. msgOut carries a full human-readable status
+// (the AA transport note on success, or the failure reason).
+bool CGDIGenerator_DvdoTestConnection(const CString& comPort, CString& msgOut)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	// Capture this BEFORE the adopting close below, or a port switch looks like "nothing was
+	// open" and the probe closes the port it just adopted, leaving the generator with nothing.
+	bool wasOpen = s_dvdoOpen;
+	// Detect/Test acts on what is SELECTED: if that differs from the live port, adopt it, so
+	// choosing the wrong port fails here instead of appearing to work on the old one.
+	if (s_dvdoOpen && !comPort.IsEmpty() && s_dvdoOpenPort.CompareNoCase(comPort) != 0)
+		DvdoClose();
+	CString fw;	// Show deliberately leaves the port open (pattern persists);
+								// close-then-immediate-reopen can fail on the virtual COM driver,
+								// so the probe must only close what it opened itself.
+	bool opened = DvdoOpen(comPort, 0 /*format n/a for probe*/, &fw, false /*probe only*/);
+	if (!opened)
+	{
+		msgOut = s_dvdoDiag;
+		if (!wasOpen) DvdoClose();
+		return false;
+	}
+	// Opening a COM port only proves the PORT exists - a port belonging to any other adapter
+	// opens just as happily, so "opened" is not detection. Round-trip the documented Product
+	// Name query (transaction type 20, ID A8 - User's Guide 1.01 "Queries": "Queries allow an
+	// attached computer to query the status of AVLab", and A8/A9/61/6C/EA/E5 are listed as
+	// queryable) and require an answer. Same confirmation the Murideo probe gets from its 0xAB
+	// reply. Without this, pointing the DVDO at the Murideo's port reported success.
+	CString name;
+	bool answered = DvdoQuery("A8", name) && !name.IsEmpty();
+	if (answered) msgOut.Format(LS(IDS_GEN_DVDO_CONNECTED), (LPCTSTR)comPort, (LPCTSTR)name);
+	else          msgOut.Format(LS(IDS_GEN_DVDO_NO_RESPOND), (LPCTSTR)comPort);
+	if (!wasOpen)
+		DvdoClose();
+	return answered;
+}
+
+// ---------------------------------------------------------------------------
+// DVDO built-in test patterns (command 80) and output formats (command 61),
+// exposed for the prop-page pickers. Patterns are grouped by category; the codes
+// come from Appendix A's pattern/format tables.
+// ---------------------------------------------------------------------------
+struct DvdoPatEntry { const char* cat; const char* name; int code; };
+static const DvdoPatEntry kDvdoPats[] =
+{
+	{ "Geometry",           "Frame geometry (FRMGEOM)", 1 },
+	{ "Geometry",           "Crosshatch coarse",        20 },
+	{ "Geometry",           "Crosshatch fine",          21 },
+	{ "Geometry",           "Focus",                    22 },
+	{ "Sharpness / Motion", "Sharpness",                40 },
+	{ "Sharpness / Motion", "EVOT pixel",               3 },
+	{ "Sharpness / Motion", "EVOT H/V line",            4 },
+	{ "Sharpness / Motion", "EVOT H line",              5 },
+	{ "Sharpness / Motion", "Judder",                   6 },
+	{ "Sharpness / Motion", "Brightness / Contrast",    2 },
+	{ "Color bars",         "8-bar 75%",                7 },
+	{ "Color bars",         "8-bar 100%",               8 },
+	{ "Color bars",         "Half 7-bar 75%",           24 },
+	{ "Color bars",         "Half 7-bar 100%",          25 },
+	{ "Color bars",         "Half 8-bar 75%",           26 },
+	{ "Color bars",         "Half 8-bar 100%",          27 },
+	{ "Windows (IRE)",      "Window 10%",               9 },
+	{ "Windows (IRE)",      "Window 20%",               10 },
+	{ "Windows (IRE)",      "Window 30%",               11 },
+	{ "Windows (IRE)",      "Window 40%",               12 },
+	{ "Windows (IRE)",      "Window 50%",               13 },
+	{ "Windows (IRE)",      "Window 60%",               14 },
+	{ "Windows (IRE)",      "Window 70%",               15 },
+	{ "Windows (IRE)",      "Window 80%",               16 },
+	{ "Windows (IRE)",      "Window 90%",               17 },
+	{ "Windows (IRE)",      "Window 100%",              18 },
+	{ "Grayscale / Fields", "Grey ramp",                19 },
+	{ "Grayscale / Fields", "Full white (100%)",        28 },
+	{ "Grayscale / Fields", "Full black (0 IRE)",       35 },
+	{ "Grayscale / Fields", "Half black/white",         23 },
+	{ "Solid colors",       "Red 100%",                 29 },
+	{ "Solid colors",       "Green 100%",               30 },
+	{ "Solid colors",       "Blue 100%",                31 },
+	{ "Solid colors",       "Cyan 100%",                32 },
+	{ "Solid colors",       "Magenta 100%",             33 },
+	{ "Solid colors",       "Yellow 100%",              34 },
+	{ "PLUGE",              "White PLUGE 1",            36 },
+	{ "PLUGE",              "Black PLUGE 1",            37 },
+	{ "PLUGE",              "White PLUGE 2",            38 },
+	{ "PLUGE",              "Black PLUGE 2",            39 },
+};
+static const int kDvdoPatN = sizeof(kDvdoPats) / sizeof(kDvdoPats[0]);
+
+// Distinct category names, in first-seen order.
+static int DvdoCatList(const char* out[], int maxN)
+{
+	int n = 0;
+	for (int i = 0; i < kDvdoPatN && n < maxN; ++i)
+	{
+		bool seen = false;
+		for (int j = 0; j < n; ++j) if (strcmp(out[j], kDvdoPats[i].cat) == 0) { seen = true; break; }
+		if (!seen) out[n++] = kDvdoPats[i].cat;
+	}
+	return n;
+}
+
+int CGDIGenerator_DvdoCatCount()
+{
+	const char* cats[16];
+	return DvdoCatList(cats, 16);
+}
+
+const char* CGDIGenerator_DvdoCatName(int ci)
+{
+	const char* cats[16];
+	int n = DvdoCatList(cats, 16);
+	return (ci >= 0 && ci < n) ? cats[ci] : "";
+}
+
+// Enumerate the patterns within category ci (in table order).
+static int DvdoPatsInCat(int ci, int idxOut[], int maxN)
+{
+	const char* cats[16];
+	int nc = DvdoCatList(cats, 16);
+	if (ci < 0 || ci >= nc) return 0;
+	const char* cat = cats[ci];
+	int n = 0;
+	for (int i = 0; i < kDvdoPatN && n < maxN; ++i)
+		if (strcmp(kDvdoPats[i].cat, cat) == 0) idxOut[n++] = i;
+	return n;
+}
+
+int CGDIGenerator_DvdoPatCountInCat(int ci)
+{
+	int idx[64];
+	return DvdoPatsInCat(ci, idx, 64);
+}
+
+const char* CGDIGenerator_DvdoPatName(int ci, int pi)
+{
+	int idx[64];
+	int n = DvdoPatsInCat(ci, idx, 64);
+	return (pi >= 0 && pi < n) ? kDvdoPats[idx[pi]].name : "";
+}
+
+int CGDIGenerator_DvdoPatCode(int ci, int pi)
+{
+	int idx[64];
+	int n = DvdoPatsInCat(ci, idx, 64);
+	return (pi >= 0 && pi < n) ? kDvdoPats[idx[pi]].code : 0;
+}
+
+// Find the (category, pattern) indices for a stored pattern code; returns false if
+// not found. Lets the prop page restore its two dropdowns from the saved code.
+bool CGDIGenerator_DvdoFindPattern(int code, int& ciOut, int& piOut)
+{
+	const char* cats[16];
+	int nc = DvdoCatList(cats, 16);
+	for (int ci = 0; ci < nc; ++ci)
+	{
+		int idx[64];
+		int n = DvdoPatsInCat(ci, idx, 64);
+		for (int pi = 0; pi < n; ++pi)
+			if (kDvdoPats[idx[pi]].code == code) { ciOut = ci; piOut = pi; return true; }
+	}
+	return false;
+}
+
+// Open the port, send EA=1 (Test Patterns) and then the pattern code (<0 or 0 = Off). The
+// port is deliberately left OPEN so the pattern persists - see the FlushFileBuffers note
+// below. Open itself sends only 61; it sends no EA and no 6C (see NOTE 1 in DvdoOpen).
+bool CGDIGenerator_DvdoShowPattern(const CString& comPort, int outputFormat, int patternCode, CString& msgOut)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	// Reuse an already-open port (e.g. left open by a prior Show or a live session) - a
+	// close-then-immediate-reopen can fail on the virtual COM driver. Only open fresh if
+	// nothing is open yet.
+	bool wasOpen = s_dvdoOpen;
+	if (!s_dvdoOpen)
+	{
+		CString fw;
+		if (!DvdoOpen(comPort, outputFormat, &fw, true /*send setup*/))
+		{
+			msgOut = s_dvdoDiag;
+			return false;
+		}
+	}
+	// "Patterns off" (code <= 0) maps to 80=35, a full-black field (0% IRE) - NEVER 80=0.
+	// On this firmware 80=0 DISARMS the internal TPG: the screen blanks to blue and AA custom
+	// patches then no longer render until an 80 pattern re-arms it or a power cycle (hardware-
+	// confirmed 2026-08-08). 80=35 shows full black AND keeps the TPG armed, so a following
+	// measurement's AA patches still display.
+	int code = patternCode > 0 ? patternCode : kDvdoArmPattern;
+	// An 80 predefined pattern only displays when the serial Pass-Through Mode is set to
+	// "Test Patterns" (AA ignores this and always shows; 80 respects it), so set that via EA
+	// before selecting the pattern. EA=1 is Test Patterns; EA=0 is pass-through/auto and
+	// kicks the TPG out of pattern mode entirely - see NOTE 1 in DvdoOpen.
+	DvdoCommand("EA", std::vector<std::string>(1, "1"));
+	Sleep(120);
+	bool ok = DvdoSendPattern(code);
+	FlushFileBuffers(s_dvdoPort.hComm);		// push the bytes out; keep the port OPEN so the pattern persists
+	s_dvdoArmed = true;						// an 80 pattern leaves the TPG armed for subsequent AA patches
+	msgOut.Format(LS(IDS_GEN_DVDO_TEST_OK),
+		wasOpen ? LS(IDS_GEN_DVDO_REUSED_PORT) : LS(IDS_GEN_DVDO_OPENED_PORT),
+		code, (patternCode > 0 ? _T("") : LS(IDS_GEN_TEST_OFF_BLACK)), (LPCTSTR)comPort, ok ? LS(IDS_GEN_WRITE_OK) : LS(IDS_GEN_WRITE_FAILED));
+	return ok;
+}
+
+CString CGDIGenerator_DvdoActivePort() { CSingleLock lock ( &s_genSerialLock, TRUE ); return DvdoActivePort(); }
+
+// limitedRange: 1 = 16-235, 0 = 0-255. Applies resolution (61) and then colour space AND
+// output range together through a single black AA patch, because that is the only mechanism
+// that can express every combination (all measured on hardware 2026-08-27):
+//   - AA OUTC  0/1/2 -> RGB / YC444 / YC422, read back through 6C as 1 / 4 / 3
+//   - AA's 6TH field (the Guide calls it InputRange) 0/1 -> Limited / Full output, and 6C
+//     reports it. The 8th field ("OutRange") is inert - see DisplayRGBColorDVDO.
+//   - both stick with no further patches
+// 6C's own SET table cannot express RGB Limited at all, which is why Apply used to leave the
+// device in Full however the dialog was set. The patch is BLACK so this is visually silent in
+// either range, and the TPG must be armed first or AA does not render.
+bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int formatCode, int limitedRange, CString& msgOut)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	// Apply adopts the selected port first - see CGDIGenerator_DvdoTestConnection.
+	if (s_dvdoOpen && !comPort.IsEmpty() && s_dvdoOpenPort.CompareNoCase(comPort) != 0)
+		DvdoClose();
+	CString fw;	// DvdoOpen reuses an already-open port (it does not close it); sendSetup re-sends 61
+	// Identify the device BEFORE sending it anything, exactly as Detect does. Opening the
+	// port proves only that the port exists; any other adapter opens just as happily and
+	// swallows every byte. Measured on the Murideo 2026-08-29: Apply on the wrong port
+	// reported success and persisted a setting the hardware never received.
+	//
+	// This is a probe-only open (sendSetup false) because the setup open sends command 61,
+	// and a resolution change must not go out to an unidentified device. The second open
+	// below reuses this handle and only does the setup.
+	if (!DvdoOpen(comPort, 0 /*format n/a for probe*/, &fw, false /*probe only*/))
+	{
+		msgOut = s_dvdoDiag;
+		return false;		// the open failed, so there is nothing of ours to close
+	}
+	CString name;
+	if (!(DvdoQuery("A8", name) && !name.IsEmpty()))
+	{
+		msgOut.Format(LS(IDS_GEN_DVDO_NO_RESPOND), (LPCTSTR)comPort);
+		// Unconditionally, without the only-close-what-we-opened guard DvdoTestConnection
+		// uses: that guard samples whatever port was live BEFORE the adopting close above,
+		// which may be a different port entirely. What is open now is the port that just
+		// failed to identify, and it must not stay adopted.
+		DvdoClose();		// nothing was sent, and this port is not the AVLab
+		return false;
+	}
+	if (!DvdoOpen(comPort, formatCode, &fw, true /*send setup -> 61*/))
+	{
+		msgOut = s_dvdoDiag;
+		return false;
+	}
+	if (!s_dvdoArmed) { DvdoSendPattern(kDvdoArmPattern); s_dvdoArmed = true; Sleep(300); }
+	int rng = limitedRange ? 0 : 1;		// AA range param: 0 = Limited (16-235), 1 = Full (0-255)
+	char v[96];
+	sprintf(v, "%d %d %d %d %d %d %d %d", 0, 0, 0, 100, 0, rng, colorSpace, rng);
+	// The result is deliberately ignored: changing colour space or range re-locks the output and
+	// the device does not acknowledge a command that makes it re-sync (measured). Checking this
+	// return would make every SUCCESSFUL Apply report failure.
+	DvdoCommand("AA", std::vector<std::string>(1, v));
+	// The ACK is ignored (above), but a write that never left the host is not an Apply.
+	// DvdoWrite now closes the port when WriteFile fails, so reporting success here would
+	// persist a setting with no device and no open port behind it. This does NOT prove the
+	// device received it - CSerialCom::WriteByte never checks iBytesWritten (see the note
+	// in DisplayRGBColorDVDO) - it only catches the hard failure.
+	if (!s_dvdoLastWriteOk)
+	{
+		msgOut = s_dvdoDiag;
+		return false;
+	}
+	Sleep(GetConfig()->GetProfileInt("Debug", "DvdoApplySettleMs", 600));
+	// Put back whatever pattern the user had showing - the black patch above replaced it.
+	// STRICTLY > 0: pattern 0 is "patterns off", which DISARMS the TPG. A disarmed device
+	// renders no AA patches and answers no queries, so restoring it would leave the generator
+	// unreachable until the user showed a pattern by hand - and a power cycle would not help,
+	// because the state lives in the device. Leaving the black AA patch up keeps it armed.
+	if (s_dvdoLastPattern > 0)
+		DvdoSendPattern(s_dvdoLastPattern);
+	FlushFileBuffers(s_dvdoPort.hComm);
+	msgOut.Format(LS(IDS_GEN_DVDO_FMT_SET), formatCode, (LPCTSTR)comPort);
+	return true;
+}
+
+// Live status readout for the DVDO panel (PGenerator/Murideo-style, tab-separated label\tvalue).
+// Name/Firmware/Resolution/ColourSpace are queried live; anything that cannot be read back is
+// marked "(configured)" so the panel never implies it knows more than it does.
+//
+// Arming is NOT required to query. Measured 2026-08-28 with the AVLab power-cycled, its test
+// patterns switched off and the monitor showing the no-signal blue screen - genuinely unarmed -
+// A8, A9, 61 and 6C all answered and the panel filled in completely.
+//
+// This corrects a note that stood here claiming the opposite, marked hardware-confirmed
+// 2026-08-27: "an unarmed device returns nothing to A8/A9/61/6C". That was wrong. The likeliest
+// source is the serial wedge seen during the same session's probing, which stopped ALL replies
+// until a power cycle and was mistaken for an arming rule. Rendering is the thing that needs
+// arming - AA patches do not display until an 80 pattern arms the TPG - and the two got
+// conflated. Do not reinstate the arming claim without repeating the power-cycle test above.
+//
+// We still do not arm here: arming sends a full black field, which would wipe whatever the user
+// is looking at, and there is now no reason to.
+// csConfig: 0=RGB, 1=YCbCr444, 2=YCbCr422; lim = limited (16-235) range.
+bool CGDIGenerator_DvdoQueryReadout(const CString& comPort, int csConfig, bool lim, CString& out)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	out.Empty();
+	if (comPort.IsEmpty()) return false;
+	bool wasOpen = s_dvdoOpen;
+	if (!s_dvdoOpen) { CString fw; if (!DvdoOpen(comPort, 0 /*don't change format*/, &fw, false /*query only*/)) { out = s_dvdoDiag; return false; } }
+	CString name, fwv, resv;
+	DvdoQuery("A8", name);
+	DvdoQuery("A9", fwv);
+	bool haveRes = DvdoQuery("61", resv);
+	// Colour space IS readable (command 6C). The value table in the User's Guide 1.01 is WRONG:
+	// it lists RGB=1 / YCBCR444=2 / YCBCR422=3, but the device - checked against its own remote
+	// and OSD, 2026-08-27 - actually reports 1=RGB Full, 2=RGB Limited, 3=YC422 (16-235),
+	// 4=YC444 (16-235). So 6C encodes colour space AND range together, and both rows below can
+	// be real device state rather than a repeat of our own settings.
+	CString csv;
+	int csDev = DvdoQuery("6C", csv) ? _ttoi(csv) : -1;
+	int resStatus = haveRes ? _ttoi(resv) : -1;
+	CString res = haveRes ? CString(DvdoResNameFromStatus(resStatus)) : CString(_T("?"));
+	if (!wasOpen) DvdoClose();
+	// Nothing answered at all: the port opened, but no AVLab is on the other end of it. Say so
+	// rather than returning a readout full of "?" - a populated-looking panel for a device that
+	// never replied is the same "the port opened, so it must be fine" mistake that
+	// CGDIGenerator_DvdoTestConnection used to make. An unarmed device is NOT one of the causes;
+	// see the note on this function.
+	if (name.IsEmpty() && !haveRes && csDev < 0)
+	{
+		out.Format(LS(IDS_GEN_DVDO_NO_STATUS), (LPCTSTR)comPort);
+		return false;
+	}
+	// At 4K/50 and 4K/60 the AVLab forces 4:2:0 chroma subsampling regardless of the RGB/YCbCr
+	// setting (User's Guide 1.01: "output the color in RGB, YC 444, YC 422 except in 4K/60 where
+	// it is 4:2:0"). Status values 10 = 4K50, 18 = 4K60. Report the actual output so the user
+	// knows patches at those resolutions are subsampled (not ideal for colour measurement).
+	bool forced420 = (resStatus == 10 || resStatus == 18);
+	// Prefer what the device reports; fall back to our setting (tagged) only when 6C is silent.
+	bool haveCs = (csDev >= 1 && csDev <= 4);
+	CString fmt, rng;
+	if (forced420)        { fmt = _T("YCbCr 4:2:0 (forced)"); }
+	else if (haveCs)      { fmt = (csDev <= 2) ? _T("RGB") : (csDev == 3) ? _T("YCbCr 4:2:2") : _T("YCbCr 4:4:4"); }
+	else                  { fmt = (csConfig == 0) ? _T("RGB") : _T("YCbCr"); }
+	if (haveCs)           { rng = (csDev == 1) ? _T("Full (0-255)") : _T("Limited (16-235)"); }
+	else                  { rng = lim ? _T("Limited (16-235)") : _T("Full (0-255)"); }
+	// The AVLab TPG is SDR / BT.709 only (no HDR, no BT.2020), so those are fixed.
+	out  = (LS(IDS_GEN_LBL_NAME) + _T("\t"))         + (name.IsEmpty() ? _T("?") : (LPCTSTR)name) + _T("\r\n");
+	// The port actually in use, not the configured one (see DvdoActivePort).
+	{ CString live = DvdoActivePort();
+	  out += (LS(IDS_GEN_COM_PORT) + _T("\t")) + (live.IsEmpty() ? comPort : live) + _T("\r\n"); }
+	out += (LS(IDS_GEN_LBL_FIRMWARE) + _T("\t"))     + (fwv.IsEmpty() ? _T("?") : (LPCTSTR)fwv) + _T("\r\n");
+	out += (LS(IDS_GEN_DYNAMIC_RANGE) + _T("\t"))+ CString(_T("SDR")) + _T("\r\n");
+	out += (LS(IDS_GEN_RESOLUTION) + _T("\t"))   + res + _T("\r\n");
+	out += (LS(IDS_GEN_COLOR_SPACE) + _T("\t"))  + CString(_T("BT.709")) + _T("\r\n");
+	// Colour format and signal range are HCFR's SETTINGS, not device readback - the AVLab does
+	// not report colour space reliably (it negotiates it with the sink). Mark them so the panel
+	// never implies it knows more than it does. The forced-4:2:0 case is derived from the
+	// queried resolution, so it is real and stays unmarked.
+	// Tag only what we could NOT read back. forced420 is derived from the queried resolution, so
+	// it is real; a 6C answer makes both rows real too.
+	CString cfgTag = _T(" ") + LS(IDS_GEN_CONFIGURED);
+	out += (LS(IDS_GEN_COLOR_FORMAT) + _T("\t")) + fmt + ((forced420 || haveCs) ? CString() : cfgTag) + _T("\r\n");
+	out += (LS(IDS_GEN_SIGNAL_RANGE) + _T("\t")) + rng + (haveCs ? CString() : cfgTag);
+
+	return !name.IsEmpty() || haveRes;
+}
+
+// Output formats (command 61). Codes are DECIMAL, verified against the DVDO AVLab TPG
+// User's Guide 1.01 Appendix A table (page 48-50) and the worked example
+// "STX 3 0 6 6 1 NUL 1 3 NUL ETX -> 1080p60" (13). Value 11 is reserved/skipped.
+struct DvdoFmtEntry { const char* name; int code; };
+static const DvdoFmtEntry kDvdoFormats[] =
+{
+	{ "Auto",            0 },
+	{ "480i",            19 },
+	{ "480p",            3 },
+	{ "576i",            20 },
+	{ "576p",            4 },
+	{ "720p50",          5 },
+	{ "720p60",          6 },
+	{ "1080i50",         7 },
+	{ "1080i60",         8 },
+	{ "1080p24",         9 },
+	{ "1080p25",         10 },
+	{ "1080p30",         18 },
+	{ "1080p50",         12 },
+	{ "1080p60",         13 },
+	{ "VGA 60",          14 },
+	{ "SVGA 60",         15 },
+	{ "XGA 60",          16 },
+	{ "SXGA 60",         17 },
+	{ "4K24 (3840)",     21 },
+	{ "4K24 (4096)",     22 },
+	{ "4K25 (3840)",     23 },
+	{ "4K30 (3840)",     24 },
+	{ "4K50 (4:2:0)",    26 },
+	{ "4K60 (4:2:0)",    25 },
+};
+static const int kDvdoFmtN = sizeof(kDvdoFormats) / sizeof(kDvdoFormats[0]);
+
+int         CGDIGenerator_DvdoFmtCount()          { return kDvdoFmtN; }
+const char* CGDIGenerator_DvdoFmtName(int i)      { return (i >= 0 && i < kDvdoFmtN) ? kDvdoFormats[i].name : ""; }
+int         CGDIGenerator_DvdoFmtCode(int i)      { return (i >= 0 && i < kDvdoFmtN) ? kDvdoFormats[i].code : 0; }
+int         CGDIGenerator_DvdoFmtIndexForCode(int code)
+{
+	for (int i = 0; i < kDvdoFmtN; ++i) if (kDvdoFormats[i].code == code) return i;
+	return 0;	// default to Auto
+}
+
+// ===========================================================================
+// Murideo Seven-G (DISPLAY_MURIDEO) control.
+// PRIMARY transport = HTTP over the network, reverse-engineered from the unit's
+// own web UI and VERIFIED against a real SEVEN-G:
+//   single (timing/colour-space/...): GET /BtnSendCmd.CGI?button=HEX<catHex>NUM<id>
+//   double (pattern):                 GET /AudSendCmd.CGI?button=HEX<catHex>NUM<a>BER<b>
+//   IRE window (grayscale patch):     GET /BtnSendCmd.CGI?button=HEXFBNUM<size>IRE<level0-255>
+// A trailing "+<cachebuster>" (URL-encoded space + number) mirrors the web UI.
+// SECONDARY transport = raw TCP to the unit's API port (default 23) and the USB/RS-232
+// serial port. Both carry the binary UART protocol from the official SEVEN-G UART command
+// document supplied by Murideo - see MuriBuildFrame, whose framing and checksum are verified
+// byte-exact against the three worked examples in that document. Every measurement patch goes
+// this way, over TCP or serial, using the 0x008C RGB triplet; the CGI forms above drive the
+// presets and the status readout. Nothing here comes from any third party's software.
+// ===========================================================================
+namespace {
+	CSerialCom	s_muriPort;
+	bool		s_muriOpen   = false;
+	CString		s_muriOpenPort;					// the port s_muriPort is actually open on (see MuriSerialOpen)
+	bool		s_muriUseNet = true;			// current transport (set by MuriConnect)
+	CString		s_muriIp;
+	int			s_muriTcpPort = 23;				// raw-TCP API port (config MuriTcpPort; device default = 23 / telnet)
+	CString		s_muriDiag;
+	const DWORD	MURI_BAUD = 115200;				// 115200 8N1, no flow control - per the official UART document
+
+	// ---- HTTP transport ----
+	// One reusable session. DIRECT (not PRECONFIG) so we never trigger WPAD proxy
+	// auto-detection - that's what made each request stall for tens of seconds. Short
+	// timeouts keep a bad request from blocking the measurement loop.
+	HINTERNET s_muriHInet = NULL;
+	HINTERNET MuriInet()
+	{
+		if (!s_muriHInet)
+		{
+			s_muriHInet = InternetOpen(_T("HCFR"), INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
+			if (s_muriHInet)
+			{
+				DWORD to = 3000;
+				InternetSetOption(s_muriHInet, INTERNET_OPTION_CONNECT_TIMEOUT, &to, sizeof(to));
+				InternetSetOption(s_muriHInet, INTERNET_OPTION_SEND_TIMEOUT,    &to, sizeof(to));
+				InternetSetOption(s_muriHInet, INTERNET_OPTION_RECEIVE_TIMEOUT, &to, sizeof(to));
+			}
+		}
+		return s_muriHInet;
+	}
+
+	// One round trip that proves the device is actually answering. HTTP is connectionless,
+	// so MuriConnect adopting an address proves nothing at all - without this, applying
+	// five settings to an absent device meant five WinINet timeouts in a row.
+	bool MuriHttpReachable(DWORD& errOut)
+	{
+		errOut = 0;
+		if (s_muriIp.IsEmpty()) return false;
+		HINTERNET hI = MuriInet();
+		if (!hI) { errOut = GetLastError(); return false; }
+		CString url; url.Format(_T("http://%s/"), (LPCTSTR)s_muriIp);
+		HINTERNET hU = InternetOpenUrl(hI, url, NULL, 0,
+			INTERNET_FLAG_NO_UI | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0);
+		if (!hU) { errOut = GetLastError(); return false; }
+		InternetCloseHandle(hU);
+		return true;
+	}
+
+	bool MuriHttpGet(const char* cgi, const std::string& button)
+	{
+		if (s_muriIp.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_IP_SET); return false; }
+		HINTERNET hI = MuriInet();
+		if (!hI) { s_muriDiag = LS(IDS_GEN_INTERNETOPEN_FAIL); return false; }
+		CString url;
+		url.Format(_T("http://%s/%s?button=%s+%u"), (LPCTSTR)s_muriIp, CString(cgi), CString(button.c_str()), (unsigned)GetTickCount());
+		HINTERNET hU = InternetOpenUrl(hI, url, NULL, 0,
+			INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_PRAGMA_NOCACHE | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_UI | INTERNET_FLAG_KEEP_CONNECTION, 0);
+		DWORD status = 0, len = sizeof(status), idx = 0;
+		bool ok = (hU != NULL);
+		if (hU)
+		{
+			HttpQueryInfo(hU, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &status, &len, &idx);
+			// Drain the small response so the connection can be reused.
+			char buf[256]; DWORD rd = 0; while (InternetReadFile(hU, buf, sizeof(buf), &rd) && rd) {}
+			InternetCloseHandle(hU);
+		}
+		// A 404/500 is not a delivered command. status stays 0 if HttpQueryInfo failed, in
+		// which case fall back to "the request went out" rather than inventing a failure.
+		if (ok && status != 0 && (status < 200 || status > 299)) ok = false;
+		if (ok) s_muriDiag.Format(_T("HTTP %lu  %s"), (unsigned long)status, (LPCTSTR)url);
+		else if (hU) s_muriDiag.Format(_T("HTTP %lu  %s"), (unsigned long)status, (LPCTSTR)url);
+		else { DWORD e = GetLastError(); s_muriDiag.Format(LS(IDS_GEN_HTTP_GET_FAIL), (unsigned long)e, (LPCTSTR)url); }
+		return ok;
+	}
+
+	// GET that returns the response body (for status queries like WebReq.CGI?button=VIDEOGEN).
+	bool MuriHttpGetBody(const char* cgi, const std::string& button, CString& bodyOut)
+	{
+		bodyOut.Empty();
+		if (s_muriIp.IsEmpty()) return false;
+		HINTERNET hI = MuriInet(); if (!hI) return false;
+		CString url;
+		url.Format(_T("http://%s/%s?button=%s+%u"), (LPCTSTR)s_muriIp, CString(cgi), CString(button.c_str()), (unsigned)GetTickCount());
+		HINTERNET hU = InternetOpenUrl(hI, url, NULL, 0,
+			INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_PRAGMA_NOCACHE | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_UI | INTERNET_FLAG_KEEP_CONNECTION, 0);
+		if (!hU) return false;
+		std::string body; char buf[513]; DWORD rd = 0;
+		while (InternetReadFile(hU, buf, sizeof(buf) - 1, &rd) && rd) { buf[rd] = 0; body += buf; }
+		InternetCloseHandle(hU);
+		bodyOut = CString(body.c_str());
+		return true;
+	}
+
+	// Parse the VIDEOGEN status. The body has a first line
+	//   VIDEOGEN=HEX61NUM34&HEX62NUM35&...&3840x2160@60Hz
+	// (current state as HEX<cat>NUM<id> echoes + the resolution) followed by
+	// human-readable lines (&HDMI &OFF &RGB(0-255) &8Bit &Disable &audio...).
+	// We pick fields by CONTENT so field order doesn't matter: resolution (has 'x'
+	// and '@'), colour space (contains "RGB"/"YC"), colour depth (ends in "Bit").
+	bool MuriStatusSummary(CString& summaryOut)
+	{
+		CString body;
+		if (!MuriHttpGetBody("WebReq.CGI", "VIDEOGEN", body) || body.IsEmpty()) { summaryOut.Empty(); return false; }
+		CString res, cs, depth;
+		int pos = 0, len = body.GetLength();
+		while (pos < len)
+		{
+			int d = pos;
+			while (d < len) { TCHAR c = body[d]; if (c == _T('&') || c == _T('\r') || c == _T('\n')) break; d++; }
+			CString t = body.Mid(pos, d - pos); t.TrimLeft(); t.TrimRight();
+			int eq = t.Find(_T('='));		// strip a "VIDEOGEN=" prefix on the first token
+			if (eq >= 0 && t.Left(eq).CompareNoCase(_T("VIDEOGEN")) == 0) t = t.Mid(eq + 1);
+			if (!t.IsEmpty())
+			{
+				if (res.IsEmpty()   && t.Find(_T('x')) > 0 && t.Find(_T('@')) > 0) res = t;			// e.g. 3840x2160@60Hz
+				else if (cs.IsEmpty()    && (t.Find(_T("RGB")) >= 0 || t.Find(_T("YC")) >= 0)) cs = t;	// RGB(0-255) / YC 4:4:4...
+				else if (depth.IsEmpty() && t.GetLength() >= 4 && t.Right(3).CompareNoCase(_T("Bit")) == 0) depth = t;	// 8Bit
+			}
+			pos = d + 1;
+		}
+		if (res.IsEmpty() && cs.IsEmpty() && depth.IsEmpty()) { summaryOut.Empty(); return false; }
+		summaryOut.Empty();
+		if (!res.IsEmpty())   summaryOut = res;
+		if (!cs.IsEmpty())    { if (!summaryOut.IsEmpty()) summaryOut += _T(", "); summaryOut += cs; }
+		if (!depth.IsEmpty()) { if (!summaryOut.IsEmpty()) summaryOut += _T(", "); summaryOut += depth; }
+		return true;
+	}
+
+	// Multi-line labeled readout (tab-separated label\tvalue) like the PGenerator panel.
+	bool MuriStatusReadout(CString& out)
+	{
+		CString body;
+		if (!MuriHttpGetBody("WebReq.CGI", "VIDEOGEN", body) || body.IsEmpty()) { out.Empty(); return false; }
+		CString res, cs, depth, output, hdcp, bt2020;
+		int dynMode = -1;		// HDR mode from the HEX6f echo (cat 0x6F), 0-10
+		int pos = 0, len = body.GetLength();
+		while (pos < len)
+		{
+			int d = pos; while (d < len) { TCHAR c = body[d]; if (c == _T('&') || c == _T('\r') || c == _T('\n')) break; d++; }
+			CString t = body.Mid(pos, d - pos); t.TrimLeft(); t.TrimRight();
+			int eq = t.Find(_T('=')); if (eq >= 0 && t.Left(eq).CompareNoCase(_T("VIDEOGEN")) == 0) t = t.Mid(eq + 1);
+			if (!t.IsEmpty())
+			{
+				if (dynMode < 0 && t.GetLength() >= 6 && t.Left(5).CompareNoCase(_T("HEX6F")) == 0)	// HDR mode command echo (cat 0x6F)
+				{
+					int np = t.Find(_T("NUM")); if (np < 0) np = t.Find(_T("num"));
+					if (np >= 0) dynMode = _ttoi(t.Mid(np + 3));
+				}
+				else if (res.IsEmpty() && t.Find(_T('@')) >= 0) res = t;		// resolution is the only field with '@'
+				else if (cs.IsEmpty() && (t.Find(_T("RGB")) >= 0 || t.Find(_T("YC")) >= 0)) cs = t;
+				else if (depth.IsEmpty() && t.GetLength() >= 4 && t.Right(3).CompareNoCase(_T("Bit")) == 0) depth = t;
+				else if (output.IsEmpty() && (t.CompareNoCase(_T("HDMI")) == 0 || t.CompareNoCase(_T("DVI")) == 0)) output = t;
+				else if (hdcp.IsEmpty() && (t.CompareNoCase(_T("ON")) == 0 || t.CompareNoCase(_T("OFF")) == 0)) hdcp = t;
+				else if (bt2020.IsEmpty() && (t.CompareNoCase(_T("Enable")) == 0 || t.CompareNoCase(_T("Disable")) == 0)) bt2020 = t;
+			}
+			pos = d + 1;
+		}
+		if (res.IsEmpty() && cs.IsEmpty()) { out.Empty(); return false; }
+		// Report the chroma subsampling, not just "YCbCr". 4:2:2 halves and 4:2:0 quarters
+		// the chroma resolution, which changes what a meter reads off a colour patch - the
+		// DVDO panel warns about exactly this. The device names it in the field itself
+		// (e.g. "YC444(16-235)"), so it costs nothing to keep.
+		CString fmt = (cs.Find(_T("RGB")) >= 0) ? _T("RGB")
+		            : (cs.Find(_T("444")) >= 0) ? _T("YCbCr 4:4:4")
+		            : (cs.Find(_T("422")) >= 0) ? _T("YCbCr 4:2:2")
+		            : (cs.Find(_T("420")) >= 0) ? _T("YCbCr 4:2:0")
+		            : (cs.Find(_T("YC"))  >= 0) ? _T("YCbCr") : _T("?");
+		CString rng = (cs.Find(_T("0-255")) >= 0) ? _T("Full") : (cs.Find(_T("16-235")) >= 0 ? _T("Limited") : _T("?"));
+		// Dynamic range comes from the HDR-mode field (HEX6f), cat 0x6F. The device takes
+		// 0-10: SDR, HDR10, HLG and eight user-defined slots (VIDEOGEN_HDR_TABLE lists them
+		// as HDR Custom 1-8). Reporting "?" for a device sitting in one of those is worse
+		// than useless in a status panel.
+		CString dyn;
+		if      (dynMode == 0) dyn = _T("SDR");
+		else if (dynMode == 1) dyn = _T("HDR10");
+		else if (dynMode == 2) dyn = _T("HLG");
+		else if (dynMode >= 3 && dynMode <= 10) dyn.Format(_T("Custom %d"), dynMode - 2);
+		else dyn = _T("?");
+		// Colour space = the gamut, from the BT.2020 field (Disable = BT.709, Enable = BT.2020).
+		CString colorSpace = (bt2020.CompareNoCase(_T("Enable")) == 0) ? _T("BT.2020") : (bt2020.CompareNoCase(_T("Disable")) == 0) ? _T("BT.709") : _T("?");
+		#define MURI_LINE(lbl,val) out += (lbl) + _T("\t") + (val.IsEmpty()?CString(_T("?")):val) + _T("\r\n")
+		out.Empty();
+		out += (LS(IDS_GEN_DYNAMIC_RANGE) + _T("\t")) + dyn + _T("\r\n");
+		MURI_LINE(LS(IDS_GEN_RESOLUTION),   res);
+		MURI_LINE(LS(IDS_GEN_BIT_DEPTH),    depth);
+		out += (LS(IDS_GEN_COLOR_SPACE) + _T("\t"))  + colorSpace + _T("\r\n");
+		out += (LS(IDS_GEN_COLOR_FORMAT) + _T("\t")) + fmt + _T("\r\n");
+		out += (LS(IDS_GEN_SIGNAL_RANGE) + _T("\t")) + rng + _T("\r\n");
+		MURI_LINE(LS(IDS_GEN_LBL_OUTPUT),       output);
+		out += CString(_T("HDCP\t")) + (hdcp.IsEmpty()?CString(_T("?")):hdcp);
+		#undef MURI_LINE
+		return true;
+	}
+
+	// ---- serial transport (binary UART protocol, per official API) ----
+	bool MuriSerialOpen(const CString& comPort)
+	{
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		// Same rule as DvdoOpen: a differing comPort does not switch the transport here.
+		if (s_muriOpen) return true;
+		if (comPort.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_COM_SELECTED); return false; }
+		// Same reason as the DVDO path: s_muriDiag carries the error, and a modal box on
+		// the query worker would wedge the UI behind s_genSerialLock.
+		s_muriPort.m_bQuiet = TRUE;
+		if (!s_muriPort.OpenPort(comPort))
+		{
+			DWORD e = GetLastError();
+			s_muriDiag.Format(LS(IDS_GEN_MURI_OPEN_FAIL), (LPCTSTR)comPort, (unsigned long)e);
+			return false;
+		}
+		if (!s_muriPort.ConfigurePort(MURI_BAUD, 8, FALSE, NOPARITY, ONESTOPBIT) ||
+		    !s_muriPort.SetCommunicationTimeouts(20, 0, 80, 0, 300))
+		{
+			// CSerialCom closed the handle on failure - leave s_muriOpen false, don't double-close.
+			s_muriDiag.Format(LS(IDS_GEN_MURI_CONFIG_FAIL), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
+			return false;
+		}
+		PurgeComm(s_muriPort.hComm, PURGE_RXCLEAR | PURGE_TXCLEAR);
+		s_muriOpen = true;
+		s_muriOpenPort = comPort;
+		s_muriDiag.Format(LS(IDS_GEN_MURI_OPENED), (LPCTSTR)comPort, (unsigned long)MURI_BAUD);
+		return true;
+	}
+	// See DvdoActivePort. For the network transport the live address is s_muriIp, which only
+	// an explicit establish replaces - so Closing the dialog cannot redirect a live session.
+	CString MuriActivePort() { return s_muriOpen ? s_muriOpenPort : CString(); }
+	CString MuriActiveIp()   { return s_muriIp; }
+
+	void MuriClose() { CSingleLock lock ( &s_genSerialLock, TRUE ); if (s_muriOpen) { FlushFileBuffers(s_muriPort.hComm); Sleep(40); s_muriPort.ClosePort(); s_muriOpen = false; s_muriOpenPort.Empty(); } }
+
+	// ---- binary UART protocol (official SEVEN-G UART API) --------------------
+	// Frame:  AA 00 00 <LEN> 00 00 00 <KWlo> <KWhi> <data...> <CKSUM>
+	//   LEN   = 5 + data length (3 reserved bytes + 2 keyword bytes + data)
+	//   keyword is the command code, low byte first (0x008C=RGB triplet,
+	//   0x0061=timing, 0x0062=pattern, 0x0063=colour space, 0x78FB=IRE window)
+	//   CKSUM = (0x100 - sum(every byte AA..last data)) & 0xFF  (CheckSum8 2s-comp)
+	// Verified against three worked examples in the manual (timing/colourspace,
+	// IRE window, and the 15-byte RGB triplet). Header AA = PC->device.
+	std::string MuriBuildFrame(int keyword, const std::vector<BYTE>& data)
+	{
+		std::vector<BYTE> f;
+		f.push_back(0xAA); f.push_back(0x00); f.push_back(0x00);
+		f.push_back((BYTE)(5 + data.size()));				// LEN
+		f.push_back(0x00); f.push_back(0x00); f.push_back(0x00);
+		f.push_back((BYTE)(keyword & 0xFF));				// keyword low byte first
+		f.push_back((BYTE)((keyword >> 8) & 0xFF));
+		f.insert(f.end(), data.begin(), data.end());
+		int sum = 0; for (size_t i = 0; i < f.size(); ++i) sum += f[i];
+		f.push_back((BYTE)((0x100 - (sum & 0xFF)) & 0xFF));	// 2s-complement checksum
+		return std::string((const char*)&f[0], f.size());
+	}
+
+	bool MuriSerialWriteRaw(const std::string& bytes)
+	{
+		if (!s_muriOpen) return false;
+		for (size_t i = 0; i < bytes.size(); ++i)
+			if (!s_muriPort.WriteByte((BYTE)bytes[i]))
+			{
+				// The write failed, so the port is no longer usable - the cable is out, or the
+				// driver went away. Unlike the SetCommTimeouts paths in MuriSerialXfer, a failed
+				// WriteByte does NOT close the handle (CSerialCom::WriteByte just returns false),
+				// so leaving s_muriOpen set would keep every later operation writing into a dead
+				// handle AND keep the COM port locked against other applications. MuriSerialOpen
+				// reuses an open port without revalidating it, and MuriConnect only forces a close
+				// when a DIFFERENT port is chosen - so without this, the state cleared only by
+				// selecting another port and coming back.
+				MuriClose();
+				return false;
+			}
+		FlushFileBuffers(s_muriPort.hComm);
+		// Same pacing as the TCP path: give the device time to process/render before the
+		// next command or the sensor read. Tunable via Debug/MuriSendLingerMs.
+		static DWORD lingerMs = (DWORD)GetConfig()->GetProfileInt("Debug", "MuriSendLingerMs", 300);
+		Sleep(lingerMs);
+		return true;
+	}
+
+	// Serial write + read reply (for read commands: EDID, status, connection test). Reads
+	// until the stream stops (per the temporarily-widened read timeout) or wantBytes arrive.
+	bool MuriSerialXfer(const std::string& sendBytes, std::string& replyOut, size_t wantBytes)
+	{
+		replyOut.clear();
+		if (!s_muriOpen) return false;
+		PurgeComm(s_muriPort.hComm, PURGE_RXCLEAR);
+		for (size_t i = 0; i < sendBytes.size(); ++i)
+			if (!s_muriPort.WriteByte((BYTE)sendBytes[i]))
+				{ MuriClose(); return false; }	// see MuriSerialWriteRaw
+		FlushFileBuffers(s_muriPort.hComm);
+		// Same mid-session guard as DvdoQuery: a failed SetCommTimeouts means
+		// CSerialCom closed the handle (device unplugged) - mark closed and bail.
+		if (!s_muriPort.SetCommunicationTimeouts(40, 0, 700, 0, 300))	// wait for a possibly-lagging reply
+		{ s_muriOpen = false; return false; }
+		BYTE b;
+		while (replyOut.size() < wantBytes && s_muriPort.ReadByte(b))
+			replyOut.push_back((char)b);
+		if (!s_muriPort.SetCommunicationTimeouts(20, 0, 80, 0, 300))	// restore send-oriented timeouts
+		{ s_muriOpen = false; return false; }
+		return !replyOut.empty();
+	}
+
+	// Raw-TCP send to the device's API port. Non-blocking connect with a 3s cap so a
+	// wrong IP/port can't stall the measurement loop (same rationale as HTTP DIRECT).
+	bool MuriTcpSendRaw(const std::string& bytes)
+	{
+		if (s_muriIp.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_IP_SET); return false; }
+		static bool wsaInit = false;
+		if (!wsaInit) { WSADATA w; if (WSAStartup(MAKEWORD(2, 2), &w) != 0) { s_muriDiag = LS(IDS_GEN_WSASTARTUP_FAIL); return false; } wsaInit = true; }
+		SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (s == INVALID_SOCKET) { s_muriDiag = LS(IDS_GEN_SOCKET_FAIL); return false; }
+		sockaddr_in a; memset(&a, 0, sizeof(a));
+		a.sin_family = AF_INET; a.sin_port = htons((u_short)s_muriTcpPort);
+		if (InetPtonA(AF_INET, (LPCSTR)CStringA(s_muriIp), &a.sin_addr) != 1)
+		{	// a malformed address used to become INADDR_NONE and surface as an unreachable
+			// device three seconds later; say what it actually is.
+			closesocket(s);
+			s_muriDiag.Format(LS(IDS_GEN_MURI_BAD_IP), (LPCTSTR)s_muriIp);
+			return false;
+		}
+		u_long nb = 1; ioctlsocket(s, FIONBIO, &nb);				// non-blocking for timed connect
+		connect(s, (sockaddr*)&a, sizeof(a));
+		fd_set wf; FD_ZERO(&wf); FD_SET(s, &wf);
+		timeval tv; tv.tv_sec = 3; tv.tv_usec = 0;
+		bool ok = false;
+		if (select(0, NULL, &wf, NULL, &tv) > 0)
+		{
+			int err = 0, el = sizeof(err);
+			getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&err, &el);
+			if (err == 0)
+			{
+				nb = 0; ioctlsocket(s, FIONBIO, &nb);
+				DWORD to = 3000;
+				setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (char*)&to, sizeof(to));
+				int sent = send(s, bytes.data(), (int)bytes.size(), 0);
+				ok = (sent == (int)bytes.size());
+				if (ok)
+				{
+					// Keep the socket open a FIXED spell after sending, then close. The device
+					// only applies the command if the connection lingers until it has read and
+					// rendered the frame (verified on hardware): an immediate close truncates it.
+					// A recv-based wait is unreliable - bytes arrive on port 23 at random times,
+					// so recv returns early and the command is randomly dropped/late (seen as the
+					// display lagging HCFR by 2-3 patches, differently each run). A fixed settle
+					// both guarantees delivery and paces the loop so the read lands on a stable
+					// display. Tunable via Debug/MuriSendLingerMs; read once.
+					static DWORD lingerMs = (DWORD)GetConfig()->GetProfileInt("Debug", "MuriSendLingerMs", 300);
+					Sleep(lingerMs);
+				}
+			}
+		}
+		if (ok) s_muriDiag.Format(LS(IDS_GEN_TCP_SENT), (int)bytes.size(), (LPCTSTR)s_muriIp, s_muriTcpPort);
+		else    s_muriDiag.Format(LS(IDS_GEN_TCP_SEND_FAIL), (LPCTSTR)s_muriIp, s_muriTcpPort);
+		closesocket(s);
+		return ok;
+	}
+
+	// Like MuriTcpSendRaw but keeps the reply (for read commands such as EDID, which
+	// answer with an 0xAB frame carrying the data). Non-blocking connect (3s), then drain
+	// the reply until a short read-timeout or 'wantBytes' arrive.
+	bool MuriTcpXfer(const std::string& sendBytes, std::string& replyOut, int readTimeoutMs, size_t wantBytes)
+	{
+		replyOut.clear();
+		if (s_muriIp.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_IP_SET); return false; }
+		static bool wsaInit = false;
+		if (!wsaInit) { WSADATA w; if (WSAStartup(MAKEWORD(2, 2), &w) != 0) { s_muriDiag = LS(IDS_GEN_WSASTARTUP_FAIL); return false; } wsaInit = true; }
+		SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (s == INVALID_SOCKET) { s_muriDiag = LS(IDS_GEN_SOCKET_FAIL); return false; }
+		sockaddr_in a; memset(&a, 0, sizeof(a));
+		a.sin_family = AF_INET; a.sin_port = htons((u_short)s_muriTcpPort);
+		if (InetPtonA(AF_INET, (LPCSTR)CStringA(s_muriIp), &a.sin_addr) != 1)
+		{	// a malformed address used to become INADDR_NONE and surface as an unreachable
+			// device three seconds later; say what it actually is.
+			closesocket(s);
+			s_muriDiag.Format(LS(IDS_GEN_MURI_BAD_IP), (LPCTSTR)s_muriIp);
+			return false;
+		}
+		u_long nb = 1; ioctlsocket(s, FIONBIO, &nb);
+		connect(s, (sockaddr*)&a, sizeof(a));
+		fd_set wf; FD_ZERO(&wf); FD_SET(s, &wf);
+		timeval tv; tv.tv_sec = 3; tv.tv_usec = 0;
+		bool ok = false;
+		if (select(0, NULL, &wf, NULL, &tv) > 0)
+		{
+			int err = 0, el = sizeof(err);
+			getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&err, &el);
+			if (err == 0)
+			{
+				nb = 0; ioctlsocket(s, FIONBIO, &nb);
+				DWORD to = 3000; setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (char*)&to, sizeof(to));
+				if (send(s, sendBytes.data(), (int)sendBytes.size(), 0) == (int)sendBytes.size())
+				{
+					DWORD rto = (DWORD)readTimeoutMs; setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (char*)&rto, sizeof(rto));
+					char rb[600];
+					for (;;)
+					{
+						int n = recv(s, rb, sizeof(rb), 0);
+						if (n <= 0) break;
+						replyOut.append(rb, n);
+						if (replyOut.size() >= wantBytes) break;
+					}
+					ok = !replyOut.empty();
+				}
+			}
+		}
+		closesocket(s);
+		return ok;
+	}
+
+	// Read the connected sink's EDID (keyword 0xB838). The reply embeds the raw EDID,
+	// which always starts with the fixed header 00 FF FF FF FF FF FF 00 - locate that and
+	// take up to 256 bytes (base block + first extension). Network transport only.
+	bool MuriReadEdidBytes(std::vector<BYTE>& out)
+	{
+		out.clear();
+		std::string frame = MuriBuildFrame(0xB838, std::vector<BYTE>(1, 0x01)), reply;
+		bool got = s_muriUseNet ? MuriTcpXfer(frame, reply, 2000, 300) : MuriSerialXfer(frame, reply, 400);
+		if (!got) { s_muriDiag = LS(IDS_GEN_NO_REPLY); return false; }
+		static const BYTE hdr[8] = { 0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00 };
+		size_t idx = std::string::npos;
+		for (size_t i = 0; i + 8 <= reply.size(); ++i)
+		{
+			bool m = true; for (int j = 0; j < 8; ++j) if ((BYTE)reply[i + j] != hdr[j]) { m = false; break; }
+			if (m) { idx = i; break; }
+		}
+		if (idx == std::string::npos) { s_muriDiag = LS(IDS_GEN_NO_EDID); return false; }
+		size_t n = min((size_t)256, reply.size() - idx);
+		out.assign((const BYTE*)reply.data() + idx, (const BYTE*)reply.data() + idx + n);
+		return out.size() >= 128;
+	}
+
+	// VIC (CTA-861) -> readable "WxH{p|i} @ R Hz  AR". Unknown VICs print as "VIC n".
+	CString MuriVicStr(int vic)
+	{
+		static const struct { int vic, w, h; char prog; int hz; const char* ar; } t[] = {
+			{1,640,480,'p',60,"4:3"},{2,720,480,'p',60,"4:3"},{3,720,480,'p',60,"16:9"},{4,1280,720,'p',60,"16:9"},
+			{5,1920,1080,'i',60,"16:9"},{16,1920,1080,'p',60,"16:9"},{17,720,576,'p',50,"4:3"},{18,720,576,'p',50,"16:9"},
+			{19,1280,720,'p',50,"16:9"},{20,1920,1080,'i',50,"16:9"},{31,1920,1080,'p',50,"16:9"},{32,1920,1080,'p',24,"16:9"},
+			{33,1920,1080,'p',25,"16:9"},{34,1920,1080,'p',30,"16:9"},{93,3840,2160,'p',24,"16:9"},{94,3840,2160,'p',25,"16:9"},
+			{95,3840,2160,'p',30,"16:9"},{96,3840,2160,'p',50,"16:9"},{97,3840,2160,'p',60,"16:9"},
+		};
+		for (int i = 0; i < (int)(sizeof(t) / sizeof(t[0])); ++i)
+			if (t[i].vic == vic)
+			{
+				CString ar(t[i].ar), s;
+				s.Format(_T("%dx%d%s @ %d Hz  %s"), t[i].w, t[i].h, t[i].prog == 'i' ? _T("i") : _T("p"), t[i].hz, (LPCTSTR)ar);
+				return s;
+			}
+		CString s; s.Format(_T("VIC %d"), vic); return s;
+	}
+
+	// 18-byte Detailed Timing Descriptor -> "WxH @ R Hz"; false if it's a monitor descriptor (pclk 0).
+	bool MuriDtdStr(const BYTE* d, CString& out)
+	{
+		int pclk = (d[0] | (d[1] << 8)) * 10;	// kHz
+		if (pclk == 0) return false;
+		int ha = d[2] | ((d[4] >> 4) << 8), hb = d[3] | ((d[4] & 0xF) << 8);
+		int va = d[5] | ((d[7] >> 4) << 8), vb = d[6] | ((d[7] & 0xF) << 8);
+		int ht = ha + hb, vt = va + vb; bool il = (d[17] & 0x80) != 0;
+		double hz = (ht && vt) ? (double)pclk * 1000.0 / ((double)ht * vt) : 0;
+		if (il) hz *= 2;
+		out.Format(_T("%dx%d @ %d Hz"), ha, va, (int)(hz + 0.5));
+		return true;
+	}
+
+	// Decode the sink EDID into a full General / Video / Audio report (Murideo web-UI parity).
+	CString MuriParseEdid(const std::vector<BYTE>& e)
+	{
+		CString s;
+		int v = (e[8] << 8) | e[9];
+		TCHAR mfr[4] = { (TCHAR)(((v >> 10) & 31) + 64), (TCHAR)(((v >> 5) & 31) + 64), (TCHAR)((v & 31) + 64), 0 };
+		int ver = e[18], rev = e[19];
+		CString name;
+		for (int off = 54; off <= 108; off += 18)
+			if (e[off] == 0 && e[off + 1] == 0 && e[off + 2] == 0 && e[off + 3] == 0xFC && name.IsEmpty())
+			{
+				char nm[16]; int k = 0;
+				for (int j = 5; j < 18; ++j) { char c = (char)e[off + j]; if (c == '\n' || c == 0) break; nm[k++] = c; }
+				nm[k] = 0; name = CString(nm); name.TrimRight();
+			}
+		s += _T("=== GENERAL ===\r\n");
+		s.AppendFormat(_T("Manufacturer          %s\r\n"), mfr);
+		s.AppendFormat(_T("Product Code          %d\r\n"), e[10] | (e[11] << 8));
+		s.AppendFormat(_T("Display Product Name  %s\r\n"), name.IsEmpty() ? _T("-") : (LPCTSTR)name);
+		s.AppendFormat(_T("Video Interface       %s\r\n"), (e[20] & 0x80) ? _T("Digital") : _T("Analog"));
+		if ((ver > 1 || rev >= 4) && (e[20] & 0x80))
+		{
+			static const TCHAR* dd[] = { _T("Reserved"),_T("6"),_T("8"),_T("10"),_T("12"),_T("14"),_T("16"),_T("?") };
+			s.AppendFormat(_T("Color Bit Depth       %s bpc\r\n"), dd[(e[20] >> 4) & 7]);
+		}
+		else
+			s.AppendFormat(_T("Color Bit Depth       Reserved (EDID %d.%d)\r\n"), ver, rev);
+		for (int off = 54; off <= 108; off += 18)
+			if (e[off] == 0 && e[off + 1] == 0 && e[off + 2] == 0 && e[off + 3] == 0xFD)
+			{
+				s.AppendFormat(_T("Vertical Rate         %d-%d Hz\r\n"), e[off + 5], e[off + 6]);
+				s.AppendFormat(_T("Horizontal Rate       %d-%d kHz\r\n"), e[off + 7], e[off + 8]);
+				s.AppendFormat(_T("Maximum Pixel Clock   %d MHz\r\n"), e[off + 9] * 10);
+			}
+
+		std::vector<int> svdVic, svdNat;
+		std::vector<CString> hdmi4k, y420, extDtds, sads;
+		CString extSupp, deepColor, hdr, colorim, three_d = _T("not supported");
+		int nativeCount = 0, dtdOff = 0;
+		if (e.size() >= 256 && e[128] == 0x02)		// CEA-861 extension
+		{
+			const BYTE* x = &e[128];
+			dtdOff = x[2];
+			if (dtdOff > 127) dtdOff = 127;		// offset within the 128-byte extension; a bogus
+												// device value must not push either walk out of bounds
+			nativeCount = x[3] & 0x0F;
+			if (x[3] & 0x40) extSupp += _T("Base Audio, ");
+			if (x[3] & 0x20) extSupp += _T("YCbCr 4:4:4, ");
+			if (x[3] & 0x10) extSupp += _T("YCbCr 4:2:2, ");
+			int i = 4;
+			while (i < dtdOff && i < 128)
+			{
+				int tag = (x[i] >> 5) & 7, ln = x[i] & 0x1F; const BYTE* body = &x[i + 1];
+				if (i + 1 + ln > 128) break;	// block body would run past the 128-byte extension
+												// (device-supplied len); stop rather than read e[256+]
+				if (tag == 2)			// Short Video Descriptors
+				{
+					for (int k = 0; k < ln; ++k) { int b = body[k]; if (b >= 129 && b <= 192) { svdVic.push_back(b - 128); svdNat.push_back(1); } else { svdVic.push_back(b & 0x7F); svdNat.push_back(0); } }
+				}
+				else if (tag == 1)		// Short Audio Descriptors
+				{
+					for (int k = 0; k + 3 <= ln; k += 3)
+					{
+						int fmt = (body[k] >> 3) & 0xF, ch = (body[k] & 7) + 1;
+						static const TCHAR* fn[] = { _T("?"),_T("LPCM"),_T("AC-3"),_T("MPEG-1"),_T("MP3"),_T("MPEG-2"),_T("AAC"),_T("DTS"),_T("ATRAC"),_T("DSD"),_T("E-AC-3"),_T("DTS-HD"),_T("MLP/TrueHD"),_T("DST"),_T("WMA Pro") };
+						CString rates; const int rm[] = { 0x40,0x20,0x10,0x08,0x04,0x02,0x01 }; const TCHAR* rn[] = { _T("192"),_T("176.4"),_T("96"),_T("88.2"),_T("48"),_T("44.1"),_T("32") };
+						for (int r = 0; r < 7; ++r) if (body[k + 1] & rm[r]) { if (!rates.IsEmpty()) rates += _T(", "); rates += rn[r]; }
+						CString sad;
+						sad.AppendFormat(_T("Format                %s\r\n"), (fmt >= 0 && fmt <= 14) ? fn[fmt] : _T("?"));
+						sad.AppendFormat(_T("Channels              %d\r\n"), ch);
+						sad.AppendFormat(_T("Sample Rates          %s kHz\r\n"), (LPCTSTR)rates);
+						if (fmt == 1)
+						{
+							CString bits; const int bmk[] = { 0x04,0x02,0x01 }; const TCHAR* bn[] = { _T("24"),_T("20"),_T("16") };
+							for (int b2 = 0; b2 < 3; ++b2) if (body[k + 2] & bmk[b2]) { if (!bits.IsEmpty()) bits += _T(", "); bits += bn[b2]; }
+							sad.AppendFormat(_T("Sample Bits           %s bit\r\n"), (LPCTSTR)bits);
+						}
+						sads.push_back(sad);
+					}
+				}
+				else if (tag == 3 && ln >= 6 && body[0] == 0x03 && body[1] == 0x0C && body[2] == 0x00)	// HDMI VSDB
+				{
+					if (body[5] & 0x20) deepColor += _T("36-bit, ");
+					if (body[5] & 0x10) deepColor += _T("30-bit, ");
+					if (body[5] & 0x08) deepColor += _T("YCbCr444, ");
+					if (ln >= 8)
+					{
+						int lat = body[7], idx = 8;
+						if (lat & 0x80) idx += 2;
+						if (lat & 0x40) idx += 2;
+						if ((lat & 0x20) && ln > idx + 1)		// HDMI_Video_present
+						{
+							if (body[idx] & 0x80) three_d = _T("supported");
+							int hvl = (body[idx + 1] >> 5) & 7; idx += 2;
+							static const TCHAR* HV[] = { _T("-"),_T("3840x2160 @ 30 Hz"),_T("3840x2160 @ 25 Hz"),_T("3840x2160 @ 24 Hz"),_T("4096x2160 @ 24 Hz") };
+							for (int k = 0; k < hvl && idx + k < ln; ++k)
+							{
+								int hv = body[idx + k];
+								if (hv >= 1 && hv <= 4) hdmi4k.push_back(CString(HV[hv]));
+								else { CString t; t.Format(_T("HDMI_VIC %d"), hv); hdmi4k.push_back(t); }
+							}
+						}
+					}
+				}
+				else if (tag == 7 && ln >= 2)		// extended tag blocks
+				{
+					int et = body[0];
+					if (et == 5)
+					{
+						if (body[1] & 0x80) colorim += _T("BT.2020 RGB, ");
+						if (body[1] & 0x40) colorim += _T("BT.2020 YCC, ");
+						if (body[1] & 0x20) colorim += _T("BT.2020 cYCC, ");
+					}
+					else if (et == 6)
+					{
+						if (body[1] & 0x01) hdr += _T("SDR, ");
+						if (body[1] & 0x02) hdr += _T("HDR, ");
+						if (body[1] & 0x04) hdr += _T("HDR10/PQ, ");
+						if (body[1] & 0x08) hdr += _T("HLG, ");
+					}
+					else if (et == 14)		// Y420VDB: direct 4:2:0-only VICs
+						for (int k = 1; k < ln; ++k) y420.push_back(MuriVicStr(body[k] & 0x7F));
+					else if (et == 15)		// Y420CMDB: bitmap over the SVD list
+					{
+						if (ln <= 1) { for (size_t k = 0; k < svdVic.size(); ++k) y420.push_back(MuriVicStr(svdVic[k])); }
+						else for (int bi = 1; bi < ln; ++bi) for (int bit = 0; bit < 8; ++bit) if (body[bi] & (1 << bit)) { size_t si = (size_t)(bi - 1) * 8 + bit; if (si < svdVic.size()) y420.push_back(MuriVicStr(svdVic[si])); }
+					}
+				}
+				i += 1 + ln;
+			}
+			// dtdOff == 0 means "no DTDs" in CEA-861; only walk when it is a real offset (>= 4),
+			// otherwise the loop would parse the extension header (x[0]=0x02,x[1]=0x03) as a DTD.
+			if (dtdOff >= 4)
+				for (int j = dtdOff; j + 18 <= 128 && (x[j] || x[j + 1]); j += 18)	// extension DTDs
+				{
+					CString d; if (MuriDtdStr(&x[j], d)) extDtds.push_back(d);
+				}
+		}
+		#define MURI_TRIM2(cs) if ((cs).GetLength() >= 2 && (cs).Right(2) == _T(", ")) (cs) = (cs).Left((cs).GetLength() - 2)
+		MURI_TRIM2(extSupp); MURI_TRIM2(deepColor); MURI_TRIM2(hdr); MURI_TRIM2(colorim);
+		#undef MURI_TRIM2
+		s.AppendFormat(_T("Native Timings        %d\r\n"), nativeCount);
+		s.AppendFormat(_T("Extension Support     %s\r\n"), extSupp.IsEmpty() ? _T("-") : (LPCTSTR)extSupp);
+		s.AppendFormat(_T("Deep Color            %s\r\n"), deepColor.IsEmpty() ? _T("-") : (LPCTSTR)deepColor);
+		s.AppendFormat(_T("3D Video              %s\r\n"), (LPCTSTR)three_d);
+		s.AppendFormat(_T("HDR                   %s\r\n"), hdr.IsEmpty() ? _T("not supported") : (LPCTSTR)(CString(_T("Supported (")) + hdr + _T(")")));
+		s.AppendFormat(_T("Colorimetry           %s\r\n"), colorim.IsEmpty() ? _T("-") : (LPCTSTR)colorim);
+		if (!hdmi4k.empty()) { s += _T("Extended Resolution (4Kx2K)\r\n"); for (size_t k = 0; k < hdmi4k.size(); ++k) s += _T("  ") + hdmi4k[k] + _T("\r\n"); }
+		if (!y420.empty())   { s += _T("YCbCr 4:2:0 (Y420CMDB)\r\n"); for (size_t k = 0; k < y420.size(); ++k) s += _T("  ") + y420[k] + _T("\r\n"); }
+
+		s += _T("\r\n=== VIDEO ===\r\n");
+		const TCHAR* dl[] = { _T("Preferred Timing      "), _T("Detailed Timing       ") };
+		int di = 0;
+		for (int off = 54; off <= 72; off += 18)
+		{
+			CString d; if (MuriDtdStr(&e[off], d) && di < 2) { s.AppendFormat(_T("%s%s\r\n"), dl[di], (LPCTSTR)d); di++; }
+		}
+		for (size_t k = 0; k < extDtds.size(); ++k) s.AppendFormat(_T("Ext Detailed Timing %d  %s\r\n"), (int)k + 1, (LPCTSTR)extDtds[k]);
+		if (!svdVic.empty())
+		{
+			s += _T("Short Video Descriptors\r\n");
+			for (size_t k = 0; k < svdVic.size(); ++k) s += _T("  ") + MuriVicStr(svdVic[k]) + (svdNat[k] ? CString(_T("  Native")) : CString(_T(""))) + _T("\r\n");
+		}
+
+		s += _T("\r\n=== AUDIO ===\r\n");
+		if (sads.empty()) s += _T("(none)\r\n");
+		else for (size_t k = 0; k < sads.size(); ++k) { if (k) s += _T("\r\n"); s += sads[k]; }
+		return s;
+	}
+
+	// Send a binary frame over the active transport (serial now; raw-TCP on network).
+	bool MuriSendFrame(int keyword, const std::vector<BYTE>& data)
+	{
+		std::string f = MuriBuildFrame(keyword, data);
+		return s_muriUseNet ? MuriTcpSendRaw(f) : MuriSerialWriteRaw(f);
+	}
+
+	// 0x008C "10/12bit RGB triplet": foreground + background RGB (16-bit little-endian
+	// each), window size %, colour depth (0=8/1=10/2=12 bit), colour space. This is the
+	// arbitrary-colour patch command for calibration.
+	//
+	// The last byte is the SAME colour-space register cat 99 writes, on the same enum:
+	// 0=RGB full, 1=RGB limited, 2=YC444, 3=YC422, 4=YC420. It is NOT a two-value range flag,
+	// whatever the UART document's table says. Measured 2026-08-28: with the device applied to
+	// YC444 (cat 99 = 2), a patch sent this byte as 1 and the device read back as RGB limited -
+	// which IS cat-99 id 1. A byte that can move the register to 1 is writing the register, so
+	// it takes the register's whole enum. Passing the configured id therefore makes each patch
+	// RE-ASSERT the applied colour space instead of dropping the device to RGB for the sweep.
+	bool MuriCmdRgbTriplet(int r, int g, int b, int bgR, int bgG, int bgB, int size, int depth, int csId)
+	{
+		std::vector<BYTE> d;
+		const int v[6] = { r, g, b, bgR, bgG, bgB };
+		for (int i = 0; i < 6; ++i) { d.push_back((BYTE)(v[i] & 0xFF)); d.push_back((BYTE)((v[i] >> 8) & 0xFF)); }
+		// Clamp: csId reaches here from an INI value that nothing else validates, and the cast
+		// below would turn 300 into 44 or -1 into 255 - a garbage colour space on every patch.
+		if (csId < 0 || csId > 4) csId = 0;
+		d.push_back((BYTE)size); d.push_back((BYTE)depth); d.push_back((BYTE)csId);
+		return MuriSendFrame(0x008C, d);
+	}
+
+	// ---- transport-routed commands ----
+	// Network path uses the proven HTTP CGI; serial uses the binary UART frame.
+	// The 'cat' value is the command keyword (97=0x61 timing, 99=0x63 colourspace, ...).
+	bool MuriCmdSingle(int cat, int id)
+	{
+		if (s_muriUseNet) { char b[64]; sprintf(b, "HEX%02XNUM%d", cat, id); return MuriHttpGet("BtnSendCmd.CGI", b); }
+		return MuriSerialWriteRaw(MuriBuildFrame(cat, std::vector<BYTE>(1, (BYTE)id)));
+	}
+	// Pattern (cat 98=0x62): the 2-byte pattern id is (a | b<<8) - a is the HTTP NUM
+	// (low byte), b the HTTP BER (high byte). Both encodings resolve to the same id.
+	bool MuriCmdDouble(int cat, int a, int b2)
+	{
+		if (s_muriUseNet) { char b[64]; sprintf(b, "HEX%02XNUM%dBER%d", cat, a, b2); return MuriHttpGet("AudSendCmd.CGI", b); }
+		// Serial carries the pattern as one little-endian 2-byte id = num + bank*256,
+		// matching the NUM/BER split the HTTP form sends. Banks 0, 1 and 2 are all in
+		// use; bank 2 is reached only by the DVS HLG run, whose clipping section crosses
+		// from BER 1 NUM 255 to BER 2 NUM 0.
+		int fullId = a + (b2 << 8);
+		std::vector<BYTE> d; d.push_back((BYTE)(fullId & 0xFF)); d.push_back((BYTE)((fullId >> 8) & 0xFF));
+		return MuriSerialWriteRaw(MuriBuildFrame(cat, d));
+	}
+	// IRE window (keyword 0x78FB): grayscale box at level 0-255, size %. HTTP maps it as
+	// HEXFBNUM<size>IRE<level>; the binary frame data is [level, size].
+	// Select the transport for subsequent commands. For serial, opens the port.
+	// establish = an explicit user action on the transport (Detect/Test, Apply). Only those
+	// adopt a newly chosen address or port; every ordinary operation keeps using whatever is
+	// already live, so Closing the settings dialog changes nothing about the running session.
+	// Without this the network path would adopt a new IP immediately - the very asymmetry with
+	// the serial path that made the port look "special".
+	bool MuriConnect(bool useNet, const CString& ip, const CString& com, bool establish)
+	{
+		CSingleLock lock ( &s_genSerialLock, TRUE );	// guards the s_muri* transport statics too
+		s_muriUseNet = useNet;
+		if (useNet)
+		{
+			// Changing transport releases the other one. A serial handle left open would keep the
+			// COM port locked against other applications for the rest of the session.
+			if (s_muriOpen) MuriClose();
+			if (establish || s_muriIp.IsEmpty()) s_muriIp = ip;
+			if (s_muriIp.IsEmpty()) { s_muriDiag = LS(IDS_GEN_NO_IP_SET); return false; }
+			s_muriDiag.Format(LS(IDS_GEN_NETWORK_MODE), (LPCTSTR)s_muriIp);
+			return true;		// HTTP is connectionless; nothing to open
+		}
+		// An explicit user action gets a FRESH port, even when it is the port already open.
+		// MuriSerialOpen returns early on an already-open port, skipping ConfigurePort,
+		// SetCommunicationTimeouts and PurgeComm - so a handle that is open but not usable
+		// could never be recovered by pressing Detect again. Measured 2026-08-29: Detect on
+		// COM4 failed and kept failing on retry, and ONLY selecting another port and coming
+		// back fixed it - because that path was the only one that forced a close. Reopening
+		// is what the user asked for by pressing the button; ordinary operations still reuse.
+		if (establish && s_muriOpen && !com.IsEmpty())
+		{
+			MuriClose();		// adopt the newly chosen port, or re-establish the current one
+			// Settle before reopening. DvdoOpen notes twice that a close-then-immediate-reopen
+			// can fail on a virtual COM driver, and re-establishing the SAME port is exactly
+			// that sequence. MuriClose already flushes and waits 40ms before closing; this is
+			// the driver's turn. Tunable via Debug/MuriReopenSettleMs for the bench.
+			Sleep((DWORD)GetConfig()->GetProfileInt("Debug", "MuriReopenSettleMs", 150));
+		}
+		return MuriSerialOpen(com);
+	}
+	// Also forget the live address. The serial side re-adopts config on the next open because
+	// the port is closed; without this the network side kept the first IP for the life of the
+	// process, so a changed IP never took effect even across Release/Init.
+	void MuriDisconnect() { MuriClose(); s_muriIp.Empty(); }
+
+	// Is the Murideo really on the far end of the OPEN serial port? Round-trip a read
+	// command (0x8061 read-timing-status) and look for the device's 0xAB reply.
+	//
+	// Opening a COM port proves nothing about what is attached to it: a USB-serial adapter
+	// with the generator on some OTHER port opens perfectly and swallows every byte written
+	// to it. Measured 2026-08-29 - Apply on the wrong port reported success and persisted a
+	// resolution the hardware never received. Both Detect and Apply go through here.
+	bool MuriSerialIdentify(const CString& comPort, CString& msgOut)
+	{
+		std::string reply;
+		bool got = MuriSerialXfer(MuriBuildFrame(0x8061, std::vector<BYTE>()), reply, 32);
+		bool isMuri = false;
+		for (size_t k = 0; k < reply.size(); ++k) if ((BYTE)reply[k] == 0xAB) { isMuri = true; break; }
+		if (isMuri)      msgOut.Format(LS(IDS_GEN_MURI_CONNECTED_SERIAL), (LPCTSTR)comPort, (int)reply.size());
+		else if (got)    msgOut.Format(LS(IDS_GEN_MURI_WRONG_DEVICE), (LPCTSTR)comPort, (int)reply.size());
+		else             msgOut.Format(LS(IDS_GEN_MURI_NO_RESPOND), (LPCTSTR)comPort);
+		return isMuri;
+	}
+	void MuriSetTcpPort(int port) { if (port > 0 && port < 65536) s_muriTcpPort = port; }
+}
+
+// --- Preset tables, derived from the SEVEN-G itself ---------------------------
+// Both tables below are extracted from the generator's own web interface, where each
+// button's HTML id IS the command it sends - id='HEX61NUM12' is cat 0x61 timing 12,
+// id='HEX62NUM196BER1' is cat 0x62 NUM 196 BER 1 - with the name in the adjacent cell.
+// Spot-confirmed against hardware through WebReq.CGI?button=VIDEOGEN, which echoes the
+// device's settled state (timing 31 came back as 3840x2160@24Hz).
+struct MuriItem { const char* group; const char* name; int id; };
+
+static const MuriItem kMuriTimings[] =
+{
+	{ "HD",     "720p 60Hz",               12 }, { "HD",     "720p 59.94Hz",            13 }, { "HD",     "1080i 60Hz",              14 },
+	{ "HD",     "1080i 59.94Hz",           15 }, { "HD",     "1080p 30Hz",              16 }, { "HD",     "1080p 29.97Hz",           17 },
+	{ "HD",     "1080p 24Hz",              18 }, { "HD",     "1080p 23.976Hz",          19 }, { "HD",     "1080p 60Hz",              20 },
+	{ "HD",     "1080p 59.94Hz",           21 }, { "HD",     "720p 50Hz",               24 }, { "HD",     "1080i 50Hz",              25 },
+	{ "HD",     "1080p 25Hz",              26 }, { "HD",     "1080p 50Hz",              27 },
+	{ "UHD",    "2160p 30Hz",              28 }, { "UHD",    "2160p 29.97Hz",           29 }, { "UHD",    "2160p 25Hz",              30 },
+	{ "UHD",    "2160p 24Hz",              31 }, { "UHD",    "2160p 23.98Hz",           32 }, { "UHD",    "2160p 60Hz",              34 },
+	{ "UHD",    "2160p 59.94Hz",           35 }, { "UHD",    "2160p 50Hz",              36 },
+	{ "4K-DCI", "4096x2160 30Hz",          53 }, { "4K-DCI", "4096x2160 29.97Hz",       54 }, { "4K-DCI", "4096x2160 25Hz",          55 },
+	{ "4K-DCI", "4096x2160 24Hz",          33 }, { "4K-DCI", "4096x2160 23.976Hz",      56 }, { "4K-DCI", "4096x2160 60Hz",          57 },
+	{ "4K-DCI", "4096x2160 59.94Hz",       58 }, { "4K-DCI", "4096x2160 50Hz",          59 },
+	{ "2K-DCI", "2048x1080 30Hz",          73 }, { "2K-DCI", "2048x1080 29.97Hz",       74 }, { "2K-DCI", "2048x1080 25Hz",          75 },
+	{ "2K-DCI", "2048x1080 24Hz",          76 }, { "2K-DCI", "2048x1080 23.976Hz",      77 }, { "2K-DCI", "2048x1080 60Hz",          78 },
+	{ "2K-DCI", "2048x1080 59.94Hz",       79 }, { "2K-DCI", "2048x1080 50Hz",          80 },
+	{ "VESA",   "VGA 640x480",              0 }, { "VESA",   "SVGA 800x600",             1 }, { "VESA",   "XGA 1024x768",             2 },
+	{ "VESA",   "XGA+ 1152x864",           72 }, { "VESA",   "WXGA 1280x768",            3 }, { "VESA",   "HD 1360x768",              4 },
+	{ "VESA",   "SXGA+ 1280x960",           5 }, { "VESA",   "SXGA+ 1400x1050",          7 }, { "VESA",   "WXGA+ 1440x900",          69 },
+	{ "VESA",   "HD 1600x900",             70 }, { "VESA",   "UXGA 1600x1200",           8 }, { "VESA",   "WUXGA 1920x1200",          9 },
+	{ "SD",     "480i 59.94Hz",            10 }, { "SD",     "480p 59.94Hz",            11 }, { "SD",     "576i 50Hz",               22 },
+	{ "SD",     "576p 50Hz",               23 },
+	{ "3D",     "720p 60Hz (3D-FP)",       37 }, { "3D",     "720p 59.94Hz (3D-FP)",    38 }, { "3D",     "1080p 24Hz (3D-FP)",      39 },
+	{ "3D",     "1080p 23.976Hz (3D-FP)",  40 }, { "3D",     "720p 50Hz (3D-FP)",       41 },
+	{ "Auto",   "TV Preferred Timing",     42 },
+	{ "Custom", "USER-1",                  43 }, { "Custom", "USER-2",                  44 }, { "Custom", "USER-3",                  45 },
+	{ "Custom", "USER-4",                  46 }, { "Custom", "USER-5",                  47 }, { "Custom", "USER-6",                  48 },
+	{ "Custom", "USER-7",                  49 }, { "Custom", "USER-8",                  50 }, { "Custom", "USER-9",                  51 },
+	{ "Custom", "USER-10",                 52 },
+};
+static const int kMuriTimingN = sizeof(kMuriTimings) / sizeof(kMuriTimings[0]);
+
+// Patterns carry a bank (BER) and the wire id is NUM | BER<<8 - see MuriCmdDouble. NUM
+// is therefore a byte and never exceeds 255; a bank is not a category. Bank 0 holds the
+// built-in video groups, bank 1 the stills groups and the Dolby Vision run, and banks 1
+// and 2 the DVS DV and HLG image sets (composed ids 472-578). Those two have no button
+// anywhere in the device's web interface: their ids come from the SEVEN-G UART command
+// spec v2.04 table 6, confirmed on hardware at 472, 511 and 578, and their names were
+// read off the device's OSD. Each DV/HLG row in MuriPatterns.inc carries the spec's
+// asset name in a trailing comment so any id can be traced back.
+struct MuriPat { const char* group; const char* name; int id; int ber; };
+static const MuriPat kMuriPatterns[] =
+{
+#include "MuriPatterns.inc"
+};
+static const int kMuriPatternN = sizeof(kMuriPatterns) / sizeof(kMuriPatterns[0]);
+
+struct MuriCs { const char* name; int id; };
+// The cat-99 colour-space enum, canonical. NOTE: nothing calls the accessors below - the
+// settings dialog has separate Format and Range combos rather than one colour-space combo, and
+// derives the same id arithmetically in CMuriSettingsDlg::ComboCsId. This table is therefore
+// documentation, not the live path: keep the two in step, and do not assume editing this changes
+// behaviour. The id also travels in every 0x008C patch - see MuriCmdRgbTriplet.
+static const MuriCs kMuriColorSpaces[] =
+{
+	{ "RGB (0-255)", 0 }, { "RGB (16-235)", 1 }, { "YC 4:4:4 (16-235)", 2 },
+	{ "YC 4:2:2 (16-235)", 3 }, { "YC 4:2:0 (16-235)", 4 },
+};
+static const int kMuriCsN = sizeof(kMuriColorSpaces) / sizeof(kMuriColorSpaces[0]);
+
+// Generic group/item helpers over a MuriItem table (mirrors the DVDO pattern accessors).
+template<class T> static int MuriGroups(const T* t, int n, const char* out[], int maxN)
+{
+	int c = 0;
+	for (int i = 0; i < n && c < maxN; ++i)
+	{
+		bool seen = false;
+		for (int j = 0; j < c; ++j) if (strcmp(out[j], t[i].group) == 0) { seen = true; break; }
+		if (!seen) out[c++] = t[i].group;
+	}
+	return c;
+}
+template<class T> static int MuriItemsInGroup(const T* t, int n, int gi, int idxOut[], int maxN)
+{
+	const char* g[24]; int ng = MuriGroups(t, n, g, 24);
+	if (gi < 0 || gi >= ng) return 0;
+	int c = 0;
+	for (int i = 0; i < n && c < maxN; ++i) if (strcmp(t[i].group, g[gi]) == 0) idxOut[c++] = i;
+	return c;
+}
+
+// --- Externs for the prop page ------------------------------------------------
+int         CGDIGenerator_MuriTimingGroups()          { const char* g[16]; return MuriGroups(kMuriTimings, kMuriTimingN, g, 16); }
+const char* CGDIGenerator_MuriTimingGroupName(int gi) { const char* g[16]; int n = MuriGroups(kMuriTimings, kMuriTimingN, g, 16); return (gi>=0&&gi<n)?g[gi]:""; }
+int         CGDIGenerator_MuriTimingCount(int gi)     { int idx[80]; return MuriItemsInGroup(kMuriTimings, kMuriTimingN, gi, idx, 80); }
+const char* CGDIGenerator_MuriTimingName(int gi,int i){ int idx[80]; int n=MuriItemsInGroup(kMuriTimings,kMuriTimingN,gi,idx,80); return (i>=0&&i<n)?kMuriTimings[idx[i]].name:""; }
+int         CGDIGenerator_MuriTimingId(int gi,int i)  { int idx[80]; int n=MuriItemsInGroup(kMuriTimings,kMuriTimingN,gi,idx,80); return (i>=0&&i<n)?kMuriTimings[idx[i]].id:-1; }
+bool        CGDIGenerator_MuriFindTiming(int id,int& gi,int& ii)
+{
+	const char* g[16]; int ng=MuriGroups(kMuriTimings,kMuriTimingN,g,16);
+	for (int a=0;a<ng;++a){int idx[80];int n=MuriItemsInGroup(kMuriTimings,kMuriTimingN,a,idx,80);for(int b=0;b<n;++b)if(kMuriTimings[idx[b]].id==id){gi=a;ii=b;return true;}}
+	return false;
+}
+
+int         CGDIGenerator_MuriPatGroups()          { const char* g[24]; return MuriGroups(kMuriPatterns, kMuriPatternN, g, 24); }
+const char* CGDIGenerator_MuriPatGroupName(int gi) { const char* g[24]; int n = MuriGroups(kMuriPatterns, kMuriPatternN, g, 24); return (gi>=0&&gi<n)?g[gi]:""; }
+int         CGDIGenerator_MuriPatCount(int gi)     { int idx[256]; return MuriItemsInGroup(kMuriPatterns, kMuriPatternN, gi, idx, 256); }
+const char* CGDIGenerator_MuriPatName(int gi,int i){ int idx[256]; int n=MuriItemsInGroup(kMuriPatterns,kMuriPatternN,gi,idx,256); return (i>=0&&i<n)?kMuriPatterns[idx[i]].name:""; }
+int         CGDIGenerator_MuriPatId(int gi,int i)  { int idx[256]; int n=MuriItemsInGroup(kMuriPatterns,kMuriPatternN,gi,idx,256); return (i>=0&&i<n)?kMuriPatterns[idx[i]].id:-1; }
+int         CGDIGenerator_MuriPatBer(int gi,int i) { int idx[256]; int n=MuriItemsInGroup(kMuriPatterns,kMuriPatternN,gi,idx,256); return (i>=0&&i<n)?kMuriPatterns[idx[i]].ber:0; }
+bool        CGDIGenerator_MuriFindPat(int id,int ber,int& gi,int& ii)
+{
+	// Match id AND bank: 111 of the 459 ids collide across bank 0 / bank 1, so id alone would
+	// resolve to whichever bank sorts first and restore the wrong group/pattern.
+	const char* g[24]; int ng=MuriGroups(kMuriPatterns,kMuriPatternN,g,24);
+	for (int a=0;a<ng;++a){int idx[256];int n=MuriItemsInGroup(kMuriPatterns,kMuriPatternN,a,idx,256);for(int b=0;b<n;++b)if(kMuriPatterns[idx[b]].id==id&&kMuriPatterns[idx[b]].ber==ber){gi=a;ii=b;return true;}}
+	return false;
+}
+
+int         CGDIGenerator_MuriCsCount()       { return kMuriCsN; }
+const char* CGDIGenerator_MuriCsName(int i)   { return (i>=0&&i<kMuriCsN)?kMuriColorSpaces[i].name:""; }
+int         CGDIGenerator_MuriCsId(int i)     { return (i>=0&&i<kMuriCsN)?kMuriColorSpaces[i].id:0; }
+int         CGDIGenerator_MuriCsIndexForId(int id) { for(int i=0;i<kMuriCsN;++i) if(kMuriColorSpaces[i].id==id) return i; return 0; }
+
+// Detect/Test: for network, GET the device root and report the HTTP status; for
+// serial, open the port and report.
+bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CString& comPort, CString& msgOut)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	if (useNet)
+	{
+		if (s_muriOpen) MuriClose();		// switching transports releases the COM handle
+		s_muriUseNet = true; s_muriIp = ip;	// Detect/Test adopts the address it is testing
+		if (ip.IsEmpty()) { msgOut = LS(IDS_GEN_ENTER_MURI_IP_FIRST); return false; }
+		HINTERNET hI = MuriInet();
+		CString url; url.Format(_T("http://%s/"), (LPCTSTR)ip);
+		HINTERNET hU = hI ? InternetOpenUrl(hI, url, NULL, 0, INTERNET_FLAG_NO_UI | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0) : NULL;
+		DWORD st = 0, len = sizeof(st), idx = 0; bool ok = (hU != NULL);
+		if (hU) { HttpQueryInfo(hU, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &st, &len, &idx); InternetCloseHandle(hU); }
+		if (ok)
+		{
+			CString sum;
+			if (MuriStatusSummary(sum) && !sum.IsEmpty())
+				msgOut.Format(LS(IDS_GEN_MURI_CONNECTED_NET), (LPCTSTR)ip, (LPCTSTR)sum);
+			else
+				msgOut.Format(LS(IDS_GEN_MURI_REACHED_NOSTATUS), (LPCTSTR)ip, (unsigned long)st);
+		}
+		else { DWORD e = GetLastError(); msgOut.Format(LS(IDS_GEN_MURI_UNREACHABLE), (LPCTSTR)ip, (unsigned long)e); }
+		return ok;
+	}
+	// Serial: open the port, then identify the device on it.
+	bool wasOpen = s_muriOpen;	// same only-close-what-we-opened rule as the DVDO probe
+	if (!MuriConnect(false, ip, comPort, true /*Detect/Test adopts the selected port*/)) { msgOut = s_muriDiag; return false; }
+	bool isMuri = MuriSerialIdentify(comPort, msgOut);
+	if (!wasOpen)
+		MuriClose();
+	return isMuri;
+}
+
+// Apply output settings. Each is skipped when < 0: timing (cat 97), colour space
+// (cat 99), BT.2020 gamut (cat 112: 0=BT.709,1=BT.2020), HDR mode (cat 0x6F:
+// 0=SDR,1=HDR,2=HLG), colour depth (cat 100: 0=8bit,1=10bit).
+CString CGDIGenerator_MuriActivePort() { CSingleLock lock ( &s_genSerialLock, TRUE ); return MuriActivePort(); }
+CString CGDIGenerator_MuriActiveIp()   { CSingleLock lock ( &s_genSerialLock, TRUE ); return MuriActiveIp(); }
+
+bool CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString& comPort,
+	int timingId, int csId, int bt2020, int hdrMode, int bitDepth, CString& msgOut, DWORD* appliedOut)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	if (appliedOut) *appliedOut = 0;	// defined on every path out, including the failures below
+	if (!MuriConnect(useNet, ip, comPort, true /*Apply adopts the selected transport*/)) { msgOut = s_muriDiag; return false; }
+	// Ask the device once before sending it anything, on EITHER transport. Neither one is
+	// proven by MuriConnect: the network arm only records the address, and opening a COM
+	// port says nothing about what is on the other end. Without this, an unreachable
+	// address costs five timeouts, and the wrong COM port reports "Applied" having sent
+	// the settings into a void. Apply now fails the same way Detect does.
+	if (useNet)
+	{
+		DWORD e = 0;
+		if (!MuriHttpReachable(e))
+		{
+			msgOut.Format(LS(IDS_GEN_MURI_UNREACHABLE), (LPCTSTR)s_muriIp, (unsigned long)e);
+			return false;
+		}
+	}
+	else if (!MuriSerialIdentify(comPort, msgOut))
+	{
+		// Release it. MuriConnect adopted this port on the way in, so leaving it open would
+		// leave the generator pointed at a device that just failed to identify - and the
+		// measurement path reuses an open handle without re-checking it, so every later
+		// patch would be written into the wrong adapter and appear to succeed.
+		MuriClose();
+		return false;		// msgOut already says whether it was silent or answered as something else
+	}
+	// Stop at the FIRST failure rather than accumulating one. A device can also drop out
+	// part-way through, after an earlier setting has landed; carrying on would spend a
+	// fresh timeout on every remaining one. s_muriDiag already names what failed.
+	// ORDER IS LOAD-BEARING: the index here is the bit position reported through appliedOut,
+	// and CMuriSettingsDlg::PersistSetting switches on it to decide which config key to
+	// write. Reordering this array without that switch would persist the wrong settings.
+	const struct { int cat; int val; } cmds[] = {
+		{  97, timingId }, {  99, csId    }, { 112, bt2020 },
+		{ 111, hdrMode  }, { 100, bitDepth } };
+	for (int i = 0; i < (int)(sizeof(cmds) / sizeof(cmds[0])); ++i)
+	{
+		if (cmds[i].val < 0) continue;		// unchanged since the dialog opened - nothing to send
+		if (!MuriCmdSingle(cmds[i].cat, cmds[i].val)) { msgOut = s_muriDiag; return false; }
+		if (appliedOut) *appliedOut |= (1u << i);	// the device took this one; it is now state
+	}
+	msgOut.Format(LS(IDS_GEN_MURI_APPLIED), useNet ? _T("HTTP") : _T("serial"), (LPCTSTR)s_muriDiag);
+	return true;
+}
+
+// Read the connected sink's EDID and return a parsed summary. Network transport only.
+bool CGDIGenerator_MuriReadSinkInfo(bool useNet, const CString& ip, const CString& comPort, int tcpPort, CString& summaryOut)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	if (!MuriConnect(useNet, ip, comPort)) { summaryOut = s_muriDiag; return false; }
+	if (useNet && tcpPort > 0) MuriSetTcpPort(tcpPort);
+	std::vector<BYTE> edid;
+	if (!MuriReadEdidBytes(edid)) { summaryOut = LS(IDS_GEN_EDID_READ_FAIL) + s_muriDiag; return false; }
+	summaryOut = MuriParseEdid(edid);
+	return true;
+}
+
+// Show a preset pattern (cat 98, double command): NUM = low byte, BER = bank (0, 1 or 2).
+bool CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString& comPort, int patternId, int patternBer, CString& msgOut)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	if (!MuriConnect(useNet, ip, comPort)) { msgOut = s_muriDiag; return false; }
+	bool ok = MuriCmdDouble(98, patternId, patternBer);
+	msgOut.Format(LS(IDS_GEN_MURI_SENT_PATTERN),
+		patternId, patternBer, useNet ? _T("HTTP") : _T("serial"), (LPCTSTR)s_muriDiag);
+	return ok;
+}
+
+// Multi-line labeled readout (label\tvalue lines) for the panel status box.
+bool CGDIGenerator_MuriQueryReadout(const CString& ip, CString& readoutOut)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	// Ordinary read: use whatever address is live, never adopt the configured one.
+	if (!MuriConnect(true, ip, CString(), false)) { readoutOut.Empty(); return false; }
+	return MuriStatusReadout(readoutOut);
+}
+
+// timing id -> resolution name (kMuriTimings command-id table); "id N" if unknown.
+static CString MuriTimingNameForId(int id)
+{
+	for (int i = 0; i < kMuriTimingN; ++i)
+		if (kMuriTimings[i].id == id) return CString(kMuriTimings[i].name);
+	CString s; s.Format(_T("id %d"), id); return s;
+}
+
+// Query one read keyword (0x80xx) over the already-open serial port; return its first
+// data byte, or -1 on no/short reply. The device answers a read with an 0xAB frame
+//   AB 00 00 <LEN> 00 00 00 <kwlo> <kwhi> <data> <cksum>   (data at header + 9)
+// and reports the SAME command-id numbering the HTTP VIDEOGEN echo uses - verified on
+// hardware: 0x8061 returns the kMuriTimings id (e.g. 20 = 1080p60, matching HEX61NUM20).
+static int MuriSerialReadValue(int readKeyword)
+{
+	std::string reply;
+	if (!MuriSerialXfer(MuriBuildFrame(readKeyword, std::vector<BYTE>()), reply, 32)) return -1;
+	for (size_t k = 0; k + 10 <= reply.size(); ++k)
+		if ((BYTE)reply[k] == 0xAB) return (BYTE)reply[k + 9];
+	return -1;
+}
+
+// Serial equivalent of MuriStatusReadout: query the individual read keywords and map
+// them to the same labelled lines. Assumes the port is open. Fields/labels/order match
+// the HTTP readout so the panel looks identical in either transport.
+static bool MuriSerialStatusReadout(CString& out)
+{
+	int timing = MuriSerialReadValue(0x8061);	// cat 97  -> resolution (kMuriTimings id)
+	int cs     = MuriSerialReadValue(0x8063);	// cat 99  -> colour space 0..4
+	int depth  = MuriSerialReadValue(0x8064);	// cat 100 -> 0=8bit,1=10bit,2=12bit
+	int hdcp   = MuriSerialReadValue(0x8065);	// cat 101 -> 0=off,1=on
+	int output = MuriSerialReadValue(0x8066);	// cat 102 -> 1=HDMI,0=DVI
+	int hdr    = MuriSerialReadValue(0x806F);	// cat 111 -> 0=SDR,1=HDR10,2=HLG,3-10=Custom 1-8
+	int bt2020 = MuriSerialReadValue(0x8070);	// cat 112 -> 0=BT.709,1=BT.2020
+	if (timing < 0 && cs < 0) { out.Empty(); return false; }	// nothing answered
+
+	CString res   = (timing >= 0) ? MuriTimingNameForId(timing) : CString(_T("?"));
+	CString dyn;
+	if      (hdr == 0) dyn = _T("SDR");
+	else if (hdr == 1) dyn = _T("HDR10");
+	else if (hdr == 2) dyn = _T("HLG");
+	else if (hdr >= 3 && hdr <= 10) dyn.Format(_T("Custom %d"), hdr - 2);
+	else dyn = _T("?");
+	CString dep   = (depth == 0) ? _T("8Bit") : (depth == 1) ? _T("10Bit") : (depth == 2) ? _T("12Bit") : _T("?");
+	CString gamut = (bt2020 == 0) ? _T("BT.709") : (bt2020 == 1) ? _T("BT.2020") : _T("?");
+	CString fmt   = (cs == 0 || cs == 1) ? _T("RGB") : (cs == 2) ? _T("YCbCr 4:4:4")
+	              : (cs == 3) ? _T("YCbCr 4:2:2") : (cs == 4) ? _T("YCbCr 4:2:0") : _T("?");
+	CString rng   = (cs == 0) ? _T("Full") : (cs >= 1 && cs <= 4) ? _T("Limited") : _T("?");
+	CString outp  = (output == 1) ? _T("HDMI") : (output == 0) ? _T("DVI") : _T("?");
+	CString hdcpS = (hdcp == 1) ? _T("ON") : (hdcp == 0) ? _T("OFF") : _T("?");
+
+	out.Empty();
+	out += (LS(IDS_GEN_DYNAMIC_RANGE) + _T("\t")) + dyn   + _T("\r\n");
+	out += (LS(IDS_GEN_RESOLUTION) + _T("\t"))    + res   + _T("\r\n");
+	out += (LS(IDS_GEN_BIT_DEPTH) + _T("\t"))     + dep   + _T("\r\n");
+	out += (LS(IDS_GEN_COLOR_SPACE) + _T("\t"))   + gamut + _T("\r\n");
+	out += (LS(IDS_GEN_COLOR_FORMAT) + _T("\t"))  + fmt   + _T("\r\n");
+	out += (LS(IDS_GEN_SIGNAL_RANGE) + _T("\t"))  + rng   + _T("\r\n");
+	out += (LS(IDS_GEN_LBL_OUTPUT) + _T("\t"))        + outp  + _T("\r\n");
+	out += CString(_T("HDCP\t"))          + hdcpS;
+	return true;
+}
+
+// Serial status readout: open the port, query the read keywords, close (mirrors the
+// Detect lifecycle). Used when the panel is in serial (non-network) transport mode.
+bool CGDIGenerator_MuriQueryReadoutSerial(const CString& comPort, CString& readoutOut)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	bool wasOpen = s_muriOpen;	// only close what this readout opened (Show keeps the port)
+	if (!MuriConnect(false, CString(), comPort)) { readoutOut.Empty(); return false; }
+	bool ok = MuriSerialStatusReadout(readoutOut);
+	if (!wasOpen)
+		MuriClose();
+	return ok && !readoutOut.IsEmpty();
+}
+
+BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*first*/, UINT /*nPattern*/ )
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	// NOTE: no "if (!s_dvdoOpen) return FALSE" here. A closed port is exactly what the retry
+	// loop below exists to recover from - the cable-pull case - and returning early aborted the
+	// whole sweep with no reopen attempt and no Retry/Cancel prompt.
+
+	// Use the live window value (kept in sync with the prop page + config by
+	// GetPropertiesSheetValues); the generator's own m_rectSizePercent is only set
+	// once at construction and would send a stale size.
+	int win = (int)m_displayWindow.m_rectSizePercent;
+	if (win <= 0 || win > 100) win = 100;
+
+	// A patch that never reaches the device is NOT a cosmetic failure: the TPG keeps showing
+	// the previous patch and the sweep would measure it against the wrong stimulus, silently
+	// recording bad data. So the send is retried, and a total failure aborts the sequence by
+	// returning FALSE (the measurement loop already stops on that - see Measure.cpp).
+	int maxTries = GetConfig()->GetProfileInt("Debug","PatchSendRetries",3);
+	if (maxTries < 1) maxTries = 1;
+	if (maxTries > 10) maxTries = 10;
+	const DWORD dwRetryPause = 200;
+	bool sent = false;
+
+	// Outer loop = the user's decision; inner loop = the automatic attempts. Retry runs the
+	// attempts again, so a device that is still disconnected simply brings the box straight
+	// back rather than letting the sweep continue against a frozen patch.
+	for (;;)
+	{
+		for (int attempt = 1; attempt <= maxTries && !sent; ++attempt)
+		{
+			// Also on the first attempt when the port is not open: with Debug/PatchSendRetries
+			// set to 1 the inner loop runs once, so a guard of attempt > 1 alone made the reopen
+			// unreachable after the user clicked Retry (which closes the port), leaving Cancel -
+			// abandoning the sweep - as the only way out.
+			if (attempt > 1 || !s_dvdoOpen)
+			{
+				// Only a failed WRITE means the handle is dead and needs replacing; a merely missing
+				// ack is retried on the same handle, because close-then-immediate-reopen can itself
+				// fail on the virtual COM driver (see DvdoOpen).
+				// A write that SUCCEEDED but was not acked is the re-lock signature: a patch that
+				// changes colour space or range makes the device re-sync, and it answers nothing
+				// until that finishes (~2 s, cf. DvdoFormatSettleMs). Waiting it out beats spending
+				// every retry inside the dead window and then raising a spurious "link lost" prompt.
+				Sleep(s_dvdoLastWriteOk
+					? (DWORD)GetConfig()->GetProfileInt("Debug", "DvdoRelockWaitMs", 2000)
+					: dwRetryPause);
+				// Reopen when the handle is dead OR the port is simply not open. The second case
+				// used to be unreachable: s_dvdoLastWriteOk is cleared only by DvdoWrite, DvdoWrite
+				// cannot run with the port closed, and the guard below skipped the attempt - so the
+				// flag stayed true from the last good write and the reopen never fired. The retry
+				// loop then spun on the same dead port forever, which is the exact failure it exists
+				// to recover from. DvdoClose now clears the flag too.
+				if (!s_dvdoLastWriteOk || !s_dvdoOpen)
+				{
+					CString fw;
+					DvdoClose();
+					if (!DvdoOpen(m_dvdoComPort, m_dvdoOutputFormat, &fw, false /*no setup*/))
+						continue;		// device still gone - try again until the attempts run out
+				}
+			}
+			if (!s_dvdoOpen) continue;
+
+			// Arm the internal TPG on the first AA patch of the session. On this firmware the TPG can
+			// be left DISARMED - by an 80=0 "patterns off" or the device's own remote - and then AA
+			// custom patches silently do NOT render (screen stays blank/blue) until an 80 pattern
+			// re-arms it; 6C/61/repeated AA do not (hardware-confirmed 2026-08-08). 80=35 is a
+			// full-black field (0% IRE) so this arm is visually invisible, and it is sent back-to-back
+			// with the AA below (< 1 frame). Only the first patch pays this; DvdoCommand drains the ack.
+			if (!s_dvdoArmed)
+			{
+				DvdoSendPattern(kDvdoArmPattern);
+				s_dvdoArmed = true;
+			}
+			// AA full triplet: R G B Window BackgroundIRE InputRange OutColourSpace OutRange.
+			// R/G/B are encoded in HCFR's selected range (m_b16_235), exactly matching the
+			// main-page stimulus values: limited -> 16-235, full -> 0-255. Nothing in the AA frame
+			// tells the device how those numbers are encoded - the 6th field sets its OUTPUT range,
+			// per the measurement below - so encoding and device range are genuinely independent.
+			// That is why they are separate settings, and why mismatching them is a real user error
+			// the UI does not yet warn about (16-235 codes into a full-range output put white
+			// at about 92%).
+			// HCFR's encoding - which numbers we compute - from the generator page's radios.
+			bool lim = (m_b16_235 != 0);
+			// The DEVICE's range, set independently in the DVDO settings dialog. MEASURED on an
+			// AVLab (fw 1.03, 2026-08-27): the 6th AA parameter is the ONLY range control - it sets
+			// what the device outputs, confirmed against its own OSD menu - and the 8th, which the
+			// User's Guide calls OutRange, has no effect at all (flipping it moved the measured
+			// luminance by 0.3%, inside meter repeatability, and left the OSD unchanged). The Guide
+			// documents two fields because it covers a family of devices; its one worked example
+			// sets both to 1, so it can never show the collapse. They are sent the same value here
+			// to match the documented form - do NOT "simplify" one away without re-measuring.
+			int rng = (m_dvdoOutputRange != 0) ? 0 : 1;	// 0 = Limited (16-235), 1 = Full (0-255)
+			int r = ColorRGBDisplay::ConvertPercentToBYTE(clr[0], lim);
+			int g = ColorRGBDisplay::ConvertPercentToBYTE(clr[1], lim);
+			int b = ColorRGBDisplay::ConvertPercentToBYTE(clr[2], lim);
+			// APL surround: BackgroundIRE (5th AA param), same scale as R/G/B. Live prop value.
+			int bg = ColorRGBDisplay::ConvertPercentToBYTE((double)m_displayWindow.m_bgStimPercent, lim);
+			char val[96];
+			sprintf(val, "%d %d %d %d %d %d %d %d", r, g, b, win, bg, rng, m_dvdoColorSpace, rng);
+			sent = DvdoCommand("AA", std::vector<std::string>(1, val));
+		}
+		if (sent) break;
+		// MB_TOPMOST|MB_SETFOREGROUND because InMeasureMessageBox owns the box to NULL; without
+		// them it can end up behind the main window, where it blocks the app invisibly.
+		if (GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_SERIAL_LINK_LOST), "DVDO AVLab TPG",
+			MB_RETRYCANCEL | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND) != IDRETRY)
+			break;
+		// Retry is the user telling us they have reconnected the device, so force a reopen rather
+		// than trusting s_dvdoLastWriteOk. CSerialCom::WriteByte returns TRUE whenever WriteFile
+		// returns nonzero - it never checks iBytesWritten - so a write into a handle whose device
+		// has gone can still look successful, leaving the flag set and the reopen unreachable.
+		DvdoClose();
+	}
+
+	if (!sent)
+		return FALSE;		// stop the sequence rather than measure a stale patch
+
+	// Courtesy settle wait, mirroring the other external wires.
+	DWORD dwWait = GetConfig()->GetProfileInt("Debug","WaitAfterDisplayPattern",80);
+	DWORD dwStart = GetTickCount();
+	while (GetTickCount() - dwStart < dwWait)
+	{
+		MSG Msg;
+		while (PeekMessage(&Msg, NULL, NULL, NULL, PM_REMOVE)) { TranslateMessage(&Msg); DispatchMessage(&Msg); }
+		Sleep(0);
+	}
+	return TRUE;
+}
+
+BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*first*/, UINT /*nPattern*/ )
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	// Make sure the transport is selected (Init did this too, but be safe).
+	bool connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
+
+	// Triplet + bit-depth generation mirror PGenerator (DisplayRGBColorrPI) exactly - that
+	// is the reference model. Foreground uses PiPercentToCode; the surround is the APL
+	// background (PiBackground8ToCode) so window patches hit the target average level.
+	// Bit depth is the page's level depth (GetUse10bitLevels, now Murideo-aware) so the
+	// codes we send are byte-for-byte the triplet HCFR displays. depth 0=8bit/1=10bit; the
+	// colour-space byte is the cat-99 id 0..4 the settings dialog applied - NOT a range flag,
+	// see MuriCmdRgbTriplet. Deriving it from HCFR's range flag is what broke YCbCr.
+	// HCFR's encoding - which numbers we compute - from the generator page's radios.
+	bool lim = (m_b16_235 != 0);
+	// The DEVICE's colour space and range both live in the cat-99 id the settings dialog
+	// applied, and must NOT be derived from the flag above: deriving them made the first patch
+	// of a sweep silently overwrite whatever the dialog had applied. Sending the id itself
+	// re-asserts it - see MuriCmdRgbTriplet for why the byte takes the full cat-99 enum.
+	// Range for RGB rides in the id (0 = full, 1 = limited), so there is no separate range to
+	// send; YCbCr is 16-235 by definition.
+	int devCs = m_muriColorSpaceId;
+	double bgstim = m_displayWindow.m_bgStimPercent / 100.;
+	double rect   = (double)m_displayWindow.m_rectSizePercent;
+	double R1 = 0., G1 = 0., B1 = 0.;
+	if (rect < 100.)		// subtract the window area so the average APL matches bgStim
+	{
+		R1 = min(255., max(0., (bgstim * 255 - clr[0] * rect / 100.) / (1 - rect / 100.)));
+		G1 = min(255., max(0., (bgstim * 255 - clr[1] * rect / 100.) / (1 - rect / 100.)));
+		B1 = min(255., max(0., (bgstim * 255 - clr[2] * rect / 100.) / (1 - rect / 100.)));
+	}
+	int bits = GetConfig()->GetUse10bitLevels() ? 10 : 8;
+	int r   = PiPercentToCode(clr[0], lim, bits);
+	int g   = PiPercentToCode(clr[1], lim, bits);
+	int b   = PiPercentToCode(clr[2], lim, bits);
+	int bgR = PiBackground8ToCode(R1, lim, bits);
+	int bgG = PiBackground8ToCode(G1, lim, bits);
+	int bgB = PiBackground8ToCode(B1, lim, bits);
+	int win = (int)m_displayWindow.m_rectSizePercent; if (win <= 0 || win > 100) win = 100;
+
+	// As on the DVDO path: a patch that never reaches the device leaves the previous one on
+	// screen, so the sweep would measure the wrong stimulus. Retry, then abort the sequence.
+	int maxTries = GetConfig()->GetProfileInt("Debug","PatchSendRetries",3);
+	if (maxTries < 1) maxTries = 1;
+	if (maxTries > 10) maxTries = 10;
+	bool sent = false;
+	for (;;)
+	{
+		for (int attempt = 1; attempt <= maxTries && !sent; ++attempt)
+		{
+			if (attempt > 1 || !connected)		// see the DVDO loop: reachable when maxTries is 1
+			{
+				Sleep(200);
+				if (!m_muriUseNetwork)		// serial: replace a handle whose device has gone away
+					MuriDisconnect();
+				connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
+			}
+			if (!connected) continue;
+			sent = MuriCmdRgbTriplet(r, g, b, bgR, bgG, bgB, win, (bits == 10) ? 1 : 0, devCs);
+		}
+		if (sent) break;
+		// Same message pair serves every wired generator; the caption names the device. The
+		// Seven-G reaches both arms of this depending on the transport it is configured for.
+		UINT nLostMsg = m_muriUseNetwork ? IDS_GEN_NETWORK_LINK_LOST : IDS_GEN_SERIAL_LINK_LOST;
+		if (GetColorApp()->InMeasureMessageBox(LS(nLostMsg), "Murideo Seven-G",
+			MB_RETRYCANCEL | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND) != IDRETRY)
+			break;
+		// Retry is the user saying they have reconnected the device. MuriCmdRgbTriplet
+		// failing does not clear this flag, so without forcing it the guard above would
+		// never fire and the loop would keep writing into the same dead transport.
+		connected = false;
+	}
+
+	if (!sent)
+		return FALSE;		// stop the sequence rather than measure a stale patch
+	return TRUE;
+}
+
 BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nPatternType , UINT nPatternInfo , BOOL bChangePattern, BOOL bSilentMode)
 {
 	ColorRGBDisplay p_clr;
@@ -988,6 +3042,11 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 	//see if we need to reconnect generator
 	if (!this->m_bisInited)
 		Init();
+
+	// Only the DVDO/Murideo arms below report failure; every other branch keeps the historical
+	// unconditional TRUE. Without this the patch-send failure never reaches the measurement
+	// loop, which stops on FALSE (Measure.cpp), and a sweep would run on against a dead link.
+	BOOL bDisplayOk = TRUE;
 
 	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_GDI_Hide && nPatternType != MT_SPECIAL && nPatternType != MT_CONTRAST)
 	{
@@ -1022,25 +3081,29 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 			DisplayRGBCCast (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
 		else if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_rPI)
 			DisplayRGBColorrPI (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
+		else if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+			bDisplayOk = DisplayRGBColorDVDO (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
+		else if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_MURIDEO)
+			bDisplayOk = DisplayRGBColorMurideo (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
 		else
 			m_displayWindow.DisplayRGBColor(do_Intensity?p_clr:clr, nPatternInfo);
 	}
 
-	return TRUE;
+	return bDisplayOk;
 }
 
 
 BOOL CGDIGenerator::CanDisplayAnsiBWRects()
 {
-	return ((m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_madVR));
+	return ((m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_madVR) && (m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_DVDO) && (m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_MURIDEO));
 }
 
 BOOL CGDIGenerator::CanDisplayAnimatedPatterns(BOOL isSpecialty)
 {
-	if (isSpecialty && m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_madVR)
+	if (isSpecialty && m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_madVR && m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_DVDO && m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_MURIDEO)
 		return TRUE;
 
-	return ((m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_madVR) && (m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_ccast) && (m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_rPI) ? TRUE:FALSE);
+	return ((m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_madVR) && (m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_ccast) && (m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_rPI) && (m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_DVDO) && (m_GDIGenePropertiesPage.m_nDisplayMode != DISPLAY_MURIDEO) ? TRUE:FALSE);
 }
 
 BOOL CGDIGenerator::DisplayAnsiBWRects(BOOL bInvert)
@@ -1269,6 +3332,12 @@ BOOL CGDIGenerator::DisplayUser6()
 
 BOOL CGDIGenerator::DisplaySharp()
 {
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(40 /*Sharpness*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplaySharp();
 	return TRUE;
 }
@@ -1353,12 +3422,24 @@ BOOL CGDIGenerator::DisplayZONE()
 
 BOOL CGDIGenerator::DisplayDotPattern( const ColorRGBDisplay& clr , BOOL dot2, UINT nPads)
 {
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(3 /*EVOT pixel*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplayDotPattern(clr, dot2, nPads);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayHVLinesPattern( const ColorRGBDisplay& clr , BOOL dot2, BOOL vLines)
 {
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(vLines ? 4 /*EVOT H/V line*/ : 5 /*EVOT H line*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplayHVLinesPattern(clr, dot2, vLines);
 	return TRUE;
 }
@@ -1371,18 +3452,36 @@ BOOL CGDIGenerator::DisplayColorLevelPattern( INT clrLevel , BOOL dot2, UINT nPa
 
 BOOL CGDIGenerator::DisplayGeomPattern( BOOL dot2, UINT nPads)
 {
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(1 /*FRMGEOM*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplayGeomPattern(dot2, nPads);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayConvPattern( BOOL dot2, UINT nPads)
 {
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(21 /*Crosshatch fine*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplayConvPattern(dot2, nPads);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayColorPattern( BOOL dot2)
 {
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+	{	// take the transport lock like every other s_dvdoPort user, and report the
+		// send honestly - a closed port used to look like a displayed pattern.
+		CSingleLock lock ( &s_genSerialLock, TRUE );
+		return DvdoSendPattern(8 /*8-bar 100%*/) ? TRUE : FALSE;
+	}
 	m_displayWindow.DisplayColorPattern(dot2);
 	return TRUE;
 }
@@ -1394,9 +3493,26 @@ BOOL CGDIGenerator::DisplayPatternPicture(HMODULE hInst, UINT nIDResource, BOOL 
 }
 
 
+// Report the COM ports the generator currently HOLDS OPEN, whatever display mode is
+// configured. Argyll's meter detection must skip these: probing a port this process has
+// open stalls for seconds and then reports a spurious meter error. Gating the exclusion
+// on the configured mode alone misses a port that Show or Apply left open before the
+// user switched the output back to GDI - the mode says GDI, but the handle is still ours.
+void CGDIGenerator_OpenGeneratorComPorts(std::vector<std::string>& out)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	if (s_dvdoOpen && !s_dvdoOpenPort.IsEmpty()) out.push_back((LPCSTR)s_dvdoOpenPort);
+	if (s_muriOpen && !s_muriOpenPort.IsEmpty()) out.push_back((LPCSTR)s_muriOpenPort);
+}
+
 BOOL CGDIGenerator::Release(INT nbNext)
 {
 	GetColorApp() -> SetPatternWindow ( NULL );
+	// Unconditional: Show and Apply deliberately leave the port open, so a session that
+	// ends after the user has switched the output back to GDI would otherwise strand the
+	// handle. Both closers are no-ops when nothing is open.
+	DvdoClose();
+	MuriDisconnect();
 	m_displayWindow.Hide();
 	m_displayWindow.SetDisplayMode(GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE));
 	m_displayWindow.m_nPat = 0;

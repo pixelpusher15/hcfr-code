@@ -55,8 +55,16 @@ public:
 	BOOL ReadByte(BYTE &resp);
 	BOOL WriteByte(BYTE bybyte);
 	BOOL OpenPort(CString portname);
+	// Both of the following CloseHandle(hComm) on EVERY failure path AND set hComm to
+	// INVALID_HANDLE_VALUE, so a caller that gets FALSE may safely call ClosePort anyway -
+	// ClosePort is guarded and idempotent.
 	BOOL SetCommunicationTimeouts(DWORD ReadIntervalTimeout,DWORD ReadTotalTimeoutMultiplier,DWORD ReadTotalTimeoutConstant,DWORD WriteTotalTimeoutMultiplier,DWORD WriteTotalTimeoutConstant);
 	BOOL ConfigurePort(DWORD BaudRate,BYTE ByteSize,DWORD fParity,BYTE  Parity,BYTE StopBits);
+	// When TRUE, ConfigurePort/SetCommunicationTimeouts report failure through their
+	// return value only, instead of popping a modal message box. Callers that run on a
+	// worker thread must set this: an ownerless modal box raised off the UI thread can
+	// block the whole app. Defaults to FALSE, so existing callers are unchanged.
+	BOOL     m_bQuiet;
 	HANDLE hComm;
 	DCB      m_dcb;
 	COMMTIMEOUTS m_CommTimeouts;

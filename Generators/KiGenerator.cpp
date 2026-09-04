@@ -1571,7 +1571,10 @@ CString	CKiGenerator::AcquireIRCode ()
 					{
 						if ( bFirstByte )
 						{
-							port.SetCommunicationTimeouts(0,200,0,0,0);
+							// CSerialCom now closes and invalidates hComm when this fails, so reading on
+							// would work a dead handle and return a silently truncated code. Stop instead.
+							if (!port.SetCommunicationTimeouts(0,200,0,0,0))
+								break;
 							bFirstByte = FALSE;
 						}
 

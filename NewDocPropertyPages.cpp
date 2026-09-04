@@ -25,6 +25,9 @@
 #include "ColorHCFR.h"
 #include "NewDocPropertyPages.h"
 #include "ArgyllMeterWrapper.h"
+#include "Generators/FullScreenWindow.h"	// DISPLAY_DVDO / DISPLAY_MURIDEO / DISPLAY_DEFAULT_MODE
+
+extern void ArgyllExcludeActiveGeneratorComPorts();	// ArgyllSensor.cpp
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -82,9 +85,9 @@ END_MESSAGE_MAP()
 
 
 
-BOOL CGeneratorSelectionPropPage::OnSetActive() 
+BOOL CGeneratorSelectionPropPage::OnSetActive()
 {
-	CPropertySheetWithHelp * psheet = (CPropertySheetWithHelp*) GetParent();   
+	CPropertySheetWithHelp * psheet = (CPropertySheetWithHelp*) GetParent();
 	psheet->SetWizardButtons(PSWIZB_NEXT);
 
 	return CPropertyPageWithHelp::OnSetActive();
@@ -133,6 +136,9 @@ void CSensorSelectionPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_SENSORCHOICE_COMBO, m_sensorChoiceCtrl);
     if(m_sensorChoiceCtrl.GetCount() == 0)
     {
+        // Shared with CArgyllSensor::Serialize - see ArgyllSensor.cpp.
+        ArgyllExcludeActiveGeneratorComPorts();
+
         std::string errorMessage;
         ArgyllMeterWrapper::ArgyllMeterWrappers argyllMeters = ArgyllMeterWrapper::getDetectedMeters(errorMessage);
         if(!errorMessage.empty())
@@ -174,15 +180,15 @@ BEGIN_MESSAGE_MAP(CSensorSelectionPropPage, CPropertyPageWithHelp)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
-BOOL CSensorSelectionPropPage::OnSetActive() 
+BOOL CSensorSelectionPropPage::OnSetActive()
 {
-	CPropertySheetWithHelp* psheet = (CPropertySheetWithHelp*) GetParent();   
+	CPropertySheetWithHelp* psheet = (CPropertySheetWithHelp*) GetParent();
 	psheet->SetWizardButtons(PSWIZB_BACK |PSWIZB_FINISH);
 
 	BOOL bRet = CPropertyPageWithHelp::OnSetActive();
-	
+
 	OnSelchangeSensorchoiceCombo();
-	
+
 	return bRet;
 }
 
