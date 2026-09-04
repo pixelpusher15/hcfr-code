@@ -1217,6 +1217,210 @@ void CColorHCFRConfig::EnsurePathExists ( CString strPath )
 {
 	CreateDirectory ( strPath, NULL );
 }
+// ---- Sensor correction files (.thc) ----
+// Copy every .thc from one folder into the per-user folder. CopyFile with
+// bFailIfExists TRUE never overwrites, so a file already in the destination
+// always wins over an older copy found in the install tree.
+static void HcfrCopyThcFiles ( LPCSTR lpszSrcDir, LPCSTR lpszDestDir )
+{
+	char			szPattern [ MAX_PATH ];
+	WIN32_FIND_DATA	wfd;
+	HANDLE			hFind;
+	int				nLen;
+
+	nLen = _snprintf ( szPattern, sizeof ( szPattern ), "%s\\*.thc", lpszSrcDir );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szPattern ) )
+		return;
+
+	hFind = FindFirstFile ( szPattern, & wfd );
+	if ( hFind == INVALID_HANDLE_VALUE )
+		return;
+
+	do
+	{
+		char	szSrc [ MAX_PATH ], szDst [ MAX_PATH ];
+		int		nSrc, nDst;
+
+		if ( wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY )
+			continue;
+
+		nSrc = _snprintf ( szSrc, sizeof ( szSrc ), "%s\\%s", lpszSrcDir, wfd.cFileName );
+		nDst = _snprintf ( szDst, sizeof ( szDst ), "%s%s", lpszDestDir, wfd.cFileName );
+		if ( nSrc > 0 && nSrc < (int) sizeof ( szSrc ) && nDst > 0 && nDst < (int) sizeof ( szDst ) )
+			CopyFile ( szSrc, szDst, TRUE );
+	} while ( FindNextFile ( hFind, & wfd ) );
+
+	FindClose ( hFind );
+}
+
+// Scan one install tree for the per-sensor Etalon_* folders earlier versions
+// used. Etalon_HCFR is the only one the installer populates, and its files are
+// corrections for the HCFR sensor, which this version cannot select - so it is
+// skipped, to keep some sixty shipped files out of every user's list. The UAC
+// VirtualStore mirror is the exception: nothing is redirected there unless the
+// user wrote it, so that tree is taken whole.
+static void HcfrScanForThc ( LPCSTR lpszBaseDir, LPCSTR lpszDestDir, BOOL bUserWritesOnly )
+{
+	char			szBase [ MAX_PATH ];
+	char			szPattern [ MAX_PATH ];
+	WIN32_FIND_DATA	wfd;
+	HANDLE			hFind;
+	int				nLen;
+
+	if ( lpszBaseDir == NULL || *lpszBaseDir == '\0' )
+		return;
+
+	// The caller's path may or may not carry a trailing backslash.
+	lstrcpyn ( szBase, lpszBaseDir, MAX_PATH );
+	nLen = strlen ( szBase );
+	while ( nLen > 1 && szBase [ nLen - 1 ] == '\\' && szBase [ nLen - 2 ] != ':' )
+		szBase [ -- nLen ] = '\0';
+
+	nLen = _snprintf ( szPattern, sizeof ( szPattern ), "%s\\Etalon_*", szBase );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szPattern ) )
+		return;
+
+	hFind = FindFirstFile ( szPattern, & wfd );
+	if ( hFind == INVALID_HANDLE_VALUE )
+		return;
+
+	do
+	{
+		char	szSub [ MAX_PATH ];
+		int		nSub;
+
+		if ( ! ( wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+			continue;
+		if ( ! bUserWritesOnly && _stricmp ( wfd.cFileName, "Etalon_HCFR" ) == 0 )
+			continue;
+
+		nSub = _snprintf ( szSub, sizeof ( szSub ), "%s\\%s", szBase, wfd.cFileName );
+		if ( nSub > 0 && nSub < (int) sizeof ( szSub ) )
+			HcfrCopyThcFiles ( szSub, lpszDestDir );
+	} while ( FindNextFile ( hFind, & wfd ) );
+
+	FindClose ( hFind );
+}
+
+// Bring across what earlier versions left in the install tree, and in the
+// VirtualStore mirror UAC redirected a standard user's writes to.
+static void HcfrMigrateThc ( LPCSTR lpszAppPath, LPCSTR lpszDestDir )
+{
+	HcfrScanForThc ( lpszAppPath, lpszDestDir, FALSE );
+
+	if ( lpszAppPath != NULL && lpszAppPath [ 0 ] != '\0' && lpszAppPath [ 1 ] == ':' )
+	{
+		const char *	pLocalAppData = getenv ( "LOCALAPPDATA" );
+
+		if ( pLocalAppData && *pLocalAppData )
+		{
+			char	szVirtual [ MAX_PATH ];
+			int		nLen;
+
+			// VirtualStore mirrors the install path minus its drive letter.
+			nLen = _snprintf ( szVirtual, sizeof ( szVirtual ), "%s\\VirtualStore\\%s", pLocalAppData, lpszAppPath + 3 );
+			if ( nLen > 0 && nLen < (int) sizeof ( szVirtual ) )
+				HcfrScanForThc ( szVirtual, lpszDestDir, TRUE );
+		}
+	}
+}
+
+// Once per user profile, recorded in the INI the same way the settings
+// migration is. Keying on the folder being empty instead would copy the old
+// files back the moment a user deleted the last of them, and would re-sweep
+// the install tree on every call for everyone who has nothing to migrate.
+static void HcfrMigrateThcOnce ( CColorHCFRConfig * pConfig, LPCSTR lpszAppPath, LPCSTR lpszDestDir )
+{
+	if ( pConfig -> GetProfileInt ( "Defaults", "EtalonMigrated", 0 ) != 0 )
+		return;
+
+	HcfrMigrateThc ( lpszAppPath, lpszDestDir );
+	pConfig -> WriteProfileInt ( "Defaults", "EtalonMigrated", 1 );
+}
+
+BOOL CColorHCFRConfig::GetEtalonPath ( CString & strPath )
+{
+	const char *	pAppData = getenv ( "APPDATA" );
+	char			szParent [ MAX_PATH ];
+	char			szEtalon [ MAX_PATH ];
+	DWORD			dwAttributes;
+	int				nLen;
+
+	if ( pAppData == NULL || *pAppData == '\0' )
+	{
+		// No roaming profile to write into. Name the historical location so the
+		// caller still has something to show, and report whether it is usable.
+		strPath = m_ApplicationPath;
+		strPath += "Etalon\\";
+		CreateDirectory ( strPath, NULL );
+		dwAttributes = GetFileAttributes ( strPath );
+		return ( dwAttributes != INVALID_FILE_ATTRIBUTES
+			  && ( dwAttributes & FILE_ATTRIBUTE_DIRECTORY ) != 0 );
+	}
+
+	// strPath is filled in on every path, including these: a caller that only
+	// has it to name in a message must never be handed an empty string.
+	nLen = _snprintf ( szParent, sizeof ( szParent ), "%s\\HCFR", pAppData );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szParent ) )
+	{
+		strPath = pAppData;
+		strPath += "\\HCFR\\Etalon\\";
+		SetLastError ( ERROR_FILENAME_EXCED_RANGE );
+		return FALSE;
+	}
+	nLen = _snprintf ( szEtalon, sizeof ( szEtalon ), "%s\\Etalon", szParent );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szEtalon ) )
+	{
+		strPath = szParent;
+		strPath += "\\Etalon\\";
+		SetLastError ( ERROR_FILENAME_EXCED_RANGE );
+		return FALSE;
+	}
+
+	strPath = szEtalon;
+	strPath += '\\';
+
+	// Only a directory will do: something else of that name would hand every
+	// later call a path it cannot use.
+	dwAttributes = GetFileAttributes ( szEtalon );
+	if ( dwAttributes != INVALID_FILE_ATTRIBUTES )
+	{
+		if ( ! ( dwAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+		{
+			SetLastError ( ERROR_DIRECTORY );
+			return FALSE;
+		}
+
+		// The folder exists, but that alone does not mean the files came across:
+		// the first run may have failed every copy, and a roaming profile arrives
+		// on a second machine already carrying the folder and none of its files.
+		// Retry while it still holds nothing, then leave it alone for good.
+		HcfrMigrateThcOnce ( this, m_ApplicationPath, strPath );
+		return TRUE;
+	}
+
+	// %APPDATA% always exists; the two levels below it may not.
+	CreateDirectory ( szParent, NULL );
+	if ( ! CreateDirectory ( szEtalon, NULL ) )
+	{
+		// ERROR_ALREADY_EXISTS covers a file of that name as well as a folder.
+		if ( GetLastError () != ERROR_ALREADY_EXISTS )
+			return FALSE;
+
+		dwAttributes = GetFileAttributes ( szEtalon );
+		if ( dwAttributes == INVALID_FILE_ATTRIBUTES
+		  || ! ( dwAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+		{
+			SetLastError ( ERROR_DIRECTORY );
+			return FALSE;
+		}
+		HcfrMigrateThcOnce ( this, m_ApplicationPath, strPath );
+		return TRUE;
+	}
+
+	HcfrMigrateThcOnce ( this, m_ApplicationPath, strPath );
+	return TRUE;
+}
 
 std::vector<int> cTargetR;
 std::vector<int> cTargetG;

@@ -2578,13 +2578,9 @@ BOOL CMultiFrame::DdeCmdExec ( CString & strCommand, BOOL bCanSendAckMsg, HWND h
 				{
 					if ( strParam.Find ( '\\' ) < 0 )
 					{
-						// Build full calibration file name
-						str = GetConfig () -> m_ApplicationPath;
-						str += pSensor -> GetStandardSubDir ();
-						
-						GetConfig () -> EnsurePathExists ( str );
-						
-						str += '\\';
+						// Build full calibration file name. An unusable folder fails the
+						// command rather than being written past.
+						bOk = GetConfig () -> GetEtalonPath ( str );
 						str += strParam;
 					}
 					else
@@ -2593,9 +2589,47 @@ BOOL CMultiFrame::DdeCmdExec ( CString & strCommand, BOOL bCanSendAckMsg, HWND h
 						str = strParam;
 					}
 
-					CFile ThcFile ( str, CFile::modeCreate | CFile::modeWrite );
-					CArchive ar ( & ThcFile, CArchive::store );
-					pSensor -> Serialize(ar);
+					if ( bOk )
+					{
+						// A write that throws here has no handler of its own: this is a
+						// script command, so report the failure through bOk instead of
+						// letting it unwind to MFC as "Command failed".
+						// Let Windows name the temporary: the caller supplies this path and
+						// nothing bounds its length, so appending could exceed MAX_PATH.
+						CString strTempPath;
+						CString strDir = str.Left ( str.ReverseFind ( '\\' ) + 1 );
+						char	szTempName [ MAX_PATH ];
+
+						if ( strDir.IsEmpty () )
+							strDir = ".\\";
+						if ( GetTempFileName ( strDir, "thc", 0, szTempName ) != 0 )
+							strTempPath = szTempName;
+						else
+							bOk = FALSE;
+
+						if ( bOk )
+						TRY
+						{
+							CFile ThcFile ( strTempPath, CFile::modeCreate | CFile::modeWrite );
+							CArchive ar ( & ThcFile, CArchive::store );
+
+							pSensor -> Serialize(ar);
+
+							ar.Close ();
+							ThcFile.Close ();
+
+							if ( ! MoveFileEx ( strTempPath, str, MOVEFILE_REPLACE_EXISTING ) )
+								bOk = FALSE;
+						}
+						CATCH_ALL ( e )
+						{
+							bOk = FALSE;
+						}
+						END_CATCH_ALL
+
+						if ( ! bOk && ! strTempPath.IsEmpty () )
+							DeleteFile ( strTempPath );
+					}
 				}
 			}
 		}
