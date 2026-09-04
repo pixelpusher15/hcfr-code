@@ -33,6 +33,7 @@
 #include "graphcontrol.h"
 #include "GdiPlusAA.h"
 #include "GamutCoverage.h"
+#include "GamutName.h"
 #include "Views\MainView.h"
 
 #ifdef _DEBUG
@@ -752,19 +753,8 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	BOOL hasPrimaries = redPrimaryColor.isValid() && greenPrimaryColor.isValid() &&
 						bluePrimaryColor.isValid();
 
-	// Short names for the mainstream gamuts; everything else (incl. the
-	// reduced-primary HDTVa/HDTVb pseudo-gamuts) uses its own reference
-	// name so the label always matches the triangle actually drawn.
 	WCHAR gamutName[64];
-	switch (GetColorReference().m_standard)
-	{
-		case HDTV: case UHDTV4: wcscpy_s(gamutName, L"Rec.709");  break;
-		case UHDTV: case UHDTV3: wcscpy_s(gamutName, L"DCI-P3");   break;
-		case UHDTV2:            wcscpy_s(gamutName, L"Rec.2020");  break;
-		default:
-			swprintf_s(gamutName, 64, L"%S", GetColorReference().GetName().c_str());
-			break;
-	}
+	GamutShortName(GetColorReference(), gamutName, 64);
 
 	// Decide whether the coverage percentages are current. They are stale
 	// (and hidden) if the reference standard changed while the measured

@@ -27,6 +27,8 @@
 #include "DocTempl.h"
 #include "Color3DView.h"
 #include "MainView.h"
+#include "GamutName.h"		// the chips label their gamut like the CIE chart does
+#include "GamutVolume.h"
 #include "GdiPlusAA.h"
 #include "math.h"
 #include <stdio.h>
@@ -57,6 +59,32 @@ static std::wstring LoadResWide( UINT nID )
 	if ( n )
 		MultiByteToWideChar( CP_ACP, 0, (LPCSTR)s, s.GetLength(), &w[0], n );
 	return w;
+}
+
+// Text for one of the gamut-volume chips. The format string lives in the
+// satellite resource DLL, so it can come back empty (a language DLL that was not
+// rebuilt -- building only ColorHCFR leaves them stale) or with a conversion a
+// translator mistyped. "%.1f" is the part that is never translated, so require
+// it and otherwise fall back to the bare percentage: an unlabelled number beats
+// an empty pill, and beats handing swprintf a spec that does not match the
+// double it is passed.
+static void ProfilePctChip( wchar_t (&out)[64], UINT nID, double pct )
+{
+	// Safe means EXACTLY one "%.1f" and no other conversion: a translation that
+	// kept the float but added a stray "%s" would otherwise reach swprintf and
+	// have it read a second argument that was never passed.
+	std::wstring fmt = LoadResWide( nID );
+	bool ok = false;
+	for ( size_t i = 0; i < fmt.size(); i++ )
+	{
+		if ( fmt[i] != L'%' )
+			continue;
+		if ( fmt.compare( i, 2, L"%%" ) == 0 )          { i++; continue; }
+		if ( fmt.compare( i, 4, L"%.1f" ) == 0 && !ok ) { ok = true; i += 3; continue; }
+		ok = false;
+		break;
+	}
+	swprintf( out, 64, ok ? fmt.c_str() : L"%.1f%%", pct );
 }
 
 static const double k2PI = 6.283185307179586;
@@ -185,6 +213,7 @@ C3DColorView::C3DColorView()
 	, m_freeInScene(0)
 	, m_profileInScene(0)
 	, m_lumTop(1.0)
+	, m_volValid(false), m_volDirty(true), m_volPct(0.0), m_covPct(0.0), m_volKeyValid(false)
 	, m_baseValid(false)
 	, m_gamutValid(false)
 	, m_texDC(NULL), m_texBmp(NULL), m_texOld(NULL), m_texBits(NULL), m_texW(0), m_texH(0), m_texSig(-1)
@@ -474,6 +503,7 @@ void C3DColorView::BuildScene()
 	m_points.clear();
 	m_gamutValid = false;
 	m_baseValid  = false;
+	m_volDirty   = true;  // reference, white or cube may all have moved
 	m_selected   = -1;    // indices are invalid after a rebuild
 
 	CDataSetDoc * pDoc = GetDocument();
@@ -1748,6 +1778,59 @@ void C3DColorView::Render(const CRect& rc)
 			swprintf( buf + len, 160 - len, L"   \x2022   %d hidden", nHidden );
 		}
 		g.DrawString( buf, -1, &fontSmall, Gdiplus::PointF( 8.0f, 6.0f ), &dim );
+
+		// Gamut volume / coverage chips, top right: the volumetric counterpart of
+		// the CIE chart's coverage row, drawn with the same pills. Only a display-
+		// profile cube can produce them; without one the row is simply absent,
+		// exactly as the CIE chart hides its percentages when the primaries are
+		// missing. The lazy recompute lands here (not in Render's hot path) so a
+		// rotation never pays for it.
+		if ( m_volDirty )
+			UpdateGamutVolume();
+		// The cube is the only source for these numbers, so they follow its layer:
+		// with the profile points hidden the cloud and the point count above drop
+		// them, and a percentage still sitting up here would read as if it
+		// described whatever sweep is left on screen.
+		if ( m_volValid && m_showProfilePts )
+		{
+			WCHAR gamutName[64], covBuf[64], volBuf[64];
+			GamutShortName( SceneGamutReference(), gamutName, 64 );
+			ProfilePctChip( covBuf, IDS_3DVIEW_GAMUTCOV, m_covPct );
+			ProfilePctChip( volBuf, IDS_3DVIEW_GAMUTVOL, m_volPct );
+
+			// UnitPixel, so unlike the UnitPoint overlay text it does not follow the
+			// display DPI on its own -- scale it, or on a 200% display the pills
+			// stay 12px beside a header at twice the size, and `avail` below then
+			// compares a scaled header width against unscaled chips.
+			Gdiplus::Font  chipFont( L"Segoe UI", (Gdiplus::REAL)GetConfig()->Scale( 12 ),
+									 Gdiplus::FontStyleRegular, Gdiplus::UnitPixel );
+			Gdiplus::Color cFill( 255, 42, 42, 42 ), cBorder( 255, 72, 72, 72 ), cText( 255, 215, 215, 215 );
+
+			// Visual order is [gamut] [coverage] [volume]; when the row will not
+			// fit beside the header text, volume drops first, then coverage --
+			// coverage is the headline, and the gamut name keeps it unambiguous.
+			const WCHAR * ordered[3] = { gamutName, covBuf, volBuf };
+			int nChips = 3;
+			const Gdiplus::REAL pad = (Gdiplus::REAL)GetConfig()->Scale( 8 ),
+								gap = (Gdiplus::REAL)GetConfig()->Scale( 6 );
+			Gdiplus::RectF hdrBounds;
+			g.MeasureString( buf, -1, &fontSmall, Gdiplus::PointF( 0.0f, 0.0f ), &hdrBounds );
+			Gdiplus::REAL avail = (Gdiplus::REAL)w - 2.0f * pad - hdrBounds.Width - 2.0f * gap;
+			Gdiplus::REAL rowW = 0.0f;   // not "total": Render already has one
+			for ( int ci = 0; ci < nChips; ci++ )
+				rowW += MeasureStatChip( g, chipFont, ordered[ci] ).Width + ( ci ? gap : 0.0f );
+			while ( nChips > 1 && rowW > avail )
+				rowW -= MeasureStatChip( g, chipFont, ordered[--nChips] ).Width + gap;
+
+			if ( rowW <= avail )
+			{
+				Gdiplus::REAL bottom = pad + MeasureStatChip( g, chipFont, gamutName ).Height;
+				Gdiplus::REAL xRight = (Gdiplus::REAL)w - pad;
+				for ( int ci = nChips - 1; ci >= 0; ci-- )
+					xRight -= DrawStatChip( g, chipFont, ordered[ci], xRight, bottom, cFill, cBorder, cText ) + gap;
+			}
+		}
+
 		g.DrawString( L"drag: rotate    shift+drag: pan    wheel: zoom    click: inspect    right-click: options",
 					  -1, &fontSmall, Gdiplus::PointF( 8.0f, (float)( h - 20 ) ), &dim );
 
@@ -1975,6 +2058,94 @@ void C3DColorView::AppendNewProfileMeasures()
 		lastAppended = i + 1;	// keep m_profileInScene-1 pointing at a valid patch
 	}
 	m_profileInScene = lastAppended;
+	m_volDirty = true;		// the cube grew: the chips owe a fresh number
+}
+
+// Volume and coverage of the measured display gamut against the reference one,
+// both as a percentage of the reference solid (see libHCFR/GamutVolume.h).
+//
+// The source is the display-profile cube and nothing else: an N^3 grid is what
+// makes the solid's interior known, and hence the intersection computable. The
+// primaries/secondaries alone would give only 8 corners (~10% low on volume,
+// and no way to tell inside from outside), and ramps plus saturation sweeps
+// would assume the display is additive - the very thing this measures.
+//
+// The white anchor lives inside the cube (its own 100% corner), not in the
+// scene's m_lumTop: coverage is a media-relative question about gamut shape, and
+// in HDR-10 normalising by the TargetMaxL peak would report a display's
+// luminance headroom as missing gamut. The chips can therefore read near 100%
+// while the cloud visibly sits low inside a peak-normalised solid -- different
+// questions, both answered elsewhere on screen.
+void C3DColorView::UpdateGamutVolume()
+{
+	m_volDirty = false;
+
+	CDataSetDoc * pDoc = GetDocument();
+	CMeasure * pMeasure = ( pDoc != NULL ) ? pDoc->GetMeasure() : NULL;
+	if ( pMeasure == NULL || !pMeasure->HasProfileMeasures() )
+		{ m_volValid = m_volKeyValid = false; return; }
+
+	int cubeN = pMeasure->GetProfileCubeSize();
+	if ( cubeN < 2 )
+		{ m_volValid = m_volKeyValid = false; return; }
+	int need = cubeN * cubeN * cubeN;
+	if ( pMeasure->GetProfileMeasureSize() < need )
+		{ m_volValid = m_volKeyValid = false; return; }	// stopped before the cube closed
+
+	// The array is pre-sized to the whole patch list at capture start, so size
+	// alone says nothing about progress. Patch need-1 is the cube's last node
+	// (white), measured last: one lookup rules out a capture still in flight,
+	// which matters because every appended patch re-dirties this and a live
+	// sweep would otherwise walk the whole cube on every repaint.
+	CColor whiteCorner = pMeasure->GetProfileMeasure( need - 1 );
+	if ( !whiteCorner.isValid() )
+		{ m_volValid = m_volKeyValid = false; return; }
+
+	CColorReference ref = SceneGamutReference();
+
+	// BuildScene re-dirties this, and a rebuild follows essentially any document
+	// hint -- so with a cube already in the document a grayscale or saturation
+	// sweep would re-walk 9261 vertices and ~150k tetrahedra on every repaint
+	// (31 ms at 21^3 in a Debug build) only to arrive at the same number. So key
+	// the recompute on what it actually depends on. Patch need-1 is the cube's
+	// last node AND the last value the capture settles -- the closing drift
+	// anchor rescales it -- so it stands in for the cube's contents; nothing in
+	// the app edits a profile node on its own (SetProfileMeasure has no callers).
+	double key[VOL_KEY_LEN];
+	ColorXYZ wc = whiteCorner.GetXYZValue();
+	ColorXYZ rw = ref.GetWhite(), rr = ref.GetRed(), rg = ref.GetGreen(), rb = ref.GetBlue();
+	int k = 0;
+	key[k++] = cubeN;
+	key[k++] = pMeasure->GetProfileMeasureSize();
+	key[k++] = ref.m_standard;
+	for ( int i = 0; i < 3; i++ )
+	{
+		key[k++] = wc[i];  key[k++] = rw[i];  key[k++] = rr[i];
+		key[k++] = rg[i];  key[k++] = rb[i];
+	}
+	ASSERT( k == VOL_KEY_LEN );		// every slot written, or the tail is garbage
+	if ( m_volKeyValid && memcmp( key, m_volKey, sizeof( key ) ) == 0 )
+		return;		// same cube, same reference: the number already on screen stands
+	memcpy( m_volKey, key, sizeof( key ) );
+	m_volKeyValid = true;
+	m_volValid    = false;
+
+	std::vector<ColorXYZ> cube( (size_t)need );
+	for ( int i = 0; i < need; i++ )
+	{
+		CColor c = pMeasure->GetProfileMeasure( i );
+		if ( !c.isValid() )
+			return;	// a hole anywhere leaves the solid undefined: show no number
+		cube[i] = c.GetXYZValue();
+	}
+
+	GamutVolumeResult r = ComputeGamutVolume( &cube[0], cubeN, ref );
+	if ( !r.valid )
+		return;
+
+	m_volPct   = r.VolumeRatio();
+	m_covPct   = r.Coverage();
+	m_volValid = true;
 }
 
 // Consume a pending selection request: find the point matching the requested
