@@ -5422,24 +5422,35 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		if ( !ConfirmClearSpectralForMatrixCal(m_pSensor) )
 			return;
 
+		BOOL	bLoaded = TRUE;
+
 		if(page.m_sensorTrainingMode != 1)
-			m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
-		m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
-		// LoadCalibrationFile (COneDeviceSensor::Serialize) has already restored the full
-		// correction from the training file: the calibration method plus either the single
-		// sensor matrix or the three Bodner sub-gamut matrix pairs. Recompute the stored
-		// measurements with whichever method was loaded - a Bodner training file must be
-		// re-applied through its sub-gamut matrices, not stripped back to raw by the identity
-		// single-matrix a Bodner sensor carries.
-		if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
+			bLoaded = m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
+
+		// A correction file that could not be read has left the sensor exactly
+		// as it was, so the document must not be touched either. Going on would
+		// stamp a calibration time for a calibration that never happened -
+		// SetSensorMatrixMod sets m_calibrationTime - and mark the document
+		// modified over it.
+		if ( bLoaded )
 		{
-			int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
-			ShowBodnerSkipCount ( nSkipped );
+			m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
+			// LoadCalibrationFile (COneDeviceSensor::Serialize) has already restored the full
+			// correction from the training file: the calibration method plus either the single
+			// sensor matrix or the three Bodner sub-gamut matrix pairs. Recompute the stored
+			// measurements with whichever method was loaded - a Bodner training file must be
+			// re-applied through its sub-gamut matrices, not stripped back to raw by the identity
+			// single-matrix a Bodner sensor carries.
+			if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
+			{
+				int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+				ShowBodnerSkipCount ( nSkipped );
+			}
+			else
+				m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
+			UpdateAllViews ( NULL, UPD_EVERYTHING );
+			SetModifiedFlag(TRUE);
 		}
-		else
-			m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
-		UpdateAllViews ( NULL, UPD_EVERYTHING );
-		SetModifiedFlag(TRUE);
 	}
 }
 
