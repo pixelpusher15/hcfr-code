@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -47,6 +47,7 @@ public:
 	float				m_blueValue;
     float               m_dEValue;
 	BOOL			    m_bLumaMode;
+	BOOL			    m_bHasReference;
 
 	CColor *		m_pRefColor;
 	CDataSetDoc *	m_pDocument;

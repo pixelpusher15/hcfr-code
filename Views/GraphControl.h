@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 /////////////////////////////////////////////////////////////////////////////
 
 #if !defined(AFX_GRAPHCONTROL_H__A5F56589_1DF3_4759_AF94_C8FA6CD76575__INCLUDED_)
@@ -84,6 +84,7 @@ public:
 	BOOL m_doShowAllToolTips;
 
 	BOOL m_doShowXLabel;
+	BOOL m_doShowXUnitOnAxis;	// set by the owner, not a user setting - see DrawAxis
 	BOOL m_doShowYLabel;
 	BOOL m_doShowDataLabel;
 

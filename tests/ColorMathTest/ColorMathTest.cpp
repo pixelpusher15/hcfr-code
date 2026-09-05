@@ -10,17 +10,15 @@
 // T2/T3/T4/T6 dump deterministic tables and compare them exactly against checked-in goldens.
 // Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
-// T10 asserts gamut-basis consistency, T15 asserts the CubeLUT .cube format contract
-// and its tetrahedral evaluator, and T16 asserts the LUT lattice algebra (typed
-// compose/resample, ShaperCurve, and the shaper+cube split).
-// T11-T14 are deliberately skipped here, reserved for in-flight branches: PR #178 claims
-// T11/T12 (BT.2390 oracles); the csv-provenance and wtw-reference branches carry their
-// own T11/T12 copies TODAY and renumber when they rebase (T14 is held for that
-// renumbering; T16 is this branch's second slot per the next-free-number rule, so the
-// next free number is T17); the display-model series owns T13. Check open branches
-// before assigning any new T number.
-// The .chc round-trip originally planned for the T7 slot needs app-level linkage and is
-// deliberately still not in this console harness.
+// T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
+// T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table,
+// T15 asserts the CubeLUT .cube format contract and its tetrahedral evaluator, and T16
+// asserts the LUT lattice algebra (typed compose/resample, ShaperCurve, and the
+// shaper+cube split). T13 and T14 are deliberately skipped here: the in-flight
+// display-model series (PR #183) owns T13, and T14 is unclaimed - it is held for a
+// branch that has to renumber when it rebases. Check the open branches before
+// assigning any new T number. The .chc round-trip originally planned for the T7 slot
+// needs app-level linkage and is deliberately still not in this console harness.
 
 #include <afx.h>
 #include "../../libHCFR/Color.h"
@@ -782,6 +780,307 @@ static void RunT10()
                          tag, rgb[0], rgb[1], rgb[2], k, back[k], viaGetter[k]);
         }
     }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T11 - BT.2390 tone-map monotonicity oracle (pure assertion, no golden file).
+//
+// Closes the near-black half of the tone-mapping curve, which no dE-based
+// harness can see: /accuracytest runs every tone-map combo with MasterMinL and
+// TargetMinL pinned to 0, and a reference that is wrong in exactly the same way
+// as the modelled sensor still reads dE 0.000.
+//
+// The bug this pins: BT2390ToneMap normalises the signal against the mastering
+// display's black (E1 = (E - PQ(MinML)) / d), runs the knee, and then only
+// applies BT.2390's black lift when E2 landed inside [0,1]. Anything that fell
+// out of that window dropped to the raw, UN-tone-mapped PQ curve, so near-black
+// got no lift at all while the highlights were still rolled off - Y target at 0%
+// (which returns the display black target directly) could come out ABOVE Y
+// target at 1-5%. Two inputs land in that dead zone: a signal below the
+// mastering black (negative E1, so negative E2), and a target peak below a third
+// of the mastering range (negative KS, so the knee itself returns a negative
+// E2). The E2 floor in Color.cpp covers both.
+//
+// The invariant is the weakest thing that catches it and stays true of any sane
+// EOTF: an electro-optical transfer function must be non-decreasing in the
+// signal. Verified by mutation - dropping the E2 floor in Color.cpp fails 2880
+// of the 4320 configurations swept here (and 54 of T12's 72). Four more
+// mutations of the same block are killed from this test: writing the floor as
+// max(E2, 0.0) fails 240 (the NaN at TargetMaxL == MasterMaxL == 10000 becomes
+// 0, so full white reads as black), clamping E1's top end fails 600 on the peak
+// check below, dropping the d > 0 guard fails 10 of the 18 degenerate configs,
+// and flooring E1 rather than E2 - the narrower fix, which covers only the
+// sub-black half - still fails 92.
+//
+// The grid deliberately mixes MasterMinL above and below TargetMinL: the
+// sub-black dead zone only opens when the mastering black is nonzero, and
+// BT2390ToneMap's own `if (m_MinML > m_MinTL) m_MinML = m_MinTL` clamp shrinks
+// it again from the other side.
+//
+// Where the grid deliberately does NOT go. The invariant below is stated
+// absolutely, but it is only swept over a band where it currently holds: the
+// black lift's exponent p = min(1/b, 4*BS) falls under 1 when Black Slope drops
+// below 0.25, or when b exceeds 1 from a high target black against a low
+// diffuse white. p < 1 makes the lift's slope diverge as E2 -> 1 and turns the
+// curve over MID-SCALE - a third non-monotonic band, distinct from both
+// near-black mechanisms above, pre-existing and untouched by the E2 floor (225
+// of 5760 UI-reachable configurations, every one at BS = 0.1, and identical on
+// main). BS is pinned to {1.0, 2.0} and diffuse to {94.37844, 203} to stay
+// clear of both entrances; widen either and T11 becomes a test of that band
+// instead of this fix. (203 is BT.2408's reference white and sits just above
+// the References page's own DiffuseL cap of 200, so it reaches libHCFR only
+// through an INI - a separate question from what this test covers.)
+//////////////////////////////////////////////////////////////////////////
+static void RunT11()
+{
+    printf("T11 BT.2390 tone-map monotonicity oracle...\n");
+
+    static const double minMLs[] = { 0.0, 0.0001, 0.001, 0.005, 0.05, 0.5 };
+    static const double maxMLs[] = { 1000.0, 4000.0, 10000.0 };
+    static const double minTLs[] = { 0.0, 0.005, 0.05, 0.1, 0.3 };
+    // Three of these columns exist for a specific regime, not for coverage:
+    //  - 2000 is above the 1000-nit mastering peak, the EXPANSION region (a
+    //    display brighter than the disc), where a clamp on E1's top end
+    //    flat-lines the whole top of the curve.
+    //  - 30 is low enough against these mastering peaks to drive
+    //    KS = 1.5*maxL - 0.5 NEGATIVE, which lets the Hermite knee return a
+    //    negative E2 at signal 0 and, before the E2 floor, dropped the bottom
+    //    of the curve to raw PQ - the same 0%-above-1% inversion from a second
+    //    mechanism. Without this column every config here has KS > 0.
+    //  - 10000 equals a mastering peak AND is the top of the PQ range, the one
+    //    place E1, KS and maxL all land on exactly 1 at full signal, so the knee
+    //    runs with T = 0/0 and E2 comes out NaN. That NaN has to keep falling
+    //    through to raw PQ; a floor written as max(E2, 0.0) answers 0 for it and
+    //    full white reads as black. 1000 is the same equality lower down, where
+    //    PQ(MasterMaxL) < 1 keeps E1 away from the singular point.
+    static const double maxTLs[] = { 30.0, 120.0, 400.0, 1000.0, 2000.0, 10000.0 };
+    // Both pinned clear of the p < 1 band described above, not for coverage.
+    static const double diffuses[] = { 94.37844, 203.0 };
+    static const double bFacts[] = { 1.0, 2.0 };          // m_BT2390_BS
+    static const double e2Facts[] = { 0.0, 1.0 };         // m_BT2390_WS
+
+    // Sample on the inverse LUT's own 1/1024 grid rather than a coarser one, so
+    // the oracle's resolution is not the thing that decides what it can see.
+    const int steps = 1024;
+    int configs = 0;
+
+    for (int a = 0; a < _countof(minMLs); a++)
+    for (int b = 0; b < _countof(maxMLs); b++)
+    for (int c = 0; c < _countof(minTLs); c++)
+    for (int d = 0; d < _countof(maxTLs); d++)
+    for (int e = 0; e < _countof(diffuses); e++)
+    for (int f = 0; f < _countof(bFacts); f++)
+    for (int g = 0; g < _countof(e2Facts); g++)
+    {
+        configs++;
+        double prev = -1.0;
+        for (int i = 0; i <= steps; i++)
+        {
+            const double valx = (double)i / steps;
+            const double y = getL_EOTF(valx, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                       diffuses[e], minMLs[a], maxMLs[b],
+                                       minTLs[c], maxTLs[d], true, false, 1.2,
+                                       bFacts[f], e2Facts[g], 25.0) * 100.0;
+            if (y < prev - 1e-9)
+            {
+                Fail("T11 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g "
+                     "diffuse=%g BS=%g WS=%g: tone-mapped PQ target falls from "
+                     "%.6f to %.6f cd/m2 at signal %.4f",
+                     minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], diffuses[e],
+                     bFacts[f], e2Facts[g], prev, y, valx);
+                break;      // one report per configuration
+            }
+            prev = y;
+        }
+
+        // Peak reach. Monotonicity alone cannot see a curve that goes FLAT
+        // early - that is still non-decreasing - so pin the endpoint too: full
+        // signal must land on the display's peak, whatever the mastering peak
+        // was. Clamping E1's top end broke exactly this, pinning everything
+        // above the mastering peak to PQ(MasterMaxL): a 1000-nit-mastered disc
+        // on a 2000-nit target returned 1000 here instead of 2000, flat across
+        // the whole top of the grid, with T11 none the wiser.
+        const double peak = getL_EOTF(1.0, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                      diffuses[e], minMLs[a], maxMLs[b],
+                                      minTLs[c], maxTLs[d], true, false, 1.2,
+                                      bFacts[f], e2Facts[g], 25.0) * 100.0;
+        if (fabs(peak - maxTLs[d]) > 1e-6 * maxTLs[d])
+            Fail("T11 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g "
+                 "diffuse=%g BS=%g WS=%g: full signal reaches %.4f cd/m2, "
+                 "expected the display peak %.4f",
+                 minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], diffuses[e],
+                 bFacts[f], e2Facts[g], peak, maxTLs[d]);
+    }
+    printf("  %d tone-map configurations swept\n", configs);
+
+    // Degenerate mastering metadata. MasterMaxL = 0 makes the PQ span d zero or
+    // negative, so E1, minL and maxL all come out +/-inf or NaN. The References
+    // page cannot produce it - it validates MasterMaxL to [100, 10000] and
+    // MasterMinL to [0, 0.5], and the smallest d over the corners of all four
+    // luminance fields is 0.0733 - so it arrives from a hand-edited INI, which
+    // is read back without re-validation, or from a direct caller of the public
+    // getL_EOTF. The E2 floor has to stay OFF for those: an infinite
+    // b turns the black lift into a NaN, and min(NaN, cap) resolves to the full
+    // target peak, so a signal of 1e-7 returned the whole 1000-nit target peak
+    // while 1e-5 next door returned 4e-9. Sampled on a sub-grid ladder because
+    // that is where it lives - the coarsest failing signal is well under 1/1024 -
+    // and starting above 0, since x = 0 takes the early return at the top of
+    // getL_EOTF and is the separate, pre-existing 0%-above-1% case this does not
+    // touch.
+    {
+        static const double degenMinMLs[] = { 0.0, 0.05, 0.5 };
+        static const double degenMinTLs[] = { 0.0, 0.005, 0.05 };
+        static const double degenMaxTLs[] = { 120.0, 1000.0 };
+        static const double ladder[] = { 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3 };
+        int degen = 0;
+        for (int a = 0; a < _countof(degenMinMLs); a++)
+        for (int c = 0; c < _countof(degenMinTLs); c++)
+        for (int d = 0; d < _countof(degenMaxTLs); d++)
+        {
+            degen++;
+            double prev = -1.0;
+            for (int i = 0; i < _countof(ladder); i++)
+            {
+                const double y = getL_EOTF(ladder[i], noDataColor, noDataColor, 0.0, 0.0, 5,
+                                           94.37844, degenMinMLs[a], 0.0,
+                                           degenMinTLs[c], degenMaxTLs[d], true, false, 1.2,
+                                           1.0, 0.0, 25.0) * 100.0;
+                if (y < prev - 1e-12)
+                {
+                    Fail("T11 degenerate MasterMin=%g MasterMax=0 TargetMin=%g TargetMax=%g: "
+                         "target falls from %.9f to %.9f cd/m2 at signal %g",
+                         degenMinMLs[a], degenMinTLs[c], degenMaxTLs[d], prev, y, ladder[i]);
+                    break;
+                }
+                prev = y;
+            }
+        }
+        printf("  %d degenerate-metadata configurations swept\n", degen);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T12 - BT.2390 inverse-LUT oracle (pure assertion, no golden file).
+//
+// T11 only reaches the FORWARD direction: its getL_EOTF call passes a positive
+// mode, so case -10 - the LUT build and the nearest-neighbour search over it -
+// had no coverage at all. This closes that. The per-signal math is now one
+// shared BT2390ToneMap, so both oracles pin the same curve rather than two
+// copies of it, but everything around it on the inverse side is only reachable
+// from here, and it gets two things wrong on its own:
+//
+// 1. MATH-008, the empty-LUT fault. case -10 used to build the table by
+//    re-entering getL_EOTF with mode 5 and cBT2390 = TRUE, which meant the
+//    build had to survive the guards at the top of that function and the
+//    `ToneMap && mode == 5` promotion to case 10. Two ways through without a
+//    table: a valx of 0 tripped the `valx == 0 && mode > 4` early return and
+//    came back BEFORE the cBT2390 branch ran, and a caller arriving at mode
+//    -10 with ToneMap false skipped the promotion entirely. Either way the
+//    vectors held whatever they held - empty on the first such call - and the
+//    nearest-neighbour search read BT2390y[0] out of bounds. It went unnoticed
+//    because the dead tmWhite call in the forward branch happened to leave
+//    exactly one entry behind on every forward tone-mapped call; deleting that
+//    dead code (same commit) exposed the fault, so this test is what keeps it
+//    dead. case -10 now calls BuildBT2390Table directly, past both guards.
+//    Verified by mutation: deleting that build call aborts this test with
+//    "vector subscript out of range" on the first configuration.
+//
+// 2. Round trip, stated in LUMINANCE: forward(inverse(y)) == y. Signal ->
+//    signal is the wrong invariant here, because the tone curve is not
+//    injective - the clamp deliberately maps every signal below the mastering
+//    black onto the black target, and the peak cap flattens the highlights the
+//    same way, so several signals share one luminance and the inverse is
+//    legitimately free to return any of them. What must hold is that whichever
+//    it returns lands back on the luminance asked for. The LUT stores
+//    nits/10000 while mode 5 returns nits/100, hence the /100 bridge below.
+//////////////////////////////////////////////////////////////////////////
+static void RunT12()
+{
+    printf("T12 BT.2390 inverse-LUT oracle...\n");
+
+    static const double minMLs[] = { 0.0, 0.005, 0.05 };
+    static const double maxMLs[] = { 1000.0, 4000.0 };
+    static const double minTLs[] = { 0.0, 0.005, 0.05, 0.1 };
+    // 30 against a 1000/4000-nit master is the KS < 0 regime, where the forward
+    // curve is deliberately flat across the bottom - the inverse is then free to
+    // return any signal in that run, which is exactly why the round trip below is
+    // stated in luminance.
+    static const double maxTLs[] = { 30.0, 120.0, 1000.0 };
+
+    int configs = 0;
+
+    for (int a = 0; a < _countof(minMLs); a++)
+    for (int b = 0; b < _countof(maxMLs); b++)
+    for (int c = 0; c < _countof(minTLs); c++)
+    for (int d = 0; d < _countof(maxTLs); d++)
+    {
+        configs++;
+
+        // (1) MATH-008 guard. Deliberately the FIRST getL_EOTF call for this
+        // configuration, so the LUT is stale or empty exactly as it would be
+        // when something inverts before anything has run the forward curve.
+        const double zero = getL_EOTF(0.0, noDataColor, noDataColor, 0.0, 0.0, -5,
+                                      94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                      true, false, 1.2, 1.0, 0.0, 25.0);
+        if (zero != 0.0)
+            Fail("T12 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g: inverse of 0 "
+                 "returned %.6f, expected 0 (the signal that produces black)",
+                 minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], zero);
+
+        // (2) forward -> inverse round trip over near black
+        for (int i = 0; i <= 40; i++)
+        {
+            const double sig = (double)i / 1024.0;
+            const double raw = getL_EOTF(sig, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                         94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                         true, false, 1.2, 1.0, 0.0, 25.0);
+            const double y    = raw / 100.0;                  // LUT units, nits/10000
+            const double back = getL_EOTF(y, noDataColor, noDataColor, 0.0, 0.0, -5,
+                                          94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                          true, false, 1.2, 1.0, 0.0, 25.0);
+            const double y2   = getL_EOTF(back, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                          94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                          true, false, 1.2, 1.0, 0.0, 25.0) / 100.0;
+            // sig sits on the LUT's own grid, so the search should land on an
+            // exact table entry; only floating-point dust is allowed.
+            const double tol = 1e-12 + 1e-6 * fabs(y);
+            if (fabs(y2 - y) > tol)
+            {
+                Fail("T12 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g: signal %.6f "
+                     "-> %.8f -> inverse %.6f -> %.8f (off by %.3g, tolerance %.3g)",
+                     minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], sig, y, back, y2,
+                     fabs(y2 - y), tol);
+                break;      // one report per configuration
+            }
+        }
+    }
+    // (3) The old diffuse-white fast path. Building the table used to short to a
+    // SINGLE entry whenever the signal handed to the builder landed within 5e-4
+    // of 0.5022283, leaving the nearest-neighbour search one candidate and making
+    // it hand back its own input as the answer. The window is a real luminance -
+    // the LUT is in nits/10000, so it is ~5022 cd/m2, inside a 10000-nit target -
+    // and it was reachable from the near-white autoscale in Measure.cpp, where the
+    // inverted value is a free-ranging measured luminance. Walk straight across it.
+    {
+        const double lo = 0.5022283 - 8e-4, hi = 0.5022283 + 8e-4;
+        for (int i = 0; i <= 16; i++)
+        {
+            const double y = lo + (hi - lo) * i / 16.0;
+            const double sig = getL_EOTF(y, noDataColor, noDataColor, 0.0, 0.0, -5,
+                                         94.37844, 0.0, 10000.0, 0.0, 10000.0,
+                                         true, false, 1.2, 1.0, 0.0, 25.0);
+            const double y2 = getL_EOTF(sig, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                        94.37844, 0.0, 10000.0, 0.0, 10000.0,
+                                        true, false, 1.2, 1.0, 0.0, 25.0) / 100.0;
+            // one LUT step is 1/1024 in signal; allow the luminance that spans
+            if (fabs(y2 - y) > 0.02 * y)
+                Fail("T12 fast-path window: inverse of %.7f returned signal %.6f, "
+                     "which forwards to %.7f (off by %.3g) - one-entry table?",
+                     y, sig, y2, fabs(y2 - y));
+        }
+    }
+
+    printf("  %d inverse configurations swept\n", configs);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2540,7 +2839,9 @@ int main(int argc, char* argv[])
     RunT8();
     RunT9();
     RunT10();
-    RunT15();   // T11-T14 reserved for in-flight branches; see the header comment
+    RunT11();
+    RunT12();
+    RunT15();   // T13/T14 reserved for in-flight branches; see the header comment
     RunT15Interp();
     RunT16();
 

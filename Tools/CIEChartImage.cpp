@@ -990,7 +990,7 @@ void DrawCIEChartEx(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doSho
 	while ( Y_Cour <= MaxY )
 	{
 		NbLimits = 0;
-		// i is zÃ©ro for left side, 1 for right side
+		// i is zéro for left side, 1 for right side
 		for ( i = 0 ; i < 2 ; i ++ )
 		{
 			if ( Y_Cour <= TB [ i ].Last_Y )
@@ -1603,7 +1603,7 @@ void DrawCIEChartWhiteSurrounding(CDC* pDC, int cxMax, int cyMax, BOOL bCIEuv, B
 	while ( Y_Cour <= MaxY )
 	{
 		NbLimits = 0;
-		// i is zÃ©ro for left side, 1 for right side
+		// i is zéro for left side, 1 for right side
 		for ( i = 0 ; i < 2 ; i ++ )
 		{
 			if ( Y_Cour <= TB [ i ].Last_Y )
