@@ -328,6 +328,20 @@ BEGIN
     LTEXT           "Pegel [%]",IDC_STATIC,149,151,34,8
 END
 
+IDD_EXPORT_OPTIONS_DIALOG DIALOG 0, 0, 240, 90
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Exportoptionen"
+FONT 8, "MS Sans Serif"
+BEGIN
+    LTEXT           "Wählen Sie, welche zusätzlichen Daten der Export enthalten soll:",IDC_STATIC,10,8,220,8
+    CONTROL         "Rohe (unkorrigierte) XYZ-Sensorwerte einschließen",IDC_CHECK_EXPORT_RAW,
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,10,26,220,10
+    CONTROL         "Stimulus-Werte (RGB-Ansteuerung) einschließen",IDC_CHECK_EXPORT_STIMULUS,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,10,40,220,10
+    DEFPUSHBUTTON   "OK",IDOK,58,64,50,14,WS_GROUP
+    PUSHBUTTON      "Abbrechen",IDCANCEL,120,64,50,14,WS_GROUP
+END
+
 IDD_EXPORTXLS_DIALOG DIALOG 0, 0, 226, 135
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Excel Export"
@@ -966,8 +980,6 @@ BEGIN
     GROUPBOX        "Start einer Messung",IDC_STATIC,7,7,220,28,WS_GROUP
     CONTROL         "Bestätigungsnachricht",IDC_CHECK_CONFIRM,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,19,86,10
     GROUPBOX        "Kalibrierungsdateien - Erweiterte Nutzung",IDC_STATIC,7,38,220,40,WS_GROUP
-    CONTROL         "Weiß bei der Matrix Kalkulation nicht benutzen (R1.x)",IDC_CHECK_CALIBRATION_OLD,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,62,183,10
     GROUPBOX        "Luxmeter LX-1108",IDC_STATIC,8,82,220,86,WS_GROUP
     LTEXT           "COM-Anschluss",IDC_STATIC,17,95,43,8,0,0,HIDC_STATIC
     COMBOBOX        IDC_LUXMETER_COM_COMBO,65,92,52,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
@@ -2827,6 +2839,10 @@ END
 
 STRINGTABLE
 BEGIN
+    IDS_CALIB_RGB_MATRIX    "RGB-Matrix (ASTM E1455-92)"
+    IDS_CALIB_FCMM_NOLUM    "NIST Vier-Farben / FCMM (ohne Luminanzskalierung)"
+    IDS_CALIB_FCMM_LUM      "NIST Vier-Farben / FCMM (mit Luminanzskalierung)"
+    IDS_CALIB_BODNER        "Bodner-Robinson Drei-Matrizen (RGBW-Displays)"
     IDR_MAINFRAME           "HCFR Colorimeter - 4.1.0.0"
     IDR_MESURETYPE          "\nFarbmessungen\nFarbmessungen\nColorHCFR Datei (*.chc)\n.chc\nCOLORHCFR\nHCFR Farbmessungen"
 END
@@ -4117,6 +4133,21 @@ BEGIN
     IDS_CIE_ILLUMINANT          "Normlichtart"
     IDS_CC_COLORNAME            "Farbe %s"
     IDS_CC_COLORNAMEREF         "Farbe %s Referenz"
+    IDS_SPECTRAL_TITLE          "Spektralkorrektur"
+    IDS_SPECTRAL_BROWSE         "Durchsuchen..."
+    IDS_SPECTRAL_CLEAR          "Löschen"
+    IDS_SPECTRAL_STATUS_FMT     "Spektralkorrektur: %s"
+    IDS_SPECTRAL_LOADED         "(geladen)"
+    IDS_SPECTRAL_NONE           "Keine"
+    IDS_SPECTRAL_FILEFILTER     "Spektralkorrektur (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|Korrelations-CSV (*.csv)|*.csv||"
+    IDS_SPECTRAL_REAPPLY_FAILED "Die gespeicherte Spektralkorrektur konnte nicht erneut auf das Messgerät angewendet werden:\n%s\n\nDie Messwerte sind UNKORRIGIERT, bis sie in den Sensoreigenschaften erneut angewendet oder gelöscht wird."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "Dieser Sensor hat eine Matrixkalibrierung. Wenn Sie eine Spektralkorrektur anwenden, wird sie die einzige Korrektur für neue Messungen.\n\nVorhandene Messungen wurden mit der Matrixkalibrierung aufgenommen - auf die unkorrigierten Rohwerte des Sensors zurücksetzen?\n\nJa - vorhandene Messungen auf Rohwerte zurücksetzen\nNein - unverändert lassen (gemischt mit neuen Spektralmessungen)\nAbbrechen - die Spektralkorrektur nicht anwenden"
+    IDS_SPECTRAL_ACTIVE_TITLE   "Spektralkorrektur aktiv"
+    IDS_SPECTRAL_CLEAR_FOR_MATRIX "Dieser Sensor verwendet eine Spektralkorrektur (ccss/CSV), die im Messgerät angewendet wird.\nEine Matrixkalibrierung würde sich darüberlegen (Doppelkorrektur).\n\nDie Spektralkorrektur löschen und stattdessen mit einer Matrix kalibrieren?"
+    IDS_CALIB_METHOD_TITLE      "Kalibrierungsmethode"
+    IDS_CALIB_METHOD_OUT_OF_SYNC "Die in den Optionen gewählte Kalibrierungsmethode weicht von der ab, die derzeit auf diese Messungen angewendet ist - sie wurden nach dem Wechsel der Methode nicht neu berechnet. Der Export gibt die ANGEWENDETE Methode wieder.\n\nUm zuerst neu zu berechnen, brechen Sie ab und führen Sie 'Mit vorhandenen Referenzmessungen erstellen' (oder einen Kalibrierungsbefehl) aus.\n\nMit dem Export fortfahren?"
+    IDS_BODNER_SKIPPED_FMT      "%d Messung(en), die vor Aktivierung dieser Funktion aufgezeichnet wurden, konnten nicht neu kalibriert werden."
+    IDS_EXPORT_LAYOUT_MISMATCH  "Zu dieser Datei kann nichts hinzugefügt werden: Sie wurde mit anderen Rohdaten-/Stimulus-Optionen exportiert. Exportieren Sie in eine neue Datei oder wiederholen Sie den Export mit denselben Optionen wie die vorhandenen Daten."
 END
 
 #endif    // Deutsch (Deutschland) resources

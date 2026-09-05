@@ -28,6 +28,7 @@
 
 #include "CSpreadSheet.h"
 #include "ExportReplaceDialog.h"
+#include "ExportOptionsDialog.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -227,6 +228,8 @@ draw_rect (HPDF_Page     page,
 
 char *legendXYZ[3]={"X","Y","Z"};
 char *legendRGB[3]={"R","G","B"};
+char *legendRawXYZ[3]={"Raw X","Raw Y","Raw Z"};
+char *legendStimRGB[3]={"Stim R","Stim G","Stim B"};
 char *legendRow1cc[3]={"X","Z","G"};
 char *legendRow2cc[3]={"Y","R","B"};
 char *legendSensor[3]={"Rc","Gc","Bc"};
@@ -239,8 +242,14 @@ CExport::CExport(CDataSetDoc *pDoc, ExportType type)
 	m_doReplace=false;
 	m_doBackup=false;
 	m_numToReplace=1;
+	m_numExistingMeasures=0;
 	m_fileName="colorHCFR.xls";
 	m_separator=";";
+	// Default the extra columns OFF so the default block layout matches
+	// pre-raw-retention exports (Append/Replace need consistent heights);
+	// remember the user's last choice across sessions.
+	m_bExportRaw = GetConfig()->GetProfileInt("Export","IncludeRawColumns",0) != 0;
+	m_bExportStimulus = GetConfig()->GetProfileInt("Export","IncludeStimulusColumns",0) != 0;
 }
 
 CExport::~CExport()
@@ -258,6 +267,22 @@ bool CExport::Save()
 	flag = OFN_HIDEREADONLY;
 	if (m_type == PDF)
 		flag += flag | OFN_OVERWRITEPROMPT;
+
+	// For the tabular data exports (XLS/CSV), let the user choose whether to
+	// include the raw sensor XYZ and/or the RGB stimulus values. PDF/ICC exports
+	// are unaffected.
+	if ( m_type == XLS || m_type == CSV )
+	{
+		CExportOptionsDialog optionsDialog;
+		optionsDialog.m_bExportRaw = m_bExportRaw ? TRUE : FALSE;
+		optionsDialog.m_bExportStimulus = m_bExportStimulus ? TRUE : FALSE;
+		if ( optionsDialog.DoModal() != IDOK )
+			return false;
+		m_bExportRaw = ( optionsDialog.m_bExportRaw != FALSE );
+		m_bExportStimulus = ( optionsDialog.m_bExportStimulus != FALSE );
+		GetConfig()->WriteProfileInt("Export","IncludeRawColumns", m_bExportRaw ? 1 : 0);
+		GetConfig()->WriteProfileInt("Export","IncludeStimulusColumns", m_bExportStimulus ? 1 : 0);
+	}
 
 	CFileDialog fileSaveDialog( FALSE, ext[(int)m_type], NULL, flag, filter[(int)m_type]);
 
@@ -298,6 +323,7 @@ bool CExport::Save()
 
 			CExportReplaceDialog replaceDialog;
 			bool measureFound=false;
+			int measureCount=0;
 			for(int i=2;i<=generalSS.GetTotalRows();i++)
 			{
 				CRowArray rows;
@@ -305,8 +331,10 @@ bool CExport::Save()
 				{
 					replaceDialog.AddMeasure(rows.GetAt(0)+": "+rows.GetAt(1)+" du "+rows.GetAt(2));
 					measureFound=true;
+					measureCount++;
 				}
 			}
+			m_numExistingMeasures=measureCount;
 
 			if(measureFound)
 			{
@@ -1557,9 +1585,92 @@ bool CExport::SavePDF()
 	return true;
 }
 
+// Every per-sheet layout guard below rejects AFTER SaveGeneralSheet has already
+// appended its index row and committed it, so a rejected append used to leave the
+// workbook claiming N+1 measures with N data blocks - and the next export then read
+// m_numExistingMeasures as N+1 against N blocks of data, so the guard rejected
+// forever, even with the options put back. Replace-by-index was off by one from then
+// on too. Validate every sheet the options can reshape BEFORE the first write.
+//
+// The three block heights are the ones the guards themselves use: gray 9 rows,
+// primaries 7 rows, and the colorchecker's header WIDTH of 8 columns, each plus 3
+// per enabled option. They are duplicated rather than shared because each guard sits
+// after its own sheet's header has been built; keeping both means a future sheet that
+// forgets the pre-check is still caught before it corrupts anything.
+bool CExport::CheckExistingLayout()
+{
+	const int extraPerOption = ( m_bExportRaw ? 3 : 0 ) + ( m_bExportStimulus ? 3 : 0 );
+
+	struct { const char * sheet; int blockRows; } rowSheets[] =
+	{
+		{ "GrayScaleSheet", 9 + extraPerOption },
+		{ "PrimariesSheet", 7 + extraPerOption },
+	};
+
+	for ( int s = 0; s < 2; s++ )
+	{
+		CString SheetOrSeparator = rowSheets[s].sheet;
+		CString aFileName;
+		if ( m_type == CSV )
+		{
+			aFileName = m_fileName + "." + SheetOrSeparator + ".csv";
+			SheetOrSeparator = m_separator;
+		}
+		else
+			aFileName = m_fileName;
+
+		CSpreadSheet ss( aFileName, SheetOrSeparator, false );
+		int existing = ss.GetTotalRows() - 1;
+		int blockRows = rowSheets[s].blockRows;
+		if ( ( m_numExistingMeasures > 0 &&
+		       existing != m_numExistingMeasures * blockRows )
+		  || ( !m_doReplace && m_numExistingMeasures == 0 && existing > 0 &&
+		       ( existing % blockRows ) != 0 ) )
+		{
+			m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+			return false;
+		}
+	}
+
+	// The colorchecker's options add COLUMNS, not rows: "Color" + 3 legend pairs +
+	// 3 per enabled option + "deltaE".
+	{
+		CString SheetOrSeparator = "ColorCheckerSheet";
+		CString aFileName;
+		if ( m_type == CSV )
+		{
+			aFileName = m_fileName + "." + SheetOrSeparator + ".csv";
+			SheetOrSeparator = m_separator;
+		}
+		else
+			aFileName = m_fileName;
+
+		CSpreadSheet ccSS( aFileName, SheetOrSeparator, false );
+		bool ccHasExisting = m_doReplace ? ( m_numExistingMeasures > 0 )
+		                                 : ( ccSS.GetTotalRows() > 0 );
+		if ( ccHasExisting &&
+		     (int)ccSS.GetTotalColumns() != 8 + extraPerOption )
+		{
+			m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+			return false;
+		}
+	}
+
+	return true;
+}
+
 bool CExport::SaveSheets()
 {
 	bool result;
+
+	if ( !CheckExistingLayout() )
+	{
+		CString	Msg, Title;
+		Msg.LoadString ( IDS_ERREXPORT );
+		Title.LoadString ( IDS_EXPORT );
+		GetColorApp()->InMeasureMessageBox(Msg+"\n"+m_errorStr,Title,MB_OK);
+		return false;
+	}
 
 	result=SaveGeneralSheet();
 	result&=SaveGrayScaleSheet();
@@ -1672,8 +1783,27 @@ bool CExport::SaveGrayScaleSheet()
 	}
 	result&=graySS.AddHeaders(Rows,true);
 
+	int grayBlockRows = 9 + (m_bExportRaw?3:0) + (m_bExportStimulus?3:0);
+	// The positional replace below assumes every measure block in the file is the
+	// same height. That height now depends on the Raw/Stimulus options, so if the
+	// existing file was written with different options, adding to it would
+	// corrupt the positional arithmetic. When the general sheet gave us the
+	// existing measure count, appends are checked exactly; the modulo form is
+	// a weaker fallback for CSV, where that count is unavailable (an old
+	// count x old height that happens to be a multiple of the new height
+	// still passes there).
+	int grayBlockRowsExisting = graySS.GetTotalRows() - 1;
+	// (The append and replace cases test the same thing, so they are one clause.)
+	if ( ( m_numExistingMeasures > 0 &&
+	       grayBlockRowsExisting != m_numExistingMeasures * grayBlockRows )
+	  || ( !m_doReplace && m_numExistingMeasures == 0 && grayBlockRowsExisting > 0 &&
+	       ( grayBlockRowsExisting % grayBlockRows ) != 0 ) )
+	{
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+		return false;
+	}
 	if(m_doReplace)
-		rowNb=(m_numToReplace-1)*9+2;
+		rowNb=(m_numToReplace-1)*grayBlockRows+2;
 	else
 		rowNb=graySS.GetTotalRows()+1;
 
@@ -1695,6 +1825,37 @@ bool CExport::SaveGrayScaleSheet()
 		result&=graySS.AddRow(Rows,rowNb,m_doReplace);
 		rowNb++;
 	}
+
+	if ( m_bExportRaw )
+	{
+		for (i=0; i<3; i++)
+		{
+			Rows.RemoveAll();
+			Rows.Add(legendRawXYZ[i]);
+			for(j=0;j<size;j++)
+			{
+				CColor gc = m_pDoc->GetMeasure()->GetGray(j);
+				Rows.Add((float)(gc.HasRawXYZValue() ? gc.GetRawXYZValue()[i] : -1.0));
+			}
+			result&=graySS.AddRow(Rows,rowNb,m_doReplace);
+			rowNb++;
+		}
+	}
+
+	if ( m_bExportStimulus )
+	{
+		// Grayscale drive is neutral: R = G = B = the gray level %.
+		for (i=0; i<3; i++)
+		{
+			Rows.RemoveAll();
+			Rows.Add(legendStimRGB[i]);
+			for(j=0;j<size;j++)
+				Rows.Add((float)(m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
+			result&=graySS.AddRow(Rows,rowNb,m_doReplace);
+			rowNb++;
+		}
+	}
+
 	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 
 	for (i=0; i<3; i++)
@@ -1852,8 +2013,21 @@ bool CExport::SavePrimariesSheet()
 	}
 	result&=primariesSS.AddHeaders(Rows,true);
 
+	int primBlockRows = 7 + (m_bExportRaw?3:0) + (m_bExportStimulus?3:0);
+	// See SaveGrayScaleSheet: guard against replacing into a file whose blocks
+	// were written with a different Raw/Stimulus layout (wrong-row overwrite).
+	int primBlockRowsExisting = primariesSS.GetTotalRows() - 1;
+	// (The append and replace cases test the same thing, so they are one clause.)
+	if ( ( m_numExistingMeasures > 0 &&
+	       primBlockRowsExisting != m_numExistingMeasures * primBlockRows )
+	  || ( !m_doReplace && m_numExistingMeasures == 0 && primBlockRowsExisting > 0 &&
+	       ( primBlockRowsExisting % primBlockRows ) != 0 ) )
+	{
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+		return false;
+	}
 	if(m_doReplace)
-		rowNb=(m_numToReplace-1)*7+2;
+		rowNb=(m_numToReplace-1)*primBlockRows+2;
 	else
 		rowNb=primariesSS.GetTotalRows()+1;
 
@@ -1867,6 +2041,71 @@ bool CExport::SavePrimariesSheet()
 			Rows.Add((float)m_pDoc->GetMeasure()->GetSecondary(j)[i]);
 		result&=primariesSS.AddRow(Rows,rowNb,m_doReplace);
 		rowNb++;
+	}
+
+	if ( m_bExportRaw )
+	{
+		for (i=0; i<3; i++)
+		{
+			Rows.RemoveAll();
+			Rows.Add(legendRawXYZ[i]);
+			for(j=0;j<3;j++)
+			{
+				CColor pc = m_pDoc->GetMeasure()->GetPrimary(j);
+				Rows.Add((float)(pc.HasRawXYZValue() ? pc.GetRawXYZValue()[i] : -1.0));
+			}
+			for(j=0;j<3;j++)
+			{
+				CColor sc = m_pDoc->GetMeasure()->GetSecondary(j);
+				Rows.Add((float)(sc.HasRawXYZValue() ? sc.GetRawXYZValue()[i] : -1.0));
+			}
+			result&=primariesSS.AddRow(Rows,rowNb,m_doReplace);
+			rowNb++;
+		}
+	}
+
+	if ( m_bExportStimulus )
+	{
+		// Legacy fallback for measurements with no captured stimulus. The levels
+		// MeasurePrimaries actually drives depend on the transfer function and
+		// color standard: HDR (m_GammaOffsetType==5) uses 50.22831%, HDTVa/HDTVb send
+		// fractional wire tables, and UHDTV3/UHDTV4 derive their codes from the container
+		// primaries. Reproducing those here would duplicate - and risk drifting from - the
+		// measurement tables, so emit the real drive values only for the plain standards
+		// (pure 0/100% codes) and the -1 "not available" sentinel (same convention as the
+		// Raw rows above) for the modes we don't reproduce. A wrong value would be worse
+		// than none.
+		static const float primStimRGB[6][3] =
+		{
+			{100,   0,   0},	// Red
+			{  0, 100,   0},	// Green
+			{  0,   0, 100},	// Blue
+			{100, 100,   0},	// Yellow
+			{  0, 100, 100},	// Cyan
+			{100,   0, 100}		// Magenta
+		};
+		int stimMode = GetConfig()->m_GammaOffsetType;
+		int stimStd  = GetColorReference().m_standard;
+		bool stimKnown = ( stimMode != 5 && stimStd != HDTVa && stimStd != HDTVb && stimStd != UHDTV3 && stimStd != UHDTV4 );
+		// Prefer the drive stimulus captured with each measurement (exact for every mode);
+		// the table/sentinel above is only the fallback for data measured before capture.
+		CColor stimPatch[6] = {
+			m_pDoc->GetMeasure()->GetPrimary(0), m_pDoc->GetMeasure()->GetPrimary(1), m_pDoc->GetMeasure()->GetPrimary(2),
+			m_pDoc->GetMeasure()->GetSecondary(0), m_pDoc->GetMeasure()->GetSecondary(1), m_pDoc->GetMeasure()->GetSecondary(2) };
+		for (i=0; i<3; i++)
+		{
+			Rows.RemoveAll();
+			Rows.Add(legendStimRGB[i]);
+			for(j=0;j<6;j++)
+			{
+				if ( stimPatch[j].isValid() && stimPatch[j].HasStimulusValue() )
+					Rows.Add((float)stimPatch[j].GetStimulusValue()[i]);
+				else
+					Rows.Add((float)(stimKnown ? primStimRGB[j][i] : -1.0));
+			}
+			result&=primariesSS.AddRow(Rows,rowNb,m_doReplace);
+			rowNb++;
+		}
 	}
 
 	for (i=0; i<3; i++)
@@ -2268,7 +2507,32 @@ bool CExport::SaveCCSheet()
 		Rows.Add(legendRow1cc[i],CRowArray::floatType);
 		Rows.Add(legendRow2cc[i],CRowArray::floatType);
 	}
+	if ( m_bExportRaw )
+	{
+		Rows.Add(legendRawXYZ[0],CRowArray::floatType);
+		Rows.Add(legendRawXYZ[1],CRowArray::floatType);
+		Rows.Add(legendRawXYZ[2],CRowArray::floatType);
+	}
+	if ( m_bExportStimulus )
+	{
+		Rows.Add(legendStimRGB[0],CRowArray::floatType);
+		Rows.Add(legendStimRGB[1],CRowArray::floatType);
+		Rows.Add(legendStimRGB[2],CRowArray::floatType);
+	}
 	Rows.Add("deltaE",CRowArray::floatType);
+	// See SaveGrayScaleSheet/SavePrimariesSheet: guard against replacing into a file whose
+	// blocks were written with a different layout. Here the Raw/Stimulus options add COLUMNS
+	// (not rows), so compare the existing column count - still current until AddHeaders
+	// rewrites it just below - against the new header width. Replacing a mismatched layout
+	// rewrites the header wider but leaves measures 2..N under the old, narrower one.
+	bool ccHasExisting = m_doReplace ? ( m_numExistingMeasures > 0 )
+	                                 : ( colorcheckerSS.GetTotalRows() > 0 );
+	if ( ccHasExisting &&
+	     (int)colorcheckerSS.GetTotalColumns() != (int)Rows.GetSize() )
+	{
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+		return false;
+	}
 	result&=colorcheckerSS.AddHeaders(Rows,true);
 
 	int size;
@@ -2279,6 +2543,22 @@ bool CExport::SaveCCSheet()
 		size = GetConfig()->GetCColorsSize();
     else
         size = GetConfig()->m_CCMode==CCSG?96:GetConfig()->m_CCMode==CMS||GetConfig()->m_CCMode==CPS?19:(GetConfig()->m_CCMode==AXIS?71:24);
+
+	// Reconstruct the RGB stimulus (drive) values for each patch, using the same
+	// generator the measurement used. GenerateCC24Colors re-reads the pattern CSV at
+	// export time and writes up to MAX_USER_CC_PATCH_SIZE entries (or falls back to 24
+	// on a failed read) - independent of the cached `size` used below, which can be
+	// smaller or even 0. Size the buffer off the generator's own maximum, as every
+	// other caller does (Measure.cpp, Controls/TargetWnd.cpp), so it can't overflow.
+	// If the current CC mode isn't supported by the generator, ccStimValid stays false
+	// and a -1 sentinel is written instead.
+	std::vector<ColorRGBDisplay> ccStim;
+	bool ccStimValid = false;
+	if ( m_bExportStimulus )
+	{
+		ccStim.resize(MAX_USER_CC_PATCH_SIZE + 10);
+		ccStimValid = ( GenerateCC24Colors(GetColorReference(), &ccStim[0], GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) != FALSE );
+	}
 
 	if(m_doReplace)
 		rowNb=(m_numToReplace-1)*size+2;
@@ -2411,7 +2691,36 @@ bool CExport::SaveCCSheet()
 			else
 				Rows.Add(-1.0);
 		}
-		
+
+		if ( m_bExportRaw || m_bExportStimulus )
+		{
+			// One fetch shared by both blocks: GetCC24Sat returns CColor by value
+			// (a deep copy including any spectrum), so fetch once per patch.
+			CColor cc = m_pDoc->GetMeasure()->GetCC24Sat(i);
+			if ( m_bExportRaw )
+			{
+				for(j=0;j<3;j++)
+				{
+					if (cc.isValid() && cc.HasRawXYZValue())
+						Rows.Add((float)cc.GetRawXYZValue()[j]);
+					else
+						Rows.Add(-1.0);
+				}
+			}
+			if ( m_bExportStimulus )
+			{
+				// Prefer the drive stimulus captured with the measurement; fall back to the
+				// generator reconstruction (ccStim) for patches measured before stimulus capture.
+				for(j=0;j<3;j++)
+				{
+					if ( cc.isValid() && cc.HasStimulusValue() )
+						Rows.Add((float)cc.GetStimulusValue()[j]);
+					else
+						Rows.Add(ccStimValid ? (float)ccStim[i][j] : (float)-1.0);
+				}
+			}
+		}
+
 		CColor aColor,aReference;
 		double YWhite, RefWhite = 1.0;
 		if (GetConfig()->m_colorStandard != HDTVa && GetConfig()->m_colorStandard != HDTVb )

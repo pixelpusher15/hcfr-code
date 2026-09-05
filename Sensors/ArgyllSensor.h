@@ -35,6 +35,8 @@
 #include "Argyllsensorproppage.h"
 #include "ArgyllMeterWrapper.h"
 
+#include "../Tools/ArgyllMeterWrapper/SpectralSample.h"
+
 class CArgyllSensor : public COneDeviceSensor  
 {
 public:
@@ -52,6 +54,16 @@ public:
     BOOL		m_HiRes;
     BOOL        m_Adapt;
     BOOL        m_DisableAIO;   // Disable Rev. B AIO measurement mode (i1d3 / ColorMunki Display)
+    CString     m_spectralCorrectionPath;   // canonical .ccss loaded onto the meter (empty = none)
+    CString     m_spectralCorrectionDesc;   // description shown in the UI
+    BOOL        m_spectralApplyLeaveMeasures; // transient: last apply asked to leave measures mixed (not strip to raw)
+    CString     m_cfgSnapSpectralPath;      // BeginConfigure/CancelConfigure snapshot
+    CString     m_cfgSnapSpectralDesc;
+    // Parsed-spectral-sample cache so Init does not re-read the file per
+    // sweep/measurement; invalidated whenever the correction state changes.
+    SpectralSample m_spectralSampleCache;
+    bool        m_spectralCacheValid;
+    CString     m_spectralCachePath;
 private:
     ArgyllMeterWrapper* m_meter;
     SpectralSampleFiles *m_spectralSamples;
@@ -74,6 +86,22 @@ public:
     virtual LPCSTR GetStandardSubDir ()    { return "Etalon_Argyll"; }
 
     void Calibrate();
+
+    // Spectral correction (restores the 2012 ccss apply path, extended to .csv).
+    // Loads a .ccss or ColourSpace .csv onto the meter so Argyll applies a
+    // display-specific correction to every read. Forces the HCFR-side matrix to
+    // identity so the two correction regimes don't stack.
+    bool ApplySpectralCorrection(const CString& filePath);
+    virtual void ClearSpectralCorrection();
+    virtual BOOL TakePendingSpectralLeaveMeasures();
+    virtual BOOL HasSpectralCorrection() const { return !m_spectralCorrectionPath.IsEmpty(); }
+    CString GetSpectralCorrectionDesc() const { return m_spectralCorrectionDesc; }
+    // Extend the base snapshot with the spectral state, which a Browse in the
+    // property page commits (device + members) before the sheet closes.
+    virtual void BeginConfigure();
+    virtual bool CorrectionChangedSinceBeginConfigure() const;
+    virtual void CancelConfigure();
+    bool MeterSupportsSpectralSamples();
 
     virtual void GetUniqueIdentifier( CString & strId );
     static bool isInDebugMode() {return m_debugMode;}

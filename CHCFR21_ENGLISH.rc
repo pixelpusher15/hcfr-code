@@ -317,6 +317,20 @@ BEGIN
     LTEXT           "Level [%]",IDC_STATIC,157,147,34,8
 END
 
+IDD_EXPORT_OPTIONS_DIALOG DIALOG 0, 0, 240, 90
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Export options"
+FONT 8, "MS Sans Serif"
+BEGIN
+    LTEXT           "Choose which extra data to include in the export:",IDC_STATIC,10,8,220,8
+    CONTROL         "Include raw (uncorrected) sensor XYZ values",IDC_CHECK_EXPORT_RAW,
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,10,26,220,10
+    CONTROL         "Include stimulus (RGB drive) values",IDC_CHECK_EXPORT_STIMULUS,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,10,40,220,10
+    DEFPUSHBUTTON   "OK",IDOK,58,64,50,14,WS_GROUP
+    PUSHBUTTON      "Cancel",IDCANCEL,120,64,50,14,WS_GROUP
+END
+
 IDD_EXPORTXLS_DIALOG DIALOG 0, 0, 226, 135
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Excel export"
@@ -823,8 +837,6 @@ BEGIN
     GROUPBOX        "Measure launch",IDC_STATIC,7,7,199,28,WS_GROUP
     CONTROL         "Confirmation message",IDC_CHECK_CONFIRM,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,19,85,10
     GROUPBOX        "Calibration files - Advanced use",IDC_STATIC,7,38,199,40,WS_GROUP
-    CONTROL         "Do not use white in matrix calculus (R1.x)",IDC_CHECK_CALIBRATION_OLD,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,62,145,10
     GROUPBOX        "Luxmeter LX-1108",IDC_STATIC,8,82,198,86,WS_GROUP
     LTEXT           "COM Port",IDC_STATIC,17,95,43,8,0,0,HIDC_STATIC
     COMBOBOX        IDC_LUXMETER_COM_COMBO,65,92,52,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
@@ -2806,6 +2818,10 @@ END
 
 STRINGTABLE
 BEGIN
+    IDS_CALIB_RGB_MATRIX    "RGB matrix (ASTM E1455-92)"
+    IDS_CALIB_FCMM_NOLUM    "NIST Four-Color / FCMM (no luminance scaling)"
+    IDS_CALIB_FCMM_LUM      "NIST Four-Color / FCMM (with luminance scaling)"
+    IDS_CALIB_BODNER        "Bodner-Robinson three-matrix (RGBW displays)"
     IDR_MAINFRAME           "HCFR Colorimeter - 4.1.0.0"
     IDR_MESURETYPE          "\nColor Measures\nColor_Measures\nColorHCFR File (*.chc)\n.chc\nCOLORHCFR\nHCFR Color Measures"
 END
@@ -4099,6 +4115,21 @@ BEGIN
     IDS_CIE_ILLUMINANT          "Illuminant"
     IDS_CC_COLORNAME            "Color %s"
     IDS_CC_COLORNAMEREF         "Color %s Reference"
+    IDS_SPECTRAL_TITLE          "Spectral correction"
+    IDS_SPECTRAL_BROWSE         "Browse..."
+    IDS_SPECTRAL_CLEAR          "Clear"
+    IDS_SPECTRAL_STATUS_FMT     "Spectral correction: %s"
+    IDS_SPECTRAL_LOADED         "(loaded)"
+    IDS_SPECTRAL_NONE           "None"
+    IDS_SPECTRAL_FILEFILTER     "Spectral correction (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|Correlation CSV (*.csv)|*.csv||"
+    IDS_SPECTRAL_REAPPLY_FAILED "The stored spectral correction could not be re-applied to the meter:\n%s\n\nReadings are UNCORRECTED until it is re-applied or cleared in the sensor properties."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "This sensor has a matrix calibration. Applying a spectral correction will make it the sole correction for new readings.\n\nExisting measurements were taken with the matrix calibration - strip them back to raw (uncorrected) sensor values?\n\nYes - strip existing measurements to raw\nNo - leave them as they are (mixed with new spectral readings)\nCancel - do not apply the spectral correction"
+    IDS_SPECTRAL_ACTIVE_TITLE   "Spectral correction active"
+    IDS_SPECTRAL_CLEAR_FOR_MATRIX "This sensor uses a spectral (ccss/CSV) correction, applied inside the meter.\nCalibrating with a matrix would stack on top of it (double-correction).\n\nClear the spectral correction and calibrate with a matrix instead?"
+    IDS_CALIB_METHOD_TITLE      "Calibration method"
+    IDS_CALIB_METHOD_OUT_OF_SYNC "The calibration method selected in Options differs from the one currently applied to these measurements - they were not recomputed after the method was changed. The export will reflect the APPLIED method.\n\nTo recompute first, cancel and run Create using Existing Reference Measures (or a calibration command).\n\nContinue with the export?"
+    IDS_BODNER_SKIPPED_FMT      "%d measurement(s) recorded before this feature was enabled could not be recalibrated."
+    IDS_EXPORT_LAYOUT_MISMATCH  "Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data."
 END
 
 #endif    // English (United States) resources

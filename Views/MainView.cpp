@@ -3008,8 +3008,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			}
 			else 
 			{
-				if ( GetDocument()->m_pSensor->IsCalibrated() == 1 ) 
-				{ 
+				if ( GetDocument()->m_pSensor->IsCorrectionActive() )
+				{
 					m_grayScaleGroup.SetHilighted(2);
 					m_sensorGroup.SetHilighted(2);
 					m_generatorGroup.SetHilighted(2);
@@ -3039,10 +3039,17 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				m_datarefCheckButton = FALSE;
 		}
 		
-		m_AdjustXYZCheckButton.EnableWindow ( GetDocument()->m_pSensor->IsCalibrated () > 0 );
-		m_AdjustXYZCheckButton.SetCheck ( GetDocument()->m_pSensor->IsCalibrated () == 1 );
+		// DESIGN: a Bodner correction is deliberately checked-but-disabled here.
+		// OnAdjustXYZCheck's toggle machinery is single-matrix only - on a Bodner
+		// sensor one off/on round-trip would strip every raw-carrying measurement
+		// and restore an identity, silently destroying the correction. The method
+		// check also covers IsCalibrated()==2 (a parked Mod after a cancelled
+		// Configure), which would otherwise enable the toggle on a Bodner sensor.
+		m_AdjustXYZCheckButton.EnableWindow ( GetDocument()->m_pSensor->IsCalibrated () > 0
+			&& GetDocument()->m_pSensor->GetCalibrationMethod () != CALIB_BODNER_THREEMATRIX );
+		m_AdjustXYZCheckButton.SetCheck ( GetDocument()->m_pSensor->IsCorrectionActive () );
 
-		if ( GetDocument()->m_pSensor->IsCalibrated () == 1 || m_displayType == HCFR_xyz2_VIEW )
+		if ( GetDocument()->m_pSensor->IsCorrectionActive () || m_displayType == HCFR_xyz2_VIEW )
 		{
 			if ( m_editCheckButton.GetCheck () )
 			{
@@ -5330,9 +5337,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetGray(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetGray(i, aNewColor);
 				}
 			}
@@ -5341,18 +5346,14 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetPrimary(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetPrimary(i, aNewColor);
 				}
 
 				aNewColor = GetDocument()->GetMeasure()->GetSecondary(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetSecondary(i, aNewColor);
 				}
 			}
@@ -5362,9 +5363,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetMeasurement(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetMeasurements(i, aNewColor);
 				}
 			}
@@ -5374,49 +5373,37 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetRedSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetRedSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetBlueSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetBlueSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetGreenSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetGreenSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetYellowSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetYellowSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetCyanSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetCyanSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetMagentaSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetMagentaSat(i, aNewColor);
 				}
 			}
@@ -5426,9 +5413,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetCC24MasterSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetCC24MasterSat(i, aNewColor);
 				}
 			}
@@ -5438,9 +5423,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetNearBlack(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetNearBlack(i, aNewColor);
 				}
 			}
@@ -5450,35 +5433,25 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetNearWhite(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetNearWhite(i, aNewColor);
 				}
 			}
 
 			aNewColor = GetDocument()->GetMeasure()->GetPrimeWhite();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
+			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 			GetDocument()->GetMeasure()->SetPrimeWhite(aNewColor);
 
 			aNewColor = GetDocument()->GetMeasure()->GetOnOffWhite();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
+			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 			GetDocument()->GetMeasure()->SetOnOffWhite(aNewColor);
 
 			aNewColor = GetDocument()->GetMeasure()->GetAnsiWhite();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
+			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 			GetDocument()->GetMeasure()->SetAnsiWhite(aNewColor);
 
 			aNewColor = GetDocument()->GetMeasure()->GetAnsiBlack();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
+			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 			GetDocument()->GetMeasure()->SetAnsiBlack(aNewColor);
 			isSelectedWhiteY = FALSE;
 			lHint = UPD_EVERYTHING;
@@ -5525,6 +5498,12 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				break;
 		}
 		
+		// A hand-edited value overrides what the sensor read: the stored raw no
+		// longer produces this XYZ, and a later recalibration recomputing from
+		// it would silently discard the edit. Drop the raw - the point falls
+		// back to the legacy delta-compose path, where edits survive.
+		aColorMeasure.ClearRawXYZValue();
+
 		// Update document XYZ value
 		switch ( m_displayMode )
 		{
@@ -9596,6 +9575,10 @@ void CMainView::OnAvgLowLightCheck()
 
 void CMainView::OnAdjustXYZCheck()
 {
+	// Defense in depth for the gate above: this handler cannot represent a
+	// Bodner correction and must never run against one.
+	if ( GetDocument ()->m_pSensor->GetCalibrationMethod () == CALIB_BODNER_THREEMATRIX )
+		return;
 	BOOL	bAdjust = m_AdjustXYZCheckButton.GetCheck ();
 	Matrix CurrentMatrix = GetDocument ()->m_pSensor->GetSensorMatrix();
 	
@@ -9605,14 +9588,14 @@ void CMainView::OnAdjustXYZCheck()
 		ASSERT(0);
 		GetDocument ()->m_pSensor->SetSensorMatrixMod( CurrentMatrix );
 		GetDocument ()->m_pSensor->SetSensorMatrix( Matrix::IdentityMatrix(3) );
-		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( CurrentMatrix.GetInverse() );
+		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( CurrentMatrix.GetInverse(), Matrix::IdentityMatrix(3) );
 		m_AdjustXYZCheckButton.SetCheck(FALSE);
 	}
 	else  //reapply saved correction matrix
 	{
 		ASSERT(0);
 		GetDocument ()->m_pSensor->SetSensorMatrix( GetDocument ()->m_pSensor->GetSensorMatrixMod() );
-		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix(GetDocument ()->m_pSensor->GetSensorMatrixMod() );
+		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( GetDocument ()->m_pSensor->GetSensorMatrixMod(), GetDocument ()->m_pSensor->GetSensorMatrixMod() );
 		GetDocument ()->m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
 		m_AdjustXYZCheckButton.SetCheck(TRUE);
 	}

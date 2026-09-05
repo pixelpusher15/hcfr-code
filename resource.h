@@ -122,6 +122,7 @@
 #define IDD_GENERAL_PROP_PAGE           224
 #define IDB_ANSICONTRAST_BITMAP         226
 #define IDD_EXPORTXLS_DIALOG            227
+#define IDD_EXPORT_OPTIONS_DIALOG       1403
 #define IDR_WHATS_THIS                  228
 #define IDR_NEARBLACK_GRAPH_MENU        229
 #define IDR_NEARWHITE_GRAPH_MENU        230
@@ -736,7 +737,6 @@
 #define IDC_BK_WHITE_FILE2              1251
 #define IDC_MOVE_MESSAGE                1251
 #define IDC_EDIT_INFOS                  1252
-#define IDC_CHECK_CALIBRATION_OLD       1252
 #define IDC_CHECK_IMPERIAL              1253
 #define IDC_CHECK_PREFER_LUXMETER       1254
 #define IDC_DISPLAY_MATRIX              1255
@@ -1908,6 +1908,10 @@
 #define IDS_3DVIEW_SHOWTAILS            59538
 #define IDS_3DVIEW_RESETVIEW            59539
 #define IDS_3DVIEW_SHOWPROFILE          59564
+#define IDS_CALIB_RGB_MATRIX          59565
+#define IDS_CALIB_FCMM_NOLUM           59566
+#define IDS_CALIB_FCMM_LUM             59567
+#define IDS_CALIB_BODNER               59568
 #define IDS_3DVIEW_FILTER_ALL           59555
 #define IDS_3DVIEW_FILTER_HIDE          59556
 #define IDS_3DVIEW_FILTER               59557
@@ -1997,9 +2001,26 @@
 #define IDS_PP_HOURS                    59629
 #define IDS_CSV_FILE_NOT_FOUND          59630
 #define IDS_CSV_RANGE_EXTENDED_WARN     59631
+#define IDS_SPECTRAL_TITLE              59731
+#define IDS_SPECTRAL_BROWSE             59732
+#define IDS_SPECTRAL_CLEAR              59733
+#define IDS_SPECTRAL_STATUS_FMT         59734
+#define IDS_SPECTRAL_LOADED             59735
+#define IDS_SPECTRAL_NONE               59736
+#define IDS_SPECTRAL_FILEFILTER         59737
+#define IDS_SPECTRAL_REAPPLY_FAILED     59738
+#define IDS_SPECTRAL_MATRIXCAL_PROMPT   59739
+#define IDS_SPECTRAL_ACTIVE_TITLE       59740
+#define IDS_SPECTRAL_CLEAR_FOR_MATRIX   59741
+#define IDS_CALIB_METHOD_TITLE          59742
+#define IDS_CALIB_METHOD_OUT_OF_SYNC    59743
+#define IDS_BODNER_SKIPPED_FMT          59744
+#define IDS_EXPORT_LAYOUT_MISMATCH      59745
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
+#define IDC_CHECK_EXPORT_RAW            1562
+#define IDC_CHECK_EXPORT_STIMULUS       1563
 #define ID_TARGET_TOL_FIRST             33108
 
 // Next default values for new objects
@@ -2007,9 +2028,9 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
-#define _APS_NEXT_RESOURCE_VALUE        1403
+#define _APS_NEXT_RESOURCE_VALUE        1404
 #define _APS_NEXT_COMMAND_VALUE         33118
-#define _APS_NEXT_CONTROL_VALUE         1559
+#define _APS_NEXT_CONTROL_VALUE         1564
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

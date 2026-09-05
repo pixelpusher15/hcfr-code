@@ -397,6 +397,20 @@ BEGIN
     LTEXT           "Nivel [%]",IDC_STATIC,153,147,35,8
 END
 
+IDD_EXPORT_OPTIONS_DIALOG DIALOG 0, 0, 240, 90
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Opciones de exportación"
+FONT 8, "MS Sans Serif"
+BEGIN
+    LTEXT           "Elija qué datos adicionales incluir en la exportación:",IDC_STATIC,10,8,220,8
+    CONTROL         "Incluir valores XYZ brutos (sin corregir) del sensor",IDC_CHECK_EXPORT_RAW,
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,10,26,220,10
+    CONTROL         "Incluir valores de estímulo (señal RGB)",IDC_CHECK_EXPORT_STIMULUS,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,10,40,220,10
+    DEFPUSHBUTTON   "OK",IDOK,58,64,50,14,WS_GROUP
+    PUSHBUTTON      "Cancelar",IDCANCEL,120,64,50,14,WS_GROUP
+END
+
 IDD_EXPORTXLS_DIALOG DIALOG 0, 0, 226, 135
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Exportación a Excel"
@@ -903,8 +917,6 @@ BEGIN
     GROUPBOX        "Inicio de las medidas",IDC_STATIC,7,7,199,28,WS_GROUP
     CONTROL         "Mensaje de confirmación",IDC_CHECK_CONFIRM,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,19,85,10
     GROUPBOX        "Archivos de calibración - Uso avanzado",IDC_STATIC,7,38,199,40,WS_GROUP
-    CONTROL         "No usar el blanco en el cálculo matricial (R1.x)",IDC_CHECK_CALIBRATION_OLD,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,62,145,10
     GROUPBOX        "Luxómetro LX-1108",IDC_STATIC,8,82,198,86,WS_GROUP
     LTEXT           "Puerto COM",IDC_STATIC,17,95,43,8,0,0,HIDC_STATIC
     COMBOBOX        IDC_LUXMETER_COM_COMBO,65,92,52,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
@@ -2924,6 +2936,10 @@ END
 
 STRINGTABLE
 BEGIN
+    IDS_CALIB_RGB_MATRIX    "Matriz RGB (ASTM E1455-92)"
+    IDS_CALIB_FCMM_NOLUM    "NIST cuatro colores / FCMM (sin escalado de luminancia)"
+    IDS_CALIB_FCMM_LUM      "NIST cuatro colores / FCMM (con escalado de luminancia)"
+    IDS_CALIB_BODNER        "Bodner-Robinson tres matrices (pantallas RGBW)"
     IDR_MAINFRAME           "Colorímetro HCFR - 4.1.0.0"
     IDR_MESURETYPE          "\nMedidas de color\nMedidas_de_color\nArchivo ColorHCFR (*.chc)\n.chc\nCOLORHCFR\nMedidas de color HCFR"
 END
@@ -4217,6 +4233,21 @@ BEGIN
     IDS_CIE_ILLUMINANT          "Iluminante"
     IDS_CC_COLORNAME            "Color %s"
     IDS_CC_COLORNAMEREF         "Color %s referencia"
+    IDS_SPECTRAL_TITLE          "Corrección espectral"
+    IDS_SPECTRAL_BROWSE         "Examinar..."
+    IDS_SPECTRAL_CLEAR          "Borrar"
+    IDS_SPECTRAL_STATUS_FMT     "Corrección espectral: %s"
+    IDS_SPECTRAL_LOADED         "(cargada)"
+    IDS_SPECTRAL_NONE           "Ninguna"
+    IDS_SPECTRAL_FILEFILTER     "Corrección espectral (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|CSV de correlación (*.csv)|*.csv||"
+    IDS_SPECTRAL_REAPPLY_FAILED "No se pudo volver a aplicar al medidor la corrección espectral guardada:\n%s\n\nLas lecturas están SIN CORREGIR hasta que se vuelva a aplicar o se borre en las propiedades del sensor."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "Este sensor tiene una calibración por matriz. Al aplicar una corrección espectral, esta será la única corrección para las nuevas lecturas.\n\nLas medidas existentes se tomaron con la calibración por matriz, ¿restablecerlas a los valores brutos (sin corregir) del sensor?\n\nSí - restablecer las medidas existentes a valores brutos\nNo - dejarlas como están (mezcladas con las nuevas lecturas espectrales)\nCancelar - no aplicar la corrección espectral"
+    IDS_SPECTRAL_ACTIVE_TITLE   "Corrección espectral activa"
+    IDS_SPECTRAL_CLEAR_FOR_MATRIX "Este sensor usa una corrección espectral (ccss/CSV) aplicada dentro del medidor.\nCalibrar con una matriz se sumaría a ella (corrección doble).\n\n¿Borrar la corrección espectral y calibrar con una matriz en su lugar?"
+    IDS_CALIB_METHOD_TITLE      "Método de calibración"
+    IDS_CALIB_METHOD_OUT_OF_SYNC "El método de calibración seleccionado en Opciones difiere del aplicado actualmente a estas medidas: no se recalcularon tras cambiar el método. La exportación reflejará el método APLICADO.\n\nPara recalcular primero, cancele y ejecute 'Crear usando medidas de referencia existentes' (o un comando de calibración).\n\n¿Continuar con la exportación?"
+    IDS_BODNER_SKIPPED_FMT      "No se pudieron recalibrar %d medida(s) registradas antes de activar esta función."
+    IDS_EXPORT_LAYOUT_MISMATCH  "No se puede añadir a este archivo: se exportó con opciones de Bruto/Estímulo distintas. Exporte a un archivo nuevo o repita la exportación con las mismas opciones que los datos existentes."
 END
 
 #endif    // Spanish (Spain, International Sort) resources

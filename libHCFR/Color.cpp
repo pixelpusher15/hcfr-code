@@ -2439,18 +2439,28 @@ CColor::CColor():m_XYZValues(1.0,3,1)
 {
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
+	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
 }
 
 CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 {
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
+	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
 
 	if ( aColor.m_pSpectrum )
 		m_pSpectrum = new CSpectrum ( *aColor.m_pSpectrum );
 
 	if ( aColor.m_pLuxValue )
 		m_pLuxValue = new double ( *aColor.m_pLuxValue );
+
+	if ( aColor.m_pRawXYZValues )
+		m_pRawXYZValues = new ColorXYZ ( *aColor.m_pRawXYZValues );
+
+	if ( aColor.m_pStimulus )
+		m_pStimulus = new ColorRGBDisplay ( *aColor.m_pStimulus );
 }
 
 CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
@@ -2460,6 +2470,8 @@ CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
 
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
+	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
 }
 
 CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
@@ -2469,6 +2481,8 @@ CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
 
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
+	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
 }
 
 CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
@@ -2479,6 +2493,8 @@ CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
 
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
+	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
 }
 
 CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
@@ -2487,6 +2503,8 @@ CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
 
     m_pSpectrum = NULL;
     m_pLuxValue = NULL;
+    m_pRawXYZValues = NULL;
+    m_pStimulus = NULL;
 
     theFile.read((char*)&version, 4);
     version = littleEndianUint32ToHost(version);
@@ -2524,6 +2542,82 @@ void CColor::ClearSpectrumLux()
 		delete m_pLuxValue;
 		m_pLuxValue = NULL;
 	}
+
+	ClearRawXYZValue();
+	ClearStimulusValue();
+}
+
+void CColor::SetRawXYZValue(const ColorXYZ& aRaw)
+{
+	if ( m_pRawXYZValues )
+		delete m_pRawXYZValues;
+
+	m_pRawXYZValues = new ColorXYZ ( aRaw );
+}
+
+void CColor::ClearRawXYZValue()
+{
+	if ( m_pRawXYZValues )
+	{
+		delete m_pRawXYZValues;
+		m_pRawXYZValues = NULL;
+	}
+}
+
+// Scales the corrected XYZ and, when present, the raw sensor XYZ by the same
+// factor. For scalar renormalizations (the set-white-Y rescale, profile-drift
+// compensation) this keeps raw provenance exact: a scalar commutes with any
+// linear correction - including Bodner's, whose sub-gamut selection depends
+// only on the raw chromaticity, which uniform scaling preserves - so a later
+// recompute-from-raw reproduces the rescaled value instead of resurrecting
+// the pre-rescale reading.
+void CColor::ScaleXYZ(double fScale)
+{
+	SetX(GetX()*fScale);
+	SetY(GetY()*fScale);
+	SetZ(GetZ()*fScale);
+	if ( HasRawXYZValue() )
+	{
+		ColorXYZ raw = GetRawXYZValue();
+		SetRawXYZValue(ColorXYZ(raw[0]*fScale, raw[1]*fScale, raw[2]*fScale));
+	}
+}
+
+bool CColor::HasRawXYZValue() const
+{
+	return ( m_pRawXYZValues != NULL );
+}
+
+ColorXYZ CColor::GetRawXYZValue() const
+{
+	return ( m_pRawXYZValues ? (*m_pRawXYZValues) : m_XYZValues );
+}
+
+void CColor::SetStimulusValue(const ColorRGBDisplay& aStimulus)
+{
+	if ( m_pStimulus )
+		delete m_pStimulus;
+
+	m_pStimulus = new ColorRGBDisplay ( aStimulus );
+}
+
+void CColor::ClearStimulusValue()
+{
+	if ( m_pStimulus )
+	{
+		delete m_pStimulus;
+		m_pStimulus = NULL;
+	}
+}
+
+bool CColor::HasStimulusValue() const
+{
+	return ( m_pStimulus != NULL );
+}
+
+ColorRGBDisplay CColor::GetStimulusValue() const
+{
+	return ( m_pStimulus ? (*m_pStimulus) : ColorRGBDisplay() );
 }
 
 CColor& CColor::operator =(const CColor& aColor)
@@ -2540,6 +2634,12 @@ CColor& CColor::operator =(const CColor& aColor)
 
 	if ( aColor.m_pLuxValue )
 		m_pLuxValue = new double ( *aColor.m_pLuxValue );
+
+	if ( aColor.m_pRawXYZValues )
+		m_pRawXYZValues = new ColorXYZ ( *aColor.m_pRawXYZValues );
+
+	if ( aColor.m_pStimulus )
+		m_pStimulus = new ColorRGBDisplay ( *aColor.m_pStimulus );
 
 	return *this;
 }
@@ -2759,6 +2859,12 @@ ostream& operator <<(ostream& ostr, const CColor& obj)
 #ifdef LIBHCFR_HAS_MFC
 void CColor::Serialize(CArchive& archive)
 {
+	// Base version encodes spectrum/lux presence exactly as before (1/3/5/6).
+	// Optional trailing fields are flagged in the tens digit as a bitfield: bit 0
+	// (+10) = raw XYZ, bit 1 (+20) = drive stimulus. Present fields are appended in
+	// bit order after the base payload. Base versions stay 1/3/5/6, so every
+	// pre-existing file (no optional fields) is byte-for-byte unchanged, and the
+	// earlier raw-only files (11/13/15/16) still decode as base + raw.
 	if (archive.IsStoring())
 	{
 		int version=1;
@@ -2774,6 +2880,11 @@ void CColor::Serialize(CArchive& archive)
 		{
 			version = 5;
 		}
+
+		if ( m_pRawXYZValues )
+			version += 10;
+		if ( m_pStimulus )
+			version += 20;
 
 		archive << version;
 		m_XYZValues.Serialize(archive) ;
@@ -2793,15 +2904,29 @@ void CColor::Serialize(CArchive& archive)
 
 		if ( m_pLuxValue )
 			archive << (* m_pLuxValue);
+
+		if ( m_pRawXYZValues )
+			m_pRawXYZValues -> Serialize(archive);
+
+		if ( m_pStimulus )
+			m_pStimulus -> Serialize(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		
-		if ( version > 6 )
+
+		int baseVersion   = version % 10;
+		int optionalFlags = version / 10;
+		bool hasRaw      = ( optionalFlags & 0x1 ) != 0;
+		bool hasStimulus = ( optionalFlags & 0x2 ) != 0;
+
+		// Reject an unknown base version, or an unknown optional-field bit: a newer
+		// file with a trailing field this build can't skip would desync the archive
+		// stream for every object read after it.
+		if ( baseVersion > 6 || baseVersion < 1 || ( optionalFlags & ~0x3 ) )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
-		
+
 		m_XYZValues.Serialize(archive) ;
 		Matrix ignore(0.0, 3, 3);
 		ignore.Serialize(archive);
@@ -2819,14 +2944,26 @@ void CColor::Serialize(CArchive& archive)
 			m_pLuxValue = NULL;
 		}
 
-		if ( version == 2 || version == 4 || version == 5 || version == 6 )
+		if ( m_pRawXYZValues )
+		{
+			delete m_pRawXYZValues;
+			m_pRawXYZValues = NULL;
+		}
+
+		if ( m_pStimulus )
+		{
+			delete m_pStimulus;
+			m_pStimulus = NULL;
+		}
+
+		if ( baseVersion == 2 || baseVersion == 4 || baseVersion == 5 || baseVersion == 6 )
 		{
 			int NbBands, WaveLengthMin, WaveLengthMax;
 			double dBandWidth;
 			archive >> NbBands;
 			archive >> WaveLengthMin;
 			archive >> WaveLengthMax;
-			if ( version == 2 || version == 4 )
+			if ( baseVersion == 2 || baseVersion == 4 )
 			{
 				int nBandWidth;
 				archive >> nBandWidth;
@@ -2840,10 +2977,22 @@ void CColor::Serialize(CArchive& archive)
 			m_pSpectrum -> Serialize(archive);
 		}
 
-		if ( version == 3 || version == 4 || version == 6 )
+		if ( baseVersion == 3 || baseVersion == 4 || baseVersion == 6 )
 		{
 			m_pLuxValue = new double;
 			archive >> (* m_pLuxValue);
+		}
+
+		if ( hasRaw )
+		{
+			m_pRawXYZValues = new ColorXYZ ( Matrix(0.0,3,1) );
+			m_pRawXYZValues -> Serialize(archive);
+		}
+
+		if ( hasStimulus )
+		{
+			m_pStimulus = new ColorRGBDisplay ( 0.0, 0.0, 0.0 );
+			m_pStimulus -> Serialize(archive);
 		}
 	}
 }
@@ -3896,7 +4045,84 @@ Matrix ComputeConversionMatrix3Colour(const ColorXYZ measures[3], const ColorXYZ
     return result;
 }
 
-Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries)
+void ComputeBodnerThreeMatrices(const ColorXYZ measuresRGBW[4], const ColorXYZ referencesRGBW[4], Matrix outRawMatrix[3], Matrix outCalMatrix[3])
+{
+    // Sub-gamut triples, sharing the white primary: rgw, gbw, rbw
+    static const int subGamutIndices[3][2] = { {0,1}, {1,2}, {0,2} };
+
+    for ( int k = 0; k < 3; k++ )
+    {
+        int i1 = subGamutIndices[k][0];
+        int i2 = subGamutIndices[k][1];
+
+        ColorXYZ measuresTriple[3]   = { measuresRGBW[i1],   measuresRGBW[i2],   measuresRGBW[3] };
+        ColorXYZ referencesTriple[3] = { referencesRGBW[i1], referencesRGBW[i2], referencesRGBW[3] };
+
+        Matrix rawXYZ(measuresTriple[0]);
+        rawXYZ.CMAC(measuresTriple[1]);
+        rawXYZ.CMAC(measuresTriple[2]);
+
+        if ( rawXYZ.Determinant() == 0 )
+        {
+            throw std::logic_error("Can't invert Bodner sub-gamut raw matrix");
+        }
+
+        outRawMatrix[k] = rawXYZ;
+        outCalMatrix[k] = ComputeConversionMatrix3Colour(measuresTriple, referencesTriple);
+    }
+}
+
+ColorXYZ SelectAndApplyBodnerMatrix(const ColorXYZ& rawXYZ, const Matrix rawMatrix[3], const Matrix calMatrix[3])
+{
+    Matrix rawInv[3];
+    bool rawOk[3];
+    for ( int k = 0; k < 3; k++ )
+    {
+        rawOk[k] = ( rawMatrix[k].Determinant() != 0 );
+        rawInv[k] = rawOk[k] ? rawMatrix[k].GetInverse() : Matrix::IdentityMatrix(3);
+    }
+    return SelectAndApplyBodnerMatrixInv(rawXYZ, rawInv, rawOk, calMatrix);
+}
+
+ColorXYZ SelectAndApplyBodnerMatrixInv(const ColorXYZ& rawXYZ, const Matrix rawInv[3], const bool rawInvertible[3], const Matrix calMatrix[3])
+{
+    double worstNegativeSum = -1.0;
+    int bestSubGamut = 0;
+
+    for ( int k = 0; k < 3; k++ )
+    {
+        if ( !rawInvertible[k] )
+            continue;
+
+        Matrix drive = rawInv[k] * rawXYZ;
+
+        double negativeSum = 0.0;
+        for ( int row = 0; row < 3; row++ )
+        {
+            if ( drive(row,0) < 0.0 )
+                negativeSum += -drive(row,0);
+        }
+
+        if ( negativeSum == 0.0 )
+        {
+            // All drive values non-negative: rawXYZ falls inside this sub-gamut.
+            return ColorXYZ(calMatrix[k] * rawXYZ);
+        }
+
+        // Fallback tie-break (not specified verbatim by the paper for the
+        // multi-negative case): remember the sub-gamut whose drive values are
+        // least negative overall, in case no sub-gamut matches cleanly.
+        if ( worstNegativeSum < 0.0 || negativeSum < worstNegativeSum )
+        {
+            worstNegativeSum = negativeSum;
+            bestSubGamut = k;
+        }
+    }
+
+    return ColorXYZ(calMatrix[bestSubGamut] * rawXYZ);
+}
+
+Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries, bool bScaleLuminance)
 {
     if (!WhiteTest.isValid() || !WhiteRef.isValid() || bUseOnlyPrimaries)
     {
@@ -3937,15 +4163,22 @@ Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ refere
     // Compute component distribution for measured white
     Matrix M(measuresxyz * km);
 
-    // Compute transformation matrix
+    // Compute transformation matrix (this core is the NIST Four-Color Method /
+    // FCMM: pure chromaticity, independent of Y).
     Matrix transform(N * M.GetInverse());
 
-    // find out error adjustment in white value with this matrix
-    ColorXYZ testResult(transform * WhiteTest);
-    double errorAdjustment(WhiteRef[1] / testResult[1]);
+    // Optional luminance correction from the FCMM paper's conclusion: scale the
+    // matrix so the corrected white luminance matches the reference. Skipped for
+    // CALIB_FCMM_NO_LUM, which keeps the method strictly chromaticity-based.
+    if ( bScaleLuminance )
+    {
+        // find out error adjustment in white value with this matrix
+        ColorXYZ testResult(transform * WhiteTest);
+        double errorAdjustment(WhiteRef[1] / testResult[1]);
 
-    // and scale the matrix with this value
-    transform *= errorAdjustment;
+        // and scale the matrix with this value
+        transform *= errorAdjustment;
+    }
 
     return transform;
 }

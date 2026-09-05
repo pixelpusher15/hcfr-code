@@ -300,7 +300,24 @@ public:
 	double GetLuxOrLumaValue (const int luminanceCurveMode) const;
 	double GetPreferedLuxValue (bool preferLuxmeter) const;
     void applyAdjustmentMatrix(const Matrix& adjustment);
-    
+
+	// Uncorrected sensor reading, captured before any calibration matrix is applied.
+	// Retained so a measurement can be recalibrated later without composing deltas
+	// onto an already-corrected value (needed for per-sub-gamut Bodner recalibration).
+	void SetRawXYZValue(const ColorXYZ& aRaw);
+	void ClearRawXYZValue();
+	void ScaleXYZ(double fScale);
+	bool HasRawXYZValue() const;
+	ColorXYZ GetRawXYZValue() const;
+
+	// Drive stimulus (RGB %) that produced this reading, captured at measure time
+	// alongside the raw XYZ. Lets an export or a later recompute report the exact
+	// signal sent to the display rather than reconstructing it from the generator.
+	void SetStimulusValue(const ColorRGBDisplay& aStimulus);
+	void ClearStimulusValue();
+	bool HasStimulusValue() const;
+	ColorRGBDisplay GetStimulusValue() const;
+
     void Output(ostream& ostr) const;
 
 #ifdef LIBHCFR_HAS_MFC
@@ -311,6 +328,8 @@ protected:
     ColorXYZ m_XYZValues;
 	CSpectrum *	m_pSpectrum;
 	double *	m_pLuxValue;
+	ColorXYZ *	m_pRawXYZValues;
+	ColorRGBDisplay *	m_pStimulus;
 };
 
 class CSpectrum: public Matrix
@@ -763,7 +782,34 @@ extern void GenerateSaturationColors (const CColorReference& colorReference, Col
 extern bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit = false, bool is16_235 = true);
 extern int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, int cubeN, bool bGrayExtras);
 extern void RemapProfileToTransport (ColorRGBDisplay* GenColors, int n, const CColorReference& colorReference, int mode, bool b10bit, bool is16_235);
-extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries);
+extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries, bool bScaleLuminance = true);
+
+// User-selectable colorimeter correction methods. Shared between CColorHCFRConfig
+// (the user's chosen setting) and CSensor (which method actually produced the
+// matrices a given sensor is using), so keep values in sync between the two.
+enum CalibrationMatrixMethod
+{
+	// Values are persisted (config + .chc) - never renumber; append new methods.
+	CALIB_CLASSIC_NIST			= 0,	// ASTM E1455-92 "RGB method": 3-primary tristimulus matrix, no white, no luminance scaling
+	CALIB_HCFR_DEFAULT			= 1,	// NIST Four-Color Method (FCMM, Ohno & Hardis 1997) + the paper's optional luminance scaling
+	CALIB_BODNER_THREEMATRIX	= 2,	// RGBW sub-gamut three-matrix method (Bodner & Robinson, SID 2019)
+	CALIB_FCMM_NO_LUM			= 3		// NIST Four-Color Method (FCMM), chromaticity only - no luminance scaling
+};
+
+// Builds the three Bodner sub-gamut matrices (index 0=rgw, 1=gbw, 2=rbw) from the
+// four measured/reference primaries (index 0=R,1=G,2=B,3=W). outRawMatrix[k] holds
+// the raw (uncorrected) primary matrix for sub-gamut k, used both to build
+// outCalMatrix[k] = references*inverse(raw) and to reselect the sub-gamut for a
+// future raw reading (see SelectAndApplyBodnerMatrix). Throws std::logic_error if
+// any sub-gamut's raw matrix is singular.
+extern void ComputeBodnerThreeMatrices(const ColorXYZ measuresRGBW[4], const ColorXYZ referencesRGBW[4], Matrix outRawMatrix[3], Matrix outCalMatrix[3]);
+
+// Picks which of the three sub-gamut matrices applies to a raw XYZ reading (via the
+// non-negative "drive value" test from the paper) and returns the corrected XYZ.
+extern ColorXYZ SelectAndApplyBodnerMatrix(const ColorXYZ& rawXYZ, const Matrix rawMatrix[3], const Matrix calMatrix[3]);
+// Precomputed-inverse variant for hot paths (per-reading / per-sweep): rawInv[k]
+// and rawInvertible[k] must describe the corresponding raw sub-gamut matrix.
+extern ColorXYZ SelectAndApplyBodnerMatrixInv(const ColorXYZ& rawXYZ, const Matrix rawInv[3], const bool rawInvertible[3], const Matrix calMatrix[3]);
 extern int PiPercentToCode ( double percent, bool is16_235, int bits );
 // Range a ColourSpace patch-list CSV can declare in its header (import-range guard).
 // CSV_RANGE_NONE = no header / legacy default. The loader (ReadCsvPatchRows) reports the
