@@ -57,7 +57,7 @@
 // - work also with 16-bit colored toolbar
 //
 // 12. July 2003 Version 1.0
-// - Thanks to Andreas Schï¿½rer for some hints
+// - Thanks to Andreas Schärer for some hints
 // - It works with IE 4.0 and above
 // - only a minimal implementation not supported all styles
 // - support more than 16 colors for toolbarbitmaps
@@ -402,7 +402,7 @@ BOOL CNewToolBar::OnEraseBkgnd(CDC* pDC)
       {
         COLORREF menuColor = CNewMenu::GetMenuBarColor2003();
 
-        // corrections from Andreas Schï¿½rer
+        // corrections from Andreas Schärer
         switch(menuColor)
         {
         case RGB(163,194,245)://blau
@@ -421,7 +421,7 @@ BOOL CNewToolBar::OnEraseBkgnd(CDC* pDC)
             clrDarkLine = RGB(124,124,148);
             break;
           }
-        case RGB(218,218,170)://olivgrï¿½n
+        case RGB(218,218,170)://olivgrün
           {
             clrUpperColor = RGB(244,247,222);
             clrMediumColor = RGB(209,222,172);

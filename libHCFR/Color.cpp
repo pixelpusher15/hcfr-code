@@ -14,15 +14,15 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	FranÃois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //  Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 //  Modifications:
-//  JÃˆrÃ™me Duquennoy -> made OS agnostic
+//  Jérôme Duquennoy -> made OS agnostic
 //    ASSERT -> assert
 //    CRITICAL_SECTION -> pthreads mutex
 //    CString -> std::string
-//      CString.LoadString -> string passÃˆe en argument
+//      CString.LoadString -> string passée en argument
 //    BOOL, FALSE, TRUE -> bool, false, true
 //    const added to the param of the copy constructor
 //    GetColorReference linked to global app var -> replaced by arguments in impacted functions
@@ -1460,6 +1460,169 @@ double ColorXYZ::GetDeltaLCH(double YWhite, const ColorXYZ& refColor, double YWh
 	return dLight;
 }
 
+//////////////////////////////////////////////////////////////////////////
+// BT.2390 tone map: one signal in, cd/m2 / 100 out.
+//
+// getL_EOTF case 10 used to carry two verbatim copies of this block - one for the
+// scalar path, one inside the loop that builds the inverse LUT - and the copies had
+// already drifted: the knee gate read `E1 <= 1.0` in the scalar copy and `E1 <= 1.2`
+// in the builder. Swept over 14.2M points spanning the mastering / target / slider
+// grid the two gates agree bit for bit (above E1 = 1 the extrapolated knee always
+// exceeds the peak cap, so both clip to the same value), so they are unified here on
+// the spec's own domain. One definition also means the forward oracle (ColorMathTest
+// T11) and the inverse oracle (T12) exercise the same code, not two lookalikes.
+//////////////////////////////////////////////////////////////////////////
+static double BT2390ToneMap ( double valx, double m_diffuseL, double m_MinML, double m_MaxML, double m_MinTL, double m_MaxTL, double b_fact, double E2_fact, double E2_fact1 )
+{
+	double m1=0.1593017578125;
+	double m2=78.84375;
+	double c1=0.8359375;
+	double c2=18.8515625;
+	double c3=18.6875;
+	// The same value getL_EOTF writes into the file-scope Scale before it dispatches.
+	double Scale = m_diffuseL / 94.37844 * 10000.;
+	double E1,E2,E3,E4,b,d,KS,T,p,minL,maxL,outL;
+
+	m_MaxML = m_MaxML * m_diffuseL / 94.37844 ;
+
+	if (m_MinML > m_MinTL)
+		m_MinML = m_MinTL;
+
+	E1 = valx - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
+	d = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2) - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
+	E1 = E1 / d;
+
+	// E1 is deliberately left unclamped at BOTH ends here; the single clamp this
+	// curve needs is on E2, below. The top end especially must keep falling
+	// through: when TargetMaxL > MasterMaxL (a display brighter than the disc,
+	// both fields user-editable) maxL > 1, so KS = 1.5*maxL - 0.5 > 1 and the
+	// knee never fires. Capping E1 at 1 pins every signal above the mastering
+	// peak to PQ(MasterMaxL) - a 1000-nit-mastered disc on a 4000-nit target
+	// flat-lines the whole top quarter of the grid at 1000 instead of tracking
+	// PQ up to TargetMaxL. The fall-through returns true PQ capped at m_MaxTL,
+	// which is what the expansion region wants.
+
+	// d <= 0 is degenerate mastering metadata - a mastering peak at or below the
+	// mastering black. E1, minL and maxL are then all +/-inf or NaN, and the floor
+	// below would turn a sub-black E2 of -inf into 0 and route a near-zero signal
+	// into the tone-map branch, where an infinite b yields a NaN that
+	// min(NaN, cap) resolves to the FULL target peak: 1000 cd/m2 for a signal of
+	// 1e-7. Leave the floor off for those and the values keep falling through to
+	// raw PQ, which is what this returned before the floor existed.
+	//
+	// The References page cannot produce it: MasterMaxL is validated to
+	// [100, 10000] and MasterMinL to [0, 0.5], and over the corners of all four
+	// luminance fields - DiffuseL's [1, 200] included - the smallest d is 0.0733.
+	// It arrives from a hand-edited INI (ColorHCFRConfig.cpp:566 reads the value
+	// back with GetProfileDouble and does not re-validate) or from a direct caller
+	// of this public API. d == 0 exactly for MasterMinL = MasterMaxL = 0; d is
+	// negative and finite for MasterMinL > MasterMaxL, where every normalised
+	// value is a sign-flipped fiction, and the same guard covers it.
+	bool bMappable = (d > 0.0);
+
+	minL = (pow( (c1 + c2 * pow(m_MinTL/Scale,m1)) / (1 + c3 * pow(m_MinTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
+	maxL = (pow( (c1 + c2 * pow(m_MaxTL/Scale,m1)) / (1 + c3 * pow(m_MaxTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
+	KS = 1.5 * maxL - 0.5;
+	b = minL;
+	E2 = E1;
+
+	double slope = 1.0;
+	double lower = KS;
+	double upper = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2);
+	double mmaxL = lower + E2_fact1 / 100 * (upper - lower);
+
+	// Bounded at 1 because pow((1.0-E1),0.75) is NaN for any E1 above it, and that
+	// NaN propagates through slope into E1, where it fails both knee comparisons -
+	// the same place E1 > 1 lands on its own. Same 14.2M-point sweep: identical
+	// output either way, so this only keeps the NaN out of the arithmetic.
+	if (E1 >= mmaxL && E1 <= 1.0 && (upper > lower))
+	{
+			slope = pow((E1 - mmaxL),2.0) * pow((1.0-E1),0.75)*E2_fact*(2.5*pow(mmaxL,2.0)+3*pow(mmaxL,3.0)) + 1.0;
+			E1 = E1 / slope;
+	}
+
+	if (E1 >= KS && E1 <= 1.0)
+	{
+		T = (E1 - KS) / (1.0 - KS);
+		E2 = ((2 * pow(T,3.0) - 3 * pow(T,2.0) + 1.0)*KS + (pow(T,3.0) - 2 * pow(T, 2.0) + T) * (1.0 - KS)) + ( -2.0 * pow(T,3.0) + 3.0 * pow(T,2.0)) * maxL;
+	}
+
+	// The one clamp. BT.2390's black lift, E3 = E2 + b(1-E2)^p, is defined on
+	// E2 in [0,1], and everything that landed outside it used to fall through
+	// to the raw, UN-tone-mapped PQ branch below - so near-black got the
+	// highlight roll-off but no black lift at all, and Y target at 0% (which
+	// returns the display black target directly) could come out ABOVE Y target
+	// at 1-5%. Two different inputs reach that dead zone:
+	//
+	//  - a signal below the mastering display's black, which makes E1 - and
+	//    with the knee not firing, E2 - negative;
+	//  - a target peak below a third of the mastering range, which drives
+	//    KS = 1.5*maxL - 0.5 NEGATIVE, so E1 = 0 clears `E1 >= KS`, enters the
+	//    Hermite knee, and the spline hands back a negative E2 (a 30-nit target
+	//    off a 10000-nit master read 0.300 cd/m2 at 0% and 0.000040 at 1/1024).
+	//
+	// Flooring E2 covers both: the lift then runs with E2 = 0 and maps the
+	// bottom of the curve onto the black target. An equivalent floor on E1
+	// only covers the first, and once this one is here it is measurably inert -
+	// 4.51M points over the mastering / target / slider grid, zero rows differ
+	// with it removed - so there is one clamp, not two.
+	//
+	// LOW end only, and a comparison rather than max(). The MSVC max macro
+	// answers its second operand for a NaN, and this NaN is load-bearing:
+	// TargetMaxL == MasterMaxL puts E1, KS and maxL all at exactly 1 at full
+	// signal, so the knee runs with T = 0/0 and E2 comes out NaN. That NaN has
+	// to keep failing the gate below and reach raw PQ, which is what returns
+	// the display peak at 100%; max(E2, 0.0) floors it to 0 and white reads as
+	// black.
+	if (bMappable && E2 < 0.0)
+		E2 = 0.0;
+
+	if (E2 >= 0.0 && E2 <= 1.0)
+	{
+		// Pre-existing and deliberately left alone: p < 1 makes the slope of the
+		// black lift b(1 - E2)^p diverge as E2 -> 1, so the curve turns over
+		// MID-SCALE rather than near black - neither of the two dead-zone
+		// mechanisms above, and not something the E2 floor touches. Two entrances,
+		// both reachable from the References page: a Black Slope below 0.25
+		// (4 * b_fact < 1), or b > 1 from a high target black against a low diffuse
+		// white. Bounding p at 1 clears it but moves ~400k of 5.9M rows by up to
+		// 6617 cd/m2 - a different change from this one, and listed under "still
+		// not monotonic" rather than fixed here.
+		p = min(1.0 / b, 4 * b_fact);
+		E3 = E2 + b * pow((1.0 - E2),p);
+		E3 = (E3 * d + pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2));
+		E4 = pow(max(pow(E3,1.0 / m2) - c1,0) / (c2 - c3 * pow(E3, 1.0 / m2)), 1.0 / m1);
+		outL = E4 * 10000. / 100.00 * m_diffuseL / 94.37844;
+		outL = min(outL, m_MaxTL / 100.0 );
+	}
+	else
+	{
+		outL = pow(max(pow(valx,1.0 / m2) - c1,0) / (c2 - c3 * pow(valx, 1.0 / m2)), 1.0 / m1);
+		outL = outL * 10000. / 100.00 * m_diffuseL / 94.37844;
+		outL = min(outL, m_MaxTL / 100.0);
+	}
+
+	return outL;
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Rebuild BT2390x/y, the 1024-entry sample of the forward curve that case -10
+// inverts by nearest-neighbour search. y is in the LUT's own units, nits/10000.
+//////////////////////////////////////////////////////////////////////////
+static void BuildBT2390Table ( double m_diffuseL, double m_MinML, double m_MaxML, double m_MinTL, double m_MaxTL, double b_fact, double E2_fact, double E2_fact1 )
+{
+	BT2390x.clear();
+	BT2390y.clear();
+
+	for (int i=0; i < 1024; i++)
+	{
+		double valx = i / 1024.;
+		double outL = BT2390ToneMap(valx, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, b_fact, E2_fact, E2_fact1);
+		BT2390x.push_back(valx);
+		BT2390y.push_back(outL / 100.0 / m_diffuseL * 94.37844);
+	}
+}
+
 double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double split, int mode, double m_diffuseL, double m_MinML, double m_MaxML, double m_MinTL, double m_MaxTL, bool ToneMap, bool cBT2390, double bbc_gamma, double b_fact, double E2_fact, double E2_fact1)
 {
 	if (valx == 0 && mode > 4) return (ToneMap?m_MinTL / 100.:0.0);
@@ -1537,7 +1700,7 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 
 	Lbt = ( a * pow ( (valx + b)<0?0:(valx+b), exp0 ) );
 
-	double value, E3 = 0.0;
+	double value;
 	Scale = m_diffuseL / 94.37844 * 10000.;
 
 	switch (mode)
@@ -1581,135 +1744,41 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 			outL = outL_bbc;
 		break;
 		case 10: //BT.2084/2390
-			double E1,E2,E4,b,d,KS,T,p;
-			if (!cBT2390)
+			if (cBT2390)
 			{
-				double tmWhite = getL_EOTF(0.5022283, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact) * 100.0;
-				m_MaxML = m_MaxML * m_diffuseL / 94.37844 ; 
-
-				if (m_MinML > m_MinTL)
-					m_MinML = m_MinTL;
-
-				E1 = valx - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
-				d = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2) - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
-				E1 = E1 / d;
-				minL = (pow( (c1 + c2 * pow(m_MinTL/Scale,m1)) / (1 + c3 * pow(m_MinTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
-				maxL = (pow( (c1 + c2 * pow(m_MaxTL/Scale,m1)) / (1 + c3 * pow(m_MaxTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
-				KS = 1.5 * maxL - 0.5;
-				b = minL;
-				E2 = E1;
-
-				double slope = 1.0;
-				double lower = KS;
-				double upper = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2);
-				double mmaxL = lower + E2_fact1 / 100 * (upper - lower);
-
-				if (E1 >= mmaxL && (upper > lower))
-				{
-						slope = pow((E1 - mmaxL),2.0) * pow((1.0-E1),0.75)*E2_fact*(2.5*pow(mmaxL,2.0)+3*pow(mmaxL,3.0)) + 1.0;
-						E1 = E1 / slope;
-				}
-
-				if (E1 >= KS && E1 <= 1.0)
-				{
-					T = (E1 - KS) / (1.0 - KS);
-					E2 = ((2 * pow(T,3.0) - 3 * pow(T,2.0) + 1.0)*KS + (pow(T,3.0) - 2 * pow(T, 2.0) + T) * (1.0 - KS)) + ( -2.0 * pow(T,3.0) + 3.0 * pow(T,2.0)) * maxL;
-				}
-
-				if (E2 >= 0.0 && E2 <= 1.0)
-				{
-					p = min(1.0 / b, 4 * b_fact);
-					E3 = E2 + b * pow((1.0 - E2),p);
-					E3 = (E3 * d + pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)); 
-					E4 = pow(max(pow(E3,1.0 / m2) - c1,0) / (c2 - c3 * pow(E3, 1.0 / m2)), 1.0 / m1);
-					outL = E4 * 10000. / 100.00 * m_diffuseL / 94.37844;
-					outL = min(outL, m_MaxTL / 100.0 );
-				}
-				else
-				{
-					outL = pow(max(pow(valx,1.0 / m2) - c1,0) / (c2 - c3 * pow(valx, 1.0 / m2)), 1.0 / m1);
-					outL = outL * 10000. / 100.00 * m_diffuseL / 94.37844; 
-					outL = min(outL, m_MaxTL / 100.0);
-//					outL = min(outL, 100.0);
-				}
+				// cBT2390 asks for the inverse LUT to be rebuilt rather than for a
+				// value; the table is the product and the return has never been read.
+				// case -10 no longer arrives through here - it calls the builder
+				// directly - so this is only the public API's way in, and nothing in
+				// the tree rebuilds the table this way any more.
+				//
+				// Which is just as well, because getting here is still gated on the
+				// SIGNAL as well as on `ToneMap && mode == 5` promoting to case 10: a
+				// caller asking for a rebuild with valx == 0 takes the
+				// `valx == 0 && mode > 4` early return at the top of this function and
+				// builds nothing, leaving BT2390x/y as they were. That is the half of
+				// MATH-008 case -10 used to be exposed to; it is why case -10 calls
+				// BuildBT2390Table itself rather than coming through here, and it is
+				// what any future caller of this branch has to know.
+				BuildBT2390Table(m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, b_fact, E2_fact, E2_fact1);
+				outL = 0.0;
 			}
 			else
-			{
-				BT2390x.clear();
-				BT2390y.clear();
-				int ii = 1024;
-
-				if (m_MinML > m_MinTL)
-					m_MinML = m_MinTL;
-				m_MaxML = m_MaxML * m_diffuseL / 94.37844; 
-
-				// Diffuse-white fast path: compute the tone-mapped white
-				// directly for the requested signal instead of building the
-				// 1024-entry inverse LUT. Tolerance instead of exact equality:
-				// the white patch reaches the display grid-quantized (110/219,
-				// 128/255, 440/876, 514/1023 are all within 3.2e-4 of the
-				// nominal 0.5022283), and the snapped code must take the same
-				// exact path as the nominal constant.
-				if (fabs(valx - 0.5022283) < 5e-4)
-					ii = 1;
-				for (int i=0; i < ii;i++)
-				{
-					if (ii != 1)
-						valx = i / 1024.;
-
-					E1 = valx - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
-					d = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2) - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
-					E1 = E1 / d;
-					minL = (pow( (c1 + c2 * pow(m_MinTL/Scale,m1)) / (1 + c3 * pow(m_MinTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
-					maxL = (pow( (c1 + c2 * pow(m_MaxTL/Scale,m1)) / (1 + c3 * pow(m_MaxTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
-					KS = 1.5 * maxL - 0.5;
-					b = minL;
-					E2 = E1;
-
-					double slope = 1.0;
-					double lower = KS;
-					double upper = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2);
-					double mmaxL = lower + E2_fact1 / 100 * (upper - lower);
-
-					if (E1 >= mmaxL && (upper > lower))
-					{
-							slope = pow((E1 - mmaxL),2.0) * pow((1.0-E1),0.75)*E2_fact*(2.5*pow(mmaxL,2.0)+3*pow(mmaxL,3.0)) + 1.0;
-							E1 = E1 / slope;
-					}
-
-					if (E1 >= KS && E1 <= 1.2)
-					{
-						T = (E1 - KS) / (1.0 - KS);
-						E2 = ((2 * pow(T,3.0) - 3 * pow(T,2.0) + 1.0)*KS + (pow(T,3.0) - 2 * pow(T, 2.0) + T) * (1.0 - KS))  + ( -2.0 * pow(T,3.0) + 3.0 * pow(T,2.0)) * maxL;
-					}
-			
-					if (E2 >= 0.0 && E2 <= 1.0)
-					{
-						p = min(1.0 / b, 4 * b_fact); //Hoech mod
-						E3 = E2 + b * pow((1.0 - E2),p);
-						E3 = (E3 * d + pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)); 
-						E4 = pow(max(pow(E3,1.0 / m2) - c1,0) / (c2 - c3 * pow(E3, 1.0 / m2)), 1.0 / m1);
-						outL = E4 * 10000. / 100.00 * m_diffuseL / 94.37844;
-						outL = min(outL, m_MaxTL / 100.0);
-					}
-					else
-					{
-						outL = pow(max(pow(valx,1.0 / m2) - c1,0) / (c2 - c3 * pow(valx, 1.0 / m2)), 1.0 / m1);
-						outL = outL * 10000. / 100.00 * m_diffuseL / 94.37844; 
-						outL = min(outL, m_MaxTL / 100.0);
-//						outL = min(outL, 100.0);
-					}
-					BT2390x.push_back(valx);
-					BT2390y.push_back(outL / 100.0 / m_diffuseL * 94.37844);
-				}
-			}
+				outL = BT2390ToneMap(valx, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, b_fact, E2_fact, E2_fact1);
 		break;
 		case -10: //BT.2084/2390 inverse curve look-up
 			{
-//				double tmWhite = getL_EOTF(0.5022283, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact, E2_fact1) * 100.0;
-//				m_MaxML = m_MaxML * tmWhite / 94.37844;
-//				m_MaxML = m_MaxML * m_diffuseL / 94.37844 ; 
-				getL_EOTF(valx, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact, E2_fact1);
+				// Build the table, then search it. This used to re-enter getL_EOTF with
+				// mode 5 and cBT2390 = TRUE, which made the build depend on getting past
+				// the top-of-function guards and on `ToneMap && mode == 5` promoting to
+				// case 10. Both let it through without a table: a valx of 0 tripped the
+				// `valx == 0 && mode > 4` early return and came back before the branch
+				// ran (MATH-008), and a caller reaching mode -10 with ToneMap false
+				// skipped the promotion entirely - either way the search below indexed
+				// BT2390y[0] on an empty vector. Calling the builder directly removes the
+				// dependency, along with the 17-argument self-call and the dummy signal
+				// it had to pass. The search still runs on the caller's valx.
+				BuildBT2390Table(m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, b_fact, E2_fact, E2_fact1);
 				value = abs(valx - BT2390y[0]);
 				outL = BT2390x[0];
 				for (int i = 0; i < (int)BT2390y.size(); i++)
@@ -2422,7 +2491,7 @@ CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
     theFile.read((char*)&version, 4);
     version = littleEndianUint32ToHost(version);
 
-    // les donnÃ©es XYZ (on utilise le constructeur de Matrix)
+    // les données XYZ (on utilise le constructeur de Matrix)
     m_XYZValues = ColorXYZ(Matrix(theFile));
 
     Matrix XYZtoSensorMatrix = Matrix(theFile);

@@ -53,10 +53,10 @@ Guards the 8-bit signal path while the 10-bit work lands. Part of the plan in
   input-contract rejection (non-finite fields, negative weight, stimulus outside [0,1]);
   failed re-fit preserves the previous model; unfitted-model transforms refuse;
   parameter-provenance flags (fitted / gray-derived / assumed) for gammas and black,
-  including quantization-jittered gray ramps staying in the gray pool. **T11/T12 are
-  deliberately skipped**: claimed by in-flight branches (PR #178's BT.2390 oracles;
-  csv-provenance/wtw-reference renumber on rebase) — check open branches before
-  assigning any new T number.
+  including quantization-jittered gray ramps staying in the gray pool. **T11/T12** (the
+  BT.2390 tone-map and inverse-LUT oracles) landed on `main` while this branch was open
+  and have no entry of their own here yet — check the open branches before assigning
+  any new T number.
 
 ## Build & run
 Build `libHCFR` first, then this project (Debug|Win32 only):
