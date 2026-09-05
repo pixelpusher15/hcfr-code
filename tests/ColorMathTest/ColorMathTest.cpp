@@ -12,7 +12,7 @@
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
 // T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
 // T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table,
-// T14 asserts the CsvPercentToCode inverse, and T17 asserts the whiter-than-white
+// T14 asserts the CsvPercentToCode inverse, and T18 asserts the whiter-than-white
 // reference EOTF extension. T13 is claimed by the in-flight display-model series
 // (PR #183) and T15/T16 by the CubeLUT series (PR #185/#186); check the open
 // branches before assigning any new T number. The .chc round-trip
@@ -1119,7 +1119,7 @@ static void RunT14()
 }
 
 //////////////////////////////////////////////////////////////////////////
-// T17 - WTW (whiter-than-white) reference EOTF extension oracle (pure
+// T18 - WTW (whiter-than-white) reference EOTF extension oracle (pure
 // assertion, no golden file).
 //
 // EXTENDED-range patch sets drive stimulus up to ~109.5% (10-bit code 1023).
@@ -1149,9 +1149,9 @@ static double EotfExt(double v, int mode, double split = 0.0)
                      1.2, 1.0, 0.0, 1.1, true);
 }
 
-static void RunT17()
+static void RunT18()
 {
-    printf("T17 WTW reference EOTF extension oracle...\n");
+    printf("T18 WTW reference EOTF extension oracle...\n");
 
     static const int sdrModes[] = { 4, 6, 99 };   // BT.1886, L*, sRGB
 
@@ -1160,14 +1160,14 @@ static void RunT17()
     for (int m = 0; m < _countof(sdrModes); m++)
         for (int v = 0; v < _countof(overs); v++)
             if (EotfPlain(overs[v], sdrModes[m]) != 1.0)
-                Fail("T17a mode=%d valx=%g: unflagged over-range no longer clips to 1.0",
+                Fail("T18a mode=%d valx=%g: unflagged over-range no longer clips to 1.0",
                      sdrModes[m], overs[v]);
     for (int v = 0; v < _countof(overs); v++)
     {
         if (EotfPlain(overs[v], 5) != 100.0)
-            Fail("T17a PQ valx=%g: over-range no longer returns 100", overs[v]);
+            Fail("T18a PQ valx=%g: over-range no longer returns 100", overs[v]);
         if (EotfExt(overs[v], 7) != 1.0)
-            Fail("T17a HLG valx=%g: over-range extended flag must stay clipped", overs[v]);
+            Fail("T18a HLG valx=%g: over-range extended flag must stay clipped", overs[v]);
     }
 
     // (b) seam continuity at 1.0: extended value just above the seam matches
@@ -1177,14 +1177,14 @@ static void RunT17()
         double at1  = EotfPlain(1.0, sdrModes[m]);
         double just = EotfExt(1.0 + 1e-9, sdrModes[m]);
         if (fabs(just - at1) > 1e-6)
-            Fail("T17b mode=%d: seam step %.9f -> %.9f", sdrModes[m], at1, just);
+            Fail("T18b mode=%d: seam step %.9f -> %.9f", sdrModes[m], at1, just);
     }
     // BT.1886 with a black-offset split engaged: seam still continuous
     {
         double at1  = EotfPlain(1.0, 4, 75.0);
         double just = EotfExt(1.0 + 1e-9, 4, 75.0);
         if (fabs(just - at1) > 1e-6)
-            Fail("T17b BT.1886 split=75: seam step %.9f -> %.9f", at1, just);
+            Fail("T18b BT.1886 split=75: seam step %.9f -> %.9f", at1, just);
     }
 
     // (c) monotone over (1, 1.1], capped and bounded above 1.1
@@ -1196,20 +1196,20 @@ static void RunT17()
             double y = EotfExt(v, sdrModes[m]);
             if (y < prev - 1e-12)
             {
-                Fail("T17c mode=%d: extended curve falls %.9f -> %.9f at %.3f",
+                Fail("T18c mode=%d: extended curve falls %.9f -> %.9f at %.3f",
                      sdrModes[m], prev, y, v);
                 break;
             }
             if (y <= 1.0 - 1e-9 || y >= 2.0)
             {
-                Fail("T17c mode=%d: extended value %.9f out of (1,2) at %.3f",
+                Fail("T18c mode=%d: extended value %.9f out of (1,2) at %.3f",
                      sdrModes[m], y, v);
                 break;
             }
             prev = y;
         }
         if (EotfExt(1.12, sdrModes[m]) != EotfExt(1.1, sdrModes[m]))
-            Fail("T17c mode=%d: 1.1 cap not binding above 1.1", sdrModes[m]);
+            Fail("T18c mode=%d: 1.1 cap not binding above 1.1", sdrModes[m]);
     }
 
     // (d) known closed-form values (formulas from getL_EOTF with noDataColor:
@@ -1218,14 +1218,14 @@ static void RunT17()
         double v = 1.087;
         double want = pow((v + 0.055) / 1.055, 2.4);
         if (fabs(EotfExt(v, 99) - want) > 1e-12)
-            Fail("T17d sRGB(%g): %.15f != %.15f", v, EotfExt(v, 99), want);
+            Fail("T18d sRGB(%g): %.15f != %.15f", v, EotfExt(v, 99), want);
         v = 1.05;
         want = pow((v * 100.0 + 16.0) / 116.0, 3.0);
         if (fabs(EotfExt(v, 6) - want) > 1e-12)
-            Fail("T17d L*(%g): %.15f != %.15f", v, EotfExt(v, 6), want);
+            Fail("T18d L*(%g): %.15f != %.15f", v, EotfExt(v, 6), want);
         want = (100.0 * pow(v, 2.4) + 0.012) / 100.012;
         if (fabs(EotfExt(v, 4) - want) > 1e-12)
-            Fail("T17d BT.1886(%g): %.15f != %.15f", v, EotfExt(v, 4), want);
+            Fail("T18d BT.1886(%g): %.15f != %.15f", v, EotfExt(v, 4), want);
     }
 
     // (e) importer chain: real EXTENDED max codes stay under the 1.1 cap and
@@ -1234,14 +1234,14 @@ static void RunT17()
         double v8  = CsvCodeToPercent(255, 8, CSV_RANGE_EXTENDED) / 100.0;   // (255-16)/219
         double v10 = CsvCodeToPercent(1023, 10, CSV_RANGE_EXTENDED) / 100.0; // (1023-64)/876
         if (fabs(v8 - (255.0 - 16.0) / 219.0) > 1e-12 || v8 >= 1.1)
-            Fail("T17e 8-bit extended max decodes to %.9f (cap would bind)", v8);
+            Fail("T18e 8-bit extended max decodes to %.9f (cap would bind)", v8);
         if (fabs(v10 - (1023.0 - 64.0) / 876.0) > 1e-12 || v10 >= 1.1)
-            Fail("T17e 10-bit extended max decodes to %.9f (cap would bind)", v10);
+            Fail("T18e 10-bit extended max decodes to %.9f (cap would bind)", v10);
         double want = pow((v8 + 0.055) / 1.055, 2.4);
         if (fabs(EotfExt(v8, 99) - want) > 1e-12)
-            Fail("T17e sRGB chain: %.15f != %.15f", EotfExt(v8, 99), want);
+            Fail("T18e sRGB chain: %.15f != %.15f", EotfExt(v8, 99), want);
         if (pow(min(v8, 1.1), 2.4) <= 1.0)   // the mode<4 call-site shape
-            Fail("T17e power-gamma chain not above white");
+            Fail("T18e power-gamma chain not above white");
     }
 }
 
@@ -1275,7 +1275,7 @@ int main(int argc, char* argv[])
     RunT11();
     RunT12();
     RunT14();
-    RunT17();
+    RunT18();
 
     if (g_failures)
     {
