@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	FranÃ§ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -69,6 +69,7 @@ CRGBLevelWnd::CRGBLevelWnd()
 	m_pRefColor = NULL;
 	m_pDocument = NULL;
 	m_bLumaMode = FALSE;
+	m_bHasReference = TRUE;
 	m_redValue = 0.;
 	m_greenValue = 0.;
 	m_blueValue = 0.;
@@ -83,6 +84,11 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 {
     
 	BOOL bWasLumaMode = m_bLumaMode;
+	// aReference is a member and the ladder below does not claim every column, so
+	// a column it misses used to be read against whatever the PREVIOUS selection
+	// left behind. Track whether this call actually found a target instead of
+	// letting a stale one stand in for one.
+	m_bHasReference = TRUE;
     double cx,cy,cz,cxref,cyref,czref;
 	CColorReference cRef= (GetColorReference());
 	int satsize=m_pDocument->GetMeasure()->GetSaturationSize();
@@ -132,6 +138,26 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			{
 				m_bLumaMode = TRUE;
 				aReference = m_pDocument->GetMeasure()->GetRefSat(5, double(minCol-1) / double(nSize -1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb));
+			}
+			// Black, the last column of Primaries and Secondaries. No branch used to
+			// claim it and there is no final else, so it fell through holding the
+			// previous column's target: pick Magenta then Black and the pane read
+			// 100% green, Cyan then Black 100% red - always the complement of the
+			// last selection, because where the stale target's channel is zero the
+			// level maths correctly answers "on target". The maths is not the bug;
+			// the target is.
+			//
+			// The measures grid already settled what this column's target is - case
+			// 1, j == 7 sets refColor = noDataColor and prints no dE, since black's
+			// target on a page that judges every other column with luminance
+			// included is simply no light. Match it, and say so rather than
+			// printing a 0.0 that looks like a reading. The xyY readout beside the
+			// bars is computed from the measurement and is unaffected.
+			else if ( m_displayMode == 1 && minCol == 8 )
+			{
+				m_bLumaMode = TRUE;
+				m_bHasReference = FALSE;
+				aReference = noDataColor;
 			}
 			else if ( m_displayMode == 1 && (minCol == 1 || m_pRefColor->GetDeltaxy ( m_pDocument->GetMeasure()->GetRefPrimary(0), cRef ) < 0.05))
 			{
@@ -208,6 +234,22 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 				aReference = cRef.GetWhite();
 			}
 		} 
+
+		// Neither ladder claims every column, and a call that claims none leaves
+		// aReference holding the previous selection's. The reference-relative
+		// branch below - the only one that reads it - then skips silently, so the
+		// level members keep the last selection's numbers while the pane still
+		// draws them as data. That is how the black column's own case escaped: pick
+		// Black in Primaries (aReference = noDataColor, levels zeroed), then let a
+		// measuring refresh arrive on the minCol <= 0 path with detect-primaries
+		// off - all seven of its branches are gated on it and there is no final
+		// else - and the pane paints three enabled bars reading 0.0%, the
+		// reading-shaped zero this column exists to avoid. Placed after the ladders
+		// so m_bLumaMode is final; the HDR rescale below runs only for display
+		// modes whose ladder always claims a target. The other branch computes its
+		// levels without aReference, so it is not gated on one.
+		if ( m_bLumaMode && !aReference.isValid() )
+			m_bHasReference = FALSE;
 
 		BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 && (m_displayMode == 1 || m_displayMode >= 5 && m_displayMode <= 11 || m_displayMode == 13) );
 		CColor white = m_pDocument->GetMeasure()->GetPrimeWhite();
@@ -331,7 +373,21 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 
             ColorXYZ normColor;
 
-            if(aColor[1] > 0.0 && (minCol != 1 || m_displayMode == 4))
+            // Column 1 of the grayscale and near-black pages is black, and it was
+            // excluded outright: selecting 0% read 0.0% on all three bars while the
+            // balance chart beside it plots that very patch. Let it through on the
+            // same terms the chart uses (rgbhistoview.cpp) - the w/gamma
+            // normalisation divides by a target luminance that is exactly 0 at
+            // black, so only the chromaticity-only settings survive there, and the
+            // patch needs light in it for its xy to mean anything. Free measures
+            // reach here with minCol 1 meaning something else, and carrying a stale
+            // m_displayMode - MainView's case 2 assigns none of last_Col, last_Size
+            // or last_Display - so one selected after a grayscale or near-black
+            // column arrives labelled as that page and does take this clause. What
+            // it then reports agrees with the other free-measure columns, so it is
+            // left that way.
+            if(aColor[1] > 0.0 && (minCol != 1 || m_displayMode == 4
+                || ((m_displayMode == 0 || m_displayMode == 3) && GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0)))
             {
                 normColor[0]=(aColor[0]/aColor[1])*fact;
                 normColor[1]=1.0*fact;
@@ -510,7 +566,27 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		//m_pRef
 	}
 
-	if (m_dEValue > 40 || (minCol == 1 && !m_bLumaMode && m_displayMode != 4) ) m_dEValue = 0.;
+	// Black keeps its dE where the normalisation makes it a chromaticity error,
+	// which is the rule the balance chart and the grayscale grid cell already use:
+	// m_dE_gray 2 / dE_form 5 set the target's luminance to the measured one, so
+	// what is left is "is my black tinted". Under the others the target at black
+	// is Y = 0 and the number would be an error against an ideal zero, so it stays
+	// suppressed - as it does for a black with no light to have a chromaticity.
+	BOOL bFirstCol = ( minCol == 1 && !m_bLumaMode && m_displayMode != 4 );
+	BOOL bBlackDEMeaningful = ( bFirstCol
+								&& ( m_displayMode == 0 || m_displayMode == 3 )
+								&& ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 )
+								&& m_pRefColor != NULL && m_pRefColor->GetY() > 0.0 );
+
+	if (m_dEValue > 40 || ( bFirstCol && !bBlackDEMeaningful ) ) m_dEValue = 0.;
+
+	// With no target neither branch above ran, so the level members still hold the
+	// previous column's numbers. OnDraw does not print them, but it does scale the
+	// well off the largest of them - clear them so the empty wells are drawn the
+	// same way every time.
+	if ( !m_bHasReference )
+		m_redValue = m_greenValue = m_blueValue = 0.f;
+
 	Invalidate(FALSE);
 
 	CString title;
@@ -571,7 +647,9 @@ void CRGBLevelWnd::OnPaint()
 	// empty track and a bright filled bar.
 	COLORREF dashClr   = bDark ? RGB(228,228,232) : RGB(64,64,68);
 
-	BOOL hasData = (m_pRefColor != NULL && m_pRefColor->isValid());
+	// Every bar in this pane is reference-relative, so with no target there is
+	// nothing here to draw - see the black column in Refresh.
+	BOOL hasData = (m_pRefColor != NULL && m_pRefColor->isValid() && m_bHasReference);
 
 	// Layout: four rounded tracks with the value and channel labels below them.
 	float margin    = (float) MulDiv(4, dpiY, 96);

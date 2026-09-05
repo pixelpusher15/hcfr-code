@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	FranÃ§ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -128,7 +128,7 @@ class CCIEChartGrapher
 
 	// More per-pass invariants: the tone-mapped white (a getL_EOTF call) and
 	// the Lab-conversion reference are identical for every point of a pass,
-	// but were being recomputed inside each DrawAlphaBitmap call â€” with a few
+	// but were being recomputed inside each DrawAlphaBitmap call — with a few
 	// hundred points that dominated every full repaint. Set by DrawChart,
 	// cleared when the pass ends; DrawAlphaBitmap falls back to computing
 	// them itself when unset.

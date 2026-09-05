@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -1281,6 +1281,8 @@ void CDataSetDoc::MeasureMagentaSatScale()
 void CDataSetDoc::MeasureCC24SatScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
+
 	if(m_measure.MeasureCC24SatScale(m_pSensor,m_pGenerator,this))
 		SetModifiedFlag(m_measure.IsModified());
 	UpdateAllViews(NULL, UPD_CC24SAT);

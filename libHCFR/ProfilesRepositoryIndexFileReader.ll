@@ -13,13 +13,13 @@
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
-// Ce fichier contiend les routines necessaires â€¡ la lecture du fichier
+// Ce fichier contiend les routines necessaires à la lecture du fichier
 // d'index du repertoire en ligne des fichiers de calibration.
-// Il s'agit d'un fichier flex. Flex le compilera pour gÃˆnerer un fichier
-// .cpp, qui sera compilÃˆ par le compilateur c++.
+// Il s'agit d'un fichier flex. Flex le compilera pour génerer un fichier
+// .cpp, qui sera compilé par le compilateur c++.
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//  JÃˆrÃ™me Duquennoy
+//  Jérôme Duquennoy
 ///////////////////////////////////////////////////////////////////////////*/
 %{
 #include "ProfilesRepositoryIndexFileReader.h"
@@ -86,15 +86,15 @@ ProfileFileInfos ProfilesRepositoryIndexFileReader::nextEntry()
   return entries[readIndex-1];
 }
 
-// Cette fonction est applÃˆe lorsqu'un sÃˆparateur est rencontrÃˆ
-// Elle met la valeur du champ trouvÃˆ dans la structure en cours
-// de crÃˆation, en fonction de la position de la valeur dans la ligne
+// Cette fonction est applée lorsqu'un séparateur est rencontré
+// Elle met la valeur du champ trouvé dans la structure en cours
+// de création, en fonction de la position de la valeur dans la ligne
 void ProfilesRepositoryIndexFileReader::valueFound ()
 {
   switch (valueIndex)
   {
     case 0:
-      // on initialise l'entrÃˆe
+      // on initialise l'entrée
       currentlyParsedEntry.fileName.assign(yytext, yyleng);
       currentlyParsedEntry.modificationDate = 0;
       currentlyParsedEntry.md5.clear();
@@ -109,11 +109,11 @@ void ProfilesRepositoryIndexFileReader::valueFound ()
   valueIndex++;
 }
 
-// Cette fonction est applÃˆe lorsqu'une fin de ligne est rencontrÃˆe.
-// Elle met la structure parsÃˆe dans le vecteur contenant les rÃˆsultats.
+// Cette fonction est applée lorsqu'une fin de ligne est rencontrée.
+// Elle met la structure parsée dans le vecteur contenant les résultats.
 void ProfilesRepositoryIndexFileReader::lineEnded ()
 {
-  // l'entrÃˆe n'est valide que si on a chargÃˆ exactement 3 valeurs
+  // l'entrée n'est valide que si on a chargé exactement 3 valeurs
   if (valueIndex == 3)
   {
     entries.push_back(currentlyParsedEntry);
@@ -122,7 +122,7 @@ void ProfilesRepositoryIndexFileReader::lineEnded ()
   valueIndex = 0;
 }
 
-// converti une chaine de caractÃ‹res terminÃˆe par un \0
+// converti une chaine de caractères terminée par un \0
 // en timestamp unix.
 time_t iso8601ToTime_t(const char *time_string)
 {

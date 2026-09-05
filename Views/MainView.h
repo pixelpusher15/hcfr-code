@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 //	Benoit SEGUIN
 /////////////////////////////////////////////////////////////////////////////
@@ -209,6 +209,17 @@ public:
 	double m_ref_r1, m_ref_g1, m_ref_b1;
 
 	std::vector<double> dEvector, dLvector, dCvector, dHvector;
+
+	// Per-column dE/L/C/H cache for the color checker grid (mode 11); -1 =
+	// no valid dE. Lets the realtime sweep path refresh only the just-measured
+	// column and re-aggregate the summary from here instead of recomputing all
+	// N columns per patch -- same incremental idea as the 3D viewer's
+	// UPD_REALTIME+13 path. m_nGridIncrCol is the single-shot column request
+	// consumed by UpdateGrid; m_nGridLastRTCol bounds its catch-up window
+	// (a sensor retry steps the sweep index back).
+	std::vector<double> m_ccDECache, m_ccDLCache, m_ccDCCache, m_ccDHCache;
+	int m_nGridIncrCol;
+	int m_nGridLastRTCol;
 
 	CBrush *m_pBgBrush;
 	CRect  m_rcButtonPanel;	// solid panel behind the Display dropdown + action buttons
