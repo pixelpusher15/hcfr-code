@@ -55,10 +55,23 @@
 #include <string>
 #include <vector>
 
+#include "LutContract.h"
+
 class CubeLUT
 {
 public:
     CubeLUT();
+
+    // Shared lattice policy, referenced by the LUT-algebra layer (LutOps)
+    // as well, so the rules live in exactly one place.
+    static const int kMinSize = 2;
+    static const int kMaxSize = 256;
+    static bool ValidSize(int size);
+    static bool IsFiniteValue(double v);
+    // The one domain-component rule: both ends finite, max > min, and the
+    // span itself finite - (-1e308, 1e308) has finite ends but overflows
+    // the span Evaluate divides by, turning every evaluation constant.
+    static bool ValidDomainComponent(double dmin, double dmax);
 
     // Allocate an N^3 identity lattice (2 <= size <= 256): entry (r,g,b) =
     // domain min + index/(N-1) * (domain span), using the DEFAULT domain
@@ -85,6 +98,15 @@ public:
     // Valid whether or not a lattice is loaded (Create resets it to 0..1).
     bool SetDomain(const double dmin[3], const double dmax[3]);
     void GetDomain(double dmin[3], double dmax[3]) const;
+
+    // Typed insertion-point contract (in-memory metadata; the .cube format
+    // has no field for it, so it does not serialize). Default-constructed
+    // fully unspecified; Create and a successful Read reset it to
+    // unspecified, a failed Read preserves it with the rest of the state.
+    // SetContract rejects (keeps the old contract) out-of-range enum
+    // fields.
+    bool SetContract(const LutContract& contract);
+    const LutContract& Contract() const { return m_contract; }
 
     // Apply the LUT: map an input color through the lattice by tetrahedral
     // interpolation - the classic 6-tetrahedron decomposition of each
@@ -128,6 +150,7 @@ private:
     std::string m_title;
     double m_domainMin[3];
     double m_domainMax[3];
+    LutContract m_contract;
     mutable std::string m_lastError;
 };
 

@@ -12,16 +12,18 @@
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
 // T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
 // T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table,
-// and T15 asserts the CubeLUT .cube format contract and its tetrahedral evaluator.
-// T13 and T14 are deliberately skipped here: the in-flight display-model series owns
-// T13, and T14 is held for a branch that has to renumber when it rebases. Check the
-// open branches before assigning any new T number. The .chc round-trip originally
-// planned for the T7 slot needs app-level linkage and is deliberately still not in
-// this console harness.
+// T15 asserts the CubeLUT .cube format contract and its tetrahedral evaluator, and T16
+// asserts the LUT lattice algebra (typed compose/resample, ShaperCurve, and the
+// shaper+cube split). T13 and T14 are deliberately skipped here: the in-flight
+// display-model series (PR #183) owns T13, and T14 is unclaimed - it is held for a
+// branch that has to renumber when it rebases. Check the open branches before
+// assigning any new T number. The .chc round-trip originally planned for the T7 slot
+// needs app-level linkage and is deliberately still not in this console harness.
 
 #include <afx.h>
 #include "../../libHCFR/Color.h"
 #include "../../libHCFR/CubeLUT.h"
+#include "../../libHCFR/LutOps.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -1850,6 +1852,967 @@ static void RunT15Interp()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T16 — LUT lattice algebra oracle (pure assertion, no golden file).
+// Every pinned property is a theorem of the specified constructions, so the
+// tolerances are rounding-level: composition and resampling are DEFINED as
+// lattice sampling through the public evaluators (node-definition oracles),
+// affine lattices make whole chains exact everywhere, a piecewise-linear
+// shaper has an exact piecewise-linear inverse, and a purely per-channel
+// source collapses the split's residual cube to the identity. Contract
+// type-checking (LutContract.h) is pinned by a compatibility table plus
+// refusal/stamping through ComposeCube.
+//////////////////////////////////////////////////////////////////////////
+
+namespace T16Ops
+{
+    using T15Cube::Lcg;
+
+    // Affine mix with unit row sums and nonneg coefficients: the neutral
+    // axis of kM*f(x)+kOff is strictly increasing whenever every f is.
+    static const double kM[3][3] = {
+        { 0.80, 0.15, 0.05 },
+        { 0.10, 0.75, 0.15 },
+        { 0.05, 0.20, 0.75 },
+    };
+    static const double kOff[3] = { 0.02, -0.03, 0.05 };
+
+    static void AffineB(const double in[3], double out[3])
+    {
+        for (int r = 0; r < 3; ++r)
+            out[r] = kOff[r] + kM[r][0] * in[0] + kM[r][1] * in[1] + kM[r][2] * in[2];
+    }
+
+    static void FillAffineB(CubeLUT& lut)
+    {
+        int n = lut.Size();
+        double dmin[3], dmax[3];
+        lut.GetDomain(dmin, dmax);
+        for (int b = 0; b < n; ++b)
+            for (int g = 0; g < n; ++g)
+                for (int r = 0; r < n; ++r)
+                {
+                    double pos[3] = {
+                        dmin[0] + r / (double)(n - 1) * (dmax[0] - dmin[0]),
+                        dmin[1] + g / (double)(n - 1) * (dmax[1] - dmin[1]),
+                        dmin[2] + b / (double)(n - 1) * (dmax[2] - dmin[2]),
+                    };
+                    double v[3];
+                    AffineB(pos, v);
+                    if (!lut.SetEntry(r, g, b, v))
+                        Fail("T16 FillAffineB SetEntry(%d,%d,%d) failed", r, g, b);
+                }
+    }
+
+    static const double kGamma[3] = { 1.8, 2.2, 2.6 };
+
+    // Separable per-channel power lattice over the default 0..1 domain.
+    static void FillGamma(CubeLUT& lut)
+    {
+        int n = lut.Size();
+        for (int b = 0; b < n; ++b)
+            for (int g = 0; g < n; ++g)
+                for (int r = 0; r < n; ++r)
+                {
+                    double v[3] = {
+                        pow(r / (double)(n - 1), kGamma[0]),
+                        pow(g / (double)(n - 1), kGamma[1]),
+                        pow(b / (double)(n - 1), kGamma[2]),
+                    };
+                    if (!lut.SetEntry(r, g, b, v))
+                        Fail("T16 FillGamma SetEntry(%d,%d,%d) failed", r, g, b);
+                }
+    }
+
+    // Non-separable but neutral-monotone: kM * gamma(x) + kOff.
+    static void FillMixedGamma(CubeLUT& lut)
+    {
+        int n = lut.Size();
+        for (int b = 0; b < n; ++b)
+            for (int g = 0; g < n; ++g)
+                for (int r = 0; r < n; ++r)
+                {
+                    double f[3] = {
+                        pow(r / (double)(n - 1), kGamma[0]),
+                        pow(g / (double)(n - 1), kGamma[1]),
+                        pow(b / (double)(n - 1), kGamma[2]),
+                    };
+                    double v[3];
+                    AffineB(f, v);
+                    if (!lut.SetEntry(r, g, b, v))
+                        Fail("T16 FillMixedGamma SetEntry(%d,%d,%d) failed", r, g, b);
+                }
+    }
+
+    static LutSignalType Sig(LutSignalType::ColorSpace cs,
+                             LutSignalType::Transfer tf,
+                             LutSignalType::Range rg)
+    {
+        LutSignalType s;
+        s.colorSpace = cs;
+        s.transfer = tf;
+        s.range = rg;
+        return s;
+    }
+
+    // A sentinel output object: refused operations must leave it untouched.
+    static void MakeSentinel(CubeLUT& lut)
+    {
+        if (!lut.Create(2))
+            Fail("T16 sentinel Create failed");
+        double v[3] = { 0.125, 0.25, 0.375 };
+        if (!lut.SetEntry(1, 0, 1, v))
+            Fail("T16 sentinel SetEntry failed");
+        if (!lut.SetTitle("keep me"))
+            Fail("T16 sentinel SetTitle failed");
+    }
+
+    static bool SentinelIntact(const CubeLUT& lut)
+    {
+        if (lut.Size() != 2 || lut.Title() != "keep me")
+            return false;
+        double v[3];
+        if (!lut.GetEntry(1, 0, 1, v))
+            return false;
+        return v[0] == 0.125 && v[1] == 0.25 && v[2] == 0.375;
+    }
+}
+
+static void RunT16()
+{
+    printf("T16 LUT lattice algebra oracle...\n");
+    using namespace T16Ops;
+    using T15Cube::SameLattice;
+
+    //---------------------------------------------------------------- contracts
+    // Signal-type validity and the wildcard compatibility rule.
+    {
+        LutSignalType u;    // default: fully unspecified
+        if (!ValidSignalType(u))
+            Fail("T16 contract: default signal type not valid");
+        LutSignalType a = Sig(LutSignalType::CS_BT709, LutSignalType::TF_GAMMA22,
+                              LutSignalType::RANGE_FULL);
+        LutSignalType b = Sig(LutSignalType::CS_BT2020, LutSignalType::TF_GAMMA22,
+                              LutSignalType::RANGE_FULL);
+        if (!ValidSignalType(a) || !ValidSignalType(b))
+            Fail("T16 contract: specified signal types not valid");
+        if (!CompatibleSignalTypes(a, a))
+            Fail("T16 contract: identical types not compatible");
+        if (CompatibleSignalTypes(a, b))
+            Fail("T16 contract: differing color spaces reported compatible");
+        if (!CompatibleSignalTypes(a, u) || !CompatibleSignalTypes(u, b))
+            Fail("T16 contract: unspecified side did not act as a wildcard");
+        LutSignalType partial = u;
+        partial.range = LutSignalType::RANGE_VIDEO;
+        if (CompatibleSignalTypes(a, partial))
+            Fail("T16 contract: range clash reported compatible");
+        LutSignalType bad = a;
+        bad.colorSpace = (LutSignalType::ColorSpace)99;
+        if (ValidSignalType(bad))
+            Fail("T16 contract: out-of-range color space reported valid");
+        LutContract c;
+        if (!ValidContract(c))
+            Fail("T16 contract: default contract not valid");
+        c.output = bad;
+        if (ValidContract(c))
+            Fail("T16 contract: contract with a bad field reported valid");
+    }
+
+    // The contract rides the CubeLUT: set/reject/reset semantics.
+    {
+        CubeLUT lut;
+        lut.Create(2);
+        LutContract c;
+        c.input = Sig(LutSignalType::CS_BT709, LutSignalType::TF_GAMMA22,
+                      LutSignalType::RANGE_FULL);
+        c.output = Sig(LutSignalType::CS_BT2020, LutSignalType::TF_PQ,
+                       LutSignalType::RANGE_VIDEO);
+        if (!lut.SetContract(c))
+            Fail("T16 contract: SetContract rejected a valid contract");
+        if (!SameSignalType(lut.Contract().input, c.input)
+            || !SameSignalType(lut.Contract().output, c.output))
+            Fail("T16 contract: stored contract differs from the one set");
+        LutContract bad = c;
+        bad.input.transfer = (LutSignalType::Transfer)77;
+        if (lut.SetContract(bad))
+            Fail("T16 contract: SetContract accepted an out-of-range transfer");
+        if (!SameSignalType(lut.Contract().input, c.input))
+            Fail("T16 contract: rejected SetContract changed the contract");
+
+        // Create resets to fully unspecified.
+        lut.Create(3);
+        if (!SameSignalType(lut.Contract().input, LutSignalType())
+            || !SameSignalType(lut.Contract().output, LutSignalType()))
+            Fail("T16 contract: Create did not reset the contract");
+
+        // A successful Read resets (the format carries no contract), a
+        // failed Read preserves.
+        lut.SetContract(c);
+        if (!lut.ReadFromString("LUT_3D_SIZE 2\n"
+                                "0 0 0\n1 0 0\n0 1 0\n1 1 0\n"
+                                "0 0 1\n1 0 1\n0 1 1\n1 1 1\n"))
+            Fail("T16 contract: valid .cube read failed: %s", lut.LastError().c_str());
+        if (!SameSignalType(lut.Contract().input, LutSignalType())
+            || !SameSignalType(lut.Contract().output, LutSignalType()))
+            Fail("T16 contract: successful Read did not reset the contract");
+        lut.SetContract(c);
+        if (lut.ReadFromString("LUT_3D_SIZE 2\nnot a number\n"))
+            Fail("T16 contract: malformed .cube read succeeded");
+        if (!SameSignalType(lut.Contract().input, c.input)
+            || !SameSignalType(lut.Contract().output, c.output))
+            Fail("T16 contract: failed Read did not preserve the contract");
+
+        // Copies carry the contract.
+        CubeLUT copy = lut;
+        if (!SameSignalType(copy.Contract().input, c.input)
+            || !SameSignalType(copy.Contract().output, c.output))
+            Fail("T16 contract: copy did not carry the contract");
+    }
+
+    //---------------------------------------------------------------- ShaperCurve
+    // Installation rejections; validity only when all three channels exist.
+    {
+        ShaperCurve s;
+        const double up[4] = { 0.0, 0.25, 0.5, 1.0 };
+        if (s.IsValid())
+            Fail("T16 shaper: fresh curve reported valid");
+        if (s.SetChannel(-1, up, 4, 0.0, 1.0) || s.SetChannel(3, up, 4, 0.0, 1.0))
+            Fail("T16 shaper: bad channel index accepted");
+        if (s.SetChannel(0, up, 1, 0.0, 1.0))
+            Fail("T16 shaper: single-sample channel accepted");
+        const double flat[3] = { 0.0, 0.5, 0.5 };
+        if (s.SetChannel(0, flat, 3, 0.0, 1.0))
+            Fail("T16 shaper: non-strictly-increasing samples accepted");
+        const double down[3] = { 0.0, 0.6, 0.4 };
+        if (s.SetChannel(0, down, 3, 0.0, 1.0))
+            Fail("T16 shaper: decreasing samples accepted");
+        double nf[3] = { 0.0, sqrt(-1.0), 1.0 };
+        if (s.SetChannel(0, nf, 3, 0.0, 1.0))
+            Fail("T16 shaper: non-finite sample accepted");
+        if (s.SetChannel(0, up, 4, 1.0, 1.0) || s.SetChannel(0, up, 4, 2.0, 1.0))
+            Fail("T16 shaper: bad domain accepted");
+        if (s.SetChannel(0, up, 4, 0.0, sqrt(-1.0)))
+            Fail("T16 shaper: non-finite domain accepted");
+
+        if (!s.SetChannel(0, up, 4, 0.0, 1.0))
+            Fail("T16 shaper: valid channel 0 rejected");
+        if (s.IsValid())
+            Fail("T16 shaper: valid with only one channel installed");
+        if (!s.SetChannel(1, up, 4, 0.0, 1.0) || !s.SetChannel(2, up, 4, 0.0, 1.0))
+            Fail("T16 shaper: valid channels 1/2 rejected");
+        if (!s.IsValid())
+            Fail("T16 shaper: not valid with all three channels installed");
+
+        // A rejected re-install keeps the old channel.
+        if (s.SetChannel(1, down, 3, 0.0, 1.0))
+            Fail("T16 shaper: decreasing re-install accepted");
+        if (s.Count(1) != 4)
+            Fail("T16 shaper: rejected re-install changed the channel (count %d)",
+                 s.Count(1));
+
+        // Introspection.
+        double lo = 9, hi = 9, v = 9;
+        if (!s.GetDomain(1, lo, hi) || lo != 0.0 || hi != 1.0)
+            Fail("T16 shaper: GetDomain wrong (%g..%g)", lo, hi);
+        if (!s.GetSample(2, 1, v) || v != 0.25)
+            Fail("T16 shaper: GetSample wrong (%g)", v);
+        if (s.GetSample(2, 4, v) || s.GetSample(2, -1, v))
+            Fail("T16 shaper: out-of-range GetSample succeeded");
+    }
+
+    // Piecewise-linear evaluation: exact against the hand formula, with
+    // per-channel domains and end clamping; invalid/non-finite reject with
+    // zeroed output; in-place evaluation allowed.
+    {
+        ShaperCurve s;
+        // Channel 0: t^2 sampled at 5 uniform points on [0,1].
+        const double sq[5] = { 0.0, 0.0625, 0.25, 0.5625, 1.0 };
+        // Channel 1: over [-0.5, 1.5].
+        const double c1[3] = { -1.0, 0.0, 3.0 };
+        // Channel 2: over [0.25, 0.75].
+        const double c2[4] = { 2.0, 2.5, 4.0, 8.0 };
+        {
+            ShaperCurve fresh;
+            double in[3] = { 0.5, 0.5, 0.5 }, out[3] = { 9, 9, 9 };
+            if (fresh.Evaluate(in, out))
+                Fail("T16 shaper: Evaluate succeeded on an invalid curve");
+            if (out[0] != 0.0 || out[1] != 0.0 || out[2] != 0.0)
+                Fail("T16 shaper: invalid Evaluate did not zero the output");
+            if (fresh.EvaluateInverse(in, out))
+                Fail("T16 shaper: EvaluateInverse succeeded on an invalid curve");
+        }
+        if (!s.SetChannel(0, sq, 5, 0.0, 1.0)
+            || !s.SetChannel(1, c1, 3, -0.5, 1.5)
+            || !s.SetChannel(2, c2, 4, 0.25, 0.75))
+            Fail("T16 shaper: PWL install failed");
+
+        // Hand-computed probes. ch0 x=0.3: segment [0.25,0.5], f = 0.0625 +
+        // (0.3-0.25)/0.25 * (0.25-0.0625) = 0.1. ch1 x=0.25: segment
+        // [-0.5,0.5] -> f = -1 + 0.75*1.0... samples uniform over the
+        // channel domain: nodes -0.5, 0.5, 1.5; x=0.25 -> -1 + 0.75/1.0 *
+        // (0 - -1) = -0.25. ch2 x=0.5: nodes 0.25, 0.41666.., 0.58333..,
+        // 0.75; x=0.5 lies mid-segment 1 -> 2.5 + 0.5*(4.0-2.5) = 3.25.
+        double in[3] = { 0.3, 0.25, 0.5 }, out[3];
+        if (!s.Evaluate(in, out))
+            Fail("T16 shaper: PWL Evaluate failed");
+        else
+        {
+            const double want[3] = { 0.1, -0.25, 3.25 };
+            for (int k = 0; k < 3; ++k)
+                if (fabs(out[k] - want[k]) > 1e-12)
+                    Fail("T16 shaper: PWL comp %d = %.17g want %.17g", k, out[k], want[k]);
+        }
+
+        // End clamping on both sides, per channel.
+        double lowIn[3] = { -2.0, -2.0, 0.0 }, hiIn[3] = { 2.0, 2.0, 2.0 };
+        double lowOut[3], hiOut[3];
+        if (!s.Evaluate(lowIn, lowOut) || !s.Evaluate(hiIn, hiOut))
+            Fail("T16 shaper: clamped Evaluate failed");
+        else
+        {
+            if (lowOut[0] != 0.0 || lowOut[1] != -1.0 || lowOut[2] != 2.0)
+                Fail("T16 shaper: low clamp wrong (%g,%g,%g)",
+                     lowOut[0], lowOut[1], lowOut[2]);
+            if (hiOut[0] != 1.0 || hiOut[1] != 3.0 || hiOut[2] != 8.0)
+                Fail("T16 shaper: high clamp wrong (%g,%g,%g)",
+                     hiOut[0], hiOut[1], hiOut[2]);
+        }
+
+        // Non-finite input rejects with zeroed output.
+        double bad[3] = { 0.5, sqrt(-1.0), 0.5 };
+        out[0] = out[1] = out[2] = 9.0;
+        if (s.Evaluate(bad, out))
+            Fail("T16 shaper: Evaluate accepted a NaN input");
+        if (out[0] != 0.0 || out[1] != 0.0 || out[2] != 0.0)
+            Fail("T16 shaper: NaN Evaluate did not zero the output");
+
+        // In-place evaluation.
+        double inout[3] = { 0.3, 0.25, 0.5 }, want2[3];
+        if (!s.Evaluate(inout, want2)) { /* checked above */ }
+        double alias[3] = { 0.3, 0.25, 0.5 };
+        if (!s.Evaluate(alias, alias))
+            Fail("T16 shaper: in-place Evaluate failed");
+        for (int k = 0; k < 3; ++k)
+            if (alias[k] != want2[k])
+                Fail("T16 shaper: in-place Evaluate differs (comp %d)", k);
+    }
+
+    // The piecewise-linear inverse is exact: round trips both ways at many
+    // probes on random strictly-increasing curves; values outside the range
+    // clamp to the curve ends.
+    {
+        ShaperCurve s;
+        Lcg g(16161u);
+        double first[3], last[3];
+        for (int c = 0; c < 3; ++c)
+        {
+            double samples[9];
+            double acc = g.Next01() - 0.5;
+            for (int i = 0; i < 9; ++i)
+            {
+                samples[i] = acc;
+                acc += 0.05 + g.Next01();      // strictly increasing steps
+            }
+            first[c] = samples[0];
+            last[c] = samples[8];
+            if (!s.SetChannel(c, samples, 9, -0.25, 1.25))
+                Fail("T16 shaper: inverse-test install failed (channel %d)", c);
+        }
+        for (int i = 0; i < 200; ++i)
+        {
+            double x[3], y[3], back[3];
+            for (int c = 0; c < 3; ++c)
+                x[c] = -0.25 + g.Next01() * 1.5;
+            if (!s.Evaluate(x, y) || !s.EvaluateInverse(y, back))
+                { Fail("T16 shaper: inverse round trip failed at probe %d", i); break; }
+            for (int c = 0; c < 3; ++c)
+                if (fabs(back[c] - x[c]) > 1e-12)
+                    Fail("T16 shaper: inverse(forward) off at probe %d ch %d: %.3g",
+                         i, c, fabs(back[c] - x[c]));
+            // And the other direction, from a value inside the range.
+            double v[3], t[3], fwd[3];
+            for (int c = 0; c < 3; ++c)
+                v[c] = first[c] + g.Next01() * (last[c] - first[c]);
+            if (!s.EvaluateInverse(v, t) || !s.Evaluate(t, fwd))
+                { Fail("T16 shaper: forward(inverse) failed at probe %d", i); break; }
+            for (int c = 0; c < 3; ++c)
+                if (fabs(fwd[c] - v[c]) > 1e-12)
+                    Fail("T16 shaper: forward(inverse) off at probe %d ch %d: %.3g",
+                         i, c, fabs(fwd[c] - v[c]));
+        }
+        // Out-of-range values clamp to the curve ends.
+        double below[3] = { first[0] - 5.0, first[1] - 5.0, first[2] - 5.0 };
+        double above[3] = { last[0] + 5.0, last[1] + 5.0, last[2] + 5.0 };
+        double tb[3], ta[3];
+        if (!s.EvaluateInverse(below, tb) || !s.EvaluateInverse(above, ta))
+            Fail("T16 shaper: clamped inverse failed");
+        else
+            for (int c = 0; c < 3; ++c)
+            {
+                if (tb[c] != -0.25)
+                    Fail("T16 shaper: below-range inverse ch %d = %.17g want -0.25",
+                         c, tb[c]);
+                if (ta[c] != 1.25)
+                    Fail("T16 shaper: above-range inverse ch %d = %.17g want 1.25",
+                         c, ta[c]);
+            }
+    }
+
+    //---------------------------------------------------------------- ComposeCube
+    // Node definition: every entry of the result IS second(first(node)),
+    // for arbitrary lattices, through the public evaluators.
+    {
+        CubeLUT a, b, out;
+        a.Create(4);
+        T15Cube::FillLattice(a, 24680u);
+        b.Create(3);
+        T15Cube::FillLattice(b, 13579u);
+        std::string err = "junk";
+        if (!ComposeCube(a, b, 5, out, &err))
+            Fail("T16 compose: node-definition compose refused: %s", err.c_str());
+        else
+        {
+            if (!err.empty())
+                Fail("T16 compose: success did not clear err (\"%s\")", err.c_str());
+            if (out.Size() != 5)
+                Fail("T16 compose: wrong result size %d", out.Size());
+            if (!out.Title().empty())
+                Fail("T16 compose: result title not empty");
+            for (int bb = 0; bb < 5; ++bb)
+                for (int gg = 0; gg < 5; ++gg)
+                    for (int rr = 0; rr < 5; ++rr)
+                    {
+                        double p[3] = { rr / 4.0, gg / 4.0, bb / 4.0 };
+                        double mid[3], want[3], got[3];
+                        if (!a.Evaluate(p, mid) || !b.Evaluate(mid, want)
+                            || !out.GetEntry(rr, gg, bb, got))
+                            { Fail("T16 compose: node-definition eval failed"); continue; }
+                        for (int k = 0; k < 3; ++k)
+                            if (fabs(got[k] - want[k]) > 1e-13)
+                                Fail("T16 compose: node (%d,%d,%d) comp %d off by %.3g",
+                                     rr, gg, bb, k, fabs(got[k] - want[k]));
+                    }
+        }
+    }
+
+    // Affine o affine is exact EVERYWHERE (both stages affine, second's
+    // domain covers first's output range so nothing clamps), and the result
+    // keeps first's domain.
+    {
+        CubeLUT a, b, out;
+        a.Create(4);
+        T15Interp::FillAffine(a);
+        b.Create(3);
+        double bmin[3] = { -1.0, -1.0, -1.0 }, bmax[3] = { 2.0, 2.0, 2.0 };
+        if (!b.SetDomain(bmin, bmax))
+            Fail("T16 compose: SetDomain for affine B failed");
+        FillAffineB(b);
+        std::string err;
+        if (!ComposeCube(a, b, 7, out, &err))
+            Fail("T16 compose: affine compose refused: %s", err.c_str());
+        else
+        {
+            double dmin[3], dmax[3];
+            out.GetDomain(dmin, dmax);
+            for (int k = 0; k < 3; ++k)
+                if (dmin[k] != 0.0 || dmax[k] != 1.0)
+                    Fail("T16 compose: result domain not first's (comp %d: %g..%g)",
+                         k, dmin[k], dmax[k]);
+            Lcg g(11223u);
+            for (int i = 0; i < 200; ++i)
+            {
+                double x[3] = { g.Next01(), g.Next01(), g.Next01() };
+                double mid[3], want[3], got[3];
+                T15Interp::Affine(x, mid);
+                AffineB(mid, want);
+                if (!out.Evaluate(x, got))
+                    { Fail("T16 compose: affine result Evaluate failed"); break; }
+                for (int k = 0; k < 3; ++k)
+                    if (fabs(got[k] - want[k]) > 1e-11)
+                        Fail("T16 compose: affine probe %d comp %d off by %.3g",
+                             i, k, fabs(got[k] - want[k]));
+            }
+        }
+    }
+
+    // Separable-gamma first stage, affine second, result sampled on the
+    // SAME node set as the first stage: exact everywhere against the
+    // evaluator chain (per cell the chain is affine, and the cells align).
+    {
+        CubeLUT a, b, out;
+        a.Create(9);
+        FillGamma(a);
+        b.Create(3);
+        FillAffineB(b);     // gamma outputs stay inside b's default 0..1 domain
+        std::string err;
+        if (!ComposeCube(a, b, 9, out, &err))
+            Fail("T16 compose: aligned compose refused: %s", err.c_str());
+        else
+        {
+            Lcg g(44556u);
+            for (int i = 0; i < 200; ++i)
+            {
+                double x[3] = { g.Next01(), g.Next01(), g.Next01() };
+                double mid[3], want[3], got[3];
+                if (!a.Evaluate(x, mid) || !b.Evaluate(mid, want)
+                    || !out.Evaluate(x, got))
+                    { Fail("T16 compose: aligned eval failed"); break; }
+                for (int k = 0; k < 3; ++k)
+                    if (fabs(got[k] - want[k]) > 1e-11)
+                        Fail("T16 compose: aligned probe %d comp %d off by %.3g",
+                             i, k, fabs(got[k] - want[k]));
+            }
+        }
+    }
+
+    // Contract gate: incompatible insertion point refuses and leaves the
+    // output untouched; compatible one stamps input/output through.
+    {
+        CubeLUT a, b, out;
+        a.Create(2);
+        b.Create(2);
+        LutContract ca, cb;
+        ca.input = Sig(LutSignalType::CS_BT709, LutSignalType::TF_GAMMA22,
+                       LutSignalType::RANGE_FULL);
+        ca.output = Sig(LutSignalType::CS_BT2020, LutSignalType::TF_LINEAR,
+                        LutSignalType::RANGE_FULL);
+        cb.input = Sig(LutSignalType::CS_BT709, LutSignalType::TF_UNSPECIFIED,
+                       LutSignalType::RANGE_UNSPECIFIED);   // clashes with ca.output
+        cb.output = Sig(LutSignalType::CS_P3D65, LutSignalType::TF_PQ,
+                        LutSignalType::RANGE_VIDEO);
+        a.SetContract(ca);
+        b.SetContract(cb);
+        MakeSentinel(out);
+        std::string err;
+        if (ComposeCube(a, b, 4, out, &err))
+            Fail("T16 compose: incompatible contracts composed");
+        else
+        {
+            if (err.empty())
+                Fail("T16 compose: contract refusal left err empty");
+            if (!SentinelIntact(out))
+                Fail("T16 compose: contract refusal touched the output");
+        }
+        cb.input.colorSpace = LutSignalType::CS_BT2020;     // now compatible
+        b.SetContract(cb);
+        if (!ComposeCube(a, b, 4, out, &err))
+            Fail("T16 compose: compatible contracts refused: %s", err.c_str());
+        else
+        {
+            if (!SameSignalType(out.Contract().input, ca.input))
+                Fail("T16 compose: result input signal not first's input");
+            if (!SameSignalType(out.Contract().output, cb.output))
+                Fail("T16 compose: result output signal not second's output");
+        }
+    }
+
+    // Refusals: bad output size, invalid inputs - output untouched.
+    {
+        CubeLUT a, b, out;
+        a.Create(3);
+        b.Create(3);
+        MakeSentinel(out);
+        std::string err;
+        if (ComposeCube(a, b, 1, out, &err) || ComposeCube(a, b, 257, out, &err))
+            Fail("T16 compose: out-of-range outSize accepted");
+        CubeLUT invalid;
+        if (ComposeCube(invalid, b, 4, out, &err))
+            Fail("T16 compose: invalid first accepted");
+        if (ComposeCube(a, invalid, 4, out, &err))
+            Fail("T16 compose: invalid second accepted");
+        if (!SentinelIntact(out))
+            Fail("T16 compose: a refusal touched the output");
+        // err works as nullptr too.
+        if (ComposeCube(invalid, b, 4, out, 0))
+            Fail("T16 compose: invalid first accepted (null err)");
+    }
+
+    // Aliasing: out may be first or second; both match the fresh-output
+    // result exactly.
+    {
+        CubeLUT a, b, fresh;
+        a.Create(4);
+        T15Cube::FillLattice(a, 97531u);
+        b.Create(3);
+        T15Cube::FillLattice(b, 86420u);
+        std::string err;
+        if (!ComposeCube(a, b, 4, fresh, &err))
+            Fail("T16 compose: alias reference compose refused: %s", err.c_str());
+        CubeLUT aliasA = a;
+        if (!ComposeCube(aliasA, b, 4, aliasA, &err))
+            Fail("T16 compose: out==first compose refused: %s", err.c_str());
+        else if (!SameLattice(aliasA, fresh))
+            Fail("T16 compose: out==first result differs");
+        CubeLUT aliasB = b;
+        if (!ComposeCube(a, aliasB, 4, aliasB, &err))
+            Fail("T16 compose: out==second compose refused: %s", err.c_str());
+        else if (!SameLattice(aliasB, fresh))
+            Fail("T16 compose: out==second result differs");
+    }
+
+    //---------------------------------------------------------------- ResampleCube
+    {
+        // Same-size resample reproduces every entry exactly (node
+        // exactness), keeps domain and contract, empties the title.
+        CubeLUT src, out;
+        src.Create(4);
+        T15Cube::FillLattice(src, 55555u);
+        double smin[3] = { -0.5, 0.0, 0.25 }, smax[3] = { 1.5, 2.0, 0.75 };
+        if (!src.SetDomain(smin, smax))
+            Fail("T16 resample: SetDomain failed");
+        LutContract c;
+        c.input = Sig(LutSignalType::CS_BT709, LutSignalType::TF_SRGB,
+                      LutSignalType::RANGE_FULL);
+        c.output = Sig(LutSignalType::CS_BT709, LutSignalType::TF_LINEAR,
+                       LutSignalType::RANGE_FULL);
+        src.SetContract(c);
+        src.SetTitle("source title");
+        std::string err = "junk";
+        if (!ResampleCube(src, 4, out, &err))
+            Fail("T16 resample: same-size resample refused: %s", err.c_str());
+        else
+        {
+            if (!err.empty())
+                Fail("T16 resample: success did not clear err");
+            if (!SameLattice(out, src))
+                Fail("T16 resample: same-size resample changed entries");
+            double dmin[3], dmax[3];
+            out.GetDomain(dmin, dmax);
+            for (int k = 0; k < 3; ++k)
+                if (dmin[k] != smin[k] || dmax[k] != smax[k])
+                    Fail("T16 resample: domain not kept (comp %d)", k);
+            if (!SameSignalType(out.Contract().input, c.input)
+                || !SameSignalType(out.Contract().output, c.output))
+                Fail("T16 resample: contract not kept");
+            if (!out.Title().empty())
+                Fail("T16 resample: result title not empty");
+        }
+
+        // Upsampling an affine lattice is exact against the analytic map.
+        CubeLUT aff, up;
+        aff.Create(5);
+        T15Interp::FillAffine(aff);
+        if (!ResampleCube(aff, 9, up, &err))
+            Fail("T16 resample: upsample refused: %s", err.c_str());
+        else
+        {
+            Lcg g(31313u);
+            for (int i = 0; i < 200; ++i)
+            {
+                double x[3] = { g.Next01(), g.Next01(), g.Next01() };
+                double want[3], got[3];
+                T15Interp::Affine(x, want);
+                if (!up.Evaluate(x, got))
+                    { Fail("T16 resample: upsample Evaluate failed"); break; }
+                for (int k = 0; k < 3; ++k)
+                    if (fabs(got[k] - want[k]) > 1e-12)
+                        Fail("T16 resample: upsample probe %d comp %d off by %.3g",
+                             i, k, fabs(got[k] - want[k]));
+            }
+        }
+
+        // Same-size resample is bit-exact on a HOSTILE domain too - one
+        // where round-tripping node positions through the evaluator picks
+        // up last-place rounding (0.1..0.9 at size 5: the recovered scaled
+        // position overshoots its node by an ulp). Pins the verbatim-copy
+        // fast path: an evaluate-per-node implementation fails this
+        // bit-exact compare.
+        {
+            CubeLUT hostile, hout;
+            hostile.Create(5);
+            T15Cube::FillLattice(hostile, 42424u);
+            double hmin[3] = { 0.1, 0.1, 0.1 }, hmax[3] = { 0.9, 0.9, 0.9 };
+            if (!hostile.SetDomain(hmin, hmax))
+                Fail("T16 resample: hostile SetDomain failed");
+            if (!ResampleCube(hostile, 5, hout, &err))
+                Fail("T16 resample: hostile same-size resample refused: %s",
+                     err.c_str());
+            else if (!SameLattice(hout, hostile))
+                Fail("T16 resample: hostile-domain same-size resample "
+                     "changed entries");
+        }
+
+        // Refusals leave the output untouched; aliasing works.
+        CubeLUT sent;
+        MakeSentinel(sent);
+        CubeLUT invalid;
+        if (ResampleCube(invalid, 4, sent, &err) || ResampleCube(src, 1, sent, &err)
+            || ResampleCube(src, 257, sent, &err))
+            Fail("T16 resample: a refusal succeeded");
+        if (!SentinelIntact(sent))
+            Fail("T16 resample: a refusal touched the output");
+        CubeLUT aliased = src;
+        if (!ResampleCube(aliased, 4, aliased, &err))
+            Fail("T16 resample: in-place resample refused: %s", err.c_str());
+        else if (!SameLattice(aliased, src))
+            Fail("T16 resample: in-place resample changed entries");
+    }
+
+    //---------------------------------------------------------------- extraction
+    {
+        // The shaper is EXACTLY the lattice diagonal, over the LUT's domain.
+        CubeLUT lut;
+        lut.Create(4);
+        T15Cube::FillLattice(lut, 20406u);
+        double dmin[3] = { -0.5, 0.0, 0.25 }, dmax[3] = { 1.5, 1.0, 0.75 };
+        if (!lut.SetDomain(dmin, dmax))
+            Fail("T16 extract: SetDomain failed");
+        double diag[4][3];
+        for (int i = 0; i < 4; ++i)
+        {
+            diag[i][0] = 0.1 + 0.3 * i;
+            diag[i][1] = -0.2 + 0.5 * i;
+            diag[i][2] = 0.05 + 0.25 * i;
+            if (!lut.SetEntry(i, i, i, diag[i]))
+                Fail("T16 extract: diagonal SetEntry failed");
+        }
+        ShaperCurve s;
+        std::string err = "junk";
+        if (!ExtractNeutralShaper(lut, s, &err))
+            Fail("T16 extract: extraction refused: %s", err.c_str());
+        else
+        {
+            if (!err.empty())
+                Fail("T16 extract: success did not clear err");
+            if (!s.IsValid())
+                Fail("T16 extract: extracted shaper not valid");
+            for (int c = 0; c < 3; ++c)
+            {
+                if (s.Count(c) != 4)
+                    Fail("T16 extract: channel %d count %d want 4", c, s.Count(c));
+                double lo, hi;
+                if (!s.GetDomain(c, lo, hi) || lo != dmin[c] || hi != dmax[c])
+                    Fail("T16 extract: channel %d domain wrong", c);
+                for (int i = 0; i < 4; ++i)
+                {
+                    double v;
+                    if (!s.GetSample(c, i, v) || v != diag[i][c])
+                        Fail("T16 extract: channel %d sample %d not the diagonal entry",
+                             c, i);
+                }
+            }
+        }
+
+        // A non-monotone diagonal refuses and leaves an existing shaper
+        // untouched.
+        double dip[3] = { diag[2][0], diag[1][1] - 0.01, diag[2][2] };
+        if (!lut.SetEntry(2, 2, 2, dip))
+            Fail("T16 extract: dip SetEntry failed");
+        err.clear();
+        if (ExtractNeutralShaper(lut, s, &err))
+            Fail("T16 extract: non-monotone green diagonal accepted");
+        else
+        {
+            if (err.empty())
+                Fail("T16 extract: refusal left err empty");
+            double v;
+            if (!s.IsValid() || !s.GetSample(1, 2, v) || v != diag[2][1])
+                Fail("T16 extract: refusal touched the existing shaper");
+        }
+        CubeLUT invalid;
+        if (ExtractNeutralShaper(invalid, s, &err))
+            Fail("T16 extract: invalid LUT accepted");
+    }
+
+    //---------------------------------------------------------------- split
+    // A purely per-channel source: the whole neutral response moves into
+    // the shaper and the residual cube collapses to the identity lattice
+    // over the shaper's value range (here 0..1, since the gammas fix the
+    // endpoints).
+    {
+        CubeLUT src;
+        src.Create(9);
+        FillGamma(src);
+        ShaperCurve s;
+        CubeLUT cube;
+        std::string err;
+        if (!SplitShaperCube(src, 7, s, cube, &err))
+            Fail("T16 split: separable split refused: %s", err.c_str());
+        else
+        {
+            for (int c = 0; c < 3; ++c)
+            {
+                if (s.Count(c) != 9)
+                    Fail("T16 split: shaper channel %d count %d want 9", c, s.Count(c));
+                for (int i = 0; i < 9; ++i)
+                {
+                    double v, want = pow(i / 8.0, kGamma[c]);
+                    if (!s.GetSample(c, i, v) || fabs(v - want) > 1e-15)
+                        Fail("T16 split: shaper channel %d sample %d off", c, i);
+                }
+            }
+            double dmin[3], dmax[3];
+            cube.GetDomain(dmin, dmax);
+            for (int c = 0; c < 3; ++c)
+                if (fabs(dmin[c] - 0.0) > 0.0 || fabs(dmax[c] - 1.0) > 0.0)
+                    Fail("T16 split: separable cube domain comp %d = %g..%g want 0..1",
+                         c, dmin[c], dmax[c]);
+            if (cube.Size() != 7)
+                Fail("T16 split: cube size %d want 7", cube.Size());
+            for (int bb = 0; bb < 7; ++bb)
+                for (int gg = 0; gg < 7; ++gg)
+                    for (int rr = 0; rr < 7; ++rr)
+                    {
+                        double want[3] = { rr / 6.0, gg / 6.0, bb / 6.0 };
+                        double got[3];
+                        if (!cube.GetEntry(rr, gg, bb, got))
+                            { Fail("T16 split: identity GetEntry failed"); continue; }
+                        for (int k = 0; k < 3; ++k)
+                            if (fabs(got[k] - want[k]) > 1e-12)
+                                Fail("T16 split: residual cube not identity at "
+                                     "(%d,%d,%d) comp %d: off by %.3g",
+                                     rr, gg, bb, k, fabs(got[k] - want[k]));
+                    }
+        }
+    }
+
+    // Affine source: shaper and residual are both exact, so the
+    // recomposition cube(shaper(x)) reproduces src(x) everywhere,
+    // including far off the neutral axis.
+    {
+        CubeLUT src;
+        src.Create(5);
+        FillAffineB(src);
+        LutContract c;
+        c.input = Sig(LutSignalType::CS_BT709, LutSignalType::TF_GAMMA22,
+                      LutSignalType::RANGE_FULL);
+        c.output = Sig(LutSignalType::CS_BT2020, LutSignalType::TF_PQ,
+                       LutSignalType::RANGE_VIDEO);
+        src.SetContract(c);
+        ShaperCurve s;
+        CubeLUT cube;
+        std::string err;
+        if (!SplitShaperCube(src, 4, s, cube, &err))
+            Fail("T16 split: affine split refused: %s", err.c_str());
+        else
+        {
+            // Cube domain = the shaper's value range, exactly.
+            double dmin[3], dmax[3];
+            cube.GetDomain(dmin, dmax);
+            for (int ch = 0; ch < 3; ++ch)
+            {
+                double lo, hi;
+                if (!s.GetSample(ch, 0, lo) || !s.GetSample(ch, s.Count(ch) - 1, hi))
+                    { Fail("T16 split: shaper range read failed"); continue; }
+                if (dmin[ch] != lo || dmax[ch] != hi)
+                    Fail("T16 split: cube domain comp %d = %.17g..%.17g want "
+                         "%.17g..%.17g", ch, dmin[ch], dmax[ch], lo, hi);
+            }
+            // Contracts: unspecified input, source's output.
+            if (!SameSignalType(cube.Contract().input, LutSignalType()))
+                Fail("T16 split: cube input signal not unspecified");
+            if (!SameSignalType(cube.Contract().output, c.output))
+                Fail("T16 split: cube output signal not source's output");
+            // Recomposition.
+            Lcg g(77441u);
+            for (int i = 0; i < 200; ++i)
+            {
+                double x[3] = { g.Next01(), g.Next01(), g.Next01() };
+                double mid[3], got[3], want[3];
+                AffineB(x, want);
+                if (!s.Evaluate(x, mid) || !cube.Evaluate(mid, got))
+                    { Fail("T16 split: recomposition eval failed"); break; }
+                for (int k = 0; k < 3; ++k)
+                    if (fabs(got[k] - want[k]) > 1e-10)
+                        Fail("T16 split: recomposition probe %d comp %d off by %.3g",
+                             i, k, fabs(got[k] - want[k]));
+            }
+        }
+    }
+
+    // General (non-separable) source: every residual-cube entry IS
+    // src(shaperInverse(node)) through the public evaluators - the node
+    // definition of the split.
+    {
+        CubeLUT src;
+        src.Create(7);
+        FillMixedGamma(src);
+        ShaperCurve s;
+        CubeLUT cube;
+        std::string err;
+        if (!SplitShaperCube(src, 5, s, cube, &err))
+            Fail("T16 split: mixed split refused: %s", err.c_str());
+        else
+        {
+            double dmin[3], dmax[3];
+            cube.GetDomain(dmin, dmax);
+            for (int bb = 0; bb < 5; ++bb)
+                for (int gg = 0; gg < 5; ++gg)
+                    for (int rr = 0; rr < 5; ++rr)
+                    {
+                        double y[3] = {
+                            dmin[0] + rr / 4.0 * (dmax[0] - dmin[0]),
+                            dmin[1] + gg / 4.0 * (dmax[1] - dmin[1]),
+                            dmin[2] + bb / 4.0 * (dmax[2] - dmin[2]),
+                        };
+                        double t[3], want[3], got[3];
+                        if (!s.EvaluateInverse(y, t) || !src.Evaluate(t, want)
+                            || !cube.GetEntry(rr, gg, bb, got))
+                            { Fail("T16 split: node-definition eval failed"); continue; }
+                        for (int k = 0; k < 3; ++k)
+                            if (fabs(got[k] - want[k]) > 1e-13)
+                                Fail("T16 split: cube node (%d,%d,%d) comp %d off "
+                                     "by %.3g", rr, gg, bb, k, fabs(got[k] - want[k]));
+                    }
+        }
+    }
+
+    // Refusals: non-monotone neutral axis, bad cube size, invalid source -
+    // both outputs untouched.
+    {
+        CubeLUT src;
+        src.Create(4);
+        T15Cube::FillLattice(src, 20406u);
+        double hi0[3] = { 0.5, 0.5, 0.5 }, lo1[3] = { 0.1, 0.1, 0.1 };
+        if (!src.SetEntry(0, 0, 0, hi0) || !src.SetEntry(1, 1, 1, lo1))
+            Fail("T16 split: refusal-test diagonal SetEntry failed");
+        ShaperCurve s;
+        const double keep[2] = { 0.25, 0.75 };
+        for (int c = 0; c < 3; ++c)
+            if (!s.SetChannel(c, keep, 2, 0.0, 1.0))
+                Fail("T16 split: refusal-test shaper install failed");
+        CubeLUT sent;
+        MakeSentinel(sent);
+        std::string err;
+        if (SplitShaperCube(src, 4, s, sent, &err))
+            Fail("T16 split: non-monotone source accepted");
+        else
+        {
+            if (err.empty())
+                Fail("T16 split: refusal left err empty");
+            double v;
+            if (!s.IsValid() || s.Count(0) != 2 || !s.GetSample(0, 0, v) || v != 0.25)
+                Fail("T16 split: refusal touched the shaper");
+            if (!SentinelIntact(sent))
+                Fail("T16 split: refusal touched the cube");
+        }
+        CubeLUT good;
+        good.Create(3);         // identity: monotone diagonal
+        if (SplitShaperCube(good, 1, s, sent, &err)
+            || SplitShaperCube(good, 257, s, sent, &err))
+            Fail("T16 split: out-of-range cubeSize accepted");
+        CubeLUT invalid;
+        if (SplitShaperCube(invalid, 4, s, sent, &err))
+            Fail("T16 split: invalid source accepted");
+        if (!SentinelIntact(sent))
+            Fail("T16 split: a size/validity refusal touched the cube");
+    }
+
+    // Determinism: composing twice gives bit-identical lattices.
+    {
+        CubeLUT a, b, o1, o2;
+        a.Create(4);
+        T15Cube::FillLattice(a, 31415u);
+        b.Create(4);
+        T15Cube::FillLattice(b, 27182u);
+        std::string err;
+        if (!ComposeCube(a, b, 5, o1, &err) || !ComposeCube(a, b, 5, o2, &err))
+            Fail("T16 determinism: compose failed: %s", err.c_str());
+        else if (!SameLattice(o1, o2))
+            Fail("T16 determinism: repeated compose differs");
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -1880,6 +2843,7 @@ int main(int argc, char* argv[])
     RunT12();
     RunT15();   // T13/T14 reserved for in-flight branches; see the header comment
     RunT15Interp();
+    RunT16();
 
     if (g_failures)
     {
