@@ -11,11 +11,15 @@
 // Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
 // T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
-// and T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table. The .chc round-trip originally planned for the T7
+// T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table,
+// and T19 asserts the #193 archive extension trailer: round trip, unknown-tag skip,
+// legacy bytes, rejections, and the primitives. The .chc round-trip originally planned for the T7
 // slot needs app-level linkage and is deliberately still not in this console harness.
 
 #include <afx.h>
 #include "../../libHCFR/Color.h"
+#include "../../libHCFR/ArchiveExtension.h"
+#include "../../libHCFR/ArchiveTags.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -1075,6 +1079,773 @@ static void RunT12()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T19 — archive extension trailer oracle (issue #193).
+//
+// Every versioned block in a .chc / .thc stream now ends with a length-
+// prefixed, tagged extension region (libHCFR/ArchiveExtension.h). CColor is
+// the one block that lives in libHCFR, so it is the block this console
+// harness can pin end to end:
+//   (a) a color carrying every optional field round-trips exactly, and the
+//       stream's version is base + 100;
+//   (b) a trailer with an unknown tag is skipped by byte count and the NEXT
+//       color in the stream still decodes - the whole point of the design;
+//   (c) legacy streams captured from the pre-trailer writer (bases 1/3/5/6,
+//       with the two 92-byte dead "ignore" matrices) still load, and so do
+//       hand-built base-2/4 streams (int bandwidth) which the writer never
+//       emitted but real old documents contain;
+//   (d) Bodner-era tens-digit versions (10..99) and versions from a newer
+//       build (>= 200) are rejected as CNewerSchemaException, and a trailer
+//       claiming more bytes than the stream holds throws endOfFile without
+//       attaching any partial field to the target;
+//   (e) the writer and reader primitives themselves: ordering, the empty
+//       trailer, exact value extents, and discard-on-Close.
+// Pure assertion; no golden file. All expected bytes are pinned inline.
+//////////////////////////////////////////////////////////////////////////
+namespace T19Ext
+{
+    typedef std::vector<unsigned char> Bytes;
+
+    // --- little-endian builders, matching what CArchive writes ---
+    static void PutRaw(Bytes& b, const void* p, size_t n)
+    {
+        const unsigned char* q = (const unsigned char*)p;
+        b.insert(b.end(), q, q + n);
+    }
+    static void PutInt(Bytes& b, int v)      { PutRaw(b, &v, 4); }
+    static void PutDword(Bytes& b, DWORD v)  { PutRaw(b, &v, 4); }
+    static void PutByte(Bytes& b, BYTE v)    { b.push_back(v); }
+    static void PutDouble(Bytes& b, double v){ PutRaw(b, &v, 8); }
+
+    // Matrix::Serialize layout for a 3x1: two headers, version 1, columns, rows,
+    // then the elements by column (44 bytes).
+    static void PutMatrix3x1(Bytes& b, double x, double y, double z)
+    {
+        PutInt(b, 0x434d6174);
+        PutInt(b, 0x72697843);
+        PutInt(b, 1);
+        PutInt(b, 1);
+        PutInt(b, 3);
+        PutDouble(b, x);
+        PutDouble(b, y);
+        PutDouble(b, z);
+    }
+
+    struct Entry
+    {
+        BYTE  tag;
+        Bytes value;
+    };
+
+    // One CColor at version 101 (base 1 + trailer): version, XYZ, then the
+    // trailer holding `entries` in the order given.
+    static void PutColor101(Bytes& b, double x, double y, double z, const std::vector<Entry>& entries)
+    {
+        PutInt(b, 101);
+        PutMatrix3x1(b, x, y, z);
+        DWORD cb = 0;
+        for (size_t i = 0; i < entries.size(); ++i)
+            cb += 5 + (DWORD)entries[i].value.size();
+        PutDword(b, cb);
+        for (size_t i = 0; i < entries.size(); ++i)
+        {
+            PutByte(b, entries[i].tag);
+            PutDword(b, (DWORD)entries[i].value.size());
+            PutRaw(b, entries[i].value.empty() ? NULL : &entries[i].value[0], entries[i].value.size());
+        }
+    }
+
+    static Bytes Store(CColor& c)
+    {
+        CMemFile mem;
+        {
+            CArchive ar(&mem, CArchive::store);
+            c.Serialize(ar);
+            ar.Flush();
+            ar.Close();
+        }
+        size_t n = (size_t)mem.GetLength();
+        BYTE* p = mem.Detach();
+        Bytes out(p, p + n);
+        free(p);
+        return out;
+    }
+
+    // Loads `count` colors back to back from one stream. Returns the exception
+    // that stopped the load (caller must Delete it), or NULL when all loaded.
+    static CException* Load(const Bytes& b, CColor* colors, int count)
+    {
+        size_t n = b.size();
+        BYTE* buf = (BYTE*)malloc(n ? n : 1);
+        if (n)
+            memcpy(buf, &b[0], n);
+        CMemFile mem;
+        mem.Attach(buf, (UINT)n);
+        CException* caught = NULL;
+        {
+            CArchive ar(&mem, CArchive::load);
+            try
+            {
+                for (int i = 0; i < count; ++i)
+                    colors[i].Serialize(ar);
+            }
+            catch (CException* e)
+            {
+                caught = e;
+                ar.Abort();
+            }
+        }
+        mem.Detach();
+        free(buf);
+        return caught;
+    }
+
+    static void ExpectXYZ(const char* what, const CColor& c, double x, double y, double z)
+    {
+        if (c.GetX() != x || c.GetY() != y || c.GetZ() != z)
+            Fail("T19 %s: XYZ = (%.17g, %.17g, %.17g), expected (%.17g, %.17g, %.17g)",
+                 what, c.GetX(), c.GetY(), c.GetZ(), x, y, z);
+    }
+
+    static void ExpectNoOptional(const char* what, const CColor& c)
+    {
+        if (c.HasSpectrum())      Fail("T19 %s: unexpected spectrum", what);
+        if (c.HasLuxValue())      Fail("T19 %s: unexpected lux value", what);
+        if (c.HasRawXYZValue())   Fail("T19 %s: unexpected raw XYZ", what);
+        if (c.HasStimulusValue()) Fail("T19 %s: unexpected stimulus", what);
+    }
+
+    static void ExpectSpectrum(const char* what, const CColor& c, int rows, int wlMin, int wlMax, double bw, const double* samples)
+    {
+        if (!c.HasSpectrum())
+        {
+            Fail("T19 %s: spectrum missing", what);
+            return;
+        }
+        CSpectrum s = c.GetSpectrum();
+        if (s.GetRows() != rows || s.m_WaveLengthMin != wlMin || s.m_WaveLengthMax != wlMax || s.m_BandWidth != bw)
+            Fail("T19 %s: spectrum header %d/%d/%d/%.17g, expected %d/%d/%d/%.17g",
+                 what, s.GetRows(), s.m_WaveLengthMin, s.m_WaveLengthMax, s.m_BandWidth, rows, wlMin, wlMax, bw);
+        else
+            for (int i = 0; i < rows; ++i)
+                if (s[i] != samples[i])
+                    Fail("T19 %s: spectrum[%d] = %.17g, expected %.17g", what, i, s[i], samples[i]);
+    }
+
+    static void ExpectLux(const char* what, const CColor& c, double lux)
+    {
+        if (!c.HasLuxValue())
+            Fail("T19 %s: lux missing", what);
+        else if (c.GetLuxValue() != lux)
+            Fail("T19 %s: lux = %.17g, expected %.17g", what, c.GetLuxValue(), lux);
+    }
+
+    static void ExpectRaw(const char* what, const CColor& c, double x, double y, double z)
+    {
+        if (!c.HasRawXYZValue())
+        {
+            Fail("T19 %s: raw XYZ missing", what);
+            return;
+        }
+        ColorXYZ r = c.GetRawXYZValue();
+        if (r[0] != x || r[1] != y || r[2] != z)
+            Fail("T19 %s: raw XYZ = (%.17g, %.17g, %.17g), expected (%.17g, %.17g, %.17g)",
+                 what, r[0], r[1], r[2], x, y, z);
+    }
+
+    static void ExpectStimulus(const char* what, const CColor& c, double r, double g, double b)
+    {
+        if (!c.HasStimulusValue())
+        {
+            Fail("T19 %s: stimulus missing", what);
+            return;
+        }
+        ColorRGBDisplay s = c.GetStimulusValue();
+        if (s[0] != r || s[1] != g || s[2] != b)
+            Fail("T19 %s: stimulus = (%.17g, %.17g, %.17g), expected (%.17g, %.17g, %.17g)",
+                 what, s[0], s[1], s[2], r, g, b);
+    }
+
+    static void ExpectBytes(const char* what, const Bytes& got, const unsigned char* want, size_t n)
+    {
+        if (got.size() != n)
+        {
+            Fail("T19 %s: %u bytes, expected %u", what, (unsigned)got.size(), (unsigned)n);
+            return;
+        }
+        for (size_t i = 0; i < n; ++i)
+            if (got[i] != want[i])
+            {
+                Fail("T19 %s: byte %u = 0x%02X, expected 0x%02X", what, (unsigned)i, got[i], want[i]);
+                return;
+            }
+    }
+
+    // Reports and frees an exception the caller did not expect. Named by
+    // runtime class and archive cause, not GetErrorMessage: that loads an
+    // MFC string resource this console harness does not carry, and the
+    // missing string is an ASSERT (abort) in a Debug build.
+    static void FailUnexpected(const char* what, CException* e)
+    {
+        int cause = -1;
+        if (e->IsKindOf(RUNTIME_CLASS(CArchiveException)))
+            cause = ((CArchiveException*)e)->m_cause;
+        Fail("T19 %s: unexpected exception %s (archive cause %d)", what,
+             e->GetRuntimeClass()->m_lpszClassName, cause);
+        e->Delete();
+    }
+
+    static const double kSamples[3] = { 0.1, 0.2, 0.3 };
+
+    //////////////////////////////////////////////////////////////////////
+    // (c) Legacy streams, captured 2026-09-05 from the pre-trailer
+    // CColor::Serialize on the stand-in base (Bodner 6326187c + #191),
+    // inputs XYZ = (0.25, 0.5, 0.75), lux = 123.456, spectrum
+    // CSpectrum(3, 380, 780, 200.0) with samples (0.1, 0.2, 0.3).
+    // Layout: int base; XYZ (44); two 3x3 "ignore" matrices (92 each);
+    // [spectrum: rows, min, max, double bandwidth, Matrix (44)]; [double lux].
+    //////////////////////////////////////////////////////////////////////
+    static const unsigned char kGoldenBase1[232] = {
+        0x01,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,
+        0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xD0,0x3F,
+        0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x3F,0x00,0x00,0x00,0x00,0x00,0x00,0xE8,0x3F,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,
+        0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    };
+    static const unsigned char kGoldenBase3[240] = {
+        0x03,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,
+        0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xD0,0x3F,
+        0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x3F,0x00,0x00,0x00,0x00,0x00,0x00,0xE8,0x3F,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,
+        0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x77,0xBE,0x9F,0x1A,0x2F,0xDD,0x5E,0x40,
+    };
+    static const unsigned char kGoldenBase5[300] = {
+        0x05,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,
+        0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xD0,0x3F,
+        0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x3F,0x00,0x00,0x00,0x00,0x00,0x00,0xE8,0x3F,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,
+        0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x7C,0x01,0x00,0x00,
+        0x0C,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x69,0x40,0x01,0x00,0x00,0x00,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x9A,0x99,0x99,0x99,0x99,0x99,0xB9,0x3F,0x9A,0x99,0x99,0x99,
+        0x99,0x99,0xC9,0x3F,0x33,0x33,0x33,0x33,0x33,0x33,0xD3,0x3F,
+    };
+    static const unsigned char kGoldenBase6[308] = {
+        0x06,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,
+        0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xD0,0x3F,
+        0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x3F,0x00,0x00,0x00,0x00,0x00,0x00,0xE8,0x3F,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,
+        0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x7C,0x01,0x00,0x00,
+        0x0C,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x69,0x40,0x01,0x00,0x00,0x00,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x9A,0x99,0x99,0x99,0x99,0x99,0xB9,0x3F,0x9A,0x99,0x99,0x99,
+        0x99,0x99,0xC9,0x3F,0x33,0x33,0x33,0x33,0x33,0x33,0xD3,0x3F,0x77,0xBE,0x9F,0x1A,
+        0x2F,0xDD,0x5E,0x40,
+    };
+
+    // Offsets inside the base-5/6 goldens: the spectrum header starts right
+    // after the 232-byte legacy prefix, and its double bandwidth sits after
+    // rows/min/max.
+    static const size_t kLegacyPrefix = 4 + 44 + 92 + 92;
+    static const size_t kBandwidthOff = kLegacyPrefix + 12;
+
+    // A base-2 (from base 5) or base-4 (from base 6) stream: the same layout
+    // with the bandwidth stored as an int, which is what old documents hold.
+    static Bytes MakeIntBandwidth(const unsigned char* golden, size_t n, int newBase)
+    {
+        Bytes b(golden, golden + kBandwidthOff);
+        b[0] = (unsigned char)newBase;
+        PutInt(b, 200);
+        b.insert(b.end(), golden + kBandwidthOff + 8, golden + n);
+        return b;
+    }
+
+    static void CheckRoundTrip()
+    {
+        CColor src(0.25, 0.5, 0.75);
+        double samples[3] = { 0.1, 0.2, 0.3 };
+        CSpectrum spec(3, 380, 780, 200.0, samples);
+        src.SetSpectrum(spec);
+        src.SetLuxValue(123.456);
+        src.SetRawXYZValue(ColorXYZ(0.2, 0.4, 0.6));
+        src.SetStimulusValue(ColorRGBDisplay(10.0, 20.0, 30.0));
+
+        Bytes b = Store(src);
+        if (b.size() < 4)
+        {
+            Fail("T19 (a): stored %u bytes", (unsigned)b.size());
+            return;
+        }
+        int version;
+        memcpy(&version, &b[0], 4);
+        if (version != 106)
+            Fail("T19 (a): stream version %d, expected 106 (base 6 + 100)", version);
+
+        CColor dst;
+        CException* e = Load(b, &dst, 1);
+        if (e)
+        {
+            FailUnexpected("(a) round trip", e);
+            return;
+        }
+        ExpectXYZ("(a)", dst, 0.25, 0.5, 0.75);
+        ExpectSpectrum("(a)", dst, 3, 380, 780, 200.0, kSamples);
+        ExpectLux("(a)", dst, 123.456);
+        ExpectRaw("(a)", dst, 0.2, 0.4, 0.6);
+        ExpectStimulus("(a)", dst, 10.0, 20.0, 30.0);
+
+        // The base-only color (no optional field) must carry an empty trailer,
+        // never no trailer: pin its exact bytes so a "write it only when
+        // non-empty" regression shows here, not only in (b).
+        CColor plain(0.25, 0.5, 0.75);
+        Bytes p = Store(plain);
+        Bytes want;
+        PutColor101(want, 0.25, 0.5, 0.75, std::vector<Entry>());
+        ExpectBytes("(a) base-only stream", p, want.empty() ? NULL : &want[0], want.size());
+    }
+
+    static void CheckForwardCompat()
+    {
+        Entry unknown;
+        unknown.tag = 200;
+        unknown.value.assign(37, 0xA5);
+        Entry raw;
+        raw.tag = 1;
+        PutMatrix3x1(raw.value, 0.2, 0.4, 0.6);
+
+        std::vector<Entry> second;
+        second.push_back(raw);
+
+        // Three shapes for the first color's trailer: unknown only, known then
+        // unknown, unknown then known. The second color is always the same.
+        for (int shape = 0; shape < 3; ++shape)
+        {
+            std::vector<Entry> first;
+            if (shape == 0)      { first.push_back(unknown); }
+            else if (shape == 1) { first.push_back(raw); first.push_back(unknown); }
+            else                 { first.push_back(unknown); first.push_back(raw); }
+
+            Bytes b;
+            PutColor101(b, 0.25, 0.5, 0.75, first);
+            PutColor101(b, 0.11, 0.22, 0.33, second);
+
+            char what[64];
+            sprintf(what, "(b) shape %d", shape);
+
+            CColor c[2];
+            CException* e = Load(b, c, 2);
+            if (e)
+            {
+                FailUnexpected(what, e);
+                continue;
+            }
+            ExpectXYZ(what, c[0], 0.25, 0.5, 0.75);
+            if (shape == 0)
+                ExpectNoOptional(what, c[0]);
+            else
+                ExpectRaw(what, c[0], 0.2, 0.4, 0.6);
+            if (c[0].HasStimulusValue() || c[0].HasSpectrum() || c[0].HasLuxValue())
+                Fail("T19 %s: first color grew a field it was never given", what);
+
+            ExpectXYZ(what, c[1], 0.11, 0.22, 0.33);
+            ExpectRaw(what, c[1], 0.2, 0.4, 0.6);
+            if (c[1].HasStimulusValue() || c[1].HasSpectrum() || c[1].HasLuxValue())
+                Fail("T19 %s: second color grew a field it was never given", what);
+        }
+    }
+
+    static void CheckLegacy()
+    {
+        struct Case
+        {
+            const char*          name;
+            const unsigned char* bytes;
+            size_t               size;
+            bool                 spectrum;
+            bool                 lux;
+        };
+        static const Case cases[] = {
+            { "(c) base 1", kGoldenBase1, sizeof kGoldenBase1, false, false },
+            { "(c) base 3", kGoldenBase3, sizeof kGoldenBase3, false, true  },
+            { "(c) base 5", kGoldenBase5, sizeof kGoldenBase5, true,  false },
+            { "(c) base 6", kGoldenBase6, sizeof kGoldenBase6, true,  true  },
+        };
+        for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i)
+        {
+            Bytes b(cases[i].bytes, cases[i].bytes + cases[i].size);
+            CColor c;
+            CException* e = Load(b, &c, 1);
+            if (e)
+            {
+                FailUnexpected(cases[i].name, e);
+                continue;
+            }
+            ExpectXYZ(cases[i].name, c, 0.25, 0.5, 0.75);
+            if (cases[i].spectrum)
+                ExpectSpectrum(cases[i].name, c, 3, 380, 780, 200.0, kSamples);
+            else if (c.HasSpectrum())
+                Fail("T19 %s: unexpected spectrum", cases[i].name);
+            if (cases[i].lux)
+                ExpectLux(cases[i].name, c, 123.456);
+            else if (c.HasLuxValue())
+                Fail("T19 %s: unexpected lux", cases[i].name);
+            if (c.HasRawXYZValue() || c.HasStimulusValue())
+                Fail("T19 %s: legacy stream produced a trailer field", cases[i].name);
+        }
+
+        // Bases 2 and 4: int bandwidth. The writer never emitted these, real
+        // old documents contain them, and the version gate must be 1..6, not
+        // the writer's {1,3,5,6}.
+        {
+            Bytes b2 = MakeIntBandwidth(kGoldenBase5, sizeof kGoldenBase5, 2);
+            CColor c;
+            CException* e = Load(b2, &c, 1);
+            if (e)
+                FailUnexpected("(c) base 2", e);
+            else
+            {
+                ExpectXYZ("(c) base 2", c, 0.25, 0.5, 0.75);
+                ExpectSpectrum("(c) base 2", c, 3, 380, 780, 200.0, kSamples);
+                if (c.HasLuxValue())
+                    Fail("T19 (c) base 2: unexpected lux");
+            }
+        }
+        {
+            Bytes b4 = MakeIntBandwidth(kGoldenBase6, sizeof kGoldenBase6, 4);
+            CColor c;
+            CException* e = Load(b4, &c, 1);
+            if (e)
+                FailUnexpected("(c) base 4", e);
+            else
+            {
+                ExpectXYZ("(c) base 4", c, 0.25, 0.5, 0.75);
+                ExpectSpectrum("(c) base 4", c, 3, 380, 780, 200.0, kSamples);
+                ExpectLux("(c) base 4", c, 123.456);
+            }
+        }
+    }
+
+    static void ExpectNewerSchema(const char* what, CException* e, int version, bool unreleased)
+    {
+        if (!e)
+        {
+            Fail("T19 %s: loaded without an exception", what);
+            return;
+        }
+        if (!e->IsKindOf(RUNTIME_CLASS(CNewerSchemaException)))
+        {
+            FailUnexpected(what, e);
+            return;
+        }
+        CNewerSchemaException* n = (CNewerSchemaException*)e;
+        if (n->m_block != "CColor")
+            Fail("T19 %s: block '%s', expected 'CColor'", what, (LPCSTR)n->m_block);
+        if (n->m_version != version)
+            Fail("T19 %s: version %d, expected %d", what, n->m_version, version);
+        if (n->m_unreleased != unreleased)
+            Fail("T19 %s: unreleased = %d, expected %d", what, (int)n->m_unreleased, (int)unreleased);
+        if (n->m_cause != CArchiveException::badSchema)
+            Fail("T19 %s: m_cause %d, expected badSchema so unaware handlers still see a schema error", what, n->m_cause);
+        e->Delete();
+    }
+
+    static void ExpectArchiveCause(const char* what, CException* e, int cause)
+    {
+        if (!e)
+        {
+            Fail("T19 %s: loaded without an exception", what);
+            return;
+        }
+        if (e->IsKindOf(RUNTIME_CLASS(CNewerSchemaException)))
+        {
+            Fail("T19 %s: got CNewerSchemaException, expected a plain archive error", what);
+            e->Delete();
+            return;
+        }
+        if (!e->IsKindOf(RUNTIME_CLASS(CArchiveException)))
+        {
+            FailUnexpected(what, e);
+            return;
+        }
+        int got = ((CArchiveException*)e)->m_cause;
+        if (got != cause)
+            Fail("T19 %s: archive cause %d, expected %d", what, got, cause);
+        e->Delete();
+    }
+
+    static void CheckRejections()
+    {
+        static const int unreleased[] = { 13, 46, 99 };
+        for (int i = 0; i < 3; ++i)
+        {
+            Bytes b;
+            PutInt(b, unreleased[i]);
+            CColor c;
+            char what[64];
+            sprintf(what, "(d) version %d", unreleased[i]);
+            ExpectNewerSchema(what, Load(b, &c, 1), unreleased[i], true);
+        }
+        {
+            Bytes b;
+            PutInt(b, 250);
+            CColor c;
+            ExpectNewerSchema("(d) version 250", Load(b, &c, 1), 250, false);
+        }
+
+        // Truncated trailer: cbExtension claims 1000 bytes, 10 are present
+        // (tag 1, cbValue 44, then 5 bytes of the 44). The target starts as
+        // (1,1,1) and the stream's XYZ is the same, so the assertion that
+        // nothing changed covers the whole object: the base fields precede the
+        // trailer, and the trailer must not leave a partial raw XYZ behind.
+        // (CColor() itself defaults to (1,3,1), hence the explicit values.)
+        {
+            Bytes b;
+            PutInt(b, 101);
+            PutMatrix3x1(b, 1.0, 1.0, 1.0);
+            PutDword(b, 1000);
+            PutByte(b, 1);
+            PutDword(b, 44);
+            for (int i = 0; i < 5; ++i)
+                PutByte(b, 0x00);
+            CColor c(1.0, 1.0, 1.0);
+            ExpectArchiveCause("(d) truncated trailer", Load(b, &c, 1), CArchiveException::endOfFile);
+            ExpectXYZ("(d) truncated trailer", c, 1.0, 1.0, 1.0);
+            ExpectNoOptional("(d) truncated trailer", c);
+        }
+
+        // Malformed trailer: an entry that does not fit inside cbExtension is a
+        // schema error, distinct from the stream simply ending early.
+        {
+            Bytes b;
+            PutInt(b, 101);
+            PutMatrix3x1(b, 1.0, 1.0, 1.0);
+            PutDword(b, 7);
+            PutByte(b, 1);
+            PutDword(b, 44);
+            for (int i = 0; i < 2 + 44; ++i)
+                PutByte(b, 0x00);
+            CColor c(1.0, 1.0, 1.0);
+            ExpectArchiveCause("(d) malformed trailer", Load(b, &c, 1), CArchiveException::badSchema);
+            ExpectNoOptional("(d) malformed trailer", c);
+        }
+    }
+
+    static Bytes WriteTrailer(CExtensionWriter& w)
+    {
+        CMemFile mem;
+        {
+            CArchive ar(&mem, CArchive::store);
+            w.Write(ar);
+            ar.Flush();
+            ar.Close();
+        }
+        size_t n = (size_t)mem.GetLength();
+        BYTE* p = mem.Detach();
+        Bytes out(p, p + n);
+        free(p);
+        return out;
+    }
+
+    static void CheckPrimitives()
+    {
+        // Writer: tags begun as 3, 1, 2 come out as 1, 2, 3.
+        try
+        {
+            CExtensionWriter w;
+            w.BeginTag(3) << (BYTE)0x33;
+            w.EndTag();
+            w.BeginTag(1) << (int)0x11111111;
+            w.EndTag();
+            w.BeginTag(2) << (WORD)0x2222;
+            w.EndTag();
+            Bytes got = WriteTrailer(w);
+            static const unsigned char want[] = {
+                22,0,0,0,
+                1, 4,0,0,0, 0x11,0x11,0x11,0x11,
+                2, 2,0,0,0, 0x22,0x22,
+                3, 1,0,0,0, 0x33,
+            };
+            ExpectBytes("(e) writer ordering", got, want, sizeof want);
+        }
+        catch (CException* e)
+        {
+            FailUnexpected("(e) writer ordering", e);
+        }
+
+        // Writer: nothing begun -> exactly four zero bytes.
+        try
+        {
+            CExtensionWriter w;
+            Bytes got = WriteTrailer(w);
+            static const unsigned char want[] = { 0,0,0,0 };
+            ExpectBytes("(e) empty writer", got, want, sizeof want);
+        }
+        catch (CException* e)
+        {
+            FailUnexpected("(e) empty writer", e);
+        }
+
+        // Reader: a value of 7 bytes exposes exactly 7, the eighth read throws,
+        // and the entry after it is still reachable. Then an entry never asked
+        // for is discarded by Close() so the stream continues where it should.
+        {
+            Bytes b;
+            PutDword(b, 12 + 8);
+            PutByte(b, 7);
+            PutDword(b, 7);
+            for (int i = 1; i <= 7; ++i)
+                PutByte(b, (BYTE)i);
+            PutByte(b, 9);
+            PutDword(b, 3);
+            PutByte(b, 0xAA); PutByte(b, 0xBB); PutByte(b, 0xCC);
+            PutInt(b, 0x5A5A5A5A);				// the next block's first field
+
+            size_t n = b.size();
+            BYTE* buf = (BYTE*)malloc(n);
+            memcpy(buf, &b[0], n);
+            CMemFile mem;
+            mem.Attach(buf, (UINT)n);
+            {
+                CArchive ar(&mem, CArchive::load);
+                try
+                {
+                    CExtensionReader r(ar);
+                    BYTE tag = 0;
+                    DWORD cb = 0;
+                    if (!r.Next(tag, cb) || tag != 7 || cb != 7)
+                        Fail("T19 (e) reader: first entry tag %d cb %u, expected 7/7", tag, (unsigned)cb);
+                    else
+                    {
+                        CArchive& v = r.Value();
+                        for (int i = 1; i <= 7; ++i)
+                        {
+                            BYTE x;
+                            v >> x;
+                            if (x != i)
+                                Fail("T19 (e) reader: value byte %d = %d", i, x);
+                        }
+                        bool threw = false;
+                        try
+                        {
+                            BYTE extra;
+                            v >> extra;
+                        }
+                        catch (CArchiveException* ex)
+                        {
+                            threw = (ex->m_cause == CArchiveException::endOfFile);
+                            ex->Delete();
+                        }
+                        if (!threw)
+                            Fail("T19 (e) reader: an eighth byte was readable from a 7-byte value");
+                    }
+                    if (!r.Next(tag, cb) || tag != 9 || cb != 3)
+                        Fail("T19 (e) reader: second entry tag %d cb %u, expected 9/3", tag, (unsigned)cb);
+                    r.Close();							// never asked for the second value
+                    int next = 0;
+                    ar >> next;
+                    if (next != 0x5A5A5A5A)
+                        Fail("T19 (e) reader: after Close the stream is at 0x%08X, expected 0x5A5A5A5A", next);
+                }
+                catch (CException* e)
+                {
+                    FailUnexpected("(e) reader", e);
+                }
+                ar.Abort();
+            }
+            mem.Detach();
+            free(buf);
+        }
+
+        // SkipArchiveBytes: exact count is fine; one more than the stream holds
+        // throws endOfFile rather than returning short.
+        {
+            static const unsigned char six[] = { 1,2,3,4,5,6 };
+            for (int pass = 0; pass < 2; ++pass)
+            {
+                BYTE* buf = (BYTE*)malloc(sizeof six);
+                memcpy(buf, six, sizeof six);
+                CMemFile mem;
+                mem.Attach(buf, sizeof six);
+                {
+                    CArchive ar(&mem, CArchive::load);
+                    bool threw = false;
+                    try
+                    {
+                        SkipArchiveBytes(ar, pass == 0 ? 6 : 7);
+                    }
+                    catch (CArchiveException* ex)
+                    {
+                        threw = (ex->m_cause == CArchiveException::endOfFile);
+                        ex->Delete();
+                    }
+                    catch (CException* e)
+                    {
+                        FailUnexpected("(e) skip", e);
+                        threw = true;
+                    }
+                    if (pass == 0 && threw)
+                        Fail("T19 (e) skip: skipping exactly the available bytes threw");
+                    if (pass == 1 && !threw)
+                        Fail("T19 (e) skip: skipping past the end did not throw endOfFile");
+                    ar.Abort();
+                }
+                mem.Detach();
+                free(buf);
+            }
+        }
+    }
+}
+
+static void RunT19()
+{
+    printf("T19 archive extension trailer oracle...\n");
+    T19Ext::CheckRoundTrip();
+    T19Ext::CheckForwardCompat();
+    T19Ext::CheckLegacy();
+    T19Ext::CheckRejections();
+    T19Ext::CheckPrimitives();
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -1103,6 +1874,7 @@ int main(int argc, char* argv[])
     RunT10();
     RunT11();
     RunT12();
+    RunT19();
 
     if (g_failures)
     {
