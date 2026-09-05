@@ -110,8 +110,8 @@ ostream& operator <<(ostream& ostr, const Matrix& obj);
 
 /*
 Une classe MatrixException contenant simplement un descriptif de l'erreur.
-Une instance de cette classe sera envoyÃˆe en tant qu'exception si une opÃˆration
-invalide est effectuÃˆe (division par zÃˆro, discriminant de matrice non carrÃˆe ...)
+Une instance de cette classe sera envoyée en tant qu'exception si une opération
+invalide est effectuée (division par zéro, discriminant de matrice non carrée ...)
 */
 class MatrixException
 {

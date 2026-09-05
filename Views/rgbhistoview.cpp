@@ -142,7 +142,9 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 		YWhite = pDoc->GetMeasure()->GetOnOffWhite()[1];
 
-		for (int i=1; i<size; i++)
+		// From 0: the black patch's BALANCE is a real reading - see the guard on
+		// the plot below for the two conditions that make it one.
+		for (int i=0; i<size; i++)
 		{
 			double x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
             double valy;
@@ -180,33 +182,70 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				refColor.SetxyYValue(tmpColor);
 			}
 			//RGB plots now include luminance offset when grayscale dE handling includes it
+			// dE_gray 0 normalises each patch against its OWN luminance, so the dE
+			// it reports is chromaticity only. That per-patch value stays a LOCAL:
+			// written back into YWhite it is loop-carried, and the reference block at
+			// the top of the NEXT iteration would divide by the previous patch's
+			// luminance instead of the display white - a black that reads 0, with the
+			// loop now starting there, gives inf.
+			//
+			// Defensive, not a live fix: that block only runs for dE_form 5, and the
+			// preferences dialog forces dE_gray to 2 whenever dE_form is 5 and greys
+			// the combo out (AdvancedPropPage.cpp OnApply/OnSetActive, there since
+			// 3.1.0.4), so the pair is unreachable from the UI. AccuracyTest.cpp does
+			// set m_dE_gray directly though, and MainView (case 0) and Export.cpp both
+			// keep YWhite intact - this brings the outlier into line.
 			double fact;
+			double YWhitePatch = YWhite;
 			if ( GetConfig ()->m_dE_gray == 0 )
 			{
 				// Use actual gray luminance as correct reference (absolute)
-	    		YWhite = aColor [ 2 ];
+				YWhitePatch = aColor [ 2 ];
 				fact = 1.0;
 			}
 			else
 				fact = aColor[2] / (tmpColor[2] * pDoc->GetMeasure()->GetOnOffWhite()[1]);
 
-			ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
-			ColorRGB normColor(aMeasure, GetColorReference());
-			if (aColor.isValid())
+			// HIST-011: aColor[1] is the CIE y chromaticity, and it is the divisor for
+			// both X and Z below. A degenerate black reading - y == 0 while Y is still
+			// above zero - made both terms inf, and the guard tested Y, not y, so the
+			// point was plotted and took the chart scale with it. Latent while the loop
+			// started at 1; point 0 is exactly where a meter hands back a degenerate
+			// chromaticity. Built inside the guard so the division does not happen at
+			// all when there is nothing to plot.
+			//
+			// Point 0 needs two more things the others do not. The w/gamma
+			// normalisation (m_dE_gray == 1) divides by the TARGET luminance,
+			// which is exactly 0 at black - inf, or NaN when the measurement is
+			// zero too; only the chromaticity-only normalisations survive there.
+			// And black itself has to have light in it: with Y == 0 the xy is a
+			// 0/0 fallback that would plot as a plausible-looking tint reading
+			// out of nothing.
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0 ) ))
 			{
+				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
+				ColorRGB normColor(aMeasure, GetColorReference());
 				m_graphCtrl.AddPoint(m_redGraphID, x, normColor[0]*100.0);
 				m_graphCtrl.AddPoint(m_greenGraphID, x, normColor[1]*100.0);
 				m_graphCtrl.AddPoint(m_blueGraphID, x, normColor[2]*100.0);
 			}
 
-			if(m_showDeltaE) 
+			// Black gets a dE only where the normalisation makes it mean
+			// something. m_dE_gray == 2 (and dE_form 5) set the target's
+			// luminance to the MEASURED one a few lines up, so what is left is
+			// the chromaticity error - "is my black tinted" - which is the same
+			// quantity CalMAN prints at 0% and why its number lands under 1
+			// instead of being an error against an ideal zero. The other
+			// normalisations leave the target at Y=0 there. Y > 0 because a
+			// patch with no light has no chromaticity to be wrong about.
+			if(m_showDeltaE && ( i > 0 || ( ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) && aColor[2] > 0.0 ) ))
 			{
 				if (aColor.isValid())
 				{
 					CString str;
-					ColorLab aColorLab = pDoc->GetMeasure()->GetGray(i).GetLabValue(YWhite, GetColorReference());
+					ColorLab aColorLab = pDoc->GetMeasure()->GetGray(i).GetLabValue(YWhitePatch, GetColorReference());
 					str.Format("L*a*b*:%.2f %.2f %.2f",aColorLab[0],aColorLab[1],aColorLab[2]);
-					m_graphCtrl2.AddPoint(m_deltaEGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhite, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight), str);
+					m_graphCtrl2.AddPoint(m_deltaEGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhitePatch, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight), str);
 				}
 			}
 		}
@@ -223,7 +262,8 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		YWhiteRefDoc = pDataRef->GetMeasure()->GetOnOffWhite()[1];
 		ColorxyY tmpColor(GetColorReference().GetWhite());
 
-		for (int i=1; i<size; i++)
+		// From 0, same as the primary document above.
+		for (int i=0; i<size; i++)
 		{
 			ColorxyY aColor, aColor2;
 		    double x = pDataRef->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
@@ -248,8 +288,12 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		        }
 		        else
 		        {
-			        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
-			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+Offset;
+			        // HIST-007: OffsetRef is what ComputeGammaAndOffset fitted on
+			        // pDataRef a few lines up. Offset belongs to the primary document,
+			        // so the comparison curve was built from the wrong fit - and
+			        // OffsetRef was computed and then never read.
+			        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+OffsetRef)/(1.0+OffsetRef);
+			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+OffsetRef;
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhiteRefDoc - Black.GetY() ) )) / YWhiteRefDoc;
 		        }
@@ -264,43 +308,76 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				refColor.SetxyYValue(tmpColor);
 			}
 			//RGB plots now include luminance offset when grayscale dE handling includes it
+			// Same per-patch locals as the primary loop above - see the comment
+			// there. YWhite / YWhiteRefDoc stay the documents' own white.
 			double fact;
+			double YWhiteRefPatch = YWhiteRefDoc;
 			if ( GetConfig ()->m_dE_gray == 0 )
 			{
 				// Use actual gray luminance as correct reference (absolute)
-	    		YWhiteRefDoc = aColor [ 2 ];
-				if ( bMainDocHasColors )
-					YWhite = aColor2 [ 2 ];
+				YWhiteRefPatch = aColor [ 2 ];
 				fact = 1.0;
 			}
 			else
 				fact = aColor[2] / (tmpColor[2] * pDataRef->GetMeasure()->GetOnOffWhite()[1]);
 
+			double YWhitePatch;
 			if ( !bMainDocHasColors )
-				YWhite = YWhiteRefDoc;
+				YWhitePatch = YWhiteRefPatch;
+			else if ( GetConfig ()->m_dE_gray == 0 )
+				YWhitePatch = aColor2 [ 2 ];
+			else
+				YWhitePatch = YWhite;
 
-			ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
-			ColorRGB normColor(aMeasure, GetColorReference());
-
-			if (aColor.isValid())
+			// HIST-011: aColor[1] is the CIE y chromaticity, and it is the divisor for
+			// both X and Z below. A degenerate black reading - y == 0 while Y is still
+			// above zero - made both terms inf, and the guard tested Y, not y, so the
+			// point was plotted and took the chart scale with it. Latent while the loop
+			// started at 1; point 0 is exactly where a meter hands back a degenerate
+			// chromaticity. Built inside the guard so the division does not happen at
+			// all when there is nothing to plot.
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0 ) ))
 			{
+				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
+				ColorRGB normColor(aMeasure, GetColorReference());
 				m_graphCtrl.AddPoint(m_redDataRefGraphID, x, normColor[0]*100.0);
 				m_graphCtrl.AddPoint(m_greenDataRefGraphID, x, normColor[1]*100.0);
 				m_graphCtrl.AddPoint(m_blueDataRefGraphID, x, normColor[2]*100.0);
 			}
 
-			if(m_showDeltaE) 
+			if(m_showDeltaE && ( i > 0 || ( ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) && aColor[2] > 0.0 ) ))
 			{
 				if (aColor.isValid())
 				{
 					CString str;
-					ColorLab aColorLab = pDataRef->GetMeasure()->GetGray(i).GetLabValue(YWhiteRefDoc, GetColorReference());
+					ColorLab aColorLab = pDataRef->GetMeasure()->GetGray(i).GetLabValue(YWhiteRefPatch, GetColorReference());
 					str.Format("L*a*b*:%.2f %.2f %.2f",aColorLab[0],aColorLab[1],aColorLab[2]);
-					m_graphCtrl2.AddPoint(m_deltaEDataRefGraphID, x, pDataRef->GetMeasure()->GetGray(i).GetDeltaE(YWhiteRefDoc, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight ), str);
+					m_graphCtrl2.AddPoint(m_deltaEDataRefGraphID, x, pDataRef->GetMeasure()->GetGray(i).GetDeltaE(YWhiteRefPatch, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight ), str);
 				}
 				
-				if (bMainDocHasColors && aColor.isValid())
-						m_graphCtrl2.AddPoint(m_deltaEBetweenGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhite,pDataRef->GetMeasure()->GetGray(i),YWhiteRefDoc, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight)); //Ki
+				// The enclosing guard checks the COMPARISON document's black
+				// (aColor[2]); this point normalises with the PRIMARY document's,
+				// because m_dE_gray == 0 makes YWhitePatch aColor2[2] - the black
+				// patch's own luminance, and point 0 is the one place on the ramp
+				// where that is legitimately zero.
+				//
+				// Not a divide by zero: ColorXYZ::GetDeltaE clamps a non-positive
+				// YWhite to 120 and YWhiteRef to 1.0 before it builds any Lab. That
+				// is the reason to suppress the point, not to keep it - it gets
+				// drawn, as a dE against a white nobody chose. Reachable at point 0
+				// with dE_form 5 + dE_gray 0: the pair is blocked in
+				// AdvancedPropPage, but Measure.cpp restores both straight out of a
+				// loaded .chc.
+				//
+				// Point 0 only. Under every other m_dE_gray both divisors are
+				// document-wide (GetOnOffWhite), so testing them there would drop
+				// the whole trace for a grayscale typed into the grid rather than
+				// measured - SetGray writes only m_grayMeasureArray, leaving
+				// m_OnOffWhite at noDataColor - and that is a change to every point,
+				// not to black.
+				if (bMainDocHasColors && aColor.isValid()
+					&& ( i > 0 || ( YWhitePatch > 0.0 && YWhiteRefPatch > 0.0 ) ))
+						m_graphCtrl2.AddPoint(m_deltaEBetweenGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhitePatch,pDataRef->GetMeasure()->GetGray(i),YWhiteRefPatch, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight)); //Ki
 			}
 		}
 	}

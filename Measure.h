@@ -127,7 +127,7 @@ void					GetSatStimLevelPercents ( std::vector<int> & pcts );
 struct CSatLevelSet
 {
 	double stimLevel;
-	std::vector<CColor> sat[6];	// R,G,B,Y,C,M â€” GetSaturationSize() entries each
+	std::vector<CColor> sat[6];	// R,G,B,Y,C,M — GetSaturationSize() entries each
 };
 
 // A self-contained user patch set: the definition read from a patch-list CSV
@@ -284,6 +284,9 @@ public:
 	CColor GetCC24MasterSat(int i) const;
 	void SetCC24MasterSat(int i,const CColor & aColor) {m_cc24SatMeasureArray_master[i]=aColor; m_isModified=TRUE; }
 	CString GetCCStr() const;
+	// Publish an aborted color-checker sweep's partial live data to the
+	// per-set master array (the post-sweep read source); see Measure.cpp.
+	BOOL SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux);
 
 	// User patch set collection (multi-set picker). The active set's measures
 	// live in the USER band of the master array while active; they are
@@ -331,7 +334,7 @@ public:
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0
 
 protected:
-	bool MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx);
+	bool MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx, BOOL bIgnoreAbort = FALSE);
 	void ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, double fTo);
 public:
 

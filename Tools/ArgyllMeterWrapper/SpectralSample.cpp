@@ -551,7 +551,7 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 }
 
 
-bool SpectralSample::createFromColourSpaceCSV(const std::string& csvPath)
+bool SpectralSample::createFromCorrelationCSV(const std::string& csvPath)
 {
 	const int BANDS = 401;
 	const int START_NM = 380;
@@ -559,7 +559,7 @@ bool SpectralSample::createFromColourSpaceCSV(const std::string& csvPath)
 
 	std::ifstream fh(csvPath.c_str(), std::ios::binary);
 	if (!fh.is_open())
-		throw std::logic_error("Cannot open ColourSpace correlation file");
+		throw std::logic_error("Cannot open correlation CSV file");
 
 	// Parse every row into 401 spectral values.
 	std::vector< std::vector<double> > rows;
@@ -603,7 +603,7 @@ bool SpectralSample::createFromColourSpaceCSV(const std::string& csvPath)
 		if ((int)vals.size() < BANDS)
 			vals.resize(BANDS, 0.0);				// zero-pad short rows
 		else if ((int)vals.size() > BANDS)
-			throw std::logic_error("ColourSpace correlation row has more than 401 values");
+			throw std::logic_error("Correlation CSV row has more than 401 values");
 		rows.push_back(vals);
 	}
 	fh.close();
@@ -614,7 +614,7 @@ bool SpectralSample::createFromColourSpaceCSV(const std::string& csvPath)
 		for (int j = 0; j < BANDS; ++j)
 			if (rows[i][j] > gmax) gmax = rows[i][j];
 	if (gmax <= 0.0)
-		throw std::logic_error("ColourSpace correlation file has no usable spectral data");
+		throw std::logic_error("Correlation CSV file has no usable spectral data");
 
 	// Keep only rows with real signal (drops zero/near-zero padding rows).
 	double rowThresh = gmax * 1e-3;
@@ -627,9 +627,9 @@ bool SpectralSample::createFromColourSpaceCSV(const std::string& csvPath)
 		if (rmax > rowThresh) keep.push_back((int)i);
 	}
 	if ((int)keep.size() < 3)
-		throw std::logic_error("ColourSpace correlation file needs at least 3 non-empty spectra");
+		throw std::logic_error("Correlation CSV file needs at least 3 non-empty spectra");
 
-	// Description from the file name (ColourSpace CSVs carry no metadata). The
+	// Description from the file name (correlation CSVs carry no metadata). The
 	// panel technology is usually spelled out in the file name, so derive it
 	// from there rather than leaving it "Unknown".
 	std::string display = csvPath;
@@ -653,7 +653,7 @@ bool SpectralSample::createFromColourSpaceCSV(const std::string& csvPath)
 
 	setTech(tech);
 	setDisplay(display.c_str());
-	setReferenceInstrument("ColourSpace correlation import");
+	setReferenceInstrument("HCFR correlation import");
 	setDescription(m_Tech.c_str(), m_Display.c_str());
 
 	int N = (int)keep.size();
@@ -673,7 +673,7 @@ bool SpectralSample::createFromColourSpaceCSV(const std::string& csvPath)
 			samples[k].spec[j] = r[j] * 100.0 / gmax;	// normalize the set to a common max
 	}
 
-	bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR ColourSpace import", NULL,
+	bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR correlation import", NULL,
 									(char *)m_Description.c_str(),
 									(char *)m_Display.c_str(),
 									x,

@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	FranÃ§ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -57,7 +57,7 @@ extern void DrawDeltaECurve(CDC* pDC, int cxMax, int cyMax, double DeltaE, BOOL 
 // The HDTV reference used to derive display colours for plot dots and
 // tooltips is built from fixed constants only (verified: the constructor and
 // the reference luma getters read nothing mutable), so build it once instead
-// of once per point per paint â€” its constructor inverts matrices.
+// of once per point per paint — its constructor inverts matrices.
 static const CColorReference & HdtvPlotRef()
 {
 	static const CColorReference hdtvRef(HDTV);
