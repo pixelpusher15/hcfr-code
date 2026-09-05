@@ -84,6 +84,7 @@ public:
 	BOOL m_doShowAllToolTips;
 
 	BOOL m_doShowXLabel;
+	BOOL m_doShowXUnitOnAxis;	// set by the owner, not a user setting - see DrawAxis
 	BOOL m_doShowYLabel;
 	BOOL m_doShowDataLabel;
 
