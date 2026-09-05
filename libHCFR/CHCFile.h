@@ -13,14 +13,14 @@
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
-// Ce fichier contiend les routines necessaires Ã  la lecture
-// de fichiers enregistrÃ©s par la version PC de colorHCFR.
-// Seul la lecture des mesures est prÃ©vue. Les mesures sont retournÃ©es
+// Ce fichier contiend les routines necessaires à la lecture
+// de fichiers enregistrés par la version PC de colorHCFR.
+// Seul la lecture des mesures est prévue. Les mesures sont retournées
 // sour forme de list (std::list) d'objets CColor.
-// Un accesseur est fournis pour chaque type de donnÃ©es
+// Un accesseur est fournis pour chaque type de données
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//  JÃ©rÃ´me Duquennoy
+//  Jérôme Duquennoy
 /////////////////////////////////////////////////////////////////////////////
 
 #ifndef __CHC_FILE_H__
@@ -36,8 +36,8 @@ class CHCFile
 {
 private :
   list<CColor>    grayColors; // la liste contenant les mesures de niveau de gris
-  list<CColor>    nearBlackColors; // la liste contenant les mesures de niveau de gris a proximitÃ© du noir
-  list<CColor>    nearWhiteColors; // la liste contenant les mesures de niveau de gris a proximitÃ© du blanc
+  list<CColor>    nearBlackColors; // la liste contenant les mesures de niveau de gris a proximité du noir
+  list<CColor>    nearWhiteColors; // la liste contenant les mesures de niveau de gris a proximité du blanc
   list<CColor>    redSaturationColors; // la liste contenant les mesures de saturation rouge
   list<CColor>    greenSaturationColors; // la liste contenant les mesures de saturation vert
   list<CColor>    blueSaturationColors; // la liste contenant les mesures de saturation bleu
@@ -58,7 +58,7 @@ public :
   CHCFile();
   ~CHCFile();
   
-  // Attention, cette fonction est susceptible de lever une exception en cas de problÃ¨me.
+  // Attention, cette fonction est susceptible de lever une exception en cas de problème.
   void readFile (const char* path);
   
   list<CColor>& getGrayColors ();

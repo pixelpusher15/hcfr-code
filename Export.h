@@ -57,6 +57,7 @@ private:
 	bool m_bExportStimulus;		// include RGB stimulus (drive) rows/columns
 
 	bool SaveSheets();
+	bool CheckExistingLayout();
 	bool SaveGeneralSheet();
 	bool SaveGrayScaleSheet();
 	bool SavePrimariesSheet();

@@ -48,10 +48,19 @@ protected:
 	int m_calibrationMethod;					// CalibrationMatrixMethod: which method produced the matrices below
 	Matrix m_bodnerRawMatrix[3];				// Bodner sub-gamut raw-primary matrices (rgw/gbw/rbw), only valid when m_calibrationMethod == CALIB_BODNER_THREEMATRIX
 	Matrix m_bodnerCalMatrix[3];				// Bodner sub-gamut calibration matrices (rgw/gbw/rbw)
+	// Cached inverses of m_bodnerRawMatrix (maintained by
+	// UpdateBodnerInverseCache): the sub-gamut selection needs them for
+	// every reading, and Gauss-Jordan per reading is measurably slow.
+	Matrix m_bodnerRawInverse[3];
+	bool   m_bodnerRawInvertible[3];
 	// Configure() snapshot (BeginConfigure/CancelConfigure)
 	Matrix m_cfgSnapMatrix;
 	Matrix m_cfgSnapBodnerRaw[3], m_cfgSnapBodnerCal[3];
 	int  m_cfgSnapMethod;
+	// The matrix SetPropertiesSheetValues put into m_SensorPropertiesPage. Kept so
+	// GetPropertiesSheetValues can tell a user grid edit from a value the sheet was
+	// merely shown - see the comment there.
+	Matrix m_sheetMatrixShown;
 	time_t m_calibrationTime;
 	int		m_PropertySheetTitle;
 	CSensorPropPage m_SensorPropertiesPage;
@@ -84,6 +93,8 @@ public:
 
 	void SetCalibrationMethod(int aMethod) { m_calibrationMethod=aMethod; }
 	int GetCalibrationMethod() const { return m_calibrationMethod; }
+	void UpdateBodnerInverseCache();
+	virtual bool CorrectionChangedSinceBeginConfigure() const;
 	void SetBodnerMatrices(const Matrix aRawMatrix[3], const Matrix aCalMatrix[3])
 	{
 		for ( int k = 0; k < 3; k++ )
@@ -91,6 +102,7 @@ public:
 			m_bodnerRawMatrix[k] = aRawMatrix[k];
 			m_bodnerCalMatrix[k] = aCalMatrix[k];
 		}
+		UpdateBodnerInverseCache();
 		m_calibrationTime=time(NULL);
 	}
 	void ClearBodnerMatrices()
@@ -100,6 +112,7 @@ public:
 			m_bodnerRawMatrix[k] = Matrix::IdentityMatrix(3);
 			m_bodnerCalMatrix[k] = Matrix::IdentityMatrix(3);
 		}
+		UpdateBodnerInverseCache();
 	}
 	const Matrix * GetBodnerRawMatrices() const { return m_bodnerRawMatrix; }
 	const Matrix * GetBodnerCalMatrices() const { return m_bodnerCalMatrix; }

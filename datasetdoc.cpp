@@ -85,7 +85,7 @@ static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor);
 // Version 2 is for ColorHCFR version >= 1.12 beta 62
 // Version 3 is for ColorHCFR version >= 2.0 beta 144
 
-#define CURRENT_FILE_FORMAT_VERSION	3
+#define CURRENT_FILE_FORMAT_VERSION	4	// 4 = CColor optional-field versions + CSensor v2 (Bodner / raw retention)
 #define _S(id) (CString(LPCTSTR(id))) 
 
 extern CPtrList gOpenedFramesList;	// Implemented in MultiFrm.cpp
@@ -905,6 +905,11 @@ BOOL CDataSetDoc::OnNewDocument()
                         if ( ConfirmClearSpectralForMatrixCal(m_pSensor) )
                             m_pSensor->LoadCalibrationFile(propSheet.m_Page2.m_trainingFileName);
                     }
+                    // Drain the leave-measures answer a spectral Browse may
+                    // have latched: a new document has no measurements to
+                    // recompute, and leaving it set would leak into the NEXT
+                    // Sensor->Configure on this document.
+                    (void) m_pSensor->TakePendingSpectralLeaveMeasures();
                 }
 				else
 				{
@@ -1295,6 +1300,8 @@ void CDataSetDoc::MeasureMagentaSatScale()
 void CDataSetDoc::MeasureCC24SatScale() 
 {
 	StopBackgroundMeasures ();
+	MeasureButtonStopScope _btn(this);
+
 	if(m_measure.MeasureCC24SatScale(m_pSensor,m_pGenerator,this))
 		SetModifiedFlag(m_measure.IsModified());
 	UpdateAllViews(NULL, UPD_CC24SAT);
@@ -1397,13 +1404,27 @@ void CDataSetDoc::AddMeasurement()
 }
 
 
+// One skipped-measurements notice shared by every Bodner recalibration path.
+static void ShowBodnerSkipCount(int nSkipped)
+{
+	if ( nSkipped <= 0 )
+		return;
+	CString strSkipMsg;
+	CString strSkipFmt, strSkipTitle;
+	strSkipFmt.LoadString ( IDS_BODNER_SKIPPED_FMT );
+	strSkipTitle.LoadString ( IDS_INFORMATION );
+	strSkipMsg.Format ( strSkipFmt, nSkipped );
+	GetColorApp()->InMeasureMessageBox( strSkipMsg, strSkipTitle, MB_OK | MB_ICONINFORMATION );
+}
+
 void CDataSetDoc::OnConfigureSensor() 
 {
 	if ( IsMeasureSweepActive() ) return;
 	StopBackgroundMeasures ();
     m_pSensor->SetSensorMatrixMod( m_pSensor->GetSensorMatrix() );
 	m_pSensor->BeginConfigure();
-	if ( !m_pSensor->Configure() )
+	BOOL bConfigOk = m_pSensor->Configure();
+	if ( !bConfigOk )
 	{
 		// Cancel really cancels. The Argyll spectral Browse commits immediately
 		// (meter sample + matrices + modified flag), so restore the pre-sheet
@@ -1414,8 +1435,16 @@ void CDataSetDoc::OnConfigureSensor()
 	// A spectral-correction apply may have asked to LEAVE existing measurements
 	// as-is (mixed) instead of stripping them to raw (read-and-reset).
 	BOOL bLeaveSpectralMeasures = m_pSensor->TakePendingSpectralLeaveMeasures();
-	if( m_pSensor->IsModified() )
+	// After a Cancel the correction state was restored bit-identically, so the
+	// recompute below would be a no-op plus a spurious skip dialog - skip it.
+	if( bConfigOk && m_pSensor->IsModified() )
 	{
+		// Recompute only when the CORRECTION actually changed in this sheet:
+		// the modified flag also survives device-setting commits (and a prior
+		// Cancel), and re-running the recompute then would re-show the Bodner
+		// skip dialog on a sheet where nothing changed.
+		if ( m_pSensor->CorrectionChangedSinceBeginConfigure() )
+		{
         if ( bLeaveSpectralMeasures )
         {
             // Spectral correction applied; user chose to keep prior measurements
@@ -1430,8 +1459,9 @@ void CDataSetDoc::OnConfigureSensor()
             // below reads fullMatrix == identity and ApplySensorAdjustmentMatrix strips every
             // raw-carrying measurement back to raw - silently wiping the Bodner correction on
             // any Sensor -> Configure change.
-            m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+            int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+            ShowBodnerSkipCount ( nSkipped );
         }
         else
         {
@@ -1444,6 +1474,7 @@ void CDataSetDoc::OnConfigureSensor()
             m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix );
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
         }
+		}
 		SetModifiedFlag(TRUE);
 		UpdateAllViews ( NULL, UPD_EVERYTHING );
 		AfxGetMainWnd () -> SendMessageToDescendants ( WM_COMMAND, IDM_REFRESH_REFERENCE );
@@ -1588,45 +1619,20 @@ bool CDataSetDoc::ConfirmCalibrationMethodInSync()
 	if ( selected == applied )
 		return true;
 
-	// Only a genuinely-applied correction can be stale: a non-identity matrix
-	// (RGB/FCMM) or active Bodner-Robinson sub-gamut matrices.
-	bool bHasCorrection = ( m_pSensor->IsCalibrated() == 1 )
-	                   || ( applied == CALIB_BODNER_THREEMATRIX );
-	if ( !bHasCorrection )
+	// Only a genuinely-applied correction can be stale.
+	if ( !m_pSensor->IsCorrectionActive() )
 		return true;
 
-	int r = GetColorApp()->InMeasureMessageBox(
-		"The calibration method selected in Options differs from the one currently "
-		"applied to these measurements - they were not recomputed after the method "
-		"was changed.\n\n"
-		"Yes - recompute now from the reference measurements\n"
-		"No - keep the currently applied correction\n"
-		"Cancel - stop and do nothing",
-		"Calibration method", MB_YESNOCANCEL | MB_ICONQUESTION );
-
-	if ( r == IDCANCEL )
-		return false;
-	if ( r == IDYES )
-	{
-		CDataSetDoc * pRef = GetDataRef();
-		// ComputeAdjustmentMatrix uses (and asserts) all three primaries on both
-		// documents, so require all three here rather than red alone.
-		bool canRecompute = ( pRef != NULL && pRef != this
-		                   && m_measure.GetRedPrimary().isValid()
-		                   && m_measure.GetGreenPrimary().isValid()
-		                   && m_measure.GetBluePrimary().isValid()
-		                   && pRef->m_measure.GetRedPrimary().isValid()
-		                   && pRef->m_measure.GetGreenPrimary().isValid()
-		                   && pRef->m_measure.GetBluePrimary().isValid() );
-		if ( canRecompute )
-			ComputeAdjustmentMatrix();
-		else
-			GetColorApp()->InMeasureMessageBox(
-				"The correction cannot be recomputed: a reference document with "
-				"primary measurements must be selected first (Create using Existing "
-				"Reference Measures).", "Calibration method", MB_OK | MB_ICONINFORMATION );
-	}
-	return true;
+	// Warn-only: export must stay read-only. Recomputing (and the spectral-
+	// clear guard it can trigger) belongs to the calibration commands - a
+	// Yes here used to rewrite an archived document's measurements as a
+	// side effect of printing it.
+	CString msg, title;
+	msg.LoadString ( IDS_CALIB_METHOD_OUT_OF_SYNC );
+	title.LoadString ( IDS_CALIB_METHOD_TITLE );
+	int r = GetColorApp()->InMeasureMessageBox( msg, title,
+		MB_OKCANCEL | MB_ICONINFORMATION );
+	return ( r == IDOK );
 }
 
 void CDataSetDoc::OnExportXls()
@@ -1781,11 +1787,11 @@ static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor)
 {
 	if ( pSensor == NULL || !pSensor->HasSpectralCorrection() )
 		return true;
-	int r = GetColorApp()->InMeasureMessageBox(
-		"This sensor uses a spectral (ccss/CSV) correction, applied inside the meter.\n"
-		"Calibrating with a matrix would stack on top of it (double-correction).\n\n"
-		"Clear the spectral correction and calibrate with a matrix instead?",
-		"Spectral correction active", MB_YESNO | MB_ICONQUESTION );
+	CString msg, title;
+	msg.LoadString ( IDS_SPECTRAL_CLEAR_FOR_MATRIX );
+	title.LoadString ( IDS_SPECTRAL_ACTIVE_TITLE );
+	int r = GetColorApp()->InMeasureMessageBox( msg, title,
+		MB_YESNO | MB_ICONQUESTION );
 	if ( r != IDYES )
 		return false;
 	pSensor->ClearSpectralCorrection();
@@ -2122,12 +2128,7 @@ void CDataSetDoc::OnCalibrationManual()
                     int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
                     SetModifiedFlag(TRUE);
 
-                    if ( nSkipped > 0 )
-                    {
-                        CString strSkipMsg;
-                        strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
-                        GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
-                    }
+                    ShowBodnerSkipCount ( nSkipped );
                 }
                 catch ( std::logic_error & )
                 {
@@ -2498,6 +2499,21 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 	CDataSetDoc *	pDataRef = GetDataRef();
 	
 	ASSERT ( pDataRef && pDataRef != this && pDataRef -> m_measure.GetBluePrimary ().isValid() && m_measure.GetBluePrimary ().isValid());
+	// Release-safe form of the ASSERT above: Sim and the method-switch path
+	// can reach here with unmeasured primaries on either document, and
+	// noDataColor rows would otherwise solve into a plausible-looking
+	// garbage matrix that is silently applied everywhere.
+	if ( pDataRef == NULL || pDataRef == this
+	  || !m_measure.GetRedPrimary().GetXYZValue().isValid()
+	  || !m_measure.GetGreenPrimary().GetXYZValue().isValid()
+	  || !m_measure.GetBluePrimary().GetXYZValue().isValid()
+	  || !pDataRef->m_measure.GetRedPrimary().GetXYZValue().isValid()
+	  || !pDataRef->m_measure.GetGreenPrimary().GetXYZValue().isValid()
+	  || !pDataRef->m_measure.GetBluePrimary().GetXYZValue().isValid() )
+	{
+		GetColorApp()->InMeasureMessageBox( _S(IDS_INVALIDMEASUREMATRIX), "Invalide Matrix", MB_OK | MB_ICONERROR );
+		return FALSE;
+	}
 
         ColorXYZ measures[3] = {
                                     m_measure.GetRedPrimary().GetXYZValue(),
@@ -2526,21 +2542,22 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
     // white as an unmeasured reference (valid XYZ but no raw); the grayscale run's
     // On/Off white is the measured one. Prefer whichever white has raw and take
     // the reference white from the SAME source so test and reference whites
-    // correspond. Falls back to the existing Prime-preferred whiteRef when no
-    // measured raw white exists (legacy data), leaving old behaviour unchanged.
+    // correspond (whiteRefRaw); the no-raw fallback keeps the original
+    // Prime-preferred whiteRef pairing untouched (legacy data, old behavior).
     ColorXYZ whiteRaw = white;   // valid default; only used when whiteHasRaw
+    ColorXYZ whiteRefRaw = whiteRef;   // reference white paired with whiteRaw
     bool whiteHasRaw = true;
     if ( m_measure.GetPrimeWhite().HasRawXYZValue() )
     {
         whiteRaw = m_measure.GetPrimeWhite().GetRawXYZValue();
         if ( pDataRef->m_measure.GetPrimeWhite().GetXYZValue().isValid() )
-            whiteRef = pDataRef->m_measure.GetPrimeWhite().GetXYZValue();
+            whiteRefRaw = pDataRef->m_measure.GetPrimeWhite().GetXYZValue();
     }
     else if ( m_measure.GetOnOffWhite().HasRawXYZValue() )
     {
         whiteRaw = m_measure.GetOnOffWhite().GetRawXYZValue();
         if ( pDataRef->m_measure.GetOnOffWhite().GetXYZValue().isValid() )
-            whiteRef = pDataRef->m_measure.GetOnOffWhite().GetXYZValue();
+            whiteRefRaw = pDataRef->m_measure.GetOnOffWhite().GetXYZValue();
     }
     else
     {
@@ -2571,7 +2588,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
                                         m_measure.GetBluePrimary().GetRawXYZValue(),
                                         whiteRaw
                                     };
-        ColorXYZ referencesRGBW[4] = { references[0], references[1], references[2], whiteRef };
+        ColorXYZ referencesRGBW[4] = { references[0], references[1], references[2], whiteRefRaw };
 
         try
         {
@@ -2589,12 +2606,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             SetModifiedFlag(TRUE);
             bOk = TRUE;
 
-            if ( nSkipped > 0 )
-            {
-                CString strSkipMsg;
-                strSkipMsg.Format ( _T("%d measurement(s) recorded before this feature was enabled could not be recalibrated."), nSkipped );
-                GetColorApp()->InMeasureMessageBox( strSkipMsg, "Information", MB_OK | MB_ICONINFORMATION );
-            }
+            ShowBodnerSkipCount ( nSkipped );
         }
         catch ( std::logic_error & )
         {
@@ -2611,7 +2623,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
         // matches the Bodner branch above and is what makes retained-raw method
         // switching actually work. Legacy measures that predate raw retention have
         // no raw value; fall back to the original corrected-measures + incremental
-        // compose so their behaviour is unchanged. Classic NIST uses only the three
+        // compose so their behavior is unchanged. Classic NIST uses only the three
         // primaries (white is ignored), so it needs raw primaries but not raw white.
         bool haveRaw = primHaveRaw
                     && ( whiteHasRaw || calibrationMethod == CALIB_CLASSIC_NIST );
@@ -2628,7 +2640,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
         bool bUseOnlyPrimaries = ( calibrationMethod == CALIB_CLASSIC_NIST );
         bool bScaleLum         = ( calibrationMethod != CALIB_FCMM_NO_LUM );
         Matrix ConvMatrix = haveRaw
-            ? ComputeConversionMatrix ( measuresRaw, references, whiteRaw, whiteRef, bUseOnlyPrimaries, bScaleLum )
+            ? ComputeConversionMatrix ( measuresRaw, references, whiteRaw, whiteRefRaw, bUseOnlyPrimaries, bScaleLum )
             : ComputeConversionMatrix ( measures,    references, white,    whiteRef, bUseOnlyPrimaries, bScaleLum );
 
         // check that matrix is inversible
@@ -5523,7 +5535,10 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		// re-applied through its sub-gamut matrices, not stripped back to raw by the identity
 		// single-matrix a Bodner sensor carries.
 		if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
-			m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+		{
+			int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+			ShowBodnerSkipCount ( nSkipped );
+		}
 		else
 			m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
 		UpdateAllViews ( NULL, UPD_EVERYTHING );
@@ -5534,7 +5549,12 @@ void CDataSetDoc::OnLoadCalibrationFile()
 
 void CDataSetDoc::OnUpdateLoadCalibrationFile(CCmdUI* pCmdUI)
 {
-	pCmdUI -> Enable ( m_pSensor -> IsCalibrated () != 1 );
+	// A live correction of ANY kind must disable these re-fit commands. A
+	// Bodner correction deliberately keeps the single matrix at identity
+	// (IsCalibrated()==0), and every command routed here is single-matrix
+	// machinery: re-fitting through it would compute a matrix against
+	// Bodner-corrected readings and apply it to raw ones.
+	pCmdUI -> Enable ( !m_pSensor -> IsCorrectionActive () );
 }
 
 void CDataSetDoc::OnUpdateCalibrationExisting(CCmdUI* pCmdUI)
@@ -5547,7 +5567,13 @@ void CDataSetDoc::OnUpdateCalibrationExisting(CCmdUI* pCmdUI)
 	// (so the recompute is clean, not a compounding double-correction on legacy
 	// measures).
 	CDataSetDoc * pDataRef = GetDataRef();
-	BOOL bHaveRef = ( pDataRef != NULL && pDataRef != this );
+	// ComputeAdjustmentMatrix asserts the reference primaries are valid;
+	// in Release the assert is compiled out and an empty reference would
+	// feed noDataColor into the solve. Gate on them here.
+	BOOL bHaveRef = ( pDataRef != NULL && pDataRef != this
+	               && pDataRef->m_measure.GetRedPrimary().GetXYZValue().isValid()
+	               && pDataRef->m_measure.GetGreenPrimary().GetXYZValue().isValid()
+	               && pDataRef->m_measure.GetBluePrimary().GetXYZValue().isValid() );
 	BOOL bCleanRecompute = ( m_pSensor->IsCalibrated() != 1 )
 	                    || m_measure.GetRedPrimary().HasRawXYZValue();
 	pCmdUI -> Enable ( bHaveRef && bCleanRecompute );
@@ -5560,6 +5586,5 @@ void CDataSetDoc::OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI)
 	// sensor matrix is identity and IsCalibrated() reports 0. CSensor::Serialize writes the
 	// method and, for Bodner, all three sub-gamut matrix pairs, so the training file
 	// round-trips either correction.
-	pCmdUI -> Enable ( m_pSensor -> IsCalibrated () == 1
-	                || m_pSensor -> GetCalibrationMethod () == CALIB_BODNER_THREEMATRIX );
+	pCmdUI -> Enable ( m_pSensor -> IsCorrectionActive () );
 }

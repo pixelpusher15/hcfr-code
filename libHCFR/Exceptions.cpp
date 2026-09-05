@@ -13,11 +13,11 @@
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
-// Ce fichier contiend les exceptions qui seront utilisÃ©es dans les diffÃ©rents
+// Ce fichier contiend les exceptions qui seront utilisées dans les différents
 // objets de la librairie
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//  JÃˆrÃ™me Duquennoy
+//  Jérôme Duquennoy
 /////////////////////////////////////////////////////////////////////////////
 
 #include "Exceptions.h"

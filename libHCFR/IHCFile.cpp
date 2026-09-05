@@ -13,14 +13,14 @@
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
-// Ce fichier contiend les routines necessaires Ã  la lecture
-// de fichiers enregistrÃ©s par la version PC de colorHCFR.
-// Seul la lecture des mesures est prÃ©vue. Les mesures sont retournÃ©es
+// Ce fichier contiend les routines necessaires à la lecture
+// de fichiers enregistrés par la version PC de colorHCFR.
+// Seul la lecture des mesures est prévue. Les mesures sont retournées
 // sour forme de list (std::list) d'objets CColor.
-// Un accesseur est fournis pour chaque type de donnÃ©es
+// Un accesseur est fournis pour chaque type de données
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//  JÃ©rÃ´me Duquennoy
+//  Jérôme Duquennoy
 /////////////////////////////////////////////////////////////////////////////
 
 #include "IHCFile.h"
@@ -75,7 +75,7 @@ void IHCFile::readFile (const char* path)
   // on saute le boolean sur 4 octets (!!!) qui indique si on est en read only
   file.seekg(4, ios::cur);
   
-  // puis on lit les diffÃ©rents codes
+  // puis on lit les différents codes
   nextCode = readCString (file);
   okCode = readCString (file);
   downCode = readCString (file);  
@@ -103,12 +103,12 @@ void IHCFile::writeFile (const char* path)
     throw Exception("Unable to open file");
   }
   
-  // le numÃ©ro de version du fichier
+  // le numéro de version du fichier
   uint32_t intValue = 1;
   intValue = hostUint32TolittleEndian(intValue);
   file.write((char*)&intValue, sizeof(uint32_t));
   
-  // le read only, toujours Ã  false (0)
+  // le read only, toujours à false (0)
   intValue = 0;
   file.write((char*)&intValue, sizeof(uint32_t));
   
@@ -135,7 +135,7 @@ void IHCFile::writeFile (const char* path)
   else
     writeCString (file, "");
   
-  // les dÃ©lais
+  // les délais
   uint32_t delayToWrite;
   delayToWrite = hostUint32TolittleEndian(menuNavigationLatency);
   file.write((char*)&delayToWrite, sizeof(uint32_t));  

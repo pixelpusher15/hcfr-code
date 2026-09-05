@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -245,8 +245,11 @@ CExport::CExport(CDataSetDoc *pDoc, ExportType type)
 	m_numExistingMeasures=0;
 	m_fileName="colorHCFR.xls";
 	m_separator=";";
-	m_bExportRaw=true;
-	m_bExportStimulus=true;
+	// Default the extra columns OFF so the default block layout matches
+	// pre-raw-retention exports (Append/Replace need consistent heights);
+	// remember the user's last choice across sessions.
+	m_bExportRaw = GetConfig()->GetProfileInt("Export","IncludeRawColumns",0) != 0;
+	m_bExportStimulus = GetConfig()->GetProfileInt("Export","IncludeStimulusColumns",0) != 0;
 }
 
 CExport::~CExport()
@@ -271,10 +274,14 @@ bool CExport::Save()
 	if ( m_type == XLS || m_type == CSV )
 	{
 		CExportOptionsDialog optionsDialog;
+		optionsDialog.m_bExportRaw = m_bExportRaw ? TRUE : FALSE;
+		optionsDialog.m_bExportStimulus = m_bExportStimulus ? TRUE : FALSE;
 		if ( optionsDialog.DoModal() != IDOK )
 			return false;
 		m_bExportRaw = ( optionsDialog.m_bExportRaw != FALSE );
 		m_bExportStimulus = ( optionsDialog.m_bExportStimulus != FALSE );
+		GetConfig()->WriteProfileInt("Export","IncludeRawColumns", m_bExportRaw ? 1 : 0);
+		GetConfig()->WriteProfileInt("Export","IncludeStimulusColumns", m_bExportStimulus ? 1 : 0);
 	}
 
 	CFileDialog fileSaveDialog( FALSE, ext[(int)m_type], NULL, flag, filter[(int)m_type]);
@@ -1578,9 +1585,92 @@ bool CExport::SavePDF()
 	return true;
 }
 
+// Every per-sheet layout guard below rejects AFTER SaveGeneralSheet has already
+// appended its index row and committed it, so a rejected append used to leave the
+// workbook claiming N+1 measures with N data blocks - and the next export then read
+// m_numExistingMeasures as N+1 against N blocks of data, so the guard rejected
+// forever, even with the options put back. Replace-by-index was off by one from then
+// on too. Validate every sheet the options can reshape BEFORE the first write.
+//
+// The three block heights are the ones the guards themselves use: gray 9 rows,
+// primaries 7 rows, and the colorchecker's header WIDTH of 8 columns, each plus 3
+// per enabled option. They are duplicated rather than shared because each guard sits
+// after its own sheet's header has been built; keeping both means a future sheet that
+// forgets the pre-check is still caught before it corrupts anything.
+bool CExport::CheckExistingLayout()
+{
+	const int extraPerOption = ( m_bExportRaw ? 3 : 0 ) + ( m_bExportStimulus ? 3 : 0 );
+
+	struct { const char * sheet; int blockRows; } rowSheets[] =
+	{
+		{ "GrayScaleSheet", 9 + extraPerOption },
+		{ "PrimariesSheet", 7 + extraPerOption },
+	};
+
+	for ( int s = 0; s < 2; s++ )
+	{
+		CString SheetOrSeparator = rowSheets[s].sheet;
+		CString aFileName;
+		if ( m_type == CSV )
+		{
+			aFileName = m_fileName + "." + SheetOrSeparator + ".csv";
+			SheetOrSeparator = m_separator;
+		}
+		else
+			aFileName = m_fileName;
+
+		CSpreadSheet ss( aFileName, SheetOrSeparator, false );
+		int existing = ss.GetTotalRows() - 1;
+		int blockRows = rowSheets[s].blockRows;
+		if ( ( m_numExistingMeasures > 0 &&
+		       existing != m_numExistingMeasures * blockRows )
+		  || ( !m_doReplace && m_numExistingMeasures == 0 && existing > 0 &&
+		       ( existing % blockRows ) != 0 ) )
+		{
+			m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+			return false;
+		}
+	}
+
+	// The colorchecker's options add COLUMNS, not rows: "Color" + 3 legend pairs +
+	// 3 per enabled option + "deltaE".
+	{
+		CString SheetOrSeparator = "ColorCheckerSheet";
+		CString aFileName;
+		if ( m_type == CSV )
+		{
+			aFileName = m_fileName + "." + SheetOrSeparator + ".csv";
+			SheetOrSeparator = m_separator;
+		}
+		else
+			aFileName = m_fileName;
+
+		CSpreadSheet ccSS( aFileName, SheetOrSeparator, false );
+		bool ccHasExisting = m_doReplace ? ( m_numExistingMeasures > 0 )
+		                                 : ( ccSS.GetTotalRows() > 0 );
+		if ( ccHasExisting &&
+		     (int)ccSS.GetTotalColumns() != 8 + extraPerOption )
+		{
+			m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+			return false;
+		}
+	}
+
+	return true;
+}
+
 bool CExport::SaveSheets()
 {
 	bool result;
+
+	if ( !CheckExistingLayout() )
+	{
+		CString	Msg, Title;
+		Msg.LoadString ( IDS_ERREXPORT );
+		Title.LoadString ( IDS_EXPORT );
+		GetColorApp()->InMeasureMessageBox(Msg+"\n"+m_errorStr,Title,MB_OK);
+		return false;
+	}
 
 	result=SaveGeneralSheet();
 	result&=SaveGrayScaleSheet();
@@ -1696,12 +1786,20 @@ bool CExport::SaveGrayScaleSheet()
 	int grayBlockRows = 9 + (m_bExportRaw?3:0) + (m_bExportStimulus?3:0);
 	// The positional replace below assumes every measure block in the file is the
 	// same height. That height now depends on the Raw/Stimulus options, so if the
-	// existing file was written with different options, replacing would overwrite
-	// the wrong rows. Detect the mismatch and abort rather than corrupt the file.
-	if ( m_doReplace && m_numExistingMeasures > 0 &&
-	     (graySS.GetTotalRows() - 1) != m_numExistingMeasures * grayBlockRows )
+	// existing file was written with different options, adding to it would
+	// corrupt the positional arithmetic. When the general sheet gave us the
+	// existing measure count, appends are checked exactly; the modulo form is
+	// a weaker fallback for CSV, where that count is unavailable (an old
+	// count x old height that happens to be a multiple of the new height
+	// still passes there).
+	int grayBlockRowsExisting = graySS.GetTotalRows() - 1;
+	// (The append and replace cases test the same thing, so they are one clause.)
+	if ( ( m_numExistingMeasures > 0 &&
+	       grayBlockRowsExisting != m_numExistingMeasures * grayBlockRows )
+	  || ( !m_doReplace && m_numExistingMeasures == 0 && grayBlockRowsExisting > 0 &&
+	       ( grayBlockRowsExisting % grayBlockRows ) != 0 ) )
 	{
-		m_errorStr = _T("Cannot replace: the selected file was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
 		return false;
 	}
 	if(m_doReplace)
@@ -1918,10 +2016,14 @@ bool CExport::SavePrimariesSheet()
 	int primBlockRows = 7 + (m_bExportRaw?3:0) + (m_bExportStimulus?3:0);
 	// See SaveGrayScaleSheet: guard against replacing into a file whose blocks
 	// were written with a different Raw/Stimulus layout (wrong-row overwrite).
-	if ( m_doReplace && m_numExistingMeasures > 0 &&
-	     (primariesSS.GetTotalRows() - 1) != m_numExistingMeasures * primBlockRows )
+	int primBlockRowsExisting = primariesSS.GetTotalRows() - 1;
+	// (The append and replace cases test the same thing, so they are one clause.)
+	if ( ( m_numExistingMeasures > 0 &&
+	       primBlockRowsExisting != m_numExistingMeasures * primBlockRows )
+	  || ( !m_doReplace && m_numExistingMeasures == 0 && primBlockRowsExisting > 0 &&
+	       ( primBlockRowsExisting % primBlockRows ) != 0 ) )
 	{
-		m_errorStr = _T("Cannot replace: the selected file was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
 		return false;
 	}
 	if(m_doReplace)
@@ -1966,7 +2068,7 @@ bool CExport::SavePrimariesSheet()
 	{
 		// Legacy fallback for measurements with no captured stimulus. The levels
 		// MeasurePrimaries actually drives depend on the transfer function and
-		// colour standard: HDR (m_GammaOffsetType==5) uses 50.22831%, HDTVa/HDTVb send
+		// color standard: HDR (m_GammaOffsetType==5) uses 50.22831%, HDTVa/HDTVb send
 		// fractional wire tables, and UHDTV3/UHDTV4 derive their codes from the container
 		// primaries. Reproducing those here would duplicate - and risk drifting from - the
 		// measurement tables, so emit the real drive values only for the plain standards
@@ -2423,10 +2525,12 @@ bool CExport::SaveCCSheet()
 	// (not rows), so compare the existing column count - still current until AddHeaders
 	// rewrites it just below - against the new header width. Replacing a mismatched layout
 	// rewrites the header wider but leaves measures 2..N under the old, narrower one.
-	if ( m_doReplace && m_numExistingMeasures > 0 &&
+	bool ccHasExisting = m_doReplace ? ( m_numExistingMeasures > 0 )
+	                                 : ( colorcheckerSS.GetTotalRows() > 0 );
+	if ( ccHasExisting &&
 	     (int)colorcheckerSS.GetTotalColumns() != (int)Rows.GetSize() )
 	{
-		m_errorStr = _T("Cannot replace: the selected file was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data.");
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
 		return false;
 	}
 	result&=colorcheckerSS.AddHeaders(Rows,true);
@@ -2588,29 +2692,32 @@ bool CExport::SaveCCSheet()
 				Rows.Add(-1.0);
 		}
 
-		if ( m_bExportRaw )
+		if ( m_bExportRaw || m_bExportStimulus )
 		{
+			// One fetch shared by both blocks: GetCC24Sat returns CColor by value
+			// (a deep copy including any spectrum), so fetch once per patch.
 			CColor cc = m_pDoc->GetMeasure()->GetCC24Sat(i);
-			for(j=0;j<3;j++)
+			if ( m_bExportRaw )
 			{
-				if (cc.isValid() && cc.HasRawXYZValue())
-					Rows.Add((float)cc.GetRawXYZValue()[j]);
-				else
-					Rows.Add(-1.0);
+				for(j=0;j<3;j++)
+				{
+					if (cc.isValid() && cc.HasRawXYZValue())
+						Rows.Add((float)cc.GetRawXYZValue()[j]);
+					else
+						Rows.Add(-1.0);
+				}
 			}
-		}
-
-		if ( m_bExportStimulus )
-		{
-			// Prefer the drive stimulus captured with the measurement; fall back to the
-			// generator reconstruction (ccStim) for patches measured before stimulus capture.
-			CColor ccS = m_pDoc->GetMeasure()->GetCC24Sat(i);
-			for(j=0;j<3;j++)
+			if ( m_bExportStimulus )
 			{
-				if ( ccS.isValid() && ccS.HasStimulusValue() )
-					Rows.Add((float)ccS.GetStimulusValue()[j]);
-				else
-					Rows.Add(ccStimValid ? (float)ccStim[i][j] : (float)-1.0);
+				// Prefer the drive stimulus captured with the measurement; fall back to the
+				// generator reconstruction (ccStim) for patches measured before stimulus capture.
+				for(j=0;j<3;j++)
+				{
+					if ( cc.isValid() && cc.HasStimulusValue() )
+						Rows.Add((float)cc.GetStimulusValue()[j]);
+					else
+						Rows.Add(ccStimValid ? (float)ccStim[i][j] : (float)-1.0);
+				}
 			}
 		}
 

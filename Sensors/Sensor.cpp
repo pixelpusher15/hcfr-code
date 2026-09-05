@@ -50,6 +50,7 @@ CSensor::CSensor()
 		m_bodnerRawMatrix[k]=IdentityMatrix(3);
 		m_bodnerCalMatrix[k]=IdentityMatrix(3);
 	}
+	UpdateBodnerInverseCache();
 
 	m_calibrationTime=0;
 
@@ -71,6 +72,7 @@ void CSensor::Copy(CSensor * p)
 	m_errorString = p->m_errorString;
 	m_isMeasureValid = p->m_isMeasureValid;
 	m_sensorToXYZMatrix = p->m_sensorToXYZMatrix;
+	m_sensorToXYZMatrixMod = p->m_sensorToXYZMatrixMod;
 	m_calibrationTime = p->m_calibrationTime;
 	m_calibrationMethod = p->m_calibrationMethod;
 	for ( int k = 0; k < 3; k++ )
@@ -78,7 +80,18 @@ void CSensor::Copy(CSensor * p)
 		m_bodnerRawMatrix[k] = p->m_bodnerRawMatrix[k];
 		m_bodnerCalMatrix[k] = p->m_bodnerCalMatrix[k];
 	}
+	UpdateBodnerInverseCache();
 	m_name = p->m_name;
+}
+
+void CSensor::UpdateBodnerInverseCache()
+{
+	for ( int k = 0; k < 3; k++ )
+	{
+		m_bodnerRawInvertible[k] = ( m_bodnerRawMatrix[k].Determinant() != 0.0 );
+		m_bodnerRawInverse[k] = m_bodnerRawInvertible[k]
+			? m_bodnerRawMatrix[k].GetInverse() : IdentityMatrix(3);
+	}
 }
 
 void CSensor::Serialize(CArchive& archive)
@@ -87,16 +100,29 @@ void CSensor::Serialize(CArchive& archive)
 	m_sensorToXYZMatrix.Serialize(archive);
 	if (archive.IsStoring())
 	{
-		int version=2;
+		// Honor the Debug\SaveOldCalibrationFile downgrade switch (see
+		// COneDeviceSensor::Serialize): a v1 stream omits the method field and
+		// loads in pre-method builds; the v1 loader's frozen-key derivation
+		// recovers the method on re-import. Only the DEFAULT method is written
+		// as v1: any other method (Bodner, three-color, FCMM-no-lum) would
+		// silently change identity through the v1 round-trip. Document saves
+		// under the key also produce v1 sensor blocks - harmless for the
+		// default method, and the v4 document header gates old builds anyway.
+		int version = ( m_calibrationMethod == CALIB_HCFR_DEFAULT
+		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
+						? 1 : 2;
 		archive << version;
 		archive << m_calibrationTime;
-		archive << m_calibrationMethod;
-		if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
+		if ( version >= 2 )
 		{
-			for ( int k = 0; k < 3; k++ )
+			archive << m_calibrationMethod;
+			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 			{
-				m_bodnerRawMatrix[k].Serialize(archive);
-				m_bodnerCalMatrix[k].Serialize(archive);
+				for ( int k = 0; k < 3; k++ )
+				{
+					m_bodnerRawMatrix[k].Serialize(archive);
+					m_bodnerCalMatrix[k].Serialize(archive);
+				}
 			}
 		}
 	}
@@ -133,14 +159,20 @@ void CSensor::Serialize(CArchive& archive)
 			// -> three-color, clear -> FCMM with luminance scaling. (The no-white auto-fallback cohort
 			// is undetectable from any key; those rare files load as FCMM
 			// with luminance scaling.)
-			// The legacy key is only trustworthy before the migration: once the
-			// user picks a method in the new dropdown, SaveSettings rewrites
-			// UseOnlyPrimaries from that selection (downgrade safety), so it no
-			// longer describes what old files were calibrated with.
-			m_calibrationMethod = ( GetConfig()->GetProfileInt("Advanced","CalibrationMethod",-1) == -1
-								 &&  GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0) )
-									? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
+			// The live legacy key is rewritten by SaveSettings on every save
+			// (downgrade safety), so consult the copy frozen at migration time
+			// (ColorHCFRConfig.cpp) instead. A profile migrated before the
+			// frozen key existed has lost the information; those files load as
+			// FCMM with luminance scaling, matching prior behavior.
+			int legacyOnly = GetConfig()->GetProfileInt("Advanced","LegacyUseOnlyPrimaries",-1);
+			if ( legacyOnly == -1 )
+				legacyOnly = ( GetConfig()->GetProfileInt("Advanced","CalibrationMethod",-1) == -1 )
+					? GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0) : 0;
+			m_calibrationMethod = legacyOnly ? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
 		}
+		// Loaded (v2 Bodner) or defaulted matrices either way: refresh the
+		// sub-gamut inverse cache for this deserialized state.
+		UpdateBodnerInverseCache();
 	}
 }
 
@@ -175,17 +207,46 @@ void CSensor::CancelConfigure()
 		m_bodnerRawMatrix[k] = m_cfgSnapBodnerRaw[k];
 		m_bodnerCalMatrix[k] = m_cfgSnapBodnerCal[k];
 	}
+	UpdateBodnerInverseCache();
+}
+
+// Whether the correction state differs from the BeginConfigure snapshot -
+// i.e. whether this sheet session actually changed the correction (as
+// opposed to device settings, which also set the modified flag).
+bool CSensor::CorrectionChangedSinceBeginConfigure() const
+{
+	if ( m_calibrationMethod != m_cfgSnapMethod )
+		return true;
+	if ( m_sensorToXYZMatrix != m_cfgSnapMatrix )
+		return true;
+	for ( int k = 0; k < 3; k++ )
+		if ( m_bodnerRawMatrix[k] != m_cfgSnapBodnerRaw[k]
+		  || m_bodnerCalMatrix[k] != m_cfgSnapBodnerCal[k] )
+			return true;
+	return false;
 }
 
 void CSensor::SetPropertiesSheetValues()
 {
 	m_SensorPropertiesPage.SetMatrix(m_sensorToXYZMatrix);
+	m_sheetMatrixShown = m_sensorToXYZMatrix;
 	m_SensorPropertiesPage.m_calibrationDate=GetCalibrationTime().Format("%#c");
 }
 
 void CSensor::GetPropertiesSheetValues()
 {
-	if(	m_sensorToXYZMatrix != m_SensorPropertiesPage.GetMatrix() )
+	// Compare against what the page was SHOWN, not against the live matrix. Code can
+	// change m_sensorToXYZMatrix while the sheet is open - loading a spectral .ccss on
+	// the Argyll page forces it to identity so the meter's own correction is the only
+	// one in play - and m_SensorPropertiesPage still holds the value we put there in
+	// SetPropertiesSheetValues. Testing the live matrix makes that stale page value look
+	// like an edit, so OK silently restored the matrix the .ccss had just retired and
+	// every later reading was corrected twice, in the meter and again here.
+	//
+	// Only a real grid edit moves the page away from m_sheetMatrixShown, and that still
+	// wins - a matrix typed in by hand while a spectral correction is loaded is the user
+	// asking for it, and ConfirmClearSpectralForMatrixCal covers the calibration paths.
+	if(	m_SensorPropertiesPage.GetMatrix() != m_sheetMatrixShown )
 	{
 		m_sensorToXYZMatrix=m_SensorPropertiesPage.GetMatrix();
 		SetModifiedFlag(TRUE);
@@ -226,7 +287,7 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	result.SetStimulusValue(aRGBValue);
 
 	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
-		result.SetXYZValue(SelectAndApplyBodnerMatrix(result.GetXYZValue(), m_bodnerRawMatrix, m_bodnerCalMatrix));
+		result.SetXYZValue(SelectAndApplyBodnerMatrixInv(result.GetXYZValue(), m_bodnerRawInverse, m_bodnerRawInvertible, m_bodnerCalMatrix));
 	else
 		result.applyAdjustmentMatrix(m_sensorToXYZMatrix);
 
