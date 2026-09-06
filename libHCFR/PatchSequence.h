@@ -33,22 +33,26 @@
 // Units: stimulus percent per component, 0..100 inclusive by default (the
 // house unit of ColorRGBDisplay). With SetExtended(true) the accepted span
 // widens to the 10-bit video-range code span 0..1023 expressed in percent,
-// [-6400/876, 95900/876] = [-7.3059.., 109.4748..], so an EXTENDED patch
-// list (super-white, sub-black) round-trips through the file reader without
-// silent clamping. Every Add refuses non-finite or out-of-span components,
-// and stores a negative zero as +0.0 so stored values have one bit pattern
-// per value (which is what makes Deduplicate's bit-pattern rule exact).
-// Names are metadata carried into the CSV name column; so that every
-// accepted name survives the importer byte-for-byte, a name must be
-// printable ASCII (0x20..0x7E), contain no ',' (the column delimiter), and
-// carry no leading or trailing spaces (the importer trims them). Anything
-// else is refused at Add time; empty names are fine. Group names follow the
-// same rules and additionally contain no spaces (they are single tokens in
-// the file's GROUP directive).
+// [CsvCodeToPercent(0,10,EXTENDED), CsvCodeToPercent(1023,10,EXTENDED)] =
+// [-7.3059.., 109.4748..], so an EXTENDED patch list (super-white,
+// sub-black) round-trips through the file reader without silent clamping.
+// Whether a value is then REPRESENTABLE at a given output encoding is a
+// separate question answered by CsvPercentRepresentable at write time (an
+// 8-bit EXTENDED file cannot carry 109.47%). Every Add refuses non-finite
+// or out-of-span components, and stores a negative zero as +0.0 so stored
+// values have one bit pattern per value (which is what makes Deduplicate's
+// bit-pattern rule exact). Names are metadata carried into the CSV name
+// column; so that every accepted name survives the importer byte-for-byte,
+// a name must be printable ASCII (0x20..0x7E), contain no ',' (the column
+// delimiter), and carry no leading or trailing spaces (the importer trims
+// them). Anything else is refused at Add time; empty names are fine. Group
+// names follow the same rules, are non-empty, and contain no spaces (they
+// are single tokens in the file's GROUP directive); ValidGroupName is that
+// rule, shared with the file writer.
 //
 // Identity, roles, timing (the .hps model):
-//   - Every entry carries an IDENTITY (the PatchNumber column): a
-//     non-negative int, unique per DEFINITION. The first entry carrying an
+//   - Every entry carries an IDENTITY (the PatchNumber column): an int in
+//     0..kMaxIdentity, unique per DEFINITION. The first entry carrying an
 //     identity defines its stimulus; any later entry with the same identity
 //     is a REPEAT of that definition (an anchor instance, a preroll copy, a
 //     deliberate late re-measure) and must carry the same R,G,B. The
@@ -57,6 +61,9 @@
 //   - Every entry carries a ROLE, one of 'C' characterization (default),
 //     'A' anchor, 'P' preroll, 'V' verification, 'I' interstitial (shown,
 //     never measured), 'X' identification (measured, excluded from the fit).
+//     The role predicates below are the ONE place that knowledge lives:
+//     measured = every role but 'I'; fitted = 'C' and 'V'; exportable to a
+//     third-party tool = 'C' and 'V'.
 //   - Every entry carries an optional GROUP name (probe band) and an
 //     optional per-row PatchTiming override; -1 in a PatchTiming field means
 //     "not set here, use the group / the run's default".
@@ -69,7 +76,9 @@
 #ifndef PATCHSEQUENCE_H
 #define PATCHSEQUENCE_H
 
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Per-row probe/timing overrides; -1 = not set. Seconds for settle, hold,
@@ -84,11 +93,29 @@ struct PatchTiming
     PatchTiming() : settle(-1.0), hold(-1.0), integration(-1.0), average(-1) {}
 };
 
+// Writes `text` to `path` through a sibling temporary file moved over the
+// target - an atomic replace (MoveFileEx) on Windows - so a failed write
+// never destroys an existing file. On the non-Windows fallback path, if
+// replacing the destination fails after its removal the fully-written
+// temporary is LEFT ON DISK (path + ".tmp") so the new content is never
+// lost either. On failure `reason` receives a one-line lowercase reason.
+// Shared by every file writer in libHCFR that needs the guarantee.
+bool WriteTextFileAtomic(const char* path, const std::string& text, std::string& reason);
+
 class PatchSequence
 {
 public:
-    // The role letters. Anything else is refused by SetRole / AddRow.
+    // Identities above this are refused (leaves headroom for "+1").
+    static const int kMaxIdentity = 1000000000;
+
+    // The role letters and their meanings (see the header comment).
     static bool ValidRole(char role);
+    static bool RoleIsMeasured(char role);      // all but 'I'
+    static bool RoleIsFitted(char role);        // 'C', 'V'
+    static bool RoleIsExportable(char role);    // 'C', 'V'
+
+    // The group-name rule (see the header comment).
+    static bool ValidGroupName(const std::string& group);
 
     PatchSequence();
 
@@ -107,9 +134,9 @@ public:
     bool GetTiming(int index, PatchTiming& timing) const;
 
     // Per-entry mutators. Refuse an out-of-range index, a role outside the
-    // six letters, a group name outside the name rules (or containing a
-    // space), or a timing with a negative value other than -1 / a
-    // non-finite value.
+    // six letters, a group name that is non-empty and fails ValidGroupName
+    // (empty clears the group), or a timing with a negative value other
+    // than -1 / a non-finite value.
     bool SetRole(int index, char role);
     bool SetGroup(int index, const std::string& group);
     bool SetTiming(int index, const PatchTiming& timing);
@@ -127,11 +154,11 @@ public:
 
     // Appends one row with an EXPLICIT identity and role (the file reader's
     // primitive; also how anchors and preroll rows are placed by the
-    // ordering stage). Refuses id < 0, a bad role, bad components / name -
-    // and, when `id` already exists in the sequence, an R,G,B that differs
-    // from the definition's (a repeat must repeat). Names on a repeat may
-    // differ from the definition's. The next fresh identity becomes
-    // max(existing) + 1.
+    // ordering stage). Refuses id < 0 or id > kMaxIdentity, a bad role, bad
+    // components / name - and, when `id` already exists in the sequence, an
+    // R,G,B that differs from the definition's (a repeat must repeat).
+    // Names on a repeat may differ from the definition's. The next fresh
+    // identity becomes max(existing) + 1.
     bool AddRow(int id, double rPct, double gPct, double bPct,
                 const std::string& name, char role);
 
@@ -207,35 +234,38 @@ public:
     // follows its definition's new identity; a repeat whose definition was
     // removed now refers to the surviving equal definition. Returns the
     // number of entries removed.
-    int Deduplicate();
+    // When `renumbering` is non-null it receives one (old, new) pair per
+    // identity that existed before the call, sorted by old identity -
+    // survivors mapped to their new number, removed duplicates mapped to
+    // their surviving equal's new number - so anything that names patches
+    // by identity outside the sequence (the file header's ANCHOR and
+    // PREROLL lines, PatchSequenceHeader::RemapIdentities) can follow.
+    int Deduplicate(std::vector< std::pair<int, int> >* renumbering = 0);
 
     void Clear();
+
+    // Exchanges contents with `other` in O(1); no copy of the entries.
+    void Swap(PatchSequence& other);
 
     // CSV emission in the importer's dialect. First line
     // "# BITDEPTH <bits>, RANGE <FULL|LEGAL|EXTENDED>", then one row per
     // entry in sequence order, "identity,R,G,B,name" (the ",name" field is
-    // omitted when the name is empty), LF-terminated, ASCII. Codes are the
-    // nearest-integer inverse of CsvCodeToPercent for the chosen encoding:
-    // FULL maps 0..100 onto 0..2^bits-1; LEGAL and EXTENDED map onto the
-    // video range (16..235 at 8-bit, 64..940 at 10-bit), EXTENDED carrying
-    // out-of-span percents as codes beyond it. All fields are integers, so
-    // the output is locale-independent by construction. Roles, groups and
-    // timings are NOT written (see PatchSequenceFile for the full form).
-    // Round-trip guarantee: parsing the output with ReadCsvPatchRows and
-    // mapping codes back through CsvCodeToPercent reproduces each percent
-    // within half a code step, with names and identities preserved.
-    // Refuses (output untouched, LastError set) an empty sequence, bits
-    // other than 8 or 10, a range other than CSV_RANGE_FULL / LEGAL /
-    // EXTENDED (CsvPatchRows.h), or a non-EXTENDED range while any
-    // component lies outside 0..100.
+    // omitted when the name is empty), LF-terminated, ASCII. Codes come
+    // from CsvCodeFromPercent at the chosen encoding, so all fields are
+    // integers and the output is locale-independent by construction.
+    // Roles, groups and timings are NOT written (see PatchSequenceFile for
+    // the full form). Round-trip guarantee: parsing the output with
+    // ReadCsvPatchRows and mapping codes back through CsvCodeToPercent
+    // reproduces each percent within half a code step, with names and
+    // identities preserved - guaranteed because a component for which
+    // CsvPercentRepresentable(bits, range) is false is REFUSED (so a LEGAL
+    // or FULL write refuses anything outside 0..100, and an 8-bit EXTENDED
+    // write refuses what only 10 bits can carry). Also refuses (output
+    // untouched, LastError set) an empty sequence, bits other than 8 or
+    // 10, or a range other than CSV_RANGE_FULL / LEGAL / EXTENDED.
     bool WriteCsv(std::string& out, int bits, int range) const;
 
-    // WriteCsv to a file, via a sibling temporary file moved over the
-    // target - an atomic replace (MoveFileEx) on Windows - so a failed
-    // write never destroys an existing file. On the non-Windows fallback
-    // path, if replacing the destination fails after its removal the
-    // fully-written temporary is LEFT ON DISK (path + ".tmp") so the new
-    // content is never lost either.
+    // WriteCsv to a file via WriteTextFileAtomic.
     bool WriteCsvFile(const char* path, int bits, int range) const;
 
     const std::string& LastError() const { return m_lastError; }
@@ -252,7 +282,10 @@ private:
     };
 
     bool ValidComponentHere(double v) const;
-    int  NextIdentity() const;
+
+    // Appends a fully-formed entry, maintaining the identity index and the
+    // next fresh identity. Every Add* path ends here.
+    void Append(const Entry& e);
 
     // One walker per shape, shared by the public primitives so grid and
     // shell (and gray and channel ramps) can never drift apart:
@@ -261,6 +294,8 @@ private:
     bool AppendLattice(int n, bool shellOnly);
 
     std::vector<Entry> m_entries;
+    std::map<int, size_t> m_firstAt;    // identity -> index of its definition
+    int  m_nextId;                      // max identity present + 1 (0 when empty)
     bool m_extended;
     mutable std::string m_lastError;
 };

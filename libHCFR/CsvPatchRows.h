@@ -21,6 +21,11 @@
 // tools) can parse the dialect directly; Color.h includes this header and
 // keeps a CString forwarder for the app-side callers.
 //
+// This header is also the ONE home of the dialect's vocabulary - the range
+// enum, its spelling in the header line, the code <-> percent mapping in
+// both directions, and the format-directive grammar - so the CSV writers,
+// the .hps writer and every reader share one definition instead of copies.
+//
 // The dialect (ReadCsvPatchRows):
 //   - Lines are trimmed of trailing CR / spaces / tabs; blank lines skipped.
 //   - A leading '#' line (before any data row) carrying a BITDEPTH or RANGE
@@ -29,6 +34,7 @@
 //     before or after data. Without a directive the file is legacy:
 //     R,G,B[,Name], 8-bit legal, PatchNumber = row index.
 //   - At most five fields are read per row; further fields are ignored.
+//   - Codes are read as numbers and truncated to int ((int)atof).
 //   - Names are trimmed of edge spaces and tabs.
 
 #ifndef CSVPATCHROWS_H
@@ -54,10 +60,42 @@ struct CsvPatchRow { int patch, r, g, b; std::string name; };
 // format; either may be null.
 int ReadCsvPatchRows(const char* csvPath, std::vector<CsvPatchRow>& rows, int maxRows, int* bitsOut, int* rangeOut);
 
+// The format-directive grammar, shared by every reader of the dialect. Scans
+// one '#' line (with or without its leading '#'): a BITDEPTH token followed
+// by 8 or 10 sets `bits`; a RANGE token followed (after any of " \t,=:") by
+// FULL / LEGAL / EXTENDED (case-insensitive) sets `range`. A value that is
+// absent or unrecognized leaves its output untouched. Returns true when
+// either was set - which is what marks a CSV headered.
+bool ParseCsvFormatDirective(const std::string& line, int& bits, int& range);
+
+// "FULL" / "LEGAL" / "EXTENDED"; "" for any other value.
+const char* CsvRangeWord(int range);
+
+// The header line every writer of the dialect emits, LF-terminated:
+// "# BITDEPTH <bits>, RANGE <word>\n".
+std::string CsvFormatHeaderLine(int bits, int range);
+
 // One source code -> HCFR stimulus percentage for a bit depth (8 or 10) and
 // CSV range. FULL: 0..2^bits-1 -> 0..100. LEGAL / EXTENDED: black..white
 // (16..235 at 8-bit, 64..940 at 10-bit) -> 0..100; EXTENDED keeps super-white
 // (> 100%) and sub-black (< 0%), LEGAL and the legacy default clamp to [0,100].
 double CsvCodeToPercent(double code, int bits, int range);
+
+// The inverse: percent -> nearest integer code at bits/range, clamped to the
+// code span 0..2^bits-1. FULL maps 0..100 onto the full span; LEGAL and
+// EXTENDED onto the video range (identical for 0..100; EXTENDED is where
+// out-of-range percents land beyond it). This is the live signal path's
+// quantizer (PiPercentToCode in Color.cpp), so what a file says is what the
+// generator drives.
+int CsvCodeFromPercent(double pct, int bits, int range);
+
+// True when `pct` survives the round trip CsvCodeFromPercent ->
+// CsvCodeToPercent within half a code step at bits/range - i.e. it is
+// representable there without a silent clamp. False for a non-finite value,
+// for anything outside 0..100 at FULL or LEGAL, and for an EXTENDED value
+// beyond the code span (above 109.13% at 8-bit, 109.47% at 10-bit, or
+// below -7.31%). Every writer of the dialect refuses a component for which
+// this is false.
+bool CsvPercentRepresentable(double pct, int bits, int range);
 
 #endif // CSVPATCHROWS_H

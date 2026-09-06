@@ -1573,7 +1573,7 @@ namespace T20File
         h.created = "2026-09-06T18:14:03Z";
         h.generator = "HCFR 3.5.3.11";
         h.sourceKind = "recipe";
-        h.requires.push_back("panel-record");
+        h.required.push_back("panel-record");
         h.panelRecord = "a80j-2026-09-06";
         h.steps.push_back("AddGrayRamp 21 0 100");
         h.steps.push_back("Deduplicate");
@@ -1657,6 +1657,7 @@ namespace T20File
             a.GetGroup(i, ga);      b.GetGroup(i, gb);
             a.GetTiming(i, ta);     b.GetTiming(i, tb);
             if (a.GetIdentity(i) != b.GetIdentity(i) || a.GetRole(i) != b.GetRole(i)
+                || ra[0] != rb[0] || ra[1] != rb[1] || ra[2] != rb[2]
                 || na != nb || ga != gb
                 || ta.settle != tb.settle || ta.hold != tb.hold
                 || ta.integration != tb.integration || ta.average != tb.average)
@@ -1941,7 +1942,7 @@ static void RunT20()
             if (hb.version != 1 || hb.bits != 10 || hb.range != CSV_RANGE_LEGAL
                 || hb.sequenceId != h.sequenceId || hb.name != h.name || hb.created != h.created
                 || hb.generator != h.generator || hb.sourceKind != "recipe"
-                || hb.requires.size() != 1 || hb.requires[0] != "panel-record"
+                || hb.required.size() != 1 || hb.required[0] != "panel-record"
                 || hb.panelRecord != h.panelRecord
                 || hb.steps.size() != 2 || hb.steps[0] != h.steps[0] || hb.steps[1] != h.steps[1]
                 || hb.geometryArea != 10 || hb.geometryBackground != 64
@@ -2141,6 +2142,256 @@ static void RunT20()
             Fail("T20 ExportCsv accepted a sequence with no exportable rows");
         if (keep != "sentinel")
             Fail("T20 refused ExportCsv touched the output");
+    }
+
+    // (9) Review round: contract tightenings from /code-review high.
+    {
+        // Role predicates are the one home of role knowledge.
+        const char roles[6] = { 'C', 'A', 'P', 'V', 'I', 'X' };
+        for (int k = 0; k < 6; ++k)
+        {
+            char r = roles[k];
+            if (PatchSequence::RoleIsMeasured(r) != (r != 'I'))
+                Fail("T20 RoleIsMeasured(%c) wrong", r);
+            if (PatchSequence::RoleIsFitted(r) != (r == 'C' || r == 'V'))
+                Fail("T20 RoleIsFitted(%c) wrong", r);
+            if (PatchSequence::RoleIsExportable(r) != (r == 'C' || r == 'V'))
+                Fail("T20 RoleIsExportable(%c) wrong", r);
+        }
+        if (PatchSequence::RoleIsMeasured('Q') || PatchSequence::RoleIsFitted('c') || PatchSequence::RoleIsExportable('\0'))
+            Fail("T20 role predicates accepted a non-role");
+        if (!PatchSequence::ValidGroupName("dark") || PatchSequence::ValidGroupName("") || PatchSequence::ValidGroupName("near black")
+            || PatchSequence::ValidGroupName("a,b") || PatchSequence::ValidGroupName("caf\xC3\xA9"))
+            Fail("T20 ValidGroupName wrong");
+
+        // Identity cap.
+        PatchSequence c;
+        if (!c.AddRow(PatchSequence::kMaxIdentity, 0, 0, 0, "top", 'C'))
+            Fail("T20 AddRow refused kMaxIdentity");
+        if (c.AddRow(PatchSequence::kMaxIdentity + 1, 0, 0, 0, "over", 'C'))
+            Fail("T20 AddRow accepted kMaxIdentity + 1");
+        if (c.Count() != 1)
+            Fail("T20 refused AddRow over the cap changed the count");
+
+        // Deduplicate reports its renumbering; the header follows it.
+        PatchSequence s;
+        s.AddPatch(0, 0, 0, "Black");          // id 0
+        s.AddPatch(50, 50, 50, "Gray 50");     // id 1
+        s.AddPatch(0, 0, 0, "Black dup");      // id 2, duplicate of 0
+        s.AddRow(2, 0, 0, 0, "Black dup rep", 'C');
+        s.AddRow(1, 50, 50, 50, "Gray 50", 'A');
+        s.AddRow(9, 0, 0, 0, "Black anchor", 'A');
+        s.AddPatch(100, 100, 100, "White");    // id 10
+        std::vector< std::pair<int, int> > map;
+        if (s.Deduplicate(&map) != 1)
+            Fail("T20 Deduplicate(&map) removed count wrong");
+        const int wantOld[5] = { 0, 1, 2, 9, 10 };
+        const int wantNew[5] = { 0, 1, 0, 2, 3 };
+        if (map.size() != 5)
+            Fail("T20 renumbering has %d pairs want 5", (int)map.size());
+        else
+            for (int k = 0; k < 5; ++k)
+                if (map[k].first != wantOld[k] || map[k].second != wantNew[k])
+                    Fail("T20 renumbering pair %d = (%d,%d) want (%d,%d)", k,
+                         map[k].first, map[k].second, wantOld[k], wantNew[k]);
+        PatchSequenceHeader h;
+        PatchAnchorSpec a9, a2, a42;
+        a9.id = 9; a9.every = 100;
+        a2.id = 2; a2.every = 50;
+        a42.id = 42; a42.every = 10;
+        h.anchors.push_back(a9);
+        h.anchors.push_back(a2);
+        h.anchors.push_back(a42);
+        h.prerollId = 10;
+        h.RemapIdentities(map);
+        if (h.anchors.size() != 3 || h.anchors[0].id != 2 || h.anchors[1].id != 0 || h.anchors[2].id != -1
+            || h.anchors[0].every != 100 || h.prerollId != 3)
+            Fail("T20 RemapIdentities: anchors %d,%d,%d preroll %d want 2,0,-1 preroll 3",
+                 h.anchors.size() > 2 ? h.anchors[0].id : -9, h.anchors.size() > 2 ? h.anchors[1].id : -9,
+                 h.anchors.size() > 2 ? h.anchors[2].id : -9, h.prerollId);
+        PatchSequenceHeader unset;
+        unset.RemapIdentities(map);
+        if (unset.prerollId != -1)
+            Fail("T20 RemapIdentities changed an unset prerollId");
+
+        // Swap is a real exchange.
+        PatchSequence x, y;
+        x.AddPatch(10, 10, 10, "x");
+        y.AddPatch(20, 20, 20, "y1");
+        y.AddPatch(30, 30, 30, "y2");
+        x.Swap(y);
+        std::string nm;
+        double rgb[3];
+        if (x.Count() != 2 || y.Count() != 1 || !y.GetPatch(0, rgb, &nm) || nm != "x" || rgb[0] != 10.0)
+            Fail("T20 Swap did not exchange contents");
+
+        // Representability: one rule for every writer.
+        if (!CsvPercentRepresentable(100.0, 8, CSV_RANGE_LEGAL) || !CsvPercentRepresentable(0.0, 10, CSV_RANGE_FULL)
+            || CsvPercentRepresentable(100.01, 8, CSV_RANGE_LEGAL) || CsvPercentRepresentable(-0.5, 10, CSV_RANGE_FULL)
+            || !CsvPercentRepresentable(109.13, 8, CSV_RANGE_EXTENDED) || CsvPercentRepresentable(109.47, 8, CSV_RANGE_EXTENDED)
+            || !CsvPercentRepresentable(109.47, 10, CSV_RANGE_EXTENDED) || CsvPercentRepresentable(sqrt(-1.0), 8, CSV_RANGE_LEGAL))
+            Fail("T20 CsvPercentRepresentable wrong");
+        if (CsvCodeFromPercent(50.0, 10, CSV_RANGE_LEGAL) != 502 || CsvCodeFromPercent(100.0, 8, CSV_RANGE_FULL) != 255
+            || CsvCodeFromPercent(109.47, 10, CSV_RANGE_EXTENDED) != 1023 || CsvCodeFromPercent(-7.3, 10, CSV_RANGE_EXTENDED) != 0)
+            Fail("T20 CsvCodeFromPercent wrong");
+        if (std::string(CsvRangeWord(CSV_RANGE_FULL)) != "FULL" || std::string(CsvRangeWord(CSV_RANGE_EXTENDED)) != "EXTENDED"
+            || std::string(CsvRangeWord(CSV_RANGE_NONE)) != "" || CsvFormatHeaderLine(10, CSV_RANGE_LEGAL) != "# BITDEPTH 10, RANGE LEGAL\n")
+            Fail("T20 CsvRangeWord / CsvFormatHeaderLine wrong");
+        int b = 0, r = -5;
+        if (!ParseCsvFormatDirective("# BITDEPTH 10, RANGE extended", b, r) || b != 10 || r != CSV_RANGE_EXTENDED)
+            Fail("T20 ParseCsvFormatDirective basic (%d,%d)", b, r);
+        b = 0; r = -5;
+        if (!ParseCsvFormatDirective("bitdepth=8 range:legal", b, r) || b != 8 || r != CSV_RANGE_LEGAL)
+            Fail("T20 ParseCsvFormatDirective separators (%d,%d)", b, r);
+        b = 0; r = -5;
+        if (ParseCsvFormatDirective("# full sweep of illegal codes", b, r) || b != 0 || r != -5)
+            Fail("T20 ParseCsvFormatDirective tripped on prose");
+        if (ParseCsvFormatDirective("# BITDEPTH 12", b, r) || b != 0)
+            Fail("T20 ParseCsvFormatDirective accepted 12 bits");
+
+        PatchSequence e;
+        e.SetExtended(true);
+        e.AddPatch(109.47, 0, 0, "wtw");
+        std::string out;
+        if (e.WriteCsv(out, 8, CSV_RANGE_EXTENDED))
+            Fail("T20 WriteCsv 8-bit EXTENDED accepted 109.47 (clamps to 255)");
+        if (!e.WriteCsv(out, 10, CSV_RANGE_EXTENDED))
+            Fail("T20 WriteCsv 10-bit EXTENDED refused 109.47: %s", e.LastError().c_str());
+        PatchSequenceFile f;
+        PatchSequenceHeader hx;
+        hx.bits = 10; hx.range = CSV_RANGE_LEGAL;
+        if (f.FormatHps(out, e, hx))
+            Fail("T20 FormatHps LEGAL accepted an out-of-span component");
+        hx.range = CSV_RANGE_EXTENDED; hx.bits = 8;
+        if (f.FormatHps(out, e, hx))
+            Fail("T20 FormatHps 8-bit EXTENDED accepted 109.47");
+        hx.bits = 10;
+        if (!f.FormatHps(out, e, hx))
+            Fail("T20 FormatHps 10-bit EXTENDED refused 109.47: %s", f.LastError().c_str());
+
+        // Writer refuses what would corrupt the file or flip the CSV-only reader.
+        PatchSequence p;
+        BuildPinned(p);
+        PatchSequenceHeader hp;
+        FillPinnedHeader(hp);
+        std::string keep = "sentinel";
+        hp.name = "Range extended near-white";
+        if (f.FormatHps(keep, p, hp))
+            Fail("T20 FormatHps accepted a NAME containing RANGE");
+        hp.name = "bitdepth 10 set";
+        if (f.FormatHps(keep, p, hp))
+            Fail("T20 FormatHps accepted a NAME containing BITDEPTH");
+        hp.name = "quote\"inside";
+        if (f.FormatHps(keep, p, hp))
+            Fail("T20 FormatHps accepted a NAME containing a quote");
+        hp.name = "two\nlines";
+        if (f.FormatHps(keep, p, hp))
+            Fail("T20 FormatHps accepted a NAME containing LF");
+        hp.name = "ok";
+        hp.steps.push_back("AddRangeThing");
+        if (f.FormatHps(keep, p, hp))
+            Fail("T20 FormatHps accepted a STEP containing RANGE");
+        hp.steps.pop_back();
+        hp.loadModel = "wrgb\rpower";
+        if (f.FormatHps(keep, p, hp))
+            Fail("T20 FormatHps accepted a LOAD-MODEL containing CR");
+        hp.loadModel = "luminance";
+        PatchGroupSpec bad;
+        bad.name = "near black";
+        hp.groups.push_back(bad);
+        if (f.FormatHps(keep, p, hp))
+            Fail("T20 FormatHps accepted a group name with a space");
+        hp.groups.back().name = "";
+        if (f.FormatHps(keep, p, hp))
+            Fail("T20 FormatHps accepted an empty group name");
+        hp.groups.pop_back();
+        hp.version = 2;
+        if (f.FormatHps(keep, p, hp))
+            Fail("T20 FormatHps accepted version 2");
+        hp.version = 0;
+        if (f.FormatHps(keep, p, hp))
+            Fail("T20 FormatHps accepted version 0");
+        hp.version = 1;
+        if (keep != "sentinel")
+            Fail("T20 a refused FormatHps touched the output");
+        if (!f.FormatHps(keep, p, hp))
+            Fail("T20 FormatHps refused the repaired header: %s", f.LastError().c_str());
+
+        // Reader tolerance: BOM, leading blank line, leading whitespace.
+        PatchSequence q;
+        PatchSequenceHeader hq;
+        std::string bom = std::string("\xEF\xBB\xBF") + kPinnedText;
+        if (!f.ParseHps(bom, q, hq) || q.Count() != 5 || hq.version != 1)
+            Fail("T20 ParseHps refused a BOM-prefixed file: %s", f.LastError().c_str());
+        std::string blank = std::string("\n\n") + kPinnedText;
+        if (!f.ParseHps(blank, q, hq) || q.Count() != 5)
+            Fail("T20 ParseHps refused leading blank lines: %s", f.LastError().c_str());
+        std::string indented = std::string("   ") + kPinnedText;
+        if (!f.ParseHps(indented, q, hq) || q.Count() != 5)
+            Fail("T20 ParseHps refused an indented first line: %s", f.LastError().c_str());
+        std::string crlf;
+        for (const char* pc = kPinnedText; *pc; ++pc)
+        {
+            if (*pc == '\n') crlf += '\r';
+            crlf += *pc;
+        }
+        if (!f.ParseHps(crlf, q, hq) || q.Count() != 5)
+            Fail("T20 ParseHps refused CRLF input: %s", f.LastError().c_str());
+        remove(kTmpHps);
+        if (!WriteTextFile(kTmpHps, bom))
+            Fail("T20 cannot write the BOM fixture");
+        else
+        {
+            PatchSequenceFile::Dialect d = PatchSequenceFile::DIALECT_CSV_LEGACY;
+            if (!f.Read(kTmpHps, q, hq, &d) || d != PatchSequenceFile::DIALECT_HPS)
+                Fail("T20 Read of a BOM-prefixed .hps not HPS: %s", f.LastError().c_str());
+            remove(kTmpHps);
+        }
+
+        // Codes truncate to int in both dialects; the row number is named on refusal.
+        std::string frac = kPinnedText;
+        const std::string rowOld = "3,73,73,73,Gray 1,C,dark,0,,,10\n";
+        frac.replace(frac.find(rowOld), rowOld.size(), "3,73.9,73.9,73.9,Gray 1,C,dark,0,,,10\n");
+        if (!f.ParseHps(frac, q, hq))
+            Fail("T20 ParseHps refused fractional codes: %s", f.LastError().c_str());
+        else
+        {
+            q.GetPatch(3, rgb, 0);
+            if (rgb[0] != CsvCodeToPercent(73, 10, CSV_RANGE_LEGAL))
+                Fail("T20 fractional code not truncated (%.17g)", rgb[0]);
+        }
+        std::string mism = std::string(kPinnedText) + "3,74,73,73,Gray 1 wrong,C,,,,,\n";
+        if (f.ParseHps(mism, q, hq))
+            Fail("T20 ParseHps accepted a mismatched repeat");
+        else if (f.LastError().find("row 6") == std::string::npos)
+            Fail("T20 refusal does not name the row: '%s'", f.LastError().c_str());
+
+        // CSV import: cap refused; unusable patch numbers fall back to row indices.
+        std::string big = "# BITDEPTH 8, RANGE LEGAL\n";
+        char row[48];
+        for (int i = 0; i < 10001; ++i)
+        {
+            snprintf(row, sizeof(row), "%d,%d,16,16\n", i, 16 + (i % 220));
+            big += row;
+        }
+        WriteTextFile(kTmpCsv, big);
+        PatchSequenceFile::Dialect d;
+        if (f.Read(kTmpCsv, q, hq, &d))
+            Fail("T20 CSV import accepted 10001 rows");
+        WriteTextFile(kTmpCsv, "# BITDEPTH 8, RANGE LEGAL\n7,16,16,16,Black\n7,235,235,235,White\n3,126,126,126\n");
+        if (!f.Read(kTmpCsv, q, hq, &d))
+            Fail("T20 CSV import refused duplicated patch numbers: %s", f.LastError().c_str());
+        else if (q.Count() != 3 || q.GetIdentity(0) != 0 || q.GetIdentity(1) != 1 || q.GetIdentity(2) != 2 || !hq.identitiesFromRows)
+            Fail("T20 CSV duplicate patch numbers did not fall back to row indices");
+        WriteTextFile(kTmpCsv, "# BITDEPTH 8, RANGE LEGAL\nP1,16,16,16,Black\nP2,235,235,235,White\n");
+        if (!f.Read(kTmpCsv, q, hq, &d))
+            Fail("T20 CSV import refused non-numeric patch numbers: %s", f.LastError().c_str());
+        else if (q.Count() != 2 || q.GetIdentity(1) != 1 || !hq.identitiesFromRows)
+            Fail("T20 CSV non-numeric patch numbers did not fall back to row indices");
+        WriteTextFile(kTmpCsv, "# BITDEPTH 8, RANGE LEGAL\n5,16,16,16,Black\n9,235,235,235,White\n");
+        if (!f.Read(kTmpCsv, q, hq, &d) || q.GetIdentity(0) != 5 || q.GetIdentity(1) != 9 || hq.identitiesFromRows)
+            Fail("T20 CSV usable patch numbers were not kept as identities");
+        remove(kTmpCsv);
     }
 }
 

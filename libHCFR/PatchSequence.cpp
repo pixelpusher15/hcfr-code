@@ -231,8 +231,51 @@ namespace
 }
 
 PatchSequence::PatchSequence()
-    : m_extended(false)
+    : m_nextId(0), m_extended(false)
 {
+}
+
+// Every Add* path ends here: the identity index and the next fresh
+// identity are maintained in one place.
+void PatchSequence::Append(const Entry& e)
+{
+    size_t index = m_entries.size();
+    m_entries.push_back(e);
+    if (m_firstAt.find(e.id) == m_firstAt.end())
+        m_firstAt[e.id] = index;
+    if (e.id >= m_nextId)
+        m_nextId = e.id + 1;
+}
+
+// NOT YET IMPLEMENTED (review round): role predicates and the shared
+// group-name rule.
+bool PatchSequence::RoleIsMeasured(char)
+{
+    return false;
+}
+
+bool PatchSequence::RoleIsFitted(char)
+{
+    return false;
+}
+
+bool PatchSequence::RoleIsExportable(char)
+{
+    return false;
+}
+
+bool PatchSequence::ValidGroupName(const std::string&)
+{
+    return false;
+}
+
+void PatchSequence::Swap(PatchSequence& other)
+{
+    m_entries.swap(other.m_entries);
+    m_firstAt.swap(other.m_firstAt);
+    std::swap(m_nextId, other.m_nextId);
+    std::swap(m_extended, other.m_extended);
+    m_lastError.swap(other.m_lastError);
 }
 
 int PatchSequence::Count() const
@@ -244,16 +287,6 @@ bool PatchSequence::ValidRole(char role)
 {
     return role == 'C' || role == 'A' || role == 'P' || role == 'V'
         || role == 'I' || role == 'X';
-}
-
-// Fresh identities continue from the largest present.
-int PatchSequence::NextIdentity() const
-{
-    int next = 0;
-    for (size_t i = 0; i < m_entries.size(); ++i)
-        if (m_entries[i].id >= next)
-            next = m_entries[i].id + 1;
-    return next;
 }
 
 bool PatchSequence::ValidComponentHere(double v) const
@@ -379,7 +412,7 @@ bool PatchSequence::AddRow(int id, double rPct, double gPct, double bPct,
     e.rgb[1] = rgb[1];
     e.rgb[2] = rgb[2];
     e.name = name;
-    m_entries.push_back(e);
+    Append(e);
     return true;
 }
 
@@ -395,7 +428,7 @@ bool PatchSequence::AddGrayPowerRamp(int count, double loPct, double hiPct,
         return false;
 
     m_entries.reserve(m_entries.size() + (size_t)count);
-    int nextId = NextIdentity();
+    int nextId = m_nextId;
     for (int i = 0; i < count; ++i)
     {
         double level;
@@ -417,7 +450,7 @@ bool PatchSequence::AddGrayPowerRamp(int count, double loPct, double hiPct,
         e.rgb[1] = level;
         e.rgb[2] = level;
         e.name = FormatLevelName("Gray", level);
-        m_entries.push_back(e);
+        Append(e);
     }
     return true;
 }
@@ -443,7 +476,7 @@ bool PatchSequence::AddShellInset(int n, double insetPct)
     CollectLattice(n, true, &axis[0], nodes);
 
     m_entries.reserve(m_entries.size() + nodes.size());
-    int nextId = NextIdentity();
+    int nextId = m_nextId;
     for (size_t i = 0; i < nodes.size(); ++i)
     {
         Entry e;
@@ -453,7 +486,7 @@ bool PatchSequence::AddShellInset(int n, double insetPct)
         e.rgb[1] = NormalizeComponent(nodes[i].v[1]);
         e.rgb[2] = NormalizeComponent(nodes[i].v[2]);
         e.name = FormatNodeName("Inset", e.rgb[0], e.rgb[1], e.rgb[2]);
-        m_entries.push_back(e);
+        Append(e);
     }
     return true;
 }
@@ -495,7 +528,8 @@ bool PatchSequence::AddRepeats(int count)
                                   : src.name + " repeat";
         added.push_back(e);
     }
-    m_entries.insert(m_entries.end(), added.begin(), added.end());
+    for (size_t i = 0; i < added.size(); ++i)
+        Append(added[i]);
     return true;
 }
 
@@ -520,13 +554,13 @@ bool PatchSequence::AddPatch(double rPct, double gPct, double bPct,
     if (!ValidName(name))
         return false;
     Entry e;
-    e.id = NextIdentity();
+    e.id = m_nextId;
     e.role = 'C';
     e.rgb[0] = NormalizeComponent(rPct);
     e.rgb[1] = NormalizeComponent(gPct);
     e.rgb[2] = NormalizeComponent(bPct);
     e.name = name;
-    m_entries.push_back(e);
+    Append(e);
     return true;
 }
 
@@ -546,7 +580,7 @@ bool PatchSequence::AppendRamp(int channel, int count,
     const char* word = kWords[channel + 1];
 
     m_entries.reserve(m_entries.size() + (size_t)count);
-    int nextId = NextIdentity();
+    int nextId = m_nextId;
     for (int i = 0; i < count; ++i)
     {
         double level = NormalizeComponent(GridLevel(i, count, loPct, hiPct));
@@ -567,7 +601,7 @@ bool PatchSequence::AppendRamp(int channel, int count,
             e.rgb[channel] = level;
         }
         e.name = FormatLevelName(word, level);
-        m_entries.push_back(e);
+        Append(e);
     }
     return true;
 }
@@ -600,7 +634,7 @@ bool PatchSequence::AppendLattice(int n, bool shellOnly)
     CollectLattice(n, shellOnly, &axis[0], nodes);
 
     m_entries.reserve(m_entries.size() + nodes.size());
-    int nextId = NextIdentity();
+    int nextId = m_nextId;
     for (size_t i = 0; i < nodes.size(); ++i)
     {
         Entry e;
@@ -610,7 +644,7 @@ bool PatchSequence::AppendLattice(int n, bool shellOnly)
         e.rgb[1] = nodes[i].v[1];
         e.rgb[2] = nodes[i].v[2];
         e.name = FormatNodeName("Cube", e.rgb[0], e.rgb[1], e.rgb[2]);
-        m_entries.push_back(e);
+        Append(e);
     }
     return true;
 }
@@ -625,8 +659,10 @@ bool PatchSequence::AddCubeShell(int n)
     return AppendLattice(n, true);
 }
 
-int PatchSequence::Deduplicate()
+int PatchSequence::Deduplicate(std::vector< std::pair<int, int> >* renumbering)
 {
+    if (renumbering)
+        renumbering->clear();      // NOT YET IMPLEMENTED: the (old, new) pairs
     // A DEFINITION is the first entry carrying its identity. Only role-'C'
     // definitions are removal candidates, and only they can cause a
     // removal: repeats and other roles are carried through untouched.
@@ -680,12 +716,23 @@ int PatchSequence::Deduplicate()
     }
 
     m_entries.swap(kept);
+    m_firstAt.clear();
+    m_nextId = 0;
+    for (size_t i = 0; i < m_entries.size(); ++i)
+    {
+        if (m_firstAt.find(m_entries[i].id) == m_firstAt.end())
+            m_firstAt[m_entries[i].id] = i;
+        if (m_entries[i].id >= m_nextId)
+            m_nextId = m_entries[i].id + 1;
+    }
     return removed;
 }
 
 void PatchSequence::Clear()
 {
     m_entries.clear();
+    m_firstAt.clear();
+    m_nextId = 0;
 }
 
 bool PatchSequence::WriteCsv(std::string& out, int bits, int range) const
@@ -809,4 +856,12 @@ bool PatchSequence::WriteCsvFile(const char* path, int bits, int range) const
 
     m_lastError.clear();
     return true;
+}
+
+// NOT YET IMPLEMENTED (review round): the shared atomic writer that
+// WriteCsvFile and PatchSequenceFile::Write/ExportCsvFile will call.
+bool WriteTextFileAtomic(const char*, const std::string&, std::string& reason)
+{
+    reason = "not implemented";
+    return false;
 }

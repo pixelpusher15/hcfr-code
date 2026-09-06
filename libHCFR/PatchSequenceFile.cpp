@@ -310,11 +310,16 @@ namespace
 }
 
 PatchSequenceHeader::PatchSequenceHeader()
-    : version(1), bits(8), range(1),
+    : version(1), bits(8), range(1), identitiesFromRows(false),
       geometryArea(-1), geometryBackground(-1),
       targetLoad(-1.0), window(-1.0), dwellLatency(-1.0), maxStep(-1.0),
       settleAfterStep(-1.0), ablLimit(-1.0),
       prerollId(-1), prerollCount(-1)
+{
+}
+
+// NOT YET IMPLEMENTED (review round).
+void PatchSequenceHeader::RemapIdentities(const std::vector< std::pair<int, int> >&)
 {
 }
 
@@ -373,11 +378,11 @@ bool PatchSequenceFile::FormatHps(std::string& out, const PatchSequence& seq,
         else
             t += "# SOURCE " + hdr.sourceKind + "\n";
     }
-    if (!hdr.requires.empty())
+    if (!hdr.required.empty())
     {
         t += "# REQUIRES";
-        for (size_t i = 0; i < hdr.requires.size(); ++i)
-            t += " " + hdr.requires[i];
+        for (size_t i = 0; i < hdr.required.size(); ++i)
+            t += " " + hdr.required[i];
         t += "\n";
     }
     if (!hdr.displayProfile.empty())
@@ -595,7 +600,7 @@ bool PatchSequenceFile::ParseHps(const std::string& text, PatchSequence& seq,
                     h.sourceKind = tok[0];
             }
             else if (key == "REQUIRES")
-                h.requires = tok;
+                h.required = tok;
             else if (key == "DISPLAY-PROFILE")
                 h.displayProfile = Unquote(value);
             else if (key == "PANEL-RECORD")

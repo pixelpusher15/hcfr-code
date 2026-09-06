@@ -119,3 +119,31 @@ int ReadCsvPatchRows(const char* csvPath, std::vector<CsvPatchRow> & rows, int m
 	if (rangeOut) *rangeOut = range;
 	return (int)rows.size();
 }
+
+// NOT YET IMPLEMENTED (review round): the shared vocabulary declared in
+// CsvPatchRows.h. ReadCsvPatchRows above still carries its own copy of the
+// directive grammar until ParseCsvFormatDirective is real and it calls it.
+bool ParseCsvFormatDirective(const std::string&, int&, int&)
+{
+    return false;
+}
+
+const char* CsvRangeWord(int)
+{
+    return "";
+}
+
+std::string CsvFormatHeaderLine(int, int)
+{
+    return std::string();
+}
+
+int CsvCodeFromPercent(double, int, int)
+{
+    return 0;
+}
+
+bool CsvPercentRepresentable(double, int, int)
+{
+    return false;
+}

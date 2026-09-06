@@ -25,7 +25,9 @@
 // export, never the native form.
 //
 // Grammar (normative; the T20 oracle pins the bytes):
-//   - ASCII. LF line ends on write; CR LF accepted on read.
+//   - ASCII. LF line ends on write; CR LF accepted on read. A reader also
+//     tolerates a UTF-8 byte-order mark, blank lines, and leading spaces
+//     or tabs before the first directive (editors add all three).
 //   - "#" lines before the first data row are DIRECTIVES, "# KEY value";
 //     "#" lines after the first data row are comments. Keys are upper-case.
 //     A reader IGNORES unknown keys and unknown columns (forward
@@ -35,12 +37,12 @@
 //   - Line 1 is exactly "# HCFR-SEQUENCE 1".
 //   - Directives are written in THIS order, each only when set (a
 //     repeatable key writes one line per item, in item order):
-//       HCFR-SEQUENCE, "BITDEPTH <bits>, RANGE <FULL|LEGAL|EXTENDED>",
-//       SEQUENCE-ID, NAME, CREATED, GENERATOR, SOURCE, REQUIRES,
-//       DISPLAY-PROFILE, PANEL-RECORD, TARGET, GAMUT-RELATION, STEP*,
-//       PATCH-GEOMETRY, GROUP*, READ-AT, ORDER, TARGET-LOAD, LOAD-MODEL,
-//       WINDOW, DWELL, MAX-STEP, SETTLE-AFTER-STEP, ABL-LIMIT, ANCHOR*,
-//       PREROLL, COLUMNS.
+//       HCFR-SEQUENCE, "BITDEPTH <bits>, RANGE <FULL|LEGAL|EXTENDED>"
+//       (CsvFormatHeaderLine), SEQUENCE-ID, NAME, CREATED, GENERATOR,
+//       SOURCE, REQUIRES, DISPLAY-PROFILE, PANEL-RECORD, TARGET,
+//       GAMUT-RELATION, STEP*, PATCH-GEOMETRY, GROUP*, READ-AT, ORDER,
+//       TARGET-LOAD, LOAD-MODEL, WINDOW, DWELL, MAX-STEP, SETTLE-AFTER-STEP,
+//       ABL-LIMIT, ANCHOR*, PREROLL, COLUMNS.
 //     Formats: SOURCE is `recipe` or `csv "<path>" sha256 <hex>` (hex may
 //     be empty: `csv "<path>"`); REQUIRES is a space-separated token list;
 //     PATCH-GEOMETRY is `area=<int> background=<int>` (each only when set);
@@ -53,33 +55,54 @@
 //     ordering stage). COLUMNS is always the full fixed list below.
 //   - Columns, always all eleven, in this order:
 //       PatchNumber,R,G,B,Name,Role,Group,Settle,Hold,Integration,Average
-//     Codes are integers at BITDEPTH/RANGE (the same nearest-integer
-//     inverse of CsvCodeToPercent as PatchSequence::WriteCsv). Name and
+//     Codes are integers at BITDEPTH/RANGE (CsvCodeFromPercent). Name and
 //     Group may be empty (the field is still present). Role is one letter.
 //     Settle/Hold/Integration are "%g" seconds, Average an int; each is
 //     empty when the row's PatchTiming field is -1.
 //   - Data rows: at most MAX_USER_CC_PATCH_SIZE (CsvPatchRows.h). A
-//     sequence above that is refused at write; a file above it at read.
+//     sequence above that is refused at write; a file above it at read,
+//     for every dialect.
 //
-// Reading (Read): the dialect is detected from the first line -
-//   "# HCFR-SEQUENCE" -> .hps; otherwise the CsvPatchRows rules decide
-//   headered vs legacy. Every dialect yields a PatchSequence (percents via
-//   CsvCodeToPercent at the file's bits/range; an EXTENDED file switches
-//   the sequence to extended so no code is clamped) plus a header. For a
-//   CSV import the header carries bits/range, sourceKind "csv", the path,
-//   and nothing else; legacy CSV = 8-bit LEGAL, identity = row index, all
-//   roles 'C'. For .hps: rows carry their identity and role; a repeated
-//   identity with different R,G,B is refused (AddRow's rule); the Group
-//   column names a GROUP directive (a name with no directive is kept as
-//   is); timing columns fill the row's PatchTiming.
+// What the writer (FormatHps / Write) refuses, so that every file it emits
+// is one every reader here AND the CSV-only reader decode the same way:
+//   - hdr.version other than 1 (it writes only what it can read back);
+//   - an empty sequence, or more rows than the cap;
+//   - a component not CsvPercentRepresentable at hdr.bits / hdr.range (the
+//     same rule as PatchSequence::WriteCsv - no silent clamp, ever);
+//   - any directive string value (name, generator, ids, paths, steps,
+//     tokens, the load model) containing '"', CR or LF, or containing the
+//     words BITDEPTH or RANGE in any letter case - because the CSV-only
+//     reader scans every leading '#' line for those words, and a NAME of
+//     "Range extended near-white" would flip its decoding;
+//   - a header group whose name fails PatchSequence::ValidGroupName.
+//
+// Reading (Read): the dialect is detected from the first non-blank line
+//   (after an optional BOM and leading whitespace) - "# HCFR-SEQUENCE" ->
+//   .hps; otherwise the CsvPatchRows rules decide headered vs legacy.
+//   Every dialect yields a PatchSequence (percents via CsvCodeToPercent at
+//   the file's bits/range, codes truncated to int exactly as the CSV parser
+//   does; an EXTENDED file switches the sequence to extended so no code is
+//   clamped) plus a header. For a CSV import the header carries bits/range,
+//   sourceKind "csv", the path, and nothing else; legacy CSV = 8-bit LEGAL,
+//   identity = row index, all roles 'C'. A headered CSV's PatchNumber
+//   column is used as identity ONLY when it can serve as one: when any two
+//   rows share a number with different R,G,B (hand-edited files, a
+//   non-numeric column that atoi collapses to 0), every identity falls back
+//   to the row index and hdr.identitiesFromRows is set - the file still
+//   loads, as it does in the app's own importer. For .hps: rows carry their
+//   identity and role; a repeated identity with different R,G,B is refused
+//   (AddRow's rule); the Group column names a GROUP directive (a name with
+//   no directive is kept as is); timing columns fill the row's PatchTiming;
+//   the parsed version is stored in hdr.version. A refusal names the row:
+//   "bad patch row 12" (1-based over data rows).
 //
 // Export (ExportCsv): the headered CSV dialect only. EXPORT_MEASUREMENT
 //   writes rows in sequence order; EXPORT_DEFINITION writes one row per
 //   identity - the first occurrence - sorted by identity ascending. With
-//   includeRoles false, rows of role 'A', 'P', 'I' and 'X' are dropped
-//   (they are not patches to a third-party tool); 'C' and 'V' are kept.
-//   With includeRoles true every row is written. Identity, codes and name
-//   go out exactly as PatchSequence::WriteCsv writes them.
+//   includeRoles false only rows whose role is exportable
+//   (PatchSequence::RoleIsExportable: 'C' and 'V') are written; with
+//   includeRoles true every row is. Identity, codes and name go out exactly
+//   as PatchSequence::WriteCsv writes them, under WriteCsv's refusals.
 //
 // Error convention: every operation returns bool; on false the outputs are
 // untouched and LastError() carries a one-line lowercase reason.
@@ -90,6 +113,7 @@
 #include "PatchSequence.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 struct PatchGroupSpec
@@ -112,7 +136,7 @@ struct PatchAnchorSpec
 
 struct PatchSequenceHeader
 {
-    int         version;                    // 1
+    int         version;                    // 1; what ParseHps read
     int         bits;                       // 8 | 10
     int         range;                      // CSV_RANGE_FULL | LEGAL | EXTENDED
     std::string sequenceId;
@@ -122,7 +146,8 @@ struct PatchSequenceHeader
     std::string sourceKind;                 // "" | "recipe" | "csv"
     std::string sourcePath;
     std::string sourceHash;
-    std::vector<std::string> requires;
+    bool        identitiesFromRows;         // CSV import fell back to row indices
+    std::vector<std::string> required;      // REQUIRES tokens
     std::string displayProfile;
     std::string panelRecord;
     std::string target;
@@ -145,6 +170,12 @@ struct PatchSequenceHeader
     int         prerollCount;               // -1 unset
 
     PatchSequenceHeader();
+
+    // Applies a PatchSequence::Deduplicate renumbering to every identity
+    // this header names: each anchor id and prerollId becomes its new
+    // number, or -1 when the old number is not in the map (so a stale
+    // reference is visible, never silently wrong). Ids already -1 stay -1.
+    void RemapIdentities(const std::vector< std::pair<int, int> >& renumbering);
 };
 
 class PatchSequenceFile
@@ -165,8 +196,7 @@ public:
     bool FormatHps(std::string& out, const PatchSequence& seq,
                    const PatchSequenceHeader& hdr);
 
-    // FormatHps to a file, via the same atomic sibling-temporary replace
-    // as PatchSequence::WriteCsvFile.
+    // FormatHps to a file via WriteTextFileAtomic.
     bool Write(const char* path, const PatchSequence& seq,
                const PatchSequenceHeader& hdr);
 
