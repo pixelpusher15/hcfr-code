@@ -157,6 +157,7 @@ public:
 	virtual BOOL CanCloseFrame(CFrameWnd* pFrame);
 	virtual BOOL OnSaveDocument(LPCTSTR lpszPathName);
 	//}}AFX_VIRTUAL
+	virtual void ReportSaveLoadException(LPCTSTR lpszPathName, CException* e, BOOL bSaving, UINT nIDPDefault);
 
 public:
 	virtual void SetModifiedFlag( BOOL bModified = TRUE );

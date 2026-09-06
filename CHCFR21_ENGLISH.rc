@@ -4132,6 +4132,8 @@ BEGIN
     IDS_CALIB_METHOD_OUT_OF_SYNC "The calibration method selected in Options differs from the one currently applied to these measurements - they were not recomputed after the method was changed. The export will reflect the APPLIED method.\n\nTo recompute first, cancel and run Create using Existing Reference Measures (or a calibration command).\n\nContinue with the export?"
     IDS_BODNER_SKIPPED_FMT      "%d measurement(s) recorded before this feature was enabled could not be recalibrated."
     IDS_EXPORT_LAYOUT_MISMATCH  "Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data."
+    IDS_SCHEMA_NEWER        "This file was written by a newer version of HCFR (%s version %d). Update HCFR to open it."
+    IDS_SCHEMA_UNRELEASED   "This file was written by an unreleased development build of HCFR (%s version %d) and cannot be read. Regenerate it."
 END
 
 #endif    // English (United States) resources

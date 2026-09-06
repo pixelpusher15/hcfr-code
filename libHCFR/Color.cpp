@@ -3105,17 +3105,31 @@ void CSpectrum::Serialize(CArchive& archive)
 {
 	if (archive.IsStoring())
 	{
-		int version=1;
+		// v2 (issue #193): v1 plus an extension trailer, empty so far.
+		int version=2;
 		archive << version;
 		Matrix::Serialize(archive);
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 1 )
+		if ( version > 2 )
+			throw new CNewerSchemaException ( "CSpectrum", version );
+		if ( version < 1 )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 		Matrix::Serialize(archive);
+		if ( version >= 2 )
+		{
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 #endif

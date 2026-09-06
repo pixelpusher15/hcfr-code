@@ -24,6 +24,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "OneDeviceSensor.h"
+#include "ArchiveExtension.h"
 #include "Generator.h"
 #include "Signature.h"
 #include <math.h>
@@ -56,7 +57,9 @@ void CCalibrationInfo::Serialize(CArchive& archive)
 {
 	if (archive.IsStoring())
 	{
-		int version=2;
+		// v3 (issue #193) = the v2 layout plus an extension trailer, empty so
+		// far. The SaveOldCalibrationFile switch still writes v1.
+		int version=3;
 
 		if ( GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
 			version = 1;
@@ -72,13 +75,18 @@ void CCalibrationInfo::Serialize(CArchive& archive)
 			m_BlackRef.Serialize(archive);
 			archive << m_Author;
 		}
+		if ( version >= 3 )
+		{
+			CExtensionWriter ext;
+			ext.Write(archive);
+		}
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 2 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 3 )
+			throw new CNewerSchemaException ( "CCalibrationInfo", version );
 		m_measures.Serialize(archive);
 		m_references.Serialize(archive);
 		m_WhiteTest.Serialize(archive);
@@ -94,6 +102,15 @@ void CCalibrationInfo::Serialize(CArchive& archive)
 			m_BlackTest=noDataColor;
 			m_BlackRef=noDataColor;
 			m_Author.Empty();
+		}
+		if ( version >= 3 )
+		{
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
 		}
 	}
 }
@@ -260,12 +277,20 @@ void COneDeviceSensor::Serialize(CArchive& archive)
 	CSensor::Serialize(archive) ;
 	if (archive.IsStoring())
 	{
-		int version=3;
-		if ( m_pCalibrationInfo != NULL )
-			version = 4;
+		// v5 (issue #193): the calibration info's presence is an explicit BOOL
+		// instead of being encoded in the version number, the file name is
+		// always written, and the block ends with an extension trailer. The
+		// SaveOldCalibrationFile switch keeps the historical 1/2 computation
+		// (3/4 minus 2) so a downgraded file is byte for byte what it was.
+		int version = 5;
 
 		if ( GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
+		{
+			version = 3;
+			if ( m_pCalibrationInfo != NULL )
+				version = 4;
 			version -= 2;
+		}
 
 		archive << version;
 		archive << m_calibrationIRELevel;
@@ -276,19 +301,26 @@ void COneDeviceSensor::Serialize(CArchive& archive)
 		m_primariesChromacities.Serialize(archive);
 		m_whiteChromacity.Serialize(archive);
 		archive << m_calibrationReferenceName;
+		if ( version >= 5 )
+			archive << (BOOL) ( m_pCalibrationInfo != NULL );
 		if ( m_pCalibrationInfo != NULL )
 		{
 			m_pCalibrationInfo->Serialize(archive);
 		}
 		if ( version >= 3 )
 			archive << m_CalibrationFileName;
+		if ( version >= 5 )
+		{
+			CExtensionWriter ext;
+			ext.Write(archive);
+		}
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 4 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 5 )
+			throw new CNewerSchemaException ( "COneDeviceSensor", version );
 		archive >> m_calibrationIRELevel;
 		archive >> m_doBlackCompensation;
 		archive >> m_doVerifyAdditivity;
@@ -297,13 +329,23 @@ void COneDeviceSensor::Serialize(CArchive& archive)
 		m_primariesChromacities.Serialize(archive);
 		m_whiteChromacity.Serialize(archive);
 		archive >> m_calibrationReferenceName;
-		
+
 		if ( m_pCalibrationInfo )
 		{
 			delete m_pCalibrationInfo;
 			m_pCalibrationInfo = NULL;
 		}
-		if ( version == 2 || version == 4 )
+		if ( version >= 5 )
+		{
+			BOOL bHasCalibrationInfo;
+			archive >> bHasCalibrationInfo;
+			if ( bHasCalibrationInfo )
+			{
+				m_pCalibrationInfo = new CCalibrationInfo;
+				m_pCalibrationInfo->Serialize(archive);
+			}
+		}
+		else if ( version == 2 || version == 4 )
 		{
 			m_pCalibrationInfo = new CCalibrationInfo;
 			m_pCalibrationInfo->Serialize(archive);
@@ -314,6 +356,15 @@ void COneDeviceSensor::Serialize(CArchive& archive)
 		else
 			m_CalibrationFileName.Empty();
 
+		if ( version >= 5 )
+		{
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 
@@ -403,6 +454,21 @@ static void ReportCalibrationLoadFailure ( LPCSTR lpszPath, CException * e )
 	CString	strMsg;
 	char	szCause [ 512 ];
 
+	// A file written by a newer HCFR, or by an unreleased development build,
+	// is not damaged: say which, naming the file, instead of MFC's
+	// "incorrect schema".
+	if ( e != NULL && e -> IsKindOf ( RUNTIME_CLASS ( CNewerSchemaException ) ) )
+	{
+		CNewerSchemaException *	pEx = (CNewerSchemaException *) e;
+		CString					strText;
+
+		strText.Format ( pEx -> m_unreleased ? IDS_SCHEMA_UNRELEASED : IDS_SCHEMA_NEWER, (LPCSTR) pEx -> m_block, pEx -> m_version );
+		strWhat.Format ( "%s\n%s", lpszPath, (LPCSTR) strText );
+		strMsg.Format ( IDS_THC_LOAD_FAILED, (LPCSTR) strWhat );
+		AfxMessageBox ( strMsg, MB_OK | MB_ICONEXCLAMATION );
+		return;
+	}
+
 	if ( e != NULL )
 	{
 		if ( e -> IsKindOf ( RUNTIME_CLASS ( CArchiveException ) ) )
@@ -436,64 +502,53 @@ static void ReportCalibrationLoadFailure ( LPCSTR lpszPath, CException * e )
 
 BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 {
-	// Serialize's load branch overwrites the sensor field by field and frees
-	// m_pCalibrationInfo before the version-gated read, so a file that is
-	// rejected part-way through - a truncated one, or a schema this build does
-	// not know - leaves the sensor carrying pieces of it. So hold the whole of
-	// the old state and put it back: a file that could not be read changes
-	// nothing, and FALSE says so to the caller that has to decide whether the
-	// document changed with it.
-	Matrix				previousMatrix = m_sensorToXYZMatrix;
-	time_t				previousTime = m_calibrationTime;
-	float				previousIRELevel = m_calibrationIRELevel;
-	BOOL				bPreviousBlackComp = m_doBlackCompensation;
-	BOOL				bPreviousVerifyAdd = m_doVerifyAdditivity;
-	BOOL				bPreviousShowAdd = m_showAdditivityResults;
-	int					nPreviousMaxAddErr = m_maxAdditivityErrorPercent;
-	Matrix				previousPrimaries = m_primariesChromacities;
-	Matrix				previousWhite = m_whiteChromacity;
-	CString				strPreviousRef = m_calibrationReferenceName;
-	CString				strPreviousName = m_CalibrationFileName;
-	CCalibrationInfo *	pPreviousInfo = m_pCalibrationInfo;
+	// Serialize's load branch overwrites the sensor field by field, so a file
+	// that is rejected part-way through - a truncated one, or a schema this
+	// build does not know - would leave the sensor carrying pieces of it. So
+	// read the file into a temporary of this concrete class and copy it over
+	// only once the whole of it was read: a file that could not be read
+	// changes nothing, and FALSE says so to the caller that has to decide
+	// whether the document changed with it. Copy() carries everything the
+	// file holds (the matrix, time, method, the six Bodner matrices, the
+	// calibration settings, primaries, white, reference name and calibration
+	// info), which a hand-maintained restore list did not.
+	COneDeviceSensor *	pLoaded = (COneDeviceSensor *) GetRuntimeClass () -> CreateObject ();
 	BOOL				bLoaded = FALSE;
-
-	// Detach it first: Serialize deletes whatever the member points at, and
-	// that is the copy we are keeping.
-	m_pCalibrationInfo = NULL;
 
 	TRY
 	{
+		if ( pLoaded == NULL )
+			AfxThrowNotSupportedException ();
+
 		CFile loadFile(aFileName,CFile::modeRead);
 		CArchive ar(&loadFile,CArchive::load);
 
-		COneDeviceSensor::Serialize(ar);
+		pLoaded -> COneDeviceSensor::Serialize(ar);
 
+		// Copy() also carries state the file does not: the sensor's name
+		// (a fresh CArgyllSensor is "Argyll Meter", the live one is the
+		// meter's) and the modifier matrix. Keep ours.
+		CString	strName = m_name;
+		Matrix	matMod = m_sensorToXYZMatrixMod;
+
+		Copy ( pLoaded );
+
+		m_name = strName;
+		m_sensorToXYZMatrixMod = matMod;
+
+		// COneDeviceSensor::Copy does not carry the file name; set it as the
+		// load has always done.
 		m_CalibrationFileName = loadFile.GetFileTitle ();
-
-		delete pPreviousInfo;
 
 		bLoaded = TRUE;
 	}
 	CATCH_ALL ( e )
 	{
-		delete m_pCalibrationInfo;
-
-		m_sensorToXYZMatrix = previousMatrix;
-		m_calibrationTime = previousTime;
-		m_calibrationIRELevel = previousIRELevel;
-		m_doBlackCompensation = bPreviousBlackComp;
-		m_doVerifyAdditivity = bPreviousVerifyAdd;
-		m_showAdditivityResults = bPreviousShowAdd;
-		m_maxAdditivityErrorPercent = nPreviousMaxAddErr;
-		m_primariesChromacities = previousPrimaries;
-		m_whiteChromacity = previousWhite;
-		m_calibrationReferenceName = strPreviousRef;
-		m_CalibrationFileName = strPreviousName;
-		m_pCalibrationInfo = pPreviousInfo;
-
 		ReportCalibrationLoadFailure ( aFileName, e );
 	}
 	END_CATCH_ALL
+
+	delete pLoaded;
 
 	return bLoaded;
 }

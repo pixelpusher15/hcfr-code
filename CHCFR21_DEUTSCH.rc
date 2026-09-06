@@ -4150,6 +4150,8 @@ BEGIN
     IDS_CALIB_METHOD_OUT_OF_SYNC "Die in den Optionen gewählte Kalibrierungsmethode weicht von der ab, die derzeit auf diese Messungen angewendet ist - sie wurden nach dem Wechsel der Methode nicht neu berechnet. Der Export gibt die ANGEWENDETE Methode wieder.\n\nUm zuerst neu zu berechnen, brechen Sie ab und führen Sie 'Mit vorhandenen Referenzmessungen erstellen' (oder einen Kalibrierungsbefehl) aus.\n\nMit dem Export fortfahren?"
     IDS_BODNER_SKIPPED_FMT      "%d Messung(en), die vor Aktivierung dieser Funktion aufgezeichnet wurden, konnten nicht neu kalibriert werden."
     IDS_EXPORT_LAYOUT_MISMATCH  "Zu dieser Datei kann nichts hinzugefügt werden: Sie wurde mit anderen Rohdaten-/Stimulus-Optionen exportiert. Exportieren Sie in eine neue Datei oder wiederholen Sie den Export mit denselben Optionen wie die vorhandenen Daten."
+    IDS_SCHEMA_NEWER        "This file was written by a newer version of HCFR (%s version %d). Update HCFR to open it."
+    IDS_SCHEMA_UNRELEASED   "This file was written by an unreleased development build of HCFR (%s version %d) and cannot be read. Regenerate it."
 END
 
 #endif    // Deutsch (Deutschland) resources

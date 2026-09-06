@@ -2018,6 +2018,8 @@
 #define IDS_CALIB_METHOD_OUT_OF_SYNC    59743
 #define IDS_BODNER_SKIPPED_FMT          59744
 #define IDS_EXPORT_LAYOUT_MISMATCH      59745
+#define IDS_SCHEMA_NEWER                59746
+#define IDS_SCHEMA_UNRELEASED           59747
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550

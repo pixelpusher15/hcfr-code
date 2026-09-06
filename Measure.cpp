@@ -27,6 +27,7 @@
 #include "MainFrm.h"
 #include "Measure.h"
 #include "AsyncMeasurer.h"
+#include "ArchiveExtension.h"
 #include "Generator.h"
 #include "LuxScaleAdvisor.h"
 #include "DataSetDoc.h"
@@ -377,9 +378,10 @@ void CMeasure::Serialize(CArchive& ar)
 
 	if (ar.IsStoring())
 	{
-		// Version 20 only when a display profile exists: documents without one keep
-		// version 19 so they stay readable by older builds.
-	    int version = HasProfileMeasures() ? 20 : 19;
+		// Version 22 (issue #193): the v20 layout with the display-profile block
+		// always present (empty when there is no profile), then an extension
+		// trailer. One version from here on: new fields go in the trailer.
+	    int version = 22;
 		ar << version;
 
 		StoreActiveSatLevel();	// capture the bound sweeps before writing the store
@@ -528,8 +530,20 @@ void CMeasure::Serialize(CArchive& ar)
 			}
 		}
 
-		// Version 20: display profile capture (see version selection above)
-		if ( HasProfileMeasures() )
+		// Version 20: display profile capture. Since version 22 the block is
+		// always written; without a profile it is the settings, an empty
+		// measure list (just the end marker) and no anchors.
+		if ( ! HasProfileMeasures() )
+		{
+			ar << m_profileCubeSize;
+			ar << m_profileGrayExtras;
+			ar << m_profileDriftComp;
+			ar << m_profileCaptureSeconds;
+			ar << (int) 0;
+			MarkerColor.Serialize(ar);
+			ar << (int) 0;
+		}
+		else
 		{
 			ar << m_profileCubeSize;
 			ar << m_profileGrayExtras;
@@ -554,15 +568,21 @@ void CMeasure::Serialize(CArchive& ar)
 				m_profileDriftAnchors[i].Serialize(ar);
 			}
 		}
+
+		CExtensionWriter ext;
+		ext.Write(ar);
 	}
 	else
 	{
 	    int version;
 		ar >> version;
 
-
-		if ( version > 20 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 22 )
+			throw new CNewerSchemaException ( "CMeasure", version );
+		// 21 was the unreleased csv-provenance layout (user patch sets as a
+		// versioned field); that work re-expresses them as a trailer tag.
+		if ( version == 21 )
+			throw new CNewerSchemaException ( "CMeasure", version, true );
 
 
 		if ( version > 16)
@@ -968,6 +988,17 @@ void CMeasure::Serialize(CArchive& ar)
 				ar >> m_profileDriftAnchorIdx[i];
 				m_profileDriftAnchors[i].Serialize(ar);
 			}
+		}
+
+		// Version 22: extension trailer, the last thing in the block
+		if ( version >= 22 )
+		{
+			CExtensionReader ext(ar);
+			BYTE  tag;
+			DWORD cb;
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
 		}
 		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
 

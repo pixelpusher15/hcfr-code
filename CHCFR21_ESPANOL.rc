@@ -4250,6 +4250,8 @@ BEGIN
     IDS_CALIB_METHOD_OUT_OF_SYNC "El método de calibración seleccionado en Opciones difiere del aplicado actualmente a estas medidas: no se recalcularon tras cambiar el método. La exportación reflejará el método APLICADO.\n\nPara recalcular primero, cancele y ejecute 'Crear usando medidas de referencia existentes' (o un comando de calibración).\n\n¿Continuar con la exportación?"
     IDS_BODNER_SKIPPED_FMT      "No se pudieron recalibrar %d medida(s) registradas antes de activar esta función."
     IDS_EXPORT_LAYOUT_MISMATCH  "No se puede añadir a este archivo: se exportó con opciones de Bruto/Estímulo distintas. Exporte a un archivo nuevo o repita la exportación con las mismas opciones que los datos existentes."
+    IDS_SCHEMA_NEWER        "This file was written by a newer version of HCFR (%s version %d). Update HCFR to open it."
+    IDS_SCHEMA_UNRELEASED   "This file was written by an unreleased development build of HCFR (%s version %d) and cannot be read. Regenerate it."
 END
 
 #endif    // Spanish (Spain, International Sort) resources
