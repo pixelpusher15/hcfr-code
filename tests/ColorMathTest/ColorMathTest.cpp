@@ -1832,6 +1832,66 @@ namespace T19Ext
                 free(buf);
             }
         }
+        // Close() without iterating: the whole region is discarded when it is
+        // there, and a region claiming more than the stream holds is an
+        // endOfFile, never a silent short read. This is the one path the
+        // CColor loop cannot reach (it iterates to the end), so pin it here.
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            Bytes b;
+            if (pass == 0)
+            {
+                PutDword(b, 8);
+                PutByte(b, 5);
+                PutDword(b, 3);
+                PutByte(b, 1); PutByte(b, 2); PutByte(b, 3);
+                PutInt(b, 0x5A5A5A5A);
+            }
+            else
+            {
+                PutDword(b, 20);
+                for (int i = 0; i < 10; ++i)
+                    PutByte(b, 0x00);
+            }
+            size_t n = b.size();
+            BYTE* buf = (BYTE*)malloc(n);
+            memcpy(buf, &b[0], n);
+            CMemFile mem;
+            mem.Attach(buf, (UINT)n);
+            {
+                CArchive ar(&mem, CArchive::load);
+                bool threw = false;
+                try
+                {
+                    CExtensionReader r(ar);
+                    r.Close();
+                    if (pass == 0)
+                    {
+                        int next = 0;
+                        ar >> next;
+                        if (next != 0x5A5A5A5A)
+                            Fail("T19 (e) close-only: stream at 0x%08X after Close, expected 0x5A5A5A5A", next);
+                    }
+                }
+                catch (CArchiveException* ex)
+                {
+                    threw = (ex->m_cause == CArchiveException::endOfFile);
+                    ex->Delete();
+                }
+                catch (CException* e)
+                {
+                    FailUnexpected("(e) close-only", e);
+                    threw = true;
+                }
+                if (pass == 0 && threw)
+                    Fail("T19 (e) close-only: Close over a complete region threw");
+                if (pass == 1 && !threw)
+                    Fail("T19 (e) close-only: Close over a short region did not throw endOfFile");
+                ar.Abort();
+            }
+            mem.Detach();
+            free(buf);
+        }
     }
 }
 
