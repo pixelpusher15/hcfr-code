@@ -2930,112 +2930,11 @@ void CSpectrum::Serialize(CArchive& archive)
 }
 #endif
 
-// Range a ColourSpace patch-list CSV can declare in its header. Default (no header)
-// keeps the historical 8-bit-legal behaviour so pre-existing user files still load.
-// Range values are the shared CSV_RANGE_* enum from Color.h (CSV_RANGE_NONE = -1 is the
-// no-header legacy default). One spelling for producers and consumers, not two coupled by luck.
-
-// One source code -> HCFR stimulus percentage, honouring the declared bit depth (8 or 10)
-// and range. Full: 0..(2^bits-1) -> 0..100. Legal/Extended: black..white (16..235 at 8-bit,
-// 64..940 at 10-bit) -> 0..100; Extended keeps super-white (>100%), Legal/legacy clamp [0,100].
-double CsvCodeToPercent(double code, int bits, int range)
-{
-	int maxCode = (1 << bits) - 1;
-	if (range == CSV_RANGE_FULL)
-		return code * 100.0 / maxCode;
-	double black = 16.0  * (1 << (bits - 8));
-	double white = 235.0 * (1 << (bits - 8));
-	double pct = ( code - black ) / ( white - black ) * 100.0;
-	if (range == CSV_RANGE_EXTENDED)
-		return pct;
-	return ( pct < 0.0 ) ? 0.0 : ( pct > 100.0 ? 100.0 : pct );
-}
-
-// Shared low-level patch-list parser: reads a CSV into raw code rows (patch#, R,G,B, name),
-// header/patch-column aware, reporting the declared bit depth + range. One parser feeds both
-// ReadColorsFromCsv (percentages) and CColorHCFRConfig::GetCColors (codes + names).
+// The patch-list CSV parser and CsvCodeToPercent live in CsvPatchRows.cpp (MFC-free).
+// This overload keeps the CString call sites unchanged.
 int ReadCsvPatchRows(CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut)
 {
-	rows.clear();
-	if (bitsOut)  *bitsOut  = 8;
-	if (rangeOut) *rangeOut = CSV_RANGE_NONE;
-	ifstream colorFile(csvPath);
-	if (!colorFile)
-		return -1;
-
-	std::string line;
-	int bits = 8;
-	int range = CSV_RANGE_NONE;
-	bool hasHeader = false;
-
-	while (std::getline(colorFile, line) && (int)rows.size() < maxRows)
-	{
-		while (!line.empty() && (line[line.size()-1] == '\r' || line[line.size()-1] == ' ' || line[line.size()-1] == '\t'))
-			line.erase(line.size()-1);
-		size_t b0 = line.find_first_not_of(" \t");
-		if (b0 == std::string::npos)
-			continue;
-
-		if (line[b0] == '#')
-		{
-			// Only a leading '#' line (before any data) that carries a BITDEPTH or RANGE
-			// directive declares the format - and that declaration is what marks the file
-			// headered (schema = PatchNumber,R,G,B[,Name]). A plain comment must NOT flip a
-			// legacy R,G,B[,Name] file's columns, and the range must come from the RANGE
-			// token (not a bare "full"/"legal"/"extended" substring that "# full sweep" or
-			// "# illegal codes" would trip). Later '#' lines are treated as comments.
-			if (rows.empty())
-			{
-				std::string up = line;
-				for (size_t k = 0; k < up.size(); k++) up[k] = (char)toupper((unsigned char)up[k]);
-				size_t bp = up.find("BITDEPTH");
-				if (bp != std::string::npos)
-				{
-					int v = atoi(up.c_str() + bp + 8);
-					if (v == 8 || v == 10) { bits = v; hasHeader = true; }
-				}
-				size_t rp = up.find("RANGE");
-				if (rp != std::string::npos)
-				{
-					size_t p = rp + 5;			// first token after "RANGE"
-					while (p < up.size() && (up[p] == ' ' || up[p] == '\t' || up[p] == ',' || up[p] == '=' || up[p] == ':')) p++;
-					int r = -2;
-					if      (up.compare(p, 8, "EXTENDED") == 0) r = CSV_RANGE_EXTENDED;
-					else if (up.compare(p, 4, "FULL")     == 0) r = CSV_RANGE_FULL;
-					else if (up.compare(p, 5, "LEGAL")    == 0) r = CSV_RANGE_LEGAL;
-					if (r != -2) { range = r; hasHeader = true; }
-				}
-			}
-			continue;
-		}
-
-		std::string fld[5];
-		int nf = 0;
-		std::istringstream s(line);
-		std::string field;
-		while (nf < 5 && std::getline(s, field, ','))
-			fld[nf++] = field;
-		int base = (hasHeader && nf >= 4) ? 1 : 0;   // skip the leading PatchNumber column when headered
-		if (nf < base + 3)
-			continue;
-
-		CsvPatchRow pr;
-		pr.patch = base ? atoi(fld[0].c_str()) : (int)rows.size();
-		pr.r = (int)atof(fld[base].c_str());
-		pr.g = (int)atof(fld[base+1].c_str());
-		pr.b = (int)atof(fld[base+2].c_str());
-		if (nf > base + 3)
-		{
-			std::string nm = fld[base+3];
-			size_t s0 = nm.find_first_not_of(" \t");
-			size_t s1 = nm.find_last_not_of(" \t");
-			pr.name = (s0 == std::string::npos) ? std::string() : nm.substr(s0, s1 - s0 + 1);
-		}
-		rows.push_back(pr);
-	}
-	if (bitsOut)  *bitsOut  = bits;
-	if (rangeOut) *rangeOut = range;
-	return (int)rows.size();
+	return ReadCsvPatchRows((LPCSTR)csvPath, rows, maxRows, bitsOut, rangeOut);
 }
 
 // Header-aware ColourSpace patch-list importer. An optional first line
