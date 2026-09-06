@@ -96,6 +96,7 @@
     <ClCompile Include="..\Color.cpp" />
     <ClCompile Include="..\CsvPatchRows.cpp" />
     <ClCompile Include="..\PatchSequence.cpp" />
+    <ClCompile Include="..\PatchOrdering.cpp" />
     <ClCompile Include="..\PatchSequenceFile.cpp" />
     <ClCompile Include="..\CriticalSection.cpp" />
     <ClCompile Include="..\Endianness.cpp" />
@@ -111,6 +112,7 @@
     <ClInclude Include="..\Color.h" />
     <ClInclude Include="..\CsvPatchRows.h" />
     <ClInclude Include="..\PatchSequence.h" />
+    <ClInclude Include="..\PatchOrdering.h" />
     <ClInclude Include="..\PatchSequenceFile.h" />
     <ClInclude Include="..\CriticalSection.h" />
     <ClInclude Include="..\Endianness.h" />
