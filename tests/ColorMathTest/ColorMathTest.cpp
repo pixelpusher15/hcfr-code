@@ -1548,7 +1548,11 @@ namespace T20File
         ok = ok && s.AddRow(1, 50.0, 50.0, 50.0, "Gray 50", 'A');
         ok = ok && s.AddRow(2, 100.0, 0.0, 0.0, "Red 100", 'C');
         ok = ok && s.AddRow(0, 0.0, 0.0, 0.0, "Background", 'I');
-        ok = ok && s.AddRow(3, 1.0, 1.0, 1.0, "Gray 1", 'C');
+        // 1% is not on the 10-bit legal grid (64 + 8.76 = 72.76); the pinned
+        // row stores exactly what code 73 decodes to, so the exact R,G,B
+        // comparison after a parse does real work.
+        const double gray1 = CsvCodeToPercent(73, 10, CSV_RANGE_LEGAL);
+        ok = ok && s.AddRow(3, gray1, gray1, gray1, "Gray 1", 'C');
         ok = ok && s.AddRow(1, 50.0, 50.0, 50.0, "Gray 50", 'A');
         if (!ok)
             return false;
