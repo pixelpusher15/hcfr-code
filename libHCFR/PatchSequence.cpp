@@ -25,7 +25,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <map>
 #include <set>
+#include <vector>
 
 #ifdef LIBHCFR_HAS_WIN32_API
 #ifndef WIN32_LEAN_AND_MEAN
@@ -53,11 +55,25 @@ namespace
     const int kRangeLegal    = 1;
     const int kRangeExtended = 2;
 
+    // The extended span: the 10-bit video-range code span 0..1023 read
+    // back through CsvCodeToPercent's LEGAL/EXTENDED mapping,
+    // (code - 64) / (940 - 64) * 100, so an EXTENDED patch list round
+    // trips without silent clamping.
+    const double kExtendedLoPct = -6400.0 / 876.0;
+    const double kExtendedHiPct = 95900.0 / 876.0;
+
     bool ValidComponent(double v)
     {
         if (!_finite(v))
             return false;
         return (v >= 0.0 && v <= 100.0);
+    }
+
+    bool ValidExtendedComponent(double v)
+    {
+        if (!_finite(v))
+            return false;
+        return (v >= kExtendedLoPct && v <= kExtendedHiPct);
     }
 
     // Stored values carry one bit pattern per value: fold -0.0 into +0.0
@@ -86,6 +102,32 @@ namespace
         return true;
     }
 
+    // A group name follows the name rules and is additionally a single
+    // token (it is written bare in the file's GROUP directive).
+    bool ValidGroupName(const std::string& group)
+    {
+        if (!ValidName(group))
+            return false;
+        return group.find(' ') == std::string::npos;
+    }
+
+    // A timing field is either -1 ("not set here") or a non-negative
+    // finite value; an average is either -1 or a count of at least one.
+    bool ValidTimingField(double v)
+    {
+        if (!_finite(v))
+            return false;
+        return (v >= 0.0 || v == -1.0);
+    }
+
+    bool ValidTiming(const PatchTiming& t)
+    {
+        if (!ValidTimingField(t.settle) || !ValidTimingField(t.hold)
+            || !ValidTimingField(t.integration))
+            return false;
+        return (t.average >= 1 || t.average == -1);
+    }
+
     // Endpoint-exact uniform grid: level i of count over [lo,hi].
     double GridLevel(int i, int count, double lo, double hi)
     {
@@ -100,11 +142,47 @@ namespace
         return std::string(buf);
     }
 
-    std::string FormatCubeName(double r, double g, double b)
+    std::string FormatNodeName(const char* word, double r, double g, double b)
     {
         char buf[192];
-        snprintf(buf, sizeof(buf), "Cube %g/%g/%g", r, g, b);
+        snprintf(buf, sizeof(buf), "%s %g/%g/%g", word, r, g, b);
         return std::string(buf);
+    }
+
+    struct LatticeNode { double v[3]; };
+
+    // The one lattice walk: red slowest / blue fastest, the nesting
+    // GenerateProfileColors uses, with `axis` carrying the n per-index
+    // component values. A mapped lattice (the inset shell) therefore walks
+    // exactly the node order of the plain one.
+    void CollectLattice(int n, bool shellOnly, const double* axis,
+                        std::vector<LatticeNode>& out)
+    {
+        size_t total = (size_t)n * (size_t)n * (size_t)n;
+        if (shellOnly)
+            total -= (size_t)(n - 2) * (size_t)(n - 2) * (size_t)(n - 2);
+        out.clear();
+        out.reserve(total);
+
+        for (int r = 0; r < n; ++r)
+        {
+            bool rEdge = (r == 0 || r == n - 1);
+            for (int g = 0; g < n; ++g)
+            {
+                bool gEdge = (g == 0 || g == n - 1);
+                for (int b = 0; b < n; ++b)
+                {
+                    bool bEdge = (b == 0 || b == n - 1);
+                    if (shellOnly && !rEdge && !gEdge && !bEdge)
+                        continue;           // interior node
+                    LatticeNode node;
+                    node.v[0] = axis[r];
+                    node.v[1] = axis[g];
+                    node.v[2] = axis[b];
+                    out.push_back(node);
+                }
+            }
+        }
     }
 
     bool ValidRampArgs(int count, double lo, double hi)
@@ -178,11 +256,9 @@ int PatchSequence::NextIdentity() const
     return next;
 }
 
-// NOT YET IMPLEMENTED (red baseline): the extended span. Until then the
-// strict 0..100 rule applies regardless of m_extended.
 bool PatchSequence::ValidComponentHere(double v) const
 {
-    return ValidComponent(v);
+    return m_extended ? ValidExtendedComponent(v) : ValidComponent(v);
 }
 
 int PatchSequence::GetIdentity(int index) const
@@ -215,27 +291,50 @@ bool PatchSequence::GetTiming(int index, PatchTiming& timing) const
     return true;
 }
 
-// NOT YET IMPLEMENTED: red-baseline stubs so the T20 oracles link and fail.
-// The behavioral contract lives in PatchSequence.h.
-
-bool PatchSequence::SetRole(int, char)
+bool PatchSequence::SetRole(int index, char role)
 {
-    return false;
+    if (index < 0 || index >= (int)m_entries.size())
+        return false;
+    if (!ValidRole(role))
+        return false;
+    m_entries[(size_t)index].role = role;
+    return true;
 }
 
-bool PatchSequence::SetGroup(int, const std::string&)
+bool PatchSequence::SetGroup(int index, const std::string& group)
 {
-    return false;
+    if (index < 0 || index >= (int)m_entries.size())
+        return false;
+    if (!ValidGroupName(group))
+        return false;
+    m_entries[(size_t)index].group = group;
+    return true;
 }
 
-bool PatchSequence::SetTiming(int, const PatchTiming&)
+bool PatchSequence::SetTiming(int index, const PatchTiming& timing)
 {
-    return false;
+    if (index < 0 || index >= (int)m_entries.size())
+        return false;
+    if (!ValidTiming(timing))
+        return false;
+    m_entries[(size_t)index].timing = timing;
+    return true;
 }
 
-bool PatchSequence::SetExtended(bool)
+// Widening is always safe; narrowing is refused while an entry sits
+// outside 0..100, so the invariant "every stored value is in the accepted
+// span" holds at all times.
+bool PatchSequence::SetExtended(bool extended)
 {
-    return false;
+    if (!extended)
+    {
+        for (size_t i = 0; i < m_entries.size(); ++i)
+            for (int k = 0; k < 3; ++k)
+                if (!ValidComponent(m_entries[i].rgb[k]))
+                    return false;
+    }
+    m_extended = extended;
+    return true;
 }
 
 bool PatchSequence::IsExtended() const
@@ -243,24 +342,161 @@ bool PatchSequence::IsExtended() const
     return m_extended;
 }
 
-bool PatchSequence::AddRow(int, double, double, double, const std::string&, char)
+bool PatchSequence::AddRow(int id, double rPct, double gPct, double bPct,
+                           const std::string& name, char role)
 {
-    return false;
+    if (id < 0)
+        return false;
+    if (!ValidRole(role))
+        return false;
+    if (!ValidComponentHere(rPct) || !ValidComponentHere(gPct)
+        || !ValidComponentHere(bPct))
+        return false;
+    if (!ValidName(name))
+        return false;
+
+    double rgb[3];
+    rgb[0] = NormalizeComponent(rPct);
+    rgb[1] = NormalizeComponent(gPct);
+    rgb[2] = NormalizeComponent(bPct);
+
+    // A repeat must repeat: the first entry carrying this identity is the
+    // definition, and its stimulus is binding, bit for bit.
+    for (size_t i = 0; i < m_entries.size(); ++i)
+    {
+        if (m_entries[i].id != id)
+            continue;
+        const Entry& def = m_entries[i];
+        if (def.rgb[0] != rgb[0] || def.rgb[1] != rgb[1] || def.rgb[2] != rgb[2])
+            return false;
+        break;
+    }
+
+    Entry e;
+    e.id = id;
+    e.role = role;
+    e.rgb[0] = rgb[0];
+    e.rgb[1] = rgb[1];
+    e.rgb[2] = rgb[2];
+    e.name = name;
+    m_entries.push_back(e);
+    return true;
 }
 
-bool PatchSequence::AddGrayPowerRamp(int, double, double, double)
+// The near-black placement rule: a power-law grid over [lo,hi]. The two
+// endpoints are taken as written rather than through pow, so the ramp
+// starts at exactly loPct and ends at exactly hiPct whatever the exponent.
+bool PatchSequence::AddGrayPowerRamp(int count, double loPct, double hiPct,
+                                     double exponent)
 {
-    return false;
+    if (!ValidRampArgs(count, loPct, hiPct))
+        return false;
+    if (!_finite(exponent) || exponent <= 0.0)
+        return false;
+
+    m_entries.reserve(m_entries.size() + (size_t)count);
+    int nextId = NextIdentity();
+    for (int i = 0; i < count; ++i)
+    {
+        double level;
+        if (i == 0)
+            level = loPct;
+        else if (i == count - 1)
+            level = hiPct;
+        else
+        {
+            double u = (double)i / (double)(count - 1);
+            level = loPct + (hiPct - loPct) * pow(u, exponent);
+        }
+        level = NormalizeComponent(level);
+
+        Entry e;
+        e.id = nextId++;
+        e.role = 'C';
+        e.rgb[0] = level;
+        e.rgb[1] = level;
+        e.rgb[2] = level;
+        e.name = FormatLevelName("Gray", level);
+        m_entries.push_back(e);
+    }
+    return true;
 }
 
-bool PatchSequence::AddShellInset(int, double)
+// The shell walk with every component mapped from [0,100] onto
+// [insetPct, 100-insetPct] - endpoint-exact, so a face node lands on the
+// inset value itself.
+bool PatchSequence::AddShellInset(int n, double insetPct)
 {
-    return false;
+    if (n < 2 || n > 33)
+        return false;
+    if (!_finite(insetPct) || insetPct <= 0.0 || insetPct >= 50.0)
+        return false;
+
+    std::vector<double> axis((size_t)n);
+    for (int i = 0; i < n; ++i)
+    {
+        double u = GridLevel(i, n, 0.0, 100.0) / 100.0;
+        axis[(size_t)i] = insetPct * (1.0 - u) + (100.0 - insetPct) * u;
+    }
+
+    std::vector<LatticeNode> nodes;
+    CollectLattice(n, true, &axis[0], nodes);
+
+    m_entries.reserve(m_entries.size() + nodes.size());
+    int nextId = NextIdentity();
+    for (size_t i = 0; i < nodes.size(); ++i)
+    {
+        Entry e;
+        e.id = nextId++;
+        e.role = 'C';
+        e.rgb[0] = NormalizeComponent(nodes[i].v[0]);
+        e.rgb[1] = NormalizeComponent(nodes[i].v[1]);
+        e.rgb[2] = NormalizeComponent(nodes[i].v[2]);
+        e.name = FormatNodeName("Inset", e.rgb[0], e.rgb[1], e.rgb[2]);
+        m_entries.push_back(e);
+    }
+    return true;
 }
 
-bool PatchSequence::AddRepeats(int)
+bool PatchSequence::AddRepeats(int count)
 {
-    return false;
+    if (count < 1)
+        return false;
+
+    // Definitions: the first entry carrying each identity, role 'C'. The
+    // map iterates in identity order, which is the documented order.
+    std::map<int, size_t> firstAt;
+    for (size_t i = 0; i < m_entries.size(); ++i)
+        if (firstAt.find(m_entries[i].id) == firstAt.end())
+            firstAt[m_entries[i].id] = i;
+
+    std::vector<size_t> defs;
+    for (std::map<int, size_t>::const_iterator it = firstAt.begin();
+         it != firstAt.end(); ++it)
+        if (m_entries[it->second].role == 'C')
+            defs.push_back(it->second);
+
+    if (count > (int)defs.size())
+        return false;
+    size_t stride = defs.size() / (size_t)count;    // at least 1
+
+    std::vector<Entry> added;
+    added.reserve((size_t)count);
+    for (int t = 0; t < count; ++t)
+    {
+        const Entry& src = m_entries[defs[(size_t)t * stride]];
+        Entry e;
+        e.id = src.id;
+        e.role = 'C';
+        e.rgb[0] = src.rgb[0];
+        e.rgb[1] = src.rgb[1];
+        e.rgb[2] = src.rgb[2];
+        e.name = src.name.empty() ? std::string("repeat")
+                                  : src.name + " repeat";
+        added.push_back(e);
+    }
+    m_entries.insert(m_entries.end(), added.begin(), added.end());
+    return true;
 }
 
 bool PatchSequence::GetPatch(int index, double rgb[3], std::string* name) const
@@ -356,36 +592,25 @@ bool PatchSequence::AppendLattice(int n, bool shellOnly)
     if (n < 2 || n > 33)
         return false;
 
-    size_t total = (size_t)n * (size_t)n * (size_t)n;
-    if (shellOnly)
-        total -= (size_t)(n - 2) * (size_t)(n - 2) * (size_t)(n - 2);
-    m_entries.reserve(m_entries.size() + total);
-    int nextId = NextIdentity();
+    std::vector<double> axis((size_t)n);
+    for (int i = 0; i < n; ++i)
+        axis[(size_t)i] = GridLevel(i, n, 0.0, 100.0);
 
-    for (int r = 0; r < n; ++r)
+    std::vector<LatticeNode> nodes;
+    CollectLattice(n, shellOnly, &axis[0], nodes);
+
+    m_entries.reserve(m_entries.size() + nodes.size());
+    int nextId = NextIdentity();
+    for (size_t i = 0; i < nodes.size(); ++i)
     {
-        double rv = GridLevel(r, n, 0.0, 100.0);
-        bool rEdge = (r == 0 || r == n - 1);
-        for (int g = 0; g < n; ++g)
-        {
-            double gv = GridLevel(g, n, 0.0, 100.0);
-            bool gEdge = (g == 0 || g == n - 1);
-            for (int b = 0; b < n; ++b)
-            {
-                bool bEdge = (b == 0 || b == n - 1);
-                if (shellOnly && !rEdge && !gEdge && !bEdge)
-                    continue;               // interior node
-                double bv = GridLevel(b, n, 0.0, 100.0);
-                Entry e;
-                e.id = nextId++;
-                e.role = 'C';
-                e.rgb[0] = rv;
-                e.rgb[1] = gv;
-                e.rgb[2] = bv;
-                e.name = FormatCubeName(rv, gv, bv);
-                m_entries.push_back(e);
-            }
-        }
+        Entry e;
+        e.id = nextId++;
+        e.role = 'C';
+        e.rgb[0] = nodes[i].v[0];
+        e.rgb[1] = nodes[i].v[1];
+        e.rgb[2] = nodes[i].v[2];
+        e.name = FormatNodeName("Cube", e.rgb[0], e.rgb[1], e.rgb[2]);
+        m_entries.push_back(e);
     }
     return true;
 }
@@ -402,13 +627,58 @@ bool PatchSequence::AddCubeShell(int n)
 
 int PatchSequence::Deduplicate()
 {
-    std::set<const double*, RgbLess> seen;
+    // A DEFINITION is the first entry carrying its identity. Only role-'C'
+    // definitions are removal candidates, and only they can cause a
+    // removal: repeats and other roles are carried through untouched.
+    std::set<int> seenIds;
+    std::vector<bool> isDefinition(m_entries.size(), false);
+    for (size_t i = 0; i < m_entries.size(); ++i)
+        isDefinition[i] = seenIds.insert(m_entries[i].id).second;
+
+    std::map<const double*, int, RgbLess> byRgb;    // stimulus -> survivor
+    std::map<int, int> replaced;                    // removed id -> survivor
     std::vector<Entry> kept;
     kept.reserve(m_entries.size());
     for (size_t i = 0; i < m_entries.size(); ++i)
-        if (seen.insert(m_entries[i].rgb).second)
-            kept.push_back(m_entries[i]);
+    {
+        const Entry& e = m_entries[i];
+        if (isDefinition[i] && e.role == 'C')
+        {
+            std::map<const double*, int, RgbLess>::const_iterator it =
+                byRgb.find(e.rgb);
+            if (it != byRgb.end())
+            {
+                replaced[e.id] = it->second;
+                continue;                   // a duplicate definition
+            }
+            byRgb.insert(std::make_pair((const double*)e.rgb, e.id));
+        }
+        kept.push_back(e);
+    }
     int removed = (int)(m_entries.size() - kept.size());
+
+    // Renumber: every surviving definition takes the next identity in
+    // sequence order, and every repeat follows the definition it now
+    // refers to (the surviving equal one, when its own was removed).
+    std::map<int, int> renumbered;
+    int next = 0;
+    for (size_t i = 0; i < kept.size(); ++i)
+    {
+        int id = kept[i].id;
+        std::map<int, int>::const_iterator r = replaced.find(id);
+        if (r != replaced.end())
+            id = r->second;
+        std::map<int, int>::const_iterator n = renumbered.find(id);
+        if (n == renumbered.end())
+        {
+            renumbered[id] = next;
+            kept[i].id = next;
+            ++next;
+        }
+        else
+            kept[i].id = n->second;
+    }
+
     m_entries.swap(kept);
     return removed;
 }
@@ -434,6 +704,19 @@ bool PatchSequence::WriteCsv(std::string& out, int bits, int range) const
     {
         m_lastError = "unsupported csv range";
         return false;
+    }
+    if (range != kRangeExtended)
+    {
+        // Only EXTENDED can carry super-white / sub-black; any other range
+        // would quantize an out-of-span percent into a code that does not
+        // read back as itself.
+        for (size_t i = 0; i < m_entries.size(); ++i)
+            for (int k = 0; k < 3; ++k)
+                if (!ValidComponent(m_entries[i].rgb[k]))
+                {
+                    m_lastError = "component outside 0..100 for this range";
+                    return false;
+                }
     }
 
     char buf[256];
