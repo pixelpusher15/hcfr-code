@@ -2925,15 +2925,15 @@ static void RunT21()
         // Anchor cadence counts characterization rows only; a block follows the chain.
         {
             PatchSequence s;
-            s.AddPatch(10, 10, 10, "a");                       // 0
+            s.AddPatch(10, 10, 10, "a");                       // identity 0
             s.AddRow(100, 0, 0, 0, "i1", 'I');
             s.AddRow(101, 0, 0, 0, "i2", 'I');
-            s.AddPatch(20, 20, 20, "b");                       // 1
-            s.AddPatch(30, 30, 30, "c");                       // 2
+            s.AddPatch(20, 20, 20, "b");                       // identity 102 (fresh ids continue past 101)
+            s.AddPatch(30, 30, 30, "c");                       // identity 103
             OrderingParams p;
             p.latency = 1.0; p.windowSeconds = 100.0;
             PatchAnchorSpec a;
-            a.id = 2; a.every = 1;
+            a.id = s.GetIdentity(4); a.every = 1;              // "c"
             p.anchors.push_back(a);
             PatchSequence out;
             if (!PatchOrdering::Order(s, p, out, reason))
