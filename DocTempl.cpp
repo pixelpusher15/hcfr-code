@@ -31,6 +31,7 @@
 #include "MultiFrm.h"
 
 #include "DocTempl.h"
+#include "ArchiveExtension.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -214,19 +215,35 @@ void CDataSetViewInfo::Serialize(CArchive& ar)
 {
 	if ( ar.IsStoring () )
 	{
-		int	version = 1;
+		int	version = 2;
 		ar << version;
 		ar << m_nViewIndex;
 		ar << m_dwUserInfo;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(ar);
 	}
 	else
 	{
 		int	version;
 		ar >> version;
-		if ( version > 1 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 2 )
+			throw new CNewerSchemaException ( "CDataSetViewInfo", version );
 		ar >> m_nViewIndex;
 		ar >> m_dwUserInfo;
+
+		if ( version >= 2 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(ar);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 
@@ -287,7 +304,7 @@ void CDataSetFrameInfo::Serialize(CArchive& ar)
 
 	if ( ar.IsStoring () )
 	{
-		int	version = 1;
+		int	version = 2;
 		ar << version;
 		ar << m_FramePlacement.showCmd;
 		ar << m_FramePlacement.ptMinPosition;
@@ -302,6 +319,10 @@ void CDataSetFrameInfo::Serialize(CArchive& ar)
 			pViewInfo = ( CDataSetViewInfo * ) m_ViewInfoList.GetNext ( pos );
 			pViewInfo -> Serialize ( ar );
 		}
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(ar);
 	}
 	else
 	{
@@ -309,8 +330,8 @@ void CDataSetFrameInfo::Serialize(CArchive& ar)
 		int	version;
 
 		ar >> version;
-		if ( version > 1 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 2 )
+			throw new CNewerSchemaException ( "CDataSetFrameInfo", version );
 
 		// Clean actual data
 		pos = m_ViewInfoList.GetHeadPosition ();
@@ -332,6 +353,18 @@ void CDataSetFrameInfo::Serialize(CArchive& ar)
 			pViewInfo = new CDataSetViewInfo;
 			pViewInfo -> Serialize ( ar );
 			m_ViewInfoList.AddTail ( pViewInfo );
+		}
+
+		if ( version >= 2 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(ar);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
 		}
 	}
 }
@@ -390,7 +423,7 @@ void CDataSetWindowPositions::Serialize(CArchive& ar)
 
 	if ( ar.IsStoring () )
 	{
-		int	version = 1;
+		int	version = 2;
 		ar << version;
 		ar << m_nActiveFrame;
 		ar << m_FrameInfoList.GetCount ();
@@ -401,6 +434,10 @@ void CDataSetWindowPositions::Serialize(CArchive& ar)
 			pFrameInfo = ( CDataSetFrameInfo * ) m_FrameInfoList.GetNext ( pos );
 			pFrameInfo -> Serialize ( ar );
 		}
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(ar);
 	}
 	else
 	{
@@ -408,8 +445,8 @@ void CDataSetWindowPositions::Serialize(CArchive& ar)
 		int	version;
 
 		ar >> version;
-		if ( version > 1 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 2 )
+			throw new CNewerSchemaException ( "CDataSetWindowPositions", version );
 
 		// Clean actual data
 		pos = m_FrameInfoList.GetHeadPosition ();
@@ -427,6 +464,18 @@ void CDataSetWindowPositions::Serialize(CArchive& ar)
 			pFrameInfo = new CDataSetFrameInfo;
 			pFrameInfo -> Serialize ( ar );
 			m_FrameInfoList.AddTail ( pFrameInfo );
+		}
+
+		if ( version >= 2 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(ar);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
 		}
 	}
 }

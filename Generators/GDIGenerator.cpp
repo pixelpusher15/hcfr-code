@@ -25,6 +25,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "GDIGenerator.h"
+#include "ArchiveExtension.h"
 #include "madTPG.h"
 #include "../PatternDisplay.h"
 #include "../libnum/numsup.h"
@@ -317,7 +318,7 @@ void CGDIGenerator::Serialize(CArchive& archive)
 
 	if (archive.IsStoring())
 	{
-		int version=3;
+		int version=4;
 		archive << version;
 		archive << m_displayWindow.m_offsetx;
 		archive << m_displayWindow.m_offsety;
@@ -326,13 +327,17 @@ void CGDIGenerator::Serialize(CArchive& archive)
 		archive << m_displayWindow.m_Intensity;
 		archive << m_activeMonitorNum;
 		archive << m_nDisplayMode;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 3 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 4 )
+			throw new CNewerSchemaException ( "CGDIGenerator", version );
 		if ( version > 2)
 		{
 			archive >> m_displayWindow.m_offsetx;
@@ -356,6 +361,18 @@ void CGDIGenerator::Serialize(CArchive& archive)
 		}
 		else
 			m_nDisplayMode = DISPLAY_DEFAULT_MODE;
+
+		if ( version >= 4 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 
