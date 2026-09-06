@@ -152,9 +152,115 @@ namespace
     };
 }
 
+PatchSequence::PatchSequence()
+    : m_extended(false)
+{
+}
+
 int PatchSequence::Count() const
 {
     return (int)m_entries.size();
+}
+
+bool PatchSequence::ValidRole(char role)
+{
+    return role == 'C' || role == 'A' || role == 'P' || role == 'V'
+        || role == 'I' || role == 'X';
+}
+
+// Fresh identities continue from the largest present.
+int PatchSequence::NextIdentity() const
+{
+    int next = 0;
+    for (size_t i = 0; i < m_entries.size(); ++i)
+        if (m_entries[i].id >= next)
+            next = m_entries[i].id + 1;
+    return next;
+}
+
+// NOT YET IMPLEMENTED (red baseline): the extended span. Until then the
+// strict 0..100 rule applies regardless of m_extended.
+bool PatchSequence::ValidComponentHere(double v) const
+{
+    return ValidComponent(v);
+}
+
+int PatchSequence::GetIdentity(int index) const
+{
+    if (index < 0 || index >= (int)m_entries.size())
+        return -1;
+    return m_entries[(size_t)index].id;
+}
+
+char PatchSequence::GetRole(int index) const
+{
+    if (index < 0 || index >= (int)m_entries.size())
+        return '\0';
+    return m_entries[(size_t)index].role;
+}
+
+bool PatchSequence::GetGroup(int index, std::string& group) const
+{
+    if (index < 0 || index >= (int)m_entries.size())
+        return false;
+    group = m_entries[(size_t)index].group;
+    return true;
+}
+
+bool PatchSequence::GetTiming(int index, PatchTiming& timing) const
+{
+    if (index < 0 || index >= (int)m_entries.size())
+        return false;
+    timing = m_entries[(size_t)index].timing;
+    return true;
+}
+
+// NOT YET IMPLEMENTED: red-baseline stubs so the T20 oracles link and fail.
+// The behavioral contract lives in PatchSequence.h.
+
+bool PatchSequence::SetRole(int, char)
+{
+    return false;
+}
+
+bool PatchSequence::SetGroup(int, const std::string&)
+{
+    return false;
+}
+
+bool PatchSequence::SetTiming(int, const PatchTiming&)
+{
+    return false;
+}
+
+bool PatchSequence::SetExtended(bool)
+{
+    return false;
+}
+
+bool PatchSequence::IsExtended() const
+{
+    return m_extended;
+}
+
+bool PatchSequence::AddRow(int, double, double, double, const std::string&, char)
+{
+    return false;
+}
+
+bool PatchSequence::AddGrayPowerRamp(int, double, double, double)
+{
+    return false;
+}
+
+bool PatchSequence::AddShellInset(int, double)
+{
+    return false;
+}
+
+bool PatchSequence::AddRepeats(int)
+{
+    return false;
 }
 
 bool PatchSequence::GetPatch(int index, double rgb[3], std::string* name) const
@@ -173,11 +279,13 @@ bool PatchSequence::GetPatch(int index, double rgb[3], std::string* name) const
 bool PatchSequence::AddPatch(double rPct, double gPct, double bPct,
                              const std::string& name)
 {
-    if (!ValidComponent(rPct) || !ValidComponent(gPct) || !ValidComponent(bPct))
+    if (!ValidComponentHere(rPct) || !ValidComponentHere(gPct) || !ValidComponentHere(bPct))
         return false;
     if (!ValidName(name))
         return false;
     Entry e;
+    e.id = NextIdentity();
+    e.role = 'C';
     e.rgb[0] = NormalizeComponent(rPct);
     e.rgb[1] = NormalizeComponent(gPct);
     e.rgb[2] = NormalizeComponent(bPct);
@@ -202,10 +310,13 @@ bool PatchSequence::AppendRamp(int channel, int count,
     const char* word = kWords[channel + 1];
 
     m_entries.reserve(m_entries.size() + (size_t)count);
+    int nextId = NextIdentity();
     for (int i = 0; i < count; ++i)
     {
         double level = NormalizeComponent(GridLevel(i, count, loPct, hiPct));
         Entry e;
+        e.id = nextId++;
+        e.role = 'C';
         if (channel < 0)
         {
             e.rgb[0] = level;
@@ -249,6 +360,7 @@ bool PatchSequence::AppendLattice(int n, bool shellOnly)
     if (shellOnly)
         total -= (size_t)(n - 2) * (size_t)(n - 2) * (size_t)(n - 2);
     m_entries.reserve(m_entries.size() + total);
+    int nextId = NextIdentity();
 
     for (int r = 0; r < n; ++r)
     {
@@ -265,6 +377,8 @@ bool PatchSequence::AppendLattice(int n, bool shellOnly)
                     continue;               // interior node
                 double bv = GridLevel(b, n, 0.0, 100.0);
                 Entry e;
+                e.id = nextId++;
+                e.role = 'C';
                 e.rgb[0] = rv;
                 e.rgb[1] = gv;
                 e.rgb[2] = bv;
@@ -332,7 +446,7 @@ bool PatchSequence::WriteCsv(std::string& out, int bits, int range) const
     for (size_t i = 0; i < m_entries.size(); ++i)
     {
         const Entry& e = m_entries[i];
-        snprintf(buf, sizeof(buf), "%d,%d,%d,%d", (int)i,
+        snprintf(buf, sizeof(buf), "%d,%d,%d,%d", e.id,
                  PercentToCode(e.rgb[0], bits, range),
                  PercentToCode(e.rgb[1], bits, range),
                  PercentToCode(e.rgb[2], bits, range));

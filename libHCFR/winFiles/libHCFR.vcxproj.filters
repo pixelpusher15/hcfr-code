@@ -30,6 +30,9 @@
     <ClCompile Include="..\PatchSequence.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\PatchSequenceFile.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\CriticalSection.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -66,6 +69,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\PatchSequence.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\PatchSequenceFile.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\CriticalSection.h">

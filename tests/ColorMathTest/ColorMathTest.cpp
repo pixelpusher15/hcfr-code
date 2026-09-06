@@ -12,8 +12,10 @@
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
 // T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
 // T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty
-// table, and T17 asserts the PatchSequence generator and its CSV writer (round-tripped
-// through the real ReadCsvPatchRows importer).
+// table, T17 asserts the PatchSequence generator and its CSV writer (round-tripped
+// through the real ReadCsvPatchRows importer), and T20 pins the .hps patch-sequence
+// file dialect, its CSV imports/export, identities, roles, timing, repeats, the
+// extended span and the three inset/power/repeat primitives.
 // T13-T16, T18 and T19 are deliberately skipped here, held by in-flight branches:
 // #183 display-model T13, csv-provenance T14, #185/#186 cube-lut T15/T16,
 // wtw-reference T18, the #193 schema trailer T19. Run hcfr-bench\tnumbers.py
@@ -24,6 +26,7 @@
 #include <afx.h>
 #include "../../libHCFR/Color.h"
 #include "../../libHCFR/PatchSequence.h"
+#include "../../libHCFR/PatchSequenceFile.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -1498,6 +1501,649 @@ static void RunT17()
 
 //////////////////////////////////////////////////////////////////////////
 
+//////////////////////////////////////////////////////////////////////////
+// T20 — patch sequence file oracle (pure assertion, no golden file).
+// Pins the .hps dialect byte-for-byte for a small sequence (the format IS
+// the deliverable), the two CSV imports, the CSV export, identity /
+// role / timing round trips, the repeat rules, the extended span, the
+// three new placement primitives, forward compatibility (unknown keys and
+// columns ignored, a newer major version refused), and the row cap. Every
+// expectation is stated exactly; nothing here is a tolerance.
+//////////////////////////////////////////////////////////////////////////
+
+namespace T20File
+{
+    static const char* kTmpHps  = "t20_roundtrip.hps";
+    static const char* kTmpCsv  = "t20_import.csv";
+
+    static bool WriteTextFile(const char* path, const std::string& text)
+    {
+        FILE* f = fopen(path, "wb");
+        if (!f)
+            return false;
+        size_t got = fwrite(text.data(), 1, text.size(), f);
+        fclose(f);
+        return got == text.size();
+    }
+
+    static bool ReadTextFile(const char* path, std::string& text)
+    {
+        FILE* f = fopen(path, "rb");
+        if (!f)
+            return false;
+        char buf[4096];
+        text.clear();
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+            text.append(buf, n);
+        fclose(f);
+        return true;
+    }
+
+    // The pinned example: three definitions, one anchor repeat, one
+    // interstitial, one timing override, one group. 10-bit LEGAL.
+    static bool BuildPinned(PatchSequence& s)
+    {
+        bool ok = true;
+        ok = ok && s.AddRow(1, 50.0, 50.0, 50.0, "Gray 50", 'A');
+        ok = ok && s.AddRow(2, 100.0, 0.0, 0.0, "Red 100", 'C');
+        ok = ok && s.AddRow(0, 0.0, 0.0, 0.0, "Background", 'I');
+        ok = ok && s.AddRow(3, 1.0, 1.0, 1.0, "Gray 1", 'C');
+        ok = ok && s.AddRow(1, 50.0, 50.0, 50.0, "Gray 50", 'A');
+        if (!ok)
+            return false;
+        PatchTiming t;
+        t.hold = 8.0;
+        ok = ok && s.SetTiming(2, t);
+        PatchTiming d;
+        d.settle = 0.0;
+        d.average = 10;
+        ok = ok && s.SetTiming(3, d);
+        ok = ok && s.SetGroup(3, "dark");
+        ok = ok && s.SetGroup(1, "bright");
+        return ok;
+    }
+
+    static void FillPinnedHeader(PatchSequenceHeader& h)
+    {
+        h.bits = 10;
+        h.range = CSV_RANGE_LEGAL;
+        h.sequenceId = "7a1c9e2e-3b0f-4d61-9f2a-0c5e8b4d1a77";
+        h.name = "Pinned example";
+        h.created = "2026-09-06T18:14:03Z";
+        h.generator = "HCFR 3.5.3.11";
+        h.sourceKind = "recipe";
+        h.requires.push_back("panel-record");
+        h.panelRecord = "a80j-2026-09-06";
+        h.steps.push_back("AddGrayRamp 21 0 100");
+        h.steps.push_back("Deduplicate");
+        h.geometryArea = 10;
+        h.geometryBackground = 64;
+        PatchGroupSpec dark;
+        dark.name = "dark";
+        dark.timing.integration = 2.0;
+        dark.timing.average = 5;
+        dark.timing.settle = 1.5;
+        h.groups.push_back(dark);
+        PatchGroupSpec bright;
+        bright.name = "bright";
+        bright.timing.integration = 0.2;
+        bright.timing.settle = 0.8;
+        bright.readAt = "plateau";
+        h.groups.push_back(bright);
+        h.order = "constant-load";
+        h.targetLoad = 0.031;
+        h.loadModel = "wrgb-power kw=1.00 kr=1.10 kg=1.00 kb=1.35 gamma=2.2";
+        h.window = 38.0;
+        h.dwellLatency = 0.4;
+        h.maxStep = 0.05;
+        h.settleAfterStep = 2.5;
+        h.ablLimit = 25.0;
+        PatchAnchorSpec a;
+        a.id = 1;
+        a.every = 100;
+        h.anchors.push_back(a);
+        h.prerollId = 1;
+        h.prerollCount = 0;
+    }
+
+    // Codes at 10-bit legal: 64 + pct * 8.76, nearest integer.
+    static const char* kPinnedText =
+        "# HCFR-SEQUENCE 1\n"
+        "# BITDEPTH 10, RANGE LEGAL\n"
+        "# SEQUENCE-ID 7a1c9e2e-3b0f-4d61-9f2a-0c5e8b4d1a77\n"
+        "# NAME \"Pinned example\"\n"
+        "# CREATED 2026-09-06T18:14:03Z\n"
+        "# GENERATOR \"HCFR 3.5.3.11\"\n"
+        "# SOURCE recipe\n"
+        "# REQUIRES panel-record\n"
+        "# PANEL-RECORD a80j-2026-09-06\n"
+        "# STEP AddGrayRamp 21 0 100\n"
+        "# STEP Deduplicate\n"
+        "# PATCH-GEOMETRY area=10 background=64\n"
+        "# GROUP dark integration=2 average=5 settle=1.5\n"
+        "# GROUP bright integration=0.2 settle=0.8 readat=plateau\n"
+        "# ORDER constant-load\n"
+        "# TARGET-LOAD 0.031\n"
+        "# LOAD-MODEL wrgb-power kw=1.00 kr=1.10 kg=1.00 kb=1.35 gamma=2.2\n"
+        "# WINDOW 38\n"
+        "# DWELL latency=0.4\n"
+        "# MAX-STEP 0.05\n"
+        "# SETTLE-AFTER-STEP 2.5\n"
+        "# ABL-LIMIT apl=25\n"
+        "# ANCHOR 1 every=100\n"
+        "# PREROLL 1 count=0\n"
+        "# COLUMNS PatchNumber,R,G,B,Name,Role,Group,Settle,Hold,Integration,Average\n"
+        "1,502,502,502,Gray 50,A,,,,,\n"
+        "2,940,64,64,Red 100,C,bright,,,,\n"
+        "0,64,64,64,Background,I,,,8,,\n"
+        "3,73,73,73,Gray 1,C,dark,0,,,10\n"
+        "1,502,502,502,Gray 50,A,,,,,\n";
+
+    static bool SameRows(const PatchSequence& a, const PatchSequence& b, const char* what)
+    {
+        if (a.Count() != b.Count())
+        {
+            Fail("T20 %s: count %d want %d", what, b.Count(), a.Count());
+            return false;
+        }
+        bool same = true;
+        for (int i = 0; i < a.Count(); ++i)
+        {
+            double ra[3], rb[3];
+            std::string na, nb, ga, gb;
+            PatchTiming ta, tb;
+            a.GetPatch(i, ra, &na); b.GetPatch(i, rb, &nb);
+            a.GetGroup(i, ga);      b.GetGroup(i, gb);
+            a.GetTiming(i, ta);     b.GetTiming(i, tb);
+            if (a.GetIdentity(i) != b.GetIdentity(i) || a.GetRole(i) != b.GetRole(i)
+                || na != nb || ga != gb
+                || ta.settle != tb.settle || ta.hold != tb.hold
+                || ta.integration != tb.integration || ta.average != tb.average)
+            {
+                Fail("T20 %s: row %d differs (id %d/%d role %c/%c name '%s'/'%s' group '%s'/'%s')",
+                     what, i, a.GetIdentity(i), b.GetIdentity(i), a.GetRole(i) ? a.GetRole(i) : '?', b.GetRole(i) ? b.GetRole(i) : '?',
+                     na.c_str(), nb.c_str(), ga.c_str(), gb.c_str());
+                same = false;
+            }
+        }
+        return same;
+    }
+}
+
+static void RunT20()
+{
+    printf("T20 patch sequence file oracle...\n");
+    using namespace T20File;
+
+    // (1) Identity, role, group, timing on the builder; AddRow rules.
+    {
+        PatchSequence s;
+        if (!s.AddPatch(0, 0, 0, "Black") || !s.AddPatch(100, 100, 100, "White"))
+            Fail("T20 AddPatch refused");
+        if (s.GetIdentity(0) != 0 || s.GetIdentity(1) != 1)
+            Fail("T20 fresh identities not 0,1 (got %d,%d)", s.GetIdentity(0), s.GetIdentity(1));
+        if (s.GetRole(0) != 'C' || s.GetRole(1) != 'C')
+            Fail("T20 default role not C");
+        if (s.GetIdentity(2) != -1 || s.GetRole(2) != '\0')
+            Fail("T20 out-of-range identity/role not -1/NUL");
+        std::string g;
+        PatchTiming t;
+        if (!s.GetGroup(0, g) || !g.empty() || !s.GetTiming(0, t)
+            || t.settle != -1.0 || t.hold != -1.0 || t.integration != -1.0 || t.average != -1)
+            Fail("T20 default group/timing not empty/-1");
+        if (s.GetGroup(5, g) || s.GetTiming(5, t))
+            Fail("T20 out-of-range GetGroup/GetTiming succeeded");
+
+        if (!s.SetRole(1, 'A') || s.GetRole(1) != 'A')
+            Fail("T20 SetRole A refused or not stored");
+        if (s.SetRole(1, 'Q') || s.SetRole(1, 'c') || s.SetRole(9, 'C'))
+            Fail("T20 SetRole accepted a bad role or index");
+        if (s.GetRole(1) != 'A')
+            Fail("T20 refused SetRole changed the role");
+        if (!s.SetGroup(0, "dark") || !s.GetGroup(0, g) || g != "dark")
+            Fail("T20 SetGroup refused or not stored");
+        if (s.SetGroup(0, "two words") || s.SetGroup(0, "a,b") || s.SetGroup(0, " x") || s.SetGroup(7, "x"))
+            Fail("T20 SetGroup accepted a bad group or index");
+        if (!s.GetGroup(0, g) || g != "dark")
+            Fail("T20 refused SetGroup changed the group");
+        if (!s.SetGroup(0, ""))
+            Fail("T20 SetGroup refused clearing to empty");
+        PatchTiming ok;
+        ok.settle = 0.0; ok.hold = 8.0; ok.integration = 2.0; ok.average = 10;
+        if (!s.SetTiming(0, ok) || !s.GetTiming(0, t)
+            || t.settle != 0.0 || t.hold != 8.0 || t.integration != 2.0 || t.average != 10)
+            Fail("T20 SetTiming refused or not stored");
+        PatchTiming bad;
+        bad.settle = -2.0;
+        if (s.SetTiming(0, bad))
+            Fail("T20 SetTiming accepted settle -2");
+        bad = PatchTiming();
+        bad.average = 0;
+        if (s.SetTiming(0, bad))
+            Fail("T20 SetTiming accepted average 0");
+        bad = PatchTiming();
+        bad.hold = sqrt(-1.0);
+        if (s.SetTiming(0, bad))
+            Fail("T20 SetTiming accepted a NaN hold");
+        if (!s.GetTiming(0, t) || t.hold != 8.0)
+            Fail("T20 refused SetTiming changed the timing");
+
+        // AddRow: explicit identity and role; repeats must repeat.
+        if (!s.AddRow(7, 25, 25, 25, "Gray 25", 'V'))
+            Fail("T20 AddRow refused a fresh identity");
+        if (s.GetIdentity(2) != 7 || s.GetRole(2) != 'V')
+            Fail("T20 AddRow identity/role not stored");
+        if (!s.AddPatch(75, 75, 75, "Gray 75") || s.GetIdentity(3) != 8)
+            Fail("T20 fresh identity after AddRow(7) is not 8 (got %d)", s.GetIdentity(3));
+        if (!s.AddRow(7, 25, 25, 25, "Gray 25 again", 'C'))
+            Fail("T20 AddRow refused a faithful repeat");
+        if (s.AddRow(7, 25, 25, 26, "Gray 25 wrong", 'C'))
+            Fail("T20 AddRow accepted a repeat with different rgb");
+        if (s.AddRow(-1, 0, 0, 0, "", 'C') || s.AddRow(9, 0, 0, 0, "", 'Z')
+            || s.AddRow(9, 0, 0, 101, "", 'C') || s.AddRow(9, 0, 0, 0, "bad,name", 'C'))
+            Fail("T20 AddRow accepted a bad id/role/component/name");
+        if (s.Count() != 5)
+            Fail("T20 refused AddRow changed the count (%d)", s.Count());
+        std::string nm;
+        double rgb[3];
+        if (!s.GetPatch(4, rgb, &nm) || nm != "Gray 25 again" || rgb[0] != 25.0)
+            Fail("T20 repeat row not stored as given");
+    }
+
+    // (2) Deduplicate: definitions only, role C only, renumbered, repeats follow.
+    {
+        PatchSequence s;
+        s.AddPatch(0, 0, 0, "Black");          // id 0
+        s.AddPatch(50, 50, 50, "Gray 50");     // id 1
+        s.AddPatch(0, 0, 0, "Black dup");      // id 2, duplicate of 0
+        s.AddRow(2, 0, 0, 0, "Black dup rep", 'C');  // repeat of the duplicate
+        s.AddRow(1, 50, 50, 50, "Gray 50", 'A');     // anchor repeat of 1
+        s.AddRow(9, 0, 0, 0, "Black anchor", 'A');   // role A definition, equal rgb: never removed
+        s.AddPatch(100, 100, 100, "White");    // id 10
+        int removed = s.Deduplicate();
+        if (removed != 1)
+            Fail("T20 Deduplicate removed %d want 1", removed);
+        if (s.Count() != 6)
+            Fail("T20 Deduplicate count %d want 6", s.Count());
+        // Surviving definitions in order: 0 Black, 1 Gray 50, (rep), (anchor rep), 9 Black anchor, 10 White
+        // -> renumbered 0, 1, -, -, 2, 3; the repeat of the removed duplicate now refers to 0.
+        const int wantId[6] = { 0, 1, 0, 1, 2, 3 };
+        const char wantRole[6] = { 'C', 'C', 'C', 'A', 'A', 'C' };
+        for (int i = 0; i < 6; ++i)
+            if (s.GetIdentity(i) != wantId[i] || s.GetRole(i) != wantRole[i])
+                Fail("T20 Deduplicate row %d id %d role %c want %d %c", i,
+                     s.GetIdentity(i), s.GetRole(i) ? s.GetRole(i) : '?', wantId[i], wantRole[i]);
+        std::string nm;
+        double rgb[3];
+        if (!s.GetPatch(2, rgb, &nm) || nm != "Black dup rep")
+            Fail("T20 Deduplicate dropped the repeat of a removed duplicate");
+        // Deduplicate with no duplicates is a no-op that still renumbers contiguously.
+        PatchSequence g;
+        g.AddRow(5, 0, 0, 0, "a", 'C');
+        g.AddRow(9, 1, 1, 1, "b", 'C');
+        if (g.Deduplicate() != 0 || g.GetIdentity(0) != 0 || g.GetIdentity(1) != 1)
+            Fail("T20 Deduplicate did not renumber a gap-free-able sequence");
+    }
+
+    // (3) Extended span.
+    {
+        PatchSequence s;
+        if (s.IsExtended())
+            Fail("T20 new sequence is extended");
+        if (s.AddPatch(105, 0, 0, "wtw"))
+            Fail("T20 AddPatch accepted 105 while not extended");
+        if (!s.SetExtended(true) || !s.IsExtended())
+            Fail("T20 SetExtended(true) refused");
+        if (!s.AddPatch(109.47, 0, 0, "wtw") || !s.AddPatch(-7.3, 0, 0, "btb"))
+            Fail("T20 extended AddPatch refused an in-span value");
+        if (s.AddPatch(109.48, 0, 0, "over") || s.AddPatch(-7.31, 0, 0, "under"))
+            Fail("T20 extended AddPatch accepted an out-of-span value");
+        if (s.SetExtended(false))
+            Fail("T20 SetExtended(false) accepted with out-of-span entries present");
+        if (!s.IsExtended() || s.Count() != 2)
+            Fail("T20 refused SetExtended(false) changed state");
+        std::string out;
+        if (s.WriteCsv(out, 10, CSV_RANGE_LEGAL))
+            Fail("T20 WriteCsv LEGAL accepted out-of-span components");
+        if (!s.WriteCsv(out, 10, CSV_RANGE_EXTENDED))
+            Fail("T20 WriteCsv EXTENDED refused: %s", s.LastError().c_str());
+        else if (out != "# BITDEPTH 10, RANGE EXTENDED\n0,1023,64,64,wtw\n1,0,64,64,btb\n")
+            Fail("T20 WriteCsv EXTENDED bytes:\n%s", out.c_str());
+        PatchSequence e;
+        if (!e.SetExtended(true) || !e.AddPatch(50, 50, 50, "mid") || !e.SetExtended(false) || e.IsExtended())
+            Fail("T20 SetExtended(false) refused with every entry in 0..100");
+    }
+
+    // (4) New placement primitives.
+    {
+        PatchSequence s;
+        if (!s.AddGrayPowerRamp(5, 0.0, 10.0, 2.0))
+            Fail("T20 AddGrayPowerRamp refused");
+        else
+        {
+            // u = 0, .25, .5, .75, 1 -> 0, 0.625, 2.5, 5.625, 10 (exact in binary)
+            const double want[5] = { 0.0, 0.625, 2.5, 5.625, 10.0 };
+            const char* wantName[5] = { "Gray 0", "Gray 0.625", "Gray 2.5", "Gray 5.625", "Gray 10" };
+            for (int i = 0; i < 5; ++i)
+            {
+                double rgb[3];
+                std::string nm;
+                s.GetPatch(i, rgb, &nm);
+                if (rgb[0] != want[i] || rgb[1] != want[i] || rgb[2] != want[i] || nm != wantName[i])
+                    Fail("T20 power ramp level %d = %.17g '%s' want %.17g '%s'", i, rgb[0], nm.c_str(), want[i], wantName[i]);
+                if (s.GetIdentity(i) != i || s.GetRole(i) != 'C')
+                    Fail("T20 power ramp identity/role wrong at %d", i);
+            }
+        }
+        if (s.AddGrayPowerRamp(5, 0.0, 10.0, 0.0) || s.AddGrayPowerRamp(5, 0.0, 10.0, -1.0)
+            || s.AddGrayPowerRamp(5, 0.0, 10.0, sqrt(-1.0)) || s.AddGrayPowerRamp(1, 0.0, 10.0, 2.0)
+            || s.AddGrayPowerRamp(5, 10.0, 0.0, 2.0))
+            Fail("T20 AddGrayPowerRamp accepted a bad argument");
+        if (s.Count() != 5)
+            Fail("T20 refused AddGrayPowerRamp changed the count");
+        // Endpoint-exact with an exponent that would not be through pow: 1/3 grid at exponent 3.
+        PatchSequence p;
+        p.AddGrayPowerRamp(4, 20.0, 80.0, 3.0);
+        double rgb[3];
+        if (!p.GetPatch(0, rgb, 0) || rgb[0] != 20.0) Fail("T20 power ramp first level not exactly lo");
+        if (!p.GetPatch(3, rgb, 0) || rgb[0] != 80.0) Fail("T20 power ramp last level not exactly hi");
+
+        PatchSequence i;
+        if (!i.AddShellInset(3, 5.0))
+            Fail("T20 AddShellInset refused");
+        else
+        {
+            if (i.Count() != 26)
+                Fail("T20 AddShellInset(3) count %d want 26", i.Count());
+            bool bad = false;
+            for (int k = 0; k < i.Count(); ++k)
+            {
+                std::string nm;
+                i.GetPatch(k, rgb, &nm);
+                bool face = false;
+                for (int c = 0; c < 3; ++c)
+                {
+                    if (rgb[c] < 5.0 || rgb[c] > 95.0) bad = true;
+                    if (rgb[c] == 5.0 || rgb[c] == 95.0) face = true;
+                }
+                if (!face) bad = true;
+                if (nm.compare(0, 6, "Inset ") != 0) bad = true;
+            }
+            if (bad)
+                Fail("T20 AddShellInset nodes not in [5,95] with a face component / bad name");
+            i.GetPatch(0, rgb, 0);
+            if (rgb[0] != 5.0 || rgb[1] != 5.0 || rgb[2] != 5.0)
+                Fail("T20 AddShellInset first node not 5/5/5");
+            i.GetPatch(25, rgb, 0);
+            if (rgb[0] != 95.0 || rgb[1] != 95.0 || rgb[2] != 95.0)
+                Fail("T20 AddShellInset last node not 95/95/95");
+        }
+        if (i.AddShellInset(3, 0.0) || i.AddShellInset(3, 50.0) || i.AddShellInset(1, 5.0) || i.AddShellInset(34, 5.0))
+            Fail("T20 AddShellInset accepted a bad argument");
+
+        PatchSequence r;
+        r.AddGrayRamp(9, 0.0, 100.0);          // ids 0..8, role C
+        r.AddRow(20, 50, 0, 0, "Red half", 'A');   // not a C definition
+        if (!r.AddRepeats(3))
+            Fail("T20 AddRepeats refused");
+        else
+        {
+            // k = floor(9/3) = 3 -> definitions 0, 3, 6 in identity order.
+            if (r.Count() != 13)
+                Fail("T20 AddRepeats count %d want 13", r.Count());
+            const int wantId[3] = { 0, 3, 6 };
+            for (int k = 0; k < 3; ++k)
+            {
+                std::string nm;
+                r.GetPatch(10 + k, rgb, &nm);
+                if (r.GetIdentity(10 + k) != wantId[k] || r.GetRole(10 + k) != 'C'
+                    || rgb[0] != wantId[k] * 12.5 || nm != std::string("Gray ") + (k == 0 ? "0" : k == 1 ? "37.5" : "75") + " repeat")
+                    Fail("T20 AddRepeats row %d: id %d name '%s'", k, r.GetIdentity(10 + k), nm.c_str());
+            }
+        }
+        if (r.AddRepeats(0) || r.AddRepeats(10))
+            Fail("T20 AddRepeats accepted count 0 or > definitions");
+        PatchSequence e;
+        e.AddPatch(0, 0, 0, "");
+        if (!e.AddRepeats(1))
+            Fail("T20 AddRepeats(1) on one definition refused");
+        else
+        {
+            std::string nm;
+            e.GetPatch(1, rgb, &nm);
+            if (nm != "repeat")
+                Fail("T20 AddRepeats empty-name form '%s' want 'repeat'", nm.c_str());
+        }
+    }
+
+    // (5) .hps format pinned byte-for-byte; parse reproduces rows and header.
+    {
+        PatchSequence s;
+        PatchSequenceHeader h;
+        FillPinnedHeader(h);
+        if (!BuildPinned(s))
+            Fail("T20 pinned sequence could not be built");
+        PatchSequenceFile f;
+        std::string out;
+        if (!f.FormatHps(out, s, h))
+            Fail("T20 FormatHps refused: %s", f.LastError().c_str());
+        else if (out != kPinnedText)
+            Fail("T20 FormatHps bytes differ:\n---got---\n%s---want---\n%s", out.c_str(), kPinnedText);
+
+        PatchSequence back;
+        PatchSequenceHeader hb;
+        if (!f.ParseHps(kPinnedText, back, hb))
+            Fail("T20 ParseHps refused the pinned text: %s", f.LastError().c_str());
+        else
+        {
+            SameRows(s, back, "pinned parse");
+            if (hb.version != 1 || hb.bits != 10 || hb.range != CSV_RANGE_LEGAL
+                || hb.sequenceId != h.sequenceId || hb.name != h.name || hb.created != h.created
+                || hb.generator != h.generator || hb.sourceKind != "recipe"
+                || hb.requires.size() != 1 || hb.requires[0] != "panel-record"
+                || hb.panelRecord != h.panelRecord
+                || hb.steps.size() != 2 || hb.steps[0] != h.steps[0] || hb.steps[1] != h.steps[1]
+                || hb.geometryArea != 10 || hb.geometryBackground != 64
+                || hb.groups.size() != 2 || hb.groups[0].name != "dark"
+                || hb.groups[0].timing.integration != 2.0 || hb.groups[0].timing.average != 5
+                || hb.groups[0].timing.settle != 1.5 || hb.groups[0].timing.hold != -1.0
+                || hb.groups[1].name != "bright" || hb.groups[1].readAt != "plateau"
+                || hb.groups[1].timing.integration != 0.2 || hb.groups[1].timing.average != -1
+                || hb.order != "constant-load" || hb.targetLoad != 0.031
+                || hb.loadModel != h.loadModel || hb.window != 38.0 || hb.dwellLatency != 0.4
+                || hb.maxStep != 0.05 || hb.settleAfterStep != 2.5 || hb.ablLimit != 25.0
+                || hb.anchors.size() != 1 || hb.anchors[0].id != 1 || hb.anchors[0].every != 100
+                || hb.prerollId != 1 || hb.prerollCount != 0
+                || !hb.displayProfile.empty() || !hb.target.empty() || !hb.readAt.empty())
+                Fail("T20 ParseHps header differs from the pinned header");
+            // Second format is byte-identical to the first.
+            std::string again;
+            if (!f.FormatHps(again, back, hb) || again != kPinnedText)
+                Fail("T20 FormatHps of the parsed sequence is not byte-identical");
+        }
+
+        // File round trip through Write / Read.
+        remove(kTmpHps);
+        if (!f.Write(kTmpHps, s, h))
+            Fail("T20 Write refused: %s", f.LastError().c_str());
+        else
+        {
+            std::string disk;
+            if (!ReadTextFile(kTmpHps, disk) || disk != kPinnedText)
+                Fail("T20 written file bytes differ from FormatHps");
+            PatchSequence r;
+            PatchSequenceHeader hr;
+            PatchSequenceFile::Dialect d = PatchSequenceFile::DIALECT_CSV_LEGACY;
+            if (!f.Read(kTmpHps, r, hr, &d))
+                Fail("T20 Read of the written file refused: %s", f.LastError().c_str());
+            else
+            {
+                if (d != PatchSequenceFile::DIALECT_HPS)
+                    Fail("T20 Read dialect %d want HPS", (int)d);
+                SameRows(s, r, "file read");
+            }
+            remove(kTmpHps);
+        }
+        if (f.Write("no_such_dir_t20\\x.hps", s, h))
+            Fail("T20 Write accepted an unwritable path");
+        PatchSequence empty;
+        if (f.FormatHps(out, empty, h))
+            Fail("T20 FormatHps accepted an empty sequence");
+    }
+
+    // (6) Forward compatibility and refusals on parse.
+    {
+        PatchSequenceFile f;
+        PatchSequence s;
+        PatchSequenceHeader h;
+        std::string text = kPinnedText;
+        // Unknown directive, an unknown trailing column, a comment after data.
+        std::string mod = text;
+        size_t p = mod.find("# COLUMNS");
+        mod.insert(p, "# FUTURE-KEY something 42\n");
+        p = mod.find("Average\n");
+        mod.insert(p + 7, ",Extra");
+        const std::string rowOld = "2,940,64,64,Red 100,C,bright,,,,\n";
+        mod.replace(mod.find(rowOld), rowOld.size(), "2,940,64,64,Red 100,C,bright,,,,,zzz\n");
+        mod += "# a trailing comment\n";
+        if (!f.ParseHps(mod, s, h))
+            Fail("T20 ParseHps refused unknown key/column/comment: %s", f.LastError().c_str());
+        else
+        {
+            std::string g;
+            s.GetGroup(1, g);
+            if (s.Count() != 5 || s.GetRole(0) != 'A' || g != "bright")
+                Fail("T20 ParseHps with unknowns changed the rows (count %d group '%s')", s.Count(), g.c_str());
+        }
+        std::string v2 = text;
+        v2.replace(0, 18, "# HCFR-SEQUENCE 2\n");
+        if (f.ParseHps(v2, s, h))
+            Fail("T20 ParseHps accepted major version 2");
+        std::string mism = text + "3,74,73,73,Gray 1 wrong,C,,,,,\n";
+        if (f.ParseHps(mism, s, h))
+            Fail("T20 ParseHps accepted a repeat with different codes");
+        std::string noline1 = text.substr(18);
+        if (f.ParseHps(noline1, s, h))
+            Fail("T20 ParseHps accepted text without the HCFR-SEQUENCE line");
+        // Row cap: 10001 rows refused, 10000 accepted.
+        std::string big = "# HCFR-SEQUENCE 1\n# BITDEPTH 8, RANGE LEGAL\n# COLUMNS PatchNumber,R,G,B,Name,Role,Group,Settle,Hold,Integration,Average\n";
+        char row[64];
+        for (int i = 0; i < 10001; ++i)
+        {
+            snprintf(row, sizeof(row), "%d,%d,%d,%d,,C,,,,,\n", i, 16 + (i % 220), 16, 16);
+            big += row;
+        }
+        if (f.ParseHps(big, s, h))
+            Fail("T20 ParseHps accepted 10001 rows");
+        size_t last = big.rfind("10000,");
+        big.erase(last);
+        if (!f.ParseHps(big, s, h) || s.Count() != 10000)
+            Fail("T20 ParseHps refused 10000 rows: %s", f.LastError().c_str());
+        PatchSequence over;
+        for (int i = 0; i < 10001; ++i)
+            over.AddPatch((i % 101), 0, 0, "");
+        std::string out;
+        if (f.FormatHps(out, over, h))
+            Fail("T20 FormatHps accepted 10001 rows");
+    }
+
+    // (7) CSV imports: legacy and headered.
+    {
+        PatchSequenceFile f;
+        PatchSequence s;
+        PatchSequenceHeader h;
+        PatchSequenceFile::Dialect d;
+        // Legacy: no header, R,G,B,name, 8-bit legal, identity = row index.
+        WriteTextFile(kTmpCsv, "16,16,16,0 Black\n235,235,235,100 White\n126,126,126\n");
+        if (!f.Read(kTmpCsv, s, h, &d))
+            Fail("T20 legacy CSV read refused: %s", f.LastError().c_str());
+        else
+        {
+            if (d != PatchSequenceFile::DIALECT_CSV_LEGACY)
+                Fail("T20 legacy CSV dialect %d", (int)d);
+            if (s.Count() != 3 || s.GetIdentity(2) != 2 || s.GetRole(1) != 'C')
+                Fail("T20 legacy CSV rows/identities/roles wrong");
+            double rgb[3];
+            std::string nm;
+            s.GetPatch(1, rgb, &nm);
+            if (rgb[0] != 100.0 || nm != "100 White")
+                Fail("T20 legacy CSV white = %.17g '%s'", rgb[0], nm.c_str());
+            s.GetPatch(2, rgb, &nm);
+            if (!nm.empty() || fabs(rgb[0] - CsvCodeToPercent(126, 8, CSV_RANGE_LEGAL)) != 0.0)
+                Fail("T20 legacy CSV row 3 wrong");
+            if (h.bits != 8 || h.range != CSV_RANGE_LEGAL || h.sourceKind != "csv"
+                || h.sourcePath != kTmpCsv || !h.sequenceId.empty() || !h.steps.empty())
+                Fail("T20 legacy CSV header wrong (bits %d range %d kind '%s')", h.bits, h.range, h.sourceKind.c_str());
+        }
+        // Headered, 10-bit EXTENDED with a super-white code and explicit identities.
+        WriteTextFile(kTmpCsv, "# BITDEPTH 10, RANGE EXTENDED\n5,64,64,64,Black\n9,1023,1023,1023,Super white\n2,502,502,502\n");
+        if (!f.Read(kTmpCsv, s, h, &d))
+            Fail("T20 headered CSV read refused: %s", f.LastError().c_str());
+        else
+        {
+            if (d != PatchSequenceFile::DIALECT_CSV_HEADERED)
+                Fail("T20 headered CSV dialect %d", (int)d);
+            if (s.Count() != 3 || s.GetIdentity(0) != 5 || s.GetIdentity(1) != 9 || s.GetIdentity(2) != 2)
+                Fail("T20 headered CSV identities not 5,9,2");
+            if (!s.IsExtended())
+                Fail("T20 EXTENDED CSV did not switch the sequence to extended");
+            double rgb[3];
+            s.GetPatch(1, rgb, 0);
+            if (rgb[0] != CsvCodeToPercent(1023, 10, CSV_RANGE_EXTENDED))
+                Fail("T20 super-white code clamped on import (%.17g)", rgb[0]);
+            if (h.bits != 10 || h.range != CSV_RANGE_EXTENDED)
+                Fail("T20 headered CSV header bits/range wrong");
+        }
+        remove(kTmpCsv);
+        if (f.Read("no_such_file_t20.csv", s, h, &d))
+            Fail("T20 Read accepted a missing file");
+    }
+
+    // (8) CSV export: orders and role filtering.
+    {
+        PatchSequence s;
+        BuildPinned(s);
+        PatchSequenceFile f;
+        std::string out;
+        if (!f.ExportCsv(out, s, 10, CSV_RANGE_LEGAL, PatchSequenceFile::EXPORT_MEASUREMENT, false))
+            Fail("T20 ExportCsv measurement refused: %s", f.LastError().c_str());
+        else if (out != "# BITDEPTH 10, RANGE LEGAL\n2,940,64,64,Red 100\n3,73,73,73,Gray 1\n")
+            Fail("T20 ExportCsv measurement bytes:\n%s", out.c_str());
+        if (!f.ExportCsv(out, s, 10, CSV_RANGE_LEGAL, PatchSequenceFile::EXPORT_MEASUREMENT, true))
+            Fail("T20 ExportCsv with roles refused");
+        else if (out != "# BITDEPTH 10, RANGE LEGAL\n1,502,502,502,Gray 50\n2,940,64,64,Red 100\n0,64,64,64,Background\n3,73,73,73,Gray 1\n1,502,502,502,Gray 50\n")
+            Fail("T20 ExportCsv with roles bytes:\n%s", out.c_str());
+        if (!f.ExportCsv(out, s, 10, CSV_RANGE_LEGAL, PatchSequenceFile::EXPORT_DEFINITION, true))
+            Fail("T20 ExportCsv definition refused");
+        else if (out != "# BITDEPTH 10, RANGE LEGAL\n0,64,64,64,Background\n1,502,502,502,Gray 50\n2,940,64,64,Red 100\n3,73,73,73,Gray 1\n")
+            Fail("T20 ExportCsv definition bytes:\n%s", out.c_str());
+        // The definition export re-imports as the definition set.
+        if (f.ExportCsvFile(kTmpCsv, s, 10, CSV_RANGE_LEGAL, PatchSequenceFile::EXPORT_DEFINITION, true))
+        {
+            PatchSequence back;
+            PatchSequenceHeader hb;
+            if (!f.Read(kTmpCsv, back, hb, 0) || back.Count() != 4
+                || back.GetIdentity(0) != 0 || back.GetIdentity(3) != 3)
+                Fail("T20 definition export did not re-import as 4 definitions");
+            remove(kTmpCsv);
+        }
+        else
+            Fail("T20 ExportCsvFile refused: %s", f.LastError().c_str());
+        PatchSequence empty;
+        if (f.ExportCsv(out, empty, 10, CSV_RANGE_LEGAL, PatchSequenceFile::EXPORT_MEASUREMENT, true))
+            Fail("T20 ExportCsv accepted an empty sequence");
+        // Everything filtered out is refused too, output untouched.
+        PatchSequence onlyAnchors;
+        onlyAnchors.AddRow(1, 50, 50, 50, "Gray 50", 'A');
+        std::string keep = "sentinel";
+        if (f.ExportCsv(keep, onlyAnchors, 8, CSV_RANGE_LEGAL, PatchSequenceFile::EXPORT_MEASUREMENT, false))
+            Fail("T20 ExportCsv accepted a sequence with no exportable rows");
+        if (keep != "sentinel")
+            Fail("T20 refused ExportCsv touched the output");
+    }
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -1526,6 +2172,7 @@ int main(int argc, char* argv[])
     RunT11();
     RunT12();
     RunT17();   // T13-T16, T18, T19 held by in-flight branches; see the header comment
+    RunT20();
 
     if (g_failures)
     {
