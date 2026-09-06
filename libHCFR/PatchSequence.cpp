@@ -18,6 +18,7 @@
 
 #include "PatchSequence.h"
 
+#include "CsvPatchRows.h"
 #include "libHCFR_Config.h"
 
 #include <float.h>
@@ -36,31 +37,21 @@
 #include <windows.h>
 #endif
 
-// The percent -> device-code quantizer of the live signal path
-// (Color.cpp). Declared here instead of including Color.h, which drags MFC
-// types into the translation unit; the signature is plain types, so any
-// drift is a link error.
-extern int PiPercentToCode(double percent, bool is16_235, int bits);
-
 namespace
 {
-    // Range codes accepted by WriteCsv. These MUST match the shared
-    // CSV_RANGE_* enum in Color.h (the source of truth:
-    // CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1,
-    // CSV_RANGE_EXTENDED = 2). They are restated here as plain ints
-    // because Color.h drags MFC types into its declarations and this
-    // translation unit must stay MFC-free; the T17 round trip through the
-    // real importer is the executable proof the numbers agree.
-    const int kRangeFull     = 0;
-    const int kRangeLegal    = 1;
-    const int kRangeExtended = 2;
+    // The extended span, read straight off the mapping that defines it:
+    // the 10-bit video-range code span 0..1023 through CsvCodeToPercent,
+    // so an EXTENDED patch list round trips without silent clamping and
+    // the bounds cannot drift from the reader's arithmetic.
+    double ExtendedLoPct()
+    {
+        return CsvCodeToPercent(0.0, 10, CSV_RANGE_EXTENDED);
+    }
 
-    // The extended span: the 10-bit video-range code span 0..1023 read
-    // back through CsvCodeToPercent's LEGAL/EXTENDED mapping,
-    // (code - 64) / (940 - 64) * 100, so an EXTENDED patch list round
-    // trips without silent clamping.
-    const double kExtendedLoPct = -6400.0 / 876.0;
-    const double kExtendedHiPct = 95900.0 / 876.0;
+    double ExtendedHiPct()
+    {
+        return CsvCodeToPercent(1023.0, 10, CSV_RANGE_EXTENDED);
+    }
 
     bool ValidComponent(double v)
     {
@@ -73,7 +64,7 @@ namespace
     {
         if (!_finite(v))
             return false;
-        return (v >= kExtendedLoPct && v <= kExtendedHiPct);
+        return (v >= ExtendedLoPct() && v <= ExtendedHiPct());
     }
 
     // Stored values carry one bit pattern per value: fold -0.0 into +0.0
@@ -100,15 +91,6 @@ namespace
                 return false;
         }
         return true;
-    }
-
-    // A group name follows the name rules and is additionally a single
-    // token (it is written bare in the file's GROUP directive).
-    bool ValidGroupName(const std::string& group)
-    {
-        if (!ValidName(group))
-            return false;
-        return group.find(' ') == std::string::npos;
     }
 
     // A timing field is either -1 ("not set here") or a non-negative
@@ -194,25 +176,6 @@ namespace
         return (lo < hi);
     }
 
-    // Nearest-integer inverse of CsvCodeToPercent (Color.cpp) for the
-    // chosen encoding - which is exactly the live signal path's
-    // PiPercentToCode: FULL is the full 0..2^bits-1 code range, LEGAL and
-    // EXTENDED the video range, and its clamps are no-ops for the 0..100
-    // percents this class guarantees.
-    int PercentToCode(double pct, int bits, int range)
-    {
-        return PiPercentToCode(pct, range != kRangeFull, bits);
-    }
-
-    const char* RangeWord(int range)
-    {
-        if (range == kRangeFull)
-            return "FULL";
-        if (range == kRangeLegal)
-            return "LEGAL";
-        return "EXTENDED";
-    }
-
     // Lexicographic component order for the duplicate-detection set. Stored
     // values are never NaN and never -0.0, so operator< is a strict weak
     // ordering that agrees with bit-pattern identity.
@@ -247,26 +210,32 @@ void PatchSequence::Append(const Entry& e)
         m_nextId = e.id + 1;
 }
 
-// NOT YET IMPLEMENTED (review round): role predicates and the shared
-// group-name rule.
-bool PatchSequence::RoleIsMeasured(char)
+// The ONE home of role knowledge: everything that asks "is this patch
+// measured / fitted / exportable" asks here, never by letter comparison.
+bool PatchSequence::RoleIsMeasured(char role)
 {
-    return false;
+    return ValidRole(role) && role != 'I';  // 'I' is shown, never read
 }
 
-bool PatchSequence::RoleIsFitted(char)
+bool PatchSequence::RoleIsFitted(char role)
 {
-    return false;
+    return role == 'C' || role == 'V';
 }
 
-bool PatchSequence::RoleIsExportable(char)
+bool PatchSequence::RoleIsExportable(char role)
 {
-    return false;
+    return role == 'C' || role == 'V';
 }
 
-bool PatchSequence::ValidGroupName(const std::string&)
+// A group name follows the name rules, is non-empty, and is a single
+// token (it is written bare in the file's GROUP directive).
+bool PatchSequence::ValidGroupName(const std::string& group)
 {
-    return false;
+    if (group.empty())
+        return false;
+    if (!ValidName(group))
+        return false;
+    return group.find(' ') == std::string::npos;
 }
 
 void PatchSequence::Swap(PatchSequence& other)
@@ -338,8 +307,8 @@ bool PatchSequence::SetGroup(int index, const std::string& group)
 {
     if (index < 0 || index >= (int)m_entries.size())
         return false;
-    if (!ValidGroupName(group))
-        return false;
+    if (!group.empty() && !ValidGroupName(group))
+        return false;                       // empty clears the group
     m_entries[(size_t)index].group = group;
     return true;
 }
@@ -378,7 +347,7 @@ bool PatchSequence::IsExtended() const
 bool PatchSequence::AddRow(int id, double rPct, double gPct, double bPct,
                            const std::string& name, char role)
 {
-    if (id < 0)
+    if (id < 0 || id > kMaxIdentity)
         return false;
     if (!ValidRole(role))
         return false;
@@ -394,15 +363,14 @@ bool PatchSequence::AddRow(int id, double rPct, double gPct, double bPct,
     rgb[2] = NormalizeComponent(bPct);
 
     // A repeat must repeat: the first entry carrying this identity is the
-    // definition, and its stimulus is binding, bit for bit.
-    for (size_t i = 0; i < m_entries.size(); ++i)
+    // definition, and its stimulus is binding, bit for bit. The index
+    // makes this O(log n), so reading a 10000-row file is not quadratic.
+    std::map<int, size_t>::const_iterator at = m_firstAt.find(id);
+    if (at != m_firstAt.end())
     {
-        if (m_entries[i].id != id)
-            continue;
-        const Entry& def = m_entries[i];
+        const Entry& def = m_entries[at->second];
         if (def.rgb[0] != rgb[0] || def.rgb[1] != rgb[1] || def.rgb[2] != rgb[2])
             return false;
-        break;
     }
 
     Entry e;
@@ -662,7 +630,7 @@ bool PatchSequence::AddCubeShell(int n)
 int PatchSequence::Deduplicate(std::vector< std::pair<int, int> >* renumbering)
 {
     if (renumbering)
-        renumbering->clear();      // NOT YET IMPLEMENTED: the (old, new) pairs
+        renumbering->clear();
     // A DEFINITION is the first entry carrying its identity. Only role-'C'
     // definitions are removal candidates, and only they can cause a
     // removal: repeats and other roles are carried through untouched.
@@ -715,6 +683,26 @@ int PatchSequence::Deduplicate(std::vector< std::pair<int, int> >* renumbering)
             kept[i].id = n->second;
     }
 
+    // One (old, new) pair per identity that existed before the call, in
+    // old-identity order, so anything naming patches by identity outside
+    // the sequence can follow: a removed duplicate maps to the NEW number
+    // of the survivor that replaced it.
+    if (renumbering)
+    {
+        renumbering->reserve(seenIds.size());
+        for (std::set<int>::const_iterator it = seenIds.begin();
+             it != seenIds.end(); ++it)
+        {
+            int target = *it;
+            std::map<int, int>::const_iterator r = replaced.find(target);
+            if (r != replaced.end())
+                target = r->second;
+            std::map<int, int>::const_iterator n = renumbered.find(target);
+            if (n != renumbered.end())
+                renumbering->push_back(std::make_pair(*it, n->second));
+        }
+    }
+
     m_entries.swap(kept);
     m_firstAt.clear();
     m_nextId = 0;
@@ -747,39 +735,33 @@ bool PatchSequence::WriteCsv(std::string& out, int bits, int range) const
         m_lastError = "unsupported bit depth";
         return false;
     }
-    if (range != kRangeFull && range != kRangeLegal && range != kRangeExtended)
+    if (CsvRangeWord(range)[0] == '\0')
     {
         m_lastError = "unsupported csv range";
         return false;
     }
-    if (range != kRangeExtended)
-    {
-        // Only EXTENDED can carry super-white / sub-black; any other range
-        // would quantize an out-of-span percent into a code that does not
-        // read back as itself.
-        for (size_t i = 0; i < m_entries.size(); ++i)
-            for (int k = 0; k < 3; ++k)
-                if (!ValidComponent(m_entries[i].rgb[k]))
-                {
-                    m_lastError = "component outside 0..100 for this range";
-                    return false;
-                }
-    }
+    // No silent clamp, ever: a component this encoding cannot carry back
+    // is refused rather than quantized into a different value.
+    for (size_t i = 0; i < m_entries.size(); ++i)
+        for (int k = 0; k < 3; ++k)
+            if (!CsvPercentRepresentable(m_entries[i].rgb[k], bits, range))
+            {
+                m_lastError = "component not representable at this encoding";
+                return false;
+            }
 
     char buf[256];
     std::string text;
     text.reserve(m_entries.size() * 48 + 32);
-    snprintf(buf, sizeof(buf), "# BITDEPTH %d, RANGE %s\n", bits,
-             RangeWord(range));
-    text = buf;
+    text = CsvFormatHeaderLine(bits, range);
 
     for (size_t i = 0; i < m_entries.size(); ++i)
     {
         const Entry& e = m_entries[i];
         snprintf(buf, sizeof(buf), "%d,%d,%d,%d", e.id,
-                 PercentToCode(e.rgb[0], bits, range),
-                 PercentToCode(e.rgb[1], bits, range),
-                 PercentToCode(e.rgb[2], bits, range));
+                 CsvCodeFromPercent(e.rgb[0], bits, range),
+                 CsvCodeFromPercent(e.rgb[1], bits, range),
+                 CsvCodeFromPercent(e.rgb[2], bits, range));
         text += buf;
         if (!e.name.empty())
         {
@@ -796,23 +778,36 @@ bool PatchSequence::WriteCsv(std::string& out, int bits, int range) const
 
 bool PatchSequence::WriteCsvFile(const char* path, int bits, int range) const
 {
-    if (path == 0 || path[0] == '\0')
-    {
-        m_lastError = "no output path";
-        return false;
-    }
-
     std::string text;
     if (!WriteCsv(text, bits, range))
         return false;                       // WriteCsv set m_lastError
 
-    // Write a sibling temporary file, then move it over the target, so a
-    // failed write never destroys an existing file.
+    std::string reason;
+    if (!WriteTextFileAtomic(path, text, reason))
+    {
+        m_lastError = reason;
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
+
+// The atomic replace every libHCFR file writer shares: a sibling temporary
+// moved over the target, so a failed write never destroys an existing file.
+bool WriteTextFileAtomic(const char* path, const std::string& text,
+                         std::string& reason)
+{
+    if (path == 0 || path[0] == '\0')
+    {
+        reason = "no output path";
+        return false;
+    }
+
     std::string tmp = std::string(path) + ".tmp";
     FILE* f = fopen(tmp.c_str(), "wb");
     if (!f)
     {
-        m_lastError = "cannot open output file";
+        reason = "cannot open output file";
         return false;
     }
     size_t want = text.size();
@@ -823,7 +818,7 @@ bool PatchSequence::WriteCsvFile(const char* path, int bits, int range) const
     if (!ok)
     {
         remove(tmp.c_str());
-        m_lastError = "cannot write output file";
+        reason = "cannot write output file";
         return false;
     }
 
@@ -833,7 +828,7 @@ bool PatchSequence::WriteCsvFile(const char* path, int bits, int range) const
     if (!MoveFileExA(tmp.c_str(), path, MOVEFILE_REPLACE_EXISTING))
     {
         remove(tmp.c_str());                // destination is untouched
-        m_lastError = "cannot replace output file";
+        reason = "cannot replace output file";
         return false;
     }
 #else
@@ -847,21 +842,11 @@ bool PatchSequence::WriteCsvFile(const char* path, int bits, int range) const
         remove(path);
         if (rename(tmp.c_str(), path) != 0)
         {
-            m_lastError = "cannot replace output file; new content kept in "
-                          + tmp;
+            reason = "cannot replace output file; new content kept in " + tmp;
             return false;
         }
     }
 #endif
 
-    m_lastError.clear();
     return true;
-}
-
-// NOT YET IMPLEMENTED (review round): the shared atomic writer that
-// WriteCsvFile and PatchSequenceFile::Write/ExportCsvFile will call.
-bool WriteTextFileAtomic(const char*, const std::string&, std::string& reason)
-{
-    reason = "not implemented";
-    return false;
 }

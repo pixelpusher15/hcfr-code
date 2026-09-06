@@ -15,7 +15,9 @@
 // PatchSequenceFile implementation - the behavioral contract (the .hps
 // grammar, the CSV import/export rules) lives in PatchSequenceFile.h.
 // Plain C++ and CRT only (no MFC), so the reader/writer stays usable from
-// the math core and from console tools.
+// the math core and from console tools. The CSV vocabulary - the range
+// spelling, the header line, the format-directive grammar, the code <->
+// percent mapping - comes from CsvPatchRows.h; there is no copy here.
 
 #include "PatchSequenceFile.h"
 
@@ -30,19 +32,6 @@
 
 #include <map>
 #include <vector>
-
-#ifdef LIBHCFR_HAS_WIN32_API
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#endif
-
-// The percent -> device-code quantizer of the live signal path (Color.cpp),
-// the same one PatchSequence::WriteCsv uses. Declared here instead of
-// including Color.h, which drags MFC types into the translation unit; the
-// signature is plain types, so any drift is a link error.
-extern int PiPercentToCode(double percent, bool is16_235, int bits);
 
 namespace
 {
@@ -63,26 +52,10 @@ namespace
         "# COLUMNS PatchNumber,R,G,B,Name,Role,Group,Settle,Hold,Integration,Average\n";
 
     const char kSequenceTag[] = "# HCFR-SEQUENCE";
+    const size_t kSequenceTagLen = sizeof(kSequenceTag) - 1;
 
-    const char* RangeWord(int range)
-    {
-        if (range == CSV_RANGE_FULL)
-            return "FULL";
-        if (range == CSV_RANGE_LEGAL)
-            return "LEGAL";
-        return "EXTENDED";
-    }
-
-    bool ValidRange(int range)
-    {
-        return range == CSV_RANGE_FULL || range == CSV_RANGE_LEGAL
-            || range == CSV_RANGE_EXTENDED;
-    }
-
-    int PercentToCode(double pct, int bits, int range)
-    {
-        return PiPercentToCode(pct, range != CSV_RANGE_FULL, bits);
-    }
+    const char kUtf8Bom[] = "\xEF\xBB\xBF";
+    const size_t kUtf8BomLen = 3;
 
     std::string Real(double v)
     {
@@ -124,6 +97,31 @@ namespace
         if (s.size() >= 2 && s[0] == '"' && s[s.size() - 1] == '"')
             return s.substr(1, s.size() - 2);
         return s;
+    }
+
+    std::string Upper(const std::string& s)
+    {
+        std::string up = s;
+        for (size_t i = 0; i < up.size(); ++i)
+            if (up[i] >= 'a' && up[i] <= 'z')
+                up[i] = (char)(up[i] - 'a' + 'A');
+        return up;
+    }
+
+    // What a directive string value may NOT contain. A quote or a line end
+    // would break the grammar outright; BITDEPTH or RANGE in any letter
+    // case would flip the decoding of the CSV-only reader, which scans
+    // every leading '#' line for exactly those words and cannot tell a
+    // NAME of "Range extended near-white" from a real declaration.
+    bool ValidDirectiveText(const std::string& v)
+    {
+        for (size_t i = 0; i < v.size(); ++i)
+            if (v[i] == '"' || v[i] == '\r' || v[i] == '\n')
+                return false;
+        std::string up = Upper(v);
+        if (up.find("BITDEPTH") != std::string::npos)
+            return false;
+        return up.find("RANGE") == std::string::npos;
     }
 
     void SplitLines(const std::string& text, std::vector<std::string>& out)
@@ -216,96 +214,18 @@ namespace
         return true;
     }
 
-    std::string Upper(const std::string& s)
+    // Codes are read as numbers and truncated to int, exactly as
+    // ReadCsvPatchRows does, so both dialects decode a row the same way.
+    double CodeFieldToPercent(const std::string& field, int bits, int range)
     {
-        std::string up = s;
-        for (size_t i = 0; i < up.size(); ++i)
-            if (up[i] >= 'a' && up[i] <= 'z')
-                up[i] = (char)(up[i] - 'a' + 'A');
-        return up;
+        return CsvCodeToPercent((double)(int)atof(field.c_str()), bits, range);
     }
 
-    // "# BITDEPTH 10, RANGE LEGAL" - one line declaring both.
-    void ParseFormatDirective(const std::string& value, int& bits, int& range)
+    std::string RowReason(const char* what, int dataRow)
     {
-        std::string up = Upper(value);
-        size_t bp = up.find("BITDEPTH");
-        int v = (bp == std::string::npos) ? atoi(up.c_str())
-                                          : atoi(up.c_str() + bp + 8);
-        if (v == 8 || v == 10)
-            bits = v;
-        size_t rp = up.find("RANGE");
-        if (rp == std::string::npos)
-            return;
-        size_t p = rp + 5;
-        while (p < up.size() && (up[p] == ' ' || up[p] == '\t' || up[p] == ','
-                                 || up[p] == '=' || up[p] == ':'))
-            ++p;
-        if (up.compare(p, 8, "EXTENDED") == 0)
-            range = CSV_RANGE_EXTENDED;
-        else if (up.compare(p, 4, "FULL") == 0)
-            range = CSV_RANGE_FULL;
-        else if (up.compare(p, 5, "LEGAL") == 0)
-            range = CSV_RANGE_LEGAL;
-    }
-
-    // The atomic sibling-temporary replace PatchSequence::WriteCsvFile uses:
-    // a failed write never destroys an existing file. `reason` receives a
-    // one-line lowercase failure reason.
-    bool WriteWholeFile(const char* path, const std::string& text,
-                        std::string& reason)
-    {
-        if (path == 0 || path[0] == '\0')
-        {
-            reason = "no output path";
-            return false;
-        }
-
-        std::string tmp = std::string(path) + ".tmp";
-        FILE* f = fopen(tmp.c_str(), "wb");
-        if (!f)
-        {
-            reason = "cannot open output file";
-            return false;
-        }
-        size_t want = text.size();
-        size_t got = fwrite(text.data(), 1, want, f);
-        bool ok = (got == want);
-        if (fclose(f) != 0)
-            ok = false;
-        if (!ok)
-        {
-            remove(tmp.c_str());
-            reason = "cannot write output file";
-            return false;
-        }
-
-#ifdef LIBHCFR_HAS_WIN32_API
-        // At every instant the destination is either the old file or the
-        // new one, so neither version can be lost.
-        if (!MoveFileExA(tmp.c_str(), path, MOVEFILE_REPLACE_EXISTING))
-        {
-            remove(tmp.c_str());            // destination is untouched
-            reason = "cannot replace output file";
-            return false;
-        }
-#else
-        // rename() does not overwrite an existing destination everywhere.
-        // The destination is only removed once the complete temporary is
-        // safely on disk, and if the second rename STILL fails the
-        // temporary is left in place so the new content survives too.
-        if (rename(tmp.c_str(), path) != 0)
-        {
-            remove(path);
-            if (rename(tmp.c_str(), path) != 0)
-            {
-                reason = "cannot replace output file; new content kept in "
-                       + tmp;
-                return false;
-            }
-        }
-#endif
-        return true;
+        char buf[64];
+        snprintf(buf, sizeof(buf), " row %d", dataRow);
+        return std::string(what) + buf;
     }
 }
 
@@ -318,14 +238,39 @@ PatchSequenceHeader::PatchSequenceHeader()
 {
 }
 
-// NOT YET IMPLEMENTED (review round).
-void PatchSequenceHeader::RemapIdentities(const std::vector< std::pair<int, int> >&)
+// An identity this header names but the renumbering does not mention is a
+// stale reference: it becomes -1 rather than silently pointing at whatever
+// patch inherited its old number.
+void PatchSequenceHeader::RemapIdentities(
+    const std::vector< std::pair<int, int> >& renumbering)
 {
+    std::map<int, int> map;
+    for (size_t i = 0; i < renumbering.size(); ++i)
+        map[renumbering[i].first] = renumbering[i].second;
+
+    for (size_t i = 0; i < anchors.size(); ++i)
+    {
+        if (anchors[i].id == -1)
+            continue;
+        std::map<int, int>::const_iterator it = map.find(anchors[i].id);
+        anchors[i].id = (it == map.end()) ? -1 : it->second;
+    }
+    if (prerollId != -1)
+    {
+        std::map<int, int>::const_iterator it = map.find(prerollId);
+        prerollId = (it == map.end()) ? -1 : it->second;
+    }
 }
 
 bool PatchSequenceFile::FormatHps(std::string& out, const PatchSequence& seq,
                                   const PatchSequenceHeader& hdr)
 {
+    // It writes only what it can read back.
+    if (hdr.version != 1)
+    {
+        m_lastError = "unsupported sequence version";
+        return false;
+    }
     if (seq.Count() <= 0)
     {
         m_lastError = "empty patch sequence";
@@ -341,22 +286,66 @@ bool PatchSequenceFile::FormatHps(std::string& out, const PatchSequence& seq,
         m_lastError = "unsupported bit depth";
         return false;
     }
-    if (!ValidRange(hdr.range))
+    if (CsvRangeWord(hdr.range)[0] == '\0')
     {
         m_lastError = "unsupported csv range";
         return false;
     }
 
+    // No silent clamp, ever - the same rule PatchSequence::WriteCsv applies.
+    for (int i = 0; i < seq.Count(); ++i)
+    {
+        double rgb[3];
+        seq.GetPatch(i, rgb, 0);
+        for (int k = 0; k < 3; ++k)
+            if (!CsvPercentRepresentable(rgb[k], hdr.bits, hdr.range))
+            {
+                m_lastError = "component not representable at this encoding";
+                return false;
+            }
+    }
+
+    // Every directive value must survive a round trip through both readers.
+    std::vector<std::string> values;
+    values.push_back(hdr.sequenceId);
+    values.push_back(hdr.name);
+    values.push_back(hdr.created);
+    values.push_back(hdr.generator);
+    values.push_back(hdr.sourcePath);
+    values.push_back(hdr.sourceHash);
+    values.push_back(hdr.displayProfile);
+    values.push_back(hdr.panelRecord);
+    values.push_back(hdr.target);
+    values.push_back(hdr.gamutRelation);
+    values.push_back(hdr.readAt);
+    values.push_back(hdr.order);
+    values.push_back(hdr.loadModel);
+    for (size_t i = 0; i < hdr.required.size(); ++i)
+        values.push_back(hdr.required[i]);
+    for (size_t i = 0; i < hdr.steps.size(); ++i)
+        values.push_back(hdr.steps[i]);
+    for (size_t i = 0; i < hdr.groups.size(); ++i)
+        values.push_back(hdr.groups[i].readAt);
+    for (size_t i = 0; i < values.size(); ++i)
+        if (!ValidDirectiveText(values[i]))
+        {
+            m_lastError = "directive value would not survive a re-read";
+            return false;
+        }
+    for (size_t i = 0; i < hdr.groups.size(); ++i)
+        if (!PatchSequence::ValidGroupName(hdr.groups[i].name))
+        {
+            m_lastError = "bad group name";
+            return false;
+        }
+
     std::string t;
     t.reserve((size_t)seq.Count() * 48 + 2048);
     char buf[256];
 
-    int version = (hdr.version >= 1) ? hdr.version : 1;
-    snprintf(buf, sizeof(buf), "# HCFR-SEQUENCE %d\n", version);
+    snprintf(buf, sizeof(buf), "# HCFR-SEQUENCE %d\n", hdr.version);
     t += buf;
-    snprintf(buf, sizeof(buf), "# BITDEPTH %d, RANGE %s\n", hdr.bits,
-             RangeWord(hdr.range));
-    t += buf;
+    t += CsvFormatHeaderLine(hdr.bits, hdr.range);
 
     if (!hdr.sequenceId.empty())
         t += "# SEQUENCE-ID " + hdr.sequenceId + "\n";
@@ -469,9 +458,9 @@ bool PatchSequenceFile::FormatHps(std::string& out, const PatchSequence& seq,
         seq.GetGroup(i, group);
         seq.GetTiming(i, tm);
         snprintf(buf, sizeof(buf), "%d,%d,%d,%d,", seq.GetIdentity(i),
-                 PercentToCode(rgb[0], hdr.bits, hdr.range),
-                 PercentToCode(rgb[1], hdr.bits, hdr.range),
-                 PercentToCode(rgb[2], hdr.bits, hdr.range));
+                 CsvCodeFromPercent(rgb[0], hdr.bits, hdr.range),
+                 CsvCodeFromPercent(rgb[1], hdr.bits, hdr.range),
+                 CsvCodeFromPercent(rgb[2], hdr.bits, hdr.range));
         t += buf;
         t += name;
         t += ',';
@@ -499,22 +488,39 @@ bool PatchSequenceFile::ParseHps(const std::string& text, PatchSequence& seq,
 {
     std::vector<std::string> lines;
     SplitLines(text, lines);
-    if (lines.empty())
+
+    // The tag line. A UTF-8 byte-order mark, blank lines and leading
+    // spaces or tabs before it are all tolerated - editors add all three.
+    size_t li = 0;
+    std::string tagLine;
+    bool haveTag = false;
+    for (; li < lines.size(); ++li)
+    {
+        std::string line = lines[li];
+        if (li == 0 && line.compare(0, kUtf8BomLen, kUtf8Bom) == 0)
+            line.erase(0, kUtf8BomLen);
+        size_t b = line.find_first_not_of(" \t");
+        if (b == std::string::npos)
+            continue;                       // a blank line before the tag
+        tagLine = line.substr(b);
+        haveTag = true;
+        break;
+    }
+    if (!haveTag)
     {
         m_lastError = "empty sequence file";
         return false;
     }
-
-    // Line 1 is the dialect tag and the version gate.
-    const std::string& first = lines[0];
-    const size_t tagLen = sizeof(kSequenceTag) - 1;
-    if (first.size() < tagLen || first.compare(0, tagLen, kSequenceTag) != 0)
+    if (tagLine.size() < kSequenceTagLen
+        || tagLine.compare(0, kSequenceTagLen, kSequenceTag) != 0)
     {
         m_lastError = "not a patch sequence file";
         return false;
     }
+
+    int version = 0;
     {
-        const char* p = first.c_str() + tagLen;
+        const char* p = tagLine.c_str() + kSequenceTagLen;
         while (*p == ' ' || *p == '\t')
             ++p;
         if (*p < '0' || *p > '9')
@@ -522,17 +528,19 @@ bool PatchSequenceFile::ParseHps(const std::string& text, PatchSequence& seq,
             m_lastError = "missing sequence version";
             return false;
         }
-        if (atoi(p) > 1)
+        version = atoi(p);
+        if (version > 1)
         {
             m_lastError = "unsupported sequence version";
             return false;
         }
     }
+    ++li;                                   // continue after the tag line
 
     // The row cap is checked before any row is built, so an oversized file
     // costs one cheap pass instead of a full parse.
     size_t dataLines = 0;
-    for (size_t i = 1; i < lines.size(); ++i)
+    for (size_t i = li; i < lines.size(); ++i)
     {
         size_t b = lines[i].find_first_not_of(" \t");
         if (b != std::string::npos && lines[i][b] != '#')
@@ -547,11 +555,13 @@ bool PatchSequenceFile::ParseHps(const std::string& text, PatchSequence& seq,
     // Everything is built into locals and swapped in at the end, so a
     // refusal leaves the caller's sequence and header untouched.
     PatchSequenceHeader h;
+    h.version = version;
     PatchSequence s;
     std::vector<int> cols;
     bool inData = false;
+    int dataRow = 0;                        // 1-based, named on a refusal
 
-    for (size_t li = 1; li < lines.size(); ++li)
+    for (; li < lines.size(); ++li)
     {
         const std::string& line = lines[li];
         size_t b = line.find_first_not_of(" \t");
@@ -572,7 +582,7 @@ bool PatchSequenceFile::ParseHps(const std::string& text, PatchSequence& seq,
             SplitTokens(value, tok);
 
             if (key == "BITDEPTH" || key == "RANGE")
-                ParseFormatDirective(body, h.bits, h.range);
+                ParseCsvFormatDirective(body, h.bits, h.range);
             else if (key == "SEQUENCE-ID")
                 h.sequenceId = Unquote(value);
             else if (key == "NAME")
@@ -696,7 +706,7 @@ bool PatchSequenceFile::ParseHps(const std::string& text, PatchSequence& seq,
             if (cols.empty())
                 for (int c = 0; c < COL_COUNT; ++c)
                     cols.push_back(c);      // the eleven fixed columns
-            if (!ValidRange(h.range) || (h.bits != 8 && h.bits != 10))
+            if (CsvRangeWord(h.range)[0] == '\0' || (h.bits != 8 && h.bits != 10))
             {
                 m_lastError = "unsupported bit depth or csv range";
                 return false;
@@ -709,6 +719,7 @@ bool PatchSequenceFile::ParseHps(const std::string& text, PatchSequence& seq,
                 return false;
             }
         }
+        ++dataRow;
 
         std::vector<std::string> f;
         SplitFields(line, ',', f);
@@ -727,14 +738,14 @@ bool PatchSequenceFile::ParseHps(const std::string& text, PatchSequence& seq,
         // Fields past the declared columns are ignored by design.
         if (!have[COL_ID] || !have[COL_R] || !have[COL_G] || !have[COL_B])
         {
-            m_lastError = "patch row is missing a required column";
+            m_lastError = RowReason("incomplete patch", dataRow);
             return false;
         }
 
         int id = atoi(Trim(fld[COL_ID]).c_str());
-        double pr = CsvCodeToPercent(strtod(fld[COL_R].c_str(), 0), h.bits, h.range);
-        double pg = CsvCodeToPercent(strtod(fld[COL_G].c_str(), 0), h.bits, h.range);
-        double pb = CsvCodeToPercent(strtod(fld[COL_B].c_str(), 0), h.bits, h.range);
+        double pr = CodeFieldToPercent(fld[COL_R], h.bits, h.range);
+        double pg = CodeFieldToPercent(fld[COL_G], h.bits, h.range);
+        double pb = CodeFieldToPercent(fld[COL_B], h.bits, h.range);
         std::string name = Trim(fld[COL_NAME]);
         std::string group = Trim(fld[COL_GROUP]);
         std::string roleText = Trim(fld[COL_ROLE]);
@@ -742,13 +753,13 @@ bool PatchSequenceFile::ParseHps(const std::string& text, PatchSequence& seq,
 
         if (!s.AddRow(id, pr, pg, pb, name, role))
         {
-            m_lastError = "bad patch row";
+            m_lastError = RowReason("bad patch", dataRow);
             return false;
         }
         int index = s.Count() - 1;
         if (!group.empty() && !s.SetGroup(index, group))
         {
-            m_lastError = "bad group name";
+            m_lastError = RowReason("bad group name", dataRow);
             return false;
         }
         PatchTiming tm;
@@ -762,7 +773,7 @@ bool PatchSequenceFile::ParseHps(const std::string& text, PatchSequence& seq,
         if (!v.empty()) tm.average = atoi(v.c_str());
         if (!s.SetTiming(index, tm))
         {
-            m_lastError = "bad patch timing";
+            m_lastError = RowReason("bad patch timing", dataRow);
             return false;
         }
     }
@@ -773,7 +784,7 @@ bool PatchSequenceFile::ParseHps(const std::string& text, PatchSequence& seq,
         return false;
     }
 
-    seq = s;
+    seq.Swap(s);
     hdr = h;
     m_lastError.clear();
     return true;
@@ -800,22 +811,16 @@ bool PatchSequenceFile::Read(const char* path, PatchSequence& seq,
         text.append(buf, n);
     fclose(file);
 
-    // The dialect is decided by the first non-blank line.
-    bool isHps = false;
-    {
-        std::vector<std::string> lines;
-        SplitLines(text, lines);
-        for (size_t i = 0; i < lines.size(); ++i)
-        {
-            size_t b = lines[i].find_first_not_of(" \t");
-            if (b == std::string::npos)
-                continue;
-            std::string head = lines[i].substr(b);
-            isHps = (head.size() >= sizeof(kSequenceTag) - 1
-                     && head.compare(0, sizeof(kSequenceTag) - 1, kSequenceTag) == 0);
-            break;
-        }
-    }
+    // Sniff the dialect in place: the tag may sit behind a byte-order mark,
+    // blank lines and leading whitespace.
+    size_t at = 0;
+    if (text.compare(0, kUtf8BomLen, kUtf8Bom) == 0)
+        at = kUtf8BomLen;
+    while (at < text.size() && (text[at] == ' ' || text[at] == '\t'
+                                || text[at] == '\r' || text[at] == '\n'))
+        ++at;
+    bool isHps = (at + kSequenceTagLen <= text.size())
+        && text.compare(at, kSequenceTagLen, kSequenceTag) == 0;
 
     if (isHps)
     {
@@ -826,10 +831,13 @@ bool PatchSequenceFile::Read(const char* path, PatchSequence& seq,
         return true;
     }
 
+    // One row past the cap, so an oversized file is detected rather than
+    // silently truncated to exactly the cap.
     std::vector<CsvPatchRow> rows;
     int bits = 8;
     int range = CSV_RANGE_NONE;
-    int count = ReadCsvPatchRows(path, rows, MAX_USER_CC_PATCH_SIZE, &bits, &range);
+    int count = ReadCsvPatchRows(path, rows, MAX_USER_CC_PATCH_SIZE + 1,
+                                 &bits, &range);
     if (count < 0)
     {
         m_lastError = "cannot open input file";
@@ -840,6 +848,11 @@ bool PatchSequenceFile::Read(const char* path, PatchSequence& seq,
         m_lastError = "no patch rows";
         return false;
     }
+    if (count > MAX_USER_CC_PATCH_SIZE)
+    {
+        m_lastError = "too many patch rows";
+        return false;
+    }
 
     // No declared range means the legacy dialect: 8-bit LEGAL, identities
     // are row indices (ReadCsvPatchRows already numbers them), all roles C.
@@ -847,20 +860,50 @@ bool PatchSequenceFile::Read(const char* path, PatchSequence& seq,
     int useBits = legacy ? 8 : bits;
     int useRange = legacy ? CSV_RANGE_LEGAL : range;
 
+    // Can the PatchNumber column serve as identity? It can unless two rows
+    // share a number with different R,G,B - which is what a hand-edited
+    // file, or a non-numeric column that collapses to 0, looks like. When
+    // it cannot, every row falls back to its index and the file still
+    // loads, exactly as it does in the app's own importer.
+    bool usable = true;
+    {
+        std::map<int, size_t> firstAt;
+        for (size_t k = 0; k < rows.size(); ++k)
+        {
+            int id = rows[k].patch;
+            if (id < 0 || id > PatchSequence::kMaxIdentity)
+            {
+                usable = false;
+                break;
+            }
+            std::map<int, size_t>::const_iterator it = firstAt.find(id);
+            if (it == firstAt.end())
+                firstAt[id] = k;
+            else if (rows[it->second].r != rows[k].r
+                     || rows[it->second].g != rows[k].g
+                     || rows[it->second].b != rows[k].b)
+            {
+                usable = false;
+                break;
+            }
+        }
+    }
+
     PatchSequence s;
     if (useRange == CSV_RANGE_EXTENDED && !s.SetExtended(true))
     {
         m_lastError = "cannot switch the sequence to extended";
         return false;
     }
-    for (size_t i = 0; i < rows.size(); ++i)
+    for (size_t k = 0; k < rows.size(); ++k)
     {
-        double pr = CsvCodeToPercent(rows[i].r, useBits, useRange);
-        double pg = CsvCodeToPercent(rows[i].g, useBits, useRange);
-        double pb = CsvCodeToPercent(rows[i].b, useBits, useRange);
-        if (!s.AddRow(rows[i].patch, pr, pg, pb, rows[i].name, 'C'))
+        double pr = CsvCodeToPercent(rows[k].r, useBits, useRange);
+        double pg = CsvCodeToPercent(rows[k].g, useBits, useRange);
+        double pb = CsvCodeToPercent(rows[k].b, useBits, useRange);
+        int id = usable ? rows[k].patch : (int)k;
+        if (!s.AddRow(id, pr, pg, pb, rows[k].name, 'C'))
         {
-            m_lastError = "bad patch row";
+            m_lastError = RowReason("bad patch", (int)k + 1);
             return false;
         }
     }
@@ -870,8 +913,9 @@ bool PatchSequenceFile::Read(const char* path, PatchSequence& seq,
     h.range = useRange;
     h.sourceKind = "csv";
     h.sourcePath = path;
+    h.identitiesFromRows = !usable;
 
-    seq = s;
+    seq.Swap(s);
     hdr = h;
     if (dialectOut)
         *dialectOut = legacy ? DIALECT_CSV_LEGACY : DIALECT_CSV_HEADERED;
@@ -886,7 +930,7 @@ bool PatchSequenceFile::Write(const char* path, const PatchSequence& seq,
     if (!FormatHps(text, seq, hdr))
         return false;                       // FormatHps set m_lastError
     std::string reason;
-    if (!WriteWholeFile(path, text, reason))
+    if (!WriteTextFileAtomic(path, text, reason))
     {
         m_lastError = reason;
         return false;
@@ -899,12 +943,11 @@ bool PatchSequenceFile::ExportCsv(std::string& out, const PatchSequence& seq,
                                   int bits, int range, ExportOrder order,
                                   bool includeRoles)
 {
-    // Roles A, P, I and X are not patches to a third-party tool.
+    // What a third-party tool may see is the role predicate's business.
     std::vector<int> pick;
     for (int i = 0; i < seq.Count(); ++i)
     {
-        char r = seq.GetRole(i);
-        if (!includeRoles && (r == 'A' || r == 'P' || r == 'I' || r == 'X'))
+        if (!includeRoles && !PatchSequence::RoleIsExportable(seq.GetRole(i)))
             continue;
         pick.push_back(i);
     }
@@ -931,7 +974,8 @@ bool PatchSequenceFile::ExportCsv(std::string& out, const PatchSequence& seq,
     }
 
     // The filtered/ordered rows go out through PatchSequence::WriteCsv, so
-    // the export and the plain CSV writer can never drift apart.
+    // the export and the plain CSV writer can never drift apart - the
+    // representability refusal included.
     PatchSequence tmp;
     if (seq.IsExtended() && !tmp.SetExtended(true))
     {
@@ -946,7 +990,7 @@ bool PatchSequenceFile::ExportCsv(std::string& out, const PatchSequence& seq,
         if (!tmp.AddRow(seq.GetIdentity(pick[k]), rgb[0], rgb[1], rgb[2],
                         name, seq.GetRole(pick[k])))
         {
-            m_lastError = "bad patch row";
+            m_lastError = RowReason("bad patch", (int)k + 1);
             return false;
         }
     }
@@ -970,7 +1014,7 @@ bool PatchSequenceFile::ExportCsvFile(const char* path, const PatchSequence& seq
     if (!ExportCsv(text, seq, bits, range, order, includeRoles))
         return false;                       // ExportCsv set m_lastError
     std::string reason;
-    if (!WriteWholeFile(path, text, reason))
+    if (!WriteTextFileAtomic(path, text, reason))
     {
         m_lastError = reason;
         return false;
