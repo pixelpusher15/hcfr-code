@@ -34,6 +34,7 @@
 #include <cstdarg>
 #include <cmath>
 #include <algorithm>
+#include <ctime>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -2858,10 +2859,276 @@ static void RunT21()
         if (PatchOrdering::DriftScore(y) != 0.0)
             Fail("T21 DriftScore of a flat trace not 0");
     }
+
+    // (6) Review round: contract tightenings from /code-review high.
+    {
+        std::string reason;
+        double rgb[3];
+        std::string nm;
+
+        // PatchTiming::Resolved and PatchSequence::DefinitionIndex.
+        {
+            PatchTiming row, grp, def;
+            row.settle = 0.0;
+            grp.settle = 1.5; grp.integration = 2.0; grp.average = 5;
+            def.settle = 0.3; def.integration = 0.5; def.average = 1; def.hold = 0.0;
+            PatchTiming r = PatchTiming::Resolved(row, grp, def);
+            if (r.settle != 0.0 || r.integration != 2.0 || r.average != 5 || r.hold != 0.0)
+                Fail("T21 Resolved precedence wrong (%g %g %d %g)", r.settle, r.integration, r.average, r.hold);
+            PatchTiming none;
+            r = PatchTiming::Resolved(none, none, none);
+            if (r.settle != 0.0 || r.hold != 0.0 || r.integration != 0.0 || r.average != 0)
+                Fail("T21 Resolved of all-unset is not zero");
+            if (!PatchTiming::IsSet(1.0) || PatchTiming::IsSet(-1.0))
+                Fail("T21 PatchTiming::IsSet wrong");
+            PatchSequence s;
+            s.AddRow(7, 1, 1, 1, "a", 'C');
+            s.AddRow(3, 2, 2, 2, "b", 'C');
+            s.AddRow(7, 1, 1, 1, "a rep", 'C');
+            if (s.DefinitionIndex(7) != 0 || s.DefinitionIndex(3) != 1 || s.DefinitionIndex(9) != -1)
+                Fail("T21 DefinitionIndex wrong (%d %d %d)", s.DefinitionIndex(7), s.DefinitionIndex(3), s.DefinitionIndex(9));
+        }
+
+        // Anchor and preroll rows inherit the definition's group and timing.
+        {
+            PatchSequence body;
+            BuildBody(body);
+            body.SetGroup(1, "dark");                 // Gray 10 of the first ramp, id 1
+            PatchTiming t;
+            t.average = 10;
+            body.SetTiming(1, t);
+            OrderingParams p;
+            p.latency = 1.0; p.windowSeconds = 6.0;
+            PatchGroupSpec dark;
+            dark.name = "dark"; dark.timing.integration = 2.0;
+            p.groups.push_back(dark);
+            PatchAnchorSpec a;
+            a.id = 1; a.every = 20;
+            p.anchors.push_back(a);
+            p.prerollId = 1; p.prerollCount = 1;
+            PatchSequence out;
+            if (!PatchOrdering::Order(body, p, out, reason))
+                Fail("T21 inherit: Order refused: %s", reason.c_str());
+            else
+            {
+                std::string g;
+                PatchTiming got;
+                out.GetGroup(0, g); out.GetTiming(0, got);
+                if (out.GetRole(0) != 'P' || g != "dark" || got.average != 10)
+                    Fail("T21 preroll row lost group/timing ('%s', avg %d)", g.c_str(), got.average);
+                out.GetGroup(1, g); out.GetTiming(1, got);
+                if (out.GetRole(1) != 'A' || g != "dark" || got.average != 10)
+                    Fail("T21 anchor row lost group/timing ('%s', avg %d)", g.c_str(), got.average);
+            }
+        }
+
+        // Anchor cadence counts characterization rows only; a block follows the chain.
+        {
+            PatchSequence s;
+            s.AddPatch(10, 10, 10, "a");                       // 0
+            s.AddRow(100, 0, 0, 0, "i1", 'I');
+            s.AddRow(101, 0, 0, 0, "i2", 'I');
+            s.AddPatch(20, 20, 20, "b");                       // 1
+            s.AddPatch(30, 30, 30, "c");                       // 2
+            OrderingParams p;
+            p.latency = 1.0; p.windowSeconds = 100.0;
+            PatchAnchorSpec a;
+            a.id = 2; a.every = 1;
+            p.anchors.push_back(a);
+            PatchSequence out;
+            if (!PatchOrdering::Order(s, p, out, reason))
+                Fail("T21 cadence: Order refused: %s", reason.c_str());
+            else
+            {
+                // head anchor, then for each of the 3 C rows: its chain then an anchor; the tail anchor
+                // coincides with the last per-row anchor, so exactly one block ends the sequence.
+                if (out.Count() != 1 + 5 + 3)
+                    Fail("T21 cadence count %d want 9", out.Count());
+                int cSeen = 0, aSeen = 0;
+                bool ok = true;
+                for (int i = 1; i < out.Count(); ++i)
+                {
+                    char r = out.GetRole(i);
+                    if (r == 'A') { ++aSeen; if (aSeen != cSeen) ok = false; }
+                    else if (r == 'C') { if (aSeen != cSeen) ok = false; ++cSeen; }
+                    else if (r == 'I') { if (aSeen != cSeen - 1) ok = false; }   // still inside a's chain
+                }
+                if (!ok || cSeen != 3 || aSeen != 3)
+                    Fail("T21 cadence layout wrong (C %d A %d)", cSeen, aSeen);
+                // the 'I' rows still follow "a" directly
+                int at = -1;
+                for (int i = 0; i < out.Count(); ++i)
+                    if (out.GetRole(i) == 'C') { out.GetPatch(i, rgb, &nm); if (nm == "a") at = i; }
+                std::string n1, n2;
+                if (at < 0 || at + 2 >= out.Count()) Fail("T21 cadence: chain head not found");
+                else
+                {
+                    out.GetPatch(at + 1, rgb, &n1); out.GetPatch(at + 2, rgb, &n2);
+                    if (n1 != "i1" || n2 != "i2")
+                        Fail("T21 cadence: interstitials split from their chain ('%s','%s')", n1.c_str(), n2.c_str());
+                }
+            }
+        }
+
+        // Max-step over chain boundaries only; intra-chain steps are the input's.
+        {
+            // A = [0.5 C, 0.0 I], B = [1.0], C = [0.0]; maxStep 0.5 -> B, A, C satisfies it.
+            PatchSequence s;
+            OrderingParams p;
+            p.area = 1.0; p.latency = 1.0; p.windowSeconds = 100.0; p.model.gamma = 1.0;
+            s.AddPatch(50, 50, 50, "A");
+            s.AddRow(100, 0, 0, 0, "A-cooler", 'I');
+            s.AddPatch(100, 100, 100, "B");
+            s.AddPatch(0, 0, 0, "C");
+            p.maxStep = 0.5;
+            PatchSequence out;
+            if (!PatchOrdering::Order(s, p, out, reason))
+                Fail("T21 chain max-step: refused although B,A,C satisfies it: %s", reason.c_str());
+            else
+            {
+                double prevExit = -1.0; bool ok = true;
+                for (int i = 0; i < out.Count(); ++i)
+                {
+                    char r = out.GetRole(i);
+                    double L = PatchOrdering::RowLoad(out, i, p);
+                    if (r == 'I') { prevExit = L; continue; }
+                    if (prevExit >= 0.0 && fabs(L - prevExit) > 0.5 + 1e-12) ok = false;
+                    prevExit = L;
+                }
+                if (!ok) Fail("T21 chain max-step violated across a chain boundary");
+            }
+            // An intra-chain step above the limit is refused up front with its own reason.
+            p.maxStep = 0.3;
+            PatchSequence keep;
+            keep.AddPatch(1, 1, 1, "sentinel");
+            if (PatchOrdering::Order(s, p, keep, reason))
+                Fail("T21 intra-chain step above max-step accepted");
+            else if (reason != "interstitial step exceeds max-step" || keep.Count() != 1)
+                Fail("T21 intra-chain refusal: reason '%s' count %d", reason.c_str(), keep.Count());
+        }
+
+        // Leading interstitial refused; preroll count without an id refused; non-finite params refused.
+        {
+            PatchSequence lead;
+            lead.AddRow(9, 0, 0, 0, "lead", 'I');
+            lead.AddPatch(50, 50, 50, "x");
+            OrderingParams p;
+            p.latency = 1.0; p.windowSeconds = 6.0;
+            PatchSequence keep;
+            keep.AddPatch(1, 1, 1, "sentinel");
+            if (PatchOrdering::Order(lead, p, keep, reason))
+                Fail("T21 leading interstitial accepted");
+            PatchSequence body;
+            BuildBody(body);
+            OrderingParams bad = p;
+            bad.prerollCount = 2;                         // prerollId left at -1
+            if (PatchOrdering::Order(body, bad, keep, reason))
+                Fail("T21 preroll count without an id accepted");
+            else if (reason.find("preroll") == std::string::npos)
+                Fail("T21 preroll refusal reason does not name preroll: '%s'", reason.c_str());
+            bad = p; bad.backgroundLoad = sqrt(-1.0);
+            if (PatchOrdering::Order(body, bad, keep, reason)) Fail("T21 NaN backgroundLoad accepted");
+            bad = p; bad.windowSeconds = sqrt(-1.0);
+            if (PatchOrdering::Order(body, bad, keep, reason)) Fail("T21 NaN window accepted");
+            bad = p; bad.model.gamma = sqrt(-1.0);
+            if (PatchOrdering::Order(body, bad, keep, reason)) Fail("T21 NaN gamma accepted");
+            bad = p; bad.model.kb = -1.0;
+            if (PatchOrdering::Order(body, bad, keep, reason)) Fail("T21 negative factor accepted");
+            bad = p; bad.defaults.settle = -0.5;
+            if (PatchOrdering::Order(body, bad, keep, reason)) Fail("T21 negative default settle accepted");
+            bad = p;
+            PatchGroupSpec g; g.name = "dark"; g.timing.integration = sqrt(-1.0);
+            bad.groups.push_back(g);
+            if (PatchOrdering::Order(body, bad, keep, reason)) Fail("T21 NaN group timing accepted");
+            bad = p; bad.settleAfterStep = sqrt(-1.0);
+            if (PatchOrdering::Order(body, bad, keep, reason)) Fail("T21 NaN settle-after-step accepted");
+            if (keep.Count() != 1) Fail("T21 a refused Order (review round) touched the output");
+            LoadModel m;
+            if (!m.Valid()) Fail("T21 default LoadModel not Valid");
+            m.kr = sqrt(-1.0);
+            if (m.Valid()) Fail("T21 LoadModel::Valid accepted NaN");
+        }
+
+        // Repeats: a total order - reversed input gives the same names per position.
+        {
+            PatchSequence body;
+            BuildBody(body);
+            body.AddRepeats(5);
+            const int n = body.Count();
+            PatchSequence rev;
+            for (int i = n - 1; i >= 0; --i)
+            {
+                body.GetPatch(i, rgb, &nm);
+                rev.AddRow(body.GetIdentity(i), rgb[0], rgb[1], rgb[2], nm, body.GetRole(i));
+            }
+            OrderingParams p;
+            p.latency = 1.0; p.windowSeconds = 6.0;
+            PatchSequence o1, o2;
+            if (!PatchOrdering::Order(body, p, o1, reason) || !PatchOrdering::Order(rev, p, o2, reason))
+                Fail("T21 repeats: Order refused: %s", reason.c_str());
+            else
+            {
+                bool same = (o1.Count() == o2.Count());
+                for (int i = 0; same && i < o1.Count(); ++i)
+                {
+                    std::string a, b;
+                    o1.GetPatch(i, rgb, &a); o2.GetPatch(i, rgb, &b);
+                    if (a != b || o1.GetIdentity(i) != o2.GetIdentity(i)) same = false;
+                }
+                if (!same) Fail("T21 repeats break input-order independence");
+            }
+        }
+
+        // Predecessor rule: the row after an anchor charges settle-after-step against the previous counted row.
+        {
+            PatchSequence s;
+            s.AddPatch(100, 100, 100, "W");          // load 0.1 (area 0.1)
+            s.AddRow(5, 50, 50, 50, "anchor", 'A');  // not counted
+            s.AddPatch(0, 0, 0, "K");                // drop 0.1 from W, not from the anchor
+            OrderingParams p;
+            p.latency = 0.4; p.settleAfterStep = 2.5;
+            if (!Near(PatchOrdering::Dwell(s, 2, p), 0.4 + 0.25, 1e-12))
+                Fail("T21 predecessor rule: dwell %.17g want 0.65", PatchOrdering::Dwell(s, 2, p));
+        }
+
+        // targetLoad replaces the set mean as Lbar.
+        {
+            PatchSequence s;
+            s.AddPatch(100, 100, 100, "W");
+            s.AddPatch(0, 0, 0, "K");
+            OrderingParams p;
+            p.latency = 1.0; p.windowSeconds = 1.0; p.targetLoad = 0.1;
+            if (!Near(PatchOrdering::WindowExcursion(s, p), 0.1, 1e-12))
+                Fail("T21 targetLoad J = %.17g want 0.1", PatchOrdering::WindowExcursion(s, p));
+        }
+
+        // Scale: a 3,735-row body orders within a wall-clock bound (guards against the cubic refine).
+        {
+            PatchSequence big;
+            big.AddCubeGrid(13);                     // 2197
+            big.AddCubeShell(17);                    // 1538
+            OrderingParams p;
+            p.latency = 1.0; p.windowSeconds = 40.0;
+            PatchAnchorSpec a; a.id = 0; a.every = 100;
+            p.anchors.push_back(a);
+            clock_t t0 = clock();
+            PatchSequence out;
+            bool ok = PatchOrdering::Order(big, p, out, reason);
+            double secs = (double)(clock() - t0) / CLOCKS_PER_SEC;
+            if (!ok)
+                Fail("T21 scale: Order refused: %s", reason.c_str());
+            else if (out.Count() < big.Count())
+                Fail("T21 scale: rows lost");
+            if (secs > 45.0)
+                Fail("T21 scale: Order took %.1f s (bound 45 s)", secs);
+            printf("    (T21 scale: %d rows ordered in %.1f s)\n", big.Count(), secs);
+        }
+    }
 }
 
 int main(int argc, char* argv[])
 {
+    setvbuf(stdout, NULL, _IONBF, 0);   // unbuffered, so a hung oracle still leaves its FAIL lines behind
     const char* mode = (argc > 1) ? argv[1] : "verify";
     g_goldenDir = (argc > 2) ? argv[2] : "golden";
     if (strcmp(mode, "gen") == 0)

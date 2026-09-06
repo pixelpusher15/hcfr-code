@@ -464,6 +464,12 @@ bool LoadModel::Parse(const std::string& text, LoadModel& out)
     return true;
 }
 
+// NOT YET IMPLEMENTED (review round).
+bool LoadModel::Valid() const
+{
+    return false;
+}
+
 std::string LoadModel::Format() const
 {
     char buf[256];
