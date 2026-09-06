@@ -26,6 +26,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "ArgyllSensor.h"
+#include "ArchiveExtension.h"
 #include "SpectralSampleFiles.h"
 #include "SpectralSample.h"
 #include "../Generators/GDIGenerator.h"
@@ -159,7 +160,7 @@ void CArgyllSensor::Serialize(CArchive& archive)
 
     if (archive.IsStoring())
     {
-        int version=6;
+        int version=7;
         archive << version;
         archive << m_DisplayType;
         archive << m_ReadingType;
@@ -171,17 +172,21 @@ void CArgyllSensor::Serialize(CArchive& archive)
         archive << m_DisableAIO;
         archive << m_spectralCorrectionPath;
         archive << m_spectralCorrectionDesc;
-        if(m_meter)
-        {
-            archive << CString(m_meter->getMeterName().c_str());
-        }
+        // Written unconditionally: the load has read a meter name for every
+        // version > 1, so writing it only when a meter was attached desynced
+        // the stream. An empty name matches no meter.
+        archive << CString( m_meter ? m_meter->getMeterName().c_str() : "" );
+
+        // Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+        CExtensionWriter ext;
+        ext.Write(archive);
     }
     else
     {
         int version;
         archive >> version;
-        if ( version > 6 )
-            AfxThrowArchiveException ( CArchiveException::badSchema );
+        if ( version > 7 )
+            throw new CNewerSchemaException ( "CArgyllSensor", version );
         archive >> m_DisplayType;
         archive >> m_ReadingType;
         archive >> m_SpectralType;
@@ -240,6 +245,18 @@ void CArgyllSensor::Serialize(CArchive& archive)
                 m_meter = meters[0];
                 SetName(CString(m_meter->getMeterName().c_str()));
             }
+        }
+
+        if ( version >= 7 )
+        {
+            // Skip any field a newer build added to this block.
+            CExtensionReader ext(archive);
+            BYTE  tag;
+            DWORD cb;
+
+            while ( ext.Next(tag, cb) )
+                ext.Skip();
+            ext.Close();
         }
     }
 }
