@@ -2933,28 +2933,23 @@ static void RunT21()
             OrderingParams p;
             p.latency = 1.0; p.windowSeconds = 100.0;
             PatchAnchorSpec a;
-            a.id = s.GetIdentity(4); a.every = 1;              // "c"
+            a.id = s.GetIdentity(4); a.every = 3;              // "c"; every=3 separates "C rows only" from "every row"
             p.anchors.push_back(a);
             PatchSequence out;
             if (!PatchOrdering::Order(s, p, out, reason))
                 Fail("T21 cadence: Order refused: %s", reason.c_str());
             else
             {
-                // head anchor, then for each of the 3 C rows: its chain then an anchor; the tail anchor
-                // coincides with the last per-row anchor, so exactly one block ends the sequence.
-                if (out.Count() != 1 + 5 + 3)
-                    Fail("T21 cadence count %d want 9", out.Count());
-                int cSeen = 0, aSeen = 0;
-                bool ok = true;
-                for (int i = 1; i < out.Count(); ++i)
-                {
-                    char r = out.GetRole(i);
-                    if (r == 'A') { ++aSeen; if (aSeen != cSeen) ok = false; }
-                    else if (r == 'C') { if (aSeen != cSeen) ok = false; ++cSeen; }
-                    else if (r == 'I') { if (aSeen != cSeen - 1) ok = false; }   // still inside a's chain
-                }
-                if (!ok || cSeen != 3 || aSeen != 3)
-                    Fail("T21 cadence layout wrong (C %d A %d)", cSeen, aSeen);
+                // Body order by lt (loads 30 > 20 > 10, alternating ends): c, a-chain, b. The
+                // third characterization row is b, so the one cadence block falls after b and
+                // coincides with the tail block: head anchor, c, a, i1, i2, b, tail anchor = 7
+                // rows, roles "ACCIICA". If interstitials counted, a's chain would reach 3 and
+                // a block would land after i2 instead ("ACCIIACA", 8 rows).
+                std::string roles;
+                for (int i = 0; i < out.Count(); ++i)
+                    roles += out.GetRole(i);
+                if (roles != "ACCIICA")
+                    Fail("T21 cadence roles '%s' want 'ACCIICA'", roles.c_str());
                 // the 'I' rows still follow "a" directly
                 int at = -1;
                 for (int i = 0; i < out.Count(); ++i)
