@@ -90,7 +90,9 @@
 // then the ordered body with an anchor block after every `every`-th
 // CHARACTERIZATION row (each anchor's own `every`; 'I' rows do not count;
 // the block follows that row's whole chain; several specs falling on one
-// row go in spec order), then the anchor block again at the tail. Anchor
+// row go in spec order), then the anchor block again at the tail - unless
+// the cadence already ended the run with a full block, since two identical
+// blocks back to back measure nothing extra. Anchor
 // and preroll ids must be identities of definitions present in the input
 // (any role, found through PatchSequence::DefinitionIndex); an emitted
 // anchor or preroll row repeats that definition's R,G,B, name, group and
