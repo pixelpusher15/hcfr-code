@@ -505,36 +505,44 @@ BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 	// Serialize's load branch overwrites the sensor field by field, so a file
 	// that is rejected part-way through - a truncated one, or a schema this
 	// build does not know - would leave the sensor carrying pieces of it. So
-	// read the file into a temporary of this concrete class and copy it over
-	// only once the whole of it was read: a file that could not be read
-	// changes nothing, and FALSE says so to the caller that has to decide
-	// whether the document changed with it. Copy() carries everything the
-	// file holds (the matrix, time, method, the six Bodner matrices, the
-	// calibration settings, primaries, white, reference name and calibration
-	// info), which a hand-maintained restore list did not.
-	COneDeviceSensor *	pLoaded = (COneDeviceSensor *) GetRuntimeClass () -> CreateObject ();
+	// read the file into a temporary and copy it over only once the whole of
+	// it was read: a file that could not be read changes nothing, and FALSE
+	// says so to the caller that has to decide whether the document changed
+	// with it.
+	//
+	// The file holds exactly the COneDeviceSensor-level payload - both
+	// Serialize calls below are the non-virtual ones - so the temporary is a
+	// plain COneDeviceSensor and the copy is the non-virtual
+	// COneDeviceSensor::Copy, which carries the matrix, time, method, the six
+	// Bodner matrices, the calibration settings, primaries, white, reference
+	// name and calibration info. It must NOT be the virtual Copy: that one is
+	// document duplication, and CArgyllSensor::Copy takes the meter pointer
+	// from its source and dereferences it, which from a fresh temporary is a
+	// NULL meter - the crash the 2026-09-08 bench found on every valid file.
+	COneDeviceSensor	loaded;
 	BOOL				bLoaded = FALSE;
 
 	TRY
 	{
-		if ( pLoaded == NULL )
-			AfxThrowNotSupportedException ();
-
 		CFile loadFile(aFileName,CFile::modeRead);
 		CArchive ar(&loadFile,CArchive::load);
 
-		pLoaded -> COneDeviceSensor::Serialize(ar);
+		loaded.COneDeviceSensor::Serialize(ar);
 
-		// Copy() also carries state the file does not: the sensor's name
-		// (a fresh CArgyllSensor is "Argyll Meter", the live one is the
-		// meter's) and the modifier matrix. Keep ours.
+		// CSensor::Copy also carries state the file does not hold: the name
+		// (ours is the meter's, the temporary's is "Not defined"), the
+		// modifier matrix, the error string and the validity flag. Keep ours.
 		CString	strName = m_name;
 		Matrix	matMod = m_sensorToXYZMatrixMod;
+		CString	strError = m_errorString;
+		BOOL	bValid = m_isMeasureValid;
 
-		Copy ( pLoaded );
+		COneDeviceSensor::Copy ( & loaded );
 
 		m_name = strName;
 		m_sensorToXYZMatrixMod = matMod;
+		m_errorString = strError;
+		m_isMeasureValid = bValid;
 
 		// COneDeviceSensor::Copy does not carry the file name; set it as the
 		// load has always done.
@@ -547,8 +555,6 @@ BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 		ReportCalibrationLoadFailure ( aFileName, e );
 	}
 	END_CATCH_ALL
-
-	delete pLoaded;
 
 	return bLoaded;
 }
