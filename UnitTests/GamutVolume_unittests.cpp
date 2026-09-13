@@ -62,8 +62,35 @@ namespace
             cube[ ( (size_t)i * N + i ) * N + i ] = k;
     }
 
+    // Volume of one grid cell in L*a*b*, as the sum of its six Kuhn tetrahedra.
+    // `cell` holds the eight corners with bit 2 = r, bit 1 = g, bit 0 = b, i.e.
+    // GenerateProfileColors order for a 2-cube. The one test-side oracle for the
+    // decomposition, shared by RefSubVolume and LabConventionTest so the two
+    // cannot drift apart; deliberately independent of GamutVolume.cpp.
+    double KuhnCellVolume(const ColorLab * const cell[8])
+    {
+        const int tets[6][4] = { {0,1,3,7}, {0,1,5,7}, {0,2,3,7},
+                                 {0,2,6,7}, {0,4,5,7}, {0,4,6,7} };
+        double total = 0.0;
+        for (int t = 0; t < 6; t++)
+        {
+            const ColorLab & a = *cell[ tets[t][0] ];
+            double u[3], v[3], w[3];
+            for (int i = 0; i < 3; i++)
+            {
+                u[i] = (*cell[ tets[t][1] ])[i] - a[i];
+                v[i] = (*cell[ tets[t][2] ])[i] - a[i];
+                w[i] = (*cell[ tets[t][3] ])[i] - a[i];
+            }
+            total += fabs( u[0] * ( v[1]*w[2] - v[2]*w[1] )
+                         + u[1] * ( v[2]*w[0] - v[0]*w[2] )
+                         + u[2] * ( v[0]*w[1] - v[1]*w[0] ) ) / 6.0;
+        }
+        return total;
+    }
+
     // Volume of the reference solid over a sub-box of the RGB cube, summed here
-    // with ColorLab and the same Kuhn decomposition, on a linear N-step grid.
+    // with the same Kuhn decomposition, on a linear N-step grid.
     // Only cells whose r AND g indices are below rgMax are counted, so
     // RefSubVolume(ref, N, N) is the whole solid. Deliberately independent of
     // GamutVolume.cpp: PartialOverlapTest's expected answer must be one the
@@ -85,8 +112,6 @@ namespace
                     lab[ ( (size_t)ri * N + gi ) * N + bi ] = ColorLab( xyz, wY, ref );
                 }
 
-        const int tets[6][4] = { {0,1,3,7}, {0,1,5,7}, {0,2,3,7},
-                                 {0,2,6,7}, {0,4,5,7}, {0,4,6,7} };
         double total = 0.0;
         for (int r = 0; r + 1 < N && r < rgMax; r++)
             for (int g = 0; g + 1 < N && g < rgMax; g++)
@@ -96,20 +121,7 @@ namespace
                     for (int c = 0; c < 8; c++)
                         cell[c] = &lab[ (size_t)( ( r + ( ( c >> 2 ) & 1 ) ) * N
                                                 + ( g + ( ( c >> 1 ) & 1 ) ) ) * N + ( b + ( c & 1 ) ) ];
-                    for (int t = 0; t < 6; t++)
-                    {
-                        const ColorLab & a = *cell[ tets[t][0] ];
-                        double u[3], v[3], w[3];
-                        for (int i = 0; i < 3; i++)
-                        {
-                            u[i] = (*cell[ tets[t][1] ])[i] - a[i];
-                            v[i] = (*cell[ tets[t][2] ])[i] - a[i];
-                            w[i] = (*cell[ tets[t][3] ])[i] - a[i];
-                        }
-                        total += fabs( u[0] * ( v[1]*w[2] - v[2]*w[1] )
-                                     + u[1] * ( v[2]*w[0] - v[0]*w[2] )
-                                     + u[2] * ( v[0]*w[1] - v[1]*w[0] ) ) / 6.0;
-                    }
+                    total += KuhnCellVolume( cell );
                 }
         return total;
     }
@@ -327,33 +339,20 @@ protected:
         // GamutVolume.cpp inlines the L*a*b* conversion instead of calling
         // ColorLab (which copies its CColorReference by value, tens of thousands
         // of times over a cube). Pin the two together: build the smallest
-        // possible cube, sum its six Kuhn tetrahedra here using ColorLab, and
-        // require the module to agree.
+        // possible cube, sum its six Kuhn tetrahedra here using ColorLab (through
+        // the shared test-side oracle), and require the module to agree.
         CColorReference p3(UHDTV);
         std::vector<ColorXYZ> cube;
         MakeIdealCube( p3, 2, 1.0, cube );
 
         ColorLab lab[8];
+        const ColorLab * cell[8];
         for (int i = 0; i < 8; i++)
-            lab[i] = ColorLab( cube[i], kWhiteY, p3 );
-
-        const int tets[6][4] = { {0,1,3,7}, {0,1,5,7}, {0,2,3,7},
-                                 {0,2,6,7}, {0,4,5,7}, {0,4,6,7} };
-        double expected = 0.0;
-        for (int t = 0; t < 6; t++)
         {
-            const ColorLab & a = lab[ tets[t][0] ];
-            double u[3], v[3], w[3];
-            for (int i = 0; i < 3; i++)
-            {
-                u[i] = lab[ tets[t][1] ][i] - a[i];
-                v[i] = lab[ tets[t][2] ][i] - a[i];
-                w[i] = lab[ tets[t][3] ][i] - a[i];
-            }
-            expected += fabs( u[0] * ( v[1]*w[2] - v[2]*w[1] )
-                            + u[1] * ( v[2]*w[0] - v[0]*w[2] )
-                            + u[2] * ( v[0]*w[1] - v[1]*w[0] ) ) / 6.0;
+            lab[i]  = ColorLab( cube[i], kWhiteY, p3 );
+            cell[i] = &lab[i];
         }
+        double expected = KuhnCellVolume( cell );
 
         GamutVolumeResult r = ComputeGamutVolume( &cube[0], 2, p3 );
         CPPUNIT_ASSERT( expected > 0.0 );

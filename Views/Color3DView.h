@@ -147,11 +147,12 @@ protected:
 	bool   m_volDirty;
 	double m_volPct;              // measured solid, % of the reference solid
 	double m_covPct;              // reference solid reproduced, % (capped at 100)
-	// What the cached pair was computed from -- cube size and patch count, the
-	// cube's white corner, and the reference's white and primaries. m_volDirty
-	// says "look again", this says whether looking would change anything; without
-	// it a sweep re-walks the whole cube on every repaint for the same number.
-	enum { VOL_KEY_LEN = 18 };
+	// What the cached pair was computed from -- CMeasure's profile generation
+	// counter (the cube's contents) and the reference's white and primaries.
+	// m_volDirty says "look again", this says whether looking would change
+	// anything; without it a sweep re-walks the whole cube on every repaint for
+	// the same number.
+	enum { VOL_KEY_LEN = 13 };
 	double m_volKey[VOL_KEY_LEN];
 	bool   m_volKeyValid;
 	void   UpdateGamutVolume();

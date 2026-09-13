@@ -4,8 +4,11 @@
 // A property of the CColorReference rather than of any one chart, but it writes
 // wide strings through the secure CRT, so it lives on the Windows side instead
 // of in libHCFR. Shared by the CIE chart's coverage chips and the 3D viewer's
-// gamut-volume chips, so the two always name the same gamut the same way -- and
-// so neither has to include the other's view header to ask.
+// gamut-volume chips, so a given reference is named the same way on both -- and
+// so neither has to include the other's view header to ask. The two charts do
+// not always pass the SAME reference: the 3D viewer labels the gamut its scene
+// is built in (Rec.709 at HDTVa/b, see SpecialModeGamutReference), the CIE
+// chart the active one, so at those two standards their chips differ on purpose.
 ///////////////////////////////////////////////////////////////////////////////
 
 #ifndef GAMUTNAME_H_INCLUDED

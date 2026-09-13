@@ -67,7 +67,9 @@ static std::wstring LoadResWide( UINT nID )
 // translator mistyped. "%.1f" is the part that is never translated, so require
 // it and otherwise fall back to the bare percentage: an unlabelled number beats
 // an empty pill, and beats handing swprintf a spec that does not match the
-// double it is passed.
+// double it is passed. Length is the other thing a translation can get wrong:
+// _TRUNCATE cuts an over-long label at the buffer instead of leaving it
+// indeterminate the way a failed swprintf would.
 static void ProfilePctChip( wchar_t (&out)[64], UINT nID, double pct )
 {
 	// Safe means EXACTLY one "%.1f" and no other conversion: a translation that
@@ -84,7 +86,7 @@ static void ProfilePctChip( wchar_t (&out)[64], UINT nID, double pct )
 		ok = false;
 		break;
 	}
-	swprintf( out, 64, ok ? fmt.c_str() : L"%.1f%%", pct );
+	_snwprintf_s( out, 64, _TRUNCATE, ok ? fmt.c_str() : L"%.1f%%", pct );
 }
 
 static const double k2PI = 6.283185307179586;
@@ -1785,15 +1787,25 @@ void C3DColorView::Render(const CRect& rc)
 		// exactly as the CIE chart hides its percentages when the primaries are
 		// missing. The lazy recompute lands here (not in Render's hot path) so a
 		// rotation never pays for it.
-		if ( m_volDirty )
-			UpdateGamutVolume();
+		//
 		// The cube is the only source for these numbers, so they follow its layer:
 		// with the profile points hidden the cloud and the point count above drop
 		// them, and a percentage still sitting up here would read as if it
-		// described whatever sweep is left on screen.
+		// described whatever sweep is left on screen. The recompute waits for the
+		// layer too -- m_volDirty stays up meanwhile, so showing it again pays once.
+		if ( m_volDirty && m_showProfilePts )
+			UpdateGamutVolume();
 		if ( m_volValid && m_showProfilePts )
 		{
 			WCHAR gamutName[64], covBuf[64], volBuf[64];
+			// The scene reference, not GetColorReference(): the chips score the cube
+			// against the solid actually drawn, and must be labelled with it. At
+			// HDTVa/b that is Rec.709 while the CIE chart says "75% HDTV Rec709" --
+			// deliberate, not drift. Those standards' "primaries" are 75%-saturation
+			// patch targets inside a plain Rec.709 display, so the CIE chips there
+			// report how well the patches hit their targets, whereas a gamut VOLUME
+			// against a patch triangle would be meaningless; the display's gamut is
+			// Rec.709, and an ideal one reads 100 / 100 here.
 			GamutShortName( SceneGamutReference(), gamutName, 64 );
 			ProfilePctChip( covBuf, IDS_3DVIEW_GAMUTCOV, m_covPct );
 			ProfilePctChip( volBuf, IDS_3DVIEW_GAMUTVOL, m_volPct );
@@ -2085,6 +2097,16 @@ void C3DColorView::UpdateGamutVolume()
 	if ( pMeasure == NULL || !pMeasure->HasProfileMeasures() )
 		{ m_volValid = m_volKeyValid = false; return; }
 
+	// Nothing in the array is final while the capture runs. The cube's white
+	// corner is its last node but not the sequence's: with gray extras on it
+	// turns valid while the extras are still being measured, and the closing
+	// drift anchor then rescales the last segment -- a number computed in
+	// between would appear, then silently change. Every appended patch also
+	// re-dirties this, so the early out is what keeps a live sweep from walking
+	// the whole cube on each repaint.
+	if ( pMeasure->m_bProfileCapturing )
+		{ m_volValid = m_volKeyValid = false; return; }
+
 	int cubeN = pMeasure->GetProfileCubeSize();
 	if ( cubeN < 2 )
 		{ m_volValid = m_volKeyValid = false; return; }
@@ -2092,36 +2114,23 @@ void C3DColorView::UpdateGamutVolume()
 	if ( pMeasure->GetProfileMeasureSize() < need )
 		{ m_volValid = m_volKeyValid = false; return; }	// stopped before the cube closed
 
-	// The array is pre-sized to the whole patch list at capture start, so size
-	// alone says nothing about progress. Patch need-1 is the cube's last node
-	// (white), measured last: one lookup rules out a capture still in flight,
-	// which matters because every appended patch re-dirties this and a live
-	// sweep would otherwise walk the whole cube on every repaint.
-	CColor whiteCorner = pMeasure->GetProfileMeasure( need - 1 );
-	if ( !whiteCorner.isValid() )
-		{ m_volValid = m_volKeyValid = false; return; }
-
 	CColorReference ref = SceneGamutReference();
 
 	// BuildScene re-dirties this, and a rebuild follows essentially any document
 	// hint -- so with a cube already in the document a grayscale or saturation
 	// sweep would re-walk 9261 vertices and ~150k tetrahedra on every repaint
 	// (31 ms at 21^3 in a Debug build) only to arrive at the same number. So key
-	// the recompute on what it actually depends on. Patch need-1 is the cube's
-	// last node AND the last value the capture settles -- the closing drift
-	// anchor rescales it -- so it stands in for the cube's contents; nothing in
-	// the app edits a profile node on its own (SetProfileMeasure has no callers).
+	// the recompute on what it actually depends on: the cube's contents, through
+	// CMeasure's generation counter (bumped on every write to the array, so a
+	// hole cached as "no number" is keyed honestly too), and the reference's
+	// white and primaries, which are all ComputeGamutVolume reads from it.
 	double key[VOL_KEY_LEN];
-	ColorXYZ wc = whiteCorner.GetXYZValue();
 	ColorXYZ rw = ref.GetWhite(), rr = ref.GetRed(), rg = ref.GetGreen(), rb = ref.GetBlue();
 	int k = 0;
-	key[k++] = cubeN;
-	key[k++] = pMeasure->GetProfileMeasureSize();
-	key[k++] = ref.m_standard;
+	key[k++] = pMeasure->GetProfileGeneration();
 	for ( int i = 0; i < 3; i++ )
 	{
-		key[k++] = wc[i];  key[k++] = rw[i];  key[k++] = rr[i];
-		key[k++] = rg[i];  key[k++] = rb[i];
+		key[k++] = rw[i];  key[k++] = rr[i];  key[k++] = rg[i];  key[k++] = rb[i];
 	}
 	ASSERT( k == VOL_KEY_LEN );		// every slot written, or the tail is garbage
 	if ( m_volKeyValid && memcmp( key, m_volKey, sizeof( key ) ) == 0 )
@@ -2135,7 +2144,8 @@ void C3DColorView::UpdateGamutVolume()
 	{
 		CColor c = pMeasure->GetProfileMeasure( i );
 		if ( !c.isValid() )
-			return;	// a hole anywhere leaves the solid undefined: show no number
+			return;	// a hole anywhere (a stopped capture, an ignored sensor error)
+					// leaves the solid undefined: show no number
 		cube[i] = c.GetXYZValue();
 	}
 
