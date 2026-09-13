@@ -2717,7 +2717,11 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			m_profilePane.OnCaptureProgress ();
 			CMeasure * pProfMeasure = GetDocument()->GetMeasure();
 			int nProfSize = pProfMeasure->GetProfileMeasureSize();
-			if ( nProfSize > 0 )
+			// The up-front white reference is not a cube patch: m_currentIndex is
+			// still 0, so the widgets below would show patch 0 -- the cube's black
+			// corner -- while the generator is displaying white. Skip them; the
+			// pane (which does know) carries the progress for this stretch.
+			if ( nProfSize > 0 && !pProfMeasure->m_bProfileMeasuringWhite )
 			{
 				// desktop test window shows the patch being DISPLAYED (index cur)...
 				int cur = min ( pProfMeasure->m_currentIndex, nProfSize - 1 );
@@ -3454,7 +3458,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					white = GetDocument() -> GetMeasure () ->GetOnOffWhite();
 
 				//special case check if user has done a primaries run at less than 100%, use grayscale white instead for colorchecker
-				if (GetDocument()->GetMeasure()->GetOnOffWhite().isValid())
+				if (GetDocument()->GetMeasure()->IsOnOffWhiteMeasured() && GetDocument()->GetMeasure()->GetOnOffWhite().isValid())
 					if ((GetDocument()->GetMeasure()->GetPrimeWhite()[1] / GetDocument()->GetMeasure()->GetOnOffWhite()[1] < 0.9) && m_displayMode == 11  && GetConfig()->m_GammaOffsetType !=5)
 						white = GetDocument() -> GetMeasure () ->GetOnOffWhite();
 				
@@ -3939,7 +3943,11 @@ void CMainView::UpdateGrid()
 				 YWhiteRefDoc = isSpecial?YWhiteOnOffRefDoc:YWhitePrimeRefDoc;
 
 				 //special case check if user has done a less than 100% primaries run and use grayscale white instead for colorchecker
-				if (GetDocument()->GetMeasure()->GetOnOffWhite().isValid()&&!isHDR)
+				// Same gate as GetItemText and GetColorDEWhiteY: the pre-loaded
+				// placeholder on/off white is isValid(), so without the flag this
+				// override fired on documents that never measured one -- and the grid
+				// would then disagree with the 3D viewer, which has no such override.
+				if (GetDocument()->GetMeasure()->IsOnOffWhiteMeasured()&&GetDocument()->GetMeasure()->GetOnOffWhite().isValid()&&!isHDR)
 				{
 					if ((YWhitePrime / YWhiteOnOff < 0.9) && m_displayMode == 11)
 					{
@@ -5457,17 +5465,28 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				}
 			}
 
-			aNewColor = GetDocument()->GetMeasure()->GetPrimeWhite();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
-			GetDocument()->GetMeasure()->SetPrimeWhite(aNewColor);
+			// Only when it is a real reading. An unmeasured prime white is the
+			// placeholder CMeasure pre-loads from m_TargetMaxL, so there is nothing
+			// here to rescale -- and pushing it through SetPrimeWhite would mark it
+			// measured, which would then stop a display profile from filling it in.
+			// The neighbouring blocks skip invalid colors for the same reason.
+			if ( GetDocument()->GetMeasure()->IsPrimeWhiteMeasured() )
+			{
+				aNewColor = GetDocument()->GetMeasure()->GetPrimeWhite();
+				aNewColor.SetX(fact * aNewColor.GetX());
+				aNewColor.SetY(fact * aNewColor.GetY());
+				aNewColor.SetZ(fact * aNewColor.GetZ());
+				GetDocument()->GetMeasure()->SetPrimeWhite(aNewColor);
+			}
 
-			aNewColor = GetDocument()->GetMeasure()->GetOnOffWhite();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
-			GetDocument()->GetMeasure()->SetOnOffWhite(aNewColor);
+			if ( GetDocument()->GetMeasure()->IsOnOffWhiteMeasured() )
+			{
+				aNewColor = GetDocument()->GetMeasure()->GetOnOffWhite();
+				aNewColor.SetX(fact * aNewColor.GetX());
+				aNewColor.SetY(fact * aNewColor.GetY());
+				aNewColor.SetZ(fact * aNewColor.GetZ());
+				GetDocument()->GetMeasure()->SetOnOffWhite(aNewColor);
+			}
 
 			aNewColor = GetDocument()->GetMeasure()->GetAnsiWhite();
 			aNewColor.SetX(fact * aNewColor.GetX());

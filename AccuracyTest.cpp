@@ -462,7 +462,11 @@ static double GridYWhite ( const CMeasure & m, bool bSpecial, bool bCC )
 		y = GetConfig()->m_TargetMaxL;
 	// CC only, SDR only: a primaries run made below 90% stimulus (UpdateGrid
 	// ~3819-3826).
-	if ( bCC && onoff.isValid() && GetConfig()->m_GammaOffsetType != 5
+	// Mirrors GetColorDEWhiteY's gate exactly, m_bOnOffWhiteMeasured included:
+	// the ctor's placeholder on/off white is isValid() at m_TargetMaxL, so
+	// without this the harness would keep applying an override production no
+	// longer applies -- a phantom grid-vs-viewer split in the convPV families.
+	if ( bCC && m.IsOnOffWhiteMeasured() && onoff.isValid() && GetConfig()->m_GammaOffsetType != 5
 		 && yOnOff > 0 && yPrime / yOnOff < 0.9 )
 		y = yOnOff;
 	return y;
@@ -1111,10 +1115,70 @@ static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CC
 static const double kPrimeWhiteGain = 0.965;
 static const double kOnOffWhiteGain = 0.982;
 
+// The sub-90%-stimulus override, both directions, on a document whose ON/OFF
+// white is the constructor's placeholder - the state a standalone display
+// profile starts in, and the one the whole m_bOnOffWhiteMeasured gate exists for.
+//
+// The perturbation family above cannot reach it: its gains put the ratio at
+// 0.965/0.982 = 0.983, and the only combos where the ratio does drop below 0.9
+// are HDTVa/HDTVb, where bSpecial has already selected the on/off white so the
+// override is a no-op. So before this, deleting the gate from EITHER
+// GetColorDEWhiteY or GridYWhite left the whole 834-combo run unchanged.
+//
+// Asserting the VALUE and not just pane/viewer agreement is the point: the two
+// are mirrors, so a gate deleted from both would still agree - on the wrong
+// white. Case 1 pins "unmeasured on/off white does NOT override a real prime
+// white", case 2 pins "a measured one still does".
+static void CheckSub90Override ( FamStat & stat )
+{
+	CColorHCFRConfig * cfg = GetConfig();
+	// The override is SDR-only and never fires for the special standards.
+	if ( cfg->m_GammaOffsetType == 5 )
+		return;
+	if ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb )
+		return;
+
+	// Fresh CMeasure: both whites are the ctor placeholder at m_TargetMaxL and
+	// BOTH flags are FALSE. That state is not reachable through the public
+	// setters - SetOnOffWhite derives the flag from isValid() - which is exactly
+	// why this case needs its own CMeasure rather than perturbing the shared one.
+	CMeasure m;
+	const double yOnOff = m.GetOnOffWhite().GetY();
+	if ( !( yOnOff > 0.0 ) )
+		return;
+
+	// A real prime white 20% below the placeholder: ratio 0.8, comfortably under
+	// the 0.9 threshold, so the override is armed in both cases below.
+	const double yPrime = yOnOff * 0.8;
+	CColor prime;
+	prime.SetXYZValue(ColorXYZ(yPrime * 0.95047, yPrime, yPrime * 1.08883));
+	m.SetPrimeWhite(prime);
+
+	// Case 1: on/off white never measured -> the override must NOT fire.
+	double gridY = GridYWhite(m, false, true);
+	double paneY = m.GetColorDEWhiteY(false, true, false);
+	if ( fabs(gridY - yPrime) > 1e-6 || fabs(paneY - yPrime) > 1e-6 )
+		stat.Add(999.0, "sub90 override fired on an UNMEASURED on/off white "
+						"(grid %.4f, pane %.4f, want prime %.4f)", gridY, paneY, yPrime);
+
+	// Case 2: same numbers, on/off white now a reading -> the override must fire.
+	m.SetOnOffWhite(m.GetOnOffWhite());		// same value, but now flagged measured
+	gridY = GridYWhite(m, false, true);
+	paneY = m.GetColorDEWhiteY(false, true, false);
+	if ( fabs(gridY - yOnOff) > 1e-6 || fabs(paneY - yOnOff) > 1e-6 )
+		stat.Add(999.0, "sub90 override did NOT fire on a MEASURED on/off white "
+						"(grid %.4f, pane %.4f, want on/off %.4f)", gridY, paneY, yOnOff);
+}
+
 static void RunConvWhite ( CMeasure & m, FamStat & stat )
 {
 	CColorHCFRConfig * cfg = GetConfig();
 	bool special = ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb );
+
+	// Independent of the perturbation below (it builds its own CMeasure), so run
+	// it before the no-samples bail-out - every combo gets the gate checked.
+	CheckSub90Override(stat);
+
 	if ( s_nConvSamples == 0 )
 		return;
 

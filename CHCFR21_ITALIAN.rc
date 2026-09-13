@@ -4228,6 +4228,7 @@ BEGIN
     IDS_PP_PAUSED           "   -   IN PAUSA"
     IDS_PP_PATCHOF          "Pattern %d di %d  -  RGB %.0f, %.0f, %.0f"
     IDS_PP_ETA              "%d%%  -  circa %s rimanenti"
+    IDS_PP_MEASURINGWHITE   "Misurazione del bianco di riferimento..."
     IDS_PP_AVGDE            "dE medio"
     IDS_PP_MAXDE            "dE max"
     IDS_PP_DRIFT            "Deriva"

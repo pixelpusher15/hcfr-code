@@ -289,6 +289,22 @@ void CProfilePane::OnCaptureProgress()
 	if ( !pMeasure || m_state != PS_RUNNING )
 		return;
 
+	// The up-front white reference is not a patch. It arrives with m_currentIndex
+	// still 0, so without this it would seed m_lastSeenIndex/m_lastPatchTick
+	// before the read and the first EMA sample would charge the whole white read
+	// plus its settle to patch 0 -- inflating the ETA and, through LeaveRunning,
+	// the pace persisted to MainView\Profile PatchMs for every future capture.
+	if ( pMeasure->m_bProfileMeasuringWhite )
+	{
+		m_lastPatchTick = GetTickCount();
+		if ( ::IsWindow( m_hWnd ) )
+		{
+			Invalidate( FALSE );
+			UpdateWindow();
+		}
+		return;
+	}
+
 	int cur = pMeasure->m_currentIndex;
 	if ( cur != m_lastSeenIndex )
 	{
@@ -970,6 +986,17 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	int y = 0;
 	ColorRGBDisplay cur_rgb = ( total > 0 ) ? pMeasure->GetProfilePatchRGB( min( cur, total - 1 ) )
 											: ColorRGBDisplay( 0.0 );
+	// The capture measures its own white reference before patch 0. That read is
+	// long enough to look hung, and labelling it "Patch 1 of N" would be wrong --
+	// no cube patch has been measured yet. The swatch shows the stimulus actually
+	// on screen, which is NOT always 100%: PrimeWhiteIRELevel drives 50.22831% in
+	// PQ, 50.00% on the Mascior disc and 75% under HDTVa.
+	const bool bWhiteRef = ( pMeasure->m_bProfileMeasuringWhite != FALSE );
+	if ( bWhiteRef )
+	{
+		double w = pMeasure->m_profileWhiteIRE;
+		cur_rgb = ColorRGBDisplay( w, w, w );
+	}
 	CRect rcSw( 0, y, swSz, y + swSz );
 	FillRound( g, rcSw, 5, SwatchColor( cur_rgb ) );
 	DrawRound( g, rcSw, 5, t.border, 1.0f );
@@ -978,8 +1005,11 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	int barW = CW - barX;
 	int etaW = GetConfig()->Scale( 210 );
 	CString line;
-	line.Format( S( IDS_PP_PATCHOF ), min( cur + 1, total ), total,
-				 cur_rgb[0], cur_rgb[1], cur_rgb[2] );
+	if ( bWhiteRef )
+		line = S( IDS_PP_MEASURINGWHITE );
+	else
+		line.Format( S( IDS_PP_PATCHOF ), min( cur + 1, total ), total,
+					 cur_rgb[0], cur_rgb[1], cur_rgb[2] );
 	DrawStr( g, line, fBody, Gdiplus::RectF( (float)barX, (float)y, (float)( barW - etaW - GetConfig()->Scale( 8 ) ), 22.0f ), t.text );
 
 	double frac = total > 0 ? (double)cur / total : 0.0;

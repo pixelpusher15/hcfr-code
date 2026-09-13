@@ -4257,6 +4257,7 @@ BEGIN
     IDS_PP_PAUSED           "   -   EN PAUSE"
     IDS_PP_PATCHOF          "Mire %d sur %d  -  RVB %.0f, %.0f, %.0f"
     IDS_PP_ETA              "%d%%  -  environ %s restant"
+    IDS_PP_MEASURINGWHITE   "Mesure du blanc de référence..."
     IDS_PP_AVGDE            "dE moyen"
     IDS_PP_MAXDE            "dE max"
     IDS_PP_DRIFT            "Dérive"
