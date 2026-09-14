@@ -76,7 +76,7 @@ static char THIS_FILE[] = __FILE__;
 
 // Defined below (near the calibration entry points); used by the new-document
 // wizard's Argyll branch as well.
-static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor);
+static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor, bool clearNow = true);
 
 /////////////////////////////////////////////////////////////////////////////
 // Current file format version. 
@@ -1782,7 +1782,10 @@ void CDataSetDoc::OnCalibrationExisting()
 // methods are applied by HCFR on top of every reading, so running both stacks
 // (double-correction). Before a matrix calibration, if the sensor has a spectral
 // correction active, offer to clear it. Returns false to abort the calibration.
-static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor)
+// With clearNow false the caller has a step that can still fail after the
+// prompt (a file to read) and clears the spectral correction itself once
+// that step has succeeded, so a refused file leaves the meter as it was.
+static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor, bool clearNow)
 {
 	if ( pSensor == NULL || !pSensor->HasSpectralCorrection() )
 		return true;
@@ -1793,7 +1796,8 @@ static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor)
 		MB_YESNO | MB_ICONQUESTION );
 	if ( r != IDYES )
 		return false;
-	pSensor->ClearSpectralCorrection();
+	if ( clearNow )
+		pSensor->ClearSpectralCorrection();
 	return true;
 }
 
@@ -5419,7 +5423,7 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		// Loading a matrix calibration onto a ccss-corrected meter would
 		// double-correct (Init re-applies the ccss on every connect) - same
 		// guard as manual and existing-reference calibration.
-		if ( !ConfirmClearSpectralForMatrixCal(m_pSensor) )
+		if ( !ConfirmClearSpectralForMatrixCal(m_pSensor, false) )
 			return;
 
 		BOOL	bLoaded = TRUE;
@@ -5434,6 +5438,10 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		// modified over it.
 		if ( bLoaded )
 		{
+			// The file is in: now the matrix correction replaces the spectral one
+			// (the prompt above was answered Yes; a meter with none is left alone).
+			if ( m_pSensor->HasSpectralCorrection() )
+				m_pSensor->ClearSpectralCorrection();
 			m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
 			// LoadCalibrationFile (COneDeviceSensor::Serialize) has already restored the full
 			// correction from the training file: the calibration method plus either the single
