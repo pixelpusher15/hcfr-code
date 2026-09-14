@@ -3235,6 +3235,8 @@ BEGIN
     IDS_ERRSENSOR           "Sensor error"
     IDS_INVALIDSENSORMATRIX "Invalid sensor matrix"
     IDS_MUSTSAVEINSUBDIR    "You must save this file in current directory to use it later."
+    IDS_THC_SAVE_FAILED     "The correction file could not be saved.\n\n%s"
+    IDS_THC_LOAD_FAILED     "The correction file could not be read.\n\n%s"
     IDS_RUNCONTINUOUS       "Run continuous measures - F8"
     IDS_ONEMEASURE          "Take a measurement - F7"
     IDS_CONFIGURESENSOR     "Configure sensor"

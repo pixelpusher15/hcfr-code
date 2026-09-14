@@ -3353,6 +3353,8 @@ BEGIN
     IDS_ERRSENSOR           "Error del sensor"
     IDS_INVALIDSENSORMATRIX "La matriz del sensor no es válida"
     IDS_MUSTSAVEINSUBDIR    "Debe guardar este archivo en el directorio actual para poder usarlo después."
+    IDS_THC_SAVE_FAILED     "No se pudo guardar el archivo de corrección.\n\n%s"
+    IDS_THC_LOAD_FAILED     "No se pudo leer el archivo de corrección.\n\n%s"
     IDS_RUNCONTINUOUS       "Iniciar las medidas continuas - F8"
     IDS_ONEMEASURE          "Tomar una medida - F7"
     IDS_CONFIGURESENSOR     "Configurar el sensor"
