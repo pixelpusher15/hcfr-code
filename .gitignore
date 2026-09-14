@@ -42,3 +42,6 @@ TEN-BIT-PIPELINE-PLAN.md
 # passing run when grepped - keep it out of the tree entirely.
 accuracytest_report.txt
 accuracytest_report_quick.txt
+
+# Crash dumps
+*.dmp

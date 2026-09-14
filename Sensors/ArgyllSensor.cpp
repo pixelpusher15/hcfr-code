@@ -146,6 +146,42 @@ void CArgyllSensor::Copy(CSensor * p)
     }
 }
 
+// Exclude the ACTIVE pattern-generator's serial port from Argyll meter detection -
+// probing it stalls several seconds waiting for a meter reply that never comes.
+// Gated on the current display mode: excluding a stale DvdoComPort/MuriComPort
+// unconditionally would hide a real spectrometer that later enumerates on that
+// COM number; Murideo only holds a COM in serial transport. Shared by every
+// getDetectedMeters call site (here and NewDocPropertyPages.cpp).
+extern void CGDIGenerator_OpenGeneratorComPorts(std::vector<std::string>& out);	// GDIGenerator.cpp
+void ArgyllExcludeActiveGeneratorComPorts()
+{
+    std::vector<std::string> genPorts;
+    int genMode = GetConfig()->GetProfileInt("GDIGenerator", "DisplayMode", DISPLAY_DEFAULT_MODE);
+    if (genMode == DISPLAY_DVDO)
+    {
+        CString dvdoCom = GetConfig()->GetProfileString("GDIGenerator", "DvdoComPort", "");
+        if (!dvdoCom.IsEmpty()) genPorts.push_back((LPCSTR)dvdoCom);
+    }
+    else if (genMode == DISPLAY_MURIDEO && GetConfig()->GetProfileInt("GDIGenerator", "MuriUseNetwork", 1) == 0)
+    {
+        CString muriCom = GetConfig()->GetProfileString("GDIGenerator", "MuriComPort", "");
+        if (!muriCom.IsEmpty()) genPorts.push_back((LPCSTR)muriCom);
+    }
+    // Plus anything actually open right now. The config gate above reflects the mode the
+    // user has selected; it does not know about a port a Show or Apply left open under a
+    // mode they have since changed away from.
+    std::vector<std::string> live;
+    CGDIGenerator_OpenGeneratorComPorts(live);
+    for (size_t i = 0; i < live.size(); ++i)
+    {
+        bool dup = false;
+        for (size_t j = 0; j < genPorts.size() && !dup; ++j)
+            dup = (genPorts[j] == live[i]);
+        if (!dup) genPorts.push_back(live[i]);
+    }
+    ArgyllMeterWrapper::setExcludedSerialPorts(genPorts);
+}
+
 void CArgyllSensor::Serialize(CArchive& archive)
 {
     COneDeviceSensor::Serialize(archive) ;
@@ -189,6 +225,8 @@ void CArgyllSensor::Serialize(CArchive& archive)
         }
         archive >> m_debugMode;
         archive >> m_HiRes;
+
+        ArgyllExcludeActiveGeneratorComPorts();
 
         std::string errorMessage;
         ArgyllMeterWrapper::ArgyllMeterWrappers meters = ArgyllMeterWrapper::getDetectedMeters(errorMessage);

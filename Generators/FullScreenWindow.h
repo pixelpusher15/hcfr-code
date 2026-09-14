@@ -40,6 +40,8 @@
 #define DISPLAY_ccast   4
 #define DISPLAY_GDI_Hide 5
 #define DISPLAY_rPI 6
+#define DISPLAY_DVDO 8		// DVDO AVLab TPG over USB virtual serial
+#define DISPLAY_MURIDEO 9	// Murideo Seven-G over USB serial (RS-232 protocol)
 
 #define DISPLAY_DEFAULT_MODE	DISPLAY_GDI
 

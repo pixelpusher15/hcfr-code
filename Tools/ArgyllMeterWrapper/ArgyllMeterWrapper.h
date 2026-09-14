@@ -145,6 +145,14 @@ public:
     // or delete the returned objects
     static ArgyllMeterWrappers getDetectedMeters(std::string& errorMessage);
 
+    // HCFR extension: register serial ports that are known NOT to be meters - e.g. the
+    // DVDO AVLab TPG and Murideo Seven-G pattern generators on their virtual COM ports.
+    // getDetectedMeters skips these ports so detection does not open them and block waiting
+    // for a meter reply that never comes (Argyll's init_coms uses a multi-second timeout per
+    // non-meter serial port). Port names are matched case-insensitively on the COM number,
+    // so "COM3", "\\.\COM3" and "com3" all match, while "COM3" never matches "COM30".
+    static void setExcludedSerialPorts(const std::vector<std::string>& comPorts);
+
     // is the meter a colorimeter rather than a spectrometer
     virtual bool isColorimeter();
 
