@@ -76,7 +76,7 @@ static char THIS_FILE[] = __FILE__;
 
 // Defined below (near the calibration entry points); used by the new-document
 // wizard's Argyll branch as well.
-static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor);
+static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor, bool clearNow = true);
 
 /////////////////////////////////////////////////////////////////////////////
 // Current file format version. 
@@ -1783,7 +1783,10 @@ void CDataSetDoc::OnCalibrationExisting()
 // methods are applied by HCFR on top of every reading, so running both stacks
 // (double-correction). Before a matrix calibration, if the sensor has a spectral
 // correction active, offer to clear it. Returns false to abort the calibration.
-static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor)
+// With clearNow false the caller has a step that can still fail after the
+// prompt (a file to read) and clears the spectral correction itself once
+// that step has succeeded, so a refused file leaves the meter as it was.
+static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor, bool clearNow)
 {
 	if ( pSensor == NULL || !pSensor->HasSpectralCorrection() )
 		return true;
@@ -1794,7 +1797,8 @@ static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor)
 		MB_YESNO | MB_ICONQUESTION );
 	if ( r != IDYES )
 		return false;
-	pSensor->ClearSpectralCorrection();
+	if ( clearNow )
+		pSensor->ClearSpectralCorrection();
 	return true;
 }
 
@@ -5522,27 +5526,42 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		// Loading a matrix calibration onto a ccss-corrected meter would
 		// double-correct (Init re-applies the ccss on every connect) - same
 		// guard as manual and existing-reference calibration.
-		if ( !ConfirmClearSpectralForMatrixCal(m_pSensor) )
+		if ( !ConfirmClearSpectralForMatrixCal(m_pSensor, false) )
 			return;
 
+		BOOL	bLoaded = TRUE;
+
 		if(page.m_sensorTrainingMode != 1)
-			m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
-		m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
-		// LoadCalibrationFile (COneDeviceSensor::Serialize) has already restored the full
-		// correction from the training file: the calibration method plus either the single
-		// sensor matrix or the three Bodner sub-gamut matrix pairs. Recompute the stored
-		// measurements with whichever method was loaded - a Bodner training file must be
-		// re-applied through its sub-gamut matrices, not stripped back to raw by the identity
-		// single-matrix a Bodner sensor carries.
-		if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
+			bLoaded = m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
+
+		// A correction file that could not be read has left the sensor exactly
+		// as it was, so the document must not be touched either. Going on would
+		// stamp a calibration time for a calibration that never happened -
+		// SetSensorMatrixMod sets m_calibrationTime - and mark the document
+		// modified over it.
+		if ( bLoaded )
 		{
-			int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
-			ShowBodnerSkipCount ( nSkipped );
+			// The file is in: now the matrix correction replaces the spectral one
+			// (the prompt above was answered Yes; a meter with none is left alone).
+			if ( m_pSensor->HasSpectralCorrection() )
+				m_pSensor->ClearSpectralCorrection();
+			m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
+			// LoadCalibrationFile (COneDeviceSensor::Serialize) has already restored the full
+			// correction from the training file: the calibration method plus either the single
+			// sensor matrix or the three Bodner sub-gamut matrix pairs. Recompute the stored
+			// measurements with whichever method was loaded - a Bodner training file must be
+			// re-applied through its sub-gamut matrices, not stripped back to raw by the identity
+			// single-matrix a Bodner sensor carries.
+			if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
+			{
+				int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+				ShowBodnerSkipCount ( nSkipped );
+			}
+			else
+				m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
+			UpdateAllViews ( NULL, UPD_EVERYTHING );
+			SetModifiedFlag(TRUE);
 		}
-		else
-			m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
-		UpdateAllViews ( NULL, UPD_EVERYTHING );
-		SetModifiedFlag(TRUE);
 	}
 }
 

@@ -84,7 +84,7 @@ public:
 
 	virtual void Serialize(CArchive& archive); 
 
-	virtual void LoadCalibrationFile(CString & aFileName);
+	virtual BOOL LoadCalibrationFile(CString & aFileName);
 	virtual void SaveCalibrationFile();
 
 	virtual void SetPropertiesSheetValues();
