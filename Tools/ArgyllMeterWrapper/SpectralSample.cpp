@@ -30,6 +30,9 @@
 #include <stdexcept>
 #include <sstream>
 #include <iomanip>
+#include <fstream>
+#include <vector>
+#include <cctype>
 
 //#define SALONEINSTLIB
 #define ENABLE_USB
@@ -545,6 +548,155 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 	}
 
 	return bRet;
+}
+
+
+bool SpectralSample::createFromCorrelationCSV(const std::string& csvPath)
+{
+	const int BANDS = 401;
+	const int START_NM = 380;
+	const int END_NM = 780;
+
+	std::ifstream fh(csvPath.c_str(), std::ios::binary);
+	if (!fh.is_open())
+		throw std::logic_error("Cannot open correlation CSV file");
+
+	// Parse every row into 401 spectral values.
+	std::vector< std::vector<double> > rows;
+	std::string line;
+	bool firstLine = true;
+	while (std::getline(fh, line))
+	{
+		if (firstLine && line.size() >= 3 &&
+			(unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF)
+			line.erase(0, 3);						// strip UTF-8 BOM
+		firstLine = false;
+
+		while (!line.empty() && (line[line.size()-1] == '\r' || line[line.size()-1] == '\n'))
+			line.erase(line.size()-1);
+		if (line.find_first_not_of(" \t,") == std::string::npos)
+			continue;								// blank / comma-only line
+
+		std::vector<std::string> cells;
+		std::stringstream ss(line);
+		std::string cell;
+		while (std::getline(ss, cell, ','))
+			cells.push_back(cell);
+		// Drop trailing empty cells (trailing comma / padding), but keep interior
+		// empties: skipping an interior empty would shift every following value to
+		// the wrong wavelength band.
+		while (!cells.empty() && cells.back().find_first_not_of(" \t") == std::string::npos)
+			cells.pop_back();
+
+		std::vector<double> vals;
+		for (size_t k = 0; k < cells.size(); ++k)
+		{
+			size_t a = cells[k].find_first_not_of(" \t");
+			if (a == std::string::npos)
+			{
+				vals.push_back(0.0);				// interior empty field -> 0, preserve alignment
+				continue;
+			}
+			size_t b = cells[k].find_last_not_of(" \t");
+			vals.push_back(atof(cells[k].substr(a, b - a + 1).c_str()));
+		}
+		if ((int)vals.size() < BANDS)
+			vals.resize(BANDS, 0.0);				// zero-pad short rows
+		else if ((int)vals.size() > BANDS)
+			throw std::logic_error("Correlation CSV row has more than 401 values");
+		rows.push_back(vals);
+	}
+	fh.close();
+
+	// Global max, used both to drop empty rows and to normalize the set.
+	double gmax = 0.0;
+	for (size_t i = 0; i < rows.size(); ++i)
+		for (int j = 0; j < BANDS; ++j)
+			if (rows[i][j] > gmax) gmax = rows[i][j];
+	if (gmax <= 0.0)
+		throw std::logic_error("Correlation CSV file has no usable spectral data");
+
+	// Keep only rows with real signal (drops zero/near-zero padding rows).
+	double rowThresh = gmax * 1e-3;
+	std::vector<int> keep;
+	for (size_t i = 0; i < rows.size(); ++i)
+	{
+		double rmax = 0.0;
+		for (int j = 0; j < BANDS; ++j)
+			if (rows[i][j] > rmax) rmax = rows[i][j];
+		if (rmax > rowThresh) keep.push_back((int)i);
+	}
+	if ((int)keep.size() < 3)
+		throw std::logic_error("Correlation CSV file needs at least 3 non-empty spectra");
+
+	// Description from the file name (correlation CSVs carry no metadata). The
+	// panel technology is usually spelled out in the file name, so derive it
+	// from there rather than leaving it "Unknown".
+	std::string display = csvPath;
+	size_t slash = display.find_last_of("/\\");
+	if (slash != std::string::npos) display = display.substr(slash + 1);
+	size_t dot = display.find_last_of('.');
+	if (dot != std::string::npos) display = display.substr(0, dot);
+
+	std::string lower = display;
+	for (size_t i = 0; i < lower.size(); ++i) lower[i] = (char)tolower((unsigned char)lower[i]);
+	const char* tech = "Unknown";
+	if      (lower.find("qd-oled") != std::string::npos || lower.find("qd oled") != std::string::npos) tech = "QD OLED";
+	else if (lower.find("wrgb") != std::string::npos || lower.find("woled") != std::string::npos)      tech = "WOLED";
+	else if (lower.find("oled") != std::string::npos)                                                  tech = "OLED";
+	else if (lower.find("mini-led") != std::string::npos || lower.find("miniled") != std::string::npos) tech = "LCD Mini-LED";
+	else if (lower.find("w-led") != std::string::npos || lower.find("wled") != std::string::npos)       tech = "LCD White LED";
+	else if (lower.find("ccfl") != std::string::npos)                                                   tech = "LCD CCFL";
+	else if (lower.find("laser") != std::string::npos)                                                  tech = "DLP Laser";
+	else if (lower.find("crt") != std::string::npos)                                                    tech = "CRT";
+	else if (lower.find("led") != std::string::npos)                                                    tech = "LCD LED";
+
+	setTech(tech);
+	setDisplay(display.c_str());
+	setReferenceInstrument("HCFR correlation import");
+	setDescription(m_Tech.c_str(), m_Display.c_str());
+
+	int N = (int)keep.size();
+	xspect *samples = new xspect[N]();		// value-init: zero all fields (incl. norm)
+	for (int k = 0; k < N; ++k)
+	{
+		const std::vector<double>& r = rows[keep[k]];
+		samples[k].spec_n = BANDS;
+		samples[k].spec_wl_short = START_NM;
+		samples[k].spec_wl_long = END_NM;
+		samples[k].norm = 100.0;			// spec[] below is on a 0..100 scale; Argyll
+											// divides by norm when integrating the spectrum.
+											// Leaving it uninitialized yields a degenerate
+											// sensor-RGB matrix and a spurious "too few
+											// calibration samples" error on col_cal_spec_set.
+		for (int j = 0; j < BANDS && j < XSPECT_MAX_BANDS; ++j)
+			samples[k].spec[j] = r[j] * 100.0 / gmax;	// normalize the set to a common max
+	}
+
+	bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR correlation import", NULL,
+									(char *)m_Description.c_str(),
+									(char *)m_Display.c_str(),
+									x,
+									-1,
+									NULL,
+									(char *)m_RefInstrument.c_str(), NULL,
+									samples, N);
+	delete [] samples;
+
+	if (!bRet)
+	{
+		std::string errorMessage = "set_ccss failed with '";
+		errorMessage += m_ccss->e.m;
+		errorMessage += "'";
+		throw std::logic_error(errorMessage);
+	}
+	return bRet;
+}
+
+
+int SpectralSample::getNumSamples() const
+{
+    return m_ccss ? m_ccss->no_samp : 0;
 }
 
 

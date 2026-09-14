@@ -2258,7 +2258,7 @@ BOOL CMultiFrame::DdeCmdExec ( CString & strCommand, BOOL bCanSendAckMsg, HWND h
 	BOOL		bDisplay = FALSE;
 	BOOL		bNoWait = FALSE;
 	BOOL		bUpdateName = FALSE;
-	int			bSensorCalibrated = GetDocument() -> m_pSensor -> IsCalibrated ();
+	int			bSensorCalibrated = GetDocument() -> m_pSensor -> IsCorrectionActive ();
 	LPARAM		lHint = UPD_EVERYTHING;
 	Matrix		SensorMatrix ( 0.0, 3, 3 );
 	Matrix		WhiteMatrix ( 0.0, 3, 1 );
@@ -2298,7 +2298,12 @@ BOOL CMultiFrame::DdeCmdExec ( CString & strCommand, BOOL bCanSendAckMsg, HWND h
 	}
 	else if ( _stricmp ( (LPCSTR) strCmd, "CalibrateSensor" ) == 0 ) // modif BP
 	{
-		GetDocument () -> m_pSensor->Configure ( );
+		// Route through the document's full configure path (IDM_CONFIGURE_SENSOR ->
+		// OnConfigureSensor) instead of a bare Configure(): that path carries the
+		// BeginConfigure/CancelConfigure snapshot (a cancelled sheet restores a
+		// spectral apply the Browse committed) and the IsModified recompute of
+		// stored measurements, both of which this DDE shortcut used to skip.
+		SendMessage ( WM_COMMAND, IDM_CONFIGURE_SENSOR );
 	}
 	else if ( _stricmp ( (LPCSTR) strCmd, "ClearMeasurements" ) == 0 ) // modif BP
 	{
@@ -2332,6 +2337,15 @@ BOOL CMultiFrame::DdeCmdExec ( CString & strCommand, BOOL bCanSendAckMsg, HWND h
 			{
 				GetDocument () -> m_pSensor -> SetSensorMatrix ( SensorMatrix );
 				GetDocument () -> m_pSensor -> SetSensorMatrixMod (Matrix::IdentityMatrix(3));
+				// A DDE-supplied matrix is a single-matrix correction: make it the
+				// authoritative method. On a Bodner-calibrated sensor the method
+				// would otherwise stay BODNER and MeasureColor would keep routing
+				// readings through the sub-gamut matrices, silently ignoring the
+				// matrix the client just set (and SaveCalibrationFile would write
+				// the stale Bodner pairs). Same reset every other single-matrix
+				// calibration writer performs.
+				GetDocument () -> m_pSensor -> SetCalibrationMethod ( CALIB_HCFR_DEFAULT );
+				GetDocument () -> m_pSensor -> ClearBodnerMatrices ();
 			}
 			else
 			{

@@ -142,6 +142,7 @@ public:
 
 	void ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886);
 	BOOL ComputeAdjustmentMatrix();
+	bool ConfirmCalibrationMethodInSync();
 
 	void SetSelectedColor ( const CColor & clr )	{ m_SelectedColor = clr; }
 	void SetLastColor ( const CColor & clr )	{ m_LastColor = clr; }
@@ -307,6 +308,7 @@ protected:
 	afx_msg void OnLoadCalibrationFile();
 	afx_msg void OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateLoadCalibrationFile(CCmdUI* pCmdUI);
+	afx_msg void OnUpdateCalibrationExisting(CCmdUI* pCmdUI);
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

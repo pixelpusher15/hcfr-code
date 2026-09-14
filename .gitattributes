@@ -5,6 +5,12 @@ ipch/colorhcfr-7cce6296/colorhcfr-c9ef32e0.ipch filter=lfs diff=lfs merge=lfs -t
 # ISO-8859-1, not UTF-8 - that's an editor concern git can't enforce.)
 CHCFR21_*.rc text eol=crlf
 
+# Shared resource header: main stores this with CRLF, but a merge flipped the
+# branch copy to LF, producing a whole-file phantom diff. Pin it -text so git
+# preserves the CRLF bytes verbatim (matching main) while still diffing it as
+# text - restoring a readable, minimal diff.
+resource.h -text
+
 # Golden-master regression baselines: byte-exact LF files compared verbatim
 # by tests/ColorMathTest - keep git from normalizing their line endings.
 tests/ColorMathTest/golden/* -text

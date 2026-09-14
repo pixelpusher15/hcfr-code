@@ -375,7 +375,16 @@ public:
 	BOOL IsModified() { return m_isModified; }
 	void AbortMeasure() { m_bAbortSweep = TRUE; }
 
-    void ApplySensorAdjustmentMatrix(const Matrix & matrixAdjustment);
+    // deltaMatrix is composed onto already-corrected values for legacy measurements
+    // that predate raw-value capture (no HasRawXYZValue()); fullMatrix is applied
+    // directly to the stored raw value for measurements that have one. The two
+    // must be equivalent ways of expressing "what the sensor's correction should
+    // now be" - deltaMatrix = fullMatrix * inverse(previousFullMatrix).
+    void ApplySensorAdjustmentMatrix(const Matrix & deltaMatrix, const Matrix & fullMatrix);
+    // Recalibrates every stored measurement under Bodner's per-sub-gamut method.
+    // Returns the count of measurements that had no stored raw value (predating
+    // raw-value capture) and so could not be recalibrated.
+    int ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Matrix calMatrix[3]);
 
 	BOOL WaitForDynamicIris ( BOOL bIgnoreEscape = FALSE, CDataSetDoc *pDoc = NULL );
 	BOOL CheckBlackOverride (  );
