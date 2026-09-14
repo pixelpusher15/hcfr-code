@@ -455,7 +455,19 @@ BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 	CString				strPreviousRef = m_calibrationReferenceName;
 	CString				strPreviousName = m_CalibrationFileName;
 	CCalibrationInfo *	pPreviousInfo = m_pCalibrationInfo;
+	// The method and the Bodner sub-gamut pairs are read by
+	// CSensor::Serialize after the matrix, so a file that throws part-way
+	// through them has already changed the method: hold them too.
+	int					nPreviousMethod = m_calibrationMethod;
+	Matrix				previousBodnerRaw[3];
+	Matrix				previousBodnerCal[3];
 	BOOL				bLoaded = FALSE;
+
+	for ( int k = 0; k < 3; k++ )
+	{
+		previousBodnerRaw[k] = m_bodnerRawMatrix[k];
+		previousBodnerCal[k] = m_bodnerCalMatrix[k];
+	}
 
 	// Detach it first: Serialize deletes whatever the member points at, and
 	// that is the copy we are keeping.
@@ -490,6 +502,13 @@ BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 		m_calibrationReferenceName = strPreviousRef;
 		m_CalibrationFileName = strPreviousName;
 		m_pCalibrationInfo = pPreviousInfo;
+		m_calibrationMethod = nPreviousMethod;
+		for ( int k = 0; k < 3; k++ )
+		{
+			m_bodnerRawMatrix[k] = previousBodnerRaw[k];
+			m_bodnerCalMatrix[k] = previousBodnerCal[k];
+		}
+		UpdateBodnerInverseCache();
 
 		ReportCalibrationLoadFailure ( aFileName, e );
 	}
