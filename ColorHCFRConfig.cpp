@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	François-Xavier CHABOUD
+//	Franï¿½ois-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -82,9 +82,9 @@ static struct
   LPCSTR	lpszHelpName;
 } g_HelpFileNames [] = { 
 						{ "en", "English help" },
-						{ "fr", "Aide en Français" },
+						{ "fr", "Aide en Franï¿½ais" },
 						{ "de", "Hilfe in Deutsch" },
-						{ "es", "Ayuda en español" }
+						{ "es", "Ayuda en espaï¿½ol" }
 					   };
 
 
@@ -551,7 +551,21 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_isSettling=GetProfileInt("References","isSettling",0);
 	m_bDetectPrimaries=GetProfileInt("References","DetectPrimaries",1);
 	m_useHSV=GetProfileInt("References","UseHSV",0);
-	m_latencyTime=GetProfileInt("References","IrisLatencyTime",300);
+	m_latencyTime=GetProfileInt("References","IrisLatencyTime",120);	// settle delay (ms); + the generator's ~80ms WaitAfterDisplayPattern ~= Argyll's 200ms display-update-delay default
+	// One-time migration for users upgrading from <=4.1, which shipped a 300ms
+	// default and wrote it into every INI -- so a bare default change never reaches
+	// them. If the stored value is still that old default (i.e. left untouched),
+	// drop it to the new 120ms default and persist it. The marker guarantees this
+	// runs once, so a user who later chooses 300 on purpose keeps it.
+	if ( !GetProfileInt("References","SettleDelayMigrated",0) )
+	{
+		if ( m_latencyTime == 300 )
+		{
+			m_latencyTime = 120;
+			WriteProfileInt("References","IrisLatencyTime",m_latencyTime);
+		}
+		WriteProfileInt("References","SettleDelayMigrated",1);
+	}
 	m_ablFreq=GetProfileInt("References","AblFrameFreq",10);
 	m_ablDuration=GetProfileInt("References","AblFrameDuration",500);
 	m_ablLevel=GetProfileInt("References","AblFrameLevel",50);

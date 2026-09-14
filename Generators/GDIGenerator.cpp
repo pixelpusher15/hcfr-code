@@ -33,6 +33,7 @@
 #include "../libccast/ccwin.h"
 #include "../libccast/ccast.h"
 #include "../MainFrm.h"
+#include "../MeasurePerf.h"
 
 #include <string>
 #include <vector>
@@ -976,6 +977,7 @@ return TRUE;
 
 BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nPatternType , UINT nPatternInfo , BOOL bChangePattern, BOOL bSilentMode)
 {
+	PerfDisplayScope _perfDisp;   // times this patch's display (all return paths); see MeasurePerf.h
 	ColorRGBDisplay p_clr;
 	BOOL do_Intensity=false;
 	if ( nPatternType == MT_PRIMARY || nPatternType == MT_SECONDARY || nPatternType == MT_SAT_RED || nPatternType == MT_SAT_GREEN || nPatternType == MT_SAT_BLUE || nPatternType == MT_SAT_YELLOW || nPatternType == MT_SAT_CYAN || nPatternType == MT_SAT_MAGENTA || nPatternType == MT_ACTUAL)
@@ -1023,7 +1025,12 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 		else if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_rPI)
 			DisplayRGBColorrPI (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
 		else
-			m_displayWindow.DisplayRGBColor(do_Intensity?p_clr:clr, nPatternInfo);
+			// Apply the same ~80ms WaitAfterDisplayPattern settle as the madVR/CCast/rPI
+			// paths (bDisableWaiting defaults to FALSE). A laptop -> HDMI -> TV/projector
+			// via GDI has the same display latency as an external generator, so settle
+			// must be consistent across generators. (Previously nPatternInfo was passed
+			// as bDisableWaiting, which skipped the settle on every patch except index 0.)
+			m_displayWindow.DisplayRGBColor(do_Intensity?p_clr:clr);
 	}
 
 	return TRUE;
