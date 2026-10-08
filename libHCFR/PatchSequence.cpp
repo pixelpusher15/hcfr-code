@@ -28,7 +28,9 @@
 #include <set>
 
 #ifdef LIBHCFR_HAS_WIN32_API
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #endif
 
