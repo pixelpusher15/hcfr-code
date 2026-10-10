@@ -19,9 +19,18 @@
 #include "CsvPatchRows.h"
 
 #include <ctype.h>
+#include <float.h>
+#include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <fstream>
 #include <sstream>
+
+// The percent -> device-code quantizer of the live signal path
+// (Color.cpp). Declared here instead of including Color.h, which drags MFC
+// types into the translation unit; the signature is plain types, so any
+// drift is a link error.
+extern int PiPercentToCode(double percent, bool is16_235, int bits);
 
 double CsvCodeToPercent(double code, int bits, int range)
 {
@@ -66,28 +75,8 @@ int ReadCsvPatchRows(const char* csvPath, std::vector<CsvPatchRow> & rows, int m
 			// legacy R,G,B[,Name] file's columns, and the range must come from the RANGE
 			// token (not a bare "full"/"legal"/"extended" substring that "# full sweep" or
 			// "# illegal codes" would trip). Later '#' lines are treated as comments.
-			if (rows.empty())
-			{
-				std::string up = line;
-				for (size_t k = 0; k < up.size(); k++) up[k] = (char)toupper((unsigned char)up[k]);
-				size_t bp = up.find("BITDEPTH");
-				if (bp != std::string::npos)
-				{
-					int v = atoi(up.c_str() + bp + 8);
-					if (v == 8 || v == 10) { bits = v; hasHeader = true; }
-				}
-				size_t rp = up.find("RANGE");
-				if (rp != std::string::npos)
-				{
-					size_t p = rp + 5;			// first token after "RANGE"
-					while (p < up.size() && (up[p] == ' ' || up[p] == '\t' || up[p] == ',' || up[p] == '=' || up[p] == ':')) p++;
-					int r = -2;
-					if      (up.compare(p, 8, "EXTENDED") == 0) r = CSV_RANGE_EXTENDED;
-					else if (up.compare(p, 4, "FULL")     == 0) r = CSV_RANGE_FULL;
-					else if (up.compare(p, 5, "LEGAL")    == 0) r = CSV_RANGE_LEGAL;
-					if (r != -2) { range = r; hasHeader = true; }
-				}
-			}
+			if (rows.empty() && ParseCsvFormatDirective(line, bits, range))
+				hasHeader = true;
 			continue;
 		}
 
@@ -118,4 +107,81 @@ int ReadCsvPatchRows(const char* csvPath, std::vector<CsvPatchRow> & rows, int m
 	if (bitsOut)  *bitsOut  = bits;
 	if (rangeOut) *rangeOut = range;
 	return (int)rows.size();
+}
+
+// The format-directive grammar, in ONE place: ReadCsvPatchRows above calls
+// this, and so does the .hps reader. A value is only taken when it is one
+// the dialect knows, so prose like "# full sweep of illegal codes" never
+// flips a file's decoding - the words must follow a BITDEPTH / RANGE token.
+bool ParseCsvFormatDirective(const std::string& line, int& bits, int& range)
+{
+    std::string up = line;
+    for (size_t k = 0; k < up.size(); k++) up[k] = (char)toupper((unsigned char)up[k]);
+
+    bool declared = false;
+
+    size_t bp = up.find("BITDEPTH");
+    if (bp != std::string::npos)
+    {
+        size_t p = bp + 8;                  // first token after "BITDEPTH"
+        while (p < up.size() && (up[p] == ' ' || up[p] == '\t' || up[p] == ',' || up[p] == '=' || up[p] == ':')) p++;
+        int v = atoi(up.c_str() + p);
+        if (v == 8 || v == 10) { bits = v; declared = true; }
+    }
+
+    size_t rp = up.find("RANGE");
+    if (rp != std::string::npos)
+    {
+        size_t p = rp + 5;                  // first token after "RANGE"
+        while (p < up.size() && (up[p] == ' ' || up[p] == '\t' || up[p] == ',' || up[p] == '=' || up[p] == ':')) p++;
+        int r = -2;
+        if      (up.compare(p, 8, "EXTENDED") == 0) r = CSV_RANGE_EXTENDED;
+        else if (up.compare(p, 4, "FULL")     == 0) r = CSV_RANGE_FULL;
+        else if (up.compare(p, 5, "LEGAL")    == 0) r = CSV_RANGE_LEGAL;
+        if (r != -2) { range = r; declared = true; }
+    }
+
+    return declared;
+}
+
+const char* CsvRangeWord(int range)
+{
+    if (range == CSV_RANGE_FULL)     return "FULL";
+    if (range == CSV_RANGE_LEGAL)    return "LEGAL";
+    if (range == CSV_RANGE_EXTENDED) return "EXTENDED";
+    return "";
+}
+
+std::string CsvFormatHeaderLine(int bits, int range)
+{
+    char buf[64];
+    snprintf(buf, sizeof(buf), "# BITDEPTH %d, RANGE %s\n", bits, CsvRangeWord(range));
+    return std::string(buf);
+}
+
+// The live signal path's quantizer is the inverse, so what a file says is
+// what the generator drives.
+int CsvCodeFromPercent(double pct, int bits, int range)
+{
+    return PiPercentToCode(pct, range != CSV_RANGE_FULL, bits);
+}
+
+bool CsvPercentRepresentable(double pct, int bits, int range)
+{
+    if (!_finite(pct))
+        return false;
+    // Only EXTENDED carries super-white / sub-black; anywhere else the
+    // quantizer's clamp would silently rewrite the value.
+    if (range != CSV_RANGE_EXTENDED && (pct < 0.0 || pct > 100.0))
+        return false;
+
+    double back = CsvCodeToPercent(CsvCodeFromPercent(pct, bits, range), bits, range);
+
+    // One code step in percent, and the epsilon the round-trip oracle uses:
+    // a value sitting exactly on a half step (37.5% at 10-bit legal) must
+    // not be refused by a last-ulp difference.
+    double span = (range == CSV_RANGE_FULL)
+        ? (double)((1 << bits) - 1)
+        : 219.0 * (double)(1 << (bits - 8));
+    return fabs(back - pct) <= 50.0 / span + 1e-9;
 }
