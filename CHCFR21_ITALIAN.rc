@@ -3431,6 +3431,8 @@ BEGIN
     IDS_ERRSENSOR           "Errore del sensore"
     IDS_INVALIDSENSORMATRIX "Matrice del sensore non valida"
     IDS_MUSTSAVEINSUBDIR    "È necessario salvare questo file nella directory corrente per usarlo in seguito."
+    IDS_THC_SAVE_FAILED     "Impossibile salvare il file di correzione.\n\n%s"
+    IDS_THC_LOAD_FAILED     "Impossibile leggere il file di correzione.\n\n%s"
     IDS_RUNCONTINUOUS       "Esegui misure continue - F8"
     IDS_ONEMEASURE          "Prenda una misura - F7"
     IDS_CONFIGURESENSOR     "Configura il sensore"

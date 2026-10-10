@@ -5085,12 +5085,23 @@ void CDataSetDoc::OnLoadCalibrationFile()
 	if( propSheet.DoModal() == IDOK )
 	{
 
+		BOOL	bLoaded = TRUE;
+
 		if(page.m_sensorTrainingMode != 1)
-			m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
-		m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
-		m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix() );
-		UpdateAllViews ( NULL, UPD_EVERYTHING );
-		SetModifiedFlag(TRUE);
+			bLoaded = m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
+
+		// A correction file that could not be read has left the sensor exactly
+		// as it was, so the document must not be touched either. Going on would
+		// stamp a calibration time for a calibration that never happened -
+		// SetSensorMatrixMod sets m_calibrationTime - and mark the document
+		// modified over it.
+		if ( bLoaded )
+		{
+			m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
+			m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix() );
+			UpdateAllViews ( NULL, UPD_EVERYTHING );
+			SetModifiedFlag(TRUE);
+		}
 	}
 }
 

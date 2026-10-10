@@ -996,17 +996,11 @@ LRESULT CMainFrame::OnDDEExecute(WPARAM wParam, LPARAM lParam)
 
 					if ( ! strParam.IsEmpty () )
 					{
-						CString strPath, strSubDir;
+						CString strPath;
 
 						g_bNewDocUseDDEInfo = TRUE;
 
-						strPath = GetConfig () -> m_ApplicationPath;
-						strSubDir = CSensorSelectionPropPage::GetThcFileSubDir ( g_NewDocSensorID );
-						if ( ! strSubDir.IsEmpty () )
-						{
-							strPath += strSubDir;
-							strPath += '\\';
-						}
+						GetConfig () -> GetEtalonPath ( strPath );
 						
 						g_ThcFileName = strPath + strParam + ".thc";
 

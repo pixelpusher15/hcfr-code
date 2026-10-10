@@ -639,6 +639,8 @@ CMainView::CMainView()
 	dEcnt=0;
 	dE10=0.;
 	dE10min=0.;
+	m_nGridIncrCol = -1;
+	m_nGridLastRTCol = -1;
 	m_userBlack = FALSE;
 	m_oldBlackGS = noDataColor;
 	m_oldBlackNB = noDataColor;
@@ -2636,10 +2638,11 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				 break;
 
 			case UPD_CC24SAT:
+				 // The grid refresh this used to do here (a bare UpdateGrid) now
+				 // happens in the rebuild block below, which pairs it with InitGrid;
+				 // see the comment there for why the InitGrid is the load-bearing part.
 				 if ( m_displayMode != 11 )
 					nForceMode = 11;
-				 else
-					 UpdateGrid();
 				 break;
 
 			case UPD_ALLSATURATIONS:
@@ -2753,8 +2756,17 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			}
 		}
 
+		// Color checker / user sequences store exactly one new patch per realtime
+		// hint, so ask UpdateGrid for an incremental pass over just that column
+		// (plus any the catch-up window covers) instead of repopulating all N --
+		// a large custom sequence otherwise costs O(N^2) grid work per sweep.
+		// Single-shot request: UpdateGrid consumes it and falls back to a full
+		// rebuild unless its column cache matches the current patch count.
+		if ( m_displayMode == 11 && minCol >= 1 && m_pGrayScaleGrid )
+			m_nGridIncrCol = minCol;
 		RefreshSelection(FALSE); //this will update grid
-		
+		m_nGridIncrCol = -1;
+
 		if ( m_pInfoWnd ) //in case colorchecker slot is updated
 		{
 				m_pInfoWnd -> SetWindowTextA(GetDocument()->GetMeasure()->GetInfoString());
@@ -2773,6 +2785,38 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		if ( !( (lHint >= UPD_PRIMARIES && lHint <= UPD_FREEMEASURES) || lHint == UPD_CC24SAT ) )
 			CFormView::OnUpdate(pSender, lHint, pHint);
 
+		// m_CCStr is rebuilt when a color checker sweep ends -- on completion,
+		// and on the abort salvage. Both are AFTER the sweep's last realtime
+		// hint, and UPD_CC24SAT (25) is below UPD_REALTIME (26), so the summary
+		// pane's only other refresh (in the realtime branch above) never saw the
+		// new string: the sweeps-active list stayed as it was when the pane was
+		// last created. Refresh it here, and only when the text really changed,
+		// so a summary the user is part-way through typing is left alone.
+		// Only info display entry 0 owns this text: m_pInfoWnd is a CTargetWnd,
+		// CSpectrumWnd or CSubFrame for every other entry, and those return empty
+		// window text -- so an ungated write would never compare equal and would
+		// retitle and repaint an unrelated widget on every sweep end. Gate on the
+		// downcast rather than testing it after the write.
+		if ( lHint == UPD_CC24SAT && m_pInfoWnd )
+		{
+			CEditEx * pSummaryEdit = DYNAMIC_DOWNCAST ( CEditEx, m_pInfoWnd );
+			if ( pSummaryEdit )
+			{
+				CString strNew = GetDocument()->GetMeasure()->GetInfoString();
+				CString strOld;
+				pSummaryEdit -> GetWindowText ( strOld );
+				if ( strOld != strNew )
+				{
+					pSummaryEdit -> SetWindowTextA ( strNew );
+					// the text came from the document, so the control's recorded
+					// commands describe text that is no longer there
+					pSummaryEdit -> EmptyUndoBuffer ();
+					pSummaryEdit -> Invalidate ();
+					pSummaryEdit -> UpdateWindow ();
+				}
+			}
+		}
+
 		if ( m_displayType == HCFR_SENSORRGB_VIEW )
 		{
 			m_displayType = HCFR_xyY_VIEW;
@@ -2783,7 +2827,24 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		GetDlgItem ( IDC_SENSORRGB_RADIO ) -> EnableWindow ( FALSE );
 
 
-		if ( ( lHint >= UPD_EVERYTHING && lHint <= UPD_FREEMEASURES ) || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA )
+		// UPD_CC24SAT is the color checker sweep's end-of-run hint (sent on BOTH
+		// completion and abort by CDataSetDoc::MeasureCC24SatScale, and also by the
+		// background CC validation and the MultiFrm "colorchecker" command). It was
+		// already getting a full column repaint -- the switch above called
+		// UpdateGrid, and by sweep end the single-shot incremental request has been
+		// consumed, so that pass covers all N columns. What it never got was
+		// InitGrid, which owns the grid's ROW count (the only SetRowCount call).
+		//
+		// That matters because a sweep can change the row count. GetCC24Sat reads
+		// the live array while m_binMeasure is TRUE and the per-set master array
+		// afterwards, and lux values are stamped onto the array only at the end of
+		// the sweep -- so with a lux meter attached bHasLuxValues is FALSE for the
+		// whole sweep and TRUE once it ends, and InitGrid's nRows grows by one.
+		// With no InitGrid on this path the grid kept the row count it was built
+		// with and the Lux row never appeared, on completion or on abort.
+		// Running the rebuild block also drops the duplicate pass the switch used
+		// to make, so a sweep end still costs exactly one grid rebuild.
+		if ( ( lHint >= UPD_EVERYTHING && lHint <= UPD_FREEMEASURES ) || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA || lHint == UPD_CC24SAT )
 		{
 			if ( lHint == UPD_EVERYTHING || lHint == UPD_ARRAYSIZES )
 			{
@@ -3204,6 +3265,21 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					dLavg+=(isNan(dL)?dLavg:dL);
 					dCavg+=(isNan(dC)?dCavg:dC);
 					dHavg+=(isNan(dH)?dHavg:dH);
+
+					// Per-column cache backing the incremental sweep path's summary
+					// re-aggregation (UpdateGrid). Valid dE only: a NaN dE (broken
+					// reading) stays at the -1 sentinel and is excluded there, where
+					// the classic accumulation above pushed a garbage running sum.
+					if ( m_displayMode == 11 && nCol >= 1 && nCol <= (int)m_ccDECache.size() && !isNan(dE) )
+					{
+						m_ccDECache[nCol-1] = dE;
+						// a NaN component with a finite dE (degenerate XYZ under some
+						// dE forms) must not poison the re-aggregated averages into
+						// "nan"; contribute zero for that component instead
+						m_ccDLCache[nCol-1] = isNan(dL) ? 0.0 : dL;
+						m_ccDCCache[nCol-1] = isNan(dC) ? 0.0 : dC;
+						m_ccDHCache[nCol-1] = isNan(dH) ? 0.0 : dH;
+					}
 
 					if (nCol == minCol)
 					{
@@ -3668,6 +3744,11 @@ LPSTR CMainView::GetGridRowLabel(int aComponentNum)
 
 void CMainView::UpdateGrid()
 {
+	// Single-shot incremental request from the realtime sweep path (OnUpdate);
+	// consumed here so every other caller keeps full-rebuild semantics.
+	int nIncrCol = m_nGridIncrCol;
+	m_nGridIncrCol = -1;
+
 	// display profile (mode 13): the grid is hidden and the pane owns that area,
 	// so skip the grid population -- but still fall through to the View-pane info
 	// line at the end of this function. That line must track reference / EOTF
@@ -3988,7 +4069,41 @@ void CMainView::UpdateGrid()
 					
 		YWhite_for_color_comp = YWhite;
 
-		for( int j = 0 ; j < nCount ; j ++ )
+		// Incremental pass eligibility: mode 11 with a column cache built by a
+		// prior full pass over the SAME patch count. Anything else (first pass,
+		// CC set switched, manual edits) takes the full rebuild, which (re)sizes
+		// the cache -- the grid analog of the 3D viewer's stale-scene guard.
+		int jFirst = 0, jLast = nCount - 1;
+		bool bIncrPass = ( nIncrCol >= 1 && nIncrCol <= nCount &&
+						   m_displayMode == 11 && (int)m_ccDECache.size() == nCount );
+		if ( bIncrPass )
+		{
+			// Catch-up window: refresh every column measured since the last
+			// incremental pass. A sensor/pattern retry steps the sweep index
+			// back, so span from the older of (last refreshed, requested).
+			jFirst = nIncrCol - 1;
+			if ( m_nGridLastRTCol >= 1 && m_nGridLastRTCol <= nCount && m_nGridLastRTCol < nIncrCol )
+				jFirst = m_nGridLastRTCol - 1;
+			jLast = nIncrCol - 1;
+			m_nGridLastRTCol = nIncrCol;
+			for ( int j = jFirst ; j <= jLast ; j ++ )
+			{
+				m_ccDECache[j] = -1.0;
+				m_ccDLCache[j] = -1.0;
+				m_ccDCCache[j] = -1.0;
+				m_ccDHCache[j] = -1.0;
+			}
+		}
+		else if ( m_displayMode == 11 )
+		{
+			m_ccDECache.assign ( nCount, -1.0 );
+			m_ccDLCache.assign ( nCount, -1.0 );
+			m_ccDCCache.assign ( nCount, -1.0 );
+			m_ccDHCache.assign ( nCount, -1.0 );
+			m_nGridLastRTCol = -1;
+		}
+
+		for( int j = jFirst ; j <= jLast ; j ++ )
 		{
             int i = GetDocument() -> GetMeasure () -> GetGrayScaleSize ();
             ColorxyY tmpColor(GetColorReference().GetWhite());
@@ -4436,6 +4551,37 @@ void CMainView::UpdateGrid()
 			}
 		}
 		
+		// Mode 11 summary stats are re-aggregated from the per-column cache so a
+		// narrowed (incremental) pass yields the identical summary a full rebuild
+		// would: reset the classic accumulators GetItemText just fed and refill
+		// in column order, reproducing the full-loop fill exactly. Plain float
+		// adds over N entries -- no colorimetric math, no grid access.
+		if ( m_displayMode == 11 && (int)m_ccDECache.size() == nCount )
+		{
+			dEavg = 0.0; dLavg = 0.0; dCavg = 0.0; dHavg = 0.0;
+			dEmax = 0.0; dEcnt = 0; dE10 = 0.0;
+			dEvector.clear();
+			dLvector.clear();
+			dCvector.clear();
+			dHvector.clear();
+			for ( int j = 0 ; j < nCount ; j ++ )
+			{
+				if ( m_ccDECache[j] < 0.0 )
+					continue;
+				dEvector.push_back ( m_ccDECache[j] );
+				dLvector.push_back ( m_ccDLCache[j] );
+				dCvector.push_back ( m_ccDCCache[j] );
+				dHvector.push_back ( m_ccDHCache[j] );
+				dEavg += m_ccDECache[j];
+				dLavg += m_ccDLCache[j];
+				dCavg += m_ccDCCache[j];
+				dHavg += m_ccDHCache[j];
+				if ( m_ccDECache[j] > dEmax )
+					dEmax = m_ccDECache[j];
+				dEcnt ++;
+			}
+		}
+
 		if ( bAddedCol )
 		{
 			int width = m_pGrayScaleGrid -> GetColumnWidth ( 0 );
@@ -4457,7 +4603,18 @@ void CMainView::UpdateGrid()
 		case 8: bHasMeas = GetDocument()->GetMeasure()->GetYellowSat(0).isValid(); break;
 		case 9: bHasMeas = GetDocument()->GetMeasure()->GetCyanSat(0).isValid(); break;
 		case 10: bHasMeas = GetDocument()->GetMeasure()->GetMagentaSat(0).isValid(); break;
-		case 11: bHasMeas = GetDocument()->GetMeasure()->GetCC24Sat(0).isValid(); break;
+		case 11:
+			// Color checker sets are not filled front to back: MCD measures its
+			// patches permuted (slot 0 lands on the LAST iteration) and an
+			// aborted sweep salvages only the slots it reached, so probing patch
+			// 0 alone reported "no measurements" -- zeroing the dE header below
+			// -- next to visibly populated columns. The per-column cache this
+			// same UpdateGrid pass just built answers it for the whole set, and
+			// costs no extra GetCC24Sat call (whose i == 0 branch drives the
+			// pre-3.3.0 load prompt and its retry counter).
+			for ( int j = 0 ; ! bHasMeas && j < (int)m_ccDECache.size() ; j ++ )
+				bHasMeas = ( m_ccDECache[j] >= 0.0 );
+			break;
 		}
 		if ( ! bHasMeas )
 		{
