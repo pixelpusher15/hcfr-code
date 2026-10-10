@@ -91,6 +91,16 @@ struct PatchTiming
     double integration;
     int    average;
     PatchTiming() : settle(-1.0), hold(-1.0), integration(-1.0), average(-1) {}
+
+    // The one interpretation of the -1 sentinel: a field is set when it is
+    // not -1. Resolved(row, group, defaults) takes each field from the row
+    // when set, else from the group, else from the defaults, and turns an
+    // unset default into 0 (0.0 / average 0) - the precedence every dwell
+    // estimate and the measurement loop share.
+    static bool IsSet(double v) { return v != -1.0; }
+    static bool IsSet(int v)    { return v != -1; }
+    static PatchTiming Resolved(const PatchTiming& row, const PatchTiming& group,
+                                const PatchTiming& defaults);
 };
 
 // Writes `text` to `path` through a sibling temporary file moved over the
@@ -129,6 +139,10 @@ public:
     // Per-entry accessors. GetIdentity returns -1 and GetRole returns '\0'
     // on an out-of-range index; the bool forms return false writing nothing.
     int  GetIdentity(int index) const;
+
+    // Index of the DEFINITION of identity `id` (its first entry), -1 when
+    // no entry carries it. O(log n): the identity index the class keeps.
+    int  DefinitionIndex(int id) const;
     char GetRole(int index) const;
     bool GetGroup(int index, std::string& group) const;
     bool GetTiming(int index, PatchTiming& timing) const;

@@ -263,6 +263,23 @@ bool PatchSequence::ValidComponentHere(double v) const
     return m_extended ? ValidExtendedComponent(v) : ValidComponent(v);
 }
 
+PatchTiming PatchTiming::Resolved(const PatchTiming& row, const PatchTiming& group,
+                                  const PatchTiming& defaults)
+{
+    PatchTiming r;
+    r.settle      = IsSet(row.settle)      ? row.settle      : IsSet(group.settle)      ? group.settle      : IsSet(defaults.settle)      ? defaults.settle      : 0.0;
+    r.hold        = IsSet(row.hold)        ? row.hold        : IsSet(group.hold)        ? group.hold        : IsSet(defaults.hold)        ? defaults.hold        : 0.0;
+    r.integration = IsSet(row.integration) ? row.integration : IsSet(group.integration) ? group.integration : IsSet(defaults.integration) ? defaults.integration : 0.0;
+    r.average     = IsSet(row.average)     ? row.average     : IsSet(group.average)     ? group.average     : IsSet(defaults.average)     ? defaults.average     : 0;
+    return r;
+}
+
+int PatchSequence::DefinitionIndex(int id) const
+{
+    std::map<int, size_t>::const_iterator it = m_firstAt.find(id);
+    return (it == m_firstAt.end()) ? -1 : (int)it->second;
+}
+
 int PatchSequence::GetIdentity(int index) const
 {
     if (index < 0 || index >= (int)m_entries.size())

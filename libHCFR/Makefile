@@ -3,7 +3,7 @@ all:
 	rm ProfilesRepositoryIndexFileReader.cpp
 	flex -t ProfilesRepositoryIndexFileReader.ll > ProfilesRepositoryIndexFileReader.cpp
 
-	gcc -c Color.cpp CsvPatchRows.cpp PatchSequence.cpp PatchSequenceFile.cpp GamutCoverage.cpp matrix.cpp calibrationFile.cpp Exceptions.cpp ProfilesRepositoryIndexFileReader.cpp
+	gcc -c Color.cpp CsvPatchRows.cpp PatchSequence.cpp PatchSequenceFile.cpp PatchOrdering.cpp GamutCoverage.cpp matrix.cpp calibrationFile.cpp Exceptions.cpp ProfilesRepositoryIndexFileReader.cpp
 
 	libtool -static -o libHCFR.a *.o
 
