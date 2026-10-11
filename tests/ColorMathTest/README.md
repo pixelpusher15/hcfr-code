@@ -45,6 +45,18 @@ Guards the 8-bit signal path while the 10-bit work lands. Part of the plan in
   instead of Rec.709. `CUSTOM` is excluded because constructing one corrupts the global
   Rec.601 primaries (see the comment above `RunT10`); `CC6` skips the second leg only.
   Note this pins the shared helper, **not** any view's use of it — nothing here links MFC.
+- **T13** — `DisplayModel` v1 recovery oracle (no golden file): a synthetic display with
+  known per-channel gammas, primary matrix, and black offset must be recovered exactly
+  from noise-free samples; weight semantics (a weight-0 sample must leave matrix, gammas,
+  black, and `samplesUsed` unchanged; a heavy corrupt sample must pull the fit; uniform
+  weight rescaling must change nothing); inverse round-trip and out-of-gamut flag/clamp;
+  input-contract rejection (non-finite fields, negative weight, stimulus outside [0,1]);
+  failed re-fit preserves the previous model; unfitted-model transforms refuse;
+  parameter-provenance flags (fitted / gray-derived / assumed) for gammas and black,
+  including quantization-jittered gray ramps staying in the gray pool. **T11/T12** (the
+  BT.2390 tone-map and inverse-LUT oracles) landed on `main` while this branch was open
+  and have no entry of their own here yet — check the open branches before assigning
+  any new T number.
 
 ## Build & run
 Build `libHCFR` first, then this project (Debug|Win32 only):
