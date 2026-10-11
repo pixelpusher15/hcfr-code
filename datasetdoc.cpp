@@ -858,7 +858,7 @@ BOOL CDataSetDoc::OnNewDocument()
 		if (!g_bNewDocIsDuplication)		
 		{
 			CNewDocWizard propSheet;
-	
+
 			if (propSheet.DoModal() == ID_WIZFINISH)
 			{
 				CreateGenerator(propSheet.m_Page1.GetCurrentID());
