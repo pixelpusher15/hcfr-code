@@ -1569,6 +1569,8 @@
 #define IDS_CC_COLORNAMEREF             42013
 #define IDS_GRAPH_TRK_NEARBLACK         42014
 #define IDS_GRAPH_TRK_NEARWHITE         42015
+#define IDS_THC_SAVE_FAILED             42016
+#define IDS_THC_LOAD_FAILED             42017
 #define IDS_CONTRAST                    41777
 #define IDS_OFFSET                      41778
 #define IDS_CONFIRMTRAINING             41779
@@ -1908,6 +1910,8 @@
 #define IDS_3DVIEW_SHOWTAILS            59538
 #define IDS_3DVIEW_RESETVIEW            59539
 #define IDS_3DVIEW_SHOWPROFILE          59564
+#define IDS_3DVIEW_GAMUTCOV             59632
+#define IDS_3DVIEW_GAMUTVOL             59633
 #define IDS_3DVIEW_FILTER_ALL           59555
 #define IDS_3DVIEW_FILTER_HIDE          59556
 #define IDS_3DVIEW_FILTER               59557
@@ -1997,7 +2001,7 @@
 #define IDS_PP_HOURS                    59629
 #define IDS_CSV_FILE_NOT_FOUND          59630
 #define IDS_CSV_RANGE_EXTENDED_WARN     59631
-#define IDS_PP_MEASURINGWHITE           59632
+#define IDS_PP_MEASURINGWHITE           59634
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550

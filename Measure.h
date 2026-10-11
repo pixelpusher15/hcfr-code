@@ -195,6 +195,7 @@ protected:
 	double m_profileCaptureSeconds;					// wall-clock duration of the capture
 	std::vector<ColorRGBDisplay> m_profileGenCache;	// GetProfilePatchRGB cache (not serialized)
 	int m_profileGenCacheKey;						// cubeSize*2+grayExtras the cache was built for
+	int m_profileGeneration;						// bumped on every write to m_profileMeasureArray (not serialized)
 	CString m_infoStr;
 	CString m_CCStr;
 public:
@@ -288,11 +289,17 @@ public:
 	CColor GetCC24MasterSat(int i) const;
 	void SetCC24MasterSat(int i,const CColor & aColor) {m_cc24SatMeasureArray_master[i]=aColor; m_isModified=TRUE; }
 	CString GetCCStr() const;
+	// Publish an aborted color-checker sweep's partial live data to the
+	// per-set master array (the post-sweep read source); see Measure.cpp.
+	BOOL SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux);
 
 	// Display profile capture
 	CColor GetProfileMeasure(int i) const;
-	void SetProfileMeasure(int i,const CColor & aColor) {m_profileMeasureArray[i]=aColor; m_isModified=TRUE; }
 	int GetProfileMeasureSize() const { return m_profileMeasureArray.GetSize(); }
+	// Changes whenever the cube's contents do (capture, drift rescale, load, copy,
+	// clear), so a consumer caching a derivative of the cube can key on it
+	// instead of guessing from a proxy value.
+	int GetProfileGeneration() const { return m_profileGeneration; }
 	BOOL HasProfileMeasures() const { return m_profileCubeSize > 0 && m_profileMeasureArray.GetSize() > 0; }
 	int GetProfileCubeSize() const { return m_profileCubeSize; }
 	BOOL GetProfileGrayExtras() const { return m_profileGrayExtras; }
@@ -322,6 +329,11 @@ public:
 	volatile BOOL m_bProfilePause;
 	volatile BOOL m_bProfileMeasuringWhite;	// capture is on its up-front white reference, not a cube patch
 	double m_profileWhiteIRE;		// the stimulus that white reference is being driven at (percent)
+	// TRUE from the first cube patch until the closing drift anchor has rescaled
+	// the last segment -- the array is written in place throughout, so nothing
+	// derived from it is final before this drops (m_binMeasure cannot say this:
+	// it is raised by every sweep, including ones that leave the cube alone).
+	BOOL m_bProfileCapturing;
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0
 
 protected:

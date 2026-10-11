@@ -208,18 +208,11 @@ BOOL CSensorSelectionPropPage::OnWizardFinish()
 {
 	int				nSel;
 	CString			strPath;
-	CString			strSubDir;
 	CString			strFileName;
 
 	UpdateData(TRUE);	// To update values
 
-	strPath = GetConfig () -> m_ApplicationPath;
-	strSubDir = GetFileSubDir ();
-	if ( ! strSubDir.IsEmpty () )
-	{
-		strPath += strSubDir;
-		strPath += '\\';
-	}
+	GetConfig () -> GetEtalonPath ( strPath );
 	
 	nSel = m_trainingFileCombo.GetCurSel ();
 	if ( nSel >= 0 )
@@ -286,7 +279,6 @@ void CSensorSelectionPropPage::OnSelchangeSensorchoiceCombo()
 	
 	m_trainingFileCombo.ResetContent ();
 
-	strPath = GetConfig () -> m_ApplicationPath;
 	strSubDir = GetFileSubDir ();
 	
 	if ( ! strSubDir.IsEmpty () )
@@ -309,10 +301,7 @@ void CSensorSelectionPropPage::OnSelchangeSensorchoiceCombo()
 		GetDlgItem (IDC_SENSORTRAININGMODE_RADIO2) -> EnableWindow ( TRUE );
 		m_trainingFileCombo.EnableWindow ( TRUE );
 
-		strPath += strSubDir;
-		strPath += '\\';
-	
-		GetConfig () -> EnsurePathExists ( strPath );
+		GetConfig () -> GetEtalonPath ( strPath );
 
 		bFileFound = FALSE;
 		strSearch = strPath + "*.thc";
