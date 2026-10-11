@@ -98,9 +98,12 @@ namespace {
 //           the generator's built-in pattern settle)
 //   iris  - latency / dynamic-iris wait (CMeasure::WaitForDynamicIris, m_latencyTime)
 //   view  - chart/grid refresh          (CMeasure::UpdateViews)
-//   other - sweep setup/teardown + misc (= total - read - disp - iris - view)
+//   other - sweep setup/teardown + misc (= total - read - disp - iris - view).
+//           total/other also include any time spent in modal prompts during
+//           the sweep (sensor Init prompts, retry / lux message boxes), so
+//           compare the four timed phases across runs, not total/other.
 // Per-patch times are accumulated in memory (no per-patch file I/O), so the
-// logging does not perturb the numbers. Toggle with [Debug] PerfLog=0 (default on).
+// logging does not perturb the numbers. Enable with [Debug] PerfLog=1 (default off).
 // ---------------------------------------------------------------------------
 struct PerfState
 {
@@ -143,7 +146,7 @@ static void PerfWriteLine(LPCTSTR text)
 
 static void PerfSweepBegin(const char * name)
 {
-    g_perf.enabled = GetConfig()->GetProfileInt("Debug", "PerfLog", 1) != 0;
+    g_perf.enabled = GetConfig()->GetProfileInt("Debug", "PerfLog", 0) != 0;
     if (!g_perf.enabled) return;
     QueryPerformanceFrequency(&g_perf.freq);
     QueryPerformanceCounter(&g_perf.sweepStart);
@@ -212,7 +215,7 @@ struct SweepActiveGuard
 {
     BOOL m_owned;
     CMeasure * m_pMeasure;
-    explicit SweepActiveGuard(CMeasure * p, const char * name = "sweep") : m_owned(!g_bMeasureSweepActive), m_pMeasure(p)
+    SweepActiveGuard(CMeasure * p, const char * name) : m_owned(!g_bMeasureSweepActive), m_pMeasure(p)
     {
         if (m_owned) { g_bMeasureSweepActive = TRUE; p->m_bAbortSweep = FALSE; PerfSweepBegin(name); }
     }
@@ -4319,7 +4322,7 @@ bool CMeasure::MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor,
 
 BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc, int cubeN, BOOL bGrayExtras, BOOL bDriftComp)
 {
-	SweepActiveGuard _sweepGuard(this);
+	SweepActiveGuard _sweepGuard(this, "DisplayProfile");
 	if (!_sweepGuard.Owned()) return FALSE;
 	MSG			Msg;
 	BOOL		bEscape = FALSE;

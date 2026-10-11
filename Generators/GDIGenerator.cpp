@@ -652,6 +652,44 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 	return bOk;
 }
 
+// Sleep WaitAfterDisplayPattern ms (default 80) while dispatching messages so the
+// pattern is really on screen before the sensor reads. Escape is held back and
+// re-posted afterwards so the measurement loop can still see it and cancel.
+static void PumpedPatternSettle()
+{
+	MSG		Msg;
+	HWND	hEscapeWnd = NULL;
+	DWORD	dwWait = GetConfig () -> GetProfileInt ( "Debug", "WaitAfterDisplayPattern", 80 );
+	DWORD	dwStart = GetTickCount();
+	DWORD	dwNow = dwStart;
+
+	// Wait until dwWait time is expired, but ensures all posted messages are treated even if wait time is zero
+	while((dwNow - dwStart) < dwWait)
+	{
+		while(PeekMessage(&Msg, NULL, NULL, NULL, PM_REMOVE))
+		{
+			if ( ( Msg.message == WM_KEYDOWN || Msg.message == WM_KEYUP ) && Msg.wParam == VK_ESCAPE )
+			{
+				// Do not treat this message, store it for later use
+				hEscapeWnd = Msg.hwnd;
+			}
+			else
+			{
+				TranslateMessage ( & Msg );
+				DispatchMessage ( & Msg );
+			}
+			Sleep(0);
+		}
+		dwNow = GetTickCount();
+	}
+	if ( hEscapeWnd )
+	{
+		// Escape key detected and stored during above loop: put it again in message loop to allow detection
+		::PostMessage ( hEscapeWnd, WM_KEYDOWN, VK_ESCAPE, NULL );
+		::PostMessage ( hEscapeWnd, WM_KEYUP, VK_ESCAPE, NULL );
+	}
+}
+
 BOOL CGDIGenerator::DisplayRGBColormadVR( const ColorRGBDisplay& clr, bool first, UINT nPattern )
 {
 	//init done in generator.cpp 
@@ -721,38 +759,7 @@ BOOL CGDIGenerator::DisplayRGBColormadVR( const ColorRGBDisplay& clr, bool first
 		return false;
       } 
 
-	// Sleep 80 ms while dispatching messages to ensure window is really displayed
-		MSG		Msg;
-		HWND	hEscapeWnd = NULL;
-		DWORD	dwWait = GetConfig () -> GetProfileInt ( "Debug", "WaitAfterDisplayPattern", 80 );
-		DWORD	dwStart = GetTickCount();
-		DWORD	dwNow = dwStart;
-		
-		// Wait until dwWait time is expired, but ensures all posted messages are treated even if wait time is zero
-		while((dwNow - dwStart) < dwWait)
-		{
-			while(PeekMessage(&Msg, NULL, NULL, NULL, PM_REMOVE))
-			{
-				if ( ( Msg.message == WM_KEYDOWN || Msg.message == WM_KEYUP ) && Msg.wParam == VK_ESCAPE )
-				{
-					// Do not treat this message, store it for later use
-					hEscapeWnd = Msg.hwnd;
-				}
-				else
-				{
-					TranslateMessage ( & Msg );
-					DispatchMessage ( & Msg );
-				}
-				Sleep(0);
-			}
-			dwNow = GetTickCount();
-		}
-		if ( hEscapeWnd )
-		{
-			// Escape key detected and stored during above loop: put it again in message loop to allow detection
-			::PostMessage ( hEscapeWnd, WM_KEYDOWN, VK_ESCAPE, NULL );
-			::PostMessage ( hEscapeWnd, WM_KEYUP, VK_ESCAPE, NULL );
-		}
+	PumpedPatternSettle();
 
 return TRUE;
 }
@@ -829,38 +836,7 @@ BOOL CGDIGenerator::DisplayRGBCCast( const ColorRGBDisplay& clr, bool first, UIN
 			return false;
 		} 
 	  
-	// Sleep 80 ms while dispatching messages to ensure window is really displayed
-		MSG		Msg;
-		HWND	hEscapeWnd = NULL;
-		DWORD	dwWait = GetConfig () -> GetProfileInt ( "Debug", "WaitAfterDisplayPattern", 80 );
-		DWORD	dwStart = GetTickCount();
-		DWORD	dwNow = dwStart;
-		
-		// Wait until dwWait time is expired, but ensures all posted messages are treated even if wait time is zero
-		while((dwNow - dwStart) < dwWait)
-		{
-			while(PeekMessage(&Msg, NULL, NULL, NULL, PM_REMOVE))
-			{
-				if ( ( Msg.message == WM_KEYDOWN || Msg.message == WM_KEYUP ) && Msg.wParam == VK_ESCAPE )
-				{
-					// Do not treat this message, store it for later use
-					hEscapeWnd = Msg.hwnd;
-				}
-				else
-				{
-					TranslateMessage ( & Msg );
-					DispatchMessage ( & Msg );
-				}
-				Sleep(0);
-			}
-			dwNow = GetTickCount();
-		}
-		if ( hEscapeWnd )
-		{
-			// Escape key detected and stored during above loop: put it again in message loop to allow detection
-			::PostMessage ( hEscapeWnd, WM_KEYDOWN, VK_ESCAPE, NULL );
-			::PostMessage ( hEscapeWnd, WM_KEYUP, VK_ESCAPE, NULL );
-		}
+	PumpedPatternSettle();
 
 return TRUE;
 }
@@ -938,38 +914,7 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 		else
 			GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
 
-	// Sleep 80 ms while dispatching messages to ensure window is really displayed
-		MSG		Msg;
-		HWND	hEscapeWnd = NULL;
-		DWORD	dwWait = GetConfig () -> GetProfileInt ( "Debug", "WaitAfterDisplayPattern", 80 );
-		DWORD	dwStart = GetTickCount();
-		DWORD	dwNow = dwStart;
-		
-		// Wait until dwWait time is expired, but ensures all posted messages are treated even if wait time is zero
-		while((dwNow - dwStart) < dwWait)
-		{
-			while(PeekMessage(&Msg, NULL, NULL, NULL, PM_REMOVE))
-			{
-				if ( ( Msg.message == WM_KEYDOWN || Msg.message == WM_KEYUP ) && Msg.wParam == VK_ESCAPE )
-				{
-					// Do not treat this message, store it for later use
-					hEscapeWnd = Msg.hwnd;
-				}
-				else
-				{
-					TranslateMessage ( & Msg );
-					DispatchMessage ( & Msg );
-				}
-				Sleep(0);
-			}
-			dwNow = GetTickCount();
-		}
-		if ( hEscapeWnd )
-		{
-			// Escape key detected and stored during above loop: put it again in message loop to allow detection
-			::PostMessage ( hEscapeWnd, WM_KEYDOWN, VK_ESCAPE, NULL );
-			::PostMessage ( hEscapeWnd, WM_KEYUP, VK_ESCAPE, NULL );
-		}
+	PumpedPatternSettle();
 
 return TRUE;
 
@@ -1016,6 +961,10 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 		}
 		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetForegroundWindow();
 		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.RedrawWindow ();
+		// Same generator settle as the other display modes, so the total settle is
+		// uniform (80 ms + the Settle delay setting) and a setting of 0 still lets
+		// the repaint reach the screen before the read.
+		PumpedPatternSettle();
 	} else
 	{
 		if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_madVR)
