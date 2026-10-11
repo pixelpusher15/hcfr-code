@@ -161,11 +161,11 @@ protected:
 	// PERSISTENCE (both flags): stored verbatim in file version 21, which is the
 	// version a document with a display profile now gets. A document WITHOUT one
 	// still writes version 19 so older builds can read it, and its flags are
-	// re-derived on load as isValid() -- i.e. exactly the behaviour every build
-	// before this one had. That re-derivation cannot tell the placeholder from a
-	// reading, so it reads as measured; the whites themselves are stored verbatim
-	// either way, so nothing downstream ever sees a value it could not already
-	// see. An earlier revision tried to encode "unmeasured" by writing
+	// re-derived on load: valid and NOT the constructor's placeholder, which
+	// IsPlaceholderWhite (Measure.cpp) recognises by its exact signature. That is
+	// also what recovers documents written before the flags existed. The whites
+	// themselves are stored verbatim either way, so nothing downstream ever sees a
+	// value it could not already see. An earlier revision tried to encode "unmeasured" by writing
 	// noDataColor into the version-19 prime-white slot: that conflated "never
 	// measured" with "primaries deleted", which loads as INVALID, and handed
 	// Export's unguarded GetPrimeWhite().GetY() sites (Export.cpp ~558/~814)
@@ -371,6 +371,7 @@ public:
 	void SetPrimeWhite(const CColor & aColor) { m_PrimeWhite=aColor; m_bPrimeWhiteMeasured=aColor.isValid(); m_isModified=TRUE; }
 	BOOL IsPrimeWhiteMeasured() const { return m_bPrimeWhiteMeasured; }
 	BOOL IsOnOffWhiteMeasured() const { return m_bOnOffWhiteMeasured; }
+	static bool IsPlaceholderWhite(const CColor & c, bool bOnOff);	// the ctor's nominal white, by value (load-time flag recovery)
 
 	BOOL MeasureContrast(CSensor *pSensor, CGenerator *pGenerator);
 	double GetOnOffContrast ();

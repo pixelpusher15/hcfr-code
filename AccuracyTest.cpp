@@ -1170,6 +1170,28 @@ static void CheckSub90Override ( FamStat & stat )
 						"(grid %.4f, pane %.4f, want on/off %.4f)", gridY, paneY, yOnOff);
 }
 
+// The load path re-derives both white-was-measured flags for every pre-21 file
+// by recognising the constructor's placeholders by value. Pin both directions at
+// this combo's m_TargetMaxL: the ctor's own whites must match (or a reopened
+// document reads them as measured again - the sub-90 override returns and a
+// display profile skips its white read), and a white a hair off the signature
+// must not (or a real reading is discarded on reload).
+static void CheckPlaceholderSignature ( FamStat & stat )
+{
+	CMeasure m;
+	if ( ! CMeasure::IsPlaceholderWhite(m.GetPrimeWhite(), false) )
+		stat.Add(999.0, "ctor prime-white placeholder not recognised by IsPlaceholderWhite");
+	if ( ! CMeasure::IsPlaceholderWhite(m.GetOnOffWhite(), true) )
+		stat.Add(999.0, "ctor on/off-white placeholder not recognised by IsPlaceholderWhite");
+
+	CColor p = m.GetPrimeWhite(), o = m.GetOnOffWhite();
+	ColorXYZ pv = p.GetXYZValue(), ov = o.GetXYZValue();
+	p.SetXYZValue(ColorXYZ(pv[0] * 1.0001, pv[1], pv[2]));
+	o.SetXYZValue(ColorXYZ(ov[0] * 1.0001, ov[1], ov[2]));
+	if ( CMeasure::IsPlaceholderWhite(p, false) || CMeasure::IsPlaceholderWhite(o, true) )
+		stat.Add(999.0, "a non-placeholder white matched the placeholder signature");
+}
+
 static void RunConvWhite ( CMeasure & m, FamStat & stat )
 {
 	CColorHCFRConfig * cfg = GetConfig();
@@ -1178,6 +1200,7 @@ static void RunConvWhite ( CMeasure & m, FamStat & stat )
 	// Independent of the perturbation below (it builds its own CMeasure), so run
 	// it before the no-samples bail-out - every combo gets the gate checked.
 	CheckSub90Override(stat);
+	CheckPlaceholderSignature(stat);
 
 	if ( s_nConvSamples == 0 )
 		return;

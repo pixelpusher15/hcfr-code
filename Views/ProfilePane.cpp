@@ -294,9 +294,10 @@ void CProfilePane::OnCaptureProgress()
 	// before the read and the first EMA sample would charge the whole white read
 	// plus its settle to patch 0 -- inflating the ETA and, through LeaveRunning,
 	// the pace persisted to MainView\Profile PatchMs for every future capture.
+	// Leaving m_lastSeenIndex at -1 is the whole fix: the first call after the
+	// read seeds the tick without taking a sample.
 	if ( pMeasure->m_bProfileMeasuringWhite )
 	{
-		m_lastPatchTick = GetTickCount();
 		if ( ::IsWindow( m_hWnd ) )
 		{
 			Invalidate( FALSE );

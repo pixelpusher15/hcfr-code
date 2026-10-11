@@ -177,6 +177,37 @@ static double PrimeWhiteIRELevel(CGenerator * pGenerator)
 	return PrimaryPatchIRELevel ( pGenerator );
 }
 
+// The nominal whites the constructor pre-loads so the charts always have
+// something to draw. Built here and nowhere else, because IsPlaceholderWhite
+// has to recognise them by value: files written before the white-was-measured
+// flags existed (every version-19/20 document) store the placeholder verbatim,
+// and its exact signature is the only thing that tells it from a reading.
+static ColorXYZ PlaceholderOnOffWhite()
+{
+	return ColorXYZ ( 95.047, GetConfig()->m_TargetMaxL, 108.883 );
+}
+
+static ColorXYZ PlaceholderPrimeWhite()
+{
+	double L = GetConfig()->m_TargetMaxL;
+	return ColorXYZ ( L * 0.95047, L, L * 1.08883 );
+}
+
+// Matches on the parts of the signature m_TargetMaxL cannot have moved since the
+// file was saved: the on/off placeholder's fixed X and Z (bit-exact -- CColor
+// serializes the doubles verbatim), the prime placeholder's exact D65 ratios. A
+// meter reading lands on either only by coincidence far below its own noise.
+bool CMeasure::IsPlaceholderWhite ( const CColor & c, bool bOnOff )
+{
+	if ( ! c.isValid() )
+		return false;
+	ColorXYZ v = c.GetXYZValue();
+	if ( bOnOff )
+		return v[0] == 95.047 && v[2] == 108.883;
+	double y = v[1];
+	return y > 0.0 && fabs ( v[0] - y * 0.95047 ) <= 1e-9 * y && fabs ( v[2] - y * 1.08883 ) <= 1e-9 * y;
+}
+
 IMPLEMENT_SERIAL(CMeasure, CObject, 1)
 
 CMeasure::CMeasure()
@@ -266,9 +297,9 @@ CMeasure::CMeasure()
 	for ( int i=0;i<m_cc24SatMeasureArray.GetSize();i++ )	m_cc24SatMeasureArray[i]=noDataColor;
 	for ( int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++ )	m_cc24SatMeasureArray_master[i]=noDataColor;
 //pre-load typical display values
-	m_OnOffWhite.SetXYZValue(ColorXYZ(95.047,GetConfig()->m_TargetMaxL,108.883));
+	m_OnOffWhite.SetXYZValue(PlaceholderOnOffWhite());
 	m_bOnOffWhiteMeasured = FALSE;	// likewise a placeholder
-	m_PrimeWhite.SetXYZValue(ColorXYZ(GetConfig()->m_TargetMaxL*0.95047,GetConfig()->m_TargetMaxL,GetConfig()->m_TargetMaxL*1.08883));
+	m_PrimeWhite.SetXYZValue(PlaceholderPrimeWhite());
 	m_bPrimeWhiteMeasured = FALSE;	// the line above is a placeholder for the charts, not a reading
 	m_OnOffBlack.SetXYZValue(ColorXYZ(GetConfig()->m_TargetMinL*0.95047,GetConfig()->m_TargetMinL,GetConfig()->m_TargetMinL*1.08833));
 	m_AnsiBlack=m_AnsiWhite=noDataColor;
@@ -618,11 +649,10 @@ void CMeasure::Serialize(CArchive& ar)
 			}
 
 			// Version 21: the two white-was-measured flags, appended so a version-20
-			// profile still reads. Without them a reload re-derives both from
-			// isValid(), which cannot tell the constructor's placeholder from a
-			// reading -- so a standalone profile's suppressed sub-90% override came
-			// back on the next open and rescored the whole cube against a nominal
-			// white. Only profile documents carry the flags; see Measure.h.
+			// profile still reads. Without them a reload falls back to recognising
+			// the placeholder by its signature (IsPlaceholderWhite), which is right
+			// for every white this build writes but is a value match, not a record.
+			// Only profile documents carry the flags; see Measure.h.
 			ar << m_bPrimeWhiteMeasured;
 			ar << m_bOnOffWhiteMeasured;
 		}
@@ -948,14 +978,14 @@ void CMeasure::Serialize(CArchive& ar)
 				m_OnOffWhite = m_grayMeasureArray[gsize-1];
 		}
 		// Provisional: version 21 overwrites both from the file at the end of the
-		// profile block. For every other version this is all we have, and it cannot
-		// tell the constructor's placeholder from a reading -- so a placeholder
-		// reads as measured, which is what every build before this one did. That
-		// keeps documents without a display profile behaving exactly as they do
-		// today; it is the profile case, where the distinction actually changes a
-		// dE, that gets the stored flags.
-		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
-		m_bOnOffWhiteMeasured = m_OnOffWhite.isValid();
+		// profile block. Every other version stores the constructor's placeholder
+		// verbatim when nothing was measured, so recognise it by its signature.
+		// isValid() alone would read it as measured -- and then a profile captured
+		// after a reopen skips its own white read, and the sub-90% CC override
+		// swaps a real prime white for the nominal on/off one, so the same
+		// document's dE changes just by being saved and reopened.
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid() && ! IsPlaceholderWhite ( m_PrimeWhite, false );
+		m_bOnOffWhiteMeasured = m_OnOffWhite.isValid() && ! IsPlaceholderWhite ( m_OnOffWhite, true );
 
 		ar >> m_infoStr;
 		if (m_infoStr.Find("\n") < 1)
@@ -1050,7 +1080,7 @@ void CMeasure::Serialize(CArchive& ar)
 				m_profileDriftAnchors[i].Serialize(ar);
 			}
 
-			// Version 21: the stored flags replace the isValid() guess made above.
+			// Version 21: the stored flags replace the signature match made above.
 			if ( version > 20 )
 			{
 				ar >> m_bPrimeWhiteMeasured;
@@ -1269,8 +1299,12 @@ double CMeasure::ComputeProfileDEEx(const CColor & c, int i, ProfileDEParts * pP
 	if ( ( prime.isValid() && prime.GetY() > 0.0 ) || ( onoff.isValid() && onoff.GetY() > 0.0 ) )
 		ywForDE = GetColorDEWhiteY( bSpecial, true, false );
 
-	// Standalone capture (no grayscale/white measured): fall back to the measured
-	// white cube node (stimulus 100/100/100 = last grid patch) so dE still shows.
+	// Neither white usable -- NOT the standalone-capture case: the constructor
+	// pre-loads a placeholder for both and a capture now publishes its own prime
+	// white. It takes a deleted primaries run (prime white set to noDataColor) on a
+	// document whose on/off white is also invalid, e.g. one loaded from an old
+	// file. Fall back to the measured white cube node (stimulus 100/100/100 = last
+	// grid patch) so dE still shows.
 	if ( ywForDE <= 0.0 && m_profileCubeSize >= 2 )
 	{
 		int wi = m_profileCubeSize * m_profileCubeSize * m_profileCubeSize - 1;
@@ -4306,25 +4340,49 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	//
 	// The guard is the explicit m_bPrimeWhiteMeasured, not isValid(): the
 	// placeholder passes both isValid() and GetY() > 0, which is precisely why the
-	// version of this block that tested the color could never fire. A real
-	// primaries run is still never overwritten.
+	// version of this block that tested the color could never fire.
+	//
+	// A white a primaries/secondaries run measured is never overwritten: its
+	// targets were built against it. Any other measured white is re-read -- in
+	// practice the one an earlier capture published -- because a re-profile is
+	// usually taken after adjusting the display, and the cube must be scored
+	// against today's white, not the one from before the adjustment. Every sweep
+	// that writes the prime white also fills the primary/secondary arrays, so
+	// those are what identify a primaries run; the check needs no state of its own
+	// and survives save/reload in every file version.
 	//
 	// Black is deliberately NOT published here. The cube's own 0/0/0 corner is
 	// patch 0, so a profile does measure black; but m_OnOffBlack has no equivalent
 	// "was it measured" flag and ~20 writers, so filling it in could not be done
 	// safely without a wider change than this one.
 	//
-	// bWhiteTakenHere + the saved pair exist so a capture that ends with NO
-	// patches can put the white back. Publishing it also sets the measured flag,
-	// which is by design sticky -- so without this, stopping a run right after the
-	// white read would leave that one reading as the document's permanent prime
-	// white AND stop every later run from re-measuring it. Restored on each of the
-	// three exits that discard the capture entirely.
+	// RestoreWhite exists so a capture that ends with NO patches can put the white
+	// back. Publishing it also sets the measured flag, so without this, stopping a
+	// run right after the white read would leave that one reading as the
+	// document's prime white. Called on each of the three exits that discard the
+	// capture entirely.
 	CColor	savedPrimeWhite = m_PrimeWhite;
 	BOOL	savedPrimeWhiteMeasured = m_bPrimeWhiteMeasured;
 	bool	bWhiteTakenHere = false;
+	auto RestoreWhite = [&] ()
+	{
+		if ( bWhiteTakenHere )
+		{
+			m_PrimeWhite = savedPrimeWhite;
+			m_bPrimeWhiteMeasured = savedPrimeWhiteMeasured;
+		}
+	};
 
-	if ( ! m_bAbortSweep && ! m_bPrimeWhiteMeasured )
+	bool bPrimariesWhite = false;
+	if ( m_bPrimeWhiteMeasured )
+	{
+		for ( int k = 0; k < m_primariesArray.GetSize() && ! bPrimariesWhite; k++ )
+			bPrimariesWhite = ( m_primariesArray[k].isValid() != FALSE );
+		for ( int k = 0; k < m_secondariesArray.GetSize() && ! bPrimariesWhite; k++ )
+			bPrimariesWhite = ( m_secondariesArray[k].isValid() != FALSE );
+	}
+
+	if ( ! m_bAbortSweep && ! bPrimariesWhite )
 	{
 		double wIRE = PrimeWhiteIRELevel ( pGenerator );
 		ColorRGBDisplay whRGB ( wIRE, wIRE, wIRE );
@@ -4390,12 +4448,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		{
 			if ( ! MeasureProfileDriftAnchor ( asyncMeasure, pSensor, pGenerator, pDoc, i, firstAnchorY, prevAnchorFactor, prevAnchorIdx ) )
 			{
-				// the capture is being thrown away whole: put the white back too
-				if ( bWhiteTakenHere )
-				{
-					m_PrimeWhite = savedPrimeWhite;
-					m_bPrimeWhiteMeasured = savedPrimeWhiteMeasured;
-				}
+				RestoreWhite ();	// the capture is being thrown away whole: put the white back too
 				pSensor->Release();
 				pGenerator->Release();
 				ClearProfileMeasures();
@@ -4487,12 +4540,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		}
 		else
 		{
-			// the capture is being thrown away whole: put the white back too
-			if ( bWhiteTakenHere )
-			{
-				m_PrimeWhite = savedPrimeWhite;
-				m_bPrimeWhiteMeasured = savedPrimeWhiteMeasured;
-			}
+			RestoreWhite ();	// the capture is being thrown away whole: put the white back too
 			pSensor->Release();
 			pGenerator->Release();
 			ClearProfileMeasures();
@@ -4522,12 +4570,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 
 	if ( nDone == 0 )
 	{
-		// the capture is being thrown away whole: put the white back too
-		if ( bWhiteTakenHere )
-		{
-			m_PrimeWhite = savedPrimeWhite;
-			m_bPrimeWhiteMeasured = savedPrimeWhiteMeasured;
-		}
+		RestoreWhite ();	// the capture is being thrown away whole: put the white back too
 		ClearProfileMeasures();
 		UpdateViews(pDoc, 13);
 		return FALSE;
