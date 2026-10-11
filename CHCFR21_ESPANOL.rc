@@ -364,8 +364,8 @@ BEGIN
     CONTROL         "Medición continua",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,79,85,10
     CONTROL         "Detectar grises/primarios en las medidas de usuario",IDC_CHECK_DETECT_PRIMARIES,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,91,168,10
-    GROUPBOX        "Iris dinámico",IDC_STATIC,7,109,203,65,WS_GROUP
-    LTEXT           "Tiempo de latencia",IDC_STATIC,14,120,40,8
+    GROUPBOX        "Estabilización de medida",IDC_STATIC,7,109,203,65,WS_GROUP
+    LTEXT           "Retardo",IDC_STATIC,14,120,40,8
     EDITTEXT        IDC_EDIT_IRIS_TIME,60,118,21,14,ES_AUTOHSCROLL | WS_GROUP
     LTEXT           "ms",IDC_STATIC,86,120,10,8
     CONTROL         "Pitido al inicio de la medida (ayuda a definir la latencia)",IDC_CHECK_BEEP,
