@@ -960,6 +960,10 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetWindowPlacement(&wp);			
 		}
 		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetForegroundWindow();
+		// Paint the new patch here, not just the picker's current color: the caller's
+		// UpdateTstWnd runs only after this returns, so without this the settle below
+		// would wait on the previous patch. UpdateTstWnd then repaints the same patch.
+		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.m_colorPicker.SetColor ( clr.GetColorRef(m_b16_235) );
 		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.RedrawWindow ();
 		// Same generator settle as the other display modes, so the total settle is
 		// uniform (80 ms + the Settle delay setting) and a setting of 0 still lets
