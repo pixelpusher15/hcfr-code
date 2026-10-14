@@ -327,8 +327,12 @@ public:
 	ColorDENorm GetColorDENorm(int displayMode) const;	// the whole sat/CC dE normalisation, shared by every consumer
 	// Live profile-capture state (not serialized): the profiling pane pauses/observes through these
 	volatile BOOL m_bProfilePause;
-	volatile BOOL m_bProfileMeasuringWhite;	// capture is on its up-front white reference, not a cube patch
-	double m_profileWhiteIRE;		// the stimulus that white reference is being driven at (percent)
+	// The capture is in its reference prologue (grayscale + primaries/secondaries/
+	// white, see MeasureDisplayProfile), not on a cube patch: m_currentIndex is
+	// still 0, so the pane and the test window show these instead of patch 0.
+	volatile BOOL m_bProfileMeasuringRefs;
+	int m_profileRefIndex, m_profileRefCount;	// progress through the prologue
+	ColorRGBDisplay m_profileRefRGB;	// the stimulus on screen (percent)
 	// TRUE from the first cube patch until the closing drift anchor has rescaled
 	// the last segment -- the array is written in place throughout, so nothing
 	// derived from it is final before this drops (m_binMeasure cannot say this:
@@ -417,6 +421,8 @@ public:
 
 	BOOL WaitForDynamicIris ( BOOL bIgnoreEscape = FALSE, CDataSetDoc *pDoc = NULL );
 	BOOL CheckBlackOverride (  );
+	int GetProfileRefReadCount () const;	// reads in a capture's reference prologue
+	void BuildPrimarySecondaryColors ( CGenerator * pGenerator, ColorRGBDisplay GenColors [ 8 ] );	// R,G,B,C,M,Y,white,black as the sweeps drive them
 	void UpdateViews ( CDataSetDoc *pDoc = NULL, int Sequence = 0 );
 	void UpdateTstWnd ( CDataSetDoc *pDoc, int Sequence );
 	int m_currentIndex, m_currentSequence, displaymode;

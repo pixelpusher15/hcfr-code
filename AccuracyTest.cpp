@@ -1173,9 +1173,9 @@ static void CheckSub90Override ( FamStat & stat )
 // The load path re-derives both white-was-measured flags for every pre-21 file
 // by recognising the constructor's placeholders by value. Pin both directions at
 // this combo's m_TargetMaxL: the ctor's own whites must match (or a reopened
-// document reads them as measured again - the sub-90 override returns and a
-// display profile skips its white read), and a white a hair off the signature
-// must not (or a real reading is discarded on reload).
+// document reads them as measured again and the sub-90 override returns), and a
+// white a hair off the signature must not (or a real reading is discarded on
+// reload).
 static void CheckPlaceholderSignature ( FamStat & stat )
 {
 	CMeasure m;

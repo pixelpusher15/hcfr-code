@@ -2717,11 +2717,14 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			m_profilePane.OnCaptureProgress ();
 			CMeasure * pProfMeasure = GetDocument()->GetMeasure();
 			int nProfSize = pProfMeasure->GetProfileMeasureSize();
-			// The up-front white reference is not a cube patch: m_currentIndex is
-			// still 0, so the widgets below would show patch 0 -- the cube's black
-			// corner -- while the generator is displaying white. Skip them; the
-			// pane (which does know) carries the progress for this stretch.
-			if ( nProfSize > 0 && !pProfMeasure->m_bProfileMeasuringWhite )
+			// The reference prologue is not cube patches: m_currentIndex is still
+			// 0, so the reference widgets below would pair with patch 0 -- the
+			// cube's black corner -- while the generator shows a gray or primary.
+			// Only the test window follows it (CTargetWnd's mode-13 branch reads
+			// the prologue's stimulus); the pane carries the progress.
+			if ( nProfSize > 0 && pProfMeasure->m_bProfileMeasuringRefs )
+				m_Target.Refresh ( GetDocument()->GetGenerator()->m_b16_235, 1, nProfSize, 13, GetDocument(), CTargetWnd::TARGET_TESTWINDOW );
+			else if ( nProfSize > 0 )
 			{
 				// desktop test window shows the patch being DISPLAYED (index cur)...
 				int cur = min ( pProfMeasure->m_currentIndex, nProfSize - 1 );
