@@ -141,6 +141,163 @@ double TmDiffuseWhiteNits(const CColor & White, const CColor & Black)
 	return getL_EOTF(SnapToVideoGrid(0.5022283, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()), White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL, GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
 }
 
+// The stimulus MeasurePrimaries drives its primary/secondary patches at: 100% in
+// SDR, the 50.22831% diffuse-white code in PQ -- close enough to the 0.5022283
+// TmDiffuseWhiteNits evaluates that both land on the same 8- and 10-bit code, so
+// the reading is a diffuse white and not peak -- and 50.00% for Mascior's HDR
+// disc on the manual generator.
+static double PrimaryPatchIRELevel(CGenerator * pGenerator)
+{
+	double primaryIRELevel = 100.0;
+	if ( GetConfig()->m_GammaOffsetType == 5 )
+	{
+		primaryIRELevel = 50.22831;
+	//Special Case white for Mascior's HDR disk
+		CString strDVD;
+		strDVD.LoadString ( IDS_MANUALDVDGENERATOR_NAME );
+		ColorStandard cstd = GetColorReference().m_standard;
+		if ( pGenerator->GetName() == strDVD &&
+			 ( cstd == UHDTV4 || cstd == UHDTV3 || cstd == UHDTV2 || cstd == UHDTV || cstd == HDTV ) )
+			primaryIRELevel = 50.00;
+	}
+	return primaryIRELevel;
+}
+
+// The stimulus the PRIME white is measured at: the patch level above, except
+// under the HDTVa special standard, whose primaries sweep anchors its white at
+// 75%. Used only through BuildPrimarySecondaryColors, the one patch list every
+// primaries/secondaries sweep and the display profile's prologue drive.
+static double PrimeWhiteIRELevel(CGenerator * pGenerator)
+{
+	if ( GetColorReference().m_standard == HDTVa )
+		return 75.0;
+	return PrimaryPatchIRELevel ( pGenerator );
+}
+
+// The patch list the secondaries sweep drives, in its order: R, G, B, C, M, Y,
+// white, black. THE one definition: MeasurePrimaries (R/G/B/white/black),
+// MeasureSecondaries, MeasureGrayScaleAndColors and the display profile's
+// reference prologue all build from it, so a profile's primary/secondary
+// readings are by construction the ones a primaries run would take and can be
+// published as such. Under the pseudo color spaces the PQ/HLG encode reads the
+// document's current gray white and on/off black, so build it AFTER any grays
+// the same sweep measures.
+void CMeasure::BuildPrimarySecondaryColors(CGenerator * pGenerator, ColorRGBDisplay GenColors [ 8 ])
+{
+	BOOL isSpecial = FALSE;
+	double		primaryIRELevel = PrimaryPatchIRELevel ( pGenerator );
+	double		whiteIRELevel = PrimeWhiteIRELevel ( pGenerator );	// == 75.0 under HDTVa
+	int mode = GetConfig()->m_GammaOffsetType;
+
+	GenColors [ 0 ] = ColorRGBDisplay(primaryIRELevel,0,0);
+	GenColors [ 1 ] = ColorRGBDisplay(0,primaryIRELevel,0);
+	GenColors [ 2 ] = ColorRGBDisplay(0,0,primaryIRELevel);
+	GenColors [ 3 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,0);
+	GenColors [ 4 ] = ColorRGBDisplay(0,primaryIRELevel,primaryIRELevel);
+	GenColors [ 5 ] = ColorRGBDisplay(primaryIRELevel,0,primaryIRELevel);
+	GenColors [ 6 ] = ColorRGBDisplay(whiteIRELevel,whiteIRELevel,whiteIRELevel);
+	GenColors [ 7 ] = ColorRGBDisplay(0,0,0);
+
+	if (GetColorReference().m_standard == HDTVb)
+	{
+			GenColors [ 0 ] = ColorRGBDisplay(79.9087,10.0457,10.0457); 
+			GenColors [ 1 ] = ColorRGBDisplay(30.137,79.9087,30.137); 
+			GenColors [ 2 ] = ColorRGBDisplay(50.2283,50.2283,79.9087); 
+			GenColors [ 3 ] = ColorRGBDisplay(79.9087,79.9087,10.0457);
+			GenColors [ 4 ] = ColorRGBDisplay(10.0457,79.9087,79.9087);
+			GenColors [ 5 ] = ColorRGBDisplay(79.9087,10.0457,79.9087);
+			isSpecial = TRUE;
+	}
+	else if (GetColorReference().m_standard == HDTVa) //75%
+	{ 
+		GenColors [ 0 ] = ColorRGBDisplay(68.04,20.09,20.09);
+		GenColors [ 1 ] = ColorRGBDisplay(27.85,73.06,27.85);
+		GenColors [ 2 ] = ColorRGBDisplay(19.18,19.18,50.22);
+		GenColors [ 3 ] = ColorRGBDisplay(73.9726,73.9726,33.3333);
+		GenColors [ 4 ] = ColorRGBDisplay(36.07,73.06,73.06);
+		GenColors [ 5 ] = ColorRGBDisplay(64.3836,29.2237,64.3836);
+		isSpecial = TRUE;
+	}
+	else if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 ) //P3/Rec709 in BT.2020
+	{
+		// GenColors[0..5] are computed from ContainerPrimaryLinear below
+		// (all transfer functions).
+		if (!(mode == 5 || mode == 7))
+			isSpecial = TRUE;
+	}
+
+	// Pseudo color spaces: build the primary/secondary patches from the inner
+	// primaries mapped into the transport container, encoded with the ACTIVE
+	// transfer function (2.22 SDR, PQ, HLG OETF) - the same chain GetRefSat
+	// models. Left unquantized: the wire and the reference each snap ONCE to
+	// the active grid and land on the same code. (The old hardcoded HDR tables
+	// were pre-quantized on the 8-bit LIMITED grid - double-quantizing them
+	// onto the full/10-bit grids left patches a code off the reference - and
+	// predate the transport-space references entirely, which is why HLG read
+	// several dE.)
+	if (GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)
+	{
+		CColor tmW = GetGray ( GetGrayScaleSize() - 1 );
+		CColor tmB = GetOnOffBlack();
+		for (int ci = 0; ci < 6; ci++)
+		{
+			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
+			for (int ck = 0; ck < 3; ck++)
+			{
+				double cv = clin[ck];
+				if (mode == 5)
+					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv / 105.95640, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -5);
+				else if (mode == 7)
+					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -7);
+				else
+					cv = (cv <= 0.0 || cv >= 1.0) ? min(max(cv, 0.0), 1.0) : pow(cv, 1.0 / 2.22);
+				GenColors[ci][ck] = min(max(cv, 0.0), 1.0) * 100.0;
+			}
+		}
+	}
+
+	if ( (mode == 5 || mode  == 7) && isSpecial)
+	{
+		for (int i=0;i<=5;i++)
+		{
+			GenColors[i][0]= 100. * getL_EOTF(pow(GenColors[i][0] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
+			GenColors[i][1]= 100. * getL_EOTF(pow(GenColors[i][1] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
+			GenColors[i][2]= 100. * getL_EOTF(pow(GenColors[i][2] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
+		}
+	}
+}
+
+// The nominal whites the constructor pre-loads so the charts always have
+// something to draw. Built here and nowhere else, because IsPlaceholderWhite
+// has to recognise them by value: files written before the white-was-measured
+// flags existed (every version-19/20 document) store the placeholder verbatim,
+// and its exact signature is the only thing that tells it from a reading.
+static ColorXYZ PlaceholderOnOffWhite()
+{
+	return ColorXYZ ( 95.047, GetConfig()->m_TargetMaxL, 108.883 );
+}
+
+static ColorXYZ PlaceholderPrimeWhite()
+{
+	double L = GetConfig()->m_TargetMaxL;
+	return ColorXYZ ( L * 0.95047, L, L * 1.08883 );
+}
+
+// Matches on the parts of the signature m_TargetMaxL cannot have moved since the
+// file was saved: the on/off placeholder's fixed X and Z (bit-exact -- CColor
+// serializes the doubles verbatim), the prime placeholder's exact D65 ratios. A
+// meter reading lands on either only by coincidence far below its own noise.
+bool CMeasure::IsPlaceholderWhite ( const CColor & c, bool bOnOff )
+{
+	if ( ! c.isValid() )
+		return false;
+	ColorXYZ v = c.GetXYZValue();
+	if ( bOnOff )
+		return v[0] == 95.047 && v[2] == 108.883;
+	double y = v[1];
+	return y > 0.0 && fabs ( v[0] - y * 0.95047 ) <= 1e-9 * y && fabs ( v[2] - y * 1.08883 ) <= 1e-9 * y;
+}
+
 IMPLEMENT_SERIAL(CMeasure, CObject, 1)
 
 CMeasure::CMeasure()
@@ -201,6 +358,10 @@ CMeasure::CMeasure()
 	m_profileGeneration = 0;
 	ClearProfileMeasures();
 	m_bProfilePause = FALSE;
+	m_bProfileMeasuringRefs = FALSE;
+	m_profileRefIndex = 0;
+	m_profileRefCount = 0;
+	m_profileRefRGB = ColorRGBDisplay ( 0.0 );
 	m_bProfileCapturing = FALSE;
 	m_profileCurrentDrift = 0.0;
 
@@ -230,8 +391,10 @@ CMeasure::CMeasure()
 	for ( int i=0;i<m_cc24SatMeasureArray.GetSize();i++ )	m_cc24SatMeasureArray[i]=noDataColor;
 	for ( int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++ )	m_cc24SatMeasureArray_master[i]=noDataColor;
 //pre-load typical display values
-	m_OnOffWhite.SetXYZValue(ColorXYZ(95.047,GetConfig()->m_TargetMaxL,108.883));
-	m_PrimeWhite.SetXYZValue(ColorXYZ(GetConfig()->m_TargetMaxL*0.95047,GetConfig()->m_TargetMaxL,GetConfig()->m_TargetMaxL*1.08883));
+	m_OnOffWhite.SetXYZValue(PlaceholderOnOffWhite());
+	m_bOnOffWhiteMeasured = FALSE;	// likewise a placeholder
+	m_PrimeWhite.SetXYZValue(PlaceholderPrimeWhite());
+	m_bPrimeWhiteMeasured = FALSE;	// the line above is a placeholder for the charts, not a reading
 	m_OnOffBlack.SetXYZValue(ColorXYZ(GetConfig()->m_TargetMinL*0.95047,GetConfig()->m_TargetMinL,GetConfig()->m_TargetMinL*1.08833));
 	m_AnsiBlack=m_AnsiWhite=noDataColor;
 	m_CCStr = (CString)"";
@@ -276,6 +439,7 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 			m_grayIRELevelArray.Copy(p->m_grayIRELevelArray);
 			m_bIREScaleMode=p->m_bIREScaleMode;
 			m_OnOffWhite=p->m_OnOffWhite;
+			m_bOnOffWhiteMeasured=p->m_bOnOffWhiteMeasured;
 			for(int i=0;i<m_grayMeasureArray.GetSize();i++)
     			m_grayMeasureArray[i]=p->m_grayMeasureArray[i];
 			break;
@@ -338,17 +502,20 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 			for(int i=0;i<m_primariesArray.GetSize();i++)
 				m_primariesArray[i]=p->m_primariesArray[i];	
 				m_PrimeWhite = p->m_PrimeWhite;
+				m_bPrimeWhiteMeasured = p->m_bPrimeWhiteMeasured;
 			break;
 
 		case DUPLSECONDARIESCOL:		// Secondaries measure
 			for(int i=0;i<m_secondariesArray.GetSize();i++)
 				m_secondariesArray[i]=p->m_secondariesArray[i];
 				m_PrimeWhite = p->m_PrimeWhite;
+				m_bPrimeWhiteMeasured = p->m_bPrimeWhiteMeasured;
 			break;
 
 		case DUPLCONTRAST:		// Contrast measure
 			m_OnOffBlack=p->m_OnOffBlack;
 			m_OnOffWhite=p->m_OnOffWhite;
+			m_bOnOffWhiteMeasured=p->m_bOnOffWhiteMeasured;
 			m_AnsiBlack=p->m_AnsiBlack;
 			m_AnsiBlack=p->m_AnsiBlack;
 			break;
@@ -366,6 +533,23 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 			m_profileDriftAnchors  = p->m_profileDriftAnchors;
 			m_profileDriftAnchorIdx= p->m_profileDriftAnchorIdx;
 			m_profileGenCacheKey   = -1;	// force regen of the stimulus cache
+			// The cube is scored against the document's whites (prime, or on/off
+			// under HDTVa/HDTVb and the sub-90% fallback) and its references are
+			// built from the gray white and on/off black -- all of which a capture
+			// publishes. They travel with the profile, or the copy is scored
+			// differently from the original. Only into a document that lacks them:
+			// the caller copies the dialog's ticked sections first, so a grayscale
+			// or primaries run the user chose to copy wins.
+			if ( p->m_bOnOffWhiteMeasured && ! m_bOnOffWhiteMeasured )
+			{
+				Copy ( p, DUPLGRAYLEVEL );	// grays + on/off white and its flag
+				m_OnOffBlack = p->m_OnOffBlack;
+			}
+			if ( p->m_bPrimeWhiteMeasured && ! m_bPrimeWhiteMeasured )
+			{
+				m_PrimeWhite = p->m_PrimeWhite;
+				m_bPrimeWhiteMeasured = TRUE;
+			}
 			m_profileGeneration++;
 			break;
 
@@ -381,9 +565,11 @@ void CMeasure::Serialize(CArchive& ar)
 
 	if (ar.IsStoring())
 	{
-		// Version 20 only when a display profile exists: documents without one keep
-		// version 19 so they stay readable by older builds.
-	    int version = HasProfileMeasures() ? 20 : 19;
+		// Version 21 only when a display profile exists: documents without one keep
+		// version 19 so they stay readable by older builds. 21 adds the two
+		// white-was-measured flags to the end of the version-20 profile block; 20
+		// itself stays readable, so profiles written by earlier builds still load.
+	    int version = HasProfileMeasures() ? 21 : 19;
 		ar << version;
 
 		StoreActiveSatLevel();	// capture the bound sweeps before writing the store
@@ -512,6 +698,12 @@ void CMeasure::Serialize(CArchive& ar)
 		m_AnsiBlack.Serialize(ar);
 		m_AnsiWhite.Serialize(ar);
 //version 9
+		// Stored verbatim, placeholder included. Substituting noDataColor for an
+		// unmeasured white would collapse it onto the "primaries were deleted"
+		// state, which loads as INVALID -- and Export's unguarded
+		// GetPrimeWhite().GetY() sites would then read FX_NODATA (-99999.99) where
+		// they used to read the placeholder. m_bPrimeWhiteMeasured travels as its
+		// own field in version 21 instead (see the profile block below).
 		m_PrimeWhite.Serialize(ar);
 
 		ar << m_infoStr;
@@ -557,6 +749,14 @@ void CMeasure::Serialize(CArchive& ar)
 				ar << m_profileDriftAnchorIdx[i];
 				m_profileDriftAnchors[i].Serialize(ar);
 			}
+
+			// Version 21: the two white-was-measured flags, appended so a version-20
+			// profile still reads. Without them a reload falls back to recognising
+			// the placeholder by its signature (IsPlaceholderWhite), which is right
+			// for every white this build writes but is a value match, not a record.
+			// Only profile documents carry the flags; see Measure.h.
+			ar << m_bPrimeWhiteMeasured;
+			ar << m_bOnOffWhiteMeasured;
 		}
 	}
 	else
@@ -565,7 +765,7 @@ void CMeasure::Serialize(CArchive& ar)
 		ar >> version;
 
 
-		if ( version > 20 )
+		if ( version > 21 )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 
 
@@ -879,6 +1079,14 @@ void CMeasure::Serialize(CArchive& ar)
 			if (gsize > 0)
 				m_OnOffWhite = m_grayMeasureArray[gsize-1];
 		}
+		// Provisional: version 21 overwrites both from the file at the end of the
+		// profile block. Every other version stores the constructor's placeholder
+		// verbatim when nothing was measured, so recognise it by its signature.
+		// isValid() alone would read it as measured -- and then the sub-90% CC
+		// override swaps a real prime white for the nominal on/off one, so the
+		// same document's dE changes just by being saved and reopened.
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid() && ! IsPlaceholderWhite ( m_PrimeWhite, false );
+		m_bOnOffWhiteMeasured = m_OnOffWhite.isValid() && ! IsPlaceholderWhite ( m_OnOffWhite, true );
 
 		ar >> m_infoStr;
 		if (m_infoStr.Find("\n") < 1)
@@ -976,6 +1184,13 @@ void CMeasure::Serialize(CArchive& ar)
 			{
 				ar >> m_profileDriftAnchorIdx[i];
 				m_profileDriftAnchors[i].Serialize(ar);
+			}
+
+			// Version 21: the stored flags replace the signature match made above.
+			if ( version > 20 )
+			{
+				ar >> m_bPrimeWhiteMeasured;
+				ar >> m_bOnOffWhiteMeasured;
 			}
 			m_profileGeneration++;
 		}
@@ -1192,8 +1407,12 @@ double CMeasure::ComputeProfileDEEx(const CColor & c, int i, ProfileDEParts * pP
 	if ( ( prime.isValid() && prime.GetY() > 0.0 ) || ( onoff.isValid() && onoff.GetY() > 0.0 ) )
 		ywForDE = GetColorDEWhiteY( bSpecial, true, false );
 
-	// Standalone capture (no grayscale/white measured): fall back to the measured
-	// white cube node (stimulus 100/100/100 = last grid patch) so dE still shows.
+	// Neither white usable -- NOT the standalone-capture case: the constructor
+	// pre-loads a placeholder for both and a capture now publishes its own prime
+	// white. It takes a deleted primaries run (prime white set to noDataColor) on a
+	// document whose on/off white is also invalid, e.g. one loaded from an old
+	// file. Fall back to the measured white cube node (stimulus 100/100/100 = last
+	// grid patch) so dE still shows.
 	if ( ywForDE <= 0.0 && m_profileCubeSize >= 2 )
 	{
 		int wi = m_profileCubeSize * m_profileCubeSize * m_profileCubeSize - 1;
@@ -1878,6 +2097,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	}
 
 	m_OnOffWhite = measuredColor[size-1];
+	m_bOnOffWhiteMeasured = m_OnOffWhite.isValid();
 	if (m_bOverRideBlack)
 		m_OnOffBlack = m_userBlack;
 	else		
@@ -1907,7 +2127,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
-	BOOL	bRetry = FALSE, isSpecial = FALSE;
+	BOOL	bRetry = FALSE;
 	int		size=m_grayMeasureArray.GetSize();
 	CString	strMsg, Title;
 	double	dLuxValue;
@@ -2091,101 +2311,9 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 			pGenerator->Release();
 			return FALSE;
 		}
-	CString str;
-	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
-	int mode = GetConfig()->m_GammaOffsetType;
-
-	double primaryIRELevel=100.0;	
-	if (mode == 5)
-	{
-		primaryIRELevel = 50.22831;
-	//Special Case white for Mascior's HDR disk
-		if(pGenerator->GetName() == str && (GetColorReference().m_standard == UHDTV4 || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == HDTV))
-			primaryIRELevel = 50.00;
-	}
 	// Measure primary and secondary colors
-	ColorRGBDisplay	GenColors [ 8 ] = 
-								{	
-									ColorRGBDisplay(primaryIRELevel,0,0),
-									ColorRGBDisplay(0,primaryIRELevel,0),
-									ColorRGBDisplay(0,0,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,primaryIRELevel,0),
-									ColorRGBDisplay(0,primaryIRELevel,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,0,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel),
-									ColorRGBDisplay(0,0,0)
-								};
-	if (GetColorReference().m_standard == HDTVb)
-	{
-			GenColors [ 0 ] = ColorRGBDisplay(79.9087,10.0457,10.0457); 
-			GenColors [ 1 ] = ColorRGBDisplay(30.137,79.9087,30.137); 
-			GenColors [ 2 ] = ColorRGBDisplay(50.2283,50.2283,79.9087); 
-			GenColors [ 3 ] = ColorRGBDisplay(79.9087,79.9087,10.0457);
-			GenColors [ 4 ] = ColorRGBDisplay(10.0457,79.9087,79.9087);
-			GenColors [ 5 ] = ColorRGBDisplay(79.9087,10.0457,79.9087);
-			isSpecial = TRUE;
-	}
-	else if (GetColorReference().m_standard == HDTVa) //75%
-	{ 
-		GenColors [ 0 ] = ColorRGBDisplay(68.04,20.09,20.09);
-		GenColors [ 1 ] = ColorRGBDisplay(27.85,73.06,27.85);
-		GenColors [ 2 ] = ColorRGBDisplay(19.18,19.18,50.22);
-		GenColors [ 3 ] = ColorRGBDisplay(73.9726,73.9726,33.3333);
-		GenColors [ 4 ] = ColorRGBDisplay(36.07,73.06,73.06);
-		GenColors [ 5 ] = ColorRGBDisplay(64.3836,29.2237,64.3836);
-		GenColors [ 6 ] = ColorRGBDisplay(75.0,75.0,75.0);
-		isSpecial = TRUE;
-	}
-	else if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 ) //P3/Rec709 in BT.2020
-	{
-		// GenColors[0..5] are computed from ContainerPrimaryLinear below
-		// (all transfer functions).
-		if (!(mode == 5 || mode == 7))
-			isSpecial = TRUE;
-
-		GenColors [ 6 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-		GenColors [ 7 ] = ColorRGBDisplay(0,0,0);
-	}
-
-	// Pseudo color spaces: build the primary/secondary patches from the inner
-	// primaries mapped into the transport container, encoded with the ACTIVE
-	// transfer function (2.22 SDR, PQ, HLG OETF) - the same chain GetRefSat
-	// models. Left unquantized: the wire and the reference each snap ONCE to
-	// the active grid and land on the same code. (The old hardcoded HDR tables
-	// were pre-quantized on the 8-bit LIMITED grid - double-quantizing them
-	// onto the full/10-bit grids left patches a code off the reference - and
-	// predate the transport-space references entirely, which is why HLG read
-	// several dE.)
-	if (GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)
-	{
-		CColor tmW = CMeasure::GetGray ( CMeasure::GetGrayScaleSize() - 1 );	// same White/Black GetRefSat's encode uses
-		CColor tmB = CMeasure::GetOnOffBlack();
-		for (int ci = 0; ci < 6; ci++)
-		{
-			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
-			for (int ck = 0; ck < 3; ck++)
-			{
-				double cv = clin[ck];
-				if (mode == 5)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv / 105.95640, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -5);
-				else if (mode == 7)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -7);
-				else
-					cv = (cv <= 0.0 || cv >= 1.0) ? min(max(cv, 0.0), 1.0) : pow(cv, 1.0 / 2.22);
-				GenColors[ci][ck] = min(max(cv, 0.0), 1.0) * 100.0;
-			}
-		}
-	}
-
-	if ( (mode == 5 || mode  == 7) && isSpecial)
-	{
-		for (int i=0;i<=5;i++)
-		{
-			GenColors[i][0]= 100. * getL_EOTF(pow(GenColors[i][0] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][1]= 100. * getL_EOTF(pow(GenColors[i][1] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][2]= 100. * getL_EOTF(pow(GenColors[i][2] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-		}
-	}
+	ColorRGBDisplay	GenColors [ 8 ];
+	BuildPrimarySecondaryColors ( pGenerator, GenColors );
 
 	m_currentIndex = 0;
 	for (int i = 0; i < 6 + GetConfig()->m_BWColorsToAdd ; i ++ )
@@ -2323,6 +2451,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 	}
 
 	m_OnOffWhite = measuredColor[size-1];
+	m_bOnOffWhiteMeasured = m_OnOffWhite.isValid();
 	if (m_bOverRideBlack)
 		m_OnOffBlack = m_userBlack;
 	else
@@ -2346,6 +2475,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 			m_PrimeWhite.SetLuxValue ( measuredLux[size+6] );
 		else
 			m_PrimeWhite.ResetLuxValue ();
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 	}
 	GetConfig()->m_isSettling = doSettling;
 		
@@ -4222,7 +4352,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 
 	BOOL	bUseLuxValues = TRUE;
 
-	if(pGenerator->Init(size) != TRUE)
+	if(pGenerator->Init(size + GetProfileRefReadCount()) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
 		if (pGenerator->m_initShowedError) return FALSE;
@@ -4233,7 +4363,9 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 
 	CGenerator::MeasureType nPattern = CGenerator::MT_SAT_CC24_USER;
 
-	if(pGenerator->CanDisplayScale ( nPattern, size ) != TRUE)
+	// the reference prologue drives the grayscale sweep's scale too
+	if(pGenerator->CanDisplayScale ( nPattern, size ) != TRUE ||
+	   pGenerator->CanDisplayScale ( CGenerator::MT_IRE, GetGrayScaleSize() ) != TRUE)
 	{
 		pGenerator->Release();
 		return FALSE;
@@ -4271,67 +4403,79 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	m_binMeasure = TRUE;
 	m_currentIndex = 0;
 
-	// Self-contained white/black reference. A profile inherently drives its own
-	// 0/0/0 and 100/100/100 cube corners, so measure them up front and publish
-	// the app-wide On/Off white+black -- the user can come straight in and start a
-	// profile with no separate grayscale/contrast pass first, because every
-	// white-relative consumer (ComputeProfileDE, the 3D viewer, the RGB-levels
-	// widget) reads GetOnOffWhite/GetOnOffBlack. Measured only when not already
-	// present, so an existing contrast/grayscale run is never overwritten.
-	if ( ! m_bAbortSweep && ( ! m_OnOffWhite.isValid() || m_OnOffWhite.GetY() <= 0.0 ) )
+	// Reference prologue. Before the cube, run the grayscale sweep's and the
+	// secondaries sweep's own patch lists -- the same stimuli from the same
+	// builders (GetGrayPercent, BuildPrimarySecondaryColors), on the same pattern
+	// types -- and publish the readings as the document's grayscale, on/off
+	// white/black, primaries, secondaries and prime white. A profile then IS a
+	// grayscale run and a secondaries run plus a cube, rather than a second set
+	// of measurements the document has to reconcile with the first:
+	//
+	//  - Every white-relative consumer of the cube (ComputeProfileDE, the 3D
+	//    viewer, RGB levels, Export) normalises by the prime white -- or, under
+	//    HDTVa/HDTVb and the sub-90% fallback, the on/off white -- so a
+	//    standalone capture is scored against whites it measured itself, never
+	//    the constructor's placeholder.
+	//  - The pattern TYPE matters, not just the level: GDI generators scale
+	//    MT_PRIMARY/MT_SECONDARY patches by the window Intensity setting and leave
+	//    MT_IRE and the cube's MT_SAT_CC24_USER alone. Reading the colors as
+	//    MT_SECONDARY is what makes the white the one a primaries run would take;
+	//    a dimmed prime white then sends the cube to the undimmed gray white
+	//    through GetColorDEWhiteY's sub-90% fallback, exactly as for a CC sweep.
+	//  - Grays first, then colors: under the pseudo color spaces the color
+	//    builder's PQ/HLG encode reads the gray white and on/off black, so it is
+	//    built from the grays just published -- MeasureGrayScaleAndColors' order.
+	//  - The latest measurement wins. Whatever an earlier sweep or capture wrote
+	//    is replaced, because a re-profile usually follows a display adjustment
+	//    and the cube must be scored against today's whites.
+	//  - A group (grays; colors) is published only when every read in it
+	//    succeeded: Ignore on a failed read leaves that group's previous values
+	//    alone. Stop, ESC or Abort during the prologue discards the capture.
+	//
+	// RestoreRefs puts the published state back when the capture ends with NO
+	// cube patches, so stopping right after the prologue does not leave its
+	// readings behind as the document's measurements. Called on each of the
+	// three exits that discard the capture entirely.
+	CArray<CColor,CColor> savedGrays, savedPrimaries, savedSecondaries;
+	savedGrays.Copy ( m_grayMeasureArray );
+	savedPrimaries.Copy ( m_primariesArray );
+	savedSecondaries.Copy ( m_secondariesArray );
+	const CColor	savedOnOffWhite = m_OnOffWhite;
+	const CColor	savedOnOffBlack = m_OnOffBlack;
+	const CColor	savedPrimeWhite = m_PrimeWhite;
+	const BOOL		savedOnOffWhiteMeasured = m_bOnOffWhiteMeasured;
+	const BOOL		savedPrimeWhiteMeasured = m_bPrimeWhiteMeasured;
+	bool	bGraysPublished = false, bColorsPublished = false;
+	doSettling = GetConfig()->m_isSettling;
+	auto RestoreRefs = [&] ()
 	{
-		ColorRGBDisplay whRGB ( 100.0, 100.0, 100.0 );
-		if ( pGenerator->DisplayRGBColor ( whRGB, nPattern, 0, TRUE ) )
+		if ( bGraysPublished )
 		{
-			// Aborted mid-settle: skip the read. An unsettled reading still passes
-			// the validity gate below and permanently replaces the app-wide
-			// reference -- the nDone == 0 path calls ClearProfileMeasures() but
-			// does not restore the white, so it stays "valid", a later profile run
-			// will not re-measure it, and ComputeProfileDE, the 3D viewer, the
-			// RGB-levels widget and the export paths all normalize to it. Leaving
-			// it invalid makes the next run measure it properly.
-			if ( WaitForDynamicIris ( FALSE, pDoc ) )
-				m_bAbortSweep = TRUE;
-			else
-			{
-				CColor wh = PumpedRead ( asyncMeasure, pSensor, whRGB, displaymode );
-				if ( pSensor->IsMeasureValid() && wh.isValid() && wh.GetY() > 0.0 )
-					m_OnOffWhite = wh;
-			}
+			m_grayMeasureArray.Copy ( savedGrays );
+			m_OnOffWhite = savedOnOffWhite;
+			m_OnOffBlack = savedOnOffBlack;
+			m_bOnOffWhiteMeasured = savedOnOffWhiteMeasured;
 		}
-	}
-	if ( ! m_bAbortSweep && ! m_OnOffBlack.isValid() )
-	{
-		ColorRGBDisplay bkRGB ( 0.0, 0.0, 0.0 );
-		if ( pGenerator->DisplayRGBColor ( bkRGB, nPattern, 0, TRUE ) )
+		if ( bColorsPublished )
 		{
-			// Same as the white above: an unsettled black would stick as the
-			// app-wide reference and never be re-measured.
-			if ( WaitForDynamicIris ( FALSE, pDoc ) )
-				m_bAbortSweep = TRUE;
-			else
-			{
-				CColor bk = PumpedRead ( asyncMeasure, pSensor, bkRGB, displaymode );
-				if ( pSensor->IsMeasureValid() && bk.isValid() )
-					m_OnOffBlack = bk;
-			}
+			m_primariesArray.Copy ( savedPrimaries );
+			m_secondariesArray.Copy ( savedSecondaries );
+			m_PrimeWhite = savedPrimeWhite;
+			m_bPrimeWhiteMeasured = savedPrimeWhiteMeasured;
 		}
-	}
+		GetConfig()->m_isSettling = doSettling;
+	};
 
-	for(int i=0;i<size;i++)
+	// Pane-driven pause: idle between patches. We must pump mouse + paint so the
+	// pane's Resume/Stop buttons (which notify via synchronous SendMessage from
+	// their own OnLButtonUp) work and repaint -- but we DROP queued WM_COMMAND /
+	// WM_SYSCOMMAND / WM_CLOSE so a menu/accelerator can't reenter
+	// OnSelchangeComboMode or tear the document down mid-capture (the mode combo
+	// itself is disabled by StartProfileCapture). Sweep guard keeps
+	// IsMeasureSweepActive() TRUE throughout. Honoured before every prologue read
+	// and every cube patch.
+	auto WaitWhilePaused = [&] ()
 	{
-		if (i>0)
-			GetConfig()->m_isSettling=FALSE;
-		else
-			doSettling = GetConfig()->m_isSettling;
-
-		// pane-driven pause: idle between patches. We must pump mouse + paint so
-		// the pane's Resume/Stop buttons (which notify via synchronous SendMessage
-		// from their own OnLButtonUp) work and repaint -- but we DROP queued
-		// WM_COMMAND / WM_SYSCOMMAND / WM_CLOSE so a menu/accelerator can't reenter
-		// OnSelchangeComboMode or tear the document down mid-capture (the mode combo
-		// itself is disabled by StartProfileCapture). Sweep guard keeps
-		// IsMeasureSweepActive() TRUE throughout.
 		while ( m_bProfilePause && ! m_bAbortSweep )
 		{
 			while ( PeekMessage ( & Msg, NULL, 0, 0, PM_REMOVE ) )
@@ -4345,6 +4489,176 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 			}
 			Sleep(50);
 		}
+	};
+
+	// One prologue read, with the sweeps' Stop/ESC, pause, lux, Abort/Retry/Ignore and
+	// pattern-change handling. Returns 1 with a reading in out, 0 when a failed
+	// read was ignored, -1 when the capture must stop (m_bAbortSweep is then set)
+	// and -2 when the generator failed. k / nRefs drive the pane's progress;
+	// patternInfo is the index the source sweep would pass the generator.
+	auto ReadRef = [&] ( int k, int nRefs, const ColorRGBDisplay & rgb, CGenerator::MeasureType type, UINT patternInfo, CColor & out ) -> int
+	{
+		m_profileRefIndex = k;
+		m_profileRefCount = nRefs;
+		m_profileRefRGB = rgb;
+		BOOL bRetryRef = FALSE;
+		for ( ;; )
+		{
+			WaitWhilePaused ();
+			if ( m_bAbortSweep )
+				return -1;
+			if ( k > 0 )
+				GetConfig()->m_isSettling = FALSE;	// only the first displayed patch settles
+			UpdateViews ( pDoc, 13 );
+			BOOL bShown = ( type == CGenerator::MT_IRE ) ? pGenerator->DisplayGray ( rgb[0], type, ! bRetryRef )
+														 : pGenerator->DisplayRGBColor ( rgb, type, patternInfo, ! bRetryRef );
+			if ( ! bShown )
+				return -2;
+			bRetryRef = FALSE;
+			if ( WaitForDynamicIris ( FALSE, pDoc ) )
+			{
+				m_bAbortSweep = TRUE;
+				return -1;
+			}
+			if ( bUseLuxValues )
+				StartLuxMeasure ();
+			// grays read with display mode 0, colors with the current one -- as the sweeps do
+			out = PumpedRead ( asyncMeasure, pSensor, rgb, type == CGenerator::MT_IRE ? 0 : displaymode );
+			if ( bUseLuxValues )
+			{
+				switch ( GetLuxMeasure ( & dLuxValue ) )
+				{
+					case LUX_NOMEASURE:
+						 bUseLuxValues = FALSE;
+						 break;
+
+					case LUX_OK:
+						 out.SetLuxValue ( dLuxValue );
+						 break;
+
+					case LUX_CANCELED:
+						 m_bAbortSweep = TRUE;
+						 break;
+				}
+			}
+			if ( ! bUseLuxValues )
+				out.ResetLuxValue ();
+
+			while ( PeekMessage ( & Msg, NULL, WM_KEYDOWN, WM_KEYUP, TRUE ) )
+			{
+				if ( Msg.message == WM_KEYDOWN && Msg.wParam == VK_ESCAPE )
+					m_bAbortSweep = TRUE;
+			}
+			if ( m_bAbortSweep )
+				return -1;
+
+			if ( ! pSensor->IsMeasureValid() || ! out.isValid() )
+			{
+				Title.LoadString ( IDS_ERROR );
+				strMsg.LoadString ( IDS_ANERROROCCURED );
+				int result = GetColorApp()->InMeasureMessageBox ( strMsg + pSensor->GetErrorString(), Title, MB_ABORTRETRYIGNORE | MB_ICONERROR );
+				if ( result == IDABORT )
+				{
+					m_bAbortSweep = TRUE;	// no cube patch yet, so this discards the capture
+					return -1;
+				}
+				if ( result == IDRETRY )
+				{
+					bRetryRef = TRUE;
+					continue;
+				}
+				out = noDataColor;
+				return 0;
+			}
+
+			previousColor = lastColor;
+			lastColor = out;
+			if ( k > 0 && ! pGenerator->HasPatternChanged ( type, previousColor, lastColor ) )
+			{
+				bPatternRetry = TRUE;
+				continue;
+			}
+			return 1;
+		}
+	};
+
+	if ( GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) == DISPLAY_GDI_Hide )
+		UpdateTstWnd(pDoc, -1);
+
+	const int	nGrays = m_grayMeasureArray.GetSize();
+	const bool	bBlackOverride = ( CheckBlackOverride() != FALSE );	// the grayscale sweep skips black then, and so do we
+	const int	nRefs = GetProfileRefReadCount();
+	int			k = 0, rc = 1;
+	m_bProfileMeasuringRefs = TRUE;
+
+	std::vector<CColor> grays ( nGrays, noDataColor );
+	bool bGraysOK = true;
+	for ( int g = ( bBlackOverride ? 1 : 0 ); g < nGrays && rc >= 0; g++, k++ )
+	{
+		double lvl = GetGrayPercent ( g, GetConfig()->m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+		rc = ReadRef ( k, nRefs, ColorRGBDisplay ( lvl ), CGenerator::MT_IRE, g, grays[g] );
+		if ( rc == 0 )
+			bGraysOK = false;
+	}
+	if ( rc >= 0 && bGraysOK && nGrays > 0 )
+	{
+		for ( int g = 0; g < nGrays; g++ )
+			m_grayMeasureArray[g] = ( g == 0 && bBlackOverride ) ? m_userBlack : grays[g];
+		m_OnOffWhite = m_grayMeasureArray[nGrays-1];
+		m_bOnOffWhiteMeasured = m_OnOffWhite.isValid();
+		m_OnOffBlack = m_grayMeasureArray[0];
+		bGraysPublished = true;
+		m_isModified = TRUE;
+	}
+
+	// switch pattern series between the grays and the colors, as
+	// MeasureGrayScaleAndColors does (disc generators)
+	if ( rc >= 0 && ! pGenerator->ChangePatternSeries() )
+		rc = -2;
+	if ( rc >= 0 )
+	{
+		// R, G, B, C, M, Y, white. Black came from the grays: the same 0/0/0
+		// stimulus, which Intensity scales to 0 either way.
+		ColorRGBDisplay colors [ 8 ];
+		BuildPrimarySecondaryColors ( pGenerator, colors );
+		CColor	readings [ 7 ];
+		bool	bColorsOK = true;
+		for ( int j = 0; j < 7 && rc >= 0; j++, k++ )
+		{
+			rc = ReadRef ( k, nRefs, colors[j], CGenerator::MT_SECONDARY, j, readings[j] );
+			if ( rc == 0 )
+				bColorsOK = false;
+		}
+		if ( rc >= 0 && bColorsOK && readings[6].GetY() > 0.0 )
+		{
+			for ( int j = 0; j < 3; j++ )
+			{
+				m_primariesArray[j] = readings[j];
+				m_secondariesArray[j] = readings[j+3];
+			}
+			m_PrimeWhite = readings[6];
+			m_bPrimeWhiteMeasured = TRUE;
+			bColorsPublished = true;
+			m_isModified = TRUE;
+		}
+	}
+	m_bProfileMeasuringRefs = FALSE;
+	UpdateViews(pDoc, 13);		// drop the prologue label before patch 0
+
+	if ( rc == -2 )
+	{
+		RestoreRefs ();	// the capture is being thrown away whole: put the references back too
+		pSensor->Release();
+		pGenerator->Release();
+		ClearProfileMeasures();
+		return FALSE;
+	}
+
+	for(int i=0;i<size;i++)
+	{
+		GetConfig()->m_isSettling = FALSE;	// the prologue's first read took the settle
+
+		WaitWhilePaused ();
 		if ( m_bAbortSweep )
 			break;
 
@@ -4354,6 +4668,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		{
 			if ( ! MeasureProfileDriftAnchor ( asyncMeasure, pSensor, pGenerator, pDoc, i, firstAnchorY, prevAnchorFactor, prevAnchorIdx ) )
 			{
+				RestoreRefs ();	// the capture is being thrown away whole: put the references back too
 				pSensor->Release();
 				pGenerator->Release();
 				ClearProfileMeasures();
@@ -4366,8 +4681,6 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		m_currentIndex = i;
 		UpdateViews(pDoc, 13);
 
-		if (!i && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) == DISPLAY_GDI_Hide)
-			UpdateTstWnd(pDoc, -1);
 		if( pGenerator->DisplayRGBColor(GenColors[i], nPattern , i, !bRetry))
 		{
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
@@ -4447,6 +4760,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		}
 		else
 		{
+			RestoreRefs ();	// the capture is being thrown away whole: put the references back too
 			pSensor->Release();
 			pGenerator->Release();
 			ClearProfileMeasures();
@@ -4477,6 +4791,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 
 	if ( nDone == 0 )
 	{
+		RestoreRefs ();	// the capture is being thrown away whole: put the references back too
 		ClearProfileMeasures();
 		UpdateViews(pDoc, 13);
 		return FALSE;
@@ -5138,7 +5453,7 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
-	BOOL	bRetry = FALSE, isSpecial = FALSE;
+	BOOL	bRetry = FALSE;
 	CColor	measuredColor[5];
 	CString	strMsg, Title;
 	double	dLuxValue;
@@ -5181,90 +5496,10 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	}
 
 
-	// Measure primary and secondary colors
-	double		primaryIRELevel=100.0;
-	int mode = GetConfig()->m_GammaOffsetType;
-
-	if (mode == 5)
-	{
-		primaryIRELevel = 50.22831;
-	//Special Case white for Mascior's HDR disk
-		if(pGenerator->GetName() == str && (GetColorReference().m_standard == UHDTV4 || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == HDTV ))
-			primaryIRELevel = 50.00;
-	}
-
-	ColorRGBDisplay	GenColors [ 5 ] = 
-								{	
-									ColorRGBDisplay(primaryIRELevel,0,0),
-									ColorRGBDisplay(0,primaryIRELevel,0),
-									ColorRGBDisplay(0,0,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel),
-									ColorRGBDisplay(0,0,0)
-								};
-
-	if ( GetColorReference().m_standard == HDTVb )
-	{
-			GenColors [ 0 ] = ColorRGBDisplay(79.9087,10.0457,10.0457); 
-			GenColors [ 1 ] = ColorRGBDisplay(30.137,79.9087,30.137); 
-			GenColors [ 2 ] = ColorRGBDisplay(50.2283,50.2283,79.9087); 
-			GenColors [ 3 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-			GenColors [ 4 ] = ColorRGBDisplay(0,0,0);
-			isSpecial = TRUE;
-	}
-	else if ( GetColorReference().m_standard == HDTVa ) //75%
-	{ 
-		GenColors [ 0 ] = ColorRGBDisplay(68.04,20.09,20.09);
-		GenColors [ 1 ] = ColorRGBDisplay(27.85,73.06,27.85);
-		GenColors [ 2 ] = ColorRGBDisplay(19.18,19.18,50.22);
-		GenColors [ 3 ] = ColorRGBDisplay(75.0,75.0,75.0);
-		GenColors [ 4 ] = ColorRGBDisplay(0,0,0);
-		isSpecial = TRUE;	
-	}
-	else if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 ) //P3/Rec709 in BT.2020
-	{
-		// GenColors[0..2] are computed from ContainerPrimaryLinear below
-		// (all transfer functions).
-		if (!(mode == 5 || mode == 7))
-			isSpecial = TRUE;
-
-		GenColors [ 3 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-		GenColors [ 4 ] = ColorRGBDisplay(0,0,0);
-	}
-
-	// Pseudo color spaces: build the primary patches from the inner primaries
-	// mapped into the transport container, encoded with the ACTIVE transfer
-	// function - the same chain GetRefSat models; see the identical block in
-	// MeasureGrayScaleAndColors for the full rationale.
-	if (GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)
-	{
-		CColor tmW = CMeasure::GetGray ( CMeasure::GetGrayScaleSize() - 1 );
-		CColor tmB = CMeasure::GetOnOffBlack();
-		for (int ci = 0; ci < 3; ci++)
-		{
-			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
-			for (int ck = 0; ck < 3; ck++)
-			{
-				double cv = clin[ck];
-				if (mode == 5)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv / 105.95640, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -5);
-				else if (mode == 7)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -7);
-				else
-					cv = (cv <= 0.0 || cv >= 1.0) ? min(max(cv, 0.0), 1.0) : pow(cv, 1.0 / 2.22);
-				GenColors[ci][ck] = min(max(cv, 0.0), 1.0) * 100.0;
-			}
-		}
-	}
-
-	if ( (mode == 5 || mode  == 7) && isSpecial)
-	{
-		for (i=0;i<=2;i++)
-		{
-			GenColors[i][0]= 100. * getL_EOTF(pow(GenColors[i][0] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][1]= 100. * getL_EOTF(pow(GenColors[i][1] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][2]= 100. * getL_EOTF(pow(GenColors[i][2] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-		}
-	}
+	// The secondaries sweep's patch list, less C/M/Y: R, G, B, white, black.
+	ColorRGBDisplay	AllColors [ 8 ];
+	BuildPrimarySecondaryColors ( pGenerator, AllColors );
+	ColorRGBDisplay	GenColors [ 5 ] = { AllColors[0], AllColors[1], AllColors[2], AllColors[6], AllColors[7] };
 
 	m_binMeasure = TRUE;
 	m_currentIndex = 0;
@@ -5391,6 +5626,8 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	{
 		m_PrimeWhite=noDataColor;
 	}
+	// covers both branches: a measured white is valid, noDataColor is not
+	m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 
 	if ( GetConfig () -> m_BWColorsToAdd > 1 )
 	{
@@ -5429,7 +5666,7 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
-	BOOL	bRetry = FALSE, isSpecial = FALSE;
+	BOOL	bRetry = FALSE;
 	CColor	measuredColor[8];
 	CString	strMsg, Title;
 	double	dLuxValue;
@@ -5456,100 +5693,8 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 	}
 	CAsyncMeasurer asyncMeasure;
 	asyncMeasure.Start(pSensor);
-		CString str;
-	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
-	// Measure primary and secondary colors
-	double		primaryIRELevel=100.0;	
-	int mode = GetConfig()->m_GammaOffsetType;
-
-	if (mode == 5)
-	{
-		primaryIRELevel = 50.22831;
-	//Special Case white for Mascior's HDR disk
-		if(pGenerator->GetName() == str && (GetColorReference().m_standard == UHDTV4 || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == HDTV))
-			primaryIRELevel = 50.00;
-	}
-
-	ColorRGBDisplay	GenColors [ 8 ] = 
-								{	
-									ColorRGBDisplay(primaryIRELevel,0,0),
-									ColorRGBDisplay(0,primaryIRELevel,0),
-									ColorRGBDisplay(0,0,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,primaryIRELevel,0),
-									ColorRGBDisplay(0,primaryIRELevel,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,0,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel),
-									ColorRGBDisplay(0,0,0)
-								};
-	if (GetColorReference().m_standard == HDTVb)
-	{
-			GenColors [ 0 ] = ColorRGBDisplay(79.9087,10.0457,10.0457); 
-			GenColors [ 1 ] = ColorRGBDisplay(30.137,79.9087,30.137); 
-			GenColors [ 2 ] = ColorRGBDisplay(50.2283,50.2283,79.9087); 
-			GenColors [ 3 ] = ColorRGBDisplay(79.9087,79.9087,10.0457);
-			GenColors [ 4 ] = ColorRGBDisplay(10.0457,79.9087,79.9087);
-			GenColors [ 5 ] = ColorRGBDisplay(79.9087,10.0457,79.9087);
-			GenColors [ 6 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-			GenColors [ 7 ] = ColorRGBDisplay(0,0,0);
-			isSpecial = TRUE;
-	}
-	else if (GetColorReference().m_standard == HDTVa) //75%
-	{ 
-		GenColors [ 0 ] = ColorRGBDisplay(68.04,20.09,20.09);
-		GenColors [ 1 ] = ColorRGBDisplay(27.85,73.06,27.85);
-		GenColors [ 2 ] = ColorRGBDisplay(19.18,19.18,50.22);
-		GenColors [ 3 ] = ColorRGBDisplay(73.9726,73.9726,33.3333);
-		GenColors [ 4 ] = ColorRGBDisplay(36.07,73.06,73.06);
-		GenColors [ 5 ] = ColorRGBDisplay(64.3836,29.2237,64.3836);
-		GenColors [ 6 ] = ColorRGBDisplay(75.0,75.0,75.0);
-		GenColors [ 7 ] = ColorRGBDisplay(0,0,0);	
-		isSpecial = TRUE;
-	}
-	else if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 ) //P3/Rec709 in BT.2020
-	{
-		// GenColors[0..5] are computed from ContainerPrimaryLinear below
-		// (all transfer functions).
-		if (!(mode == 5 || mode == 7))
-			isSpecial = TRUE;
-
-		GenColors [ 6 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-		GenColors [ 7 ] = ColorRGBDisplay(0,0,0);
-	}
-
-	// Pseudo color spaces: build the primary/secondary patches from the inner
-	// primaries mapped into the transport container, encoded with the ACTIVE
-	// transfer function - the same chain GetRefSat models; see the identical
-	// block in MeasureGrayScaleAndColors for the full rationale.
-	if (GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)
-	{
-		CColor tmW = CMeasure::GetGray ( CMeasure::GetGrayScaleSize() - 1 );
-		CColor tmB = CMeasure::GetOnOffBlack();
-		for (int ci = 0; ci < 6; ci++)
-		{
-			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
-			for (int ck = 0; ck < 3; ck++)
-			{
-				double cv = clin[ck];
-				if (mode == 5)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv / 105.95640, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -5);
-				else if (mode == 7)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -7);
-				else
-					cv = (cv <= 0.0 || cv >= 1.0) ? min(max(cv, 0.0), 1.0) : pow(cv, 1.0 / 2.22);
-				GenColors[ci][ck] = min(max(cv, 0.0), 1.0) * 100.0;
-			}
-		}
-	}
-
-	if ( (mode == 5 || mode  == 7) && isSpecial)
-	{
-		for (i=0;i<=5;i++)
-		{
-			GenColors[i][0]= 100. * getL_EOTF(pow(GenColors[i][0] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][1]= 100. * getL_EOTF(pow(GenColors[i][1] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][2]= 100. * getL_EOTF(pow(GenColors[i][2] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-		}
-	}
+	ColorRGBDisplay	GenColors [ 8 ];
+	BuildPrimarySecondaryColors ( pGenerator, GenColors );
 
 	m_binMeasure = TRUE;
 	m_currentIndex = 0;
@@ -5682,6 +5827,8 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 	{
 		m_PrimeWhite=noDataColor;
 	}
+	// covers both branches: a measured white is valid, noDataColor is not
+	m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 
 	if ( GetConfig () -> m_BWColorsToAdd > 1 )
 	{
@@ -5962,6 +6109,7 @@ BOOL CMeasure::MeasureContrast(CSensor *pSensor, CGenerator *pGenerator)
 				else
 				{
 					m_OnOffWhite = measure;
+					m_bOnOffWhiteMeasured = m_OnOffWhite.isValid();
 
 					if ( bUseLuxValues )
 					{
@@ -6517,6 +6665,15 @@ BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
 
 	return bEscape;
 }
+// Reads the display profile's reference prologue takes (MeasureDisplayProfile):
+// the grayscale sweep's levels, less black when the manual black level stands in
+// for it, plus R, G, B, C, M, Y and white. Shared with the pane's estimate.
+int CMeasure::GetProfileRefReadCount() const
+{
+	bool bBlackOverride = GetConfig()->GetProfileDouble("References","Use Black Level",0) != 0;
+	return GetGrayScaleSize() - ( bBlackOverride ? 1 : 0 ) + 7;
+}
+
 BOOL CMeasure::CheckBlackOverride ( )
 {
 	m_bOverRideBlack = GetConfig()->GetProfileDouble("References","Use Black Level",0);
@@ -7012,6 +7169,7 @@ BOOL CMeasure::ValidateBackgroundPrimaries ( BOOL bUseLuxValues, double * pLuxVa
 		}
 		else
 			m_PrimeWhite = noDataColor;
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 
 		if ( m_nBkMeasureStepCount >= 5 )
 		{
@@ -7074,6 +7232,7 @@ BOOL CMeasure::ValidateBackgroundSecondaries ( BOOL bUseLuxValues, double * pLux
 		}
 		else
 			m_PrimeWhite = noDataColor;
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 
 		if ( m_nBkMeasureStepCount >= 8 )
 		{
@@ -7137,6 +7296,7 @@ BOOL CMeasure::ValidateBackgroundGrayScaleAndColors ( BOOL bUseLuxValues, double
 		}
 
 		m_PrimeWhite = (*m_pBkMeasuredColor)[m_nBkMeasureStepCount-7];
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 		if (m_bOverRideBlack)
 			m_OnOffBlack = m_userBlack;
 		else
@@ -7743,7 +7903,12 @@ double CMeasure::GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) cons
 	// special standards read the on/off white directly and do NOT fall back to
 	// prime - the grid goes straight from a missing on/off white to TargetMaxL.
 	double y = bSpecial ? yOnOff : ( yPrime > 0.0 ? yPrime : yOnOff );
-	if ( bCC && onoff.isValid() && !isHDR && yOnOff > 0.0 && yPrime / yOnOff < 0.9 )
+	// m_bOnOffWhiteMeasured, not isValid(): the constructor's placeholder passes
+	// isValid() at m_TargetMaxL, so on a document with no grayscale or contrast
+	// run this override used to swap a REAL prime white for a nominal 120 nits
+	// whenever the display measured more than 10% below target -- which is most
+	// of them, and exactly the state a standalone display profile starts in.
+	if ( bCC && m_bOnOffWhiteMeasured && onoff.isValid() && !isHDR && yOnOff > 0.0 && yPrime / yOnOff < 0.9 )
 		y = yOnOff;
 
 	if ( y <= 0.0 )

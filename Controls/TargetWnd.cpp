@@ -232,10 +232,18 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 			}
 			else if ( m_DisplayMode == 13 )	// display profile patch
 			{
-				CColor clr;
-				pDoc->GetMeasure()->GetRefProfileSat(minCol - 1, clr);
-				centerXYZ = clr.GetXYZValue();
-				ColorRGBDisplay rgb = pDoc->GetMeasure()->GetProfilePatchRGB(minCol - 1);
+				ColorRGBDisplay rgb;
+				// the capture's reference prologue: show the gray/primary on screen,
+				// not cube patch 0 (there is no cube reference to center on yet)
+				if ( pDoc->GetMeasure()->m_bProfileMeasuringRefs )
+					rgb = pDoc->GetMeasure()->m_profileRefRGB;
+				else
+				{
+					CColor clr;
+					pDoc->GetMeasure()->GetRefProfileSat(minCol - 1, clr);
+					centerXYZ = clr.GetXYZValue();
+					rgb = pDoc->GetMeasure()->GetProfilePatchRGB(minCol - 1);
+				}
 				p1 = rgb[0] / 100.;
 				p2 = rgb[1] / 100.;
 				p3 = rgb[2] / 100.;
