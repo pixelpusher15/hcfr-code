@@ -834,7 +834,11 @@ enum CalibrationMatrixMethod
 	CALIB_CLASSIC_NIST			= 0,	// ASTM E1455-92 "RGB method": 3-primary tristimulus matrix, no white, no luminance scaling
 	CALIB_HCFR_DEFAULT			= 1,	// NIST Four-Color Method (FCMM, Ohno & Hardis 1997) + the paper's optional luminance scaling
 	CALIB_BODNER_THREEMATRIX	= 2,	// RGBW sub-gamut three-matrix method (Bodner & Robinson, SID 2019)
-	CALIB_FCMM_NO_LUM			= 3		// NIST Four-Color Method (FCMM), chromaticity only - no luminance scaling
+	CALIB_FCMM_NO_LUM			= 3,		// NIST Four-Color Method (FCMM), chromaticity only - no luminance scaling
+	CALIB_SPECTRAL_SAMPLE		= 4		// Spectral sample (ccss) correction derived from the meter driver's two
+										// emission calibration matrices (libHCFR/SpectralCorrection.h); applied by
+										// HCFR to native readings exactly like the FCMM matrix. Chosen by loading a
+										// sample, never from the Advanced page's method list.
 };
 
 // Builds the three Bodner sub-gamut matrices (index 0=rgw, 1=gbw, 2=rbw) from the

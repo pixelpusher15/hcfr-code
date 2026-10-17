@@ -42,7 +42,9 @@ namespace ArchiveTag
 	{
 		SENSOR_CALIBRATION_METHOD = 1,	// int: CalibrationMatrixMethod
 		SENSOR_BODNER_MATRICES    = 2,	// 6 x Matrix::Serialize: raw[0..2] then cal[0..2]
-		SENSOR_CALIBRATION_PAIRS  = 3	// reserved (Stage 2): raw / reference reading pairs
+		SENSOR_CALIBRATION_PAIRS  = 3,	// reserved (Stage 2): raw / reference reading pairs
+		SENSOR_FIT_BASIS          = 4,	// int: SpectralFitBasis of the method's matrices (SpectralCorrection.h)
+		SENSOR_SPECTRAL_CORRECTION= 5	// SpectralCorrectionRecord::Serialize: the ccss correction and its provenance
 	};
 
 	// COneDeviceSensor (Sensors/OneDeviceSensor.cpp), trailer from block version 5.
