@@ -600,8 +600,11 @@ bool SpectralSample::createFromCorrelationCSV(const std::string& csvPath)
 			size_t b = cells[k].find_last_not_of(" \t");
 			vals.push_back(atof(cells[k].substr(a, b - a + 1).c_str()));
 		}
+		// A short row is a wrong-resolution file (81 values = a 5 nm set), not a spectrum
+		// that stops early: padded with zeros it would load as 380-460 nm at 1 nm and
+		// correct every reading silently.
 		if ((int)vals.size() < BANDS)
-			vals.resize(BANDS, 0.0);				// zero-pad short rows
+			throw std::logic_error("Correlation CSV row has fewer than 401 values (1 nm, 380-780 nm expected)");
 		else if ((int)vals.size() > BANDS)
 			throw std::logic_error("Correlation CSV row has more than 401 values");
 		rows.push_back(vals);

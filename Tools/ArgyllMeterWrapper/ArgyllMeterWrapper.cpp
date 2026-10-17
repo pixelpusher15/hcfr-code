@@ -503,6 +503,13 @@ void ArgyllMeterWrapper::setDisplayType(int displayMode)
     {
         m_displayType = displayMode;
         inst_code instCode = m_meter->set_disptype(m_meter, displayMode);
+        // Setting the display type drops any loaded spectral sample: for the i1d3,
+        // set_disp_type -> i1d3_set_matcal frees p->samples unconditionally, and
+        // set_cal then falls back to the built-in calibration. Forget our "already
+        // loaded" marker with it, or the next loadSpectralSample returns early on a
+        // matching description and the correction is silently gone - which is what
+        // happened on every Init (one setDisplayType, then one loadSpectralSample).
+        m_SampleDescription.clear();
         if(instCode != inst_ok)
         {
             MessageBox(NULL, m_meter->inst_interp_error(m_meter, instCode),"Set display type error",MB_OK);
