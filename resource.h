@@ -1914,6 +1914,8 @@
 #define IDS_CALIB_FCMM_NOLUM           59566
 #define IDS_CALIB_FCMM_LUM             59567
 #define IDS_CALIB_BODNER               59568
+#define IDS_3DVIEW_GAMUTCOV             59632
+#define IDS_3DVIEW_GAMUTVOL             59633
 #define IDS_3DVIEW_FILTER_ALL           59555
 #define IDS_3DVIEW_FILTER_HIDE          59556
 #define IDS_3DVIEW_FILTER               59557
