@@ -151,8 +151,25 @@ public:
     // is the meter in refresh mode
     virtual bool isRefresh();
 
+    // Emission calibration matrices of the driver. i1d3 family only - the one bundled
+    // driver whose struct the wrapper reads (see setDisableAIO). False for every other meter.
+    bool canExposeCalibrationMatrices() const;
+    // nativeCal: the fit from the probe's own sensitivity curves (no sample, unity ccmat).
+    // currentCal: ccmat * emis_cal as the driver applies it now. Both 3x3.
+    // False when not exposable or no snapshot has been taken yet.
+    bool getCalibrationMatrices(Matrix& nativeCal, Matrix& currentCal) const;
+    // True when currentCal differs from nativeCal (SpectralMatricesEqual): the driver is
+    // applying a correction the wrapper is dividing back out of every reading.
+    bool hasDriverCorrection() const;
+    // The instrument serial number ("" when the driver has none).
+    std::string getSerialNumber() const;
+
 private:
     void checkMeterIsInitialized();
+    // Re-reads the i1d3 driver's emission calibration (see the .cpp). Returns true
+    // when the driver was in its native state at this call (no spectral sample,
+    // unity ccmat), i.e. when m_nativeCal was (re)captured.
+    bool refreshCalibrationSnapshot();
     _inst* m_meter;
     int m_displayType;
     int m_meterType;
@@ -164,6 +181,16 @@ private:
     bool m_Adapt;
     
     std::string m_SampleDescription;
+
+    // i1d3 emission calibration snapshot (refreshCalibrationSnapshot).
+    Matrix m_nativeCal;     // the driver's default fit, captured only in its native state
+    Matrix m_currentCal;    // ccmat * emis_cal as the driver applies it now
+    Matrix m_toNative;      // nativeCal * currentCal^-1, applied to every display reading
+    bool m_nativeKnown;
+    bool m_currentKnown;
+    int m_nativeObType;     // the driver's observer when m_nativeCal was captured: the
+                            // default fit depends on it, so a later observer change
+                            // outside the native state makes the capture stale
 };
 
 extern void ArgyllLogMessage(const char* messageType, char *fmt, va_list& args);
