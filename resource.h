@@ -2004,6 +2004,8 @@
 #define IDS_GEN_PATTERN_GROUP             60000
 #define IDS_GEN_PATTERN                   60001
 #define IDS_GEN_SHOW_PATTERN              60002
+#define IDS_GEN_UNCHANGED                 60003
+#define IDS_GEN_DVDO_WRITE_FAIL           60004
 #define IDS_GEN_PATTERNS_OFF              59635
 #define IDS_GEN_REFRESH                   59636
 #define IDS_GEN_COM_PORT                  59637

@@ -25,7 +25,6 @@
 #include "ColorHCFR.h"
 #include "NewDocPropertyPages.h"
 #include "ArgyllMeterWrapper.h"
-#include "Generators/FullScreenWindow.h"	// DISPLAY_DVDO / DISPLAY_MURIDEO / DISPLAY_DEFAULT_MODE
 
 extern void ArgyllExcludeActiveGeneratorComPorts();	// ArgyllSensor.cpp
 
@@ -85,9 +84,9 @@ END_MESSAGE_MAP()
 
 
 
-BOOL CGeneratorSelectionPropPage::OnSetActive()
+BOOL CGeneratorSelectionPropPage::OnSetActive() 
 {
-	CPropertySheetWithHelp * psheet = (CPropertySheetWithHelp*) GetParent();
+	CPropertySheetWithHelp * psheet = (CPropertySheetWithHelp*) GetParent();   
 	psheet->SetWizardButtons(PSWIZB_NEXT);
 
 	return CPropertyPageWithHelp::OnSetActive();
@@ -180,15 +179,15 @@ BEGIN_MESSAGE_MAP(CSensorSelectionPropPage, CPropertyPageWithHelp)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
-BOOL CSensorSelectionPropPage::OnSetActive()
+BOOL CSensorSelectionPropPage::OnSetActive() 
 {
-	CPropertySheetWithHelp* psheet = (CPropertySheetWithHelp*) GetParent();
+	CPropertySheetWithHelp* psheet = (CPropertySheetWithHelp*) GetParent();   
 	psheet->SetWizardButtons(PSWIZB_BACK |PSWIZB_FINISH);
 
 	BOOL bRet = CPropertyPageWithHelp::OnSetActive();
-
+	
 	OnSelchangeSensorchoiceCombo();
-
+	
 	return bRet;
 }
 

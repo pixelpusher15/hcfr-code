@@ -542,7 +542,7 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 	if (!m_dvdoPatCombo.GetSafeHwnd())    { m_dvdoPatCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(120),M.ht(200)), this, IDC_DVDO_PAT_COMBO); m_dvdoPatCombo.SetFont(font); }
 	if (!m_dvdoShowBtn.GetSafeHwnd())    { m_dvdoShowBtn.Create(LS(IDS_GEN_SHOW_PATTERN), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(64),M.ht(14)), this, IDC_DVDO_SHOW_BTN); m_dvdoShowBtn.SetFont(font); }
 	if (!m_dvdoOffBtn.GetSafeHwnd())     { m_dvdoOffBtn.Create(LS(IDS_GEN_PATTERNS_OFF), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(60),M.ht(14)), this, IDC_DVDO_OFF_BTN); m_dvdoOffBtn.SetFont(font); }
-	if (!m_dvdoStatus.GetSafeHwnd())     { m_dvdoStatus.Create(_T(""), WS_CHILD | SS_LEFT, CRect(0,0,M.w(150),M.ht(9)), this, IDC_DVDO_STATUS); m_dvdoStatus.SetFont(font); }
+	if (!m_dvdoStatus.GetSafeHwnd())     { m_dvdoStatus.Create(_T(""), WS_CHILD | SS_LEFT | SS_NOPREFIX, CRect(0,0,M.w(150),M.ht(18)), this, IDC_DVDO_STATUS); m_dvdoStatus.SetFont(font); }
 	if (!m_dvdoReadout.GetSafeHwnd())    { m_dvdoReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP | WS_VSCROLL | ES_AUTOVSCROLL, CRect(0,0,M.w(166),M.ht(72)), this, IDC_DVDO_READOUT); m_dvdoReadout.SetFont(font); }
 	if (!m_dvdoRefreshBtn.GetSafeHwnd()) { m_dvdoRefreshBtn.Create(LS(IDS_GEN_REFRESH), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(44),M.ht(14)), this, IDC_DVDO_REFRESH_BTN); m_dvdoRefreshBtn.SetFont(font); }
 	if (!m_dvdoSettingsBtn.GetSafeHwnd()) { m_dvdoSettingsBtn.Create(LS(IDS_GEN_DVDO_SETTINGS_BTN), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(96),M.ht(14)), this, IDC_DVDO_SETTINGS_BTN); m_dvdoSettingsBtn.SetFont(font); }
@@ -568,7 +568,7 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 		for (int i = 0; i < CGDIGenerator_MuriPatGroups(); ++i) m_muriPatGrpCombo.AddString(CString(CGDIGenerator_MuriPatGroupName(i))); }
 	if (!m_muriPatCombo.GetSafeHwnd())     { m_muriPatCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(120),M.ht(200)), this, IDC_MURI_PAT_COMBO); m_muriPatCombo.SetFont(font); }
 	if (!m_muriShowBtn.GetSafeHwnd())      { m_muriShowBtn.Create(LS(IDS_GEN_SHOW_PATTERN), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(64),M.ht(14)), this, IDC_MURI_SHOW_BTN); m_muriShowBtn.SetFont(font); }
-	if (!m_muriStatus.GetSafeHwnd())       { m_muriStatus.Create(_T(""), WS_CHILD | SS_LEFT, CRect(0,0,M.w(150),M.ht(9)), this, IDC_MURI_STATUS); m_muriStatus.SetFont(font); }
+	if (!m_muriStatus.GetSafeHwnd())       { m_muriStatus.Create(_T(""), WS_CHILD | SS_LEFT | SS_NOPREFIX, CRect(0,0,M.w(150),M.ht(18)), this, IDC_MURI_STATUS); m_muriStatus.SetFont(font); }
 	{
 		int gi = 0, ii = 0;
 		if (CGDIGenerator_MuriFindPat(GetConfig()->GetProfileInt("GDIGenerator","MuriPatternId",-1), GetConfig()->GetProfileInt("GDIGenerator","MuriPatternBer",0), gi, ii)) { m_muriPatGrpCombo.SetCurSel(gi); PopulateMuriPatCombo(gi); m_muriPatCombo.SetCurSel(ii); }
@@ -706,8 +706,9 @@ void CGDIGenePropPage::Relayout()
 		{ CPoint p = M.at(72, cy); m_dvdoShowBtn.MoveWindow(p.x, p.y, M.w(64), M.ht(14)); m_dvdoShowBtn.ShowWindow(SW_SHOW); }
 		{ CPoint p = M.at(72 + 68, cy); m_dvdoOffBtn.MoveWindow(p.x, p.y, M.w(60), M.ht(14)); m_dvdoOffBtn.ShowWindow(SW_SHOW); }
 		cy += ROW_F;
-		{ CPoint p = M.at(LBL_X, cy + 1); m_dvdoStatus.MoveWindow(p.x, p.y, grpRightPx - M.w(4) - p.x, M.ht(9)); m_dvdoStatus.ShowWindow(SW_SHOW); }
-		cy += ROW_F;
+		// Two lines: failure texts run past one line at this width. The group frame grows with cy.
+		{ CPoint p = M.at(LBL_X, cy + 1); m_dvdoStatus.MoveWindow(p.x, p.y, grpRightPx - M.w(4) - p.x, M.ht(18)); m_dvdoStatus.ShowWindow(SW_SHOW); }
+		cy += ROW_F + 9;
 		int fb = cy + BOT_PAD;
 		PlaceGroup(m_grpDvdo, M, top, fb - top, grpRightPx);
 		y = fb + GRP_GAP;
@@ -716,13 +717,16 @@ void CGDIGenePropPage::Relayout()
 	{
 		int top = y, cy = top + TOP_INSET;
 		// Live status readout (PGenerator-style), with Refresh + Settings... beneath.
-		{ CPoint rp = M.at(LBL_X, cy); int rw = grpRightPx - M.w(4) - rp.x; m_muriReadout.MoveWindow(rp.x, rp.y, rw, M.ht(86)); m_muriReadout.ShowWindow(SW_SHOW); }
-		cy += 90;
+		// 70 dlu holds the readout's eight 8-dlu lines (it scrolls past that). It was 86: the 16
+		// returned here, and the 4 below, pay for the status row at the bottom of this group,
+		// which otherwise pushed the Blanking frame past the 340-dlu page (338 now; DVDO 337).
+		{ CPoint rp = M.at(LBL_X, cy); int rw = grpRightPx - M.w(4) - rp.x; m_muriReadout.MoveWindow(rp.x, rp.y, rw, M.ht(70)); m_muriReadout.ShowWindow(SW_SHOW); }
+		cy += 74;
 		{ CPoint p = M.at(LBL_X, cy); m_muriSettingsBtn.MoveWindow(p.x, p.y, M.w(100), M.ht(14)); m_muriSettingsBtn.ShowWindow(SW_SHOW); }
 		{ CPoint p = M.at(LBL_X, cy); m_muriRefreshBtn.MoveWindow(grpRightPx - M.w(4) - M.w(44), p.y, M.w(44), M.ht(14)); m_muriRefreshBtn.ShowWindow(SW_SHOW); }
 		cy += ROW_F;
 		{ CPoint p = M.at(LBL_X, cy); m_muriEdidBtn.MoveWindow(p.x, p.y, M.w(80), M.ht(14)); m_muriEdidBtn.ShowWindow(SW_SHOW); }
-		cy += ROW_F + 4;
+		cy += ROW_F;
 		// Pattern picker: group -> pattern -> Show.
 		MoveWnd(m_lblMuriPatGrp, M, LBL_X, cy + 2, 60, 9); m_lblMuriPatGrp->ShowWindow(SW_SHOW);
 		{ CPoint p = M.at(72, cy); m_muriPatGrpCombo.MoveWindow(p.x, p.y, M.w(90), M.ht(120)); m_muriPatGrpCombo.ShowWindow(SW_SHOW); }
@@ -731,8 +735,11 @@ void CGDIGenePropPage::Relayout()
 		{ CPoint p = M.at(72, cy); m_muriPatCombo.MoveWindow(p.x, p.y, grpRightPx - M.w(4) - M.at(72,0).x, M.ht(200)); m_muriPatCombo.ShowWindow(SW_SHOW); }
 		cy += ROW_F;
 		{ CPoint p = M.at(72, cy); m_muriShowBtn.MoveWindow(p.x, p.y, M.w(64), M.ht(14)); m_muriShowBtn.ShowWindow(SW_SHOW); }
-		{ CPoint p = M.at(LBL_X, cy + 2); m_muriStatus.MoveWindow(M.at(72 + 68, cy).x, p.y, grpRightPx - M.w(4) - M.at(72 + 68, 0).x, M.ht(9)); m_muriStatus.ShowWindow(SW_SHOW); }
 		cy += ROW_F;
+		// Own full-width, two-line row, as on the DVDO panel: beside Show it had ~39 dlu, and
+		// "Showing: <name>" lost the name. The group frame grows with cy.
+		{ CPoint p = M.at(LBL_X, cy + 1); m_muriStatus.MoveWindow(p.x, p.y, grpRightPx - M.w(4) - p.x, M.ht(18)); m_muriStatus.ShowWindow(SW_SHOW); }
+		cy += ROW_F + 9;
 		int fb = cy + BOT_PAD;
 		PlaceGroup(m_grpMuri, M, top, fb - top, grpRightPx);
 		y = fb + GRP_GAP;
@@ -1247,9 +1254,40 @@ void CMuriSettingsDlg::PopulateComPorts()
 	PopulateComPortCombo(m_comCombo, "MuriComPort");
 }
 
+// "(unchanged)": the first entry of an output-setting combo whose key the configuration
+// does not hold. A fresh configuration knows nothing about the device, so no real value may
+// be preselected - Enter is Apply, and a preselected 720p60 / RGB Full / SDR would be sent
+// to a device nobody asked to change. The entry is tagged through its item data, so the
+// combo itself says whether it carries one and the index offset cannot drift from it.
+static const DWORD_PTR kUnchangedTag = 0x554E4348;	// any nonzero value; real entries keep 0
+static void AddUnchangedEntry(CComboBox& c)
+{
+	int i = c.InsertString(0, LS(IDS_GEN_UNCHANGED));
+	if (i >= 0) c.SetItemData(i, kUnchangedTag);
+}
+static bool HasUnchangedEntry(const CComboBox& c)
+{
+	return c.GetCount() > 0 && c.GetItemData(0) == kUnchangedTag;
+}
+// The value a combo stands for: the index among its REAL entries, or -1 for "(unchanged)".
+// No selection reads as the first entry, as this dialog always treated it.
+static int Sel(const CComboBox& c)
+{
+	int s = c.GetCurSel(); if (s < 0) s = 0;
+	return HasUnchangedEntry(c) ? s - 1 : s;
+}
+// Select value v (>= 0), past any "(unchanged)" entry; v < 0 adds that entry and selects it.
+static void SelValue(CComboBox& c, int v)
+{
+	if (v < 0) { if (!HasUnchangedEntry(c)) AddUnchangedEntry(c); c.SetCurSel(0); return; }
+	c.SetCurSel(HasUnchangedEntry(c) ? v + 1 : v);
+}
+
 void CMuriSettingsDlg::PopulateTimingCombo(int grp)
 {
 	m_timingCombo.ResetContent();
+	// Group "(unchanged)": so is the timing, and there is nothing else to offer under it.
+	if (grp < 0) { SelValue(m_timingCombo, -1); return; }
 	int n = CGDIGenerator_MuriTimingCount(grp);
 	for (int i = 0; i < n; ++i) m_timingCombo.AddString(CString(CGDIGenerator_MuriTimingName(grp, i)));
 	if (n > 0) m_timingCombo.SetCurSel(0);
@@ -1257,25 +1295,27 @@ void CMuriSettingsDlg::PopulateTimingCombo(int grp)
 
 void CMuriSettingsDlg::OnTgrpChange()
 {
-	int g = m_tgrpCombo.GetCurSel(); if (g < 0) g = 0;
-	PopulateTimingCombo(g);
+	PopulateTimingCombo(Sel(m_tgrpCombo));	// -1 = "(unchanged)"
 }
 
 // Colour format (0=RGB,1=YC444,2=YC422,3=YC420) + range (0=Full,1=Limited) -> cat-99 id.
+// -1 (not sent) while a half the id needs is still "(unchanged)": the format, or the range
+// of an RGB format. YCbCr needs no range - it is always 16-235.
 int CMuriSettingsDlg::ComboCsId()
 {
-	int fmt = m_fmtCombo.GetCurSel(); if (fmt < 0) fmt = 0;
-	int rng = m_rangeCombo.GetCurSel(); if (rng < 0) rng = 0;
-	if (fmt == 0) return (rng == 0) ? 0 : 1;	// RGB: Full=0, Limited=1
+	int fmt = Sel(m_fmtCombo);
+	int rng = Sel(m_rangeCombo);
+	if (fmt < 0) return -1;
+	if (fmt == 0) return (rng < 0) ? -1 : (rng == 0) ? 0 : 1;	// RGB: Full=0, Limited=1
 	return fmt + 1;								// YC444=2, YC422=3, YC420=4 (always 16-235)
 }
 
 // Only RGB supports Full range; YCbCr is always Limited, so lock the range combo there.
 void CMuriSettingsDlg::OnFmtChange()
 {
-	bool isRgb = (m_fmtCombo.GetCurSel() <= 0);
+	bool isRgb = (Sel(m_fmtCombo) <= 0);	// "(unchanged)" leaves the range free as well
 	// See CDvdoSettingsDlg::OnFmtChange - forcing on load is deliberate.
-	if (!isRgb) m_rangeCombo.SetCurSel(1);		// Limited
+	if (!isRgb) SelValue(m_rangeCombo, 1);		// Limited
 	m_rangeCombo.EnableWindow(isRgb);
 }
 
@@ -1309,8 +1349,10 @@ BOOL CMuriSettingsDlg::OnInitDialog()
 	y += 16;
 	{ CPoint p = M.at(CX, y); m_testBtn.Create(LS(IDS_GEN_DETECT_TEST), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, CRect(p.x, p.y, p.x + M.w(72), p.y + M.ht(14)), this, IDC_MURI_TEST_BTN); m_testBtn.SetFont(font); }
 	y += 17;
-	{ CPoint p = M.at(LX, y + 1); m_status.Create(_T(""), WS_CHILD | WS_VISIBLE | SS_LEFT, CRect(p.x, p.y, p.x + M.w(LW + CW), p.y + M.ht(9)), this); m_status.SetFont(font); }
-	y += 15;
+	// Two lines, as in the DVDO dialog: failure texts run 69-114 characters. The dialog size
+	// follows y (bottomY), so it grows by the same 9 dlu.
+	{ CPoint p = M.at(LX, y + 1); m_status.Create(_T(""), WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX, CRect(p.x, p.y, p.x + M.w(LW + CW), p.y + M.ht(18)), this); m_status.SetFont(font); }
+	y += 24;
 
 	MK_LBL(m_lblTgrp, LS(IDS_GEN_RESOLUTION_GRP)); MK_CB(m_tgrpCombo, IDC_MURI_TGRP_COMBO, 120);
 	for (int i = 0; i < CGDIGenerator_MuriTimingGroups(); ++i) m_tgrpCombo.AddString(CString(CGDIGenerator_MuriTimingGroupName(i)));
@@ -1362,36 +1404,42 @@ BOOL CMuriSettingsDlg::OnInitDialog()
 	PopulateComPorts();
 	// Read with a -1 default so an ABSENT key is distinguishable from a stored 0. What the
 	// configuration holds is the last thing this dialog told the device; where it holds
-	// nothing, the device's state is unknown and Apply must send the value rather than
-	// assume it already matches. Without this, on a fresh configuration the value a combo
-	// happens to default to could never be applied - it always compared equal.
+	// nothing, the device's state is unknown, and that combo starts on "(unchanged)" (see
+	// AddUnchangedEntry), which Apply neither sends nor records. Seeding it with the first
+	// real entry instead made the first Apply - Enter, even - on a fresh configuration push
+	// 720p60 / RGB Full / BT.709 / SDR / 8-bit that nobody chose. A value the user does pick
+	// is compared against the unknown (-1) baseline below, so it is always sent.
 	int iFmt   = GetConfig()->GetProfileInt("GDIGenerator","MuriColorFormat",-1);
 	int iRange = GetConfig()->GetProfileInt("GDIGenerator","MuriRange",-1);
 	int iGamut = GetConfig()->GetProfileInt("GDIGenerator","MuriBt2020",-1);
 	int iHdr   = GetConfig()->GetProfileInt("GDIGenerator","MuriHdrMode",-1);
 	int iDepth = GetConfig()->GetProfileInt("GDIGenerator","MuriBitDepth",-1);
-	m_fmtCombo.SetCurSel(iFmt     < 0 ? 0 : iFmt);
-	m_rangeCombo.SetCurSel(iRange < 0 ? 0 : iRange);
-	m_gamutCombo.SetCurSel(iGamut < 0 ? 0 : iGamut);
-	m_hdrCombo.SetCurSel(iHdr     < 0 ? 0 : iHdr);
-	m_depthCombo.SetCurSel(iDepth < 0 ? 0 : iDepth);
+	// Format and range are one setting on the wire (cat 99, recorded together by
+	// PersistSetting), so a missing half leaves both unknown.
+	bool haveCs = (iFmt >= 0 && iRange >= 0);
+	SelValue(m_fmtCombo,   haveCs ? iFmt   : -1);
+	SelValue(m_rangeCombo, haveCs ? iRange : -1);
+	SelValue(m_gamutCombo, iGamut);
+	SelValue(m_hdrCombo,   iHdr);
+	SelValue(m_depthCombo, iDepth);
 	bool haveTiming = false;
 	{
 		int gi = 0, ii = 0;
 		if (CGDIGenerator_MuriFindTiming(GetConfig()->GetProfileInt("GDIGenerator","MuriTimingId",-1), gi, ii))
 		{ m_tgrpCombo.SetCurSel(gi); PopulateTimingCombo(gi); m_timingCombo.SetCurSel(ii); haveTiming = true; }
-		else { m_tgrpCombo.SetCurSel(0); PopulateTimingCombo(0); }
+		else { SelValue(m_tgrpCombo, -1); PopulateTimingCombo(-1); }
 	}
 	OnFmtChange();
 	UpdateTransportEnable();
 	// Baselines, taken after the controls are loaded: Apply sends only what the user
 	// actually changed. Five commands to an unreachable device cost five timeouts.
-	// -1 = unknown, which never compares equal, so the setting is always sent.
+	// -1 = unknown, which never compares equal, so an explicit choice is always sent.
+	// "(unchanged)" is -1 as well and is skipped as unchanged, never sent.
 	m_initTiming = haveTiming
 		? CGDIGenerator_MuriTimingId(m_tgrpCombo.GetCurSel(), m_timingCombo.GetCurSel())
 		: -1;
 	// Both halves feed cat 99, so either one missing leaves the combined value unknown.
-	m_initCs    = (iFmt < 0 || iRange < 0) ? -1 : ComboCsId();
+	m_initCs    = haveCs ? ComboCsId() : -1;
 	m_initGamut = iGamut;
 	m_initHdr   = iHdr;
 	m_initDepth = iDepth;
@@ -1419,13 +1467,13 @@ void CMuriSettingsDlg::OnApply()
 	bool net; CString ip, com; MuriXport(net, ip, com);
 	if (net && ip.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_ENTER_MURI_IP_FIRST)); return; }
 	if (!net && com.IsEmpty()) { m_status.SetWindowText(LS(IDS_GEN_SELECT_COM_FIRST)); return; }
-	int tg = m_tgrpCombo.GetCurSel(); if (tg < 0) tg = 0;
-	int ti = m_timingCombo.GetCurSel(); if (ti < 0) ti = 0;
-	int timingId = CGDIGenerator_MuriTimingId(tg, ti);
+	// Sel() is -1 for "(unchanged)", which MuriApplyOutput skips like any unchanged value.
+	int tg = Sel(m_tgrpCombo), ti = Sel(m_timingCombo);
+	int timingId = (tg < 0 || ti < 0) ? -1 : CGDIGenerator_MuriTimingId(tg, ti);
 	int csId  = ComboCsId();
-	int gamut = m_gamutCombo.GetCurSel(); if (gamut < 0) gamut = 0;	// 0=BT.709,1=BT.2020 -> cat112
-	int hdr   = m_hdrCombo.GetCurSel();   if (hdr < 0) hdr = 0;
-	int depth = m_depthCombo.GetCurSel(); if (depth < 0) depth = 0;	// 0=8bit,1=10bit -> cat100
+	int gamut = Sel(m_gamutCombo);	// 0=BT.709,1=BT.2020 -> cat112
+	int hdr   = Sel(m_hdrCombo);
+	int depth = Sel(m_depthCombo);	// 0=8bit,1=10bit -> cat100
 	// -1 means "unchanged since this dialog opened" and is skipped by MuriApplyOutput.
 	if (timingId == m_initTiming) timingId = -1;
 	if (csId     == m_initCs)     csId     = -1;
@@ -1440,7 +1488,14 @@ void CMuriSettingsDlg::OnApply()
 	// and pretending otherwise would leave the configuration describing a machine that
 	// no longer matches it.
 	if (ok || landed) PersistTransport();
-	for (int i = 0; i < 5; ++i) if (landed & (1u << i)) PersistSetting(i);	// 5 = the cmds[] count
+	// A landed value also becomes its baseline. A partial Apply keeps the dialog open, and a
+	// later revert of a landed value must be sent, not compared equal to the open-time
+	// baseline and skipped while the device still holds what just landed.
+	// Same order as the cmds[] array - see PersistSetting.
+	const int sent[5] = { timingId, csId, gamut, hdr, depth };
+	int* const base[5] = { &m_initTiming, &m_initCs, &m_initGamut, &m_initHdr, &m_initDepth };
+	for (int i = 0; i < 5; ++i)	// 5 = the cmds[] count
+		if (landed & (1u << i)) { PersistSetting(i); *base[i] = sent[i]; }
 	if (!ok)
 	{
 		// Stay open: the status line is the only place this failure is reported.
@@ -1483,21 +1538,26 @@ void CMuriSettingsDlg::PersistTransport()
 // without the other would persist the wrong key for every setting, silently.
 void CMuriSettingsDlg::PersistSetting(int idx)
 {
+	// Sel() < 0 is "(unchanged)": never sent, so never recorded. Only a landed bit reaches
+	// here and "(unchanged)" never lands, so these guards only keep it that way.
 	switch (idx)
 	{
 	case 0:
-		if (m_tgrpCombo.GetCurSel() >= 0 && m_timingCombo.GetCurSel() >= 0)
+		if (Sel(m_tgrpCombo) >= 0 && Sel(m_timingCombo) >= 0)
 			GetConfig()->WriteProfileInt("GDIGenerator","MuriTimingId",
-				CGDIGenerator_MuriTimingId(m_tgrpCombo.GetCurSel(), m_timingCombo.GetCurSel()));
+				CGDIGenerator_MuriTimingId(Sel(m_tgrpCombo), Sel(m_timingCombo)));
 		break;
 	case 1:	// cat 99 carries colour format AND the device's range together
+		if (ComboCsId() < 0) break;
 		GetConfig()->WriteProfileInt("GDIGenerator","MuriColorSpaceId", ComboCsId());
-		GetConfig()->WriteProfileInt("GDIGenerator","MuriColorFormat", m_fmtCombo.GetCurSel() < 0 ? 0 : m_fmtCombo.GetCurSel());
-		GetConfig()->WriteProfileInt("GDIGenerator","MuriRange",       m_rangeCombo.GetCurSel() < 0 ? 0 : m_rangeCombo.GetCurSel());
+		GetConfig()->WriteProfileInt("GDIGenerator","MuriColorFormat", Sel(m_fmtCombo));
+		// Range "(unchanged)" with a valid id means YCbCr, which is always Limited. Picking
+		// YCbCr already forces Limited (OnFmtChange), so this fallback is not expected to run.
+		GetConfig()->WriteProfileInt("GDIGenerator","MuriRange",       Sel(m_rangeCombo) < 0 ? 1 : Sel(m_rangeCombo));
 		break;
-	case 2: GetConfig()->WriteProfileInt("GDIGenerator","MuriBt2020",  m_gamutCombo.GetCurSel() < 0 ? 0 : m_gamutCombo.GetCurSel()); break;
-	case 3: GetConfig()->WriteProfileInt("GDIGenerator","MuriHdrMode", m_hdrCombo.GetCurSel()   < 0 ? 0 : m_hdrCombo.GetCurSel());   break;
-	case 4: GetConfig()->WriteProfileInt("GDIGenerator","MuriBitDepth",m_depthCombo.GetCurSel() < 0 ? 0 : m_depthCombo.GetCurSel()); break;
+	case 2: if (Sel(m_gamutCombo) >= 0) GetConfig()->WriteProfileInt("GDIGenerator","MuriBt2020",  Sel(m_gamutCombo)); break;
+	case 3: if (Sel(m_hdrCombo)   >= 0) GetConfig()->WriteProfileInt("GDIGenerator","MuriHdrMode", Sel(m_hdrCombo));   break;
+	case 4: if (Sel(m_depthCombo) >= 0) GetConfig()->WriteProfileInt("GDIGenerator","MuriBitDepth",Sel(m_depthCombo)); break;
 	}
 }
 
@@ -1694,13 +1754,15 @@ void CDvdoSettingsDlg::OnApply()
 	{ CWaitCursor wait; ok = CGDIGenerator_DvdoApplyOutput(com, cs, res, limited, msg); }
 	if (!ok)
 	{
-		// Nothing reached the device, so nothing is recorded. Stay open - the status line
-		// is the only place this failure is reported.
+		// Nothing is recorded (see below for what may already have reached the device). Stay
+		// open - the status line is the only place this failure is reported.
 		m_status.SetWindowText(msg);
 		return;
 	}
-	// Unlike the Murideo, the AVLab takes format, colour space and range in one command,
-	// so this succeeds or fails whole - there is no partial state to record.
+	// Not all-or-nothing. 61 (resolution) goes out first, in the setup open, and settles;
+	// format, color space and range then follow in one AA write. If that write fails, the
+	// resolution has already changed and nothing is persisted - the configuration keeps the
+	// old resolution while the device shows the new one. Only reaching here records it all.
 	SaveToConfig();
 	m_applied = TRUE;
 	EndDialog(IDOK);
@@ -2159,6 +2221,7 @@ void CGDIGenePropPage::OnMuriShow()
 {
 	bool net; CString ip, com; MuriXport(net, ip, com);
 	if (net && ip.IsEmpty()) { m_muriStatus.SetWindowText(LS(IDS_GEN_ENTER_MURI_IP_FIRST)); return; }
+	if (!net && com.IsEmpty()) { m_muriStatus.SetWindowText(LS(IDS_GEN_SET_MURI_COM_SETTINGS)); return; }
 	int pg = m_muriPatGrpCombo.GetSafeHwnd() ? m_muriPatGrpCombo.GetCurSel() : 0; if (pg < 0) pg = 0;
 	int pi = m_muriPatCombo.GetSafeHwnd() ? m_muriPatCombo.GetCurSel() : 0; if (pi < 0) pi = 0;
 	int patternId = CGDIGenerator_MuriPatId(pg, pi);

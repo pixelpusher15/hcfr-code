@@ -115,14 +115,11 @@ CGDIGenerator::CGDIGenerator()
 	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
 	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
 		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
-	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
 	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
 	m_muriIp = GetConfig()->GetProfileString("GDIGenerator","MuriIp","");
 	m_muriUseNetwork = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
 	m_muriTcpPort = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
-	m_muriTimingId = GetConfig()->GetProfileInt("GDIGenerator","MuriTimingId",-1);
-	m_muriColorSpaceId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0);
-	m_muriPatternId = GetConfig()->GetProfileInt("GDIGenerator","MuriPatternId",-1);
+	m_muriColorSpaceId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",-1);	// -1 = unknown, see Init
     m_madVR_3d = GetConfig()->GetProfileInt("GDIGenerator","MADVR3D",1);
     m_madVR_vLUT = GetConfig()->GetProfileInt("GDIGenerator","MADVRvLUT",1);
     m_madVR_HDR = GetConfig()->GetProfileInt("GDIGenerator","MADVRHDR",0);
@@ -175,14 +172,11 @@ CGDIGenerator::CGDIGenerator(int nDisplayMode, BOOL b16_235)
 	m_dvdoOutputFormat = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputFormat",0);
 	m_dvdoOutputRange  = GetConfig()->GetProfileInt("GDIGenerator","DvdoOutputRange",
 		GetConfig()->GetProfileInt("GDIGenerator","RGB_16_235",1) ? 1 : 0);
-	m_dvdoPatternCode = GetConfig()->GetProfileInt("GDIGenerator","DvdoPatternCode",0);
 	m_muriComPort = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
 	m_muriIp = GetConfig()->GetProfileString("GDIGenerator","MuriIp","");
 	m_muriUseNetwork = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
 	m_muriTcpPort = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
-	m_muriTimingId = GetConfig()->GetProfileInt("GDIGenerator","MuriTimingId",-1);
-	m_muriColorSpaceId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0);
-	m_muriPatternId = GetConfig()->GetProfileInt("GDIGenerator","MuriPatternId",-1);
+	m_muriColorSpaceId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",-1);	// -1 = unknown, see Init
 	m_displayWindow.SetDisplayMode(nDisplayMode);
 
 	CString str;
@@ -578,6 +572,7 @@ namespace
 }
 namespace { bool DvdoOpen(const CString& comPort, int outputFormat, CString* fwOut, bool sendSetup); void DvdoClose(); }
 namespace { bool MuriConnect(bool useNet, const CString& ip, const CString& com, bool establish = false); void MuriDisconnect(); void MuriSetTcpPort(int port); void MuriClose(); }
+static int MuriSessionColorSpace();
 
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
@@ -710,7 +705,7 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 		m_muriComPort      = GetConfig()->GetProfileString("GDIGenerator","MuriComPort","");
 		m_muriIp           = GetConfig()->GetProfileString("GDIGenerator","MuriIp","");
 		m_muriUseNetwork   = GetConfig()->GetProfileInt("GDIGenerator","MuriUseNetwork",1);
-		m_muriColorSpaceId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",0);
+		m_muriColorSpaceId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",-1);	// -1 = unknown
 		m_muriTcpPort      = GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23);
 
 		if ( m_nDisplayMode == DISPLAY_DVDO )
@@ -735,6 +730,13 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 			// the guard now only catches a hand-edited 0 in the INI.
 			MuriSetTcpPort((m_muriTcpPort > 0) ? m_muriTcpPort : 23);	// raw-TCP port for colour patches
 			BOOL connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
+			// MuriColorSpaceId absent: nothing in this configuration ever told the device a color
+			// space, so ask the device for the one it is in and re-assert THAT with every patch.
+			// Session only, never persisted - it is the device's state, not a choice made here.
+			// Defaulting to 0 instead overwrote a front-panel YCbCr or limited-range setting with
+			// RGB Full on the first patch. Unreadable: 0, the value this always used.
+			if ( connected && m_muriColorSpaceId < 0 )
+				m_muriColorSpaceId = MuriSessionColorSpace();
 			if ( ! connected )
 			{
 				if ( ! m_initShowedError )
@@ -1126,6 +1128,10 @@ namespace {
 		for (size_t i = 0; i < pkt.size(); ++i)
 			if (!s_dvdoPort.WriteByte((BYTE)pkt[i]))
 			{
+				// Report it as what it is - a write that never left the host - rather than leave
+				// s_dvdoDiag holding the last open's success text. Formatted first: DvdoClose
+				// empties s_dvdoOpenPort.
+				s_dvdoDiag.Format(LS(IDS_GEN_DVDO_WRITE_FAIL), (LPCTSTR)s_dvdoOpenPort);
 				DvdoClose();	// see MuriSerialWriteRaw - a failed write leaves a dead, still-locked handle
 				return false;
 			}
@@ -1175,7 +1181,9 @@ namespace {
 		// instead of writing to - and later double-closing - a stale handle.
 		if (!s_dvdoPort.SetCommunicationTimeouts(40, 0, 500, 0, 300))	// wait for the reply
 		{ s_dvdoOpen = false; return false; }
-		for (size_t i = 0; i < q.size(); ++i) s_dvdoPort.WriteByte((BYTE)q[i]);
+		for (size_t i = 0; i < q.size(); ++i)
+			if (!s_dvdoPort.WriteByte((BYTE)q[i]))
+				{ DvdoClose(); return false; }	// see DvdoWrite - a dead handle must not stay adopted
 		FlushFileBuffers(s_dvdoPort.hComm);
 		std::string r; BYTE b; int guard = 0;
 		while (guard++ < 128 && s_dvdoPort.ReadByte(b)) { r += (char)b; if (b == 0x03) break; }
@@ -1288,6 +1296,11 @@ namespace {
 			if (outputFormat > 0)
 			{
 				char fc[8]; sprintf(fc, "%d", outputFormat); DvdoCommand("61", std::vector<std::string>(1, fc));
+				// The ack is not the test here; the write is. A write that never left the host fails
+				// the open: DvdoWrite has already closed the port (s_dvdoOpen false, port name and
+				// last pattern cleared) and put the reason in s_dvdoDiag, and there is no resolution
+				// change to settle.
+				if (!s_dvdoLastWriteOk) return false;
 				Sleep(GetConfig()->GetProfileInt("Debug", "DvdoFormatSettleMs", 2000));
 			}
 		}
@@ -1407,7 +1420,7 @@ static const DvdoPatEntry kDvdoPats[] =
 	{ "Windows (IRE)",      "Window 80%",               16 },
 	{ "Windows (IRE)",      "Window 90%",               17 },
 	{ "Windows (IRE)",      "Window 100%",              18 },
-	{ "Grayscale / Fields", "Grey ramp",                19 },
+	{ "Grayscale / Fields", "Gray ramp",                19 },
 	{ "Grayscale / Fields", "Full white (100%)",        28 },
 	{ "Grayscale / Fields", "Full black (0 IRE)",       35 },
 	{ "Grayscale / Fields", "Half black/white",         23 },
@@ -1602,7 +1615,7 @@ bool CGDIGenerator_DvdoApplyOutput(const CString& comPort, int colorSpace, int f
 	// in DisplayRGBColorDVDO) - it only catches the hard failure.
 	if (!s_dvdoLastWriteOk)
 	{
-		msgOut = s_dvdoDiag;
+		msgOut = s_dvdoDiag;	// IDS_GEN_DVDO_WRITE_FAIL, set by DvdoWrite before it closed the port
 		return false;
 	}
 	Sleep(GetConfig()->GetProfileInt("Debug", "DvdoApplySettleMs", 600));
@@ -2619,7 +2632,8 @@ int         CGDIGenerator_MuriPatId(int gi,int i)  { int idx[256]; int n=MuriIte
 int         CGDIGenerator_MuriPatBer(int gi,int i) { int idx[256]; int n=MuriItemsInGroup(kMuriPatterns,kMuriPatternN,gi,idx,256); return (i>=0&&i<n)?kMuriPatterns[idx[i]].ber:0; }
 bool        CGDIGenerator_MuriFindPat(int id,int ber,int& gi,int& ii)
 {
-	// Match id AND bank: 111 of the 459 ids collide across bank 0 / bank 1, so id alone would
+	// Match id AND bank: the table has 555 rows and 232 NUM values recur in more than one bank,
+	// so id alone would
 	// resolve to whichever bank sorts first and restore the wrong group/pattern.
 	const char* g[24]; int ng=MuriGroups(kMuriPatterns,kMuriPatternN,g,24);
 	for (int a=0;a<ng;++a){int idx[256];int n=MuriItemsInGroup(kMuriPatterns,kMuriPatternN,a,idx,256);for(int b=0;b<n;++b)if(kMuriPatterns[idx[b]].id==id&&kMuriPatterns[idx[b]].ber==ber){gi=a;ii=b;return true;}}
@@ -2785,6 +2799,44 @@ static int MuriSerialReadValue(int readKeyword)
 	return -1;
 }
 
+// The device's current cat-99 color space id (0..4), or -1 if it does not say. Assumes
+// MuriConnect has selected the transport. Serial reads cat 99 directly (0x8063, the same
+// enum - see MuriSerialStatusReadout). Network parses the VIDEOGEN status field the panel
+// readout already shows, e.g. "RGB(0-255)" or "YC444(16-235)" (see MuriStatusReadout).
+static int MuriReadColorSpaceId()
+{
+	if (!s_muriUseNet)
+	{
+		int cs = MuriSerialReadValue(0x8063);
+		return (cs >= 0 && cs <= 4) ? cs : -1;
+	}
+	CString body;
+	if (!MuriHttpGetBody("WebReq.CGI", "VIDEOGEN", body) || body.IsEmpty()) return -1;
+	CString cs;
+	int pos = 0, len = body.GetLength();
+	while (pos < len && cs.IsEmpty())
+	{
+		int d = pos; while (d < len) { TCHAR c = body[d]; if (c == _T('&') || c == _T('\r') || c == _T('\n')) break; d++; }
+		CString t = body.Mid(pos, d - pos); t.TrimLeft(); t.TrimRight();
+		int eq = t.Find(_T('=')); if (eq >= 0 && t.Left(eq).CompareNoCase(_T("VIDEOGEN")) == 0) t = t.Mid(eq + 1);
+		if (t.Find(_T("RGB")) >= 0 || t.Find(_T("YC")) >= 0) cs = t;
+		pos = d + 1;
+	}
+	if (cs.Find(_T("RGB")) >= 0) return (cs.Find(_T("0-255")) >= 0) ? 0 : (cs.Find(_T("16-235")) >= 0) ? 1 : -1;
+	if (cs.Find(_T("444")) >= 0) return 2;
+	if (cs.Find(_T("422")) >= 0) return 3;
+	if (cs.Find(_T("420")) >= 0) return 4;
+	return -1;
+}
+
+// The color space a session with no configured one re-asserts: the device's own, or 0
+// (RGB Full, what was always sent) when it cannot be read. See CGDIGenerator::Init.
+static int MuriSessionColorSpace()
+{
+	int cs = MuriReadColorSpaceId();
+	return (cs >= 0) ? cs : 0;
+}
+
 // Serial equivalent of MuriStatusReadout: query the individual read keywords and map
 // them to the same labelled lines. Assumes the port is open. Fields/labels/order match
 // the HTTP readout so the panel looks identical in either transport.
@@ -2941,6 +2993,12 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 			sent = DvdoCommand("AA", std::vector<std::string>(1, val));
 		}
 		if (sent) break;
+		// Off the UI thread there is no box: that is Cancel. Continuous measurement calls
+		// DisplayRGBColor on BkgndThreadFunc's AfxBeginThread worker, inside s_genSerialLock,
+		// while Stop waits INFINITE for that thread on the UI thread - and InMeasureMessageBox
+		// calls BringPatternWindowToTop cross-thread. FALSE ends that loop (see BkgndThreadFunc).
+		if (GetCurrentThreadId() != AfxGetApp()->m_nThreadID)
+			break;
 		// MB_TOPMOST|MB_SETFOREGROUND because InMeasureMessageBox owns the box to NULL; without
 		// them it can end up behind the main window, where it blocks the app invisibly.
 		if (GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_SERIAL_LINK_LOST), "DVDO AVLab TPG",
@@ -2989,7 +3047,10 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 	// re-asserts it - see MuriCmdRgbTriplet for why the byte takes the full cat-99 enum.
 	// Range for RGB rides in the id (0 = full, 1 = limited), so there is no separate range to
 	// send; YCbCr is 16-235 by definition.
-	int devCs = m_muriColorSpaceId;
+	// Clamped here rather than trusting MuriCmdRgbTriplet's own 0..4 clamp: -1 (unknown, Init
+	// could not connect) must never reach the wire, and the value sent should not depend on a
+	// callee's guard. Resolved for real below, once a connect succeeds.
+	int devCs = (m_muriColorSpaceId >= 0 && m_muriColorSpaceId <= 4) ? m_muriColorSpaceId : 0;
 	double bgstim = m_displayWindow.m_bgStimPercent / 100.;
 	double rect   = (double)m_displayWindow.m_rectSizePercent;
 	double R1 = 0., G1 = 0., B1 = 0.;
@@ -3026,9 +3087,14 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 				connected = MuriConnect(m_muriUseNetwork != 0, m_muriIp, m_muriComPort);
 			}
 			if (!connected) continue;
+			if (m_muriColorSpaceId < 0)		// still unknown: Init's connect failed - see Init
+				devCs = m_muriColorSpaceId = MuriSessionColorSpace();
 			sent = MuriCmdRgbTriplet(r, g, b, bgR, bgG, bgB, win, (bits == 10) ? 1 : 0, devCs);
 		}
 		if (sent) break;
+		// Off the UI thread there is no box: that is Cancel - see the DVDO loop.
+		if (GetCurrentThreadId() != AfxGetApp()->m_nThreadID)
+			break;
 		// Same message pair serves every wired generator; the caption names the device. The
 		// Seven-G reaches both arms of this depending on the transport it is configured for.
 		UINT nLostMsg = m_muriUseNetwork ? IDS_GEN_NETWORK_LINK_LOST : IDS_GEN_SERIAL_LINK_LOST;
