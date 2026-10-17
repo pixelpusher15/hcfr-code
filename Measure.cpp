@@ -109,6 +109,7 @@ struct SweepActiveGuard
         {
             m_pMeasure->m_binMeasure = FALSE;
             m_pMeasure->m_bAbortSweep = FALSE;
+            m_pMeasure->m_bProfileCapturing = FALSE;
             g_bMeasureSweepActive = FALSE;
         }
     }
@@ -198,8 +199,10 @@ CMeasure::CMeasure()
 
 	m_activeSatLevel = 1.0;
 
+	m_profileGeneration = 0;
 	ClearProfileMeasures();
 	m_bProfilePause = FALSE;
+	m_bProfileCapturing = FALSE;
 	m_profileCurrentDrift = 0.0;
 
 	m_primariesArray[0]=m_primariesArray[1]=m_primariesArray[2]=noDataColor;
@@ -364,6 +367,7 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 			m_profileDriftAnchors  = p->m_profileDriftAnchors;
 			m_profileDriftAnchorIdx= p->m_profileDriftAnchorIdx;
 			m_profileGenCacheKey   = -1;	// force regen of the stimulus cache
+			m_profileGeneration++;
 			break;
 
 		default:
@@ -946,6 +950,11 @@ void CMeasure::Serialize(CArchive& ar)
 			ar >> m_profileGrayExtras;
 			ar >> m_profileDriftComp;
 			ar >> m_profileCaptureSeconds;
+			// 0 is "no profile"; anything else must be a size GenerateProfileColors
+			// itself accepts. Unchecked, a garbage N reaches the 3D viewer, whose
+			// N^3 overflows int and indexes the array out of bounds.
+			if ( m_profileCubeSize != 0 && GenerateProfileColors ( NULL, 0, m_profileCubeSize, false ) < 0 )
+				AfxThrowArchiveException ( CArchiveException::badIndex, NULL );
 
 			ar >> size;
 			// a count outside what the app can ever write means the stream is
@@ -988,6 +997,7 @@ void CMeasure::Serialize(CArchive& ar)
 				ar >> m_profileDriftAnchorIdx[i];
 				m_profileDriftAnchors[i].Serialize(ar);
 			}
+			m_profileGeneration++;
 		}
 
 		// Version 22: extension trailer, the last thing in the block
@@ -1023,6 +1033,7 @@ void CMeasure::ClearProfileMeasures()
 	m_profileCaptureSeconds = 0.0;
 	m_profileGenCache.clear();
 	m_profileGenCacheKey = -1;
+	m_profileGeneration++;
 }
 
 ColorRGBDisplay CMeasure::GetProfilePatchRGB(int i)
@@ -4157,6 +4168,7 @@ void CMeasure::ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, do
 		// step with the corrected value it is supposed to reproduce.
 		m_profileMeasureArray[j].ScaleXYZ ( 1.0 / f );
 	}
+	m_profileGeneration++;
 }
 
 // Measure a full-white drift anchor before patch patchIdx. A valid anchor
@@ -4278,6 +4290,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	for (int i=0;i<size;i++)
 		m_profileMeasureArray[i] = noDataColor;
 	m_bProfilePause = FALSE;
+	m_bProfileCapturing = TRUE;
 	m_profileCurrentDrift = 0.0;
 
 	double	firstAnchorY = 0.0;
@@ -4419,6 +4432,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 					measured.ResetLuxValue ();
 
 				m_profileMeasureArray[i] = measured;
+				m_profileGeneration++;
 				nDone = i + 1;
 			}
 
@@ -4442,6 +4456,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 				if(result == IDRETRY)
 				{
 					m_profileMeasureArray[i] = noDataColor;
+					m_profileGeneration++;
 					i--;
 					bRetry = TRUE;
 				}
@@ -4487,6 +4502,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	m_profileCaptureSeconds = (GetTickCount() - startTick) / 1000.0;
 	m_profileDriftComp = bDriftComp && m_profileDriftAnchors.size() >= 2;
 	m_binMeasure = FALSE;
+	m_bProfileCapturing = FALSE;
 	m_bProfilePause = FALSE;
 	m_currentIndex = nDone;
 
