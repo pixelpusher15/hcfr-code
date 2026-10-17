@@ -165,18 +165,30 @@ void CSensor::Serialize(CArchive& archive)
 			BYTE  tag;
 			DWORD cb;
 
+			bool bSawBodnerMatrices = false;
 			m_calibrationMethod = CALIB_HCFR_DEFAULT;		// when the tag is absent
 			while ( ext.Next(tag, cb) )
 			{
 				switch ( tag )
 				{
 					case ArchiveTag::SENSOR_CALIBRATION_METHOD:
-						ext.Value() >> m_calibrationMethod;
+					{
+						// Unknown tags are forward-compatible; unknown values inside a
+						// known tag are not. A method this build does not know would
+						// silently run through the wrong correction, so it is refused
+						// as a file from a newer HCFR.
+						int method;
+						ext.Value() >> method;
+						if ( method < CALIB_CLASSIC_NIST || method > CALIB_FCMM_NO_LUM )
+							throw new CNewerSchemaException ( "CSensor", method, false );
+						m_calibrationMethod = method;
 						break;
+					}
 
 					case ArchiveTag::SENSOR_BODNER_MATRICES:
 					{
 						CArchive & value = ext.Value();
+						bSawBodnerMatrices = true;
 						int k;
 						for ( k = 0; k < 3; k++ )
 							m_bodnerRawMatrix[k].Serialize(value);
@@ -191,6 +203,12 @@ void CSensor::Serialize(CArchive& archive)
 				}
 			}
 			ext.Close();
+
+			// The Bodner method is meaningless without its six matrices: loading
+			// it anyway would recalibrate every reading through identity
+			// sub-gamuts and report success.
+			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX && ! bSawBodnerMatrices )
+				AfxThrowArchiveException ( CArchiveException::badSchema );
 		}
 		else
 		{
@@ -331,6 +349,15 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	// XYZ, so an export or a later recompute can report the exact signal sent to
 	// the display instead of reconstructing it from the pattern generator.
 	result.SetStimulusValue(aRGBValue);
+	// And the wall-clock time of the reading, in seconds since the Unix epoch with
+	// a sub-second fraction. Time, not a sweep index: drift anchors and the
+	// step-response fit have to be plotted against the clock, and an index says
+	// nothing about the pauses between readings. FILETIME counts 100 ns ticks
+	// since 1601-01-01; 116444736000000000 of them precede 1970-01-01.
+	FILETIME ft;
+	GetSystemTimeAsFileTime(&ft);
+	ULONGLONG t = ((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+	result.SetTimestamp((double)(t - 116444736000000000ULL) / 1e7);
 
 	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 		result.SetXYZValue(SelectAndApplyBodnerMatrixInv(result.GetXYZValue(), m_bodnerRawInverse, m_bodnerRawInvertible, m_bodnerCalMatrix));

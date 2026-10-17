@@ -151,6 +151,11 @@ CExtensionReader::CExtensionReader(CArchive& ar)
 	  m_pBuffer(NULL), m_pMem(NULL), m_pValue(NULL)
 {
 	m_ar >> m_cbExtension;
+
+	// A corrupt length must fail as a schema error, not as a multi-gigabyte
+	// allocation in Value() (a CMemoryException) or a long skip toward EOF.
+	if ( m_cbExtension > kMaxExtensionBytes )
+		AfxThrowArchiveException(CArchiveException::badSchema, NULL);
 }
 
 CExtensionReader::~CExtensionReader()

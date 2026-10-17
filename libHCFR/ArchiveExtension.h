@@ -54,9 +54,15 @@
 #include <vector>
 
 // Read-and-discard n bytes from a loading archive. Throws
-// CArchiveException::endOfFile if fewer than n are available. This is the
-// only place in the tree that calls CArchive::Read; keep it that way.
+// CArchiveException::endOfFile if fewer than n are available. This and
+// CExtensionReader::Value() are the only places in the tree that call
+// CArchive::Read; keep it that way.
 void SkipArchiveBytes(CArchive& ar, DWORD n);
+
+// The largest cbExtension a reader accepts. A trailer claiming more is a
+// corrupt length, refused as CArchiveException::badSchema rather than
+// attempted. No trailer this format defines comes anywhere near it.
+static const DWORD kMaxExtensionBytes = 64 * 1024 * 1024;
 
 // Collects tagged entries, then emits DWORD cb + entries. Usage:
 //

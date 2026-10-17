@@ -67,8 +67,20 @@ void CCalibrationInfo::Serialize(CArchive& archive)
 		archive << version;
 		m_measures.Serialize(archive);
 		m_references.Serialize(archive);
-		m_WhiteTest.Serialize(archive);
-		m_WhiteRef.Serialize(archive);
+		if ( version == 1 )
+		{
+			// v1 is the SaveOldCalibrationFile block, written for a 4.1 reader
+			// whose CColor gate refuses base + 100: store its two colors in the
+			// pre-#193 CColor layout too, or the file is still unreadable there.
+			CColorLegacyStoreScope legacy;
+			m_WhiteTest.Serialize(archive);
+			m_WhiteRef.Serialize(archive);
+		}
+		else
+		{
+			m_WhiteTest.Serialize(archive);
+			m_WhiteRef.Serialize(archive);
+		}
 		if ( version > 1 )
 		{
 			m_BlackTest.Serialize(archive);

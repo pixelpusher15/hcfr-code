@@ -1046,6 +1046,17 @@ void CDataSetDoc::Serialize(CArchive& ar)
 			return;
 		}
 
+		// Version 4 was the unreleased Bodner document layout. Its nested
+		// blocks would be refused one at a time, naming CColor or CSensor;
+		// refuse the file here instead and say what it is.
+		if ( version == 4 )
+		{
+			Msg.Format ( IDS_SCHEMA_UNRELEASED, "document", version );
+			Title.LoadString ( IDS_ERROR );
+			GetColorApp()->InMeasureMessageBox(Msg,Title,MB_ICONERROR | MB_OK);
+			return;
+		}
+
 		// Load Measure
 		m_measure.Serialize(ar);
 

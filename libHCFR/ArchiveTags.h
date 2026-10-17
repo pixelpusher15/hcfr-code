@@ -61,9 +61,9 @@ namespace ArchiveTag
 	{
 		COLOR_RAW_XYZ    = 1,	// Matrix::Serialize (3x1): uncorrected sensor reading
 		COLOR_STIMULUS   = 2,	// Matrix::Serialize (3x1): drive stimulus, RGB percent
-		COLOR_PROVENANCE = 3,	// reserved for csv-provenance: 4 x int, CString
+		COLOR_PROVENANCE = 3,	// reserved for csv-provenance: 4 x int, CString, then int role (append-only)
 		COLOR_CONTEXT    = 4,	// reserved (Stage 2): int index into DOC_CONTEXTS
-		COLOR_TIMESTAMP  = 5	// reserved (Stage 2): double, seconds since the Unix epoch
+		COLOR_TIMESTAMP  = 5	// Stage 1: double, seconds since the Unix epoch, sub-second
 	};
 
 	// CMeasure (Measure.cpp), trailer from block version 22.

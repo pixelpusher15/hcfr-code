@@ -318,10 +318,25 @@ public:
 	bool HasStimulusValue() const;
 	ColorRGBDisplay GetStimulusValue() const;
 
+	// Wall-clock time of the reading, in seconds since the Unix epoch with a
+	// sub-second fraction, stamped at measure time beside the raw XYZ and the
+	// stimulus. Drift anchors need time, not index, to be plotted against the
+	// clock. Legacy readings carry none.
+	void SetTimestamp(double aTimestamp);
+	void ClearTimestamp();
+	bool HasTimestamp() const;
+	double GetTimestamp() const;		// 0.0 when none
+
     void Output(ostream& ostr) const;
 
 #ifdef LIBHCFR_HAS_MFC
     void Serialize(CArchive& archive);
+
+	// When true, Serialize stores the pre-#193 layout (base 1/3/5/6, the two
+	// ignore matrices, a v1 spectrum, no trailer) that a 4.1 reader accepts.
+	// Set ONLY through CColorLegacyStoreScope, by the SaveOldCalibrationFile
+	// writer; never on a load.
+	static bool s_bStoreLegacy;
 #endif
 
 protected:
@@ -330,7 +345,33 @@ protected:
 	double *	m_pLuxValue;
 	ColorXYZ *	m_pRawXYZValues;
 	ColorRGBDisplay *	m_pStimulus;
+	double *	m_pTimestamp;
+
+#ifdef LIBHCFR_HAS_MFC
+private:
+	// The load half of Serialize, run on a temporary so a refused load leaves
+	// the target color untouched.
+	void LoadFrom(CArchive& archive);
+#endif
 };
+
+#ifdef LIBHCFR_HAS_MFC
+// Switches CColor::Serialize to its legacy store layout for the lifetime of
+// the scope, and restores the previous setting on exit (so scopes nest and an
+// exception cannot leave it on). Used only by CCalibrationInfo::Serialize when
+// it writes its v1 (SaveOldCalibrationFile) block.
+struct CColorLegacyStoreScope
+{
+	CColorLegacyStoreScope() : m_bPrevious(CColor::s_bStoreLegacy) { CColor::s_bStoreLegacy = true; }
+	~CColorLegacyStoreScope() { CColor::s_bStoreLegacy = m_bPrevious; }
+
+private:
+	bool m_bPrevious;
+
+	CColorLegacyStoreScope(const CColorLegacyStoreScope&);
+	CColorLegacyStoreScope& operator=(const CColorLegacyStoreScope&);
+};
+#endif
 
 class CSpectrum: public Matrix
 {
