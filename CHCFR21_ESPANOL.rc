@@ -4248,7 +4248,8 @@ BEGIN
     IDS_SPECTRAL_CLEAR_FOR_MATRIX "Este sensor usa una corrección espectral (ccss/CSV) aplicada dentro del medidor.\nCalibrar con una matriz se sumaría a ella (corrección doble).\n\n¿Borrar la corrección espectral y calibrar con una matriz en su lugar?"
     IDS_CALIB_METHOD_TITLE      "Método de calibración"
     IDS_CALIB_METHOD_OUT_OF_SYNC "El método de calibración seleccionado en Opciones difiere del aplicado actualmente a estas medidas: no se recalcularon tras cambiar el método. La exportación reflejará el método APLICADO.\n\nPara recalcular primero, cancele y ejecute 'Crear usando medidas de referencia existentes' (o un comando de calibración).\n\n¿Continuar con la exportación?"
-    IDS_BODNER_SKIPPED_FMT      "No se pudieron recalibrar %d medida(s) registradas antes de activar esta función."
+    IDS_BODNER_SKIPPED_FMT      "%d medida(s) sin lectura bruta del sensor (registradas antes de la captura de valores brutos, o editadas a mano) se dejaron como estaban."
+    IDS_CALIB_NEED_RAW_PRIMARIES "Mida de nuevo primero los primarios y el blanco: los almacenados no tienen lectura bruta del sensor, y no se puede calcular una matriz a partir de valores corregidos por Bodner."
     IDS_EXPORT_LAYOUT_MISMATCH  "No se puede añadir a este archivo: se exportó con opciones de Bruto/Estímulo distintas. Exporte a un archivo nuevo o repita la exportación con las mismas opciones que los datos existentes."
 END
 

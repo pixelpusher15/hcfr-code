@@ -95,6 +95,7 @@ public:
 
 	void SetCalibrationMethod(int aMethod) { m_calibrationMethod=aMethod; }
 	int GetCalibrationMethod() const { return m_calibrationMethod; }
+	int CalibrationMethodAtBeginConfigure() const { return m_cfgSnapMethod; }	// what the sheet opened on
 	void UpdateBodnerInverseCache();
 	virtual bool CorrectionChangedSinceBeginConfigure() const;
 	void SetBodnerMatrices(const Matrix aRawMatrix[3], const Matrix aCalMatrix[3])

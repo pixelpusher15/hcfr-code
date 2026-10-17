@@ -125,36 +125,70 @@ protected:
                                     ColorXYZ(0.31, 0.32, 0.99)
                                  };
 
-        Matrix errorMatrix(0.0, 3, 3);
-        errorMatrix(0,0)=1.02; errorMatrix(0,1)=0.01;  errorMatrix(0,2)=-0.01;
-        errorMatrix(1,0)=0.00; errorMatrix(1,1)=0.99;  errorMatrix(1,2)=0.02;
-        errorMatrix(2,0)=0.01; errorMatrix(2,1)=-0.02; errorMatrix(2,2)=1.03;
+        // A DIFFERENT linear error per primary (and for white). With one error shared by
+        // all four, every sub-gamut matrix equals its inverse and the three are identical,
+        // so the result is the same whichever one is selected - a test built that way
+        // passes with "always sub-gamut 0" and cannot see a wrong pick.
+        Matrix err[4] = { Matrix(0.0, 3, 3), Matrix(0.0, 3, 3), Matrix(0.0, 3, 3), Matrix(0.0, 3, 3) };
+        static const double e[4][9] = {
+            { 1.02,  0.01, -0.01,   0.00, 0.99,  0.02,   0.01, -0.02, 1.03 },
+            { 0.97,  0.03,  0.00,   0.02, 1.04, -0.01,  -0.01,  0.00, 0.98 },
+            { 1.01, -0.02,  0.02,   0.01, 0.96,  0.03,   0.02,  0.01, 1.05 },
+            { 1.00,  0.01,  0.01,  -0.01, 1.01,  0.00,   0.00,  0.02, 0.99 } };
+        for ( int i = 0; i < 4; i++ )
+            for ( int r = 0; r < 3; r++ )
+                for ( int c = 0; c < 3; c++ )
+                    err[i](r,c) = e[i][r*3+c];
 
         ColorXYZ measuresRGBW[4];
         for ( int i = 0; i < 4; i++ )
-            measuresRGBW[i] = ColorXYZ(errorMatrix * referencesRGBW[i]);
+            measuresRGBW[i] = ColorXYZ(err[i] * referencesRGBW[i]);
 
         Matrix rawMatrix[3], calMatrix[3];
         ComputeBodnerThreeMatrices(measuresRGBW, referencesRGBW, rawMatrix, calMatrix);
 
-        // A raw reading strictly inside the rgw sub-gamut (positive weights on
-        // R, G and W only) should be corrected using sub-gamut 0's matrix, and
-        // therefore reproduce the same weighting of the *reference* R, G, W
-        // primaries.
+        // The premise: the three correction matrices differ, so the pick matters.
+        double diff01 = 0.0, diff12 = 0.0;
+        for ( int r = 0; r < 3; r++ )
+            for ( int c = 0; c < 3; c++ )
+            {
+                diff01 += fabs(calMatrix[0](r,c) - calMatrix[1](r,c));
+                diff12 += fabs(calMatrix[1](r,c) - calMatrix[2](r,c));
+            }
+        CPPUNIT_ASSERT( diff01 > 1e-6 && diff12 > 1e-6 );
+
+        // A raw reading strictly inside the rgw sub-gamut (positive weights on raw R, G
+        // and W only) must be corrected by sub-gamut 0's matrix. By linearity that is
+        // also the same weighting of the REFERENCE R, G, W; and the other two matrices
+        // give something else, which is what makes a wrong pick visible.
         ColorXYZ rawInsideRGW( measuresRGBW[0]*0.5 + measuresRGBW[1]*0.3 + measuresRGBW[3]*0.2 );
         ColorXYZ expected( referencesRGBW[0]*0.5 + referencesRGBW[1]*0.3 + referencesRGBW[3]*0.2 );
+        ColorXYZ byOwn( calMatrix[0] * rawInsideRGW );
+        ColorXYZ byOther( calMatrix[1] * rawInsideRGW );
         ColorXYZ actual = SelectAndApplyBodnerMatrix(rawInsideRGW, rawMatrix, calMatrix);
 
+        double offOther = 0.0;
         for ( int c = 0; c < 3; c++ )
+        {
+            CPPUNIT_ASSERT_DOUBLES_EQUAL( expected[c], byOwn[c],  0.000000001 );
             CPPUNIT_ASSERT_DOUBLES_EQUAL( expected[c], actual[c], 0.000000001 );
+            offOther += fabs(byOther[c] - expected[c]);
+        }
+        CPPUNIT_ASSERT( offOther > 1e-6 );
 
-        // Likewise for a point strictly inside the gbw sub-gamut.
+        // Likewise for a point strictly inside the gbw sub-gamut (index 1).
         ColorXYZ rawInsideGBW( measuresRGBW[1]*0.4 + measuresRGBW[2]*0.4 + measuresRGBW[3]*0.2 );
         ColorXYZ expectedGBW( referencesRGBW[1]*0.4 + referencesRGBW[2]*0.4 + referencesRGBW[3]*0.2 );
+        ColorXYZ byOtherGBW( calMatrix[0] * rawInsideGBW );
         ColorXYZ actualGBW = SelectAndApplyBodnerMatrix(rawInsideGBW, rawMatrix, calMatrix);
 
+        double offOtherGBW = 0.0;
         for ( int c = 0; c < 3; c++ )
+        {
             CPPUNIT_ASSERT_DOUBLES_EQUAL( expectedGBW[c], actualGBW[c], 0.000000001 );
+            offOtherGBW += fabs(byOtherGBW[c] - expectedGBW[c]);
+        }
+        CPPUNIT_ASSERT( offOtherGBW > 1e-6 );
     }
 
     void RawXYZRecalibration()

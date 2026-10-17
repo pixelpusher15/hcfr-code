@@ -380,7 +380,13 @@ public:
     // directly to the stored raw value for measurements that have one. The two
     // must be equivalent ways of expressing "what the sensor's correction should
     // now be" - deltaMatrix = fullMatrix * inverse(previousFullMatrix).
-    void ApplySensorAdjustmentMatrix(const Matrix & deltaMatrix, const Matrix & fullMatrix);
+    // bComposeLegacy says whether a measurement WITHOUT a raw value embodies that
+    // previous full matrix - true after any single-matrix method, false when the
+    // sensor was on Bodner: its single matrix is identity and the raw-less values
+    // still carry whatever matrix corrected them before Bodner skipped them, so
+    // composing the delta would stack the new matrix onto the old one. They are
+    // then left alone and counted; the count is returned (0 when composing).
+    int ApplySensorAdjustmentMatrix(const Matrix & deltaMatrix, const Matrix & fullMatrix, bool bComposeLegacy = true);
     // Recalibrates every stored measurement under Bodner's per-sub-gamut method.
     // Returns the count of measurements that had no stored raw value (predating
     // raw-value capture) and so could not be recalibrated.

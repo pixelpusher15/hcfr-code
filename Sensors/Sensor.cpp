@@ -229,6 +229,7 @@ bool CSensor::CorrectionChangedSinceBeginConfigure() const
 void CSensor::SetPropertiesSheetValues()
 {
 	m_SensorPropertiesPage.SetMatrix(m_sensorToXYZMatrix);
+	m_SensorPropertiesPage.m_bMatrixEditable = ( m_calibrationMethod != CALIB_BODNER_THREEMATRIX );
 	m_sheetMatrixShown = m_sensorToXYZMatrix;
 	m_SensorPropertiesPage.m_calibrationDate=GetCalibrationTime().Format("%#c");
 }

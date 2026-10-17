@@ -4130,7 +4130,8 @@ BEGIN
     IDS_SPECTRAL_CLEAR_FOR_MATRIX "This sensor uses a spectral (ccss/CSV) correction, applied inside the meter.\nCalibrating with a matrix would stack on top of it (double-correction).\n\nClear the spectral correction and calibrate with a matrix instead?"
     IDS_CALIB_METHOD_TITLE      "Calibration method"
     IDS_CALIB_METHOD_OUT_OF_SYNC "The calibration method selected in Options differs from the one currently applied to these measurements - they were not recomputed after the method was changed. The export will reflect the APPLIED method.\n\nTo recompute first, cancel and run Create using Existing Reference Measures (or a calibration command).\n\nContinue with the export?"
-    IDS_BODNER_SKIPPED_FMT      "%d measurement(s) recorded before this feature was enabled could not be recalibrated."
+    IDS_BODNER_SKIPPED_FMT      "%d measurement(s) have no raw sensor reading (recorded before raw capture, or edited by hand) and were left as they were."
+    IDS_CALIB_NEED_RAW_PRIMARIES "Measure the primaries and white again first: the stored ones have no raw sensor reading, and a matrix cannot be fitted from Bodner-corrected values."
     IDS_EXPORT_LAYOUT_MISMATCH  "Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data."
 END
 

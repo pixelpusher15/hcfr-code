@@ -4326,7 +4326,8 @@ BEGIN
     IDS_SPECTRAL_CLEAR_FOR_MATRIX "Questo sensore usa una correzione spettrale (ccss/CSV), applicata nel misuratore.\nUna calibrazione a matrice si sommerebbe ad essa (doppia correzione).\n\nCancellare la correzione spettrale e calibrare invece con una matrice?"
     IDS_CALIB_METHOD_TITLE      "Metodo di calibrazione"
     IDS_CALIB_METHOD_OUT_OF_SYNC "Il metodo di calibrazione selezionato nelle Opzioni differisce da quello attualmente applicato a queste misure: non sono state ricalcolate dopo il cambio di metodo. L'esportazione rifletterà il metodo APPLICATO.\n\nPer ricalcolare prima, annulla ed esegui 'Crea usando misure di riferimento esistenti' (o un comando di calibrazione).\n\nContinuare con l'esportazione?"
-    IDS_BODNER_SKIPPED_FMT      "Non è stato possibile ricalibrare %d misura(e) registrate prima dell'attivazione di questa funzione."
+    IDS_BODNER_SKIPPED_FMT      "%d misura(e) senza lettura grezza del sensore (registrate prima dell'acquisizione dei valori grezzi, o modificate a mano) sono state lasciate invariate."
+    IDS_CALIB_NEED_RAW_PRIMARIES "Misurare prima di nuovo i primari e il bianco: quelli memorizzati non hanno una lettura grezza del sensore, e da valori corretti con Bodner non si può calcolare una matrice."
     IDS_EXPORT_LAYOUT_MISMATCH  "Impossibile aggiungere a questo file: è stato esportato con opzioni Grezzo/Stimolo diverse. Esporta in un nuovo file, o ripeti l'esportazione con le stesse opzioni dei dati esistenti."
 END
 

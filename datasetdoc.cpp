@@ -1405,7 +1405,8 @@ void CDataSetDoc::AddMeasurement()
 }
 
 
-// One skipped-measurements notice shared by every Bodner recalibration path.
+// One skipped-measurements notice shared by every recalibration path: Bodner skips
+// every raw-less reading; a matrix path skips them when the sensor was on Bodner.
 static void ShowBodnerSkipCount(int nSkipped)
 {
 	if ( nSkipped <= 0 )
@@ -1472,7 +1473,8 @@ void CDataSetDoc::OnConfigureSensor()
             // to the previously configured matrix (saved into SensorMatrixMod above).
             Matrix fullMatrix = m_pSensor->GetSensorMatrix();
             Matrix deltaMatrix = fullMatrix * m_pSensor->GetSensorMatrixMod().GetInverse();
-            m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix );
+            ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix,
+                m_pSensor->CalibrationMethodAtBeginConfigure() != CALIB_BODNER_THREEMATRIX ) );
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
         }
 		}
@@ -2101,6 +2103,7 @@ void CDataSetDoc::OnCalibrationManual()
 
             ColorXYZ white(measuredColor[3].GetXYZValue());
             Matrix oldMatrix = m_pSensor->GetSensorMatrix();
+            int prevMethod = m_pSensor->GetCalibrationMethod();	// decides what the raw-less readings embody
             int calibrationMethod = GetConfig () -> m_calibrationMethod;
 
             if ( calibrationMethod == CALIB_BODNER_THREEMATRIX )
@@ -2172,7 +2175,7 @@ void CDataSetDoc::OnCalibrationManual()
                 {
                     // Ok: set adjustment matrix
                     Matrix newMatrix = ConvMatrix * oldMatrix;
-                    m_measure.ApplySensorAdjustmentMatrix( ConvMatrix, newMatrix );
+                    ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( ConvMatrix, newMatrix, prevMethod != CALIB_BODNER_THREEMATRIX ) );
                     if ( m_pSensor->HasSpectralCorrection() )	// see the Bodner branch above
                         m_pSensor->ClearSpectralCorrection();
                     m_pSensor->SetSensorMatrix(newMatrix);
@@ -2551,6 +2554,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 
     // check that measure matrix is inversible
     Matrix oldMatrix = m_pSensor->GetSensorMatrix();
+    int prevMethod = m_pSensor->GetCalibrationMethod();	// decides what the raw-less readings embody
     int calibrationMethod = GetConfig () -> m_calibrationMethod;
 
     // Select a white that is genuinely MEASURED on the test side (carries a raw
@@ -2671,6 +2675,14 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             // With raw available the correction is absolute (maps raw -> reference),
             // so it replaces the sensor matrix; ReapplyAdjustmentMatrix applies
             // fullMatrix * raw. Without raw, keep the incremental compose.
+            if ( prevMethod == CALIB_BODNER_THREEMATRIX && !haveRaw )
+            {
+                // Leaving Bodner needs raw primaries: its single matrix is identity and the
+                // raw-less readings embody an untracked one, so a matrix fitted on them is
+                // wrong for the raw readings it would then be applied to, and vice versa.
+                GetColorApp()->InMeasureMessageBox( _S(IDS_CALIB_NEED_RAW_PRIMARIES), _S(IDS_ERROR), MB_OK | MB_ICONERROR );
+                return FALSE;
+            }
             Matrix newMatrix = haveRaw ? ConvMatrix : ( ConvMatrix * oldMatrix );
             // Contract (Measure.h): delta = full * inverse(previousFull), previousFull = oldMatrix.
             // Passing ConvMatrix as the delta was correct only when !haveRaw (there newMatrix =
@@ -2679,7 +2691,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             // legacy (no-raw) measurements get ConvMatrix composed onto a value already corrected by
             // oldMatrix (double correction). Deriving it from newMatrix is correct in both branches.
             Matrix deltaMatrix = newMatrix * oldMatrix.GetInverse();
-            m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, newMatrix );
+            ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, newMatrix, prevMethod != CALIB_BODNER_THREEMATRIX ) );
             if ( m_pSensor->HasSpectralCorrection() )	// see the Bodner branch above
                 m_pSensor->ClearSpectralCorrection();
             m_pSensor->SetSensorMatrix(newMatrix);
@@ -5446,6 +5458,7 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		// guard as manual and existing-reference calibration.
 		BOOL	bLoaded = TRUE;
 		bool	bClearSpectral = false;
+		int		prevMethod = m_pSensor->GetCalibrationMethod();	// before the file replaces it
 
 		if(page.m_sensorTrainingMode != 1)
 		{
@@ -5481,7 +5494,8 @@ void CDataSetDoc::OnLoadCalibrationFile()
 				ShowBodnerSkipCount ( nSkipped );
 			}
 			else
-				m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
+				ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix(),
+					prevMethod != CALIB_BODNER_THREEMATRIX ) );
 			UpdateAllViews ( NULL, UPD_EVERYTHING );
 			SetModifiedFlag(TRUE);
 		}

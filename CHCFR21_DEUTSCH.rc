@@ -4148,7 +4148,8 @@ BEGIN
     IDS_SPECTRAL_CLEAR_FOR_MATRIX "Dieser Sensor verwendet eine Spektralkorrektur (ccss/CSV), die im Messgerät angewendet wird.\nEine Matrixkalibrierung würde sich darüberlegen (Doppelkorrektur).\n\nDie Spektralkorrektur löschen und stattdessen mit einer Matrix kalibrieren?"
     IDS_CALIB_METHOD_TITLE      "Kalibrierungsmethode"
     IDS_CALIB_METHOD_OUT_OF_SYNC "Die in den Optionen gewählte Kalibrierungsmethode weicht von der ab, die derzeit auf diese Messungen angewendet ist - sie wurden nach dem Wechsel der Methode nicht neu berechnet. Der Export gibt die ANGEWENDETE Methode wieder.\n\nUm zuerst neu zu berechnen, brechen Sie ab und führen Sie 'Mit vorhandenen Referenzmessungen erstellen' (oder einen Kalibrierungsbefehl) aus.\n\nMit dem Export fortfahren?"
-    IDS_BODNER_SKIPPED_FMT      "%d Messung(en), die vor Aktivierung dieser Funktion aufgezeichnet wurden, konnten nicht neu kalibriert werden."
+    IDS_BODNER_SKIPPED_FMT      "%d Messung(en) ohne Rohwert des Sensors (vor der Rohwerterfassung aufgezeichnet oder von Hand bearbeitet) wurden unverändert gelassen."
+    IDS_CALIB_NEED_RAW_PRIMARIES "Messen Sie zuerst Primärfarben und Weiß erneut: die gespeicherten haben keinen Rohwert des Sensors, und aus Bodner-korrigierten Werten lässt sich keine Matrix berechnen."
     IDS_EXPORT_LAYOUT_MISMATCH  "Zu dieser Datei kann nichts hinzugefügt werden: Sie wurde mit anderen Rohdaten-/Stimulus-Optionen exportiert. Exportieren Sie in eine neue Datei oder wiederholen Sie den Export mit denselben Optionen wie die vorhandenen Daten."
 END
 

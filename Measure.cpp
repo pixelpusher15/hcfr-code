@@ -6377,10 +6377,17 @@ BOOL CMeasure::AddMeasurement(CSensor *pSensor, CGenerator *pGenerator,  CGenera
 // be equivalent (deltaMatrix = fullMatrix * inverse(previous full matrix)) -
 // passing the same matrix for both is fine when there is no meaningful "delta"
 // (e.g. a freshly loaded calibration file replacing everything wholesale).
-static void ReapplyAdjustmentMatrix(CColor& color, const Matrix& deltaMatrix, const Matrix& fullMatrix)
+// bComposeLegacy false: the raw-less value embodies an untracked matrix (the sensor
+// was on Bodner, which skipped it) - leave it and count it, as the Bodner path does.
+static void ReapplyAdjustmentMatrix(CColor& color, const Matrix& deltaMatrix, const Matrix& fullMatrix, bool bComposeLegacy, int& nSkipped)
 {
 	if ( color.HasRawXYZValue() )
 		color.SetXYZValue(ColorXYZ(fullMatrix * color.GetRawXYZValue()));
+	else if ( !bComposeLegacy )
+	{
+		if ( color.isValid() )
+			nSkipped++;
+	}
 	else
 		color.applyAdjustmentMatrix(deltaMatrix);
 }
@@ -6403,79 +6410,88 @@ static bool ReapplyBodnerMatrix(CColor& color, const Matrix rawInv[3], const boo
 	return true;
 }
 
-void CMeasure::ApplySensorAdjustmentMatrix(const Matrix& deltaMatrix, const Matrix& fullMatrix)
+int CMeasure::ApplySensorAdjustmentMatrix(const Matrix& deltaMatrix, const Matrix& fullMatrix, bool bComposeLegacy)
 {
+	int nSkipped = 0;
 	for(int i=0;i<m_grayMeasureArray.GetSize();i++)  // Preserve sensor values
 	{
 				if (!i && m_bOverRideBlack)
 					m_grayMeasureArray[i] = m_userBlack;
 				else
-					ReapplyAdjustmentMatrix(m_grayMeasureArray[i], deltaMatrix, fullMatrix);
+					ReapplyAdjustmentMatrix(m_grayMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 
 	for(int i=0;i<m_nearBlackMeasureArray.GetSize();i++)  // Preserve sensor values
 	{
-		ReapplyAdjustmentMatrix(m_nearBlackMeasureArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_nearBlackMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<m_nearWhiteMeasureArray.GetSize();i++)  // Preserve sensor values
 	{
-		ReapplyAdjustmentMatrix(m_nearWhiteMeasureArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_nearWhiteMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<m_redSatMeasureArray.GetSize();i++)  // Preserve sensor values
 	{
-		ReapplyAdjustmentMatrix(m_redSatMeasureArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_redSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<m_greenSatMeasureArray.GetSize();i++)  // Preserve sensor values
 	{
-		ReapplyAdjustmentMatrix(m_greenSatMeasureArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_greenSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<m_blueSatMeasureArray.GetSize();i++)  // Preserve sensor values
 	{
-		ReapplyAdjustmentMatrix(m_blueSatMeasureArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_blueSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<m_yellowSatMeasureArray.GetSize();i++)  // Preserve sensor values
 	{
-		ReapplyAdjustmentMatrix(m_yellowSatMeasureArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_yellowSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<m_cyanSatMeasureArray.GetSize();i++)  // Preserve sensor values
 	{
-		ReapplyAdjustmentMatrix(m_cyanSatMeasureArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_cyanSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<m_magentaSatMeasureArray.GetSize();i++)  // Preserve sensor values
 	{
-		ReapplyAdjustmentMatrix(m_magentaSatMeasureArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_magentaSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<m_cc24SatMeasureArray.GetSize();i++)  // Preserve sensor values
 	{
-		ReapplyAdjustmentMatrix(m_cc24SatMeasureArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_cc24SatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)  // Preserve sensor values
 	{
-		ReapplyAdjustmentMatrix(m_cc24SatMeasureArray_master[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_cc24SatMeasureArray_master[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<m_profileMeasureArray.GetSize();i++)  // Preserve sensor values
 	{
-		ReapplyAdjustmentMatrix(m_profileMeasureArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_profileMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<3;i++)
 	{
-		ReapplyAdjustmentMatrix(m_primariesArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_primariesArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 	for(int i=0;i<3;i++)
 	{
-		ReapplyAdjustmentMatrix(m_secondariesArray[i], deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_secondariesArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	}
 
 	if (!m_bOverRideBlack)
-		ReapplyAdjustmentMatrix(m_OnOffBlack, deltaMatrix, fullMatrix);
+		ReapplyAdjustmentMatrix(m_OnOffBlack, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 
-	ReapplyAdjustmentMatrix(m_OnOffWhite, deltaMatrix, fullMatrix);
+	ReapplyAdjustmentMatrix(m_OnOffWhite, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 
-	ReapplyAdjustmentMatrix(m_PrimeWhite, deltaMatrix, fullMatrix);
+	ReapplyAdjustmentMatrix(m_PrimeWhite, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 
-	ReapplyAdjustmentMatrix(m_AnsiBlack, deltaMatrix, fullMatrix);
+	ReapplyAdjustmentMatrix(m_AnsiBlack, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 
-	ReapplyAdjustmentMatrix(m_AnsiWhite, deltaMatrix, fullMatrix);
+	ReapplyAdjustmentMatrix(m_AnsiWhite, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+
+	// Every measured saturation level, not only the one bound into the six arrays
+	// above (the bound level is mirrored there, so both copies are recomputed).
+	for ( size_t s = 0; s < m_satLevelStore.size(); s++ )
+		for ( int c = 0; c < 6; c++ )
+			for ( size_t i = 0; i < m_satLevelStore[s].sat[c].size(); i++ )
+				ReapplyAdjustmentMatrix(m_satLevelStore[s].sat[c][i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	return nSkipped;
 }
 
 int CMeasure::ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Matrix calMatrix[3])
@@ -6534,6 +6550,11 @@ int CMeasure::ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Ma
 	BODNER_REAPPLY(m_PrimeWhite);
 	BODNER_REAPPLY(m_AnsiBlack);
 	BODNER_REAPPLY(m_AnsiWhite);
+	// Every measured saturation level - see ApplySensorAdjustmentMatrix.
+	for ( size_t s = 0; s < m_satLevelStore.size(); s++ )
+		for ( int c = 0; c < 6; c++ )
+			for ( size_t i = 0; i < m_satLevelStore[s].sat[c].size(); i++ )
+				BODNER_REAPPLY(m_satLevelStore[s].sat[c][i]);
 
 	#undef BODNER_REAPPLY
 	return nSkipped;
@@ -8838,4 +8859,4 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 	double level = (abs(GetConfig()->m_DiffuseL-94.0)<0.5?92.254965:GetConfig()->m_DiffuseL) / 10000.;
 	if (!i && GetConfig()->m_CCMode == CPS && mode == 5 && DVD)
 		ccRef.SetRGBValue(ColorRGB(level,level,level),(GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4)?ContainerTransportReference(GetColorReference()):cRef);
-}
+}
