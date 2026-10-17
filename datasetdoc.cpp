@@ -901,8 +901,10 @@ BOOL CDataSetDoc::OnNewDocument()
                         // meter would double-correct - same guard as the other
                         // calibration entry points. Declining keeps the spectral
                         // correction and skips the training file.
-                        if ( ConfirmClearSpectralForMatrixCal(m_pSensor) )
-                            m_pSensor->LoadCalibrationFile(propSheet.m_Page2.m_trainingFileName);
+                        if ( ConfirmClearSpectralForMatrixCal(m_pSensor, false)
+                          && m_pSensor->LoadCalibrationFile(propSheet.m_Page2.m_trainingFileName)
+                          && m_pSensor->HasSpectralCorrection() )
+                            m_pSensor->ClearSpectralCorrection();	// the file is in; a refused one leaves both as they were
                     }
                     // Drain the leave-measures answer a spectral Browse may
                     // have latched: a new document has no measurements to
@@ -1785,6 +1787,9 @@ void CDataSetDoc::OnCalibrationExisting()
 // With clearNow false the caller has a step that can still fail after the
 // prompt (a file to read) and clears the spectral correction itself once
 // that step has succeeded, so a refused file leaves the meter as it was.
+// Every caller now works that way (clearNow = false): the clear sits at the
+// point where the new correction is installed, so a declined confirmation,
+// a failed Init, an unreadable file or a singular fit changes nothing.
 static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor, bool clearNow)
 {
 	if ( pSensor == NULL || !pSensor->HasSpectralCorrection() )
@@ -1809,7 +1814,7 @@ void CDataSetDoc::OnCalibrationManual()
 	CColor	measuredColor[4];
 	CString	strMsg, Title;
 
-	if ( !ConfirmClearSpectralForMatrixCal(m_pSensor) )
+	if ( !ConfirmClearSpectralForMatrixCal(m_pSensor, false) )
 		return;
 
 	if ( IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_RUN_MANUAL_CALIBRATION), "Manual Calibration", MB_YESNO | MB_ICONQUESTION ) )
@@ -2118,6 +2123,12 @@ void CDataSetDoc::OnCalibrationManual()
                     Matrix rawMatrix[3], calMatrix[3];
                     ComputeBodnerThreeMatrices(measuresRGBW, referencesRGBW, rawMatrix, calMatrix);
 
+                    // The fit is in: now the matrix correction replaces the spectral one (the prompt
+                    // was answered Yes; a meter with none is left alone). Clearing here rather than
+                    // at the prompt means a declined step, a failed Init or a singular matrix leaves
+                    // the meter exactly as it was.
+                    if ( m_pSensor->HasSpectralCorrection() )
+                        m_pSensor->ClearSpectralCorrection();
                     m_pSensor->SetBodnerMatrices(rawMatrix, calMatrix);
                     m_pSensor->SetCalibrationMethod(CALIB_BODNER_THREEMATRIX);
                     // Bodner keeps its correction in the sub-gamut matrices; the single sensor
@@ -2162,6 +2173,8 @@ void CDataSetDoc::OnCalibrationManual()
                     // Ok: set adjustment matrix
                     Matrix newMatrix = ConvMatrix * oldMatrix;
                     m_measure.ApplySensorAdjustmentMatrix( ConvMatrix, newMatrix );
+                    if ( m_pSensor->HasSpectralCorrection() )	// see the Bodner branch above
+                        m_pSensor->ClearSpectralCorrection();
                     m_pSensor->SetSensorMatrix(newMatrix);
                     m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
                     m_pSensor->SetCalibrationMethod(calibrationMethod);
@@ -2496,7 +2509,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 {
 	BOOL			bOk = FALSE;
 
-	if ( !ConfirmClearSpectralForMatrixCal(m_pSensor) )
+	if ( !ConfirmClearSpectralForMatrixCal(m_pSensor, false) )
 		return FALSE;
 
 	CDataSetDoc *	pDataRef = GetDataRef();
@@ -2598,6 +2611,12 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             Matrix rawMatrix[3], calMatrix[3];
             ComputeBodnerThreeMatrices(measuresRGBW, referencesRGBW, rawMatrix, calMatrix);
 
+            // The fit is in: now the matrix correction replaces the spectral one (the prompt
+            // was answered Yes; a meter with none is left alone). Clearing here rather than
+            // at the prompt means a declined step, a failed Init or a singular matrix leaves
+            // the meter exactly as it was.
+            if ( m_pSensor->HasSpectralCorrection() )
+                m_pSensor->ClearSpectralCorrection();
             m_pSensor->SetBodnerMatrices(rawMatrix, calMatrix);
             m_pSensor->SetCalibrationMethod(CALIB_BODNER_THREEMATRIX);
             // Reset the (now unused) single sensor matrix so a stale matrix from a prior
@@ -2661,6 +2680,8 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             // oldMatrix (double correction). Deriving it from newMatrix is correct in both branches.
             Matrix deltaMatrix = newMatrix * oldMatrix.GetInverse();
             m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, newMatrix );
+            if ( m_pSensor->HasSpectralCorrection() )	// see the Bodner branch above
+                m_pSensor->ClearSpectralCorrection();
             m_pSensor->SetSensorMatrix(newMatrix);
             m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
             m_pSensor->SetCalibrationMethod(calibrationMethod);
@@ -5423,13 +5444,18 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		// Loading a matrix calibration onto a ccss-corrected meter would
 		// double-correct (Init re-applies the ccss on every connect) - same
 		// guard as manual and existing-reference calibration.
-		if ( !ConfirmClearSpectralForMatrixCal(m_pSensor, false) )
-			return;
-
 		BOOL	bLoaded = TRUE;
+		bool	bClearSpectral = false;
 
 		if(page.m_sensorTrainingMode != 1)
+		{
+			// Only when a file is actually going to be read: with no training file
+			// there is no matrix arriving, so there is nothing to clear the ccss for.
+			if ( !ConfirmClearSpectralForMatrixCal(m_pSensor, false) )
+				return;
+			bClearSpectral = m_pSensor->HasSpectralCorrection();
 			bLoaded = m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
+		}
 
 		// A correction file that could not be read has left the sensor exactly
 		// as it was, so the document must not be touched either. Going on would
@@ -5440,7 +5466,7 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		{
 			// The file is in: now the matrix correction replaces the spectral one
 			// (the prompt above was answered Yes; a meter with none is left alone).
-			if ( m_pSensor->HasSpectralCorrection() )
+			if ( bClearSpectral )
 				m_pSensor->ClearSpectralCorrection();
 			m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
 			// LoadCalibrationFile (COneDeviceSensor::Serialize) has already restored the full
