@@ -26,6 +26,8 @@
 #include "NewDocPropertyPages.h"
 #include "ArgyllMeterWrapper.h"
 
+extern void ArgyllExcludeActiveGeneratorComPorts();	// ArgyllSensor.cpp
+
 #ifdef _DEBUG
 #undef THIS_FILE
 static char BASED_CODE THIS_FILE[] = __FILE__;
@@ -133,6 +135,9 @@ void CSensorSelectionPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_SENSORCHOICE_COMBO, m_sensorChoiceCtrl);
     if(m_sensorChoiceCtrl.GetCount() == 0)
     {
+        // Shared with CArgyllSensor::Serialize - see ArgyllSensor.cpp.
+        ArgyllExcludeActiveGeneratorComPorts();
+
         std::string errorMessage;
         ArgyllMeterWrapper::ArgyllMeterWrappers argyllMeters = ArgyllMeterWrapper::getDetectedMeters(errorMessage);
         if(!errorMessage.empty())

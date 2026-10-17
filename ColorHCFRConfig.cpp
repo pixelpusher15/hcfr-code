@@ -967,11 +967,15 @@ void CColorHCFRConfig::RefreshUse10bitLevels()
 	// reference grid can never match that wire: the global 10-bit checkbox
 	// only takes effect on the 10-bit-capable outputs (madVR 2, PGenerator 6),
 	// alongside their dedicated per-output flags.
+	// 10-bit-capable outputs: madVR (2), PGenerator (6), Murideo Seven-G (9). Each has a
+	// dedicated per-output flag (TenBitPGen / TenBitMadvr / MuriBitDepth 1=10bit) so the
+	// page's reference grid matches exactly what that generator puts on the wire.
 	int genMode = GetProfileInt("GDIGenerator","DisplayMode",0);
-	bool tenBitCapable = ( genMode == 2 || genMode == 6 );
+	bool tenBitCapable = ( genMode == 2 || genMode == 6 || genMode == 9 );
 	m_bUse10bitLevels = ( ( m_bUse10bit && tenBitCapable ) ||
 		( genMode == 6 && GetProfileInt("GDIGenerator","TenBitPGen",0) ) ||
-		( genMode == 2 && GetProfileInt("GDIGenerator","TenBitMadvr",0) ) )
+		( genMode == 2 && GetProfileInt("GDIGenerator","TenBitMadvr",0) ) ||
+		( genMode == 9 && GetProfileInt("GDIGenerator","MuriBitDepth",0) == 1 ) )
 		? TRUE : FALSE;
 	m_bRGB16_235 = GetProfileInt("GDIGenerator","RGB_16_235",1) ? TRUE : FALSE;
 }
