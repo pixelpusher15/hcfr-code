@@ -1996,10 +1996,14 @@
 #define IDS_PP_MINUTES                  59628
 #define IDS_PP_HOURS                    59629
 // --- Generator (DVDO/Murideo) localized UI strings (generators branch) ---
-// IDs start at 59632; 59630/59631 are reserved by csv-patchlist (IDS_CSV_*).
-#define IDS_GEN_PATTERN_GROUP             59632
-#define IDS_GEN_PATTERN                   59633
-#define IDS_GEN_SHOW_PATTERN              59634
+// IDs start at 59635; 59630/59631 are reserved by csv-patchlist (IDS_CSV_*), and
+// 59632-59634 went to the 3D viewer (IDS_3DVIEW_GAMUTCOV/GAMUTVOL) and the profile
+// pane (IDS_PP_MEASURINGREFS) while this branch was open. The three that had claimed
+// them moved to 60000-60002: a second string on an id is a resource-compiler error
+// (RC2151), not a runtime mislabel.
+#define IDS_GEN_PATTERN_GROUP             60000
+#define IDS_GEN_PATTERN                   60001
+#define IDS_GEN_SHOW_PATTERN              60002
 #define IDS_GEN_PATTERNS_OFF              59635
 #define IDS_GEN_REFRESH                   59636
 #define IDS_GEN_COM_PORT                  59637

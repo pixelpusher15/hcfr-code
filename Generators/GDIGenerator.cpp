@@ -1348,7 +1348,7 @@ bool CGDIGenerator_DvdoTestConnection(const CString& comPort, CString& msgOut)
 	if (!opened)
 	{
 		msgOut = s_dvdoDiag;
-		if (!wasOpen) DvdoClose();
+		DvdoClose();		// idempotent; nothing of ours may stay open after a failed probe
 		return false;
 	}
 	// Opening a COM port only proves the PORT exists - a port belonging to any other adapter
@@ -1361,7 +1361,14 @@ bool CGDIGenerator_DvdoTestConnection(const CString& comPort, CString& msgOut)
 	bool answered = DvdoQuery("A8", name) && !name.IsEmpty();
 	if (answered) msgOut.Format(LS(IDS_GEN_DVDO_CONNECTED), (LPCTSTR)comPort, (LPCTSTR)name);
 	else          msgOut.Format(LS(IDS_GEN_DVDO_NO_RESPOND), (LPCTSTR)comPort);
-	if (!wasOpen)
+	// A port that failed to identify is closed UNCONDITIONALLY, as Apply does. wasOpen
+	// was sampled before the adopting close above, so it describes whatever port was
+	// live BEFORE the switch - with a different port open on entry, the only-close-what-
+	// we-opened rule kept the just-adopted wrong port open, Close wrote nothing, and the
+	// next sweep reused that handle (DvdoOpen returns early on an open port).
+	if (!answered)
+		DvdoClose();
+	else if (!wasOpen)
 		DvdoClose();
 	return answered;
 }
@@ -2639,6 +2646,11 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 		HINTERNET hU = hI ? InternetOpenUrl(hI, url, NULL, 0, INTERNET_FLAG_NO_UI | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0) : NULL;
 		DWORD st = 0, len = sizeof(st), idx = 0; bool ok = (hU != NULL);
 		if (hU) { HttpQueryInfo(hU, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &st, &len, &idx); InternetCloseHandle(hU); }
+		// Unreached: forget the address again. Left in s_muriIp, a mistyped address would
+		// outlive this failure - the non-establishing MuriConnect keeps any non-empty live
+		// address, and the sweep's Retry re-tries the same one - until a Release. Empty,
+		// the next operation re-adopts the configured (last proven) address.
+		if (!ok) s_muriIp.Empty();
 		if (ok)
 		{
 			CString sum;
@@ -2654,7 +2666,12 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 	bool wasOpen = s_muriOpen;	// same only-close-what-we-opened rule as the DVDO probe
 	if (!MuriConnect(false, ip, comPort, true /*Detect/Test adopts the selected port*/)) { msgOut = s_muriDiag; return false; }
 	bool isMuri = MuriSerialIdentify(comPort, msgOut);
-	if (!wasOpen)
+	// Failed to identify: close UNCONDITIONALLY, as MuriApplyOutput does. MuriConnect
+	// (establish) closed whatever was open and opened the SELECTED port, so wasOpen says
+	// nothing about this one - and the measurement path reuses an open handle without
+	// re-checking it, with no reply read on a serial patch send. Left adopted, every
+	// patch of the next sweep would be written into the wrong adapter and "succeed".
+	if (!isMuri || !wasOpen)
 		MuriClose();
 	return isMuri;
 }
@@ -2682,6 +2699,7 @@ bool CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString
 		if (!MuriHttpReachable(e))
 		{
 			msgOut.Format(LS(IDS_GEN_MURI_UNREACHABLE), (LPCTSTR)s_muriIp, (unsigned long)e);
+			s_muriIp.Empty();	// adopted on the way in; see the Detect arm
 			return false;
 		}
 	}
