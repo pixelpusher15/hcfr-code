@@ -47,6 +47,7 @@ CSensor::CSensor()
 	m_sensorToXYZMatrix=IdentityMatrix(3);
 	m_sensorToXYZMatrixMod=IdentityMatrix(3);
 	m_calibrationMethod=CALIB_HCFR_DEFAULT;
+	m_fitBasis=FIT_BASIS_NATIVE;		// a fresh sensor has no legacy to honor; m_spectral starts empty
 	for ( int k = 0; k < 3; k++ )
 	{
 		m_bodnerRawMatrix[k]=IdentityMatrix(3);
@@ -77,6 +78,8 @@ void CSensor::Copy(CSensor * p)
 	m_sensorToXYZMatrixMod = p->m_sensorToXYZMatrixMod;
 	m_calibrationTime = p->m_calibrationTime;
 	m_calibrationMethod = p->m_calibrationMethod;
+	m_spectral = p->m_spectral;
+	m_fitBasis = p->m_fitBasis;
 	for ( int k = 0; k < 3; k++ )
 	{
 		m_bodnerRawMatrix[k] = p->m_bodnerRawMatrix[k];
@@ -114,8 +117,11 @@ void CSensor::Serialize(CArchive& archive)
 		// v3 (issue #193) is the v1 payload followed by a tagged extension
 		// trailer (ArchiveTags.h): the method as SENSOR_CALIBRATION_METHOD, and
 		// the six Bodner sub-gamut matrices as SENSOR_BODNER_MATRICES only when
-		// that method is in force. v2 was the unreleased Bodner layout and is
-		// retired, never written again.
+		// that method is in force, the fit basis as SENSOR_FIT_BASIS, and the
+		// spectral correction record as SENSOR_SPECTRAL_CORRECTION only when one
+		// is present. v2 was the unreleased Bodner layout and is retired, never
+		// written again. The v1 stream carries none of these: it is written only
+		// for the DEFAULT method, and the record is dropped there by design.
 		int version = ( m_calibrationMethod == CALIB_HCFR_DEFAULT
 		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
 						? 1 : 3;
@@ -136,6 +142,15 @@ void CSensor::Serialize(CArchive& archive)
 					m_bodnerRawMatrix[k].Serialize(value);
 				for ( k = 0; k < 3; k++ )
 					m_bodnerCalMatrix[k].Serialize(value);
+				ext.EndTag ();
+			}
+
+			ext.BeginTag ( ArchiveTag::SENSOR_FIT_BASIS ) << (int) m_fitBasis;
+			ext.EndTag ();
+
+			if ( m_spectral.IsPresent() )
+			{
+				m_spectral.Serialize ( ext.BeginTag ( ArchiveTag::SENSOR_SPECTRAL_CORRECTION ) );
 				ext.EndTag ();
 			}
 
@@ -167,6 +182,8 @@ void CSensor::Serialize(CArchive& archive)
 
 			bool bSawBodnerMatrices = false;
 			m_calibrationMethod = CALIB_HCFR_DEFAULT;		// when the tag is absent
+			m_fitBasis = FIT_BASIS_UNKNOWN;					// a file from before the basis field
+			m_spectral.Clear();								// no spectral correction recorded
 			while ( ext.Next(tag, cb) )
 			{
 				switch ( tag )
@@ -179,7 +196,7 @@ void CSensor::Serialize(CArchive& archive)
 						// as a file from a newer HCFR.
 						int method;
 						ext.Value() >> method;
-						if ( method < CALIB_CLASSIC_NIST || method > CALIB_FCMM_NO_LUM )
+						if ( method < CALIB_CLASSIC_NIST || method > CALIB_SPECTRAL_SAMPLE )
 							throw new CNewerSchemaException ( "CSensor", method, false );
 						m_calibrationMethod = method;
 						break;
@@ -197,6 +214,30 @@ void CSensor::Serialize(CArchive& archive)
 						break;
 					}
 
+					case ArchiveTag::SENSOR_FIT_BASIS:
+					{
+						// Same rule as the method: a basis this build does not know
+						// would compose (or not) the wrong matrices.
+						int basis;
+						ext.Value() >> basis;
+						if ( basis < FIT_BASIS_UNKNOWN || basis > FIT_BASIS_DRIVER_CORRECTED )
+							throw new CNewerSchemaException ( "CSensor", basis, false );
+						m_fitBasis = basis;
+						break;
+					}
+
+					case ArchiveTag::SENSOR_SPECTRAL_CORRECTION:
+					{
+						// A written record always names its source and its basis; a
+						// value outside the known ones comes from a newer HCFR.
+						m_spectral.Serialize ( ext.Value() );
+						if ( m_spectral.source < SPECTRAL_SOURCE_FILE || m_spectral.source > SPECTRAL_SOURCE_DISPLAY_TYPE )
+							throw new CNewerSchemaException ( "CSensor", m_spectral.source, false );
+						if ( m_spectral.basis < FIT_BASIS_NATIVE || m_spectral.basis > FIT_BASIS_DRIVER_CORRECTED )
+							throw new CNewerSchemaException ( "CSensor", m_spectral.basis, false );
+						break;
+					}
+
 					default:
 						ext.Skip();
 						break;
@@ -209,9 +250,18 @@ void CSensor::Serialize(CArchive& archive)
 			// sub-gamuts and report success.
 			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX && ! bSawBodnerMatrices )
 				AfxThrowArchiveException ( CArchiveException::badSchema );
+			// Same reason for the spectral method: its matrix is the record's
+			// correction, and without the record nothing says what it corrects.
+			if ( UsesSpectralMethod() && ! m_spectral.IsPresent() )
+				AfxThrowArchiveException ( CArchiveException::badSchema );
 		}
 		else
 		{
+			// No trailer: no basis (UNKNOWN, treated as driver-corrected) and no
+			// spectral correction record.
+			m_fitBasis = FIT_BASIS_UNKNOWN;
+			m_spectral.Clear();
+
 			// Pre-existing sensor files predate the method field. The legacy HCFR
 			// correction is NIST four color / FCMM with luminance scaling
 			// (CALIB_HCFR_DEFAULT): ComputeConversionMatrix's primary path, and
@@ -244,6 +294,8 @@ void CSensor::BeginConfigure()
 {
 	m_cfgSnapMatrix   = m_sensorToXYZMatrix;
 	m_cfgSnapMethod   = m_calibrationMethod;
+	m_cfgSnapSpectral = m_spectral;
+	m_cfgSnapFitBasis = m_fitBasis;
 	for ( int k = 0; k < 3; k++ )
 	{
 		m_cfgSnapBodnerRaw[k] = m_bodnerRawMatrix[k];
@@ -259,6 +311,8 @@ void CSensor::CancelConfigure()
 {
 	m_sensorToXYZMatrix = m_cfgSnapMatrix;
 	m_calibrationMethod = m_cfgSnapMethod;
+	m_spectral          = m_cfgSnapSpectral;
+	m_fitBasis          = m_cfgSnapFitBasis;
 	// m_isModified is deliberately NOT restored: the Argyll page's Calibrate
 	// button commits device settings (reading/display type, adapt, ...) and
 	// re-inits the meter mid-dialog, and those legitimately survive a Cancel.
@@ -283,6 +337,8 @@ bool CSensor::CorrectionChangedSinceBeginConfigure() const
 		return true;
 	if ( m_sensorToXYZMatrix != m_cfgSnapMatrix )
 		return true;
+	if ( m_fitBasis != m_cfgSnapFitBasis || m_spectral != m_cfgSnapSpectral )
+		return true;
 	for ( int k = 0; k < 3; k++ )
 		if ( m_bodnerRawMatrix[k] != m_cfgSnapBodnerRaw[k]
 		  || m_bodnerCalMatrix[k] != m_cfgSnapBodnerCal[k] )
@@ -302,15 +358,15 @@ void CSensor::GetPropertiesSheetValues()
 {
 	// Compare against what the page was SHOWN, not against the live matrix. Code can
 	// change m_sensorToXYZMatrix while the sheet is open - loading a spectral .ccss on
-	// the Argyll page forces it to identity so the meter's own correction is the only
-	// one in play - and m_SensorPropertiesPage still holds the value we put there in
+	// the Argyll page replaces it with the spectral correction - and
+	// m_SensorPropertiesPage still holds the value we put there in
 	// SetPropertiesSheetValues. Testing the live matrix makes that stale page value look
 	// like an edit, so OK silently restored the matrix the .ccss had just retired and
 	// every later reading was corrected twice, in the meter and again here.
 	//
 	// Only a real grid edit moves the page away from m_sheetMatrixShown, and that still
 	// wins - a matrix typed in by hand while a spectral correction is loaded is the user
-	// asking for it, and ConfirmClearSpectralForMatrixCal covers the calibration paths.
+	// asking for it, and ConfirmMatrixCalOverSpectral covers the calibration paths.
 	if(	m_SensorPropertiesPage.GetMatrix() != m_sheetMatrixShown )
 	{
 		m_sensorToXYZMatrix=m_SensorPropertiesPage.GetMatrix();
@@ -363,12 +419,55 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 		result.SetXYZValue(SelectAndApplyBodnerMatrixInv(result.GetXYZValue(), m_bodnerRawInverse, m_bodnerRawInvertible, m_bodnerCalMatrix));
 	else
-		result.applyAdjustmentMatrix(m_sensorToXYZMatrix);
+		result.applyAdjustmentMatrix(GetEffectiveMatrix());
 
 	if ( bMeasureOk )
 		GetColorApp()->PlayMeasureSound();
 
     return result;
+}
+
+// Why the document's recompute baselines (OnConfigureSensor's SensorMatrixMod and
+// full matrix, the oldMatrix of ComputeAdjustmentMatrix and of the manual fit,
+// OnLoadCalibrationFile's re-apply) use this rather than GetSensorMatrix(): every
+// stored reading is GetEffectiveMatrix() * raw. When a matrix fitted before the
+// basis field is composed on a spectral correction, GetSensorMatrix() alone is not
+// what the readings went through, and a delta or a recompute built on it would
+// drop the spectral correction from some readings and keep it on others.
+Matrix CSensor::GetEffectiveMatrix() const
+{
+	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
+		return Matrix::IdentityMatrix(3);
+	// The spectral method's matrix IS the record's correction: never compose it twice.
+	if ( ! UsesSpectralMethod() && m_fitBasis != FIT_BASIS_NATIVE && m_spectral.IsPresent() )
+		return m_sensorToXYZMatrix * m_spectral.correction;
+	return m_sensorToXYZMatrix;
+}
+
+void CSensor::ClearSpectralCorrection()
+{
+	m_spectral.Clear();
+	if ( UsesSpectralMethod() )
+	{
+		// The method was the spectral correction itself: nothing is left to apply.
+		SetSensorMatrix(Matrix::IdentityMatrix(3));
+		SetCalibrationMethod(CALIB_HCFR_DEFAULT);
+		m_fitBasis = FIT_BASIS_NATIVE;
+	}
+	SetModifiedFlag(TRUE);
+}
+
+void CSensor::SpectralSupersededByMatrixFit()
+{
+	// Nothing to do without a record, or when what was just installed is itself
+	// the spectral method (a correction file that carries one).
+	if ( ! m_spectral.IsPresent() || UsesSpectralMethod() )
+		return;
+	// A record whose correction the driver applies (its matrices are not exposed)
+	// would stack under the new matrix: clear it, the sample with it. A native
+	// record stays, dormant: raw is native and the matrix was fitted on raw.
+	if ( m_spectral.basis != FIT_BASIS_NATIVE )
+		ClearSpectralCorrection();
 }
 
 CColor CSensor::MeasureGray(double aLevel)

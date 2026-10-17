@@ -56,7 +56,6 @@ public:
     BOOL        m_DisableAIO;   // Disable Rev. B AIO measurement mode (i1d3 / ColorMunki Display)
     CString     m_spectralCorrectionPath;   // canonical .ccss loaded onto the meter (empty = none)
     CString     m_spectralCorrectionDesc;   // description shown in the UI
-    BOOL        m_spectralApplyLeaveMeasures; // transient: last apply asked to leave measures mixed (not strip to raw)
     CString     m_cfgSnapSpectralPath;      // BeginConfigure/CancelConfigure snapshot
     CString     m_cfgSnapSpectralDesc;
     // Parsed-spectral-sample cache so Init does not re-read the file per
@@ -88,13 +87,13 @@ public:
     void Calibrate();
 
     // Spectral correction (restores the 2012 ccss apply path, extended to .csv).
-    // Loads a .ccss or ColourSpace .csv onto the meter so Argyll applies a
-    // display-specific correction to every read. Forces the HCFR-side matrix to
-    // identity so the two correction regimes don't stack.
+    // Loads a .ccss or ColourSpace .csv onto the meter, derives the correction
+    // from the driver's two calibration matrices and makes it the sensor's
+    // method (CALIB_SPECTRAL_SAMPLE): HCFR applies it to native readings like
+    // any single-matrix method. Meters whose matrices are not exposed keep the
+    // driver applying the sample (identity record, driver-corrected basis).
     bool ApplySpectralCorrection(const CString& filePath);
     virtual void ClearSpectralCorrection();
-    virtual BOOL TakePendingSpectralLeaveMeasures();
-    virtual BOOL HasSpectralCorrection() const { return !m_spectralCorrectionPath.IsEmpty(); }
     CString GetSpectralCorrectionDesc() const { return m_spectralCorrectionDesc; }
     // Extend the base snapshot with the spectral state, which a Browse in the
     // property page commits (device + members) before the sheet closes.
@@ -118,6 +117,9 @@ public:
 
 private:
     virtual CColor MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int displaymode = 0);
+    // Brings the spectral record in line with what the driver applies after
+    // Init (see the .cpp). fileApplied: the browsed sample was re-applied.
+    void SyncSpectralRecordFromMeter(bool fileApplied);
 };
 
 #endif // !defined(AFX_ARGYLLSENSOR_H__1493C213_6A02_44C5_8EB7_55B469092E14__INCLUDED_)

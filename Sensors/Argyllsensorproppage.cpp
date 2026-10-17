@@ -341,7 +341,7 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
     // row was not built at all, so there was no Clear button to obey that instruction
     // with, nothing else clears m_spectralCorrectionPath, and the stale correction
     // kept HasSpectralCorrection() TRUE, which additionally blocks every matrix
-    // calibration behind ConfirmClearSpectralForMatrixCal. Browse is disabled instead
+    // calibration behind ConfirmMatrixCalOverSpectral. Browse is disabled instead
     // of hidden in that state, since loading a new sample needs a live meter.
     // Programmatic so no .rc template is needed.
     // Placed directly under the calibration group; the Debug checkbox follows it.
@@ -402,22 +402,33 @@ void CArgyllSensorPropPage::RefreshSpectralStatus()
     if ( m_pSensor == NULL || !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
         return;
     CString s, fmt;
-    fmt.LoadString(IDS_SPECTRAL_STATUS_FMT);
-    if ( m_pSensor->HasSpectralCorrection() )
+    const SpectralCorrectionRecord & rec = m_pSensor->GetSpectralRecord();
+    if ( rec.IsPresent() )
     {
-        CString desc = m_pSensor->GetSpectralCorrectionDesc();
+        CString desc = rec.description.c_str();
+        if ( desc.IsEmpty() )
+            desc = m_pSensor->GetSpectralCorrectionDesc();
         if ( desc.IsEmpty() )
             desc.LoadString(IDS_SPECTRAL_LOADED);
+        if ( !m_pSensor->UsesSpectralMethod() )
+            fmt.LoadString(IDS_SPECTRAL_STATUS_INACTIVE_FMT);  // present, dormant under a matrix method
+        else if ( rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE )
+            fmt.LoadString(IDS_SPECTRAL_STATUS_DISPTYPE_FMT);
+        else
+            fmt.LoadString(IDS_SPECTRAL_STATUS_FMT);
         s.Format(fmt, (LPCSTR)desc);
     }
     else
     {
         CString none; none.LoadString(IDS_SPECTRAL_NONE);
+        fmt.LoadString(IDS_SPECTRAL_STATUS_FMT);
         s.Format(fmt, (LPCSTR)none);
     }
     m_spectralStatus.SetWindowText(s);
+    // Clear only a browsed file. A Display Type correction is changed through
+    // the Display Type list, which is what removes it.
     if ( ::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
-        m_spectralClearBtn.EnableWindow(m_pSensor->HasSpectralCorrection());
+        m_spectralClearBtn.EnableWindow( rec.IsPresent() && rec.source == SPECTRAL_SOURCE_FILE );
 }
 
 void CArgyllSensorPropPage::OnSpectralBrowse()
