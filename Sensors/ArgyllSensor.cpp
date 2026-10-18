@@ -88,6 +88,21 @@ static void NoticeLoadedDisplayTypeOnce(const std::string& description)
     GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONINFORMATION );
 }
 
+// The stored correction file is gone while its record, complete for the connected
+// unit, keeps applying: told once per session.
+static void NoticeSpectralFileMovedOnce(const CString& path)
+{
+    static BOOL s_noticedSpectralFileMoved = FALSE;
+    if ( s_noticedSpectralFileMoved )
+        return;
+    s_noticedSpectralFileMoved = TRUE;
+    CString msg, fmt, title;
+    fmt.LoadString ( IDS_SPECTRAL_FILE_MOVED_NOTICE );
+    title.LoadString ( IDS_SPECTRAL_TITLE );
+    msg.Format ( fmt, (LPCSTR) path );
+    GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONINFORMATION );
+}
+
 // A FILE-source record derived for another unit that cannot be derived again for
 // the connected one (no correction file, or one that cannot be read): it stays in
 // use unchanged, and the user is told once per session. Only when both serials are
@@ -999,7 +1014,13 @@ void CArgyllSensor::SyncSpectralRecordFromMeter()
     const bool fileRecord = ( m_spectral.source == SPECTRAL_SOURCE_FILE );
     const bool serialChanged = ( m_spectral.meterSerial != serial );
     if ( fileRecord && !serialChanged && m_spectral.observer == observer )
+    {
+        // Complete for this unit: used without opening the file. Say so once if the
+        // file is gone, so a moved .ccss is not found out only on another meter.
+        if ( ::GetFileAttributes((LPCSTR)m_spectralCorrectionPath) == INVALID_FILE_ATTRIBUTES )
+            NoticeSpectralFileMovedOnce ( m_spectralCorrectionPath );
         return;
+    }
 
     SpectralSample ss;
     Matrix native, current, corr, toNative;

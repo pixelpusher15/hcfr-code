@@ -4144,6 +4144,7 @@ BEGIN
     IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "The loaded document carries a Display Type spectral correction (%s) that is not the current Display Type. It stays in use until you change the Display Type."
     IDS_SPECTRAL_COMPOSE_WARN   "The file you are loading has no fit-basis record. The spectral correction will be applied on top of its matrix (as HCFR 4.1 did). Continue?"
     IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "The spectral correction in use (%s) was derived for meter %s, not the connected one, and there is no correction file here to derive it again from. It stays in use. To derive it for this meter, browse its correction file in the sensor properties."
+    IDS_SPECTRAL_FILE_MOVED_NOTICE "The spectral correction file is no longer at its stored location:\n\n%s\n\nThe correction derived from it stays in use for this meter. To use the document with another meter, or to derive it again, browse the file in the sensor properties."
     IDS_EXPORT_LAYOUT_MISMATCH  "Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data."
     IDS_SCHEMA_NEWER        "This file was written by a newer version of HCFR (%s version %d). Update HCFR to open it."
     IDS_SCHEMA_UNRELEASED   "This file was written by an unreleased development build of HCFR (%s version %d) and cannot be read. Regenerate it."
