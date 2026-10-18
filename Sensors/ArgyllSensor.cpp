@@ -374,8 +374,10 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
     // reading is uncorrected (a moved/edited file, or a meter without spectral
     // support), so warn once per session and leave the state for the user to
     // re-apply or clear in the sensor properties. Startup itself is never blocked.
-    bool spectralFileApplied = false;
-    if ( !m_spectralCorrectionPath.IsEmpty() )
+    // Meters whose calibration matrices are exposed (the i1d3 family) hold no
+    // spectral state while HCFR measures: the correction was derived at Browse and
+    // HCFR applies it, so there is nothing to re-apply to the driver.
+    if ( !m_spectralCorrectionPath.IsEmpty() && !m_meter->canExposeCalibrationMatrices() )
     {
         bool applied = false;
         try
@@ -424,9 +426,31 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
                 GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
             }
         }
-        spectralFileApplied = applied;
+        else if ( m_spectral.source != SPECTRAL_SOURCE_FILE )
+        {
+            // A sample loaded by a build that kept no record: record it now, as
+            // ApplySpectralCorrection would have (the driver applies it; identity
+            // matrices, driver-corrected basis).
+            SpectralCorrectionRecord rec;
+            rec.source = SPECTRAL_SOURCE_FILE;
+            rec.description = (LPCSTR) m_spectralCorrectionDesc;
+            unsigned long long hash = 0;
+            if ( !Fnv1a64File((LPCSTR)m_spectralCorrectionPath, hash) )
+                hash = 0;
+            rec.fileHash = hash;
+            rec.observer = m_meter->getObType();
+            rec.meterSerial = m_meter->getSerialNumber();
+            rec.basis = FIT_BASIS_DRIVER_CORRECTED;
+            SetSpectralRecord(rec);
+            if ( GetCalibrationMethod() == CALIB_HCFR_DEFAULT && GetSensorMatrix().IsIdentity() )
+            {
+                SetCalibrationMethod(CALIB_SPECTRAL_SAMPLE);
+                SetFitBasis(rec.basis);
+            }
+            SetModifiedFlag(TRUE);
+        }
     }
-    SyncSpectralRecordFromMeter(spectralFileApplied);
+    SyncSpectralRecordFromMeter();
 
     //Alert user if in ambient/lux mode
     if (bForSimultaneousMeasures)
@@ -501,24 +525,40 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
             return false;
     }
 
-    // Load onto the meter (Argyll driver) if connected and capable. The wrapper
-    // refuses a sample that did not change the driver's matrix; its message is
-    // what the user sees.
-    try
+    // A meter whose matrices are exposed: the driver's own fit turns the sample into
+    // a matrix, read out once, and the driver is back to native before any reading
+    // (the wrapper restores it on every path). Any other meter keeps the sample
+    // loaded and applies it itself.
+    const bool exposable = ( m_meter && m_meter->canExposeCalibrationMatrices() );
+    Matrix native, current;
+    if ( exposable )
     {
-        if ( m_meter && m_meter->doesMeterSupportSpectralSamples() )
-            m_meter->loadSpectralSample(ss);
+        std::string why;
+        if ( !m_meter->deriveSpectralCalibration(ss, native, current, why) )
+        {
+            CString sTitle; sTitle.LoadString( IDS_SPECTRAL_TITLE );
+            GetColorApp()->InMeasureMessageBox( why.c_str(), sTitle, MB_OK+MB_ICONHAND );
+            return false;
+        }
     }
-    catch ( std::logic_error & e )
+    else
     {
-        CString sTitle; sTitle.LoadString( IDS_SPECTRAL_TITLE );
-        GetColorApp()->InMeasureMessageBox( e.what(), sTitle, MB_OK+MB_ICONHAND );
-        return false;
+        try
+        {
+            if ( m_meter && m_meter->doesMeterSupportSpectralSamples() )
+                m_meter->loadSpectralSample(ss);
+        }
+        catch ( std::logic_error & e )
+        {
+            CString sTitle; sTitle.LoadString( IDS_SPECTRAL_TITLE );
+            GetColorApp()->InMeasureMessageBox( e.what(), sTitle, MB_OK+MB_ICONHAND );
+            return false;
+        }
     }
 
-    // The record. A second Browse simply overwrites it: the driver replaces its
-    // samples rather than adding to them, and the wrapper divides out whatever it
-    // applies now, so corrections cannot stack.
+    // The record. A second Browse simply overwrites it: each derive starts and ends
+    // with the driver native (and a driver-applied sample is replaced, not added
+    // to), so corrections cannot stack.
     SpectralCorrectionRecord record;
     record.source = SPECTRAL_SOURCE_FILE;
     const char *display = ss.getDisplay();
@@ -535,22 +575,15 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
         record.observer = m_meter->getObType();
         record.meterSerial = m_meter->getSerialNumber();
     }
-    if ( m_meter && m_meter->canExposeCalibrationMatrices() )
+    if ( exposable )
     {
-        // HCFR applies the correction to the native readings the wrapper reports.
-        Matrix native, current, corr, toNative;
+        // HCFR applies the correction to the native readings the driver reports.
+        Matrix corr, toNative;      // toNative: unused, the driver is native
         std::string why;
-        bool derived = m_meter->getCalibrationMatrices(native, current);
-        if ( !derived )
-            why = "The meter's calibration matrices could not be read back.";
-        else
-            derived = DeriveSpectralCorrection(native, current, true, corr, toNative, why);
-        if ( !derived )
+        if ( !DeriveSpectralCorrection(native, current, true, corr, toNative, why) )
         {
             CString sTitle; sTitle.LoadString( IDS_SPECTRAL_TITLE );
             GetColorApp()->InMeasureMessageBox( why.c_str(), sTitle, MB_OK+MB_ICONHAND );
-            try { m_meter->resetSpectralSample(); }
-            catch ( std::logic_error & ) {}
             return false;
         }
         record.nativeCal = native;
@@ -604,126 +637,63 @@ void CArgyllSensor::ClearSpectralCorrection()
     CSensor::ClearSpectralCorrection();
 }
 
-// Init runs per sweep (and per single measurement), so this is cheap and
-// idempotent and shows no dialog but the once-per-session unit warning. It keeps
-// the record in line with what the driver applies now: a browsed sample re-derived
-// against the connected unit, or a ccss/ccmx Display Type entry recorded (and
-// adopted as the method when the sensor has no fit). Readings already taken keep
-// their values; the next Sensor -> Configure OK recomputes them from raw
-// (OnConfigureSensor's CorrectionChangedSinceBeginConfigure sees the record or
-// method change, because the Display Type is changed through that sheet and this
-// Init runs inside its OK).
-void CArgyllSensor::SyncSpectralRecordFromMeter(bool fileApplied)
+namespace
 {
-    if ( m_meter == NULL )
+    // printf-style front end to ArgyllLogMessage (the Argyll debug log)
+    void SpectralSyncLog(const char *fmt, ...)
+    {
+        va_list args;
+        va_start(args, fmt);
+        ArgyllLogMessage("Debug", const_cast<char *>(fmt), args);
+        va_end(args);
+    }
+}
+
+// Runs at the end of every Init (per sweep and per single measurement), for a
+// meter whose calibration matrices are exposed (the i1d3 family) only. The driver
+// holds no spectral state while HCFR measures, so nothing is checked against it:
+// a ccss/ccmx Display Type entry is derived and the driver left on the entry's
+// base (native), and a browsed sample is derived again only when the connected
+// unit or observer is not the one the record was derived for. Shows no dialog but
+// the once-per-session unit notice. Readings already taken keep their values; the
+// next Sensor -> Configure OK recomputes them from raw (OnConfigureSensor's
+// CorrectionChangedSinceBeginConfigure sees the record or method change, because
+// the Display Type is changed through that sheet and this Init runs inside its OK).
+void CArgyllSensor::SyncSpectralRecordFromMeter()
+{
+    if ( m_meter == NULL || !m_meter->canExposeCalibrationMatrices() )
         return;
 
-    const bool exposable = m_meter->canExposeCalibrationMatrices();
-    Matrix native = Matrix::IdentityMatrix(3);
-    Matrix current = Matrix::IdentityMatrix(3);
-    Matrix corr = Matrix::IdentityMatrix(3);
-    Matrix toNative = Matrix::IdentityMatrix(3);
-    if ( exposable )
-    {
-        std::string why;
-        if ( !m_meter->getCalibrationMatrices(native, current)
-          || !DeriveSpectralCorrection(native, current, false, corr, toNative, why) )
-            return;     // the wrapper has logged why; leave the record as it is
-    }
     const int observer = m_meter->getObType();
     const std::string serial = m_meter->getSerialNumber();
-    // No fit at all: the spectral correction may become the method.
-    const bool noFit = ( GetCalibrationMethod() == CALIB_HCFR_DEFAULT && GetSensorMatrix().IsIdentity() );
 
-    if ( !m_spectralCorrectionPath.IsEmpty() )
+    if ( m_DisplayType != 0xFFFFFFFF && m_meter->isDisplayTypeCorrected((int)m_DisplayType) )
     {
-        // A browsed sample. If its re-apply failed Init has warned, and the stored
-        // record keeps correcting the native readings.
-        if ( !fileApplied )
-            return;
-        if ( m_spectral.source != SPECTRAL_SOURCE_FILE )
+        // The Display Type entry carries a correction (a ccss or ccmx entry). Its
+        // matrix is read out of the driver and the driver measures on the base
+        // entry; m_DisplayType keeps the user's choice (persisted, shown in the page).
+        Matrix native, current, corr, toNative;
+        std::string why;
+        int baseIndex = -1;
+        if ( !m_meter->deriveDisplayTypeCalibration((int)m_DisplayType, baseIndex, native, current, why)
+          || !DeriveSpectralCorrection(native, current, true, corr, toNative, why) )
         {
-            // A sample loaded by a build that kept no record: record it now, as
-            // ApplySpectralCorrection would have.
-            SpectralCorrectionRecord rec;
-            rec.source = SPECTRAL_SOURCE_FILE;
-            rec.description = (LPCSTR) m_spectralCorrectionDesc;
-            unsigned long long hash = 0;
-            if ( !Fnv1a64File((LPCSTR)m_spectralCorrectionPath, hash) )
-                hash = 0;
-            rec.fileHash = hash;
-            rec.observer = observer;
-            rec.meterSerial = serial;
-            rec.nativeCal = native;
-            rec.currentCal = current;
-            rec.correction = corr;
-            rec.basis = exposable ? FIT_BASIS_NATIVE : FIT_BASIS_DRIVER_CORRECTED;
-            SetSpectralRecord(rec);
-            if ( noFit )
-            {
-                SetSensorMatrix(corr);
-                SetCalibrationMethod(CALIB_SPECTRAL_SAMPLE);
-                SetFitBasis(rec.basis);
-            }
-            SetModifiedFlag(TRUE);
-            return;
+            SpectralSyncLog("CArgyllSensor: Display Type %d correction not derived: %s", (int)m_DisplayType, why.c_str());
+            return;     // leave the record as it is
         }
-        if ( !exposable )
-            return;     // identity record: the driver applies the sample, nothing to re-derive
-        const bool serialChanged = ( m_spectral.meterSerial != serial );
-        if ( corr != m_spectral.correction || serialChanged || m_spectral.observer != observer )
+        try
         {
-            if ( serialChanged && !m_spectral.meterSerial.empty() && !serial.empty() )
-            {
-                static BOOL s_warnedSpectralUnit = FALSE;
-                if ( !s_warnedSpectralUnit )
-                {
-                    s_warnedSpectralUnit = TRUE;
-                    CString msg, fmt, title;
-                    fmt.LoadString ( IDS_SPECTRAL_UNIT_MISMATCH );
-                    title.LoadString ( IDS_SPECTRAL_TITLE );
-                    msg.Format ( fmt, m_spectral.meterSerial.c_str(), serial.c_str() );
-                    GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONINFORMATION );
-                }
-            }
-            SpectralCorrectionRecord rec = m_spectral;
-            rec.nativeCal = native;
-            rec.currentCal = current;
-            rec.correction = corr;
-            rec.observer = observer;
-            rec.meterSerial = serial;
-            // Derived against a meter whose matrices are exposed: the wrapper
-            // divides the sample out, so the correction is on the native basis
-            // whatever the record said (a record applied with no meter attached
-            // was labeled driver-corrected).
-            rec.basis = FIT_BASIS_NATIVE;
-            SetSpectralRecord(rec);
-            if ( UsesSpectralMethod() )
-            {
-                SetSensorMatrix(corr);
-                SetFitBasis(FIT_BASIS_NATIVE);
-            }
-            SetModifiedFlag(TRUE);
+            m_meter->setDisplayType(baseIndex);
         }
-        return;
-    }
+        catch ( std::logic_error & ) {}
 
-    if ( !exposable )
-        return;
-
-    if ( m_meter->hasDriverCorrection() )
-    {
-        // The Display Type entry carries a correction (a ccss or ccmx entry).
         SpectralCorrectionRecord rec;
         rec.source = SPECTRAL_SOURCE_DISPLAY_TYPE;
         try
         {
-            if ( m_DisplayType != 0xFFFFFFFF )
-            {
-                const char *text = m_meter->getDisplayTypeText(m_DisplayType);
-                if ( text != NULL )
-                    rec.description = text;
-            }
+            const char *text = m_meter->getDisplayTypeText((int)m_DisplayType);
+            if ( text != NULL )
+                rec.description = text;
         }
         catch ( std::logic_error & ) {}
         rec.fileHash = 0;
@@ -735,9 +705,14 @@ void CArgyllSensor::SyncSpectralRecordFromMeter(bool fileApplied)
         rec.basis = FIT_BASIS_NATIVE;
         if ( rec != m_spectral )
         {
+            // No fit at all: the spectral correction becomes the method.
+            const bool noFit = ( GetCalibrationMethod() == CALIB_HCFR_DEFAULT && GetSensorMatrix().IsIdentity() );
             SetSpectralRecord(rec);
             if ( UsesSpectralMethod() )
+            {
                 SetSensorMatrix(corr);      // another entry while it already is the method
+                SetFitBasis(FIT_BASIS_NATIVE);
+            }
             else if ( noFit )
             {
                 SetSensorMatrix(corr);
@@ -746,12 +721,106 @@ void CArgyllSensor::SyncSpectralRecordFromMeter(bool fileApplied)
             }
             SetModifiedFlag(TRUE);
         }
+        return;
     }
-    else if ( m_spectral.source == SPECTRAL_SOURCE_DISPLAY_TYPE )
+
+    if ( m_spectral.source == SPECTRAL_SOURCE_DISPLAY_TYPE )
     {
         // Back on a plain display type: the entry's correction is gone.
         CSensor::ClearSpectralCorrection();
     }
+
+    if ( m_spectralCorrectionPath.IsEmpty() )
+        return;
+
+    // A browsed sample. Its record holds the matrices; they belong to one unit and
+    // one observer, so derive again only when either is not the connected one (a
+    // record from a build that kept none, or from a Browse with no meter attached,
+    // carries neither). A record whose source is not FILE (a document from an
+    // earlier field-test build) is built the same way.
+    const bool fileRecord = ( m_spectral.source == SPECTRAL_SOURCE_FILE );
+    const bool serialChanged = ( m_spectral.meterSerial != serial );
+    if ( fileRecord && !serialChanged && m_spectral.observer == observer )
+        return;
+
+    SpectralSample ss;
+    Matrix native, current, corr, toNative;
+    std::string why;
+    bool derived = false;
+    try
+    {
+        CString ext = m_spectralCorrectionPath.Right(4); ext.MakeLower();
+        bool ok = ( ext == ".csv" )
+            ? ss.createFromCorrelationCSV((LPCSTR)m_spectralCorrectionPath)
+            : ss.Read((LPCSTR)m_spectralCorrectionPath);
+        if ( !ok )
+            why = "the spectral correction file could not be read";
+        else
+            derived = m_meter->deriveSpectralCalibration(ss, native, current, why)
+                   && DeriveSpectralCorrection(native, current, true, corr, toNative, why);
+    }
+    catch ( std::logic_error & e )
+    {
+        why = e.what();
+        derived = false;
+    }
+    if ( !derived )
+    {
+        SpectralSyncLog("CArgyllSensor: spectral correction %s not derived again: %s",
+                        (LPCSTR)m_spectralCorrectionPath, why.c_str());
+        return;     // leave the record as it is
+    }
+
+    if ( fileRecord && serialChanged && !m_spectral.meterSerial.empty() && !serial.empty() )
+    {
+        static BOOL s_warnedSpectralUnit = FALSE;
+        if ( !s_warnedSpectralUnit )
+        {
+            s_warnedSpectralUnit = TRUE;
+            CString msg, fmt, title;
+            fmt.LoadString ( IDS_SPECTRAL_UNIT_MISMATCH );
+            title.LoadString ( IDS_SPECTRAL_TITLE );
+            msg.Format ( fmt, m_spectral.meterSerial.c_str(), serial.c_str() );
+            GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONINFORMATION );
+        }
+    }
+
+    SpectralCorrectionRecord rec;
+    if ( fileRecord )
+        rec = m_spectral;
+    else
+    {
+        rec.source = SPECTRAL_SOURCE_FILE;
+        rec.description = (LPCSTR) m_spectralCorrectionDesc;
+        unsigned long long hash = 0;
+        if ( !Fnv1a64File((LPCSTR)m_spectralCorrectionPath, hash) )
+            hash = 0;
+        rec.fileHash = hash;
+    }
+    rec.nativeCal = native;
+    rec.currentCal = current;
+    rec.correction = corr;
+    rec.observer = observer;
+    rec.meterSerial = serial;
+    // Derived from the driver's own fit and applied by HCFR to native readings,
+    // whatever the record said (a Browse with no meter attached was labeled
+    // driver-corrected).
+    rec.basis = FIT_BASIS_NATIVE;
+    // No fit at all: the spectral correction becomes the method.
+    const bool noFit = ( GetCalibrationMethod() == CALIB_HCFR_DEFAULT && GetSensorMatrix().IsIdentity() );
+    SetSpectralRecord(rec);
+    if ( UsesSpectralMethod() )
+    {
+        SetSensorMatrix(corr);
+        SetFitBasis(FIT_BASIS_NATIVE);
+    }
+    else if ( !fileRecord && noFit )
+    {
+        SetSensorMatrix(corr);
+        SetCalibrationMethod(CALIB_SPECTRAL_SAMPLE);
+        SetFitBasis(FIT_BASIS_NATIVE);
+    }
+    SetModifiedFlag(TRUE);
 }
 
 bool CArgyllSensor::CorrectionChangedSinceBeginConfigure() const
@@ -777,6 +846,10 @@ void CArgyllSensor::CancelConfigure()
 {
     if ( m_spectralCorrectionPath != m_cfgSnapSpectralPath )
     {
+        // A meter whose matrices are exposed holds no sample (each derive leaves it
+        // native): the base below restores the record and the matrix, and there is
+        // nothing to re-apply to the driver. Other meters get the previous sample back.
+        const bool exposable = ( m_meter && m_meter->canExposeCalibrationMatrices() );
         if ( m_cfgSnapSpectralPath.IsEmpty() )
         {
             if ( m_meter )
@@ -785,7 +858,7 @@ void CArgyllSensor::CancelConfigure()
                 catch ( std::logic_error & ) {}
             }
         }
-        else
+        else if ( !exposable )
         {
             // Same re-apply Init() performs on connect.
             try

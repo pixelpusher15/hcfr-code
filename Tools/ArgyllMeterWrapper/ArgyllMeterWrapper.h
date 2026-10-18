@@ -154,22 +154,30 @@ public:
     // Emission calibration matrices of the driver. i1d3 family only - the one bundled
     // driver whose struct the wrapper reads (see setDisableAIO). False for every other meter.
     bool canExposeCalibrationMatrices() const;
-    // nativeCal: the fit from the probe's own sensitivity curves (no sample, unity ccmat).
-    // currentCal: ccmat * emis_cal as the driver applies it now. Both 3x3.
-    // False when not exposable or no snapshot has been taken yet.
-    bool getCalibrationMatrices(Matrix& nativeCal, Matrix& currentCal) const;
-    // True when currentCal differs from nativeCal (SpectralMatricesEqual): the driver is
-    // applying a correction the wrapper is dividing back out of every reading.
-    bool hasDriverCorrection() const;
     // The instrument serial number ("" when the driver has none).
     std::string getSerialNumber() const;
+    // Derives the correction a spectral sample would make, using the driver's own fit:
+    // loads the sample, reads ccmat * emis_cal (currentCal), restores the current display
+    // type (which drops the sample and refits the native matrix), reads it again
+    // (nativeCal). Leaves the driver NATIVE. False (driver untouched or restored, why set)
+    // when not exposable, when either read is not in the state it must be in (sample
+    // present after load; no sample and unity ccmat after restore), or when the two are
+    // equal (SpectralMatricesEqual): the sample did not change the matrix.
+    bool deriveSpectralCalibration(const SpectralSample& sample, Matrix& nativeCal, Matrix& currentCal, std::string& why);
+    // Same for a ccss/ccmx entry of the display-type list (index as the list numbers it):
+    // selects the entry, reads currentCal, selects its BASE entry, reads nativeCal, and
+    // leaves the base entry selected. The base of a ccmx entry is the list entry whose
+    // cbid == entry.cc_cbid; of a ccss entry the entry with the same refresh flag and
+    // flags carrying neither ccss nor ccmx. False as above, or when the entry is a plain one.
+    bool deriveDisplayTypeCalibration(int displayTypeIndex, int& baseIndex, Matrix& nativeCal, Matrix& currentCal, std::string& why);
+    // True when list entry `index` carries a ccss or a ccmx (public inst_disptypesel flags).
+    bool isDisplayTypeCorrected(int index);
 
 private:
     void checkMeterIsInitialized();
-    // Re-reads the i1d3 driver's emission calibration (see the .cpp). Returns true
-    // when the driver was in its native state at this call (no spectral sample,
-    // unity ccmat), i.e. when m_nativeCal was (re)captured.
-    bool refreshCalibrationSnapshot();
+    // Reads the i1d3 driver's emission calibration: cal = ccmat * emis_cal, whether a
+    // spectral sample is in force, whether ccmat is unity. False when not exposable.
+    bool readCalibration(Matrix& cal, bool& sampleLoaded, bool& ccmatUnity);
     _inst* m_meter;
     int m_displayType;
     int m_meterType;
@@ -181,16 +189,6 @@ private:
     bool m_Adapt;
     
     std::string m_SampleDescription;
-
-    // i1d3 emission calibration snapshot (refreshCalibrationSnapshot).
-    Matrix m_nativeCal;     // the driver's default fit, captured only in its native state
-    Matrix m_currentCal;    // ccmat * emis_cal as the driver applies it now
-    Matrix m_toNative;      // nativeCal * currentCal^-1, applied to every display reading
-    bool m_nativeKnown;
-    bool m_currentKnown;
-    int m_nativeObType;     // the driver's observer when m_nativeCal was captured: the
-                            // default fit depends on it, so a later observer change
-                            // outside the native state makes the capture stale
 };
 
 extern void ArgyllLogMessage(const char* messageType, char *fmt, va_list& args);

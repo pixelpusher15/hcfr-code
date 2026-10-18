@@ -117,9 +117,10 @@ public:
 
 private:
     virtual CColor MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int displaymode = 0);
-    // Brings the spectral record in line with what the driver applies after
-    // Init (see the .cpp). fileApplied: the browsed sample was re-applied.
-    void SyncSpectralRecordFromMeter(bool fileApplied);
+    // After Init, for a meter whose calibration matrices are exposed: derives a
+    // ccss/ccmx Display Type entry (leaving the driver on its base entry) or
+    // re-derives a browsed sample for another unit/observer (see the .cpp).
+    void SyncSpectralRecordFromMeter();
 };
 
 #endif // !defined(AFX_ARGYLLSENSOR_H__1493C213_6A02_44C5_8EB7_55B469092E14__INCLUDED_)
