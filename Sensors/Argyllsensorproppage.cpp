@@ -356,13 +356,19 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
         // far off the page.
         int specX = M.at(LBLX, 0).x;
         int specTop = calBottom + M.ht(1);   // just under the calibration group
+        // Two lines: the status carries the ccss description, which for an Argyll
+        // or DisplayCAL file is the display plus the reference instrument (64
+        // characters is ordinary) and ran under the buttons on one line. SS_LEFT
+        // wraps at words; the height is fixed rather than measured because the
+        // text changes on Browse/Clear after this layout has run.
+        int specH = 2 * lineHpx;
         if ( !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
             m_spectralStatus.Create("", WS_CHILD | WS_VISIBLE | SS_LEFT,
-                CRect(specX, specTop, specX + M.w(280), specTop + M.ht(11)), this, IDC_ARGYLL_SPECTRAL_STATUS);
+                CRect(specX, specTop, specX + M.w(280), specTop + specH), this, IDC_ARGYLL_SPECTRAL_STATUS);
         m_spectralStatus.SetFont(GetFont());
-        m_spectralStatus.MoveWindow(specX, specTop, M.w(280), M.ht(11));
+        m_spectralStatus.MoveWindow(specX, specTop, M.w(280), specH);
 
-        int btnY = specTop + M.ht(11);
+        int btnY = specTop + specH + M.ht(2);
         int bw = M.w(64), bh = M.ht(12), gap = M.w(6);
         if ( !::IsWindow(m_spectralBrowseBtn.GetSafeHwnd()) )
         {

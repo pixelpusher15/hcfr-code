@@ -42,6 +42,20 @@ static char THIS_FILE[]=__FILE__;
 bool CArgyllSensor::m_debugMode = false;
 char *m_logFile; 
 
+// The observer a spectral correction record stores. Argyll's icxOT_default (0,
+// "usually CIE_1931_2", libconv/xspect.h) is what the wrapper reports until an Init
+// has passed the page's Spectral Type string: a meter first connected lazily
+// (checkMeterIsInitialized passes "Default") reports 0, the next Init reports 3 for
+// the same physical observer, and Argyll itself treats the two as one observer
+// (standardObserver in Tools/spectro/xspect.c: `case icxOT_default: case
+// icxOT_CIE_1931_2:`). Recording the canonical value keeps a record derived under
+// one from being re-derived, to identical matrices, under the other.
+static int RecordedObserver(ArgyllMeterWrapper *meter)
+{
+    const int obType = meter->getObType();
+    return ( obType == 0 /* icxOT_default */ ) ? 3 /* icxOT_CIE_1931_2 */ : obType;
+}
+
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
@@ -438,7 +452,7 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
             if ( !Fnv1a64File((LPCSTR)m_spectralCorrectionPath, hash) )
                 hash = 0;
             rec.fileHash = hash;
-            rec.observer = m_meter->getObType();
+            rec.observer = RecordedObserver(m_meter);
             rec.meterSerial = m_meter->getSerialNumber();
             rec.basis = FIT_BASIS_DRIVER_CORRECTED;
             SetSpectralRecord(rec);
@@ -572,7 +586,7 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     record.fileHash = hash;
     if ( m_meter )
     {
-        record.observer = m_meter->getObType();
+        record.observer = RecordedObserver(m_meter);
         record.meterSerial = m_meter->getSerialNumber();
     }
     if ( exposable )
@@ -664,7 +678,7 @@ void CArgyllSensor::SyncSpectralRecordFromMeter()
     if ( m_meter == NULL || !m_meter->canExposeCalibrationMatrices() )
         return;
 
-    const int observer = m_meter->getObType();
+    const int observer = RecordedObserver(m_meter);
     const std::string serial = m_meter->getSerialNumber();
 
     if ( m_DisplayType != 0xFFFFFFFF && m_meter->isDisplayTypeCorrected((int)m_DisplayType) )
