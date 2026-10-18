@@ -473,7 +473,7 @@ void CColorHCFRConfig::InitDefaults()
 	m_TBViewsRightClickMode = 0;
 	m_TBViewsMiddleClickMode = 1;
 	m_bConfirmMeasures = TRUE;
-	m_bUseOnlyPrimaries = FALSE;
+	m_calibrationMethod = CALIB_HCFR_DEFAULT;
 	m_bUseImperialUnits = FALSE;
 	m_nLuminanceCurveMode = 0;
 	m_bPreferLuxmeter = FALSE;
@@ -615,7 +615,24 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_TBViewsRightClickMode = GetProfileInt("Advanced","TBViewsRightClickMode",0);
 	m_TBViewsMiddleClickMode = GetProfileInt("Advanced","TBViewsMiddleClickMode",1);
 	m_bConfirmMeasures = GetProfileInt("Advanced","ConfirmMeasures",1);
-	m_bUseOnlyPrimaries = GetProfileInt("Advanced","UseOnlyPrimaries",0);
+	{
+		// Migrate the old two-way "UseOnlyPrimaries" checkbox into the new
+		// 3-way calibration method setting the first time an upgraded profile
+		// is loaded; once "CalibrationMethod" has been written, it takes over.
+		int storedMethod = GetProfileInt("Advanced","CalibrationMethod",-1);
+		if ( storedMethod == -1 )
+		{
+			int legacyOnly = GetProfileInt("Advanced","UseOnlyPrimaries",0);
+			m_calibrationMethod = legacyOnly ? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
+			// Freeze the pre-migration checkbox value under its own key:
+			// SaveSettings rewrites UseOnlyPrimaries from the dropdown on every
+			// save (downgrade safety), so this frozen copy is what v1 sensor
+			// files must derive their method from (Sensors/Sensor.cpp).
+			WriteProfileInt("Advanced","LegacyUseOnlyPrimaries", legacyOnly);
+		}
+		else
+			m_calibrationMethod = storedMethod;
+	}
 	doHighlight = GetProfileInt("Advanced","Highlight",1);
 	m_bUseImperialUnits = GetProfileInt("Advanced","UseImperialUnits",0);
 	m_nLuminanceCurveMode = GetProfileInt("Advanced","LuminanceCurveMode",0);
@@ -709,7 +726,8 @@ void CColorHCFRConfig::SaveSettings()
 	WriteProfileInt("Advanced","TBViewsRightClickMode",m_TBViewsRightClickMode);
 	WriteProfileInt("Advanced","TBViewsMiddleClickMode",m_TBViewsMiddleClickMode);
 	WriteProfileInt("Advanced","ConfirmMeasures",m_bConfirmMeasures);
-	WriteProfileInt("Advanced","UseOnlyPrimaries",m_bUseOnlyPrimaries);
+	WriteProfileInt("Advanced","CalibrationMethod",m_calibrationMethod);
+	WriteProfileInt("Advanced","UseOnlyPrimaries",m_calibrationMethod==CALIB_CLASSIC_NIST ? 1 : 0);	// legacy key, kept for downgrade safety
 	WriteProfileInt("Advanced","Highlight",doHighlight);
 	WriteProfileInt("Advanced","UseImperialUnits",m_bUseImperialUnits);
 	WriteProfileInt("Advanced","LuminanceCurveMode",m_nLuminanceCurveMode);
@@ -824,7 +842,7 @@ void CColorHCFRConfig::SetPropertiesSheetValues()
 
 	m_advancedPropertiesPage.m_bConfirmMeasures = m_bConfirmMeasures;
 	m_advancedPropertiesPage.m_comPort = GetColorApp() -> m_LuxPort;
-	m_advancedPropertiesPage.m_bUseOnlyPrimaries = m_bUseOnlyPrimaries;
+	m_advancedPropertiesPage.m_calibrationMethod = m_calibrationMethod;
 	m_advancedPropertiesPage.doHighlight = doHighlight;
 	m_advancedPropertiesPage.m_bUseImperialUnits = m_bUseImperialUnits;
 	m_advancedPropertiesPage.m_nLuminanceCurveMode = m_nLuminanceCurveMode;
@@ -921,7 +939,7 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	m_TBViewsRightClickMode = m_toolbarPropertiesPage.m_TBViewsRightClickMode;
 	m_TBViewsMiddleClickMode = m_toolbarPropertiesPage.m_TBViewsMiddleClickMode;
 	m_bConfirmMeasures = m_advancedPropertiesPage.m_bConfirmMeasures;
-	m_bUseOnlyPrimaries = m_advancedPropertiesPage.m_bUseOnlyPrimaries;
+	m_calibrationMethod = m_advancedPropertiesPage.m_calibrationMethod;
 	doHighlight = m_advancedPropertiesPage.doHighlight;
 	m_bUseImperialUnits = m_advancedPropertiesPage.m_bUseImperialUnits;
 	m_nLuminanceCurveMode = m_advancedPropertiesPage.m_nLuminanceCurveMode;

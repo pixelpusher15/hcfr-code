@@ -68,6 +68,7 @@ public:
 public:
 	void SetMatrix(Matrix aMatrix);
 	Matrix GetMatrix();
+	BOOL m_bMatrixEditable;	// FALSE on a Bodner sensor: its single matrix is unused, a typed one would be stored but never applied
 
 protected:
 	CGridCtrl* m_pGrid;
