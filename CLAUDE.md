@@ -1,7 +1,8 @@
 # HCFR / ColorHCFR — working rules
 
 ColorHCFR is a Windows MFC app. Solution: `ColorHCFR_VS2019.sln` (the name is historical; it
-builds fine with newer Visual Studio). Installer/MSI: `ColorHCFR_VS2019.vdproj` (a VS
+builds with newer Visual Studio as long as the MSVC **v142** toolset and MFC components are
+installed — every `.vcxproj` uses `PlatformToolset v142`). Installer/MSI: `ColorHCFR_VS2019.vdproj` (a VS
 *deployment* project — builds only via `devenv`, not MSBuild). No CI; all builds are local.
 
 ## Source control — never break these
@@ -10,8 +11,10 @@ builds fine with newer Visual Studio). Installer/MSI: `ColorHCFR_VS2019.vdproj` 
   against, or otherwise touch the upstream repository it was forked from. Bare `gh pr create`
   defaults to upstream, so always pass `--repo pixelpusher15/hcfr-code`, and verify the PR URL
   before merging.
-- `.claude/hooks/guard-git.ps1` (wired in `.claude/settings.json`) enforces the above on Bash
-  `git`/`gh` calls. A block from it is a real rule, not a glitch — fix the command, don't bypass.
+- `.claude/hooks/guard-git.ps1` (wired in `.claude/settings.json`) enforces the above on
+  `git`/`gh` calls from the Bash and PowerShell tools. A block from it is a real rule, not a
+  glitch — fix the command, don't bypass.
+- Personal, machine-specific rules go in `CLAUDE.local.md` (gitignored), not in this file.
 - **GitHub Releases are the source of truth for release notes** — there is no in-repo notes file.
 
 ## Building
@@ -29,14 +32,17 @@ builds fine with newer Visual Studio). Installer/MSI: `ColorHCFR_VS2019.vdproj` 
 ## Before merging any PR
 Run all of these and report the results in the PR:
 1. **Full-solution build** (above), 0 errors.
-2. **Accuracy harness:** `Debug\ColorHCFR.exe -accuracytest` — pass = **834 combos, 0 FAIL,
-   exit code 0**. From Git Bash use the `-accuracytest` form: MSYS rewrites a leading `/` into a
-   path, which launches the GUI with a garbage argument instead of running the test. The current
-   pass/known-fail baseline is in `tests/ACCURACYTEST.md` (the `Reference result` line); a shift
-   in the known-fail count needs explaining, but `0 FAIL` + exit 0 is the gate.
-3. **ColorMathTest:** after the full-solution build, run from `tests\ColorMathTest\` (golden
-   files resolve relative to the CWD): `Debug\ColorMathTest\ColorMathTest.exe verify` — exit 0 =
-   pass. Never run `gen` unless the baseline is being moved on purpose (say so in the PR).
+2. **Accuracy harness:** from Git Bash, `./Debug/ColorHCFR.exe -accuracytest` (from cmd:
+   `Debug\ColorHCFR.exe -accuracytest`) — pass = **834 combos, 0 FAIL, exit code 0**. Use the
+   `-accuracytest` form in Git Bash: MSYS rewrites a leading `/` into a path, which launches the
+   GUI with a garbage argument instead of running the test. The current pass/known-fail baseline
+   is in `tests/ACCURACYTEST.md` (the `Reference result` line); a shift in the known-fail count
+   needs explaining, but `0 FAIL` + exit 0 is the gate.
+3. **ColorMathTest** is **not** in the solution, so build it separately after the full-solution
+   build: `MSBuild tests\ColorMathTest\ColorMathTest.vcxproj -p:Configuration=Debug -p:Platform=Win32 -m`.
+   Then run it from `tests/ColorMathTest/` (golden files resolve relative to the CWD):
+   `./Debug/ColorMathTest/ColorMathTest.exe verify` — exit 0 = pass. Never run `gen` unless the
+   baseline is being moved on purpose (say so in the PR).
 4. **An independent review pass** of the diff (e.g. `/code-review`, or a fresh session that did
    not write the change) before merge.
 
@@ -57,9 +63,12 @@ Run all of these and report the results in the PR:
   Latin-1 with hundreds of intentional accented bytes. **Do not re-encode them.** When Edit/Write
   would round-trip them through UTF-8, edit byte-safely (PowerShell byte splice) or via targeted
   resource edits, then confirm with `git diff` that only the intended lines changed.
-- Windows-built `.cpp/.h` should be kept **pure ASCII** so Edit/Write are safe. Use `\xNN` escapes
-  for any needed high-byte string literals (e.g. `"Y cd/m\xB2"`, `"T\xB0"`); keep comments ASCII.
-  Grep a file for non-ASCII bytes before editing it; a few may still carry Latin-1.
+- **Many `.cpp/.h` files are still Latin-1**, not UTF-8 — roughly half, mostly the "François"
+  author credit in the header comment, and `ColorHCFR.cpp` has one inside a string literal (the
+  About text). **Grep a file for non-ASCII bytes before editing it**; if it has any, edit
+  byte-safely like the `.rc` files, or the save will re-encode it to UTF-8.
+- New and touched code should be **pure ASCII**. Use `\xNN` escapes for any needed high-byte
+  string literals (e.g. `"Y cd/m\xB2"`, `"T\xB0"`); keep comments ASCII.
 - `macSources/**` is Mac Obj-C, **not** in any Windows `.vcxproj` — ignore for Windows edits.
 
 ## Releases

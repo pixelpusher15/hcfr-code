@@ -7,11 +7,12 @@ should only have to: (1) approve the release notes, (2) say release-vs-prereleas
 else, and at the end give them an exact, short list of anything only they can do.
 
 Environment:
-- Toolchain example: **Visual Studio 18 Community** (adjust paths to your install). Console build
-  binary: `C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com`
+- Toolchain example: **Visual Studio 18 Community** (adjust paths to your install), with the
+  MSVC **v142** toolset and MFC components installed (every `.vcxproj` uses `PlatformToolset v142`).
+  Console build binary: `C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com`
 - Solution `ColorHCFR_VS2019.sln`, active config **`Release|Win32`** (Win32 only; no x64).
-- MSI project `ColorHCFR_VS2019.vdproj` is in the solution (build it explicitly via `/Project`).
-  Building it needs the "Microsoft Visual Studio Installer Projects" extension.
+- MSI project `ColorHCFR_VS2019.vdproj` is in the solution and is set to build in
+  `Release|Win32`. Building it needs the "Microsoft Visual Studio Installer Projects" extension.
 - `gh` must be authenticated as an account with write access to `pixelpusher15/hcfr-code`.
   Every `gh` call passes `--repo pixelpusher15/hcfr-code` — never the upstream repo.
 - No CI — all builds are local.
@@ -30,15 +31,18 @@ Follow these steps in order. Stop and wait where it says WAIT.
 - Confirm `main` is green on the pre-merge checks in `CLAUDE.md` (full-solution build,
   `-accuracytest`, ColorMathTest verify). Don't release a tree that hasn't passed them.
 
-## 2. Bump the version (do it on a branch → PR, never on `main`)
-- **`ColorHCFR.rc`** (~line 73): `FILEVERSION` / `PRODUCTVERSION` and the `"FileVersion"` /
+## 2. Bump the version (on a branch → PR, never on `main`)
+- **`ColorHCFR.rc`** (~line 73) and **all six satellite `.rc` files**
+  (`CHCFR21_ENGLISH/FRANCAIS/DEUTSCH/ESPANOL/ITALIAN/PATTERNS.rc`) each have a VERSIONINFO block
+  with four fields to bump: `FILEVERSION`, `PRODUCTVERSION`, and the `"FileVersion"` /
   `"ProductVersion"` string values.
-- **All six satellite `.rc` files** — `CHCFR21_ENGLISH/FRANCAIS/DEUTSCH/ESPANOL/ITALIAN/PATTERNS.rc`
-  — each has its own VERSIONINFO block with the same four fields. Note the format split:
-  `CHCFR21_DEUTSCH.rc` and `CHCFR21_ITALIAN.rc` write `FILEVERSION 4,1,0,0` (commas); the others
-  use dots. Keep each file's existing format. The string values are dotted in all six.
-  The non-English satellites are **Latin-1** — edit them byte-safely (e.g. `sed -i` on the exact
-  version lines from Git Bash, which does not re-encode), then check `git diff` shows only the
+- **`FILEVERSION` / `PRODUCTVERSION` must use commas** (`4,2,0,0`), never dots. The resource
+  compiler reads `4.2.0.0` as the single number 4 and writes a binary (fixed) version of
+  `4.0.0.0` — this is why 4.1.0.0 shipped 7 of 8 files stamped `4.0.0.0`. The string values stay
+  dotted (`"4.2.0.0"`).
+- The non-English satellites are **Latin-1** — edit them byte-safely, e.g. from Git Bash:
+  `LC_ALL=C sed -i -E 's/^( (FILE|PRODUCT)VERSION) 4,1,0,0(\r?)$/\1 4,2,0,0\3/' <file>`
+  (the `\r?` keeps the pattern working on CRLF files). Then check `git diff` shows only the
   version lines changed.
 - **`ColorHCFR_VS2019.vdproj`** (Product section near the end of the file):
   - `ProductCode` — **new GUID** every release.
@@ -49,6 +53,8 @@ Follow these steps in order. Stop and wait where it says WAIT.
   Generate GUIDs with `powershell -NoProfile -Command "([guid]::NewGuid()).ToString().ToUpper()"`.
 - Grep afterwards to confirm no stale old-version string remains in any of the 7 `.rc` files
   or the `.vdproj`.
+- **Merge the bump PR before building.** Build and tag from the merged `main` commit, so the
+  release tag points at a commit that contains the bump.
 
 ## 3. Draft release notes  → WAIT for approval
 - Group the changes into user-facing themes (Fixed / Added / Changed). Plain language, not commit
@@ -57,29 +63,41 @@ Follow these steps in order. Stop and wait where it says WAIT.
 - Show the notes to the user. **Do not proceed until they approve.** Revise as asked.
 
 ## 4. Build
-Run from the repo root. `devenv.com` is the console build variant (blocks until done; `devenv.exe`
-would return immediately).
+Run from the repo root, on the merged `main` commit from step 2. `devenv.com` is the console
+build variant (blocks until done; `devenv.exe` would return immediately).
 - **One-time per machine/user:** run `DisableOutOfProcBuild.exe` from
   `C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\VSI\DisableOutOfProcBuild\`
   (cd there first). It sets the registry key that avoids
   `ERROR: An error occurred while validating. HRESULT = '8000000A'` on command-line `.vdproj` builds.
-- Full solution (compiles all 6 language `.vcxproj` so every satellite DLL is current):
+- Full solution (all 6 resource `.vcxproj`s, so every satellite DLL is current, plus the MSI,
+  which the solution builds in `Release|Win32`):
   `"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com" ColorHCFR_VS2019.sln /Build "Release|Win32"`
-- MSI (deployment projects are usually excluded from the solution build, so build it explicitly):
+- If the MSI didn't come out of that, build it explicitly:
   `"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com" ColorHCFR_VS2019.sln /Project ColorHCFR_VS2019.vdproj /Build "Release|Win32"`
 - If devenv sits with no output for minutes, it has probably opened a hidden GUI dialog
   (check `Get-Process devenv | Select MainWindowTitle`); kill it and resolve the dialog in the IDE.
 - If devenv reports the project type is unsupported, the Installer Projects extension isn't
   installed — tell the user to install it (or build the MSI from the IDE) and stop.
-- Report the produced `.msi` path and confirm all 5 `CHCFR21_*.dll` are inside it.
+- Report the produced `.msi` path and confirm all 6 `CHCFR21_*.dll` (5 languages + PATTERNS)
+  are inside it.
 
-## 4b. Check and patch the MSI File table versions
-The `.vdproj` build can bake **stale file versions** into the MSI's `File` table (4.1.0.0
-shipped with `4.0.0.0` recorded for 7 of 8 HCFR files). Windows Installer uses those versions
-to decide whether to overwrite files on upgrade, so stale values can leave old DLLs installed.
-- Read the `File` table with the WindowsInstaller COM API and compare each HCFR row
-  (`ColorHCFR.exe`, `CHCFR21_*.dll`; `FileName` is `SHORT~1|LongName`) against the built
-  binary's `(Get-Item <file>).VersionInfo.FileVersion`:
+## 4b. Check the MSI File table versions
+Windows Installer decides whether to overwrite a file on upgrade by comparing the `File` table's
+`Version` with the installed file's **binary (fixed) version** — not the `"FileVersion"` string.
+The `.vdproj` build copies each file's fixed version into the table, so the two only disagree if
+step 2 used dotted `FILEVERSION` lines.
+- Check each built HCFR binary's fixed version (Release output folder):
+  ```powershell
+  Get-ChildItem Release\ColorHCFR.exe, Release\CHCFR21_*.dll | ForEach-Object {
+    $v = $_.VersionInfo
+    '{0}  fixed={1}.{2}.{3}.{4}  string={5}' -f $_.Name, $v.FileMajorPart, $v.FileMinorPart, $v.FileBuildPart, $v.FilePrivatePart, $v.FileVersion
+  }
+  ```
+  Every `fixed=` must equal the release version. If one doesn't, fix that file's `.rc`
+  (comma format), rebuild, and check again — **don't patch the MSI to hide it**, because a table
+  version higher than the file's real fixed version breaks upgrade file replacement.
+- Then read the MSI's `File` table with the WindowsInstaller COM API and confirm each HCFR row
+  (`ColorHCFR.exe`, `CHCFR21_*.dll`; `FileName` is `SHORT~1|LongName`) matches:
   ```powershell
   $msi  = (Resolve-Path 'Release\Installer\HCFR-<ver>.msi').Path
   $inst = New-Object -ComObject WindowsInstaller.Installer
@@ -91,20 +109,20 @@ to decide whether to overwrite files on upgrade, so stale values can leave old D
     '{0}  {1}  {2}' -f (& $get 1), (& $get 2), (& $get 3)
   }
   ```
-- If any HCFR row is stale: reopen with mode `1` (transact), run
-  `UPDATE File SET Version='<ver>' WHERE File='<key>'` for each stale row, then set a **new
-  PackageCode** (Summary Information property 9 = a fresh `{GUID}`; get it via
-  `SummaryInformation` with update count 1, set `Property(9)`, call `Persist`), and `Commit`
-  the database. Changing the MSI's contents without a new PackageCode breaks Windows Installer's
-  package caching.
-- Re-run the read loop and show the user the before/after versions. Don't upload until every
-  HCFR row matches its binary.
+- Fallback only, if a row is wrong even though the binary's fixed version is right: in a **new
+  PowerShell process** (so the read-only handle above is released), open the database with mode
+  `1` (transact), run `UPDATE File SET Version='<ver>' WHERE File='<key>'` for each wrong row,
+  set a **new PackageCode** (Summary Information property 9 = a fresh `{GUID}`: get
+  `SummaryInformation` with update count 1, set `Property(9)`, call `Persist`), then `Commit`.
+  Changing the MSI's contents without a new PackageCode breaks Windows Installer's package
+  caching. Re-run the read loop and show the user before/after.
 
 ## 5. Upload  → ASK release vs prerelease
 - Ask the user: **stable release or prerelease?** (Auto-update Stable ring only picks up
   non-prerelease; the two rings are Stable and pre-release. 4.2 is planned as Stable.)
-- Create the GitHub release on the fork with the approved notes and the `.msi` asset:
-  `gh release create v<ver> <path-to-msi> --repo pixelpusher15/hcfr-code --title "v<ver>" --notes-file <notes> [--prerelease]`
+- Create the GitHub release on the fork with the approved notes and the `.msi` asset, tagging the
+  exact commit that was built:
+  `gh release create v<ver> <path-to-msi> --repo pixelpusher15/hcfr-code --target <built-commit-sha> --title "v<ver>" --notes-file <notes> [--prerelease]`
 - Tag matches the version. Verify the release URL points at `pixelpusher15/hcfr-code`.
 
 ## 6. AVSForum post

@@ -34,6 +34,7 @@ tests.xml
 !/.claude/commands/
 !/.claude/hooks/
 !/.claude/settings.json
+/CLAUDE.local.md
 *proj.user
 /flash_diag.log
 CORRECTION-IMPORT-PLAN.md
