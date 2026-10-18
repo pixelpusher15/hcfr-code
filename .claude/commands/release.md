@@ -58,9 +58,10 @@ Follow these steps in order. Stop and wait where it says WAIT.
 
 ## 3. Draft release notes  → WAIT for approval
 - Group the changes into user-facing themes (Fixed / Added / Changed). Plain language, not commit
-  subjects. If this is the first release since the installer fix (PR #201), mention it: the
-  4.1.0.0 MSI omitted `CHCFR21_ITALIAN.dll` and packaged ENGLISH/FRANCAIS/PATTERNS twice; the
-  MSI now ships each language DLL once and is ~80 MB smaller.
+  subjects. If this is the first release since the installer fixes, mention them: the 4.1.0.0
+  MSI omitted `CHCFR21_ITALIAN.dll` (Italian unavailable to MSI installs) and packaged
+  FRANCAIS/PATTERNS twice. Commit `e34ccb41` restored Italian; PR #201 removed the duplicates,
+  so the MSI now ships each language DLL once and is ~80 MB smaller.
 - Show the notes to the user. **Do not proceed until they approve.** Revise as asked.
 
 ## 4. Build

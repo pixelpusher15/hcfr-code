@@ -63,7 +63,8 @@ Run all of these and report the results in the PR:
 
 ## Byte-sensitive files
 - The `.rc` satellite files (`CHCFR21_FRANCAIS/DEUTSCH/ESPANOL/ITALIAN`) are per-language
-  Latin-1 with hundreds of intentional accented bytes. **Do not re-encode them.** When Edit/Write
+  Latin-1 with hundreds of intentional accented bytes. `CHCFR21_PATTERNS.rc` is Latin-1 too (one
+  accented byte, in its VERSIONINFO `ProductName`); only `CHCFR21_ENGLISH.rc` is pure ASCII. **Do not re-encode them.** When Edit/Write
   would round-trip them through UTF-8, edit byte-safely (PowerShell byte splice) or via targeted
   resource edits, then confirm with `git diff` that only the intended lines changed.
 - **Many `.cpp/.h` files are still Latin-1**, not UTF-8 — roughly half, mostly the "François"
