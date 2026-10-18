@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "if": "Bash(git *)",
+            "command": "$d=$env:CLAUDE_PROJECT_DIR; if(-not $d){$d=(Get-Location).Path}; & \"$d\\.claude\\hooks\\guard-git.ps1\"",
+            "statusMessage": "Checking git guardrails"
+          },
+          {
+            "type": "command",
+            "shell": "powershell",
+            "if": "Bash(gh *)",
+            "command": "$d=$env:CLAUDE_PROJECT_DIR; if(-not $d){$d=(Get-Location).Path}; & \"$d\\.claude\\hooks\\guard-git.ps1\"",
+            "statusMessage": "Checking git guardrails"
+          }
+        ]
+      }
+    ]
+  }
+}
