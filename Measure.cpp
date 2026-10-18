@@ -179,9 +179,7 @@ static double PrimeWhiteIRELevel(CGenerator * pGenerator)
 // MeasureSecondaries, MeasureGrayScaleAndColors and the display profile's
 // reference prologue all build from it, so a profile's primary/secondary
 // readings are by construction the ones a primaries run would take and can be
-// published as such. Under the pseudo color spaces the PQ/HLG encode reads the
-// document's current gray white and on/off black, so build it AFTER any grays
-// the same sweep measures.
+// published as such.
 void CMeasure::BuildPrimarySecondaryColors(CGenerator * pGenerator, ColorRGBDisplay GenColors [ 8 ])
 {
 	BOOL isSpecial = FALSE;
@@ -361,7 +359,7 @@ CMeasure::CMeasure()
 	m_bProfileMeasuringRefs = FALSE;
 	m_profileRefIndex = 0;
 	m_profileRefCount = 0;
-	m_profileRefRGB = ColorRGBDisplay ( 0.0 );
+	m_profileShownRGB = ColorRGBDisplay ( 0.0 );
 	m_bProfileCapturing = FALSE;
 	m_profileCurrentDrift = 0.0;
 
@@ -1398,8 +1396,8 @@ double CMeasure::ComputeProfileDEEx(const CColor & c, int i, ProfileDEParts * pP
 	//
 	// The call is guarded rather than unconditional because GetColorDEWhiteY ends
 	// in the grid's m_TargetMaxL fallback, which would pre-empt the profile-cube
-	// fallback below - the one thing this function must NOT inherit from the grid,
-	// since a standalone profile capture has no grayscale or primaries run at all.
+	// fallback below - a nominal luminance must not stand in for the cube's own
+	// measured white.
 	CColor prime = GetPrimeWhite();
 	CColor onoff = GetOnOffWhite();
 	bool bSpecial = ( GetConfig()->m_colorStandard == HDTVa || GetConfig()->m_colorStandard == HDTVb );
@@ -4285,6 +4283,7 @@ void CMeasure::ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, do
 bool CMeasure::MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx, BOOL bIgnoreAbort)
 {
 	ColorRGBDisplay whiteRGB ( 100.0, 100.0, 100.0 );
+	ShowProfilePatch ( pDoc, whiteRGB );
 	if ( ! pGenerator->DisplayRGBColor ( whiteRGB, CGenerator::MT_SAT_CC24_USER, patchIdx, TRUE ) )
 		return false;
 	if ( WaitForDynamicIris ( bIgnoreAbort, pDoc ) )
@@ -4363,10 +4362,23 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 
 	CGenerator::MeasureType nPattern = CGenerator::MT_SAT_CC24_USER;
 
-	// the reference prologue drives the grayscale sweep's scale too
-	if(pGenerator->CanDisplayScale ( nPattern, size ) != TRUE ||
-	   pGenerator->CanDisplayScale ( CGenerator::MT_IRE, GetGrayScaleSize() ) != TRUE)
+	if(pGenerator->CanDisplayScale ( nPattern, size ) != TRUE)
 	{
+		pGenerator->Release();
+		return FALSE;
+	}
+
+	// Disc-based generators can show neither an arbitrary cube nor the prologue's
+	// colors on demand (navigation prompts, missing chapters): refuse them here
+	// rather than fail part-way through a capture.
+	CString strKi, strDVD;
+	strKi.LoadString ( IDS_KIGENERATOR_NAME );
+	strDVD.LoadString ( IDS_MANUALDVDGENERATOR_NAME );
+	if ( pGenerator->GetName() == strKi || pGenerator->GetName() == strDVD )
+	{
+		Title.LoadString ( IDS_ERROR );
+		strMsg.LoadString ( IDS_PP_DISCGENERATOR );
+		GetColorApp()->InMeasureMessageBox ( strMsg, Title, MB_ICONERROR | MB_OK );
 		pGenerator->Release();
 		return FALSE;
 	}
@@ -4422,15 +4434,20 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	//    MT_SECONDARY is what makes the white the one a primaries run would take;
 	//    a dimmed prime white then sends the cube to the undimmed gray white
 	//    through GetColorDEWhiteY's sub-90% fallback, exactly as for a CC sweep.
-	//  - Grays first, then colors: under the pseudo color spaces the color
-	//    builder's PQ/HLG encode reads the gray white and on/off black, so it is
-	//    built from the grays just published -- MeasureGrayScaleAndColors' order.
+	//    (GDI ignores Intensity in PQ/HLG. In SDR at 96-99% Intensity the white
+	//    stays above the 0.9 threshold and the cube is scored against it, as a
+	//    CC sweep is after a primaries run; the real fix -- Intensity as a
+	//    stimulus level with its own targets, not a hidden generator scale --
+	//    is a separate change.)
+	//  - Grays first, then colors, as MeasureGrayScaleAndColors does.
 	//  - The latest measurement wins. Whatever an earlier sweep or capture wrote
 	//    is replaced, because a re-profile usually follows a display adjustment
 	//    and the cube must be scored against today's whites.
 	//  - A group (grays; colors) is published only when every read in it
 	//    succeeded: Ignore on a failed read leaves that group's previous values
-	//    alone. Stop, ESC or Abort during the prologue discards the capture.
+	//    alone. The colors also need the grays published, so a dimmed white
+	//    never lands without the gray white its fallback needs. Stop, ESC or
+	//    Abort during the prologue discards the capture.
 	//
 	// RestoreRefs puts the published state back when the capture ends with NO
 	// cube patches, so stopping right after the prologue does not leave its
@@ -4500,7 +4517,6 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	{
 		m_profileRefIndex = k;
 		m_profileRefCount = nRefs;
-		m_profileRefRGB = rgb;
 		BOOL bRetryRef = FALSE;
 		for ( ;; )
 		{
@@ -4509,6 +4525,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 				return -1;
 			if ( k > 0 )
 				GetConfig()->m_isSettling = FALSE;	// only the first displayed patch settles
+			ShowProfilePatch ( pDoc, rgb );
 			UpdateViews ( pDoc, 13 );
 			BOOL bShown = ( type == CGenerator::MT_IRE ) ? pGenerator->DisplayGray ( rgb[0], type, ! bRetryRef )
 														 : pGenerator->DisplayRGBColor ( rgb, type, patternInfo, ! bRetryRef );
@@ -4611,10 +4628,6 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		m_isModified = TRUE;
 	}
 
-	// switch pattern series between the grays and the colors, as
-	// MeasureGrayScaleAndColors does (disc generators)
-	if ( rc >= 0 && ! pGenerator->ChangePatternSeries() )
-		rc = -2;
 	if ( rc >= 0 )
 	{
 		// R, G, B, C, M, Y, white. Black came from the grays: the same 0/0/0
@@ -4629,7 +4642,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 			if ( rc == 0 )
 				bColorsOK = false;
 		}
-		if ( rc >= 0 && bColorsOK && readings[6].GetY() > 0.0 )
+		if ( rc >= 0 && bColorsOK && bGraysPublished && readings[6].GetY() > 0.0 )
 		{
 			for ( int j = 0; j < 3; j++ )
 			{
@@ -4679,6 +4692,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		}
 
 		m_currentIndex = i;
+		ShowProfilePatch ( pDoc, GenColors[i] );
 		UpdateViews(pDoc, 13);
 
 		if( pGenerator->DisplayRGBColor(GenColors[i], nPattern , i, !bRetry))
@@ -6665,6 +6679,22 @@ BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
 
 	return bEscape;
 }
+// Window mode (DISPLAY_GDI_Hide): the generator only shows and redraws the
+// in-app test window; its COLOR comes from CTargetWnd::Refresh(...,
+// TARGET_TESTWINDOW). The sweeps push it with UpdateTstWnd. A capture runs in
+// mode 13, where UpdateViews reaches MainView only with realtime display on, so
+// it pushes every stimulus it is about to show itself -- prologue, cube (after
+// any container remap) and drift anchors.
+void CMeasure::ShowProfilePatch(CDataSetDoc * pDoc, const ColorRGBDisplay & rgb)
+{
+	m_profileShownRGB = rgb;
+	if ( ! pDoc || GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) != DISPLAY_GDI_Hide )
+		return;
+	POSITION pos = pDoc->GetFirstViewPosition ();
+	CMainView * pView = (CMainView *) pDoc->GetNextView ( pos );
+	pView->m_Target.Refresh ( pDoc->GetGenerator()->m_b16_235, 1, GetProfileMeasureSize(), 13, pDoc, CTargetWnd::TARGET_TESTWINDOW );
+}
+
 // Reads the display profile's reference prologue takes (MeasureDisplayProfile):
 // the grayscale sweep's levels, less black when the manual black level stands in
 // for it, plus R, G, B, C, M, Y and white. Shared with the pane's estimate.

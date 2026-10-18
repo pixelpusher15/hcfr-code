@@ -4233,6 +4233,7 @@ BEGIN
     IDS_PP_PATCHOF          "Pattern %d di %d  -  RGB %.0f, %.0f, %.0f"
     IDS_PP_ETA              "%d%%  -  circa %s rimanenti"
     IDS_PP_MEASURINGREFS    "Grigi e primari (%d di %d)..."
+    IDS_PP_DISCGENERATOR    "Un profilo del display richiede un generatore in grado di mostrare qualsiasi colore. I generatori basati su disco non sono supportati."
     IDS_PP_AVGDE            "dE medio"
     IDS_PP_MAXDE            "dE max"
     IDS_PP_DRIFT            "Deriva"

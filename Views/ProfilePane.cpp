@@ -1001,7 +1001,7 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	// swatch shows the stimulus actually on screen.
 	const bool bRefs = ( pMeasure->m_bProfileMeasuringRefs != FALSE );
 	if ( bRefs )
-		cur_rgb = pMeasure->m_profileRefRGB;
+		cur_rgb = pMeasure->m_profileShownRGB;
 	CRect rcSw( 0, y, swSz, y + swSz );
 	FillRound( g, rcSw, 5, SwatchColor( cur_rgb ) );
 	DrawRound( g, rcSw, 5, t.border, 1.0f );
@@ -1017,10 +1017,11 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 					 cur_rgb[0], cur_rgb[1], cur_rgb[2] );
 	DrawStr( g, line, fBody, Gdiplus::RectF( (float)barX, (float)y, (float)( barW - etaW - GetConfig()->Scale( 8 ) ), 22.0f ), t.text );
 
-	double frac = total > 0 ? (double)cur / total : 0.0;
-	int remain = total - cur;
-	if ( bRefs )
-		remain += max( pMeasure->m_profileRefCount - pMeasure->m_profileRefIndex, 0 );
+	// the bar, percentage and ETA all count the prologue's reads too
+	int refN = pMeasure->m_profileRefCount;
+	int refDone = bRefs ? pMeasure->m_profileRefIndex : refN;
+	double frac = ( total + refN ) > 0 ? (double)( cur + refDone ) / ( total + refN ) : 0.0;
+	int remain = ( total - cur ) + max( refN - refDone, 0 );
 	CString eta;
 	eta.Format( S( IDS_PP_ETA ), (int)( frac * 100.0 + 0.5 ),
 				(LPCTSTR)FormatDuration( remain * ( m_emaPatchSecs > 0 ? m_emaPatchSecs : 1.8 ) ) );

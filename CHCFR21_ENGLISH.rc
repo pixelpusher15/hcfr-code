@@ -4037,6 +4037,7 @@ BEGIN
     IDS_PP_PATCHOF          "Patch %d of %d  -  RGB %.0f, %.0f, %.0f"
     IDS_PP_ETA              "%d%%  -  about %s left"
     IDS_PP_MEASURINGREFS    "Measuring grayscale and primaries (%d of %d)..."
+    IDS_PP_DISCGENERATOR    "A display profile needs a generator that can show any color. Disc-based generators are not supported."
     IDS_PP_AVGDE            "Avg dE"
     IDS_PP_MAXDE            "Max dE"
     IDS_PP_DRIFT            "Drift"

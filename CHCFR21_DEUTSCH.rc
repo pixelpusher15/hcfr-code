@@ -4024,6 +4024,7 @@ BEGIN
     IDS_PP_PATCHOF          "Muster %d von %d  -  RGB %.0f, %.0f, %.0f"
     IDS_PP_ETA              "%d%%  -  noch etwa %s"
     IDS_PP_MEASURINGREFS    "Graustufen und Primärfarben (%d von %d)..."
+    IDS_PP_DISCGENERATOR    "Ein Anzeigeprofil braucht einen Generator, der beliebige Farben anzeigen kann. Disc-basierte Generatoren werden nicht unterstützt."
     IDS_PP_AVGDE            "Mittl. dE"
     IDS_PP_MAXDE            "Max. dE"
     IDS_PP_DRIFT            "Drift"

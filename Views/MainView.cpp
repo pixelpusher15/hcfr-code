@@ -5471,7 +5471,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 			// Only when it is a real reading. An unmeasured prime white is the
 			// placeholder CMeasure pre-loads from m_TargetMaxL, so there is nothing
 			// here to rescale -- and pushing it through SetPrimeWhite would mark it
-			// measured, which would then stop a display profile from filling it in.
+			// measured, so the document would claim a white it never read.
 			// The neighbouring blocks skip invalid colors for the same reason.
 			if ( GetDocument()->GetMeasure()->IsPrimeWhiteMeasured() )
 			{

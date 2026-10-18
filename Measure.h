@@ -332,7 +332,9 @@ public:
 	// still 0, so the pane and the test window show these instead of patch 0.
 	volatile BOOL m_bProfileMeasuringRefs;
 	int m_profileRefIndex, m_profileRefCount;	// progress through the prologue
-	ColorRGBDisplay m_profileRefRGB;	// the stimulus on screen (percent)
+	// The stimulus on screen during a capture (percent): prologue patch, cube patch
+	// after any container remap, or drift anchor. Set by ShowProfilePatch.
+	ColorRGBDisplay m_profileShownRGB;
 	// TRUE from the first cube patch until the closing drift anchor has rescaled
 	// the last segment -- the array is written in place throughout, so nothing
 	// derived from it is final before this drops (m_binMeasure cannot say this:
@@ -422,6 +424,7 @@ public:
 	BOOL WaitForDynamicIris ( BOOL bIgnoreEscape = FALSE, CDataSetDoc *pDoc = NULL );
 	BOOL CheckBlackOverride (  );
 	int GetProfileRefReadCount () const;	// reads in a capture's reference prologue
+	void ShowProfilePatch ( CDataSetDoc * pDoc, const ColorRGBDisplay & rgb );	// test window in Window mode
 	void BuildPrimarySecondaryColors ( CGenerator * pGenerator, ColorRGBDisplay GenColors [ 8 ] );	// R,G,B,C,M,Y,white,black as the sweeps drive them
 	void UpdateViews ( CDataSetDoc *pDoc = NULL, int Sequence = 0 );
 	void UpdateTstWnd ( CDataSetDoc *pDoc, int Sequence );

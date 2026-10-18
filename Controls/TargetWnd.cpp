@@ -233,10 +233,10 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 			else if ( m_DisplayMode == 13 )	// display profile patch
 			{
 				ColorRGBDisplay rgb;
-				// the capture's reference prologue: show the gray/primary on screen,
-				// not cube patch 0 (there is no cube reference to center on yet)
-				if ( pDoc->GetMeasure()->m_bProfileMeasuringRefs )
-					rgb = pDoc->GetMeasure()->m_profileRefRGB;
+				// during a capture the test window shows what the generator is
+				// showing: a prologue patch, a remapped cube patch or a drift anchor
+				if ( pDoc->GetMeasure()->m_bProfileCapturing && target == TARGET_TESTWINDOW )
+					rgb = pDoc->GetMeasure()->m_profileShownRGB;
 				else
 				{
 					CColor clr;
