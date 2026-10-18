@@ -25,9 +25,12 @@ installed — every `.vcxproj` uses `PlatformToolset v142`). Installer/MSI: `Col
 - Use **MSBuild** for code builds. Example path (VS 18 Community — adjust to your install):
   `"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" ColorHCFR_VS2019.sln -p:Configuration=Debug -p:Platform=Win32 -m -v:m`
   Win32 only; there is no x64 config.
-- Avoid `devenv.com` for code builds: it can silently open a GUI "Setup assistant" dialog on an
-  invisible devenv.exe and hang for hours with no output. It is still required for the `.vdproj`
-  MSI, so keep it for `/release` only.
+- `devenv.com` is only needed for the `.vdproj` MSI (`/release`); MSBuild is faster for code.
+- **Git Bash rewrites any argument that starts with `/` into a Windows path** (`/Build` becomes
+  `C:/Program Files/Git/Build`). With devenv, that means no build at all: it opens the IDE behind
+  a hidden "files could not be found" dialog and looks hung. From Git Bash, prefix devenv with
+  `MSYS_NO_PATHCONV=1`, or run it from cmd/PowerShell. The same trap is why the app's harness
+  switch is passed as `-accuracytest`, not `/accuracytest`.
 
 ## Before merging any PR
 Run all of these and report the results in the PR:

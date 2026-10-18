@@ -58,13 +58,18 @@ Follow these steps in order. Stop and wait where it says WAIT.
 
 ## 3. Draft release notes  → WAIT for approval
 - Group the changes into user-facing themes (Fixed / Added / Changed). Plain language, not commit
-  subjects. Note the known installer quirk if still unresolved (MSI historically omitted
-  `CHCFR21_ITALIAN.dll` and duplicated FRANCAIS/PATTERNS — check whether this release fixes it).
+  subjects. If this is the first release since the installer fix (PR #201), mention it: the
+  4.1.0.0 MSI omitted `CHCFR21_ITALIAN.dll` and packaged ENGLISH/FRANCAIS/PATTERNS twice; the
+  MSI now ships each language DLL once and is ~80 MB smaller.
 - Show the notes to the user. **Do not proceed until they approve.** Revise as asked.
 
 ## 4. Build
 Run from the repo root, on the merged `main` commit from step 2. `devenv.com` is the console
 build variant (blocks until done; `devenv.exe` would return immediately).
+- **From Git Bash, prefix every devenv command with `MSYS_NO_PATHCONV=1`.** Otherwise Git Bash
+  rewrites `/Build` and `/Project` into Windows paths (`C:/Program Files/Git/Build`); devenv then
+  builds nothing, exits 0 with no output, and leaves the IDE open behind a hidden
+  "files could not be found" dialog. cmd and PowerShell don't need this.
 - **One-time per machine/user:** run `DisableOutOfProcBuild.exe` from
   `C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\VSI\DisableOutOfProcBuild\`
   (cd there first). It sets the registry key that avoids
@@ -74,12 +79,16 @@ build variant (blocks until done; `devenv.exe` would return immediately).
   `"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com" ColorHCFR_VS2019.sln /Build "Release|Win32"`
 - If the MSI didn't come out of that, build it explicitly:
   `"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com" ColorHCFR_VS2019.sln /Project ColorHCFR_VS2019.vdproj /Build "Release|Win32"`
-- If devenv sits with no output for minutes, it has probably opened a hidden GUI dialog
-  (check `Get-Process devenv | Select MainWindowTitle`); kill it and resolve the dialog in the IDE.
+- If devenv returns at once or sits with no output, check `Get-Process devenv | Select MainWindowTitle`.
+  An open IDE window means the arguments were mangled (see above) or VS is showing a dialog:
+  stop that process and fix the command rather than clicking through the IDE.
+- A good build ends with `========== Build: N succeeded, 0 failed` and contains no
+  `WARNING: Two or more objects have the same target location` lines (those mean a file is
+  packaged twice).
 - If devenv reports the project type is unsupported, the Installer Projects extension isn't
   installed — tell the user to install it (or build the MSI from the IDE) and stop.
 - Report the produced `.msi` path and confirm all 6 `CHCFR21_*.dll` (5 languages + PATTERNS)
-  are inside it.
+  are inside it **exactly once each** (the step 4b read loop lists them).
 
 ## 4b. Check the MSI File table versions
 Windows Installer decides whether to overwrite a file on upgrade by comparing the `File` table's
