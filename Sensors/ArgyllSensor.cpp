@@ -72,6 +72,22 @@ static void WarnSpectralReapplyFailedOnce(const CString& path)
     GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
 }
 
+// A Display Type record whose entry is not the one in use (a plain entry is
+// selected, or the record's entry is gone from the list): it stays applied, and the
+// user is told once per session.
+static void NoticeLoadedDisplayTypeOnce(const std::string& description)
+{
+    static BOOL s_noticedLoadedDisplayType = FALSE;
+    if ( s_noticedLoadedDisplayType )
+        return;
+    s_noticedLoadedDisplayType = TRUE;
+    CString msg, fmt, title;
+    fmt.LoadString ( IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE );
+    title.LoadString ( IDS_SPECTRAL_TITLE );
+    msg.Format ( fmt, description.c_str() );
+    GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONINFORMATION );
+}
+
 // A FILE-source record derived for another unit that cannot be derived again for
 // the connected one (no correction file, or one that cannot be read): it stays in
 // use unchanged, and the user is told once per session. Only when both serials are
@@ -113,6 +129,7 @@ CArgyllSensor::CArgyllSensor() :
     m_dtBaseFor = 0xFFFFFFFF;
     m_displayTypeChangedInSheet = false;
     m_cfgSnapDeviceValid = false;
+    m_displayTypeRecordEntryMissing = false;
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
     m_pDevicePage = & m_ArgyllSensorPropertiesPage;  // Add Argyll settings page to property sheet
@@ -153,6 +170,7 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
     m_dtBaseFor = 0xFFFFFFFF;
     m_displayTypeChangedInSheet = false;
     m_cfgSnapDeviceValid = false;
+    m_displayTypeRecordEntryMissing = false;
 
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
@@ -425,6 +443,50 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
     // Re-apply the low-light averaging setting so it survives reconnects /
     // restarts (the wrapper resets it on each new meter object).
     m_meter->setAdapt(!!m_Adapt);
+
+    // A Display Type record is anchored to its entry's TEXT, not to the persisted
+    // index: Argyll's list numbers installed ccss/ccmx files in the order it finds
+    // them, so one file added or removed shifts every index after it, and the stored
+    // index can name another entry. Unless the user chose the Display Type in the
+    // sheet (that choice replaces the record), the entry is looked up by the
+    // record's text. Found: m_DisplayType follows it (member and registry). Gone:
+    // the record keeps applying, the driver measures on a plain entry, and Sync
+    // leaves the Display Type alone (m_displayTypeRecordEntryMissing).
+    m_displayTypeRecordEntryMissing = false;
+    int plainEntry = -1;
+    if ( m_meter->canExposeCalibrationMatrices() && m_spectral.source == SPECTRAL_SOURCE_DISPLAY_TYPE
+      && !m_displayTypeChangedInSheet && m_DisplayType != 0xFFFFFFFF
+      && DisplayTypeText(m_DisplayType) != m_spectral.description )
+    {
+        const int ix = FindDisplayTypeByText(m_spectral.description);
+        if ( ix >= 0 )
+        {
+            m_DisplayType = (UINT)ix;
+            m_dtBaseIndex = -1;     // the base belongs to the entry it was derived for
+            GetConfig()->WriteProfileInt(m_meter->getMeterName().c_str(), "DisplayType", m_DisplayType );
+            SetModifiedFlag(TRUE);
+        }
+        else
+        {
+            m_displayTypeRecordEntryMissing = true;
+            // The stored entry when it is plain (the user's own choice); else the
+            // first entry carrying neither a ccss nor a ccmx. The wrapper exposes no
+            // inst_dtflags_default test, but inst_creat_disptype_list copies the
+            // driver's static table first, and the i1d3's default ("Non-Refresh
+            // display", inst_dtflags_default) is entry 0 of it - so this is entry 0.
+            if ( !m_meter->isDisplayTypeCorrected((int)m_DisplayType) )
+                plainEntry = (int)m_DisplayType;
+            else
+            {
+                const int n = m_meter->getNumberOfDisplayTypes();
+                for ( int i = 0; i < n && plainEntry < 0; ++i )
+                    if ( !m_meter->isDisplayTypeCorrected(i) )
+                        plainEntry = i;
+            }
+            NoticeLoadedDisplayTypeOnce ( m_spectral.description );
+        }
+    }
+
     if(m_DisplayType != 0xFFFFFFFF)
     {
         // A ccss/ccmx entry whose correction is already recorded for this unit and
@@ -432,7 +494,13 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
         // the base entry that derive measured on directly, so the driver measures
         // native. Otherwise the user's entry; a corrected one is derived below and
         // the derive leaves its base selected.
-        m_meter->setDisplayType( DisplayTypeRecordIsCurrent() ? m_dtBaseIndex : (int)m_DisplayType );
+        if ( m_displayTypeRecordEntryMissing )
+        {
+            if ( plainEntry >= 0 )
+                m_meter->setDisplayType(plainEntry);
+        }
+        else
+            m_meter->setDisplayType( DisplayTypeRecordIsCurrent() ? m_dtBaseIndex : (int)m_DisplayType );
     }
 
     // A record derived on a meter whose matrices are exposed (basis NATIVE: HCFR
@@ -755,6 +823,19 @@ std::string CArgyllSensor::DisplayTypeText(UINT index)
     }
 }
 
+int CArgyllSensor::FindDisplayTypeByText(const std::string& text)
+{
+    if ( m_meter == NULL || text.empty() )
+        return -1;
+    int n = 0;
+    try { n = m_meter->getNumberOfDisplayTypes(); }
+    catch ( std::logic_error & ) { return -1; }
+    for ( int i = 0; i < n; ++i )
+        if ( DisplayTypeText((UINT)i) == text )
+            return i;
+    return -1;
+}
+
 bool CArgyllSensor::DisplayTypeRecordIsCurrent()
 {
     if ( m_meter == NULL || !m_meter->canExposeCalibrationMatrices() || m_DisplayType == 0xFFFFFFFF )
@@ -798,6 +879,10 @@ bool CArgyllSensor::RefuseSpectralBrowse(UINT displayType)
 void CArgyllSensor::SyncSpectralRecordFromMeter()
 {
     if ( m_meter == NULL || !m_meter->canExposeCalibrationMatrices() )
+        return;
+    // The record's Display Type entry is gone from the list (Init): nothing to
+    // derive it from, and the entry at the stale index is another one. It stays.
+    if ( m_displayTypeRecordEntryMissing )
         return;
 
     const int observer = RecordedObserver(m_meter);
@@ -892,16 +977,7 @@ void CArgyllSensor::SyncSpectralRecordFromMeter()
             // it from, and dropping it would silently change what the document's
             // readings went through. It stays and applies until the Display Type is
             // changed in the sheet; the user is told once per session.
-            static BOOL s_noticedLoadedDisplayType = FALSE;
-            if ( !s_noticedLoadedDisplayType )
-            {
-                s_noticedLoadedDisplayType = TRUE;
-                CString msg, fmt, title;
-                fmt.LoadString ( IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE );
-                title.LoadString ( IDS_SPECTRAL_TITLE );
-                msg.Format ( fmt, m_spectral.description.c_str() );
-                GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONINFORMATION );
-            }
+            NoticeLoadedDisplayTypeOnce ( m_spectral.description );
             return;
         }
     }

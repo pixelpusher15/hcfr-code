@@ -86,6 +86,11 @@ private:
     // True only while GetPropertiesSheetValues re-inits for a Display Type the user
     // changed in the sheet: tells a Display Type CHANGE from a document load.
     bool        m_displayTypeChangedInSheet;
+    // Set by Init: the Display Type record's entry (matched by its text) is no
+    // longer in the meter's list. The record stays applied, the driver measures on
+    // a plain entry, and Sync leaves the Display Type alone. Re-evaluated every
+    // Init, so a Display Type chosen in the sheet clears it.
+    bool        m_displayTypeRecordEntryMissing;
 
 public:
     CArgyllSensor();
@@ -155,6 +160,8 @@ private:
     void MakeFileRecord(const CString& path, const SpectralSample* ss, SpectralCorrectionRecord& rec);
     // The Display Type entry's text ("" when the meter cannot say).
     std::string DisplayTypeText(UINT index);
+    // The list index whose text is `text`; -1 when absent or `text` is empty.
+    int FindDisplayTypeByText(const std::string& text);
     // The record is the selected corrected entry's, for this unit and observer, and
     // the base it was derived on is known: nothing to derive again.
     bool DisplayTypeRecordIsCurrent();
