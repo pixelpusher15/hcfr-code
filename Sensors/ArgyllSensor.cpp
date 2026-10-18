@@ -489,14 +489,26 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
             // inst_dtflags_default test, but inst_creat_disptype_list copies the
             // driver's static table first, and the i1d3's default ("Non-Refresh
             // display", inst_dtflags_default) is entry 0 of it - so this is entry 0.
-            if ( !m_meter->isDisplayTypeCorrected((int)m_DisplayType) )
+            // A stored index past the end of the list (the list shrank when the file
+            // went) names nothing and is not plain.
+            const int n = m_meter->getNumberOfDisplayTypes();
+            if ( (int)m_DisplayType < n && !m_meter->isDisplayTypeCorrected((int)m_DisplayType) )
                 plainEntry = (int)m_DisplayType;
             else
             {
-                const int n = m_meter->getNumberOfDisplayTypes();
                 for ( int i = 0; i < n && plainEntry < 0; ++i )
                     if ( !m_meter->isDisplayTypeCorrected(i) )
                         plainEntry = i;
+            }
+            // The Display Type follows the driver (member and registry), so the page
+            // and the next session show the entry the readings are taken on, not the
+            // stale index. The record is still anchored to its text: should the file
+            // come back, the lookup above finds it again.
+            if ( plainEntry >= 0 && (UINT)plainEntry != m_DisplayType )
+            {
+                m_DisplayType = (UINT)plainEntry;
+                GetConfig()->WriteProfileInt(m_meter->getMeterName().c_str(), "DisplayType", m_DisplayType );
+                SetModifiedFlag(TRUE);
             }
             NoticeLoadedDisplayTypeOnce ( m_spectral.description );
         }
