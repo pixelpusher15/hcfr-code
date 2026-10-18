@@ -24,6 +24,7 @@
 #endif
 
 #include "SpectralCorrection.h"
+#include "Color.h"		// CalibrationMatrixMethod, for EffectiveSensorMatrix
 #include <cmath>
 #include <cstdio>
 #include <float.h>
@@ -178,6 +179,17 @@ bool SpectralCorrectionRecord::operator==(const SpectralCorrectionRecord& o) con
 	    && currentCal  == o.currentCal
 	    && correction  == o.correction
 	    && basis       == o.basis;
+}
+
+Matrix EffectiveSensorMatrix(int calibrationMethod, int fitBasis, const SpectralCorrectionRecord& rec,
+                             const Matrix& sensorToXYZ)
+{
+	if ( calibrationMethod == CALIB_BODNER_THREEMATRIX )
+		return Matrix::IdentityMatrix(3);
+	// The spectral method's matrix IS the record's correction: never compose it twice.
+	if ( calibrationMethod != CALIB_SPECTRAL_SAMPLE && fitBasis != FIT_BASIS_NATIVE && rec.IsPresent() )
+		return sensorToXYZ * rec.correction;
+	return sensorToXYZ;
 }
 
 #ifdef LIBHCFR_HAS_MFC

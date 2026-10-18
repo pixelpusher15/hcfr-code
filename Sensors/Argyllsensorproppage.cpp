@@ -416,7 +416,16 @@ void CArgyllSensorPropPage::RefreshSpectralStatus()
             desc = m_pSensor->GetSpectralCorrectionDesc();
         if ( desc.IsEmpty() )
             desc.LoadString(IDS_SPECTRAL_LOADED);
-        if ( !m_pSensor->UsesSpectralMethod() )
+        // Not the method: dormant only when the method's matrices expect native
+        // readings. A matrix fitted on driver-corrected readings (basis not NATIVE: a
+        // 4.1 file, a file from before the basis field) is composed on the record's
+        // correction - the label says what EffectiveSensorMatrix does.
+        const bool composed = !m_pSensor->UsesSpectralMethod()
+                           && m_pSensor->GetCalibrationMethod() != CALIB_BODNER_THREEMATRIX
+                           && m_pSensor->GetFitBasis() != FIT_BASIS_NATIVE;
+        if ( composed )
+            fmt.LoadString(IDS_SPECTRAL_STATUS_COMPOSED_FMT);
+        else if ( !m_pSensor->UsesSpectralMethod() )
             fmt.LoadString(IDS_SPECTRAL_STATUS_INACTIVE_FMT);  // present, dormant under a matrix method
         else if ( rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE )
             fmt.LoadString(IDS_SPECTRAL_STATUS_DISPTYPE_FMT);
@@ -432,14 +441,25 @@ void CArgyllSensorPropPage::RefreshSpectralStatus()
     }
     m_spectralStatus.SetWindowText(s);
     // Clear only a browsed file. A Display Type correction is changed through
-    // the Display Type list, which is what removes it.
+    // the Display Type list, which is what removes it. A stored path with no
+    // record behind it (a moved file that could not be derived again) can always
+    // be cleared, so the warning's "clear it in the sensor properties" holds.
     if ( ::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
-        m_spectralClearBtn.EnableWindow( rec.IsPresent() && rec.source == SPECTRAL_SOURCE_FILE );
+        m_spectralClearBtn.EnableWindow( ( rec.IsPresent() && rec.source == SPECTRAL_SOURCE_FILE )
+                                      || !m_pSensor->GetSpectralCorrectionPath().IsEmpty() );
 }
 
 void CArgyllSensorPropPage::OnSpectralBrowse()
 {
     if ( m_pSensor == NULL )
+        return;
+    // Refused before the file dialog while the Display Type selected in this page
+    // carries a ccss/ccmx itself: the sheet's OK would select that entry and its
+    // correction would replace the browsed file at the next Init. The page's
+    // selection, not the sensor's committed one: that is what OK will commit.
+    int sel = m_DisplayTypeCombo.GetCurSel();
+    UINT pendingType = ( sel == CB_ERR ) ? m_pSensor->m_DisplayType : (UINT)sel;
+    if ( m_pSensor->RefuseSpectralBrowse(pendingType) )
         return;
     CString sFilter; sFilter.LoadString(IDS_SPECTRAL_FILEFILTER);
     CFileDialog dlg(TRUE, "ccss", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST, sFilter);

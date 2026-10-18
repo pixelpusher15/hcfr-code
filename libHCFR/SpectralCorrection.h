@@ -128,4 +128,19 @@ struct SpectralCorrectionRecord
 #endif
 };
 
+// The single matrix a sensor's readings go through for every method but Bodner
+// (CSensor::GetEffectiveMatrix forwards here; T32 pins the whole table):
+//   calibrationMethod == CALIB_BODNER_THREEMATRIX         -> identity (the caller
+//                                                            branches on Bodner first)
+//   calibrationMethod == CALIB_SPECTRAL_SAMPLE            -> sensorToXYZ, never composed:
+//                                                            that matrix IS rec.correction
+//   fitBasis != FIT_BASIS_NATIVE and rec.IsPresent()      -> sensorToXYZ * rec.correction
+//                                                            (a matrix fitted on driver-
+//                                                            corrected readings, as 4.1 did)
+//   otherwise                                             -> sensorToXYZ
+// fitBasis is the sensor's (SpectralFitBasis of the method's matrices), not
+// rec.basis. Readings are column vectors, so the correction acts first.
+Matrix EffectiveSensorMatrix(int calibrationMethod, int fitBasis, const SpectralCorrectionRecord& rec,
+                             const Matrix& sensorToXYZ);
+
 #endif // SPECTRALCORRECTION_H_INCLUDED

@@ -2479,6 +2479,74 @@ namespace T32Spectral
         if (SPECTRAL_SOURCE_NONE != 0 || SPECTRAL_SOURCE_FILE != 1 || SPECTRAL_SOURCE_DISPLAY_TYPE != 2)
             Fail("T32 (e) SpectralCorrectionSource values moved");
     }
+
+    // (f) The sensor's dispatch, EffectiveSensorMatrix, over the whole
+    // (method, basis, record present) table. The method's matrix M and the
+    // record's correction D do not commute, so a composition in the wrong
+    // order (D * M) fails here, not only a missing or an extra one. The
+    // absent record still carries D in its correction field, so a dispatch
+    // that ignored IsPresent() would compose and fail too.
+    static Matrix MethodMatrix() { return M3(1.05, 0.02, -0.01,  0.03, 0.98, 0.01,  -0.02, 0.04, 1.01); }
+
+    static void CheckDispatch()
+    {
+        const Matrix M = MethodMatrix();
+        const Matrix D = Delta();
+        // The canary's premise: the two orders really differ (well beyond 1e-12).
+        Matrix md = M * D, dm = D * M;
+        double maxDiff = 0.0;
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                if (fabs(md(i,j) - dm(i,j)) > maxDiff)
+                    maxDiff = fabs(md(i,j) - dm(i,j));
+        if (maxDiff < 1e-4)
+            Fail("T32 (f) M and D commute (max diff %g): the order would not be pinned", maxDiff);
+
+        SpectralCorrectionRecord present;
+        present.source     = SPECTRAL_SOURCE_FILE;
+        present.correction = D;
+        present.basis      = FIT_BASIS_NATIVE;
+        SpectralCorrectionRecord absent;      // source NONE, but a non-identity correction
+        absent.correction  = D;
+
+        const int methods[] = { CALIB_CLASSIC_NIST, CALIB_HCFR_DEFAULT, CALIB_BODNER_THREEMATRIX,
+                                CALIB_FCMM_NO_LUM, CALIB_SPECTRAL_SAMPLE };
+        const int bases[]   = { FIT_BASIS_UNKNOWN, FIT_BASIS_NATIVE, FIT_BASIS_DRIVER_CORRECTED };
+        int cells = 0;
+        for (int mi = 0; mi < 5; ++mi)
+            for (int bi = 0; bi < 3; ++bi)
+                for (int p = 0; p < 2; ++p)
+                {
+                    const int method = methods[mi], basis = bases[bi];
+                    const SpectralCorrectionRecord& rec = p ? present : absent;
+                    // The table, stated independently of the implementation:
+                    //   Bodner                                  -> identity (callers branch on it first)
+                    //   spectral method                         -> M (M IS the correction: never composed)
+                    //   other, basis != NATIVE, record present  -> M * D
+                    //   otherwise                               -> M
+                    Matrix want;
+                    const char* rule;
+                    if (method == CALIB_BODNER_THREEMATRIX)                          { want = Matrix::IdentityMatrix(3); rule = "identity"; }
+                    else if (method == CALIB_SPECTRAL_SAMPLE)                        { want = M;     rule = "M"; }
+                    else if (basis != FIT_BASIS_NATIVE && p)                         { want = M * D; rule = "M*D"; }
+                    else                                                             { want = M;     rule = "M"; }
+
+                    Matrix got = EffectiveSensorMatrix(method, basis, rec, M);
+                    char what[96];
+                    sprintf_s(what, "(f) method %d basis %d present %d -> %s", method, basis, p, rule);
+                    // Same arithmetic on both sides: 1e-14 relative is round-off only.
+                    CheckMatrix(what, got, want, 1e-14);
+                    ++cells;
+                }
+        if (cells != 30)
+            Fail("T32 (f) table has %d cells, want 30", cells);
+
+        // The record's own basis does not drive the dispatch: the method's basis does.
+        SpectralCorrectionRecord drv = present;
+        drv.basis = FIT_BASIS_DRIVER_CORRECTED;
+        CheckMatrix("(f) native method basis, driver-corrected record -> M",
+                    EffectiveSensorMatrix(CALIB_HCFR_DEFAULT, FIT_BASIS_NATIVE, drv, M), M, 1e-14);
+    }
 }
 
 static void RunT32()
@@ -2489,6 +2557,7 @@ static void RunT32()
     T32Spectral::CheckHash();
     T32Spectral::CheckRecord();
     T32Spectral::CheckPersistedNumbers();
+    T32Spectral::CheckDispatch();
 }
 
 //////////////////////////////////////////////////////////////////////////

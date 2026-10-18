@@ -1069,7 +1069,12 @@ bool ArgyllMeterWrapper::deriveDisplayTypeCalibration(int displayTypeIndex, int&
         {
             continue;
         }
-        if (isCcmx ? (ccCbid != 0 && displayTypes[i].cbid == ccCbid) : (displayTypes[i].refr == refr))
+        // The refresh flag is compared as the driver uses it, zero or not: a ccss
+        // without DISPLAY_TYPE_REFRESH carries refr -1 (Tools/spectro/ccss.c, read_ccss:
+        // `p->refrmode = -1`), and the i1d3 driver runs any non-zero refr in refresh
+        // mode (i1d3.c update_refmode: `if (p->refrmode)` doubles the integration
+        // time). An exact compare against the built-ins' 0/1 found no base for it.
+        if (isCcmx ? (ccCbid != 0 && displayTypes[i].cbid == ccCbid) : ((displayTypes[i].refr != 0) == (refr != 0)))
         {
             base = i;
             break;
@@ -1236,7 +1241,15 @@ void ArgyllMeterWrapper::resetSpectralSample()
         else
         {
             // No display type was ever chosen: the driver's own reset to its default type.
-            instCode = m_meter->col_cal_spec_set(m_meter, disptech_unknown, NULL, 0);
+            // i1d3_col_cal_spec_set with no sets selects the default entry and then sets
+            // the refresh mode from the dtech it is passed (update_refmode(p,
+            // disptech_get_id(dtech)->refr)); disptech_unknown has refr 1 (disptechs.c),
+            // which would silently switch the meter to refresh mode. Pass the driver's
+            // current dtech instead, as loadSpectralSample does: here the driver is still
+            // on the entry init selected, whose dtech and refr agree.
+            disptech dtech = disptech_unknown;
+            m_meter->get_disptechi(m_meter, &dtech, NULL, NULL);
+            instCode = m_meter->col_cal_spec_set(m_meter, dtech, NULL, 0);
         }
     }
 	if (instCode != inst_ok) 

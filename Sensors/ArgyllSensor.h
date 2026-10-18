@@ -58,6 +58,18 @@ public:
     CString     m_spectralCorrectionDesc;   // description shown in the UI
     CString     m_cfgSnapSpectralPath;      // BeginConfigure/CancelConfigure snapshot
     CString     m_cfgSnapSpectralDesc;
+    // The device settings GetPropertiesSheetValues commits (members and registry) -
+    // the page's Calibrate button commits them mid-sheet - so a cancelled sheet puts
+    // them back too. Valid only after a BeginConfigure.
+    bool        m_cfgSnapDeviceValid;
+    UINT        m_cfgSnapDisplayType;
+    UINT        m_cfgSnapReadingType;
+    CString     m_cfgSnapSpectralType;
+    UINT        m_cfgSnapIntTime;
+    BOOL        m_cfgSnapHiRes;
+    BOOL        m_cfgSnapAdapt;
+    BOOL        m_cfgSnapDisableAIO;
+    bool        m_cfgSnapDebugMode;
     // Parsed-spectral-sample cache so Init does not re-read the file per
     // sweep/measurement; invalidated whenever the correction state changes.
     SpectralSample m_spectralSampleCache;
@@ -66,6 +78,14 @@ public:
 private:
     ArgyllMeterWrapper* m_meter;
     SpectralSampleFiles *m_spectralSamples;
+    // The base entry the last successful Display Type derive left selected, and the
+    // entry it belongs to (-1 / 0xFFFFFFFF: none yet). Lets Init measure on the base
+    // without deriving again while the record still matches (see Init).
+    int         m_dtBaseIndex;
+    UINT        m_dtBaseFor;
+    // True only while GetPropertiesSheetValues re-inits for a Display Type the user
+    // changed in the sheet: tells a Display Type CHANGE from a document load.
+    bool        m_displayTypeChangedInSheet;
 
 public:
     CArgyllSensor();
@@ -95,6 +115,11 @@ public:
     bool ApplySpectralCorrection(const CString& filePath);
     virtual void ClearSpectralCorrection();
     CString GetSpectralCorrectionDesc() const { return m_spectralCorrectionDesc; }
+    CString GetSpectralCorrectionPath() const { return m_spectralCorrectionPath; }
+    // True, after telling the user why, when Display Type list entry `displayType`
+    // carries a ccss or ccmx itself: a browsed file would be replaced by the entry's
+    // correction at the next Init, so Browse is refused while it is selected.
+    bool RefuseSpectralBrowse(UINT displayType);
     // Extend the base snapshot with the spectral state, which a Browse in the
     // property page commits (device + members) before the sheet closes.
     virtual void BeginConfigure();
@@ -121,6 +146,18 @@ private:
     // ccss/ccmx Display Type entry (leaving the driver on its base entry) or
     // re-derives a browsed sample for another unit/observer (see the .cpp).
     void SyncSpectralRecordFromMeter();
+    // A .ccss through SpectralSample::Read or a correlation .csv through
+    // createFromCorrelationCSV, by extension. False with the reason in `why`.
+    static bool ReadSpectralFile(const CString& path, SpectralSample& ss, std::string& why);
+    // The FILE-source fields of a record: source, description (the sample's display,
+    // else its description, else m_spectralCorrectionDesc), file hash, observer and
+    // meter serial. The caller sets the matrices and the basis.
+    void MakeFileRecord(const CString& path, const SpectralSample* ss, SpectralCorrectionRecord& rec);
+    // The Display Type entry's text ("" when the meter cannot say).
+    std::string DisplayTypeText(UINT index);
+    // The record is the selected corrected entry's, for this unit and observer, and
+    // the base it was derived on is known: nothing to derive again.
+    bool DisplayTypeRecordIsCurrent();
 };
 
 #endif // !defined(AFX_ARGYLLSENSOR_H__1493C213_6A02_44C5_8EB7_55B469092E14__INCLUDED_)

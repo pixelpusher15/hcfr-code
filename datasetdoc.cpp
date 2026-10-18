@@ -77,7 +77,7 @@ static char THIS_FILE[] = __FILE__;
 
 // Defined below (near the calibration entry points); used by the new-document
 // wizard's Argyll branch as well.
-static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor);
+static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor, LPCSTR fileToLoad = NULL);
 static BOOL LoadCalibrationFileKeepingSpectral(CSensor* pSensor, CString & fileName);
 
 /////////////////////////////////////////////////////////////////////////////
@@ -904,7 +904,7 @@ BOOL CDataSetDoc::OnNewDocument()
                         // A matrix training file over a spectral correction - same
                         // question as the other calibration entry points. Declining
                         // keeps the spectral correction and skips the training file.
-                        if ( ConfirmMatrixCalOverSpectral(m_pSensor)
+                        if ( ConfirmMatrixCalOverSpectral(m_pSensor, (LPCSTR)propSheet.m_Page2.m_trainingFileName)
                           && LoadCalibrationFileKeepingSpectral(m_pSensor, propSheet.m_Page2.m_trainingFileName) )
                             m_pSensor->SpectralSupersededByMatrixFit();	// the file is in; a refused one leaves both as they were
                     }
@@ -1840,7 +1840,12 @@ void CDataSetDoc::OnCalibrationExisting()
 //   - Otherwise only when the spectral correction is the method in force: raw is
 //     native, the matrix is fitted on and applied to raw, and the spectral record
 //     stays in the sensor, dormant. The user is told so (OK/Cancel).
-static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor)
+//   - Except before loading a correction file with no fit-basis record
+//     (fileToLoad, basis UNKNOWN): its matrix is composed on the spectral
+//     correction (GetEffectiveMatrix, as HCFR 4.1 did), so the correction keeps
+//     affecting the values shown, and the warning says that instead.
+static bool PeekCalibrationFile(LPCSTR fileName, int& method, int& basis);
+static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor, LPCSTR fileToLoad)
 {
 	if ( pSensor == NULL || !pSensor->HasSpectralCorrection() )
 		return true;
@@ -1855,11 +1860,57 @@ static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor)
 	}
 	if ( !pSensor->UsesSpectralMethod() )
 		return true;
-	CString fmt;
-	fmt.LoadString ( IDS_SPECTRAL_SUPERSEDE_WARN );
-	msg.Format ( fmt, rec.description.c_str() );
+	int fileMethod = CALIB_HCFR_DEFAULT, fileBasis = FIT_BASIS_NATIVE;
+	if ( fileToLoad != NULL && PeekCalibrationFile(fileToLoad, fileMethod, fileBasis)
+	  && fileBasis == FIT_BASIS_UNKNOWN
+	  && fileMethod != CALIB_BODNER_THREEMATRIX && fileMethod != CALIB_SPECTRAL_SAMPLE )
+	{
+		msg.LoadString ( IDS_SPECTRAL_COMPOSE_WARN );
+	}
+	else
+	{
+		CString fmt;
+		fmt.LoadString ( IDS_SPECTRAL_SUPERSEDE_WARN );
+		msg.Format ( fmt, rec.description.c_str() );
+	}
 	return GetColorApp()->InMeasureMessageBox( msg, title,
 		MB_OKCANCEL | MB_ICONWARNING ) == IDOK;
+}
+
+// The method and fit basis a correction file will install, read into a temporary
+// so the sensor is not touched (the sensor block leads the file, as in
+// COneDeviceSensor::LoadCalibrationFile). False when it cannot be read: the load
+// itself then refuses the file and changes nothing.
+static bool PeekCalibrationFile(LPCSTR fileName, int& method, int& basis)
+{
+	CSensor	peek;
+	bool	bRead = false;
+	TRY
+	{
+		CFile peekFile(fileName, CFile::modeRead);
+		CArchive ar(&peekFile, CArchive::load);
+		peek.CSensor::Serialize(ar);
+		method = peek.GetCalibrationMethod();
+		basis = peek.GetFitBasis();
+		bRead = true;
+	}
+	CATCH_ALL ( e )
+	{
+		e->Delete();
+	}
+	END_CATCH_ALL
+	return bRead;
+}
+
+// The basis of the readings a fit is made on. Raw is native, except on a meter
+// whose matrices are not exposed: its driver applies the sample itself (the
+// record's basis is DRIVER_CORRECTED), so the readings the fit used were
+// driver-corrected. Stamped before SpectralSupersededByMatrixFit clears that record.
+static int FitBasisOfReadings(CSensor* pSensor)
+{
+	const SpectralCorrectionRecord & rec = pSensor->GetSpectralRecord();
+	return ( rec.IsPresent() && rec.basis == FIT_BASIS_DRIVER_CORRECTED )
+		? FIT_BASIS_DRIVER_CORRECTED : FIT_BASIS_NATIVE;
 }
 
 // LoadCalibrationFile replaces the whole correction with the file's, the
@@ -1867,7 +1918,12 @@ static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor)
 // the sensor's own then, so SpectralSupersededByMatrixFit decides about it as
 // after any fit (a native record stays dormant; a driver-applied one is cleared
 // with its sample) instead of it vanishing while the meter still holds the
-// sample. A file that carries a record brings its own.
+// sample. A file that carries a record brings its own - and then a previous
+// driver-applied record (captured BEFORE the load, which replaces it) would leave
+// its sample in the driver, re-applied by every Init under the file's matrix: when
+// the file installs a matrix method, that sample is dropped here through the
+// sensor's ClearSpectralCorrection (sample and path with it), and the file's
+// record is kept unless it, too, relies on the driver applying a sample.
 static BOOL LoadCalibrationFileKeepingSpectral(CSensor* pSensor, CString & fileName)
 {
 	SpectralCorrectionRecord prev = pSensor->GetSpectralRecord();
@@ -1875,6 +1931,13 @@ static BOOL LoadCalibrationFileKeepingSpectral(CSensor* pSensor, CString & fileN
 		return FALSE;
 	if ( prev.IsPresent() && !pSensor->GetSpectralRecord().IsPresent() )
 		pSensor->SetSpectralRecord(prev);
+	else if ( prev.IsPresent() && prev.basis == FIT_BASIS_DRIVER_CORRECTED && !pSensor->UsesSpectralMethod() )
+	{
+		SpectralCorrectionRecord loaded = pSensor->GetSpectralRecord();
+		pSensor->ClearSpectralCorrection();
+		if ( loaded.IsPresent() && loaded.basis != FIT_BASIS_DRIVER_CORRECTED )
+			pSensor->SetSpectralRecord(loaded);
+	}
 	return TRUE;
 }
 
@@ -2198,7 +2261,7 @@ void CDataSetDoc::OnCalibrationManual()
 
                     m_pSensor->SetBodnerMatrices(rawMatrix, calMatrix);
                     m_pSensor->SetCalibrationMethod(CALIB_BODNER_THREEMATRIX);
-                    m_pSensor->SetFitBasis(FIT_BASIS_NATIVE);	// fitted on raw, which is native
+                    m_pSensor->SetFitBasis(FitBasisOfReadings(m_pSensor));	// fitted on raw: see FitBasisOfReadings
                     // The fit is in: now the matrix method replaces the spectral one (the prompt was
                     // answered; a meter with none is left alone). Here rather than at the prompt, so
                     // a declined step, a failed Init or a singular matrix leaves the meter as it was.
@@ -2248,7 +2311,9 @@ void CDataSetDoc::OnCalibrationManual()
                     m_pSensor->SetSensorMatrix(newMatrix);
                     m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
                     m_pSensor->SetCalibrationMethod(calibrationMethod);
-                    m_pSensor->SetFitBasis(FIT_BASIS_NATIVE);	// newMatrix maps native raw to the reference
+                    // newMatrix maps raw - native, or driver-corrected on a meter whose driver
+                    // applies the sample (FitBasisOfReadings) - to the reference
+                    m_pSensor->SetFitBasis(FitBasisOfReadings(m_pSensor));
                     m_pSensor->ClearBodnerMatrices();
                     m_pSensor->SpectralSupersededByMatrixFit();	// see the Bodner branch above
                     SetModifiedFlag(TRUE);
@@ -2686,7 +2751,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 
             m_pSensor->SetBodnerMatrices(rawMatrix, calMatrix);
             m_pSensor->SetCalibrationMethod(CALIB_BODNER_THREEMATRIX);
-            m_pSensor->SetFitBasis(FIT_BASIS_NATIVE);	// fitted on raw, which is native
+            m_pSensor->SetFitBasis(FitBasisOfReadings(m_pSensor));	// fitted on raw: see FitBasisOfReadings
             // The fit is in: now the matrix method replaces the spectral one (the prompt was
             // answered; a meter with none is left alone). Here rather than at the prompt, so
             // a declined step, a failed Init or a singular matrix leaves the meter as it was.
@@ -2763,7 +2828,9 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             m_pSensor->SetSensorMatrix(newMatrix);
             m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
             m_pSensor->SetCalibrationMethod(calibrationMethod);
-            m_pSensor->SetFitBasis(FIT_BASIS_NATIVE);	// newMatrix maps native raw to the reference
+            // newMatrix maps raw - native, or driver-corrected on a meter whose driver
+            // applies the sample (FitBasisOfReadings) - to the reference
+            m_pSensor->SetFitBasis(FitBasisOfReadings(m_pSensor));
             m_pSensor->ClearBodnerMatrices();
             m_pSensor->SpectralSupersededByMatrixFit();	// see the Bodner branch above
             SetModifiedFlag(TRUE);
@@ -5530,7 +5597,7 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		{
 			// Only when a file is actually going to be read: with no training file
 			// there is no matrix arriving, so there is nothing to ask about.
-			if ( !ConfirmMatrixCalOverSpectral(m_pSensor) )
+			if ( !ConfirmMatrixCalOverSpectral(m_pSensor, (LPCSTR)page.m_trainingFileName) )
 				return;
 			bLoaded = LoadCalibrationFileKeepingSpectral(m_pSensor, page.m_trainingFileName);
 			// The file is in: as after a fit. A refused one leaves both as they were.
@@ -5610,6 +5677,8 @@ void CDataSetDoc::OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI)
 	// or a Bodner calibration - whose correction lives in the sub-gamut matrices, so the
 	// sensor matrix is identity and IsCalibrated() reports 0. CSensor::Serialize writes the
 	// method and, for Bodner, all three sub-gamut matrix pairs, so the training file
-	// round-trips either correction.
-	pCmdUI -> Enable ( m_pSensor -> IsCorrectionActive () );
+	// round-trips either correction. The spectral method too: on a meter whose driver
+	// applies the sample its matrix is identity (IsCorrectionActive() is false), and
+	// the record it would save lives nowhere else.
+	pCmdUI -> Enable ( m_pSensor -> IsCorrectionActive () || m_pSensor -> UsesSpectralMethod () );
 }

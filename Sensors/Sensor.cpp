@@ -120,9 +120,16 @@ void CSensor::Serialize(CArchive& archive)
 		// that method is in force, the fit basis as SENSOR_FIT_BASIS, and the
 		// spectral correction record as SENSOR_SPECTRAL_CORRECTION only when one
 		// is present. v2 was the unreleased Bodner layout and is retired, never
-		// written again. The v1 stream carries none of these: it is written only
-		// for the DEFAULT method, and the record is dropped there by design.
+		// written again. The v1 stream carries none of these, and a v1 block
+		// reloads as basis UNKNOWN with no record. So v1 is written only when that
+		// reload is exact: the DEFAULT method, no record, and a basis that is not
+		// NATIVE already (UNKNOWN and DRIVER_CORRECTED behave alike). A NATIVE fit
+		// reloaded as UNKNOWN would compose the next record's correction onto a
+		// matrix fitted on native readings - a double correction - and a dropped
+		// record loses what the matrix may be composed on.
 		int version = ( m_calibrationMethod == CALIB_HCFR_DEFAULT
+		             && ! m_spectral.IsPresent()
+		             && m_fitBasis != FIT_BASIS_NATIVE
 		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
 						? 1 : 3;
 		archive << version;
@@ -434,14 +441,10 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 // basis field is composed on a spectral correction, GetSensorMatrix() alone is not
 // what the readings went through, and a delta or a recompute built on it would
 // drop the spectral correction from some readings and keep it on others.
+// The dispatch itself lives in libHCFR (EffectiveSensorMatrix), where T32 pins it.
 Matrix CSensor::GetEffectiveMatrix() const
 {
-	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
-		return Matrix::IdentityMatrix(3);
-	// The spectral method's matrix IS the record's correction: never compose it twice.
-	if ( ! UsesSpectralMethod() && m_fitBasis != FIT_BASIS_NATIVE && m_spectral.IsPresent() )
-		return m_sensorToXYZMatrix * m_spectral.correction;
-	return m_sensorToXYZMatrix;
+	return EffectiveSensorMatrix ( m_calibrationMethod, m_fitBasis, m_spectral, m_sensorToXYZMatrix );
 }
 
 void CSensor::ClearSpectralCorrection()
