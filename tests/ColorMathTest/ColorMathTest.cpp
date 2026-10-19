@@ -11,11 +11,19 @@
 // Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
 // T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
-// and T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table. The .chc round-trip originally planned for the T7
+// T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty
+// table, and T17 asserts the PatchSequence generator and its CSV writer (round-tripped
+// through the real ReadCsvPatchRows importer).
+// T13-T16, T18 and T19 are deliberately skipped here, held by in-flight branches:
+// #183 display-model T13, csv-provenance T14, #185/#186 cube-lut T15/T16,
+// wtw-reference T18, the #193 schema trailer T19. Run hcfr-bench\tnumbers.py
+// before assigning any new T number.
+// The .chc round-trip originally planned for the T7
 // slot needs app-level linkage and is deliberately still not in this console harness.
 
 #include <afx.h>
 #include "../../libHCFR/Color.h"
+#include "../../libHCFR/PatchSequence.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -1075,6 +1083,420 @@ static void RunT12()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T17 — PatchSequence generator + CSV writer oracle (pure assertion, no
+// golden file). Every primitive is a pure function of its arguments, so
+// values are pinned exactly (the uniform grid uses the endpoint-exact
+// lo*(1-u)+hi*u form and the pinned levels below are FP-exact); the CSV
+// writer is pinned by an inline expected-bytes oracle plus a genuine
+// integration round trip through the REAL importer (ReadCsvPatchRows +
+// CsvCodeToPercent from Color.cpp) at every bits/range combination, with
+// the reconstruction error bounded by half a code step.
+//////////////////////////////////////////////////////////////////////////
+
+namespace T17Seq
+{
+    static bool SameSequences(const PatchSequence& a, const PatchSequence& b)
+    {
+        if (a.Count() != b.Count())
+            return false;
+        for (int i = 0; i < a.Count(); ++i)
+        {
+            double ra[3], rb[3];
+            std::string na, nb;
+            if (!a.GetPatch(i, ra, &na) || !b.GetPatch(i, rb, &nb))
+                return false;
+            for (int k = 0; k < 3; ++k)
+                if (ra[k] != rb[k])
+                    return false;
+            if (na != nb)
+                return false;
+        }
+        return true;
+    }
+
+    // Half a code step in percent for a bits/range encoding - the writer's
+    // documented round-trip bound.
+    static double HalfStepPct(int bits, int range)
+    {
+        double span;
+        if (range == CSV_RANGE_FULL)
+            span = (double)((1 << bits) - 1);
+        else
+            span = (235.0 - 16.0) * (1 << (bits - 8));
+        return 50.0 / span;
+    }
+
+    static const char* kTmpCsv = "t17_roundtrip.csv";
+}
+
+static void RunT17()
+{
+    printf("T17 PatchSequence generator + CSV writer oracle...\n");
+    using namespace T17Seq;
+
+    // AddPatch validation: bad values and names refused, state preserved.
+    {
+        PatchSequence s;
+        if (s.Count() != 0)
+            Fail("T17 fresh sequence not empty");
+        if (s.AddPatch(sqrt(-1.0), 0, 0, "x"))
+            Fail("T17 AddPatch accepted NaN");
+        if (s.AddPatch(-0.001, 0, 0, "x") || s.AddPatch(0, 100.001, 0, "x"))
+            Fail("T17 AddPatch accepted out-of-range percent");
+        if (s.AddPatch(50, 50, 50, "bad,name"))
+            Fail("T17 AddPatch accepted a comma in the name");
+        if (s.AddPatch(50, 50, 50, "bad\nname"))
+            Fail("T17 AddPatch accepted a newline in the name");
+        // The importer trims edge whitespace from names, so names that
+        // would not round-trip byte-for-byte are refused up front.
+        if (s.AddPatch(50, 50, 50, " padded") || s.AddPatch(50, 50, 50, "padded ")
+            || s.AddPatch(50, 50, 50, "  "))
+            Fail("T17 AddPatch accepted edge whitespace in the name");
+        if (s.AddPatch(50, 50, 50, "tab\tname") || s.AddPatch(50, 50, 50, "nul\x01"))
+            Fail("T17 AddPatch accepted a non-printable name byte");
+        if (s.AddPatch(50, 50, 50, "caf\xC3\xA9"))
+            Fail("T17 AddPatch accepted a non-ASCII name byte");
+        if (s.Count() != 0)
+            Fail("T17 refused AddPatch changed the sequence");
+        // Negative zero is stored as +0.0 (one bit pattern per value, and
+        // no "-0" in generated names).
+        if (!s.AddPatch(-0.0, 0.0, 100.0, "negzero"))
+            Fail("T17 AddPatch refused -0.0");
+        else
+        {
+            double rgb[3];
+            if (!s.GetPatch(0, rgb, 0))
+                Fail("T17 negzero GetPatch failed");
+            else if (memcmp(&rgb[0], &rgb[1], sizeof(double)) != 0)
+                Fail("T17 -0.0 not normalized to +0.0");
+            s.Clear();
+        }
+        if (!s.AddPatch(0, 0, 0, "Black") || !s.AddPatch(100, 100, 100, "White"))
+            Fail("T17 AddPatch refused valid patches");
+        double rgb[3];
+        std::string nm;
+        if (!s.GetPatch(1, rgb, &nm) || rgb[0] != 100.0 || nm != "White")
+            Fail("T17 GetPatch(1) wrong");
+        if (!s.GetPatch(0, rgb, 0))
+            Fail("T17 GetPatch with null name refused");
+        if (s.GetPatch(2, rgb, &nm) || s.GetPatch(-1, rgb, &nm))
+            Fail("T17 out-of-range GetPatch succeeded");
+    }
+
+    // Gray ramp: exact levels on the endpoint-exact grid, neutral values,
+    // "%g" names; refusals.
+    {
+        PatchSequence s;
+        if (!s.AddGrayRamp(5, 0.0, 100.0))
+            Fail("T17 AddGrayRamp(5,0,100) refused");
+        const double want[5] = { 0.0, 25.0, 50.0, 75.0, 100.0 };
+        const char* wantName[5] =
+            { "Gray 0", "Gray 25", "Gray 50", "Gray 75", "Gray 100" };
+        for (int i = 0; i < 5; ++i)
+        {
+            double rgb[3];
+            std::string nm;
+            if (!s.GetPatch(i, rgb, &nm))
+                { Fail("T17 gray GetPatch(%d) failed", i); continue; }
+            if (rgb[0] != want[i] || rgb[1] != want[i] || rgb[2] != want[i])
+                Fail("T17 gray level %d = (%.17g,%.17g,%.17g) want %.17g",
+                     i, rgb[0], rgb[1], rgb[2], want[i]);
+            if (nm != wantName[i])
+                Fail("T17 gray name %d = \"%s\" want \"%s\"",
+                     i, nm.c_str(), wantName[i]);
+        }
+        // Non-0/100 endpoints are still exact (10..90 by 5 -> 10,30,50,70,90).
+        PatchSequence t;
+        if (!t.AddGrayRamp(5, 10.0, 90.0))
+            Fail("T17 AddGrayRamp(5,10,90) refused");
+        const double want2[5] = { 10.0, 30.0, 50.0, 70.0, 90.0 };
+        for (int i = 0; i < 5; ++i)
+        {
+            double rgb[3];
+            if (!t.GetPatch(i, rgb, 0))
+                { Fail("T17 gray2 GetPatch(%d) failed", i); continue; }
+            if (rgb[0] != want2[i])
+                Fail("T17 gray2 level %d = %.17g want %.17g", i, rgb[0], want2[i]);
+        }
+        if (t.AddGrayRamp(1, 0, 100) || t.AddGrayRamp(3, 50, 50)
+            || t.AddGrayRamp(3, 80, 20) || t.AddGrayRamp(3, -1, 50)
+            || t.AddGrayRamp(3, 0, sqrt(-1.0)))
+            Fail("T17 AddGrayRamp accepted invalid arguments");
+        if (t.Count() != 5)
+            Fail("T17 refused AddGrayRamp changed the sequence");
+    }
+
+    // Channel ramps: swept channel on the grid, others exactly 0, channel
+    // words in the names; bad channel refused.
+    {
+        PatchSequence s;
+        if (!s.AddChannelRamp(0, 3, 0.0, 100.0)
+            || !s.AddChannelRamp(1, 3, 0.0, 100.0)
+            || !s.AddChannelRamp(2, 3, 0.0, 100.0))
+            Fail("T17 AddChannelRamp refused valid arguments");
+        if (s.Count() != 9)
+            Fail("T17 channel ramps count %d want 9", s.Count());
+        const char* words[3] = { "Red", "Green", "Blue" };
+        for (int c = 0; c < 3; ++c)
+            for (int i = 0; i < 3; ++i)
+            {
+                double rgb[3];
+                std::string nm;
+                if (!s.GetPatch(c * 3 + i, rgb, &nm))
+                    { Fail("T17 channel GetPatch failed"); continue; }
+                double lvl = i * 50.0;
+                for (int k = 0; k < 3; ++k)
+                {
+                    double wantV = (k == c) ? lvl : 0.0;
+                    if (rgb[k] != wantV)
+                        Fail("T17 channel %d step %d comp %d = %.17g want %.17g",
+                             c, i, k, rgb[k], wantV);
+                }
+                if (nm.compare(0, strlen(words[c]), words[c]) != 0)
+                    Fail("T17 channel %d name \"%s\" lacks \"%s\"",
+                         c, nm.c_str(), words[c]);
+            }
+        if (s.AddChannelRamp(3, 3, 0, 100) || s.AddChannelRamp(-1, 3, 0, 100))
+            Fail("T17 AddChannelRamp accepted a bad channel");
+    }
+
+    // Cube grid: n^3 patches, red slowest / blue fastest, exact node
+    // values; shell = grid minus interior, in grid order, name-identical.
+    {
+        PatchSequence g;
+        if (!g.AddCubeGrid(3))
+            Fail("T17 AddCubeGrid(3) refused");
+        if (g.Count() != 27)
+            Fail("T17 cube grid count %d want 27", g.Count());
+        int idx = 0;
+        for (int r = 0; r < 3; ++r)
+            for (int gg = 0; gg < 3; ++gg)
+                for (int b = 0; b < 3; ++b, ++idx)
+                {
+                    double rgb[3];
+                    if (!g.GetPatch(idx, rgb, 0))
+                        { Fail("T17 cube GetPatch(%d) failed", idx); continue; }
+                    if (rgb[0] != r * 50.0 || rgb[1] != gg * 50.0
+                        || rgb[2] != b * 50.0)
+                        Fail("T17 cube node %d = (%.17g,%.17g,%.17g) want "
+                             "(%g,%g,%g)", idx, rgb[0], rgb[1], rgb[2],
+                             r * 50.0, gg * 50.0, b * 50.0);
+                }
+        if (g.AddCubeGrid(1) || g.AddCubeGrid(34))
+            Fail("T17 AddCubeGrid accepted a bad size");
+
+        PatchSequence grid4, shell4;
+        if (!grid4.AddCubeGrid(4) || !shell4.AddCubeShell(4))
+            Fail("T17 size-4 grid/shell refused");
+        if (shell4.Count() != 64 - 8)
+            Fail("T17 shell count %d want 56", shell4.Count());
+        int si = 0;
+        for (int i = 0; i < grid4.Count(); ++i)
+        {
+            double rgb[3];
+            std::string nm;
+            if (!grid4.GetPatch(i, rgb, &nm))
+                { Fail("T17 grid4 GetPatch failed"); continue; }
+            bool surface = false;
+            for (int k = 0; k < 3; ++k)
+                if (rgb[k] == 0.0 || rgb[k] == 100.0)
+                    surface = true;
+            if (!surface)
+                continue;                       // interior: shell skips it
+            double srgb[3];
+            std::string snm;
+            if (si >= shell4.Count() || !shell4.GetPatch(si, srgb, &snm))
+                { Fail("T17 shell ran short at grid node %d", i); break; }
+            for (int k = 0; k < 3; ++k)
+                if (srgb[k] != rgb[k])
+                    Fail("T17 shell[%d] differs from surface grid node %d "
+                         "comp %d", si, i, k);
+            if (snm != nm)
+                Fail("T17 shell[%d] name \"%s\" want \"%s\"",
+                     si, snm.c_str(), nm.c_str());
+            ++si;
+        }
+        if (si != shell4.Count())
+            Fail("T17 shell has %d extra patches", shell4.Count() - si);
+    }
+
+    // Deduplicate: gray ramp then cube grid - the three shared neutral
+    // nodes vanish, first occurrence (the gray name) wins, order stable.
+    {
+        PatchSequence s;
+        if (!s.AddGrayRamp(5, 0.0, 100.0) || !s.AddCubeGrid(3))
+            Fail("T17 dedupe setup refused");
+        int removed = s.Deduplicate();
+        if (removed != 3)
+            Fail("T17 Deduplicate removed %d want 3", removed);
+        if (s.Count() != 5 + 27 - 3)
+            Fail("T17 dedupe count %d want 29", s.Count());
+        double rgb[3];
+        std::string nm;
+        if (!s.GetPatch(0, rgb, &nm) || nm != "Gray 0")
+            Fail("T17 dedupe did not keep the first occurrence (got \"%s\")",
+                 nm.c_str());
+        // (50,50,50) must survive exactly once, named by the gray ramp.
+        int hits = 0;
+        std::string hitName;
+        for (int i = 0; i < s.Count(); ++i)
+            if (s.GetPatch(i, rgb, &nm)
+                && rgb[0] == 50.0 && rgb[1] == 50.0 && rgb[2] == 50.0)
+                { ++hits; hitName = nm; }
+        if (hits != 1 || hitName != "Gray 50")
+            Fail("T17 dedupe neutral 50: %d hits, name \"%s\"",
+                 hits, hitName.c_str());
+    }
+
+    // Determinism: identical builds are identical, bitwise and by name.
+    {
+        PatchSequence a, b;
+        for (int t = 0; t < 2; ++t)
+        {
+            PatchSequence& s = (t == 0) ? a : b;
+            s.AddGrayRamp(9, 0.0, 100.0);
+            s.AddChannelRamp(1, 4, 5.0, 95.0);
+            s.AddCubeShell(3);
+            s.AddPatch(12.5, 33.25, 90.0, "Dark Skin");
+            s.Deduplicate();
+        }
+        if (!SameSequences(a, b))
+            Fail("T17 identical builds produced different sequences");
+    }
+
+    // Exact expected-bytes oracle for the writer (8-bit LEGAL: 0% -> 16,
+    // 25% -> 71, 100% -> 235, matching the shipped CM patch lists), and
+    // the empty-name row form.
+    {
+        PatchSequence s;
+        s.AddPatch(0, 0, 0, "Black");
+        s.AddPatch(100, 100, 100, "White");
+        s.AddPatch(25, 0, 0, "");
+        std::string out = "sentinel";
+        if (!s.WriteCsv(out, 8, CSV_RANGE_LEGAL))
+            Fail("T17 WriteCsv refused a valid sequence: %s",
+                 s.LastError().c_str());
+        else
+        {
+            const char* want =
+                "# BITDEPTH 8, RANGE LEGAL\n"
+                "0,16,16,16,Black\n"
+                "1,235,235,235,White\n"
+                "2,71,16,16\n";
+            if (out != want)
+                Fail("T17 WriteCsv bytes differ:\n---got---\n%s---want---\n%s",
+                     out.c_str(), want);
+            if (!s.LastError().empty())
+                Fail("T17 successful WriteCsv left LastError set");
+        }
+        // FULL rounds against the full code range: 50% of 255 -> 128.
+        PatchSequence f;
+        f.AddPatch(50, 0, 100, "");
+        if (!f.WriteCsv(out, 8, CSV_RANGE_FULL))
+            Fail("T17 WriteCsv FULL refused");
+        else if (out != "# BITDEPTH 8, RANGE FULL\n0,128,0,255\n")
+            Fail("T17 WriteCsv FULL bytes differ:\n%s", out.c_str());
+    }
+
+    // Writer refusals: empty sequence, bad bits, bad range - output
+    // untouched, LastError set.
+    {
+        PatchSequence empty, one;
+        one.AddPatch(50, 50, 50, "x");
+        std::string out = "keep";
+        if (empty.WriteCsv(out, 8, CSV_RANGE_LEGAL))
+            Fail("T17 WriteCsv accepted an empty sequence");
+        if (one.WriteCsv(out, 9, CSV_RANGE_LEGAL))
+            Fail("T17 WriteCsv accepted bits=9");
+        if (one.WriteCsv(out, 8, CSV_RANGE_NONE))
+            Fail("T17 WriteCsv accepted CSV_RANGE_NONE");
+        if (out != "keep")
+            Fail("T17 refused WriteCsv touched the output");
+        if (one.LastError().empty())
+            Fail("T17 refused WriteCsv left LastError empty");
+        if (one.WriteCsvFile("no_such_dir_t17\\x.csv", 8, CSV_RANGE_LEGAL))
+            Fail("T17 WriteCsvFile accepted an unwritable path");
+    }
+
+    // Integration round trip through the REAL importer at every encoding:
+    // count, 0-based patch numbers, and names preserved; every percent
+    // reconstructed within half a code step. The file bytes must equal the
+    // WriteCsv string (binary write - no CRLF translation).
+    {
+        PatchSequence s;
+        s.AddGrayRamp(9, 0.0, 100.0);           // 12.5% steps: quantization real
+        s.AddChannelRamp(0, 4, 5.0, 95.0);
+        s.AddChannelRamp(2, 3, 0.0, 100.0);
+        s.AddPatch(12.5, 33.25, 90.0, "Dark Skin");
+        const int bitsList[2] = { 8, 10 };
+        const int rangeList[3] =
+            { CSV_RANGE_FULL, CSV_RANGE_LEGAL, CSV_RANGE_EXTENDED };
+        for (int bi = 0; bi < 2; ++bi)
+            for (int ri = 0; ri < 3; ++ri)
+            {
+                int bits = bitsList[bi], range = rangeList[ri];
+                std::string text;
+                if (!s.WriteCsv(text, bits, range))
+                    { Fail("T17 rt WriteCsv(%d,%d) refused", bits, range); continue; }
+                if (!s.WriteCsvFile(kTmpCsv, bits, range))
+                    { Fail("T17 rt WriteCsvFile(%d,%d) refused", bits, range); continue; }
+                {
+                    // File bytes == string (binary write).
+                    FILE* f = fopen(kTmpCsv, "rb");
+                    if (!f)
+                        Fail("T17 rt cannot reopen %s", kTmpCsv);
+                    else
+                    {
+                        std::string bytes;
+                        char buf[512];
+                        size_t got;
+                        while ((got = fread(buf, 1, sizeof(buf), f)) > 0)
+                            bytes.append(buf, got);
+                        fclose(f);
+                        if (bytes != text)
+                            Fail("T17 rt file bytes differ from WriteCsv "
+                                 "(%d,%d)", bits, range);
+                    }
+                }
+                std::vector<CsvPatchRow> rows;
+                int gotBits = 0, gotRange = -9;
+                int n = ReadCsvPatchRows(CString(kTmpCsv), rows, 10000,
+                                         &gotBits, &gotRange);
+                if (n != s.Count())
+                    { Fail("T17 rt (%d,%d) importer read %d of %d rows",
+                           bits, range, n, s.Count()); continue; }
+                if (gotBits != bits || gotRange != range)
+                    Fail("T17 rt (%d,%d) importer saw header bits=%d range=%d",
+                         bits, range, gotBits, gotRange);
+                double bound = HalfStepPct(bits, range) + 1e-9;
+                for (int i = 0; i < n; ++i)
+                {
+                    double rgb[3];
+                    std::string nm;
+                    if (!s.GetPatch(i, rgb, &nm))
+                        { Fail("T17 rt GetPatch(%d) failed", i); continue; }
+                    if (rows[i].patch != i)
+                        Fail("T17 rt (%d,%d) row %d has patch number %d",
+                             bits, range, i, rows[i].patch);
+                    if (rows[i].name != nm)
+                        Fail("T17 rt (%d,%d) row %d name \"%s\" want \"%s\"",
+                             bits, range, i, rows[i].name.c_str(), nm.c_str());
+                    int codes[3] = { rows[i].r, rows[i].g, rows[i].b };
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        double back = CsvCodeToPercent(codes[k], bits, range);
+                        if (fabs(back - rgb[k]) > bound)
+                            Fail("T17 rt (%d,%d) row %d comp %d: %.17g back "
+                                 "%.17g (bound %.3g)", bits, range, i, k,
+                                 rgb[k], back, bound);
+                    }
+                }
+            }
+        remove(kTmpCsv);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -1103,6 +1525,7 @@ int main(int argc, char* argv[])
     RunT10();
     RunT11();
     RunT12();
+    RunT17();   // T13-T16, T18, T19 held by in-flight branches; see the header comment
 
     if (g_failures)
     {
