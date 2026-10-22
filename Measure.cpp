@@ -6607,8 +6607,8 @@ BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
 		// Wait nLoopTime ms (the user's settle-delay setting) while dispatching
 		// messages. This delay, plus the generator's ~80ms WaitAfterDisplayPattern,
 		// is the settle before the meter integrates. The wait is exactly the
-		// setting (no hidden padding); the 320ms default + ~80ms keeps the 400ms
-		// total of the old 300ms default + hidden 100ms.
+		// setting (no hidden padding); the 400ms default is the old 300ms plus the
+		// hidden 100ms it replaced, so no path settles less than it did in 4.1.
 		MSG	Msg;
 		DWORD dwStart = GetTickCount();
 		DWORD dwNow = dwStart;
