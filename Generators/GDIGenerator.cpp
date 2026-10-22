@@ -980,6 +980,12 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 	BOOL do_Intensity=false;
 	if ( nPatternType == MT_PRIMARY || nPatternType == MT_SECONDARY || nPatternType == MT_SAT_RED || nPatternType == MT_SAT_GREEN || nPatternType == MT_SAT_BLUE || nPatternType == MT_SAT_YELLOW || nPatternType == MT_SAT_CYAN || nPatternType == MT_SAT_MAGENTA || nPatternType == MT_ACTUAL)
 		do_Intensity = true;
+	// Intensity is SDR-only (Measure.cpp's note: the dimming cancels only in a
+	// measured-white ratio, and PQ/HLG targets are absolute). The settings page
+	// forces it to 100 only when OK'd in PQ, so a value set in SDR survives a
+	// switch to HDR -- ignore it here, where every sweep goes through.
+	if ( GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 )
+		do_Intensity = false;
 
 	p_clr[0] = clr[0] * m_displayWindow.m_Intensity / 100;
 	p_clr[1] = clr[1] * m_displayWindow.m_Intensity / 100;

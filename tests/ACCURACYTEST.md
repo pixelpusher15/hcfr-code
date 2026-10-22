@@ -197,6 +197,17 @@ viewer that no longer exists, and re-enabling it turned out to need only that
   `GetColorDEWhiteY`'s Mascior branch, and no Mascior CC set is in the matrix
   (gap 3), so perturbing it changed nothing. That third gain was removed rather
   than left in place looking like coverage.
+  The family also carries `CheckSub90Override`, which the perturbation itself
+  cannot reach: the two gains put the prime/ON-OFF ratio at 0.983, and the only
+  combos where it does drop below the 0.9 threshold are HDTVa/HDTVb, where
+  `bSpecial` has already selected the ON/OFF white so the override is a no-op.
+  It builds its own `CMeasure` — the constructor's placeholder ON/OFF white with
+  `m_bOnOffWhiteMeasured` FALSE, a state the public setters cannot produce — and
+  asserts the **value** both `GetColorDEWhiteY` and `GridYWhite` return, not just
+  that they agree: they are mirrors, so a gate deleted from both would still
+  agree, on the wrong white. Verified non-vacuous by mutation in both directions:
+  dropping the gate from `GridYWhite` *or* from `GetColorDEWhiteY` fails 148 of
+  the 285 quick combos (0 before).
 - `convNW` — a saturation sweep with the measured whites explicitly
   invalidated, so the grid falls through to its `m_TargetMaxL` fallback
   (MainView.cpp ~3699-3706), which the always-ordered gray → primaries → sat/CC

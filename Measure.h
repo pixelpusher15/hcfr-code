@@ -146,7 +146,31 @@ protected:
 	CArray<CColor,CColor> m_measurementsArray;
 	CColor m_OnOffBlack;
 	CColor m_OnOffWhite;
+	// Same placeholder problem as m_bPrimeWhiteMeasured below, for the on/off
+	// white. Only the sub-90%-stimulus OVERRIDE consults this: the plain
+	// fallbacks are still free to use the placeholder, because standing in for a
+	// white nobody measured is what it is for.
+	BOOL m_bOnOffWhiteMeasured;
 	CColor m_PrimeWhite;
+	// TRUE once a real reading has been written to m_PrimeWhite. The constructor
+	// pre-loads a nominal D65 at m_TargetMaxL so the charts always have something
+	// to draw, and that placeholder is indistinguishable from a measurement --
+	// isValid() and GetY() > 0 both pass -- so anything that needs to know whether
+	// white was ever MEASURED has to ask this, not the color.
+	//
+	// PERSISTENCE (both flags): stored verbatim in file version 21, which is the
+	// version a document with a display profile now gets. A document WITHOUT one
+	// still writes version 19 so older builds can read it, and its flags are
+	// re-derived on load: valid and NOT the constructor's placeholder, which
+	// IsPlaceholderWhite (Measure.cpp) recognises by its exact signature. That is
+	// also what recovers documents written before the flags existed. The whites
+	// themselves are stored verbatim either way, so nothing downstream ever sees a
+	// value it could not already see. An earlier revision tried to encode "unmeasured" by writing
+	// noDataColor into the version-19 prime-white slot: that conflated "never
+	// measured" with "primaries deleted", which loads as INVALID, and handed
+	// Export's unguarded GetPrimeWhite().GetY() sites (Export.cpp ~558/~814)
+	// FX_NODATA where they used to get the placeholder. Do not reintroduce it.
+	BOOL m_bPrimeWhiteMeasured;
 	CColor m_AnsiBlack;
 	CColor m_AnsiWhite;
 	CArray<CColor,CColor> m_nearBlackMeasureArray;
@@ -303,10 +327,20 @@ public:
 	ColorDENorm GetColorDENorm(int displayMode) const;	// the whole sat/CC dE normalisation, shared by every consumer
 	// Live profile-capture state (not serialized): the profiling pane pauses/observes through these
 	volatile BOOL m_bProfilePause;
-	// TRUE from the first cube patch until the closing drift anchor has rescaled
-	// the last segment -- the array is written in place throughout, so nothing
-	// derived from it is final before this drops (m_binMeasure cannot say this:
-	// it is raised by every sweep, including ones that leave the cube alone).
+	// The capture is in its reference prologue (grayscale + primaries/secondaries/
+	// white, see MeasureDisplayProfile), not on a cube patch: m_currentIndex is
+	// still 0, so the pane shows these instead of patch 0.
+	volatile BOOL m_bProfileMeasuringRefs;
+	int m_profileRefIndex, m_profileRefCount;	// progress through the prologue
+	// The stimulus on screen during a capture (percent): prologue patch, cube patch
+	// after any container remap, or drift anchor. Set by ShowProfilePatch.
+	ColorRGBDisplay m_profileShownRGB;
+	// TRUE from the start of a capture -- before the reference prologue -- until
+	// the closing drift anchor has rescaled the last segment. The array is written
+	// in place throughout, so nothing derived from it is final before this drops
+	// (m_binMeasure cannot say this: it is raised by every sweep, including ones
+	// that leave the cube alone). CTargetWnd's test-window branch relies on it
+	// being up through the prologue, so do not raise it later.
 	BOOL m_bProfileCapturing;
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0
 
@@ -353,8 +387,11 @@ public:
 	CColor GetPrimeWhite() const; //white reference for pseudo-color spaces
 	double GetHDRRefScale() const; //HDR-10 refs: 1=10000nits -> diffuse-white-relative
 	void SetOnOffBlack(const CColor & aColor) { m_OnOffBlack=aColor; m_isModified=TRUE; }
-	void SetOnOffWhite(const CColor & aColor) { m_OnOffWhite=aColor; m_isModified=TRUE; }
-	void SetPrimeWhite(const CColor & aColor) { m_PrimeWhite=aColor; m_isModified=TRUE; }
+	void SetOnOffWhite(const CColor & aColor) { m_OnOffWhite=aColor; m_bOnOffWhiteMeasured=aColor.isValid(); m_isModified=TRUE; }
+	void SetPrimeWhite(const CColor & aColor) { m_PrimeWhite=aColor; m_bPrimeWhiteMeasured=aColor.isValid(); m_isModified=TRUE; }
+	BOOL IsPrimeWhiteMeasured() const { return m_bPrimeWhiteMeasured; }
+	BOOL IsOnOffWhiteMeasured() const { return m_bOnOffWhiteMeasured; }
+	static bool IsPlaceholderWhite(const CColor & c, bool bOnOff);	// the ctor's nominal white, by value (load-time flag recovery)
 
 	BOOL MeasureContrast(CSensor *pSensor, CGenerator *pGenerator);
 	double GetOnOffContrast ();
@@ -388,6 +425,9 @@ public:
 
 	BOOL WaitForDynamicIris ( BOOL bIgnoreEscape = FALSE, CDataSetDoc *pDoc = NULL );
 	BOOL CheckBlackOverride (  );
+	int GetProfileRefReadCount () const;	// reads in a capture's reference prologue
+	void ShowProfilePatch ( CDataSetDoc * pDoc, const ColorRGBDisplay & rgb );	// test window in Window mode
+	void BuildPrimarySecondaryColors ( CGenerator * pGenerator, ColorRGBDisplay GenColors [ 8 ] );	// R,G,B,C,M,Y,white,black as the sweeps drive them
 	void UpdateViews ( CDataSetDoc *pDoc = NULL, int Sequence = 0 );
 	void UpdateTstWnd ( CDataSetDoc *pDoc, int Sequence );
 	int m_currentIndex, m_currentSequence, displaymode;
