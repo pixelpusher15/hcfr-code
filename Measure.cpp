@@ -4351,6 +4351,21 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 
 	BOOL	bUseLuxValues = TRUE;
 
+	// Disc-based generators can show neither an arbitrary cube nor the prologue's
+	// colors on demand (navigation prompts, missing chapters): refuse them up
+	// front -- before Init, which for CKiGenerator opens its COM port and shows
+	// its own device error -- rather than fail part-way through a capture.
+	CString strKi, strDVD;
+	strKi.LoadString ( IDS_KIGENERATOR_NAME );
+	strDVD.LoadString ( IDS_MANUALDVDGENERATOR_NAME );
+	if ( pGenerator->GetName() == strKi || pGenerator->GetName() == strDVD )
+	{
+		Title.LoadString ( IDS_ERROR );
+		strMsg.LoadString ( IDS_PP_DISCGENERATOR );
+		GetColorApp()->InMeasureMessageBox ( strMsg, Title, MB_ICONERROR | MB_OK );
+		return FALSE;
+	}
+
 	if(pGenerator->Init(size + GetProfileRefReadCount()) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
@@ -4364,21 +4379,6 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 
 	if(pGenerator->CanDisplayScale ( nPattern, size ) != TRUE)
 	{
-		pGenerator->Release();
-		return FALSE;
-	}
-
-	// Disc-based generators can show neither an arbitrary cube nor the prologue's
-	// colors on demand (navigation prompts, missing chapters): refuse them here
-	// rather than fail part-way through a capture.
-	CString strKi, strDVD;
-	strKi.LoadString ( IDS_KIGENERATOR_NAME );
-	strDVD.LoadString ( IDS_MANUALDVDGENERATOR_NAME );
-	if ( pGenerator->GetName() == strKi || pGenerator->GetName() == strDVD )
-	{
-		Title.LoadString ( IDS_ERROR );
-		strMsg.LoadString ( IDS_PP_DISCGENERATOR );
-		GetColorApp()->InMeasureMessageBox ( strMsg, Title, MB_ICONERROR | MB_OK );
 		pGenerator->Release();
 		return FALSE;
 	}
@@ -4405,6 +4405,11 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	m_bProfilePause = FALSE;
 	m_bProfileCapturing = TRUE;
 	m_profileCurrentDrift = 0.0;
+	// the pane shows this capture's prologue from Go, not the last one's count
+	m_profileRefIndex = 0;
+	m_profileRefCount = GetProfileRefReadCount();
+	m_profileShownRGB = ColorRGBDisplay ( 0.0 );
+	m_bProfileMeasuringRefs = TRUE;
 
 	double	firstAnchorY = 0.0;
 	double	prevAnchorFactor = 1.0;
@@ -4446,8 +4451,9 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	//  - A group (grays; colors) is published only when every read in it
 	//    succeeded: Ignore on a failed read leaves that group's previous values
 	//    alone. The colors also need the grays published, so a dimmed white
-	//    never lands without the gray white its fallback needs. Stop, ESC or
-	//    Abort during the prologue discards the capture.
+	//    never lands without the gray white its fallback needs -- when they were
+	//    not, the color reads are skipped. Stop, ESC or Abort during the
+	//    prologue discards the capture.
 	//
 	// RestoreRefs puts the published state back when the capture ends with NO
 	// cube patches, so stopping right after the prologue does not leave its
@@ -4606,7 +4612,6 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	const bool	bBlackOverride = ( CheckBlackOverride() != FALSE );	// the grayscale sweep skips black then, and so do we
 	const int	nRefs = GetProfileRefReadCount();
 	int			k = 0, rc = 1;
-	m_bProfileMeasuringRefs = TRUE;
 
 	std::vector<CColor> grays ( nGrays, noDataColor );
 	bool bGraysOK = true;
@@ -4628,7 +4633,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		m_isModified = TRUE;
 	}
 
-	if ( rc >= 0 )
+	if ( rc >= 0 && bGraysPublished )
 	{
 		// R, G, B, C, M, Y, white. Black came from the grays: the same 0/0/0
 		// stimulus, which Intensity scales to 0 either way.
@@ -4642,7 +4647,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 			if ( rc == 0 )
 				bColorsOK = false;
 		}
-		if ( rc >= 0 && bColorsOK && bGraysPublished && readings[6].GetY() > 0.0 )
+		if ( rc >= 0 && bColorsOK && readings[6].GetY() > 0.0 )
 		{
 			for ( int j = 0; j < 3; j++ )
 			{

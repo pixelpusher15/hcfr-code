@@ -329,16 +329,18 @@ public:
 	volatile BOOL m_bProfilePause;
 	// The capture is in its reference prologue (grayscale + primaries/secondaries/
 	// white, see MeasureDisplayProfile), not on a cube patch: m_currentIndex is
-	// still 0, so the pane and the test window show these instead of patch 0.
+	// still 0, so the pane shows these instead of patch 0.
 	volatile BOOL m_bProfileMeasuringRefs;
 	int m_profileRefIndex, m_profileRefCount;	// progress through the prologue
 	// The stimulus on screen during a capture (percent): prologue patch, cube patch
 	// after any container remap, or drift anchor. Set by ShowProfilePatch.
 	ColorRGBDisplay m_profileShownRGB;
-	// TRUE from the first cube patch until the closing drift anchor has rescaled
-	// the last segment -- the array is written in place throughout, so nothing
-	// derived from it is final before this drops (m_binMeasure cannot say this:
-	// it is raised by every sweep, including ones that leave the cube alone).
+	// TRUE from the start of a capture -- before the reference prologue -- until
+	// the closing drift anchor has rescaled the last segment. The array is written
+	// in place throughout, so nothing derived from it is final before this drops
+	// (m_binMeasure cannot say this: it is raised by every sweep, including ones
+	// that leave the cube alone). CTargetWnd's test-window branch relies on it
+	// being up through the prologue, so do not raise it later.
 	BOOL m_bProfileCapturing;
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0
 
