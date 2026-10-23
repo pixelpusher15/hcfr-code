@@ -33,6 +33,7 @@
 #include "../libccast/ccwin.h"
 #include "../libccast/ccast.h"
 #include "../MainFrm.h"
+#include "../MeasurePerf.h"
 
 #include <string>
 #include <vector>
@@ -651,6 +652,46 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 	return bOk;
 }
 
+// Sleep WaitAfterDisplayPattern ms (default 80) while dispatching messages so the
+// pattern is really on screen before the sensor reads. Used only by the network /
+// out-of-process outputs (madVR, Chromecast, rPI), whose send + remote render the
+// Patch delay setting does not cover; HCFR's own window relies on the setting alone. Escape is held back and
+// re-posted afterwards so the measurement loop can still see it and cancel.
+static void PumpedPatternSettle()
+{
+	MSG		Msg;
+	HWND	hEscapeWnd = NULL;
+	DWORD	dwWait = GetConfig () -> GetProfileInt ( "Debug", "WaitAfterDisplayPattern", 80 );
+	DWORD	dwStart = GetTickCount();
+	DWORD	dwNow = dwStart;
+
+	// Wait until dwWait time is expired, but ensures all posted messages are treated even if wait time is zero
+	while((dwNow - dwStart) < dwWait)
+	{
+		while(PeekMessage(&Msg, NULL, NULL, NULL, PM_REMOVE))
+		{
+			if ( ( Msg.message == WM_KEYDOWN || Msg.message == WM_KEYUP ) && Msg.wParam == VK_ESCAPE )
+			{
+				// Do not treat this message, store it for later use
+				hEscapeWnd = Msg.hwnd;
+			}
+			else
+			{
+				TranslateMessage ( & Msg );
+				DispatchMessage ( & Msg );
+			}
+			Sleep(0);
+		}
+		dwNow = GetTickCount();
+	}
+	if ( hEscapeWnd )
+	{
+		// Escape key detected and stored during above loop: put it again in message loop to allow detection
+		::PostMessage ( hEscapeWnd, WM_KEYDOWN, VK_ESCAPE, NULL );
+		::PostMessage ( hEscapeWnd, WM_KEYUP, VK_ESCAPE, NULL );
+	}
+}
+
 BOOL CGDIGenerator::DisplayRGBColormadVR( const ColorRGBDisplay& clr, bool first, UINT nPattern )
 {
 	//init done in generator.cpp 
@@ -720,38 +761,7 @@ BOOL CGDIGenerator::DisplayRGBColormadVR( const ColorRGBDisplay& clr, bool first
 		return false;
       } 
 
-	// Sleep 80 ms while dispatching messages to ensure window is really displayed
-		MSG		Msg;
-		HWND	hEscapeWnd = NULL;
-		DWORD	dwWait = GetConfig () -> GetProfileInt ( "Debug", "WaitAfterDisplayPattern", 80 );
-		DWORD	dwStart = GetTickCount();
-		DWORD	dwNow = dwStart;
-		
-		// Wait until dwWait time is expired, but ensures all posted messages are treated even if wait time is zero
-		while((dwNow - dwStart) < dwWait)
-		{
-			while(PeekMessage(&Msg, NULL, NULL, NULL, PM_REMOVE))
-			{
-				if ( ( Msg.message == WM_KEYDOWN || Msg.message == WM_KEYUP ) && Msg.wParam == VK_ESCAPE )
-				{
-					// Do not treat this message, store it for later use
-					hEscapeWnd = Msg.hwnd;
-				}
-				else
-				{
-					TranslateMessage ( & Msg );
-					DispatchMessage ( & Msg );
-				}
-				Sleep(0);
-			}
-			dwNow = GetTickCount();
-		}
-		if ( hEscapeWnd )
-		{
-			// Escape key detected and stored during above loop: put it again in message loop to allow detection
-			::PostMessage ( hEscapeWnd, WM_KEYDOWN, VK_ESCAPE, NULL );
-			::PostMessage ( hEscapeWnd, WM_KEYUP, VK_ESCAPE, NULL );
-		}
+	PumpedPatternSettle();
 
 return TRUE;
 }
@@ -828,38 +838,7 @@ BOOL CGDIGenerator::DisplayRGBCCast( const ColorRGBDisplay& clr, bool first, UIN
 			return false;
 		} 
 	  
-	// Sleep 80 ms while dispatching messages to ensure window is really displayed
-		MSG		Msg;
-		HWND	hEscapeWnd = NULL;
-		DWORD	dwWait = GetConfig () -> GetProfileInt ( "Debug", "WaitAfterDisplayPattern", 80 );
-		DWORD	dwStart = GetTickCount();
-		DWORD	dwNow = dwStart;
-		
-		// Wait until dwWait time is expired, but ensures all posted messages are treated even if wait time is zero
-		while((dwNow - dwStart) < dwWait)
-		{
-			while(PeekMessage(&Msg, NULL, NULL, NULL, PM_REMOVE))
-			{
-				if ( ( Msg.message == WM_KEYDOWN || Msg.message == WM_KEYUP ) && Msg.wParam == VK_ESCAPE )
-				{
-					// Do not treat this message, store it for later use
-					hEscapeWnd = Msg.hwnd;
-				}
-				else
-				{
-					TranslateMessage ( & Msg );
-					DispatchMessage ( & Msg );
-				}
-				Sleep(0);
-			}
-			dwNow = GetTickCount();
-		}
-		if ( hEscapeWnd )
-		{
-			// Escape key detected and stored during above loop: put it again in message loop to allow detection
-			::PostMessage ( hEscapeWnd, WM_KEYDOWN, VK_ESCAPE, NULL );
-			::PostMessage ( hEscapeWnd, WM_KEYUP, VK_ESCAPE, NULL );
-		}
+	PumpedPatternSettle();
 
 return TRUE;
 }
@@ -937,38 +916,7 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 		else
 			GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
 
-	// Sleep 80 ms while dispatching messages to ensure window is really displayed
-		MSG		Msg;
-		HWND	hEscapeWnd = NULL;
-		DWORD	dwWait = GetConfig () -> GetProfileInt ( "Debug", "WaitAfterDisplayPattern", 80 );
-		DWORD	dwStart = GetTickCount();
-		DWORD	dwNow = dwStart;
-		
-		// Wait until dwWait time is expired, but ensures all posted messages are treated even if wait time is zero
-		while((dwNow - dwStart) < dwWait)
-		{
-			while(PeekMessage(&Msg, NULL, NULL, NULL, PM_REMOVE))
-			{
-				if ( ( Msg.message == WM_KEYDOWN || Msg.message == WM_KEYUP ) && Msg.wParam == VK_ESCAPE )
-				{
-					// Do not treat this message, store it for later use
-					hEscapeWnd = Msg.hwnd;
-				}
-				else
-				{
-					TranslateMessage ( & Msg );
-					DispatchMessage ( & Msg );
-				}
-				Sleep(0);
-			}
-			dwNow = GetTickCount();
-		}
-		if ( hEscapeWnd )
-		{
-			// Escape key detected and stored during above loop: put it again in message loop to allow detection
-			::PostMessage ( hEscapeWnd, WM_KEYDOWN, VK_ESCAPE, NULL );
-			::PostMessage ( hEscapeWnd, WM_KEYUP, VK_ESCAPE, NULL );
-		}
+	PumpedPatternSettle();
 
 return TRUE;
 
@@ -976,6 +924,7 @@ return TRUE;
 
 BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nPatternType , UINT nPatternInfo , BOOL bChangePattern, BOOL bSilentMode)
 {
+	PerfDisplayScope _perfDisp;   // times this patch's display (all return paths); see MeasurePerf.h
 	ColorRGBDisplay p_clr;
 	BOOL do_Intensity=false;
 	if ( nPatternType == MT_PRIMARY || nPatternType == MT_SECONDARY || nPatternType == MT_SAT_RED || nPatternType == MT_SAT_GREEN || nPatternType == MT_SAT_BLUE || nPatternType == MT_SAT_YELLOW || nPatternType == MT_SAT_CYAN || nPatternType == MT_SAT_MAGENTA || nPatternType == MT_ACTUAL)
@@ -1013,7 +962,18 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetWindowPlacement(&wp);			
 		}
 		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetForegroundWindow();
+		// Paint the new patch here, not just the picker's current color: sweeps that
+		// never call UpdateTstWnd (display profile, drift anchors) would otherwise
+		// measure whatever was left in the window. The test-color window holds FULL-RANGE codes
+		// by convention whatever the 16-235 setting: CTargetWnd::Refresh paints them, and
+		// the continuous-measure loop reads the picker back as the user's color (/2.55).
+		// A limited-range code here would feed back (255 -> 235 -> 218 ...) one step per
+		// read. For grayscale patches UpdateTstWnd then repaints the identical code at 8 bits
+		// (either range); only with 10-bit levels can Refresh's 255/219 correction differ by one code.
+		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.m_colorPicker.SetColor ( clr.GetColorRef(false) );
 		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.RedrawWindow ();
+		// No generator settle for HCFR's own window: the Patch delay setting alone
+		// covers the display chain (compositing, GPU, HDMI, TV), as it did in 4.1.
 	} else
 	{
 		if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_madVR)
@@ -1023,7 +983,13 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 		else if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_rPI)
 			DisplayRGBColorrPI (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
 		else
-			m_displayWindow.DisplayRGBColor(do_Intensity?p_clr:clr, nPatternInfo);
+			// No generator settle for HCFR's own window (bDisableWaiting = TRUE): the
+			// Patch delay setting alone covers the display chain, as it did in 4.1. Only
+			// the madVR/Chromecast/rPI outputs above add the [Debug]WaitAfterDisplayPattern
+			// allowance (80ms) for their send + remote render, also as in 4.1. (Previously
+			// nPatternInfo was passed as bDisableWaiting, so whether the 80ms ran here
+			// depended on the sweep and patch index.)
+			m_displayWindow.DisplayRGBColor(do_Intensity?p_clr:clr, TRUE);
 	}
 
 	return TRUE;
