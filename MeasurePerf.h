@@ -20,9 +20,10 @@
 //
 // The per-sweep accumulator and the summary-line writer live in Measure.cpp.
 // This header lets the generator translation unit contribute the "display"
-// (patch-generation) phase time to the active sweep. All measurement timing
-// runs on the UI thread (only the sensor read is off-thread), so the shared
-// state needs no locking.
+// (patch-generation) phase time to the active sweep. Sweep timing runs on the
+// UI thread (only the sensor read is off-thread), so the shared state needs no
+// locking. The free-run worker also calls DisplayRGBColor, but no sweep is in
+// progress then, so HcfrPerfRecordDisplay returns without touching that state.
 // -----------------------------------------------------------------------------
 #include <windows.h>
 

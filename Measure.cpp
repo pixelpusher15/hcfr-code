@@ -6604,11 +6604,11 @@ BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
 
 	if ( nLoopTime > 0 )
 	{
-		// Wait nLoopTime ms (the user's settle-delay setting) while dispatching
-		// messages. This delay, plus the generator's ~80ms WaitAfterDisplayPattern,
-		// is the settle before the meter integrates. The wait is exactly the
-		// setting (no hidden padding); the 400ms default is the old 300ms plus the
-		// hidden 100ms it replaced, so no path settles less than it did in 4.1.
+		// Wait nLoopTime ms (the user's "Patch delay" setting) while dispatching
+		// messages. This delay (plus the ~80ms WaitAfterDisplayPattern that only the
+		// madVR/Chromecast/rPI outputs add) is the settle before the meter integrates.
+		// The wait is exactly the setting (no hidden padding); the 400ms default is the
+		// old 300ms plus the hidden 100ms it replaced, so every path keeps its 4.1 total.
 		MSG	Msg;
 		DWORD dwStart = GetTickCount();
 		DWORD dwNow = dwStart;

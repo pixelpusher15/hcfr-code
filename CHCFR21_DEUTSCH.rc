@@ -296,11 +296,11 @@ BEGIN
     CONTROL         "Fortlaufendes Messen",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,76,85,10
     CONTROL         "Grau/Primärfarben bei User-Messungen erkennen",IDC_CHECK_DETECT_PRIMARIES,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,87,175,10
-    GROUPBOX        "Messstabilisierung",IDC_STATIC,7,106,203,71,WS_GROUP
+    GROUPBOX        "Mess-Timing",IDC_STATIC,7,106,203,71,WS_GROUP
     LTEXT           "Wartezeit",IDC_STATIC,14,117,34,8
     EDITTEXT        IDC_EDIT_IRIS_TIME,60,114,21,14,ES_AUTOHSCROLL | WS_GROUP
     LTEXT           "ms",IDC_STATIC,87,117,15,8
-    CONTROL         "Signal bei Beginn der Messung (Latenzeinstellungshilfe)",IDC_CHECK_BEEP,
+    CONTROL         "Signalton beim Messstart (Hilfe für die Wartezeit)",IDC_CHECK_BEEP,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,129,189,10
     GROUPBOX        "Farben hinzufügen bei Primär- und Sekundärfarbmessungen",IDC_STATIC,7,182,203,25,WS_GROUP
     CONTROL         "Keine",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,193,34,10

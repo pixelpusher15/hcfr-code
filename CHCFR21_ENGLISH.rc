@@ -284,11 +284,11 @@ BEGIN
     CONTROL         "Continuous measuring",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,79,85,10
     CONTROL         "Detect gray/primary colors during user measures",IDC_CHECK_DETECT_PRIMARIES,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,91,168,10
-    GROUPBOX        "Measurement settle",IDC_STATIC,7,109,203,65,WS_GROUP
-    LTEXT           "Settle delay",IDC_STATIC,14,120,40,8
+    GROUPBOX        "Measurement timing",IDC_STATIC,7,109,203,65,WS_GROUP
+    LTEXT           "Patch delay",IDC_STATIC,14,120,40,8
     EDITTEXT        IDC_EDIT_IRIS_TIME,60,118,21,14,ES_AUTOHSCROLL | WS_GROUP
     LTEXT           "ms",IDC_STATIC,86,120,10,8
-    CONTROL         "Bip at the beginning of measure (latency definition help)",IDC_CHECK_BEEP,
+    CONTROL         "Beep when reading starts (helps tune the patch delay)",IDC_CHECK_BEEP,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,135,189,10
     GROUPBOX        "Colors to add when measuring primaries and secondaries",IDC_STATIC,7,179,203,25,WS_GROUP
     CONTROL         "None",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,190,33,10

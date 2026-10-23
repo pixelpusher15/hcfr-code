@@ -653,7 +653,9 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 }
 
 // Sleep WaitAfterDisplayPattern ms (default 80) while dispatching messages so the
-// pattern is really on screen before the sensor reads. Escape is held back and
+// pattern is really on screen before the sensor reads. Used only by the network /
+// out-of-process outputs (madVR, Chromecast, rPI), whose send + remote render the
+// Patch delay setting does not cover; HCFR's own window relies on the setting alone. Escape is held back and
 // re-posted afterwards so the measurement loop can still see it and cancel.
 static void PumpedPatternSettle()
 {
@@ -960,9 +962,9 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetWindowPlacement(&wp);			
 		}
 		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetForegroundWindow();
-		// Paint the new patch here, not just the picker's current color: the caller's
-		// UpdateTstWnd runs only after this returns, so without this the settle below
-		// would wait on the previous patch. The test-color window holds FULL-RANGE codes
+		// Paint the new patch here, not just the picker's current color: sweeps that
+		// never call UpdateTstWnd (display profile, drift anchors) would otherwise
+		// measure whatever was left in the window. The test-color window holds FULL-RANGE codes
 		// by convention whatever the 16-235 setting: CTargetWnd::Refresh paints them, and
 		// the continuous-measure loop reads the picker back as the user's color (/2.55).
 		// A limited-range code here would feed back (255 -> 235 -> 218 ...) one step per
@@ -970,10 +972,8 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 		// (either range); only with 10-bit levels can Refresh's 255/219 correction differ by one code.
 		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.m_colorPicker.SetColor ( clr.GetColorRef(false) );
 		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.RedrawWindow ();
-		// Same generator settle as the other display modes, so the total settle is
-		// uniform (80 ms + the Settle delay setting) and a setting of 0 still lets
-		// the repaint reach the screen before the read.
-		PumpedPatternSettle();
+		// No generator settle for HCFR's own window: the Patch delay setting alone
+		// covers the display chain (compositing, GPU, HDMI, TV), as it did in 4.1.
 	} else
 	{
 		if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_madVR)
@@ -983,12 +983,13 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 		else if ( m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_rPI)
 			DisplayRGBColorrPI (do_Intensity?p_clr:clr, GetConfig()->m_isSettling, nPatternInfo );
 		else
-			// Apply the same ~80ms WaitAfterDisplayPattern settle as the madVR/CCast/rPI
-			// paths (bDisableWaiting defaults to FALSE). A laptop -> HDMI -> TV/projector
-			// via GDI has the same display latency as an external generator, so settle
-			// must be consistent across generators. (Previously nPatternInfo was passed
-			// as bDisableWaiting, which skipped the settle on every patch except index 0.)
-			m_displayWindow.DisplayRGBColor(do_Intensity?p_clr:clr);
+			// No generator settle for HCFR's own window (bDisableWaiting = TRUE): the
+			// Patch delay setting alone covers the display chain, as it did in 4.1. Only
+			// the madVR/Chromecast/rPI outputs above add the [Debug]WaitAfterDisplayPattern
+			// allowance (80ms) for their send + remote render, also as in 4.1. (Previously
+			// nPatternInfo was passed as bDisableWaiting, so whether the 80ms ran here
+			// depended on the sweep and patch index.)
+			m_displayWindow.DisplayRGBColor(do_Intensity?p_clr:clr, TRUE);
 	}
 
 	return TRUE;
