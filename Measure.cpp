@@ -6608,7 +6608,8 @@ BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
 		// messages. This delay (plus the ~80ms WaitAfterDisplayPattern that only the
 		// madVR/Chromecast/rPI outputs add) is the settle before the meter integrates.
 		// The wait is exactly the setting (no hidden padding); the 400ms default is the
-		// old 300ms plus the hidden 100ms it replaced, so every path keeps its 4.1 total.
+		// old 300ms plus the hidden 100ms it replaced, so normal sweep patches keep their
+		// 4.1 total. A setting of 0 skips the wait entirely, as in 4.1.
 		MSG	Msg;
 		DWORD dwStart = GetTickCount();
 		DWORD dwNow = dwStart;

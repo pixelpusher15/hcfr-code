@@ -171,6 +171,14 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 						MT = CGenerator::MT_ACTUAL;
 
 						pGenerator->DisplayRGBColor(clr, MT);
+
+						// The read below follows straight away, so wait the Patch delay after a
+						// color change (as the sweeps do in WaitForDynamicIris); otherwise the
+						// first read mixes the old and new color. Short steps keep Stop responsive.
+						DWORD dwDelay = (DWORD)abs(GetConfig()->m_latencyTime);
+						DWORD dwStart = GetTickCount();
+						while ( ! g_bTerminateThread && (GetTickCount() - dwStart) < dwDelay )
+							Sleep ( 10 );
 			    }
 		    }
 

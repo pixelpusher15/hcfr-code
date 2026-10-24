@@ -551,12 +551,12 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_isSettling=GetProfileInt("References","isSettling",0);
 	m_bDetectPrimaries=GetProfileInt("References","DetectPrimaries",1);
 	m_useHSV=GetProfileInt("References","UseHSV",0);
-	m_latencyTime=GetProfileInt("References","IrisLatencyTime",400);	// "Patch delay" setting (ms): the old 300 + the hidden 100 the wait no longer adds, so every generator lands exactly on its 4.1 total (madVR/Chromecast/rPI add their own ~80ms WaitAfterDisplayPattern on top, as in 4.1)
+	m_latencyTime=GetProfileInt("References","IrisLatencyTime",400);	// "Patch delay" setting (ms): the old 300 + the hidden 100 the wait no longer adds, so every generator matches its 4.1 total for normal sweep patches (madVR/Chromecast/rPI add their own ~80ms WaitAfterDisplayPattern on top, as in 4.1); the irregular 80ms that 4.1 added in GDI on index-0 / default-index calls is gone. 0 = no wait at all after the paint (4.1's hidden 100 also sat inside the > 0 test)
 	// One-time migration for users upgrading from <=4.1, which shipped a 300ms
 	// default (plus a hidden 100ms, now removed) and wrote it into every INI -- so a
 	// bare default change never reaches them. If the stored value is still that old
-	// default (i.e. left untouched), move it to the new 400ms default so every path
-	// keeps its 4.1 total, and persist it. The marker guarantees this runs once, so a
+	// default (i.e. left untouched), move it to the new 400ms default so normal sweep
+	// patches keep their 4.1 total, and persist it. The marker guarantees this runs once, so a
 	// user who later chooses 300 on purpose keeps it.
 	if ( !GetProfileInt("References","SettleDelayMigrated",0) )
 	{
