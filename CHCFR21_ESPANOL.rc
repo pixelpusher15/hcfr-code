@@ -364,11 +364,11 @@ BEGIN
     CONTROL         "Medición continua",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,79,85,10
     CONTROL         "Detectar grises/primarios en las medidas de usuario",IDC_CHECK_DETECT_PRIMARIES,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,91,168,10
-    GROUPBOX        "Iris dinámico",IDC_STATIC,7,109,203,65,WS_GROUP
-    LTEXT           "Tiempo de latencia",IDC_STATIC,14,120,40,8
+    GROUPBOX        "Temporización de medida",IDC_STATIC,7,109,203,65,WS_GROUP
+    LTEXT           "Retardo",IDC_STATIC,14,120,40,8
     EDITTEXT        IDC_EDIT_IRIS_TIME,60,118,21,14,ES_AUTOHSCROLL | WS_GROUP
     LTEXT           "ms",IDC_STATIC,86,120,10,8
-    CONTROL         "Pitido al inicio de la medida (ayuda a definir la latencia)",IDC_CHECK_BEEP,
+    CONTROL         "Pitido al iniciar la lectura (ayuda a ajustar el retardo)",IDC_CHECK_BEEP,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,135,189,10
     GROUPBOX        "Colores a añadir al medir primarios y secundarios",IDC_STATIC,7,179,203,25,WS_GROUP
     CONTROL         "Ninguno",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,190,33,10

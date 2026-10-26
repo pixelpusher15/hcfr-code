@@ -702,12 +702,12 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,86,119,10
     CONTROL         "Détecte les gris/primaires lors des mesures utilisateur",IDC_CHECK_DETECT_PRIMARIES,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,97,181,10
-    GROUPBOX        "Iris dynamique",IDC_STATIC,7,117,256,79,WS_GROUP
-    LTEXT           "Temps de latence",IDC_STATIC,14,128,58,8
+    GROUPBOX        "Minutage des mesures",IDC_STATIC,7,117,256,79,WS_GROUP
+    LTEXT           "Délai de mire",IDC_STATIC,14,128,58,8
     EDITTEXT        IDC_EDIT_IRIS_TIME,74,125,26,14,ES_AUTOHSCROLL | WS_GROUP
     LTEXT           "ms",IDC_STATIC,103,127,10,8
-    CONTROL         "Bip au début de la mesure (aide au réglage de latence)",IDC_CHECK_BEEP,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,147,188,10
+    CONTROL         "Bip au début de la lecture (aide au réglage du délai de mire)",IDC_CHECK_BEEP,
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,147,240,10
     GROUPBOX        "Mesures additionnelles aux primaires et secondaires",IDC_STATIC,7,201,255,25,WS_GROUP
     CONTROL         "Aucune",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,212,41,10
     CONTROL         "Blanc",IDC_RADIO2,"Button",BS_AUTORADIOBUTTON,69,212,34,10
