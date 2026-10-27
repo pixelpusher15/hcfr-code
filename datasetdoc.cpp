@@ -1303,6 +1303,11 @@ void CDataSetDoc::MeasureDisplayProfile(int cubeN, BOOL bGrayExtras, BOOL bDrift
 
 	if(m_measure.MeasureDisplayProfile(m_pSensor,m_pGenerator,this,cubeN,bGrayExtras,bDriftComp))
 		SetModifiedFlag(m_measure.IsModified());
+	// The capture also publishes the grayscale, on/off white/black, primaries,
+	// secondaries and prime white (its reference prologue), which every other
+	// view draws from -- and they all skip UPD_DISPLAYPROFILE. EVERYTHING first,
+	// because it leaves the mode alone; UPD_DISPLAYPROFILE then refreshes the pane.
+	UpdateAllViews(NULL, UPD_EVERYTHING);
 	UpdateAllViews(NULL, UPD_DISPLAYPROFILE);
 }
 
@@ -2619,7 +2624,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 {
 				// the primaries sweep's patches, so the references apply
 				ColorRGBDisplay	PatchColors [ 8 ];
-				GetMeasure () -> GetPrimarySecondaryPatches ( PatchColors, m_pGenerator );
+				GetMeasure () -> BuildPrimarySecondaryColors ( m_pGenerator, PatchColors );
 				GenColors [ 0 ] = PatchColors [ 0 ];
 				GenColors [ 1 ] = PatchColors [ 1 ];
 				GenColors [ 2 ] = PatchColors [ 2 ];
@@ -2642,7 +2647,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nSteps = 6 + GetConfig () -> m_BWColorsToAdd;
 			 nMaxSteps = 8;
 			 // the secondaries sweep's patches: R, G, B, Y, C, M, white, black
-			 GetMeasure () -> GetPrimarySecondaryPatches ( GenColors, m_pGenerator );
+			 GetMeasure () -> BuildPrimarySecondaryColors ( m_pGenerator, GenColors );
 			 pValidationFunc = &CMeasure::ValidateBackgroundSecondaries;
 			 lHint = UPD_SECONDARIES;
 			 break;
@@ -2660,7 +2665,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 {
 				// the six colors of the grayscale-and-colors sweep
 				ColorRGBDisplay	PatchColors [ 8 ];
-				GetMeasure () -> GetPrimarySecondaryPatches ( PatchColors, m_pGenerator );
+				GetMeasure () -> BuildPrimarySecondaryColors ( m_pGenerator, PatchColors );
 				for ( i = 0; i < 6 ; i ++ )
 				{
 					GenColors [ nSteps + i ] = PatchColors [ i ];

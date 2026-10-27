@@ -76,7 +76,7 @@ CTargetWnd::~CTargetWnd()
 	delete m_pBgBitmap;
 }
 
-// The target of primary/secondary patch idx, in GetPrimarySecondaryPatches'
+// The target of primary/secondary patch idx, in BuildPrimarySecondaryColors'
 // order: R, G, B, Y, C, M, then white (6) and black (7).
 static ColorXYZ PrimarySecondaryTarget ( int idx )
 {
@@ -179,15 +179,22 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 			}
 			else if ( m_DisplayMode == 13 )	// display profile patch
 			{
-				CColor clr;
-				pDoc->GetMeasure()->GetRefProfileSat(minCol - 1, clr);
-				centerXYZ = clr.GetXYZValue();
-				m_testClr = pDoc->GetMeasure()->GetProfilePatchRGB(minCol - 1);
+				// during a capture the test window shows what the generator is
+				// showing: a prologue patch, a remapped cube patch or a drift anchor
+				if ( pDoc->GetMeasure()->m_bProfileCapturing && target == TARGET_TESTWINDOW )
+					m_testClr = pDoc->GetMeasure()->m_profileShownRGB;
+				else
+				{
+					CColor clr;
+					pDoc->GetMeasure()->GetRefProfileSat(minCol - 1, clr);
+					centerXYZ = clr.GetXYZValue();
+					m_testClr = pDoc->GetMeasure()->GetProfilePatchRGB(minCol - 1);
+				}
 			}
 			else if ( m_DisplayMode == 1 && minCol <= 8 )
 			{
 				// Primaries/secondaries, then white (column 7) and black (8)
-				pDoc->GetMeasure()->GetPrimarySecondaryPatches(GenColors, pDoc->GetGenerator());
+				pDoc->GetMeasure()->BuildPrimarySecondaryColors(pDoc->GetGenerator(), GenColors);
 				centerXYZ = PrimarySecondaryTarget(minCol - 1);
 				m_testClr = GenColors[minCol - 1];
 			}
@@ -197,7 +204,7 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 			// Disc patterns with no column selected: recognize the patch on screen
 			// from the measured chromaticity (first match in R,G,B,Y,C,M,W order).
 			ColorRGBDisplay	GenColors [ 8 ];
-			pDoc->GetMeasure()->GetPrimarySecondaryPatches(GenColors, pDoc->GetGenerator());
+			pDoc->GetMeasure()->BuildPrimarySecondaryColors(pDoc->GetGenerator(), GenColors);
 			for (int idx = 0; idx < 7; idx++)
 			{
 				if (m_pRefColor->GetDeltaxy(PrimarySecondaryTarget(idx), GetColorReference()) < 0.05)
