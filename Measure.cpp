@@ -4581,7 +4581,9 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 	//    MT_SECONDARY is what makes the white the one a primaries run would take;
 	//    a dimmed prime white then sends the cube to the undimmed gray white
 	//    through GetColorDEWhiteY's sub-90% fallback, exactly as for a CC sweep.
-	//    (GDI ignores Intensity in PQ/HLG. In SDR at 96-99% Intensity the white
+	//    (GDI ignores Intensity in PQ/HLG, and in Window mode, which paints every
+	//    patch undimmed, so there the white and the cube match as they do in a
+	//    Window-mode primaries run. In SDR at 96-99% Intensity the white
 	//    stays above the 0.9 threshold and the cube is scored against it, as a
 	//    CC sweep is after a primaries run; the real fix -- Intensity as a
 	//    stimulus level with its own targets, not a hidden generator scale --
