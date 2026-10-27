@@ -742,7 +742,7 @@ BOOL CGDIGenerator::DisplayRGBColormadVR( const ColorRGBDisplay& clr, bool first
 	m_nPat++;
 	if ( (m_nPat % GetConfig()->m_ablFreq == 0) && GetConfig()->m_bABL )
 	{
-		double lvl = m_b16_235 ? 2.19 * GetConfig()->m_ablLevel + 16 : 2.55 * GetConfig()->m_ablLevel;
+		double lvl = GetConfig()->m_ablLevel / 100.0;	// madVR takes 0..1, as the patches below
 		//sleep prevention every 40 patterns for longer sequences
 		madVR_SetPatternConfig(100, 0, -1, 0);
 		if (!madVR_ShowRGB(lvl, lvl, lvl))
@@ -819,7 +819,7 @@ BOOL CGDIGenerator::DisplayRGBCCast( const ColorRGBDisplay& clr, bool first, UIN
 	m_nPat++;
 	if ( (m_nPat % GetConfig()->m_ablFreq == 0) && GetConfig()->m_bABL)
 	{
-		double lvl = m_b16_235 ? 2.19 * GetConfig()->m_ablLevel + 16 : 2.55 * GetConfig()->m_ablLevel;
+		double lvl = GetConfig()->m_ablLevel / 100.0;	// Chromecast takes 0..1, as the patches below
 		//sleep prevention
 		ccwin->set_bg(ccwin,0);
 		if (ccwin->set_color(ccwin, lvl, lvl, lvl) != 0 )
@@ -889,7 +889,7 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 		if (bits == 10)
 			abl = PiPercentToCode ( GetConfig()->m_ablLevel, !!m_b16_235, 10 );
 		else
-			abl = m_b16_235 ? (BYTE)(2.19 * GetConfig()->m_ablLevel + 16) : (BYTE)(2.55 * GetConfig()->m_ablLevel);
+			abl = ColorRGBDisplay::ConvertPercentToCode ( GetConfig()->m_ablLevel, !!m_b16_235, 8 );
 		sprintf_s(CPat,"RGB=%s;%d,%d;100;%d,%d,%d;%d,%d,%d;-1,-1", bits == 10 ? "RECTANGLE10bit" : "RECTANGLE", (int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_xWidth),(int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_yHeight),abl,abl,abl,0,0,0);
 		if (sock && CGenerator::_RB8PG_send && CPat[0])
 			CGenerator::_RB8PG_send(sock,CPat);
@@ -947,16 +947,13 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 		m_nPat++;
 		if ((m_nPat % GetConfig()->m_ablFreq == 0)  && GetConfig()->m_bABL)
 		{
-			BYTE lvl = m_b16_235 ? (BYTE)(2.19 * GetConfig()->m_ablLevel + 16) : (BYTE)(2.55 * GetConfig()->m_ablLevel);
 			WINDOWPLACEMENT wp;
 			CRect rect;
 			::GetWindowRect ( ::GetDesktopWindow (), & rect );
 			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.GetWindowPlacement(&wp);			
 			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetWindowPos(&CWnd::wndTop,0,0,rect.Width(),rect.Height(),SWP_SHOWWINDOW);
 
-			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.SetColor ( RGB(lvl, lvl, lvl) );
-			
-			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.RedrawWindow ();
+			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.SetTestColor ( ColorRGBDisplay ( (double) GetConfig()->m_ablLevel ), m_b16_235 );
 			
 			Sleep(GetConfig()->m_ablDuration);
 			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetWindowPlacement(&wp);			
@@ -964,14 +961,12 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetForegroundWindow();
 		// Paint the new patch here, not just the picker's current color: sweeps that
 		// never call UpdateTstWnd (display profile, drift anchors) would otherwise
-		// measure whatever was left in the window. The test-color window holds FULL-RANGE codes
-		// by convention whatever the 16-235 setting: CTargetWnd::Refresh paints them, and
-		// the continuous-measure loop reads the picker back as the user's color (/2.55).
-		// A limited-range code here would feed back (255 -> 235 -> 218 ...) one step per
-		// read. For grayscale patches UpdateTstWnd then repaints the identical code at 8 bits
-		// (either range); only with 10-bit levels can Refresh's 255/219 correction differ by one code.
-		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.m_colorPicker.SetColor ( clr.GetColorRef(false) );
-		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.RedrawWindow ();
+		// measure whatever was left in the window. SetTestColor shows the patch's
+		// nearest code in this generator's range (one rounding, as the reference
+		// snaps) and keeps the exact color for the continuous loop to send back.
+		// CTargetWnd::Refresh does not repaint the window during a sweep (see
+		// PaintsTestColorWnd), so this paint is what the sensor reads.
+		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetTestColor ( clr, m_b16_235 );
 		// No generator settle for HCFR's own window: the Patch delay setting alone
 		// covers the display chain (compositing, GPU, HDMI, TV), as it did in 4.1.
 	} else
@@ -995,6 +990,11 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 	return TRUE;
 }
 
+
+BOOL CGDIGenerator::PaintsTestColorWnd()
+{
+	return m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_GDI_Hide;
+}
 
 BOOL CGDIGenerator::CanDisplayAnsiBWRects()
 {

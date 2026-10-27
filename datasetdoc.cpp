@@ -154,12 +154,12 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 			if ( g_bGDIGeneratorRunning )
 		    {
 				CGenerator::MeasureType MT = CGenerator::MT_UNKNOWN;
-				ColorRGBDisplay clr((( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.GetColor ())& 0x00FFFFFF);
+				ColorRGBDisplay clr = ( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.GetTestColor ();
 		    
 				m_nPat++;
 				if ( ( (m_nPat % GetConfig()->m_ablFreq) == 0) && GetConfig()->m_bABL )
 				{
-					pGenerator->DisplayRGBColor(ColorRGBDisplay(GetConfig()->m_ablLevel / 100.0), MT);
+					pGenerator->DisplayRGBColor(ColorRGBDisplay((double)GetConfig()->m_ablLevel), MT);
 					Sleep(GetConfig()->m_ablDuration);
 				}
 
@@ -321,7 +321,7 @@ BOOL StartBackgroundMeasures ( CDataSetDoc * pDoc )
 					return FALSE;
 				}
 
-				ColorRGBDisplay clr((( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.GetColor ()) & 0x00ffffff);
+				ColorRGBDisplay clr = ( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.GetTestColor ();
 				if (!clr.isValid())
 					clr = ColorRGBDisplay(0.25);
 				g_CurrentColor = clr;
@@ -2478,7 +2478,8 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 for ( i = 0; i < nSteps ; i ++ )
 			 {
 				GenIRE [ i ] = i;
-				GenColors [ i ] = ColorRGBDisplay(i,i,i);
+				// the near-black sweep's levels: 1% steps (2% in PQ) on the active grid
+				GenColors [ i ] = ColorRGBDisplay(ArrayIndexToGrayLevel ( i * (GetConfig()->m_GammaOffsetType == 5 ? 2 : 1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()));
 				mType [ i ] = CGenerator::MT_NEARBLACK;
 			 }
 			 pValidationFunc = &CMeasure::ValidateBackgroundNearBlack;
@@ -2491,7 +2492,8 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 for ( i = 0; i < nSteps ; i ++ )
 			 {
 				GenIRE [ i ] = GetMeasure()->m_NearWhiteClipCol-nSteps+i;
-				GenColors [ i ] = ColorRGBDisplay(GetMeasure()->m_NearWhiteClipCol-nSteps+i,101-nSteps+i,101-nSteps+i);
+				// the near-white sweep's levels below the clip, on the active grid
+				GenColors [ i ] = ColorRGBDisplay(ArrayIndexToGrayLevel ( GetMeasure()->m_NearWhiteClipCol-nSteps+i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()));
 				mType [ i ] = CGenerator::MT_NEARWHITE;
 			 }
 			 pValidationFunc = &CMeasure::ValidateBackgroundNearWhite;
@@ -2602,13 +2604,28 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 mType [ 4 ] = CGenerator::MT_PRIMARY;
 			 nSteps = ( 3 + GetConfig () -> m_BWColorsToAdd );
 			 nMaxSteps = 5;
-			 if ( nMode == -5 && nSteps < 4 )
-				nSteps = 4;
-			 GenColors [ 0 ] = ColorRGBDisplay(100,0,0);		// red
-			 GenColors [ 1 ] = ColorRGBDisplay(0,100,0);		// green
-			 GenColors [ 2 ] = ColorRGBDisplay(0,0,100);		// blue
-			 GenColors [ 3 ] = ColorRGBDisplay(100,100,100);	// white (to control additivity)
-			 GenColors [ 4 ] = ColorRGBDisplay(0,0,0);			// black
+			 if ( nMode == -5 )
+			 {
+				// Sensor calibration: the display's native primaries, whatever the standard
+				if ( nSteps < 4 )
+					nSteps = 4;
+				GenColors [ 0 ] = ColorRGBDisplay(100,0,0);		// red
+				GenColors [ 1 ] = ColorRGBDisplay(0,100,0);		// green
+				GenColors [ 2 ] = ColorRGBDisplay(0,0,100);		// blue
+				GenColors [ 3 ] = ColorRGBDisplay(100,100,100);	// white (to control additivity)
+				GenColors [ 4 ] = ColorRGBDisplay(0,0,0);			// black
+			 }
+			 else
+			 {
+				// the primaries sweep's patches, so the references apply
+				ColorRGBDisplay	PatchColors [ 8 ];
+				GetMeasure () -> GetPrimarySecondaryPatches ( PatchColors, m_pGenerator );
+				GenColors [ 0 ] = PatchColors [ 0 ];
+				GenColors [ 1 ] = PatchColors [ 1 ];
+				GenColors [ 2 ] = PatchColors [ 2 ];
+				GenColors [ 3 ] = PatchColors [ 6 ];
+				GenColors [ 4 ] = PatchColors [ 7 ];
+			 }
 			 pValidationFunc = &CMeasure::ValidateBackgroundPrimaries;
 			 lHint = UPD_PRIMARIES;
 			 break;
@@ -2624,14 +2641,8 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 mType [ 7 ] = CGenerator::MT_SECONDARY;
 			 nSteps = 6 + GetConfig () -> m_BWColorsToAdd;
 			 nMaxSteps = 8;
-			 GenColors [ 0 ] = ColorRGBDisplay(100,0,0);		// red
-			 GenColors [ 1 ] = ColorRGBDisplay(0,100,0);		// green
-			 GenColors [ 2 ] = ColorRGBDisplay(0,0,100);		// blue
-			 GenColors [ 3 ] = ColorRGBDisplay(100,100,0);		// yellow
-			 GenColors [ 4 ] = ColorRGBDisplay(0,100,100);		// cyan
-			 GenColors [ 5 ] = ColorRGBDisplay(100,0,100);		// magenta
-			 GenColors [ 6 ] = ColorRGBDisplay(100,100,100);	// white (to control additivity)
-			 GenColors [ 7 ] = ColorRGBDisplay(0,0,0);			// black
+			 // the secondaries sweep's patches: R, G, B, Y, C, M, white, black
+			 GetMeasure () -> GetPrimarySecondaryPatches ( GenColors, m_pGenerator );
 			 pValidationFunc = &CMeasure::ValidateBackgroundSecondaries;
 			 lHint = UPD_SECONDARIES;
 			 break;
@@ -2646,18 +2657,16 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 	mType [ i ] = CGenerator::MT_IRE;
 			 }
 
-			 GenColors [ nSteps + 0 ] = ColorRGBDisplay(100,0,0);	// red
-			 mType [ nSteps + 0 ] = CGenerator::MT_SECONDARY;
-			 GenColors [ nSteps + 1 ] = ColorRGBDisplay(0,100,0);	// green
-			 mType [ nSteps + 1 ] = CGenerator::MT_SECONDARY;
-			 GenColors [ nSteps + 2 ] = ColorRGBDisplay(0,0,100);	// blue
-			 mType [ nSteps + 2 ] = CGenerator::MT_SECONDARY;
-			 GenColors [ nSteps + 3 ] = ColorRGBDisplay(100,100,0);	// yellow
-			 mType [ nSteps + 3 ] = CGenerator::MT_SECONDARY;
-			 GenColors [ nSteps + 4 ] = ColorRGBDisplay(0,100,100);	// cyan
-			 mType [ nSteps + 4 ] = CGenerator::MT_SECONDARY;
-			 GenColors [ nSteps + 5 ] = ColorRGBDisplay(100,0,100);	// magenta
-			 mType [ nSteps + 5 ] = CGenerator::MT_SECONDARY;
+			 {
+				// the six colors of the grayscale-and-colors sweep
+				ColorRGBDisplay	PatchColors [ 8 ];
+				GetMeasure () -> GetPrimarySecondaryPatches ( PatchColors, m_pGenerator );
+				for ( i = 0; i < 6 ; i ++ )
+				{
+					GenColors [ nSteps + i ] = PatchColors [ i ];
+					mType [ nSteps + i ] = CGenerator::MT_SECONDARY;
+				}
+			 }
 			 nSteps += 6;
 			 nMaxSteps = nSteps;
 			 pValidationFunc = &CMeasure::ValidateBackgroundGrayScaleAndColors;
@@ -2667,7 +2676,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 		case -4:
 			 nSteps = 1;
 			 nMaxSteps = nSteps;
-			 GenColors [ 0 ] = ColorRGBDisplay(( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.GetColor () & 0x00FFFFFF);
+			 GenColors [ 0 ] = ( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.GetTestColor ();
 			 mType [ 0 ] = CGenerator::MT_UNKNOWN;
 			 pValidationFunc = &CMeasure::ValidateBackgroundSingleMeasurement;
 			 lHint = UPD_FREEMEASUREAPPENDED;
@@ -2682,7 +2691,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nMaxSteps = nSteps;
 			 for (i = 0; i < nSteps ; i ++ )
 			 {
-				GenIRE [ i ] = (int)GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				GenIRE [ i ] = GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 				bIRE [ i ] = GetMeasure () -> m_bIREScaleMode;
 				GenColors [ i ] = ColorRGBDisplay(GenIRE[i]);
  			 	mType [ i ] = CGenerator::MT_IRE;

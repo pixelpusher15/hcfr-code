@@ -323,6 +323,11 @@ public:
 	double GetSatLevelAt(int idx);
 	const CSatLevelSet & GetSatLevelSet(int idx);
 
+	// The primary/secondary sweep patches in order R, G, B, Y, C, M, white,
+	// black: the one source for the sweeps, the test-window preview and the
+	// accuracy harness. pGenerator (may be NULL) selects the manual-DVD
+	// generator's Mascior-disc white.
+	void GetPrimarySecondaryPatches ( ColorRGBDisplay GenColors [ 8 ], CGenerator * pGenerator );
 	BOOL MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc);
 	CColor GetPrimary(int i) const;
 	CColor GetRedPrimary() const;

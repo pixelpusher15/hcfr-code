@@ -143,9 +143,10 @@ measured gray top as White; then primaries, which set PrimeWhite):
 
 - `gray` — 11-point ramp via `GetGrayPercent` (black column carries no dE in
   the grid and is skipped the same way here).
-- `prim` — primaries + secondaries + white row, mirroring `MeasurePrimaries`'
-  GenColors (incl. the UHDTV3/4 `ContainerPrimaryLinear` chain and the
-  HDTVa/b HDR re-encode).
+- `prim` — primaries + secondaries + white row from the sweeps' own patch
+  builder, `CMeasure::GetPrimarySecondaryPatches` (incl. the UHDTV3/4
+  `ContainerPrimaryLinear` chain and the HDTVa/b HDR re-encode), which the
+  test-window preview also uses.
 - `sat100` / `sat75` — six saturation sweeps at 100% and 75% stimulus via
   `GenerateSaturationColors`.
 - `ccGCD` / `ccAXIS` — color-checker sets GCD (24) and AXIS (71 patches,

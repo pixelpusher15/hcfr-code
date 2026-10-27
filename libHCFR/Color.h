@@ -239,6 +239,12 @@ public:
     COLORREF GetColorRef(bool is16_235) const;
     static BYTE ConvertPercentToBYTE(double percent, bool is16_235);
     static int ConvertPercentToCode(double percent, bool is16_235, int bits);
+    // HCFR's test-color window: its picker holds an 8-bit full-range code, which
+    // the window paints as is, or for a limited-range generator as
+    // round(c * 219/255 + 16) clamped to 16..235.
+    static int TestWindowShownCode(int pickerCode, bool is16_235);
+    // The picker code the window shows as percent's nearest 8-bit code in the range.
+    static int TestWindowPickerCode(double percent, bool is16_235);
 #endif
 };
 

@@ -2049,7 +2049,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
-	BOOL	bRetry = FALSE, isSpecial = FALSE;
+	BOOL	bRetry = FALSE;
 	int		size=m_grayMeasureArray.GetSize();
 	CString	strMsg, Title;
 	double	dLuxValue;
@@ -2233,101 +2233,9 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 			pGenerator->Release();
 			return FALSE;
 		}
-	CString str;
-	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
-	int mode = GetConfig()->m_GammaOffsetType;
-
-	double primaryIRELevel=100.0;	
-	if (mode == 5)
-	{
-		primaryIRELevel = 50.22831;
-	//Special Case white for Mascior's HDR disk
-		if(pGenerator->GetName() == str && (GetColorReference().m_standard == UHDTV4 || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == HDTV))
-			primaryIRELevel = 50.00;
-	}
 	// Measure primary and secondary colors
-	ColorRGBDisplay	GenColors [ 8 ] = 
-								{	
-									ColorRGBDisplay(primaryIRELevel,0,0),
-									ColorRGBDisplay(0,primaryIRELevel,0),
-									ColorRGBDisplay(0,0,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,primaryIRELevel,0),
-									ColorRGBDisplay(0,primaryIRELevel,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,0,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel),
-									ColorRGBDisplay(0,0,0)
-								};
-	if (GetColorReference().m_standard == HDTVb)
-	{
-			GenColors [ 0 ] = ColorRGBDisplay(79.9087,10.0457,10.0457); 
-			GenColors [ 1 ] = ColorRGBDisplay(30.137,79.9087,30.137); 
-			GenColors [ 2 ] = ColorRGBDisplay(50.2283,50.2283,79.9087); 
-			GenColors [ 3 ] = ColorRGBDisplay(79.9087,79.9087,10.0457);
-			GenColors [ 4 ] = ColorRGBDisplay(10.0457,79.9087,79.9087);
-			GenColors [ 5 ] = ColorRGBDisplay(79.9087,10.0457,79.9087);
-			isSpecial = TRUE;
-	}
-	else if (GetColorReference().m_standard == HDTVa) //75%
-	{ 
-		GenColors [ 0 ] = ColorRGBDisplay(68.04,20.09,20.09);
-		GenColors [ 1 ] = ColorRGBDisplay(27.85,73.06,27.85);
-		GenColors [ 2 ] = ColorRGBDisplay(19.18,19.18,50.22);
-		GenColors [ 3 ] = ColorRGBDisplay(73.9726,73.9726,33.3333);
-		GenColors [ 4 ] = ColorRGBDisplay(36.07,73.06,73.06);
-		GenColors [ 5 ] = ColorRGBDisplay(64.3836,29.2237,64.3836);
-		GenColors [ 6 ] = ColorRGBDisplay(75.0,75.0,75.0);
-		isSpecial = TRUE;
-	}
-	else if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 ) //P3/Rec709 in BT.2020
-	{
-		// GenColors[0..5] are computed from ContainerPrimaryLinear below
-		// (all transfer functions).
-		if (!(mode == 5 || mode == 7))
-			isSpecial = TRUE;
-
-		GenColors [ 6 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-		GenColors [ 7 ] = ColorRGBDisplay(0,0,0);
-	}
-
-	// Pseudo color spaces: build the primary/secondary patches from the inner
-	// primaries mapped into the transport container, encoded with the ACTIVE
-	// transfer function (2.22 SDR, PQ, HLG OETF) - the same chain GetRefSat
-	// models. Left unquantized: the wire and the reference each snap ONCE to
-	// the active grid and land on the same code. (The old hardcoded HDR tables
-	// were pre-quantized on the 8-bit LIMITED grid - double-quantizing them
-	// onto the full/10-bit grids left patches a code off the reference - and
-	// predate the transport-space references entirely, which is why HLG read
-	// several dE.)
-	if (GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)
-	{
-		CColor tmW = CMeasure::GetGray ( CMeasure::GetGrayScaleSize() - 1 );	// same White/Black GetRefSat's encode uses
-		CColor tmB = CMeasure::GetOnOffBlack();
-		for (int ci = 0; ci < 6; ci++)
-		{
-			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
-			for (int ck = 0; ck < 3; ck++)
-			{
-				double cv = clin[ck];
-				if (mode == 5)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv / 105.95640, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -5);
-				else if (mode == 7)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -7);
-				else
-					cv = (cv <= 0.0 || cv >= 1.0) ? min(max(cv, 0.0), 1.0) : pow(cv, 1.0 / 2.22);
-				GenColors[ci][ck] = min(max(cv, 0.0), 1.0) * 100.0;
-			}
-		}
-	}
-
-	if ( (mode == 5 || mode  == 7) && isSpecial)
-	{
-		for (int i=0;i<=5;i++)
-		{
-			GenColors[i][0]= 100. * getL_EOTF(pow(GenColors[i][0] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][1]= 100. * getL_EOTF(pow(GenColors[i][1] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][2]= 100. * getL_EOTF(pow(GenColors[i][2] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-		}
-	}
+	ColorRGBDisplay	GenColors [ 8 ];
+	GetPrimarySecondaryPatches ( GenColors, pGenerator );
 
 	m_currentIndex = 0;
 	for (int i = 0; i < 6 + GetConfig()->m_BWColorsToAdd ; i ++ )
@@ -2560,7 +2468,9 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 		int nCol = i * (GetConfig()->m_GammaOffsetType == 5 ? 2 : 1);
 		if( pGenerator->DisplayGray((ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())),CGenerator::MT_NEARBLACK,!bRetry) )
 		{
-			UpdateTstWnd(pDoc, nCol);
+			// The grid column is the measurement index i (CTargetWnd::Refresh
+			// maps it to the 2% PQ level itself), not the level nCol.
+			UpdateTstWnd(pDoc, i);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
 			bRetry = FALSE;
 
@@ -5280,7 +5190,7 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
-	BOOL	bRetry = FALSE, isSpecial = FALSE;
+	BOOL	bRetry = FALSE;
 	CColor	measuredColor[5];
 	CString	strMsg, Title;
 	double	dLuxValue;
@@ -5323,90 +5233,10 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	}
 
 
-	// Measure primary and secondary colors
-	double		primaryIRELevel=100.0;
-	int mode = GetConfig()->m_GammaOffsetType;
-
-	if (mode == 5)
-	{
-		primaryIRELevel = 50.22831;
-	//Special Case white for Mascior's HDR disk
-		if(pGenerator->GetName() == str && (GetColorReference().m_standard == UHDTV4 || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == HDTV ))
-			primaryIRELevel = 50.00;
-	}
-
-	ColorRGBDisplay	GenColors [ 5 ] = 
-								{	
-									ColorRGBDisplay(primaryIRELevel,0,0),
-									ColorRGBDisplay(0,primaryIRELevel,0),
-									ColorRGBDisplay(0,0,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel),
-									ColorRGBDisplay(0,0,0)
-								};
-
-	if ( GetColorReference().m_standard == HDTVb )
-	{
-			GenColors [ 0 ] = ColorRGBDisplay(79.9087,10.0457,10.0457); 
-			GenColors [ 1 ] = ColorRGBDisplay(30.137,79.9087,30.137); 
-			GenColors [ 2 ] = ColorRGBDisplay(50.2283,50.2283,79.9087); 
-			GenColors [ 3 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-			GenColors [ 4 ] = ColorRGBDisplay(0,0,0);
-			isSpecial = TRUE;
-	}
-	else if ( GetColorReference().m_standard == HDTVa ) //75%
-	{ 
-		GenColors [ 0 ] = ColorRGBDisplay(68.04,20.09,20.09);
-		GenColors [ 1 ] = ColorRGBDisplay(27.85,73.06,27.85);
-		GenColors [ 2 ] = ColorRGBDisplay(19.18,19.18,50.22);
-		GenColors [ 3 ] = ColorRGBDisplay(75.0,75.0,75.0);
-		GenColors [ 4 ] = ColorRGBDisplay(0,0,0);
-		isSpecial = TRUE;	
-	}
-	else if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 ) //P3/Rec709 in BT.2020
-	{
-		// GenColors[0..2] are computed from ContainerPrimaryLinear below
-		// (all transfer functions).
-		if (!(mode == 5 || mode == 7))
-			isSpecial = TRUE;
-
-		GenColors [ 3 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-		GenColors [ 4 ] = ColorRGBDisplay(0,0,0);
-	}
-
-	// Pseudo color spaces: build the primary patches from the inner primaries
-	// mapped into the transport container, encoded with the ACTIVE transfer
-	// function - the same chain GetRefSat models; see the identical block in
-	// MeasureGrayScaleAndColors for the full rationale.
-	if (GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)
-	{
-		CColor tmW = CMeasure::GetGray ( CMeasure::GetGrayScaleSize() - 1 );
-		CColor tmB = CMeasure::GetOnOffBlack();
-		for (int ci = 0; ci < 3; ci++)
-		{
-			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
-			for (int ck = 0; ck < 3; ck++)
-			{
-				double cv = clin[ck];
-				if (mode == 5)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv / 105.95640, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -5);
-				else if (mode == 7)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -7);
-				else
-					cv = (cv <= 0.0 || cv >= 1.0) ? min(max(cv, 0.0), 1.0) : pow(cv, 1.0 / 2.22);
-				GenColors[ci][ck] = min(max(cv, 0.0), 1.0) * 100.0;
-			}
-		}
-	}
-
-	if ( (mode == 5 || mode  == 7) && isSpecial)
-	{
-		for (i=0;i<=2;i++)
-		{
-			GenColors[i][0]= 100. * getL_EOTF(pow(GenColors[i][0] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][1]= 100. * getL_EOTF(pow(GenColors[i][1] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][2]= 100. * getL_EOTF(pow(GenColors[i][2] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-		}
-	}
+	// Measure primary colors: R, G, B, then the white and black anchors
+	ColorRGBDisplay	PatchColors [ 8 ];
+	GetPrimarySecondaryPatches ( PatchColors, pGenerator );
+	ColorRGBDisplay	GenColors [ 5 ] = { PatchColors [ 0 ], PatchColors [ 1 ], PatchColors [ 2 ], PatchColors [ 6 ], PatchColors [ 7 ] };
 
 	m_binMeasure = TRUE;
 	m_currentIndex = 0;
@@ -5571,7 +5401,7 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 	MSG		Msg;
 	BOOL	bEscape;
 	BOOL	bPatternRetry = FALSE;
-	BOOL	bRetry = FALSE, isSpecial = FALSE;
+	BOOL	bRetry = FALSE;
 	CColor	measuredColor[8];
 	CString	strMsg, Title;
 	double	dLuxValue;
@@ -5598,100 +5428,9 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 	}
 	CAsyncMeasurer asyncMeasure;
 	asyncMeasure.Start(pSensor);
-		CString str;
-	str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
 	// Measure primary and secondary colors
-	double		primaryIRELevel=100.0;	
-	int mode = GetConfig()->m_GammaOffsetType;
-
-	if (mode == 5)
-	{
-		primaryIRELevel = 50.22831;
-	//Special Case white for Mascior's HDR disk
-		if(pGenerator->GetName() == str && (GetColorReference().m_standard == UHDTV4 || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == HDTV))
-			primaryIRELevel = 50.00;
-	}
-
-	ColorRGBDisplay	GenColors [ 8 ] = 
-								{	
-									ColorRGBDisplay(primaryIRELevel,0,0),
-									ColorRGBDisplay(0,primaryIRELevel,0),
-									ColorRGBDisplay(0,0,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,primaryIRELevel,0),
-									ColorRGBDisplay(0,primaryIRELevel,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,0,primaryIRELevel),
-									ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel),
-									ColorRGBDisplay(0,0,0)
-								};
-	if (GetColorReference().m_standard == HDTVb)
-	{
-			GenColors [ 0 ] = ColorRGBDisplay(79.9087,10.0457,10.0457); 
-			GenColors [ 1 ] = ColorRGBDisplay(30.137,79.9087,30.137); 
-			GenColors [ 2 ] = ColorRGBDisplay(50.2283,50.2283,79.9087); 
-			GenColors [ 3 ] = ColorRGBDisplay(79.9087,79.9087,10.0457);
-			GenColors [ 4 ] = ColorRGBDisplay(10.0457,79.9087,79.9087);
-			GenColors [ 5 ] = ColorRGBDisplay(79.9087,10.0457,79.9087);
-			GenColors [ 6 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-			GenColors [ 7 ] = ColorRGBDisplay(0,0,0);
-			isSpecial = TRUE;
-	}
-	else if (GetColorReference().m_standard == HDTVa) //75%
-	{ 
-		GenColors [ 0 ] = ColorRGBDisplay(68.04,20.09,20.09);
-		GenColors [ 1 ] = ColorRGBDisplay(27.85,73.06,27.85);
-		GenColors [ 2 ] = ColorRGBDisplay(19.18,19.18,50.22);
-		GenColors [ 3 ] = ColorRGBDisplay(73.9726,73.9726,33.3333);
-		GenColors [ 4 ] = ColorRGBDisplay(36.07,73.06,73.06);
-		GenColors [ 5 ] = ColorRGBDisplay(64.3836,29.2237,64.3836);
-		GenColors [ 6 ] = ColorRGBDisplay(75.0,75.0,75.0);
-		GenColors [ 7 ] = ColorRGBDisplay(0,0,0);	
-		isSpecial = TRUE;
-	}
-	else if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 ) //P3/Rec709 in BT.2020
-	{
-		// GenColors[0..5] are computed from ContainerPrimaryLinear below
-		// (all transfer functions).
-		if (!(mode == 5 || mode == 7))
-			isSpecial = TRUE;
-
-		GenColors [ 6 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-		GenColors [ 7 ] = ColorRGBDisplay(0,0,0);
-	}
-
-	// Pseudo color spaces: build the primary/secondary patches from the inner
-	// primaries mapped into the transport container, encoded with the ACTIVE
-	// transfer function - the same chain GetRefSat models; see the identical
-	// block in MeasureGrayScaleAndColors for the full rationale.
-	if (GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)
-	{
-		CColor tmW = CMeasure::GetGray ( CMeasure::GetGrayScaleSize() - 1 );
-		CColor tmB = CMeasure::GetOnOffBlack();
-		for (int ci = 0; ci < 6; ci++)
-		{
-			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
-			for (int ck = 0; ck < 3; ck++)
-			{
-				double cv = clin[ck];
-				if (mode == 5)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv / 105.95640, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -5);
-				else if (mode == 7)
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -7);
-				else
-					cv = (cv <= 0.0 || cv >= 1.0) ? min(max(cv, 0.0), 1.0) : pow(cv, 1.0 / 2.22);
-				GenColors[ci][ck] = min(max(cv, 0.0), 1.0) * 100.0;
-			}
-		}
-	}
-
-	if ( (mode == 5 || mode  == 7) && isSpecial)
-	{
-		for (i=0;i<=5;i++)
-		{
-			GenColors[i][0]= 100. * getL_EOTF(pow(GenColors[i][0] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][1]= 100. * getL_EOTF(pow(GenColors[i][1] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-			GenColors[i][2]= 100. * getL_EOTF(pow(GenColors[i][2] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
-		}
-	}
+	ColorRGBDisplay	GenColors [ 8 ];
+	GetPrimarySecondaryPatches ( GenColors, pGenerator );
 
 	m_binMeasure = TRUE;
 	m_currentIndex = 0;
@@ -6448,7 +6187,7 @@ BOOL CMeasure::AddMeasurement(CSensor *pSensor, CGenerator *pGenerator,  CGenera
 {
 	BOOL		bDisplayColor = GetConfig () -> m_bDisplayTestColors;
 	BOOL		bOk;
-	COLORREF	clr;
+	ColorRGBDisplay	clr;
 	CColor		measuredColor;
 	CString	Msg, Title;
 
@@ -6476,22 +6215,21 @@ BOOL CMeasure::AddMeasurement(CSensor *pSensor, CGenerator *pGenerator,  CGenera
 	if ( bDisplayColor ) 
 	{
 		// Display test color
-		clr = ( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.GetColor ();
-		clr &= 0x00FFFFFF;
-		bOk = pGenerator->DisplayRGBColor(ColorRGBDisplay(clr), MT);
+		clr = ( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.GetTestColor ();
+		bOk = pGenerator->DisplayRGBColor(clr, MT);
 		if ( bOk )
 			WaitForDynamicIris ( TRUE );
 	}
 	else
 	{
         // don't know the color to measure so default value to mid gray...
-		clr = RGB(128,128,128);
+		clr = ColorRGBDisplay(RGB(128,128,128));
 		bOk = TRUE;
 	}
 
 	if ( bOk )
 	{
-		measuredColor=pSensor->MeasureColor(ColorRGBDisplay(clr), m_d);
+		measuredColor=pSensor->MeasureColor(clr, m_d);
 		if(!pSensor->IsMeasureValid())
 		{
 			Title.LoadString ( IDS_ERROR );
@@ -6717,8 +6455,7 @@ void CMeasure::UpdateTstWnd (CDataSetDoc *pDoc, int i )
 		{
 			for (int j=0;j<255;j+=3)
 			{
-				( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.SetColor ( RGB(j,j,j) );
-				( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.RedrawWindow();
+				( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.SetTestColor ( RGB(j,j,j) );
 				Sleep(55);
 			}
 		}
@@ -8009,11 +7746,10 @@ void CMeasure::AppendMeasurements(const CColor & aColor, int isPrimary, int last
 	FreeMeasurementAppended(isPrimary, last_minCol); 
 }
 
-// The EXACT percent triplets MeasurePrimaries sends for the special
-// standards (R,G,B,Y,C,M) - the reference must decode these actual wire
-// codes: re-encoding the analog color lands up to half a code away from the
-// 2-decimal-rounded tables (~0.4 dE). Keep byte-identical to the GenColors
-// tables in MeasurePrimaries.
+// The EXACT percent triplets the sweeps send for the special standards
+// (R,G,B,Y,C,M) - the reference must decode these actual wire codes:
+// re-encoding the analog color lands up to half a code away from the
+// 2-decimal-rounded tables (~0.4 dE). GetPrimarySecondaryPatches sends them.
 static const double kHDTVaWireCodes[6][3] =
 {
 	{ 68.04,20.09,20.09 }, { 27.85,73.06,27.85 }, { 19.18,19.18,50.22 },
@@ -8024,6 +7760,82 @@ static const double kHDTVbWireCodes[6][3] =
 	{ 79.9087,10.0457,10.0457 }, { 30.137,79.9087,30.137 }, { 50.2283,50.2283,79.9087 },
 	{ 79.9087,79.9087,10.0457 }, { 10.0457,79.9087,79.9087 }, { 79.9087,10.0457,79.9087 },
 };
+
+void CMeasure::GetPrimarySecondaryPatches ( ColorRGBDisplay GenColors [ 8 ], CGenerator * pGenerator )
+{
+	int mode = GetConfig()->m_GammaOffsetType;
+	ColorStandard standard = GetColorReference().m_standard;
+	BOOL isSpecial = FALSE;
+
+	double primaryIRELevel = 100.0;
+	if (mode == 5)
+	{
+		primaryIRELevel = 50.22831;
+		//Special Case white for Mascior's HDR disk
+		CString str;
+		str.LoadString(IDS_MANUALDVDGENERATOR_NAME);
+		if (pGenerator && pGenerator->GetName() == str && (standard == UHDTV4 || standard == UHDTV3 || standard == UHDTV2 || standard == UHDTV || standard == HDTV))
+			primaryIRELevel = 50.00;
+	}
+
+	GenColors [ 0 ] = ColorRGBDisplay(primaryIRELevel,0,0);
+	GenColors [ 1 ] = ColorRGBDisplay(0,primaryIRELevel,0);
+	GenColors [ 2 ] = ColorRGBDisplay(0,0,primaryIRELevel);
+	GenColors [ 3 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,0);
+	GenColors [ 4 ] = ColorRGBDisplay(0,primaryIRELevel,primaryIRELevel);
+	GenColors [ 5 ] = ColorRGBDisplay(primaryIRELevel,0,primaryIRELevel);
+	GenColors [ 6 ] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
+	GenColors [ 7 ] = ColorRGBDisplay(0,0,0);
+
+	if (standard == HDTVa || standard == HDTVb)
+	{
+		const double (*codes)[3] = (standard == HDTVa) ? kHDTVaWireCodes : kHDTVbWireCodes;
+		for (int ci = 0; ci < 6; ci++)
+			GenColors [ ci ] = ColorRGBDisplay(codes[ci][0], codes[ci][1], codes[ci][2]);
+		if (standard == HDTVa)	//75%
+			GenColors [ 6 ] = ColorRGBDisplay(75.0,75.0,75.0);
+		isSpecial = TRUE;
+	}
+	else if (standard == UHDTV3 || standard == UHDTV4)
+	{
+		// Pseudo color spaces: build the primary/secondary patches from the inner
+		// primaries mapped into the transport container, encoded with the ACTIVE
+		// transfer function (2.22 SDR, PQ, HLG OETF) - the same chain GetRefSat
+		// models. Left unquantized: the wire and the reference each snap ONCE to
+		// the active grid and land on the same code. (The old hardcoded HDR tables
+		// were pre-quantized on the 8-bit LIMITED grid - double-quantizing them
+		// onto the full/10-bit grids left patches a code off the reference - and
+		// predate the transport-space references entirely, which is why HLG read
+		// several dE.)
+		CColor tmW = GetGray ( GetGrayScaleSize() - 1 );	// same White/Black GetRefSat's encode uses
+		CColor tmB = GetOnOffBlack();
+		for (int ci = 0; ci < 6; ci++)
+		{
+			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
+			for (int ck = 0; ck < 3; ck++)
+			{
+				double cv = clin[ck];
+				if (mode == 5)
+					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv / 105.95640, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -5);
+				else if (mode == 7)
+					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv, tmW, tmB, GetConfig()->m_GammaRel, GetConfig()->m_Split, -7);
+				else
+					cv = (cv <= 0.0 || cv >= 1.0) ? min(max(cv, 0.0), 1.0) : pow(cv, 1.0 / 2.22);
+				GenColors[ci][ck] = min(max(cv, 0.0), 1.0) * 100.0;
+			}
+		}
+	}
+
+	if ( (mode == 5 || mode  == 7) && isSpecial)
+	{
+		for (int i=0;i<=5;i++)
+		{
+			GenColors[i][0]= 100. * getL_EOTF(pow(GenColors[i][0] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
+			GenColors[i][1]= 100. * getL_EOTF(pow(GenColors[i][1] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
+			GenColors[i][2]= 100. * getL_EOTF(pow(GenColors[i][2] / 100.,2.22), noDataColor, noDataColor,0,0,-1*mode);
+		}
+	}
+}
 
 // Shared by GetRefPrimary/GetRefSecondary: turn the analog primary/secondary
 // XYZ into the reference the wire actually produces. Plain standards send
