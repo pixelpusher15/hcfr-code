@@ -4425,7 +4425,7 @@ void CMeasure::ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, do
 bool CMeasure::MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx, BOOL bIgnoreAbort)
 {
 	ColorRGBDisplay whiteRGB ( 100.0, 100.0, 100.0 );
-	ShowProfilePatch ( pDoc, whiteRGB );
+	m_profileShownRGB = whiteRGB;
 	if ( ! pGenerator->DisplayRGBColor ( whiteRGB, CGenerator::MT_SAT_CC24_USER, patchIdx, TRUE ) )
 		return false;
 	if ( WaitForDynamicIris ( bIgnoreAbort, pDoc ) )
@@ -4673,7 +4673,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 				return -1;
 			if ( k > 0 )
 				GetConfig()->m_isSettling = FALSE;	// only the first displayed patch settles
-			ShowProfilePatch ( pDoc, rgb );
+			m_profileShownRGB = rgb;
 			UpdateViews ( pDoc, 13 );
 			BOOL bShown = ( type == CGenerator::MT_IRE ) ? pGenerator->DisplayGray ( rgb[0], type, ! bRetryRef )
 														 : pGenerator->DisplayRGBColor ( rgb, type, patternInfo, ! bRetryRef );
@@ -4839,7 +4839,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 		}
 
 		m_currentIndex = i;
-		ShowProfilePatch ( pDoc, GenColors[i] );
+		m_profileShownRGB = GenColors[i];	// after the container remap: what goes on the wire
 		UpdateViews(pDoc, 13);
 
 		if( pGenerator->DisplayRGBColor(GenColors[i], nPattern , i, !bRetry))
@@ -6835,21 +6835,6 @@ BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
 	QueryPerformanceCounter(&_st1);
 	PerfRecordSettle(1000.0 * (double)(_st1.QuadPart - _st0.QuadPart) / (double)_sfr.QuadPart);
 	return bEscape;
-}
-// Window mode (DISPLAY_GDI_Hide): the generator only shows and redraws the
-// in-app test window; its COLOR comes from CTargetWnd::Refresh(...,
-// TARGET_TESTWINDOW). The sweeps push it with UpdateTstWnd. A capture runs in
-// mode 13, where UpdateViews reaches MainView only with realtime display on, so
-// it pushes every stimulus it is about to show itself -- prologue, cube (after
-// any container remap) and drift anchors.
-void CMeasure::ShowProfilePatch(CDataSetDoc * pDoc, const ColorRGBDisplay & rgb)
-{
-	m_profileShownRGB = rgb;
-	if ( ! pDoc || GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) != DISPLAY_GDI_Hide )
-		return;
-	POSITION pos = pDoc->GetFirstViewPosition ();
-	CMainView * pView = (CMainView *) pDoc->GetNextView ( pos );
-	pView->m_Target.Refresh ( pDoc->GetGenerator()->m_b16_235, 1, GetProfileMeasureSize(), 13, pDoc, CTargetWnd::TARGET_TESTWINDOW );
 }
 
 // Reads the display profile's reference prologue takes (MeasureDisplayProfile):

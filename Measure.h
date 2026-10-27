@@ -333,7 +333,9 @@ public:
 	volatile BOOL m_bProfileMeasuringRefs;
 	int m_profileRefIndex, m_profileRefCount;	// progress through the prologue
 	// The stimulus on screen during a capture (percent): prologue patch, cube patch
-	// after any container remap, or drift anchor. Set by ShowProfilePatch.
+	// after any container remap, or drift anchor. The pane's swatch and the
+	// test-color preview (CTargetWnd) show it; in Window mode the GDI generator
+	// paints the patch into that window itself.
 	ColorRGBDisplay m_profileShownRGB;
 	// TRUE from the start of a capture -- before the reference prologue -- until
 	// the closing drift anchor has rescaled the last segment. The array is written
@@ -426,7 +428,6 @@ public:
 	BOOL WaitForDynamicIris ( BOOL bIgnoreEscape = FALSE, CDataSetDoc *pDoc = NULL );
 	BOOL CheckBlackOverride (  );
 	int GetProfileRefReadCount () const;	// reads in a capture's reference prologue
-	void ShowProfilePatch ( CDataSetDoc * pDoc, const ColorRGBDisplay & rgb );	// test window in Window mode
 	void BuildPrimarySecondaryColors ( CGenerator * pGenerator, ColorRGBDisplay GenColors [ 8 ] );	// R,G,B,C,M,Y,white,black as the sweeps drive them
 	void UpdateViews ( CDataSetDoc *pDoc = NULL, int Sequence = 0 );
 	void UpdateTstWnd ( CDataSetDoc *pDoc, int Sequence );
