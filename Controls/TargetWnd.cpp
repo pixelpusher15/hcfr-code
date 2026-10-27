@@ -232,10 +232,18 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 			}
 			else if ( m_DisplayMode == 13 )	// display profile patch
 			{
-				CColor clr;
-				pDoc->GetMeasure()->GetRefProfileSat(minCol - 1, clr);
-				centerXYZ = clr.GetXYZValue();
-				ColorRGBDisplay rgb = pDoc->GetMeasure()->GetProfilePatchRGB(minCol - 1);
+				ColorRGBDisplay rgb;
+				// during a capture the test window shows what the generator is
+				// showing: a prologue patch, a remapped cube patch or a drift anchor
+				if ( pDoc->GetMeasure()->m_bProfileCapturing && target == TARGET_TESTWINDOW )
+					rgb = pDoc->GetMeasure()->m_profileShownRGB;
+				else
+				{
+					CColor clr;
+					pDoc->GetMeasure()->GetRefProfileSat(minCol - 1, clr);
+					centerXYZ = clr.GetXYZValue();
+					rgb = pDoc->GetMeasure()->GetProfilePatchRGB(minCol - 1);
+				}
 				p1 = rgb[0] / 100.;
 				p2 = rgb[1] / 100.;
 				p3 = rgb[2] / 100.;

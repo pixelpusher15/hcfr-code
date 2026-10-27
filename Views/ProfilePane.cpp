@@ -168,10 +168,15 @@ int CProfilePane::GetCubeSize() const
 	return kPresets[m_preset].cubeN;
 }
 
+// Every read a capture of this preset takes: the cube, plus the reference
+// prologue (grayscale + primaries/secondaries/white) it runs first.
 int CProfilePane::PatchCountFor(int preset) const
 {
 	int n = GenerateProfileColors ( NULL, 0, kPresets[preset].cubeN, m_grayExtras != FALSE );
-	return ( n > 0 ) ? n : 0;
+	if ( n <= 0 )
+		return 0;
+	CMeasure * pMeasure = Measure();
+	return n + ( pMeasure ? pMeasure->GetProfileRefReadCount() : 0 );
 }
 
 double CProfilePane::EstimateSeconds(int patches) const
@@ -288,6 +293,23 @@ void CProfilePane::OnCaptureProgress()
 	CMeasure * pMeasure = Measure();
 	if ( !pMeasure || m_state != PS_RUNNING )
 		return;
+
+	// The reference prologue is not cube patches. It runs with m_currentIndex
+	// still 0, so without this it would seed m_lastSeenIndex/m_lastPatchTick
+	// before it and the first EMA sample would charge the whole prologue plus its
+	// settle to patch 0 -- inflating the ETA and, through LeaveRunning, the pace
+	// persisted to MainView\Profile PatchMs for every future capture. Leaving
+	// m_lastSeenIndex at -1 is the whole fix: the first call after the prologue
+	// seeds the tick without taking a sample.
+	if ( pMeasure->m_bProfileMeasuringRefs )
+	{
+		if ( ::IsWindow( m_hWnd ) )
+		{
+			Invalidate( FALSE );
+			UpdateWindow();
+		}
+		return;
+	}
 
 	int cur = pMeasure->m_currentIndex;
 	if ( cur != m_lastSeenIndex )
@@ -892,7 +914,10 @@ void CProfilePane::PaintSetup(Gdiplus::Graphics & g, const CRect & rc, bool dark
 	Gdiplus::Font fSmall( L"Segoe UI", 9.0f );
 
 	CMeasure * pMeasure = Measure();
-	bool hasOld = ( pMeasure && pMeasure->HasProfileMeasures() );
+	// A capture replaces the profile AND, through its reference prologue, the
+	// grayscale and primaries/secondaries: warn when any of them holds a reading.
+	bool hasOld = ( pMeasure && ( pMeasure->HasProfileMeasures() || pMeasure->IsOnOffWhiteMeasured() ||
+								  pMeasure->IsPrimeWhiteMeasured() ) );
 
 	const int CW = rc.Width();
 	const int gap = GetConfig()->Scale( 10 );
@@ -970,6 +995,13 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	int y = 0;
 	ColorRGBDisplay cur_rgb = ( total > 0 ) ? pMeasure->GetProfilePatchRGB( min( cur, total - 1 ) )
 											: ColorRGBDisplay( 0.0 );
+	// The capture runs its reference prologue (the grayscale and secondaries
+	// sweeps' patches) before patch 0. Labelling it "Patch 1 of N" would be wrong
+	// -- no cube patch has been measured yet -- so it gets its own count, and the
+	// swatch shows the stimulus actually on screen.
+	const bool bRefs = ( pMeasure->m_bProfileMeasuringRefs != FALSE );
+	if ( bRefs )
+		cur_rgb = pMeasure->m_profileShownRGB;
 	CRect rcSw( 0, y, swSz, y + swSz );
 	FillRound( g, rcSw, 5, SwatchColor( cur_rgb ) );
 	DrawRound( g, rcSw, 5, t.border, 1.0f );
@@ -978,12 +1010,18 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	int barW = CW - barX;
 	int etaW = GetConfig()->Scale( 210 );
 	CString line;
-	line.Format( S( IDS_PP_PATCHOF ), min( cur + 1, total ), total,
-				 cur_rgb[0], cur_rgb[1], cur_rgb[2] );
+	if ( bRefs )
+		line.Format( S( IDS_PP_MEASURINGREFS ), pMeasure->m_profileRefIndex + 1, pMeasure->m_profileRefCount );
+	else
+		line.Format( S( IDS_PP_PATCHOF ), min( cur + 1, total ), total,
+					 cur_rgb[0], cur_rgb[1], cur_rgb[2] );
 	DrawStr( g, line, fBody, Gdiplus::RectF( (float)barX, (float)y, (float)( barW - etaW - GetConfig()->Scale( 8 ) ), 22.0f ), t.text );
 
-	double frac = total > 0 ? (double)cur / total : 0.0;
-	int remain = total - cur;
+	// the bar, percentage and ETA all count the prologue's reads too
+	int refN = pMeasure->m_profileRefCount;
+	int refDone = bRefs ? pMeasure->m_profileRefIndex : refN;
+	double frac = ( total + refN ) > 0 ? (double)( cur + refDone ) / ( total + refN ) : 0.0;
+	int remain = ( total - cur ) + max( refN - refDone, 0 );
 	CString eta;
 	eta.Format( S( IDS_PP_ETA ), (int)( frac * 100.0 + 0.5 ),
 				(LPCTSTR)FormatDuration( remain * ( m_emaPatchSecs > 0 ? m_emaPatchSecs : 1.8 ) ) );

@@ -1303,6 +1303,11 @@ void CDataSetDoc::MeasureDisplayProfile(int cubeN, BOOL bGrayExtras, BOOL bDrift
 
 	if(m_measure.MeasureDisplayProfile(m_pSensor,m_pGenerator,this,cubeN,bGrayExtras,bDriftComp))
 		SetModifiedFlag(m_measure.IsModified());
+	// The capture also publishes the grayscale, on/off white/black, primaries,
+	// secondaries and prime white (its reference prologue), which every other
+	// view draws from -- and they all skip UPD_DISPLAYPROFILE. EVERYTHING first,
+	// because it leaves the mode alone; UPD_DISPLAYPROFILE then refreshes the pane.
+	UpdateAllViews(NULL, UPD_EVERYTHING);
 	UpdateAllViews(NULL, UPD_DISPLAYPROFILE);
 }
 
