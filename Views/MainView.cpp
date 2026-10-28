@@ -6624,6 +6624,36 @@ void CMainView::OnSelchangeComboSteps()
 	UpdateParamCombos ();
 }
 
+// BindSatLevel swaps which level's readings the saturation sweeps hold, but the
+// selected-color panes still carry the patch picked from the PREVIOUS level, so
+// the RGB levels and target widgets compared that reading with the new level's
+// reference (e.g. a 100% reading against 50% targets: R 464% / 28 dE in SDR,
+// 1224% in PQ). Re-read the same column from the level now bound; one with no
+// readings yet leaves the panes empty.
+void CMainView::ReloadSelectedSatColor()
+{
+	if ( m_displayMode < 5 || m_displayMode > 10 )
+		return;
+
+	CMeasure *	pMeasure = GetDocument () -> GetMeasure ();
+	int			col = ( minCol >= 1 ) ? minCol : last_minCol;
+	CColor		clr = noDataColor;
+
+	if ( col >= 1 && col <= pMeasure -> GetSaturationSize () )
+	{
+		switch ( m_displayMode )
+		{
+			case 5:	clr = pMeasure -> GetRedSat ( col - 1 ); break;
+			case 6:	clr = pMeasure -> GetGreenSat ( col - 1 ); break;
+			case 7:	clr = pMeasure -> GetBlueSat ( col - 1 ); break;
+			case 8:	clr = pMeasure -> GetYellowSat ( col - 1 ); break;
+			case 9:	clr = pMeasure -> GetCyanSat ( col - 1 ); break;
+			case 10: clr = pMeasure -> GetMagentaSat ( col - 1 ); break;
+		}
+	}
+	SetSelectedColor ( clr );
+}
+
 void CMainView::OnSelchangeComboStimLevel()
 {
 	if ( IsMeasureSweepActive () )
@@ -6645,6 +6675,7 @@ void CMainView::OnSelchangeComboStimLevel()
 		if ( GetDocument () -> GetMeasure () -> BindSatLevel ( (double) data / 100.0 ) )
 		{
 			GetDocument () -> SetModifiedFlag ();
+			ReloadSelectedSatColor ();
 			GetDocument () -> UpdateAllViews ( NULL );
 		}
 		return;
@@ -6684,7 +6715,7 @@ void CMainView::OnSelchangeComboStimLevel()
 			if ( d < bestD ) { best = newPcts[i]; bestD = d; }
 		}
 		if ( pMeasure -> BindSatLevel ( (double) best / 100.0 ) )
-			{ GetDocument () -> SetModifiedFlag (); bSnapped = true; }
+			{ GetDocument () -> SetModifiedFlag (); bSnapped = true; ReloadSelectedSatColor (); }
 	}
 
 	if ( bSnapped )

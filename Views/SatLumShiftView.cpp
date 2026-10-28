@@ -134,19 +134,6 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		}
 	}
 
-	ColorRGB ClrRGB;
-	double	xstart, ystart, xend, yend;
-	double	satshift, deltaE;
-	bool isSpecial = (GetConfig()->m_colorStandard==CC6||GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb);
-	double YWhite = pDoc->GetMeasure()->GetOnOffWhite().GetLuminance();
-	if (pDoc->GetMeasure()->GetPrimeWhite().isValid() && !isSpecial)
-		YWhite = pDoc->GetMeasure()->GetPrimeWhite().GetLuminance();
-
-	// Retrieve gray xy coordinates
-    ColorxyY whitexyY(GetColorReference().GetWhite());
-	xstart = whitexyY[0];
-	ystart = whitexyY[1];
-
 	if(IsWindow(m_graphCtrl.m_hWnd))
 		m_graphCtrl.ShowWindow(SW_SHOW);
 	if(IsWindow(m_graphCtrl2.m_hWnd))
@@ -159,497 +146,105 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		m_graphCtrl.AddPoint(m_refGraphID, 0, 0.0);
 		m_graphCtrl.AddPoint(m_refGraphID, 100, 0.0);
 	}
-	
-    double gamma=GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef);
-	m_graphCtrl.ClearGraph(m_redSatGraphID);
-	m_graphCtrl2.ClearGraph(m_redColorGraphID);
 
-	if (m_showRed && m_redSatGraphID != -1 && size > 0 && pDoc->GetMeasure()->GetRedSat(0).isValid() )
+	// GetRefSat's hue order: 0=R 1=G 2=B 3=Y 4=C 5=M
+	const struct { BOOL bShow; long satID, colorID, satRefID, colorRefID; } hues[6] =
 	{
-		// Compute vector between neutral gray and saturated color in CIExy space
-		// Define target color in RGB mode
-		ClrRGB[0]=255.0;
-		ClrRGB[1]=0.0;
-		ClrRGB[2]=0.0;
+		{ m_showRed,     m_redSatGraphID,     m_redColorGraphID,     m_redSatDataRefGraphID,     m_redColorDataRefGraphID },
+		{ m_showGreen,   m_greenSatGraphID,   m_greenColorGraphID,   m_greenSatDataRefGraphID,   m_greenColorDataRefGraphID },
+		{ m_showBlue,    m_blueSatGraphID,    m_blueColorGraphID,    m_blueSatDataRefGraphID,    m_blueColorDataRefGraphID },
+		{ m_showYellow,  m_yellowSatGraphID,  m_yellowColorGraphID,  m_yellowSatDataRefGraphID,  m_yellowColorDataRefGraphID },
+		{ m_showCyan,    m_cyanSatGraphID,    m_cyanColorGraphID,    m_cyanSatDataRefGraphID,    m_cyanColorDataRefGraphID },
+		{ m_showMagenta, m_magentaSatGraphID, m_magentaColorGraphID, m_magentaSatDataRefGraphID, m_magentaColorDataRefGraphID },
+	};
+	bool bDataRef = ( m_showDataRef && pDataRef != NULL && pDataRef != pDoc );
 
-		// Compute xy coordinates of 100% saturated color
-		GetEndPoint ( xend, yend, pDoc->GetMeasure()->GetRefSat(0, 1, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)), ClrRGB );
-		for (int i=0; i<size; i++)
-	    {
-			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetRedSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetRedReferenceLuma (true) , YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
-			// Create graph points
-			m_graphCtrl.AddPoint(m_redSatGraphID, i*100/(size-1), satshift);
-			m_graphCtrl2.AddPoint(m_redColorGraphID, i*100/(size-1), deltaE);
-	    }
-	}
-
-	m_graphCtrl.ClearGraph(m_greenSatGraphID);
-	m_graphCtrl2.ClearGraph(m_greenColorGraphID);
-	if (m_showGreen && m_greenSatGraphID != -1 && size > 0 && pDoc->GetMeasure()->GetGreenSat(0).isValid() )
+	for ( int h = 0; h < 6; h++ )
 	{
-		// Compute vector between neutral gray and saturated color in CIExy space
-		// Define target color in RGB mode
-		ClrRGB[0]=0.0;
-		ClrRGB[1]=255.0;
-		ClrRGB[2]=0.0;
-
-		// Compute xy coordinates of 100% saturated color
-		GetEndPoint ( xend, yend, pDoc->GetMeasure()->GetRefSat(1, 1, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)), ClrRGB );
-		
-		for (int i=0; i<size; i++)
-	    {
-			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetGreenSat(i), i, size, xstart, ystart, xend, yend, gamma,GetColorReference().GetGreenReferenceLuma (true),YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
-
-			// Create graph points
-			m_graphCtrl.AddPoint(m_greenSatGraphID, i*100/(size-1), satshift);
-			m_graphCtrl2.AddPoint(m_greenColorGraphID, i*100/(size-1), deltaE);
-	    }
-	}
-
-	m_graphCtrl.ClearGraph(m_blueSatGraphID);
-	m_graphCtrl2.ClearGraph(m_blueColorGraphID);
-	if (m_showBlue && m_blueSatGraphID != -1 && size > 0 && pDoc->GetMeasure()->GetBlueSat(0).isValid() )
-	{
-		// Compute vector between neutral gray and saturated color in CIExy space
-		// Define target color in RGB mode
-		ClrRGB[0]=0.0;
-		ClrRGB[1]=0.0;
-		ClrRGB[2]=255.0;
-
-		// Compute xy coordinates of 100% saturated color
-		GetEndPoint ( xend, yend, pDoc->GetMeasure()->GetRefSat(2, 1, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)), ClrRGB );
-		
-		for (int i=0; i<size; i++)
-	    {
-			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetBlueSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetBlueReferenceLuma (true), YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
-
-			// Create graph points
-			m_graphCtrl.AddPoint(m_blueSatGraphID, i*100/(size-1), satshift);
-			m_graphCtrl2.AddPoint(m_blueColorGraphID, i*100/(size-1), deltaE);
-	    }
-	}
-
-	m_graphCtrl.ClearGraph(m_yellowSatGraphID);
-	m_graphCtrl2.ClearGraph(m_yellowColorGraphID);
-	if (m_showYellow && m_yellowSatGraphID != -1 && size > 0 && pDoc->GetMeasure()->GetYellowSat(0).isValid() )
-	{
-		// Compute vector between neutral gray and saturated color in CIExy space
-		// Define target color in RGB mode
-		ClrRGB[0]=255.0;
-		ClrRGB[1]=255.0;
-		ClrRGB[2]=0.0;
-
-		// Compute xy coordinates of 100% saturated color
-		GetEndPoint ( xend, yend, pDoc->GetMeasure()->GetRefSat(3, 1, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)), ClrRGB );
-		
-		for (int i=0; i<size; i++)
-	    {
-			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetYellowSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetYellowReferenceLuma (true), YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
-
-			// Create graph points
-			m_graphCtrl.AddPoint(m_yellowSatGraphID, i*100/(size-1), satshift);
-			m_graphCtrl2.AddPoint(m_yellowColorGraphID, i*100/(size-1), deltaE);
-	    }
-	}
-
-	m_graphCtrl.ClearGraph(m_cyanSatGraphID);
-	m_graphCtrl2.ClearGraph(m_cyanColorGraphID);
-	if (m_showCyan && m_cyanSatGraphID != -1 && size > 0 && pDoc->GetMeasure()->GetCyanSat(0).isValid() )
-	{
-		// Compute vector between neutral gray and saturated color in CIExy space
-		// Define target color in RGB mode
-		ClrRGB[0]=0.0;
-		ClrRGB[1]=255.0;
-		ClrRGB[2]=255.0;
-
-		// Compute xy coordinates of 100% saturated color
-		GetEndPoint ( xend, yend, pDoc->GetMeasure()->GetRefSat(4, 1, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)), ClrRGB );
-		
-		for (int i=0; i<size; i++)
-	    {
-			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetCyanSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetCyanReferenceLuma (true), YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
-
-			// Create graph points
-			m_graphCtrl.AddPoint(m_cyanSatGraphID, i*100/(size-1), satshift);
-			m_graphCtrl2.AddPoint(m_cyanColorGraphID, i*100/(size-1), deltaE);
-	    }
-	}
-
-	m_graphCtrl.ClearGraph(m_magentaSatGraphID);
-	m_graphCtrl2.ClearGraph(m_magentaColorGraphID);
-	if (m_showMagenta && m_magentaSatGraphID != -1 && size > 0 && pDoc->GetMeasure()->GetMagentaSat(0).isValid() )
-	{
-		// Compute vector between neutral gray and saturated color in CIExy space
-		// Define target color in RGB mode
-		ClrRGB[0]=255.0;
-		ClrRGB[1]=0.0;
-		ClrRGB[2]=255.0;
-
-		// Compute xy coordinates of 100% saturated color
-		GetEndPoint ( xend, yend, pDoc->GetMeasure()->GetRefSat(5, 1, (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)), ClrRGB );
-
-		for (int i=0; i<size; i++)
-	    {
-			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetMagentaSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetMagentaReferenceLuma (true), YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
-
-			// Create graph points
-			m_graphCtrl.AddPoint(m_magentaSatGraphID, i*100/(size-1), satshift);
-			m_graphCtrl2.AddPoint(m_magentaColorGraphID, i*100/(size-1), deltaE);
-	    }
-	}
-
-	m_graphCtrl.ClearGraph(m_redSatDataRefGraphID);
-	m_graphCtrl2.ClearGraph(m_redColorDataRefGraphID);
-	m_graphCtrl.ClearGraph(m_greenSatDataRefGraphID);
-	m_graphCtrl2.ClearGraph(m_greenColorDataRefGraphID);
-	m_graphCtrl.ClearGraph(m_blueSatDataRefGraphID);
-	m_graphCtrl2.ClearGraph(m_blueColorDataRefGraphID);
-	m_graphCtrl.ClearGraph(m_yellowSatDataRefGraphID);
-	m_graphCtrl2.ClearGraph(m_yellowColorDataRefGraphID);
-	m_graphCtrl.ClearGraph(m_cyanSatDataRefGraphID);
-	m_graphCtrl2.ClearGraph(m_cyanColorDataRefGraphID);
-	m_graphCtrl.ClearGraph(m_magentaSatDataRefGraphID);
-	m_graphCtrl2.ClearGraph(m_magentaColorDataRefGraphID);
-
-	if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef != pDoc))
-	{
-        double gamma=GetConfig()->m_useMeasuredGamma || GetConfig()->m_GammaOffsetType == 4?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef);
-
-		if (m_showRed && m_redSatDataRefGraphID != -1 && size > 0 && pDataRef->GetMeasure()->GetRedSat(0).isValid() )
-		{
-			// Compute vector between neutral gray and saturated color in CIExy space
-			// Define target color in RGB mode
-			ClrRGB[0]=255.0;
-			ClrRGB[1]=0.0;
-			ClrRGB[2]=0.0;
-
-			// Compute xy coordinates of 100% saturated color
-			GetEndPoint ( xend, yend, pDataRef->GetMeasure()->GetRedPrimary(), ClrRGB );
-			
-			for (int i=0; i<size; i++)
-			{
-				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetRedSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetRedReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
-
-				// Create graph points
-				m_graphCtrl.AddPoint(m_redSatDataRefGraphID, i*100/(size-1), satshift);
-				m_graphCtrl2.AddPoint(m_redColorDataRefGraphID, i*100/(size-1), deltaE);
-			}
-		}
-
-		if (m_showGreen && m_greenSatDataRefGraphID != -1 && size > 0 && pDataRef->GetMeasure()->GetGreenSat(0).isValid() )
-		{
-			// Compute vector between neutral gray and saturated color in CIExy space
-			// Define target color in RGB mode
-			ClrRGB[0]=0.0;
-			ClrRGB[1]=255.0;
-			ClrRGB[2]=0.0;
-
-			// Compute xy coordinates of 100% saturated color
-			GetEndPoint ( xend, yend, pDataRef->GetMeasure()->GetGreenPrimary(), ClrRGB );
-			
-			for (int i=0; i<size; i++)
-			{
-				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetGreenSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetGreenReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
-
-				// Create graph points
-				m_graphCtrl.AddPoint(m_greenSatDataRefGraphID, i*100/(size-1), satshift);
-				m_graphCtrl2.AddPoint(m_greenColorDataRefGraphID, i*100/(size-1), deltaE);
-			}
-		}
-
-		if (m_showBlue && m_blueSatDataRefGraphID != -1 && size > 0 && pDataRef->GetMeasure()->GetBlueSat(0).isValid() )
-		{
-			// Compute vector between neutral gray and saturated color in CIExy space
-			// Define target color in RGB mode
-			ClrRGB[0]=0.0;
-			ClrRGB[1]=0.0;
-			ClrRGB[2]=255.0;
-
-			// Compute xy coordinates of 100% saturated color
-			GetEndPoint ( xend, yend, pDataRef->GetMeasure()->GetBluePrimary(), ClrRGB );
-			
-			for (int i=0; i<size; i++)
-			{
-				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetBlueSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetBlueReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
-
-				// Create graph points
-				m_graphCtrl.AddPoint(m_blueSatDataRefGraphID, i*100/(size-1), satshift);
-				m_graphCtrl2.AddPoint(m_blueColorDataRefGraphID, i*100/(size-1), deltaE);
-			}
-		}
-
-		if (m_showYellow && m_yellowSatDataRefGraphID != -1 && size > 0 && pDataRef->GetMeasure()->GetYellowSat(0).isValid() )
-		{
-			// Compute vector between neutral gray and saturated color in CIExy space
-			// Define target color in RGB mode
-			ClrRGB[0]=255.0;
-			ClrRGB[1]=255.0;
-			ClrRGB[2]=0.0;
-
-			// Compute xy coordinates of 100% saturated color
-			GetEndPoint ( xend, yend, pDataRef->GetMeasure()->GetYellowSecondary(), ClrRGB );
-			
-			for (int i=0; i<size; i++)
-			{
-				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetYellowSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetYellowReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
-
-				// Create graph points
-				m_graphCtrl.AddPoint(m_yellowSatDataRefGraphID, i*100/(size-1), satshift);
-				m_graphCtrl2.AddPoint(m_yellowColorDataRefGraphID, i*100/(size-1), deltaE);
-			}
-		}
-
-		if (m_showCyan && m_cyanSatDataRefGraphID != -1 && size > 0 && pDataRef->GetMeasure()->GetCyanSat(0).isValid() )
-		{
-			// Compute vector between neutral gray and saturated color in CIExy space
-			// Define target color in RGB mode
-			ClrRGB[0]=0.0;
-			ClrRGB[1]=255.0;
-			ClrRGB[2]=255.0;
-
-			// Compute xy coordinates of 100% saturated color
-			GetEndPoint ( xend, yend, pDataRef->GetMeasure()->GetCyanSecondary(), ClrRGB );
-			
-			for (int i=0; i<size; i++)
-			{
-				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetCyanSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetCyanReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
-
-				// Create graph points
-				m_graphCtrl.AddPoint(m_cyanSatDataRefGraphID, i*100/(size-1), satshift);
-				m_graphCtrl2.AddPoint(m_cyanColorDataRefGraphID, i*100/(size-1), deltaE);
-			}
-		}
-
-		if (m_showMagenta && m_magentaSatDataRefGraphID != -1 && size > 0 && pDataRef->GetMeasure()->GetMagentaSat(0).isValid() )
-		{
-			// Compute vector between neutral gray and saturated color in CIExy space
-			// Define target color in RGB mode
-			ClrRGB[0]=255.0;
-			ClrRGB[1]=0.0;
-			ClrRGB[2]=255.0;
-
-			// Compute xy coordinates of 100% saturated color
-			GetEndPoint ( xend, yend, pDataRef->GetMeasure()->GetMagentaSecondary(), ClrRGB );
-
-			for (int i=0; i<size; i++)
-			{
-				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetMagentaSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetMagentaReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
-
-				// Create graph points
-				m_graphCtrl.AddPoint(m_magentaSatDataRefGraphID, i*100/(size-1), satshift);
-				m_graphCtrl2.AddPoint(m_magentaColorDataRefGraphID, i*100/(size-1), deltaE);
-			}
-		}
+		m_graphCtrl.ClearGraph(hues[h].satID);
+		m_graphCtrl2.ClearGraph(hues[h].colorID);
+		m_graphCtrl.ClearGraph(hues[h].satRefID);
+		m_graphCtrl2.ClearGraph(hues[h].colorRefID);
+		if ( ! hues[h].bShow )
+			continue;
+		PlotHue ( pDoc, h, size, hues[h].satID, hues[h].colorID );
+		if ( bDataRef )
+			PlotHue ( pDataRef, h, size, hues[h].satRefID, hues[h].colorRefID );
 	}
 }
 
-
-void CSatLumShiftGrapher::GetEndPoint ( double & xend, double & yend, CColor & SaturatedColor, const ColorRGB & ClrRGB )
+static CColor GetSatMeasure ( CMeasure * pMeasure, int hue, int i )
 {
-		bool isSpecial = (GetConfig()->m_colorStandard==CC6||GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb);
-
-		ColorXYZ Clr2(ClrRGB, isSpecial?CColorReference(HDTV, D65):GetColorReference());
-		ColorxyY Clr3(Clr2);
-		
-		xend=Clr3[0];
-		yend=Clr3[1];
+	switch ( hue )
+	{
+		case 0:	return pMeasure->GetRedSat(i);
+		case 1:	return pMeasure->GetGreenSat(i);
+		case 2:	return pMeasure->GetBlueSat(i);
+		case 3:	return pMeasure->GetYellowSat(i);
+		case 4:	return pMeasure->GetCyanSat(i);
+		default: return pMeasure->GetMagentaSat(i);
+	}
 }
 
-void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, const CColor& SatColor, int num, int count, double xstart, double ystart, double xend, double yend, double gamma, double luma, double YWhite, CDataSetDoc * pDoc, double stimLevel )
+// Plot one hue's saturation sweep from pSrc (the document, or the comparison
+// document): the saturation shift on m_graphCtrl and the dE on m_graphCtrl2.
+// Each document is graded against its OWN references and whites.
+//
+// The references come from CMeasure::GetRefSat at the document's active
+// stimulus level and the dE normalisation from CMeasure::GetColorDENorm - the
+// same calls the measures grid and the 3D viewer make - so a patch reads the
+// same dE here as in the grid. This view used to re-derive the reference
+// itself, and that copy had drifted twice: it ignored the stimulus level, and
+// it modelled P3/709-in-2020 patches in the inner space instead of the BT.2020
+// transport they are sent in, which bends the hue under per-channel PQ tone
+// mapping. The saturation axis is likewise this level's own 0% -> 100%
+// reference: at reduced stimulus in PQ the 100% point's chromaticity moves, so
+// a fixed full-stimulus endpoint showed a perfect patch as shifted.
+void CSatLumShiftGrapher::PlotHue ( CDataSetDoc * pSrc, int hue, int size, long satID, long colorID )
 {
-	double	k;
-	double	xtarget, ytarget;
-	double	xmeasure, ymeasure;
-	double	xpoint, ypoint;
-	double	dx, dy;
-	// Retrieve measured point coordinates
-	xmeasure = SatColor.GetxyYValue()[0];
-	ymeasure = SatColor.GetxyYValue()[1];
+	CMeasure * pMeasure = pSrc->GetMeasure();
+	if ( satID == -1 || size <= 0 || ! GetSatMeasure ( pMeasure, hue, 0 ).isValid() )
+		return;
 
-	// Compute color target coordinates
-	xtarget = xstart + ( (xend - xstart) * (double) num / (double) (count - 1) );
-	ytarget = ystart + ( (yend - ystart) * (double) num / (double)(count - 1) );
+	CColorHCFRConfig * cfg = GetConfig();
+	bool bSpecial = ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb );
+	const ColorDENorm norm = pMeasure->GetColorDENorm ( 5 + hue );
+	// dE space and gray-world weight exactly as GetItemText's saturation branch
+	CColorReference bRef = GetColorReference();
+	if ( bRef.m_standard == UHDTV3 || bRef.m_standard == UHDTV4 )
+		bRef = ContainerTransportReference ( bRef );
+	else if ( bSpecial )
+		bRef = CColorReference ( HDTV );
+	int gw = ( cfg->m_GammaOffsetType == 5 ) ? 3 : cfg->gw_Weight;
 
-	//rejigger for user gamma, change reference to match user gamma
-	CColor	aColor,aColore;	
-	bool isSpecial = (GetConfig()->m_colorStandard==CC6||GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb);
-	CColor White = pDoc -> GetMeasure () -> GetOnOffWhite();
-	if (pDoc -> GetMeasure () -> GetPrimeWhite().isValid() && !isSpecial)
-		White = pDoc->GetMeasure()->GetPrimeWhite();
-//	CColor Black = pDoc -> GetMeasure () -> GetGray ( 0 );
-	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
-	double Intensity=GetConfig()->GetProfileInt("GDIGenerator","Intensity",100) / 100.;
+	ColorxyY start = pMeasure->GetRefSat ( hue, 0.0, bSpecial ).GetxyYValue();
+	ColorxyY end = pMeasure->GetRefSat ( hue, 1.0, bSpecial ).GetxyYValue();
+	double xstart = start[0], ystart = start[1];
+	double dx = end[0] - xstart;
+	double dy = end[1] - ystart;
 
-	//Need a separte tracker for oddball UHDTV color spaces because color patterns are calculated in original HDTV or P3 space.
-    aColor.SetxyYValue (xtarget, ytarget, luma );
-    aColore.SetxyYValue (xtarget, ytarget, luma );
-
-	int mode = GetConfig()->m_GammaOffsetType;
-	if (mode == 5)
+	for ( int i = 0; i < size; i++ )
 	{
-		aColor.SetX(aColor.GetX() / 105.95640);
-		aColor.SetY(aColor.GetY() / 105.95640);
-		aColor.SetZ(aColor.GetZ() / 105.95640);
-		aColore.SetX(aColore.GetX() / 105.95640);
-		aColore.SetY(aColore.GetY() / 105.95640);
-		aColore.SetZ(aColore.GetZ() / 105.95640);
+		CColor meas = GetSatMeasure ( pMeasure, hue, i );
+		CColor ref = pMeasure->GetRefSat ( hue, (double) i / (double) ( size - 1 ), bSpecial );
+		if ( ! meas.isValid() || ! ref.isValid() )
+			continue;
+
+		// Saturation shift: project the measured xy onto the 0% -> 100% line
+		// and express its distance from the target along that line in percent
+		ColorxyY m = meas.GetxyYValue();
+		ColorxyY t = ref.GetxyYValue();
+		double k = ( ( m[0] - xstart ) + ( ystart - m[1] ) * ( dx / dy ) ) / ( ( dx * dx / dy ) + dy );
+		double xpoint = m[0] - k * dy;
+		double satshift = ( xpoint - t[0] ) / dx * 100.0;
+
+		ColorXYZ r = ref.GetXYZValue();
+		ColorXYZ rScaled ( r[0] * norm.markScale, r[1] * norm.markScale, r[2] * norm.markScale );
+		double deltaE = meas.GetDeltaE ( norm.whiteY, rScaled, norm.refWhite, bRef, cfg->m_dE_form, false, gw );
+
+		m_graphCtrl.AddPoint(satID, i*100/(size-1), satshift);
+		m_graphCtrl2.AddPoint(colorID, i*100/(size-1), deltaE);
 	}
-	
-	ColorRGB rgb,rgbe;
-	rgb=isSpecial?aColor.GetRGBValue(CColorReference(HDTV)):aColor.GetRGBValue(GetColorReference());
-	if (GetColorReference().m_standard == UHDTV3)
-		rgb=aColor.GetRGBValue(CColorReference(UHDTV));	
-	if (GetColorReference().m_standard == UHDTV4)
-		rgb=aColor.GetRGBValue(CColorReference(HDTV));	
-
-	rgbe=isSpecial?aColore.GetRGBValue(CColorReference(HDTV)):aColor.GetRGBValue(GetColorReference());
-	if (GetColorReference().m_standard == UHDTV3)
-		rgbe=aColore.GetRGBValue(CColorReference(UHDTV2));	
-	if (GetColorReference().m_standard == UHDTV4)
-		rgbe=aColore.GetRGBValue(CColorReference(UHDTV2));	
-
-	double r=rgb[0],g=rgb[1],b=rgb[2];
-	double qr,qg,qb;
-	double re=rgbe[0],ge=rgbe[1],be=rgbe[2];
-	double qre,qge,qbe;
-	bool b10 = GetConfig()->GetUse10bitLevels();
-	bool lim = GetConfig()->GetRGB16_235();
-	// stimLevel is the saturation sweep's stimulus level (1.0 = full). The sweep
-	// scales the ENCODED signal by it before quantizing (GenerateSaturationColors),
-	// so the reference does the same - as GetRefSat does - or every point of a
-	// reduced-level sweep is graded against the full-level luminance.
-
-	if (GetConfig()->m_colorStandard == sRGB) mode = 99;
-	if ( mode >= 4 )
-	{
-		if  (mode == 5 || mode == 7)
-		{
-			qr = getL_EOTF(r, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
-			qg = getL_EOTF(g, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
-			qb = getL_EOTF(b, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
-			qr = SnapToVideoGrid( qr, b10, lim );		
-			qg = SnapToVideoGrid( qg, b10, lim );		
-			qb = SnapToVideoGrid( qb, b10, lim );		
-			r = getL_EOTF(qr, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
-			g = getL_EOTF(qg, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
-			b = getL_EOTF(qb, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
-
-			qre = getL_EOTF(re, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
-			qge = getL_EOTF(ge, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
-			qbe = getL_EOTF(be, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
-			qre = SnapToVideoGrid( qre, b10, lim );		
-			qge = SnapToVideoGrid( qge, b10, lim );		
-			qbe = SnapToVideoGrid( qbe, b10, lim );		
-			re = getL_EOTF(qre, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
-			ge = getL_EOTF(qge, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
-			be = getL_EOTF(qbe, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
-		}
-		else
-		{
-	        qr = ((r<=0||r>=1)?min(max(r,0),1):pow(r,1.0/2.22)) * stimLevel;
-	        qg = ((g<=0||g>=1)?min(max(g,0),1):pow(g,1.0/2.22)) * stimLevel;
-	        qb = ((b<=0||b>=1)?min(max(b,0),1):pow(b,1.0/2.22)) * stimLevel;
-			qr = SnapToVideoGrid( qr, b10, lim );		
-			qg = SnapToVideoGrid( qg, b10, lim );		
-			qb = SnapToVideoGrid( qb, b10, lim );		
-	        r = getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
-	        g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
-	        b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
-
-			qre = ((re<=0||re>=1)?min(max(re,0),1):pow(re,1.0/2.22)) * stimLevel;
-	        qge = ((ge<=0||ge>=1)?min(max(ge,0),1):pow(ge,1.0/2.22)) * stimLevel;
-	        qbe = ((be<=0||be>=1)?min(max(be,0),1):pow(be,1.0/2.22)) * stimLevel;
-			qre = SnapToVideoGrid( qre, b10, lim );		
-			qge = SnapToVideoGrid( qge, b10, lim );		
-			qbe = SnapToVideoGrid( qbe, b10, lim );		
-	        re = getL_EOTF(qre,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
-	        ge = getL_EOTF(qge,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
-	        be = getL_EOTF(qbe,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
-		}
-	} 
-	else
-	{
-	    qr = ((r<=0||r>=1)?min(max(r,0),1):pow(r,1.0/2.22)) * stimLevel;
-	    qg = ((g<=0||g>=1)?min(max(g,0),1):pow(g,1.0/2.22)) * stimLevel;
-	    qb = ((b<=0||b>=1)?min(max(b,0),1):pow(b,1.0/2.22)) * stimLevel;
-		qr = SnapToVideoGrid( qr, b10, lim );		
-		qg = SnapToVideoGrid( qg, b10, lim );		
-		qb = SnapToVideoGrid( qb, b10, lim );		
-		r=(qr<=0||qr>=1)?min(max(qr,0),1):pow(qr,gamma);
-		g=(qg<=0||qg>=1)?min(max(qg,0),1):pow(qg,gamma);
-		b=(qb<=0||qb>=1)?min(max(qb,0),1):pow(qb,gamma);
-
-		qre = ((re<=0||re>=1)?min(max(re,0),1):pow(re,1.0/2.22)) * stimLevel;
-	    qge = ((ge<=0||ge>=1)?min(max(ge,0),1):pow(ge,1.0/2.22)) * stimLevel;
-	    qbe = ((be<=0||be>=1)?min(max(be,0),1):pow(be,1.0/2.22)) * stimLevel;
-		qre = SnapToVideoGrid( qre, b10, lim );		
-		qge = SnapToVideoGrid( qge, b10, lim );		
-		qbe = SnapToVideoGrid( qbe, b10, lim );		
-		re=(qre<=0||qre>=1)?min(max(qre,0),1):pow(qre,gamma);
-		ge=(qge<=0||qge>=1)?min(max(qge,0),1):pow(qge,gamma);
-		be=(qbe<=0||qbe>=1)?min(max(qbe,0),1):pow(qbe,gamma);
-	}
-	
-	aColor.SetRGBValue (ColorRGB(r,g,b), isSpecial?CColorReference(HDTV):(GetColorReference().m_standard == UHDTV3||GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):GetColorReference() );	
-	if (GetColorReference().m_standard == UHDTV3)
-		aColor.SetRGBValue(ColorRGB(r,g,b),CColorReference(UHDTV));	
-	if (GetColorReference().m_standard == UHDTV4)
-		aColor.SetRGBValue(ColorRGB(r,g,b),CColorReference(HDTV));	
-
-	aColore.SetRGBValue (ColorRGB(re,ge,be), isSpecial?CColorReference(HDTV):(GetColorReference().m_standard == UHDTV3||GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):GetColorReference() );	
-	if (GetColorReference().m_standard == UHDTV3)
-		aColore.SetRGBValue(ColorRGB(re,ge,be),CColorReference(UHDTV2));	
-	if (GetColorReference().m_standard == UHDTV4)
-		aColore.SetRGBValue(ColorRGB(re,ge,be),CColorReference(UHDTV2));	
-
-	ColorxyY xyy=aColor.GetxyYValue();
-
-	xtarget=xyy[0];
-	ytarget=xyy[1];
-	double RefWhite = 1.0;
-
-	if (GetConfig()->m_GammaOffsetType == 5)
-	{
-		// Unified HDR convention (matches the measures grid and the 3D viewer):
-		// references scaled by GetHDRRefScale (= 105.95640 with tone mapping
-		// off), measured white unrescaled.
-		double tmWhite = TmDiffuseWhiteNits(White, Black);
-		double s = pDoc->GetMeasure()->GetHDRRefScale();
-		aColor.SetX(aColor.GetX() * s);
-		aColor.SetY(aColor.GetY() * s);
-		aColor.SetZ(aColor.GetZ() * s);
-		aColore.SetX(aColore.GetX() * s);
-		aColore.SetY(aColore.GetY() * s);
-		aColore.SetZ(aColore.GetZ() * s);
-		RefWhite = YWhite / (tmWhite) ;
-	}
-	
-	deltaE = SatColor.GetDeltaE(YWhite, aColore, RefWhite, isSpecial?CColorReference(HDTV, D65):(GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):GetColorReference() , GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
-	
-	// Compute projection on line (xstart,ystart) - (xend,yend) from measured point
-	dx = xend - xstart; 
-	dy = yend - ystart; 
-
-	k = ( ( xmeasure - xstart ) + ( ystart - ymeasure ) * ( dx / dy ) ) / ( ( dx * dx / dy ) + dy );
-
-	xpoint = xmeasure - k * dy;
-	ypoint = ymeasure + k * dx;
-
-	// Compute saturation shift
-	satshift = ( xpoint - xtarget ) / ( xend - xstart ) * 100.0;
-
 }
 
 /////////////////////////////////////////////////////////////////////////////
