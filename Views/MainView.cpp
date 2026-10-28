@@ -6631,11 +6631,14 @@ void CMainView::OnSelchangeComboSteps()
 // 1224% in PQ). Re-read the selected column from the level now bound; one with
 // no readings yet leaves the panes empty.
 //
-// Only a single selected grid column is reloaded, as OnGrayScaleGridEndSelChange
-// does. With no selection or several columns the panes are already empty, and
-// they must stay so: the reference half of the comparator (m_RefColor) follows
-// the grid's selected column only, so filling the panes from any other column -
-// last_minCol survives a mode switch - would pair a reading with a stale target.
+// Like OnGrayScaleGridEndSelChange, only a single selected grid column is
+// reloaded; with no selection or several columns the panes are cleared. Clearing
+// matters because the panes can hold a reading with nothing selected - a sweep
+// with Edit ticked fills them without highlighting a column - and keeping that
+// reading would compare it with the new level's targets. Reloading any other
+// column is no better: SetSelectedColor re-reads minCol from the grid, and the
+// comparator's reference (m_RefColor) follows minCol, so a column picked from
+// last_minCol (which survives a mode switch) would pair with a stale target.
 void CMainView::ReloadSelectedSatColor()
 {
 	if ( m_displayMode < 5 || m_displayMode > 10 || ! m_pGrayScaleGrid )
@@ -6643,7 +6646,11 @@ void CMainView::ReloadSelectedSatColor()
 
 	CCellRange	range = m_pGrayScaleGrid -> GetSelectedCellRange ();
 	if ( ! range.IsValid () || range.GetMinCol () != range.GetMaxCol () || range.GetMinCol () < 1 )
+	{
+		if ( m_SelectedColor.isValid () )
+			SetSelectedColor ( noDataColor );
 		return;
+	}
 
 	CMeasure *	pMeasure = GetDocument () -> GetMeasure ();
 	int			col = range.GetMinCol ();
