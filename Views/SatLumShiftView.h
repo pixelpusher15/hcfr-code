@@ -84,8 +84,10 @@ class CSatLumShiftGrapher
 
 // Operations
 public:
-	void PlotHue ( CDataSetDoc * pSrc, int hue, int size, long satID, long colorID );
 	void UpdateGraph ( CDataSetDoc * pDoc );
+
+private:
+	void PlotHue ( CDataSetDoc * pSrc, int hue, int size, long satID, long colorID );
 };
 
 

@@ -26,7 +26,6 @@
 #include "DataSetDoc.h"
 #include "DocTempl.h"
 #include "SatLumShiftView.h"
-#include "math.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -191,10 +190,10 @@ static CColor GetSatMeasure ( CMeasure * pMeasure, int hue, int i )
 // Each document is graded against its OWN references and whites.
 //
 // The references come from CMeasure::GetRefSat at the document's active
-// stimulus level and the dE normalisation from CMeasure::GetColorDENorm - the
-// same calls the measures grid and the 3D viewer make - so a patch reads the
-// same dE here as in the grid. This view used to re-derive the reference
-// itself, and that copy had drifted twice: it ignored the stimulus level, and
+// stimulus level - the same call the measures grid and the 3D viewer make - and
+// the dE normalisation from CMeasure::GetColorDENorm, the shared form of what
+// the grid computes inline, so a patch reads the same dE here as in the grid.
+// This view used to re-derive the reference itself, and that copy had drifted:
 // it modelled P3/709-in-2020 patches in the inner space instead of the BT.2020
 // transport they are sent in, which bends the hue under per-channel PQ tone
 // mapping. The saturation axis is likewise this level's own 0% -> 100%

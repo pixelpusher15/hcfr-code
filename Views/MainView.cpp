@@ -6628,18 +6628,28 @@ void CMainView::OnSelchangeComboSteps()
 // selected-color panes still carry the patch picked from the PREVIOUS level, so
 // the RGB levels and target widgets compared that reading with the new level's
 // reference (e.g. a 100% reading against 50% targets: R 464% / 28 dE in SDR,
-// 1224% in PQ). Re-read the same column from the level now bound; one with no
-// readings yet leaves the panes empty.
+// 1224% in PQ). Re-read the selected column from the level now bound; one with
+// no readings yet leaves the panes empty.
+//
+// Only a single selected grid column is reloaded, as OnGrayScaleGridEndSelChange
+// does. With no selection or several columns the panes are already empty, and
+// they must stay so: the reference half of the comparator (m_RefColor) follows
+// the grid's selected column only, so filling the panes from any other column -
+// last_minCol survives a mode switch - would pair a reading with a stale target.
 void CMainView::ReloadSelectedSatColor()
 {
-	if ( m_displayMode < 5 || m_displayMode > 10 )
+	if ( m_displayMode < 5 || m_displayMode > 10 || ! m_pGrayScaleGrid )
+		return;
+
+	CCellRange	range = m_pGrayScaleGrid -> GetSelectedCellRange ();
+	if ( ! range.IsValid () || range.GetMinCol () != range.GetMaxCol () || range.GetMinCol () < 1 )
 		return;
 
 	CMeasure *	pMeasure = GetDocument () -> GetMeasure ();
-	int			col = ( minCol >= 1 ) ? minCol : last_minCol;
+	int			col = range.GetMinCol ();
 	CColor		clr = noDataColor;
 
-	if ( col >= 1 && col <= pMeasure -> GetSaturationSize () )
+	if ( col <= pMeasure -> GetSaturationSize () )
 	{
 		switch ( m_displayMode )
 		{
