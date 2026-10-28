@@ -552,17 +552,22 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_bDetectPrimaries=GetProfileInt("References","DetectPrimaries",1);
 	m_useHSV=GetProfileInt("References","UseHSV",0);
 	m_latencyTime=GetProfileInt("References","IrisLatencyTime",400);	// "Patch delay" setting (ms): the old 300 + the hidden 100 the wait no longer adds, so every generator matches its 4.1 total for normal sweep patches (madVR/Chromecast/rPI add their own ~80ms WaitAfterDisplayPattern on top, as in 4.1); the irregular 80ms that 4.1 added in GDI on index-0 / default-index calls is gone. 0 = no wait at all after the paint (4.1's hidden 100 also sat inside the > 0 test)
-	// One-time migration for users upgrading from <=4.1, which shipped a 300ms
-	// default (plus a hidden 100ms, now removed) and wrote it into every INI -- so a
-	// bare default change never reaches them. If the stored value is still that old
-	// default (i.e. left untouched), move it to the new 400ms default so normal sweep
-	// patches keep their 4.1 total, and persist it. The marker guarantees this runs once, so a
-	// user who later chooses 300 on purpose keeps it.
+	// One-time migration for users upgrading from <=4.1. 4.1 waited the stored
+	// value PLUS a hidden 100ms (for any non-zero value; a negative one is its
+	// magnitude, forced even for the simulated sensor), and that padding is gone, so
+	// fold it into the stored value: 300 (the old default) becomes 400, 50 becomes
+	// 150, -200 becomes -300, and 0 stays 0 - it never got the padding. Every user
+	// keeps their 4.1 settle. Running an older build afterwards waits 100ms longer
+	// per patch than before, which costs time but never accuracy. The marker makes
+	// this run once, so a value chosen after the upgrade is left alone.
 	if ( !GetProfileInt("References","SettleDelayMigrated",0) )
 	{
-		if ( m_latencyTime == 300 )
+		// Only a value an older build actually stored: a fresh INI reads the new
+		// 400ms default above, which already includes the padding.
+		if ( IsProfileEntryDefined("References","IrisLatencyTime") && m_latencyTime != 0 )
 		{
-			m_latencyTime = 400;
+			m_latencyTime += ( m_latencyTime > 0 ) ? 100 : -100;
+			m_latencyTime = max ( -30000, min ( 30000, m_latencyTime ) );	// the Patch delay field's DDV range
 			WriteProfileInt("References","IrisLatencyTime",m_latencyTime);
 		}
 		WriteProfileInt("References","SettleDelayMigrated",1);

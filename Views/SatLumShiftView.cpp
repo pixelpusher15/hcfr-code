@@ -177,7 +177,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 	    {
 			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetRedSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetRedReferenceLuma (true) , YWhite, pDoc );
+			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetRedSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetRedReferenceLuma (true) , YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
 			// Create graph points
 			m_graphCtrl.AddPoint(m_redSatGraphID, i*100/(size-1), satshift);
 			m_graphCtrl2.AddPoint(m_redColorGraphID, i*100/(size-1), deltaE);
@@ -200,7 +200,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 	    {
 			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetGreenSat(i), i, size, xstart, ystart, xend, yend, gamma,GetColorReference().GetGreenReferenceLuma (true),YWhite, pDoc );
+			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetGreenSat(i), i, size, xstart, ystart, xend, yend, gamma,GetColorReference().GetGreenReferenceLuma (true),YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
 
 			// Create graph points
 			m_graphCtrl.AddPoint(m_greenSatGraphID, i*100/(size-1), satshift);
@@ -224,7 +224,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 	    {
 			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetBlueSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetBlueReferenceLuma (true), YWhite, pDoc );
+			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetBlueSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetBlueReferenceLuma (true), YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
 
 			// Create graph points
 			m_graphCtrl.AddPoint(m_blueSatGraphID, i*100/(size-1), satshift);
@@ -248,7 +248,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 	    {
 			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetYellowSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetYellowReferenceLuma (true), YWhite, pDoc );
+			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetYellowSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetYellowReferenceLuma (true), YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
 
 			// Create graph points
 			m_graphCtrl.AddPoint(m_yellowSatGraphID, i*100/(size-1), satshift);
@@ -272,7 +272,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 	    {
 			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetCyanSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetCyanReferenceLuma (true), YWhite, pDoc );
+			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetCyanSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetCyanReferenceLuma (true), YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
 
 			// Create graph points
 			m_graphCtrl.AddPoint(m_cyanSatGraphID, i*100/(size-1), satshift);
@@ -296,7 +296,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 	    {
 			// Compute shift and delta E for current point
-			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetMagentaSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetMagentaReferenceLuma (true), YWhite, pDoc );
+			CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDoc->GetMeasure()->GetMagentaSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetMagentaReferenceLuma (true), YWhite, pDoc, pDoc->GetMeasure()->GetActiveSatLevel() );
 
 			// Create graph points
 			m_graphCtrl.AddPoint(m_magentaSatGraphID, i*100/(size-1), satshift);
@@ -335,7 +335,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			for (int i=0; i<size; i++)
 			{
 				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetRedSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetRedReferenceLuma (true), YWhite, pDoc );
+				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetRedSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetRedReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
 
 				// Create graph points
 				m_graphCtrl.AddPoint(m_redSatDataRefGraphID, i*100/(size-1), satshift);
@@ -357,7 +357,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			for (int i=0; i<size; i++)
 			{
 				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetGreenSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetGreenReferenceLuma (true), YWhite, pDoc );
+				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetGreenSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetGreenReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
 
 				// Create graph points
 				m_graphCtrl.AddPoint(m_greenSatDataRefGraphID, i*100/(size-1), satshift);
@@ -379,7 +379,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			for (int i=0; i<size; i++)
 			{
 				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetBlueSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetBlueReferenceLuma (true), YWhite, pDoc );
+				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetBlueSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetBlueReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
 
 				// Create graph points
 				m_graphCtrl.AddPoint(m_blueSatDataRefGraphID, i*100/(size-1), satshift);
@@ -401,7 +401,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			for (int i=0; i<size; i++)
 			{
 				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetYellowSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetYellowReferenceLuma (true), YWhite, pDoc );
+				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetYellowSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetYellowReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
 
 				// Create graph points
 				m_graphCtrl.AddPoint(m_yellowSatDataRefGraphID, i*100/(size-1), satshift);
@@ -423,7 +423,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			for (int i=0; i<size; i++)
 			{
 				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetCyanSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetCyanReferenceLuma (true), YWhite, pDoc );
+				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetCyanSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetCyanReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
 
 				// Create graph points
 				m_graphCtrl.AddPoint(m_cyanSatDataRefGraphID, i*100/(size-1), satshift);
@@ -445,7 +445,7 @@ void CSatLumShiftGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			for (int i=0; i<size; i++)
 			{
 				// Compute shift and delta E for current point
-				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetMagentaSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetMagentaReferenceLuma (true), YWhite, pDoc );
+				CSatLumShiftGrapher::GetSatShift ( satshift, deltaE, pDataRef->GetMeasure()->GetMagentaSat(i), i, size, xstart, ystart, xend, yend, gamma, GetColorReference().GetMagentaReferenceLuma (true), YWhite, pDoc, pDataRef->GetMeasure()->GetActiveSatLevel() );
 
 				// Create graph points
 				m_graphCtrl.AddPoint(m_magentaSatDataRefGraphID, i*100/(size-1), satshift);
@@ -467,7 +467,7 @@ void CSatLumShiftGrapher::GetEndPoint ( double & xend, double & yend, CColor & S
 		yend=Clr3[1];
 }
 
-void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, const CColor& SatColor, int num, int count, double xstart, double ystart, double xend, double yend, double gamma, double luma, double YWhite, CDataSetDoc * pDoc )
+void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, const CColor& SatColor, int num, int count, double xstart, double ystart, double xend, double yend, double gamma, double luma, double YWhite, CDataSetDoc * pDoc, double stimLevel )
 {
 	double	k;
 	double	xtarget, ytarget;
@@ -526,15 +526,19 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 	double qre,qge,qbe;
 	bool b10 = GetConfig()->GetUse10bitLevels();
 	bool lim = GetConfig()->GetRGB16_235();
+	// stimLevel is the saturation sweep's stimulus level (1.0 = full). The sweep
+	// scales the ENCODED signal by it before quantizing (GenerateSaturationColors),
+	// so the reference does the same - as GetRefSat does - or every point of a
+	// reduced-level sweep is graded against the full-level luminance.
 
 	if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 	if ( mode >= 4 )
 	{
 		if  (mode == 5 || mode == 7)
 		{
-			qr = getL_EOTF(r, noDataColor, noDataColor, 0, 0, -1*mode);
-			qg = getL_EOTF(g, noDataColor, noDataColor, 0, 0, -1*mode);
-			qb = getL_EOTF(b, noDataColor, noDataColor, 0, 0, -1*mode);
+			qr = getL_EOTF(r, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
+			qg = getL_EOTF(g, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
+			qb = getL_EOTF(b, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
 			qr = SnapToVideoGrid( qr, b10, lim );		
 			qg = SnapToVideoGrid( qg, b10, lim );		
 			qb = SnapToVideoGrid( qb, b10, lim );		
@@ -542,9 +546,9 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 			g = getL_EOTF(qg, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
 			b = getL_EOTF(qb, White, noDataColor, 0, 0, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.);
 
-			qre = getL_EOTF(re, noDataColor, noDataColor, 0, 0, -1*mode);
-			qge = getL_EOTF(ge, noDataColor, noDataColor, 0, 0, -1*mode);
-			qbe = getL_EOTF(be, noDataColor, noDataColor, 0, 0, -1*mode);
+			qre = getL_EOTF(re, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
+			qge = getL_EOTF(ge, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
+			qbe = getL_EOTF(be, noDataColor, noDataColor, 0, 0, -1*mode) * stimLevel;
 			qre = SnapToVideoGrid( qre, b10, lim );		
 			qge = SnapToVideoGrid( qge, b10, lim );		
 			qbe = SnapToVideoGrid( qbe, b10, lim );		
@@ -554,9 +558,9 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 		}
 		else
 		{
-	        qr = (r<=0||r>=1)?min(max(r,0),1):pow(r,1.0/2.22);
-	        qg = (g<=0||g>=1)?min(max(g,0),1):pow(g,1.0/2.22);
-	        qb = (b<=0||b>=1)?min(max(b,0),1):pow(b,1.0/2.22);
+	        qr = ((r<=0||r>=1)?min(max(r,0),1):pow(r,1.0/2.22)) * stimLevel;
+	        qg = ((g<=0||g>=1)?min(max(g,0),1):pow(g,1.0/2.22)) * stimLevel;
+	        qb = ((b<=0||b>=1)?min(max(b,0),1):pow(b,1.0/2.22)) * stimLevel;
 			qr = SnapToVideoGrid( qr, b10, lim );		
 			qg = SnapToVideoGrid( qg, b10, lim );		
 			qb = SnapToVideoGrid( qb, b10, lim );		
@@ -564,9 +568,9 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 	        g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 	        b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 
-			qre = (re<=0||re>=1)?min(max(re,0),1):pow(re,1.0/2.22);
-	        qge = (ge<=0||ge>=1)?min(max(ge,0),1):pow(ge,1.0/2.22);
-	        qbe = (be<=0||be>=1)?min(max(be,0),1):pow(be,1.0/2.22);
+			qre = ((re<=0||re>=1)?min(max(re,0),1):pow(re,1.0/2.22)) * stimLevel;
+	        qge = ((ge<=0||ge>=1)?min(max(ge,0),1):pow(ge,1.0/2.22)) * stimLevel;
+	        qbe = ((be<=0||be>=1)?min(max(be,0),1):pow(be,1.0/2.22)) * stimLevel;
 			qre = SnapToVideoGrid( qre, b10, lim );		
 			qge = SnapToVideoGrid( qge, b10, lim );		
 			qbe = SnapToVideoGrid( qbe, b10, lim );		
@@ -577,9 +581,9 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 	} 
 	else
 	{
-	    qr = (r<=0||r>=1)?min(max(r,0),1):pow(r,1.0/2.22);
-	    qg = (g<=0||g>=1)?min(max(g,0),1):pow(g,1.0/2.22);
-	    qb = (b<=0||b>=1)?min(max(b,0),1):pow(b,1.0/2.22);
+	    qr = ((r<=0||r>=1)?min(max(r,0),1):pow(r,1.0/2.22)) * stimLevel;
+	    qg = ((g<=0||g>=1)?min(max(g,0),1):pow(g,1.0/2.22)) * stimLevel;
+	    qb = ((b<=0||b>=1)?min(max(b,0),1):pow(b,1.0/2.22)) * stimLevel;
 		qr = SnapToVideoGrid( qr, b10, lim );		
 		qg = SnapToVideoGrid( qg, b10, lim );		
 		qb = SnapToVideoGrid( qb, b10, lim );		
@@ -587,9 +591,9 @@ void CSatLumShiftGrapher::GetSatShift ( double & satshift, double & deltaE, cons
 		g=(qg<=0||qg>=1)?min(max(qg,0),1):pow(qg,gamma);
 		b=(qb<=0||qb>=1)?min(max(qb,0),1):pow(qb,gamma);
 
-		qre = (re<=0||re>=1)?min(max(re,0),1):pow(re,1.0/2.22);
-	    qge = (ge<=0||ge>=1)?min(max(ge,0),1):pow(ge,1.0/2.22);
-	    qbe = (be<=0||be>=1)?min(max(be,0),1):pow(be,1.0/2.22);
+		qre = ((re<=0||re>=1)?min(max(re,0),1):pow(re,1.0/2.22)) * stimLevel;
+	    qge = ((ge<=0||ge>=1)?min(max(ge,0),1):pow(ge,1.0/2.22)) * stimLevel;
+	    qbe = ((be<=0||be>=1)?min(max(be,0),1):pow(be,1.0/2.22)) * stimLevel;
 		qre = SnapToVideoGrid( qre, b10, lim );		
 		qge = SnapToVideoGrid( qge, b10, lim );		
 		qbe = SnapToVideoGrid( qbe, b10, lim );		
