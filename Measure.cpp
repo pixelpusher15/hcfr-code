@@ -287,7 +287,7 @@ double TmDiffuseWhiteNits(const CColor & White, const CColor & Black)
 // SDR, the 50.22831% diffuse-white code in PQ -- close enough to the 0.5022283
 // TmDiffuseWhiteNits evaluates that both land on the same 8- and 10-bit code, so
 // the reading is a diffuse white and not peak -- and 50.00% for Mascior's HDR
-// disc on the manual generator.
+// disc on the manual generator. pGenerator may be NULL (the accuracy harness).
 static double PrimaryPatchIRELevel(CGenerator * pGenerator)
 {
 	double primaryIRELevel = 100.0;
@@ -298,7 +298,7 @@ static double PrimaryPatchIRELevel(CGenerator * pGenerator)
 		CString strDVD;
 		strDVD.LoadString ( IDS_MANUALDVDGENERATOR_NAME );
 		ColorStandard cstd = GetColorReference().m_standard;
-		if ( pGenerator->GetName() == strDVD &&
+		if ( pGenerator && pGenerator->GetName() == strDVD &&
 			 ( cstd == UHDTV4 || cstd == UHDTV3 || cstd == UHDTV2 || cstd == UHDTV || cstd == HDTV ) )
 			primaryIRELevel = 50.00;
 	}
@@ -331,7 +331,7 @@ static const double kHDTVbWireCodes[6][3] =
 	{ 79.9087,79.9087,10.0457 }, { 10.0457,79.9087,79.9087 }, { 79.9087,10.0457,79.9087 },
 };
 
-// The patch list the secondaries sweep drives, in its order: R, G, B, C, M, Y,
+// The patch list the secondaries sweep drives, in its order: R, G, B, Y, C, M,
 // white, black. THE one definition: MeasurePrimaries (R/G/B/white/black),
 // MeasureSecondaries, MeasureGrayScaleAndColors and the display profile's
 // reference prologue all build from it, so a profile's primary/secondary
@@ -4783,7 +4783,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 
 	if ( rc >= 0 && bGraysPublished )
 	{
-		// R, G, B, C, M, Y, white. Black came from the grays: the same 0/0/0
+		// R, G, B, Y, C, M, white. Black came from the grays: the same 0/0/0
 		// stimulus, which Intensity scales to 0 either way.
 		ColorRGBDisplay colors [ 8 ];
 		BuildPrimarySecondaryColors ( pGenerator, colors );

@@ -2482,9 +2482,9 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nMaxSteps = nSteps;
 			 for ( i = 0; i < nSteps ; i ++ )
 			 {
-				GenIRE [ i ] = i;
 				// the near-black sweep's levels: 1% steps (2% in PQ) on the active grid
-				GenColors [ i ] = ColorRGBDisplay(ArrayIndexToGrayLevel ( i * (GetConfig()->m_GammaOffsetType == 5 ? 2 : 1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()));
+				GenIRE [ i ] = ArrayIndexToGrayLevel ( i * (GetConfig()->m_GammaOffsetType == 5 ? 2 : 1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				GenColors [ i ] = ColorRGBDisplay(GenIRE[i]);
 				mType [ i ] = CGenerator::MT_NEARBLACK;
 			 }
 			 pValidationFunc = &CMeasure::ValidateBackgroundNearBlack;
@@ -2496,9 +2496,9 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nMaxSteps = nSteps;
 			 for ( i = 0; i < nSteps ; i ++ )
 			 {
-				GenIRE [ i ] = GetMeasure()->m_NearWhiteClipCol-nSteps+i;
 				// the near-white sweep's levels below the clip, on the active grid
-				GenColors [ i ] = ColorRGBDisplay(ArrayIndexToGrayLevel ( GetMeasure()->m_NearWhiteClipCol-nSteps+i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()));
+				GenIRE [ i ] = ArrayIndexToGrayLevel ( GetMeasure()->m_NearWhiteClipCol-nSteps+i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				GenColors [ i ] = ColorRGBDisplay(GenIRE[i]);
 				mType [ i ] = CGenerator::MT_NEARWHITE;
 			 }
 			 pValidationFunc = &CMeasure::ValidateBackgroundNearWhite;
@@ -2807,7 +2807,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			for ( i = 0 ; bOk && i < nSteps ; i++ )
 			{
 				BOOL bresult;
-				if ((mType[i] == CGenerator::MT_IRE)||(mType[i] == CGenerator::MT_NEARWHITE)||(mType[i] == CGenerator::MT_NEARWHITE))
+				if ((mType[i] == CGenerator::MT_IRE)||(mType[i] == CGenerator::MT_NEARBLACK)||(mType[i] == CGenerator::MT_NEARWHITE))
 					bresult = pGenerator -> DisplayGray ( GenIRE [ i ], mType[i] );
 				else
 					bresult = pGenerator -> DisplayRGBColor ( GenColors [ i ] , mType[i] );

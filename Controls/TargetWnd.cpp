@@ -188,7 +188,11 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 					CColor clr;
 					pDoc->GetMeasure()->GetRefProfileSat(minCol - 1, clr);
 					centerXYZ = clr.GetXYZValue();
+					// the capture's wire: P3/709-in-2020 remap the inner cube into the
+					// container, while the reference stays on the inner cube
 					m_testClr = pDoc->GetMeasure()->GetProfilePatchRGB(minCol - 1);
+					RemapProfileToTransport ( &m_testClr, 1, GetColorReference(), GetConfig()->m_GammaOffsetType,
+											  GetConfig()->GetUse10bitLevels() != FALSE, GetConfig()->GetRGB16_235() != FALSE );
 				}
 			}
 			else if ( m_DisplayMode == 1 && minCol <= 8 )
