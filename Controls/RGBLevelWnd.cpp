@@ -425,7 +425,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 						tmWhite = getL_EOTF(0.50, noDataColor, noDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
 						if (m_displayMode == 1)
 						{
-							if (GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || minCol == 7)
+							if (GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 || minCol == 7)
 								white.SetY(!shiftDiffuse?92.254965:tmWhite);
 							else
 								white.SetY(94.37844);
@@ -445,7 +445,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 					else
 					{
 						if (m_displayMode == 1)
-							if (GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV || minCol == 7)
+							if (GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 || minCol == 7)
 								white.SetY(tmWhite);
 							else
 								white.SetY(94.37844);
@@ -497,23 +497,16 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		}
 
 		double RefWhite = 1.0;
-		if ( isHDR )
+		if ( isHDR && m_displayMode == 1 )
 		{
-			bool shiftDiffuse = (abs(GetConfig()->m_DiffuseL-94.0)>0.5);
+			// the measures grid's primaries normalisation, from the same prime white
+			PrimaryDENorm pn = m_pDocument->GetMeasure()->GetPrimaryDENorm(YWhite, minCol);
+			YWhite = pn.yWhite;
+			RefWhite = pn.refWhite;
+		}
+		else if ( isHDR )
+		{
 			if (DVD)
-			{
-				if (m_displayMode == 1)
-				{
-						tmWhite = getL_EOTF(0.50, noDataColor, noDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;								
-						if ( (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || minCol == 7) ) //fix for P3/Mascior
-							RefWhite = YWhite / (!shiftDiffuse?92.254965:tmWhite);
-				else
-				{
-						RefWhite = YWhite / (tmWhite);
-						YWhite = YWhite * 94.37844 / (tmWhite);
-				}
-			}
-			else
 			{
 				if ( ((cRef.m_standard == UHDTV2 && minCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11 && m_displayMode != 13)// && !shiftDiffuse) //fixes skin && nCol == satsize
 					RefWhite = YWhite / (tmWhite);
@@ -530,19 +523,6 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 					YWhite = YWhite * 94.37844 / (tmWhite);
 				}
 			}
-		}
-		else
-		{
-			if (m_displayMode == 1)
-			{
-				if (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || minCol == 7)
-					RefWhite = YWhite / (tmWhite) ;
-				else
-				{
-					RefWhite = YWhite / (tmWhite) ;
-					YWhite = YWhite * 94.37844 / (tmWhite) ;
-				}
-			}
 			else
 			{
 				if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
@@ -556,9 +536,9 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 					RefWhite = YWhite / (tmWhite) ;
 				}
 			}
-			}
 		}
-		m_dEValue = aReference.isValid()?float(m_pRefColor->GetDeltaE(YWhite, aReference, RefWhite, cRef, GetConfig()->m_dE_form, !m_bLumaMode,  GetConfig()->gw_Weight )):0 ;
+		// the grid's gray-world weight: none in PQ
+		m_dEValue = aReference.isValid()?float(m_pRefColor->GetDeltaE(YWhite, aReference, RefWhite, cRef, GetConfig()->m_dE_form, !m_bLumaMode, GetConfig()->m_GammaOffsetType == 5 ? 3 : GetConfig()->gw_Weight )):0 ;
     } //have valid m_prefcolor
 	else
 	{

@@ -1718,8 +1718,7 @@ void video_scale (CxImage *inImage)
 					GetClientRect(&rect_ABL);
 					rect_ABL.DeflateRect(dWidth/2,dHeight/2);
 				}
-				const BYTE lvl = m_b16_235 ? (BYTE)(2.19 * GetConfig()->m_ablLevel + 16) : (BYTE)(2.55 * GetConfig()->m_ablLevel);
-				brush.CreateSolidBrush (RGB(lvl, lvl, lvl));
+				brush.CreateSolidBrush (ColorRGBDisplay((double)GetConfig()->m_ablLevel).GetColorRef(!!m_b16_235));
 				dc.FillRect ( &rect_ABL, &brush );
 				Sleep(GetConfig()->m_ablDuration);
 				brush.DeleteObject();

@@ -287,7 +287,7 @@ double TmDiffuseWhiteNits(const CColor & White, const CColor & Black)
 // SDR, the 50.22831% diffuse-white code in PQ -- close enough to the 0.5022283
 // TmDiffuseWhiteNits evaluates that both land on the same 8- and 10-bit code, so
 // the reading is a diffuse white and not peak -- and 50.00% for Mascior's HDR
-// disc on the manual generator.
+// disc on the manual generator. pGenerator may be NULL (the accuracy harness).
 static double PrimaryPatchIRELevel(CGenerator * pGenerator)
 {
 	double primaryIRELevel = 100.0;
@@ -298,7 +298,7 @@ static double PrimaryPatchIRELevel(CGenerator * pGenerator)
 		CString strDVD;
 		strDVD.LoadString ( IDS_MANUALDVDGENERATOR_NAME );
 		ColorStandard cstd = GetColorReference().m_standard;
-		if ( pGenerator->GetName() == strDVD &&
+		if ( pGenerator && pGenerator->GetName() == strDVD &&
 			 ( cstd == UHDTV4 || cstd == UHDTV3 || cstd == UHDTV2 || cstd == UHDTV || cstd == HDTV ) )
 			primaryIRELevel = 50.00;
 	}
@@ -316,7 +316,22 @@ static double PrimeWhiteIRELevel(CGenerator * pGenerator)
 	return PrimaryPatchIRELevel ( pGenerator );
 }
 
-// The patch list the secondaries sweep drives, in its order: R, G, B, C, M, Y,
+// The EXACT percent triplets the sweeps send for the special standards
+// (R,G,B,Y,C,M) - the reference must decode these actual wire codes:
+// re-encoding the analog color lands up to half a code away from the
+// 2-decimal-rounded tables (~0.4 dE). BuildPrimarySecondaryColors sends them.
+static const double kHDTVaWireCodes[6][3] =
+{
+	{ 68.04,20.09,20.09 }, { 27.85,73.06,27.85 }, { 19.18,19.18,50.22 },
+	{ 73.9726,73.9726,33.3333 }, { 36.07,73.06,73.06 }, { 64.3836,29.2237,64.3836 },
+};
+static const double kHDTVbWireCodes[6][3] =
+{
+	{ 79.9087,10.0457,10.0457 }, { 30.137,79.9087,30.137 }, { 50.2283,50.2283,79.9087 },
+	{ 79.9087,79.9087,10.0457 }, { 10.0457,79.9087,79.9087 }, { 79.9087,10.0457,79.9087 },
+};
+
+// The patch list the secondaries sweep drives, in its order: R, G, B, Y, C, M,
 // white, black. THE one definition: MeasurePrimaries (R/G/B/white/black),
 // MeasureSecondaries, MeasureGrayScaleAndColors and the display profile's
 // reference prologue all build from it, so a profile's primary/secondary
@@ -338,24 +353,11 @@ void CMeasure::BuildPrimarySecondaryColors(CGenerator * pGenerator, ColorRGBDisp
 	GenColors [ 6 ] = ColorRGBDisplay(whiteIRELevel,whiteIRELevel,whiteIRELevel);
 	GenColors [ 7 ] = ColorRGBDisplay(0,0,0);
 
-	if (GetColorReference().m_standard == HDTVb)
+	if (GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)
 	{
-			GenColors [ 0 ] = ColorRGBDisplay(79.9087,10.0457,10.0457); 
-			GenColors [ 1 ] = ColorRGBDisplay(30.137,79.9087,30.137); 
-			GenColors [ 2 ] = ColorRGBDisplay(50.2283,50.2283,79.9087); 
-			GenColors [ 3 ] = ColorRGBDisplay(79.9087,79.9087,10.0457);
-			GenColors [ 4 ] = ColorRGBDisplay(10.0457,79.9087,79.9087);
-			GenColors [ 5 ] = ColorRGBDisplay(79.9087,10.0457,79.9087);
-			isSpecial = TRUE;
-	}
-	else if (GetColorReference().m_standard == HDTVa) //75%
-	{ 
-		GenColors [ 0 ] = ColorRGBDisplay(68.04,20.09,20.09);
-		GenColors [ 1 ] = ColorRGBDisplay(27.85,73.06,27.85);
-		GenColors [ 2 ] = ColorRGBDisplay(19.18,19.18,50.22);
-		GenColors [ 3 ] = ColorRGBDisplay(73.9726,73.9726,33.3333);
-		GenColors [ 4 ] = ColorRGBDisplay(36.07,73.06,73.06);
-		GenColors [ 5 ] = ColorRGBDisplay(64.3836,29.2237,64.3836);
+		const double (*codes)[3] = (GetColorReference().m_standard == HDTVa) ? kHDTVaWireCodes : kHDTVbWireCodes;
+		for (int ci = 0; ci < 6; ci++)
+			GenColors [ ci ] = ColorRGBDisplay(codes[ci][0], codes[ci][1], codes[ci][2]);
 		isSpecial = TRUE;
 	}
 	else if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 ) //P3/Rec709 in BT.2020
@@ -2688,7 +2690,9 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 		int nCol = i * (GetConfig()->m_GammaOffsetType == 5 ? 2 : 1);
 		if( pGenerator->DisplayGray((ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())),CGenerator::MT_NEARBLACK,!bRetry) )
 		{
-			UpdateTstWnd(pDoc, nCol);
+			// The grid column is the measurement index i (CTargetWnd::Refresh
+			// maps it to the 2% PQ level itself), not the level nCol.
+			UpdateTstWnd(pDoc, i);
 			bEscape = WaitForDynamicIris (FALSE, pDoc);
 			bRetry = FALSE;
 
@@ -4779,7 +4783,7 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 
 	if ( rc >= 0 && bGraysPublished )
 	{
-		// R, G, B, C, M, Y, white. Black came from the grays: the same 0/0/0
+		// R, G, B, Y, C, M, white. Black came from the grays: the same 0/0/0
 		// stimulus, which Intensity scales to 0 either way.
 		ColorRGBDisplay colors [ 8 ];
 		BuildPrimarySecondaryColors ( pGenerator, colors );
@@ -6617,7 +6621,7 @@ BOOL CMeasure::AddMeasurement(CSensor *pSensor, CGenerator *pGenerator,  CGenera
 {
 	BOOL		bDisplayColor = GetConfig () -> m_bDisplayTestColors;
 	BOOL		bOk;
-	COLORREF	clr;
+	ColorRGBDisplay	clr;
 	CColor		measuredColor;
 	CString	Msg, Title;
 
@@ -6645,22 +6649,21 @@ BOOL CMeasure::AddMeasurement(CSensor *pSensor, CGenerator *pGenerator,  CGenera
 	if ( bDisplayColor ) 
 	{
 		// Display test color
-		clr = ( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.GetColor ();
-		clr &= 0x00FFFFFF;
-		bOk = pGenerator->DisplayRGBColor(ColorRGBDisplay(clr), MT);
+		clr = ( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.GetTestColor ();
+		bOk = pGenerator->DisplayRGBColor(clr, MT);
 		if ( bOk )
 			WaitForDynamicIris ( TRUE );
 	}
 	else
 	{
         // don't know the color to measure so default value to mid gray...
-		clr = RGB(128,128,128);
+		clr = ColorRGBDisplay(RGB(128,128,128));
 		bOk = TRUE;
 	}
 
 	if ( bOk )
 	{
-		measuredColor=pSensor->MeasureColor(ColorRGBDisplay(clr), m_d);
+		measuredColor=pSensor->MeasureColor(clr, m_d);
 		if(!pSensor->IsMeasureValid())
 		{
 			Title.LoadString ( IDS_ERROR );
@@ -6896,8 +6899,7 @@ void CMeasure::UpdateTstWnd (CDataSetDoc *pDoc, int i )
 		{
 			for (int j=0;j<255;j+=3)
 			{
-				( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.SetColor ( RGB(j,j,j) );
-				( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.RedrawWindow();
+				( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.SetTestColor ( RGB(j,j,j) );
 				Sleep(55);
 			}
 		}
@@ -8177,6 +8179,62 @@ ColorDENorm CMeasure::GetColorDENorm(int displayMode) const
 	return n;
 }
 
+// The primaries/secondaries page's dE normalisation (displayMode 1), from the
+// prime white's Y. It had been copied into the measures grid, RGBLevelWnd, three
+// Export blocks and /accuracytest; the copies drifted when P3/709-in-2020 joined
+// the diffuse-white branch (95f0a4ec reached the grid only), which left the RGB
+// levels pane and the PDF report up to ~10 dE off the grid for those standards
+// in PQ. One definition now, as GetColorDENorm is for sat/CC.
+//
+// PQ only: the reference (GetRefPrimary/GetRefSecondary) is diffuse-white
+// relative. Standards whose primaries sweep anchors at diffuse white (and the
+// white column itself) normalise the measured white by the tone-mapped diffuse
+// white; the others also rescale the measurement by 94.37844 / tmWhite. The
+// manual generator keeps the Mascior disc's 92.254965-nit white (its level-502
+// 50.0% patch) unless the diffuse white was moved.
+PrimaryDENorm CMeasure::GetPrimaryDENorm(double yPrimeWhite, int nCol) const
+{
+	CColorHCFRConfig * cfg = GetConfig();
+	PrimaryDENorm n;
+	n.yWhite   = yPrimeWhite;
+	n.refWhite = 1.0;
+	n.gwWeight = ( cfg->m_GammaOffsetType == 5 ) ? 3 : cfg->gw_Weight;
+	if ( cfg->m_GammaOffsetType != 5 )
+		return n;
+
+	CColor White = GetOnOffWhite();
+	CColor Black = GetOnOffBlack();
+	ColorStandard standard = GetColorReference().m_standard;
+	bool bDiffuseAnchored = ( standard == UHDTV2 || standard == HDTV || standard == UHDTV
+							  || standard == UHDTV3 || standard == UHDTV4 || nCol == 7 );
+	double tmWhite;
+	if ( cfg->GetGeneratorType() == CColorHCFRConfig::enumManual )
+	{
+		tmWhite = getL_EOTF(0.50, White, Black, cfg->m_GammaRel, cfg->m_Split, 5, cfg->m_DiffuseL,
+							cfg->m_MasterMinL, cfg->m_MasterMaxL, cfg->m_TargetMinL, cfg->m_TargetMaxL,
+							cfg->m_useToneMap, FALSE, cfg->m_TargetSysGamma,
+							cfg->m_BT2390_BS, cfg->m_BT2390_WS, cfg->m_BT2390_WS1) * 100.0;
+		if ( bDiffuseAnchored )
+		{
+			bool shiftDiffuse = ( fabs(cfg->m_DiffuseL - 94.0) > 0.5 );
+			n.refWhite = yPrimeWhite / ( !shiftDiffuse ? 92.254965 : tmWhite );
+			return n;
+		}
+	}
+	else
+	{
+		tmWhite = TmDiffuseWhiteNits(White, Black);
+		if ( bDiffuseAnchored )
+		{
+			n.refWhite = yPrimeWhite / tmWhite;
+			return n;
+		}
+	}
+	n.refWhite = yPrimeWhite / tmWhite;
+	n.yWhite   = yPrimeWhite * 94.37844 / tmWhite;
+	return n;
+}
+
 CColor CMeasure::GetMeasurement(int i) const
 {
 	return m_measurementsArray[i]; 
@@ -8195,22 +8253,6 @@ void CMeasure::AppendMeasurements(const CColor & aColor, int isPrimary, int last
 
 	FreeMeasurementAppended(isPrimary, last_minCol); 
 }
-
-// The EXACT percent triplets MeasurePrimaries sends for the special
-// standards (R,G,B,Y,C,M) - the reference must decode these actual wire
-// codes: re-encoding the analog color lands up to half a code away from the
-// 2-decimal-rounded tables (~0.4 dE). Keep byte-identical to the GenColors
-// tables in MeasurePrimaries.
-static const double kHDTVaWireCodes[6][3] =
-{
-	{ 68.04,20.09,20.09 }, { 27.85,73.06,27.85 }, { 19.18,19.18,50.22 },
-	{ 73.9726,73.9726,33.3333 }, { 36.07,73.06,73.06 }, { 64.3836,29.2237,64.3836 },
-};
-static const double kHDTVbWireCodes[6][3] =
-{
-	{ 79.9087,10.0457,10.0457 }, { 30.137,79.9087,30.137 }, { 50.2283,50.2283,79.9087 },
-	{ 79.9087,79.9087,10.0457 }, { 10.0457,79.9087,79.9087 }, { 79.9087,10.0457,79.9087 },
-};
 
 // Shared by GetRefPrimary/GetRefSecondary: turn the analog primary/secondary
 // XYZ into the reference the wire actually produces. Plain standards send

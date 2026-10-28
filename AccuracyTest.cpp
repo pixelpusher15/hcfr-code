@@ -492,7 +492,14 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 	double YWhite = YWhiteIn, RefWhite = 1.0;
 	const CColorReference & cRef = GetColorReference();
 
-	if ( isHDR )
+	if ( isHDR && displayMode == 1 )
+	{
+		// the grid's primaries normalisation itself, not a mirror of it
+		PrimaryDENorm pn = m.GetPrimaryDENorm(YWhite, nCol);
+		YWhite = pn.yWhite;
+		RefWhite = pn.refWhite;
+	}
+	else if ( isHDR )
 	{
 		CColor White = m.GetOnOffWhite();
 		CColor Black = m.GetOnOffBlack();
@@ -503,36 +510,11 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 			// The Mascior disc redefines white as its level-502 (50.0%) patch =
 			// 92.254965 nits, un-snapped, instead of the GDI wire's 50.22831%
 			// code -> TmDiffuseWhiteNits. (MainView.cpp ~3103-3126.)
-			bool shiftDiffuse = ( fabs(cfg->m_DiffuseL - 94.0) > 0.5 );
 			tmWhite = getL_EOTF(0.50, White, Black, cfg->m_GammaRel, cfg->m_Split, 5, cfg->m_DiffuseL,
 								cfg->m_MasterMinL, cfg->m_MasterMaxL, cfg->m_TargetMinL, cfg->m_TargetMaxL,
 								cfg->m_useToneMap, FALSE, cfg->m_TargetSysGamma,
 								cfg->m_BT2390_BS, cfg->m_BT2390_WS, cfg->m_BT2390_WS1) * 100.0;
-			if ( displayMode == 1 )
-			{
-				if ( cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7 )
-					RefWhite = YWhite / ( !shiftDiffuse ? 92.254965 : tmWhite );
-				else
-				{
-					RefWhite = YWhite / tmWhite;
-					YWhite = YWhite * 94.37844 / tmWhite;
-				}
-			}
-			else
-			{
-				if ( ( (cRef.m_standard == UHDTV2 && nCol == satsize) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV ) && displayMode != 11 )
-					RefWhite = YWhite / tmWhite;
-				else
-				{
-					RefWhite = YWhite / tmWhite;
-					YWhite = YWhite * 94.37844 / tmWhite;
-				}
-			}
-		}
-		else if ( displayMode == 1 )
-		{
-			tmWhite = TmDiffuseWhiteNits(White, Black);
-			if ( cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7 )
+			if ( ( (cRef.m_standard == UHDTV2 && nCol == satsize) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV ) && displayMode != 11 )
 				RefWhite = YWhite / tmWhite;
 			else
 			{
@@ -873,89 +855,14 @@ static void RunGray ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 	}
 }
 
-// Primaries + secondaries + white/black rows; mirrors MeasurePrimaries'
-// GenColors construction (Measure.cpp ~1693-1785) incl. the UHDTV3/4
-// ContainerPrimaryLinear chain and the HDTVa/b HDR re-encode.
+// Primaries + secondaries + white/black rows: the sweeps' own patches
+// (CMeasure::BuildPrimarySecondaryColors), so the harness checks the codes
+// the sweeps and the test-window preview send. NULL generator: the
+// manual-DVD Mascior 50.00 white is not modeled here.
 static void RunPrimaries ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, FamStat & stat )
 {
-	CColorHCFRConfig * cfg = GetConfig();
-	int mode = cfg->m_GammaOffsetType;
-	BOOL isSpecial = FALSE;
-
-	double primaryIRELevel = 100.0;
-	if ( mode == 5 )
-		primaryIRELevel = 50.22831;		// non-DVD wire (manual-generator Mascior 50.00 not modeled here)
-
-	ColorRGBDisplay GenColors[8] =
-	{
-		ColorRGBDisplay(primaryIRELevel,0,0),
-		ColorRGBDisplay(0,primaryIRELevel,0),
-		ColorRGBDisplay(0,0,primaryIRELevel),
-		ColorRGBDisplay(primaryIRELevel,primaryIRELevel,0),
-		ColorRGBDisplay(0,primaryIRELevel,primaryIRELevel),
-		ColorRGBDisplay(primaryIRELevel,0,primaryIRELevel),
-		ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel),
-		ColorRGBDisplay(0,0,0)
-	};
-	if ( GetColorReference().m_standard == HDTVb )
-	{
-		GenColors[0] = ColorRGBDisplay(79.9087,10.0457,10.0457);
-		GenColors[1] = ColorRGBDisplay(30.137,79.9087,30.137);
-		GenColors[2] = ColorRGBDisplay(50.2283,50.2283,79.9087);
-		GenColors[3] = ColorRGBDisplay(79.9087,79.9087,10.0457);
-		GenColors[4] = ColorRGBDisplay(10.0457,79.9087,79.9087);
-		GenColors[5] = ColorRGBDisplay(79.9087,10.0457,79.9087);
-		isSpecial = TRUE;
-	}
-	else if ( GetColorReference().m_standard == HDTVa )
-	{
-		GenColors[0] = ColorRGBDisplay(68.04,20.09,20.09);
-		GenColors[1] = ColorRGBDisplay(27.85,73.06,27.85);
-		GenColors[2] = ColorRGBDisplay(19.18,19.18,50.22);
-		GenColors[3] = ColorRGBDisplay(73.9726,73.9726,33.3333);
-		GenColors[4] = ColorRGBDisplay(36.07,73.06,73.06);
-		GenColors[5] = ColorRGBDisplay(64.3836,29.2237,64.3836);
-		GenColors[6] = ColorRGBDisplay(75.0,75.0,75.0);
-		isSpecial = TRUE;
-	}
-	else if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 )
-	{
-		if ( !(mode == 5 || mode == 7) )
-			isSpecial = TRUE;
-		GenColors[6] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-		GenColors[7] = ColorRGBDisplay(0,0,0);
-	}
-
-	if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 )
-	{
-		CColor tmW = m.GetGray(m.GetGrayScaleSize() - 1);
-		CColor tmB = m.GetOnOffBlack();
-		for ( int ci = 0 ; ci < 6 ; ci ++ )
-		{
-			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
-			for ( int ck = 0 ; ck < 3 ; ck ++ )
-			{
-				double cv = clin[ck];
-				if ( mode == 5 )
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv / 105.95640, tmW, tmB, cfg->m_GammaRel, cfg->m_Split, -5);
-				else if ( mode == 7 )
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv, tmW, tmB, cfg->m_GammaRel, cfg->m_Split, -7);
-				else
-					cv = (cv <= 0.0 || cv >= 1.0) ? min(max(cv, 0.0), 1.0) : pow(cv, 1.0 / 2.22);
-				GenColors[ci][ck] = min(max(cv, 0.0), 1.0) * 100.0;
-			}
-		}
-	}
-
-	if ( (mode == 5 || mode == 7) && isSpecial )
-	{
-		for ( int i = 0 ; i <= 5 ; i ++ )
-		{
-			GenColors[i][0] = 100. * getL_EOTF(pow(GenColors[i][0] / 100., 2.22), noDataColor, noDataColor, 0, 0, -1 * mode);
-			GenColors[i][1] = 100. * getL_EOTF(pow(GenColors[i][1] / 100., 2.22), noDataColor, noDataColor, 0, 0, -1 * mode);
-			GenColors[i][2] = 100. * getL_EOTF(pow(GenColors[i][2] / 100., 2.22), noDataColor, noDataColor, 0, 0, -1 * mode);
-		}
-	}
+	ColorRGBDisplay GenColors[8];
+	m.BuildPrimarySecondaryColors ( NULL, GenColors );
 
 	// MT_PRIMARY/MT_SECONDARY patches (incl. the white anchor) are dimmed by
 	// the window Intensity on the real wire.
