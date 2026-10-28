@@ -337,7 +337,7 @@ void CSensorSelectionPropPage::OnSelchangeSensorchoiceCombo()
 		else if ( ! bFileFound )
 		{
 			// No file to load, so "use existing" would hand the document an empty
-			// path to open. Leave the sensor on the other choice - create a new
+			// path to open. Put the sensor on the other choice - create a new
 			// correction file (HCFR, simulated) or none (the rest) - which stays
 			// available.
 			CheckRadioButton ( IDC_SENSORTRAININGMODE_RADIO2, IDC_SENSORTRAININGMODE_RADIO1, IDC_SENSORTRAININGMODE_RADIO2 );
