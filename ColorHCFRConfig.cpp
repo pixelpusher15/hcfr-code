@@ -556,8 +556,10 @@ BOOL CColorHCFRConfig::LoadSettings()
 	// value PLUS a hidden 100ms (for any non-zero value; a negative one is its
 	// magnitude, forced even for the simulated sensor), and that padding is gone, so
 	// fold it into the stored value: 300 (the old default) becomes 400, 50 becomes
-	// 150, -200 becomes -300, and 0 stays 0 - it never got the padding. Every user
-	// keeps their 4.1 settle. Running an older build afterwards waits 100ms longer
+	// 150, -200 becomes -300, and 0 stays 0 - it never got the padding. Every real
+	// meter keeps its 4.1 settle; the simulated sensor, which a positive value
+	// shortcuts to 10ms, now waits 10 rather than 4.1's 110, which only makes
+	// simulated sweeps quicker. Running an older build afterwards waits 100ms longer
 	// per patch than before, which costs time but never accuracy. The marker makes
 	// this run once, so a value chosen after the upgrade is left alone.
 	if ( !GetProfileInt("References","SettleDelayMigrated",0) )
@@ -566,8 +568,10 @@ BOOL CColorHCFRConfig::LoadSettings()
 		// 400ms default above, which already includes the padding.
 		if ( IsProfileEntryDefined("References","IrisLatencyTime") && m_latencyTime != 0 )
 		{
+			// Clamp first, to the Patch delay field's DDV range less the step, so a
+			// hand-edited value near the int limit cannot overflow on the add.
+			m_latencyTime = max ( -29900, min ( 29900, m_latencyTime ) );
 			m_latencyTime += ( m_latencyTime > 0 ) ? 100 : -100;
-			m_latencyTime = max ( -30000, min ( 30000, m_latencyTime ) );	// the Patch delay field's DDV range
 			WriteProfileInt("References","IrisLatencyTime",m_latencyTime);
 		}
 		WriteProfileInt("References","SettleDelayMigrated",1);
