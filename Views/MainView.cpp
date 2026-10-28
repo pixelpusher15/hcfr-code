@@ -7053,7 +7053,10 @@ void CMainView::SelectProfilePatch(int idx)
 		SetSelectedColor ( sel );
 
 	m_RGBLevels.Refresh ( idx + 1, 13, pMeasure->GetProfileMeasureSize () );
-	m_Target.Refresh ( pDoc->GetGenerator()->m_b16_235, idx + 1, pMeasure->GetProfileMeasureSize (), 13, pDoc, CTargetWnd::TARGET_TARGET );
+	// TARGET_ALL, as a grid cell does: the test window takes the patch too, so a
+	// Measure or continuous run after selecting it sends this patch (Refresh
+	// honours "Display test colors" and leaves the window alone mid-sweep).
+	m_Target.Refresh ( pDoc->GetGenerator()->m_b16_235, idx + 1, pMeasure->GetProfileMeasureSize (), 13, pDoc, CTargetWnd::TARGET_ALL );
 }
 
 void CMainView::OnDeleteGrayscale()
