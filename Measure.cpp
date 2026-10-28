@@ -8179,6 +8179,62 @@ ColorDENorm CMeasure::GetColorDENorm(int displayMode) const
 	return n;
 }
 
+// The primaries/secondaries page's dE normalisation (displayMode 1), from the
+// prime white's Y. It had been copied into the measures grid, RGBLevelWnd, three
+// Export blocks and /accuracytest; the copies drifted when P3/709-in-2020 joined
+// the diffuse-white branch (95f0a4ec reached the grid only), which left the RGB
+// levels pane and the PDF report up to ~10 dE off the grid for those standards
+// in PQ. One definition now, as GetColorDENorm is for sat/CC.
+//
+// PQ only: the reference (GetRefPrimary/GetRefSecondary) is diffuse-white
+// relative. Standards whose primaries sweep anchors at diffuse white (and the
+// white column itself) normalise the measured white by the tone-mapped diffuse
+// white; the others also rescale the measurement by 94.37844 / tmWhite. The
+// manual generator keeps the Mascior disc's 92.254965-nit white (its level-502
+// 50.0% patch) unless the diffuse white was moved.
+PrimaryDENorm CMeasure::GetPrimaryDENorm(double yPrimeWhite, int nCol) const
+{
+	CColorHCFRConfig * cfg = GetConfig();
+	PrimaryDENorm n;
+	n.yWhite   = yPrimeWhite;
+	n.refWhite = 1.0;
+	n.gwWeight = ( cfg->m_GammaOffsetType == 5 ) ? 3 : cfg->gw_Weight;
+	if ( cfg->m_GammaOffsetType != 5 )
+		return n;
+
+	CColor White = GetOnOffWhite();
+	CColor Black = GetOnOffBlack();
+	ColorStandard standard = GetColorReference().m_standard;
+	bool bDiffuseAnchored = ( standard == UHDTV2 || standard == HDTV || standard == UHDTV
+							  || standard == UHDTV3 || standard == UHDTV4 || nCol == 7 );
+	double tmWhite;
+	if ( cfg->GetGeneratorType() == CColorHCFRConfig::enumManual )
+	{
+		tmWhite = getL_EOTF(0.50, White, Black, cfg->m_GammaRel, cfg->m_Split, 5, cfg->m_DiffuseL,
+							cfg->m_MasterMinL, cfg->m_MasterMaxL, cfg->m_TargetMinL, cfg->m_TargetMaxL,
+							cfg->m_useToneMap, FALSE, cfg->m_TargetSysGamma,
+							cfg->m_BT2390_BS, cfg->m_BT2390_WS, cfg->m_BT2390_WS1) * 100.0;
+		if ( bDiffuseAnchored )
+		{
+			bool shiftDiffuse = ( fabs(cfg->m_DiffuseL - 94.0) > 0.5 );
+			n.refWhite = yPrimeWhite / ( !shiftDiffuse ? 92.254965 : tmWhite );
+			return n;
+		}
+	}
+	else
+	{
+		tmWhite = TmDiffuseWhiteNits(White, Black);
+		if ( bDiffuseAnchored )
+		{
+			n.refWhite = yPrimeWhite / tmWhite;
+			return n;
+		}
+	}
+	n.refWhite = yPrimeWhite / tmWhite;
+	n.yWhite   = yPrimeWhite * 94.37844 / tmWhite;
+	return n;
+}
+
 CColor CMeasure::GetMeasurement(int i) const
 {
 	return m_measurementsArray[i]; 

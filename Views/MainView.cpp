@@ -3200,61 +3200,40 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					double dL, dH, dC, RefWhite = 1.0;
 					CColorReference cRef = GetColorReference();
 					int satsize=GetDocument()->GetMeasure()->GetSaturationSize();
-					if ( isHDR )
+					if ( isHDR && m_displayMode == 1 )
 					{
-						bool shiftDiffuse = (abs(GetConfig()->m_DiffuseL-94.0)>0.5);
+						PrimaryDENorm pn = GetDocument()->GetMeasure()->GetPrimaryDENorm(YWhite, nCol);
+						YWhite = pn.yWhite;
+						RefWhite = pn.refWhite;
+					}
+					else if ( isHDR )
+					{
 			            CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
 						CColor Black = GetDocument() -> GetMeasure() -> GetOnOffBlack();
 						double tmWhite = TmDiffuseWhiteNits(White, Black);
 						if (DVD)
 						{
 							tmWhite = getL_EOTF(0.50, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
-							if (m_displayMode == 1)
-							{
-								if ( (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7) ) //fix for P3/Mascior
-									RefWhite = YWhite / (!shiftDiffuse?92.254965:tmWhite);
-								else
-								{
-									RefWhite = YWhite / (tmWhite);
-									YWhite = YWhite * 94.37844 / (tmWhite);
-								}
-							}
+							if ( ((cRef.m_standard == UHDTV2 && nCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11)// && !shiftDiffuse) //fixes skin && nCol == satsize
+								RefWhite = YWhite / (tmWhite);
 							else
 							{
-								if ( ((cRef.m_standard == UHDTV2 && nCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11)// && !shiftDiffuse) //fixes skin && nCol == satsize
-									RefWhite = YWhite / (tmWhite);
-								else
-								{
-									RefWhite = YWhite / (tmWhite) ;
-									YWhite = YWhite * 94.37844 / (tmWhite);
-								}
+								RefWhite = YWhite / (tmWhite) ;
+								YWhite = YWhite * 94.37844 / (tmWhite);
 							}
 						}
 						else
 						{
-							if (m_displayMode == 1)
-							{
-								if (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7)
-									RefWhite = YWhite / (tmWhite) ;
-								else
-								{
-									RefWhite = YWhite / (tmWhite) ;					
-									YWhite = YWhite * 94.37844 / (tmWhite) ;
-								}
-							}
+							if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
+								YWhite = GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
 							else
 							{
-								if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
-									YWhite = GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
-								else
-								{
-									// Unified HDR convention: the reference is scaled by
-									// GetHDRRefScale (UpdateGrid ~4294), so the measurement
-									// stays anchored to the measured white as-is - no
-									// 94.37844/tmWhite rescale (matches the 3D viewer;
-									// identical with tone mapping off).
-									RefWhite = YWhite / (tmWhite) ;
-								}
+								// Unified HDR convention: the reference is scaled by
+								// GetHDRRefScale (UpdateGrid ~4294), so the measurement
+								// stays anchored to the measured white as-is - no
+								// 94.37844/tmWhite rescale (matches the 3D viewer;
+								// identical with tone mapping off).
+								RefWhite = YWhite / (tmWhite) ;
 							}
 						}
 					}

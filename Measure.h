@@ -82,6 +82,19 @@ struct ColorDENorm
 	ColorDENorm() : whiteY(0.0), refWhite(1.0), markScale(1.0), deScale(1.0) {}
 };
 
+// The primaries/secondaries page's dE normalisation (displayMode 1), so the
+// measures grid, the RGB levels pane, the PDF report and /accuracytest spend
+// the same numbers. See CMeasure::GetPrimaryDENorm. Usage:
+//   measured.GetDeltaE( yWhite, ref, refWhite, ..., gwWeight )
+struct PrimaryDENorm
+{
+	double	yWhite;		// white the MEASUREMENT is normalised by
+	double	refWhite;	// YWhiteRef for the reference
+	int		gwWeight;	// gray-world weight to pass (none in PQ)
+
+	PrimaryDENorm() : yWhite(0.0), refWhite(1.0), gwWeight(0) {}
+};
+
 #define	DUPLGRAYLEVEL		0
 #define	DUPLNEARBLACK		1
 #define	DUPLNEARWHITE		2
@@ -325,6 +338,7 @@ public:
 	double ComputeProfileDE(const CColor & measured, int i) { return ComputeProfileDEEx( measured, i, NULL ); }
 	double GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) const;	// the white the grid normalises sat/CC dE by (measured, NOT the theoretical tmWhite)
 	ColorDENorm GetColorDENorm(int displayMode) const;	// the whole sat/CC dE normalisation, shared by every consumer
+	PrimaryDENorm GetPrimaryDENorm(double yPrimeWhite, int nCol) const;	// the primaries page's dE normalisation; nCol 1..8, 7 = white
 	// Live profile-capture state (not serialized): the profiling pane pauses/observes through these
 	volatile BOOL m_bProfilePause;
 	// The capture is in its reference prologue (grayscale + primaries/secondaries/

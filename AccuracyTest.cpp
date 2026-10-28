@@ -492,7 +492,14 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 	double YWhite = YWhiteIn, RefWhite = 1.0;
 	const CColorReference & cRef = GetColorReference();
 
-	if ( isHDR )
+	if ( isHDR && displayMode == 1 )
+	{
+		// the grid's primaries normalisation itself, not a mirror of it
+		PrimaryDENorm pn = m.GetPrimaryDENorm(YWhite, nCol);
+		YWhite = pn.yWhite;
+		RefWhite = pn.refWhite;
+	}
+	else if ( isHDR )
 	{
 		CColor White = m.GetOnOffWhite();
 		CColor Black = m.GetOnOffBlack();
@@ -503,36 +510,11 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 			// The Mascior disc redefines white as its level-502 (50.0%) patch =
 			// 92.254965 nits, un-snapped, instead of the GDI wire's 50.22831%
 			// code -> TmDiffuseWhiteNits. (MainView.cpp ~3103-3126.)
-			bool shiftDiffuse = ( fabs(cfg->m_DiffuseL - 94.0) > 0.5 );
 			tmWhite = getL_EOTF(0.50, White, Black, cfg->m_GammaRel, cfg->m_Split, 5, cfg->m_DiffuseL,
 								cfg->m_MasterMinL, cfg->m_MasterMaxL, cfg->m_TargetMinL, cfg->m_TargetMaxL,
 								cfg->m_useToneMap, FALSE, cfg->m_TargetSysGamma,
 								cfg->m_BT2390_BS, cfg->m_BT2390_WS, cfg->m_BT2390_WS1) * 100.0;
-			if ( displayMode == 1 )
-			{
-				if ( cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7 )
-					RefWhite = YWhite / ( !shiftDiffuse ? 92.254965 : tmWhite );
-				else
-				{
-					RefWhite = YWhite / tmWhite;
-					YWhite = YWhite * 94.37844 / tmWhite;
-				}
-			}
-			else
-			{
-				if ( ( (cRef.m_standard == UHDTV2 && nCol == satsize) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV ) && displayMode != 11 )
-					RefWhite = YWhite / tmWhite;
-				else
-				{
-					RefWhite = YWhite / tmWhite;
-					YWhite = YWhite * 94.37844 / tmWhite;
-				}
-			}
-		}
-		else if ( displayMode == 1 )
-		{
-			tmWhite = TmDiffuseWhiteNits(White, Black);
-			if ( cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7 )
+			if ( ( (cRef.m_standard == UHDTV2 && nCol == satsize) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV ) && displayMode != 11 )
 				RefWhite = YWhite / tmWhite;
 			else
 			{
