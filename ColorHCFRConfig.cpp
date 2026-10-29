@@ -777,16 +777,18 @@ COLORREF CColorHCFRConfig::GetDEColor(double dE, BOOL bDark) const
 void CColorHCFRConfig::ChangeSettings(int aPage)
 {
 	SetPropertiesSheetValues();
+	// The pages hand these back on OK whether or not their tab was opened, so they
+	// must start from the config, not from whatever the page last held. Done here,
+	// not in SetPropertiesSheetValues: views call that on routine refreshes, which
+	// would wipe a pending TRUE (set by an edit handler) while the sheet is open.
+	m_referencesPropertiesPage.m_bSave=m_bSave;
+	m_advancedPropertiesPage.m_bSave=m_bSave2;
 	m_propertySheet.SetActivePage(aPage);
 	m_propertySheet.DoModal();
 }
 
 void CColorHCFRConfig::SetPropertiesSheetValues()
 {
-	// the pages hand these back on OK whether or not their tab was opened, so they
-	// must start from the config, not from whatever the page last held
-	m_referencesPropertiesPage.m_bSave=m_bSave;
-	m_advancedPropertiesPage.m_bSave=m_bSave2;
 	m_generalPropertiesPage.m_doMultipleInstance=m_doMultipleInstance;
 	m_generalPropertiesPage.m_doUpdateCheck=m_doUpdateCheck;
 	m_generalPropertiesPage.m_updateRing=m_updateRing;

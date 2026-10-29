@@ -6882,12 +6882,24 @@ void CMeasure::UpdateViews ( CDataSetDoc *pDoc, int Sequence )
 		{
 			pDoc ->UpdateAllViews(NULL, UPD_REALTIME + Sequence);
 		}
-		else if ( Sequence == 13 && ((CMainView*)pView)->m_profilePane.GetSafeHwnd() )
+		else if ( Sequence == 13 )
 		{
 			// Real-time display off spares the views a per-patch refresh, but the
 			// profile pane is a capture's only progress readout: without this it
-			// stayed on its first paint for the whole run. Poke it alone.
-			((CMainView*)pView)->m_profilePane.OnCaptureProgress();
+			// stayed on its first paint for the whole run. Poke it alone -- the
+			// pane that is running, which with Window > New Window need not be
+			// the first view's.
+			POSITION posPane = pDoc -> GetFirstViewPosition ();
+			while ( posPane )
+			{
+				CView * pPaneView = pDoc -> GetNextView ( posPane );
+				if ( pPaneView->IsKindOf ( RUNTIME_CLASS ( CMainView ) ) )
+				{
+					CProfilePane & pane = ((CMainView*)pPaneView)->m_profilePane;
+					if ( pane.GetSafeHwnd () && pane.IsRunning () )
+						pane.OnCaptureProgress ();
+				}
+			}
 		}
 	}
 	QueryPerformanceCounter(&_vt1);
