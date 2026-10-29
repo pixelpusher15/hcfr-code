@@ -252,6 +252,7 @@ protected:
 	void InitGroups();
 	void LayoutTopRow();
 	void UpdateParamCombos();	// populate + show/hide the steps/stimulus dropdowns for m_displayMode
+	void ReloadSelectedSatColor();	// re-read the selected saturation patch from the level just bound
 	BOOL CurrentModeSweepHasData();	// any measured value in the current mode's sweep arrays
 	void UpdateContrastValuesInGrid ();
 	CPPToolTip	m_tooltip;

@@ -334,6 +334,16 @@ void CSensorSelectionPropPage::OnSelchangeSensorchoiceCombo()
 			GetDlgItem (IDC_SENSORTRAININGMODE_RADIO2) -> EnableWindow ( FALSE );
 			m_trainingFileCombo.EnableWindow ( FALSE );
 		}
+		else if ( ! bFileFound )
+		{
+			// No file to load, so "use existing" would hand the document an empty
+			// path to open. Put the sensor on the other choice - create a new
+			// correction file (HCFR, simulated) or none (the rest) - which stays
+			// available.
+			CheckRadioButton ( IDC_SENSORTRAININGMODE_RADIO2, IDC_SENSORTRAININGMODE_RADIO1, IDC_SENSORTRAININGMODE_RADIO2 );
+			GetDlgItem (IDC_SENSORTRAININGMODE_RADIO1) -> EnableWindow ( FALSE );
+			m_trainingFileCombo.EnableWindow ( FALSE );
+		}
 	}
 	else
 	{
