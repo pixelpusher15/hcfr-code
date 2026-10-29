@@ -6882,6 +6882,13 @@ void CMeasure::UpdateViews ( CDataSetDoc *pDoc, int Sequence )
 		{
 			pDoc ->UpdateAllViews(NULL, UPD_REALTIME + Sequence);
 		}
+		else if ( Sequence == 13 && ((CMainView*)pView)->m_profilePane.GetSafeHwnd() )
+		{
+			// Real-time display off spares the views a per-patch refresh, but the
+			// profile pane is a capture's only progress readout: without this it
+			// stayed on its first paint for the whole run. Poke it alone.
+			((CMainView*)pView)->m_profilePane.OnCaptureProgress();
+		}
 	}
 	QueryPerformanceCounter(&_vt1);
 	PerfRecordView(1000.0 * (double)(_vt1.QuadPart - _vt0.QuadPart) / (double)_vfr.QuadPart);

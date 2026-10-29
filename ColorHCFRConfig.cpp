@@ -783,6 +783,10 @@ void CColorHCFRConfig::ChangeSettings(int aPage)
 
 void CColorHCFRConfig::SetPropertiesSheetValues()
 {
+	// the pages hand these back on OK whether or not their tab was opened, so they
+	// must start from the config, not from whatever the page last held
+	m_referencesPropertiesPage.m_bSave=m_bSave;
+	m_advancedPropertiesPage.m_bSave=m_bSave2;
 	m_generalPropertiesPage.m_doMultipleInstance=m_doMultipleInstance;
 	m_generalPropertiesPage.m_doUpdateCheck=m_doUpdateCheck;
 	m_generalPropertiesPage.m_updateRing=m_updateRing;
