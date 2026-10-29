@@ -81,7 +81,8 @@ protected:
 	// stats over the measured profile, recomputed lazily (m_statsValid)
 	struct SProfStats
 	{
-		int		count;			// measured (valid) patches
+		int		count;			// graded patches (a dE exists; black has none)
+		int		measured;		// patches with a valid reading, graded or not
 		double	avgDE, maxDE, pct95DE;
 		double	pctGood;		// fraction of patches under the good threshold
 		int		histo[16];		// dE histogram, bin width warn/8
@@ -107,7 +108,7 @@ protected:
 		SProfStats() { Reset(); }
 		void Reset()	// NEVER memset this struct: it holds std::vectors
 		{
-			count = 0;
+			count = measured = 0;
 			avgDE = maxDE = pct95DE = pctGood = 0.0;
 			histoBinW = 0.0;
 			histoOver = 0;
@@ -143,6 +144,7 @@ protected:
 
 	// running-state observables
 	BOOL			m_paused;
+	bool			m_captureSeen;	// this run's capture has been seen running (set once, per run)
 	DWORD			m_lastPatchTick;
 	double			m_emaPatchSecs;
 	int				m_lastSeenIndex;

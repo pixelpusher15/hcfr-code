@@ -75,6 +75,8 @@ CReferencesPropPage::CReferencesPropPage() : CPropertyPageWithHelp(CReferencesPr
     //}}AFX_DATA_INIT
 
 	m_isModified=FALSE;
+	// copied to GetConfig()->m_bSave on OK even when this tab was never opened
+	m_bSave=FALSE;
 	m_pCdm2 = NULL;
 	m_pTFGroup = NULL;
 	m_pCCGroup = NULL;

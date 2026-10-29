@@ -777,6 +777,12 @@ COLORREF CColorHCFRConfig::GetDEColor(double dE, BOOL bDark) const
 void CColorHCFRConfig::ChangeSettings(int aPage)
 {
 	SetPropertiesSheetValues();
+	// The pages hand these back on OK whether or not their tab was opened, so they
+	// must start from the config, not from whatever the page last held. Done here,
+	// not in SetPropertiesSheetValues: views call that on routine refreshes, which
+	// would wipe a pending TRUE (set by an edit handler) while the sheet is open.
+	m_referencesPropertiesPage.m_bSave=m_bSave;
+	m_advancedPropertiesPage.m_bSave=m_bSave2;
 	m_propertySheet.SetActivePage(aPage);
 	m_propertySheet.DoModal();
 }
@@ -928,8 +934,14 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	m_useToneMap=m_referencesPropertiesPage.m_useToneMap;
 	m_ManualBlack=m_referencesPropertiesPage.m_ManualBlack;
 	m_useMeasuredGamma=m_referencesPropertiesPage.m_useMeasuredGamma;
-	m_bSave=m_referencesPropertiesPage.m_bSave;
-	m_bSave2=m_advancedPropertiesPage.m_bSave;
+	// m_bSave has no control behind it, so outside the Preferences sheet the pages
+	// hold whatever they had when it last closed. Only take it from a live sheet;
+	// other ApplySettings(FALSE) callers (the generator page OK) leave it alone.
+	if ( ::IsWindow( m_propertySheet.GetSafeHwnd() ) )
+	{
+		m_bSave=m_referencesPropertiesPage.m_bSave;
+		m_bSave2=m_advancedPropertiesPage.m_bSave;
+	}
 	m_manualGOffset=m_referencesPropertiesPage.m_manualGOffset;
 	m_manualWhitex=m_referencesPropertiesPage.m_manualWhitex;
 	m_manualWhitey=m_referencesPropertiesPage.m_manualWhitey;

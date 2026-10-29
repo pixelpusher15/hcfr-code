@@ -87,6 +87,7 @@ CProfilePane::CProfilePane()
 	, m_pendingAction(PA_NONE)
 	, m_inspectIdx(-1)
 	, m_paused(FALSE)
+	, m_captureSeen(false)
 	, m_lastPatchTick(0)
 	, m_emaPatchSecs(0.0)
 	, m_lastSeenIndex(-1)
@@ -213,7 +214,22 @@ void CProfilePane::SyncChildren()
 		int contentBottom = rc.Height() - GetConfig()->Scale( 12 );	// matches OnPaint's bottom inset
 		int h = GetConfig()->Scale( 20 );
 		int x = m_contentDX;
-		int w = min( GetConfig()->Scale( 360 ), contentW / 2 - GetConfig()->Scale( 10 ) );
+		// Wide enough for the longer label in the active language (a fixed width
+		// clipped the English drift label's closing parenthesis, and FR/DE run
+		// longer still), but never past the left half.
+		auto fitW = [&] ( CButton & b ) -> int
+		{
+			CString txt;
+			b.GetWindowText( txt );
+			CClientDC dc( &b );
+			CFont * pOld = dc.SelectObject( b.GetFont() );
+			int tw = dc.GetTextExtent( txt ).cx;
+			dc.SelectObject( pOld );
+			// check glyph, the gap Windows leaves before the label, and slack
+			return tw + GetSystemMetrics( SM_CXMENUCHECK ) + GetConfig()->Scale( 12 );
+		};
+		int w = min( max( fitW( m_chkGrayExtras ), fitW( m_chkDriftComp ) ),
+					 contentW / 2 - GetConfig()->Scale( 10 ) );
 		if ( w < GetConfig()->Scale( 120 ) ) w = GetConfig()->Scale( 120 );
 		// stacked, anchored to the content bottom (same row band as the Start button)
 		int y2 = contentBottom - h;						// bottom checkbox row
@@ -244,6 +260,7 @@ void CProfilePane::EnterRunning()
 {
 	m_state = PS_RUNNING;
 	m_paused = FALSE;
+	m_captureSeen = false;
 	m_lastPatchTick = GetTickCount();
 	m_emaPatchSecs = GetConfig()->GetProfileInt("MainView", "Profile PatchMs", 1800) / 1000.0;
 	m_lastSeenIndex = -1;
@@ -293,6 +310,8 @@ void CProfilePane::OnCaptureProgress()
 	CMeasure * pMeasure = Measure();
 	if ( !pMeasure || m_state != PS_RUNNING )
 		return;
+	if ( pMeasure->m_bProfileCapturing )
+		m_captureSeen = true;
 
 	// The reference prologue is not cube patches. It runs with m_currentIndex
 	// still 0, so without this it would seed m_lastSeenIndex/m_lastPatchTick
@@ -792,9 +811,12 @@ CString CProfilePane::StatusLine() const
 		case PS_RUNNING:
 			if ( pMeasure )
 			{
-				int n = pMeasure->GetProfileCubeSize();
+				// The pane's own choices ARE this capture's parameters. The document
+				// only takes them once MeasureDisplayProfile resets its profile, after
+				// generator and sensor Init, and until then still describes the last one.
+				int n = GetCubeSize();
 				s.Format( S( IDS_PP_RUNSTATUS ), n, n, n,
-						  (LPCTSTR)( pMeasure->GetProfileGrayExtras() ? S( IDS_PP_GRAYNEARBLACK ) : CString() ),
+						  (LPCTSTR)( m_grayExtras ? S( IDS_PP_GRAYNEARBLACK ) : CString() ),
 						  (LPCTSTR)( m_driftComp ? S( IDS_PP_DRIFTCOMPON ) : CString() ),
 						  (LPCTSTR)( m_paused ? S( IDS_PP_PAUSED ) : CString() ) );
 			}
@@ -818,7 +840,7 @@ CString CProfilePane::StatusLine() const
 				}
 				s.Format( S( IDS_PP_SUMSTATUS ), n, n, n,
 						  (LPCTSTR)( pMeasure->GetProfileGrayExtras() ? S( IDS_PP_GRAYNEARBLACK ) : CString() ),
-						  m_stats.count, pMeasure->GetProfileMeasureSize(),
+						  m_stats.measured, pMeasure->GetProfileMeasureSize(),	// black is measured but has no dE
 						  (LPCTSTR)FormatDuration( pMeasure->GetProfileCaptureSeconds() ),
 						  (LPCTSTR)drift );
 			}
@@ -985,22 +1007,35 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	CMeasure * pMeasure = Measure();
 	if ( !pMeasure )
 		return;
-	int total = pMeasure->GetProfileMeasureSize();
-	int cur = min( pMeasure->m_currentIndex, total );
+	// EnterRunning paints before MeasureDisplayProfile has reset the document's
+	// profile (generator and sensor Init come first, and can sit on a dialog), so
+	// until the capture flags itself running the measure still describes the
+	// PREVIOUS capture. Show this one instead: its size from the pane's own
+	// preset, and the reference prologue that is about to start. Latched, because
+	// the capture clears the flag again before its last progress poke.
+	if ( pMeasure->m_bProfileCapturing )
+		m_captureSeen = true;
+	const bool bStarting = !m_captureSeen;
+	int total = bStarting ? max( GenerateProfileColors( NULL, 0, GetCubeSize(), m_grayExtras != FALSE ), 0 )
+						  : pMeasure->GetProfileMeasureSize();
+	int cur = bStarting ? 0 : min( pMeasure->m_currentIndex, total );
+	int refN = bStarting ? pMeasure->GetProfileRefReadCount() : pMeasure->m_profileRefCount;
+	double drift = bStarting ? 0.0 : pMeasure->m_profileCurrentDrift;
 	const int CW = rc.Width();
 	const int CH = rc.Height();
 
 	// current patch swatch + label + progress bar (status is in the chrome row)
 	int swSz = GetConfig()->Scale( 48 );
 	int y = 0;
-	ColorRGBDisplay cur_rgb = ( total > 0 ) ? pMeasure->GetProfilePatchRGB( min( cur, total - 1 ) )
-											: ColorRGBDisplay( 0.0 );
+	ColorRGBDisplay cur_rgb = ( total > 0 && !bStarting ) ? pMeasure->GetProfilePatchRGB( min( cur, total - 1 ) )
+														  : ColorRGBDisplay( 0.0 );
 	// The capture runs its reference prologue (the grayscale and secondaries
 	// sweeps' patches) before patch 0. Labelling it "Patch 1 of N" would be wrong
 	// -- no cube patch has been measured yet -- so it gets its own count, and the
 	// swatch shows the stimulus actually on screen.
-	const bool bRefs = ( pMeasure->m_bProfileMeasuringRefs != FALSE );
-	if ( bRefs )
+	const bool bRefs = bStarting || ( pMeasure->m_bProfileMeasuringRefs != FALSE );
+	int refIdx = bStarting ? 0 : pMeasure->m_profileRefIndex;
+	if ( bRefs && !bStarting )
 		cur_rgb = pMeasure->m_profileShownRGB;
 	CRect rcSw( 0, y, swSz, y + swSz );
 	FillRound( g, rcSw, 5, SwatchColor( cur_rgb ) );
@@ -1011,15 +1046,14 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	int etaW = GetConfig()->Scale( 210 );
 	CString line;
 	if ( bRefs )
-		line.Format( S( IDS_PP_MEASURINGREFS ), pMeasure->m_profileRefIndex + 1, pMeasure->m_profileRefCount );
+		line.Format( S( IDS_PP_MEASURINGREFS ), refIdx + 1, refN );
 	else
 		line.Format( S( IDS_PP_PATCHOF ), min( cur + 1, total ), total,
 					 cur_rgb[0], cur_rgb[1], cur_rgb[2] );
 	DrawStr( g, line, fBody, Gdiplus::RectF( (float)barX, (float)y, (float)( barW - etaW - GetConfig()->Scale( 8 ) ), 22.0f ), t.text );
 
 	// the bar, percentage and ETA all count the prologue's reads too
-	int refN = pMeasure->m_profileRefCount;
-	int refDone = bRefs ? pMeasure->m_profileRefIndex : refN;
+	int refDone = bRefs ? refIdx : refN;
 	double frac = ( total + refN ) > 0 ? (double)( cur + refDone ) / ( total + refN ) : 0.0;
 	int remain = ( total - cur ) + max( refN - refDone, 0 );
 	CString eta;
@@ -1055,7 +1089,7 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 	else
 		v[0] = v[1] = "-";
 	if ( pMeasure->GetProfileDriftComp() || m_driftComp )
-		v[2].Format( "%+.1f%%", pMeasure->m_profileCurrentDrift * 100.0 );
+		v[2].Format( "%+.1f%%", drift * 100.0 );
 	else
 		v[2] = S( IDS_PP_OFF );
 	v[3].Format( "%.1f s", m_emaPatchSecs );
@@ -1073,7 +1107,7 @@ void CProfilePane::PaintRunning(Gdiplus::Graphics & g, const CRect & rc, bool da
 		DrawStr( g, lbl[i], fSmall, Gdiplus::RectF( (float)x + 10, (float)y + 5, (float)tileW - 20, 18.0f ), t.dimtxt );
 		Gdiplus::Color vc = t.text;
 		if ( i == 1 && m_runDECount > 0 && m_runMaxDE >= warn ) vc = t.danger;
-		if ( i == 2 && fabs( pMeasure->m_profileCurrentDrift ) > 0.02 ) vc = t.danger;
+		if ( i == 2 && fabs( drift ) > 0.02 ) vc = t.danger;
 		DrawStr( g, v[i], fBig, Gdiplus::RectF( (float)x + 10, (float)y + 20, (float)tileW - 20, 24.0f ), vc );
 		x += tileW + gap;
 	}
@@ -1159,7 +1193,10 @@ void CProfilePane::ComputeStats()
 		// one call for the total AND its breakdown: the reference model behind it
 		// (GetRefProfileSat) is the expensive part and is shared
 		CMeasure::ProfileDEParts parts;
-		double dE = pMeasure->ComputeProfileDEEx( pMeasure->GetProfileMeasure( i ), i, &parts );
+		const CColor & c = pMeasure->GetProfileMeasure( i );
+		if ( c.isValid() )
+			m_stats.measured++;
+		double dE = pMeasure->ComputeProfileDEEx( c, i, &parts );
 		if ( dE < 0.0 )
 			continue;
 		des.push_back( dE );
