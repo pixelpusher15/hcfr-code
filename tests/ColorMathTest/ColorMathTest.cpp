@@ -995,7 +995,7 @@ static void RunT11()
 //    re-entering getL_EOTF with mode 5 and cBT2390 = TRUE, which meant the
 //    build had to survive the guards at the top of that function and the
 //    `ToneMap && mode == 5` promotion to case 10. Two ways through without a
-//    table: a valx of 0 tripped the `valx == 0 && mode > 4` early return and
+//    table: a valx of 0 tripped the `valx == 0` PQ early return and
 //    came back BEFORE the cBT2390 branch ran, and a caller arriving at mode
 //    -10 with ToneMap false skipped the promotion entirely. Either way the
 //    vectors held whatever they held - empty on the first such call - and the

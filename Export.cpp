@@ -1757,7 +1757,17 @@ bool CExport::SaveGrayScaleSheet()
 			    YWhite = aColor [ 1 ];
 		}
 		
-		Rows.Add((float)m_pDoc->GetMeasure()->GetGray(j).GetDeltaE(YWhite, refColor, 1.0, GetColorReference(), 	GetConfig()->m_dE_form, true, GetConfig()->gw_Weight ));
+		// Black's dE on the grid cell's terms (BlackTargetReference): against
+		// the w/gamma target where that has light, its tint alone where not,
+		// and an empty cell for a black with no measured light rather than a
+		// number against a target of nothing.
+		CColor dERef = ( j > 0 ) ? refColor
+					 : HasMeasuredLight ( aColor.GetY() ) ? BlackTargetReference ( aColor, YWhite, refColor, GetColorReference().GetWhite() )
+					 : noDataColor;
+		if ( dERef.isValid() )
+			Rows.Add((float)m_pDoc->GetMeasure()->GetGray(j).GetDeltaE(YWhite, dERef, 1.0, GetColorReference(), 	GetConfig()->m_dE_form, true, GetConfig()->gw_Weight ));
+		else
+			Rows.Add("");
 	}
 	result&=graySS.AddRow(Rows,rowNb,m_doReplace);
 	rowNb++;

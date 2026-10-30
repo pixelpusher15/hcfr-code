@@ -1275,6 +1275,20 @@ LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 	return 0;
 }
 
+// Empties `count` selected-colour rows ending `skip` rows above Item.row (the
+// last row AddColorToGrid wrote), leaving Item.row where it was.
+void CMainView::BlankSelectedColorRows(GV_ITEM& Item, int count, int skip)
+{
+    int lastRow = Item.row;
+    Item.strText.Empty();
+    for (int r = lastRow - skip - count + 1; r <= lastRow - skip; r++)
+    {
+        Item.row = r;
+        m_pSelectedColorGrid->SetItem(&Item);
+    }
+    Item.row = lastRow;
+}
+
 void CMainView::AddColorToGrid(const ColorTriplet& color, GV_ITEM& Item, const char* format)
 {
     Item.strText.Format(format, color[0]);
@@ -1408,8 +1422,17 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		m_pSelectedColorGrid->SetItem(&Item);
 
 		aColorTemp = m_SelectedColor.GetXYZValue().GetColorTemp(GetColorReference());
+		// A no-light read carries the sensor floor's equal-energy xy, so its
+		// colour temperature (~5455 K) and chromaticity rows are not readings.
+		BOOL bNoLight = !HasMeasuredLight ( m_SelectedColor.GetY() );
 		
-		if ( aColorTemp < 1500 )
+		if ( bNoLight )
+		{
+			Item.strText.Empty();
+			Item.row = 2;
+			m_pSelectedColorGrid->SetItem(&Item);
+		}
+		else if ( aColorTemp < 1500 )
 		{
 			Item.strText = _T("< 1500");
 			Item.row = 2;
@@ -1432,7 +1455,11 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
         AddColorToGrid(m_SelectedColor.GetXYZValue(), Item, "%.2f");
         AddColorToGrid(m_SelectedColor.GetRGBValue(bRef), Item, "%.2f");
         AddColorToGrid(m_SelectedColor.GetxyYValue(), Item, "%.3f");
+		if ( bNoLight )
+			BlankSelectedColorRows ( Item, 2, 1 );	// x and y; Y is a reading
         AddColorToGrid(m_SelectedColor.GetxyzValue(), Item, "%.3f");
+		if ( bNoLight )
+			BlankSelectedColorRows ( Item, 3, 0 );
         AddColorToGrid(m_SelectedColor.GetLabValue(YWhite, bRef), Item, "%.2f");
         AddColorToGrid(m_SelectedColor.GetLCHValue(YWhite, bRef), Item, "%.2f");
         AddColorToGrid(m_SelectedColor.GetLMSValue(1.0, bRef), Item, "%.2f");
@@ -3070,27 +3097,6 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	}
 }
 
-// Reference for the grayscale grid's black (0%) cells. The w/gamma target
-// there is the transfer function's own value: above zero for BT.1886 and
-// black compensation, which put the display's measured black there, but
-// exactly zero for a pure power law, L*, sRGB, and HLG or PQ without tone mapping.
-// A zero target has no finite luminance error, and with Y == 0 its XYZ is
-// all zeros, so the white point's chromaticity is gone with it. Rebuild it
-// from the reference white at the measured luminance - the target
-// "Absolute Y w/o gamma" uses - which leaves black's tint as the only error,
-// the same fallback the RGB levels make (RGBLevelWnd.cpp), whose dE uses
-// this too so the pane and the grid cell print the same number.
-CColor CMainView::BlackCellReference ( const CColor & aMeasure, double YWhite, const CColor & aReference )
-{
-	if ( aReference.GetY() > 0.0 )
-		return aReference;
-
-	ColorxyY tmpColor ( GetColorReference().GetWhite() );
-	tmpColor[2] = aMeasure.GetY() / YWhite;
-	CColor blackRef;
-	blackRef.SetxyYValue ( tmpColor );
-	return blackRef;
-}
 
 CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aReference, CColor & aRefDocColor, double YWhiteRefDoc, int aComponentNum, int nCol, double Offset, bool isGS)
 {
@@ -3114,19 +3120,20 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					str.Format("%.3f",aMeasure.GetRGBValue(bRef)[aComponentNum]);
 					break;
 				case HCFR_xyz2_VIEW:
-					if (aMeasure.GetY() == 0)
+					// No light: the chromaticity would be the sensor floor's 1/3, 1/3.
+					if ( !HasMeasuredLight ( aMeasure.GetY() ) )
 						str.Format("%s","nan");
 					else
 						str.Format("%.4f",aMeasure.GetxyzValue()[aComponentNum]);
 					break;
 				case HCFR_xyY_VIEW:
                     if (aComponentNum < 2)
-						if (aMeasure.GetY() == 0)
+						if ( !HasMeasuredLight ( aMeasure.GetY() ) )
 							str.Format("%s","nan");
 						else
     						str.Format("%.4f",aMeasure.GetxyYValue()[aComponentNum]);
                     else
-						if (aMeasure.GetY() == 0)
+						if ( !HasMeasuredLight ( aMeasure.GetY() ) )
 							str.Format("%s","0");
 						else
 	    					str.Format("%.3f",aMeasure.GetxyYValue()[aComponentNum]);
@@ -3192,9 +3199,11 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						// Black (nCol 1) prints its dE whenever the patch has light in
 						// it - below BLACK_MIN_LIGHT_Y there is no chromaticity to be
 						// wrong about, only the sensor floor's equal-energy point.
-						// Against a w/gamma target above zero (BT.1886, black
-						// compensation) it is the usual dE; where the target is zero
-						// BlackCellReference falls back to the measured luminance, so
+						// Against a w/gamma target with light (BT.1886, black
+						// compensation, HLG with a target black, tone-mapped PQ, the
+						// camera-gamma offsets) it is
+						// the usual dE; where the target has none
+						// BlackTargetReference falls back to the measured luminance, so
 						// it is the chromaticity error alone. That is the number CalMAN
 						// prints at 0%, and it answers "did I tint my black" - the rest
 						// of the row has no way to show it.
@@ -3203,9 +3212,11 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						// average is over the measured ramp; folding black in would move
 						// a headline number that reaches the export and break comparison
 						// with every document measured before this.
-						if ( nCol == 1 && aMeasure.GetY() > BLACK_MIN_LIGHT_Y )
+						CColor blackRef = ( nCol == 1 && HasMeasuredLight ( aMeasure.GetY() ) )
+										  ? BlackTargetReference ( aMeasure, YWhite, aReference, GetColorReference().GetWhite() )
+										  : noDataColor;
+						if ( blackRef.isValid() )
 						{
-							CColor blackRef = BlackCellReference ( aMeasure, YWhite, aReference );
 							double dEblack = aMeasure.GetDeltaE ( YWhite, blackRef, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->m_GammaOffsetType == 5?3:GetConfig()->gw_Weight );
 							str.Format("%.1f",dEblack);
 							if (GetConfig()->doHighlight)
@@ -3319,13 +3330,16 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 		{
 			if ( aReference.isValid() && (nCol > 1 || ( m_displayMode != 0 && m_displayMode != 3)) )
 				str.Format("%.4f",aMeasure.GetDeltaxy ( aReference, bRef) );
-			else if ( aReference.isValid() && nCol == 1 && aMeasure.GetY() > BLACK_MIN_LIGHT_Y )
+			else if ( aReference.isValid() && nCol == 1 && HasMeasuredLight ( aMeasure.GetY() ) )
 			{
 				// Black's xy error is luminance-free, so it means something on
 				// every setting once the patch has light in it. The reference
 				// is rebuilt where a zero target lost its chromaticity.
-				CColor blackRef = BlackCellReference ( aMeasure, YWhite, aReference );
-				str.Format("%.4f",aMeasure.GetDeltaxy ( blackRef, bRef) );
+				CColor blackRef = BlackTargetReference ( aMeasure, YWhite, aReference, GetColorReference().GetWhite() );
+				if ( blackRef.isValid() )
+					str.Format("%.4f",aMeasure.GetDeltaxy ( blackRef, bRef) );
+				else
+					str.Empty ();
 			}
 			else
 				str.Empty ();
@@ -4079,7 +4093,7 @@ void CMainView::UpdateGrid()
 		if (!GetConfig()->m_bOverRideTargs && Black.isValid() && White.isValid() && (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7))
 		{
 			if (Black.GetY() < White.GetY())
-				GetConfig()->m_TargetMinL = Black.GetY()>1e-5?Black.GetY():0.0;
+				GetConfig()->m_TargetMinL = HasMeasuredLight ( Black.GetY() ) ? Black.GetY() : 0.0;
 			else
 				GetConfig()->m_TargetMinL = 0.0;
 
@@ -4660,7 +4674,7 @@ void CMainView::UpdateGrid()
 				    Msg += szBuf;					
 				    Tmp.LoadString ( IDS_CONTRAST );
 				    Msg += Tmp;
-				    if ( GetDocument()->GetMeasure()->GetGray(0).isValid() && GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] > BLACK_MIN_LIGHT_Y )
+				    if ( GetDocument()->GetMeasure()->GetGray(0).isValid() && HasMeasuredLight ( GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] ) )
 				    {
 					    sprintf ( szBuf, ": %.0f:1 )", GetDocument()->GetMeasure()->GetOnOffWhite()[1] / GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] );
 					    Msg += szBuf;
@@ -5068,7 +5082,7 @@ void CMainView::UpdateContrastValuesInGrid ()
 	if ( GetDocument()->GetMeasure()->GetAnsiContrast () > 0.0 )
 		Item.strText.Format ( "%.0f:1", GetDocument()->GetMeasure()->GetAnsiContrast () );
 	else
-		if ( GetDocument()->GetMeasure()->GetOnOffContrast () == -1 )
+		if ( GetDocument()->GetMeasure()->GetAnsiContrast () == -1 )
 			Item.strText.Format ("%s","Infinite");
 		else
 			Item.strText.Format ("%s","undefined");

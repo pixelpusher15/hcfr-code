@@ -129,6 +129,7 @@ public:
 
 private:
     void AddColorToGrid(const ColorTriplet& color, GV_ITEM& Item, const char* format);
+    void BlankSelectedColorRows(GV_ITEM& Item, int count, int skip);
 
     BOOL		m_bPositionsInit;
     BOOL		m_bInSizeMove;
@@ -259,9 +260,6 @@ protected:
 	CString GetItemText(CColor & aMeasure, double YWhite, CColor & aReference, CColor & aRefDocColor, double YWhiteRefDoc, int aComponentNum, int nCol, double Offset, bool isGS);
 	LPSTR GetGridRowLabel(int aComponentNum);
 	bool binfoRedraw;
-public:
-	static CColor BlackCellReference ( const CColor & aMeasure, double YWhite, const CColor & aReference );	// black's dE/xy target, shared with CRGBLevelWnd
-protected:
 // Overrides
 	// ClassWizard generated virtual function overrides
 	//{{AFX_VIRTUAL(CMainView)

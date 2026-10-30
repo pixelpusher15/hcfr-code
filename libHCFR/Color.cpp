@@ -1646,12 +1646,18 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 	// HLG black is its OOTF's lift, bbc_beta / White.Y (case 7 below): the
 	// display's target black against its own white, scaled like every other
 	// HLG step. Returned here because the OOTF itself would take
-	// pow(0, bbc_gamma - 1), inf for a system gamma below 1. The PQ shortcut
-	// on the next line used to catch HLG too, handing it m_MinTL / 100 - PQ's
-	// /100 nit scaling, keyed off PQ's tone-mapping switch: zero with tone
-	// mapping off, and with it on a target too bright by White.Y / 100.
+	// pow(0, bbc_gamma - 1), inf for a system gamma below 1.
+	//
+	// The shortcut after it is PQ's: m_MinTL / 100 is PQ's /100 nit scaling,
+	// keyed off its tone-mapping switch (the DV curves, 8 and 9, keep the
+	// shortcut as they had it; their tables are relative to their own peak, so
+	// that value is legacy). It used to
+	// catch every mode above 4, so HLG, L* and sRGB took it too - zero with
+	// tone mapping off, and with it on (the switch persists after leaving PQ)
+	// a black target L* and sRGB do not have and HLG had scaled wrongly. L*
+	// and sRGB come out at exactly 0 from their own formulas below.
 	if (valx == 0 && mode == 7) return ( White.isValid() && White.GetY() > 0.0 ) ? m_MinTL / White.GetY() : 0.0;
-	if (valx == 0 && mode > 4) return (ToneMap?m_MinTL / 100.:0.0);
+	if (valx == 0 && ( mode == 5 || mode == 8 || mode == 9 )) return (ToneMap?m_MinTL / 100.:0.0);
 	if (valx < 0)
 		valx = 0;
 	if (valx > 1)
@@ -1781,7 +1787,7 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 				// Which is just as well, because getting here is still gated on the
 				// SIGNAL as well as on `ToneMap && mode == 5` promoting to case 10: a
 				// caller asking for a rebuild with valx == 0 takes the
-				// `valx == 0 && mode > 4` early return at the top of this function and
+				// `valx == 0` PQ early return at the top of this function and
 				// builds nothing, leaving BT2390x/y as they were. That is the half of
 				// MATH-008 case -10 used to be exposed to; it is why case -10 calls
 				// BuildBT2390Table itself rather than coming through here, and it is
@@ -1798,7 +1804,7 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 				// mode 5 and cBT2390 = TRUE, which made the build depend on getting past
 				// the top-of-function guards and on `ToneMap && mode == 5` promoting to
 				// case 10. Both let it through without a table: a valx of 0 tripped the
-				// `valx == 0 && mode > 4` early return and came back before the branch
+				// `valx == 0` PQ early return and came back before the branch
 				// ran (MATH-008), and a caller reaching mode -10 with ToneMap false
 				// skipped the promotion entirely - either way the search below indexed
 				// BT2390y[0] on an empty vector. Calling the builder directly removes the
@@ -4143,3 +4149,32 @@ double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, 
 	return floor(v + 0.5) / grid;
 }
 
+
+// Reference for black (0%) on the grayscale page, shared by the grid cells
+// and the RGB levels pane, so they print one number, and by the dE chart,
+// the CIE chart and the export (the charts and export weigh gray-world
+// differently in PQ, as they do on every step).
+// The w/gamma target there is the transfer function's own: the display's
+// black for BT.1886, black compensation and HLG with a target black, light
+// for tone-mapped PQ and the camera-gamma offsets, but exactly zero for a
+// pure power law, L*, sRGB and PQ without tone mapping.
+// A zero target has no finite luminance error, and with Y == 0 its XYZ is all
+// zeros, so the white point's chromaticity is gone with it: rebuild it from
+// the reference white at the measured luminance - the target "Absolute Y
+// w/o gamma" uses - which leaves black's tint as the only error. The test is
+// in cd/m2 (aReference's Y is relative to YWhite), so a target built from a
+// floored on/off black counts as zero instead of blowing the ratio up.
+// noDataColor when there is no target or no white to scale by.
+CColor BlackTargetReference ( const CColor & aMeasure, double YWhite, const CColor & aReference, const CColor & refWhite )
+{
+	if ( !aReference.isValid() || !( YWhite > 0.0 ) )
+		return noDataColor;
+	if ( HasMeasuredLight ( aReference.GetY() * YWhite ) )
+		return aReference;
+
+	ColorxyY tmpColor ( refWhite.GetxyYValue() );
+	tmpColor[2] = aMeasure.GetY() / YWhite;
+	CColor blackRef;
+	blackRef.SetxyYValue ( tmpColor );
+	return blackRef;
+}

@@ -765,11 +765,18 @@ extern CColor theMeasure;
 extern CColor noDataColor;
 
 // Sensor reads come back with X, Y and Z each floored at 1e-8
-// (CSensor::MeasureColor), so a black with no light in it still has Y > 0 -
-// at the equal-energy point, x = y = 1/3, which looks like a real tint.
-// Below this luminance (cd/m2) a patch has no colour to report; it is the
-// same cut the contrast readout uses to print Infinity.
-const double BLACK_MIN_LIGHT_Y = 0.0001;
+// (CSensor::MeasureColor), so a reading of no light still has Y > 0 - at
+// the equal-energy point, x = y = 1/3, which looks like a real tint. This
+// cut (cd/m2) tells that placeholder from light: 100x above the floor and
+// well under the ~1e-5 the most sensitive calibration meters resolve, so
+// every real reading, however dark, is kept. The contrast readouts use it
+// too (grayscale header and on/off), so "Infinity" and an empty black
+// agree.
+const double BLACK_MIN_LIGHT_Y = 0.000001;
+inline bool HasMeasuredLight ( double Y ) { return Y > BLACK_MIN_LIGHT_Y; }
+
+// Target for black (0%) on the grayscale page - see Color.cpp.
+extern CColor BlackTargetReference ( const CColor & aMeasure, double YWhite, const CColor & aReference, const CColor & refWhite );
 
 // Tool functions
 extern void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode = 0, double stimLevel = 1.0, bool b10bit = false, bool is16_235 = true);
