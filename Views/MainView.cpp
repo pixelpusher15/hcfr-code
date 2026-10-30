@@ -3070,6 +3070,27 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	}
 }
 
+// Reference for the grayscale grid's black (0%) cells. The w/gamma target
+// there is the transfer function's own value: above zero for BT.1886 and
+// black compensation, which put the display's measured black there, but
+// exactly zero for a pure power law, L*, sRGB, and HLG or PQ without tone mapping.
+// A zero target has no finite luminance error, and with Y == 0 its XYZ is
+// all zeros, so the white point's chromaticity is gone with it. Rebuild it
+// from the reference white at the measured luminance - the target
+// "Absolute Y w/o gamma" uses - which leaves black's tint as the only error,
+// the same fallback the RGB levels make (RGBLevelWnd.cpp), whose dE uses
+// this too so the pane and the grid cell print the same number.
+CColor CMainView::BlackCellReference ( const CColor & aMeasure, double YWhite, const CColor & aReference )
+{
+	if ( aReference.GetY() > 0.0 )
+		return aReference;
+
+	ColorxyY tmpColor ( GetColorReference().GetWhite() );
+	tmpColor[2] = aMeasure.GetY() / YWhite;
+	CColor blackRef;
+	blackRef.SetxyYValue ( tmpColor );
+	return blackRef;
+}
 
 CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aReference, CColor & aRefDocColor, double YWhiteRefDoc, int aComponentNum, int nCol, double Offset, bool isGS)
 {
@@ -3168,21 +3189,24 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 							m_RefColor[2] = 0;
 						}
 
-						// Black (nCol 1) prints its dE where the normalisation makes it
-						// a chromaticity error: m_dE_gray 2 / dE_form 5 set the target's
-						// luminance to the measured one, which is why the Y target cell
-						// beside it already reads back the measurement. That is the
-						// number CalMAN prints at 0%, and it answers "did I tint my
-						// black" - the rest of the row has no way to show it.
+						// Black (nCol 1) prints its dE whenever the patch has light in
+						// it - below BLACK_MIN_LIGHT_Y there is no chromaticity to be
+						// wrong about, only the sensor floor's equal-energy point.
+						// Against a w/gamma target above zero (BT.1886, black
+						// compensation) it is the usual dE; where the target is zero
+						// BlackCellReference falls back to the measured luminance, so
+						// it is the chromaticity error alone. That is the number CalMAN
+						// prints at 0%, and it answers "did I tint my black" - the rest
+						// of the row has no way to show it.
 						//
 						// Deliberately NOT added to dEavg/dEmax/dEcnt. The grayscale
 						// average is over the measured ramp; folding black in would move
 						// a headline number that reaches the export and break comparison
 						// with every document measured before this.
-						if ( nCol == 1 && aMeasure.GetY() > 0.0
-							 && ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) )
+						if ( nCol == 1 && aMeasure.GetY() > BLACK_MIN_LIGHT_Y )
 						{
-							double dEblack = aMeasure.GetDeltaE ( YWhite, aReference, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->m_GammaOffsetType == 5?3:GetConfig()->gw_Weight );
+							CColor blackRef = BlackCellReference ( aMeasure, YWhite, aReference );
+							double dEblack = aMeasure.GetDeltaE ( YWhite, blackRef, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->m_GammaOffsetType == 5?3:GetConfig()->gw_Weight );
 							str.Format("%.1f",dEblack);
 							if (GetConfig()->doHighlight)
 							{
@@ -3295,6 +3319,14 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 		{
 			if ( aReference.isValid() && (nCol > 1 || ( m_displayMode != 0 && m_displayMode != 3)) )
 				str.Format("%.4f",aMeasure.GetDeltaxy ( aReference, bRef) );
+			else if ( aReference.isValid() && nCol == 1 && aMeasure.GetY() > BLACK_MIN_LIGHT_Y )
+			{
+				// Black's xy error is luminance-free, so it means something on
+				// every setting once the patch has light in it. The reference
+				// is rebuilt where a zero target lost its chromaticity.
+				CColor blackRef = BlackCellReference ( aMeasure, YWhite, aReference );
+				str.Format("%.4f",aMeasure.GetDeltaxy ( blackRef, bRef) );
+			}
 			else
 				str.Empty ();
 		}
@@ -4628,7 +4660,7 @@ void CMainView::UpdateGrid()
 				    Msg += szBuf;					
 				    Tmp.LoadString ( IDS_CONTRAST );
 				    Msg += Tmp;
-				    if ( GetDocument()->GetMeasure()->GetGray(0).isValid() && GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] > 0.0001 )
+				    if ( GetDocument()->GetMeasure()->GetGray(0).isValid() && GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] > BLACK_MIN_LIGHT_Y )
 				    {
 					    sprintf ( szBuf, ": %.0f:1 )", GetDocument()->GetMeasure()->GetOnOffWhite()[1] / GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] );
 					    Msg += szBuf;

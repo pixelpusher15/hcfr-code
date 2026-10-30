@@ -373,21 +373,23 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 
             ColorXYZ normColor;
 
-            // Column 1 of the grayscale and near-black pages is black, and it was
-            // excluded outright: selecting 0% read 0.0% on all three bars while the
-            // balance chart beside it plots that very patch. Let it through on the
-            // same terms the chart uses (rgbhistoview.cpp) - the w/gamma
-            // normalisation divides by a target luminance that is exactly 0 at
-            // black, so only the chromaticity-only settings survive there, and the
-            // patch needs light in it for its xy to mean anything. Free measures
+            // Column 1 of the grayscale and near-black pages is black. It shows
+            // whenever the patch has light in it - below BLACK_MIN_LIGHT_Y its xy is
+            // the sensor floor's equal-energy point, not a reading. Where the w/gamma target at black is above
+            // zero (BT.1886, black compensation) the usual ratio applies. Where it
+            // is exactly zero (power law, L*, sRGB, HLG/PQ untonemapped) that
+            // ratio has no finite value, so the bars fall back to black's tint
+            // alone, the reading black is adjusted against. The balance chart
+            // (rgbhistoview.cpp) leaves that point out instead. Free measures
             // reach here with minCol 1 meaning something else, and carrying a stale
             // m_displayMode - MainView's case 2 assigns none of last_Col, last_Size
             // or last_Display - so one selected after a grayscale or near-black
-            // column arrives labelled as that page and does take this clause. What
-            // it then reports agrees with the other free-measure columns, so it is
-            // left that way.
-            if(aColor[1] > 0.0 && (minCol != 1 || m_displayMode == 4
-                || ((m_displayMode == 0 || m_displayMode == 3) && GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0)))
+            // column arrives labelled as that page and does take this clause.
+            BOOL bBlackCol = ( minCol == 1 && ( m_displayMode == 0 || m_displayMode == 3 ) );
+            if ( bBlackCol && GetConfig()->m_dE_gray == 1 && tmpColor[2] <= 0.0 )
+                fact = 1.0;
+
+            if(aColor[1] > 0.0 && (minCol != 1 || m_displayMode == 4 || (bBlackCol && aColor[2] > BLACK_MIN_LIGHT_Y)))
             {
                 normColor[0]=(aColor[0]/aColor[1])*fact;
                 normColor[1]=1.0*fact;
@@ -537,8 +539,13 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 				}
 			}
 		}
+		// Black's target goes through the grid cell's helper, so a zero w/gamma
+		// target that lost its chromaticity is rebuilt the same way there and here.
+		CColor dERef = aReference;
+		if ( minCol == 1 && !m_bLumaMode && ( m_displayMode == 0 || m_displayMode == 3 ) && aReference.isValid() )
+			dERef = CMainView::BlackCellReference ( *m_pRefColor, YWhite, aReference );
 		// the grid's gray-world weight: none in PQ
-		m_dEValue = aReference.isValid()?float(m_pRefColor->GetDeltaE(YWhite, aReference, RefWhite, cRef, GetConfig()->m_dE_form, !m_bLumaMode, GetConfig()->m_GammaOffsetType == 5 ? 3 : GetConfig()->gw_Weight )):0 ;
+		m_dEValue = aReference.isValid()?float(m_pRefColor->GetDeltaE(YWhite, dERef, RefWhite, cRef, GetConfig()->m_dE_form, !m_bLumaMode, GetConfig()->m_GammaOffsetType == 5 ? 3 : GetConfig()->gw_Weight )):0 ;
     } //have valid m_prefcolor
 	else
 	{
@@ -546,17 +553,14 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		//m_pRef
 	}
 
-	// Black keeps its dE where the normalisation makes it a chromaticity error,
-	// which is the rule the balance chart and the grayscale grid cell already use:
-	// m_dE_gray 2 / dE_form 5 set the target's luminance to the measured one, so
-	// what is left is "is my black tinted". Under the others the target at black
-	// is Y = 0 and the number would be an error against an ideal zero, so it stays
-	// suppressed - as it does for a black with no light to have a chromaticity.
+	// Black keeps its dE on the grayscale grid cell's terms: whenever it has light
+	// in it, against the w/gamma target where that is above zero and against its
+	// own luminance (tint alone) where it is not. A black below BLACK_MIN_LIGHT_Y
+	// has no chromaticity to be wrong about, so it stays suppressed.
 	BOOL bFirstCol = ( minCol == 1 && !m_bLumaMode && m_displayMode != 4 );
 	BOOL bBlackDEMeaningful = ( bFirstCol
 								&& ( m_displayMode == 0 || m_displayMode == 3 )
-								&& ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 )
-								&& m_pRefColor != NULL && m_pRefColor->GetY() > 0.0 );
+								&& m_pRefColor != NULL && m_pRefColor->GetY() > BLACK_MIN_LIGHT_Y );
 
 	if (m_dEValue > 40 || ( bFirstCol && !bBlackDEMeaningful ) ) m_dEValue = 0.;
 

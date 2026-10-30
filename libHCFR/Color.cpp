@@ -1643,6 +1643,14 @@ static void BuildBT2390Table ( double m_diffuseL, double m_MinML, double m_MaxML
 
 double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double split, int mode, double m_diffuseL, double m_MinML, double m_MaxML, double m_MinTL, double m_MaxTL, bool ToneMap, bool cBT2390, double bbc_gamma, double b_fact, double E2_fact, double E2_fact1)
 {
+	// HLG black is its OOTF's lift, bbc_beta / White.Y (case 7 below): the
+	// display's target black against its own white, scaled like every other
+	// HLG step. Returned here because the OOTF itself would take
+	// pow(0, bbc_gamma - 1), inf for a system gamma below 1. The PQ shortcut
+	// on the next line used to catch HLG too, handing it m_MinTL / 100 - PQ's
+	// /100 nit scaling, keyed off PQ's tone-mapping switch: zero with tone
+	// mapping off, and with it on a target too bright by White.Y / 100.
+	if (valx == 0 && mode == 7) return ( White.isValid() && White.GetY() > 0.0 ) ? m_MinTL / White.GetY() : 0.0;
 	if (valx == 0 && mode > 4) return (ToneMap?m_MinTL / 100.:0.0);
 	if (valx < 0)
 		valx = 0;

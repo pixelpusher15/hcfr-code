@@ -764,6 +764,13 @@ extern ColorRGB ContainerPrimaryLinear(const CColorReference& active, int index)
 extern CColor theMeasure;
 extern CColor noDataColor;
 
+// Sensor reads come back with X, Y and Z each floored at 1e-8
+// (CSensor::MeasureColor), so a black with no light in it still has Y > 0 -
+// at the equal-energy point, x = y = 1/3, which looks like a real tint.
+// Below this luminance (cd/m2) a patch has no colour to report; it is the
+// same cut the contrast readout uses to print Infinity.
+const double BLACK_MIN_LIGHT_Y = 0.0001;
+
 // Tool functions
 extern void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode = 0, double stimLevel = 1.0, bool b10bit = false, bool is16_235 = true);
 extern bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit = false, bool is16_235 = true);

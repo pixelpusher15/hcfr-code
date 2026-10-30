@@ -99,14 +99,14 @@ void CColorTempGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	// say here.
 	//
 	// What black does need is light to take a chromaticity from, which is the
-	// Y > 0 test. The 1500..12000 K window every point already passes through
+	// BLACK_MIN_LIGHT_Y test. The 1500..12000 K window every point already passes through
 	// then throws out the degenerate reads a meter hands back at ~0.1 cd/m2, so
 	// a black too dark or too noisy to have a colour temperature drops itself
 	// rather than dragging the Y scale to a bound.
 	for (int i=0; i<size; i++)
 	{
 		CColor aColor = pDoc->GetMeasure()->GetGray(i);
-		if ( i > 0 || aColor.GetY() > 0.0 )
+		if ( i > 0 || aColor.GetY() > BLACK_MIN_LIGHT_Y )
 		{
 			int colorTemp=aColor.GetXYZValue().GetColorTemp(GetColorReference());
 			if(colorTemp > 1500 && colorTemp < 12000)
@@ -116,7 +116,7 @@ void CColorTempGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		if ( m_showDataRef && pDataRef !=NULL && pDataRef != pDoc )
 		{
 			CColor aRefColor = pDataRef->GetMeasure()->GetGray(i);
-			if ( i > 0 || aRefColor.GetY() > 0.0 )
+			if ( i > 0 || aRefColor.GetY() > BLACK_MIN_LIGHT_Y )
 			{
 				int colorTemp = aRefColor.GetXYZValue().GetColorTemp(GetColorReference());
 				if(colorTemp > 1500 && colorTemp < 12000)
