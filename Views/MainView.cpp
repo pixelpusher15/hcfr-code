@@ -62,6 +62,13 @@ static char THIS_FILE[] = __FILE__;
 #endif
 
 #define WM_SET_USER_INFO_POST_INIT	WM_USER+99
+#define WM_REBUILD_INFO_DISPLAY		WM_USER+100
+
+// PQ and HLG references: the gamma pane plots delta luminance instead of gamma.
+static bool IsHDRReference ()
+{
+	return GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7;
+}
 
 #define		LAYOUT_LEFT			0
 #define		LAYOUT_RIGHT		1
@@ -545,6 +552,7 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_NOTIFY(GVN_ENDLABELEDIT, IDC_GRAYSCALE_GRID, OnGrayScaleGridEndEdit)
 	ON_NOTIFY(GVN_SELCHANGED, IDC_GRAYSCALE_GRID, OnGrayScaleGridEndSelChange)
 	ON_MESSAGE(WM_SET_USER_INFO_POST_INIT, OnSetUserInfoPostInitialUpdate)
+	ON_MESSAGE(WM_REBUILD_INFO_DISPLAY, OnRebuildInfoDisplay)
 	ON_MESSAGE(WM_CTLCOLORSTATIC, OnCtlColorStatic)
 END_MESSAGE_MAP()
 
@@ -581,6 +589,7 @@ CMainView::CMainView()
 	binfoRedraw = false;
 	m_displayMode = 0;
 	m_infoDisplay = 5;
+	m_bInfoBuiltHDR = false;
 	m_nSizeOffset = 0;
 	m_bPositionsInit = FALSE;
 	m_bInSizeMove = FALSE;
@@ -1226,6 +1235,8 @@ LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 			m_comboMode.AddString ( strProf );
 	}
 
+	UpdateInfoDisplayLabels ();
+
 	if ( m_dwInitialUserInfo != 0 )
 	{
 		// Set m_displayMode
@@ -1272,6 +1283,69 @@ LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 	OnSelchangeInfoDisplay();
 	m_bUpdate = TRUE;
 
+	return 0;
+}
+
+// Under a PQ/HLG reference the gamma pane plots delta luminance, and entries 4 and
+// 11 swap it for the luminance response, so the entries naming "Gamma" say what
+// they show: "Luminance" for 4 and 11, the gamma pane's own "delta Luminance" title
+// for 3. Only the label's gamma word is replaced, from localized strings, so every
+// language build stays in step with its DLGINIT text.
+void CMainView::UpdateInfoDisplayLabels()
+{
+	static const int	gammaItems[3] = { 3, 4, 11 };
+
+	if ( ! m_comboDisplay.GetSafeHwnd () || m_comboDisplay.GetCount () <= gammaItems[2] )
+		return;
+
+	if ( m_infoDisplaySDRLabels[0].IsEmpty () )
+	{
+		for ( int i = 0; i < 3; i++ )
+			m_comboDisplay.GetLBText ( gammaItems[i], m_infoDisplaySDRLabels[i] );
+	}
+
+	bool	isHDR = IsHDRReference ();
+	CString	strGamma, strLum, strDeltaLum;
+	strGamma.LoadString ( IDS_GAMMA );
+	strLum.LoadString ( IDS_LUMINANCE );
+	strDeltaLum.LoadString ( IDS_GRAPH_DELTALUM );
+
+	int	nSel = m_comboDisplay.GetCurSel ();
+	for ( int i = 0; i < 3; i++ )
+	{
+		CString	strLabel = m_infoDisplaySDRLabels[i];
+		int		nPos = strGamma.IsEmpty () ? -1 : strLabel.Find ( strGamma );
+		if ( isHDR && nPos >= 0 )
+			strLabel = strLabel.Left ( nPos ) + ( gammaItems[i] == 3 ? strDeltaLum : strLum ) + strLabel.Mid ( nPos + strGamma.GetLength () );
+
+		CString	strCurrent;
+		m_comboDisplay.GetLBText ( gammaItems[i], strCurrent );
+		if ( strCurrent != strLabel )
+		{
+			m_comboDisplay.DeleteString ( gammaItems[i] );
+			m_comboDisplay.InsertString ( gammaItems[i], strLabel );
+		}
+	}
+	m_comboDisplay.SetCurSel ( nSel );
+}
+
+// Entries 4 and 11 pick their gamma / luminance-response pane by the reference TF
+// when built; true when the TF has since crossed SDR/HDR.
+bool CMainView::InfoPaneNeedsHDRRebuild() const
+{
+	return ( m_infoDisplay == 4 || m_infoDisplay == 11 ) && m_pInfoWnd && m_bInfoBuiltHDR != IsHDRReference ();
+}
+
+LRESULT CMainView::OnRebuildInfoDisplay(WPARAM wParam, LPARAM lParam)
+{
+	if ( InfoPaneNeedsHDRRebuild () )
+	{
+		// Same entry, new pane: not a user choice, so leave the saved "Info Display"
+		// (the entry new windows open with) alone.
+		m_bUpdate = FALSE;
+		OnSelchangeInfoDisplay ();
+		m_bUpdate = TRUE;
+	}
 	return 0;
 }
 
@@ -2566,6 +2640,19 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	// hints so sweeps don't pay for combo rebuilds.
 	if ( lHint == UPD_EVERYTHING || lHint == UPD_ALLSATURATIONS )
 		UpdateParamCombos();
+
+	// Reference TF changes (Preferences apply, a file load overwriting preferences)
+	// arrive as UPD_EVERYTHING, which is also the initial and plain UpdateAllViews
+	// hint; the relabel only touches items whose text changed. Retitle the gamma
+	// entries, and swap the RGB entries' gamma pane if the TF crossed SDR/HDR. The
+	// swap is posted: rebuilding here would destroy views UpdateAllViews is walking.
+	if ( lHint == UPD_EVERYTHING )
+	{
+		UpdateInfoDisplayLabels ();
+		if ( InfoPaneNeedsHDRRebuild () )
+			PostMessage ( WM_REBUILD_INFO_DISPLAY );
+	}
+
 	CFrameWnd * pFrame = (CFrameWnd *)(AfxGetApp()->m_pMainWnd);
 //	if (pFrame)
 //		pFrame->GetActiveFrame()->ActivateFrame();
@@ -8676,16 +8763,32 @@ void CMainView::OnSelchangeInfoDisplay()
 
 			 pFrame -> Create ( NULL, NULL, WS_CHILD | WS_VISIBLE, Rect, this );
 
+			 // HDR reference: the gamma pane would only plot delta luminance, so pair
+			 // RGB with the luminance response instead (OnUpdate swaps it on a TF change).
+			 m_bInfoBuiltHDR = IsHDRReference ();
+
 			 context.m_pCurrentDoc = GetDocument ();
 			 context.m_pCurrentFrame = pFrame;
 			 context.m_pLastView = this;
 			 context.m_pNewDocTemplate = GetDocument () -> GetDocTemplate ();
-			 context.m_pNewViewClass = RUNTIME_CLASS ( CGammaHistoView );
+			 if ( m_bInfoBuiltHDR )
+			 {
+				 context.m_pNewViewClass = RUNTIME_CLASS ( CLuminanceHistoView );
 
-			 pGammaHistoView = (CGammaHistoView *) context.m_pNewViewClass->CreateObject();
-			 pGammaHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
-			 pGammaHistoView -> OnInitialUpdate ();
-			 pFrame -> SetActiveView ( pGammaHistoView, FALSE );
+				 pLuminanceHistoView = (CLuminanceHistoView *) context.m_pNewViewClass->CreateObject();
+				 pLuminanceHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
+				 pLuminanceHistoView -> OnInitialUpdate ();
+				 pFrame -> SetActiveView ( pLuminanceHistoView, FALSE );
+			 }
+			 else
+			 {
+				 context.m_pNewViewClass = RUNTIME_CLASS ( CGammaHistoView );
+
+				 pGammaHistoView = (CGammaHistoView *) context.m_pNewViewClass->CreateObject();
+				 pGammaHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
+				 pGammaHistoView -> OnInitialUpdate ();
+				 pFrame -> SetActiveView ( pGammaHistoView, FALSE );
+			 }
 
 			 m_pInfoWnd7 = pFrame;
 			 m_pInfoWnd7 -> SetWindowPos ( pWnd, Rect.left + (Rect.right - Rect.left) / 2, Rect.top, (Rect.right - Rect.left) / 2, (Rect.bottom - Rect.top) , SWP_NOACTIVATE );
@@ -8902,16 +9005,31 @@ void CMainView::OnSelchangeInfoDisplay()
 
 			 pFrame -> Create ( NULL, NULL, WS_CHILD | WS_VISIBLE, Rect, this );
 
+			 // Same HDR swap as entry 4: luminance response instead of delta luminance.
+			 m_bInfoBuiltHDR = IsHDRReference ();
+
 			 context.m_pCurrentDoc = GetDocument ();
 			 context.m_pCurrentFrame = pFrame;
 			 context.m_pLastView = this;
 			 context.m_pNewDocTemplate = GetDocument () -> GetDocTemplate ();
-			 context.m_pNewViewClass = RUNTIME_CLASS ( CGammaHistoView );
+			 if ( m_bInfoBuiltHDR )
+			 {
+				 context.m_pNewViewClass = RUNTIME_CLASS ( CLuminanceHistoView );
 
-			 pGammaHistoView = (CGammaHistoView *) context.m_pNewViewClass->CreateObject();
-			 pGammaHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
-			 pGammaHistoView -> OnInitialUpdate ();
-			 pFrame -> SetActiveView ( pGammaHistoView, FALSE );
+				 pLuminanceHistoView = (CLuminanceHistoView *) context.m_pNewViewClass->CreateObject();
+				 pLuminanceHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
+				 pLuminanceHistoView -> OnInitialUpdate ();
+				 pFrame -> SetActiveView ( pLuminanceHistoView, FALSE );
+			 }
+			 else
+			 {
+				 context.m_pNewViewClass = RUNTIME_CLASS ( CGammaHistoView );
+
+				 pGammaHistoView = (CGammaHistoView *) context.m_pNewViewClass->CreateObject();
+				 pGammaHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
+				 pGammaHistoView -> OnInitialUpdate ();
+				 pFrame -> SetActiveView ( pGammaHistoView, FALSE );
+			 }
 
 			 m_pInfoWnd11 = pFrame;
 			 m_pInfoWnd11 -> SetWindowPos ( pWnd, Rect.left + (Rect.right - Rect.left) / 3 * 2, Rect.top, (Rect.right - Rect.left) / 3, (Rect.bottom - Rect.top) , SWP_NOACTIVATE );

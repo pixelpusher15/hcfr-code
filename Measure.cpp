@@ -988,8 +988,15 @@ void CMeasure::Serialize(CArchive& ar)
 				GetConfig()->m_whiteTarget = WhiteTarget(in[0]);
 				GetConfig()->m_CCMode = CCPatterns(in[1]);
 				GetConfig()->m_colorStandard = ColorStandard(in[2]);
+				// Keep the old white before freeing the reference: the "Custom Color
+				// only" branch below needs it (same fix as ApplySettings, SHELL-016).
+				ColorXYZ savedRefWhite;
 				if (GetColorApp()->m_pColorReference)
+				{
+					savedRefWhite = GetColorApp()->m_pColorReference->GetWhite();
 					delete GetColorApp()->m_pColorReference;
+					GetColorApp()->m_pColorReference = NULL;
+				}
 				if (WhiteTarget(in[0]) == DCUST && in[2] != CUSTOM) //Custom White only
 				{
 					ColorxyY whitecolor = ColorxyY(in2[3], in2[4]);
@@ -1000,7 +1007,7 @@ void CMeasure::Serialize(CArchive& ar)
 					ColorxyY redcolor = ColorxyY(in2[6], in2[9]);
 					ColorxyY greencolor = ColorxyY(in2[7], in2[10]);
 					ColorxyY bluecolor = ColorxyY(in2[5], in2[8]);
-					GetColorApp()->m_pColorReference = new CColorReference(ColorStandard(in[2]), WhiteTarget(in[0]), -1, " modified", GetColorApp()->m_pColorReference->GetWhite(), redcolor, greencolor, bluecolor);
+					GetColorApp()->m_pColorReference = new CColorReference(ColorStandard(in[2]), WhiteTarget(in[0]), -1, " modified", savedRefWhite, redcolor, greencolor, bluecolor);
 				}
 				else if (in[2] == CUSTOM && in[0] == DCUST)	//Both
 				{

@@ -40,7 +40,10 @@ public:
 	CMyMultiDocTemplate(UINT nIDResource, CRuntimeClass* pDocClass, CRuntimeClass* pFrameClass, CRuntimeClass* pViewClass)
 		: CNewMultiDocTemplate(nIDResource, pDocClass, pFrameClass, pViewClass) {}
 
-	virtual CDocument* OpenDocumentFile ( LPCTSTR lpszPathName, BOOL bMakeVisible = TRUE );
+	virtual CDocument* OpenDocumentFile ( LPCTSTR lpszPathName, BOOL bMakeVisible = TRUE ) override;
+	// CDocManager opens every file (File > Open, MRU, drag-drop, DDE, command line)
+	// through this overload, not the one above.
+	virtual CDocument* OpenDocumentFile ( LPCTSTR lpszPathName, BOOL bAddToMRU, BOOL bMakeVisible ) override;
 };
 
 

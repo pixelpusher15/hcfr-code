@@ -1441,7 +1441,35 @@ void CDataSetDoc::OnConfigureGenerator()
 
 BOOL CDataSetDoc::OnOpenDocument(LPCTSTR lpszPathName) 
 {
-	if (!CDocument::OnOpenDocument(lpszPathName))
+	// Loading a file rewrites app-wide preferences (CMeasure::Serialize): its HDR
+	// targets always, the reference / TF / dE settings when the user accepts the
+	// "Preferences in saved file differ" prompt. Snapshot what ApplySettings
+	// regenerates on change, then refresh as it does, even if the load fails part way.
+	ColorStandard	OriginalColorStandard = GetConfig()->m_colorStandard;
+	WhiteTarget		OriginalWhiteTarget = GetConfig()->m_whiteTarget;
+	CCPatterns		OriginalCCMode = GetConfig()->m_CCMode;
+
+	BOOL	bOpened = CDocument::OnOpenDocument(lpszPathName);
+
+	if ( OriginalColorStandard != GetConfig()->m_colorStandard || OriginalWhiteTarget != GetConfig()->m_whiteTarget )
+	{
+		CWaitCursor	wait;
+		GetColorApp() -> CreateCIEBitmaps ( FALSE );
+	}
+	if ( OriginalCCMode != GetConfig()->m_CCMode )
+		GetConfig()->GetCColors();
+
+	// The other open documents are scored against those preferences too. This
+	// one's views get the framework's initial update after this returns.
+	CDocEnumerator	docEnumerator;
+	CDocument *		pDoc;
+	while ( ( pDoc = docEnumerator.Next () ) != NULL )
+	{
+		if ( pDoc != this )
+			pDoc -> UpdateAllViews ( NULL, UPD_EVERYTHING );
+	}
+
+	if ( ! bOpened )
 		return FALSE;
 	
 	if(m_pSensor != NULL  && m_pGenerator != NULL )	

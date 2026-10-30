@@ -189,6 +189,24 @@ CDocument* CMyMultiDocTemplate::OpenDocumentFile(LPCTSTR lpszPathName,
 
 	return pDocument;
 }
+
+CDocument* CMyMultiDocTemplate::OpenDocumentFile(LPCTSTR lpszPathName,
+	BOOL bAddToMRU, BOOL bMakeVisible)
+{
+	// Drag-drop and DDE opens reach here mid-sweep (every sweep pump dispatches
+	// them), and so can menu opens through the pumps that dispatch everything;
+	// CColorHCFRApp refuses File > Open and recent files earlier, before their
+	// dialog or MRU removal. Loading a file rewrites app-wide preferences and
+	// refreshes every open document, so refuse it mid-sweep. A beep, not a message
+	// box: a modal box here would stall the sweep's pump until dismissed.
+	if ( lpszPathName != NULL && IsMeasureSweepActive () )
+	{
+		MessageBeep ( MB_ICONWARNING );
+		return NULL;
+	}
+
+	return CNewMultiDocTemplate::OpenDocumentFile ( lpszPathName, bAddToMRU, bMakeVisible );
+}
 /////////////////////////////////////////////////////////////////////////////
 // Classes for window positions serialization
 

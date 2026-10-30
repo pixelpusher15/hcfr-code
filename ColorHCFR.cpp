@@ -87,7 +87,8 @@ BEGIN_MESSAGE_MAP(CColorHCFRApp, CWinApp)
 	//}}AFX_MSG_MAP
 	// Standard file based document commands
 	ON_COMMAND(ID_FILE_NEW, CWinApp::OnFileNew)
-	ON_COMMAND(ID_FILE_OPEN, CWinApp::OnFileOpen)
+	ON_COMMAND(ID_FILE_OPEN, OnFileOpenGuarded)
+	ON_COMMAND_EX_RANGE(ID_FILE_MRU_FILE1, ID_FILE_MRU_FILE16, OnOpenRecentFileGuarded)
 	// Standard print setup command
 	ON_COMMAND(ID_FILE_PRINT_SETUP, CWinApp::OnFilePrintSetup)
 END_MESSAGE_MAP()
@@ -559,6 +560,30 @@ BEGIN_MESSAGE_MAP(CAboutDlg, CDialog)
 	//{{AFX_MSG_MAP(CAboutDlg)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
+
+// The sweep pumps that dispatch every message (pattern settle, full-screen and
+// meter waits) can deliver these commands mid-sweep. Refuse them up front: the
+// template refuses the open anyway (CMyMultiDocTemplate::OpenDocumentFile), but
+// only after File > Open's dialog, and MFC drops a refused recent file from the list.
+void CColorHCFRApp::OnFileOpenGuarded()
+{
+	if ( IsMeasureSweepActive () )
+	{
+		MessageBeep ( MB_ICONWARNING );
+		return;
+	}
+	CWinApp::OnFileOpen ();
+}
+
+BOOL CColorHCFRApp::OnOpenRecentFileGuarded(UINT nID)
+{
+	if ( IsMeasureSweepActive () )
+	{
+		MessageBeep ( MB_ICONWARNING );
+		return TRUE;
+	}
+	return CWinApp::OnOpenRecentFile ( nID );
+}
 
 // App command to run the dialog
 void CColorHCFRApp::OnAppAbout()
