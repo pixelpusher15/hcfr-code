@@ -45,8 +45,6 @@ public:
 
     bool Read(const std::string& samplePath);
 	bool Write(const std::string& samplePath);
-	bool loadMeasurementsFromTI3(const std::string& ti3Path, CColor** readings, int& nReadings);
-	bool createFromTI3(const std::string& ti3Path);
 	bool createFromMeasurements(const CColor spectralReadings[], const int nReadings);
 
     // Get information about the sample. Currently we're only using getDescription()
@@ -60,6 +58,9 @@ public:
     void setDescription(const char* tech, const char* disp);
     void setDisplay(const char* disp);
     void setTech(const char* tech);
+	// Argyll's display technology IDs. Pass one of these to setTech() so the file's
+	// TECHNOLOGY is a real Argyll technology; anything else is written as "Unknown".
+	static std::vector<std::string> getDisplayTechnologies();
 	void setReferenceInstrument(const char* instr);
     void setPath(const char* path);
     void setAll(const char* tech, const char* disp, const char* instr, const char* path);
@@ -77,7 +78,6 @@ private:
     std::string m_Display;
     std::string m_Tech;
 	std::string m_RefInstrument;
-	int	m_refrmode;
 };
 
 

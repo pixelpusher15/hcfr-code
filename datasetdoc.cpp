@@ -2248,7 +2248,6 @@ void CDataSetDoc::OnCalibrationSpectralSample()
 			}
 		}
 
-		const char* FILE_SEPARATOR = "\\";			
 		const char* FILE_PREPEND = "\\color\\";			
 		const char* appdataEnv = getenv("APPDATA");
 		std::string savePath = appdataEnv ? appdataEnv : "";
@@ -2259,8 +2258,9 @@ void CDataSetDoc::OnCalibrationSpectralSample()
 
 		if(spectralSampleDialog.DoModal() == IDOK && fileSaveDialog.DoModal() == IDOK)
 		{
-			savePath = fileSaveDialog.GetFolderPath();
-			std::string saveFilename = savePath + FILE_SEPARATOR + (LPCSTR)fileSaveDialog.GetFileName();
+			// GetPathName, not GetFolderPath + GetFileName: once the dialog has closed, GetFolderPath
+			// returns the folder it opened in, not the one the user chose
+			std::string saveFilename = (LPCSTR)fileSaveDialog.GetPathName();
 			try
 			{	
 				SpectralSample ss;
@@ -2272,7 +2272,7 @@ void CDataSetDoc::OnCalibrationSpectralSample()
 
 #if defined(LIBHCFR_HAS_MFC) && defined(_DEBUG)
 
-				std::string saveReadings = savePath + (LPCSTR)fileSaveDialog.GetFileTitle() + ".xyz";
+				std::string saveReadings = saveFilename.substr(0, saveFilename.find_last_of('\\') + 1) + (LPCSTR)fileSaveDialog.GetFileTitle() + ".xyz";
 				CFile fileReadings;
 				if( fileReadings.Open(saveReadings.c_str(), CFile::modeCreate|CFile::modeWrite))
 				{

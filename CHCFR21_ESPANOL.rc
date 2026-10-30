@@ -1053,7 +1053,7 @@ BEGIN
     GROUPBOX        "Pantalla de referencia",IDC_DISPLAY_GROUP,7,7,204,50
     RTEXT           "Nombre de la pantalla",IDC_STATIC,28,20,55,15
     RTEXT           "Tecnología de la pantalla",IDC_STATIC,17,38,66,15
-    EDITTEXT        IDC_DISPLAY_TECH,89,36,115,14,ES_AUTOHSCROLL
+    COMBOBOX        IDC_DISPLAY_TECH,89,36,115,150,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
 END
 
 

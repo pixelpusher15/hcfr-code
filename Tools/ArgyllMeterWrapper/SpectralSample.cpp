@@ -26,10 +26,7 @@
 #include "SpectralSample.h"
 #include "ArgyllMeterWrapper.h"
 #include "SpectralSampleFiles.h"
-#include "CGATSFile.h"
 #include <stdexcept>
-#include <sstream>
-#include <iomanip>
 
 //#define SALONEINSTLIB
 #define ENABLE_USB
@@ -40,10 +37,21 @@
 #endif
 #include "numsup.h"
 #include "xspect.h"
+// disptechs.h only wraps its enum in extern "C", not its functions
+extern "C" {
+#include "disptechs.h"
+}
 #include "ccss.h"
 //#undef SALONEINSTLIB
 
-disptech x=disptech_unknown;
+// Map one of Argyll's display technology IDs (see getDisplayTechnologies) to its enum;
+// anything else maps to disptech_unknown. disptech_get_strid may patch its argument, so pass a copy.
+static disptech dispTechFromString(const std::string& tech)
+{
+	std::vector<char> buf(tech.begin(), tech.end());
+	buf.push_back('\0');
+	return disptech_get_strid(&buf[0])->dtech;
+}
 
 SpectralSample::SpectralSample(void) :
     m_ccss(NULL)
@@ -69,8 +77,7 @@ SpectralSample::SpectralSample(const SpectralSample& s) :
 	m_RefInstrument = s.m_RefInstrument;
     if (s.m_ccss != NULL)
     {
-//        m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, s.m_ccss->tech, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, s.m_ccss->samples, s.m_ccss->no_samp);
-        m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, x, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, NULL, s.m_ccss->samples, s.m_ccss->no_samp);
+        m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, s.m_ccss->dtech, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, NULL, s.m_ccss->samples, s.m_ccss->no_samp);
     }
 }
 
@@ -104,8 +111,7 @@ SpectralSample& SpectralSample::operator=(const SpectralSample& s)
     
         if (s.m_ccss != NULL)
         {
-//            m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, s.m_ccss->tech, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, s.m_ccss->samples, s.m_ccss->no_samp);
-            m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, x, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, NULL, s.m_ccss->samples, s.m_ccss->no_samp);
+            m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, s.m_ccss->dtech, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, NULL, s.m_ccss->samples, s.m_ccss->no_samp);
         }
     }
     return *this;
@@ -146,317 +152,6 @@ bool SpectralSample::Write(const std::string& samplePath)
 		return false;
 	}
 }
-
-bool SpectralSample::loadMeasurementsFromTI3(const std::string& ti3Path, CColor** readings, int& nReadings)
-{
-	CGATSFile cgats;
-
-	if (cgats.Read(ti3Path))
-	{
-		if (cgats.getNumberOfTables() <= 0)
-		{
-			std::string errorMessage = "Input file ";
-			errorMessage += ti3Path;
-			errorMessage += " must contain at least one table";
-			throw std::logic_error(errorMessage);
-		}
-		if (cgats.getNumberOfDataSets(0) <= 0)
-		{
-			std::string errorMessage = "Input file ";
-			errorMessage += ti3Path;
-			errorMessage += " must contain at least one data set";
-			throw std::logic_error(errorMessage);
-		}
-
-		int indexInstrument, indexSpectralBands, indexSpectralStart, indexSpectralEnd;
-
-		if (!cgats.FindKeyword("TARGET_INSTRUMENT", 0, indexInstrument))
-		{			
-			std::string errorMessage = "Can't find keyword TARGET_INSTRUMENT in  ";
-			errorMessage += ti3Path;
-			throw std::logic_error(errorMessage);
-		}
-		if (!cgats.FindKeyword("SPECTRAL_BANDS", 0, indexSpectralBands))
-		{			
-			std::string errorMessage = "Can't find keyword SPECTRAL_BANDS in  ";
-			errorMessage += ti3Path;
-			throw std::logic_error(errorMessage);
-		}
-		if (!cgats.FindKeyword("SPECTRAL_START_NM", 0, indexSpectralStart))
-		{			
-			std::string errorMessage = "Can't find keyword SPECTRAL_START_NM in  ";
-			errorMessage += ti3Path;
-			return false;
-		}
-		if (!cgats.FindKeyword("SPECTRAL_END_NM", 0, indexSpectralEnd))
-		{			
-			std::string errorMessage = "Can't find keyword SPECTRAL_END_NM in  ";
-			errorMessage += ti3Path;
-			throw std::logic_error(errorMessage);
-		}
-			
-		xspect sp, *samples = NULL;
-		samples = new xspect[cgats.getNumberOfDataSets(0)];
-
-		m_RefInstrument = cgats.getStringKeywordValue(0, indexInstrument);
-
-		// Get colours index
-		
-		int xIndex, yIndex, zIndex;
-		if (!cgats.FindField("XYZ_X", 0, xIndex))
-		{
-			std::string errorMessage = "Can't find keyword XYZ_X in  ";
-			errorMessage += ti3Path;
-			throw std::logic_error(errorMessage);
-		}
-		if (!cgats.FindField("XYZ_Y", 0, yIndex))
-		{
-			std::string errorMessage = "Can't find keyword XYZ_Y in  ";
-			errorMessage += ti3Path;
-			throw std::logic_error(errorMessage);
-		}
-		if (!cgats.FindField("XYZ_Z", 0, zIndex))
-		{
-			std::string errorMessage = "Can't find keyword XYZ_Z in  ";
-			errorMessage += ti3Path;
-			throw std::logic_error(errorMessage);
-		}
-		
-		sp.spec_n = cgats.getIntKeywordValue(0, indexSpectralBands);
-		sp.spec_wl_short = cgats.getDoubleKeywordValue(0, indexSpectralStart);
-		sp.spec_wl_long = cgats.getDoubleKeywordValue(0, indexSpectralEnd);
-		sp.norm = 1.0;
-
-		int shortWavelength((int)(sp.spec_wl_short + 0.5));
-		int longWavelength((int)(sp.spec_wl_long + 0.5));
-		int bandWidth((int)((sp.spec_wl_long - sp.spec_wl_short) / (double)sp.spec_n + 0.5));
-		
-		// Find the fields for spectral values 
-
-		int  spi[XSPECT_MAX_BANDS];
-
-		for (int j = 0; j < sp.spec_n; j++) 
-		{
-			int nm, fieldIndex;
-	
-			// Compute nearest integer wavelength 
-
-			nm = (int)(sp.spec_wl_short + ((double)j/(sp.spec_n-1.0)) * (sp.spec_wl_long - sp.spec_wl_short) + 0.5);
-			
-			std::stringstream sFormatter (stringstream::in | stringstream::out);
-			sFormatter << setw(3) << setfill('0') << nm;
-			std::string sField = "SPEC_" + sFormatter.str();
-
-			if (cgats.FindField(sField, 0, fieldIndex))
-			{
-				spi[j] = fieldIndex;
-			}
-			else
-			{
-				std::string errorMessage = "Can't find field ";
-				errorMessage += sField;
-				errorMessage += " in input file ";
-				errorMessage += ti3Path;
-				delete [] samples;
-				throw std::logic_error(errorMessage);
-			}
-		}
-
-		// Transfer all the spectral values 
-		*readings = new CColor[cgats.getNumberOfDataSets(0)];
-
-		for (int i = 0; i < cgats.getNumberOfDataSets(0); i++) 
-		{
-			XSPECT_COPY_INFO(&samples[i], &sp);
-	
-			for (int j = 0; j < sp.spec_n; j++) 
-			{
-				samples[i].spec[j] = cgats.getDoubleFieldValue(0, i, spi[j]);
-			}
-			(*readings)[i] = CColor(cgats.getDoubleFieldValue(0, i, xIndex), cgats.getDoubleFieldValue(0, i, yIndex), cgats.getDoubleFieldValue(0, i, zIndex));
-			CSpectrum spectrum(sp.spec_n, shortWavelength, longWavelength, bandWidth, samples[i].spec);
-			(*readings)[i].SetSpectrum(spectrum);
-		}
-
-
-		delete [] samples;
-		nReadings = cgats.getNumberOfDataSets(0);
-
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-
-bool SpectralSample::createFromTI3(const std::string& ti3Path)
-{
-	CGATSFile cgats;
-
-	// Either displayname or displaytech should be non-null. There is no reason we should not enforce both
-
-	if (m_Display.empty() || m_Tech.empty())
-	{
-		throw std::logic_error("Display name and tech must be supplied");
-	}
-	setDescription(m_Tech.c_str(), m_Display.c_str()); 
-
-	if (cgats.Read(ti3Path))
-	{
-		if (cgats.getNumberOfTables() <= 0)
-		{
-			std::string errorMessage = "Input file ";
-			errorMessage += ti3Path;
-			errorMessage += " must contain at least one table";
-			throw std::logic_error(errorMessage);
-		}
-		if (cgats.getNumberOfDataSets(0) <= 0)
-		{
-			std::string errorMessage = "Input file ";
-			errorMessage += ti3Path;
-			errorMessage += " must contain at least one data set";
-			throw std::logic_error(errorMessage);
-		}
-
-		int indexInstrument, indexSpectralBands, indexSpectralStart, indexSpectralEnd;
-
-		if (!cgats.FindKeyword("TARGET_INSTRUMENT", 0, indexInstrument))
-		{			
-			std::string errorMessage = "Can't find keyword TARGET_INSTRUMENT in  ";
-			errorMessage += ti3Path;
-			throw std::logic_error(errorMessage);
-		}
-		if (!cgats.FindKeyword("SPECTRAL_BANDS", 0, indexSpectralBands))
-		{			
-			std::string errorMessage = "Can't find keyword SPECTRAL_BANDS in  ";
-			errorMessage += ti3Path;
-			throw std::logic_error(errorMessage);
-		}
-		if (!cgats.FindKeyword("SPECTRAL_START_NM", 0, indexSpectralStart))
-		{			
-			std::string errorMessage = "Can't find keyword SPECTRAL_START_NM in  ";
-			errorMessage += ti3Path;
-			return false;
-		}
-		if (!cgats.FindKeyword("SPECTRAL_END_NM", 0, indexSpectralEnd))
-		{			
-			std::string errorMessage = "Can't find keyword SPECTRAL_END_NM in  ";
-			errorMessage += ti3Path;
-			throw std::logic_error(errorMessage);
-		}
-			
-		xspect sp, *samples = NULL;
-		samples = new xspect[cgats.getNumberOfDataSets(0)];
-
-		m_RefInstrument = cgats.getStringKeywordValue(0, indexInstrument);
-		
-		sp.spec_n = cgats.getIntKeywordValue(0, indexSpectralBands);
-		sp.spec_wl_short = cgats.getDoubleKeywordValue(0, indexSpectralStart);
-		sp.spec_wl_long = cgats.getDoubleKeywordValue(0, indexSpectralEnd);
-		sp.norm = 1.0;
-		
-		// Find the fields for spectral values 
-
-		int  spi[XSPECT_MAX_BANDS];
-
-		for (int j = 0; j < sp.spec_n; j++) 
-		{
-			int nm, fieldIndex;
-	
-			// Compute nearest integer wavelength 
-
-			nm = (int)(sp.spec_wl_short + ((double)j/(sp.spec_n-1.0)) * (sp.spec_wl_long - sp.spec_wl_short) + 0.5);
-			
-			std::stringstream sFormatter (stringstream::in | stringstream::out);
-			sFormatter << setw(3) << setfill('0') << nm;
-			std::string sField = "SPEC_" + sFormatter.str();
-
-			if (cgats.FindField(sField, 0, fieldIndex))
-			{
-				spi[j] = fieldIndex;
-			}
-			else
-			{
-				std::string errorMessage = "Can't find field ";
-				errorMessage += sField;
-				errorMessage += " in input file ";
-				errorMessage += ti3Path;
-				delete [] samples;
-				throw std::logic_error(errorMessage);
-			}
-		}
-
-		// Transfer all the spectral values 
-
-		for (int i = 0; i < cgats.getNumberOfDataSets(0); i++) 
-		{
-			XSPECT_COPY_INFO(&samples[i], &sp);
-	
-			for (int j = 0; j < sp.spec_n; j++) 
-			{
-				samples[i].spec[j] = cgats.getDoubleFieldValue(0, i, spi[j]);
-			}
-		}
-
-		// See what the highest value is
-		
-		double bigv = -1e60;
-		
-		for (int i = 0; i < cgats.getNumberOfDataSets(0); i++) // For all grid points 
-		{	
-			for (int j = 0; j < samples[i].spec_n; j++) 
-			{
-				if (samples[i].spec[j] > bigv)
-				{
-					bigv = samples[i].spec[j];
-				}
-			}
-		}
-			
-		// Normalize the values 
-
-		for (int i = 0; i < cgats.getNumberOfDataSets(0); i++) // For all grid points 
-		{	
-			double scale = 100.0;
-
-			for (int j = 0; j < samples[i].spec_n; j++)
-			{
-				samples[i].spec[j] *= scale / bigv;
-			}
-		}	
-
-//		bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR ccss generator", NULL, 	
-//									(char *)m_Description.c_str(), 
-//									(char *)m_Display.c_str(), 
-//									(char *)m_Tech.c_str(), 
-//                                   -1,
-//                                  NULL,
-//									(char *)m_RefInstrument.c_str(), 
-//									samples, cgats.getNumberOfDataSets(0));
-		bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR ccss generator", NULL, 	
-									(char *)m_Description.c_str(), 
-									(char *)m_Display.c_str(), 
-									x, 
-                                    -1,
-                                    NULL,
-									(char *)m_RefInstrument.c_str(), NULL,
-									samples, cgats.getNumberOfDataSets(0));
-
-		delete [] samples;
-
-		if (!bRet) 
-		{
-			std::string errorMessage = "set_ccss failed with '%s'";
-			errorMessage += m_ccss->e.m;
-			throw std::logic_error(errorMessage);
-		}
-		return bRet;
-	}
-	return false;
-}
-
-
 
 bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], const int nReadings)
 {
@@ -502,13 +197,14 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 		CSpectrum spectrum = spectralReadings[nColors].GetSpectrum();
 		double scale = 100;
 
-		// We can safely ignore the bandwidth and scale members of the xspect struct
-		// as they are unused. The ccss algorithm only uses wl_short and wl_long and
-		// the spectral values. 
+		// norm must be set: write_ccss saves it as SPECTRAL_NORM and Argyll divides the
+		// spectral values by it when the file is read back. The values are already scaled
+		// to 100 above, so 1.0.
 
 		samples[nColors].spec_n = spectrum.GetRows();
 		samples[nColors].spec_wl_short = spectrum.m_WaveLengthMin;
 		samples[nColors].spec_wl_long = spectrum.m_WaveLengthMax;
+		samples[nColors].norm = 1.0;
 
 		for (int nSpec = 0; nSpec < samples[nColors].spec_n && nSpec < XSPECT_MAX_BANDS; nSpec++)
 		{
@@ -517,19 +213,10 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 		}
 	}
 
-//	bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR ccss generator", NULL, 	
-//									(char *)m_Description.c_str(), 
-//									(char *)m_Display.c_str(), 
-//									(char *)m_Tech.c_str(), 
- //                                   -1,
-//                                    NULL,
-//									(char *)m_RefInstrument.c_str(), 
-//									samples, nReadings);
-
 	bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR ccss generator", NULL, 	
 									(char *)m_Description.c_str(), 
 									(char *)m_Display.c_str(), 
-									x, 
+									dispTechFromString(m_Tech), 
                                     -1,
                                     NULL,
 									(char *)m_RefInstrument.c_str(), NULL,
@@ -604,6 +291,17 @@ void SpectralSample::setTech(const char* tech)
     m_Tech = tech;
 }
 
+
+
+std::vector<std::string> SpectralSample::getDisplayTechnologies()
+{
+	std::vector<std::string> techs;
+	for (disptech_info* info = disptech_get_list(); info->dtech != disptech_end; info++)
+	{
+		techs.push_back(info->strid);
+	}
+	return techs;
+}
 
 
 void SpectralSample::setReferenceInstrument(const char* instr)

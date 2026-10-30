@@ -31,6 +31,7 @@ static char THIS_FILE[] = __FILE__;
 
 #include "stdafx.h"
 #include "SpectralSampleDlg.h"
+#include "SpectralSample.h"
 #include <string>
 
 // CSpectralSampleDlg dialog
@@ -52,7 +53,7 @@ void CSpectralSampleDlg::DoDataExchange(CDataExchange* pDX)
 	CDialog::DoDataExchange(pDX);
 	DDX_Text(pDX, IDC_DISPLAY_NAME, m_displayName);
 	DDX_Control(pDX, IDC_DISPLAY_NAME, m_displayNameCtrl);
-	DDX_Text(pDX, IDC_DISPLAY_TECH, m_displayTech);
+	DDX_CBString(pDX, IDC_DISPLAY_TECH, m_displayTech);
 	DDX_Control(pDX, IDC_DISPLAY_TECH, m_displayTechCtrl);
 }
 
@@ -67,6 +68,13 @@ END_MESSAGE_MAP()
 BOOL CSpectralSampleDlg::OnInitDialog() 
 {
 	CDialog::OnInitDialog();
+
+	// Only Argyll's own technology IDs are offered: any other text is written to the
+	// file as TECHNOLOGY "Unknown"
+	std::vector<std::string> techs = SpectralSample::getDisplayTechnologies();
+	for (size_t i = 0; i < techs.size(); i++)
+		m_displayTechCtrl.AddString(techs[i].c_str());
+
 	m_displayTechCtrl.SetFocus();
 	m_displayNameCtrl.SetSel(-1, 0, FALSE);
 	return FALSE;  
