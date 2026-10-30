@@ -1456,7 +1456,14 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
         AddColorToGrid(m_SelectedColor.GetRGBValue(bRef), Item, "%.2f");
         AddColorToGrid(m_SelectedColor.GetxyYValue(), Item, "%.3f");
 		if ( bNoLight )
-			BlankSelectedColorRows ( Item, 2, 1 );	// x and y; Y is a reading
+		{
+			BlankSelectedColorRows ( Item, 2, 1 );	// x and y
+			// Y is a reading, but an all-zero XYZ (a black typed into the grid)
+			// has no xyY at all and printed the no-data placeholder: print the
+			// measured Y instead.
+			Item.strText.Format ( "%.3f", m_SelectedColor.GetY() );
+			m_pSelectedColorGrid->SetItem(&Item);
+		}
         AddColorToGrid(m_SelectedColor.GetxyzValue(), Item, "%.3f");
 		if ( bNoLight )
 			BlankSelectedColorRows ( Item, 3, 0 );
