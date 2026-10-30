@@ -11,7 +11,8 @@
 // Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
 // T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
-// and T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table. The .chc round-trip originally planned for the T7
+// T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table, and T22
+// asserts the test-color window paints each patch's own code. The .chc round-trip originally planned for the T7
 // slot needs app-level linkage and is deliberately still not in this console harness.
 
 #include <afx.h>
@@ -167,6 +168,36 @@ static void RunT1b()
             Fail("T1b10 limited grid: %d distinct codes, expected 877", distinct);
         if (!seen[64] || !seen[940] || seen[63] || seen[941])
             Fail("T1b10 limited grid bounds wrong");
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T22 - test-color window oracle (pure assertion, no golden file): the code
+// the window paints for a patch (TestWindowShownCode of TestWindowPickerCode)
+// must be the patch's own 8-bit code in the range, the code the references
+// snap to. The picker holds full-range codes and the window maps them to
+// 16-235 for a limited generator; quantizing in full range first is a code
+// off for ~1 in 5 levels.
+//////////////////////////////////////////////////////////////////////////
+static void RunT22()
+{
+    printf("T22 test-color window oracle...\n");
+    for (int r = 0; r < 2; ++r)
+    {
+        bool lim = (r != 0);
+        for (int i = -50000; i <= 1050000; ++i)
+        {
+            double pct = i * 1e-4;
+            int want = ColorRGBDisplay::ConvertPercentToCode(pct, lim, 8);
+            if (lim)
+                want = want < 16 ? 16 : (want > 235 ? 235 : want);
+            int picker = ColorRGBDisplay::TestWindowPickerCode(pct, lim);
+            if (picker < 0 || picker > 255)
+                Fail("T22 pct=%.17g range=%d: picker code %d out of 0..255", pct, r, picker);
+            int shown = ColorRGBDisplay::TestWindowShownCode(picker, lim);
+            if (shown != want)
+                Fail("T22 pct=%.17g range=%d: window shows %d, patch code %d", pct, r, shown, want);
+        }
     }
 }
 
@@ -1103,6 +1134,7 @@ int main(int argc, char* argv[])
     RunT10();
     RunT11();
     RunT12();
+    RunT22();
 
     if (g_failures)
     {

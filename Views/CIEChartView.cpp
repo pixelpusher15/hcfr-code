@@ -3666,8 +3666,7 @@ void CCIEChartView::UpdateTestColor ( CPoint point )
 		nB = (int) (b/cmax*coef+base);
 	}
 
-	( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.SetColor ( RGB(nR,nG,nB) );
-	( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.RedrawWindow ();
+	( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.SetTestColor ( RGB(nR,nG,nB) );
 }
 
 void CCIEChartView::GetReferenceRect ( LPRECT lpRect )

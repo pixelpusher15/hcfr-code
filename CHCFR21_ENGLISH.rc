@@ -284,11 +284,11 @@ BEGIN
     CONTROL         "Continuous measuring",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,79,85,10
     CONTROL         "Detect gray/primary colors during user measures",IDC_CHECK_DETECT_PRIMARIES,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,91,168,10
-    GROUPBOX        "Dynamic iris",IDC_STATIC,7,109,203,65,WS_GROUP
-    LTEXT           "Latency time",IDC_STATIC,14,120,40,8
+    GROUPBOX        "Measurement timing",IDC_STATIC,7,109,203,65,WS_GROUP
+    LTEXT           "Patch delay",IDC_STATIC,14,120,40,8
     EDITTEXT        IDC_EDIT_IRIS_TIME,60,118,21,14,ES_AUTOHSCROLL | WS_GROUP
     LTEXT           "ms",IDC_STATIC,86,120,10,8
-    CONTROL         "Bip at the beginning of measure (latency definition help)",IDC_CHECK_BEEP,
+    CONTROL         "Beep when reading starts (helps tune the patch delay)",IDC_CHECK_BEEP,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,135,189,10
     GROUPBOX        "Colors to add when measuring primaries and secondaries",IDC_STATIC,7,179,203,25,WS_GROUP
     CONTROL         "None",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,190,33,10
@@ -353,7 +353,7 @@ CAPTION "About HCFR Colorimeter"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
     CONTROL         IDB_LOGO,IDC_STATIC,"Static",SS_BITMAP,7,7,172,62
-    LTEXT           "Version 4.1.0.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
+    LTEXT           "Version 4.2.0.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
     LTEXT           "Copyright (C) 2012-2026 Hcfr Project\nCopyright (C) 2005-2008 Association Homecinema Francophone",IDC_STATIC2,7,88,168,24
     LTEXT           "hcfr.sourceforge.net",IDC_HOMECINEMA_HYPERLINK,7,119,80,8
     LTEXT           "IDC_PLACEHOLDER",IDC_PLACEHOLDER,4,136,177,117
@@ -2751,8 +2751,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 4.1.0.0
- PRODUCTVERSION 4.1.0.0
+ FILEVERSION 4,2,0,0
+ PRODUCTVERSION 4,2,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -2770,12 +2770,12 @@ BEGIN
             VALUE "Comments", "Under GPL Licence"
             VALUE "CompanyName", "Association Homecinema Francophone"
             VALUE "FileDescription", "HCFR Colorimeter resources"
-            VALUE "FileVersion", "4.1.0.0"
+            VALUE "FileVersion", "4.2.0.0"
             VALUE "InternalName", "CHCFR21_ENGLISH"
             VALUE "LegalCopyright", "Copyright (C) 2005-2026"
             VALUE "OriginalFilename", "CHCFR21_ENGLISH.DLL"
             VALUE "ProductName", "HCFR Colorimeter English langage"
-            VALUE "ProductVersion", "4.1.0.0"
+            VALUE "ProductVersion", "4.2.0.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -2818,11 +2818,11 @@ END
 
 STRINGTABLE
 BEGIN
+    IDR_MAINFRAME           "HCFR Colorimeter - 4.2.0.0"
     IDS_CALIB_RGB_MATRIX    "RGB matrix (ASTM E1455-92)"
     IDS_CALIB_FCMM_NOLUM    "NIST Four-Color / FCMM (no luminance scaling)"
     IDS_CALIB_FCMM_LUM      "NIST Four-Color / FCMM (with luminance scaling)"
     IDS_CALIB_BODNER        "Bodner-Robinson three-matrix (RGBW displays)"
-    IDR_MAINFRAME           "HCFR Colorimeter - 4.1.0.0"
     IDR_MESURETYPE          "\nColor Measures\nColor_Measures\nColorHCFR File (*.chc)\n.chc\nCOLORHCFR\nHCFR Color Measures"
 END
 
@@ -4043,7 +4043,7 @@ BEGIN
     IDS_PP_CUBEFMT          "%dx%dx%d cube"
     IDS_PP_PATCHESTIME      "%d patches  -  %s"
     IDS_PP_STARTPROFILE     "Start profile"
-    IDS_PP_REPLACESEXISTING "   (replaces the existing capture)"
+    IDS_PP_REPLACESEXISTING "   (replaces grayscale, primaries and profile)"
     IDS_PP_CHK_GRAYEXTRAS   "Extra gray-axis and near-black samples"
     IDS_PP_CHK_DRIFTCOMP    "Drift compensation (re-measures white every 64 patches)"
     IDS_PP_RUNSTATUS        "Profiling %dx%dx%d%s%s%s"
@@ -4052,6 +4052,8 @@ BEGIN
     IDS_PP_PAUSED           "   -   PAUSED"
     IDS_PP_PATCHOF          "Patch %d of %d  -  RGB %.0f, %.0f, %.0f"
     IDS_PP_ETA              "%d%%  -  about %s left"
+    IDS_PP_MEASURINGREFS    "Measuring grayscale and primaries (%d of %d)..."
+    IDS_PP_DISCGENERATOR    "A display profile needs a generator that can show any color. Disc-based generators are not supported."
     IDS_PP_AVGDE            "Avg dE"
     IDS_PP_MAXDE            "Max dE"
     IDS_PP_DRIFT            "Drift"

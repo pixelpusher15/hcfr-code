@@ -2005,6 +2005,8 @@
 #define IDS_PP_HOURS                    59629
 #define IDS_CSV_FILE_NOT_FOUND          59630
 #define IDS_CSV_RANGE_EXTENDED_WARN     59631
+#define IDS_PP_MEASURINGREFS            59634
+#define IDS_PP_DISCGENERATOR            59790
 #define IDS_SPECTRAL_TITLE              59731
 #define IDS_SPECTRAL_BROWSE             59732
 #define IDS_SPECTRAL_CLEAR              59733

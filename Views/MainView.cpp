@@ -2717,7 +2717,14 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			m_profilePane.OnCaptureProgress ();
 			CMeasure * pProfMeasure = GetDocument()->GetMeasure();
 			int nProfSize = pProfMeasure->GetProfileMeasureSize();
-			if ( nProfSize > 0 )
+			// The reference prologue is not cube patches: m_currentIndex is still
+			// 0, so the reference widgets below would pair with patch 0 -- the
+			// cube's black corner -- while the generator shows a gray or primary.
+			// Only the test window follows it (CTargetWnd's mode-13 branch reads
+			// the prologue's stimulus); the pane carries the progress.
+			if ( nProfSize > 0 && pProfMeasure->m_bProfileMeasuringRefs )
+				m_Target.Refresh ( GetDocument()->GetGenerator()->m_b16_235, 1, nProfSize, 13, GetDocument(), CTargetWnd::TARGET_TESTWINDOW );
+			else if ( nProfSize > 0 )
 			{
 				// desktop test window shows the patch being DISPLAYED (index cur)...
 				int cur = min ( pProfMeasure->m_currentIndex, nProfSize - 1 );
@@ -3200,61 +3207,40 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					double dL, dH, dC, RefWhite = 1.0;
 					CColorReference cRef = GetColorReference();
 					int satsize=GetDocument()->GetMeasure()->GetSaturationSize();
-					if ( isHDR )
+					if ( isHDR && m_displayMode == 1 )
 					{
-						bool shiftDiffuse = (abs(GetConfig()->m_DiffuseL-94.0)>0.5);
+						PrimaryDENorm pn = GetDocument()->GetMeasure()->GetPrimaryDENorm(YWhite, nCol);
+						YWhite = pn.yWhite;
+						RefWhite = pn.refWhite;
+					}
+					else if ( isHDR )
+					{
 			            CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
 						CColor Black = GetDocument() -> GetMeasure() -> GetOnOffBlack();
 						double tmWhite = TmDiffuseWhiteNits(White, Black);
 						if (DVD)
 						{
 							tmWhite = getL_EOTF(0.50, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
-							if (m_displayMode == 1)
-							{
-								if ( (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7) ) //fix for P3/Mascior
-									RefWhite = YWhite / (!shiftDiffuse?92.254965:tmWhite);
-								else
-								{
-									RefWhite = YWhite / (tmWhite);
-									YWhite = YWhite * 94.37844 / (tmWhite);
-								}
-							}
+							if ( ((cRef.m_standard == UHDTV2 && nCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11)// && !shiftDiffuse) //fixes skin && nCol == satsize
+								RefWhite = YWhite / (tmWhite);
 							else
 							{
-								if ( ((cRef.m_standard == UHDTV2 && nCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11)// && !shiftDiffuse) //fixes skin && nCol == satsize
-									RefWhite = YWhite / (tmWhite);
-								else
-								{
-									RefWhite = YWhite / (tmWhite) ;
-									YWhite = YWhite * 94.37844 / (tmWhite);
-								}
+								RefWhite = YWhite / (tmWhite) ;
+								YWhite = YWhite * 94.37844 / (tmWhite);
 							}
 						}
 						else
 						{
-							if (m_displayMode == 1)
-							{
-								if (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7)
-									RefWhite = YWhite / (tmWhite) ;
-								else
-								{
-									RefWhite = YWhite / (tmWhite) ;					
-									YWhite = YWhite * 94.37844 / (tmWhite) ;
-								}
-							}
+							if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
+								YWhite = GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
 							else
 							{
-								if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
-									YWhite = GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
-								else
-								{
-									// Unified HDR convention: the reference is scaled by
-									// GetHDRRefScale (UpdateGrid ~4294), so the measurement
-									// stays anchored to the measured white as-is - no
-									// 94.37844/tmWhite rescale (matches the 3D viewer;
-									// identical with tone mapping off).
-									RefWhite = YWhite / (tmWhite) ;
-								}
+								// Unified HDR convention: the reference is scaled by
+								// GetHDRRefScale (UpdateGrid ~4294), so the measurement
+								// stays anchored to the measured white as-is - no
+								// 94.37844/tmWhite rescale (matches the 3D viewer;
+								// identical with tone mapping off).
+								RefWhite = YWhite / (tmWhite) ;
 							}
 						}
 					}
@@ -3461,7 +3447,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					white = GetDocument() -> GetMeasure () ->GetOnOffWhite();
 
 				//special case check if user has done a primaries run at less than 100%, use grayscale white instead for colorchecker
-				if (GetDocument()->GetMeasure()->GetOnOffWhite().isValid())
+				if (GetDocument()->GetMeasure()->IsOnOffWhiteMeasured() && GetDocument()->GetMeasure()->GetOnOffWhite().isValid())
 					if ((GetDocument()->GetMeasure()->GetPrimeWhite()[1] / GetDocument()->GetMeasure()->GetOnOffWhite()[1] < 0.9) && m_displayMode == 11  && GetConfig()->m_GammaOffsetType !=5)
 						white = GetDocument() -> GetMeasure () ->GetOnOffWhite();
 				
@@ -3946,7 +3932,11 @@ void CMainView::UpdateGrid()
 				 YWhiteRefDoc = isSpecial?YWhiteOnOffRefDoc:YWhitePrimeRefDoc;
 
 				 //special case check if user has done a less than 100% primaries run and use grayscale white instead for colorchecker
-				if (GetDocument()->GetMeasure()->GetOnOffWhite().isValid()&&!isHDR)
+				// Same gate as GetItemText and GetColorDEWhiteY: the pre-loaded
+				// placeholder on/off white is isValid(), so without the flag this
+				// override fired on documents that never measured one -- and the grid
+				// would then disagree with the 3D viewer, which has no such override.
+				if (GetDocument()->GetMeasure()->IsOnOffWhiteMeasured()&&GetDocument()->GetMeasure()->GetOnOffWhite().isValid()&&!isHDR)
 				{
 					if ((YWhitePrime / YWhiteOnOff < 0.9) && m_displayMode == 11)
 					{
@@ -5438,13 +5428,24 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				}
 			}
 
-			aNewColor = GetDocument()->GetMeasure()->GetPrimeWhite();
-			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
-			GetDocument()->GetMeasure()->SetPrimeWhite(aNewColor);
+			// Only when it is a real reading. An unmeasured prime white is the
+			// placeholder CMeasure pre-loads from m_TargetMaxL, so there is nothing
+			// here to rescale -- and pushing it through SetPrimeWhite would mark it
+			// measured, so the document would claim a white it never read.
+			// The neighbouring blocks skip invalid colors for the same reason.
+			if ( GetDocument()->GetMeasure()->IsPrimeWhiteMeasured() )
+			{
+				aNewColor = GetDocument()->GetMeasure()->GetPrimeWhite();
+				aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
+				GetDocument()->GetMeasure()->SetPrimeWhite(aNewColor);
+			}
 
-			aNewColor = GetDocument()->GetMeasure()->GetOnOffWhite();
-			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
-			GetDocument()->GetMeasure()->SetOnOffWhite(aNewColor);
+			if ( GetDocument()->GetMeasure()->IsOnOffWhiteMeasured() )
+			{
+				aNewColor = GetDocument()->GetMeasure()->GetOnOffWhite();
+				aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
+				GetDocument()->GetMeasure()->SetOnOffWhite(aNewColor);
+			}
 
 			aNewColor = GetDocument()->GetMeasure()->GetAnsiWhite();
 			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
@@ -6602,6 +6603,53 @@ void CMainView::OnSelchangeComboSteps()
 	UpdateParamCombos ();
 }
 
+// BindSatLevel swaps which level's readings the saturation sweeps hold, but the
+// selected-color panes still carry the patch picked from the PREVIOUS level, so
+// the RGB levels and target widgets compared that reading with the new level's
+// reference (e.g. a 100% reading against 50% targets: R 464% / 28 dE in SDR,
+// 1224% in PQ). Re-read the selected column from the level now bound; one with
+// no readings yet leaves the panes empty.
+//
+// Like OnGrayScaleGridEndSelChange, only a single selected grid column is
+// reloaded; with no selection or several columns the panes are cleared. Clearing
+// matters because the panes can hold a reading with nothing selected - a sweep
+// with Edit ticked fills them without highlighting a column - and keeping that
+// reading would compare it with the new level's targets. Reloading any other
+// column is no better: SetSelectedColor re-reads minCol from the grid, and the
+// comparator's reference (m_RefColor) follows minCol, so a column picked from
+// last_minCol (which survives a mode switch) would pair with a stale target.
+void CMainView::ReloadSelectedSatColor()
+{
+	if ( m_displayMode < 5 || m_displayMode > 10 || ! m_pGrayScaleGrid )
+		return;
+
+	CCellRange	range = m_pGrayScaleGrid -> GetSelectedCellRange ();
+	if ( ! range.IsValid () || range.GetMinCol () != range.GetMaxCol () || range.GetMinCol () < 1 )
+	{
+		if ( m_SelectedColor.isValid () )
+			SetSelectedColor ( noDataColor );
+		return;
+	}
+
+	CMeasure *	pMeasure = GetDocument () -> GetMeasure ();
+	int			col = range.GetMinCol ();
+	CColor		clr = noDataColor;
+
+	if ( col <= pMeasure -> GetSaturationSize () )
+	{
+		switch ( m_displayMode )
+		{
+			case 5:	clr = pMeasure -> GetRedSat ( col - 1 ); break;
+			case 6:	clr = pMeasure -> GetGreenSat ( col - 1 ); break;
+			case 7:	clr = pMeasure -> GetBlueSat ( col - 1 ); break;
+			case 8:	clr = pMeasure -> GetYellowSat ( col - 1 ); break;
+			case 9:	clr = pMeasure -> GetCyanSat ( col - 1 ); break;
+			case 10: clr = pMeasure -> GetMagentaSat ( col - 1 ); break;
+		}
+	}
+	SetSelectedColor ( clr );
+}
+
 void CMainView::OnSelchangeComboStimLevel()
 {
 	if ( IsMeasureSweepActive () )
@@ -6623,6 +6671,7 @@ void CMainView::OnSelchangeComboStimLevel()
 		if ( GetDocument () -> GetMeasure () -> BindSatLevel ( (double) data / 100.0 ) )
 		{
 			GetDocument () -> SetModifiedFlag ();
+			ReloadSelectedSatColor ();
 			GetDocument () -> UpdateAllViews ( NULL );
 		}
 		return;
@@ -6662,7 +6711,7 @@ void CMainView::OnSelchangeComboStimLevel()
 			if ( d < bestD ) { best = newPcts[i]; bestD = d; }
 		}
 		if ( pMeasure -> BindSatLevel ( (double) best / 100.0 ) )
-			{ GetDocument () -> SetModifiedFlag (); bSnapped = true; }
+			{ GetDocument () -> SetModifiedFlag (); bSnapped = true; ReloadSelectedSatColor (); }
 	}
 
 	if ( bSnapped )
@@ -7031,7 +7080,10 @@ void CMainView::SelectProfilePatch(int idx)
 		SetSelectedColor ( sel );
 
 	m_RGBLevels.Refresh ( idx + 1, 13, pMeasure->GetProfileMeasureSize () );
-	m_Target.Refresh ( pDoc->GetGenerator()->m_b16_235, idx + 1, pMeasure->GetProfileMeasureSize (), 13, pDoc, CTargetWnd::TARGET_TARGET );
+	// TARGET_ALL, as a grid cell does: the test window takes the patch too, so a
+	// Measure or continuous run after selecting it sends this patch (Refresh
+	// honours "Display test colors" and leaves the window alone mid-sweep).
+	m_Target.Refresh ( pDoc->GetGenerator()->m_b16_235, idx + 1, pMeasure->GetProfileMeasureSize (), 13, pDoc, CTargetWnd::TARGET_ALL );
 }
 
 void CMainView::OnDeleteGrayscale()

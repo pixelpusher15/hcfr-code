@@ -55,6 +55,8 @@ CAdvancedPropPage::CAdvancedPropPage() : CPropertyPageWithHelp(CAdvancedPropPage
 	//}}AFX_DATA_INIT
 
 	m_isModified = FALSE;
+	// copied to GetConfig()->m_bSave2 on OK even when this tab was never opened
+	m_bSave = FALSE;
 }
 
 CAdvancedPropPage::~CAdvancedPropPage()
