@@ -988,8 +988,10 @@ void CMeasure::Serialize(CArchive& ar)
 				GetConfig()->m_whiteTarget = WhiteTarget(in[0]);
 				GetConfig()->m_CCMode = CCPatterns(in[1]);
 				GetConfig()->m_colorStandard = ColorStandard(in[2]);
-				// Keep the old white before freeing the reference: the "Custom Color
-				// only" branch below needs it (same fix as ApplySettings, SHELL-016).
+				// Read the old white before freeing the reference: the "Custom Color
+				// only" branch below passes it, as ApplySettings does (SHELL-016), and
+				// used to read it from the freed object. The constructor only uses it
+				// for a custom white, which that branch excludes.
 				ColorXYZ savedRefWhite;
 				if (GetColorApp()->m_pColorReference)
 				{

@@ -31,6 +31,7 @@
 #include "MultiFrm.h"
 
 #include "DocTempl.h"
+#include "DocEnumerator.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -193,19 +194,52 @@ CDocument* CMyMultiDocTemplate::OpenDocumentFile(LPCTSTR lpszPathName,
 CDocument* CMyMultiDocTemplate::OpenDocumentFile(LPCTSTR lpszPathName,
 	BOOL bAddToMRU, BOOL bMakeVisible)
 {
+	if ( lpszPathName == NULL )
+		return CNewMultiDocTemplate::OpenDocumentFile ( lpszPathName, bAddToMRU, bMakeVisible );
+
 	// Drag-drop and DDE opens reach here mid-sweep (every sweep pump dispatches
 	// them), and so can menu opens through the pumps that dispatch everything;
 	// CColorHCFRApp refuses File > Open and recent files earlier, before their
 	// dialog or MRU removal. Loading a file rewrites app-wide preferences and
 	// refreshes every open document, so refuse it mid-sweep. A beep, not a message
 	// box: a modal box here would stall the sweep's pump until dismissed.
-	if ( lpszPathName != NULL && IsMeasureSweepActive () )
+	if ( IsMeasureSweepActive () )
 	{
 		MessageBeep ( MB_ICONWARNING );
 		return NULL;
 	}
 
-	return CNewMultiDocTemplate::OpenDocumentFile ( lpszPathName, bAddToMRU, bMakeVisible );
+	// Loading a file rewrites app-wide preferences (CMeasure::Serialize): its HDR
+	// targets always, the reference / TF / dE settings when the user accepts the
+	// "Preferences in saved file differ" prompt. Snapshot what ApplySettings
+	// regenerates on change, then refresh the other documents as it does.
+	ColorStandard	OriginalColorStandard = GetConfig()->m_colorStandard;
+	WhiteTarget		OriginalWhiteTarget = GetConfig()->m_whiteTarget;
+	CCPatterns		OriginalCCMode = GetConfig()->m_CCMode;
+
+	CDocument *		pNewDoc = CNewMultiDocTemplate::OpenDocumentFile ( lpszPathName, bAddToMRU, bMakeVisible );
+
+	// Only now, after the base open: the new document's views exist during
+	// OnOpenDocument but get their initial update after it, and a data-reference
+	// document forwards its refresh to every document. On a failed load the base
+	// has already destroyed the new frame, so the loop never reaches it.
+	if ( OriginalColorStandard != GetConfig()->m_colorStandard || OriginalWhiteTarget != GetConfig()->m_whiteTarget )
+	{
+		CWaitCursor	wait;
+		GetColorApp() -> CreateCIEBitmaps ( FALSE );
+	}
+	if ( OriginalCCMode != GetConfig()->m_CCMode )
+		GetConfig()->GetCColors();
+
+	CDocEnumerator	docEnumerator;
+	CDocument *		pDoc;
+	while ( ( pDoc = docEnumerator.Next () ) != NULL )
+	{
+		if ( pDoc != pNewDoc )
+			pDoc -> UpdateAllViews ( NULL, UPD_EVERYTHING );
+	}
+
+	return pNewDoc;
 }
 /////////////////////////////////////////////////////////////////////////////
 // Classes for window positions serialization
