@@ -7,10 +7,13 @@
 // goldenDir defaults to "golden" relative to the current directory.
 // Exit code 0 = all pass, nonzero = mismatch/failure.
 //
-// T1 needs no golden file: it carries a frozen copy of the legacy quantizer as an oracle.
 // T2/T3/T4/T6 dump deterministic tables and compare them exactly against checked-in goldens.
-// T5 (rPI emission) is added by PR 3. T7 (.chc round-trip) needs app-level linkage and is
-// deliberately not in this console harness.
+// Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
+// copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
+// T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
+// T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table, and T22
+// asserts the test-color window paints each patch's own code. The .chc round-trip originally planned for the T7
+// slot needs app-level linkage and is deliberately still not in this console harness.
 
 #include <afx.h>
 #include "../../libHCFR/Color.h"
@@ -169,6 +172,36 @@ static void RunT1b()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T22 - test-color window oracle (pure assertion, no golden file): the code
+// the window paints for a patch (TestWindowShownCode of TestWindowPickerCode)
+// must be the patch's own 8-bit code in the range, the code the references
+// snap to. The picker holds full-range codes and the window maps them to
+// 16-235 for a limited generator; quantizing in full range first is a code
+// off for ~1 in 5 levels.
+//////////////////////////////////////////////////////////////////////////
+static void RunT22()
+{
+    printf("T22 test-color window oracle...\n");
+    for (int r = 0; r < 2; ++r)
+    {
+        bool lim = (r != 0);
+        for (int i = -50000; i <= 1050000; ++i)
+        {
+            double pct = i * 1e-4;
+            int want = ColorRGBDisplay::ConvertPercentToCode(pct, lim, 8);
+            if (lim)
+                want = want < 16 ? 16 : (want > 235 ? 235 : want);
+            int picker = ColorRGBDisplay::TestWindowPickerCode(pct, lim);
+            if (picker < 0 || picker > 255)
+                Fail("T22 pct=%.17g range=%d: picker code %d out of 0..255", pct, r, picker);
+            int shown = ColorRGBDisplay::TestWindowShownCode(picker, lim);
+            if (shown != want)
+                Fail("T22 pct=%.17g range=%d: window shows %d, patch code %d", pct, r, shown, want);
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 // Golden-file plumbing. Tables are built as strings (LF line endings,
 // %.17g doubles) and either written (gen) or compared exactly (verify).
 //////////////////////////////////////////////////////////////////////////
@@ -220,14 +253,17 @@ static void AppendF(std::string& s, const char* fmt, ...)
 }
 
 //////////////////////////////////////////////////////////////////////////
-// T2 — ArrayIndexToGrayLevel over all sizes x three rounding modes.
+// T2 — ArrayIndexToGrayLevel over all sizes x three rounding modes x both
+// wire ranges. The range column selects the native code grid (219 limited /
+// 255 full at 8 bits, 876 / 1023 at 10) exactly as SnapToVideoGrid does; the
+// lim=1 rows are the historic values and must never move.
 //////////////////////////////////////////////////////////////////////////
 static void RunT2()
 {
     printf("T2 grey-level tables...\n");
     std::string out;
     static const int sizes[] = { 2, 5, 6, 11, 12, 16, 21, 25, 101 };
-    out += "# ArrayIndexToGrayLevel(index,size,roundDown,b10bit) %.17g\n";
+    out += "# ArrayIndexToGrayLevel: size,mode,is16_235,index,%.17g\n";
     for (int s = 0; s < sizeof(sizes)/sizeof(sizes[0]); ++s)
     {
         int size = sizes[s];
@@ -235,29 +271,32 @@ static void RunT2()
         {
             bool rd  = (mode == 1);
             bool b10 = (mode == 2);
-            for (int i = 0; i < size; ++i)
-                AppendF(out, "%d,%d,%d,%d,%.17g\n", size, mode, i, 0,
-                        ArrayIndexToGrayLevel(i, size, rd, b10));
+            for (int lim = 1; lim >= 0; --lim)
+                for (int i = 0; i < size; ++i)
+                    AppendF(out, "%d,%d,%d,%d,%.17g\n", size, mode, lim, i,
+                            ArrayIndexToGrayLevel(i, size, rd, b10, lim != 0));
         }
     }
     HandleTable("T2_graylevels.txt", out);
 }
 
 //////////////////////////////////////////////////////////////////////////
-// T3 — GrayLevelToGrayProp over a dense level sweep x three rounding modes.
+// T3 — GrayLevelToGrayProp over a dense level sweep x three rounding modes x
+// both wire ranges (see T2 on the range column).
 //////////////////////////////////////////////////////////////////////////
 static void RunT3()
 {
     printf("T3 grey-level props...\n");
     std::string out;
-    out += "# GrayLevelToGrayProp(level,roundDown,b10bit) %.17g, level = i*0.25\n";
+    out += "# GrayLevelToGrayProp: mode,is16_235,i,%.17g, level = i*0.25\n";
     for (int mode = 0; mode < 3; ++mode)
     {
         bool rd  = (mode == 1);
         bool b10 = (mode == 2);
-        for (int i = 0; i <= 400; ++i)          // 0..100 step 0.25
-            AppendF(out, "%d,%d,%.17g\n", mode, i,
-                    GrayLevelToGrayProp(i * 0.25, rd, b10));
+        for (int lim = 1; lim >= 0; --lim)
+            for (int i = 0; i <= 400; ++i)      // 0..100 step 0.25
+                AppendF(out, "%d,%d,%d,%.17g\n", mode, lim, i,
+                        GrayLevelToGrayProp(i * 0.25, rd, b10, lim != 0));
     }
     HandleTable("T3_graylevelprop.txt", out);
 }
@@ -403,7 +442,9 @@ static void RunT5()
 {
     printf("T5 rPI emission quantizers...\n");
     // bits=8 patch == frozen legacy formulas
-    for (int i = 0; i <= 1000000; ++i)
+    // sweep 0..120% so super-white (>100%) is covered: limited now clamps at the
+    // code max (255), not legal white (235); full is unchanged.
+    for (int i = 0; i <= 1200000; ++i)
     {
         double pct = i * 1e-4;
         int lgFull = (int)floor(pct / 100.0 * 255.0 + 0.5);
@@ -411,7 +452,7 @@ static void RunT5()
         if (PiPercentToCode(pct, false, 8) != lgFull)
             Fail("T5 full8 pct=%.17g", pct);
         int lgLim = (int)floor(pct / 100.0 * 219.0 + 16.5);
-        lgLim = lgLim < 0 ? 0 : (lgLim > 235 ? 235 : lgLim);
+        lgLim = lgLim < 0 ? 0 : (lgLim > 255 ? 255 : lgLim);
         if (PiPercentToCode(pct, true, 8) != lgLim)
             Fail("T5 lim8 pct=%.17g", pct);
     }
@@ -431,7 +472,7 @@ static void RunT5()
     if (PiPercentToCode(100.0, true, 10) != 940)   Fail("T5 lim10 100%%");
     if (PiPercentToCode(-5.0, false, 10) != 0)     Fail("T5 full10 clamp low");
     if (PiPercentToCode(200.0, false, 10) != 1023) Fail("T5 full10 clamp high");
-    if (PiPercentToCode(200.0, true, 10) != 940)   Fail("T5 lim10 clamp high");
+    if (PiPercentToCode(200.0, true, 10) != 1023)  Fail("T5 lim10 clamp high");
     if (PiBackground8ToCode(0.0, true, 10) != 64)    Fail("T5 bglim10 0");
     if (PiBackground8ToCode(255.0, true, 10) != 940) Fail("T5 bglim10 255");
     if (PiBackground8ToCode(255.0, false, 10) != 1023) Fail("T5 bgfull10 255");
@@ -441,7 +482,7 @@ static void RunT5()
         bool lim = (r != 0);
         int prev = -1;
         std::vector<char> seen(1024, 0);
-        for (int i = 0; i <= 1000000; ++i)
+        for (int i = 0; i <= 1200000; ++i)
         {
             int code = PiPercentToCode(i * 1e-4, lim, 10);
             if (code < prev) Fail("T5 10bit non-monotonic range=%d pct=%.17g", r, i * 1e-4);
@@ -450,7 +491,7 @@ static void RunT5()
         }
         int distinct = 0;
         for (int c = 0; c < 1024; ++c) distinct += seen[c];
-        if (lim && distinct != 877) Fail("T5 lim10 grid: %d distinct, expected 877", distinct);
+        if (lim && distinct != 960) Fail("T5 lim10 grid: %d distinct, expected 960", distinct);
         if (!lim && distinct != 1024) Fail("T5 full10 grid: %d distinct, expected 1024", distinct);
     }
 }
@@ -643,6 +684,428 @@ static void RunT9()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T10 — gamut-basis consistency oracle (pure assertion, no golden file).
+//
+// Closes a real gap: dE-based tests are blind to which BASIS a consumer plots
+// against, because a point can be drawn in completely the wrong place while its
+// dE reads exactly 0.000. The 3D viewer built its gamut solid straight from
+// CColorReference::GetRed/Green/Blue, but HDTVa/HDTVb do not carry a gamut
+// there - HDTVa holds the 75% saturation/amplitude PATCH chromaticities and
+// HDTVb the plasma-optimized color-checker ones, both far inside Rec.709. So
+// the solid was a small desaturated triangle while the references themselves
+// are manufactured in real Rec.709 by SetRGBValue's substitution, and a perfect
+// simulated display plotted its own targets outside the solid at dE 0.00.
+//
+// The invariant: the basis a consumer uses for GEOMETRY must be the same basis
+// the references were BUILT in. Two legs, over every standard in the enum
+// except CUSTOM (see the carve-outs below):
+//   1. Round trip. SetRGBValue(rgb, S) is how the app manufactures a reference;
+//      decoding that XYZ in SpecialModeGamutReference(S) must return rgb. Any
+//      standard whose geometry basis disagrees with its construction basis
+//      lands outside the unit cube here. Verified by mutation: reverting the
+//      helper to a plain `return active` fails 600 assertions - 240 on HDTVa
+//      (red decodes to 1.267,-0.072,-0.071 instead of 1,0,0), 240 on HDTVb,
+//      120 on CC6, and none at all on the other eight standards.
+//   2. Helper agreement. SpecialModeGamutReference must reproduce GetRGBValue's
+//      own inline substitution exactly, so the two cannot drift apart.
+//
+// Each standard runs under three white targets, and that is load-bearing rather
+// than thoroughness for its own sake: the special modes' construction basis is a
+// FIXED Rec.709/D65 (SetRGBValue builds CColorReference(HDTV) unconditionally),
+// so a helper that carried the active white over would pass every default-white
+// case and fail 270 assertions the moment a non-D65 white is selected. The first
+// version of this helper did exactly that.
+//
+// SCOPE: this pins the helper's CONTRACT, not its application. Nothing here can
+// see C3DColorView - if the viewer stopped calling SpecialModeGamutReference, T10
+// would stay green. That call site is funnelled through a single
+// SceneGamutReference() in Color3DView.cpp to keep the blast radius of such a
+// regression to one line; the display itself is still only checked on screen.
+//
+// CUSTOM is deliberately absent: CColorReference's CUSTOM branch writes its
+// primaries THROUGH the default `primaries` pointer, which still aims at the
+// global primariesRec601 array, so merely constructing one corrupts SDTV for
+// the rest of the process. Constructing it here would poison later tests.
+// CC6 (the unused enum slot) runs leg 1 only: GetRGBValue's substitution
+// predicate omits CC6 while SetRGBValue's and GetDeltaE's include it, a latent
+// inconsistency in dead-but-present code that leg 2 would trip over.
+//////////////////////////////////////////////////////////////////////////
+static void RunT10()
+{
+    printf("T10 gamut-basis consistency oracle...\n");
+    static const struct { ColorStandard cs; const char* name; } stds[] = {
+        { PALSECAM, "PALSECAM" }, { SDTV,   "SDTV"   }, { HDTV,   "HDTV"   },
+        { HDTVa,    "HDTVa"    }, { HDTVb,  "HDTVb"  }, { sRGB,   "sRGB"   },
+        { UHDTV,    "UHDTV"    }, { UHDTV2, "UHDTV2" }, { UHDTV3, "UHDTV3" },
+        { UHDTV4,   "UHDTV4"   }, { CC6,    "CC6"    },
+    };
+    // cube corners, face centres, grey, and a few off-axis points
+    static const double rgbs[][3] = {
+        {0,0,0}, {1,0,0}, {0,1,0}, {0,0,1}, {1,1,0}, {0,1,1}, {1,0,1}, {1,1,1},
+        {0.5,0,0}, {0,0.5,0}, {0,0,0.5}, {0.5,0.5,0.5},
+        {0.75,0.25,0.10}, {0.10,0.75,0.25}, {0.25,0.10,0.75},
+    };
+    // White targets matter: the special standards' construction basis is a FIXED
+    // Rec.709/D65 (SetRGBValue builds CColorReference(HDTV) unconditionally), so a
+    // geometry basis that tracked the active white instead would break leg 1 for
+    // every non-D65 white while passing under the default.
+    enum { W_DEFAULT, W_NAMED, W_CUSTOM, W_COUNT };
+    static const char * wName[W_COUNT] = { "D65", "D75", "custom" };
+
+    const int nStd = (int)(sizeof(stds) / sizeof(stds[0]));
+    const int nRGB = (int)(sizeof(rgbs) / sizeof(rgbs[0]));
+
+    for (int s = 0; s < nStd; ++s)
+    for (int w = 0; w < W_COUNT; ++w)
+    {
+        CColorReference ref =
+            (w == W_NAMED)  ? CColorReference(stds[s].cs, D75) :
+            (w == W_CUSTOM) ? CColorReference(stds[s].cs, DCUST, -1.0, " modified",
+                                              ColorXYZ(ColorxyY(0.2900, 0.3000)))
+                            : CColorReference(stds[s].cs);
+        CColorReference gref = SpecialModeGamutReference(ref);
+        char tag[48];
+        _snprintf(tag, sizeof(tag) - 1, "%s/%s", stds[s].name, wName[w]);
+        tag[sizeof(tag) - 1] = 0;
+
+        // Ordinary standards must come back untouched - the helper is only ever
+        // allowed to act on the special ones.
+        bool special = (stds[s].cs == HDTVa || stds[s].cs == HDTVb || stds[s].cs == CC6);
+        if (!special)
+            for (int k = 0; k < 3; ++k)
+                if (fabs(ref.GetWhite()[k] - gref.GetWhite()[k]) > 1e-12)
+                    Fail("T10 %s: helper altered a non-special reference, white component "
+                         "%d: %.17g -> %.17g", tag, k, ref.GetWhite()[k], gref.GetWhite()[k]);
+
+        for (int i = 0; i < nRGB; ++i)
+        {
+            ColorRGB rgb(rgbs[i][0], rgbs[i][1], rgbs[i][2]);
+            CColor c;
+            c.SetRGBValue(rgb, ref);
+
+            // ---- Leg 1: construction basis == geometry basis.
+            ColorRGB back(c.GetXYZValue(), gref);
+            for (int k = 0; k < 3; ++k)
+                if (fabs(back[k] - rgb[k]) > 1e-9)
+                    Fail("T10 %s rgb=(%.2f,%.2f,%.2f): reference is outside the plotted "
+                         "gamut basis, channel %d came back %.6f (expected %.6f)",
+                         tag, rgb[0], rgb[1], rgb[2], k, back[k], rgb[k]);
+
+            // ---- Leg 2: helper == GetRGBValue's own inline substitution.
+            if (stds[s].cs == CC6)
+                continue;
+            ColorRGB viaGetter = c.GetRGBValue(ref);
+            for (int k = 0; k < 3; ++k)
+                if (fabs(viaGetter[k] - back[k]) > 1e-9)
+                    Fail("T10 %s rgb=(%.2f,%.2f,%.2f): SpecialModeGamutReference disagrees "
+                         "with GetRGBValue, channel %d: %.17g vs %.17g",
+                         tag, rgb[0], rgb[1], rgb[2], k, back[k], viaGetter[k]);
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T11 - BT.2390 tone-map monotonicity oracle (pure assertion, no golden file).
+//
+// Closes the near-black half of the tone-mapping curve, which no dE-based
+// harness can see: /accuracytest runs every tone-map combo with MasterMinL and
+// TargetMinL pinned to 0, and a reference that is wrong in exactly the same way
+// as the modelled sensor still reads dE 0.000.
+//
+// The bug this pins: BT2390ToneMap normalises the signal against the mastering
+// display's black (E1 = (E - PQ(MinML)) / d), runs the knee, and then only
+// applies BT.2390's black lift when E2 landed inside [0,1]. Anything that fell
+// out of that window dropped to the raw, UN-tone-mapped PQ curve, so near-black
+// got no lift at all while the highlights were still rolled off - Y target at 0%
+// (which returns the display black target directly) could come out ABOVE Y
+// target at 1-5%. Two inputs land in that dead zone: a signal below the
+// mastering black (negative E1, so negative E2), and a target peak below a third
+// of the mastering range (negative KS, so the knee itself returns a negative
+// E2). The E2 floor in Color.cpp covers both.
+//
+// The invariant is the weakest thing that catches it and stays true of any sane
+// EOTF: an electro-optical transfer function must be non-decreasing in the
+// signal. Verified by mutation - dropping the E2 floor in Color.cpp fails 2880
+// of the 4320 configurations swept here (and 54 of T12's 72). Four more
+// mutations of the same block are killed from this test: writing the floor as
+// max(E2, 0.0) fails 240 (the NaN at TargetMaxL == MasterMaxL == 10000 becomes
+// 0, so full white reads as black), clamping E1's top end fails 600 on the peak
+// check below, dropping the d > 0 guard fails 10 of the 18 degenerate configs,
+// and flooring E1 rather than E2 - the narrower fix, which covers only the
+// sub-black half - still fails 92.
+//
+// The grid deliberately mixes MasterMinL above and below TargetMinL: the
+// sub-black dead zone only opens when the mastering black is nonzero, and
+// BT2390ToneMap's own `if (m_MinML > m_MinTL) m_MinML = m_MinTL` clamp shrinks
+// it again from the other side.
+//
+// Where the grid deliberately does NOT go. The invariant below is stated
+// absolutely, but it is only swept over a band where it currently holds: the
+// black lift's exponent p = min(1/b, 4*BS) falls under 1 when Black Slope drops
+// below 0.25, or when b exceeds 1 from a high target black against a low
+// diffuse white. p < 1 makes the lift's slope diverge as E2 -> 1 and turns the
+// curve over MID-SCALE - a third non-monotonic band, distinct from both
+// near-black mechanisms above, pre-existing and untouched by the E2 floor (225
+// of 5760 UI-reachable configurations, every one at BS = 0.1, and identical on
+// main). BS is pinned to {1.0, 2.0} and diffuse to {94.37844, 203} to stay
+// clear of both entrances; widen either and T11 becomes a test of that band
+// instead of this fix. (203 is BT.2408's reference white and sits just above
+// the References page's own DiffuseL cap of 200, so it reaches libHCFR only
+// through an INI - a separate question from what this test covers.)
+//////////////////////////////////////////////////////////////////////////
+static void RunT11()
+{
+    printf("T11 BT.2390 tone-map monotonicity oracle...\n");
+
+    static const double minMLs[] = { 0.0, 0.0001, 0.001, 0.005, 0.05, 0.5 };
+    static const double maxMLs[] = { 1000.0, 4000.0, 10000.0 };
+    static const double minTLs[] = { 0.0, 0.005, 0.05, 0.1, 0.3 };
+    // Three of these columns exist for a specific regime, not for coverage:
+    //  - 2000 is above the 1000-nit mastering peak, the EXPANSION region (a
+    //    display brighter than the disc), where a clamp on E1's top end
+    //    flat-lines the whole top of the curve.
+    //  - 30 is low enough against these mastering peaks to drive
+    //    KS = 1.5*maxL - 0.5 NEGATIVE, which lets the Hermite knee return a
+    //    negative E2 at signal 0 and, before the E2 floor, dropped the bottom
+    //    of the curve to raw PQ - the same 0%-above-1% inversion from a second
+    //    mechanism. Without this column every config here has KS > 0.
+    //  - 10000 equals a mastering peak AND is the top of the PQ range, the one
+    //    place E1, KS and maxL all land on exactly 1 at full signal, so the knee
+    //    runs with T = 0/0 and E2 comes out NaN. That NaN has to keep falling
+    //    through to raw PQ; a floor written as max(E2, 0.0) answers 0 for it and
+    //    full white reads as black. 1000 is the same equality lower down, where
+    //    PQ(MasterMaxL) < 1 keeps E1 away from the singular point.
+    static const double maxTLs[] = { 30.0, 120.0, 400.0, 1000.0, 2000.0, 10000.0 };
+    // Both pinned clear of the p < 1 band described above, not for coverage.
+    static const double diffuses[] = { 94.37844, 203.0 };
+    static const double bFacts[] = { 1.0, 2.0 };          // m_BT2390_BS
+    static const double e2Facts[] = { 0.0, 1.0 };         // m_BT2390_WS
+
+    // Sample on the inverse LUT's own 1/1024 grid rather than a coarser one, so
+    // the oracle's resolution is not the thing that decides what it can see.
+    const int steps = 1024;
+    int configs = 0;
+
+    for (int a = 0; a < _countof(minMLs); a++)
+    for (int b = 0; b < _countof(maxMLs); b++)
+    for (int c = 0; c < _countof(minTLs); c++)
+    for (int d = 0; d < _countof(maxTLs); d++)
+    for (int e = 0; e < _countof(diffuses); e++)
+    for (int f = 0; f < _countof(bFacts); f++)
+    for (int g = 0; g < _countof(e2Facts); g++)
+    {
+        configs++;
+        double prev = -1.0;
+        for (int i = 0; i <= steps; i++)
+        {
+            const double valx = (double)i / steps;
+            const double y = getL_EOTF(valx, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                       diffuses[e], minMLs[a], maxMLs[b],
+                                       minTLs[c], maxTLs[d], true, false, 1.2,
+                                       bFacts[f], e2Facts[g], 25.0) * 100.0;
+            if (y < prev - 1e-9)
+            {
+                Fail("T11 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g "
+                     "diffuse=%g BS=%g WS=%g: tone-mapped PQ target falls from "
+                     "%.6f to %.6f cd/m2 at signal %.4f",
+                     minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], diffuses[e],
+                     bFacts[f], e2Facts[g], prev, y, valx);
+                break;      // one report per configuration
+            }
+            prev = y;
+        }
+
+        // Peak reach. Monotonicity alone cannot see a curve that goes FLAT
+        // early - that is still non-decreasing - so pin the endpoint too: full
+        // signal must land on the display's peak, whatever the mastering peak
+        // was. Clamping E1's top end broke exactly this, pinning everything
+        // above the mastering peak to PQ(MasterMaxL): a 1000-nit-mastered disc
+        // on a 2000-nit target returned 1000 here instead of 2000, flat across
+        // the whole top of the grid, with T11 none the wiser.
+        const double peak = getL_EOTF(1.0, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                      diffuses[e], minMLs[a], maxMLs[b],
+                                      minTLs[c], maxTLs[d], true, false, 1.2,
+                                      bFacts[f], e2Facts[g], 25.0) * 100.0;
+        if (fabs(peak - maxTLs[d]) > 1e-6 * maxTLs[d])
+            Fail("T11 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g "
+                 "diffuse=%g BS=%g WS=%g: full signal reaches %.4f cd/m2, "
+                 "expected the display peak %.4f",
+                 minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], diffuses[e],
+                 bFacts[f], e2Facts[g], peak, maxTLs[d]);
+    }
+    printf("  %d tone-map configurations swept\n", configs);
+
+    // Degenerate mastering metadata. MasterMaxL = 0 makes the PQ span d zero or
+    // negative, so E1, minL and maxL all come out +/-inf or NaN. The References
+    // page cannot produce it - it validates MasterMaxL to [100, 10000] and
+    // MasterMinL to [0, 0.5], and the smallest d over the corners of all four
+    // luminance fields is 0.0733 - so it arrives from a hand-edited INI, which
+    // is read back without re-validation, or from a direct caller of the public
+    // getL_EOTF. The E2 floor has to stay OFF for those: an infinite
+    // b turns the black lift into a NaN, and min(NaN, cap) resolves to the full
+    // target peak, so a signal of 1e-7 returned the whole 1000-nit target peak
+    // while 1e-5 next door returned 4e-9. Sampled on a sub-grid ladder because
+    // that is where it lives - the coarsest failing signal is well under 1/1024 -
+    // and starting above 0, since x = 0 takes the early return at the top of
+    // getL_EOTF and is the separate, pre-existing 0%-above-1% case this does not
+    // touch.
+    {
+        static const double degenMinMLs[] = { 0.0, 0.05, 0.5 };
+        static const double degenMinTLs[] = { 0.0, 0.005, 0.05 };
+        static const double degenMaxTLs[] = { 120.0, 1000.0 };
+        static const double ladder[] = { 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3 };
+        int degen = 0;
+        for (int a = 0; a < _countof(degenMinMLs); a++)
+        for (int c = 0; c < _countof(degenMinTLs); c++)
+        for (int d = 0; d < _countof(degenMaxTLs); d++)
+        {
+            degen++;
+            double prev = -1.0;
+            for (int i = 0; i < _countof(ladder); i++)
+            {
+                const double y = getL_EOTF(ladder[i], noDataColor, noDataColor, 0.0, 0.0, 5,
+                                           94.37844, degenMinMLs[a], 0.0,
+                                           degenMinTLs[c], degenMaxTLs[d], true, false, 1.2,
+                                           1.0, 0.0, 25.0) * 100.0;
+                if (y < prev - 1e-12)
+                {
+                    Fail("T11 degenerate MasterMin=%g MasterMax=0 TargetMin=%g TargetMax=%g: "
+                         "target falls from %.9f to %.9f cd/m2 at signal %g",
+                         degenMinMLs[a], degenMinTLs[c], degenMaxTLs[d], prev, y, ladder[i]);
+                    break;
+                }
+                prev = y;
+            }
+        }
+        printf("  %d degenerate-metadata configurations swept\n", degen);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T12 - BT.2390 inverse-LUT oracle (pure assertion, no golden file).
+//
+// T11 only reaches the FORWARD direction: its getL_EOTF call passes a positive
+// mode, so case -10 - the LUT build and the nearest-neighbour search over it -
+// had no coverage at all. This closes that. The per-signal math is now one
+// shared BT2390ToneMap, so both oracles pin the same curve rather than two
+// copies of it, but everything around it on the inverse side is only reachable
+// from here, and it gets two things wrong on its own:
+//
+// 1. MATH-008, the empty-LUT fault. case -10 used to build the table by
+//    re-entering getL_EOTF with mode 5 and cBT2390 = TRUE, which meant the
+//    build had to survive the guards at the top of that function and the
+//    `ToneMap && mode == 5` promotion to case 10. Two ways through without a
+//    table: a valx of 0 tripped the `valx == 0 && mode > 4` early return and
+//    came back BEFORE the cBT2390 branch ran, and a caller arriving at mode
+//    -10 with ToneMap false skipped the promotion entirely. Either way the
+//    vectors held whatever they held - empty on the first such call - and the
+//    nearest-neighbour search read BT2390y[0] out of bounds. It went unnoticed
+//    because the dead tmWhite call in the forward branch happened to leave
+//    exactly one entry behind on every forward tone-mapped call; deleting that
+//    dead code (same commit) exposed the fault, so this test is what keeps it
+//    dead. case -10 now calls BuildBT2390Table directly, past both guards.
+//    Verified by mutation: deleting that build call aborts this test with
+//    "vector subscript out of range" on the first configuration.
+//
+// 2. Round trip, stated in LUMINANCE: forward(inverse(y)) == y. Signal ->
+//    signal is the wrong invariant here, because the tone curve is not
+//    injective - the clamp deliberately maps every signal below the mastering
+//    black onto the black target, and the peak cap flattens the highlights the
+//    same way, so several signals share one luminance and the inverse is
+//    legitimately free to return any of them. What must hold is that whichever
+//    it returns lands back on the luminance asked for. The LUT stores
+//    nits/10000 while mode 5 returns nits/100, hence the /100 bridge below.
+//////////////////////////////////////////////////////////////////////////
+static void RunT12()
+{
+    printf("T12 BT.2390 inverse-LUT oracle...\n");
+
+    static const double minMLs[] = { 0.0, 0.005, 0.05 };
+    static const double maxMLs[] = { 1000.0, 4000.0 };
+    static const double minTLs[] = { 0.0, 0.005, 0.05, 0.1 };
+    // 30 against a 1000/4000-nit master is the KS < 0 regime, where the forward
+    // curve is deliberately flat across the bottom - the inverse is then free to
+    // return any signal in that run, which is exactly why the round trip below is
+    // stated in luminance.
+    static const double maxTLs[] = { 30.0, 120.0, 1000.0 };
+
+    int configs = 0;
+
+    for (int a = 0; a < _countof(minMLs); a++)
+    for (int b = 0; b < _countof(maxMLs); b++)
+    for (int c = 0; c < _countof(minTLs); c++)
+    for (int d = 0; d < _countof(maxTLs); d++)
+    {
+        configs++;
+
+        // (1) MATH-008 guard. Deliberately the FIRST getL_EOTF call for this
+        // configuration, so the LUT is stale or empty exactly as it would be
+        // when something inverts before anything has run the forward curve.
+        const double zero = getL_EOTF(0.0, noDataColor, noDataColor, 0.0, 0.0, -5,
+                                      94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                      true, false, 1.2, 1.0, 0.0, 25.0);
+        if (zero != 0.0)
+            Fail("T12 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g: inverse of 0 "
+                 "returned %.6f, expected 0 (the signal that produces black)",
+                 minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], zero);
+
+        // (2) forward -> inverse round trip over near black
+        for (int i = 0; i <= 40; i++)
+        {
+            const double sig = (double)i / 1024.0;
+            const double raw = getL_EOTF(sig, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                         94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                         true, false, 1.2, 1.0, 0.0, 25.0);
+            const double y    = raw / 100.0;                  // LUT units, nits/10000
+            const double back = getL_EOTF(y, noDataColor, noDataColor, 0.0, 0.0, -5,
+                                          94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                          true, false, 1.2, 1.0, 0.0, 25.0);
+            const double y2   = getL_EOTF(back, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                          94.37844, minMLs[a], maxMLs[b], minTLs[c], maxTLs[d],
+                                          true, false, 1.2, 1.0, 0.0, 25.0) / 100.0;
+            // sig sits on the LUT's own grid, so the search should land on an
+            // exact table entry; only floating-point dust is allowed.
+            const double tol = 1e-12 + 1e-6 * fabs(y);
+            if (fabs(y2 - y) > tol)
+            {
+                Fail("T12 MasterMin=%g MasterMax=%g TargetMin=%g TargetMax=%g: signal %.6f "
+                     "-> %.8f -> inverse %.6f -> %.8f (off by %.3g, tolerance %.3g)",
+                     minMLs[a], maxMLs[b], minTLs[c], maxTLs[d], sig, y, back, y2,
+                     fabs(y2 - y), tol);
+                break;      // one report per configuration
+            }
+        }
+    }
+    // (3) The old diffuse-white fast path. Building the table used to short to a
+    // SINGLE entry whenever the signal handed to the builder landed within 5e-4
+    // of 0.5022283, leaving the nearest-neighbour search one candidate and making
+    // it hand back its own input as the answer. The window is a real luminance -
+    // the LUT is in nits/10000, so it is ~5022 cd/m2, inside a 10000-nit target -
+    // and it was reachable from the near-white autoscale in Measure.cpp, where the
+    // inverted value is a free-ranging measured luminance. Walk straight across it.
+    {
+        const double lo = 0.5022283 - 8e-4, hi = 0.5022283 + 8e-4;
+        for (int i = 0; i <= 16; i++)
+        {
+            const double y = lo + (hi - lo) * i / 16.0;
+            const double sig = getL_EOTF(y, noDataColor, noDataColor, 0.0, 0.0, -5,
+                                         94.37844, 0.0, 10000.0, 0.0, 10000.0,
+                                         true, false, 1.2, 1.0, 0.0, 25.0);
+            const double y2 = getL_EOTF(sig, noDataColor, noDataColor, 0.0, 0.0, 5,
+                                        94.37844, 0.0, 10000.0, 0.0, 10000.0,
+                                        true, false, 1.2, 1.0, 0.0, 25.0) / 100.0;
+            // one LUT step is 1/1024 in signal; allow the luminance that spans
+            if (fabs(y2 - y) > 0.02 * y)
+                Fail("T12 fast-path window: inverse of %.7f returned signal %.6f, "
+                     "which forwards to %.7f (off by %.3g) - one-entry table?",
+                     y, sig, y2, fabs(y2 - y));
+        }
+    }
+
+    printf("  %d inverse configurations swept\n", configs);
+}
+
+//////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[])
 {
@@ -668,6 +1131,10 @@ int main(int argc, char* argv[])
     RunT7();
     RunT8();
     RunT9();
+    RunT10();
+    RunT11();
+    RunT12();
+    RunT22();
 
     if (g_failures)
     {

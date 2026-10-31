@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -56,9 +56,10 @@ void error_handler  (HPDF_STATUS   error_no,
                 HPDF_STATUS   detail_no,
                 void         *user_data)
 {
-	char msg[50];
-    sprintf (msg,"ERROR: error_no=%04X, detail_no=%04X, File already open?\n", (HPDF_UINT)error_no,
+	char msg[256];
+    _snprintf (msg, sizeof(msg), "ERROR: error_no=%04X, detail_no=%04X, File already open?\n", (HPDF_UINT)error_no,
                 (HPDF_UINT)detail_no);
+    msg[sizeof(msg)-1] = 0;
 			if(GetColorApp()->InMeasureMessageBox(msg,"PDF ERROR, Yes to continue",MB_YESNO)!=IDYES)
     longjmp(env, 1);
 }
@@ -87,9 +88,25 @@ draw_image (HPDF_Doc     pdf,
 
     image = HPDF_LoadPngImageFromFile (pdf, filename1);
 
-    /* Draw image to the canvas. */
-    HPDF_Page_DrawImage (page, image, x, y, HPDF_Image_GetWidth (image),
-                    HPDF_Image_GetHeight (image));
+    /* Draw the logo at a fixed display height (in points), preserving aspect
+       ratio, so its on-page size does not depend on the source PNG's pixel
+       resolution. Passing the raw pixel dimensions to HPDF_Page_DrawImage made
+       the size == pixels (1px -> 1pt): a 100x100 logo rendered 100pt tall and
+       ran off the top of the page. Guard against a failed load (NULL image)
+       instead of dereferencing it. */
+    if ( image )
+    {
+        const HPDF_REAL logoHeight = 72.0f;                 /* 1 inch */
+        HPDF_REAL imgW = (HPDF_REAL) HPDF_Image_GetWidth (image);
+        HPDF_REAL imgH = (HPDF_REAL) HPDF_Image_GetHeight (image);
+        HPDF_REAL logoWidth = ( imgH > 0 ) ? ( logoHeight * imgW / imgH ) : logoHeight;
+        HPDF_Page_DrawImage (page, image, x, y, logoWidth, logoHeight);
+    }
+    else
+        /* Clear the error the failed PNG load left on the doc; otherwise a
+           later HPDF_SaveToFile that actually succeeds still returns
+           HPDF_CheckError() and re-fires error_handler on a good save. */
+        HPDF_ResetError (pdf);
 
     /* Print the text. */
     HPDF_Page_BeginText (page);
@@ -123,8 +140,15 @@ draw_image2 (HPDF_Doc     pdf,
 
     image = HPDF_LoadPngImageFromFile (pdf, filename1);
 
-    /* Draw image to the canvas. */
-    HPDF_Page_DrawImage (page, image, x, y, wX, wY);
+    /* Draw image to the canvas. Guard against a failed load (NULL image):
+       drawing a NULL handle here is what crashes the app when a source PNG is
+       missing and the user clicks "Yes to continue" past the error. */
+    if ( image )
+        HPDF_Page_DrawImage (page, image, x, y, wX, wY);
+    else
+        /* Clear the failed-load error so a successful save doesn't re-fire
+           error_handler (see draw_image). */
+        HPDF_ResetError (pdf);
 
     /* Print the text. */
     HPDF_Page_BeginText (page);
@@ -541,32 +565,26 @@ bool CExport::SavePDF()
 	CColor mColor = m_pDoc->GetMeasure()->GetMagentaSecondary();
 	double dEr=0,dEg=0,dEb=0,dEy=0,dEc=0,dEm=0;
 	CColor NoDataColor;
-	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 	double tmWhite = TmDiffuseWhiteNits(NoDataColor, NoDataColor);
 
-	if (GetConfig()->m_GammaOffsetType == 5)
-	{
-		if (GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV)
-			RefWhite = YWhite / (tmWhite) ;
-		else
-		{
-			RefWhite = YWhite / (tmWhite) ;					
-			YWhite = YWhite * 94.37844 / (tmWhite) ;
-		}
-	}
+	// the measures grid's primaries normalisation (CMeasure::GetPrimaryDENorm)
+	PrimaryDENorm pn = m_pDoc->GetMeasure()->GetPrimaryDENorm(YWhite, 1);
+	YWhite = pn.yWhite;
+	RefWhite = pn.refWhite;
 
 	if (rColor.isValid())
-	 dEr = rColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEr = rColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	if (gColor.isValid())
-	 dEg = gColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEg = gColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	if (bColor.isValid())
-	 dEb = bColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEb = bColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	if (yColor.isValid())
-	 dEy = yColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEy = yColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	if (cColor.isValid())
-	 dEc = cColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEc = cColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	if (mColor.isValid())
-	 dEm = mColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEm = mColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	sprintf(str,"Primary dE:     Red %.2f, Green %.2f, Blue %.2f",dEr,dEg,dEb);
 	HPDF_Page_ShowTextNextLine (page, str);
 	sprintf(str,"Secondary dE: Yellow %.2f, Cyan %.2f, Magenta %.2f",dEy,dEc,dEm);
@@ -1120,33 +1138,27 @@ bool CExport::SavePDF()
 		double dEr=0,dEg=0,dEb=0,dEy=0,dEc=0,dEm=0;
 		CColor NoDataColor;
 		CColorReference cRef = GetColorReference();
-		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 		tmWhite = TmDiffuseWhiteNits(NoDataColor, NoDataColor);
 		RefWhite = 1.0;
 
-		if (GetConfig()->m_GammaOffsetType == 5)
-		{
-			if (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)
-				RefWhite = YWhite / (tmWhite) ;
-			else
-			{
-				RefWhite = YWhite / (tmWhite) ;					
-				YWhite = YWhite * 94.37844 / (tmWhite) ;
-			}
-		}
+		// the measures grid's primaries normalisation (CMeasure::GetPrimaryDENorm)
+		PrimaryDENorm pn = pDataRef->GetMeasure()->GetPrimaryDENorm(YWhite, 1);
+		YWhite = pn.yWhite;
+		RefWhite = pn.refWhite;
 
 		if (rColor.isValid())
-		 dEr = rColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefPrimary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+		 dEr = rColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefPrimary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 		if (gColor.isValid())
-		 dEg = gColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefPrimary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+		 dEg = gColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefPrimary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 		if (bColor.isValid())
-		 dEb = bColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefPrimary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+		 dEb = bColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefPrimary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 		if (yColor.isValid())
-		 dEy = yColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefSecondary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+		 dEy = yColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefSecondary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 		if (cColor.isValid())
-		 dEc = cColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefSecondary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+		 dEc = cColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefSecondary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 		if (mColor.isValid())
-		 dEm = mColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefSecondary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+		 dEm = mColor.GetDeltaE(YWhite, pDataRef->GetMeasure()->GetRefSecondary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	
 		sprintf(str,"Primary dE:     Red %.2f, Green %.2f, Blue %.2f",dEr,dEg,dEb);
 		HPDF_Page_ShowTextNextLine (page2, str);
@@ -1657,7 +1669,7 @@ bool CExport::SaveGrayScaleSheet()
 	Rows.Add(bIRE ? "IRE" : GetConfig()->m_PercentGray);
 	for(j=0;j<size;j++)
 	{
-		Rows.Add((float)(m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())));
+		Rows.Add((float)(m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
 	}
 	result&=graySS.AddRow(Rows,rowNb,m_doReplace);
 	rowNb++;
@@ -1707,7 +1719,7 @@ bool CExport::SaveGrayScaleSheet()
 		// Determine Reference Y luminance for Delta E calculus
 		if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
 		{
-		    double x = m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
+		    double x = m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
             double valy;
 			CColor White = m_pDoc -> GetMeasure () -> GetOnOffWhite();
 			CColor Black = m_pDoc -> GetMeasure () -> GetOnOffBlack();
@@ -1715,13 +1727,13 @@ bool CExport::SaveGrayScaleSheet()
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if (  (mode >= 4) )
 			{
-				double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+				double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 				valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //				valy = min(valy, GetConfig()->m_TargetMaxL);
 			 }
 			 else
 			 {
-				double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+Offset)/(1.0+Offset);
+				double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 				valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 				if (mode == 1) //black compensation target
 					valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -1777,34 +1789,25 @@ bool CExport::SavePrimariesSheet()
 	CColor mColor = m_pDoc->GetMeasure()->GetMagentaSecondary();
 	
 	double dEr=0,dEg=0,dEb=0,dEy=0,dEc=0,dEm=0;
-	CColor NoDataColor;
-	CColorReference cRef = GetColorReference();
-	double tmWhite = TmDiffuseWhiteNits(NoDataColor, NoDataColor);
 	double RefWhite = 1.0;
-	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 
-	if (GetConfig()->m_GammaOffsetType == 5)
-	{
-		if (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)
-			RefWhite = YWhite / (tmWhite) ;
-		else
-		{
-			RefWhite = YWhite / (tmWhite) ;					
-			YWhite = YWhite * 94.37844 / (tmWhite) ;
-		}
-	}
+	// the measures grid's primaries normalisation (CMeasure::GetPrimaryDENorm)
+	PrimaryDENorm pn = m_pDoc->GetMeasure()->GetPrimaryDENorm(YWhite, 1);
+	YWhite = pn.yWhite;
+	RefWhite = pn.refWhite;
 	if (rColor.isValid())
-	 dEr = rColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEr = rColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	if (gColor.isValid())
-	 dEg = gColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEg = gColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	if (bColor.isValid())
-	 dEb = bColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEb = bColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefPrimary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	if (yColor.isValid())
-	 dEy = yColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEy = yColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(0), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	if (cColor.isValid())
-	 dEc = cColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEc = cColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(1), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 	if (mColor.isValid())
-	 dEm = mColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight );
+	 dEm = mColor.GetDeltaE(YWhite, m_pDoc->GetMeasure()->GetRefSecondary(2), RefWhite, bRef, GetConfig()->m_dE_form, false, pn.gwWeight );
 
 	CString SheetOrSeparator="PrimariesSheet";
 	CString aFileName;
@@ -2282,10 +2285,10 @@ bool CExport::SaveCCSheet()
         }
         else if (isExtPat)
         {
-            char aBuf[50];
-			std::string name = GetConfig()->GetCColorsN(i);
-            sprintf(aBuf,"%s", name.c_str());
-            Rows.Add(aBuf);
+            // Pass the name straight through - a user CSV name can exceed any fixed buffer
+            // (the char[50]+sprintf here overran the stack on export).
+            std::string name = GetConfig()->GetCColorsN(i);
+            Rows.Add(name.c_str());
         }
         else 
 		{

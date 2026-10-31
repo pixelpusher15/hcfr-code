@@ -114,11 +114,11 @@ namespace
     }
 
     // Andrew's monotone chain: convex hull of an arbitrary point set, CCW
-    // wound, duplicate/collinear points on an edge dropped. Needed because a
-    // hexagon of real display primaries+secondaries is not guaranteed
-    // convex on its own (e.g. an undersaturated secondary can sit inside the
-    // chord between its two neighbors), and clipPolygon's clip argument must
-    // be a valid convex polygon.
+    // wound, duplicate/collinear points on an edge dropped. Used on the
+    // REFERENCE side only, because clipPolygon's clip argument must be a
+    // valid convex polygon. Both chains pop while cross() <= 0, so every
+    // kept turn is a strict left turn: the output runs CCW and, with 3 or
+    // more vertices, has a strictly positive signed area.
     std::vector<Pt> convexHull(std::vector<Pt> pts)
     {
         size_t n = pts.size();
@@ -185,20 +185,23 @@ double GamutCoveragePolygon(const std::vector<GamutPoint> & measured, const std:
     for (size_t i = 0; i < reference.size(); i++)
         refPts[i] = Pt{ reference[i].x, reference[i].y };
 
-    std::vector<Pt> measHull = convexHull(measPts);
-    std::vector<Pt> refHull = convexHull(refPts);
-    if (measHull.size() < 3 || refHull.size() < 3)
+    // Only the reference is hulled (it is the clip, which must be convex; a
+    // standard's hexagon normally already is, making this a no-op). The
+    // measured hexagon goes through as given, in hue order: a vertex that
+    // caves in between its neighbors is exactly the chroma loss this metric
+    // has to see, and hulling it away would hide it. Sutherland-Hodgman
+    // clips a concave subject against a convex clip correctly as far as
+    // area goes, and either winding works because only |area| is used.
+    std::vector<Pt> refHull = convexHull(refPts);   // CCW, area > 0 when size >= 3
+    if (measPts.size() < 3 || refHull.size() < 3)
         return 0.0;
-
-    makeCCW(measHull);
-    makeCCW(refHull);
 
     const double kAreaEpsilon = 1e-12;
-    double refArea2 = signedArea2(refHull);
-    if (refArea2 <= kAreaEpsilon || fabs(signedArea2(measHull)) <= kAreaEpsilon)
+    if (fabs(signedArea2(measPts)) <= kAreaEpsilon)
         return 0.0;
 
-    std::vector<Pt> inter = clipPolygon(measHull, refHull);
+    double refArea2 = signedArea2(refHull);
+    std::vector<Pt> inter = clipPolygon(measPts, refHull);
     if (inter.size() < 3)
         return 0.0;
 

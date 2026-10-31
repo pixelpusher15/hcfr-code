@@ -8,3 +8,6 @@ CHCFR21_*.rc text eol=crlf
 # Golden-master regression baselines: byte-exact LF files compared verbatim
 # by tests/ColorMathTest - keep git from normalizing their line endings.
 tests/ColorMathTest/golden/* -text
+
+# Measurement cue waves: binary PCM, never line-ending normalized.
+*.wav -text

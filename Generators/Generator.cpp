@@ -250,13 +250,14 @@ BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
 	CString quant = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_RGB_QUANT_RANGE"), "GET_PGENERATOR_CONF_RGB_QUANT_RANGE");
 	CString colm  = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_COLORIMETRY"), "GET_PGENERATOR_CONF_COLORIMETRY");
 	CString isHdr = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_HDR"), "GET_PGENERATOR_CONF_IS_HDR");
-	CString isDov = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_LL_DOVI"), "GET_PGENERATOR_CONF_IS_LL_DOVI");
+	CString isLLDov = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_LL_DOVI"), "GET_PGENERATOR_CONF_IS_LL_DOVI");
+	CString isStdDov = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_STD_DOVI"), "GET_PGENERATOR_CONF_IS_STD_DOVI");
 	CString host  = PgenParseVal(PgSend(s, "CMD:GET_HOSTNAME"), "GET_HOSTNAME");
 
 	
 
 	CString status = _T("SDR");
-	if (isDov == "1") status = _T("Dolby Vision");
+	if (isLLDov == "1" || isStdDov == "1") status = _T("Dolby Vision");
 	else if (isHdr == "1") status = _T("HDR");
 
 	CString resval = res;
@@ -394,6 +395,7 @@ int CGenerator::QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids,
 	st.colorimetry = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_COLORIMETRY"), "GET_PGENERATOR_CONF_COLORIMETRY"));
 	st.isHdr       = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_HDR"), "GET_PGENERATOR_CONF_IS_HDR"));
 	st.isLLDovi    = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_LL_DOVI"), "GET_PGENERATOR_CONF_IS_LL_DOVI"));
+	st.isStdDovi   = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_STD_DOVI"), "GET_PGENERATOR_CONF_IS_STD_DOVI"));
 	st.eotf        = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_EOTF"), "GET_PGENERATOR_CONF_EOTF"));
 	st.primaries   = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_PRIMARIES"), "GET_PGENERATOR_CONF_PRIMARIES"));
 	st.doviMode    = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_DV_MAP_MODE"), "GET_PGENERATOR_CONF_DV_MAP_MODE"));

@@ -39,9 +39,9 @@ struct GamutPoint
 };
 
 // General coverage metric for the CIE a*b* view: the a*/b* hexagon formed by
-// R,Y,G,C,B,M (in that hue order, or any order -- winding is corrected
-// internally) is far more sensitive to a pure luminance shortfall than the
-// R/G/B-only triangle GamutCoverage() above uses. That's intentional: L*
+// R,Y,G,C,B,M (in that hue order; either winding direction) is far more
+// sensitive to a pure luminance shortfall than the R/G/B-only triangle
+// GamutCoverage() above uses. That's intentional: L*
 // doesn't appear as a plotted axis in this chart, but it still feeds a* and
 // b* through the shared f(Y/Yn) term in the Lab formulas, so a channel that
 // loses luminance at an unchanged xy chromaticity visibly compresses toward
@@ -51,16 +51,17 @@ struct GamutPoint
 // vertices, the 6-point hexagon lets each primary/secondary's own chroma
 // loss show up directly, undiluted -- which is the point of using it here.
 //
-// Unlike GamutCoverage() (which assumes its 3-point arrays are already a
-// valid triangle), this takes the convex hull of each input internally --
-// a hexagon of real display secondaries is not guaranteed to be convex
-// (e.g. an undersaturated cyan can sit inside the chord between green and
-// blue), and the clipping algorithm requires a convex clip polygon to be
-// well defined. Point count need not match between measured/reference and
-// need not be pre-sorted.
+// The reference is replaced by its convex hull (the clipping algorithm needs
+// a convex clip polygon; a standard's hexagon normally already is), so its
+// points need not be pre-sorted. The measured polygon is NOT hulled: it is
+// used as given and must be in hue order. A real display's hexagon need not
+// be convex (e.g. an undersaturated cyan can sit inside the chord between
+// green and blue), and that concavity is the chroma loss being measured.
+// Point count need not match between measured and reference.
 //
-// Returns a value in [0, 1]. Returns 0 if either hull collapses to fewer
-// than 3 distinct vertices (degenerate/collinear input).
+// Returns a value in [0, 1]. Returns 0 if the measured polygon has zero
+// area or the reference hull has fewer than 3 vertices (degenerate or
+// collinear input).
 double GamutCoveragePolygon(const std::vector<GamutPoint> & measured, const std::vector<GamutPoint> & reference);
 
 #endif // GAMUTCOVERAGE_H_INCLUDED

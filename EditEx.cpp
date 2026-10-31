@@ -85,37 +85,6 @@ void CEditEx::CDeleteSelectionCommand::DoExecute()
 }
 
 //////////////////////////////////////////////////////////////////////////
-// CEditEx::CDeleteCharacterCommand
-
-CEditEx::CDeleteCharacterCommand::CDeleteCharacterCommand(CEditEx* pEditControl, bool isBackspace) 
-	: CEditExCommand(pEditControl)
-	, m_isBackspace(isBackspace)
-{
-	ASSERT(m_pEditControl->IsSelectionEmpty());
-	m_pEditControl->GetSel(m_nStart, m_nStart);
-	CString text;
-	m_pEditControl->GetWindowText(text);
-	if (m_isBackspace)
-		--m_nStart;
-	m_charDeleted = text[m_nStart];
-}
-
-void CEditEx::CDeleteCharacterCommand::DoUndo()
-{
-	m_pEditControl->InsertChar(m_charDeleted, m_nStart);
-	if (m_isBackspace)
-		m_pEditControl->SetSel(m_nStart + 1, m_nStart + 1);
-	else
-		m_pEditControl->SetSel(m_nStart, m_nStart);
-}
-
-void CEditEx::CDeleteCharacterCommand::DoExecute()
-{
-	m_pEditControl->DeleteText(m_nStart, 1);
-	m_pEditControl->SetSel(m_nStart, m_nStart);
-}
-
-//////////////////////////////////////////////////////////////////////////
 // CEditEx::CReplaceSelectionCommand
 
 CEditEx::CReplaceSelectionCommand::CReplaceSelectionCommand(CEditEx* const pEditControl, const CString& text) 
@@ -189,6 +158,12 @@ CEditEx::CCommandHistory::~CCommandHistory()
 void CEditEx::CCommandHistory::AddCommand(CEditExCommand* pCommand)
 {
 	m_undoCommands.push(pCommand);
+	DestroyRedoCommands();
+}
+
+void CEditEx::CCommandHistory::Clear()
+{
+	DestroyUndoCommands();
 	DestroyRedoCommands();
 }
 
@@ -315,6 +290,14 @@ BOOL CEditEx::CanRedo() const
 	return m_commandHistory.CanRedo();
 }
 
+// Drops the recorded history. Needed whenever the text is replaced from outside
+// the control (the stored commands then describe text that is no longer there).
+void CEditEx::EmptyUndoBuffer()
+{
+	m_commandHistory.Clear();
+	CEdit::EmptyUndoBuffer();
+}
+
 // command pattern receiver methods
 
 void CEditEx::InsertText(const CString& textToInsert, int nStart)
@@ -323,15 +306,6 @@ void CEditEx::InsertText(const CString& textToInsert, int nStart)
 	CString text;
 	GetWindowText(text);
 	text.Insert(nStart, textToInsert);
-	SendMessage(WM_SETTEXT, (WPARAM)m_hWnd, (LPARAM)text.GetString());
-}
-
-void CEditEx::InsertChar(TCHAR charToInsert, int nStart)
-{
-	ASSERT(nStart <= GetWindowTextLength());
-	CString text;
-	GetWindowText(text);
-	text.Insert(nStart, charToInsert);
 	SendMessage(WM_SETTEXT, (WPARAM)m_hWnd, (LPARAM)text.GetString());
 }
 
@@ -347,45 +321,18 @@ void CEditEx::DeleteText(int nStart, int nLen)
 
 // CEditEx overrides
 
-// intercept commands to add them to the history
+// Only the keyboard shortcuts the control does not implement itself are handled
+// here. Typed characters are left to the edit control and recorded in the undo
+// history by WindowProc(); an earlier version inserted them here by rewriting the
+// whole text on every keystroke and never added the command to the history, so
+// nothing the user typed could be undone.
 BOOL CEditEx::PreTranslateMessage(MSG* pMsg)
 {
 	switch (pMsg->message)
 	{
-		// Omardris
-		int i;
-	case WM_CHAR:
-		i = pMsg->wParam;
-		wchar_t wChar;
-		if (i > 31 || i == 13) {
-			wChar = pMsg->wParam;
-		}
-		//int nCount = wParam & 0xFF;
-		if (iswprint(wChar))
-		{			
-			CString newText(wChar, 1);
-			//CreateInsertTextCommand(newText);
-			if (IsSelectionEmpty()) {
-				CEditExCommand* pCommand = new CInsertTextCommand(this, newText);
-				pCommand->Execute();
-			}
-			else {
-				CEditExCommand* pCommand = new CReplaceSelectionCommand(this, newText);
-				pCommand->Execute();
-			}
-			Invalidate();
-			//UpdateWindow();
-			return true;
-		}
-		// Omardris
-
-		break;
-
 	case WM_KEYDOWN: // Non-System_key (without ALT)
-		if (PreTranslateKeyDownMessage(pMsg->wParam) == TRUE) {
-			//Invalidate();
+		if (PreTranslateKeyDownMessage(pMsg->wParam) == TRUE)
 			return TRUE;
-		}
 		break;
 		/*
 	case WM_SYSCHAR: // bedeutet, dass auch Alt-Taste mit gedrückt wurde
@@ -404,6 +351,24 @@ BOOL CEditEx::PreTranslateMessage(MSG* pMsg)
 	return CEdit::PreTranslateMessage(pMsg);
 }
 
+// True when the edit control will insert this WM_CHAR character. The undo history
+// has to mirror that exactly: recording an insert the control does not make - or
+// missing one it does - leaves the offsets held by the earlier commands describing
+// text that has since shifted, and a later undo then deletes the wrong characters.
+// The set below was measured against the Win32 control rather than taken from
+// iswprint(), which rejects both Tab and Return: a multiline control inserts Tab and
+// turns CR or LF into a CR/LF pair (with or without ES_WANTRETURN), a single-line one
+// drops all three, and both insert everything from 0x1E up. The remaining control
+// characters are swallowed, except Ctrl+C / Ctrl+X / Ctrl+V which arrive separately
+// as WM_COPY / WM_CUT / WM_PASTE.
+bool CEditEx::IsInsertedOnChar(wchar_t wChar) const
+{
+	if (wChar == _T('\t') || wChar == _T('\r') || wChar == _T('\n'))
+		return IsMultiLine();
+
+	return wChar >= 0x1E;
+}
+
 // intercept commands to add them to the history
 LRESULT CEditEx::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -412,16 +377,24 @@ LRESULT CEditEx::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 	case WM_CHAR:
 		{
 			wchar_t wChar = static_cast<wchar_t>(wParam);
+			// The control inserts one copy per repeat. A WM_CHAR synthesised outside
+			// the keyboard (the context menu's Unicode control characters) carries a
+			// count of 0 and stands for a single character.
 			int nCount = lParam & 0xFF;
-			if (iswprint(wChar))
+			if (nCount == 0)
+				nCount = 1;
+			if (IsInsertedOnChar(wChar))
 			{
-				CString newText(wChar, nCount);
-				CreateInsertTextCommand(newText);
-			}
-			// special case for Unicode control characters inserted from the context menu
-			else if (nCount == 0)
-			{
-				CString newText(wChar);
+				CString newText;
+				// Return and Ctrl+Return both insert a CR/LF pair rather than the
+				// character that was typed.
+				if (wChar == _T('\r') || wChar == _T('\n'))
+				{
+					for (int i = 0; i < nCount; i++)
+						newText += _T("\r\n");
+				}
+				else
+					newText = CString(wChar, nCount);
 				CreateInsertTextCommand(newText);
 			}
 		}
@@ -567,16 +540,6 @@ BOOL CEditEx::DoDelete()
 	// simple delete
 	DeleteSelectedChar();
 	return TRUE;
-	// macht eigentlich keinen Sinn mehr ??
-	if (IsSelectionEmpty() == false)
-		m_commandHistory.AddCommand(new CDeleteSelectionCommand(this, CDeleteSelectionCommand::Selection));
-	else
-	{
-		if (GetCursorPosition() < GetWindowTextLength())
-			m_commandHistory.AddCommand(new CDeleteCharacterCommand(this, false));
-	}
-	return FALSE; // Delete-Taste wird weitergereicht
-	
 }
 
 BOOL CEditEx::DoBackspace()
@@ -594,15 +557,6 @@ BOOL CEditEx::DoBackspace()
 	// plain Back
 	BackSelectedChar();
 	return TRUE;
-	// macht eigentlich keinen Sinn mehr ??
-	if (IsSelectionEmpty() == false)
-		m_commandHistory.AddCommand(new CDeleteSelectionCommand(this, CDeleteSelectionCommand::Selection));
-	else
-	{
-		if (GetCursorPosition() > 0)
-			m_commandHistory.AddCommand(new CDeleteCharacterCommand(this, true));
-	}
-	return FALSE; // BackSpace taste wird weitergereicht
 }
 
 void CEditEx::DoUndo()

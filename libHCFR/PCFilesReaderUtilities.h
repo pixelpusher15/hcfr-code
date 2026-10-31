@@ -13,14 +13,14 @@
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
-// Ce fichier contiend les routines necessaires Ã  la lecture
-// de fichiers enregistrÃ©s par la version PC de colorHCFR.
-// Seul la lecture des mesures est prÃ©vue. Les mesures sont retournÃ©es
+// Ce fichier contiend les routines necessaires à la lecture
+// de fichiers enregistrés par la version PC de colorHCFR.
+// Seul la lecture des mesures est prévue. Les mesures sont retournées
 // sour forme de list (std::list) d'objets CColor.
-// Un accesseur est fournis pour chaque type de donnÃ©es
+// Un accesseur est fournis pour chaque type de données
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//  JÃ©rÃ´me Duquennoy
+//  Jérôme Duquennoy
 /////////////////////////////////////////////////////////////////////////////
 
 #ifndef __PCFILESREADERUTILITIES_H__
@@ -30,8 +30,8 @@
 #include "Color.h"
 
 // Lit une CString depuis le fichier de calibration fourni, et retourne le pointeur sur la chaine
-// de charactÃ¨re rÃ©sultante.
-// La chaine retournÃ©e est allouÃ©e dynamiquement. Il faudra la libÃ©rer !
+// de charactère résultante.
+// La chaine retournée est allouée dynamiquement. Il faudra la libérer !
 char* readCString (ifstream &calibrationFile);
 
 void writeCString (ofstream &file, const char *string);

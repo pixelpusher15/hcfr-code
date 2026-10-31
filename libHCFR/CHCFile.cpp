@@ -13,14 +13,14 @@
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
-// Ce fichier contiend les routines necessaires Ã  la lecture
-// de fichiers enregistrÃ©s par la version PC de colorHCFR.
-// Seul la lecture des mesures est prÃ©vue. Les mesures sont retournÃ©es
+// Ce fichier contiend les routines necessaires à la lecture
+// de fichiers enregistrés par la version PC de colorHCFR.
+// Seul la lecture des mesures est prévue. Les mesures sont retournées
 // sour forme de list (std::list) d'objets CColor.
-// Un accesseur est fournis pour chaque type de donnÃ©es
+// Un accesseur est fournis pour chaque type de données
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//  JÃ©rÃ´me Duquennoy
+//  Jérôme Duquennoy
 /////////////////////////////////////////////////////////////////////////////
 
 #include "CHCFile.h"
@@ -70,7 +70,7 @@ void CHCFile::readFile (const char* path)
     throw Exception("Cannot read this file version (yet)");
   }
   
-  // encore une version, mais ce n'est pas la mÃªme.
+  // encore une version, mais ce n'est pas la même.
   file.read((char*)&version, 4);
   version = littleEndianUint32ToHost(version);
   if(version > 6)
@@ -79,8 +79,8 @@ void CHCFile::readFile (const char* path)
     throw Exception("Cannot read this file version (yet)");
   }
   
-  // maintenant, les "vrai" donnÃ©es
-  uint32_t  arraySize; // sera utilisÃ© pour lire la taille des tableaux de Color
+  // maintenant, les "vrai" données
+  uint32_t  arraySize; // sera utilisé pour lire la taille des tableaux de Color
   uint32_t  loopIndex; // pour les boucles de lecture
 
   // les niveaux de gris
@@ -93,10 +93,10 @@ void CHCFile::readFile (const char* path)
       grayColors.push_back(newColor);
   }
 
-  // les proximitÃ© du blanc et du noir, en version > 2 uniquement
+  // les proximité du blanc et du noir, en version > 2 uniquement
   if (version > 2)
   {
-    // proximitÃ© du noir
+    // proximité du noir
     file.read((char*)&arraySize, 4);
     arraySize = littleEndianUint32ToHost(arraySize);
     for (loopIndex = 0; loopIndex < arraySize; loopIndex ++)
@@ -106,7 +106,7 @@ void CHCFile::readFile (const char* path)
         nearBlackColors.push_back(newColor);
     }
 
-    // proximitÃ© du blanc
+    // proximité du blanc
     file.read((char*)&arraySize, 4);
     arraySize = littleEndianUint32ToHost(arraySize);
     for (loopIndex = 0; loopIndex < arraySize; loopIndex ++)
@@ -117,7 +117,7 @@ void CHCFile::readFile (const char* path)
     }
   }
   
-  // saturations Ã  partir de la version 2
+  // saturations à partir de la version 2
   if (version > 1)
   {
     // saturation rouge
@@ -209,7 +209,7 @@ void CHCFile::readFile (const char* path)
       componnentsColors.push_back(newColor);
   }
   
-  // le contrat plein Ã©cran
+  // le contrat plein écran
   arraySize = 2;
   for (loopIndex = 0; loopIndex < arraySize; loopIndex ++)
   {

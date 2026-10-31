@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Fran√Åois-Xavier CHABOUD
+//	FranÁois-Xavier CHABOUD
 //  Georges GALLERAND
 //  John Adcock
 /////////////////////////////////////////////////////////////////////////////
@@ -239,6 +239,12 @@ public:
     COLORREF GetColorRef(bool is16_235) const;
     static BYTE ConvertPercentToBYTE(double percent, bool is16_235);
     static int ConvertPercentToCode(double percent, bool is16_235, int bits);
+    // HCFR's test-color window: its picker holds an 8-bit full-range code, which
+    // the window paints as is, or for a limited-range generator as
+    // round(c * 219/255 + 16) clamped to 16..235.
+    static int TestWindowShownCode(int pickerCode, bool is16_235);
+    // The picker code the window shows as percent's nearest 8-bit code in the range.
+    static int TestWindowPickerCode(double percent, bool is16_235);
 #endif
 };
 
@@ -752,6 +758,7 @@ ostream& operator <<(ostream& ostr, const CColor& obj);
 extern CColorReference GetStandardColorReference(ColorStandard aColorStandard);
 extern CColorReference ContainerInnerReference(const CColorReference& active);
 extern CColorReference ContainerTransportReference(const CColorReference& active);
+extern CColorReference SpecialModeGamutReference(const CColorReference& active);
 extern ColorRGB ContainerPrimaryLinear(const CColorReference& active, int index);
 
 extern CColor theMeasure;
@@ -764,11 +771,27 @@ extern int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, in
 extern void RemapProfileToTransport (ColorRGBDisplay* GenColors, int n, const CColorReference& colorReference, int mode, bool b10bit, bool is16_235);
 extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries);
 extern int PiPercentToCode ( double percent, bool is16_235, int bits );
+// Range a ColourSpace patch-list CSV can declare in its header (import-range guard).
+// CSV_RANGE_NONE = no header / legacy default. The loader (ReadCsvPatchRows) reports the
+// declared range via its rangeOut - the guard reads it from there so they can't diverge.
+enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_EXTENDED = 2 };
+// Shared patch-list parsing (one parser: ReadColorsFromCsv percentages + GetCColors codes/names).
+#include <vector>
+#include <string>
+struct CsvPatchRow { int patch, r, g, b; std::string name; };
+extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut );
+// Resolve a CC mode to its patch-list file (predefined CSV or USER) + HDR-recalc flag; false for inline-array modes.
+extern bool ResolveCCSetPath ( int aCCMode, CString & outPath, bool * recalcOut );
+// One source code -> HCFR stimulus percentage for a given bit depth + CSV range (range-aware target readback).
+extern double CsvCodeToPercent ( double code, int bits, int range );
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );
-double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit = FALSE );
-double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit = FALSE );
+// is16_235 is REQUIRED (no default): it selects the 219/255/876/1023 code grid
+// exactly as SnapToVideoGrid does, and a default would silently leave any
+// un-updated call site quantizing a full-range wire against the limited grid.
+double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 );
+double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 );
 double getL_EOTF ( double x, CColor White, CColor Black, double g_rel, double split, int mode, double m_DiffuseL = 94.37844, double m_MasterMinL = 0.0, double m_MasterMaxL = 4000.0, double m_TargetMinL = 0.00, double m_TargetMaxL = 700.0, bool ToneMap = FALSE, bool cBT2390 = FALSE, double m_TargetSysGamma = 1.2, double b_fact = 1.0, double E2_fact = 0.0, double E2_fact1 = 1.1 );
 
 #endif // !defined(COLOR_H_INCLUDED_)

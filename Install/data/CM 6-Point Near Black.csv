@@ -1,8 +1,9 @@
-235,235,235,100 White,CM 6-Point Near Black
-16,16,16,0 Black,
-17,17,17,0.5 Gray,
-18,18,18,1 Gray,
-20,20,20,2 Gray,
-23,23,23,3 Gray,
-25,25,25,4 Gray,
-27,27,27,5 Gray,
+# BITDEPTH 8, RANGE LEGAL
+0,235,235,235,100 White
+1,16,16,16,0 Black
+2,17,17,17,0.5 Gray
+3,18,18,18,1 Gray
+4,20,20,20,2 Gray
+5,23,23,23,3 Gray
+6,25,25,25,4 Gray
+7,27,27,27,5 Gray

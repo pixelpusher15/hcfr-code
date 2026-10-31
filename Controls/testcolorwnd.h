@@ -28,6 +28,7 @@
 //
 
 #include "ColourPickerXP.h"
+#include "Color.h"
 
 /////////////////////////////////////////////////////////////////////////////
 // CTestColorWnd window
@@ -51,6 +52,24 @@ public:
 
 // Operations
 public:
+	// The patch the window stands for, at full precision. The picker holds only
+	// an 8-bit full-range code, which OnPaint maps to 16-235 for a limited-range
+	// generator; the exact color is kept here for the continuous and single
+	// measures, which send it on to the generator. b16_235 picks the picker code
+	// whose OnPaint mapping is the patch's nearest code in the window's range.
+	void SetTestColor ( const ColorRGBDisplay & clr, BOOL b16_235 );
+	// A color with no exact value behind it (a gray ramp, a calibration gray).
+	void SetTestColor ( COLORREF clr );
+	// The exact color while the picker still shows the code SetTestColor gave it,
+	// else the picker's own code (the user picked a color).
+	ColorRGBDisplay GetTestColor ();
+
+private:
+	CRITICAL_SECTION	m_exactLock;	// the continuous-measure thread reads the color
+	ColorRGBDisplay	m_exactColor;
+	COLORREF		m_exactCode;	// picker code m_exactColor was set with
+	BOOL			m_bExactLimited;	// the range it was set for
+	BOOL			m_bHasExact;
 
 // Overrides
 	// ClassWizard generated virtual function overrides
