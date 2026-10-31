@@ -155,6 +155,10 @@ private:
 	CWnd *		m_pInfoWnd13;
 
 	void InsetInfoWindows();
+	void UpdateInfoDisplayLabels();
+	bool InfoPaneNeedsHDRRebuild() const;
+	CString m_infoDisplaySDRLabels[3];	// DLGINIT text of the gamma entries 3, 4 and 11
+	bool m_bInfoBuiltHDR;	// reference TF was PQ/HLG when the info pane was built
 
 
 // Attributes
@@ -348,6 +352,7 @@ protected:
 	afx_msg void OnRefs();
 	//}}AFX_MSG
 	afx_msg LRESULT OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnRebuildInfoDisplay(WPARAM wParam, LPARAM lParam);
  public:
 	DECLARE_MESSAGE_MAP()
 };
