@@ -13,12 +13,12 @@
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
-// Ce fichier contiend les routines necessaires ? la lecture et ?
-// l'Ãˆcriture d'un fichier de calibration ColorHCFR.
-// Les donnÃˆes sont stoquÃˆes dans une structure spÃˆcifique HCFRCalibrationData.
+// Ce fichier contiend les routines necessaires à la lecture et à
+// l'écriture d'un fichier de calibration ColorHCFR.
+// Les données sont stoquées dans une structure spécifique HCFRCalibrationData.
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//  JÃˆrÃ™me Duquennoy
+//  Jérôme Duquennoy
 /////////////////////////////////////////////////////////////////////////////
 
 #ifndef __CALIBRATION_FILE_H__

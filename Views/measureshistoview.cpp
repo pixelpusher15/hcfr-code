@@ -289,8 +289,8 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		{
 			ColorxyY tmpColor(GetColorReference().GetWhite());
 			x = ( l_nSize == GetDocument()->GetMeasure()->GetGrayScaleSize() )
-				? GetDocument()->GetMeasure()->GetGrayPercent ( l_nCol, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() )
-				: ArrayIndexToGrayLevel ( l_nCol  , l_nSize, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
+				? GetDocument()->GetMeasure()->GetGrayPercent ( l_nCol, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() )
+				: ArrayIndexToGrayLevel ( l_nCol  , l_nSize, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 			// Determine Reference Y luminance for Delta E calculus
 			if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
 			{
@@ -300,13 +300,13 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if ( mode >= 4 )
 		        {
-			        double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+			        double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
                     valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //					valy = min(valy, GetConfig()->m_TargetMaxL);
 		        }
 		        else
 		        {
-			        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+Offset)/(1.0+Offset);
+			        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+Offset;
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -451,13 +451,16 @@ void CMeasuresHistoView::OnDraw(CDC* pDC)
 	int			i, NbGraphCtrl;
 	BOOL		bWhiteBkgnd = GetConfig () -> m_bWhiteBkgndOnScreen;
 	LPCSTR		lpszTexts [ 4 ];
+	CString		strTrkSuffix, strLegLum, strLegRGB, strLegDE, strLegCT;
 	COLORREF	clr [ 4 ];
 	RECT		rect, rect2;
 	CSize		size;
 	CFont		font, font2;
 	CFont *		pOldFont2;
 	CFont *		pOldFont;
-	LPCSTR		trkTxt = "Tracking level: ";
+	CString		strTrk;
+	strTrk.LoadString ( IDS_GRAPH_TRACKINGLEVEL );
+	LPCSTR		trkTxt = (LPCSTR)strTrk;
 	char		szBuf[10];
 	TCHAR		trkPerc[100] = _T("");
 
@@ -484,37 +487,45 @@ void CMeasuresHistoView::OnDraw(CDC* pDC)
 	switch (l_Display)
 	{
 	case (0):
-		StringCchCat(trkPerc, _countof(trkPerc), _T("% (Gray scale)"));
+		strTrkSuffix.LoadString ( IDS_GRAPH_TRK_GRAYSCALE );
+		StringCchCat(trkPerc, _countof(trkPerc), strTrkSuffix);
 		break;
 	case (3):
-		StringCchCat(trkPerc, _countof(trkPerc), _T("% (Near black scale)"));
+		strTrkSuffix.LoadString ( IDS_GRAPH_TRK_NEARBLACK );
+		StringCchCat(trkPerc, _countof(trkPerc), strTrkSuffix);
 		break;
 	case (4):
-		StringCchCat(trkPerc, _countof(trkPerc), _T("% (Near white scale)"));
+		strTrkSuffix.LoadString ( IDS_GRAPH_TRK_NEARWHITE );
+		StringCchCat(trkPerc, _countof(trkPerc), strTrkSuffix);
 		break;
 	default:
-	StringCchCat(trkPerc, _countof(trkPerc), _T("Tracking off..."));
+	strTrkSuffix.LoadString ( IDS_GRAPH_TRACKINGOFF );
+	StringCchCat(trkPerc, _countof(trkPerc), strTrkSuffix);
 	}
 						
 	if ( m_showLuminance )
 	{
 		clr [ NbGraphCtrl ] = bWhiteBkgnd ? RGB (127,127,0) : RGB(255,255,0);
-		lpszTexts [ NbGraphCtrl ++ ] = "Luminance";
+		strLegLum.LoadString ( IDS_LUMINANCE );
+		lpszTexts [ NbGraphCtrl ++ ] = (LPCSTR)strLegLum;
 	}
 
 	clr [ NbGraphCtrl ] = bWhiteBkgnd ? RGB(0,0,0) : RGB(255,255,255);
-	lpszTexts [ NbGraphCtrl ++ ] = "RGB Levels";
+	strLegRGB.LoadString ( IDS_RGBLEVELS );
+	lpszTexts [ NbGraphCtrl ++ ] = (LPCSTR)strLegRGB;
 	
 	if ( m_showDeltaE )
 	{
 		clr [ NbGraphCtrl ] = RGB(255,0,255);
-		lpszTexts [ NbGraphCtrl ++ ] = "Delta E";
+		strLegDE.LoadString ( IDS_DELTAE );
+		lpszTexts [ NbGraphCtrl ++ ] = (LPCSTR)strLegDE;
 	}
 
 	if ( m_showColorTemp )
 	{
 		clr [ NbGraphCtrl ] = bWhiteBkgnd ? RGB(0,192,192) : RGB(0,255,255);
-		lpszTexts [ NbGraphCtrl ++ ] = "Color temp";
+		strLegCT.LoadString ( IDS_GRAPH_COLORTEMPSHORT );
+		lpszTexts [ NbGraphCtrl ++ ] = (LPCSTR)strLegCT;
 	}
 
 	// Declare a "vertical" font

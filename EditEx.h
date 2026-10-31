@@ -79,19 +79,6 @@ class CEditEx : public CEdit
 		CursorOnUndo m_cursorOnUndo;
 	};
 
-	class CDeleteCharacterCommand : public CEditExCommand
-	{
-	public:
-		CDeleteCharacterCommand(CEditEx* pEditControl, bool isBackspace);
-	protected:
-		virtual void DoUndo();
-		virtual void DoExecute();
-	private:
-		TCHAR m_charDeleted;
-		int m_nStart;
-		bool m_isBackspace;
-	};
-
 	class CReplaceSelectionCommand : public CEditExCommand
 	{
 	public:
@@ -126,6 +113,7 @@ class CEditEx : public CEdit
 		~CCommandHistory();
 
 		void AddCommand(CEditExCommand* pCommand);
+		void Clear();
 		bool Undo();
 		bool Redo();
 
@@ -163,10 +151,15 @@ public:
 	BOOL Redo();
 	BOOL CanUndo() const;
 	BOOL CanRedo() const;
+	// Hides the non-virtual CEdit::EmptyUndoBuffer rather than overriding it, so it
+	// clears m_commandHistory only when it is called through a CEditEx*. Reset the
+	// control through this class, never through a CEdit* or CWnd*: a base-class call
+	// dispatches statically past the Clear() and leaves behind the stale commands
+	// that used to make the first Ctrl+Z blank the summary.
+	void EmptyUndoBuffer();
 
 	// command pattern receiver methods
 	void InsertText(const CString& textToInsert, int nStart);
-	void InsertChar(TCHAR charToInsert, int nStart);
 	void DeleteText(int nStart, int nLen);
 
 public:
@@ -181,6 +174,7 @@ public:
 	afx_msg void OnEnterIdle(UINT nWhy, CWnd* pWho);
 
 private:
+	bool IsInsertedOnChar(wchar_t wChar) const;
 	void CreateInsertTextCommand(const CString& newText);
 	BOOL PreTranslateKeyDownMessage(WPARAM wParam);
 

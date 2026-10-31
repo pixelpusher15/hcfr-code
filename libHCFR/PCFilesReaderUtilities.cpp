@@ -13,14 +13,14 @@
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
-// Ce fichier contiend les routines necessaires Ã  la lecture
-// de fichiers enregistrÃ©s par la version PC de colorHCFR.
-// Seul la lecture des mesures est prÃ©vue. Les mesures sont retournÃ©es
+// Ce fichier contiend les routines necessaires à la lecture
+// de fichiers enregistrés par la version PC de colorHCFR.
+// Seul la lecture des mesures est prévue. Les mesures sont retournées
 // sour forme de list (std::list) d'objets CColor.
-// Un accesseur est fournis pour chaque type de donnÃ©es
+// Un accesseur est fournis pour chaque type de données
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//  JÃ©rÃ´me Duquennoy
+//  Jérôme Duquennoy
 /////////////////////////////////////////////////////////////////////////////
 
 #include "PCFilesReaderUtilities.h"
@@ -28,7 +28,7 @@
 
 char* readCString (ifstream &file)
 {
-  // la lecture d'une CString se fait en deux Ã©tapes :
+  // la lecture d'une CString se fait en deux étapes :
   // - lire la taille de la chaine de char
   // - lire la chaine de char
   uint32_t  stringSize;
@@ -76,7 +76,7 @@ char* readCString (ifstream &file)
 
 void writeCString (ofstream &file, const char *string)
 {
-  // on Ã©crit la taille de la chaine
+  // on écrit la taille de la chaine
   uint32_t  stringSize = strlen(string);
   if (stringSize < 0xFF)
   {
@@ -99,6 +99,6 @@ void writeCString (ofstream &file, const char *string)
     file.write((char*)&actualSize, sizeof(uint32_t));
   }
   
-  // on Ã©crit les donnÃ©es
+  // on écrit les données
   file.write(string, stringSize);
 }

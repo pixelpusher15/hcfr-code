@@ -149,6 +149,8 @@ protected:
 	afx_msg void OnViewMeasureSatBar();
 	afx_msg void OnUpdateViewMeasureSatBar(CCmdUI* pCmdUI);
 	//}}AFX_MSG
+	afx_msg void OnMeasureSound(UINT nID);
+	afx_msg void OnUpdateMeasureSound(CCmdUI* pCmdUI);
 
 	afx_msg LRESULT OnDDEInitiate(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnDDEExecute(WPARAM wParam, LPARAM lParam);

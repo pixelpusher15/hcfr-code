@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -58,14 +58,33 @@ CString GetColorStandardName(int nStandard)
 	return s;
 }
 
+// The color spaces allowed to select PQ/HLG - everything else is an SDR
+// standard whose stored transfer function must never be 5 (PQ) or 7 (HLG).
+// HDTVa/HDTVb especially: they are fixed Rec.709/D65 SDR pattern conventions
+// (75% and plasma), locked to a D65 white, and HDTVa's 75% white anchor has no
+// meaning under PQ.
+//
+// CUSTOM stays OUT, though it is the one entry whose exclusion looks arguable
+// (nothing about user-supplied primaries is inherently SDR). Three reasons to
+// leave it: it is absent from /accuracytest's kSpaces entirely, so a CUSTOM HDR
+// path would carry no automated coverage; ColorMathTest's T10 excludes it on
+// purpose because merely CONSTRUCTING a CUSTOM reference corrupts the global
+// primariesRec601 array; and that corruption is a known open defect (MATH-007).
+// Offering PQ there would light up an untested HDR path on the one standard
+// both harnesses deliberately avoid.
+bool StandardAllowsHDR(int nStandard)
+{
+	return ( nStandard == UHDTV || nStandard == UHDTV2 || nStandard == UHDTV3 || nStandard == UHDTV4 || nStandard == HDTV );
+}
+
 static struct
 { LPCSTR	lpszLangCode;
   LPCSTR	lpszHelpName;
 } g_HelpFileNames [] = { 
 						{ "en", "English help" },
-						{ "fr", "Aide en Franï¿½ais" },
+						{ "fr", "Aide en Français" },
 						{ "de", "Hilfe in Deutsch" },
-						{ "es", "Ayuda en espaï¿½ol" }
+						{ "es", "Ayuda en español" }
 					   };
 
 
@@ -391,6 +410,7 @@ void CColorHCFRConfig::InitDefaults()
 	m_ablDuration = 500;
 	m_ablLevel = 50;
 	m_bLatencyBeep=FALSE;
+	m_measureSound=1;
 	bDisplayRT=TRUE;
 	m_bABL=FALSE;
 	m_bDisableHighDPI=FALSE;
@@ -531,11 +551,39 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_isSettling=GetProfileInt("References","isSettling",0);
 	m_bDetectPrimaries=GetProfileInt("References","DetectPrimaries",1);
 	m_useHSV=GetProfileInt("References","UseHSV",0);
-	m_latencyTime=GetProfileInt("References","IrisLatencyTime",300);
+	m_latencyTime=GetProfileInt("References","IrisLatencyTime",400);	// "Patch delay" setting (ms): the old 300 + the hidden 100 the wait no longer adds, so every generator matches its 4.1 total for normal sweep patches (madVR/Chromecast/rPI add their own ~80ms WaitAfterDisplayPattern on top, as in 4.1); the irregular 80ms that 4.1 added in GDI on index-0 / default-index calls is gone. 0 = no wait at all after the paint (4.1's hidden 100 also sat inside the > 0 test)
+	// One-time migration for users upgrading from <=4.1. 4.1's patch-delay wait
+	// (WaitForDynamicIris) was the stored value PLUS a hidden 100ms for any non-zero
+	// value (a negative one is its magnitude, forced even for the simulated sensor),
+	// and that padding is gone, so fold it into the stored value: 300 (the old
+	// default) becomes 400, 50 becomes 150, -200 becomes -300, and 0 stays 0 - no
+	// real meter got the padding at 0. Sweep patches on every real meter keep their
+	// 4.1 patch-delay wait. Two waits do not: the simulated sensor, which a zero or
+	// positive value shortcuts to 10ms, now waits 10 rather than 4.1's 110 (simulated
+	// sweeps only get quicker), and single and free measurements, whose post-read
+	// Sleep 4.1 never padded, now wait 100ms more. Running an older build afterwards
+	// waits 100ms longer per patch than before, which costs time but never accuracy.
+	// The marker makes this run once, so a value chosen after the upgrade is left
+	// alone.
+	if ( !GetProfileInt("References","SettleDelayMigrated",0) )
+	{
+		// Only a value an older build actually stored: a fresh INI reads the new
+		// 400ms default above, which already includes the padding.
+		if ( IsProfileEntryDefined("References","IrisLatencyTime") && m_latencyTime != 0 )
+		{
+			// Clamp first, to the Patch delay field's DDV range less the step, so a
+			// hand-edited value near the int limit cannot overflow on the add.
+			m_latencyTime = max ( -29900, min ( 29900, m_latencyTime ) );
+			m_latencyTime += ( m_latencyTime > 0 ) ? 100 : -100;
+			WriteProfileInt("References","IrisLatencyTime",m_latencyTime);
+		}
+		WriteProfileInt("References","SettleDelayMigrated",1);
+	}
 	m_ablFreq=GetProfileInt("References","AblFrameFreq",10);
 	m_ablDuration=GetProfileInt("References","AblFrameDuration",500);
 	m_ablLevel=GetProfileInt("References","AblFrameLevel",50);
 	m_bLatencyBeep=GetProfileInt("References","IrisLatencyBeep",0);
+	m_measureSound=GetProfileInt("References","MeasureSound",1);
 	bDisplayRT=GetProfileInt("References","Display RT",1);
 	m_bABL=GetProfileInt("References","ABL Inhibitor",0);
 	m_bDisableHighDPI=GetProfileInt("References","High DPI",0);
@@ -577,6 +625,14 @@ BOOL CColorHCFRConfig::LoadSettings()
 		if(m_colorStandard == sRGB)
 			m_manualGOffset = 0.055;
 	}
+
+	// An SDR-only standard must not carry a PQ/HLG transfer function. The
+	// References page enforces this in its dropdown, but a registry written by
+	// an older build (or hand-edited) can hold the invalid pairing, and most
+	// consumers read m_GammaOffsetType raw - so normalize it at the source,
+	// with the same BT.1886 fallback the page uses.
+	if ( !StandardAllowsHDR(m_colorStandard) && (m_GammaOffsetType == 5 || m_GammaOffsetType == 7) )
+		m_GammaOffsetType = 4;
 
 	m_bWhiteBkgndOnScreen=GetProfileInt("Appearance","WhiteBkgndOnScreen",FALSE);
 	m_bWhiteBkgndOnFile=GetProfileInt("Appearance","WhiteBkgndOnFile",FALSE);
@@ -649,6 +705,7 @@ void CColorHCFRConfig::SaveSettings()
 	WriteProfileInt("References","AblFrameDuration",m_ablDuration);
 	WriteProfileInt("References","AblFrameLevel",m_ablLevel);
 	WriteProfileInt("References","IrisLatencyBeep",m_bLatencyBeep);
+	WriteProfileInt("References","MeasureSound",m_measureSound);
 	WriteProfileInt("References","Display RT",bDisplayRT);
 	WriteProfileInt("References","ABL Inhibitor",m_bABL);
 	WriteProfileInt("References","High DPI",m_bDisableHighDPI);
@@ -720,6 +777,12 @@ COLORREF CColorHCFRConfig::GetDEColor(double dE, BOOL bDark) const
 void CColorHCFRConfig::ChangeSettings(int aPage)
 {
 	SetPropertiesSheetValues();
+	// The pages hand these back on OK whether or not their tab was opened, so they
+	// must start from the config, not from whatever the page last held. Done here,
+	// not in SetPropertiesSheetValues: views call that on routine refreshes, which
+	// would wipe a pending TRUE (set by an edit handler) while the sheet is open.
+	m_referencesPropertiesPage.m_bSave=m_bSave;
+	m_advancedPropertiesPage.m_bSave=m_bSave2;
 	m_propertySheet.SetActivePage(aPage);
 	m_propertySheet.DoModal();
 }
@@ -871,8 +934,14 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	m_useToneMap=m_referencesPropertiesPage.m_useToneMap;
 	m_ManualBlack=m_referencesPropertiesPage.m_ManualBlack;
 	m_useMeasuredGamma=m_referencesPropertiesPage.m_useMeasuredGamma;
-	m_bSave=m_referencesPropertiesPage.m_bSave;
-	m_bSave2=m_advancedPropertiesPage.m_bSave;
+	// m_bSave has no control behind it, so outside the Preferences sheet the pages
+	// hold whatever they had when it last closed. Only take it from a live sheet;
+	// other ApplySettings(FALSE) callers (the generator page OK) leave it alone.
+	if ( ::IsWindow( m_propertySheet.GetSafeHwnd() ) )
+	{
+		m_bSave=m_referencesPropertiesPage.m_bSave;
+		m_bSave2=m_advancedPropertiesPage.m_bSave;
+	}
 	m_manualGOffset=m_referencesPropertiesPage.m_manualGOffset;
 	m_manualWhitex=m_referencesPropertiesPage.m_manualWhitex;
 	m_manualWhitey=m_referencesPropertiesPage.m_manualWhitey;
@@ -1187,6 +1256,303 @@ void CColorHCFRConfig::EnsurePathExists ( CString strPath )
 {
 	CreateDirectory ( strPath, NULL );
 }
+// ---- Sensor correction files (.thc) ----
+// The part of a source folder's name that tells its files apart from another
+// folder's: "Etalon_Argyll" gives "Argyll".
+static void HcfrThcFolderTag ( LPCSTR lpszSrcDir, LPSTR lpszTag, int nTagSize )
+{
+	char			szDir [ MAX_PATH ];
+	const char *	pLeaf;
+	int				nLen;
+
+	lstrcpyn ( szDir, lpszSrcDir, MAX_PATH );
+	nLen = strlen ( szDir );
+	while ( nLen > 1 && szDir [ nLen - 1 ] == '\\' && szDir [ nLen - 2 ] != ':' )
+		szDir [ -- nLen ] = '\0';
+
+	pLeaf = strrchr ( szDir, '\\' );
+	pLeaf = pLeaf ? pLeaf + 1 : szDir;
+
+	// Every folder reaching here matched Etalon_*, but do not depend on it.
+	if ( _strnicmp ( pLeaf, "Etalon_", 7 ) == 0 )
+		pLeaf += 7;
+	if ( * pLeaf == '\0' )
+		pLeaf = "old";
+
+	lstrcpyn ( lpszTag, pLeaf, nTagSize );
+}
+
+// A file already at the destination with the same size and last-write time is
+// this same file, brought across by an earlier sweep: CopyFile preserves both.
+// The migration is meant to run once, but the flag recording it lives in the
+// INI, which a user can lose or start afresh, so a second sweep must not turn
+// everything it already copied into a numbered duplicate.
+static BOOL HcfrThcAlreadyCopied ( const WIN32_FIND_DATA * pSrc, LPCSTR lpszDst )
+{
+	WIN32_FILE_ATTRIBUTE_DATA	fad;
+
+	if ( ! GetFileAttributesEx ( lpszDst, GetFileExInfoStandard, & fad ) )
+		return FALSE;
+
+	return ( fad.nFileSizeHigh == pSrc -> nFileSizeHigh
+	      && fad.nFileSizeLow == pSrc -> nFileSizeLow
+	      && CompareFileTime ( & fad.ftLastWriteTime, & pSrc -> ftLastWriteTime ) == 0 );
+}
+
+// Copy one .thc into the per-user folder. Every sensor used to have a folder of
+// its own, so the same file name can appear in several of them; gathered into
+// one folder they collide. CopyFile with bFailIfExists TRUE would simply not
+// copy the second, leaving enumeration order to decide which of the two the
+// user keeps and saying nothing about the one that went. Name the collider
+// after the folder it came from - the very thing that told the two apart
+// before - rather than losing it.
+static void HcfrCopyOneThc ( LPCSTR lpszSrc, const WIN32_FIND_DATA * pwfd, LPCSTR lpszDestDir, LPCSTR lpszTag )
+{
+	char	szDst [ MAX_PATH ];
+	char	szBase [ MAX_PATH ];
+	char	szExt [ MAX_PATH ];
+	char *	pExt;
+	int		nLen;
+	int		nTry;
+
+	nLen = _snprintf ( szDst, sizeof ( szDst ), "%s%s", lpszDestDir, pwfd -> cFileName );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szDst ) )
+		return;
+
+	if ( CopyFile ( lpszSrc, szDst, TRUE ) )
+		return;
+	if ( GetLastError () != ERROR_FILE_EXISTS || HcfrThcAlreadyCopied ( pwfd, szDst ) )
+		return;
+
+	// Keep the tag out of the extension, so the copy is still a .thc.
+	lstrcpyn ( szBase, pwfd -> cFileName, MAX_PATH );
+	szExt [ 0 ] = '\0';
+	pExt = strrchr ( szBase, '.' );
+	if ( pExt )
+	{
+		lstrcpyn ( szExt, pExt, MAX_PATH );
+		* pExt = '\0';
+	}
+
+	for ( nTry = 1 ; nTry <= 99 ; nTry ++ )
+	{
+		if ( nTry == 1 )
+			nLen = _snprintf ( szDst, sizeof ( szDst ), "%s%s (%s)%s", lpszDestDir, szBase, lpszTag, szExt );
+		else
+			nLen = _snprintf ( szDst, sizeof ( szDst ), "%s%s (%s %d)%s", lpszDestDir, szBase, lpszTag, nTry, szExt );
+
+		if ( nLen < 0 || nLen >= (int) sizeof ( szDst ) )
+			return;
+		if ( CopyFile ( lpszSrc, szDst, TRUE ) )
+			return;
+		if ( GetLastError () != ERROR_FILE_EXISTS || HcfrThcAlreadyCopied ( pwfd, szDst ) )
+			return;
+	}
+}
+
+// Copy every .thc from one folder into the per-user folder.
+static void HcfrCopyThcFiles ( LPCSTR lpszSrcDir, LPCSTR lpszDestDir )
+{
+	char			szPattern [ MAX_PATH ];
+	char			szTag [ MAX_PATH ];
+	WIN32_FIND_DATA	wfd;
+	HANDLE			hFind;
+	int				nLen;
+
+	nLen = _snprintf ( szPattern, sizeof ( szPattern ), "%s\\*.thc", lpszSrcDir );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szPattern ) )
+		return;
+
+	HcfrThcFolderTag ( lpszSrcDir, szTag, sizeof ( szTag ) );
+
+	hFind = FindFirstFile ( szPattern, & wfd );
+	if ( hFind == INVALID_HANDLE_VALUE )
+		return;
+
+	do
+	{
+		char	szSrc [ MAX_PATH ];
+		int		nSrc;
+
+		if ( wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY )
+			continue;
+
+		nSrc = _snprintf ( szSrc, sizeof ( szSrc ), "%s\\%s", lpszSrcDir, wfd.cFileName );
+		if ( nSrc > 0 && nSrc < (int) sizeof ( szSrc ) )
+			HcfrCopyOneThc ( szSrc, & wfd, lpszDestDir, szTag );
+	} while ( FindNextFile ( hFind, & wfd ) );
+
+	FindClose ( hFind );
+}
+
+// Scan one install tree for the per-sensor Etalon_* folders earlier versions
+// used. Etalon_HCFR is the only one the installer populates, and its files are
+// corrections for the HCFR sensor, which this version cannot select - so it is
+// skipped, to keep some sixty shipped files out of every user's list. The UAC
+// VirtualStore mirror is the exception: nothing is redirected there unless the
+// user wrote it, so that tree is taken whole.
+static void HcfrScanForThc ( LPCSTR lpszBaseDir, LPCSTR lpszDestDir, BOOL bUserWritesOnly )
+{
+	char			szBase [ MAX_PATH ];
+	char			szPattern [ MAX_PATH ];
+	WIN32_FIND_DATA	wfd;
+	HANDLE			hFind;
+	int				nLen;
+
+	if ( lpszBaseDir == NULL || *lpszBaseDir == '\0' )
+		return;
+
+	// The caller's path may or may not carry a trailing backslash.
+	lstrcpyn ( szBase, lpszBaseDir, MAX_PATH );
+	nLen = strlen ( szBase );
+	while ( nLen > 1 && szBase [ nLen - 1 ] == '\\' && szBase [ nLen - 2 ] != ':' )
+		szBase [ -- nLen ] = '\0';
+
+	nLen = _snprintf ( szPattern, sizeof ( szPattern ), "%s\\Etalon_*", szBase );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szPattern ) )
+		return;
+
+	hFind = FindFirstFile ( szPattern, & wfd );
+	if ( hFind == INVALID_HANDLE_VALUE )
+		return;
+
+	do
+	{
+		char	szSub [ MAX_PATH ];
+		int		nSub;
+
+		if ( ! ( wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+			continue;
+		if ( ! bUserWritesOnly && _stricmp ( wfd.cFileName, "Etalon_HCFR" ) == 0 )
+			continue;
+
+		nSub = _snprintf ( szSub, sizeof ( szSub ), "%s\\%s", szBase, wfd.cFileName );
+		if ( nSub > 0 && nSub < (int) sizeof ( szSub ) )
+			HcfrCopyThcFiles ( szSub, lpszDestDir );
+	} while ( FindNextFile ( hFind, & wfd ) );
+
+	FindClose ( hFind );
+}
+
+// Bring across what earlier versions left in the install tree, and in the
+// VirtualStore mirror UAC redirected a standard user's writes to.
+static void HcfrMigrateThc ( LPCSTR lpszAppPath, LPCSTR lpszDestDir )
+{
+	HcfrScanForThc ( lpszAppPath, lpszDestDir, FALSE );
+
+	if ( lpszAppPath != NULL && lpszAppPath [ 0 ] != '\0' && lpszAppPath [ 1 ] == ':' )
+	{
+		const char *	pLocalAppData = getenv ( "LOCALAPPDATA" );
+
+		if ( pLocalAppData && *pLocalAppData )
+		{
+			char	szVirtual [ MAX_PATH ];
+			int		nLen;
+
+			// VirtualStore mirrors the install path minus its drive letter.
+			nLen = _snprintf ( szVirtual, sizeof ( szVirtual ), "%s\\VirtualStore\\%s", pLocalAppData, lpszAppPath + 3 );
+			if ( nLen > 0 && nLen < (int) sizeof ( szVirtual ) )
+				HcfrScanForThc ( szVirtual, lpszDestDir, TRUE );
+		}
+	}
+}
+
+// Once per user profile, recorded in the INI the same way the settings
+// migration is. Keying on the folder being empty instead would copy the old
+// files back the moment a user deleted the last of them, and would re-sweep
+// the install tree on every call for everyone who has nothing to migrate.
+static void HcfrMigrateThcOnce ( CColorHCFRConfig * pConfig, LPCSTR lpszAppPath, LPCSTR lpszDestDir )
+{
+	if ( pConfig -> GetProfileInt ( "Defaults", "EtalonMigrated", 0 ) != 0 )
+		return;
+
+	HcfrMigrateThc ( lpszAppPath, lpszDestDir );
+	pConfig -> WriteProfileInt ( "Defaults", "EtalonMigrated", 1 );
+}
+
+BOOL CColorHCFRConfig::GetEtalonPath ( CString & strPath )
+{
+	const char *	pAppData = getenv ( "APPDATA" );
+	char			szParent [ MAX_PATH ];
+	char			szEtalon [ MAX_PATH ];
+	DWORD			dwAttributes;
+	int				nLen;
+
+	if ( pAppData == NULL || *pAppData == '\0' )
+	{
+		// No roaming profile to write into. Name the historical location so the
+		// caller still has something to show, and report whether it is usable.
+		strPath = m_ApplicationPath;
+		strPath += "Etalon\\";
+		CreateDirectory ( strPath, NULL );
+		dwAttributes = GetFileAttributes ( strPath );
+		return ( dwAttributes != INVALID_FILE_ATTRIBUTES
+			  && ( dwAttributes & FILE_ATTRIBUTE_DIRECTORY ) != 0 );
+	}
+
+	// strPath is filled in on every path, including these: a caller that only
+	// has it to name in a message must never be handed an empty string.
+	nLen = _snprintf ( szParent, sizeof ( szParent ), "%s\\HCFR", pAppData );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szParent ) )
+	{
+		strPath = pAppData;
+		strPath += "\\HCFR\\Etalon\\";
+		SetLastError ( ERROR_FILENAME_EXCED_RANGE );
+		return FALSE;
+	}
+	nLen = _snprintf ( szEtalon, sizeof ( szEtalon ), "%s\\Etalon", szParent );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szEtalon ) )
+	{
+		strPath = szParent;
+		strPath += "\\Etalon\\";
+		SetLastError ( ERROR_FILENAME_EXCED_RANGE );
+		return FALSE;
+	}
+
+	strPath = szEtalon;
+	strPath += '\\';
+
+	// Only a directory will do: something else of that name would hand every
+	// later call a path it cannot use.
+	dwAttributes = GetFileAttributes ( szEtalon );
+	if ( dwAttributes != INVALID_FILE_ATTRIBUTES )
+	{
+		if ( ! ( dwAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+		{
+			SetLastError ( ERROR_DIRECTORY );
+			return FALSE;
+		}
+
+		// The folder existing does not say the migration has run: an earlier run
+		// may have created it and then failed every copy, and the user can have
+		// made it by hand. Whether to sweep is decided by the once-flag in the
+		// INI and by nothing about the folder itself - see HcfrMigrateThcOnce.
+		HcfrMigrateThcOnce ( this, m_ApplicationPath, strPath );
+		return TRUE;
+	}
+
+	// %APPDATA% always exists; the two levels below it may not.
+	CreateDirectory ( szParent, NULL );
+	if ( ! CreateDirectory ( szEtalon, NULL ) )
+	{
+		// ERROR_ALREADY_EXISTS covers a file of that name as well as a folder.
+		if ( GetLastError () != ERROR_ALREADY_EXISTS )
+			return FALSE;
+
+		dwAttributes = GetFileAttributes ( szEtalon );
+		if ( dwAttributes == INVALID_FILE_ATTRIBUTES
+		  || ! ( dwAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+		{
+			SetLastError ( ERROR_DIRECTORY );
+			return FALSE;
+		}
+		HcfrMigrateThcOnce ( this, m_ApplicationPath, strPath );
+		return TRUE;
+	}
+
+	HcfrMigrateThcOnce ( this, m_ApplicationPath, strPath );
+	return TRUE;
+}
 
 std::vector<int> cTargetR;
 std::vector<int> cTargetG;
@@ -1194,150 +1560,72 @@ std::vector<int> cTargetB;
 std::vector<std::string> cTargetN;
 std::string nFile;
 int numCC = 0;
+int cTargetBits = 8;    // bit depth of the loaded patch list (for range-aware target decode)
+int cTargetRange = -1;  // CSV range of the loaded patch list (-1 legacy/legal, 0 full, 1 legal, 2 extended)
 
 void CColorHCFRConfig::GetCColors() 
 {
-            char m_ApplicationPath [MAX_PATH];
-			LPSTR lpStr;
-            GetModuleFileName ( NULL, m_ApplicationPath, sizeof ( m_ApplicationPath ) );
-			lpStr = strrchr ( m_ApplicationPath, (int) '\\' );
-			lpStr [ 1 ] = '\0';
-            CString strPath = m_ApplicationPath;
-			CString fName;
-			char * path;
-			char appPath[255];
-			path = getenv("APPDATA");
-			strcpy(appPath, path);
-			switch (m_CCMode)
-			{
-				case USER:
-		        fName=strPath+"usercolors.csv";
-				break;
-				case CM10SAT:
-		        fName=strcat(appPath, "\\color\\CM 10-Point Saturation (100AMP).csv");
-				break;
-				case CM10SAT75:
-		        fName=strcat(appPath, "\\color\\CM 10-Point Saturation (75AMP).csv");
-				break;
-				case CM4LUM:
-		        fName=strcat(appPath,"\\color\\CM 4-Point Luminance.csv");
-				break;
-				case CM5LUM:
-		        fName=strcat(appPath, "\\color\\CM 5-Point Luminance.csv");
-				break;
-				case CM10LUM:
-		        fName=strcat(appPath, "\\color\\CM 10-Point Luminance.csv");
-				break;
-				case CM4SAT:
-		        fName=strcat(appPath, "\\color\\CM 4-Point Saturation (100AMP).csv");
-				break;
-				case CM4SAT75:
-		        fName=strcat(appPath, "\\color\\CM 4-Point Saturation (75AMP).csv");
-				break;
-				case CM5SAT:
-		        fName=strcat(appPath, "\\color\\CM 5-Point Saturation (100AMP).csv");
-				break;
-				case CM5SAT75:
-		        fName=strcat(appPath, "\\color\\CM 5-Point Saturation (75AMP).csv");
-				break;
-				case CM6NB:
-		        fName=strcat(appPath, "\\color\\CM 6-Point Near Black.csv");
-				break;
-				case CMDNR:
-		        fName=strcat(appPath, "\\color\\CM Dynamic Range (Clipping).csv");
-				break;
-				case RANDOM250:
-		        fName=strcat(appPath, "\\color\\Random_250.csv");
-				break;
-				case RANDOM500:
-		        fName=strcat(appPath, "\\color\\Random_500.csv");
-				break;
-				case MASCIOR50:
-		        fName=strcat(appPath, "\\color\\Mascior50_50_BT2020_HDR.csv");
-				break;
-				case LG54016:
-		        fName=strcat(appPath, "\\color\\LG_540_Base_Tone_Curve_2016.csv");
-				break;
-				case LG54017:
-		        fName=strcat(appPath, "\\color\\LG_540_Base_Tone_Curve_2017.csv");
-				break;
-				case LG100017:
-		        fName=strcat(appPath, "\\color\\LG_1000_Base_Tone_Curve_2017.csv");
-				break;
-				case LG400017:
-		        fName=strcat(appPath, "\\color\\LG_4000_Base_Tone_Curve_2017.csv");
-				break;
-				case LGUK65XX:
-				fName = strcat(appPath, "\\color\\LG_UK65xx_HDR10_20_Point_Luminance.csv");
-				break;
-				case LGOLEDV12018:
-				fName = strcat(appPath, "\\color\\LG_2018_V1_HDR10_20_Point_Luminance.csv");
-				break;
-				case LGOLEDV22018:
-				fName = strcat(appPath, "\\color\\LG_2018_V2_HDR10_20_Point_Luminance.csv");
-				break;
-				case LGOLEDV32018:
-				fName = strcat(appPath, "\\color\\LG_2018_V3_HDR10_20_Point_Luminance.csv");
-				break;
-				case LGOLED102019:
-				fName = strcat(appPath, "\\color\\LG_2019_HDR10_10_Point_Luminance.csv");
-				break;
-				case LGOLED222019:
-				fName = strcat(appPath, "\\color\\LG_2019_HDR10_22_Point_Luminance.csv");
-				break;
-				case LGOLED102020:
-				fName = strcat(appPath, "\\color\\LG_2020_HDR10_10_Point_Luminance.csv");
-				break;
-				case LGOLED222020:
-				fName = strcat(appPath, "\\color\\LG_2020_HDR10_22_Point_Luminance.csv");
-				break;
-				case LGOLED102021:
-				fName = strcat(appPath, "\\color\\LG_2021_HDR10_10_Point_Luminance.csv");
-				break;
-				case LGOLED222021:
-				fName = strcat(appPath, "\\color\\LG_2021_HDR10_22_Point_Luminance.csv");
-				break;
-			}
-			ifstream colorFile(fName);
-            std::string line;
-            int cnt = 0;
-            int n1,n2,n3;
-			std::string n4;
-			cTargetR.clear();
-			cTargetG.clear();
-			cTargetB.clear();
-			cTargetN.clear();
+	// One shared resolver (drive/reference GenerateCC24Colors uses the same one) maps the CC mode
+	// to its patch-list file. Inline-array modes (GCD/MCD/CMC/...) carry no CSV - their targets come
+	// straight from GenerateCC24Colors, so clear and bail without touching disk or warning.
+	CString fName;
+	cTargetR.clear();
+	cTargetG.clear();
+	cTargetB.clear();
+	cTargetN.clear();
+	if (!ResolveCCSetPath(m_CCMode, fName, NULL))
+	{
+		numCC = 0;
+		nFile.clear();
+		cTargetBits = 8;
+		cTargetRange = -1;
+		return;
+	}
+	// set-name for the display = file base name (migrated files no longer carry it inline)
+	{ int sl = fName.ReverseFind('\\'); nFile = (LPCTSTR)(sl >= 0 ? fName.Mid(sl + 1) : fName); size_t dp = nFile.rfind(".csv"); if (dp != std::string::npos) nFile.erase(dp); }
+	// Single shared parser (the one ReadColorsFromCsv uses): raw codes + names, plus the declared
+	// bit depth + range so GetCColorsT can decode targets for ANY range (legal / full / extended).
+	std::vector<CsvPatchRow> rows;
+	int bits = 8, range = -1;
+	int nRows = ReadCsvPatchRows(fName, rows, MAX_USER_CC_PATCH_SIZE, &bits, &range);
+	cTargetBits = bits;
+	cTargetRange = range;
+	for (int i = 0; i < nRows; i++)
+	{
+		cTargetR.push_back(rows[i].r);
+		cTargetG.push_back(rows[i].g);
+		cTargetB.push_back(rows[i].b);
+		cTargetN.push_back(rows[i].name);
+	}
+	numCC = (nRows > 0) ? nRows : 0;   // 0 when the file is missing/unreadable, so size matches the vectors
 
-			if (colorFile.good()) 
-			{
-				while( getline(colorFile, line) && cnt < MAX_USER_CC_PATCH_SIZE)
-		        {
-					std::istringstream s(line);
-					std::string field;
-					s >> n1;
-					getline(s, field,',');
-					s >> n2;
-					getline(s, field,',');
-					s >> n3;
-					getline(s, field,',');
-					getline(s, n4, ',');
-					if (cnt == 0)
-						getline(s, nFile, ',');
-					cTargetR.push_back(n1);
-					cTargetG.push_back(n2);
-					cTargetB.push_back(n3);
-					cTargetN.push_back(n4);
-	                ++cnt;
-		        }
-				numCC = cnt;
-				colorFile.close();
-			}
+	// Tell the user WHY the set is blank on a genuine open failure (-1), rather than showing a
+	// silent empty grid. For built-in sequences this usually means a broken install or a different
+	// user profile (the %APPDATA%\color file is absent). Gate on the path so repeat reloads of the
+	// same missing file don't stack message boxes; a successful read re-arms the warning.
+	static std::string s_lastMissingWarned;
+	if (nRows < 0)
+	{
+		if (s_lastMissingWarned != (LPCTSTR)fName)
+		{
+			s_lastMissingWarned = (LPCTSTR)fName;
+			CString fmt, msg;
+			fmt.LoadString(IDS_CSV_FILE_NOT_FOUND);
+			msg.Format(fmt, (LPCTSTR)fName);
+			AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
+		}
+	}
+	else
+	{
+		s_lastMissingWarned.clear();
+	}
 }
-
 ColorRGB CColorHCFRConfig::GetCColorsT(int index) 
 {
-	if (!cTargetR.empty())
-			return ColorRGB(	( (cTargetR[index] -16) / 219.)	, (	(cTargetG[index] - 16) / 219.) , ( (cTargetB[index] - 16) /219. ) );
+	if (index >= 0 && index < (int)cTargetR.size())
+			return ColorRGB( CsvCodeToPercent(cTargetR[index], cTargetBits, cTargetRange) / 100.,
+			                 CsvCodeToPercent(cTargetG[index], cTargetBits, cTargetRange) / 100.,
+			                 CsvCodeToPercent(cTargetB[index], cTargetBits, cTargetRange) / 100. );
 	else
 			return ColorRGB( 0.5, 0.5, 0.5 );
 }
@@ -1346,8 +1634,10 @@ std::string CColorHCFRConfig::GetCColorsN(int index)
 {
 			if (index == -1)
 			 return nFile;
-			else
+			else if (index >= 0 && index < (int)cTargetN.size())
 		     return cTargetN[index];
+			else
+			 return "";
 }
 
 int CColorHCFRConfig::GetCColorsSize() 

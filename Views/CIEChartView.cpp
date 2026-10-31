@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	FranÃ§ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -33,6 +33,7 @@
 #include "graphcontrol.h"
 #include "GdiPlusAA.h"
 #include "GamutCoverage.h"
+#include "GamutName.h"
 #include "Views\MainView.h"
 
 #ifdef _DEBUG
@@ -57,7 +58,7 @@ extern void DrawDeltaECurve(CDC* pDC, int cxMax, int cyMax, double DeltaE, BOOL 
 // The HDTV reference used to derive display colours for plot dots and
 // tooltips is built from fixed constants only (verified: the constructor and
 // the reference luma getters read nothing mutable), so build it once instead
-// of once per point per paint â€” its constructor inverts matrices.
+// of once per point per paint — its constructor inverts matrices.
 static const CColorReference & HdtvPlotRef()
 {
 	static const CColorReference hdtvRef(HDTV);
@@ -786,19 +787,8 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	BOOL hasSecondariesForAb = yellowSecondaryColor.isValid() && cyanSecondaryColor.isValid() &&
 							   magentaSecondaryColor.isValid();
 
-	// Short names for the mainstream gamuts; everything else (incl. the
-	// reduced-primary HDTVa/HDTVb pseudo-gamuts) uses its own reference
-	// name so the label always matches the triangle actually drawn.
 	WCHAR gamutName[64];
-	switch (GetColorReference().m_standard)
-	{
-		case HDTV: case UHDTV4: wcscpy_s(gamutName, L"Rec.709");  break;
-		case UHDTV: case UHDTV3: wcscpy_s(gamutName, L"DCI-P3");   break;
-		case UHDTV2:            wcscpy_s(gamutName, L"Rec.2020");  break;
-		default:
-			swprintf_s(gamutName, 64, L"%S", GetColorReference().GetName().c_str());
-			break;
-	}
+	GamutShortName(GetColorReference(), gamutName, 64);
 
 	// Each metric's percentage is independently stale (and hidden) if the
 	// reference standard changed since it was last computed without the
@@ -1422,10 +1412,12 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	Msg.LoadString ( (GetColorReference().m_standard!=CC6)?IDS_MAGENTASECONDARYREF:IDS_CC6MAGENTASECONDARYREF );
 	CCIEGraphPoint refMagentaSecondaryPoint(aColor[5].GetXYZValue(), YWhiteRef, Msg, m_bCIEuv, m_bCIEab);
 
-	CCIEGraphPoint illuminantA(ColorXYZ(ColorxyY(0.4476,0.4074)),1.0, "Illuminant A", m_bCIEuv, m_bCIEab);
-	CCIEGraphPoint illuminantB(ColorXYZ(ColorxyY(0.3484,0.3516)), 1.0, "Illuminant B", m_bCIEuv, m_bCIEab);
-	CCIEGraphPoint illuminantC(ColorXYZ(ColorxyY(0.3101,0.3162)), 1.0, "Illuminant C", m_bCIEuv, m_bCIEab);
-	CCIEGraphPoint illuminantD65(ColorXYZ(ColorxyY(0.3127,0.3291)), 1.0, "Illuminant D65", m_bCIEuv, m_bCIEab);
+	CString strIll;
+	strIll.LoadString ( IDS_CIE_ILLUMINANT );
+	CCIEGraphPoint illuminantA(ColorXYZ(ColorxyY(0.4476,0.4074)),1.0, strIll+" A", m_bCIEuv, m_bCIEab);
+	CCIEGraphPoint illuminantB(ColorXYZ(ColorxyY(0.3484,0.3516)), 1.0, strIll+" B", m_bCIEuv, m_bCIEab);
+	CCIEGraphPoint illuminantC(ColorXYZ(ColorxyY(0.3101,0.3162)), 1.0, strIll+" C", m_bCIEuv, m_bCIEab);
+	CCIEGraphPoint illuminantD65(ColorXYZ(ColorxyY(0.3127,0.3291)), 1.0, strIll+" D65", m_bCIEuv, m_bCIEab);
 
 	Msg.LoadString ( IDS_TEMPERATURE );
 	CCIEGraphPoint colorTempPoint2700(ColorXYZ(ColorxyY(0.4614,0.4158)), 1.0, Msg+" 2700", m_bCIEuv, m_bCIEab);   
@@ -2062,7 +2054,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		{
 			CString str;
 			Msg.LoadString ( IDS_GRAYIRE );
-			str.Format(Msg,(int)(pDoc->GetMeasure()->GetGrayPercent(i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+0.5));
+			str.Format(Msg,(int)(pDoc->GetMeasure()->GetGrayPercent(i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+0.5));
             ColorXYZ aColor(pDoc->GetMeasure()->GetGray(i).GetXYZValue());
             ColorXYZ refColor(GetColorReference().GetWhite());
             double valy;
@@ -2070,19 +2062,19 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
             // Determine Reference Y luminance for Delta E calculus
             if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
             {
-				double x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
+				double x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
     			CColor White = pDoc -> GetMeasure () -> GetGray ( nSize - 1 );
 				CColor Black = pDoc->GetMeasure()->GetOnOffBlack();
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if (  (mode >= 4) )
 			    {
-				   double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+				   double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
                    valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //				   valy = min(valy, GetConfig()->m_TargetMaxL);
 			    }
 			    else
 			    {
-				   double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+Offset)/(1.0+Offset);
+				   double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 				   valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -2390,11 +2382,12 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
                 {
                     for (int i=0; i < GetConfig()->GetCColorsSize(); i++)
                     {
-                        char aBuf[50];
 						std::string name = GetConfig()->GetCColorsN(i);
-						sprintf(aBuf,"Color %s Reference", name.c_str());
-                        Msg.SetString(aBuf);
-	        		    str.Format(Msg, 10);
+						// Patch name is user data and may contain '%' (e.g. "Gray 50%"). Passing it as a Format
+						// ARGUMENT keeps it inert - only the resource string is read as a template - and CString
+						// sizes itself, so there is no fixed-buffer overflow on a long name either.
+						CString ccFmt; ccFmt.LoadString ( IDS_CC_COLORNAMEREF );
+						str.Format( (LPCSTR)ccFmt, name.c_str() );
 		        	    pDoc->GetMeasure()->GetRefCC24Sat(i, ccolor);
 		        	    CCIEGraphPoint cc24Point(ccolor.GetXYZValue(),
 			        					  YWhiteRef,
@@ -2779,11 +2772,10 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
              {
                     for (int i=0; i < GetConfig()->GetCColorsSize(); i++)
                     {
-						char aBuf[50];
 						std::string name = GetConfig()->GetCColorsN(i);
-                        sprintf(aBuf,"Color %s", name.c_str());
-                        Msg.SetString(aBuf);
-	        		    str.Format(Msg, 10);
+						// Patch name may contain '%' - passed as a Format argument, never as the template (see above).
+						CString ccFmt; ccFmt.LoadString ( IDS_CC_COLORNAME );
+						str.Format( (LPCSTR)ccFmt, name.c_str() );
 		        	    pDoc->GetMeasure()->GetRefCC24Sat(i, ccolor);
 		        	    CCIEGraphPoint cc24PointRef(ccolor.GetXYZValue(),
 								  YWhiteRef,
@@ -3796,8 +3788,7 @@ void CCIEChartView::UpdateTestColor ( CPoint point )
 		nB = (int) (b/cmax*coef+base);
 	}
 
-	( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.SetColor ( RGB(nR,nG,nB) );
-	( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.RedrawWindow ();
+	( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.SetTestColor ( RGB(nR,nG,nB) );
 }
 
 void CCIEChartView::GetReferenceRect ( LPRECT lpRect )

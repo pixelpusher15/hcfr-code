@@ -14,15 +14,15 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	FranÃois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //  Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 //  Modifications:
-//  JÃˆrÃ™me Duquennoy -> made OS agnostic
+//  Jérôme Duquennoy -> made OS agnostic
 //    ASSERT -> assert
 //    CRITICAL_SECTION -> pthreads mutex
 //    CString -> std::string
-//      CString.LoadString -> string passÃˆe en argument
+//      CString.LoadString -> string passée en argument
 //    BOOL, FALSE, TRUE -> bool, false, true
 //    const added to the param of the copy constructor
 //    GetColorReference linked to global app var -> replaced by arguments in impacted functions
@@ -930,6 +930,54 @@ CColorReference ContainerTransportReference(const CColorReference& active)
 	return active;
 }
 
+// The special standards' "primaries" are NOT a gamut: HDTVa carries the 75%
+// saturation / 75% amplitude PATCH chromaticities and HDTVb the plasma-optimized
+// color-checker ones, both far inside Rec.709. The display being measured is a
+// plain Rec.709 one, which is why every consumer that needs an actual colorspace
+// substitutes it - GetRGBValue, SetRGBValue, GetDeltaE (via SpecialModeReference),
+// GetRefSat's special branch. Use this wherever the substitution is needed on the
+// reference as an OBJECT (primaries, matrices) rather than inside those calls.
+//
+// The white is deliberately NOT carried over, unlike ContainerInner/Transport
+// Reference above. SetRGBValue - which is how these modes' references are
+// actually manufactured - substitutes a fixed CColorReference(HDTV), i.e.
+// Rec.709/D65, whatever white target is active; GetRGBValue and GetDeltaE do the
+// same. A basis that tracked the active white would therefore disagree with the
+// basis those references were built in for every non-D65 white - reintroducing,
+// in a narrower case, the very defect this helper exists to prevent.
+// ColorMathTest T10 pins it: 270 assertions fail if this returns
+// WithWhiteOf(HDTV, active) instead.
+//
+// Callers needing the user's WHITE TARGET (grayscale targets, neutral
+// classification) must read it from the ACTIVE reference, not from this one.
+//
+// CC6 is included to match SetRGBValue and GetDeltaE, the two predicates that
+// decide what a reference IS. GetRGBValue's omits CC6, so for that (unreachable
+// - the enum marks it unused) standard a swatch would decode in the CC6 matrix
+// while geometry used Rec.709. Making GetRGBValue consistent would remove the
+// wart, but that is a live libHCFR behaviour change on a dead path, so the
+// mismatch is left documented rather than fixed here.
+CColorReference SpecialModeGamutReference(const CColorReference& active)
+{
+	if (active.m_standard == HDTVa || active.m_standard == HDTVb || active.m_standard == CC6)
+	{
+		// Built once, for the reason spelled out above SpecialModeReference():
+		// the constructor derives the RGB->XYZ matrix, inverts it and solves four
+		// line intersections for the secondaries, and this value never varies.
+		// AppendNewProfileMeasures reaches here once per appended patch during a
+		// live cube capture - 9261 of them at 21^3.
+		//
+		// Returned BY VALUE, unlike SpecialModeReference: that one takes no
+		// arguments, whereas this returns `active` on the ordinary path, so a
+		// reference return would dangle for any caller passing a temporary. The
+		// copy is a matrix and a string; the construction it now avoids is a
+		// matrix inversion plus four intersections.
+		static const CColorReference s_hdtv(HDTV);
+		return s_hdtv;
+	}
+	return active;
+}
+
 ColorRGB ContainerPrimaryLinear(const CColorReference& active, int index)
 {
 	CColorReference inner = ContainerInnerReference(active);
@@ -1032,6 +1080,24 @@ COLORREF ColorRGBDisplay::GetColorRef(bool is16_235) const
     BYTE g(ConvertPercentToBYTE((*this)[1], is16_235));
     BYTE b(ConvertPercentToBYTE((*this)[2], is16_235));
     return RGB(r, g, b);
+}
+
+int ColorRGBDisplay::TestWindowShownCode(int pickerCode, bool is16_235)
+{
+    if (!is16_235)
+        return pickerCode;
+    int code = (int)floor(pickerCode / 255.0 * 219.0 + 16.0 + 0.5);
+    return code < 16 ? 16 : (code > 235 ? 235 : code);
+}
+
+int ColorRGBDisplay::TestWindowPickerCode(double percent, bool is16_235)
+{
+    if (!is16_235)
+        return ConvertPercentToCode(percent, false, 8);
+    // the c whose mapping is k: c*219/255 is within 0.43 of k-16, so it rounds back
+    int k = ConvertPercentToCode(percent, true, 8);
+    int c = (int)floor((k - 16) * 255.0 / 219.0 + 0.5);
+    return c < 0 ? 0 : (c > 255 ? 255 : c);
 }
 
 BYTE ColorRGBDisplay::ConvertPercentToBYTE(double percent, bool is16_235)
@@ -1412,6 +1478,169 @@ double ColorXYZ::GetDeltaLCH(double YWhite, const ColorXYZ& refColor, double YWh
 	return dLight;
 }
 
+//////////////////////////////////////////////////////////////////////////
+// BT.2390 tone map: one signal in, cd/m2 / 100 out.
+//
+// getL_EOTF case 10 used to carry two verbatim copies of this block - one for the
+// scalar path, one inside the loop that builds the inverse LUT - and the copies had
+// already drifted: the knee gate read `E1 <= 1.0` in the scalar copy and `E1 <= 1.2`
+// in the builder. Swept over 14.2M points spanning the mastering / target / slider
+// grid the two gates agree bit for bit (above E1 = 1 the extrapolated knee always
+// exceeds the peak cap, so both clip to the same value), so they are unified here on
+// the spec's own domain. One definition also means the forward oracle (ColorMathTest
+// T11) and the inverse oracle (T12) exercise the same code, not two lookalikes.
+//////////////////////////////////////////////////////////////////////////
+static double BT2390ToneMap ( double valx, double m_diffuseL, double m_MinML, double m_MaxML, double m_MinTL, double m_MaxTL, double b_fact, double E2_fact, double E2_fact1 )
+{
+	double m1=0.1593017578125;
+	double m2=78.84375;
+	double c1=0.8359375;
+	double c2=18.8515625;
+	double c3=18.6875;
+	// The same value getL_EOTF writes into the file-scope Scale before it dispatches.
+	double Scale = m_diffuseL / 94.37844 * 10000.;
+	double E1,E2,E3,E4,b,d,KS,T,p,minL,maxL,outL;
+
+	m_MaxML = m_MaxML * m_diffuseL / 94.37844 ;
+
+	if (m_MinML > m_MinTL)
+		m_MinML = m_MinTL;
+
+	E1 = valx - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
+	d = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2) - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
+	E1 = E1 / d;
+
+	// E1 is deliberately left unclamped at BOTH ends here; the single clamp this
+	// curve needs is on E2, below. The top end especially must keep falling
+	// through: when TargetMaxL > MasterMaxL (a display brighter than the disc,
+	// both fields user-editable) maxL > 1, so KS = 1.5*maxL - 0.5 > 1 and the
+	// knee never fires. Capping E1 at 1 pins every signal above the mastering
+	// peak to PQ(MasterMaxL) - a 1000-nit-mastered disc on a 4000-nit target
+	// flat-lines the whole top quarter of the grid at 1000 instead of tracking
+	// PQ up to TargetMaxL. The fall-through returns true PQ capped at m_MaxTL,
+	// which is what the expansion region wants.
+
+	// d <= 0 is degenerate mastering metadata - a mastering peak at or below the
+	// mastering black. E1, minL and maxL are then all +/-inf or NaN, and the floor
+	// below would turn a sub-black E2 of -inf into 0 and route a near-zero signal
+	// into the tone-map branch, where an infinite b yields a NaN that
+	// min(NaN, cap) resolves to the FULL target peak: 1000 cd/m2 for a signal of
+	// 1e-7. Leave the floor off for those and the values keep falling through to
+	// raw PQ, which is what this returned before the floor existed.
+	//
+	// The References page cannot produce it: MasterMaxL is validated to
+	// [100, 10000] and MasterMinL to [0, 0.5], and over the corners of all four
+	// luminance fields - DiffuseL's [1, 200] included - the smallest d is 0.0733.
+	// It arrives from a hand-edited INI (ColorHCFRConfig.cpp:566 reads the value
+	// back with GetProfileDouble and does not re-validate) or from a direct caller
+	// of this public API. d == 0 exactly for MasterMinL = MasterMaxL = 0; d is
+	// negative and finite for MasterMinL > MasterMaxL, where every normalised
+	// value is a sign-flipped fiction, and the same guard covers it.
+	bool bMappable = (d > 0.0);
+
+	minL = (pow( (c1 + c2 * pow(m_MinTL/Scale,m1)) / (1 + c3 * pow(m_MinTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
+	maxL = (pow( (c1 + c2 * pow(m_MaxTL/Scale,m1)) / (1 + c3 * pow(m_MaxTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
+	KS = 1.5 * maxL - 0.5;
+	b = minL;
+	E2 = E1;
+
+	double slope = 1.0;
+	double lower = KS;
+	double upper = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2);
+	double mmaxL = lower + E2_fact1 / 100 * (upper - lower);
+
+	// Bounded at 1 because pow((1.0-E1),0.75) is NaN for any E1 above it, and that
+	// NaN propagates through slope into E1, where it fails both knee comparisons -
+	// the same place E1 > 1 lands on its own. Same 14.2M-point sweep: identical
+	// output either way, so this only keeps the NaN out of the arithmetic.
+	if (E1 >= mmaxL && E1 <= 1.0 && (upper > lower))
+	{
+			slope = pow((E1 - mmaxL),2.0) * pow((1.0-E1),0.75)*E2_fact*(2.5*pow(mmaxL,2.0)+3*pow(mmaxL,3.0)) + 1.0;
+			E1 = E1 / slope;
+	}
+
+	if (E1 >= KS && E1 <= 1.0)
+	{
+		T = (E1 - KS) / (1.0 - KS);
+		E2 = ((2 * pow(T,3.0) - 3 * pow(T,2.0) + 1.0)*KS + (pow(T,3.0) - 2 * pow(T, 2.0) + T) * (1.0 - KS)) + ( -2.0 * pow(T,3.0) + 3.0 * pow(T,2.0)) * maxL;
+	}
+
+	// The one clamp. BT.2390's black lift, E3 = E2 + b(1-E2)^p, is defined on
+	// E2 in [0,1], and everything that landed outside it used to fall through
+	// to the raw, UN-tone-mapped PQ branch below - so near-black got the
+	// highlight roll-off but no black lift at all, and Y target at 0% (which
+	// returns the display black target directly) could come out ABOVE Y target
+	// at 1-5%. Two different inputs reach that dead zone:
+	//
+	//  - a signal below the mastering display's black, which makes E1 - and
+	//    with the knee not firing, E2 - negative;
+	//  - a target peak below a third of the mastering range, which drives
+	//    KS = 1.5*maxL - 0.5 NEGATIVE, so E1 = 0 clears `E1 >= KS`, enters the
+	//    Hermite knee, and the spline hands back a negative E2 (a 30-nit target
+	//    off a 10000-nit master read 0.300 cd/m2 at 0% and 0.000040 at 1/1024).
+	//
+	// Flooring E2 covers both: the lift then runs with E2 = 0 and maps the
+	// bottom of the curve onto the black target. An equivalent floor on E1
+	// only covers the first, and once this one is here it is measurably inert -
+	// 4.51M points over the mastering / target / slider grid, zero rows differ
+	// with it removed - so there is one clamp, not two.
+	//
+	// LOW end only, and a comparison rather than max(). The MSVC max macro
+	// answers its second operand for a NaN, and this NaN is load-bearing:
+	// TargetMaxL == MasterMaxL puts E1, KS and maxL all at exactly 1 at full
+	// signal, so the knee runs with T = 0/0 and E2 comes out NaN. That NaN has
+	// to keep failing the gate below and reach raw PQ, which is what returns
+	// the display peak at 100%; max(E2, 0.0) floors it to 0 and white reads as
+	// black.
+	if (bMappable && E2 < 0.0)
+		E2 = 0.0;
+
+	if (E2 >= 0.0 && E2 <= 1.0)
+	{
+		// Pre-existing and deliberately left alone: p < 1 makes the slope of the
+		// black lift b(1 - E2)^p diverge as E2 -> 1, so the curve turns over
+		// MID-SCALE rather than near black - neither of the two dead-zone
+		// mechanisms above, and not something the E2 floor touches. Two entrances,
+		// both reachable from the References page: a Black Slope below 0.25
+		// (4 * b_fact < 1), or b > 1 from a high target black against a low diffuse
+		// white. Bounding p at 1 clears it but moves ~400k of 5.9M rows by up to
+		// 6617 cd/m2 - a different change from this one, and listed under "still
+		// not monotonic" rather than fixed here.
+		p = min(1.0 / b, 4 * b_fact);
+		E3 = E2 + b * pow((1.0 - E2),p);
+		E3 = (E3 * d + pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2));
+		E4 = pow(max(pow(E3,1.0 / m2) - c1,0) / (c2 - c3 * pow(E3, 1.0 / m2)), 1.0 / m1);
+		outL = E4 * 10000. / 100.00 * m_diffuseL / 94.37844;
+		outL = min(outL, m_MaxTL / 100.0 );
+	}
+	else
+	{
+		outL = pow(max(pow(valx,1.0 / m2) - c1,0) / (c2 - c3 * pow(valx, 1.0 / m2)), 1.0 / m1);
+		outL = outL * 10000. / 100.00 * m_diffuseL / 94.37844;
+		outL = min(outL, m_MaxTL / 100.0);
+	}
+
+	return outL;
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Rebuild BT2390x/y, the 1024-entry sample of the forward curve that case -10
+// inverts by nearest-neighbour search. y is in the LUT's own units, nits/10000.
+//////////////////////////////////////////////////////////////////////////
+static void BuildBT2390Table ( double m_diffuseL, double m_MinML, double m_MaxML, double m_MinTL, double m_MaxTL, double b_fact, double E2_fact, double E2_fact1 )
+{
+	BT2390x.clear();
+	BT2390y.clear();
+
+	for (int i=0; i < 1024; i++)
+	{
+		double valx = i / 1024.;
+		double outL = BT2390ToneMap(valx, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, b_fact, E2_fact, E2_fact1);
+		BT2390x.push_back(valx);
+		BT2390y.push_back(outL / 100.0 / m_diffuseL * 94.37844);
+	}
+}
+
 double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double split, int mode, double m_diffuseL, double m_MinML, double m_MaxML, double m_MinTL, double m_MaxTL, bool ToneMap, bool cBT2390, double bbc_gamma, double b_fact, double E2_fact, double E2_fact1)
 {
 	if (valx == 0 && mode > 4) return (ToneMap?m_MinTL / 100.:0.0);
@@ -1489,7 +1718,7 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 
 	Lbt = ( a * pow ( (valx + b)<0?0:(valx+b), exp0 ) );
 
-	double value, E3 = 0.0;
+	double value;
 	Scale = m_diffuseL / 94.37844 * 10000.;
 
 	switch (mode)
@@ -1533,135 +1762,41 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 			outL = outL_bbc;
 		break;
 		case 10: //BT.2084/2390
-			double E1,E2,E4,b,d,KS,T,p;
-			if (!cBT2390)
+			if (cBT2390)
 			{
-				double tmWhite = getL_EOTF(0.5022283, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact) * 100.0;
-				m_MaxML = m_MaxML * m_diffuseL / 94.37844 ; 
-
-				if (m_MinML > m_MinTL)
-					m_MinML = m_MinTL;
-
-				E1 = valx - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
-				d = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2) - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
-				E1 = E1 / d;
-				minL = (pow( (c1 + c2 * pow(m_MinTL/Scale,m1)) / (1 + c3 * pow(m_MinTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
-				maxL = (pow( (c1 + c2 * pow(m_MaxTL/Scale,m1)) / (1 + c3 * pow(m_MaxTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
-				KS = 1.5 * maxL - 0.5;
-				b = minL;
-				E2 = E1;
-
-				double slope = 1.0;
-				double lower = KS;
-				double upper = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2);
-				double mmaxL = lower + E2_fact1 / 100 * (upper - lower);
-
-				if (E1 >= mmaxL && (upper > lower))
-				{
-						slope = pow((E1 - mmaxL),2.0) * pow((1.0-E1),0.75)*E2_fact*(2.5*pow(mmaxL,2.0)+3*pow(mmaxL,3.0)) + 1.0;
-						E1 = E1 / slope;
-				}
-
-				if (E1 >= KS && E1 <= 1.0)
-				{
-					T = (E1 - KS) / (1.0 - KS);
-					E2 = ((2 * pow(T,3.0) - 3 * pow(T,2.0) + 1.0)*KS + (pow(T,3.0) - 2 * pow(T, 2.0) + T) * (1.0 - KS)) + ( -2.0 * pow(T,3.0) + 3.0 * pow(T,2.0)) * maxL;
-				}
-
-				if (E2 >= 0.0 && E2 <= 1.0)
-				{
-					p = min(1.0 / b, 4 * b_fact);
-					E3 = E2 + b * pow((1.0 - E2),p);
-					E3 = (E3 * d + pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)); 
-					E4 = pow(max(pow(E3,1.0 / m2) - c1,0) / (c2 - c3 * pow(E3, 1.0 / m2)), 1.0 / m1);
-					outL = E4 * 10000. / 100.00 * m_diffuseL / 94.37844;
-					outL = min(outL, m_MaxTL / 100.0 );
-				}
-				else
-				{
-					outL = pow(max(pow(valx,1.0 / m2) - c1,0) / (c2 - c3 * pow(valx, 1.0 / m2)), 1.0 / m1);
-					outL = outL * 10000. / 100.00 * m_diffuseL / 94.37844; 
-					outL = min(outL, m_MaxTL / 100.0);
-//					outL = min(outL, 100.0);
-				}
+				// cBT2390 asks for the inverse LUT to be rebuilt rather than for a
+				// value; the table is the product and the return has never been read.
+				// case -10 no longer arrives through here - it calls the builder
+				// directly - so this is only the public API's way in, and nothing in
+				// the tree rebuilds the table this way any more.
+				//
+				// Which is just as well, because getting here is still gated on the
+				// SIGNAL as well as on `ToneMap && mode == 5` promoting to case 10: a
+				// caller asking for a rebuild with valx == 0 takes the
+				// `valx == 0 && mode > 4` early return at the top of this function and
+				// builds nothing, leaving BT2390x/y as they were. That is the half of
+				// MATH-008 case -10 used to be exposed to; it is why case -10 calls
+				// BuildBT2390Table itself rather than coming through here, and it is
+				// what any future caller of this branch has to know.
+				BuildBT2390Table(m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, b_fact, E2_fact, E2_fact1);
+				outL = 0.0;
 			}
 			else
-			{
-				BT2390x.clear();
-				BT2390y.clear();
-				int ii = 1024;
-
-				if (m_MinML > m_MinTL)
-					m_MinML = m_MinTL;
-				m_MaxML = m_MaxML * m_diffuseL / 94.37844; 
-
-				// Diffuse-white fast path: compute the tone-mapped white
-				// directly for the requested signal instead of building the
-				// 1024-entry inverse LUT. Tolerance instead of exact equality:
-				// the white patch reaches the display grid-quantized (110/219,
-				// 128/255, 440/876, 514/1023 are all within 3.2e-4 of the
-				// nominal 0.5022283), and the snapped code must take the same
-				// exact path as the nominal constant.
-				if (fabs(valx - 0.5022283) < 5e-4)
-					ii = 1;
-				for (int i=0; i < ii;i++)
-				{
-					if (ii != 1)
-						valx = i / 1024.;
-
-					E1 = valx - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
-					d = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2) - pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2);
-					E1 = E1 / d;
-					minL = (pow( (c1 + c2 * pow(m_MinTL/Scale,m1)) / (1 + c3 * pow(m_MinTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
-					maxL = (pow( (c1 + c2 * pow(m_MaxTL/Scale,m1)) / (1 + c3 * pow(m_MaxTL/Scale,m1)), m2)-pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)) / d;
-					KS = 1.5 * maxL - 0.5;
-					b = minL;
-					E2 = E1;
-
-					double slope = 1.0;
-					double lower = KS;
-					double upper = pow( (c1 + c2 * pow(m_MaxML/Scale,m1)) / (1 + c3 * pow(m_MaxML/Scale,m1)), m2);
-					double mmaxL = lower + E2_fact1 / 100 * (upper - lower);
-
-					if (E1 >= mmaxL && (upper > lower))
-					{
-							slope = pow((E1 - mmaxL),2.0) * pow((1.0-E1),0.75)*E2_fact*(2.5*pow(mmaxL,2.0)+3*pow(mmaxL,3.0)) + 1.0;
-							E1 = E1 / slope;
-					}
-
-					if (E1 >= KS && E1 <= 1.2)
-					{
-						T = (E1 - KS) / (1.0 - KS);
-						E2 = ((2 * pow(T,3.0) - 3 * pow(T,2.0) + 1.0)*KS + (pow(T,3.0) - 2 * pow(T, 2.0) + T) * (1.0 - KS))  + ( -2.0 * pow(T,3.0) + 3.0 * pow(T,2.0)) * maxL;
-					}
-			
-					if (E2 >= 0.0 && E2 <= 1.0)
-					{
-						p = min(1.0 / b, 4 * b_fact); //Hoech mod
-						E3 = E2 + b * pow((1.0 - E2),p);
-						E3 = (E3 * d + pow( (c1 + c2 * pow(m_MinML/Scale,m1)) / (1 + c3 * pow(m_MinML/Scale,m1)), m2)); 
-						E4 = pow(max(pow(E3,1.0 / m2) - c1,0) / (c2 - c3 * pow(E3, 1.0 / m2)), 1.0 / m1);
-						outL = E4 * 10000. / 100.00 * m_diffuseL / 94.37844;
-						outL = min(outL, m_MaxTL / 100.0);
-					}
-					else
-					{
-						outL = pow(max(pow(valx,1.0 / m2) - c1,0) / (c2 - c3 * pow(valx, 1.0 / m2)), 1.0 / m1);
-						outL = outL * 10000. / 100.00 * m_diffuseL / 94.37844; 
-						outL = min(outL, m_MaxTL / 100.0);
-//						outL = min(outL, 100.0);
-					}
-					BT2390x.push_back(valx);
-					BT2390y.push_back(outL / 100.0 / m_diffuseL * 94.37844);
-				}
-			}
+				outL = BT2390ToneMap(valx, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, b_fact, E2_fact, E2_fact1);
 		break;
 		case -10: //BT.2084/2390 inverse curve look-up
 			{
-//				double tmWhite = getL_EOTF(0.5022283, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact, E2_fact1) * 100.0;
-//				m_MaxML = m_MaxML * tmWhite / 94.37844;
-//				m_MaxML = m_MaxML * m_diffuseL / 94.37844 ; 
-				getL_EOTF(valx, White, Black, g_rel, split, 5, m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, ToneMap, TRUE, bbc_gamma, b_fact, E2_fact, E2_fact1);
+				// Build the table, then search it. This used to re-enter getL_EOTF with
+				// mode 5 and cBT2390 = TRUE, which made the build depend on getting past
+				// the top-of-function guards and on `ToneMap && mode == 5` promoting to
+				// case 10. Both let it through without a table: a valx of 0 tripped the
+				// `valx == 0 && mode > 4` early return and came back before the branch
+				// ran (MATH-008), and a caller reaching mode -10 with ToneMap false
+				// skipped the promotion entirely - either way the search below indexed
+				// BT2390y[0] on an empty vector. Calling the builder directly removes the
+				// dependency, along with the 17-argument self-call and the dummy signal
+				// it had to pass. The search still runs on the caller's valx.
+				BuildBT2390Table(m_diffuseL, m_MinML, m_MaxML, m_MinTL, m_MaxTL, b_fact, E2_fact, E2_fact1);
 				value = abs(valx - BT2390y[0]);
 				outL = BT2390x[0];
 				for (int i = 0; i < (int)BT2390y.size(); i++)
@@ -2374,7 +2509,7 @@ CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
     theFile.read((char*)&version, 4);
     version = littleEndianUint32ToHost(version);
 
-    // les donnÃ©es XYZ (on utilise le constructeur de Matrix)
+    // les données XYZ (on utilise le constructeur de Matrix)
     m_XYZValues = ColorXYZ(Matrix(theFile));
 
     Matrix XYZtoSensorMatrix = Matrix(theFile);
@@ -2813,29 +2948,135 @@ void CSpectrum::Serialize(CArchive& archive)
 }
 #endif
 
-int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPath)
+// Range a ColourSpace patch-list CSV can declare in its header. Default (no header)
+// keeps the historical 8-bit-legal behaviour so pre-existing user files still load.
+// Range values are the shared CSV_RANGE_* enum from Color.h (CSV_RANGE_NONE = -1 is the
+// no-header legacy default). One spelling for producers and consumers, not two coupled by luck.
+
+// One source code -> HCFR stimulus percentage, honouring the declared bit depth (8 or 10)
+// and range. Full: 0..(2^bits-1) -> 0..100. Legal/Extended: black..white (16..235 at 8-bit,
+// 64..940 at 10-bit) -> 0..100; Extended keeps super-white (>100%), Legal/legacy clamp [0,100].
+double CsvCodeToPercent(double code, int bits, int range)
 {
+	int maxCode = (1 << bits) - 1;
+	if (range == CSV_RANGE_FULL)
+		return code * 100.0 / maxCode;
+	double black = 16.0  * (1 << (bits - 8));
+	double white = 235.0 * (1 << (bits - 8));
+	double pct = ( code - black ) / ( white - black ) * 100.0;
+	if (range == CSV_RANGE_EXTENDED)
+		return pct;
+	return ( pct < 0.0 ) ? 0.0 : ( pct > 100.0 ? 100.0 : pct );
+}
+
+// Shared low-level patch-list parser: reads a CSV into raw code rows (patch#, R,G,B, name),
+// header/patch-column aware, reporting the declared bit depth + range. One parser feeds both
+// ReadColorsFromCsv (percentages) and CColorHCFRConfig::GetCColors (codes + names).
+int ReadCsvPatchRows(CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut)
+{
+	rows.clear();
+	if (bitsOut)  *bitsOut  = 8;
+	if (rangeOut) *rangeOut = CSV_RANGE_NONE;
 	ifstream colorFile(csvPath);
-	std::string line;
-	int cnt = 0;
-	int n1, n2, n3;
 	if (!colorFile)
-	{
 		return -1;
-	}
-	while (std::getline(colorFile, line) && cnt < maxEntries)
+
+	std::string line;
+	int bits = 8;
+	int range = CSV_RANGE_NONE;
+	bool hasHeader = false;
+
+	while (std::getline(colorFile, line) && (int)rows.size() < maxRows)
 	{
+		while (!line.empty() && (line[line.size()-1] == '\r' || line[line.size()-1] == ' ' || line[line.size()-1] == '\t'))
+			line.erase(line.size()-1);
+		size_t b0 = line.find_first_not_of(" \t");
+		if (b0 == std::string::npos)
+			continue;
+
+		if (line[b0] == '#')
+		{
+			// Only a leading '#' line (before any data) that carries a BITDEPTH or RANGE
+			// directive declares the format - and that declaration is what marks the file
+			// headered (schema = PatchNumber,R,G,B[,Name]). A plain comment must NOT flip a
+			// legacy R,G,B[,Name] file's columns, and the range must come from the RANGE
+			// token (not a bare "full"/"legal"/"extended" substring that "# full sweep" or
+			// "# illegal codes" would trip). Later '#' lines are treated as comments.
+			if (rows.empty())
+			{
+				std::string up = line;
+				for (size_t k = 0; k < up.size(); k++) up[k] = (char)toupper((unsigned char)up[k]);
+				size_t bp = up.find("BITDEPTH");
+				if (bp != std::string::npos)
+				{
+					int v = atoi(up.c_str() + bp + 8);
+					if (v == 8 || v == 10) { bits = v; hasHeader = true; }
+				}
+				size_t rp = up.find("RANGE");
+				if (rp != std::string::npos)
+				{
+					size_t p = rp + 5;			// first token after "RANGE"
+					while (p < up.size() && (up[p] == ' ' || up[p] == '\t' || up[p] == ',' || up[p] == '=' || up[p] == ':')) p++;
+					int r = -2;
+					if      (up.compare(p, 8, "EXTENDED") == 0) r = CSV_RANGE_EXTENDED;
+					else if (up.compare(p, 4, "FULL")     == 0) r = CSV_RANGE_FULL;
+					else if (up.compare(p, 5, "LEGAL")    == 0) r = CSV_RANGE_LEGAL;
+					if (r != -2) { range = r; hasHeader = true; }
+				}
+			}
+			continue;
+		}
+
+		std::string fld[5];
+		int nf = 0;
 		std::istringstream s(line);
 		std::string field;
-		s >> n1;
-		getline(s, field, ',');
-		s >> n2;
-		getline(s, field, ',');
-		s >> n3;
-		genColors[cnt] = ColorRGBDisplay(((n1 - 16) / 219.) * 100, ((n2 - 16) / 219.) * 100, ((n3 - 16) / 219.) * 100.);
-		cnt++;
+		while (nf < 5 && std::getline(s, field, ','))
+			fld[nf++] = field;
+		int base = (hasHeader && nf >= 4) ? 1 : 0;   // skip the leading PatchNumber column when headered
+		if (nf < base + 3)
+			continue;
+
+		CsvPatchRow pr;
+		pr.patch = base ? atoi(fld[0].c_str()) : (int)rows.size();
+		pr.r = (int)atof(fld[base].c_str());
+		pr.g = (int)atof(fld[base+1].c_str());
+		pr.b = (int)atof(fld[base+2].c_str());
+		if (nf > base + 3)
+		{
+			std::string nm = fld[base+3];
+			size_t s0 = nm.find_first_not_of(" \t");
+			size_t s1 = nm.find_last_not_of(" \t");
+			pr.name = (s0 == std::string::npos) ? std::string() : nm.substr(s0, s1 - s0 + 1);
+		}
+		rows.push_back(pr);
 	}
-	return cnt;
+	if (bitsOut)  *bitsOut  = bits;
+	if (rangeOut) *rangeOut = range;
+	return (int)rows.size();
+}
+
+// Header-aware ColourSpace patch-list importer. An optional first line
+// "# BITDEPTH <8|10>, RANGE <FULL|LEGAL|EXTENDED>" (case-insensitive) declares the encoding;
+// data rows are "R,G,B" or "PatchNumber,R,G,B[,Name]" - the leading patch-number column is
+// read ONLY when a header is present; headerless files (legacy HCFR + plain user CSVs) keep
+// R,G,B in fields 0-2 (extra fields e.g. a name/label are ignored). With no header it falls back to the
+// historical 8-bit-legal, R,G,B parsing so old files load unchanged. Fills genColors
+// sequentially and returns the count (-1 if the file won't open).
+// TODO (csv-patchlist): carry PatchNumber/Name/srcBits/srcRange as provenance; thermal sort.
+int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPath)
+{
+	std::vector<CsvPatchRow> rows;
+	int bits, range;
+	int n = ReadCsvPatchRows(csvPath, rows, maxEntries, &bits, &range);
+	if (n < 0)
+		return -1;
+	for (int i = 0; i < n; i++)
+		genColors[i] = ColorRGBDisplay(
+			CsvCodeToPercent(rows[i].r, bits, range),
+			CsvCodeToPercent(rows[i].g, bits, range),
+			CsvCodeToPercent(rows[i].b, bits, range));
+	return n;
 }
 
 static int AppendProfileGray(ColorRGBDisplay* GenColors, int maxEntries, int cnt, int cubeN, double level)
@@ -2957,6 +3198,69 @@ void RemapProfileToTransport(ColorRGBDisplay* GenColors, int n, const CColorRefe
 	}
 }
 
+// Resolve a file-backed CC set (predefined CSV or USER) to its patch-list path and HDR-recalc
+// flag. Returns false for inline-array modes (GCD/MCD/CMC/...) that carry no file. Predefined sets
+// live in %APPDATA%\color; USER lives in the module directory (usercolors.csv). Single source of
+// truth shared by GenerateCC24Colors (drive/reference) and CColorHCFRConfig::GetCColors (grid
+// targets + names) so the two can never disagree on which file a CC mode maps to.
+bool ResolveCCSetPath(int aCCMode, CString & outPath, bool * recalcOut)
+{
+	static const struct { int mode; const char * file; bool recalc; } kCsvSets[] =
+	{
+		{ CM10SAT,       "\\CM 10-Point Saturation (100AMP).csv", true },
+		{ CM10SAT75,     "\\CM 10-Point Saturation (75AMP).csv", true },
+		{ CM4SAT,        "\\CM 4-Point Saturation (100AMP).csv", true },
+		{ CM4SAT75,      "\\CM 4-Point Saturation (75AMP).csv", true },
+		{ CM5SAT,        "\\CM 5-Point Saturation (100AMP).csv", true },
+		{ CM5SAT75,      "\\CM 5-Point Saturation (75AMP).csv", true },
+		{ CM4LUM,        "\\CM 4-Point Luminance.csv", false },
+		{ CM5LUM,        "\\CM 5-Point Luminance.csv", false },
+		{ CM10LUM,       "\\CM 10-Point Luminance.csv", false },
+		{ CM6NB,         "\\CM 6-Point Near Black.csv", false },
+		{ CMDNR,         "\\CM Dynamic Range (Clipping).csv", false },
+		{ MASCIOR50,     "\\Mascior50_50_BT2020_HDR.csv", false },
+		{ RANDOM250,     "\\Random_250.csv", false },
+		{ RANDOM500,     "\\Random_500.csv", false },
+		{ LG54016,       "\\LG_540_Base_Tone_Curve_2016.csv", false },
+		{ LG54017,       "\\LG_540_Base_Tone_Curve_2017.csv", false },
+		{ LG100017,      "\\LG_1000_Base_Tone_Curve_2017.csv", false },
+		{ LG400017,      "\\LG_4000_Base_Tone_Curve_2017.csv", false },
+		{ LGUK65XX,      "\\LG_UK65xx_HDR10_20_Point_Luminance.csv", false },
+		{ LGOLEDV12018,  "\\LG_2018_V1_HDR10_20_Point_Luminance.csv", false },
+		{ LGOLEDV22018,  "\\LG_2018_V2_HDR10_20_Point_Luminance.csv", false },
+		{ LGOLEDV32018,  "\\LG_2018_V3_HDR10_20_Point_Luminance.csv", false },
+		{ LGOLED102019,  "\\LG_2019_HDR10_10_Point_Luminance.csv", false },
+		{ LGOLED222019,  "\\LG_2019_HDR10_22_Point_Luminance.csv", false },
+		{ LGOLED102020,  "\\LG_2020_HDR10_10_Point_Luminance.csv", false },
+		{ LGOLED222020,  "\\LG_2020_HDR10_22_Point_Luminance.csv", false },
+		{ LGOLED102021,  "\\LG_2021_HDR10_10_Point_Luminance.csv", false },
+		{ LGOLED222021,  "\\LG_2021_HDR10_22_Point_Luminance.csv", false },
+		{ 0, 0, false }
+	};
+	if (recalcOut) *recalcOut = false;
+
+	if (aCCMode == USER)
+	{
+		char modPath[MAX_PATH];
+		GetModuleFileName(NULL, modPath, sizeof(modPath));
+		char * sl = strrchr(modPath, '\\');
+		if (sl) sl[1] = '\0';
+		outPath = CString(modPath) + "usercolors.csv";
+		return true;   // USER: module-dir usercolors.csv, recalc stays false
+	}
+
+	for (int i = 0; kCsvSets[i].file; i++)
+		if (kCsvSets[i].mode == aCCMode)
+		{
+			char * envp = getenv("APPDATA");
+			CString appPath = CString(envp ? envp : "") + "\\color";
+			if (recalcOut) *recalcOut = kCsvSets[i].recalc;
+			outPath = appPath + kCsvSets[i].file;
+			return true;
+		}
+	return false;   // inline-array modes carry no CSV file
+}
+
 bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit, bool is16_235)
 {
 	//six cases, one for GCD sequence, one for Mascior's disk (Chromapure based), and four different generator only cases
@@ -2964,12 +3268,6 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
 	//MCD
     //CCGS 96 CalMAN ColorChecker SG patterns
     //USER user defined
-	char * path;
-	char appPath[255];
-	path = getenv("APPDATA");
-	if (!path) path = "";
-	_snprintf(appPath, sizeof(appPath), "%s\\color", path);
-	appPath[sizeof(appPath)-1] = 0;
 	bool bOk = true, constant_XYZ = FALSE, m_bRecalc = FALSE;
 	int n_elements=24;
 	switch (aCCMode)
@@ -3273,230 +3571,32 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         }
     case USER:
         {//read in user defined colors
-			m_bRecalc = FALSE;
-            char m_ApplicationPath [MAX_PATH];
-			LPSTR lpStr;
-            GetModuleFileName ( NULL, m_ApplicationPath, sizeof ( m_ApplicationPath ) );
-			lpStr = strrchr ( m_ApplicationPath, (int) '\\' );
-			lpStr [ 1 ] = '\0';
-            CString strPath = m_ApplicationPath;
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, strPath + "usercolors.csv");
+			CString userPath;
+			ResolveCCSetPath(aCCMode, userPath, &m_bRecalc);   // USER -> module-dir usercolors.csv
+			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, userPath);
             break;
         }
 
-	case CM10SAT:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 10-Point Saturation (100AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-	case CM10SAT75:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 10-Point Saturation (75AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM4LUM:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\CM 4-Point Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-	case CM5LUM:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\CM 5-Point Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM10LUM:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\CM 10-Point Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM4SAT:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 4-Point Saturation (100AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM4SAT75:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 4-Point Saturation (75AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM5SAT:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 5-Point Saturation (100AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM5SAT75:
-        {//read in user defined colors
-			m_bRecalc = TRUE;
-			strcat(appPath, "\\CM 5-Point Saturation (75AMP).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case CM6NB:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\CM 6-Point Near Black.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-	case MASCIOR50:
-        {//read in user defined colors
-			strcat(appPath, "\\Mascior50_50_BT2020_HDR.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-		case LG54017:
-        {//read in user defined colors
-			strcat(appPath, "\\LG_540_Base_Tone_Curve_2017.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-		case LG100017:
-        {//read in user defined colors
-			strcat(appPath, "\\LG_1000_Base_Tone_Curve_2017.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-		case LG400017:
-        {//read in user defined colors
-			strcat(appPath, "\\LG_4000_Base_Tone_Curve_2017.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-		case LG54016:
-        {//read in user defined colors
-			strcat(appPath, "\\LG_540_Base_Tone_Curve_2016.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-		case LGUK65XX:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_UK65xx_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLEDV12018:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2018_V1_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLEDV22018:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2018_V2_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLEDV32018:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2018_V3_HDR10_20_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED102019:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2019_HDR10_10_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED222019:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2019_HDR10_22_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED102020:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2020_HDR10_10_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED222020:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2020_HDR10_22_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED102021:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2021_HDR10_10_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case LGOLED222021:
-		{//read in user defined colors
-			strcat(appPath, "\\LG_2021_HDR10_22_Point_Luminance.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-			break;
-		}
-
-		case CMDNR:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\CM Dynamic Range (Clipping).csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-
-	case RANDOM250:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\Random_250.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
-	
-	case RANDOM500:
-        {//read in user defined colors
-			m_bRecalc = FALSE;
-			strcat(appPath, "\\Random_500.csv");
-			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, appPath);
-            break;
-        }
+	case CM10SAT:  case CM10SAT75:  case CM4SAT:  case CM4SAT75:  case CM5SAT:
+	case CM5SAT75:  case CM4LUM:  case CM5LUM:  case CM10LUM:  case CM6NB:
+	case CMDNR:  case MASCIOR50:  case RANDOM250:  case RANDOM500:  case LG54016:
+	case LG54017:  case LG100017:  case LG400017:  case LGUK65XX:  case LGOLEDV12018:
+	case LGOLEDV22018:  case LGOLEDV32018:  case LGOLED102019:  case LGOLED222019:  case LGOLED102020:
+	case LGOLED222020:  case LGOLED102021:  case LGOLED222021:
+	{
+		// File-backed predefined sets: path + HDR-recalc come from the shared resolver (one table).
+		CString setPath;
+		ResolveCCSetPath(aCCMode, setPath, &m_bRecalc);
+		n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, setPath);
+		break;
+	}
 	}//switch
 	if (n_elements < 0)
 	{
 		bOk = false;
-		n_elements = 24;
+		n_elements = 0;   // honest empty count on a failed/empty read: fabricating 24 unpopulated
+		                  // patches diverges from GetCColors' numCC (0) and drives the CC/reference
+		                  // loops past the target vectors -> the vector-subscript asserts.
 	}
 
 	//HDR mode target recalculation
@@ -3881,7 +3981,11 @@ int PiPercentToCode ( double percent, bool is16_235, int bits )
         if ( is16_235 )
         {
             code = (int) floor ( percent / 100.0 * 876.0 + 64.5 );
-            code = ( code < 0 ) ? 0 : ( ( code > 940 ) ? 940 : code );
+            // Ceiling is the code max (not legal white 940): pass super-white / WTW.
+            // Legal CSV patchsets import-clamp to <=100%, so in practice this passes the
+            // Extended CSV super-white; a degenerate HDR near-white sweep (no measured
+            // white, tone-map on) can also reach here on the rPI path.
+            code = ( code < 0 ) ? 0 : ( ( code > 1023 ) ? 1023 : code );
         }
         else
         {
@@ -3893,7 +3997,11 @@ int PiPercentToCode ( double percent, bool is16_235, int bits )
     if ( is16_235 )
     {
         code = (int) floor ( percent / 100.0 * 219.0 + 16.5 );
-        code = ( code < 0 ) ? 0 : ( ( code > 235 ) ? 235 : code );
+        // Ceiling is the code max (not legal white 235): pass super-white / WTW (Extended).
+        // Legal CSV patchsets import-clamp to <=100%, so in practice this passes the Extended
+        // CSV super-white; a degenerate HDR near-white sweep (no measured white, tone-map on)
+        // can also reach here on the rPI path.
+        code = ( code < 0 ) ? 0 : ( ( code > 255 ) ? 255 : code );
     }
     else
     {
@@ -3933,11 +4041,23 @@ int PiBackground8ToCode ( double v255, bool is16_235, int bits )
     return code;
 }
 
+// The native code grid for the active bit depth AND range: 219 limited /
+// 255 full (8-bit), 876 limited / 1023 full (10-bit). The ONE definition,
+// shared by the wire quantizer (SnapToVideoGrid) and the grayscale ramp
+// (ArrayIndexToGrayLevel / GrayLevelToGrayProp): the ramp, the patch
+// generators, the dE references and the simulated sensor must all quantize
+// against the SAME grid, or a full-range wire re-snaps to 255/1023 under a
+// reference still living on 219/876 (the /accuracytest FAM_GRAY GRID_FULL
+// gap, <= ~0.4 dE).
+static double VideoCodeGrid ( bool b10bit, bool is16_235 )
+{
+    return b10bit ? ( is16_235 ? 876. : 1023. ) : ( is16_235 ? 219. : 255. );
+}
+
 // Snap a normalized 0..1 signal value to the native code grid for the active
 // bit depth AND range, so a deltaE reference lands on the exact code the patch
-// generators emit (reference == signal) with a SINGLE rounding: 219 limited /
-// 255 full (8-bit), 876 limited / 1023 full (10-bit) - never a limited->full
-// stretch. 8-bit limited is the historic 219 form, byte-for-byte.
+// generators emit (reference == signal) with a SINGLE rounding - never a
+// limited->full stretch. 8-bit limited is the historic 219 form, byte-for-byte.
 // The 1e-9 tie-breaker makes exact half-code inputs round UP deterministically
 // on every path. Nominal levels sit exactly on rounding ties (50% * 219 = 109.5):
 // a directly-quantized signal computes the tie exactly and rounds up, but a
@@ -3947,7 +4067,7 @@ int PiBackground8ToCode ( double v255, bool is16_235, int bits )
 // signal difference (half a 10-bit full-range code is ~5e-4).
 double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 )
 {
-    const double grid = b10bit ? ( is16_235 ? 876. : 1023. ) : ( is16_235 ? 219. : 255. );
+    const double grid = VideoCodeGrid ( b10bit, is16_235 );
     return floor( v * grid + 0.5 + 1e-9 ) / grid;
 }
 
@@ -3967,41 +4087,51 @@ double HLG_SignalToScene ( double v )
 	return ( exp( ( v - c ) / a ) + b ) / 12.0;
 }
 
-double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit)
+// The two gray-ramp quantizers below select their grid via VideoCodeGrid (see
+// SnapToVideoGrid above). Their legacy limited-range forms carried the black
+// offset explicitly (floor(x + 16.5) - 16.0, and 64.5 / 64.0 at 10 bits).
+// Since 16 and 64 are integers, floor(x + 16.5) - 16 == floor(x + 0.5)
+// exactly, so the offset is a no-op that only ever described the limited grid;
+// full range needs no offset at all. Dropping it leaves every limited-range
+// value byte-identical (pinned by the ColorMathTest T2/T3 goldens) and makes
+// the full-range form fall out.
+
+double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 )
 {
     // Gray percent: return a value between 0 and 100 corresponding to whole number level based on
 	// normal rounding (GCD disk), round down (AVSHD disk)
 	// 10-bit target levels used for HDR/Ryan Mascior's disk
-	
-		if (m_bUseRoundDown)
-		{
-			return (  floor((double)nCol / (double)(nSize-1) * 219.0) / 219.0 * 100.0 );
-		}
-		else if (m_b10bit)
-		{
-			return (  floor((double)nCol / (double)(nSize-1) * (219.0 * 4) + 0.5) / ( 219.0 * 4) * 100.0 ); //test 10-bit rounding
-		}
-		else
-		{
-			return ( floor((double)nCol / (double)(nSize-1) * 219.0 + 0.5) / 219.0 * 100.0 );
-		}
+	if ( nSize < 2 )
+		return 0.0;						// a one-point scale has no ramp; avoid /0
+
+	const double grid = VideoCodeGrid ( m_b10bit, is16_235 );
+	const double v = (double)nCol / (double)(nSize-1) * grid;
+
+	// Round-down is the AVSHD disc's truncating quantizer. It applies to the
+	// active grid like any other. Two separate mechanisms keep it on the
+	// historic 219 grid in practice: RefreshUse10bitLevels() forces is16_235 =
+	// TRUE for the manual (disc) generator, and the General property page only
+	// enables the round-down checkbox on that generator (non-PQ), forcing the
+	// 10-bit checkbox off alongside it. The flag does persist in the registry,
+	// so a stale round-down can survive a generator switch until that page is
+	// next opened - it then truncates on the new wire's own grid, which is
+	// exactly the grid-follows-wire convention this file establishes.
+	if (m_bUseRoundDown)
+		return ( floor(v) / grid * 100.0 );
+
+	return ( floor(v + 0.5) / grid * 100.0 );
 }
 
-double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit)
+double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 )
 {
     // Gray Level: return a value between 0 and 1 based on percentage level input
     //    normal rounding (GCD disk), round down (AVSHD disk)
+	const double grid = VideoCodeGrid ( m_b10bit, is16_235 );
+	const double v = Level / 100.0 * grid;
+
 	if (m_bUseRoundDown)
-	{
-    	return Level = (floor(Level / 100.0 * 219.0 + 16.0) - 16.0) / 219.0;
-	}
-	else if (m_b10bit)
-	{
-    	return Level = (floor(Level / 100.0 * (219.0 * 4) + (64.5)) - (16.0 * 4.0)) / (219.0 * 4.0);
-	}
-	else
-	{
-		return Level = (floor(Level / 100.0 * 219.0 + 16.5) - 16.0) / 219.0;
-	}
+		return floor(v) / grid;
+
+	return floor(v + 0.5) / grid;
 }
 

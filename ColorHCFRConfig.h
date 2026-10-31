@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	Franï¿½ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -39,6 +39,7 @@
 #include "ToolbarPropPage.h"
 #include <map>
 extern CString GetColorStandardName(int nStandard);
+extern bool StandardAllowsHDR(int nStandard);
 
 class CColorHCFRConfig
 {
@@ -85,6 +86,7 @@ public:
 	int m_ablDuration;
 	int m_ablLevel;
 	BOOL m_bLatencyBeep;
+	int m_measureSound;		// index into CColorHCFRApp::MeasureSoundResource; 0 = none
 	BOOL bDisplayRT;
 	BOOL m_bABL;
 	BOOL m_bDisableHighDPI;
@@ -193,6 +195,14 @@ public:
 
 	void DisplayHelp ( UINT nId, LPCSTR lpszTopic );
 	void EnsurePathExists ( CString strPath );
+
+	// Folder holding the sensor correction files (.thc). It lives under the
+	// user's profile and not in the install directory: that directory is
+	// read-only when installed under Program Files, and an uninstall removes
+	// everything in it, corrections the user made included. Returns FALSE when
+	// the folder does not exist and cannot be created; strPath is filled in
+	// either way so a caller can name the folder in a message.
+	BOOL GetEtalonPath ( CString & strPath );
 
 	// --- High-DPI support (Phase 0) --------------------------------------
 	// 96 DPI == 100% scaling. GetDpiForHWND prefers the per-monitor Win10

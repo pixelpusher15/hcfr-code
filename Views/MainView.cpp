@@ -639,6 +639,8 @@ CMainView::CMainView()
 	dEcnt=0;
 	dE10=0.;
 	dE10min=0.;
+	m_nGridIncrCol = -1;
+	m_nGridLastRTCol = -1;
 	m_userBlack = FALSE;
 	m_oldBlackGS = noDataColor;
 	m_oldBlackNB = noDataColor;
@@ -1977,9 +1979,9 @@ void CMainView::InitGrid(bool sizeGrid)
 		{
 			case 0:
 				 if ( bIRE && i==0 )
-					Item.strText.Format("%.1f",GetDocument()->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() ));
+					Item.strText.Format("%.1f",GetDocument()->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ));
 				 else
-					Item.strText.Format("%d", (int) floor(GetDocument()->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() )+0.5) );
+					Item.strText.Format("%d", (int) floor(GetDocument()->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() )+0.5) );
 				 break;
 
 			case 1:
@@ -2050,10 +2052,11 @@ void CMainView::InitGrid(bool sizeGrid)
                  }
                  else if (isExtPat)
                  {
-                     char aBuf[50];
-					 std::string name = GetConfig()->GetCColorsN(i);
-                     sprintf(aBuf,"%s", name.c_str());
-                     Item.strText.SetString(aBuf);
+                     // Pass the name straight through - a user CSV name can exceed any fixed
+                     // buffer (the char[50]+sprintf here overran the stack); same class as the
+                     // CIEChartView '%'/length fix in this PR.
+                     std::string name = GetConfig()->GetCColorsN(i);
+                     Item.strText.SetString(name.c_str());
                  }
                  else {
 				 switch ( i )
@@ -2635,10 +2638,11 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				 break;
 
 			case UPD_CC24SAT:
+				 // The grid refresh this used to do here (a bare UpdateGrid) now
+				 // happens in the rebuild block below, which pairs it with InitGrid;
+				 // see the comment there for why the InitGrid is the load-bearing part.
 				 if ( m_displayMode != 11 )
 					nForceMode = 11;
-				 else
-					 UpdateGrid();
 				 break;
 
 			case UPD_ALLSATURATIONS:
@@ -2713,7 +2717,14 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			m_profilePane.OnCaptureProgress ();
 			CMeasure * pProfMeasure = GetDocument()->GetMeasure();
 			int nProfSize = pProfMeasure->GetProfileMeasureSize();
-			if ( nProfSize > 0 )
+			// The reference prologue is not cube patches: m_currentIndex is still
+			// 0, so the reference widgets below would pair with patch 0 -- the
+			// cube's black corner -- while the generator shows a gray or primary.
+			// Only the test window follows it (CTargetWnd's mode-13 branch reads
+			// the prologue's stimulus); the pane carries the progress.
+			if ( nProfSize > 0 && pProfMeasure->m_bProfileMeasuringRefs )
+				m_Target.Refresh ( GetDocument()->GetGenerator()->m_b16_235, 1, nProfSize, 13, GetDocument(), CTargetWnd::TARGET_TESTWINDOW );
+			else if ( nProfSize > 0 )
 			{
 				// desktop test window shows the patch being DISPLAYED (index cur)...
 				int cur = min ( pProfMeasure->m_currentIndex, nProfSize - 1 );
@@ -2752,11 +2763,25 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			}
 		}
 
+		// Color checker / user sequences store exactly one new patch per realtime
+		// hint, so ask UpdateGrid for an incremental pass over just that column
+		// (plus any the catch-up window covers) instead of repopulating all N --
+		// a large custom sequence otherwise costs O(N^2) grid work per sweep.
+		// Single-shot request: UpdateGrid consumes it and falls back to a full
+		// rebuild unless its column cache matches the current patch count.
+		if ( m_displayMode == 11 && minCol >= 1 && m_pGrayScaleGrid )
+			m_nGridIncrCol = minCol;
 		RefreshSelection(FALSE); //this will update grid
-		
+		m_nGridIncrCol = -1;
+
 		if ( m_pInfoWnd ) //in case colorchecker slot is updated
 		{
 				m_pInfoWnd -> SetWindowTextA(GetDocument()->GetMeasure()->GetInfoString());
+				// The text just came from the document, so the recorded commands
+				// describe text that is no longer there: drop them.
+				CEditEx * pSummaryEdit = DYNAMIC_DOWNCAST ( CEditEx, m_pInfoWnd );
+				if ( pSummaryEdit )
+					pSummaryEdit -> EmptyUndoBuffer ();
 				m_pInfoWnd -> Invalidate ();
 				m_pInfoWnd -> UpdateWindow();			
 		}
@@ -2766,6 +2791,38 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		// Normal OnUpdate
 		if ( !( (lHint >= UPD_PRIMARIES && lHint <= UPD_FREEMEASURES) || lHint == UPD_CC24SAT ) )
 			CFormView::OnUpdate(pSender, lHint, pHint);
+
+		// m_CCStr is rebuilt when a color checker sweep ends -- on completion,
+		// and on the abort salvage. Both are AFTER the sweep's last realtime
+		// hint, and UPD_CC24SAT (25) is below UPD_REALTIME (26), so the summary
+		// pane's only other refresh (in the realtime branch above) never saw the
+		// new string: the sweeps-active list stayed as it was when the pane was
+		// last created. Refresh it here, and only when the text really changed,
+		// so a summary the user is part-way through typing is left alone.
+		// Only info display entry 0 owns this text: m_pInfoWnd is a CTargetWnd,
+		// CSpectrumWnd or CSubFrame for every other entry, and those return empty
+		// window text -- so an ungated write would never compare equal and would
+		// retitle and repaint an unrelated widget on every sweep end. Gate on the
+		// downcast rather than testing it after the write.
+		if ( lHint == UPD_CC24SAT && m_pInfoWnd )
+		{
+			CEditEx * pSummaryEdit = DYNAMIC_DOWNCAST ( CEditEx, m_pInfoWnd );
+			if ( pSummaryEdit )
+			{
+				CString strNew = GetDocument()->GetMeasure()->GetInfoString();
+				CString strOld;
+				pSummaryEdit -> GetWindowText ( strOld );
+				if ( strOld != strNew )
+				{
+					pSummaryEdit -> SetWindowTextA ( strNew );
+					// the text came from the document, so the control's recorded
+					// commands describe text that is no longer there
+					pSummaryEdit -> EmptyUndoBuffer ();
+					pSummaryEdit -> Invalidate ();
+					pSummaryEdit -> UpdateWindow ();
+				}
+			}
+		}
 
 		if ( m_displayType == HCFR_SENSORRGB_VIEW )
 		{
@@ -2777,7 +2834,24 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		GetDlgItem ( IDC_SENSORRGB_RADIO ) -> EnableWindow ( FALSE );
 
 
-		if ( ( lHint >= UPD_EVERYTHING && lHint <= UPD_FREEMEASURES ) || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA )
+		// UPD_CC24SAT is the color checker sweep's end-of-run hint (sent on BOTH
+		// completion and abort by CDataSetDoc::MeasureCC24SatScale, and also by the
+		// background CC validation and the MultiFrm "colorchecker" command). It was
+		// already getting a full column repaint -- the switch above called
+		// UpdateGrid, and by sweep end the single-shot incremental request has been
+		// consumed, so that pass covers all N columns. What it never got was
+		// InitGrid, which owns the grid's ROW count (the only SetRowCount call).
+		//
+		// That matters because a sweep can change the row count. GetCC24Sat reads
+		// the live array while m_binMeasure is TRUE and the per-set master array
+		// afterwards, and lux values are stamped onto the array only at the end of
+		// the sweep -- so with a lux meter attached bHasLuxValues is FALSE for the
+		// whole sweep and TRUE once it ends, and InitGrid's nRows grows by one.
+		// With no InitGrid on this path the grid kept the row count it was built
+		// with and the Lux row never appeared, on completion or on abort.
+		// Running the rebuild block also drops the duplicate pass the switch used
+		// to make, so a sweep end still costs exactly one grid rebuild.
+		if ( ( lHint >= UPD_EVERYTHING && lHint <= UPD_FREEMEASURES ) || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA || lHint == UPD_CC24SAT )
 		{
 			if ( lHint == UPD_EVERYTHING || lHint == UPD_ARRAYSIZES )
 			{
@@ -3094,7 +3168,31 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 							m_RefColor[2] = 0;
 						}
 
-						str.Empty ();
+						// Black (nCol 1) prints its dE where the normalisation makes it
+						// a chromaticity error: m_dE_gray 2 / dE_form 5 set the target's
+						// luminance to the measured one, which is why the Y target cell
+						// beside it already reads back the measurement. That is the
+						// number CalMAN prints at 0%, and it answers "did I tint my
+						// black" - the rest of the row has no way to show it.
+						//
+						// Deliberately NOT added to dEavg/dEmax/dEcnt. The grayscale
+						// average is over the measured ramp; folding black in would move
+						// a headline number that reaches the export and break comparison
+						// with every document measured before this.
+						if ( nCol == 1 && aMeasure.GetY() > 0.0
+							 && ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) )
+						{
+							double dEblack = aMeasure.GetDeltaE ( YWhite, aReference, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->m_GammaOffsetType == 5?3:GetConfig()->gw_Weight );
+							str.Format("%.1f",dEblack);
+							if (GetConfig()->doHighlight)
+							{
+								m_pGrayScaleGrid->SetItemBkColour(4, nCol, GetConfig()->GetDEColor(dEblack, GetConfig()->m_darkTheme));
+								m_pGrayScaleGrid->SetItemFgColour(4, nCol, RGB(0,0,0));
+							}
+							m_pGrayScaleGrid -> SetItemFont ( 4, nCol, m_pGrayScaleGrid->GetItemFont(0,0) ); // Set the font to bold
+						}
+						else
+							str.Empty ();
 					}
 				}
 				else
@@ -3102,61 +3200,40 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					double dL, dH, dC, RefWhite = 1.0;
 					CColorReference cRef = GetColorReference();
 					int satsize=GetDocument()->GetMeasure()->GetSaturationSize();
-					if ( isHDR )
+					if ( isHDR && m_displayMode == 1 )
 					{
-						bool shiftDiffuse = (abs(GetConfig()->m_DiffuseL-94.0)>0.5);
+						PrimaryDENorm pn = GetDocument()->GetMeasure()->GetPrimaryDENorm(YWhite, nCol);
+						YWhite = pn.yWhite;
+						RefWhite = pn.refWhite;
+					}
+					else if ( isHDR )
+					{
 			            CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
 						CColor Black = GetDocument() -> GetMeasure() -> GetOnOffBlack();
 						double tmWhite = TmDiffuseWhiteNits(White, Black);
 						if (DVD)
 						{
 							tmWhite = getL_EOTF(0.50, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
-							if (m_displayMode == 1)
-							{
-								if ( (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7) ) //fix for P3/Mascior
-									RefWhite = YWhite / (!shiftDiffuse?92.254965:tmWhite);
-								else
-								{
-									RefWhite = YWhite / (tmWhite);
-									YWhite = YWhite * 94.37844 / (tmWhite);
-								}
-							}
+							if ( ((cRef.m_standard == UHDTV2 && nCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11)// && !shiftDiffuse) //fixes skin && nCol == satsize
+								RefWhite = YWhite / (tmWhite);
 							else
 							{
-								if ( ((cRef.m_standard == UHDTV2 && nCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11)// && !shiftDiffuse) //fixes skin && nCol == satsize
-									RefWhite = YWhite / (tmWhite);
-								else
-								{
-									RefWhite = YWhite / (tmWhite) ;
-									YWhite = YWhite * 94.37844 / (tmWhite);
-								}
+								RefWhite = YWhite / (tmWhite) ;
+								YWhite = YWhite * 94.37844 / (tmWhite);
 							}
 						}
 						else
 						{
-							if (m_displayMode == 1)
-							{
-								if (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7)
-									RefWhite = YWhite / (tmWhite) ;
-								else
-								{
-									RefWhite = YWhite / (tmWhite) ;					
-									YWhite = YWhite * 94.37844 / (tmWhite) ;
-								}
-							}
+							if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
+								YWhite = GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
 							else
 							{
-								if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
-									YWhite = GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
-								else
-								{
-									// Unified HDR convention: the reference is scaled by
-									// GetHDRRefScale (UpdateGrid ~4294), so the measurement
-									// stays anchored to the measured white as-is - no
-									// 94.37844/tmWhite rescale (matches the 3D viewer;
-									// identical with tone mapping off).
-									RefWhite = YWhite / (tmWhite) ;
-								}
+								// Unified HDR convention: the reference is scaled by
+								// GetHDRRefScale (UpdateGrid ~4294), so the measurement
+								// stays anchored to the measured white as-is - no
+								// 94.37844/tmWhite rescale (matches the 3D viewer;
+								// identical with tone mapping off).
+								RefWhite = YWhite / (tmWhite) ;
 							}
 						}
 					}
@@ -3174,6 +3251,21 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					dLavg+=(isNan(dL)?dLavg:dL);
 					dCavg+=(isNan(dC)?dCavg:dC);
 					dHavg+=(isNan(dH)?dHavg:dH);
+
+					// Per-column cache backing the incremental sweep path's summary
+					// re-aggregation (UpdateGrid). Valid dE only: a NaN dE (broken
+					// reading) stays at the -1 sentinel and is excluded there, where
+					// the classic accumulation above pushed a garbage running sum.
+					if ( m_displayMode == 11 && nCol >= 1 && nCol <= (int)m_ccDECache.size() && !isNan(dE) )
+					{
+						m_ccDECache[nCol-1] = dE;
+						// a NaN component with a finite dE (degenerate XYZ under some
+						// dE forms) must not poison the re-aggregated averages into
+						// "nan"; contribute zero for that component instead
+						m_ccDLCache[nCol-1] = isNan(dL) ? 0.0 : dL;
+						m_ccDCCache[nCol-1] = isNan(dC) ? 0.0 : dC;
+						m_ccDHCache[nCol-1] = isNan(dH) ? 0.0 : dH;
+					}
 
 					if (nCol == minCol)
 					{
@@ -3261,11 +3353,11 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						if ( GetConfig ()->m_GammaOffsetType == 1 )
 							yblack = Black.GetY();
 						if (m_displayMode == 0)
-							x = GetDocument()->GetMeasure()->GetGrayPercent ( nCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
+							x = GetDocument()->GetMeasure()->GetGrayPercent ( nCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 						else if (m_displayMode == 3)
-							valx = GrayLevelToGrayProp ( (double)(nCol - 1)*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
+							valx = GrayLevelToGrayProp ( (double)(nCol - 1)*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 						else if (m_displayMode == 4)
-							valx = GrayLevelToGrayProp ( (double)(nCol - 1 + GetDocument()->GetMeasure()->m_NearWhiteClipCol - size) , GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
+							valx = GrayLevelToGrayProp ( (double)(nCol - 1 + GetDocument()->GetMeasure()->m_NearWhiteClipCol - size) , GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 
 						int mode = GetConfig()->m_GammaOffsetType;
 						if (GetConfig()->m_colorStandard == sRGB) mode = 99;
@@ -3273,7 +3365,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						if ( mode >= 4 )
 						{
 							if (m_displayMode == 0)
-								valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+								valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 							
 							if (mode == 5)
 							{
@@ -3287,7 +3379,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						else
 						{
 							if (m_displayMode == 0)
-		    					valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+Offset)/(1.0+Offset);
+		    					valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 	    					valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 		    				str.Format ( "%.3f", yblack + ( valy * ( White.GetY () - yblack ) ) );
 						}
@@ -3348,7 +3440,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					white = GetDocument() -> GetMeasure () ->GetOnOffWhite();
 
 				//special case check if user has done a primaries run at less than 100%, use grayscale white instead for colorchecker
-				if (GetDocument()->GetMeasure()->GetOnOffWhite().isValid())
+				if (GetDocument()->GetMeasure()->IsOnOffWhiteMeasured() && GetDocument()->GetMeasure()->GetOnOffWhite().isValid())
 					if ((GetDocument()->GetMeasure()->GetPrimeWhite()[1] / GetDocument()->GetMeasure()->GetOnOffWhite()[1] < 0.9) && m_displayMode == 11  && GetConfig()->m_GammaOffsetType !=5)
 						white = GetDocument() -> GetMeasure () ->GetOnOffWhite();
 				
@@ -3638,6 +3730,11 @@ LPSTR CMainView::GetGridRowLabel(int aComponentNum)
 
 void CMainView::UpdateGrid()
 {
+	// Single-shot incremental request from the realtime sweep path (OnUpdate);
+	// consumed here so every other caller keeps full-rebuild semantics.
+	int nIncrCol = m_nGridIncrCol;
+	m_nGridIncrCol = -1;
+
 	// display profile (mode 13): the grid is hidden and the pane owns that area,
 	// so skip the grid population -- but still fall through to the View-pane info
 	// line at the end of this function. That line must track reference / EOTF
@@ -3828,7 +3925,11 @@ void CMainView::UpdateGrid()
 				 YWhiteRefDoc = isSpecial?YWhiteOnOffRefDoc:YWhitePrimeRefDoc;
 
 				 //special case check if user has done a less than 100% primaries run and use grayscale white instead for colorchecker
-				if (GetDocument()->GetMeasure()->GetOnOffWhite().isValid()&&!isHDR)
+				// Same gate as GetItemText and GetColorDEWhiteY: the pre-loaded
+				// placeholder on/off white is isValid(), so without the flag this
+				// override fired on documents that never measured one -- and the grid
+				// would then disagree with the 3D viewer, which has no such override.
+				if (GetDocument()->GetMeasure()->IsOnOffWhiteMeasured()&&GetDocument()->GetMeasure()->GetOnOffWhite().isValid()&&!isHDR)
 				{
 					if ((YWhitePrime / YWhiteOnOff < 0.9) && m_displayMode == 11)
 					{
@@ -3958,13 +4059,47 @@ void CMainView::UpdateGrid()
 					
 		YWhite_for_color_comp = YWhite;
 
-		for( int j = 0 ; j < nCount ; j ++ )
+		// Incremental pass eligibility: mode 11 with a column cache built by a
+		// prior full pass over the SAME patch count. Anything else (first pass,
+		// CC set switched, manual edits) takes the full rebuild, which (re)sizes
+		// the cache -- the grid analog of the 3D viewer's stale-scene guard.
+		int jFirst = 0, jLast = nCount - 1;
+		bool bIncrPass = ( nIncrCol >= 1 && nIncrCol <= nCount &&
+						   m_displayMode == 11 && (int)m_ccDECache.size() == nCount );
+		if ( bIncrPass )
+		{
+			// Catch-up window: refresh every column measured since the last
+			// incremental pass. A sensor/pattern retry steps the sweep index
+			// back, so span from the older of (last refreshed, requested).
+			jFirst = nIncrCol - 1;
+			if ( m_nGridLastRTCol >= 1 && m_nGridLastRTCol <= nCount && m_nGridLastRTCol < nIncrCol )
+				jFirst = m_nGridLastRTCol - 1;
+			jLast = nIncrCol - 1;
+			m_nGridLastRTCol = nIncrCol;
+			for ( int j = jFirst ; j <= jLast ; j ++ )
+			{
+				m_ccDECache[j] = -1.0;
+				m_ccDLCache[j] = -1.0;
+				m_ccDCCache[j] = -1.0;
+				m_ccDHCache[j] = -1.0;
+			}
+		}
+		else if ( m_displayMode == 11 )
+		{
+			m_ccDECache.assign ( nCount, -1.0 );
+			m_ccDLCache.assign ( nCount, -1.0 );
+			m_ccDCCache.assign ( nCount, -1.0 );
+			m_ccDHCache.assign ( nCount, -1.0 );
+			m_nGridLastRTCol = -1;
+		}
+
+		for( int j = jFirst ; j <= jLast ; j ++ )
 		{
             int i = GetDocument() -> GetMeasure () -> GetGrayScaleSize ();
             ColorxyY tmpColor(GetColorReference().GetWhite());
 			double x = ( m_displayMode == 0 )
-					   ? GetDocument()->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() )
-					   : ArrayIndexToGrayLevel ( j, nCount, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
+					   ? GetDocument()->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() )
+					   : ArrayIndexToGrayLevel ( j, nCount, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 			int mode = GetConfig()->m_GammaOffsetType;
 			CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
 			CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
@@ -3982,13 +4117,13 @@ void CMainView::UpdateGrid()
 					if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 					if (  (mode >= 4) )
 		            {
-				        double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+				        double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 			            valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 						valy = min(valy, GetConfig()->m_TargetMaxL);
 		            }
 			        else
 			        {
-				        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+Offset)/(1.0+Offset);
+				        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 				        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 						if (mode == 1) //black compensation target
 							valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -4078,12 +4213,12 @@ void CMainView::UpdateGrid()
 						if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 						if (  (mode >= 4) )
 			            {
-                            double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+                            double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
                             valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 			            }
 			            else
 			            {
-				            double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+Offset)/(1.0+Offset);
+				            double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 				            valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 							if (mode == 1) //black compensation target
 								valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -4166,19 +4301,19 @@ void CMainView::UpdateGrid()
 					 if ( pDataRef )
 						refDocColor = pDataRef->GetMeasure()->GetNearBlack(j);
 						
-					 x = ArrayIndexToGrayLevel ( j * (mode == 5?2:1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
+					 x = ArrayIndexToGrayLevel ( j * (mode == 5?2:1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					 Black = GetDocument() -> GetMeasure () -> GetNearBlack(0);
 						
 					 if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 
    					 if (  (mode >= 4) )
 			         {
-                         double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+                         double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
                          valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 			         }
 			         else
 			         {
-				         double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+Offset)/(1.0+Offset);
+				         double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 				         valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 							
 						 if (mode == 1) //black compensation target
@@ -4215,17 +4350,17 @@ void CMainView::UpdateGrid()
 					 if ( pDataRef )
 						refDocColor = pDataRef->GetMeasure()->GetNearWhite(j);
 
-						x = ArrayIndexToGrayLevel ( GetDocument()->GetMeasure()->m_NearWhiteClipCol - nCount + j, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
+						x = ArrayIndexToGrayLevel ( GetDocument()->GetMeasure()->m_NearWhiteClipCol - nCount + j, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 						if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 
 						if (  (mode >= 4) )
 			            {
-                            double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+                            double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
                             valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 			            }
 			            else
 			            {
-				            double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+Offset)/(1.0+Offset);
+				            double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 				            valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 							if (mode == 1) //black compensation target
 								valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -4406,6 +4541,37 @@ void CMainView::UpdateGrid()
 			}
 		}
 		
+		// Mode 11 summary stats are re-aggregated from the per-column cache so a
+		// narrowed (incremental) pass yields the identical summary a full rebuild
+		// would: reset the classic accumulators GetItemText just fed and refill
+		// in column order, reproducing the full-loop fill exactly. Plain float
+		// adds over N entries -- no colorimetric math, no grid access.
+		if ( m_displayMode == 11 && (int)m_ccDECache.size() == nCount )
+		{
+			dEavg = 0.0; dLavg = 0.0; dCavg = 0.0; dHavg = 0.0;
+			dEmax = 0.0; dEcnt = 0; dE10 = 0.0;
+			dEvector.clear();
+			dLvector.clear();
+			dCvector.clear();
+			dHvector.clear();
+			for ( int j = 0 ; j < nCount ; j ++ )
+			{
+				if ( m_ccDECache[j] < 0.0 )
+					continue;
+				dEvector.push_back ( m_ccDECache[j] );
+				dLvector.push_back ( m_ccDLCache[j] );
+				dCvector.push_back ( m_ccDCCache[j] );
+				dHvector.push_back ( m_ccDHCache[j] );
+				dEavg += m_ccDECache[j];
+				dLavg += m_ccDLCache[j];
+				dCavg += m_ccDCCache[j];
+				dHavg += m_ccDHCache[j];
+				if ( m_ccDECache[j] > dEmax )
+					dEmax = m_ccDECache[j];
+				dEcnt ++;
+			}
+		}
+
 		if ( bAddedCol )
 		{
 			int width = m_pGrayScaleGrid -> GetColumnWidth ( 0 );
@@ -4427,7 +4593,18 @@ void CMainView::UpdateGrid()
 		case 8: bHasMeas = GetDocument()->GetMeasure()->GetYellowSat(0).isValid(); break;
 		case 9: bHasMeas = GetDocument()->GetMeasure()->GetCyanSat(0).isValid(); break;
 		case 10: bHasMeas = GetDocument()->GetMeasure()->GetMagentaSat(0).isValid(); break;
-		case 11: bHasMeas = GetDocument()->GetMeasure()->GetCC24Sat(0).isValid(); break;
+		case 11:
+			// Color checker sets are not filled front to back: MCD measures its
+			// patches permuted (slot 0 lands on the LAST iteration) and an
+			// aborted sweep salvages only the slots it reached, so probing patch
+			// 0 alone reported "no measurements" -- zeroing the dE header below
+			// -- next to visibly populated columns. The per-column cache this
+			// same UpdateGrid pass just built answers it for the whole set, and
+			// costs no extra GetCC24Sat call (whose i == 0 branch drives the
+			// pre-3.3.0 load prompt and its retry counter).
+			for ( int j = 0 ; ! bHasMeas && j < (int)m_ccDECache.size() ; j ++ )
+				bHasMeas = ( m_ccDECache[j] >= 0.0 );
+			break;
 		}
 		if ( ! bHasMeas )
 		{
@@ -4774,7 +4951,14 @@ void CMainView::UpdateGrid()
 			m_grayScaleGroup.SetText ( Msg );
 		}
 	}
-		bool isHDR = GetConfig()->m_GammaOffsetType == 5;
+		// sRGB overrides m_GammaOffsetType outright (getL_EOTF mode 99), so the
+		// stored transfer function must not be reported as the active one -
+		// neither the HDR branches nor the SDR switch below describe what the
+		// app is actually computing with. Without this the info line names PQ's
+		// "HDR10" whenever sRGB is selected while a PQ choice is still stored,
+		// and names a power law in the ordinary case, for every sRGB user.
+		bool isSRGBtf = ( GetConfig()->m_colorStandard == sRGB );
+		bool isHDR = !isSRGBtf && GetConfig()->m_GammaOffsetType == 5;
 		double 	BBC_gamma = GetConfig()->m_TargetSysGamma;
 		CString dWhitestr;
 		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor);
@@ -4797,7 +4981,7 @@ void CMainView::UpdateGrid()
 				sdrstr.Format(" SDR, Power law (black compensation) w/gamma = %3.2f", GetConfig()->m_GammaAvg);
 			break;
 			case 2:
-				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2", GetConfig()->m_GammaAvg);
+				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2f", GetConfig()->m_GammaAvg);
 			break;
 			case 3:
 				sdrstr.Format(" SDR, Power law w/Camera gamma = %3.2f", GetConfig()->m_GammaAvg);
@@ -4812,7 +4996,11 @@ void CMainView::UpdateGrid()
 				sdrstr.SetString(" SDR, L*");
 			break;
 		}
-		m_infoLine = "Color Space: "+CS+", White Point: "+WP+", EOTF: "+(isHDR ? " HDR10, "+ dWhitestr:GetConfig()->m_GammaOffsetType == 7?" HLG, "+bbcstr:sdrstr);
+		// sRGB's curve is fixed and is none of the cases above, so the switch
+		// left sdrstr holding whichever stored transfer function was inactive.
+		if (isSRGBtf)
+			sdrstr.SetString(" SDR, sRGB");
+		m_infoLine = "Color Space: "+CS+", White Point: "+WP+", EOTF: "+(isHDR ? " HDR10, "+ dWhitestr:(!isSRGBtf && GetConfig()->m_GammaOffsetType == 7)?" HLG, "+bbcstr:sdrstr);
 		CString t = CTime::GetCurrentTime().Format(" [%H:%M:%S]");
 		CWnd * pWnd = GetDlgItem(IDC_INFOLINE);
 		CString nMeasures;
@@ -5259,17 +5447,28 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				}
 			}
 
-			aNewColor = GetDocument()->GetMeasure()->GetPrimeWhite();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
-			GetDocument()->GetMeasure()->SetPrimeWhite(aNewColor);
+			// Only when it is a real reading. An unmeasured prime white is the
+			// placeholder CMeasure pre-loads from m_TargetMaxL, so there is nothing
+			// here to rescale -- and pushing it through SetPrimeWhite would mark it
+			// measured, so the document would claim a white it never read.
+			// The neighbouring blocks skip invalid colors for the same reason.
+			if ( GetDocument()->GetMeasure()->IsPrimeWhiteMeasured() )
+			{
+				aNewColor = GetDocument()->GetMeasure()->GetPrimeWhite();
+				aNewColor.SetX(fact * aNewColor.GetX());
+				aNewColor.SetY(fact * aNewColor.GetY());
+				aNewColor.SetZ(fact * aNewColor.GetZ());
+				GetDocument()->GetMeasure()->SetPrimeWhite(aNewColor);
+			}
 
-			aNewColor = GetDocument()->GetMeasure()->GetOnOffWhite();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
-			GetDocument()->GetMeasure()->SetOnOffWhite(aNewColor);
+			if ( GetDocument()->GetMeasure()->IsOnOffWhiteMeasured() )
+			{
+				aNewColor = GetDocument()->GetMeasure()->GetOnOffWhite();
+				aNewColor.SetX(fact * aNewColor.GetX());
+				aNewColor.SetY(fact * aNewColor.GetY());
+				aNewColor.SetZ(fact * aNewColor.GetZ());
+				GetDocument()->GetMeasure()->SetOnOffWhite(aNewColor);
+			}
 
 			aNewColor = GetDocument()->GetMeasure()->GetAnsiWhite();
 			aNewColor.SetX(fact * aNewColor.GetX());
@@ -6344,6 +6543,7 @@ void CMainView::OnSelchangeComboSteps()
 			return;
 		GetConfig () -> m_CCMode = (CCPatterns) data;
 		GetConfig () -> m_referencesPropertiesPage.m_CCMode = data;	// keep the dialog's DDX var in sync
+		GuardCCModeOutputRange ( data );	// import-range guard (USER patch list)
 		GetConfig () -> WriteProfileInt ( "References", "CCMode", data );
 		GetConfig () -> GetCColors ();	// reload the set's target colors / patch count
 		GetDocument () -> UpdateAllViews ( NULL, UPD_EVERYTHING );
@@ -6424,6 +6624,53 @@ void CMainView::OnSelchangeComboSteps()
 	UpdateParamCombos ();
 }
 
+// BindSatLevel swaps which level's readings the saturation sweeps hold, but the
+// selected-color panes still carry the patch picked from the PREVIOUS level, so
+// the RGB levels and target widgets compared that reading with the new level's
+// reference (e.g. a 100% reading against 50% targets: R 464% / 28 dE in SDR,
+// 1224% in PQ). Re-read the selected column from the level now bound; one with
+// no readings yet leaves the panes empty.
+//
+// Like OnGrayScaleGridEndSelChange, only a single selected grid column is
+// reloaded; with no selection or several columns the panes are cleared. Clearing
+// matters because the panes can hold a reading with nothing selected - a sweep
+// with Edit ticked fills them without highlighting a column - and keeping that
+// reading would compare it with the new level's targets. Reloading any other
+// column is no better: SetSelectedColor re-reads minCol from the grid, and the
+// comparator's reference (m_RefColor) follows minCol, so a column picked from
+// last_minCol (which survives a mode switch) would pair with a stale target.
+void CMainView::ReloadSelectedSatColor()
+{
+	if ( m_displayMode < 5 || m_displayMode > 10 || ! m_pGrayScaleGrid )
+		return;
+
+	CCellRange	range = m_pGrayScaleGrid -> GetSelectedCellRange ();
+	if ( ! range.IsValid () || range.GetMinCol () != range.GetMaxCol () || range.GetMinCol () < 1 )
+	{
+		if ( m_SelectedColor.isValid () )
+			SetSelectedColor ( noDataColor );
+		return;
+	}
+
+	CMeasure *	pMeasure = GetDocument () -> GetMeasure ();
+	int			col = range.GetMinCol ();
+	CColor		clr = noDataColor;
+
+	if ( col <= pMeasure -> GetSaturationSize () )
+	{
+		switch ( m_displayMode )
+		{
+			case 5:	clr = pMeasure -> GetRedSat ( col - 1 ); break;
+			case 6:	clr = pMeasure -> GetGreenSat ( col - 1 ); break;
+			case 7:	clr = pMeasure -> GetBlueSat ( col - 1 ); break;
+			case 8:	clr = pMeasure -> GetYellowSat ( col - 1 ); break;
+			case 9:	clr = pMeasure -> GetCyanSat ( col - 1 ); break;
+			case 10: clr = pMeasure -> GetMagentaSat ( col - 1 ); break;
+		}
+	}
+	SetSelectedColor ( clr );
+}
+
 void CMainView::OnSelchangeComboStimLevel()
 {
 	if ( IsMeasureSweepActive () )
@@ -6445,6 +6692,7 @@ void CMainView::OnSelchangeComboStimLevel()
 		if ( GetDocument () -> GetMeasure () -> BindSatLevel ( (double) data / 100.0 ) )
 		{
 			GetDocument () -> SetModifiedFlag ();
+			ReloadSelectedSatColor ();
 			GetDocument () -> UpdateAllViews ( NULL );
 		}
 		return;
@@ -6484,7 +6732,7 @@ void CMainView::OnSelchangeComboStimLevel()
 			if ( d < bestD ) { best = newPcts[i]; bestD = d; }
 		}
 		if ( pMeasure -> BindSatLevel ( (double) best / 100.0 ) )
-			{ GetDocument () -> SetModifiedFlag (); bSnapped = true; }
+			{ GetDocument () -> SetModifiedFlag (); bSnapped = true; ReloadSelectedSatColor (); }
 	}
 
 	if ( bSnapped )
@@ -6555,7 +6803,7 @@ void CMainView::SetAllLevelsButtonStop(BOOL bStop)
 	}
 	else
 	{
-		m_satAllLevelsButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-sat-all"), (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(24,GetSafeHwnd()), HCFR_ScaleIconPx(24,GetSafeHwnd()) ), (HICON)NULL );
+		m_satAllLevelsButton.SetIcon ( HCFR_LoadPngHIcon ( _T("toolbar"), _T("measure-all-sat-stim"), (fxUseCustomColor!=FALSE), HCFR_ScaleIconPx(24,GetSafeHwnd()), HCFR_ScaleIconPx(24,GetSafeHwnd()) ), (HICON)NULL );
 		CString sBtn; sBtn.LoadString ( IDS_ALLSTIM_BTN ); m_satAllLevelsButton.SetWindowText ( sBtn );
 		CString sTip; sTip.LoadString ( IDS_ALLSTIM_TIP ); m_satAllLevelsButton.SetTooltipText ( sTip );
 		m_satAllLevelsButton.SetRoundedBorder ( ButtonBorderColor() );
@@ -6853,7 +7101,10 @@ void CMainView::SelectProfilePatch(int idx)
 		SetSelectedColor ( sel );
 
 	m_RGBLevels.Refresh ( idx + 1, 13, pMeasure->GetProfileMeasureSize () );
-	m_Target.Refresh ( pDoc->GetGenerator()->m_b16_235, idx + 1, pMeasure->GetProfileMeasureSize (), 13, pDoc, CTargetWnd::TARGET_TARGET );
+	// TARGET_ALL, as a grid cell does: the test window takes the patch too, so a
+	// Measure or continuous run after selecting it sends this patch (Refresh
+	// honours "Display test colors" and leaves the window alone mid-sweep).
+	m_Target.Refresh ( pDoc->GetGenerator()->m_b16_235, idx + 1, pMeasure->GetProfileMeasureSize (), 13, pDoc, CTargetWnd::TARGET_ALL );
 }
 
 void CMainView::OnDeleteGrayscale()
@@ -7148,8 +7399,8 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
              // fixed to use correct gamma predicts
              // and added option to assume perfect gamma
 				double x = ( nCnt == GetDocument()->GetMeasure()->GetGrayScaleSize() )
-						   ? GetDocument()->GetMeasure()->GetGrayPercent ( nCol, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() )
-						   : ArrayIndexToGrayLevel ( nCol, nCnt, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels() );
+						   ? GetDocument()->GetMeasure()->GetGrayPercent ( nCol, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() )
+						   : ArrayIndexToGrayLevel ( nCol, nCnt, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 				CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
 //	            CColor Black = GetDocument() -> GetMeasure () -> GetGray ( 0 );
 	            CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
@@ -7157,13 +7408,13 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if (  (mode >= 4) )
 			    {
-					double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels());
+					double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 					valy = getL_EOTF
 						(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 			    }
 			    else
 			    {
-					double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels())+Offset)/(1.0+Offset);
+					double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 						valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -7569,7 +7820,7 @@ void CMainView::InitButtons()
 	}
 	if (m_satAllLevelsButton.GetSafeHwnd())
 	{
-		m_satAllLevelsButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-sat-all"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
+		m_satAllLevelsButton.SetIcon(HCFR_LoadPngHIcon(_T("toolbar"),_T("measure-all-sat-stim"),(fxUseCustomColor!=FALSE),HCFR_ScaleIconPx(24,GetSafeHwnd()),HCFR_ScaleIconPx(24,GetSafeHwnd())),(HICON)NULL);
 		m_satAllLevelsButton.SetFont(GetFont());
 		m_satAllLevelsButton.EnableBalloonTooltip();
 		CString sTip; sTip.LoadString ( IDS_ALLSTIM_TIP );
@@ -7826,8 +8077,17 @@ HBRUSH CMainView::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 			pDC->SetTextColor(FxGetSysColor(COLOR_MENUTEXT));
 			return *m_pBgBrush;
 			break;
-		case CTLCOLOR_BTN:
 		case CTLCOLOR_EDIT:
+			// An edit control repaints incrementally as its text changes and only
+			// erases its background on a full repaint. With TRANSPARENT the previous
+			// glyphs stay on screen underneath the new ones - inserting a line leaves
+			// a copy of the line it pushed down until something forces a redraw - so
+			// its text must be drawn opaque, over the colour it is erased with.
+			pDC->SetBkMode(OPAQUE);
+			pDC->SetBkColor(FxGetMenuBgColor());
+			pDC->SetTextColor(FxGetSysColor(COLOR_MENUTEXT));
+			return *m_pBgBrush;
+		case CTLCOLOR_BTN:
 		default:
 			pDC->SetBkMode(TRANSPARENT);
 			pDC->SetTextColor(FxGetSysColor(COLOR_MENUTEXT));
@@ -8229,6 +8489,11 @@ void CMainView::OnSelchangeInfoDisplay()
 			 pEdit -> Create (WS_VISIBLE | WS_CHILD | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN, Rect, this, IDC_INFO_VIEW );
 			 pEdit -> SetFont ( GetFont () );		 
 			 pEdit -> SetWindowText ( GetDocument()->GetMeasure()->GetInfoString() );
+
+			 // The initial fill reaches the control as WM_SETTEXT, which CEditEx
+			 // records as an undoable change; without this the first Ctrl+Z would
+			 // blank the summary instead of undoing what the user typed.
+			 ( (CEditEx *) pEdit ) -> EmptyUndoBuffer ();
 
 			 m_pInfoWnd = pEdit;
 			 m_pInfoWnd -> SetWindowPos ( pWnd, Rect.left, Rect.top, (Rect.right - Rect.left), (Rect.bottom - Rect.top), SWP_NOACTIVATE );
@@ -9503,12 +9768,43 @@ void CMainView::OnUpdateEditPaste(CCmdUI* pCmdUI)
 		m_pGrayScaleGrid -> OnUpdateEditPaste(pCmdUI);
 }
 
+// The Summary info window is the only editable text this view owns, so the Edit
+// menu's Undo (and its Ctrl+Z / Alt+Backspace accelerators) act on it. CEditEx
+// keeps its own command history - the edit control's built-in undo is not used.
+static CEditEx * GetSummaryEdit ( CWnd * pInfoWnd )
+{
+	CEditEx * pEdit = DYNAMIC_DOWNCAST ( CEditEx, pInfoWnd );
+
+	if ( pEdit == NULL || ! ::IsWindow ( pEdit -> GetSafeHwnd () ) )
+		return NULL;
+
+	// Ctrl+Z and Alt+Backspace are frame accelerators, so ID_EDIT_UNDO is routed to
+	// this view whatever holds the focus. The competitor is the grid's in-place cell
+	// editor: CInPlaceEdit is a CEdit with its own undo, and it only swallows
+	// WM_SYSCHAR in PreTranslateMessage, so Ctrl+Z pressed while editing a cell still
+	// reaches the accelerator and would roll back the Summary pane instead - a
+	// rollback that goes on to rewrite the document's info string through EN_CHANGE.
+	// OnEditCut / OnEditPaste gate on the focus the same way, including the explicit
+	// ::GetParent ( ::GetFocus () ) branch for that same in-place editor.
+	if ( pEdit -> m_hWnd != ::GetFocus () )
+		return NULL;
+
+	return pEdit;
+}
+
 void CMainView::OnEditUndo() 
 {
+	CEditEx * pEdit = GetSummaryEdit ( m_pInfoWnd );
+
+	if ( pEdit )
+		pEdit -> Undo ();
 }
 
 void CMainView::OnUpdateEditUndo(CCmdUI* pCmdUI) 
 {
+	CEditEx * pEdit = GetSummaryEdit ( m_pInfoWnd );
+
+	pCmdUI -> Enable ( pEdit != NULL && pEdit -> CanUndo () );
 }
 
 void CMainView::UpdateAllGrids() 

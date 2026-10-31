@@ -14,7 +14,7 @@
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//	FranÃ§ois-Xavier CHABOUD
+//	François-Xavier CHABOUD
 //	Georges GALLERAND
 /////////////////////////////////////////////////////////////////////////////
 
@@ -59,9 +59,7 @@ CTargetWnd::CTargetWnd()
 	m_pRefColor = NULL;
     m_pDocument = NULL;
 	centerXYZ = GetColorReference().GetWhite();
-	nR = 0;
-	nG = 0;
-	nB = 0;
+	m_testClr = ColorRGBDisplay(0.0);
 	m_trailCenter = centerXYZ;
 	m_trailCol = -999;
 	m_trailMode = -999;
@@ -78,714 +76,160 @@ CTargetWnd::~CTargetWnd()
 	delete m_pBgBitmap;
 }
 
+// The target of primary/secondary patch idx, in BuildPrimarySecondaryColors'
+// order: R, G, B, Y, C, M, then white (6) and black (7).
+static ColorXYZ PrimarySecondaryTarget ( int idx )
+{
+	switch ( idx )
+	{
+		case 0:		return GetColorReference().GetRed();
+		case 1:		return GetColorReference().GetGreen();
+		case 2:		return GetColorReference().GetBlue();
+		case 3:		return GetColorReference().GetYellow();
+		case 4:		return GetColorReference().GetCyan();
+		case 5:		return GetColorReference().GetMagenta();
+		default:	return GetColorReference().GetWhite();
+	}
+}
+
 void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMode, CDataSetDoc * pDoc, int target)
-{	
+{
 	if (m_pRefColor)
 	{
 		bool DVD = (GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual);
-		bool isUHDTV3 = GetConfig()->m_colorStandard == UHDTV3;
-		bool isUHDTV4 = GetConfig()->m_colorStandard == UHDTV4;
 		bool isHDR10 = GetConfig()->m_GammaOffsetType == 5;
-		bool isHLG = GetConfig()->m_GammaOffsetType == 7;
+		BOOL b10bit = GetConfig()->GetUse10bitLevels();
+		BOOL bLimited = GetConfig()->GetRGB16_235();
 
+		// m_testClr is the patch the sweep for this mode sends for column minCol,
+		// at full precision: the test window shows it and the continuous and single
+		// measures send it on, so it is built by the sweeps' own code.
 		if (minCol > 0)
 		{
-			int		y1 = 0, y2 = 0, y3 = 0;
-			double	x1, x2, x3, p1, p2, p3, z1, z2, z3;
 			ColorRGBDisplay	GenColors [MAX_USER_CC_PATCH_SIZE + 10];
-		
+
 			if ((m_DisplayMode == 0 || m_DisplayMode == 2 || m_DisplayMode == 3 || m_DisplayMode == 4 ))
 			{
+				double level;
 				centerXYZ = GetColorReference().GetWhite();
 	            if (nSize > 0)
 				{
 					if (m_DisplayMode == 0)
 						// Grayscale: honor the explicit (possibly non-uniform) IRE levels,
 						// matching what DisplayGray() actually shows/measures.
-						p1 = pDoc->GetMeasure()->GetGrayPercent(minCol - 1, GetConfig()->m_bUseRoundDown, GetConfig()->GetUse10bitLevels()) / 100.0;
-					else if (isHDR10 && m_DisplayMode == 3)
-						p1 = (double)(minCol - 1) * 2. / (double)(nSize-1);
+						level = pDoc->GetMeasure()->GetGrayPercent(minCol - 1, GetConfig()->m_bUseRoundDown, b10bit, bLimited);
+					else if (m_DisplayMode == 3)
+						// Near black: the sweep's 1% (PQ: 2%) steps on the active grid
+						level = ArrayIndexToGrayLevel((minCol - 1) * (isHDR10 ? 2 : 1), 101, GetConfig()->m_bUseRoundDown, b10bit, bLimited);
 					else
-						p1 = (double)(minCol-1) / (double)(nSize-1);
+						level = 100.0 * (double)(minCol-1) / (double)(nSize-1);
 				}
 			    else
-    				p1 =(double)(pDoc->GetMeasure()->m_NearWhiteClipCol+nSize+minCol-1) / (double)(100.);
+					// Near white (nSize is minus the scale size): the sweep's levels below the clip
+					level = ArrayIndexToGrayLevel(pDoc->GetMeasure()->m_NearWhiteClipCol+nSize+minCol-1, 101, GetConfig()->m_bUseRoundDown, b10bit, bLimited);
 
-				//fix 255->235 rounding errors that the generator will create
-				x1 =  (int)floor(p1 * 255.0 + 0.5);
-				y1 =  (int)floor(p1 * 219.0 + 0.5);
-				z1= y1 - x1 / 255. * 219.;
-				x1 += floor( z1 + 0.5);
-
-				nR=(int)x1;
-				nG=(int)x1;
-				nB=(int)x1;
- 				m_clr = RGB(nR,nG,nB);
+				m_testClr = ColorRGBDisplay(level);
 			}
 			else if (m_DisplayMode > 4 && m_DisplayMode < 12) //saturations
 			{
+				bool special = (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb);
 				switch (m_DisplayMode)
 				{
 					case 5:
-					centerXYZ =  pDoc->GetMeasure()->GetRefSat(0, double(minCol-1) / double(nSize - 1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, false, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-					p1=GenColors[minCol-1][0] / 100.;
-					p2=GenColors[minCol-1][1] / 100.;
-					p3=GenColors[minCol-1][2] / 100.;
-					break;
-				case 6:
-					centerXYZ =  pDoc->GetMeasure()->GetRefSat(1, double(minCol-1) / double(nSize - 1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, true, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-					p1=GenColors[minCol-1][0] / 100.;
-					p2=GenColors[minCol-1][1] / 100.;
-					p3=GenColors[minCol-1][2] / 100.;
-					break;
-				case 7:
-					centerXYZ =  pDoc->GetMeasure()->GetRefSat(2, double(minCol-1) / double(nSize - 1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, false, true,  GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-					p1=GenColors[minCol-1][0] / 100.;
-					p2=GenColors[minCol-1][1] / 100.;
-					p3=GenColors[minCol-1][2] / 100.;
-					break;
-				case 8:
-					centerXYZ =  pDoc->GetMeasure()->GetRefSat(3, double(minCol-1) / double(nSize-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, true, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-					p1=GenColors[minCol-1][0] / 100.;
-					p2=GenColors[minCol-1][1] / 100.;
-					p3=GenColors[minCol-1][2] / 100.;
-					break;
-				case 9:
-					centerXYZ =  pDoc->GetMeasure()->GetRefSat(4, double(minCol-1) / double(nSize-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, true, true, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-					p1=GenColors[minCol-1][0] / 100.;
-					p2=GenColors[minCol-1][1] / 100.;
-					p3=GenColors[minCol-1][2] / 100.;
-					break;
-				case 10:
-					centerXYZ =  pDoc->GetMeasure()->GetRefSat(5, double(minCol-1) / double(nSize-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue();
-					GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, false, true, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-					p1=GenColors[minCol-1][0] / 100.;
-					p2=GenColors[minCol-1][1] / 100.;
-					p3=GenColors[minCol-1][2] / 100.;
-					break;
-				case 11:
-				{
-					CColor clr;
-					pDoc->GetMeasure()->GetRefCC24Sat(minCol - 1, clr);
-					centerXYZ = clr.GetXYZValue();
-				}
-					GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-					if (GetConfig()->m_CCMode == MCD)
+						centerXYZ =  pDoc->GetMeasure()->GetRefSat(0, double(minCol-1) / double(nSize - 1), special).GetXYZValue();
+						GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, false, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), b10bit, bLimited);
+						break;
+					case 6:
+						centerXYZ =  pDoc->GetMeasure()->GetRefSat(1, double(minCol-1) / double(nSize - 1), special).GetXYZValue();
+						GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, true, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), b10bit, bLimited);
+						break;
+					case 7:
+						centerXYZ =  pDoc->GetMeasure()->GetRefSat(2, double(minCol-1) / double(nSize - 1), special).GetXYZValue();
+						GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, false, true, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), b10bit, bLimited);
+						break;
+					case 8:
+						centerXYZ =  pDoc->GetMeasure()->GetRefSat(3, double(minCol-1) / double(nSize-1), special).GetXYZValue();
+						GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, true, false, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), b10bit, bLimited);
+						break;
+					case 9:
+						centerXYZ =  pDoc->GetMeasure()->GetRefSat(4, double(minCol-1) / double(nSize-1), special).GetXYZValue();
+						GenerateSaturationColors (GetColorReference(), GenColors, nSize, false, true, true, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), b10bit, bLimited);
+						break;
+					case 10:
+						centerXYZ =  pDoc->GetMeasure()->GetRefSat(5, double(minCol-1) / double(nSize-1), special).GetXYZValue();
+						GenerateSaturationColors (GetColorReference(), GenColors, nSize, true, false, true, GetConfig()->m_GammaOffsetType, pDoc->GetMeasure()->GetActiveSatLevel(), b10bit, bLimited);
+						break;
+					case 11:
 					{
-						if (minCol >= 7)
-							minCol -= 6;
-						else
-							switch (minCol)
-							{
-								case 1:
-									minCol = 24;
-									break;
-								case 2:
-									minCol = 23;
-									break;
-								case 3:
-									minCol = 22;
-									break;
-								case 4:
-									minCol = 21;
-									break;
-								case 5:
-									minCol = 20;
-									break;
-								case 6:
-									minCol = 19;
-									break;
-							}
+						CColor clr;
+						pDoc->GetMeasure()->GetRefCC24Sat(minCol - 1, clr);
+						centerXYZ = clr.GetXYZValue();
 					}
-					p1=GenColors[minCol-1][0] / 100.;
-					p2=GenColors[minCol-1][1] / 100.;
-					p3=GenColors[minCol-1][2] / 100.;
-					break;
-				default:
-					p1=0.1;
-					p2=0.2;
-					p3=0.3;
+						GenerateCC24Colors (GetColorReference(), GenColors, GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, b10bit, bLimited);
+						if (GetConfig()->m_CCMode == MCD)
+						{
+							if (minCol >= 7)
+								minCol -= 6;
+							else
+								minCol = 25 - minCol;	// 1..6 -> 24..19
+						}
+						break;
 				}
-
-				x1 =  (int)floor(p1 * 255.0 + 0.5);
-				x2 =  (int)floor(p2 * 255.0 + 0.5);
-				x3 =  (int)floor(p3 * 255.0 + 0.5);
-				y1 =  (int)floor(p1 * 219.0 + 0.5);
-				y2 =  (int)floor(p2 * 219.0 + 0.5);
-				y3 =  (int)floor(p3 * 219.0 + 0.5);
-				z1 = y1 - x1 / 255. * 219.;
-				z2 = y2 - x2 / 255. * 219.;
-				z3 = y3 - x3 / 255. * 219.;
-				x1 += floor( z1 + 0.5);
-				x2 += floor( z2 + 0.5);
-				x3 += floor( z3 + 0.5);
-
-				nR=(int)x1;
-				nG=(int)x2;
-				nB=(int)x3;
-				m_clr = RGB(nR,nG,nB);
+				m_testClr = GenColors[minCol-1];
 			}
 			else if ( m_DisplayMode == 13 )	// display profile patch
 			{
-				CColor clr;
-				pDoc->GetMeasure()->GetRefProfileSat(minCol - 1, clr);
-				centerXYZ = clr.GetXYZValue();
-				ColorRGBDisplay rgb = pDoc->GetMeasure()->GetProfilePatchRGB(minCol - 1);
-				p1 = rgb[0] / 100.;
-				p2 = rgb[1] / 100.;
-				p3 = rgb[2] / 100.;
-
-				x1 =  (int)floor(p1 * 255.0 + 0.5);
-				x2 =  (int)floor(p2 * 255.0 + 0.5);
-				x3 =  (int)floor(p3 * 255.0 + 0.5);
-				y1 =  (int)floor(p1 * 219.0 + 0.5);
-				y2 =  (int)floor(p2 * 219.0 + 0.5);
-				y3 =  (int)floor(p3 * 219.0 + 0.5);
-				z1 = y1 - x1 / 255. * 219.;
-				z2 = y2 - x2 / 255. * 219.;
-				z3 = y3 - x3 / 255. * 219.;
-				x1 += floor( z1 + 0.5);
-				x2 += floor( z2 + 0.5);
-				x3 += floor( z3 + 0.5);
-
-				nR=(int)x1;
-				nG=(int)x2;
-				nB=(int)x3;
-				m_clr = RGB(nR,nG,nB);
-			}
-			else if ( m_DisplayMode == 1 && minCol == 1 )
-			{
-				centerXYZ = GetColorReference().GetRed();
-				switch (GetConfig()->m_colorStandard)
+				// during a capture the test window shows what the generator is
+				// showing: a prologue patch, a remapped cube patch or a drift anchor
+				if ( pDoc->GetMeasure()->m_bProfileCapturing && target == TARGET_TESTWINDOW )
+					m_testClr = pDoc->GetMeasure()->m_profileShownRGB;
+				else
 				{
-					case HDTVa:
-						nR = 174;
-						nG = 51;
-						nB = 51;
-						m_clr = RGB(nR,nG,nB);
-						break;
-					case UHDTV3:
-							nR = isHDR10?121:isHLG?242:225;
-							nG = isHDR10?61:isHLG?82:64;
-							nB = 0;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?116:isHLG?233:207;
-							nG = isHDR10?68:isHLG?115:77;
-							nB = isHDR10?44:isHLG?0:40;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 204;
-							nG = 26;
-							nB = 26;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = isHDR10?128:255;
-							nG = 0;
-							nB = 0;
-   						m_clr = RGB(192,0,0);
-						break;
+					CColor clr;
+					pDoc->GetMeasure()->GetRefProfileSat(minCol - 1, clr);
+					centerXYZ = clr.GetXYZValue();
+					// the capture's wire: P3/709-in-2020 remap the inner cube into the
+					// container, while the reference stays on the inner cube
+					m_testClr = pDoc->GetMeasure()->GetProfilePatchRGB(minCol - 1);
+					RemapProfileToTransport ( &m_testClr, 1, GetColorReference(), GetConfig()->m_GammaOffsetType,
+											  GetConfig()->GetUse10bitLevels() != FALSE, GetConfig()->GetRGB16_235() != FALSE );
 				}
 			}
-			else if ( m_DisplayMode == 1 && minCol == 2)
+			else if ( m_DisplayMode == 1 && minCol <= 8 )
 			{
-				centerXYZ = GetColorReference().GetGreen();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 71;
-							nG = 186;
-							nB = 71;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?90:isHLG?177:123;
-							nG = isHDR10?127:isHLG?252:248;
-							nB = isHDR10?45:isHLG?0:41;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?101:isHLG?202:155;
-							nG = isHDR10?126:isHLG?251:246;
-							nB = isHDR10?72:isHLG?131:85;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 77;
-							nG = 204;
-							nB = 77;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = 0;
-							nG = isHDR10?128:255;
-							nB = 0;
-	   				  m_clr = RGB(0,192,0);
-					  break;
-				}
+				// Primaries/secondaries, then white (column 7) and black (8)
+				pDoc->GetMeasure()->BuildPrimarySecondaryColors(pDoc->GetGenerator(), GenColors);
+				centerXYZ = PrimarySecondaryTarget(minCol - 1);
+				m_testClr = GenColors[minCol - 1];
 			}
-			else if ( m_DisplayMode == 1 && minCol == 3)
-			{
-				centerXYZ = GetColorReference().GetBlue();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 49;
-							nG = 49;
-							nB = 128;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?62:isHLG?86:65;
-							nG = isHDR10?41:isHLG?0:35;
-							nB = isHDR10?128:isHLG?254:253;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?59:isHLG?77:62;
-							nG = isHDR10?40:isHLG?0:34;
-							nB = isHDR10?126:isHLG?250:242;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 128;
-							nG = 128;
-							nB = 204;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = 0;
-							nG = 0;
-							nB = isHDR10?128:255;
-	   				  m_clr = RGB(0,0,192);
-					  break;
-				}
-			}
-			else if ( m_DisplayMode == 1 && minCol == 4)
-			{
-				centerXYZ = GetColorReference().GetYellow();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 189;
-							nG = 189;
-							nB = 85;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?127:isHLG?253:249;
-							nG = isHDR10?128:isHLG?254:254;
-							nB = isHDR10?44:isHLG?0:40;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?127:isHLG?253:250;
-							nG = isHDR10?128:isHLG?254:254;
-							nB = isHDR10?76:isHLG?141:92;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 204;
-							nG = 204;
-							nB = 26;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = isHDR10?128:255;
-							nG = isHDR10?128:255;
-							nB = 0;
-	   				  m_clr = RGB(192,192,0);
-					  break;
-				}
-			}
-			else if ( m_DisplayMode == 1 && minCol == 5)
-			{
-				centerXYZ = GetColorReference().GetCyan();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 92;
-							nG = 186;
-							nB = 186;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?94:isHLG?188:135;
-							nG = isHDR10?127:isHLG?253:249;
-							nB = isHDR10?128:isHLG?255:255;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?104:isHLG?208:163;
-							nG = isHDR10?126:isHLG?252:247;
-							nB = isHDR10?128:isHLG?254:253;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 26;
-							nG = 204;
-							nB = 204;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = 0;
-							nG = isHDR10?128:255;
-							nB = isHDR10?128:255;
-	   				  m_clr = RGB(0,192,192);
-					  break;
-				}
-			}
-			else if ( m_DisplayMode == 1 && minCol == 6)
-			{
-				centerXYZ = GetColorReference().GetMagenta();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 164;
-							nG = 74;
-							nB = 164;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?122:isHLG?245:231;
-							nG = isHDR10?65:isHLG?103:71;
-							nB = isHDR10?128:isHLG?254:253;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?118:isHLG?236:213;
-							nG = isHDR10?71:isHLG?125:82;
-							nB = isHDR10?126:isHLG?251:245;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 204;
-							nG = 27;
-							nB = 204;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = isHDR10?128:255;
-							nG = 0;
-							nB = isHDR10?128:255;
-	   				  m_clr = RGB(192,0,192);
-					  break;
-				}
-			}
-			else if ( m_DisplayMode == 1 && minCol == 7 )
-			{
-				centerXYZ =  GetColorReference().GetWhite();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 191;
-							nG = 191;
-							nB = 191;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?128:255;
-							nG = isHDR10?128:255;
-							nB = isHDR10?128:255;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?128:255;
-							nG = isHDR10?128:255;
-							nB = isHDR10?128:255;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 255;
-							nG = 255;
-							nB = 255;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = isHDR10?128:255;
-							nG = isHDR10?128:255;
-							nB = isHDR10?128:255;
-	   				  m_clr = RGB(255,255,255);
-					  break;
-				}
-			}    //update RGB
 		} //mincol > 0
-		else if ( m_DisplayMode == 1 && m_pRefColor->GetDeltaxy(GetColorReference().GetRed(),GetColorReference()) < 0.05 && DVD ) 
+		else if ( m_DisplayMode == 1 && DVD && GetConfig()->m_bDetectPrimaries )
+		{
+			// Disc patterns with no column selected: recognize the patch on screen
+			// from the measured chromaticity (first match in R,G,B,Y,C,M,W order).
+			ColorRGBDisplay	GenColors [ 8 ];
+			pDoc->GetMeasure()->BuildPrimarySecondaryColors(pDoc->GetGenerator(), GenColors);
+			for (int idx = 0; idx < 7; idx++)
 			{
-				centerXYZ = GetColorReference().GetRed();
-				switch (GetConfig()->m_colorStandard)
+				if (m_pRefColor->GetDeltaxy(PrimarySecondaryTarget(idx), GetColorReference()) < 0.05)
 				{
-					case HDTVa:
-						nR = 174;
-						nG = 51;
-						nB = 51;
-						m_clr = RGB(nR,nG,nB);
-						break;
-					case UHDTV3:
-							nR = isHDR10?121:isHLG?242:225;
-							nG = isHDR10?61:isHLG?82:64;
-							nB = 0;
-						m_clr = RGB(nR,nG,nB);
+					centerXYZ = PrimarySecondaryTarget(idx);
+					m_testClr = GenColors[idx];
 					break;
-					case UHDTV4:
-							nR = isHDR10?116:isHLG?233:207;
-							nG = isHDR10?68:isHLG?115:77;
-							nB = isHDR10?44:isHLG?0:40;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 204;
-							nG = 26;
-							nB = 26;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = isHDR10?128:255;
-							nG = 0;
-							nB = 0;
-   						m_clr = RGB(192,0,0);
-						break;
 				}
 			}
-			else if ( m_DisplayMode == 1 && m_pRefColor->GetDeltaxy(GetColorReference().GetGreen(),GetColorReference()) < 0.05 && GetConfig()->m_bDetectPrimaries && DVD )
-			{
-				centerXYZ = GetColorReference().GetGreen();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 71;
-							nG = 186;
-							nB = 71;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?90:isHLG?177:123;
-							nG = isHDR10?127:isHLG?252:248;
-							nB = isHDR10?45:isHLG?0:41;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?101:isHLG?202:155;
-							nG = isHDR10?126:isHLG?251:246;
-							nB = isHDR10?72:isHLG?131:85;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 77;
-							nG = 204;
-							nB = 77;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = 0;
-							nG = isHDR10?128:255;
-							nB = 0;
-	   				  m_clr = RGB(0,192,0);
-					  break;
-				}
-			}
-			else if ( m_DisplayMode == 1 && m_pRefColor->GetDeltaxy(GetColorReference().GetBlue(),GetColorReference()) < 0.05 && GetConfig()->m_bDetectPrimaries && DVD )
-			{
-				centerXYZ = GetColorReference().GetBlue();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 49;
-							nG = 49;
-							nB = 128;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?62:isHLG?86:65;
-							nG = isHDR10?41:isHLG?0:35;
-							nB = isHDR10?128:isHLG?254:253;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?59:isHLG?77:62;
-							nG = isHDR10?40:isHLG?0:34;
-							nB = isHDR10?126:isHLG?250:242;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 128;
-							nG = 128;
-							nB = 204;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = 0;
-							nG = 0;
-							nB = isHDR10?128:255;
-	   				  m_clr = RGB(0,0,192);
-					  break;
-				}
-			}
-			else if ( m_DisplayMode == 1 && m_pRefColor->GetDeltaxy(GetColorReference().GetYellow(),GetColorReference()) < 0.05 && GetConfig()->m_bDetectPrimaries && DVD )
-			{
-				centerXYZ = GetColorReference().GetYellow();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 189;
-							nG = 189;
-							nB = 85;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?127:isHLG?253:249;
-							nG = isHDR10?128:isHLG?254:254;
-							nB = isHDR10?44:isHLG?0:40;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?127:isHLG?253:250;
-							nG = isHDR10?128:isHLG?254:254;
-							nB = isHDR10?76:isHLG?141:92;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 204;
-							nG = 204;
-							nB = 26;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = isHDR10?128:255;
-							nG = isHDR10?128:255;
-							nB = 0;
-	   				  m_clr = RGB(192,192,0);
-					  break;
-				}
-			}
-			else if ( m_DisplayMode == 1 && m_pRefColor->GetDeltaxy(GetColorReference().GetCyan(),GetColorReference()) < 0.05 && GetConfig()->m_bDetectPrimaries && DVD )
-			{
-				centerXYZ = GetColorReference().GetCyan();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 92;
-							nG = 186;
-							nB = 186;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?94:isHLG?188:135;
-							nG = isHDR10?127:isHLG?253:249;
-							nB = isHDR10?128:isHLG?255:255;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?104:isHLG?208:163;
-							nG = isHDR10?126:isHLG?252:247;
-							nB = isHDR10?128:isHLG?254:253;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 26;
-							nG = 204;
-							nB = 204;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = 0;
-							nG = isHDR10?128:255;
-							nB = isHDR10?128:255;
-	   				  m_clr = RGB(0,192,192);
-					  break;
-				}
-			}
-			else if ( m_DisplayMode == 1 && m_pRefColor->GetDeltaxy(GetColorReference().GetMagenta(),GetColorReference()) < 0.05 && GetConfig()->m_bDetectPrimaries && DVD )
-			{
-				centerXYZ = GetColorReference().GetMagenta();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 164;
-							nG = 74;
-							nB = 164;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?122:isHLG?245:231;
-							nG = isHDR10?65:isHLG?103:71;
-							nB = isHDR10?128:isHLG?254:253;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?118:isHLG?236:213;
-							nG = isHDR10?71:isHLG?125:82;
-							nB = isHDR10?126:isHLG?251:245;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 204;
-							nG = 26;
-							nB = 204;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = isHDR10?128:255;
-							nG = 0;
-							nB = isHDR10?128:255;
-	   				  m_clr = RGB(192,0,192);
-					  break;
-				}
-			}
-			else if ( m_DisplayMode == 1 && m_pRefColor->GetDeltaxy(GetColorReference().GetWhite(),GetColorReference()) < 0.05 && GetConfig()->m_bDetectPrimaries && DVD )
-			{
-				centerXYZ =  GetColorReference().GetWhite();
-				switch (GetConfig()->m_colorStandard)
-				{
-					case HDTVa:
-							nR = 255;
-							nG = 255;
-							nB = 255;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV3:
-							nR = isHDR10?128:255;
-							nG = isHDR10?128:255;
-							nB = isHDR10?128:255;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case UHDTV4:
-							nR = isHDR10?128:255;
-							nG = isHDR10?128:255;
-							nB = isHDR10?128:255;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					case HDTVb:
-							nR = 191;
-							nG = 191;
-							nB = 191;
-						m_clr = RGB(nR,nG,nB);
-					break;
-					default:
-							nR = isHDR10?128:255;
-							nG = isHDR10?128:255;
-							nB = isHDR10?128:255;
-	   				  m_clr = RGB(255,255,255);
-					  break;
-				}
-			}
+		}
 
-		//Update test window for display when selected
-		BOOL		bDisplayColor = GetConfig () -> m_bDisplayTestColors;
+		m_clr = m_testClr.GetColorRef(false);
+
+		//Update test window for display when selected. Not during a sweep whose
+		//generator paints this window itself (Window mode): it already shows the
+		//patch being measured.
+		BOOL		bDisplayColor = GetConfig () -> m_bDisplayTestColors
+						&& ! ( IsMeasureSweepActive () && pDoc && pDoc -> GetGenerator () && pDoc -> GetGenerator () -> PaintsTestColorWnd () );
 
 		if (bDisplayColor && target <= TARGET_ALL)
-		{
-			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.SetColor ( RGB(nR,nG,nB) );
-			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.RedrawWindow ();
-		}
+			( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.SetTestColor ( m_testClr, m_b16_235 );
 		
 		if (target >= TARGET_ALL)
 		{

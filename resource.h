@@ -1,12 +1,15 @@
 //{{NO_DEPENDENCIES}}
 // fichier Include Microsoft Visual C++.
-// Utilisï¿½ par CHCFR21_FRANCAIS.rc
+// Utilisé par CHCFR21_FRANCAIS.rc
 //
 #define IDS_STRING_VERSION              1
 #define IDS_STRING_VERSION_WEB          2
 #define IDC_CLEAR_BUTTON                3
 #define IDC_INVERT_BUTTON               4
 #define IDR_SPLASH_SCREEN               5
+#define IDR_SOUND_SHUTTER               1400
+#define IDR_SOUND_CLICK                 1401
+#define IDR_SOUND_BUTTON                1402
 #define IDD_ABOUTBOX                    100
 #define IDD_COLORHCFR_FORM              101
 #define IDD_GRAPH_PROP_PAGE             102
@@ -1063,6 +1066,10 @@
 #define IDM_MEASURE_SAT_MAGENTA         32991
 #define IDM_MEASURE_SAT_ALL             32992
 #define IDM_MEASURE_SAT_ALL_LEVELS      33113
+#define IDM_SOUND_NONE                  33114
+#define IDM_SOUND_SHUTTER               33115
+#define IDM_SOUND_CLICK                 33116
+#define IDM_SOUND_BUTTON                33117
 #define IDM_MEASURE_GRAYSCALE_COLORS    32993
 #define IDM_SIM_NEARBLACK               32994
 #define IDM_SIM_NEARWHITE               32995
@@ -1538,6 +1545,32 @@
 #define IDS_UPDLG_DOWNLOAD_FAILED       41989
 #define IDS_UPDLG_DOWNLOAD_OK           41990
 #define IDS_UPDLG_CANT_LAUNCH           41991
+#define IDS_GRAPH_LUMRESPONSE           41992
+#define IDS_GRAPH_NBLUMRESPONSE         41993
+#define IDS_GRAPH_NWLUMRESPONSE         41994
+#define IDS_GRAPH_SATSWEEPLUM           41995
+#define IDS_GRAPH_SATSCANSHIFTS         41996
+#define IDS_GRAPH_GSBALGAMMA            41997
+#define IDS_GRAPH_GSBALNOGAMMA          41998
+#define IDS_GRAPH_EOTFGAMMA             41999
+#define IDS_GRAPH_REFMEASGAMMA          42000
+#define IDS_GRAPH_DELTALUM              42001
+#define IDS_GRAPH_DELTALUMREF           42002
+#define IDS_GRAPH_DELTALUMREFMEAS       42003
+#define IDS_GRAPH_TRK_GRAYSCALE         42004
+#define IDS_GRAPH_COLORTEMPSHORT        42005
+#define IDS_GRAPH_TRACKINGLEVEL         42006
+#define IDS_GRAPH_TRACKINGOFF           42007
+#define IDS_3D_RGBCUBE                  42008
+#define IDS_3D_NODATA                   42009
+#define IDS_3D_GRAYPCT                  42010
+#define IDS_CIE_ILLUMINANT              42011
+#define IDS_CC_COLORNAME                42012
+#define IDS_CC_COLORNAMEREF             42013
+#define IDS_GRAPH_TRK_NEARBLACK         42014
+#define IDS_GRAPH_TRK_NEARWHITE         42015
+#define IDS_THC_SAVE_FAILED             42016
+#define IDS_THC_LOAD_FAILED             42017
 #define IDS_CONTRAST                    41777
 #define IDS_OFFSET                      41778
 #define IDS_CONFIRMTRAINING             41779
@@ -1877,6 +1910,8 @@
 #define IDS_3DVIEW_SHOWTAILS            59538
 #define IDS_3DVIEW_RESETVIEW            59539
 #define IDS_3DVIEW_SHOWPROFILE          59564
+#define IDS_3DVIEW_GAMUTCOV             59632
+#define IDS_3DVIEW_GAMUTVOL             59633
 #define IDS_3DVIEW_FILTER_ALL           59555
 #define IDS_3DVIEW_FILTER_HIDE          59556
 #define IDS_3DVIEW_FILTER               59557
@@ -1902,6 +1937,72 @@
 #define IDS_DISPLAYPROFILE              59561
 #define IDS_MEASUREDISPLAYPROFILE       59562
 #define IDS_DELETEDISPLAYPROFILE        59563
+// Display-profile pane (Views/ProfilePane.cpp). Every visible string in that pane
+// lives here and in all five CHCFR21_<LANG>.rc string tables.
+#define IDS_PP_TITLE                    59570
+#define IDS_PP_REFS                     59571
+#define IDS_PP_NEWPROFILE               59572
+#define IDS_PP_BACKTOSUMMARY            59573
+#define IDS_PP_DELETE                   59574
+#define IDS_PP_SETUPSTATUS              59575
+#define IDS_PP_PRESET_QUICK             59576
+#define IDS_PP_PRESET_STANDARD          59577
+#define IDS_PP_PRESET_FINE              59578
+#define IDS_PP_PRESET_REFERENCE         59579
+#define IDS_PP_PRESET_MAXIMUM           59580
+#define IDS_PP_CUBEFMT                  59581
+#define IDS_PP_PATCHESTIME              59582
+#define IDS_PP_STARTPROFILE             59583
+#define IDS_PP_REPLACESEXISTING         59584
+#define IDS_PP_CHK_GRAYEXTRAS           59585
+#define IDS_PP_CHK_DRIFTCOMP            59586
+#define IDS_PP_RUNSTATUS                59587
+#define IDS_PP_GRAYNEARBLACK            59588
+#define IDS_PP_DRIFTCOMPON              59589
+#define IDS_PP_PAUSED                   59590
+#define IDS_PP_PATCHOF                  59591
+#define IDS_PP_ETA                      59592
+#define IDS_PP_AVGDE                    59593
+#define IDS_PP_MAXDE                    59594
+#define IDS_PP_DRIFT                    59595
+#define IDS_PP_PERPATCH                 59596
+#define IDS_PP_OFF                      59597
+#define IDS_PP_PAUSE                    59598
+#define IDS_PP_RESUME                   59599
+#define IDS_PP_STOP                     59600
+#define IDS_PP_SUMSTATUS                59601
+#define IDS_PP_WHITEDRIFT               59602
+#define IDS_PP_DRIFTCOMPSHORT           59603
+#define IDS_PP_NOMEASUREMENTS           59604
+#define IDS_PP_95THPCT                  59605
+#define IDS_PP_WITHINDE                 59606
+#define IDS_PP_ERRORTYPE                59607
+#define IDS_PP_LUMINANCE                59608
+#define IDS_PP_CHROMA                   59609
+#define IDS_PP_HUE                      59610
+#define IDS_PP_COLORTERM                59611
+#define IDS_PP_DEDISTRIBUTION           59612
+#define IDS_PP_ERRBYCOLORAREA           59613
+#define IDS_PP_AVGDELC                  59614
+#define IDS_PP_BAND_DARK                59615
+#define IDS_PP_BAND_MID                 59616
+#define IDS_PP_BAND_BRIGHT              59617
+#define IDS_PP_PATCHES                  59618
+#define IDS_PP_FAM_GRAY                 59619
+#define IDS_PP_FAM_RED                  59620
+#define IDS_PP_FAM_YELLOW               59621
+#define IDS_PP_FAM_GREEN                59622
+#define IDS_PP_FAM_CYAN                 59623
+#define IDS_PP_FAM_BLUE                 59624
+#define IDS_PP_FAM_MAGENTA              59625
+#define IDS_PP_WORSTPATCHES             59626
+#define IDS_PP_STIMULUSPCT              59627
+#define IDS_PP_MINUTES                  59628
+#define IDS_PP_HOURS                    59629
+#define IDS_CSV_FILE_NOT_FOUND          59630
+#define IDS_CSV_RANGE_EXTENDED_WARN     59631
+#define IDS_PP_MEASURINGREFS            59634
+#define IDS_PP_DISCGENERATOR            59790
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
@@ -1912,8 +2013,8 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
-#define _APS_NEXT_RESOURCE_VALUE        385
-#define _APS_NEXT_COMMAND_VALUE         33114
+#define _APS_NEXT_RESOURCE_VALUE        1403
+#define _APS_NEXT_COMMAND_VALUE         33118
 #define _APS_NEXT_CONTROL_VALUE         1559
 #define _APS_NEXT_SYMED_VALUE           143
 #endif

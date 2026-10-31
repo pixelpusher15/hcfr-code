@@ -8,8 +8,14 @@ Guards the 8-bit signal path while the 10-bit work lands. Part of the plan in
   legacy implementation carried inside the test (no golden file). This is the core 8-bit
   contract; ~1M-point sweep per range plus grid and clamp edges. **Never update the frozen
   copy** — if T1 fails, the live quantizer changed behavior.
-- **T2/T3** — `ArrayIndexToGrayLevel` / `GrayLevelToGrayProp` tables for all grayscale sizes
-  and all three rounding modes (normal / round-down / 10-bit disc), vs golden files.
+- **T2/T3** — `ArrayIndexToGrayLevel` / `GrayLevelToGrayProp` tables for all grayscale sizes,
+  all three rounding modes (normal / round-down / 10-bit disc) **and both wire ranges**, vs
+  golden files. The `is16_235` column selects the native code grid (219 limited / 255 full at
+  8 bits, 876 / 1023 at 10) exactly as `SnapToVideoGrid` does. The `is16_235=1` rows carry the
+  historic values: every value is byte-identical to the pre-range goldens, though the lines
+  themselves are not (the row layout gained the range column and T2 dropped a trailing zero
+  field). If one of those values moves, the limited-range gray path changed and that is a
+  regression, not a re-baseline.
 - **T4** — `GenerateSaturationColors` (5 standards x 6 color combos x 3 sizes x 3 EOTF modes)
   and the hardcoded `GenerateCC24Colors` modes (GCD/MCD/CCSG), vs golden files. Emitted for
   every native grid the generators can quantize to: 8-bit limited (`SAT`/`CC` rows — the
@@ -23,8 +29,22 @@ Guards the 8-bit signal path while the 10-bit work lands. Part of the plan in
   219/255/876/1023 — and its 8-bit limited form must equal the historical
   `floor(v*219+0.5)/219` exactly.
 - **T6** — `GetColorRef` COLORREF packing, vs golden file.
-- **T5** (rPI emission function) arrives with PR 3. **T7** (.chc round-trip) needs app-level
-  linkage and is not in this console harness.
+- **T5** — rPI emission quantizers (`PiPercentToCode` / `PiBackground8ToCode`) across all
+  four grids: endpoints, clamping, monotonicity, and distinct-code counts. No golden file.
+- **T7** — `GenerateProfileColors` determinism: plain and extra patch counts per cube size.
+  No golden file. (This slot was originally reserved for a `.chc` round-trip, which needs
+  app-level linkage and is still not in this console harness.)
+- **T9** — quantizer equivalence oracle (no golden file): the generator grid form, the
+  shared `SnapToVideoGrid`, and the rPI emitter must all select the same integer code for
+  every (bit depth, range) combo, including half-code ties plus/minus dust.
+- **T10** — gamut-basis consistency oracle (no golden file): for every standard in the
+  enum except `CUSTOM`, under three white targets, the basis a consumer plots GEOMETRY in
+  must be the basis its references were BUILT in. Catches the class dE tests are blind to
+  — a point drawn in the wrong place while its dE reads exactly 0.000 — which is how the
+  3D viewer came to draw HDTVa/HDTVb solids from their 75%/plasma PATCH chromaticities
+  instead of Rec.709. `CUSTOM` is excluded because constructing one corrupts the global
+  Rec.601 primaries (see the comment above `RunT10`); `CC6` skips the second leg only.
+  Note this pins the shared helper, **not** any view's use of it — nothing here links MFC.
 
 ## Build & run
 Build `libHCFR` first, then this project (Debug|Win32 only):

@@ -27,6 +27,8 @@
 #include "DocTempl.h"
 #include "Color3DView.h"
 #include "MainView.h"
+#include "GamutName.h"		// the chips label their gamut like the CIE chart does
+#include "GamutVolume.h"
 #include "GdiPlusAA.h"
 #include "math.h"
 #include <stdio.h>
@@ -44,6 +46,48 @@ static char THIS_FILE[] = __FILE__;
 // The Ex variant adds bHideLabels to drop the "nnn nm" wavelength ticks on the
 // floor (the plain DrawCIEChart wrapper keeps them for the 2D CIE chart).
 extern void DrawCIEChartEx(CDC* pDC, int cxMax, int cyMax, BOOL doFullChart, BOOL doShowBlack, BOOL bCIEuv, BOOL bCIEab, BOOL bHideLabels);
+
+// The satellite resource DLLs are MBCS; GDI+ and the point labels are wide,
+// so every string this view shows has to be widened on the way out.
+static std::wstring LoadResWide( UINT nID )
+{
+	CString s;
+	s.LoadString( nID );
+	int n = MultiByteToWideChar( CP_ACP, 0, (LPCSTR)s, s.GetLength(), NULL, 0 );
+	std::wstring w;
+	w.resize( (size_t)n );
+	if ( n )
+		MultiByteToWideChar( CP_ACP, 0, (LPCSTR)s, s.GetLength(), &w[0], n );
+	return w;
+}
+
+// Text for one of the gamut-volume chips. The format string lives in the
+// satellite resource DLL, so it can come back empty (a language DLL that was not
+// rebuilt -- building only ColorHCFR leaves them stale) or with a conversion a
+// translator mistyped. "%.1f" is the part that is never translated, so require
+// it and otherwise fall back to the bare percentage: an unlabelled number beats
+// an empty pill, and beats handing swprintf a spec that does not match the
+// double it is passed. Length is the other thing a translation can get wrong:
+// _TRUNCATE cuts an over-long label at the buffer instead of leaving it
+// indeterminate the way a failed swprintf would.
+static void ProfilePctChip( wchar_t (&out)[64], UINT nID, double pct )
+{
+	// Safe means EXACTLY one "%.1f" and no other conversion: a translation that
+	// kept the float but added a stray "%s" would otherwise reach swprintf and
+	// have it read a second argument that was never passed.
+	std::wstring fmt = LoadResWide( nID );
+	bool ok = false;
+	for ( size_t i = 0; i < fmt.size(); i++ )
+	{
+		if ( fmt[i] != L'%' )
+			continue;
+		if ( fmt.compare( i, 2, L"%%" ) == 0 )          { i++; continue; }
+		if ( fmt.compare( i, 4, L"%.1f" ) == 0 && !ok ) { ok = true; i += 3; continue; }
+		ok = false;
+		break;
+	}
+	_snwprintf_s( out, 64, _TRUNCATE, ok ? fmt.c_str() : L"%.1f%%", pct );
+}
 
 static const double k2PI = 6.283185307179586;
 
@@ -171,6 +215,7 @@ C3DColorView::C3DColorView()
 	, m_freeInScene(0)
 	, m_profileInScene(0)
 	, m_lumTop(1.0)
+	, m_volValid(false), m_volDirty(true), m_volPct(0.0), m_covPct(0.0), m_volKeyValid(false)
 	, m_baseValid(false)
 	, m_gamutValid(false)
 	, m_texDC(NULL), m_texBmp(NULL), m_texOld(NULL), m_texBits(NULL), m_texW(0), m_texH(0), m_texSig(-1)
@@ -196,6 +241,20 @@ C3DColorView::~C3DColorView()
 
 /////////////////////////////////////////////////////////////////////////////
 // scene
+
+// The scene's GEOMETRY reference: the colorspace basis every plotted coordinate
+// and the gamut solid are built in. Single definition on purpose - the three
+// scene-building entry points must not be able to drift apart, which is the way
+// this fix would most plausibly regress (ColorMathTest T10 pins the helper's
+// contract, but cannot see this call site).
+//
+// NOT the white target. For HDTVa/HDTVb this is a fixed Rec.709/D65, matching
+// how SetRGBValue manufactures their references; anything needing the user's
+// active white must read GetColorReference() directly.
+static CColorReference SceneGamutReference()
+{
+	return SpecialModeGamutReference( GetColorReference() );
+}
 
 // Map a measured/reference XYZ to a model-space coordinate (roughly a unit cube)
 // for the current plot space.
@@ -256,9 +315,16 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 	double mx, my, mz;
 	ToModel( xyz, m_lumTop > 0.0 ? m_lumTop : whiteY, ref, mx, my, mz );
 
+	// Swatches take the ACTIVE reference, not the geometry one. GetRGBValue has
+	// its own HDTVa/b substitution to a fixed Rec.709/D65, which is what the
+	// measures grid's RGB column uses (MainView's bRef); handing it the already-
+	// substituted geometry reference would suppress that branch and, under a
+	// custom white, tint the viewer's dots differently from the grid.
+	const CColorReference & activeRef = GetColorReference();
+
 	ScenePoint p;
 	p.mx = (float)mx; p.my = (float)my; p.mz = (float)mz;
-	p.trueColor = RgbSwatch( c.GetRGBValue( ref ) );
+	p.trueColor = RgbSwatch( c.GetRGBValue( activeRef ) );
 	p.tx = p.ty = p.tz = 0.0f;
 	p.dE = 0.0f;
 	p.hasTarget = false;
@@ -289,9 +355,17 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 		// while the grayscale families use the active reference (its grayscale
 		// branch passes GetColorReference()). HDTVa/b/CC6 are forced to Rec.709
 		// inside GetDeltaE itself, so they need no branch here.
-		CColorReference dERef = ref;
-		if ( !isGS && ( ref.m_standard == UHDTV3 || ref.m_standard == UHDTV4 ) )
-			dERef = ContainerTransportReference( ref );
+		//
+		// Taken from the ACTIVE reference, not the `ref` parameter: `ref` is the
+		// GEOMETRY reference, which has already had HDTVa/b swapped for Rec.709 so
+		// the solid matches the basis those references were built in. dE must not
+		// follow that swap. GetDeltaE's own substitution is a fixed Rec.709/D65,
+		// so under a custom white target grading against the swapped reference
+		// (Rec.709 + custom white) would silently split the viewer's dE from the
+		// grid's. Same single copy the old `= ref` made, not an extra one.
+		CColorReference dERef = activeRef;
+		if ( !isGS && ( dERef.m_standard == UHDTV3 || dERef.m_standard == UHDTV4 ) )
+			dERef = ContainerTransportReference( dERef );
 		p.dE = ( dEOverride >= 0.0 ) ? (float)dEOverride
 									 : (float)c.GetDeltaE( ywForDE, dETarget, 1.0, dERef, GetConfig()->m_dE_form, isGS, gw );
 		if ( !( p.dE == p.dE ) || p.dE < 0.0f )   // NaN / negative: no usable dE
@@ -313,7 +387,7 @@ void C3DColorView::AppendMeasure(const CColor & c, double whiteY, CColorReferenc
 
 		// In non-heatmap mode, colour the dot by its TARGET colour: it identifies
 		// which patch this is regardless of how far off the display measured.
-		p.trueColor = RgbSwatch( markerTarget.GetRGBValue( ref ) );
+		p.trueColor = RgbSwatch( markerTarget.GetRGBValue( activeRef ) );
 	}
 	m_points.push_back( p );
 }
@@ -341,8 +415,21 @@ static double SceneDiffuseWhiteY( CMeasure * pM )
 	}
 	// SDR: measured grayscale / prime white (100% == diffuse == peak); for a
 	// standalone profile fall back to the measured white cube node.
-	CColor cw = pM->GetPrimeWhite();
-	if ( !cw.isValid() || cw.GetY() <= 0.0 )
+	//
+	// HDTVa/HDTVb read the ON/OFF white and never the prime white. Their primaries
+	// run measures its white at the 75% anchor (GenColors[6] = 75,75,75), so
+	// GetPrimeWhite comes back at roughly HALF the display's real white - 0.75^2.4
+	// of it under a 2.4 power law. Normalising the scene by that put every
+	// measurement above ~50% stimulus past Y = 1, where ToModel's clamp pinned them
+	// all to the top of the gamut solid; since the solid's cross-section up there
+	// has narrowed to the white point, they fanned out visibly OUTSIDE it while
+	// their dE read fine. The measures grid has always avoided this - see
+	// GetColorDEWhiteY's `bSpecial ? yOnOff` branch, which this now mirrors,
+	// deliberately including its refusal to fall back to the prime white.
+	const bool specialWhite = ( GetColorReference().m_standard == HDTVa ||
+								GetColorReference().m_standard == HDTVb );
+	CColor cw = specialWhite ? pM->GetOnOffWhite() : pM->GetPrimeWhite();
+	if ( !specialWhite && ( !cw.isValid() || cw.GetY() <= 0.0 ) )
 		cw = pM->GetOnOffWhite();
 	if ( cw.isValid() && cw.GetY() > 0.0 )
 		return cw.GetY();
@@ -389,7 +476,8 @@ static double GridGrayTargetRatio( CMeasure * pM, double x, const CColor & black
 	if ( GetConfig()->m_colorStandard == sRGB )
 		mode = 99;
 	double valx = GrayLevelToGrayProp( x, GetConfig()->m_bUseRoundDown != FALSE,
-									   GetConfig()->GetUse10bitLevels() != FALSE );
+									   GetConfig()->GetUse10bitLevels() != FALSE,
+									   GetConfig()->GetRGB16_235() != FALSE );
 	if ( mode >= 4 )
 	{
 		double L = getL_EOTF( valx, pM->GetOnOffWhite(), blackRef,
@@ -417,6 +505,7 @@ void C3DColorView::BuildScene()
 	m_points.clear();
 	m_gamutValid = false;
 	m_baseValid  = false;
+	m_volDirty   = true;  // reference, white or cube may all have moved
 	m_selected   = -1;    // indices are invalid after a rebuild
 
 	CDataSetDoc * pDoc = GetDocument();
@@ -426,7 +515,19 @@ void C3DColorView::BuildScene()
 	if ( pMeasure == NULL )
 		return;
 
-	CColorReference ref = GetColorReference();
+	// HDTVa/HDTVb carry PATCH chromaticities where a gamut belongs (see
+	// SpecialModeGamutReference), so the solid built from them was a small
+	// desaturated triangle while the measurements - whose own references come
+	// from GetRefSat's / SetRGBValue's Rec.709 substitution - legitimately reach
+	// the real Rec.709 boundary. A perfect (simulated) display therefore plotted
+	// its 100%-saturation sweeps and color-checker patches well OUTSIDE the solid
+	// at dE 0.00. Substitute Rec.709 once, here, so every geometry consumer below
+	// (ToModel, BuildGamut, EnsureTongueTexture) agrees.
+	//
+	// `active` stays available for the two things that must NOT follow the swap:
+	// the white target, and the satSpecial flag below.
+	const CColorReference & active = GetColorReference();
+	CColorReference ref = SceneGamutReference();
 
 	// White luminance reference for L*a*b* / xyY normalisation (mirrors the CIE
 	// chart: prefer the pseudo-colour-space prime white, else grayscale white;
@@ -440,11 +541,15 @@ void C3DColorView::BuildScene()
 		m_lumTop = GetConfig()->m_TargetMaxL;
 
 	int i, n;
-	ColorxyY wChroma( ref.GetWhite() );
+	// ACTIVE white, not the geometry basis's: this is the grayscale family's target
+	// chromaticity and must follow the user's white target, which the special-mode
+	// substitution deliberately drops.
+	ColorxyY wChroma( active.GetWhite() );
 	const int  gammaMode = GetConfig()->m_GammaOffsetType;
 	const int  dEgray    = GetConfig()->m_dE_gray;
 	const bool bRound    = GetConfig()->m_bUseRoundDown != FALSE;
 	const bool b10bit    = GetConfig()->GetUse10bitLevels() != FALSE;
+	const bool bLimRange = GetConfig()->GetRGB16_235() != FALSE;
 
 	// Grayscale (+ near-black/white): reference chromaticity is the target white;
 	// the reference luminance and the YWhite passed to GetDeltaE follow the
@@ -474,7 +579,7 @@ void C3DColorView::BuildScene()
 		if ( dEgray == 1 )
 		{
 			// theoretical luminance from the target gamma / EOTF curve
-			double gridRatio = GridGrayTargetRatio( pMeasure, pMeasure->GetGrayPercent( i, bRound, b10bit ),
+			double gridRatio = GridGrayTargetRatio( pMeasure, pMeasure->GetGrayPercent( i, bRound, b10bit, bLimRange ),
 													pMeasure->GetOnOffBlack(), gsWhiteY, gammaOffset );
 			deRatio   = gridRatio;
 			markRatio = gridRatio * markPerGrid;
@@ -492,7 +597,8 @@ void C3DColorView::BuildScene()
 		}
 		markT.SetxyYValue( wChroma[0], wChroma[1], markRatio );
 		wchar_t lbl[48];
-		swprintf( lbl, 48, L"Gray %d%%", (int)( pMeasure->GetGrayPercent( i, bRound, b10bit ) + 0.5 ) );
+		std::wstring grayFmt = LoadResWide( IDS_3D_GRAYPCT );
+		swprintf( lbl, 48, grayFmt.c_str(), (int)( pMeasure->GetGrayPercent( i, bRound, b10bit, bLimRange ) + 0.5 ) );
 		AppendMeasure( c, whiteY, ref, dET, markT, true, ywForDE, lbl, SRC_GRAY, i );
 	}
 
@@ -516,8 +622,8 @@ void C3DColorView::BuildScene()
 				// Same stimulus level and black reference the grid feeds the
 				// curve: near-black steps by 2 in PQ and anchors getL_EOTF on
 				// its own first patch; near-white counts back from the clip col.
-				double x = nb ? ArrayIndexToGrayLevel( (int)pMeasure->m_NearWhiteClipCol - n + i, 101, bRound, b10bit )
-							  : ArrayIndexToGrayLevel( i * ( gammaMode == 5 ? 2 : 1 ), 101, bRound, b10bit );
+				double x = nb ? ArrayIndexToGrayLevel( (int)pMeasure->m_NearWhiteClipCol - n + i, 101, bRound, b10bit, bLimRange )
+							  : ArrayIndexToGrayLevel( i * ( gammaMode == 5 ? 2 : 1 ), 101, bRound, b10bit, bLimRange );
 				CColor blackRef = nb ? pMeasure->GetOnOffBlack() : pMeasure->GetNearBlack( 0 );
 				double gridRatio = GridGrayTargetRatio( pMeasure, x, blackRef, gsWhiteY, gammaOffset );
 				deRatio   = gridRatio;
@@ -541,14 +647,37 @@ void C3DColorView::BuildScene()
 		}
 	}
 
-	static const wchar_t * primName[3] = { L"Red primary",      L"Green primary",  L"Blue primary" };
-	static const wchar_t * secName[3]  = { L"Yellow secondary", L"Cyan secondary", L"Magenta secondary" };
+	// The primaries family has its OWN white, and it is not the scene's.
+	// GetRefPrimary/GetRefSecondary are relative to the PRIME white - the one
+	// measured alongside the primaries themselves - which the measures grid also
+	// uses here: MainView's YWhite keeps the prime white for this mode and only
+	// falls back to the on/off white for the saturation/CC modes 4..12 under
+	// HDTVa/HDTVb. In those two standards the primaries run measures its white at
+	// the 75% anchor, so prime white is ~half the on/off white the scene now
+	// normalises by, and sharing one white would plot every primary/secondary
+	// target at ~2x its measurement (dE ~16 on a patch the grid grades at 0.1).
+	// Everywhere else the two coincide and this is the same number as before.
+	// PQ keeps the scene white: there SceneDiffuseWhiteY returns the tone-mapped
+	// diffuse white and GetRefPrimary already carries GetHDRRefScale internally.
+	double primWhiteY = whiteY;
+	if ( GetConfig()->m_GammaOffsetType != 5 )
+	{
+		CColor pw = pMeasure->GetPrimeWhite();
+		if ( pw.isValid() && pw.GetY() > 0.0 )
+			primWhiteY = pw.GetY();
+	}
+	const std::wstring primName[3] = { LoadResWide( IDS_REDPRIMARY ),
+	                                   LoadResWide( IDS_GREENPRIMARY ),
+	                                   LoadResWide( IDS_BLUEPRIMARY ) };
+	const std::wstring secName[3]  = { LoadResWide( IDS_YELLOWSECONDARY ),
+	                                   LoadResWide( IDS_CYANSECONDARY ),
+	                                   LoadResWide( IDS_MAGENTASECONDARY ) };
 	for ( i = 0; i < 3; i++ )
 	{
 		CColor refP = pMeasure->GetRefPrimary( i );
-		AppendMeasure( pMeasure->GetPrimary( i ), whiteY, ref, refP, refP, false, whiteY, primName[i], SRC_PRIMARY, i );
+		AppendMeasure( pMeasure->GetPrimary( i ), primWhiteY, ref, refP, refP, false, primWhiteY, primName[i].c_str(), SRC_PRIMARY, i );
 		CColor refS = pMeasure->GetRefSecondary( i );
-		AppendMeasure( pMeasure->GetSecondary( i ), whiteY, ref, refS, refS, false, whiteY, secName[i], SRC_SECONDARY, i );
+		AppendMeasure( pMeasure->GetSecondary( i ), primWhiteY, ref, refS, refS, false, primWhiteY, secName[i].c_str(), SRC_SECONDARY, i );
 	}
 
 	// Saturation sweeps: plot EVERY measured stimulus level from the store, not
@@ -559,9 +688,11 @@ void C3DColorView::BuildScene()
 	// the scene needs the diffuse-white-relative convention (YWhiteRef is 1.0
 	// in AppendMeasure). The scale is 10000 / tone-mapped white - the legacy
 	// 105.95640 with tone mapping off (* 100 for the Mascior-style HDR CC
-	// sets, matching the measures grid).
-	const bool hdr10Refs = ( GetConfig()->m_GammaOffsetType == 5 );
-	const bool satSpecial = ( ref.m_standard == HDTVa || ref.m_standard == HDTVb );
+	// sets, matching the measures grid). It now falls out of the marker/dE white
+	// identity below rather than needing a mode-5 flag of its own.
+	// ACTIVE standard, not the substituted one: this selects GetRefSat's special
+	// branch, which is what makes those references Rec.709 in the first place.
+	const bool satSpecial = ( active.m_standard == HDTVa || active.m_standard == HDTVb );
 
 	// dE normalisation, separate from the marker geometry below: ask CMeasure
 	// rather than re-deriving it, so this cannot drift from the measures grid
@@ -578,10 +709,28 @@ void C3DColorView::BuildScene()
 	const ColorDENorm satNorm = pMeasure->GetColorDENorm( 5 );	// any saturation mode
 	const double satDEWhite = ( satNorm.whiteY > 0.0 ) ? satNorm.whiteY : whiteY;
 	const double satDEScale = satNorm.deScale;
-	// Marker geometry: refC * markScale * tmWhite is absolute nits, so a perfect
-	// patch draws no tail. Same number GetHDRRefScale returns - taken from the
-	// helper so there is only one definition of the marker scale.
-	const double hdrRefScale = satNorm.markScale;
+	// Marker geometry, DERIVED from the dE scale rather than taken beside it.
+	// AppendMeasure plots the marker at refMark * whiteY, while GetDeltaE grades
+	// refDE against c / satDEWhite; a patch measuring exactly on target draws no
+	// tail only when refMark * whiteY == refDE * satDEWhite. So the marker scale
+	// is not free - it is satDEScale * satDEWhite / whiteY, and picking it
+	// independently (this used to take satNorm.markScale) splits the marker from
+	// its own dE target by whatever ratio the two whites differ by.
+	//
+	// They differ in exactly the cases this got wrong: HDTVa/HDTVb take the ON/OFF
+	// white for dE (GetColorDEWhiteY's special branch, no prime fallback) while the
+	// scene normalises by SceneDiffuseWhiteY, which prefers the PRIME white - and in
+	// those modes prime white is the 75% anchor, roughly half the on/off white. Every
+	// saturation and color-checker marker therefore plotted at ~0.49x its measurement
+	// while the dE read ~0. The grayscale block has bridged the same two whites all
+	// along (markPerGrid above); sat and CC never did.
+	//
+	// Reduces to the old value wherever those coincide: in PQ, satDEScale is
+	// 10000/satDEWhite and whiteY is tmWhite, so this is 10000/tmWhite - exactly
+	// GetHDRRefScale. In SDR it is the pure white ratio, 1.0 whenever the two
+	// whites agree, which is every standard except HDTVa/HDTVb.
+	const double hdrRefScale = ( whiteY > 0.0 ) ? satDEScale * satDEWhite / whiteY
+												: satNorm.markScale;
 	static const wchar_t * hueName[6] = { L"Red", L"Green", L"Blue", L"Yellow", L"Cyan", L"Magenta" };
 	int nSatLevels = pMeasure->GetSatLevelCount();
 	for ( int L = 0; L < nSatLevels; L++ )
@@ -599,8 +748,11 @@ void C3DColorView::BuildScene()
 				if ( i >= (int) set.sat[h].size() )
 					continue;
 				CColor refC = pMeasure->GetRefSat( h, satRatio, satSpecial, stim );
+				// No longer gated on HDR: in SDR satDEScale is 1.0 (a no-op) but
+				// hdrRefScale is the marker/dE white ratio, which is exactly what
+				// HDTVa/HDTVb need and what gating this on mode 5 used to skip.
 				CColor refMark = refC, refDE = refC;
-				if ( hdr10Refs && refC.isValid() )
+				if ( refC.isValid() )
 				{
 					refMark.SetX( refC.GetX() * hdrRefScale );
 					refMark.SetY( refC.GetY() * hdrRefScale );
@@ -631,11 +783,19 @@ void C3DColorView::BuildScene()
 	// convention against the grayscale top - hence the separate query.
 	const ColorDENorm ccNorm = pMeasure->GetColorDENorm( 11 );
 	const double ccDEWhite   = ( ccNorm.whiteY > 0.0 ) ? ccNorm.whiteY : whiteY;
-	const double ccMarkScale = ccNorm.markScale;
 	// Unconditional, like the saturation block: a bare 1.0 here would leave the
-	// dE reference unscaled while ccMarkScale still plots the marker at * 100 for
-	// a Mascior CC set, so the marker and its own dE target would disagree.
+	// dE reference unscaled while the marker still plots at * 100 for a Mascior
+	// CC set, so the marker and its own dE target would disagree.
 	const double ccDEScale   = ccNorm.deScale;
+	// Derived from the dE scale for the reason spelled out at the saturation
+	// block: refMark * whiteY must equal refDE * ccDEWhite or an on-target patch
+	// grows a tail. Note this also corrects the Mascior HDR CC sets, whose dE
+	// white is the grayscale top while the scene normalises by the tone-mapped
+	// white - the same split, from a different pair of whites. Those sets are
+	// untested (ACCURACYTEST gap 3 - they read their patch list from a CSV), so
+	// that half is derived rather than observed.
+	const double ccMarkScale = ( whiteY > 0.0 ) ? ccDEScale * ccDEWhite / whiteY
+												: ccNorm.markScale;
 	for ( i = 0; i < n; i++ )
 	{
 		CColor c = pMeasure->GetCC24Sat( i );
@@ -644,7 +804,7 @@ void C3DColorView::BuildScene()
 		CColor refC;
 		pMeasure->GetRefCC24Sat( i, refC );
 		CColor refMark = refC, refDE = refC;
-		if ( hdr10Refs && refC.isValid() )
+		if ( refC.isValid() )
 		{
 			refMark.SetX( refC.GetX() * ccMarkScale );
 			refMark.SetY( refC.GetY() * ccMarkScale );
@@ -654,7 +814,11 @@ void C3DColorView::BuildScene()
 			refDE.SetZ( refC.GetZ() * ccDEScale );
 		}
 		wchar_t lbl[48];
-		swprintf( lbl, 48, L"Color checker #%d", i + 1 );
+		std::string ccName = GetConfig()->GetCColorsN( i );
+		if ( !ccName.empty() )
+			swprintf( lbl, 48, L"%S", ccName.c_str() );
+		else
+			swprintf( lbl, 48, L"Color checker #%d", i + 1 );
 		AppendMeasure( c, whiteY, ref, refDE, refMark, false, ccDEWhite, lbl, SRC_CC24, i );
 	}
 
@@ -701,6 +865,10 @@ static void XyYModelPt(const ColorXYZ & xyz, const ColorXYZ & dirXyz, double ref
 // chromaticity while only luminance shrinks), so in xyY the three zero-faces are
 // rebuilt as vertical walls over the triangle sides and the base rim is stored
 // for outlining.
+//
+// `ref` is the caller's already-substituted reference (BuildScene runs it through
+// SpecialModeGamutReference), so there is deliberately no HDTVa/HDTVb branch here:
+// by this point the special standards are plain Rec.709, like everywhere else.
 void C3DColorView::BuildGamut(CColorReference & ref)
 {
 	// Reference primaries already sum to the reference white, so normalise heights
@@ -1578,9 +1746,10 @@ void C3DColorView::Render(const CRect& rc)
 		// overlay text
 		Gdiplus::SolidBrush dim( Gdiplus::Color( 210, 185, 185, 190 ) );
 		Gdiplus::Font       fontSmall( L"Segoe UI", 8.0f );   // NB: 'small' is a Windows SDK macro (=char)
-		const wchar_t * spaceName = ( m_space == SPACE_LAB ) ? L"CIE L*a*b*"
-								   : ( m_space == SPACE_RGB ) ? L"RGB cube"
-								   :                            L"CIE xyY";
+		const std::wstring spaceNameStr = ( m_space == SPACE_LAB ) ? std::wstring( L"CIE L*a*b*" )
+								   : ( m_space == SPACE_RGB ) ? LoadResWide( IDS_3D_RGBCUBE )
+								   :                            std::wstring( L"CIE xyY" );
+		const wchar_t * spaceName = spaceNameStr.c_str();
 		double sumDE = 0.0, maxDE = 0.0;
 		int nDE = 0, nHidden = 0, nVisible = 0;
 		for ( size_t k = 0; k < m_points.size(); k++ )
@@ -1611,6 +1780,69 @@ void C3DColorView::Render(const CRect& rc)
 			swprintf( buf + len, 160 - len, L"   \x2022   %d hidden", nHidden );
 		}
 		g.DrawString( buf, -1, &fontSmall, Gdiplus::PointF( 8.0f, 6.0f ), &dim );
+
+		// Gamut volume / coverage chips, top right: the volumetric counterpart of
+		// the CIE chart's coverage row, drawn with the same pills. Only a display-
+		// profile cube can produce them; without one the row is simply absent,
+		// exactly as the CIE chart hides its percentages when the primaries are
+		// missing. The lazy recompute lands here (not in Render's hot path) so a
+		// rotation never pays for it.
+		//
+		// The cube is the only source for these numbers, so they follow its layer:
+		// with the profile points hidden the cloud and the point count above drop
+		// them, and a percentage still sitting up here would read as if it
+		// described whatever sweep is left on screen. The recompute waits for the
+		// layer too -- m_volDirty stays up meanwhile, so showing it again pays once.
+		if ( m_volDirty && m_showProfilePts )
+			UpdateGamutVolume();
+		if ( m_volValid && m_showProfilePts )
+		{
+			WCHAR gamutName[64], covBuf[64], volBuf[64];
+			// The scene reference, not GetColorReference(): the chips score the cube
+			// against the solid actually drawn, and must be labelled with it. At
+			// HDTVa/b that is Rec.709 while the CIE chart says "75% HDTV Rec709" --
+			// deliberate, not drift. Those standards' "primaries" are 75%-saturation
+			// patch targets inside a plain Rec.709 display, so the CIE chips there
+			// report how well the patches hit their targets, whereas a gamut VOLUME
+			// against a patch triangle would be meaningless; the display's gamut is
+			// Rec.709, and an ideal one reads 100 / 100 here.
+			GamutShortName( SceneGamutReference(), gamutName, 64 );
+			ProfilePctChip( covBuf, IDS_3DVIEW_GAMUTCOV, m_covPct );
+			ProfilePctChip( volBuf, IDS_3DVIEW_GAMUTVOL, m_volPct );
+
+			// UnitPixel, so unlike the UnitPoint overlay text it does not follow the
+			// display DPI on its own -- scale it, or on a 200% display the pills
+			// stay 12px beside a header at twice the size, and `avail` below then
+			// compares a scaled header width against unscaled chips.
+			Gdiplus::Font  chipFont( L"Segoe UI", (Gdiplus::REAL)GetConfig()->Scale( 12 ),
+									 Gdiplus::FontStyleRegular, Gdiplus::UnitPixel );
+			Gdiplus::Color cFill( 255, 42, 42, 42 ), cBorder( 255, 72, 72, 72 ), cText( 255, 215, 215, 215 );
+
+			// Visual order is [gamut] [coverage] [volume]; when the row will not
+			// fit beside the header text, volume drops first, then coverage --
+			// coverage is the headline, and the gamut name keeps it unambiguous.
+			const WCHAR * ordered[3] = { gamutName, covBuf, volBuf };
+			int nChips = 3;
+			const Gdiplus::REAL pad = (Gdiplus::REAL)GetConfig()->Scale( 8 ),
+								gap = (Gdiplus::REAL)GetConfig()->Scale( 6 );
+			Gdiplus::RectF hdrBounds;
+			g.MeasureString( buf, -1, &fontSmall, Gdiplus::PointF( 0.0f, 0.0f ), &hdrBounds );
+			Gdiplus::REAL avail = (Gdiplus::REAL)w - 2.0f * pad - hdrBounds.Width - 2.0f * gap;
+			Gdiplus::REAL rowW = 0.0f;   // not "total": Render already has one
+			for ( int ci = 0; ci < nChips; ci++ )
+				rowW += MeasureStatChip( g, chipFont, ordered[ci] ).Width + ( ci ? gap : 0.0f );
+			while ( nChips > 1 && rowW > avail )
+				rowW -= MeasureStatChip( g, chipFont, ordered[--nChips] ).Width + gap;
+
+			if ( rowW <= avail )
+			{
+				Gdiplus::REAL bottom = pad + MeasureStatChip( g, chipFont, gamutName ).Height;
+				Gdiplus::REAL xRight = (Gdiplus::REAL)w - pad;
+				for ( int ci = nChips - 1; ci >= 0; ci-- )
+					xRight -= DrawStatChip( g, chipFont, ordered[ci], xRight, bottom, cFill, cBorder, cText ) + gap;
+			}
+		}
+
 		g.DrawString( L"drag: rotate    shift+drag: pan    wheel: zoom    click: inspect    right-click: options",
 					  -1, &fontSmall, Gdiplus::PointF( 8.0f, (float)( h - 20 ) ), &dim );
 
@@ -1674,7 +1906,8 @@ void C3DColorView::Render(const CRect& rc)
 			sf.SetAlignment( Gdiplus::StringAlignmentCenter );
 			sf.SetLineAlignment( Gdiplus::StringAlignmentCenter );
 			Gdiplus::RectF box( 0, 0, (float)w, (float)h );
-			g.DrawString( L"No measurement data to display", -1, &big, box, &sf, &wb );
+			std::wstring noData = LoadResWide( IDS_3D_NODATA );
+			g.DrawString( noData.c_str(), -1, &big, box, &sf, &wb );
 		}
 	} // Graphics flushed here, before the blit in OnDraw
 }
@@ -1715,7 +1948,9 @@ void C3DColorView::AppendNewFreeMeasures()
 		return;
 	CMeasure * pMeasure = pDoc->GetMeasure();
 
-	CColorReference ref = GetColorReference();
+	// Same geometry basis BuildScene uses, so incrementally appended free measures
+	// get the same model transform as the ones added by a full rebuild.
+	CColorReference ref = SceneGamutReference();
 	// Same normaliser as the rest of the scene: the local prime/on-off-white
 	// fallback returned PEAK white in PQ-HDR, so free measures were plotted and
 	// scaled against a different white than every other point.
@@ -1723,7 +1958,10 @@ void C3DColorView::AppendNewFreeMeasures()
 	const double gsWhiteY = GridGrayWhiteY( pMeasure );
 	const int    dEgray   = GetConfig()->m_dE_gray;
 
-	CColor wRef( ref.GetWhite() );
+	// ACTIVE white, like BuildScene's wChroma: this classifies a free measure as
+	// near-neutral and supplies the gray target, so it follows the user's white
+	// target rather than the geometry basis's fixed D65.
+	CColor wRef( GetColorReference().GetWhite() );
 	ColorxyY wc( wRef.GetxyYValue() );
 	int n = pMeasure->GetMeasurementsSize();
 	for ( int i = m_freeInScene; i < n; i++ )
@@ -1792,7 +2030,8 @@ void C3DColorView::AppendNewProfileMeasures()
 	// The capture remaps the cube inner->transport and the sensor recovers the
 	// INNER (content, e.g. P3) colors, so plot/swatch in the active reference --
 	// the measured cloud then lands inside the P3 gamut solid, not stretched to 2020.
-	CColorReference ref = GetColorReference();
+	// (HDTVa/b substitute Rec.709 for the same reason BuildScene does.)
+	CColorReference ref = SceneGamutReference();
 	// Diffuse white (measured, or the standalone-profile fallback) so reference
 	// targets scale into measured units instead of collapsing at whiteY = 1.0.
 	double whiteY = SceneDiffuseWhiteY( pMeasure );
@@ -1831,6 +2070,92 @@ void C3DColorView::AppendNewProfileMeasures()
 		lastAppended = i + 1;	// keep m_profileInScene-1 pointing at a valid patch
 	}
 	m_profileInScene = lastAppended;
+	m_volDirty = true;		// the cube grew: the chips owe a fresh number
+}
+
+// Volume and coverage of the measured display gamut against the reference one,
+// both as a percentage of the reference solid (see libHCFR/GamutVolume.h).
+//
+// The source is the display-profile cube and nothing else: an N^3 grid is what
+// makes the solid's interior known, and hence the intersection computable. The
+// primaries/secondaries alone would give only 8 corners (~10% low on volume,
+// and no way to tell inside from outside), and ramps plus saturation sweeps
+// would assume the display is additive - the very thing this measures.
+//
+// The white anchor lives inside the cube (its own 100% corner), not in the
+// scene's m_lumTop: coverage is a media-relative question about gamut shape, and
+// in HDR-10 normalising by the TargetMaxL peak would report a display's
+// luminance headroom as missing gamut. The chips can therefore read near 100%
+// while the cloud visibly sits low inside a peak-normalised solid -- different
+// questions, both answered elsewhere on screen.
+void C3DColorView::UpdateGamutVolume()
+{
+	m_volDirty = false;
+
+	CDataSetDoc * pDoc = GetDocument();
+	CMeasure * pMeasure = ( pDoc != NULL ) ? pDoc->GetMeasure() : NULL;
+	if ( pMeasure == NULL || !pMeasure->HasProfileMeasures() )
+		{ m_volValid = m_volKeyValid = false; return; }
+
+	// Nothing in the array is final while the capture runs. The cube's white
+	// corner is its last node but not the sequence's: with gray extras on it
+	// turns valid while the extras are still being measured, and the closing
+	// drift anchor then rescales the last segment -- a number computed in
+	// between would appear, then silently change. Every appended patch also
+	// re-dirties this, so the early out is what keeps a live sweep from walking
+	// the whole cube on each repaint.
+	if ( pMeasure->m_bProfileCapturing )
+		{ m_volValid = m_volKeyValid = false; return; }
+
+	int cubeN = pMeasure->GetProfileCubeSize();
+	if ( cubeN < 2 )
+		{ m_volValid = m_volKeyValid = false; return; }
+	int need = cubeN * cubeN * cubeN;
+	if ( pMeasure->GetProfileMeasureSize() < need )
+		{ m_volValid = m_volKeyValid = false; return; }	// stopped before the cube closed
+
+	CColorReference ref = SceneGamutReference();
+
+	// BuildScene re-dirties this, and a rebuild follows essentially any document
+	// hint -- so with a cube already in the document a grayscale or saturation
+	// sweep would re-walk 9261 vertices and ~150k tetrahedra on every repaint
+	// (31 ms at 21^3 in a Debug build) only to arrive at the same number. So key
+	// the recompute on what it actually depends on: the cube's contents, through
+	// CMeasure's generation counter (bumped on every write to the array, so a
+	// hole cached as "no number" is keyed honestly too), and the reference's
+	// white and primaries, which are all ComputeGamutVolume reads from it.
+	double key[VOL_KEY_LEN];
+	ColorXYZ rw = ref.GetWhite(), rr = ref.GetRed(), rg = ref.GetGreen(), rb = ref.GetBlue();
+	int k = 0;
+	key[k++] = pMeasure->GetProfileGeneration();
+	for ( int i = 0; i < 3; i++ )
+	{
+		key[k++] = rw[i];  key[k++] = rr[i];  key[k++] = rg[i];  key[k++] = rb[i];
+	}
+	ASSERT( k == VOL_KEY_LEN );		// every slot written, or the tail is garbage
+	if ( m_volKeyValid && memcmp( key, m_volKey, sizeof( key ) ) == 0 )
+		return;		// same cube, same reference: the number already on screen stands
+	memcpy( m_volKey, key, sizeof( key ) );
+	m_volKeyValid = true;
+	m_volValid    = false;
+
+	std::vector<ColorXYZ> cube( (size_t)need );
+	for ( int i = 0; i < need; i++ )
+	{
+		CColor c = pMeasure->GetProfileMeasure( i );
+		if ( !c.isValid() )
+			return;	// a hole anywhere (a stopped capture, an ignored sensor error)
+					// leaves the solid undefined: show no number
+		cube[i] = c.GetXYZValue();
+	}
+
+	GamutVolumeResult r = ComputeGamutVolume( &cube[0], cubeN, ref );
+	if ( !r.valid )
+		return;
+
+	m_volPct   = r.VolumeRatio();
+	m_covPct   = r.Coverage();
+	m_volValid = true;
 }
 
 // Consume a pending selection request: find the point matching the requested

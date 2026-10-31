@@ -46,7 +46,7 @@ typedef char * (__stdcall *RB8PG_get)(SOCKET sock,const char *message);
 struct PGenSettings
 {
 	int colorFormat, quantRange, bitDepth, colorimetry;
-	int isHdr, isLLDovi;
+	int isHdr, isLLDovi, isStdDovi;
 	int eotf, primaries, doviMode;
 	int maxLuma, minLuma, maxCll, maxFall;
 	BOOL valid;
@@ -203,6 +203,9 @@ public:
 	virtual BOOL CanDisplayGrayAndColorsSeries()	{ return TRUE; }
 	virtual BOOL CanDisplayAnimatedPatterns(BOOL isSpecialty = TRUE)		{ return TRUE; }
 	virtual BOOL CanDisplayScale ( MeasureType nScaleType, int nbLevels, BOOL bMute = FALSE )		{ return TRUE; }
+	// TRUE when DisplayRGBColor paints the measured patch into HCFR's own
+	// test-color window, so nothing else may repaint that window mid-sweep.
+	virtual BOOL PaintsTestColorWnd()	{ return FALSE; }
 	virtual	BOOL HasPatternChanged( MeasureType nScaleType, CColor previousColor,CColor measuredColor)		{ return TRUE; }
 	virtual CString GetRetryMessage () { return ""; }
 	virtual BOOL Release(INT nbNext = -1);

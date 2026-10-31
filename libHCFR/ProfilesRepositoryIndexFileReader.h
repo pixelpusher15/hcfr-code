@@ -13,11 +13,11 @@
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details
 /////////////////////////////////////////////////////////////////////////////
-// Ce fichier contiend les routines necessaires â€¡ la lecture du fichier
+// Ce fichier contiend les routines necessaires à la lecture du fichier
 // d'index du repertoire en ligne des fichiers de calibration
 /////////////////////////////////////////////////////////////////////////////
 //  Author(s):
-//  JÃˆrÃ™me Duquennoy
+//  Jérôme Duquennoy
 /////////////////////////////////////////////////////////////////////////////
 
 #ifndef __PROFILES_REPOSITOTY_INDEX_FILE_READER_H__
@@ -51,21 +51,21 @@ class ProfilesRepositoryIndexFileReader
     void valueFound ();
     void lineEnded ();
 
-  // les fonctions pour le parcours des entrÃˆes
+  // les fonctions pour le parcours des entrées
 
-  // retourne le nombre d'Ãˆlements disponibles
+  // retourne le nombre d'élements disponibles
   int size();
 
-  // Cette fonction remet le pointeur de lecture sur la premiÃ‹re entrÃˆe.
+  // Cette fonction remet le pointeur de lecture sur la première entrée.
   void rewind();
 
-  // indique si d'autre ÃˆlÃˆments sont dispo.
+  // indique si d'autre éléments sont dispo.
   // Si cette fonction retourne false, un appel
-  // â€¡ nextEntry lÃ‹vera une exception.  
+  // à nextEntry lèvera une exception.  
   bool hasNext ();
 
   // Cette fonction retourne la structure CalibrationFileInfos
-  // suivante, ou lÃ‹ve une exception si il n'y â€¡ plus d'entrÃˆes â€¡ lire.
+  // suivante, ou lève une exception si il n'y à plus d'entrées à lire.
   ProfileFileInfos  nextEntry();
 };
 
