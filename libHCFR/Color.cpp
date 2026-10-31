@@ -1656,7 +1656,9 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 	// tone mapping off, and with it on (the switch persists after leaving PQ)
 	// a black target L* and sRGB do not have and HLG had scaled wrongly. L*
 	// and sRGB come out at exactly 0 from their own formulas below.
-	if (valx == 0 && mode == 7) return ( White.isValid() && White.GetY() > 0.0 ) ? m_MinTL / White.GetY() : 0.0;
+	// <= 0: a negative signal is clamped to 0 below, which would reach the
+	// same pow for HLG, so it takes this return too.
+	if (valx <= 0 && mode == 7) return ( White.isValid() && White.GetY() > 0.0 ) ? m_MinTL / White.GetY() : 0.0;
 	if (valx == 0 && ( mode == 5 || mode == 8 || mode == 9 )) return (ToneMap?m_MinTL / 100.:0.0);
 	if (valx < 0)
 		valx = 0;

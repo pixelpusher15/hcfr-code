@@ -764,10 +764,11 @@ extern ColorRGB ContainerPrimaryLinear(const CColorReference& active, int index)
 extern CColor theMeasure;
 extern CColor noDataColor;
 
-// Sensor reads come back with X, Y and Z each floored at 1e-8
-// (CSensor::MeasureColor), so a reading of no light still has Y > 0 - at
-// the equal-energy point, x = y = 1/3, which looks like a real tint. This
-// cut (cd/m2) tells that placeholder from light: 100x above the floor and
+// Sensor reads come back with X, Y and Z each floored at 1e-8 before the
+// sensor matrix is applied (CSensor::MeasureColor), so a reading of no light
+// still has Y > 0 - at the equal-energy point, x = y = 1/3, with the default
+// identity matrix, which looks like a real tint. This cut (cd/m2) tells that
+// placeholder from light: 100x above the floor and
 // well under the ~1e-5 the most sensitive calibration meters resolve, so
 // every real reading, however dark, is kept. The contrast readouts use it
 // too (grayscale header and on/off), so "Infinity" and an empty black
