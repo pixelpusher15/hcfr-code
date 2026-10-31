@@ -455,7 +455,24 @@ BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 	CString				strPreviousRef = m_calibrationReferenceName;
 	CString				strPreviousName = m_CalibrationFileName;
 	CCalibrationInfo *	pPreviousInfo = m_pCalibrationInfo;
+	// The method and the Bodner sub-gamut pairs are read by
+	// CSensor::Serialize after the matrix, so a file that throws part-way
+	// through them has already changed the method: hold them too.
+	int					nPreviousMethod = m_calibrationMethod;
+	Matrix				previousBodnerRaw[3];
+	Matrix				previousBodnerCal[3];
+	// Not the file's to set, success or failure: it describes the readings in
+	// the document this sensor belongs to, and a training file carries none (it
+	// holds whatever the sensor that saved it had). The caller's recalibration
+	// walk updates it.
+	RawlessReadingsState	previousRawless = m_rawlessReadings;
 	BOOL				bLoaded = FALSE;
+
+	for ( int k = 0; k < 3; k++ )
+	{
+		previousBodnerRaw[k] = m_bodnerRawMatrix[k];
+		previousBodnerCal[k] = m_bodnerCalMatrix[k];
+	}
 
 	// Detach it first: Serialize deletes whatever the member points at, and
 	// that is the copy we are keeping.
@@ -490,11 +507,26 @@ BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 		m_calibrationReferenceName = strPreviousRef;
 		m_CalibrationFileName = strPreviousName;
 		m_pCalibrationInfo = pPreviousInfo;
+		m_calibrationMethod = nPreviousMethod;
+		for ( int k = 0; k < 3; k++ )
+		{
+			m_bodnerRawMatrix[k] = previousBodnerRaw[k];
+			m_bodnerCalMatrix[k] = previousBodnerCal[k];
+		}
+		UpdateBodnerInverseCache();
 
 		ReportCalibrationLoadFailure ( aFileName, e );
 	}
 	END_CATCH_ALL
 
+	m_rawlessReadings = previousRawless;
+	// One rule holds whatever the file or the restore left: a Bodner sensor's
+	// raw-less readings never embody its (identity) single matrix. A Bodner file
+	// loaded with no walk after it (a new document from the wizard or DDE, Change
+	// Sensor) would otherwise keep a fresh sensor's "embody" under Bodner, and
+	// save it that way.
+	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
+		m_rawlessReadings.BodnerInstalled();
 	return bLoaded;
 }
 

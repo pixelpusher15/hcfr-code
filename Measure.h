@@ -437,7 +437,25 @@ public:
 	BOOL IsModified() { return m_isModified; }
 	void AbortMeasure() { m_bAbortSweep = TRUE; }
 
-    void ApplySensorAdjustmentMatrix(const Matrix & matrixAdjustment);
+    // deltaMatrix is composed onto already-corrected values for legacy measurements
+    // that predate raw-value capture (no HasRawXYZValue()); fullMatrix is applied
+    // directly to the stored raw value for measurements that have one. The two
+    // must be equivalent ways of expressing "what the sensor's correction should
+    // now be" - deltaMatrix = fullMatrix * inverse(previousFullMatrix).
+    // bComposeLegacy says whether a measurement WITHOUT a raw value embodies that
+    // previous full matrix - true after any single-matrix method, false when the
+    // sensor was on Bodner: its single matrix is identity and the raw-less values
+    // still carry whatever matrix corrected them before Bodner skipped them, so
+    // composing the delta would stack the new matrix onto the old one. They are
+    // then left alone and counted; the count is returned (0 when composing).
+    // No default: the answer is the sensor's RawlessReadings().ComposeOntoRawless()
+    // (RawlessReadingsState, Color.h), and a caller that forgot it composed onto
+    // readings the state marks stranded.
+    int ApplySensorAdjustmentMatrix(const Matrix & deltaMatrix, const Matrix & fullMatrix, bool bComposeLegacy);
+    // Recalibrates every stored measurement under Bodner's per-sub-gamut method.
+    // Returns the count of measurements that had no stored raw value (predating
+    // raw-value capture) and so could not be recalibrated.
+    int ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Matrix calMatrix[3]);
 
 	BOOL WaitForDynamicIris ( BOOL bIgnoreEscape = FALSE, CDataSetDoc *pDoc = NULL );
 	BOOL CheckBlackOverride (  );

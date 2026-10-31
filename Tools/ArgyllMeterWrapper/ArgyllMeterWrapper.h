@@ -74,6 +74,8 @@ public:
     int getNumberOfDisplayTypes();
     const char* getDisplayTypeText(int displayModeIndex);
     int getDisplayType() const;
+    // the driver's default display type index (0 when it lists none)
+    int getDefaultDisplayType();
     int getReadingType() const;
     void setDisplayType(int displayMode);
     int m_obType;

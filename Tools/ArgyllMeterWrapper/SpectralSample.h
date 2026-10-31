@@ -48,6 +48,12 @@ public:
 	bool loadMeasurementsFromTI3(const std::string& ti3Path, CColor** readings, int& nReadings);
 	bool createFromTI3(const std::string& ti3Path);
 	bool createFromMeasurements(const CColor spectralReadings[], const int nReadings);
+	// Build the sample set from a spectral-correlation .csv (N rows, each 401
+	// comma-separated spectral values at 380..780nm @ 1nm). Tolerates a UTF-8 BOM
+	// and a trailing comma; skips empty/near-zero rows. A row with fewer or more
+	// than 401 values throws std::logic_error (a short row is a file at another
+	// resolution, not a spectrum to pad with zeros).
+	bool createFromCorrelationCSV(const std::string& csvPath);
 
     // Get information about the sample. Currently we're only using getDescription()
     // getTech() and getDisplay() are included for future flexibility
@@ -63,6 +69,10 @@ public:
 	void setReferenceInstrument(const char* instr);
     void setPath(const char* path);
     void setAll(const char* tech, const char* disp, const char* instr, const char* path);
+
+    // Number of spectral samples currently held (0 if none). Lets callers/tests
+    // query the set size without pulling in the Argyll ccss struct definition.
+    int getNumSamples() const;
 
     // ArgyllMeterWrapper may access this member functions. It needs to be able to retrieve
     // a ccss structure in order to load it into the meter.
