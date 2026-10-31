@@ -1,5 +1,6 @@
 #include "GamutCoverage.h"
 #include <math.h>
+#include <stdio.h>
 #include <cppunit/config/SourcePrefix.h>
 #include <cppunit/extensions/HelperMacros.h>
 
@@ -180,22 +181,29 @@ protected:
     void AbHexagonNonConvexInputTest()
     {
         // An undersaturated secondary sitting inside the chord between its
-        // two neighbors (i.e. the raw hue-ordered hexagon is NOT convex on
-        // its own) must not crash or silently misbehave -- this is exactly
-        // why GamutCoveragePolygon takes a convex hull internally rather
-        // than assuming its input already is one.
-        GamutPoint nonConvex[6] = {
-            { 100.0,   0.0 },   // R
-            {  20.0,  60.0 },   // Y
-            { -80.0, 100.0 },   // G
-            { -10.0,  10.0 },   // C -- pulled in, inside the G-B chord
-            { -80.0,-100.0 },   // B
-            {  20.0, -60.0 },   // M
-        };
-        std::vector<GamutPoint> meas(nonConvex, nonConvex + 6);
+        // two neighbors makes the measured hexagon concave, and that loss of
+        // chroma must move the number. Pull cyan alone toward neutral
+        // (a* = b* = 0) on the reference hexagon itself, to 25% and to 0%:
+        // both leave cyan inside the G-B chord, so a hull of the measured
+        // side would drop it and report one value for both. Every measured
+        // vertex lies inside the convex reference (the neutral point is
+        // inside it), so the intersection IS the measured hexagon and the
+        // exact coverage is its shoelace area over the reference's:
+        // 0.77423108 at 25%, 0.69897477 at 0%. Tolerance 1e-6: the inputs are
+        // exact and the clip adds only rounding.
         std::vector<GamutPoint> target(targetAbRec2020, targetAbRec2020 + 6);
-        double cov = GamutCoveragePolygon(meas, target);
-        CPPUNIT_ASSERT( cov >= 0.0 );  // no crash, no negative/garbage result
+        std::vector<GamutPoint> cyan25(target), cyan0(target);
+        cyan25[3].x *= 0.25;
+        cyan25[3].y *= 0.25;
+        cyan0[3].x = 0.0;
+        cyan0[3].y = 0.0;
+        double cov25 = GamutCoveragePolygon(cyan25, target);
+        double cov0  = GamutCoveragePolygon(cyan0, target);
+        char msg[128];
+        sprintf_s(msg, sizeof(msg), "cyan at 25%%: %.3f%%, cyan at 0%%: %.3f%%", cov25 * 100.0, cov0 * 100.0);
+        CPPUNIT_ASSERT_MESSAGE( msg, cov0 < cov25 );
+        CPPUNIT_ASSERT_DOUBLES_EQUAL_MESSAGE( msg, 0.77423108, cov25, 1e-6 );
+        CPPUNIT_ASSERT_DOUBLES_EQUAL_MESSAGE( msg, 0.69897477, cov0, 1e-6 );
     }
 
     void AbHexagonDegenerateTest()
