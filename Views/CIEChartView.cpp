@@ -779,10 +779,13 @@ static bool SameColors3 ( const ColorXYZ & c0, const ColorXYZ & c1, const ColorX
 // primaries and the secondaries -- so it's possible for one to show while
 // the other is still hidden if only some patches have been re-measured.
 // a*b* is also not shown in PQ mode or without a measured white (below).
+// The "Show coverage % after gamut change" toggle (m_doCovAlwaysRecalc)
+// overrides that hiding on screen only (bForExport FALSE); a baked export
+// keeps the hiding. The toggle never reaches the cache refresh.
 // The row anchors to rcAnchor's top-right: the client rect when overlaid on
 // screen paints (OnDraw calls this after every blit so the chips stay pinned
 // under zoom/pan), the image rect when baked into exports.
-void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDoc * pDoc )
+void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDoc * pDoc, BOOL bForExport )
 {
 	if ( min(rcAnchor.Width(),rcAnchor.Height()) <= FX_MINSIZETOSHOW_REFDETAILS )
 		return;
@@ -827,7 +830,7 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	// shown, so nothing that only changes the display can rewrite a cache.
 	// Skipping it while stale is what keeps a hidden value hidden on the
 	// next paint instead of absorbing the new standard.
-	if (hasPrimaries && (m_doCovAlwaysRecalc || !xyuvStale))
+	if (hasPrimaries && !xyuvStale)
 	{
 		m_covStandard = curStd;
 		m_covPrimaries[0] = redPrimaryColor;
@@ -862,8 +865,13 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 		YWhiteAB = pDoc->GetMeasure()->GetOnOffWhite()[1];
 	BOOL abAllowed = GetConfig()->m_GammaOffsetType != 5 && YWhiteAB > 0.0;
 
-	BOOL showXYUV = hasPrimaries && (m_doCovAlwaysRecalc || !xyuvStale);
-	BOOL showAB   = hasPrimaries && hasSecondariesForAb && abAllowed && (m_doCovAlwaysRecalc || !abStale);
+	// The toggle bypasses the stale-hide here and nowhere else: the cache
+	// refresh above does not read it, so turning it off again hides exactly
+	// what would have been hidden had it never been on; and an export never
+	// bypasses, so a saved chart only carries numbers the default rule shows.
+	BOOL bBypass  = m_doCovAlwaysRecalc && !bForExport;
+	BOOL showXYUV = hasPrimaries && (bBypass || !xyuvStale);
+	BOOL showAB   = hasPrimaries && hasSecondariesForAb && abAllowed && (bBypass || !abStale);
 	double covXY = 0.0, covUV = 0.0, covAB = 0.0;
 
 	if (showXYUV)
@@ -2017,7 +2025,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		// them in OnDraw after the blit instead, so they stay pinned to the
 		// window's top-right corner while the chart is zoomed or panned.
 		if ( ! pWnd )
-			DrawCoverageChips ( pDC, rect, pDoc );
+			DrawCoverageChips ( pDC, rect, pDoc, TRUE );
 
 		if(hasPrimaries && hasSecondaries && !m_bCIEab)
 		{
@@ -3190,7 +3198,7 @@ void CCIEChartView::OnDraw(CDC* pDC)
 
 	// The coverage chips are not part of the retained chart, so they stay
 	// pinned to the window's top-right whatever the zoom/pan state
-	m_Grapher.DrawCoverageChips ( pOut, rect, pDoc );
+	m_Grapher.DrawCoverageChips ( pOut, rect, pDoc, FALSE );
 
 	if ( pOldOut )
 	{

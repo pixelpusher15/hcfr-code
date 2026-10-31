@@ -160,7 +160,8 @@ class CCIEChartGrapher
 	// and always show fresh values computed from the existing measurement
 	// against whatever standard is currently selected -- e.g. to check how
 	// an existing measurement happens to cover a different standard
-	// without a separate re-measurement pass.
+	// without a separate re-measurement pass. On screen only: exports keep
+	// the hiding, and the staleness caches never read this flag.
 	BOOL			m_doCovAlwaysRecalc;
 
 	// Zoom handling, for window mode
@@ -170,7 +171,7 @@ class CCIEChartGrapher
 
 	// Operations
 	void MakeBgBitmap(CRect rect,BOOL bWhiteBkgnd);
-	void DrawCoverageChips(CDC *pDC, CRect rcAnchor, CDataSetDoc * pDoc);
+	void DrawCoverageChips(CDC *pDC, CRect rcAnchor, CDataSetDoc * pDoc, BOOL bForExport);
 	void DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint = NULL, bool isSelected = FALSE, double dE10=100.0, bool isPrimeSec = FALSE);
 	bool DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int y, const CCIEGraphPoint& aGraphPoint, bool isSelected);
 	void DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd);
