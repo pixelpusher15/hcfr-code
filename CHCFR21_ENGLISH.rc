@@ -3211,6 +3211,8 @@ BEGIN
                             "Position the sensor on the screen and click yes to continue.\nYou may interrupt the readings by pressing the <ESC> key"
     IDS_SPECTRAL_SAMPLE_UNEXPECTED_EXCEPTION 
                             "Unexpected exception while generating colorimeter calibration spectral sample"
+    IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS 
+                            "The spectrometer returned more spectral bands than a colorimeter calibration spectral sample can hold"
     IDS_REC709aREDREF       "Rec709 (75%) Red Reference"
     IDS_REC709aGREENREF     "Rec709 (75%) Green Reference"
     IDS_REC709aBLUEREF      "Rec709 (75%) Blue Reference"

@@ -3226,6 +3226,8 @@ BEGIN
                             "Positionieren Sie den Sensor auf dem Bildschirm und klicken Sie auf Ja, um fortzufahren.\nAbbruch durch Drücken der Taste <ESC>"
     IDS_SPECTRAL_SAMPLE_UNEXPECTED_EXCEPTION 
                             "Unerwartete Ausnahme bei der Erzeugung des Kalibrierungsspektrums des Kolorimeters"
+    IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS 
+                            "Das Spektrometer hat mehr Spektralbänder geliefert, als ein Kalibrierungsspektrum des Kolorimeters aufnehmen kann"
     IDS_REC709aREDREF       "Rec709 (75%) Rot Referenz"
     IDS_REC709aGREENREF     "Rec709 (75%) Grün Referenz"
     IDS_REC709aBLUEREF      "Rec709 (75%) Blau Referenz"

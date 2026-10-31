@@ -3453,6 +3453,8 @@ BEGIN
                             "Placer le capteur sur l'écran et cliquer sur YES pour continuer.\nVous pouvez interrompre les mesures en appuyant sur la touche <ESC>"
     IDS_SPECTRAL_SAMPLE_UNEXPECTED_EXCEPTION 
                             "Exception innatendue durant la génération de l'échantillon spectral de calibration de colorimètre"
+    IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS 
+                            "Le spectromètre a renvoyé plus de bandes spectrales qu'un échantillon spectral de calibration de colorimètre ne peut en contenir"
     IDS_REC709aREDREF       "Rec709 (75%) Référence Rouge"
     IDS_REC709aGREENREF     "Rec709 (75%) Référence Vert"
     IDS_REC709aBLUEREF      "Rec709 (75%) Référence Bleu"

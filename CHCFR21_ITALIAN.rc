@@ -3407,6 +3407,8 @@ BEGIN
                             "Posiziona il sensore sullo schermo e clicca su sì per continuare.\nSi può interrompere la lettura premendo il tasto <ESC>"
     IDS_SPECTRAL_SAMPLE_UNEXPECTED_EXCEPTION 
                             "Eccezione inattesa durante la generazione del campione spettrale di calibrazione del colorimetro"
+    IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS 
+                            "Lo spettrometro ha restituito più bande spettrali di quante ne possa contenere un campione spettrale di calibrazione del colorimetro"
     IDS_REC709aREDREF       "Rec709 (75%) Riferimento rosso"
     IDS_REC709aGREENREF     "Rec709 (75%) Riferimento verde"
     IDS_REC709aBLUEREF      "Rec709 (75%) Riferimento blu"

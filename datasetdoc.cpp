@@ -2288,6 +2288,12 @@ void CDataSetDoc::OnCalibrationSpectralSample()
 				(void)ss.createFromMeasurements(measuredColor, 4); 
 				(void)ss.Write(saveFilename);
 			}
+			catch (std::length_error&)
+			{
+				Title.LoadString(IDS_ERROR);
+				strMsg.LoadString(IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS);
+				GetColorApp()->InMeasureMessageBox( strMsg, Title, MB_ICONERROR | MB_OK);
+			}
 			catch (std::logic_error& e)
 			{
 				Title.LoadString(IDS_ERROR);

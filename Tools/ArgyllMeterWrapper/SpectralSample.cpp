@@ -180,11 +180,12 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 			throw std::logic_error(errorMessage);
 		}
 		// spec_n is written as-is and write_ccss reads that many bands, so more than the
-		// xspect array holds would read past it
+		// xspect array holds would read past it. length_error so the caller can show
+		// its localized IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS instead of this text.
 		if (spectrum.GetRows() > XSPECT_MAX_BANDS)
 		{
 			std::string errorMessage = "Too many spectral bands for a spectral sample";
-			throw std::logic_error(errorMessage);
+			throw std::length_error(errorMessage);
 		}
 		for (int i = 0; i < spectrum.GetRows(); i++)
 		{
