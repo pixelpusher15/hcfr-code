@@ -18,9 +18,6 @@
     <ClCompile Include="ArgyllMeterWrapper.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="CGATSFile.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="SpectralSample.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -30,9 +27,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ArgyllMeterWrapper.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="CGATSFile.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SpectralSample.h">

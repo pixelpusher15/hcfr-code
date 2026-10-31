@@ -463,7 +463,7 @@ BEGIN
     GROUPBOX        "Affichage de référence",IDC_DISPLAY_GROUP,7,7,204,53
     RTEXT           "Afficher un nom",IDC_STATIC,28,20,55,15
     RTEXT           "Technologie d'affichage",IDC_STATIC,17,38,66,18
-    EDITTEXT        IDC_DISPLAY_TECH,89,36,115,14,ES_AUTOHSCROLL
+    COMBOBOX        IDC_DISPLAY_TECH,89,36,115,150,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
 END
 
 IDD_SENSOR_PROP_PAGE DIALOG 0, 0, 192, 191
@@ -3453,6 +3453,8 @@ BEGIN
                             "Placer le capteur sur l'écran et cliquer sur YES pour continuer.\nVous pouvez interrompre les mesures en appuyant sur la touche <ESC>"
     IDS_SPECTRAL_SAMPLE_UNEXPECTED_EXCEPTION 
                             "Exception innatendue durant la génération de l'échantillon spectral de calibration de colorimètre"
+    IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS 
+                            "Le spectromètre a renvoyé plus de bandes spectrales qu'un échantillon spectral de calibration de colorimètre ne peut en contenir"
     IDS_REC709aREDREF       "Rec709 (75%) Référence Rouge"
     IDS_REC709aGREENREF     "Rec709 (75%) Référence Vert"
     IDS_REC709aBLUEREF      "Rec709 (75%) Référence Bleu"

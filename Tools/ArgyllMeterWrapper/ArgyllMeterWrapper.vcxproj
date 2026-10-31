@@ -93,13 +93,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ArgyllMeterWrapper.cpp" />
-    <ClCompile Include="CGATSFile.cpp" />
     <ClCompile Include="SpectralSample.cpp" />
     <ClCompile Include="SpectralSampleFiles.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ArgyllMeterWrapper.h" />
-    <ClInclude Include="CGATSFile.h" />
     <ClInclude Include="SpectralSample.h" />
     <ClInclude Include="SpectralSampleFiles.h" />
   </ItemGroup>

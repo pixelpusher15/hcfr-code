@@ -1053,7 +1053,7 @@ BEGIN
     GROUPBOX        "Pantalla de referencia",IDC_DISPLAY_GROUP,7,7,204,50
     RTEXT           "Nombre de la pantalla",IDC_STATIC,28,20,55,15
     RTEXT           "Tecnología de la pantalla",IDC_STATIC,17,38,66,15
-    EDITTEXT        IDC_DISPLAY_TECH,89,36,115,14,ES_AUTOHSCROLL
+    COMBOBOX        IDC_DISPLAY_TECH,89,36,115,150,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
 END
 
 
@@ -3329,6 +3329,8 @@ BEGIN
                             "Coloque el sensor sobre la pantalla y pulse Sí para continuar.\nPuede interrumpir las lecturas pulsando la tecla <ESC>"
     IDS_SPECTRAL_SAMPLE_UNEXPECTED_EXCEPTION 
                             "Excepción inesperada al generar la muestra espectral de calibración del colorímetro"
+    IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS 
+                            "El espectrómetro devolvió más bandas espectrales de las que admite una muestra espectral de calibración del colorímetro"
     IDS_REC709aREDREF       "Rec709 (75%) referencia de rojo"
     IDS_REC709aGREENREF     "Rec709 (75%) referencia de verde"
     IDS_REC709aBLUEREF      "Rec709 (75%) referencia de azul"

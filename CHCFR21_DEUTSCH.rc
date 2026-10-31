@@ -149,7 +149,7 @@ BEGIN
     GROUPBOX        "Referenz Display",IDC_DISPLAY_GROUP,7,7,204,50
     RTEXT           "Display Name",IDC_STATIC,28,20,55,15
     RTEXT           "Display Technology",IDC_STATIC,17,38,66,15
-    EDITTEXT        IDC_DISPLAY_TECH,89,36,115,14,ES_AUTOHSCROLL
+    COMBOBOX        IDC_DISPLAY_TECH,89,36,115,150,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
 END
 
 IDD_SENSOR_PROP_PAGE DIALOG 0, 0, 192, 191
@@ -3226,6 +3226,8 @@ BEGIN
                             "Positionieren Sie den Sensor auf dem Bildschirm und klicken Sie auf Ja, um fortzufahren.\nAbbruch durch Drücken der Taste <ESC>"
     IDS_SPECTRAL_SAMPLE_UNEXPECTED_EXCEPTION 
                             "Unerwartete Ausnahme bei der Erzeugung des Kalibrierungsspektrums des Kolorimeters"
+    IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS 
+                            "Das Spektrometer hat mehr Spektralbänder geliefert, als ein Kalibrierungsspektrum des Kolorimeters aufnehmen kann"
     IDS_REC709aREDREF       "Rec709 (75%) Rot Referenz"
     IDS_REC709aGREENREF     "Rec709 (75%) Grün Referenz"
     IDS_REC709aBLUEREF      "Rec709 (75%) Blau Referenz"
