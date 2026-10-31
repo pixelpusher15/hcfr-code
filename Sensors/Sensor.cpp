@@ -81,6 +81,7 @@ void CSensor::Copy(CSensor * p)
 		m_bodnerCalMatrix[k] = p->m_bodnerCalMatrix[k];
 	}
 	UpdateBodnerInverseCache();
+	m_rawlessReadings = p->m_rawlessReadings;
 	m_name = p->m_name;
 }
 
@@ -108,14 +109,22 @@ void CSensor::Serialize(CArchive& archive)
 		// silently change identity through the v1 round-trip. Document saves
 		// under the key also produce v1 sensor blocks - harmless for the
 		// default method, and the v4 document header gates old builds anyway.
+		// A v1 stream cannot say that the raw-less readings are stranded either
+		// (it would reload as "they embody the matrix" and the next matrix
+		// recalibration would compose onto them), so that state also forces v2.
 		int version = ( m_calibrationMethod == CALIB_HCFR_DEFAULT
+		             && m_rawlessReadings.ComposeOntoRawless()
 		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
-						? 1 : 2;
+						? 1 : 3;
 		archive << version;
 		archive << m_calibrationTime;
 		if ( version >= 2 )
 		{
 			archive << m_calibrationMethod;
+			// v3 (this branch) adds the raw-less state after the method. v2 files
+			// were written by earlier builds of this branch; they are still read.
+			BOOL bRawlessEmbody = m_rawlessReadings.Get() ? TRUE : FALSE;
+			archive << bRawlessEmbody;
 			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 			{
 				for ( int k = 0; k < 3; k++ )
@@ -137,6 +146,18 @@ void CSensor::Serialize(CArchive& archive)
 		if ( version >= 2 )
 		{
 			archive >> m_calibrationMethod;
+			if ( version >= 3 )
+			{
+				BOOL bRawlessEmbody;
+				archive >> bRawlessEmbody;
+				m_rawlessReadings.Set( bRawlessEmbody != FALSE );
+			}
+			else
+			{
+				// v2 (earlier builds of this branch) carried no state: a Bodner
+				// sensor's raw-less readings are stranded, a matrix sensor's embody it.
+				m_rawlessReadings.Set( m_calibrationMethod != CALIB_BODNER_THREEMATRIX );
+			}
 			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 			{
 				for ( int k = 0; k < 3; k++ )
@@ -169,6 +190,8 @@ void CSensor::Serialize(CArchive& archive)
 				legacyOnly = ( GetConfig()->GetProfileInt("Advanced","CalibrationMethod",-1) == -1 )
 					? GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0) : 0;
 			m_calibrationMethod = legacyOnly ? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
+			// Written by a single-matrix build: every reading embodies the stored matrix.
+			m_rawlessReadings.Set( true );
 		}
 		// Loaded (v2 Bodner) or defaulted matrices either way: refresh the
 		// sub-gamut inverse cache for this deserialized state.

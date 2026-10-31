@@ -802,6 +802,47 @@ enum CalibrationMatrixMethod
 	CALIB_FCMM_NO_LUM			= 3		// NIST Four-Color Method (FCMM), chromaticity only - no luminance scaling
 };
 
+// Whether the stored readings that carry no raw sensor value (recorded before
+// raw capture existed, or edited by hand) still embody the sensor's CURRENT
+// single correction matrix. Only then may a matrix recalibration move them by
+// composing delta = new * inverse(current) onto them - the bComposeLegacy
+// argument of CMeasure::ApplySensorAdjustmentMatrix; otherwise they are left as
+// they are and counted in the skipped-readings notice.
+//
+// This is state, not something the previous calibration method can answer. A
+// Bodner fit, a spectral correction applied with "leave the measurements as
+// they are", and a matrix written without walking the readings (DDE
+// SetSensorMatrix) each leave them embodying a matrix the sensor no longer has,
+// and every later matrix recalibration skips them again, so they stay that way.
+// The rule that keyed on "the previous method was single-matrix" saw only the
+// first of those and forgot it after one recalibration. CSensor keeps one of
+// these and stores it in its stream (version 2).
+class RawlessReadingsState
+{
+public:
+	RawlessReadingsState() : m_embodyCurrentMatrix(true) {}
+	bool ComposeOntoRawless() const { return m_embodyCurrentMatrix; }
+	// A Bodner correction was installed: its single matrix is identity and its
+	// walk skipped every raw-less reading.
+	void BodnerInstalled() { m_embodyCurrentMatrix = false; }
+	// A spectral correction replaced the matrix (now identity) and the user chose
+	// to leave the stored readings as they were.
+	void SpectralLeft() { m_embodyCurrentMatrix = false; }
+	// The single matrix was replaced and no reading was recomputed.
+	void MatrixSetWithoutWalk() { m_embodyCurrentMatrix = false; }
+	// A single-matrix recalibration walked the readings with ComposeOntoRawless()
+	// and skipped nSkipped raw-less ones. Composed readings embody the new matrix
+	// and skipped ones still do not, so the answer stands - unless the walk found
+	// none to skip: then nothing is stranded and every reading embodies the new
+	// matrix. A Bodner walk never re-arms it (BodnerInstalled): a reading edited
+	// under Bodner embodies the sub-gamut correction, not the identity matrix.
+	void SingleMatrixWalked(int nSkipped) { if ( nSkipped == 0 ) m_embodyCurrentMatrix = true; }
+	bool Get() const { return m_embodyCurrentMatrix; }
+	void Set(bool b) { m_embodyCurrentMatrix = b; }
+private:
+	bool m_embodyCurrentMatrix;
+};
+
 // Builds the three Bodner sub-gamut matrices (index 0=rgw, 1=gbw, 2=rbw) from the
 // four measured/reference primaries (index 0=R,1=G,2=B,3=W). outRawMatrix[k] holds
 // the raw (uncorrected) primary matrix for sub-gamut k, used both to build

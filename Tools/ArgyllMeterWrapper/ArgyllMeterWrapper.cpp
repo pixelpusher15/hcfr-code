@@ -176,7 +176,8 @@ ArgyllMeterWrapper::ArgyllMeterWrapper(_inst* meter) :
     m_meter(meter),
     m_nextCalibration(0),
     m_meterType(meter->get_itype(meter)),
-	m_Adapt(0)
+	m_Adapt(0),
+    m_displayType(-1)	// no display type selected yet (resetSpectralSample reads it)
     
 {
 }
@@ -488,6 +489,24 @@ const char* ArgyllMeterWrapper::getDisplayTypeText(int displayModeIndex)
 int ArgyllMeterWrapper::getDisplayType() const
 {
     return m_displayType;
+}
+
+// Index of the entry the driver flags inst_dtflags_default in its display type
+// list, or 0 when it lists none (an i1d3 with its diffuser over the sensor lists
+// no types at all: i1d3_get_disptypesel returns 0 entries while p->dpos is set).
+int ArgyllMeterWrapper::getDefaultDisplayType()
+{
+    checkMeterIsInitialized();
+    inst_disptypesel* displayTypes = NULL;
+    int numItems = 0;
+    if (m_meter->get_disptypesel(m_meter, &numItems, &displayTypes, 0, 0) != inst_ok || displayTypes == NULL)
+        return 0;
+    for (int i = 0; i < numItems; i++)
+    {
+        if (displayTypes[i].flags & inst_dtflags_default)
+            return i;
+    }
+    return 0;
 }
 
 int ArgyllMeterWrapper::getReadingType() const
@@ -974,11 +993,50 @@ void ArgyllMeterWrapper::resetSpectralSample()
 {
     // reset the current description
     m_SampleDescription.clear();
-	inst_code instCode;
-	instCode=inst_ok;
-//    inst_code instCode = m_meter->col_cal_spec_set(m_meter, 0, 0);
-    //drop through this for now, it breaks refresh cal for d3 when user initiates using calibration button
-	//if user goes from a known ccss to none this will be a problem
+
+    // Take the samples out of the driver too. Leaving them to the next Init's
+    // setDisplayType was not enough: Init skips that call when HCFR holds no valid
+    // display type (the -1 an empty Display Type combo stores), and then "None"
+    // was shown while every reading stayed ccss-corrected for the session.
+    //
+    // A spectro never holds samples: it has no inst2_ccss capability,
+    // loadSpectralSample refuses it, and its col_cal_spec_set is inst.c's stub
+    // returning inst_unsupported - so there is nothing to clear. Nor does a driver
+    // that was never initialized (samples go in only after init: col_cal_spec_set
+    // returns inst_no_init before it); test that first, because the capability
+    // query below would otherwise connect and start the meter just to clear it.
+    if (m_meter == NULL || !m_meter->inited)
+        return;
+    if (!doesMeterSupportSpectralSamples())
+        return;
+
+    inst_code instCode;
+    int numTypes(getNumberOfDisplayTypes());
+    if (numTypes > 0 && m_displayType >= 0 && m_displayType < numTypes)
+    {
+        // Re-select the display type the meter is on. For the i1d3 that is
+        // set_disp_type, which for a native or ccmx entry runs i1d3_set_matcal
+        // (frees p->samples) and set_cal, and for an installed-ccss entry puts
+        // that entry's own samples back (i1d3_set_speccal); the Spyder's
+        // set_disp_type does the same (spyd2_set_matcal / spyd2_set_speccal).
+        // Either way the browsed samples are gone. It keeps the user's own type
+        // and, because the type's refresh mode is unchanged, update_refmode
+        // leaves the refresh calibration valid - the reason the old blanket
+        // col_cal_spec_set(NULL) call here was commented out ("breaks refresh
+        // cal for d3"): that one goes to the DEFAULT type instead.
+        instCode = m_meter->set_disptype(m_meter, m_displayType);
+    }
+    else
+    {
+        // No valid type to re-select (none set, or the list is empty): ask the
+        // driver for its default. i1d3_col_cal_spec_set and spyd2_col_cal_spec_set
+        // with NULL samples call set_default_disp_type, which frees the samples
+        // through set_disp_type as above. The refresh calibration survives only
+        // if the default type has the same refresh mode.
+        disptech dtech = disptech_unknown;
+        m_meter->get_disptechi(m_meter, &dtech, NULL, NULL);
+        instCode = m_meter->col_cal_spec_set(m_meter, dtech, NULL, 0);
+    }
 	if (instCode != inst_ok) 
     {
         std::string errorMessage("Resetting Colorimeter Calibration Spectral Samples failed with error :'");

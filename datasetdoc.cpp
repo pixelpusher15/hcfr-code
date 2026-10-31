@@ -1432,6 +1432,20 @@ static void ShowBodnerSkipCount(int nSkipped)
 	GetColorApp()->InMeasureMessageBox( strSkipMsg, strSkipTitle, MB_OK | MB_ICONINFORMATION );
 }
 
+// Every single-matrix recalibration of the stored readings. A reading without a
+// raw value takes the delta only while it embodies the sensor's current matrix -
+// the sensor's RawlessReadingsState (Color.h) answers that for every entrance
+// (Bodner, a spectral "leave them", a matrix written without a walk), where the
+// previous calibration method could only answer for the first. The walk's own
+// result then updates that state, and its skips are reported.
+static void RecalibrateSingleMatrix(CMeasure & measure, CSensor * pSensor, const Matrix & deltaMatrix, const Matrix & fullMatrix)
+{
+	int nSkipped = measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix,
+		pSensor->RawlessReadings().ComposeOntoRawless() );
+	pSensor->RawlessReadings().SingleMatrixWalked( nSkipped );
+	ShowBodnerSkipCount( nSkipped );
+}
+
 void CDataSetDoc::OnConfigureSensor() 
 {
 	if ( IsMeasureSweepActive() ) return;
@@ -1464,8 +1478,11 @@ void CDataSetDoc::OnConfigureSensor()
         {
             // Spectral correction applied; user chose to keep prior measurements
             // as they are. Don't recompute them - just clear the saved baseline so
-            // a later config change starts clean.
+            // a later config change starts clean. The raw-less ones now embody a
+            // matrix the sensor no longer has: no later recalibration may compose
+            // onto them.
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+            m_pSensor->RawlessReadings().SpectralLeft();
         }
         else if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
         {
@@ -1476,6 +1493,7 @@ void CDataSetDoc::OnConfigureSensor()
             // any Sensor -> Configure change.
             int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+            m_pSensor->RawlessReadings().BodnerInstalled();
             ShowBodnerSkipCount ( nSkipped );
         }
         else
@@ -1486,8 +1504,11 @@ void CDataSetDoc::OnConfigureSensor()
             // to the previously configured matrix (saved into SensorMatrixMod above).
             Matrix fullMatrix = m_pSensor->GetSensorMatrix();
             Matrix deltaMatrix = fullMatrix * m_pSensor->GetSensorMatrixMod().GetInverse();
-            ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix,
-                m_pSensor->CalibrationMethodAtBeginConfigure() != CALIB_BODNER_THREEMATRIX ) );
+            // A spectral "strip" lands here too (fullMatrix identity): from a matrix
+            // sensor the raw-less readings take inverse(old matrix) and embody the
+            // identity the sensor now has; from Bodner they were already stranded and
+            // are skipped again.
+            RecalibrateSingleMatrix( m_measure, m_pSensor, deltaMatrix, fullMatrix );
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
         }
 		}
@@ -2116,7 +2137,6 @@ void CDataSetDoc::OnCalibrationManual()
 
             ColorXYZ white(measuredColor[3].GetXYZValue());
             Matrix oldMatrix = m_pSensor->GetSensorMatrix();
-            int prevMethod = m_pSensor->GetCalibrationMethod();	// decides what the raw-less readings embody
             int calibrationMethod = GetConfig () -> m_calibrationMethod;
 
             if ( calibrationMethod == CALIB_BODNER_THREEMATRIX )
@@ -2156,6 +2176,7 @@ void CDataSetDoc::OnCalibrationManual()
                     m_pSensor->SetSensorMatrix(Matrix::IdentityMatrix(3));
                     m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
                     int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
+                    m_pSensor->RawlessReadings().BodnerInstalled();
                     SetModifiedFlag(TRUE);
 
                     ShowBodnerSkipCount ( nSkipped );
@@ -2188,7 +2209,7 @@ void CDataSetDoc::OnCalibrationManual()
                 {
                     // Ok: set adjustment matrix
                     Matrix newMatrix = ConvMatrix * oldMatrix;
-                    ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( ConvMatrix, newMatrix, prevMethod != CALIB_BODNER_THREEMATRIX ) );
+                    RecalibrateSingleMatrix( m_measure, m_pSensor, ConvMatrix, newMatrix );
                     if ( m_pSensor->HasSpectralCorrection() )	// see the Bodner branch above
                         m_pSensor->ClearSpectralCorrection();
                     m_pSensor->SetSensorMatrix(newMatrix);
@@ -2567,7 +2588,6 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 
     // check that measure matrix is inversible
     Matrix oldMatrix = m_pSensor->GetSensorMatrix();
-    int prevMethod = m_pSensor->GetCalibrationMethod();	// decides what the raw-less readings embody
     int calibrationMethod = GetConfig () -> m_calibrationMethod;
 
     // Select a white that is genuinely MEASURED on the test side (carries a raw
@@ -2577,20 +2597,33 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
     // the reference white from the SAME source so test and reference whites
     // correspond (whiteRefRaw); the no-raw fallback keeps the original
     // Prime-preferred whiteRef pairing untouched (legacy data, old behavior).
+    //
+    // The reference side must be a white the reference document actually MEASURED.
+    // isValid() cannot tell: the constructor's placeholder (nominal D65 at the target
+    // luminance) passes it, and Measure.h says to ask IsPrimeWhiteMeasured /
+    // IsOnOffWhiteMeasured instead. A reference document whose primaries came from
+    // free measures, or from a run with no white added, holds only that placeholder,
+    // and pairing with it fitted Bodner / FCMM to a nominal white with no notice.
+    // So a source pairs only when the test side has its raw reading AND the
+    // reference side measured the same source; Prime is tried first, then On/Off,
+    // and with neither there is no raw white pairing (Bodner refuses below, FCMM
+    // takes the legacy pairing).
     ColorXYZ whiteRaw = white;   // valid default; only used when whiteHasRaw
     ColorXYZ whiteRefRaw = whiteRef;   // reference white paired with whiteRaw
     bool whiteHasRaw = true;
-    if ( m_measure.GetPrimeWhite().HasRawXYZValue() )
+    if ( m_measure.GetPrimeWhite().HasRawXYZValue()
+      && pDataRef->m_measure.IsPrimeWhiteMeasured()
+      && pDataRef->m_measure.GetPrimeWhite().GetXYZValue().isValid() )
     {
         whiteRaw = m_measure.GetPrimeWhite().GetRawXYZValue();
-        if ( pDataRef->m_measure.GetPrimeWhite().GetXYZValue().isValid() )
-            whiteRefRaw = pDataRef->m_measure.GetPrimeWhite().GetXYZValue();
+        whiteRefRaw = pDataRef->m_measure.GetPrimeWhite().GetXYZValue();
     }
-    else if ( m_measure.GetOnOffWhite().HasRawXYZValue() )
+    else if ( m_measure.GetOnOffWhite().HasRawXYZValue()
+           && pDataRef->m_measure.IsOnOffWhiteMeasured()
+           && pDataRef->m_measure.GetOnOffWhite().GetXYZValue().isValid() )
     {
         whiteRaw = m_measure.GetOnOffWhite().GetRawXYZValue();
-        if ( pDataRef->m_measure.GetOnOffWhite().GetXYZValue().isValid() )
-            whiteRefRaw = pDataRef->m_measure.GetOnOffWhite().GetXYZValue();
+        whiteRefRaw = pDataRef->m_measure.GetOnOffWhite().GetXYZValue();
     }
     else
     {
@@ -2642,6 +2675,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             m_pSensor->SetSensorMatrix(Matrix::IdentityMatrix(3));
             m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
             int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
+            m_pSensor->RawlessReadings().BodnerInstalled();
             SetModifiedFlag(TRUE);
             bOk = TRUE;
 
@@ -2688,11 +2722,13 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             // With raw available the correction is absolute (maps raw -> reference),
             // so it replaces the sensor matrix; ReapplyAdjustmentMatrix applies
             // fullMatrix * raw. Without raw, keep the incremental compose.
-            if ( prevMethod == CALIB_BODNER_THREEMATRIX && !haveRaw )
+            if ( !m_pSensor->RawlessReadings().ComposeOntoRawless() && !haveRaw )
             {
-                // Leaving Bodner needs raw primaries: its single matrix is identity and the
-                // raw-less readings embody an untracked one, so a matrix fitted on them is
-                // wrong for the raw readings it would then be applied to, and vice versa.
+                // Raw-less primaries that embody a correction the sensor no longer has
+                // (Bodner's, or a matrix a spectral correction replaced with "leave them")
+                // cannot be fitted on: the matrix would be wrong for the raw readings it
+                // is then applied to, and vice versa. Keyed on the sensor's state, not on
+                // the previous method, so every way into that state is refused.
                 GetColorApp()->InMeasureMessageBox( _S(IDS_CALIB_NEED_RAW_PRIMARIES), _S(IDS_ERROR), MB_OK | MB_ICONERROR );
                 return FALSE;
             }
@@ -2704,7 +2740,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             // legacy (no-raw) measurements get ConvMatrix composed onto a value already corrected by
             // oldMatrix (double correction). Deriving it from newMatrix is correct in both branches.
             Matrix deltaMatrix = newMatrix * oldMatrix.GetInverse();
-            ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, newMatrix, prevMethod != CALIB_BODNER_THREEMATRIX ) );
+            RecalibrateSingleMatrix( m_measure, m_pSensor, deltaMatrix, newMatrix );
             if ( m_pSensor->HasSpectralCorrection() )	// see the Bodner branch above
                 m_pSensor->ClearSpectralCorrection();
             m_pSensor->SetSensorMatrix(newMatrix);
@@ -5480,7 +5516,6 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		// guard as manual and existing-reference calibration.
 		BOOL	bLoaded = TRUE;
 		bool	bClearSpectral = false;
-		int		prevMethod = m_pSensor->GetCalibrationMethod();	// before the file replaces it
 
 		if(page.m_sensorTrainingMode != 1)
 		{
@@ -5513,11 +5548,11 @@ void CDataSetDoc::OnLoadCalibrationFile()
 			if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
 			{
 				int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+				m_pSensor->RawlessReadings().BodnerInstalled();
 				ShowBodnerSkipCount ( nSkipped );
 			}
 			else
-				ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix(),
-					prevMethod != CALIB_BODNER_THREEMATRIX ) );
+				RecalibrateSingleMatrix( m_measure, m_pSensor, m_pSensor->GetSensorMatrix(), m_pSensor->GetSensorMatrix() );
 			UpdateAllViews ( NULL, UPD_EVERYTHING );
 			SetModifiedFlag(TRUE);
 		}

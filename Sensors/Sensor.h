@@ -53,6 +53,11 @@ protected:
 	// every reading, and Gauss-Jordan per reading is measurably slow.
 	Matrix m_bodnerRawInverse[3];
 	bool   m_bodnerRawInvertible[3];
+	// Whether the document's raw-less readings still embody m_sensorToXYZMatrix
+	// (see RawlessReadingsState, Color.h). It describes the readings this sensor
+	// corrected, so it is stored with the document (CSensor stream v3) and a
+	// training file does not replace it (COneDeviceSensor::LoadCalibrationFile).
+	RawlessReadingsState m_rawlessReadings;
 	// Configure() snapshot (BeginConfigure/CancelConfigure)
 	Matrix m_cfgSnapMatrix;
 	Matrix m_cfgSnapBodnerRaw[3], m_cfgSnapBodnerCal[3];
@@ -117,6 +122,7 @@ public:
 		}
 		UpdateBodnerInverseCache();
 	}
+	RawlessReadingsState & RawlessReadings() { return m_rawlessReadings; }
 	const Matrix * GetBodnerRawMatrices() const { return m_bodnerRawMatrix; }
 	const Matrix * GetBodnerCalMatrices() const { return m_bodnerCalMatrix; }
 

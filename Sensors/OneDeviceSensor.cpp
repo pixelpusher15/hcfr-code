@@ -461,6 +461,11 @@ BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 	int					nPreviousMethod = m_calibrationMethod;
 	Matrix				previousBodnerRaw[3];
 	Matrix				previousBodnerCal[3];
+	// Not the file's to set, success or failure: it describes the readings in
+	// the document this sensor belongs to, and a training file carries none (it
+	// holds whatever the sensor that saved it had). The caller's recalibration
+	// walk updates it.
+	RawlessReadingsState	previousRawless = m_rawlessReadings;
 	BOOL				bLoaded = FALSE;
 
 	for ( int k = 0; k < 3; k++ )
@@ -514,6 +519,7 @@ BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 	}
 	END_CATCH_ALL
 
+	m_rawlessReadings = previousRawless;
 	return bLoaded;
 }
 

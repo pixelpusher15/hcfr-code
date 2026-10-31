@@ -49,8 +49,10 @@ public:
 	bool createFromTI3(const std::string& ti3Path);
 	bool createFromMeasurements(const CColor spectralReadings[], const int nReadings);
 	// Build the sample set from a spectral-correlation .csv (N rows, each 401
-	// comma-separated spectral values at 380..780nm @ 1nm). Tolerates a UTF-8 BOM,
-	// a trailing comma, and short rows (zero-padded); skips empty/near-zero rows.
+	// comma-separated spectral values at 380..780nm @ 1nm). Tolerates a UTF-8 BOM
+	// and a trailing comma; skips empty/near-zero rows. A row with fewer or more
+	// than 401 values throws std::logic_error (a short row is a file at another
+	// resolution, not a spectrum to pad with zeros).
 	bool createFromCorrelationCSV(const std::string& csvPath);
 
     // Get information about the sample. Currently we're only using getDescription()

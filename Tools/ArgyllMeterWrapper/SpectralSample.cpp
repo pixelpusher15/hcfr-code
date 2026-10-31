@@ -73,7 +73,7 @@ SpectralSample::SpectralSample(const SpectralSample& s) :
     if (s.m_ccss != NULL)
     {
 //        m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, s.m_ccss->tech, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, s.m_ccss->samples, s.m_ccss->no_samp);
-        m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, x, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, NULL, s.m_ccss->samples, s.m_ccss->no_samp);
+        m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, disptech_unknown, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, NULL, s.m_ccss->samples, s.m_ccss->no_samp);
     }
 }
 
@@ -108,7 +108,7 @@ SpectralSample& SpectralSample::operator=(const SpectralSample& s)
         if (s.m_ccss != NULL)
         {
 //            m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, s.m_ccss->tech, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, s.m_ccss->samples, s.m_ccss->no_samp);
-            m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, x, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, NULL, s.m_ccss->samples, s.m_ccss->no_samp);
+            m_ccss->set_ccss(m_ccss, s.m_ccss->orig, s.m_ccss->crdate, s.m_ccss->desc, s.m_ccss->disp, disptech_unknown, s.m_ccss->refrmode, s.m_ccss->sel, s.m_ccss->ref, NULL, s.m_ccss->samples, s.m_ccss->no_samp);
         }
     }
     return *this;
@@ -440,7 +440,7 @@ bool SpectralSample::createFromTI3(const std::string& ti3Path)
 		bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR ccss generator", NULL, 	
 									(char *)m_Description.c_str(), 
 									(char *)m_Display.c_str(), 
-									x, 
+									disptech_unknown, 
                                     -1,
                                     NULL,
 									(char *)m_RefInstrument.c_str(), NULL,
@@ -532,7 +532,7 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 	bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR ccss generator", NULL, 	
 									(char *)m_Description.c_str(), 
 									(char *)m_Display.c_str(), 
-									x, 
+									disptech_unknown, 
                                     -1,
                                     NULL,
 									(char *)m_RefInstrument.c_str(), NULL,
@@ -667,11 +667,23 @@ bool SpectralSample::createFromCorrelationCSV(const std::string& csvPath)
 		samples[k].spec_n = BANDS;
 		samples[k].spec_wl_short = START_NM;
 		samples[k].spec_wl_long = END_NM;
-		samples[k].norm = 100.0;			// spec[] below is on a 0..100 scale; Argyll
-											// divides by norm when integrating the spectrum.
-											// Leaving it uninitialized yields a degenerate
-											// sensor-RGB matrix and a spurious "too few
-											// calibration samples" error on col_cal_spec_set.
+		// norm 1.0, as every Argyll .ccss carries (SPECTRAL_NORM, written from
+		// samples[0].norm by ccss.c and defaulted to 1.0 on read). Argyll divides by
+		// norm only where it integrates through getval_xspec (xspect.c, xsp2cie
+		// convert); the Spyder fit builds its XYZ that way (spyd2.c:2153) but its
+		// sensor sums and its extra white samples with the unnormalized
+		// value_xspect (spyd2.c:2161, :2175, :2183), so any other norm skews that
+		// fit. (The i1d3 fit is norm-invariant: XYZ and sensor RGB both go through
+		// convert, i1d3.c:2565/:2576.) A zero norm - the value-initialized one -
+		// divides by zero and fails col_cal_spec_set with "too few calibration
+		// samples".
+		//
+		// The 0..100 scaling of spec[] below needs no matching norm: it is one
+		// factor on every sample, and both fits are linear in the samples (a
+		// least-squares XYZ-from-RGB matrix, the Spyder's extra samples built from
+		// the same set's envelope), so the matrix does not depend on it. Argyll's
+		// own sets are absolute radiance, around 1e-3..1e-1 (Install/color).
+		samples[k].norm = 1.0;
 		for (int j = 0; j < BANDS && j < XSPECT_MAX_BANDS; ++j)
 			samples[k].spec[j] = r[j] * 100.0 / gmax;	// normalize the set to a common max
 	}
@@ -679,7 +691,7 @@ bool SpectralSample::createFromCorrelationCSV(const std::string& csvPath)
 	bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR correlation import", NULL,
 									(char *)m_Description.c_str(),
 									(char *)m_Display.c_str(),
-									x,
+									disptech_unknown,
 									-1,
 									NULL,
 									(char *)m_RefInstrument.c_str(), NULL,

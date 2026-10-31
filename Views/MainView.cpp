@@ -2661,6 +2661,18 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				 else if ( m_profilePane.GetSafeHwnd () )
 					m_profilePane.RefreshState ();
 				 break;
+
+			case UPD_EVERYTHING:
+				 // A recalibration rewrites the profile cube in place and then sends
+				 // UPD_EVERYTHING; the pane's cached dE summary is dropped only by
+				 // RefreshState. Do it here rather than have the recalibration send
+				 // UPD_DISPLAYPROFILE: that hint switches the view to the profile
+				 // page (above), which a recalibration started from the grid must
+				 // not do. Off the profile page there is nothing to refresh -
+				 // switching to it runs RefreshState (OnSelchangeComboMode).
+				 if ( m_displayMode == 13 && m_profilePane.GetSafeHwnd () )
+					m_profilePane.RefreshState ();
+				 break;
 		}
 
 		if ( nForceMode >= 0 )

@@ -6821,6 +6821,11 @@ int CMeasure::ApplySensorAdjustmentMatrix(const Matrix& deltaMatrix, const Matri
 		for ( int c = 0; c < 6; c++ )
 			for ( size_t i = 0; i < m_satLevelStore[s].sat[c].size(); i++ )
 				ReapplyAdjustmentMatrix(m_satLevelStore[s].sat[c][i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	// The walk rewrote every profile cube entry: honor the m_profileGeneration
+	// contract (Measure.h), or Color3DView keeps the gamut volume and coverage it
+	// cached for the cube as it was before the recalibration.
+	if ( m_profileMeasureArray.GetSize() > 0 )
+		m_profileGeneration++;
 	return nSkipped;
 }
 
@@ -6885,6 +6890,9 @@ int CMeasure::ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Ma
 		for ( int c = 0; c < 6; c++ )
 			for ( size_t i = 0; i < m_satLevelStore[s].sat[c].size(); i++ )
 				BODNER_REAPPLY(m_satLevelStore[s].sat[c][i]);
+	// Same contract as ApplySensorAdjustmentMatrix: the cube was rewritten.
+	if ( m_profileMeasureArray.GetSize() > 0 )
+		m_profileGeneration++;
 
 	#undef BODNER_REAPPLY
 	return nSkipped;
