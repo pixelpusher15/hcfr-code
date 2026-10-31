@@ -141,13 +141,19 @@ class CCIEChartGrapher
 	BOOL	m_bgWhite, m_bgUv, m_bgAb, m_bgShowBg, m_bgShowDE;
 	double	m_bgWhitex, m_bgWhitey;
 
-	// Gamut-coverage chip staleness tracking: the standard and measured
-	// primaries the last shown coverage % was computed for. When the gamut is
-	// changed but the primaries have not been re-measured, the percentages are
-	// hidden (the gamut-name chip still shows).
-	BOOL			m_covValid;
+	// Gamut-coverage chip staleness tracking, one cache per metric: the
+	// standard and the measured data the last shown coverage % was computed
+	// for. When the gamut is changed but that data has not been re-measured,
+	// the percentage is hidden (the gamut-name chip still shows). xy/u'v'
+	// depend on the primaries only; a*b* on the primaries and secondaries,
+	// so it keeps its own copy of the primaries (see DrawCoverageChips).
+	BOOL			m_covValid;			// xy/u'v'
 	ColorStandard	m_covStandard;
 	ColorXYZ		m_covPrimaries[3];
+	BOOL			m_covAbValid;		// a*b*
+	ColorStandard	m_covAbStandard;
+	ColorXYZ		m_covAbPrimaries[3];
+	ColorXYZ		m_covSecondaries[3];	// yellow, cyan, magenta
 
 	// Zoom handling, for window mode
 	UINT	m_ZoomFactor;	// Zoom factor = 1000 for 1:1 scale, 2000 for 2x zoom, and so on
