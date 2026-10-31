@@ -995,7 +995,7 @@ static void RunT11()
 //    re-entering getL_EOTF with mode 5 and cBT2390 = TRUE, which meant the
 //    build had to survive the guards at the top of that function and the
 //    `ToneMap && mode == 5` promotion to case 10. Two ways through without a
-//    table: a valx of 0 tripped the `valx == 0 && mode > 4` early return and
+//    table: a valx of 0 tripped the `valx == 0` PQ early return and
 //    came back BEFORE the cBT2390 branch ran, and a caller arriving at mode
 //    -10 with ToneMap false skipped the promotion entirely. Either way the
 //    vectors held whatever they held - empty on the first such call - and the
@@ -1106,6 +1106,50 @@ static void RunT12()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T13 - HLG black oracle (pure assertion, no golden file). At a signal of 0
+// HLG returns its OOTF black lift, m_MinTL / White.Y (BT.2100: F_D = L_B at
+// E' = 0). It must be exact there, finite for a system gamma below 1 (the
+// OOTF would take pow(0, gamma - 1)), independent of PQ's tone-mapping
+// switch, continuous with the curve just above 0, and a negative signal
+// must land on the same value. The accuracy harness pins TargetMinL to 0
+// and skips gray 0%, so this is the only test that reaches it.
+//////////////////////////////////////////////////////////////////////////
+static void RunT13()
+{
+    printf("T13 HLG black oracle...\n");
+
+    static const double whites[] = { 100.0, 227.66, 1000.0 };
+    static const double minTLs[] = { 0.0, 0.005, 0.05 };
+    static const double gammas[] = { 0.93, 1.0, 1.2, 1.4 };
+
+    int cases = 0;
+    for (int w = 0; w < _countof(whites); w++)
+    for (int m = 0; m < _countof(minTLs); m++)
+    for (int g = 0; g < _countof(gammas); g++)
+    for (int tm = 0; tm < 2; tm++)
+    {
+        const double Y = whites[w];
+        CColor White(ColorXYZ(0.9505 * Y, Y, 1.089 * Y));
+        const double want = minTLs[m] / Y;
+        const bool toneMap = (tm != 0);
+
+        const double at0 = getL_EOTF(0.0, White, noDataColor, 0.0, 0.0, 7, 100.0, 0.0, 1000.0,
+                                     minTLs[m], Y, toneMap, false, gammas[g], 0.0, 0.0, 0.0);
+        const double neg = getL_EOTF(-0.1, White, noDataColor, 0.0, 0.0, 7, 100.0, 0.0, 1000.0,
+                                     minTLs[m], Y, toneMap, false, gammas[g], 0.0, 0.0, 0.0);
+        const double above = getL_EOTF(1e-6, White, noDataColor, 0.0, 0.0, 7, 100.0, 0.0, 1000.0,
+                                       minTLs[m], Y, toneMap, false, gammas[g], 0.0, 0.0, 0.0);
+
+        if (!(at0 == at0) || at0 != want)
+            Fail("T13 white=%g minTL=%g gamma=%g tm=%d: f(0)=%.17g, want %.17g", Y, minTLs[m], gammas[g], tm, at0, want);
+        if (!(neg == neg) || neg != want)
+            Fail("T13 white=%g minTL=%g gamma=%g tm=%d: f(-0.1)=%.17g, want %.17g", Y, minTLs[m], gammas[g], tm, neg, want);
+        if (!(above == above) || fabs(above - at0) > 1e-9)
+            Fail("T13 white=%g minTL=%g gamma=%g tm=%d: f(1e-6)=%.17g not continuous with f(0)=%.17g", Y, minTLs[m], gammas[g], tm, above, at0);
+        cases++;
+    }
+    printf("  %d HLG black cases checked\n", cases);
+}
 
 int main(int argc, char* argv[])
 {
@@ -1134,6 +1178,7 @@ int main(int argc, char* argv[])
     RunT10();
     RunT11();
     RunT12();
+    RunT13();
     RunT22();
 
     if (g_failures)
