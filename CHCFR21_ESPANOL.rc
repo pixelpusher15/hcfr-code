@@ -1973,6 +1973,7 @@ BEGIN
         MENUITEM "Mostrar Delta E = 3 y 10",  IDM_CIE_SHOWDELTAE
         MENUITEM "Modo CIE u'v'",               IDM_CIE_UV
         MENUITEM "Modo CIE a*b*",               IDM_CIE_AB
+        MENUITEM "Mostrar cobertura % tras cambiar el gamut", IDM_CIE_COV_ALWAYS_RECALC
         MENUITEM "Peor 10%",                   IDM_CIE_WORST10
         MENUITEM "Mostrar las referencias",          IDM_CIE_SHOWREFERENCES
         MENUITEM "Guardar...",                     IDM_CIE_SAVECHART

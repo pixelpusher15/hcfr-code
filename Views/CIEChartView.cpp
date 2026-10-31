@@ -158,6 +158,7 @@ CCIEChartGrapher::CCIEChartGrapher()
 	m_datarefMagentaBitmap.LoadBitmap(IDB_REFCROSS_MAGENTA);
 
 	m_doDisplayBackground=GetConfig()->GetProfileInt("CIE Chart","Display Background",TRUE);
+	m_doCovAlwaysRecalc=GetConfig()->GetProfileInt("CIE Chart","Coverage Always Recalc",FALSE);
 	m_doDisplayDeltaERef=GetConfig()->GetProfileInt("CIE Chart","Display Delta E",FALSE);
 	m_doShowReferences=GetConfig()->GetProfileInt("CIE Chart","Show References",TRUE);
 	m_doShowDataRef=GetConfig()->GetProfileInt("CIE Chart","Show Reference Data",TRUE);
@@ -778,10 +779,13 @@ static bool SameColors3 ( const ColorXYZ & c0, const ColorXYZ & c1, const ColorX
 // primaries and the secondaries -- so it's possible for one to show while
 // the other is still hidden if only some patches have been re-measured.
 // a*b* is also not shown in PQ mode or without a measured white (below).
+// The "Show coverage % after gamut change" toggle (m_doCovAlwaysRecalc)
+// overrides that hiding on screen only (bForExport FALSE); a baked export
+// keeps the hiding. The toggle never reaches the cache refresh.
 // The row anchors to rcAnchor's top-right: the client rect when overlaid on
 // screen paints (OnDraw calls this after every blit so the chips stay pinned
 // under zoom/pan), the image rect when baked into exports.
-void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDoc * pDoc )
+void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDoc * pDoc, BOOL bForExport )
 {
 	if ( min(rcAnchor.Width(),rcAnchor.Height()) <= FX_MINSIZETOSHOW_REFDETAILS )
 		return;
@@ -861,8 +865,13 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 		YWhiteAB = pDoc->GetMeasure()->GetOnOffWhite()[1];
 	BOOL abAllowed = GetConfig()->m_GammaOffsetType != 5 && YWhiteAB > 0.0;
 
-	BOOL showXYUV = hasPrimaries && !xyuvStale;
-	BOOL showAB   = hasPrimaries && hasSecondariesForAb && abAllowed && !abStale;
+	// The toggle bypasses the stale-hide here and nowhere else: the cache
+	// refresh above does not read it, so turning it off again hides exactly
+	// what would have been hidden had it never been on; and an export never
+	// bypasses, so a saved chart only carries numbers the default rule shows.
+	BOOL bBypass  = m_doCovAlwaysRecalc && !bForExport;
+	BOOL showXYUV = hasPrimaries && (bBypass || !xyuvStale);
+	BOOL showAB   = hasPrimaries && hasSecondariesForAb && abAllowed && (bBypass || !abStale);
 	double covXY = 0.0, covUV = 0.0, covAB = 0.0;
 
 	if (showXYUV)
@@ -2016,7 +2025,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		// them in OnDraw after the blit instead, so they stay pinned to the
 		// window's top-right corner while the chart is zoomed or panned.
 		if ( ! pWnd )
-			DrawCoverageChips ( pDC, rect, pDoc );
+			DrawCoverageChips ( pDC, rect, pDoc, TRUE );
 
 		if(hasPrimaries && hasSecondaries && !m_bCIEab)
 		{
@@ -2916,12 +2925,14 @@ BEGIN_MESSAGE_MAP(CCIEChartView, CSavingView)
 	ON_WM_TIMER()
 	ON_WM_CONTEXTMENU()
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWBACKGROUND, OnUpdateCieShowbackground)
+	ON_UPDATE_COMMAND_UI(IDM_CIE_COV_ALWAYS_RECALC, OnUpdateCieCovAlwaysRecalc)
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWDELTAE, OnUpdateCieShowDeltaE)
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWREFERENCES, OnUpdateCieShowreferences)
 	ON_UPDATE_COMMAND_UI(IDM_LUM_GRAPH_DATAREF, OnUpdateCieGraphShowDataRef)
 	ON_COMMAND(IDM_CIE_SHOWREFERENCES, OnCieShowreferences)
 	ON_COMMAND(IDM_LUM_GRAPH_DATAREF, OnCieGraphShowDataRef)
 	ON_COMMAND(IDM_CIE_SHOWBACKGROUND, OnCieShowbackground)
+	ON_COMMAND(IDM_CIE_COV_ALWAYS_RECALC, OnCieCovAlwaysRecalc)
 	ON_COMMAND(IDM_CIE_SHOWDELTAE, OnCieShowDeltaE)
 	ON_COMMAND(IDM_CIE_SHOWGRAYSCALE, OnCieShowGrayScale)
 	ON_COMMAND(IDM_CIE_SHOWSATURATIONSCALE, OnCieShowSaturationScale)
@@ -3187,7 +3198,7 @@ void CCIEChartView::OnDraw(CDC* pDC)
 
 	// The coverage chips are not part of the retained chart, so they stay
 	// pinned to the window's top-right whatever the zoom/pan state
-	m_Grapher.DrawCoverageChips ( pOut, rect, pDoc );
+	m_Grapher.DrawCoverageChips ( pOut, rect, pDoc, FALSE );
 
 	if ( pOldOut )
 	{
@@ -3331,6 +3342,12 @@ void CCIEChartView::OnUpdateCieShowbackground(CCmdUI* pCmdUI)
 	pCmdUI->SetCheck(m_Grapher.m_doDisplayBackground);
 }
 
+void CCIEChartView::OnUpdateCieCovAlwaysRecalc(CCmdUI* pCmdUI)
+{
+	pCmdUI->Enable();
+	pCmdUI->SetCheck(m_Grapher.m_doCovAlwaysRecalc);
+}
+
 void CCIEChartView::OnUpdateCieShowDeltaE(CCmdUI* pCmdUI) 
 {
 	pCmdUI->Enable();
@@ -3403,6 +3420,13 @@ void CCIEChartView::OnCieShowbackground()
 	CRect rect;
 	GetReferenceRect(&rect);
 	m_Grapher.MakeBgBitmap(rect,GetConfig()->m_bWhiteBkgndOnScreen);
+	Invalidate(FALSE);
+}
+
+void CCIEChartView::OnCieCovAlwaysRecalc()
+{
+	m_Grapher.m_doCovAlwaysRecalc = !m_Grapher.m_doCovAlwaysRecalc;
+	GetConfig()->WriteProfileInt("CIE Chart","Coverage Always Recalc",m_Grapher.m_doCovAlwaysRecalc);
 	Invalidate(FALSE);
 }
 
