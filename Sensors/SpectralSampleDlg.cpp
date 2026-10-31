@@ -72,8 +72,19 @@ BOOL CSpectralSampleDlg::OnInitDialog()
 	// Only Argyll's own technology IDs are offered: any other text is written to the
 	// file as TECHNOLOGY "Unknown"
 	std::vector<std::string> techs = SpectralSample::getDisplayTechnologies();
+	// The box is narrower than the longest IDs ("Projector RGBCMY Filter Wheel"), so widen
+	// the drop-down list to fit them
+	CClientDC dc(&m_displayTechCtrl);
+	CFont* pOldFont = dc.SelectObject(m_displayTechCtrl.GetFont());
+	int listWidth = m_displayTechCtrl.GetDroppedWidth();
 	for (size_t i = 0; i < techs.size(); i++)
+	{
 		m_displayTechCtrl.AddString(techs[i].c_str());
+		listWidth = max(listWidth, (int)dc.GetTextExtent(techs[i].c_str()).cx
+			+ GetSystemMetrics(SM_CXVSCROLL) + 2 * GetSystemMetrics(SM_CXEDGE));
+	}
+	dc.SelectObject(pOldFont);
+	m_displayTechCtrl.SetDroppedWidth(listWidth);
 
 	m_displayTechCtrl.SetFocus();
 	m_displayNameCtrl.SetSel(-1, 0, FALSE);

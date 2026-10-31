@@ -179,6 +179,13 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 			std::string errorMessage = "Did not manage to read any spectral values!";
 			throw std::logic_error(errorMessage);
 		}
+		// spec_n is written as-is and write_ccss reads that many bands, so more than the
+		// xspect array holds would read past it
+		if (spectrum.GetRows() > XSPECT_MAX_BANDS)
+		{
+			std::string errorMessage = "Too many spectral bands for a spectral sample";
+			throw std::logic_error(errorMessage);
+		}
 		for (int i = 0; i < spectrum.GetRows(); i++)
 		{
 			if (spectrum[i] > bigv)
@@ -197,16 +204,16 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 		CSpectrum spectrum = spectralReadings[nColors].GetSpectrum();
 		double scale = 100;
 
-		// norm must be set: write_ccss saves it as SPECTRAL_NORM and Argyll divides the
-		// spectral values by it when the file is read back. The values are already scaled
-		// to 100 above, so 1.0.
+		// norm must be set: write_ccss saves it as SPECTRAL_NORM. It must be 1.0, as in the
+		// .ccss files Argyll ships: the Spyder calibration divides the sample XYZ by norm but
+		// reads the sensor response from the raw values, so any other value skews it.
 
 		samples[nColors].spec_n = spectrum.GetRows();
 		samples[nColors].spec_wl_short = spectrum.m_WaveLengthMin;
 		samples[nColors].spec_wl_long = spectrum.m_WaveLengthMax;
 		samples[nColors].norm = 1.0;
 
-		for (int nSpec = 0; nSpec < samples[nColors].spec_n && nSpec < XSPECT_MAX_BANDS; nSpec++)
+		for (int nSpec = 0; nSpec < samples[nColors].spec_n; nSpec++)
 		{
 			samples[nColors].spec[nSpec] = spectrum[nSpec];
 			samples[nColors].spec[nSpec] *= scale / bigv;
