@@ -4254,6 +4254,7 @@ BEGIN
     IDS_CALIB_METHOD_OUT_OF_SYNC "El método de calibración seleccionado en Opciones difiere del aplicado actualmente a estas medidas: no se recalcularon tras cambiar el método. La exportación reflejará el método APLICADO.\n\nPara recalcular primero, cancele y ejecute 'Crear usando medidas de referencia existentes' (o un comando de calibración).\n\n¿Continuar con la exportación?"
     IDS_BODNER_SKIPPED_FMT      "%d medida(s) sin lectura bruta del sensor (registradas antes de la captura de valores brutos, o editadas a mano) se dejaron como estaban."
     IDS_CALIB_NEED_RAW_PRIMARIES "Mida de nuevo primero los primarios y el blanco: los almacenados no tienen lectura bruta del sensor, y no se puede calcular una matriz a partir de valores con una corrección que el sensor ya no aplica (Bodner, o una matriz sustituida por una corrección espectral)."
+    IDS_CALIB_NEED_REF_WHITE    "El documento de referencia no tiene un blanco medido: mida primero su blanco (o los primarios con el blanco)."
     IDS_EXPORT_LAYOUT_MISMATCH  "No se puede añadir a este archivo: se exportó con opciones de Bruto/Estímulo distintas. Exporte a un archivo nuevo o repita la exportación con las mismas opciones que los datos existentes."
 END
 

@@ -57,6 +57,7 @@ CArgyllSensor::CArgyllSensor() :
     m_Adapt(0),
     m_DisableAIO(0)
 {
+    m_displayTypeFromIni = false;
     m_spectralApplyLeaveMeasures = FALSE;
     m_spectralCacheValid = false;
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
@@ -94,6 +95,7 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
 
     m_Adapt = GetConfig()->GetProfileInt(meterName.c_str(), "Adapt", 0);
     m_DisableAIO = GetConfig()->GetProfileInt(meterName.c_str(), "DisableAIO", 0);
+    m_displayTypeFromIni = true;
     m_spectralApplyLeaveMeasures = FALSE;
     m_spectralCacheValid = false;
 
@@ -131,6 +133,7 @@ void CArgyllSensor::Copy(CSensor * p)
     COneDeviceSensor::Copy(p);
 
     m_DisplayType = ((CArgyllSensor*)p)->m_DisplayType;
+    m_displayTypeFromIni = false;   // the source document's value, not the INI's
     m_ReadingType = ((CArgyllSensor*)p)->m_ReadingType;
     m_SpectralType = ((CArgyllSensor*)p)->m_SpectralType;
     m_intTime = ((CArgyllSensor*)p)->m_intTime;
@@ -357,15 +360,33 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
     // A -1 display type (stored by builds that let an empty combo through, in the
     // INI or in a document) means none was ever chosen: use the driver's default
     // rather than skipping setDisplayType, which left whatever the driver last
-    // had - a cleared ccss included - in place.
-    if(m_DisplayType == 0xFFFFFFFF)
+    // had - a cleared ccss included - in place. An index past the end of the
+    // current list is the same case: the list includes installed ccss/ccmx
+    // entries, so a stored index goes stale when files are removed or a .chc
+    // comes from a machine with more of them, and setDisplayType ignores it
+    // silently (ArgyllMeterWrapper.cpp) - leaving whatever another document on
+    // the same meter selected live. With no list (count 0) nothing can be checked.
+    // The default goes back to the INI only when the value came from the INI:
+    // a document's stored type (.chc, Copy) must not replace the type the user
+    // chose for new documents.
     {
+        int nDisplayTypes = 0;
         try
         {
-            m_DisplayType = m_meter->getDefaultDisplayType();
-            GetConfig()->WriteProfileInt(m_meter->getMeterName().c_str(), "DisplayType", m_DisplayType );
+            nDisplayTypes = m_meter->getNumberOfDisplayTypes();
         }
         catch ( std::logic_error & ) {}
+        if ( m_DisplayType == 0xFFFFFFFF
+          || ( nDisplayTypes > 0 && m_DisplayType >= (UINT)nDisplayTypes ) )
+        {
+            try
+            {
+                m_DisplayType = m_meter->getDefaultDisplayType();
+                if ( m_displayTypeFromIni )
+                    GetConfig()->WriteProfileInt(m_meter->getMeterName().c_str(), "DisplayType", m_DisplayType );
+            }
+            catch ( std::logic_error & ) {}
+        }
     }
     if(m_DisplayType != 0xFFFFFFFF)
     {

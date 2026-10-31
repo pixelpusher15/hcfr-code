@@ -6807,9 +6807,15 @@ int CMeasure::ApplySensorAdjustmentMatrix(const Matrix& deltaMatrix, const Matri
 	if (!m_bOverRideBlack)
 		ReapplyAdjustmentMatrix(m_OnOffBlack, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 
-	ReapplyAdjustmentMatrix(m_OnOffWhite, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	// An unmeasured white is the constructor's placeholder (nominal D65 at the
+	// target luminance), not a reading: neither recalibrate it nor count it as a
+	// skipped raw-less reading - counted, it kept nSkipped above 0 on every walk,
+	// so a stranded state never re-armed and each walk showed the skip notice.
+	if ( m_bOnOffWhiteMeasured )
+		ReapplyAdjustmentMatrix(m_OnOffWhite, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 
-	ReapplyAdjustmentMatrix(m_PrimeWhite, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	if ( m_bPrimeWhiteMeasured )
+		ReapplyAdjustmentMatrix(m_PrimeWhite, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 
 	ReapplyAdjustmentMatrix(m_AnsiBlack, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 
@@ -6881,8 +6887,11 @@ int CMeasure::ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Ma
 	if (!m_bOverRideBlack)
 		BODNER_REAPPLY(m_OnOffBlack);
 
-	BODNER_REAPPLY(m_OnOffWhite);
-	BODNER_REAPPLY(m_PrimeWhite);
+	// Unmeasured whites are placeholders - see ApplySensorAdjustmentMatrix.
+	if ( m_bOnOffWhiteMeasured )
+		BODNER_REAPPLY(m_OnOffWhite);
+	if ( m_bPrimeWhiteMeasured )
+		BODNER_REAPPLY(m_PrimeWhite);
 	BODNER_REAPPLY(m_AnsiBlack);
 	BODNER_REAPPLY(m_AnsiWhite);
 	// Every measured saturation level - see ApplySensorAdjustmentMatrix.

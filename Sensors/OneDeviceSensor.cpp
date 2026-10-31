@@ -520,6 +520,13 @@ BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 	END_CATCH_ALL
 
 	m_rawlessReadings = previousRawless;
+	// One rule holds whatever the file or the restore left: a Bodner sensor's
+	// raw-less readings never embody its (identity) single matrix. A Bodner file
+	// loaded with no walk after it (a new document from the wizard or DDE, Change
+	// Sensor) would otherwise keep a fresh sensor's "embody" under Bodner, and
+	// save it that way.
+	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
+		m_rawlessReadings.BodnerInstalled();
 	return bLoaded;
 }
 

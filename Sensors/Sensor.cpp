@@ -111,7 +111,7 @@ void CSensor::Serialize(CArchive& archive)
 		// default method, and the v4 document header gates old builds anyway.
 		// A v1 stream cannot say that the raw-less readings are stranded either
 		// (it would reload as "they embody the matrix" and the next matrix
-		// recalibration would compose onto them), so that state also forces v2.
+		// recalibration would compose onto them), so that state also forces v3.
 		int version = ( m_calibrationMethod == CALIB_HCFR_DEFAULT
 		             && m_rawlessReadings.ComposeOntoRawless()
 		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
@@ -139,7 +139,7 @@ void CSensor::Serialize(CArchive& archive)
 	{
 		int version;
 		archive >> version;
-		if ( version > 2 )
+		if ( version > 3 )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 		archive >> m_calibrationTime;
 

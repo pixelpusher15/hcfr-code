@@ -57,6 +57,7 @@ public:
     CString     m_spectralCorrectionPath;   // canonical .ccss loaded onto the meter (empty = none)
     CString     m_spectralCorrectionDesc;   // description shown in the UI
     BOOL        m_spectralApplyLeaveMeasures; // transient: last apply asked to leave measures mixed (not strip to raw)
+    bool        m_displayTypeFromIni;       // m_DisplayType was read from the INI (meter ctor), not a .chc or Copy
     CString     m_cfgSnapSpectralPath;      // BeginConfigure/CancelConfigure snapshot
     CString     m_cfgSnapSpectralDesc;
     // Parsed-spectral-sample cache so Init does not re-read the file per

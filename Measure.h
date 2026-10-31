@@ -448,7 +448,10 @@ public:
     // still carry whatever matrix corrected them before Bodner skipped them, so
     // composing the delta would stack the new matrix onto the old one. They are
     // then left alone and counted; the count is returned (0 when composing).
-    int ApplySensorAdjustmentMatrix(const Matrix & deltaMatrix, const Matrix & fullMatrix, bool bComposeLegacy = true);
+    // No default: the answer is the sensor's RawlessReadings().ComposeOntoRawless()
+    // (RawlessReadingsState, Color.h), and a caller that forgot it composed onto
+    // readings the state marks stranded.
+    int ApplySensorAdjustmentMatrix(const Matrix & deltaMatrix, const Matrix & fullMatrix, bool bComposeLegacy);
     // Recalibrates every stored measurement under Bodner's per-sub-gamut method.
     // Returns the count of measurements that had no stored raw value (predating
     // raw-value capture) and so could not be recalibrated.

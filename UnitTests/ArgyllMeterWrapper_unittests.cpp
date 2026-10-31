@@ -93,23 +93,33 @@ protected:
         const char* csvPath = "cs_shortrow_tmp.csv";
         {
             std::ofstream f(csvPath, std::ios::binary);
+            CPPUNIT_ASSERT( f.is_open() );
             writeGaussianRows(f, 4);
             for (int i = 0; i < 81; ++i)
                 f << 0.5 << (i < 80 ? "," : "");
             f << "\n";
         }
+        // The file must be there: a "Cannot open" throw would satisfy a bare
+        // any-logic_error check for the wrong reason.
+        {
+            std::ifstream probe(csvPath, std::ios::binary);
+            CPPUNIT_ASSERT( probe.is_open() );
+        }
         bool threw = false;
+        std::string what;
         try
         {
             SpectralSample ss;
             ss.createFromCorrelationCSV(csvPath);
         }
-        catch (std::logic_error&)
+        catch (std::logic_error& e)
         {
             threw = true;
+            what = e.what();
         }
         remove(csvPath);
         CPPUNIT_ASSERT( threw );
+        CPPUNIT_ASSERT( what.find("fewer than 401 values") != std::string::npos );
     }
 
     // Argyll divides a spectrum by its norm wherever it integrates it through

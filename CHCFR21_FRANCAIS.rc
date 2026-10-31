@@ -4382,6 +4382,7 @@ BEGIN
     IDS_CALIB_METHOD_OUT_OF_SYNC "La méthode d'étalonnage sélectionnée dans les Options diffère de celle actuellement appliquée à ces mesures - elles n'ont pas été recalculées après le changement de méthode. L'export reflétera la méthode APPLIQUÉE.\n\nPour recalculer d'abord, annulez et lancez 'Créer à partir des mesures de référence existantes' (ou une commande d'étalonnage).\n\nContinuer l'export ?"
     IDS_BODNER_SKIPPED_FMT      "%d mesure(s) sans lecture brute du capteur (enregistrées avant la capture des valeurs brutes, ou modifiées à la main) ont été laissées telles quelles."
     IDS_CALIB_NEED_RAW_PRIMARIES "Mesurez d'abord à nouveau les primaires et le blanc : ceux enregistrés n'ont pas de lecture brute du capteur, et une matrice ne peut pas être calculée à partir de valeurs portant une correction que le capteur n'applique plus (Bodner, ou une matrice remplacée par une correction spectrale)."
+    IDS_CALIB_NEED_REF_WHITE    "Le document de référence n'a pas de blanc mesuré : mesurez d'abord son blanc (ou les primaires avec le blanc)."
     IDS_EXPORT_LAYOUT_MISMATCH  "Impossible d'ajouter à ce fichier : il a été exporté avec des options Brut/Stimulus différentes. Exportez vers un nouveau fichier, ou refaites l'export avec les mêmes options que les données existantes."
 END
 

@@ -1626,6 +1626,12 @@ void CDataSetDoc::OnChangeSensor()
 		CreateSensor(page.GetCurrentID());
 		if(m_pSensor==NULL)
 			return;	// Something went wrong during creation
+		// The stored readings were corrected by the OLD sensor and nothing walks
+		// them onto the new one's matrix, so the fresh sensor's "they embody my
+		// matrix" default is false: its raw-less readings are stranded
+		// (RawlessReadingsState, Color.h). A later walk that finds none to skip
+		// re-arms it.
+		m_pSensor->RawlessReadings().MatrixSetWithoutWalk();
 
 		if(page.m_sensorTrainingMode != 1)
 			m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
@@ -2579,12 +2585,37 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
                                     pDataRef->m_measure.GetBluePrimary().GetXYZValue()
                                 };
 
-		    ColorXYZ whiteRef = pDataRef -> m_measure.GetPrimeWhite().GetXYZValue();
-			if (!whiteRef.isValid())
+	// The white pair the legacy (no-raw) fit below takes. The reference white must
+	// be one the reference document MEASURED, asked by the same flags the raw
+	// pairing uses (see there): isValid() also passes the constructor's
+	// placeholder, nominal D65 at the target luminance, and FCMM was fitted to it
+	// with no notice. Prime first, then On/Off. The test white comes from the same
+	// source when it is valid there, else from the other one, as before. With no
+	// measured reference white, bRefWhiteMeasured is false and the no-raw FCMM
+	// fit refuses below (the three-color fit ignores the white).
+	bool bRefWhiteMeasured = true;
+	bool bRefWhiteFromOnOff = false;
+	ColorXYZ whiteRef = pDataRef -> m_measure.GetPrimeWhite().GetXYZValue();
+	if ( !pDataRef -> m_measure.IsPrimeWhiteMeasured() || !whiteRef.isValid() )
+	{
+		if ( pDataRef -> m_measure.IsOnOffWhiteMeasured()
+		  && pDataRef -> m_measure.GetOnOffWhite().GetXYZValue().isValid() )
+		{
+			whiteRef = pDataRef -> m_measure.GetOnOffWhite().GetXYZValue();
+			bRefWhiteFromOnOff = true;
+		}
+		else
+		{
+			bRefWhiteMeasured = false;
+			if (!whiteRef.isValid())	// keeps a valid default; never fitted on
 				whiteRef = pDataRef -> m_measure.GetOnOffWhite().GetXYZValue();
-			ColorXYZ white = m_measure.GetPrimeWhite().GetXYZValue();
-			if (!white.isValid())
-				white = m_measure.GetOnOffWhite().GetXYZValue();
+		}
+	}
+	ColorXYZ white = bRefWhiteFromOnOff ? m_measure.GetOnOffWhite().GetXYZValue()
+	                                    : m_measure.GetPrimeWhite().GetXYZValue();
+	if (!white.isValid())
+		white = bRefWhiteFromOnOff ? m_measure.GetPrimeWhite().GetXYZValue()
+		                           : m_measure.GetOnOffWhite().GetXYZValue();
 
     // check that measure matrix is inversible
     Matrix oldMatrix = m_pSensor->GetSensorMatrix();
@@ -2712,6 +2743,14 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
         // CALIB_FCMM_NO_LUM  = FCMM chromaticity-only (skip luminance scaling).
         bool bUseOnlyPrimaries = ( calibrationMethod == CALIB_CLASSIC_NIST );
         bool bScaleLum         = ( calibrationMethod != CALIB_FCMM_NO_LUM );
+        if ( !haveRaw && !bUseOnlyPrimaries && !bRefWhiteMeasured )
+        {
+            // FCMM fits the white, and the reference document holds only its
+            // placeholder (see whiteRef above). Tested before the stranded-readings
+            // refusal below, whose text names another cause.
+            GetColorApp()->InMeasureMessageBox( _S(IDS_CALIB_NEED_REF_WHITE), _S(IDS_ERROR), MB_OK | MB_ICONERROR );
+            return FALSE;
+        }
         Matrix ConvMatrix = haveRaw
             ? ComputeConversionMatrix ( measuresRaw, references, whiteRaw, whiteRefRaw, bUseOnlyPrimaries, bScaleLum )
             : ComputeConversionMatrix ( measures,    references, white,    whiteRef, bUseOnlyPrimaries, bScaleLum );

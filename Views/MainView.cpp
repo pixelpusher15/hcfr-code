@@ -2664,14 +2664,16 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 			case UPD_EVERYTHING:
 				 // A recalibration rewrites the profile cube in place and then sends
-				 // UPD_EVERYTHING; the pane's cached dE summary is dropped only by
-				 // RefreshState. Do it here rather than have the recalibration send
-				 // UPD_DISPLAYPROFILE: that hint switches the view to the profile
-				 // page (above), which a recalibration started from the grid must
-				 // not do. Off the profile page there is nothing to refresh -
+				 // UPD_EVERYTHING: drop the pane's cached dE summary (RefreshStats).
+				 // Not RefreshState: it also lands the pane on its summary and clears
+				 // the family filter, and UPD_EVERYTHING also comes from senders that
+				 // change no data (Preferences OK, Configure Generator). Not
+				 // UPD_DISPLAYPROFILE either: that hint switches the view to the
+				 // profile page (above), which a recalibration started from the grid
+				 // must not do. Off the profile page there is nothing to refresh -
 				 // switching to it runs RefreshState (OnSelchangeComboMode).
 				 if ( m_displayMode == 13 && m_profilePane.GetSafeHwnd () )
-					m_profilePane.RefreshState ();
+					m_profilePane.RefreshStats ();
 				 break;
 		}
 
@@ -9645,6 +9647,11 @@ void CMainView::OnAdjustXYZCheck()
 		return;
 	BOOL	bAdjust = m_AdjustXYZCheckButton.GetCheck ();
 	Matrix CurrentMatrix = GetDocument ()->m_pSensor->GetSensorMatrix();
+	// Both walks below take the sensor's raw-less state (RawlessReadingsState,
+	// Color.h): a raw-less reading it marks stranded embodies no matrix this
+	// sensor has, so neither click may compose onto it. Neither click changes
+	// the state, so an off/on round-trip still restores every reading.
+	const bool bComposeRawless = GetDocument ()->m_pSensor->RawlessReadings().ComposeOntoRawless();
 	
 
 	if (!bAdjust) //restore uncorrected sensor values
@@ -9652,14 +9659,14 @@ void CMainView::OnAdjustXYZCheck()
 		ASSERT(0);
 		GetDocument ()->m_pSensor->SetSensorMatrixMod( CurrentMatrix );
 		GetDocument ()->m_pSensor->SetSensorMatrix( Matrix::IdentityMatrix(3) );
-		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( CurrentMatrix.GetInverse(), Matrix::IdentityMatrix(3) );
+		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( CurrentMatrix.GetInverse(), Matrix::IdentityMatrix(3), bComposeRawless );
 		m_AdjustXYZCheckButton.SetCheck(FALSE);
 	}
 	else  //reapply saved correction matrix
 	{
 		ASSERT(0);
 		GetDocument ()->m_pSensor->SetSensorMatrix( GetDocument ()->m_pSensor->GetSensorMatrixMod() );
-		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( GetDocument ()->m_pSensor->GetSensorMatrixMod(), GetDocument ()->m_pSensor->GetSensorMatrixMod() );
+		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( GetDocument ()->m_pSensor->GetSensorMatrixMod(), GetDocument ()->m_pSensor->GetSensorMatrixMod(), bComposeRawless );
 		GetDocument ()->m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
 		m_AdjustXYZCheckButton.SetCheck(TRUE);
 	}
