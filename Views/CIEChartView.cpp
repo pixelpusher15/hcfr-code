@@ -1974,6 +1974,19 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
                     YWhiteGray = aColor [ 1 ];
             }
 
+            // Black on the grid cell's terms (BlackTargetReference): no point
+            // for a black with no measured light - its xy is the sensor floor's
+            // 1/3, 1/3 - and a tint-only target where the w/gamma one is zero.
+            if ( i == 0 )
+            {
+                if ( !HasMeasuredLight ( aColor[1] ) )
+                    continue;
+                CColor blackRef = BlackTargetReference ( pDoc->GetMeasure()->GetGray(i), YWhiteGray, CColor ( refColor ), GetColorReference().GetWhite() );
+                if ( !blackRef.isValid() )
+                    continue;
+                refColor = blackRef.GetXYZValue();
+            }
+
             CCIEGraphPoint grayRef(refColor, 1.0,"", m_bCIEuv, m_bCIEab);
 
             CCIEGraphPoint grayPoint(pDoc->GetMeasure()->GetGray(i).GetXYZValue(), YWhiteGray, str, m_bCIEuv, m_bCIEab);

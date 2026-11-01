@@ -6567,10 +6567,13 @@ double CMeasure::GetOnOffContrast ()
 	double	black = m_OnOffBlack.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	double	white = m_OnOffWhite.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	
-	if ( black > 0.0 && white > black )
+	// No measured light is the sensor floor's placeholder, not a black level:
+	// against a white that has light, report it as the zero it stands for
+	// (-1, printed as Infinite). With no measured white there is no ratio.
+	if ( HasMeasuredLight ( black ) && white > black )
 		return ( white / black );
 	else
-		if (black == 0)
+		if ( black >= 0.0 && !HasMeasuredLight ( black ) && HasMeasuredLight ( white ) )
 			return -1.0;
 		else
 			return -2.0;
@@ -6581,10 +6584,11 @@ double CMeasure::GetAnsiContrast ()
 	double	black = m_AnsiBlack.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	double	white = m_AnsiWhite.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	
-	if ( black > 0.000001 && white > black )
+	// Same contract as GetOnOffContrast.
+	if ( HasMeasuredLight ( black ) && white > black )
 		return ( white / black );
 	else
-		if (black == 0)
+		if ( black >= 0.0 && !HasMeasuredLight ( black ) && HasMeasuredLight ( white ) )
 			return -1.0;
 		else
 			return -2.0;

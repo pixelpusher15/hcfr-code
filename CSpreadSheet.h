@@ -100,6 +100,14 @@ void CRowArray::Copy(const CRowArray& src )
 CString CRowArray::GetFormatedValueString(int i, DataType type)
 {
 	CString val=GetAt(i);
+	// An empty float or date cell has no literal of its own: a bare ", ," is
+	// a syntax error the Excel driver rejects, failing the whole sheet. NULL
+	// writes an empty cell; AddRow pads skipped rows with a single space, so
+	// blank counts as empty. (Text-file exports never come through here.)
+	CString trimmed=val;
+	trimmed.Trim();
+	if ( trimmed.IsEmpty() && type != charType )
+		return CString("NULL");
 	CString str=CString(dataTypePreValueStringArray[type])+GetAt(i)+CString(dataTypePostValueStringArray[type]);
 	return str;
 }
