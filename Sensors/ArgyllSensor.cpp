@@ -139,6 +139,7 @@ CArgyllSensor::CArgyllSensor() :
     m_Adapt(0),
     m_DisableAIO(0)
 {
+    m_displayTypeFromIni = false;
     m_spectralCacheValid = false;
     m_dtBaseIndex = -1;
     m_dtBaseFor = 0xFFFFFFFF;
@@ -180,6 +181,7 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
 
     m_Adapt = GetConfig()->GetProfileInt(meterName.c_str(), "Adapt", 0);
     m_DisableAIO = GetConfig()->GetProfileInt(meterName.c_str(), "DisableAIO", 0);
+    m_displayTypeFromIni = true;
     m_spectralCacheValid = false;
     m_dtBaseIndex = -1;
     m_dtBaseFor = 0xFFFFFFFF;
@@ -221,6 +223,7 @@ void CArgyllSensor::Copy(CSensor * p)
     COneDeviceSensor::Copy(p);
 
     m_DisplayType = ((CArgyllSensor*)p)->m_DisplayType;
+    m_displayTypeFromIni = false;   // the source document's value, not the INI's
     m_ReadingType = ((CArgyllSensor*)p)->m_ReadingType;
     m_SpectralType = ((CArgyllSensor*)p)->m_SpectralType;
     m_intTime = ((CArgyllSensor*)p)->m_intTime;
@@ -376,6 +379,13 @@ void CArgyllSensor::GetPropertiesSheetValues()
     COneDeviceSensor::GetPropertiesSheetValues();
     std::string meterName(m_meter->getMeterName());
 
+    // An empty Display Type combo (an i1d3 with its diffuser over the sensor lists
+    // no types) reads back as CB_ERR, -1. That is "nothing to choose from", not a
+    // choice: keep the type the sensor has instead of storing -1, which Init then
+    // skips and which reached the INI and every later session.
+    if ( m_ArgyllSensorPropertiesPage.m_DisplayType < 0 )
+        m_ArgyllSensorPropertiesPage.m_DisplayType = m_DisplayType;
+
     if(m_debugMode != !!m_ArgyllSensorPropertiesPage.m_DebugMode) 
     {
         SetModifiedFlag(TRUE);
@@ -458,6 +468,37 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
     // Re-apply the low-light averaging setting so it survives reconnects /
     // restarts (the wrapper resets it on each new meter object).
     m_meter->setAdapt(!!m_Adapt);
+    // A -1 display type (stored by builds that let an empty combo through, in the
+    // INI or in a document) means none was ever chosen: use the driver's default
+    // rather than skipping setDisplayType, which left whatever the driver last
+    // had - a cleared ccss included - in place. An index past the end of the
+    // current list is the same case: the list includes installed ccss/ccmx
+    // entries, so a stored index goes stale when files are removed or a .chc
+    // comes from a machine with more of them, and setDisplayType ignores it
+    // silently (ArgyllMeterWrapper.cpp) - leaving whatever another document on
+    // the same meter selected live. With no list (count 0) nothing can be checked.
+    // The default goes back to the INI only when the value came from the INI:
+    // a document's stored type (.chc, Copy) must not replace the type the user
+    // chose for new documents.
+    {
+        int nDisplayTypes = 0;
+        try
+        {
+            nDisplayTypes = m_meter->getNumberOfDisplayTypes();
+        }
+        catch ( std::logic_error & ) {}
+        if ( m_DisplayType == 0xFFFFFFFF
+          || ( nDisplayTypes > 0 && m_DisplayType >= (UINT)nDisplayTypes ) )
+        {
+            try
+            {
+                m_DisplayType = m_meter->getDefaultDisplayType();
+                if ( m_displayTypeFromIni )
+                    GetConfig()->WriteProfileInt(m_meter->getMeterName().c_str(), "DisplayType", m_DisplayType );
+            }
+            catch ( std::logic_error & ) {}
+        }
+    }
 
     // A Display Type record is anchored to its entry's TEXT, not to the persisted
     // index: Argyll's list numbers installed ccss/ccmx files in the order it finds
@@ -721,7 +762,6 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
             return false;
         }
     }
-
     m_spectralCorrectionPath = filePath;
     // Show just the panel name in the UI (the derived tech still goes into the
     // ccss metadata); getDescription() would nest the tech in parentheses.
@@ -1303,7 +1343,7 @@ void CArgyllSensor::Calibrate()
 			else
 			{
 				( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.ShowWindow(SW_SHOW);
-				( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.m_colorPicker.SetColor(RGB(204,204,204));
+				( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetTestColor(RGB(204,204,204));
 				( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> EnableWindow ( TRUE );
 				( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetForegroundWindow();
 				b_TestWindow = true;

@@ -129,6 +129,7 @@ public:
 
 private:
     void AddColorToGrid(const ColorTriplet& color, GV_ITEM& Item, const char* format);
+    void BlankSelectedColorRows(GV_ITEM& Item, int count, int skip);
 
     BOOL		m_bPositionsInit;
     BOOL		m_bInSizeMove;
@@ -155,6 +156,10 @@ private:
 	CWnd *		m_pInfoWnd13;
 
 	void InsetInfoWindows();
+	void UpdateInfoDisplayLabels();
+	bool InfoPaneNeedsHDRRebuild() const;
+	CString m_infoDisplaySDRLabels[3];	// DLGINIT text of the gamma entries 3, 4 and 11
+	bool m_bInfoBuiltHDR;	// reference TF was PQ/HLG when the info pane was built
 
 
 // Attributes
@@ -252,6 +257,7 @@ protected:
 	void InitGroups();
 	void LayoutTopRow();
 	void UpdateParamCombos();	// populate + show/hide the steps/stimulus dropdowns for m_displayMode
+	void ReloadSelectedSatColor();	// re-read the selected saturation patch from the level just bound
 	BOOL CurrentModeSweepHasData();	// any measured value in the current mode's sweep arrays
 	void UpdateContrastValuesInGrid ();
 	CPPToolTip	m_tooltip;
@@ -347,6 +353,7 @@ protected:
 	afx_msg void OnRefs();
 	//}}AFX_MSG
 	afx_msg LRESULT OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnRebuildInfoDisplay(WPARAM wParam, LPARAM lParam);
  public:
 	DECLARE_MESSAGE_MAP()
 };

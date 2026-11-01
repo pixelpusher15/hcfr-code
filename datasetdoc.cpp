@@ -87,7 +87,7 @@ static BOOL LoadCalibrationFileKeepingSpectral(CSensor* pSensor, CString & fileN
 // Version 2 is for ColorHCFR version >= 1.12 beta 62
 // Version 3 is for ColorHCFR version >= 2.0 beta 144
 
-// Version 4 was the unreleased Bodner layout (CColor tens-digit flags, CSensor v2)
+// Version 4 was the unreleased Bodner layout (CColor tens-digit flags, CSensor v2 or v3)
 // Version 5 (issue #193): every block ends with an extension trailer; new fields go there
 #define CURRENT_FILE_FORMAT_VERSION	5
 #define _S(id) (CString(LPCTSTR(id))) 
@@ -162,12 +162,12 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 			if ( g_bGDIGeneratorRunning )
 		    {
 				CGenerator::MeasureType MT = CGenerator::MT_UNKNOWN;
-				ColorRGBDisplay clr((( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.GetColor ())& 0x00FFFFFF);
+				ColorRGBDisplay clr = ( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.GetTestColor ();
 		    
 				m_nPat++;
 				if ( ( (m_nPat % GetConfig()->m_ablFreq) == 0) && GetConfig()->m_bABL )
 				{
-					pGenerator->DisplayRGBColor(ColorRGBDisplay(GetConfig()->m_ablLevel / 100.0), MT);
+					pGenerator->DisplayRGBColor(ColorRGBDisplay((double)GetConfig()->m_ablLevel), MT);
 					Sleep(GetConfig()->m_ablDuration);
 				}
 
@@ -179,6 +179,14 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 						MT = CGenerator::MT_ACTUAL;
 
 						pGenerator->DisplayRGBColor(clr, MT);
+
+						// The read below follows straight away, so wait the Patch delay after a
+						// color change (as the sweeps do in WaitForDynamicIris); otherwise the
+						// first read mixes the old and new color. Short steps keep Stop responsive.
+						DWORD dwDelay = (DWORD)abs(GetConfig()->m_latencyTime);
+						DWORD dwStart = GetTickCount();
+						while ( ! g_bTerminateThread && (GetTickCount() - dwStart) < dwDelay )
+							Sleep ( 10 );
 			    }
 		    }
 
@@ -321,7 +329,7 @@ BOOL StartBackgroundMeasures ( CDataSetDoc * pDoc )
 					return FALSE;
 				}
 
-				ColorRGBDisplay clr((( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.GetColor ()) & 0x00ffffff);
+				ColorRGBDisplay clr = ( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.GetTestColor ();
 				if (!clr.isValid())
 					clr = ColorRGBDisplay(0.25);
 				g_CurrentColor = clr;
@@ -1044,10 +1052,12 @@ void CDataSetDoc::Serialize(CArchive& ar)
 
 		// Version 4 was the unreleased Bodner document layout. Its nested
 		// blocks would be refused one at a time, naming CColor or CSensor;
-		// refuse the file here instead and say what it is.
+		// refuse the file here instead and say what it is. A measurement
+		// document cannot be "regenerated" the way a correction file can, so
+		// it gets its own wording: open it with the build that wrote it.
 		if ( version == 4 )
 		{
-			Msg.Format ( IDS_SCHEMA_UNRELEASED, "document", version );
+			Msg.Format ( IDS_SCHEMA_UNRELEASED_DOC, version );
 			Title.LoadString ( IDS_ERROR );
 			GetColorApp()->InMeasureMessageBox(Msg,Title,MB_ICONERROR | MB_OK);
 			return;
@@ -1110,15 +1120,36 @@ void CDataSetDoc::Serialize(CArchive& ar)
 // build - surfaces as a CNewerSchemaException. MFC's own handler would call
 // it "incorrect schema", which reads as damage; say what it is, naming the
 // document, and let every other failure go through MFC as before.
+//
+// A sensor or generator class this build does not have (one a newer HCFR
+// added) surfaces from CArchive::ReadObject as badClass, not from one of our
+// versioned blocks. That is a newer file too, but its versions are all ones
+// this build reads, so the message names what is missing, not a version.
 void CDataSetDoc::ReportSaveLoadException(LPCTSTR lpszPathName, CException* e, BOOL bSaving, UINT nIDPDefault)
 {
+	CString	strWhat;
+
 	if ( e != NULL && e -> IsKindOf ( RUNTIME_CLASS ( CNewerSchemaException ) ) )
 	{
 		CNewerSchemaException *	pEx = (CNewerSchemaException *) e;
-		CString					strWhat, strMsg;
+		if ( ! pEx -> m_feature.IsEmpty () )
+			strWhat.Format ( IDS_SCHEMA_UNKNOWN_FEATURE, (LPCSTR) pEx -> m_feature );
+		else
+			strWhat.Format ( pEx -> m_unreleased ? IDS_SCHEMA_UNRELEASED : IDS_SCHEMA_NEWER, (LPCSTR) pEx -> m_block, pEx -> m_version );
+	}
+	else if ( e != NULL && ! bSaving && e -> IsKindOf ( RUNTIME_CLASS ( CArchiveException ) )
+	       && ( (CArchiveException *) e ) -> m_cause == CArchiveException::badClass )
+	{
+		strWhat.Format ( IDS_SCHEMA_UNKNOWN_FEATURE, "sensor or generator type" );
+	}
 
-		strWhat.Format ( pEx -> m_unreleased ? IDS_SCHEMA_UNRELEASED : IDS_SCHEMA_NEWER, (LPCSTR) pEx -> m_block, pEx -> m_version );
-		strMsg.Format ( "%s\n\n%s", lpszPathName, (LPCSTR) strWhat );
+	if ( ! strWhat.IsEmpty () )
+	{
+		CString	strMsg;
+		if ( lpszPathName != NULL )
+			strMsg.Format ( "%s\n\n%s", lpszPathName, (LPCSTR) strWhat );
+		else
+			strMsg = strWhat;
 		AfxMessageBox ( strMsg, MB_OK | MB_ICONEXCLAMATION );
 		return;
 	}
@@ -1367,6 +1398,11 @@ void CDataSetDoc::MeasureDisplayProfile(int cubeN, BOOL bGrayExtras, BOOL bDrift
 
 	if(m_measure.MeasureDisplayProfile(m_pSensor,m_pGenerator,this,cubeN,bGrayExtras,bDriftComp))
 		SetModifiedFlag(m_measure.IsModified());
+	// The capture also publishes the grayscale, on/off white/black, primaries,
+	// secondaries and prime white (its reference prologue), which every other
+	// view draws from -- and they all skip UPD_DISPLAYPROFILE. EVERYTHING first,
+	// because it leaves the mode alone; UPD_DISPLAYPROFILE then refreshes the pane.
+	UpdateAllViews(NULL, UPD_EVERYTHING);
 	UpdateAllViews(NULL, UPD_DISPLAYPROFILE);
 }
 
@@ -1471,6 +1507,20 @@ static void ShowBodnerSkipCount(int nSkipped)
 	GetColorApp()->InMeasureMessageBox( strSkipMsg, strSkipTitle, MB_OK | MB_ICONINFORMATION );
 }
 
+// Every single-matrix recalibration of the stored readings. A reading without a
+// raw value takes the delta only while it embodies the sensor's current matrix -
+// the sensor's RawlessReadingsState (Color.h) answers that for every entrance
+// (Bodner, a spectral "leave them", a matrix written without a walk), where the
+// previous calibration method could only answer for the first. The walk's own
+// result then updates that state, and its skips are reported.
+static void RecalibrateSingleMatrix(CMeasure & measure, CSensor * pSensor, const Matrix & deltaMatrix, const Matrix & fullMatrix)
+{
+	int nSkipped = measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix,
+		pSensor->RawlessReadings().ComposeOntoRawless() );
+	pSensor->RawlessReadings().SingleMatrixWalked( nSkipped );
+	ShowBodnerSkipCount( nSkipped );
+}
+
 void CDataSetDoc::OnConfigureSensor() 
 {
 	if ( IsMeasureSweepActive() ) return;
@@ -1505,6 +1555,7 @@ void CDataSetDoc::OnConfigureSensor()
             // any Sensor -> Configure change.
             int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
+            m_pSensor->RawlessReadings().BodnerInstalled();
             ShowBodnerSkipCount ( nSkipped );
         }
         else
@@ -1515,8 +1566,11 @@ void CDataSetDoc::OnConfigureSensor()
             // to the previously configured matrix (saved into SensorMatrixMod above).
             Matrix fullMatrix = m_pSensor->GetEffectiveMatrix();
             Matrix deltaMatrix = fullMatrix * m_pSensor->GetSensorMatrixMod().GetInverse();
-            ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, fullMatrix,
-                m_pSensor->CalibrationMethodAtBeginConfigure() != CALIB_BODNER_THREEMATRIX ) );
+            // Clearing a spectral method lands here too (fullMatrix identity): from a matrix
+            // sensor the raw-less readings take inverse(old matrix) and embody the
+            // identity the sensor now has; from Bodner they were already stranded and
+            // are skipped again.
+            RecalibrateSingleMatrix( m_measure, m_pSensor, deltaMatrix, fullMatrix );
             m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
         }
 		}
@@ -1634,6 +1688,12 @@ void CDataSetDoc::OnChangeSensor()
 		CreateSensor(page.GetCurrentID());
 		if(m_pSensor==NULL)
 			return;	// Something went wrong during creation
+		// The stored readings were corrected by the OLD sensor and nothing walks
+		// them onto the new one's matrix, so the fresh sensor's "they embody my
+		// matrix" default is false: its raw-less readings are stranded
+		// (RawlessReadingsState, Color.h). A later walk that finds none to skip
+		// re-arms it.
+		m_pSensor->RawlessReadings().MatrixSetWithoutWalk();
 
 		if(page.m_sensorTrainingMode != 1)
 			m_pSensor->LoadCalibrationFile(page.m_trainingFileName);
@@ -2236,7 +2296,6 @@ void CDataSetDoc::OnCalibrationManual()
 
             ColorXYZ white(measuredColor[3].GetXYZValue());
             Matrix oldMatrix = m_pSensor->GetEffectiveMatrix();
-            int prevMethod = m_pSensor->GetCalibrationMethod();	// decides what the raw-less readings embody
             int calibrationMethod = GetConfig () -> m_calibrationMethod;
 
             if ( calibrationMethod == CALIB_BODNER_THREEMATRIX )
@@ -2275,6 +2334,7 @@ void CDataSetDoc::OnCalibrationManual()
                     m_pSensor->SetSensorMatrix(Matrix::IdentityMatrix(3));
                     m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
                     int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
+                    m_pSensor->RawlessReadings().BodnerInstalled();
                     SetModifiedFlag(TRUE);
 
                     ShowBodnerSkipCount ( nSkipped );
@@ -2307,7 +2367,7 @@ void CDataSetDoc::OnCalibrationManual()
                 {
                     // Ok: set adjustment matrix
                     Matrix newMatrix = ConvMatrix * oldMatrix;
-                    ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( ConvMatrix, newMatrix, prevMethod != CALIB_BODNER_THREEMATRIX ) );
+                    RecalibrateSingleMatrix( m_measure, m_pSensor, ConvMatrix, newMatrix );
                     m_pSensor->SetSensorMatrix(newMatrix);
                     m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
                     m_pSensor->SetCalibrationMethod(calibrationMethod);
@@ -2584,7 +2644,6 @@ void CDataSetDoc::OnCalibrationSpectralSample()
 			}
 		}
 
-		const char* FILE_SEPARATOR = "\\";			
 		const char* FILE_PREPEND = "\\color\\";			
 		const char* appdataEnv = getenv("APPDATA");
 		std::string savePath = appdataEnv ? appdataEnv : "";
@@ -2595,8 +2654,9 @@ void CDataSetDoc::OnCalibrationSpectralSample()
 
 		if(spectralSampleDialog.DoModal() == IDOK && fileSaveDialog.DoModal() == IDOK)
 		{
-			savePath = fileSaveDialog.GetFolderPath();
-			std::string saveFilename = savePath + FILE_SEPARATOR + (LPCSTR)fileSaveDialog.GetFileName();
+			// GetPathName, not GetFolderPath + GetFileName: once the dialog has closed, GetFolderPath
+			// returns the folder it opened in, not the one the user chose
+			std::string saveFilename = (LPCSTR)fileSaveDialog.GetPathName();
 			try
 			{	
 				SpectralSample ss;
@@ -2608,7 +2668,7 @@ void CDataSetDoc::OnCalibrationSpectralSample()
 
 #if defined(LIBHCFR_HAS_MFC) && defined(_DEBUG)
 
-				std::string saveReadings = savePath + (LPCSTR)fileSaveDialog.GetFileTitle() + ".xyz";
+				std::string saveReadings = saveFilename.substr(0, saveFilename.find_last_of('\\') + 1) + (LPCSTR)fileSaveDialog.GetFileTitle() + ".xyz";
 				CFile fileReadings;
 				if( fileReadings.Open(saveReadings.c_str(), CFile::modeCreate|CFile::modeWrite))
 				{
@@ -2623,6 +2683,12 @@ void CDataSetDoc::OnCalibrationSpectralSample()
 #endif
 				(void)ss.createFromMeasurements(measuredColor, 4); 
 				(void)ss.Write(saveFilename);
+			}
+			catch (std::length_error&)
+			{
+				Title.LoadString(IDS_ERROR);
+				strMsg.LoadString(IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS);
+				GetColorApp()->InMeasureMessageBox( strMsg, Title, MB_ICONERROR | MB_OK);
 			}
 			catch (std::logic_error& e)
 			{
@@ -2679,16 +2745,40 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
                                     pDataRef->m_measure.GetBluePrimary().GetXYZValue()
                                 };
 
-		    ColorXYZ whiteRef = pDataRef -> m_measure.GetPrimeWhite().GetXYZValue();
-			if (!whiteRef.isValid())
+	// The white pair the legacy (no-raw) fit below takes. The reference white must
+	// be one the reference document MEASURED, asked by the same flags the raw
+	// pairing uses (see there): isValid() also passes the constructor's
+	// placeholder, nominal D65 at the target luminance, and FCMM was fitted to it
+	// with no notice. Prime first, then On/Off. The test white comes from the same
+	// source when it is valid there, else from the other one, as before. With no
+	// measured reference white, bRefWhiteMeasured is false and the no-raw FCMM
+	// fit refuses below (the three-color fit ignores the white).
+	bool bRefWhiteMeasured = true;
+	bool bRefWhiteFromOnOff = false;
+	ColorXYZ whiteRef = pDataRef -> m_measure.GetPrimeWhite().GetXYZValue();
+	if ( !pDataRef -> m_measure.IsPrimeWhiteMeasured() || !whiteRef.isValid() )
+	{
+		if ( pDataRef -> m_measure.IsOnOffWhiteMeasured()
+		  && pDataRef -> m_measure.GetOnOffWhite().GetXYZValue().isValid() )
+		{
+			whiteRef = pDataRef -> m_measure.GetOnOffWhite().GetXYZValue();
+			bRefWhiteFromOnOff = true;
+		}
+		else
+		{
+			bRefWhiteMeasured = false;
+			if (!whiteRef.isValid())	// keeps a valid default; never fitted on
 				whiteRef = pDataRef -> m_measure.GetOnOffWhite().GetXYZValue();
-			ColorXYZ white = m_measure.GetPrimeWhite().GetXYZValue();
-			if (!white.isValid())
-				white = m_measure.GetOnOffWhite().GetXYZValue();
+		}
+	}
+	ColorXYZ white = bRefWhiteFromOnOff ? m_measure.GetOnOffWhite().GetXYZValue()
+	                                    : m_measure.GetPrimeWhite().GetXYZValue();
+	if (!white.isValid())
+		white = bRefWhiteFromOnOff ? m_measure.GetPrimeWhite().GetXYZValue()
+		                           : m_measure.GetOnOffWhite().GetXYZValue();
 
     // check that measure matrix is inversible
     Matrix oldMatrix = m_pSensor->GetEffectiveMatrix();
-    int prevMethod = m_pSensor->GetCalibrationMethod();	// decides what the raw-less readings embody
     int calibrationMethod = GetConfig () -> m_calibrationMethod;
 
     // Select a white that is genuinely MEASURED on the test side (carries a raw
@@ -2698,20 +2788,33 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
     // the reference white from the SAME source so test and reference whites
     // correspond (whiteRefRaw); the no-raw fallback keeps the original
     // Prime-preferred whiteRef pairing untouched (legacy data, old behavior).
+    //
+    // The reference side must be a white the reference document actually MEASURED.
+    // isValid() cannot tell: the constructor's placeholder (nominal D65 at the target
+    // luminance) passes it, and Measure.h says to ask IsPrimeWhiteMeasured /
+    // IsOnOffWhiteMeasured instead. A reference document whose primaries came from
+    // free measures, or from a run with no white added, holds only that placeholder,
+    // and pairing with it fitted Bodner / FCMM to a nominal white with no notice.
+    // So a source pairs only when the test side has its raw reading AND the
+    // reference side measured the same source; Prime is tried first, then On/Off,
+    // and with neither there is no raw white pairing (Bodner refuses below, FCMM
+    // takes the legacy pairing).
     ColorXYZ whiteRaw = white;   // valid default; only used when whiteHasRaw
     ColorXYZ whiteRefRaw = whiteRef;   // reference white paired with whiteRaw
     bool whiteHasRaw = true;
-    if ( m_measure.GetPrimeWhite().HasRawXYZValue() )
+    if ( m_measure.GetPrimeWhite().HasRawXYZValue()
+      && pDataRef->m_measure.IsPrimeWhiteMeasured()
+      && pDataRef->m_measure.GetPrimeWhite().GetXYZValue().isValid() )
     {
         whiteRaw = m_measure.GetPrimeWhite().GetRawXYZValue();
-        if ( pDataRef->m_measure.GetPrimeWhite().GetXYZValue().isValid() )
-            whiteRefRaw = pDataRef->m_measure.GetPrimeWhite().GetXYZValue();
+        whiteRefRaw = pDataRef->m_measure.GetPrimeWhite().GetXYZValue();
     }
-    else if ( m_measure.GetOnOffWhite().HasRawXYZValue() )
+    else if ( m_measure.GetOnOffWhite().HasRawXYZValue()
+           && pDataRef->m_measure.IsOnOffWhiteMeasured()
+           && pDataRef->m_measure.GetOnOffWhite().GetXYZValue().isValid() )
     {
         whiteRaw = m_measure.GetOnOffWhite().GetRawXYZValue();
-        if ( pDataRef->m_measure.GetOnOffWhite().GetXYZValue().isValid() )
-            whiteRefRaw = pDataRef->m_measure.GetOnOffWhite().GetXYZValue();
+        whiteRefRaw = pDataRef->m_measure.GetOnOffWhite().GetXYZValue();
     }
     else
     {
@@ -2762,6 +2865,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             m_pSensor->SetSensorMatrix(Matrix::IdentityMatrix(3));
             m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
             int nSkipped = m_measure.ApplySensorBodnerRecalibration(rawMatrix, calMatrix);
+            m_pSensor->RawlessReadings().BodnerInstalled();
             SetModifiedFlag(TRUE);
             bOk = TRUE;
 
@@ -2798,6 +2902,14 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
         // CALIB_FCMM_NO_LUM  = FCMM chromaticity-only (skip luminance scaling).
         bool bUseOnlyPrimaries = ( calibrationMethod == CALIB_CLASSIC_NIST );
         bool bScaleLum         = ( calibrationMethod != CALIB_FCMM_NO_LUM );
+        if ( !haveRaw && !bUseOnlyPrimaries && !bRefWhiteMeasured )
+        {
+            // FCMM fits the white, and the reference document holds only its
+            // placeholder (see whiteRef above). Tested before the stranded-readings
+            // refusal below, whose text names another cause.
+            GetColorApp()->InMeasureMessageBox( _S(IDS_CALIB_NEED_REF_WHITE), _S(IDS_ERROR), MB_OK | MB_ICONERROR );
+            return FALSE;
+        }
         Matrix ConvMatrix = haveRaw
             ? ComputeConversionMatrix ( measuresRaw, references, whiteRaw, whiteRefRaw, bUseOnlyPrimaries, bScaleLum )
             : ComputeConversionMatrix ( measures,    references, white,    whiteRef, bUseOnlyPrimaries, bScaleLum );
@@ -2808,11 +2920,13 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             // With raw available the correction is absolute (maps raw -> reference),
             // so it replaces the sensor matrix; ReapplyAdjustmentMatrix applies
             // fullMatrix * raw. Without raw, keep the incremental compose.
-            if ( prevMethod == CALIB_BODNER_THREEMATRIX && !haveRaw )
+            if ( !m_pSensor->RawlessReadings().ComposeOntoRawless() && !haveRaw )
             {
-                // Leaving Bodner needs raw primaries: its single matrix is identity and the
-                // raw-less readings embody an untracked one, so a matrix fitted on them is
-                // wrong for the raw readings it would then be applied to, and vice versa.
+                // Raw-less primaries that embody a correction the sensor no longer has
+                // (Bodner's, or a matrix a spectral correction replaced with "leave them")
+                // cannot be fitted on: the matrix would be wrong for the raw readings it
+                // is then applied to, and vice versa. Keyed on the sensor's state, not on
+                // the previous method, so every way into that state is refused.
                 GetColorApp()->InMeasureMessageBox( _S(IDS_CALIB_NEED_RAW_PRIMARIES), _S(IDS_ERROR), MB_OK | MB_ICONERROR );
                 return FALSE;
             }
@@ -2824,7 +2938,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             // legacy (no-raw) measurements get ConvMatrix composed onto a value already corrected by
             // oldMatrix (double correction). Deriving it from newMatrix is correct in both branches.
             Matrix deltaMatrix = newMatrix * oldMatrix.GetInverse();
-            ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( deltaMatrix, newMatrix, prevMethod != CALIB_BODNER_THREEMATRIX ) );
+            RecalibrateSingleMatrix( m_measure, m_pSensor, deltaMatrix, newMatrix );
             m_pSensor->SetSensorMatrix(newMatrix);
             m_pSensor->SetSensorMatrixMod(Matrix::IdentityMatrix(3));
             m_pSensor->SetCalibrationMethod(calibrationMethod);
@@ -2973,8 +3087,9 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nMaxSteps = nSteps;
 			 for ( i = 0; i < nSteps ; i ++ )
 			 {
-				GenIRE [ i ] = i;
-				GenColors [ i ] = ColorRGBDisplay(i,i,i);
+				// the near-black sweep's levels: 1% steps (2% in PQ) on the active grid
+				GenIRE [ i ] = ArrayIndexToGrayLevel ( i * (GetConfig()->m_GammaOffsetType == 5 ? 2 : 1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				GenColors [ i ] = ColorRGBDisplay(GenIRE[i]);
 				mType [ i ] = CGenerator::MT_NEARBLACK;
 			 }
 			 pValidationFunc = &CMeasure::ValidateBackgroundNearBlack;
@@ -2986,8 +3101,9 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nMaxSteps = nSteps;
 			 for ( i = 0; i < nSteps ; i ++ )
 			 {
-				GenIRE [ i ] = GetMeasure()->m_NearWhiteClipCol-nSteps+i;
-				GenColors [ i ] = ColorRGBDisplay(GetMeasure()->m_NearWhiteClipCol-nSteps+i,101-nSteps+i,101-nSteps+i);
+				// the near-white sweep's levels below the clip, on the active grid
+				GenIRE [ i ] = ArrayIndexToGrayLevel ( GetMeasure()->m_NearWhiteClipCol-nSteps+i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				GenColors [ i ] = ColorRGBDisplay(GenIRE[i]);
 				mType [ i ] = CGenerator::MT_NEARWHITE;
 			 }
 			 pValidationFunc = &CMeasure::ValidateBackgroundNearWhite;
@@ -3098,13 +3214,28 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 mType [ 4 ] = CGenerator::MT_PRIMARY;
 			 nSteps = ( 3 + GetConfig () -> m_BWColorsToAdd );
 			 nMaxSteps = 5;
-			 if ( nMode == -5 && nSteps < 4 )
-				nSteps = 4;
-			 GenColors [ 0 ] = ColorRGBDisplay(100,0,0);		// red
-			 GenColors [ 1 ] = ColorRGBDisplay(0,100,0);		// green
-			 GenColors [ 2 ] = ColorRGBDisplay(0,0,100);		// blue
-			 GenColors [ 3 ] = ColorRGBDisplay(100,100,100);	// white (to control additivity)
-			 GenColors [ 4 ] = ColorRGBDisplay(0,0,0);			// black
+			 if ( nMode == -5 )
+			 {
+				// Sensor calibration: the display's native primaries, whatever the standard
+				if ( nSteps < 4 )
+					nSteps = 4;
+				GenColors [ 0 ] = ColorRGBDisplay(100,0,0);		// red
+				GenColors [ 1 ] = ColorRGBDisplay(0,100,0);		// green
+				GenColors [ 2 ] = ColorRGBDisplay(0,0,100);		// blue
+				GenColors [ 3 ] = ColorRGBDisplay(100,100,100);	// white (to control additivity)
+				GenColors [ 4 ] = ColorRGBDisplay(0,0,0);			// black
+			 }
+			 else
+			 {
+				// the primaries sweep's patches, so the references apply
+				ColorRGBDisplay	PatchColors [ 8 ];
+				GetMeasure () -> BuildPrimarySecondaryColors ( m_pGenerator, PatchColors );
+				GenColors [ 0 ] = PatchColors [ 0 ];
+				GenColors [ 1 ] = PatchColors [ 1 ];
+				GenColors [ 2 ] = PatchColors [ 2 ];
+				GenColors [ 3 ] = PatchColors [ 6 ];
+				GenColors [ 4 ] = PatchColors [ 7 ];
+			 }
 			 pValidationFunc = &CMeasure::ValidateBackgroundPrimaries;
 			 lHint = UPD_PRIMARIES;
 			 break;
@@ -3120,14 +3251,8 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 mType [ 7 ] = CGenerator::MT_SECONDARY;
 			 nSteps = 6 + GetConfig () -> m_BWColorsToAdd;
 			 nMaxSteps = 8;
-			 GenColors [ 0 ] = ColorRGBDisplay(100,0,0);		// red
-			 GenColors [ 1 ] = ColorRGBDisplay(0,100,0);		// green
-			 GenColors [ 2 ] = ColorRGBDisplay(0,0,100);		// blue
-			 GenColors [ 3 ] = ColorRGBDisplay(100,100,0);		// yellow
-			 GenColors [ 4 ] = ColorRGBDisplay(0,100,100);		// cyan
-			 GenColors [ 5 ] = ColorRGBDisplay(100,0,100);		// magenta
-			 GenColors [ 6 ] = ColorRGBDisplay(100,100,100);	// white (to control additivity)
-			 GenColors [ 7 ] = ColorRGBDisplay(0,0,0);			// black
+			 // the secondaries sweep's patches: R, G, B, Y, C, M, white, black
+			 GetMeasure () -> BuildPrimarySecondaryColors ( m_pGenerator, GenColors );
 			 pValidationFunc = &CMeasure::ValidateBackgroundSecondaries;
 			 lHint = UPD_SECONDARIES;
 			 break;
@@ -3142,18 +3267,16 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 	mType [ i ] = CGenerator::MT_IRE;
 			 }
 
-			 GenColors [ nSteps + 0 ] = ColorRGBDisplay(100,0,0);	// red
-			 mType [ nSteps + 0 ] = CGenerator::MT_SECONDARY;
-			 GenColors [ nSteps + 1 ] = ColorRGBDisplay(0,100,0);	// green
-			 mType [ nSteps + 1 ] = CGenerator::MT_SECONDARY;
-			 GenColors [ nSteps + 2 ] = ColorRGBDisplay(0,0,100);	// blue
-			 mType [ nSteps + 2 ] = CGenerator::MT_SECONDARY;
-			 GenColors [ nSteps + 3 ] = ColorRGBDisplay(100,100,0);	// yellow
-			 mType [ nSteps + 3 ] = CGenerator::MT_SECONDARY;
-			 GenColors [ nSteps + 4 ] = ColorRGBDisplay(0,100,100);	// cyan
-			 mType [ nSteps + 4 ] = CGenerator::MT_SECONDARY;
-			 GenColors [ nSteps + 5 ] = ColorRGBDisplay(100,0,100);	// magenta
-			 mType [ nSteps + 5 ] = CGenerator::MT_SECONDARY;
+			 {
+				// the six colors of the grayscale-and-colors sweep
+				ColorRGBDisplay	PatchColors [ 8 ];
+				GetMeasure () -> BuildPrimarySecondaryColors ( m_pGenerator, PatchColors );
+				for ( i = 0; i < 6 ; i ++ )
+				{
+					GenColors [ nSteps + i ] = PatchColors [ i ];
+					mType [ nSteps + i ] = CGenerator::MT_SECONDARY;
+				}
+			 }
 			 nSteps += 6;
 			 nMaxSteps = nSteps;
 			 pValidationFunc = &CMeasure::ValidateBackgroundGrayScaleAndColors;
@@ -3163,7 +3286,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 		case -4:
 			 nSteps = 1;
 			 nMaxSteps = nSteps;
-			 GenColors [ 0 ] = ColorRGBDisplay(( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.GetColor () & 0x00FFFFFF);
+			 GenColors [ 0 ] = ( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.GetTestColor ();
 			 mType [ 0 ] = CGenerator::MT_UNKNOWN;
 			 pValidationFunc = &CMeasure::ValidateBackgroundSingleMeasurement;
 			 lHint = UPD_FREEMEASUREAPPENDED;
@@ -3178,7 +3301,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			 nMaxSteps = nSteps;
 			 for (i = 0; i < nSteps ; i ++ )
 			 {
-				GenIRE [ i ] = (int)GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				GenIRE [ i ] = GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 				bIRE [ i ] = GetMeasure () -> m_bIREScaleMode;
 				GenColors [ i ] = ColorRGBDisplay(GenIRE[i]);
  			 	mType [ i ] = CGenerator::MT_IRE;
@@ -3289,7 +3412,7 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 			for ( i = 0 ; bOk && i < nSteps ; i++ )
 			{
 				BOOL bresult;
-				if ((mType[i] == CGenerator::MT_IRE)||(mType[i] == CGenerator::MT_NEARWHITE)||(mType[i] == CGenerator::MT_NEARWHITE))
+				if ((mType[i] == CGenerator::MT_IRE)||(mType[i] == CGenerator::MT_NEARBLACK)||(mType[i] == CGenerator::MT_NEARWHITE))
 					bresult = pGenerator -> DisplayGray ( GenIRE [ i ], mType[i] );
 				else
 					bresult = pGenerator -> DisplayRGBColor ( GenColors [ i ] , mType[i] );
@@ -5591,7 +5714,6 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		// A matrix calibration file over a spectral correction - same question
 		// as manual and existing-reference calibration.
 		BOOL	bLoaded = TRUE;
-		int		prevMethod = m_pSensor->GetCalibrationMethod();	// before the file replaces it
 
 		if(page.m_sensorTrainingMode != 1)
 		{
@@ -5622,11 +5744,11 @@ void CDataSetDoc::OnLoadCalibrationFile()
 			if ( m_pSensor->GetCalibrationMethod() == CALIB_BODNER_THREEMATRIX )
 			{
 				int nSkipped = m_measure.ApplySensorBodnerRecalibration( m_pSensor->GetBodnerRawMatrices(), m_pSensor->GetBodnerCalMatrices() );
+				m_pSensor->RawlessReadings().BodnerInstalled();
 				ShowBodnerSkipCount ( nSkipped );
 			}
 			else
-				ShowBodnerSkipCount( m_measure.ApplySensorAdjustmentMatrix( m_pSensor->GetEffectiveMatrix(), m_pSensor->GetEffectiveMatrix(),
-					prevMethod != CALIB_BODNER_THREEMATRIX ) );
+				RecalibrateSingleMatrix( m_measure, m_pSensor, m_pSensor->GetEffectiveMatrix(), m_pSensor->GetEffectiveMatrix() );
 			UpdateAllViews ( NULL, UPD_EVERYTHING );
 			SetModifiedFlag(TRUE);
 		}

@@ -474,7 +474,10 @@ static void ReportCalibrationLoadFailure ( LPCSTR lpszPath, CException * e )
 		CNewerSchemaException *	pEx = (CNewerSchemaException *) e;
 		CString					strText;
 
-		strText.Format ( pEx -> m_unreleased ? IDS_SCHEMA_UNRELEASED : IDS_SCHEMA_NEWER, (LPCSTR) pEx -> m_block, pEx -> m_version );
+		if ( ! pEx -> m_feature.IsEmpty () )
+			strText.Format ( IDS_SCHEMA_UNKNOWN_FEATURE, (LPCSTR) pEx -> m_feature );
+		else
+			strText.Format ( pEx -> m_unreleased ? IDS_SCHEMA_UNRELEASED : IDS_SCHEMA_NEWER, (LPCSTR) pEx -> m_block, pEx -> m_version );
 		strWhat.Format ( "%s\n%s", lpszPath, (LPCSTR) strText );
 		strMsg.Format ( IDS_THC_LOAD_FAILED, (LPCSTR) strWhat );
 		AfxMessageBox ( strMsg, MB_OK | MB_ICONEXCLAMATION );
@@ -532,6 +535,12 @@ BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 	// from its source and dereferences it, which from a fresh temporary is a
 	// NULL meter - the crash the 2026-09-08 bench found on every valid file.
 	COneDeviceSensor	loaded;
+	// Not the file's to set, success or failure: it describes the readings in
+	// the document this sensor belongs to, and a training file carries none (it
+	// holds whatever the sensor that saved it had). The caller's recalibration
+	// walk updates it. COneDeviceSensor::Copy carries it from the temporary, so
+	// it is put back after the load below.
+	RawlessReadingsState	previousRawless = m_rawlessReadings;
 	BOOL				bLoaded = FALSE;
 
 	TRY
@@ -568,6 +577,14 @@ BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 	}
 	END_CATCH_ALL
 
+	m_rawlessReadings = previousRawless;
+	// One rule holds whatever the file or the restore left: a Bodner sensor's
+	// raw-less readings never embody its (identity) single matrix. A Bodner file
+	// loaded with no walk after it (a new document from the wizard or DDE, Change
+	// Sensor) would otherwise keep a fresh sensor's "embody" under Bodner, and
+	// save it that way.
+	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
+		m_rawlessReadings.BodnerInstalled();
 	return bLoaded;
 }
 

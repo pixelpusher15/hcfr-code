@@ -60,6 +60,11 @@ protected:
 	// correction through m_sensorToXYZMatrix like any other single-matrix method.
 	SpectralCorrectionRecord m_spectral;
 	int m_fitBasis;							// SpectralFitBasis: what the method's matrices expect as input
+	// Whether the document's raw-less readings still embody m_sensorToXYZMatrix
+	// (see RawlessReadingsState, Color.h). It describes the readings this sensor
+	// corrected, so it is stored with the document (CSensor stream v4) and a
+	// training file does not replace it (COneDeviceSensor::LoadCalibrationFile).
+	RawlessReadingsState m_rawlessReadings;
 	// Configure() snapshot (BeginConfigure/CancelConfigure)
 	Matrix m_cfgSnapMatrix;
 	Matrix m_cfgSnapBodnerRaw[3], m_cfgSnapBodnerCal[3];
@@ -131,6 +136,7 @@ public:
 		}
 		UpdateBodnerInverseCache();
 	}
+	RawlessReadingsState & RawlessReadings() { return m_rawlessReadings; }
 	const Matrix * GetBodnerRawMatrices() const { return m_bodnerRawMatrix; }
 	const Matrix * GetBodnerCalMatrices() const { return m_bodnerCalMatrix; }
 

@@ -12,6 +12,8 @@ class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
     CPPUNIT_TEST( BodnerThreeMatrixRoundTrip );
     CPPUNIT_TEST( BodnerSubGamutSelection );
     CPPUNIT_TEST( RawXYZRecalibration );
+    CPPUNIT_TEST( RawlessReadingsAcrossEntrances );
+    CPPUNIT_TEST( RawlessReadingAfterSpectralLeave );
     CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -212,6 +214,113 @@ protected:
         c.SetXYZValue(ColorXYZ(m2 * c.GetRawXYZValue()));
 
         ColorXYZ expected(m2 * raw);
+        ColorXYZ actual = c.GetXYZValue();
+        for ( int i = 0; i < 3; i++ )
+            CPPUNIT_ASSERT_DOUBLES_EQUAL( expected[i], actual[i], 0.000000000001 );
+    }
+
+    // RawlessReadingsState (Color.h) across the entrances that change the
+    // correction. A reading with no raw value may take delta = new * inverse(current)
+    // only while it embodies the sensor's CURRENT single matrix; each block below
+    // is one way that stops being true, and the recalibration after it must leave
+    // the reading alone (bComposeLegacy false) instead of composing.
+    void RawlessReadingsAcrossEntrances()
+    {
+        // Fresh sensor, matrix -> matrix: the readings move with every walk.
+        {
+            RawlessReadingsState s;
+            CPPUNIT_ASSERT( s.ComposeOntoRawless() );
+            s.SingleMatrixWalked(0);
+            CPPUNIT_ASSERT( s.ComposeOntoRawless() );
+        }
+        // (a) A spectral Browse answered "leave them": the sensor matrix goes to
+        // identity and the method to the default one, the readings keep M. The
+        // .thc load, Manual or Existing that follows must skip them, and after
+        // skipping them they are still stranded.
+        {
+            RawlessReadingsState s;
+            s.SpectralLeft();
+            CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
+            s.SingleMatrixWalked(5);
+            CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
+        }
+        // (b) Bodner, then a spectral "strip": the strip walk skips the raw-less
+        // readings (they still embody the pre-Bodner matrix) and leaves the method
+        // at the default one; the next matrix recalibration must skip them too.
+        {
+            RawlessReadingsState s;
+            s.BodnerInstalled();
+            CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
+            s.SingleMatrixWalked(3);
+            CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
+        }
+        // (c) Bodner -> matrix -> matrix: the second matrix recalibration composed
+        // newMatrix * inverse(C1) onto readings that never took C1.
+        {
+            RawlessReadingsState s;
+            s.BodnerInstalled();
+            s.SingleMatrixWalked(3);
+            CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
+            s.SingleMatrixWalked(3);
+            CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
+        }
+        // DDE SetSensorMatrix writes a matrix without walking the readings.
+        {
+            RawlessReadingsState s;
+            s.MatrixSetWithoutWalk();
+            CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
+        }
+        // A matrix walk that found no raw-less reading to skip leaves nothing
+        // stranded: every reading now embodies the new matrix, so composing is
+        // right again (for a reading edited by hand later, say).
+        {
+            RawlessReadingsState s;
+            s.SpectralLeft();
+            s.SingleMatrixWalked(0);
+            CPPUNIT_ASSERT( s.ComposeOntoRawless() );
+        }
+        // A Bodner fit never re-arms it, even after a clean matrix walk: a reading
+        // edited under Bodner embodies the sub-gamut correction, not the identity
+        // single matrix the sensor then carries.
+        {
+            RawlessReadingsState s;
+            s.SingleMatrixWalked(0);
+            s.BodnerInstalled();
+            CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
+        }
+        // The value CSensor stores (Get) restores the same answer (Set).
+        {
+            RawlessReadingsState s, t;
+            s.SpectralLeft();
+            t.Set(s.Get());
+            CPPUNIT_ASSERT( !t.ComposeOntoRawless() );
+            s.SingleMatrixWalked(0);
+            t.Set(s.Get());
+            CPPUNIT_ASSERT( t.ComposeOntoRawless() );
+        }
+    }
+
+    // Scenario (a) of the review with numbers: a document recorded before raw
+    // capture, calibrated with M; a ccss Browsed and "leave them" answered; then
+    // a .thc carrying L loaded (OnLoadCalibrationFile passes L as the delta). The
+    // raw-less reading must stay M*r. Composing gave L*M*r, corrected twice.
+    // The compose step is CColor::applyAdjustmentMatrix, the call the raw-less
+    // branch of ReapplyAdjustmentMatrix (Measure.cpp) makes.
+    void RawlessReadingAfterSpectralLeave()
+    {
+        ColorXYZ r(0.40, 0.50, 0.60);
+        Matrix M(0.0,3,3); M(0,0)=1.10; M(1,1)=0.95; M(2,2)=1.20; M(0,1)=0.03;
+        Matrix L(0.0,3,3); L(0,0)=0.90; L(1,1)=1.05; L(2,2)=0.85; L(1,0)=0.02;
+        CColor c;
+        c.SetXYZValue(ColorXYZ(M * r));
+        CPPUNIT_ASSERT( !c.HasRawXYZValue() );
+
+        RawlessReadingsState s;
+        s.SpectralLeft();
+        if ( s.ComposeOntoRawless() )
+            c.applyAdjustmentMatrix(L);
+
+        ColorXYZ expected(M * r);
         ColorXYZ actual = c.GetXYZValue();
         for ( int i = 0; i < 3; i++ )
             CPPUNIT_ASSERT_DOUBLES_EQUAL( expected[i], actual[i], 0.000000000001 );

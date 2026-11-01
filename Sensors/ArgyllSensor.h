@@ -56,6 +56,7 @@ public:
     BOOL        m_DisableAIO;   // Disable Rev. B AIO measurement mode (i1d3 / ColorMunki Display)
     CString     m_spectralCorrectionPath;   // canonical .ccss loaded onto the meter (empty = none)
     CString     m_spectralCorrectionDesc;   // description shown in the UI
+    bool        m_displayTypeFromIni;       // m_DisplayType was read from the INI (meter ctor), not a .chc or Copy
     CString     m_cfgSnapSpectralPath;      // BeginConfigure/CancelConfigure snapshot
     CString     m_cfgSnapSpectralDesc;
     // The device settings GetPropertiesSheetValues commits (members and registry) -

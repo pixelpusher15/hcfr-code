@@ -46,9 +46,7 @@ public:
 	double		m_deltay;
 	double		m_deltaE;		// dE of the current read (< 0 until first refresh)
 	COLORREF	m_clr;
-	int nR;
-	int nG;
-	int nB;
+	ColorRGBDisplay	m_testClr;	// the patch this target stands for (see Refresh)
 	ColorXYZ centerXYZ;
 
 	CColor *	m_pRefColor;

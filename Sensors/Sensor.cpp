@@ -25,8 +25,7 @@
 #include "ColorHCFR.h"
 #include "Sensor.h"
 #include "Generator.h"
-#include "ArchiveExtension.h"
-#include "ArchiveTags.h"
+#include "SensorCalibrationStream.h"
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -86,6 +85,7 @@ void CSensor::Copy(CSensor * p)
 		m_bodnerCalMatrix[k] = p->m_bodnerCalMatrix[k];
 	}
 	UpdateBodnerInverseCache();
+	m_rawlessReadings = p->m_rawlessReadings;
 	m_name = p->m_name;
 }
 
@@ -113,162 +113,66 @@ void CSensor::Serialize(CArchive& archive)
 		// silently change identity through the v1 round-trip. Document saves
 		// under the key also produce v1 sensor blocks - harmless for the
 		// default method, and the document header gates old builds anyway.
+		// A v1 stream cannot say that the raw-less readings are stranded either
+		// (it would reload as "they embody the matrix" and the next matrix
+		// recalibration would compose onto them), so that state also forces
+		// the current version.
 		//
-		// v3 (issue #193) is the v1 payload followed by a tagged extension
-		// trailer (ArchiveTags.h): the method as SENSOR_CALIBRATION_METHOD, and
-		// the six Bodner sub-gamut matrices as SENSOR_BODNER_MATRICES only when
-		// that method is in force, the fit basis as SENSOR_FIT_BASIS, and the
-		// spectral correction record as SENSOR_SPECTRAL_CORRECTION only when one
-		// is present. v2 was the unreleased Bodner layout and is retired, never
-		// written again. The v1 stream carries none of these, and a v1 block
-		// reloads as basis UNKNOWN with no record. So v1 is written only when that
-		// reload is exact: the DEFAULT method, no record, and a basis that is not
-		// NATIVE already (UNKNOWN and DRIVER_CORRECTED behave alike). A NATIVE fit
-		// reloaded as UNKNOWN would compose the next record's correction onto a
-		// matrix fitted on native readings - a double correction - and a dropped
-		// record loses what the matrix may be composed on.
+		// A v1 stream carries no fit basis and no spectral correction record
+		// either, and reloads as basis UNKNOWN with no record. So v1 is also
+		// written only when that reload is exact: no record, and a basis that is
+		// not NATIVE already (UNKNOWN and DRIVER_CORRECTED behave alike). A NATIVE
+		// fit reloaded as UNKNOWN would compose the next record's correction onto
+		// a matrix fitted on native readings - a double correction - and a
+		// dropped record loses what the matrix may be composed on.
+		//
+		// The layout of every version lives in libHCFR's
+		// SensorCalibrationStream, where the unit tests can reach it.
 		int version = ( m_calibrationMethod == CALIB_HCFR_DEFAULT
 		             && ! m_spectral.IsPresent()
 		             && m_fitBasis != FIT_BASIS_NATIVE
+		             && m_rawlessReadings.ComposeOntoRawless()
 		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
-						? 1 : 3;
-		archive << version;
-		archive << m_calibrationTime;
-		if ( version == 3 )
+						? 1 : kSensorStreamVersion;
+
+		SensorCalibrationFields fields;
+		fields.calibrationTime = m_calibrationTime;
+		fields.method = m_calibrationMethod;
+		fields.rawlessEmbody = m_rawlessReadings.Get();
+		fields.fitBasis = m_fitBasis;
+		fields.spectral = m_spectral;
+		for ( int k = 0; k < 3; k++ )
 		{
-			CExtensionWriter ext;
-
-			ext.BeginTag ( ArchiveTag::SENSOR_CALIBRATION_METHOD ) << (int) m_calibrationMethod;
-			ext.EndTag ();
-
-			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
-			{
-				CArchive & value = ext.BeginTag ( ArchiveTag::SENSOR_BODNER_MATRICES );
-				int k;
-				for ( k = 0; k < 3; k++ )
-					m_bodnerRawMatrix[k].Serialize(value);
-				for ( k = 0; k < 3; k++ )
-					m_bodnerCalMatrix[k].Serialize(value);
-				ext.EndTag ();
-			}
-
-			ext.BeginTag ( ArchiveTag::SENSOR_FIT_BASIS ) << (int) m_fitBasis;
-			ext.EndTag ();
-
-			if ( m_spectral.IsPresent() )
-			{
-				m_spectral.Serialize ( ext.BeginTag ( ArchiveTag::SENSOR_SPECTRAL_CORRECTION ) );
-				ext.EndTag ();
-			}
-
-			ext.Write ( archive );
+			fields.bodnerRaw[k] = m_bodnerRawMatrix[k];
+			fields.bodnerCal[k] = m_bodnerCalMatrix[k];
 		}
+		StoreSensorCalibration ( archive, fields, version );
 	}
 	else
 	{
-		int version;
-		archive >> version;
-		if ( version > 3 )
-			throw new CNewerSchemaException ( "CSensor", version );
-		if ( version == 2 )
-		{
-			// The unreleased Bodner layout. Parsing it as v3 would read its
-			// method field as the trailer length and desync unpredictably, so
-			// it is refused outright: regenerate the file with this build.
-			throw new CNewerSchemaException ( "CSensor", version, true );
-		}
-		if ( version < 1 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
-		archive >> m_calibrationTime;
+		SensorCalibrationFields fields;
+		int version = LoadSensorCalibration ( archive, fields );
 
-		if ( version == 3 )
+		m_calibrationTime = fields.calibrationTime;
+		// Absent tags, and every v1 stream, leave the codec's defaults: basis
+		// UNKNOWN (treated as driver-corrected) and no spectral correction record.
+		m_fitBasis = fields.fitBasis;
+		m_spectral = fields.spectral;
+		if ( version != 1 )
 		{
-			CExtensionReader ext(archive);
-			BYTE  tag;
-			DWORD cb;
-
-			bool bSawBodnerMatrices = false;
-			m_calibrationMethod = CALIB_HCFR_DEFAULT;		// when the tag is absent
-			m_fitBasis = FIT_BASIS_UNKNOWN;					// a file from before the basis field
-			m_spectral.Clear();								// no spectral correction recorded
-			while ( ext.Next(tag, cb) )
+			m_calibrationMethod = fields.method;
+			m_rawlessReadings.Set( fields.rawlessEmbody );
+			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 			{
-				switch ( tag )
+				for ( int k = 0; k < 3; k++ )
 				{
-					case ArchiveTag::SENSOR_CALIBRATION_METHOD:
-					{
-						// Unknown tags are forward-compatible; unknown values inside a
-						// known tag are not. A method this build does not know would
-						// silently run through the wrong correction, so it is refused
-						// as a file from a newer HCFR.
-						int method;
-						ext.Value() >> method;
-						if ( method < CALIB_CLASSIC_NIST || method > CALIB_SPECTRAL_SAMPLE )
-							throw new CNewerSchemaException ( "CSensor", method, false );
-						m_calibrationMethod = method;
-						break;
-					}
-
-					case ArchiveTag::SENSOR_BODNER_MATRICES:
-					{
-						CArchive & value = ext.Value();
-						bSawBodnerMatrices = true;
-						int k;
-						for ( k = 0; k < 3; k++ )
-							m_bodnerRawMatrix[k].Serialize(value);
-						for ( k = 0; k < 3; k++ )
-							m_bodnerCalMatrix[k].Serialize(value);
-						break;
-					}
-
-					case ArchiveTag::SENSOR_FIT_BASIS:
-					{
-						// Same rule as the method: a basis this build does not know
-						// would compose (or not) the wrong matrices.
-						int basis;
-						ext.Value() >> basis;
-						if ( basis < FIT_BASIS_UNKNOWN || basis > FIT_BASIS_DRIVER_CORRECTED )
-							throw new CNewerSchemaException ( "CSensor", basis, false );
-						m_fitBasis = basis;
-						break;
-					}
-
-					case ArchiveTag::SENSOR_SPECTRAL_CORRECTION:
-					{
-						// A written record always names its source and its basis; a
-						// value outside the known ones comes from a newer HCFR.
-						m_spectral.Serialize ( ext.Value() );
-						if ( m_spectral.source < SPECTRAL_SOURCE_FILE || m_spectral.source > SPECTRAL_SOURCE_DISPLAY_TYPE )
-							throw new CNewerSchemaException ( "CSensor", m_spectral.source, false );
-						if ( m_spectral.basis < FIT_BASIS_NATIVE || m_spectral.basis > FIT_BASIS_DRIVER_CORRECTED )
-							throw new CNewerSchemaException ( "CSensor", m_spectral.basis, false );
-						break;
-					}
-
-					default:
-						ext.Skip();
-						break;
+					m_bodnerRawMatrix[k] = fields.bodnerRaw[k];
+					m_bodnerCalMatrix[k] = fields.bodnerCal[k];
 				}
 			}
-			ext.Close();
-
-			// The Bodner method is meaningless without its six matrices: loading
-			// it anyway would recalibrate every reading through identity
-			// sub-gamuts and report success.
-			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX && ! bSawBodnerMatrices )
-				AfxThrowArchiveException ( CArchiveException::badSchema );
-			// Same reason for the spectral method: its matrix is the record's
-			// correction, and without the record nothing says what it corrects.
-			if ( UsesSpectralMethod() && ! m_spectral.IsPresent() )
-				AfxThrowArchiveException ( CArchiveException::badSchema );
 		}
 		else
 		{
-			// No trailer: no basis (UNKNOWN, treated as driver-corrected) and no
-			// spectral correction record.
-			m_fitBasis = FIT_BASIS_UNKNOWN;
-			m_spectral.Clear();
-
 			// Pre-existing sensor files predate the method field. The legacy HCFR
 			// correction is NIST four color / FCMM with luminance scaling
 			// (CALIB_HCFR_DEFAULT): ComputeConversionMatrix's primary path, and
@@ -290,8 +194,10 @@ void CSensor::Serialize(CArchive& archive)
 				legacyOnly = ( GetConfig()->GetProfileInt("Advanced","CalibrationMethod",-1) == -1 )
 					? GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0) : 0;
 			m_calibrationMethod = legacyOnly ? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
+			// Written by a single-matrix build: every reading embodies the stored matrix.
+			m_rawlessReadings.Set( true );
 		}
-		// Loaded (v3 Bodner) or defaulted matrices either way: refresh the
+		// Loaded (Bodner) or defaulted matrices either way: refresh the
 		// sub-gamut inverse cache for this deserialized state.
 		UpdateBodnerInverseCache();
 	}
