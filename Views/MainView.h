@@ -129,6 +129,7 @@ public:
 
 private:
     void AddColorToGrid(const ColorTriplet& color, GV_ITEM& Item, const char* format);
+    void BlankSelectedColorRows(GV_ITEM& Item, int count, int skip);
 
     BOOL		m_bPositionsInit;
     BOOL		m_bInSizeMove;
