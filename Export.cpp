@@ -1440,7 +1440,7 @@ bool CExport::SavePDF()
 		{
 			aColor = pDataRef->GetMeasure()->GetCC24Sat(i);
 			pDataRef->GetMeasure()->GetRefCC24Sat(i, aReference);
-			aRef = aReference.GetRGBValue((cRef.m_standard==UHDTV3||cRef.m_standard==UHDTV4)?CColorReference(UHDTV2):GetColorReference());
+			aRef = aReference.GetRGBValue((cRef.m_standard==UHDTV3||cRef.m_standard==UHDTV4)?ContainerTransportReference(GetColorReference()):GetColorReference());
 			if (GetConfig()->m_GammaOffsetType == 5)
 			{
 				if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR)
@@ -1683,7 +1683,7 @@ bool CExport::SaveGrayScaleSheet()
 		result&=graySS.AddRow(Rows,rowNb,m_doReplace);
 		rowNb++;
 	}
-	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 
 	for (i=0; i<3; i++)
 	{
@@ -2381,7 +2381,7 @@ bool CExport::SaveCCSheet()
 				Rows.Add(-1.0);
 		}
 		
-		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 
 		for(j=0;j<3;j++)
 		{
