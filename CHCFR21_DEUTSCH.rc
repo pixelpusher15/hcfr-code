@@ -4160,7 +4160,7 @@ BEGIN
     IDS_EXPORT_LAYOUT_MISMATCH  "Zu dieser Datei kann nichts hinzugefügt werden: Sie wurde mit anderen Rohdaten-/Stimulus-Optionen exportiert. Exportieren Sie in eine neue Datei oder wiederholen Sie den Export mit denselben Optionen wie die vorhandenen Daten."
     IDS_SCHEMA_NEWER        "Diese Datei wurde von einer neueren HCFR-Version geschrieben (%s Version %d). Aktualisieren Sie HCFR, um sie zu öffnen."
     IDS_SCHEMA_UNRELEASED   "Diese Datei wurde von einer unveröffentlichten Entwicklungsversion von HCFR geschrieben (%s Version %d) und kann nicht gelesen werden. Erstellen Sie sie neu."
-    IDS_SCHEMA_UNRELEASED_DOC "Diese Datei wurde von einer unveröffentlichten Entwicklungsversion von HCFR geschrieben (Dokumentversion %d). Öffnen Sie sie mit dieser Version."
+    IDS_SCHEMA_UNRELEASED_DOC "Diese Datei wurde von einer unveröffentlichten Entwicklungsversion von HCFR geschrieben (Dokumentversion %d). Öffnen Sie sie mit der Version, die sie geschrieben hat."
     IDS_SCHEMA_UNKNOWN_FEATURE "Diese Datei verwendet ein Element, das diese HCFR-Version nicht hat (%s). Sie wurde vermutlich von einer neueren Version geschrieben; aktualisieren Sie HCFR, um sie zu öffnen."
 END
 
