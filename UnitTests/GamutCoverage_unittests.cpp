@@ -1,5 +1,6 @@
 #include "GamutCoverage.h"
 #include <math.h>
+#include <stdio.h>
 #include <cppunit/config/SourcePrefix.h>
 #include <cppunit/extensions/HelperMacros.h>
 
@@ -11,6 +12,36 @@ namespace
     const ColorxyY rec709[3]  = { ColorxyY(0.6400, 0.3300), ColorxyY(0.3000, 0.6000), ColorxyY(0.1500, 0.0600) };
     const ColorxyY p3[3]      = { ColorxyY(0.6800, 0.3200), ColorxyY(0.2650, 0.6900), ColorxyY(0.1500, 0.0600) };
     const ColorxyY rec2020[3] = { ColorxyY(0.7080, 0.2920), ColorxyY(0.1700, 0.7970), ColorxyY(0.1310, 0.0460) };
+
+    // a*/b* hexagons (R,Y,G,C,B,M) from a real measured display against a
+    // Rec.2020 a*/b* target, and the same measured hexagon after simulating
+    // every channel's luminance being cut (xy chromaticity held fixed) --
+    // both cross-checked against an independent Python/NumPy Lab-conversion
+    // pipeline before being ported in here.
+    const GamutPoint measuredAbBaseline[6] = {
+        { 115.67,  94.40 },   // R
+        { -20.97, 121.49 },   // Y
+        {-169.95, 104.04 },   // G
+        { -96.50, -26.38 },   // C
+        {  86.73,-116.54 },   // B
+        { 134.05, -67.69 },   // M
+    };
+    const GamutPoint targetAbRec2020[6] = {
+        { 117.33, 100.50 },   // R
+        { -21.48, 136.89 },   // Y
+        {-172.32, 116.62 },   // G
+        {-106.24, -19.32 },   // C
+        {  86.11,-120.27 },   // B
+        { 130.53, -61.18 },   // M
+    };
+    const GamutPoint measuredAbAllChannelsDimmed[6] = {
+        {  87.2,  66.8 },     // R
+        { -16.6,  96.1 },     // Y
+        {-135.1,  82.7 },     // G
+        { -88.1, -24.1 },     // C
+        {  66.9, -89.9 },     // B
+        { 108.1, -54.6 },     // M
+    };
 }
 
 class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
@@ -23,6 +54,12 @@ class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
     CPPUNIT_TEST( WindingInvarianceTest );
     CPPUNIT_TEST( UvPlaneTest );
     CPPUNIT_TEST( xyToUvTest );
+    CPPUNIT_TEST( AbHexagonSelfCoverageTest );
+    CPPUNIT_TEST( AbHexagonBaselineTest );
+    CPPUNIT_TEST( AbHexagonLuminanceLossTest );
+    CPPUNIT_TEST( AbHexagonWindingInvarianceTest );
+    CPPUNIT_TEST( AbHexagonNonConvexInputTest );
+    CPPUNIT_TEST( AbHexagonDegenerateTest );
     CPPUNIT_TEST_SUITE_END();
 
 protected:
@@ -95,6 +132,90 @@ protected:
         xyToUv(0.3127, 0.3290, u, v);
         CPPUNIT_ASSERT_DOUBLES_EQUAL( 0.1978, u, 5e-5 );
         CPPUNIT_ASSERT_DOUBLES_EQUAL( 0.4683, v, 5e-5 );
+    }
+
+    // --- a*b* hexagon path (GamutCoveragePolygon) ---
+
+    void AbHexagonSelfCoverageTest()
+    {
+        // a hexagon covers itself exactly
+        std::vector<GamutPoint> target(targetAbRec2020, targetAbRec2020 + 6);
+        CPPUNIT_ASSERT_DOUBLES_EQUAL( 1.0, GamutCoveragePolygon(target, target), 1e-9 );
+    }
+
+    void AbHexagonBaselineTest()
+    {
+        // Real measured-display-vs-Rec.2020 a*b* hexagon: cross-checked
+        // against an independent Python/NumPy Lab pipeline, ~92-93% (the
+        // convex-hull-based area here can differ by ~1pt from a strict
+        // hue-ordered-polygon area if the hexagon isn't perfectly convex --
+        // this is a coarse sanity range, not a bit-exact regression check).
+        std::vector<GamutPoint> meas(measuredAbBaseline, measuredAbBaseline + 6);
+        std::vector<GamutPoint> target(targetAbRec2020, targetAbRec2020 + 6);
+        double cov = GamutCoveragePolygon(meas, target);
+        CPPUNIT_ASSERT( cov > 0.88 && cov < 0.95 );
+    }
+
+    void AbHexagonLuminanceLossTest()
+    {
+        // The whole point of this metric: cutting every channel's luminance
+        // (xy chromaticity held fixed) collapses a*b* coverage hard, where
+        // the xy/u'v' triangle metric wouldn't move at all for the same
+        // input. Matches the independent Python validation almost exactly.
+        std::vector<GamutPoint> measDimmed(measuredAbAllChannelsDimmed, measuredAbAllChannelsDimmed + 6);
+        std::vector<GamutPoint> target(targetAbRec2020, targetAbRec2020 + 6);
+        double cov = GamutCoveragePolygon(measDimmed, target);
+        CPPUNIT_ASSERT_DOUBLES_EQUAL( 0.591, cov, 0.01 );
+    }
+
+    void AbHexagonWindingInvarianceTest()
+    {
+        // vertex order must not matter, same as the triangle path
+        std::vector<GamutPoint> meas(measuredAbBaseline, measuredAbBaseline + 6);
+        std::vector<GamutPoint> target(targetAbRec2020, targetAbRec2020 + 6);
+        std::vector<GamutPoint> reversed(meas.rbegin(), meas.rend());
+        CPPUNIT_ASSERT_DOUBLES_EQUAL( GamutCoveragePolygon(meas, target),
+                                      GamutCoveragePolygon(reversed, target), 1e-9 );
+    }
+
+    void AbHexagonNonConvexInputTest()
+    {
+        // An undersaturated secondary sitting inside the chord between its
+        // two neighbors makes the measured hexagon concave, and that loss of
+        // chroma must move the number. Pull cyan alone toward neutral
+        // (a* = b* = 0) on the reference hexagon itself, to 25% and to 0%:
+        // both leave cyan inside the G-B chord, so a hull of the measured
+        // side would drop it and report one value for both. Every measured
+        // vertex lies inside the convex reference (the neutral point is
+        // inside it), so the intersection IS the measured hexagon and the
+        // exact coverage is its shoelace area over the reference's:
+        // 0.77423108 at 25%, 0.69897477 at 0%. Tolerance 1e-6: the inputs are
+        // exact and the clip adds only rounding.
+        std::vector<GamutPoint> target(targetAbRec2020, targetAbRec2020 + 6);
+        std::vector<GamutPoint> cyan25(target), cyan0(target);
+        cyan25[3].x *= 0.25;
+        cyan25[3].y *= 0.25;
+        cyan0[3].x = 0.0;
+        cyan0[3].y = 0.0;
+        double cov25 = GamutCoveragePolygon(cyan25, target);
+        double cov0  = GamutCoveragePolygon(cyan0, target);
+        char msg[128];
+        sprintf_s(msg, sizeof(msg), "cyan at 25%%: %.3f%%, cyan at 0%%: %.3f%%", cov25 * 100.0, cov0 * 100.0);
+        CPPUNIT_ASSERT_MESSAGE( msg, cov0 < cov25 );
+        CPPUNIT_ASSERT_DOUBLES_EQUAL_MESSAGE( msg, 0.77423108, cov25, 1e-6 );
+        CPPUNIT_ASSERT_DOUBLES_EQUAL_MESSAGE( msg, 0.69897477, cov0, 1e-6 );
+    }
+
+    void AbHexagonDegenerateTest()
+    {
+        // collinear measured hexagon -> zero coverage, no crash
+        GamutPoint line[6] = {
+            { 0.0, 0.0 }, { 1.0, 1.0 }, { 2.0, 2.0 },
+            { 3.0, 3.0 }, { 4.0, 4.0 }, { 5.0, 5.0 },
+        };
+        std::vector<GamutPoint> meas(line, line + 6);
+        std::vector<GamutPoint> target(targetAbRec2020, targetAbRec2020 + 6);
+        CPPUNIT_ASSERT_DOUBLES_EQUAL( 0.0, GamutCoveragePolygon(meas, target), 1e-12 );
     }
 };
 
