@@ -94,6 +94,12 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 	int satsize=m_pDocument->GetMeasure()->GetSaturationSize();
 	BOOL DVD = (GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual);
 
+	// Black (0%) of the grayscale and near-black pages; set once m_bLumaMode is
+	// final, below.
+	BOOL bBlackCol = FALSE;
+	// Column 1 of those pages that is NOT their 0% reading: a free measure
+	// arriving with the stale page label. It keeps the gates it always had.
+	BOOL bStaleFirstCol = FALSE;
 	if ( m_pRefColor)
 	{
 		if (minCol > 0)
@@ -250,6 +256,22 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		// levels without aReference, so it is not gated on one.
 		if ( m_bLumaMode && !aReference.isValid() )
 			m_bHasReference = FALSE;
+		bBlackCol = ( minCol == 1 && !m_bLumaMode && ( m_displayMode == 0 || m_displayMode == 3 ) );
+		if ( bBlackCol )
+		{
+			// Free measures arrive with minCol 1 and the grayscale page's stale
+			// m_displayMode (see below), so the black rules - a target from the
+			// transfer function's 0% - only apply to the page's own 0% reading.
+			// m_pRefColor is a copy of it (CMainView::SetSelectedColor).
+			CColor black0 = ( m_displayMode == 3 ) ? m_pDocument->GetMeasure()->GetNearBlack(0) : m_pDocument->GetMeasure()->GetGray(0);
+			bBlackCol = ( black0.GetX() == m_pRefColor->GetX() && black0.GetY() == m_pRefColor->GetY() && black0.GetZ() == m_pRefColor->GetZ() );
+			bStaleFirstCol = !bBlackCol;
+		}
+		// A black (or stale-labelled column 1) with no measured light has nothing
+		// to show: empty wells, as the grid, charts and export leave it empty,
+		// not bars reading 0.0%.
+		if ( ( bBlackCol || bStaleFirstCol ) && !HasMeasuredLight ( m_pRefColor->GetY() ) )
+			m_bHasReference = FALSE;
 
 		BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 && (m_displayMode == 1 || m_displayMode >= 5 && m_displayMode <= 11 || m_displayMode == 13) );
 		CColor white = m_pDocument->GetMeasure()->GetPrimeWhite();
@@ -373,21 +395,26 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 
             ColorXYZ normColor;
 
-            // Column 1 of the grayscale and near-black pages is black, and it was
-            // excluded outright: selecting 0% read 0.0% on all three bars while the
-            // balance chart beside it plots that very patch. Let it through on the
-            // same terms the chart uses (rgbhistoview.cpp) - the w/gamma
-            // normalisation divides by a target luminance that is exactly 0 at
-            // black, so only the chromaticity-only settings survive there, and the
-            // patch needs light in it for its xy to mean anything. Free measures
+            // Column 1 of the grayscale and near-black pages is black. It shows
+            // whenever the patch has light in it - without, its xy is the sensor
+            // floor's equal-energy point, not a reading. Where the w/gamma target
+            // at black has light (BT.1886, black compensation, HLG with a target
+            // black, tone-mapped PQ, camera-gamma offsets) the usual ratio applies. Where it does not (power law, L*,
+            // sRGB, PQ without tone mapping) that ratio has no finite value, or a
+            // meaningless huge one, so the bars fall back to black's tint
+            // alone, the reading black is adjusted against. The balance chart
+            // (rgbhistoview.cpp) leaves that point out instead. Free measures
             // reach here with minCol 1 meaning something else, and carrying a stale
             // m_displayMode - MainView's case 2 assigns none of last_Col, last_Size
             // or last_Display - so one selected after a grayscale or near-black
-            // column arrives labelled as that page and does take this clause. What
-            // it then reports agrees with the other free-measure columns, so it is
-            // left that way.
-            if(aColor[1] > 0.0 && (minCol != 1 || m_displayMode == 4
-                || ((m_displayMode == 0 || m_displayMode == 3) && GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0)))
+            // column arrives labelled as that page. It fails the 0% match that sets
+            // bBlackCol and keeps the gate it had before (bStaleFirstCol): shown
+            // except on w/gamma, where its column-1 target is the curve's 0%.
+            if ( bBlackCol && GetConfig()->m_dE_gray == 1 && !HasMeasuredLight ( tmpColor[2] * white.GetY() ) )
+                fact = 1.0;
+
+            if(aColor[1] > 0.0 && (minCol != 1 || m_displayMode == 4 || (bBlackCol && HasMeasuredLight ( aColor[2] ))
+                || (bStaleFirstCol && GetConfig()->m_dE_gray != 1 && HasMeasuredLight ( aColor[2] ))))
             {
                 normColor[0]=(aColor[0]/aColor[1])*fact;
                 normColor[1]=1.0*fact;
@@ -537,8 +564,13 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 				}
 			}
 		}
+		// Black's target goes through the grid cell's helper, so a zero w/gamma
+		// target that lost its chromaticity is rebuilt the same way there and here.
+		CColor dERef = aReference;
+		if ( bBlackCol && aReference.isValid() )
+			dERef = BlackTargetReference ( *m_pRefColor, YWhite, aReference, GetColorReference().GetWhite() );
 		// the grid's gray-world weight: none in PQ
-		m_dEValue = aReference.isValid()?float(m_pRefColor->GetDeltaE(YWhite, aReference, RefWhite, cRef, GetConfig()->m_dE_form, !m_bLumaMode, GetConfig()->m_GammaOffsetType == 5 ? 3 : GetConfig()->gw_Weight )):0 ;
+		m_dEValue = dERef.isValid()?float(m_pRefColor->GetDeltaE(YWhite, dERef, RefWhite, cRef, GetConfig()->m_dE_form, !m_bLumaMode, GetConfig()->m_GammaOffsetType == 5 ? 3 : GetConfig()->gw_Weight )):0 ;
     } //have valid m_prefcolor
 	else
 	{
@@ -546,19 +578,17 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		//m_pRef
 	}
 
-	// Black keeps its dE where the normalisation makes it a chromaticity error,
-	// which is the rule the balance chart and the grayscale grid cell already use:
-	// m_dE_gray 2 / dE_form 5 set the target's luminance to the measured one, so
-	// what is left is "is my black tinted". Under the others the target at black
-	// is Y = 0 and the number would be an error against an ideal zero, so it stays
-	// suppressed - as it does for a black with no light to have a chromaticity.
+	// Black keeps its dE on the grayscale grid cell's terms: whenever it has light
+	// in it, against the w/gamma target where that has light and against its
+	// own luminance (tint alone) where it does not. A black with no measured light
+	// has no chromaticity to be wrong about, so it stays suppressed. A stale-
+	// labelled free measure keeps its old rule: dE where the target is set to
+	// the measured luminance (dE_gray 2 / dE_form 5).
 	BOOL bFirstCol = ( minCol == 1 && !m_bLumaMode && m_displayMode != 4 );
-	BOOL bBlackDEMeaningful = ( bFirstCol
-								&& ( m_displayMode == 0 || m_displayMode == 3 )
-								&& ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 )
-								&& m_pRefColor != NULL && m_pRefColor->GetY() > 0.0 );
+	BOOL bFirstColDE = ( ( bBlackCol || ( bStaleFirstCol && ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) ) )
+						 && HasMeasuredLight ( m_pRefColor->GetY() ) );
 
-	if (m_dEValue > 40 || ( bFirstCol && !bBlackDEMeaningful ) ) m_dEValue = 0.;
+	if (m_dEValue > 40 || ( bFirstCol && !bFirstColDE ) ) m_dEValue = 0.;
 
 	// With no target neither branch above ran, so the level members still hold the
 	// previous column's numbers. OnDraw does not print them, but it does scale the

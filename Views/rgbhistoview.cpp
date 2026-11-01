@@ -216,12 +216,19 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			//
 			// Point 0 needs two more things the others do not. The w/gamma
 			// normalisation (m_dE_gray == 1) divides by the TARGET luminance,
-			// which is exactly 0 at black - inf, or NaN when the measurement is
-			// zero too; only the chromaticity-only normalisations survive there.
-			// And black itself has to have light in it: with Y == 0 the xy is a
-			// 0/0 fallback that would plot as a plausible-looking tint reading
-			// out of nothing.
-			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0 ) ))
+			// which has no light at black for a pure power law, L*, sRGB and PQ
+			// without tone mapping - inf, NaN, or a meaningless huge ratio - so
+			// those leave the point out. BT.1886, black compensation and HLG with a
+			// target black put the display's black there instead, which makes the
+			// ratio a real reading (about 1x: black's tint); tone-mapped PQ and the
+			// camera-gamma offsets have light there too. The test is in cd/m2,
+			// like the measurement's. The RGB levels pane falls back to
+			// tint alone where the target is zero; here, next to the other steps,
+			// a tint-only point would read as a luminance result.
+			// And black itself has to have light in it: without, the
+			// xy is the sensor floor's equal-energy point, which would plot as a
+			// plausible-looking tint reading out of nothing.
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( GetConfig()->m_dE_gray != 1 || HasMeasuredLight ( tmpColor[2] * pDoc->GetMeasure()->GetOnOffWhite()[1] ) ) && HasMeasuredLight ( aColor[2] ) ) ))
 			{
 				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 				ColorRGB normColor(aMeasure, GetColorReference());
@@ -230,22 +237,20 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				m_graphCtrl.AddPoint(m_blueGraphID, x, normColor[2]*100.0);
 			}
 
-			// Black gets a dE only where the normalisation makes it mean
-			// something. m_dE_gray == 2 (and dE_form 5) set the target's
-			// luminance to the MEASURED one a few lines up, so what is left is
-			// the chromaticity error - "is my black tinted" - which is the same
-			// quantity CalMAN prints at 0% and why its number lands under 1
-			// instead of being an error against an ideal zero. The other
-			// normalisations leave the target at Y=0 there. Y > 0 because a
-			// patch with no light has no chromaticity to be wrong about.
-			if(m_showDeltaE && ( i > 0 || ( ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) && aColor[2] > 0.0 ) ))
+			// Black gets a dE on the grid cell's terms (BlackTargetReference):
+			// against the w/gamma target where that has light, against its own
+			// luminance - the chromaticity error alone, "is my black tinted", the
+			// quantity CalMAN prints at 0% - where it does not. A patch with no
+			// light has no chromaticity to be wrong about.
+			if(m_showDeltaE && ( i > 0 || HasMeasuredLight ( aColor[2] ) ))
 			{
-				if (aColor.isValid())
+				CColor dERef = ( i > 0 ) ? refColor : BlackTargetReference ( pDoc->GetMeasure()->GetGray(i), YWhitePatch, refColor, GetColorReference().GetWhite() );
+				if (aColor.isValid() && dERef.isValid())
 				{
 					CString str;
 					ColorLab aColorLab = pDoc->GetMeasure()->GetGray(i).GetLabValue(YWhitePatch, GetColorReference());
 					str.Format("L*a*b*:%.2f %.2f %.2f",aColorLab[0],aColorLab[1],aColorLab[2]);
-					m_graphCtrl2.AddPoint(m_deltaEGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhitePatch, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight), str);
+					m_graphCtrl2.AddPoint(m_deltaEGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhitePatch, dERef, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight), str);
 				}
 			}
 		}
@@ -336,7 +341,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// started at 1; point 0 is exactly where a meter hands back a degenerate
 			// chromaticity. Built inside the guard so the division does not happen at
 			// all when there is nothing to plot.
-			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( GetConfig()->m_dE_gray != 1 && aColor[2] > 0.0 ) ))
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( GetConfig()->m_dE_gray != 1 || HasMeasuredLight ( tmpColor[2] * pDataRef->GetMeasure()->GetOnOffWhite()[1] ) ) && HasMeasuredLight ( aColor[2] ) ) ))
 			{
 				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 				ColorRGB normColor(aMeasure, GetColorReference());
@@ -345,14 +350,15 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				m_graphCtrl.AddPoint(m_blueDataRefGraphID, x, normColor[2]*100.0);
 			}
 
-			if(m_showDeltaE && ( i > 0 || ( ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) && aColor[2] > 0.0 ) ))
+			if(m_showDeltaE && ( i > 0 || HasMeasuredLight ( aColor[2] ) ))
 			{
-				if (aColor.isValid())
+				CColor dERef = ( i > 0 ) ? refColor : BlackTargetReference ( pDataRef->GetMeasure()->GetGray(i), YWhiteRefPatch, refColor, GetColorReference().GetWhite() );
+				if (aColor.isValid() && dERef.isValid())
 				{
 					CString str;
 					ColorLab aColorLab = pDataRef->GetMeasure()->GetGray(i).GetLabValue(YWhiteRefPatch, GetColorReference());
 					str.Format("L*a*b*:%.2f %.2f %.2f",aColorLab[0],aColorLab[1],aColorLab[2]);
-					m_graphCtrl2.AddPoint(m_deltaEDataRefGraphID, x, pDataRef->GetMeasure()->GetGray(i).GetDeltaE(YWhiteRefPatch, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight ), str);
+					m_graphCtrl2.AddPoint(m_deltaEDataRefGraphID, x, pDataRef->GetMeasure()->GetGray(i).GetDeltaE(YWhiteRefPatch, dERef, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight ), str);
 				}
 				
 				// The enclosing guard checks the COMPARISON document's black
@@ -376,7 +382,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				// m_OnOffWhite at noDataColor - and that is a change to every point,
 				// not to black.
 				if (bMainDocHasColors && aColor.isValid()
-					&& ( i > 0 || ( YWhitePatch > 0.0 && YWhiteRefPatch > 0.0 ) ))
+					&& ( i > 0 || ( YWhitePatch > 0.0 && YWhiteRefPatch > 0.0 && HasMeasuredLight ( aColor2[2] ) ) ))
 						m_graphCtrl2.AddPoint(m_deltaEBetweenGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhitePatch,pDataRef->GetMeasure()->GetGray(i),YWhiteRefPatch, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight)); //Ki
 			}
 		}

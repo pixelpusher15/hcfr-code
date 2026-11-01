@@ -149,7 +149,7 @@ BEGIN
     GROUPBOX        "Referenz Display",IDC_DISPLAY_GROUP,7,7,204,50
     RTEXT           "Display Name",IDC_STATIC,28,20,55,15
     RTEXT           "Display Technology",IDC_STATIC,17,38,66,15
-    EDITTEXT        IDC_DISPLAY_TECH,89,36,115,14,ES_AUTOHSCROLL
+    COMBOBOX        IDC_DISPLAY_TECH,89,36,115,150,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
 END
 
 IDD_SENSOR_PROP_PAGE DIALOG 0, 0, 192, 191
@@ -364,7 +364,7 @@ CAPTION "Über HCFR Colorimeter"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
     CONTROL         IDB_LOGO,IDC_STATIC,"Statisch",SS_BITMAP,7,7,172,62
-    LTEXT           "Version 4.2.0.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
+    LTEXT           "Version 4.2.1.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
     LTEXT           "Copyright (C) 2012-2026 Hcfr Project\nCopyright (C) 2005-2008 Association Homecinema Francophone",IDC_STATIC2,7,88,168,29
     LTEXT           "hcfr.sourceforge.net",IDC_HOMECINEMA_HYPERLINK,7,120,80,8
     LTEXT           "IDC_PLACEHOLDER",IDC_PLACEHOLDER,4,136,177,117
@@ -2647,8 +2647,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 4,2,0,0
- PRODUCTVERSION 4,2,0,0
+ FILEVERSION 4,2,1,0
+ PRODUCTVERSION 4,2,1,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -2666,12 +2666,12 @@ BEGIN
             VALUE "Comments", "Under GPL Licence"
             VALUE "CompanyName", "Association Homecinema Francophone"
             VALUE "FileDescription", "HCFR Colorimeter resources"
-            VALUE "FileVersion", "4.2.0.0"
+            VALUE "FileVersion", "4.2.1.0"
             VALUE "InternalName", "CHCFR21_DEUTSCH"
             VALUE "LegalCopyright", "Copyright (C) 2005-2026"
             VALUE "OriginalFilename", "CHCFR21_DEUTSCH.DLL"
             VALUE "ProductName", "HCFR Colorimeter German language"
-            VALUE "ProductVersion", "4.2.0.0"
+            VALUE "ProductVersion", "4.2.1.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -2839,7 +2839,7 @@ END
 
 STRINGTABLE
 BEGIN
-    IDR_MAINFRAME           "HCFR Colorimeter - 4.2.0.0"
+    IDR_MAINFRAME           "HCFR Colorimeter - 4.2.1.0"
     IDS_CALIB_RGB_MATRIX    "RGB-Matrix (ASTM E1455-92)"
     IDS_CALIB_FCMM_NOLUM    "NIST Vier-Farben / FCMM (ohne Luminanzskalierung)"
     IDS_CALIB_FCMM_LUM      "NIST Vier-Farben / FCMM (mit Luminanzskalierung)"
@@ -3242,6 +3242,8 @@ BEGIN
                             "Positionieren Sie den Sensor auf dem Bildschirm und klicken Sie auf Ja, um fortzufahren.\nAbbruch durch Drücken der Taste <ESC>"
     IDS_SPECTRAL_SAMPLE_UNEXPECTED_EXCEPTION 
                             "Unerwartete Ausnahme bei der Erzeugung des Kalibrierungsspektrums des Kolorimeters"
+    IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS 
+                            "Das Spektrometer hat mehr Spektralbänder geliefert, als ein Kalibrierungsspektrum des Kolorimeters aufnehmen kann"
     IDS_REC709aREDREF       "Rec709 (75%) Rot Referenz"
     IDS_REC709aGREENREF     "Rec709 (75%) Grün Referenz"
     IDS_REC709aBLUEREF      "Rec709 (75%) Blau Referenz"
