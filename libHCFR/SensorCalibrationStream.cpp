@@ -114,11 +114,12 @@ int LoadSensorCalibration(CArchive& ar, SensorCalibrationFields& f)
 					// Unknown tags are forward-compatible; unknown values inside a
 					// known tag are not. A method this build does not know would
 					// silently run through the wrong correction, so it is refused
-					// as a file from a newer HCFR.
+					// as a file from a newer HCFR. The exception carries the block
+					// version, which is what the message names, never the method.
 					int method;
 					ext.Value() >> method;
-					if ( method < CALIB_CLASSIC_NIST || method > CALIB_FCMM_NO_LUM )
-						throw new CNewerSchemaException ( "CSensor", method, false );
+					if ( method < CALIB_CLASSIC_NIST || method >= CALIB_METHOD_COUNT )
+						throw new CNewerSchemaException ( "CSensor", version, false );
 					f.method = method;
 					break;
 				}
