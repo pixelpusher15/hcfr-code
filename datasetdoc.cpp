@@ -5714,6 +5714,12 @@ void CDataSetDoc::OnLoadCalibrationFile()
 		// A matrix calibration file over a spectral correction - same question
 		// as manual and existing-reference calibration.
 		BOOL	bLoaded = TRUE;
+		// What every stored reading went through before the file replaces it. Not
+		// always identity: Load is enabled under the spectral method on a native
+		// basis, where it is the spectral correction, and a raw-less reading then
+		// embodies it. Its delta must undo it (delta = new * inverse(old)), as in
+		// OnConfigureSensor and the matrix fits.
+		Matrix	oldEffective = m_pSensor->GetEffectiveMatrix();
 
 		if(page.m_sensorTrainingMode != 1)
 		{
@@ -5748,7 +5754,10 @@ void CDataSetDoc::OnLoadCalibrationFile()
 				ShowBodnerSkipCount ( nSkipped );
 			}
 			else
-				RecalibrateSingleMatrix( m_measure, m_pSensor, m_pSensor->GetEffectiveMatrix(), m_pSensor->GetEffectiveMatrix() );
+			{
+				Matrix newEffective = m_pSensor->GetEffectiveMatrix();
+				RecalibrateSingleMatrix( m_measure, m_pSensor, newEffective * oldEffective.GetInverse(), newEffective );
+			}
 			UpdateAllViews ( NULL, UPD_EVERYTHING );
 			SetModifiedFlag(TRUE);
 		}
