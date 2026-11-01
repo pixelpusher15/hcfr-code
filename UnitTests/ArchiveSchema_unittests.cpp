@@ -239,6 +239,12 @@ class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
 	CPPUNIT_TEST( SensorNewerVersionRefused );
 	CPPUNIT_TEST( SensorLegacyV1Bytes );
 	CPPUNIT_TEST( ExtensionWriterCap );
+	CPPUNIT_TEST( SensorSpectralRoundTrip );
+	CPPUNIT_TEST( SensorFitBasisAndRecordRoundTrip );
+	CPPUNIT_TEST( SensorPraV4StreamLoadsWithSpectralDefaults );
+	CPPUNIT_TEST( SensorUnknownFitBasisRefused );
+	CPPUNIT_TEST( SensorUnknownRecordValuesRefused );
+	CPPUNIT_TEST( SensorSpectralMethodWithoutRecordRefused );
 	CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -470,6 +476,178 @@ protected:
 		ok.Write(ar2);
 		ar2.Close();
 		CPPUNIT_ASSERT( mem2.GetLength() == 4 + (ULONGLONG) kMaxExtensionBytes );
+	}
+
+	// Tags 4 (SENSOR_FIT_BASIS) and 5 (SENSOR_SPECTRAL_CORRECTION), the
+	// ccss-as-correction fields.
+
+	void SensorSpectralRoundTrip()
+	{
+		// The spectral method: its record (tag 5) and the basis (tag 4) come
+		// back field for field, and the block ends where it said.
+		const int sources[2] = { SPECTRAL_SOURCE_FILE, SPECTRAL_SOURCE_DISPLAY_TYPE };
+		for ( int i = 0; i < 2; i++ )
+		{
+			SensorCalibrationFields in;
+			in.calibrationTime = 1789000100 + i;
+			in.method = CALIB_SPECTRAL_SAMPLE;
+			in.rawlessEmbody = false;
+			in.fitBasis = FIT_BASIS_NATIVE;
+			in.spectral = SpectralRecord(sources[i], FIT_BASIS_NATIVE);
+			StreamBuilder s;
+			StoreSensorCalibration(s.Ar(), in, kSensorStreamVersion);
+			s.Ar() << (int) 0x5EAD;
+			LoadResult r = Load(s.Bytes(), true);
+			CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) r.outcome );
+			CPPUNIT_ASSERT_EQUAL( 4, r.version );
+			CPPUNIT_ASSERT_EQUAL( (int) CALIB_SPECTRAL_SAMPLE, r.fields.method );
+			CPPUNIT_ASSERT_EQUAL( (int) FIT_BASIS_NATIVE, r.fields.fitBasis );
+			CPPUNIT_ASSERT( r.fields.spectral.IsPresent() );
+			CPPUNIT_ASSERT( r.fields.spectral == in.spectral );
+			CPPUNIT_ASSERT( r.fields.rawlessEmbody == false );
+			CPPUNIT_ASSERT_EQUAL( 0x5EAD, r.sentinel );
+		}
+	}
+
+	void SensorFitBasisAndRecordRoundTrip()
+	{
+		// Every basis under a matrix method and under Bodner, with and
+		// without a (dormant) record: tag 4 is always written, tag 5 only
+		// when a record is present, and Bodner's matrices still come back.
+		const int bases[3] = { FIT_BASIS_UNKNOWN, FIT_BASIS_NATIVE, FIT_BASIS_DRIVER_CORRECTED };
+		for ( int bodner = 0; bodner < 2; bodner++ )
+		for ( int b = 0; b < 3; b++ )
+		for ( int withRecord = 0; withRecord < 2; withRecord++ )
+		{
+			SensorCalibrationFields in = bodner ? BodnerFields() : SensorCalibrationFields();
+			if ( !bodner )
+			{
+				in.calibrationTime = 1789000200;
+				in.method = CALIB_FCMM_NO_LUM;
+			}
+			in.fitBasis = bases[b];
+			if ( withRecord )
+				in.spectral = SpectralRecord(SPECTRAL_SOURCE_FILE, FIT_BASIS_DRIVER_CORRECTED);
+			StreamBuilder s;
+			StoreSensorCalibration(s.Ar(), in, kSensorStreamVersion);
+			s.Ar() << (int) 0x5EAD;
+			LoadResult r = Load(s.Bytes(), true);
+			CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) r.outcome );
+			CPPUNIT_ASSERT_EQUAL( in.method, r.fields.method );
+			CPPUNIT_ASSERT_EQUAL( bases[b], r.fields.fitBasis );
+			CPPUNIT_ASSERT( r.fields.spectral.IsPresent() == ( withRecord != 0 ) );
+			CPPUNIT_ASSERT( r.fields.spectral == in.spectral );
+			CPPUNIT_ASSERT( r.fields.rawlessEmbody == in.rawlessEmbody );
+			for ( int k = 0; bodner && k < 3; k++ )
+			{
+				CPPUNIT_ASSERT( SameMatrix(in.bodnerRaw[k], r.fields.bodnerRaw[k]) );
+				CPPUNIT_ASSERT( SameMatrix(in.bodnerCal[k], r.fields.bodnerCal[k]) );
+			}
+			CPPUNIT_ASSERT_EQUAL( 0x5EAD, r.sentinel );
+		}
+	}
+
+	void SensorPraV4StreamLoadsWithSpectralDefaults()
+	{
+		// A v4 block as PR-A wrote it (tags 1, 2, 6 only): basis UNKNOWN (what
+		// every build before the basis field did) and no record. Loaded into
+		// scratch that already holds a basis and a record, so the defaults are
+		// proven set by the codec, not inherited from a fresh struct.
+		const int methods[4] = { CALIB_CLASSIC_NIST, CALIB_HCFR_DEFAULT, CALIB_BODNER_THREEMATRIX, CALIB_FCMM_NO_LUM };
+		for ( int m = 0; m < 4; m++ )
+		{
+			std::vector<BYTE> bytes = HandV4(methods[m], methods[m] == CALIB_BODNER_THREEMATRIX, TRUE, false, 90 + m);
+			CMemFile mem(&bytes[0], (UINT) bytes.size());
+			CArchive ar(&mem, CArchive::load);
+			SensorCalibrationFields f;
+			f.fitBasis = FIT_BASIS_NATIVE;
+			f.spectral = SpectralRecord(SPECTRAL_SOURCE_FILE, FIT_BASIS_NATIVE);
+			int version = LoadSensorCalibration(ar, f);
+			int sentinel = 0;
+			ar >> sentinel;
+			ar.Close();
+			mem.Detach();
+			CPPUNIT_ASSERT_EQUAL( 4, version );
+			CPPUNIT_ASSERT_EQUAL( methods[m], f.method );
+			CPPUNIT_ASSERT_EQUAL( (int) FIT_BASIS_UNKNOWN, f.fitBasis );
+			CPPUNIT_ASSERT( ! f.spectral.IsPresent() );
+			CPPUNIT_ASSERT( f.spectral == SpectralCorrectionRecord() );
+			CPPUNIT_ASSERT_EQUAL( 90 + m, sentinel );
+		}
+
+		// A version-1 block carries neither, even when the fields it was
+		// stored from held both: same defaults, again into dirty scratch.
+		StreamBuilder s;
+		SensorCalibrationFields in;
+		in.fitBasis = FIT_BASIS_NATIVE;
+		in.spectral = SpectralRecord(SPECTRAL_SOURCE_FILE, FIT_BASIS_NATIVE);
+		StoreSensorCalibration(s.Ar(), in, 1);
+		std::vector<BYTE> v1 = s.Bytes();
+		CMemFile mem(&v1[0], (UINT) v1.size());
+		CArchive ar(&mem, CArchive::load);
+		SensorCalibrationFields f = in;
+		int version = LoadSensorCalibration(ar, f);
+		ar.Close();
+		mem.Detach();
+		CPPUNIT_ASSERT_EQUAL( 1, version );
+		CPPUNIT_ASSERT_EQUAL( (int) FIT_BASIS_UNKNOWN, f.fitBasis );
+		CPPUNIT_ASSERT( ! f.spectral.IsPresent() );
+	}
+
+	void SensorUnknownFitBasisRefused()
+	{
+		// A basis this build does not know would compose (or not) the wrong
+		// matrices: refused as a newer file, naming the feature.
+		const int bad[3] = { -1, FIT_BASIS_DRIVER_CORRECTED + 1, 99 };
+		for ( int i = 0; i < 3; i++ )
+		{
+			LoadResult r = Load(HandV4(CALIB_HCFR_DEFAULT, false, TRUE, false, 0, bad[i]), false);
+			CPPUNIT_ASSERT_EQUAL( (int) NEWER, (int) r.outcome );
+			CPPUNIT_ASSERT_EQUAL( 4, r.exVersion );
+			CPPUNIT_ASSERT( r.exFeature == "fit basis" );
+		}
+		// Every known basis loads.
+		for ( int b = FIT_BASIS_UNKNOWN; b <= FIT_BASIS_DRIVER_CORRECTED; b++ )
+		{
+			LoadResult r = Load(HandV4(CALIB_HCFR_DEFAULT, false, TRUE, false, 0, b), false);
+			CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) r.outcome );
+			CPPUNIT_ASSERT_EQUAL( b, r.fields.fitBasis );
+		}
+	}
+
+	void SensorUnknownRecordValuesRefused()
+	{
+		// A written record always names a known source and a known basis.
+		const int badSource[2] = { SPECTRAL_SOURCE_DISPLAY_TYPE + 1, -1 };
+		for ( int i = 0; i < 2; i++ )
+		{
+			SpectralCorrectionRecord rec = SpectralRecord(SPECTRAL_SOURCE_FILE, FIT_BASIS_NATIVE);
+			rec.source = badSource[i];
+			LoadResult r = Load(HandV4(CALIB_HCFR_DEFAULT, false, TRUE, false, 0, FIT_BASIS_NATIVE, rec), false);
+			CPPUNIT_ASSERT_EQUAL( (int) NEWER, (int) r.outcome );
+			CPPUNIT_ASSERT_EQUAL( 4, r.exVersion );
+			CPPUNIT_ASSERT( r.exFeature == "spectral correction source" );
+		}
+		const int badBasis[3] = { FIT_BASIS_UNKNOWN, FIT_BASIS_DRIVER_CORRECTED + 1, -1 };
+		for ( int i = 0; i < 3; i++ )
+		{
+			LoadResult r = Load(HandV4(CALIB_HCFR_DEFAULT, false, TRUE, false, 0, FIT_BASIS_NATIVE,
+			                           SpectralRecord(SPECTRAL_SOURCE_FILE, badBasis[i])), false);
+			CPPUNIT_ASSERT_EQUAL( (int) NEWER, (int) r.outcome );
+			CPPUNIT_ASSERT_EQUAL( 4, r.exVersion );
+			CPPUNIT_ASSERT( r.exFeature == "spectral correction basis" );
+		}
+	}
+
+	void SensorSpectralMethodWithoutRecordRefused()
+	{
+		// The spectral method's matrix is the record's correction; without the
+		// record nothing says what it corrects. With it, the block loads.
+		LoadResult r = Load(HandV4(CALIB_SPECTRAL_SAMPLE, false, FALSE, false, 0, FIT_BASIS_NATIVE), false);
+		CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) r.outcome );
+		r = Load(HandV4(CALIB_SPECTRAL_SAMPLE, false, FALSE, false, 0, FIT_BASIS_NATIVE,
+		                SpectralRecord(SPECTRAL_SOURCE_DISPLAY_TYPE, FIT_BASIS_NATIVE)), false);
+		CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) r.outcome );
 	}
 };
 
