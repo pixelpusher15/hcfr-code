@@ -1111,7 +1111,7 @@ static void RunT12()
 }
 
 //////////////////////////////////////////////////////////////////////////
-// T19 — archive extension trailer oracle (issue #193).
+// T19 - archive extension trailer oracle (issue #193).
 //
 // Every versioned block in a .chc / .thc stream now ends with a length-
 // prefixed, tagged extension region (libHCFR/ArchiveExtension.h). CColor is
