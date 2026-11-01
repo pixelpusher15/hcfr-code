@@ -617,6 +617,7 @@ CDataSetDoc::CDataSetDoc()
 	m_pWndPos = NULL;
 	m_pFramePosInfo = NULL;
 	m_nPat = 0;
+	m_nLoadingFileVersion = 0;
 }
 
 CDataSetDoc::~CDataSetDoc()
@@ -1038,6 +1039,7 @@ void CDataSetDoc::Serialize(CArchive& ar)
 		ar >> header1;
 		ar >> header2;
 		ar >> version;
+		m_nLoadingFileVersion = version;
 
 		if( header1 != 0x4F4C4F43 || header2 != 0x46434852 )
 		{
@@ -1126,15 +1128,33 @@ void CDataSetDoc::Serialize(CArchive& ar)
 // build - surfaces as a CNewerSchemaException. MFC's own handler would call
 // it "incorrect schema", which reads as damage; say what it is, naming the
 // document, and let every other failure go through MFC as before.
+//
+// A sensor or generator class this build does not have (one a newer HCFR
+// added) surfaces from CArchive::ReadObject as badClass, not from one of our
+// versioned blocks: that is a newer file too, so it gets the same message,
+// naming the document version from the header.
 void CDataSetDoc::ReportSaveLoadException(LPCTSTR lpszPathName, CException* e, BOOL bSaving, UINT nIDPDefault)
 {
+	CString	strWhat;
+
 	if ( e != NULL && e -> IsKindOf ( RUNTIME_CLASS ( CNewerSchemaException ) ) )
 	{
 		CNewerSchemaException *	pEx = (CNewerSchemaException *) e;
-		CString					strWhat, strMsg;
-
 		strWhat.Format ( pEx -> m_unreleased ? IDS_SCHEMA_UNRELEASED : IDS_SCHEMA_NEWER, (LPCSTR) pEx -> m_block, pEx -> m_version );
-		strMsg.Format ( "%s\n\n%s", lpszPathName, (LPCSTR) strWhat );
+	}
+	else if ( e != NULL && ! bSaving && e -> IsKindOf ( RUNTIME_CLASS ( CArchiveException ) )
+	       && ( (CArchiveException *) e ) -> m_cause == CArchiveException::badClass )
+	{
+		strWhat.Format ( IDS_SCHEMA_NEWER, "document", m_nLoadingFileVersion );
+	}
+
+	if ( ! strWhat.IsEmpty () )
+	{
+		CString	strMsg;
+		if ( lpszPathName != NULL )
+			strMsg.Format ( "%s\n\n%s", lpszPathName, (LPCSTR) strWhat );
+		else
+			strMsg = strWhat;
 		AfxMessageBox ( strMsg, MB_OK | MB_ICONEXCLAMATION );
 		return;
 	}

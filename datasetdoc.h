@@ -159,6 +159,10 @@ public:
 	//}}AFX_VIRTUAL
 	virtual void ReportSaveLoadException(LPCTSTR lpszPathName, CException* e, BOOL bSaving, UINT nIDPDefault);
 
+	// The document version read from the header of the file being loaded (0
+	// before a header was read), for ReportSaveLoadException's message.
+	int m_nLoadingFileVersion;
+
 public:
 	virtual void SetModifiedFlag( BOOL bModified = TRUE );
 	virtual BOOL IsModified( );
