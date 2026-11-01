@@ -4142,6 +4142,7 @@ BEGIN
     IDS_EXPORT_LAYOUT_MISMATCH  "Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data."
     IDS_SCHEMA_NEWER        "This file was written by a newer version of HCFR (%s version %d). Update HCFR to open it."
     IDS_SCHEMA_UNRELEASED   "This file was written by an unreleased development build of HCFR (%s version %d) and cannot be read. Regenerate it."
+    IDS_SCHEMA_UNRELEASED_DOC "This file was written by an unreleased development build of HCFR (document version %d). Open it with that build."
 END
 
 #endif    // English (United States) resources

@@ -4258,8 +4258,9 @@ BEGIN
     IDS_CALIB_NEED_RAW_PRIMARIES "Mida de nuevo primero los primarios y el blanco: los almacenados no tienen lectura bruta del sensor, y no se puede calcular una matriz a partir de valores con una corrección que el sensor ya no aplica (Bodner, o una matriz sustituida por una corrección espectral)."
     IDS_CALIB_NEED_REF_WHITE    "El documento de referencia no tiene un blanco medido: mida primero su blanco (o los primarios con el blanco)."
     IDS_EXPORT_LAYOUT_MISMATCH  "No se puede añadir a este archivo: se exportó con opciones de Bruto/Estímulo distintas. Exporte a un archivo nuevo o repita la exportación con las mismas opciones que los datos existentes."
-    IDS_SCHEMA_NEWER        "This file was written by a newer version of HCFR (%s version %d). Update HCFR to open it."
-    IDS_SCHEMA_UNRELEASED   "This file was written by an unreleased development build of HCFR (%s version %d) and cannot be read. Regenerate it."
+    IDS_SCHEMA_NEWER        "Este archivo fue escrito por una versión más reciente de HCFR (%s versión %d). Actualice HCFR para abrirlo."
+    IDS_SCHEMA_UNRELEASED   "Este archivo fue escrito por una versión de desarrollo no publicada de HCFR (%s versión %d) y no se puede leer. Vuelva a generarlo."
+    IDS_SCHEMA_UNRELEASED_DOC "Este archivo fue escrito por una versión de desarrollo no publicada de HCFR (versión de documento %d). Ábralo con esa versión."
 END
 
 #endif    // Spanish (Spain, International Sort) resources

@@ -1058,10 +1058,12 @@ void CDataSetDoc::Serialize(CArchive& ar)
 
 		// Version 4 was the unreleased Bodner document layout. Its nested
 		// blocks would be refused one at a time, naming CColor or CSensor;
-		// refuse the file here instead and say what it is.
+		// refuse the file here instead and say what it is. A measurement
+		// document cannot be "regenerated" the way a correction file can, so
+		// it gets its own wording: open it with the build that wrote it.
 		if ( version == 4 )
 		{
-			Msg.Format ( IDS_SCHEMA_UNRELEASED, "document", version );
+			Msg.Format ( IDS_SCHEMA_UNRELEASED_DOC, version );
 			Title.LoadString ( IDS_ERROR );
 			GetColorApp()->InMeasureMessageBox(Msg,Title,MB_ICONERROR | MB_OK);
 			return;

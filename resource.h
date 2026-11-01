@@ -2027,6 +2027,7 @@
 #define IDS_EXPORT_LAYOUT_MISMATCH      59745
 #define IDS_SCHEMA_NEWER                59746
 #define IDS_SCHEMA_UNRELEASED           59747
+#define IDS_SCHEMA_UNRELEASED_DOC       60053
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550

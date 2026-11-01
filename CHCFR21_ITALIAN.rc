@@ -4336,8 +4336,9 @@ BEGIN
     IDS_CALIB_NEED_RAW_PRIMARIES "Misurare prima di nuovo i primari e il bianco: quelli memorizzati non hanno una lettura grezza del sensore, e da valori con una correzione che il sensore non applica più (Bodner, o una matrice sostituita da una correzione spettrale) non si può calcolare una matrice."
     IDS_CALIB_NEED_REF_WHITE    "Il documento di riferimento non ha un bianco misurato: misurare prima il suo bianco (o i primari con il bianco)."
     IDS_EXPORT_LAYOUT_MISMATCH  "Impossibile aggiungere a questo file: è stato esportato con opzioni Grezzo/Stimolo diverse. Esporta in un nuovo file, o ripeti l'esportazione con le stesse opzioni dei dati esistenti."
-    IDS_SCHEMA_NEWER        "This file was written by a newer version of HCFR (%s version %d). Update HCFR to open it."
-    IDS_SCHEMA_UNRELEASED   "This file was written by an unreleased development build of HCFR (%s version %d) and cannot be read. Regenerate it."
+    IDS_SCHEMA_NEWER        "Questo file è stato scritto da una versione più recente di HCFR (%s versione %d). Aggiorna HCFR per aprirlo."
+    IDS_SCHEMA_UNRELEASED   "Questo file è stato scritto da una versione di sviluppo non pubblicata di HCFR (%s versione %d) e non può essere letto. Rigeneralo."
+    IDS_SCHEMA_UNRELEASED_DOC "Questo file è stato scritto da una versione di sviluppo non pubblicata di HCFR (versione documento %d). Aprilo con quella versione."
 END
 
 #endif    // Italienisch (Italien) resources
