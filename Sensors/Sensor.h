@@ -55,7 +55,7 @@ protected:
 	bool   m_bodnerRawInvertible[3];
 	// Whether the document's raw-less readings still embody m_sensorToXYZMatrix
 	// (see RawlessReadingsState, Color.h). It describes the readings this sensor
-	// corrected, so it is stored with the document (CSensor stream v3) and a
+	// corrected, so it is stored with the document (CSensor stream v4) and a
 	// training file does not replace it (COneDeviceSensor::LoadCalibrationFile).
 	RawlessReadingsState m_rawlessReadings;
 	// Configure() snapshot (BeginConfigure/CancelConfigure)

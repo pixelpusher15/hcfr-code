@@ -56,6 +56,7 @@
 #include "SpectralSampleDlg.h"
 
 #include "Matrix.h"
+#include "ArchiveExtension.h"
 #include "NewDocWizard.h"
 
 #include "Export.h"
@@ -85,7 +86,9 @@ static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor, bool clearNow = t
 // Version 2 is for ColorHCFR version >= 1.12 beta 62
 // Version 3 is for ColorHCFR version >= 2.0 beta 144
 
-#define CURRENT_FILE_FORMAT_VERSION	4	// 4 = CColor optional-field versions + CSensor v2 (Bodner / raw retention)
+// Version 4 was the unreleased Bodner layout (CColor tens-digit flags, CSensor v2 or v3)
+// Version 5 (issue #193): every block ends with an extension trailer; new fields go there
+#define CURRENT_FILE_FORMAT_VERSION	5
 #define _S(id) (CString(LPCTSTR(id))) 
 
 extern CPtrList gOpenedFramesList;	// Implemented in MultiFrm.cpp
@@ -1020,6 +1023,10 @@ void CDataSetDoc::Serialize(CArchive& ar)
 		pWndPos = new CDataSetWindowPositions ( this );
 		pWndPos -> Serialize ( ar );
 		delete pWndPos;
+
+		// Version 5: extension trailer, the last thing in the file
+		CExtensionWriter ext;
+		ext.Write ( ar );
 	}
 	else
 	{
@@ -1032,9 +1039,31 @@ void CDataSetDoc::Serialize(CArchive& ar)
 		ar >> header2;
 		ar >> version;
 
-		if( header1 != 0x4F4C4F43 || header2 != 0x46434852 || version > CURRENT_FILE_FORMAT_VERSION )
+		if( header1 != 0x4F4C4F43 || header2 != 0x46434852 )
 		{
 			Msg.LoadString ( IDS_INVALIDFILEFORMAT );
+			Title.LoadString ( IDS_ERROR );
+			GetColorApp()->InMeasureMessageBox(Msg,Title,MB_ICONERROR | MB_OK);
+			return;
+		}
+
+		// A newer file is not an invalid one: say so
+		if ( version > CURRENT_FILE_FORMAT_VERSION )
+		{
+			Msg.Format ( IDS_SCHEMA_NEWER, "document", version );
+			Title.LoadString ( IDS_ERROR );
+			GetColorApp()->InMeasureMessageBox(Msg,Title,MB_ICONERROR | MB_OK);
+			return;
+		}
+
+		// Version 4 was the unreleased Bodner document layout. Its nested
+		// blocks would be refused one at a time, naming CColor or CSensor;
+		// refuse the file here instead and say what it is. A measurement
+		// document cannot be "regenerated" the way a correction file can, so
+		// it gets its own wording: open it with the build that wrote it.
+		if ( version == 4 )
+		{
+			Msg.Format ( IDS_SCHEMA_UNRELEASED_DOC, version );
 			Title.LoadString ( IDS_ERROR );
 			GetColorApp()->InMeasureMessageBox(Msg,Title,MB_ICONERROR | MB_OK);
 			return;
@@ -1079,7 +1108,59 @@ void CDataSetDoc::Serialize(CArchive& ar)
 			m_pWndPos = new CDataSetWindowPositions;
 			m_pWndPos -> Serialize ( ar );
 		}
+
+		// Version 5: extension trailer, the last thing in the file
+		if ( version >= 5 )
+		{
+			CExtensionReader ext(ar);
+			BYTE  tag;
+			DWORD cb;
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
+}
+
+// A nested block written by a newer HCFR - or by an unreleased development
+// build - surfaces as a CNewerSchemaException. MFC's own handler would call
+// it "incorrect schema", which reads as damage; say what it is, naming the
+// document, and let every other failure go through MFC as before.
+//
+// A sensor or generator class this build does not have (one a newer HCFR
+// added) surfaces from CArchive::ReadObject as badClass, not from one of our
+// versioned blocks. That is a newer file too, but its versions are all ones
+// this build reads, so the message names what is missing, not a version.
+void CDataSetDoc::ReportSaveLoadException(LPCTSTR lpszPathName, CException* e, BOOL bSaving, UINT nIDPDefault)
+{
+	CString	strWhat;
+
+	if ( e != NULL && e -> IsKindOf ( RUNTIME_CLASS ( CNewerSchemaException ) ) )
+	{
+		CNewerSchemaException *	pEx = (CNewerSchemaException *) e;
+		if ( ! pEx -> m_feature.IsEmpty () )
+			strWhat.Format ( IDS_SCHEMA_UNKNOWN_FEATURE, (LPCSTR) pEx -> m_feature );
+		else
+			strWhat.Format ( pEx -> m_unreleased ? IDS_SCHEMA_UNRELEASED : IDS_SCHEMA_NEWER, (LPCSTR) pEx -> m_block, pEx -> m_version );
+	}
+	else if ( e != NULL && ! bSaving && e -> IsKindOf ( RUNTIME_CLASS ( CArchiveException ) )
+	       && ( (CArchiveException *) e ) -> m_cause == CArchiveException::badClass )
+	{
+		strWhat.Format ( IDS_SCHEMA_UNKNOWN_FEATURE, "sensor or generator type" );
+	}
+
+	if ( ! strWhat.IsEmpty () )
+	{
+		CString	strMsg;
+		if ( lpszPathName != NULL )
+			strMsg.Format ( "%s\n\n%s", lpszPathName, (LPCSTR) strWhat );
+		else
+			strMsg = strWhat;
+		AfxMessageBox ( strMsg, MB_OK | MB_ICONEXCLAMATION );
+		return;
+	}
+
+	CDocument::ReportSaveLoadException ( lpszPathName, e, bSaving, nIDPDefault );
 }
 
 /////////////////////////////////////////////////////////////////////////////

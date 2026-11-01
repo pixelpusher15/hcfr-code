@@ -24,6 +24,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "EyeOneSensor.h"
+#include "ArchiveExtension.h"
 #include "SerialCom.h"
 
 // Include for device interface (this device interface is outside GNU GPL license)
@@ -112,20 +113,24 @@ void CEyeOneSensor::Serialize(CArchive& archive)
 
 	if (archive.IsStoring())
 	{
-		int version=6;
+		int version=7;
 		archive << version;
 		archive << m_CalibrationMode;
 		archive << m_debugMode;
 		archive << m_bAverageReads;
 		archive << m_NbMinutesCalibrationValid;
 		archive << m_bAmbientLight;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 6 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 7 )
+			throw new CNewerSchemaException ( "CEyeOneSensor", version );
 		archive >> m_CalibrationMode;
 		if ( version > 1 )
 			archive >> m_debugMode;
@@ -148,6 +153,18 @@ void CEyeOneSensor::Serialize(CArchive& archive)
 		// In version 6, Eye One pro became number 3, and number 2 is now the new "Eye One Display - plasma" mode
 		if ( version < 6 && m_CalibrationMode == 2 )
 			m_CalibrationMode = 3;
+
+		if ( version >= 7 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 

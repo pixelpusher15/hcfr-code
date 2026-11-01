@@ -11,12 +11,17 @@
 // Everything else is a self-contained oracle needing no golden file: T1 carries a frozen
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
 // T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
-// T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table, and T22
-// asserts the test-color window paints each patch's own code. The .chc round-trip originally planned for the T7
+// T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table,
+// T19 asserts the #193 archive extension trailer: round trip, unknown-tag skip,
+// legacy bytes, rejections, the primitives, append-only values, and the legacy store,
+// and T22 asserts the test-color window paints each patch's own code.
+// The .chc round-trip originally planned for the T7
 // slot needs app-level linkage and is deliberately still not in this console harness.
 
 #include <afx.h>
 #include "../../libHCFR/Color.h"
+#include "../../libHCFR/ArchiveExtension.h"
+#include "../../libHCFR/ArchiveTags.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -1106,6 +1111,1079 @@ static void RunT12()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T19 - archive extension trailer oracle (issue #193).
+//
+// Every versioned block in a .chc / .thc stream now ends with a length-
+// prefixed, tagged extension region (libHCFR/ArchiveExtension.h). CColor is
+// the one block that lives in libHCFR, so it is the block this console
+// harness can pin end to end:
+//   (a) a color carrying every optional field round-trips exactly, and the
+//       stream's version is base + 100;
+//   (b) a trailer with an unknown tag is skipped by byte count and the NEXT
+//       color in the stream still decodes - the whole point of the design;
+//   (c) legacy streams captured from the pre-trailer writer (bases 1/3/5/6,
+//       with the two 92-byte dead "ignore" matrices) still load, and so do
+//       hand-built base-2/4 streams (int bandwidth) which the writer never
+//       emitted but real old documents contain;
+//   (d) Bodner-era tens-digit versions (10..99) and versions from a newer
+//       build (>= 200) are rejected as CNewerSchemaException, bases outside
+//       1..6 as badSchema, and a truncated or malformed trailer throws
+//       without changing the target color at all (it is loaded into a
+//       temporary and assigned only on success);
+//   (e) the writer and reader primitives themselves: ordering, the empty
+//       trailer, exact value extents, and discard-on-Close;
+//   (f) append-only within a tag: a known value longer than this build
+//       reads is consumed whole and the next tag still decodes; a color
+//       without a TIMESTAMP tag has none;
+//   (g) the legacy store (CColorLegacyStoreScope, used by the
+//       SaveOldCalibrationFile writer) emits exactly the (c) goldens, so a
+//       file written for 4.1 is readable there without a 4.1 build.
+// Pure assertion; no golden file. All expected bytes are pinned inline.
+//////////////////////////////////////////////////////////////////////////
+namespace T19Ext
+{
+    typedef std::vector<unsigned char> Bytes;
+
+    // --- little-endian builders, matching what CArchive writes ---
+    static void PutRaw(Bytes& b, const void* p, size_t n)
+    {
+        const unsigned char* q = (const unsigned char*)p;
+        b.insert(b.end(), q, q + n);
+    }
+    static void PutInt(Bytes& b, int v)      { PutRaw(b, &v, 4); }
+    static void PutDword(Bytes& b, DWORD v)  { PutRaw(b, &v, 4); }
+    static void PutByte(Bytes& b, BYTE v)    { b.push_back(v); }
+    static void PutDouble(Bytes& b, double v){ PutRaw(b, &v, 8); }
+
+    // Matrix::Serialize layout for a 3x1: two headers, version 1, columns, rows,
+    // then the elements by column (44 bytes).
+    static void PutMatrix3x1(Bytes& b, double x, double y, double z)
+    {
+        PutInt(b, 0x434d6174);
+        PutInt(b, 0x72697843);
+        PutInt(b, 1);
+        PutInt(b, 1);
+        PutInt(b, 3);
+        PutDouble(b, x);
+        PutDouble(b, y);
+        PutDouble(b, z);
+    }
+
+    struct Entry
+    {
+        BYTE  tag;
+        Bytes value;
+    };
+
+    // One CColor at version 101 (base 1 + trailer): version, XYZ, then the
+    // trailer holding `entries` in the order given.
+    static void PutColor101(Bytes& b, double x, double y, double z, const std::vector<Entry>& entries)
+    {
+        PutInt(b, 101);
+        PutMatrix3x1(b, x, y, z);
+        DWORD cb = 0;
+        for (size_t i = 0; i < entries.size(); ++i)
+            cb += 5 + (DWORD)entries[i].value.size();
+        PutDword(b, cb);
+        for (size_t i = 0; i < entries.size(); ++i)
+        {
+            PutByte(b, entries[i].tag);
+            PutDword(b, (DWORD)entries[i].value.size());
+            PutRaw(b, entries[i].value.empty() ? NULL : &entries[i].value[0], entries[i].value.size());
+        }
+    }
+
+    static Bytes Store(CColor& c)
+    {
+        CMemFile mem;
+        {
+            CArchive ar(&mem, CArchive::store);
+            c.Serialize(ar);
+            ar.Flush();
+            ar.Close();
+        }
+        size_t n = (size_t)mem.GetLength();
+        BYTE* p = mem.Detach();
+        Bytes out(p, p + n);
+        free(p);
+        return out;
+    }
+
+    // Loads `count` colors back to back from one stream. Returns the exception
+    // that stopped the load (caller must Delete it), or NULL when all loaded.
+    static CException* Load(const Bytes& b, CColor* colors, int count)
+    {
+        size_t n = b.size();
+        BYTE* buf = (BYTE*)malloc(n ? n : 1);
+        if (n)
+            memcpy(buf, &b[0], n);
+        CMemFile mem;
+        mem.Attach(buf, (UINT)n);
+        CException* caught = NULL;
+        {
+            CArchive ar(&mem, CArchive::load);
+            try
+            {
+                for (int i = 0; i < count; ++i)
+                    colors[i].Serialize(ar);
+            }
+            catch (CException* e)
+            {
+                caught = e;
+                ar.Abort();
+            }
+        }
+        mem.Detach();
+        free(buf);
+        return caught;
+    }
+
+    static void ExpectXYZ(const char* what, const CColor& c, double x, double y, double z)
+    {
+        if (c.GetX() != x || c.GetY() != y || c.GetZ() != z)
+            Fail("T19 %s: XYZ = (%.17g, %.17g, %.17g), expected (%.17g, %.17g, %.17g)",
+                 what, c.GetX(), c.GetY(), c.GetZ(), x, y, z);
+    }
+
+    static void ExpectNoOptional(const char* what, const CColor& c)
+    {
+        if (c.HasSpectrum())      Fail("T19 %s: unexpected spectrum", what);
+        if (c.HasLuxValue())      Fail("T19 %s: unexpected lux value", what);
+        if (c.HasRawXYZValue())   Fail("T19 %s: unexpected raw XYZ", what);
+        if (c.HasStimulusValue()) Fail("T19 %s: unexpected stimulus", what);
+        if (c.HasTimestamp())     Fail("T19 %s: unexpected timestamp", what);
+    }
+
+    static void ExpectSpectrum(const char* what, const CColor& c, int rows, int wlMin, int wlMax, double bw, const double* samples)
+    {
+        if (!c.HasSpectrum())
+        {
+            Fail("T19 %s: spectrum missing", what);
+            return;
+        }
+        CSpectrum s = c.GetSpectrum();
+        if (s.GetRows() != rows || s.m_WaveLengthMin != wlMin || s.m_WaveLengthMax != wlMax || s.m_BandWidth != bw)
+            Fail("T19 %s: spectrum header %d/%d/%d/%.17g, expected %d/%d/%d/%.17g",
+                 what, s.GetRows(), s.m_WaveLengthMin, s.m_WaveLengthMax, s.m_BandWidth, rows, wlMin, wlMax, bw);
+        else
+            for (int i = 0; i < rows; ++i)
+                if (s[i] != samples[i])
+                    Fail("T19 %s: spectrum[%d] = %.17g, expected %.17g", what, i, s[i], samples[i]);
+    }
+
+    static void ExpectLux(const char* what, const CColor& c, double lux)
+    {
+        if (!c.HasLuxValue())
+            Fail("T19 %s: lux missing", what);
+        else if (c.GetLuxValue() != lux)
+            Fail("T19 %s: lux = %.17g, expected %.17g", what, c.GetLuxValue(), lux);
+    }
+
+    static void ExpectRaw(const char* what, const CColor& c, double x, double y, double z)
+    {
+        if (!c.HasRawXYZValue())
+        {
+            Fail("T19 %s: raw XYZ missing", what);
+            return;
+        }
+        ColorXYZ r = c.GetRawXYZValue();
+        if (r[0] != x || r[1] != y || r[2] != z)
+            Fail("T19 %s: raw XYZ = (%.17g, %.17g, %.17g), expected (%.17g, %.17g, %.17g)",
+                 what, r[0], r[1], r[2], x, y, z);
+    }
+
+    static void ExpectStimulus(const char* what, const CColor& c, double r, double g, double b)
+    {
+        if (!c.HasStimulusValue())
+        {
+            Fail("T19 %s: stimulus missing", what);
+            return;
+        }
+        ColorRGBDisplay s = c.GetStimulusValue();
+        if (s[0] != r || s[1] != g || s[2] != b)
+            Fail("T19 %s: stimulus = (%.17g, %.17g, %.17g), expected (%.17g, %.17g, %.17g)",
+                 what, s[0], s[1], s[2], r, g, b);
+    }
+
+    // Bit-exact: the timestamp is a double on the wire, so any rounding (a
+    // float, whole seconds) is a defect, not noise.
+    static void ExpectTimestamp(const char* what, const CColor& c, double t)
+    {
+        if (!c.HasTimestamp())
+        {
+            Fail("T19 %s: timestamp missing", what);
+            return;
+        }
+        double got = c.GetTimestamp();
+        if (memcmp(&got, &t, sizeof t) != 0)
+            Fail("T19 %s: timestamp = %.17g, expected %.17g bit-exact", what, got, t);
+    }
+
+    static void ExpectBytes(const char* what, const Bytes& got, const unsigned char* want, size_t n)
+    {
+        if (got.size() != n)
+        {
+            Fail("T19 %s: %u bytes, expected %u", what, (unsigned)got.size(), (unsigned)n);
+            return;
+        }
+        for (size_t i = 0; i < n; ++i)
+            if (got[i] != want[i])
+            {
+                Fail("T19 %s: byte %u = 0x%02X, expected 0x%02X", what, (unsigned)i, got[i], want[i]);
+                return;
+            }
+    }
+
+    // Reports and frees an exception the caller did not expect. Named by
+    // runtime class and archive cause, not GetErrorMessage: that loads an
+    // MFC string resource this console harness does not carry, and the
+    // missing string is an ASSERT (abort) in a Debug build.
+    static void FailUnexpected(const char* what, CException* e)
+    {
+        int cause = -1;
+        if (e->IsKindOf(RUNTIME_CLASS(CArchiveException)))
+            cause = ((CArchiveException*)e)->m_cause;
+        Fail("T19 %s: unexpected exception %s (archive cause %d)", what,
+             e->GetRuntimeClass()->m_lpszClassName, cause);
+        e->Delete();
+    }
+
+    static const double kSamples[3] = { 0.1, 0.2, 0.3 };
+    static const double kTimestamp = 1789000000.123456;
+
+    //////////////////////////////////////////////////////////////////////
+    // (c) Legacy streams, captured 2026-09-05 from the pre-trailer
+    // CColor::Serialize on the stand-in base (Bodner 6326187c + #191),
+    // inputs XYZ = (0.25, 0.5, 0.75), lux = 123.456, spectrum
+    // CSpectrum(3, 380, 780, 200.0) with samples (0.1, 0.2, 0.3).
+    // Layout: int base; XYZ (44); two 3x3 "ignore" matrices (92 each);
+    // [spectrum: rows, min, max, double bandwidth, Matrix (44)]; [double lux].
+    //////////////////////////////////////////////////////////////////////
+    static const unsigned char kGoldenBase1[232] = {
+        0x01,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,
+        0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xD0,0x3F,
+        0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x3F,0x00,0x00,0x00,0x00,0x00,0x00,0xE8,0x3F,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,
+        0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    };
+    static const unsigned char kGoldenBase3[240] = {
+        0x03,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,
+        0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xD0,0x3F,
+        0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x3F,0x00,0x00,0x00,0x00,0x00,0x00,0xE8,0x3F,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,
+        0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x77,0xBE,0x9F,0x1A,0x2F,0xDD,0x5E,0x40,
+    };
+    static const unsigned char kGoldenBase5[300] = {
+        0x05,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,
+        0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xD0,0x3F,
+        0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x3F,0x00,0x00,0x00,0x00,0x00,0x00,0xE8,0x3F,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,
+        0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x7C,0x01,0x00,0x00,
+        0x0C,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x69,0x40,0x01,0x00,0x00,0x00,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x9A,0x99,0x99,0x99,0x99,0x99,0xB9,0x3F,0x9A,0x99,0x99,0x99,
+        0x99,0x99,0xC9,0x3F,0x33,0x33,0x33,0x33,0x33,0x33,0xD3,0x3F,
+    };
+    static const unsigned char kGoldenBase6[308] = {
+        0x06,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,
+        0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xD0,0x3F,
+        0x00,0x00,0x00,0x00,0x00,0x00,0xE0,0x3F,0x00,0x00,0x00,0x00,0x00,0x00,0xE8,0x3F,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x74,0x61,0x4D,0x43,
+        0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x03,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x7C,0x01,0x00,0x00,
+        0x0C,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x69,0x40,0x01,0x00,0x00,0x00,
+        0x74,0x61,0x4D,0x43,0x43,0x78,0x69,0x72,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00,
+        0x03,0x00,0x00,0x00,0x9A,0x99,0x99,0x99,0x99,0x99,0xB9,0x3F,0x9A,0x99,0x99,0x99,
+        0x99,0x99,0xC9,0x3F,0x33,0x33,0x33,0x33,0x33,0x33,0xD3,0x3F,0x77,0xBE,0x9F,0x1A,
+        0x2F,0xDD,0x5E,0x40,
+    };
+
+    // Offsets inside the base-5/6 goldens: the spectrum header starts right
+    // after the 232-byte legacy prefix, and its double bandwidth sits after
+    // rows/min/max.
+    static const size_t kLegacyPrefix = 4 + 44 + 92 + 92;
+    static const size_t kBandwidthOff = kLegacyPrefix + 12;
+
+    // A base-2 (from base 5) or base-4 (from base 6) stream: the same layout
+    // with the bandwidth stored as an int, which is what old documents hold.
+    static Bytes MakeIntBandwidth(const unsigned char* golden, size_t n, int newBase)
+    {
+        Bytes b(golden, golden + kBandwidthOff);
+        b[0] = (unsigned char)newBase;
+        PutInt(b, 200);
+        b.insert(b.end(), golden + kBandwidthOff + 8, golden + n);
+        return b;
+    }
+
+    static void CheckRoundTrip()
+    {
+        CColor src(0.25, 0.5, 0.75);
+        double samples[3] = { 0.1, 0.2, 0.3 };
+        CSpectrum spec(3, 380, 780, 200.0, samples);
+        src.SetSpectrum(spec);
+        src.SetLuxValue(123.456);
+        src.SetRawXYZValue(ColorXYZ(0.2, 0.4, 0.6));
+        src.SetStimulusValue(ColorRGBDisplay(10.0, 20.0, 30.0));
+        src.SetTimestamp(kTimestamp);
+
+        Bytes b = Store(src);
+        if (b.size() < 4)
+        {
+            Fail("T19 (a): stored %u bytes", (unsigned)b.size());
+            return;
+        }
+        int version;
+        memcpy(&version, &b[0], 4);
+        if (version != 106)
+            Fail("T19 (a): stream version %d, expected 106 (base 6 + 100)", version);
+
+        CColor dst;
+        CException* e = Load(b, &dst, 1);
+        if (e)
+        {
+            FailUnexpected("(a) round trip", e);
+            return;
+        }
+        ExpectXYZ("(a)", dst, 0.25, 0.5, 0.75);
+        ExpectSpectrum("(a)", dst, 3, 380, 780, 200.0, kSamples);
+        ExpectLux("(a)", dst, 123.456);
+        ExpectRaw("(a)", dst, 0.2, 0.4, 0.6);
+        ExpectStimulus("(a)", dst, 10.0, 20.0, 30.0);
+        ExpectTimestamp("(a)", dst, kTimestamp);
+
+        // The base-only color (no optional field) must carry an empty trailer,
+        // never no trailer: pin its exact bytes so a "write it only when
+        // non-empty" regression shows here, not only in (b).
+        CColor plain(0.25, 0.5, 0.75);
+        Bytes p = Store(plain);
+        Bytes want;
+        PutColor101(want, 0.25, 0.5, 0.75, std::vector<Entry>());
+        ExpectBytes("(a) base-only stream", p, want.empty() ? NULL : &want[0], want.size());
+    }
+
+    static void CheckForwardCompat()
+    {
+        Entry unknown;
+        unknown.tag = 200;
+        unknown.value.assign(37, 0xA5);
+        Entry raw;
+        raw.tag = 1;
+        PutMatrix3x1(raw.value, 0.2, 0.4, 0.6);
+
+        std::vector<Entry> second;
+        second.push_back(raw);
+
+        // Three shapes for the first color's trailer: unknown only, known then
+        // unknown, unknown then known. The second color is always the same.
+        for (int shape = 0; shape < 3; ++shape)
+        {
+            std::vector<Entry> first;
+            if (shape == 0)      { first.push_back(unknown); }
+            else if (shape == 1) { first.push_back(raw); first.push_back(unknown); }
+            else                 { first.push_back(unknown); first.push_back(raw); }
+
+            Bytes b;
+            PutColor101(b, 0.25, 0.5, 0.75, first);
+            PutColor101(b, 0.11, 0.22, 0.33, second);
+
+            char what[64];
+            sprintf(what, "(b) shape %d", shape);
+
+            CColor c[2];
+            CException* e = Load(b, c, 2);
+            if (e)
+            {
+                FailUnexpected(what, e);
+                continue;
+            }
+            ExpectXYZ(what, c[0], 0.25, 0.5, 0.75);
+            if (shape == 0)
+                ExpectNoOptional(what, c[0]);
+            else
+                ExpectRaw(what, c[0], 0.2, 0.4, 0.6);
+            if (c[0].HasStimulusValue() || c[0].HasSpectrum() || c[0].HasLuxValue())
+                Fail("T19 %s: first color grew a field it was never given", what);
+
+            ExpectXYZ(what, c[1], 0.11, 0.22, 0.33);
+            ExpectRaw(what, c[1], 0.2, 0.4, 0.6);
+            if (c[1].HasStimulusValue() || c[1].HasSpectrum() || c[1].HasLuxValue())
+                Fail("T19 %s: second color grew a field it was never given", what);
+        }
+    }
+
+    static void CheckLegacy()
+    {
+        struct Case
+        {
+            const char*          name;
+            const unsigned char* bytes;
+            size_t               size;
+            bool                 spectrum;
+            bool                 lux;
+        };
+        static const Case cases[] = {
+            { "(c) base 1", kGoldenBase1, sizeof kGoldenBase1, false, false },
+            { "(c) base 3", kGoldenBase3, sizeof kGoldenBase3, false, true  },
+            { "(c) base 5", kGoldenBase5, sizeof kGoldenBase5, true,  false },
+            { "(c) base 6", kGoldenBase6, sizeof kGoldenBase6, true,  true  },
+        };
+        for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i)
+        {
+            Bytes b(cases[i].bytes, cases[i].bytes + cases[i].size);
+            CColor c;
+            CException* e = Load(b, &c, 1);
+            if (e)
+            {
+                FailUnexpected(cases[i].name, e);
+                continue;
+            }
+            ExpectXYZ(cases[i].name, c, 0.25, 0.5, 0.75);
+            if (cases[i].spectrum)
+                ExpectSpectrum(cases[i].name, c, 3, 380, 780, 200.0, kSamples);
+            else if (c.HasSpectrum())
+                Fail("T19 %s: unexpected spectrum", cases[i].name);
+            if (cases[i].lux)
+                ExpectLux(cases[i].name, c, 123.456);
+            else if (c.HasLuxValue())
+                Fail("T19 %s: unexpected lux", cases[i].name);
+            if (c.HasRawXYZValue() || c.HasStimulusValue())
+                Fail("T19 %s: legacy stream produced a trailer field", cases[i].name);
+        }
+
+        // Bases 2 and 4: int bandwidth. The writer never emitted these, real
+        // old documents contain them, and the version gate must be 1..6, not
+        // the writer's {1,3,5,6}.
+        {
+            Bytes b2 = MakeIntBandwidth(kGoldenBase5, sizeof kGoldenBase5, 2);
+            CColor c;
+            CException* e = Load(b2, &c, 1);
+            if (e)
+                FailUnexpected("(c) base 2", e);
+            else
+            {
+                ExpectXYZ("(c) base 2", c, 0.25, 0.5, 0.75);
+                ExpectSpectrum("(c) base 2", c, 3, 380, 780, 200.0, kSamples);
+                if (c.HasLuxValue())
+                    Fail("T19 (c) base 2: unexpected lux");
+            }
+        }
+        {
+            Bytes b4 = MakeIntBandwidth(kGoldenBase6, sizeof kGoldenBase6, 4);
+            CColor c;
+            CException* e = Load(b4, &c, 1);
+            if (e)
+                FailUnexpected("(c) base 4", e);
+            else
+            {
+                ExpectXYZ("(c) base 4", c, 0.25, 0.5, 0.75);
+                ExpectSpectrum("(c) base 4", c, 3, 380, 780, 200.0, kSamples);
+                ExpectLux("(c) base 4", c, 123.456);
+            }
+        }
+    }
+
+    static void ExpectNewerSchema(const char* what, CException* e, int version, bool unreleased)
+    {
+        if (!e)
+        {
+            Fail("T19 %s: loaded without an exception", what);
+            return;
+        }
+        if (!e->IsKindOf(RUNTIME_CLASS(CNewerSchemaException)))
+        {
+            FailUnexpected(what, e);
+            return;
+        }
+        CNewerSchemaException* n = (CNewerSchemaException*)e;
+        if (n->m_block != "CColor")
+            Fail("T19 %s: block '%s', expected 'CColor'", what, (LPCSTR)n->m_block);
+        if (n->m_version != version)
+            Fail("T19 %s: version %d, expected %d", what, n->m_version, version);
+        if (n->m_unreleased != unreleased)
+            Fail("T19 %s: unreleased = %d, expected %d", what, (int)n->m_unreleased, (int)unreleased);
+        if (n->m_cause != CArchiveException::badSchema)
+            Fail("T19 %s: m_cause %d, expected badSchema so unaware handlers still see a schema error", what, n->m_cause);
+        e->Delete();
+    }
+
+    static void ExpectArchiveCause(const char* what, CException* e, int cause)
+    {
+        if (!e)
+        {
+            Fail("T19 %s: loaded without an exception", what);
+            return;
+        }
+        if (e->IsKindOf(RUNTIME_CLASS(CNewerSchemaException)))
+        {
+            Fail("T19 %s: got CNewerSchemaException, expected a plain archive error", what);
+            e->Delete();
+            return;
+        }
+        if (!e->IsKindOf(RUNTIME_CLASS(CArchiveException)))
+        {
+            FailUnexpected(what, e);
+            return;
+        }
+        int got = ((CArchiveException*)e)->m_cause;
+        if (got != cause)
+            Fail("T19 %s: archive cause %d, expected %d", what, got, cause);
+        e->Delete();
+    }
+
+    // The target of a refused load: every field differs from what the
+    // rejected streams carry (XYZ (0.25, 0.5, 0.75), and a raw XYZ when they
+    // get that far), and it holds the optional fields a careless load would
+    // reset before reading the trailer.
+    static void MakeTarget(CColor& c)
+    {
+        c = CColor(0.9, 0.8, 0.7);
+        c.SetRawXYZValue(ColorXYZ(0.3, 0.2, 0.1));
+        c.SetStimulusValue(ColorRGBDisplay(40.0, 50.0, 60.0));
+        c.SetLuxValue(77.5);
+    }
+
+    static void ExpectTargetIntact(const char* what, const CColor& c)
+    {
+        ExpectXYZ(what, c, 0.9, 0.8, 0.7);
+        ExpectRaw(what, c, 0.3, 0.2, 0.1);
+        ExpectStimulus(what, c, 40.0, 50.0, 60.0);
+        ExpectLux(what, c, 77.5);
+        if (c.HasSpectrum())
+            Fail("T19 %s: target grew a spectrum", what);
+        if (c.HasTimestamp())
+            Fail("T19 %s: target grew a timestamp", what);
+    }
+
+    static void CheckRejections()
+    {
+        // 10 and 99 are the edges of the unreleased tens-digit range.
+        static const int unreleased[] = { 10, 13, 46, 99 };
+        for (int i = 0; i < 4; ++i)
+        {
+            Bytes b;
+            PutInt(b, unreleased[i]);
+            CColor c;
+            char what[64];
+            sprintf(what, "(d) version %d", unreleased[i]);
+            ExpectNewerSchema(what, Load(b, &c, 1), unreleased[i], true);
+        }
+        // 200 is the first version from a newer build; it must not fall
+        // through to the base check and become a plain badSchema.
+        static const int newer[] = { 200, 250 };
+        for (int i = 0; i < 2; ++i)
+        {
+            Bytes b;
+            PutInt(b, newer[i]);
+            CColor c;
+            char what[64];
+            sprintf(what, "(d) version %d", newer[i]);
+            ExpectNewerSchema(what, Load(b, &c, 1), newer[i], false);
+        }
+        // Bases 0 and 7 at the trailer version: not a known layout, and not
+        // a newer one either.
+        static const int badBase[] = { 100, 107 };
+        for (int i = 0; i < 2; ++i)
+        {
+            Bytes b;
+            PutInt(b, badBase[i]);
+            CColor c;
+            char what[64];
+            sprintf(what, "(d) version %d", badBase[i]);
+            ExpectArchiveCause(what, Load(b, &c, 1), CArchiveException::badSchema);
+        }
+
+        // Truncated trailer: cbExtension claims 1000 bytes, 10 are present
+        // (tag 1, cbValue 44, then 5 bytes of the 44). The stream's XYZ differs
+        // from the target's and the target carries raw, stimulus and lux, so
+        // "nothing changed" is a real assertion: XYZ is read before the
+        // trailer, and a load that reset the optional fields up front would
+        // lose them.
+        {
+            Bytes b;
+            PutInt(b, 101);
+            PutMatrix3x1(b, 0.25, 0.5, 0.75);
+            PutDword(b, 1000);
+            PutByte(b, 1);
+            PutDword(b, 44);
+            for (int i = 0; i < 5; ++i)
+                PutByte(b, 0x00);
+            CColor c;
+            MakeTarget(c);
+            ExpectArchiveCause("(d) truncated trailer", Load(b, &c, 1), CArchiveException::endOfFile);
+            ExpectTargetIntact("(d) truncated trailer", c);
+        }
+
+        // Malformed trailer: an entry that does not fit inside cbExtension is a
+        // schema error, distinct from the stream simply ending early.
+        {
+            Bytes b;
+            PutInt(b, 101);
+            PutMatrix3x1(b, 0.25, 0.5, 0.75);
+            PutDword(b, 7);
+            PutByte(b, 1);
+            PutDword(b, 44);
+            for (int i = 0; i < 2 + 44; ++i)
+                PutByte(b, 0x00);
+            CColor c;
+            MakeTarget(c);
+            ExpectArchiveCause("(d) malformed trailer", Load(b, &c, 1), CArchiveException::badSchema);
+            ExpectTargetIntact("(d) malformed trailer", c);
+        }
+
+        // Malformed known value: a well-formed trailer whose RAW_XYZ value is
+        // 7 bytes, too short for the 44-byte matrix. The value is read whole,
+        // the matrix runs off its end (endOfFile), and the target is untouched.
+        {
+            Entry raw;
+            raw.tag = (BYTE)ArchiveTag::COLOR_RAW_XYZ;
+            for (int i = 0; i < 7; ++i)
+                raw.value.push_back(0x00);
+            std::vector<Entry> entries;
+            entries.push_back(raw);
+            Bytes b;
+            PutColor101(b, 0.25, 0.5, 0.75, entries);
+            CColor c;
+            MakeTarget(c);
+            ExpectArchiveCause("(d) short RAW_XYZ value", Load(b, &c, 1), CArchiveException::endOfFile);
+            ExpectTargetIntact("(d) short RAW_XYZ value", c);
+        }
+
+        // A corrupt cbExtension (near 4 GB) is a schema error at once, never
+        // an allocation or a long skip toward the end of the file.
+        {
+            Bytes b;
+            PutInt(b, 101);
+            PutMatrix3x1(b, 0.25, 0.5, 0.75);
+            PutDword(b, 0xFFFFFFF0);
+            CColor c;
+            MakeTarget(c);
+            ExpectArchiveCause("(d) oversized cbExtension", Load(b, &c, 1), CArchiveException::badSchema);
+            ExpectTargetIntact("(d) oversized cbExtension", c);
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    // (f) Append-only within a tag, and the timestamp tag on the wire.
+    //////////////////////////////////////////////////////////////////////
+    static void CheckAppendOnly()
+    {
+        Entry raw;
+        raw.tag = (BYTE)ArchiveTag::COLOR_RAW_XYZ;
+        PutMatrix3x1(raw.value, 0.2, 0.4, 0.6);
+
+        // No TIMESTAMP tag: none on the loaded color.
+        {
+            std::vector<Entry> entries;
+            entries.push_back(raw);
+            Bytes b;
+            PutColor101(b, 0.25, 0.5, 0.75, entries);
+            CColor c;
+            CException* e = Load(b, &c, 1);
+            if (e)
+                FailUnexpected("(f) no timestamp", e);
+            else
+            {
+                ExpectRaw("(f) no timestamp", c, 0.2, 0.4, 0.6);
+                if (c.HasTimestamp())
+                    Fail("T19 (f) no timestamp: HasTimestamp() is true");
+            }
+        }
+
+        // TIMESTAMP (tag 5) placed before RAW_XYZ: both decode.
+        {
+            Entry ts;
+            ts.tag = (BYTE)ArchiveTag::COLOR_TIMESTAMP;
+            PutDouble(ts.value, kTimestamp);
+            std::vector<Entry> entries;
+            entries.push_back(ts);
+            entries.push_back(raw);
+            Bytes b;
+            PutColor101(b, 0.25, 0.5, 0.75, entries);
+            CColor c;
+            CException* e = Load(b, &c, 1);
+            if (e)
+                FailUnexpected("(f) timestamp then raw", e);
+            else
+            {
+                ExpectTimestamp("(f) timestamp then raw", c, kTimestamp);
+                ExpectRaw("(f) timestamp then raw", c, 0.2, 0.4, 0.6);
+            }
+        }
+
+        // A KNOWN tag whose value is longer than this build reads: RAW_XYZ
+        // carries its 44 bytes plus 8 of 0xA5 a newer build appended. The
+        // extra bytes are discarded with the value and the STIMULUS tag after
+        // it still decodes.
+        {
+            Entry longRaw = raw;
+            for (int i = 0; i < 8; ++i)
+                longRaw.value.push_back(0xA5);
+            Entry stim;
+            stim.tag = (BYTE)ArchiveTag::COLOR_STIMULUS;
+            PutMatrix3x1(stim.value, 10.0, 20.0, 30.0);
+            std::vector<Entry> entries;
+            entries.push_back(longRaw);
+            entries.push_back(stim);
+            Bytes b;
+            PutColor101(b, 0.25, 0.5, 0.75, entries);
+            CColor c;
+            CException* e = Load(b, &c, 1);
+            if (e)
+                FailUnexpected("(f) long RAW_XYZ value", e);
+            else
+            {
+                ExpectXYZ("(f) long RAW_XYZ value", c, 0.25, 0.5, 0.75);
+                ExpectRaw("(f) long RAW_XYZ value", c, 0.2, 0.4, 0.6);
+                ExpectStimulus("(f) long RAW_XYZ value", c, 10.0, 20.0, 30.0);
+            }
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    // (g) The legacy store. The SaveOldCalibrationFile writer stores the
+    // colors of a v1 CCalibrationInfo under CColorLegacyStoreScope; the
+    // bytes must be exactly what the pre-trailer writer emitted, i.e. the
+    // (c) goldens, which is the proof a 4.1 build can read them. Each color
+    // also carries raw XYZ, stimulus and a timestamp, which have no legacy
+    // encoding: they must be dropped, not leak into the stream.
+    //////////////////////////////////////////////////////////////////////
+    static void CheckLegacyStore()
+    {
+        struct Case
+        {
+            const char*          name;
+            const unsigned char* golden;
+            size_t               size;
+            int                  base;
+            bool                 spectrum;
+            bool                 lux;
+        };
+        static const Case cases[] = {
+            { "(g) base 1", kGoldenBase1, sizeof kGoldenBase1, 1, false, false },
+            { "(g) base 3", kGoldenBase3, sizeof kGoldenBase3, 3, false, true  },
+            { "(g) base 5", kGoldenBase5, sizeof kGoldenBase5, 5, true,  false },
+            { "(g) base 6", kGoldenBase6, sizeof kGoldenBase6, 6, true,  true  },
+        };
+        for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i)
+        {
+            CColor c(0.25, 0.5, 0.75);
+            if (cases[i].spectrum)
+            {
+                double samples[3] = { 0.1, 0.2, 0.3 };
+                CSpectrum spec(3, 380, 780, 200.0, samples);
+                c.SetSpectrum(spec);
+            }
+            if (cases[i].lux)
+                c.SetLuxValue(123.456);
+            c.SetRawXYZValue(ColorXYZ(0.2, 0.4, 0.6));
+            c.SetStimulusValue(ColorRGBDisplay(10.0, 20.0, 30.0));
+            c.SetTimestamp(kTimestamp);
+
+            Bytes legacy;
+            try
+            {
+                CColorLegacyStoreScope scope;
+                legacy = Store(c);
+            }
+            catch (CException* e)
+            {
+                FailUnexpected(cases[i].name, e);
+                continue;
+            }
+            ExpectBytes(cases[i].name, legacy, cases[i].golden, cases[i].size);
+            if (CColor::s_bStoreLegacy)
+                Fail("T19 %s: the scope did not restore s_bStoreLegacy", cases[i].name);
+
+            // The same color stored outside the scope is the current layout:
+            // the scope, and only the scope, is what switches.
+            Bytes current = Store(c);
+            int version = 0;
+            if (current.size() >= 4)
+                memcpy(&version, &current[0], 4);
+            if (version != cases[i].base + 100)
+                Fail("T19 %s: stored without the scope as version %d, expected %d",
+                     cases[i].name, version, cases[i].base + 100);
+        }
+    }
+
+    static Bytes WriteTrailer(CExtensionWriter& w)
+    {
+        CMemFile mem;
+        {
+            CArchive ar(&mem, CArchive::store);
+            w.Write(ar);
+            ar.Flush();
+            ar.Close();
+        }
+        size_t n = (size_t)mem.GetLength();
+        BYTE* p = mem.Detach();
+        Bytes out(p, p + n);
+        free(p);
+        return out;
+    }
+
+    static void CheckPrimitives()
+    {
+        // Writer: tags begun as 3, 1, 2 come out as 1, 2, 3.
+        try
+        {
+            CExtensionWriter w;
+            w.BeginTag(3) << (BYTE)0x33;
+            w.EndTag();
+            w.BeginTag(1) << (int)0x11111111;
+            w.EndTag();
+            w.BeginTag(2) << (WORD)0x2222;
+            w.EndTag();
+            Bytes got = WriteTrailer(w);
+            static const unsigned char want[] = {
+                22,0,0,0,
+                1, 4,0,0,0, 0x11,0x11,0x11,0x11,
+                2, 2,0,0,0, 0x22,0x22,
+                3, 1,0,0,0, 0x33,
+            };
+            ExpectBytes("(e) writer ordering", got, want, sizeof want);
+        }
+        catch (CException* e)
+        {
+            FailUnexpected("(e) writer ordering", e);
+        }
+
+        // Writer: nothing begun -> exactly four zero bytes.
+        try
+        {
+            CExtensionWriter w;
+            Bytes got = WriteTrailer(w);
+            static const unsigned char want[] = { 0,0,0,0 };
+            ExpectBytes("(e) empty writer", got, want, sizeof want);
+        }
+        catch (CException* e)
+        {
+            FailUnexpected("(e) empty writer", e);
+        }
+
+        // Reader: a value of 7 bytes exposes exactly 7, the eighth read throws,
+        // and the entry after it is still reachable. Then an entry never asked
+        // for is discarded by Close() so the stream continues where it should.
+        {
+            Bytes b;
+            PutDword(b, 12 + 8);
+            PutByte(b, 7);
+            PutDword(b, 7);
+            for (int i = 1; i <= 7; ++i)
+                PutByte(b, (BYTE)i);
+            PutByte(b, 9);
+            PutDword(b, 3);
+            PutByte(b, 0xAA); PutByte(b, 0xBB); PutByte(b, 0xCC);
+            PutInt(b, 0x5A5A5A5A);				// the next block's first field
+
+            size_t n = b.size();
+            BYTE* buf = (BYTE*)malloc(n);
+            memcpy(buf, &b[0], n);
+            CMemFile mem;
+            mem.Attach(buf, (UINT)n);
+            {
+                CArchive ar(&mem, CArchive::load);
+                try
+                {
+                    CExtensionReader r(ar);
+                    BYTE tag = 0;
+                    DWORD cb = 0;
+                    if (!r.Next(tag, cb) || tag != 7 || cb != 7)
+                        Fail("T19 (e) reader: first entry tag %d cb %u, expected 7/7", tag, (unsigned)cb);
+                    else
+                    {
+                        CArchive& v = r.Value();
+                        for (int i = 1; i <= 7; ++i)
+                        {
+                            BYTE x;
+                            v >> x;
+                            if (x != i)
+                                Fail("T19 (e) reader: value byte %d = %d", i, x);
+                        }
+                        bool threw = false;
+                        try
+                        {
+                            BYTE extra;
+                            v >> extra;
+                        }
+                        catch (CArchiveException* ex)
+                        {
+                            threw = (ex->m_cause == CArchiveException::endOfFile);
+                            ex->Delete();
+                        }
+                        if (!threw)
+                            Fail("T19 (e) reader: an eighth byte was readable from a 7-byte value");
+                    }
+                    if (!r.Next(tag, cb) || tag != 9 || cb != 3)
+                        Fail("T19 (e) reader: second entry tag %d cb %u, expected 9/3", tag, (unsigned)cb);
+                    r.Close();							// never asked for the second value
+                    int next = 0;
+                    ar >> next;
+                    if (next != 0x5A5A5A5A)
+                        Fail("T19 (e) reader: after Close the stream is at 0x%08X, expected 0x5A5A5A5A", next);
+                }
+                catch (CException* e)
+                {
+                    FailUnexpected("(e) reader", e);
+                }
+                ar.Abort();
+            }
+            mem.Detach();
+            free(buf);
+        }
+
+        // SkipArchiveBytes: exact count is fine; one more than the stream holds
+        // throws endOfFile rather than returning short.
+        {
+            static const unsigned char six[] = { 1,2,3,4,5,6 };
+            for (int pass = 0; pass < 2; ++pass)
+            {
+                BYTE* buf = (BYTE*)malloc(sizeof six);
+                memcpy(buf, six, sizeof six);
+                CMemFile mem;
+                mem.Attach(buf, sizeof six);
+                {
+                    CArchive ar(&mem, CArchive::load);
+                    bool threw = false;
+                    try
+                    {
+                        SkipArchiveBytes(ar, pass == 0 ? 6 : 7);
+                    }
+                    catch (CArchiveException* ex)
+                    {
+                        threw = (ex->m_cause == CArchiveException::endOfFile);
+                        ex->Delete();
+                    }
+                    catch (CException* e)
+                    {
+                        FailUnexpected("(e) skip", e);
+                        threw = true;
+                    }
+                    if (pass == 0 && threw)
+                        Fail("T19 (e) skip: skipping exactly the available bytes threw");
+                    if (pass == 1 && !threw)
+                        Fail("T19 (e) skip: skipping past the end did not throw endOfFile");
+                    ar.Abort();
+                }
+                mem.Detach();
+                free(buf);
+            }
+        }
+        // Close() without iterating: the whole region is discarded when it is
+        // there, and a region claiming more than the stream holds is an
+        // endOfFile, never a silent short read. This is the one path the
+        // CColor loop cannot reach (it iterates to the end), so pin it here.
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            Bytes b;
+            if (pass == 0)
+            {
+                PutDword(b, 8);
+                PutByte(b, 5);
+                PutDword(b, 3);
+                PutByte(b, 1); PutByte(b, 2); PutByte(b, 3);
+                PutInt(b, 0x5A5A5A5A);
+            }
+            else
+            {
+                PutDword(b, 20);
+                for (int i = 0; i < 10; ++i)
+                    PutByte(b, 0x00);
+            }
+            size_t n = b.size();
+            BYTE* buf = (BYTE*)malloc(n);
+            memcpy(buf, &b[0], n);
+            CMemFile mem;
+            mem.Attach(buf, (UINT)n);
+            {
+                CArchive ar(&mem, CArchive::load);
+                bool threw = false;
+                try
+                {
+                    CExtensionReader r(ar);
+                    r.Close();
+                    if (pass == 0)
+                    {
+                        int next = 0;
+                        ar >> next;
+                        if (next != 0x5A5A5A5A)
+                            Fail("T19 (e) close-only: stream at 0x%08X after Close, expected 0x5A5A5A5A", next);
+                    }
+                }
+                catch (CArchiveException* ex)
+                {
+                    threw = (ex->m_cause == CArchiveException::endOfFile);
+                    ex->Delete();
+                }
+                catch (CException* e)
+                {
+                    FailUnexpected("(e) close-only", e);
+                    threw = true;
+                }
+                if (pass == 0 && threw)
+                    Fail("T19 (e) close-only: Close over a complete region threw");
+                if (pass == 1 && !threw)
+                    Fail("T19 (e) close-only: Close over a short region did not throw endOfFile");
+                ar.Abort();
+            }
+            mem.Detach();
+            free(buf);
+        }
+    }
+}
+
+static void RunT19()
+{
+    printf("T19 archive extension trailer oracle...\n");
+    T19Ext::CheckRoundTrip();
+    T19Ext::CheckForwardCompat();
+    T19Ext::CheckLegacy();
+    T19Ext::CheckRejections();
+    T19Ext::CheckPrimitives();
+    T19Ext::CheckAppendOnly();
+    T19Ext::CheckLegacyStore();
+}
+
+//////////////////////////////////////////////////////////////////////////
 // T13 - HLG black oracle (pure assertion, no golden file). At a signal of 0
 // HLG returns its OOTF black lift, m_MinTL / White.Y (BT.2100: F_D = L_B at
 // E' = 0). It must be exact there, finite for a system gamma below 1 (the
@@ -1179,6 +2257,7 @@ int main(int argc, char* argv[])
     RunT11();
     RunT12();
     RunT13();
+    RunT19();
     RunT22();
 
     if (g_failures)

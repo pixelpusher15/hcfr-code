@@ -25,6 +25,7 @@
 #include "ColorHCFR.h"
 
 #include "SimulatedSensor.h"
+#include "ArchiveExtension.h"
 
 #include <math.h>
 
@@ -98,7 +99,7 @@ void CSimulatedSensor::Serialize(CArchive& archive)
 
 	if (archive.IsStoring())
 	{
-		int version=2;
+		int version=3;
 		archive << version;
 		archive << m_offsetErrorMax;
 		// v1
@@ -110,13 +111,17 @@ void CSimulatedSensor::Serialize(CArchive& archive)
 		archive << m_gainErrorMax;
 		archive << m_doGammaError;
 		archive << m_gammaErrorMax;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 2 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 3 )
+			throw new CNewerSchemaException ( "CSimulatedSensor", version );
 		if ( version > 1 )
 			archive >> m_offsetErrorMax;
 
@@ -128,6 +133,18 @@ void CSimulatedSensor::Serialize(CArchive& archive)
 		archive >> m_gainErrorMax;
 		archive >> m_doGammaError;
 		archive >> m_gammaErrorMax;
+
+		if ( version >= 3 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 

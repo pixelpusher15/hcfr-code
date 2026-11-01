@@ -27,6 +27,7 @@
 #include "MainFrm.h"
 #include "Measure.h"
 #include "AsyncMeasurer.h"
+#include "ArchiveExtension.h"
 #include "Generator.h"
 #include "LuxScaleAdvisor.h"
 #include "DataSetDoc.h"
@@ -707,11 +708,11 @@ void CMeasure::Serialize(CArchive& ar)
 
 	if (ar.IsStoring())
 	{
-		// Version 21 only when a display profile exists: documents without one keep
-		// version 19 so they stay readable by older builds. 21 adds the two
-		// white-was-measured flags to the end of the version-20 profile block; 20
-		// itself stays readable, so profiles written by earlier builds still load.
-	    int version = HasProfileMeasures() ? 21 : 19;
+		// Version 22 (issue #193): the v21 layout with the display-profile block
+		// always present (empty when there is no profile, the two white-was-
+		// measured flags at its end either way), then an extension trailer. One
+		// version from here on: new fields go in the trailer.
+	    int version = 22;
 		ar << version;
 
 		StoreActiveSatLevel();	// capture the bound sweeps before writing the store
@@ -866,8 +867,24 @@ void CMeasure::Serialize(CArchive& ar)
 			}
 		}
 
-		// Version 20: display profile capture (see version selection above)
-		if ( HasProfileMeasures() )
+		// Version 20: display profile capture. Since version 22 the block is
+		// always written; without a profile it is the settings, an empty
+		// measure list (just the end marker) and no anchors.
+		if ( ! HasProfileMeasures() )
+		{
+			ar << m_profileCubeSize;
+			ar << m_profileGrayExtras;
+			ar << m_profileDriftComp;
+			ar << m_profileCaptureSeconds;
+			ar << (int) 0;
+			MarkerColor.Serialize(ar);
+			ar << (int) 0;
+			// The loader reads the flags at the end of every version 21+ profile
+			// block, and since version 22 that block is always present.
+			ar << m_bPrimeWhiteMeasured;
+			ar << m_bOnOffWhiteMeasured;
+		}
+		else
 		{
 			ar << m_profileCubeSize;
 			ar << m_profileGrayExtras;
@@ -900,15 +917,17 @@ void CMeasure::Serialize(CArchive& ar)
 			ar << m_bPrimeWhiteMeasured;
 			ar << m_bOnOffWhiteMeasured;
 		}
+
+		CExtensionWriter ext;
+		ext.Write(ar);
 	}
 	else
 	{
 	    int version;
 		ar >> version;
 
-
-		if ( version > 21 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 22 )
+			throw new CNewerSchemaException ( "CMeasure", version );
 
 
 		if ( version > 16)
@@ -1344,6 +1363,17 @@ void CMeasure::Serialize(CArchive& ar)
 				ar >> m_bOnOffWhiteMeasured;
 			}
 			m_profileGeneration++;
+		}
+
+		// Version 22: extension trailer, the last thing in the block
+		if ( version >= 22 )
+		{
+			CExtensionReader ext(ar);
+			BYTE  tag;
+			DWORD cb;
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
 		}
 		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
 
