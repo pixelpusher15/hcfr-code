@@ -38,10 +38,58 @@ static char THIS_FILE[] = __FILE__;
 CTestColorWnd::CTestColorWnd(CWnd* pParent) : CDialog (CTestColorWnd::IDD, pParent)
 {
 //	m_colorPicker.SetDefaultText("");
+	InitializeCriticalSection ( & m_exactLock );
+	m_exactCode = 0;
+	m_bExactLimited = FALSE;
+	m_bHasExact = FALSE;
 }
 
 CTestColorWnd::~CTestColorWnd()
 {
+	DeleteCriticalSection ( & m_exactLock );
+}
+
+void CTestColorWnd::SetTestColor ( const ColorRGBDisplay & clr, BOOL b16_235 )
+{
+	EnterCriticalSection ( & m_exactLock );
+	// Keep a picker code that already shows this patch: in limited range several
+	// codes paint the same 16-235 code, and rewriting would change a user's pick.
+	COLORREF cur = m_colorPicker.GetColor () & 0x00FFFFFF;
+	int curCode [ 3 ] = { GetRValue ( cur ), GetGValue ( cur ), GetBValue ( cur ) };
+	int code [ 3 ];
+	for ( int i = 0; i < 3; i ++ )
+	{
+		code [ i ] = ColorRGBDisplay::TestWindowPickerCode ( clr [ i ], !!b16_235 );
+		if ( ColorRGBDisplay::TestWindowShownCode ( curCode [ i ], !!b16_235 ) == ColorRGBDisplay::TestWindowShownCode ( code [ i ], !!b16_235 ) )
+			code [ i ] = curCode [ i ];
+	}
+	COLORREF ref = RGB ( code [ 0 ], code [ 1 ], code [ 2 ] );
+
+	m_exactColor = clr;
+	m_exactCode = ref;
+	m_bExactLimited = b16_235;
+	m_bHasExact = TRUE;
+	m_colorPicker.SetColor ( ref );
+	LeaveCriticalSection ( & m_exactLock );
+	RedrawWindow ();
+}
+
+void CTestColorWnd::SetTestColor ( COLORREF clr )
+{
+	EnterCriticalSection ( & m_exactLock );
+	m_bHasExact = FALSE;
+	m_colorPicker.SetColor ( clr );
+	LeaveCriticalSection ( & m_exactLock );
+	RedrawWindow ();
+}
+
+ColorRGBDisplay CTestColorWnd::GetTestColor ()
+{
+	EnterCriticalSection ( & m_exactLock );
+	COLORREF cur = m_colorPicker.GetColor () & 0x00FFFFFF;
+	ColorRGBDisplay clr = ( m_bHasExact && cur == m_exactCode ) ? m_exactColor : ColorRGBDisplay ( cur );
+	LeaveCriticalSection ( & m_exactLock );
+	return clr;
 }
 
 
@@ -93,27 +141,17 @@ void CTestColorWnd::OnPaint()
 	if ( pActiveMDI )
 		pDoc = ( CDataSetDoc * ) pActiveMDI -> GetActiveDocument ();
 
-	if ( pDoc && pDoc -> GetGenerator () -> m_b16_235 )
-	{
-		// Use 16 -> 235 scale
-		r = floor(double(r)/255. * 219. + 16 + 0.5);
-		if ( r < 16 )
-			r = 16;
-		else if ( r > 235 )
-			r = 235;
+	// A patch SetTestColor gave the picker shows in the range of the generator it
+	// came from; a picked color in the active document's range.
+	bool bLimited = pDoc && pDoc -> GetGenerator () -> m_b16_235;
+	EnterCriticalSection ( & m_exactLock );
+	if ( m_bHasExact && ( clr & 0x00FFFFFF ) == m_exactCode )
+		bLimited = !!m_bExactLimited;
+	LeaveCriticalSection ( & m_exactLock );
 
-		g = floor(double(g)/255. * 219. + 16 + 0.5);
-		if ( g < 16 )
-			g = 16;
-		else if ( g > 235 )
-			g = 235;
-
-		b = floor(double(b)/255. * 219. + 16 + 0.5);
-		if ( b < 16 )
-			b = 16;
-		else if ( b > 235 )
-			b = 235;
-	}
+	r = ColorRGBDisplay::TestWindowShownCode ( r, bLimited );
+	g = ColorRGBDisplay::TestWindowShownCode ( g, bLimited );
+	b = ColorRGBDisplay::TestWindowShownCode ( b, bLimited );
 
 	clr = RGB(r,g,b);
 

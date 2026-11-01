@@ -551,7 +551,34 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_isSettling=GetProfileInt("References","isSettling",0);
 	m_bDetectPrimaries=GetProfileInt("References","DetectPrimaries",1);
 	m_useHSV=GetProfileInt("References","UseHSV",0);
-	m_latencyTime=GetProfileInt("References","IrisLatencyTime",300);
+	m_latencyTime=GetProfileInt("References","IrisLatencyTime",400);	// "Patch delay" setting (ms): the old 300 + the hidden 100 the wait no longer adds, so every generator matches its 4.1 total for normal sweep patches (madVR/Chromecast/rPI add their own ~80ms WaitAfterDisplayPattern on top, as in 4.1); the irregular 80ms that 4.1 added in GDI on index-0 / default-index calls is gone. 0 = no wait at all after the paint (4.1's hidden 100 also sat inside the > 0 test)
+	// One-time migration for users upgrading from <=4.1. 4.1's patch-delay wait
+	// (WaitForDynamicIris) was the stored value PLUS a hidden 100ms for any non-zero
+	// value (a negative one is its magnitude, forced even for the simulated sensor),
+	// and that padding is gone, so fold it into the stored value: 300 (the old
+	// default) becomes 400, 50 becomes 150, -200 becomes -300, and 0 stays 0 - no
+	// real meter got the padding at 0. Sweep patches on every real meter keep their
+	// 4.1 patch-delay wait. Two waits do not: the simulated sensor, which a zero or
+	// positive value shortcuts to 10ms, now waits 10 rather than 4.1's 110 (simulated
+	// sweeps only get quicker), and single and free measurements, whose post-read
+	// Sleep 4.1 never padded, now wait 100ms more. Running an older build afterwards
+	// waits 100ms longer per patch than before, which costs time but never accuracy.
+	// The marker makes this run once, so a value chosen after the upgrade is left
+	// alone.
+	if ( !GetProfileInt("References","SettleDelayMigrated",0) )
+	{
+		// Only a value an older build actually stored: a fresh INI reads the new
+		// 400ms default above, which already includes the padding.
+		if ( IsProfileEntryDefined("References","IrisLatencyTime") && m_latencyTime != 0 )
+		{
+			// Clamp first, to the Patch delay field's DDV range less the step, so a
+			// hand-edited value near the int limit cannot overflow on the add.
+			m_latencyTime = max ( -29900, min ( 29900, m_latencyTime ) );
+			m_latencyTime += ( m_latencyTime > 0 ) ? 100 : -100;
+			WriteProfileInt("References","IrisLatencyTime",m_latencyTime);
+		}
+		WriteProfileInt("References","SettleDelayMigrated",1);
+	}
 	m_ablFreq=GetProfileInt("References","AblFrameFreq",10);
 	m_ablDuration=GetProfileInt("References","AblFrameDuration",500);
 	m_ablLevel=GetProfileInt("References","AblFrameLevel",50);
@@ -768,6 +795,12 @@ COLORREF CColorHCFRConfig::GetDEColor(double dE, BOOL bDark) const
 void CColorHCFRConfig::ChangeSettings(int aPage)
 {
 	SetPropertiesSheetValues();
+	// The pages hand these back on OK whether or not their tab was opened, so they
+	// must start from the config, not from whatever the page last held. Done here,
+	// not in SetPropertiesSheetValues: views call that on routine refreshes, which
+	// would wipe a pending TRUE (set by an edit handler) while the sheet is open.
+	m_referencesPropertiesPage.m_bSave=m_bSave;
+	m_advancedPropertiesPage.m_bSave=m_bSave2;
 	m_propertySheet.SetActivePage(aPage);
 	m_propertySheet.DoModal();
 }
@@ -919,8 +952,14 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	m_useToneMap=m_referencesPropertiesPage.m_useToneMap;
 	m_ManualBlack=m_referencesPropertiesPage.m_ManualBlack;
 	m_useMeasuredGamma=m_referencesPropertiesPage.m_useMeasuredGamma;
-	m_bSave=m_referencesPropertiesPage.m_bSave;
-	m_bSave2=m_advancedPropertiesPage.m_bSave;
+	// m_bSave has no control behind it, so outside the Preferences sheet the pages
+	// hold whatever they had when it last closed. Only take it from a live sheet;
+	// other ApplySettings(FALSE) callers (the generator page OK) leave it alone.
+	if ( ::IsWindow( m_propertySheet.GetSafeHwnd() ) )
+	{
+		m_bSave=m_referencesPropertiesPage.m_bSave;
+		m_bSave2=m_advancedPropertiesPage.m_bSave;
+	}
 	m_manualGOffset=m_referencesPropertiesPage.m_manualGOffset;
 	m_manualWhitex=m_referencesPropertiesPage.m_manualWhitex;
 	m_manualWhitey=m_referencesPropertiesPage.m_manualWhitey;

@@ -2333,19 +2333,33 @@ BOOL CMultiFrame::DdeCmdExec ( CString & strCommand, BOOL bCanSendAckMsg, HWND h
 				}
 			}
 
-			if ( nRow == 3 && nCol == 3 && pos == NULL )
+			if ( GetDocument () -> m_pSensor -> GetCalibrationMethod () == CALIB_BODNER_THREEMATRIX )
+			{
+				// Refused, with the same negative acknowledgement a malformed matrix
+				// gets. This command replaces the matrix without recomputing any stored
+				// reading, which on a single-matrix sensor only leaves the grid under the
+				// old matrix. On a Bodner sensor it would leave the grid Bodner-corrected
+				// while the method reads single-matrix, so the guards that key on a
+				// Bodner sensor (the IDS_CALIB_NEED_RAW_PRIMARIES refusal) would miss the
+				// next recalibration. Leave Bodner through a calibration command, which
+				// recomputes the readings.
+				bOk = FALSE;
+			}
+			else if ( nRow == 3 && nCol == 3 && pos == NULL )
 			{
 				GetDocument () -> m_pSensor -> SetSensorMatrix ( SensorMatrix );
 				GetDocument () -> m_pSensor -> SetSensorMatrixMod (Matrix::IdentityMatrix(3));
 				// A DDE-supplied matrix is a single-matrix correction: make it the
-				// authoritative method. On a Bodner-calibrated sensor the method
-				// would otherwise stay BODNER and MeasureColor would keep routing
-				// readings through the sub-gamut matrices, silently ignoring the
-				// matrix the client just set (and SaveCalibrationFile would write
-				// the stale Bodner pairs). Same reset every other single-matrix
-				// calibration writer performs.
+				// authoritative method (a three-color or no-luminance FCMM label would
+				// otherwise describe a matrix it did not produce). Bodner is refused
+				// above; the Bodner pairs are cleared anyway so SaveCalibrationFile
+				// can never write stale ones.
 				GetDocument () -> m_pSensor -> SetCalibrationMethod ( CALIB_HCFR_DEFAULT );
 				GetDocument () -> m_pSensor -> ClearBodnerMatrices ();
+				// No stored reading was recomputed, so the raw-less ones still embody
+				// the previous matrix: a later recalibration must not compose onto
+				// them (RawlessReadingsState, Color.h).
+				GetDocument () -> m_pSensor -> RawlessReadings ().MatrixSetWithoutWalk ();
 			}
 			else
 			{

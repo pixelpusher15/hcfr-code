@@ -83,6 +83,7 @@ void CSensor::Copy(CSensor * p)
 		m_bodnerCalMatrix[k] = p->m_bodnerCalMatrix[k];
 	}
 	UpdateBodnerInverseCache();
+	m_rawlessReadings = p->m_rawlessReadings;
 	m_name = p->m_name;
 }
 
@@ -109,36 +110,36 @@ void CSensor::Serialize(CArchive& archive)
 		// as v1: any other method (Bodner, three-color, FCMM-no-lum) would
 		// silently change identity through the v1 round-trip. Document saves
 		// under the key also produce v1 sensor blocks - harmless for the
-		// default method, and the document header gates old builds anyway.
+		// default method, and the v4 document header gates old builds anyway.
+		// A v1 stream cannot say that the raw-less readings are stranded either
+		// (it would reload as "they embody the matrix" and the next matrix
+		// recalibration would compose onto them), so that state also forces v3.
 		//
-		// v3 (issue #193) is the v1 payload followed by a tagged extension
-		// trailer (ArchiveTags.h): the method as SENSOR_CALIBRATION_METHOD, and
-		// the six Bodner sub-gamut matrices as SENSOR_BODNER_MATRICES only when
-		// that method is in force. v2 was the unreleased Bodner layout and is
-		// retired, never written again.
+		// v3 is the method, the raw-less state and (Bodner only) the six
+		// sub-gamut matrices, followed by a tagged extension trailer (issue
+		// #193, ArchiveTags.h) as the last thing in the block. v2 was the
+		// unreleased Bodner layout and is retired, never written again.
 		int version = ( m_calibrationMethod == CALIB_HCFR_DEFAULT
+		             && m_rawlessReadings.ComposeOntoRawless()
 		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
 						? 1 : 3;
 		archive << version;
 		archive << m_calibrationTime;
 		if ( version == 3 )
 		{
-			CExtensionWriter ext;
-
-			ext.BeginTag ( ArchiveTag::SENSOR_CALIBRATION_METHOD ) << (int) m_calibrationMethod;
-			ext.EndTag ();
-
+			archive << m_calibrationMethod;
+			BOOL bRawlessEmbody = m_rawlessReadings.Get() ? TRUE : FALSE;
+			archive << bRawlessEmbody;
 			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 			{
-				CArchive & value = ext.BeginTag ( ArchiveTag::SENSOR_BODNER_MATRICES );
-				int k;
-				for ( k = 0; k < 3; k++ )
-					m_bodnerRawMatrix[k].Serialize(value);
-				for ( k = 0; k < 3; k++ )
-					m_bodnerCalMatrix[k].Serialize(value);
-				ext.EndTag ();
+				for ( int k = 0; k < 3; k++ )
+				{
+					m_bodnerRawMatrix[k].Serialize(archive);
+					m_bodnerCalMatrix[k].Serialize(archive);
+				}
 			}
 
+			CExtensionWriter ext;
 			ext.Write ( archive );
 		}
 	}
@@ -151,8 +152,9 @@ void CSensor::Serialize(CArchive& archive)
 		if ( version == 2 )
 		{
 			// The unreleased Bodner layout. Parsing it as v3 would read its
-			// method field as the trailer length and desync unpredictably, so
-			// it is refused outright: regenerate the file with this build.
+			// raw-less state from the first matrix and the trailer length from
+			// inside the matrices, desyncing unpredictably, so it is refused
+			// outright: regenerate the file with this build.
 			throw new CNewerSchemaException ( "CSensor", version, true );
 		}
 		if ( version < 1 )
@@ -161,54 +163,37 @@ void CSensor::Serialize(CArchive& archive)
 
 		if ( version == 3 )
 		{
+			// Unknown tags are forward-compatible; unknown values inside a
+			// known field are not. A method this build does not know would
+			// silently run through the wrong correction, so it is refused as a
+			// file from a newer HCFR.
+			int method;
+			archive >> method;
+			if ( method < CALIB_CLASSIC_NIST || method > CALIB_FCMM_NO_LUM )
+				throw new CNewerSchemaException ( "CSensor", method, false );
+			m_calibrationMethod = method;
+
+			BOOL bRawlessEmbody;
+			archive >> bRawlessEmbody;
+			m_rawlessReadings.Set( bRawlessEmbody != FALSE );
+
+			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
+			{
+				for ( int k = 0; k < 3; k++ )
+				{
+					m_bodnerRawMatrix[k].Serialize(archive);
+					m_bodnerCalMatrix[k].Serialize(archive);
+				}
+			}
+
+			// Extension trailer, the last thing in the block. No tag is
+			// written here yet; any a newer build adds is skipped by length.
 			CExtensionReader ext(archive);
 			BYTE  tag;
 			DWORD cb;
-
-			bool bSawBodnerMatrices = false;
-			m_calibrationMethod = CALIB_HCFR_DEFAULT;		// when the tag is absent
 			while ( ext.Next(tag, cb) )
-			{
-				switch ( tag )
-				{
-					case ArchiveTag::SENSOR_CALIBRATION_METHOD:
-					{
-						// Unknown tags are forward-compatible; unknown values inside a
-						// known tag are not. A method this build does not know would
-						// silently run through the wrong correction, so it is refused
-						// as a file from a newer HCFR.
-						int method;
-						ext.Value() >> method;
-						if ( method < CALIB_CLASSIC_NIST || method > CALIB_FCMM_NO_LUM )
-							throw new CNewerSchemaException ( "CSensor", method, false );
-						m_calibrationMethod = method;
-						break;
-					}
-
-					case ArchiveTag::SENSOR_BODNER_MATRICES:
-					{
-						CArchive & value = ext.Value();
-						bSawBodnerMatrices = true;
-						int k;
-						for ( k = 0; k < 3; k++ )
-							m_bodnerRawMatrix[k].Serialize(value);
-						for ( k = 0; k < 3; k++ )
-							m_bodnerCalMatrix[k].Serialize(value);
-						break;
-					}
-
-					default:
-						ext.Skip();
-						break;
-				}
-			}
+				ext.Skip();
 			ext.Close();
-
-			// The Bodner method is meaningless without its six matrices: loading
-			// it anyway would recalibrate every reading through identity
-			// sub-gamuts and report success.
-			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX && ! bSawBodnerMatrices )
-				AfxThrowArchiveException ( CArchiveException::badSchema );
 		}
 		else
 		{
@@ -233,6 +218,8 @@ void CSensor::Serialize(CArchive& archive)
 				legacyOnly = ( GetConfig()->GetProfileInt("Advanced","CalibrationMethod",-1) == -1 )
 					? GetConfig()->GetProfileInt("Advanced","UseOnlyPrimaries",0) : 0;
 			m_calibrationMethod = legacyOnly ? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
+			// Written by a single-matrix build: every reading embodies the stored matrix.
+			m_rawlessReadings.Set( true );
 		}
 		// Loaded (v3 Bodner) or defaulted matrices either way: refresh the
 		// sub-gamut inverse cache for this deserialized state.
@@ -293,6 +280,7 @@ bool CSensor::CorrectionChangedSinceBeginConfigure() const
 void CSensor::SetPropertiesSheetValues()
 {
 	m_SensorPropertiesPage.SetMatrix(m_sensorToXYZMatrix);
+	m_SensorPropertiesPage.m_bMatrixEditable = ( m_calibrationMethod != CALIB_BODNER_THREEMATRIX );
 	m_sheetMatrixShown = m_sensorToXYZMatrix;
 	m_SensorPropertiesPage.m_calibrationDate=GetCalibrationTime().Format("%#c");
 }

@@ -702,12 +702,12 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,86,119,10
     CONTROL         "Détecte les gris/primaires lors des mesures utilisateur",IDC_CHECK_DETECT_PRIMARIES,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,97,181,10
-    GROUPBOX        "Iris dynamique",IDC_STATIC,7,117,256,79,WS_GROUP
-    LTEXT           "Temps de latence",IDC_STATIC,14,128,58,8
+    GROUPBOX        "Minutage des mesures",IDC_STATIC,7,117,256,79,WS_GROUP
+    LTEXT           "Délai de mire",IDC_STATIC,14,128,58,8
     EDITTEXT        IDC_EDIT_IRIS_TIME,74,125,26,14,ES_AUTOHSCROLL | WS_GROUP
     LTEXT           "ms",IDC_STATIC,103,127,10,8
-    CONTROL         "Bip au début de la mesure (aide au réglage de latence)",IDC_CHECK_BEEP,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,147,188,10
+    CONTROL         "Bip au début de la lecture (aide au réglage du délai de mire)",IDC_CHECK_BEEP,
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,147,240,10
     GROUPBOX        "Mesures additionnelles aux primaires et secondaires",IDC_STATIC,7,201,255,25,WS_GROUP
     CONTROL         "Aucune",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,212,41,10
     CONTROL         "Blanc",IDC_RADIO2,"Button",BS_AUTORADIOBUTTON,69,212,34,10
@@ -772,7 +772,7 @@ CAPTION "A propos du Colorimètre HCFR"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
     CONTROL         IDB_LOGO,IDC_STATIC,"Statique",SS_BITMAP,7,7,172,62
-    LTEXT           "Version 4.1.0.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
+    LTEXT           "Version 4.2.0.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
     LTEXT           "Copyright (C) 2012-2026 Hcfr Project\nCopyright (C) 2005-2008 Association Homecinema Francophone",IDC_STATIC2,7,88,168,28
     LTEXT           "hcfr.sourceforge.net",IDC_HOMECINEMA_HYPERLINK,7,119,80,8
     LTEXT           "IDC_PLACEHOLDER",IDC_PLACEHOLDER,4,136,177,117
@@ -2943,8 +2943,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 4.1.0.0
- PRODUCTVERSION 4.1.0.0
+ FILEVERSION 4,2,0,0
+ PRODUCTVERSION 4,2,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -2962,12 +2962,12 @@ BEGIN
             VALUE "Comments", "Under GPL Licence"
             VALUE "CompanyName", "Association Homecinema Francophone"
             VALUE "FileDescription", "Resources Colorimètre HCFR"
-            VALUE "FileVersion", "4.1.0.0"
+            VALUE "FileVersion", "4.2.0.0"
             VALUE "InternalName", "CHCFR21_FRANCAIS"
             VALUE "LegalCopyright", "Copyright (C) 2005-2026"
             VALUE "OriginalFilename", "CHCFR21_FRANCAIS.DLL"
             VALUE "ProductName", "Colorimètre HCFR langage Français"
-            VALUE "ProductVersion", "4.1.0.0"
+            VALUE "ProductVersion", "4.2.0.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -3065,11 +3065,11 @@ END
 
 STRINGTABLE
 BEGIN
+    IDR_MAINFRAME           "Colorimètre HCFR - 4.2.0.0"
     IDS_CALIB_RGB_MATRIX    "Matrice RGB (ASTM E1455-92)"
     IDS_CALIB_FCMM_NOLUM    "NIST quatre couleurs / FCMM (sans mise à l'échelle de luminance)"
     IDS_CALIB_FCMM_LUM      "NIST quatre couleurs / FCMM (avec mise à l'échelle de luminance)"
     IDS_CALIB_BODNER        "Bodner-Robinson trois-matrices (écrans RGBW)"
-    IDR_MAINFRAME           "Colorimètre HCFR - 4.1.0.0"
     IDR_MESURETYPE          "\nRelevé\nRelevé\nFichiers ColorHCFR (*.chc)\n.chc\nCOLORHCFR\nRelevé de couleurs HCFR"
 END
 
@@ -4268,7 +4268,7 @@ BEGIN
     IDS_PP_CUBEFMT          "cube %dx%dx%d"
     IDS_PP_PATCHESTIME      "%d mires  -  %s"
     IDS_PP_STARTPROFILE     "Lancer le profil"
-    IDS_PP_REPLACESEXISTING "   (remplace la capture existante)"
+    IDS_PP_REPLACESEXISTING "   (remplace gris, primaires et profil)"
     IDS_PP_CHK_GRAYEXTRAS   "Échantillons supplémentaires sur l'axe des gris et proches du noir"
     IDS_PP_CHK_DRIFTCOMP    "Compensation de dérive (remesure le blanc toutes les 64 mires)"
     IDS_PP_RUNSTATUS        "Profilage %dx%dx%d%s%s%s"
@@ -4277,6 +4277,8 @@ BEGIN
     IDS_PP_PAUSED           "   -   EN PAUSE"
     IDS_PP_PATCHOF          "Mire %d sur %d  -  RVB %.0f, %.0f, %.0f"
     IDS_PP_ETA              "%d%%  -  environ %s restant"
+    IDS_PP_MEASURINGREFS    "Gris et primaires (%d sur %d)..."
+    IDS_PP_DISCGENERATOR    "Un profil d'affichage nécessite un générateur capable d'afficher n'importe quelle couleur. Les générateurs sur disque ne sont pas pris en charge."
     IDS_PP_AVGDE            "dE moyen"
     IDS_PP_MAXDE            "dE max"
     IDS_PP_DRIFT            "Dérive"
@@ -4378,7 +4380,9 @@ BEGIN
     IDS_SPECTRAL_CLEAR_FOR_MATRIX "Ce capteur utilise une correction spectrale (ccss/CSV), appliquée dans la sonde.\nUn étalonnage par matrice viendrait s'y ajouter (double correction).\n\nEffacer la correction spectrale et étalonner par matrice à la place ?"
     IDS_CALIB_METHOD_TITLE      "Méthode d'étalonnage"
     IDS_CALIB_METHOD_OUT_OF_SYNC "La méthode d'étalonnage sélectionnée dans les Options diffère de celle actuellement appliquée à ces mesures - elles n'ont pas été recalculées après le changement de méthode. L'export reflétera la méthode APPLIQUÉE.\n\nPour recalculer d'abord, annulez et lancez 'Créer à partir des mesures de référence existantes' (ou une commande d'étalonnage).\n\nContinuer l'export ?"
-    IDS_BODNER_SKIPPED_FMT      "%d mesure(s) enregistrée(s) avant l'activation de cette fonction n'ont pas pu être réétalonnées."
+    IDS_BODNER_SKIPPED_FMT      "%d mesure(s) sans lecture brute du capteur (enregistrées avant la capture des valeurs brutes, ou modifiées à la main) ont été laissées telles quelles."
+    IDS_CALIB_NEED_RAW_PRIMARIES "Mesurez d'abord à nouveau les primaires et le blanc : ceux enregistrés n'ont pas de lecture brute du capteur, et une matrice ne peut pas être calculée à partir de valeurs portant une correction que le capteur n'applique plus (Bodner, ou une matrice remplacée par une correction spectrale)."
+    IDS_CALIB_NEED_REF_WHITE    "Le document de référence n'a pas de blanc mesuré : mesurez d'abord son blanc (ou les primaires avec le blanc)."
     IDS_EXPORT_LAYOUT_MISMATCH  "Impossible d'ajouter à ce fichier : il a été exporté avec des options Brut/Stimulus différentes. Exportez vers un nouveau fichier, ou refaites l'export avec les mêmes options que les données existantes."
     IDS_SCHEMA_NEWER        "This file was written by a newer version of HCFR (%s version %d). Update HCFR to open it."
     IDS_SCHEMA_UNRELEASED   "This file was written by an unreleased development build of HCFR (%s version %d) and cannot be read. Regenerate it."

@@ -600,8 +600,11 @@ bool SpectralSample::createFromCorrelationCSV(const std::string& csvPath)
 			size_t b = cells[k].find_last_not_of(" \t");
 			vals.push_back(atof(cells[k].substr(a, b - a + 1).c_str()));
 		}
+		// A short row is a wrong-resolution file (81 values = a 5 nm set), not a spectrum
+		// that stops early: padded with zeros it would load as 380-460 nm at 1 nm and
+		// correct every reading silently.
 		if ((int)vals.size() < BANDS)
-			vals.resize(BANDS, 0.0);				// zero-pad short rows
+			throw std::logic_error("Correlation CSV row has fewer than 401 values (1 nm, 380-780 nm expected)");
 		else if ((int)vals.size() > BANDS)
 			throw std::logic_error("Correlation CSV row has more than 401 values");
 		rows.push_back(vals);
@@ -664,11 +667,23 @@ bool SpectralSample::createFromCorrelationCSV(const std::string& csvPath)
 		samples[k].spec_n = BANDS;
 		samples[k].spec_wl_short = START_NM;
 		samples[k].spec_wl_long = END_NM;
-		samples[k].norm = 100.0;			// spec[] below is on a 0..100 scale; Argyll
-											// divides by norm when integrating the spectrum.
-											// Leaving it uninitialized yields a degenerate
-											// sensor-RGB matrix and a spurious "too few
-											// calibration samples" error on col_cal_spec_set.
+		// norm 1.0, as every Argyll .ccss carries (SPECTRAL_NORM, written from
+		// samples[0].norm by ccss.c and defaulted to 1.0 on read). Argyll divides by
+		// norm only where it integrates through getval_xspec (xspect.c, xsp2cie
+		// convert); the Spyder fit builds its XYZ that way (spyd2.c:2153) but its
+		// sensor sums and its extra white samples with the unnormalized
+		// value_xspect (spyd2.c:2161, :2175, :2183), so any other norm skews that
+		// fit. (The i1d3 fit is norm-invariant: XYZ and sensor RGB both go through
+		// convert, i1d3.c:2565/:2576.) A zero norm - the value-initialized one -
+		// divides by zero and fails col_cal_spec_set with "too few calibration
+		// samples".
+		//
+		// The 0..100 scaling of spec[] below needs no matching norm: it is one
+		// factor on every sample, and both fits are linear in the samples (a
+		// least-squares XYZ-from-RGB matrix, the Spyder's extra samples built from
+		// the same set's envelope), so the matrix does not depend on it. Argyll's
+		// own sets are absolute radiance, around 1e-3..1e-1 (Install/color).
+		samples[k].norm = 1.0;
 		for (int j = 0; j < BANDS && j < XSPECT_MAX_BANDS; ++j)
 			samples[k].spec[j] = r[j] * 100.0 / gmax;	// normalize the set to a common max
 	}
@@ -676,7 +691,7 @@ bool SpectralSample::createFromCorrelationCSV(const std::string& csvPath)
 	bool bRet = !m_ccss->set_ccss(m_ccss, "HCFR correlation import", NULL,
 									(char *)m_Description.c_str(),
 									(char *)m_Display.c_str(),
-									x,
+									disptech_unknown,
 									-1,
 									NULL,
 									(char *)m_RefInstrument.c_str(), NULL,

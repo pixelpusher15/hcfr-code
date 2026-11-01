@@ -2005,6 +2005,8 @@
 #define IDS_PP_HOURS                    59629
 #define IDS_CSV_FILE_NOT_FOUND          59630
 #define IDS_CSV_RANGE_EXTENDED_WARN     59631
+#define IDS_PP_MEASURINGREFS            59634
+#define IDS_PP_DISCGENERATOR            59790
 #define IDS_SPECTRAL_TITLE              59731
 #define IDS_SPECTRAL_BROWSE             59732
 #define IDS_SPECTRAL_CLEAR              59733
@@ -2019,6 +2021,8 @@
 #define IDS_CALIB_METHOD_TITLE          59742
 #define IDS_CALIB_METHOD_OUT_OF_SYNC    59743
 #define IDS_BODNER_SKIPPED_FMT          59744
+#define IDS_CALIB_NEED_RAW_PRIMARIES    60005
+#define IDS_CALIB_NEED_REF_WHITE        60052
 #define IDS_EXPORT_LAYOUT_MISMATCH      59745
 #define IDS_SCHEMA_NEWER                59746
 #define IDS_SCHEMA_UNRELEASED           59747
