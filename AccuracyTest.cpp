@@ -779,7 +779,7 @@ static void RefreshHdrTargets ( CMeasure & m )
 	if ( !cfg->m_bOverRideTargs && Black.isValid() && White.isValid() && (cfg->m_GammaOffsetType == 5 || cfg->m_GammaOffsetType == 7) )
 	{
 		if ( Black.GetY() < White.GetY() )
-			cfg->m_TargetMinL = Black.GetY() > 1e-5 ? Black.GetY() : 0.0;
+			cfg->m_TargetMinL = HasMeasuredLight ( Black.GetY() ) ? Black.GetY() : 0.0;	// mirrors MainView::UpdateGrid
 		else
 			cfg->m_TargetMinL = 0.0;
 		if ( White.GetY() > 0 )
@@ -822,8 +822,11 @@ static void RunGray ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 	CColor White = m.GetOnOffWhite();
 	CColor Black = m.GetOnOffBlack();
 
-	// dE per UpdateGrid case 0 + GetItemText grayscale branch. The grid
-	// leaves the first column (black) without a dE; skip it the same way.
+	// dE per UpdateGrid case 0 + GetItemText grayscale branch. Black (the
+	// first column) is skipped: the grid prints its dE through
+	// BlackTargetReference but keeps it out of the grayscale average, and this
+	// harness pins TargetMinL to 0, so neither that path nor the HLG black lift
+	// in getL_EOTF is exercised here.
 	double YWhite = m.GetGray(kGraySize - 1).GetY();
 	for ( i = 1 ; i < kGraySize ; i ++ )
 	{
