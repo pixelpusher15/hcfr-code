@@ -54,6 +54,9 @@ CAdvancedPropPage::CAdvancedPropPage() : CPropertyPageWithHelp(CAdvancedPropPage
 	m_isModified = FALSE;
 	// copied to GetConfig()->m_bSave2 on OK even when this tab was never opened
 	m_bSave = FALSE;
+	m_dE_formold = m_dE_form;
+	m_dE_grayold = m_dE_gray;
+	gw_Weightold = gw_Weight;
 }
 
 CAdvancedPropPage::~CAdvancedPropPage()
@@ -171,7 +174,12 @@ BOOL CAdvancedPropPage::OnApply()
 //	m_isModified=TRUE;
 //	GetConfig()->ApplySettings(FALSE);
 //	m_isModified = FALSE;
-	m_bSave = TRUE;
+	// Only the dE formula, dE gray mode and gray-world weight are stored in the
+	// document (CMeasure::Serialize); the rest of this page goes to the INI only.
+	// Flag the open documents as modified only when one of those three changed,
+	// as the References page does for its white/primaries (issue #210).
+	if ( m_dE_form != m_dE_formold || m_dE_gray != m_dE_grayold || gw_Weight != gw_Weightold )
+		m_bSave = TRUE;
 	return CPropertyPageWithHelp::OnApply();
 }
 
@@ -224,6 +232,9 @@ BOOL CAdvancedPropPage::OnSetActive()
         m_gwWeightEdit.EnableWindow(FALSE);
     }
 	m_bSave = GetConfig()->m_bSave2;
+	m_dE_formold = m_dE_form;
+	m_dE_grayold = m_dE_gray;
+	gw_Weightold = gw_Weight;
 	GetConfig()->ApplySettings(FALSE);
 	m_isModified=FALSE;
 	SetModified(FALSE);	
