@@ -1110,14 +1110,19 @@ bool CExport::SavePDF()
 		double nCount = pDataRef -> GetMeasure () -> GetGrayScaleSize ();
 		double Gamma = GetConfig()->m_GammaAvg;
 		double Offset;
-		if (nCount > 0)
+		// Page 2 is the reference document's: fit ITS grays (nCount is its size),
+		// and skip the power-law fit in HDR as page 1 does (issue #99).
+		if (nCount > 0 && !isHDR )
 		{
-			m_pDoc->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
+			pDataRef->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
 			sprintf(str,"Average measured gamma: %.2f, Color dE formula: %s",Gamma,(LPCTSTR)dEform2);
 		}
 		else
 		{
-			sprintf(str,"Average measured gamma: No data");
+			if (isHDR && nCount)
+				sprintf(str,"Average measured gamma: HDR mode");
+			else
+				sprintf(str,"Average measured gamma: No data");
 		}
 		HPDF_Page_ShowTextNextLine (page2, str);
 
