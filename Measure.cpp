@@ -7896,7 +7896,7 @@ CString CMeasure::GetCCStr() const
 		"CalMAN Skin \r\n",
 		"Chromapure Skin \r\n",
 		"CalMAN SG \r\n",
-		"CalMAN 10 pt Lum. \r\n",
+		"RGB Luminance Axis \r\n",
 		"CalMAN 4 pt Lum. \r\n",
 		"CalMAN 5 pt Lum. \r\n",
 		"CalMAN 10 pt Lum. \r\n",
