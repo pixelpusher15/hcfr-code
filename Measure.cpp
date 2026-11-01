@@ -469,7 +469,13 @@ CMeasure::CMeasure()
 		else
 		{
 			int nGray = GetConfig()->GetProfileInt("Scale Sizes","Gray",10);	// legacy step count (points-1)
-			int nLegacy = ( nGray == 4 ) ? 0 : ( nGray == 10 ) ? 2 : ( nGray == 20 ) ? 4 : -1;
+			// Legacy step counts map onto s_grayPresets by index: 4 -> [0] 5-point,
+			// 10 -> [2] 11-point, 20 -> [5] 21-point. Reached only when the INI has
+			// no "GrayPreset" key (a profile written before the preset list existed)
+			// and "Gray" holds one of those three values; 20 used to land on [4],
+			// the 16-point near-black preset, so an upgrader's 21-point gray scale
+			// silently became a 16-point one.
+			int nLegacy = ( nGray == 4 ) ? 0 : ( nGray == 10 ) ? 2 : ( nGray == 20 ) ? 5 : -1;
 			if ( nLegacy >= 0 )
 			{
 				levels.SetSize(pPresets[nLegacy].count);
