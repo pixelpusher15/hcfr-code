@@ -37,12 +37,19 @@
 
 namespace ArchiveTag
 {
-	// CSensor (Sensors/Sensor.cpp), trailer from block version 3.
+	// CSensor (Sensors/Sensor.cpp via libHCFR/SensorCalibrationStream.cpp),
+	// trailer from block version 4. Versions 2 and 3 were unreleased
+	// development layouts and are refused, never parsed.
 	enum CSensorTag
 	{
 		SENSOR_CALIBRATION_METHOD = 1,	// int: CalibrationMatrixMethod
 		SENSOR_BODNER_MATRICES    = 2,	// 6 x Matrix::Serialize: raw[0..2] then cal[0..2]
-		SENSOR_CALIBRATION_PAIRS  = 3	// reserved (Stage 2): raw / reference reading pairs
+		SENSOR_CALIBRATION_PAIRS  = 3,	// reserved (Stage 2): raw / reference reading pairs
+		// 4 and 5 are claimed by the ccss-as-correction branch (wt-ccss):
+		// SENSOR_FIT_BASIS = 4, SENSOR_SPECTRAL_CORRECTION = 5. Taken.
+		SENSOR_RAWLESS_EMBODY     = 6	// BOOL: RawlessReadingsState - whether the
+										// readings without raw still embody the
+										// sensor matrix
 	};
 
 	// COneDeviceSensor (Sensors/OneDeviceSensor.cpp), trailer from block version 5.

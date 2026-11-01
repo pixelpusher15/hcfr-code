@@ -26,7 +26,7 @@
 #include "Sensor.h"
 #include "Generator.h"
 #include "ArchiveExtension.h"
-#include "ArchiveTags.h"
+#include "SensorCalibrationStream.h"
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -110,90 +110,48 @@ void CSensor::Serialize(CArchive& archive)
 		// as v1: any other method (Bodner, three-color, FCMM-no-lum) would
 		// silently change identity through the v1 round-trip. Document saves
 		// under the key also produce v1 sensor blocks - harmless for the
-		// default method, and the v4 document header gates old builds anyway.
+		// default method, and the document header gates old builds anyway.
 		// A v1 stream cannot say that the raw-less readings are stranded either
 		// (it would reload as "they embody the matrix" and the next matrix
-		// recalibration would compose onto them), so that state also forces v3.
+		// recalibration would compose onto them), so that state also forces
+		// the current version.
 		//
-		// v3 is the method, the raw-less state and (Bodner only) the six
-		// sub-gamut matrices, followed by a tagged extension trailer (issue
-		// #193, ArchiveTags.h) as the last thing in the block. v2 was the
-		// unreleased Bodner layout and is retired, never written again.
+		// The layout of every version lives in libHCFR's
+		// SensorCalibrationStream, where the unit tests can reach it.
 		int version = ( m_calibrationMethod == CALIB_HCFR_DEFAULT
 		             && m_rawlessReadings.ComposeOntoRawless()
 		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
-						? 1 : 3;
-		archive << version;
-		archive << m_calibrationTime;
-		if ( version == 3 )
-		{
-			archive << m_calibrationMethod;
-			BOOL bRawlessEmbody = m_rawlessReadings.Get() ? TRUE : FALSE;
-			archive << bRawlessEmbody;
-			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
-			{
-				for ( int k = 0; k < 3; k++ )
-				{
-					m_bodnerRawMatrix[k].Serialize(archive);
-					m_bodnerCalMatrix[k].Serialize(archive);
-				}
-			}
+						? 1 : kSensorStreamVersion;
 
-			CExtensionWriter ext;
-			ext.Write ( archive );
+		SensorCalibrationFields fields;
+		fields.calibrationTime = m_calibrationTime;
+		fields.method = m_calibrationMethod;
+		fields.rawlessEmbody = m_rawlessReadings.Get();
+		for ( int k = 0; k < 3; k++ )
+		{
+			fields.bodnerRaw[k] = m_bodnerRawMatrix[k];
+			fields.bodnerCal[k] = m_bodnerCalMatrix[k];
 		}
+		StoreSensorCalibration ( archive, fields, version );
 	}
 	else
 	{
-		int version;
-		archive >> version;
-		if ( version > 3 )
-			throw new CNewerSchemaException ( "CSensor", version );
-		if ( version == 2 )
+		SensorCalibrationFields fields;
+		int version = LoadSensorCalibration ( archive, fields );
+
+		m_calibrationTime = fields.calibrationTime;
+		if ( version != 1 )
 		{
-			// The unreleased Bodner layout. Parsing it as v3 would read its
-			// raw-less state from the first matrix and the trailer length from
-			// inside the matrices, desyncing unpredictably, so it is refused
-			// outright: regenerate the file with this build.
-			throw new CNewerSchemaException ( "CSensor", version, true );
-		}
-		if ( version < 1 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
-		archive >> m_calibrationTime;
-
-		if ( version == 3 )
-		{
-			// Unknown tags are forward-compatible; unknown values inside a
-			// known field are not. A method this build does not know would
-			// silently run through the wrong correction, so it is refused as a
-			// file from a newer HCFR.
-			int method;
-			archive >> method;
-			if ( method < CALIB_CLASSIC_NIST || method > CALIB_FCMM_NO_LUM )
-				throw new CNewerSchemaException ( "CSensor", method, false );
-			m_calibrationMethod = method;
-
-			BOOL bRawlessEmbody;
-			archive >> bRawlessEmbody;
-			m_rawlessReadings.Set( bRawlessEmbody != FALSE );
-
+			m_calibrationMethod = fields.method;
+			m_rawlessReadings.Set( fields.rawlessEmbody );
 			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 			{
 				for ( int k = 0; k < 3; k++ )
 				{
-					m_bodnerRawMatrix[k].Serialize(archive);
-					m_bodnerCalMatrix[k].Serialize(archive);
+					m_bodnerRawMatrix[k] = fields.bodnerRaw[k];
+					m_bodnerCalMatrix[k] = fields.bodnerCal[k];
 				}
 			}
-
-			// Extension trailer, the last thing in the block. No tag is
-			// written here yet; any a newer build adds is skipped by length.
-			CExtensionReader ext(archive);
-			BYTE  tag;
-			DWORD cb;
-			while ( ext.Next(tag, cb) )
-				ext.Skip();
-			ext.Close();
 		}
 		else
 		{
@@ -221,7 +179,7 @@ void CSensor::Serialize(CArchive& archive)
 			// Written by a single-matrix build: every reading embodies the stored matrix.
 			m_rawlessReadings.Set( true );
 		}
-		// Loaded (v3 Bodner) or defaulted matrices either way: refresh the
+		// Loaded (Bodner) or defaulted matrices either way: refresh the
 		// sub-gamut inverse cache for this deserialized state.
 		UpdateBodnerInverseCache();
 	}

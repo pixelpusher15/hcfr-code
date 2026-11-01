@@ -18,6 +18,9 @@
     <ClCompile Include="..\ArchiveExtension.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\SensorCalibrationStream.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\CalibrationFile.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -54,6 +57,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\ArchiveTags.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\SensorCalibrationStream.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\CalibrationFile.h">
