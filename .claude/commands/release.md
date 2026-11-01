@@ -44,6 +44,10 @@ Follow these steps in order. Stop and wait where it says WAIT.
   `LC_ALL=C sed -i -E 's/^( (FILE|PRODUCT)VERSION) 4,1,0,0(\r?)$/\1 4,2,0,0\3/' <file>`
   (the `\r?` keeps the pattern working on CRLF files). Then check `git diff` shows only the
   version lines changed.
+- The version also appears as plain text, outside VERSIONINFO; bump these too:
+  - the five language satellites: the About box `LTEXT "Version <ver>",IDC_STATIC_VERSION` line
+    and the `IDR_MAINFRAME` title string (e.g. `"HCFR Colorimeter - <ver>"`);
+  - `ColorHCFR.rc` line 1, the `// <ver> Visual C++ generated resource script.` header.
 - **`ColorHCFR_VS2019.vdproj`** (Product section near the end of the file):
   - `ProductCode` — **new GUID** every release.
   - `PackageCode` — **new GUID** every release.
