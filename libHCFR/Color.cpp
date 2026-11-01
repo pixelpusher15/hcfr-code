@@ -1082,6 +1082,24 @@ COLORREF ColorRGBDisplay::GetColorRef(bool is16_235) const
     return RGB(r, g, b);
 }
 
+int ColorRGBDisplay::TestWindowShownCode(int pickerCode, bool is16_235)
+{
+    if (!is16_235)
+        return pickerCode;
+    int code = (int)floor(pickerCode / 255.0 * 219.0 + 16.0 + 0.5);
+    return code < 16 ? 16 : (code > 235 ? 235 : code);
+}
+
+int ColorRGBDisplay::TestWindowPickerCode(double percent, bool is16_235)
+{
+    if (!is16_235)
+        return ConvertPercentToCode(percent, false, 8);
+    // the c whose mapping is k: c*219/255 is within 0.43 of k-16, so it rounds back
+    int k = ConvertPercentToCode(percent, true, 8);
+    int c = (int)floor((k - 16) * 255.0 / 219.0 + 0.5);
+    return c < 0 ? 0 : (c > 255 ? 255 : c);
+}
+
 BYTE ColorRGBDisplay::ConvertPercentToBYTE(double percent, bool is16_235)
 {
     return (BYTE)ConvertPercentToCode(percent, is16_235, 8);

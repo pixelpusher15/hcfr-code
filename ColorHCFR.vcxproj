@@ -912,6 +912,7 @@
     <ClInclude Include="AsyncMeasurer.h" />
     <ClInclude Include="MeasureSound.h" />
     <ClInclude Include="Measure.h" />
+    <ClInclude Include="MeasurePerf.h" />
     <ClInclude Include="ModelessPropertySheet.h" />
     <ClInclude Include="MultiFrm.h" />
     <ClInclude Include="PatternDisplay.h" />
