@@ -171,10 +171,12 @@ protected:
 	// isValid() and GetY() > 0 both pass -- so anything that needs to know whether
 	// white was ever MEASURED has to ask this, not the color.
 	//
-	// PERSISTENCE (both flags): stored verbatim at the end of the profile block
-	// since CMeasure version 21 (the #165 branch wrote 21 only when a display
-	// profile existed); version 22 always writes that block, so every document
-	// this build saves carries them. A document of version 20 or older has no
+	// PERSISTENCE (both flags): CMeasure v21 (released in 4.2.0.0: the two
+	// white-measured flags after the profile block, written only when a display
+	// profile exists); v22 = v21 + the extension trailer, with the profile
+	// block always written, so every document this build saves carries them.
+	// v21 is a released layout and must always be read. A document of version
+	// 20 or older has no
 	// flags, and they are re-derived on load: valid and NOT the constructor's
 	// placeholder, which IsPlaceholderWhite (Measure.cpp) recognises by its exact
 	// signature. That is also what recovers documents written before the flags
