@@ -90,6 +90,167 @@ CGammaGrapher::CGammaGrapher ()
 }
 
 
+// Gamma is plotted as log(y)/log(x), which is 0/0 at reference white - which is
+// why the reference curve used to stop one grayscale step short of 100%. The
+// limit does exist: it is the local slope of the EOTF at white, and for a pure
+// power law it is exactly the gamma itself (log(x^g)/log(x) == g for any x), so
+// evaluating the top point a hair below white recovers it instead of dropping
+// the point. Only the math is nudged - the point is still plotted at its real
+// 100% stimulus. HDR modes plot an absolute luminance delta rather than a log
+// ratio, so they are left alone; so is the MEASURED curve, where Y(100%) is the
+// white it is normalised against, making the ratio exactly 1 and the limit
+// unrecoverable from a single sample.
+static double NudgeOffWhite(double valx, bool isHDR)
+{
+	return ( !isHDR && valx >= 1.0 ) ? 1.0 - 1e-4 : valx;
+}
+
+// The same step off the other end of the scale, so the curve can be evaluated
+// at black instead of starting at the first patch above it. HDR is untouched -
+// its reference pass already starts at point 0 and feeds m_yref_abs, so nudging
+// would move an HDR baseline.
+static const double kBlackNudge = 1e-4;
+
+static double NudgeOffBlack(double valx, bool isHDR)
+{
+	return ( !isHDR && valx <= 0.0 ) ? kBlackNudge : valx;
+}
+
+// The target EOTF at stimulus x (0..100): *pValY is its relative luminance and
+// *pGamma the log(y)/log(x) the chart plots. Returns FALSE where that gamma has
+// no value (x or y at zero, or a denominator of log(1)). Single definition,
+// because the measured trace needs the same number at reference white as the
+// reference curve does.
+//
+// White and Black belong to the document being plotted and are passed in rather
+// than fetched here: modes >= 4 feed them to getL_EOTF, so the value differs per
+// document. Passing by const reference also saves one CColor copy per call, and
+// CColor copies deep-copy the attached spectrum - but only one of the two: this
+// hands them straight to getL_EOTF, which still takes White and Black BY VALUE,
+// so a spectrum copy per grayscale point remains. Removing that one means
+// changing the signature in libHCFR/Color.h and every call site in the tree,
+// which is a wider change than this file.
+static BOOL ReferenceGammaAt(const CColor & White, const CColor & Black, double x, double GammaOffset, double *pGamma, double *pValY, bool bNudgeBlack = true)
+{
+	int		mode = GetConfig()->m_GammaOffsetType;
+	bool	isHDR = (mode == 5 || mode == 7);
+	double	valx, valy;
+
+	if (GetConfig()->m_colorStandard == sRGB) mode = 99;
+
+	if ( mode >= 4 )
+	{
+		valx = NudgeOffWhite(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()), isHDR);
+		if (bNudgeBlack) valx = NudgeOffBlack(valx, isHDR);
+		if (mode == 5)
+			valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.;
+		else
+			valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
+	}
+	else
+	{
+		valx = NudgeOffWhite((GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+GammaOffset)/(1.0+GammaOffset), isHDR);
+		if (bNudgeBlack) valx = NudgeOffBlack(valx, isHDR);
+		valy = pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
+	}
+
+	*pValY = valy;
+
+	// valx == 1.0 is the log(1) denominator, not just an undefined numerator:
+	// the nudge keeps SDR off it, but HDR skips the nudge, and dividing there
+	// would hand back an infinity that looks like a valid gamma.
+	if ( !(valy > 0 && valx > 0 && valx != 1.0 && valy != 1.0) )
+	{
+		*pGamma = 0.0;
+		return FALSE;
+	}
+
+	*pGamma = log(valy)/log(valx);
+	return TRUE;
+}
+
+// The value the scale carries at BLACK.
+//
+// This chart plots gamma relative to the display's own black and white, and the
+// transfer function is anchored at both of those by construction: 0% stimulus
+// puts out the display's black, 100% puts out its white. Both endpoints are
+// therefore 0/0, and neither carries a measurement - they carry the anchor.
+//
+// The two ends are NOT symmetric, and it is worth being exact about that. At
+// white the limit is the target's exponent and it is exact: log(x^g)/log(x) == g
+// for any x, so evaluating a hair below white recovers g whatever the nudge. At
+// black no such clean limit exists for every target, and this function does not
+// pretend to find one.
+//
+// What it does is take out the black-elevation term. The raw log(y)/log(x)
+// divides by white without removing black: a real black is a finite fraction of
+// white while log(x) runs to -infinity, so the ratio collapses toward 0 (~0.8 at
+// 1655:1) and lands off the bottom of any gamma axis, on every display ever
+// made. Removing the target's own floor first - (y(e) - y(0)) / (1 - y(0)) -
+// leaves the SHAPE of the target curve near black instead of its contrast ratio.
+//
+// What that shape evaluates to depends on the target:
+//
+//   Pure power (modes < 4, and any mode >= 4 target of the form
+//   y = y0 + (1-y0)*x^g): the removal reduces the curve to x^g exactly, so the
+//   answer is g, independent of e. This is the case the "gamma at black is 2.2
+//   for a 2.2 display" intuition is true for, and only this one.
+//
+//   BT.1886 with split > 0: getL_EOTF case 4 is
+//   y = (a*(x+b)^g + minL*(1-split/100)) / (maxL + minL*(1-split/100)), and
+//   a*b^g = offset = split/100 * minL, so y(0) = minL / (maxL +
+//   minL*(1-split/100)) - the target's floor IS the measured black. At the
+//   default Split of 100 that is exactly minL/maxL and the curve reduces to
+//   a*(x+b)^g / maxL; at a lower split the floor sits slightly below minL/maxL
+//   and the endpoint slightly above, so the value is Split-dependent too (1.361
+//   at split 100, 1.403 at split 50, on the panel below). Either way
+//   y(e) - y(0) is LINEAR in e, so log/log tends to 1, not to g, and the value
+//   depends on e. At the e below, a 1220:1 panel on a g 2.4 target at the
+//   default split reads 1.361 (1.240 at e = 1e-6). That is not the exponent -
+//   and BT.1886 does not reach its exponent anywhere: the same reference curve
+//   runs 1.455 at 1%, 2.001 at 10%, 2.225 at 50%, 2.276 at white. Only
+//   split = 0 returns a flat 2.4.
+//
+//   sRGB, L*: y(0) == 0, so there is no floor and the removal is arithmetically
+//   a no-op. Their linear toe makes y proportional to x near black, so this is
+//   again the target's own local log/log slope - 1.239 for L* at the e below -
+//   and again e-dependent.
+//
+// So on every target but the pure powers this is the target curve SAMPLED at e,
+// not a limit; e is what fixes the sampled value, and the white endpoint has no
+// equivalent freedom. That is acceptable because of what the chart needs from
+// the point: on all three it lands on the reference curve drawn beside it and
+// continues it, which bench measurement confirms is also where the measured
+// trace extrapolates. It is an anchor, not a reading.
+static BOOL ReferenceGammaAtBlack(const CColor & White, const CColor & Black, double GammaOffset, double *pGamma)
+{
+	double	gNudged, valyNudged, gZero, valyZero;
+
+	if ( !ReferenceGammaAt(White, Black, 0.0, GammaOffset, &gNudged, &valyNudged) )
+		return FALSE;
+
+	// The target's luminance at a stimulus of literally zero: its floor, if it
+	// has one. Return value ignored on purpose - a target with no floor gives
+	// y(0) = 0 and fails the log guard, which is exactly the "nothing to remove"
+	// case handled below.
+	ReferenceGammaAt(White, Black, 0.0, GammaOffset, &gZero, &valyZero, false);
+
+	double	num = valyNudged - valyZero;
+	double	den = 1.0 - valyZero;
+
+	// Nothing to remove: a pure power target, or an offset target whose stimulus
+	// at 0% is already nonzero so the nudge never fired. The plain value is the
+	// exponent already.
+	if ( !(num > 0.0 && den > 0.0) )
+	{
+		*pGamma = gNudged;
+		return TRUE;
+	}
+
+	*pGamma = log(num/den)/log(kBlackNudge);
+	return TRUE;
+}
+
 void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 {
 	BOOL	bDataPresent = FALSE;
@@ -100,7 +261,6 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
 	m_graphCtrl.SetXAxisProps(bIRE?"IRE":(LPSTR)(LPCSTR)GetConfig()->m_PercentGray, 10, 0, 100);
 	m_graphCtrl.SetYAxisProps(isHDR?"cd m-2":"", isHDR?1:0.1, isHDR?-100:1, isHDR?100:4);
-	m_graphCtrl. SetYAxisProps(isHDR?"cd m-2":"", isHDR?1:0.1, isHDR?-100:1, isHDR?100:4);
 	CString strGamma;
 	strGamma.LoadString ( isHDR ? IDS_GRAPH_DELTALUMREFMEAS : IDS_GRAPH_REFMEASGAMMA );
 	m_graphCtrl.m_graphArray[2].m_Title=strGamma;
@@ -137,50 +297,48 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	// Compute offset
 	pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,size, false);
 	pDoc->ComputeGammaAndOffset(&LuxGammaOpt, &LuxGammaOffset, 2,1,size, false);
+
 //	GammaOpt = floor(GammaOpt * 100) / 100;
-	
+
 	if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
 	{
-		pDoc->ComputeGammaAndOffset(&RefGammaOpt, &RefGammaOffset, 1,1,size,false);
-		pDoc->ComputeGammaAndOffset(&RefLuxGammaOpt, &RefLuxGammaOffset, 2,1,size,false);
+		// The comparison document's own fit: these offsets are handed to
+		// AddPointtoLumGraph for the pDataRef traces, so fitting them on pDoc
+		// described the wrong document (rgbhistoview.cpp does it on pDataRef).
+		pDataRef->ComputeGammaAndOffset(&RefGammaOpt, &RefGammaOffset, 1,1,size,false);
+		pDataRef->ComputeGammaAndOffset(&RefLuxGammaOpt, &RefLuxGammaOffset, 2,1,size,false);
 	}
 
 	if (m_showReference && m_refLogGraphID != -1 && size > 0 || (m_refLogGraphID != -1 && (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 )))
 	{	
-		// log scale is not valid for first and last value
+		// Both ends of the log scale are singular - log(0) at black, log(1) at
+		// white - and NudgeOffBlack/NudgeOffWhite are what let the curve be
+		// evaluated there, so the loop now runs the full grayscale in both modes.
+		// That also satisfies HIST-002 on its own: the HDR delta path indexes
+		// m_yref_abs by grayscale point, and every point pushes exactly one slot,
+		// so index and point stay in step without a placeholder.
 
-		CColor White = pDoc -> GetMeasure () -> GetOnOffWhite();
-		CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
-		int mode = GetConfig()->m_GammaOffsetType;
-		bool isHDR = (mode == 5 || mode == 7);
-		for (int i=(isHDR?0:1); i<(isHDR?size:(size-1)); i++)
+		// Fetched once for the whole curve, not once per point - see ReferenceGammaAt.
+		CColor RefWhite = pDoc -> GetMeasure () -> GetOnOffWhite();
+		CColor RefBlack = pDoc -> GetMeasure () -> GetOnOffBlack();
+
+		for (int i=0; i<size; i++)
 		{
-			double x, valx, valy;
+			double x, gamma, valy;
 			x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
-			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
-			if (  (mode >= 4) )
-			{
-				valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-				if (mode == 5)
-				{
-		            valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.;
-//					valy = min(valy, GetConfig()->m_TargetMaxL);
-				}
-				else
-		            valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
-			}
-			else
-			{
-				valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+GammaOffset)/(1.0+GammaOffset);
-				valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
-			}
+			// Point 0 takes the anchor value, so the reference curve and the
+			// measured traces meet at the left edge the way they do at white.
+			BOOL bHasGamma = ( i == 0 && !isHDR )
+				? ( ReferenceGammaAt(RefWhite, RefBlack, x, GammaOffset, &gamma, &valy)
+					&& ReferenceGammaAtBlack(RefWhite, RefBlack, GammaOffset, &gamma) )
+				: ReferenceGammaAt(RefWhite, RefBlack, x, GammaOffset, &gamma, &valy);
 
 			m_yref_abs.push_back(valy);
 
-			if (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7)
+			if (isHDR)
 				m_graphCtrl.AddPoint(m_refLogGraphID, x, 0);
-			else if( valy > 0 && valx > 0 && valy != 1.0)
-				m_graphCtrl.AddPoint(m_refLogGraphID, x, log(valy)/log(valx));
+			else if (bHasGamma)
+				m_graphCtrl.AddPoint(m_refLogGraphID, x, gamma);
 		}
 	}
 	
@@ -190,7 +348,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		// Le calcul de la moyenne des gamma et la représentation en échelle log 
 		// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 		// (x + offset) / (1+offset) 
-		for (int i=1; i<size-1; i++)
+		for (int i=0; i<size; i++)
 			m_graphCtrl.AddPoint(m_avgLogGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), GammaOpt);
 	}
 
@@ -201,7 +359,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// Le calcul de la moyenne des gamma et la représentation en échelle log 
 			// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 			// (x + offset) / (1+offset) 
-			for (int i=1; i<size-1; i++)
+			for (int i=0; i<size; i++)
 				m_graphCtrl.AddPoint(m_luxmeterAvgLogGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), LuxGammaOpt);
 		}
 	}
@@ -346,17 +504,51 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 	// (x + offset) / (1+offset) 
 
-	if((GraphID != -1)&&((PointIndex != 0 && PointIndex != (Size-1)) && colorlevel > 0.0001) || (GraphID != -1&&(GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 )))	// log scale is not valid for first and last value nor for negative values
+	if (GraphID != -1)
 	{
+		bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
+
 		double x = pDataSet->GetMeasure()->GetGrayPercent ( PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 
 		double valxprime=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+GammaOffset)/(1.0+GammaOffset);
 
-		if (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7) 
+		if (isHDR)
 			m_graphCtrl.AddPoint(GraphID, x, colorlevel - whitelvl * (PointIndex >= 0 && PointIndex < (int)m_yref_abs.size() ? m_yref_abs[PointIndex] : 0.0), lpMsg);
-		else
+		else if (PointIndex == 0)
+		{
+			// Black, the anchor at the other end - see ReferenceGammaAtBlack.
+			// 0% stimulus puts out the display's black by construction, exactly
+			// as 100% puts out its white, so the point sits on the target for
+			// the same reason the white one does. The raw log ratio here would
+			// be ~0.8, which is a black-elevation figure wearing a gamma label
+			// and off the bottom of the axis on every display.
+			//
+			// A raised black still shows: it lands on the 5% and 10% points,
+			// where the stimulus is big enough for the ratio to mean something.
+			double gammaBlack;
+			if ( ReferenceGammaAtBlack(pDataSet->GetMeasure()->GetOnOffWhite(), pDataSet->GetMeasure()->GetOnOffBlack(), GammaOffset, &gammaBlack) )
+				m_graphCtrl.AddPoint(GraphID, x, gammaBlack, lpMsg);
+		}
+		else if (PointIndex == Size-1 && colorlevel > 0.0001)
+		{
+			// The top patch IS the white every other point is divided by, so its
+			// own log(y)/log(x) is 0/0 and the trace used to stop one patch short
+			// of the axis end. Its relative luminance and the target's are both
+			// 1.0 there - the deviation at white is identically zero for any
+			// display - so the point belongs on the target value, which is what
+			// the Luminance view shows at 100% too. The tooltip still carries the
+			// patch's own measured values.
+			//
+			// The target comes from THIS trace's document: in modes >= 4 it is a
+			// function of that document's own white and black. Same colorlevel
+			// guard as the points below - a top patch that read no light gets no
+			// point rather than one sitting exactly on target.
+			double gammaWhite, valyWhite;
+			if ( ReferenceGammaAt(pDataSet->GetMeasure()->GetOnOffWhite(), pDataSet->GetMeasure()->GetOnOffBlack(), x, GammaOffset, &gammaWhite, &valyWhite) )
+				m_graphCtrl.AddPoint(GraphID, x, gammaWhite, lpMsg);
+		}
+		else if (colorlevel > 0.0001)	// log scale is not valid for negative values
 			m_graphCtrl.AddPoint(GraphID, x, log((colorlevel)/whitelvl)/log(valxprime), lpMsg);
-
 	}
 	}
 }

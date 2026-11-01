@@ -98,6 +98,7 @@
     <ClCompile Include="..\Endianness.cpp" />
     <ClCompile Include="..\Exceptions.cpp" />
     <ClCompile Include="..\GamutCoverage.cpp" />
+    <ClCompile Include="..\GamutVolume.cpp" />
     <ClCompile Include="..\IHCFile.cpp" />
     <ClCompile Include="..\matrix.cpp" />
     <ClCompile Include="..\PCFilesReaderUtilities.cpp" />
@@ -110,6 +111,7 @@
     <ClInclude Include="..\Endianness.h" />
     <ClInclude Include="..\Exceptions.h" />
     <ClInclude Include="..\GamutCoverage.h" />
+    <ClInclude Include="..\GamutVolume.h" />
     <ClInclude Include="..\IHCFile.h" />
     <ClInclude Include="..\libHCFR_Config.h" />
     <ClInclude Include="..\LockWhileInScope.h" />

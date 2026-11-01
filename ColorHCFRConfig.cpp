@@ -551,7 +551,34 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_isSettling=GetProfileInt("References","isSettling",0);
 	m_bDetectPrimaries=GetProfileInt("References","DetectPrimaries",1);
 	m_useHSV=GetProfileInt("References","UseHSV",0);
-	m_latencyTime=GetProfileInt("References","IrisLatencyTime",300);
+	m_latencyTime=GetProfileInt("References","IrisLatencyTime",400);	// "Patch delay" setting (ms): the old 300 + the hidden 100 the wait no longer adds, so every generator matches its 4.1 total for normal sweep patches (madVR/Chromecast/rPI add their own ~80ms WaitAfterDisplayPattern on top, as in 4.1); the irregular 80ms that 4.1 added in GDI on index-0 / default-index calls is gone. 0 = no wait at all after the paint (4.1's hidden 100 also sat inside the > 0 test)
+	// One-time migration for users upgrading from <=4.1. 4.1's patch-delay wait
+	// (WaitForDynamicIris) was the stored value PLUS a hidden 100ms for any non-zero
+	// value (a negative one is its magnitude, forced even for the simulated sensor),
+	// and that padding is gone, so fold it into the stored value: 300 (the old
+	// default) becomes 400, 50 becomes 150, -200 becomes -300, and 0 stays 0 - no
+	// real meter got the padding at 0. Sweep patches on every real meter keep their
+	// 4.1 patch-delay wait. Two waits do not: the simulated sensor, which a zero or
+	// positive value shortcuts to 10ms, now waits 10 rather than 4.1's 110 (simulated
+	// sweeps only get quicker), and single and free measurements, whose post-read
+	// Sleep 4.1 never padded, now wait 100ms more. Running an older build afterwards
+	// waits 100ms longer per patch than before, which costs time but never accuracy.
+	// The marker makes this run once, so a value chosen after the upgrade is left
+	// alone.
+	if ( !GetProfileInt("References","SettleDelayMigrated",0) )
+	{
+		// Only a value an older build actually stored: a fresh INI reads the new
+		// 400ms default above, which already includes the padding.
+		if ( IsProfileEntryDefined("References","IrisLatencyTime") && m_latencyTime != 0 )
+		{
+			// Clamp first, to the Patch delay field's DDV range less the step, so a
+			// hand-edited value near the int limit cannot overflow on the add.
+			m_latencyTime = max ( -29900, min ( 29900, m_latencyTime ) );
+			m_latencyTime += ( m_latencyTime > 0 ) ? 100 : -100;
+			WriteProfileInt("References","IrisLatencyTime",m_latencyTime);
+		}
+		WriteProfileInt("References","SettleDelayMigrated",1);
+	}
 	m_ablFreq=GetProfileInt("References","AblFrameFreq",10);
 	m_ablDuration=GetProfileInt("References","AblFrameDuration",500);
 	m_ablLevel=GetProfileInt("References","AblFrameLevel",50);
@@ -750,6 +777,12 @@ COLORREF CColorHCFRConfig::GetDEColor(double dE, BOOL bDark) const
 void CColorHCFRConfig::ChangeSettings(int aPage)
 {
 	SetPropertiesSheetValues();
+	// The pages hand these back on OK whether or not their tab was opened, so they
+	// must start from the config, not from whatever the page last held. Done here,
+	// not in SetPropertiesSheetValues: views call that on routine refreshes, which
+	// would wipe a pending TRUE (set by an edit handler) while the sheet is open.
+	m_referencesPropertiesPage.m_bSave=m_bSave;
+	m_advancedPropertiesPage.m_bSave=m_bSave2;
 	m_propertySheet.SetActivePage(aPage);
 	m_propertySheet.DoModal();
 }
@@ -901,8 +934,14 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	m_useToneMap=m_referencesPropertiesPage.m_useToneMap;
 	m_ManualBlack=m_referencesPropertiesPage.m_ManualBlack;
 	m_useMeasuredGamma=m_referencesPropertiesPage.m_useMeasuredGamma;
-	m_bSave=m_referencesPropertiesPage.m_bSave;
-	m_bSave2=m_advancedPropertiesPage.m_bSave;
+	// m_bSave has no control behind it, so outside the Preferences sheet the pages
+	// hold whatever they had when it last closed. Only take it from a live sheet;
+	// other ApplySettings(FALSE) callers (the generator page OK) leave it alone.
+	if ( ::IsWindow( m_propertySheet.GetSafeHwnd() ) )
+	{
+		m_bSave=m_referencesPropertiesPage.m_bSave;
+		m_bSave2=m_advancedPropertiesPage.m_bSave;
+	}
 	m_manualGOffset=m_referencesPropertiesPage.m_manualGOffset;
 	m_manualWhitex=m_referencesPropertiesPage.m_manualWhitex;
 	m_manualWhitey=m_referencesPropertiesPage.m_manualWhitey;
@@ -1216,6 +1255,303 @@ void CColorHCFRConfig::DisplayHelp ( UINT nId, LPCSTR lpszTopic )
 void CColorHCFRConfig::EnsurePathExists ( CString strPath )
 {
 	CreateDirectory ( strPath, NULL );
+}
+// ---- Sensor correction files (.thc) ----
+// The part of a source folder's name that tells its files apart from another
+// folder's: "Etalon_Argyll" gives "Argyll".
+static void HcfrThcFolderTag ( LPCSTR lpszSrcDir, LPSTR lpszTag, int nTagSize )
+{
+	char			szDir [ MAX_PATH ];
+	const char *	pLeaf;
+	int				nLen;
+
+	lstrcpyn ( szDir, lpszSrcDir, MAX_PATH );
+	nLen = strlen ( szDir );
+	while ( nLen > 1 && szDir [ nLen - 1 ] == '\\' && szDir [ nLen - 2 ] != ':' )
+		szDir [ -- nLen ] = '\0';
+
+	pLeaf = strrchr ( szDir, '\\' );
+	pLeaf = pLeaf ? pLeaf + 1 : szDir;
+
+	// Every folder reaching here matched Etalon_*, but do not depend on it.
+	if ( _strnicmp ( pLeaf, "Etalon_", 7 ) == 0 )
+		pLeaf += 7;
+	if ( * pLeaf == '\0' )
+		pLeaf = "old";
+
+	lstrcpyn ( lpszTag, pLeaf, nTagSize );
+}
+
+// A file already at the destination with the same size and last-write time is
+// this same file, brought across by an earlier sweep: CopyFile preserves both.
+// The migration is meant to run once, but the flag recording it lives in the
+// INI, which a user can lose or start afresh, so a second sweep must not turn
+// everything it already copied into a numbered duplicate.
+static BOOL HcfrThcAlreadyCopied ( const WIN32_FIND_DATA * pSrc, LPCSTR lpszDst )
+{
+	WIN32_FILE_ATTRIBUTE_DATA	fad;
+
+	if ( ! GetFileAttributesEx ( lpszDst, GetFileExInfoStandard, & fad ) )
+		return FALSE;
+
+	return ( fad.nFileSizeHigh == pSrc -> nFileSizeHigh
+	      && fad.nFileSizeLow == pSrc -> nFileSizeLow
+	      && CompareFileTime ( & fad.ftLastWriteTime, & pSrc -> ftLastWriteTime ) == 0 );
+}
+
+// Copy one .thc into the per-user folder. Every sensor used to have a folder of
+// its own, so the same file name can appear in several of them; gathered into
+// one folder they collide. CopyFile with bFailIfExists TRUE would simply not
+// copy the second, leaving enumeration order to decide which of the two the
+// user keeps and saying nothing about the one that went. Name the collider
+// after the folder it came from - the very thing that told the two apart
+// before - rather than losing it.
+static void HcfrCopyOneThc ( LPCSTR lpszSrc, const WIN32_FIND_DATA * pwfd, LPCSTR lpszDestDir, LPCSTR lpszTag )
+{
+	char	szDst [ MAX_PATH ];
+	char	szBase [ MAX_PATH ];
+	char	szExt [ MAX_PATH ];
+	char *	pExt;
+	int		nLen;
+	int		nTry;
+
+	nLen = _snprintf ( szDst, sizeof ( szDst ), "%s%s", lpszDestDir, pwfd -> cFileName );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szDst ) )
+		return;
+
+	if ( CopyFile ( lpszSrc, szDst, TRUE ) )
+		return;
+	if ( GetLastError () != ERROR_FILE_EXISTS || HcfrThcAlreadyCopied ( pwfd, szDst ) )
+		return;
+
+	// Keep the tag out of the extension, so the copy is still a .thc.
+	lstrcpyn ( szBase, pwfd -> cFileName, MAX_PATH );
+	szExt [ 0 ] = '\0';
+	pExt = strrchr ( szBase, '.' );
+	if ( pExt )
+	{
+		lstrcpyn ( szExt, pExt, MAX_PATH );
+		* pExt = '\0';
+	}
+
+	for ( nTry = 1 ; nTry <= 99 ; nTry ++ )
+	{
+		if ( nTry == 1 )
+			nLen = _snprintf ( szDst, sizeof ( szDst ), "%s%s (%s)%s", lpszDestDir, szBase, lpszTag, szExt );
+		else
+			nLen = _snprintf ( szDst, sizeof ( szDst ), "%s%s (%s %d)%s", lpszDestDir, szBase, lpszTag, nTry, szExt );
+
+		if ( nLen < 0 || nLen >= (int) sizeof ( szDst ) )
+			return;
+		if ( CopyFile ( lpszSrc, szDst, TRUE ) )
+			return;
+		if ( GetLastError () != ERROR_FILE_EXISTS || HcfrThcAlreadyCopied ( pwfd, szDst ) )
+			return;
+	}
+}
+
+// Copy every .thc from one folder into the per-user folder.
+static void HcfrCopyThcFiles ( LPCSTR lpszSrcDir, LPCSTR lpszDestDir )
+{
+	char			szPattern [ MAX_PATH ];
+	char			szTag [ MAX_PATH ];
+	WIN32_FIND_DATA	wfd;
+	HANDLE			hFind;
+	int				nLen;
+
+	nLen = _snprintf ( szPattern, sizeof ( szPattern ), "%s\\*.thc", lpszSrcDir );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szPattern ) )
+		return;
+
+	HcfrThcFolderTag ( lpszSrcDir, szTag, sizeof ( szTag ) );
+
+	hFind = FindFirstFile ( szPattern, & wfd );
+	if ( hFind == INVALID_HANDLE_VALUE )
+		return;
+
+	do
+	{
+		char	szSrc [ MAX_PATH ];
+		int		nSrc;
+
+		if ( wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY )
+			continue;
+
+		nSrc = _snprintf ( szSrc, sizeof ( szSrc ), "%s\\%s", lpszSrcDir, wfd.cFileName );
+		if ( nSrc > 0 && nSrc < (int) sizeof ( szSrc ) )
+			HcfrCopyOneThc ( szSrc, & wfd, lpszDestDir, szTag );
+	} while ( FindNextFile ( hFind, & wfd ) );
+
+	FindClose ( hFind );
+}
+
+// Scan one install tree for the per-sensor Etalon_* folders earlier versions
+// used. Etalon_HCFR is the only one the installer populates, and its files are
+// corrections for the HCFR sensor, which this version cannot select - so it is
+// skipped, to keep some sixty shipped files out of every user's list. The UAC
+// VirtualStore mirror is the exception: nothing is redirected there unless the
+// user wrote it, so that tree is taken whole.
+static void HcfrScanForThc ( LPCSTR lpszBaseDir, LPCSTR lpszDestDir, BOOL bUserWritesOnly )
+{
+	char			szBase [ MAX_PATH ];
+	char			szPattern [ MAX_PATH ];
+	WIN32_FIND_DATA	wfd;
+	HANDLE			hFind;
+	int				nLen;
+
+	if ( lpszBaseDir == NULL || *lpszBaseDir == '\0' )
+		return;
+
+	// The caller's path may or may not carry a trailing backslash.
+	lstrcpyn ( szBase, lpszBaseDir, MAX_PATH );
+	nLen = strlen ( szBase );
+	while ( nLen > 1 && szBase [ nLen - 1 ] == '\\' && szBase [ nLen - 2 ] != ':' )
+		szBase [ -- nLen ] = '\0';
+
+	nLen = _snprintf ( szPattern, sizeof ( szPattern ), "%s\\Etalon_*", szBase );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szPattern ) )
+		return;
+
+	hFind = FindFirstFile ( szPattern, & wfd );
+	if ( hFind == INVALID_HANDLE_VALUE )
+		return;
+
+	do
+	{
+		char	szSub [ MAX_PATH ];
+		int		nSub;
+
+		if ( ! ( wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+			continue;
+		if ( ! bUserWritesOnly && _stricmp ( wfd.cFileName, "Etalon_HCFR" ) == 0 )
+			continue;
+
+		nSub = _snprintf ( szSub, sizeof ( szSub ), "%s\\%s", szBase, wfd.cFileName );
+		if ( nSub > 0 && nSub < (int) sizeof ( szSub ) )
+			HcfrCopyThcFiles ( szSub, lpszDestDir );
+	} while ( FindNextFile ( hFind, & wfd ) );
+
+	FindClose ( hFind );
+}
+
+// Bring across what earlier versions left in the install tree, and in the
+// VirtualStore mirror UAC redirected a standard user's writes to.
+static void HcfrMigrateThc ( LPCSTR lpszAppPath, LPCSTR lpszDestDir )
+{
+	HcfrScanForThc ( lpszAppPath, lpszDestDir, FALSE );
+
+	if ( lpszAppPath != NULL && lpszAppPath [ 0 ] != '\0' && lpszAppPath [ 1 ] == ':' )
+	{
+		const char *	pLocalAppData = getenv ( "LOCALAPPDATA" );
+
+		if ( pLocalAppData && *pLocalAppData )
+		{
+			char	szVirtual [ MAX_PATH ];
+			int		nLen;
+
+			// VirtualStore mirrors the install path minus its drive letter.
+			nLen = _snprintf ( szVirtual, sizeof ( szVirtual ), "%s\\VirtualStore\\%s", pLocalAppData, lpszAppPath + 3 );
+			if ( nLen > 0 && nLen < (int) sizeof ( szVirtual ) )
+				HcfrScanForThc ( szVirtual, lpszDestDir, TRUE );
+		}
+	}
+}
+
+// Once per user profile, recorded in the INI the same way the settings
+// migration is. Keying on the folder being empty instead would copy the old
+// files back the moment a user deleted the last of them, and would re-sweep
+// the install tree on every call for everyone who has nothing to migrate.
+static void HcfrMigrateThcOnce ( CColorHCFRConfig * pConfig, LPCSTR lpszAppPath, LPCSTR lpszDestDir )
+{
+	if ( pConfig -> GetProfileInt ( "Defaults", "EtalonMigrated", 0 ) != 0 )
+		return;
+
+	HcfrMigrateThc ( lpszAppPath, lpszDestDir );
+	pConfig -> WriteProfileInt ( "Defaults", "EtalonMigrated", 1 );
+}
+
+BOOL CColorHCFRConfig::GetEtalonPath ( CString & strPath )
+{
+	const char *	pAppData = getenv ( "APPDATA" );
+	char			szParent [ MAX_PATH ];
+	char			szEtalon [ MAX_PATH ];
+	DWORD			dwAttributes;
+	int				nLen;
+
+	if ( pAppData == NULL || *pAppData == '\0' )
+	{
+		// No roaming profile to write into. Name the historical location so the
+		// caller still has something to show, and report whether it is usable.
+		strPath = m_ApplicationPath;
+		strPath += "Etalon\\";
+		CreateDirectory ( strPath, NULL );
+		dwAttributes = GetFileAttributes ( strPath );
+		return ( dwAttributes != INVALID_FILE_ATTRIBUTES
+			  && ( dwAttributes & FILE_ATTRIBUTE_DIRECTORY ) != 0 );
+	}
+
+	// strPath is filled in on every path, including these: a caller that only
+	// has it to name in a message must never be handed an empty string.
+	nLen = _snprintf ( szParent, sizeof ( szParent ), "%s\\HCFR", pAppData );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szParent ) )
+	{
+		strPath = pAppData;
+		strPath += "\\HCFR\\Etalon\\";
+		SetLastError ( ERROR_FILENAME_EXCED_RANGE );
+		return FALSE;
+	}
+	nLen = _snprintf ( szEtalon, sizeof ( szEtalon ), "%s\\Etalon", szParent );
+	if ( nLen < 0 || nLen >= (int) sizeof ( szEtalon ) )
+	{
+		strPath = szParent;
+		strPath += "\\Etalon\\";
+		SetLastError ( ERROR_FILENAME_EXCED_RANGE );
+		return FALSE;
+	}
+
+	strPath = szEtalon;
+	strPath += '\\';
+
+	// Only a directory will do: something else of that name would hand every
+	// later call a path it cannot use.
+	dwAttributes = GetFileAttributes ( szEtalon );
+	if ( dwAttributes != INVALID_FILE_ATTRIBUTES )
+	{
+		if ( ! ( dwAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+		{
+			SetLastError ( ERROR_DIRECTORY );
+			return FALSE;
+		}
+
+		// The folder existing does not say the migration has run: an earlier run
+		// may have created it and then failed every copy, and the user can have
+		// made it by hand. Whether to sweep is decided by the once-flag in the
+		// INI and by nothing about the folder itself - see HcfrMigrateThcOnce.
+		HcfrMigrateThcOnce ( this, m_ApplicationPath, strPath );
+		return TRUE;
+	}
+
+	// %APPDATA% always exists; the two levels below it may not.
+	CreateDirectory ( szParent, NULL );
+	if ( ! CreateDirectory ( szEtalon, NULL ) )
+	{
+		// ERROR_ALREADY_EXISTS covers a file of that name as well as a folder.
+		if ( GetLastError () != ERROR_ALREADY_EXISTS )
+			return FALSE;
+
+		dwAttributes = GetFileAttributes ( szEtalon );
+		if ( dwAttributes == INVALID_FILE_ATTRIBUTES
+		  || ! ( dwAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+		{
+			SetLastError ( ERROR_DIRECTORY );
+			return FALSE;
+		}
+		HcfrMigrateThcOnce ( this, m_ApplicationPath, strPath );
+		return TRUE;
+	}
+
+	HcfrMigrateThcOnce ( this, m_ApplicationPath, strPath );
+	return TRUE;
 }
 
 std::vector<int> cTargetR;

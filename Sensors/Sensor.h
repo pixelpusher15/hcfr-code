@@ -67,7 +67,9 @@ public:
 
 	//virtual BOOL CalibrateSensor(CGenerator *apGenerator);
 	//virtual BOOL CalibrateSensor(Matrix & measures, Matrix & references, CColor & WhiteTest, CColor & WhiteRef, CColor & BlackTest, CColor & BlackRef);
-	virtual void LoadCalibrationFile(CString & aFileName) { return ; }
+	// TRUE when the sensor is left carrying a correction. A sensor that does
+	// not use correction files has nothing to fail at, so it reports success.
+	virtual BOOL LoadCalibrationFile(CString & aFileName) { return TRUE; }
 	virtual void SaveCalibrationFile() { return ; }
 
 	void SetSensorMatrix(Matrix aMatrix) { m_sensorToXYZMatrix=aMatrix; m_calibrationTime=time(NULL);}

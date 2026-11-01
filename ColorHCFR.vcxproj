@@ -912,6 +912,7 @@
     <ClInclude Include="AsyncMeasurer.h" />
     <ClInclude Include="MeasureSound.h" />
     <ClInclude Include="Measure.h" />
+    <ClInclude Include="MeasurePerf.h" />
     <ClInclude Include="ModelessPropertySheet.h" />
     <ClInclude Include="MultiFrm.h" />
     <ClInclude Include="PatternDisplay.h" />
@@ -935,6 +936,7 @@
     <ClInclude Include="Views\GammaHistoView.h" />
     <ClInclude Include="GeneralPropPage.h" />
     <ClInclude Include="Views\GdiPlusAA.h" />
+    <ClInclude Include="Views\GamutName.h" />
     <ClInclude Include="Views\GraphControl.h" />
     <ClInclude Include="Views\graphscalepropdialog.h" />
     <ClInclude Include="Views\graphsettingsdialog.h" />
