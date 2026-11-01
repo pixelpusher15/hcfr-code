@@ -477,7 +477,12 @@ void ArgyllLogMessage(const char* messageType, char *fmt, va_list& args)
 {
     if(CArgyllSensor::isInDebugMode())
     {
-        FILE *logFile = fopen( m_logFile, "a" );
+        // The log path is a pointer into the config set by the sensor ctor and
+        // the file may be unopenable (read-only install dir, locked); either
+        // way drop the line instead of handing NULL to fprintf (#60).
+        FILE *logFile = (m_logFile != NULL) ? fopen( m_logFile, "a" ) : NULL;
+        if (logFile == NULL)
+            return;
         fprintf(logFile,"Argyll %s - ", messageType);
         vfprintf(logFile, fmt, args);
         va_end(args);
