@@ -153,8 +153,33 @@ public:
     // is the meter in refresh mode
     virtual bool isRefresh();
 
+    // Emission calibration matrices of the driver. i1d3 family only - the one bundled
+    // driver whose struct the wrapper reads (see setDisableAIO). False for every other meter.
+    bool canExposeCalibrationMatrices() const;
+    // The instrument serial number ("" when the driver has none).
+    std::string getSerialNumber() const;
+    // Derives the correction a spectral sample would make, using the driver's own fit:
+    // loads the sample, reads ccmat * emis_cal (currentCal), restores the current display
+    // type (which drops the sample and refits the native matrix), reads it again
+    // (nativeCal). Leaves the driver NATIVE. False (driver untouched or restored, why set)
+    // when not exposable, when either read is not in the state it must be in (sample
+    // present after load; no sample and unity ccmat after restore), or when the two are
+    // equal (SpectralMatricesEqual): the sample did not change the matrix.
+    bool deriveSpectralCalibration(const SpectralSample& sample, Matrix& nativeCal, Matrix& currentCal, std::string& why);
+    // Same for a ccss/ccmx entry of the display-type list (index as the list numbers it):
+    // selects the entry, reads currentCal, selects its BASE entry, reads nativeCal, and
+    // leaves the base entry selected. The base of a ccmx entry is the list entry whose
+    // cbid == entry.cc_cbid; of a ccss entry the entry with the same refresh flag and
+    // flags carrying neither ccss nor ccmx. False as above, or when the entry is a plain one.
+    bool deriveDisplayTypeCalibration(int displayTypeIndex, int& baseIndex, Matrix& nativeCal, Matrix& currentCal, std::string& why);
+    // True when list entry `index` carries a ccss or a ccmx (public inst_disptypesel flags).
+    bool isDisplayTypeCorrected(int index);
+
 private:
     void checkMeterIsInitialized();
+    // Reads the i1d3 driver's emission calibration: cal = ccmat * emis_cal, whether a
+    // spectral sample is in force, whether ccmat is unity. False when not exposable.
+    bool readCalibration(Matrix& cal, bool& sampleLoaded, bool& ccmatUnity);
     _inst* m_meter;
     int m_displayType;
     int m_meterType;

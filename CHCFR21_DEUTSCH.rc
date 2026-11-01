@@ -579,7 +579,7 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,15,150,184,10
 END
 
-IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 222
+IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 232
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Argyll-Sensor"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
@@ -4149,7 +4149,7 @@ BEGIN
     IDS_SPECTRAL_NONE           "Keine"
     IDS_SPECTRAL_FILEFILTER     "Spektralkorrektur (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|Korrelations-CSV (*.csv)|*.csv||"
     IDS_SPECTRAL_REAPPLY_FAILED "Die gespeicherte Spektralkorrektur konnte nicht erneut auf das Messgerät angewendet werden:\n%s\n\nDie Messwerte sind UNKORRIGIERT, bis sie in den Sensoreigenschaften erneut angewendet oder gelöscht wird."
-    IDS_SPECTRAL_MATRIXCAL_PROMPT "Dieser Sensor hat eine Matrixkalibrierung. Wenn Sie eine Spektralkorrektur anwenden, wird sie die einzige Korrektur für neue Messungen.\n\nVorhandene Messungen wurden mit der Matrixkalibrierung aufgenommen - auf die unkorrigierten Rohwerte des Sensors zurücksetzen?\n\nJa - vorhandene Messungen auf Rohwerte zurücksetzen\nNein - unverändert lassen (gemischt mit neuen Spektralmessungen)\nAbbrechen - die Spektralkorrektur nicht anwenden"
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "Dieser Sensor hat eine Matrixkalibrierung. Die Spektralkorrektur ersetzt sie für die angezeigten Werte. Jede Messung behält ihren Rohwert, sodass später erneut eine Matrix berechnet werden kann.\n\nFortfahren?"
     IDS_SPECTRAL_ACTIVE_TITLE   "Spektralkorrektur aktiv"
     IDS_SPECTRAL_CLEAR_FOR_MATRIX "Dieser Sensor verwendet eine Spektralkorrektur (ccss/CSV), die im Messgerät angewendet wird.\nEine Matrixkalibrierung würde sich darüberlegen (Doppelkorrektur).\n\nDie Spektralkorrektur löschen und stattdessen mit einer Matrix kalibrieren?"
     IDS_CALIB_METHOD_TITLE      "Kalibrierungsmethode"
@@ -4157,6 +4157,17 @@ BEGIN
     IDS_BODNER_SKIPPED_FMT      "%d Messung(en) ohne Rohwert des Sensors (vor der Rohwerterfassung aufgezeichnet oder von Hand bearbeitet) wurden unverändert gelassen."
     IDS_CALIB_NEED_RAW_PRIMARIES "Messen Sie zuerst Primärfarben und Weiß erneut: die gespeicherten haben keinen Rohwert des Sensors, und aus Werten mit einer Korrektur, die der Sensor nicht mehr anwendet (Bodner oder eine durch eine spektrale Korrektur ersetzte Matrix), lässt sich keine Matrix berechnen."
     IDS_CALIB_NEED_REF_WHITE    "Das Referenzdokument enthält kein gemessenes Weiß: Messen Sie zuerst dessen Weiß (oder die Primärfarben mit Weiß)."
+    IDS_SPECTRAL_SUPERSEDE_WARN "Die Matrixkalibrierung wird an den unkorrigierten Messwerten des Messgeräts berechnet und auf sie angewendet.\nDie Spektralkorrektur (%s) bleibt geladen, wirkt sich aber nicht mehr auf die angezeigten Werte aus. Um sie wieder zu verwenden, laden Sie sie erneut in den Sensoreigenschaften.\n\nFortfahren?"
+    IDS_SPECTRAL_STATUS_INACTIVE_FMT "Spektralkorrektur: %s (geladen, nicht angewendet: eine Matrixkalibrierung ist in Gebrauch)"
+    IDS_SPECTRAL_STATUS_DISPTYPE_FMT "Spektralkorrektur: %s (aus dem Anzeigetyp)"
+    IDS_SPECTRAL_UNIT_MISMATCH  "Die Spektralkorrektur in dieser Datei wurde für das Messgerät mit der Seriennummer %s berechnet; das angeschlossene Messgerät ist %s. Sie wurde für das angeschlossene Messgerät neu berechnet."
+    IDS_SPECTRAL_BROWSE_REFUSED_DISPTYPE "Der gewählte Anzeigetyp enthält bereits eine Spektralkorrektur. Wählen Sie einen einfachen Anzeigetyp, um eine Korrekturdatei zu verwenden."
+    IDS_SPECTRAL_STATUS_COMPOSED_FMT "Spektralkorrektur: %s (zusätzlich zur Matrixkalibrierung angewendet)"
+    IDS_SPECTRAL_DISPTYPE_FAILED "Die Spektralkorrektur des Anzeigetyps konnte nicht berechnet werden und wurde entfernt:\n%s"
+    IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "Das geladene Dokument enthält eine Spektralkorrektur aus einem Anzeigetyp (%s), der nicht der aktuelle Anzeigetyp ist. Sie bleibt in Gebrauch, bis Sie den Anzeigetyp ändern."
+    IDS_SPECTRAL_COMPOSE_WARN   "Die zu ladende Datei enthält keine Angabe zur Grundlage der Anpassung. Die Spektralkorrektur wird zusätzlich zu ihrer Matrix angewendet (wie in HCFR 4.1). Fortfahren?"
+    IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "Die verwendete Spektralkorrektur (%s) wurde für das Messgerät %s berechnet, nicht für das angeschlossene, und hier ist keine Korrekturdatei vorhanden, aus der sie neu berechnet werden kann. Sie bleibt in Gebrauch. Um sie für dieses Messgerät zu berechnen, wählen Sie ihre Korrekturdatei in den Sensoreigenschaften aus."
+    IDS_SPECTRAL_FILE_MOVED_NOTICE "Die Spektralkorrekturdatei befindet sich nicht mehr am gespeicherten Ort:\n\n%s\n\nDie daraus berechnete Korrektur bleibt für dieses Messgerät in Gebrauch. Um das Dokument mit einem anderen Messgerät zu verwenden oder die Korrektur neu zu berechnen, wählen Sie die Datei in den Sensoreigenschaften aus."
     IDS_EXPORT_LAYOUT_MISMATCH  "Zu dieser Datei kann nichts hinzugefügt werden: Sie wurde mit anderen Rohdaten-/Stimulus-Optionen exportiert. Exportieren Sie in eine neue Datei oder wiederholen Sie den Export mit denselben Optionen wie die vorhandenen Daten."
     IDS_SCHEMA_NEWER        "Diese Datei wurde von einer neueren HCFR-Version geschrieben (%s Version %d). Aktualisieren Sie HCFR, um sie zu öffnen."
     IDS_SCHEMA_UNRELEASED   "Diese Datei wurde von einer unveröffentlichten Entwicklungsversion von HCFR geschrieben (%s Version %d) und kann nicht gelesen werden. Erstellen Sie sie neu."

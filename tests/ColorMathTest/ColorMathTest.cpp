@@ -22,6 +22,8 @@
 #include "../../libHCFR/Color.h"
 #include "../../libHCFR/ArchiveExtension.h"
 #include "../../libHCFR/ArchiveTags.h"
+#include "../../libHCFR/SpectralCorrection.h"
+#include <limits>
 
 #include <cstdio>
 #include <cstdarg>
@@ -2184,6 +2186,412 @@ static void RunT19()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T32 — spectral correction (ccss) as a correction method
+// (libHCFR/SpectralCorrection.h): the derivation and its exact
+// interconversion, the refusals, the file hash, the record's trailer payload,
+// and the persisted numbers. Pure assertions, no goldens.
+//////////////////////////////////////////////////////////////////////////
+namespace T32Spectral
+{
+    static Matrix M3(double a00, double a01, double a02,
+                     double a10, double a11, double a12,
+                     double a20, double a21, double a22)
+    {
+        Matrix m(0.0, 3, 3);
+        m(0,0)=a00; m(0,1)=a01; m(0,2)=a02;
+        m(1,0)=a10; m(1,1)=a11; m(1,2)=a12;
+        m(2,0)=a20; m(2,1)=a21; m(2,2)=a22;
+        return m;
+    }
+
+    // Relative to the larger magnitude; exact when both are zero.
+    static bool NearRel(double a, double b, double rel)
+    {
+        double scale = fabs(a) > fabs(b) ? fabs(a) : fabs(b);
+        if (scale == 0.0)
+            return true;
+        return fabs(a - b) <= rel * scale;
+    }
+
+    // Every entry within rel * (largest |entry| of want): a matrix tolerance, so an
+    // exact zero off the diagonal of a product is allowed its 1e-17 of round-off.
+    static void CheckMatrix(const char* what, const Matrix& got, const Matrix& want, double rel)
+    {
+        if (got.GetRows() != 3 || got.GetColumns() != 3)
+        {
+            Fail("T32 %s: not 3x3", what);
+            return;
+        }
+        double scale = 0.0;
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                if (fabs(want(i,j)) > scale)
+                    scale = fabs(want(i,j));
+        if (scale == 0.0)
+        {
+            Fail("T32 %s: zero expectation", what);
+            return;
+        }
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                if (fabs(got(i,j) - want(i,j)) > rel * scale)
+                    Fail("T32 %s [%d][%d]: got %.17g want %.17g (rel %g of %g)", what, i, j, got(i,j), want(i,j), rel, scale);
+    }
+
+    // An i1d3-like native fit (XYZ per sensor count, small numbers) and a
+    // display-specific multiplier D standing in for what a ccss changes, so
+    // the expected correction is known exactly: current = D * native.
+    static Matrix Native()  { return M3(0.0152, 0.0031, 0.0007,  0.0049, 0.0198, 0.0012,  0.0003, 0.0027, 0.0251); }
+    static Matrix Delta()   { return M3(1.03, -0.02, 0.01,  -0.01, 1.02, 0.0,  0.02, 0.01, 0.97); }
+    static Matrix Current() { return Delta() * Native(); }
+
+    // (a) The derivation and the exact interconversion it promises.
+    static void CheckDerivation()
+    {
+        Matrix corr, toNative;
+        std::string why;
+        bool ok = DeriveSpectralCorrection(Native(), Current(), true, corr, toNative, why);
+        if (!ok)
+        {
+            Fail("T32 (a) derivation refused: %s", why.c_str());
+            return;
+        }
+        if (!why.empty())
+            Fail("T32 (a) why not empty on success: %s", why.c_str());
+        CheckMatrix("(a) correction == D", corr, Delta(), 1e-10);
+        CheckMatrix("(a) correction*native == current", corr * Native(), Current(), 1e-10);
+        CheckMatrix("(a) toNative*current == native", toNative * Current(), Native(), 1e-10);
+        CheckMatrix("(a) correction*toNative == I", corr * toNative, Matrix::IdentityMatrix(3), 1e-10);
+
+        // On a reading: the driver's corrected XYZ, undone to native by the
+        // wrapper, re-corrected by HCFR, is the driver's XYZ again, and the
+        // native value equals the native fit applied to the same sensor triple.
+        Matrix rgb(0.0, 3, 1);
+        rgb(0,0) = 123456.7; rgb(1,0) = 98765.4; rgb(2,0) = 45678.9;
+        Matrix xyzCur       = Current() * rgb;
+        Matrix xyzNat       = toNative * xyzCur;
+        Matrix xyzNatDirect = Native() * rgb;
+        Matrix xyzBack      = corr * xyzNat;
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!NearRel(xyzNat(i,0), xyzNatDirect(i,0), 1e-10))
+                Fail("T32 (a) native[%d]: via undo %.17g, direct %.17g", i, xyzNat(i,0), xyzNatDirect(i,0));
+            if (!NearRel(xyzBack(i,0), xyzCur(i,0), 1e-10))
+                Fail("T32 (a) round trip[%d]: %.17g vs %.17g", i, xyzBack(i,0), xyzCur(i,0));
+        }
+    }
+
+    static void ExpectRefused(const char* what, const Matrix& n, const Matrix& c, bool distinct)
+    {
+        Matrix corr = Delta(), toNative = Delta();   // must be reset to identity by a refusal
+        std::string why;
+        bool ok = DeriveSpectralCorrection(n, c, distinct, corr, toNative, why);
+        if (ok)
+            Fail("T32 (b) %s: accepted", what);
+        if (why.empty())
+            Fail("T32 (b) %s: no reason given", what);
+        if (!corr.IsIdentity() || !toNative.IsIdentity())
+            Fail("T32 (b) %s: outputs not reset to identity", what);
+    }
+
+    // (b) Refusals, and the equality tolerance pinned from both sides.
+    static void CheckRejections()
+    {
+        Matrix bad = Current();
+        bad(1,1) = std::numeric_limits<double>::quiet_NaN();
+        ExpectRefused("NaN entry", Native(), bad, true);
+        Matrix inf = Native();
+        inf(0,2) = std::numeric_limits<double>::infinity();
+        ExpectRefused("Inf entry", inf, Current(), true);
+        Matrix sing = Native();
+        for (int j = 0; j < 3; ++j)
+            sing(2,j) = sing(1,j);   // two equal rows
+        ExpectRefused("singular native", sing, Current(), true);
+        ExpectRefused("singular current", Native(), sing, true);
+        ExpectRefused("zero matrix", Matrix(0.0, 3, 3), Current(), true);
+        ExpectRefused("not 3x3", Matrix(1.0, 2, 2), Current(), true);
+        ExpectRefused("equal, distinct required", Native(), Native(), true);
+        // A one-part-in-1e12 nudge is still "equal" (tolerance 1e-9 relative).
+        Matrix nudged = Native();
+        nudged(0,0) *= (1.0 + 1e-12);
+        ExpectRefused("equal within tolerance, distinct required", Native(), nudged, true);
+
+        // Equal without the requirement: accepted, identity outputs, no reason.
+        Matrix corr = Delta(), toNative = Delta();
+        std::string why;
+        if (!DeriveSpectralCorrection(Native(), Native(), false, corr, toNative, why))
+            Fail("T32 (b) equal, distinct not required: refused: %s", why.c_str());
+        if (!corr.IsIdentity() || !toNative.IsIdentity())
+            Fail("T32 (b) equal, distinct not required: outputs not identity");
+        if (!why.empty())
+            Fail("T32 (b) equal, distinct not required: why = %s", why.c_str());
+
+        // A 0.1% scaled copy is distinct: the tolerance is on the entries.
+        if (!DeriveSpectralCorrection(Native(), Native() * 1.001, true, corr, toNative, why))
+            Fail("T32 (b) 0.1%% scaled copy refused as equal: %s", why.c_str());
+        CheckMatrix("(b) scaled correction", corr, Matrix::IdentityMatrix(3) * 1.001, 1e-10);
+
+        if (!SpectralMatricesEqual(Native(), nudged))
+            Fail("T32 (b) SpectralMatricesEqual: 1e-12 nudge not equal");
+        if (SpectralMatricesEqual(Native(), Native() * 1.001))
+            Fail("T32 (b) SpectralMatricesEqual: 0.1%% scale reported equal");
+        if (SpectralMatricesEqual(Native(), Matrix(1.0, 2, 2)))
+            Fail("T32 (b) SpectralMatricesEqual: a 2x2 reported equal");
+    }
+
+    // (c) FNV-1a 64 against the published vectors, and the file variant.
+    static void CheckHash()
+    {
+        unsigned long long h0 = Fnv1a64("", 0);
+        if (h0 != 0xcbf29ce484222325ULL)
+            Fail("T32 (c) fnv1a64(\"\") = %016llx", h0);
+        unsigned long long ha = Fnv1a64("a", 1);
+        if (ha != 0xaf63dc4c8601ec8cULL)
+            Fail("T32 (c) fnv1a64(\"a\") = %016llx", ha);
+        unsigned long long hf = Fnv1a64("foobar", 6);
+        if (hf != 0x85944171f73967e8ULL)
+            Fail("T32 (c) fnv1a64(\"foobar\") = %016llx", hf);
+
+        const char* tmp = "t32_hash_probe.tmp";
+        FILE* f = fopen(tmp, "wb");
+        if (!f)
+            Fail("T32 (c) cannot create %s", tmp);
+        else
+        {
+            fwrite("foobar", 1, 6, f);
+            fclose(f);
+            unsigned long long hfile = 0;
+            if (!Fnv1a64File(tmp, hfile))
+                Fail("T32 (c) Fnv1a64File refused an existing file");
+            if (hfile != 0x85944171f73967e8ULL)
+                Fail("T32 (c) Fnv1a64File = %016llx", hfile);
+            remove(tmp);
+        }
+        unsigned long long hmiss = 1;
+        if (Fnv1a64File("t32_no_such_file.tmp", hmiss))
+            Fail("T32 (c) Fnv1a64File accepted a missing file");
+        if (hmiss != 0)
+            Fail("T32 (c) Fnv1a64File left hash %016llx for a missing file", hmiss);
+    }
+
+    // (d) The record: defaults, equality, and its trailer payload byte for byte.
+    static void CheckRecord()
+    {
+        SpectralCorrectionRecord d;
+        if (d.IsPresent())
+            Fail("T32 (d) default record present");
+        if (d.source != SPECTRAL_SOURCE_NONE || d.fileHash != 0 || d.observer != -1
+            || !d.description.empty() || !d.meterSerial.empty())
+            Fail("T32 (d) default scalar fields");
+        if (!d.nativeCal.IsIdentity() || !d.currentCal.IsIdentity() || !d.correction.IsIdentity())
+            Fail("T32 (d) default matrices not identity");
+        if (d.basis != FIT_BASIS_UNKNOWN)
+            Fail("T32 (d) default basis %d", d.basis);
+
+        SpectralCorrectionRecord r;
+        r.source      = SPECTRAL_SOURCE_FILE;
+        r.description = "LG OLED C9 (WOLED)";     // 18 chars
+        r.fileHash    = 0x85944171f73967e8ULL;
+        r.observer    = 3;
+        r.meterSerial = "I1D3-12345";             // 10 chars
+        r.nativeCal   = Native();
+        r.currentCal  = Current();
+        r.correction  = Delta();
+        r.basis       = FIT_BASIS_NATIVE;
+        if (!r.IsPresent())
+            Fail("T32 (d) filled record not present");
+        if (!(r == r) || r != r)
+            Fail("T32 (d) equality not reflexive");
+        SpectralCorrectionRecord r2 = r;
+        r2.fileHash ^= 1;
+        if (r2 == r)
+            Fail("T32 (d) equality ignores the hash");
+        r2 = r;
+        r2.correction(0,0) += 1e-15;
+        if (r2 == r)
+            Fail("T32 (d) equality is not exact on matrices");
+        r2 = r;
+        r2.basis = FIT_BASIS_DRIVER_CORRECTED;
+        if (r2 == r)
+            Fail("T32 (d) equality ignores the basis");
+
+        // Through the trailer exactly as the SensorCalibrationStream codec writes it: one tag.
+        // Payload = int 4 + CString(1+18) + DWORD 4 + DWORD 4 + int 4 + CString(1+10)
+        //         + 3 x Matrix::Serialize 3x3 (8+4+4+4+72 = 92) + int 4 = 326;
+        // region = DWORD cb 4 + tag 1 + DWORD cbValue 4 + 326 = 335.
+        CMemFile mem;
+        {
+            CArchive ar(&mem, CArchive::store);
+            CExtensionWriter ext;
+            r.Serialize(ext.BeginTag(ArchiveTag::SENSOR_SPECTRAL_CORRECTION));
+            ext.EndTag();
+            ext.Write(ar);
+            ar.Flush();
+            ar.Close();
+        }
+        ULONGLONG len = mem.GetLength();
+        if (len != 335)
+            Fail("T32 (d) trailer bytes %llu, want 335", len);
+
+        mem.SeekToBegin();
+        SpectralCorrectionRecord back;
+        bool sawTag = false;
+        {
+            CArchive ar(&mem, CArchive::load);
+            CExtensionReader ext(ar);
+            BYTE tag; DWORD cb;
+            while (ext.Next(tag, cb))
+            {
+                if (tag == ArchiveTag::SENSOR_SPECTRAL_CORRECTION)
+                {
+                    sawTag = true;
+                    if (cb != 326)
+                        Fail("T32 (d) cbValue %lu, want 326", (unsigned long)cb);
+                    back.Serialize(ext.Value());
+                }
+                else
+                    ext.Skip();
+            }
+            ext.Close();
+            ar.Close();
+        }
+        if (!sawTag)
+            Fail("T32 (d) tag SENSOR_SPECTRAL_CORRECTION not found");
+        if (back != r)
+            Fail("T32 (d) record did not round-trip");
+        if (back.description != r.description || back.meterSerial != r.meterSerial)
+            Fail("T32 (d) strings: '%s' / '%s'", back.description.c_str(), back.meterSerial.c_str());
+        if (back.fileHash != r.fileHash)
+            Fail("T32 (d) hash %016llx", back.fileHash);
+        if (back.basis != FIT_BASIS_NATIVE)
+            Fail("T32 (d) basis %d", back.basis);
+
+        // A truncated payload is a short read (an exception), never a silent default.
+        {
+            CMemFile shortMem;
+            {
+                CArchive ar(&shortMem, CArchive::store);
+                ar << (int)SPECTRAL_SOURCE_FILE;
+                ar << CString("x");
+                ar.Flush();
+                ar.Close();
+            }
+            shortMem.SeekToBegin();
+            SpectralCorrectionRecord s;
+            bool threw = false;
+            CArchive ar(&shortMem, CArchive::load);
+            TRY
+            {
+                s.Serialize(ar);
+            }
+            CATCH_ALL(e)
+            {
+                threw = true;
+                e->Delete();
+            }
+            END_CATCH_ALL
+            ar.Abort();
+            if (!threw)
+                Fail("T32 (d) truncated payload loaded without an exception");
+        }
+    }
+
+    // (e) The persisted numbers: the method value, the tag numbers, the enums.
+    static void CheckPersistedNumbers()
+    {
+        if ((int)CALIB_SPECTRAL_SAMPLE != 4)
+            Fail("T32 (e) CALIB_SPECTRAL_SAMPLE = %d, want 4", (int)CALIB_SPECTRAL_SAMPLE);
+        if ((int)ArchiveTag::SENSOR_FIT_BASIS != 4)
+            Fail("T32 (e) SENSOR_FIT_BASIS = %d, want 4", (int)ArchiveTag::SENSOR_FIT_BASIS);
+        if ((int)ArchiveTag::SENSOR_SPECTRAL_CORRECTION != 5)
+            Fail("T32 (e) SENSOR_SPECTRAL_CORRECTION = %d, want 5", (int)ArchiveTag::SENSOR_SPECTRAL_CORRECTION);
+        if (FIT_BASIS_UNKNOWN != 0 || FIT_BASIS_NATIVE != 1 || FIT_BASIS_DRIVER_CORRECTED != 2)
+            Fail("T32 (e) SpectralFitBasis values moved");
+        if (SPECTRAL_SOURCE_NONE != 0 || SPECTRAL_SOURCE_FILE != 1 || SPECTRAL_SOURCE_DISPLAY_TYPE != 2)
+            Fail("T32 (e) SpectralCorrectionSource values moved");
+    }
+
+    // (f) The sensor's dispatch, EffectiveSensorMatrix, over the whole
+    // (method, basis, record present) table. The method's matrix M and the
+    // record's correction D do not commute, so a composition in the wrong
+    // order (D * M) fails here, not only a missing or an extra one. The
+    // absent record still carries D in its correction field, so a dispatch
+    // that ignored IsPresent() would compose and fail too.
+    static Matrix MethodMatrix() { return M3(1.05, 0.02, -0.01,  0.03, 0.98, 0.01,  -0.02, 0.04, 1.01); }
+
+    static void CheckDispatch()
+    {
+        const Matrix M = MethodMatrix();
+        const Matrix D = Delta();
+        // The canary's premise: the two orders really differ (well beyond 1e-12).
+        Matrix md = M * D, dm = D * M;
+        double maxDiff = 0.0;
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                if (fabs(md(i,j) - dm(i,j)) > maxDiff)
+                    maxDiff = fabs(md(i,j) - dm(i,j));
+        if (maxDiff < 1e-4)
+            Fail("T32 (f) M and D commute (max diff %g): the order would not be pinned", maxDiff);
+
+        SpectralCorrectionRecord present;
+        present.source     = SPECTRAL_SOURCE_FILE;
+        present.correction = D;
+        present.basis      = FIT_BASIS_NATIVE;
+        SpectralCorrectionRecord absent;      // source NONE, but a non-identity correction
+        absent.correction  = D;
+
+        const int methods[] = { CALIB_CLASSIC_NIST, CALIB_HCFR_DEFAULT, CALIB_BODNER_THREEMATRIX,
+                                CALIB_FCMM_NO_LUM, CALIB_SPECTRAL_SAMPLE };
+        const int bases[]   = { FIT_BASIS_UNKNOWN, FIT_BASIS_NATIVE, FIT_BASIS_DRIVER_CORRECTED };
+        int cells = 0;
+        for (int mi = 0; mi < 5; ++mi)
+            for (int bi = 0; bi < 3; ++bi)
+                for (int p = 0; p < 2; ++p)
+                {
+                    const int method = methods[mi], basis = bases[bi];
+                    const SpectralCorrectionRecord& rec = p ? present : absent;
+                    // The table, stated independently of the implementation:
+                    //   Bodner                                  -> identity (callers branch on it first)
+                    //   spectral method                         -> M (M IS the correction: never composed)
+                    //   other, basis != NATIVE, record present  -> M * D
+                    //   otherwise                               -> M
+                    Matrix want;
+                    const char* rule;
+                    if (method == CALIB_BODNER_THREEMATRIX)                          { want = Matrix::IdentityMatrix(3); rule = "identity"; }
+                    else if (method == CALIB_SPECTRAL_SAMPLE)                        { want = M;     rule = "M"; }
+                    else if (basis != FIT_BASIS_NATIVE && p)                         { want = M * D; rule = "M*D"; }
+                    else                                                             { want = M;     rule = "M"; }
+
+                    Matrix got = EffectiveSensorMatrix(method, basis, rec, M);
+                    char what[96];
+                    sprintf_s(what, "(f) method %d basis %d present %d -> %s", method, basis, p, rule);
+                    // Same arithmetic on both sides: 1e-14 relative is round-off only.
+                    CheckMatrix(what, got, want, 1e-14);
+                    ++cells;
+                }
+        if (cells != 30)
+            Fail("T32 (f) table has %d cells, want 30", cells);
+
+        // The record's own basis does not drive the dispatch: the method's basis does.
+        SpectralCorrectionRecord drv = present;
+        drv.basis = FIT_BASIS_DRIVER_CORRECTED;
+        CheckMatrix("(f) native method basis, driver-corrected record -> M",
+                    EffectiveSensorMatrix(CALIB_HCFR_DEFAULT, FIT_BASIS_NATIVE, drv, M), M, 1e-14);
+    }
+}
+
+static void RunT32()
+{
+    printf("T32 spectral correction (ccss as a method) oracle...\n");
+    T32Spectral::CheckDerivation();
+    T32Spectral::CheckRejections();
+    T32Spectral::CheckHash();
+    T32Spectral::CheckRecord();
+    T32Spectral::CheckPersistedNumbers();
+    T32Spectral::CheckDispatch();
+}
+
+//////////////////////////////////////////////////////////////////////////
 // T13 - HLG black oracle (pure assertion, no golden file). At a signal of 0
 // HLG returns its OOTF black lift, m_MinTL / White.Y (BT.2100: F_D = L_B at
 // E' = 0). It must be exact there, finite for a system gamma below 1 (the
@@ -2258,6 +2666,7 @@ int main(int argc, char* argv[])
     RunT12();
     RunT13();
     RunT19();
+    RunT32();
     RunT22();
 
     if (g_failures)

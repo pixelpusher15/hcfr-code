@@ -564,7 +564,7 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,15,152,184,10
 END
 
-IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 222
+IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 232
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Argyll Sensor"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
@@ -4131,7 +4131,7 @@ BEGIN
     IDS_SPECTRAL_NONE           "None"
     IDS_SPECTRAL_FILEFILTER     "Spectral correction (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|Correlation CSV (*.csv)|*.csv||"
     IDS_SPECTRAL_REAPPLY_FAILED "The stored spectral correction could not be re-applied to the meter:\n%s\n\nReadings are UNCORRECTED until it is re-applied or cleared in the sensor properties."
-    IDS_SPECTRAL_MATRIXCAL_PROMPT "This sensor has a matrix calibration. Applying a spectral correction will make it the sole correction for new readings.\n\nExisting measurements were taken with the matrix calibration - strip them back to raw (uncorrected) sensor values?\n\nYes - strip existing measurements to raw\nNo - leave them as they are (mixed with new spectral readings)\nCancel - do not apply the spectral correction"
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "This sensor has a matrix calibration. The spectral correction replaces it for the values shown. Every reading keeps its raw value, so a matrix can be fitted again later.\n\nContinue?"
     IDS_SPECTRAL_ACTIVE_TITLE   "Spectral correction active"
     IDS_SPECTRAL_CLEAR_FOR_MATRIX "This sensor uses a spectral (ccss/CSV) correction, applied inside the meter.\nCalibrating with a matrix would stack on top of it (double-correction).\n\nClear the spectral correction and calibrate with a matrix instead?"
     IDS_CALIB_METHOD_TITLE      "Calibration method"
@@ -4139,6 +4139,17 @@ BEGIN
     IDS_BODNER_SKIPPED_FMT      "%d measurement(s) have no raw sensor reading (recorded before raw capture, or edited by hand) and were left as they were."
     IDS_CALIB_NEED_RAW_PRIMARIES "Measure the primaries and white again first: the stored ones have no raw sensor reading, and a matrix cannot be fitted from values carrying a correction the sensor no longer applies (Bodner, or a matrix replaced by a spectral correction)."
     IDS_CALIB_NEED_REF_WHITE    "The reference document has no measured white: measure its white (or primaries with white) first."
+    IDS_SPECTRAL_SUPERSEDE_WARN "The matrix calibration will be fitted on, and applied to, the meter's uncorrected readings.\nThe spectral correction (%s) stays loaded but will no longer affect the values shown. To use it again, load it again in the sensor properties.\n\nContinue?"
+    IDS_SPECTRAL_STATUS_INACTIVE_FMT "Spectral correction: %s (loaded, not applied: a matrix calibration is in use)"
+    IDS_SPECTRAL_STATUS_DISPTYPE_FMT "Spectral correction: %s (from the Display Type)"
+    IDS_SPECTRAL_UNIT_MISMATCH  "The spectral correction in this file was derived for meter serial %s; the connected meter is %s. It has been derived again from the connected meter."
+    IDS_SPECTRAL_BROWSE_REFUSED_DISPTYPE "The selected Display Type already carries a spectral correction. Choose a plain Display Type to use a correction file."
+    IDS_SPECTRAL_STATUS_COMPOSED_FMT "Spectral correction: %s (applied on top of the matrix calibration)"
+    IDS_SPECTRAL_DISPTYPE_FAILED "The Display Type's spectral correction could not be derived and was removed:\n%s"
+    IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "The loaded document carries a Display Type spectral correction (%s) that is not the current Display Type. It stays in use until you change the Display Type."
+    IDS_SPECTRAL_COMPOSE_WARN   "The file you are loading has no fit-basis record. The spectral correction will be applied on top of its matrix (as HCFR 4.1 did). Continue?"
+    IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "The spectral correction in use (%s) was derived for meter %s, not the connected one, and there is no correction file here to derive it again from. It stays in use. To derive it for this meter, browse its correction file in the sensor properties."
+    IDS_SPECTRAL_FILE_MOVED_NOTICE "The spectral correction file is no longer at its stored location:\n\n%s\n\nThe correction derived from it stays in use for this meter. To use the document with another meter, or to derive it again, browse the file in the sensor properties."
     IDS_EXPORT_LAYOUT_MISMATCH  "Cannot add to this file: it was exported with different Raw/Stimulus options. Export to a new file, or repeat the export with the same options as the existing data."
     IDS_SCHEMA_NEWER        "This file was written by a newer version of HCFR (%s version %d). Update HCFR to open it."
     IDS_SCHEMA_UNRELEASED   "This file was written by an unreleased development build of HCFR (%s version %d) and cannot be read. Regenerate it."

@@ -46,6 +46,7 @@ CSensor::CSensor()
 	m_sensorToXYZMatrix=IdentityMatrix(3);
 	m_sensorToXYZMatrixMod=IdentityMatrix(3);
 	m_calibrationMethod=CALIB_HCFR_DEFAULT;
+	m_fitBasis=FIT_BASIS_NATIVE;		// a fresh sensor has no legacy to honor; m_spectral starts empty
 	for ( int k = 0; k < 3; k++ )
 	{
 		m_bodnerRawMatrix[k]=IdentityMatrix(3);
@@ -76,6 +77,8 @@ void CSensor::Copy(CSensor * p)
 	m_sensorToXYZMatrixMod = p->m_sensorToXYZMatrixMod;
 	m_calibrationTime = p->m_calibrationTime;
 	m_calibrationMethod = p->m_calibrationMethod;
+	m_spectral = p->m_spectral;
+	m_fitBasis = p->m_fitBasis;
 	for ( int k = 0; k < 3; k++ )
 	{
 		m_bodnerRawMatrix[k] = p->m_bodnerRawMatrix[k];
@@ -115,9 +118,19 @@ void CSensor::Serialize(CArchive& archive)
 		// recalibration would compose onto them), so that state also forces
 		// the current version.
 		//
+		// A v1 stream carries no fit basis and no spectral correction record
+		// either, and reloads as basis UNKNOWN with no record. So v1 is also
+		// written only when that reload is exact: no record, and a basis that is
+		// not NATIVE already (UNKNOWN and DRIVER_CORRECTED behave alike). A NATIVE
+		// fit reloaded as UNKNOWN would compose the next record's correction onto
+		// a matrix fitted on native readings - a double correction - and a
+		// dropped record loses what the matrix may be composed on.
+		//
 		// The layout of every version lives in libHCFR's
 		// SensorCalibrationStream, where the unit tests can reach it.
 		int version = ( m_calibrationMethod == CALIB_HCFR_DEFAULT
+		             && ! m_spectral.IsPresent()
+		             && m_fitBasis != FIT_BASIS_NATIVE
 		             && m_rawlessReadings.ComposeOntoRawless()
 		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
 						? 1 : kSensorStreamVersion;
@@ -126,6 +139,8 @@ void CSensor::Serialize(CArchive& archive)
 		fields.calibrationTime = m_calibrationTime;
 		fields.method = m_calibrationMethod;
 		fields.rawlessEmbody = m_rawlessReadings.Get();
+		fields.fitBasis = m_fitBasis;
+		fields.spectral = m_spectral;
 		for ( int k = 0; k < 3; k++ )
 		{
 			fields.bodnerRaw[k] = m_bodnerRawMatrix[k];
@@ -139,6 +154,10 @@ void CSensor::Serialize(CArchive& archive)
 		int version = LoadSensorCalibration ( archive, fields );
 
 		m_calibrationTime = fields.calibrationTime;
+		// Absent tags, and every v1 stream, leave the codec's defaults: basis
+		// UNKNOWN (treated as driver-corrected) and no spectral correction record.
+		m_fitBasis = fields.fitBasis;
+		m_spectral = fields.spectral;
 		if ( version != 1 )
 		{
 			m_calibrationMethod = fields.method;
@@ -188,6 +207,8 @@ void CSensor::BeginConfigure()
 {
 	m_cfgSnapMatrix   = m_sensorToXYZMatrix;
 	m_cfgSnapMethod   = m_calibrationMethod;
+	m_cfgSnapSpectral = m_spectral;
+	m_cfgSnapFitBasis = m_fitBasis;
 	for ( int k = 0; k < 3; k++ )
 	{
 		m_cfgSnapBodnerRaw[k] = m_bodnerRawMatrix[k];
@@ -203,6 +224,8 @@ void CSensor::CancelConfigure()
 {
 	m_sensorToXYZMatrix = m_cfgSnapMatrix;
 	m_calibrationMethod = m_cfgSnapMethod;
+	m_spectral          = m_cfgSnapSpectral;
+	m_fitBasis          = m_cfgSnapFitBasis;
 	// m_isModified is deliberately NOT restored: the Argyll page's Calibrate
 	// button commits device settings (reading/display type, adapt, ...) and
 	// re-inits the meter mid-dialog, and those legitimately survive a Cancel.
@@ -227,6 +250,8 @@ bool CSensor::CorrectionChangedSinceBeginConfigure() const
 		return true;
 	if ( m_sensorToXYZMatrix != m_cfgSnapMatrix )
 		return true;
+	if ( m_fitBasis != m_cfgSnapFitBasis || m_spectral != m_cfgSnapSpectral )
+		return true;
 	for ( int k = 0; k < 3; k++ )
 		if ( m_bodnerRawMatrix[k] != m_cfgSnapBodnerRaw[k]
 		  || m_bodnerCalMatrix[k] != m_cfgSnapBodnerCal[k] )
@@ -246,15 +271,15 @@ void CSensor::GetPropertiesSheetValues()
 {
 	// Compare against what the page was SHOWN, not against the live matrix. Code can
 	// change m_sensorToXYZMatrix while the sheet is open - loading a spectral .ccss on
-	// the Argyll page forces it to identity so the meter's own correction is the only
-	// one in play - and m_SensorPropertiesPage still holds the value we put there in
+	// the Argyll page replaces it with the spectral correction - and
+	// m_SensorPropertiesPage still holds the value we put there in
 	// SetPropertiesSheetValues. Testing the live matrix makes that stale page value look
 	// like an edit, so OK silently restored the matrix the .ccss had just retired and
 	// every later reading was corrected twice, in the meter and again here.
 	//
 	// Only a real grid edit moves the page away from m_sheetMatrixShown, and that still
 	// wins - a matrix typed in by hand while a spectral correction is loaded is the user
-	// asking for it, and ConfirmClearSpectralForMatrixCal covers the calibration paths.
+	// asking for it, and ConfirmMatrixCalOverSpectral covers the calibration paths.
 	if(	m_SensorPropertiesPage.GetMatrix() != m_sheetMatrixShown )
 	{
 		m_sensorToXYZMatrix=m_SensorPropertiesPage.GetMatrix();
@@ -307,12 +332,51 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 		result.SetXYZValue(SelectAndApplyBodnerMatrixInv(result.GetXYZValue(), m_bodnerRawInverse, m_bodnerRawInvertible, m_bodnerCalMatrix));
 	else
-		result.applyAdjustmentMatrix(m_sensorToXYZMatrix);
+		result.applyAdjustmentMatrix(GetEffectiveMatrix());
 
 	if ( bMeasureOk )
 		GetColorApp()->PlayMeasureSound();
 
     return result;
+}
+
+// Why the document's recompute baselines (OnConfigureSensor's SensorMatrixMod and
+// full matrix, the oldMatrix of ComputeAdjustmentMatrix and of the manual fit,
+// OnLoadCalibrationFile's re-apply) use this rather than GetSensorMatrix(): every
+// stored reading is GetEffectiveMatrix() * raw. When a matrix fitted before the
+// basis field is composed on a spectral correction, GetSensorMatrix() alone is not
+// what the readings went through, and a delta or a recompute built on it would
+// drop the spectral correction from some readings and keep it on others.
+// The dispatch itself lives in libHCFR (EffectiveSensorMatrix), where T32 pins it.
+Matrix CSensor::GetEffectiveMatrix() const
+{
+	return EffectiveSensorMatrix ( m_calibrationMethod, m_fitBasis, m_spectral, m_sensorToXYZMatrix );
+}
+
+void CSensor::ClearSpectralCorrection()
+{
+	m_spectral.Clear();
+	if ( UsesSpectralMethod() )
+	{
+		// The method was the spectral correction itself: nothing is left to apply.
+		SetSensorMatrix(Matrix::IdentityMatrix(3));
+		SetCalibrationMethod(CALIB_HCFR_DEFAULT);
+		m_fitBasis = FIT_BASIS_NATIVE;
+	}
+	SetModifiedFlag(TRUE);
+}
+
+void CSensor::SpectralSupersededByMatrixFit()
+{
+	// Nothing to do without a record, or when what was just installed is itself
+	// the spectral method (a correction file that carries one).
+	if ( ! m_spectral.IsPresent() || UsesSpectralMethod() )
+		return;
+	// A record whose correction the driver applies (its matrices are not exposed)
+	// would stack under the new matrix: clear it, the sample with it. A native
+	// record stays, dormant: raw is native and the matrix was fitted on raw.
+	if ( m_spectral.basis != FIT_BASIS_NATIVE )
+		ClearSpectralCorrection();
 }
 
 CColor CSensor::MeasureGray(double aLevel)

@@ -856,6 +856,10 @@ enum CalibrationMatrixMethod
 	CALIB_HCFR_DEFAULT			= 1,	// NIST Four-Color Method (FCMM, Ohno & Hardis 1997) + the paper's optional luminance scaling
 	CALIB_BODNER_THREEMATRIX	= 2,	// RGBW sub-gamut three-matrix method (Bodner & Robinson, SID 2019)
 	CALIB_FCMM_NO_LUM			= 3,	// NIST Four-Color Method (FCMM), chromaticity only - no luminance scaling
+	CALIB_SPECTRAL_SAMPLE		= 4,		// Spectral sample (ccss) correction derived from the meter driver's two
+										// emission calibration matrices (libHCFR/SpectralCorrection.h); applied by
+										// HCFR to native readings exactly like the FCMM matrix. Chosen by loading a
+										// sample, never from the Advanced page's method list.
 
 	// Not a method: one past the last one. Keep it last; readers refuse a
 	// stored method at or above it as a file from a newer HCFR.
@@ -870,10 +874,10 @@ enum CalibrationMatrixMethod
 // they are and counted in the skipped-readings notice.
 //
 // This is state, not something the previous calibration method can answer. A
-// Bodner fit, a spectral correction applied with "leave the measurements as
-// they are", and a matrix written without walking the readings (DDE
-// SetSensorMatrix) each leave them embodying a matrix the sensor no longer has,
-// and every later matrix recalibration skips them again, so they stay that way.
+// Bodner fit and a matrix written without walking the readings (DDE
+// SetSensorMatrix, Change Sensor) each leave them embodying a matrix the sensor
+// no longer has, and every later matrix recalibration skips them again, so they
+// stay that way.
 // The rule that keyed on "the previous method was single-matrix" saw only the
 // first of those and forgot it after one recalibration. CSensor keeps one of
 // these and stores it in its stream (version 4).
@@ -885,9 +889,6 @@ public:
 	// A Bodner correction was installed: its single matrix is identity and its
 	// walk skipped every raw-less reading.
 	void BodnerInstalled() { m_embodyCurrentMatrix = false; }
-	// A spectral correction replaced the matrix (now identity) and the user chose
-	// to leave the stored readings as they were.
-	void SpectralLeft() { m_embodyCurrentMatrix = false; }
 	// The single matrix was replaced and no reading was recomputed.
 	void MatrixSetWithoutWalk() { m_embodyCurrentMatrix = false; }
 	// A single-matrix recalibration walked the readings with ComposeOntoRawless()
