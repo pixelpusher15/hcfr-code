@@ -52,7 +52,7 @@ Follow these steps in order. Stop and wait where it says WAIT.
   - `ProductCode` — **new GUID** every release.
   - `PackageCode` — **new GUID** every release.
   - `ProductVersion` — bump (3-part, e.g. `8:4.2.0`).
-  - `OutputFilename` (~line 672) — `Release\\Installer\\HCFR-<ver>.msi`.
+  - `OutputFilename` (~line 654) — `Release\\Installer\\HCFR-<ver>.msi`.
   - **Never change `UpgradeCode`.** It is what lets a new MSI upgrade an installed one.
   Generate GUIDs with `powershell -NoProfile -Command "([guid]::NewGuid()).ToString().ToUpper()"`.
 - Grep afterwards to confirm no stale old-version string remains in any of the 7 `.rc` files
