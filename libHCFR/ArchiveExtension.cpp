@@ -25,6 +25,7 @@
 #ifdef LIBHCFR_HAS_MFC
 
 #include <algorithm>
+#include <exception>
 
 /////////////////////////////////////////////////////////////////////////////
 // CNewerSchemaException
@@ -63,8 +64,10 @@ CExtensionWriter::CExtensionWriter() : m_pMem(NULL), m_pArchive(NULL), m_openTag
 
 CExtensionWriter::~CExtensionWriter()
 {
-	// A tag left open is a programming error; drop it rather than leak.
-	ASSERT(m_openTag == 0);
+	// A tag left open is a programming error; drop it rather than leak. While
+	// an exception unwinds through the caller (a value's Serialize threw
+	// between BeginTag and EndTag) it is not one, so do not assert then.
+	ASSERT(m_openTag == 0 || std::uncaught_exception());
 	if ( m_pArchive )
 	{
 		m_pArchive->Abort();
@@ -128,11 +131,17 @@ void CExtensionWriter::Write(CArchive& ar)
 		order.push_back(std::make_pair(m_entries[i].tag, i));
 	std::sort(order.begin(), order.end(), EntryTagLess);
 
-	DWORD total = 0;
+	// Never emit what CExtensionReader refuses: a region over
+	// kMaxExtensionBytes is badSchema on load, so it is badSchema here, thrown
+	// before a single byte reaches the archive. Summed in 64 bits so a huge
+	// value cannot wrap the DWORD and slip under the cap.
+	ULONGLONG total = 0;
 	for ( size_t i = 0; i < m_entries.size(); i++ )
-		total += 1 + 4 + (DWORD) m_entries[i].value.size();
+		total += 1 + 4 + (ULONGLONG) m_entries[i].value.size();
+	if ( total > kMaxExtensionBytes )
+		AfxThrowArchiveException(CArchiveException::badSchema, NULL);
 
-	ar << total;
+	ar << (DWORD) total;
 	for ( size_t i = 0; i < order.size(); i++ )
 	{
 		const Entry& e = m_entries[order[i].second];

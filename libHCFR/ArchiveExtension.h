@@ -61,7 +61,8 @@ void SkipArchiveBytes(CArchive& ar, DWORD n);
 
 // The largest cbExtension a reader accepts. A trailer claiming more is a
 // corrupt length, refused as CArchiveException::badSchema rather than
-// attempted. No trailer this format defines comes anywhere near it.
+// attempted. No trailer this format defines comes anywhere near it, and
+// CExtensionWriter::Write refuses to emit one (badSchema, nothing written).
 static const DWORD kMaxExtensionBytes = 64 * 1024 * 1024;
 
 // Collects tagged entries, then emits DWORD cb + entries. Usage:
