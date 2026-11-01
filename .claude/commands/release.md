@@ -44,11 +44,15 @@ Follow these steps in order. Stop and wait where it says WAIT.
   `LC_ALL=C sed -i -E 's/^( (FILE|PRODUCT)VERSION) 4,1,0,0(\r?)$/\1 4,2,0,0\3/' <file>`
   (the `\r?` keeps the pattern working on CRLF files). Then check `git diff` shows only the
   version lines changed.
+- The version also appears as plain text, outside VERSIONINFO; bump these too:
+  - the five language satellites: the About box `LTEXT "Version <ver>",IDC_STATIC_VERSION` line
+    and the `IDR_MAINFRAME` title string (e.g. `"HCFR Colorimeter - <ver>"`);
+  - `ColorHCFR.rc` line 1, the `// <ver> Visual C++ generated resource script.` header.
 - **`ColorHCFR_VS2019.vdproj`** (Product section near the end of the file):
   - `ProductCode` — **new GUID** every release.
   - `PackageCode` — **new GUID** every release.
   - `ProductVersion` — bump (3-part, e.g. `8:4.2.0`).
-  - `OutputFilename` (~line 672) — `Release\\Installer\\HCFR-<ver>.msi`.
+  - `OutputFilename` (~line 654) — `Release\\Installer\\HCFR-<ver>.msi`.
   - **Never change `UpgradeCode`.** It is what lets a new MSI upgrade an installed one.
   Generate GUIDs with `powershell -NoProfile -Command "([guid]::NewGuid()).ToString().ToUpper()"`.
 - Grep afterwards to confirm no stale old-version string remains in any of the 7 `.rc` files
