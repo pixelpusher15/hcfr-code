@@ -98,9 +98,9 @@ namespace
 // template, and every language ships its own IDD_REFERENCE_PROP_PAGE in its
 // own satellite resource DLL.  English, Italian and Spanish list RADIO8
 // (SMPTE 2084) before RADIO6 (BBC HLG) so that the ordinal happens to equal
-// the stored type; German and French list them in plain ID order, which puts
-// HLG at ordinal 5 and PQ at ordinal 7 - the two values swapped.  A German or
-// French user who picked PQ therefore got HLG written to the config, and vice
+// the stored type; German and French listed them in plain ID order (until the
+// #190 reorder), which put HLG at ordinal 5 and PQ at ordinal 7 - the two
+// values swapped.  A German or French user who picked PQ got HLG written to the config, and vice
 // versa (reproduced against the built satellites; English/Italian/Spanish are
 // unaffected).  Mapping by ID makes the resource control order stop being
 // load-bearing across five separately maintained .rc files.

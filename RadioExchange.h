@@ -74,6 +74,7 @@ inline void DDX_RadioByID(CDataExchange* pDX, int& value, const UINT (&pIDs)[N])
 		for (int i = 0; i < N; i++)
 		{
 			CButton* pButton = (CButton*)pDlgWnd->GetDlgItem(pIDs[i]);
+			ASSERT(pButton != NULL);	// a listed ID missing from this satellite's template
 			if (pButton != NULL && pButton->GetCheck() == BST_CHECKED)
 			{
 				value = i;
@@ -86,6 +87,7 @@ inline void DDX_RadioByID(CDataExchange* pDX, int& value, const UINT (&pIDs)[N])
 		for (int i = 0; i < N; i++)
 		{
 			CButton* pButton = (CButton*)pDlgWnd->GetDlgItem(pIDs[i]);
+			ASSERT(pButton != NULL);
 			if (pButton != NULL)
 				pButton->SetCheck((i == value) ? BST_CHECKED : BST_UNCHECKED);
 		}
