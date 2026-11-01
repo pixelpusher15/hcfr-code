@@ -45,6 +45,7 @@ namespace
 		Outcome					outcome;
 		int						version;		// returned by the codec when LOADED
 		int						exVersion;		// CNewerSchemaException::m_version
+		CString					exFeature;		// CNewerSchemaException::m_feature
 		SensorCalibrationFields	fields;
 		int						sentinel;		// the int that follows the block, when asked for
 	};
@@ -96,6 +97,7 @@ namespace
 		{
 			r.outcome = e->m_unreleased ? UNRELEASED : NEWER;
 			r.exVersion = e->m_version;
+			r.exFeature = e->m_feature;
 			e->Delete();
 			ar.Abort();
 		}
@@ -335,14 +337,16 @@ protected:
 
 	void SensorUnknownMethodRefused()
 	{
-		// A method this build does not know is a file from a newer HCFR,
-		// reported with the block version, not the method value.
+		// A method this build does not know is a file from a newer HCFR. The
+		// block version (4) is one this build reads, so the refusal names the
+		// feature, never the method value as a version.
 		const int bad[3] = { -1, CALIB_METHOD_COUNT, 99 };
 		for ( int i = 0; i < 3; i++ )
 		{
 			LoadResult r = Load(HandV4(bad[i], false, TRUE, false, 0), false);
 			CPPUNIT_ASSERT_EQUAL( (int) NEWER, (int) r.outcome );
 			CPPUNIT_ASSERT_EQUAL( 4, r.exVersion );
+			CPPUNIT_ASSERT( r.exFeature == "calibration method" );
 		}
 		// The last known method still loads.
 		LoadResult r = Load(HandV4(CALIB_METHOD_COUNT - 1, CALIB_METHOD_COUNT - 1 == CALIB_BODNER_THREEMATRIX, TRUE, false, 0), false);
@@ -363,6 +367,7 @@ protected:
 		LoadResult r = Load(s.Bytes(), false);
 		CPPUNIT_ASSERT_EQUAL( (int) NEWER, (int) r.outcome );
 		CPPUNIT_ASSERT_EQUAL( 5, r.exVersion );
+		CPPUNIT_ASSERT( r.exFeature.IsEmpty() );	// a version refusal names no feature
 	}
 
 	void SensorLegacyV1Bytes()
@@ -385,6 +390,9 @@ protected:
 		CPPUNIT_ASSERT( r.fields.calibrationTime == in.calibrationTime );
 	}
 
+	// Peak memory is about 200 MB (the 64 MB source vector, the tag's
+	// CMemFile and the writer's copy of the value, then the same again for
+	// the at-the-cap half). Deliberate: the cap is only reachable that way.
 	void ExtensionWriterCap()
 	{
 		// A trailer the reader would refuse (cbExtension > kMaxExtensionBytes)

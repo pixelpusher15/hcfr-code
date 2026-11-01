@@ -146,19 +146,23 @@ private:
 // Thrown by a block reader when the stream's block version is one this build
 // does not know: either newer than this build (a file written by a newer
 // HCFR), or an unreleased development layout that is rejected rather than
-// parsed (m_unreleased). Carries facts only: libHCFR has no string resources,
-// so each application surface composes its own message. m_cause stays
-// badSchema so a surface that does not recognise the subclass behaves as it
-// always has.
+// parsed (m_unreleased). Also thrown when the block version is known but a
+// value inside it names something this build lacks (m_feature, e.g.
+// "calibration method"): then m_version is a version this build reads, so a
+// surface must name the feature, not the version. Carries facts only:
+// libHCFR has no string resources, so each application surface composes its
+// own message. m_cause stays badSchema so a surface that does not recognise
+// the subclass behaves as it always has.
 class CNewerSchemaException : public CArchiveException
 {
 	DECLARE_DYNAMIC(CNewerSchemaException)
 public:
-	CNewerSchemaException(LPCSTR block, int version, bool unreleased = false);
+	CNewerSchemaException(LPCSTR block, int version, bool unreleased = false, LPCSTR feature = NULL);
 
 	CString m_block;
 	int     m_version;
 	bool    m_unreleased;
+	CString m_feature;		// empty unless a known block holds an unknown value
 };
 
 #endif // LIBHCFR_HAS_MFC

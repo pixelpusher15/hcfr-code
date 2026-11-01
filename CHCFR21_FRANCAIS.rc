@@ -4389,6 +4389,7 @@ BEGIN
     IDS_SCHEMA_NEWER        "Ce fichier a été écrit par une version plus récente de HCFR (%s version %d). Mettez HCFR à jour pour l'ouvrir."
     IDS_SCHEMA_UNRELEASED   "Ce fichier a été écrit par une version de développement non publiée de HCFR (%s version %d) et ne peut pas être lu. Recréez-le."
     IDS_SCHEMA_UNRELEASED_DOC "Ce fichier a été écrit par une version de développement non publiée de HCFR (version de document %d). Ouvrez-le avec cette version."
+    IDS_SCHEMA_UNKNOWN_FEATURE "Ce fichier utilise un élément que cette version de HCFR ne possède pas (%s). Il a probablement été écrit par une version plus récente ; mettez HCFR à jour pour l'ouvrir."
 END
 
 #endif    // Französisch (Frankreich) resources

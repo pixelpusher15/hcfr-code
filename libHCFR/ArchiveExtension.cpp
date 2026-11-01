@@ -32,9 +32,9 @@
 
 IMPLEMENT_DYNAMIC(CNewerSchemaException, CArchiveException)
 
-CNewerSchemaException::CNewerSchemaException(LPCSTR block, int version, bool unreleased)
+CNewerSchemaException::CNewerSchemaException(LPCSTR block, int version, bool unreleased, LPCSTR feature)
 	: CArchiveException(CArchiveException::badSchema, NULL),
-	  m_block(block), m_version(version), m_unreleased(unreleased)
+	  m_block(block), m_version(version), m_unreleased(unreleased), m_feature(feature ? feature : "")
 {
 }
 

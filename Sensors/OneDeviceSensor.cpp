@@ -474,7 +474,10 @@ static void ReportCalibrationLoadFailure ( LPCSTR lpszPath, CException * e )
 		CNewerSchemaException *	pEx = (CNewerSchemaException *) e;
 		CString					strText;
 
-		strText.Format ( pEx -> m_unreleased ? IDS_SCHEMA_UNRELEASED : IDS_SCHEMA_NEWER, (LPCSTR) pEx -> m_block, pEx -> m_version );
+		if ( ! pEx -> m_feature.IsEmpty () )
+			strText.Format ( IDS_SCHEMA_UNKNOWN_FEATURE, (LPCSTR) pEx -> m_feature );
+		else
+			strText.Format ( pEx -> m_unreleased ? IDS_SCHEMA_UNRELEASED : IDS_SCHEMA_NEWER, (LPCSTR) pEx -> m_block, pEx -> m_version );
 		strWhat.Format ( "%s\n%s", lpszPath, (LPCSTR) strText );
 		strMsg.Format ( IDS_THC_LOAD_FAILED, (LPCSTR) strWhat );
 		AfxMessageBox ( strMsg, MB_OK | MB_ICONEXCLAMATION );
