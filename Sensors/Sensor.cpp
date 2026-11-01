@@ -25,7 +25,6 @@
 #include "ColorHCFR.h"
 #include "Sensor.h"
 #include "Generator.h"
-#include "ArchiveExtension.h"
 #include "SensorCalibrationStream.h"
 
 #ifdef _DEBUG

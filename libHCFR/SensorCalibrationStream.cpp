@@ -46,23 +46,34 @@ void StoreSensorCalibration(CArchive& ar, const SensorCalibrationFields& f, int 
 	if ( version == 1 )
 		return;
 
-	// v3: the method, the raw-less state and (Bodner only) the six sub-gamut
-	// matrices, then the extension trailer as the last thing in the block.
-	ar << f.method;
-	BOOL bRawlessEmbody = f.rawlessEmbody ? TRUE : FALSE;
-	ar << bRawlessEmbody;
+	// v4: everything after the time is a tag in the extension trailer, the
+	// last thing in the block. The method and the raw-less state always; the
+	// six Bodner matrices only when that method is in force.
+	CExtensionWriter ext;
+
+	ext.BeginTag ( ArchiveTag::SENSOR_CALIBRATION_METHOD ) << f.method;
+	ext.EndTag ();
+
 	if ( f.method == CALIB_BODNER_THREEMATRIX )
 	{
-		for ( int k = 0; k < 3; k++ )
+		CArchive & value = ext.BeginTag ( ArchiveTag::SENSOR_BODNER_MATRICES );
+		int k;
+		for ( k = 0; k < 3; k++ )
 		{
 			Matrix raw = f.bodnerRaw[k];	// Matrix::Serialize is not const
-			Matrix cal = f.bodnerCal[k];
-			raw.Serialize(ar);
-			cal.Serialize(ar);
+			raw.Serialize(value);
 		}
+		for ( k = 0; k < 3; k++ )
+		{
+			Matrix cal = f.bodnerCal[k];
+			cal.Serialize(value);
+		}
+		ext.EndTag ();
 	}
 
-	CExtensionWriter ext;
+	ext.BeginTag ( ArchiveTag::SENSOR_RAWLESS_EMBODY ) << (BOOL) ( f.rawlessEmbody ? TRUE : FALSE );
+	ext.EndTag ();
+
 	ext.Write ( ar );
 }
 
@@ -70,53 +81,87 @@ int LoadSensorCalibration(CArchive& ar, SensorCalibrationFields& f)
 {
 	int version;
 	ar >> version;
-	if ( version > 3 )
+	if ( version > kSensorStreamVersion )
 		throw new CNewerSchemaException ( "CSensor", version );
-	if ( version == 2 )
+	if ( version == 2 || version == 3 )
 	{
-		// The unreleased Bodner layout. Parsing it as v3 would read its
-		// raw-less state from the first matrix and the trailer length from
-		// inside the matrices, desyncing unpredictably, so it is refused
-		// outright: regenerate the file with this build.
+		// Two unreleased development layouts, neither in any release: v2 was
+		// the first Bodner layout, v3 the #165 branch's inline method and
+		// raw-less state. Neither has a trailer, so reading either as v4 would
+		// take a field for the trailer length and desync unpredictably. They
+		// are refused outright: regenerate the file with this build.
 		throw new CNewerSchemaException ( "CSensor", version, true );
 	}
 	if ( version < 1 )
 		AfxThrowArchiveException ( CArchiveException::badSchema );
 	ar >> f.calibrationTime;
 
-	if ( version == 3 )
+	if ( version == kSensorStreamVersion )
 	{
-		// Unknown tags are forward-compatible; unknown values inside a
-		// known field are not. A method this build does not know would
-		// silently run through the wrong correction, so it is refused as a
-		// file from a newer HCFR.
-		int method;
-		ar >> method;
-		if ( method < CALIB_CLASSIC_NIST || method > CALIB_FCMM_NO_LUM )
-			throw new CNewerSchemaException ( "CSensor", method, false );
-		f.method = method;
-
-		BOOL bRawlessEmbody;
-		ar >> bRawlessEmbody;
-		f.rawlessEmbody = ( bRawlessEmbody != FALSE );
-
-		if ( f.method == CALIB_BODNER_THREEMATRIX )
-		{
-			for ( int k = 0; k < 3; k++ )
-			{
-				f.bodnerRaw[k].Serialize(ar);
-				f.bodnerCal[k].Serialize(ar);
-			}
-		}
-
-		// Extension trailer, the last thing in the block. No tag is
-		// written here yet; any a newer build adds is skipped by length.
 		CExtensionReader ext(ar);
 		BYTE  tag;
 		DWORD cb;
+
+		bool bSawBodnerMatrices = false;
+		bool bSawRawless = false;
+		f.method = CALIB_HCFR_DEFAULT;		// when the tag is absent
 		while ( ext.Next(tag, cb) )
-			ext.Skip();
+		{
+			switch ( tag )
+			{
+				case ArchiveTag::SENSOR_CALIBRATION_METHOD:
+				{
+					// Unknown tags are forward-compatible; unknown values inside a
+					// known tag are not. A method this build does not know would
+					// silently run through the wrong correction, so it is refused
+					// as a file from a newer HCFR.
+					int method;
+					ext.Value() >> method;
+					if ( method < CALIB_CLASSIC_NIST || method > CALIB_FCMM_NO_LUM )
+						throw new CNewerSchemaException ( "CSensor", method, false );
+					f.method = method;
+					break;
+				}
+
+				case ArchiveTag::SENSOR_BODNER_MATRICES:
+				{
+					CArchive & value = ext.Value();
+					bSawBodnerMatrices = true;
+					int k;
+					for ( k = 0; k < 3; k++ )
+						f.bodnerRaw[k].Serialize(value);
+					for ( k = 0; k < 3; k++ )
+						f.bodnerCal[k].Serialize(value);
+					break;
+				}
+
+				case ArchiveTag::SENSOR_RAWLESS_EMBODY:
+				{
+					BOOL bEmbody;
+					ext.Value() >> bEmbody;
+					f.rawlessEmbody = ( bEmbody != FALSE );
+					bSawRawless = true;
+					break;
+				}
+
+				default:
+					ext.Skip();
+					break;
+			}
+		}
 		ext.Close();
+
+		// The Bodner method is meaningless without its six matrices: loading
+		// it anyway would recalibrate every reading through identity
+		// sub-gamuts and report success.
+		if ( f.method == CALIB_BODNER_THREEMATRIX && ! bSawBodnerMatrices )
+			AfxThrowArchiveException ( CArchiveException::badSchema );
+
+		// No raw-less state stored: a Bodner sensor's raw-less readings are
+		// stranded (its single matrix is identity), a matrix sensor's embody
+		// its matrix - the rule the #165 branch applied to its own v2 files.
+		if ( ! bSawRawless )
+			f.rawlessEmbody = ( f.method != CALIB_BODNER_THREEMATRIX );
 	}
 	return version;
 }

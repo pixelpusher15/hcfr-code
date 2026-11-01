@@ -38,8 +38,11 @@
 #include <time.h>
 #include "Color.h"
 
-// The version every non-legacy CSensor stream is written with.
-static const int kSensorStreamVersion = 3;
+// The version every non-legacy CSensor stream is written with. Version 4
+// is the time followed by the extension trailer; every field after the
+// time is a tag (ArchiveTags.h, CSensorTag). Versions 2 and 3 were
+// unreleased development layouts and are refused.
+static const int kSensorStreamVersion = 4;
 
 struct SensorCalibrationFields
 {

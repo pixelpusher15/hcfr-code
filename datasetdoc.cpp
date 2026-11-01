@@ -86,7 +86,7 @@ static bool ConfirmClearSpectralForMatrixCal(CSensor* pSensor, bool clearNow = t
 // Version 2 is for ColorHCFR version >= 1.12 beta 62
 // Version 3 is for ColorHCFR version >= 2.0 beta 144
 
-// Version 4 was the unreleased Bodner layout (CColor tens-digit flags, CSensor v2)
+// Version 4 was the unreleased Bodner layout (CColor tens-digit flags, CSensor v2 or v3)
 // Version 5 (issue #193): every block ends with an extension trailer; new fields go there
 #define CURRENT_FILE_FORMAT_VERSION	5
 #define _S(id) (CString(LPCTSTR(id))) 

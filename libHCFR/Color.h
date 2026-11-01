@@ -876,7 +876,7 @@ enum CalibrationMatrixMethod
 // and every later matrix recalibration skips them again, so they stay that way.
 // The rule that keyed on "the previous method was single-matrix" saw only the
 // first of those and forgot it after one recalibration. CSensor keeps one of
-// these and stores it in its stream (version 3).
+// these and stores it in its stream (version 4).
 class RawlessReadingsState
 {
 public:
