@@ -235,13 +235,13 @@ protected:
             s.SingleMatrixWalked(0);
             CPPUNIT_ASSERT( s.ComposeOntoRawless() );
         }
-        // (a) A spectral Browse answered "leave them": the sensor matrix goes to
-        // identity and the method to the default one, the readings keep M. The
-        // .thc load, Manual or Existing that follows must skip them, and after
-        // skipping them they are still stranded.
+        // (a) A matrix written without a walk (DDE SetSensorMatrix, or Change
+        // Sensor's fresh sensor): the readings keep M while the sensor carries
+        // another matrix. The .thc load, Manual or Existing that follows must skip
+        // them, and after skipping them they are still stranded.
         {
             RawlessReadingsState s;
-            s.SpectralLeft();
+            s.MatrixSetWithoutWalk();
             CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
             s.SingleMatrixWalked(5);
             CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
@@ -277,7 +277,7 @@ protected:
         // right again (for a reading edited by hand later, say).
         {
             RawlessReadingsState s;
-            s.SpectralLeft();
+            s.MatrixSetWithoutWalk();
             s.SingleMatrixWalked(0);
             CPPUNIT_ASSERT( s.ComposeOntoRawless() );
         }
@@ -293,7 +293,7 @@ protected:
         // The value CSensor stores (Get) restores the same answer (Set).
         {
             RawlessReadingsState s, t;
-            s.SpectralLeft();
+            s.MatrixSetWithoutWalk();
             t.Set(s.Get());
             CPPUNIT_ASSERT( !t.ComposeOntoRawless() );
             s.SingleMatrixWalked(0);
@@ -303,8 +303,9 @@ protected:
     }
 
     // Scenario (a) of the review with numbers: a document recorded before raw
-    // capture, calibrated with M; a ccss Browsed and "leave them" answered; then
-    // a .thc carrying L loaded (OnLoadCalibrationFile passes L as the delta). The
+    // capture, calibrated with M; a matrix then written without a walk (DDE
+    // SetSensorMatrix, Change Sensor); then a .thc carrying L loaded
+    // (OnLoadCalibrationFile passes L as the delta). The
     // raw-less reading must stay M*r. Composing gave L*M*r, corrected twice.
     // The compose step is CColor::applyAdjustmentMatrix, the call the raw-less
     // branch of ReapplyAdjustmentMatrix (Measure.cpp) makes.
@@ -318,7 +319,7 @@ protected:
         CPPUNIT_ASSERT( !c.HasRawXYZValue() );
 
         RawlessReadingsState s;
-        s.SpectralLeft();
+        s.MatrixSetWithoutWalk();
         if ( s.ComposeOntoRawless() )
             c.applyAdjustmentMatrix(L);
 

@@ -46,7 +46,7 @@ namespace ArchiveTag
 		SENSOR_BODNER_MATRICES    = 2,	// 6 x Matrix::Serialize: raw[0..2] then cal[0..2]
 		SENSOR_CALIBRATION_PAIRS  = 3,	// reserved (Stage 2): raw / reference reading pairs
 		SENSOR_FIT_BASIS          = 4,	// int: SpectralFitBasis of the method's matrices (SpectralCorrection.h)
-		SENSOR_SPECTRAL_CORRECTION= 5,// SpectralCorrectionRecord::Serialize: the ccss correction and its provenance
+		SENSOR_SPECTRAL_CORRECTION= 5,	// SpectralCorrectionRecord::Serialize: the ccss correction and its provenance
 		SENSOR_RAWLESS_EMBODY     = 6	// BOOL: RawlessReadingsState - whether the
 										// readings without raw still embody the
 										// sensor matrix

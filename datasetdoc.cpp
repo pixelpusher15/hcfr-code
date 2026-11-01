@@ -1510,7 +1510,7 @@ static void ShowBodnerSkipCount(int nSkipped)
 // Every single-matrix recalibration of the stored readings. A reading without a
 // raw value takes the delta only while it embodies the sensor's current matrix -
 // the sensor's RawlessReadingsState (Color.h) answers that for every entrance
-// (Bodner, a spectral "leave them", a matrix written without a walk), where the
+// (Bodner, a matrix written without a walk: DDE SetSensorMatrix, Change Sensor), where the
 // previous calibration method could only answer for the first. The walk's own
 // result then updates that state, and its skips are reported.
 static void RecalibrateSingleMatrix(CMeasure & measure, CSensor * pSensor, const Matrix & deltaMatrix, const Matrix & fullMatrix)
@@ -2923,7 +2923,7 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
             if ( !m_pSensor->RawlessReadings().ComposeOntoRawless() && !haveRaw )
             {
                 // Raw-less primaries that embody a correction the sensor no longer has
-                // (Bodner's, or a matrix a spectral correction replaced with "leave them")
+                // (Bodner's, or a matrix replaced without a walk: DDE, Change Sensor)
                 // cannot be fitted on: the matrix would be wrong for the raw readings it
                 // is then applied to, and vice versa. Keyed on the sensor's state, not on
                 // the previous method, so every way into that state is refused.

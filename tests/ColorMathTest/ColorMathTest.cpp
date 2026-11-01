@@ -2415,7 +2415,7 @@ namespace T32Spectral
         if (r2 == r)
             Fail("T32 (d) equality ignores the basis");
 
-        // Through the trailer exactly as CSensor::Serialize writes it: one tag.
+        // Through the trailer exactly as the SensorCalibrationStream codec writes it: one tag.
         // Payload = int 4 + CString(1+18) + DWORD 4 + DWORD 4 + int 4 + CString(1+10)
         //         + 3 x Matrix::Serialize 3x3 (8+4+4+4+72 = 92) + int 4 = 326;
         // region = DWORD cb 4 + tag 1 + DWORD cbValue 4 + 326 = 335.

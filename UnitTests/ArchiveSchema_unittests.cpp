@@ -245,6 +245,7 @@ class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
 	CPPUNIT_TEST( SensorUnknownFitBasisRefused );
 	CPPUNIT_TEST( SensorUnknownRecordValuesRefused );
 	CPPUNIT_TEST( SensorSpectralMethodWithoutRecordRefused );
+	CPPUNIT_TEST( SensorRecordWithSourceNoneIsCorrupt );
 	CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -637,6 +638,26 @@ protected:
 			CPPUNIT_ASSERT_EQUAL( 4, r.exVersion );
 			CPPUNIT_ASSERT( r.exFeature == "spectral correction basis" );
 		}
+	}
+
+	void SensorRecordWithSourceNoneIsCorrupt()
+	{
+		// The writer emits tag 5 only for a present record, so a tag-5 payload
+		// naming source NONE was never written by any HCFR: corruption
+		// (badSchema), not a file from a newer version.
+		StreamBuilder s;
+		s.Ar() << (int) 4;
+		s.Ar() << (time_t) 1789000000;
+		CExtensionWriter ext;
+		ext.BeginTag(ArchiveTag::SENSOR_CALIBRATION_METHOD) << (int) CALIB_HCFR_DEFAULT;
+		ext.EndTag();
+		SpectralCorrectionRecord rec = SpectralRecord(SPECTRAL_SOURCE_FILE, FIT_BASIS_NATIVE);
+		rec.source = SPECTRAL_SOURCE_NONE;
+		rec.Serialize(ext.BeginTag(ArchiveTag::SENSOR_SPECTRAL_CORRECTION));
+		ext.EndTag();
+		ext.Write(s.Ar());
+		LoadResult r = Load(s.Bytes(), false);
+		CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) r.outcome );
 	}
 
 	void SensorSpectralMethodWithoutRecordRefused()

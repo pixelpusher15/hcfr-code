@@ -168,8 +168,12 @@ int LoadSensorCalibration(CArchive& ar, SensorCalibrationFields& f)
 				case ArchiveTag::SENSOR_SPECTRAL_CORRECTION:
 				{
 					// A written record always names its source and its basis; a
-					// value outside the known ones comes from a newer HCFR.
+					// value outside the known ones comes from a newer HCFR. Source
+					// NONE is not one of those: the writer emits this tag only for a
+					// present record, so NONE here is corruption.
 					f.spectral.Serialize ( ext.Value() );
+					if ( f.spectral.source == SPECTRAL_SOURCE_NONE )
+						AfxThrowArchiveException ( CArchiveException::badSchema );
 					if ( f.spectral.source < SPECTRAL_SOURCE_FILE || f.spectral.source > SPECTRAL_SOURCE_DISPLAY_TYPE )
 						throw new CNewerSchemaException ( "CSensor", version, false, "spectral correction source" );
 					if ( f.spectral.basis < FIT_BASIS_NATIVE || f.spectral.basis > FIT_BASIS_DRIVER_CORRECTED )
