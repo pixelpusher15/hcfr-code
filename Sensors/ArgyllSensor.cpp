@@ -505,9 +505,12 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
     // them, so one file added or removed shifts every index after it, and the stored
     // index can name another entry. Unless the user chose the Display Type in the
     // sheet (that choice replaces the record), the entry is looked up by the
-    // record's text. Found: m_DisplayType follows it (member and registry). Gone:
-    // the record keeps applying, the driver measures on a plain entry, and Sync
-    // leaves the Display Type alone (m_displayTypeRecordEntryMissing).
+    // record's text. Found: m_DisplayType follows it. Gone: the record keeps
+    // applying, the driver measures on a plain entry, and Sync leaves the Display
+    // Type alone (m_displayTypeRecordEntryMissing). Either way the member follows
+    // and the registry only when the value came from it (m_displayTypeFromIni): a
+    // document's stored Display Type never rewrites the one the user chose for
+    // new documents, the same rule as the -1 repair above.
     m_displayTypeRecordEntryMissing = false;
     int plainEntry = -1;
     if ( m_meter->canExposeCalibrationMatrices() && m_spectral.source == SPECTRAL_SOURCE_DISPLAY_TYPE
@@ -519,7 +522,8 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
         {
             m_DisplayType = (UINT)ix;
             m_dtBaseIndex = -1;     // the base belongs to the entry it was derived for
-            GetConfig()->WriteProfileInt(m_meter->getMeterName().c_str(), "DisplayType", m_DisplayType );
+            if ( m_displayTypeFromIni )
+                GetConfig()->WriteProfileInt(m_meter->getMeterName().c_str(), "DisplayType", m_DisplayType );
             SetModifiedFlag(TRUE);
         }
         else
@@ -541,14 +545,16 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
                     if ( !m_meter->isDisplayTypeCorrected(i) )
                         plainEntry = i;
             }
-            // The Display Type follows the driver (member and registry), so the page
-            // and the next session show the entry the readings are taken on, not the
-            // stale index. The record is still anchored to its text: should the file
-            // come back, the lookup above finds it again.
+            // The Display Type follows the driver, so the page shows the entry the
+            // readings are taken on, not the stale index, and so does the next session
+            // when the value came from the INI (see above). The record is still
+            // anchored to its text: should the file come back, the lookup above finds
+            // it again.
             if ( plainEntry >= 0 && (UINT)plainEntry != m_DisplayType )
             {
                 m_DisplayType = (UINT)plainEntry;
-                GetConfig()->WriteProfileInt(m_meter->getMeterName().c_str(), "DisplayType", m_DisplayType );
+                if ( m_displayTypeFromIni )
+                    GetConfig()->WriteProfileInt(m_meter->getMeterName().c_str(), "DisplayType", m_DisplayType );
                 SetModifiedFlag(TRUE);
             }
             NoticeLoadedDisplayTypeOnce ( m_spectral.description );
