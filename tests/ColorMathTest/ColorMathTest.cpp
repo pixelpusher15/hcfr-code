@@ -1114,7 +1114,7 @@ static void RunT12()
 }
 
 //////////////////////////////////////////////////////////////////////////
-// T14 — CsvPercentToCode inverse oracle (pure assertion, no golden file).
+// T14 - CsvPercentToCode inverse oracle (pure assertion, no golden file).
 // CsvPercentToCode must be the exact round-trip inverse of CsvCodeToPercent
 // over every code the decode can distinguish: the whole grid for FULL, the
 // legal span (black..white) for LEGAL and the no-header legacy default (whose
