@@ -79,7 +79,8 @@ namespace ArchiveTag
 	// CMeasure (Measure.cpp), trailer from block version 22.
 	enum CMeasureTag
 	{
-		MEASURE_USER_PATCH_SETS = 1	// reserved for csv-provenance
+		MEASURE_USER_PATCH_SETS = 1	// the user patch set collection; value layout in
+									// libHCFR/UserPatchSetStream.h
 	};
 
 	// The .chc document header (datasetdoc.cpp), trailer from file version 5.
@@ -93,7 +94,8 @@ namespace ArchiveTag
 	};
 
 	// Blocks with no tags yet still write a trailer; it simply has cb = 0.
-	// Stage 1 writes and reads ONLY CSensorTag and CColorTag entries.
+	// Stage 1 writes and reads ONLY CSensorTag and CColorTag entries, and
+	// csv-provenance adds MEASURE_USER_PATCH_SETS.
 }
 
 #endif

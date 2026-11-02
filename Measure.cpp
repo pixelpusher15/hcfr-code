@@ -927,8 +927,11 @@ void CMeasure::Serialize(CArchive& ar)
 			ar << m_bOnOffWhiteMeasured;
 		}
 
-		CExtensionWriter ext;
-		ext.Write(ar);
+		// The trailer carries the user patch set collection (tag
+		// MEASURE_USER_PATCH_SETS, libHCFR/UserPatchSetStream.h) when there is
+		// one; the active set's measures were harvested from the USER band at
+		// the top of the store.
+		StoreMeasureTrailer ( ar, m_userPatchSets, m_activeUserSet );
 	}
 	else
 	{
@@ -1374,22 +1377,20 @@ void CMeasure::Serialize(CArchive& ar)
 			m_profileGeneration++;
 		}
 
-		// Version 22: extension trailer, the last thing in the block
-		if ( version >= 22 )
-		{
-			CExtensionReader ext(ar);
-			BYTE  tag;
-			DWORD cb;
-			while ( ext.Next(tag, cb) )
-				ext.Skip();
-			ext.Close();
-		}
-
-		// User patch set collection (multi-set picker). Documents from before
-		// the collection get their USER-band measures wrapped into one set.
+		// Version 22: extension trailer, the last thing in the block. A
+		// document without the MEASURE_USER_PATCH_SETS tag (every one before
+		// version 22, and any without a loaded set) has no sets; its USER
+		// band loads as it always has.
 		m_userPatchSets.clear();
 		m_activeUserSet = -1;
-		MigrateLegacyUserBand ();
+		if ( version >= 22 )
+		{
+			std::vector<CUserPatchSet> sets;
+			int active = -1;
+			LoadMeasureTrailer ( ar, sets, active );
+			m_userPatchSets.swap ( sets );
+			m_activeUserSet = active;
+		}
 
 		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
 
@@ -8264,11 +8265,13 @@ void CMeasure::ActivateUserPatchSet(int idx)
 
 void CMeasure::MigrateLegacyUserBand()
 {
-	// Wrap pre-collection USER-band measures into one set so they appear in the
-	// picker and stay bound to a definition. Called on load of a pre-21 document
-	// and before the first AddUserPatchSet on a document that measured legacy
-	// USER data in this session. The band stays in place - it is now the active
-	// set's window.
+	// Wrap USER-band measures that belong to no set into one set so they
+	// appear in the picker and stay bound to a definition. Called before the
+	// first AddUserPatchSet of a document that holds USER data with no set
+	// loaded (an older document, or one measured with no set), so opening a
+	// file can never discard them. Loading a document never calls it: the
+	// document loads as it was saved. The band stays in place - it is now the
+	// active set's window.
 	if ( !m_userPatchSets.empty() )
 		return;
 

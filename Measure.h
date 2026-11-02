@@ -30,6 +30,7 @@
 #endif // _MSC_VER > 1000
 
 #include "Color.h"
+#include "UserPatchSetStream.h"	// CUserPatchSet
 #include "Sensors\Sensor.h"
 #include "Generators\Generator.h"
 #include <vector>
@@ -141,24 +142,6 @@ struct CSatLevelSet
 {
 	double stimLevel;
 	std::vector<CColor> sat[6];	// R,G,B,Y,C,M — GetSaturationSize() entries each
-};
-
-// A self-contained user patch set: the definition read from a patch-list CSV
-// plus its own measured results, so the .chc is the record even after the
-// source file changes or disappears. The document owns a collection of these
-// (CMeasure::m_userPatchSets). The legacy USER band of the master array stays
-// the live storage for whichever set is active ("band-as-window"), so the
-// sweep, stamp, reapply and display paths need no per-set routing; the set's
-// own copy is refreshed on switch and save.
-struct CUserPatchSet
-{
-	std::string name;               // display name = source file base name
-	std::string srcPath;            // original CSV path (informational; the set is self-contained)
-	int bits;                       // declared bit depth (8/10)
-	int range;                      // CSV_RANGE_* of the definition codes
-	std::vector<CsvPatchRow> rows;  // per-patch definition: patch#, r/g/b codes, name
-	std::vector<CColor> measures;   // measured results, one per row (noDataColor = unmeasured)
-	CUserPatchSet() : bits(8), range(-1) {}
 };
 
 
@@ -340,7 +323,7 @@ public:
 	int AddUserPatchSet(const CUserPatchSet & set);	// alphabetical insert; returns the index; keeps m_activeUserSet pointing at the same set
 	void ActivateUserPatchSet(int idx);				// harvest band -> outgoing set, load incoming set -> band + working array
 	void SyncActiveUserPatchSetFromBand();			// harvest band -> active set (no-op when none active)
-	void MigrateLegacyUserBand();					// wrap pre-collection USER-band measures into one set (load + first-add safety)
+	void MigrateLegacyUserBand();					// wrap USER-band measures taken with no set loaded into one set (first-add safety)
 
 	// Display profile capture
 	CColor GetProfileMeasure(int i) const;
