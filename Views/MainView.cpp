@@ -998,12 +998,18 @@ void CMainView::LayoutTopRow()
 void CMainView::OnActivateView(BOOL bActivate, CView* pActivateView, CView* pDeactiveView)
 {
 	CFormView::OnActivateView(bActivate, pActivateView, pDeactiveView);
-	if ( bActivate && GetConfig () -> m_CCMode == USER && IsMdiActiveDocument () )
+	// Never mid-sweep: the target cache GetCColors fills is process-wide,
+	// and the running sweep stamps each reading's provenance from it
+	// (CMeasure::StampCCProvenance). Re-pointing it at the newly activated
+	// document would label the sweeping document's readings with the other
+	// document's set. The same guard as SwitchUserPatchSet and the mode combo;
+	// the next activation after the sweep refreshes.
+	if ( bActivate && GetConfig () -> m_CCMode == USER && IsMdiActiveDocument () && ! IsMeasureSweepActive () )
 	{
 		// Refresh whether or not this document HAS a set: a document with an
 		// empty collection must also displace the previous document's set from
-		// the global cache (GetCColors falls back to the legacy usercolors
-		// path), or its name and targets linger.
+		// the global cache (GetCColors falls back to the empty "No sequence
+		// loaded" state), or its name and targets linger.
 		GetConfig () -> GetCColors ();
 		if ( m_displayMode == 11 )
 			OnUpdate ( NULL, UPD_CC24SAT, NULL );
