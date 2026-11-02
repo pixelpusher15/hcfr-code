@@ -1942,8 +1942,6 @@
 #define IDS_STIMPRESET_STANDARD         59559
 #define IDS_STIMPRESET_FINE             59560
 #define IDS_DISPLAYPROFILE              59561
-// 59632-59714 reserved by the generators branch (#175); next free above it:
-#define IDS_CUSTOMSEQUENCES             59715
 #define IDS_MEASUREDISPLAYPROFILE       59562
 #define IDS_DELETEDISPLAYPROFILE        59563
 // Display-profile pane (Views/ProfilePane.cpp). Every visible string in that pane
@@ -2044,6 +2042,9 @@
 #define IDS_SCHEMA_UNRELEASED           59747
 #define IDS_SCHEMA_UNRELEASED_DOC       60053
 #define IDS_SCHEMA_UNKNOWN_FEATURE      60054
+// Next free above every branch and worktree on 2026-11-01 (59715 is #175's
+// IDS_GEN_SERIAL_LINK_LOST; 59748-59779 are held for the generators renumbering).
+#define IDS_CUSTOMSEQUENCES             60055
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550

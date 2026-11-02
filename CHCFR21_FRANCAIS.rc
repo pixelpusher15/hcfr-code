@@ -2527,7 +2527,7 @@ BEGIN
             MENUITEM "Sélection...",                IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&mètres...",              IDM_MEASURE_DEFINESCALE
-        MENUITEM "Open patch &list...",         IDM_MEASURE_OPEN_PATCHLIST
+        MENUITEM "Ouvrir une &liste de patchs...", IDM_MEASURE_OPEN_PATCHLIST
         MENUITEM SEPARATOR
         POPUP "S&on de mesure"
         BEGIN
@@ -4139,7 +4139,7 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Standard (pas de 10 %)"
     IDS_STIMPRESET_FINE     "Fin (pas de 5 %)"
     IDS_DISPLAYPROFILE      "Profil d'affichage"
-    IDS_CUSTOMSEQUENCES     "Custom Sequences"
+    IDS_CUSTOMSEQUENCES     "Séquences personnalisées"
     IDS_MEASUREDISPLAYPROFILE "Mesurer le profil d'affichage"
     IDS_DELETEDISPLAYPROFILE "Supprimer le profil d'affichage"
     IDS_SATLUMSHIFT         "Saturation - écarts"
@@ -4169,7 +4169,7 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Mesure les couleurs primaires\nMesure les couleurs primaires"
     IDM_MEASURE_SECONDARIES "Mesure les couleurs primaires et secondaires\nMesure les couleurs primaires et secondaires"
     IDM_MEASURE_DEFINESCALE "Définit les paramètres des mesures (nombre de niveaux)"
-    IDM_MEASURE_OPEN_PATCHLIST "Load a patch list CSV as a user patch set"
+    IDM_MEASURE_OPEN_PATCHLIST "Charger une liste de patchs CSV comme ensemble de patchs utilisateur"
     IDM_SOUND_NONE          "Ne joue aucun son après une mesure"
     IDM_SOUND_SHUTTER       "Joue un déclencheur d'appareil photo après chaque mesure"
     IDM_SOUND_CLICK         "Joue un clic de clavier après chaque mesure"
