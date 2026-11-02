@@ -464,6 +464,7 @@ class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
 	CPPUNIT_TEST( UserPatchSetsCorruptRefused );
 	CPPUNIT_TEST( UserPatchSetsFitTheTrailerCap );
 	CPPUNIT_TEST( MeasureTrailerBytesMatchWriter );
+	CPPUNIT_TEST( UserPatchSetsOutOfRangeFieldsRefused );
 	CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -1102,6 +1103,73 @@ protected:
 			CPPUNIT_ASSERT( SameSets(sets, out) );
 			CPPUNIT_ASSERT_EQUAL( kSentinel, sentinel );
 		}
+	}
+
+	void UserPatchSetsOutOfRangeFieldsRefused()
+	{
+		std::vector<CUserPatchSet> out;
+		int active = 0, sentinel = 0;
+		TrailerLoad load = { &out, &active, &sentinel };
+
+		// Bit depths the importer never produces (it accepts 8 and 10 only)
+		// and ranges outside CSV_RANGE_NONE..CSV_RANGE_EXTENDED are corrupt.
+		// The in-range edges load.
+		static const int badBits[] = { 0, 7, 9, 12, 16 };
+		for ( int k = 0; k < 5; k++ )
+		{
+			std::vector<CUserPatchSet> sets = TwoSets();
+			sets[0].bits = badBits[k];
+			CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) LoadWith(HandTrailer(false, SetsValue(sets, 0)), load) );
+		}
+		static const int badRanges[] = { -2, 3 };
+		for ( int k = 0; k < 2; k++ )
+		{
+			std::vector<CUserPatchSet> sets = TwoSets();
+			sets[1].range = badRanges[k];
+			CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) LoadWith(HandTrailer(false, SetsValue(sets, 0)), load) );
+		}
+		{
+			std::vector<CUserPatchSet> sets = TwoSets();
+			sets[0].bits = 8;  sets[0].range = CSV_RANGE_NONE;
+			sets[1].bits = 10; sets[1].range = CSV_RANGE_EXTENDED;
+			CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) LoadWith(HandTrailer(false, SetsValue(sets, 0)), load) );
+			CPPUNIT_ASSERT( SameSets(sets, out) );
+		}
+
+		// kMaxUserPatchSets loads; one more is refused on read, and the
+		// writer refuses to emit it (badSchema, nothing written).
+		std::vector<CUserPatchSet> many(kMaxUserPatchSets);
+		for ( int i = 0; i < kMaxUserPatchSets; i++ )
+			many[i].name = "s";
+		CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) LoadWith(HandTrailer(false, SetsValue(many, 0)), load) );
+		CPPUNIT_ASSERT_EQUAL( (size_t) kMaxUserPatchSets, out.size() );
+		{
+			StreamBuilder v;
+			v.Ar() << (int) ( kMaxUserPatchSets + 1 ) << (int) -1;
+			for ( int i = 0; i <= kMaxUserPatchSets; i++ )
+			{
+				v.Ar() << CString("") << CString("s") << CString("") << (int) 8 << (int) 0;
+				v.Ar() << (int) 0 << (int) 0 << (int) 0;
+			}
+			CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) LoadWith(HandTrailer(false, v.Bytes()), load) );
+		}
+		many.push_back(many[0]);
+		CMemFile mem;
+		CArchive ar(&mem, CArchive::store);
+		Outcome o = LOADED;
+		try
+		{
+			StoreMeasureTrailer(ar, many, -1);
+		}
+		catch ( CArchiveException* e )
+		{
+			o = ( e->m_cause == CArchiveException::badSchema ) ? BAD_SCHEMA : OTHER_ERROR;
+			e->Delete();
+		}
+		ar.Flush();
+		CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) o );
+		CPPUNIT_ASSERT( mem.GetLength() == 0 );
+		ar.Abort();
 	}
 
 	void MeasureTrailerBytesMatchWriter()

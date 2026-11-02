@@ -71,6 +71,8 @@ namespace
 
 void StoreUserPatchSets(CArchive& ar, const std::vector<CUserPatchSet>& sets, int activeIndex)
 {
+	if ( sets.size() > (size_t) kMaxUserPatchSets )
+		Corrupt();	// a document this build could not read back
 	ar << (int) sets.size();
 	ar << activeIndex;
 	for ( size_t s = 0; s < sets.size(); s++ )
@@ -112,7 +114,7 @@ void StoreUserPatchSets(CArchive& ar, const std::vector<CUserPatchSet>& sets, in
 void LoadUserPatchSets(CArchive& ar, std::vector<CUserPatchSet>& sets, int& activeIndex)
 {
 	int nSets = 0;
-	ReadCount(ar, nSets, INT_MAX, kMinSetBytes);
+	ReadCount(ar, nSets, kMaxUserPatchSets, kMinSetBytes);
 	ar >> activeIndex;
 	if ( activeIndex < -1 || activeIndex >= nSets )
 		Corrupt();
@@ -127,6 +129,10 @@ void LoadUserPatchSets(CArchive& ar, std::vector<CUserPatchSet>& sets, int& acti
 		set.srcPath = ReadString(ar);
 		ar >> set.bits;
 		ar >> set.range;
+		// The importer (ReadCsvPatchRows) declares 8 or 10 bits and a
+		// CSV_RANGE_* value, and CsvCodeToPercent decodes nothing else.
+		if ( ( set.bits != 8 && set.bits != 10 ) || set.range < CSV_RANGE_NONE || set.range > CSV_RANGE_EXTENDED )
+			Corrupt();
 
 		int nRows = 0;
 		ReadCount(ar, nRows, MAX_USER_CC_PATCH_SIZE, kMinRowBytes);
@@ -161,6 +167,8 @@ void LoadUserPatchSets(CArchive& ar, std::vector<CUserPatchSet>& sets, int& acti
 
 void StoreMeasureTrailer(CArchive& ar, const std::vector<CUserPatchSet>& sets, int activeIndex)
 {
+	if ( sets.size() > (size_t) kMaxUserPatchSets )
+		Corrupt();	// refused before a tag is opened, so nothing is written
 	CExtensionWriter ext;
 	if ( ! sets.empty() )
 	{

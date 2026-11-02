@@ -4018,6 +4018,7 @@ BEGIN
     IDS_DISPLAYPROFILE      "Perfil de pantalla"
     IDS_CUSTOMSEQUENCES     "Secuencias personalizadas"
     IDS_PATCHSETS_TOO_LARGE "Añadir esta lista de parches superaría el tamaño que HCFR puede guardar en un documento (%d MB de %d MB). Elimine un conjunto o use una lista más pequeña."
+    IDS_PATCHSETS_TOO_MANY "Este documento ya contiene %d listas de parches, el máximo que HCFR puede guardar en un documento. Cree un documento nuevo para esta lista."
     IDS_MEASUREDISPLAYPROFILE "Medir el perfil de pantalla"
     IDS_DELETEDISPLAYPROFILE "Borrar el perfil de pantalla"
     IDS_SATLUMSHIFT         "Saturación - desviaciones"

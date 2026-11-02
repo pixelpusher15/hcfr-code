@@ -3903,6 +3903,7 @@ BEGIN
     IDS_DISPLAYPROFILE      "Display-Profil"
     IDS_CUSTOMSEQUENCES     "Benutzerdefinierte Sequenzen"
     IDS_PATCHSETS_TOO_LARGE "Mit dieser Patch-Liste würde das Dokument größer, als HCFR speichern kann (%d MB von %d MB). Entfernen Sie einen Satz oder verwenden Sie eine kleinere Liste."
+    IDS_PATCHSETS_TOO_MANY "Dieses Dokument enthält bereits %d Patch-Listen, die Höchstzahl, die HCFR in einem Dokument speichern kann. Legen Sie für diese Liste ein neues Dokument an."
     IDS_MEASUREDISPLAYPROFILE "Display-Profil messen"
     IDS_DELETEDISPLAYPROFILE "Display-Profil löschen"
     IDS_SATLUMSHIFT         "Sättigungsverschiebung"

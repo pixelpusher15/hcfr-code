@@ -27,14 +27,14 @@
 // Tag value layout (ArchiveTags.h, CMeasureTag 1). All ints are 32-bit, and
 // strings are CArchive CStrings:
 //
-//     int     setCount             >= 0
+//     int     setCount             0..kMaxUserPatchSets
 //     int     activeIndex          -1 (none) or 0..setCount-1
 //     per set, setCount times:
 //       CString sequenceId         the sequence file's identity; "" for a patch-list CSV
 //       CString name               display name
 //       CString srcPath            the file it was loaded from (informational)
-//       int     bits               declared bit depth of the definition codes
-//       int     range              CSV_RANGE_* of the definition codes
+//       int     bits               declared bit depth of the definition codes: 8 or 10
+//       int     range              CSV_RANGE_* of the definition codes: -1..2
 //       int     rowCount           0..MAX_USER_CC_PATCH_SIZE
 //       per row: int patch, int r, int g, int b, CString name, int role
 //       int     measureCount       0..MAX_USER_CC_PATCH_SIZE
@@ -76,11 +76,17 @@ struct CUserPatchSet
 	CUserPatchSet() : bits(8), range(-1) {}
 };
 
+// The most sets one document holds. Open patch list... refuses one more, the
+// writer refuses to emit more (badSchema), and the reader refuses a count
+// above it as corrupt.
+static const int kMaxUserPatchSets = 64;
+
 #ifdef LIBHCFR_HAS_MFC
 
 #include <afx.h>
 
-// Writes the tag value described above.
+// Writes the tag value described above. Throws CArchiveException::badSchema,
+// before writing anything, for more than kMaxUserPatchSets sets.
 void StoreUserPatchSets(CArchive& ar, const std::vector<CUserPatchSet>& sets, int activeIndex);
 
 // Reads the tag value into sets and activeIndex. ar must be a loading

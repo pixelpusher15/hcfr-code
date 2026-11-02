@@ -5041,6 +5041,16 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 		}
 	bool bRefresh = ( existing >= 0 && (int) m_measure.GetUserPatchSet ( existing )->rows.size () == nRows );
 
+	// A document holds at most kMaxUserPatchSets sets; the reader refuses more.
+	if ( ! bRefresh && m_measure.GetUserPatchSetCount () >= kMaxUserPatchSets )
+	{
+		CString fmt, msg;
+		fmt.LoadString ( IDS_PATCHSETS_TOO_MANY );
+		msg.Format ( fmt, kMaxUserPatchSets );
+		AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
+		return false;
+	}
+
 	// Refuse a list the document could not save once it is measured: the
 	// CMeasure trailer is capped at kMaxExtensionBytes (ArchiveExtension.h).
 	{
