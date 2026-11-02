@@ -1379,8 +1379,7 @@ void CMeasure::Serialize(CArchive& ar)
 
 		// Version 22: extension trailer, the last thing in the block. A
 		// document without the MEASURE_USER_PATCH_SETS tag (every one before
-		// version 22, and any without a loaded set) has no sets; its USER
-		// band loads as it always has.
+		// version 22, and any saved without a loaded set) has no sets.
 		m_userPatchSets.clear();
 		m_activeUserSet = -1;
 		if ( version >= 22 )
@@ -1391,6 +1390,13 @@ void CMeasure::Serialize(CArchive& ar)
 			m_userPatchSets.swap ( sets );
 			m_activeUserSet = active;
 		}
+
+		// A set-less document whose USER band holds readings gets them wrapped
+		// into one active set here, whatever its version: with no set loaded,
+		// GetCColors shows USER as empty ("No sequence loaded") and the
+		// readings would sit under no definition. No-op when sets were loaded
+		// or the band is empty.
+		MigrateLegacyUserBand ();
 
 		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
 
@@ -8266,12 +8272,11 @@ void CMeasure::ActivateUserPatchSet(int idx)
 void CMeasure::MigrateLegacyUserBand()
 {
 	// Wrap USER-band measures that belong to no set into one set so they
-	// appear in the picker and stay bound to a definition. Called before the
-	// first AddUserPatchSet of a document that holds USER data with no set
-	// loaded (an older document, or one measured with no set), so opening a
-	// file can never discard them. Loading a document never calls it: the
-	// document loads as it was saved. The band stays in place - it is now the
-	// active set's window.
+	// appear in the picker and stay bound to a definition. Called when a
+	// document loads with no sets (any version), and before the first
+	// AddUserPatchSet of a document that measured USER data with no set
+	// loaded in this session, so opening a file can never discard them. The
+	// band stays in place - it is now the active set's window.
 	if ( !m_userPatchSets.empty() )
 		return;
 

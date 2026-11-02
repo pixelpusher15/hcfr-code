@@ -323,7 +323,7 @@ public:
 	int AddUserPatchSet(const CUserPatchSet & set);	// alphabetical insert; returns the index; keeps m_activeUserSet pointing at the same set
 	void ActivateUserPatchSet(int idx);				// harvest band -> outgoing set, load incoming set -> band + working array
 	void SyncActiveUserPatchSetFromBand();			// harvest band -> active set (no-op when none active)
-	void MigrateLegacyUserBand();					// wrap USER-band measures taken with no set loaded into one set (first-add safety)
+	void MigrateLegacyUserBand();					// wrap USER-band measures that belong to no set into one set (load + first-add safety)
 
 	// Display profile capture
 	CColor GetProfileMeasure(int i) const;
