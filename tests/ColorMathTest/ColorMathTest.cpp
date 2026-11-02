@@ -13,6 +13,7 @@
 // T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
 // T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table,
 // T14 asserts the CsvPercentToCode inverse round-trips every code the decode distinguishes,
+// T18 asserts the whiter-than-white reference EOTF extension (bExtendSDR),
 // T19 asserts the #193 archive extension trailer: round trip, unknown-tag skip,
 // legacy bytes, rejections, the primitives, append-only values, and the legacy store,
 // and T22 asserts the test-color window paints each patch's own code.
@@ -1149,6 +1150,190 @@ static void RunT14()
             Fail("T14 bits=%d legal sub-black clamp", bits);
         if (CsvPercentToCode(CsvCodeToPercent(maxCode, bits, CSV_RANGE_LEGAL), bits, CSV_RANGE_LEGAL) != white)
             Fail("T14 bits=%d legal super-white clamp", bits);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T18 - WTW (whiter-than-white) reference EOTF extension oracle (pure
+// assertion, no golden file).
+//
+// EXTENDED-range patch sets drive stimulus up to ~109.5% (10-bit code 1023).
+// getL_EOTF gained a defaulted bExtendSDR flag: when TRUE and the mode is a
+// relative SDR curve (BT.1886=4, L*=6, sRGB=99), a stimulus above 1.0 is
+// capped at 1.1 and fed through the normal formula instead of returning flat
+// white, so a WTW reference follows the extrapolated curve. Everything else -
+// every existing call site (flag defaults FALSE), PQ, HLG, inverse modes -
+// must be bit-identical to the old clip behavior. This oracle pins:
+//   (a) the default-arg contract: no flag => exactly the old clip values;
+//       HLG stays clipped even WITH the flag (scope guard);
+//   (b) seam continuity at 1.0 (the formulas equal 1.0 there, so the strict
+//       valx>1 gate cannot introduce a step), and for relative BT.1886
+//       the step stays within the exponent refinement's last correction;
+//   (c) monotone growth over (1, 1.1] and a hard cap binding above 1.1;
+//   (d) known closed-form values for each extended curve;
+//   (e) the importer chain: real EXTENDED max codes decode below the 1.1
+//       cap, so the cap never distorts a real patch list.
+//////////////////////////////////////////////////////////////////////////
+static double EotfPlain(double v, int mode, double split = 0.0)
+{
+    return getL_EOTF(v, noDataColor, noDataColor, 0.0, split, mode);
+}
+static double EotfExt(double v, int mode, double split = 0.0)
+{
+    return getL_EOTF(v, noDataColor, noDataColor, 0.0, split, mode,
+                     94.37844, 0.0, 4000.0, 0.00, 700.0, false, false,
+                     1.2, 1.0, 0.0, 1.1, true);
+}
+// The relative-BT.1886 exponent refinement of getL_EOTF, reproduced only to
+// read out its last correction: e8 is the exponent the final a,b were built
+// from, e9 the one Lbt uses. maxL/minL are noDataColor's 100 / 0.012.
+static void RelBt1886Refine(double g_rel, double split, double& b, double& e8, double& e9)
+{
+    const double maxL = 100.0, minL = 0.012;
+    double yh = maxL * pow(0.5, g_rel), off = split / 100.0 * minL, e = g_rel, a;
+    a = pow(pow(maxL, 1.0 / e) - pow(off, 1.0 / e), e);
+    b = pow(off, 1.0 / e) / (pow(maxL, 1.0 / e) - pow(off, 1.0 / e));
+    e = (log(yh) - log(a)) / log(0.5 + b);
+    e8 = e;
+    for (int i = 0; i < 9; i++)
+    {
+        e8 = e;
+        a = pow(pow(maxL, 1.0 / e) - pow(off, 1.0 / e), e);
+        b = pow(off, 1.0 / e) / (pow(maxL, 1.0 / e) - pow(off, 1.0 / e));
+        e = (log(yh) - log(a)) / log(0.5 + b);
+    }
+    e9 = e;
+}
+
+static void RunT18()
+{
+    printf("T18 WTW reference EOTF extension oracle...\n");
+
+    static const int sdrModes[] = { 4, 6, 99 };   // BT.1886, L*, sRGB
+
+    // (a) default-arg regression: without the flag, >1 still clips exactly
+    static const double overs[] = { 1.0 + 1e-9, 1.05, 1.09, 5.0 };
+    for (int m = 0; m < _countof(sdrModes); m++)
+        for (int v = 0; v < _countof(overs); v++)
+            if (EotfPlain(overs[v], sdrModes[m]) != 1.0)
+                Fail("T18a mode=%d valx=%g: unflagged over-range no longer clips to 1.0",
+                     sdrModes[m], overs[v]);
+    for (int v = 0; v < _countof(overs); v++)
+    {
+        if (EotfPlain(overs[v], 5) != 100.0)
+            Fail("T18a PQ valx=%g: over-range no longer returns 100", overs[v]);
+        if (EotfExt(overs[v], 7) != 1.0)
+            Fail("T18a HLG valx=%g: over-range extended flag must stay clipped", overs[v]);
+    }
+
+    // (b) seam continuity at 1.0: extended value just above the seam matches
+    // the unflagged value at exactly 1.0 (formula equals 1.0 there)
+    for (int m = 0; m < _countof(sdrModes); m++)
+    {
+        double at1  = EotfPlain(1.0, sdrModes[m]);
+        double just = EotfExt(1.0 + 1e-9, sdrModes[m]);
+        if (fabs(just - at1) > 1e-6)
+            Fail("T18b mode=%d: seam step %.9f -> %.9f", sdrModes[m], at1, just);
+    }
+    // BT.1886 with a black-offset split engaged: seam still continuous
+    {
+        double at1  = EotfPlain(1.0, 4, 75.0);
+        double just = EotfExt(1.0 + 1e-9, 4, 75.0);
+        if (fabs(just - at1) > 1e-6)
+            Fail("T18b BT.1886 split=75: seam step %.9f -> %.9f", at1, just);
+    }
+    // Relative BT.1886 (g_rel != 0; the app default is 0, absolute). getL_EOTF
+    // refines the exponent in a fixed 9-pass loop with no convergence test, so
+    // the curve meets white only to that loop's last correction. For the a,b
+    // built from e8, a*(1+b)^e8 == maxL exactly (algebra), and Lbt(1) uses e9,
+    // so f(1) - 1 = maxL*((1+b)^(e9-e8) - 1) / (maxL + minL*(1 - split/100)).
+    // The unflagged path clips to exactly 1.0 at the seam, so f(1) - 1 is the
+    // step the extended branch adds there. Bound: first order in (e9-e8), with
+    // a 1e-6 relative margin for the dropped higher-order terms plus 16 ulp
+    // of rounding in the a/b/pow chain:
+    //   |step| <= |e9-e8| * ln(1+b) * maxL/(maxL+c) * (1 + 1e-6) + 16*eps.
+    {
+        static const double grels[]  = { 2.4, 2.2 };
+        static const double splits[] = { 0.0, 75.0, 100.0 };
+        const double eps = std::numeric_limits<double>::epsilon();
+        for (int g = 0; g < _countof(grels); g++)
+            for (int s = 0; s < _countof(splits); s++)
+            {
+                double step = getL_EOTF(1.0, noDataColor, noDataColor, grels[g], splits[s], 4) - 1.0;
+                double b, e8, e9;
+                RelBt1886Refine(grels[g], splits[s], b, e8, e9);
+                double c = 0.012 * (1.0 - splits[s] / 100.0);
+                double bound = fabs(e9 - e8) * log(1.0 + b) * 100.0 / (100.0 + c) * (1.0 + 1e-6) + 16.0 * eps;
+                printf("  T18b rel BT.1886 g_rel=%.1f split=%3.0f: seam step %.3e (bound %.3e)\n",
+                       grels[g], splits[s], step, bound);
+                if (!(fabs(step) <= bound))
+                    Fail("T18b rel BT.1886 g_rel=%g split=%g: seam step %.3e exceeds %.3e",
+                         grels[g], splits[s], step, bound);
+                // and the extended branch just above the seam continues from it
+                double just = getL_EOTF(1.0 + 1e-9, noDataColor, noDataColor, grels[g], splits[s], 4,
+                                        94.37844, 0.0, 4000.0, 0.00, 700.0, false, false,
+                                        1.2, 1.0, 0.0, 1.1, true);
+                if (!(just > 1.0 + step) || just - (1.0 + step) > 1e-8)
+                    Fail("T18b rel BT.1886 g_rel=%g split=%g: extended f(1+1e-9)=%.15f not continuous with f(1)=%.15f",
+                         grels[g], splits[s], just, 1.0 + step);
+            }
+    }
+
+    // (c) monotone over (1, 1.1], capped and bounded above 1.1
+    for (int m = 0; m < _countof(sdrModes); m++)
+    {
+        double prev = EotfExt(1.0 + 1e-9, sdrModes[m]);
+        for (double v = 1.005; v <= 1.1 + 1e-12; v += 0.005)
+        {
+            double y = EotfExt(v, sdrModes[m]);
+            if (y < prev - 1e-12)
+            {
+                Fail("T18c mode=%d: extended curve falls %.9f -> %.9f at %.3f",
+                     sdrModes[m], prev, y, v);
+                break;
+            }
+            if (y <= 1.0 - 1e-9 || y >= 2.0)
+            {
+                Fail("T18c mode=%d: extended value %.9f out of (1,2) at %.3f",
+                     sdrModes[m], y, v);
+                break;
+            }
+            prev = y;
+        }
+        if (EotfExt(1.12, sdrModes[m]) != EotfExt(1.1, sdrModes[m]))
+            Fail("T18c mode=%d: 1.1 cap not binding above 1.1", sdrModes[m]);
+    }
+
+    // (d) known closed-form values (formulas from getL_EOTF with noDataColor:
+    // maxL=100, minL=0.012, split=0, exp0=2.4)
+    {
+        double v = 1.087;
+        double want = pow((v + 0.055) / 1.055, 2.4);
+        if (fabs(EotfExt(v, 99) - want) > 1e-12)
+            Fail("T18d sRGB(%g): %.15f != %.15f", v, EotfExt(v, 99), want);
+        v = 1.05;
+        want = pow((v * 100.0 + 16.0) / 116.0, 3.0);
+        if (fabs(EotfExt(v, 6) - want) > 1e-12)
+            Fail("T18d L*(%g): %.15f != %.15f", v, EotfExt(v, 6), want);
+        want = (100.0 * pow(v, 2.4) + 0.012) / 100.012;
+        if (fabs(EotfExt(v, 4) - want) > 1e-12)
+            Fail("T18d BT.1886(%g): %.15f != %.15f", v, EotfExt(v, 4), want);
+    }
+
+    // (e) importer chain: real EXTENDED max codes stay under the 1.1 cap and
+    // extend through the curve
+    {
+        double v8  = CsvCodeToPercent(255, 8, CSV_RANGE_EXTENDED) / 100.0;   // (255-16)/219
+        double v10 = CsvCodeToPercent(1023, 10, CSV_RANGE_EXTENDED) / 100.0; // (1023-64)/876
+        if (fabs(v8 - (255.0 - 16.0) / 219.0) > 1e-12 || v8 >= 1.1)
+            Fail("T18e 8-bit extended max decodes to %.9f (cap would bind)", v8);
+        if (fabs(v10 - (1023.0 - 64.0) / 876.0) > 1e-12 || v10 >= 1.1)
+            Fail("T18e 10-bit extended max decodes to %.9f (cap would bind)", v10);
+        double want = pow((v8 + 0.055) / 1.055, 2.4);
+        if (fabs(EotfExt(v8, 99) - want) > 1e-12)
+            Fail("T18e sRGB chain: %.15f != %.15f", EotfExt(v8, 99), want);
+        if (pow(min(v8, 1.1), 2.4) <= 1.0)   // the mode<4 call-site shape
+            Fail("T18e power-gamma chain not above white");
     }
 }
 
@@ -2835,6 +3020,7 @@ int main(int argc, char* argv[])
     RunT12();
     RunT13();
     RunT14();
+    RunT18();
     RunT19();
     RunT32();
     RunT22();
