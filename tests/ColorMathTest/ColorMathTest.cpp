@@ -1167,7 +1167,8 @@ static void RunT14()
 //   (a) the default-arg contract: no flag => exactly the old clip values;
 //       HLG stays clipped even WITH the flag (scope guard);
 //   (b) seam continuity at 1.0 (the formulas equal 1.0 there, so the strict
-//       valx>1 gate cannot introduce a step);
+//       valx>1 gate cannot introduce a step), and for relative BT.1886
+//       the step stays within the exponent refinement's last correction;
 //   (c) monotone growth over (1, 1.1] and a hard cap binding above 1.1;
 //   (d) known closed-form values for each extended curve;
 //   (e) the importer chain: real EXTENDED max codes decode below the 1.1
@@ -1182,6 +1183,26 @@ static double EotfExt(double v, int mode, double split = 0.0)
     return getL_EOTF(v, noDataColor, noDataColor, 0.0, split, mode,
                      94.37844, 0.0, 4000.0, 0.00, 700.0, false, false,
                      1.2, 1.0, 0.0, 1.1, true);
+}
+// The relative-BT.1886 exponent refinement of getL_EOTF, reproduced only to
+// read out its last correction: e8 is the exponent the final a,b were built
+// from, e9 the one Lbt uses. maxL/minL are noDataColor's 100 / 0.012.
+static void RelBt1886Refine(double g_rel, double split, double& b, double& e8, double& e9)
+{
+    const double maxL = 100.0, minL = 0.012;
+    double yh = maxL * pow(0.5, g_rel), off = split / 100.0 * minL, e = g_rel, a;
+    a = pow(pow(maxL, 1.0 / e) - pow(off, 1.0 / e), e);
+    b = pow(off, 1.0 / e) / (pow(maxL, 1.0 / e) - pow(off, 1.0 / e));
+    e = (log(yh) - log(a)) / log(0.5 + b);
+    e8 = e;
+    for (int i = 0; i < 9; i++)
+    {
+        e8 = e;
+        a = pow(pow(maxL, 1.0 / e) - pow(off, 1.0 / e), e);
+        b = pow(off, 1.0 / e) / (pow(maxL, 1.0 / e) - pow(off, 1.0 / e));
+        e = (log(yh) - log(a)) / log(0.5 + b);
+    }
+    e9 = e;
 }
 
 static void RunT18()
@@ -1220,6 +1241,42 @@ static void RunT18()
         double just = EotfExt(1.0 + 1e-9, 4, 75.0);
         if (fabs(just - at1) > 1e-6)
             Fail("T18b BT.1886 split=75: seam step %.9f -> %.9f", at1, just);
+    }
+    // Relative BT.1886 (g_rel != 0; the app default is 0, absolute). getL_EOTF
+    // refines the exponent in a fixed 9-pass loop with no convergence test, so
+    // the curve meets white only to that loop's last correction. For the a,b
+    // built from e8, a*(1+b)^e8 == maxL exactly (algebra), and Lbt(1) uses e9,
+    // so f(1) - 1 = maxL*((1+b)^(e9-e8) - 1) / (maxL + minL*(1 - split/100)).
+    // The unflagged path clips to exactly 1.0 at the seam, so f(1) - 1 is the
+    // step the extended branch adds there. Bound: first order in (e9-e8), with
+    // a 1e-6 relative margin for the dropped higher-order terms plus 16 ulp
+    // of rounding in the a/b/pow chain:
+    //   |step| <= |e9-e8| * ln(1+b) * maxL/(maxL+c) * (1 + 1e-6) + 16*eps.
+    {
+        static const double grels[]  = { 2.4, 2.2 };
+        static const double splits[] = { 0.0, 75.0, 100.0 };
+        const double eps = std::numeric_limits<double>::epsilon();
+        for (int g = 0; g < _countof(grels); g++)
+            for (int s = 0; s < _countof(splits); s++)
+            {
+                double step = getL_EOTF(1.0, noDataColor, noDataColor, grels[g], splits[s], 4) - 1.0;
+                double b, e8, e9;
+                RelBt1886Refine(grels[g], splits[s], b, e8, e9);
+                double c = 0.012 * (1.0 - splits[s] / 100.0);
+                double bound = fabs(e9 - e8) * log(1.0 + b) * 100.0 / (100.0 + c) * (1.0 + 1e-6) + 16.0 * eps;
+                printf("  T18b rel BT.1886 g_rel=%.1f split=%3.0f: seam step %.3e (bound %.3e)\n",
+                       grels[g], splits[s], step, bound);
+                if (!(fabs(step) <= bound))
+                    Fail("T18b rel BT.1886 g_rel=%g split=%g: seam step %.3e exceeds %.3e",
+                         grels[g], splits[s], step, bound);
+                // and the extended branch just above the seam continues from it
+                double just = getL_EOTF(1.0 + 1e-9, noDataColor, noDataColor, grels[g], splits[s], 4,
+                                        94.37844, 0.0, 4000.0, 0.00, 700.0, false, false,
+                                        1.2, 1.0, 0.0, 1.1, true);
+                if (!(just > 1.0 + step) || just - (1.0 + step) > 1e-8)
+                    Fail("T18b rel BT.1886 g_rel=%g split=%g: extended f(1+1e-9)=%.15f not continuous with f(1)=%.15f",
+                         grels[g], splits[s], just, 1.0 + step);
+            }
     }
 
     // (c) monotone over (1, 1.1], capped and bounded above 1.1
