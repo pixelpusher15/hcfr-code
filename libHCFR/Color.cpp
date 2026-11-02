@@ -3009,9 +3009,10 @@ void CColor::Serialize(CArchive& archive)
 			// SaveOldCalibrationFile only (CColorLegacyStoreScope): the pre-#193
 			// layout, which a 4.1 reader accepts. Bare base 1/3/5/6, XYZ, the two
 			// zero 3x3 "ignore" matrices, then spectrum and lux in the order the
-			// legacy reader expects, and no trailer. Raw XYZ, stimulus and
-			// timestamp have no legacy encoding and are dropped. T19 (g) pins
-			// these bytes against the (c) goldens captured from the old writer.
+			// legacy reader expects, and no trailer. Raw XYZ, stimulus,
+			// timestamp and provenance have no legacy encoding and are
+			// dropped. T19 (g) pins these bytes against the (c) goldens
+			// captured from the old writer.
 			archive << base;
 			m_XYZValues.Serialize(archive) ;
 
@@ -3070,6 +3071,20 @@ void CColor::Serialize(CArchive& archive)
 		if ( m_pTimestamp )
 		{
 			ext.BeginTag ( ArchiveTag::COLOR_TIMESTAMP ) << (* m_pTimestamp);
+			ext.EndTag ();
+		}
+
+		if ( m_pProvenance )
+		{
+			// patchNumber, sequenceIndex, srcBits, srcRange, name, role. New
+			// fields go after role; never reorder (see CColorProvenance).
+			CArchive& value = ext.BeginTag ( ArchiveTag::COLOR_PROVENANCE );
+			value << m_pProvenance->patchNumber;
+			value << m_pProvenance->sequenceIndex;
+			value << m_pProvenance->srcBits;
+			value << m_pProvenance->srcRange;
+			value << CString ( m_pProvenance->name.c_str() );
+			value << m_pProvenance->role;
 			ext.EndTag ();
 		}
 
@@ -3221,6 +3236,32 @@ void CColor::LoadFrom(CArchive& archive)
 					m_pTimestamp = NULL;
 					m_pTimestamp = new double;
 					value >> (* m_pTimestamp);
+					break;
+				}
+
+				case ArchiveTag::COLOR_PROVENANCE:
+				{
+					CArchive& value = ext.Value();
+					delete m_pProvenance;
+					m_pProvenance = NULL;
+					m_pProvenance = new CColorProvenance;
+					value >> m_pProvenance->patchNumber;
+					value >> m_pProvenance->sequenceIndex;
+					value >> m_pProvenance->srcBits;
+					value >> m_pProvenance->srcRange;
+					CString name;
+					value >> name;
+					m_pProvenance->name = (LPCTSTR) name;
+					// The role was appended after the first five fields, so a
+					// value may end before it. Flush hands the archive's unread
+					// buffer back to the value's memory file, whose position
+					// then counts exactly what has been consumed.
+					value.Flush();
+					CFile* pValueFile = value.GetFile();
+					if ( pValueFile->GetLength() - pValueFile->GetPosition() >= sizeof(int) )
+						value >> m_pProvenance->role;
+					else
+						m_pProvenance->role = PROVENANCE_ROLE_UNKNOWN;
 					break;
 				}
 

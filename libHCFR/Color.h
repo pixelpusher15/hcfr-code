@@ -254,6 +254,27 @@ public:
 // self-describing independent of the patch-list file it came from - the basis for
 // browsable multi-set patch lists and volumetric characterization. Optional, lazily
 // allocated, mirroring the raw-XYZ / stimulus optional fields on CColor.
+//
+// Stored in the CColor extension trailer as ArchiveTag::COLOR_PROVENANCE:
+// patchNumber, sequenceIndex, srcBits, srcRange (4 x int), name (CString),
+// then role (int). The value is append-only: a reader takes the fields it
+// knows and ignores any that follow, and a value without the role reads as
+// PROVENANCE_ROLE_UNKNOWN.
+
+// What a reading was for, as the source sequence row declared it. Per reading,
+// not per run, because one run mixes roles. A patch-list CSV declares none, so
+// every reading it drives is UNKNOWN. Values are stored; never renumber.
+enum CColorProvenanceRole
+{
+	PROVENANCE_ROLE_UNKNOWN        = -1,
+	PROVENANCE_ROLE_COLOR          = 0,	// C: an ordinary measured patch
+	PROVENANCE_ROLE_ANCHOR         = 1,	// A: a drift anchor
+	PROVENANCE_ROLE_PREROLL        = 2,	// P: a warm-up patch before the run
+	PROVENANCE_ROLE_VERIFICATION   = 3,	// V: a verification patch
+	PROVENANCE_ROLE_INTERSTITIAL   = 4,	// I: shown between patches, never measured
+	PROVENANCE_ROLE_IDENTIFICATION = 5	// X: identifies the run on the wire
+};
+
 struct CColorProvenance
 {
 	int         patchNumber;    // stable identity within the source list (-1 = unknown)
@@ -261,7 +282,8 @@ struct CColorProvenance
 	int         srcBits;        // source bit depth: 8 or 10 (0 = unknown)
 	int         srcRange;       // source CSV range: -1 legacy, 0 full, 1 legal, 2 extended
 	std::string name;           // patch name from the source list ("" = none)
-	CColorProvenance() : patchNumber(-1), sequenceIndex(-1), srcBits(0), srcRange(-1) {}
+	int         role;           // CColorProvenanceRole
+	CColorProvenance() : patchNumber(-1), sequenceIndex(-1), srcBits(0), srcRange(-1), role(PROVENANCE_ROLE_UNKNOWN) {}
 };
 
 class CColor

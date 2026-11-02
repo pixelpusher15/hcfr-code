@@ -68,7 +68,10 @@ namespace ArchiveTag
 	{
 		COLOR_RAW_XYZ    = 1,	// Matrix::Serialize (3x1): uncorrected sensor reading
 		COLOR_STIMULUS   = 2,	// Matrix::Serialize (3x1): drive stimulus, RGB percent
-		COLOR_PROVENANCE = 3,	// reserved for csv-provenance: 4 x int, CString, then int role (append-only)
+		COLOR_PROVENANCE = 3,	// CColorProvenance: 4 x int (patch number, sequence index, source
+								// bits, source range), CString name, then int role
+								// (CColorProvenanceRole). Append-only; a value
+								// without the role reads as role UNKNOWN.
 		COLOR_CONTEXT    = 4,	// reserved (Stage 2): int index into DOC_CONTEXTS
 		COLOR_TIMESTAMP  = 5	// Stage 1: double, seconds since the Unix epoch, sub-second
 	};

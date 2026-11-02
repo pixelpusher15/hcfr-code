@@ -1159,8 +1159,8 @@ static void RunT14()
 // prefixed, tagged extension region (libHCFR/ArchiveExtension.h). CColor is
 // the one block that lives in libHCFR, so it is the block this console
 // harness can pin end to end:
-//   (a) a color carrying every optional field round-trips exactly, and the
-//       stream's version is base + 100;
+//   (a) a color carrying every optional field (provenance with a role
+//       included) round-trips exactly, and the stream's version is base + 100;
 //   (b) a trailer with an unknown tag is skipped by byte count and the NEXT
 //       color in the stream still decodes - the whole point of the design;
 //   (c) legacy streams captured from the pre-trailer writer (bases 1/3/5/6,
@@ -1176,7 +1176,11 @@ static void RunT14()
 //       trailer, exact value extents, and discard-on-Close;
 //   (f) append-only within a tag: a known value longer than this build
 //       reads is consumed whole and the next tag still decodes; a color
-//       without a TIMESTAMP tag has none;
+//       without a TIMESTAMP or PROVENANCE tag has none; a PROVENANCE value
+//       that ends after its five original fields reads with role UNKNOWN,
+//       one with the role reads it, and one with a further int reads the
+//       role and drops the rest - also when the fields fill the archive
+//       buffer exactly;
 //   (g) the legacy store (CColorLegacyStoreScope, used by the
 //       SaveOldCalibrationFile writer) emits exactly the (c) goldens, so a
 //       file written for 4.1 is readable there without a 4.1 build.
@@ -1294,6 +1298,7 @@ namespace T19Ext
         if (c.HasRawXYZValue())   Fail("T19 %s: unexpected raw XYZ", what);
         if (c.HasStimulusValue()) Fail("T19 %s: unexpected stimulus", what);
         if (c.HasTimestamp())     Fail("T19 %s: unexpected timestamp", what);
+        if (c.HasProvenance())    Fail("T19 %s: unexpected provenance", what);
     }
 
     static void ExpectSpectrum(const char* what, const CColor& c, int rows, int wlMin, int wlMax, double bw, const double* samples)
@@ -1359,6 +1364,56 @@ namespace T19Ext
         double got = c.GetTimestamp();
         if (memcmp(&got, &t, sizeof t) != 0)
             Fail("T19 %s: timestamp = %.17g, expected %.17g bit-exact", what, got, t);
+    }
+
+    static void ExpectProvenance(const char* what, const CColor& c, int patch, int seq, int bits,
+                                 int range, const std::string& name, int role)
+    {
+        if (!c.HasProvenance())
+        {
+            Fail("T19 %s: provenance missing", what);
+            return;
+        }
+        CColorProvenance p = c.GetProvenance();
+        if (p.patchNumber != patch || p.sequenceIndex != seq || p.srcBits != bits || p.srcRange != range)
+            Fail("T19 %s: provenance %d/%d/%d/%d, expected %d/%d/%d/%d", what,
+                 p.patchNumber, p.sequenceIndex, p.srcBits, p.srcRange, patch, seq, bits, range);
+        if (p.name != name)
+            Fail("T19 %s: provenance name of %u chars, expected %u chars", what,
+                 (unsigned)p.name.size(), (unsigned)name.size());
+        if (p.role != role)
+            Fail("T19 %s: provenance role %d, expected %d", what, p.role, role);
+    }
+
+    // CArchive's ANSI CString layout: a BYTE length below 255, else 0xFF and
+    // a WORD length (below 0xFFFE), then the characters.
+    static void PutCString(Bytes& b, const std::string& s)
+    {
+        if (s.size() < 255)
+            PutByte(b, (BYTE)s.size());
+        else
+        {
+            PutByte(b, 0xFF);
+            WORD n = (WORD)s.size();
+            PutRaw(b, &n, 2);
+        }
+        PutRaw(b, s.data(), s.size());
+    }
+
+    // A PROVENANCE value: the five fields csv-provenance first wrote, then
+    // `extra` trailing ints (the role first).
+    static Entry ProvenanceEntry(const std::string& name, const std::vector<int>& extra)
+    {
+        Entry e;
+        e.tag = (BYTE)ArchiveTag::COLOR_PROVENANCE;
+        PutInt(e.value, 42);
+        PutInt(e.value, 7);
+        PutInt(e.value, 10);
+        PutInt(e.value, 1);
+        PutCString(e.value, name);
+        for (size_t i = 0; i < extra.size(); ++i)
+            PutInt(e.value, extra[i]);
+        return e;
     }
 
     static void ExpectBytes(const char* what, const Bytes& got, const unsigned char* want, size_t n)
@@ -1506,6 +1561,14 @@ namespace T19Ext
         src.SetRawXYZValue(ColorXYZ(0.2, 0.4, 0.6));
         src.SetStimulusValue(ColorRGBDisplay(10.0, 20.0, 30.0));
         src.SetTimestamp(kTimestamp);
+        CColorProvenance prov;
+        prov.patchNumber = 42;
+        prov.sequenceIndex = 7;
+        prov.srcBits = 10;
+        prov.srcRange = 1;
+        prov.name = "Skin tone (light)";
+        prov.role = PROVENANCE_ROLE_ANCHOR;
+        src.SetProvenance(prov);
 
         Bytes b = Store(src);
         if (b.size() < 4)
@@ -1531,6 +1594,7 @@ namespace T19Ext
         ExpectRaw("(a)", dst, 0.2, 0.4, 0.6);
         ExpectStimulus("(a)", dst, 10.0, 20.0, 30.0);
         ExpectTimestamp("(a)", dst, kTimestamp);
+        ExpectProvenance("(a)", dst, 42, 7, 10, 1, "Skin tone (light)", PROVENANCE_ROLE_ANCHOR);
 
         // The base-only color (no optional field) must carry an empty trailer,
         // never no trailer: pin its exact bytes so a "write it only when
@@ -1867,6 +1931,8 @@ namespace T19Ext
                 ExpectRaw("(f) no timestamp", c, 0.2, 0.4, 0.6);
                 if (c.HasTimestamp())
                     Fail("T19 (f) no timestamp: HasTimestamp() is true");
+                if (c.HasProvenance())
+                    Fail("T19 (f) no provenance: HasProvenance() is true");
             }
         }
 
@@ -1916,6 +1982,45 @@ namespace T19Ext
                 ExpectXYZ("(f) long RAW_XYZ value", c, 0.25, 0.5, 0.75);
                 ExpectRaw("(f) long RAW_XYZ value", c, 0.2, 0.4, 0.6);
                 ExpectStimulus("(f) long RAW_XYZ value", c, 10.0, 20.0, 30.0);
+            }
+        }
+
+        // PROVENANCE (tag 3) with (i) the five original fields only, (ii) the
+        // role, (iii) the role and one more int a newer build appended, each
+        // followed by RAW_XYZ; (iv) and (v) repeat (i) and (ii) with a 4077-
+        // character name, so the five fields end exactly at CArchive's 4096-
+        // byte buffer (16 + 3 + 4077): a role check that watched the buffer
+        // instead of the value would find it empty and drop (v)'s role.
+        {
+            struct Case { const char* name; size_t nameLen; int nExtra; int role; };
+            static const Case cases[] = {
+                { "(f) provenance, five fields",        17,   0, PROVENANCE_ROLE_UNKNOWN },
+                { "(f) provenance with role",           17,   1, PROVENANCE_ROLE_VERIFICATION },
+                { "(f) provenance with role and more",  17,   2, PROVENANCE_ROLE_VERIFICATION },
+                { "(f) long-name provenance, five",     4077, 0, PROVENANCE_ROLE_UNKNOWN },
+                { "(f) long-name provenance with role", 4077, 1, PROVENANCE_ROLE_VERIFICATION },
+            };
+            for (int i = 0; i < (int)(sizeof cases / sizeof cases[0]); ++i)
+            {
+                std::string name = (cases[i].nameLen == 17) ? std::string("Skin tone (light)")
+                                                            : std::string(cases[i].nameLen, 'n');
+                std::vector<int> extra;
+                if (cases[i].nExtra >= 1) extra.push_back(PROVENANCE_ROLE_VERIFICATION);
+                if (cases[i].nExtra >= 2) extra.push_back(77);
+                std::vector<Entry> entries;
+                entries.push_back(ProvenanceEntry(name, extra));
+                entries.push_back(raw);
+                Bytes b;
+                PutColor101(b, 0.25, 0.5, 0.75, entries);
+                CColor c;
+                CException* e = Load(b, &c, 1);
+                if (e)
+                    FailUnexpected(cases[i].name, e);
+                else
+                {
+                    ExpectProvenance(cases[i].name, c, 42, 7, 10, 1, name, cases[i].role);
+                    ExpectRaw(cases[i].name, c, 0.2, 0.4, 0.6);
+                }
             }
         }
     }
