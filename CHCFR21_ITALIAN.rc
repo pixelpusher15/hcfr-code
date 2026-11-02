@@ -286,11 +286,11 @@ BEGIN
     CONTROL         "Misurazione continua",IDC_CHECK_CONTINUOUS,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,79,83,10
     CONTROL         "Rileva grigio/primari durante le misurazione utente",IDC_CHECK_DETECT_PRIMARIES,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,91,175,10
-    GROUPBOX        "Iris dinamica",IDC_STATIC,7,109,203,65,WS_GROUP
-    LTEXT           "Latenca",IDC_STATIC,14,120,40,8
+    GROUPBOX        "Temporizzazione misura",IDC_STATIC,7,109,203,65,WS_GROUP
+    LTEXT           "Ritardo",IDC_STATIC,14,120,40,8
     EDITTEXT        IDC_EDIT_IRIS_TIME,60,118,21,14,ES_AUTOHSCROLL | WS_GROUP
     LTEXT           "ms",IDC_STATIC,86,120,10,8
-    CONTROL         "Bip all ìnitio della misurazione (aiuta a definire la lantenza)",IDC_CHECK_BEEP,
+    CONTROL         "Bip all'inizio della lettura (aiuta a regolare il ritardo)",IDC_CHECK_BEEP,
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,14,135,194,10
     GROUPBOX        "Colori da agiungere nella misurazione dei primari e secundari",IDC_STATIC,7,179,203,25,WS_GROUP
     CONTROL         "Nente",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,13,190,35,10
@@ -356,7 +356,7 @@ CAPTION "Info su Colorimetro HCFR"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
     CONTROL         IDB_LOGO,IDC_STATIC,"Statico",SS_BITMAP,7,7,172,62
-    LTEXT           "Version 4.1.0.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
+    LTEXT           "Version 4.2.1.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
     LTEXT           "Copyright (C) 2012-2026 Hcfr Project\nCopyright (C) 2005-2008 Association Homecinema Francophone",IDC_STATIC2,7,88,168,24
     LTEXT           "hcfr.sourceforge.net",IDC_HOMECINEMA_HYPERLINK,7,119,80,8
     LTEXT           "IDC_PLACEHOLDER",IDC_PLACEHOLDER,4,136,177,117
@@ -568,7 +568,7 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,15,152,184,10
 END
 
-IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 222
+IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 232
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Sensore Argyll"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
@@ -993,7 +993,7 @@ BEGIN
     GROUPBOX        "Display di riferimento",IDC_DISPLAY_GROUP,7,7,204,50
     RTEXT           "Nome del display",IDC_STATIC,28,20,55,15
     RTEXT           "Tecnologia del display",IDC_STATIC,17,38,66,15
-    EDITTEXT        IDC_DISPLAY_TECH,89,36,115,14,ES_AUTOHSCROLL
+    COMBOBOX        IDC_DISPLAY_TECH,89,36,115,150,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
 END
 
 
@@ -1335,7 +1335,7 @@ BEGIN
     IDC_INFO_DISPLAY, 0x403, 9, 0
 0x7053, 0x6365, 0x7274, 0x6d75, "\000" 
     IDC_INFO_DISPLAY, 0x403, 18, 0
-0x754c, 0x696d, 0x616e, 0x636e, 0x2065, 0x202d, 0x6147, 0x6d6d, 0x0061, 
+0x754c, 0x696d, 0x616e, 0x7a6e, 0x2061, 0x202d, 0x6147, 0x6d6d, 0x0061, 
 
     IDC_INFO_DISPLAY, 0x403, 12, 0
 0x4752, 0x2042, 0x202d, 0x6147, 0x6d6d, 0x0061, 
@@ -2318,7 +2318,7 @@ BEGIN
             MENUITEM "&Seleziona...",             IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&metri...",               IDM_MEASURE_DEFINESCALE
-        MENUITEM "Open patch &list...",         IDM_MEASURE_OPEN_PATCHLIST
+        MENUITEM "Apri e&lenco di patch...",    IDM_MEASURE_OPEN_PATCHLIST
         MENUITEM SEPARATOR
         POPUP "S&uono di misura"
         BEGIN
@@ -2893,8 +2893,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 4,1,0,0
- PRODUCTVERSION 4,1,0,0
+ FILEVERSION 4,2,1,0
+ PRODUCTVERSION 4,2,1,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -2912,12 +2912,12 @@ BEGIN
             VALUE "Comments", "Under GPL Licence"
             VALUE "CompanyName", "Association Homecinema Francophone"
             VALUE "FileDescription", "HCFR Colorimeter resources"
-            VALUE "FileVersion", "4.1.0.0"
+            VALUE "FileVersion", "4.2.1.0"
             VALUE "InternalName", "CHCFR21_ENGLISH"
             VALUE "LegalCopyright", "Copyright (C) 2005-2026"
             VALUE "OriginalFilename", "CHCFR21_ENGLISH.DLL"
             VALUE "ProductName", "HCFR Colorimeter English langage"
-            VALUE "ProductVersion", "4.1.0.0"
+            VALUE "ProductVersion", "4.2.1.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -3015,11 +3015,11 @@ END
 
 STRINGTABLE
 BEGIN
+    IDR_MAINFRAME           "Colorimetro HCFR - 4.2.1.0"
     IDS_CALIB_RGB_MATRIX    "Matrice RGB (ASTM E1455-92)"
     IDS_CALIB_FCMM_NOLUM    "NIST quattro colori / FCMM (senza scala di luminanza)"
     IDS_CALIB_FCMM_LUM      "NIST quattro colori / FCMM (con scala di luminanza)"
     IDS_CALIB_BODNER        "Bodner-Robinson tre-matrici (schermi RGBW)"
-    IDR_MAINFRAME           "Colorimetro HCFR - 4.1.0.0"
     IDR_MESURETYPE          "\nMisure di colore\nMisure_di_colore\nFile ColorHCFR (*.chc)\n.chc\nCOLORHCFR\nMisure di colore HCFR"
 END
 
@@ -3424,6 +3424,8 @@ BEGIN
                             "Posiziona il sensore sullo schermo e clicca su sì per continuare.\nSi può interrompere la lettura premendo il tasto <ESC>"
     IDS_SPECTRAL_SAMPLE_UNEXPECTED_EXCEPTION 
                             "Eccezione inattesa durante la generazione del campione spettrale di calibrazione del colorimetro"
+    IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS 
+                            "Lo spettrometro ha restituito più bande spettrali di quante ne possa contenere un campione spettrale di calibrazione del colorimetro"
     IDS_REC709aREDREF       "Rec709 (75%) Riferimento rosso"
     IDS_REC709aGREENREF     "Rec709 (75%) Riferimento verde"
     IDS_REC709aBLUEREF      "Rec709 (75%) Riferimento blu"
@@ -4068,6 +4070,8 @@ BEGIN
     IDS_3DVIEW_SHOWFLOOR    "Mostra base CIE (xyY)"
     IDS_3DVIEW_SHOWTAILS    "Mostra linee verso il target"
     IDS_3DVIEW_SHOWPROFILE  "Mostra punti del profilo"
+    IDS_3DVIEW_GAMUTCOV     "Copertura %.1f%%"
+    IDS_3DVIEW_GAMUTVOL     "Volume %.1f%%"
     IDS_3DVIEW_RESETVIEW    "Reimposta vista"
     IDS_3DVIEW_FILTER_ALL   "Mostra tutti"
     IDS_3DVIEW_FILTER_HIDE  "Nascondi < %s dE"
@@ -4090,7 +4094,9 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Standard (passi 10%)"
     IDS_STIMPRESET_FINE     "Fine (passi 5%)"
     IDS_DISPLAYPROFILE      "Profilo del display"
-    IDS_CUSTOMSEQUENCES     "Custom Sequences"
+    IDS_CUSTOMSEQUENCES     "Sequenze personalizzate"
+    IDS_PATCHSETS_TOO_LARGE "Aggiungere questo elenco di patch supererebbe la dimensione che HCFR può salvare in un documento (%d MB su %d MB). Rimuovere un set o usare un elenco più piccolo."
+    IDS_PATCHSETS_TOO_MANY "Questo documento contiene già %d elenchi di patch, il massimo che HCFR può salvare in un documento. Creare un nuovo documento per questo elenco."
     IDS_MEASUREDISPLAYPROFILE "Misura il profilo del display"
     IDS_DELETEDISPLAYPROFILE "Cancella il profilo del display"
     IDS_SATLUMSHIFT         "Saturazione - turni"
@@ -4120,7 +4126,7 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Misura i colori primari\nMisurare i colori primari"
     IDM_MEASURE_SECONDARIES "Misura i colori primari e secondari\nMisurare i colori primari e secondari"
     IDM_MEASURE_DEFINESCALE "Definire i parametri di misura (numero di livelli)"
-    IDM_MEASURE_OPEN_PATCHLIST "Load a patch list CSV as a user patch set"
+    IDM_MEASURE_OPEN_PATCHLIST "Carica un elenco di patch CSV come set di patch utente"
     IDM_SOUND_NONE          "Non riprodurre alcun suono dopo una misura"
     IDM_SOUND_SHUTTER       "Riproduce uno scatto fotografico dopo ogni misura"
     IDM_SOUND_CLICK         "Riproduce un clic di tastiera dopo ogni misura"
@@ -4240,7 +4246,7 @@ BEGIN
     IDS_PP_CUBEFMT          "cubo %dx%dx%d"
     IDS_PP_PATCHESTIME      "%d pattern  -  %s"
     IDS_PP_STARTPROFILE     "Avvia profilo"
-    IDS_PP_REPLACESEXISTING "   (sostituisce l'acquisizione esistente)"
+    IDS_PP_REPLACESEXISTING "   (sostituisce grigi, primari e profilo)"
     IDS_PP_CHK_GRAYEXTRAS   "Pattern aggiuntivi sull'asse dei grigi e vicino al nero"
     IDS_PP_CHK_DRIFTCOMP    "Compensazione della deriva (rimisura il bianco ogni 64 pattern)"
     IDS_PP_RUNSTATUS        "Profilazione %dx%dx%d%s%s%s"
@@ -4249,6 +4255,8 @@ BEGIN
     IDS_PP_PAUSED           "   -   IN PAUSA"
     IDS_PP_PATCHOF          "Pattern %d di %d  -  RGB %.0f, %.0f, %.0f"
     IDS_PP_ETA              "%d%%  -  circa %s rimanenti"
+    IDS_PP_MEASURINGREFS    "Grigi e primari (%d di %d)..."
+    IDS_PP_DISCGENERATOR    "Un profilo del display richiede un generatore in grado di mostrare qualsiasi colore. I generatori basati su disco non sono supportati."
     IDS_PP_AVGDE            "dE medio"
     IDS_PP_MAXDE            "dE max"
     IDS_PP_DRIFT            "Deriva"
@@ -4324,13 +4332,30 @@ BEGIN
     IDS_SPECTRAL_NONE           "Nessuna"
     IDS_SPECTRAL_FILEFILTER     "Correzione spettrale (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|CSV di correlazione (*.csv)|*.csv||"
     IDS_SPECTRAL_REAPPLY_FAILED "Non è stato possibile riapplicare al misuratore la correzione spettrale memorizzata:\n%s\n\nLe letture sono NON CORRETTE finché non viene riapplicata o cancellata nelle proprietà del sensore."
-    IDS_SPECTRAL_MATRIXCAL_PROMPT "Questo sensore ha una calibrazione a matrice. Applicando una correzione spettrale, questa diventerà l'unica correzione per le nuove letture.\n\nLe misure esistenti sono state acquisite con la calibrazione a matrice: riportarle ai valori grezzi (non corretti) del sensore?\n\nSì - riporta le misure esistenti ai valori grezzi\nNo - lasciarle come sono (miste alle nuove letture spettrali)\nAnnulla - non applicare la correzione spettrale"
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "Questo sensore ha una calibrazione a matrice. La correzione spettrale la sostituisce per i valori mostrati. Ogni lettura conserva il suo valore grezzo, quindi in seguito si può calcolare di nuovo una matrice.\n\nContinuare?"
     IDS_SPECTRAL_ACTIVE_TITLE   "Correzione spettrale attiva"
     IDS_SPECTRAL_CLEAR_FOR_MATRIX "Questo sensore usa una correzione spettrale (ccss/CSV), applicata nel misuratore.\nUna calibrazione a matrice si sommerebbe ad essa (doppia correzione).\n\nCancellare la correzione spettrale e calibrare invece con una matrice?"
     IDS_CALIB_METHOD_TITLE      "Metodo di calibrazione"
     IDS_CALIB_METHOD_OUT_OF_SYNC "Il metodo di calibrazione selezionato nelle Opzioni differisce da quello attualmente applicato a queste misure: non sono state ricalcolate dopo il cambio di metodo. L'esportazione rifletterà il metodo APPLICATO.\n\nPer ricalcolare prima, annulla ed esegui 'Crea usando misure di riferimento esistenti' (o un comando di calibrazione).\n\nContinuare con l'esportazione?"
-    IDS_BODNER_SKIPPED_FMT      "Non è stato possibile ricalibrare %d misura(e) registrate prima dell'attivazione di questa funzione."
+    IDS_BODNER_SKIPPED_FMT      "%d misura(e) senza lettura grezza del sensore (registrate prima dell'acquisizione dei valori grezzi, o modificate a mano) sono state lasciate invariate."
+    IDS_CALIB_NEED_RAW_PRIMARIES "Misurare prima di nuovo i primari e il bianco: quelli memorizzati non hanno una lettura grezza del sensore, e da valori con una correzione che il sensore non applica più (Bodner, o una matrice sostituita da una correzione spettrale) non si può calcolare una matrice."
+    IDS_CALIB_NEED_REF_WHITE    "Il documento di riferimento non ha un bianco misurato: misurare prima il suo bianco (o i primari con il bianco)."
+    IDS_SPECTRAL_SUPERSEDE_WARN "La calibrazione a matrice verrà calcolata sulle letture non corrette del misuratore, e applicata ad esse.\nLa correzione spettrale (%s) resta caricata, ma non influirà più sui valori mostrati. Per usarla di nuovo, caricarla di nuovo nelle proprietà del sensore.\n\nContinuare?"
+    IDS_SPECTRAL_STATUS_INACTIVE_FMT "Correzione spettrale: %s (caricata, non applicata: è in uso una calibrazione a matrice)"
+    IDS_SPECTRAL_STATUS_DISPTYPE_FMT "Correzione spettrale: %s (dal tipo di display)"
+    IDS_SPECTRAL_UNIT_MISMATCH  "La correzione spettrale in questo file è stata calcolata per il misuratore con numero di serie %s; il misuratore collegato è %s. È stata calcolata di nuovo dal misuratore collegato."
+    IDS_SPECTRAL_BROWSE_REFUSED_DISPTYPE "Il tipo di display selezionato include già una correzione spettrale. Scegliere un tipo di display semplice per usare un file di correzione."
+    IDS_SPECTRAL_STATUS_COMPOSED_FMT "Correzione spettrale: %s (applicata in aggiunta alla calibrazione a matrice)"
+    IDS_SPECTRAL_DISPTYPE_FAILED "Non è stato possibile calcolare la correzione spettrale del tipo di display, che è stata rimossa:\n%s"
+    IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "Il documento caricato include una correzione spettrale da tipo di display (%s) che non è il tipo di display attuale. Resta in uso finché non si cambia il tipo di display."
+    IDS_SPECTRAL_COMPOSE_WARN   "Il file che si sta caricando non contiene l'indicazione della base di adattamento. La correzione spettrale verrà applicata in aggiunta alla sua matrice (come faceva HCFR 4.1). Continuare?"
+    IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "La correzione spettrale in uso (%s) è stata calcolata per il misuratore %s, non per quello collegato, e qui non c'è alcun file di correzione da cui calcolarla di nuovo. Resta in uso. Per calcolarla per questo misuratore, selezionare il suo file di correzione nelle proprietà del sensore."
+    IDS_SPECTRAL_FILE_MOVED_NOTICE "Il file di correzione spettrale non si trova più nella posizione salvata:\n\n%s\n\nLa correzione calcolata da esso resta in uso per questo misuratore. Per usare il documento con un altro misuratore, o per calcolarla di nuovo, selezionare il file nelle proprietà del sensore."
     IDS_EXPORT_LAYOUT_MISMATCH  "Impossibile aggiungere a questo file: è stato esportato con opzioni Grezzo/Stimolo diverse. Esporta in un nuovo file, o ripeti l'esportazione con le stesse opzioni dei dati esistenti."
+    IDS_SCHEMA_NEWER        "Questo file è stato scritto da una versione più recente di HCFR (%s versione %d). Aggiorna HCFR per aprirlo."
+    IDS_SCHEMA_UNRELEASED   "Questo file è stato scritto da una versione di sviluppo non pubblicata di HCFR (%s versione %d) e non può essere letto. Rigeneralo."
+    IDS_SCHEMA_UNRELEASED_DOC "Questo file è stato scritto da una versione di sviluppo non pubblicata di HCFR (versione documento %d). Aprilo con quella versione."
+    IDS_SCHEMA_UNKNOWN_FEATURE "Questo file usa un elemento che questa versione di HCFR non ha (%s). Probabilmente è stato scritto da una versione più recente; aggiorna HCFR per aprirlo."
 END
 
 #endif    // Italienisch (Italien) resources

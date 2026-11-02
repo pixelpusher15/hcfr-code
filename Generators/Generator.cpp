@@ -28,6 +28,7 @@
 #include "Color.h"
 #include "madTPG.h"
 #include "Generator.h"
+#include "ArchiveExtension.h"
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -89,7 +90,7 @@ void CGenerator::Serialize(CArchive& archive)
 	CObject::Serialize(archive) ;
 	if (archive.IsStoring())
 	{
-		int version=6;
+		int version=7;
 		archive << version;
 		archive << m_doScreenBlanking;
 		archive << m_b16_235;
@@ -97,13 +98,17 @@ void CGenerator::Serialize(CArchive& archive)
 		archive << m_bdispTrip;
 		archive << m_bLinear;
 		archive << m_brPi_user;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 6 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 7 )
+			throw new CNewerSchemaException ( "CGenerator", version );
 		archive >> m_doScreenBlanking;
 		if ( version > 1 )
 			archive >> m_b16_235;
@@ -115,6 +120,18 @@ void CGenerator::Serialize(CArchive& archive)
 			archive >> m_bLinear;
 		if ( version > 5 )
 			archive >>	m_brPi_user;
+
+		if ( version >= 7 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 

@@ -240,6 +240,12 @@ public:
     COLORREF GetColorRef(bool is16_235) const;
     static BYTE ConvertPercentToBYTE(double percent, bool is16_235);
     static int ConvertPercentToCode(double percent, bool is16_235, int bits);
+    // HCFR's test-color window: its picker holds an 8-bit full-range code, which
+    // the window paints as is, or for a limited-range generator as
+    // round(c * 219/255 + 16) clamped to 16..235.
+    static int TestWindowShownCode(int pickerCode, bool is16_235);
+    // The picker code the window shows as percent's nearest 8-bit code in the range.
+    static int TestWindowPickerCode(double percent, bool is16_235);
 #endif
 };
 
@@ -248,6 +254,27 @@ public:
 // self-describing independent of the patch-list file it came from - the basis for
 // browsable multi-set patch lists and volumetric characterization. Optional, lazily
 // allocated, mirroring the raw-XYZ / stimulus optional fields on CColor.
+//
+// Stored in the CColor extension trailer as ArchiveTag::COLOR_PROVENANCE:
+// patchNumber, sequenceIndex, srcBits, srcRange (4 x int), name (CString),
+// then role (int). The value is append-only: a reader takes the fields it
+// knows and ignores any that follow, and a value without the role reads as
+// PROVENANCE_ROLE_UNKNOWN.
+
+// What a reading was for, as the source sequence row declared it. Per reading,
+// not per run, because one run mixes roles. A patch-list CSV declares none, so
+// every reading it drives is UNKNOWN. Values are stored; never renumber.
+enum CColorProvenanceRole
+{
+	PROVENANCE_ROLE_UNKNOWN        = -1,
+	PROVENANCE_ROLE_COLOR          = 0,	// C: an ordinary measured patch
+	PROVENANCE_ROLE_ANCHOR         = 1,	// A: a drift anchor
+	PROVENANCE_ROLE_PREROLL        = 2,	// P: a warm-up patch before the run
+	PROVENANCE_ROLE_VERIFICATION   = 3,	// V: a verification patch
+	PROVENANCE_ROLE_INTERSTITIAL   = 4,	// I: shown between patches, never measured
+	PROVENANCE_ROLE_IDENTIFICATION = 5	// X: identifies the run on the wire
+};
+
 struct CColorProvenance
 {
 	int         patchNumber;    // stable identity within the source list (-1 = unknown)
@@ -255,7 +282,8 @@ struct CColorProvenance
 	int         srcBits;        // source bit depth: 8 or 10 (0 = unknown)
 	int         srcRange;       // source CSV range: -1 legacy, 0 full, 1 legal, 2 extended
 	std::string name;           // patch name from the source list ("" = none)
-	CColorProvenance() : patchNumber(-1), sequenceIndex(-1), srcBits(0), srcRange(-1) {}
+	int         role;           // CColorProvenanceRole
+	CColorProvenance() : patchNumber(-1), sequenceIndex(-1), srcBits(0), srcRange(-1), role(PROVENANCE_ROLE_UNKNOWN) {}
 };
 
 class CColor
@@ -340,11 +368,25 @@ public:
 	void ClearProvenance();
 	bool HasProvenance() const;
 	CColorProvenance GetProvenance() const;
+	// Wall-clock time of the reading, in seconds since the Unix epoch with a
+	// sub-second fraction, stamped at measure time beside the raw XYZ and the
+	// stimulus. Drift anchors need time, not index, to be plotted against the
+	// clock. Legacy readings carry none.
+	void SetTimestamp(double aTimestamp);
+	void ClearTimestamp();
+	bool HasTimestamp() const;
+	double GetTimestamp() const;		// 0.0 when none
 
     void Output(ostream& ostr) const;
 
 #ifdef LIBHCFR_HAS_MFC
     void Serialize(CArchive& archive);
+
+	// When true, Serialize stores the pre-#193 layout (base 1/3/5/6, the two
+	// ignore matrices, a v1 spectrum, no trailer) that a 4.1 reader accepts.
+	// Set ONLY through CColorLegacyStoreScope, by the SaveOldCalibrationFile
+	// writer; never on a load.
+	static bool s_bStoreLegacy;
 #endif
 
 protected:
@@ -354,7 +396,33 @@ protected:
 	ColorXYZ *	m_pRawXYZValues;
 	ColorRGBDisplay *	m_pStimulus;
 	CColorProvenance *	m_pProvenance;
+	double *	m_pTimestamp;
+
+#ifdef LIBHCFR_HAS_MFC
+private:
+	// The load half of Serialize, run on a temporary so a refused load leaves
+	// the target color untouched.
+	void LoadFrom(CArchive& archive);
+#endif
 };
+
+#ifdef LIBHCFR_HAS_MFC
+// Switches CColor::Serialize to its legacy store layout for the lifetime of
+// the scope, and restores the previous setting on exit (so scopes nest and an
+// exception cannot leave it on). Used only by CCalibrationInfo::Serialize when
+// it writes its v1 (SaveOldCalibrationFile) block.
+struct CColorLegacyStoreScope
+{
+	CColorLegacyStoreScope() : m_bPrevious(CColor::s_bStoreLegacy) { CColor::s_bStoreLegacy = true; }
+	~CColorLegacyStoreScope() { CColor::s_bStoreLegacy = m_bPrevious; }
+
+private:
+	bool m_bPrevious;
+
+	CColorLegacyStoreScope(const CColorLegacyStoreScope&);
+	CColorLegacyStoreScope& operator=(const CColorLegacyStoreScope&);
+};
+#endif
 
 class CSpectrum: public Matrix
 {
@@ -801,6 +869,21 @@ extern ColorRGB ContainerPrimaryLinear(const CColorReference& active, int index)
 extern CColor theMeasure;
 extern CColor noDataColor;
 
+// Sensor reads come back with X, Y and Z each floored at 1e-8 before the
+// sensor matrix is applied (CSensor::MeasureColor), so a reading of no light
+// still has Y > 0 - at the equal-energy point, x = y = 1/3, with the default
+// identity matrix, which looks like a real tint. This cut (cd/m2) tells that
+// placeholder from light: 100x above the floor and
+// well under the ~1e-5 the most sensitive calibration meters resolve, so
+// every real reading, however dark, is kept. The contrast readouts use it
+// too (grayscale header and on/off), so "Infinity" and an empty black
+// agree.
+const double BLACK_MIN_LIGHT_Y = 0.000001;
+inline bool HasMeasuredLight ( double Y ) { return Y > BLACK_MIN_LIGHT_Y; }
+
+// Target for black (0%) on the grayscale page - see Color.cpp.
+extern CColor BlackTargetReference ( const CColor & aMeasure, double YWhite, const CColor & aReference, const CColor & refWhite );
+
 // Tool functions
 extern void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode = 0, double stimLevel = 1.0, bool b10bit = false, bool is16_235 = true);
 extern bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit = false, bool is16_235 = true);
@@ -817,7 +900,53 @@ enum CalibrationMatrixMethod
 	CALIB_CLASSIC_NIST			= 0,	// ASTM E1455-92 "RGB method": 3-primary tristimulus matrix, no white, no luminance scaling
 	CALIB_HCFR_DEFAULT			= 1,	// NIST Four-Color Method (FCMM, Ohno & Hardis 1997) + the paper's optional luminance scaling
 	CALIB_BODNER_THREEMATRIX	= 2,	// RGBW sub-gamut three-matrix method (Bodner & Robinson, SID 2019)
-	CALIB_FCMM_NO_LUM			= 3		// NIST Four-Color Method (FCMM), chromaticity only - no luminance scaling
+	CALIB_FCMM_NO_LUM			= 3,	// NIST Four-Color Method (FCMM), chromaticity only - no luminance scaling
+	CALIB_SPECTRAL_SAMPLE		= 4,		// Spectral sample (ccss) correction derived from the meter driver's two
+										// emission calibration matrices (libHCFR/SpectralCorrection.h); applied by
+										// HCFR to native readings exactly like the FCMM matrix. Chosen by loading a
+										// sample, never from the Advanced page's method list.
+
+	// Not a method: one past the last one. Keep it last; readers refuse a
+	// stored method at or above it as a file from a newer HCFR.
+	CALIB_METHOD_COUNT
+};
+
+// Whether the stored readings that carry no raw sensor value (recorded before
+// raw capture existed, or edited by hand) still embody the sensor's CURRENT
+// single correction matrix. Only then may a matrix recalibration move them by
+// composing delta = new * inverse(current) onto them - the bComposeLegacy
+// argument of CMeasure::ApplySensorAdjustmentMatrix; otherwise they are left as
+// they are and counted in the skipped-readings notice.
+//
+// This is state, not something the previous calibration method can answer. A
+// Bodner fit and a matrix written without walking the readings (DDE
+// SetSensorMatrix, Change Sensor) each leave them embodying a matrix the sensor
+// no longer has, and every later matrix recalibration skips them again, so they
+// stay that way.
+// The rule that keyed on "the previous method was single-matrix" saw only the
+// first of those and forgot it after one recalibration. CSensor keeps one of
+// these and stores it in its stream (version 4).
+class RawlessReadingsState
+{
+public:
+	RawlessReadingsState() : m_embodyCurrentMatrix(true) {}
+	bool ComposeOntoRawless() const { return m_embodyCurrentMatrix; }
+	// A Bodner correction was installed: its single matrix is identity and its
+	// walk skipped every raw-less reading.
+	void BodnerInstalled() { m_embodyCurrentMatrix = false; }
+	// The single matrix was replaced and no reading was recomputed.
+	void MatrixSetWithoutWalk() { m_embodyCurrentMatrix = false; }
+	// A single-matrix recalibration walked the readings with ComposeOntoRawless()
+	// and skipped nSkipped raw-less ones. Composed readings embody the new matrix
+	// and skipped ones still do not, so the answer stands - unless the walk found
+	// none to skip: then nothing is stranded and every reading embodies the new
+	// matrix. A Bodner walk never re-arms it (BodnerInstalled): a reading edited
+	// under Bodner embodies the sub-gamut correction, not the identity matrix.
+	void SingleMatrixWalked(int nSkipped) { if ( nSkipped == 0 ) m_embodyCurrentMatrix = true; }
+	bool Get() const { return m_embodyCurrentMatrix; }
+	void Set(bool b) { m_embodyCurrentMatrix = b; }
+private:
+	bool m_embodyCurrentMatrix;
 };
 
 // Builds the three Bodner sub-gamut matrices (index 0=rgw, 1=gbw, 2=rbw) from the
@@ -842,7 +971,8 @@ enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_E
 // Shared patch-list parsing (one parser: ReadColorsFromCsv percentages + GetCColors codes/names).
 #include <vector>
 #include <string>
-struct CsvPatchRow { int patch, r, g, b; std::string name; };
+// role is a CColorProvenanceRole; a CSV declares none, so the parser leaves -1.
+struct CsvPatchRow { int patch, r, g, b; std::string name; int role = -1; };
 extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut );
 // Resolve a CC mode to its patch-list file (predefined CSV or USER) + HDR-recalc flag; false for inline-array modes.
 extern bool ResolveCCSetPath ( int aCCMode, CString & outPath, bool * recalcOut );

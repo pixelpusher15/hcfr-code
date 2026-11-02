@@ -209,6 +209,8 @@ public:
 	afx_msg void OnUpdateViewSatLumshift(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateViewMeasuresCombo(CCmdUI* pCmdUI);
 	//}}AFX_MSG
+	afx_msg void OnFileOpenGuarded();
+	afx_msg BOOL OnOpenRecentFileGuarded(UINT nID);
 	DECLARE_MESSAGE_MAP()
 private:
     CrashDump m_enablesCrashDump;

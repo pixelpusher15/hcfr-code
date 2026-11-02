@@ -81,6 +81,7 @@ public:
 	virtual BOOL DisplayRGBCCast(const ColorRGBDisplay& aRGBColor, bool first, UINT nPattern);
 	virtual BOOL CanDisplayAnsiBWRects(); 
 	virtual BOOL CanDisplayAnimatedPatterns(BOOL isSpecialty = TRUE); 
+	virtual BOOL PaintsTestColorWnd();
 	virtual BOOL DisplayAnsiBWRects(BOOL bInvert);
 	virtual BOOL DisplayAnimatedBlack();
 	virtual BOOL DisplayAnimatedWhite();
