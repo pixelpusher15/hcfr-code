@@ -24,6 +24,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "MTCSSensor.h"
+#include "ArchiveExtension.h"
 #include "SerialCom.h"
 
 // Include for device interface (this device interface is outside GNU GPL license)
@@ -92,20 +93,24 @@ void CMTCSSensor::Serialize(CArchive& archive)
 
 	if (archive.IsStoring())
 	{
-		int version=1;
+		int version=3;
 		archive << version;
 		archive << m_nAverageMode;
 		archive << m_ReadTime;
 		archive << m_bAdjustTime;
 		archive << m_nAmpValue;
 		archive << m_debugMode;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version, dummy;
 		archive >> version;
-		if ( version > 2 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 3 )
+			throw new CNewerSchemaException ( "CMTCSSensor", version );
 		archive >> m_nAverageMode;
 		archive >> m_ReadTime;
 		archive >> m_bAdjustTime;
@@ -113,6 +118,18 @@ void CMTCSSensor::Serialize(CArchive& archive)
 		archive >> m_debugMode;
 		if ( version == 2 )
 			archive >> dummy;	// was nShiftValue, useless -> version 2 cancelled
+
+		if ( version >= 3 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 

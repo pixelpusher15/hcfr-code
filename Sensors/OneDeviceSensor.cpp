@@ -24,6 +24,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "OneDeviceSensor.h"
+#include "ArchiveExtension.h"
 #include "Generator.h"
 #include "Signature.h"
 #include <math.h>
@@ -56,7 +57,9 @@ void CCalibrationInfo::Serialize(CArchive& archive)
 {
 	if (archive.IsStoring())
 	{
-		int version=2;
+		// v3 (issue #193) = the v2 layout plus an extension trailer, empty so
+		// far. The SaveOldCalibrationFile switch still writes v1.
+		int version=3;
 
 		if ( GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
 			version = 1;
@@ -64,21 +67,38 @@ void CCalibrationInfo::Serialize(CArchive& archive)
 		archive << version;
 		m_measures.Serialize(archive);
 		m_references.Serialize(archive);
-		m_WhiteTest.Serialize(archive);
-		m_WhiteRef.Serialize(archive);
+		if ( version == 1 )
+		{
+			// v1 is the SaveOldCalibrationFile block, written for a 4.1 reader
+			// whose CColor gate refuses base + 100: store its two colors in the
+			// pre-#193 CColor layout too, or the file is still unreadable there.
+			CColorLegacyStoreScope legacy;
+			m_WhiteTest.Serialize(archive);
+			m_WhiteRef.Serialize(archive);
+		}
+		else
+		{
+			m_WhiteTest.Serialize(archive);
+			m_WhiteRef.Serialize(archive);
+		}
 		if ( version > 1 )
 		{
 			m_BlackTest.Serialize(archive);
 			m_BlackRef.Serialize(archive);
 			archive << m_Author;
 		}
+		if ( version >= 3 )
+		{
+			CExtensionWriter ext;
+			ext.Write(archive);
+		}
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 2 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 3 )
+			throw new CNewerSchemaException ( "CCalibrationInfo", version );
 		m_measures.Serialize(archive);
 		m_references.Serialize(archive);
 		m_WhiteTest.Serialize(archive);
@@ -94,6 +114,15 @@ void CCalibrationInfo::Serialize(CArchive& archive)
 			m_BlackTest=noDataColor;
 			m_BlackRef=noDataColor;
 			m_Author.Empty();
+		}
+		if ( version >= 3 )
+		{
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
 		}
 	}
 }
@@ -260,12 +289,20 @@ void COneDeviceSensor::Serialize(CArchive& archive)
 	CSensor::Serialize(archive) ;
 	if (archive.IsStoring())
 	{
-		int version=3;
-		if ( m_pCalibrationInfo != NULL )
-			version = 4;
+		// v5 (issue #193): the calibration info's presence is an explicit BOOL
+		// instead of being encoded in the version number, the file name is
+		// always written, and the block ends with an extension trailer. The
+		// SaveOldCalibrationFile switch keeps the historical 1/2 computation
+		// (3/4 minus 2) so a downgraded file is byte for byte what it was.
+		int version = 5;
 
 		if ( GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
+		{
+			version = 3;
+			if ( m_pCalibrationInfo != NULL )
+				version = 4;
 			version -= 2;
+		}
 
 		archive << version;
 		archive << m_calibrationIRELevel;
@@ -276,19 +313,26 @@ void COneDeviceSensor::Serialize(CArchive& archive)
 		m_primariesChromacities.Serialize(archive);
 		m_whiteChromacity.Serialize(archive);
 		archive << m_calibrationReferenceName;
+		if ( version >= 5 )
+			archive << (BOOL) ( m_pCalibrationInfo != NULL );
 		if ( m_pCalibrationInfo != NULL )
 		{
 			m_pCalibrationInfo->Serialize(archive);
 		}
 		if ( version >= 3 )
 			archive << m_CalibrationFileName;
+		if ( version >= 5 )
+		{
+			CExtensionWriter ext;
+			ext.Write(archive);
+		}
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 4 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 5 )
+			throw new CNewerSchemaException ( "COneDeviceSensor", version );
 		archive >> m_calibrationIRELevel;
 		archive >> m_doBlackCompensation;
 		archive >> m_doVerifyAdditivity;
@@ -297,13 +341,23 @@ void COneDeviceSensor::Serialize(CArchive& archive)
 		m_primariesChromacities.Serialize(archive);
 		m_whiteChromacity.Serialize(archive);
 		archive >> m_calibrationReferenceName;
-		
+
 		if ( m_pCalibrationInfo )
 		{
 			delete m_pCalibrationInfo;
 			m_pCalibrationInfo = NULL;
 		}
-		if ( version == 2 || version == 4 )
+		if ( version >= 5 )
+		{
+			BOOL bHasCalibrationInfo;
+			archive >> bHasCalibrationInfo;
+			if ( bHasCalibrationInfo )
+			{
+				m_pCalibrationInfo = new CCalibrationInfo;
+				m_pCalibrationInfo->Serialize(archive);
+			}
+		}
+		else if ( version == 2 || version == 4 )
 		{
 			m_pCalibrationInfo = new CCalibrationInfo;
 			m_pCalibrationInfo->Serialize(archive);
@@ -314,6 +368,15 @@ void COneDeviceSensor::Serialize(CArchive& archive)
 		else
 			m_CalibrationFileName.Empty();
 
+		if ( version >= 5 )
+		{
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 
@@ -403,6 +466,24 @@ static void ReportCalibrationLoadFailure ( LPCSTR lpszPath, CException * e )
 	CString	strMsg;
 	char	szCause [ 512 ];
 
+	// A file written by a newer HCFR, or by an unreleased development build,
+	// is not damaged: say which, naming the file, instead of MFC's
+	// "incorrect schema".
+	if ( e != NULL && e -> IsKindOf ( RUNTIME_CLASS ( CNewerSchemaException ) ) )
+	{
+		CNewerSchemaException *	pEx = (CNewerSchemaException *) e;
+		CString					strText;
+
+		if ( ! pEx -> m_feature.IsEmpty () )
+			strText.Format ( IDS_SCHEMA_UNKNOWN_FEATURE, (LPCSTR) pEx -> m_feature );
+		else
+			strText.Format ( pEx -> m_unreleased ? IDS_SCHEMA_UNRELEASED : IDS_SCHEMA_NEWER, (LPCSTR) pEx -> m_block, pEx -> m_version );
+		strWhat.Format ( "%s\n%s", lpszPath, (LPCSTR) strText );
+		strMsg.Format ( IDS_THC_LOAD_FAILED, (LPCSTR) strWhat );
+		AfxMessageBox ( strMsg, MB_OK | MB_ICONEXCLAMATION );
+		return;
+	}
+
 	if ( e != NULL )
 	{
 		if ( e -> IsKindOf ( RUNTIME_CLASS ( CArchiveException ) ) )
@@ -436,84 +517,74 @@ static void ReportCalibrationLoadFailure ( LPCSTR lpszPath, CException * e )
 
 BOOL COneDeviceSensor::LoadCalibrationFile(CString & aFileName)
 {
-	// Serialize's load branch overwrites the sensor field by field and frees
-	// m_pCalibrationInfo before the version-gated read, so a file that is
-	// rejected part-way through - a truncated one, or a schema this build does
-	// not know - leaves the sensor carrying pieces of it. So hold the whole of
-	// the old state and put it back: a file that could not be read changes
-	// nothing, and FALSE says so to the caller that has to decide whether the
-	// document changed with it.
-	Matrix				previousMatrix = m_sensorToXYZMatrix;
-	time_t				previousTime = m_calibrationTime;
-	float				previousIRELevel = m_calibrationIRELevel;
-	BOOL				bPreviousBlackComp = m_doBlackCompensation;
-	BOOL				bPreviousVerifyAdd = m_doVerifyAdditivity;
-	BOOL				bPreviousShowAdd = m_showAdditivityResults;
-	int					nPreviousMaxAddErr = m_maxAdditivityErrorPercent;
-	Matrix				previousPrimaries = m_primariesChromacities;
-	Matrix				previousWhite = m_whiteChromacity;
-	CString				strPreviousRef = m_calibrationReferenceName;
-	CString				strPreviousName = m_CalibrationFileName;
-	CCalibrationInfo *	pPreviousInfo = m_pCalibrationInfo;
-	// The method and the Bodner sub-gamut pairs are read by
-	// CSensor::Serialize after the matrix, so a file that throws part-way
-	// through them has already changed the method: hold them too.
-	int					nPreviousMethod = m_calibrationMethod;
-	Matrix				previousBodnerRaw[3];
-	Matrix				previousBodnerCal[3];
+	// Serialize's load branch overwrites the sensor field by field, so a file
+	// that is rejected part-way through - a truncated one, or a schema this
+	// build does not know - would leave the sensor carrying pieces of it. So
+	// read the file into a temporary and copy it over only once the whole of
+	// it was read: a file that could not be read changes nothing, and FALSE
+	// says so to the caller that has to decide whether the document changed
+	// with it.
+	//
+	// The file holds exactly the COneDeviceSensor-level payload - both
+	// Serialize calls below are the non-virtual ones - so the temporary is a
+	// plain COneDeviceSensor and the copy is the non-virtual
+	// COneDeviceSensor::Copy, which carries the matrix, time, method, the six
+	// Bodner matrices, the calibration settings, primaries, white, reference
+	// name and calibration info. It must NOT be the virtual Copy: that one is
+	// document duplication, and CArgyllSensor::Copy takes the meter pointer
+	// from its source and dereferences it, which from a fresh temporary is a
+	// NULL meter - the crash the 2026-09-08 bench found on every valid file.
+	COneDeviceSensor	loaded;
+	// Not the file's to set, success or failure: it describes the readings in
+	// the document this sensor belongs to, and a training file carries none (it
+	// holds whatever the sensor that saved it had). The caller's recalibration
+	// walk updates it. COneDeviceSensor::Copy carries it from the temporary, so
+	// it is put back after the load below.
+	RawlessReadingsState	previousRawless = m_rawlessReadings;
 	BOOL				bLoaded = FALSE;
-
-	for ( int k = 0; k < 3; k++ )
-	{
-		previousBodnerRaw[k] = m_bodnerRawMatrix[k];
-		previousBodnerCal[k] = m_bodnerCalMatrix[k];
-	}
-
-	// Detach it first: Serialize deletes whatever the member points at, and
-	// that is the copy we are keeping.
-	m_pCalibrationInfo = NULL;
 
 	TRY
 	{
 		CFile loadFile(aFileName,CFile::modeRead);
 		CArchive ar(&loadFile,CArchive::load);
 
-		COneDeviceSensor::Serialize(ar);
+		loaded.COneDeviceSensor::Serialize(ar);
 
+		// CSensor::Copy also carries state the file does not hold: the name
+		// (ours is the meter's, the temporary's is "Not defined"), the
+		// modifier matrix, the error string and the validity flag. Keep ours.
+		CString	strName = m_name;
+		Matrix	matMod = m_sensorToXYZMatrixMod;
+		CString	strError = m_errorString;
+		BOOL	bValid = m_isMeasureValid;
+
+		COneDeviceSensor::Copy ( & loaded );
+
+		m_name = strName;
+		m_sensorToXYZMatrixMod = matMod;
+		m_errorString = strError;
+		m_isMeasureValid = bValid;
+
+		// COneDeviceSensor::Copy does not carry the file name; set it as the
+		// load has always done.
 		m_CalibrationFileName = loadFile.GetFileTitle ();
-
-		delete pPreviousInfo;
 
 		bLoaded = TRUE;
 	}
 	CATCH_ALL ( e )
 	{
-		delete m_pCalibrationInfo;
-
-		m_sensorToXYZMatrix = previousMatrix;
-		m_calibrationTime = previousTime;
-		m_calibrationIRELevel = previousIRELevel;
-		m_doBlackCompensation = bPreviousBlackComp;
-		m_doVerifyAdditivity = bPreviousVerifyAdd;
-		m_showAdditivityResults = bPreviousShowAdd;
-		m_maxAdditivityErrorPercent = nPreviousMaxAddErr;
-		m_primariesChromacities = previousPrimaries;
-		m_whiteChromacity = previousWhite;
-		m_calibrationReferenceName = strPreviousRef;
-		m_CalibrationFileName = strPreviousName;
-		m_pCalibrationInfo = pPreviousInfo;
-		m_calibrationMethod = nPreviousMethod;
-		for ( int k = 0; k < 3; k++ )
-		{
-			m_bodnerRawMatrix[k] = previousBodnerRaw[k];
-			m_bodnerCalMatrix[k] = previousBodnerCal[k];
-		}
-		UpdateBodnerInverseCache();
-
 		ReportCalibrationLoadFailure ( aFileName, e );
 	}
 	END_CATCH_ALL
 
+	m_rawlessReadings = previousRawless;
+	// One rule holds whatever the file or the restore left: a Bodner sensor's
+	// raw-less readings never embody its (identity) single matrix. A Bodner file
+	// loaded with no walk after it (a new document from the wizard or DDE, Change
+	// Sensor) would otherwise keep a fresh sensor's "embody" under Bodner, and
+	// save it that way.
+	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
+		m_rawlessReadings.BodnerInstalled();
 	return bLoaded;
 }
 

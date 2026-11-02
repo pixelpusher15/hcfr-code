@@ -28,6 +28,8 @@
 //    GetColorReference linked to global app var -> replaced by arguments in impacted functions
 
 #include "Color.h"
+#include "ArchiveExtension.h"
+#include "ArchiveTags.h"
 #include "Endianness.h"
 #include "CriticalSection.h"
 #include "LockWhileInScope.h"
@@ -1082,6 +1084,24 @@ COLORREF ColorRGBDisplay::GetColorRef(bool is16_235) const
     return RGB(r, g, b);
 }
 
+int ColorRGBDisplay::TestWindowShownCode(int pickerCode, bool is16_235)
+{
+    if (!is16_235)
+        return pickerCode;
+    int code = (int)floor(pickerCode / 255.0 * 219.0 + 16.0 + 0.5);
+    return code < 16 ? 16 : (code > 235 ? 235 : code);
+}
+
+int ColorRGBDisplay::TestWindowPickerCode(double percent, bool is16_235)
+{
+    if (!is16_235)
+        return ConvertPercentToCode(percent, false, 8);
+    // the c whose mapping is k: c*219/255 is within 0.43 of k-16, so it rounds back
+    int k = ConvertPercentToCode(percent, true, 8);
+    int c = (int)floor((k - 16) * 255.0 / 219.0 + 0.5);
+    return c < 0 ? 0 : (c > 255 ? 255 : c);
+}
+
 BYTE ColorRGBDisplay::ConvertPercentToBYTE(double percent, bool is16_235)
 {
     return (BYTE)ConvertPercentToCode(percent, is16_235, 8);
@@ -1625,7 +1645,23 @@ static void BuildBT2390Table ( double m_diffuseL, double m_MinML, double m_MaxML
 
 double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double split, int mode, double m_diffuseL, double m_MinML, double m_MaxML, double m_MinTL, double m_MaxTL, bool ToneMap, bool cBT2390, double bbc_gamma, double b_fact, double E2_fact, double E2_fact1)
 {
-	if (valx == 0 && mode > 4) return (ToneMap?m_MinTL / 100.:0.0);
+	// HLG black is its OOTF's lift, bbc_beta / White.Y (case 7 below): the
+	// display's target black against its own white, scaled like every other
+	// HLG step. Returned here because the OOTF itself would take
+	// pow(0, bbc_gamma - 1), inf for a system gamma below 1.
+	//
+	// The shortcut after it is PQ's: m_MinTL / 100 is PQ's /100 nit scaling,
+	// keyed off its tone-mapping switch (the DV curves, 8 and 9, keep the
+	// shortcut as they had it; their tables are relative to their own peak, so
+	// that value is legacy). It used to
+	// catch every mode above 4, so HLG, L* and sRGB took it too - zero with
+	// tone mapping off, and with it on (the switch persists after leaving PQ)
+	// a black target L* and sRGB do not have and HLG had scaled wrongly. L*
+	// and sRGB come out at exactly 0 from their own formulas below.
+	// <= 0: a negative signal is clamped to 0 below, which would reach the
+	// same pow for HLG, so it takes this return too.
+	if (valx <= 0 && mode == 7) return ( White.isValid() && White.GetY() > 0.0 ) ? m_MinTL / White.GetY() : 0.0;
+	if (valx == 0 && ( mode == 5 || mode == 8 || mode == 9 )) return (ToneMap?m_MinTL / 100.:0.0);
 	if (valx < 0)
 		valx = 0;
 	if (valx > 1)
@@ -1755,7 +1791,7 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 				// Which is just as well, because getting here is still gated on the
 				// SIGNAL as well as on `ToneMap && mode == 5` promoting to case 10: a
 				// caller asking for a rebuild with valx == 0 takes the
-				// `valx == 0 && mode > 4` early return at the top of this function and
+				// `valx == 0` PQ early return at the top of this function and
 				// builds nothing, leaving BT2390x/y as they were. That is the half of
 				// MATH-008 case -10 used to be exposed to; it is why case -10 calls
 				// BuildBT2390Table itself rather than coming through here, and it is
@@ -1772,7 +1808,7 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 				// mode 5 and cBT2390 = TRUE, which made the build depend on getting past
 				// the top-of-function guards and on `ToneMap && mode == 5` promoting to
 				// case 10. Both let it through without a table: a valx of 0 tripped the
-				// `valx == 0 && mode > 4` early return and came back before the branch
+				// `valx == 0` PQ early return and came back before the branch
 				// ran (MATH-008), and a caller reaching mode -10 with ToneMap false
 				// skipped the promotion entirely - either way the search below indexed
 				// BT2390y[0] on an empty vector. Calling the builder directly removes the
@@ -2442,6 +2478,7 @@ CColor::CColor():m_XYZValues(1.0,3,1)
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
 	m_pProvenance = NULL;
+	m_pTimestamp = NULL;
 }
 
 CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
@@ -2451,6 +2488,7 @@ CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
 	m_pProvenance = NULL;
+	m_pTimestamp = NULL;
 
 	if ( aColor.m_pSpectrum )
 		m_pSpectrum = new CSpectrum ( *aColor.m_pSpectrum );
@@ -2466,6 +2504,9 @@ CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 
 	if ( aColor.m_pProvenance )
 		m_pProvenance = new CColorProvenance ( *aColor.m_pProvenance );
+
+	if ( aColor.m_pTimestamp )
+		m_pTimestamp = new double ( *aColor.m_pTimestamp );
 }
 
 CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
@@ -2478,6 +2519,7 @@ CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
 	m_pProvenance = NULL;
+	m_pTimestamp = NULL;
 }
 
 CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
@@ -2490,6 +2532,7 @@ CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
 	m_pProvenance = NULL;
+	m_pTimestamp = NULL;
 }
 
 CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
@@ -2503,6 +2546,7 @@ CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
 	m_pProvenance = NULL;
+	m_pTimestamp = NULL;
 }
 
 CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
@@ -2514,6 +2558,7 @@ CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
     m_pRawXYZValues = NULL;
     m_pStimulus = NULL;
     m_pProvenance = NULL;
+    m_pTimestamp = NULL;
 
     theFile.read((char*)&version, 4);
     version = littleEndianUint32ToHost(version);
@@ -2555,6 +2600,7 @@ void CColor::ClearSpectrumLux()
 	ClearRawXYZValue();
 	ClearStimulusValue();
 	ClearProvenance();
+	ClearTimestamp();
 }
 
 void CColor::SetRawXYZValue(const ColorXYZ& aRaw)
@@ -2657,6 +2703,33 @@ CColorProvenance CColor::GetProvenance() const
 	return ( m_pProvenance ? (*m_pProvenance) : CColorProvenance() );
 }
 
+void CColor::SetTimestamp(double aTimestamp)
+{
+	if ( m_pTimestamp )
+		delete m_pTimestamp;
+
+	m_pTimestamp = new double ( aTimestamp );
+}
+
+void CColor::ClearTimestamp()
+{
+	if ( m_pTimestamp )
+	{
+		delete m_pTimestamp;
+		m_pTimestamp = NULL;
+	}
+}
+
+bool CColor::HasTimestamp() const
+{
+	return ( m_pTimestamp != NULL );
+}
+
+double CColor::GetTimestamp() const
+{
+	return ( m_pTimestamp ? (*m_pTimestamp) : 0.0 );
+}
+
 CColor& CColor::operator =(const CColor& aColor)
 {
 	if(&aColor == this)
@@ -2680,6 +2753,9 @@ CColor& CColor::operator =(const CColor& aColor)
 
 	if ( aColor.m_pProvenance )
 		m_pProvenance = new CColorProvenance ( *aColor.m_pProvenance );
+
+	if ( aColor.m_pTimestamp )
+		m_pTimestamp = new double ( *aColor.m_pTimestamp );
 
 	return *this;
 }
@@ -2897,43 +2973,71 @@ ostream& operator <<(ostream& ostr, const CColor& obj)
 }
 
 #ifdef LIBHCFR_HAS_MFC
+bool CColor::s_bStoreLegacy = false;
+
 void CColor::Serialize(CArchive& archive)
 {
-	// Base version encodes spectrum/lux presence exactly as before (1/3/5/6).
-	// Optional trailing fields are flagged in the tens digit as a bitfield: bit 0
-	// (+10) = raw XYZ, bit 1 (+20) = drive stimulus. Present fields are appended in
-	// bit order after the base payload. Base versions stay 1/3/5/6, so every
-	// pre-existing file (no optional fields) is byte-for-byte unchanged, and the
-	// earlier raw-only files (11/13/15/16) still decode as base + raw.
+	// Stream version = base + 100 (issue #193). The base encodes spectrum/lux
+	// presence exactly as it always has (1/3/5/6 written; 2 and 4 are real old
+	// files with an int bandwidth), and everything optional beyond that lives
+	// in a tagged extension trailer (ArchiveExtension.h, tags in ArchiveTags.h)
+	// that a reader walks by byte count, so a field this build does not know
+	// is skipped, never a desync. Files at version 100+ drop the two dead 3x3
+	// "ignore" matrices (184 bytes per color) that every legacy version carried.
+	//
+	// Versions 10..99 were the unreleased tens-digit bitfield encoding of the
+	// Bodner branch (+10 raw, +20 stimulus); they never shipped and are
+	// rejected rather than parsed.
 	if (archive.IsStoring())
 	{
-		int version=1;
+		int base = 1;
 
 		if ( m_pLuxValue )
 		{
 			if ( m_pSpectrum )
-				version = 6;
+				base = 6;
 			else
-				version = 3;
+				base = 3;
 		}
 		else if ( m_pSpectrum )
 		{
-			version = 5;
+			base = 5;
 		}
 
-		if ( m_pRawXYZValues )
-			version += 10;
-		if ( m_pStimulus )
-			version += 20;
-		if ( m_pProvenance )
-			version += 40;
+		if ( s_bStoreLegacy )
+		{
+			// SaveOldCalibrationFile only (CColorLegacyStoreScope): the pre-#193
+			// layout, which a 4.1 reader accepts. Bare base 1/3/5/6, XYZ, the two
+			// zero 3x3 "ignore" matrices, then spectrum and lux in the order the
+			// legacy reader expects, and no trailer. Raw XYZ, stimulus and
+			// timestamp have no legacy encoding and are dropped. T19 (g) pins
+			// these bytes against the (c) goldens captured from the old writer.
+			archive << base;
+			m_XYZValues.Serialize(archive) ;
 
-		archive << version;
+			Matrix ignore(0.0, 3, 3);
+			ignore.Serialize(archive);
+			ignore.Serialize(archive);
+
+			if ( m_pSpectrum )
+			{
+				archive << m_pSpectrum -> GetRows ();
+				archive << m_pSpectrum -> m_WaveLengthMin;
+				archive << m_pSpectrum -> m_WaveLengthMax;
+				archive << m_pSpectrum -> m_BandWidth;
+				// CSpectrum v1 (version int, then the matrix): a 4.1 reader
+				// refuses the v2 that CSpectrum::Serialize now writes.
+				archive << (int) 1;
+				m_pSpectrum -> Matrix::Serialize(archive);
+			}
+
+			if ( m_pLuxValue )
+				archive << (* m_pLuxValue);
+			return;
+		}
+
+		archive << ( base + 100 );
 		m_XYZValues.Serialize(archive) ;
-
-        Matrix ignore(0.0, 3, 3);
-		ignore.Serialize(archive);
-		ignore.Serialize(archive);
 
 		if ( m_pSpectrum )
 		{
@@ -2947,123 +3051,185 @@ void CColor::Serialize(CArchive& archive)
 		if ( m_pLuxValue )
 			archive << (* m_pLuxValue);
 
+		// The trailer is written unconditionally: an empty one is four zero
+		// bytes, and its presence never depends on the data.
+		CExtensionWriter ext;
+
 		if ( m_pRawXYZValues )
-			m_pRawXYZValues -> Serialize(archive);
+		{
+			m_pRawXYZValues -> Serialize ( ext.BeginTag ( ArchiveTag::COLOR_RAW_XYZ ) );
+			ext.EndTag ();
+		}
 
 		if ( m_pStimulus )
-			m_pStimulus -> Serialize(archive);
-
-		if ( m_pProvenance )
 		{
-			archive << m_pProvenance->patchNumber;
-			archive << m_pProvenance->sequenceIndex;
-			archive << m_pProvenance->srcBits;
-			archive << m_pProvenance->srcRange;
-			archive << CString ( m_pProvenance->name.c_str() );
+			m_pStimulus -> Serialize ( ext.BeginTag ( ArchiveTag::COLOR_STIMULUS ) );
+			ext.EndTag ();
 		}
+
+		if ( m_pTimestamp )
+		{
+			ext.BeginTag ( ArchiveTag::COLOR_TIMESTAMP ) << (* m_pTimestamp);
+			ext.EndTag ();
+		}
+
+		ext.Write(archive);
 	}
 	else
 	{
-		int version;
-		archive >> version;
+		// Load into a temporary and assign only once the whole block has been
+		// read: an exception anywhere in LoadFrom (a newer or unreleased
+		// version, a truncated or malformed trailer) propagates before the
+		// assignment, so a refused load leaves this color exactly as it was.
+		CColor loaded;
+		loaded.LoadFrom(archive);
+		*this = loaded;
+	}
+}
 
-		int baseVersion   = version % 10;
-		int optionalFlags = version / 10;
-		bool hasRaw      = ( optionalFlags & 0x1 ) != 0;
-		bool hasStimulus = ( optionalFlags & 0x2 ) != 0;
-		bool hasProvenance = ( optionalFlags & 0x4 ) != 0;
+void CColor::LoadFrom(CArchive& archive)
+{
+	int version;
+	archive >> version;
 
-		// Reject an unknown base version, or an unknown optional-field bit: a newer
-		// file with a trailing field this build can't skip would desync the archive
-		// stream for every object read after it.
-		if ( baseVersion > 6 || baseVersion < 1 || ( optionalFlags & ~0x7 ) )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+	if ( version >= 10 && version < 100 )
+		throw new CNewerSchemaException ( "CColor", version, true );
+	if ( version >= 200 )
+		throw new CNewerSchemaException ( "CColor", version );
 
-		m_XYZValues.Serialize(archive) ;
+	int  base = version % 100;
+	bool hasTrailer = ( version >= 100 );
+
+	// 1..6, not the writer's {1,3,5,6}: bases 2 and 4 are genuinely old
+	// files that store the spectrum bandwidth as an int.
+	if ( base < 1 || base > 6 )
+		AfxThrowArchiveException ( CArchiveException::badSchema );
+
+	m_XYZValues.Serialize(archive) ;
+
+	if ( ! hasTrailer )
+	{
+		// Legacy only: two 3x3 matrices that were never read back.
 		Matrix ignore(0.0, 3, 3);
 		ignore.Serialize(archive);
 		ignore.Serialize(archive);
+	}
 
-		if ( m_pSpectrum )
+	if ( m_pSpectrum )
+	{
+		delete m_pSpectrum;
+		m_pSpectrum = NULL;
+	}
+
+	if ( m_pLuxValue )
+	{
+		delete m_pLuxValue;
+		m_pLuxValue = NULL;
+	}
+
+	if ( m_pRawXYZValues )
+	{
+		delete m_pRawXYZValues;
+		m_pRawXYZValues = NULL;
+	}
+
+	if ( m_pStimulus )
+	{
+		delete m_pStimulus;
+		m_pStimulus = NULL;
+	}
+
+	if ( m_pTimestamp )
+	{
+		delete m_pTimestamp;
+		m_pTimestamp = NULL;
+	}
+
+	if ( m_pProvenance )
+	{
+		delete m_pProvenance;
+		m_pProvenance = NULL;
+	}
+
+	if ( base == 2 || base == 4 || base == 5 || base == 6 )
+	{
+		int NbBands, WaveLengthMin, WaveLengthMax;
+		double dBandWidth;
+		archive >> NbBands;
+		archive >> WaveLengthMin;
+		archive >> WaveLengthMax;
+		if ( base == 2 || base == 4 )
 		{
-			delete m_pSpectrum;
-			m_pSpectrum = NULL;
+			int nBandWidth;
+			archive >> nBandWidth;
+			dBandWidth = nBandWidth;
 		}
-
-		if ( m_pLuxValue )
+		else
 		{
-			delete m_pLuxValue;
-			m_pLuxValue = NULL;
+			archive >> dBandWidth;
 		}
+		m_pSpectrum = new CSpectrum ( NbBands, WaveLengthMin, WaveLengthMax, dBandWidth );
+		m_pSpectrum -> Serialize(archive);
+	}
 
-		if ( m_pRawXYZValues )
-		{
-			delete m_pRawXYZValues;
-			m_pRawXYZValues = NULL;
-		}
+	if ( base == 3 || base == 4 || base == 6 )
+	{
+		m_pLuxValue = new double;
+		archive >> (* m_pLuxValue);
+	}
 
-		if ( m_pStimulus )
-		{
-			delete m_pStimulus;
-			m_pStimulus = NULL;
-		}
+	if ( hasTrailer )
+	{
+		CExtensionReader ext(archive);
+		BYTE  tag;
+		DWORD cb;
 
-		if ( m_pProvenance )
+		while ( ext.Next(tag, cb) )
 		{
-			delete m_pProvenance;
-			m_pProvenance = NULL;
-		}
-
-		if ( baseVersion == 2 || baseVersion == 4 || baseVersion == 5 || baseVersion == 6 )
-		{
-			int NbBands, WaveLengthMin, WaveLengthMax;
-			double dBandWidth;
-			archive >> NbBands;
-			archive >> WaveLengthMin;
-			archive >> WaveLengthMax;
-			if ( baseVersion == 2 || baseVersion == 4 )
+			switch ( tag )
 			{
-				int nBandWidth;
-				archive >> nBandWidth;
-				dBandWidth = nBandWidth;
+				// A repeated tag replaces the earlier value (last one wins);
+				// the earlier allocation is freed, not leaked. Readers must not
+				// rely on a tag appearing at most once.
+				case ArchiveTag::COLOR_RAW_XYZ:
+				{
+					// This runs on Serialize's temporary, so a short or
+					// malformed value throws out of here and the caller's
+					// color is never assigned - it is left as it was.
+					CArchive& value = ext.Value();
+					delete m_pRawXYZValues;
+					m_pRawXYZValues = NULL;
+					m_pRawXYZValues = new ColorXYZ ( Matrix(0.0,3,1) );
+					m_pRawXYZValues -> Serialize(value);
+					break;
+				}
+
+				case ArchiveTag::COLOR_STIMULUS:
+				{
+					CArchive& value = ext.Value();
+					delete m_pStimulus;
+					m_pStimulus = NULL;
+					m_pStimulus = new ColorRGBDisplay ( 0.0, 0.0, 0.0 );
+					m_pStimulus -> Serialize(value);
+					break;
+				}
+
+				case ArchiveTag::COLOR_TIMESTAMP:
+				{
+					CArchive& value = ext.Value();
+					delete m_pTimestamp;
+					m_pTimestamp = NULL;
+					m_pTimestamp = new double;
+					value >> (* m_pTimestamp);
+					break;
+				}
+
+				default:
+					ext.Skip();
+					break;
 			}
-			else
-			{
-				archive >> dBandWidth;
-			}
-			m_pSpectrum = new CSpectrum ( NbBands, WaveLengthMin, WaveLengthMax, dBandWidth );
-			m_pSpectrum -> Serialize(archive);
 		}
-
-		if ( baseVersion == 3 || baseVersion == 4 || baseVersion == 6 )
-		{
-			m_pLuxValue = new double;
-			archive >> (* m_pLuxValue);
-		}
-
-		if ( hasRaw )
-		{
-			m_pRawXYZValues = new ColorXYZ ( Matrix(0.0,3,1) );
-			m_pRawXYZValues -> Serialize(archive);
-		}
-
-		if ( hasStimulus )
-		{
-			m_pStimulus = new ColorRGBDisplay ( 0.0, 0.0, 0.0 );
-			m_pStimulus -> Serialize(archive);
-		}
-
-		if ( hasProvenance )
-		{
-			m_pProvenance = new CColorProvenance();
-			archive >> m_pProvenance->patchNumber;
-			archive >> m_pProvenance->sequenceIndex;
-			archive >> m_pProvenance->srcBits;
-			archive >> m_pProvenance->srcRange;
-			CString nm;
-			archive >> nm;
-			m_pProvenance->name = (LPCTSTR)nm;
-		}
+		ext.Close();
 	}
 }
 #endif
@@ -3134,17 +3300,31 @@ void CSpectrum::Serialize(CArchive& archive)
 {
 	if (archive.IsStoring())
 	{
-		int version=1;
+		// v2 (issue #193): v1 plus an extension trailer, empty so far.
+		int version=2;
 		archive << version;
 		Matrix::Serialize(archive);
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 1 )
+		if ( version > 2 )
+			throw new CNewerSchemaException ( "CSpectrum", version );
+		if ( version < 1 )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 		Matrix::Serialize(archive);
+		if ( version >= 2 )
+		{
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 #endif
@@ -4484,3 +4664,32 @@ double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, 
 	return floor(v + 0.5) / grid;
 }
 
+
+// Reference for black (0%) on the grayscale page, shared by the grid cells
+// and the RGB levels pane, so they print one number, and by the dE chart,
+// the CIE chart and the export (the charts and export weigh gray-world
+// differently in PQ, as they do on every step).
+// The w/gamma target there is the transfer function's own: the display's
+// black for BT.1886, black compensation and HLG with a target black, light
+// for tone-mapped PQ and the camera-gamma offsets, but exactly zero for a
+// pure power law, L*, sRGB and PQ without tone mapping.
+// A zero target has no finite luminance error, and with Y == 0 its XYZ is all
+// zeros, so the white point's chromaticity is gone with it: rebuild it from
+// the reference white at the measured luminance - the target "Absolute Y
+// w/o gamma" uses - which leaves black's tint as the only error. The test is
+// in cd/m2 (aReference's Y is relative to YWhite), so a target built from a
+// floored on/off black counts as zero instead of blowing the ratio up.
+// noDataColor when there is no target or no white to scale by.
+CColor BlackTargetReference ( const CColor & aMeasure, double YWhite, const CColor & aReference, const CColor & refWhite )
+{
+	if ( !aReference.isValid() || !( YWhite > 0.0 ) )
+		return noDataColor;
+	if ( HasMeasuredLight ( aReference.GetY() * YWhite ) )
+		return aReference;
+
+	ColorxyY tmpColor ( refWhite.GetxyYValue() );
+	tmpColor[2] = aMeasure.GetY() / YWhite;
+	CColor blackRef;
+	blackRef.SetxyYValue ( tmpColor );
+	return blackRef;
+}
