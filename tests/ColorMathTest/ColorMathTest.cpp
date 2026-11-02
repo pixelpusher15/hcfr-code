@@ -1180,7 +1180,8 @@ static void RunT14()
 //       that ends after its five original fields reads with role UNKNOWN,
 //       one with the role reads it, and one with a further int reads the
 //       role and drops the rest - also when the fields fill the archive
-//       buffer exactly;
+//       buffer exactly - and one with 3 stray bytes after the name reads
+//       with role UNKNOWN;
 //   (g) the legacy store (CColorLegacyStoreScope, used by the
 //       SaveOldCalibrationFile writer) emits exactly the (c) goldens, so a
 //       file written for 4.1 is readable there without a 4.1 build.
@@ -2021,6 +2022,29 @@ namespace T19Ext
                     ExpectProvenance(cases[i].name, c, 42, 7, 10, 1, name, cases[i].role);
                     ExpectRaw(cases[i].name, c, 0.2, 0.4, 0.6);
                 }
+            }
+        }
+
+        // The five fields and then 3 stray bytes, too few for a role: the
+        // role reads as UNKNOWN, the bytes are discarded with the value, and
+        // RAW_XYZ after it still decodes.
+        {
+            Entry prov = ProvenanceEntry("Skin tone (light)", std::vector<int>());
+            for (int i = 0; i < 3; ++i)
+                prov.value.push_back(0xA5);
+            std::vector<Entry> entries;
+            entries.push_back(prov);
+            entries.push_back(raw);
+            Bytes b;
+            PutColor101(b, 0.25, 0.5, 0.75, entries);
+            CColor c;
+            CException* e = Load(b, &c, 1);
+            if (e)
+                FailUnexpected("(f) provenance with 3 trailing bytes", e);
+            else
+            {
+                ExpectProvenance("(f) provenance with 3 trailing bytes", c, 42, 7, 10, 1, "Skin tone (light)", PROVENANCE_ROLE_UNKNOWN);
+                ExpectRaw("(f) provenance with 3 trailing bytes", c, 0.2, 0.4, 0.6);
             }
         }
     }
