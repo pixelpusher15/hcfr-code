@@ -8269,6 +8269,57 @@ void CMeasure::ActivateUserPatchSet(int idx)
 	m_isModified = TRUE;
 }
 
+// The size check behind Open patch list...: the trailer as it would be saved
+// with `set` in the collection, plus one stored reading for every row of `set`
+// that has none yet, so a list that fits now still fits once it is measured.
+// A projected reading is the size of the largest first reading of any set in
+// the document (spectral readings make a set several times larger), or, in a
+// document with none, of a reading stamped the way a colorimeter sweep stamps
+// it. A set's index (4 bytes) is counted with each reading.
+ULONGLONG CMeasure::ProjectedUserPatchSetTrailerBytes(const CUserPatchSet & set, int replaceIdx)
+{
+	SyncActiveUserPatchSetFromBand ();	// the active set's readings live in the band
+	std::vector<CUserPatchSet> trial ( m_userPatchSets );
+	if ( replaceIdx >= 0 && replaceIdx < (int)trial.size() )
+		trial[replaceIdx] = set;
+	else
+		trial.push_back ( set );
+
+	ULONGLONG reading = 0;
+	for ( size_t s = 0; s < trial.size(); s++ )
+		for ( size_t i = 0; i < trial[s].measures.size(); i++ )
+			if ( trial[s].measures[i].isValid() )
+			{
+				ULONGLONG n = SerializedColorBytes ( trial[s].measures[i] );
+				if ( n > reading )
+					reading = n;
+				break;
+			}
+	if ( reading == 0 )
+	{
+		size_t longest = 0;
+		for ( size_t i = 0; i < set.rows.size(); i++ )
+			if ( set.rows[i].name.size() > longest )
+				longest = set.rows[i].name.size();
+		CColor c ( 1.0, 1.0, 1.0 );
+		c.SetLuxValue ( 1.0 );
+		c.SetRawXYZValue ( ColorXYZ ( 1.0, 1.0, 1.0 ) );
+		c.SetStimulusValue ( ColorRGBDisplay ( 1.0, 1.0, 1.0 ) );
+		c.SetTimestamp ( 1.0 );
+		CColorProvenance prov;
+		prov.name.assign ( longest, 'n' );
+		c.SetProvenance ( prov );
+		reading = SerializedColorBytes ( c );
+	}
+
+	ULONGLONG unmeasured = 0;
+	for ( size_t i = 0; i < set.rows.size(); i++ )
+		if ( i >= set.measures.size() || !set.measures[i].isValid() )
+			unmeasured++;
+
+	return MeasureTrailerBytes ( trial, m_activeUserSet ) + unmeasured * ( 4 + reading );
+}
+
 void CMeasure::MigrateLegacyUserBand()
 {
 	// Wrap USER-band measures that belong to no set into one set so they

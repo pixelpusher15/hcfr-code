@@ -3902,6 +3902,7 @@ BEGIN
     IDS_STIMPRESET_FINE     "Fein (5%-Schritte)"
     IDS_DISPLAYPROFILE      "Display-Profil"
     IDS_CUSTOMSEQUENCES     "Benutzerdefinierte Sequenzen"
+    IDS_PATCHSETS_TOO_LARGE "Mit dieser Patch-Liste würde das Dokument größer, als HCFR speichern kann (%d MB von %d MB). Entfernen Sie einen Satz oder verwenden Sie eine kleinere Liste."
     IDS_MEASUREDISPLAYPROFILE "Display-Profil messen"
     IDS_DELETEDISPLAYPROFILE "Display-Profil löschen"
     IDS_SATLUMSHIFT         "Sättigungsverschiebung"

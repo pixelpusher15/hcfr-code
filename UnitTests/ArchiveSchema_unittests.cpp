@@ -463,6 +463,7 @@ class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
 	CPPUNIT_TEST( UserPatchSetsTagAbsentDefaults );
 	CPPUNIT_TEST( UserPatchSetsCorruptRefused );
 	CPPUNIT_TEST( UserPatchSetsFitTheTrailerCap );
+	CPPUNIT_TEST( MeasureTrailerBytesMatchWriter );
 	CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -1101,6 +1102,25 @@ protected:
 			CPPUNIT_ASSERT( SameSets(sets, out) );
 			CPPUNIT_ASSERT_EQUAL( kSentinel, sentinel );
 		}
+	}
+
+	void MeasureTrailerBytesMatchWriter()
+	{
+		// The Open patch list... size check measures with these two helpers;
+		// they must report exactly what the writers emit.
+		std::vector<CUserPatchSet> sets = TwoSets();
+		for ( int k = 0; k < 2; k++ )
+		{
+			if ( k == 1 )
+				sets.clear();
+			StreamBuilder s;
+			StoreMeasureTrailer(s.Ar(), sets, sets.empty() ? -1 : 1);
+			CPPUNIT_ASSERT_EQUAL( (ULONGLONG) s.Bytes().size(), MeasureTrailerBytes(sets, sets.empty() ? -1 : 1) );
+		}
+		CColor c = Reading(3, "Patch 00004", 36);
+		StreamBuilder s;
+		c.Serialize(s.Ar());
+		CPPUNIT_ASSERT_EQUAL( (ULONGLONG) s.Bytes().size(), SerializedColorBytes(c) );
 	}
 };
 

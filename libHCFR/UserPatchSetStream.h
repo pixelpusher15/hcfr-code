@@ -96,6 +96,13 @@ void LoadUserPatchSets(CArchive& ar, std::vector<CUserPatchSet>& sets, int& acti
 // trailer would exceed kMaxExtensionBytes (ArchiveExtension.h).
 void StoreMeasureTrailer(CArchive& ar, const std::vector<CUserPatchSet>& sets, int activeIndex);
 
+// The byte count StoreMeasureTrailer would write for this collection, and
+// the byte count CColor::Serialize writes for one color. Both serialize into
+// a scratch memory file and measure it, so they cannot drift from the
+// writers.
+ULONGLONG MeasureTrailerBytes(const std::vector<CUserPatchSet>& sets, int activeIndex);
+ULONGLONG SerializedColorBytes(const CColor& c);
+
 // Reads the CMeasure trailer. Without the MEASURE_USER_PATCH_SETS tag, sets
 // is empty and activeIndex -1; tags this build does not know are skipped.
 // Same scratch rule as LoadUserPatchSets.

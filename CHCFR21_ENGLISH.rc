@@ -3899,6 +3899,7 @@ BEGIN
     IDS_STIMPRESET_FINE     "Fine (5% steps)"
     IDS_DISPLAYPROFILE      "Display profile"
     IDS_CUSTOMSEQUENCES     "Custom Sequences"
+    IDS_PATCHSETS_TOO_LARGE "Adding this patch list would exceed the size HCFR can store in a document (%d MB of %d MB). Remove a set or use a smaller list."
     IDS_MEASUREDISPLAYPROFILE "Measure display profile (cube capture)"
     IDS_DELETEDISPLAYPROFILE "Delete display profile"
     IDS_SATLUMSHIFT         "Saturation - shifts"

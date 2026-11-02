@@ -4140,6 +4140,7 @@ BEGIN
     IDS_STIMPRESET_FINE     "Fin (pas de 5 %)"
     IDS_DISPLAYPROFILE      "Profil d'affichage"
     IDS_CUSTOMSEQUENCES     "Séquences personnalisées"
+    IDS_PATCHSETS_TOO_LARGE "Ajouter cette liste de patchs dépasserait la taille que HCFR peut enregistrer dans un document (%d Mo sur %d Mo). Supprimez un ensemble ou utilisez une liste plus petite."
     IDS_MEASUREDISPLAYPROFILE "Mesurer le profil d'affichage"
     IDS_DELETEDISPLAYPROFILE "Supprimer le profil d'affichage"
     IDS_SATLUMSHIFT         "Saturation - écarts"

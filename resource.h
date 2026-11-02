@@ -2045,6 +2045,7 @@
 // Next free above every branch and worktree on 2026-11-01 (59715 is #175's
 // IDS_GEN_SERIAL_LINK_LOST; 59748-59779 are held for the generators renumbering).
 #define IDS_CUSTOMSEQUENCES             60055
+#define IDS_PATCHSETS_TOO_LARGE         60056
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550

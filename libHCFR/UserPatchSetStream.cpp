@@ -170,6 +170,37 @@ void StoreMeasureTrailer(CArchive& ar, const std::vector<CUserPatchSet>& sets, i
 	ext.Write(ar);
 }
 
+namespace
+{
+	// A scratch storing archive over a memory file that grows a megabyte at
+	// a time, so measuring a large collection does not reallocate per KB.
+	class ScratchStore
+	{
+	public:
+		ScratchStore() : m_mem(1024 * 1024), m_ar(&m_mem, CArchive::store) {}
+		CArchive& Ar() { return m_ar; }
+		ULONGLONG Bytes() { m_ar.Close(); return m_mem.GetLength(); }
+	private:
+		CMemFile m_mem;
+		CArchive m_ar;
+	};
+}
+
+ULONGLONG MeasureTrailerBytes(const std::vector<CUserPatchSet>& sets, int activeIndex)
+{
+	ScratchStore s;
+	StoreMeasureTrailer(s.Ar(), sets, activeIndex);
+	return s.Bytes();
+}
+
+ULONGLONG SerializedColorBytes(const CColor& c)
+{
+	ScratchStore s;
+	CColor copy(c);		// CColor::Serialize is not const
+	copy.Serialize(s.Ar());
+	return s.Bytes();
+}
+
 void LoadMeasureTrailer(CArchive& ar, std::vector<CUserPatchSet>& sets, int& activeIndex)
 {
 	sets.clear();

@@ -5039,8 +5039,32 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 			existing = i;
 			break;
 		}
+	bool bRefresh = ( existing >= 0 && (int) m_measure.GetUserPatchSet ( existing )->rows.size () == nRows );
+
+	// Refuse a list the document could not save once it is measured: the
+	// CMeasure trailer is capped at kMaxExtensionBytes (ArchiveExtension.h).
+	{
+		CUserPatchSet candidate;
+		if ( bRefresh )
+			candidate = *m_measure.GetUserPatchSet ( existing );
+		candidate.srcPath = (LPCTSTR)cPath;
+		candidate.bits = bits;
+		candidate.range = range;
+		candidate.rows = rows;
+		ULONGLONG need = m_measure.ProjectedUserPatchSetTrailerBytes ( candidate, bRefresh ? existing : -1 );
+		if ( need > kMaxExtensionBytes )
+		{
+			const ULONGLONG MB = 1024 * 1024;
+			CString fmt, msg;
+			fmt.LoadString ( IDS_PATCHSETS_TOO_LARGE );
+			msg.Format ( fmt, (int) ( ( need + MB - 1 ) / MB ), (int) ( kMaxExtensionBytes / MB ) );
+			AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
+			return false;
+		}
+	}
+
 	int idx;
-	if ( existing >= 0 && (int) m_measure.GetUserPatchSet ( existing )->rows.size () == nRows )
+	if ( bRefresh )
 	{
 		CUserPatchSet * pSet = m_measure.GetUserPatchSet ( existing );
 		pSet->srcPath = (LPCTSTR)cPath;
