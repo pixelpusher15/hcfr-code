@@ -9579,12 +9579,15 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 			qr = SnapToVideoGrid( qr, b10, lim );
 			qg = SnapToVideoGrid( qg, b10, lim );
 			qb = SnapToVideoGrid( qb, b10, lim );
-			// WTW does not exist in PQ/HLG (absolute EOTF / hybrid): clip a super-white
-			// wire signal to max signal so an EXTENDED set gets the tone-mapped/capped
-			// 100% target, not the valx>1 guard flat 10,000 nits. Inert otherwise (wire <= 1).
-			qr = min(qr, 1.0);
-			qg = min(qg, 1.0);
-			qb = min(qb, 1.0);
+			// WTW does not exist in PQ/HLG (absolute EOTF / hybrid): clip an EXTENDED
+			// set's super-white wire signal to max signal so it gets the tone-mapped/capped
+			// 100% target, not the valx>1 guard flat 10,000 nits. Other sets are untouched.
+			if (extWTW)
+			{
+				qr = min(qr, 1.0);
+				qg = min(qg, 1.0);
+				qb = min(qb, 1.0);
+			}
 			r = getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 			g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 			b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
