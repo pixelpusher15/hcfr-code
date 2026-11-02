@@ -2143,6 +2143,7 @@ BEGIN
             MENUITEM "&Auswählen...",               IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&meter...",               IDM_MEASURE_DEFINESCALE
+        MENUITEM "Patch-&Liste öffnen...",      IDM_MEASURE_OPEN_PATCHLIST
         MENUITEM SEPARATOR
         POPUP "Mess&ton"
         BEGIN
@@ -3900,6 +3901,9 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Standard (10%-Schritte)"
     IDS_STIMPRESET_FINE     "Fein (5%-Schritte)"
     IDS_DISPLAYPROFILE      "Display-Profil"
+    IDS_CUSTOMSEQUENCES     "Benutzerdefinierte Sequenzen"
+    IDS_PATCHSETS_TOO_LARGE "Mit dieser Patch-Liste würde das Dokument größer, als HCFR speichern kann (%d MB von %d MB). Entfernen Sie einen Satz oder verwenden Sie eine kleinere Liste."
+    IDS_PATCHSETS_TOO_MANY "Dieses Dokument enthält bereits %d Patch-Listen, die Höchstzahl, die HCFR in einem Dokument speichern kann. Legen Sie für diese Liste ein neues Dokument an."
     IDS_MEASUREDISPLAYPROFILE "Display-Profil messen"
     IDS_DELETEDISPLAYPROFILE "Display-Profil löschen"
     IDS_SATLUMSHIFT         "Sättigungsverschiebung"
@@ -3929,6 +3933,7 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Primärfarben messen\nPrimärfarben messen"
     IDM_MEASURE_SECONDARIES "Primär- und Sekundärfarben messen\nPrimär- und Sekundärfarben messen"
     IDM_MEASURE_DEFINESCALE "Messparameter definieren (Anzahl der Werte)"
+    IDM_MEASURE_OPEN_PATCHLIST "Eine Patch-Liste (CSV) als Benutzer-Patch-Satz laden"
     IDM_SOUND_NONE          "Nach einer Messung keinen Ton abspielen"
     IDM_SOUND_SHUTTER       "Spielt nach jeder Messung einen Kamera-Auslöser ab"
     IDM_SOUND_CLICK         "Spielt nach jeder Messung einen Tastaturklick ab"

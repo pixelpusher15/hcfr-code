@@ -2177,6 +2177,7 @@ BEGIN
             MENUITEM "&Select...",                  IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&meters...",              IDM_MEASURE_DEFINESCALE
+        MENUITEM "Open patch &list...",         IDM_MEASURE_OPEN_PATCHLIST
         MENUITEM SEPARATOR
         POPUP "Measure sou&nd"
         BEGIN
@@ -3897,6 +3898,9 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Standard (10% steps)"
     IDS_STIMPRESET_FINE     "Fine (5% steps)"
     IDS_DISPLAYPROFILE      "Display profile"
+    IDS_CUSTOMSEQUENCES     "Custom Sequences"
+    IDS_PATCHSETS_TOO_LARGE "Adding this patch list would exceed the size HCFR can store in a document (%d MB of %d MB). Remove a set or use a smaller list."
+    IDS_PATCHSETS_TOO_MANY "This document already holds %d patch lists, the most HCFR can store in one document. Start a new document for this list."
     IDS_MEASUREDISPLAYPROFILE "Measure display profile (cube capture)"
     IDS_DELETEDISPLAYPROFILE "Delete display profile"
     IDS_SATLUMSHIFT         "Saturation - shifts"
@@ -3926,6 +3930,7 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Measure primary colors\nMeasure primary colors"
     IDM_MEASURE_SECONDARIES "Measure primary and secondary colors\nMeasure primary and secondary colors"
     IDM_MEASURE_DEFINESCALE "Define measure parameters (number of levels)"
+    IDM_MEASURE_OPEN_PATCHLIST "Load a patch list CSV as a user patch set"
     IDM_SOUND_NONE          "Play no sound after a measure"
     IDM_SOUND_SHUTTER       "Play a camera shutter after each measure"
     IDM_SOUND_CLICK         "Play a keyboard click after each measure"

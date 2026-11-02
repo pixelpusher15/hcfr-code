@@ -36,6 +36,7 @@
 
 #include "libHCFR_Config.h"
 #include "Matrix.h"
+#include <string>   // std::string in CColorProvenance (below), before class CColor
 
 typedef enum 
 {
@@ -248,6 +249,43 @@ public:
 #endif
 };
 
+// Per-measurement label provenance: which patch a reading corresponds to and how its
+// source stimulus was defined (bit depth / range / name). Lets a measurement stay
+// self-describing independent of the patch-list file it came from - the basis for
+// browsable multi-set patch lists and volumetric characterization. Optional, lazily
+// allocated, mirroring the raw-XYZ / stimulus optional fields on CColor.
+//
+// Stored in the CColor extension trailer as ArchiveTag::COLOR_PROVENANCE:
+// patchNumber, sequenceIndex, srcBits, srcRange (4 x int), name (CString),
+// then role (int). The value is append-only: a reader takes the fields it
+// knows and ignores any that follow, and a value without the role reads as
+// PROVENANCE_ROLE_UNKNOWN.
+
+// What a reading was for, as the source sequence row declared it. Per reading,
+// not per run, because one run mixes roles. A patch-list CSV declares none, so
+// every reading it drives is UNKNOWN. Values are stored; never renumber.
+enum CColorProvenanceRole
+{
+	PROVENANCE_ROLE_UNKNOWN        = -1,
+	PROVENANCE_ROLE_COLOR          = 0,	// C: an ordinary measured patch
+	PROVENANCE_ROLE_ANCHOR         = 1,	// A: a drift anchor
+	PROVENANCE_ROLE_PREROLL        = 2,	// P: a warm-up patch before the run
+	PROVENANCE_ROLE_VERIFICATION   = 3,	// V: a verification patch
+	PROVENANCE_ROLE_INTERSTITIAL   = 4,	// I: shown between patches, never measured
+	PROVENANCE_ROLE_IDENTIFICATION = 5	// X: identifies the run on the wire
+};
+
+struct CColorProvenance
+{
+	int         patchNumber;    // stable identity within the source list (-1 = unknown)
+	int         sequenceIndex;  // order measured within the sweep (-1 = unknown)
+	int         srcBits;        // source bit depth: 8 or 10 (0 = unknown)
+	int         srcRange;       // source CSV range: -1 legacy, 0 full, 1 legal, 2 extended
+	std::string name;           // patch name from the source list ("" = none)
+	int         role;           // CColorProvenanceRole
+	CColorProvenance() : patchNumber(-1), sequenceIndex(-1), srcBits(0), srcRange(-1), role(PROVENANCE_ROLE_UNKNOWN) {}
+};
+
 class CColor
 {
 public:
@@ -324,6 +362,12 @@ public:
 	bool HasStimulusValue() const;
 	ColorRGBDisplay GetStimulusValue() const;
 
+	// Label provenance (patch#/name/bit-depth/range) for a self-describing measurement.
+	// Optional, lazily allocated; mirrors the raw-XYZ / stimulus optional fields.
+	void SetProvenance(const CColorProvenance& aProv);
+	void ClearProvenance();
+	bool HasProvenance() const;
+	CColorProvenance GetProvenance() const;
 	// Wall-clock time of the reading, in seconds since the Unix epoch with a
 	// sub-second fraction, stamped at measure time beside the raw XYZ and the
 	// stimulus. Drift anchors need time, not index, to be plotted against the
@@ -351,6 +395,7 @@ protected:
 	double *	m_pLuxValue;
 	ColorXYZ *	m_pRawXYZValues;
 	ColorRGBDisplay *	m_pStimulus;
+	CColorProvenance *	m_pProvenance;
 	double *	m_pTimestamp;
 
 #ifdef LIBHCFR_HAS_MFC
@@ -926,12 +971,21 @@ enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_E
 // Shared patch-list parsing (one parser: ReadColorsFromCsv percentages + GetCColors codes/names).
 #include <vector>
 #include <string>
-struct CsvPatchRow { int patch, r, g, b; std::string name; };
+// role is a CColorProvenanceRole; a CSV declares none, so the parser leaves -1.
+struct CsvPatchRow { int patch, r, g, b; std::string name; int role = -1; };
 extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut );
 // Resolve a CC mode to its patch-list file (predefined CSV or USER) + HDR-recalc flag; false for inline-array modes.
 extern bool ResolveCCSetPath ( int aCCMode, CString & outPath, bool * recalcOut );
 // One source code -> HCFR stimulus percentage for a given bit depth + CSV range (range-aware target readback).
 extern double CsvCodeToPercent ( double code, int bits, int range );
+// Exact inverse (round-to-nearest, clamped to the grid): stimulus percentage -> source code.
+// Used to reconstruct definition codes from stored stimuli during legacy .chc migration.
+extern int CsvPercentToCode ( double percent, int bits, int range );
+// Active user patch set override (multi-set picker): the app installs the active set's
+// stored definition here so the USER drive path (GenerateCC24Colors) is self-contained -
+// no file read, and the source CSV may have changed or be gone. Copied, not referenced.
+extern void SetUserPatchOverride ( const std::vector<CsvPatchRow> & rows, int bits, int range );
+extern void ClearUserPatchOverride ();
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );

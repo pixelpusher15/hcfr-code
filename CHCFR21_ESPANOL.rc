@@ -2300,6 +2300,7 @@ BEGIN
             MENUITEM "&Seleccionar...",                  IDM_CHANGE_GENERATOR
         END
         MENUITEM "Pará&metros...",              IDM_MEASURE_DEFINESCALE
+        MENUITEM "Abrir &lista de parches...",  IDM_MEASURE_OPEN_PATCHLIST
         MENUITEM SEPARATOR
         POPUP "So&nido de medida"
         BEGIN
@@ -4015,6 +4016,9 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Estándar (pasos del 10%)"
     IDS_STIMPRESET_FINE     "Fino (pasos del 5%)"
     IDS_DISPLAYPROFILE      "Perfil de pantalla"
+    IDS_CUSTOMSEQUENCES     "Secuencias personalizadas"
+    IDS_PATCHSETS_TOO_LARGE "Añadir esta lista de parches superaría el tamaño que HCFR puede guardar en un documento (%d MB de %d MB). Elimine un conjunto o use una lista más pequeña."
+    IDS_PATCHSETS_TOO_MANY "Este documento ya contiene %d listas de parches, el máximo que HCFR puede guardar en un documento. Cree un documento nuevo para esta lista."
     IDS_MEASUREDISPLAYPROFILE "Medir el perfil de pantalla"
     IDS_DELETEDISPLAYPROFILE "Borrar el perfil de pantalla"
     IDS_SATLUMSHIFT         "Saturación - desviaciones"
@@ -4044,6 +4048,7 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Mide los colores primarios\nMedir los colores primarios"
     IDM_MEASURE_SECONDARIES "Mide los colores primarios y secundarios\nMedir los colores primarios y secundarios"
     IDM_MEASURE_DEFINESCALE "Define los parámetros de medida (número de niveles)"
+    IDM_MEASURE_OPEN_PATCHLIST "Cargar una lista de parches CSV como conjunto de parches de usuario"
     IDM_SOUND_NONE          "No reproducir ningún sonido tras una medida"
     IDM_SOUND_SHUTTER       "Reproduce un obturador de cámara tras cada medida"
     IDM_SOUND_CLICK         "Reproduce un clic de teclado tras cada medida"

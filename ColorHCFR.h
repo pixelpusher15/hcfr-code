@@ -93,6 +93,8 @@ class	CDataSetDoc ; //Ki
 CDataSetDoc * GetDataRef();	//Ki
 void SetDataRef(CDataSetDoc *m_pRefData);	//Ki
 void GuardCCModeOutputRange(int ccMode);	// import-range guard (USER patch list)
+struct CUserPatchSet;
+CUserPatchSet * GetActiveDocUserPatchSet();	// active doc's active user patch set, or NULL
 void	UpdateDataRef(BOOL ActiveDataRef, CDataSetDoc * pDoc);	//Ki
 
 CColorHCFRConfig * GetConfig();

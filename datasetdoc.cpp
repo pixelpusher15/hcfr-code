@@ -552,6 +552,7 @@ BEGIN_MESSAGE_MAP(CDataSetDoc, CDocument)
 	ON_UPDATE_COMMAND_UI(IDM_MEASURE_SECONDARIES, OnUpdateMeasureSecondaries)
 	ON_UPDATE_COMMAND_UI(IDM_CONTINUOUS_MEASUREMENT, OnUpdateContinuousMeasurement)
 	ON_COMMAND(IDM_MEASURE_DEFINESCALE, OnMeasureDefinescale)
+	ON_COMMAND(IDM_MEASURE_OPEN_PATCHLIST, OnMeasureOpenPatchList)
 	ON_COMMAND(IDM_MEASURE_NEARBLACK, OnMeasureNearblack)
 	ON_UPDATE_COMMAND_UI(IDM_MEASURE_NEARBLACK, OnUpdateMeasureNearblack)
 	ON_COMMAND(IDM_MEASURE_NEARWHITE, OnMeasureNearwhite)
@@ -4985,11 +4986,147 @@ void CDataSetDoc::OnBkgndMeasureReady()
 	g_bInsideBkgndRefresh = FALSE;
 }
 
-void CDataSetDoc::OnMeasureDefinescale() 
+void CDataSetDoc::OnMeasureDefinescale()
 {
 	CScaleSizes dlg ( this );
 
 	dlg.DoModal ();
+}
+
+void CDataSetDoc::OnMeasureOpenPatchList()
+{
+	if ( IsMeasureSweepActive () )
+		return;
+	CFileDialog dlg ( TRUE, "csv", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR,
+	                  "Patch list CSV (*.csv)|*.csv||" );
+	if ( dlg.DoModal () == IDOK )
+		ImportUserPatchSetFile ( dlg.GetPathName () );
+}
+
+bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
+{
+	std::vector<CsvPatchRow> rows;
+	int bits = 8, range = CSV_RANGE_NONE;
+	int nRows = ReadCsvPatchRows ( CString ( path ), rows, MAX_USER_CC_PATCH_SIZE, &bits, &range );
+	if ( nRows <= 0 )
+	{
+		CString fmt, msg;
+		fmt.LoadString ( IDS_CSV_FILE_NOT_FOUND );
+		msg.Format ( fmt, path );
+		AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
+		return false;
+	}
+
+	// A document that measured legacy USER data before any set was loaded gets
+	// that data wrapped into a set first, so opening a file can never discard it.
+	m_measure.MigrateLegacyUserBand ();
+
+	CString cPath ( path );
+	int sl = cPath.ReverseFind ( '\\' );
+	std::string base = (LPCTSTR)( sl >= 0 ? cPath.Mid ( sl + 1 ) : cPath );
+	size_t dp = base.rfind ( ".csv" );
+	if ( dp != std::string::npos )
+		base.erase ( dp );
+
+	// Re-opening a set: same name + same row count refreshes the definition in
+	// place and keeps the measures (the iterate-on-the-CSV workflow); a
+	// different count would misalign definition and measures, so it becomes a
+	// separate entry under a suffixed name. Measurements are never discarded.
+	int existing = -1;
+	for ( int i = 0; i < m_measure.GetUserPatchSetCount (); i++ )
+		if ( _stricmp ( m_measure.GetUserPatchSet ( i )->name.c_str (), base.c_str () ) == 0 )
+		{
+			existing = i;
+			break;
+		}
+	bool bRefresh = ( existing >= 0 && (int) m_measure.GetUserPatchSet ( existing )->rows.size () == nRows );
+
+	// A document holds at most kMaxUserPatchSets sets; the reader refuses more.
+	if ( ! bRefresh && m_measure.GetUserPatchSetCount () >= kMaxUserPatchSets )
+	{
+		CString fmt, msg;
+		fmt.LoadString ( IDS_PATCHSETS_TOO_MANY );
+		msg.Format ( fmt, kMaxUserPatchSets );
+		AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
+		return false;
+	}
+
+	// Refuse a list the document could not save once it is measured: the
+	// CMeasure trailer is capped at kMaxExtensionBytes (ArchiveExtension.h).
+	{
+		CUserPatchSet candidate;
+		if ( bRefresh )
+			candidate = *m_measure.GetUserPatchSet ( existing );
+		candidate.srcPath = (LPCTSTR)cPath;
+		candidate.bits = bits;
+		candidate.range = range;
+		candidate.rows = rows;
+		ULONGLONG need = m_measure.ProjectedUserPatchSetTrailerBytes ( candidate, bRefresh ? existing : -1 );
+		if ( need > kMaxExtensionBytes )
+		{
+			const ULONGLONG MB = 1024 * 1024;
+			CString fmt, msg;
+			fmt.LoadString ( IDS_PATCHSETS_TOO_LARGE );
+			msg.Format ( fmt, (int) ( ( need + MB - 1 ) / MB ), (int) ( kMaxExtensionBytes / MB ) );
+			AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
+			return false;
+		}
+	}
+
+	int idx;
+	if ( bRefresh )
+	{
+		CUserPatchSet * pSet = m_measure.GetUserPatchSet ( existing );
+		pSet->srcPath = (LPCTSTR)cPath;
+		pSet->bits = bits;
+		pSet->range = range;
+		pSet->rows = rows;
+		idx = existing;
+	}
+	else
+	{
+		std::string name = base;
+		for ( int suffix = 2; ; suffix++ )
+		{
+			bool taken = false;
+			for ( int i = 0; i < m_measure.GetUserPatchSetCount () && !taken; i++ )
+				taken = ( _stricmp ( m_measure.GetUserPatchSet ( i )->name.c_str (), name.c_str () ) == 0 );
+			if ( !taken )
+				break;
+			char buf[32];
+			sprintf_s ( buf, " (%d)", suffix );
+			name = base + buf;
+		}
+		CUserPatchSet set;
+		set.name = name;
+		set.srcPath = (LPCTSTR)cPath;
+		set.bits = bits;
+		set.range = range;
+		set.rows = rows;
+		set.measures.assign ( rows.size (), noDataColor );
+		idx = m_measure.AddUserPatchSet ( set );
+	}
+
+	SwitchUserPatchSet ( idx );
+	return true;
+}
+
+void CDataSetDoc::SwitchUserPatchSet(int idx)
+{
+	if ( IsMeasureSweepActive () )
+		return;	// no set changes mid-sweep (same guard as the CC-set combo)
+	m_measure.ActivateUserPatchSet ( idx );	// no-op when already active
+
+	// The mode-11 combo's CC-set switch recipe (CMainView::OnSelchangeComboSteps),
+	// run unconditionally so a refreshed definition also propagates when the
+	// index did not change.
+	GetConfig () -> m_CCMode = USER;
+	GetConfig () -> m_referencesPropertiesPage.m_CCMode = USER;	// keep the dialog's DDX var in sync
+	GuardCCModeOutputRange ( USER );	// set-aware: reads the active set's declared range
+	GetConfig () -> WriteProfileInt ( "References", "CCMode", USER );
+	GetConfig () -> GetCColors ();	// refill the target cache + drive override from the set
+	SetModifiedFlag ();
+	UpdateAllViews ( NULL, UPD_EVERYTHING );
 }
 
 void CDataSetDoc::OnMeasureGrayscale() 

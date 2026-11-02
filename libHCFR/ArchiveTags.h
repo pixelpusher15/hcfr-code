@@ -68,7 +68,10 @@ namespace ArchiveTag
 	{
 		COLOR_RAW_XYZ    = 1,	// Matrix::Serialize (3x1): uncorrected sensor reading
 		COLOR_STIMULUS   = 2,	// Matrix::Serialize (3x1): drive stimulus, RGB percent
-		COLOR_PROVENANCE = 3,	// reserved for csv-provenance: 4 x int, CString, then int role (append-only)
+		COLOR_PROVENANCE = 3,	// CColorProvenance: 4 x int (patch number, sequence index, source
+								// bits, source range), CString name, then int role
+								// (CColorProvenanceRole). Append-only; a value
+								// without the role reads as role UNKNOWN.
 		COLOR_CONTEXT    = 4,	// reserved (Stage 2): int index into DOC_CONTEXTS
 		COLOR_TIMESTAMP  = 5	// Stage 1: double, seconds since the Unix epoch, sub-second
 	};
@@ -76,7 +79,8 @@ namespace ArchiveTag
 	// CMeasure (Measure.cpp), trailer from block version 22.
 	enum CMeasureTag
 	{
-		MEASURE_USER_PATCH_SETS = 1	// reserved for csv-provenance
+		MEASURE_USER_PATCH_SETS = 1	// the user patch set collection; value layout in
+									// libHCFR/UserPatchSetStream.h
 	};
 
 	// The .chc document header (datasetdoc.cpp), trailer from file version 5.
@@ -90,7 +94,8 @@ namespace ArchiveTag
 	};
 
 	// Blocks with no tags yet still write a trailer; it simply has cb = 0.
-	// Stage 1 writes and reads ONLY CSensorTag and CColorTag entries.
+	// Stage 1 writes and reads ONLY CSensorTag and CColorTag entries, and
+	// csv-provenance adds MEASURE_USER_PATCH_SETS.
 }
 
 #endif

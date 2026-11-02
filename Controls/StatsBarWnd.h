@@ -49,9 +49,26 @@ public:
 	//   pGlyphFont : Segoe Fluent Icons font for the +/- and checkmark glyphs
 	void SetHeaderModel(CButton* pEditBtn, CFont* pGlyphFont);
 
+	// Make the FIRST chip (the leading plain-text segment - the CC set name in
+	// display mode 11) a clickable zone that posts WM_COMMAND(cmdId, BN_CLICKED)
+	// to the parent, with the same hover/press affordance as the +/- buttons.
+	// 0 disables (the chip paints as a plain segment again).
+	void SetNameZoneCommand(int cmdId);
+
+	// Exact text of the leading set-name chip. The parser splits the fed
+	// string on parentheses/brackets, so a name containing them ("set (2)")
+	// would be chopped; a declared name is emitted as ONE verbatim chip and
+	// only the remainder is bracket-split. Empty = no declared name (parse
+	// everything, the pre-existing behavior).
+	void SetNameText(LPCTSTR lpszName);
+
 // Implementation
 public:
 	virtual ~CStatsBarWnd();
+
+	// Tooltip for the clickable name chip ("Click to select a sequence").
+	// Rect-based tool: hit-tested against m_rcNameZone while the zone is armed.
+	virtual INT_PTR OnToolHitTest(CPoint point, TOOLINFO* pTI) const;
 
 protected:
 	void Parse(LPCTSTR lpszText);
@@ -59,6 +76,7 @@ protected:
 	void EnsureFont(CDC* pDC);	// build the bold chip font once (DPI-scaled)
 
 	CString			m_strText;	// last text received (to skip redundant repaints)
+	CString			m_namePrefix;	// declared set name, emitted as one verbatim leading chip
 	CStringArray	m_segments;	// parsed display segments
 	CFont			m_font;		// larger bold font for the header chips
 
@@ -66,6 +84,8 @@ protected:
 	CButton*		m_pEditBtn;		// hidden control holding the edit-grid state
 	CFont*			m_pGlyphFont;	// Segoe Fluent Icons (not owned)
 	CRect			m_rcEditZone, m_rcPlusZone, m_rcMinusZone;	// hit rects (client px)
+	CRect			m_rcNameZone;	// first chip's rect while SetNameZoneCommand is armed
+	int				m_nameZoneCmd;	// command id the name chip posts, or 0 (disabled)
 	int				m_pressZone;	// control id being pressed, or 0
 	int				m_hoverZone;	// +/- control id under the mouse, or 0
 

@@ -23,12 +23,15 @@
 // drive the codec it delegates to (libHCFR/SensorCalibrationStream): every
 // byte CSensor::Serialize writes after the sensor matrix. Hand-built streams
 // pin the refusals, so a layout this build must not parse is proven refused
-// rather than read. The trailer writer's size cap is pinned here too.
+// rather than read. The trailer writer's size cap is pinned here too, and so
+// are csv-provenance's two tags: CColor's PROVENANCE and the CMeasure user
+// patch set collection (through libHCFR/UserPatchSetStream).
 
 #include "Color.h"
 #include "ArchiveExtension.h"
 #include "ArchiveTags.h"
 #include "SensorCalibrationStream.h"
+#include "UserPatchSetStream.h"
 #include <vector>
 #include <cppunit/config/SourcePrefix.h>
 #include <cppunit/extensions/HelperMacros.h>
@@ -225,6 +228,214 @@ namespace
 	}
 }
 
+// csv-provenance: the CColor PROVENANCE tag and the CMeasure user patch set
+// tag. CMeasure cannot be linked here; its trailer is read and written by
+// libHCFR/UserPatchSetStream, which these cases drive.
+namespace
+{
+	const int kSentinel = 0x5EAD;
+
+	// Loads with f(ar) over a copy of bytes; maps the exception to an Outcome.
+	template <class F> Outcome LoadWith(const std::vector<BYTE>& bytes, F f)
+	{
+		Outcome o = OTHER_ERROR;
+		std::vector<BYTE> copy(bytes);
+		if ( copy.empty() )
+			copy.push_back(0);
+		CMemFile mem(&copy[0], (UINT) bytes.size());
+		CArchive ar(&mem, CArchive::load);
+		try
+		{
+			f(ar);
+			o = LOADED;
+			ar.Close();
+		}
+		catch ( CArchiveException* e )
+		{
+			o = ( e->m_cause == CArchiveException::badSchema ) ? BAD_SCHEMA
+			  : ( e->m_cause == CArchiveException::endOfFile ) ? END_OF_FILE : OTHER_ERROR;
+			e->Delete();
+			ar.Abort();
+		}
+		catch ( CException* e )
+		{
+			e->Delete();
+			ar.Abort();
+		}
+		mem.Detach();
+		return o;
+	}
+
+	CColorProvenance Provenance(int patch, const char* name, int role)
+	{
+		CColorProvenance p;
+		p.patchNumber = patch;
+		p.sequenceIndex = patch + 100;
+		p.srcBits = 10;
+		p.srcRange = 1;
+		p.name = name;
+		p.role = role;
+		return p;
+	}
+
+	bool SameProvenance(const CColorProvenance& a, const CColorProvenance& b)
+	{
+		return a.patchNumber == b.patchNumber && a.sequenceIndex == b.sequenceIndex
+		    && a.srcBits == b.srcBits && a.srcRange == b.srcRange
+		    && a.name == b.name && a.role == b.role;
+	}
+
+	// A reading as a colorimeter sweep leaves it: lux, raw XYZ, stimulus,
+	// timestamp and provenance; bands > 0 adds a spectrum.
+	CColor Reading(int i, const char* name, int bands = 0)
+	{
+		CColor c(0.25 + i, 0.5 + i, 0.75 + i);
+		if ( bands > 0 )
+		{
+			std::vector<double> v(bands);
+			for ( int k = 0; k < bands; k++ )
+				v[k] = 0.001 * (k + i);
+			CSpectrum s(bands, 380, 380 + 10 * (bands - 1), 10.0, &v[0]);
+			c.SetSpectrum(s);
+		}
+		c.SetLuxValue(12.5 + i);
+		c.SetRawXYZValue(ColorXYZ(0.2 + i, 0.4 + i, 0.6 + i));
+		c.SetStimulusValue(ColorRGBDisplay(10.0, 20.0, 30.0 + i));
+		c.SetTimestamp(1789000000.25 + i);
+		c.SetProvenance(Provenance(i, name, PROVENANCE_ROLE_COLOR));
+		return c;
+	}
+
+	bool SameColor(const CColor& a, const CColor& b)
+	{
+		if ( a.GetX() != b.GetX() || a.GetY() != b.GetY() || a.GetZ() != b.GetZ() )
+			return false;
+		if ( a.HasLuxValue() != b.HasLuxValue() || ( a.HasLuxValue() && a.GetLuxValue() != b.GetLuxValue() ) )
+			return false;
+		if ( a.HasRawXYZValue() != b.HasRawXYZValue() || a.HasStimulusValue() != b.HasStimulusValue() )
+			return false;
+		if ( a.HasRawXYZValue() && !SameMatrix(a.GetRawXYZValue(), b.GetRawXYZValue()) )
+			return false;
+		if ( a.HasStimulusValue() && !SameMatrix(a.GetStimulusValue(), b.GetStimulusValue()) )
+			return false;
+		if ( a.HasTimestamp() != b.HasTimestamp() || a.GetTimestamp() != b.GetTimestamp() )
+			return false;
+		if ( a.HasProvenance() != b.HasProvenance() )
+			return false;
+		if ( a.HasProvenance() && !SameProvenance(a.GetProvenance(), b.GetProvenance()) )
+			return false;
+		return true;
+	}
+
+	CsvPatchRow Row(int patch, int r, int g, int b, const char* name, int role)
+	{
+		CsvPatchRow row;
+		row.patch = patch;
+		row.r = r;
+		row.g = g;
+		row.b = b;
+		row.name = name;
+		row.role = role;
+		return row;
+	}
+
+	// Two sets: "alpha" (10-bit legal, three rows with three roles, the
+	// middle patch unmeasured) and an empty "beta" (8-bit full, no rows).
+	std::vector<CUserPatchSet> TwoSets()
+	{
+		std::vector<CUserPatchSet> sets(2);
+		CUserPatchSet& a = sets[0];
+		a.sequenceId = "";
+		a.name = "alpha";
+		a.srcPath = "C:\\patches\\alpha.csv";
+		a.bits = 10;
+		a.range = 1;
+		a.rows.push_back(Row(1, 64, 64, 64, "black", PROVENANCE_ROLE_UNKNOWN));
+		a.rows.push_back(Row(2, 940, 64, 64, "red", PROVENANCE_ROLE_ANCHOR));
+		a.rows.push_back(Row(7, 940, 940, 940, "white", PROVENANCE_ROLE_VERIFICATION));
+		a.measures.push_back(Reading(1, "black"));
+		a.measures.push_back(noDataColor);
+		a.measures.push_back(Reading(7, "white"));
+		CUserPatchSet& b = sets[1];
+		b.sequenceId = "SEQ-0001";
+		b.name = "beta";
+		b.srcPath = "";
+		b.bits = 8;
+		b.range = 0;
+		return sets;
+	}
+
+	bool SameSets(const std::vector<CUserPatchSet>& x, const std::vector<CUserPatchSet>& y)
+	{
+		if ( x.size() != y.size() )
+			return false;
+		for ( size_t s = 0; s < x.size(); s++ )
+		{
+			const CUserPatchSet& a = x[s];
+			const CUserPatchSet& b = y[s];
+			if ( a.sequenceId != b.sequenceId || a.name != b.name || a.srcPath != b.srcPath
+			  || a.bits != b.bits || a.range != b.range
+			  || a.rows.size() != b.rows.size() || a.measures.size() != b.measures.size() )
+				return false;
+			for ( size_t i = 0; i < a.rows.size(); i++ )
+				if ( a.rows[i].patch != b.rows[i].patch || a.rows[i].r != b.rows[i].r || a.rows[i].g != b.rows[i].g
+				  || a.rows[i].b != b.rows[i].b || a.rows[i].name != b.rows[i].name || a.rows[i].role != b.rows[i].role )
+					return false;
+			for ( size_t i = 0; i < a.measures.size(); i++ )
+			{
+				if ( a.measures[i].isValid() != b.measures[i].isValid() )
+					return false;
+				if ( a.measures[i].isValid() && !SameColor(a.measures[i], b.measures[i]) )
+					return false;
+			}
+		}
+		return true;
+	}
+
+	// A hand-built CMeasure trailer: an unknown tag 200 when asked, then the
+	// sets tag holding `value` (when non-empty), then the sentinel.
+	std::vector<BYTE> HandTrailer(bool bUnknownFirst, const std::vector<BYTE>& value)
+	{
+		StreamBuilder s;
+		CExtensionWriter ext;
+		if ( bUnknownFirst )
+		{
+			CArchive& v = ext.BeginTag(200);
+			for ( int i = 0; i < 37; i++ )
+				v << (BYTE) 0xA5;
+			ext.EndTag();
+		}
+		if ( !value.empty() )
+		{
+			ext.BeginTag(ArchiveTag::MEASURE_USER_PATCH_SETS).Write(&value[0], (UINT) value.size());
+			ext.EndTag();
+		}
+		ext.Write(s.Ar());
+		s.Ar() << kSentinel;
+		return s.Bytes();
+	}
+
+	std::vector<BYTE> SetsValue(const std::vector<CUserPatchSet>& sets, int active)
+	{
+		StreamBuilder s;
+		StoreUserPatchSets(s.Ar(), sets, active);
+		return s.Bytes();
+	}
+
+	// Loads a CMeasure trailer then the sentinel into sets / active / sentinel.
+	struct TrailerLoad
+	{
+		std::vector<CUserPatchSet>* pSets;
+		int* pActive;
+		int* pSentinel;
+		void operator()(CArchive& ar) const
+		{
+			LoadMeasureTrailer(ar, *pSets, *pActive);
+			ar >> *pSentinel;
+		}
+	};
+}
+
 class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
 {
 	CPPUNIT_TEST_SUITE(THIS_TEST_CASE);
@@ -246,6 +457,14 @@ class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
 	CPPUNIT_TEST( SensorUnknownRecordValuesRefused );
 	CPPUNIT_TEST( SensorSpectralMethodWithoutRecordRefused );
 	CPPUNIT_TEST( SensorRecordWithSourceNoneIsCorrupt );
+	CPPUNIT_TEST( ColorProvenanceRoundTrip );
+	CPPUNIT_TEST( ColorWithoutProvenanceTagLoadsClean );
+	CPPUNIT_TEST( UserPatchSetsRoundTrip );
+	CPPUNIT_TEST( UserPatchSetsTagAbsentDefaults );
+	CPPUNIT_TEST( UserPatchSetsCorruptRefused );
+	CPPUNIT_TEST( UserPatchSetsFitTheTrailerCap );
+	CPPUNIT_TEST( MeasureTrailerBytesMatchWriter );
+	CPPUNIT_TEST( UserPatchSetsOutOfRangeFieldsRefused );
 	CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -669,6 +888,307 @@ protected:
 		r = Load(HandV4(CALIB_SPECTRAL_SAMPLE, false, FALSE, false, 0, FIT_BASIS_NATIVE,
 		                SpectralRecord(SPECTRAL_SOURCE_DISPLAY_TYPE, FIT_BASIS_NATIVE)), false);
 		CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) r.outcome );
+	}
+
+	// --- csv-provenance: COLOR_PROVENANCE (CColor tag 3) ---
+
+	void ColorProvenanceRoundTrip()
+	{
+		// Every role value, each followed by the sentinel: the color ended
+		// where its trailer said.
+		static const int roles[] = { PROVENANCE_ROLE_UNKNOWN, PROVENANCE_ROLE_COLOR, PROVENANCE_ROLE_ANCHOR,
+		                             PROVENANCE_ROLE_PREROLL, PROVENANCE_ROLE_VERIFICATION,
+		                             PROVENANCE_ROLE_INTERSTITIAL, PROVENANCE_ROLE_IDENTIFICATION };
+		for ( int k = 0; k < 7; k++ )
+		{
+			CColor in(0.25, 0.5, 0.75);
+			in.SetProvenance(Provenance(42, "Skin tone (light)", roles[k]));
+			StreamBuilder s;
+			in.Serialize(s.Ar());
+			s.Ar() << kSentinel;
+			std::vector<BYTE> bytes = s.Bytes();
+
+			CColor out;
+			int sentinel = 0;
+			struct L { CColor* c; int* n; void operator()(CArchive& ar) const { c->Serialize(ar); ar >> *n; } } load = { &out, &sentinel };
+			CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) LoadWith(bytes, load) );
+			CPPUNIT_ASSERT( out.HasProvenance() );
+			CPPUNIT_ASSERT( SameProvenance(in.GetProvenance(), out.GetProvenance()) );
+			CPPUNIT_ASSERT_EQUAL( kSentinel, sentinel );
+		}
+	}
+
+	void ColorWithoutProvenanceTagLoadsClean()
+	{
+		// A color as PR-A writes it (version 101, trailer holding RAW_XYZ only,
+		// no tag 3), then the sentinel: it loads, carries no provenance, and
+		// the stream stays in step.
+		StreamBuilder s;
+		s.Ar() << (int) 101;
+		Matrix xyz(0.0, 3, 1);
+		xyz(0, 0) = 0.25; xyz(1, 0) = 0.5; xyz(2, 0) = 0.75;
+		xyz.Serialize(s.Ar());
+		CExtensionWriter ext;
+		Matrix raw(0.0, 3, 1);
+		raw(0, 0) = 0.2; raw(1, 0) = 0.4; raw(2, 0) = 0.6;
+		raw.Serialize(ext.BeginTag(ArchiveTag::COLOR_RAW_XYZ));
+		ext.EndTag();
+		ext.Write(s.Ar());
+		s.Ar() << kSentinel;
+
+		CColor out;
+		out.SetProvenance(Provenance(9, "stale", PROVENANCE_ROLE_ANCHOR));	// a load replaces it
+		int sentinel = 0;
+		struct L { CColor* c; int* n; void operator()(CArchive& ar) const { c->Serialize(ar); ar >> *n; } } load = { &out, &sentinel };
+		CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) LoadWith(s.Bytes(), load) );
+		CPPUNIT_ASSERT( !out.HasProvenance() );
+		CPPUNIT_ASSERT( out.HasRawXYZValue() );
+		CPPUNIT_ASSERT_EQUAL( 0.4, out.GetRawXYZValue()[1] );
+		CPPUNIT_ASSERT_EQUAL( kSentinel, sentinel );
+
+		// And this build writes no tag 3 for a color without provenance: its
+		// bytes equal the same color's with provenance set and then cleared.
+		CColor plain(0.25, 0.5, 0.75);
+		CColor cleared(0.25, 0.5, 0.75);
+		cleared.SetProvenance(Provenance(1, "x", PROVENANCE_ROLE_COLOR));
+		cleared.ClearProvenance();
+		StreamBuilder a, b;
+		plain.Serialize(a.Ar());
+		cleared.Serialize(b.Ar());
+		std::vector<BYTE> ba = a.Bytes();
+		CPPUNIT_ASSERT( ba == b.Bytes() );
+		CPPUNIT_ASSERT_EQUAL( (size_t) (4 + 44 + 4), ba.size() );	// version, XYZ, empty trailer
+	}
+
+	// --- csv-provenance: MEASURE_USER_PATCH_SETS (CMeasure tag 1) ---
+
+	void UserPatchSetsRoundTrip()
+	{
+		std::vector<CUserPatchSet> in = TwoSets();
+		StreamBuilder s;
+		StoreMeasureTrailer(s.Ar(), in, 1);
+		s.Ar() << kSentinel;
+
+		std::vector<CUserPatchSet> out;
+		int active = -7, sentinel = 0;
+		TrailerLoad load = { &out, &active, &sentinel };
+		CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) LoadWith(s.Bytes(), load) );
+		CPPUNIT_ASSERT( SameSets(in, out) );
+		CPPUNIT_ASSERT_EQUAL( 1, active );
+		CPPUNIT_ASSERT( !out[0].measures[1].isValid() );			// the gap stays a gap
+		CPPUNIT_ASSERT_EQUAL( (int) PROVENANCE_ROLE_VERIFICATION, out[0].rows[2].role );
+		CPPUNIT_ASSERT( out[0].measures[2].HasProvenance() );
+		CPPUNIT_ASSERT_EQUAL( kSentinel, sentinel );
+
+		// The same value behind an unknown tag: skipped by length, sets intact.
+		std::vector<CUserPatchSet> out2;
+		active = -7; sentinel = 0;
+		TrailerLoad load2 = { &out2, &active, &sentinel };
+		CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) LoadWith(HandTrailer(true, SetsValue(in, 0)), load2) );
+		CPPUNIT_ASSERT( SameSets(in, out2) );
+		CPPUNIT_ASSERT_EQUAL( 0, active );
+		CPPUNIT_ASSERT_EQUAL( kSentinel, sentinel );
+	}
+
+	void UserPatchSetsTagAbsentDefaults()
+	{
+		// PR-A's CMeasure trailer (empty), and one holding only an unknown
+		// tag: no sets, no active set, whatever the scratch held before.
+		for ( int k = 0; k < 2; k++ )
+		{
+			std::vector<CUserPatchSet> out = TwoSets();
+			int active = 1, sentinel = 0;
+			TrailerLoad load = { &out, &active, &sentinel };
+			CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) LoadWith(HandTrailer(k == 1, std::vector<BYTE>()), load) );
+			CPPUNIT_ASSERT( out.empty() );
+			CPPUNIT_ASSERT_EQUAL( -1, active );
+			CPPUNIT_ASSERT_EQUAL( kSentinel, sentinel );
+		}
+
+		// Without sets this build writes exactly PR-A's empty trailer.
+		StreamBuilder s;
+		StoreMeasureTrailer(s.Ar(), std::vector<CUserPatchSet>(), -1);
+		std::vector<BYTE> bytes = s.Bytes();
+		CPPUNIT_ASSERT_EQUAL( (size_t) 4, bytes.size() );
+		CPPUNIT_ASSERT( bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 0 && bytes[3] == 0 );
+	}
+
+	void UserPatchSetsCorruptRefused()
+	{
+		std::vector<CUserPatchSet> out;
+		int active = 0, sentinel = 0;
+		TrailerLoad load = { &out, &active, &sentinel };
+
+		// Active index outside the collection.
+		CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) LoadWith(HandTrailer(false, SetsValue(TwoSets(), 2)), load) );
+		CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) LoadWith(HandTrailer(false, SetsValue(TwoSets(), -2)), load) );
+
+		// A set count no value could hold: refused before any allocation.
+		{
+			StreamBuilder v;
+			v.Ar() << (int) 0x7FFFFFFF << (int) -1;
+			CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) LoadWith(HandTrailer(false, v.Bytes()), load) );
+		}
+
+		// A row count above MAX_USER_CC_PATCH_SIZE.
+		{
+			StreamBuilder v;
+			v.Ar() << (int) 1 << (int) 0;
+			v.Ar() << CString("") << CString("n") << CString("") << (int) 8 << (int) 0;
+			v.Ar() << (int) (MAX_USER_CC_PATCH_SIZE + 1);
+			for ( int i = 0; i < 8; i++ )
+				v.Ar() << (int) 0;
+			CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) LoadWith(HandTrailer(false, v.Bytes()), load) );
+		}
+
+		// Stored measure indexes must ascend: 1 then 0 is corrupt.
+		{
+			StreamBuilder v;
+			v.Ar() << (int) 1 << (int) 0;
+			v.Ar() << CString("") << CString("n") << CString("") << (int) 8 << (int) 0;
+			v.Ar() << (int) 0;				// rows
+			v.Ar() << (int) 2 << (int) 2;	// measures, stored
+			CColor c(0.1, 0.2, 0.3);
+			v.Ar() << (int) 1; c.Serialize(v.Ar());
+			v.Ar() << (int) 0; c.Serialize(v.Ar());
+			CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) LoadWith(HandTrailer(false, v.Bytes()), load) );
+		}
+
+		// A value cut short ends the load (endOfFile), never a partial success.
+		{
+			std::vector<BYTE> value = SetsValue(TwoSets(), 0);
+			value.resize(value.size() - 3);
+			CPPUNIT_ASSERT_EQUAL( (int) END_OF_FILE, (int) LoadWith(HandTrailer(false, value), load) );
+		}
+	}
+
+	void UserPatchSetsFitTheTrailerCap()
+	{
+		// The largest set the picker can hold: MAX_USER_CC_PATCH_SIZE rows,
+		// every one measured, each reading carrying everything a sweep stamps.
+		// Once as a colorimeter leaves it, once with a 36-band (380-730 nm,
+		// 10 nm) spectrum. Both must fit inside kMaxExtensionBytes; the sizes
+		// are printed so the headroom is on record.
+		static const int bandsList[] = { 0, 36 };
+		for ( int k = 0; k < 2; k++ )
+		{
+			std::vector<CUserPatchSet> sets(1);
+			CUserPatchSet& set = sets[0];
+			set.name = "full-size patch list";
+			set.srcPath = "C:\\Users\\someone\\Documents\\HCFR\\patch lists\\full-size patch list.csv";
+			set.bits = 10;
+			set.range = 1;
+			char name[32];
+			for ( int i = 0; i < MAX_USER_CC_PATCH_SIZE; i++ )
+			{
+				sprintf_s(name, "Patch %05d", i + 1);
+				set.rows.push_back(Row(i + 1, 64 + i % 877, 64 + i % 877, 64 + i % 877, name, PROVENANCE_ROLE_COLOR));
+				set.measures.push_back(Reading(i, name, bandsList[k]));
+			}
+			std::vector<BYTE> value = SetsValue(sets, 0);
+			size_t perSet = value.size();
+			printf("\n  user patch set of %d readings (%d bands): %u bytes; %u such sets fit the %u-byte trailer cap\n",
+			       MAX_USER_CC_PATCH_SIZE, bandsList[k], (unsigned) perSet,
+			       (unsigned) ((kMaxExtensionBytes - 4 - 5 - 8) / perSet), (unsigned) kMaxExtensionBytes);
+			CPPUNIT_ASSERT( perSet + 4 + 5 < kMaxExtensionBytes );
+
+			// And it reads back whole through the real trailer.
+			StreamBuilder s;
+			StoreMeasureTrailer(s.Ar(), sets, 0);
+			s.Ar() << kSentinel;
+			std::vector<CUserPatchSet> out;
+			int active = -1, sentinel = 0;
+			TrailerLoad load = { &out, &active, &sentinel };
+			CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) LoadWith(s.Bytes(), load) );
+			CPPUNIT_ASSERT( SameSets(sets, out) );
+			CPPUNIT_ASSERT_EQUAL( kSentinel, sentinel );
+		}
+	}
+
+	void UserPatchSetsOutOfRangeFieldsRefused()
+	{
+		std::vector<CUserPatchSet> out;
+		int active = 0, sentinel = 0;
+		TrailerLoad load = { &out, &active, &sentinel };
+
+		// Bit depths the importer never produces (it accepts 8 and 10 only)
+		// and ranges outside CSV_RANGE_NONE..CSV_RANGE_EXTENDED are corrupt.
+		// The in-range edges load.
+		static const int badBits[] = { 0, 7, 9, 12, 16 };
+		for ( int k = 0; k < 5; k++ )
+		{
+			std::vector<CUserPatchSet> sets = TwoSets();
+			sets[0].bits = badBits[k];
+			CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) LoadWith(HandTrailer(false, SetsValue(sets, 0)), load) );
+		}
+		static const int badRanges[] = { -2, 3 };
+		for ( int k = 0; k < 2; k++ )
+		{
+			std::vector<CUserPatchSet> sets = TwoSets();
+			sets[1].range = badRanges[k];
+			CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) LoadWith(HandTrailer(false, SetsValue(sets, 0)), load) );
+		}
+		{
+			std::vector<CUserPatchSet> sets = TwoSets();
+			sets[0].bits = 8;  sets[0].range = CSV_RANGE_NONE;
+			sets[1].bits = 10; sets[1].range = CSV_RANGE_EXTENDED;
+			CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) LoadWith(HandTrailer(false, SetsValue(sets, 0)), load) );
+			CPPUNIT_ASSERT( SameSets(sets, out) );
+		}
+
+		// kMaxUserPatchSets loads; one more is refused on read, and the
+		// writer refuses to emit it (badSchema, nothing written).
+		std::vector<CUserPatchSet> many(kMaxUserPatchSets);
+		for ( int i = 0; i < kMaxUserPatchSets; i++ )
+			many[i].name = "s";
+		CPPUNIT_ASSERT_EQUAL( (int) LOADED, (int) LoadWith(HandTrailer(false, SetsValue(many, 0)), load) );
+		CPPUNIT_ASSERT_EQUAL( (size_t) kMaxUserPatchSets, out.size() );
+		{
+			StreamBuilder v;
+			v.Ar() << (int) ( kMaxUserPatchSets + 1 ) << (int) -1;
+			for ( int i = 0; i <= kMaxUserPatchSets; i++ )
+			{
+				v.Ar() << CString("") << CString("s") << CString("") << (int) 8 << (int) 0;
+				v.Ar() << (int) 0 << (int) 0 << (int) 0;
+			}
+			CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) LoadWith(HandTrailer(false, v.Bytes()), load) );
+		}
+		many.push_back(many[0]);
+		CMemFile mem;
+		CArchive ar(&mem, CArchive::store);
+		Outcome o = LOADED;
+		try
+		{
+			StoreMeasureTrailer(ar, many, -1);
+		}
+		catch ( CArchiveException* e )
+		{
+			o = ( e->m_cause == CArchiveException::badSchema ) ? BAD_SCHEMA : OTHER_ERROR;
+			e->Delete();
+		}
+		ar.Flush();
+		CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) o );
+		CPPUNIT_ASSERT( mem.GetLength() == 0 );
+		ar.Abort();
+	}
+
+	void MeasureTrailerBytesMatchWriter()
+	{
+		// The Open patch list... size check measures with these two helpers;
+		// they must report exactly what the writers emit.
+		std::vector<CUserPatchSet> sets = TwoSets();
+		for ( int k = 0; k < 2; k++ )
+		{
+			if ( k == 1 )
+				sets.clear();
+			StreamBuilder s;
+			StoreMeasureTrailer(s.Ar(), sets, sets.empty() ? -1 : 1);
+			CPPUNIT_ASSERT_EQUAL( (ULONGLONG) s.Bytes().size(), MeasureTrailerBytes(sets, sets.empty() ? -1 : 1) );
+		}
+		CColor c = Reading(3, "Patch 00004", 36);
+		StreamBuilder s;
+		c.Serialize(s.Ar());
+		CPPUNIT_ASSERT_EQUAL( (ULONGLONG) s.Bytes().size(), SerializedColorBytes(c) );
 	}
 };
 

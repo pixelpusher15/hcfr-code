@@ -198,6 +198,23 @@ CDataSetDoc * GetDataRef()	//Ki
 // codes (>100%), and only a 16-235 output can emit them - a Full output clamps 236-255 to
 // 255 at the encoder, silently destroying the gradations. Warn ONLY for that. (Legal/Full
 // vs the radio is a display-range chain setting HCFR cannot verify, so it is not flagged.)
+// The active document's active user patch set, or NULL (no main window / no
+// active child / no document / empty collection). Same MDI walk the pre-v10
+// migration in CMeasure::GetCC24Sat uses.
+CUserPatchSet * GetActiveDocUserPatchSet()
+{
+	CMDIFrameWnd * pMainWnd = (CMDIFrameWnd *) AfxGetMainWnd ();
+	if (pMainWnd == NULL)
+		return NULL;
+	CMDIChildWnd * pChild = pMainWnd -> MDIGetActive ();
+	if (pChild == NULL)
+		return NULL;
+	CDataSetDoc * pDoc = (CDataSetDoc *) pChild -> GetActiveDocument ();
+	if (pDoc == NULL)
+		return NULL;
+	return pDoc -> GetMeasure () -> GetActiveUserPatchSet ();
+}
+
 // Shared by the References prop-page combo and the MainView Color-Checker picker.
 void GuardCCModeOutputRange(int ccMode)
 {
@@ -211,6 +228,19 @@ void GuardCCModeOutputRange(int ccMode)
 	                                             // Default 1 matches the canonical RGB_16_235 default (ColorHCFRConfig
 	                                             // / GDIGenerator) - the INI ships without this key, so a 0 default here
 	                                             // would warn spuriously when output actually defaults to 16-235.
+	// Multi-set picker: a loaded set is self-contained, so its declared range is
+	// authoritative - do not re-read usercolors.csv, which it need not match.
+	CUserPatchSet * pSet = GetActiveDocUserPatchSet();
+	if (pSet)
+	{
+		if (pSet->range == CSV_RANGE_EXTENDED)
+		{
+			CString msg;
+			msg.LoadString(IDS_CSV_RANGE_EXTENDED_WARN);
+			AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
+		}
+		return;
+	}
 	char modPath[MAX_PATH];
 	GetModuleFileName(NULL, modPath, sizeof(modPath));
 	LPSTR pSlash = strrchr(modPath, '\\');
