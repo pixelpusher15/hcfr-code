@@ -33,6 +33,7 @@
 #include "LangSelection.h"
 
 #include "PatternDisplay.h"
+#include "GDIGenerator.h"
 
 #include "HcfrUpdateUI.h"
 
@@ -101,6 +102,55 @@ BEGIN_MESSAGE_MAP(CMainFrame, CNewMDIFrameWnd)
 	//}}AFX_MSG_MAP
 	ON_COMMAND_RANGE(IDM_SOUND_NONE, IDM_SOUND_BUTTON, OnMeasureSound)
 	ON_UPDATE_COMMAND_UI_RANGE(IDM_SOUND_NONE, IDM_SOUND_BUTTON, OnUpdateMeasureSound)
+	// Advanced patterns with no document open (see OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_ANIM_BLACK, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_ANIM_WHITE, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_GRADIENT, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_GRADIENT2, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_RG, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_RB, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_GB, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_RGd, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_RBd, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_GBd, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_BN, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_LRAMP, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_GRANGER, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_80, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_TV, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_TV2, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_SPECTRUM, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_SRAMP, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_VSMPTE, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_ERAMP, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_TC0, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_TC1, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_TC2, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_TC3, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_TC4, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_DR0, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_DR1, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_DR2, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_TC5, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_ALIGN, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_NB, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_ALIGN2, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_USERDEFINED_USER1, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_USERDEFINED_USER2, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_USERDEFINED_USER3, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_USERDEFINED_USER4, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_USERDEFINED_USER5, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_USERDEFINED_USER6, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_SHARP, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_CLIPH, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_CLIPL, OnPatternWithoutDocument)
+	ON_COMMAND_EX(IDM_PATTERN_TESTIMG, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_FOCUSRESOLUTION_ISO12233, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_FOCUSRESOLUTION_BBCHDTESTCARD, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_FOCUSRESOLUTION_PHILLIPSPM5644, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_FOCUSRESOLUTION_ZONEPLATE, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_CROSSGRADIENTS_FULLSET, OnPatternWithoutDocument)
+	ON_COMMAND_EX(ID_CROSSGRADIENTS_FULLSET33090, OnPatternWithoutDocument)
 	ON_MESSAGE(WM_DDE_INITIATE, OnDDEInitiate)
 	ON_MESSAGE(WM_DDE_EXECUTE, OnDDEExecute)
 	ON_MESSAGE(WM_DDE_REQUEST, OnDDERequest)
@@ -1335,6 +1385,124 @@ LRESULT CMainFrame::OnHcfrUpdateAvailable(WPARAM /*wParam*/, LPARAM lParam)
 		delete pInfo;
 	}
 	return 0;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Advanced > Patterns with no document open
+//
+// CDataSetDoc handles every one of these commands with its own generator.
+// The active document comes before the frame in MFC command routing, so
+// these frame handlers run only when no document is open; with a document
+// open, nothing here is reached. Each row reproduces the matching
+// CDataSetDoc::OnPatternXxx body, on a generator built the way a new
+// document builds its GDI generator, so the current output mode decides
+// (and refuses) exactly as it does with a document.
+
+struct PatternWithoutDocument
+{
+	UINT	nID;
+	BOOL	(CGenerator::*pDisplay)();
+	BOOL	bSpecialty;		// CanDisplayAnimatedPatterns argument
+	BOOL	bCheckVideoLevel;	// pattern is designed for video levels
+	BOOL	bDisableMainWnd;	// main window disabled while it is shown
+	int		nAnim;			// WaitKey animation mode
+	INT		nReleaseNext;	// Release argument
+};
+
+static const PatternWithoutDocument g_PatternsWithoutDocument[] =
+{
+	// command ID, display function, specialty, video levels, disable main window, WaitKey mode, Release argument
+	{ IDM_PATTERN_ANIM_BLACK,            &CGenerator::DisplayAnimatedBlack, FALSE, FALSE, TRUE , 0,  -1 },
+	{ IDM_PATTERN_ANIM_WHITE,            &CGenerator::DisplayAnimatedWhite, FALSE, FALSE, TRUE , 0,  -1 },
+	{ IDM_PATTERN_GRADIENT,              &CGenerator::DisplayGradient,     TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_GRADIENT2,             &CGenerator::DisplayGradient2,    TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_RG,                    &CGenerator::DisplayRG,           TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_RB,                    &CGenerator::DisplayRB,           TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_GB,                    &CGenerator::DisplayGB,           TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_RGd,                   &CGenerator::DisplayRGd,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_RBd,                   &CGenerator::DisplayRBd,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_GBd,                   &CGenerator::DisplayGBd,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_BN,                    &CGenerator::DisplayBN,           TRUE , TRUE , TRUE , 0, -99 },
+	{ IDM_PATTERN_LRAMP,                 &CGenerator::DisplayLramp,        TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_GRANGER,               &CGenerator::DisplayGranger,      TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_80,                    &CGenerator::Display80,           TRUE , FALSE, FALSE, 0, -99 },
+	{ IDM_PATTERN_TV,                    &CGenerator::DisplayTV,           TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_TV2,                   &CGenerator::DisplayTV2,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_SPECTRUM,              &CGenerator::DisplaySpectrum,     TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_SRAMP,                 &CGenerator::DisplaySramp,        TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_VSMPTE,                &CGenerator::DisplayVSMPTE,       TRUE , TRUE , TRUE , 0, -99 },
+	{ IDM_PATTERN_ERAMP,                 &CGenerator::DisplayEramp,        TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_TC0,                   &CGenerator::DisplayTC0,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_TC1,                   &CGenerator::DisplayTC1,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_TC2,                   &CGenerator::DisplayTC2,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_TC3,                   &CGenerator::DisplayTC3,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_TC4,                   &CGenerator::DisplayTC4,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_DR0,                   &CGenerator::DisplayDR0,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_DR1,                   &CGenerator::DisplayDR1,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_DR2,                   &CGenerator::DisplayDR2,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_TC5,                   &CGenerator::DisplayTC5,          TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_ALIGN,                 &CGenerator::DisplayAlign,        TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_NB,                    &CGenerator::DisplayNB,           TRUE , FALSE, TRUE , 3, -99 },
+	{ IDM_PATTERN_ALIGN2,                &CGenerator::DisplayAlign2,       TRUE , FALSE, TRUE , 0, -99 },
+	{ ID_USERDEFINED_USER1,              &CGenerator::DisplayUser1,        TRUE , FALSE, TRUE , 0, -99 },
+	{ ID_USERDEFINED_USER2,              &CGenerator::DisplayUser2,        TRUE , FALSE, TRUE , 0, -99 },
+	{ ID_USERDEFINED_USER3,              &CGenerator::DisplayUser3,        TRUE , FALSE, TRUE , 0, -99 },
+	{ ID_USERDEFINED_USER4,              &CGenerator::DisplayUser4,        TRUE , FALSE, TRUE , 0, -99 },
+	{ ID_USERDEFINED_USER5,              &CGenerator::DisplayUser5,        TRUE , FALSE, TRUE , 0, -99 },
+	{ ID_USERDEFINED_USER6,              &CGenerator::DisplayUser6,        TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_SHARP,                 &CGenerator::DisplaySharp,        TRUE , FALSE, TRUE , 0, -99 },
+	{ IDM_PATTERN_CLIPH,                 &CGenerator::DisplayClipH,        TRUE , FALSE, TRUE , 2, -99 },
+	{ IDM_PATTERN_CLIPL,                 &CGenerator::DisplayClipL,        TRUE , FALSE, TRUE , 1, -99 },
+	{ IDM_PATTERN_TESTIMG,               &CGenerator::DisplayTestimg,      TRUE , FALSE, TRUE , 0, -99 },
+	{ ID_FOCUSRESOLUTION_ISO12233,       &CGenerator::DisplayISO12233,     TRUE , TRUE , TRUE , 0, -99 },
+	{ ID_FOCUSRESOLUTION_BBCHDTESTCARD,  &CGenerator::DisplayBBCHD,        TRUE , TRUE , TRUE , 0, -99 },
+	{ ID_FOCUSRESOLUTION_PHILLIPSPM5644, &CGenerator::DisplayPM5644,       TRUE , TRUE , TRUE , 0, -99 },
+	{ ID_FOCUSRESOLUTION_ZONEPLATE,      &CGenerator::DisplayZONE,         TRUE , FALSE, TRUE , 0, -99 },
+	{ ID_CROSSGRADIENTS_FULLSET,         &CGenerator::DisplayCROSSl,       TRUE , FALSE, TRUE , 0, -99 },
+	{ ID_CROSSGRADIENTS_FULLSET33090,    &CGenerator::DisplayCROSSd,       TRUE , FALSE, TRUE , 0, -99 },
+};
+
+BOOL CMainFrame::OnPatternWithoutDocument(UINT nID)
+{
+	const PatternWithoutDocument * pPattern = NULL;
+
+	for ( size_t i = 0; i < _countof ( g_PatternsWithoutDocument ); i ++ )
+	{
+		if ( g_PatternsWithoutDocument [ i ].nID == nID )
+			pPattern = & g_PatternsWithoutDocument [ i ];
+	}
+
+	if ( pPattern == NULL )
+		return FALSE;
+
+	CGDIGenerator Generator;
+
+	if ( Generator.CanDisplayAnimatedPatterns(pPattern -> bSpecialty) )
+	{
+		if ( ! pPattern -> bCheckVideoLevel || CDataSetDoc::CheckPatternVideoLevel(& Generator) )
+		{
+			if (Generator.Init())
+			{
+				if ( pPattern -> bDisableMainWnd )
+					AfxGetMainWnd () -> EnableWindow ( FALSE );
+
+				(Generator.*(pPattern -> pDisplay))();
+
+				CDataSetDoc::WaitPatternKey(& Generator, pPattern -> nAnim);
+
+				if ( pPattern -> bDisableMainWnd )
+					AfxGetMainWnd () -> EnableWindow ( TRUE );
+				Generator.Release(pPattern -> nReleaseNext);
+				AfxGetMainWnd () -> BringWindowToTop ( );
+			}
+		}
+	}
+	else
+	{
+		GetColorApp()->InMeasureMessageBox( CString(LPCTSTR(IDS_CANNOTDISPLAYANIMATION)), "On measure", MB_OK | MB_ICONEXCLAMATION );
+	}
+
+	return TRUE;
 }
 
 void CMainFrame::OnPatternDisplay()

@@ -2928,6 +2928,11 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 
 void CDataSetDoc::WaitKey(int Anim)
 {
+	WaitPatternKey(m_pGenerator, Anim);
+}
+
+void CDataSetDoc::WaitPatternKey(CGenerator * pGenerator, int Anim)
+{
 	BOOL	bKeyTyped = FALSE;
 	MSG		Msg;
 	bool	OFF = TRUE;
@@ -2941,15 +2946,15 @@ void CDataSetDoc::WaitKey(int Anim)
 				switch (Anim)
 				{
 					case 1:
-					m_pGenerator->DisplayClipLO();
+					pGenerator->DisplayClipLO();
 					OFF = FALSE;
 					break;
 					case 2:
-					m_pGenerator->DisplayClipHO();
+					pGenerator->DisplayClipHO();
 					OFF = FALSE;
 					break;
 					case 3:
-					m_pGenerator->DisplayNBO();
+					pGenerator->DisplayNBO();
 					OFF = FALSE;
 					break;
 				}
@@ -2960,15 +2965,15 @@ void CDataSetDoc::WaitKey(int Anim)
 				switch (Anim)
 				{
 					case 1:
-					m_pGenerator->DisplayClipL();
+					pGenerator->DisplayClipL();
 					OFF = TRUE;
 					break;
 					case 2:
-					m_pGenerator->DisplayClipH();
+					pGenerator->DisplayClipH();
 					OFF = TRUE;
 					break;
 					case 3:
-					m_pGenerator->DisplayNB();
+					pGenerator->DisplayNB();
 					Sleep(1000);
 					OFF = TRUE;
 					break;
@@ -4337,7 +4342,12 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 
 bool CDataSetDoc::CheckVideoLevel()
 {
-	if ( !m_pGenerator->m_b16_235 && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) != DISPLAY_ccast )
+	return CheckPatternVideoLevel(m_pGenerator);
+}
+
+bool CDataSetDoc::CheckPatternVideoLevel(CGenerator * pGenerator)
+{
+	if ( !pGenerator->m_b16_235 && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) != DISPLAY_ccast )
 	{
 		if (IDYES == GetColorApp()->InMeasureMessageBox( "Caution, pattern is designed for video level output\nand you have selected full range. Continue?", "Pattern display", MB_ICONQUESTION | MB_YESNO ) )
 			return TRUE;
