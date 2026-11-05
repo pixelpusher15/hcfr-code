@@ -912,6 +912,22 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 	int bgG = PiBackground8ToCode ( G1, !!m_b16_235, bits );
 	int bgB = PiBackground8ToCode ( B1, !!m_b16_235, bits );
 
+	// Under Dolby Vision the PGenerator renderer shows code 0 as a full red field (it is below
+	// DV black), so patch and background never go below legal black there. With the 16-235
+	// option on (the only correct setting for DV) the codes are never below that and this is a
+	// no-op; it is the last-resort guard for the full-range setting, where codes 0..15 would
+	// otherwise paint the screen red.
+	if (CGenerator::PGenDolbyVision())
+	{
+		int lo = (bits == 10) ? 64 : 16;
+		if (r < lo) r = lo;
+		if (g < lo) g = lo;
+		if (b < lo) b = lo;
+		if (bgR < lo) bgR = lo;
+		if (bgG < lo) bgG = lo;
+		if (bgB < lo) bgB = lo;
+	}
+
 	m_nPat++;
 
 	int x2 = Cgen.m_offsetx;
@@ -932,7 +948,14 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 			abl = PiPercentToCode ( GetConfig()->m_ablLevel, !!m_b16_235, 10 );
 		else
 			abl = ColorRGBDisplay::ConvertPercentToCode ( GetConfig()->m_ablLevel, !!m_b16_235, 8 );
-		sprintf_s(CPat,"RGB=%s;%d,%d;100;%d,%d,%d;%d,%d,%d;-1,-1", bits == 10 ? "RECTANGLE10bit" : "RECTANGLE", (int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_xWidth),(int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_yHeight),abl,abl,abl,0,0,0);
+		int ablBg = 0;
+		if (CGenerator::PGenDolbyVision())
+		{
+			// same guard as below: code 0 is a red field under DV
+			ablBg = (bits == 10) ? 64 : 16;
+			if (abl < ablBg) abl = ablBg;
+		}
+		sprintf_s(CPat,"RGB=%s;%d,%d;100;%d,%d,%d;%d,%d,%d;-1,-1", bits == 10 ? "RECTANGLE10bit" : "RECTANGLE", (int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_xWidth),(int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_yHeight),abl,abl,abl,ablBg,ablBg,ablBg);
 		if (sock && CGenerator::_RB8PG_send && CPat[0])
 			CGenerator::_RB8PG_send(sock,CPat);
 		else

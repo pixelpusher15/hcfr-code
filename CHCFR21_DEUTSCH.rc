@@ -3156,6 +3156,8 @@ BEGIN
     IDS_PGEN_HDR_DRM  "HDR-Metadaten / DRM-Infoframe"
     IDS_PGEN_DYNRANGE  "Dynamikumfang"
     IDS_PGEN_DOVI_MODE  "DoVi-Modus"
+    IDS_PGEN_RENDERER_DOWN  "Der PGenerator-Renderer ist nach dem Übernehmen nicht neu gestartet. Die gerade übernommenen Einstellungen können die Ursache sein. PGenerator jetzt neu starten und darauf warten?"
+    IDS_PGEN_REBOOT_NOHELP  "Der PGenerator wurde neu gestartet, aber sein Renderer läuft weiterhin nicht. Machen Sie die gerade übernommenen Einstellungen rückgängig."
     IDS_PGEN_PRIMARIES  "Primärfarben"
     IDS_PGEN_SHUTDOWN  "Herunterfahren"
     IDS_PGEN_REFRESH  "Aktualisieren"

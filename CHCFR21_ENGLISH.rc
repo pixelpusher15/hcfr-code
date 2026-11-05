@@ -3134,6 +3134,8 @@ BEGIN
     IDS_PGEN_HDR_DRM  "HDR metadata / DRM infoframe"
     IDS_PGEN_DYNRANGE  "Dynamic range"
     IDS_PGEN_DOVI_MODE  "DoVi mode"
+    IDS_PGEN_RENDERER_DOWN  "The PGenerator renderer did not restart after Apply. The settings just applied may be the cause. Reboot the PGenerator now and wait for it?"
+    IDS_PGEN_REBOOT_NOHELP  "The PGenerator rebooted but its renderer is still not running. Revert the settings you just applied."
     IDS_PGEN_PRIMARIES  "Primaries"
     IDS_PGEN_SHUTDOWN  "Shutdown"
     IDS_PGEN_REFRESH  "Refresh"

@@ -2109,6 +2109,8 @@
 #define IDS_MANUALCAL_BLUE              60186
 #define IDS_MANUALCAL_WHITE             60187
 #define IDS_GRAPH_GSLUMERROR            60090
+#define IDS_PGEN_RENDERER_DOWN           60082
+#define IDS_PGEN_REBOOT_NOHELP           60083
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
