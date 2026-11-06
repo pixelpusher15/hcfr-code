@@ -775,51 +775,51 @@ EXSTYLE WS_EX_APPWINDOW
 CAPTION "Seleccione un patrón"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
 BEGIN
-    GROUPBOX        "Herramientas",IDC_STATIC,4,64,192,79,0,WS_EX_TRANSPARENT
     GROUPBOX        "Colores",IDC_STATIC,4,6,192,56,0,WS_EX_TRANSPARENT
-    PUSHBUTTON      "Prueba de nivel de blanco",IDC_PATTERN_WHITE_LEVEL,129,46,60,10
-    PUSHBUTTON      "Prueba de nivel de negro",IDC_PATTERN_BLACK_LEVEL,69,46,60,10
-    PUSHBUTTON      "Degradado de todos los colores",IDC_PATTERN_ALL_SHAD,9,46,60,10
-    PUSHBUTTON      "Degradado azul",IDC_PATTERN_BLUE_SHAD,129,36,60,10
-    PUSHBUTTON      "Degradado verde",IDC_PATTERN_GREEN_SHAD,69,36,60,10
-    PUSHBUTTON      "Degradado rojo",IDC_PATTERN_RED_SHAD,9,36,60,10
-    PUSHBUTTON      "Azul",IDC_PATTERN_BLUE,69,26,30,10
-    PUSHBUTTON      "Verde",IDC_PATTERN_GREEN,39,26,30,10
-    PUSHBUTTON      "Rojo",IDC_PATTERN_RED,9,26,30,10
-    PUSHBUTTON      "Color",IDC_PATTERN_COLOR,159,16,30,10
-    PUSHBUTTON      "Negro +",IDC_PATTERN_BLACK_P,129,16,30,10
-    PUSHBUTTON      "Gris",IDC_PATTERN_GREY,99,16,30,10
-    PUSHBUTTON      "Blanco",IDC_PATTERN_WHITE,69,16,30,10
-    PUSHBUTTON      "Negro",IDC_PATTERN_BLACK,39,16,30,10
     PUSHBUTTON      "B&&N",IDC_PATTERN_BW,9,16,30,10
-    PUSHBUTTON      "Líneas horizontales",IDC_PATTERN_H_LINE,94,106,94,10
-    PUSHBUTTON      "Geometría",IDC_PATTERN_GEOM,94,86,94,10
-    PUSHBUTTON      "Líneas verticales",IDC_PATTERN_V_LINE,94,96,94,10
-    PUSHBUTTON      "Rejilla de convergencia",IDC_PATTERN_CONV_GRID,94,76,94,10
-    PUSHBUTTON      "Patrón de puntos azules",IDC_PATTERN_BLUE_DOT,10,106,79,10
-    PUSHBUTTON      "Patrón de puntos verdes",IDC_PATTERN_GREEN_DOT,10,96,79,10
-    PUSHBUTTON      "Patrón de puntos rojos",IDC_PATTERN_RED_DOT,10,86,79,10
-    PUSHBUTTON      "Patrón de puntos blancos",IDC_PATTERN_WHITE_DOT,10,76,79,10
-    PUSHBUTTON      "Amarillo",IDC_PATTERN_YELLOW,159,26,30,10
-    PUSHBUTTON      "Magenta",IDC_PATTERN_MAGENTA,129,26,30,10
+    PUSHBUTTON      "Negro",IDC_PATTERN_BLACK,39,16,30,10
+    PUSHBUTTON      "Blanco",IDC_PATTERN_WHITE,69,16,30,10
+    PUSHBUTTON      "Gris",IDC_PATTERN_GREY,99,16,30,10
+    PUSHBUTTON      "Negro +",IDC_PATTERN_BLACK_P,129,16,30,10
+    PUSHBUTTON      "Color",IDC_PATTERN_COLOR,159,16,30,10
+    PUSHBUTTON      "Rojo",IDC_PATTERN_RED,9,26,30,10
+    PUSHBUTTON      "Verde",IDC_PATTERN_GREEN,39,26,30,10
+    PUSHBUTTON      "Azul",IDC_PATTERN_BLUE,69,26,30,10
     PUSHBUTTON      "Cian",IDC_PATTERN_CYAN,99,26,30,10
+    PUSHBUTTON      "Magenta",IDC_PATTERN_MAGENTA,129,26,30,10
+    PUSHBUTTON      "Amarillo",IDC_PATTERN_YELLOW,159,26,30,10
+    PUSHBUTTON      "Degradado rojo",IDC_PATTERN_RED_SHAD,9,36,60,10
+    PUSHBUTTON      "Degradado verde",IDC_PATTERN_GREEN_SHAD,69,36,60,10
+    PUSHBUTTON      "Degradado azul",IDC_PATTERN_BLUE_SHAD,129,36,60,10
+    PUSHBUTTON      "Degradado de todos los colores",IDC_PATTERN_ALL_SHAD,9,46,60,10
+    PUSHBUTTON      "Prueba de nivel de negro",IDC_PATTERN_BLACK_LEVEL,69,46,60,10
+    PUSHBUTTON      "Prueba de nivel de blanco",IDC_PATTERN_WHITE_LEVEL,129,46,60,10
+    GROUPBOX        "Herramientas",IDC_STATIC,4,64,192,79,0,WS_EX_TRANSPARENT
+    PUSHBUTTON      "Patrón de puntos blancos",IDC_PATTERN_WHITE_DOT,10,76,79,10
+    PUSHBUTTON      "Rejilla de convergencia",IDC_PATTERN_CONV_GRID,94,76,94,10
+    PUSHBUTTON      "Patrón de puntos rojos",IDC_PATTERN_RED_DOT,10,86,79,10
+    PUSHBUTTON      "Geometría",IDC_PATTERN_GEOM,94,86,94,10
+    PUSHBUTTON      "Patrón de puntos verdes",IDC_PATTERN_GREEN_DOT,10,96,79,10
+    PUSHBUTTON      "Líneas verticales",IDC_PATTERN_V_LINE,94,96,94,10
+    PUSHBUTTON      "Patrón de puntos azules",IDC_PATTERN_BLUE_DOT,10,106,79,10
+    PUSHBUTTON      "Líneas horizontales",IDC_PATTERN_H_LINE,94,106,94,10
     PUSHBUTTON      "Brillo",IDC_PATTERN_ANIM_B,10,116,79,10
+    PUSHBUTTON      "SMPTE 75%",IDC_PATTERN_SMPTE75,94,116,46,10
+    PUSHBUTTON      "EIA 1956",IDC_PATTERN_1956,140,116,48,10
     PUSHBUTTON      "Contraste",IDC_PATTERN_ANIM_W,10,127,79,10
     PUSHBUTTON      "Imagen de prueba",IDC_PATTERN_PICTURE,94,126,94,10
+    GROUPBOX        "Imágenes, iris && definición ",IDC_STATIC,4,146,192,29
+    PUSHBUTTON      "Análisis de rejilla",IDC_PATTERN_PICT_GRID,9,159,60,10
+    PUSHBUTTON      "Patrones de fotos",IDC_PATTERN_PICT,69,159,60,10
+    PUSHBUTTON      "Iris && definición ",IDC_PATTERN_PICT_IRIS,129,159,60,10
+    GROUPBOX        "Contraste",IDC_STATIC,3,177,192,29
+    PUSHBUTTON      "Ansi 1",IDC_PATTERN_PICT_CANSI1,9,190,60,10
+    PUSHBUTTON      "Ansi 2",IDC_PATTERN_PICT_CANSI2,69,190,60,10
+    PUSHBUTTON      "Recuadros",IDC_PATTERN_PICT_CBOX,129,190,60,10
     LTEXT           "Anterior y Siguiente, o ""+"" and ""-"" keys (numpad) add or remove one level - or change picture pattern.",IDC_STATIC,3,209,193,18
     LTEXT           "Inicio o ""*"" key return to default pattern",IDC_STATIC,3,228,193,10
-    LTEXT           """ESC"" and ""Enter"" keys exit pattern display.",IDC_STATIC,3,253,193,11
     LTEXT           """SPACE"" key change display.",IDC_STATIC,3,240,193,10
-    GROUPBOX        "Imágenes, iris && definición ",IDC_STATIC,4,146,192,29
-    PUSHBUTTON      "Iris && definición ",IDC_PATTERN_PICT_IRIS,129,159,60,10
-    PUSHBUTTON      "Patrones de fotos",IDC_PATTERN_PICT,69,159,60,10
-    PUSHBUTTON      "Análisis de rejilla",IDC_PATTERN_PICT_GRID,9,159,60,10
-    GROUPBOX        "Contraste",IDC_STATIC,3,177,192,29
-    PUSHBUTTON      "Recuadros",IDC_PATTERN_PICT_CBOX,129,190,60,10
-    PUSHBUTTON      "Ansi 2",IDC_PATTERN_PICT_CANSI2,69,190,60,10
-    PUSHBUTTON      "Ansi 1",IDC_PATTERN_PICT_CANSI1,9,190,60,10
-    PUSHBUTTON      "EIA 1956",IDC_PATTERN_1956,140,116,48,10
-    PUSHBUTTON      "SMPTE 75%",IDC_PATTERN_SMPTE75,94,116,46,10
+    LTEXT           """ESC"" and ""Enter"" keys exit pattern display.",IDC_STATIC,3,253,193,11
 END
 
 IDD_REF_CHECKBOX DIALOG 0, 0, 113, 12
