@@ -310,14 +310,14 @@ BOOL CReferencesPropPage::OnApply()
 	GetConfig()->	WriteProfileDouble("References","Manual Black Level",m_ManualBlack);
 	GetConfig()->	WriteProfileDouble("References","Use Black Level",m_userBlack);
 	GetConfig()->	WriteProfileDouble("References","Override Targets",m_bOverRideTargs);
-	GetConfig()->	WriteProfileDouble("References","DiffuseLValue",m_DiffuseLUser);
-	GetConfig()->	WriteProfileDouble("References","TargetMinLValue",m_TargetMinLUser);
-	GetConfig()->	WriteProfileDouble("References","TargetMaxLValue",m_TargetMaxLUser);
-	GetConfig()->	WriteProfileDouble("References","TargetSysGamma",m_TargetSysGamma);
+	// DiffuseLValue/TargetMinLValue/TargetMaxLValue are written from the live config
+	// by CColorHCFRConfig::SaveSettings; the *User members are the override
+	// toggle's stash (never loaded from the INI) and must not reach those keys.
+	// TargetSysGammaValue is the key LoadSettings reads, like the BT2390 ones below.
+	GetConfig()->	WriteProfileDouble("References","TargetSysGammaValue",m_TargetSysGamma);
 	GetConfig()->	WriteProfileDouble("References","BT2390BlackSlopeFactor",m_BT2390_BS);
 	GetConfig()->	WriteProfileDouble("References","BT2390WhiteSlopeFactor",m_BT2390_WS);
 	GetConfig()->	WriteProfileDouble("References","BT2390WhiteSlopeFactor1",m_BT2390_WS1);
-	GetConfig()->	WriteProfileDouble("References","TargetSysGammaUser",m_TargetSysGammaUser);
 	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == CC6) 
 	{
 		m_changeWhiteCheck = FALSE;
