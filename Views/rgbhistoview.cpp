@@ -46,6 +46,7 @@ CRGBGrapher::CRGBGrapher ()
 	m_showReference=GetConfig()->GetProfileInt("RGB Histo","Show Reference",TRUE);
 	m_showDeltaE=GetConfig()->GetProfileInt("RGB Histo","Show Delta E",TRUE);
 	m_showDataRef=GetConfig()->GetProfileInt("RGB Histo","Show Reference Data",TRUE);	//Ki
+	m_showLumError=GetConfig()->GetProfileInt("RGB Histo","Luminance Error",FALSE);
 
 	Msg.LoadString ( IDS_RGBREFERENCE );
 	m_refGraphID = m_graphCtrl.AddGraph(RGB(230,230,230), (LPSTR)(LPCSTR)Msg,1,PS_DOT);
@@ -81,8 +82,63 @@ CRGBGrapher::CRGBGrapher ()
 	m_scaleYrgb = 0;
 	m_scaleYdeltaE = 0;
 
+	// The luminance error mode plots around 0, not 100: start it on the
+	// zero-centered counterpart of the default preset. A saved range still
+	// wins below, as it does for the ratio mode.
+	if ( m_showLumError )
+		ApplyYScalePreset ();
+
 	m_graphCtrl.ReadSettings("RGB Histo");
 	m_graphCtrl2.ReadSettings("RGB Histo2");
+}
+
+// The three RGB presets. In the luminance error mode the same three map to
+// zero-centered ranges of the same width, and the zoom/shift limits move
+// down by 100 with the data (a ratio of 0..400 percent is an error of
+// -100..300).
+void CRGBGrapher::ApplyYScalePreset ()
+{
+	switch ( m_scaleYrgb )
+	{
+		case 0:
+			if ( m_showLumError )
+			{
+				m_graphCtrl.SetYScale(-50,50);
+				m_graphCtrl.SetYAxisProps("%", 10, -100, 300);
+			}
+			else
+			{
+				m_graphCtrl.SetYScale(50,150);
+				m_graphCtrl.SetYAxisProps("%", 10, 0, 400);
+			}
+			break;
+
+		case 1:
+			if ( m_showLumError )
+			{
+				m_graphCtrl.SetYScale(-100,100);
+				m_graphCtrl.SetYAxisProps("%", 20, -100, 300);
+			}
+			else
+			{
+				m_graphCtrl.SetYScale(0,200);
+				m_graphCtrl.SetYAxisProps("%", 20, 0, 400);
+			}
+			break;
+
+		case 2:
+			if ( m_showLumError )
+			{
+				m_graphCtrl.SetYScale(-20,20);
+				m_graphCtrl.SetYAxisProps("%", 5, -100, 300);
+			}
+			else
+			{
+				m_graphCtrl.SetYScale(80,120);
+				m_graphCtrl.SetYAxisProps("%", 5, 0, 400);
+			}
+			break;
+	}
 }
 
 void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
@@ -94,11 +150,15 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	m_graphCtrl.SetXAxisProps(bIRE?"IRE":(LPSTR)(LPCSTR)GetConfig()->m_PercentGray, 10, 0, 100);
 	m_graphCtrl2.SetXAxisProps(bIRE?"IRE":(LPSTR)(LPCSTR)GetConfig()->m_PercentGray, 10, 0, 100);
 
+	// Luminance error mode: 100 * (channel / target - 1), so everything,
+	// the reference line included, moves down by 100.
+	double	yShift = m_showLumError ? 100.0 : 0.0;
+
 	m_graphCtrl.ClearGraph(m_refGraphID);
 	if (m_showReference)
 	{	
-		m_graphCtrl.AddPoint(m_refGraphID, bIRE ? 7.5 : 0, 100);
-		m_graphCtrl.AddPoint(m_refGraphID, 100, 100);
+		m_graphCtrl.AddPoint(m_refGraphID, bIRE ? 7.5 : 0, 100 - yShift);
+		m_graphCtrl.AddPoint(m_refGraphID, 100, 100 - yShift);
 	}
 
 	m_graphCtrl.ClearGraph(m_redGraphID);
@@ -150,9 +210,15 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
             double valy;
 			ColorxyY aColor=pDoc->GetMeasure()->GetGray(i).GetxyYValue();
             ColorxyY tmpColor(GetColorReference().GetWhite());
+			// Target Y relative to the display white, for the luminance error
+			// mode. Computed by the block below, which also runs for that mode;
+			// tmpColor and refColor - the dE pane's reference - are still only
+			// written under the dE condition, so the dE pane does not move.
+			double YTarget = 0.0;
+			BOOL bRefY = ( GetConfig ()->m_dE_gray > 0 || GetConfig ()-> m_dE_form == 5 );
 
 			// Determine Reference Y luminance for Delta E calculus
-			if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()-> m_dE_form == 5 )
+			if ( bRefY || m_showLumError )
 			{
             	CColor White = pDoc -> GetMeasure () -> GetOnOffWhite();
 	           	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
@@ -173,13 +239,17 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		        }
 
 				if (mode == 5)
-					tmpColor[2] = valy * 100. / YWhite;
+					YTarget = valy * 100. / YWhite;
 				else
-					tmpColor[2] = valy;
-                if (GetConfig ()->m_dE_gray == 2 || GetConfig ()->m_dE_form == 5 )
-                    tmpColor[2] = aColor [ 2 ] / YWhite;
+					YTarget = valy;
+				if ( bRefY )
+				{
+					tmpColor[2] = YTarget;
+					if (GetConfig ()->m_dE_gray == 2 || GetConfig ()->m_dE_form == 5 )
+						tmpColor[2] = aColor [ 2 ] / YWhite;
 
-				refColor.SetxyYValue(tmpColor);
+					refColor.SetxyYValue(tmpColor);
+				}
 			}
 			//RGB plots now include luminance offset when grayscale dE handling includes it
 			// dE_gray 0 normalises each patch against its OWN luminance, so the dE
@@ -205,6 +275,11 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			}
 			else
 				fact = aColor[2] / (tmpColor[2] * pDoc->GetMeasure()->GetOnOffWhite()[1]);
+			// Luminance error: measured over target whatever m_dE_gray says, so a
+			// neutral patch on the curve is 1.0 in every channel. YWhitePatch,
+			// which the dE pane uses, is left alone.
+			if ( m_showLumError )
+				fact = aColor[2] / (YTarget * pDoc->GetMeasure()->GetOnOffWhite()[1]);
 
 			// HIST-011: aColor[1] is the CIE y chromaticity, and it is the divisor for
 			// both X and Z below. A degenerate black reading - y == 0 while Y is still
@@ -228,13 +303,15 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// And black itself has to have light in it: without, the
 			// xy is the sensor floor's equal-energy point, which would plot as a
 			// plausible-looking tint reading out of nothing.
-			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( GetConfig()->m_dE_gray != 1 || HasMeasuredLight ( tmpColor[2] * pDoc->GetMeasure()->GetOnOffWhite()[1] ) ) && HasMeasuredLight ( aColor[2] ) ) ))
+			// The luminance error mode divides by the target too, so it takes the
+			// w/gamma rule - on YTarget, which dE_gray 2 does not overwrite.
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( m_showLumError ? HasMeasuredLight ( YTarget * pDoc->GetMeasure()->GetOnOffWhite()[1] ) : ( GetConfig()->m_dE_gray != 1 || HasMeasuredLight ( tmpColor[2] * pDoc->GetMeasure()->GetOnOffWhite()[1] ) ) ) && HasMeasuredLight ( aColor[2] ) ) ))
 			{
 				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 				ColorRGB normColor(aMeasure, GetColorReference());
-				m_graphCtrl.AddPoint(m_redGraphID, x, normColor[0]*100.0);
-				m_graphCtrl.AddPoint(m_greenGraphID, x, normColor[1]*100.0);
-				m_graphCtrl.AddPoint(m_blueGraphID, x, normColor[2]*100.0);
+				m_graphCtrl.AddPoint(m_redGraphID, x, normColor[0]*100.0 - yShift);
+				m_graphCtrl.AddPoint(m_greenGraphID, x, normColor[1]*100.0 - yShift);
+				m_graphCtrl.AddPoint(m_blueGraphID, x, normColor[2]*100.0 - yShift);
 			}
 
 			// Black gets a dE on the grid cell's terms (BlackTargetReference):
@@ -278,8 +355,13 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			if ( bMainDocHasColors )
 				aColor2=pDoc->GetMeasure()->GetGray(i).GetxyYValue();
 
+			// Same split as the primary loop: YTarget for the luminance error
+			// mode, tmpColor/refColor only under the dE condition.
+			double YTarget = 0.0;
+			BOOL bRefY = ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 );
+
 			// Determine Reference Y luminance for Delta E calculus
-			if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
+			if ( bRefY || m_showLumError )
 			{
             	CColor White = pDataRef -> GetMeasure () -> GetOnOffWhite();
 	           	CColor Black = pDataRef -> GetMeasure () -> GetOnOffBlack();
@@ -304,13 +386,17 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		        }
 
 				if (mode == 5)
-					tmpColor[2] = valy * 100. / YWhiteRefDoc;
+					YTarget = valy * 100. / YWhiteRefDoc;
 				else
-					tmpColor[2] = valy;
-                if (GetConfig ()->m_dE_gray == 2 || GetConfig ()->m_dE_form == 5 )
-                    tmpColor[2] = aColor [ 2 ] / YWhiteRefDoc;
+					YTarget = valy;
+				if ( bRefY )
+				{
+					tmpColor[2] = YTarget;
+					if (GetConfig ()->m_dE_gray == 2 || GetConfig ()->m_dE_form == 5 )
+						tmpColor[2] = aColor [ 2 ] / YWhiteRefDoc;
 
-				refColor.SetxyYValue(tmpColor);
+					refColor.SetxyYValue(tmpColor);
+				}
 			}
 			//RGB plots now include luminance offset when grayscale dE handling includes it
 			// Same per-patch locals as the primary loop above - see the comment
@@ -325,6 +411,8 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			}
 			else
 				fact = aColor[2] / (tmpColor[2] * pDataRef->GetMeasure()->GetOnOffWhite()[1]);
+			if ( m_showLumError )
+				fact = aColor[2] / (YTarget * pDataRef->GetMeasure()->GetOnOffWhite()[1]);
 
 			double YWhitePatch;
 			if ( !bMainDocHasColors )
@@ -341,13 +429,13 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// started at 1; point 0 is exactly where a meter hands back a degenerate
 			// chromaticity. Built inside the guard so the division does not happen at
 			// all when there is nothing to plot.
-			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( GetConfig()->m_dE_gray != 1 || HasMeasuredLight ( tmpColor[2] * pDataRef->GetMeasure()->GetOnOffWhite()[1] ) ) && HasMeasuredLight ( aColor[2] ) ) ))
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( m_showLumError ? HasMeasuredLight ( YTarget * pDataRef->GetMeasure()->GetOnOffWhite()[1] ) : ( GetConfig()->m_dE_gray != 1 || HasMeasuredLight ( tmpColor[2] * pDataRef->GetMeasure()->GetOnOffWhite()[1] ) ) ) && HasMeasuredLight ( aColor[2] ) ) ))
 			{
 				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 				ColorRGB normColor(aMeasure, GetColorReference());
-				m_graphCtrl.AddPoint(m_redDataRefGraphID, x, normColor[0]*100.0);
-				m_graphCtrl.AddPoint(m_greenDataRefGraphID, x, normColor[1]*100.0);
-				m_graphCtrl.AddPoint(m_blueDataRefGraphID, x, normColor[2]*100.0);
+				m_graphCtrl.AddPoint(m_redDataRefGraphID, x, normColor[0]*100.0 - yShift);
+				m_graphCtrl.AddPoint(m_greenDataRefGraphID, x, normColor[1]*100.0 - yShift);
+				m_graphCtrl.AddPoint(m_blueDataRefGraphID, x, normColor[2]*100.0 - yShift);
 			}
 
 			if(m_showDeltaE && ( i > 0 || HasMeasuredLight ( aColor[2] ) ))
@@ -413,6 +501,7 @@ BEGIN_MESSAGE_MAP(CRGBHistoView, CSavingView)
 	ON_COMMAND(IDM_RGB_GRAPH_REFERENCE, OnRgbGraphReference)
 	ON_COMMAND(IDM_RGB_GRAPH_DELTAE, OnRgbGraphDeltaE)
 	ON_COMMAND(IDM_RGB_GRAPH_GAMMA, OnRgbGraphGamma)
+	ON_COMMAND(IDM_RGB_GRAPH_LUMERROR, OnRgbGraphLumError)
 	ON_COMMAND(IDM_RGB_GRAPH_DATAREF, OnRgbGraphDataRef)	//Ki
 	ON_COMMAND(IDM_GRAPH_SETTINGS, OnGraphSettings)
 	ON_COMMAND(IDM_GRAPH_X_SCALE_FIT, OnGraphXScaleFit)
@@ -502,7 +591,8 @@ DWORD CRGBHistoView::GetUserInfo ()
 		  + ( ( m_Grapher.m_showDeltaE		& 0x0001 )	<< 1 )
 		  + ( ( m_Grapher.m_showDataRef		& 0x0001 )	<< 2 )
 		  + ( ( m_Grapher.m_scaleYrgb		& 0x0003 )	<< 3 )  // 2 bits
-		  + ( ( m_Grapher.m_scaleYdeltaE	& 0x0003 )	<< 5 ); // 2 bits
+		  + ( ( m_Grapher.m_scaleYdeltaE	& 0x0003 )	<< 5 )  // 2 bits
+		  + ( ( m_Grapher.m_showLumError	& 0x0001 )	<< 7 );
 }
 
 void CRGBHistoView::SetUserInfo ( DWORD dwUserInfo )
@@ -512,24 +602,9 @@ void CRGBHistoView::SetUserInfo ( DWORD dwUserInfo )
 	m_Grapher.m_showDataRef		= ( dwUserInfo >> 2 ) & 0x0001;
 	m_Grapher.m_scaleYrgb		= ( dwUserInfo >> 3 ) & 0x0003;	// 2 bits
 	m_Grapher.m_scaleYdeltaE	= ( dwUserInfo >> 5 ) & 0x0003;	// 2 bits
+	m_Grapher.m_showLumError	= ( dwUserInfo >> 7 ) & 0x0001;
 
-	switch ( m_Grapher.m_scaleYrgb )
-	{
-		case 0:
-			 m_Grapher.m_graphCtrl.SetYScale(50,150);
-			 m_Grapher.m_graphCtrl.SetYAxisProps("%", 10, 0, 400);
-			 break;
-
-		case 1:
-			 m_Grapher.m_graphCtrl.SetYScale(0,200);
-		 	 m_Grapher.m_graphCtrl.SetYAxisProps("%", 20, 0, 400);
-			 break;
-
-		case 2:
-			 m_Grapher.m_graphCtrl.SetYScale(80,120);
-			 m_Grapher.m_graphCtrl.SetYAxisProps("%", 5, 0, 400);
-			 break;
-	}
+	m_Grapher.ApplyYScalePreset ();
 
 	switch ( m_Grapher.m_scaleYdeltaE )
 	{
@@ -569,7 +644,7 @@ void CRGBHistoView::OnSize(UINT nType, int cx, int cy)
 void CRGBHistoView::OnDraw(CDC* pDC) 
 {
 	CString strTitle;
-	strTitle.LoadString ( GetConfig()->m_dE_gray == 1 ? IDS_GRAPH_GSBALGAMMA : IDS_GRAPH_GSBALNOGAMMA );
+	strTitle.LoadString ( m_Grapher.m_showLumError ? IDS_GRAPH_GSLUMERROR : ( GetConfig()->m_dE_gray == 1 ? IDS_GRAPH_GSBALGAMMA : IDS_GRAPH_GSBALNOGAMMA ) );
 	m_Grapher.m_graphCtrl.m_graphArray[0].p_Title=strTitle;
 }
 
@@ -589,6 +664,7 @@ void CRGBHistoView::OnContextMenu(CWnd* pWnd, CPoint point)
     pPopup->CheckMenuItem(IDM_RGB_GRAPH_REFERENCE, m_Grapher.m_showReference ? MF_CHECKED : MF_UNCHECKED | MF_BYCOMMAND);
     pPopup->CheckMenuItem(IDM_RGB_GRAPH_DELTAE, m_Grapher.m_showDeltaE ? MF_CHECKED : MF_UNCHECKED | MF_BYCOMMAND);
 	pPopup->CheckMenuItem(IDM_RGB_GRAPH_GAMMA, GetConfig()->m_dE_gray == 1 ? MF_CHECKED : MF_UNCHECKED | MF_BYCOMMAND);
+	pPopup->CheckMenuItem(IDM_RGB_GRAPH_LUMERROR, m_Grapher.m_showLumError ? MF_CHECKED : MF_UNCHECKED | MF_BYCOMMAND);
 	pPopup->CheckMenuItem(IDM_RGB_GRAPH_DATAREF, m_Grapher.m_showDataRef ? MF_CHECKED : MF_UNCHECKED | MF_BYCOMMAND); //Ki
 
 	pPopup->TrackPopupMenu( TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_VERTICAL,
@@ -635,6 +711,21 @@ void CRGBHistoView::OnRgbGraphGamma()
 
 	GetDocument()->UpdateAllViews(NULL, UPD_GRAYSCALE, NULL);
 	GetDocument()->UpdateAllViews(NULL, UPD_SELECTEDCOLOR, NULL);
+}
+
+// This view only: unlike w/Gamma it writes no delta-E preference, so the
+// grids and the other views do not change.
+void CRGBHistoView::OnRgbGraphLumError()
+{
+	m_Grapher.m_showLumError = !m_Grapher.m_showLumError;
+	GetConfig()->WriteProfileInt("RGB Histo","Luminance Error",m_Grapher.m_showLumError);
+	// The two modes plot around different centers: move to the current
+	// preset's counterpart, and save it, so the saved range read back at the
+	// next start belongs to the mode that is saved with it.
+	m_Grapher.ApplyYScalePreset ();
+	m_Grapher.m_graphCtrl.WriteSettings("RGB Histo");
+	m_Grapher.m_graphCtrl2.WriteSettings("RGB Histo2");
+	OnUpdate(NULL,NULL,NULL);
 }
 
 void CRGBHistoView::OnRgbGraphDataRef()  //Ki
@@ -695,9 +786,8 @@ void CRGBHistoView::OnGraphScaleFit()
 
 void CRGBHistoView::OnRGBGraphYScale1() 
 {
-	m_Grapher.m_graphCtrl.SetYScale(0,200);
 	m_Grapher.m_scaleYrgb = 1;
-	m_Grapher.m_graphCtrl.SetYAxisProps("%", 20, 0, 400);
+	m_Grapher.ApplyYScalePreset ();
 	m_Grapher.m_graphCtrl.WriteSettings("RGB Histo");
 	m_Grapher.m_graphCtrl2.WriteSettings("RGB Histo2");
 	Invalidate(FALSE);
@@ -705,9 +795,8 @@ void CRGBHistoView::OnRGBGraphYScale1()
 
 void CRGBHistoView::OnRGBGraphYScale2() 
 {
-	m_Grapher.m_graphCtrl.SetYScale(50,150);
 	m_Grapher.m_scaleYrgb = 0;
-	m_Grapher.m_graphCtrl.SetYAxisProps("%", 10, 0, 400);
+	m_Grapher.ApplyYScalePreset ();
 	m_Grapher.m_graphCtrl.WriteSettings("RGB Histo");
 	m_Grapher.m_graphCtrl2.WriteSettings("RGB Histo2");
 	Invalidate(FALSE);
@@ -715,9 +804,8 @@ void CRGBHistoView::OnRGBGraphYScale2()
 
 void CRGBHistoView::OnRGBGraphYScale3() 
 {
-	m_Grapher.m_graphCtrl.SetYScale(80,120);
 	m_Grapher.m_scaleYrgb = 2;
-	m_Grapher.m_graphCtrl.SetYAxisProps("%", 5, 0, 400);
+	m_Grapher.ApplyYScalePreset ();
 	m_Grapher.m_graphCtrl.WriteSettings("RGB Histo");
 	m_Grapher.m_graphCtrl2.WriteSettings("RGB Histo2");
 	Invalidate(FALSE);

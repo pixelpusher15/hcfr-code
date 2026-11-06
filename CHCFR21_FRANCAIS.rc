@@ -2326,6 +2326,7 @@ BEGIN
         MENUITEM "Affiche la mesure de référence", IDM_RGB_GRAPH_DATAREF
         MENUITEM "Courbe Delta E",              IDM_RGB_GRAPH_DELTAE
         MENUITEM "avec Gamma",                     IDM_RGB_GRAPH_GAMMA
+        MENUITEM "Erreur de luminance",         IDM_RGB_GRAPH_LUMERROR
         MENUITEM SEPARATOR
         MENUITEM "Enregistrer...",              IDM_GRAPH_SAVE
         POPUP "Echelle"
@@ -4414,6 +4415,8 @@ BEGIN
     IDS_GRAPH_SATSCANSHIFTS     "Ecarts des balayages de saturation"
     IDS_GRAPH_GSBALGAMMA        "Balance de l'échelle de gris avec gamma"
     IDS_GRAPH_GSBALNOGAMMA      "Balance de l'échelle de gris sans gamma"
+    IDS_GRAPH_GSLUMERROR        "Niveaux de gris, erreur de luminance"
+    IDM_RGB_GRAPH_LUMERROR      "Afficher chaque canal comme une erreur en pourcentage sign\xE9e par rapport \xE0 sa luminance cible"
     IDS_GRAPH_EOTFGAMMA         "EOTF (Gamma)"
     IDS_GRAPH_REFMEASGAMMA      "Gamma mesure de référence"
     IDS_GRAPH_DELTALUM          "delta Luminance"

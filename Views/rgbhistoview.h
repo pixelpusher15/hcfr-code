@@ -61,11 +61,13 @@ class CRGBGrapher
 	BOOL m_showReference;
 	BOOL m_showDeltaE;
 	BOOL m_showDataRef;	//Ki
+	BOOL m_showLumError;	// channels as signed percent error against the target luminance
 	UINT m_scaleYrgb;
 	UINT m_scaleYdeltaE;
 
 // Operations
 	void UpdateGraph ( CDataSetDoc * pDoc );
+	void ApplyYScalePreset ();	// m_scaleYrgb preset, in the current mode's units
 };
 
 class CRGBHistoView : public CSavingView
@@ -117,6 +119,7 @@ protected:
 	afx_msg void OnRgbGraphReference();
 	afx_msg void OnRgbGraphDeltaE();
 	afx_msg void OnRgbGraphGamma();
+	afx_msg void OnRgbGraphLumError();
 	afx_msg void OnRgbGraphDataRef();	//Ki
 	afx_msg void OnGraphSettings();
 	afx_msg void OnGraphXScaleFit();
