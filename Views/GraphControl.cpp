@@ -510,6 +510,11 @@ void CGraphControl::FitYScale(BOOL doRound, double roundStep, bool isGamma)
 			break;
 	}
 
+	// No point inside [m_minX, m_maxX]: the untouched sentinels would reach
+	// SetScale as minY > maxY and flip the Y axis. Keep the current scale.
+	if ( minY > maxY )
+		return;
+
 	if(doRound)
 	{
 		minY=(floor(minY/roundStep)-1) * roundStep;
