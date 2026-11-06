@@ -677,8 +677,14 @@ CMainView::~CMainView()
 	if(m_pSelectedColorGrid)
 		delete m_pSelectedColorGrid;
 
+	// Same ownership split as OnSelchangeInfoDisplay: info display entries
+	// 0-2 and 11 put a plain CWnd (CEditEx / CTargetWnd / CSpectrumWnd) in
+	// m_pInfoWnd and nothing but this frees it. Every other entry, and
+	// m_pInfoWnd2..13 always, hold a CSubFrame: CFrameWnd::PostNcDestroy
+	// deleted it when its HWND went down with the view's children, before
+	// this destructor ran, so those pointers are already dangling.
 	if ( m_pInfoWnd )
-		if ( m_infoDisplay < 3 )
+		if ( m_infoDisplay < 3 || m_infoDisplay == 11 )
 			delete m_pInfoWnd;
 
 	delete m_pBgBrush;
