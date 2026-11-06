@@ -2033,8 +2033,6 @@ BEGIN
     END
     POPUP "&Erweitert"
     BEGIN
-        MENUITEM "&Testbilder...",              IDM_PATTERN_DISP_ROOT
-        MENUITEM SEPARATOR
         POPUP "Testbilder"
         BEGIN
             POPUP "&Pegel"
@@ -3869,7 +3867,6 @@ BEGIN
     IDM_CONTINUOUS_MEASUREMENT 
                             "Kontinuierliche Messungen starten oder stoppen\nKontinuierliche Messungen starten oder stoppen"
     IDM_PATTERN_DISPLAY     "Verschiedene Testbilder anzeigen..."
-    IDM_PATTERN_DISP_ROOT   "Verschiedene Testbilder anzeigen..."
     IDM_TOGGLE_TAB          "Reiter oben am Fenster anzeigen\nReiter oben"
     IDM_VIEW_DATASET        "Messungen anzeigen\nMessungen"
 END

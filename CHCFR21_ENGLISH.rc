@@ -2066,8 +2066,6 @@ BEGIN
     END
     POPUP "&Advanced"
     BEGIN
-        MENUITEM "&Patterns...",                IDM_PATTERN_DISP_ROOT
-        MENUITEM SEPARATOR
         POPUP "&Targets\\Images\\Patterns"
         BEGIN
             POPUP "&Levels"
@@ -3865,7 +3863,6 @@ BEGIN
     IDM_CONTINUOUS_MEASUREMENT 
                             "Run or stop continuous measures\nRun or stop continuous measures"
     IDM_PATTERN_DISPLAY     "Display various patterns..."
-    IDM_PATTERN_DISP_ROOT   "Display various patterns..."
     IDM_TOGGLE_TAB          "Display tab control on top of window\nTab control on top"
     IDM_VIEW_DATASET        "Display measures\nMeasures"
 END
