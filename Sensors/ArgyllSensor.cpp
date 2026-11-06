@@ -403,11 +403,13 @@ void CArgyllSensor::Calibrate()
         }
 		if (meterInstructions == "Provide an 80% or greater white test patch" && GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumAutomatic)
 		{
-			CGDIGenerator *m_pGenerator;
 			int display_mode  = GetConfig()->GetProfileInt("GDIGenerator","DisplayMode", DISPLAY_DEFAULT_MODE);
-			m_pGenerator = new CGDIGenerator(display_mode, false);
 			if (display_mode == DISPLAY_ccast || display_mode == DISPLAY_rPI)
 			{
+				// Only this arm drives the generator (Display80); the else arm paints
+				// m_wndTestColorWnd directly, so allocating before the branch leaked one
+				// CGDIGenerator per calibration on every other display mode.
+				CGDIGenerator *m_pGenerator = new CGDIGenerator(display_mode, false);
 				if (display_mode == DISPLAY_ccast)
 					GetColorApp()->InMeasureMessageBox( "Place test window and meter on monitor connected to your ChromeCast device.", "Calibration Instructions", MB_OK);
 				else
