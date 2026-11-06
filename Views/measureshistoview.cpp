@@ -45,6 +45,12 @@ CMeasuresHistoView::CMeasuresHistoView()
 {
 	//{{AFX_DATA_INIT(CMeasuresHistoView)
 	//}}AFX_DATA_INIT
+	// OnUpdate reads these (first from OnInitialUpdate) before OnDraw has
+	// copied CMainView's last_Display / last_Col / last_Size into them;
+	// start from the values CMainView itself starts with (MainView.cpp ctor).
+	l_Display = 0;
+	l_nCol = 5;
+	l_nSize = 11;
 	int		nMaxX=10;
 	CString	Msg;
 	m_XScale=GetConfig()->GetProfileInt("Combo Histo","XScale",1);
