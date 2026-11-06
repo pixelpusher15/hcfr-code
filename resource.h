@@ -1081,6 +1081,13 @@
 #define IDM_SIM_SAT_MAGENTA             33001
 #define IDM_VIEW_GAMMAHISTO             33002
 #define IDM_VIEW_3DCOLOR                33500
+#define IDM_SATSHIFT_QTY_SAT            33511
+#define IDM_SATSHIFT_QTY_HUE            33512
+#define IDM_SATSHIFT_QTY_LUM            33513
+#define IDM_SATSHIFT_ANCHOR_NONE        33514
+#define IDM_SATSHIFT_ANCHOR_50          33515
+#define IDM_SATSHIFT_ANCHOR_75          33516
+#define IDM_SATSHIFT_ANCHOR_100         33517
 #define IDM_NEXT_TAB                    33003
 #define IDM_RGB_GRAPH_Y_SCALE3          33004
 #define IDM_PREV_TAB                    33005
@@ -1564,6 +1571,13 @@
 #define IDS_3D_RGBCUBE                  42008
 #define IDS_3D_NODATA                   42009
 #define IDS_3D_GRAYPCT                  42010
+#define IDS_GRAPH_SATSHIFT_SAT          60091
+#define IDS_GRAPH_SATSHIFT_HUE          60092
+#define IDS_GRAPH_SATSHIFT_LUM          60093
+#define IDS_SATSHIFT_MEASURED           60094
+#define IDS_SATSHIFT_TBL_AVG            60095
+#define IDS_SATSHIFT_TBL_AT100          60096
+#define IDS_SATSHIFT_TBL_MAX            60097
 #define IDS_CIE_ILLUMINANT              42011
 #define IDS_CC_COLORNAME                42012
 #define IDS_CC_COLORNAMEREF             42013

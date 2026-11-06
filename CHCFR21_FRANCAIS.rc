@@ -2285,6 +2285,17 @@ BEGIN
         MENUITEM "Cyan",                        IDM_LUM_GRAPH_CYANSHIFT
         MENUITEM "Magenta",                     IDM_LUM_GRAPH_MAGENTASHIFT
         MENUITEM SEPARATOR
+        MENUITEM "D\xE9calage de saturation",   IDM_SATSHIFT_QTY_SAT
+        MENUITEM "Erreur de teinte",            IDM_SATSHIFT_QTY_HUE
+        MENUITEM "Erreur de luminance",         IDM_SATSHIFT_QTY_LUM
+        POPUP "Point d'ancrage"
+        BEGIN
+            MENUITEM "Aucun",                       IDM_SATSHIFT_ANCHOR_NONE
+            MENUITEM "50%",                         IDM_SATSHIFT_ANCHOR_50
+            MENUITEM "75%",                         IDM_SATSHIFT_ANCHOR_75
+            MENUITEM "100%",                        IDM_SATSHIFT_ANCHOR_100
+        END
+        MENUITEM SEPARATOR
         MENUITEM "Enregistrer...",              IDM_GRAPH_SAVE
         POPUP "Echelle"
         BEGIN
@@ -4412,6 +4423,13 @@ BEGIN
     IDS_GRAPH_NWLUMRESPONSE     "Réponse de luminance au voisinage du blanc"
     IDS_GRAPH_SATSWEEPLUM       "Luminance des balayages de saturation"
     IDS_GRAPH_SATSCANSHIFTS     "Ecarts des balayages de saturation"
+    IDS_GRAPH_SATSHIFT_SAT      "D\xE9calage de saturation"
+    IDS_GRAPH_SATSHIFT_HUE      "Erreur de teinte (u'v')"
+    IDS_GRAPH_SATSHIFT_LUM      "Erreur de luminance"
+    IDS_SATSHIFT_MEASURED       "%s (mesur\xE9)"
+    IDS_SATSHIFT_TBL_AVG        "moy. 0-%d:"
+    IDS_SATSHIFT_TBL_AT100      "\xE0 100:"
+    IDS_SATSHIFT_TBL_MAX        "max"
     IDS_GRAPH_GSBALGAMMA        "Balance de l'échelle de gris avec gamma"
     IDS_GRAPH_GSBALNOGAMMA      "Balance de l'échelle de gris sans gamma"
     IDS_GRAPH_EOTFGAMMA         "EOTF (Gamma)"

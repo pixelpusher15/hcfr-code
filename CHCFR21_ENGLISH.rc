@@ -1936,6 +1936,17 @@ BEGIN
         MENUITEM "Cyan",                        IDM_LUM_GRAPH_CYANSHIFT
         MENUITEM "Magenta",                     IDM_LUM_GRAPH_MAGENTASHIFT
         MENUITEM SEPARATOR
+        MENUITEM "Saturation shift",            IDM_SATSHIFT_QTY_SAT
+        MENUITEM "Hue error",                   IDM_SATSHIFT_QTY_HUE
+        MENUITEM "Luminance error",             IDM_SATSHIFT_QTY_LUM
+        POPUP "Anchor"
+        BEGIN
+            MENUITEM "None",                        IDM_SATSHIFT_ANCHOR_NONE
+            MENUITEM "50%",                         IDM_SATSHIFT_ANCHOR_50
+            MENUITEM "75%",                         IDM_SATSHIFT_ANCHOR_75
+            MENUITEM "100%",                        IDM_SATSHIFT_ANCHOR_100
+        END
+        MENUITEM SEPARATOR
         MENUITEM "Save...",                     IDM_GRAPH_SAVE
         POPUP "Scale"
         BEGIN
@@ -4165,6 +4176,13 @@ BEGIN
     IDS_GRAPH_NWLUMRESPONSE     "Near White Luminance Response"
     IDS_GRAPH_SATSWEEPLUM       "Saturation Sweep Luminance"
     IDS_GRAPH_SATSCANSHIFTS     "Saturation Scan Shifts"
+    IDS_GRAPH_SATSHIFT_SAT      "Saturation shift"
+    IDS_GRAPH_SATSHIFT_HUE      "Hue error (u'v')"
+    IDS_GRAPH_SATSHIFT_LUM      "Luminance error"
+    IDS_SATSHIFT_MEASURED       "%s (measured)"
+    IDS_SATSHIFT_TBL_AVG        "avg 0-%d:"
+    IDS_SATSHIFT_TBL_AT100      "at 100:"
+    IDS_SATSHIFT_TBL_MAX        "max"
     IDS_GRAPH_GSBALGAMMA        "Gray Scale Balance w/gamma"
     IDS_GRAPH_GSBALNOGAMMA      "Gray Scale Balance w/o gamma"
     IDS_GRAPH_EOTFGAMMA         "EOTF(Gamma)"
