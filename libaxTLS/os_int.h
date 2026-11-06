@@ -33,9 +33,12 @@ extern "C" {
 
 #if (__STDC_VERSION__ >= 199901L)	/* C99 */		\
  || defined(_STDINT_H_) || defined(_STDINT_H)		\
- || defined(_SYS_TYPES_H)
+ || defined(_SYS_TYPES_H)							\
+ || (defined(__APPLE__) && defined(__POWERPC__))
 
 #include <stdint.h> 
+
+#define CF64PREC(NNN)  NNN##LL		/* 64 bit Constant precision specifier */
 
 #else  /* !__STDC_VERSION__ */
 #ifdef _MSC_VER
@@ -48,6 +51,8 @@ typedef unsigned __int8 uint8_t;
 typedef unsigned __int16 uint16_t;
 typedef unsigned __int32 uint32_t;
 typedef unsigned __int64 uint64_t;
+
+#define CF64PREC(NNN)  NNN##i64		/* 64 bit Constant precision specifier */
 
 #else  /* !_MSC_VER */
 
@@ -63,6 +68,8 @@ typedef unsigned char      uint8_t;
 typedef unsigned short     uint16_t;
 typedef unsigned int       uint32_t;
 typedef unsigned long long uint64_t;
+
+#define CF64PREC(NNN)  NNN##LL		/* 64 bit Constant precision specifier */
 
 #endif	/* !_MSC_VER */
 #endif  /* !__STDC_VERSION__ */
