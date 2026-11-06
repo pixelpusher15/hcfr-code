@@ -2191,7 +2191,84 @@ BEGIN
     BEGIN
         MENUITEM "&Patrones...",                IDM_PATTERN_DISP_ROOT
         MENUITEM SEPARATOR
-        MENUITEM "Alineación",                   IDM_PATTERN_ALIGN
+        POPUP "&Objetivos\\Imágenes\\Patrones"
+        BEGIN
+            POPUP "Nive&les"
+            BEGIN
+                MENUITEM "&Negro +1% && +2% barras móviles", IDM_PATTERN_ANIM_BLACK
+                MENUITEM "Blanco -1% && -2% barras móviles", IDM_PATTERN_ANIM_WHITE
+                MENUITEM "Recorte de &sombras",            IDM_PATTERN_CLIPL
+                MENUITEM "Recorte de altas luces (&highlight)",         IDM_PATTERN_CLIPH
+                MENUITEM "&Cerca del negro",                 IDM_PATTERN_NB
+            END
+            POPUP "En&foque && resolución"
+            BEGIN
+                MENUITEM "&Alineación && convergencia",   IDM_PATTERN_ALIGN
+                MENUITEM "&Alineación && uniformidad",    IDM_PATTERN_ALIGN2
+                MENUITEM "&IMATEST",                    IDM_PATTERN_SHARP
+                MENUITEM "IS&O 12233:2000",             ID_FOCUSRESOLUTION_ISO12233
+                MENUITEM "&Belle Nuit",                 IDM_PATTERN_BN
+                MENUITEM "BBC HD &Test Card",           ID_FOCUSRESOLUTION_BBCHDTESTCARD
+                MENUITEM "&Phillips PM5644",            ID_FOCUSRESOLUTION_PHILLIPSPM5644
+                MENUITEM "&SMPTE RP-133",               IDM_PATTERN_VSMPTE
+                MENUITEM "&Zone Plate [lineal]",         ID_FOCUSRESOLUTION_ZONEPLATE
+            END
+            POPUP "&Gradientes && rampas"
+            BEGIN
+                MENUITEM "Gradiente &neutro",           IDM_PATTERN_GRADIENT
+                MENUITEM "Gradientes neutros &opuestos", IDM_PATTERN_GRADIENT2
+                MENUITEM "Rampas de luma RGBYCMW [sombras]", IDM_PATTERN_LRAMP
+                MENUITEM "Rampas de saturación RGBYCM [tintes]", IDM_PATTERN_SRAMP
+                MENUITEM "E&spectro [claro/completo/oscuro]", IDM_PATTERN_SPECTRUM
+                MENUITEM "Círculos &croma-gris",        IDM_PATTERN_ERAMP
+                POPUP "Gradientes &cruzados"
+                BEGIN
+                    MENUITEM "Juego completo [claro]",            ID_CROSSGRADIENTS_FULLSET
+                    MENUITEM "Juego completo [oscuro]",             ID_CROSSGRADIENTS_FULLSET33090
+                    MENUITEM "Gradiente cruzado rojo/verde",    IDM_PATTERN_RG
+                    MENUITEM "Gradiente cruzado rojo/azul",     IDM_PATTERN_RB
+                    MENUITEM "Gradiente cruzado verde/azul",   IDM_PATTERN_GB
+                    MENUITEM "Gradiente cruzado rojo/verde [oscuro]", IDM_PATTERN_RGd
+                    MENUITEM "Gradiente cruzado rojo/azul [oscuro]", IDM_PATTERN_RBd
+                    MENUITEM "Gradiente cruzado verde/azul [oscuro]", IDM_PATTERN_GBd
+                END
+                MENUITEM "Arcoíris de Granger [HSL]",       IDM_PATTERN_GRANGER
+            END
+            POPUP "Imágenes de &evaluación"
+            BEGIN
+                MENUITEM "&Rojo",                        IDM_PATTERN_TC0
+                MENUITEM "&Verde",                      IDM_PATTERN_TC1
+                MENUITEM "A&zul",                       IDM_PATTERN_TC2
+                MENUITEM "Amarillo",                     IDM_PATTERN_TC3
+                MENUITEM "&Cian",                       IDM_PATTERN_TC4
+                MENUITEM "&Magenta",                    IDM_PATTERN_TC5
+                MENUITEM SEPARATOR
+                MENUITEM "Tonos de &piel",                  IDM_PATTERN_TESTIMG
+                MENUITEM SEPARATOR
+                MENUITEM "Clave &alta",                   IDM_PATTERN_DR0
+                MENUITEM "Rango completo",                 IDM_PATTERN_DR1
+                MENUITEM "C&lave baja",                    IDM_PATTERN_DR2
+                MENUITEM SEPARATOR
+                POPUP "B&lanco && negro"
+                BEGIN
+                    MENUITEM "Mundo &gris",                 IDM_PATTERN_TV
+                    MENUITEM "&Sombras",                    IDM_PATTERN_TV2
+                END
+                MENUITEM SEPARATOR
+                POPUP "Definido por el usuario"
+                BEGIN
+                    MENUITEM "Usuario1",                       ID_USERDEFINED_USER1
+                    MENUITEM "Usuario2",                       ID_USERDEFINED_USER2
+                    MENUITEM "Usuario3",                       ID_USERDEFINED_USER3
+                    MENUITEM "Usuario4",                       ID_USERDEFINED_USER4
+                    MENUITEM "Usuario5",                       ID_USERDEFINED_USER5
+                    MENUITEM "Usuario6",                       ID_USERDEFINED_USER6
+                END
+            END
+            MENUITEM SEPARATOR
+            MENUITEM "Patrones &adicionales",        IDM_PATTERN_DISPLAY
+        END
+        MENUITEM SEPARATOR
         MENUITEM "&Preferencias...",             IDM_GENERAL_CONFIG
         MENUITEM "&Idioma...",                IDM_LANGUAGE
     END
