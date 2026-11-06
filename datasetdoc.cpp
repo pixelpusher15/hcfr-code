@@ -4359,22 +4359,28 @@ void CDataSetDoc::OnBkgndMeasureReady()
 	{
 		EnterCriticalSection ( & g_CritSec );
 		pos = g_MeasuredColorList.GetHeadPosition ();
+		// The document's first view is its CMainView (the only view class in
+		// the doc template); it is the same for every queued reading, so fetch
+		// it once. Advancing a view iterator per reading ran out after the
+		// first and broke out, leaving the rest neither appended nor freed.
 		POSITION pos2 = g_pDataDocRunningThread -> GetFirstViewPosition ();
+		CView *pView = g_pDataDocRunningThread -> GetNextView ( pos2 );
 		
 		while ( pos )
 		{
-			CView *pView = g_pDataDocRunningThread -> GetNextView ( pos2 );
-			if (!pView)
-				break;
-			int m_d = ((CMainView*)pView)->m_displayMode;
-			int last_minCol = ((CMainView*)pView)->last_minCol;
 			pMeasurement = ( CColor * ) g_MeasuredColorList.GetNext ( pos );
 
-			m_measure.AppendMeasurements(*pMeasurement, m_d, last_minCol );
-			SetModifiedFlag(m_measure.IsModified());
+			if ( pView )
+			{
+				int m_d = ((CMainView*)pView)->m_displayMode;
+				int last_minCol = ((CMainView*)pView)->last_minCol;
 
-			SetSelectedColor ( *pMeasurement );
-			UpdateAllViews(NULL,UPD_FREEMEASUREAPPENDED,this);
+				m_measure.AppendMeasurements(*pMeasurement, m_d, last_minCol );
+				SetModifiedFlag(m_measure.IsModified());
+
+				SetSelectedColor ( *pMeasurement );
+				UpdateAllViews(NULL,UPD_FREEMEASUREAPPENDED,this);
+			}
 
 			delete pMeasurement;
 		}
