@@ -644,7 +644,7 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,15,152,184,10
 END
 
-IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 222
+IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 232
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Sensor Argyll"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
@@ -4343,7 +4343,7 @@ BEGIN
     IDS_SPECTRAL_NONE           "Ninguna"
     IDS_SPECTRAL_FILEFILTER     "Corrección espectral (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|CSV de correlación (*.csv)|*.csv||"
     IDS_SPECTRAL_REAPPLY_FAILED "No se pudo volver a aplicar al medidor la corrección espectral guardada:\n%s\n\nLas lecturas están SIN CORREGIR hasta que se vuelva a aplicar o se borre en las propiedades del sensor."
-    IDS_SPECTRAL_MATRIXCAL_PROMPT "Este sensor tiene una calibración por matriz. Al aplicar una corrección espectral, esta será la única corrección para las nuevas lecturas.\n\nLas medidas existentes se tomaron con la calibración por matriz, ¿restablecerlas a los valores brutos (sin corregir) del sensor?\n\nSí - restablecer las medidas existentes a valores brutos\nNo - dejarlas como están (mezcladas con las nuevas lecturas espectrales)\nCancelar - no aplicar la corrección espectral"
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "Este sensor tiene una calibración por matriz. La corrección espectral la sustituye para los valores mostrados. Cada lectura conserva su valor bruto, por lo que más adelante se puede volver a calcular una matriz.\n\n¿Continuar?"
     IDS_SPECTRAL_ACTIVE_TITLE   "Corrección espectral activa"
     IDS_SPECTRAL_CLEAR_FOR_MATRIX "Este sensor usa una corrección espectral (ccss/CSV) aplicada dentro del medidor.\nCalibrar con una matriz se sumaría a ella (corrección doble).\n\n¿Borrar la corrección espectral y calibrar con una matriz en su lugar?"
     IDS_CALIB_METHOD_TITLE      "Método de calibración"
@@ -4351,6 +4351,19 @@ BEGIN
     IDS_BODNER_SKIPPED_FMT      "%d medida(s) sin lectura bruta del sensor (registradas antes de la captura de valores brutos, o editadas a mano) se dejaron como estaban."
     IDS_CALIB_NEED_RAW_PRIMARIES "Mida de nuevo primero los primarios y el blanco: los almacenados no tienen lectura bruta del sensor, y no se puede calcular una matriz a partir de valores con una corrección que el sensor ya no aplica (Bodner, o una matriz sustituida por una corrección espectral)."
     IDS_CALIB_NEED_REF_WHITE    "El documento de referencia no tiene un blanco medido: mida primero su blanco (o los primarios con el blanco)."
+    IDS_SPECTRAL_SUPERSEDE_WARN "La calibraci\xF3n por matriz se calcular\xE1 sobre las lecturas sin corregir del medidor, y se aplicar\xE1 a ellas.\nLa correcci\xF3n espectral (%s) sigue cargada, pero ya no afectar\xE1 a los valores mostrados. Para volver a usarla: si es un archivo de correcci\xF3n, c\xE1rguelo de nuevo en las propiedades del sensor; si es una entrada de tipo de pantalla, elija un tipo de pantalla simple, pulse Aceptar y despu\xE9s vuelva a elegir la entrada.\n\n\xBFContinuar?"
+    IDS_SPECTRAL_STATUS_INACTIVE_FMT "Corrección espectral: %s (cargada, no aplicada: se usa una calibración por matriz)"
+    IDS_SPECTRAL_STATUS_DISPTYPE_FMT "Corrección espectral: %s (del tipo de pantalla)"
+    IDS_SPECTRAL_UNIT_MISMATCH  "La corrección espectral de este archivo se calculó para el medidor con número de serie %s; el medidor conectado es %s. Se ha vuelto a calcular a partir del medidor conectado."
+    IDS_SPECTRAL_BROWSE_REFUSED_DISPTYPE "El tipo de pantalla seleccionado ya incluye una corrección espectral. Elija un tipo de pantalla simple para usar un archivo de corrección."
+    IDS_SPECTRAL_STATUS_COMPOSED_FMT "Corrección espectral: %s (aplicada además de la calibración por matriz)"
+    IDS_SPECTRAL_DISPTYPE_FAILED "No se pudo calcular la corrección espectral del tipo de pantalla y se ha eliminado:\n%s"
+    IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "El documento cargado incluye una corrección espectral de tipo de pantalla (%s) que no es el tipo de pantalla actual. Se sigue usando hasta que cambie el tipo de pantalla."
+    IDS_SPECTRAL_COMPOSE_WARN   "El archivo que está cargando no tiene registro de la base del ajuste. La corrección espectral se aplicará además de su matriz (como hacía HCFR 4.1). ¿Continuar?"
+    IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "La corrección espectral en uso (%s) se calculó para el medidor %s, no para el conectado, y aquí no hay ningún archivo de corrección a partir del cual volver a calcularla. Se sigue usando. Para calcularla para este medidor, seleccione su archivo de corrección en las propiedades del sensor."
+    IDS_SPECTRAL_FILE_MOVED_NOTICE "El archivo de corrección espectral ya no está en la ubicación guardada:\n\n%s\n\nLa corrección calculada a partir de él se sigue usando para este medidor. Para usar el documento con otro medidor, o para volver a calcularla, seleccione el archivo en las propiedades del sensor."
+    IDS_CALIB_SPECTRAL_IN_DRIVER "Este medidor aplica su correcci\xF3n espectral dentro del controlador, por lo que una calibraci\xF3n por matriz se calcular\xEDa sobre lecturas ya corregidas. Borre primero la correcci\xF3n espectral en la p\xE1gina del sensor, o siga usando la correcci\xF3n espectral como m\xE9todo."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT_DRIVER "Este sensor tiene una calibraci\xF3n por matriz. Este medidor aplica la correcci\xF3n espectral dentro de su controlador, solo a las lecturas nuevas: la calibraci\xF3n por matriz se elimina, y las lecturas ya tomadas se muestran sin ninguna correcci\xF3n hasta que se vuelvan a medir.\n\n\xBFContinuar?"
     IDS_EXPORT_LAYOUT_MISMATCH  "No se puede añadir a este archivo: se exportó con opciones de Bruto/Estímulo distintas. Exporte a un archivo nuevo o repita la exportación con las mismas opciones que los datos existentes."
     IDS_SCHEMA_NEWER        "Este archivo fue escrito por una versión más reciente de HCFR (%s versión %d). Actualice HCFR para abrirlo."
     IDS_SCHEMA_UNRELEASED   "Este archivo fue escrito por una versión de desarrollo no publicada de HCFR (%s versión %d) y no se puede leer. Vuelva a generarlo."

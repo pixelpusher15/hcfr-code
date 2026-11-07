@@ -1,4 +1,5 @@
 #include "Color.h"
+#include "SpectralCorrection.h"
 #include <stdexcept>
 #include <cppunit/config/SourcePrefix.h>
 #include <cppunit/extensions/HelperMacros.h>
@@ -14,6 +15,7 @@ class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
     CPPUNIT_TEST( RawXYZRecalibration );
     CPPUNIT_TEST( RawlessReadingsAcrossEntrances );
     CPPUNIT_TEST( RawlessReadingAfterSpectralLeave );
+    CPPUNIT_TEST( RawlessReadingLoadOverSpectralMethod );
     CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -233,13 +235,13 @@ protected:
             s.SingleMatrixWalked(0);
             CPPUNIT_ASSERT( s.ComposeOntoRawless() );
         }
-        // (a) A spectral Browse answered "leave them": the sensor matrix goes to
-        // identity and the method to the default one, the readings keep M. The
-        // .thc load, Manual or Existing that follows must skip them, and after
-        // skipping them they are still stranded.
+        // (a) A matrix written without a walk (DDE SetSensorMatrix, or Change
+        // Sensor's fresh sensor): the readings keep M while the sensor carries
+        // another matrix. The .thc load, Manual or Existing that follows must skip
+        // them, and after skipping them they are still stranded.
         {
             RawlessReadingsState s;
-            s.SpectralLeft();
+            s.MatrixSetWithoutWalk();
             CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
             s.SingleMatrixWalked(5);
             CPPUNIT_ASSERT( !s.ComposeOntoRawless() );
@@ -275,7 +277,7 @@ protected:
         // right again (for a reading edited by hand later, say).
         {
             RawlessReadingsState s;
-            s.SpectralLeft();
+            s.MatrixSetWithoutWalk();
             s.SingleMatrixWalked(0);
             CPPUNIT_ASSERT( s.ComposeOntoRawless() );
         }
@@ -291,7 +293,7 @@ protected:
         // The value CSensor stores (Get) restores the same answer (Set).
         {
             RawlessReadingsState s, t;
-            s.SpectralLeft();
+            s.MatrixSetWithoutWalk();
             t.Set(s.Get());
             CPPUNIT_ASSERT( !t.ComposeOntoRawless() );
             s.SingleMatrixWalked(0);
@@ -301,8 +303,9 @@ protected:
     }
 
     // Scenario (a) of the review with numbers: a document recorded before raw
-    // capture, calibrated with M; a ccss Browsed and "leave them" answered; then
-    // a .thc carrying L loaded (OnLoadCalibrationFile passes L as the delta). The
+    // capture, calibrated with M; a matrix then written without a walk (DDE
+    // SetSensorMatrix, Change Sensor); then a .thc carrying L loaded
+    // (OnLoadCalibrationFile passes L as the delta). The
     // raw-less reading must stay M*r. Composing gave L*M*r, corrected twice.
     // The compose step is CColor::applyAdjustmentMatrix, the call the raw-less
     // branch of ReapplyAdjustmentMatrix (Measure.cpp) makes.
@@ -316,7 +319,7 @@ protected:
         CPPUNIT_ASSERT( !c.HasRawXYZValue() );
 
         RawlessReadingsState s;
-        s.SpectralLeft();
+        s.MatrixSetWithoutWalk();
         if ( s.ComposeOntoRawless() )
             c.applyAdjustmentMatrix(L);
 
@@ -324,6 +327,57 @@ protected:
         ColorXYZ actual = c.GetXYZValue();
         for ( int i = 0; i < 3; i++ )
             CPPUNIT_ASSERT_DOUBLES_EQUAL( expected[i], actual[i], 0.000000000001 );
+    }
+
+    // Load Calibration File over the spectral method (CDataSetDoc::
+    // OnLoadCalibrationFile, enabled there on a native basis). A reading recorded
+    // before raw capture embodies the spectral correction C: it holds C*X. The file
+    // brings M. After the walk the reading must equal the new effective matrix
+    // times X - M*X for a file fitted on native readings, M*C*X for a 4.1 file
+    // (basis UNKNOWN, composed on the record) - which takes
+    // delta = newEffective * inverse(oldEffective). The handler cannot be linked
+    // here (CDataSetDoc, CMeasure), so this pins the arithmetic it must perform
+    // with the pieces it uses: libHCFR's EffectiveSensorMatrix for both effective
+    // matrices and CColor::applyAdjustmentMatrix, the compose ReapplyAdjustmentMatrix
+    // does on a raw-less reading. The premise half shows the delta the handler
+    // passed before the fix (newEffective itself) lands somewhere else.
+    void RawlessReadingLoadOverSpectralMethod()
+    {
+        ColorXYZ X(0.40, 0.50, 0.60);
+        Matrix C(0.0,3,3); C(0,0)=1.04; C(1,1)=0.97; C(2,2)=1.08; C(0,2)=0.02; C(2,0)=-0.01;
+        Matrix M(0.0,3,3); M(0,0)=1.10; M(1,1)=0.95; M(2,2)=1.20; M(0,1)=0.03;
+
+        SpectralCorrectionRecord rec;
+        rec.source = SPECTRAL_SOURCE_FILE;
+        rec.basis = FIT_BASIS_NATIVE;
+        rec.correction = C;
+        // The spectral method: its matrix IS the record's correction.
+        Matrix oldEff = EffectiveSensorMatrix(CALIB_SPECTRAL_SAMPLE, FIT_BASIS_NATIVE, rec, C);
+
+        const int bases[2] = { FIT_BASIS_NATIVE, FIT_BASIS_UNKNOWN };
+        for ( int b = 0; b < 2; b++ )
+        {
+            // The loaded file's method keeps the (dormant) record beside it.
+            Matrix newEff = EffectiveSensorMatrix(CALIB_HCFR_DEFAULT, bases[b], rec, M);
+            ColorXYZ expected(newEff * X);
+
+            CColor fixed;
+            fixed.SetXYZValue(ColorXYZ(oldEff * X));
+            CPPUNIT_ASSERT( !fixed.HasRawXYZValue() );
+            fixed.applyAdjustmentMatrix(newEff * oldEff.GetInverse());
+            ColorXYZ actual = fixed.GetXYZValue();
+            for ( int i = 0; i < 3; i++ )
+                CPPUNIT_ASSERT_DOUBLES_EQUAL( expected[i], actual[i], 0.000000000001 );
+
+            CColor before;
+            before.SetXYZValue(ColorXYZ(oldEff * X));
+            before.applyAdjustmentMatrix(newEff);
+            ColorXYZ wrong = before.GetXYZValue();
+            double off = 0.0;
+            for ( int i = 0; i < 3; i++ )
+                off += fabs(wrong[i] - expected[i]);
+            CPPUNIT_ASSERT( off > 1e-6 );
+        }
     }
 };
 

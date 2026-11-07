@@ -37,6 +37,7 @@
 #include <afx.h>
 #include <time.h>
 #include "Color.h"
+#include "SpectralCorrection.h"
 
 // The version every non-legacy CSensor stream is written with. Version 4
 // is the time followed by the extension trailer; every field after the
@@ -53,6 +54,8 @@ struct SensorCalibrationFields
 	bool	rawlessEmbody;		// RawlessReadingsState::Get()
 	Matrix	bodnerRaw[3];		// meaningful only when method == CALIB_BODNER_THREEMATRIX
 	Matrix	bodnerCal[3];
+	int		fitBasis;			// SpectralFitBasis of the method's matrices; UNKNOWN when absent
+	SpectralCorrectionRecord spectral;	// source NONE when absent
 };
 
 // Writes the block version, then the fields that version carries. Version 1
@@ -61,7 +64,9 @@ struct SensorCalibrationFields
 void StoreSensorCalibration(CArchive& ar, const SensorCalibrationFields& f, int version);
 
 // Reads the block version and its fields into f and returns the version.
-// For version 1 only calibrationTime is set; the caller derives the rest.
+// For version 1 only calibrationTime is set; the caller derives the method
+// and the raw-less state. fitBasis and spectral are always set: to the
+// tags' values, or to their absent defaults (UNKNOWN, no record).
 // Throws CNewerSchemaException for a version this build refuses, and
 // CArchiveException for a malformed stream. f is the caller's scratch: on a
 // throw it may hold part of the stream, so copy it out only on return.

@@ -1006,7 +1006,7 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,15,152,184,10
 END
 
-IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 222
+IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 232
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Capteur Argyll"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
@@ -4472,7 +4472,7 @@ BEGIN
     IDS_SPECTRAL_NONE           "Aucune"
     IDS_SPECTRAL_FILEFILTER     "Correction spectrale (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|CSV de corrélation (*.csv)|*.csv||"
     IDS_SPECTRAL_REAPPLY_FAILED "La correction spectrale enregistrée n'a pas pu être réappliquée à la sonde :\n%s\n\nLes mesures sont NON CORRIGÉES tant qu'elle n'est pas réappliquée ou effacée dans les propriétés du capteur."
-    IDS_SPECTRAL_MATRIXCAL_PROMPT "Ce capteur possède un étalonnage par matrice. Appliquer une correction spectrale en fera la seule correction pour les nouvelles mesures.\n\nLes mesures existantes ont été prises avec l'étalonnage par matrice - les ramener aux valeurs brutes (non corrigées) du capteur ?\n\nOui - ramener les mesures existantes aux valeurs brutes\nNon - les laisser telles quelles (mélangées aux nouvelles mesures spectrales)\nAnnuler - ne pas appliquer la correction spectrale"
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "Ce capteur possède un étalonnage par matrice. La correction spectrale le remplace pour les valeurs affichées. Chaque mesure conserve sa valeur brute, une matrice peut donc être calculée de nouveau plus tard.\n\nContinuer ?"
     IDS_SPECTRAL_ACTIVE_TITLE   "Correction spectrale active"
     IDS_SPECTRAL_CLEAR_FOR_MATRIX "Ce capteur utilise une correction spectrale (ccss/CSV), appliquée dans la sonde.\nUn étalonnage par matrice viendrait s'y ajouter (double correction).\n\nEffacer la correction spectrale et étalonner par matrice à la place ?"
     IDS_CALIB_METHOD_TITLE      "Méthode d'étalonnage"
@@ -4480,6 +4480,19 @@ BEGIN
     IDS_BODNER_SKIPPED_FMT      "%d mesure(s) sans lecture brute du capteur (enregistrées avant la capture des valeurs brutes, ou modifiées à la main) ont été laissées telles quelles."
     IDS_CALIB_NEED_RAW_PRIMARIES "Mesurez d'abord à nouveau les primaires et le blanc : ceux enregistrés n'ont pas de lecture brute du capteur, et une matrice ne peut pas être calculée à partir de valeurs portant une correction que le capteur n'applique plus (Bodner, ou une matrice remplacée par une correction spectrale)."
     IDS_CALIB_NEED_REF_WHITE    "Le document de référence n'a pas de blanc mesuré : mesurez d'abord son blanc (ou les primaires avec le blanc)."
+    IDS_SPECTRAL_SUPERSEDE_WARN "L'\xE9talonnage par matrice sera calcul\xE9 sur les mesures non corrig\xE9es de la sonde, et appliqu\xE9 \xE0 celles-ci.\nLa correction spectrale (%s) reste charg\xE9e mais n'affectera plus les valeurs affich\xE9es. Pour l'utiliser de nouveau : pour un fichier de correction, chargez de nouveau le fichier dans les propri\xE9t\xE9s du capteur ; pour une entr\xE9e de type d'affichage, choisissez un type d'affichage simple et validez par OK, puis choisissez de nouveau l'entr\xE9e.\n\nContinuer ?"
+    IDS_SPECTRAL_STATUS_INACTIVE_FMT "Correction spectrale : %s (chargée, non appliquée : un étalonnage par matrice est utilisé)"
+    IDS_SPECTRAL_STATUS_DISPTYPE_FMT "Correction spectrale : %s (issue du type d'affichage)"
+    IDS_SPECTRAL_UNIT_MISMATCH  "La correction spectrale de ce fichier a été calculée pour la sonde de numéro de série %s ; la sonde connectée est %s. Elle a été calculée de nouveau à partir de la sonde connectée."
+    IDS_SPECTRAL_BROWSE_REFUSED_DISPTYPE "Le type d'affichage sélectionné comporte déjà une correction spectrale. Choisissez un type d'affichage simple pour utiliser un fichier de correction."
+    IDS_SPECTRAL_STATUS_COMPOSED_FMT "Correction spectrale : %s (appliquée en plus de l'étalonnage par matrice)"
+    IDS_SPECTRAL_DISPTYPE_FAILED "La correction spectrale du type d'affichage n'a pas pu être calculée et a été retirée :\n%s"
+    IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "Le document chargé comporte une correction spectrale de type d'affichage (%s) qui n'est pas le type d'affichage actuel. Elle reste utilisée jusqu'à ce que vous changiez de type d'affichage."
+    IDS_SPECTRAL_COMPOSE_WARN   "Le fichier que vous chargez ne comporte pas d'indication de base d'ajustement. La correction spectrale sera appliquée en plus de sa matrice (comme le faisait HCFR 4.1). Continuer ?"
+    IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "La correction spectrale utilisée (%s) a été calculée pour la sonde %s, et non pour la sonde connectée, et aucun fichier de correction n'est disponible ici pour la calculer de nouveau. Elle reste utilisée. Pour la calculer pour cette sonde, sélectionnez son fichier de correction dans les propriétés du capteur."
+    IDS_SPECTRAL_FILE_MOVED_NOTICE "Le fichier de correction spectrale n'est plus à l'emplacement enregistré :\n\n%s\n\nLa correction calculée à partir de ce fichier reste utilisée pour cette sonde. Pour utiliser le document avec une autre sonde, ou pour la calculer de nouveau, sélectionnez le fichier dans les propriétés du capteur."
+    IDS_CALIB_SPECTRAL_IN_DRIVER "Cette sonde applique sa correction spectrale dans le pilote : un \xE9talonnage par matrice serait donc calcul\xE9 sur des mesures d\xE9j\xE0 corrig\xE9es. Effacez d'abord la correction spectrale dans la page du capteur, ou continuez \xE0 utiliser la correction spectrale comme m\xE9thode."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT_DRIVER "Ce capteur poss\xE8de un \xE9talonnage par matrice. Cette sonde applique la correction spectrale dans son pilote, aux nouvelles mesures seulement : l'\xE9talonnage par matrice est supprim\xE9, et les mesures d\xE9j\xE0 effectu\xE9es sont affich\xE9es sans aucune correction jusqu'\xE0 ce qu'elles soient mesur\xE9es de nouveau.\n\nContinuer ?"
     IDS_EXPORT_LAYOUT_MISMATCH  "Impossible d'ajouter à ce fichier : il a été exporté avec des options Brut/Stimulus différentes. Exportez vers un nouveau fichier, ou refaites l'export avec les mêmes options que les données existantes."
     IDS_SCHEMA_NEWER        "Ce fichier a été écrit par une version plus récente de HCFR (%s version %d). Mettez HCFR à jour pour l'ouvrir."
     IDS_SCHEMA_UNRELEASED   "Ce fichier a été écrit par une version de développement non publiée de HCFR (%s version %d) et ne peut pas être lu. Recréez-le."

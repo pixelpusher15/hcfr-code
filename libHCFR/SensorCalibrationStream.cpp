@@ -28,7 +28,8 @@
 #include "ArchiveTags.h"
 
 SensorCalibrationFields::SensorCalibrationFields()
-	: calibrationTime(0), method(CALIB_HCFR_DEFAULT), rawlessEmbody(true)
+	: calibrationTime(0), method(CALIB_HCFR_DEFAULT), rawlessEmbody(true),
+	  fitBasis(FIT_BASIS_UNKNOWN)
 {
 	for ( int k = 0; k < 3; k++ )
 	{
@@ -47,8 +48,9 @@ void StoreSensorCalibration(CArchive& ar, const SensorCalibrationFields& f, int 
 		return;
 
 	// v4: everything after the time is a tag in the extension trailer, the
-	// last thing in the block. The method and the raw-less state always; the
-	// six Bodner matrices only when that method is in force.
+	// last thing in the block. The method, the fit basis and the raw-less
+	// state always; the six Bodner matrices only when that method is in force;
+	// the spectral correction record only when one is present.
 	CExtensionWriter ext;
 
 	ext.BeginTag ( ArchiveTag::SENSOR_CALIBRATION_METHOD ) << f.method;
@@ -68,6 +70,16 @@ void StoreSensorCalibration(CArchive& ar, const SensorCalibrationFields& f, int 
 			Matrix cal = f.bodnerCal[k];
 			cal.Serialize(value);
 		}
+		ext.EndTag ();
+	}
+
+	ext.BeginTag ( ArchiveTag::SENSOR_FIT_BASIS ) << f.fitBasis;
+	ext.EndTag ();
+
+	if ( f.spectral.IsPresent() )
+	{
+		SpectralCorrectionRecord rec = f.spectral;	// Serialize is not const
+		rec.Serialize ( ext.BeginTag ( ArchiveTag::SENSOR_SPECTRAL_CORRECTION ) );
 		ext.EndTag ();
 	}
 
@@ -95,6 +107,10 @@ int LoadSensorCalibration(CArchive& ar, SensorCalibrationFields& f)
 	if ( version < 1 )
 		AfxThrowArchiveException ( CArchiveException::badSchema );
 	ar >> f.calibrationTime;
+	// Neither is in a version-1 block, and either tag may be absent from a
+	// version-4 one (PR-A wrote neither): basis UNKNOWN, no record.
+	f.fitBasis = FIT_BASIS_UNKNOWN;
+	f.spectral.Clear();
 
 	if ( version == kSensorStreamVersion )
 	{
@@ -137,6 +153,36 @@ int LoadSensorCalibration(CArchive& ar, SensorCalibrationFields& f)
 					break;
 				}
 
+				case ArchiveTag::SENSOR_FIT_BASIS:
+				{
+					// Same rule as the method: a basis this build does not know
+					// would compose (or not) the wrong matrices.
+					int basis;
+					ext.Value() >> basis;
+					if ( basis < FIT_BASIS_UNKNOWN || basis > FIT_BASIS_DRIVER_CORRECTED )
+						throw new CNewerSchemaException ( "CSensor", version, false, "fit basis" );
+					f.fitBasis = basis;
+					break;
+				}
+
+				case ArchiveTag::SENSOR_SPECTRAL_CORRECTION:
+				{
+					// A written record always names its source and its basis; a
+					// value outside the known ones comes from a newer HCFR. Source
+					// NONE and basis UNKNOWN are not among those: the writer emits
+					// this tag only for a present record, and every record is given
+					// a NATIVE or DRIVER_CORRECTED basis when it is made, so either
+					// one here is corruption.
+					f.spectral.Serialize ( ext.Value() );
+					if ( f.spectral.source == SPECTRAL_SOURCE_NONE || f.spectral.basis == FIT_BASIS_UNKNOWN )
+						AfxThrowArchiveException ( CArchiveException::badSchema );
+					if ( f.spectral.source < SPECTRAL_SOURCE_FILE || f.spectral.source > SPECTRAL_SOURCE_DISPLAY_TYPE )
+						throw new CNewerSchemaException ( "CSensor", version, false, "spectral correction source" );
+					if ( f.spectral.basis < FIT_BASIS_NATIVE || f.spectral.basis > FIT_BASIS_DRIVER_CORRECTED )
+						throw new CNewerSchemaException ( "CSensor", version, false, "spectral correction basis" );
+					break;
+				}
+
 				case ArchiveTag::SENSOR_RAWLESS_EMBODY:
 				{
 					BOOL bEmbody;
@@ -157,6 +203,10 @@ int LoadSensorCalibration(CArchive& ar, SensorCalibrationFields& f)
 		// it anyway would recalibrate every reading through identity
 		// sub-gamuts and report success.
 		if ( f.method == CALIB_BODNER_THREEMATRIX && ! bSawBodnerMatrices )
+			AfxThrowArchiveException ( CArchiveException::badSchema );
+		// Same reason for the spectral method: its matrix is the record's
+		// correction, and without the record nothing says what it corrects.
+		if ( f.method == CALIB_SPECTRAL_SAMPLE && ! f.spectral.IsPresent() )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 
 		// No raw-less state stored: a Bodner sensor's raw-less readings are

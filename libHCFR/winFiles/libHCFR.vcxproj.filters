@@ -51,6 +51,9 @@
     <ClCompile Include="..\PCFilesReaderUtilities.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\SpectralCorrection.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\SaturationTracking.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -60,6 +63,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\ArchiveTags.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\SpectralCorrection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\SensorCalibrationStream.h">
