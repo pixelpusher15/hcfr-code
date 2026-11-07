@@ -5051,8 +5051,9 @@ void CDataSetDoc::OnMeasureOpenPatchList()
 {
 	if ( IsMeasureSweepActive () )
 		return;
-	CFileDialog dlg ( TRUE, "csv", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR,
-	                  "Patch list CSV (*.csv)|*.csv||" );
+	CString strFilter;
+	strFilter.LoadString ( IDS_PATCHLIST_FILTER );
+	CFileDialog dlg ( TRUE, "csv", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR, strFilter );
 	if ( dlg.DoModal () == IDOK )
 		ImportUserPatchSetFile ( dlg.GetPathName () );
 }

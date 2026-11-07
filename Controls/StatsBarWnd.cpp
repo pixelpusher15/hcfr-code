@@ -73,7 +73,9 @@ INT_PTR CStatsBarWnd::OnToolHitTest(CPoint point, TOOLINFO* pTI) const
 		pTI->uId = 1;
 		pTI->uFlags &= ~TTF_IDISHWND;
 		pTI->rect = m_rcNameZone;
-		pTI->lpszText = _tcsdup(_T("Click to select a sequence"));	// MFC frees with free()
+		CString strTip;
+		strTip.LoadString(IDS_CCSET_PICK_TIP);
+		pTI->lpszText = _tcsdup(strTip);	// MFC frees with free()
 		return 1;
 	}
 	return CWnd::OnToolHitTest(point, pTI);

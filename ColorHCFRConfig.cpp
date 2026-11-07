@@ -1629,7 +1629,11 @@ void CColorHCFRConfig::GetCColorsFrom(CUserPatchSet * pSet)
 		// is unaffected.)
 		ClearUserPatchOverride();
 		numCC = 0;
-		nFile = "No sequence loaded";
+		{
+			CString strNone;
+			strNone.LoadString(IDS_NO_SEQUENCE_LOADED);
+			nFile = (LPCTSTR)strNone;
+		}
 		cTargetBits = 8;
 		cTargetRange = -1;
 		return;

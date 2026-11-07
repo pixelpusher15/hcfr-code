@@ -8465,6 +8465,16 @@ ULONGLONG CMeasure::ProjectedUserPatchSetTrailerBytes(const CUserPatchSet & set,
 	return trailer + unmeasured * ( 4 + reading );
 }
 
+// A display name only, stored in the file as it stands when the set is made: a
+// document saved under any language or older build keeps the name it was saved
+// with, and nothing compares it.
+static std::string MigratedSetName ()
+{
+	CString name;
+	name.LoadString ( IDS_USERSET_MIGRATED );
+	return std::string ( (LPCTSTR) name );
+}
+
 void CMeasure::MigrateLegacyUserBand()
 {
 	// Wrap USER-band measures that belong to no set into one set so they
@@ -8501,7 +8511,7 @@ void CMeasure::MigrateLegacyUserBand()
 		CColorProvenance firstProv;
 		for ( int i = 0; i < count; i++ )
 			if ( set.measures[i].isValid() ) { firstProv = set.measures[i].GetProvenance(); break; }
-		set.name = "User (migrated)";
+		set.name = MigratedSetName ();
 		set.bits = ( firstProv.srcBits == 10 ) ? 10 : 8;
 		set.range = firstProv.srcRange;
 		set.rows.resize ( count );
@@ -8548,7 +8558,7 @@ void CMeasure::MigrateLegacyUserBand()
 		}
 		else
 		{
-			set.name = "User (migrated)";
+			set.name = MigratedSetName ();
 			set.rows.resize ( count );
 			for ( int i = 0; i < count; i++ )
 			{

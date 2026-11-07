@@ -1968,6 +1968,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 
 			trip2.SetString("No\nMeasure\n");
 			bool bDrivenMode = false;
+			CString strDriven;
 			if (m_SelectedColor.isValid())
 			{
 				// WTW / EXTENDED patches have no gamma-defined reference above white, so show the DRIVEN
@@ -1976,15 +1977,17 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 				if ( m_SelectedColor.HasProvenance() && m_SelectedColor.GetProvenance().srcRange == 2 && m_SelectedColor.HasStimulusValue() )
 				{
 					bDrivenMode = true;
+					strDriven.LoadString ( IDS_COMPARE_DRIVEN );
 					int dBits = ( m_SelectedColor.GetProvenance().srcBits > 0 ) ? m_SelectedColor.GetProvenance().srcBits : ( GetConfig()->GetUse10bitLevels() ? 10 : 8 );
 					CodeLevels dl = CodeLevelsFor(dBits);
 					double dSpan  = dl.span;
 					double dBlack = dl.black;
 					ColorRGBDisplay stim = m_SelectedColor.GetStimulusValue();
-					trip2.Format("%d,%d,%d\nDriven",
+					trip2.Format("%d,%d,%d\n%s",
 						(int)floor(stim[0]/100.*dSpan + dBlack + 0.5),
 						(int)floor(stim[1]/100.*dSpan + dBlack + 0.5),
-						(int)floor(stim[2]/100.*dSpan + dBlack + 0.5));
+						(int)floor(stim[2]/100.*dSpan + dBlack + 0.5),
+						(LPCTSTR) strDriven);
 				}
 				else
 				{
@@ -2007,7 +2010,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		{
 			BOOL bSel = m_SelectedColor.isValid();
 			m_Ccomp.SetContent(RGB((int)floor(m_meas_r1*255.+0.5),(int)floor(m_meas_g1*255.+0.5),(int)floor(m_meas_b1*255.+0.5)), bSel, trip1.SpanExcluding("\n"));
-			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel, trip2.SpanExcluding("\n"), bDrivenMode ? "Driven" : NULL);
+			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel, trip2.SpanExcluding("\n"), bDrivenMode ? (LPCSTR) strDriven : NULL);
 		}
 	}
 }
@@ -6938,7 +6941,9 @@ void CMainView::OnCcSetNamePicker()
 	}
 	if ( n > 0 )
 		menu.AppendMenu ( MF_SEPARATOR );
-	menu.AppendMenu ( MF_STRING, IDM_CCSET_PICKER_OPEN, _T("Open patch list...") );
+	CString strOpen;
+	strOpen.LoadString ( IDS_CCSET_OPEN_LIST );
+	menu.AppendMenu ( MF_STRING, IDM_CCSET_PICKER_OPEN, strOpen );
 
 	CPoint pt;
 	GetCursorPos ( &pt );
