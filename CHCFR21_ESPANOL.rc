@@ -2099,7 +2099,8 @@ BEGIN
         MENUITEM "Mostrar la referencia",           IDM_RGB_GRAPH_REFERENCE
         MENUITEM "Mostrar la medida de referencia",   IDM_RGB_GRAPH_DATAREF
         MENUITEM "Curva Delta E",               IDM_RGB_GRAPH_DELTAE
-        MENUITEM "con gamma",                     IDM_RGB_GRAPH_GAMMA
+        MENUITEM "Balance",                     IDM_RGB_GRAPH_BALANCE
+        MENUITEM "Error de luminancia",         IDM_RGB_GRAPH_LUMERROR
         MENUITEM SEPARATOR
         MENUITEM "Guardar...",                     IDM_GRAPH_SAVE
         POPUP "Escala"
@@ -4280,8 +4281,9 @@ BEGIN
     IDS_GRAPH_NWLUMRESPONSE     "Respuesta de luminancia cerca del blanco"
     IDS_GRAPH_SATSWEEPLUM       "Luminancia de los barridos de saturación"
     IDS_GRAPH_SATSCANSHIFTS     "Desviaciones de los barridos de saturación"
-    IDS_GRAPH_GSBALGAMMA        "Balance de la escala de grises con gamma"
-    IDS_GRAPH_GSBALNOGAMMA      "Balance de la escala de grises sin gamma"
+    IDS_GRAPH_GSBALNOGAMMA      "Balance de la escala de grises"
+    IDS_GRAPH_GSLUMERROR        "Niveles de gris, error de luminancia"
+    IDM_RGB_GRAPH_LUMERROR      "Mostrar cada canal como un error porcentual con signo respecto a su luminancia objetivo"
     IDS_GRAPH_EOTFGAMMA         "EOTF (Gamma)"
     IDS_GRAPH_REFMEASGAMMA      "Gamma de la medida de referencia"
     IDS_GRAPH_DELTALUM          "delta Luminancia"

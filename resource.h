@@ -1183,6 +1183,8 @@
 #define IDM_PATTERN_NB                  33103
 #define ID_GRAPH_W                      33103
 #define IDM_RGB_GRAPH_GAMMA             33104
+#define IDM_RGB_GRAPH_LUMERROR          33510
+#define IDM_RGB_GRAPH_BALANCE           33518
 #define ID_GRAPH_W33105                 33105
 #define ID_Menu33106                    33106
 #define IDM_LUM_GRAPH_YLog              33107
@@ -1549,7 +1551,6 @@
 #define IDS_GRAPH_NWLUMRESPONSE         41994
 #define IDS_GRAPH_SATSWEEPLUM           41995
 #define IDS_GRAPH_SATSCANSHIFTS         41996
-#define IDS_GRAPH_GSBALGAMMA            41997
 #define IDS_GRAPH_GSBALNOGAMMA          41998
 #define IDS_GRAPH_EOTFGAMMA             41999
 #define IDS_GRAPH_REFMEASGAMMA          42000
@@ -2003,6 +2004,7 @@
 #define IDS_CSV_RANGE_EXTENDED_WARN     59631
 #define IDS_PP_MEASURINGREFS            59634
 #define IDS_PP_DISCGENERATOR            59790
+#define IDS_GRAPH_GSLUMERROR            60090
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
