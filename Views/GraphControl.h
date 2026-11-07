@@ -99,6 +99,12 @@ public:
 	double m_maxX,m_maxY;
 	LPSTR  m_pXUnitStr;
 	LPSTR  m_pYUnitStr;
+
+	// Optional text block drawn at the top right of the plot, on screen only
+	// (not in saved images). One string per row; cells separated by '\t' line
+	// up in columns, cells that start with a digit, sign or point right-aligned.
+	// Empty = nothing drawn. The owner fills it and invalidates.
+	CStringArray m_overlayRows;
 	
 protected:
 	CPPToolTip m_tooltip;
@@ -158,6 +164,7 @@ protected:
 	int GetGraphX(double x,CRect rect);
 	int GetGraphY(double y,CRect rect);
 	CPoint GetGraphPoint(CDecimalPoint aPoint,CRect rect);
+	void DrawOverlayRows(CDC *pDC, CRect rect, int top, BOOL bWhiteBkgnd);
 
 	// Generated message map functions
 protected:

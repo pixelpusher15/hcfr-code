@@ -2059,6 +2059,17 @@ BEGIN
         MENUITEM "Cian",                        IDM_LUM_GRAPH_CYANSHIFT
         MENUITEM "Magenta",                     IDM_LUM_GRAPH_MAGENTASHIFT
         MENUITEM SEPARATOR
+        MENUITEM "Desplazamiento de saturaci\xF3n", IDM_SATSHIFT_QTY_SAT
+        MENUITEM "Error de tono",               IDM_SATSHIFT_QTY_HUE
+        MENUITEM "Error de luminancia",         IDM_SATSHIFT_QTY_LUM
+        POPUP "Punto de anclaje"
+        BEGIN
+            MENUITEM "Ninguno",                     IDM_SATSHIFT_ANCHOR_NONE
+            MENUITEM "50%",                         IDM_SATSHIFT_ANCHOR_50
+            MENUITEM "75%",                         IDM_SATSHIFT_ANCHOR_75
+            MENUITEM "100%",                        IDM_SATSHIFT_ANCHOR_100
+        END
+        MENUITEM SEPARATOR
         MENUITEM "Guardar...",                     IDM_GRAPH_SAVE
         POPUP "Escala"
         BEGIN
@@ -4281,6 +4292,13 @@ BEGIN
     IDS_GRAPH_NWLUMRESPONSE     "Respuesta de luminancia cerca del blanco"
     IDS_GRAPH_SATSWEEPLUM       "Luminancia de los barridos de saturación"
     IDS_GRAPH_SATSCANSHIFTS     "Desviaciones de los barridos de saturación"
+    IDS_GRAPH_SATSHIFT_SAT      "Desplazamiento de saturaci\xF3n"
+    IDS_GRAPH_SATSHIFT_HUE      "Error de tono (u'v')"
+    IDS_GRAPH_SATSHIFT_LUM      "Error de luminancia"
+    IDS_SATSHIFT_MEASURED       "%s (medido)"
+    IDS_SATSHIFT_TBL_AVG        "media 0-%d:"
+    IDS_SATSHIFT_TBL_AT100      "en 100:"
+    IDS_SATSHIFT_TBL_MAX        "m\xE1x"
     IDS_GRAPH_GSBALNOGAMMA      "Balance de la escala de grises"
     IDS_GRAPH_GSLUMERROR        "Niveles de gris, error de luminancia"
     IDM_RGB_GRAPH_LUMERROR      "Mostrar cada canal como un error porcentual con signo respecto a su luminancia objetivo"
