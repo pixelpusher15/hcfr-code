@@ -1387,6 +1387,7 @@ void CDataSetDoc::MeasureCC24SatScale()
 {
 	StopBackgroundMeasures ();
 	MeasureButtonStopScope _btn(this);
+	SyncCCTargets ();
 
 	if(m_measure.MeasureCC24SatScale(m_pSensor,m_pGenerator,this))
 		SetModifiedFlag(m_measure.IsModified());
@@ -1412,6 +1413,7 @@ void CDataSetDoc::MeasureAllSaturationScales()
 {
 	StopBackgroundMeasures ();
 	MeasureButtonStopScope _btn(this);
+	SyncCCTargets ();
 
 	if(m_measure.MeasureAllSaturationScales(m_pSensor,m_pGenerator,FALSE,this))
 		SetModifiedFlag(m_measure.IsModified());
@@ -1473,6 +1475,7 @@ void CDataSetDoc::MeasureContrast()
 void CDataSetDoc::AddMeasurement() 
 {
 	StopBackgroundMeasures ();
+	SyncCCTargets ();	// a re-measured slot is stamped from the cache
     POSITION pos;
     CView* pView;
     pos = this -> GetFirstViewPosition ();
@@ -3085,6 +3088,7 @@ void CDataSetDoc::OnSimSingleMeasurement()
 
 void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 {
+	SyncCCTargets ();
 	int				i, j;
 	int				NbDocs = 0;
 	int				nSteps = 0;
@@ -5161,6 +5165,19 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 	return true;
 }
 
+// The CC target cache and the USER drive override are process-wide, and the
+// document that last filled them need not be this one: a sweep on another
+// document may have refused to let an activation refresh them. So every path
+// that drives or stamps USER patches fills them first, from this document's own
+// set rather than through the MDI walk - a queued run such as the Full Tilt
+// sequence can reach its CC sweep with another document in front. Never mid-sweep:
+// the running sweep stamps its readings from the cache.
+void CDataSetDoc::SyncCCTargets()
+{
+	if ( GetConfig () -> m_CCMode == USER && ! IsMeasureSweepActive () )
+		GetConfig () -> GetCColorsFrom ( m_measure.GetActiveUserPatchSet () );
+}
+
 void CDataSetDoc::SwitchUserPatchSet(int idx)
 {
 	if ( IsMeasureSweepActive () )
@@ -5522,6 +5539,7 @@ void CDataSetDoc::OnMeasureSatCC24()
 {
 	CString	Msg, MsgQueue, TmpStr;
 
+	SyncCCTargets ();	// the prompt quotes the patch count
 	BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
 	int		nNbPoints = (GetConfig()->m_CCMode==CCSG?96:isExtPat?GetConfig()->GetCColorsSize():(GetConfig()->m_CCMode==AXIS?71:24));
@@ -5614,6 +5632,7 @@ void CDataSetDoc::OnMeasureSatAll()
 {
 	CString	Msg, MsgQueue, TmpStr;
 
+	SyncCCTargets ();	// the prompt quotes the patch count
 	BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
     
@@ -5836,6 +5855,7 @@ void CDataSetDoc::OnUpdateMeasureSatPrimariesSecondaries(CCmdUI* pCmdUI)
 void CDataSetDoc::OnMeasureFullTiltBoogie()
 {
 	CString	Msg, MsgQueue, TmpStr;
+	SyncCCTargets ();	// the prompt quotes the patch count
 	BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
 

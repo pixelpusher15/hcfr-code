@@ -992,34 +992,30 @@ void CMainView::LayoutTopRow()
 		}
 	}
 
-// MDI child activation: the CC target cache (GetCColors' file-scope globals)
-// is process-wide but the user patch set collection is per-document, so when a
-// different document's view comes to front under USER mode the cache must be
-// refilled from THAT document's active set. Refresh view-locally via the
-// existing UPD_CC24SAT special case, not UpdateAllViews - broadcasting from an
-// activation hook would ping-pong between documents. The pointer equality
-// check skips the refresh if the MDI walk does not resolve to this document
-// yet (activation ordering), leaving at worst the same staleness the global
-// cache always had.
-void CMainView::OnActivateView(BOOL bActivate, CView* pActivateView, CView* pDeactiveView)
+// The document just came to front (CMultiFrame::RefreshCCState). The CC mode is
+// process-wide, so it may have changed while another document had the focus.
+// Refresh view-locally via the existing UPD_CC24SAT special case, not
+// UpdateAllViews - broadcasting from an activation hook would ping-pong between
+// documents.
+void CMainView::ResyncCCControls()
 {
-	CFormView::OnActivateView(bActivate, pActivateView, pDeactiveView);
-	// Never mid-sweep: the target cache GetCColors fills is process-wide,
-	// and the running sweep stamps each reading's provenance from it
-	// (CMeasure::StampCCProvenance). Re-pointing it at the newly activated
-	// document would label the sweeping document's readings with the other
-	// document's set. The same guard as SwitchUserPatchSet and the mode combo;
-	// the next activation after the sweep refreshes.
-	if ( bActivate && GetConfig () -> m_CCMode == USER && IsMdiActiveDocument () && ! IsMeasureSweepActive () )
-	{
-		// Refresh whether or not this document HAS a set: a document with an
-		// empty collection must also displace the previous document's set from
-		// the global cache (GetCColors falls back to the empty "No sequence
-		// loaded" state), or its name and targets linger.
-		GetConfig () -> GetCColors ();
-		if ( m_displayMode == 11 )
-			OnUpdate ( NULL, UPD_CC24SAT, NULL );
-	}
+	if ( m_displayMode != 11 || m_comboMode.GetSafeHwnd () == NULL || m_pGrayScaleGrid == NULL )
+		return;
+	SyncModeComboToCCMode ();
+	UpdateParamCombos ();
+	OnUpdate ( NULL, UPD_CC24SAT, NULL );
+}
+
+// The mode combo's Color Checker / Custom Sequences pair shows the process-wide
+// CC mode, which another document's view can change. The alias item is appended
+// after the view's initial update, so a selection before that keeps what it has.
+void CMainView::SyncModeComboToCCMode()
+{
+	if ( m_displayMode != 11 || m_comboMode.GetSafeHwnd () == NULL )
+		return;
+	int item = ModeComboIndexFor ( 11 );
+	if ( item < m_comboMode.GetCount () )
+		m_comboMode.SetCurSel ( item );
 }
 
 // TRUE when the MDI frame's active document is this view's document - the

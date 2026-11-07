@@ -241,6 +241,7 @@ struct SweepActiveGuard
             m_pMeasure->m_bAbortSweep = FALSE;
             m_pMeasure->m_bProfileCapturing = FALSE;
             g_bMeasureSweepActive = FALSE;
+            RefreshCCStateAfterSweep(m_pMeasure);
         }
     }
     BOOL Owned() const { return m_owned; }

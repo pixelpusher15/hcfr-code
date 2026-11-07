@@ -215,6 +215,22 @@ CUserPatchSet * GetActiveDocUserPatchSet()
 	return pDoc -> GetMeasure () -> GetActiveUserPatchSet ();
 }
 
+// A sweep's end: activations it held back take effect now. The sweeping document
+// itself needs nothing - it filled the cache for its own sweep and its wrapper
+// repaints it - so only another document in front is refreshed.
+void RefreshCCStateAfterSweep(const CMeasure * pSwept)
+{
+	CMDIFrameWnd * pMainWnd = (CMDIFrameWnd *) AfxGetMainWnd ();
+	if (pMainWnd == NULL)
+		return;
+	CMDIChildWnd * pChild = pMainWnd -> MDIGetActive ();
+	if (pChild == NULL || ! pChild -> IsKindOf ( RUNTIME_CLASS ( CMultiFrame ) ))
+		return;
+	CDataSetDoc * pDoc = ( (CMultiFrame *) pChild ) -> GetDocument ();
+	if (pDoc != NULL && pDoc -> GetMeasure () != pSwept)
+		( (CMultiFrame *) pChild ) -> RefreshCCState ();
+}
+
 // Shared by the References prop-page combo and the MainView Color-Checker picker.
 void GuardCCModeOutputRange(int ccMode)
 {

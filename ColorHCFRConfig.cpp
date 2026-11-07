@@ -1582,7 +1582,12 @@ int numCC = 0;
 int cTargetBits = 8;    // bit depth of the loaded patch list (for range-aware target decode)
 int cTargetRange = -1;  // CSV range of the loaded patch list (-1 legacy/legal, 0 full, 1 legal, 2 extended)
 
-void CColorHCFRConfig::GetCColors() 
+void CColorHCFRConfig::GetCColors()
+{
+	GetCColorsFrom ( m_CCMode == USER ? GetActiveDocUserPatchSet () : NULL );
+}
+
+void CColorHCFRConfig::GetCColorsFrom(CUserPatchSet * pSet)
 {
 	// One shared resolver (drive/reference GenerateCC24Colors uses the same one) maps the CC mode
 	// to its patch-list file. Inline-array modes (GCD/MCD/CMC/...) carry no CSV - their targets come
@@ -1593,14 +1598,13 @@ void CColorHCFRConfig::GetCColors()
 	cTargetB.clear();
 	cTargetN.clear();
 	cTargetP.clear();
-	// Multi-set picker: when the active document has an active user patch set, the
+	// Multi-set picker: with an active user patch set, the
 	// definition comes from the set itself (self-contained - the source CSV may have
 	// changed or be gone), and the same rows are installed as the libHCFR USER drive
 	// override so target and drive stay consistent by construction. Every other path
 	// through here clears the override, so it can never outlive this cache.
 	if (m_CCMode == USER)
 	{
-		CUserPatchSet * pSet = GetActiveDocUserPatchSet();
 		if (pSet)
 		{
 			nFile = pSet->name;

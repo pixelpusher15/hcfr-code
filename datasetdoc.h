@@ -143,6 +143,7 @@ public:
 	// active set (shared by the Measures menu item and the stats-bar picker).
 	bool ImportUserPatchSetFile(LPCTSTR path);
 	void SwitchUserPatchSet(int idx);
+	void SyncCCTargets();	// USER: fill the process-wide CC target cache from THIS document's set
 
 	void ShowViewOnTop(UINT nMsg);
 	void HideView(UINT nMsg);
