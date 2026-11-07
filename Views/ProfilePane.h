@@ -48,6 +48,10 @@ public:
 
 	// derive setup-vs-summary from the document (keeps RUNNING while a capture is live)
 	void RefreshState();
+	// the data underneath was recomputed in place (a recalibration): drop the
+	// cached dE summary and repaint, leaving the setup/summary state and the
+	// family filter as the user left them
+	void RefreshStats() { InvalidateStats(); if ( ::IsWindow( m_hWnd ) ) Invalidate( FALSE ); }
 	// per-patch poke from CMainView::OnUpdate during a capture
 	void OnCaptureProgress();
 	void EnterRunning();
