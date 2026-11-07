@@ -1943,7 +1943,7 @@ BEGIN
         MENUITEM "Referenz anzeigen",           IDM_RGB_GRAPH_REFERENCE
         MENUITEM "Referenzmessung anzeigen",    IDM_RGB_GRAPH_DATAREF
         MENUITEM "Delta E Kurve",               IDM_RGB_GRAPH_DELTAE
-        MENUITEM "mit Gamma",                     IDM_RGB_GRAPH_GAMMA
+        MENUITEM "Balance",                     IDM_RGB_GRAPH_BALANCE
         MENUITEM "Leuchtdichtefehler",          IDM_RGB_GRAPH_LUMERROR
         MENUITEM SEPARATOR
         MENUITEM "Speichern...",                IDM_GRAPH_SAVE
@@ -4185,8 +4185,7 @@ BEGIN
     IDS_GRAPH_NWLUMRESPONSE     "Helligkeitsverlauf nahe Weiﬂ"
     IDS_GRAPH_SATSWEEPLUM       "Helligkeit der S‰ttigungsreihen"
     IDS_GRAPH_SATSCANSHIFTS     "Abweichungen der S‰ttigungsreihen"
-    IDS_GRAPH_GSBALGAMMA        "Graustufenbalance mit Gamma"
-    IDS_GRAPH_GSBALNOGAMMA      "Graustufenbalance ohne Gamma"
+    IDS_GRAPH_GSBALNOGAMMA      "Graustufen-Balance"
     IDS_GRAPH_GSLUMERROR        "Graustufen-Pegel, Leuchtdichtefehler"
     IDM_RGB_GRAPH_LUMERROR      "Jeden Kanal als vorzeichenbehafteten prozentualen Fehler relativ zu seiner Zielleuchtdichte anzeigen"
     IDS_GRAPH_EOTFGAMMA         "EOTF (Gamma)"

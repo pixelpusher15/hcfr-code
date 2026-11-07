@@ -1976,7 +1976,7 @@ BEGIN
         MENUITEM "Display reference",           IDM_RGB_GRAPH_REFERENCE
         MENUITEM "Display reference measure",   IDM_RGB_GRAPH_DATAREF
         MENUITEM "Delta E curve",               IDM_RGB_GRAPH_DELTAE
-        MENUITEM "w/Gamma",                     IDM_RGB_GRAPH_GAMMA
+        MENUITEM "Balance",                     IDM_RGB_GRAPH_BALANCE
         MENUITEM "Luminance error",             IDM_RGB_GRAPH_LUMERROR
         MENUITEM SEPARATOR
         MENUITEM "Save...",                     IDM_GRAPH_SAVE
@@ -4166,8 +4166,7 @@ BEGIN
     IDS_GRAPH_NWLUMRESPONSE     "Near White Luminance Response"
     IDS_GRAPH_SATSWEEPLUM       "Saturation Sweep Luminance"
     IDS_GRAPH_SATSCANSHIFTS     "Saturation Scan Shifts"
-    IDS_GRAPH_GSBALGAMMA        "Gray Scale Balance w/gamma"
-    IDS_GRAPH_GSBALNOGAMMA      "Gray Scale Balance w/o gamma"
+    IDS_GRAPH_GSBALNOGAMMA      "Gray Scale Balance"
     IDS_GRAPH_GSLUMERROR        "Gray Scale Levels, luminance error"
     IDM_RGB_GRAPH_LUMERROR      "Show each channel as a signed percent error against its target luminance"
     IDS_GRAPH_EOTFGAMMA         "EOTF(Gamma)"

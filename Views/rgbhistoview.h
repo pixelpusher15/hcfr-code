@@ -118,7 +118,7 @@ protected:
 	afx_msg void OnContextMenu(CWnd* pWnd, CPoint point);
 	afx_msg void OnRgbGraphReference();
 	afx_msg void OnRgbGraphDeltaE();
-	afx_msg void OnRgbGraphGamma();
+	afx_msg void OnRgbGraphBalance();
 	afx_msg void OnRgbGraphLumError();
 	afx_msg void OnRgbGraphDataRef();	//Ki
 	afx_msg void OnGraphSettings();
@@ -151,6 +151,7 @@ protected:
 	afx_msg void OnDeltaEGraphScaleCustom();
 	afx_msg void OnHelp();
 	//}}AFX_MSG
+	void SelectLumError ( BOOL bLumError );	// Balance (FALSE) or Luminance error (TRUE)
 	DECLARE_MESSAGE_MAP()
 };
 

@@ -251,7 +251,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 					refColor.SetxyYValue(tmpColor);
 				}
 			}
-			//RGB plots now include luminance offset when grayscale dE handling includes it
+			// RGB plots include the luminance offset only in the luminance error mode
 			// dE_gray 0 normalises each patch against its OWN luminance, so the dE
 			// it reports is chromaticity only. That per-patch value stays a LOCAL:
 			// written back into YWhite it is loop-carried, and the reference block at
@@ -265,19 +265,18 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// 3.1.0.4), so the pair is unreachable from the UI. AccuracyTest.cpp does
 			// set m_dE_gray directly though, and MainView (case 0) and Export.cpp both
 			// keep YWhite intact - this brings the outlier into line.
-			double fact;
 			double YWhitePatch = YWhite;
 			if ( GetConfig ()->m_dE_gray == 0 )
 			{
 				// Use actual gray luminance as correct reference (absolute)
 				YWhitePatch = aColor [ 2 ];
-				fact = 1.0;
 			}
-			else
-				fact = aColor[2] / (tmpColor[2] * pDoc->GetMeasure()->GetOnOffWhite()[1]);
-			// Luminance error: measured over target whatever m_dE_gray says, so a
-			// neutral patch on the curve is 1.0 in every channel. YWhitePatch,
-			// which the dE pane uses, is left alone.
+			// Balance: each channel against the patch's OWN luminance (fact 1.0)
+			// whatever m_dE_gray says - that preference belongs to the delta-E
+			// pane, and YWhitePatch above is all it moves here. Luminance error:
+			// measured over target, so a neutral patch on the curve is 1.0 in
+			// every channel.
+			double fact = 1.0;
 			if ( m_showLumError )
 				fact = aColor[2] / (YTarget * pDoc->GetMeasure()->GetOnOffWhite()[1]);
 
@@ -289,8 +288,8 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// chromaticity. Built inside the guard so the division does not happen at
 			// all when there is nothing to plot.
 			//
-			// Point 0 needs two more things the others do not. The w/gamma
-			// normalisation (m_dE_gray == 1) divides by the TARGET luminance,
+			// Point 0 needs two more things the others do not. The luminance
+			// error mode divides by the TARGET luminance,
 			// which has no light at black for a pure power law, L*, sRGB and PQ
 			// without tone mapping - inf, NaN, or a meaningless huge ratio - so
 			// those leave the point out. BT.1886, black compensation and HLG with a
@@ -303,9 +302,10 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// And black itself has to have light in it: without, the
 			// xy is the sensor floor's equal-energy point, which would plot as a
 			// plausible-looking tint reading out of nothing.
-			// The luminance error mode divides by the target too, so it takes the
-			// w/gamma rule - on YTarget, which dE_gray 2 does not overwrite.
-			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( m_showLumError ? HasMeasuredLight ( YTarget * pDoc->GetMeasure()->GetOnOffWhite()[1] ) : ( GetConfig()->m_dE_gray != 1 || HasMeasuredLight ( tmpColor[2] * pDoc->GetMeasure()->GetOnOffWhite()[1] ) ) ) && HasMeasuredLight ( aColor[2] ) ) ))
+			// Balance divides by the patch's own luminance, so it needs only that
+			// second test. The target test is on YTarget, which dE_gray 2 does
+			// not overwrite.
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( !m_showLumError || HasMeasuredLight ( YTarget * pDoc->GetMeasure()->GetOnOffWhite()[1] ) ) && HasMeasuredLight ( aColor[2] ) ) ))
 			{
 				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 				ColorRGB normColor(aMeasure, GetColorReference());
@@ -398,19 +398,17 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 					refColor.SetxyYValue(tmpColor);
 				}
 			}
-			//RGB plots now include luminance offset when grayscale dE handling includes it
+			// RGB plots include the luminance offset only in the luminance error mode
 			// Same per-patch locals as the primary loop above - see the comment
 			// there. YWhite / YWhiteRefDoc stay the documents' own white.
-			double fact;
 			double YWhiteRefPatch = YWhiteRefDoc;
 			if ( GetConfig ()->m_dE_gray == 0 )
 			{
 				// Use actual gray luminance as correct reference (absolute)
 				YWhiteRefPatch = aColor [ 2 ];
-				fact = 1.0;
 			}
-			else
-				fact = aColor[2] / (tmpColor[2] * pDataRef->GetMeasure()->GetOnOffWhite()[1]);
+			// Balance (fact 1.0) or luminance error, as in the primary loop.
+			double fact = 1.0;
 			if ( m_showLumError )
 				fact = aColor[2] / (YTarget * pDataRef->GetMeasure()->GetOnOffWhite()[1]);
 
@@ -429,7 +427,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// started at 1; point 0 is exactly where a meter hands back a degenerate
 			// chromaticity. Built inside the guard so the division does not happen at
 			// all when there is nothing to plot.
-			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( m_showLumError ? HasMeasuredLight ( YTarget * pDataRef->GetMeasure()->GetOnOffWhite()[1] ) : ( GetConfig()->m_dE_gray != 1 || HasMeasuredLight ( tmpColor[2] * pDataRef->GetMeasure()->GetOnOffWhite()[1] ) ) ) && HasMeasuredLight ( aColor[2] ) ) ))
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( !m_showLumError || HasMeasuredLight ( YTarget * pDataRef->GetMeasure()->GetOnOffWhite()[1] ) ) && HasMeasuredLight ( aColor[2] ) ) ))
 			{
 				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 				ColorRGB normColor(aMeasure, GetColorReference());
@@ -500,7 +498,7 @@ BEGIN_MESSAGE_MAP(CRGBHistoView, CSavingView)
 	ON_WM_CONTEXTMENU()
 	ON_COMMAND(IDM_RGB_GRAPH_REFERENCE, OnRgbGraphReference)
 	ON_COMMAND(IDM_RGB_GRAPH_DELTAE, OnRgbGraphDeltaE)
-	ON_COMMAND(IDM_RGB_GRAPH_GAMMA, OnRgbGraphGamma)
+	ON_COMMAND(IDM_RGB_GRAPH_BALANCE, OnRgbGraphBalance)
 	ON_COMMAND(IDM_RGB_GRAPH_LUMERROR, OnRgbGraphLumError)
 	ON_COMMAND(IDM_RGB_GRAPH_DATAREF, OnRgbGraphDataRef)	//Ki
 	ON_COMMAND(IDM_GRAPH_SETTINGS, OnGraphSettings)
@@ -644,7 +642,7 @@ void CRGBHistoView::OnSize(UINT nType, int cx, int cy)
 void CRGBHistoView::OnDraw(CDC* pDC) 
 {
 	CString strTitle;
-	strTitle.LoadString ( m_Grapher.m_showLumError ? IDS_GRAPH_GSLUMERROR : ( GetConfig()->m_dE_gray == 1 ? IDS_GRAPH_GSBALGAMMA : IDS_GRAPH_GSBALNOGAMMA ) );
+	strTitle.LoadString ( m_Grapher.m_showLumError ? IDS_GRAPH_GSLUMERROR : IDS_GRAPH_GSBALNOGAMMA );
 	m_Grapher.m_graphCtrl.m_graphArray[0].p_Title=strTitle;
 }
 
@@ -663,7 +661,7 @@ void CRGBHistoView::OnContextMenu(CWnd* pWnd, CPoint point)
 
     pPopup->CheckMenuItem(IDM_RGB_GRAPH_REFERENCE, m_Grapher.m_showReference ? MF_CHECKED : MF_UNCHECKED | MF_BYCOMMAND);
     pPopup->CheckMenuItem(IDM_RGB_GRAPH_DELTAE, m_Grapher.m_showDeltaE ? MF_CHECKED : MF_UNCHECKED | MF_BYCOMMAND);
-	pPopup->CheckMenuItem(IDM_RGB_GRAPH_GAMMA, GetConfig()->m_dE_gray == 1 ? MF_CHECKED : MF_UNCHECKED | MF_BYCOMMAND);
+	pPopup->CheckMenuItem(IDM_RGB_GRAPH_BALANCE, !m_Grapher.m_showLumError ? MF_CHECKED : MF_UNCHECKED | MF_BYCOMMAND);
 	pPopup->CheckMenuItem(IDM_RGB_GRAPH_LUMERROR, m_Grapher.m_showLumError ? MF_CHECKED : MF_UNCHECKED | MF_BYCOMMAND);
 	pPopup->CheckMenuItem(IDM_RGB_GRAPH_DATAREF, m_Grapher.m_showDataRef ? MF_CHECKED : MF_UNCHECKED | MF_BYCOMMAND); //Ki
 
@@ -690,34 +688,25 @@ void CRGBHistoView::OnRgbGraphDeltaE()
 	OnUpdate(NULL,NULL,NULL);
 }
 
-void CRGBHistoView::OnRgbGraphGamma() 
+void CRGBHistoView::OnRgbGraphBalance()
 {
-	if (GetConfig()->m_dE_form == 5)
-	{
-		GetConfig()->m_dE_form = 0;
-		GetConfig()->WriteProfileInt("Advanced","dE_form",0);
-	}
-
-	if (GetConfig()->m_dE_gray == 1)
-	{
-		GetConfig()->WriteProfileInt("Advanced","dE_gray",2);
-		GetConfig()->m_dE_gray = 2;
-	}
-	else
-	{
-		GetConfig()->WriteProfileInt("Advanced","dE_gray",1);
-		GetConfig()->m_dE_gray = 1;
-	}
-
-	GetDocument()->UpdateAllViews(NULL, UPD_GRAYSCALE, NULL);
-	GetDocument()->UpdateAllViews(NULL, UPD_SELECTEDCOLOR, NULL);
+	SelectLumError ( FALSE );
 }
 
-// This view only: unlike w/Gamma it writes no delta-E preference, so the
-// grids and the other views do not change.
 void CRGBHistoView::OnRgbGraphLumError()
 {
-	m_Grapher.m_showLumError = !m_Grapher.m_showLumError;
+	SelectLumError ( TRUE );
+}
+
+// Balance or Luminance error: one choice of what the top chart plots. This
+// view only: it writes no delta-E preference, so the grids, the delta-E pane
+// and the other views do not change. Picking the mode already shown does
+// nothing, so it does not reset a zoomed range.
+void CRGBHistoView::SelectLumError ( BOOL bLumError )
+{
+	if ( m_Grapher.m_showLumError == bLumError )
+		return;
+	m_Grapher.m_showLumError = bLumError;
 	GetConfig()->WriteProfileInt("RGB Histo","Luminance Error",m_Grapher.m_showLumError);
 	// The two modes plot around different centers: move to the current
 	// preset's counterpart, and save it, so the saved range read back at the
