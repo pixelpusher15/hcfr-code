@@ -7006,6 +7006,13 @@ int CMeasure::ApplySensorAdjustmentMatrix(const Matrix& deltaMatrix, const Matri
 			for ( size_t i = 0; i < m_satLevelStore[s].sat[c].size(); i++ )
 				ReapplyAdjustmentMatrix(m_satLevelStore[s].sat[c][i], deltaMatrix, fullMatrix, bComposeLegacy,
 					( (int) s == nActiveSat ) ? nMirror : nSkipped);
+	// Every user patch set the USER band is not holding. The active set's readings
+	// live in the band, walked above; its own copy is replaced by the next harvest
+	// (SyncActiveUserPatchSetFromBand), so it is neither walked nor counted here.
+	for ( size_t s = 0; s < m_userPatchSets.size(); s++ )
+		if ( (int) s != m_activeUserSet )
+			for ( size_t i = 0; i < m_userPatchSets[s].measures.size(); i++ )
+				ReapplyAdjustmentMatrix(m_userPatchSets[s].measures[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
 	// The walk rewrote every profile cube entry: honor the m_profileGeneration
 	// contract (Measure.h), or Color3DView keeps the gamut volume and coverage it
 	// cached for the cube as it was before the recalibration.
@@ -7092,6 +7099,11 @@ int CMeasure::ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Ma
 		for ( int c = 0; c < 6; c++ )
 			for ( size_t i = 0; i < m_satLevelStore[s].sat[c].size(); i++ )
 				BODNER_REAPPLY_COUNT(m_satLevelStore[s].sat[c][i], (int) s != nActiveSat);
+	// Every user patch set the USER band is not holding - see ApplySensorAdjustmentMatrix.
+	for ( size_t s = 0; s < m_userPatchSets.size(); s++ )
+		if ( (int) s != m_activeUserSet )
+			for ( size_t i = 0; i < m_userPatchSets[s].measures.size(); i++ )
+				BODNER_REAPPLY(m_userPatchSets[s].measures[i]);
 	// Same contract as ApplySensorAdjustmentMatrix: the cube was rewritten.
 	if ( m_profileMeasureArray.GetSize() > 0 )
 		m_profileGeneration++;
