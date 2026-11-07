@@ -223,7 +223,6 @@ void CArgyllSensor::Serialize(CArchive& archive)
             archive >> meterName;
             for(size_t i(0); i < meters.size(); ++i)
             {
-			    GetColorApp()->InMeasureMessageBox( meterName, "Argyll Meter used during this session...", MB_OK+MB_ICONHAND);
                 if(meters[i]->getMeterName().c_str() == meterName)
                 {
                     m_meter = meters[i];
@@ -690,11 +689,13 @@ void CArgyllSensor::Calibrate()
         }
 		if (meterInstructions == "Provide an 80% or greater white test patch" && GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumAutomatic)
 		{
-			CGDIGenerator *m_pGenerator;
 			int display_mode  = GetConfig()->GetProfileInt("GDIGenerator","DisplayMode", DISPLAY_DEFAULT_MODE);
-			m_pGenerator = new CGDIGenerator(display_mode, false);
 			if (display_mode == DISPLAY_ccast || display_mode == DISPLAY_rPI)
 			{
+				// Only this arm drives the generator (Display80); the else arm paints
+				// m_wndTestColorWnd directly, so allocating before the branch leaked one
+				// CGDIGenerator per calibration on every other display mode.
+				CGDIGenerator *m_pGenerator = new CGDIGenerator(display_mode, false);
 				if (display_mode == DISPLAY_ccast)
 					GetColorApp()->InMeasureMessageBox( "Place test window and meter on monitor connected to your ChromeCast device.", "Calibration Instructions", MB_OK);
 				else
@@ -764,7 +765,12 @@ void ArgyllLogMessage(const char* messageType, char *fmt, va_list& args)
 {
     if(CArgyllSensor::isInDebugMode())
     {
-        FILE *logFile = fopen( m_logFile, "a" );
+        // The log path is a pointer into the config set by the sensor ctor and
+        // the file may be unopenable (read-only install dir, locked); either
+        // way drop the line instead of handing NULL to fprintf (#60).
+        FILE *logFile = (m_logFile != NULL) ? fopen( m_logFile, "a" ) : NULL;
+        if (logFile == NULL)
+            return;
         fprintf(logFile,"Argyll %s - ", messageType);
         vfprintf(logFile, fmt, args);
         va_end(args);

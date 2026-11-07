@@ -41,6 +41,11 @@ public:
 // Dialog Data
 	BOOL	m_isModified;
 	BOOL	m_bSave;
+	// values as they were when the tab was activated: the document stores
+	// these three (CMeasure::Serialize), so only a change to them sets m_bSave
+	int		m_dE_formold;
+	int		m_dE_grayold;
+	int		gw_Weightold;
 
 	//{{AFX_DATA(CAdvancedPropPage)
 	enum { IDD = IDD_ADVANCED_PROP_PAGE };

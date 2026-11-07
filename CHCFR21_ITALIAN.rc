@@ -355,8 +355,8 @@ STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Info su Colorimetro HCFR"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    CONTROL         IDB_LOGO,IDC_STATIC,"Statico",SS_BITMAP,7,7,172,62
-    LTEXT           "Version 4.2.1.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
+    CONTROL         IDB_LOGO,IDC_STATIC,"Static",SS_BITMAP,7,7,172,62
+    LTEXT           "Version 4.2.2.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
     LTEXT           "Copyright (C) 2012-2026 Hcfr Project\nCopyright (C) 2005-2008 Association Homecinema Francophone",IDC_STATIC2,7,88,168,24
     LTEXT           "hcfr.sourceforge.net",IDC_HOMECINEMA_HYPERLINK,7,119,80,8
     LTEXT           "IDC_PLACEHOLDER",IDC_PLACEHOLDER,4,136,177,117
@@ -715,51 +715,51 @@ EXSTYLE WS_EX_APPWINDOW
 CAPTION "Seleziona Pattern"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
 BEGIN
-    GROUPBOX        "Strumenti",IDC_STATIC,4,64,192,79,0,WS_EX_TRANSPARENT
     GROUPBOX        "Colori",IDC_STATIC,4,6,192,56,0,WS_EX_TRANSPARENT
-    PUSHBUTTON      "Livello bianco",IDC_PATTERN_WHITE_LEVEL,129,46,60,10
-    PUSHBUTTON      "Livello nero",IDC_PATTERN_BLACK_LEVEL,69,46,60,10
-    PUSHBUTTON      "Tutti colori",IDC_PATTERN_ALL_SHAD,9,46,60,10
-    PUSHBUTTON      "Blu Shading",IDC_PATTERN_BLUE_SHAD,129,36,60,10
-    PUSHBUTTON      "Verde Shading",IDC_PATTERN_GREEN_SHAD,69,36,60,10
-    PUSHBUTTON      "Rosso Shading",IDC_PATTERN_RED_SHAD,9,36,60,10
-    PUSHBUTTON      "Blu",IDC_PATTERN_BLUE,69,26,30,10
-    PUSHBUTTON      "Verde",IDC_PATTERN_GREEN,39,26,30,10
-    PUSHBUTTON      "Rosso",IDC_PATTERN_RED,9,26,30,10
-    PUSHBUTTON      "Colore",IDC_PATTERN_COLOR,159,16,30,10
-    PUSHBUTTON      "Nero +",IDC_PATTERN_BLACK_P,129,16,30,10
-    PUSHBUTTON      "Grigio",IDC_PATTERN_GREY,99,16,30,10
-    PUSHBUTTON      "Bianco",IDC_PATTERN_WHITE,69,16,30,10
-    PUSHBUTTON      "Nero",IDC_PATTERN_BLACK,39,16,30,10
     PUSHBUTTON      "B&&N",IDC_PATTERN_BW,9,16,30,10
-    PUSHBUTTON      "Linee orizzontali",IDC_PATTERN_H_LINE,94,106,94,10
-    PUSHBUTTON      "Geometria",IDC_PATTERN_GEOM,94,86,94,10
-    PUSHBUTTON      "Linee verticali",IDC_PATTERN_V_LINE,94,96,94,10
-    PUSHBUTTON      "Grigio di convergenza",IDC_PATTERN_CONV_GRID,94,76,94,10
-    PUSHBUTTON      "Pattern pnuto blu",IDC_PATTERN_BLUE_DOT,10,106,79,10
-    PUSHBUTTON      "Pattern pnuto verde",IDC_PATTERN_GREEN_DOT,10,96,79,10
-    PUSHBUTTON      "Pattern pnuto rosso",IDC_PATTERN_RED_DOT,10,86,79,10
-    PUSHBUTTON      "Pattern pnuto bianco",IDC_PATTERN_WHITE_DOT,10,76,79,10
-    PUSHBUTTON      "Giallo",IDC_PATTERN_YELLOW,159,26,30,10
-    PUSHBUTTON      "Magenta",IDC_PATTERN_MAGENTA,129,26,30,10
+    PUSHBUTTON      "Nero",IDC_PATTERN_BLACK,39,16,30,10
+    PUSHBUTTON      "Bianco",IDC_PATTERN_WHITE,69,16,30,10
+    PUSHBUTTON      "Grigio",IDC_PATTERN_GREY,99,16,30,10
+    PUSHBUTTON      "Nero +",IDC_PATTERN_BLACK_P,129,16,30,10
+    PUSHBUTTON      "Colore",IDC_PATTERN_COLOR,159,16,30,10
+    PUSHBUTTON      "Rosso",IDC_PATTERN_RED,9,26,30,10
+    PUSHBUTTON      "Verde",IDC_PATTERN_GREEN,39,26,30,10
+    PUSHBUTTON      "Blu",IDC_PATTERN_BLUE,69,26,30,10
     PUSHBUTTON      "Ciano",IDC_PATTERN_CYAN,99,26,30,10
+    PUSHBUTTON      "Magenta",IDC_PATTERN_MAGENTA,129,26,30,10
+    PUSHBUTTON      "Giallo",IDC_PATTERN_YELLOW,159,26,30,10
+    PUSHBUTTON      "Rosso Shading",IDC_PATTERN_RED_SHAD,9,36,60,10
+    PUSHBUTTON      "Verde Shading",IDC_PATTERN_GREEN_SHAD,69,36,60,10
+    PUSHBUTTON      "Blu Shading",IDC_PATTERN_BLUE_SHAD,129,36,60,10
+    PUSHBUTTON      "Tutti colori",IDC_PATTERN_ALL_SHAD,9,46,60,10
+    PUSHBUTTON      "Livello nero",IDC_PATTERN_BLACK_LEVEL,69,46,60,10
+    PUSHBUTTON      "Livello bianco",IDC_PATTERN_WHITE_LEVEL,129,46,60,10
+    GROUPBOX        "Strumenti",IDC_STATIC,4,64,192,79,0,WS_EX_TRANSPARENT
+    PUSHBUTTON      "Pattern pnuto bianco",IDC_PATTERN_WHITE_DOT,10,76,79,10
+    PUSHBUTTON      "Grigio di convergenza",IDC_PATTERN_CONV_GRID,94,76,94,10
+    PUSHBUTTON      "Pattern pnuto rosso",IDC_PATTERN_RED_DOT,10,86,79,10
+    PUSHBUTTON      "Geometria",IDC_PATTERN_GEOM,94,86,94,10
+    PUSHBUTTON      "Pattern pnuto verde",IDC_PATTERN_GREEN_DOT,10,96,79,10
+    PUSHBUTTON      "Linee verticali",IDC_PATTERN_V_LINE,94,96,94,10
+    PUSHBUTTON      "Pattern pnuto blu",IDC_PATTERN_BLUE_DOT,10,106,79,10
+    PUSHBUTTON      "Linee orizzontali",IDC_PATTERN_H_LINE,94,106,94,10
     PUSHBUTTON      "Luminosità",IDC_PATTERN_ANIM_B,10,116,79,10
+    PUSHBUTTON      "SMPTE 75%",IDC_PATTERN_SMPTE75,94,116,46,10
+    PUSHBUTTON      "EIA 1956",IDC_PATTERN_1956,140,116,48,10
     PUSHBUTTON      "Contrasto",IDC_PATTERN_ANIM_W,10,127,79,10
     PUSHBUTTON      "Immagine di test",IDC_PATTERN_PICTURE,94,126,94,10
+    GROUPBOX        "Immagini, Iride && Definizione",IDC_STATIC,4,146,192,29
+    PUSHBUTTON      "Analisi della griglia",IDC_PATTERN_PICT_GRID,9,159,60,10
+    PUSHBUTTON      "Pattern Foto",IDC_PATTERN_PICT,69,159,60,10
+    PUSHBUTTON      "Iride && Definizione",IDC_PATTERN_PICT_IRIS,129,159,60,10
+    GROUPBOX        "Contrasto",IDC_STATIC,3,177,192,29
+    PUSHBUTTON      "Ansi 1",IDC_PATTERN_PICT_CANSI1,9,190,60,10
+    PUSHBUTTON      "Ansi 2",IDC_PATTERN_PICT_CANSI2,69,190,60,10
+    PUSHBUTTON      "Riquadri",IDC_PATTERN_PICT_CBOX,129,190,60,10
     LTEXT           "Precentente e successivo, o tasti ""+"" and ""-"" (tastierino numerico) aggiunge o rimuove un livello - o cambia pattern.",IDC_STATIC,3,209,193,18
     LTEXT           "Tasto 'Inizio' o '*' ritorna al pattern di default.",IDC_STATIC,3,228,193,10
-    LTEXT           "Tasto 'ESC' e 'Enter' uscita pattern display.",IDC_STATIC,3,253,193,11
     LTEXT           "Tasto 'SPACE' cambia display.",IDC_STATIC,3,240,193,10
-    GROUPBOX        "Immagini, Iride && Definizione",IDC_STATIC,4,146,192,29
-    PUSHBUTTON      "Iride && Definizione",IDC_PATTERN_PICT_IRIS,129,159,60,10
-    PUSHBUTTON      "Pattern Foto",IDC_PATTERN_PICT,69,159,60,10
-    PUSHBUTTON      "Analisi della griglia",IDC_PATTERN_PICT_GRID,9,159,60,10
-    GROUPBOX        "Contrasto",IDC_STATIC,3,177,192,29
-    PUSHBUTTON      "Riquadri",IDC_PATTERN_PICT_CBOX,129,190,60,10
-    PUSHBUTTON      "Ansi 2",IDC_PATTERN_PICT_CANSI2,69,190,60,10
-    PUSHBUTTON      "Ansi 1",IDC_PATTERN_PICT_CANSI1,9,190,60,10
-    PUSHBUTTON      "EIA 1956",IDC_PATTERN_1956,140,116,48,10
-    PUSHBUTTON      "SMPTE 75%",IDC_PATTERN_SMPTE75,94,116,46,10
+    LTEXT           "Tasto 'ESC' e 'Enter' uscita pattern display.",IDC_STATIC,3,253,193,11
 END
 
 IDD_REF_CHECKBOX DIALOG 0, 0, 113, 12
@@ -2089,6 +2089,17 @@ BEGIN
         MENUITEM "Ciano",                       IDM_LUM_GRAPH_CYANSHIFT
         MENUITEM "Magenta",                     IDM_LUM_GRAPH_MAGENTASHIFT
         MENUITEM SEPARATOR
+        MENUITEM "Spostamento di saturazione",  IDM_SATSHIFT_QTY_SAT
+        MENUITEM "Errore di tinta",             IDM_SATSHIFT_QTY_HUE
+        MENUITEM "Errore di luminanza",         IDM_SATSHIFT_QTY_LUM
+        POPUP "Punto di ancoraggio"
+        BEGIN
+            MENUITEM "Nessuno",                     IDM_SATSHIFT_ANCHOR_NONE
+            MENUITEM "50%",                         IDM_SATSHIFT_ANCHOR_50
+            MENUITEM "75%",                         IDM_SATSHIFT_ANCHOR_75
+            MENUITEM "100%",                        IDM_SATSHIFT_ANCHOR_100
+        END
+        MENUITEM SEPARATOR
         MENUITEM "Salva...",                    IDM_GRAPH_SAVE
         POPUP "Scala"
         BEGIN
@@ -2129,7 +2140,8 @@ BEGIN
         MENUITEM "Mostra referimento",          IDM_RGB_GRAPH_REFERENCE
         MENUITEM "Mostra misurazione di referimento", IDM_RGB_GRAPH_DATAREF
         MENUITEM "Curva Delta E",               IDM_RGB_GRAPH_DELTAE
-        MENUITEM "con Gamma",                   IDM_RGB_GRAPH_GAMMA
+        MENUITEM "Bilanciamento",               IDM_RGB_GRAPH_BALANCE
+        MENUITEM "Errore di luminanza",         IDM_RGB_GRAPH_LUMERROR
         MENUITEM SEPARATOR
         MENUITEM "Salva...",                    IDM_GRAPH_SAVE
         POPUP "Scala"
@@ -2219,9 +2231,84 @@ BEGIN
     END
     POPUP "&Avanzato"
     BEGIN
-        MENUITEM "&Pattern...",                IDM_PATTERN_DISP_ROOT
+        POPUP "&Target\\Immagini\\Pattern"
+        BEGIN
+            POPUP "&Livelli"
+            BEGIN
+                MENUITEM "&Nero +1% && +2% barre mobili", IDM_PATTERN_ANIM_BLACK
+                MENUITEM "&Bianco -1% && -2% barre mobili", IDM_PATTERN_ANIM_WHITE
+                MENUITEM "Clipping &ombre",             IDM_PATTERN_CLIPL
+                MENUITEM "Clipping &luci",              IDM_PATTERN_CLIPH
+                MENUITEM "N&ear Black",                 IDM_PATTERN_NB
+            END
+            POPUP "&Fuoco && Resoluzion"
+            BEGIN
+                MENUITEM "&Allineamento && Convergenza", IDM_PATTERN_ALIGN
+                MENUITEM "A&llineamento && Uniformità", IDM_PATTERN_ALIGN2
+                MENUITEM "&IMATEST",                    IDM_PATTERN_SHARP
+                MENUITEM "IS&O 12233:2000",             ID_FOCUSRESOLUTION_ISO12233
+                MENUITEM "Belle &Nuit",                 IDM_PATTERN_BN
+                MENUITEM "&BBC HD Test Card",           ID_FOCUSRESOLUTION_BBCHDTESTCARD
+                MENUITEM "&Phillips PM5644",            ID_FOCUSRESOLUTION_PHILLIPSPM5644
+                MENUITEM "&SMPTE RP-133",               IDM_PATTERN_VSMPTE
+                MENUITEM "&Zone Plate[linear]",         ID_FOCUSRESOLUTION_ZONEPLATE
+            END
+            POPUP "&Gradienti && Rampe"
+            BEGIN
+                MENUITEM "&Gradiente Neutrale",         IDM_PATTERN_GRADIENT
+                MENUITEM "Gradiente Neutrale &Opposto", IDM_PATTERN_GRADIENT2
+                MENUITEM "RGBYCMW Ramp &Luma [fumature]", IDM_PATTERN_LRAMP
+                MENUITEM "RGBYCM Rampe S&aturazione [Tints]", IDM_PATTERN_SRAMP
+                MENUITEM "&Spettro [chiaro/pieno/scuro]", IDM_PATTERN_SPECTRUM
+                MENUITEM "&Chroma-grigio Cerchi",       IDM_PATTERN_ERAMP
+                POPUP "&Transizione Gradienti"
+                BEGIN
+                    MENUITEM "&Set completo [chiaro]",       ID_CROSSGRADIENTS_FULLSET
+                    MENUITEM "Set &completo [scuro]",        ID_CROSSGRADIENTS_FULLSET33090
+                    MENUITEM "Gradiente passagio &Rosso/Verde", IDM_PATTERN_RG
+                    MENUITEM "Gradiente passagio Rosso/&Blu", IDM_PATTERN_RB
+                    MENUITEM "Gradiente passagio &Verde/Blu", IDM_PATTERN_GB
+                    MENUITEM "Gradiente passagio R&osso/Verde [scuro]", IDM_PATTERN_RGd
+                    MENUITEM "Gradiente passagio Ro&sso/Blu [scuro]", IDM_PATTERN_RBd
+                    MENUITEM "Gradiente passagio V&erde/Blu [scuro]", IDM_PATTERN_GBd
+                END
+                MENUITEM "&Arcobaleno di Granger [HSL]", IDM_PATTERN_GRANGER
+            END
+            POPUP "&Immagini di prova"
+            BEGIN
+                MENUITEM "&Rosso",                      IDM_PATTERN_TC0
+                MENUITEM "&Verde",                      IDM_PATTERN_TC1
+                MENUITEM "&Blu",                        IDM_PATTERN_TC2
+                MENUITEM "&Giallo",                     IDM_PATTERN_TC3
+                MENUITEM "&Ciano",                      IDM_PATTERN_TC4
+                MENUITEM "&Magenta",                    IDM_PATTERN_TC5
+                MENUITEM SEPARATOR
+                MENUITEM "&Toni della pelle",           IDM_PATTERN_TESTIMG
+                MENUITEM SEPARATOR
+                MENUITEM "Chi&ave alta",                IDM_PATTERN_DR0
+                MENUITEM "&Intervallo completo",        IDM_PATTERN_DR1
+                MENUITEM "Chia&ve bassa",               IDM_PATTERN_DR2
+                MENUITEM SEPARATOR
+                POPUP "B&ianco && Nero"
+                BEGIN
+                    MENUITEM "&Mondo Grigio",               IDM_PATTERN_TV
+                    MENUITEM "&Ombre",                      IDM_PATTERN_TV2
+                END
+                MENUITEM SEPARATOR
+                POPUP "&Personalizzato"
+                BEGIN
+                    MENUITEM "Utente&1",                     ID_USERDEFINED_USER1
+                    MENUITEM "Utente&2",                     ID_USERDEFINED_USER2
+                    MENUITEM "Utente&3",                     ID_USERDEFINED_USER3
+                    MENUITEM "Utente&4",                     ID_USERDEFINED_USER4
+                    MENUITEM "Utente&5",                     ID_USERDEFINED_USER5
+                    MENUITEM "Utente&6",                     ID_USERDEFINED_USER6
+                END
+            END
+            MENUITEM SEPARATOR
+            MENUITEM "&Pattern aggiuntivi",         IDM_PATTERN_DISPLAY
+        END
         MENUITEM SEPARATOR
-        MENUITEM "Allineamento",                IDM_PATTERN_ALIGN
         MENUITEM "Preferenze...",              IDM_GENERAL_CONFIG
         MENUITEM "&Lingua...",                  IDM_LANGUAGE
     END
@@ -2892,8 +2979,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 4,2,1,0
- PRODUCTVERSION 4,2,1,0
+ FILEVERSION 4,2,2,0
+ PRODUCTVERSION 4,2,2,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -2911,12 +2998,12 @@ BEGIN
             VALUE "Comments", "Under GPL Licence"
             VALUE "CompanyName", "Association Homecinema Francophone"
             VALUE "FileDescription", "HCFR Colorimeter resources"
-            VALUE "FileVersion", "4.2.1.0"
+            VALUE "FileVersion", "4.2.2.0"
             VALUE "InternalName", "CHCFR21_ENGLISH"
             VALUE "LegalCopyright", "Copyright (C) 2005-2026"
             VALUE "OriginalFilename", "CHCFR21_ENGLISH.DLL"
             VALUE "ProductName", "HCFR Colorimeter English langage"
-            VALUE "ProductVersion", "4.2.1.0"
+            VALUE "ProductVersion", "4.2.2.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -3014,7 +3101,7 @@ END
 
 STRINGTABLE
 BEGIN
-    IDR_MAINFRAME           "Colorimetro HCFR - 4.2.1.0"
+    IDR_MAINFRAME           "Colorimetro HCFR - 4.2.2.0"
     IDS_CALIB_RGB_MATRIX    "Matrice RGB (ASTM E1455-92)"
     IDS_CALIB_FCMM_NOLUM    "NIST quattro colori / FCMM (senza scala di luminanza)"
     IDS_CALIB_FCMM_LUM      "NIST quattro colori / FCMM (con scala di luminanza)"
@@ -4000,7 +4087,6 @@ BEGIN
     IDM_CONTINUOUS_MEASUREMENT 
                             "Eseguire o fermare le misure continue\nEseguire o fermare le misure continue"
     IDM_PATTERN_DISPLAY     "Visualizza vari pattern..."
-    IDM_PATTERN_DISP_ROOT   "Visualizza vari pattern..."
     IDM_TOGGLE_TAB          "Visualizzare il controllo delle schede nella parte superiore della finestra\nTab control in alto"
     IDM_VIEW_DATASET        "Visualizza le misure\nMisura"
 END
@@ -4300,8 +4386,16 @@ BEGIN
     IDS_GRAPH_NWLUMRESPONSE     "Risposta della luminanza near white"
     IDS_GRAPH_SATSWEEPLUM       "Luminanza delle scale di saturazione"
     IDS_GRAPH_SATSCANSHIFTS     "Scostamenti delle scale di saturazione"
-    IDS_GRAPH_GSBALGAMMA        "Bilanciamento della scala di grigi con gamma"
-    IDS_GRAPH_GSBALNOGAMMA      "Bilanciamento della scala di grigi senza gamma"
+    IDS_GRAPH_SATSHIFT_SAT      "Spostamento di saturazione"
+    IDS_GRAPH_SATSHIFT_HUE      "Errore di tinta (u'v')"
+    IDS_GRAPH_SATSHIFT_LUM      "Errore di luminanza"
+    IDS_SATSHIFT_MEASURED       "%s (misurato)"
+    IDS_SATSHIFT_TBL_AVG        "media 0-%d:"
+    IDS_SATSHIFT_TBL_AT100      "a 100:"
+    IDS_SATSHIFT_TBL_MAX        "max"
+    IDS_GRAPH_GSBALNOGAMMA      "Bilanciamento della scala di grigi"
+    IDS_GRAPH_GSLUMERROR        "Livelli di grigio, errore di luminanza"
+    IDM_RGB_GRAPH_LUMERROR      "Mostra ogni canale come errore percentuale con segno rispetto alla sua luminanza obiettivo"
     IDS_GRAPH_EOTFGAMMA         "EOTF (Gamma)"
     IDS_GRAPH_REFMEASGAMMA      "Gamma della misura di riferimento"
     IDS_GRAPH_DELTALUM          "delta Luminanza"

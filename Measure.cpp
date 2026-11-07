@@ -469,7 +469,13 @@ CMeasure::CMeasure()
 		else
 		{
 			int nGray = GetConfig()->GetProfileInt("Scale Sizes","Gray",10);	// legacy step count (points-1)
-			int nLegacy = ( nGray == 4 ) ? 0 : ( nGray == 10 ) ? 2 : ( nGray == 20 ) ? 4 : -1;
+			// Legacy step counts map onto s_grayPresets by index: 4 -> [0] 5-point,
+			// 10 -> [2] 11-point, 20 -> [5] 21-point. Reached only when the INI has
+			// no "GrayPreset" key (a profile written before the preset list existed)
+			// and "Gray" holds one of those three values; 20 used to land on [4],
+			// the 16-point near-black preset, so an upgrader's 21-point gray scale
+			// silently became a 16-point one.
+			int nLegacy = ( nGray == 4 ) ? 0 : ( nGray == 10 ) ? 2 : ( nGray == 20 ) ? 5 : -1;
 			if ( nLegacy >= 0 )
 			{
 				levels.SetSize(pPresets[nLegacy].count);
@@ -8046,7 +8052,7 @@ CString CMeasure::GetCCStr() const
 		"CalMAN Skin \r\n",
 		"Chromapure Skin \r\n",
 		"CalMAN SG \r\n",
-		"CalMAN 10 pt Lum. \r\n",
+		"RGB Luminance Axis \r\n",
 		"CalMAN 4 pt Lum. \r\n",
 		"CalMAN 5 pt Lum. \r\n",
 		"CalMAN 10 pt Lum. \r\n",
@@ -8077,6 +8083,10 @@ CString CMeasure::GetCCStr() const
 		"Random 500 \r\n",
 		"User\r\n"
 	};
+	// Band bases follow the enum via PATTERN_SIZE (= RANDOM250*100). The old
+	// hardcoded 2300-based literals froze the pre-LG enum layout (RANDOM250==24
+	// in 2018), so after the LG sets grew the enum these probes landed inside
+	// LG bands and the RANDOM250/RANDOM500/User lines reported wrong slots.
 	for (int i=0;i<=USER;i++)
 	{
 		if (i<RANDOM250)
@@ -8096,13 +8106,13 @@ CString CMeasure::GetCCStr() const
 				}
 		}
 		if (i==RANDOM250)
-			if (m_cc24SatMeasureArray_master[2300+100].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE].isValid())
 				mStr+=sweeps[i];
 		if (i==RANDOM500)
-			if (m_cc24SatMeasureArray_master[2300+100+250].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250].isValid())
 				mStr+=sweeps[i];
 		if (i==USER)
-			if (m_cc24SatMeasureArray_master[2300+100+250+500].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250+500].isValid())
 				mStr+=sweeps[i];
 	}
 	return mStr+="\r\n";
