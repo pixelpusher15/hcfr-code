@@ -91,6 +91,8 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\ArchiveExtension.cpp" />
+    <ClCompile Include="..\SensorCalibrationStream.cpp" />
     <ClCompile Include="..\CalibrationFile.cpp" />
     <ClCompile Include="..\CHCFile.cpp" />
     <ClCompile Include="..\Color.cpp" />
@@ -102,8 +104,13 @@
     <ClCompile Include="..\IHCFile.cpp" />
     <ClCompile Include="..\matrix.cpp" />
     <ClCompile Include="..\PCFilesReaderUtilities.cpp" />
+    <ClCompile Include="..\SpectralCorrection.cpp" />
+    <ClCompile Include="..\SaturationTracking.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\ArchiveExtension.h" />
+    <ClInclude Include="..\ArchiveTags.h" />
+    <ClInclude Include="..\SensorCalibrationStream.h" />
     <ClInclude Include="..\CalibrationFile.h" />
     <ClInclude Include="..\CHCFile.h" />
     <ClInclude Include="..\Color.h" />
@@ -117,6 +124,8 @@
     <ClInclude Include="..\LockWhileInScope.h" />
     <ClInclude Include="..\matrix.h" />
     <ClInclude Include="..\PCFilesReaderUtilities.h" />
+    <ClInclude Include="..\SpectralCorrection.h" />
+    <ClInclude Include="..\SaturationTracking.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\ReadMe.txt" />

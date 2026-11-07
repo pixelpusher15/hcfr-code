@@ -250,7 +250,7 @@ static ccpacket_err connect_ccpacket_imp(
 	/* Return nz if we can send PNG directly as base64 + bg RGB, */
 	/* else have to setup webserver and send URL */
 #ifdef USING_AXTLS
-	if ((p->ssl = ssl_client_new(p->ctx, p->sock, sesid, 32)) == NULL)
+	if ((p->ssl = ssl_client_new(p->ctx, p->sock, sesid, 32, NULL)) == NULL)
 #else
 	if ((p->ssl = SSL_new(p->ctx)) == NULL
 	 || SSL_set_fd(p->ssl, p->sock) != 1

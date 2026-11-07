@@ -122,6 +122,7 @@
 #define IDD_GENERAL_PROP_PAGE           224
 #define IDB_ANSICONTRAST_BITMAP         226
 #define IDD_EXPORTXLS_DIALOG            227
+#define IDD_EXPORT_OPTIONS_DIALOG       1403
 #define IDR_WHATS_THIS                  228
 #define IDR_NEARBLACK_GRAPH_MENU        229
 #define IDR_NEARWHITE_GRAPH_MENU        230
@@ -736,7 +737,6 @@
 #define IDC_BK_WHITE_FILE2              1251
 #define IDC_MOVE_MESSAGE                1251
 #define IDC_EDIT_INFOS                  1252
-#define IDC_CHECK_CALIBRATION_OLD       1252
 #define IDC_CHECK_IMPERIAL              1253
 #define IDC_CHECK_PREFER_LUXMETER       1254
 #define IDC_DISPLAY_MATRIX              1255
@@ -1045,7 +1045,6 @@
 #define IDM_SINGLE_MEASUREMENT          32969
 #define IDM_CONTINUOUS_MEASUREMENT      32970
 #define IDM_PATTERN_DISPLAY             32971
-#define IDM_PATTERN_DISP_ROOT           32972
 #define IDM_TOGGLE_TAB                  32973
 #define IDM_VIEW_DATASET                32974
 #define IDM_TAB_CLOSE                   32976
@@ -1081,6 +1080,13 @@
 #define IDM_SIM_SAT_MAGENTA             33001
 #define IDM_VIEW_GAMMAHISTO             33002
 #define IDM_VIEW_3DCOLOR                33500
+#define IDM_SATSHIFT_QTY_SAT            33511
+#define IDM_SATSHIFT_QTY_HUE            33512
+#define IDM_SATSHIFT_QTY_LUM            33513
+#define IDM_SATSHIFT_ANCHOR_NONE        33514
+#define IDM_SATSHIFT_ANCHOR_50          33515
+#define IDM_SATSHIFT_ANCHOR_75          33516
+#define IDM_SATSHIFT_ANCHOR_100         33517
 #define IDM_NEXT_TAB                    33003
 #define IDM_RGB_GRAPH_Y_SCALE3          33004
 #define IDM_PREV_TAB                    33005
@@ -1184,6 +1190,8 @@
 #define IDM_PATTERN_NB                  33103
 #define ID_GRAPH_W                      33103
 #define IDM_RGB_GRAPH_GAMMA             33104
+#define IDM_RGB_GRAPH_LUMERROR          33510
+#define IDM_RGB_GRAPH_BALANCE           33518
 #define ID_GRAPH_W33105                 33105
 #define ID_Menu33106                    33106
 #define IDM_LUM_GRAPH_YLog              33107
@@ -1550,7 +1558,6 @@
 #define IDS_GRAPH_NWLUMRESPONSE         41994
 #define IDS_GRAPH_SATSWEEPLUM           41995
 #define IDS_GRAPH_SATSCANSHIFTS         41996
-#define IDS_GRAPH_GSBALGAMMA            41997
 #define IDS_GRAPH_GSBALNOGAMMA          41998
 #define IDS_GRAPH_EOTFGAMMA             41999
 #define IDS_GRAPH_REFMEASGAMMA          42000
@@ -1564,6 +1571,13 @@
 #define IDS_3D_RGBCUBE                  42008
 #define IDS_3D_NODATA                   42009
 #define IDS_3D_GRAYPCT                  42010
+#define IDS_GRAPH_SATSHIFT_SAT          60091
+#define IDS_GRAPH_SATSHIFT_HUE          60092
+#define IDS_GRAPH_SATSHIFT_LUM          60093
+#define IDS_SATSHIFT_MEASURED           60094
+#define IDS_SATSHIFT_TBL_AVG            60095
+#define IDS_SATSHIFT_TBL_AT100          60096
+#define IDS_SATSHIFT_TBL_MAX            60097
 #define IDS_CIE_ILLUMINANT              42011
 #define IDS_CC_COLORNAME                42012
 #define IDS_CC_COLORNAMEREF             42013
@@ -1638,6 +1652,7 @@
 #define IDS_SPECTRAL_SAMPLE_USE_SPECTRO 41840
 #define IDS_SPECTRAL_SAMPLE_CREATE      41841
 #define IDS_SPECTRAL_SAMPLE_UNEXPECTED_EXCEPTION 41842
+#define IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS 42018
 #define IDS_REC709aREDREF               41843
 #define IDS_REC709aGREENREF             41844
 #define IDS_REC709aBLUEREF              41845
@@ -1910,6 +1925,10 @@
 #define IDS_3DVIEW_SHOWTAILS            59538
 #define IDS_3DVIEW_RESETVIEW            59539
 #define IDS_3DVIEW_SHOWPROFILE          59564
+#define IDS_CALIB_RGB_MATRIX          59565
+#define IDS_CALIB_FCMM_NOLUM           59566
+#define IDS_CALIB_FCMM_LUM             59567
+#define IDS_CALIB_BODNER               59568
 #define IDS_3DVIEW_GAMUTCOV             59632
 #define IDS_3DVIEW_GAMUTVOL             59633
 #define IDS_3DVIEW_FILTER_ALL           59555
@@ -2003,9 +2022,46 @@
 #define IDS_CSV_RANGE_EXTENDED_WARN     59631
 #define IDS_PP_MEASURINGREFS            59634
 #define IDS_PP_DISCGENERATOR            59790
+#define IDS_SPECTRAL_TITLE              59731
+#define IDS_SPECTRAL_BROWSE             59732
+#define IDS_SPECTRAL_CLEAR              59733
+#define IDS_SPECTRAL_STATUS_FMT         59734
+#define IDS_SPECTRAL_LOADED             59735
+#define IDS_SPECTRAL_NONE               59736
+#define IDS_SPECTRAL_FILEFILTER         59737
+#define IDS_SPECTRAL_REAPPLY_FAILED     59738
+#define IDS_SPECTRAL_MATRIXCAL_PROMPT   59739
+#define IDS_SPECTRAL_ACTIVE_TITLE       59740
+#define IDS_SPECTRAL_CLEAR_FOR_MATRIX   59741
+#define IDS_CALIB_METHOD_TITLE          59742
+#define IDS_CALIB_METHOD_OUT_OF_SYNC    59743
+#define IDS_BODNER_SKIPPED_FMT          59744
+#define IDS_CALIB_NEED_RAW_PRIMARIES    60005
+#define IDS_SPECTRAL_SUPERSEDE_WARN     60010
+#define IDS_SPECTRAL_STATUS_INACTIVE_FMT 60011
+#define IDS_SPECTRAL_STATUS_DISPTYPE_FMT 60012
+#define IDS_SPECTRAL_UNIT_MISMATCH      60013
+#define IDS_SPECTRAL_BROWSE_REFUSED_DISPTYPE 60014
+#define IDS_SPECTRAL_STATUS_COMPOSED_FMT 60015
+#define IDS_SPECTRAL_DISPTYPE_FAILED 60016
+#define IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE 60017
+#define IDS_SPECTRAL_COMPOSE_WARN 60018
+#define IDS_SPECTRAL_FOREIGN_RECORD_NOTICE 60019
+#define IDS_SPECTRAL_FILE_MOVED_NOTICE 60020
+#define IDS_CALIB_SPECTRAL_IN_DRIVER    60098
+#define IDS_SPECTRAL_MATRIXCAL_PROMPT_DRIVER 60099
+#define IDS_CALIB_NEED_REF_WHITE        60052
+#define IDS_EXPORT_LAYOUT_MISMATCH      59745
+#define IDS_SCHEMA_NEWER                59746
+#define IDS_SCHEMA_UNRELEASED           59747
+#define IDS_SCHEMA_UNRELEASED_DOC       60053
+#define IDS_SCHEMA_UNKNOWN_FEATURE      60054
+#define IDS_GRAPH_GSLUMERROR            60090
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
+#define IDC_CHECK_EXPORT_RAW            1562
+#define IDC_CHECK_EXPORT_STIMULUS       1563
 #define ID_TARGET_TOL_FIRST             33108
 
 // Next default values for new objects
@@ -2013,9 +2069,9 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
-#define _APS_NEXT_RESOURCE_VALUE        1403
+#define _APS_NEXT_RESOURCE_VALUE        1404
 #define _APS_NEXT_COMMAND_VALUE         33118
-#define _APS_NEXT_CONTROL_VALUE         1559
+#define _APS_NEXT_CONTROL_VALUE         1564
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

@@ -102,6 +102,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="ArchiveSchema_unittests.cpp" />
     <ClCompile Include="ArgyllMeterWrapper_unittests.cpp" />
     <ClCompile Include="Color_unittests.cpp" />
     <ClCompile Include="GamutCoverage_unittests.cpp" />

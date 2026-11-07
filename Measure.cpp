@@ -27,6 +27,7 @@
 #include "MainFrm.h"
 #include "Measure.h"
 #include "AsyncMeasurer.h"
+#include "ArchiveExtension.h"
 #include "Generator.h"
 #include "LuxScaleAdvisor.h"
 #include "DataSetDoc.h"
@@ -440,6 +441,45 @@ bool CMeasure::IsPlaceholderWhite ( const CColor & c, bool bOnOff )
 	return y > 0.0 && fabs ( v[0] - y * 0.95047 ) <= 1e-9 * y && fabs ( v[2] - y * 1.08883 ) <= 1e-9 * y;
 }
 
+// The nominal on/off black the constructor pre-loads. Its Z factor, 1.08833, is
+// a long-standing slip for D65's 1.08883; it stays, because every document saved
+// without a black measurement stores this value verbatim, and the odd ratio is
+// what makes the placeholder unmistakable (IsRawlessPlaceholder).
+static ColorXYZ PlaceholderOnOffBlack()
+{
+	double L = GetConfig()->m_TargetMinL;
+	return ColorXYZ ( L * 0.95047, L, L * 1.08833 );
+}
+
+// A constructor placeholder the recalibration walks must neither recompute nor
+// count as a raw-less reading: the top gray slot (PlaceholderPrimeWhite) or the
+// on/off black (PlaceholderOnOffBlack). The test is "no raw value AND the
+// placeholder's exact chromaticity ratios", which cannot take a real reading:
+// - every reading this build takes carries raw (CSensor::MeasureColor is the only
+//   caller of SetRawXYZValue), so it is never even compared;
+// - a raw-less reading (an older file, or a hand edit) would have to hit X/Y and
+//   Z/Y to 1e-9 relative. A meter's noise is orders of magnitude coarser, and the
+//   ratios are HCFR's own constants (D65 from x,y 0.3127,0.3290 gives X/Y
+//   0.950456, not 0.95047), so not even a modeled reading lands on them. The
+//   black's Z/Y of 1.08833 exists nowhere else; the synthetic blacks MainView and
+//   m_userBlack build use 1.0883, 3e-5 away;
+// - an all-zero black (the placeholder when m_TargetMinL is 0) is not stranded
+//   under any matrix, since M * 0 = 0, so leaving it out of the count is true
+//   for a real zero reading too.
+// Ratios, not values, so a later m_TargetMinL/MaxL change does not unmask it.
+bool CMeasure::IsRawlessPlaceholder ( const CColor & c, bool bBlack )
+{
+	if ( ! c.isValid() || c.HasRawXYZValue() )
+		return false;
+	if ( ! bBlack )
+		return IsPlaceholderWhite ( c, false );
+	ColorXYZ v = c.GetXYZValue();
+	double y = v[1];
+	if ( v[0] == 0.0 && y == 0.0 && v[2] == 0.0 )
+		return true;
+	return y > 0.0 && fabs ( v[0] - y * 0.95047 ) <= 1e-9 * y && fabs ( v[2] - y * 1.08833 ) <= 1e-9 * y;
+}
+
 IMPLEMENT_SERIAL(CMeasure, CObject, 1)
 
 CMeasure::CMeasure()
@@ -469,7 +509,13 @@ CMeasure::CMeasure()
 		else
 		{
 			int nGray = GetConfig()->GetProfileInt("Scale Sizes","Gray",10);	// legacy step count (points-1)
-			int nLegacy = ( nGray == 4 ) ? 0 : ( nGray == 10 ) ? 2 : ( nGray == 20 ) ? 4 : -1;
+			// Legacy step counts map onto s_grayPresets by index: 4 -> [0] 5-point,
+			// 10 -> [2] 11-point, 20 -> [5] 21-point. Reached only when the INI has
+			// no "GrayPreset" key (a profile written before the preset list existed)
+			// and "Gray" holds one of those three values; 20 used to land on [4],
+			// the 16-point near-black preset, so an upgrader's 21-point gray scale
+			// silently became a 16-point one.
+			int nLegacy = ( nGray == 4 ) ? 0 : ( nGray == 10 ) ? 2 : ( nGray == 20 ) ? 5 : -1;
 			if ( nLegacy >= 0 )
 			{
 				levels.SetSize(pPresets[nLegacy].count);
@@ -513,7 +559,7 @@ CMeasure::CMeasure()
 	for(int i=0;i<m_grayMeasureArray.GetSize();i++)	// Init default values: by default m_grayMeasureArray init to D65, Y=1
 		m_grayMeasureArray[i]=GetPrimary(0);	
 
-	m_grayMeasureArray[m_grayMeasureArray.GetSize()-1].SetXYZValue(ColorXYZ(GetConfig()->m_TargetMaxL*0.95047,GetConfig()->m_TargetMaxL,GetConfig()->m_TargetMaxL*1.08883));
+	m_grayMeasureArray[m_grayMeasureArray.GetSize()-1].SetXYZValue(PlaceholderPrimeWhite());	// a placeholder (IsRawlessPlaceholder)
 
 	for(int i=0;i<m_nearBlackMeasureArray.GetSize();i++)
 		m_nearBlackMeasureArray[i]=noDataColor;	
@@ -537,7 +583,7 @@ CMeasure::CMeasure()
 	m_bOnOffWhiteMeasured = FALSE;	// likewise a placeholder
 	m_PrimeWhite.SetXYZValue(PlaceholderPrimeWhite());
 	m_bPrimeWhiteMeasured = FALSE;	// the line above is a placeholder for the charts, not a reading
-	m_OnOffBlack.SetXYZValue(ColorXYZ(GetConfig()->m_TargetMinL*0.95047,GetConfig()->m_TargetMinL,GetConfig()->m_TargetMinL*1.08833));
+	m_OnOffBlack.SetXYZValue(PlaceholderOnOffBlack());	// a placeholder too (IsRawlessPlaceholder)
 	m_AnsiBlack=m_AnsiWhite=noDataColor;
 	m_CCStr = (CString)"";
 	SetInfoString((CString)"Calibration by: \r\nDisplay: \r\nNote: \r\n");
@@ -707,11 +753,11 @@ void CMeasure::Serialize(CArchive& ar)
 
 	if (ar.IsStoring())
 	{
-		// Version 21 only when a display profile exists: documents without one keep
-		// version 19 so they stay readable by older builds. 21 adds the two
-		// white-was-measured flags to the end of the version-20 profile block; 20
-		// itself stays readable, so profiles written by earlier builds still load.
-	    int version = HasProfileMeasures() ? 21 : 19;
+		// Version 22 (issue #193): the v21 layout with the display-profile block
+		// always present (empty when there is no profile, the two white-was-
+		// measured flags at its end either way), then an extension trailer. One
+		// version from here on: new fields go in the trailer.
+	    int version = 22;
 		ar << version;
 
 		StoreActiveSatLevel();	// capture the bound sweeps before writing the store
@@ -866,8 +912,24 @@ void CMeasure::Serialize(CArchive& ar)
 			}
 		}
 
-		// Version 20: display profile capture (see version selection above)
-		if ( HasProfileMeasures() )
+		// Version 20: display profile capture. Since version 22 the block is
+		// always written; without a profile it is the settings, an empty
+		// measure list (just the end marker) and no anchors.
+		if ( ! HasProfileMeasures() )
+		{
+			ar << m_profileCubeSize;
+			ar << m_profileGrayExtras;
+			ar << m_profileDriftComp;
+			ar << m_profileCaptureSeconds;
+			ar << (int) 0;
+			MarkerColor.Serialize(ar);
+			ar << (int) 0;
+			// The loader reads the flags at the end of every version 21+ profile
+			// block, and since version 22 that block is always present.
+			ar << m_bPrimeWhiteMeasured;
+			ar << m_bOnOffWhiteMeasured;
+		}
+		else
 		{
 			ar << m_profileCubeSize;
 			ar << m_profileGrayExtras;
@@ -900,15 +962,17 @@ void CMeasure::Serialize(CArchive& ar)
 			ar << m_bPrimeWhiteMeasured;
 			ar << m_bOnOffWhiteMeasured;
 		}
+
+		CExtensionWriter ext;
+		ext.Write(ar);
 	}
 	else
 	{
 	    int version;
 		ar >> version;
 
-
-		if ( version > 21 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 22 )
+			throw new CNewerSchemaException ( "CMeasure", version );
 
 
 		if ( version > 16)
@@ -988,8 +1052,17 @@ void CMeasure::Serialize(CArchive& ar)
 				GetConfig()->m_whiteTarget = WhiteTarget(in[0]);
 				GetConfig()->m_CCMode = CCPatterns(in[1]);
 				GetConfig()->m_colorStandard = ColorStandard(in[2]);
+				// Read the old white before freeing the reference: the "Custom Color
+				// only" branch below passes it, as ApplySettings does (SHELL-016), and
+				// used to read it from the freed object. The constructor only uses it
+				// for a custom white, which that branch excludes.
+				ColorXYZ savedRefWhite;
 				if (GetColorApp()->m_pColorReference)
+				{
+					savedRefWhite = GetColorApp()->m_pColorReference->GetWhite();
 					delete GetColorApp()->m_pColorReference;
+					GetColorApp()->m_pColorReference = NULL;
+				}
 				if (WhiteTarget(in[0]) == DCUST && in[2] != CUSTOM) //Custom White only
 				{
 					ColorxyY whitecolor = ColorxyY(in2[3], in2[4]);
@@ -1000,7 +1073,7 @@ void CMeasure::Serialize(CArchive& ar)
 					ColorxyY redcolor = ColorxyY(in2[6], in2[9]);
 					ColorxyY greencolor = ColorxyY(in2[7], in2[10]);
 					ColorxyY bluecolor = ColorxyY(in2[5], in2[8]);
-					GetColorApp()->m_pColorReference = new CColorReference(ColorStandard(in[2]), WhiteTarget(in[0]), -1, " modified", GetColorApp()->m_pColorReference->GetWhite(), redcolor, greencolor, bluecolor);
+					GetColorApp()->m_pColorReference = new CColorReference(ColorStandard(in[2]), WhiteTarget(in[0]), -1, " modified", savedRefWhite, redcolor, greencolor, bluecolor);
 				}
 				else if (in[2] == CUSTOM && in[0] == DCUST)	//Both
 				{
@@ -1335,6 +1408,17 @@ void CMeasure::Serialize(CArchive& ar)
 				ar >> m_bOnOffWhiteMeasured;
 			}
 			m_profileGeneration++;
+		}
+
+		// Version 22: extension trailer, the last thing in the block
+		if ( version >= 22 )
+		{
+			CExtensionReader ext(ar);
+			BYTE  tag;
+			DWORD cb;
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
 		}
 		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
 
@@ -4406,10 +4490,10 @@ void CMeasure::ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, do
 		double f = fFrom + t * ( fTo - fFrom );
 		if ( f <= 0.0 )
 			continue;
-		double x = m_profileMeasureArray[j].GetX() / f;
-		double y = m_profileMeasureArray[j].GetY() / f;
-		double z = m_profileMeasureArray[j].GetZ() / f;
-		m_profileMeasureArray[j].SetXYZValue ( ColorXYZ(x, y, z) );
+		// Scalar drift compensation: write it through the stored raw as well
+		// (a scalar commutes with the correction matrix), so the raw stays in
+		// step with the corrected value it is supposed to reproduce.
+		m_profileMeasureArray[j].ScaleXYZ ( 1.0 / f );
 	}
 	m_profileGeneration++;
 }
@@ -6567,10 +6651,13 @@ double CMeasure::GetOnOffContrast ()
 	double	black = m_OnOffBlack.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	double	white = m_OnOffWhite.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	
-	if ( black > 0.0 && white > black )
+	// No measured light is the sensor floor's placeholder, not a black level:
+	// against a white that has light, report it as the zero it stands for
+	// (-1, printed as Infinite). With no measured white there is no ratio.
+	if ( HasMeasuredLight ( black ) && white > black )
 		return ( white / black );
 	else
-		if (black == 0)
+		if ( black >= 0.0 && !HasMeasuredLight ( black ) && HasMeasuredLight ( white ) )
 			return -1.0;
 		else
 			return -2.0;
@@ -6581,10 +6668,11 @@ double CMeasure::GetAnsiContrast ()
 	double	black = m_AnsiBlack.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	double	white = m_AnsiWhite.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	
-	if ( black > 0.000001 && white > black )
+	// Same contract as GetOnOffContrast.
+	if ( HasMeasuredLight ( black ) && white > black )
 		return ( white / black );
 	else
-		if (black == 0)
+		if ( black >= 0.0 && !HasMeasuredLight ( black ) && HasMeasuredLight ( white ) )
 			return -1.0;
 		else
 			return -2.0;
@@ -6699,75 +6787,270 @@ BOOL CMeasure::AddMeasurement(CSensor *pSensor, CGenerator *pGenerator,  CGenera
 	return TRUE;
 }
 
-void CMeasure::ApplySensorAdjustmentMatrix(const Matrix& aMatrix)
+// Recalibrates a single stored measurement. When the measurement retains its
+// original raw (uncorrected) sensor reading, fullMatrix is applied to that raw
+// value directly; otherwise (legacy data recorded before raw-value capture was
+// added) fall back to composing deltaMatrix onto the already-corrected value,
+// matching this function's previous behavior. deltaMatrix and fullMatrix must
+// be equivalent (deltaMatrix = fullMatrix * inverse(previous full matrix)) -
+// passing the same matrix for both is fine when there is no meaningful "delta"
+// (e.g. a freshly loaded calibration file replacing everything wholesale).
+// bComposeLegacy false: the raw-less value embodies an untracked matrix (the sensor
+// was on Bodner, which skipped it) - leave it and count it, as the Bodner path does.
+static void ReapplyAdjustmentMatrix(CColor& color, const Matrix& deltaMatrix, const Matrix& fullMatrix, bool bComposeLegacy, int& nSkipped)
 {
-	for(int i=0;i<m_grayMeasureArray.GetSize();i++)  // Preserve sensor values 
+	if ( color.HasRawXYZValue() )
+		color.SetXYZValue(ColorXYZ(fullMatrix * color.GetRawXYZValue()));
+	else if ( !bComposeLegacy )
+	{
+		if ( color.isValid() )
+			nSkipped++;
+	}
+	else
+		color.applyAdjustmentMatrix(deltaMatrix);
+}
+
+// Recalibrates a single stored measurement under Bodner's per-sub-gamut method.
+// Requires the raw sensor reading (there is no meaningful delta-compose fallback
+// for a per-sub-gamut method); returns false only when the slot actually holds a
+// measurement (isValid()) but has no raw value (legacy data). Slots that were
+// simply never measured (still noDataColor) are left alone and don't count as a
+// recalibration failure.
+static bool ReapplyBodnerMatrix(CColor& color, const Matrix rawInv[3], const bool rawOk[3], const Matrix calMatrix[3])
+{
+	if ( !color.isValid() )
+		return true;
+
+	if ( !color.HasRawXYZValue() )
+		return false;
+
+	color.SetXYZValue(SelectAndApplyBodnerMatrixInv(color.GetRawXYZValue(), rawInv, rawOk, calMatrix));
+	return true;
+}
+
+// Two slots holding one raw-less reading: a grayscale run copies its black and
+// white into the on/off contrast slots, and a version <= 8 file seeds the prime
+// white from the on/off one. Both copies are recomputed, but the reading is
+// counted once. Bit-identical XYZ with no raw on either side: two separate meter
+// readings never agree to the last bit, and both copies take the same transform
+// in every walk, so they stay identical. (Two all-zero blacks would match too;
+// a zero is not stranded under any matrix, so the count stays true.)
+static bool SameRawlessReading ( const CColor & a, const CColor & b )
+{
+	if ( ! a.isValid() || ! b.isValid() || a.HasRawXYZValue() || b.HasRawXYZValue() )
+		return false;
+	ColorXYZ va = a.GetXYZValue(), vb = b.GetXYZValue();
+	return va[0] == vb[0] && va[1] == vb[1] && va[2] == vb[2];
+}
+
+// Which copies of the mirrored readings a walk counts (both are recomputed):
+// - color checker: the array GetCC24Sat serves - the live array for a pre-3.3.0
+//   file (m_bpreV10, no per-set master), else the master; the live array is
+//   then a working copy of one master band.
+// - saturation: the live m_*SatMeasureArray sweeps; m_satLevelStore's entry for
+//   the active level is their mirror (StoreActiveSatLevel). Every other level
+//   is counted from the store.
+// - on/off black and white, prime white: unless they hold the same raw-less
+//   reading as the slot they were copied from (SameRawlessReading).
+// - the top gray slot and the on/off black are not walked at all while they
+//   hold the constructor's placeholder (IsRawlessPlaceholder).
+int CMeasure::ApplySensorAdjustmentMatrix(const Matrix& deltaMatrix, const Matrix& fullMatrix, bool bComposeLegacy)
+{
+	int nSkipped = 0;
+	int nMirror = 0;	// skips in a copy whose reading is counted elsewhere
+	const int nGray = m_grayMeasureArray.GetSize();
+	// Taken before the walk: a composed placeholder would lose its signature.
+	const bool bGrayTopPlaceholder = nGray > 0 && IsRawlessPlaceholder ( m_grayMeasureArray[nGray-1], false );
+	const bool bBlackPlaceholder = IsRawlessPlaceholder ( m_OnOffBlack, true );
+	const bool bBlackCopy = nGray > 0 && SameRawlessReading ( m_OnOffBlack, m_grayMeasureArray[0] );
+	const bool bOnOffWhiteCopy = nGray > 0 && SameRawlessReading ( m_OnOffWhite, m_grayMeasureArray[nGray-1] );
+	const bool bPrimeWhiteCopy = SameRawlessReading ( m_PrimeWhite, m_OnOffWhite )
+		|| ( nGray > 0 && SameRawlessReading ( m_PrimeWhite, m_grayMeasureArray[nGray-1] ) );
+	for(int i=0;i<nGray;i++)  // Preserve sensor values
+	{
+				if (!i && m_bOverRideBlack)
+					m_grayMeasureArray[i] = m_userBlack;
+				else if ( i == nGray-1 && bGrayTopPlaceholder )
+					;	// the constructor's placeholder, not a reading
+				else
+					ReapplyAdjustmentMatrix(m_grayMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+
+	for(int i=0;i<m_nearBlackMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_nearBlackMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_nearWhiteMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_nearWhiteMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_redSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_redSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_greenSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_greenSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_blueSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_blueSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_yellowSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_yellowSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_cyanSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_cyanSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_magentaSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_magentaSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	int & nCountLiveCC = ( m_bpreV10 > 0 ) ? nSkipped : nMirror;
+	int & nCountMasterCC = ( m_bpreV10 > 0 ) ? nMirror : nSkipped;
+	for(int i=0;i<m_cc24SatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_cc24SatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nCountLiveCC);
+	}
+	for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_cc24SatMeasureArray_master[i], deltaMatrix, fullMatrix, bComposeLegacy, nCountMasterCC);
+	}
+	for(int i=0;i<m_profileMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_profileMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<3;i++)
+	{
+		ReapplyAdjustmentMatrix(m_primariesArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<3;i++)
+	{
+		ReapplyAdjustmentMatrix(m_secondariesArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+
+	// The on/off black placeholder is left out like the unmeasured whites below.
+	if (!m_bOverRideBlack && !bBlackPlaceholder)
+		ReapplyAdjustmentMatrix(m_OnOffBlack, deltaMatrix, fullMatrix, bComposeLegacy, bBlackCopy ? nMirror : nSkipped);
+
+	// An unmeasured white is the constructor's placeholder (nominal D65 at the
+	// target luminance), not a reading: neither recalibrate it nor count it as a
+	// skipped raw-less reading - counted, it kept nSkipped above 0 on every walk,
+	// so a stranded state never re-armed and each walk showed the skip notice.
+	if ( m_bOnOffWhiteMeasured )
+		ReapplyAdjustmentMatrix(m_OnOffWhite, deltaMatrix, fullMatrix, bComposeLegacy, bOnOffWhiteCopy ? nMirror : nSkipped);
+
+	if ( m_bPrimeWhiteMeasured )
+		ReapplyAdjustmentMatrix(m_PrimeWhite, deltaMatrix, fullMatrix, bComposeLegacy, bPrimeWhiteCopy ? nMirror : nSkipped);
+
+	ReapplyAdjustmentMatrix(m_AnsiBlack, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+
+	ReapplyAdjustmentMatrix(m_AnsiWhite, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+
+	// Every measured saturation level, not only the one bound into the six arrays
+	// above (the bound level is mirrored there, so both copies are recomputed,
+	// and that level is counted from the arrays above).
+	const int nActiveSat = FindSatLevelIndex ( m_satLevelStore, m_activeSatLevel );
+	for ( size_t s = 0; s < m_satLevelStore.size(); s++ )
+		for ( int c = 0; c < 6; c++ )
+			for ( size_t i = 0; i < m_satLevelStore[s].sat[c].size(); i++ )
+				ReapplyAdjustmentMatrix(m_satLevelStore[s].sat[c][i], deltaMatrix, fullMatrix, bComposeLegacy,
+					( (int) s == nActiveSat ) ? nMirror : nSkipped);
+	// The walk rewrote every profile cube entry: honor the m_profileGeneration
+	// contract (Measure.h), or Color3DView keeps the gamut volume and coverage it
+	// cached for the cube as it was before the recalibration.
+	if ( m_profileMeasureArray.GetSize() > 0 )
+		m_profileGeneration++;
+	return nSkipped;
+}
+
+int CMeasure::ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Matrix calMatrix[3])
+{
+	int nSkipped = 0;
+	// The sub-gamut inverses are invariant across the whole sweep - compute
+	// them once instead of per measurement (Gauss-Jordan per call).
+	Matrix rawInv[3];
+	bool rawOk[3];
+	for ( int k = 0; k < 3; k++ )
+	{
+		rawOk[k] = ( rawMatrix[k].Determinant() != 0.0 );
+		rawInv[k] = rawOk[k] ? rawMatrix[k].GetInverse() : Matrix::IdentityMatrix(3);
+	}
+	// Counts and mirrors as in ApplySensorAdjustmentMatrix (see the note above it).
+	// BODNER_REAPPLY_COUNT's bCount false: a copy whose reading is counted elsewhere.
+	#define BODNER_REAPPLY_COUNT(color, bCount) if (!ReapplyBodnerMatrix((color), rawInv, rawOk, calMatrix) && (bCount)) nSkipped++;
+	#define BODNER_REAPPLY(color) BODNER_REAPPLY_COUNT(color, true)
+	const int nGray = m_grayMeasureArray.GetSize();
+	// A placeholder has no raw, so the walk leaves it as it is; it is only not counted.
+	const bool bGrayTopPlaceholder = nGray > 0 && IsRawlessPlaceholder ( m_grayMeasureArray[nGray-1], false );
+	const bool bBlackPlaceholder = IsRawlessPlaceholder ( m_OnOffBlack, true );
+	const bool bBlackCopy = nGray > 0 && SameRawlessReading ( m_OnOffBlack, m_grayMeasureArray[0] );
+	const bool bOnOffWhiteCopy = nGray > 0 && SameRawlessReading ( m_OnOffWhite, m_grayMeasureArray[nGray-1] );
+	const bool bPrimeWhiteCopy = SameRawlessReading ( m_PrimeWhite, m_OnOffWhite )
+		|| ( nGray > 0 && SameRawlessReading ( m_PrimeWhite, m_grayMeasureArray[nGray-1] ) );
+	const bool bCountLiveCC = ( m_bpreV10 > 0 );
+
+	for(int i=0;i<nGray;i++)  // Preserve sensor values
 	{
 				if (!i && m_bOverRideBlack)
 					m_grayMeasureArray[i] = m_userBlack;
 				else
-					m_grayMeasureArray[i].applyAdjustmentMatrix(aMatrix);
+					BODNER_REAPPLY_COUNT(m_grayMeasureArray[i], !( i == nGray-1 && bGrayTopPlaceholder ));
 	}
 
-	for(int i=0;i<m_nearBlackMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_nearBlackMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_nearWhiteMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_nearWhiteMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_redSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_redSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_greenSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_greenSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_blueSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_blueSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_yellowSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_yellowSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_cyanSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_cyanSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_magentaSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_magentaSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_cc24SatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_cc24SatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)  // Preserve sensor values 
-	{
-		m_cc24SatMeasureArray_master[i].applyAdjustmentMatrix(aMatrix);
-	}
+	for(int i=0;i<m_nearBlackMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_nearBlackMeasureArray[i]);
+	for(int i=0;i<m_nearWhiteMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_nearWhiteMeasureArray[i]);
+	for(int i=0;i<m_redSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_redSatMeasureArray[i]);
+	for(int i=0;i<m_greenSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_greenSatMeasureArray[i]);
+	for(int i=0;i<m_blueSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_blueSatMeasureArray[i]);
+	for(int i=0;i<m_yellowSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_yellowSatMeasureArray[i]);
+	for(int i=0;i<m_cyanSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_cyanSatMeasureArray[i]);
+	for(int i=0;i<m_magentaSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_magentaSatMeasureArray[i]);
+	for(int i=0;i<m_cc24SatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY_COUNT(m_cc24SatMeasureArray[i], bCountLiveCC);
+	for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)
+		BODNER_REAPPLY_COUNT(m_cc24SatMeasureArray_master[i], !bCountLiveCC);
+	for(int i=0;i<m_profileMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_profileMeasureArray[i]);
 	for(int i=0;i<3;i++)
-	{
-		m_primariesArray[i].applyAdjustmentMatrix(aMatrix);
-	}
+		BODNER_REAPPLY(m_primariesArray[i]);
 	for(int i=0;i<3;i++)
-	{
-		m_secondariesArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	
+		BODNER_REAPPLY(m_secondariesArray[i]);
+
 	if (!m_bOverRideBlack)
-		m_OnOffBlack.applyAdjustmentMatrix(aMatrix);
-	
-	m_OnOffWhite.applyAdjustmentMatrix(aMatrix);
+		BODNER_REAPPLY_COUNT(m_OnOffBlack, !bBlackPlaceholder && !bBlackCopy);
 
-	m_PrimeWhite.applyAdjustmentMatrix(aMatrix);
+	// Unmeasured whites are placeholders - see ApplySensorAdjustmentMatrix.
+	if ( m_bOnOffWhiteMeasured )
+		BODNER_REAPPLY_COUNT(m_OnOffWhite, !bOnOffWhiteCopy);
+	if ( m_bPrimeWhiteMeasured )
+		BODNER_REAPPLY_COUNT(m_PrimeWhite, !bPrimeWhiteCopy);
+	BODNER_REAPPLY(m_AnsiBlack);
+	BODNER_REAPPLY(m_AnsiWhite);
+	// Every measured saturation level - see ApplySensorAdjustmentMatrix; the
+	// active level's entry mirrors the arrays above and is not counted again.
+	const int nActiveSat = FindSatLevelIndex ( m_satLevelStore, m_activeSatLevel );
+	for ( size_t s = 0; s < m_satLevelStore.size(); s++ )
+		for ( int c = 0; c < 6; c++ )
+			for ( size_t i = 0; i < m_satLevelStore[s].sat[c].size(); i++ )
+				BODNER_REAPPLY_COUNT(m_satLevelStore[s].sat[c][i], (int) s != nActiveSat);
+	// Same contract as ApplySensorAdjustmentMatrix: the cube was rewritten.
+	if ( m_profileMeasureArray.GetSize() > 0 )
+		m_profileGeneration++;
 
-	m_AnsiBlack.applyAdjustmentMatrix(aMatrix);
-	
-	m_AnsiWhite.applyAdjustmentMatrix(aMatrix);
+	#undef BODNER_REAPPLY
+	#undef BODNER_REAPPLY_COUNT
+	return nSkipped;
 }
 
 BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
@@ -7896,7 +8179,7 @@ CString CMeasure::GetCCStr() const
 		"CalMAN Skin \r\n",
 		"Chromapure Skin \r\n",
 		"CalMAN SG \r\n",
-		"CalMAN 10 pt Lum. \r\n",
+		"RGB Luminance Axis \r\n",
 		"CalMAN 4 pt Lum. \r\n",
 		"CalMAN 5 pt Lum. \r\n",
 		"CalMAN 10 pt Lum. \r\n",
@@ -7927,6 +8210,10 @@ CString CMeasure::GetCCStr() const
 		"Random 500 \r\n",
 		"User\r\n"
 	};
+	// Band bases follow the enum via PATTERN_SIZE (= RANDOM250*100). The old
+	// hardcoded 2300-based literals froze the pre-LG enum layout (RANDOM250==24
+	// in 2018), so after the LG sets grew the enum these probes landed inside
+	// LG bands and the RANDOM250/RANDOM500/User lines reported wrong slots.
 	for (int i=0;i<=USER;i++)
 	{
 		if (i<RANDOM250)
@@ -7946,13 +8233,13 @@ CString CMeasure::GetCCStr() const
 				}
 		}
 		if (i==RANDOM250)
-			if (m_cc24SatMeasureArray_master[2300+100].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE].isValid())
 				mStr+=sweeps[i];
 		if (i==RANDOM500)
-			if (m_cc24SatMeasureArray_master[2300+100+250].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250].isValid())
 				mStr+=sweeps[i];
 		if (i==USER)
-			if (m_cc24SatMeasureArray_master[2300+100+250+500].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250+500].isValid())
 				mStr+=sweeps[i];
 	}
 	return mStr+="\r\n";

@@ -62,6 +62,13 @@ static char THIS_FILE[] = __FILE__;
 #endif
 
 #define WM_SET_USER_INFO_POST_INIT	WM_USER+99
+#define WM_REBUILD_INFO_DISPLAY		WM_USER+100
+
+// PQ and HLG references: the gamma pane plots delta luminance instead of gamma.
+static bool IsHDRReference ()
+{
+	return GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7;
+}
 
 #define		LAYOUT_LEFT			0
 #define		LAYOUT_RIGHT		1
@@ -545,6 +552,7 @@ BEGIN_MESSAGE_MAP(CMainView, CFormView)
 	ON_NOTIFY(GVN_ENDLABELEDIT, IDC_GRAYSCALE_GRID, OnGrayScaleGridEndEdit)
 	ON_NOTIFY(GVN_SELCHANGED, IDC_GRAYSCALE_GRID, OnGrayScaleGridEndSelChange)
 	ON_MESSAGE(WM_SET_USER_INFO_POST_INIT, OnSetUserInfoPostInitialUpdate)
+	ON_MESSAGE(WM_REBUILD_INFO_DISPLAY, OnRebuildInfoDisplay)
 	ON_MESSAGE(WM_CTLCOLORSTATIC, OnCtlColorStatic)
 END_MESSAGE_MAP()
 
@@ -581,6 +589,7 @@ CMainView::CMainView()
 	binfoRedraw = false;
 	m_displayMode = 0;
 	m_infoDisplay = 5;
+	m_bInfoBuiltHDR = false;
 	m_nSizeOffset = 0;
 	m_bPositionsInit = FALSE;
 	m_bInSizeMove = FALSE;
@@ -668,8 +677,14 @@ CMainView::~CMainView()
 	if(m_pSelectedColorGrid)
 		delete m_pSelectedColorGrid;
 
+	// Same ownership split as OnSelchangeInfoDisplay: info display entries
+	// 0-2 and 11 put a plain CWnd (CEditEx / CTargetWnd / CSpectrumWnd) in
+	// m_pInfoWnd and nothing but this frees it. Every other entry, and
+	// m_pInfoWnd2..13 always, hold a CSubFrame: CFrameWnd::PostNcDestroy
+	// deleted it when its HWND went down with the view's children, before
+	// this destructor ran, so those pointers are already dangling.
 	if ( m_pInfoWnd )
-		if ( m_infoDisplay < 3 )
+		if ( m_infoDisplay < 3 || m_infoDisplay == 11 )
 			delete m_pInfoWnd;
 
 	delete m_pBgBrush;
@@ -1226,6 +1241,8 @@ LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 			m_comboMode.AddString ( strProf );
 	}
 
+	UpdateInfoDisplayLabels ();
+
 	if ( m_dwInitialUserInfo != 0 )
 	{
 		// Set m_displayMode
@@ -1273,6 +1290,83 @@ LRESULT CMainView::OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam)
 	m_bUpdate = TRUE;
 
 	return 0;
+}
+
+// Under a PQ/HLG reference the gamma pane plots delta luminance, and entries 4 and
+// 11 swap it for the luminance response, so the entries naming "Gamma" say what
+// they show: "Luminance" for 4 and 11, the gamma pane's own "delta Luminance" title
+// for 3. Only the label's gamma word is replaced, from localized strings, so every
+// language build stays in step with its DLGINIT text.
+void CMainView::UpdateInfoDisplayLabels()
+{
+	static const int	gammaItems[3] = { 3, 4, 11 };
+
+	if ( ! m_comboDisplay.GetSafeHwnd () || m_comboDisplay.GetCount () <= gammaItems[2] )
+		return;
+
+	if ( m_infoDisplaySDRLabels[0].IsEmpty () )
+	{
+		for ( int i = 0; i < 3; i++ )
+			m_comboDisplay.GetLBText ( gammaItems[i], m_infoDisplaySDRLabels[i] );
+	}
+
+	bool	isHDR = IsHDRReference ();
+	CString	strGamma, strLum, strDeltaLum;
+	strGamma.LoadString ( IDS_GAMMA );
+	strLum.LoadString ( IDS_LUMINANCE );
+	strDeltaLum.LoadString ( IDS_GRAPH_DELTALUM );
+
+	int	nSel = m_comboDisplay.GetCurSel ();
+	for ( int i = 0; i < 3; i++ )
+	{
+		CString	strLabel = m_infoDisplaySDRLabels[i];
+		int		nPos = strGamma.IsEmpty () ? -1 : strLabel.Find ( strGamma );
+		if ( isHDR && nPos >= 0 )
+			strLabel = strLabel.Left ( nPos ) + ( gammaItems[i] == 3 ? strDeltaLum : strLum ) + strLabel.Mid ( nPos + strGamma.GetLength () );
+
+		CString	strCurrent;
+		m_comboDisplay.GetLBText ( gammaItems[i], strCurrent );
+		if ( strCurrent != strLabel )
+		{
+			m_comboDisplay.DeleteString ( gammaItems[i] );
+			m_comboDisplay.InsertString ( gammaItems[i], strLabel );
+		}
+	}
+	m_comboDisplay.SetCurSel ( nSel );
+}
+
+// Entries 4 and 11 pick their gamma / luminance-response pane by the reference TF
+// when built; true when the TF has since crossed SDR/HDR.
+bool CMainView::InfoPaneNeedsHDRRebuild() const
+{
+	return ( m_infoDisplay == 4 || m_infoDisplay == 11 ) && m_pInfoWnd && m_bInfoBuiltHDR != IsHDRReference ();
+}
+
+LRESULT CMainView::OnRebuildInfoDisplay(WPARAM wParam, LPARAM lParam)
+{
+	if ( InfoPaneNeedsHDRRebuild () )
+	{
+		// Same entry, new pane: not a user choice, so leave the saved "Info Display"
+		// (the entry new windows open with) alone.
+		m_bUpdate = FALSE;
+		OnSelchangeInfoDisplay ();
+		m_bUpdate = TRUE;
+	}
+	return 0;
+}
+
+// Empties `count` selected-colour rows ending `skip` rows above Item.row (the
+// last row AddColorToGrid wrote), leaving Item.row where it was.
+void CMainView::BlankSelectedColorRows(GV_ITEM& Item, int count, int skip)
+{
+    int lastRow = Item.row;
+    Item.strText.Empty();
+    for (int r = lastRow - skip - count + 1; r <= lastRow - skip; r++)
+    {
+        Item.row = r;
+        m_pSelectedColorGrid->SetItem(&Item);
+    }
+    Item.row = lastRow;
 }
 
 void CMainView::AddColorToGrid(const ColorTriplet& color, GV_ITEM& Item, const char* format)
@@ -1408,8 +1502,17 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		m_pSelectedColorGrid->SetItem(&Item);
 
 		aColorTemp = m_SelectedColor.GetXYZValue().GetColorTemp(GetColorReference());
+		// A no-light read carries the sensor floor's equal-energy xy, so its
+		// colour temperature (~5455 K) and chromaticity rows are not readings.
+		BOOL bNoLight = !HasMeasuredLight ( m_SelectedColor.GetY() );
 		
-		if ( aColorTemp < 1500 )
+		if ( bNoLight )
+		{
+			Item.strText.Empty();
+			Item.row = 2;
+			m_pSelectedColorGrid->SetItem(&Item);
+		}
+		else if ( aColorTemp < 1500 )
 		{
 			Item.strText = _T("< 1500");
 			Item.row = 2;
@@ -1432,7 +1535,18 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
         AddColorToGrid(m_SelectedColor.GetXYZValue(), Item, "%.2f");
         AddColorToGrid(m_SelectedColor.GetRGBValue(bRef), Item, "%.2f");
         AddColorToGrid(m_SelectedColor.GetxyYValue(), Item, "%.3f");
+		if ( bNoLight )
+		{
+			BlankSelectedColorRows ( Item, 2, 1 );	// x and y
+			// Y is a reading, but an all-zero XYZ (a black typed into the grid)
+			// has no xyY at all and printed the no-data placeholder: print the
+			// measured Y instead.
+			Item.strText.Format ( "%.3f", m_SelectedColor.GetY() );
+			m_pSelectedColorGrid->SetItem(&Item);
+		}
         AddColorToGrid(m_SelectedColor.GetxyzValue(), Item, "%.3f");
+		if ( bNoLight )
+			BlankSelectedColorRows ( Item, 3, 0 );
         AddColorToGrid(m_SelectedColor.GetLabValue(YWhite, bRef), Item, "%.2f");
         AddColorToGrid(m_SelectedColor.GetLCHValue(YWhite, bRef), Item, "%.2f");
         AddColorToGrid(m_SelectedColor.GetLMSValue(1.0, bRef), Item, "%.2f");
@@ -2566,6 +2680,19 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	// hints so sweeps don't pay for combo rebuilds.
 	if ( lHint == UPD_EVERYTHING || lHint == UPD_ALLSATURATIONS )
 		UpdateParamCombos();
+
+	// Reference TF changes (Preferences apply, a file load overwriting preferences)
+	// arrive as UPD_EVERYTHING, which is also the initial and plain UpdateAllViews
+	// hint; the relabel only touches items whose text changed. Retitle the gamma
+	// entries, and swap the RGB entries' gamma pane if the TF crossed SDR/HDR. The
+	// swap is posted: rebuilding here would destroy views UpdateAllViews is walking.
+	if ( lHint == UPD_EVERYTHING )
+	{
+		UpdateInfoDisplayLabels ();
+		if ( InfoPaneNeedsHDRRebuild () )
+			PostMessage ( WM_REBUILD_INFO_DISPLAY );
+	}
+
 	CFrameWnd * pFrame = (CFrameWnd *)(AfxGetApp()->m_pMainWnd);
 //	if (pFrame)
 //		pFrame->GetActiveFrame()->ActivateFrame();
@@ -2660,6 +2787,20 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 					nForceMode = 13;
 				 else if ( m_profilePane.GetSafeHwnd () )
 					m_profilePane.RefreshState ();
+				 break;
+
+			case UPD_EVERYTHING:
+				 // A recalibration rewrites the profile cube in place and then sends
+				 // UPD_EVERYTHING: drop the pane's cached dE summary (RefreshStats).
+				 // Not RefreshState: it also lands the pane on its summary and clears
+				 // the family filter, and UPD_EVERYTHING also comes from senders that
+				 // change no data (Preferences OK, Configure Generator). Not
+				 // UPD_DISPLAYPROFILE either: that hint switches the view to the
+				 // profile page (above), which a recalibration started from the grid
+				 // must not do. Off the profile page there is nothing to refresh -
+				 // switching to it runs RefreshState (OnSelchangeComboMode).
+				 if ( m_displayMode == 13 && m_profilePane.GetSafeHwnd () )
+					m_profilePane.RefreshStats ();
 				 break;
 		}
 
@@ -3015,8 +3156,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			}
 			else 
 			{
-				if ( GetDocument()->m_pSensor->IsCalibrated() == 1 ) 
-				{ 
+				if ( GetDocument()->m_pSensor->IsCorrectionActive() )
+				{
 					m_grayScaleGroup.SetHilighted(2);
 					m_sensorGroup.SetHilighted(2);
 					m_generatorGroup.SetHilighted(2);
@@ -3046,10 +3187,17 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				m_datarefCheckButton = FALSE;
 		}
 		
-		m_AdjustXYZCheckButton.EnableWindow ( GetDocument()->m_pSensor->IsCalibrated () > 0 );
-		m_AdjustXYZCheckButton.SetCheck ( GetDocument()->m_pSensor->IsCalibrated () == 1 );
+		// DESIGN: a Bodner correction is deliberately checked-but-disabled here.
+		// OnAdjustXYZCheck's toggle machinery is single-matrix only - on a Bodner
+		// sensor one off/on round-trip would strip every raw-carrying measurement
+		// and restore an identity, silently destroying the correction. The method
+		// check also covers IsCalibrated()==2 (a parked Mod after a cancelled
+		// Configure), which would otherwise enable the toggle on a Bodner sensor.
+		m_AdjustXYZCheckButton.EnableWindow ( GetDocument()->m_pSensor->IsCalibrated () > 0
+			&& GetDocument()->m_pSensor->GetCalibrationMethod () != CALIB_BODNER_THREEMATRIX );
+		m_AdjustXYZCheckButton.SetCheck ( GetDocument()->m_pSensor->IsCorrectionActive () );
 
-		if ( GetDocument()->m_pSensor->IsCalibrated () == 1 || m_displayType == HCFR_xyz2_VIEW )
+		if ( GetDocument()->m_pSensor->IsCorrectionActive () || m_displayType == HCFR_xyz2_VIEW )
 		{
 			if ( m_editCheckButton.GetCheck () )
 			{
@@ -3093,19 +3241,20 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					str.Format("%.3f",aMeasure.GetRGBValue(bRef)[aComponentNum]);
 					break;
 				case HCFR_xyz2_VIEW:
-					if (aMeasure.GetY() == 0)
+					// No light: the chromaticity would be the sensor floor's 1/3, 1/3.
+					if ( !HasMeasuredLight ( aMeasure.GetY() ) )
 						str.Format("%s","nan");
 					else
 						str.Format("%.4f",aMeasure.GetxyzValue()[aComponentNum]);
 					break;
 				case HCFR_xyY_VIEW:
                     if (aComponentNum < 2)
-						if (aMeasure.GetY() == 0)
+						if ( !HasMeasuredLight ( aMeasure.GetY() ) )
 							str.Format("%s","nan");
 						else
     						str.Format("%.4f",aMeasure.GetxyYValue()[aComponentNum]);
                     else
-						if (aMeasure.GetY() == 0)
+						if ( !HasMeasuredLight ( aMeasure.GetY() ) )
 							str.Format("%s","0");
 						else
 	    					str.Format("%.3f",aMeasure.GetxyYValue()[aComponentNum]);
@@ -3168,21 +3317,28 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 							m_RefColor[2] = 0;
 						}
 
-						// Black (nCol 1) prints its dE where the normalisation makes it
-						// a chromaticity error: m_dE_gray 2 / dE_form 5 set the target's
-						// luminance to the measured one, which is why the Y target cell
-						// beside it already reads back the measurement. That is the
-						// number CalMAN prints at 0%, and it answers "did I tint my
-						// black" - the rest of the row has no way to show it.
+						// Black (nCol 1) prints its dE whenever the patch has light in
+						// it - below BLACK_MIN_LIGHT_Y there is no chromaticity to be
+						// wrong about, only the sensor floor's equal-energy point.
+						// Against a w/gamma target with light (BT.1886, black
+						// compensation, HLG with a target black, tone-mapped PQ, the
+						// camera-gamma offsets) it is
+						// the usual dE; where the target has none
+						// BlackTargetReference falls back to the measured luminance, so
+						// it is the chromaticity error alone. That is the number CalMAN
+						// prints at 0%, and it answers "did I tint my black" - the rest
+						// of the row has no way to show it.
 						//
 						// Deliberately NOT added to dEavg/dEmax/dEcnt. The grayscale
 						// average is over the measured ramp; folding black in would move
 						// a headline number that reaches the export and break comparison
 						// with every document measured before this.
-						if ( nCol == 1 && aMeasure.GetY() > 0.0
-							 && ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) )
+						CColor blackRef = ( nCol == 1 && HasMeasuredLight ( aMeasure.GetY() ) )
+										  ? BlackTargetReference ( aMeasure, YWhite, aReference, GetColorReference().GetWhite() )
+										  : noDataColor;
+						if ( blackRef.isValid() )
 						{
-							double dEblack = aMeasure.GetDeltaE ( YWhite, aReference, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->m_GammaOffsetType == 5?3:GetConfig()->gw_Weight );
+							double dEblack = aMeasure.GetDeltaE ( YWhite, blackRef, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->m_GammaOffsetType == 5?3:GetConfig()->gw_Weight );
 							str.Format("%.1f",dEblack);
 							if (GetConfig()->doHighlight)
 							{
@@ -3295,6 +3451,17 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 		{
 			if ( aReference.isValid() && (nCol > 1 || ( m_displayMode != 0 && m_displayMode != 3)) )
 				str.Format("%.4f",aMeasure.GetDeltaxy ( aReference, bRef) );
+			else if ( aReference.isValid() && nCol == 1 && HasMeasuredLight ( aMeasure.GetY() ) )
+			{
+				// Black's xy error is luminance-free, so it means something on
+				// every setting once the patch has light in it. The reference
+				// is rebuilt where a zero target lost its chromaticity.
+				CColor blackRef = BlackTargetReference ( aMeasure, YWhite, aReference, GetColorReference().GetWhite() );
+				if ( blackRef.isValid() )
+					str.Format("%.4f",aMeasure.GetDeltaxy ( blackRef, bRef) );
+				else
+					str.Empty ();
+			}
 			else
 				str.Empty ();
 		}
@@ -3453,7 +3620,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						tmWhite = getL_EOTF(0.50, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
 						if (m_displayMode == 1)
 						{
-							if (GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || nCol == 7)
+							if (GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 || nCol == 7)
 								white.SetY(!shiftDiffuse?92.254965:tmWhite);
 							else
 								white.SetY(94.37844);
@@ -4047,7 +4214,7 @@ void CMainView::UpdateGrid()
 		if (!GetConfig()->m_bOverRideTargs && Black.isValid() && White.isValid() && (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7))
 		{
 			if (Black.GetY() < White.GetY())
-				GetConfig()->m_TargetMinL = Black.GetY()>1e-5?Black.GetY():0.0;
+				GetConfig()->m_TargetMinL = HasMeasuredLight ( Black.GetY() ) ? Black.GetY() : 0.0;
 			else
 				GetConfig()->m_TargetMinL = 0.0;
 
@@ -4628,7 +4795,7 @@ void CMainView::UpdateGrid()
 				    Msg += szBuf;					
 				    Tmp.LoadString ( IDS_CONTRAST );
 				    Msg += Tmp;
-				    if ( GetDocument()->GetMeasure()->GetGray(0).isValid() && GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] > 0.0001 )
+				    if ( GetDocument()->GetMeasure()->GetGray(0).isValid() && HasMeasuredLight ( GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] ) )
 				    {
 					    sprintf ( szBuf, ": %.0f:1 )", GetDocument()->GetMeasure()->GetOnOffWhite()[1] / GetDocument()->GetMeasure()->GetGray(0).GetXYZValue()[1] );
 					    Msg += szBuf;
@@ -5036,7 +5203,7 @@ void CMainView::UpdateContrastValuesInGrid ()
 	if ( GetDocument()->GetMeasure()->GetAnsiContrast () > 0.0 )
 		Item.strText.Format ( "%.0f:1", GetDocument()->GetMeasure()->GetAnsiContrast () );
 	else
-		if ( GetDocument()->GetMeasure()->GetOnOffContrast () == -1 )
+		if ( GetDocument()->GetMeasure()->GetAnsiContrast () == -1 )
 			Item.strText.Format ("%s","Infinite");
 		else
 			Item.strText.Format ("%s","undefined");
@@ -5320,9 +5487,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetGray(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetGray(i, aNewColor);
 				}
 			}
@@ -5331,18 +5496,14 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetPrimary(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetPrimary(i, aNewColor);
 				}
 
 				aNewColor = GetDocument()->GetMeasure()->GetSecondary(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetSecondary(i, aNewColor);
 				}
 			}
@@ -5352,9 +5513,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetMeasurement(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetMeasurements(i, aNewColor);
 				}
 			}
@@ -5364,49 +5523,37 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetRedSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetRedSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetBlueSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetBlueSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetGreenSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetGreenSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetYellowSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetYellowSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetCyanSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetCyanSat(i, aNewColor);
 				}
 				aNewColor = GetDocument()->GetMeasure()->GetMagentaSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetMagentaSat(i, aNewColor);
 				}
 			}
@@ -5416,9 +5563,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetCC24MasterSat(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetCC24MasterSat(i, aNewColor);
 				}
 			}
@@ -5428,9 +5573,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetNearBlack(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetNearBlack(i, aNewColor);
 				}
 			}
@@ -5440,9 +5583,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				aNewColor = GetDocument()->GetMeasure()->GetNearWhite(i);
 				if (aNewColor.isValid())
 				{
-					aNewColor.SetX(fact * aNewColor.GetX());
-					aNewColor.SetY(fact * aNewColor.GetY());
-					aNewColor.SetZ(fact * aNewColor.GetZ());
+					aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 					GetDocument()->GetMeasure()->SetNearWhite(i, aNewColor);
 				}
 			}
@@ -5455,31 +5596,23 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 			if ( GetDocument()->GetMeasure()->IsPrimeWhiteMeasured() )
 			{
 				aNewColor = GetDocument()->GetMeasure()->GetPrimeWhite();
-				aNewColor.SetX(fact * aNewColor.GetX());
-				aNewColor.SetY(fact * aNewColor.GetY());
-				aNewColor.SetZ(fact * aNewColor.GetZ());
+				aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 				GetDocument()->GetMeasure()->SetPrimeWhite(aNewColor);
 			}
 
 			if ( GetDocument()->GetMeasure()->IsOnOffWhiteMeasured() )
 			{
 				aNewColor = GetDocument()->GetMeasure()->GetOnOffWhite();
-				aNewColor.SetX(fact * aNewColor.GetX());
-				aNewColor.SetY(fact * aNewColor.GetY());
-				aNewColor.SetZ(fact * aNewColor.GetZ());
+				aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 				GetDocument()->GetMeasure()->SetOnOffWhite(aNewColor);
 			}
 
 			aNewColor = GetDocument()->GetMeasure()->GetAnsiWhite();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
+			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 			GetDocument()->GetMeasure()->SetAnsiWhite(aNewColor);
 
 			aNewColor = GetDocument()->GetMeasure()->GetAnsiBlack();
-			aNewColor.SetX(fact * aNewColor.GetX());
-			aNewColor.SetY(fact * aNewColor.GetY());
-			aNewColor.SetZ(fact * aNewColor.GetZ());
+			aNewColor.ScaleXYZ(fact);	// scales the stored raw too (scalar commutes with the correction) - see CColor::ScaleXYZ
 			GetDocument()->GetMeasure()->SetAnsiBlack(aNewColor);
 			isSelectedWhiteY = FALSE;
 			lHint = UPD_EVERYTHING;
@@ -5526,6 +5659,12 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 				break;
 		}
 		
+		// A hand-edited value overrides what the sensor read: the stored raw no
+		// longer produces this XYZ, and a later recalibration recomputing from
+		// it would silently discard the edit. Drop the raw - the point falls
+		// back to the legacy delta-compose path, where edits survive.
+		aColorMeasure.ClearRawXYZValue();
+
 		// Update document XYZ value
 		switch ( m_displayMode )
 		{
@@ -8676,16 +8815,32 @@ void CMainView::OnSelchangeInfoDisplay()
 
 			 pFrame -> Create ( NULL, NULL, WS_CHILD | WS_VISIBLE, Rect, this );
 
+			 // HDR reference: the gamma pane would only plot delta luminance, so pair
+			 // RGB with the luminance response instead (OnUpdate swaps it on a TF change).
+			 m_bInfoBuiltHDR = IsHDRReference ();
+
 			 context.m_pCurrentDoc = GetDocument ();
 			 context.m_pCurrentFrame = pFrame;
 			 context.m_pLastView = this;
 			 context.m_pNewDocTemplate = GetDocument () -> GetDocTemplate ();
-			 context.m_pNewViewClass = RUNTIME_CLASS ( CGammaHistoView );
+			 if ( m_bInfoBuiltHDR )
+			 {
+				 context.m_pNewViewClass = RUNTIME_CLASS ( CLuminanceHistoView );
 
-			 pGammaHistoView = (CGammaHistoView *) context.m_pNewViewClass->CreateObject();
-			 pGammaHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
-			 pGammaHistoView -> OnInitialUpdate ();
-			 pFrame -> SetActiveView ( pGammaHistoView, FALSE );
+				 pLuminanceHistoView = (CLuminanceHistoView *) context.m_pNewViewClass->CreateObject();
+				 pLuminanceHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
+				 pLuminanceHistoView -> OnInitialUpdate ();
+				 pFrame -> SetActiveView ( pLuminanceHistoView, FALSE );
+			 }
+			 else
+			 {
+				 context.m_pNewViewClass = RUNTIME_CLASS ( CGammaHistoView );
+
+				 pGammaHistoView = (CGammaHistoView *) context.m_pNewViewClass->CreateObject();
+				 pGammaHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
+				 pGammaHistoView -> OnInitialUpdate ();
+				 pFrame -> SetActiveView ( pGammaHistoView, FALSE );
+			 }
 
 			 m_pInfoWnd7 = pFrame;
 			 m_pInfoWnd7 -> SetWindowPos ( pWnd, Rect.left + (Rect.right - Rect.left) / 2, Rect.top, (Rect.right - Rect.left) / 2, (Rect.bottom - Rect.top) , SWP_NOACTIVATE );
@@ -8902,16 +9057,31 @@ void CMainView::OnSelchangeInfoDisplay()
 
 			 pFrame -> Create ( NULL, NULL, WS_CHILD | WS_VISIBLE, Rect, this );
 
+			 // Same HDR swap as entry 4: luminance response instead of delta luminance.
+			 m_bInfoBuiltHDR = IsHDRReference ();
+
 			 context.m_pCurrentDoc = GetDocument ();
 			 context.m_pCurrentFrame = pFrame;
 			 context.m_pLastView = this;
 			 context.m_pNewDocTemplate = GetDocument () -> GetDocTemplate ();
-			 context.m_pNewViewClass = RUNTIME_CLASS ( CGammaHistoView );
+			 if ( m_bInfoBuiltHDR )
+			 {
+				 context.m_pNewViewClass = RUNTIME_CLASS ( CLuminanceHistoView );
 
-			 pGammaHistoView = (CGammaHistoView *) context.m_pNewViewClass->CreateObject();
-			 pGammaHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
-			 pGammaHistoView -> OnInitialUpdate ();
-			 pFrame -> SetActiveView ( pGammaHistoView, FALSE );
+				 pLuminanceHistoView = (CLuminanceHistoView *) context.m_pNewViewClass->CreateObject();
+				 pLuminanceHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
+				 pLuminanceHistoView -> OnInitialUpdate ();
+				 pFrame -> SetActiveView ( pLuminanceHistoView, FALSE );
+			 }
+			 else
+			 {
+				 context.m_pNewViewClass = RUNTIME_CLASS ( CGammaHistoView );
+
+				 pGammaHistoView = (CGammaHistoView *) context.m_pNewViewClass->CreateObject();
+				 pGammaHistoView -> Create ( NULL, NULL, AFX_WS_DEFAULT_VIEW, CRect(0,0,0,0), pFrame, IDC_INFO_VIEW, & context );
+				 pGammaHistoView -> OnInitialUpdate ();
+				 pFrame -> SetActiveView ( pGammaHistoView, FALSE );
+			 }
 
 			 m_pInfoWnd11 = pFrame;
 			 m_pInfoWnd11 -> SetWindowPos ( pWnd, Rect.left + (Rect.right - Rect.left) / 3 * 2, Rect.top, (Rect.right - Rect.left) / 3, (Rect.bottom - Rect.top) , SWP_NOACTIVATE );
@@ -9648,8 +9818,17 @@ void CMainView::OnAvgLowLightCheck()
 
 void CMainView::OnAdjustXYZCheck()
 {
+	// Defense in depth for the gate above: this handler cannot represent a
+	// Bodner correction and must never run against one.
+	if ( GetDocument ()->m_pSensor->GetCalibrationMethod () == CALIB_BODNER_THREEMATRIX )
+		return;
 	BOOL	bAdjust = m_AdjustXYZCheckButton.GetCheck ();
 	Matrix CurrentMatrix = GetDocument ()->m_pSensor->GetSensorMatrix();
+	// Both walks below take the sensor's raw-less state (RawlessReadingsState,
+	// Color.h): a raw-less reading it marks stranded embodies no matrix this
+	// sensor has, so neither click may compose onto it. Neither click changes
+	// the state, so an off/on round-trip still restores every reading.
+	const bool bComposeRawless = GetDocument ()->m_pSensor->RawlessReadings().ComposeOntoRawless();
 	
 
 	if (!bAdjust) //restore uncorrected sensor values
@@ -9657,14 +9836,14 @@ void CMainView::OnAdjustXYZCheck()
 		ASSERT(0);
 		GetDocument ()->m_pSensor->SetSensorMatrixMod( CurrentMatrix );
 		GetDocument ()->m_pSensor->SetSensorMatrix( Matrix::IdentityMatrix(3) );
-		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( CurrentMatrix.GetInverse() );
+		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( CurrentMatrix.GetInverse(), Matrix::IdentityMatrix(3), bComposeRawless );
 		m_AdjustXYZCheckButton.SetCheck(FALSE);
 	}
 	else  //reapply saved correction matrix
 	{
 		ASSERT(0);
 		GetDocument ()->m_pSensor->SetSensorMatrix( GetDocument ()->m_pSensor->GetSensorMatrixMod() );
-		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix(GetDocument ()->m_pSensor->GetSensorMatrixMod() );
+		GetDocument ()->m_measure.ApplySensorAdjustmentMatrix( GetDocument ()->m_pSensor->GetSensorMatrixMod(), GetDocument ()->m_pSensor->GetSensorMatrixMod(), bComposeRawless );
 		GetDocument ()->m_pSensor->SetSensorMatrixMod( Matrix::IdentityMatrix(3) );
 		m_AdjustXYZCheckButton.SetCheck(TRUE);
 	}

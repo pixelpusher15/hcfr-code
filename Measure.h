@@ -171,12 +171,16 @@ protected:
 	// isValid() and GetY() > 0 both pass -- so anything that needs to know whether
 	// white was ever MEASURED has to ask this, not the color.
 	//
-	// PERSISTENCE (both flags): stored verbatim in file version 21, which is the
-	// version a document with a display profile now gets. A document WITHOUT one
-	// still writes version 19 so older builds can read it, and its flags are
-	// re-derived on load: valid and NOT the constructor's placeholder, which
-	// IsPlaceholderWhite (Measure.cpp) recognises by its exact signature. That is
-	// also what recovers documents written before the flags existed. The whites
+	// PERSISTENCE (both flags): CMeasure v21 (released in 4.2.0.0: the two
+	// white-measured flags after the profile block, written only when a display
+	// profile exists); v22 = v21 + the extension trailer, with the profile
+	// block always written, so every document this build saves carries them.
+	// v21 is a released layout and must always be read. A document of version
+	// 20 or older has no
+	// flags, and they are re-derived on load: valid and NOT the constructor's
+	// placeholder, which IsPlaceholderWhite (Measure.cpp) recognises by its exact
+	// signature. That is also what recovers documents written before the flags
+	// existed. The whites
 	// themselves are stored verbatim either way, so nothing downstream ever sees a
 	// value it could not already see. An earlier revision tried to encode "unmeasured" by writing
 	// noDataColor into the version-19 prime-white slot: that conflated "never
@@ -408,6 +412,7 @@ public:
 	BOOL IsPrimeWhiteMeasured() const { return m_bPrimeWhiteMeasured; }
 	BOOL IsOnOffWhiteMeasured() const { return m_bOnOffWhiteMeasured; }
 	static bool IsPlaceholderWhite(const CColor & c, bool bOnOff);	// the ctor's nominal white, by value (load-time flag recovery)
+	static bool IsRawlessPlaceholder(const CColor & c, bool bBlack);	// the ctor's top-gray (bBlack false) or on/off-black placeholder: the walks neither recompute nor count it
 
 	BOOL MeasureContrast(CSensor *pSensor, CGenerator *pGenerator);
 	double GetOnOffContrast ();
@@ -437,7 +442,25 @@ public:
 	BOOL IsModified() { return m_isModified; }
 	void AbortMeasure() { m_bAbortSweep = TRUE; }
 
-    void ApplySensorAdjustmentMatrix(const Matrix & matrixAdjustment);
+    // deltaMatrix is composed onto already-corrected values for legacy measurements
+    // that predate raw-value capture (no HasRawXYZValue()); fullMatrix is applied
+    // directly to the stored raw value for measurements that have one. The two
+    // must be equivalent ways of expressing "what the sensor's correction should
+    // now be" - deltaMatrix = fullMatrix * inverse(previousFullMatrix).
+    // bComposeLegacy says whether a measurement WITHOUT a raw value embodies that
+    // previous full matrix - true after any single-matrix method, false when the
+    // sensor was on Bodner: its single matrix is identity and the raw-less values
+    // still carry whatever matrix corrected them before Bodner skipped them, so
+    // composing the delta would stack the new matrix onto the old one. They are
+    // then left alone and counted; the count is returned (0 when composing).
+    // No default: the answer is the sensor's RawlessReadings().ComposeOntoRawless()
+    // (RawlessReadingsState, Color.h), and a caller that forgot it composed onto
+    // readings the state marks stranded.
+    int ApplySensorAdjustmentMatrix(const Matrix & deltaMatrix, const Matrix & fullMatrix, bool bComposeLegacy);
+    // Recalibrates every stored measurement under Bodner's per-sub-gamut method.
+    // Returns the count of measurements that had no stored raw value (predating
+    // raw-value capture) and so could not be recalibrated.
+    int ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Matrix calMatrix[3]);
 
 	BOOL WaitForDynamicIris ( BOOL bIgnoreEscape = FALSE, CDataSetDoc *pDoc = NULL );
 	BOOL CheckBlackOverride (  );

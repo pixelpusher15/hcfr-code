@@ -33,6 +33,13 @@
 static char THIS_FILE[] = __FILE__;
 #endif
 
+// Local control IDs for the programmatically-created spectral-correction row.
+// Kept out of resource.h (and the .rc templates) on purpose; values are well
+// clear of the dialog's template control ids (1266..1292).
+#define IDC_ARGYLL_SPECTRAL_BROWSE   1600
+#define IDC_ARGYLL_SPECTRAL_CLEAR    1601
+#define IDC_ARGYLL_SPECTRAL_STATUS   1602
+
 /////////////////////////////////////////////////////////////////////////////
 // CArgyllSensorPropPage property page
 
@@ -117,6 +124,8 @@ BEGIN_MESSAGE_MAP(CArgyllSensorPropPage, CPropertyPageWithHelp)
     //{{AFX_MSG_MAP(CArgyllSensorPropPage)
     ON_BN_CLICKED(IDC_ARGYLL_CALIBRATE, OnCalibrate)
     //}}AFX_MSG_MAP
+    ON_BN_CLICKED(IDC_ARGYLL_SPECTRAL_BROWSE, OnSpectralBrowse)
+    ON_BN_CLICKED(IDC_ARGYLL_SPECTRAL_CLEAR, OnSpectralClear)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -323,9 +332,153 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
     int calBottom = btnY + btnH + M.ht(6);
     if (pCal != NULL) { CPoint cp = M.at(5, 0); pCal->MoveWindow(cp.x, calTopPx, M.w(GRPW), calBottom - calTopPx); }
 
-    // Debug checkbox below the calibration group.
+    // Spectral (ccss/CSV) correction row - for meters that support spectral samples
+    // (i1D3 etc.), and ALSO whenever a correction is already loaded. That second case
+    // matters because MeterSupportsSpectralSamples() is false the moment m_meter is
+    // NULL, which is exactly the state Init() warns about on a failed connect: it
+    // tells the user the readings are uncorrected "until it is re-applied or cleared
+    // in the sensor properties". With the meter unplugged - or the .ccss moved - the
+    // row was not built at all, so there was no Clear button to obey that instruction
+    // with, nothing else clears m_spectralCorrectionPath, and the stale correction
+    // kept HasSpectralCorrection() TRUE, which additionally blocks every matrix
+    // calibration behind ConfirmMatrixCalOverSpectral. Browse is disabled instead
+    // of hidden in that state, since loading a new sample needs a live meter.
+    // Programmatic so no .rc template is needed.
+    // Placed directly under the calibration group; the Debug checkbox follows it.
+    int rowBottom = calBottom;   // bottom of the last laid-out row
+    if ( m_pSensor != NULL && ( m_pSensor->MeterSupportsSpectralSamples()
+                             || m_pSensor->HasSpectralCorrection() ) )
+    {
+        // NOTE: the mapper M.at() takes design-unit coordinates. calBottom is
+        // already a raw screen Y (built from M.ht() offsets), so only the X is
+        // taken from the mapper; the Y values are used as raw screen pixels.
+        // Feeding calBottom back into M.at() would re-scale it and push the row
+        // far off the page.
+        int specX = M.at(LBLX, 0).x;
+        int specTop = calBottom + M.ht(1);   // just under the calibration group
+        // Two lines: the status carries the ccss description, which for an Argyll
+        // or DisplayCAL file is the display plus the reference instrument (64
+        // characters is ordinary) and ran under the buttons on one line. SS_LEFT
+        // wraps at words; the height is fixed rather than measured because the
+        // text changes on Browse/Clear after this layout has run.
+        int specH = 2 * lineHpx;
+        if ( !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
+            m_spectralStatus.Create("", WS_CHILD | WS_VISIBLE | SS_LEFT,
+                CRect(specX, specTop, specX + M.w(280), specTop + specH), this, IDC_ARGYLL_SPECTRAL_STATUS);
+        m_spectralStatus.SetFont(GetFont());
+        m_spectralStatus.MoveWindow(specX, specTop, M.w(280), specH);
+
+        int btnY = specTop + specH + M.ht(2);
+        int bw = M.w(64), bh = M.ht(12), gap = M.w(6);
+        if ( !::IsWindow(m_spectralBrowseBtn.GetSafeHwnd()) )
+        {
+            CString sBrowse; sBrowse.LoadString(IDS_SPECTRAL_BROWSE);
+            m_spectralBrowseBtn.Create(sBrowse, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                CRect(specX, btnY, specX + bw, btnY + bh), this, IDC_ARGYLL_SPECTRAL_BROWSE);
+        }
+        m_spectralBrowseBtn.SetFont(GetFont());
+        m_spectralBrowseBtn.MoveWindow(specX, btnY, bw, bh);
+        // Needs a live meter to read a sample into; Clear stays available so a stale
+        // correction can always be removed.
+        m_spectralBrowseBtn.EnableWindow( m_pSensor->MeterSupportsSpectralSamples() );
+
+        if ( !::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
+        {
+            CString sClear; sClear.LoadString(IDS_SPECTRAL_CLEAR);
+            m_spectralClearBtn.Create(sClear, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                CRect(specX + bw + gap, btnY, specX + 2*bw + gap, btnY + bh), this, IDC_ARGYLL_SPECTRAL_CLEAR);
+        }
+        m_spectralClearBtn.SetFont(GetFont());
+        m_spectralClearBtn.MoveWindow(specX + bw + gap, btnY, bw, bh);
+
+        RefreshSpectralStatus();
+        rowBottom = btnY + bh;
+    }
+
+    // Debug checkbox at the bottom - below the spectral row when present, else
+    // directly under the calibration group.
     CWnd* pDbg = GetDlgItem(IDC_ARGYLL_SENSOR_DEBUG_CB);
-    if (pDbg != NULL) { CPoint dp = M.at(LBLX + 1, 0); pDbg->MoveWindow(dp.x, calBottom + M.ht(4), M.w(220), M.ht(10)); }
+    if (pDbg != NULL) { CPoint dp = M.at(LBLX + 1, 0); pDbg->MoveWindow(dp.x, rowBottom + M.ht(2), M.w(220), M.ht(10)); }
 
     return bRet;
+}
+
+void CArgyllSensorPropPage::RefreshSpectralStatus()
+{
+    if ( m_pSensor == NULL || !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
+        return;
+    CString s, fmt;
+    const SpectralCorrectionRecord & rec = m_pSensor->GetSpectralRecord();
+    if ( rec.IsPresent() )
+    {
+        CString desc = rec.description.c_str();
+        if ( desc.IsEmpty() )
+            desc = m_pSensor->GetSpectralCorrectionDesc();
+        if ( desc.IsEmpty() )
+            desc.LoadString(IDS_SPECTRAL_LOADED);
+        // Not the method: dormant only when the method's matrices expect native
+        // readings. A matrix fitted on driver-corrected readings (basis not NATIVE: a
+        // 4.1 file, a file from before the basis field) is composed on the record's
+        // correction - the label says what EffectiveSensorMatrix does.
+        const bool composed = !m_pSensor->UsesSpectralMethod()
+                           && m_pSensor->GetCalibrationMethod() != CALIB_BODNER_THREEMATRIX
+                           && m_pSensor->GetFitBasis() != FIT_BASIS_NATIVE;
+        if ( composed )
+            fmt.LoadString(IDS_SPECTRAL_STATUS_COMPOSED_FMT);
+        else if ( !m_pSensor->UsesSpectralMethod() )
+            fmt.LoadString(IDS_SPECTRAL_STATUS_INACTIVE_FMT);  // present, dormant under a matrix method
+        else if ( rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE )
+            fmt.LoadString(IDS_SPECTRAL_STATUS_DISPTYPE_FMT);
+        else
+            fmt.LoadString(IDS_SPECTRAL_STATUS_FMT);
+        s.Format(fmt, (LPCSTR)desc);
+    }
+    else
+    {
+        CString none; none.LoadString(IDS_SPECTRAL_NONE);
+        fmt.LoadString(IDS_SPECTRAL_STATUS_FMT);
+        s.Format(fmt, (LPCSTR)none);
+    }
+    m_spectralStatus.SetWindowText(s);
+    // Clear only a browsed file. A Display Type correction is changed through
+    // the Display Type list, which is what removes it. A stored path with no
+    // record behind it (a moved file that could not be derived again) can always
+    // be cleared, so the warning's "clear it in the sensor properties" holds.
+    if ( ::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
+        m_spectralClearBtn.EnableWindow( ( rec.IsPresent() && rec.source == SPECTRAL_SOURCE_FILE )
+                                      || !m_pSensor->GetSpectralCorrectionPath().IsEmpty() );
+}
+
+void CArgyllSensorPropPage::OnSpectralBrowse()
+{
+    if ( m_pSensor == NULL )
+        return;
+    // Refused before the file dialog while the Display Type selected in this page
+    // carries a ccss/ccmx itself: the sheet's OK would select that entry and its
+    // correction would replace the browsed file at the next Init. The page's
+    // selection, not the sensor's committed one: that is what OK will commit.
+    int sel = m_DisplayTypeCombo.GetCurSel();
+    UINT pendingType = ( sel == CB_ERR ) ? m_pSensor->m_DisplayType : (UINT)sel;
+    if ( m_pSensor->RefuseSpectralBrowse(pendingType) )
+        return;
+    CString sFilter; sFilter.LoadString(IDS_SPECTRAL_FILEFILTER);
+    CFileDialog dlg(TRUE, "ccss", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST, sFilter);
+    if ( dlg.DoModal() == IDOK )
+    {
+        if ( m_pSensor->ApplySpectralCorrection(dlg.GetPathName()) )
+            RefreshSpectralStatus();
+    }
+}
+
+void CArgyllSensorPropPage::OnSpectralClear()
+{
+    if ( m_pSensor == NULL )
+        return;
+    // Clear after a Browse must not leave the identity matrix the apply
+    // installed: revert this sheet session's correction state first, then
+    // drop the spectral fields. (CancelConfigure restores from the sheet's
+    // opening snapshot and is idempotent, so a later Cancel still works.)
+    m_pSensor->CancelConfigure();
+    m_pSensor->ClearSpectralCorrection();
+    RefreshSpectralStatus();
 }

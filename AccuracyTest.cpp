@@ -779,7 +779,7 @@ static void RefreshHdrTargets ( CMeasure & m )
 	if ( !cfg->m_bOverRideTargs && Black.isValid() && White.isValid() && (cfg->m_GammaOffsetType == 5 || cfg->m_GammaOffsetType == 7) )
 	{
 		if ( Black.GetY() < White.GetY() )
-			cfg->m_TargetMinL = Black.GetY() > 1e-5 ? Black.GetY() : 0.0;
+			cfg->m_TargetMinL = HasMeasuredLight ( Black.GetY() ) ? Black.GetY() : 0.0;	// mirrors MainView::UpdateGrid
 		else
 			cfg->m_TargetMinL = 0.0;
 		if ( White.GetY() > 0 )
@@ -822,8 +822,11 @@ static void RunGray ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 	CColor White = m.GetOnOffWhite();
 	CColor Black = m.GetOnOffBlack();
 
-	// dE per UpdateGrid case 0 + GetItemText grayscale branch. The grid
-	// leaves the first column (black) without a dE; skip it the same way.
+	// dE per UpdateGrid case 0 + GetItemText grayscale branch. Black (the
+	// first column) is skipped: the grid prints its dE through
+	// BlackTargetReference but keeps it out of the grayscale average, and this
+	// harness pins TargetMinL to 0, so neither that path nor the HLG black lift
+	// in getL_EOTF is exercised here.
 	double YWhite = m.GetGray(kGraySize - 1).GetY();
 	for ( i = 1 ; i < kGraySize ; i ++ )
 	{
@@ -1099,6 +1102,107 @@ static void CheckPlaceholderSignature ( FamStat & stat )
 		stat.Add(999.0, "a non-placeholder white matched the placeholder signature");
 }
 
+// Both recalibration walks return the count the "N measurement(s) have no raw
+// sensor reading" notice shows, and a single-matrix walk that returns 0 re-arms
+// the sensor's RawlessReadingsState. Pin that count: the constructor's
+// placeholders (top gray slot, on/off black) are not readings, and a reading
+// held in two slots (the active saturation level and its m_satLevelStore entry,
+// the live color-checker array and its master band, a grayscale black and its
+// on/off copy) is one reading. Each case runs on its own fresh CMeasure, with
+// identity matrices, so only the count is under test.
+static int RawlessWalk ( CMeasure & m, bool bBodner )
+{
+	if ( bBodner )
+	{
+		Matrix raw[3] = { Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3) };
+		Matrix cal[3] = { Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3) };
+		return m.ApplySensorBodnerRecalibration(raw, cal);
+	}
+	return m.ApplySensorAdjustmentMatrix(Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3), false);
+}
+
+static CColor RawlessReading ( double x, double y, double z )
+{
+	CColor c;
+	c.SetXYZValue(ColorXYZ(x, y, z));	// no SetRawXYZValue: a pre-raw or hand-edited value
+	return c;
+}
+
+static CColor RawReading ( double x, double y, double z )
+{
+	CColor c = RawlessReading(x, y, z);
+	c.SetRawXYZValue(ColorXYZ(x, y, z));
+	return c;
+}
+
+static void CheckRawlessSkipCount ( FamStat & stat )
+{
+	for ( int w = 0; w < 2; w++ )
+	{
+		const bool bBodner = ( w == 1 );
+		const char * name = bBodner ? "Bodner" : "single-matrix";
+
+		// 1. Fresh document: only placeholders are left raw-less.
+		{
+			CMeasure m;
+			if ( ! CMeasure::IsRawlessPlaceholder(m.GetGray(m.GetGrayScaleSize()-1), false)
+				|| ! CMeasure::IsRawlessPlaceholder(m.GetOnOffBlack(), true) )
+				stat.Add(999.0, "ctor gray-top / on-off-black placeholder not recognised by IsRawlessPlaceholder");
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 0 )
+				stat.Add(999.0, "%s walk counted %d raw-less readings in a fresh document (want 0)", name, n);
+		}
+
+		// 2. Primaries and white measured (they carry raw), black left at the
+		// placeholder: nothing is skipped, so a stranded state re-arms.
+		{
+			CMeasure m;
+			m.SetRedPrimary(RawReading(41.0, 21.0, 2.0));
+			m.SetGreenPrimary(RawReading(36.0, 72.0, 12.0));
+			m.SetBluePrimary(RawReading(18.0, 7.0, 95.0));
+			m.SetPrimeWhite(RawReading(95.0, 100.0, 109.0));
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 0 )
+				stat.Add(999.0, "%s walk counted %d raw-less readings with primaries+white measured (want 0)", name, n);
+			RawlessReadingsState s;
+			s.MatrixSetWithoutWalk();
+			s.SingleMatrixWalked(n);
+			if ( ! bBodner && ! s.ComposeOntoRawless() )
+				stat.Add(999.0, "RawlessReadingsState did not re-arm after a walk with nothing to skip");
+		}
+
+		// 3. One raw-less reading in each mirrored pair: counted once each.
+		{
+			CMeasure m;
+			CColor sat = RawlessReading(30.0, 20.0, 5.0);
+			m.SetRedSat(0, sat);
+			m.GetSatLevelCount();	// mirrors the active level into m_satLevelStore
+			CColor cc = RawlessReading(12.0, 11.0, 9.0);
+			m.SetCC24Sat(0, cc);
+			m.SetCC24MasterSat(0, cc);
+			CColor black = RawlessReading(0.031, 0.033, 0.034);
+			m.SetGray(0, black);
+			m.SetOnOffBlack(black);
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 3 )
+				stat.Add(999.0, "%s walk counted %d raw-less readings for 3 mirrored ones (want 3)", name, n);
+		}
+
+		// 4. A raw-less black a hair off the placeholder signature is a reading.
+		{
+			CMeasure m;
+			ColorXYZ v = m.GetOnOffBlack().GetXYZValue();
+			double y = v[1] > 0.0 ? v[1] : 0.05;
+			m.SetOnOffBlack(RawlessReading(y * 0.95047 * 1.0001, y, y * 1.08833));
+			if ( CMeasure::IsRawlessPlaceholder(m.GetOnOffBlack(), true) )
+				stat.Add(999.0, "a non-placeholder black matched the placeholder signature");
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 1 )
+				stat.Add(999.0, "%s walk counted %d for one raw-less on/off black (want 1)", name, n);
+		}
+	}
+}
+
 static void RunConvWhite ( CMeasure & m, FamStat & stat )
 {
 	CColorHCFRConfig * cfg = GetConfig();
@@ -1108,6 +1212,7 @@ static void RunConvWhite ( CMeasure & m, FamStat & stat )
 	// it before the no-samples bail-out - every combo gets the gate checked.
 	CheckSub90Override(stat);
 	CheckPlaceholderSignature(stat);
+	CheckRawlessSkipCount(stat);
 
 	if ( s_nConvSamples == 0 )
 		return;

@@ -130,6 +130,9 @@ public:
 	void MeasureContrast();
 	void AddMeasurement();
 	bool CheckVideoLevel();
+	// Also used by CMainFrame to show these patterns with no document open
+	static bool CheckPatternVideoLevel(CGenerator * pGenerator);
+	static void WaitPatternKey(CGenerator * pGenerator, int Anim = 0);
 	//void CalibrateSensor(BOOL doUpdateValues=TRUE);
 
 	CMeasure *GetMeasure() { return &m_measure; }
@@ -142,6 +145,7 @@ public:
 
 	void ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886);
 	BOOL ComputeAdjustmentMatrix();
+	bool ConfirmCalibrationMethodInSync();
 
 	void SetSelectedColor ( const CColor & clr )	{ m_SelectedColor = clr; }
 	void SetLastColor ( const CColor & clr )	{ m_LastColor = clr; }
@@ -156,6 +160,7 @@ public:
 	virtual BOOL CanCloseFrame(CFrameWnd* pFrame);
 	virtual BOOL OnSaveDocument(LPCTSTR lpszPathName);
 	//}}AFX_VIRTUAL
+	virtual void ReportSaveLoadException(LPCTSTR lpszPathName, CException* e, BOOL bSaving, UINT nIDPDefault);
 
 public:
 	virtual void SetModifiedFlag( BOOL bModified = TRUE );
@@ -307,6 +312,7 @@ protected:
 	afx_msg void OnLoadCalibrationFile();
 	afx_msg void OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateLoadCalibrationFile(CCmdUI* pCmdUI);
+	afx_msg void OnUpdateCalibrationExisting(CCmdUI* pCmdUI);
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };
