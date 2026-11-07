@@ -4192,6 +4192,20 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 	return TRUE;
 }
 
+// USER with no rows has nothing to drive, and the sweep's closing band copy would
+// still wipe every reading the USER band holds. Refused, with the reason, before
+// the sweep touches anything.
+static BOOL RefuseEmptyUserSweep ( int nPatches )
+{
+	if ( GetConfig()->m_CCMode != USER || nPatches > 0 )
+		return FALSE;
+	CString strMsg, Title;
+	Title.LoadString ( IDS_ERROR );
+	strMsg.LoadString ( IDS_USERSET_NONE_LOADED );
+	GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
+	return TRUE;
+}
+
 // Shared stamp for every path that commits a measured CC patch (foreground
 // sweep, all-saturations sweep, background validate, single-slot re-measure).
 // Rides alongside the stimulus/raw-XYZ the sensor already captured; label
@@ -4224,6 +4238,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
 
     if (isExtPat) size = GetConfig()->GetCColorsSize();
+	if ( RefuseEmptyUserSweep ( size ) )
+		return FALSE;
 
     CArray<CColor,int> measuredColor;
 
@@ -5149,6 +5165,8 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
          ccSize = GetConfig()->GetCColorsSize();
 		 break;
 	}
+	if ( ! bPrimaryOnly && RefuseEmptyUserSweep ( ccSize ) )
+		return FALSE;
 	
 	CGenerator::MeasureType	SaturationType [ 7 ] =
 							{
@@ -8510,29 +8528,42 @@ void CMeasure::MigrateLegacyUserBand()
 	else
 	{
 		// 2) usercolors.csv still describes this data (the pre-collection
-		//    definition source) when its row count matches; 3) otherwise keep
-		//    the measures with an empty definition rather than lose them.
+		//    definition source) when it has a row for every reading; 3) otherwise
+		//    rebuild one row per reading, from its stimulus where it kept one and
+		//    a black placeholder where not: a set with fewer rows than readings
+		//    hides them from the grid, and with none a sweep could erase them.
 		CString userPath;
 		std::vector<CsvPatchRow> rows;
 		int bits = 8, range = CSV_RANGE_NONE;
 		int nRows = -1;
 		if ( ResolveCCSetPath ( USER, userPath, NULL ) )
 			nRows = ReadCsvPatchRows ( userPath, rows, MAX_USER_CC_PATCH_SIZE, &bits, &range );
-		if ( nRows == count )
+		if ( nRows >= count )
 		{
-			int sl = userPath.ReverseFind ( '\\' );
-			std::string base = (LPCTSTR)( sl >= 0 ? userPath.Mid ( sl + 1 ) : userPath );
-			size_t dp = base.rfind ( ".csv" );
-			if ( dp != std::string::npos )
-				base.erase ( dp );
-			set.name = base;
+			set.name = CsvSetNameFromPath ( userPath );
 			set.srcPath = (LPCTSTR)userPath;
 			set.bits = bits;
 			set.range = range;
 			set.rows = rows;
 		}
 		else
+		{
 			set.name = "User (migrated)";
+			set.rows.resize ( count );
+			for ( int i = 0; i < count; i++ )
+			{
+				CsvPatchRow & row = set.rows[i];
+				row.patch = i;
+				row.r = row.g = row.b = 0;
+				if ( set.measures[i].isValid() && set.measures[i].HasStimulusValue() )
+				{
+					ColorRGBDisplay stim = set.measures[i].GetStimulusValue();
+					row.r = CsvPercentToCode ( stim[0], set.bits, set.range );
+					row.g = CsvPercentToCode ( stim[1], set.bits, set.range );
+					row.b = CsvPercentToCode ( stim[2], set.bits, set.range );
+				}
+			}
+		}
 	}
 
 	m_userPatchSets.push_back ( set );
