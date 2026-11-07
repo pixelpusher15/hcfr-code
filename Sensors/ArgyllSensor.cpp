@@ -949,7 +949,9 @@ bool CArgyllSensor::RefuseSpectralBrowse(UINT displayType)
 // a ccss/ccmx Display Type entry is derived and the driver left on the entry's
 // base (native), and a browsed sample is derived again only when the connected
 // unit or observer is not the one the record was derived for. Shows no dialog but
-// the once-per-session notices. Readings already taken keep their values; the
+// the once-per-session notices, and Browse's question when a ccss/ccmx Display Type
+// entry is chosen in the sheet over a matrix calibration (see the Display Type
+// branch). Readings already taken keep their values; the
 // next Sensor -> Configure OK recomputes them from raw (OnConfigureSensor's
 // CorrectionChangedSinceBeginConfigure sees the record or method change, because
 // the Display Type is changed through that sheet and this Init runs inside its OK).
@@ -1022,14 +1024,41 @@ void CArgyllSensor::SyncSpectralRecordFromMeter()
         {
             // No fit at all: the spectral correction becomes the method.
             const bool noFit = ( GetCalibrationMethod() == CALIB_HCFR_DEFAULT && GetSensorMatrix().IsIdentity() );
+            // A matrix calibration in force (a fit, a correction file, Bodner) and
+            // the entry chosen in the sheet just now: Browse's question over a
+            // matrix (ApplySpectralCorrection), with its outcomes. OK makes the
+            // entry's correction the method, the Bodner sub-gamut matrices dropped,
+            // and the sheet's OK recomputes the readings from raw. Cancel keeps the
+            // matrix calibration and the values shown; the entry's correction is
+            // recorded, not applied (the status line says so), which is what
+            // matches the entry the driver now measures on. Any other derive (a
+            // document's entry, another unit) asks nothing and records it the same
+            // way: Init runs at every measurement start.
+            // Chosen with no correction live, it becomes the method unasked, as a
+            // Browse does.
+            bool makeMethod = noFit;
+            if ( !UsesSpectralMethod() && m_displayTypeChangedInSheet )
+            {
+                makeMethod = true;
+                if ( IsCorrectionActive() )
+                {
+                    CString prompt, title;
+                    prompt.LoadString ( IDS_SPECTRAL_MATRIXCAL_PROMPT );
+                    title.LoadString ( IDS_SPECTRAL_TITLE );
+                    makeMethod = ( GetColorApp()->InMeasureMessageBox( prompt, title,
+                        MB_OKCANCEL | MB_ICONQUESTION ) == IDOK );
+                }
+            }
             SetSpectralRecord(rec);
             if ( UsesSpectralMethod() )
             {
                 SetSensorMatrix(corr);      // another entry while it already is the method
                 SetFitBasis(FIT_BASIS_NATIVE);
             }
-            else if ( noFit )
+            else if ( makeMethod )
             {
+                if ( !noFit )
+                    ClearBodnerMatrices();  // as Browse: the method's matrix is the correction
                 SetSensorMatrix(corr);
                 SetCalibrationMethod(CALIB_SPECTRAL_SAMPLE);
                 SetFitBasis(FIT_BASIS_NATIVE);

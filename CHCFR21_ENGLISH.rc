@@ -4233,7 +4233,7 @@ BEGIN
     IDS_BODNER_SKIPPED_FMT      "%d measurement(s) have no raw sensor reading (recorded before raw capture, or edited by hand) and were left as they were."
     IDS_CALIB_NEED_RAW_PRIMARIES "Measure the primaries and white again first: the stored ones have no raw sensor reading, and a matrix cannot be fitted from values carrying a correction the sensor no longer applies (Bodner, or a matrix replaced by a spectral correction)."
     IDS_CALIB_NEED_REF_WHITE    "The reference document has no measured white: measure its white (or primaries with white) first."
-    IDS_SPECTRAL_SUPERSEDE_WARN "The matrix calibration will be fitted on, and applied to, the meter's uncorrected readings.\nThe spectral correction (%s) stays loaded but will no longer affect the values shown. To use it again, load it again in the sensor properties.\n\nContinue?"
+    IDS_SPECTRAL_SUPERSEDE_WARN "The matrix calibration will be fitted on, and applied to, the meter's uncorrected readings.\nThe spectral correction (%s) stays loaded but will no longer affect the values shown. To use it again: for a correction file, load the file again in the sensor properties; for a Display Type entry, choose a plain Display Type and press OK, then choose the entry again.\n\nContinue?"
     IDS_SPECTRAL_STATUS_INACTIVE_FMT "Spectral correction: %s (loaded, not applied: a matrix calibration is in use)"
     IDS_SPECTRAL_STATUS_DISPTYPE_FMT "Spectral correction: %s (from the Display Type)"
     IDS_SPECTRAL_UNIT_MISMATCH  "The spectral correction in this file was derived for meter serial %s; the connected meter is %s. It has been derived again from the connected meter."
