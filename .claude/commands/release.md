@@ -8,7 +8,7 @@ else, and at the end give them an exact, short list of anything only they can do
 
 Environment:
 - Toolchain example: **Visual Studio 18 Community** (adjust paths to your install), with the
-  MSVC **v142** toolset and MFC components installed (every `.vcxproj` uses `PlatformToolset v142`).
+  MSVC **v143** toolset and MFC components installed (every `.vcxproj` uses `PlatformToolset v143`).
   Console build binary: `C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com`
 - Solution `ColorHCFR_VS2019.sln`, active config **`Release|Win32`** (Win32 only; no x64).
 - MSI project `ColorHCFR_VS2019.vdproj` is in the solution and is set to build in
@@ -82,6 +82,10 @@ build variant (blocks until done; `devenv.exe` would return immediately).
 - Full solution (all 6 resource `.vcxproj`s, so every satellite DLL is current, plus the MSI,
   which the solution builds in `Release|Win32`):
   `"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com" ColorHCFR_VS2019.sln /Build "Release|Win32"`
+- On a Windows-on-ARM machine, skip the full-solution devenv line above: build the solution with
+  `C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\arm64\MSBuild.exe` (`-p:Configuration=Release -p:Platform=Win32`), which
+  selects the native `HostArm64\x86` compiler, then run the `/Project` line below for the MSI.
+  The packaged binaries are x86 either way.
 - If the MSI didn't come out of that, build it explicitly:
   `"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com" ColorHCFR_VS2019.sln /Project ColorHCFR_VS2019.vdproj /Build "Release|Win32"`
 - If devenv returns at once or sits with no output, check `Get-Process devenv | Select MainWindowTitle`.
