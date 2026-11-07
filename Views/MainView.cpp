@@ -6325,7 +6325,7 @@ void CMainView::On3DDEFilterClicked()
 }
 
 // The measurement-mode combo carries one more item than there are display
-// modes: index 14, "Custom Sequences" (appended in OnInitialUpdate), is an
+// modes: index 14, "Custom Sequences" (appended in OnSetUserInfoPostInitialUpdate), is an
 // ALIAS of the Color Checker grid - m_displayMode stays 11 with m_CCMode ==
 // USER (the loaded-sequence path). Every SetCurSel must map internal state to
 // the combo item through this helper so the alias round-trips.

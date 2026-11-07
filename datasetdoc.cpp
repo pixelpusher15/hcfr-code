@@ -5065,7 +5065,7 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 	if ( nRows <= 0 )
 	{
 		CString fmt, msg;
-		fmt.LoadString ( IDS_CSV_FILE_NOT_FOUND );
+		fmt.LoadString ( nRows == 0 ? IDS_CSV_NO_ROWS : IDS_CSV_FILE_NOT_FOUND );	// -1 = could not open
 		msg.Format ( fmt, path );
 		AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
 		return false;

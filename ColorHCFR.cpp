@@ -194,10 +194,6 @@ CDataSetDoc * GetDataRef()	//Ki
 	return theApp.m_pReferenceData; 
 }
 
-// Import-range guard: an EXTENDED (whiter-than-white) USER patch list carries super-white
-// codes (>100%), and only a 16-235 output can emit them - a Full output clamps 236-255 to
-// 255 at the encoder, silently destroying the gradations. Warn ONLY for that. (Legal/Full
-// vs the radio is a display-range chain setting HCFR cannot verify, so it is not flagged.)
 // The active document's active user patch set, or NULL (no main window / no
 // active child / no document / empty collection). Same MDI walk the pre-v10
 // migration in CMeasure::GetCC24Sat uses.
@@ -231,6 +227,10 @@ void RefreshCCStateAfterSweep(const CMeasure * pSwept)
 		( (CMultiFrame *) pChild ) -> RefreshCCState ();
 }
 
+// Import-range guard: an EXTENDED (whiter-than-white) USER patch list carries super-white
+// codes (>100%), and only a 16-235 output can emit them - a Full output clamps 236-255 to
+// 255 at the encoder, silently destroying the gradations. Warn ONLY for that. (Legal/Full
+// vs the radio is a display-range chain setting HCFR cannot verify, so it is not flagged.)
 // Shared by the References prop-page combo and the MainView Color-Checker picker.
 void GuardCCModeOutputRange(int ccMode)
 {
