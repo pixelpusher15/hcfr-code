@@ -2816,6 +2816,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	// hints so sweeps don't pay for combo rebuilds.
 	if ( lHint == UPD_EVERYTHING || lHint == UPD_ALLSATURATIONS )
 		UpdateParamCombos();
+	if ( lHint == UPD_EVERYTHING )
+		SyncModeComboToCCMode();
 
 	// Reference TF changes (Preferences apply, a file load overwriting preferences)
 	// arrive as UPD_EVERYTHING, which is also the initial and plain UpdateAllViews
@@ -6329,6 +6331,12 @@ void CMainView::On3DDEFilterClicked()
 // the combo item through this helper so the alias round-trips.
 #define MODECOMBO_CUSTOM_SEQUENCES	14
 
+// The mode-11 steps combo lists either the built-in CC sets (item data = the
+// CCPatterns value) or the document's sequences (item data = this + set index).
+// The CC mode is process-wide and can change under a list another view built,
+// so an item says for itself what it selects.
+#define CCSTEPS_SEQUENCE_DATA		1000
+
 int CMainView::ModeComboIndexFor(int mode)
 {
 	if ( mode == 11 && GetConfig () -> m_CCMode == USER )
@@ -6788,13 +6796,13 @@ void CMainView::UpdateParamCombos()
 				if ( GetConfig () -> m_CCMode == USER )
 				{
 					// Custom Sequences (mode-combo alias state): the combo lists
-					// the document's loaded sequences; item data = set index.
+					// the document's loaded sequences (CCSTEPS_SEQUENCE_DATA).
 					// Complements the stats-bar name-chip picker in the standard
 					// switcher position.
 					for ( int k = 0; k < pMeasure -> GetUserPatchSetCount (); k++ )
 					{
 						int idx = m_comboSteps.AddString ( CString ( pMeasure -> GetUserPatchSet ( k ) -> name.c_str () ) );
-						m_comboSteps.SetItemData ( idx, k );
+						m_comboSteps.SetItemData ( idx, CCSTEPS_SEQUENCE_DATA + k );
 						if ( k == pMeasure -> GetActiveUserPatchSetIndex () )
 							m_comboSteps.SetCurSel ( idx );
 					}
@@ -6957,11 +6965,10 @@ void CMainView::OnSelchangeComboSteps()
 
 	if ( m_displayMode == 11 )
 	{
-		if ( GetConfig () -> m_CCMode == USER )
+		if ( data >= CCSTEPS_SEQUENCE_DATA )
 		{
-			// Custom Sequences (mode-combo alias state): the dropdown lists the
-			// loaded sequences, so the data is a set index.
-			GetDocument () -> SwitchUserPatchSet ( data );
+			// Custom Sequences (mode-combo alias state): a loaded sequence.
+			GetDocument () -> SwitchUserPatchSet ( data - CCSTEPS_SEQUENCE_DATA );
 			return;
 		}
 		// Color Checker: the dropdown selects the global CC pattern set (m_CCMode),
