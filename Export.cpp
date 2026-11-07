@@ -1837,13 +1837,23 @@ bool CExport::SaveGrayScaleSheet()
 
 	if ( m_bExportStimulus )
 	{
-		// Grayscale drive is neutral: R = G = B = the gray level %.
+		// Prefer the drive stimulus captured with each reading, as the primaries and
+		// color-checker sheets do: the level rebuilt from the CURRENT round-down,
+		// 10-bit and 16-235 settings is a drive that was never sent once any of them
+		// changed after measuring. That rebuilt level (neutral: R = G = B = the gray
+		// level %) stays the fallback for readings taken before stimulus capture.
 		for (i=0; i<3; i++)
 		{
 			Rows.RemoveAll();
 			Rows.Add(legendStimRGB[i]);
 			for(j=0;j<size;j++)
-				Rows.Add((float)(m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
+			{
+				CColor gc = m_pDoc->GetMeasure()->GetGray(j);
+				if ( gc.isValid() && gc.HasStimulusValue() )
+					Rows.Add((float)gc.GetStimulusValue()[i]);
+				else
+					Rows.Add((float)(m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
+			}
 			result&=graySS.AddRow(Rows,rowNb,m_doReplace);
 			rowNb++;
 		}
