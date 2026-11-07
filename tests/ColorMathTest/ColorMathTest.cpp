@@ -15,7 +15,8 @@
 // T14 asserts the CsvPercentToCode inverse round-trips every code the decode distinguishes,
 // T19 asserts the #193 archive extension trailer: round trip, unknown-tag skip,
 // legacy bytes, rejections, the primitives, append-only values, and the legacy store,
-// and T22 asserts the test-color window paints each patch's own code.
+// T22 asserts the test-color window paints each patch's own code, and T41 asserts the
+// saturation-tracking hue/luminance errors and anchor transform.
 // The .chc round-trip originally planned for the T7
 // slot needs app-level linkage and is deliberately still not in this console harness.
 
@@ -25,6 +26,7 @@
 #include "../../libHCFR/ArchiveTags.h"
 #include "../../libHCFR/SpectralCorrection.h"
 #include <limits>
+#include "../../libHCFR/SaturationTracking.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -2747,6 +2749,48 @@ namespace T32Spectral
         CheckMatrix("(f) native method basis, driver-corrected record -> M",
                     EffectiveSensorMatrix(CALIB_HCFR_DEFAULT, FIT_BASIS_NATIVE, drv, M), M, 1e-14);
     }
+
+    // (g) The matrix-calibration refusal (PR #237 review R1). A record the driver
+    // applies itself (basis DRIVER_CORRECTED) means the meter reports corrected
+    // readings: a matrix fitted on them would be applied to native readings once
+    // the record is cleared, so every matrix calibration entry point refuses. Every
+    // source x basis cell, stated independently: refused only for a present record
+    // with basis DRIVER_CORRECTED. The absent record carries DRIVER_CORRECTED as
+    // its basis, so a predicate that ignored IsPresent() fails here.
+    static void CheckMatrixCalibrationAllowed()
+    {
+        const int sources[] = { SPECTRAL_SOURCE_NONE, SPECTRAL_SOURCE_FILE, SPECTRAL_SOURCE_DISPLAY_TYPE };
+        const int bases[]   = { FIT_BASIS_UNKNOWN, FIT_BASIS_NATIVE, FIT_BASIS_DRIVER_CORRECTED };
+        int cells = 0, refused = 0;
+        for (int si = 0; si < 3; ++si)
+            for (int bi = 0; bi < 3; ++bi)
+            {
+                SpectralCorrectionRecord rec;
+                rec.source = sources[si];
+                rec.basis  = bases[bi];
+                const bool want = !( sources[si] != SPECTRAL_SOURCE_NONE && bases[bi] == FIT_BASIS_DRIVER_CORRECTED );
+                const bool got  = MatrixCalibrationAllowed(rec);
+                if (got != want)
+                    Fail("T32 (g) source %d basis %d: MatrixCalibrationAllowed %d, want %d",
+                         sources[si], bases[bi], (int) got, (int) want);
+                if (!got)
+                    ++refused;
+                ++cells;
+            }
+        if (cells != 9 || refused != 2)
+            Fail("T32 (g) table has %d cells and %d refusals, want 9 and 2", cells, refused);
+        // A default-constructed record (no spectral correction at all) allows it,
+        // and so does a cleared driver-corrected one.
+        SpectralCorrectionRecord none;
+        if (!MatrixCalibrationAllowed(none))
+            Fail("T32 (g) a default record refuses a matrix calibration");
+        SpectralCorrectionRecord cleared;
+        cleared.source = SPECTRAL_SOURCE_FILE;
+        cleared.basis  = FIT_BASIS_DRIVER_CORRECTED;
+        cleared.Clear();
+        if (!MatrixCalibrationAllowed(cleared))
+            Fail("T32 (g) a cleared driver-corrected record still refuses a matrix calibration");
+    }
 }
 
 static void RunT32()
@@ -2758,6 +2802,7 @@ static void RunT32()
     T32Spectral::CheckRecord();
     T32Spectral::CheckPersistedNumbers();
     T32Spectral::CheckDispatch();
+    T32Spectral::CheckMatrixCalibrationAllowed();
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2806,6 +2851,225 @@ static void RunT13()
     printf("  %d HLG black cases checked\n", cases);
 }
 
+//////////////////////////////////////////////////////////////////////////
+// T41 - saturation-tracking oracle (pure assertion, no golden file). The
+// "Saturation - shifts" view's hue error, luminance error and anchor-preview
+// transform (libHCFR/SaturationTracking). Synthetic points about a D65-like
+// white in u'v': a known rotation must read back as that many degrees, wrapped
+// to -180..180; the anchor transform must put the anchor point itself on its
+// target (that is what the knob settings are chosen for); a point with no
+// error must come back unchanged; an anchor with no defined hue (target on the
+// white) must be the identity.
+//////////////////////////////////////////////////////////////////////////
+namespace T41
+{
+    const double kUw = 0.1978, kVw = 0.4683;    // u'v' of the synthetic white
+    const double kPi = 3.14159265358979323846;
+
+    // A point at polar (r, deg) about the white, as XYZ with luminance Y
+    static void Polar(double r, double deg, double Y, double xyz[3])
+    {
+        double u = kUw + r * cos(deg * kPi / 180.0);
+        double v = kVw + r * sin(deg * kPi / 180.0);
+        double X, Yo, Z;
+        SatTrackUvYToXYZ(u, v, Y, X, Yo, Z);
+        xyz[0] = X; xyz[1] = Yo; xyz[2] = Z;
+    }
+
+    static void Uv(const double xyz[3], double & u, double & v)
+    {
+        SatTrackXYZToUv(xyz[0], xyz[1], xyz[2], u, v);
+    }
+}
+
+static void RunT41()
+{
+    printf("T41 saturation-tracking oracle...\n");
+    using namespace T41;
+    int checks = 0;
+
+    // 1. Hue error of a known rotation, both signs and across the wrap
+    static const double rotations[] = { 5.0, -5.0, 0.0, 37.5, 175.0, 190.0, -190.0 };
+    static const double expected[]  = { 5.0, -5.0, 0.0, 37.5, 175.0, -170.0, 170.0 };
+    for (int i = 0; i < _countof(rotations); i++)
+    {
+        const double base = 20.0;                   // target direction, degrees
+        double t[3], m[3], ut, vt, um, vm;
+        Polar(0.08, base, 30.0, t);
+        Polar(0.08, base + rotations[i], 30.0, m);
+        Uv(t, ut, vt);
+        Uv(m, um, vm);
+        double h = SatTrackHueErrorDeg(um, vm, ut, vt, kUw, kVw);
+        if (fabs(h - expected[i]) > 1e-9)
+            Fail("T41 rotation %g: hue error %.12f, want %.12f +/- 1e-9", rotations[i], h, expected[i]);
+        checks++;
+    }
+    // A point on the white has no hue: 0 by definition
+    if (SatTrackHueErrorDeg(kUw, kVw, kUw + 0.05, kVw, kUw, kVw) != 0.0)
+        Fail("T41 measured on the white: hue error not 0");
+    if (SatTrackHueErrorDeg(kUw + 0.05, kVw, kUw, kVw, kUw, kVw) != 0.0)
+        Fail("T41 target on the white: hue error not 0");
+    checks += 2;
+
+    // 2. Radial and luminance errors of known ratios
+    {
+        double e = SatTrackRadialErrorPct(kUw + 0.066, kVw, kUw + 0.06, kVw, kUw, kVw);
+        if (fabs(e - 10.0) > 1e-9)
+            Fail("T41 radial 0.066/0.060: %.12f, want 10 +/- 1e-9", e);
+        double l = SatTrackLuminanceErrorPct(33.0, 30.0);
+        if (fabs(l - 10.0) > 1e-9)
+            Fail("T41 luminance 33/30: %.12f, want 10 +/- 1e-9", l);
+        if (SatTrackLuminanceErrorPct(5.0, 0.0) != 0.0)
+            Fail("T41 luminance against a zero target: not 0");
+        checks += 3;
+    }
+
+    // 3. The anchor point lands on its target, and the anchor reads the
+    //    errors that were put in
+    static const struct { double dHue, kSat, kLum; } errs[] =
+    {
+        { 7.0, 1.12, 0.93 }, { -4.5, 0.85, 1.08 }, { 0.0, 1.0, 1.0 }, { 30.0, 1.5, 0.5 }
+    };
+    for (int i = 0; i < _countof(errs); i++)
+    {
+        double t[3], m[3], out[3];
+        Polar(0.07, 112.0, 25.0, t);
+        Polar(0.07 * errs[i].kSat, 112.0 + errs[i].dHue, 25.0 * errs[i].kLum, m);
+        SatTrackAnchor a = SatTrackComputeAnchor(m, t, kUw, kVw);
+        if (!a.valid)
+        {
+            Fail("T41 anchor case %d: not valid", i);
+            continue;
+        }
+        if (fabs(a.hueDeg - errs[i].dHue) > 1e-9
+            || fabs(a.satPct - 100.0 * (errs[i].kSat - 1.0)) > 1e-9
+            || fabs(a.lumPct - 100.0 * (errs[i].kLum - 1.0)) > 1e-9)
+            Fail("T41 anchor case %d: errors H %.12f S %.12f L %.12f, want %g %g %g (+/- 1e-9)", i,
+                 a.hueDeg, a.satPct, a.lumPct, errs[i].dHue, 100.0 * (errs[i].kSat - 1.0), 100.0 * (errs[i].kLum - 1.0));
+        if (!SatTrackApplyAnchor(a, m, out))
+            Fail("T41 anchor case %d: apply failed", i);
+        double uo, vo, ut, vt;
+        Uv(out, uo, vo);
+        Uv(t, ut, vt);
+        if (fabs(uo - ut) > 1e-9 || fabs(vo - vt) > 1e-9 || fabs(out[1] - t[1]) > 1e-9)
+            Fail("T41 anchor case %d: anchor point lands at u'v'Y (%.12f %.12f %.12f), target (%.12f %.12f %.12f) +/- 1e-9",
+                 i, uo, vo, out[1], ut, vt, t[1]);
+        checks += 2;
+    }
+
+    // 4. A point with zero error is unchanged: an anchor that measured no
+    //    error (anchor point == target) moves no other point either
+    {
+        double t[3], p[3], q[3], out[3];
+        Polar(0.07, 250.0, 12.0, t);
+        SatTrackAnchor a = SatTrackComputeAnchor(t, t, kUw, kVw);
+        if (!a.valid || a.hueDeg != 0.0 || a.satPct != 0.0 || a.lumPct != 0.0)
+            Fail("T41 zero-error anchor: valid %d H %.17g S %.17g L %.17g, want valid and exactly 0",
+                 (int)a.valid, a.hueDeg, a.satPct, a.lumPct);
+        Polar(0.03, 247.0, 4.0, p);
+        Polar(0.11, 255.0, 20.0, q);
+        const double * pts[3] = { t, p, q };
+        for (int k = 0; k < 3; k++)
+        {
+            SatTrackApplyAnchor(a, pts[k], out);
+            for (int c = 0; c < 3; c++)
+                if (fabs(out[c] - pts[k][c]) > 1e-9)
+                    Fail("T41 zero-error anchor moved point %d component %d: %.12f -> %.12f (+/- 1e-9)",
+                         k, c, pts[k][c], out[c]);
+            checks++;
+        }
+    }
+
+    // 5. No defined hue at the anchor (target on the white): the identity, exactly
+    {
+        double w[3], m[3], out[3];
+        Polar(0.0, 0.0, 50.0, w);
+        Polar(0.05, 10.0, 40.0, m);
+        SatTrackAnchor a = SatTrackComputeAnchor(m, w, kUw, kVw);
+        if (a.valid)
+            Fail("T41 target on the white: anchor reported valid");
+        SatTrackApplyAnchor(a, m, out);
+        if (out[0] != m[0] || out[1] != m[1] || out[2] != m[2])
+            Fail("T41 invalid anchor is not the identity");
+        checks += 2;
+    }
+
+    // 6. A correction that pushes a point past the spectrum locus (Z < 0) is
+    //    refused, and the output is the unchanged input. Yellow-like point at
+    //    u'v' (0.2027, 0.5662), Z ~ 3% of Y (a measured BT.2020 yellow), with
+    //    an anchor that reads 10 percent undersaturated: scaling its radius by
+    //    1.1 puts 12 - 3u - 20v below 0
+    {
+        double t[3], m[3], y[3], out[3];
+        Polar(0.08, 90.0, 30.0, t);
+        Polar(0.08 / 1.1, 90.0, 30.0, m);           // anchor: 1/1.1 of the target radius
+        SatTrackAnchor a = SatTrackComputeAnchor(m, t, kUw, kVw);
+        double X, Yo, Z;
+        SatTrackUvYToXYZ(0.2027, 0.5662, 81.6, X, Yo, Z);
+        y[0] = X; y[1] = Yo; y[2] = Z;
+        if (!(Z > 0.0))
+            Fail("T41 locus case: synthetic yellow has Z %.6f, want > 0", Z);
+        bool ok = SatTrackApplyAnchor(a, y, out);
+        if (ok)
+            Fail("T41 locus case: correction past the locus was accepted");
+        if (out[0] != y[0] || out[1] != y[1] || out[2] != y[2])
+            Fail("T41 locus case: refused correction did not return the input");
+        checks += 3;
+    }
+
+    // 7. An anchor ON the locus is accepted: a target with Z exactly 0 (the
+    //    BT.2020 red corner, xy 0.708 0.292) and a measured point that is also
+    //    on the locus (Z = 0, as a simulated sensor reports a pure red) at
+    //    another x and Y. The anchor point must land on the target; its Z comes
+    //    back as round-off of either sign (about a quarter of this 8 x 5 x 5
+    //    grid goes negative, at -1e-14 or so), and that must not refuse it.
+    {
+        int refused = 0, cases = 0;
+        for (int iy = 0; iy < 8; iy++)
+        for (int im = 0; im < 5; im++)
+        for (int ix = 0; ix < 5; ix++)
+        {
+            const double ty = 3.0 + 2.5 * iy;
+            double t[3] = { ty * 0.708 / 0.292, ty, 0.0 };
+            double ut, vt, out[3];
+            Uv(t, ut, vt);
+            const double my = ty * (0.80 + 0.05 * im), mx = 0.708 + 0.01 * ix;
+            double m[3] = { my * mx / (1.0 - mx), my, 0.0 };
+            SatTrackAnchor a = SatTrackComputeAnchor(m, t, kUw, kVw);
+            cases++;
+            if (!a.valid || !SatTrackApplyAnchor(a, m, out))
+            {
+                refused++;
+                continue;
+            }
+            double uo, vo;
+            Uv(out, uo, vo);
+            if (fabs(uo - ut) > 1e-9 || fabs(vo - vt) > 1e-9 || fabs(out[1] - ty) > 1e-9 || out[2] < 0.0 || out[2] > 1e-9 * ty)
+                Fail("T41 locus target Y %g: lands at u'v'Y (%.12f %.12f %.12f) Z %.3g, target (%.12f %.12f %.12f) Z 0",
+                     ty, uo, vo, out[1], out[2], ut, vt, ty);
+        }
+        if (refused)
+            Fail("T41 locus target: %d of %d anchor points refused", refused, cases);
+
+        // Deterministic form of the same round-off: a valid, zero-error anchor
+        // applied to a locus color whose Z is -1e-13 * Y (what the u'v' round
+        // trip can return for Z = 0) is accepted with Z clamped to exactly 0;
+        // at -1e-6 * Y, far beyond round-off, it is refused
+        const double ty = 26.27;
+        double t[3] = { ty * 0.708 / 0.292, ty, 0.0 };
+        SatTrackAnchor a = SatTrackComputeAnchor(t, t, kUw, kVw);
+        double y1[3] = { t[0], ty, -1e-13 * ty }, y2[3] = { t[0], ty, -1e-6 * ty }, out[3] = { 0.0, 0.0, 0.0 };
+        if (!a.valid || !SatTrackApplyAnchor(a, y1, out) || out[2] != 0.0 || fabs(out[1] - ty) > 1e-9)
+            Fail("T41 locus round-off: Z = -1e-13 Y not accepted and clamped (valid %d, Z out %.3g)", (int)a.valid, out[2]);
+        if (SatTrackApplyAnchor(a, y2, out))
+            Fail("T41 locus round-off: Z = -1e-6 Y accepted");
+        cases += 2;
+        checks += cases;
+    }
+
+    printf("  %d saturation-tracking checks\n", checks);
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -2838,6 +3102,7 @@ int main(int argc, char* argv[])
     RunT19();
     RunT32();
     RunT22();
+    RunT41();
 
     if (g_failures)
     {

@@ -169,10 +169,12 @@ int LoadSensorCalibration(CArchive& ar, SensorCalibrationFields& f)
 				{
 					// A written record always names its source and its basis; a
 					// value outside the known ones comes from a newer HCFR. Source
-					// NONE is not one of those: the writer emits this tag only for a
-					// present record, so NONE here is corruption.
+					// NONE and basis UNKNOWN are not among those: the writer emits
+					// this tag only for a present record, and every record is given
+					// a NATIVE or DRIVER_CORRECTED basis when it is made, so either
+					// one here is corruption.
 					f.spectral.Serialize ( ext.Value() );
-					if ( f.spectral.source == SPECTRAL_SOURCE_NONE )
+					if ( f.spectral.source == SPECTRAL_SOURCE_NONE || f.spectral.basis == FIT_BASIS_UNKNOWN )
 						AfxThrowArchiveException ( CArchiveException::badSchema );
 					if ( f.spectral.source < SPECTRAL_SOURCE_FILE || f.spectral.source > SPECTRAL_SOURCE_DISPLAY_TYPE )
 						throw new CNewerSchemaException ( "CSensor", version, false, "spectral correction source" );

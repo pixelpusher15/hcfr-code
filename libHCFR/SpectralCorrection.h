@@ -143,4 +143,14 @@ struct SpectralCorrectionRecord
 Matrix EffectiveSensorMatrix(int calibrationMethod, int fitBasis, const SpectralCorrectionRecord& rec,
                              const Matrix& sensorToXYZ);
 
+// Whether a matrix calibration (a manual, simultaneous or existing-reference fit,
+// or a correction file) may be made while the sensor holds this record. False only
+// for a present record the driver applies itself (basis DRIVER_CORRECTED): the
+// meter then reports readings that already carry the spectral correction, so a
+// matrix would be fitted on corrected readings and, once the record and its sample
+// are cleared, applied to native ones. The calibration is refused instead (the
+// user clears the spectral correction first). A NATIVE record allows it: raw is
+// native and the record stays dormant under the matrix. T32 pins the table.
+bool MatrixCalibrationAllowed(const SpectralCorrectionRecord& rec);
+
 #endif // SPECTRALCORRECTION_H_INCLUDED

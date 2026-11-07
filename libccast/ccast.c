@@ -46,6 +46,7 @@
 
 #define START_TRIES 6
 #define LOAD_TRIES 4
+#define READY_WAIT_MS 8000		/* HCFR: wait for the receiver's "ready" status */
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - */
 
@@ -567,7 +568,34 @@ static int start_ccast(ccast *p) {
 			goto retry;
 		}
 
-		// Hmm. Should we wait for a RECEIVER_STATUS message with id 0 here ?
+		/* The LAUNCH reply arrives while the receiver page is still loading (its statusText
+		   is "Pattern generator starting..."); it posts "Pattern generator ready" in an
+		   unsolicited RECEIVER_STATUS once it can draw. Patches sent before that are
+		   acknowledged but never shown (seen when the device wakes from its screensaver
+		   or another app had the screen), so wait for "ready" here, up to READY_WAIT_MS,
+		   and fall back to the fixed load_delay if it never comes. HCFR addition. */
+		if (p->patgenrcv) {
+			int waited = 0, step = 500, ready = 0;
+			while (waited < READY_WAIT_MS) {
+				int grv = get_a_reply_id(p, receiver_chan, 0, &rmes, step);
+				waited += step;
+				if (grv == 1)
+					break;				/* Connection error: let the first load deal with it */
+				if (grv == 0) {
+					yajl_val stn;
+					if (rmes.mtype != NULL && strcmp(rmes.mtype, "RECEIVER_STATUS") == 0
+					 && rmes.tnode != NULL
+					 && (stn = yajl_tree_get_first(rmes.tnode, "statusText", yajl_t_string)) != NULL
+					 && YAJL_GET_STRING(stn) != NULL
+					 && strstr(YAJL_GET_STRING(stn), "ready") != NULL)
+						ready = 1;
+					ccmes_empty(&rmes);
+					if (ready)
+						break;
+				}
+			}
+			DBG((g_log,0,"start_ccast: receiver %s after %d msec\n", ready ? "ready" : "NOT ready (timeout)", waited))
+		}
 
 		/* If we get here, we assume that we've succeeded */
 		break;

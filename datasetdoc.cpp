@@ -78,6 +78,7 @@ static char THIS_FILE[] = __FILE__;
 // Defined below (near the calibration entry points); used by the new-document
 // wizard's Argyll branch as well.
 static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor, LPCSTR fileToLoad = NULL);
+static bool RefuseMatrixCalOverDriverSpectral(CSensor* pSensor);
 static BOOL LoadCalibrationFileKeepingSpectral(CSensor* pSensor, CString & fileName);
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1832,6 +1833,10 @@ void CDataSetDoc::OnCalibrationSim()
 		return;
 	}
 
+	// Before anything is measured: see RefuseMatrixCalOverDriverSpectral.
+	if ( RefuseMatrixCalOverDriverSpectral(m_pSensor) )
+		return;
+
 	Msg.LoadString ( IDS_RUN_SIM_CALIBRATION );
 	if ( IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_YESNO | MB_ICONQUESTION ) )
 	{
@@ -1880,6 +1885,11 @@ void CDataSetDoc::OnCalibrationExisting()
 		return;
     }
 
+	// Before the fit, and before the save question below (ComputeAdjustmentMatrix
+	// refuses too, but its caller would still offer to save the calibration).
+	if ( RefuseMatrixCalOverDriverSpectral(m_pSensor) )
+		return;
+
     ComputeAdjustmentMatrix();
 	// Save file
 	Msg.LoadString ( IDS_SAVECALDATA );
@@ -1889,15 +1899,33 @@ void CDataSetDoc::OnCalibrationExisting()
 
 }
 
+// A matrix calibration over a spectral correction the driver applies itself (a
+// meter whose calibration matrices are not exposed: record basis DRIVER_CORRECTED,
+// MatrixCalibrationAllowed false) is refused, with the reason, before anything is
+// measured or fitted. That meter's readings already carry the correction, so the
+// matrix would be fitted on corrected readings and then - the record and the
+// driver's sample cleared by SpectralSupersededByMatrixFit - applied to native
+// ones. Clearing the correction first (the sensor page) or keeping it as the
+// method are the two honest options; the message names both. True when refused.
+// Called by every matrix calibration entry point: the manual fit (through
+// ConfirmMatrixCalOverSpectral, and again after its sensor Init), the simultaneous
+// and existing-reference fits (before measuring, and in ComputeAdjustmentMatrix),
+// and the correction file loads (through ConfirmMatrixCalOverSpectral).
+static bool RefuseMatrixCalOverDriverSpectral(CSensor* pSensor)
+{
+	if ( pSensor == NULL || MatrixCalibrationAllowed(pSensor->GetSpectralRecord()) )
+		return false;
+	GetColorApp()->InMeasureMessageBox( _S(IDS_CALIB_SPECTRAL_IN_DRIVER), _S(IDS_ERROR), MB_OK | MB_ICONERROR );
+	return true;
+}
+
 // Before a matrix calibration replaces a spectral correction. Returns false to
 // abort the calibration; clears nothing. The fit sites call
 // SpectralSupersededByMatrixFit once the new correction is installed, so a
 // declined confirmation, a failed Init, an unreadable file or a singular fit
 // changes nothing.
-//   - A record the driver applies itself (a meter whose calibration matrices are
-//     not exposed: basis DRIVER_CORRECTED) cannot stay under a matrix, which would
-//     double-correct: the Yes/No "clear it?" question, as before. Asked whether
-//     or not it is the method in force - a matrix on top of it is the stack.
+//   - A record the driver applies itself (basis DRIVER_CORRECTED) is refused
+//     (RefuseMatrixCalOverDriverSpectral), whether or not it is the method in force.
 //   - Otherwise only when the spectral correction is the method in force: raw is
 //     native, the matrix is fitted on and applied to raw, and the spectral record
 //     stays in the sensor, dormant. The user is told so (OK/Cancel).
@@ -1908,17 +1936,13 @@ void CDataSetDoc::OnCalibrationExisting()
 static bool PeekCalibrationFile(LPCSTR fileName, int& method, int& basis);
 static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor, LPCSTR fileToLoad)
 {
+	if ( RefuseMatrixCalOverDriverSpectral(pSensor) )
+		return false;
 	if ( pSensor == NULL || !pSensor->HasSpectralCorrection() )
 		return true;
 	const SpectralCorrectionRecord & rec = pSensor->GetSpectralRecord();
 	CString msg, title;
 	title.LoadString ( IDS_SPECTRAL_ACTIVE_TITLE );
-	if ( rec.basis == FIT_BASIS_DRIVER_CORRECTED )
-	{
-		msg.LoadString ( IDS_SPECTRAL_CLEAR_FOR_MATRIX );
-		return GetColorApp()->InMeasureMessageBox( msg, title,
-			MB_YESNO | MB_ICONQUESTION ) == IDYES;
-	}
 	if ( !pSensor->UsesSpectralMethod() )
 		return true;
 	int fileMethod = CALIB_HCFR_DEFAULT, fileBasis = FIT_BASIS_NATIVE;
@@ -2028,6 +2052,16 @@ void CDataSetDoc::OnCalibrationManual()
 			Title.LoadString ( IDS_ERROR );
 			strMsg.LoadString ( IDS_ERRINITSENSOR );
 			GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
+			m_pGenerator->Release(-99);
+			return;
+		}
+
+		// Init can turn a native record into a driver-corrected one (a document's
+		// record met by a meter whose matrices are not exposed): asked again here,
+		// before the first patch is measured.
+		if ( RefuseMatrixCalOverDriverSpectral(m_pSensor) )
+		{
+			m_pSensor->Release();
 			m_pGenerator->Release(-99);
 			return;
 		}
@@ -3528,6 +3562,11 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 
 void CDataSetDoc::WaitKey(int Anim)
 {
+	WaitPatternKey(m_pGenerator, Anim);
+}
+
+void CDataSetDoc::WaitPatternKey(CGenerator * pGenerator, int Anim)
+{
 	BOOL	bKeyTyped = FALSE;
 	MSG		Msg;
 	bool	OFF = TRUE;
@@ -3541,15 +3580,15 @@ void CDataSetDoc::WaitKey(int Anim)
 				switch (Anim)
 				{
 					case 1:
-					m_pGenerator->DisplayClipLO();
+					pGenerator->DisplayClipLO();
 					OFF = FALSE;
 					break;
 					case 2:
-					m_pGenerator->DisplayClipHO();
+					pGenerator->DisplayClipHO();
 					OFF = FALSE;
 					break;
 					case 3:
-					m_pGenerator->DisplayNBO();
+					pGenerator->DisplayNBO();
 					OFF = FALSE;
 					break;
 				}
@@ -3560,15 +3599,15 @@ void CDataSetDoc::WaitKey(int Anim)
 				switch (Anim)
 				{
 					case 1:
-					m_pGenerator->DisplayClipL();
+					pGenerator->DisplayClipL();
 					OFF = TRUE;
 					break;
 					case 2:
-					m_pGenerator->DisplayClipH();
+					pGenerator->DisplayClipH();
 					OFF = TRUE;
 					break;
 					case 3:
-					m_pGenerator->DisplayNB();
+					pGenerator->DisplayNB();
 					Sleep(1000);
 					OFF = TRUE;
 					break;
@@ -4937,7 +4976,12 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 
 bool CDataSetDoc::CheckVideoLevel()
 {
-	if ( !m_pGenerator->m_b16_235 && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) != DISPLAY_ccast )
+	return CheckPatternVideoLevel(m_pGenerator);
+}
+
+bool CDataSetDoc::CheckPatternVideoLevel(CGenerator * pGenerator)
+{
+	if ( !pGenerator->m_b16_235 && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) != DISPLAY_ccast )
 	{
 		if (IDYES == GetColorApp()->InMeasureMessageBox( "Caution, pattern is designed for video level output\nand you have selected full range. Continue?", "Pattern display", MB_ICONQUESTION | MB_YESNO ) )
 			return TRUE;
@@ -4959,22 +5003,28 @@ void CDataSetDoc::OnBkgndMeasureReady()
 	{
 		EnterCriticalSection ( & g_CritSec );
 		pos = g_MeasuredColorList.GetHeadPosition ();
+		// The document's first view is its CMainView (the only view class in
+		// the doc template); it is the same for every queued reading, so fetch
+		// it once. Advancing a view iterator per reading ran out after the
+		// first and broke out, leaving the rest neither appended nor freed.
 		POSITION pos2 = g_pDataDocRunningThread -> GetFirstViewPosition ();
+		CView *pView = g_pDataDocRunningThread -> GetNextView ( pos2 );
 		
 		while ( pos )
 		{
-			CView *pView = g_pDataDocRunningThread -> GetNextView ( pos2 );
-			if (!pView)
-				break;
-			int m_d = ((CMainView*)pView)->m_displayMode;
-			int last_minCol = ((CMainView*)pView)->last_minCol;
 			pMeasurement = ( CColor * ) g_MeasuredColorList.GetNext ( pos );
 
-			m_measure.AppendMeasurements(*pMeasurement, m_d, last_minCol );
-			SetModifiedFlag(m_measure.IsModified());
+			if ( pView )
+			{
+				int m_d = ((CMainView*)pView)->m_displayMode;
+				int last_minCol = ((CMainView*)pView)->last_minCol;
 
-			SetSelectedColor ( *pMeasurement );
-			UpdateAllViews(NULL,UPD_FREEMEASUREAPPENDED,this);
+				m_measure.AppendMeasurements(*pMeasurement, m_d, last_minCol );
+				SetModifiedFlag(m_measure.IsModified());
+
+				SetSelectedColor ( *pMeasurement );
+				UpdateAllViews(NULL,UPD_FREEMEASUREAPPENDED,this);
+			}
 
 			delete pMeasurement;
 		}

@@ -431,6 +431,7 @@ public:
 	BOOL IsPrimeWhiteMeasured() const { return m_bPrimeWhiteMeasured; }
 	BOOL IsOnOffWhiteMeasured() const { return m_bOnOffWhiteMeasured; }
 	static bool IsPlaceholderWhite(const CColor & c, bool bOnOff);	// the ctor's nominal white, by value (load-time flag recovery)
+	static bool IsRawlessPlaceholder(const CColor & c, bool bBlack);	// the ctor's top-gray (bBlack false) or on/off-black placeholder: the walks neither recompute nor count it
 
 	BOOL MeasureContrast(CSensor *pSensor, CGenerator *pGenerator);
 	double GetOnOffContrast ();

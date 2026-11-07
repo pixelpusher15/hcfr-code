@@ -20,7 +20,7 @@
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
@@ -28,7 +28,7 @@
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>MultiByte</CharacterSet>
     <UseOfMfc>Static</UseOfMfc>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -89,17 +89,17 @@
     <ClCompile Include="asn1.c" />
     <ClCompile Include="bigint.c" />
     <ClCompile Include="crypto_misc.c" />
-    <ClCompile Include="gen_cert.c" />
     <ClCompile Include="hmac.c" />
     <ClCompile Include="loader.c" />
-    <ClCompile Include="md2.c" />
     <ClCompile Include="md5.c" />
-    <ClCompile Include="openssl.c" />
     <ClCompile Include="os_port.c" />
     <ClCompile Include="p12.c" />
     <ClCompile Include="rc4.c" />
     <ClCompile Include="rsa.c" />
     <ClCompile Include="sha1.c" />
+    <ClCompile Include="sha256.c" />
+    <ClCompile Include="sha384.c" />
+    <ClCompile Include="sha512.c" />
     <ClCompile Include="tls1.c" />
     <ClCompile Include="tls1_clnt.c" />
     <ClCompile Include="tls1_svr.c" />

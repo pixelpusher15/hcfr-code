@@ -771,8 +771,8 @@ STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "A propos du Colorimètre HCFR"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    CONTROL         IDB_LOGO,IDC_STATIC,"Statique",SS_BITMAP,7,7,172,62
-    LTEXT           "Version 4.2.1.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
+    CONTROL         IDB_LOGO,IDC_STATIC,"Static",SS_BITMAP,7,7,172,62
+    LTEXT           "Version 4.2.2.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
     LTEXT           "Copyright (C) 2012-2026 Hcfr Project\nCopyright (C) 2005-2008 Association Homecinema Francophone",IDC_STATIC2,7,88,168,28
     LTEXT           "hcfr.sourceforge.net",IDC_HOMECINEMA_HYPERLINK,7,119,80,8
     LTEXT           "IDC_PLACEHOLDER",IDC_PLACEHOLDER,4,136,177,117
@@ -1178,51 +1178,51 @@ EXSTYLE WS_EX_APPWINDOW
 CAPTION "Choisissez une mire"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
 BEGIN
-    GROUPBOX        "Mires Outils",IDC_STATIC,4,64,192,79,0,WS_EX_TRANSPARENT
     GROUPBOX        "Couleurs",IDC_STATIC,4,6,192,56,0,WS_EX_TRANSPARENT
-    PUSHBUTTON      "Niveaux Blanc",IDC_PATTERN_WHITE_LEVEL,129,46,60,10
-    PUSHBUTTON      "Niveau Noir",IDC_PATTERN_BLACK_LEVEL,69,46,60,10
-    PUSHBUTTON      "Dégradé",IDC_PATTERN_ALL_SHAD,9,46,60,10
-    PUSHBUTTON      "Dégradé Bleu",IDC_PATTERN_BLUE_SHAD,129,36,60,10
-    PUSHBUTTON      "Dégradé Vert",IDC_PATTERN_GREEN_SHAD,69,36,60,10
-    PUSHBUTTON      "Dégradé Rouge",IDC_PATTERN_RED_SHAD,9,36,60,10
-    PUSHBUTTON      "Bleu",IDC_PATTERN_BLUE,69,26,30,10
-    PUSHBUTTON      "Vert",IDC_PATTERN_GREEN,39,26,30,10
-    PUSHBUTTON      "Rouge",IDC_PATTERN_RED,9,26,30,10
-    PUSHBUTTON      "Couleur",IDC_PATTERN_COLOR,159,16,30,10
-    PUSHBUTTON      "Noir +",IDC_PATTERN_BLACK_P,129,16,30,10
-    PUSHBUTTON      "Gris",IDC_PATTERN_GREY,99,16,30,10
-    PUSHBUTTON      "Blanc",IDC_PATTERN_WHITE,69,16,30,10
-    PUSHBUTTON      "Noir",IDC_PATTERN_BLACK,39,16,30,10
     PUSHBUTTON      "N&B",IDC_PATTERN_BW,9,16,30,10
-    PUSHBUTTON      "Image de test",IDC_PATTERN_PICTURE,94,126,94,10
-    PUSHBUTTON      "Lignes Horizontales",IDC_PATTERN_H_LINE,94,106,94,10
-    PUSHBUTTON      "Géometrie",IDC_PATTERN_GEOM,94,86,94,10
-    PUSHBUTTON      "Lignes Verticales",IDC_PATTERN_V_LINE,94,96,94,10
-    PUSHBUTTON      "Convergence",IDC_PATTERN_CONV_GRID,94,76,94,10
-    PUSHBUTTON      "Points Bleus",IDC_PATTERN_BLUE_DOT,10,106,79,10
-    PUSHBUTTON      "Points Verts",IDC_PATTERN_GREEN_DOT,10,96,79,10
-    PUSHBUTTON      "Points Rouges",IDC_PATTERN_RED_DOT,10,86,79,10
-    PUSHBUTTON      "Points Blancs",IDC_PATTERN_WHITE_DOT,10,76,79,10
-    PUSHBUTTON      "Jaune",IDC_PATTERN_YELLOW,159,26,30,10
-    PUSHBUTTON      "Magenta",IDC_PATTERN_MAGENTA,129,26,30,10
+    PUSHBUTTON      "Noir",IDC_PATTERN_BLACK,39,16,30,10
+    PUSHBUTTON      "Blanc",IDC_PATTERN_WHITE,69,16,30,10
+    PUSHBUTTON      "Gris",IDC_PATTERN_GREY,99,16,30,10
+    PUSHBUTTON      "Noir +",IDC_PATTERN_BLACK_P,129,16,30,10
+    PUSHBUTTON      "Couleur",IDC_PATTERN_COLOR,159,16,30,10
+    PUSHBUTTON      "Rouge",IDC_PATTERN_RED,9,26,30,10
+    PUSHBUTTON      "Vert",IDC_PATTERN_GREEN,39,26,30,10
+    PUSHBUTTON      "Bleu",IDC_PATTERN_BLUE,69,26,30,10
     PUSHBUTTON      "Cyan",IDC_PATTERN_CYAN,99,26,30,10
+    PUSHBUTTON      "Magenta",IDC_PATTERN_MAGENTA,129,26,30,10
+    PUSHBUTTON      "Jaune",IDC_PATTERN_YELLOW,159,26,30,10
+    PUSHBUTTON      "Dégradé Rouge",IDC_PATTERN_RED_SHAD,9,36,60,10
+    PUSHBUTTON      "Dégradé Vert",IDC_PATTERN_GREEN_SHAD,69,36,60,10
+    PUSHBUTTON      "Dégradé Bleu",IDC_PATTERN_BLUE_SHAD,129,36,60,10
+    PUSHBUTTON      "Dégradé",IDC_PATTERN_ALL_SHAD,9,46,60,10
+    PUSHBUTTON      "Niveau Noir",IDC_PATTERN_BLACK_LEVEL,69,46,60,10
+    PUSHBUTTON      "Niveaux Blanc",IDC_PATTERN_WHITE_LEVEL,129,46,60,10
+    GROUPBOX        "Mires Outils",IDC_STATIC,4,64,192,79,0,WS_EX_TRANSPARENT
+    PUSHBUTTON      "Points Blancs",IDC_PATTERN_WHITE_DOT,10,76,79,10
+    PUSHBUTTON      "Convergence",IDC_PATTERN_CONV_GRID,94,76,94,10
+    PUSHBUTTON      "Points Rouges",IDC_PATTERN_RED_DOT,10,86,79,10
+    PUSHBUTTON      "Géometrie",IDC_PATTERN_GEOM,94,86,94,10
+    PUSHBUTTON      "Points Verts",IDC_PATTERN_GREEN_DOT,10,96,79,10
+    PUSHBUTTON      "Lignes Verticales",IDC_PATTERN_V_LINE,94,96,94,10
+    PUSHBUTTON      "Points Bleus",IDC_PATTERN_BLUE_DOT,10,106,79,10
+    PUSHBUTTON      "Lignes Horizontales",IDC_PATTERN_H_LINE,94,106,94,10
     PUSHBUTTON      "Luminosité",IDC_PATTERN_ANIM_B,10,116,79,10
+    PUSHBUTTON      "SMPTE 75%",IDC_PATTERN_SMPTE75,94,116,46,10
+    PUSHBUTTON      "EIA 1956",IDC_PATTERN_1956,140,116,48,10
     PUSHBUTTON      "Contraste",IDC_PATTERN_ANIM_W,10,127,79,10
+    PUSHBUTTON      "Image de test",IDC_PATTERN_PICTURE,94,126,94,10
+    GROUPBOX        "Photos, Iris && Définition ",IDC_STATIC,4,146,192,29
+    PUSHBUTTON      "Analyse de grille",IDC_PATTERN_PICT_GRID,9,159,60,13
+    PUSHBUTTON      "Iris Dynamique",IDC_PATTERN_PICT,69,159,60,12
+    PUSHBUTTON      "Définition ",IDC_PATTERN_PICT_IRIS,129,159,60,12
+    GROUPBOX        "Etude de contraste",IDC_STATIC,3,177,192,29
+    PUSHBUTTON      "Ansi 1",IDC_PATTERN_PICT_CANSI1,9,190,60,12
+    PUSHBUTTON      "Ansi 2",IDC_PATTERN_PICT_CANSI2,69,190,60,12
+    PUSHBUTTON      "Cadres",IDC_PATTERN_PICT_CBOX,129,190,60,12
     LTEXT           "Les touches ""page précédente"" et ""page suivante"", ou ""+"" et ""-"" du pavé numérique ajoutent ou enlèvent des niveaux ou changent de mires.",IDC_STATIC,3,209,193,24
     LTEXT           "Les touches Home ou "" * "" permet de revenir aux valeurs par defaut.",IDC_STATIC,3,236,193,18
-    LTEXT           "Les touches ""ESC"" et ""Enter"" permettent de sortir du mode mire.",IDC_STATIC,3,269,193,16
     LTEXT           "La touche ESPACE modifie l'affichage.",IDC_STATIC,3,256,193,10
-    GROUPBOX        "Photos, Iris && Définition ",IDC_STATIC,4,146,192,29
-    PUSHBUTTON      "Définition ",IDC_PATTERN_PICT_IRIS,129,159,60,12
-    PUSHBUTTON      "Iris Dynamique",IDC_PATTERN_PICT,69,159,60,12
-    PUSHBUTTON      "Analyse de grille",IDC_PATTERN_PICT_GRID,9,159,60,13
-    GROUPBOX        "Etude de contraste",IDC_STATIC,3,177,192,29
-    PUSHBUTTON      "Cadres",IDC_PATTERN_PICT_CBOX,129,190,60,12
-    PUSHBUTTON      "Ansi 2",IDC_PATTERN_PICT_CANSI2,69,190,60,12
-    PUSHBUTTON      "Ansi 1",IDC_PATTERN_PICT_CANSI1,9,190,60,12
-    PUSHBUTTON      "EIA 1956",IDC_PATTERN_1956,140,116,48,10
-    PUSHBUTTON      "SMPTE 75%",IDC_PATTERN_SMPTE75,94,116,46,10
+    LTEXT           "Les touches ""ESC"" et ""Enter"" permettent de sortir du mode mire.",IDC_STATIC,3,269,193,16
 END
 
 IDD_REF_CHECKBOX DIALOG 0, 0, 129, 12
@@ -2297,6 +2297,17 @@ BEGIN
         MENUITEM "Cyan",                        IDM_LUM_GRAPH_CYANSHIFT
         MENUITEM "Magenta",                     IDM_LUM_GRAPH_MAGENTASHIFT
         MENUITEM SEPARATOR
+        MENUITEM "D\xE9calage de saturation",   IDM_SATSHIFT_QTY_SAT
+        MENUITEM "Erreur de teinte",            IDM_SATSHIFT_QTY_HUE
+        MENUITEM "Erreur de luminance",         IDM_SATSHIFT_QTY_LUM
+        POPUP "Point d'ancrage"
+        BEGIN
+            MENUITEM "Aucun",                       IDM_SATSHIFT_ANCHOR_NONE
+            MENUITEM "50%",                         IDM_SATSHIFT_ANCHOR_50
+            MENUITEM "75%",                         IDM_SATSHIFT_ANCHOR_75
+            MENUITEM "100%",                        IDM_SATSHIFT_ANCHOR_100
+        END
+        MENUITEM SEPARATOR
         MENUITEM "Enregistrer...",              IDM_GRAPH_SAVE
         POPUP "Echelle"
         BEGIN
@@ -2337,7 +2348,8 @@ BEGIN
         MENUITEM "Affiche la référence",        IDM_RGB_GRAPH_REFERENCE
         MENUITEM "Affiche la mesure de référence", IDM_RGB_GRAPH_DATAREF
         MENUITEM "Courbe Delta E",              IDM_RGB_GRAPH_DELTAE
-        MENUITEM "avec Gamma",                     IDM_RGB_GRAPH_GAMMA
+        MENUITEM "Balance",                     IDM_RGB_GRAPH_BALANCE
+        MENUITEM "Erreur de luminance",         IDM_RGB_GRAPH_LUMERROR
         MENUITEM SEPARATOR
         MENUITEM "Enregistrer...",              IDM_GRAPH_SAVE
         POPUP "Echelle"
@@ -2429,7 +2441,83 @@ BEGIN
     END
     POPUP "A&vancé"
     BEGIN
-        MENUITEM "&Mires...",                   IDM_PATTERN_DISP_ROOT
+        POPUP "Mires"
+        BEGIN
+            POPUP "&Niveaux"
+            BEGIN
+                MENUITEM "&Noir +1% && +2% barres mobiles", IDM_PATTERN_ANIM_BLACK
+                MENUITEM "&Blanc -1% && -2% barres mobiles", IDM_PATTERN_ANIM_WHITE
+                MENUITEM "&Ecrêtage des ombres",        IDM_PATTERN_CLIPL
+                MENUITEM "&Ecrêtage des hautes lumières", IDM_PATTERN_CLIPH
+                MENUITEM "&Voisinage du Noir",          IDM_PATTERN_NB
+            END
+            POPUP "Netteté && &Résolution"
+            BEGIN
+                MENUITEM "&Alignement && Convergence",   IDM_PATTERN_ALIGN
+                MENUITEM "&Alignement && Uniformité",  IDM_PATTERN_ALIGN2
+                MENUITEM "&IMATEST",                    IDM_PATTERN_SHARP
+                MENUITEM "IS&O 12233:2000",             ID_FOCUSRESOLUTION_ISO12233
+                MENUITEM "&Belle Nuit",                 IDM_PATTERN_BN
+                MENUITEM "BBC HD &Test Card",           ID_FOCUSRESOLUTION_BBCHDTESTCARD
+                MENUITEM "&Phillips PM5644",            ID_FOCUSRESOLUTION_PHILLIPSPM5644
+                MENUITEM "&SMPTE RP-133",               IDM_PATTERN_VSMPTE
+                MENUITEM "&Zone Plate[linéaire]",       ID_FOCUSRESOLUTION_ZONEPLATE
+            END
+            POPUP "&Gradients && Rampes"
+            BEGIN
+                MENUITEM "&Gradient Neutre",            IDM_PATTERN_GRADIENT
+                MENUITEM "Gradients Neutres &Opposés",  IDM_PATTERN_GRADIENT2
+                MENUITEM "RGBYCMW Rampes de Luminance [Ombres]", IDM_PATTERN_LRAMP
+                MENUITEM "RGBYCM Rampes de Saturation [Teintes]", IDM_PATTERN_SRAMP
+                MENUITEM "&Spectre [lumineux/complet/sombre]", IDM_PATTERN_SPECTRUM
+                MENUITEM "&Cercles Chroma-gris",        IDM_PATTERN_ERAMP
+                POPUP "&Gradients Croisés"
+                BEGIN
+                    MENUITEM "Jeux Complet [lumineux]",     ID_CROSSGRADIENTS_FULLSET
+                    MENUITEM "Jeux Complet [sombre]",       ID_CROSSGRADIENTS_FULLSET33090
+                    MENUITEM "Rouge/Vert Gradient Croisé",  IDM_PATTERN_RG
+                    MENUITEM "Rouge/Bleu Gradient Croisé",  IDM_PATTERN_RB
+                    MENUITEM "Vert/Bleu Gradient Croisé",   IDM_PATTERN_GB
+                    MENUITEM "Rouge/Vert [sombre] Gradient Croisé", IDM_PATTERN_RGd
+                    MENUITEM "Rouge/Bleu [sombre] Gradient Croisé", IDM_PATTERN_RBd
+                    MENUITEM "Vert/Bleu [sombre] Gradient Croisé", IDM_PATTERN_GBd
+                END
+                MENUITEM "Granger Rainbow [HSL]",       IDM_PATTERN_GRANGER
+            END
+            POPUP "Images d'&Evaluation"
+            BEGIN
+                MENUITEM "&Rouge",                      IDM_PATTERN_TC0
+                MENUITEM "&Vert",                       IDM_PATTERN_TC1
+                MENUITEM "&Bleu",                       IDM_PATTERN_TC2
+                MENUITEM "&Jaune",                      IDM_PATTERN_TC3
+                MENUITEM "&Cyan",                       IDM_PATTERN_TC4
+                MENUITEM "&Magenta",                    IDM_PATTERN_TC5
+                MENUITEM SEPARATOR
+                MENUITEM "&Teintes de Peau",            IDM_PATTERN_TESTIMG
+                MENUITEM SEPARATOR
+                MENUITEM "&High key",                   IDM_PATTERN_DR0
+                MENUITEM "&Domaine complet",            IDM_PATTERN_DR1
+                MENUITEM "&Low key",                    IDM_PATTERN_DR2
+                MENUITEM SEPARATOR
+                POPUP "Noir && &Blanc"
+                BEGIN
+                    MENUITEM "&Gris",                       IDM_PATTERN_TV
+                    MENUITEM "&Ombres",                     IDM_PATTERN_TV2
+                END
+                MENUITEM SEPARATOR
+                POPUP "Défini par l'utilisateur"
+                BEGIN
+                    MENUITEM "Utilisateur&1",               ID_USERDEFINED_USER1
+                    MENUITEM "Utilisateur&2",               ID_USERDEFINED_USER2
+                    MENUITEM "Utilisateur&3",               ID_USERDEFINED_USER3
+                    MENUITEM "Utilisateur&4",               ID_USERDEFINED_USER4
+                    MENUITEM "Utilisateur&5",               ID_USERDEFINED_USER5
+                    MENUITEM "Utilisateur&6",               ID_USERDEFINED_USER6
+                END
+            END
+            MENUITEM SEPARATOR
+            MENUITEM "&Textures supplémentaires",   IDM_PATTERN_DISPLAY
+        END
         MENUITEM SEPARATOR
         MENUITEM "Préférences...",              IDM_GENERAL_CONFIG
         MENUITEM "Langue...",                   IDM_LANGUAGE
@@ -2642,7 +2730,7 @@ BEGIN
         BEGIN
             MENUITEM "Edition Manuelle matrice XYZ", IDM_MANUALLY_EDIT_SENSOR
             MENUITEM SEPARATOR
-            MENUITEM "Creation à partir de Mesures de Référence Existantes", IDM_CALIBRATION_EXISTING
+            MENUITEM "Création à partir de Mesures de Référence Existantes", IDM_CALIBRATION_EXISTING
             MENUITEM "Fabriquer un étalon à partir de mesures simultanées", IDM_CALIBRATION_SIM
             MENUITEM "Fabriquer un étalon manuellement à partir d'un colorimètre de référence", IDM_CALIBRATION_MANUAL
             MENUITEM "Construire un échantillon spectral de calibration du colorimètre", IDM_CALIBRATION_SPECTRAL
@@ -2944,8 +3032,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 4,2,1,0
- PRODUCTVERSION 4,2,1,0
+ FILEVERSION 4,2,2,0
+ PRODUCTVERSION 4,2,2,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -2963,12 +3051,12 @@ BEGIN
             VALUE "Comments", "Under GPL Licence"
             VALUE "CompanyName", "Association Homecinema Francophone"
             VALUE "FileDescription", "Resources Colorimètre HCFR"
-            VALUE "FileVersion", "4.2.1.0"
+            VALUE "FileVersion", "4.2.2.0"
             VALUE "InternalName", "CHCFR21_FRANCAIS"
             VALUE "LegalCopyright", "Copyright (C) 2005-2026"
             VALUE "OriginalFilename", "CHCFR21_FRANCAIS.DLL"
             VALUE "ProductName", "Colorimètre HCFR langage Français"
-            VALUE "ProductVersion", "4.2.1.0"
+            VALUE "ProductVersion", "4.2.2.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -3066,7 +3154,7 @@ END
 
 STRINGTABLE
 BEGIN
-    IDR_MAINFRAME           "Colorimètre HCFR - 4.2.1.0"
+    IDR_MAINFRAME           "Colorimètre HCFR - 4.2.2.0"
     IDS_CALIB_RGB_MATRIX    "Matrice RGB (ASTM E1455-92)"
     IDS_CALIB_FCMM_NOLUM    "NIST quatre couleurs / FCMM (sans mise à l'échelle de luminance)"
     IDS_CALIB_FCMM_LUM      "NIST quatre couleurs / FCMM (avec mise à l'échelle de luminance)"
@@ -4046,7 +4134,6 @@ BEGIN
     IDM_SINGLE_MEASUREMENT  "Effectue une mesure unique\nEffectue une mesure unique"
     IDM_CONTINUOUS_MEASUREMENT 
                             "Lance ou arrête les mesures en continu\nLance ou arrête les mesures en continu"
-    IDM_PATTERN_DISP_ROOT   "Permet d'afficher des mires..."
     IDM_TOGGLE_TAB          "Affiche les onglets en haut\nOnglets en haut"
     IDM_VIEW_DATASET        "Affiche les mesures\nMesures"
 END
@@ -4355,8 +4442,16 @@ BEGIN
     IDS_GRAPH_NWLUMRESPONSE     "Réponse de luminance au voisinage du blanc"
     IDS_GRAPH_SATSWEEPLUM       "Luminance des balayages de saturation"
     IDS_GRAPH_SATSCANSHIFTS     "Ecarts des balayages de saturation"
-    IDS_GRAPH_GSBALGAMMA        "Balance de l'échelle de gris avec gamma"
-    IDS_GRAPH_GSBALNOGAMMA      "Balance de l'échelle de gris sans gamma"
+    IDS_GRAPH_SATSHIFT_SAT      "D\xE9calage de saturation"
+    IDS_GRAPH_SATSHIFT_HUE      "Erreur de teinte (u'v')"
+    IDS_GRAPH_SATSHIFT_LUM      "Erreur de luminance"
+    IDS_SATSHIFT_MEASURED       "%s (mesur\xE9)"
+    IDS_SATSHIFT_TBL_AVG        "moy. 0-%d:"
+    IDS_SATSHIFT_TBL_AT100      "\xE0 100:"
+    IDS_SATSHIFT_TBL_MAX        "max"
+    IDS_GRAPH_GSBALNOGAMMA      "Balance des gris"
+    IDS_GRAPH_GSLUMERROR        "Niveaux de gris, erreur de luminance"
+    IDM_RGB_GRAPH_LUMERROR      "Afficher chaque canal comme une erreur en pourcentage sign\xE9e par rapport \xE0 sa luminance cible"
     IDS_GRAPH_EOTFGAMMA         "EOTF (Gamma)"
     IDS_GRAPH_REFMEASGAMMA      "Gamma mesure de référence"
     IDS_GRAPH_DELTALUM          "delta Luminance"
@@ -4386,11 +4481,11 @@ BEGIN
     IDS_SPECTRAL_ACTIVE_TITLE   "Correction spectrale active"
     IDS_SPECTRAL_CLEAR_FOR_MATRIX "Ce capteur utilise une correction spectrale (ccss/CSV), appliquée dans la sonde.\nUn étalonnage par matrice viendrait s'y ajouter (double correction).\n\nEffacer la correction spectrale et étalonner par matrice à la place ?"
     IDS_CALIB_METHOD_TITLE      "Méthode d'étalonnage"
-    IDS_CALIB_METHOD_OUT_OF_SYNC "La méthode d'étalonnage sélectionnée dans les Options diffère de celle actuellement appliquée à ces mesures - elles n'ont pas été recalculées après le changement de méthode. L'export reflétera la méthode APPLIQUÉE.\n\nPour recalculer d'abord, annulez et lancez 'Créer à partir des mesures de référence existantes' (ou une commande d'étalonnage).\n\nContinuer l'export ?"
+    IDS_CALIB_METHOD_OUT_OF_SYNC "La méthode d'étalonnage sélectionnée dans les Options diffère de celle actuellement appliquée à ces mesures - elles n'ont pas été recalculées après le changement de méthode. L'export reflétera la méthode APPLIQUÉE.\n\nPour recalculer d'abord, annulez et lancez 'Création à partir de Mesures de Référence Existantes' (ou une commande d'étalonnage).\n\nContinuer l'export ?"
     IDS_BODNER_SKIPPED_FMT      "%d mesure(s) sans lecture brute du capteur (enregistrées avant la capture des valeurs brutes, ou modifiées à la main) ont été laissées telles quelles."
     IDS_CALIB_NEED_RAW_PRIMARIES "Mesurez d'abord à nouveau les primaires et le blanc : ceux enregistrés n'ont pas de lecture brute du capteur, et une matrice ne peut pas être calculée à partir de valeurs portant une correction que le capteur n'applique plus (Bodner, ou une matrice remplacée par une correction spectrale)."
     IDS_CALIB_NEED_REF_WHITE    "Le document de référence n'a pas de blanc mesuré : mesurez d'abord son blanc (ou les primaires avec le blanc)."
-    IDS_SPECTRAL_SUPERSEDE_WARN "L'étalonnage par matrice sera calculé sur les mesures non corrigées de la sonde, et appliqué à celles-ci.\nLa correction spectrale (%s) reste chargée mais n'affectera plus les valeurs affichées. Pour l'utiliser de nouveau, chargez-la de nouveau dans les propriétés du capteur.\n\nContinuer ?"
+    IDS_SPECTRAL_SUPERSEDE_WARN "L'\xE9talonnage par matrice sera calcul\xE9 sur les mesures non corrig\xE9es de la sonde, et appliqu\xE9 \xE0 celles-ci.\nLa correction spectrale (%s) reste charg\xE9e mais n'affectera plus les valeurs affich\xE9es. Pour l'utiliser de nouveau : pour un fichier de correction, chargez de nouveau le fichier dans les propri\xE9t\xE9s du capteur ; pour une entr\xE9e de type d'affichage, choisissez un type d'affichage simple et validez par OK, puis choisissez de nouveau l'entr\xE9e.\n\nContinuer ?"
     IDS_SPECTRAL_STATUS_INACTIVE_FMT "Correction spectrale : %s (chargée, non appliquée : un étalonnage par matrice est utilisé)"
     IDS_SPECTRAL_STATUS_DISPTYPE_FMT "Correction spectrale : %s (issue du type d'affichage)"
     IDS_SPECTRAL_UNIT_MISMATCH  "La correction spectrale de ce fichier a été calculée pour la sonde de numéro de série %s ; la sonde connectée est %s. Elle a été calculée de nouveau à partir de la sonde connectée."
@@ -4401,6 +4496,8 @@ BEGIN
     IDS_SPECTRAL_COMPOSE_WARN   "Le fichier que vous chargez ne comporte pas d'indication de base d'ajustement. La correction spectrale sera appliquée en plus de sa matrice (comme le faisait HCFR 4.1). Continuer ?"
     IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "La correction spectrale utilisée (%s) a été calculée pour la sonde %s, et non pour la sonde connectée, et aucun fichier de correction n'est disponible ici pour la calculer de nouveau. Elle reste utilisée. Pour la calculer pour cette sonde, sélectionnez son fichier de correction dans les propriétés du capteur."
     IDS_SPECTRAL_FILE_MOVED_NOTICE "Le fichier de correction spectrale n'est plus à l'emplacement enregistré :\n\n%s\n\nLa correction calculée à partir de ce fichier reste utilisée pour cette sonde. Pour utiliser le document avec une autre sonde, ou pour la calculer de nouveau, sélectionnez le fichier dans les propriétés du capteur."
+    IDS_CALIB_SPECTRAL_IN_DRIVER "Cette sonde applique sa correction spectrale dans le pilote : un \xE9talonnage par matrice serait donc calcul\xE9 sur des mesures d\xE9j\xE0 corrig\xE9es. Effacez d'abord la correction spectrale dans la page du capteur, ou continuez \xE0 utiliser la correction spectrale comme m\xE9thode."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT_DRIVER "Ce capteur poss\xE8de un \xE9talonnage par matrice. Cette sonde applique la correction spectrale dans son pilote, aux nouvelles mesures seulement : l'\xE9talonnage par matrice est supprim\xE9, et les mesures d\xE9j\xE0 effectu\xE9es sont affich\xE9es sans aucune correction jusqu'\xE0 ce qu'elles soient mesur\xE9es de nouveau.\n\nContinuer ?"
     IDS_EXPORT_LAYOUT_MISMATCH  "Impossible d'ajouter à ce fichier : il a été exporté avec des options Brut/Stimulus différentes. Exportez vers un nouveau fichier, ou refaites l'export avec les mêmes options que les données existantes."
     IDS_SCHEMA_NEWER        "Ce fichier a été écrit par une version plus récente de HCFR (%s version %d). Mettez HCFR à jour pour l'ouvrir."
     IDS_SCHEMA_UNRELEASED   "Ce fichier a été écrit par une version de développement non publiée de HCFR (%s version %d) et ne peut pas être lu. Recréez-le."

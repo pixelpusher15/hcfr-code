@@ -192,6 +192,11 @@ Matrix EffectiveSensorMatrix(int calibrationMethod, int fitBasis, const Spectral
 	return sensorToXYZ;
 }
 
+bool MatrixCalibrationAllowed(const SpectralCorrectionRecord& rec)
+{
+	return !( rec.IsPresent() && rec.basis == FIT_BASIS_DRIVER_CORRECTED );
+}
+
 #ifdef LIBHCFR_HAS_MFC
 void SpectralCorrectionRecord::Serialize(CArchive& ar)
 {

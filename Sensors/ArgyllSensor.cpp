@@ -317,7 +317,6 @@ void CArgyllSensor::Serialize(CArchive& archive)
             archive >> meterName;
             for(size_t i(0); i < meters.size(); ++i)
             {
-			    GetColorApp()->InMeasureMessageBox( meterName, "Argyll Meter used during this session...", MB_OK+MB_ICONHAND);
                 if(meters[i]->getMeterName().c_str() == meterName)
                 {
                     m_meter = meters[i];
@@ -724,10 +723,16 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     // Nothing is lost: every reading keeps its raw (native) value, and the
     // document's recompute from raw follows on the sheet's OK. Cancel aborts the
     // apply entirely (so it really is "before applying").
+    // A meter whose matrices are not exposed is told what happens there instead:
+    // its driver applies the sample to new readings only, and the recompute turns
+    // every stored reading into identity * raw, its raw being the uncorrected
+    // reading - the matrix calibration is gone from it and the spectral correction
+    // never reaches it (IDS_SPECTRAL_MATRIXCAL_PROMPT_DRIVER).
+    const bool exposable = ( m_meter && m_meter->canExposeCalibrationMatrices() );
     if ( IsCorrectionActive() && !UsesSpectralMethod() )
     {
         CString prompt, title;
-        prompt.LoadString ( IDS_SPECTRAL_MATRIXCAL_PROMPT );
+        prompt.LoadString ( exposable ? IDS_SPECTRAL_MATRIXCAL_PROMPT : IDS_SPECTRAL_MATRIXCAL_PROMPT_DRIVER );
         title.LoadString ( IDS_SPECTRAL_TITLE );
         int r = GetColorApp()->InMeasureMessageBox( prompt, title,
             MB_OKCANCEL | MB_ICONQUESTION );
@@ -739,7 +744,6 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     // a matrix, read out once, and the driver is back to native before any reading
     // (the wrapper restores it on every path). Any other meter keeps the sample
     // loaded and applies it itself.
-    const bool exposable = ( m_meter && m_meter->canExposeCalibrationMatrices() );
     Matrix native, current, corr;
     if ( exposable )
     {
@@ -945,7 +949,9 @@ bool CArgyllSensor::RefuseSpectralBrowse(UINT displayType)
 // a ccss/ccmx Display Type entry is derived and the driver left on the entry's
 // base (native), and a browsed sample is derived again only when the connected
 // unit or observer is not the one the record was derived for. Shows no dialog but
-// the once-per-session notices. Readings already taken keep their values; the
+// the once-per-session notices, and Browse's question when a ccss/ccmx Display Type
+// entry is chosen in the sheet over a matrix calibration (see the Display Type
+// branch). Readings already taken keep their values; the
 // next Sensor -> Configure OK recomputes them from raw (OnConfigureSensor's
 // CorrectionChangedSinceBeginConfigure sees the record or method change, because
 // the Display Type is changed through that sheet and this Init runs inside its OK).
@@ -1018,14 +1024,41 @@ void CArgyllSensor::SyncSpectralRecordFromMeter()
         {
             // No fit at all: the spectral correction becomes the method.
             const bool noFit = ( GetCalibrationMethod() == CALIB_HCFR_DEFAULT && GetSensorMatrix().IsIdentity() );
+            // A matrix calibration in force (a fit, a correction file, Bodner) and
+            // the entry chosen in the sheet just now: Browse's question over a
+            // matrix (ApplySpectralCorrection), with its outcomes. OK makes the
+            // entry's correction the method, the Bodner sub-gamut matrices dropped,
+            // and the sheet's OK recomputes the readings from raw. Cancel keeps the
+            // matrix calibration and the values shown; the entry's correction is
+            // recorded, not applied (the status line says so), which is what
+            // matches the entry the driver now measures on. Any other derive (a
+            // document's entry, another unit) asks nothing and records it the same
+            // way: Init runs at every measurement start.
+            // Chosen with no correction live, it becomes the method unasked, as a
+            // Browse does.
+            bool makeMethod = noFit;
+            if ( !UsesSpectralMethod() && m_displayTypeChangedInSheet )
+            {
+                makeMethod = true;
+                if ( IsCorrectionActive() )
+                {
+                    CString prompt, title;
+                    prompt.LoadString ( IDS_SPECTRAL_MATRIXCAL_PROMPT );
+                    title.LoadString ( IDS_SPECTRAL_TITLE );
+                    makeMethod = ( GetColorApp()->InMeasureMessageBox( prompt, title,
+                        MB_OKCANCEL | MB_ICONQUESTION ) == IDOK );
+                }
+            }
             SetSpectralRecord(rec);
             if ( UsesSpectralMethod() )
             {
                 SetSensorMatrix(corr);      // another entry while it already is the method
                 SetFitBasis(FIT_BASIS_NATIVE);
             }
-            else if ( noFit )
+            else if ( makeMethod )
             {
+                if ( !noFit )
+                    ClearBodnerMatrices();  // as Browse: the method's matrix is the correction
                 SetSensorMatrix(corr);
                 SetCalibrationMethod(CALIB_SPECTRAL_SAMPLE);
                 SetFitBasis(FIT_BASIS_NATIVE);
@@ -1333,11 +1366,13 @@ void CArgyllSensor::Calibrate()
         }
 		if (meterInstructions == "Provide an 80% or greater white test patch" && GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumAutomatic)
 		{
-			CGDIGenerator *m_pGenerator;
 			int display_mode  = GetConfig()->GetProfileInt("GDIGenerator","DisplayMode", DISPLAY_DEFAULT_MODE);
-			m_pGenerator = new CGDIGenerator(display_mode, false);
 			if (display_mode == DISPLAY_ccast || display_mode == DISPLAY_rPI)
 			{
+				// Only this arm drives the generator (Display80); the else arm paints
+				// m_wndTestColorWnd directly, so allocating before the branch leaked one
+				// CGDIGenerator per calibration on every other display mode.
+				CGDIGenerator *m_pGenerator = new CGDIGenerator(display_mode, false);
 				if (display_mode == DISPLAY_ccast)
 					GetColorApp()->InMeasureMessageBox( "Place test window and meter on monitor connected to your ChromeCast device.", "Calibration Instructions", MB_OK);
 				else
@@ -1407,7 +1442,12 @@ void ArgyllLogMessage(const char* messageType, char *fmt, va_list& args)
 {
     if(CArgyllSensor::isInDebugMode())
     {
-        FILE *logFile = fopen( m_logFile, "a" );
+        // The log path is a pointer into the config set by the sensor ctor and
+        // the file may be unopenable (read-only install dir, locked); either
+        // way drop the line instead of handing NULL to fprintf (#60).
+        FILE *logFile = (m_logFile != NULL) ? fopen( m_logFile, "a" ) : NULL;
+        if (logFile == NULL)
+            return;
         fprintf(logFile,"Argyll %s - ", messageType);
         vfprintf(logFile, fmt, args);
         va_end(args);

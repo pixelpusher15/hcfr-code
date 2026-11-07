@@ -1046,7 +1046,6 @@
 #define IDM_SINGLE_MEASUREMENT          32969
 #define IDM_CONTINUOUS_MEASUREMENT      32970
 #define IDM_PATTERN_DISPLAY             32971
-#define IDM_PATTERN_DISP_ROOT           32972
 #define IDM_TOGGLE_TAB                  32973
 #define IDM_VIEW_DATASET                32974
 #define IDM_TAB_CLOSE                   32976
@@ -1083,6 +1082,13 @@
 #define IDM_SIM_SAT_MAGENTA             33001
 #define IDM_VIEW_GAMMAHISTO             33002
 #define IDM_VIEW_3DCOLOR                33500
+#define IDM_SATSHIFT_QTY_SAT            33511
+#define IDM_SATSHIFT_QTY_HUE            33512
+#define IDM_SATSHIFT_QTY_LUM            33513
+#define IDM_SATSHIFT_ANCHOR_NONE        33514
+#define IDM_SATSHIFT_ANCHOR_50          33515
+#define IDM_SATSHIFT_ANCHOR_75          33516
+#define IDM_SATSHIFT_ANCHOR_100         33517
 #define IDM_NEXT_TAB                    33003
 #define IDM_RGB_GRAPH_Y_SCALE3          33004
 #define IDM_PREV_TAB                    33005
@@ -1186,6 +1192,8 @@
 #define IDM_PATTERN_NB                  33103
 #define ID_GRAPH_W                      33103
 #define IDM_RGB_GRAPH_GAMMA             33104
+#define IDM_RGB_GRAPH_LUMERROR          33510
+#define IDM_RGB_GRAPH_BALANCE           33518
 #define ID_GRAPH_W33105                 33105
 #define ID_Menu33106                    33106
 #define IDM_LUM_GRAPH_YLog              33107
@@ -1552,7 +1560,6 @@
 #define IDS_GRAPH_NWLUMRESPONSE         41994
 #define IDS_GRAPH_SATSWEEPLUM           41995
 #define IDS_GRAPH_SATSCANSHIFTS         41996
-#define IDS_GRAPH_GSBALGAMMA            41997
 #define IDS_GRAPH_GSBALNOGAMMA          41998
 #define IDS_GRAPH_EOTFGAMMA             41999
 #define IDS_GRAPH_REFMEASGAMMA          42000
@@ -1566,6 +1573,13 @@
 #define IDS_3D_RGBCUBE                  42008
 #define IDS_3D_NODATA                   42009
 #define IDS_3D_GRAYPCT                  42010
+#define IDS_GRAPH_SATSHIFT_SAT          60091
+#define IDS_GRAPH_SATSHIFT_HUE          60092
+#define IDS_GRAPH_SATSHIFT_LUM          60093
+#define IDS_SATSHIFT_MEASURED           60094
+#define IDS_SATSHIFT_TBL_AVG            60095
+#define IDS_SATSHIFT_TBL_AT100          60096
+#define IDS_SATSHIFT_TBL_MAX            60097
 #define IDS_CIE_ILLUMINANT              42011
 #define IDS_CC_COLORNAME                42012
 #define IDS_CC_COLORNAMEREF             42013
@@ -2036,6 +2050,8 @@
 #define IDS_SPECTRAL_COMPOSE_WARN 60018
 #define IDS_SPECTRAL_FOREIGN_RECORD_NOTICE 60019
 #define IDS_SPECTRAL_FILE_MOVED_NOTICE 60020
+#define IDS_CALIB_SPECTRAL_IN_DRIVER    60098
+#define IDS_SPECTRAL_MATRIXCAL_PROMPT_DRIVER 60099
 #define IDS_CALIB_NEED_REF_WHITE        60052
 #define IDS_EXPORT_LAYOUT_MISMATCH      59745
 #define IDS_SCHEMA_NEWER                59746
@@ -2047,6 +2063,7 @@
 #define IDS_CUSTOMSEQUENCES             60055
 #define IDS_PATCHSETS_TOO_LARGE         60056
 #define IDS_PATCHSETS_TOO_MANY          60057
+#define IDS_GRAPH_GSLUMERROR            60090
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550

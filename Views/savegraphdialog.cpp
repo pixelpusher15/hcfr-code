@@ -23,6 +23,7 @@
 #include "stdafx.h"
 #include "..\ColorHCFR.h"
 #include "savegraphdialog.h"
+#include "..\RadioExchange.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -65,10 +66,14 @@ void CSaveGraphDialog::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CSaveGraphDialog)
-	DDX_Radio(pDX, IDC_FILE_TYPE_RADIO, m_fileType);
+	static const UINT kFileTypeRadios[] =
+		{ IDC_FILE_TYPE_RADIO, IDC_FILE_TYPE_RADIO2, IDC_FILE_TYPE_RADIO3 };
+	DDX_RadioByID(pDX, m_fileType, kFileTypeRadios);
 	DDX_Text(pDX, IDC_SAVE_HEIGHT_EDIT, m_saveHeight);
 	DDX_Text(pDX, IDC_SAVE_WIDTH_EDIT, m_saveWidth);
-	DDX_Radio(pDX, IDC_SIZE_RADIO, m_sizeType);
+	static const UINT kSizeRadios[] =
+		{ IDC_SIZE_RADIO, IDC_SIZE_RADIO2, IDC_SIZE_RADIO3, IDC_SIZE_RADIO4 };
+	DDX_RadioByID(pDX, m_sizeType, kSizeRadios);
 	DDX_Text(pDX, IDC_SAVE_JPEGQUALITY_EDIT, m_jpegQuality);
 	DDV_MinMaxUInt(pDX, m_jpegQuality, 0, 100);
 	//}}AFX_DATA_MAP

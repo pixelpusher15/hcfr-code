@@ -465,6 +465,7 @@ class THIS_TEST_CASE : public CPPUNIT_NS::TestFixture
 	CPPUNIT_TEST( UserPatchSetsFitTheTrailerCap );
 	CPPUNIT_TEST( MeasureTrailerBytesMatchWriter );
 	CPPUNIT_TEST( UserPatchSetsOutOfRangeFieldsRefused );
+	CPPUNIT_TEST( SensorRecordWithBasisUnknownIsCorrupt );
 	CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -848,8 +849,10 @@ protected:
 			CPPUNIT_ASSERT_EQUAL( 4, r.exVersion );
 			CPPUNIT_ASSERT( r.exFeature == "spectral correction source" );
 		}
-		const int badBasis[3] = { FIT_BASIS_UNKNOWN, FIT_BASIS_DRIVER_CORRECTED + 1, -1 };
-		for ( int i = 0; i < 3; i++ )
+		// Basis UNKNOWN is not here: no writer gives a record that basis, so it is
+		// corruption (SensorRecordWithBasisUnknownIsCorrupt).
+		const int badBasis[2] = { FIT_BASIS_DRIVER_CORRECTED + 1, -1 };
+		for ( int i = 0; i < 2; i++ )
 		{
 			LoadResult r = Load(HandV4(CALIB_HCFR_DEFAULT, false, TRUE, false, 0, FIT_BASIS_NATIVE,
 			                           SpectralRecord(SPECTRAL_SOURCE_FILE, badBasis[i])), false);
@@ -877,6 +880,21 @@ protected:
 		ext.Write(s.Ar());
 		LoadResult r = Load(s.Bytes(), false);
 		CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) r.outcome );
+	}
+
+	void SensorRecordWithBasisUnknownIsCorrupt()
+	{
+		// Every record is made with a NATIVE or DRIVER_CORRECTED basis, so a
+		// tag-5 payload with basis UNKNOWN (0) was never written by any HCFR:
+		// corruption (badSchema), like source NONE, not a file from a newer
+		// version. Both sources, so the refusal does not hang on the source.
+		const int sources[2] = { SPECTRAL_SOURCE_FILE, SPECTRAL_SOURCE_DISPLAY_TYPE };
+		for ( int i = 0; i < 2; i++ )
+		{
+			LoadResult r = Load(HandV4(CALIB_HCFR_DEFAULT, false, TRUE, false, 0, FIT_BASIS_NATIVE,
+			                           SpectralRecord(sources[i], FIT_BASIS_UNKNOWN)), false);
+			CPPUNIT_ASSERT_EQUAL( (int) BAD_SCHEMA, (int) r.outcome );
+		}
 	}
 
 	void SensorSpectralMethodWithoutRecordRefused()

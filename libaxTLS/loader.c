@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, Cameron Rich
+ * Copyright (c) 2007-2014, Cameron Rich
  * 
  * All rights reserved.
  * 
@@ -82,7 +82,9 @@ EXP_FUNC int STDCALL ssl_obj_load(SSL_CTX *ssl_ctx, int obj_type,
 #ifdef CONFIG_SSL_HAS_PEM
         ret = ssl_obj_PEM_load(ssl_ctx, obj_type, ssl_obj, password);
 #else
-        puts(unsupported_str);
+#ifdef CONFIG_DEBUG
+        printf("%s", unsupported_str);
+#endif
         ret = SSL_ERROR_NOT_SUPPORTED;
 #endif
     }
@@ -93,7 +95,9 @@ error:
     ssl_obj_free(ssl_obj);
     return ret;
 #else
-    puts(unsupported_str);
+#ifdef CONFIG_DEBUG
+    printf("%s", unsupported_str);
+#endif
     return SSL_ERROR_NOT_SUPPORTED;
 #endif /* CONFIG_SSL_SKELETON_MODE */
 }
@@ -150,7 +154,9 @@ static int do_obj(SSL_CTX *ssl_ctx, int obj_type,
             break;
 #endif
         default:
-            puts(unsupported_str);
+#ifdef CONFIG_DEBUG
+            printf("%s", unsupported_str);
+#endif
             ret = SSL_ERROR_NOT_SUPPORTED;
             break;
     }
@@ -222,8 +228,8 @@ static int pem_decrypt(const char *where, const char *end,
 
     if (password == NULL || strlen(password) == 0)
     {
-#ifdef CONFIG_SSL_FULL_MODE
-        printf("Error: Need a password for this PEM file\n"); TTY_FLUSH();
+#ifdef CONFIG_DEBUG
+        printf("Error: Need a password for this PEM file\n");
 #endif
         goto error;
     }
@@ -239,8 +245,8 @@ static int pem_decrypt(const char *where, const char *end,
     }
     else 
     {
-#ifdef CONFIG_SSL_FULL_MODE
-        printf("Error: Unsupported password cipher\n"); TTY_FLUSH();
+#ifdef CONFIG_DEBUG
+        printf("Error: Unsupported password cipher\n");
 #endif
         goto error;
     }
@@ -462,7 +468,6 @@ int load_key_certs(SSL_CTX *ssl_ctx)
     else if (!(options & SSL_NO_DEFAULT_KEY))
     {
 #if defined(CONFIG_SSL_USE_DEFAULT_KEY) || defined(CONFIG_SSL_SKELETON_MODE)
-        static const    /* saves a few bytes and RAM */
 #include "cert.h"
         ssl_obj_memory_load(ssl_ctx, SSL_OBJ_X509_CERT, 
                     default_certificate, default_certificate_len, NULL);
@@ -471,10 +476,10 @@ int load_key_certs(SSL_CTX *ssl_ctx)
 #endif
 
 error:
-#ifdef CONFIG_SSL_FULL_MODE
+#ifdef CONFIG_DEBUG
     if (ret)
     {
-        printf("Error: Certificate or key not loaded\n"); TTY_FLUSH();
+        printf("Error: Certificate or key not loaded\n");
     }
 #endif
 

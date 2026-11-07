@@ -1,8 +1,8 @@
 # HCFR / ColorHCFR — working rules
 
 ColorHCFR is a Windows MFC app. Solution: `ColorHCFR_VS2019.sln` (the name is historical; it
-builds with newer Visual Studio as long as the MSVC **v142** toolset and MFC components are
-installed — every `.vcxproj` uses `PlatformToolset v142`). Installer/MSI: `ColorHCFR_VS2019.vdproj` (a VS
+builds with newer Visual Studio as long as the MSVC **v143** toolset and MFC components are
+installed — every `.vcxproj` uses `PlatformToolset v143`). Installer/MSI: `ColorHCFR_VS2019.vdproj` (a VS
 *deployment* project — builds only via `devenv`, not MSBuild). No CI; all builds are local.
 
 ## Source control — never break these
@@ -25,6 +25,10 @@ installed — every `.vcxproj` uses `PlatformToolset v142`). Installer/MSI: `Col
 - Use **MSBuild** for code builds. Example path (VS 18 Community — adjust to your install):
   `"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" ColorHCFR_VS2019.sln -p:Configuration=Debug -p:Platform=Win32 -m -v:m`
   Win32 only; there is no x64 config.
+  On a Windows-on-ARM machine, use `C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\arm64\MSBuild.exe` instead: it is the only MSBuild binary that
+  selects the native `HostArm64\x86` compiler. That choice changes only the machine running the
+  compiler; every binary is still x86. `Bin\MSBuild.exe` selects `HostX86` under emulation, where
+  C3859/C1076 heap aborts can occur; re-running the same command converges.
 - `devenv.com` is only needed for the `.vdproj` MSI (`/release`); MSBuild is faster for code.
 - **Git Bash rewrites any argument that starts with `/` into a Windows path** (`/Build` becomes
   `C:/Program Files/Git/Build`). With devenv, that means no build at all: it opens the IDE behind
