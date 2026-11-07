@@ -5412,21 +5412,17 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 
 			m_magentaSatMeasureArray[i] = measuredColor[(5*size)+i];
 
-			m_cc24SatMeasureArray[i] = measuredColor[(6*size)+i];
-
 			if ( bUseLuxValues )
 			{
 				m_yellowSatMeasureArray[i].SetLuxValue ( measuredLux[(3*size)+i] );
 				m_cyanSatMeasureArray[i].SetLuxValue ( measuredLux[(4*size)+i] );
 				m_magentaSatMeasureArray[i].SetLuxValue ( measuredLux[(5*size)+i] );
-				m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[(6*size)+i] );
 			}
 			else
 			{
 				m_yellowSatMeasureArray[i].ResetLuxValue ();
 				m_cyanSatMeasureArray[i].ResetLuxValue ();
 				m_magentaSatMeasureArray[i].ResetLuxValue ();
-				m_cc24SatMeasureArray[i].ResetLuxValue ();
 			}
 		}
 	}
