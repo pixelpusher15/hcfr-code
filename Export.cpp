@@ -1590,6 +1590,9 @@ bool CExport::SavePDF()
 // per enabled option. They are duplicated rather than shared because each guard sits
 // after its own sheet's header has been built; keeping both means a future sheet that
 // forgets the pre-check is still caught before it corrupts anything.
+// The saturation, near-black and near-white sheets follow the same rule with their
+// own heights (SaturationBlockRows / LevelsBlockRows, documented at those sheets),
+// except that a sheet ABSENT from the file is backfilled instead of refused.
 bool CExport::CheckExistingLayout()
 {
 	const int extraPerOption = ( m_bExportRaw ? 3 : 0 ) + ( m_bExportStimulus ? 3 : 0 );
@@ -1649,6 +1652,25 @@ bool CExport::CheckExistingLayout()
 		}
 	}
 
+	struct { const char * sheet; int blockRows; } newSheets[] =
+	{
+		{ "SaturationSheet", SaturationBlockRows() },
+		{ "NearBlackSheet", LevelsBlockRows() },
+		{ "NearWhiteSheet", LevelsBlockRows() },
+	};
+
+	for ( int n = 0; n < 3; n++ )
+	{
+		CString aFileName, SheetOrSeparator;
+		GetSheetFile( newSheets[n].sheet, aFileName, SheetOrSeparator );
+		CSpreadSheet ss( aFileName, SheetOrSeparator, false );
+		if ( !NewSheetLayoutMatches( ss.GetTotalRows() - 1, newSheets[n].blockRows ) )
+		{
+			m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+			return false;
+		}
+	}
+
 	return true;
 }
 
@@ -1671,6 +1693,9 @@ bool CExport::SaveSheets()
 	result&=SaveCCSheet();
 	result&=SaveSpectralSheet();
 	result&=SaveProfileSheet();
+	result&=SaveSaturationSheet();
+	result&=SaveLevelsSheet(false);	// near black
+	result&=SaveLevelsSheet(true);	// near white
 
 	if(!result)
 	{
@@ -2140,6 +2165,338 @@ bool CExport::SavePrimariesSheet()
 		m_errorStr=primariesSS.GetLastError();
 	return result;
 }
+
+// --- Saturation, near black and near white sheets ---------------------------------
+//
+// Block layout (one block per exported measure, stacked under one header row, columns
+// = steps 0..n-1 after the legend column; r = raw option, s = stimulus option, 0 or 1):
+//
+//   SaturationSheet   "% Sat" row (100*i/(n-1), the percent the sweep passes to the
+//                     generator), then for each of Red, Green, Blue, Yellow, Cyan,
+//                     Magenta: X, Y, Z, [Raw X/Y/Z], [Stim R/G/B, Stim captured].
+//                     Height = 1 + 6 * (3 + 3r + 4s).
+//   NearBlackSheet    level row (the % level sent), X, Y, Z, [Raw X/Y/Z],
+//   NearWhiteSheet    [Stim R/G/B, Stim captured], R, G, B, ColorTemp.
+//                     Height = 8 + 3r + 4s.
+//
+// The stimulus option adds FOUR rows here, not three: "Stim captured" is 1 where the
+// Stim R/G/B cells are the drive stimulus stored with that reading (GetStimulusValue,
+// captured by CSensor::MeasureColor) and 0 where they are recomputed with the sweep's
+// own generator math under the CURRENT settings (readings taken before stimulus
+// capture, or a step never measured). Both can occur in one block, so the source is
+// stated per cell. It is a number, not text: an XLS column takes its type from the
+// header row, and a text literal in a float column is an SQL error that fails the sheet.
+//
+// No DeltaE row: the grid's near-black, near-white and saturation dE each have their
+// own reference conventions, and a second copy of them here could drift from what the
+// grid shows. A wrong value would be worse than none.
+//
+// These sheets are newer than the files a user may be appending to. A sheet absent
+// from a file that already holds N measures is backfilled: every measure position up
+// to N (and N+1 on an append) gets a block, this measure's with data and the others
+// with their legends only, so the positional arithmetic holds for every later export.
+// The legends are what keep a placeholder block's rows in the sheet: the Excel driver
+// drops trailing rows with no text, which would leave the sheet short of N blocks.
+// Anything else that does not match N * height is refused (IDS_EXPORT_LAYOUT_MISMATCH),
+// as for the other sheets.
+
+int CExport::SaturationBlockRows() const
+{
+	return 1 + 6 * ( 3 + ( m_bExportRaw ? 3 : 0 ) + ( m_bExportStimulus ? 4 : 0 ) );
+}
+
+int CExport::LevelsBlockRows() const
+{
+	return 8 + ( m_bExportRaw ? 3 : 0 ) + ( m_bExportStimulus ? 4 : 0 );
+}
+
+// Shared by CheckExistingLayout and the sheet writers. existing = data rows already in
+// the sheet (its total rows less the header; <= 0 when the sheet is absent).
+bool CExport::NewSheetLayoutMatches(int existing, int blockRows) const
+{
+	if ( existing <= 0 )
+		return true;	// absent: backfilled by the writer
+	if ( m_numExistingMeasures > 0 )
+		return existing == m_numExistingMeasures * blockRows;
+	return m_doReplace || ( existing % blockRows ) == 0;
+}
+
+// Which measure positions to write, and where the first one starts. One position
+// (this measure's) normally; on a sheet absent from a file that already holds
+// measures, every position from 1 (see the backfill note above).
+void CExport::NewSheetBlockRange(CSpreadSheet & ss, int blockRows, int & first, int & last, int & target, long & rowNb) const
+{
+	int existing = ss.GetTotalRows() - 1;
+	target = m_doReplace ? m_numToReplace : m_numExistingMeasures + 1;
+	if ( existing <= 0 && m_numExistingMeasures > 0 )
+	{
+		first = 1;
+		last = m_doReplace ? m_numExistingMeasures : m_numExistingMeasures + 1;
+		rowNb = 2;
+		return;
+	}
+	first = last = target;
+	if ( m_doReplace )
+		rowNb = (long)( m_numToReplace - 1 ) * blockRows + 2;
+	else
+		rowNb = ss.GetTotalRows() + 1;
+}
+
+void CExport::GetSheetFile(const char * sheet, CString & aFileName, CString & SheetOrSeparator) const
+{
+	SheetOrSeparator = sheet;
+	if ( m_type == CSV )
+	{
+		aFileName = m_fileName + "." + SheetOrSeparator + ".csv";
+		SheetOrSeparator = m_separator;
+	}
+	else
+		aFileName = m_fileName;
+}
+
+// The rows common to both sheet kinds: X, Y, Z, then the optional raw and stimulus
+// rows. stim[j] is the fallback stimulus for step j (used when the reading has none).
+// size == 0 writes the legends alone (a backfilled placeholder block).
+bool CExport::AddReadingRows(CSpreadSheet & ss, long & rowNb, const CString & prefix,
+                             const CColor * colors, const ColorRGBDisplay * stim, int size)
+{
+	CRowArray Rows;
+	bool result = true;
+	int i, j;
+
+	for ( i = 0; i < 3; i++ )
+	{
+		Rows.RemoveAll();
+		Rows.Add(prefix + legendXYZ[i]);
+		for ( j = 0; j < size; j++ )
+			Rows.Add((float)colors[j][i]);
+		result &= ss.AddRow(Rows, rowNb, m_doReplace);
+		rowNb++;
+	}
+
+	if ( m_bExportRaw )
+	{
+		for ( i = 0; i < 3; i++ )
+		{
+			Rows.RemoveAll();
+			Rows.Add(prefix + legendRawXYZ[i]);
+			for ( j = 0; j < size; j++ )
+				Rows.Add((float)(colors[j].HasRawXYZValue() ? colors[j].GetRawXYZValue()[i] : -1.0));
+			result &= ss.AddRow(Rows, rowNb, m_doReplace);
+			rowNb++;
+		}
+	}
+
+	if ( m_bExportStimulus )
+	{
+		for ( i = 0; i < 3; i++ )
+		{
+			Rows.RemoveAll();
+			Rows.Add(prefix + legendStimRGB[i]);
+			for ( j = 0; j < size; j++ )
+			{
+				if ( colors[j].isValid() && colors[j].HasStimulusValue() )
+					Rows.Add((float)colors[j].GetStimulusValue()[i]);
+				else
+					Rows.Add((float)stim[j][i]);
+			}
+			result &= ss.AddRow(Rows, rowNb, m_doReplace);
+			rowNb++;
+		}
+		Rows.RemoveAll();
+		Rows.Add(prefix + "Stim captured");
+		for ( j = 0; j < size; j++ )
+			Rows.Add((float)(( colors[j].isValid() && colors[j].HasStimulusValue() ) ? 1.0 : 0.0));
+		result &= ss.AddRow(Rows, rowNb, m_doReplace);
+		rowNb++;
+	}
+
+	return result;
+}
+
+bool CExport::SaveSaturationSheet()
+{
+	CRowArray Rows;
+	CString tempString;
+	bool result = true;
+	int j;
+
+	CMeasure * pMeasure = m_pDoc->GetMeasure();
+	int size = pMeasure->GetSaturationSize();
+
+	CString aFileName, SheetOrSeparator;
+	GetSheetFile("SaturationSheet", aFileName, SheetOrSeparator);
+
+	CSpreadSheet satSS(aFileName, SheetOrSeparator, m_doBackup);
+	satSS.BeginTransaction();
+
+	Rows.RemoveAll();
+	Rows.Add("Measure");
+	for ( j = 0; j < size; j++ )
+	{
+		tempString.Format("%d", j);
+		Rows.Add(tempString, CRowArray::floatType);
+	}
+	result &= satSS.AddHeaders(Rows, true);
+
+	int blockRows = SaturationBlockRows();
+	if ( !NewSheetLayoutMatches(satSS.GetTotalRows() - 1, blockRows) )
+	{
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+		return false;
+	}
+	int first, last, target;
+	long rowNb;
+	NewSheetBlockRange(satSS, blockRows, first, last, target, rowNb);
+
+	// Fallback stimulus: the same GenerateSaturationColors call the sweeps make
+	// (MeasureRedSatScale ... MeasureAllSaturationScales), at the document's active
+	// saturation level, with the current transfer function, bit depth and range.
+	static const bool satChannels[6][3] =
+	{
+		{ true,  false, false },	// Red
+		{ false, true,  false },	// Green
+		{ false, false, true  },	// Blue
+		{ true,  true,  false },	// Yellow
+		{ false, true,  true  },	// Cyan
+		{ true,  false, true  }		// Magenta
+	};
+	std::vector<CColor> colors[6];
+	std::vector<ColorRGBDisplay> stim[6];
+	for ( int c = 0; c < 6; c++ )
+	{
+		colors[c].resize ( size > 0 ? size : 1 );
+		stim[c].resize ( size > 0 ? size : 1 );
+		if ( size > 0 )
+			GenerateSaturationColors(GetColorReference(), &stim[c][0], size, satChannels[c][0], satChannels[c][1], satChannels[c][2],
+			                         GetConfig()->m_GammaOffsetType, pMeasure->GetActiveSatLevel(),
+			                         GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+		for ( j = 0; j < size; j++ )
+		{
+			switch ( c )
+			{
+				case 0: colors[c][j] = pMeasure->GetRedSat(j); break;
+				case 1: colors[c][j] = pMeasure->GetGreenSat(j); break;
+				case 2: colors[c][j] = pMeasure->GetBlueSat(j); break;
+				case 3: colors[c][j] = pMeasure->GetYellowSat(j); break;
+				case 4: colors[c][j] = pMeasure->GetCyanSat(j); break;
+				default: colors[c][j] = pMeasure->GetMagentaSat(j); break;
+			}
+		}
+	}
+
+	for ( int m = first; m <= last; m++ )
+	{
+		int n = ( m == target ) ? size : 0;	// 0: legends only (backfilled placeholder)
+
+		Rows.RemoveAll();
+		Rows.Add("% Sat");
+		for ( j = 0; j < n; j++ )
+			Rows.Add((float)( size > 1 ? 100.0 * j / ( size - 1 ) : 0.0 ));
+		result &= satSS.AddRow(Rows, rowNb, m_doReplace);
+		rowNb++;
+
+		for ( int c = 0; c < 6; c++ )
+			result &= AddReadingRows(satSS, rowNb, CString(primariesName[c]) + " ", &colors[c][0], &stim[c][0], n);
+	}
+
+	result &= satSS.Commit();
+	if ( !result )
+		m_errorStr = satSS.GetLastError();
+	return result;
+}
+
+// Near black (bNearWhite false) or near white. The levels are the ones the sweeps
+// send (MeasureNearBlackScale / MeasureNearWhiteScale) and the views plot: near black
+// index i*(PQ ? 2 : 1), near white m_NearWhiteClipCol - size + i, on the 101-step
+// grid, through ArrayIndexToGrayLevel with the current round-down, bit depth and
+// range. The same level is the fallback stimulus (neutral, R = G = B).
+bool CExport::SaveLevelsSheet(bool bNearWhite)
+{
+	CRowArray Rows;
+	CString tempString;
+	bool result = true;
+	int i, j;
+
+	CMeasure * pMeasure = m_pDoc->GetMeasure();
+	int size = bNearWhite ? pMeasure->GetNearWhiteScaleSize() : pMeasure->GetNearBlackScaleSize();
+
+	CString aFileName, SheetOrSeparator;
+	GetSheetFile(bNearWhite ? "NearWhiteSheet" : "NearBlackSheet", aFileName, SheetOrSeparator);
+
+	CSpreadSheet levSS(aFileName, SheetOrSeparator, m_doBackup);
+	levSS.BeginTransaction();
+
+	Rows.RemoveAll();
+	Rows.Add("Measure");
+	for ( j = 0; j < size; j++ )
+	{
+		tempString.Format("%d", j);
+		Rows.Add(tempString, CRowArray::floatType);
+	}
+	result &= levSS.AddHeaders(Rows, true);
+
+	int blockRows = LevelsBlockRows();
+	if ( !NewSheetLayoutMatches(levSS.GetTotalRows() - 1, blockRows) )
+	{
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+		return false;
+	}
+	int first, last, target;
+	long rowNb;
+	NewSheetBlockRange(levSS, blockRows, first, last, target, rowNb);
+
+	std::vector<CColor> colors ( size > 0 ? size : 1 );
+	std::vector<ColorRGBDisplay> stim ( size > 0 ? size : 1 );
+	std::vector<double> level ( size > 0 ? size : 1 );
+	for ( j = 0; j < size; j++ )
+	{
+		int nCol = bNearWhite ? ( (int)pMeasure->m_NearWhiteClipCol - size + j )
+		                      : ( j * ( GetConfig()->m_GammaOffsetType == 5 ? 2 : 1 ) );
+		level[j] = ArrayIndexToGrayLevel(nCol, 101, GetConfig()->m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+		stim[j] = ColorRGBDisplay(level[j]);
+		colors[j] = bNearWhite ? pMeasure->GetNearWhite(j) : pMeasure->GetNearBlack(j);
+	}
+
+	CColorReference bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+
+	for ( int m = first; m <= last; m++ )
+	{
+		int n = ( m == target ) ? size : 0;	// 0: legends only (backfilled placeholder)
+
+		Rows.RemoveAll();
+		Rows.Add(GetConfig()->m_PercentGray);
+		for ( j = 0; j < n; j++ )
+			Rows.Add((float)level[j]);
+		result &= levSS.AddRow(Rows, rowNb, m_doReplace);
+		rowNb++;
+
+		result &= AddReadingRows(levSS, rowNb, CString(""), &colors[0], &stim[0], n);
+
+		for ( i = 0; i < 3; i++ )
+		{
+			Rows.RemoveAll();
+			Rows.Add(legendRGB[i]);
+			for ( j = 0; j < n; j++ )
+				Rows.Add((float)colors[j].GetRGBValue(bRef)[i]);
+			result &= levSS.AddRow(Rows, rowNb, m_doReplace);
+			rowNb++;
+		}
+
+		Rows.RemoveAll();
+		Rows.Add("ColorTemp");
+		for ( j = 0; j < n; j++ )
+			Rows.Add((float)colors[j].GetXYZValue().GetColorTemp(GetColorReference()));
+		result &= levSS.AddRow(Rows, rowNb, m_doReplace);
+		rowNb++;
+	}
+
+	result &= levSS.Commit();
+	if ( !result )
+		m_errorStr = levSS.GetLastError();
+	return result;
+}
+
 bool CExport::SaveSpectralSheet()
 {
 	CRowArray Rows;
@@ -2177,7 +2534,7 @@ bool CExport::SaveSpectralSheet()
 	spectralSS.BeginTransaction();
 
 	Rows.RemoveAll();
-	Rows.Add("Wavelength {nm}",CRowArray::floatType);
+	Rows.Add("Wavelength (nm)",CRowArray::floatType);
 	for (j=0;j<3;j++)
 		Rows.Add(primariesName[j],CRowArray::floatType);
 	Rows.Add("White",CRowArray::floatType);
