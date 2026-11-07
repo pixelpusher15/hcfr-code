@@ -171,12 +171,16 @@ protected:
 	// isValid() and GetY() > 0 both pass -- so anything that needs to know whether
 	// white was ever MEASURED has to ask this, not the color.
 	//
-	// PERSISTENCE (both flags): stored verbatim in file version 21, which is the
-	// version a document with a display profile now gets. A document WITHOUT one
-	// still writes version 19 so older builds can read it, and its flags are
-	// re-derived on load: valid and NOT the constructor's placeholder, which
-	// IsPlaceholderWhite (Measure.cpp) recognises by its exact signature. That is
-	// also what recovers documents written before the flags existed. The whites
+	// PERSISTENCE (both flags): CMeasure v21 (released in 4.2.0.0: the two
+	// white-measured flags after the profile block, written only when a display
+	// profile exists); v22 = v21 + the extension trailer, with the profile
+	// block always written, so every document this build saves carries them.
+	// v21 is a released layout and must always be read. A document of version
+	// 20 or older has no
+	// flags, and they are re-derived on load: valid and NOT the constructor's
+	// placeholder, which IsPlaceholderWhite (Measure.cpp) recognises by its exact
+	// signature. That is also what recovers documents written before the flags
+	// existed. The whites
 	// themselves are stored verbatim either way, so nothing downstream ever sees a
 	// value it could not already see. An earlier revision tried to encode "unmeasured" by writing
 	// noDataColor into the version-19 prime-white slot: that conflated "never

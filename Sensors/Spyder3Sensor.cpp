@@ -24,6 +24,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "Spyder3Sensor.h"
+#include "ArchiveExtension.h"
 #include "SerialCom.h"
 
 // Include for device interface (this device interface is outside GNU GPL license)
@@ -87,23 +88,39 @@ void CSpyder3Sensor::Serialize(CArchive& archive)
 
 	if (archive.IsStoring())
 	{
-		int version=1;
+		int version=2;
 		archive << version;
 		archive << m_ReadTime;
 		archive << m_bAdjustTime;
 		archive << m_bAverageReads;
 		archive << m_debugMode;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 1 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 2 )
+			throw new CNewerSchemaException ( "CSpyder3Sensor", version );
 		archive >> m_ReadTime;
 		archive >> m_bAdjustTime;
 		archive >> m_bAverageReads;
 		archive >> m_debugMode;
+
+		if ( version >= 2 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 

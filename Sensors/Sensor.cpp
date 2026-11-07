@@ -25,6 +25,7 @@
 #include "ColorHCFR.h"
 #include "Sensor.h"
 #include "Generator.h"
+#include "SensorCalibrationStream.h"
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -108,62 +109,46 @@ void CSensor::Serialize(CArchive& archive)
 		// as v1: any other method (Bodner, three-color, FCMM-no-lum) would
 		// silently change identity through the v1 round-trip. Document saves
 		// under the key also produce v1 sensor blocks - harmless for the
-		// default method, and the v4 document header gates old builds anyway.
+		// default method, and the document header gates old builds anyway.
 		// A v1 stream cannot say that the raw-less readings are stranded either
 		// (it would reload as "they embody the matrix" and the next matrix
-		// recalibration would compose onto them), so that state also forces v3.
+		// recalibration would compose onto them), so that state also forces
+		// the current version.
+		//
+		// The layout of every version lives in libHCFR's
+		// SensorCalibrationStream, where the unit tests can reach it.
 		int version = ( m_calibrationMethod == CALIB_HCFR_DEFAULT
 		             && m_rawlessReadings.ComposeOntoRawless()
 		             && GetConfig () -> GetProfileInt ( "Debug", "SaveOldCalibrationFile", FALSE ) )
-						? 1 : 3;
-		archive << version;
-		archive << m_calibrationTime;
-		if ( version >= 2 )
+						? 1 : kSensorStreamVersion;
+
+		SensorCalibrationFields fields;
+		fields.calibrationTime = m_calibrationTime;
+		fields.method = m_calibrationMethod;
+		fields.rawlessEmbody = m_rawlessReadings.Get();
+		for ( int k = 0; k < 3; k++ )
 		{
-			archive << m_calibrationMethod;
-			// v3 (this branch) adds the raw-less state after the method. v2 files
-			// were written by earlier builds of this branch; they are still read.
-			BOOL bRawlessEmbody = m_rawlessReadings.Get() ? TRUE : FALSE;
-			archive << bRawlessEmbody;
-			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
-			{
-				for ( int k = 0; k < 3; k++ )
-				{
-					m_bodnerRawMatrix[k].Serialize(archive);
-					m_bodnerCalMatrix[k].Serialize(archive);
-				}
-			}
+			fields.bodnerRaw[k] = m_bodnerRawMatrix[k];
+			fields.bodnerCal[k] = m_bodnerCalMatrix[k];
 		}
+		StoreSensorCalibration ( archive, fields, version );
 	}
 	else
 	{
-		int version;
-		archive >> version;
-		if ( version > 3 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
-		archive >> m_calibrationTime;
+		SensorCalibrationFields fields;
+		int version = LoadSensorCalibration ( archive, fields );
 
-		if ( version >= 2 )
+		m_calibrationTime = fields.calibrationTime;
+		if ( version != 1 )
 		{
-			archive >> m_calibrationMethod;
-			if ( version >= 3 )
-			{
-				BOOL bRawlessEmbody;
-				archive >> bRawlessEmbody;
-				m_rawlessReadings.Set( bRawlessEmbody != FALSE );
-			}
-			else
-			{
-				// v2 (earlier builds of this branch) carried no state: a Bodner
-				// sensor's raw-less readings are stranded, a matrix sensor's embody it.
-				m_rawlessReadings.Set( m_calibrationMethod != CALIB_BODNER_THREEMATRIX );
-			}
+			m_calibrationMethod = fields.method;
+			m_rawlessReadings.Set( fields.rawlessEmbody );
 			if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 			{
 				for ( int k = 0; k < 3; k++ )
 				{
-					m_bodnerRawMatrix[k].Serialize(archive);
-					m_bodnerCalMatrix[k].Serialize(archive);
+					m_bodnerRawMatrix[k] = fields.bodnerRaw[k];
+					m_bodnerCalMatrix[k] = fields.bodnerCal[k];
 				}
 			}
 		}
@@ -193,7 +178,7 @@ void CSensor::Serialize(CArchive& archive)
 			// Written by a single-matrix build: every reading embodies the stored matrix.
 			m_rawlessReadings.Set( true );
 		}
-		// Loaded (v2 Bodner) or defaulted matrices either way: refresh the
+		// Loaded (Bodner) or defaulted matrices either way: refresh the
 		// sub-gamut inverse cache for this deserialized state.
 		UpdateBodnerInverseCache();
 	}
@@ -309,6 +294,15 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	// XYZ, so an export or a later recompute can report the exact signal sent to
 	// the display instead of reconstructing it from the pattern generator.
 	result.SetStimulusValue(aRGBValue);
+	// And the wall-clock time of the reading, in seconds since the Unix epoch with
+	// a sub-second fraction. Time, not a sweep index: drift anchors and the
+	// step-response fit have to be plotted against the clock, and an index says
+	// nothing about the pauses between readings. FILETIME counts 100 ns ticks
+	// since 1601-01-01; 116444736000000000 of them precede 1970-01-01.
+	FILETIME ft;
+	GetSystemTimeAsFileTime(&ft);
+	ULONGLONG t = ((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+	result.SetTimestamp((double)(t - 116444736000000000ULL) / 1e7);
 
 	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 		result.SetXYZValue(SelectAndApplyBodnerMatrixInv(result.GetXYZValue(), m_bodnerRawInverse, m_bodnerRawInvertible, m_bodnerCalMatrix));

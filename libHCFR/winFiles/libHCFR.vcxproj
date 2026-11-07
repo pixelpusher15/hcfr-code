@@ -91,6 +91,8 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\ArchiveExtension.cpp" />
+    <ClCompile Include="..\SensorCalibrationStream.cpp" />
     <ClCompile Include="..\CalibrationFile.cpp" />
     <ClCompile Include="..\CHCFile.cpp" />
     <ClCompile Include="..\Color.cpp" />
@@ -105,6 +107,9 @@
     <ClCompile Include="..\SaturationTracking.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\ArchiveExtension.h" />
+    <ClInclude Include="..\ArchiveTags.h" />
+    <ClInclude Include="..\SensorCalibrationStream.h" />
     <ClInclude Include="..\CalibrationFile.h" />
     <ClInclude Include="..\CHCFile.h" />
     <ClInclude Include="..\Color.h" />

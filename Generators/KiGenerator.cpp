@@ -27,6 +27,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "KiGenerator.h"
+#include "ArchiveExtension.h"
 #include "SerialCom.h"
 
 #include <math.h>
@@ -132,18 +133,22 @@ void CKiGenerator::Serialize(CArchive& archive)
 	CGenerator::Serialize(archive) ;
 	if (archive.IsStoring())
 	{
-		int version=3;
+		int version=4;
 		archive << version;
 		archive << m_doScreenBlanking;
 		archive << m_comPort;
 		archive << m_showDialog;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 3 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 4 )
+			throw new CNewerSchemaException ( "CKiGenerator", version );
 		archive >> m_doScreenBlanking;
 		
 		if ( version >= 2 )
@@ -155,6 +160,18 @@ void CKiGenerator::Serialize(CArchive& archive)
 			archive >> m_showDialog;
 		else
 			m_showDialog = TRUE;
+
+		if ( version >= 4 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 
