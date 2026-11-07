@@ -51,6 +51,9 @@
     <ClCompile Include="..\PCFilesReaderUtilities.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\SaturationTracking.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\ArchiveExtension.h">
@@ -96,6 +99,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\PCFilesReaderUtilities.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\SaturationTracking.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

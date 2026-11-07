@@ -727,7 +727,11 @@ void CRGBLevelWnd::OnPaint()
 	Gdiplus::StringFormat fmt(Gdiplus::StringFormatFlagsNoWrap | Gdiplus::StringFormatFlagsNoClip);
 	fmt.SetAlignment(Gdiplus::StringAlignmentCenter);
 
-	static const WCHAR* letters[4] = { L"R", L"G", L"B", L"\x0394" L"E" };
+	// Same condition as the HSV title and bar colors: the bars then plot
+	// hue, saturation and value, so label them H, S, V.
+	static const WCHAR* rgbLetters[4] = { L"R", L"G", L"B", L"\x0394" L"E" };
+	static const WCHAR* hsvLetters[4] = { L"H", L"S", L"V", L"\x0394" L"E" };
+	const WCHAR* const* letters = ( m_bLumaMode && GetConfig()->m_useHSV ) ? hsvLetters : rgbLetters;
 
 	for ( int i = 0; i < 4; i++ )
 	{

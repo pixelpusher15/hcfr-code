@@ -510,6 +510,11 @@ void CGraphControl::FitYScale(BOOL doRound, double roundStep, bool isGamma)
 			break;
 	}
 
+	// No point inside [m_minX, m_maxX]: the untouched sentinels would reach
+	// SetScale as minY > maxY and flip the Y axis. Keep the current scale.
+	if ( minY > maxY )
+		return;
+
 	if(doRound)
 	{
 		minY=(floor(minY/roundStep)-1) * roundStep;
@@ -1144,12 +1149,96 @@ void CGraphControl::OnPaint()
 	pDC -> SetBkColor ( RGB(255,255,255) );
 	pDC -> SelectObject ( pOldFont );
 
+	DrawOverlayRows ( pDC, rect, 2 + TitleSize.cy + 2, bWhiteBkgnd );
+
 	CBrush fxBorderBrush ( RGB ( 128, 128, 128 ) );
 	pDC -> FrameRect ( rect, & fxBorderBrush );
 
 }
 
-void CGraphControl::OnSize(UINT nType, int cx, int cy) 
+// The m_overlayRows block: the axis-label font and colors, top right, each
+// cell haloed like the axis labels so it stays readable over the curves.
+// Columns are as wide as their widest cell; a numeric column sits one space
+// after the cell before it (a label and its value read as a pair), any other
+// column three spaces after.
+void CGraphControl::DrawOverlayRows(CDC *pDC, CRect rect, int top, BOOL bWhiteBkgnd)
+{
+	const int nRows = (int)m_overlayRows.GetSize();
+	if ( nRows == 0 )
+		return;
+
+	const int kMaxCols = 16;
+	CFont font;
+	font.CreateFont(GetConfig()->ScaleFloor(14,16),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+	CFont* pOldFont = pDC->SelectObject(&font);
+	pDC->SetBkMode(TRANSPARENT);
+	pDC->SetTextAlign(TA_TOP | TA_LEFT);
+
+	int colW[kMaxCols] = { 0 };
+	bool colNum[kMaxCols] = { false };
+	int nCols = 0;
+	for ( int r = 0; r < nRows; r++ )
+	{
+		int c = 0, start = 0;
+		const CString & row = m_overlayRows[r];
+		while ( c < kMaxCols && start <= row.GetLength() )
+		{
+			int tab = row.Find('\t', start);
+			CString cell = ( tab < 0 ) ? row.Mid(start) : row.Mid(start, tab - start);
+			int w = pDC->GetTextExtent(cell).cx;
+			if ( w > colW[c] )
+				colW[c] = w;
+			if ( r == 0 )
+				colNum[c] = ( !cell.IsEmpty() && strchr("0123456789+-.", cell[0]) != NULL );
+			c++;
+			if ( tab < 0 )
+				break;
+			start = tab + 1;
+		}
+		if ( c > nCols )
+			nCols = c;
+	}
+
+	const int space = pDC->GetTextExtent(" ").cx;
+	int colX[kMaxCols];
+	int total = 0;
+	for ( int c = 0; c < nCols; c++ )
+	{
+		if ( c )
+			total += colNum[c] ? space : 3 * space;
+		colX[c] = total;
+		total += colW[c];
+	}
+
+	TEXTMETRIC tm;
+	pDC->GetTextMetrics(&tm);
+	const int x0 = rect.right - GetConfig()->Scale(8) - total;
+	const COLORREF halo = bWhiteBkgnd ? RGB(255,255,255) : RGB(0,0,0);
+	pDC->SetTextColor(bWhiteBkgnd ? RGB(64,64,64) : RGB(192,192,192));
+
+	for ( int r = 0; r < nRows; r++ )
+	{
+		int c = 0, start = 0;
+		const CString & row = m_overlayRows[r];
+		const int y = top + r * tm.tmHeight;
+		while ( c < kMaxCols && start <= row.GetLength() )
+		{
+			int tab = row.Find('\t', start);
+			CString cell = ( tab < 0 ) ? row.Mid(start) : row.Mid(start, tab - start);
+			bool bRight = ( !cell.IsEmpty() && strchr("0123456789+-.", cell[0]) != NULL );
+			int x = x0 + colX[c] + ( bRight ? colW[c] - pDC->GetTextExtent(cell).cx : 0 );
+			DrawHaloText(pDC, x, y, cell, halo);
+			c++;
+			if ( tab < 0 )
+				break;
+			start = tab + 1;
+		}
+	}
+
+	pDC->SelectObject(pOldFont);
+}
+
+void CGraphControl::OnSize(UINT nType, int cx, int cy)
 {
 	CWnd::OnSize(nType, cx, cy);
 }

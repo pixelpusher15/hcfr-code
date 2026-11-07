@@ -61,6 +61,79 @@ void CPatternDisplay::DoDataExchange(CDataExchange* pDX)
 	//}}AFX_DATA_MAP
 }
 
+// A dialog treats Up/Down like Left/Right (previous/next control). The buttons
+// here sit in rows, so Up/Down move to the row above/below instead, landing on
+// the button whose horizontal center is closest. In the first/last row no
+// button qualifies and the default handling applies (no wrap).
+BOOL CPatternDisplay::PreTranslateMessage(MSG* pMsg)
+{
+	if (pMsg->message == WM_KEYDOWN && (pMsg->wParam == VK_UP || pMsg->wParam == VK_DOWN))
+	{
+		auto isPushButton = [this](HWND hWnd) -> bool
+		{
+			if (hWnd == NULL || ::GetParent(hWnd) != m_hWnd)
+				return false;
+			TCHAR cls[16];
+			if (::GetClassName(hWnd, cls, _countof(cls)) == 0 || _tcsicmp(cls, _T("Button")) != 0)
+				return false;
+			UINT type = (UINT)::GetWindowLong(hWnd, GWL_STYLE) & BS_TYPEMASK;
+			return type == BS_PUSHBUTTON || type == BS_DEFPUSHBUTTON;
+		};
+
+		HWND hFocus = ::GetFocus();
+		if (isPushButton(hFocus))
+		{
+			const bool down = (pMsg->wParam == VK_DOWN);
+			CRect cur;
+			::GetWindowRect(hFocus, &cur);
+			const int slack = 2;					// px; rows are >= 10 DLU apart
+			const int band = cur.Height() / 2;		// a row may be off by a DLU (e.g. "Contrast")
+
+			// Pass 1: distance to the nearest row in the requested direction.
+			// Pass 2: within that row, the closest horizontal center.
+			int nearest = INT_MAX;
+			HWND hBest = NULL;
+			int bestDx = INT_MAX;
+			for (int pass = 1; pass <= 2; pass++)
+			{
+				for (HWND h = ::GetWindow(m_hWnd, GW_CHILD); h != NULL; h = ::GetWindow(h, GW_HWNDNEXT))
+				{
+					if (h == hFocus || !isPushButton(h) || !::IsWindowVisible(h) || !::IsWindowEnabled(h))
+						continue;
+					CRect r;
+					::GetWindowRect(h, &r);
+					int gap = down ? r.top - cur.bottom : cur.top - r.bottom;
+					if (gap < -slack)
+						continue;
+					if (pass == 1)
+					{
+						if (gap < nearest)
+							nearest = gap;
+					}
+					else if (gap <= nearest + band)
+					{
+						int dx = abs(r.CenterPoint().x - cur.CenterPoint().x);
+						if (dx < bestDx)
+						{
+							bestDx = dx;
+							hBest = h;
+						}
+					}
+				}
+				if (nearest == INT_MAX)
+					break;
+			}
+
+			if (hBest != NULL)
+			{
+				GotoDlgCtrl(CWnd::FromHandle(hBest));
+				return TRUE;
+			}
+		}
+	}
+	return CDialog::PreTranslateMessage(pMsg);
+}
+
 BEGIN_MESSAGE_MAP(CPatternDisplay, CDialog)
 	//{{AFX_MSG_MAP(CPatternDisplay)
 	ON_BN_CLICKED(IDC_PATTERN_ALL_SHAD, OnPatternAllShad)
