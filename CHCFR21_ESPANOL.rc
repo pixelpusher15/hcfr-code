@@ -2189,8 +2189,6 @@ BEGIN
     END
     POPUP "Avan&zado"
     BEGIN
-        MENUITEM "&Patrones...",                IDM_PATTERN_DISP_ROOT
-        MENUITEM SEPARATOR
         POPUP "&Objetivos\\Imágenes\\Patrones"
         BEGIN
             POPUP "Nive&les"
@@ -3983,7 +3981,6 @@ BEGIN
     IDM_CONTINUOUS_MEASUREMENT 
                             "Iniciar o detener las medidas continuas\nIniciar o detener las medidas continuas"
     IDM_PATTERN_DISPLAY     "Muestra varios patrones..."
-    IDM_PATTERN_DISP_ROOT   "Muestra varios patrones..."
     IDM_TOGGLE_TAB          "Muestra las pestañas en la parte superior de la ventana\nPestañas arriba"
     IDM_VIEW_DATASET        "Muestra las medidas\nMedidas"
 END

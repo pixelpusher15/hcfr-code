@@ -2207,8 +2207,6 @@ BEGIN
     END
     POPUP "&Avanzato"
     BEGIN
-        MENUITEM "&Pattern...",                IDM_PATTERN_DISP_ROOT
-        MENUITEM SEPARATOR
         POPUP "&Target\\Immagini\\Pattern"
         BEGIN
             POPUP "&Livelli"
@@ -4061,7 +4059,6 @@ BEGIN
     IDM_CONTINUOUS_MEASUREMENT 
                             "Eseguire o fermare le misure continue\nEseguire o fermare le misure continue"
     IDM_PATTERN_DISPLAY     "Visualizza vari pattern..."
-    IDM_PATTERN_DISP_ROOT   "Visualizza vari pattern..."
     IDM_TOGGLE_TAB          "Visualizzare il controllo delle schede nella parte superiore della finestra\nTab control in alto"
     IDM_VIEW_DATASET        "Visualizza le misure\nMisura"
 END

@@ -2417,8 +2417,6 @@ BEGIN
     END
     POPUP "A&vancé"
     BEGIN
-        MENUITEM "&Mires...",                   IDM_PATTERN_DISP_ROOT
-        MENUITEM SEPARATOR
         POPUP "Mires"
         BEGIN
             POPUP "&Niveaux"
@@ -4107,7 +4105,6 @@ BEGIN
     IDM_SINGLE_MEASUREMENT  "Effectue une mesure unique\nEffectue une mesure unique"
     IDM_CONTINUOUS_MEASUREMENT 
                             "Lance ou arrête les mesures en continu\nLance ou arrête les mesures en continu"
-    IDM_PATTERN_DISP_ROOT   "Permet d'afficher des mires..."
     IDM_TOGGLE_TAB          "Affiche les onglets en haut\nOnglets en haut"
     IDM_VIEW_DATASET        "Affiche les mesures\nMesures"
 END

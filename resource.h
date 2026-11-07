@@ -1045,7 +1045,6 @@
 #define IDM_SINGLE_MEASUREMENT          32969
 #define IDM_CONTINUOUS_MEASUREMENT      32970
 #define IDM_PATTERN_DISPLAY             32971
-#define IDM_PATTERN_DISP_ROOT           32972
 #define IDM_TOGGLE_TAB                  32973
 #define IDM_VIEW_DATASET                32974
 #define IDM_TAB_CLOSE                   32976
