@@ -240,34 +240,16 @@ void GuardCCModeOutputRange(int ccMode)
 	// write) rather than the cached GetRGB16_235(), so the guard is correct even when called
 	// from the settings OnOK before ApplySettings has re-synced the cache.
 	if (GetConfig()->GetProfileInt("GDIGenerator", "RGB_16_235", 1) != 0)
-		return;                                  // already 16-235: super-white is emitted fine (no file read needed).
+		return;                                  // already 16-235: super-white is emitted fine.
 	                                             // Default 1 matches the canonical RGB_16_235 default (ColorHCFRConfig
 	                                             // / GDIGenerator) - the INI ships without this key, so a 0 default here
 	                                             // would warn spuriously when output actually defaults to 16-235.
-	// Multi-set picker: a loaded set is self-contained, so its declared range is
-	// authoritative - do not re-read usercolors.csv, which it need not match.
+	// A loaded set is self-contained, so its declared range is authoritative. With no
+	// set USER is the empty state (GetCColors) and no file stands in for one, so there
+	// is nothing to lose. Only Extended has super-white to lose.
 	CUserPatchSet * pSet = GetActiveDocUserPatchSet();
-	if (pSet)
-	{
-		if (pSet->range == CSV_RANGE_EXTENDED)
-		{
-			CString msg;
-			msg.LoadString(IDS_CSV_RANGE_EXTENDED_WARN);
-			AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
-		}
+	if (pSet == NULL || pSet->range != CSV_RANGE_EXTENDED)
 		return;
-	}
-	char modPath[MAX_PATH];
-	GetModuleFileName(NULL, modPath, sizeof(modPath));
-	LPSTR pSlash = strrchr(modPath, '\\');
-	if (pSlash) pSlash[1] = '\0';
-	// Read the declared range from the loader itself (rangeOut) so the guard can't disagree
-	// with what actually gets loaded. maxRows=1 reads just the header + first row.
-	std::vector<CsvPatchRow> rows;
-	int bits = 8, range = CSV_RANGE_NONE;
-	ReadCsvPatchRows(CString(modPath) + "usercolors.csv", rows, 1, &bits, &range);
-	if (range != CSV_RANGE_EXTENDED)
-		return;                                  // only Extended has super-white to lose
 	CString msg;
 	msg.LoadString(IDS_CSV_RANGE_EXTENDED_WARN);
 	AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
