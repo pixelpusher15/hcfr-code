@@ -78,6 +78,7 @@ static char THIS_FILE[] = __FILE__;
 // Defined below (near the calibration entry points); used by the new-document
 // wizard's Argyll branch as well.
 static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor, LPCSTR fileToLoad = NULL);
+static bool RefuseMatrixCalOverDriverSpectral(CSensor* pSensor);
 static BOOL LoadCalibrationFileKeepingSpectral(CSensor* pSensor, CString & fileName);
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1831,6 +1832,10 @@ void CDataSetDoc::OnCalibrationSim()
 		return;
 	}
 
+	// Before anything is measured: see RefuseMatrixCalOverDriverSpectral.
+	if ( RefuseMatrixCalOverDriverSpectral(m_pSensor) )
+		return;
+
 	Msg.LoadString ( IDS_RUN_SIM_CALIBRATION );
 	if ( IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_YESNO | MB_ICONQUESTION ) )
 	{
@@ -1879,6 +1884,11 @@ void CDataSetDoc::OnCalibrationExisting()
 		return;
     }
 
+	// Before the fit, and before the save question below (ComputeAdjustmentMatrix
+	// refuses too, but its caller would still offer to save the calibration).
+	if ( RefuseMatrixCalOverDriverSpectral(m_pSensor) )
+		return;
+
     ComputeAdjustmentMatrix();
 	// Save file
 	Msg.LoadString ( IDS_SAVECALDATA );
@@ -1888,15 +1898,33 @@ void CDataSetDoc::OnCalibrationExisting()
 
 }
 
+// A matrix calibration over a spectral correction the driver applies itself (a
+// meter whose calibration matrices are not exposed: record basis DRIVER_CORRECTED,
+// MatrixCalibrationAllowed false) is refused, with the reason, before anything is
+// measured or fitted. That meter's readings already carry the correction, so the
+// matrix would be fitted on corrected readings and then - the record and the
+// driver's sample cleared by SpectralSupersededByMatrixFit - applied to native
+// ones. Clearing the correction first (the sensor page) or keeping it as the
+// method are the two honest options; the message names both. True when refused.
+// Called by every matrix calibration entry point: the manual fit (through
+// ConfirmMatrixCalOverSpectral, and again after its sensor Init), the simultaneous
+// and existing-reference fits (before measuring, and in ComputeAdjustmentMatrix),
+// and the correction file loads (through ConfirmMatrixCalOverSpectral).
+static bool RefuseMatrixCalOverDriverSpectral(CSensor* pSensor)
+{
+	if ( pSensor == NULL || MatrixCalibrationAllowed(pSensor->GetSpectralRecord()) )
+		return false;
+	GetColorApp()->InMeasureMessageBox( _S(IDS_CALIB_SPECTRAL_IN_DRIVER), _S(IDS_ERROR), MB_OK | MB_ICONERROR );
+	return true;
+}
+
 // Before a matrix calibration replaces a spectral correction. Returns false to
 // abort the calibration; clears nothing. The fit sites call
 // SpectralSupersededByMatrixFit once the new correction is installed, so a
 // declined confirmation, a failed Init, an unreadable file or a singular fit
 // changes nothing.
-//   - A record the driver applies itself (a meter whose calibration matrices are
-//     not exposed: basis DRIVER_CORRECTED) cannot stay under a matrix, which would
-//     double-correct: the Yes/No "clear it?" question, as before. Asked whether
-//     or not it is the method in force - a matrix on top of it is the stack.
+//   - A record the driver applies itself (basis DRIVER_CORRECTED) is refused
+//     (RefuseMatrixCalOverDriverSpectral), whether or not it is the method in force.
 //   - Otherwise only when the spectral correction is the method in force: raw is
 //     native, the matrix is fitted on and applied to raw, and the spectral record
 //     stays in the sensor, dormant. The user is told so (OK/Cancel).
@@ -1907,17 +1935,13 @@ void CDataSetDoc::OnCalibrationExisting()
 static bool PeekCalibrationFile(LPCSTR fileName, int& method, int& basis);
 static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor, LPCSTR fileToLoad)
 {
+	if ( RefuseMatrixCalOverDriverSpectral(pSensor) )
+		return false;
 	if ( pSensor == NULL || !pSensor->HasSpectralCorrection() )
 		return true;
 	const SpectralCorrectionRecord & rec = pSensor->GetSpectralRecord();
 	CString msg, title;
 	title.LoadString ( IDS_SPECTRAL_ACTIVE_TITLE );
-	if ( rec.basis == FIT_BASIS_DRIVER_CORRECTED )
-	{
-		msg.LoadString ( IDS_SPECTRAL_CLEAR_FOR_MATRIX );
-		return GetColorApp()->InMeasureMessageBox( msg, title,
-			MB_YESNO | MB_ICONQUESTION ) == IDYES;
-	}
 	if ( !pSensor->UsesSpectralMethod() )
 		return true;
 	int fileMethod = CALIB_HCFR_DEFAULT, fileBasis = FIT_BASIS_NATIVE;
@@ -2027,6 +2051,16 @@ void CDataSetDoc::OnCalibrationManual()
 			Title.LoadString ( IDS_ERROR );
 			strMsg.LoadString ( IDS_ERRINITSENSOR );
 			GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
+			m_pGenerator->Release(-99);
+			return;
+		}
+
+		// Init can turn a native record into a driver-corrected one (a document's
+		// record met by a meter whose matrices are not exposed): asked again here,
+		// before the first patch is measured.
+		if ( RefuseMatrixCalOverDriverSpectral(m_pSensor) )
+		{
+			m_pSensor->Release();
 			m_pGenerator->Release(-99);
 			return;
 		}

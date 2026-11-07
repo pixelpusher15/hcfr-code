@@ -723,10 +723,16 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     // Nothing is lost: every reading keeps its raw (native) value, and the
     // document's recompute from raw follows on the sheet's OK. Cancel aborts the
     // apply entirely (so it really is "before applying").
+    // A meter whose matrices are not exposed is told what happens there instead:
+    // its driver applies the sample to new readings only, and the recompute turns
+    // every stored reading into identity * raw, its raw being the uncorrected
+    // reading - the matrix calibration is gone from it and the spectral correction
+    // never reaches it (IDS_SPECTRAL_MATRIXCAL_PROMPT_DRIVER).
+    const bool exposable = ( m_meter && m_meter->canExposeCalibrationMatrices() );
     if ( IsCorrectionActive() && !UsesSpectralMethod() )
     {
         CString prompt, title;
-        prompt.LoadString ( IDS_SPECTRAL_MATRIXCAL_PROMPT );
+        prompt.LoadString ( exposable ? IDS_SPECTRAL_MATRIXCAL_PROMPT : IDS_SPECTRAL_MATRIXCAL_PROMPT_DRIVER );
         title.LoadString ( IDS_SPECTRAL_TITLE );
         int r = GetColorApp()->InMeasureMessageBox( prompt, title,
             MB_OKCANCEL | MB_ICONQUESTION );
@@ -738,7 +744,6 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     // a matrix, read out once, and the driver is back to native before any reading
     // (the wrapper restores it on every path). Any other meter keeps the sample
     // loaded and applies it itself.
-    const bool exposable = ( m_meter && m_meter->canExposeCalibrationMatrices() );
     Matrix native, current, corr;
     if ( exposable )
     {

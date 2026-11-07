@@ -2580,6 +2580,48 @@ namespace T32Spectral
         CheckMatrix("(f) native method basis, driver-corrected record -> M",
                     EffectiveSensorMatrix(CALIB_HCFR_DEFAULT, FIT_BASIS_NATIVE, drv, M), M, 1e-14);
     }
+
+    // (g) The matrix-calibration refusal (PR #237 review R1). A record the driver
+    // applies itself (basis DRIVER_CORRECTED) means the meter reports corrected
+    // readings: a matrix fitted on them would be applied to native readings once
+    // the record is cleared, so every matrix calibration entry point refuses. Every
+    // source x basis cell, stated independently: refused only for a present record
+    // with basis DRIVER_CORRECTED. The absent record carries DRIVER_CORRECTED as
+    // its basis, so a predicate that ignored IsPresent() fails here.
+    static void CheckMatrixCalibrationAllowed()
+    {
+        const int sources[] = { SPECTRAL_SOURCE_NONE, SPECTRAL_SOURCE_FILE, SPECTRAL_SOURCE_DISPLAY_TYPE };
+        const int bases[]   = { FIT_BASIS_UNKNOWN, FIT_BASIS_NATIVE, FIT_BASIS_DRIVER_CORRECTED };
+        int cells = 0, refused = 0;
+        for (int si = 0; si < 3; ++si)
+            for (int bi = 0; bi < 3; ++bi)
+            {
+                SpectralCorrectionRecord rec;
+                rec.source = sources[si];
+                rec.basis  = bases[bi];
+                const bool want = !( sources[si] != SPECTRAL_SOURCE_NONE && bases[bi] == FIT_BASIS_DRIVER_CORRECTED );
+                const bool got  = MatrixCalibrationAllowed(rec);
+                if (got != want)
+                    Fail("T32 (g) source %d basis %d: MatrixCalibrationAllowed %d, want %d",
+                         sources[si], bases[bi], (int) got, (int) want);
+                if (!got)
+                    ++refused;
+                ++cells;
+            }
+        if (cells != 9 || refused != 2)
+            Fail("T32 (g) table has %d cells and %d refusals, want 9 and 2", cells, refused);
+        // A default-constructed record (no spectral correction at all) allows it,
+        // and so does a cleared driver-corrected one.
+        SpectralCorrectionRecord none;
+        if (!MatrixCalibrationAllowed(none))
+            Fail("T32 (g) a default record refuses a matrix calibration");
+        SpectralCorrectionRecord cleared;
+        cleared.source = SPECTRAL_SOURCE_FILE;
+        cleared.basis  = FIT_BASIS_DRIVER_CORRECTED;
+        cleared.Clear();
+        if (!MatrixCalibrationAllowed(cleared))
+            Fail("T32 (g) a cleared driver-corrected record still refuses a matrix calibration");
+    }
 }
 
 static void RunT32()
@@ -2591,6 +2633,7 @@ static void RunT32()
     T32Spectral::CheckRecord();
     T32Spectral::CheckPersistedNumbers();
     T32Spectral::CheckDispatch();
+    T32Spectral::CheckMatrixCalibrationAllowed();
 }
 
 //////////////////////////////////////////////////////////////////////////
