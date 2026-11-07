@@ -1954,7 +1954,8 @@ BEGIN
         MENUITEM "Referenz anzeigen",           IDM_RGB_GRAPH_REFERENCE
         MENUITEM "Referenzmessung anzeigen",    IDM_RGB_GRAPH_DATAREF
         MENUITEM "Delta E Kurve",               IDM_RGB_GRAPH_DELTAE
-        MENUITEM "mit Gamma",                     IDM_RGB_GRAPH_GAMMA
+        MENUITEM "Balance",                     IDM_RGB_GRAPH_BALANCE
+        MENUITEM "Leuchtdichtefehler",          IDM_RGB_GRAPH_LUMERROR
         MENUITEM SEPARATOR
         MENUITEM "Speichern...",                IDM_GRAPH_SAVE
         POPUP "Skalierung"
@@ -2044,8 +2045,6 @@ BEGIN
     END
     POPUP "&Erweitert"
     BEGIN
-        MENUITEM "&Testbilder...",              IDM_PATTERN_DISP_ROOT
-        MENUITEM SEPARATOR
         POPUP "Testbilder"
         BEGIN
             POPUP "&Pegel"
@@ -3880,7 +3879,6 @@ BEGIN
     IDM_CONTINUOUS_MEASUREMENT 
                             "Kontinuierliche Messungen starten oder stoppen\nKontinuierliche Messungen starten oder stoppen"
     IDM_PATTERN_DISPLAY     "Verschiedene Testbilder anzeigen..."
-    IDM_PATTERN_DISP_ROOT   "Verschiedene Testbilder anzeigen..."
     IDM_TOGGLE_TAB          "Reiter oben am Fenster anzeigen\nReiter oben"
     IDM_VIEW_DATASET        "Messungen anzeigen\nMessungen"
 END
@@ -4202,8 +4200,9 @@ BEGIN
     IDS_SATSHIFT_TBL_AVG        "Mittel 0-%d:"
     IDS_SATSHIFT_TBL_AT100      "bei 100:"
     IDS_SATSHIFT_TBL_MAX        "max"
-    IDS_GRAPH_GSBALGAMMA        "Graustufenbalance mit Gamma"
-    IDS_GRAPH_GSBALNOGAMMA      "Graustufenbalance ohne Gamma"
+    IDS_GRAPH_GSBALNOGAMMA      "Graustufen-Balance"
+    IDS_GRAPH_GSLUMERROR        "Graustufen-Pegel, Leuchtdichtefehler"
+    IDM_RGB_GRAPH_LUMERROR      "Jeden Kanal als vorzeichenbehafteten prozentualen Fehler relativ zu seiner Zielleuchtdichte anzeigen"
     IDS_GRAPH_EOTFGAMMA         "EOTF (Gamma)"
     IDS_GRAPH_REFMEASGAMMA      "Gamma der Referenzmessung"
     IDS_GRAPH_DELTALUM          "delta Helligkeit"

@@ -2336,7 +2336,8 @@ BEGIN
         MENUITEM "Affiche la référence",        IDM_RGB_GRAPH_REFERENCE
         MENUITEM "Affiche la mesure de référence", IDM_RGB_GRAPH_DATAREF
         MENUITEM "Courbe Delta E",              IDM_RGB_GRAPH_DELTAE
-        MENUITEM "avec Gamma",                     IDM_RGB_GRAPH_GAMMA
+        MENUITEM "Balance",                     IDM_RGB_GRAPH_BALANCE
+        MENUITEM "Erreur de luminance",         IDM_RGB_GRAPH_LUMERROR
         MENUITEM SEPARATOR
         MENUITEM "Enregistrer...",              IDM_GRAPH_SAVE
         POPUP "Echelle"
@@ -2428,8 +2429,6 @@ BEGIN
     END
     POPUP "A&vancé"
     BEGIN
-        MENUITEM "&Mires...",                   IDM_PATTERN_DISP_ROOT
-        MENUITEM SEPARATOR
         POPUP "Mires"
         BEGIN
             POPUP "&Niveaux"
@@ -4118,7 +4117,6 @@ BEGIN
     IDM_SINGLE_MEASUREMENT  "Effectue une mesure unique\nEffectue une mesure unique"
     IDM_CONTINUOUS_MEASUREMENT 
                             "Lance ou arrête les mesures en continu\nLance ou arrête les mesures en continu"
-    IDM_PATTERN_DISP_ROOT   "Permet d'afficher des mires..."
     IDM_TOGGLE_TAB          "Affiche les onglets en haut\nOnglets en haut"
     IDM_VIEW_DATASET        "Affiche les mesures\nMesures"
 END
@@ -4430,8 +4428,9 @@ BEGIN
     IDS_SATSHIFT_TBL_AVG        "moy. 0-%d:"
     IDS_SATSHIFT_TBL_AT100      "\xE0 100:"
     IDS_SATSHIFT_TBL_MAX        "max"
-    IDS_GRAPH_GSBALGAMMA        "Balance de l'échelle de gris avec gamma"
-    IDS_GRAPH_GSBALNOGAMMA      "Balance de l'échelle de gris sans gamma"
+    IDS_GRAPH_GSBALNOGAMMA      "Balance des gris"
+    IDS_GRAPH_GSLUMERROR        "Niveaux de gris, erreur de luminance"
+    IDM_RGB_GRAPH_LUMERROR      "Afficher chaque canal comme une erreur en pourcentage sign\xE9e par rapport \xE0 sa luminance cible"
     IDS_GRAPH_EOTFGAMMA         "EOTF (Gamma)"
     IDS_GRAPH_REFMEASGAMMA      "Gamma mesure de référence"
     IDS_GRAPH_DELTALUM          "delta Luminance"
