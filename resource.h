@@ -2063,6 +2063,15 @@
 #define IDS_CUSTOMSEQUENCES             60055
 #define IDS_PATCHSETS_TOO_LARGE         60056
 #define IDS_PATCHSETS_TOO_MANY          60057
+// Next free above every local and remote branch on 2026-11-07.
+#define IDS_CCSET_PICK_TIP              60100
+#define IDS_CCSET_OPEN_LIST             60101
+#define IDS_COMPARE_DRIVEN              60102
+#define IDS_NO_SEQUENCE_LOADED          60103
+#define IDS_PATCHLIST_FILTER            60104
+#define IDS_USERSET_MIGRATED            60105
+#define IDS_CSV_NO_ROWS                 60106
+#define IDS_USERSET_NONE_LOADED         60107
 #define IDS_GRAPH_GSLUMERROR            60090
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549

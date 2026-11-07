@@ -8382,8 +8382,10 @@ void CMeasure::ActivateUserPatchSet(int idx)
 }
 
 // The size check behind Open patch list...: the trailer as it would be saved
-// with `set` in the collection, plus one stored reading for every row of `set`
-// that has none yet, so a list that fits now still fits once it is measured.
+// with `set` in the collection, plus one stored reading for every row of every
+// set that has none yet, so a list that fits now still fits once it is measured.
+// A definition already past the cap is reported as past it: the trailer writer
+// refuses it by throwing, which is the answer here, not an error.
 // A projected reading is the size of the largest first reading of any set in
 // the document (spectral readings make a set several times larger), or, in a
 // document with none, of a reading stamped the way a colorimeter sweep stamps
@@ -8410,9 +8412,10 @@ ULONGLONG CMeasure::ProjectedUserPatchSetTrailerBytes(const CUserPatchSet & set,
 	if ( reading == 0 )
 	{
 		size_t longest = 0;
-		for ( size_t i = 0; i < set.rows.size(); i++ )
-			if ( set.rows[i].name.size() > longest )
-				longest = set.rows[i].name.size();
+		for ( size_t s = 0; s < trial.size(); s++ )
+			for ( size_t i = 0; i < trial[s].rows.size(); i++ )
+				if ( trial[s].rows[i].name.size() > longest )
+					longest = trial[s].rows[i].name.size();
 		CColor c ( 1.0, 1.0, 1.0 );
 		c.SetLuxValue ( 1.0 );
 		c.SetRawXYZValue ( ColorXYZ ( 1.0, 1.0, 1.0 ) );
@@ -8425,11 +8428,22 @@ ULONGLONG CMeasure::ProjectedUserPatchSetTrailerBytes(const CUserPatchSet & set,
 	}
 
 	ULONGLONG unmeasured = 0;
-	for ( size_t i = 0; i < set.rows.size(); i++ )
-		if ( i >= set.measures.size() || !set.measures[i].isValid() )
-			unmeasured++;
+	for ( size_t s = 0; s < trial.size(); s++ )
+		for ( size_t i = 0; i < trial[s].rows.size(); i++ )
+			if ( i >= trial[s].measures.size() || !trial[s].measures[i].isValid() )
+				unmeasured++;
 
-	return MeasureTrailerBytes ( trial, m_activeUserSet ) + unmeasured * ( 4 + reading );
+	ULONGLONG trailer;
+	try
+	{
+		trailer = MeasureTrailerBytes ( trial, m_activeUserSet );
+	}
+	catch ( CArchiveException * e )
+	{
+		e -> Delete ();
+		return (ULONGLONG) kMaxExtensionBytes + 1;
+	}
+	return trailer + unmeasured * ( 4 + reading );
 }
 
 void CMeasure::MigrateLegacyUserBand()

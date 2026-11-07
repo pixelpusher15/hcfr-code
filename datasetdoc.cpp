@@ -5121,10 +5121,9 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 		ULONGLONG need = m_measure.ProjectedUserPatchSetTrailerBytes ( candidate, bRefresh ? existing : -1 );
 		if ( need > kMaxExtensionBytes )
 		{
-			const ULONGLONG MB = 1024 * 1024;
 			CString fmt, msg;
 			fmt.LoadString ( IDS_PATCHSETS_TOO_LARGE );
-			msg.Format ( fmt, (int) ( ( need + MB - 1 ) / MB ), (int) ( kMaxExtensionBytes / MB ) );
+			msg.Format ( fmt, (int) ( kMaxExtensionBytes / ( 1024 * 1024 ) ) );
 			AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
 			return false;
 		}
