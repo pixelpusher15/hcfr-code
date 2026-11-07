@@ -8379,6 +8379,7 @@ void CMeasure::ActivateUserPatchSet(int idx)
 		m_cc24SatMeasureArray_master[USER_BAND_BASE + i] = c;
 	}
 	m_isModified = TRUE;
+	m_CCStr = GetCCStr();	// the USER line follows the band
 }
 
 // The size check behind Open patch list...: the trailer as it would be saved
