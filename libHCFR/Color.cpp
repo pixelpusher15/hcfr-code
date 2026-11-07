@@ -3395,6 +3395,27 @@ double CsvCodeToPercent(double code, int bits, int range)
 // grid (round-to-nearest, clamped to [0, maxCode]); reconstructs definition
 // codes from stored stimuli during legacy .chc migration. Extended super-white
 // (>100%) maps back onto the legal slope up to the grid ceiling.
+bool CsvPatchCodesMatch(const std::vector<CsvPatchRow> & a, const std::vector<CsvPatchRow> & b)
+{
+	if ( a.size() != b.size() )
+		return false;
+	for ( size_t i = 0; i < a.size(); i++ )
+		if ( a[i].r != b[i].r || a[i].g != b[i].g || a[i].b != b[i].b )
+			return false;
+	return true;
+}
+
+std::string CsvSetNameFromPath(const char * path)
+{
+	std::string base ( path );
+	size_t sl = base.find_last_of ( "\\/" );
+	if ( sl != std::string::npos )
+		base.erase ( 0, sl + 1 );
+	if ( base.size() >= 4 && _stricmp ( base.c_str() + base.size() - 4, ".csv" ) == 0 )
+		base.erase ( base.size() - 4 );
+	return base;
+}
+
 int CsvPercentToCode(double percent, int bits, int range)
 {
 	int maxCode = (1 << bits) - 1;

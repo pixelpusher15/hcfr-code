@@ -5076,16 +5076,14 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 	m_measure.MigrateLegacyUserBand ();
 
 	CString cPath ( path );
-	int sl = cPath.ReverseFind ( '\\' );
-	std::string base = (LPCTSTR)( sl >= 0 ? cPath.Mid ( sl + 1 ) : cPath );
-	size_t dp = base.rfind ( ".csv" );
-	if ( dp != std::string::npos )
-		base.erase ( dp );
+	std::string base = CsvSetNameFromPath ( path );
 
-	// Re-opening a set: same name + same row count refreshes the definition in
-	// place and keeps the measures (the iterate-on-the-CSV workflow); a
-	// different count would misalign definition and measures, so it becomes a
-	// separate entry under a suffixed name. Measurements are never discarded.
+	// Re-opening a set: same name with every row still driving the same code, at
+	// the same depth and range, refreshes the definition in place and keeps the
+	// measures (the iterate-on-the-CSV workflow, renamed patches included). Any
+	// other change would leave readings under a definition that did not produce
+	// them, so it becomes a separate entry under a suffixed name. Measurements
+	// are never discarded.
 	int existing = -1;
 	for ( int i = 0; i < m_measure.GetUserPatchSetCount (); i++ )
 		if ( _stricmp ( m_measure.GetUserPatchSet ( i )->name.c_str (), base.c_str () ) == 0 )
@@ -5093,7 +5091,12 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 			existing = i;
 			break;
 		}
-	bool bRefresh = ( existing >= 0 && (int) m_measure.GetUserPatchSet ( existing )->rows.size () == nRows );
+	bool bRefresh = false;
+	if ( existing >= 0 )
+	{
+		const CUserPatchSet * pOld = m_measure.GetUserPatchSet ( existing );
+		bRefresh = ( pOld->bits == bits && pOld->range == range && CsvPatchCodesMatch ( pOld->rows, rows ) );
+	}
 
 	// A document holds at most kMaxUserPatchSets sets; the reader refuses more.
 	if ( ! bRefresh && m_measure.GetUserPatchSetCount () >= kMaxUserPatchSets )

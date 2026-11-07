@@ -981,6 +981,12 @@ extern double CsvCodeToPercent ( double code, int bits, int range );
 // Exact inverse (round-to-nearest, clamped to the grid): stimulus percentage -> source code.
 // Used to reconstruct definition codes from stored stimuli during legacy .chc migration.
 extern int CsvPercentToCode ( double percent, int bits, int range );
+// Two definitions drive the same codes when they have the same row count and the
+// same r/g/b row by row; patch numbers and names are labels and do not count.
+extern bool CsvPatchCodesMatch ( const std::vector<CsvPatchRow> & a, const std::vector<CsvPatchRow> & b );
+// The display name of a patch list: the file's base name with no directory and
+// with a trailing .csv, in any case, removed.
+extern std::string CsvSetNameFromPath ( const char * path );
 // Active user patch set override (multi-set picker): the app installs the active set's
 // stored definition here so the USER drive path (GenerateCC24Colors) is self-contained -
 // no file read, and the source CSV may have changed or be gone. Copied, not referenced.

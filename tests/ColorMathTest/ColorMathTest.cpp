@@ -3070,6 +3070,57 @@ static void RunT41()
     printf("  %d saturation-tracking checks\n", checks);
 }
 
+// T42 - user patch set definition helpers (pure assertion, no golden file).
+// CsvPatchCodesMatch decides whether re-opening a patch list may keep the
+// readings of the set of that name: only when every row still drives the same
+// code. CsvSetNameFromPath names the set from the file.
+static void RunT42()
+{
+    printf("T42 user patch set definition helpers...\n");
+
+    std::vector<CsvPatchRow> a(3);
+    for (int i = 0; i < 3; i++)
+    {
+        a[i].patch = i + 1;
+        a[i].r = 16 + i; a[i].g = 32 + i; a[i].b = 64 + i;
+        a[i].name = "row";
+    }
+    std::vector<CsvPatchRow> b(a);
+    if (!CsvPatchCodesMatch(a, b))
+        Fail("T42 identical rows: not a match");
+    b[1].name = "renamed";
+    b[1].patch = 99;
+    if (!CsvPatchCodesMatch(a, b))
+        Fail("T42 a new label on the same codes: not a match");
+    for (int c = 0; c < 3; c++)
+    {
+        std::vector<CsvPatchRow> d(a);
+        (c == 0 ? d[2].r : c == 1 ? d[2].g : d[2].b) += 1;
+        if (CsvPatchCodesMatch(a, d))
+            Fail("T42 last row, channel %d one code off: reported a match", c);
+    }
+    std::vector<CsvPatchRow> shorter(a.begin(), a.begin() + 2);
+    if (CsvPatchCodesMatch(a, shorter))
+        Fail("T42 different row counts: reported a match");
+
+    static const struct { const char * path; const char * name; } kNames[] =
+    {
+        { "C:\\lists\\ramp.csv",     "ramp" },
+        { "C:\\lists\\ramp.CSV",     "ramp" },
+        { "C:\\lists\\Ramp.Csv",     "Ramp" },
+        { "ramp.csv",                    "ramp" },
+        { "C:\\lists\\ramp.csv.bak", "ramp.csv.bak" },
+        { "C:\\a.csv\\ramp",         "ramp" },
+        { "C:\\lists\\ramp",         "ramp" },
+    };
+    for (size_t i = 0; i < sizeof(kNames) / sizeof(kNames[0]); i++)
+    {
+        std::string got = CsvSetNameFromPath(kNames[i].path);
+        if (got != kNames[i].name)
+            Fail("T42 name of %s: '%s', want '%s'", kNames[i].path, got.c_str(), kNames[i].name);
+    }
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -3103,6 +3154,7 @@ int main(int argc, char* argv[])
     RunT32();
     RunT22();
     RunT41();
+    RunT42();
 
     if (g_failures)
     {
