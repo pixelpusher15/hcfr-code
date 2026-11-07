@@ -553,6 +553,7 @@ BEGIN_MESSAGE_MAP(CDataSetDoc, CDocument)
 	ON_UPDATE_COMMAND_UI(IDM_MEASURE_SECONDARIES, OnUpdateMeasureSecondaries)
 	ON_UPDATE_COMMAND_UI(IDM_CONTINUOUS_MEASUREMENT, OnUpdateContinuousMeasurement)
 	ON_COMMAND(IDM_MEASURE_DEFINESCALE, OnMeasureDefinescale)
+	ON_COMMAND(IDM_MEASURE_OPEN_PATCHLIST, OnMeasureOpenPatchList)
 	ON_COMMAND(IDM_MEASURE_NEARBLACK, OnMeasureNearblack)
 	ON_UPDATE_COMMAND_UI(IDM_MEASURE_NEARBLACK, OnUpdateMeasureNearblack)
 	ON_COMMAND(IDM_MEASURE_NEARWHITE, OnMeasureNearwhite)
@@ -1386,6 +1387,7 @@ void CDataSetDoc::MeasureCC24SatScale()
 {
 	StopBackgroundMeasures ();
 	MeasureButtonStopScope _btn(this);
+	SyncCCTargets ();
 
 	if(m_measure.MeasureCC24SatScale(m_pSensor,m_pGenerator,this))
 		SetModifiedFlag(m_measure.IsModified());
@@ -1411,6 +1413,7 @@ void CDataSetDoc::MeasureAllSaturationScales()
 {
 	StopBackgroundMeasures ();
 	MeasureButtonStopScope _btn(this);
+	SyncCCTargets ();
 
 	if(m_measure.MeasureAllSaturationScales(m_pSensor,m_pGenerator,FALSE,this))
 		SetModifiedFlag(m_measure.IsModified());
@@ -1472,6 +1475,7 @@ void CDataSetDoc::MeasureContrast()
 void CDataSetDoc::AddMeasurement() 
 {
 	StopBackgroundMeasures ();
+	SyncCCTargets ();	// a re-measured slot is stamped from the cache
     POSITION pos;
     CView* pView;
     pos = this -> GetFirstViewPosition ();
@@ -3084,6 +3088,7 @@ void CDataSetDoc::OnSimSingleMeasurement()
 
 void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 {
+	SyncCCTargets ();
 	int				i, j;
 	int				NbDocs = 0;
 	int				nSteps = 0;
@@ -5035,11 +5040,163 @@ void CDataSetDoc::OnBkgndMeasureReady()
 	g_bInsideBkgndRefresh = FALSE;
 }
 
-void CDataSetDoc::OnMeasureDefinescale() 
+void CDataSetDoc::OnMeasureDefinescale()
 {
 	CScaleSizes dlg ( this );
 
 	dlg.DoModal ();
+}
+
+void CDataSetDoc::OnMeasureOpenPatchList()
+{
+	if ( IsMeasureSweepActive () )
+		return;
+	CString strFilter;
+	strFilter.LoadString ( IDS_PATCHLIST_FILTER );
+	CFileDialog dlg ( TRUE, "csv", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR, strFilter );
+	if ( dlg.DoModal () == IDOK )
+		ImportUserPatchSetFile ( dlg.GetPathName () );
+}
+
+bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
+{
+	std::vector<CsvPatchRow> rows;
+	int bits = 8, range = CSV_RANGE_NONE;
+	int nRows = ReadCsvPatchRows ( CString ( path ), rows, MAX_USER_CC_PATCH_SIZE, &bits, &range );
+	if ( nRows <= 0 )
+	{
+		CString fmt, msg;
+		fmt.LoadString ( nRows == 0 ? IDS_CSV_NO_ROWS : IDS_CSV_FILE_NOT_FOUND );	// -1 = could not open
+		msg.Format ( fmt, path );
+		AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
+		return false;
+	}
+
+	// A document that measured legacy USER data before any set was loaded gets
+	// that data wrapped into a set first, so opening a file can never discard it.
+	m_measure.MigrateLegacyUserBand ();
+
+	CString cPath ( path );
+	std::string base = CsvSetNameFromPath ( path );
+
+	// Re-opening a set: same name with every row still driving the same code, at
+	// the same depth and range, refreshes the definition in place and keeps the
+	// measures (the iterate-on-the-CSV workflow, renamed patches included). Any
+	// other change would leave readings under a definition that did not produce
+	// them, so it becomes a separate entry under a suffixed name. Measurements
+	// are never discarded.
+	int existing = -1;
+	for ( int i = 0; i < m_measure.GetUserPatchSetCount (); i++ )
+		if ( _stricmp ( m_measure.GetUserPatchSet ( i )->name.c_str (), base.c_str () ) == 0 )
+		{
+			existing = i;
+			break;
+		}
+	bool bRefresh = false;
+	if ( existing >= 0 )
+	{
+		const CUserPatchSet * pOld = m_measure.GetUserPatchSet ( existing );
+		bRefresh = ( pOld->bits == bits && pOld->range == range && CsvPatchCodesMatch ( pOld->rows, rows ) );
+	}
+
+	// A document holds at most kMaxUserPatchSets sets; the reader refuses more.
+	if ( ! bRefresh && m_measure.GetUserPatchSetCount () >= kMaxUserPatchSets )
+	{
+		CString fmt, msg;
+		fmt.LoadString ( IDS_PATCHSETS_TOO_MANY );
+		msg.Format ( fmt, kMaxUserPatchSets );
+		AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
+		return false;
+	}
+
+	// Refuse a list the document could not save once it is measured: the
+	// CMeasure trailer is capped at kMaxExtensionBytes (ArchiveExtension.h).
+	{
+		CUserPatchSet candidate;
+		if ( bRefresh )
+			candidate = *m_measure.GetUserPatchSet ( existing );
+		candidate.srcPath = (LPCTSTR)cPath;
+		candidate.bits = bits;
+		candidate.range = range;
+		candidate.rows = rows;
+		ULONGLONG need = m_measure.ProjectedUserPatchSetTrailerBytes ( candidate, bRefresh ? existing : -1 );
+		if ( need > kMaxExtensionBytes )
+		{
+			CString fmt, msg;
+			fmt.LoadString ( IDS_PATCHSETS_TOO_LARGE );
+			msg.Format ( fmt, (int) ( kMaxExtensionBytes / ( 1024 * 1024 ) ) );
+			AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
+			return false;
+		}
+	}
+
+	int idx;
+	if ( bRefresh )
+	{
+		CUserPatchSet * pSet = m_measure.GetUserPatchSet ( existing );
+		pSet->srcPath = (LPCTSTR)cPath;
+		pSet->bits = bits;
+		pSet->range = range;
+		pSet->rows = rows;
+		idx = existing;
+	}
+	else
+	{
+		std::string name = base;
+		for ( int suffix = 2; ; suffix++ )
+		{
+			bool taken = false;
+			for ( int i = 0; i < m_measure.GetUserPatchSetCount () && !taken; i++ )
+				taken = ( _stricmp ( m_measure.GetUserPatchSet ( i )->name.c_str (), name.c_str () ) == 0 );
+			if ( !taken )
+				break;
+			char buf[32];
+			sprintf_s ( buf, " (%d)", suffix );
+			name = base + buf;
+		}
+		CUserPatchSet set;
+		set.name = name;
+		set.srcPath = (LPCTSTR)cPath;
+		set.bits = bits;
+		set.range = range;
+		set.rows = rows;
+		set.measures.assign ( rows.size (), noDataColor );
+		idx = m_measure.AddUserPatchSet ( set );
+	}
+
+	SwitchUserPatchSet ( idx );
+	return true;
+}
+
+// The CC target cache and the USER drive override are process-wide, and the
+// document that last filled them need not be this one: a sweep on another
+// document may have refused to let an activation refresh them. So every path
+// that drives or stamps USER patches fills them first, from this document's own
+// set rather than through the MDI walk - a queued run such as the Full Tilt
+// sequence can reach its CC sweep with another document in front. Never mid-sweep:
+// the running sweep stamps its readings from the cache.
+void CDataSetDoc::SyncCCTargets()
+{
+	if ( GetConfig () -> m_CCMode == USER && ! IsMeasureSweepActive () )
+		GetConfig () -> GetCColorsFrom ( m_measure.GetActiveUserPatchSet () );
+}
+
+void CDataSetDoc::SwitchUserPatchSet(int idx)
+{
+	if ( IsMeasureSweepActive () )
+		return;	// no set changes mid-sweep (same guard as the CC-set combo)
+	m_measure.ActivateUserPatchSet ( idx );	// no-op when already active
+
+	// The mode-11 combo's CC-set switch recipe (CMainView::OnSelchangeComboSteps),
+	// run unconditionally so a refreshed definition also propagates when the
+	// index did not change.
+	GetConfig () -> m_CCMode = USER;
+	GetConfig () -> m_referencesPropertiesPage.m_CCMode = USER;	// keep the dialog's DDX var in sync
+	GuardCCModeOutputRange ( USER );	// set-aware: reads the active set's declared range
+	GetConfig () -> WriteProfileInt ( "References", "CCMode", USER );
+	GetConfig () -> GetCColors ();	// refill the target cache + drive override from the set
+	SetModifiedFlag ();
+	UpdateAllViews ( NULL, UPD_EVERYTHING );
 }
 
 void CDataSetDoc::OnMeasureGrayscale() 
@@ -5385,6 +5542,7 @@ void CDataSetDoc::OnMeasureSatCC24()
 {
 	CString	Msg, MsgQueue, TmpStr;
 
+	SyncCCTargets ();	// the prompt quotes the patch count
 	BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
 	int		nNbPoints = (GetConfig()->m_CCMode==CCSG?96:isExtPat?GetConfig()->GetCColorsSize():(GetConfig()->m_CCMode==AXIS?71:24));
@@ -5477,6 +5635,7 @@ void CDataSetDoc::OnMeasureSatAll()
 {
 	CString	Msg, MsgQueue, TmpStr;
 
+	SyncCCTargets ();	// the prompt quotes the patch count
 	BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
     
@@ -5699,6 +5858,7 @@ void CDataSetDoc::OnUpdateMeasureSatPrimariesSecondaries(CCmdUI* pCmdUI)
 void CDataSetDoc::OnMeasureFullTiltBoogie()
 {
 	CString	Msg, MsgQueue, TmpStr;
+	SyncCCTargets ();	// the prompt quotes the patch count
 	BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
 

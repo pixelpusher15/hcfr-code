@@ -158,6 +158,11 @@ void CReferencesPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_CBIndex(pDX, IDC_WHITETARGET_COMBO, m_whiteTarget);
 	DDX_CBIndex(pDX, IDC_COLORREF_COMBO, m_colorStandard);
 	DDX_CBIndex(pDX, IDC_CCMODE_COMBO, m_CCMode);
+	// The combo no longer lists USER (custom sequences have their own entry in
+	// the main view's mode combo); while a sequence is active the selection is
+	// empty and GetCurSel returns -1 on save - keep the live mode, never -1.
+	if (pDX->m_bSaveAndValidate && m_CCMode < 0)
+		m_CCMode = (int) GetConfig()->m_CCMode;
   	DDX_Text(pDX, IDC_EDIT_GAMMA_REF, m_GammaRef);
   	DDX_Text(pDX, IDC_EDIT_GAMMA_REL, m_GammaRel);
   	DDX_Text(pDX, IDC_EDIT_MANUAL_BLACK, m_ManualBlack);
@@ -396,9 +401,19 @@ void CReferencesPropPage::OnChangeEditIrisTime()
 	SetModified(TRUE);	
 }
 
-BOOL CReferencesPropPage::OnInitDialog() 
+BOOL CReferencesPropPage::OnInitDialog()
 {
 	CPropertyPageWithHelp::OnInitDialog();
+
+	// One door: "User defined" is no longer selectable here - custom sequences
+	// live under the main view's "Custom Sequences" mode. Deleting the LAST
+	// item (index == USER) keeps the DDX index==enum mapping for the built-ins
+	// intact in every language build.
+	{
+		CComboBox * pCC = (CComboBox *) GetDlgItem ( IDC_CCMODE_COMBO );
+		if ( pCC != NULL && pCC->GetCount () == USER + 1 )
+			pCC->DeleteString ( USER );
+	}
 
 	// Control enable/show state is owned by UpdateControlStates (called at the
 	// end of this function, after BuildRuntimeLayout) - only variable state is
@@ -703,6 +718,8 @@ void CReferencesPropPage::OnSelchangeCCmodeCombo()
 	if (m_colorStandard == CC6)
 		m_CCMode = GCD;
 	GuardCCModeOutputRange(m_CCMode);
+	if (m_CCMode >= GCD && m_CCMode < USER)	// alias-exit restore target for the Custom Sequences mode
+		GetConfig()->WriteProfileInt("References", "LastBuiltinCCMode", m_CCMode);
 	GetConfig()->ApplySettings(false);
 	UpdateData(FALSE);
 }

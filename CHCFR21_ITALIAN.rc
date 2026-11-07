@@ -2405,6 +2405,7 @@ BEGIN
             MENUITEM "&Seleziona...",             IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&metri...",               IDM_MEASURE_DEFINESCALE
+        MENUITEM "Apri e&lenco di patch...",    IDM_MEASURE_OPEN_PATCHLIST
         MENUITEM SEPARATOR
         POPUP "S&uono di misura"
         BEGIN
@@ -4179,6 +4180,17 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Standard (passi 10%)"
     IDS_STIMPRESET_FINE     "Fine (passi 5%)"
     IDS_DISPLAYPROFILE      "Profilo del display"
+    IDS_CUSTOMSEQUENCES     "Sequenze personalizzate"
+    IDS_PATCHSETS_TOO_LARGE "Aggiungere questo elenco di patch supererebbe i %d MB che HCFR può salvare in un documento una volta misurati tutti i suoi elenchi. Usare un elenco più piccolo o creare un nuovo documento."
+    IDS_PATCHSETS_TOO_MANY "Questo documento contiene già %d elenchi di patch, il massimo che HCFR può salvare in un documento. Creare un nuovo documento per questo elenco."
+    IDS_CCSET_PICK_TIP      "Fare clic per selezionare una sequenza"
+    IDS_CCSET_OPEN_LIST     "Apri elenco di patch..."
+    IDS_COMPARE_DRIVEN      "Inviato"
+    IDS_NO_SEQUENCE_LOADED  "Nessuna sequenza caricata"
+    IDS_PATCHLIST_FILTER    "Elenco di patch CSV (*.csv)|*.csv||"
+    IDS_USERSET_MIGRATED    "Utente (migrato)"
+    IDS_CSV_NO_ROWS         "Questo elenco di patch non contiene righe di patch:\n\n%s"
+    IDS_USERSET_NONE_LOADED "Nessun elenco di patch caricato, quindi non c'è nulla da misurare. Caricarne uno con Apri elenco di patch..."
     IDS_MEASUREDISPLAYPROFILE "Misura il profilo del display"
     IDS_DELETEDISPLAYPROFILE "Cancella il profilo del display"
     IDS_SATLUMSHIFT         "Saturazione - turni"
@@ -4208,6 +4220,7 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Misura i colori primari\nMisurare i colori primari"
     IDM_MEASURE_SECONDARIES "Misura i colori primari e secondari\nMisurare i colori primari e secondari"
     IDM_MEASURE_DEFINESCALE "Definire i parametri di misura (numero di livelli)"
+    IDM_MEASURE_OPEN_PATCHLIST "Carica un elenco di patch CSV come set di patch utente"
     IDM_SOUND_NONE          "Non riprodurre alcun suono dopo una misura"
     IDM_SOUND_SHUTTER       "Riproduce uno scatto fotografico dopo ogni misura"
     IDM_SOUND_CLICK         "Riproduce un clic di tastiera dopo ogni misura"

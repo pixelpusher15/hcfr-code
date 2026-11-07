@@ -2231,6 +2231,7 @@ BEGIN
             MENUITEM "&Auswählen...",               IDM_CHANGE_GENERATOR
         END
         MENUITEM "Para&meter...",               IDM_MEASURE_DEFINESCALE
+        MENUITEM "Patch-&Liste öffnen...",      IDM_MEASURE_OPEN_PATCHLIST
         MENUITEM SEPARATOR
         POPUP "Mess&ton"
         BEGIN
@@ -3987,6 +3988,17 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Standard (10%-Schritte)"
     IDS_STIMPRESET_FINE     "Fein (5%-Schritte)"
     IDS_DISPLAYPROFILE      "Display-Profil"
+    IDS_CUSTOMSEQUENCES     "Benutzerdefinierte Sequenzen"
+    IDS_PATCHSETS_TOO_LARGE "Mit dieser Patch-Liste würde das Dokument die %d MB überschreiten, die HCFR speichern kann, sobald alle Listen darin gemessen sind. Verwenden Sie eine kleinere Liste oder legen Sie ein neues Dokument an."
+    IDS_PATCHSETS_TOO_MANY "Dieses Dokument enthält bereits %d Patch-Listen, die Höchstzahl, die HCFR in einem Dokument speichern kann. Legen Sie für diese Liste ein neues Dokument an."
+    IDS_CCSET_PICK_TIP      "Klicken, um eine Sequenz auszuwählen"
+    IDS_CCSET_OPEN_LIST     "Patch-Liste öffnen..."
+    IDS_COMPARE_DRIVEN      "Angesteuert"
+    IDS_NO_SEQUENCE_LOADED  "Keine Sequenz geladen"
+    IDS_PATCHLIST_FILTER    "Patch-Liste CSV (*.csv)|*.csv||"
+    IDS_USERSET_MIGRATED    "Benutzer (migriert)"
+    IDS_CSV_NO_ROWS         "Diese Patch-Liste enthält keine Patch-Zeilen:\n\n%s"
+    IDS_USERSET_NONE_LOADED "Es ist keine Patch-Liste geladen, daher gibt es nichts zu messen. Laden Sie eine mit Patch-Liste öffnen..."
     IDS_MEASUREDISPLAYPROFILE "Display-Profil messen"
     IDS_DELETEDISPLAYPROFILE "Display-Profil löschen"
     IDS_SATLUMSHIFT         "Sättigungsverschiebung"
@@ -4016,6 +4028,7 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Primärfarben messen\nPrimärfarben messen"
     IDM_MEASURE_SECONDARIES "Primär- und Sekundärfarben messen\nPrimär- und Sekundärfarben messen"
     IDM_MEASURE_DEFINESCALE "Messparameter definieren (Anzahl der Werte)"
+    IDM_MEASURE_OPEN_PATCHLIST "Eine Patch-Liste (CSV) als Benutzer-Patch-Satz laden"
     IDM_SOUND_NONE          "Nach einer Messung keinen Ton abspielen"
     IDM_SOUND_SHUTTER       "Spielt nach jeder Messung einen Kamera-Auslöser ab"
     IDM_SOUND_CLICK         "Spielt nach jeder Messung einen Tastaturklick ab"

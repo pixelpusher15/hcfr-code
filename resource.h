@@ -783,6 +783,7 @@
 #define IDC_DISPLAYTYPE_COMBO           1543
 #define IDC_SIZE_PLUS                   1544
 #define IDC_SIZE_MINUS                  1545
+#define IDC_CCSET_NAME                  1564
 #define IDC_PARAMSTEPS_COMBO            1551
 #define IDC_STIMLEVEL_COMBO             1552
 #define IDC_MODE_LABEL                  1553
@@ -1065,6 +1066,7 @@
 #define IDM_MEASURE_SAT_MAGENTA         32991
 #define IDM_MEASURE_SAT_ALL             32992
 #define IDM_MEASURE_SAT_ALL_LEVELS      33113
+#define IDM_MEASURE_OPEN_PATCHLIST      33118
 #define IDM_SOUND_NONE                  33114
 #define IDM_SOUND_SHUTTER               33115
 #define IDM_SOUND_CLICK                 33116
@@ -2056,6 +2058,20 @@
 #define IDS_SCHEMA_UNRELEASED           59747
 #define IDS_SCHEMA_UNRELEASED_DOC       60053
 #define IDS_SCHEMA_UNKNOWN_FEATURE      60054
+// Next free above every branch and worktree on 2026-11-01 (59715 is #175's
+// IDS_GEN_SERIAL_LINK_LOST; 59748-59779 are held for the generators renumbering).
+#define IDS_CUSTOMSEQUENCES             60055
+#define IDS_PATCHSETS_TOO_LARGE         60056
+#define IDS_PATCHSETS_TOO_MANY          60057
+// Next free above every local and remote branch on 2026-11-07.
+#define IDS_CCSET_PICK_TIP              60100
+#define IDS_CCSET_OPEN_LIST             60101
+#define IDS_COMPARE_DRIVEN              60102
+#define IDS_NO_SEQUENCE_LOADED          60103
+#define IDS_PATCHLIST_FILTER            60104
+#define IDS_USERSET_MIGRATED            60105
+#define IDS_CSV_NO_ROWS                 60106
+#define IDS_USERSET_NONE_LOADED         60107
 #define IDS_GRAPH_GSLUMERROR            60090
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
@@ -2070,8 +2086,8 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        1404
-#define _APS_NEXT_COMMAND_VALUE         33118
-#define _APS_NEXT_CONTROL_VALUE         1564
+#define _APS_NEXT_COMMAND_VALUE         33119
+#define _APS_NEXT_CONTROL_VALUE         1565
 #define _APS_NEXT_SYMED_VALUE           143
 #endif
 #endif

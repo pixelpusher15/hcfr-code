@@ -139,6 +139,12 @@ public:
 	CGenerator *GetGenerator() { return m_pGenerator; }
 	CSensor *GetSensor() { return m_pSensor; }
 
+	// Multi-set picker: load a patch-list CSV into the collection / switch the
+	// active set (shared by the Measures menu item and the stats-bar picker).
+	bool ImportUserPatchSetFile(LPCTSTR path);
+	void SwitchUserPatchSet(int idx);
+	void SyncCCTargets();	// USER: fill the process-wide CC target cache from THIS document's set
+
 	void ShowViewOnTop(UINT nMsg);
 	void HideView(UINT nMsg);
 	void HideAllViews();
@@ -266,6 +272,7 @@ protected:
 	afx_msg void OnUpdateMeasureSecondaries(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateContinuousMeasurement(CCmdUI* pCmdUI);
 	afx_msg void OnMeasureDefinescale();
+	afx_msg void OnMeasureOpenPatchList();
 	afx_msg void OnMeasureNearblack();
 	afx_msg void OnUpdateMeasureNearblack(CCmdUI* pCmdUI);
 	afx_msg void OnMeasureNearwhite();

@@ -30,6 +30,7 @@
 #endif // _MSC_VER > 1000
 
 #include "Color.h"
+#include "UserPatchSetStream.h"	// CUserPatchSet
 #include "Sensors\Sensor.h"
 #include "Generators\Generator.h"
 #include <vector>
@@ -202,6 +203,8 @@ protected:
 	CArray<CColor,CColor> m_cc24SatMeasureArray_master;
 	std::vector<CSatLevelSet> m_satLevelStore;	// all measured stimulus levels (active mirrored in m_*SatMeasureArray)
 	double m_activeSatLevel;	// signal-domain amplitude the bound sweeps were measured at
+	std::vector<CUserPatchSet> m_userPatchSets;	// document-owned user patch set collection (alphabetical)
+	int m_activeUserSet;	// index into m_userPatchSets whose measures occupy the USER band (-1 = none)
 	// Display profile capture (serialized as version 20, block written only when data exists)
 	CArray<CColor,CColor> m_profileMeasureArray;	// dense RGB-cube characterization, generation order
 	std::vector<CColor> m_profileDriftAnchors;		// white drift anchors, capture order
@@ -309,6 +312,22 @@ public:
 	// Publish an aborted color-checker sweep's partial live data to the
 	// per-set master array (the post-sweep read source); see Measure.cpp.
 	BOOL SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux);
+
+	// User patch set collection (multi-set picker). The active set's measures
+	// live in the USER band of the master array while active; they are
+	// harvested back into the set on switch and on save.
+	int GetUserPatchSetCount() const { return (int)m_userPatchSets.size(); }
+	int GetActiveUserPatchSetIndex() const { return m_activeUserSet; }
+	CUserPatchSet * GetUserPatchSet(int idx);
+	CUserPatchSet * GetActiveUserPatchSet();
+	int AddUserPatchSet(const CUserPatchSet & set);	// alphabetical insert; returns the index; keeps m_activeUserSet pointing at the same set
+	void ActivateUserPatchSet(int idx);				// harvest band -> outgoing set, load incoming set -> band + working array
+	void SyncActiveUserPatchSetFromBand();			// harvest band -> active set (no-op when none active)
+	void MigrateLegacyUserBand();					// wrap USER-band measures that belong to no set into one set (load + first-add safety)
+	// Trailer bytes the document would need with `set` added (replaceIdx < 0)
+	// or in place of set replaceIdx, once every unmeasured row of `set` holds
+	// a reading; see Measure.cpp.
+	ULONGLONG ProjectedUserPatchSetTrailerBytes(const CUserPatchSet & set, int replaceIdx);
 
 	// Display profile capture
 	CColor GetProfileMeasure(int i) const;
@@ -485,6 +504,10 @@ public:
 	BOOL ValidateBackgroundCyanSatScale ( BOOL bUseLuxValues, double * pLuxValues );
 	BOOL ValidateBackgroundMagentaSatScale ( BOOL bUseLuxValues, double * pLuxValues );
 	BOOL ValidateBackgroundCC24SatScale ( BOOL bUseLuxValues, double * pLuxValues );
+	// Stamp label provenance (patch#/name/srcBits/srcRange) onto a measured CC
+	// patch. File-backed sets only (no-op for the inline GCD/MCD/... modes);
+	// slotIndex is the m_cc24SatMeasureArray slot and doubles as sequenceIndex.
+	void StampCCProvenance ( CColor & c, int slotIndex );
 	BOOL ValidateBackgroundGrayScaleAndColors ( BOOL bUseLuxValues, double * pLuxValues );
 	BOOL ValidateBackgroundSingleMeasurement ( BOOL bUseLuxValues, double * pLuxValues );
 

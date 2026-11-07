@@ -2477,6 +2477,7 @@ CColor::CColor():m_XYZValues(1.0,3,1)
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
+	m_pProvenance = NULL;
 	m_pTimestamp = NULL;
 }
 
@@ -2486,6 +2487,7 @@ CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
+	m_pProvenance = NULL;
 	m_pTimestamp = NULL;
 
 	if ( aColor.m_pSpectrum )
@@ -2500,6 +2502,9 @@ CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 	if ( aColor.m_pStimulus )
 		m_pStimulus = new ColorRGBDisplay ( *aColor.m_pStimulus );
 
+	if ( aColor.m_pProvenance )
+		m_pProvenance = new CColorProvenance ( *aColor.m_pProvenance );
+
 	if ( aColor.m_pTimestamp )
 		m_pTimestamp = new double ( *aColor.m_pTimestamp );
 }
@@ -2513,6 +2518,7 @@ CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
+	m_pProvenance = NULL;
 	m_pTimestamp = NULL;
 }
 
@@ -2525,6 +2531,7 @@ CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
+	m_pProvenance = NULL;
 	m_pTimestamp = NULL;
 }
 
@@ -2538,6 +2545,7 @@ CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
 	m_pLuxValue = NULL;
 	m_pRawXYZValues = NULL;
 	m_pStimulus = NULL;
+	m_pProvenance = NULL;
 	m_pTimestamp = NULL;
 }
 
@@ -2549,6 +2557,7 @@ CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
     m_pLuxValue = NULL;
     m_pRawXYZValues = NULL;
     m_pStimulus = NULL;
+    m_pProvenance = NULL;
     m_pTimestamp = NULL;
 
     theFile.read((char*)&version, 4);
@@ -2590,6 +2599,7 @@ void CColor::ClearSpectrumLux()
 
 	ClearRawXYZValue();
 	ClearStimulusValue();
+	ClearProvenance();
 	ClearTimestamp();
 }
 
@@ -2666,6 +2676,33 @@ ColorRGBDisplay CColor::GetStimulusValue() const
 	return ( m_pStimulus ? (*m_pStimulus) : ColorRGBDisplay() );
 }
 
+void CColor::SetProvenance(const CColorProvenance& aProv)
+{
+	if ( m_pProvenance )
+		delete m_pProvenance;
+
+	m_pProvenance = new CColorProvenance ( aProv );
+}
+
+void CColor::ClearProvenance()
+{
+	if ( m_pProvenance )
+	{
+		delete m_pProvenance;
+		m_pProvenance = NULL;
+	}
+}
+
+bool CColor::HasProvenance() const
+{
+	return ( m_pProvenance != NULL );
+}
+
+CColorProvenance CColor::GetProvenance() const
+{
+	return ( m_pProvenance ? (*m_pProvenance) : CColorProvenance() );
+}
+
 void CColor::SetTimestamp(double aTimestamp)
 {
 	if ( m_pTimestamp )
@@ -2713,6 +2750,9 @@ CColor& CColor::operator =(const CColor& aColor)
 
 	if ( aColor.m_pStimulus )
 		m_pStimulus = new ColorRGBDisplay ( *aColor.m_pStimulus );
+
+	if ( aColor.m_pProvenance )
+		m_pProvenance = new CColorProvenance ( *aColor.m_pProvenance );
 
 	if ( aColor.m_pTimestamp )
 		m_pTimestamp = new double ( *aColor.m_pTimestamp );
@@ -2969,9 +3009,10 @@ void CColor::Serialize(CArchive& archive)
 			// SaveOldCalibrationFile only (CColorLegacyStoreScope): the pre-#193
 			// layout, which a 4.1 reader accepts. Bare base 1/3/5/6, XYZ, the two
 			// zero 3x3 "ignore" matrices, then spectrum and lux in the order the
-			// legacy reader expects, and no trailer. Raw XYZ, stimulus and
-			// timestamp have no legacy encoding and are dropped. T19 (g) pins
-			// these bytes against the (c) goldens captured from the old writer.
+			// legacy reader expects, and no trailer. Raw XYZ, stimulus,
+			// timestamp and provenance have no legacy encoding and are
+			// dropped. T19 (g) pins these bytes against the (c) goldens
+			// captured from the old writer.
 			archive << base;
 			m_XYZValues.Serialize(archive) ;
 
@@ -3030,6 +3071,20 @@ void CColor::Serialize(CArchive& archive)
 		if ( m_pTimestamp )
 		{
 			ext.BeginTag ( ArchiveTag::COLOR_TIMESTAMP ) << (* m_pTimestamp);
+			ext.EndTag ();
+		}
+
+		if ( m_pProvenance )
+		{
+			// patchNumber, sequenceIndex, srcBits, srcRange, name, role. New
+			// fields go after role; never reorder (see CColorProvenance).
+			CArchive& value = ext.BeginTag ( ArchiveTag::COLOR_PROVENANCE );
+			value << m_pProvenance->patchNumber;
+			value << m_pProvenance->sequenceIndex;
+			value << m_pProvenance->srcBits;
+			value << m_pProvenance->srcRange;
+			value << CString ( m_pProvenance->name.c_str() );
+			value << m_pProvenance->role;
 			ext.EndTag ();
 		}
 
@@ -3105,6 +3160,12 @@ void CColor::LoadFrom(CArchive& archive)
 		m_pTimestamp = NULL;
 	}
 
+	if ( m_pProvenance )
+	{
+		delete m_pProvenance;
+		m_pProvenance = NULL;
+	}
+
 	if ( base == 2 || base == 4 || base == 5 || base == 6 )
 	{
 		int NbBands, WaveLengthMin, WaveLengthMax;
@@ -3175,6 +3236,32 @@ void CColor::LoadFrom(CArchive& archive)
 					m_pTimestamp = NULL;
 					m_pTimestamp = new double;
 					value >> (* m_pTimestamp);
+					break;
+				}
+
+				case ArchiveTag::COLOR_PROVENANCE:
+				{
+					CArchive& value = ext.Value();
+					delete m_pProvenance;
+					m_pProvenance = NULL;
+					m_pProvenance = new CColorProvenance;
+					value >> m_pProvenance->patchNumber;
+					value >> m_pProvenance->sequenceIndex;
+					value >> m_pProvenance->srcBits;
+					value >> m_pProvenance->srcRange;
+					CString name;
+					value >> name;
+					m_pProvenance->name = (LPCTSTR) name;
+					// The role was appended after the first five fields, so a
+					// value may end before it. Flush hands the archive's unread
+					// buffer back to the value's memory file, whose position
+					// then counts exactly what has been consumed.
+					value.Flush();
+					CFile* pValueFile = value.GetFile();
+					if ( pValueFile->GetLength() - pValueFile->GetPosition() >= sizeof(int) )
+						value >> m_pProvenance->role;
+					else
+						m_pProvenance->role = PROVENANCE_ROLE_UNKNOWN;
 					break;
 				}
 
@@ -3304,6 +3391,49 @@ double CsvCodeToPercent(double code, int bits, int range)
 	return ( pct < 0.0 ) ? 0.0 : ( pct > 100.0 ? 100.0 : pct );
 }
 
+// Exact inverse of CsvCodeToPercent for percentages that came off the native
+// grid (round-to-nearest, clamped to [0, maxCode]); reconstructs definition
+// codes from stored stimuli during legacy .chc migration. Extended super-white
+// (>100%) maps back onto the legal slope up to the grid ceiling.
+bool CsvPatchCodesMatch(const std::vector<CsvPatchRow> & a, const std::vector<CsvPatchRow> & b)
+{
+	if ( a.size() != b.size() )
+		return false;
+	for ( size_t i = 0; i < a.size(); i++ )
+		if ( a[i].r != b[i].r || a[i].g != b[i].g || a[i].b != b[i].b )
+			return false;
+	return true;
+}
+
+std::string CsvSetNameFromPath(const char * path)
+{
+	std::string base ( path );
+	size_t sl = base.find_last_of ( "\\/" );
+	if ( sl != std::string::npos )
+		base.erase ( 0, sl + 1 );
+	if ( base.size() >= 4 && _stricmp ( base.c_str() + base.size() - 4, ".csv" ) == 0 )
+		base.erase ( base.size() - 4 );
+	return base;
+}
+
+int CsvPercentToCode(double percent, int bits, int range)
+{
+	int maxCode = (1 << bits) - 1;
+	double code;
+	if (range == CSV_RANGE_FULL)
+		code = percent * maxCode / 100.0;
+	else
+	{
+		double black = 16.0  * (1 << (bits - 8));
+		double white = 235.0 * (1 << (bits - 8));
+		code = black + percent * ( white - black ) / 100.0;
+	}
+	int c = (int) floor ( code + 0.5 );
+	if ( c < 0 ) c = 0;
+	if ( c > maxCode ) c = maxCode;
+	return c;
+}
+
 // Shared low-level patch-list parser: reads a CSV into raw code rows (patch#, R,G,B, name),
 // header/patch-column aware, reporting the declared bit depth + range. One parser feeds both
 // ReadColorsFromCsv (percentages) and CColorHCFRConfig::GetCColors (codes + names).
@@ -3412,6 +3542,33 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 			CsvCodeToPercent(rows[i].g, bits, range),
 			CsvCodeToPercent(rows[i].b, bits, range));
 	return n;
+}
+
+// Active user patch set override (multi-set picker). The app copies the active
+// set's stored definition in here (via SetUserPatchOverride, from GetCColors) so
+// the USER case of GenerateCC24Colors below is self-contained - the source CSV
+// may have changed or be gone. An owned copy, so no dangling pointers into
+// document-owned vectors; installed/cleared exclusively by GetCColors so it
+// cannot drift from the target cache.
+static std::vector<CsvPatchRow> s_userOverrideRows;
+static int s_userOverrideBits = 8;
+static int s_userOverrideRange = CSV_RANGE_NONE;
+static bool s_userOverrideSet = false;
+
+void SetUserPatchOverride ( const std::vector<CsvPatchRow> & rows, int bits, int range )
+{
+	s_userOverrideRows = rows;
+	s_userOverrideBits = bits;
+	s_userOverrideRange = range;
+	s_userOverrideSet = true;
+}
+
+void ClearUserPatchOverride ()
+{
+	s_userOverrideRows.clear();
+	s_userOverrideBits = 8;
+	s_userOverrideRange = CSV_RANGE_NONE;
+	s_userOverrideSet = false;
 }
 
 static int AppendProfileGray(ColorRGBDisplay* GenColors, int maxEntries, int cnt, int cubeN, double level)
@@ -3906,6 +4063,21 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         }
     case USER:
         {//read in user defined colors
+			if (s_userOverrideSet)
+			{
+				// Multi-set picker: drive colors come from the active set's stored
+				// definition, decoded exactly like ReadColorsFromCsv decodes the file.
+				n_elements = (int)s_userOverrideRows.size();
+				if (n_elements > MAX_USER_CC_PATCH_SIZE)
+					n_elements = MAX_USER_CC_PATCH_SIZE;
+				for (int i = 0; i < n_elements; i++)
+					GenColors[i] = ColorRGBDisplay(
+						CsvCodeToPercent(s_userOverrideRows[i].r, s_userOverrideBits, s_userOverrideRange),
+						CsvCodeToPercent(s_userOverrideRows[i].g, s_userOverrideBits, s_userOverrideRange),
+						CsvCodeToPercent(s_userOverrideRows[i].b, s_userOverrideBits, s_userOverrideRange));
+				m_bRecalc = false;   // USER never HDR-recalcs (same as the resolver reports)
+				break;
+			}
 			CString userPath;
 			ResolveCCSetPath(aCCMode, userPath, &m_bRecalc);   // USER -> module-dir usercolors.csv
 			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, userPath);

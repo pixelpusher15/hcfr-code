@@ -41,6 +41,8 @@
 extern CString GetColorStandardName(int nStandard);
 extern bool StandardAllowsHDR(int nStandard);
 
+struct CUserPatchSet;
+
 class CColorHCFRConfig
 {
 public:
@@ -174,7 +176,9 @@ public:
     int GetCColorsSize();
     ColorRGB GetCColorsT(int index);
 	std::string GetCColorsN(int index);
-    void GetCColors();
+	CColorProvenance GetCColorsProvenance(int index);
+    void GetCColors();	// USER: from the MDI-active document's active set
+    void GetCColorsFrom(CUserPatchSet * pSet);	// USER: from this set (NULL = none loaded)
 	CString strLang;
 
 	bool SetGeneratorType(GeneratorType type);

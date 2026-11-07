@@ -12,6 +12,7 @@
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
 // T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
 // T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table,
+// T14 asserts the CsvPercentToCode inverse round-trips every code the decode distinguishes,
 // T19 asserts the #193 archive extension trailer: round trip, unknown-tag skip,
 // legacy bytes, rejections, the primitives, append-only values, and the legacy store,
 // T22 asserts the test-color window paints each patch's own code, and T41 asserts the
@@ -1115,14 +1116,53 @@ static void RunT12()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T14 - CsvPercentToCode inverse oracle (pure assertion, no golden file).
+// CsvPercentToCode must be the exact round-trip inverse of CsvCodeToPercent
+// over every code the decode can distinguish: the whole grid for FULL, the
+// legal span (black..white) for LEGAL and the no-header legacy default (whose
+// decode clamps codes outside it), and black..maxCode for EXTENDED (whose
+// super-white percentages stay linear on the legal slope). 8-bit and 10-bit.
+//////////////////////////////////////////////////////////////////////////
+static void RunT14()
+{
+    printf("T14 CsvPercentToCode inverse oracle...\n");
+    static const int bitsList[] = { 8, 10 };
+    static const int ranges[]   = { CSV_RANGE_FULL, CSV_RANGE_LEGAL, CSV_RANGE_EXTENDED, CSV_RANGE_NONE };
+    for (int b = 0; b < 2; ++b)
+    {
+        const int bits    = bitsList[b];
+        const int maxCode = (1 << bits) - 1;
+        const int black   = 16  << (bits - 8);
+        const int white   = 235 << (bits - 8);
+        for (int r = 0; r < 4; ++r)
+        {
+            const int range = ranges[r];
+            int lo = (range == CSV_RANGE_FULL) ? 0 : black;
+            int hi = (range == CSV_RANGE_FULL || range == CSV_RANGE_EXTENDED) ? maxCode : white;
+            for (int code = lo; code <= hi; ++code)
+            {
+                int back = CsvPercentToCode(CsvCodeToPercent(code, bits, range), bits, range);
+                if (back != code)
+                    Fail("T14 bits=%d range=%d code=%d back=%d", bits, range, code, back);
+            }
+        }
+        // clamped ends: out-of-span codes decode to the span edge and must map back onto it
+        if (CsvPercentToCode(CsvCodeToPercent(0, bits, CSV_RANGE_LEGAL), bits, CSV_RANGE_LEGAL) != black)
+            Fail("T14 bits=%d legal sub-black clamp", bits);
+        if (CsvPercentToCode(CsvCodeToPercent(maxCode, bits, CSV_RANGE_LEGAL), bits, CSV_RANGE_LEGAL) != white)
+            Fail("T14 bits=%d legal super-white clamp", bits);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 // T19 - archive extension trailer oracle (issue #193).
 //
 // Every versioned block in a .chc / .thc stream now ends with a length-
 // prefixed, tagged extension region (libHCFR/ArchiveExtension.h). CColor is
 // the one block that lives in libHCFR, so it is the block this console
 // harness can pin end to end:
-//   (a) a color carrying every optional field round-trips exactly, and the
-//       stream's version is base + 100;
+//   (a) a color carrying every optional field (provenance with a role
+//       included) round-trips exactly, and the stream's version is base + 100;
 //   (b) a trailer with an unknown tag is skipped by byte count and the NEXT
 //       color in the stream still decodes - the whole point of the design;
 //   (c) legacy streams captured from the pre-trailer writer (bases 1/3/5/6,
@@ -1138,7 +1178,12 @@ static void RunT12()
 //       trailer, exact value extents, and discard-on-Close;
 //   (f) append-only within a tag: a known value longer than this build
 //       reads is consumed whole and the next tag still decodes; a color
-//       without a TIMESTAMP tag has none;
+//       without a TIMESTAMP or PROVENANCE tag has none; a PROVENANCE value
+//       that ends after its five original fields reads with role UNKNOWN,
+//       one with the role reads it, and one with a further int reads the
+//       role and drops the rest - also when the fields fill the archive
+//       buffer exactly - and one with 3 stray bytes after the name reads
+//       with role UNKNOWN;
 //   (g) the legacy store (CColorLegacyStoreScope, used by the
 //       SaveOldCalibrationFile writer) emits exactly the (c) goldens, so a
 //       file written for 4.1 is readable there without a 4.1 build.
@@ -1256,6 +1301,7 @@ namespace T19Ext
         if (c.HasRawXYZValue())   Fail("T19 %s: unexpected raw XYZ", what);
         if (c.HasStimulusValue()) Fail("T19 %s: unexpected stimulus", what);
         if (c.HasTimestamp())     Fail("T19 %s: unexpected timestamp", what);
+        if (c.HasProvenance())    Fail("T19 %s: unexpected provenance", what);
     }
 
     static void ExpectSpectrum(const char* what, const CColor& c, int rows, int wlMin, int wlMax, double bw, const double* samples)
@@ -1321,6 +1367,56 @@ namespace T19Ext
         double got = c.GetTimestamp();
         if (memcmp(&got, &t, sizeof t) != 0)
             Fail("T19 %s: timestamp = %.17g, expected %.17g bit-exact", what, got, t);
+    }
+
+    static void ExpectProvenance(const char* what, const CColor& c, int patch, int seq, int bits,
+                                 int range, const std::string& name, int role)
+    {
+        if (!c.HasProvenance())
+        {
+            Fail("T19 %s: provenance missing", what);
+            return;
+        }
+        CColorProvenance p = c.GetProvenance();
+        if (p.patchNumber != patch || p.sequenceIndex != seq || p.srcBits != bits || p.srcRange != range)
+            Fail("T19 %s: provenance %d/%d/%d/%d, expected %d/%d/%d/%d", what,
+                 p.patchNumber, p.sequenceIndex, p.srcBits, p.srcRange, patch, seq, bits, range);
+        if (p.name != name)
+            Fail("T19 %s: provenance name of %u chars, expected %u chars", what,
+                 (unsigned)p.name.size(), (unsigned)name.size());
+        if (p.role != role)
+            Fail("T19 %s: provenance role %d, expected %d", what, p.role, role);
+    }
+
+    // CArchive's ANSI CString layout: a BYTE length below 255, else 0xFF and
+    // a WORD length (below 0xFFFE), then the characters.
+    static void PutCString(Bytes& b, const std::string& s)
+    {
+        if (s.size() < 255)
+            PutByte(b, (BYTE)s.size());
+        else
+        {
+            PutByte(b, 0xFF);
+            WORD n = (WORD)s.size();
+            PutRaw(b, &n, 2);
+        }
+        PutRaw(b, s.data(), s.size());
+    }
+
+    // A PROVENANCE value: the five fields csv-provenance first wrote, then
+    // `extra` trailing ints (the role first).
+    static Entry ProvenanceEntry(const std::string& name, const std::vector<int>& extra)
+    {
+        Entry e;
+        e.tag = (BYTE)ArchiveTag::COLOR_PROVENANCE;
+        PutInt(e.value, 42);
+        PutInt(e.value, 7);
+        PutInt(e.value, 10);
+        PutInt(e.value, 1);
+        PutCString(e.value, name);
+        for (size_t i = 0; i < extra.size(); ++i)
+            PutInt(e.value, extra[i]);
+        return e;
     }
 
     static void ExpectBytes(const char* what, const Bytes& got, const unsigned char* want, size_t n)
@@ -1468,6 +1564,14 @@ namespace T19Ext
         src.SetRawXYZValue(ColorXYZ(0.2, 0.4, 0.6));
         src.SetStimulusValue(ColorRGBDisplay(10.0, 20.0, 30.0));
         src.SetTimestamp(kTimestamp);
+        CColorProvenance prov;
+        prov.patchNumber = 42;
+        prov.sequenceIndex = 7;
+        prov.srcBits = 10;
+        prov.srcRange = 1;
+        prov.name = "Skin tone (light)";
+        prov.role = PROVENANCE_ROLE_ANCHOR;
+        src.SetProvenance(prov);
 
         Bytes b = Store(src);
         if (b.size() < 4)
@@ -1493,6 +1597,7 @@ namespace T19Ext
         ExpectRaw("(a)", dst, 0.2, 0.4, 0.6);
         ExpectStimulus("(a)", dst, 10.0, 20.0, 30.0);
         ExpectTimestamp("(a)", dst, kTimestamp);
+        ExpectProvenance("(a)", dst, 42, 7, 10, 1, "Skin tone (light)", PROVENANCE_ROLE_ANCHOR);
 
         // The base-only color (no optional field) must carry an empty trailer,
         // never no trailer: pin its exact bytes so a "write it only when
@@ -1829,6 +1934,8 @@ namespace T19Ext
                 ExpectRaw("(f) no timestamp", c, 0.2, 0.4, 0.6);
                 if (c.HasTimestamp())
                     Fail("T19 (f) no timestamp: HasTimestamp() is true");
+                if (c.HasProvenance())
+                    Fail("T19 (f) no provenance: HasProvenance() is true");
             }
         }
 
@@ -1878,6 +1985,68 @@ namespace T19Ext
                 ExpectXYZ("(f) long RAW_XYZ value", c, 0.25, 0.5, 0.75);
                 ExpectRaw("(f) long RAW_XYZ value", c, 0.2, 0.4, 0.6);
                 ExpectStimulus("(f) long RAW_XYZ value", c, 10.0, 20.0, 30.0);
+            }
+        }
+
+        // PROVENANCE (tag 3) with (i) the five original fields only, (ii) the
+        // role, (iii) the role and one more int a newer build appended, each
+        // followed by RAW_XYZ; (iv) and (v) repeat (i) and (ii) with a 4077-
+        // character name, so the five fields end exactly at CArchive's 4096-
+        // byte buffer (16 + 3 + 4077): a role check that watched the buffer
+        // instead of the value would find it empty and drop (v)'s role.
+        {
+            struct Case { const char* name; size_t nameLen; int nExtra; int role; };
+            static const Case cases[] = {
+                { "(f) provenance, five fields",        17,   0, PROVENANCE_ROLE_UNKNOWN },
+                { "(f) provenance with role",           17,   1, PROVENANCE_ROLE_VERIFICATION },
+                { "(f) provenance with role and more",  17,   2, PROVENANCE_ROLE_VERIFICATION },
+                { "(f) long-name provenance, five",     4077, 0, PROVENANCE_ROLE_UNKNOWN },
+                { "(f) long-name provenance with role", 4077, 1, PROVENANCE_ROLE_VERIFICATION },
+            };
+            for (int i = 0; i < (int)(sizeof cases / sizeof cases[0]); ++i)
+            {
+                std::string name = (cases[i].nameLen == 17) ? std::string("Skin tone (light)")
+                                                            : std::string(cases[i].nameLen, 'n');
+                std::vector<int> extra;
+                if (cases[i].nExtra >= 1) extra.push_back(PROVENANCE_ROLE_VERIFICATION);
+                if (cases[i].nExtra >= 2) extra.push_back(77);
+                std::vector<Entry> entries;
+                entries.push_back(ProvenanceEntry(name, extra));
+                entries.push_back(raw);
+                Bytes b;
+                PutColor101(b, 0.25, 0.5, 0.75, entries);
+                CColor c;
+                CException* e = Load(b, &c, 1);
+                if (e)
+                    FailUnexpected(cases[i].name, e);
+                else
+                {
+                    ExpectProvenance(cases[i].name, c, 42, 7, 10, 1, name, cases[i].role);
+                    ExpectRaw(cases[i].name, c, 0.2, 0.4, 0.6);
+                }
+            }
+        }
+
+        // The five fields and then 3 stray bytes, too few for a role: the
+        // role reads as UNKNOWN, the bytes are discarded with the value, and
+        // RAW_XYZ after it still decodes.
+        {
+            Entry prov = ProvenanceEntry("Skin tone (light)", std::vector<int>());
+            for (int i = 0; i < 3; ++i)
+                prov.value.push_back(0xA5);
+            std::vector<Entry> entries;
+            entries.push_back(prov);
+            entries.push_back(raw);
+            Bytes b;
+            PutColor101(b, 0.25, 0.5, 0.75, entries);
+            CColor c;
+            CException* e = Load(b, &c, 1);
+            if (e)
+                FailUnexpected("(f) provenance with 3 trailing bytes", e);
+            else
+            {
+                ExpectProvenance("(f) provenance with 3 trailing bytes", c, 42, 7, 10, 1, "Skin tone (light)", PROVENANCE_ROLE_UNKNOWN);
+                ExpectRaw("(f) provenance with 3 trailing bytes", c, 0.2, 0.4, 0.6);
             }
         }
     }
@@ -2901,6 +3070,57 @@ static void RunT41()
     printf("  %d saturation-tracking checks\n", checks);
 }
 
+// T42 - user patch set definition helpers (pure assertion, no golden file).
+// CsvPatchCodesMatch decides whether re-opening a patch list may keep the
+// readings of the set of that name: only when every row still drives the same
+// code. CsvSetNameFromPath names the set from the file.
+static void RunT42()
+{
+    printf("T42 user patch set definition helpers...\n");
+
+    std::vector<CsvPatchRow> a(3);
+    for (int i = 0; i < 3; i++)
+    {
+        a[i].patch = i + 1;
+        a[i].r = 16 + i; a[i].g = 32 + i; a[i].b = 64 + i;
+        a[i].name = "row";
+    }
+    std::vector<CsvPatchRow> b(a);
+    if (!CsvPatchCodesMatch(a, b))
+        Fail("T42 identical rows: not a match");
+    b[1].name = "renamed";
+    b[1].patch = 99;
+    if (!CsvPatchCodesMatch(a, b))
+        Fail("T42 a new label on the same codes: not a match");
+    for (int c = 0; c < 3; c++)
+    {
+        std::vector<CsvPatchRow> d(a);
+        (c == 0 ? d[2].r : c == 1 ? d[2].g : d[2].b) += 1;
+        if (CsvPatchCodesMatch(a, d))
+            Fail("T42 last row, channel %d one code off: reported a match", c);
+    }
+    std::vector<CsvPatchRow> shorter(a.begin(), a.begin() + 2);
+    if (CsvPatchCodesMatch(a, shorter))
+        Fail("T42 different row counts: reported a match");
+
+    static const struct { const char * path; const char * name; } kNames[] =
+    {
+        { "C:\\lists\\ramp.csv",     "ramp" },
+        { "C:\\lists\\ramp.CSV",     "ramp" },
+        { "C:\\lists\\Ramp.Csv",     "Ramp" },
+        { "ramp.csv",                    "ramp" },
+        { "C:\\lists\\ramp.csv.bak", "ramp.csv.bak" },
+        { "C:\\a.csv\\ramp",         "ramp" },
+        { "C:\\lists\\ramp",         "ramp" },
+    };
+    for (size_t i = 0; i < sizeof(kNames) / sizeof(kNames[0]); i++)
+    {
+        std::string got = CsvSetNameFromPath(kNames[i].path);
+        if (got != kNames[i].name)
+            Fail("T42 name of %s: '%s', want '%s'", kNames[i].path, got.c_str(), kNames[i].name);
+    }
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -2929,10 +3149,12 @@ int main(int argc, char* argv[])
     RunT11();
     RunT12();
     RunT13();
+    RunT14();
     RunT19();
     RunT32();
     RunT22();
     RunT41();
+    RunT42();
 
     if (g_failures)
     {
