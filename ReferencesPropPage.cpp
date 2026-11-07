@@ -87,6 +87,64 @@ CReferencesPropPage::~CReferencesPropPage()
 {
 }
 
+namespace
+{
+
+// Transfer function <-> legacy radio, BY CONTROL ID.
+//
+// These have to sit above DoDataExchange because the exchange itself uses
+// them: m_GammaOffsetType must NOT be exchanged with DDX_Radio.  DDX_Radio
+// stores a radio's ORDINAL POSITION within its WS_GROUP run of the dialog
+// template, and every language ships its own IDD_REFERENCE_PROP_PAGE in its
+// own satellite resource DLL.  English, Italian and Spanish list RADIO8
+// (SMPTE 2084) before RADIO6 (BBC HLG) so that the ordinal happens to equal
+// the stored type; German and French listed them in plain ID order (until the
+// #190 reorder), which put HLG at ordinal 5 and PQ at ordinal 7 - the two
+// values swapped.  A German or French user who picked PQ got HLG written to the config, and vice
+// versa (reproduced against the built satellites; English/Italian/Spanish are
+// unaffected).  Mapping by ID makes the resource control order stop being
+// load-bearing across five separately maintained .rc files.
+//
+// The type numbering itself is the legacy one and is documented at
+// kComboToType below.
+int TypeToRadio(int t)
+{
+    switch (t)
+    {
+        case 0: return IDC_GAMMA_OFFSET_RADIO1;
+        case 1: return IDC_GAMMA_OFFSET_RADIO2;
+        case 2: return IDC_GAMMA_OFFSET_RADIO3;
+        case 3: return IDC_GAMMA_OFFSET_RADIO4;
+        case 4: return IDC_GAMMA_OFFSET_RADIO5;
+        case 5: return IDC_GAMMA_OFFSET_RADIO8;
+        case 6: return IDC_GAMMA_OFFSET_RADIO7;
+        case 7: return IDC_GAMMA_OFFSET_RADIO6;
+    }
+    return IDC_GAMMA_OFFSET_RADIO1;
+}
+
+// Exact inverse of TypeToRadio.  Returns -1 for "no radio of this group is
+// checked" (GetCheckedRadioButton yields 0 then), which the caller treats as
+// "leave the stored value alone" - safer than DDX_Radio, which wrote -1 into
+// the member in that case.
+int RadioToType(int nID)
+{
+    switch (nID)
+    {
+        case IDC_GAMMA_OFFSET_RADIO1: return 0;
+        case IDC_GAMMA_OFFSET_RADIO2: return 1;
+        case IDC_GAMMA_OFFSET_RADIO3: return 2;
+        case IDC_GAMMA_OFFSET_RADIO4: return 3;
+        case IDC_GAMMA_OFFSET_RADIO5: return 4;
+        case IDC_GAMMA_OFFSET_RADIO8: return 5;
+        case IDC_GAMMA_OFFSET_RADIO7: return 6;
+        case IDC_GAMMA_OFFSET_RADIO6: return 7;
+    }
+    return -1;
+}
+
+} // namespace
+
 void CReferencesPropPage::DoDataExchange(CDataExchange* pDX)
 {
 	CPropertyPageWithHelp::DoDataExchange(pDX);
@@ -149,7 +207,6 @@ void CReferencesPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_USE_TONEMAP, m_useToneMapCtrl);
 	DDX_Check(pDX, IDC_USE_TONEMAP, m_useToneMap);
 	DDX_Control(pDX, IDC_USE_MEASURED_GAMMA, m_eMeasuredGamma);
-	DDX_Radio(pDX, IDC_GAMMA_OFFSET_RADIO1, m_GammaOffsetType);
 	DDX_Text(pDX, IDC_EDIT_MANUAL_GOFFSET, m_manualGOffset);
 	DDX_Text(pDX, IDC_WHITE_X, m_manualWhitex);
 	DDX_Text(pDX, IDC_WHITE_Y, m_manualWhitey);
@@ -177,6 +234,18 @@ void CReferencesPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_BLUE_Y, m_manualBlueyedit);
 	DDV_MinMaxDouble(pDX, m_manualGOffset, 0., 0.2);
 	//}}AFX_DATA_MAP
+
+	// The transfer function is exchanged by control ID, never with DDX_Radio -
+	// see TypeToRadio/RadioToType above for why the ordinal DDX_Radio uses is
+	// not the same value in every language DLL.
+	if ( pDX->m_bSaveAndValidate )
+	{
+		int nType = RadioToType(GetCheckedRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10));
+		if ( nType >= 0 )
+			m_GammaOffsetType = nType;
+	}
+	else
+		CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
 }
 
 
@@ -241,14 +310,14 @@ BOOL CReferencesPropPage::OnApply()
 	GetConfig()->	WriteProfileDouble("References","Manual Black Level",m_ManualBlack);
 	GetConfig()->	WriteProfileDouble("References","Use Black Level",m_userBlack);
 	GetConfig()->	WriteProfileDouble("References","Override Targets",m_bOverRideTargs);
-	GetConfig()->	WriteProfileDouble("References","DiffuseLValue",m_DiffuseLUser);
-	GetConfig()->	WriteProfileDouble("References","TargetMinLValue",m_TargetMinLUser);
-	GetConfig()->	WriteProfileDouble("References","TargetMaxLValue",m_TargetMaxLUser);
-	GetConfig()->	WriteProfileDouble("References","TargetSysGamma",m_TargetSysGamma);
+	// DiffuseLValue/TargetMinLValue/TargetMaxLValue are written from the live config
+	// by CColorHCFRConfig::SaveSettings; the *User members are the override
+	// toggle's stash (never loaded from the INI) and must not reach those keys.
+	// TargetSysGammaValue is the key LoadSettings reads, like the BT2390 ones below.
+	GetConfig()->	WriteProfileDouble("References","TargetSysGammaValue",m_TargetSysGamma);
 	GetConfig()->	WriteProfileDouble("References","BT2390BlackSlopeFactor",m_BT2390_BS);
 	GetConfig()->	WriteProfileDouble("References","BT2390WhiteSlopeFactor",m_BT2390_WS);
 	GetConfig()->	WriteProfileDouble("References","BT2390WhiteSlopeFactor1",m_BT2390_WS1);
-	GetConfig()->	WriteProfileDouble("References","TargetSysGammaUser",m_TargetSysGammaUser);
 	if (m_colorStandard == HDTVa || m_colorStandard == HDTVb || m_colorStandard == CC6) 
 	{
 		m_changeWhiteCheck = FALSE;
@@ -788,20 +857,6 @@ static bool IsKnownType(int t)
     return false;
 }
 
-static int TypeToRadio(int t)
-{
-    switch (t)
-    {
-        case 0: return IDC_GAMMA_OFFSET_RADIO1;
-        case 1: return IDC_GAMMA_OFFSET_RADIO2;
-        case 4: return IDC_GAMMA_OFFSET_RADIO5;
-        case 5: return IDC_GAMMA_OFFSET_RADIO8;
-        case 6: return IDC_GAMMA_OFFSET_RADIO7;
-        case 7: return IDC_GAMMA_OFFSET_RADIO6;
-    }
-    return IDC_GAMMA_OFFSET_RADIO1;
-}
-
 } // namespace
 
 // Fill the transfer-function dropdown for the ACTIVE color standard, offering
@@ -857,9 +912,10 @@ bool CReferencesPropPage::PopulateTransferFuncCombo()
 		m_transferFuncCombo.SetCurSel(TypeToCombo(m_GammaOffsetType));
 	}
 
-	// The hidden legacy radios are still the DDX_Radio source for
-	// m_GammaOffsetType, so they have to track the dropdown - otherwise the next
-	// UpdateData(TRUE) reads a stale radio and undoes the coercion above.
+	// The hidden legacy radios are still what DoDataExchange reads back (by ID
+	// now, not by DDX_Radio ordinal), so they have to track the dropdown -
+	// otherwise the next UpdateData(TRUE) reads a stale radio and undoes the
+	// coercion above.
 	CheckRadioButton(IDC_GAMMA_OFFSET_RADIO1, IDC_GAMMA_OFFSET_RADIO10, TypeToRadio(m_GammaOffsetType));
 
 	return ( m_GammaOffsetType != nWas );

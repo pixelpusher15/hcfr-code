@@ -105,6 +105,7 @@
     <ClCompile Include="..\matrix.cpp" />
     <ClCompile Include="..\PCFilesReaderUtilities.cpp" />
     <ClCompile Include="..\SpectralCorrection.cpp" />
+    <ClCompile Include="..\SaturationTracking.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\ArchiveExtension.h" />
@@ -124,6 +125,7 @@
     <ClInclude Include="..\matrix.h" />
     <ClInclude Include="..\PCFilesReaderUtilities.h" />
     <ClInclude Include="..\SpectralCorrection.h" />
+    <ClInclude Include="..\SaturationTracking.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\ReadMe.txt" />

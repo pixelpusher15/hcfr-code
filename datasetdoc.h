@@ -130,6 +130,9 @@ public:
 	void MeasureContrast();
 	void AddMeasurement();
 	bool CheckVideoLevel();
+	// Also used by CMainFrame to show these patterns with no document open
+	static bool CheckPatternVideoLevel(CGenerator * pGenerator);
+	static void WaitPatternKey(CGenerator * pGenerator, int Anim = 0);
 	//void CalibrateSensor(BOOL doUpdateValues=TRUE);
 
 	CMeasure *GetMeasure() { return &m_measure; }

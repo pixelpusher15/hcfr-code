@@ -23,6 +23,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "ExportReplaceDialog.h"
+#include "RadioExchange.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -51,7 +52,9 @@ void CExportReplaceDialog::DoDataExchange(CDataExchange* pDX)
 	//{{AFX_DATA_MAP(CExportReplaceDialog)
 	DDX_Control(pDX, IDOK, m_okButton);
 	DDX_Control(pDX, IDC_REPLACEMEASURE_LIST, m_replaceMeasureListBox);
-	DDX_Radio(pDX, IDC_APPEND_RADIO, m_appendRadioChecked);
+	static const UINT kAppendReplaceRadios[] =
+		{ IDC_APPEND_RADIO, IDC_REPLACE_RADIO };
+	DDX_RadioByID(pDX, m_appendRadioChecked, kAppendReplaceRadios);
 	//}}AFX_DATA_MAP
 }
 

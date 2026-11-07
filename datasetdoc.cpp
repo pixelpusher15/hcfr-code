@@ -3527,6 +3527,11 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 
 void CDataSetDoc::WaitKey(int Anim)
 {
+	WaitPatternKey(m_pGenerator, Anim);
+}
+
+void CDataSetDoc::WaitPatternKey(CGenerator * pGenerator, int Anim)
+{
 	BOOL	bKeyTyped = FALSE;
 	MSG		Msg;
 	bool	OFF = TRUE;
@@ -3540,15 +3545,15 @@ void CDataSetDoc::WaitKey(int Anim)
 				switch (Anim)
 				{
 					case 1:
-					m_pGenerator->DisplayClipLO();
+					pGenerator->DisplayClipLO();
 					OFF = FALSE;
 					break;
 					case 2:
-					m_pGenerator->DisplayClipHO();
+					pGenerator->DisplayClipHO();
 					OFF = FALSE;
 					break;
 					case 3:
-					m_pGenerator->DisplayNBO();
+					pGenerator->DisplayNBO();
 					OFF = FALSE;
 					break;
 				}
@@ -3559,15 +3564,15 @@ void CDataSetDoc::WaitKey(int Anim)
 				switch (Anim)
 				{
 					case 1:
-					m_pGenerator->DisplayClipL();
+					pGenerator->DisplayClipL();
 					OFF = TRUE;
 					break;
 					case 2:
-					m_pGenerator->DisplayClipH();
+					pGenerator->DisplayClipH();
 					OFF = TRUE;
 					break;
 					case 3:
-					m_pGenerator->DisplayNB();
+					pGenerator->DisplayNB();
 					Sleep(1000);
 					OFF = TRUE;
 					break;
@@ -4936,7 +4941,12 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 
 bool CDataSetDoc::CheckVideoLevel()
 {
-	if ( !m_pGenerator->m_b16_235 && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) != DISPLAY_ccast )
+	return CheckPatternVideoLevel(m_pGenerator);
+}
+
+bool CDataSetDoc::CheckPatternVideoLevel(CGenerator * pGenerator)
+{
+	if ( !pGenerator->m_b16_235 && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) != DISPLAY_ccast )
 	{
 		if (IDYES == GetColorApp()->InMeasureMessageBox( "Caution, pattern is designed for video level output\nand you have selected full range. Continue?", "Pattern display", MB_ICONQUESTION | MB_YESNO ) )
 			return TRUE;
@@ -4958,22 +4968,28 @@ void CDataSetDoc::OnBkgndMeasureReady()
 	{
 		EnterCriticalSection ( & g_CritSec );
 		pos = g_MeasuredColorList.GetHeadPosition ();
+		// The document's first view is its CMainView (the only view class in
+		// the doc template); it is the same for every queued reading, so fetch
+		// it once. Advancing a view iterator per reading ran out after the
+		// first and broke out, leaving the rest neither appended nor freed.
 		POSITION pos2 = g_pDataDocRunningThread -> GetFirstViewPosition ();
+		CView *pView = g_pDataDocRunningThread -> GetNextView ( pos2 );
 		
 		while ( pos )
 		{
-			CView *pView = g_pDataDocRunningThread -> GetNextView ( pos2 );
-			if (!pView)
-				break;
-			int m_d = ((CMainView*)pView)->m_displayMode;
-			int last_minCol = ((CMainView*)pView)->last_minCol;
 			pMeasurement = ( CColor * ) g_MeasuredColorList.GetNext ( pos );
 
-			m_measure.AppendMeasurements(*pMeasurement, m_d, last_minCol );
-			SetModifiedFlag(m_measure.IsModified());
+			if ( pView )
+			{
+				int m_d = ((CMainView*)pView)->m_displayMode;
+				int last_minCol = ((CMainView*)pView)->last_minCol;
 
-			SetSelectedColor ( *pMeasurement );
-			UpdateAllViews(NULL,UPD_FREEMEASUREAPPENDED,this);
+				m_measure.AppendMeasurements(*pMeasurement, m_d, last_minCol );
+				SetModifiedFlag(m_measure.IsModified());
+
+				SetSelectedColor ( *pMeasurement );
+				UpdateAllViews(NULL,UPD_FREEMEASUREAPPENDED,this);
+			}
 
 			delete pMeasurement;
 		}
