@@ -316,6 +316,7 @@ public:
 	afx_msg void OnSizeMinus();
 	afx_msg void OnCcSetNamePicker();	// stats-bar name chip: user patch set picker (mode 11)
 	void ResyncCCControls();	// mode 11: combos and grid follow the CC state after activation
+	void SelectDisplayMode(int mode);	// show this display mode, as a mode-combo pick would
 
 // Generated message map functions
 protected:

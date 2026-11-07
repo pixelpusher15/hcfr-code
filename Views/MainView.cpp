@@ -6336,6 +6336,17 @@ int CMainView::ModeComboIndexFor(int mode)
 	return mode;
 }
 
+// A display mode chosen from outside the combo (a 3D view point click). Mode 11
+// maps to the item the current CC mode shows, so Custom Sequences stays selected.
+void CMainView::SelectDisplayMode(int mode)
+{
+	int item = ModeComboIndexFor ( mode );
+	if ( m_comboMode.GetSafeHwnd () == NULL || m_comboMode.GetCurSel () == item )
+		return;
+	m_comboMode.SetCurSel ( item );
+	OnSelchangeComboMode ();
+}
+
 void CMainView::OnSelchangeComboMode()
 {
 	int	nNewMode = m_comboMode.GetCurSel ();

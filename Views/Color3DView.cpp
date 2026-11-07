@@ -2497,13 +2497,8 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 		if ( pView != NULL && pView->IsKindOf( RUNTIME_CLASS( CMainView ) ) )
 		{
 			CMainView * pMain = (CMainView *)pView;
-			if ( mode >= 0 && pMain->m_comboMode.GetSafeHwnd() != NULL
-			  && pMain->m_comboMode.GetCurSel() != mode )
-			{
-				// switch the data grid to the right measurement category
-				pMain->m_comboMode.SetCurSel( mode );
-				pMain->OnSelchangeComboMode();
-			}
+			if ( mode >= 0 )
+				pMain->SelectDisplayMode( mode );	// switch the data grid to the right measurement category
 			if ( S.srcType == SRC_PROFILE )
 			{
 				// mode 13 has no grid to feed the reference comparator; drive the
