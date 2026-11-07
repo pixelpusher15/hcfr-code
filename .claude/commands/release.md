@@ -83,9 +83,13 @@ build variant (blocks until done; `devenv.exe` would return immediately).
   which the solution builds in `Release|Win32`):
   `"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com" ColorHCFR_VS2019.sln /Build "Release|Win32"`
 - On a Windows-on-ARM machine, skip the full-solution devenv line above: build the solution with
-  `C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\arm64\MSBuild.exe` (`-p:Configuration=Release -p:Platform=Win32`), which
+  `C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\arm64\MSBuild.exe` (`-p:Configuration=Release -p:Platform=Win32 -p:WindowsTargetPlatformVersion=10.0.28000.0`), which
   selects the native `HostArm64\x86` compiler, then run the `/Project` line below for the MSI.
   The packaged binaries are x86 either way.
+- Windows SDK: use 10.0.28000.0 and name it in the release notes. The projects do not pin it
+  (`10.0` means the newest installed), so two machines can silently produce different binaries.
+  devenv takes no `-p:` property: if the newest SDK on the build machine is not 10.0.28000, build
+  the solution with MSBuild and the flag above, then run the `/Project` line for the MSI.
 - If the MSI didn't come out of that, build it explicitly:
   `"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com" ColorHCFR_VS2019.sln /Project ColorHCFR_VS2019.vdproj /Build "Release|Win32"`
 - If devenv returns at once or sits with no output, check `Get-Process devenv | Select MainWindowTitle`.
