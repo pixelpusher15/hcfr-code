@@ -2764,6 +2764,7 @@ BEGIN
         BEGIN
             MENUITEM "Mesures vers fichier xls",    IDM_EXPORT_XLS
             MENUITEM "Mesures vers fichier csv",    IDM_EXPORT_CSV
+            MENUITEM "Mesures vers fichier &ti3",    IDM_EXPORT_TI3
             MENUITEM "Créer Rapport &PDF",          IDM_EXPORT_PDF
         END
         MENUITEM SEPARATOR
@@ -3509,6 +3510,7 @@ BEGIN
     IDM_REFERENCE_CONFIG    "Configure les références des calculs"
     IDM_EXPORT_CSV          "Exporte les mesures vers un fichier .csv\nExport csv"
     IDM_EXPORT_XLS          "Exporte les mesures vers un fichier .xls\nExport xls"
+    IDM_EXPORT_TI3          "Exporte les mesures du profil d'affichage et des listes de patchs vers des fichiers CGATS .ti3\nExport ti3"
     IDM_HELP                "Affiche la fenêtre d'aide\nAide"
     IDM_HELP_SUPPORT        "Aide: support technique\nSupport"
     IDM_HELP_FORUM          "Aide: forum hcfr.sourceforge.net\nForum"
@@ -4237,6 +4239,9 @@ BEGIN
     IDS_USERSET_MIGRATED    "Utilisateur (migré)"
     IDS_CSV_NO_ROWS         "Cette liste de patchs ne contient aucune ligne de patch :\n\n%s"
     IDS_USERSET_NONE_LOADED "Aucune liste de patchs n'est chargée : il n'y a rien à mesurer. Chargez-en une avec Ouvrir une liste de patchs..."
+    IDS_TI3_FILTER          "Fichiers de mesures CGATS (*.ti3)|*.ti3||"
+    IDS_TI3_NOTHING         "Rien à exporter en .ti3 : ce document ne contient ni profil d'affichage mesuré ni liste de patchs mesurée."
+    IDS_TI3_WRITTEN         "%d mesures écrites (%d non mesurées ou invalides, ignorées) dans :\n\n%s"
     IDS_MEASUREDISPLAYPROFILE "Mesurer le profil d'affichage"
     IDS_DELETEDISPLAYPROFILE "Supprimer le profil d'affichage"
     IDS_SATLUMSHIFT         "Saturation - écarts"

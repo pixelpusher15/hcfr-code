@@ -107,6 +107,7 @@
     <ClCompile Include="..\PCFilesReaderUtilities.cpp" />
     <ClCompile Include="..\SpectralCorrection.cpp" />
     <ClCompile Include="..\SaturationTracking.cpp" />
+    <ClCompile Include="..\Ti3Export.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\ArchiveExtension.h" />
@@ -128,6 +129,7 @@
     <ClInclude Include="..\PCFilesReaderUtilities.h" />
     <ClInclude Include="..\SpectralCorrection.h" />
     <ClInclude Include="..\SaturationTracking.h" />
+    <ClInclude Include="..\Ti3Export.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\ReadMe.txt" />

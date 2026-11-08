@@ -2379,6 +2379,7 @@ BEGIN
         BEGIN
             MENUITEM "Messungen in &xls Datei",     IDM_EXPORT_XLS
             MENUITEM "Messungen in &csv Datei",     IDM_EXPORT_CSV
+            MENUITEM "Messungen in &ti3 Datei",      IDM_EXPORT_TI3
             MENUITEM "&PDF Report erstellen",       IDM_EXPORT_PDF
         END
         MENUITEM SEPARATOR
@@ -3999,6 +4000,9 @@ BEGIN
     IDS_USERSET_MIGRATED    "Benutzer (migriert)"
     IDS_CSV_NO_ROWS         "Diese Patch-Liste enthält keine Patch-Zeilen:\n\n%s"
     IDS_USERSET_NONE_LOADED "Es ist keine Patch-Liste geladen, daher gibt es nichts zu messen. Laden Sie eine mit Patch-Liste öffnen..."
+    IDS_TI3_FILTER          "CGATS-Messdateien (*.ti3)|*.ti3||"
+    IDS_TI3_NOTHING         "Es gibt nichts in .ti3 zu exportieren: Dieses Dokument enthält weder ein gemessenes Display-Profil noch eine gemessene Patch-Liste."
+    IDS_TI3_WRITTEN         "%d Messungen geschrieben (%d nicht gemessen oder ungültig, übersprungen) in:\n\n%s"
     IDS_MEASUREDISPLAYPROFILE "Display-Profil messen"
     IDS_DELETEDISPLAYPROFILE "Display-Profil löschen"
     IDS_SATLUMSHIFT         "Sättigungsverschiebung"
@@ -4191,6 +4195,7 @@ BEGIN
     IDM_REFERENCE_CONFIG    "Legt die Referenzen fest"
     IDM_EXPORT_CSV          "Exportiert die Messungen in eine .csv-Datei\nExport .csv"
     IDM_EXPORT_XLS          "Exportiert die Messungen in eine .xls-Datei\nExport .xls"
+    IDM_EXPORT_TI3          "Exportiert die Messungen des Display-Profils und der Patch-Listen in CGATS-.ti3-Dateien\nExport .ti3"
     IDM_CALIBRATION_SPECTRAL "Erstellt eine Kolorimeter-Korrekturdatei mit einem Referenz-Spektrometer"
     IDM_UPDATE_ETALONS      "Lädt aktualisierte und neue Korrekturdateien von hcfr.sourceforge.net herunter\nKorrekturdateien herunterladen"
     IDM_SHOWVIEW            "Ausgewählte Ansicht anzeigen"

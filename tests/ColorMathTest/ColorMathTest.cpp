@@ -16,7 +16,8 @@
 // T19 asserts the #193 archive extension trailer: round trip, unknown-tag skip,
 // legacy bytes, rejections, the primitives, append-only values, and the legacy store,
 // T22 asserts the test-color window paints each patch's own code, and T41 asserts the
-// saturation-tracking hue/luminance errors and anchor transform.
+// saturation-tracking hue/luminance errors and anchor transform. T44 writes a synthetic
+// set with the .ti3 export writer and reads it back through the in-tree CGATS reader.
 // The .chc round-trip originally planned for the T7
 // slot needs app-level linkage and is deliberately still not in this console harness.
 
@@ -27,6 +28,8 @@
 #include "../../libHCFR/SpectralCorrection.h"
 #include <limits>
 #include "../../libHCFR/SaturationTracking.h"
+#include "../../libHCFR/Ti3Export.h"
+#include "../../Tools/spectro/cgats.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -3121,6 +3124,257 @@ static void RunT42()
     }
 }
 
+//////////////////////////////////////////////////////////////////////////
+// T44 - CGATS CTI3 (.ti3) export round trip.
+// Writes synthetic tables with WriteTi3File (libHCFR/Ti3Export, the writer the
+// app's Export > Measures to ti3 file uses) and reads them back through the
+// in-tree CGATS reader (Tools/spectro/cgats.c, linked from the spectro library).
+// Header keywords, table type, field names and types, and every number are
+// compared. The library writes reals at 6 significant digits, so the exact
+// cases use values that print exactly at that precision (dyadic fractions of
+// at most 6 significant digits, white Y = 200 so the 100/Y_white scale is 0.5);
+// one case states the 6-digit bound for values that do not.
+//////////////////////////////////////////////////////////////////////////
+namespace T44
+{
+    // white (absolute cd/m2) and three readings with a gap in SAMPLE_ID (slot 3, 4 skipped)
+    static const double kWhite[3] = { 190.0, 200.0, 217.5 };
+    static const int    kIds[3]   = { 1, 2, 5 };
+    static const double kRgb[3][3] = { { 100.0, 100.0, 100.0 }, { 50.0, 25.0, 0.0 }, { 6.25, 12.5, 75.0 } };
+    static const double kXyz[3][3] = { { 190.0, 200.0, 217.5 }, { 41.25, 30.5, 8.75 }, { 12.125, 9.5, 60.25 } };
+    static const double kSpec[3][4] = { { 2.5, 4.0, 8.25, 1.125 }, { 0.5, 1.75, 3.0, 0.25 }, { 6.0, 0.125, 0.0, 9.5 } };
+
+    static Ti3Table Make(bool withSpectra)
+    {
+        Ti3Table t;
+        t.descriptor = "T44 synthetic set";
+        t.originator = "ColorMathTest";
+        for (int c = 0; c < 3; c++)
+            t.whiteXYZ[c] = kWhite[c];
+        t.specBands = 4;
+        t.specStartNm = 380.0;
+        t.specEndNm = 680.0;
+        for (int r = 0; r < 3; r++)
+        {
+            Ti3Reading rd;
+            rd.sampleId = kIds[r];
+            for (int c = 0; c < 3; c++)
+            {
+                rd.rgb[c] = kRgb[r][c];
+                rd.xyz[c] = kXyz[r][c];
+            }
+            if (withSpectra || r != 1)  // without spectra: the middle reading lacks one
+                rd.spectrum.assign(kSpec[r], kSpec[r] + 4);
+            t.readings.push_back(rd);
+        }
+        return t;
+    }
+
+    static std::string TempPath(const char* name)
+    {
+        char dir[MAX_PATH];
+        DWORD n = GetTempPathA(MAX_PATH, dir);
+        return std::string((n > 0 && n < MAX_PATH) ? dir : ".\\") + name;
+    }
+
+    static const char* Kw(cgats* p, const char* k)
+    {
+        int i = p->find_kword(p, 0, k);
+        return (i >= 0) ? p->t[0].kdata[i] : NULL;
+    }
+
+    static void CheckKw(cgats* p, const char* tag, const char* k, const char* want)
+    {
+        const char* got = Kw(p, k);
+        if (want == NULL)
+        {
+            if (got != NULL)
+                Fail("T44 %s: keyword %s present ('%s'), want absent", tag, k, got);
+        }
+        else if (got == NULL || strcmp(got, want) != 0)
+            Fail("T44 %s: keyword %s = '%s', want '%s'", tag, k, got ? got : "(absent)", want);
+    }
+
+    // Read path back; returns NULL (after a Fail) when the reader refuses it.
+    static cgats* ReadBack(const char* tag, const std::string& path)
+    {
+        cgats* p = new_cgats();
+        if (p == NULL)
+        {
+            Fail("T44 %s: new_cgats failed", tag);
+            return NULL;
+        }
+        p->add_other(p, "CTI3");
+        if (p->read_name(p, path.c_str()) < 0)
+        {
+            Fail("T44 %s: CGATS reader refused %s: %s", tag, path.c_str(), p->e.m);
+            p->del(p);
+            return NULL;
+        }
+        return p;
+    }
+
+    static void CheckRoundTrip(bool withSpectra)
+    {
+        const char* tag = withSpectra ? "spectral" : "no-spectra";
+        Ti3Table t = Make(withSpectra);
+        std::string path = TempPath(withSpectra ? "HCFR_T44_spectral.ti3" : "HCFR_T44_plain.ti3");
+        std::string err;
+        if (!WriteTi3File(path.c_str(), t, err))
+        {
+            Fail("T44 %s: WriteTi3File failed: %s", tag, err.c_str());
+            return;
+        }
+        cgats* p = ReadBack(tag, path);
+        if (p == NULL)
+            return;
+
+        if (p->ntables != 1)
+            Fail("T44 %s: %d tables, want 1", tag, p->ntables);
+        if (p->t[0].tt != tt_other || p->t[0].oi < 0 || p->t[0].oi >= p->nothers
+         || strcmp(p->others[p->t[0].oi], "CTI3") != 0)
+            Fail("T44 %s: table type is not CTI3", tag);
+
+        CheckKw(p, tag, "DESCRIPTOR", "T44 synthetic set");
+        CheckKw(p, tag, "ORIGINATOR", "ColorMathTest");
+        CheckKw(p, tag, "DEVICE_CLASS", "DISPLAY");
+        CheckKw(p, tag, "COLOR_REP", "RGB_XYZ");
+        CheckKw(p, tag, "NORMALIZED_TO_Y_100", "YES");
+        CheckKw(p, tag, "LUMINANCE_XYZ_CDM2", "190.000000 200.000000 217.500000");
+        CheckKw(p, tag, "INSTRUMENT_TYPE_SPECTRAL", withSpectra ? "YES" : "NO");
+        CheckKw(p, tag, "SPECTRAL_BANDS", withSpectra ? "4" : NULL);
+        CheckKw(p, tag, "SPECTRAL_START_NM", withSpectra ? "380.000000" : NULL);
+        CheckKw(p, tag, "SPECTRAL_END_NM", withSpectra ? "680.000000" : NULL);
+        if (Kw(p, "CREATED") == NULL)
+            Fail("T44 %s: no CREATED keyword", tag);
+        // the luminance keyword parses back to the absolute white exactly
+        const char* lum = Kw(p, "LUMINANCE_XYZ_CDM2");
+        double lx = 0, ly = 0, lz = 0;
+        if (lum == NULL || sscanf(lum, "%lf %lf %lf", &lx, &ly, &lz) != 3
+         || lx != kWhite[0] || ly != kWhite[1] || lz != kWhite[2])
+            Fail("T44 %s: LUMINANCE_XYZ_CDM2 does not parse back to the white", tag);
+
+        static const char* kNames[11] = { "SAMPLE_ID", "RGB_R", "RGB_G", "RGB_B", "XYZ_X", "XYZ_Y", "XYZ_Z",
+                                          "SPEC_380", "SPEC_480", "SPEC_580", "SPEC_680" };
+        const int nf = withSpectra ? 11 : 7;
+        if (p->t[0].nfields != nf)
+            Fail("T44 %s: %d fields, want %d", tag, p->t[0].nfields, nf);
+        else
+            for (int f = 0; f < nf; f++)
+            {
+                if (strcmp(p->t[0].fsym[f], kNames[f]) != 0)
+                    Fail("T44 %s: field %d is %s, want %s", tag, f, p->t[0].fsym[f], kNames[f]);
+                data_type want = (f == 0) ? nqcs_t : r_t;
+                if (p->t[0].ftype[f] != want)
+                    Fail("T44 %s: field %s has type %d, want %d", tag, kNames[f], (int)p->t[0].ftype[f], (int)want);
+            }
+
+        if (p->t[0].nsets != 3)
+            Fail("T44 %s: %d sets, want 3", tag, p->t[0].nsets);
+        else if (p->t[0].nfields == nf)
+        {
+            const double scale = 100.0 / kWhite[1];
+            for (int r = 0; r < 3; r++)
+            {
+                char id[16];
+                sprintf(id, "%d", kIds[r]);
+                if (p->t[0].ftype[0] == nqcs_t && strcmp((char*)p->t[0].fdata[r][0], id) != 0)
+                    Fail("T44 %s: set %d SAMPLE_ID '%s', want '%s'", tag, r, (char*)p->t[0].fdata[r][0], id);
+                for (int f = 1; f < nf; f++)
+                {
+                    if (p->t[0].ftype[f] != r_t)
+                        continue;
+                    double got = *(double*)p->t[0].fdata[r][f];
+                    double want = (f <= 3) ? kRgb[r][f - 1]
+                                : (f <= 6) ? kXyz[r][f - 4] * scale
+                                :            kSpec[r][f - 7] * scale;
+                    if (got != want)  // exact: every value prints exactly at 6 significant digits
+                        Fail("T44 %s: set %d %s = %.17g, want %.17g", tag, r, kNames[f], got, want);
+                }
+            }
+        }
+        p->del(p);
+        remove(path.c_str());
+    }
+
+    // Values that do not print exactly come back within the library's
+    // 6-significant-digit rounding: |back - v| <= 5e-6 * |v|.
+    static void CheckPrecisionBound()
+    {
+        Ti3Table t;
+        t.whiteXYZ[0] = 87.123456; t.whiteXYZ[1] = 93.7; t.whiteXYZ[2] = 101.987654;
+        Ti3Reading rd;
+        rd.sampleId = 7;
+        rd.rgb[0] = 100.0 / 3.0; rd.rgb[1] = 512.0 * 100.0 / 1023.0; rd.rgb[2] = 0.0123456789;
+        rd.xyz[0] = 12.3456789; rd.xyz[1] = 0.0987654321; rd.xyz[2] = 87.654321;
+        t.readings.push_back(rd);
+        std::string path = TempPath("HCFR_T44_precision.ti3"), err;
+        if (!WriteTi3File(path.c_str(), t, err))
+        {
+            Fail("T44 precision: WriteTi3File failed: %s", err.c_str());
+            return;
+        }
+        cgats* p = ReadBack("precision", path);
+        if (p == NULL)
+            return;
+        if (p->t[0].nsets != 1 || p->t[0].nfields != 7)
+            Fail("T44 precision: %d sets x %d fields, want 1 x 7", p->t[0].nsets, p->t[0].nfields);
+        else
+            for (int f = 1; f < 7; f++)
+            {
+                double want = (f <= 3) ? rd.rgb[f - 1] : rd.xyz[f - 4] * (100.0 / t.whiteXYZ[1]);
+                double got = (p->t[0].ftype[f] == r_t) ? *(double*)p->t[0].fdata[0][f] : -1.0;
+                if (fabs(got - want) > 5e-6 * fabs(want))
+                    Fail("T44 precision: field %d = %.17g, want %.17g within 5e-6 relative", f, got, want);
+            }
+        p->del(p);
+        remove(path.c_str());
+    }
+
+    static void CheckRefusals()
+    {
+        std::string err;
+        Ti3Table t = Make(true);
+        t.whiteXYZ[1] = 0.0;
+        if (WriteTi3File(TempPath("HCFR_T44_refused.ti3").c_str(), t, err) || err.empty())
+            Fail("T44 white Y = 0: written, want refused with a message");
+        t = Make(true);
+        t.readings.clear();
+        if (WriteTi3File(TempPath("HCFR_T44_refused.ti3").c_str(), t, err) || err.empty())
+            Fail("T44 no readings: written, want refused with a message");
+        t = Make(true);
+        if (WriteTi3File(TempPath("HCFR_T44_no_such_dir\\x.ti3").c_str(), t, err) || err.empty())
+            Fail("T44 unwritable path: reported success, want the library's error");
+        remove(TempPath("HCFR_T44_refused.ti3").c_str());
+
+        // spectral layout rules: whole-nm bands only, every reading on the layout
+        t = Make(true);
+        if (!Ti3HasSpectralColumns(t))
+            Fail("T44 380-680 nm, 4 bands, all readings: no spectral columns");
+        t.specEndNm = 685.0;   // 101.667 nm steps
+        if (Ti3HasSpectralColumns(t))
+            Fail("T44 fractional-nm bands: spectral columns, want none");
+        t = Make(true);
+        t.readings[2].spectrum.pop_back();
+        if (Ti3HasSpectralColumns(t))
+            Fail("T44 one spectrum short a band: spectral columns, want none");
+        if (Ti3SpectralFieldName(Make(true), 0) != "SPEC_380" || Ti3SpectralFieldName(Make(true), 3) != "SPEC_680")
+            Fail("T44 spectral field names");
+        const double w[3] = { 95.0471, 100.0, 108.883 };
+        if (Ti3LuminanceKeyword(w) != "95.047100 100.000000 108.883000")
+            Fail("T44 LUMINANCE_XYZ_CDM2 format: '%s'", Ti3LuminanceKeyword(w).c_str());
+    }
+}
+
+static void RunT44()
+{
+    printf("T44 CGATS .ti3 export round trip...\n");
+    T44::CheckRoundTrip(true);
+    T44::CheckRoundTrip(false);
+    T44::CheckPrecisionBound();
+    T44::CheckRefusals();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -3155,6 +3409,7 @@ int main(int argc, char* argv[])
     RunT22();
     RunT41();
     RunT42();
+    RunT44();
 
     if (g_failures)
     {
