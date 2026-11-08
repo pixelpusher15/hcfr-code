@@ -175,10 +175,32 @@ static void WarnRecordNotAppliedOnce(UINT id, const std::string& description, co
 // the driver's reason, before some of its failures, and says so
 // (ArgyllMeterWrapper::errorBoxShown); for those HCFR shows nothing more. Every
 // other failure reaching Init or Calibrate is shown by HCFR, once.
-static void ShowUnlessWrapperDid(ArgyllMeterWrapper* meter, const char* what, const char* title)
+static void ShowUnlessWrapperDid(ArgyllMeterWrapper* meter, const CString& text, const char* title)
 {
     if ( meter == NULL || !meter->errorBoxShown() )
-        GetColorApp()->InMeasureMessageBox( what, title, MB_OK+MB_ICONHAND);
+        GetColorApp()->InMeasureMessageBox( text, title, MB_OK+MB_ICONHAND);
+}
+
+// A wrapper failure as the user reads it: a known one in its own localized text
+// ("Meter not initialized": the wrapper holds no driver, IDS_ARGYLL_METER_UNAVAILABLE),
+// any other in HCFR's localized text for what failed (generalId), with the wrapper's
+// English text after it only as a detail.
+static CString LocalizedFailure(const char* what, UINT generalId)
+{
+    CString s;
+    if ( what != NULL && strcmp(what, "Meter not initialized") == 0 )
+    {
+        s.LoadString ( IDS_ARGYLL_METER_UNAVAILABLE );
+        return s;
+    }
+    s.LoadString ( generalId );
+    if ( what != NULL && *what != 0 )
+    {
+        s += "\n(";
+        s += what;
+        s += ")";
+    }
+    return s;
 }
 
 namespace
@@ -458,8 +480,6 @@ void CArgyllSensor::GetPropertiesSheetValues()
     CommitPageSettings();
 }
 
-// GetPropertiesSheetValues, with the result of the Init a changed setting runs
-// (INIT_OK when nothing needed one).
 // Whether the page's device settings differ from the sensor's (the ones an Init
 // starts the meter with; with includeDebug, the Debug checkbox too). An empty Display
 // Type combo (-1) is no choice.
@@ -473,6 +493,8 @@ bool CArgyllSensor::PageDeviceSettingsDiffer(bool includeDebug) const
         || ( includeDebug && m_debugMode != !!pg.m_DebugMode );
 }
 
+// GetPropertiesSheetValues, with the result of the Init a changed setting runs
+// (INIT_OK when nothing needed one).
 CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
 {
     COneDeviceSensor::GetPropertiesSheetValues();
@@ -508,6 +530,7 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
 
     if ( PageDeviceSettingsDiffer(false) )
     {
+        const BOOL wasModified = IsModified();
         SetModifiedFlag(TRUE);
         // A Display Type chosen in the sheet: the Init below may drop a Display Type
         // correction with it (SyncSpectralRecordFromMeter); a load never does.
@@ -543,7 +566,9 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
         else
         {
             // Rejected (the start's failure has been shown): not kept, here or in
-            // the INI, so a restart starts the meter with what last worked.
+            // the INI, so a restart starts the meter with what last worked. The user
+            // is told the confirmed settings were not kept, and whether the meter
+            // stopped; the page shows the settings the sensor has again.
             m_ReadingType = oldReadingType;
             m_SpectralType = oldSpectralType;
             m_intTime = oldIntTime;
@@ -551,6 +576,19 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
             m_HiRes = oldHiRes;
             m_Adapt = oldAdapt;
             m_DisableAIO = oldDisableAIO;
+            SetModifiedFlag(wasModified);
+            CArgyllSensorPropPage& pg = m_ArgyllSensorPropertiesPage;
+            pg.m_ReadingType = m_ReadingType;
+            pg.m_SpectralType = m_SpectralType;
+            pg.m_intTime = m_intTime;
+            pg.m_DisplayType = m_DisplayType;
+            pg.m_HiRes = m_HiRes;
+            pg.m_Adapt = m_Adapt;
+            pg.m_DisableAIO = m_DisableAIO;
+            CString msg, title;
+            msg.LoadString ( m_meter == NULL ? IDS_ARGYLL_SETTINGS_REJECTED_STOPPED : IDS_ARGYLL_SETTINGS_REJECTED );
+            title.LoadString ( IDS_ARGYLLSENSOR_PROPERTIES_TITLE );
+            GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
         }
     }
     return result;
@@ -590,7 +628,7 @@ CArgyllSensor::InitResult CArgyllSensor::InitReporting( BOOL bForSimultaneousMea
     }
     catch ( std::logic_error & e )
     {
-        ShowUnlessWrapperDid(m_meter, e.what(), "Argyll Meter");
+        ShowUnlessWrapperDid(m_meter, LocalizedFailure(e.what(), IDS_ARGYLL_START_FAILED), "Argyll Meter");
         return INIT_FAILED_ANNOUNCED;
     }
 }
@@ -624,7 +662,7 @@ BOOL CArgyllSensor::InitBody( BOOL bForSimultaneousMeasures )
 
     if(!m_meter->connectAndStartMeter(errorDescription, (ArgyllMeterWrapper::eReadingType)m_ReadingType, m_SpectralType, CArgyllSensor::isInDebugMode(), i_time, ((m_DisplayType == 1) || CArgyllSensor::isRefresh()) && !(m_DisplayType == 0)  ) )
     {
-        ShowUnlessWrapperDid(m_meter, errorDescription.c_str(), "Argyll Meter");
+        ShowUnlessWrapperDid(m_meter, LocalizedFailure(errorDescription.c_str(), IDS_ARGYLL_START_FAILED), "Argyll Meter");
         // Every failure path of the start deletes the wrapper's driver.
         m_meter = 0;
         return FALSE;
@@ -1683,6 +1721,9 @@ bool CArgyllSensor::CorrectionChangedSinceBeginConfigure() const
 //     is refused with a message every time (Configure).
 void CArgyllSensor::BeginConfigure()
 {
+    // The INI keys are per meter name; taken before the Init, which can let go of
+    // the meter, so a Cancel can always write the snapshot's keys back.
+    m_cfgSnapMeterName = ( m_meter != NULL ) ? m_meter->getMeterName() : std::string();
     m_beginInit = InitReporting(FALSE);
     CSensor::BeginConfigure();
     m_cfgSnapSpectralPath = m_spectralCorrectionPath;
@@ -1771,10 +1812,10 @@ void CArgyllSensor::RestoreSnapshot(bool reapplyDriverSample)
     // after OK.
     if ( m_cfgSnapDeviceValid )
     {
-        const bool haveMeter = ( m_meter != NULL );
-        std::string meterName;
-        if ( haveMeter )
-            meterName = m_meter->getMeterName();
+        // The meter's name from BeginConfigure: the keys are written back even after an
+        // Init in the sheet let go of the meter.
+        const std::string meterName = m_cfgSnapMeterName;
+        const bool haveMeter = !meterName.empty();
         if ( m_debugMode != m_cfgSnapDebugMode )
         {
             m_debugMode = m_cfgSnapDebugMode;
@@ -1862,7 +1903,7 @@ CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int
         }
         catch(std::logic_error& e)
         {
-            SetErrorString ( CString(e.what()) );
+            SetErrorString ( LocalizedFailure(e.what(), IDS_ARGYLL_READING_FAILED) );
             SetMeasureValidity(FALSE);
             return noDataColor;
         }
@@ -1872,8 +1913,9 @@ CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int
         {
             if ( !Calibrate() )
             {
+                // The cause: Calibrate's own Init lost the meter, or the calibration failed.
                 CString why;
-                why.LoadString ( IDS_ARGYLL_CALIBRATION_FAILED );
+                why.LoadString ( m_meter == NULL ? IDS_ARGYLL_METER_UNAVAILABLE : IDS_ARGYLL_CALIBRATION_FAILED );
                 SetErrorString ( why );
                 SetMeasureValidity(FALSE);
                 return noDataColor;
@@ -1906,7 +1948,7 @@ bool CArgyllSensor::Calibrate()
     }
     catch ( std::logic_error & e )
     {
-        ShowUnlessWrapperDid(m_meter, e.what(), "Calibration");
+        ShowUnlessWrapperDid(m_meter, LocalizedFailure(e.what(), IDS_ARGYLL_CALIBRATION_FAILED), "Calibration");
         return false;
     }
 }

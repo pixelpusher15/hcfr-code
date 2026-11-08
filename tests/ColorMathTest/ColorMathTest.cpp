@@ -4235,11 +4235,12 @@ namespace T45Order
         bool needsCalibration;          // a reading asks for a manual calibration
         bool calFails;                  // ... and the calibration always fails
         bool unplugInSheet;             // the meter is unplugged while the sheet is open
+        bool calFailsOnce;              // the first calibration fails, the next ones succeed
         std::string serial;
         std::vector<Entry> list;
         std::vector<DiskFile> disk;
         World() : exposed(true), holdsSamples(true), startFails(false), failObs(-1), throwEntry(-1),
-                  wrapperDead(false), needsCalibration(false), calFails(false), unplugInSheet(false), serial("A") {}
+                  wrapperDead(false), needsCalibration(false), calFails(false), unplugInSheet(false), calFailsOnce(false), serial("A") {}
         const DiskFile* File(const std::string& path) const
         {
             for (size_t i = 0; i < disk.size(); ++i)
@@ -4292,11 +4293,12 @@ namespace T45Order
         bool uiBrowse;                      // the Browse button as the page last refreshed it
         bool uiCalibrate;                   // the Calibrate button as the page last refreshed it
         bool hasRow;                        // the page built its spectral row (status, Browse, Clear)
+        bool measureValid;                  // m_isMeasureValid: persists between readings
         SpectralCorrectionRecord recAtLoss; // the record when the meter was lost
         Sensor() : method(CALIB_HCFR_DEFAULT), fitBasis(FIT_BASIS_NATIVE), matrix(I3()), displayType(0),
                    observer(3), driverObserver(3), driverEntry(-1), dtBaseFor(-1), cacheValid(false), pathCheckedValid(false),
                    pathCheckedHash(0), pathDropPending(false), entryMissing(false), meterGone(false),
-                   inSheet(false), uiClear(false), uiBrowse(false), uiCalibrate(false), hasRow(false) {}
+                   inSheet(false), uiClear(false), uiBrowse(false), uiCalibrate(false), hasRow(false), measureValid(true) {}
         Matrix Effective() const { return EffectiveSensorMatrix(method, fitBasis, rec, matrix); }
         bool UsesSpectral() const { return method == CALIB_SPECTRAL_SAMPLE; }
     };
@@ -4319,9 +4321,14 @@ namespace T45Order
         bool settingsDroppedSilently;       // settings confirmed with OK, not kept, not told
         bool loopedForever;                 // a reading that retried a failing calibration
         int iniObserver;                    // the INI's Spectral Type (new documents, a restart)
+        int notices;                        // NOT_KEPT / REJECTED notices shown
+        bool silentRevert;                  // a commit reverted settings and said nothing
+        bool pageStale;                     // the page shows settings the sensor does not have
+        bool calFailedOnce;
         Doc() : rawless(Native()), hasRaw(false), raw(Native()), rawValue(Native()), unrecorded(I3()),
                 crashed(false), messages(0), maxMessages(0), refusedSilently(false), silentClick(false),
-                settingsDroppedSilently(false), loopedForever(false), iniObserver(3) {}
+                settingsDroppedSilently(false), loopedForever(false), iniObserver(3),
+                notices(0), silentRevert(false), pageStale(false), calFailedOnce(false) {}
     };
 
     // The order a session runs in. Branch: the step at BeginConfigure on a started
@@ -4340,6 +4347,14 @@ namespace T45Order
     // CommitPageSettings writes the INI only after the start succeeds and puts the
     // old settings back when it fails (r7#2).
     static const bool kIniAfterStart = true;
+    // Each reading starts valid (MeasureColorInternal's SetMeasureValidity(TRUE)) (r8#2).
+    static const bool kValidityReset = true;
+    // Ignore after an invalid reading stores noDataColor, not the clamped reading (r8#1).
+    static const bool kIgnoreStoresNoData = true;
+    // A commit that reverts settings says so, and the page shows the sensor's settings
+    // again (r8#3).
+    static const bool kNoticeOnRevert = true;
+    static const bool kResyncPage = true;
     static const Structure kMain   = { false, false, false, "main" };
 
     // CSensor::ClearSpectralCorrection
@@ -4662,8 +4677,9 @@ namespace T45Order
                 Message(d);                         // main: "Meter failed init check"
             return false;
         }
-        if (w.calFails)
+        if (w.calFails || ( w.calFailsOnce && !d.calFailedOnce ))
         {
+            d.calFailedOnce = true;
             Message(d);                             // the wrapper's "Calibration Failed!"
             if (!st.rules && fromPage)
                 d.crashed = true;                   // main: uncaught in the handler
@@ -4783,7 +4799,7 @@ namespace T45Order
 
     // GetPropertiesSheetValues: a changed setting is committed and re-inits.
     // CArgyllSensor::CommitPageSettings
-    static int Commit(Doc& d, const World& w, const Structure& st, int pageDT, int pageObs)
+    static int Commit(Doc& d, const World& w, const Structure& st, int& pageDT, int& pageObs)
     {
         const bool changed = ( pageDT != d.s.displayType || pageObs != d.s.observer );
         if (d.s.meterGone)
@@ -4814,6 +4830,17 @@ namespace T45Order
             {
                 d.s.displayType = oldDT;            // not kept
                 d.s.observer = oldObs;
+                if (kNoticeOnRevert)
+                    ++d.notices;                    // IDS_ARGYLL_SETTINGS_REJECTED(_STOPPED)
+                else
+                    d.silentRevert = true;
+                if (kResyncPage)
+                {
+                    pageDT = d.s.displayType;       // the page shows the sensor's settings
+                    pageObs = d.s.observer;
+                }
+                else
+                    d.pageStale = true;
             }
         }
         return r;
@@ -4931,6 +4958,8 @@ namespace T45Order
     static bool Reading(Doc& d, const World& w, const Structure& st)
     {
         Sensor& s = d.s;
+        if (st.rules && kValidityReset)
+            s.measureValid = true;                  // each reading starts valid
         if (s.meterGone)
         {
             if (!st.rules)
@@ -4938,25 +4967,27 @@ namespace T45Order
                 d.crashed = true;                   // main: Init dereferences m_meter
                 return false;
             }
-            return !kFailedReadingInvalid;
+            if (kFailedReadingInvalid)
+                s.measureValid = false;
+            return s.measureValid;
         }
         if (!w.needsCalibration)
-            return true;
+            return s.measureValid;
         if (Calibrate(d, w, st, false))
-            return true;
-        if (!st.rules)
-            return false;
-        return !kFailedReadingInvalid;
+            return s.measureValid;
+        if (!st.rules || kFailedReadingInvalid)
+            s.measureValid = false;                 // main: AsyncMeasurer's catch
+        return s.measureValid;
     }
 
     // A sweep of nPatches (Measure.cpp's loop): the measurement start, then each
     // patch; an invalid reading shows the Abort/Retry/Ignore box ("An error
     // occurred:" + the error string) and stores nothing; the answer is `answer`
     // (0 abort, 1 retry once then abort, 2 ignore).
-    struct SweepResult { int stored, prompts, messages; };
+    struct SweepResult { int stored, prompts, messages, fakeStored; };
     static SweepResult Sweep(Doc& d, const World& w, const Structure& st, int nPatches, int answer)
     {
-        SweepResult r = { 0, 0, 0 };
+        SweepResult r = { 0, 0, 0, 0 };
         d.messages = 0;
         if (!Init(d, w, st, false))
         {
@@ -4976,7 +5007,11 @@ namespace T45Order
                     ++retries;
                     --i;                            // Retry
                 }
-                continue;                           // Ignore: nothing stored
+                // Ignore: the slot holds noDataColor (DropIgnoredReading), not the
+                // clamped reading.
+                if (!kIgnoreStoresNoData)
+                    ++r.fakeStored;
+                continue;
             }
             ++r.stored;
         }
@@ -5437,6 +5472,10 @@ namespace T45Order
             out += " settings-dropped-silently";
         if (e.loopedForever)
             out += " calibration-loop";
+        if (e.silentRevert)
+            out += " silent-revert";
+        if (e.pageStale)
+            out += " page-stale";
         // A setting the meter rejected is kept nowhere: a restart starts the meter
         // with the INI's settings (a new document) and the document's (r7#2).
         if (sc.w.failObs >= 0 && ( e.iniObserver == sc.w.failObs || e.s.observer == sc.w.failObs ))
@@ -5466,8 +5505,9 @@ namespace T45Order
         {
             Doc d;
             const SweepResult r = Sweep(d, w, kBranch, 21, rows[i].answer);
-            if (r.stored != 0)
-                Fail("T45 (i) %s: %d readings stored from a failed calibration", rows[i].what, r.stored);
+            if (r.stored != 0 || r.fakeStored != 0)
+                Fail("T45 (i) %s: %d readings and %d clamped readings stored from a failed calibration",
+                     rows[i].what, r.stored, r.fakeStored);
             if (r.prompts != rows[i].wantPrompts)
                 Fail("T45 (i) %s: %d Abort/Retry/Ignore boxes, want %d", rows[i].what, r.prompts, rows[i].wantPrompts);
             if (r.messages != rows[i].wantMessages)
@@ -5487,6 +5527,18 @@ namespace T45Order
             }
             if (posted != 0 || readings != 1)
                 Fail("T45 (i) continuous: %d readings, %d posted, want 1 and 0", readings, posted);
+        }
+        // r8#2: the first calibration fails, Retry succeeds: the reading after the
+        // recovery is stored, and so is every later patch (the flag starts each
+        // reading valid again).
+        {
+            World once = I1d3("A");
+            once.needsCalibration = true;
+            once.calFailsOnce = true;
+            Doc d;
+            const SweepResult r = Sweep(d, once, kBranch, 21, 1);
+            if (r.stored != 21 || r.prompts != 1)
+                Fail("T45 (i) fail, Retry, recover: %d stored, %d boxes, want 21 and 1", r.stored, r.prompts);
         }
         // A meter that calibrates: every patch stored, no box.
         {

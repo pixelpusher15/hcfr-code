@@ -143,6 +143,8 @@ void CArgyllSensorPropPage::OnCalibrate()
     // for a lost meter.
     if ( m_pSensor->CommitPageSettings() == CArgyllSensor::INIT_OK )
         m_pSensor->Calibrate();
+    else
+        UpdateData(FALSE);      // a rejected commit put the sensor's settings back on the page
     RefreshSpectralStatus();
 }
 

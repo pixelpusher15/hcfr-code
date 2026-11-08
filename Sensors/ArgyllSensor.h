@@ -71,6 +71,7 @@ public:
     BOOL        m_cfgSnapAdapt;
     BOOL        m_cfgSnapDisableAIO;
     bool        m_cfgSnapDebugMode;
+    std::string m_cfgSnapMeterName;         // the meter's name at BeginConfigure (the INI keys)
     // Parsed-spectral-sample cache so Init does not re-read the file per
     // sweep/measurement; invalidated whenever the correction state changes.
     SpectralSample m_spectralSampleCache;
