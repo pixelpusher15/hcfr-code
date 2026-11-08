@@ -42,7 +42,8 @@ public:
 		XLS=0,
 		CSV=1,
 		ICC=2,
-		PDF=3
+		PDF=3,
+		TI3=4
 	};
 
 private:
@@ -69,6 +70,7 @@ private:
 	bool SaveProfileSheet();
 	bool SaveSaturationSheet();
 	bool SaveLevelsSheet(bool bNearWhite);
+	bool SaveTi3();
 	int SaturationBlockRows() const;
 	int LevelsBlockRows() const;
 	bool NewSheetLayoutMatches(int existing, int blockRows) const;

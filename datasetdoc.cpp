@@ -486,6 +486,7 @@ BEGIN_MESSAGE_MAP(CDataSetDoc, CDocument)
 	ON_COMMAND(IDM_EXPORT_XLS, OnExportXls)
 	ON_COMMAND(IDM_EXPORT_CSV, OnExportCsv)
 	ON_COMMAND(IDM_EXPORT_PDF, OnExportPdf)
+	ON_COMMAND(IDM_EXPORT_TI3, OnExportTi3)
 	ON_UPDATE_COMMAND_UI(IDM_EXPORT_XLS, OnUpdateExportXls)
 	ON_COMMAND(IDM_CALIBRATION_SIM, OnCalibrationSim)
 	ON_COMMAND(IDM_CALIBRATION_MANUAL, OnCalibrationManual)
@@ -1774,6 +1775,16 @@ void CDataSetDoc::OnExportCsv()
 	if ( !ConfirmCalibrationMethodInSync() ) return;
 
 	CExport exportVar(this,CExport::CSV);
+	exportVar.Save();
+}
+
+// CGATS .ti3 of the display profile and the patch lists (CExport::SaveTi3).
+void CDataSetDoc::OnExportTi3()
+{
+	StopBackgroundMeasures ();
+	if ( !ConfirmCalibrationMethodInSync() ) return;
+
+	CExport exportVar(this,CExport::TI3);
 	exportVar.Save();
 }
 

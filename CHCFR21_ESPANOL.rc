@@ -2535,6 +2535,7 @@ BEGIN
         BEGIN
             MENUITEM "Medidas a archivo &xls",       IDM_EXPORT_XLS
             MENUITEM "Medidas a archivo &csv",       IDM_EXPORT_CSV
+            MENUITEM "Medidas a archivo &ti3",       IDM_EXPORT_TI3
             MENUITEM "Crear informe &PDF",          IDM_EXPORT_PDF
         END
         MENUITEM SEPARATOR
@@ -3385,6 +3386,7 @@ BEGIN
     IDM_REFERENCE_CONFIG    "Define las referencias"
     IDM_EXPORT_CSV          "Exporta las medidas a un archivo .csv\nExportar a .csv"
     IDM_EXPORT_XLS          "Exporta las medidas a un archivo .xls\nExportar a .xls"
+    IDM_EXPORT_TI3          "Exporta las medidas del perfil de pantalla y de las listas de parches a archivos CGATS .ti3\nExportar a .ti3"
     IDM_HELP                "Muestra la ayuda\nAyuda"
     IDM_HELP_SUPPORT        "Ayuda: soporte técnico\nSoporte"
     IDM_HELP_FORUM          "Ayuda: foro hcfr.sourceforge.net\nForo"
@@ -4113,6 +4115,9 @@ BEGIN
     IDS_USERSET_MIGRATED    "Usuario (migrado)"
     IDS_CSV_NO_ROWS         "Esta lista de parches no contiene filas de parches:\n\n%s"
     IDS_USERSET_NONE_LOADED "No hay ninguna lista de parches cargada, por lo que no hay nada que medir. Cargue una con Abrir lista de parches..."
+    IDS_TI3_FILTER          "Archivos de medidas CGATS (*.ti3)|*.ti3||"
+    IDS_TI3_NOTHING         "No hay nada que exportar a .ti3: este documento no tiene ningún perfil de pantalla medido ni ninguna lista de parches medida."
+    IDS_TI3_WRITTEN         "%d medidas escritas (%d sin medir o no válidas, omitidas) en:\n\n%s"
     IDS_MEASUREDISPLAYPROFILE "Medir el perfil de pantalla"
     IDS_DELETEDISPLAYPROFILE "Borrar el perfil de pantalla"
     IDS_SATLUMSHIFT         "Saturación - desviaciones"

@@ -51,6 +51,7 @@
 #include "MultiFrm.h"
 #include "Views\MainView.h"
 #include "libHCFR\Color.h"
+#include "libHCFR\Ti3Export.h"
 jmp_buf env;
 
 void error_handler  (HPDF_STATUS   error_no,
@@ -259,6 +260,11 @@ CExport::~CExport()
 
 bool CExport::Save()
 {
+	// The .ti3 export has its own flow: no column options, no append/replace,
+	// one file per source (SaveTi3).
+	if ( m_type == TI3 )
+		return SaveTi3();
+
 	char *ext[4]={"xls","csv","icc","pdf"};
 	char *filter[4]={"Excel files (*.xls)|*.xls||","CSV files (*.cvs)|*.csv||","ICC files (*.icc)|*.icc||","PDF files (*.pdf)|*.pdf||"};
 	CString	Msg, Title;
@@ -2625,6 +2631,277 @@ bool CExport::SaveProfileSheet()
 	if(!result)
 		m_errorStr=profSS.GetLastError();
 	return result;
+}
+
+
+//////////////////////////////////////////////////////////////////////
+// CGATS CTI3 (.ti3) export of the display profile and the patch lists.
+//
+// One file per source, each a single-table CTI3 that ArgyllCMS and DisplayCAL
+// read (the writer is libHCFR/Ti3Export, on the in-tree CGATS library). The
+// first source with readings goes to the chosen file name, every further one
+// to "<name>.<source>.ti3" beside it, as the CSV export names its sheets.
+// Sources in order: the display profile cube, then every patch list of the
+// document in list order. Unmeasured and invalid slots are skipped; SAMPLE_ID
+// is the slot index + 1, so a skipped slot leaves a gap and every row still
+// names the slot it came from.
+//
+// Device values: the stimulus percent each reading stored at measure time
+// (CColor::GetStimulusValue, 0-100 of the signal range). A reading without
+// one (a file older than stimulus capture) gets the drive the measurement code
+// computes for that slot: the profile cube's generated patch
+// (GetProfilePatchRGB), or the patch list's definition codes decoded with the
+// list's own declared bit depth and range (CsvCodeToPercent); then, as the
+// sweep does, the container remap (RemapProfileToTransport, a no-op outside
+// UHDTV3/4) under the current settings.
+//
+// White (LUMINANCE_XYZ_CDM2, and Y = 100 after normalization): the source's
+// own reading at stimulus 100/100/100, taken in the same capture so no drift
+// between sessions enters the scale; when the source has none, the document's
+// measured grayscale white; when that is not measured either, the source's
+// brightest reading.
+//////////////////////////////////////////////////////////////////////
+
+namespace
+{
+	struct Ti3Source
+	{
+		CString suffix;		// file-name part for a source after the first
+		Ti3Table table;
+		int skipped;		// slots not exported (unmeasured, invalid, or no drive)
+	};
+
+	// Fill one row from a reading; false when the reading has no stimulus and
+	// no computed drive exists for its slot.
+	bool FillTi3Reading ( Ti3Reading & rd, const CColor & c, const ColorRGBDisplay * pDrive, int slot )
+	{
+		ColorRGBDisplay rgb;
+		if ( c.HasStimulusValue () )
+			rgb = c.GetStimulusValue ();
+		else if ( pDrive != NULL )
+			rgb = *pDrive;
+		else
+			return false;
+		ColorXYZ xyz = c.GetXYZValue ();
+		rd.sampleId = slot + 1;
+		for ( int ch = 0; ch < 3; ch++ )
+		{
+			rd.rgb[ch] = rgb[ch];
+			rd.xyz[ch] = xyz[ch];
+		}
+		rd.spectrum.clear ();
+		if ( c.HasSpectrum () )
+		{
+			CSpectrum s = c.GetSpectrum ();
+			rd.spectrum.resize ( s.GetRows () );
+			for ( int b = 0; b < s.GetRows (); b++ )
+				rd.spectrum[b] = s[b];
+		}
+		return true;
+	}
+
+	// The spectral layout of the first reading, kept only when every reading
+	// of the source carries a spectrum on that same layout.
+	void SetTi3SpectralLayout ( Ti3Table & t, const std::vector<CColor> & used )
+	{
+		t.specBands = 0;
+		if ( used.empty () || !used[0].HasSpectrum () )
+			return;
+		CSpectrum s0 = used[0].GetSpectrum ();
+		for ( size_t i = 1; i < used.size (); i++ )
+		{
+			if ( !used[i].HasSpectrum () )
+				return;
+			CSpectrum s = used[i].GetSpectrum ();
+			if ( s.GetRows () != s0.GetRows () || s.m_WaveLengthMin != s0.m_WaveLengthMin || s.m_WaveLengthMax != s0.m_WaveLengthMax )
+				return;
+		}
+		t.specBands = s0.GetRows ();
+		t.specStartNm = s0.m_WaveLengthMin;
+		t.specEndNm = s0.m_WaveLengthMax;
+	}
+
+	void SetTi3White ( Ti3Table & t, CMeasure * pM )
+	{
+		int best = -1;
+		for ( size_t i = 0; i < t.readings.size (); i++ )
+		{
+			const Ti3Reading & rd = t.readings[i];
+			if ( fabs ( rd.rgb[0] - 100.0 ) < 1e-6 && fabs ( rd.rgb[1] - 100.0 ) < 1e-6 && fabs ( rd.rgb[2] - 100.0 ) < 1e-6 )
+				if ( best < 0 || rd.xyz[1] > t.readings[best].xyz[1] )
+					best = (int) i;
+		}
+		if ( best < 0 && pM->GetGrayScaleSize () > 0 )
+		{
+			CColor w = pM->GetGray ( pM->GetGrayScaleSize () - 1 );
+			if ( w.isValid () && w.GetY () > 0.0 )
+			{
+				for ( int ch = 0; ch < 3; ch++ )
+					t.whiteXYZ[ch] = w.GetXYZValue ()[ch];
+				return;
+			}
+		}
+		if ( best < 0 )
+			for ( size_t i = 0; i < t.readings.size (); i++ )
+				if ( best < 0 || t.readings[i].xyz[1] > t.readings[best].xyz[1] )
+					best = (int) i;
+		if ( best >= 0 )
+			for ( int ch = 0; ch < 3; ch++ )
+				t.whiteXYZ[ch] = t.readings[best].xyz[ch];
+	}
+
+	// Add the valid readings of one source; drive[] (may be empty) holds the
+	// computed drive per slot for readings that carry no stimulus.
+	void AddTi3Source ( std::vector<Ti3Source> & out, CMeasure * pM, const CString & suffix, const CString & descriptor,
+	                    const std::vector<CColor> & readings, const std::vector<ColorRGBDisplay> & drive, int slots, int & skippedNoSource )
+	{
+		Ti3Source src;
+		src.suffix = suffix;
+		src.table.descriptor = (LPCSTR) descriptor;
+		src.table.originator = "ColorHCFR";
+		src.skipped = 0;
+		std::vector<CColor> used;
+		for ( int i = 0; i < slots; i++ )
+		{
+			Ti3Reading rd;
+			if ( i < (int) readings.size () && readings[i].isValid ()
+			  && FillTi3Reading ( rd, readings[i], ( i < (int) drive.size () ) ? &drive[i] : NULL, i ) )
+			{
+				src.table.readings.push_back ( rd );
+				used.push_back ( readings[i] );
+			}
+			else
+				src.skipped++;
+		}
+		if ( src.table.readings.empty () )
+		{
+			skippedNoSource += src.skipped;
+			return;
+		}
+		SetTi3SpectralLayout ( src.table, used );
+		SetTi3White ( src.table, pM );
+		out.push_back ( src );
+	}
+
+	CString Ti3SafeName ( const CString & name )
+	{
+		CString s = name;
+		const char * bad = "\\/:*?\"<>|";
+		for ( int i = 0; i < s.GetLength (); i++ )
+			if ( (unsigned char) s[i] < 32 || strchr ( bad, s[i] ) != NULL )
+				s.SetAt ( i, '_' );
+		s.Trim ();
+		return s.IsEmpty () ? CString ( "set" ) : s;
+	}
+}
+
+bool CExport::SaveTi3()
+{
+	CString Msg, Title;
+	Title.LoadString ( IDS_EXPORT );
+	CMeasure * pM = m_pDoc->GetMeasure();
+
+	std::vector<Ti3Source> sources;
+	int skippedNoSource = 0;
+
+	if ( pM->HasProfileMeasures () )
+	{
+		int n = pM->GetProfileMeasureSize ();
+		std::vector<CColor> readings ( n );
+		std::vector<ColorRGBDisplay> drive ( n );
+		for ( int i = 0; i < n; i++ )
+		{
+			readings[i] = pM->GetProfileMeasure ( i );
+			drive[i] = pM->GetProfilePatchRGB ( i );
+		}
+		if ( n > 0 )
+			RemapProfileToTransport ( &drive[0], n, GetColorReference(), GetConfig()->m_GammaOffsetType,
+			                          GetConfig()->GetUse10bitLevels() != FALSE, GetConfig()->GetRGB16_235() != FALSE );
+		CString desc;
+		desc.Format ( "ColorHCFR display profile, %d^3 cube%s", pM->GetProfileCubeSize (), pM->GetProfileGrayExtras () ? " + gray ramp" : "" );
+		AddTi3Source ( sources, pM, "Profile", desc, readings, drive, n, skippedNoSource );
+	}
+
+	// The active list's readings live in the measure band until harvested.
+	pM->SyncActiveUserPatchSetFromBand ();
+	for ( int s = 0; s < pM->GetUserPatchSetCount (); s++ )
+	{
+		const CUserPatchSet * set = pM->GetUserPatchSet ( s );
+		int nRows = (int) set->rows.size ();
+		std::vector<ColorRGBDisplay> drive ( nRows );
+		for ( int i = 0; i < nRows; i++ )
+			drive[i] = ColorRGBDisplay ( CsvCodeToPercent ( set->rows[i].r, set->bits, set->range ),
+			                             CsvCodeToPercent ( set->rows[i].g, set->bits, set->range ),
+			                             CsvCodeToPercent ( set->rows[i].b, set->bits, set->range ) );
+		if ( nRows > 0 )
+			RemapProfileToTransport ( &drive[0], nRows, GetColorReference(), GetConfig()->m_GammaOffsetType,
+			                          GetConfig()->GetUse10bitLevels() != FALSE, GetConfig()->GetRGB16_235() != FALSE );
+		int slots = max ( nRows, (int) set->measures.size () );
+		CString desc;
+		desc.Format ( "ColorHCFR patch list %s", set->name.c_str () );
+		AddTi3Source ( sources, pM, set->name.c_str (), desc, set->measures, drive, slots, skippedNoSource );
+	}
+
+	if ( sources.empty () )
+	{
+		Msg.LoadString ( IDS_TI3_NOTHING );
+		GetColorApp()->InMeasureMessageBox ( Msg, Title, MB_OK | MB_ICONINFORMATION );
+		return false;
+	}
+
+	CString filter;
+	filter.LoadString ( IDS_TI3_FILTER );
+	CFileDialog fileSaveDialog ( FALSE, "ti3", NULL, OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT, filter );
+	if ( fileSaveDialog.DoModal () != IDOK )
+		return false;
+
+	CString first = fileSaveDialog.GetPathName ();
+	CString base = first;
+	if ( base.GetLength () > 4 && base.Right ( 4 ).CompareNoCase ( ".ti3" ) == 0 )
+		base = base.Left ( base.GetLength () - 4 );
+
+	std::vector<CString> usedNames;
+	CString written;
+	int total = 0, skipped = skippedNoSource;
+	for ( size_t i = 0; i < sources.size (); i++ )
+	{
+		CString path = first;
+		if ( i > 0 )
+		{
+			CString name = Ti3SafeName ( sources[i].suffix ), tryName = name;
+			for ( int k = 2; ; k++ )
+			{
+				bool clash = false;
+				for ( size_t u = 0; u < usedNames.size (); u++ )
+					if ( usedNames[u].CompareNoCase ( tryName ) == 0 )
+						clash = true;
+				if ( !clash )
+					break;
+				tryName.Format ( "%s_%d", (LPCSTR) name, k );
+			}
+			usedNames.push_back ( tryName );
+			path = base + "." + tryName + ".ti3";
+		}
+		else
+			usedNames.push_back ( Ti3SafeName ( sources[i].suffix ) );
+
+		std::string err;
+		if ( !WriteTi3File ( path, sources[i].table, err ) )
+		{
+			Msg.LoadString ( IDS_ERREXPORT );
+			GetColorApp()->InMeasureMessageBox ( Msg + "\n" + path + "\n" + err.c_str (), Title, MB_OK | MB_ICONERROR );
+			return false;
+		}
+		total += (int) sources[i].table.readings.size ();
+		skipped += sources[i].skipped;
+		written += path + "\n";
+	}
+
+	CString fmt;
+	fmt.LoadString ( IDS_TI3_WRITTEN );
+	Msg.Format ( fmt, total, skipped, (LPCSTR) written );
+	GetColorApp()->InMeasureMessageBox ( Msg, Title, MB_OK | MB_ICONINFORMATION );
+	return true;
 }
 
 

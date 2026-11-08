@@ -2412,6 +2412,7 @@ BEGIN
         BEGIN
             MENUITEM "Measures to &xls file",       IDM_EXPORT_XLS
             MENUITEM "Measures to &csv file",       IDM_EXPORT_CSV
+            MENUITEM "Measures to &ti3 file",        IDM_EXPORT_TI3
             MENUITEM "Create &PDF Report",          IDM_EXPORT_PDF
         END
         MENUITEM SEPARATOR
@@ -3267,6 +3268,7 @@ BEGIN
     IDM_REFERENCE_CONFIG    "Define references"
     IDM_EXPORT_CSV          "Export measures to .csv file\nExport to .csv"
     IDM_EXPORT_XLS          "Export measures to .xls file\nExport to .xls"
+    IDM_EXPORT_TI3          "Export the display profile and patch list measures to CGATS .ti3 files\nExport to .ti3"
     IDM_HELP                "Display help\nHelp"
     IDM_HELP_SUPPORT        "Help: technical support\nSupport"
     IDM_HELP_FORUM          "Help: hcfr.sourceforge.net forum\nForum"
@@ -3995,6 +3997,9 @@ BEGIN
     IDS_USERSET_MIGRATED    "User (migrated)"
     IDS_CSV_NO_ROWS         "This patch list has no patch rows:\n\n%s"
     IDS_USERSET_NONE_LOADED "No patch list is loaded, so there is nothing to measure. Use Open patch list... to load one."
+    IDS_TI3_FILTER          "CGATS measurement files (*.ti3)|*.ti3||"
+    IDS_TI3_NOTHING         "There is nothing to export to .ti3: this document has no measured display profile and no measured patch list."
+    IDS_TI3_WRITTEN         "%d measures written (%d not measured or invalid, skipped) to:\n\n%s"
     IDS_MEASUREDISPLAYPROFILE "Measure display profile (cube capture)"
     IDS_DELETEDISPLAYPROFILE "Delete display profile"
     IDS_SATLUMSHIFT         "Saturation - shifts"
