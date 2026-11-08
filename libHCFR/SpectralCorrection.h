@@ -203,23 +203,39 @@ bool SpectralRecordFromPathFile(const SpectralCorrectionRecord& rec, bool pathHa
 //   no record       -> true (nothing is claimed);
 //   basis NATIVE    -> true: HCFR applies the record's matrices itself
 //                      (EffectiveSensorMatrix), on any meter;
-//   any other basis -> the record says the driver applies the sample. Only a driver
-//                      whose matrices are not exposed holds one, and only from a
-//                      stored path (Init's re-apply): true only for
-//                      !matricesExposed && hasPath.
+//   any other basis -> the record says the driver applies the correction. A meter
+//                      whose matrices are exposed (the i1d3) never does: HCFR derives
+//                      every correction there and the driver measures native. A
+//                      meter whose matrices are not exposed applies one from two
+//                      sources, and a record is applied only by its own:
+//     FILE record:         the stored path's sample, which Init's re-apply loads -
+//                          only into a driver that takes samples (holdsSamples:
+//                          inst2_ccss, doesMeterSupportSpectralSamples; not a DTP94,
+//                          a Spyder3 or a spectro): holdsSamples && hasPath;
+//     Display Type record: the corrected entry selected in the meter's own Display
+//                          Type list, which Init selects (setDisplayType) and the
+//                          driver applies itself (a ccss or ccmx entry; Sync runs
+//                          only for an exposed meter, so no record follows it).
+//                          driverEntry is that entry's text ("" when the selection
+//                          is plain); applied when it is the record's entry and no
+//                          path sample replaces it: driverEntry == description &&
+//                          !hasPath. An i1d3 document's record meeting another
+//                          entry at its index is not applied by it.
 // The test is structural. A stored path whose file cannot be loaded this time is
 // reported by the re-apply warning and tried again at the next Init; its record
 // stays. CArgyllSensor::EnforceRecordApplied is the one place that acts on a false
 // answer (it removes the record and says so), at the end of every Init's correction
 // step: every record transition a meter makes happens inside that step, and a record
 // that arrives by a load reaches it before the first reading. T45 pins the table.
-bool SpectralRecordApplied(const SpectralCorrectionRecord& rec, bool matricesExposed, bool hasPath);
+bool SpectralRecordApplied(const SpectralCorrectionRecord& rec, bool matricesExposed, bool holdsSamples,
+                           bool hasPath, const std::string& driverEntry);
 
 // Whether the sensor page's Clear may remove the spectral correction: whenever
-// there is a record or a stored path, except a Display Type record on a meter
-// whose list resyncs it (displayTypeListResyncs: the i1d3) with the record's own
-// entry selected (recordEntrySelected). There choosing another Display Type is what
-// removes it, and a Clear would be undone by the next Init, which derives the
+// there is a record or a stored path, except a Display Type record whose own entry
+// is selected (recordEntrySelected) on a meter whose Display Type list governs it
+// (displayTypeListResyncs: any connected meter - the i1d3 derives the record from
+// the entry, and a meter whose matrices are not exposed applies the entry itself,
+// SpectralRecordApplied). There choosing another Display Type is what removes it, and a Clear would be undone by the next Init, which derives the
 // selected entry again - after the Clear's walk had taken the correction off the
 // readings, so the readings and the sensor would no longer agree (a stored path
 // does not change that: the selected entry takes precedence over it). Every other

@@ -76,6 +76,7 @@ public:
     SpectralSample m_spectralSampleCache;
     bool        m_spectralCacheValid;
     CString     m_spectralCachePath;
+    unsigned long long m_spectralCacheHash;     // Fnv1a64 of the bytes the cache was parsed from
 private:
     ArgyllMeterWrapper* m_meter;
     SpectralSampleFiles *m_spectralSamples;
@@ -98,6 +99,24 @@ private:
     bool        m_pathCheckedValid;
     CString     m_pathCheckedPath;
     unsigned long long m_pathCheckedHash;
+    // DropPathNotRecordFile dropped this path in the current correction step; the
+    // user is told once, at EnforceRecordApplied, with what became of the record.
+    bool        m_pathDropPending;
+    CString     m_pathDroppedPath;
+    // The sheet's measurement-start state is established (BeginConfigure, or
+    // EnsureMeasurementStartState); true outside a sheet.
+    bool        m_startStateDone;
+    // The settings this sensor last started the driver with (RememberDriverStart),
+    // for DriverStartedForThisSensor.
+    bool        m_startedValid;
+    UINT        m_startedReadingType;
+    CString     m_startedSpectralType;
+    UINT        m_startedIntTime;
+    BOOL        m_startedHiRes;
+    BOOL        m_startedAdapt;
+    BOOL        m_startedDisableAIO;
+    UINT        m_startedDisplayType;
+    bool        m_startedDebugMode;
 
 public:
     CArgyllSensor();
@@ -140,6 +159,10 @@ public:
     virtual void CancelConfigure();
     // FALSE, showing nothing, when there is no meter (a failed Init).
     virtual BOOL Configure();
+    // The measurement-start Init a sheet opened on an unstarted driver still owes,
+    // run before the first change in the sheet (see the .cpp). The page calls it
+    // before Calibrate, Browse and Clear; GetPropertiesSheetValues before a commit.
+    void EnsureMeasurementStartState();
     bool MeterSupportsSpectralSamples();
     // Whether the sensor page's Clear may remove the spectral correction
     // (SpectralClearAllowed): a Display Type record only where choosing another
@@ -168,6 +191,17 @@ private:
     // A .ccss through SpectralSample::Read or a correlation .csv through
     // createFromCorrelationCSV, by extension. False with the reason in `why`.
     static bool ReadSpectralFile(const CString& path, SpectralSample& ss, std::string& why);
+    // One read of `path`, hashed and parsed from the same bytes (the path rule's input).
+    static bool ReadPathFile(const CString& path, SpectralSample& ss, bool& hashed,
+                             unsigned long long& hash, std::string& why);
+    // Init's correction step (see the .cpp); Init and BeginConfigure run it.
+    void ApplyCorrectionStep();
+    // The re-apply of the stored path's sample to a driver that holds it.
+    void ReapplyPathSample();
+    // Whose settings the driver holds (see the .cpp).
+    bool DriverStartedForThisSensor() const;
+    void RememberDriverStart();
+    void ForgetDriverStart();
     // The FILE-source fields of a record: source, description (the sample's display,
     // else its description, else m_spectralCorrectionDesc), file hash, observer and
     // meter serial. The caller sets the matrices and the basis. knownHash: the hash of
@@ -183,7 +217,9 @@ private:
     void DropPathNotRecordFile();
     // The invariant (SpectralRecordApplied), enforced once at the end of Init's
     // correction step: a record nothing applies on this meter is removed.
-    void EnforceRecordApplied();
+    // driverAppliedRecord: the record at the start of the step was one the driver
+    // applied (basis not NATIVE), so the readings went through it.
+    void EnforceRecordApplied(bool driverAppliedRecord);
     // PlainDisplayTypeEntry over the meter's current list, m_DisplayType preferred.
     int FindPlainDisplayType();
     // The Display Type entry's text ("" when the meter cannot say).

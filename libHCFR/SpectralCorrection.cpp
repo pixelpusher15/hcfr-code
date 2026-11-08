@@ -217,11 +217,16 @@ bool SpectralRecordFromPathFile(const SpectralCorrectionRecord& rec, bool pathHa
 	return rec.fileHash == pathHash;
 }
 
-bool SpectralRecordApplied(const SpectralCorrectionRecord& rec, bool matricesExposed, bool hasPath)
+bool SpectralRecordApplied(const SpectralCorrectionRecord& rec, bool matricesExposed, bool holdsSamples,
+                           bool hasPath, const std::string& driverEntry)
 {
 	if ( !rec.IsPresent() || rec.basis == FIT_BASIS_NATIVE )
 		return true;
-	return !matricesExposed && hasPath;
+	if ( matricesExposed )
+		return false;
+	if ( rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE )
+		return !hasPath && !driverEntry.empty() && driverEntry == rec.description;
+	return holdsSamples && hasPath;
 }
 
 bool SpectralClearAllowed(const SpectralCorrectionRecord& rec, bool hasPath, bool displayTypeListResyncs,

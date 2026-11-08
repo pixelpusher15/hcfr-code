@@ -4157,27 +4157,32 @@ static void RunT43()
 // assertion, no golden file).
 //
 // The property: what a session ends with - the readings, the record, the path, the
-// raw-less state - must not depend on whether the first Init of the session is a
-// measurement's or the sensor sheet's. The CSensor/CArgyllSensor glue needs MFC and
-// a meter, so the harness below is a model of it that calls the libHCFR rules the
-// app calls (EffectiveSensorMatrix, ReadingsCarryUnrecordedDriverCorrection,
-// EffectiveChangedWithoutWalk, SpectralRecordFromPathFile, SpectralRecordApplied,
-// SpectralClearAllowed, RawlessReadingsState) in the app's order:
-//   Init        - CArgyllSensor::Init's correction step: the conversion for a meter
-//                 whose matrices are not exposed, the path rule, the re-apply,
-//                 SyncSpectralRecordFromMeter's branches, EnforceRecordApplied, and
-//                 the booking of the change outside the sheet.
-//   Sheet       - CDataSetDoc::OnConfigureSensor: BeginConfigure (which runs the
-//                 measurement-start Init first), the walk baseline, the page's steps
-//                 (Display Type, Spectral Type, Calibrate, Clear), OK or Cancel, and
-//                 the walk of the stored readings.
-// Every scenario of the two #256 reviews runs measurement-first and sheet-first,
-// with OK and Cancel (and the page's Clear where the page allows it), and the two
-// orders must end identical. Each scenario also runs in main's order (no Init at
-// BeginConfigure, nothing booked at a measurement), where the reviews say it
-// differs: the harness asserts that it does, so it is shown to detect the defect.
-// (a) is that table; (b)-(h) pin the rules as tables.
-// Readings are column vectors (EffectiveSensorMatrix: the correction acts first).
+// raw-less state, what the driver applies - must not depend on whether the first
+// Init of the session is a measurement's or the sensor sheet's. The
+// CSensor/CArgyllSensor glue needs MFC and a meter, so the harness below is a model
+// of it that calls the libHCFR rules the app calls (EffectiveSensorMatrix,
+// ReadingsCarryUnrecordedDriverCorrection, EffectiveChangedWithoutWalk,
+// SpectralRecordFromPathFile, SpectralRecordApplied, SpectralClearAllowed,
+// PlainDisplayTypeEntry, RawlessReadingsState) in the app's order:
+//   Init         - CArgyllSensor::Init: the start (connectAndStartMeter, counted as
+//                  device I/O), then ApplyCorrectionStep: the Display Type lookup by
+//                  text, the entry the driver is put on, the conversion for a meter
+//                  whose matrices are not exposed, the path rule, the re-apply,
+//                  SyncSpectralRecordFromMeter's branches (R5 included),
+//                  EnforceRecordApplied, the booking outside the sheet.
+//   Sheet        - CDataSetDoc::OnConfigureSensor: BeginConfigure (the step on a
+//                  driver already started for this sensor, with no device I/O;
+//                  otherwise owed to EnsureMeasurementStartState), the walk
+//                  baseline, the page's steps (Display Type, Spectral Type,
+//                  Calibrate, Clear - enabled as the page last refreshed it), OK or
+//                  Cancel, and the walk of the stored readings.
+// Every scenario of the #256 reviews runs in three orders - measurement first,
+// sheet first, and a Calibrate-then-Cancel sheet first - with OK, Cancel and Clear,
+// and the orders must end identical. Each scenario also runs in main's order (no
+// step at BeginConfigure, nothing booked at a measurement, none of the rules), where
+// the reviews say it differs or breaks an invariant: the harness asserts that it
+// does, so it is shown to detect the defect. (a) is that table; (b)-(h) pin the
+// rules as tables. Readings are column vectors (the correction acts first).
 //////////////////////////////////////////////////////////////////////////
 namespace T45Order
 {
@@ -4211,26 +4216,41 @@ namespace T45Order
     static Matrix Fcmm()   { return T32Spectral::M3(0.98, 0.03, -0.01,  0.02, 1.01, 0.005,  -0.004, 0.012, 1.05); }
     static Matrix Native() { return Vec(41.2, 43.7, 47.9); }
 
-    struct Entry { std::string text; bool corrected; };
-    struct DiskFile { std::string path; std::string content; };     // content "" = not on disk
+    // hasBase: the driver finds the entry's base (deriveDisplayTypeCalibration
+    // gets past its list checks).
+    struct Entry { std::string text; bool corrected; bool hasBase; };
+    // content "" = not on disk; parses false = read and hashed, but not a sample.
+    struct DiskFile { std::string path; std::string content; bool parses; };
 
     // The meter and the disk.
     struct World
     {
         bool exposed;                   // canExposeCalibrationMatrices (the i1d3)
+        bool holdsSamples;              // doesMeterSupportSpectralSamples (inst2_ccss)
         std::string serial;
         std::vector<Entry> list;
         std::vector<DiskFile> disk;
-        World() : exposed(true), serial("A") {}
-        bool Read(const std::string& path, std::string& content) const
+        World() : exposed(true), holdsSamples(true), serial("A") {}
+        const DiskFile* File(const std::string& path) const
         {
             for (size_t i = 0; i < disk.size(); ++i)
                 if (disk[i].path == path && !disk[i].content.empty())
-                {
-                    content = disk[i].content;
-                    return true;
-                }
-            return false;
+                    return &disk[i];
+            return NULL;
+        }
+        int Find(const std::string& text) const
+        {
+            for (size_t i = 0; i < list.size(); ++i)
+                if (list[i].text == text)
+                    return (int)i;
+            return -1;
+        }
+        int Plain(int stored) const
+        {
+            std::vector<bool> corrected;
+            for (size_t i = 0; i < list.size(); ++i)
+                corrected.push_back(list[i].corrected);
+            return PlainDisplayTypeEntry(stored, corrected);
         }
     };
 
@@ -4250,34 +4270,48 @@ namespace T45Order
         RawlessReadingsState rawless;
         int displayType, observer;          // members (committed settings)
         int driverObserver;                 // what the driver was last started with
-        std::string driverSample;           // content of the sample the driver holds ("" none)
+        int driverEntry;                    // the list entry the driver is on (-1 none)
+        int dtBaseFor;                      // m_dtBaseFor: the entry the last derive succeeded for
+        std::string driverSample;           // what the driver applies itself ("" none)
         bool cacheValid; std::string cachePath, cacheContent;
         bool pathCheckedValid; std::string pathCheckedPath; unsigned long long pathCheckedHash;
+        bool pathDropPending;
+        bool entryMissing;                  // m_displayTypeRecordEntryMissing
+        bool startedValid; int startedDT, startedObs;   // RememberDriverStart
+        bool startStateDone;
         bool inSheet;
+        bool uiClear;                       // the Clear button as the page last refreshed it
+        int deviceStarts;                   // connectAndStartMeter calls
         Sensor() : method(CALIB_HCFR_DEFAULT), fitBasis(FIT_BASIS_NATIVE), matrix(I3()), displayType(0),
-                   observer(3), driverObserver(3), cacheValid(false), pathCheckedValid(false),
-                   pathCheckedHash(0), inSheet(false) {}
+                   observer(3), driverObserver(3), driverEntry(-1), dtBaseFor(-1), cacheValid(false), pathCheckedValid(false),
+                   pathCheckedHash(0), pathDropPending(false), entryMissing(false), startedValid(false),
+                   startedDT(-1), startedObs(-1), startStateDone(true), inSheet(false), uiClear(false),
+                   deviceStarts(0) {}
         Matrix Effective() const { return EffectiveSensorMatrix(method, fitBasis, rec, matrix); }
         bool UsesSpectral() const { return method == CALIB_SPECTRAL_SAMPLE; }
+        bool Started() const { return startedValid && startedDT == displayType && startedObs == observer; }
     };
 
     // One raw-less reading (no raw value: 4.2.2 and earlier, or edited) and,
-    // optionally, one raw-carrying reading.
+    // optionally, one raw-carrying reading. unrecorded: the correction the readings
+    // carry that no record describes (what the 4.2.2 driver applied).
     struct Doc
     {
         Sensor s;
         Matrix rawless;
         bool hasRaw;
         Matrix raw, rawValue;
-        std::vector<int> clearAllowed;      // the page's Clear, each time it was asked
-        Doc() : rawless(Native()), hasRaw(false), raw(Native()), rawValue(Native()) {}
+        Matrix unrecorded;
+        std::vector<int> clearAllowed;      // what the page's Clear did, each time it was pressed
+        bool beginConfigureStarted;         // a BeginConfigure started the driver
+        Doc() : rawless(Native()), hasRaw(false), raw(Native()), rawValue(Native()), unrecorded(I3()),
+                beginConfigureStarted(false) {}
     };
 
-    // The order a session runs in. Branch: the measurement-start Init runs at
-    // BeginConfigure, and a change Init makes outside the sheet is booked. Main:
-    // neither (CDataSetDoc::OnConfigureSensor and CArgyllSensor::Init on origin/main).
-    // Rules: the path rule (SpectralRecordFromPathFile) and EnforceRecordApplied,
-    // neither of which main has.
+    // The order a session runs in. Branch: the step at BeginConfigure on a started
+    // driver (else owed to the first change in the sheet), the booking outside the
+    // sheet, the rules (the path rule, SpectralRecordApplied, R5, the Clear rule, the
+    // refresh after Calibrate). Main: none (origin/main before #256).
     struct Structure { bool presync, books, rules; const char* name; };
     static const Structure kBranch = { true,  true,  true,  "branch" };
     static const Structure kMain   = { false, false, false, "main" };
@@ -4295,9 +4329,11 @@ namespace T45Order
     }
 
     // CArgyllSensor::ClearSpectralCorrection
-    static void ClearArgyll(Sensor& s)
+    static void ClearArgyll(Sensor& s, const World& w)
     {
-        s.driverSample.clear();
+        if (!w.exposed)
+            s.driverSample = ( s.driverEntry >= 0 && w.list[s.driverEntry].corrected )
+                           ? "entry:" + w.list[s.driverEntry].text : "";
         s.path.clear();
         s.cacheValid = false;
         ClearRecord(s);
@@ -4309,8 +4345,10 @@ namespace T45Order
         s.path.clear();
         s.cacheValid = false;
         s.pathCheckedValid = false;
+        s.pathDropPending = true;
         if (!w.exposed)
-            s.driverSample.clear();
+            s.driverSample = ( s.driverEntry >= 0 && w.list[s.driverEntry].corrected )
+                           ? "entry:" + w.list[s.driverEntry].text : "";
     }
 
     // KeepPathIfRecordFile
@@ -4345,15 +4383,30 @@ namespace T45Order
     // SyncSpectralRecordFromMeter (the R3 question answered OK).
     static void Sync(Sensor& s, const World& w, const Structure& st, bool dtChanged)
     {
-        if (!w.exposed)
+        if (!w.exposed || s.entryMissing)
             return;
         const int obs = s.driverObserver;
         const Entry& e = w.list[s.displayType];
         if (e.corrected)
         {
             if (s.rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE && s.rec.description == e.text
-             && s.rec.meterSerial == w.serial && s.rec.observer == obs)
-                return;                                         // DisplayTypeRecordIsCurrent
+             && s.rec.meterSerial == w.serial && s.rec.observer == obs && s.dtBaseFor == s.displayType)
+            {
+                s.driverEntry = w.Plain(-1);                // DisplayTypeRecordIsCurrent: the base
+                return;
+            }
+            if (!e.hasBase)
+            {
+                // The derive stops before its list checks. R5 (rules): the driver is
+                // put on a plain entry; main left it on the corrected entry.
+                if (st.rules)
+                    s.driverEntry = w.Plain(s.displayType);
+                if (s.rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE && s.rec.description != e.text)
+                    ClearRecord(s);
+                return;
+            }
+            s.driverEntry = w.Plain(-1);                    // the derive leaves the base selected
+            s.dtBaseFor = s.displayType;
             SpectralCorrectionRecord r;
             r.source = SPECTRAL_SOURCE_DISPLAY_TYPE;
             r.description = e.text;
@@ -4389,15 +4442,14 @@ namespace T45Order
         const bool fileRecord = ( s.rec.source == SPECTRAL_SOURCE_FILE );
         if (fileRecord && s.rec.meterSerial == w.serial && s.rec.observer == obs)
             return;
-        std::string content;
-        const bool hashed = w.Read(s.path, content);
-        const unsigned long long hash = hashed ? HashOf(content) : 0;
-        if (!KeepPath(s, w, st, hashed, hash))
+        const DiskFile* f = w.File(s.path);
+        const bool hashed = ( f != NULL );
+        if (!KeepPath(s, w, st, hashed, hashed ? HashOf(f->content) : 0))
             return;
-        if (!hashed)
+        if (!hashed || !f->parses)
             return;
-        SpectralCorrectionRecord r = FileRecord(s, w, content);
-        r.correction = CorrFor("file:" + content, w.serial, obs);
+        SpectralCorrectionRecord r = FileRecord(s, w, f->content);
+        r.correction = CorrFor("file:" + f->content, w.serial, obs);
         r.basis = FIT_BASIS_NATIVE;
         const bool noFit = ( s.method == CALIB_HCFR_DEFAULT && s.matrix.IsIdentity() );
         s.rec = r;
@@ -4409,13 +4461,90 @@ namespace T45Order
         }
     }
 
-    // CArgyllSensor::Init, from connectAndStartMeter to the end of the correction step.
-    static void Init(Doc& d, const World& w, const Structure& st, bool dtChanged)
+    // ReapplyPathSample (also CancelConfigure's way back to the snapshot's path)
+    static void Reapply(Sensor& s, const World& w, const Structure& st)
+    {
+        if (!w.holdsSamples)
+            return;                                         // the re-apply warning; nothing loaded
+        bool ok = s.cacheValid && s.cachePath == s.path;
+        bool dropped = false;
+        if (!ok)
+        {
+            const DiskFile* f = w.File(s.path);
+            const bool hashed = ( f != NULL );
+            if (!KeepPath(s, w, st, hashed, hashed ? HashOf(f->content) : 0))
+                dropped = true;
+            else if (hashed && f->parses)
+            {
+                s.cacheContent = f->content;
+                s.cachePath = s.path;
+                s.cacheValid = true;
+                ok = true;
+            }
+        }
+        if (ok)
+            s.driverSample = s.cacheContent;
+        if (!dropped && ok && s.rec.source != SPECTRAL_SOURCE_FILE)
+        {
+            SpectralCorrectionRecord r = FileRecord(s, w, s.cacheContent);
+            r.basis = FIT_BASIS_DRIVER_CORRECTED;
+            s.rec = r;
+            if (s.method == CALIB_HCFR_DEFAULT && s.matrix.IsIdentity())
+            {
+                s.method = CALIB_SPECTRAL_SAMPLE;
+                s.fitBasis = r.basis;
+            }
+        }
+    }
+
+    // EnforceRecordApplied
+    static void Enforce(Sensor& s, const World& w, const Structure& st, bool driverAppliedRecord)
+    {
+        s.pathDropPending = false;
+        if (!st.rules)
+            return;
+        std::string entry;
+        if (!w.exposed && s.displayType >= 0 && w.list[s.displayType].corrected)
+            entry = w.list[s.displayType].text;
+        if (SpectralRecordApplied(s.rec, w.exposed, w.holdsSamples, !s.path.empty(), entry))
+            return;
+        const bool wasMethod = s.UsesSpectral();
+        ClearRecord(s);
+        if (driverAppliedRecord && wasMethod)
+            s.fitBasis = FIT_BASIS_DRIVER_CORRECTED;
+    }
+
+    // CArgyllSensor::ApplyCorrectionStep
+    static void Step(Doc& d, const World& w, const Structure& st, bool dtChanged)
     {
         Sensor& s = d.s;
-        s.driverObserver = s.observer;
         const Matrix before = s.Effective();
         const bool through = ReadingsCarryUnrecordedDriverCorrection(s.rec, s.fitBasis);
+        const bool driverAppliedRecord = s.rec.IsPresent() && s.rec.basis != FIT_BASIS_NATIVE;
+        // The Display Type record anchored to its entry's text (exposed meter).
+        s.entryMissing = false;
+        int plain = -1;
+        if (w.exposed && s.rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE && !dtChanged
+         && w.list[s.displayType].text != s.rec.description)
+        {
+            const int ix = w.Find(s.rec.description);
+            if (ix >= 0)
+            {
+                s.displayType = ix;
+                s.dtBaseFor = -1;
+            }
+            else
+            {
+                s.entryMissing = true;
+                plain = w.Plain(s.displayType);
+                if (plain >= 0)
+                    s.displayType = plain;
+            }
+        }
+        // The entry the driver is put on (setDisplayType).
+        s.driverEntry = s.entryMissing ? plain : s.displayType;
+        if (!w.exposed)
+            s.driverSample = w.list[s.displayType].corrected ? "entry:" + w.list[s.displayType].text : "";
         // The conversion for a meter whose matrices are not exposed.
         if (!w.exposed && s.rec.IsPresent() && s.rec.basis == FIT_BASIS_NATIVE)
         {
@@ -4431,66 +4560,41 @@ namespace T45Order
         if (st.rules && !s.path.empty() && s.rec.source == SPECTRAL_SOURCE_FILE && s.rec.fileHash != 0
          && !( s.pathCheckedValid && s.pathCheckedPath == s.path && s.pathCheckedHash == s.rec.fileHash ))
         {
-            std::string content;
-            const bool hashed = w.Read(s.path, content);
-            KeepPath(s, w, st, hashed, hashed ? HashOf(content) : 0);
+            const DiskFile* f = w.File(s.path);
+            KeepPath(s, w, st, f != NULL, f ? HashOf(f->content) : 0);
         }
-        // The re-apply.
         if (!s.path.empty() && !w.exposed)
-        {
-            bool ok = s.cacheValid && s.cachePath == s.path;
-            bool dropped = false;
-            if (!ok)
-            {
-                std::string content;
-                const bool hashed = w.Read(s.path, content);
-                if (!KeepPath(s, w, st, hashed, hashed ? HashOf(content) : 0))
-                    dropped = true;
-                else if (hashed)
-                {
-                    s.cacheContent = content;
-                    s.cachePath = s.path;
-                    s.cacheValid = true;
-                    ok = true;
-                }
-            }
-            if (ok)
-                s.driverSample = s.cacheContent;
-            if (!dropped && ok && s.rec.source != SPECTRAL_SOURCE_FILE)
-            {
-                SpectralCorrectionRecord r = FileRecord(s, w, s.cacheContent);
-                r.basis = FIT_BASIS_DRIVER_CORRECTED;
-                s.rec = r;
-                if (s.method == CALIB_HCFR_DEFAULT && s.matrix.IsIdentity())
-                {
-                    s.method = CALIB_SPECTRAL_SAMPLE;
-                    s.fitBasis = r.basis;
-                }
-            }
-        }
+            Reapply(s, w, st);
         Sync(s, w, st, dtChanged);
-        // EnforceRecordApplied
-        if (st.rules && !SpectralRecordApplied(s.rec, w.exposed, !s.path.empty()))
-            ClearRecord(s);
+        Enforce(s, w, st, driverAppliedRecord);
         if (st.books && !s.inSheet)
             EffectiveChangedWithoutWalk(s.rawless, before, s.Effective(), through);
     }
 
+    // CArgyllSensor::Init: the start, then the step.
+    static void Init(Doc& d, const World& w, const Structure& st, bool dtChanged)
+    {
+        Sensor& s = d.s;
+        ++s.deviceStarts;
+        s.driverObserver = s.observer;
+        Step(d, w, st, dtChanged);
+        s.startedValid = true;
+        s.startedDT = s.displayType;
+        s.startedObs = s.observer;
+    }
+
     // The CSensor + CArgyllSensor snapshot, and CancelConfigure.
     struct Snap { Sensor s; };
-    static void Cancel(Sensor& s, const World& w, const Snap& snap)
+    static void Cancel(Sensor& s, const World& w, const Structure& st, const Snap& snap)
     {
+        bool restoreSample = false;
         if (s.path != snap.s.path)
         {
             if (snap.s.path.empty())
                 s.driverSample.clear();
-            else if (!w.exposed)
-            {
-                std::string content;
-                if (w.Read(snap.s.path, content))
-                    s.driverSample = content;
-            }
             s.path = snap.s.path;
+            s.cacheValid = false;
+            restoreSample = !s.path.empty() && !w.exposed;
         }
         s.displayType = snap.s.displayType;
         s.observer = snap.s.observer;
@@ -4498,6 +4602,19 @@ namespace T45Order
         s.matrix = snap.s.matrix;
         s.rec = snap.s.rec;
         s.fitBasis = snap.s.fitBasis;
+        if (restoreSample)
+        {
+            const bool driverAppliedRecord = s.rec.IsPresent() && s.rec.basis != FIT_BASIS_NATIVE;
+            if (st.rules)
+                Reapply(s, w, st);
+            else
+            {
+                const DiskFile* f = w.File(s.path);
+                if (f && f->parses)
+                    s.driverSample = f->content;
+            }
+            Enforce(s, w, st, driverAppliedRecord);
+        }
     }
 
     static bool CorrectionChanged(const Sensor& s, const Snap& snap)
@@ -4507,12 +4624,49 @@ namespace T45Order
     }
 
     enum StepKind { SET_DT, SET_OBS, CALIBRATE, CLEAR };
-    struct Step { StepKind kind; int value; };
+    struct Step_ { StepKind kind; int value; };
     enum Outcome { OK, CANCEL };
 
-    // GetPropertiesSheetValues: a changed setting is committed and re-inits.
-    static void Commit(Doc& d, const World& w, const Structure& st, int pageDT, int pageObs)
+    // SpectralClearAllowedOnPage; main: a FILE record or a stored path.
+    static bool ClearAllowed(const Sensor& s, const World& w, const Structure& st)
     {
+        if (!st.rules)
+            return s.rec.source == SPECTRAL_SOURCE_FILE || !s.path.empty();
+        const bool entrySelected = s.rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE
+                                && w.list[s.displayType].corrected && w.list[s.displayType].text == s.rec.description;
+        return SpectralClearAllowed(s.rec, !s.path.empty(), true, entrySelected);
+    }
+
+    // RefreshSpectralStatus
+    static void Refresh(Sensor& s, const World& w, const Structure& st)
+    {
+        s.uiClear = ClearAllowed(s, w, st);
+    }
+
+    // EnsureMeasurementStartState: the step a sheet opened on an unstarted driver owes.
+    // A page Display Type the user left as the sheet showed it follows what that
+    // Init did to the member (the lookup by text); one the user chose stays.
+    static void Ensure(Doc& d, const World& w, const Structure& st, Snap& snap, Matrix& mod, int& pageDT)
+    {
+        Sensor& s = d.s;
+        if (!st.presync || s.startStateDone)
+            return;
+        s.startStateDone = true;
+        s.inSheet = false;
+        Init(d, w, st, false);
+        s.inSheet = true;
+        if (pageDT == snap.s.displayType)
+            pageDT = s.displayType;
+        snap.s = s;
+        mod = s.Effective();
+    }
+
+    // GetPropertiesSheetValues: a changed setting is committed and re-inits.
+    static void Commit(Doc& d, const World& w, const Structure& st, Snap& snap, Matrix& mod, int pageDT, int pageObs)
+    {
+        if (pageDT == d.s.displayType && pageObs == d.s.observer)
+            return;
+        Ensure(d, w, st, snap, mod, pageDT);
         if (pageDT == d.s.displayType && pageObs == d.s.observer)
             return;
         const bool dtChanged = ( pageDT != d.s.displayType );
@@ -4521,26 +4675,28 @@ namespace T45Order
         Init(d, w, st, dtChanged);
     }
 
-    // SpectralClearAllowedOnPage; main: a FILE record or a stored path.
-    static bool ClearAllowed(const Sensor& s, const World& w, const Structure& st)
-    {
-        if (!st.rules)
-            return s.rec.source == SPECTRAL_SOURCE_FILE || !s.path.empty();
-        const bool entrySelected = w.exposed && s.rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE
-                                && w.list[s.displayType].corrected && w.list[s.displayType].text == s.rec.description;
-        return SpectralClearAllowed(s.rec, !s.path.empty(), w.exposed, entrySelected);
-    }
-
     // CDataSetDoc::OnConfigureSensor
-    static void Sheet(Doc& d, const World& w, const Structure& st, const std::vector<Step>& steps, Outcome out)
+    static void Sheet(Doc& d, const World& w, const Structure& st, const std::vector<Step_>& steps, Outcome out)
     {
         Sensor& s = d.s;
-        s.cacheValid = false;
+        // CArgyllSensor::BeginConfigure
+        const int startsBefore = s.deviceStarts;
+        s.startStateDone = true;
         if (st.presync)
-            Init(d, w, st, false);                  // CArgyllSensor::BeginConfigure
+        {
+            s.startStateDone = false;
+            if (s.Started())
+            {
+                Step(d, w, st, false);
+                s.startStateDone = true;
+            }
+        }
+        if (s.deviceStarts != startsBefore)
+            d.beginConfigureStarted = true;
         Snap snap; snap.s = s;
-        const Matrix mod = s.Effective();           // SetSensorMatrixMod
+        Matrix mod = s.Effective();                 // SetSensorMatrixMod
         s.inSheet = true;
+        Refresh(s, w, st);                          // the page's OnInitDialog
         int pageDT = s.displayType, pageObs = s.observer;
         for (size_t i = 0; i < steps.size(); ++i)
         {
@@ -4548,28 +4704,40 @@ namespace T45Order
             {
             case SET_DT:  pageDT = steps[i].value; break;
             case SET_OBS: pageObs = steps[i].value; break;
-            case CALIBRATE:                         // OnCalibrate: commit, then Calibrate's Init
-                Commit(d, w, st, pageDT, pageObs);
-                Init(d, w, st, false);
+            case CALIBRATE:                         // OnCalibrate
+                Ensure(d, w, st, snap, mod, pageDT);
+                Commit(d, w, st, snap, mod, pageDT, pageObs);
+                Init(d, w, st, false);              // Calibrate's own Init
+                if (st.rules)
+                    Refresh(s, w, st);              // main did not refresh here
                 break;
-            case CLEAR:                             // OnSpectralClear, when the page allows it
+            case CLEAR:                             // OnSpectralClear, when the button is enabled
             {
-                const bool allowed = ClearAllowed(s, w, st);
-                d.clearAllowed.push_back(allowed ? 1 : 0);
-                if (allowed)
+                bool acted = false;
+                if (s.uiClear)
                 {
-                    Cancel(s, w, snap);
-                    ClearArgyll(s);
+                    // The owed step first; the button showed the state before it, so
+                    // the rule is asked again on the state after it.
+                    Ensure(d, w, st, snap, mod, pageDT);
+                    if (!st.rules || ClearAllowed(s, w, st))
+                    {
+                        Cancel(s, w, st, snap);
+                        ClearArgyll(s, w);
+                        acted = true;
+                    }
+                    Refresh(s, w, st);
                 }
+                d.clearAllowed.push_back(acted ? 1 : 0);
                 break;
             }
             }
         }
         if (out == CANCEL)
-            Cancel(s, w, snap);
+            Cancel(s, w, st, snap);
         else
-            Commit(d, w, st, pageDT, pageObs);      // the OK
+            Commit(d, w, st, snap, mod, pageDT, pageObs);   // the OK
         s.inSheet = false;
+        s.startStateDone = true;                    // CArgyllSensor::Configure
         if (out == OK && CorrectionChanged(s, snap))
         {
             const Matrix full = s.Effective();
@@ -4602,7 +4770,7 @@ namespace T45Order
         return true;
     }
 
-    // What differs between the two orders' end states ("" when nothing).
+    // What differs between two orders' end states ("" when nothing).
     static std::string Diff(const Doc& a, const Doc& b)
     {
         std::string out;
@@ -4613,8 +4781,8 @@ namespace T45Order
         if (a.s.rawless.Get() != b.s.rawless.Get()) out += " raw-less-state";
         if (a.s.method != b.s.method || a.s.fitBasis != b.s.fitBasis || !NearVec(a.s.matrix, b.s.matrix, 1e-12))
             out += " method";
-        if (a.s.driverSample != b.s.driverSample) out += " driver";
-        if (a.clearAllowed != b.clearAllowed) out += " clear-enabled";
+        if (a.s.driverSample != b.s.driverSample || a.s.driverEntry != b.s.driverEntry) out += " driver";
+        if (a.s.displayType != b.s.displayType) out += " display-type";
         return out;
     }
 
@@ -4624,45 +4792,95 @@ namespace T45Order
         std::string what;
         World w;
         Doc d;
-        std::vector<Step> steps;
+        std::vector<Step_> steps;
         Outcome out;
         bool mainDiffers;               // the reviews' claim: main's order differs
         bool mainViolates;              // the reviews' claim: main breaks an invariant below
         std::string wantRecord;         // the record that must stand ("": no check)
+        bool clearSeen;                 // the page's Clear must have been enabled once (else no check)
+        bool unrecordedTruth;           // the readings keep a correction no derive can express (R5)
+        Scenario() : out(OK), mainDiffers(false), mainViolates(false), clearSeen(false), unrecordedTruth(false) {}
     };
 
-    // Measurement-first: a measurement's Init, the sheet, the next measurement.
-    // Sheet-first: the sheet, the next measurement.
-    static std::string RunOrders(const Scenario& sc, const Structure& st, Doc& m, Doc& s)
+    // Measurement first: a measurement's Init, the sheet, the next measurement.
+    // Sheet first: the sheet, the next measurement. Calibrate-Cancel first: a sheet
+    // in which Calibrate ran and that was cancelled, then the sheet, the next
+    // measurement (the driver is started, by a sheet, before the sheet under test).
+    static std::string RunOrders(const Scenario& sc, const Structure& st, Doc ends[3])
     {
-        m = sc.d;
-        Measure(m, sc.w, st);
-        Sheet(m, sc.w, st, sc.steps, sc.out);
-        Measure(m, sc.w, st);
-        s = sc.d;
-        Sheet(s, sc.w, st, sc.steps, sc.out);
-        Measure(s, sc.w, st);
-        return Diff(m, s);
+        std::vector<Step_> calibrate(1);
+        calibrate[0].kind = CALIBRATE; calibrate[0].value = 0;
+        ends[0] = sc.d;
+        Measure(ends[0], sc.w, st);
+        Sheet(ends[0], sc.w, st, sc.steps, sc.out);
+        Measure(ends[0], sc.w, st);
+        ends[1] = sc.d;
+        Sheet(ends[1], sc.w, st, sc.steps, sc.out);
+        Measure(ends[1], sc.w, st);
+        ends[2] = sc.d;
+        Sheet(ends[2], sc.w, st, calibrate, CANCEL);
+        ends[2].clearAllowed.clear();
+        Sheet(ends[2], sc.w, st, sc.steps, sc.out);
+        Measure(ends[2], sc.w, st);
+        std::string out;
+        const std::string d1 = Diff(ends[0], ends[1]), d2 = Diff(ends[0], ends[2]);
+        if (!d1.empty()) out += " [sheet first:" + d1 + "]";
+        if (!d2.empty()) out += " [calibrate-cancel first:" + d2 + "]";
+        if (ends[0].clearAllowed != ends[1].clearAllowed || ends[0].clearAllowed != ends[2].clearAllowed)
+            out += " [clear-enabled]";
+        return out;
     }
 
-    // The i1d3 list: two plain entries and three ccss/ccmx entries.
+    // The i1d3 list: two plain entries and three ccss/ccmx entries, plus an entry
+    // "N" whose base the driver does not find.
     static World I1d3(const char* serial)
     {
         World w;
         w.exposed = true;
         w.serial = serial;
-        Entry list[] = { { "Non-Refresh", false }, { "Refresh", false }, { "E", true }, { "E2", true }, { "L", true } };
-        w.list.assign(list, list + 5);
-        DiskFile disk[] = { { "F.ccss", "F1" }, { "G.ccss", "G1" }, { "Fr.ccss", "F2" } };
-        w.disk.assign(disk, disk + 3);
+        Entry list[] = { { "Non-Refresh", false, true }, { "Refresh", false, true }, { "E", true, true },
+                         { "E2", true, true }, { "L", true, true }, { "N", true, false } };
+        w.list.assign(list, list + 6);
+        DiskFile disk[] = { { "F.ccss", "F1", true }, { "G.ccss", "G1", true }, { "Fr.ccss", "F2", true },
+                            { "Bad.ccss", "BAD", false } };
+        w.disk.assign(disk, disk + 4);
         return w;
     }
 
+    // A Spyder: its driver takes samples, and lists the same installed entries.
     static World Spyder()
     {
         World w = I1d3("S");
         w.exposed = false;
         return w;
+    }
+
+    static std::vector<Step_> Steps(int n, ...)
+    {
+        std::vector<Step_> v;
+        va_list ap;
+        va_start(ap, n);
+        for (int i = 0; i < n; ++i)
+        {
+            Step_ s;
+            s.kind = (StepKind)va_arg(ap, int);
+            s.value = va_arg(ap, int);
+            v.push_back(s);
+        }
+        va_end(ap);
+        return v;
+    }
+
+    enum { SAME = 0, DIFFERS = 1 };
+    enum { HOLDS = 0, VIOLATES = 1 };
+    static Scenario& Add(std::vector<Scenario>& v, const char* id, const std::string& what, const World& w, const Doc& d,
+                         const std::vector<Step_>& steps, Outcome out, int mainDiffers, int mainViolates)
+    {
+        Scenario sc;
+        sc.id = id; sc.what = what; sc.w = w; sc.d = d; sc.steps = steps; sc.out = out;
+        sc.mainDiffers = ( mainDiffers == DIFFERS ); sc.mainViolates = ( mainViolates == VIOLATES );
+        v.push_back(sc);
+        return v.back();
     }
 
     static SpectralCorrectionRecord DtRecord(const char* entry, const char* unit, int obs)
@@ -4690,35 +4908,8 @@ namespace T45Order
         return r;
     }
 
-    static std::vector<Step> Steps(int n, ...)
-    {
-        std::vector<Step> v;
-        va_list ap;
-        va_start(ap, n);
-        for (int i = 0; i < n; ++i)
-        {
-            Step s;
-            s.kind = (StepKind)va_arg(ap, int);
-            s.value = va_arg(ap, int);
-            v.push_back(s);
-        }
-        va_end(ap);
-        return v;
-    }
-
-    enum { SAME = 0, DIFFERS = 1 };
-    enum { HOLDS = 0, VIOLATES = 1 };
-    static void Add(std::vector<Scenario>& v, const char* id, const std::string& what, const World& w, const Doc& d,
-                    const std::vector<Step>& steps, Outcome out, int mainDiffers, int mainViolates)
-    {
-        Scenario sc;
-        sc.id = id; sc.what = what; sc.w = w; sc.d = d; sc.steps = steps; sc.out = out;
-        sc.mainDiffers = ( mainDiffers == DIFFERS ); sc.mainViolates = ( mainViolates == VIOLATES );
-        v.push_back(sc);
-    }
-
     // A 4.2.2.0 document (v1 sensor stream: method DEFAULT, basis UNKNOWN, no record)
-    // whose readings the i1d3 driver corrected with `entry` (or a browsed file).
+    // whose readings the i1d3 driver corrected with `through` (an entry or a file).
     static Doc V1Doc(const Matrix& fit, int displayType, const std::string& through)
     {
         Doc d;
@@ -4726,11 +4917,13 @@ namespace T45Order
         d.s.fitBasis = FIT_BASIS_UNKNOWN;
         d.s.matrix = fit;
         d.s.displayType = displayType;
-        d.rawless = fit * CorrFor(through, "A", 3) * Native();
+        d.unrecorded = CorrFor(through, "A", 3);
+        d.rawless = fit * d.unrecorded * Native();
         return d;
     }
 
-    // A document whose sensor uses `rec` as the method, readings taken on unit A.
+    // A document whose sensor uses `rec` as the method. For a driver-applied record
+    // the model's native reading is the one the driver corrected.
     static Doc SpectralDoc(const SpectralCorrectionRecord& rec, int displayType, const char* path)
     {
         Doc d;
@@ -4740,6 +4933,8 @@ namespace T45Order
         d.s.fitBasis = rec.basis;
         d.s.displayType = displayType;
         d.s.path = path;
+        if (rec.basis == FIT_BASIS_DRIVER_CORRECTED)
+            d.s.driverSample = rec.source == SPECTRAL_SOURCE_FILE ? rec.description : "entry:" + rec.description;
         d.rawless = rec.correction * Native();
         return d;
     }
@@ -4763,13 +4958,12 @@ namespace T45Order
             Add(v, "R2", w1 + ", Spectral Type changed, OK",  a, v1e, Steps(1, SET_OBS, 4), OK, DIFFERS, HOLDS);
             Add(v, "R2", w1 + ", Display Type -> E2, OK",     a, v1e, Steps(1, SET_DT, 3), OK, DIFFERS, HOLDS);
             Add(v, "r2#3", w1 + ", Display Type -> plain, OK", a, v1e, Steps(1, SET_DT, 0), OK, DIFFERS, HOLDS);
-            // r1#3: no record, a browsed sample the driver applied (a build that
-            // loaded it into the i1d3 driver), the page's Clear.
+            // r1#3: no record, a browsed sample the driver applied, the page's Clear.
             Doc v1f = V1Doc(fits[f], 0, "file:F1");
             v1f.s.path = "F.ccss";
             const std::string w3 = std::string("no record, sample F applied by the driver, ") + fitName[f];
-            Add(v, "r1#3", w3 + ", Clear, OK",     a, v1f, Steps(1, CLEAR, 0), OK, DIFFERS, HOLDS);
-            Add(v, "r1#3", w3 + ", Clear, Cancel", a, v1f, Steps(1, CLEAR, 0), CANCEL, SAME, HOLDS);
+            Add(v, "r1#3", w3 + ", Clear, OK",     a, v1f, Steps(1, CLEAR, 0), OK, DIFFERS, HOLDS).clearSeen = true;
+            Add(v, "r1#3", w3 + ", Clear, Cancel", a, v1f, Steps(1, CLEAR, 0), CANCEL, SAME, HOLDS).clearSeen = true;
             Add(v, "r1#3", w3 + ", OK",            a, v1f, Steps(0), OK, SAME, HOLDS);
             // r2#4: entry E selected and applied by the driver, a stored path too.
             Doc v1ep = v1e;
@@ -4781,7 +4975,7 @@ namespace T45Order
             v1l.s.path = "F.ccss";
             const std::string w5 = std::string("no record, entry L applied by the driver, path F, ") + fitName[f];
             Add(v, "r2#3", w5 + ", Display Type -> plain, OK", a, v1l, Steps(1, SET_DT, 0), OK, DIFFERS, HOLDS);
-            // r1#8: raw XYZ that the driver had already corrected (a field-test build
+            // r1#8: raw XYZ the driver had already corrected (a field-test build
             // document), re-expressed by an Init in the sheet.
             Doc ft = V1Doc(fits[f], 0, "file:F1");
             ft.s.path = "F.ccss";
@@ -4790,7 +4984,32 @@ namespace T45Order
             ft.rawValue = fits[f] * ft.raw;
             const std::string w8 = std::string("raw already driver-corrected, path F, ") + fitName[f];
             Add(v, "r1#8", w8 + ", Calibrate, OK", a, ft, Steps(1, CALIBRATE, 0), OK, DIFFERS, HOLDS);
+            // R5 / gap: the entry the readings went through has no base entry (the
+            // derive stops before selecting anything). Main leaves the driver on it.
+            const Doc v1n = V1Doc(fits[f], 5, "entry:N");
+            const std::string w9 = std::string("4.2.2 doc on entry N (no base entry), ") + fitName[f];
+            Add(v, "R5", w9 + ", Calibrate, OK", a, v1n, Steps(1, CALIBRATE, 0), OK, SAME, VIOLATES).unrecordedTruth = true;
         }
+        // R5 with a record for that same entry: main applies it twice (driver and HCFR).
+        Doc dtN = SpectralDoc(DtRecord("N", "A", 3), 5, "");
+        Add(v, "R5", "entry N record, no base entry, Calibrate, OK", a, dtN, Steps(1, CALIBRATE, 0), OK, SAME, VIOLATES);
+        // Gap: the record's entry moved to another index (an installed file added),
+        // and the record's entry gone from the list. Main: Calibrate's Init moves the
+        // Display Type under the page, and OK commits the stale index as a choice.
+        World moved = a;
+        std::swap(moved.list[2], moved.list[3]);            // E now at 3, E2 at 2
+        const Doc dtE = SpectralDoc(DtRecord("E", "A", 3), 2, "");
+        Add(v, "gap", "entry E record, E moved to index 3, Calibrate, OK", moved, dtE, Steps(1, CALIBRATE, 0), OK, DIFFERS, HOLDS);
+        World gone = a;
+        gone.list[2].text = "X";
+        Add(v, "gap", "entry E record, E gone from the list, Calibrate, OK", gone, dtE, Steps(1, CALIBRATE, 0), OK, DIFFERS, HOLDS);
+        // Gap: a .ccss that hashes but does not parse, as the stored path.
+        Doc bad = V1Doc(I3(), 0, "file:F1");
+        bad.s.path = "Bad.ccss";
+        Add(v, "gap", "no record, path to a file that does not parse, Calibrate, OK", a, bad, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS).unrecordedTruth = true;
+        Doc badSpy = SpectralDoc(SpectralCorrectionRecord(), 0, "Bad.ccss");
+        badSpy.s.method = CALIB_HCFR_DEFAULT;
+        Add(v, "gap", "Spyder, no record, path to a file that does not parse, Calibrate, OK", sp, badSpy, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
         // r1#1 / r2#5: unit B connected; the record was derived on unit A.
         const Doc fileA = SpectralDoc(FileRec("F1", "A", 3, false), 0, "F.ccss");
         Add(v, "r1#1", "unit B, FILE record from unit A, plain -> plain, OK", b, fileA, Steps(1, SET_DT, 1), OK, DIFFERS, HOLDS);
@@ -4804,31 +5023,42 @@ namespace T45Order
         const Doc fileOwn = SpectralDoc(FileRec("F1", "A", 3, false), 0, "F.ccss");
         Add(v, "r2#1", "FILE record, Spectral Type changed, Calibrate, Cancel", a, fileOwn, Steps(2, SET_OBS, 4, CALIBRATE, 0), CANCEL, SAME, HOLDS);
         Add(v, "r2#1", "FILE record, Spectral Type changed, Calibrate, OK", a, fileOwn, Steps(2, SET_OBS, 4, CALIBRATE, 0), OK, SAME, HOLDS);
-        // r1#2 / r1#5: a Spyder given an i1d3 document's Display Type record (main:
-        // converted to DRIVER_CORRECTED with nothing applying it; Clear disabled).
+        // r3#6: Calibrate commits a Display Type that changes what Clear may do; the
+        // page's Clear acts on the state after it.
+        Add(v, "r3#6", "FILE record, Display Type -> E, Calibrate, Clear, OK", a, fileOwn, Steps(3, SET_DT, 2, CALIBRATE, 0, CLEAR, 0), OK, SAME, HOLDS);
+        // r1#2 / r1#5 / r4#4: a Spyder given an i1d3 document's Display Type record.
+        // Its own list has an entry at that index, and the driver applies it: the
+        // record's own entry (applied), another corrected entry, or a plain one.
         const Doc dtSpy = SpectralDoc(DtRecord("E", "A", 3), 2, "");
-        Add(v, "r1#2", "Spyder, i1d3 entry record, Calibrate, Clear, OK", sp, dtSpy, Steps(2, CALIBRATE, 0, CLEAR, 0), OK, DIFFERS, VIOLATES);
-        Add(v, "r1#2", "Spyder, i1d3 entry record, Clear, OK", sp, dtSpy, Steps(1, CLEAR, 0), OK, SAME, VIOLATES);
-        Add(v, "r1#5", "Spyder, i1d3 entry record, OK", sp, dtSpy, Steps(0), OK, SAME, VIOLATES);
+        Add(v, "r1#5", "Spyder, i1d3 entry E record, E at that index, OK", sp, dtSpy, Steps(0), OK, SAME, HOLDS);
+        Add(v, "r1#2", "Spyder, i1d3 entry E record, E at that index, Calibrate, Clear, OK", sp, dtSpy, Steps(2, CALIBRATE, 0, CLEAR, 0), OK, DIFFERS, HOLDS);
+        Add(v, "r1#2", "Spyder, i1d3 entry E record, E at that index, -> plain, OK", sp, dtSpy, Steps(1, SET_DT, 0), OK, DIFFERS, VIOLATES);
+        World spOther = sp;
+        spOther.list[2].text = "E9";
+        Add(v, "r4#4", "Spyder, i1d3 entry E record, another entry at that index, OK", spOther, dtSpy, Steps(0), OK, SAME, VIOLATES);
+        World spPlain = sp;
+        spPlain.list[2].corrected = false;
+        Add(v, "r1#5", "Spyder, i1d3 entry E record, a plain entry at that index, Clear, OK", spPlain, dtSpy, Steps(1, CLEAR, 0), OK, SAME, VIOLATES);
         // R4 on the i1d3: a FILE record from G (a correction file loaded after the
         // Browse of F). Same unit (main: the path names another file than the record)
         // and another unit (main: F derived again in G's place).
         const Doc yOnF = SpectralDoc(FileRec("G1", "A", 3, false), 0, "F.ccss");
-        Add(v, "R4", "record from G, path F, same unit, OK", a, yOnF, Steps(0), OK, SAME, VIOLATES);
-        v.back().wantRecord = "G1";
-        Add(v, "R4", "record from G, path F, unit B, OK", b, yOnF, Steps(0), OK, SAME, VIOLATES);
-        v.back().wantRecord = "G1";
+        Add(v, "R4", "record from G, path F, same unit, OK", a, yOnF, Steps(0), OK, SAME, VIOLATES).wantRecord = "G1";
+        Add(v, "R4", "record from G, path F, unit B, OK", b, yOnF, Steps(0), OK, SAME, VIOLATES).wantRecord = "G1";
         // r1#6 / r2#2: a Spyder whose path names another file than its record's (a
         // record from G; F rewritten in place after its Browse). Main loads it.
-        Doc spyG = SpectralDoc(FileRec("G1", "S", 3, true), 0, "F.ccss");
-        spyG.s.driverSample = "G1";
+        const Doc spyG = SpectralDoc(FileRec("G1", "S", 3, true), 0, "F.ccss");
         Add(v, "r1#6", "Spyder, record from G, path F, OK", sp, spyG, Steps(0), OK, SAME, VIOLATES);
-        Doc spyR = SpectralDoc(FileRec("F1", "S", 3, true), 0, "Fr.ccss");
-        spyR.s.driverSample = "F1";
+        const Doc spyR = SpectralDoc(FileRec("F1", "S", 3, true), 0, "Fr.ccss");
         Add(v, "r2#2", "Spyder, path file rewritten after its Browse, OK", sp, spyR, Steps(0), OK, SAME, VIOLATES);
         Add(v, "r2#2", "Spyder, path file rewritten, Calibrate, Cancel", sp, spyR, Steps(1, CALIBRATE, 0), CANCEL, SAME, VIOLATES);
-        // A Spyder's own browsed file, and an i1d3's: nothing changes in either order.
+        // r3#3: a meter that takes no sample (a DTP94, a Spyder3) given a Spyder
+        // document's FILE record and its path.
+        World dtp = sp;
+        dtp.holdsSamples = false;
         const Doc spyF = SpectralDoc(FileRec("F1", "S", 3, true), 0, "F.ccss");
+        Add(v, "r3#3", "meter without samples, Spyder's FILE record, its path, OK", dtp, spyF, Steps(0), OK, SAME, VIOLATES);
+        // A Spyder's own browsed file, and an i1d3's: nothing changes in either order.
         Add(v, "-", "Spyder, its own browsed file, Calibrate, OK", sp, spyF, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
         Add(v, "-", "i1d3, its own browsed file, Calibrate, OK", a, fileOwn, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
         return v;
@@ -4838,21 +5068,37 @@ namespace T45Order
     static std::string Violations(const Scenario& sc, const Doc& e)
     {
         std::string out;
-        // The second invariant: no record says a correction is in force that nothing applies.
-        if (!SpectralRecordApplied(e.s.rec, sc.w.exposed, !e.s.path.empty()))
-            out += " unapplied-record";
-        // A driver that applies the record holds that record's own file.
-        if (!sc.w.exposed && e.s.rec.IsPresent()
-         && ( e.s.driverSample.empty() || HashOf(e.s.driverSample) != e.s.rec.fileHash ))
-            out += " driver-sample";
+        // The second invariant: no record says a correction is in force that nothing
+        // applies - and what applies it is the record's own: its file's sample, or its
+        // own Display Type entry (the driver of a meter whose matrices are not exposed).
+        if (e.s.rec.IsPresent() && e.s.rec.basis != FIT_BASIS_NATIVE)
+        {
+            const std::string want = e.s.rec.source == SPECTRAL_SOURCE_FILE ? e.s.rec.description
+                                                                            : "entry:" + e.s.rec.description;
+            if (sc.w.exposed || e.s.driverSample != want)
+                out += " unapplied-record";
+        }
+        // A meter whose matrices are exposed measures native: the driver is never left
+        // on a corrected entry (R5).
+        if (sc.w.exposed && e.s.driverEntry >= 0 && sc.w.list[e.s.driverEntry].corrected)
+            out += " driver-on-corrected-entry";
         // A FILE record and a readable path name the same file (the R4 rule).
-        std::string content;
-        if (e.s.rec.source == SPECTRAL_SOURCE_FILE && e.s.rec.fileHash != 0 && !e.s.path.empty()
-         && sc.w.Read(e.s.path, content) && HashOf(content) != e.s.rec.fileHash)
+        const DiskFile* f = sc.w.File(e.s.path);
+        if (e.s.rec.source == SPECTRAL_SOURCE_FILE && e.s.rec.fileHash != 0 && f != NULL
+         && HashOf(f->content) != e.s.rec.fileHash)
             out += " path-not-record-file";
         // The record the readings went through stands (R4).
         if (!sc.wantRecord.empty() && e.s.rec.description != sc.wantRecord)
             out += " record-replaced";
+        // Removing a record never forgets a correction the readings went through: a
+        // driver-applied record that is gone leaves the readings marked as carrying an
+        // unrecorded driver correction (r3#2).
+        if (sc.d.s.rec.IsPresent() && sc.d.s.rec.basis == FIT_BASIS_DRIVER_CORRECTED && !e.s.rec.IsPresent()
+         && !ReadingsCarryUnrecordedDriverCorrection(e.s.rec, e.s.fitBasis))
+            out += " forgot-driver-correction";
+        // BeginConfigure starts nothing (r3#1).
+        if (e.beginConfigureStarted)
+            out += " begin-configure-device-io";
         return out;
     }
 
@@ -4861,20 +5107,25 @@ namespace T45Order
     {
         const std::vector<Scenario> v = Scenarios();
         int nMainDiffers = 0, nMainViolates = 0;
-        printf("T45 (a) %d scenarios, measurement first vs sheet first, then the invariants:\n", (int)v.size());
+        printf("T45 (a) %d scenarios in three orders (measurement first, sheet first, calibrate-cancel first),\n"
+               "        then the invariants:\n", (int)v.size());
         for (size_t i = 0; i < v.size(); ++i)
         {
             const Scenario& sc = v[i];
-            Doc bm, bs, mm, ms;
-            const std::string branch = RunOrders(sc, kBranch, bm, bs);
-            const std::string onMain = RunOrders(sc, kMain, mm, ms);
-            const std::string mainBroken = Violations(sc, mm) + Violations(sc, ms);
-            const std::string branchBroken = Violations(sc, bm) + Violations(sc, bs);
-            printf("  %-5s %-68s main:%s%s%s | branch:%s%s%s\n", sc.id, sc.what.c_str(),
+            Doc be[3], me[3];
+            const std::string branch = RunOrders(sc, kBranch, be);
+            const std::string onMain = RunOrders(sc, kMain, me);
+            std::string mainBroken, branchBroken;
+            for (int k = 0; k < 3; ++k)
+            {
+                mainBroken += Violations(sc, me[k]);
+                branchBroken += Violations(sc, be[k]);
+            }
+            printf("  %-5s %-70s main:%s%s%s | branch:%s%s%s\n", sc.id, sc.what.c_str(),
                    onMain.empty() ? " same" : onMain.c_str(), mainBroken.empty() ? "" : " /", mainBroken.c_str(),
                    branch.empty() ? " same" : branch.c_str(), branchBroken.empty() ? "" : " /", branchBroken.c_str());
             if (!branch.empty())
-                Fail("T45 (a) %s %s: the two orders differ in%s", sc.id, sc.what.c_str(), branch.c_str());
+                Fail("T45 (a) %s %s: the orders differ:%s", sc.id, sc.what.c_str(), branch.c_str());
             if (!branchBroken.empty())
                 Fail("T45 (a) %s %s: invariant broken:%s", sc.id, sc.what.c_str(), branchBroken.c_str());
             if (sc.mainDiffers != !onMain.empty())
@@ -4883,23 +5134,26 @@ namespace T45Order
             if (sc.mainViolates != !mainBroken.empty())
                 Fail("T45 (a) %s %s: main %s an invariant, the review says it %s", sc.id, sc.what.c_str(),
                      mainBroken.empty() ? "holds" : "breaks", sc.mainViolates ? "breaks one" : "holds them");
+            if (sc.clearSeen && ( be[0].clearAllowed.empty() || be[0].clearAllowed[0] != 1 ))
+                Fail("T45 (a) %s %s: the page's Clear was not enabled", sc.id, sc.what.c_str());
             nMainDiffers += onMain.empty() ? 0 : 1;
             nMainViolates += mainBroken.empty() ? 0 : 1;
-            const Doc* ends[2] = { &bm, &bs };
-            for (int k = 0; k < 2; ++k)
+            for (int k = 0; k < 3; ++k)
             {
-                const Doc& e = *ends[k];
-                // Readings marked as embodying the matrix do. Every reading in the
-                // model is the same native reading through some correction, so a
-                // composable one must be Effective * native (a reading another unit's
-                // or another meter's correction went through must be stranded).
-                if (e.s.rawless.ComposeOntoRawless()
-                 && !NearVec(e.rawless, e.s.Effective() * Native(), 1e-12))
-                    Fail("T45 (a) %s %s, %s: raw-less reading is not Effective * native while marked composable",
-                         sc.id, sc.what.c_str(), k ? "sheet first" : "measurement first");
+                const Doc& e = be[k];
+                // Readings marked as embodying the matrix do: a composable raw-less
+                // reading is Effective * native, through the correction the readings
+                // carry unrecorded where no derive can express it (a 4.2.2 entry
+                // without a base, R5). A reading another unit's or
+                // another meter's correction went through must be stranded.
+                const Matrix u = ( sc.unrecordedTruth && ReadingsCarryUnrecordedDriverCorrection(e.s.rec, e.s.fitBasis) )
+                               ? e.unrecorded : I3();
+                if (e.s.rawless.ComposeOntoRawless() && !NearVec(e.rawless, e.s.Effective() * u * Native(), 1e-12))
+                    Fail("T45 (a) %s %s, order %d: raw-less reading is not Effective * native while marked composable",
+                         sc.id, sc.what.c_str(), k);
             }
         }
-        printf("T45 (a): main's order differs in %d of %d scenarios and breaks an invariant in %d\n",
+        printf("T45 (a): main differs in %d of %d scenarios and breaks an invariant in %d\n",
                nMainDiffers, (int)v.size(), nMainViolates);
     }
 
@@ -4978,24 +5232,30 @@ namespace T45Order
                 Fail("T45 (d) %s: got %d", rows[i].what, (int)!rows[i].want);
     }
 
-    // (e) SpectralRecordApplied (the second invariant)
+    // (e) SpectralRecordApplied (the second invariant; r3#3, r3#4)
     static void CheckApplied()
     {
         const SpectralCorrectionRecord none, native = Rec(SPECTRAL_SOURCE_DISPLAY_TYPE, FIT_BASIS_NATIVE, 0),
                                        driver = Rec(SPECTRAL_SOURCE_FILE, FIT_BASIS_DRIVER_CORRECTED, 1),
                                        driverDt = Rec(SPECTRAL_SOURCE_DISPLAY_TYPE, FIT_BASIS_DRIVER_CORRECTED, 0);
-        struct { const SpectralCorrectionRecord* rec; bool exposed, path, want; const char* what; } rows[] = {
-            { &none,     true,  false, true,  "no record" },
-            { &native,   true,  false, true,  "NATIVE record, i1d3 (HCFR applies it)" },
-            { &native,   false, false, true,  "NATIVE record, Spyder (before the conversion)" },
-            { &driver,   false, true,  true,  "DRIVER_CORRECTED, Spyder with its path (the re-apply)" },
-            { &driver,   false, false, false, "DRIVER_CORRECTED, Spyder, path dropped (r2#2)" },
-            { &driverDt, false, false, false, "Display Type record converted on a Spyder (r1#5)" },
-            { &driver,   true,  true,  false, "DRIVER_CORRECTED on an i1d3 (holds no sample)" },
-            { &driver,   true,  false, false, "DRIVER_CORRECTED on an i1d3, no path" },
+        // Rec() describes a record "X".
+        struct { const SpectralCorrectionRecord* rec; bool exposed, samples, path; const char* entry; bool want; const char* what; } rows[] = {
+            { &none,     true,  true,  false, "",  true,  "no record" },
+            { &native,   true,  true,  false, "",  true,  "NATIVE record, i1d3 (HCFR applies it)" },
+            { &native,   false, true,  false, "",  true,  "NATIVE record, Spyder (before the conversion)" },
+            { &driver,   false, true,  true,  "",  true,  "FILE record, Spyder with its path (the re-apply)" },
+            { &driver,   false, true,  false, "",  false, "FILE record, Spyder, path dropped (r2#2)" },
+            { &driver,   false, false, true,  "",  false, "FILE record, a meter without samples, with a path (r3#3)" },
+            { &driver,   true,  true,  true,  "",  false, "DRIVER_CORRECTED on an i1d3 (holds no sample)" },
+            { &driverDt, false, true,  false, "X", true,  "Display Type record, its entry selected on a Spyder (r3#4)" },
+            { &driverDt, false, false, false, "X", true,  "the same on a meter without samples (a ccmx entry)" },
+            { &driverDt, false, true,  false, "Y", false, "Display Type record, another entry selected (r3#4)" },
+            { &driverDt, false, true,  false, "",  false, "Display Type record, a plain entry selected (r1#5)" },
+            { &driverDt, false, true,  true,  "X", false, "Display Type record under a path's sample" },
+            { &driverDt, true,  true,  false, "X", false, "DRIVER_CORRECTED Display Type record on an i1d3" },
         };
         for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
-            if (SpectralRecordApplied(*rows[i].rec, rows[i].exposed, rows[i].path) != rows[i].want)
+            if (SpectralRecordApplied(*rows[i].rec, rows[i].exposed, rows[i].samples, rows[i].path, rows[i].entry) != rows[i].want)
                 Fail("T45 (e) %s: got %d", rows[i].what, (int)!rows[i].want);
     }
 
