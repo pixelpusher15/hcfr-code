@@ -278,41 +278,38 @@ void CColorTempHistoView::OnGraphSave()
 void CColorTempHistoView::OnGraphSettings() 
 {
 	m_Grapher.m_graphCtrl.ChangeSettings();
+	// Parameters... saves itself: series colors, gradient, PDF User Scales
+	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");
 	OnUpdate(NULL,NULL,NULL);
 }
 
 void CColorTempHistoView::OnGraphScaleCustom() 
 {
 	m_Grapher.m_graphCtrl.ChangeScale();
-	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 }
 
 void CColorTempHistoView::OnGraphScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitXScale(TRUE, 50.0);
 	m_Grapher.m_graphCtrl.FitYScale(TRUE, 50.0);
-	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnColortempGraphYScale1() 
 {
 	m_Grapher.m_graphCtrl.SetYScale(3000,9500);
-	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnColortempGraphYScale2() 
 {
 	m_Grapher.m_graphCtrl.SetYScale(5000,8000);
-	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphYScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,50.);
-	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
@@ -343,21 +340,18 @@ void CColorTempHistoView::OnGraphYZoomOut()
 void CColorTempHistoView::OnGraphXScale1() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(0,100);
-		m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphXScale2() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(20,100);
-		m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphXScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
-		m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 

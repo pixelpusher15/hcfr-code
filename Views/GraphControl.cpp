@@ -113,6 +113,7 @@ CGraphControl::CGraphControl()
 	m_maxYGrow=100;
 	m_yAxisStep=10.0;
 	m_pYUnitStr=NULL;
+	m_bUserYScale=FALSE;
 	SetScale(0,100,0,100);
 }
 
@@ -181,27 +182,11 @@ bool CGraphControl::ReadSettings(LPSTR aConfigStr, BOOL bReadGraphSettings)
 	m_doShowYLabel=GetConfig()->GetProfileInt(aConfigStr,"Show Y Labels",TRUE);
 	m_doShowAllPoints=GetConfig()->GetProfileInt(aConfigStr,"Show All Points",TRUE);
 	m_doShowAllToolTips=GetConfig()->GetProfileInt(aConfigStr,"Show All ToolTips",TRUE);
+	// Saved axis scales (Min/Max X and Y, their grow limits and steps) are
+	// not applied: a scale belongs to the view, for this session only. A
+	// saved X narrower than the data hid measured points. The keys an
+	// existing INI still holds are ignored, not deleted.
 	bool userScale = FALSE;
-
-/* GGA: Do not use saved scale data */
-	// do not read settings if not in config => avoid to overwrite defaults set by parent
-	if(GetConfig()->IsProfileEntryDefined(aConfigStr,"Max Y") )
-	{
-		userScale = TRUE;
-		m_minX=GetConfig()->GetProfileDouble(aConfigStr,"Min X",0);
-		m_maxX=GetConfig()->GetProfileDouble(aConfigStr,"Max X",100);
-		m_minXGrow=GetConfig()->GetProfileDouble(aConfigStr,"Min Grow X",0);
-		m_maxXGrow=GetConfig()->GetProfileDouble(aConfigStr,"Max Grow X",100);
-		m_xAxisStep=GetConfig()->GetProfileDouble(aConfigStr,"Axis Step X",10);
-		m_minY=GetConfig()->GetProfileDouble(aConfigStr,"Min Y",0);
-		m_maxY=GetConfig()->GetProfileDouble(aConfigStr,"Max Y",100);
-		m_minYGrow=GetConfig()->GetProfileDouble(aConfigStr,"Min Grow Y",0);
-		m_maxYGrow=GetConfig()->GetProfileDouble(aConfigStr,"Max Grow Y",100);
-		m_yAxisStep=GetConfig()->GetProfileDouble(aConfigStr,"Axis Step Y",10);
-		
-		SetScale(m_minX,m_maxX,m_minY,m_maxY);
-	}
-//*/
 
 	if(bReadGraphSettings)
 		for(int i=0;i<m_graphArray.GetSize();i++)
@@ -236,16 +221,7 @@ void CGraphControl::WriteSettings(LPSTR aConfigStr)
 	GetConfig()->WriteProfileInt(aConfigStr,"Show All Points",m_doShowAllPoints);
 	GetConfig()->WriteProfileInt(aConfigStr,"Show All ToolTips",m_doShowAllToolTips);
 
-	GetConfig()->WriteProfileDouble(aConfigStr,"Min X",m_minX);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Max X",m_maxX);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Min Grow X",m_minXGrow);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Max Grow X",m_maxXGrow);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Axis Step X",m_xAxisStep);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Min Y",m_minY);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Max Y",m_maxY);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Min Grow Y",m_minYGrow);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Max Grow Y",m_maxYGrow);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Axis Step Y",m_yAxisStep);
+	// No axis scale is written: a scale change is this view, this session.
 
 	for(int i=0;i<m_graphArray.GetSize();i++)
 	{
@@ -300,7 +276,7 @@ void CGraphControl::CopySettings(const CGraphControl & aGraphControl, int aGraph
 	m_graphArray.SetAtGrow(aGraphDestIndex,aGraphControl.m_graphArray.GetAt(aGraphSrcIndex));
 }
 
-void CGraphControl::ChangeScale()
+BOOL CGraphControl::ChangeScale()
 {
 	CGraphScalePropDialog dialog;
 
@@ -317,19 +293,18 @@ void CGraphControl::ChangeScale()
 
 	if(dialog.DoModal() == IDOK)
 	{
-		m_minX=dialog.m_minX;
-		m_maxX=dialog.m_maxX;
-		m_minXGrow=dialog.m_minXGrow;
-		m_maxXGrow=dialog.m_maxXGrow;
-		m_xAxisStep=dialog.m_xAxisStep;
+		// X follows the data and is shown read-only: only Y is taken back
 		m_minY=dialog.m_minY;
 		m_maxY=dialog.m_maxY;
 		m_minYGrow=dialog.m_minYGrow;
 		m_maxYGrow=dialog.m_maxYGrow;
 		m_yAxisStep=dialog.m_yAxisStep;
+		m_bUserYScale=TRUE;
 		SetScale(m_minX,m_maxX,m_minY,m_maxY);
 		Invalidate(FALSE);
+		return TRUE;
 	}
+	return FALSE;
 }
 
 BEGIN_MESSAGE_MAP(CGraphControl, CWnd)
@@ -407,6 +382,7 @@ void CGraphControl::GrowYScale(double deltaMinY, double deltaMaxY)
 	m_maxY=maxY;
 	m_minY=minY;
 	m_yScale=1.0/(m_maxY-m_minY);
+	m_bUserYScale=TRUE;
 }
 
 void CGraphControl::ShiftXScale(double deltaX)
@@ -433,6 +409,7 @@ void CGraphControl::ShiftYScale(double deltaY)
 	m_minY=minY;
 	m_maxY=maxY;
 	m_yScale=1.0/(m_maxY-m_minY);
+	m_bUserYScale=TRUE;
 }
 
 void CGraphControl::FitXScale(BOOL doRound, double roundStep)
@@ -448,6 +425,11 @@ void CGraphControl::FitXScale(BOOL doRound, double roundStep)
 			if(m_graphArray[j].m_pointArray[i].x > maxX)
 				maxX=m_graphArray[j].m_pointArray[i].x;
 		}
+	// No point at all: the untouched sentinels would reach SetScale as
+	// minX > maxX and flip the X axis. Keep the current scale.
+	if ( minX > maxX )
+		return;
+
 	if(doRound)
 	{
 		minX=(floor(minX/roundStep)-1) * roundStep;

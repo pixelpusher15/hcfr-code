@@ -142,9 +142,9 @@ CSatLumShiftGrapher::CSatLumShiftGrapher ()
 	m_quantity = GetConfig()->GetProfileInt("Saturation Shift","Quantity",SATSHIFT_QTY_SAT);
 	if ( m_quantity < SATSHIFT_QTY_SAT || m_quantity > SATSHIFT_QTY_LUM )
 		m_quantity = SATSHIFT_QTY_SAT;
-	// The scale ReadSettings restored is the one last written, i.e. for this
-	// quantity: only the title and the unit follow the quantity here.
-	SetQuantityLabels ();
+	// No saved scale is applied: open on this quantity's narrow preset, as
+	// the Quantity menu and a document's saved quantity do.
+	ApplyQuantityScale ();
 }
 
 // Y unit strings must outlive the graph control (it keeps the pointer)
@@ -770,7 +770,6 @@ void CSatLumShiftView::OnSatShiftQuantity(UINT nID)
 	m_Grapher.m_quantity = quantity;
 	GetConfig()->WriteProfileInt("Saturation Shift","Quantity",quantity);
 	m_Grapher.ApplyQuantityScale ();
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
 	OnUpdate(NULL,NULL,NULL);
 }
 
@@ -857,6 +856,10 @@ void CSatLumShiftView::OnGraphSettings()
 	m_Grapher.m_graphCtrl.RemoveGraph(tmpGraphID2);
 	m_Grapher.m_graphCtrl.RemoveGraph(tmpGraphID1);
 
+	// Parameters... saves itself: series colors, gradient, PDF User Scales
+	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
+	m_Grapher.m_graphCtrl2.WriteSettings("Saturation Shift Color");
+
 	OnUpdate(NULL,NULL,NULL);
 }
 
@@ -869,8 +872,6 @@ void CSatLumShiftView::OnGraphScaleFit()
 		m_Grapher.m_graphCtrl.SetYAxisProps(m_Grapher.m_graphCtrl.m_pYUnitStr, 5, -100, 100);
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,10);
 	OnDeltaEGraphYScaleFit();
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
-	m_Grapher.m_graphCtrl2.WriteSettings("Saturation Shift Color");
 }
 
 void CSatLumShiftView::OnLuminanceGraphYScale1() 
@@ -885,8 +886,6 @@ void CSatLumShiftView::OnLuminanceGraphYScale1()
 		m_Grapher.m_graphCtrl.SetYScale(-100,100);
 		m_Grapher.m_graphCtrl.SetYAxisProps(m_Grapher.m_graphCtrl.m_pYUnitStr, 20, -100, 100);
 	}
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
-	m_Grapher.m_graphCtrl2.WriteSettings("Saturation Shift Color");
 	Invalidate(FALSE);
 }
 
@@ -902,16 +901,12 @@ void CSatLumShiftView::OnLuminanceGraphYScale2()
 		m_Grapher.m_graphCtrl.SetYScale(-20,20);
 		m_Grapher.m_graphCtrl.SetYAxisProps(m_Grapher.m_graphCtrl.m_pYUnitStr, 5, -100, 100);
 	}
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
-	m_Grapher.m_graphCtrl2.WriteSettings("Saturation Shift Color");
 	Invalidate(FALSE);
 }
 
 void CSatLumShiftView::OnGraphYScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitYScale(TRUE);
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
-	m_Grapher.m_graphCtrl2.WriteSettings("Saturation Shift Color");
 	Invalidate(FALSE);
 }
 
@@ -942,16 +937,12 @@ void CSatLumShiftView::OnGraphYZoomOut()
 void CSatLumShiftView::OnGraphScaleCustom() 
 {
 	m_Grapher.m_graphCtrl.ChangeScale();
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
-	m_Grapher.m_graphCtrl2.WriteSettings("Saturation Shift Color");
 }
 
 void CSatLumShiftView::OnDeltaEGraphYScale1() 
 {
 	m_Grapher.m_graphCtrl2.SetYScale(0,20);
 	m_Grapher.m_graphCtrl2.SetYAxisProps("", 2, 0, 40);
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
-	m_Grapher.m_graphCtrl2.WriteSettings("Saturation Shift Color");
 	Invalidate(FALSE);
 }
 
@@ -959,8 +950,6 @@ void CSatLumShiftView::OnDeltaEGraphYScale2()
 {
 	m_Grapher.m_graphCtrl2.SetYScale(0,5);
 	m_Grapher.m_graphCtrl2.SetYAxisProps("", 1, 0, 40);
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
-	m_Grapher.m_graphCtrl2.WriteSettings("Saturation Shift Color");
 	Invalidate(FALSE);
 }
 
@@ -968,8 +957,6 @@ void CSatLumShiftView::OnDeltaEGraphYScaleFit()
 {
 	m_Grapher.m_graphCtrl2.FitYScale(TRUE,1);
 	m_Grapher.m_graphCtrl2.m_yAxisStep=(m_Grapher.m_graphCtrl2.m_maxY-m_Grapher.m_graphCtrl2.m_minY)/10;
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
-	m_Grapher.m_graphCtrl2.WriteSettings("Saturation Shift Color");
 	Invalidate(FALSE);
 }
 
@@ -1000,8 +987,6 @@ void CSatLumShiftView::OnDeltaEGraphYZoomOut()
 void CSatLumShiftView::OnDeltaEGraphScaleCustom() 
 {
 	m_Grapher.m_graphCtrl2.ChangeScale();
-	m_Grapher.m_graphCtrl.WriteSettings("Saturation Shift Sat");
-	m_Grapher.m_graphCtrl2.WriteSettings("Saturation Shift Color");
 }
 
 void CSatLumShiftView::OnHelp() 

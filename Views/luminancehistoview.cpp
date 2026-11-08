@@ -340,6 +340,12 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			}
 		}
 	}
+
+	// cd/m2 and log modes have no fixed range: fit Y to the data on every
+	// update unless the user set Y in this view this session. % and L*
+	// keep their 0-100 scale.
+	if ( ( m_abY || m_logY ) && !m_graphCtrl.m_bUserYScale )
+		m_graphCtrl.FitYScale(TRUE,m_logY?1:10);
 }
 
 /*
@@ -624,6 +630,7 @@ void CLuminanceHistoView::OnLumGraphL()
 	m_Grapher.m_graphCtrl.SetYAxisProps(m_Grapher.m_abY?" cd m-2 ":m_Grapher.m_showL?"":m_Grapher.m_logY?"":"%", m_Grapher.m_logY?0.5:10, 0, m_Grapher.m_logY?4:100);
 	OnUpdate(NULL,NULL,NULL);
 	OnGraphYScaleFit(); 
+	m_Grapher.m_graphCtrl.m_bUserYScale = FALSE;	// a unit change, not a user Y choice
 }
 
 void CLuminanceHistoView::OnLumGraphYab() 
@@ -641,6 +648,7 @@ void CLuminanceHistoView::OnLumGraphYab()
 	m_Grapher.m_graphCtrl.SetYAxisProps(m_Grapher.m_abY?" cd m-2 ":m_Grapher.m_showL?"":m_Grapher.m_logY?"":"%", m_Grapher.m_logY?0.5:10, 0, m_Grapher.m_logY?4:100);
 	OnUpdate(NULL,NULL,NULL);
 	OnGraphYScaleFit();
+	m_Grapher.m_graphCtrl.m_bUserYScale = FALSE;	// a unit change, not a user Y choice
 }
 
 void CLuminanceHistoView::OnLumGraphYlog() 
@@ -658,6 +666,7 @@ void CLuminanceHistoView::OnLumGraphYlog()
 	m_Grapher.m_graphCtrl.SetYAxisProps(m_Grapher.m_abY?" cd m-2 ":m_Grapher.m_showL?"":m_Grapher.m_logY?"":"%", m_Grapher.m_logY?0.5:10, 0, m_Grapher.m_logY?4:100);
 	OnUpdate(NULL,NULL,NULL);
 	OnGraphYScaleFit();
+	m_Grapher.m_graphCtrl.m_bUserYScale = FALSE;	// a unit change, not a user Y choice
 }
 
 void CLuminanceHistoView::OnLumGraphRedLum() 
@@ -690,6 +699,8 @@ void CLuminanceHistoView::OnGraphSettings()
 {
 	// Add log graphs to first graph control to allow setting change 
 	m_Grapher.m_graphCtrl.ChangeSettings();
+	// Parameters... saves itself: series colors, gradient, PDF User Scales
+	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 
 	OnUpdate(NULL,NULL,NULL);
 }
@@ -697,32 +708,31 @@ void CLuminanceHistoView::OnGraphSettings()
 void CLuminanceHistoView::OnGraphScaleCustom() 
 {
 	m_Grapher.m_graphCtrl.ChangeScale();
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 }
 
 void CLuminanceHistoView::OnGraphScaleFit() 
 {
+	m_Grapher.m_graphCtrl.m_bUserYScale = TRUE;	// a user Y choice
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,m_Grapher.m_logY?1:10);
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnLuminanceGraphYScale1() 
 {
+	m_Grapher.m_graphCtrl.m_bUserYScale = TRUE;	// a user Y choice
 	if (m_Grapher.m_abY || m_Grapher.m_logY || m_Grapher.m_showL)
 		m_Grapher.m_graphCtrl.FitYScale(TRUE,m_Grapher.m_logY?1:10);
 	else
 		m_Grapher.m_graphCtrl.SetYScale(0,100);
 	
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphYScaleFit() 
 {
+	m_Grapher.m_graphCtrl.m_bUserYScale = TRUE;	// a user Y choice
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,m_Grapher.m_logY?1:10);
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 
@@ -753,21 +763,18 @@ void CLuminanceHistoView::OnGraphYZoomOut()
 void CLuminanceHistoView::OnGraphXScale1() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(0,100);
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphXScale2() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(20,100);
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphXScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 
