@@ -539,17 +539,12 @@ void CGraphControl::FitYScale(BOOL doRound, double roundStep, bool isGamma)
 
 int CGraphControl::GetGraphX(double x,CRect rect) 
 {
-	// Display-only snap: measured stimuli are quantized to video levels
-	// (e.g. "40%" is really 39.7% with round-down), which puts points a few
-	// pixels off the axis grid lines. Snap x onto a grid line when it is
-	// within half a video level so the charts read cleanly; tooltips keep
-	// showing the true value.
-	if ( m_xAxisStep > 0 )
-	{
-		double snapped = floor(x/m_xAxisStep+0.5)*m_xAxisStep;
-		if ( fabs(x-snapped) < min(0.5, m_xAxisStep*0.25) )
-			x = snapped;
-	}
+	// No snapping: a point is drawn at its true X. Measured stimuli sit on
+	// video codes, which are unevenly spaced against a whole-percent axis
+	// (near white on the 255 grid steps 3,2,3,2 codes per percent), while Y
+	// is the value at that true level. Pulling X onto the nearest grid line
+	// drew uneven steps as even ones and turned smooth measured and
+	// reference curves into zigzags. The tooltip carries the same X.
 	// Width()-1, not Width(): m_maxX has to land on the last VISIBLE column, the
 	// mirror of m_minX landing on the first. Mapping to Width() put it one column
 	// past the edge, so the top grid line was clipped away and a data point on
@@ -968,6 +963,10 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 
 	for(int i=0;i<=nSteps;i++)
 	{
+		// One rounding per line, not a running sum: an accumulated step can land
+		// a hair under a whole value and truncate one pixel short of a point
+		// drawn at that value (GetGraphX no longer snaps it back).
+		xVal=m_minX+i*m_xAxisStep;
 		int x=GetGraphX(xVal,rect);
 		// Draw axis line
 		if(m_doShowAxis)
