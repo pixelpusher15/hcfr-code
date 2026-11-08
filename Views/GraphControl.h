@@ -97,6 +97,10 @@ public:
 	double m_minYGrow,m_maxYGrow;
 	double m_minX,m_minY;
 	double m_maxX,m_maxY;
+	// Set when the user changes Y in this view (zoom, shift, preset,
+	// Values..., Auto-adjust). Session state, never saved: a view that
+	// refits Y on a data update skips that fit while it is set.
+	BOOL m_bUserYScale;
 	LPSTR  m_pXUnitStr;
 	LPSTR  m_pYUnitStr;
 
@@ -137,7 +141,7 @@ public:
 	void WriteSettings(LPSTR aConfigStr);
 	void ChangeSettings();
 	void CopySettings(const CGraphControl & aGraphControl, int aGraphSrcIndex, int aGraphDestIndex);
-	void ChangeScale();
+	BOOL ChangeScale();
 
 	void SetScale(double minX, double maxX, double minY, double maxY);
 	void SetXScale(double minX, double maxX) { SetScale(minX,maxX,m_minY,m_maxY); }

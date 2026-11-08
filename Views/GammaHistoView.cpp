@@ -772,6 +772,8 @@ void CGammaHistoView::OnGraphSettings()
 {
 	// Add log graphs to first graph control to allow setting change 
 	m_Grapher.m_graphCtrl.ChangeSettings();
+	// Parameters... saves itself: series colors, gradient, PDF User Scales
+	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
 
 	OnUpdate(NULL,NULL,NULL);
 }
@@ -779,7 +781,6 @@ void CGammaHistoView::OnGraphSettings()
 void CGammaHistoView::OnGraphScaleCustom() 
 {
 	m_Grapher.m_graphCtrl.ChangeScale();
-	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
 }
 
 void CGammaHistoView::OnGraphScaleFit() 
@@ -787,7 +788,6 @@ void CGammaHistoView::OnGraphScaleFit()
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
 	bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,isHDR?1:0.1,true);
-	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
 	Invalidate(FALSE);
 }
 
@@ -796,7 +796,6 @@ void CGammaHistoView::OnGammaGraphYScale1()
 	bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
 	m_Grapher.m_graphCtrl.SetYScale(isHDR?-10:1,isHDR?10:3);
 	m_Grapher.m_graphCtrl.SetYAxisProps(isHDR?" cd m-2 ":"", isHDR?1:0.1, isHDR?-100:1, isHDR?100:4);
-	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
 	Invalidate(FALSE);
 }
 
@@ -805,7 +804,6 @@ void CGammaHistoView::OnGraphYScaleFit()
 	bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,isHDR?1:0.1, true);
 	m_Grapher.m_graphCtrl.SetYAxisProps(isHDR?" cd m-2 ":"", isHDR?1:0.1, isHDR?-100:1, isHDR?100:4);
-	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
 	Invalidate(FALSE);
 }
 
@@ -836,21 +834,18 @@ void CGammaHistoView::OnGraphYZoomOut()
 void CGammaHistoView::OnGraphXScale1() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(0,100);
-	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
 	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphXScale2() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(20,100);
-	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
 	Invalidate(FALSE);
 }
 
 void CGammaHistoView::OnGraphXScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
-	m_Grapher.m_graphCtrl.WriteSettings("Gamma Histo");
 	Invalidate(FALSE);
 }
 

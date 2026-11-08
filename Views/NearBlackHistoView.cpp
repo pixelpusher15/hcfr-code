@@ -287,10 +287,12 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			}
 		}
 	}
+	// X always spans the measured window, on both charts. Y is refit unless
+	// the user set it in this view this session; no saved scale is applied.
 	m_graphCtrl.FitXScale(TRUE,1);
-	m_graphCtrl.FitYScale(TRUE,(m_showL||m_abY)?1.0:1,FALSE);
-	m_logGraphCtrl.ReadSettings("Near Black Histo Log");
-	m_graphCtrl.ReadSettings("Near Black Histo");
+	if ( !m_graphCtrl.m_bUserYScale )
+		m_graphCtrl.FitYScale(TRUE,(m_showL||m_abY)?1.0:1,FALSE);
+	m_logGraphCtrl.FitXScale(TRUE,1);
 }
 
 
@@ -600,6 +602,7 @@ void CNearBlackHistoView::OnLumGraphL()
 	GetConfig()->WriteProfileInt("Near Black Histo","Absolute Y",m_Grapher.m_abY);
 	OnUpdate(NULL,NULL,NULL);
 	OnGraphYScaleFit();
+	m_Grapher.m_graphCtrl.m_bUserYScale = FALSE;	// a unit change, not a user Y choice
 }
 
 void CNearBlackHistoView::OnLumGraphYab() 
@@ -612,6 +615,7 @@ void CNearBlackHistoView::OnLumGraphYab()
 	m_Grapher.m_graphCtrl.SetYAxisProps(m_Grapher.m_abY?" cd m-2 ":m_Grapher.m_abY?"":"%", .1, 0, 10);
 	OnUpdate(NULL,NULL,NULL);
 	OnGraphYScaleFit();
+	m_Grapher.m_graphCtrl.m_bUserYScale = FALSE;	// a unit change, not a user Y choice
 }
 
 void CNearBlackHistoView::OnLumGraphRedLum() 
@@ -696,6 +700,10 @@ void CNearBlackHistoView::OnGraphSettings()
 	m_Grapher.m_graphCtrl.RemoveGraph(tmpGraphID2);
 	m_Grapher.m_graphCtrl.RemoveGraph(tmpGraphID1);
 
+	// Parameters... saves itself: series colors, gradient, PDF User Scales
+	m_Grapher.m_graphCtrl.WriteSettings("Near Black Histo");
+	m_Grapher.m_logGraphCtrl.WriteSettings("Near Black Histo Log");
+
 	OnUpdate(NULL,NULL,NULL);
 }
 
@@ -706,13 +714,13 @@ void CNearBlackHistoView::OnGraphScaleCustom()
 	else
 		m_Grapher.m_graphCtrl.ChangeScale();
 
-	m_Grapher.m_graphCtrl.WriteSettings("Near Black Histo");
-	m_Grapher.m_logGraphCtrl.WriteSettings("Near Black Histo Log");
 	OnUpdate(NULL,NULL,NULL);
 }
 
 void CNearBlackHistoView::OnGraphScaleFit() 
 {
+	// A user Y choice: it sticks in this view until a unit change
+	( m_Grapher.m_doLogMode ? m_Grapher.m_logGraphCtrl : m_Grapher.m_graphCtrl ).m_bUserYScale = TRUE;
 	if(m_Grapher.m_doLogMode)
 	{
 		m_Grapher.m_logGraphCtrl.FitXScale(TRUE,1);
@@ -724,31 +732,29 @@ void CNearBlackHistoView::OnGraphScaleFit()
 		m_Grapher.m_graphCtrl.FitYScale(TRUE,(m_Grapher.m_showL||m_Grapher.m_abY)?1:0.1);
 	}
 
-	m_Grapher.m_graphCtrl.WriteSettings("Near Black Histo");
-	m_Grapher.m_logGraphCtrl.WriteSettings("Near Black Histo Log");
 	OnUpdate(NULL,NULL,NULL);
 }
 
 void CNearBlackHistoView::OnLuminanceGraphYScale1() 
 {
+	m_Grapher.m_graphCtrl.m_bUserYScale = TRUE;	// a user Y choice
 	m_Grapher.m_graphCtrl.SetYScale(0,m_Grapher.m_showL?10:1.0);
 
-	m_Grapher.m_graphCtrl.WriteSettings("Near Black Histo");
-	m_Grapher.m_logGraphCtrl.WriteSettings("Near Black Histo Log");
 	OnUpdate(NULL,NULL,NULL);
 }
 
 void CNearBlackHistoView::OnGammaGraphYScale1() 
 {
+	m_Grapher.m_logGraphCtrl.m_bUserYScale = TRUE;	// a user Y choice
 	m_Grapher.m_logGraphCtrl.SetYScale(1,3);
 
-	m_Grapher.m_graphCtrl.WriteSettings("Near Black Histo");
-	m_Grapher.m_logGraphCtrl.WriteSettings("Near Black Histo Log");
 	OnUpdate(NULL,NULL,NULL);
 }
 
 void CNearBlackHistoView::OnGraphYScaleFit() 
 {
+	// A user Y choice: it sticks in this view until a unit change
+	( m_Grapher.m_doLogMode ? m_Grapher.m_logGraphCtrl : m_Grapher.m_graphCtrl ).m_bUserYScale = TRUE;
 	if(m_Grapher.m_doLogMode)
 		m_Grapher.m_logGraphCtrl.FitYScale(TRUE,0.1);
 	else
