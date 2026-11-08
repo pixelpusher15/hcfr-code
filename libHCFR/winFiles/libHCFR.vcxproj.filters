@@ -24,6 +24,9 @@
     <ClCompile Include="..\UserPatchSetStream.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\WireSetup.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\CalibrationFile.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -78,6 +81,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\UserPatchSetStream.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\WireSetup.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\CalibrationFile.h">

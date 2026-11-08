@@ -155,6 +155,14 @@ void CTestColorWnd::OnPaint()
 
 	clr = RGB(r,g,b);
 
+	// This window is the surface of the GDI generator's test-color-window mode
+	// (DISPLAY_GDI_Hide = 5): a repaint with other codes than the generator
+	// recorded means its patch is no longer what is on the screen (WireSetup.h).
+	{
+		const int shown[3] = { r, g, b };
+		WireDisplayRecord::NoteSurfacePaint ( 5, shown );
+	}
+
 	if ( r < 128 && g < 128 && b < 160 )
 		textclr = 0x00FFFFFF;	// white
 

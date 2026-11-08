@@ -300,6 +300,15 @@ BOOL CSensor::Release()
 
 CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 {
+	// The wire-setup stamp (WireSetup.h): what the generator recorded putting on
+	// the wire, taken before the read when that record is for exactly this
+	// stimulus, and kept only if nothing else reached the screen until the read
+	// ends. A read with no such record - a placeholder stimulus, a manual or
+	// external generator - is stamped realDrive = false with every field unknown.
+	const double wireStim[3] = { aRGBValue[0], aRGBValue[1], aRGBValue[2] };
+	unsigned long wireSerial = 0;
+	CColorWireSetup wire = WireDisplayRecord::StampFor(wireStim, &wireSerial);
+
 	CColor result;
 	if (this->GetName() == "Simulated sensor")
 	    result = MeasureColorInternal(aRGBValue, displaymode);
@@ -328,6 +337,9 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	GetSystemTimeAsFileTime(&ft);
 	ULONGLONG t = ((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
 	result.SetTimestamp((double)(t - 116444736000000000ULL) / 1e7);
+	if ( ! WireDisplayRecord::StillCurrent(wireSerial) )
+		wire = CColorWireSetup();
+	result.SetWireSetup(wire);
 
 	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 		result.SetXYZValue(SelectAndApplyBodnerMatrixInv(result.GetXYZValue(), m_bodnerRawInverse, m_bodnerRawInvertible, m_bodnerCalMatrix));

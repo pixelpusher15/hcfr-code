@@ -192,6 +192,11 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 		    }
 
 		    // Perform one measure
+			// With no generator running nothing displayed g_CurrentColor: it is the
+			// 0.5% placeholder or the last test color. Drop any display record so
+			// the read can never be stamped as a real patch (WireSetup.h).
+			if ( ! g_bGDIGeneratorRunning )
+				WireDisplayRecord::Invalidate();
 		    measuredColor=pSensor->MeasureColor(g_CurrentColor);  // don't know the color to measure so default value to mid gray...
 		    if ( g_bTerminateThread )
 		    {
