@@ -171,6 +171,21 @@ static void WarnRecordNotAppliedOnce(UINT id, const std::string& description, co
     GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
 }
 
+// One message per failure. The wrapper shows its own MessageBox, with the driver's
+// reason, before three of its failures, and those stand: HCFR shows nothing more
+// for them. Every other failure reaching Init or Calibrate - a connect that fails
+// past init_inst, the wrapper's throws that come with no box - is shown by HCFR,
+// once. The three, by the text the wrapper returns or throws after its box
+// (Tools/ArgyllMeterWrapper/ArgyllMeterWrapper.cpp):
+//   "Failed to initialize the instrument"  connectAndStartMeter, after "init_inst"
+//   "Set Display Type failed"              setDisplayType, after "Set display type error"
+//   "Calibration failed"                   calibrate, after "Calibration Failed!"
+static bool WrapperAnnounced(const std::string& what)
+{
+    return what == "Failed to initialize the instrument" || what == "Set Display Type failed"
+        || what == "Calibration failed";
+}
+
 namespace
 {
     // printf-style front end to ArgyllLogMessage (the Argyll debug log)
@@ -210,7 +225,8 @@ CArgyllSensor::CArgyllSensor() :
     m_pathCheckedHash = 0;
     m_spectralCacheHash = 0;
     m_pathDropPending = false;
-    m_beginInitOk = true;
+    m_beginInitAnnounced = false;
+    m_lastInitFailed = false;
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
     m_pDevicePage = & m_ArgyllSensorPropertiesPage;  // Add Argyll settings page to property sheet
@@ -257,7 +273,8 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
     m_pathCheckedHash = 0;
     m_spectralCacheHash = 0;
     m_pathDropPending = false;
-    m_beginInitOk = true;
+    m_beginInitAnnounced = false;
+    m_lastInitFailed = false;
 
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
@@ -501,21 +518,35 @@ void CArgyllSensor::GetPropertiesSheetValues()
 
 BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
 {
+    m_lastInitFailed = true;
     // No meter: a failed Init before this one let go of it (below). Nothing to
     // start, and every call past here would dereference it.
     if ( m_meter == NULL )
         return FALSE;
+    // The wrapper is shared by every document on the meter, and a failed start in
+    // any of them deletes its driver (connectAndStartMeter, every failure path): the
+    // wrapper then holds no driver, and this sensor has no meter either.
+    if ( !m_meter->isMeterStillValid() )
+    {
+        m_meter = 0;
+        return FALSE;
+    }
     // A std::logic_error from the wrapper or the driver (a Display Type select that
-    // fails, a meter that went away mid-start) is a failed Init: shown, and FALSE.
-    // No caller - an MFC command handler, the sheet's BeginConfigure, a measurement
-    // start - catches it, and uncaught it terminates the application.
+    // fails: on the DTP94 it is a device command) is a failed Init: shown once
+    // (WrapperAnnounced), and FALSE. The sensor keeps its meter: the driver started
+    // and stays usable. No caller - an MFC command handler, the sheet's
+    // BeginConfigure, a measurement start - catches it, and uncaught it terminates
+    // the application.
     try
     {
-        return InitBody(bForSimultaneousMeasures);
+        const BOOL ok = InitBody(bForSimultaneousMeasures);
+        m_lastInitFailed = !ok;
+        return ok;
     }
     catch ( std::logic_error & e )
     {
-        GetColorApp()->InMeasureMessageBox( e.what(), "Argyll Meter", MB_OK+MB_ICONHAND);
+        if ( !WrapperAnnounced(e.what()) )
+            GetColorApp()->InMeasureMessageBox( e.what(), "Argyll Meter", MB_OK+MB_ICONHAND);
         return FALSE;
     }
 }
@@ -549,7 +580,9 @@ BOOL CArgyllSensor::InitBody( BOOL bForSimultaneousMeasures )
 
     if(!m_meter->connectAndStartMeter(errorDescription, (ArgyllMeterWrapper::eReadingType)m_ReadingType, m_SpectralType, CArgyllSensor::isInDebugMode(), i_time, ((m_DisplayType == 1) || CArgyllSensor::isRefresh()) && !(m_DisplayType == 0)  ) )
     {
-        GetColorApp()->InMeasureMessageBox( errorDescription.c_str(), "Argyll Meter", MB_OK+MB_ICONHAND);
+        if ( !WrapperAnnounced(errorDescription) )
+            GetColorApp()->InMeasureMessageBox( errorDescription.c_str(), "Argyll Meter", MB_OK+MB_ICONHAND);
+        // Every failure path of the start deletes the wrapper's driver.
         m_meter = 0;
         return FALSE;
     }
@@ -951,7 +984,15 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     ClearBodnerMatrices();
     SetCalibrationMethod(CALIB_SPECTRAL_SAMPLE);
     SetFitBasis(record.basis);
-    m_spectralCacheValid = false;
+    // The bytes just read are the path's sample and its hash: the next Init's path
+    // rule and re-apply use them instead of reading the file twice more.
+    m_spectralSampleCache = ss;
+    m_spectralCachePath = filePath;
+    m_spectralCacheHash = fileHash;
+    m_spectralCacheValid = fileHashed;
+    m_pathCheckedPath = filePath;
+    m_pathCheckedHash = fileHash;
+    m_pathCheckedValid = fileHashed;
     SetModifiedFlag(TRUE);
     return true;
 }
@@ -1581,12 +1622,33 @@ bool CArgyllSensor::CorrectionChangedSinceBeginConfigure() const
 // This is the start the page itself would make: on main, filling the page already
 // starts an unstarted meter (SetPropertiesSheetValues and the combo fill reach
 // checkMeterIsInitialized -> connectAndStartMeter). Here it is the start a
-// measurement makes, with this sensor's settings, and its failure is handled: a
-// failed Init (its message shown once, by Init) refuses the sheet (Configure).
+// measurement makes, with this sensor's settings, and its failure is handled:
+//   - the start fails and the sensor still holds its meter (a std::logic_error,
+//     the DTP94 rejecting the stored Display Type: the driver started and stays
+//     usable): the sheet OPENS with no correction step applied. That is what a
+//     measurement in the same state does too - its Init fails at the same point -
+//     so both orders start from the same state, and the sheet is the place to
+//     change the setting that failed. The partial step a throw leaves behind is
+//     the one a measurement's Init leaves (the step is deterministic and throws at
+//     the same call): only the Display Type repair and the record's lookup by text
+//     precede the first Display Type select, and neither moves the effective
+//     matrix, so nothing is owed to the booking. The page fill starts nothing
+//     more: the driver is initialized, and checkMeterIsInitialized finds it so.
+//     The OK's commit Init runs with the setting the user changed.
+//   - the sensor has no meter (none was found, a failed start deleted the
+//     driver, another document's failed start deleted the shared one): the sheet
+//     is refused with a message every time (Configure).
 void CArgyllSensor::BeginConfigure()
 {
-    m_beginInitOk = ( m_meter != NULL ) && Init(FALSE);
-    CSensor::BeginConfigure();    m_cfgSnapSpectralPath = m_spectralCorrectionPath;
+    m_beginInitAnnounced = false;
+    if ( m_meter != NULL )
+    {
+        Init(FALSE);
+        // A failure Init showed (or the wrapper did) and that let go of the meter.
+        m_beginInitAnnounced = ( m_meter == NULL );
+    }
+    CSensor::BeginConfigure();
+    m_cfgSnapSpectralPath = m_spectralCorrectionPath;
     m_cfgSnapSpectralDesc = m_spectralCorrectionDesc;
     m_cfgSnapDisplayType  = m_DisplayType;
     m_cfgSnapReadingType  = m_ReadingType;
@@ -1600,13 +1662,23 @@ void CArgyllSensor::BeginConfigure()
 }
 
 // The page reads the meter throughout (SetPropertiesSheetValues, the combo fills):
-// with no meter, or after the Init at BeginConfigure failed (it said why), there is
-// no sheet to show, and the caller treats it as a Cancel (CancelConfigure restores
-// nothing that Init changed: it failed before or inside its correction step).
+// with no meter there is no sheet to show, and the caller treats it as a Cancel.
+// The user is told every time - by the start that just failed, or by this message
+// (HCFR detects meters once per session, so the remedy is a restart).
 BOOL CArgyllSensor::Configure()
 {
-    if ( m_meter == NULL || !m_beginInitOk )
+    if ( m_meter == NULL )
+    {
+        if ( !m_beginInitAnnounced )
+        {
+            CString msg, title;
+            msg.LoadString ( IDS_ARGYLL_METER_UNAVAILABLE );
+            title.LoadString ( IDS_ARGYLLSENSOR_PROPERTIES_TITLE );
+            GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
+        }
+        m_beginInitAnnounced = false;
         return FALSE;
+    }
     return COneDeviceSensor::Configure();
 }
 
@@ -1760,11 +1832,25 @@ void CArgyllSensor::Calibrate()
     // calibrate, and no second message for the same failure.
     if ( m_meter == NULL )
         return;
-    if(!Init(FALSE)) {
-        GetColorApp()->InMeasureMessageBox( "Meter failed init check","Meter initialization error",MB_OK);
+    // A failed Init has said why (Init, or the wrapper): no second message.
+    if ( !Init(FALSE) )
         return;
+    // The wrapper's calibrate and getCalibrationInstructions throw on a device
+    // failure; Calibrate runs from the page's button (an MFC command handler) and
+    // from a measurement, neither of which catches it. Shown once (WrapperAnnounced).
+    try
+    {
+        CalibrateDevice();
     }
+    catch ( std::logic_error & e )
+    {
+        if ( !WrapperAnnounced(e.what()) )
+            GetColorApp()->InMeasureMessageBox( e.what(), "Calibration", MB_OK+MB_ICONHAND);
+    }
+}
 
+void CArgyllSensor::CalibrateDevice()
+{
     if(!m_meter->doesMeterSupportCalibration()) 
     {
         GetColorApp()->InMeasureMessageBox( "No calibration capabilities are defined for this probe.","No Cals found",MB_OK);

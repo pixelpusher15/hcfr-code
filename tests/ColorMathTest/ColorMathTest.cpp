@@ -4227,10 +4227,16 @@ namespace T45Order
         bool exposed;                   // canExposeCalibrationMatrices (the i1d3)
         bool holdsSamples;              // doesMeterSupportSpectralSamples (inst2_ccss)
         bool startFails;                // connectAndStartMeter fails (meter unplugged)
+        int failObs;                    // ... fails for this Spectral Type only (-1 none)
+        int throwEntry;                 // setDisplayType throws for this entry (-1 none):
+                                        // the DTP94's set_disp_type is a device command
+        bool wrapperDead;               // another document's failed start deleted the
+                                        // shared wrapper's driver
         std::string serial;
         std::vector<Entry> list;
         std::vector<DiskFile> disk;
-        World() : exposed(true), holdsSamples(true), startFails(false), serial("A") {}
+        World() : exposed(true), holdsSamples(true), startFails(false), failObs(-1), throwEntry(-1),
+                  wrapperDead(false), serial("A") {}
         const DiskFile* File(const std::string& path) const
         {
             for (size_t i = 0; i < disk.size(); ++i)
@@ -4280,10 +4286,13 @@ namespace T45Order
         bool meterGone;                     // a failed Init set m_meter = 0
         bool inSheet;
         bool uiClear;                       // the Clear button as the page last refreshed it
+        bool uiBrowse;                      // the Browse button as the page last refreshed it
+        bool lastInitFailed;                // m_lastInitFailed
+        SpectralCorrectionRecord recAtLoss; // the record when the meter was lost
         Sensor() : method(CALIB_HCFR_DEFAULT), fitBasis(FIT_BASIS_NATIVE), matrix(I3()), displayType(0),
                    observer(3), driverObserver(3), driverEntry(-1), dtBaseFor(-1), cacheValid(false), pathCheckedValid(false),
                    pathCheckedHash(0), pathDropPending(false), entryMissing(false), meterGone(false),
-                   inSheet(false), uiClear(false) {}
+                   inSheet(false), uiClear(false), uiBrowse(false), lastInitFailed(false) {}
         Matrix Effective() const { return EffectiveSensorMatrix(method, fitBasis, rec, matrix); }
         bool UsesSpectral() const { return method == CALIB_SPECTRAL_SAMPLE; }
     };
@@ -4299,9 +4308,11 @@ namespace T45Order
         Matrix raw, rawValue;
         Matrix unrecorded;
         std::vector<int> clearAllowed;      // what the page's Clear did, each time it was pressed
-        bool crashed;                       // main: the page dereferenced a lost meter
+        bool crashed;                       // main: a lost meter dereferenced, or a throw uncaught
+        int messages, maxMessages;          // messages in the current user action, and the most
+        bool refusedSilently;               // the sheet refused with no message
         Doc() : rawless(Native()), hasRaw(false), raw(Native()), rawValue(Native()), unrecorded(I3()),
-                crashed(false) {}
+                crashed(false), messages(0), maxMessages(0), refusedSilently(false) {}
     };
 
     // The order a session runs in. Branch: the step at BeginConfigure on a started
@@ -4511,7 +4522,7 @@ namespace T45Order
     }
 
     // CArgyllSensor::ApplyCorrectionStep
-    static void Step(Doc& d, const World& w, const Structure& st, bool dtChanged)
+    static bool Step(Doc& d, const World& w, const Structure& st, bool dtChanged)
     {
         Sensor& s = d.s;
         const Matrix before = s.Effective();
@@ -4537,7 +4548,10 @@ namespace T45Order
                     s.displayType = plain;
             }
         }
-        // The entry the driver is put on (setDisplayType).
+        // The entry the driver is put on (setDisplayType). It throws for the entry the
+        // device rejects: the step stops here, after the repair and the lookup.
+        if (( s.entryMissing ? plain : s.displayType ) == w.throwEntry)
+            return false;
         s.driverEntry = s.entryMissing ? plain : s.displayType;
         if (!w.exposed)
             s.driverSample = w.list[s.displayType].corrected ? "entry:" + w.list[s.displayType].text : "";
@@ -4565,21 +4579,49 @@ namespace T45Order
         Enforce(s, w, st, driverAppliedRecord);
         if (st.books && !s.inSheet)
             EffectiveChangedWithoutWalk(s.rawless, before, s.Effective(), through);
+        return true;
+    }
+
+    static void Message(Doc& d)
+    {
+        ++d.messages;
+        if (d.messages > d.maxMessages)
+            d.maxMessages = d.messages;
     }
 
     // CArgyllSensor::Init: the start, then the step.
+    // Main: no NULL guard, no isMeterStillValid, no catch - a lost meter or a throw
+    // ends in a crash.
     static bool Init(Doc& d, const World& w, const Structure& st, bool dtChanged)
     {
         Sensor& s = d.s;
-        if (s.meterGone)
-            return false;                           // the NULL guard
-        if (w.startFails)
+        s.lastInitFailed = true;
+        if (s.meterGone || w.wrapperDead)
         {
-            s.meterGone = true;                     // m_meter = 0
+            if (!st.rules)
+                d.crashed = true;
+            if (!s.meterGone)
+                s.recAtLoss = s.rec;
+            s.meterGone = true;                     // the NULL guard / isMeterStillValid
+            return false;
+        }
+        if (w.startFails || s.observer == w.failObs)
+        {
+            s.recAtLoss = s.rec;
+            s.meterGone = true;                     // m_meter = 0 (the driver is deleted)
+            s.driverSample.clear();
+            Message(d);                             // the start's message, once
             return false;
         }
         s.driverObserver = s.observer;
-        Step(d, w, st, dtChanged);
+        if (!Step(d, w, st, dtChanged))
+        {
+            if (!st.rules)
+                d.crashed = true;                   // the throw escapes the handler
+            Message(d);                             // the wrapper's box (WrapperAnnounced)
+            return false;
+        }
+        s.lastInitFailed = false;
         return true;
     }
 
@@ -4623,7 +4665,7 @@ namespace T45Order
             || s.rec != snap.s.rec || s.path != snap.s.path;
     }
 
-    enum StepKind { SET_DT, SET_OBS, CALIBRATE, CLEAR };
+    enum StepKind { SET_DT, SET_OBS, CALIBRATE, CLEAR, BROWSE };
     struct Step_ { StepKind kind; int value; };
     enum Outcome { OK, CANCEL };
 
@@ -4641,12 +4683,61 @@ namespace T45Order
     static void Refresh(Sensor& s, const World& w, const Structure& st)
     {
         s.uiClear = ClearAllowed(s, w, st);
+        if (st.rules)
+            s.uiBrowse = !s.meterGone && w.holdsSamples;    // MeterSupportsSpectralSamples
+    }
+
+    // CArgyllSensor::ApplySpectralCorrection (the R3 question answered OK), when the
+    // Browse button is enabled and the selected Display Type does not refuse it.
+    static void Browse(Doc& d, const World& w, const Structure& st, int pageDT, int file)
+    {
+        Sensor& s = d.s;
+        if (!s.uiBrowse || w.list[pageDT].corrected)
+            return;
+        const DiskFile& f = w.disk[file];
+        if (f.content.empty() || !f.parses)
+            return;
+        SpectralCorrectionRecord r;
+        r.source = SPECTRAL_SOURCE_FILE;
+        r.description = f.content;
+        r.fileHash = HashOf(f.content);
+        r.observer = s.driverObserver;
+        r.meterSerial = s.meterGone ? "" : w.serial;
+        if (!s.meterGone && w.exposed)
+        {
+            r.correction = CorrFor("file:" + f.content, w.serial, s.driverObserver);
+            r.basis = FIT_BASIS_NATIVE;
+        }
+        else
+        {
+            if (!s.meterGone && w.holdsSamples)
+                s.driverSample = f.content;         // loadSpectralSample
+            r.basis = FIT_BASIS_DRIVER_CORRECTED;   // identity: the driver applies it
+        }
+        s.path = f.path;
+        s.rec = r;
+        s.matrix = r.correction;
+        s.method = CALIB_SPECTRAL_SAMPLE;
+        s.fitBasis = r.basis;
+        s.cacheValid = false;
+        if (st.rules)
+        {
+            // Seeded from the bytes just read (ApplySpectralCorrection).
+            s.cacheValid = true; s.cachePath = f.path; s.cacheContent = f.content;
+            s.pathCheckedValid = true; s.pathCheckedPath = f.path; s.pathCheckedHash = r.fileHash;
+        }
     }
 
     // GetPropertiesSheetValues: a changed setting is committed and re-inits.
     static void Commit(Doc& d, const World& w, const Structure& st, int pageDT, int pageObs)
     {
-        if (d.s.meterGone || ( pageDT == d.s.displayType && pageObs == d.s.observer ))
+        if (d.s.meterGone)
+        {
+            if (!st.rules)
+                d.crashed = true;                   // main: m_meter->getMeterName()
+            return;
+        }
+        if (pageDT == d.s.displayType && pageObs == d.s.observer)
             return;
         const bool dtChanged = ( pageDT != d.s.displayType );
         d.s.displayType = pageDT;
@@ -4659,14 +4750,24 @@ namespace T45Order
     {
         Sensor& s = d.s;
         // CArgyllSensor::BeginConfigure: the measurement-start Init, then Configure,
-        // which refuses the sheet when there is no meter or that Init failed.
+        // which refuses the sheet when there is no meter, with a message every time
+        // (the start's own, or IDS_ARGYLL_METER_UNAVAILABLE). A start that fails with
+        // the meter still held opens the sheet with no step applied.
+        d.messages = 0;
         if (st.presync)
         {
-            const bool ok = Init(d, w, st, false);
-            if (!ok)
+            const bool hadMeter = !s.meterGone;
+            Init(d, w, st, false);
+            if (s.meterGone)
+            {
+                if (!( hadMeter && d.messages > 0 ))
+                    Message(d);                     // IDS_ARGYLL_METER_UNAVAILABLE
+                if (d.messages == 0)
+                    d.refusedSilently = true;
                 return;                             // OnConfigureSensor: as a Cancel
+            }
         }
-        else if (s.meterGone || w.startFails)
+        else if (s.meterGone || w.startFails || w.wrapperDead)
         {
             // Main: SetPropertiesSheetValues and the page fill reach the meter (a
             // lost one is dereferenced; an unstartable one throws from
@@ -4678,6 +4779,7 @@ namespace T45Order
         Matrix mod = s.Effective();                 // SetSensorMatrixMod
         s.inSheet = true;
         Refresh(s, w, st);                          // the page's OnInitDialog
+        s.uiBrowse = !s.meterGone && w.holdsSamples;
         int pageDT = s.displayType, pageObs = s.observer;
         for (size_t i = 0; i < steps.size(); ++i)
         {
@@ -4685,9 +4787,23 @@ namespace T45Order
             {
             case SET_DT:  pageDT = steps[i].value; break;
             case SET_OBS: pageObs = steps[i].value; break;
+            case BROWSE:
+                d.messages = 0;
+                Browse(d, w, st, pageDT, steps[i].value);
+                break;
             case CALIBRATE:                         // OnCalibrate
+                d.messages = 0;
+                s.lastInitFailed = false;           // ForgetInitFailure
                 Commit(d, w, st, pageDT, pageObs);
-                Init(d, w, st, false);              // Calibrate's own Init
+                if (!st.rules || !s.lastInitFailed)
+                {
+                    // Calibrate: main runs Init and adds "Meter failed init check";
+                    // the branch returns at once with no meter.
+                    if (!st.rules && !Init(d, w, st, false) && !d.crashed)
+                        Message(d);
+                    else if (st.rules && !s.meterGone)
+                        Init(d, w, st, false);
+                }
                 if (st.rules)
                     Refresh(s, w, st);              // main did not refresh here
                 break;
@@ -4709,7 +4825,10 @@ namespace T45Order
         if (out == CANCEL)
             Cancel(s, w, st, snap, true);
         else
+        {
+            d.messages = 0;
             Commit(d, w, st, pageDT, pageObs);       // the OK
+        }
         s.inSheet = false;
         if (out == OK && CorrectionChanged(s, snap))
         {
@@ -4727,6 +4846,7 @@ namespace T45Order
 
     static void Measure(Doc& d, const World& w, const Structure& st)
     {
+        d.messages = 0;
         Init(d, w, st, false);                      // a lost meter: noDataColor
     }
 
@@ -4770,9 +4890,10 @@ namespace T45Order
         bool mainDiffers;               // the reviews' claim: main's order differs
         bool mainViolates;              // the reviews' claim: main breaks an invariant below
         std::string wantRecord;         // the record that must stand ("": no check)
+        int wantDisplayType;            // the Display Type the user's OK must leave (-1: no check)
         bool clearSeen;                 // the page's Clear must have been enabled once (else no check)
         bool unrecordedTruth;           // the readings keep a correction no derive can express (R5)
-        Scenario() : out(OK), mainDiffers(false), mainViolates(false), clearSeen(false), unrecordedTruth(false) {}
+        Scenario() : out(OK), mainDiffers(false), mainViolates(false), wantDisplayType(-1), clearSeen(false), unrecordedTruth(false) {}
     };
 
     // Measurement first: a measurement's Init, the sheet, the next measurement.
@@ -5039,6 +5160,38 @@ namespace T45Order
         World deadSpy = sp;
         deadSpy.startFails = true;
         Add(v, "r4", "Spyder start fails, its own browsed file, Clear, OK", deadSpy, SpectralDoc(FileRec("F1", "S", 3, true), 0, "F.ccss"), Steps(1, CLEAR, 0), OK, SAME, VIOLATES);
+        // r5#1: a start that fails with the meter still held (the DTP94 rejects the stored
+        // Display Type) opens the sheet with no step applied; the user picks another
+        // Display Type and the OK's commit Init runs with it. The same change made after
+        // a measurement in that state ends the same.
+        World dtpThrow = sp;
+        dtpThrow.holdsSamples = false;
+        dtpThrow.throwEntry = 2;
+        Scenario& t1 = Add(v, "r5#1", "DTP94 rejects the stored Display Type, -> plain, OK", dtpThrow, V1Doc(I3(), 2, "entry:E"), Steps(1, SET_DT, 0), OK, SAME, VIOLATES);
+        t1.unrecordedTruth = true; t1.wantDisplayType = 0;
+        Add(v, "r5#1", "DTP94 rejects the stored Display Type, Calibrate, Cancel", dtpThrow, V1Doc(I3(), 2, "entry:E"), Steps(1, CALIBRATE, 0), CANCEL, SAME, VIOLATES).unrecordedTruth = true;
+        World i1Throw = a;
+        i1Throw.throwEntry = 2;
+        Scenario& t3 = Add(v, "r5#1", "i1d3, 4.2.2 doc on E, the select of E throws, -> plain, Calibrate, OK", i1Throw, V1Doc(Fcmm(), 2, "entry:E"), Steps(2, SET_DT, 0, CALIBRATE, 0), OK, SAME, VIOLATES);
+        t3.unrecordedTruth = true; t3.wantDisplayType = 0;
+        // r5#6: a setting changed that still fails, then Calibrate: one message.
+        Add(v, "r5#6", "DTP94 rejects the stored Display Type, Spectral Type changed, Calibrate, Cancel", dtpThrow, V1Doc(I3(), 2, "entry:E"), Steps(2, SET_OBS, 4, CALIBRATE, 0), CANCEL, SAME, VIOLATES).unrecordedTruth = true;
+        // r5#7: a throw after the step moved the Display Type (the record's entry found
+        // at another index, and that index rejected): the partial step is the same in
+        // both orders.
+        World movedThrow = moved;
+        movedThrow.throwEntry = 3;
+        Add(v, "r5#7", "entry E record, E moved to 3, the select of 3 throws, -> plain, OK", movedThrow, dtE, Steps(1, SET_DT, 0), OK, SAME, VIOLATES).wantDisplayType = 0;
+        // r5#2: two documents on one meter; the other one's failed start deleted the
+        // shared driver. This one's sheet is refused with a message, no dereference.
+        World dead2 = a;
+        dead2.wrapperDead = true;
+        Add(v, "r5#2", "another document's failed start deleted the driver, OK", dead2, fileOwn, Steps(0), OK, SAME, VIOLATES);
+        // r5#4: an in-sheet start that fails for the Spectral Type lets go of the meter;
+        // Browse is refreshed with the rest and cannot install a record nothing applies.
+        World obsFails = a;
+        obsFails.failObs = 4;
+        Add(v, "r5#4", "Spectral Type the meter fails on, Calibrate, Browse G, OK", obsFails, fileOwn, Steps(3, SET_OBS, 4, CALIBRATE, 0, BROWSE, 1), OK, DIFFERS, VIOLATES);
         // A Spyder's own browsed file, and an i1d3's: nothing changes in either order.
         Add(v, "-", "Spyder, its own browsed file, Calibrate, OK", sp, spyF, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
         Add(v, "-", "i1d3, its own browsed file, Calibrate, OK", a, fileOwn, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
@@ -5052,7 +5205,9 @@ namespace T45Order
         // The second invariant: no record says a correction is in force that nothing
         // applies - and what applies it is the record's own: its file's sample, or its
         // own Display Type entry (the driver of a meter whose matrices are not exposed).
-        if (e.s.rec.IsPresent() && e.s.rec.basis != FIT_BASIS_NATIVE)
+        // With no meter nothing is measured and nothing applies anything: the record
+        // is the document's, kept as it was (a failed start changes nothing).
+        if (!e.s.meterGone && e.s.rec.IsPresent() && e.s.rec.basis != FIT_BASIS_NATIVE)
         {
             const std::string want = e.s.rec.source == SPECTRAL_SOURCE_FILE ? e.s.rec.description
                                                                             : "entry:" + e.s.rec.description;
@@ -5071,15 +5226,28 @@ namespace T45Order
         // The record the readings went through stands (R4).
         if (!sc.wantRecord.empty() && e.s.rec.description != sc.wantRecord)
             out += " record-replaced";
+        // The setting the user changed in the sheet is applied (r5#1: a failed start
+        // must not lock the user out of the sheet that changes it).
+        if (sc.wantDisplayType >= 0 && e.s.displayType != sc.wantDisplayType)
+            out += " setting-not-applied";
         // Removing a record never forgets a correction the readings went through: a
         // driver-applied record that is gone leaves the readings marked as carrying an
         // unrecorded driver correction (r3#2).
         if (sc.d.s.rec.IsPresent() && sc.d.s.rec.basis == FIT_BASIS_DRIVER_CORRECTED && !e.s.rec.IsPresent()
          && !ReadingsCarryUnrecordedDriverCorrection(e.s.rec, e.s.fitBasis))
             out += " forgot-driver-correction";
-        // Nothing dereferences a lost meter (r4: a failed start).
+        // Nothing dereferences a lost meter and no throw escapes (r4, r5).
         if (e.crashed)
             out += " crash";
+        // With no meter no record can come to say a correction is in force (r5#4: Browse
+        // after the meter was lost would install one).
+        if (e.s.meterGone && e.s.rec.IsPresent() && e.s.rec != e.s.recAtLoss)
+            out += " record-installed-without-meter";
+        // One message per failure per user action; a refused sheet always says why (r5).
+        if (e.maxMessages > 1)
+            out += " several-messages";
+        if (e.refusedSilently)
+            out += " refused-silently";
         // A start that fails changes nothing: the sheet is refused, the next
         // measurement gets no data, and the correction state is the document's.
         if (sc.w.startFails && ( e.s.rec != sc.d.s.rec || e.s.path != sc.d.s.path || e.s.method != sc.d.s.method

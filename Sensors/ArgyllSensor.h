@@ -103,9 +103,11 @@ private:
     // user is told once, at EnforceRecordApplied, with what became of the record.
     bool        m_pathDropPending;
     CString     m_pathDroppedPath;
-    // The Init at the last BeginConfigure succeeded (Configure refuses the sheet
-    // when it did not).
-    bool        m_beginInitOk;
+    // The Init at the last BeginConfigure failed, said so, and let go of the meter:
+    // Configure refuses the sheet without a second message.
+    bool        m_beginInitAnnounced;
+    // The last Init failed (the page's Calibrate stops after a failed commit Init).
+    bool        m_lastInitFailed;
 
 public:
     CArgyllSensor();
@@ -146,9 +148,10 @@ public:
     virtual void BeginConfigure();
     virtual bool CorrectionChangedSinceBeginConfigure() const;
     virtual void CancelConfigure();
-    // FALSE, showing nothing, when there is no meter or the Init at BeginConfigure
-    // failed.
+    // FALSE, with a message, when there is no meter.
     virtual BOOL Configure();
+    bool LastInitFailed() const { return m_lastInitFailed; }
+    void ForgetInitFailure() { m_lastInitFailed = false; }
     // CancelConfigure without putting the snapshot's sample back into the driver:
     // the page's Clear, which then clears everything.
     void CancelConfigureBeforeClear();
@@ -177,9 +180,9 @@ private:
     // ccss/ccmx Display Type entry (leaving the driver on its base entry) or
     // re-derives a browsed sample for another unit/observer (see the .cpp).
     void SyncSpectralRecordFromMeter();
-    // A .ccss through SpectralSample::Read or a correlation .csv through
-    // createFromCorrelationCSV, by extension. False with the reason in `why`.
-    // One read of `path`, hashed and parsed from the same bytes (the path rule's input).
+    // One read of `path`, hashed and parsed from the same bytes (the path rule's input):
+    // a .ccss through SpectralSample::ReadBuffer, a correlation .csv through
+    // createFromCorrelationCSVText, by extension. False with the reason in `why`.
     static bool ReadPathFile(const CString& path, SpectralSample& ss, bool& hashed,
                              unsigned long long& hash, std::string& why);
     // Init's correction step (see the .cpp); Init and BeginConfigure run it.
@@ -190,6 +193,8 @@ private:
     BOOL InitBody(BOOL bForSimultaneousMeasures);
     // CancelConfigure and CancelConfigureBeforeClear.
     void RestoreSnapshot(bool reapplyDriverSample);
+    // Calibrate past its Init, inside its std::logic_error handler.
+    void CalibrateDevice();
     // The FILE-source fields of a record: source, description (the sample's display,
     // else its description, else m_spectralCorrectionDesc), file hash, observer and
     // meter serial. The caller sets the matrices and the basis. knownHash: the hash of
