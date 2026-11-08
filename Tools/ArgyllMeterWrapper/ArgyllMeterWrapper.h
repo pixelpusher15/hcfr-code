@@ -158,8 +158,9 @@ public:
     bool canExposeCalibrationMatrices() const;
     // True when one of this wrapper's own error boxes (init_inst, setting the observer
     // or the integration time, Set display type error, Calibration Failed!) was shown
-    // since clearErrorBoxShown: the failure that follows it has been told to the user,
-    // and the caller shows no second message for it.
+    // since clearErrorBoxShown for a failure it then returns or throws: that failure
+    // has been told to the user, and the caller shows no second message for it. A box
+    // with no failure after it (the inst_wrong_setup one) does not set it.
     bool errorBoxShown() const { return m_errorBoxShown; }
     void clearErrorBoxShown() { m_errorBoxShown = false; }
     // The instrument serial number ("" when the driver has none).

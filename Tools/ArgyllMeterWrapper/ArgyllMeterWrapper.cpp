@@ -546,9 +546,13 @@ void ArgyllMeterWrapper::setDisplayType(int displayMode)
         if(instCode != inst_ok)
         {
             MessageBox(NULL, m_meter->inst_interp_error(m_meter, instCode),"Set display type error",MB_OK);
-            m_errorBoxShown = true;
             if (instCode != inst_wrong_setup) //special case for ccmx without base type
+            {
+                // The box is this failure's message (errorBoxShown); after the
+                // inst_wrong_setup box no failure follows, so it sets nothing.
+                m_errorBoxShown = true;
                 throw std::logic_error("Set Display Type failed");
+            }
         }
     } 
 }

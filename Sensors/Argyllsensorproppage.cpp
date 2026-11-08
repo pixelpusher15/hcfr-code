@@ -412,6 +412,10 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
 
 void CArgyllSensorPropPage::RefreshSpectralStatus()
 {
+    // Calibrate needs a meter: with none, a click could only do nothing. Every page
+    // has the button, whether or not it has the spectral row below.
+    if ( m_pSensor != NULL && GetDlgItem(IDC_ARGYLL_CALIBRATE) != NULL )
+        GetDlgItem(IDC_ARGYLL_CALIBRATE)->EnableWindow( m_pSensor->HasMeter() );
     if ( m_pSensor == NULL || !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
         return;
     CString s, fmt;
@@ -461,9 +465,6 @@ void CArgyllSensorPropPage::RefreshSpectralStatus()
     // go of the meter it is disabled, or it would install a record nothing applies.
     if ( ::IsWindow(m_spectralBrowseBtn.GetSafeHwnd()) )
         m_spectralBrowseBtn.EnableWindow( m_pSensor->MeterSupportsSpectralSamples() );
-    // Calibrate needs a meter: with none, a click could only do nothing.
-    if ( GetDlgItem(IDC_ARGYLL_CALIBRATE) != NULL )
-        GetDlgItem(IDC_ARGYLL_CALIBRATE)->EnableWindow( m_pSensor->HasMeter() );
 }
 
 void CArgyllSensorPropPage::OnSpectralBrowse()

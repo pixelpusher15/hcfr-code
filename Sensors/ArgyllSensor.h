@@ -157,6 +157,7 @@ public:
     InitResult InitReporting(BOOL bForSimultaneousMeasures);
     // GetPropertiesSheetValues with the result of the Init a changed setting ran.
     InitResult CommitPageSettings();
+    bool PageDeviceSettingsDiffer(bool includeDebug) const;
     bool HasMeter() const { return m_meter != NULL; }
     // CancelConfigure without putting the snapshot's sample back into the driver:
     // the page's Clear, which then clears everything.

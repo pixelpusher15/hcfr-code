@@ -460,6 +460,19 @@ void CArgyllSensor::GetPropertiesSheetValues()
 
 // GetPropertiesSheetValues, with the result of the Init a changed setting runs
 // (INIT_OK when nothing needed one).
+// Whether the page's device settings differ from the sensor's (the ones an Init
+// starts the meter with; with includeDebug, the Debug checkbox too). An empty Display
+// Type combo (-1) is no choice.
+bool CArgyllSensor::PageDeviceSettingsDiffer(bool includeDebug) const
+{
+    const CArgyllSensorPropPage& pg = m_ArgyllSensorPropertiesPage;
+    return m_ReadingType != (UINT)pg.m_ReadingType || m_SpectralType != pg.m_SpectralType
+        || ( pg.m_DisplayType >= 0 && m_DisplayType != (UINT)pg.m_DisplayType )
+        || m_HiRes != pg.m_HiRes || m_intTime != (UINT)pg.m_intTime
+        || m_Adapt != pg.m_Adapt || m_DisableAIO != pg.m_DisableAIO
+        || ( includeDebug && m_debugMode != !!pg.m_DebugMode );
+}
+
 CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
 {
     COneDeviceSensor::GetPropertiesSheetValues();
@@ -468,17 +481,13 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
     // Settings the user changed since are not kept, and the user is told so.
     if ( m_meter == NULL )
     {
-        const CArgyllSensorPropPage& pg = m_ArgyllSensorPropertiesPage;
-        if ( m_ReadingType != (UINT)pg.m_ReadingType || m_SpectralType != pg.m_SpectralType
-          || ( pg.m_DisplayType >= 0 && m_DisplayType != (UINT)pg.m_DisplayType ) || m_HiRes != pg.m_HiRes
-          || m_intTime != (UINT)pg.m_intTime || m_Adapt != pg.m_Adapt || m_DisableAIO != pg.m_DisableAIO )
-        {
-            CString msg, title;
-            msg.LoadString ( IDS_ARGYLL_SETTINGS_NOT_KEPT );
-            title.LoadString ( IDS_ARGYLLSENSOR_PROPERTIES_TITLE );
-            GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
-        }
-        return INIT_FAILED_SILENT;
+        if ( !PageDeviceSettingsDiffer(true) )
+            return INIT_FAILED_SILENT;
+        CString msg, title;
+        msg.LoadString ( IDS_ARGYLL_SETTINGS_NOT_KEPT );
+        title.LoadString ( IDS_ARGYLLSENSOR_PROPERTIES_TITLE );
+        GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
+        return INIT_FAILED_ANNOUNCED;
     }
     InitResult result = INIT_OK;
     std::string meterName(m_meter->getMeterName());
@@ -497,18 +506,18 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
         GetConfig()->WriteProfileInt(meterName.c_str(), "DebugMode", m_debugMode?1:0);
     }
 
-    if(m_ReadingType != m_ArgyllSensorPropertiesPage.m_ReadingType ||
-        m_SpectralType != m_ArgyllSensorPropertiesPage.m_SpectralType ||
-        m_DisplayType != m_ArgyllSensorPropertiesPage.m_DisplayType ||
-        m_HiRes != m_ArgyllSensorPropertiesPage.m_HiRes ||
-        m_intTime != m_ArgyllSensorPropertiesPage.m_intTime ||
-		m_Adapt != m_ArgyllSensorPropertiesPage.m_Adapt ||
-		m_DisableAIO != m_ArgyllSensorPropertiesPage.m_DisableAIO)
+    if ( PageDeviceSettingsDiffer(false) )
     {
         SetModifiedFlag(TRUE);
         // A Display Type chosen in the sheet: the Init below may drop a Display Type
         // correction with it (SyncSpectralRecordFromMeter); a load never does.
         const bool displayTypeChanged = ( m_DisplayType != m_ArgyllSensorPropertiesPage.m_DisplayType );
+        // The settings the meter last started with: put back when the meter rejects
+        // the new ones, so neither the sensor (and the document it is saved with) nor
+        // the INI keeps a setting that cannot start the meter.
+        const UINT oldReadingType = m_ReadingType, oldIntTime = m_intTime, oldDisplayType = m_DisplayType;
+        const CString oldSpectralType = m_SpectralType;
+        const BOOL oldHiRes = m_HiRes, oldAdapt = m_Adapt, oldDisableAIO = m_DisableAIO;
         m_ReadingType=m_ArgyllSensorPropertiesPage.m_ReadingType;
         m_SpectralType=m_ArgyllSensorPropertiesPage.m_SpectralType;
         m_DisplayType=m_ArgyllSensorPropertiesPage.m_DisplayType;
@@ -517,16 +526,32 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
         m_Adapt=m_ArgyllSensorPropertiesPage.m_Adapt;
         m_DisableAIO=m_ArgyllSensorPropertiesPage.m_DisableAIO;
 
-        GetConfig()->WriteProfileInt(meterName.c_str(), "ReadingType", m_ReadingType );
-        GetConfig()->WriteProfileString(meterName.c_str(), "SpectralType", m_SpectralType );
-        GetConfig()->WriteProfileInt(meterName.c_str(), "IntTime", m_intTime );
-        GetConfig()->WriteProfileInt(meterName.c_str(), "DisplayType", m_DisplayType );
-        GetConfig()->WriteProfileInt(meterName.c_str(), "HiRes", m_HiRes );
-        GetConfig()->WriteProfileInt(meterName.c_str(), "Adapt", m_Adapt );
-        GetConfig()->WriteProfileInt(meterName.c_str(), "DisableAIO", m_DisableAIO );
         m_displayTypeChangedInSheet = displayTypeChanged;
         result = InitReporting(TRUE);
         m_displayTypeChangedInSheet = false;
+        if ( result == INIT_OK )
+        {
+            // The meter started with them: they are the settings for new documents.
+            GetConfig()->WriteProfileInt(meterName.c_str(), "ReadingType", m_ReadingType );
+            GetConfig()->WriteProfileString(meterName.c_str(), "SpectralType", m_SpectralType );
+            GetConfig()->WriteProfileInt(meterName.c_str(), "IntTime", m_intTime );
+            GetConfig()->WriteProfileInt(meterName.c_str(), "DisplayType", m_DisplayType );
+            GetConfig()->WriteProfileInt(meterName.c_str(), "HiRes", m_HiRes );
+            GetConfig()->WriteProfileInt(meterName.c_str(), "Adapt", m_Adapt );
+            GetConfig()->WriteProfileInt(meterName.c_str(), "DisableAIO", m_DisableAIO );
+        }
+        else
+        {
+            // Rejected (the start's failure has been shown): not kept, here or in
+            // the INI, so a restart starts the meter with what last worked.
+            m_ReadingType = oldReadingType;
+            m_SpectralType = oldSpectralType;
+            m_intTime = oldIntTime;
+            m_DisplayType = oldDisplayType;
+            m_HiRes = oldHiRes;
+            m_Adapt = oldAdapt;
+            m_DisableAIO = oldDisableAIO;
+        }
     }
     return result;
 }
@@ -1812,9 +1837,22 @@ void CArgyllSensor::RestoreSnapshot(bool reapplyDriverSample)
     }
 }
 
+// A reading that fails says so (SetMeasureValidity(FALSE), with the reason as the
+// error string): every sweep and the continuous thread test IsMeasureValid - a
+// sweep shows its Abort/Retry/Ignore box and stores nothing, the continuous thread
+// ends - instead of storing the clamped noDataColor as a reading. Each reading
+// starts valid.
 CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int displaymode)
 {
-    if(!m_meter) if(!Init(FALSE)) return noDataColor;
+    SetMeasureValidity(TRUE);
+    if(!m_meter) if(!Init(FALSE))
+    {
+        CString why;
+        why.LoadString ( IDS_ARGYLL_METER_UNAVAILABLE );
+        SetErrorString ( why );
+        SetMeasureValidity(FALSE);
+        return noDataColor;
+    }
     ArgyllMeterWrapper::eMeterState state(ArgyllMeterWrapper::NEEDS_MANUAL_CALIBRATION);
     while(state != ArgyllMeterWrapper::READY)
     {
@@ -1822,17 +1860,24 @@ CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int
         {
             state = m_meter->takeReading(m_SpectralType);
         }
-        catch(std::logic_error&)
+        catch(std::logic_error& e)
         {
+            SetErrorString ( CString(e.what()) );
+            SetMeasureValidity(FALSE);
             return noDataColor;
         }
         // A calibration that fails ends the reading: retrying it would loop through
-        // the same modal boxes for as long as it keeps failing, and a Calibrate whose
-        // Init let go of the meter leaves nothing to read from.
+        // the same modal boxes for as long as it keeps failing.
         if(state == ArgyllMeterWrapper::NEEDS_MANUAL_CALIBRATION)
         {
-            if ( !Calibrate() || m_meter == NULL )
+            if ( !Calibrate() )
+            {
+                CString why;
+                why.LoadString ( IDS_ARGYLL_CALIBRATION_FAILED );
+                SetErrorString ( why );
+                SetMeasureValidity(FALSE);
                 return noDataColor;
+            }
         }
         if(state == ArgyllMeterWrapper::INCORRECT_POSITION)
         {
@@ -1874,11 +1919,13 @@ namespace
     {
         bool shown;
         TestWindowGuard() : shown(false) {}
-        ~TestWindowGuard()
+        void Hide()
         {
             if ( shown )
                 ( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.ShowWindow(SW_HIDE);
+            shown = false;
         }
+        ~TestWindowGuard() { Hide(); }
     };
 }
 
@@ -1929,6 +1976,7 @@ bool CArgyllSensor::CalibrateDevice()
 	        GetColorApp()->InMeasureMessageBox( meterInstructions.c_str(), "Calibration Instructions", MB_OK);
 
 		state = m_meter->calibrate();
+		testWindow.Hide();      // as soon as the device is done, before any box below
 
         if(state == ArgyllMeterWrapper::INCORRECT_POSITION)
         {
