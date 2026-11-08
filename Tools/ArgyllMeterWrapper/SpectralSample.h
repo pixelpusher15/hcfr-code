@@ -57,7 +57,7 @@ public:
 	bool createFromCorrelationCSV(const std::string& csvPath);
 	// The same two readers on bytes already read from `samplePath` / `csvPath` (the
 	// path only names the sample), so a caller can hash and parse one read.
-	bool ReadBuffer(const unsigned char* buf, size_t len, const std::string& samplePath);
+	bool ReadBuffer(unsigned char* buf, size_t len, const std::string& samplePath);
 	bool createFromCorrelationCSVText(const std::string& text, const std::string& csvPath);
 
     // Get information about the sample. Currently we're only using getDescription()

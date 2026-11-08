@@ -32,7 +32,6 @@
 #include "../Generators/GDIGenerator.h"
 #include "../MainFrm.h"
 #include <math.h>
-#include <map>
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -172,14 +171,6 @@ static void WarnRecordNotAppliedOnce(UINT id, const std::string& description, co
     GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
 }
 
-// Which sensor last started each meter, and so whose settings the driver holds
-// (several documents can share one meter). See DriverStartedForThisSensor.
-static std::map<const ArgyllMeterWrapper*, const CArgyllSensor*>& DriverStartedBy()
-{
-    static std::map<const ArgyllMeterWrapper*, const CArgyllSensor*> s_startedBy;
-    return s_startedBy;
-}
-
 namespace
 {
     // printf-style front end to ArgyllLogMessage (the Argyll debug log)
@@ -219,8 +210,7 @@ CArgyllSensor::CArgyllSensor() :
     m_pathCheckedHash = 0;
     m_spectralCacheHash = 0;
     m_pathDropPending = false;
-    m_startStateDone = true;
-    m_startedValid = false;
+    m_beginInitOk = true;
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
     m_pDevicePage = & m_ArgyllSensorPropertiesPage;  // Add Argyll settings page to property sheet
@@ -267,8 +257,7 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
     m_pathCheckedHash = 0;
     m_spectralCacheHash = 0;
     m_pathDropPending = false;
-    m_startStateDone = true;
-    m_startedValid = false;
+    m_beginInitOk = true;
 
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
@@ -294,7 +283,6 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
 CArgyllSensor::~CArgyllSensor()
 {
     // we don't own the meter don't delete it
-    ForgetDriverStart();
 
     delete m_spectralSamples;
 
@@ -457,18 +445,11 @@ void CArgyllSensor::SetPropertiesSheetValues()
 
 void CArgyllSensor::GetPropertiesSheetValues()
 {
-    // A setting to commit or a matrix typed in changes the correction: the
-    // measurement-start state comes first, with the settings not yet committed.
-    {
-        const CArgyllSensorPropPage& pg = m_ArgyllSensorPropertiesPage;
-        const UINT pageDisplayType = ( pg.m_DisplayType < 0 ) ? m_DisplayType : (UINT)pg.m_DisplayType;
-        if ( m_SensorPropertiesPage.GetMatrix() != m_sheetMatrixShown
-          || m_ReadingType != pg.m_ReadingType || m_SpectralType != pg.m_SpectralType
-          || m_DisplayType != pageDisplayType || m_HiRes != pg.m_HiRes || m_intTime != pg.m_intTime
-          || m_Adapt != pg.m_Adapt || m_DisableAIO != pg.m_DisableAIO )
-            EnsureMeasurementStartState();
-    }
     COneDeviceSensor::GetPropertiesSheetValues();
+    // An Init in this sheet failed and let go of the meter: nothing to commit the
+    // device settings to (and the registry keys are per meter name).
+    if ( m_meter == NULL )
+        return;
     std::string meterName(m_meter->getMeterName());
 
     // An empty Display Type combo (an i1d3 with its diffuser over the sensor lists
@@ -524,10 +505,23 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
     // start, and every call past here would dereference it.
     if ( m_meter == NULL )
         return FALSE;
-    // Inside the sheet the measurement-start state is established before the first
-    // Init the sheet runs (BeginConfigure, or EnsureMeasurementStartState before a
-    // setting is committed): this Init only follows the user's settings.
-    ASSERT( !InSensorSheet() || m_startStateDone );
+    // A std::logic_error from the wrapper or the driver (a Display Type select that
+    // fails, a meter that went away mid-start) is a failed Init: shown, and FALSE.
+    // No caller - an MFC command handler, the sheet's BeginConfigure, a measurement
+    // start - catches it, and uncaught it terminates the application.
+    try
+    {
+        return InitBody(bForSimultaneousMeasures);
+    }
+    catch ( std::logic_error & e )
+    {
+        GetColorApp()->InMeasureMessageBox( e.what(), "Argyll Meter", MB_OK+MB_ICONHAND);
+        return FALSE;
+    }
+}
+
+BOOL CArgyllSensor::InitBody( BOOL bForSimultaneousMeasures )
+{
     std::string errorDescription;
     double i_time=0.0;
 
@@ -556,7 +550,6 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
     if(!m_meter->connectAndStartMeter(errorDescription, (ArgyllMeterWrapper::eReadingType)m_ReadingType, m_SpectralType, CArgyllSensor::isInDebugMode(), i_time, ((m_DisplayType == 1) || CArgyllSensor::isRefresh()) && !(m_DisplayType == 0)  ) )
     {
         GetColorApp()->InMeasureMessageBox( errorDescription.c_str(), "Argyll Meter", MB_OK+MB_ICONHAND);
-        ForgetDriverStart();
         m_meter = 0;
         return FALSE;
     }
@@ -584,25 +577,21 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
             m_ReadingType = m_meter->getReadingType();
         }
     }
-    // The driver now holds this sensor's settings (the reading type the meter fell
-    // back to included): DriverStartedForThisSensor.
-    RememberDriverStart();
     return TRUE;
 }
 
 // Init's correction step: everything Init does to the spectral correction state
 // once the driver is started - the Display Type repair and lookup, the conversion
 // for a meter whose matrices are not exposed, the path rule, the re-apply,
-// SyncSpectralRecordFromMeter, EnforceRecordApplied, and the booking. It talks to
-// the driver only through calls that compute on the host from data the start read
-// (set_disptype -> i1d3_set_cal / spyd2_set_cal, the sample loads, the matrix
-// read-outs; i1d3.c, spyd2.c): no instrument transaction, no connect, no mode set.
-// It runs at every measurement start (Init) and at the sensor sheet's
-// BeginConfigure when the driver is already started for this sensor, before the
-// snapshot - so the sheet starts from the state a measurement would have left, and
-// its walk and Cancel see only what the user changes. A change it makes outside the
-// sheet has no walk after it and is booked for the raw-less readings at the end
-// (EffectiveChangedWithoutWalk); inside the sheet the sheet accounts for it.
+// SyncSpectralRecordFromMeter, EnforceRecordApplied, and the booking. Init runs it
+// at every measurement start and at the sensor sheet's BeginConfigure, before the
+// snapshot and the page fill - so the sheet starts from the state a measurement
+// would have left, and its walk and Cancel see only what the user changes. A
+// change it makes outside the sheet has no walk after it and is booked for the
+// raw-less readings at the end (EffectiveChangedWithoutWalk); inside the sheet the
+// sheet accounts for it. Its Display Type select is a device command on some meters
+// (the DTP94's set_disp_type writes to the instrument, dtp92.c); a failure there
+// throws, and Init turns it into a failed Init.
 void CArgyllSensor::ApplyCorrectionStep()
 {
     // A -1 display type (stored by builds that let an empty combo through, in the
@@ -854,11 +843,14 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     if ( filePath.IsEmpty() )
         return false;
 
-    // Read (and validate) the file first, so we don't prompt then fail.
+    // Read (and validate) the file first, so we don't prompt then fail. One read:
+    // the record's hash is the hash of the bytes parsed (ReadPathFile).
     SpectralSample ss;
+    unsigned long long fileHash = 0;
+    bool fileHashed = false;
     {
         std::string why;
-        if ( !ReadSpectralFile(filePath, ss, why) )
+        if ( !ReadPathFile(filePath, ss, fileHashed, fileHash, why) )
         {
             CString sTitle; sTitle.LoadString( IDS_SPECTRAL_TITLE );
             GetColorApp()->InMeasureMessageBox( why.c_str(), sTitle, MB_OK+MB_ICONHAND );
@@ -928,7 +920,7 @@ bool CArgyllSensor::ApplySpectralCorrection(const CString& filePath)
     // with the driver native (and a driver-applied sample is replaced, not added
     // to), so corrections cannot stack.
     SpectralCorrectionRecord record;
-    MakeFileRecord(filePath, &ss, record);
+    MakeFileRecord(filePath, &ss, record, fileHashed ? &fileHash : NULL);
     if ( exposable )
     {
         record.nativeCal = native;
@@ -978,8 +970,8 @@ void CArgyllSensor::ClearSpectralCorrection()
 }
 
 // One read of the file at `path`: the bytes are hashed (hashed/hash: the file could
-// be read) and those same bytes are parsed (the return value), as ReadSpectralFile
-// would parse them. The path rule (KeepPathIfRecordFile) is then applied to the
+// be read) and those same bytes are parsed (the return value): a correlation .csv
+// or a .ccss, by extension. The path rule (KeepPathIfRecordFile) is then applied to the
 // hash of exactly what is used.
 bool CArgyllSensor::ReadPathFile(const CString& path, SpectralSample& ss, bool& hashed,
                                  unsigned long long& hash, std::string& why)
@@ -1015,26 +1007,6 @@ bool CArgyllSensor::ReadPathFile(const CString& path, SpectralSample& ss, bool& 
             ok = ss.createFromCorrelationCSVText(std::string(bytes.begin(), bytes.end()), (LPCSTR)path);
         else
             ok = !bytes.empty() && ss.ReadBuffer(&bytes[0], bytes.size(), (LPCSTR)path);
-        if ( !ok )
-            why = "Could not read the selected spectral correction file.";
-        return ok;
-    }
-    catch ( std::logic_error & e )
-    {
-        why = e.what();
-        return false;
-    }
-}
-
-bool CArgyllSensor::ReadSpectralFile(const CString& path, SpectralSample& ss, std::string& why)
-{
-    why.clear();
-    try
-    {
-        CString ext = path.Right(4); ext.MakeLower();
-        bool ok = ( ext == ".csv" )
-            ? ss.createFromCorrelationCSV((LPCSTR)path)
-            : ss.Read((LPCSTR)path);
         if ( !ok )
             why = "Could not read the selected spectral correction file.";
         return ok;
@@ -1262,53 +1234,6 @@ void CArgyllSensor::EnforceRecordApplied(bool driverAppliedRecord)
         arg2 = droppedPath;
     }
     WarnRecordNotAppliedOnce ( id, description, arg2 );
-}
-
-// The driver was started by this sensor's last Init, with the settings this sensor
-// still has: the wrapper's instrument is initialized (connectAndStartMeter
-// succeeded), no other sensor (another document on the same meter) has started it
-// since, and no setting it was started with has changed (a Cancel puts back
-// settings the page's Calibrate had committed and started the driver with). Then
-// the driver holds exactly what a measurement's Init would leave in it, and Init's
-// correction step can run on it without starting it again.
-bool CArgyllSensor::DriverStartedForThisSensor() const
-{
-    if ( m_meter == NULL || !m_startedValid )
-        return false;
-    std::map<const ArgyllMeterWrapper*, const CArgyllSensor*>& by = DriverStartedBy();
-    std::map<const ArgyllMeterWrapper*, const CArgyllSensor*>::const_iterator it = by.find(m_meter);
-    return it != by.end() && it->second == this
-        && m_startedReadingType == m_ReadingType && m_startedSpectralType == m_SpectralType
-        && m_startedIntTime == m_intTime && m_startedHiRes == m_HiRes && m_startedAdapt == m_Adapt
-        && m_startedDisableAIO == m_DisableAIO && m_startedDisplayType == m_DisplayType
-        && m_startedDebugMode == m_debugMode;
-}
-
-void CArgyllSensor::RememberDriverStart()
-{
-    DriverStartedBy()[m_meter] = this;
-    m_startedValid = true;
-    m_startedReadingType = m_ReadingType;
-    m_startedSpectralType = m_SpectralType;
-    m_startedIntTime = m_intTime;
-    m_startedHiRes = m_HiRes;
-    m_startedAdapt = m_Adapt;
-    m_startedDisableAIO = m_DisableAIO;
-    m_startedDisplayType = m_DisplayType;
-    m_startedDebugMode = m_debugMode;
-}
-
-void CArgyllSensor::ForgetDriverStart()
-{
-    m_startedValid = false;
-    std::map<const ArgyllMeterWrapper*, const CArgyllSensor*>& by = DriverStartedBy();
-    for ( std::map<const ArgyllMeterWrapper*, const CArgyllSensor*>::iterator it = by.begin(); it != by.end(); )
-    {
-        if ( it->second == this || it->first == m_meter )
-            it = by.erase(it);
-        else
-            ++it;
-    }
 }
 
 bool CArgyllSensor::DisplayTypeRecordIsCurrent()
@@ -1646,35 +1571,22 @@ bool CArgyllSensor::CorrectionChangedSinceBeginConfigure() const
 // for the raw-less readings (EffectiveChangedWithoutWalk); inside the sheet, the
 // sheet's OK would walk it as if the user had made it, and its Cancel and the page's
 // Clear would undo it. So the measurement-start Init runs here, with that
-// bookkeeping, before the snapshot: the snapshot already holds its result, every
-// sequence in the sheet starts from the state a measurement would have left, and
-// the sheet's walk and Cancel see only the user's changes - the same result
-// whichever came first, a measurement or the sheet. An Init in the sheet then
-// changes the correction only for a setting the user changed there.
-// The measurement-start state is established without starting anything:
-//   - the driver is already started for this sensor (DriverStartedForThisSensor):
-//     Init's correction step runs here on it (ApplyCorrectionStep: no connect, no
-//     mode set, no instrument transaction, no meter dialog), booked as at a
-//     measurement since the sheet is not up yet, and the snapshot follows;
-//   - it is not (a document just opened, another document started the shared meter
-//     since, a Cancel put back other settings): nothing runs here. The step is
-//     owed, and EnsureMeasurementStartState pays it before the first thing in the
-//     sheet that could change the correction (a setting committed, Calibrate,
-//     Browse, Clear, a matrix typed in): the Init a measurement would have run,
-//     with the settings the sheet opened on, booked outside the sheet, then the
-//     snapshot and the walk baseline are taken again. A sheet that changes nothing
-//     owes nothing: its OK walks nothing, and the next measurement's Init runs the
-//     same step outside any sheet - the result a measurement-first order gives.
+// bookkeeping, before the snapshot and before the page is filled
+// (SetPropertiesSheetValues, in Configure): the page, the snapshot and the walk
+// baseline all hold its result, every sequence in the sheet starts from the state
+// a measurement would have left, and the sheet's walk and Cancel see only the
+// user's changes - the same result whichever came first, a measurement or the
+// sheet. An Init in the sheet then changes the correction only for a setting the
+// user changed there.
+// This is the start the page itself would make: on main, filling the page already
+// starts an unstarted meter (SetPropertiesSheetValues and the combo fill reach
+// checkMeterIsInitialized -> connectAndStartMeter). Here it is the start a
+// measurement makes, with this sensor's settings, and its failure is handled: a
+// failed Init (its message shown once, by Init) refuses the sheet (Configure).
 void CArgyllSensor::BeginConfigure()
 {
-    m_startStateDone = false;
-    if ( DriverStartedForThisSensor() )
-    {
-        ApplyCorrectionStep();
-        m_startStateDone = true;
-    }
-    CSensor::BeginConfigure();
-    m_cfgSnapSpectralPath = m_spectralCorrectionPath;
+    m_beginInitOk = ( m_meter != NULL ) && Init(FALSE);
+    CSensor::BeginConfigure();    m_cfgSnapSpectralPath = m_spectralCorrectionPath;
     m_cfgSnapSpectralDesc = m_spectralCorrectionDesc;
     m_cfgSnapDisplayType  = m_DisplayType;
     m_cfgSnapReadingType  = m_ReadingType;
@@ -1688,46 +1600,14 @@ void CArgyllSensor::BeginConfigure()
 }
 
 // The page reads the meter throughout (SetPropertiesSheetValues, the combo fills):
-// with none - the Init at BeginConfigure failed and said why - there is no sheet to
-// show, and the caller treats it as a Cancel.
+// with no meter, or after the Init at BeginConfigure failed (it said why), there is
+// no sheet to show, and the caller treats it as a Cancel (CancelConfigure restores
+// nothing that Init changed: it failed before or inside its correction step).
 BOOL CArgyllSensor::Configure()
 {
-    if ( m_meter == NULL )
+    if ( m_meter == NULL || !m_beginInitOk )
         return FALSE;
-    const BOOL ok = COneDeviceSensor::Configure();
-    m_startStateDone = true;        // nothing is owed outside a sheet
-    return ok;
-}
-
-// The measurement-start Init the sheet did not run at BeginConfigure (the driver
-// was not started for this sensor), run before the first change in the sheet. The
-// sheet's settings are still the ones it opened on (callers run this before they
-// commit anything), so this is the Init a measurement would have run; it is booked
-// as one (outside the sheet), and the snapshot and the walk baseline are taken
-// again from its result, so the sheet's walk and Cancel see only the user's
-// changes. Once per sheet.
-void CArgyllSensor::EnsureMeasurementStartState()
-{
-    if ( m_startStateDone )
-        return;
-    m_startStateDone = true;
-    if ( m_meter == NULL )
-        return;
-    const bool inSheet = m_inSensorSheet;
-    m_inSensorSheet = false;
-    Init(FALSE);
-    m_inSensorSheet = inSheet;
-    // That Init can move the Display Type (a record's entry found by its text at
-    // another index, or gone): a page selection the user left as the sheet showed
-    // it follows the member, so the stale index is not committed as a choice; one
-    // the user changed stays the user's. The page updates its controls from it.
-    if ( m_ArgyllSensorPropertiesPage.m_DisplayType == (int)m_cfgSnapDisplayType )
-        m_ArgyllSensorPropertiesPage.m_DisplayType = (int)m_DisplayType;
-    m_cfgSnapDisplayType = m_DisplayType;
-    CSensor::BeginConfigure();
-    SetSensorMatrixMod( GetEffectiveMatrix() );
-    m_cfgSnapSpectralPath = m_spectralCorrectionPath;
-    m_cfgSnapSpectralDesc = m_spectralCorrectionDesc;
+    return COneDeviceSensor::Configure();
 }
 
 // A spectral apply (or clear) from the property page committed before the
@@ -1735,6 +1615,20 @@ void CArgyllSensor::EnsureMeasurementStartState()
 // and the meter itself where connected. Errors pushing to the meter are
 // non-fatal: the restored path is re-applied by Init() on every connect.
 void CArgyllSensor::CancelConfigure()
+{
+    RestoreSnapshot(true);
+}
+
+// The page's Clear: back to the sheet's opening state, then everything is cleared,
+// so the snapshot's sample is not put back into the driver first - its re-apply
+// could only warn about a path the Clear discards, and use up that warning's
+// once-per-session flag.
+void CArgyllSensor::CancelConfigureBeforeClear()
+{
+    RestoreSnapshot(false);
+}
+
+void CArgyllSensor::RestoreSnapshot(bool reapplyDriverSample)
 {
     // The snapshot's sample goes back into the driver the way Init's re-apply puts
     // it there (ReapplyPathSample, the path rule included), once the record it is
@@ -1757,7 +1651,7 @@ void CArgyllSensor::CancelConfigure()
         m_spectralCorrectionPath = m_cfgSnapSpectralPath;
         m_spectralCorrectionDesc = m_cfgSnapSpectralDesc;
         m_spectralCacheValid = false;
-        restoreDriverSample = ( !m_cfgSnapSpectralPath.IsEmpty() && !exposable && m_meter != NULL );
+        restoreDriverSample = ( reapplyDriverSample && !m_cfgSnapSpectralPath.IsEmpty() && !exposable && m_meter != NULL );
     }
 
     // The device settings the page's Calibrate button committed mid-sheet
@@ -1862,6 +1756,10 @@ CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int
 
 void CArgyllSensor::Calibrate()
 {
+    // No meter: an earlier Init failed, let go of it and said why. Nothing to
+    // calibrate, and no second message for the same failure.
+    if ( m_meter == NULL )
+        return;
     if(!Init(FALSE)) {
         GetColorApp()->InMeasureMessageBox( "Meter failed init check","Meter initialization error",MB_OK);
         return;
@@ -1930,6 +1828,9 @@ void CArgyllSensor::GetUniqueIdentifier( CString & strId )
 
 void CArgyllSensor::FillDisplayTypeCombo(CComboBox& comboToFill)
 {
+    // No meter: an Init in the sheet failed and let go of it. Nothing to list.
+    if ( m_meter == NULL )
+        return;
 
     int numDisplayTypes(m_meter->getNumberOfDisplayTypes());
 
@@ -1944,6 +1845,8 @@ void CArgyllSensor::FillDisplayTypeCombo(CComboBox& comboToFill)
 
 void CArgyllSensor::FillSpectralTypeCombo(CComboBox& comboToFill)
 {
+    if ( m_meter == NULL )
+        return;
     int numObTypes(m_meter->getNumberOfObTypes());
 
     comboToFill.ResetContent();

@@ -4164,22 +4164,21 @@ static void RunT43()
 // ReadingsCarryUnrecordedDriverCorrection, EffectiveChangedWithoutWalk,
 // SpectralRecordFromPathFile, SpectralRecordApplied, SpectralClearAllowed,
 // PlainDisplayTypeEntry, RawlessReadingsState) in the app's order:
-//   Init         - CArgyllSensor::Init: the start (connectAndStartMeter, counted as
-//                  device I/O), then ApplyCorrectionStep: the Display Type lookup by
+//   Init         - CArgyllSensor::Init: the start (connectAndStartMeter, which can
+//                  fail and let go of the meter), then ApplyCorrectionStep: the Display Type lookup by
 //                  text, the entry the driver is put on, the conversion for a meter
 //                  whose matrices are not exposed, the path rule, the re-apply,
 //                  SyncSpectralRecordFromMeter's branches (R5 included),
 //                  EnforceRecordApplied, the booking outside the sheet.
-//   Sheet        - CDataSetDoc::OnConfigureSensor: BeginConfigure (the step on a
-//                  driver already started for this sensor, with no device I/O;
-//                  otherwise owed to EnsureMeasurementStartState), the walk
-//                  baseline, the page's steps (Display Type, Spectral Type,
-//                  Calibrate, Clear - enabled as the page last refreshed it), OK or
-//                  Cancel, and the walk of the stored readings.
+//   Sheet        - CDataSetDoc::OnConfigureSensor: BeginConfigure (the
+//                  measurement-start Init, before the page is filled; a failed one
+//                  refuses the sheet), the walk baseline, the page's steps (Display
+//                  Type, Spectral Type, Calibrate, Clear - enabled as the page last
+//                  refreshed it), OK or Cancel, and the walk of the stored readings.
 // Every scenario of the #256 reviews runs in three orders - measurement first,
 // sheet first, and a Calibrate-then-Cancel sheet first - with OK, Cancel and Clear,
 // and the orders must end identical. Each scenario also runs in main's order (no
-// step at BeginConfigure, nothing booked at a measurement, none of the rules), where
+// Init at BeginConfigure, nothing booked at a measurement, none of the rules), where
 // the reviews say it differs or breaks an invariant: the harness asserts that it
 // does, so it is shown to detect the defect. (a) is that table; (b)-(h) pin the
 // rules as tables. Readings are column vectors (the correction acts first).
@@ -4227,10 +4226,11 @@ namespace T45Order
     {
         bool exposed;                   // canExposeCalibrationMatrices (the i1d3)
         bool holdsSamples;              // doesMeterSupportSpectralSamples (inst2_ccss)
+        bool startFails;                // connectAndStartMeter fails (meter unplugged)
         std::string serial;
         std::vector<Entry> list;
         std::vector<DiskFile> disk;
-        World() : exposed(true), holdsSamples(true), serial("A") {}
+        World() : exposed(true), holdsSamples(true), startFails(false), serial("A") {}
         const DiskFile* File(const std::string& path) const
         {
             for (size_t i = 0; i < disk.size(); ++i)
@@ -4277,19 +4277,15 @@ namespace T45Order
         bool pathCheckedValid; std::string pathCheckedPath; unsigned long long pathCheckedHash;
         bool pathDropPending;
         bool entryMissing;                  // m_displayTypeRecordEntryMissing
-        bool startedValid; int startedDT, startedObs;   // RememberDriverStart
-        bool startStateDone;
+        bool meterGone;                     // a failed Init set m_meter = 0
         bool inSheet;
         bool uiClear;                       // the Clear button as the page last refreshed it
-        int deviceStarts;                   // connectAndStartMeter calls
         Sensor() : method(CALIB_HCFR_DEFAULT), fitBasis(FIT_BASIS_NATIVE), matrix(I3()), displayType(0),
                    observer(3), driverObserver(3), driverEntry(-1), dtBaseFor(-1), cacheValid(false), pathCheckedValid(false),
-                   pathCheckedHash(0), pathDropPending(false), entryMissing(false), startedValid(false),
-                   startedDT(-1), startedObs(-1), startStateDone(true), inSheet(false), uiClear(false),
-                   deviceStarts(0) {}
+                   pathCheckedHash(0), pathDropPending(false), entryMissing(false), meterGone(false),
+                   inSheet(false), uiClear(false) {}
         Matrix Effective() const { return EffectiveSensorMatrix(method, fitBasis, rec, matrix); }
         bool UsesSpectral() const { return method == CALIB_SPECTRAL_SAMPLE; }
-        bool Started() const { return startedValid && startedDT == displayType && startedObs == observer; }
     };
 
     // One raw-less reading (no raw value: 4.2.2 and earlier, or edited) and,
@@ -4303,9 +4299,9 @@ namespace T45Order
         Matrix raw, rawValue;
         Matrix unrecorded;
         std::vector<int> clearAllowed;      // what the page's Clear did, each time it was pressed
-        bool beginConfigureStarted;         // a BeginConfigure started the driver
+        bool crashed;                       // main: the page dereferenced a lost meter
         Doc() : rawless(Native()), hasRaw(false), raw(Native()), rawValue(Native()), unrecorded(I3()),
-                beginConfigureStarted(false) {}
+                crashed(false) {}
     };
 
     // The order a session runs in. Branch: the step at BeginConfigure on a started
@@ -4572,20 +4568,24 @@ namespace T45Order
     }
 
     // CArgyllSensor::Init: the start, then the step.
-    static void Init(Doc& d, const World& w, const Structure& st, bool dtChanged)
+    static bool Init(Doc& d, const World& w, const Structure& st, bool dtChanged)
     {
         Sensor& s = d.s;
-        ++s.deviceStarts;
+        if (s.meterGone)
+            return false;                           // the NULL guard
+        if (w.startFails)
+        {
+            s.meterGone = true;                     // m_meter = 0
+            return false;
+        }
         s.driverObserver = s.observer;
         Step(d, w, st, dtChanged);
-        s.startedValid = true;
-        s.startedDT = s.displayType;
-        s.startedObs = s.observer;
+        return true;
     }
 
     // The CSensor + CArgyllSensor snapshot, and CancelConfigure.
     struct Snap { Sensor s; };
-    static void Cancel(Sensor& s, const World& w, const Structure& st, const Snap& snap)
+    static void Cancel(Sensor& s, const World& w, const Structure& st, const Snap& snap, bool reapply)
     {
         bool restoreSample = false;
         if (s.path != snap.s.path)
@@ -4594,7 +4594,7 @@ namespace T45Order
                 s.driverSample.clear();
             s.path = snap.s.path;
             s.cacheValid = false;
-            restoreSample = !s.path.empty() && !w.exposed;
+            restoreSample = reapply && !s.path.empty() && !w.exposed;
         }
         s.displayType = snap.s.displayType;
         s.observer = snap.s.observer;
@@ -4643,31 +4643,10 @@ namespace T45Order
         s.uiClear = ClearAllowed(s, w, st);
     }
 
-    // EnsureMeasurementStartState: the step a sheet opened on an unstarted driver owes.
-    // A page Display Type the user left as the sheet showed it follows what that
-    // Init did to the member (the lookup by text); one the user chose stays.
-    static void Ensure(Doc& d, const World& w, const Structure& st, Snap& snap, Matrix& mod, int& pageDT)
-    {
-        Sensor& s = d.s;
-        if (!st.presync || s.startStateDone)
-            return;
-        s.startStateDone = true;
-        s.inSheet = false;
-        Init(d, w, st, false);
-        s.inSheet = true;
-        if (pageDT == snap.s.displayType)
-            pageDT = s.displayType;
-        snap.s = s;
-        mod = s.Effective();
-    }
-
     // GetPropertiesSheetValues: a changed setting is committed and re-inits.
-    static void Commit(Doc& d, const World& w, const Structure& st, Snap& snap, Matrix& mod, int pageDT, int pageObs)
+    static void Commit(Doc& d, const World& w, const Structure& st, int pageDT, int pageObs)
     {
-        if (pageDT == d.s.displayType && pageObs == d.s.observer)
-            return;
-        Ensure(d, w, st, snap, mod, pageDT);
-        if (pageDT == d.s.displayType && pageObs == d.s.observer)
+        if (d.s.meterGone || ( pageDT == d.s.displayType && pageObs == d.s.observer ))
             return;
         const bool dtChanged = ( pageDT != d.s.displayType );
         d.s.displayType = pageDT;
@@ -4679,20 +4658,22 @@ namespace T45Order
     static void Sheet(Doc& d, const World& w, const Structure& st, const std::vector<Step_>& steps, Outcome out)
     {
         Sensor& s = d.s;
-        // CArgyllSensor::BeginConfigure
-        const int startsBefore = s.deviceStarts;
-        s.startStateDone = true;
+        // CArgyllSensor::BeginConfigure: the measurement-start Init, then Configure,
+        // which refuses the sheet when there is no meter or that Init failed.
         if (st.presync)
         {
-            s.startStateDone = false;
-            if (s.Started())
-            {
-                Step(d, w, st, false);
-                s.startStateDone = true;
-            }
+            const bool ok = Init(d, w, st, false);
+            if (!ok)
+                return;                             // OnConfigureSensor: as a Cancel
         }
-        if (s.deviceStarts != startsBefore)
-            d.beginConfigureStarted = true;
+        else if (s.meterGone || w.startFails)
+        {
+            // Main: SetPropertiesSheetValues and the page fill reach the meter (a
+            // lost one is dereferenced; an unstartable one throws from
+            // checkMeterIsInitialized, uncaught).
+            d.crashed = true;
+            return;
+        }
         Snap snap; snap.s = s;
         Matrix mod = s.Effective();                 // SetSensorMatrixMod
         s.inSheet = true;
@@ -4705,39 +4686,31 @@ namespace T45Order
             case SET_DT:  pageDT = steps[i].value; break;
             case SET_OBS: pageObs = steps[i].value; break;
             case CALIBRATE:                         // OnCalibrate
-                Ensure(d, w, st, snap, mod, pageDT);
-                Commit(d, w, st, snap, mod, pageDT, pageObs);
+                Commit(d, w, st, pageDT, pageObs);
                 Init(d, w, st, false);              // Calibrate's own Init
                 if (st.rules)
                     Refresh(s, w, st);              // main did not refresh here
                 break;
             case CLEAR:                             // OnSpectralClear, when the button is enabled
             {
-                bool acted = false;
+                d.clearAllowed.push_back(s.uiClear ? 1 : 0);
                 if (s.uiClear)
                 {
-                    // The owed step first; the button showed the state before it, so
-                    // the rule is asked again on the state after it.
-                    Ensure(d, w, st, snap, mod, pageDT);
-                    if (!st.rules || ClearAllowed(s, w, st))
-                    {
-                        Cancel(s, w, st, snap);
-                        ClearArgyll(s, w);
-                        acted = true;
-                    }
+                    // CancelConfigureBeforeClear: the snapshot's sample is not put
+                    // back into the driver (main: CancelConfigure re-applied it).
+                    Cancel(s, w, st, snap, !st.rules);
+                    ClearArgyll(s, w);
                     Refresh(s, w, st);
                 }
-                d.clearAllowed.push_back(acted ? 1 : 0);
                 break;
             }
             }
         }
         if (out == CANCEL)
-            Cancel(s, w, st, snap);
+            Cancel(s, w, st, snap, true);
         else
-            Commit(d, w, st, snap, mod, pageDT, pageObs);   // the OK
+            Commit(d, w, st, pageDT, pageObs);       // the OK
         s.inSheet = false;
-        s.startStateDone = true;                    // CArgyllSensor::Configure
         if (out == OK && CorrectionChanged(s, snap))
         {
             const Matrix full = s.Effective();
@@ -4754,7 +4727,7 @@ namespace T45Order
 
     static void Measure(Doc& d, const World& w, const Structure& st)
     {
-        Init(d, w, st, false);
+        Init(d, w, st, false);                      // a lost meter: noDataColor
     }
 
     static bool NearVec(const Matrix& a, const Matrix& b, double rel)
@@ -5058,6 +5031,14 @@ namespace T45Order
         dtp.holdsSamples = false;
         const Doc spyF = SpectralDoc(FileRec("F1", "S", 3, true), 0, "F.ccss");
         Add(v, "r3#3", "meter without samples, Spyder's FILE record, its path, OK", dtp, spyF, Steps(0), OK, SAME, VIOLATES);
+        // r4: a start that fails (the meter unplugged): the sheet is refused cleanly, in
+        // every order; main dereferences the lost meter or lets the throw escape.
+        World dead = a;
+        dead.startFails = true;
+        Add(v, "r4", "i1d3 start fails, 4.2.2 doc on entry E, Calibrate, OK", dead, V1Doc(I3(), 2, "entry:E"), Steps(1, CALIBRATE, 0), OK, SAME, VIOLATES).unrecordedTruth = true;
+        World deadSpy = sp;
+        deadSpy.startFails = true;
+        Add(v, "r4", "Spyder start fails, its own browsed file, Clear, OK", deadSpy, SpectralDoc(FileRec("F1", "S", 3, true), 0, "F.ccss"), Steps(1, CLEAR, 0), OK, SAME, VIOLATES);
         // A Spyder's own browsed file, and an i1d3's: nothing changes in either order.
         Add(v, "-", "Spyder, its own browsed file, Calibrate, OK", sp, spyF, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
         Add(v, "-", "i1d3, its own browsed file, Calibrate, OK", a, fileOwn, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
@@ -5096,9 +5077,14 @@ namespace T45Order
         if (sc.d.s.rec.IsPresent() && sc.d.s.rec.basis == FIT_BASIS_DRIVER_CORRECTED && !e.s.rec.IsPresent()
          && !ReadingsCarryUnrecordedDriverCorrection(e.s.rec, e.s.fitBasis))
             out += " forgot-driver-correction";
-        // BeginConfigure starts nothing (r3#1).
-        if (e.beginConfigureStarted)
-            out += " begin-configure-device-io";
+        // Nothing dereferences a lost meter (r4: a failed start).
+        if (e.crashed)
+            out += " crash";
+        // A start that fails changes nothing: the sheet is refused, the next
+        // measurement gets no data, and the correction state is the document's.
+        if (sc.w.startFails && ( e.s.rec != sc.d.s.rec || e.s.path != sc.d.s.path || e.s.method != sc.d.s.method
+                              || !NearVec(e.rawless, sc.d.rawless, 0.0) || e.s.rawless.Get() != sc.d.s.rawless.Get() ))
+            out += " failed-start-changed-state";
         return out;
     }
 

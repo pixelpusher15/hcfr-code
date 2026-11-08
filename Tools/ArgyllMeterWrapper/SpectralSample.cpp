@@ -248,15 +248,14 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 }
 
 
-bool SpectralSample::ReadBuffer(const unsigned char* buf, size_t len, const std::string& samplePath)
+bool SpectralSample::ReadBuffer(unsigned char* buf, size_t len, const std::string& samplePath)
 {
     if (buf == NULL || len == 0)
     {
         return false;
     }
     // buf_read_ccss reads through a CGATS memory file and does not keep the buffer.
-    std::vector<unsigned char> copy(buf, buf + len);
-    if (m_ccss->buf_read_ccss(m_ccss, &copy[0], len))
+    if (m_ccss->buf_read_ccss(m_ccss, buf, len))
     {
         return false;
     }

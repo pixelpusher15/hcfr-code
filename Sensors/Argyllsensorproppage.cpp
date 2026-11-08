@@ -135,12 +135,10 @@ END_MESSAGE_MAP()
 void CArgyllSensorPropPage::OnCalibrate()
 {
     UpdateData(TRUE);
-    // The measurement-start state first (a sheet opened on an unstarted driver owes
-    // it; it can move the Display Type the page shows), then the page's settings and
-    // Calibrate's own Init. Those Inits can change the correction, so the status line
-    // and Clear are refreshed after them.
-    m_pSensor->EnsureMeasurementStartState();
-    UpdateData(FALSE);
+    // The page's settings (an Init when one changed), then Calibrate's own Init.
+    // Either can change the correction, so the status line and Clear are refreshed
+    // after them. A failed Init lets go of the meter; Calibrate then says so and
+    // stops, and every later meter call in the sheet checks for it.
     m_pSensor->GetPropertiesSheetValues();
 	m_pSensor->Calibrate();
     RefreshSpectralStatus();
@@ -475,13 +473,8 @@ void CArgyllSensorPropPage::OnSpectralBrowse()
     CFileDialog dlg(TRUE, "ccss", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST, sFilter);
     if ( dlg.DoModal() == IDOK )
     {
-        // The measurement-start state first (a sheet opened on an unstarted driver
-        // owes it); it can change the correction even when the apply then fails.
-        UpdateData(TRUE);
-        m_pSensor->EnsureMeasurementStartState();
-        UpdateData(FALSE);
-        m_pSensor->ApplySpectralCorrection(dlg.GetPathName());
-        RefreshSpectralStatus();
+        if ( m_pSensor->ApplySpectralCorrection(dlg.GetPathName()) )
+            RefreshSpectralStatus();
     }
 }
 
@@ -493,19 +486,9 @@ void CArgyllSensorPropPage::OnSpectralClear()
     // installed: revert this sheet session's correction state first, then
     // drop the spectral fields. (CancelConfigure restores from the sheet's
     // opening snapshot and is idempotent, so a later Cancel still works.)
-    // The measurement-start state comes first, so the snapshot the Cancel goes back
-    // to is the state a measurement would have left. The button showed the state
-    // before it (a sheet opened on an unstarted driver), so the rule is asked again
-    // on the state after it; a Clear it no longer allows only refreshes the page.
-    UpdateData(TRUE);
-    m_pSensor->EnsureMeasurementStartState();
-    UpdateData(FALSE);
-    if ( !m_pSensor->SpectralClearAllowedOnPage() )
-    {
-        RefreshSpectralStatus();
-        return;
-    }
-    m_pSensor->CancelConfigure();
+    // The snapshot's sample is not put back into the driver first: the clear below
+    // discards it (CancelConfigureBeforeClear).
+    m_pSensor->CancelConfigureBeforeClear();
     m_pSensor->ClearSpectralCorrection();
     RefreshSpectralStatus();
 }
