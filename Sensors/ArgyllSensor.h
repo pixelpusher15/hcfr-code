@@ -103,11 +103,13 @@ private:
     // user is told once, at EnforceRecordApplied, with what became of the record.
     bool        m_pathDropPending;
     CString     m_pathDroppedPath;
-    // The Init at the last BeginConfigure failed, said so, and let go of the meter:
-    // Configure refuses the sheet without a second message.
-    bool        m_beginInitAnnounced;
-    // The last Init failed (the page's Calibrate stops after a failed commit Init).
-    bool        m_lastInitFailed;
+public:
+    // What an Init did (InitReporting).
+    enum InitResult { INIT_OK, INIT_FAILED_ANNOUNCED, INIT_FAILED_SILENT };
+private:
+    // The Init at the last BeginConfigure (Configure says why it refuses the sheet
+    // unless that Init already did).
+    InitResult  m_beginInit;
 
 public:
     CArgyllSensor();
@@ -126,7 +128,8 @@ public:
 
     virtual LPCSTR GetStandardSubDir ()    { return "Etalon_Argyll"; }
 
-    void Calibrate();
+    // False when it did not calibrate (no meter, a failed Init, a device failure).
+    bool Calibrate();
 
     // Spectral correction (restores the 2012 ccss apply path, extended to .csv).
     // Loads a .ccss or ColourSpace .csv onto the meter, derives the correction
@@ -150,8 +153,11 @@ public:
     virtual void CancelConfigure();
     // FALSE, with a message, when there is no meter.
     virtual BOOL Configure();
-    bool LastInitFailed() const { return m_lastInitFailed; }
-    void ForgetInitFailure() { m_lastInitFailed = false; }
+    // Init, with what happened (see the .cpp).
+    InitResult InitReporting(BOOL bForSimultaneousMeasures);
+    // GetPropertiesSheetValues with the result of the Init a changed setting ran.
+    InitResult CommitPageSettings();
+    bool HasMeter() const { return m_meter != NULL; }
     // CancelConfigure without putting the snapshot's sample back into the driver:
     // the page's Clear, which then clears everything.
     void CancelConfigureBeforeClear();
@@ -194,7 +200,7 @@ private:
     // CancelConfigure and CancelConfigureBeforeClear.
     void RestoreSnapshot(bool reapplyDriverSample);
     // Calibrate past its Init, inside its std::logic_error handler.
-    void CalibrateDevice();
+    bool CalibrateDevice();
     // The FILE-source fields of a record: source, description (the sample's display,
     // else its description, else m_spectralCorrectionDesc), file hash, observer and
     // meter serial. The caller sets the matrices and the basis. knownHash: the hash of

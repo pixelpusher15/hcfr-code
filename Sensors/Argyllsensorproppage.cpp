@@ -136,13 +136,12 @@ void CArgyllSensorPropPage::OnCalibrate()
 {
     UpdateData(TRUE);
     // The page's settings (an Init when one changed), then Calibrate's own Init.
-    // Either can change the correction, so the status line, Clear and Browse are
-    // refreshed after them. A commit Init that fails has said why: Calibrate does
-    // not run it again (one message per failure per click). A failed Init can let
-    // go of the meter; every later meter call in the sheet checks for it.
-    m_pSensor->ForgetInitFailure();
-    m_pSensor->GetPropertiesSheetValues();
-    if ( !m_pSensor->LastInitFailed() )
+    // Either can change the correction, so the status line, Clear, Browse and
+    // Calibrate are refreshed after them. A commit Init that fails has said why, or
+    // there was no meter (the button is disabled then): Calibrate does not run (one
+    // message per failure per click). Every later meter call in the sheet checks
+    // for a lost meter.
+    if ( m_pSensor->CommitPageSettings() == CArgyllSensor::INIT_OK )
         m_pSensor->Calibrate();
     RefreshSpectralStatus();
 }
@@ -462,6 +461,9 @@ void CArgyllSensorPropPage::RefreshSpectralStatus()
     // go of the meter it is disabled, or it would install a record nothing applies.
     if ( ::IsWindow(m_spectralBrowseBtn.GetSafeHwnd()) )
         m_spectralBrowseBtn.EnableWindow( m_pSensor->MeterSupportsSpectralSamples() );
+    // Calibrate needs a meter: with none, a click could only do nothing.
+    if ( GetDlgItem(IDC_ARGYLL_CALIBRATE) != NULL )
+        GetDlgItem(IDC_ARGYLL_CALIBRATE)->EnableWindow( m_pSensor->HasMeter() );
 }
 
 void CArgyllSensorPropPage::OnSpectralBrowse()

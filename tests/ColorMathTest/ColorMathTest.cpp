@@ -4232,11 +4232,13 @@ namespace T45Order
                                         // the DTP94's set_disp_type is a device command
         bool wrapperDead;               // another document's failed start deleted the
                                         // shared wrapper's driver
+        bool needsCalibration;          // a reading asks for a manual calibration
+        bool calFails;                  // ... and the calibration always fails
         std::string serial;
         std::vector<Entry> list;
         std::vector<DiskFile> disk;
         World() : exposed(true), holdsSamples(true), startFails(false), failObs(-1), throwEntry(-1),
-                  wrapperDead(false), serial("A") {}
+                  wrapperDead(false), needsCalibration(false), calFails(false), serial("A") {}
         const DiskFile* File(const std::string& path) const
         {
             for (size_t i = 0; i < disk.size(); ++i)
@@ -4287,12 +4289,12 @@ namespace T45Order
         bool inSheet;
         bool uiClear;                       // the Clear button as the page last refreshed it
         bool uiBrowse;                      // the Browse button as the page last refreshed it
-        bool lastInitFailed;                // m_lastInitFailed
+        bool uiCalibrate;                   // the Calibrate button as the page last refreshed it
         SpectralCorrectionRecord recAtLoss; // the record when the meter was lost
         Sensor() : method(CALIB_HCFR_DEFAULT), fitBasis(FIT_BASIS_NATIVE), matrix(I3()), displayType(0),
                    observer(3), driverObserver(3), driverEntry(-1), dtBaseFor(-1), cacheValid(false), pathCheckedValid(false),
                    pathCheckedHash(0), pathDropPending(false), entryMissing(false), meterGone(false),
-                   inSheet(false), uiClear(false), uiBrowse(false), lastInitFailed(false) {}
+                   inSheet(false), uiClear(false), uiBrowse(false), uiCalibrate(false) {}
         Matrix Effective() const { return EffectiveSensorMatrix(method, fitBasis, rec, matrix); }
         bool UsesSpectral() const { return method == CALIB_SPECTRAL_SAMPLE; }
     };
@@ -4311,8 +4313,12 @@ namespace T45Order
         bool crashed;                       // main: a lost meter dereferenced, or a throw uncaught
         int messages, maxMessages;          // messages in the current user action, and the most
         bool refusedSilently;               // the sheet refused with no message
+        bool silentClick;                   // an enabled button clicked, nothing done, nothing shown
+        bool settingsDroppedSilently;       // settings confirmed with OK, not kept, not told
+        bool loopedForever;                 // a reading that retried a failing calibration
         Doc() : rawless(Native()), hasRaw(false), raw(Native()), rawValue(Native()), unrecorded(I3()),
-                crashed(false), messages(0), maxMessages(0), refusedSilently(false) {}
+                crashed(false), messages(0), maxMessages(0), refusedSilently(false), silentClick(false),
+                settingsDroppedSilently(false), loopedForever(false) {}
     };
 
     // The order a session runs in. Branch: the step at BeginConfigure on a started
@@ -4321,6 +4327,8 @@ namespace T45Order
     // refresh after Calibrate). Main: none (origin/main before #256).
     struct Structure { bool presync, books, rules; const char* name; };
     static const Structure kBranch = { true,  true,  true,  "branch" };
+    // MeasureColorInternal stops when Calibrate fails (r6#2).
+    static const bool kStopOnFailedCalibration = true;
     static const Structure kMain   = { false, false, false, "main" };
 
     // CSensor::ClearSpectralCorrection
@@ -4592,10 +4600,11 @@ namespace T45Order
     // CArgyllSensor::Init: the start, then the step.
     // Main: no NULL guard, no isMeterStillValid, no catch - a lost meter or a throw
     // ends in a crash.
-    static bool Init(Doc& d, const World& w, const Structure& st, bool dtChanged)
+    // CArgyllSensor::InitReporting
+    enum InitResult { INIT_OK, INIT_FAILED_ANNOUNCED, INIT_FAILED_SILENT };
+    static int InitR(Doc& d, const World& w, const Structure& st, bool dtChanged)
     {
         Sensor& s = d.s;
-        s.lastInitFailed = true;
         if (s.meterGone || w.wrapperDead)
         {
             if (!st.rules)
@@ -4603,25 +4612,52 @@ namespace T45Order
             if (!s.meterGone)
                 s.recAtLoss = s.rec;
             s.meterGone = true;                     // the NULL guard / isMeterStillValid
-            return false;
+            return INIT_FAILED_SILENT;              // nothing shown
         }
         if (w.startFails || s.observer == w.failObs)
         {
             s.recAtLoss = s.rec;
             s.meterGone = true;                     // m_meter = 0 (the driver is deleted)
             s.driverSample.clear();
-            Message(d);                             // the start's message, once
-            return false;
+            Message(d);                             // the wrapper's box or HCFR's, once
+            return INIT_FAILED_ANNOUNCED;
         }
         s.driverObserver = s.observer;
         if (!Step(d, w, st, dtChanged))
         {
             if (!st.rules)
                 d.crashed = true;                   // the throw escapes the handler
-            Message(d);                             // the wrapper's box (WrapperAnnounced)
+            Message(d);                             // the wrapper's box (errorBoxShown)
+            return INIT_FAILED_ANNOUNCED;
+        }
+        return INIT_OK;
+    }
+    static bool Init(Doc& d, const World& w, const Structure& st, bool dtChanged)
+    {
+        return InitR(d, w, st, dtChanged) == INIT_OK;
+    }
+
+    // CArgyllSensor::Calibrate: false when it did not calibrate. inSheet: from the
+    // page's button (main: a throw there is uncaught); else from a measurement
+    // (main: the throw ends the measurement).
+    static bool Calibrate(Doc& d, const World& w, const Structure& st, bool fromPage)
+    {
+        Sensor& s = d.s;
+        if (st.rules && s.meterGone)
+            return false;
+        if (!Init(d, w, st, false))
+        {
+            if (!st.rules && !d.crashed)
+                Message(d);                         // main: "Meter failed init check"
             return false;
         }
-        s.lastInitFailed = false;
+        if (w.calFails)
+        {
+            Message(d);                             // the wrapper's "Calibration Failed!"
+            if (!st.rules && fromPage)
+                d.crashed = true;                   // main: uncaught in the handler
+            return false;
+        }
         return true;
     }
 
@@ -4684,7 +4720,10 @@ namespace T45Order
     {
         s.uiClear = ClearAllowed(s, w, st);
         if (st.rules)
+        {
             s.uiBrowse = !s.meterGone && w.holdsSamples;    // MeterSupportsSpectralSamples
+            s.uiCalibrate = !s.meterGone;                   // HasMeter
+        }
     }
 
     // CArgyllSensor::ApplySpectralCorrection (the R3 question answered OK), when the
@@ -4729,20 +4768,26 @@ namespace T45Order
     }
 
     // GetPropertiesSheetValues: a changed setting is committed and re-inits.
-    static void Commit(Doc& d, const World& w, const Structure& st, int pageDT, int pageObs)
+    // CArgyllSensor::CommitPageSettings
+    static int Commit(Doc& d, const World& w, const Structure& st, int pageDT, int pageObs)
     {
+        const bool changed = ( pageDT != d.s.displayType || pageObs != d.s.observer );
         if (d.s.meterGone)
         {
             if (!st.rules)
                 d.crashed = true;                   // main: m_meter->getMeterName()
-            return;
+            else if (changed)
+                Message(d);                         // IDS_ARGYLL_SETTINGS_NOT_KEPT
+            if (changed && d.messages == 0 && !d.crashed)
+                d.settingsDroppedSilently = true;
+            return INIT_FAILED_SILENT;
         }
-        if (pageDT == d.s.displayType && pageObs == d.s.observer)
-            return;
+        if (!changed)
+            return INIT_OK;
         const bool dtChanged = ( pageDT != d.s.displayType );
         d.s.displayType = pageDT;
         d.s.observer = pageObs;
-        Init(d, w, st, dtChanged);
+        return InitR(d, w, st, dtChanged);
     }
 
     // CDataSetDoc::OnConfigureSensor
@@ -4756,12 +4801,12 @@ namespace T45Order
         d.messages = 0;
         if (st.presync)
         {
-            const bool hadMeter = !s.meterGone;
-            Init(d, w, st, false);
+            const int begin = InitR(d, w, st, false);
             if (s.meterGone)
             {
-                if (!( hadMeter && d.messages > 0 ))
-                    Message(d);                     // IDS_ARGYLL_METER_UNAVAILABLE
+                // Configure: IDS_ARGYLL_METER_UNAVAILABLE unless the start announced it.
+                if (begin != INIT_FAILED_ANNOUNCED)
+                    Message(d);
                 if (d.messages == 0)
                     d.refusedSilently = true;
                 return;                             // OnConfigureSensor: as a Cancel
@@ -4780,6 +4825,9 @@ namespace T45Order
         s.inSheet = true;
         Refresh(s, w, st);                          // the page's OnInitDialog
         s.uiBrowse = !s.meterGone && w.holdsSamples;
+        s.uiCalibrate = true;
+        if (st.rules)
+            s.uiCalibrate = !s.meterGone;
         int pageDT = s.displayType, pageObs = s.observer;
         for (size_t i = 0; i < steps.size(); ++i)
         {
@@ -4791,22 +4839,21 @@ namespace T45Order
                 d.messages = 0;
                 Browse(d, w, st, pageDT, steps[i].value);
                 break;
-            case CALIBRATE:                         // OnCalibrate
+            case CALIBRATE:                         // OnCalibrate, when the button is enabled
+            {
+                if (!s.uiCalibrate)
+                    break;
                 d.messages = 0;
-                s.lastInitFailed = false;           // ForgetInitFailure
-                Commit(d, w, st, pageDT, pageObs);
-                if (!st.rules || !s.lastInitFailed)
-                {
-                    // Calibrate: main runs Init and adds "Meter failed init check";
-                    // the branch returns at once with no meter.
-                    if (!st.rules && !Init(d, w, st, false) && !d.crashed)
-                        Message(d);
-                    else if (st.rules && !s.meterGone)
-                        Init(d, w, st, false);
-                }
+                const int r = Commit(d, w, st, pageDT, pageObs);
+                bool calibrated = false;
+                if (!st.rules || r == INIT_OK)      // main calibrated whatever the commit did
+                    calibrated = Calibrate(d, w, st, true);
+                if (!calibrated && d.messages == 0 && !d.crashed)
+                    d.silentClick = true;
                 if (st.rules)
                     Refresh(s, w, st);              // main did not refresh here
                 break;
+            }
             case CLEAR:                             // OnSpectralClear, when the button is enabled
             {
                 d.clearAllowed.push_back(s.uiClear ? 1 : 0);
@@ -4847,7 +4894,24 @@ namespace T45Order
     static void Measure(Doc& d, const World& w, const Structure& st)
     {
         d.messages = 0;
-        Init(d, w, st, false);                      // a lost meter: noDataColor
+        if (!Init(d, w, st, false))
+            return;                                 // a lost meter: noDataColor
+        if (!w.needsCalibration)
+            return;
+        // MeasureColorInternal: takeReading asks for a manual calibration until one
+        // succeeds. A failed Calibrate ends the reading with no data (main: the
+        // throw left the reading). Bounded here at 20 so a loop is visible.
+        for (int k = 0; k < 20; ++k)
+        {
+            const bool ok = Calibrate(d, w, st, false);
+            if (ok)
+                return;
+            if (!st.rules)
+                return;                             // main: the throw ended it
+            if (kStopOnFailedCalibration)
+                return;
+        }
+        d.loopedForever = true;
     }
 
     static bool NearVec(const Matrix& a, const Matrix& b, double rel)
@@ -5192,6 +5256,17 @@ namespace T45Order
         World obsFails = a;
         obsFails.failObs = 4;
         Add(v, "r5#4", "Spectral Type the meter fails on, Calibrate, Browse G, OK", obsFails, fileOwn, Steps(3, SET_OBS, 4, CALIBRATE, 0, BROWSE, 1), OK, DIFFERS, VIOLATES);
+        // r6#2: a meter whose calibration always fails (an i1Pro whose white tile keeps
+        // failing): a reading that asks for it ends with no data and one message, the
+        // page's Calibrate shows one message.
+        World calBad = a;
+        calBad.needsCalibration = true;
+        calBad.calFails = true;
+        Add(v, "r6#2", "calibration always fails, Calibrate, OK", calBad, fileOwn, Steps(1, CALIBRATE, 0), OK, SAME, VIOLATES);
+        // r6#6: after the meter is lost in the sheet, Calibrate is disabled, and settings
+        // changed and confirmed with OK are told not kept.
+        Add(v, "r6#6", "Spectral Type the meter fails on, Calibrate, Calibrate again, OK", obsFails, fileOwn, Steps(3, SET_OBS, 4, CALIBRATE, 0, CALIBRATE, 0), OK, DIFFERS, VIOLATES);
+        Add(v, "r6#6", "Spectral Type the meter fails on, Calibrate, Display Type changed, OK", obsFails, fileOwn, Steps(3, SET_OBS, 4, CALIBRATE, 0, SET_DT, 1), OK, DIFFERS, VIOLATES);
         // A Spyder's own browsed file, and an i1d3's: nothing changes in either order.
         Add(v, "-", "Spyder, its own browsed file, Calibrate, OK", sp, spyF, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
         Add(v, "-", "i1d3, its own browsed file, Calibrate, OK", a, fileOwn, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
@@ -5248,6 +5323,12 @@ namespace T45Order
             out += " several-messages";
         if (e.refusedSilently)
             out += " refused-silently";
+        if (e.silentClick)
+            out += " silent-click";
+        if (e.settingsDroppedSilently)
+            out += " settings-dropped-silently";
+        if (e.loopedForever)
+            out += " calibration-loop";
         // A start that fails changes nothing: the sheet is refused, the next
         // measurement gets no data, and the correction state is the document's.
         if (sc.w.startFails && ( e.s.rec != sc.d.s.rec || e.s.path != sc.d.s.path || e.s.method != sc.d.s.method

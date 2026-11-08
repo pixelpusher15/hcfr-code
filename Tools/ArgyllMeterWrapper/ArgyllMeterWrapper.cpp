@@ -187,6 +187,7 @@ ArgyllMeterWrapper::ArgyllMeterWrapper(_inst* meter) :
     m_nextCalibration(0),
     m_meterType(meter->get_itype(meter)),
 	m_Adapt(0),
+    m_errorBoxShown(false),
     m_displayType(-1)	// no display type selected yet (resetSpectralSample reads it)
     
 {
@@ -240,6 +241,7 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
         if(instCode != inst_ok)
         {
 			MessageBox(NULL, m_meter->interp_error(m_meter,instCode), "init_inst",MB_OK);
+            m_errorBoxShown = true;
             m_meter->del(m_meter);
             m_meter = 0;
             errorDescription = "Failed to initialize the instrument";
@@ -355,6 +357,7 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
         if (instCode != inst_ok)
         {
             MessageBox(NULL,m_meter->inst_interp_error(m_meter,instCode),"Error setting observer",MB_OK);
+            m_errorBoxShown = true;
             m_meter->del(m_meter);
             m_meter = 0;
             errorDescription = "Couldn't set observer mode";
@@ -400,6 +403,7 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
             if (instCode != inst_ok)
             {
                 MessageBox(NULL,m_meter->inst_interp_error(m_meter,instCode),"Integration time set error", MB_OK);
+                m_errorBoxShown = true;
                 m_meter->del(m_meter);
                 m_meter = 0;
                 errorDescription = "Couldn't set trigger mode";
@@ -542,6 +546,7 @@ void ArgyllMeterWrapper::setDisplayType(int displayMode)
         if(instCode != inst_ok)
         {
             MessageBox(NULL, m_meter->inst_interp_error(m_meter, instCode),"Set display type error",MB_OK);
+            m_errorBoxShown = true;
             if (instCode != inst_wrong_setup) //special case for ccmx without base type
                 throw std::logic_error("Set Display Type failed");
         }
@@ -750,6 +755,7 @@ ArgyllMeterWrapper::eMeterState ArgyllMeterWrapper::calibrate()
     if(instCode != inst_ok)
     {
 		MessageBox(NULL, m_meter->interp_error(m_meter, instCode), "Calibration Failed!", MB_OK);
+        m_errorBoxShown = true;
         throw std::logic_error("Calibration failed");
     }
     //check if we need to try and get refresh rate
