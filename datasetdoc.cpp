@@ -1536,8 +1536,11 @@ void CDataSetDoc::OnConfigureSensor()
 {
 	if ( IsMeasureSweepActive() ) return;
 	StopBackgroundMeasures ();
-    m_pSensor->SetSensorMatrixMod( m_pSensor->GetEffectiveMatrix() );
+	// BeginConfigure first: an Argyll sensor runs the measurement-start Init there,
+	// before its snapshot (#256), so the walk's baseline below is the effective matrix
+	// that Init left - and the walk composes only what the user changes in the sheet.
 	m_pSensor->BeginConfigure();
+    m_pSensor->SetSensorMatrixMod( m_pSensor->GetEffectiveMatrix() );
 	BOOL bConfigOk = m_pSensor->Configure();
 	if ( !bConfigOk )
 	{

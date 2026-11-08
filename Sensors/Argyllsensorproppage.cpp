@@ -440,13 +440,16 @@ void CArgyllSensorPropPage::RefreshSpectralStatus()
         s.Format(fmt, (LPCSTR)none);
     }
     m_spectralStatus.SetWindowText(s);
-    // Clear only a browsed file. A Display Type correction is changed through
-    // the Display Type list, which is what removes it. A stored path with no
-    // record behind it (a moved file that could not be derived again) can always
-    // be cleared, so the warning's "clear it in the sensor properties" holds.
+    // Clear a browsed file. A Display Type correction is changed through the
+    // Display Type list, which is what removes it - where it can: on an i1d3 with
+    // the record's own entry selected. Anywhere else (a meter that never resyncs
+    // the list, an empty list, a record whose entry is gone or that came with a
+    // document onto a plain type) Clear removes it (SpectralClearAllowed). A stored
+    // path with no record behind it (a moved file that could not be derived again)
+    // can always be cleared, so the warning's "clear it in the sensor properties"
+    // holds.
     if ( ::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
-        m_spectralClearBtn.EnableWindow( ( rec.IsPresent() && rec.source == SPECTRAL_SOURCE_FILE )
-                                      || !m_pSensor->GetSpectralCorrectionPath().IsEmpty() );
+        m_spectralClearBtn.EnableWindow( m_pSensor->SpectralClearAllowedOnPage() );
 }
 
 void CArgyllSensorPropPage::OnSpectralBrowse()

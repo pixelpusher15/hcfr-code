@@ -92,6 +92,12 @@ private:
     // a plain entry, and Sync leaves the Display Type alone. Re-evaluated every
     // Init, so a Display Type chosen in the sheet clears it.
     bool        m_displayTypeRecordEntryMissing;
+    // The (path, file hash) pair the path rule last accepted (CheckPathAgainstRecord):
+    // the file is hashed again only when the path or the record changes, and
+    // wherever its bytes are read to be used.
+    bool        m_pathCheckedValid;
+    CString     m_pathCheckedPath;
+    unsigned long long m_pathCheckedHash;
 
 public:
     CArgyllSensor();
@@ -127,11 +133,18 @@ public:
     // correction at the next Init, so Browse is refused while it is selected.
     bool RefuseSpectralBrowse(UINT displayType);
     // Extend the base snapshot with the spectral state, which a Browse in the
-    // property page commits (device + members) before the sheet closes.
+    // property page commits (device + members) before the sheet closes. Begin first
+    // runs the measurement-start Init (see the .cpp: the order-independence rule).
     virtual void BeginConfigure();
     virtual bool CorrectionChangedSinceBeginConfigure() const;
     virtual void CancelConfigure();
+    // FALSE, showing nothing, when there is no meter (a failed Init).
+    virtual BOOL Configure();
     bool MeterSupportsSpectralSamples();
+    // Whether the sensor page's Clear may remove the spectral correction
+    // (SpectralClearAllowed): a Display Type record only where choosing another
+    // Display Type does not remove it.
+    bool SpectralClearAllowedOnPage();
 
     virtual void GetUniqueIdentifier( CString & strId );
     static bool isInDebugMode() {return m_debugMode;}
@@ -157,8 +170,22 @@ private:
     static bool ReadSpectralFile(const CString& path, SpectralSample& ss, std::string& why);
     // The FILE-source fields of a record: source, description (the sample's display,
     // else its description, else m_spectralCorrectionDesc), file hash, observer and
-    // meter serial. The caller sets the matrices and the basis.
-    void MakeFileRecord(const CString& path, const SpectralSample* ss, SpectralCorrectionRecord& rec);
+    // meter serial. The caller sets the matrices and the basis. knownHash: the hash of
+    // the bytes the caller just read from `path` (else the file is hashed here).
+    void MakeFileRecord(const CString& path, const SpectralSample* ss, SpectralCorrectionRecord& rec,
+                        const unsigned long long* knownHash = NULL);
+    // The path rule (SpectralRecordFromPathFile) on bytes just hashed; drops the path
+    // and returns false when they are not the record's file.
+    bool KeepPathIfRecordFile(bool hashed, unsigned long long hash);
+    // The same rule once per (path, record) pair.
+    bool CheckPathAgainstRecord();
+    // The one path drop of the rule, for Sync and Init's re-apply alike.
+    void DropPathNotRecordFile();
+    // The invariant (SpectralRecordApplied), enforced once at the end of Init's
+    // correction step: a record nothing applies on this meter is removed.
+    void EnforceRecordApplied();
+    // PlainDisplayTypeEntry over the meter's current list, m_DisplayType preferred.
+    int FindPlainDisplayType();
     // The Display Type entry's text ("" when the meter cannot say).
     std::string DisplayTypeText(UINT index);
     // The list index whose text is `text`; -1 when absent or `text` is empty.

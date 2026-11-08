@@ -123,6 +123,48 @@ static void NoticeForeignFileRecordOnce(const SpectralCorrectionRecord& rec, con
     GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONINFORMATION );
 }
 
+// The stored correction file is not the file the record in use was made from (the
+// R4 rule, SpectralRecordFromPathFile): the path is dropped, once-per-session notice.
+static void NoticePathNotRecordFileOnce(const CString& path, const std::string& description)
+{
+    static BOOL s_noticedPathNotRecordFile = FALSE;
+    if ( s_noticedPathNotRecordFile )
+        return;
+    s_noticedPathNotRecordFile = TRUE;
+    CString msg, fmt, title;
+    fmt.LoadString ( IDS_SPECTRAL_PATH_NOT_RECORD_FILE );
+    title.LoadString ( IDS_SPECTRAL_TITLE );
+    msg.Format ( fmt, (LPCSTR) path, description.c_str() );
+    GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONINFORMATION );
+}
+
+// A record nothing applies on this meter was removed (EnforceRecordApplied): once
+// per session.
+static void WarnRecordNotAppliedOnce(const std::string& description)
+{
+    static BOOL s_warnedRecordNotApplied = FALSE;
+    if ( s_warnedRecordNotApplied )
+        return;
+    s_warnedRecordNotApplied = TRUE;
+    CString msg, fmt, title;
+    fmt.LoadString ( IDS_SPECTRAL_RECORD_NOT_APPLIED );
+    title.LoadString ( IDS_SPECTRAL_TITLE );
+    msg.Format ( fmt, description.c_str() );
+    GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
+}
+
+namespace
+{
+    // printf-style front end to ArgyllLogMessage (the Argyll debug log)
+    void SpectralSyncLog(const char *fmt, ...)
+    {
+        va_list args;
+        va_start(args, fmt);
+        ArgyllLogMessage("Debug", const_cast<char *>(fmt), args);
+        va_end(args);
+    }
+}
+
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
@@ -146,6 +188,8 @@ CArgyllSensor::CArgyllSensor() :
     m_displayTypeChangedInSheet = false;
     m_cfgSnapDeviceValid = false;
     m_displayTypeRecordEntryMissing = false;
+    m_pathCheckedValid = false;
+    m_pathCheckedHash = 0;
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
     m_pDevicePage = & m_ArgyllSensorPropertiesPage;  // Add Argyll settings page to property sheet
@@ -188,6 +232,8 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
     m_displayTypeChangedInSheet = false;
     m_cfgSnapDeviceValid = false;
     m_displayTypeRecordEntryMissing = false;
+    m_pathCheckedValid = false;
+    m_pathCheckedHash = 0;
 
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
@@ -499,6 +545,18 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
         }
     }
 
+    // Init's correction step, from here to EnforceRecordApplied below: everything
+    // Init does to the spectral correction state (the Display Type lookup, the
+    // conversion for a meter whose matrices are not exposed, the path rule, the
+    // re-apply, SyncSpectralRecordFromMeter). It runs at every measurement start
+    // and at the sensor sheet's BeginConfigure, before the snapshot - so the sheet
+    // always starts from the state a measurement would have left, and its walk and
+    // Cancel see only what the user changes. A change it makes outside the sheet has
+    // no walk after it, and is booked for the raw-less readings at the end
+    // (EffectiveChangedWithoutWalk); inside the sheet the sheet accounts for it.
+    const Matrix effectiveBefore = GetEffectiveMatrix();
+    const bool throughDriver = ReadingsCarryUnrecordedDriverCorrection(m_spectral, GetFitBasis());
+
     // A Display Type record is anchored to its entry's TEXT, not to the persisted
     // index: Argyll's list numbers installed ccss/ccmx files in the order it finds
     // them, so one file added or removed shifts every index after it, and the stored
@@ -535,15 +593,7 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
             // display", inst_dtflags_default) is entry 0 of it - so this is entry 0.
             // A stored index past the end of the list (the list shrank when the file
             // went) names nothing and is not plain.
-            const int n = m_meter->getNumberOfDisplayTypes();
-            if ( (int)m_DisplayType < n && !m_meter->isDisplayTypeCorrected((int)m_DisplayType) )
-                plainEntry = (int)m_DisplayType;
-            else
-            {
-                for ( int i = 0; i < n && plainEntry < 0; ++i )
-                    if ( !m_meter->isDisplayTypeCorrected(i) )
-                        plainEntry = i;
-            }
+            plainEntry = FindPlainDisplayType();
             // The Display Type follows the driver, so the page shows the entry the
             // readings are taken on, not the stale index, and so does the next session
             // when the value came from the INI (see above). The record is still
@@ -582,7 +632,10 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
     // sample itself (the re-apply below), so HCFR applying the record's correction as
     // well would correct twice, and those matrices belong to another probe's curves
     // anyway. Record it the way ApplySpectralCorrection does for such a meter:
-    // identity matrices, driver-corrected basis.
+    // identity matrices, driver-corrected basis. Only a stored path's sample is ever
+    // re-applied, so a record with none (a Display Type entry, a FILE record whose
+    // file is not here) is applied by nothing after this: EnforceRecordApplied
+    // removes it at the end of this step.
     if ( !m_meter->canExposeCalibrationMatrices() && m_spectral.IsPresent()
       && m_spectral.basis == FIT_BASIS_NATIVE )
     {
@@ -600,6 +653,12 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
         SetModifiedFlag(TRUE);
     }
 
+    // The path rule (SpectralRecordFromPathFile), checked once whenever the path or
+    // the record changed - a correction file or a document loaded after the Browse
+    // replaces the record and leaves the path. The file is checked again wherever its
+    // bytes are read to be used (the re-apply below, Sync's re-derive).
+    CheckPathAgainstRecord();
+
     // Re-apply a loaded spectral (ccss/CSV) correction so it survives reconnects
     // and restarts (restores the apply path dropped in 2014). Only meaningful for
     // spectral-capable colorimeters. A failure must not pass silently: the stored
@@ -613,25 +672,36 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
     if ( !m_spectralCorrectionPath.IsEmpty() && !m_meter->canExposeCalibrationMatrices() )
     {
         bool applied = false;
+        bool dropped = false;
         try
         {
             if ( m_meter->doesMeterSupportSpectralSamples() )
             {
                 // Parse once and cache: Init runs per sweep (and per single
-                // measurement via AddMeasurement); the file does not change
-                // underneath us. Re-read only when the path changed.
+                // measurement via AddMeasurement). Re-read only when the path
+                // changed or the cache was invalidated (Browse, Clear, every
+                // BeginConfigure). The bytes read are the ones checked against the
+                // record: the driver is never given a sample from another file
+                // under this record.
                 bool ok = m_spectralCacheValid
                        && m_spectralCachePath == m_spectralCorrectionPath;
                 if ( !ok )
                 {
-                    SpectralSample ss;
-                    std::string why;
-                    ok = ReadSpectralFile(m_spectralCorrectionPath, ss, why);
-                    if ( ok )
+                    unsigned long long hash = 0;
+                    const bool hashed = Fnv1a64File((LPCSTR)m_spectralCorrectionPath, hash);
+                    if ( !KeepPathIfRecordFile(hashed, hash) )
+                        dropped = true;
+                    else
                     {
-                        m_spectralSampleCache = ss;
-                        m_spectralCachePath = m_spectralCorrectionPath;
-                        m_spectralCacheValid = true;
+                        SpectralSample ss;
+                        std::string why;
+                        ok = ReadSpectralFile(m_spectralCorrectionPath, ss, why);
+                        if ( ok )
+                        {
+                            m_spectralSampleCache = ss;
+                            m_spectralCachePath = m_spectralCorrectionPath;
+                            m_spectralCacheValid = true;
+                        }
                     }
                 }
                 if ( ok )
@@ -644,7 +714,12 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
         catch ( std::logic_error & )
         {
         }
-        if ( !applied )
+        if ( dropped )
+        {
+            // Told by DropPathNotRecordFile; the record, which nothing applies now,
+            // goes at EnforceRecordApplied.
+        }
+        else if ( !applied )
         {
             WarnSpectralReapplyFailedOnce ( m_spectralCorrectionPath );
         }
@@ -666,6 +741,9 @@ BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
         }
     }
     SyncSpectralRecordFromMeter();
+    EnforceRecordApplied();
+    if ( !InSensorSheet() )
+        CSensor::EffectiveChangedWithoutWalk(effectiveBefore, throughDriver);
 
     //Alert user if in ambient/lux mode
     if (bForSimultaneousMeasures)
@@ -830,18 +908,6 @@ void CArgyllSensor::ClearSpectralCorrection()
     CSensor::ClearSpectralCorrection();
 }
 
-namespace
-{
-    // printf-style front end to ArgyllLogMessage (the Argyll debug log)
-    void SpectralSyncLog(const char *fmt, ...)
-    {
-        va_list args;
-        va_start(args, fmt);
-        ArgyllLogMessage("Debug", const_cast<char *>(fmt), args);
-        va_end(args);
-    }
-}
-
 bool CArgyllSensor::ReadSpectralFile(const CString& path, SpectralSample& ss, std::string& why)
 {
     why.clear();
@@ -862,7 +928,8 @@ bool CArgyllSensor::ReadSpectralFile(const CString& path, SpectralSample& ss, st
     }
 }
 
-void CArgyllSensor::MakeFileRecord(const CString& path, const SpectralSample* ss, SpectralCorrectionRecord& rec)
+void CArgyllSensor::MakeFileRecord(const CString& path, const SpectralSample* ss, SpectralCorrectionRecord& rec,
+                                   const unsigned long long* knownHash)
 {
     rec.source = SPECTRAL_SOURCE_FILE;
     rec.description.clear();
@@ -878,7 +945,9 @@ void CArgyllSensor::MakeFileRecord(const CString& path, const SpectralSample* ss
     if ( rec.description.empty() )
         rec.description = (LPCSTR) m_spectralCorrectionDesc;
     unsigned long long hash = 0;
-    if ( !Fnv1a64File((LPCSTR)path, hash) )
+    if ( knownHash != NULL )
+        hash = *knownHash;  // the caller hashed the bytes it just read
+    else if ( !Fnv1a64File((LPCSTR)path, hash) )
         hash = 0;   // identifies the file only; not a reason to refuse it
     rec.fileHash = hash;
     rec.observer = m_meter ? RecordedObserver(m_meter) : -1;
@@ -911,6 +980,117 @@ int CArgyllSensor::FindDisplayTypeByText(const std::string& text)
         if ( DisplayTypeText((UINT)i) == text )
             return i;
     return -1;
+}
+
+int CArgyllSensor::FindPlainDisplayType()
+{
+    if ( m_meter == NULL )
+        return -1;
+    int n = 0;
+    try { n = m_meter->getNumberOfDisplayTypes(); }
+    catch ( std::logic_error & ) { return -1; }
+    std::vector<bool> corrected( n > 0 ? n : 0 );
+    for ( int i = 0; i < n; ++i )
+        corrected[i] = m_meter->isDisplayTypeCorrected(i);
+    const int stored = ( m_DisplayType == 0xFFFFFFFF ) ? -1 : (int)m_DisplayType;
+    return PlainDisplayTypeEntry(stored, corrected);
+}
+
+bool CArgyllSensor::SpectralClearAllowedOnPage()
+{
+    const bool listResyncs = ( m_meter != NULL && m_meter->canExposeCalibrationMatrices() );
+    // The record's own entry is the selected one: only then does choosing another
+    // Display Type remove it (an empty list, a vanished entry, or a record loaded onto
+    // a plain type leave nothing to choose that is a change).
+    bool entrySelected = false;
+    if ( listResyncs && m_spectral.source == SPECTRAL_SOURCE_DISPLAY_TYPE && m_DisplayType != 0xFFFFFFFF )
+    {
+        try
+        {
+            entrySelected = m_meter->isDisplayTypeCorrected((int)m_DisplayType)
+                         && DisplayTypeText(m_DisplayType) == m_spectral.description;
+        }
+        catch ( std::logic_error & ) {}
+    }
+    return SpectralClearAllowed(m_spectral, !m_spectralCorrectionPath.IsEmpty(), listResyncs, entrySelected);
+}
+
+// The path rule (SpectralRecordFromPathFile) against bytes just hashed from the
+// stored path. Kept: true, and the pair (path, hash) is remembered so the
+// change-only check does not hash the same file again. Not the record's file: the
+// path is dropped (DropPathNotRecordFile) and false.
+bool CArgyllSensor::KeepPathIfRecordFile(bool hashed, unsigned long long hash)
+{
+    if ( SpectralRecordFromPathFile(m_spectral, hashed, hash) )
+    {
+        if ( hashed )
+        {
+            m_pathCheckedPath = m_spectralCorrectionPath;
+            m_pathCheckedHash = hash;
+            m_pathCheckedValid = true;
+        }
+        return true;
+    }
+    DropPathNotRecordFile();
+    return false;
+}
+
+// The rule once per (path, record) pair: a FILE record with a known hash whose
+// path was not yet checked against it. Hashes the file then, and only then.
+bool CArgyllSensor::CheckPathAgainstRecord()
+{
+    if ( m_spectralCorrectionPath.IsEmpty() || m_spectral.source != SPECTRAL_SOURCE_FILE || m_spectral.fileHash == 0 )
+        return true;
+    if ( m_pathCheckedValid && m_pathCheckedPath == m_spectralCorrectionPath && m_pathCheckedHash == m_spectral.fileHash )
+        return true;
+    unsigned long long hash = 0;
+    const bool hashed = Fnv1a64File((LPCSTR)m_spectralCorrectionPath, hash);
+    return KeepPathIfRecordFile(hashed, hash);
+}
+
+// The stored path names another file than the record's: the record is what the
+// readings went through and stands as far as anything applies it (on an i1d3 HCFR
+// applies its matrices; on a meter that needs the driver to hold the sample nothing
+// does, and EnforceRecordApplied removes it at the end of Init's correction step).
+// The path, which no longer names the correction in use, is dropped, with whatever
+// sample the driver holds from it. The one drop, for Sync and the re-apply alike.
+void CArgyllSensor::DropPathNotRecordFile()
+{
+    SpectralSyncLog("CArgyllSensor: %s is not the file the spectral correction record (%s) was made from; the path is dropped",
+                    (LPCSTR)m_spectralCorrectionPath, m_spectral.description.c_str());
+    NoticePathNotRecordFileOnce ( m_spectralCorrectionPath, m_spectral.description );
+    m_spectralCorrectionPath.Empty();
+    m_spectralCorrectionDesc.Empty();
+    m_spectralCacheValid = false;
+    m_pathCheckedValid = false;
+    if ( !m_meter->canExposeCalibrationMatrices() )
+    {
+        try { m_meter->resetSpectralSample(); }
+        catch ( std::logic_error & ) {}
+    }
+    SetModifiedFlag(TRUE);
+}
+
+// The second invariant (SpectralRecordApplied): a record never says a correction
+// is in force when nothing applies one. This is the one place that enforces it, at
+// the end of Init's correction step, which every record transition a meter makes
+// goes through (the conversion for a meter whose matrices are not exposed, a path
+// dropped by the path rule, Sync) and which every record that arrives by a load
+// reaches before the first reading. A record that fails it is removed - with it
+// the method when the record was the method (CSensor::ClearSpectralCorrection) - so
+// the record, the status line and MatrixCalibrationAllowed all say what is true:
+// nothing corrects the readings. The stored path, if any, is left for Sync to derive
+// from again. The readings already taken keep their values (the bookkeeping after
+// this step strands the raw-less ones when the effective matrix moved).
+void CArgyllSensor::EnforceRecordApplied()
+{
+    if ( SpectralRecordApplied(m_spectral, m_meter->canExposeCalibrationMatrices(), !m_spectralCorrectionPath.IsEmpty()) )
+        return;
+    const std::string description = m_spectral.description;
+    SpectralSyncLog("CArgyllSensor: spectral correction %s is applied by nothing on this meter; removed",
+                    description.c_str());
+    CSensor::ClearSpectralCorrection();
+    WarnRecordNotAppliedOnce ( description );
 }
 
 bool CArgyllSensor::DisplayTypeRecordIsCurrent()
@@ -951,10 +1131,12 @@ bool CArgyllSensor::RefuseSpectralBrowse(UINT displayType)
 // unit or observer is not the one the record was derived for. Shows no dialog but
 // the once-per-session notices, and Browse's question when a ccss/ccmx Display Type
 // entry is chosen in the sheet over a matrix calibration (see the Display Type
-// branch). Readings already taken keep their values; the
-// next Sensor -> Configure OK recomputes them from raw (OnConfigureSensor's
-// CorrectionChangedSinceBeginConfigure sees the record or method change, because
-// the Display Type is changed through that sheet and this Init runs inside its OK).
+// branch). Readings already taken keep their values. What Sync changes by itself
+// happens at a measurement start or at the sheet's BeginConfigure, both outside the
+// sheet, and Init books it for the raw-less readings; what it does in the sheet
+// follows a setting the user changed there, and the sheet's OK recomputes the
+// readings from raw for it (OnConfigureSensor's CorrectionChangedSinceBeginConfigure
+// sees the record or method change) or its Cancel restores the snapshot.
 void CArgyllSensor::SyncSpectralRecordFromMeter()
 {
     if ( m_meter == NULL || !m_meter->canExposeCalibrationMatrices() )
@@ -985,22 +1167,55 @@ void CArgyllSensor::SyncSpectralRecordFromMeter()
           || !DeriveSpectralCorrection(native, current, true, corr, toNative, why) )
         {
             SpectralSyncLog("CArgyllSensor: Display Type %d correction not derived: %s", (int)m_DisplayType, why.c_str());
+            // The driver measures native on every exit path (R5). Past its list
+            // checks the derive has left the entry's base selected (baseIndex is
+            // set), on success and failure alike. Before them (the entry is not in
+            // the driver's list, or has no base entry) it selected nothing, and the
+            // driver is still on the corrected entry Init selected, applying its
+            // ccss/ccmx itself: under a record for the same entry HCFR would apply it
+            // a second time, and a fit would be stamped NATIVE on corrected readings.
+            // A plain entry is selected instead (the i1d3 list always starts with the
+            // driver's plain built-ins, so there is one).
+            bool measuresNative = ( baseIndex >= 0 );
+            if ( baseIndex < 0 )
+            {
+                const int plain = FindPlainDisplayType();
+                if ( plain >= 0 )
+                {
+                    m_meter->setDisplayType(plain);
+                    measuresNative = true;
+                }
+            }
             // Another entry's correction must not stay on this entry's readings: a
             // Display Type record for a different entry is removed, and the user is
-            // told why once per session. A browsed file's record stays as it is.
+            // told why once per session. A browsed file's record stays as it is, and
+            // so does one for this same entry (HCFR applies it, once). With no record
+            // nothing corrects the readings, and the user is told that instead. Each
+            // notice has its own once-per-session flag: one shown must not silence
+            // the other, which says something different.
+            static BOOL s_warnedDisplayTypeFailed = FALSE;
+            static BOOL s_warnedDisplayTypeNotApplied = FALSE;
+            UINT warning = 0;
+            BOOL * warned = NULL;
             if ( m_spectral.source == SPECTRAL_SOURCE_DISPLAY_TYPE && m_spectral.description != entryText )
             {
                 CSensor::ClearSpectralCorrection();
-                static BOOL s_warnedDisplayTypeFailed = FALSE;
-                if ( !s_warnedDisplayTypeFailed )
-                {
-                    s_warnedDisplayTypeFailed = TRUE;
-                    CString msg, fmt, title;
-                    fmt.LoadString ( IDS_SPECTRAL_DISPTYPE_FAILED );
-                    title.LoadString ( IDS_SPECTRAL_TITLE );
-                    msg.Format ( fmt, why.c_str() );
-                    GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
-                }
+                warning = IDS_SPECTRAL_DISPTYPE_FAILED;
+                warned = &s_warnedDisplayTypeFailed;
+            }
+            else if ( !m_spectral.IsPresent() && measuresNative )
+            {
+                warning = IDS_SPECTRAL_DISPTYPE_NOT_APPLIED;
+                warned = &s_warnedDisplayTypeNotApplied;
+            }
+            if ( warned != NULL && !*warned )
+            {
+                *warned = TRUE;
+                CString msg, fmt, title;
+                fmt.LoadString ( warning );
+                title.LoadString ( IDS_SPECTRAL_TITLE );
+                msg.Format ( fmt, why.c_str() );
+                GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
             }
             return;
         }
@@ -1106,10 +1321,23 @@ void CArgyllSensor::SyncSpectralRecordFromMeter()
     const bool serialChanged = ( m_spectral.meterSerial != serial );
     if ( fileRecord && !serialChanged && m_spectral.observer == observer )
     {
-        // Complete for this unit: used without opening the file. Say so once if the
+        // Complete for this unit: used without deriving it again. Say so once if the
         // file is gone, so a moved .ccss is not found out only on another meter.
         if ( ::GetFileAttributes((LPCSTR)m_spectralCorrectionPath) == INVALID_FILE_ATTRIBUTES )
             NoticeSpectralFileMovedOnce ( m_spectralCorrectionPath );
+        return;
+    }
+
+    // The path rule on the bytes about to be derived (R4): a FILE record is derived
+    // again only from the file it was made from. Another file at the path leaves the
+    // record standing - from here on it is a FILE record with no file here, as
+    // above, and another unit's is told so - and IDS_SPECTRAL_UNIT_MISMATCH below
+    // ("derived again") is only ever shown for the record's own file.
+    unsigned long long pathHash = 0;
+    const bool hashed = Fnv1a64File((LPCSTR)m_spectralCorrectionPath, pathHash);
+    if ( !KeepPathIfRecordFile(hashed, pathHash) )
+    {
+        NoticeForeignFileRecordOnce ( m_spectral, serial );
         return;
     }
 
@@ -1164,7 +1392,7 @@ void CArgyllSensor::SyncSpectralRecordFromMeter()
     // Description and hash come from the file just read, never from the record it
     // replaces (which may have come from another file through a document).
     SpectralCorrectionRecord rec;
-    MakeFileRecord(m_spectralCorrectionPath, &ss, rec);
+    MakeFileRecord(m_spectralCorrectionPath, &ss, rec, hashed ? &pathHash : NULL);
     rec.nativeCal = native;
     rec.currentCal = current;
     rec.correction = corr;
@@ -1196,9 +1424,25 @@ bool CArgyllSensor::CorrectionChangedSinceBeginConfigure() const
         || m_spectralCorrectionDesc != m_cfgSnapSpectralDesc;
 }
 
+// The structural rule for order independence (#256). Init's correction step can
+// change the correction by itself (a document's Display Type entry derived for the
+// first time, a FILE record derived again for another unit or observer, the
+// conversion for a meter whose matrices are not exposed, a stale path dropped).
+// Outside the sheet nothing walks the readings after it, so Init books the change
+// for the raw-less readings (EffectiveChangedWithoutWalk); inside the sheet, the
+// sheet's OK would walk it as if the user had made it, and its Cancel and the page's
+// Clear would undo it. So the measurement-start Init runs here, with that
+// bookkeeping, before the snapshot: the snapshot already holds its result, every
+// sequence in the sheet starts from the state a measurement would have left, and
+// the sheet's walk and Cancel see only the user's changes - the same result
+// whichever came first, a measurement or the sheet. An Init in the sheet then
+// changes the correction only for a setting the user changed there.
+// A failed Init leaves no meter (Configure then refuses the sheet).
 void CArgyllSensor::BeginConfigure()
 {
-    m_spectralCacheValid = false;   // path may change during the sheet
+    m_spectralCacheValid = false;   // path may change during the sheet; re-read below
+    if ( m_meter != NULL )
+        Init(FALSE);
     CSensor::BeginConfigure();
     m_cfgSnapSpectralPath = m_spectralCorrectionPath;
     m_cfgSnapSpectralDesc = m_spectralCorrectionDesc;
@@ -1211,6 +1455,16 @@ void CArgyllSensor::BeginConfigure()
     m_cfgSnapDisableAIO   = m_DisableAIO;
     m_cfgSnapDebugMode    = m_debugMode;
     m_cfgSnapDeviceValid  = true;
+}
+
+// The page reads the meter throughout (SetPropertiesSheetValues, the combo fills):
+// with none - the Init at BeginConfigure failed and said why - there is no sheet to
+// show, and the caller treats it as a Cancel.
+BOOL CArgyllSensor::Configure()
+{
+    if ( m_meter == NULL )
+        return FALSE;
+    return COneDeviceSensor::Configure();
 }
 
 // A spectral apply (or clear) from the property page committed before the
