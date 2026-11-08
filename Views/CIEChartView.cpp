@@ -1932,7 +1932,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		{
 			CString str;
 			Msg.LoadString ( IDS_GRAYIRE );
-			str.Format(Msg,(int)(pDoc->GetMeasure()->GetGrayPercent(i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+0.5));
+			str.Format(Msg,(int)(pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i )+0.5));	// its stamped drive, else slot i
             ColorXYZ aColor(pDoc->GetMeasure()->GetGray(i).GetXYZValue());
             ColorXYZ refColor(GetColorReference().GetWhite());
             double valy;
@@ -1940,19 +1940,18 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
             // Determine Reference Y luminance for Delta E calculus
             if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
             {
-				double x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
     			CColor White = pDoc -> GetMeasure () -> GetGray ( nSize - 1 );
 				CColor Black = pDoc->GetMeasure()->GetOnOffBlack();
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if (  (mode >= 4) )
 			    {
-				   double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				   double valx = pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i );
                    valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //				   valy = min(valy, GetConfig()->m_TargetMaxL);
 			    }
 			    else
 			    {
-				   double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+				   double valx=(pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i )+Offset)/(1.0+Offset);
 				   valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;

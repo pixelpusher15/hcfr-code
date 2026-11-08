@@ -3739,6 +3739,362 @@ static void RunT46()
     }
 }
 
+// =============================================================================
+// T43 - where an existing gray reading sits on a gray-level axis (libHCFR
+// ReadingWireGrayProp / ReadingGrayLevel / ReadingGrayProp and the GraySeries
+// accessor core behind CMeasure::GetGrayReadingLevel / Prop). Pure assertions,
+// no golden files. Every comparison is exact (==): the rule has no tolerance,
+// and the fallback must be bit for bit the value the describing sites computed
+// before the stamp existed.
+// =============================================================================
+namespace T43Drive
+{
+    // A reading of a gray stimulus `level` (%) with a wire stamp.
+    static CColor Stamped(double level, bool realDrive, int bits, int range, int code,
+                          int deviceRange = WIRE_RANGE_UNKNOWN)
+    {
+        CColor c(0.3, 0.4, 0.5);
+        c.SetStimulusValue(ColorRGBDisplay(level));
+        CColorWireSetup w;
+        w.realDrive = realDrive;
+        w.wireBits = bits;
+        w.encodingRange = range;
+        w.deviceRange = deviceRange;
+        w.generatorId = WIRE_GENERATOR_GDI;
+        w.outputMode = 0;
+        w.wireCode[0] = w.wireCode[1] = w.wireCode[2] = code;
+        c.SetWireSetup(w);
+        return c;
+    }
+
+    static double Black(int bits, int range)
+    {
+        return range == WIRE_RANGE_LIMITED ? (bits == 10 ? 64.0 : 16.0) : 0.0;
+    }
+    static double Grid(int bits, int range)
+    {
+        return bits == 10 ? (range == WIRE_RANGE_LIMITED ? 876.0 : 1023.0)
+                          : (range == WIRE_RANGE_LIMITED ? 219.0 : 255.0);
+    }
+    // The code a sweep sends for nominal level n on a grid (round to nearest).
+    static int CodeFor(int n, int bits, int range)
+    {
+        return (int)(floor(n / 100.0 * Grid(bits, range) + 0.5) + Black(bits, range));
+    }
+
+    // Expect the reading at exactly `wantProp` (stamped drive taken) under the
+    // current grid flags, whatever slot level the site passes.
+    static void ExpectDrive(const char* what, const CColor& r, double slotLevel,
+                            bool rd, bool b10, bool lim, double wantProp)
+    {
+        double p = -1.0;
+        if (!ReadingWireGrayProp(r, &p))
+            Fail("T43 %s: stamped drive not taken", what);
+        else if (p != wantProp)
+            Fail("T43 %s: drive %.17g, expected %.17g", what, p, wantProp);
+        const double lvl = ReadingGrayLevel(r, slotLevel);
+        if (lvl != wantProp * 100.0)
+            Fail("T43 %s: level %.17g, expected %.17g", what, lvl, wantProp * 100.0);
+        const double prop = ReadingGrayProp(r, slotLevel, rd, b10, lim);
+        if (prop != wantProp)
+            Fail("T43 %s: prop %.17g, expected %.17g", what, prop, wantProp);
+    }
+
+    // Expect the fallback: the slot level and GrayLevelToGrayProp of it.
+    static void ExpectFallback(const char* what, const CColor& r, double slotLevel,
+                               bool rd, bool b10, bool lim)
+    {
+        double p = -1.0;
+        if (ReadingWireGrayProp(r, &p))
+            Fail("T43 %s: a drive (%.17g) was taken; expected the fallback", what, p);
+        const double lvl = ReadingGrayLevel(r, slotLevel);
+        if (lvl != slotLevel)
+            Fail("T43 %s: level %.17g, expected the slot %.17g", what, lvl, slotLevel);
+        const double want = GrayLevelToGrayProp(slotLevel, rd, b10, lim);
+        const double prop = ReadingGrayProp(r, slotLevel, rd, b10, lim);
+        if (prop != want)
+            Fail("T43 %s: prop %.17g, expected the slot's %.17g", what, prop, want);
+    }
+}
+
+static void RunT43()
+{
+    printf("T43 gray reading level: stamped drive or the slot (wire stamp)...\n");
+    using namespace T43Drive;
+    const int F = WIRE_RANGE_FULL, L = WIRE_RANGE_LIMITED;
+
+    // (a) Dominic's case: near white 95..99% measured on an 8-bit FULL wire
+    //     (codes 242/245/247/250/252) and viewed with LIMITED selected. Each
+    //     reading sits at its own code/255, never at the limited grid's
+    //     94.98/95.89/96.80/98.17/99.09%.
+    {
+        const int codes[5] = { 242, 245, 247, 250, 252 };
+        const double shown[5] = { 94.90, 96.08, 96.86, 98.04, 98.82 };	// 2 decimals, as the brief states them
+        for (int k = 0; k < 5; ++k)
+        {
+            const int n = 95 + k;
+            if (CodeFor(n, 8, F) != codes[k])
+                Fail("T43 (a) code for %d%% on 8-bit full: %d, expected %d", n, CodeFor(n, 8, F), codes[k]);
+            const double stim = ArrayIndexToGrayLevel(n, 101, false, false, false);	// what the full-range sweep drove
+            const CColor r = Stamped(stim, true, 8, F, codes[k]);
+            const double slotLimited = ArrayIndexToGrayLevel(n, 101, false, false, true);
+            char what[64];
+            _snprintf_s(what, sizeof(what), _TRUNCATE, "(a) full 8-bit code %d viewed limited", codes[k]);
+            ExpectDrive(what, r, slotLimited, false, false, true, codes[k] / 255.0);
+            const double lvl = ReadingGrayLevel(r, slotLimited);
+            if (floor(lvl * 100.0 + 0.5) / 100.0 != shown[k])
+                Fail("T43 %s: %.4f%% does not read %.2f%%", what, lvl, shown[k]);
+            if (lvl == slotLimited)
+                Fail("T43 %s: placed on the limited grid (%.4f%%)", what, slotLimited);
+        }
+    }
+
+    // (b) the reverse: 8-bit LIMITED codes viewed with FULL selected, and the
+    //     10-bit pairs both ways. Decoded on the stamp's own encoding.
+    {
+        struct Case { int bits, range; bool viewB10, viewLim; const char* name; };
+        const Case cases[] = {
+            {  8, L, false, false, "8-bit limited viewed full" },
+            { 10, F, true,  true,  "10-bit full viewed limited" },
+            { 10, L, true,  false, "10-bit limited viewed full" },
+            {  8, F, true,  true,  "8-bit full viewed 10-bit limited" },
+            { 10, L, false, false, "10-bit limited viewed 8-bit full" },
+        };
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); ++c)
+            for (int n = 95; n <= 99; ++n)
+            {
+                const Case& k = cases[c];
+                const int code = CodeFor(n, k.bits, k.range);
+                const CColor r = Stamped(ArrayIndexToGrayLevel(n, 101, false, k.bits == 10, k.range == L),
+                                         true, k.bits, k.range, code);
+                const double slot = ArrayIndexToGrayLevel(n, 101, false, k.viewB10, k.viewLim);
+                const double want = (code - Black(k.bits, k.range)) / Grid(k.bits, k.range);
+                char what[96];
+                _snprintf_s(what, sizeof(what), _TRUNCATE, "(b) %s, %d%% code %d", k.name, n, code);
+                ExpectDrive(what, r, slot, false, k.viewB10, k.viewLim, want);
+            }
+        // the limited reading named in Color.cpp's comment
+        ExpectDrive("(b) limited code 224 viewed full", Stamped(208.0 / 219.0 * 100.0, true, 8, L, 224),
+                    95.0, false, false, false, 208.0 / 219.0);
+    }
+
+    // (c) Kyle's limited setup: HCFR limited, TV limited, PGenerator output FULL.
+    //     The stamp says encodingRange limited, deviceRange full; the level is
+    //     decoded on encodingRange, (code - 16) / 219, never code / 255.
+    {
+        const CColor r = Stamped(208.0 / 219.0 * 100.0, true, 8, L, 224, F);
+        ExpectDrive("(c) HCFR limited / PGen full, viewed limited", r, 95.0, false, false, true, 208.0 / 219.0);
+        ExpectDrive("(c) HCFR limited / PGen full, viewed full", r, 95.0, false, false, false, 208.0 / 219.0);
+        double p = 0.0;
+        if (ReadingWireGrayProp(r, &p) && p == 224.0 / 255.0)
+            Fail("T43 (c) decoded on deviceRange");
+        const CColor r10 = Stamped(832.0 / 876.0 * 100.0, true, 10, L, 896, F);
+        ExpectDrive("(c) 10-bit HCFR limited / PGen full", r10, 95.0, false, true, true, 832.0 / 876.0);
+    }
+
+    // (d) no stamp falls back: a bare reading, one with a stimulus but no
+    //     stamp (a file written between the stimulus and the stamp), noDataColor.
+    for (int lim = 0; lim < 2; ++lim)
+        for (int b10 = 0; b10 < 2; ++b10)
+        {
+            const double slot = ArrayIndexToGrayLevel(30, 101, false, b10 != 0, lim != 0);
+            CColor bare(0.3, 0.4, 0.5);
+            ExpectFallback("(d) no stamp, no stimulus", bare, slot, false, b10 != 0, lim != 0);
+            CColor stim(0.3, 0.4, 0.5);
+            stim.SetStimulusValue(ColorRGBDisplay(31.0));
+            ExpectFallback("(d) a stimulus, no stamp", stim, slot, false, b10 != 0, lim != 0);
+            ExpectFallback("(d) noDataColor", noDataColor, slot, false, b10 != 0, lim != 0);
+        }
+
+    // (e) realDrive false falls back: the 0.5% and 50.196% (128/255)
+    //     placeholders written into a 30% slot - as CSensor stamps them (the
+    //     defaults) and with stale code fields beside realDrive false.
+    {
+        const double slot = ArrayIndexToGrayLevel(30, 101, false, false, true);
+        CColor p05(0.3, 0.4, 0.5);
+        p05.SetStimulusValue(ColorRGBDisplay(0.5));
+        p05.SetWireSetup(CColorWireSetup());
+        ExpectFallback("(e) 0.5% placeholder, default stamp", p05, slot, false, false, true);
+        CColor p50(0.3, 0.4, 0.5);
+        p50.SetStimulusValue(ColorRGBDisplay(128.0 / 255.0 * 100.0));
+        p50.SetWireSetup(CColorWireSetup());
+        ExpectFallback("(e) 50.196% placeholder, default stamp", p50, slot, false, false, true);
+        ExpectFallback("(e) 50.196% realDrive false with codes",
+                       Stamped(128.0 / 255.0 * 100.0, false, 8, F, 128), slot, false, false, true);
+        ExpectFallback("(e) 0.5% realDrive false, no codes",
+                       Stamped(0.5, false, 0, WIRE_RANGE_UNKNOWN, -1), slot, false, false, false);
+    }
+
+    // (f) a real drive with unequal channels is not a gray patch: falls back.
+    {
+        const double slot = ArrayIndexToGrayLevel(30, 101, false, false, false);
+        CColor s(0.3, 0.4, 0.5);
+        s.SetStimulusValue(ColorRGBDisplay(30.0, 30.0, 31.0));
+        CColorWireSetup w;
+        w.realDrive = true; w.wireBits = 8; w.encodingRange = F;
+        w.wireCode[0] = w.wireCode[1] = w.wireCode[2] = 77;
+        s.SetWireSetup(w);
+        ExpectFallback("(f) unequal stimulus, equal codes", s, slot, false, false, false);
+
+        CColor nocode(0.3, 0.4, 0.5);
+        nocode.SetStimulusValue(ColorRGBDisplay(30.0, 31.0, 30.0));
+        CColorWireSetup wn;
+        wn.realDrive = true;
+        nocode.SetWireSetup(wn);
+        ExpectFallback("(f) unequal stimulus, no codes", nocode, slot, false, false, false);
+
+        CColor c = Stamped(30.0, true, 8, F, 77);
+        CColorWireSetup wc = c.GetWireSetup();
+        wc.wireCode[2] = 78;
+        c.SetWireSetup(wc);
+        ExpectFallback("(f) equal stimulus, unequal codes", c, slot, false, false, false);
+        wc.wireCode[2] = 77; wc.wireCode[1] = -1;
+        c.SetWireSetup(wc);
+        ExpectFallback("(f) codes partly unknown", c, slot, false, false, false);
+    }
+
+    // (g) a real drive without codes (madVR, Chromecast, overlay): the stimulus
+    //     fraction itself. Codes that cannot be decoded: falls back.
+    {
+        CColor m(0.3, 0.4, 0.5);
+        m.SetStimulusValue(ColorRGBDisplay(30.0));
+        CColorWireSetup w;
+        w.realDrive = true; w.outputMode = 2;
+        m.SetWireSetup(w);
+        ExpectDrive("(g) madVR, no codes", m, 29.0, false, false, true, 30.0 / 100.0);
+        const double slot = ArrayIndexToGrayLevel(30, 101, false, false, false);
+        ExpectFallback("(g) codes with unknown bits", Stamped(30.0, true, 0, F, 77), slot, false, false, false);
+        ExpectFallback("(g) codes with unknown range", Stamped(30.0, true, 8, WIRE_RANGE_UNKNOWN, 77), slot, false, false, false);
+        ExpectFallback("(g) codes with 12 bits", Stamped(30.0, true, 12, F, 1229), slot, false, false, false);
+    }
+
+    // (h) on the setup it was measured on, a stamped reading is described bit
+    //     for bit as before: every nominal 0..100 on all four grids.
+    {
+        int bad = 0;
+        for (int b = 0; b < 2; ++b)
+            for (int g = 0; g < 2; ++g)
+                for (int n = 0; n <= 100; ++n)
+                {
+                    const bool b10 = b != 0, lim = g != 0;
+                    const int bits = b10 ? 10 : 8, range = lim ? L : F;
+                    const double slot = ArrayIndexToGrayLevel(n, 101, false, b10, lim);
+                    const CColor r = Stamped(slot, true, bits, range, CodeFor(n, bits, range));
+                    if (ReadingGrayLevel(r, slot) != slot
+                        || ReadingGrayProp(r, slot, false, b10, lim) != GrayLevelToGrayProp(slot, false, b10, lim))
+                    {
+                        if (bad++ < 5)
+                            Fail("T43 (h) %d%% on %d-bit %s: not the grid's value bit for bit", n, bits, lim ? "limited" : "full");
+                    }
+                }
+        if (bad > 5)
+            Fail("T43 (h) %d mismatches in all", bad);
+    }
+
+    // (i) the two slot forms the sites used are one value: ArrayIndexToGrayLevel
+    //     ( n, 101 ) == GrayLevelToGrayProp ( n ) * 100, every n, grid and
+    //     rounding (the near-black/white charts used the second form).
+    {
+        int bad = 0;
+        for (int rd = 0; rd < 2; ++rd)
+            for (int b = 0; b < 2; ++b)
+                for (int g = 0; g < 2; ++g)
+                    for (int n = 0; n <= 101; ++n)
+                        if (ArrayIndexToGrayLevel(n, 101, rd != 0, b != 0, g != 0)
+                            != GrayLevelToGrayProp((double)n, rd != 0, b != 0, g != 0) * 100.)
+                            ++bad;
+        if (bad)
+            Fail("T43 (i) %d slot levels differ between the two forms", bad);
+    }
+
+    // (j) the accessor core pairs slot i with reading i, and slot i is the
+    //     sweep's level for that series.
+    {
+        // near white, 5 slots, clip column 99 (not 101), 8-bit full wire viewed
+        // limited; reading 2 has no stamp, reading 3 a placeholder.
+        CColor nw[5];
+        const int clip = 99, size = 5;
+        for (int i = 0; i < size; ++i)
+        {
+            const int n = clip - size + i;
+            nw[i] = Stamped(ArrayIndexToGrayLevel(n, 101, false, false, false), true, 8, F, CodeFor(n, 8, F));
+        }
+        nw[2] = CColor(0.3, 0.4, 0.5);
+        nw[3] = Stamped(0.5, false, 0, WIRE_RANGE_UNKNOWN, -1);
+        GraySeriesView v;
+        v.series = GRAY_SERIES_NEAR_WHITE; v.readings = nw; v.size = size;
+        v.nominalLevels = NULL; v.nominalCount = 0; v.nearWhiteClipCol = clip; v.pqNearBlack = false;
+        v.bUseRoundDown = false; v.b10bit = false; v.is16_235 = true;
+        for (int i = 0; i < size; ++i)
+        {
+            const int n = clip - size + i;
+            const double slot = ArrayIndexToGrayLevel(n, 101, false, false, true);
+            if (GraySeriesSlotLevel(v, i) != slot)
+                Fail("T43 (j) near white slot %d: %.17g, expected %d%% on the grid (%.17g)", i, GraySeriesSlotLevel(v, i), n, slot);
+            const bool stamped = (i != 2 && i != 3);
+            const double wantProp = stamped ? CodeFor(n, 8, F) / 255.0 : GrayLevelToGrayProp(slot, false, false, true);
+            const double wantLvl = stamped ? CodeFor(n, 8, F) / 255.0 * 100.0 : slot;
+            double p;
+            if (GraySeriesDriveProp(v, i, &p) != stamped)
+                Fail("T43 (j) near white %d: drive %s, expected %s", i, stamped ? "absent" : "taken", stamped ? "taken" : "absent");
+            if (GraySeriesLevel(v, i) != wantLvl)
+                Fail("T43 (j) near white %d: level %.17g, expected %.17g", i, GraySeriesLevel(v, i), wantLvl);
+            if (GraySeriesProp(v, i) != wantProp)
+                Fail("T43 (j) near white %d: prop %.17g, expected %.17g", i, GraySeriesProp(v, i), wantProp);
+        }
+        double p;
+        if (GraySeriesDriveProp(v, -1, &p) || GraySeriesDriveProp(v, size, &p))
+            Fail("T43 (j) a drive outside the series");
+
+        // near black in PQ: slot i is 2i%, reading i its own drive.
+        CColor nb[4];
+        for (int i = 0; i < 4; ++i)
+            nb[i] = Stamped(ArrayIndexToGrayLevel(2 * i, 101, false, true, false), true, 10, F, CodeFor(2 * i, 10, F));
+        nb[1] = CColor(0.3, 0.4, 0.5);
+        GraySeriesView b = v;
+        b.series = GRAY_SERIES_NEAR_BLACK; b.readings = nb; b.size = 4; b.pqNearBlack = true;
+        b.b10bit = true; b.is16_235 = true;
+        for (int i = 0; i < 4; ++i)
+        {
+            const double slot = ArrayIndexToGrayLevel(2 * i, 101, false, true, true);
+            if (GraySeriesSlotLevel(b, i) != slot)
+                Fail("T43 (j) PQ near black slot %d: not %d%%", i, 2 * i);
+            const double want = (i == 1) ? slot : CodeFor(2 * i, 10, F) / 1023.0 * 100.0;
+            if (GraySeriesLevel(b, i) != want)
+                Fail("T43 (j) PQ near black %d: level %.17g, expected %.17g", i, GraySeriesLevel(b, i), want);
+        }
+        b.pqNearBlack = false;
+        if (GraySeriesSlotLevel(b, 3) != ArrayIndexToGrayLevel(3, 101, false, true, true))
+            Fail("T43 (j) SDR near black slot 3: not 3%%");
+
+        // grayscale with nominal levels per slot, and the even ramp without them.
+        const double nominal[5] = { 0.0, 10.0, 30.0, 75.0, 100.0 };
+        CColor gs[5];
+        for (int i = 0; i < 5; ++i)
+            gs[i] = CColor(0.3, 0.4, 0.5);
+        gs[3] = Stamped(GrayLevelToGrayProp(75.0, false, false, false) * 100.0, true, 8, F, CodeFor(75, 8, F));
+        GraySeriesView g = v;
+        g.series = GRAY_SERIES_GRAYSCALE; g.readings = gs; g.size = 5;
+        g.nominalLevels = nominal; g.nominalCount = 5; g.b10bit = false; g.is16_235 = true;
+        for (int i = 0; i < 5; ++i)
+        {
+            const double slot = GrayLevelToGrayProp(nominal[i], false, false, true) * 100.0;
+            if (GraySeriesSlotLevel(g, i) != slot || GrayScaleSlotLevel(i, 5, nominal, 5, false, false, true) != slot)
+                Fail("T43 (j) grayscale slot %d: not the nominal %.0f%% on the grid", i, nominal[i]);
+            const double want = (i == 3) ? CodeFor(75, 8, F) / 255.0 * 100.0 : slot;
+            if (GraySeriesLevel(g, i) != want)
+                Fail("T43 (j) grayscale %d: level %.17g, expected %.17g", i, GraySeriesLevel(g, i), want);
+        }
+        g.nominalCount = 4;		// a count mismatch: the even ramp, as GetGrayPercent
+        for (int i = 0; i < 5; ++i)
+            if (GraySeriesSlotLevel(g, i) != ArrayIndexToGrayLevel(i, 5, false, false, true))
+                Fail("T43 (j) grayscale slot %d without nominal levels: not the even ramp", i);
+        g.nominalLevels = NULL; g.nominalCount = 5;
+        if (GraySeriesSlotLevel(g, 2) != ArrayIndexToGrayLevel(2, 5, false, false, true))
+            Fail("T43 (j) grayscale slot 2 with no nominal array: not the even ramp");
+    }
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -3773,6 +4129,7 @@ int main(int argc, char* argv[])
     RunT22();
     RunT41();
     RunT42();
+    RunT43();
     RunT44();
     RunT46();
 

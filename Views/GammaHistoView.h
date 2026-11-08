@@ -61,6 +61,8 @@ class CGammaGrapher
 	long m_blueLumDataRefLogGraphID;	//Ki
 
 	std::vector<double> m_yref_abs;	// per-view reference luminance (was a file-scope global -> cross-doc corruption)
+	std::vector<double> m_yref_prop;	// the gray level (0..1) each m_yref_abs entry was evaluated at
+	CColor m_yrefWhite, m_yrefBlack;	// and the white and black it was evaluated with
 
 	// Updatable flags. Initialized with default values in constructor, can be changed before calling UpdateGraph
 	BOOL m_showReference;

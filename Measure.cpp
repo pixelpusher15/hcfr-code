@@ -1791,31 +1791,74 @@ void CMeasure::SetGrayScaleLevels(const double * pLevels, int count)
 
 double CMeasure::GetGrayPercent(int index, bool bUseRoundDown, bool b10bit, bool is16_235) const
 {
-	int size = m_grayMeasureArray.GetSize ();
+	// Snap the stored nominal IRE % to the active output grid. The stored
+	// levels are nominal percentages, never codes, so this is the one place
+	// the grid is applied to them - GrayLevelToGrayProp is the same snap
+	// expressed as a 0..1 proportion, so route through it and there is a
+	// single definition of the grid rounding. Without one nominal level per
+	// slot, the even ramp (ArrayIndexToGrayLevel); for a uniform level set the
+	// two agree exactly. The arithmetic is libHCFR's GrayScaleSlotLevel, which
+	// the series accessors below also use, so slot i has one definition.
+	//
+	// THE RULE: this is the level the NEXT measurement of gray slot i is
+	// driven at, on the CURRENT grid (range and bit depth); the sweeps, the
+	// background measure and the test-pattern window use it for exactly that.
+	// A reading that already exists is described by its wire stamp when the
+	// stamp says realDrive (GetGrayReadingLevel / Prop below, and THE RULE in
+	// libHCFR/Color.cpp), and by this value only otherwise - a file saved
+	// before the stamp, a placeholder, a manual or external generator. So a
+	// .chc measured on a full-range wire keeps its 10.196% (code 26 of 255)
+	// when opened on a limited-range setup, where the next sweep will drive
+	// 10.046% (code 22 of 219 above 16). m_grayIRELevelArray serializes the
+	// NOMINAL levels, so nothing on disk depends on the grid either way.
+	return GrayScaleSlotLevel ( index, m_grayMeasureArray.GetSize(), m_grayIRELevelArray.GetData(), m_grayIRELevelArray.GetSize(), bUseRoundDown, b10bit, is16_235 );
+}
 
-	if ( m_grayIRELevelArray.GetSize() == size && index >= 0 && index < size )
+GraySeriesView CMeasure::GetGraySeriesView(GraySeries series) const
+{
+	GraySeriesView v;
+	v.series = series;
+	v.nominalLevels = NULL;
+	v.nominalCount = 0;
+	v.nearWhiteClipCol = (int) m_NearWhiteClipCol;
+	v.pqNearBlack = ( GetConfig()->m_GammaOffsetType == 5 );
+	v.bUseRoundDown = ( GetConfig()->m_bUseRoundDown != FALSE );
+	v.b10bit = ( GetConfig()->GetUse10bitLevels() != FALSE );
+	v.is16_235 = ( GetConfig()->GetRGB16_235() != FALSE );
+	switch ( series )
 	{
-		// Snap the stored nominal IRE % to the active output grid. The stored
-		// levels are nominal percentages, never codes, so this is the one place
-		// the grid is applied to them - GrayLevelToGrayProp is the same snap
-		// expressed as a 0..1 proportion, so route through it and there is a
-		// single definition of the grid rounding.
-		// For a uniform level set this reproduces ArrayIndexToGrayLevel() exactly.
-		//
-		// SAVED DOCUMENTS: m_grayIRELevelArray serializes the NOMINAL levels, so
-		// nothing on disk is rewritten by the grid choice - the snap is applied
-		// live, at display time, from the CURRENT config. A .chc saved while the
-		// wire was full-range therefore reloads with 255-grid IRE labels (10.196%
-		// where the limited grid reads 10.046%), and the same document opened on
-		// a limited-range setup reads the limited labels. That is the same
-		// already-established behavior as toggling the 10-bit checkbox, and it is
-		// the correct one: the label must describe the grid the user is measuring
-		// on now, not the one the file happened to be captured on. The stored
-		// measurements are untouched either way.
-		return GrayLevelToGrayProp ( m_grayIRELevelArray[index], bUseRoundDown, b10bit, is16_235 ) * 100.0;
+		case GRAY_SERIES_NEAR_BLACK:
+			v.readings = m_nearBlackMeasureArray.GetData();
+			v.size = m_nearBlackMeasureArray.GetSize();
+			break;
+		case GRAY_SERIES_NEAR_WHITE:
+			v.readings = m_nearWhiteMeasureArray.GetData();
+			v.size = m_nearWhiteMeasureArray.GetSize();
+			break;
+		default:
+			v.series = GRAY_SERIES_GRAYSCALE;
+			v.readings = m_grayMeasureArray.GetData();
+			v.size = m_grayMeasureArray.GetSize();
+			v.nominalLevels = m_grayIRELevelArray.GetData();
+			v.nominalCount = m_grayIRELevelArray.GetSize();
+			break;
 	}
+	return v;
+}
 
-	return ArrayIndexToGrayLevel ( index, size, bUseRoundDown, b10bit, is16_235 );
+bool CMeasure::GetGrayReadingDrive(GraySeries series, int index, double * pProp) const
+{
+	return GraySeriesDriveProp ( GetGraySeriesView ( series ), index, pProp );
+}
+
+double CMeasure::GetGrayReadingLevel(GraySeries series, int index) const
+{
+	return GraySeriesLevel ( GetGraySeriesView ( series ), index );
+}
+
+double CMeasure::GetGrayReadingProp(GraySeries series, int index) const
+{
+	return GraySeriesProp ( GetGraySeriesView ( series ), index );
 }
 
 int CMeasure::GetGrayScalePreset() const

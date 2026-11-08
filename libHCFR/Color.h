@@ -1010,6 +1010,54 @@ extern double HLG_SignalToScene ( double v );
 // un-updated call site quantizing a full-range wire against the limited grid.
 double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 );
 double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 );
+
+// ---- Where an existing gray reading sits on a gray-level axis (Color.cpp) ----
+// TRUE, with *pProp the level as a 0..1 proportion of the signal range, only
+// when the reading's wire stamp (WireSetup.h) says HCFR put exactly this gray
+// on the wire: realDrive, R = G = B, and equal codes when codes are known.
+// FALSE for every other reading - no stamp (older files), realDrive false
+// (placeholders, manual and external generators), unequal channels.
+bool ReadingWireGrayProp ( const CColor & aReading, double * pProp );
+// The reading's level as a percentage: its stamped drive, else slotLevel.
+double ReadingGrayLevel ( const CColor & aReading, double slotLevel );
+// The reading's level as a 0..1 proportion: its stamped drive, else
+// GrayLevelToGrayProp ( slotLevel, ... ) on the current grid.
+double ReadingGrayProp ( const CColor & aReading, double slotLevel, bool bUseRoundDown, bool b10bit, bool is16_235 );
+
+// The three gray series CMeasure holds, each pairing slot i with reading i.
+enum GraySeries
+{
+	GRAY_SERIES_GRAYSCALE  = 0,		// GetGray, at GetGrayPercent
+	GRAY_SERIES_NEAR_BLACK = 1,		// GetNearBlack, 1% steps (2% in PQ)
+	GRAY_SERIES_NEAR_WHITE = 2		// GetNearWhite, 1% steps up to the clip column
+};
+
+// One gray series as CMeasure holds it (CMeasure::GetGraySeriesView), and the
+// CURRENT grid. Pointers are borrowed: build, use, discard.
+struct GraySeriesView
+{
+	GraySeries		series;
+	const CColor *	readings;			// readings[i] is the reading of slot i
+	int				size;				// number of slots
+	const double *	nominalLevels;		// grayscale: nominal % per slot, or NULL
+	int				nominalCount;		// used only when it equals size
+	int				nearWhiteClipCol;	// near white: the clip column (101 = none)
+	bool			pqNearBlack;		// near black: PQ, 2% steps
+	bool			bUseRoundDown;
+	bool			b10bit;
+	bool			is16_235;
+};
+
+// Slot i of the grayscale on the current grid: CMeasure::GetGrayPercent.
+double GrayScaleSlotLevel ( int index, int size, const double * nominalLevels, int nominalCount, bool bUseRoundDown, bool b10bit, bool is16_235 );
+// Slot i of the series on the current grid, as a percentage.
+double GraySeriesSlotLevel ( const GraySeriesView & v, int index );
+// Reading i of the series: ReadingWireGrayProp ( readings[index] ), FALSE
+// outside the series.
+bool GraySeriesDriveProp ( const GraySeriesView & v, int index, double * pProp );
+// Reading i's level: its stamped drive, else slot i on the current grid.
+double GraySeriesLevel ( const GraySeriesView & v, int index );		// percent
+double GraySeriesProp ( const GraySeriesView & v, int index );		// 0..1
 double getL_EOTF ( double x, CColor White, CColor Black, double g_rel, double split, int mode, double m_DiffuseL = 94.37844, double m_MasterMinL = 0.0, double m_MasterMaxL = 4000.0, double m_TargetMinL = 0.00, double m_TargetMaxL = 700.0, bool ToneMap = FALSE, bool cBT2390 = FALSE, double m_TargetSysGamma = 1.2, double b_fact = 1.0, double E2_fact = 0.0, double E2_fact1 = 1.1 );
 
 #endif // !defined(COLOR_H_INCLUDED_)
