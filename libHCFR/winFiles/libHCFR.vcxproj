@@ -94,6 +94,7 @@
     <ClCompile Include="..\ArchiveExtension.cpp" />
     <ClCompile Include="..\SensorCalibrationStream.cpp" />
     <ClCompile Include="..\UserPatchSetStream.cpp" />
+    <ClCompile Include="..\WireSetup.cpp" />
     <ClCompile Include="..\CalibrationFile.cpp" />
     <ClCompile Include="..\CHCFile.cpp" />
     <ClCompile Include="..\Color.cpp" />
@@ -114,6 +115,7 @@
     <ClInclude Include="..\ArchiveTags.h" />
     <ClInclude Include="..\SensorCalibrationStream.h" />
     <ClInclude Include="..\UserPatchSetStream.h" />
+    <ClInclude Include="..\WireSetup.h" />
     <ClInclude Include="..\CalibrationFile.h" />
     <ClInclude Include="..\CHCFile.h" />
     <ClInclude Include="..\Color.h" />

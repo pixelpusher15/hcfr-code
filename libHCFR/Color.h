@@ -37,6 +37,7 @@
 #include "libHCFR_Config.h"
 #include "Matrix.h"
 #include <string>   // std::string in CColorProvenance (below), before class CColor
+#include "WireSetup.h"   // CColorWireSetup, before class CColor
 
 typedef enum 
 {
@@ -376,6 +377,14 @@ public:
 	void ClearTimestamp();
 	bool HasTimestamp() const;
 	double GetTimestamp() const;		// 0.0 when none
+	// The wire-setup stamp (WireSetup.h): whether the stimulus is the patch the
+	// generator displayed for this reading, and how it went out on the wire.
+	// Stamped by CSensor::MeasureColor on every reading this build takes; a
+	// reading from an older file has none, which means unknown.
+	void SetWireSetup(const CColorWireSetup& aWire);
+	void ClearWireSetup();
+	bool HasWireSetup() const;
+	CColorWireSetup GetWireSetup() const;	// the defaults (realDrive false) when none
 
     void Output(ostream& ostr) const;
 
@@ -397,6 +406,7 @@ protected:
 	ColorRGBDisplay *	m_pStimulus;
 	CColorProvenance *	m_pProvenance;
 	double *	m_pTimestamp;
+	CColorWireSetup *	m_pWireSetup;
 
 #ifdef LIBHCFR_HAS_MFC
 private:

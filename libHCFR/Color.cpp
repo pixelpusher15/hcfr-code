@@ -2479,6 +2479,7 @@ CColor::CColor():m_XYZValues(1.0,3,1)
 	m_pStimulus = NULL;
 	m_pProvenance = NULL;
 	m_pTimestamp = NULL;
+	m_pWireSetup = NULL;
 }
 
 CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
@@ -2489,6 +2490,7 @@ CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 	m_pStimulus = NULL;
 	m_pProvenance = NULL;
 	m_pTimestamp = NULL;
+	m_pWireSetup = NULL;
 
 	if ( aColor.m_pSpectrum )
 		m_pSpectrum = new CSpectrum ( *aColor.m_pSpectrum );
@@ -2507,6 +2509,9 @@ CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 
 	if ( aColor.m_pTimestamp )
 		m_pTimestamp = new double ( *aColor.m_pTimestamp );
+
+	if ( aColor.m_pWireSetup )
+		m_pWireSetup = new CColorWireSetup ( *aColor.m_pWireSetup );
 }
 
 CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
@@ -2520,6 +2525,7 @@ CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
 	m_pStimulus = NULL;
 	m_pProvenance = NULL;
 	m_pTimestamp = NULL;
+	m_pWireSetup = NULL;
 }
 
 CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
@@ -2533,6 +2539,7 @@ CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
 	m_pStimulus = NULL;
 	m_pProvenance = NULL;
 	m_pTimestamp = NULL;
+	m_pWireSetup = NULL;
 }
 
 CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
@@ -2547,6 +2554,7 @@ CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
 	m_pStimulus = NULL;
 	m_pProvenance = NULL;
 	m_pTimestamp = NULL;
+	m_pWireSetup = NULL;
 }
 
 CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
@@ -2559,6 +2567,7 @@ CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
     m_pStimulus = NULL;
     m_pProvenance = NULL;
     m_pTimestamp = NULL;
+    m_pWireSetup = NULL;
 
     theFile.read((char*)&version, 4);
     version = littleEndianUint32ToHost(version);
@@ -2601,6 +2610,7 @@ void CColor::ClearSpectrumLux()
 	ClearStimulusValue();
 	ClearProvenance();
 	ClearTimestamp();
+	ClearWireSetup();
 }
 
 void CColor::SetRawXYZValue(const ColorXYZ& aRaw)
@@ -2730,6 +2740,33 @@ double CColor::GetTimestamp() const
 	return ( m_pTimestamp ? (*m_pTimestamp) : 0.0 );
 }
 
+void CColor::SetWireSetup(const CColorWireSetup& aWire)
+{
+	if ( m_pWireSetup )
+		delete m_pWireSetup;
+
+	m_pWireSetup = new CColorWireSetup ( aWire );
+}
+
+void CColor::ClearWireSetup()
+{
+	if ( m_pWireSetup )
+	{
+		delete m_pWireSetup;
+		m_pWireSetup = NULL;
+	}
+}
+
+bool CColor::HasWireSetup() const
+{
+	return ( m_pWireSetup != NULL );
+}
+
+CColorWireSetup CColor::GetWireSetup() const
+{
+	return ( m_pWireSetup ? (*m_pWireSetup) : CColorWireSetup() );
+}
+
 CColor& CColor::operator =(const CColor& aColor)
 {
 	if(&aColor == this)
@@ -2756,6 +2793,9 @@ CColor& CColor::operator =(const CColor& aColor)
 
 	if ( aColor.m_pTimestamp )
 		m_pTimestamp = new double ( *aColor.m_pTimestamp );
+
+	if ( aColor.m_pWireSetup )
+		m_pWireSetup = new CColorWireSetup ( *aColor.m_pWireSetup );
 
 	return *this;
 }
@@ -3010,8 +3050,8 @@ void CColor::Serialize(CArchive& archive)
 			// layout, which a 4.1 reader accepts. Bare base 1/3/5/6, XYZ, the two
 			// zero 3x3 "ignore" matrices, then spectrum and lux in the order the
 			// legacy reader expects, and no trailer. Raw XYZ, stimulus,
-			// timestamp and provenance have no legacy encoding and are
-			// dropped. T19 (g) pins these bytes against the (c) goldens
+			// timestamp, provenance and the wire setup have no legacy
+			// encoding and are dropped. T19 (g) pins these bytes against the (c) goldens
 			// captured from the old writer.
 			archive << base;
 			m_XYZValues.Serialize(archive) ;
@@ -3085,6 +3125,24 @@ void CColor::Serialize(CArchive& archive)
 			value << m_pProvenance->srcRange;
 			value << CString ( m_pProvenance->name.c_str() );
 			value << m_pProvenance->role;
+			ext.EndTag ();
+		}
+
+		if ( m_pWireSetup )
+		{
+			// realDrive (as int 1/0), wireBits, encodingRange, deviceRange,
+			// generatorId, outputMode, wireCode[0..2]. New fields go at the
+			// end; never reorder (ArchiveTags.h, COLOR_WIRE_SETUP).
+			CArchive& value = ext.BeginTag ( ArchiveTag::COLOR_WIRE_SETUP );
+			value << (int) ( m_pWireSetup->realDrive ? 1 : 0 );
+			value << m_pWireSetup->wireBits;
+			value << m_pWireSetup->encodingRange;
+			value << m_pWireSetup->deviceRange;
+			value << m_pWireSetup->generatorId;
+			value << m_pWireSetup->outputMode;
+			value << m_pWireSetup->wireCode[0];
+			value << m_pWireSetup->wireCode[1];
+			value << m_pWireSetup->wireCode[2];
 			ext.EndTag ();
 		}
 
@@ -3164,6 +3222,12 @@ void CColor::LoadFrom(CArchive& archive)
 	{
 		delete m_pProvenance;
 		m_pProvenance = NULL;
+	}
+
+	if ( m_pWireSetup )
+	{
+		delete m_pWireSetup;
+		m_pWireSetup = NULL;
 	}
 
 	if ( base == 2 || base == 4 || base == 5 || base == 6 )
@@ -3262,6 +3326,36 @@ void CColor::LoadFrom(CArchive& archive)
 						value >> m_pProvenance->role;
 					else
 						m_pProvenance->role = PROVENANCE_ROLE_UNKNOWN;
+					break;
+				}
+
+				case ArchiveTag::COLOR_WIRE_SETUP:
+				{
+					// Append-only: take the whole ints the value holds, in
+					// order, and leave every field after them at its default,
+					// so a shorter value from an older writer is a partial
+					// stamp and never a failed load. Bytes past the ninth int
+					// belong to fields this build does not know; Close skips
+					// them. realDrive is true only for exactly 1.
+					CArchive& value = ext.Value();
+					delete m_pWireSetup;
+					m_pWireSetup = NULL;
+					m_pWireSetup = new CColorWireSetup;
+					int v[9];
+					DWORD n = cb / (DWORD) sizeof(int);
+					if ( n > 9 )
+						n = 9;
+					for ( DWORD i = 0; i < n; i ++ )
+						value >> v[i];
+					if ( n > 0 ) m_pWireSetup->realDrive     = ( v[0] == 1 );
+					if ( n > 1 ) m_pWireSetup->wireBits      = v[1];
+					if ( n > 2 ) m_pWireSetup->encodingRange = v[2];
+					if ( n > 3 ) m_pWireSetup->deviceRange   = v[3];
+					if ( n > 4 ) m_pWireSetup->generatorId   = v[4];
+					if ( n > 5 ) m_pWireSetup->outputMode    = v[5];
+					if ( n > 6 ) m_pWireSetup->wireCode[0]   = v[6];
+					if ( n > 7 ) m_pWireSetup->wireCode[1]   = v[7];
+					if ( n > 8 ) m_pWireSetup->wireCode[2]   = v[8];
 					break;
 				}
 

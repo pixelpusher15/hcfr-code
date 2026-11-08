@@ -6809,6 +6809,9 @@ BOOL CMeasure::AddMeasurement(CSensor *pSensor, CGenerator *pGenerator,  CGenera
 	{
         // don't know the color to measure so default value to mid gray...
 		clr = ColorRGBDisplay(RGB(128,128,128));
+		// Nothing displayed this placeholder: drop any display record so the
+		// read can never be stamped as a real patch (WireSetup.h).
+		WireDisplayRecord::Invalidate();
 		bOk = TRUE;
 	}
 
@@ -8440,6 +8443,7 @@ ULONGLONG CMeasure::ProjectedUserPatchSetTrailerBytes(const CUserPatchSet & set,
 		c.SetRawXYZValue ( ColorXYZ ( 1.0, 1.0, 1.0 ) );
 		c.SetStimulusValue ( ColorRGBDisplay ( 1.0, 1.0, 1.0 ) );
 		c.SetTimestamp ( 1.0 );
+		c.SetWireSetup ( CColorWireSetup () );	// every reading this build takes carries one
 		CColorProvenance prov;
 		prov.name.assign ( longest, 'n' );
 		c.SetProvenance ( prov );

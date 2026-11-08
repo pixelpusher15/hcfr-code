@@ -3375,6 +3375,370 @@ static void RunT44()
     T44::CheckRefusals();
 }
 
+//////////////////////////////////////////////////////////////////////////
+// T46 - the per-reading wire-setup stamp (CColor trailer tag
+// COLOR_WIRE_SETUP = 6, libHCFR/WireSetup.h) and the display record it is
+// taken from. Pure assertion; no golden file. Every expectation is exact:
+// the stamp is integers and a bool, so there is no tolerance anywhere.
+//   (a) every field survives Serialize store -> load;
+//   (b) a shorter value (an older writer) loads with the defaults after the
+//       ints it holds, and a longer one (a newer writer) loads the nine it
+//       knows; realDrive is true only for exactly 1;
+//   (c) a reading without the entry loads as unknown (no stamp, defaults);
+//   (d) the entry's bytes are pinned, and a load + re-save is byte-exact;
+//   (e) copy, assignment and Clear keep the stamp deep and separate, and the
+//       4.1 legacy store drops it;
+//   (f) WireDisplayRecord: a stamp is real only for exactly the recorded
+//       stimulus with nothing displayed since.
+//////////////////////////////////////////////////////////////////////////
+namespace T46Wire
+{
+    using T19Ext::Bytes;
+    using T19Ext::Entry;
+
+    static CColorWireSetup Sample()
+    {
+        CColorWireSetup s;
+        s.realDrive = true;
+        s.wireBits = 10;
+        s.encodingRange = WIRE_RANGE_LIMITED;
+        s.deviceRange = WIRE_RANGE_FULL;
+        s.generatorId = WIRE_GENERATOR_GDI;
+        s.outputMode = 6;
+        s.wireCode[0] = 64;
+        s.wireCode[1] = 502;
+        s.wireCode[2] = 940;
+        return s;
+    }
+
+    static void Describe(char* buf, size_t n, const CColorWireSetup& s)
+    {
+        _snprintf_s(buf, n, _TRUNCATE, "{%d, %d, %d, %d, %d, %d, %d/%d/%d}",
+                    s.realDrive ? 1 : 0, s.wireBits, s.encodingRange, s.deviceRange,
+                    s.generatorId, s.outputMode, s.wireCode[0], s.wireCode[1], s.wireCode[2]);
+    }
+
+    static void ExpectSetup(const char* what, const CColorWireSetup& got, const CColorWireSetup& want)
+    {
+        if (got != want)
+        {
+            char g[160], e[160];
+            Describe(g, sizeof(g), got);
+            Describe(e, sizeof(e), want);
+            Fail("T46 %s: stamp %s, expected %s", what, g, e);
+        }
+    }
+
+    // A 101 color, XYZ (0.25, 0.5, 0.75), whose trailer holds one tag-6 entry
+    // made of `ints`, then `extraBytes` stray bytes.
+    static Bytes ColorWithWireValue(const std::vector<int>& ints, int extraBytes)
+    {
+        Entry e;
+        e.tag = (BYTE)ArchiveTag::COLOR_WIRE_SETUP;
+        for (size_t i = 0; i < ints.size(); ++i)
+            T19Ext::PutInt(e.value, ints[i]);
+        for (int i = 0; i < extraBytes; ++i)
+            e.value.push_back((unsigned char)(0xA0 + i));
+        std::vector<Entry> entries(1, e);
+        Bytes b;
+        T19Ext::PutColor101(b, 0.25, 0.5, 0.75, entries);
+        return b;
+    }
+
+    static bool LoadOne(const char* what, const Bytes& b, CColor& out)
+    {
+        CException* e = T19Ext::Load(b, &out, 1);
+        if (e)
+        {
+            int cause = -1;
+            if (e->IsKindOf(RUNTIME_CLASS(CArchiveException)))
+                cause = ((CArchiveException*)e)->m_cause;
+            Fail("T46 %s: load threw %s (archive cause %d)", what,
+                 e->GetRuntimeClass()->m_lpszClassName, cause);
+            e->Delete();
+            return false;
+        }
+        return true;
+    }
+
+    // What a generator records: Sample()'s setup with all three codes = code.
+    static void Display(double r, double g, double b, int code, unsigned long* pSerial)
+    {
+        const double stim[3] = { r, g, b };
+        CColorWireSetup s = Sample();
+        s.realDrive = false;
+        s.wireCode[0] = s.wireCode[1] = s.wireCode[2] = code;
+        WireDisplayRecord::Record(stim, s);
+        if (pSerial)
+            WireDisplayRecord::StampFor(stim, pSerial);
+    }
+}
+
+static void RunT46()
+{
+    printf("T46 per-reading wire-setup stamp (tag 6)...\n");
+    using namespace T46Wire;
+    const CColorWireSetup kDefault;
+    const CColorWireSetup kSample = Sample();
+
+    // the defaults the reader fills in, as ArchiveTags.h states them
+    if (kDefault.realDrive || kDefault.wireBits != 0 || kDefault.encodingRange != -1
+        || kDefault.deviceRange != -1 || kDefault.generatorId != 0 || kDefault.outputMode != -1
+        || kDefault.wireCode[0] != -1 || kDefault.wireCode[1] != -1 || kDefault.wireCode[2] != -1)
+        Fail("T46 defaults: not (false, 0, -1, -1, 0, -1, -1, -1, -1)");
+
+    // (a) round trip of every field, with realDrive true and false
+    for (int k = 0; k < 2; ++k)
+    {
+        CColor c(0.25, 0.5, 0.75);
+        CColorWireSetup s = kSample;
+        if (k == 1)
+        {
+            s.realDrive = false;
+            s.wireBits = 8;
+            s.encodingRange = WIRE_RANGE_FULL;
+            s.deviceRange = WIRE_RANGE_UNKNOWN;
+            s.outputMode = 0;
+            s.wireCode[0] = 0; s.wireCode[1] = 128; s.wireCode[2] = 255;
+        }
+        c.SetWireSetup(s);
+        Bytes b = T19Ext::Store(c);
+        CColor back;
+        if (LoadOne("(a) round trip", b, back))
+        {
+            if (!back.HasWireSetup())
+                Fail("T46 (a) round trip %d: no stamp after load", k);
+            ExpectSetup(k ? "(a) round trip, realDrive false" : "(a) round trip, realDrive true",
+                        back.GetWireSetup(), s);
+        }
+    }
+
+    // (b) shorter values: n ints, every n from 0 to 9; then longer ones
+    {
+        const int full[9] = { 1, 10, 1, 0, 1, 6, 64, 502, 940 };
+        for (int n = 0; n <= 9; ++n)
+        {
+            std::vector<int> ints(full, full + n);
+            CColor back;
+            char what[64];
+            _snprintf_s(what, sizeof(what), _TRUNCATE, "(b) a value of %d ints", n);
+            if (!LoadOne(what, ColorWithWireValue(ints, 0), back))
+                continue;
+            if (!back.HasWireSetup())
+                Fail("T46 %s: no stamp after load", what);
+            CColorWireSetup want = kDefault;
+            if (n > 0) want.realDrive = true;
+            if (n > 1) want.wireBits = 10;
+            if (n > 2) want.encodingRange = 1;
+            if (n > 3) want.deviceRange = 0;
+            if (n > 4) want.generatorId = 1;
+            if (n > 5) want.outputMode = 6;
+            if (n > 6) want.wireCode[0] = 64;
+            if (n > 7) want.wireCode[1] = 502;
+            if (n > 8) want.wireCode[2] = 940;
+            ExpectSetup(what, back.GetWireSetup(), want);
+        }
+        // fields a newer writer appends are skipped; a partial int is not an int
+        static const int kExtra[] = { 2, 4, 7 };
+        for (int j = 0; j < 3; ++j)
+        {
+            std::vector<int> ints(full, full + 9);
+            CColor back;
+            char what[64];
+            _snprintf_s(what, sizeof(what), _TRUNCATE, "(b) nine ints then %d more bytes", kExtra[j]);
+            if (LoadOne(what, ColorWithWireValue(ints, kExtra[j]), back))
+                ExpectSetup(what, back.GetWireSetup(), kSample);
+        }
+        {
+            std::vector<int> ints(full, full + 3);
+            CColor back;
+            if (LoadOne("(b) three ints then 3 bytes", ColorWithWireValue(ints, 3), back))
+            {
+                CColorWireSetup want = kDefault;
+                want.realDrive = true; want.wireBits = 10; want.encodingRange = 1;
+                ExpectSetup("(b) three ints then 3 bytes", back.GetWireSetup(), want);
+            }
+        }
+        static const int kNotOne[] = { 0, 2, -1, 0x7FFFFFFF };
+        for (int j = 0; j < 4; ++j)
+        {
+            std::vector<int> ints(full, full + 9);
+            ints[0] = kNotOne[j];
+            CColor back;
+            if (LoadOne("(b) realDrive not 1", ColorWithWireValue(ints, 0), back)
+                && back.GetWireSetup().realDrive)
+                Fail("T46 (b) a stored realDrive of %d read as true", kNotOne[j]);
+        }
+    }
+
+    // (c) no stamp: a stored color without one, and a hand-built trailer
+    {
+        CColor c(0.25, 0.5, 0.75);
+        c.SetStimulusValue(ColorRGBDisplay(50.0, 50.0, 50.0));
+        CColor back;
+        back.SetWireSetup(kSample);		// a load replaces it
+        if (LoadOne("(c) stored without a stamp", T19Ext::Store(c), back))
+        {
+            if (back.HasWireSetup())
+                Fail("T46 (c) stored without a stamp: the load kept a stamp");
+            ExpectSetup("(c) stored without a stamp", back.GetWireSetup(), kDefault);
+        }
+        Bytes b;
+        T19Ext::PutColor101(b, 0.25, 0.5, 0.75, std::vector<Entry>());
+        CColor bare;
+        if (LoadOne("(c) empty trailer", b, bare) && bare.HasWireSetup())
+            Fail("T46 (c) empty trailer: a stamp appeared");
+        CColor fresh;
+        if (fresh.HasWireSetup())
+            Fail("T46 (c) a new CColor carries a stamp");
+    }
+
+    // (d) the bytes: a color whose only optional field is the stamp stores
+    // exactly version 101, XYZ, then one 41-byte entry (tag, cb = 36, 9 ints),
+    // and a load + re-save gives the same bytes
+    {
+        CColor c(0.25, 0.5, 0.75);
+        c.SetWireSetup(kSample);
+        Bytes got = T19Ext::Store(c);
+        const int ints[9] = { 1, 10, 1, 0, 1, 6, 64, 502, 940 };
+        Bytes want = ColorWithWireValue(std::vector<int>(ints, ints + 9), 0);
+        if (got != want)
+            Fail("T46 (d) stored bytes: %u bytes, expected the %u-byte pinned layout",
+                 (unsigned)got.size(), (unsigned)want.size());
+        CColor back;
+        if (LoadOne("(d) re-save", got, back) && T19Ext::Store(back) != got)
+            Fail("T46 (d) load + re-save is not byte-exact");
+
+        // with every other optional field present too
+        CColor full(0.25, 0.5, 0.75);
+        full.SetRawXYZValue(ColorXYZ(1.0, 2.0, 3.0));
+        full.SetStimulusValue(ColorRGBDisplay(10.0, 20.0, 30.0));
+        full.SetTimestamp(1789000000.5);
+        CColorProvenance p;
+        p.patchNumber = 3; p.sequenceIndex = 2; p.srcBits = 10; p.srcRange = 1;
+        p.name = "gray 50"; p.role = PROVENANCE_ROLE_COLOR;
+        full.SetProvenance(p);
+        full.SetWireSetup(kSample);
+        Bytes b1 = T19Ext::Store(full);
+        CColor back2;
+        if (LoadOne("(d) re-save with every field", b1, back2))
+        {
+            ExpectSetup("(d) re-save with every field", back2.GetWireSetup(), kSample);
+            if (T19Ext::Store(back2) != b1)
+                Fail("T46 (d) load + re-save with every field is not byte-exact");
+        }
+    }
+
+    // (e) copies are deep; Clear and ClearSpectrumLux drop the stamp; the
+    // legacy (4.1) store writes no trailer, so the stamp is dropped there
+    {
+        CColor a(0.25, 0.5, 0.75);
+        a.SetWireSetup(kSample);
+        CColor b(a);
+        CColor c;
+        c = a;
+        a.ClearWireSetup();
+        if (a.HasWireSetup())
+            Fail("T46 (e) ClearWireSetup left a stamp");
+        ExpectSetup("(e) copy constructor", b.GetWireSetup(), kSample);
+        ExpectSetup("(e) assignment", c.GetWireSetup(), kSample);
+        c = a;
+        if (c.HasWireSetup())
+            Fail("T46 (e) assigning a color without a stamp kept the old one");
+        b.ClearSpectrumLux();
+        if (b.HasWireSetup())
+            Fail("T46 (e) ClearSpectrumLux left the stamp");
+
+        CColor plain(0.25, 0.5, 0.75), stamped(0.25, 0.5, 0.75);
+        stamped.SetWireSetup(kSample);
+        Bytes lp, ls;
+        {
+            CColorLegacyStoreScope legacy;
+            lp = T19Ext::Store(plain);
+            ls = T19Ext::Store(stamped);
+        }
+        if (lp != ls)
+            Fail("T46 (e) the legacy store wrote the stamp (%u bytes against %u)",
+                 (unsigned)ls.size(), (unsigned)lp.size());
+    }
+
+    // (f) the display record
+    {
+        unsigned long serial = 0;
+        const double gray[3] = { 50.0, 50.0, 50.0 };
+        WireDisplayRecord::Invalidate();
+        ExpectSetup("(f) no record", WireDisplayRecord::StampFor(gray, &serial), kDefault);
+
+        Display(50.0, 50.0, 50.0, 128, NULL);
+        CColorWireSetup want = kSample;
+        want.wireCode[0] = want.wireCode[1] = want.wireCode[2] = 128;
+        ExpectSetup("(f) recorded stimulus", WireDisplayRecord::StampFor(gray, &serial), want);
+        if (!WireDisplayRecord::StillCurrent(serial))
+            Fail("T46 (f) nothing displayed, yet the record is not current");
+
+        // exactly this stimulus: one channel one ulp away is not it
+        const double offByUlp[3] = { 50.0, 50.0, nextafter(50.0, 51.0) };
+        ExpectSetup("(f) one ulp off", WireDisplayRecord::StampFor(offByUlp, NULL), kDefault);
+        const double placeholder[3] = { 0.5, 0.5, 0.5 };
+        ExpectSetup("(f) the 0.5% placeholder", WireDisplayRecord::StampFor(placeholder, NULL), kDefault);
+
+        // a display during the read moves the serial, even back to the same patch
+        WireDisplayRecord::StampFor(gray, &serial);
+        Display(50.0, 50.0, 50.0, 128, NULL);
+        if (WireDisplayRecord::StillCurrent(serial))
+            Fail("T46 (f) a display during the read left the read's serial current");
+        WireDisplayRecord::StampFor(gray, &serial);
+        WireDisplayRecord::Invalidate();
+        if (WireDisplayRecord::StillCurrent(serial))
+            Fail("T46 (f) an invalidation during the read left the serial current");
+        ExpectSetup("(f) after Invalidate", WireDisplayRecord::StampFor(gray, NULL), kDefault);
+
+        // the surface check: the recorded codes on the recorded surface keep the
+        // record, other codes there drop it, another surface is ignored
+        Display(50.0, 50.0, 50.0, 128, &serial);
+        const int same[3] = { 128, 128, 128 }, other[3] = { 127, 128, 128 };
+        WireDisplayRecord::NoteSurfacePaint(6, same);
+        if (!WireDisplayRecord::StillCurrent(serial) || !WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) a repaint with the recorded codes dropped the record");
+        WireDisplayRecord::NoteSurfacePaint(5, other);
+        if (!WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) a repaint of another surface dropped the record");
+        WireDisplayRecord::NoteSurfacePaint(6, other);
+        if (WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) a repaint with other codes on the recorded surface kept the record");
+
+        // Intensity re-key: only from the displayed stimulus, and only when the
+        // codes on the wire are the requested stimulus's own
+        const double dimmed[3] = { 50.0, 50.0, nextafter(50.0, 49.0) };
+        const int c128[3] = { 128, 128, 128 }, c127[3] = { 128, 128, 127 };
+        Display(dimmed[0], dimmed[1], dimmed[2], 128, NULL);
+        WireDisplayRecord::RekeyToRequested(gray, gray, c128);		// not the displayed stimulus
+        if (WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) re-key from a stimulus that was not displayed");
+        WireDisplayRecord::RekeyToRequested(dimmed, gray, c127);	// other codes
+        if (WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) re-key with codes that differ");
+        WireDisplayRecord::RekeyToRequested(dimmed, gray, c128);
+        if (!WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) re-key with the requested stimulus's own codes did not take");
+        if (WireDisplayRecord::StampFor(dimmed, NULL).realDrive)
+            Fail("T46 (f) the re-keyed record still answers for the displayed stimulus");
+        Display(dimmed[0], dimmed[1], dimmed[2], -1, NULL);			// codes unknown
+        WireDisplayRecord::RekeyToRequested(dimmed, gray, c128);
+        if (WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) re-key of a record without codes");
+
+        // Peek, and a recorder's realDrive is never stored
+        double seen[3];
+        CColorWireSetup peeked;
+        if (!WireDisplayRecord::Peek(seen, &peeked) || seen[2] != dimmed[2] || peeked.realDrive)
+            Fail("T46 (f) Peek: not the current record, or realDrive stored as true");
+        WireDisplayRecord::Invalidate();
+        if (WireDisplayRecord::Peek(seen, &peeked))
+            Fail("T46 (f) Peek found a record after Invalidate");
+    }
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -3410,6 +3774,7 @@ int main(int argc, char* argv[])
     RunT41();
     RunT42();
     RunT44();
+    RunT46();
 
     if (g_failures)
     {
