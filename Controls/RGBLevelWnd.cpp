@@ -330,26 +330,26 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 				// Compute reference Luminance regarding actual offset and reference gamma 
                 // fixed to use correct gamma predicts
                 // and added option to assume perfect gamma
-					// The level the reference is evaluated at. Gray scale, near black,
-					// near white: reading minCol - 1 of that series at its stamped drive,
-					// else its slot (CMeasure::GetGrayReadingProp, as the grid uses).
-					// Any other mode: the selected reading's own stamped drive, else
-					// gray slot minCol - 1 as before.
-					double prop;
+					// The level the reference is evaluated at: the shown reading's
+					// (*m_pRefColor) stamped drive, else the slot minCol - 1 of the mode
+					// passed in, from the series accessor's slot arithmetic - the same
+					// value main computed here. minCol is not always a series index: the
+					// free-measures view calls Refresh ( last_Col + 1, last_Display ),
+					// where last_Col is the measured column, so the reading is always the
+					// one shown, never one fetched by index.
+					double x;
 					switch (m_displayMode)
 					{
-						case 0:
-						prop = m_pDocument->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, minCol - 1 );
-						break;
 						case 3:
-						prop = m_pDocument->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, minCol - 1 );
+						x = GraySeriesSlotLevel ( m_pDocument->GetMeasure()->GetGraySeriesView ( GRAY_SERIES_NEAR_BLACK ), minCol - 1 );
 						break;
 						case 4:
-						prop = m_pDocument->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, minCol - 1 );
+						x = GraySeriesSlotLevel ( m_pDocument->GetMeasure()->GetGraySeriesView ( GRAY_SERIES_NEAR_WHITE ), minCol - 1 );
 						break;
 						default:
-						prop = ReadingGrayProp ( *m_pRefColor, m_pDocument->GetMeasure()->GetGrayPercent ( minCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+						x = m_pDocument->GetMeasure()->GetGrayPercent ( minCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					}
+					const double prop = ReadingGrayProp ( *m_pRefColor, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					double valy, Gamma, Offset;
                     Gamma = GetConfig()->m_GammaRef;
                     GetConfig()->m_GammaAvg = Gamma;

@@ -3819,12 +3819,14 @@ namespace T43Drive
         double p = -1.0;
         if (ReadingWireGrayProp(r, &p))
             Fail("T43 %s: a drive (%.17g) was taken; expected the fallback", what, p);
-        const GraySeriesView one = OneSlot(&r, 30, rd, b10, lim);
+        // the series accessor, with its one slot at the caller's nominal level,
+        // must give back the caller's independently computed slotLevel
+        const GraySeriesView one = OneSlot(&r, (int)floor(slotLevel + 0.5), rd, b10, lim);
         const double lvl = GraySeriesLevel(one, 0);
-        if (lvl != GraySeriesSlotLevel(one, 0))
-            Fail("T43 %s: level %.17g, expected the slot %.17g", what, lvl, GraySeriesSlotLevel(one, 0));
-        if (GraySeriesProp(one, 0) != GrayLevelToGrayProp(GraySeriesSlotLevel(one, 0), rd, b10, lim))
-            Fail("T43 %s: series prop is not the slot's", what);
+        if (lvl != slotLevel)
+            Fail("T43 %s: level %.17g, expected the caller's slot %.17g", what, lvl, slotLevel);
+        if (GraySeriesProp(one, 0) != GrayLevelToGrayProp(slotLevel, rd, b10, lim))
+            Fail("T43 %s: series prop is not the caller's slot's", what);
         const double want = GrayLevelToGrayProp(slotLevel, rd, b10, lim);
         const double prop = ReadingGrayProp(r, slotLevel, rd, b10, lim);
         if (prop != want)
@@ -3937,7 +3939,7 @@ static void RunT43()
         ExpectFallback("(e) 50.196% realDrive false with codes",
                        Stamped(128.0 / 255.0 * 100.0, false, 8, F, 128), slot, false, false, true);
         ExpectFallback("(e) 0.5% realDrive false, no codes",
-                       Stamped(0.5, false, 0, WIRE_RANGE_UNKNOWN, -1), slot, false, false, false);
+                       Stamped(0.5, false, 0, WIRE_RANGE_UNKNOWN, -1), slot, false, false, true);
     }
 
     // (f) a real drive with unequal channels is not a gray patch: falls back.
@@ -4107,6 +4109,41 @@ static void RunT43()
         g.nominalLevels = NULL; g.nominalCount = 5;
         if (GraySeriesSlotLevel(g, 2) != ArrayIndexToGrayLevel(2, 5, false, false, true))
             Fail("T43 (j) grayscale slot 2 with no nominal array: not the even ramp");
+    }
+    // (k) GraySeriesSlotProp, the grid's reference-Y cells' slot (GetItemText):
+    //     bit for bit main's GrayLevelToGrayProp ( (double)(i)*(PQ?2:1) ) for near
+    //     black and GrayLevelToGrayProp ( (double)(i + clip - size) ) for near white,
+    //     on all four grids, with and without round-down.
+    {
+        int bad = 0;
+        CColor nb[51], nw[11];
+        for (int rd = 0; rd < 2; ++rd)
+            for (int b = 0; b < 2; ++b)
+                for (int g = 0; g < 2; ++g)
+                    for (int pq = 0; pq < 2; ++pq)
+                    {
+                        GraySeriesView vb = OneSlot(nb, 0, rd != 0, b != 0, g != 0);
+                        vb.series = GRAY_SERIES_NEAR_BLACK; vb.size = 51; vb.pqNearBlack = (pq != 0);
+                        for (int i = 0; i < 51; ++i)
+                            if (GraySeriesSlotProp(vb, i) != GrayLevelToGrayProp((double)i * (pq ? 2 : 1), rd != 0, b != 0, g != 0)) ++bad;
+                        const int clips[2] = { 101, 76 };
+                        for (int c = 0; c < 2; ++c)
+                        {
+                            GraySeriesView vw = vb;
+                            vw.series = GRAY_SERIES_NEAR_WHITE; vw.readings = nw; vw.size = 11; vw.nearWhiteClipCol = clips[c];
+                            for (int i = 0; i < 11; ++i)
+                                if (GraySeriesSlotProp(vw, i) != GrayLevelToGrayProp((double)(i + clips[c] - 11), rd != 0, b != 0, g != 0)) ++bad;
+                        }
+                    }
+        if (bad)
+            Fail("T43 (k) %d GraySeriesSlotProp values differ from main's single-truncation expressions", bad);
+        // and under round-down it differs from GraySeriesProp's fallback where main's
+        // two truncations differ (219 grid, near black 5%: 10/219 against 9/219)
+        GraySeriesView vb = OneSlot(nb, 0, true, false, true);
+        vb.series = GRAY_SERIES_NEAR_BLACK; vb.size = 51;
+        if (GraySeriesSlotProp(vb, 5) != 10.0 / 219.0 || GraySeriesProp(vb, 5) != 9.0 / 219.0)
+            Fail("T43 (k) round-down 5%% on 219: slot prop %.17g (want 10/219), series prop %.17g (want 9/219)",
+                 GraySeriesSlotProp(vb, 5), GraySeriesProp(vb, 5));
     }
 }
 

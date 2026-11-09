@@ -1056,6 +1056,13 @@ bool GraySeriesDriveProp ( const GraySeriesView & v, int index, double * pProp )
 // Reading i's level: its stamped drive, else slot i on the current grid.
 double GraySeriesLevel ( const GraySeriesView & v, int index );		// percent
 double GraySeriesProp ( const GraySeriesView & v, int index );		// 0..1
+// Slot i's level as a 0..1 proportion truncated ONCE, from its nominal level:
+// GrayLevelToGrayProp ( i, or 2i in PQ ) for near black, ( clip - size + i )
+// for near white, the nominal level for the gray scale (the even ramp's
+// GrayScaleSlotLevel without one). The grid's reference-Y cells evaluate here;
+// GraySeriesProp's fallback re-quantizes the slot percentage, which truncates
+// twice under round-down.
+double GraySeriesSlotProp ( const GraySeriesView & v, int index );
 double getL_EOTF ( double x, CColor White, CColor Black, double g_rel, double split, int mode, double m_DiffuseL = 94.37844, double m_MasterMinL = 0.0, double m_MasterMaxL = 4000.0, double m_TargetMinL = 0.00, double m_TargetMaxL = 700.0, bool ToneMap = FALSE, bool cBT2390 = FALSE, double m_TargetSysGamma = 1.2, double b_fact = 1.0, double E2_fact = 0.0, double E2_fact1 = 1.1 );
 
 #endif // !defined(COLOR_H_INCLUDED_)

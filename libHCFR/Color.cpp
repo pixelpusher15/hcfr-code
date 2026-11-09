@@ -4958,6 +4958,22 @@ double GraySeriesLevel ( const GraySeriesView & v, int index )
 	return GraySeriesSlotLevel ( v, index );
 }
 
+double GraySeriesSlotProp ( const GraySeriesView & v, int index )
+{
+	switch ( v.series )
+	{
+		case GRAY_SERIES_NEAR_BLACK:
+			return GrayLevelToGrayProp ( (double) ( index * ( v.pqNearBlack ? 2 : 1 ) ), v.bUseRoundDown, v.b10bit, v.is16_235 );
+		case GRAY_SERIES_NEAR_WHITE:
+			return GrayLevelToGrayProp ( (double) ( v.nearWhiteClipCol - v.size + index ), v.bUseRoundDown, v.b10bit, v.is16_235 );
+		default:
+			if ( v.nominalLevels != NULL && v.nominalCount == v.size && index >= 0 && index < v.size )
+				return GrayLevelToGrayProp ( v.nominalLevels[index], v.bUseRoundDown, v.b10bit, v.is16_235 );
+			return GrayLevelToGrayProp ( GrayScaleSlotLevel ( index, v.size, v.nominalLevels, v.nominalCount, v.bUseRoundDown, v.b10bit, v.is16_235 ),
+										 v.bUseRoundDown, v.b10bit, v.is16_235 );
+	}
+}
+
 double GraySeriesProp ( const GraySeriesView & v, int index )
 {
 	double prop;

@@ -3674,18 +3674,14 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						if ( GetConfig ()->m_GammaOffsetType == 1 )
 							yblack = Black.GetY();
 						// Near black / white: the reading's stamped drive, else the
-						// slot exactly as before (GrayLevelToGrayProp of the nominal:
-						// main's single truncation, which GetGrayReadingProp's fallback
-						// does not reproduce under round-down).
-						if (m_displayMode == 3)
+						// slot exactly as before: GraySeriesSlotProp, the nominal level
+						// truncated once (main's value; GetGrayReadingProp's fallback
+						// truncates twice under round-down).
+						if (m_displayMode == 3 || m_displayMode == 4)
 						{
-							if ( ! GetDocument()->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_NEAR_BLACK, nCol - 1, & valx ) )
-								valx = GrayLevelToGrayProp ( (double)(nCol - 1)*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
-						}
-						else if (m_displayMode == 4)
-						{
-							if ( ! GetDocument()->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_NEAR_WHITE, nCol - 1, & valx ) )
-								valx = GrayLevelToGrayProp ( (double)(nCol - 1 + GetDocument()->GetMeasure()->m_NearWhiteClipCol - size) , GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+							const GraySeries series = ( m_displayMode == 3 ) ? GRAY_SERIES_NEAR_BLACK : GRAY_SERIES_NEAR_WHITE;
+							if ( ! GetDocument()->GetMeasure()->GetGrayReadingDrive ( series, nCol - 1, & valx ) )
+								valx = GraySeriesSlotProp ( GetDocument()->GetMeasure()->GetGraySeriesView ( series ), nCol - 1 );
 						}
 
 						int mode = GetConfig()->m_GammaOffsetType;

@@ -311,13 +311,11 @@ GraphID : graph ID for drawing
 LogGraphID : graph ID for log drawing, -1 if no Log drawing
 */
 
-// A point is handed to the chart only when its value is finite: a zero white,
-// a negative channel or log ( 1 ) gave main infinity or NaN there. Every finite
-// value is drawn exactly as before.
-static bool ChartValueFinite ( double v )
-{
-	return _finite ( v ) != 0;
-}
+// Measured points are handed to the chart only when finite (_finite): a zero
+// white or a reading <= 0 gave main infinity or NaN there, and a stamped 100%
+// drive below the top (clip column 102) gives log ( 1 ) = 0 in the log
+// denominator. Every finite value is drawn as before. The reference log
+// curve is not guarded (main's, unchanged).
 
 void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax)
 {
@@ -396,19 +394,20 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
 	{
 		const double pointGamma = log(colorlevel/whitelvl)/log(xLog);
-		if ( ChartValueFinite ( pointGamma ) )
+		if ( _finite ( pointGamma ) )
 			m_logGraphCtrl.AddPoint(LogGraphID, xPlot, pointGamma, lpMsg, NULL);
 	}
 
     if (!m_showL && !m_abY)
 	{
 		max = whitelvl;
-		if (ChartValueFinite ( (colorlevel/max)*100.0 ))	// no white (max = 0): main plotted infinity or NaN
+		const double pct = (colorlevel/max)*100.0;
+		if (_finite ( pct ))	// no white (max = 0): main plotted infinity or NaN
 		{
 			if (ColorSpace == 1 && ColorIndex == 1)
-		        m_graphCtrl.AddPoint(GraphID, xPlot, (colorlevel/max)*100.0, lpMsg, whitelvl);
+		        m_graphCtrl.AddPoint(GraphID, xPlot, pct, lpMsg, whitelvl);
 			else
-		        m_graphCtrl.AddPoint(GraphID, xPlot, (colorlevel/max)*100.0, lpMsg, NULL);
+		        m_graphCtrl.AddPoint(GraphID, xPlot, pct, lpMsg, NULL);
 		}
 	}
 	else 
@@ -416,7 +415,7 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 		if (m_showL)
 		{
 			const double l = Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max);
-			if ( ChartValueFinite ( l ) )
+			if ( _finite ( l ) )
 		        m_graphCtrl.AddPoint(GraphID, xPlot, l, lpMsg, NULL);
 		}
 		else

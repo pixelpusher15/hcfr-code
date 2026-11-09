@@ -527,12 +527,14 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 		{
 			// The delta against the target at THIS trace's level. The reference
 			// pass evaluated m_yref_abs at the primary document's readings; a
-			// comparison document's reading can sit at another drive, and then
-			// the target is evaluated at its own level, with the same white and
-			// black that pass used. Where the level is the one that pass used,
-			// its stored value is taken unchanged.
+			// STAMPED comparison reading can sit at another drive, and then the
+			// target is evaluated at its own level, with the same white and black
+			// that pass used. An unstamped comparison reading takes the stored
+			// value, as main did, even when its nominal level differs.
 			double yref = ( PointIndex >= 0 && PointIndex < (int)m_yref_abs.size() ) ? m_yref_abs[PointIndex] : 0.0;
-			if ( PointIndex >= 0 && PointIndex < (int)m_yref_prop.size() && prop != m_yref_prop[PointIndex] )
+			double stampedProp;
+			if ( PointIndex >= 0 && PointIndex < (int)m_yref_prop.size() && prop != m_yref_prop[PointIndex]
+				 && pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_GRAYSCALE, PointIndex, & stampedProp ) )
 			{
 				double gammaAtProp, valyAtProp;
 				ReferenceGammaAt(m_yrefWhite, m_yrefBlack, prop, GammaOffset, &gammaAtProp, &valyAtProp);
