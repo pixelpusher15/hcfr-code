@@ -313,9 +313,10 @@ LogGraphID : graph ID for log drawing, -1 if no Log drawing
 
 // Measured points are handed to the chart only when finite (_finite): a zero
 // white or a reading <= 0 gave main infinity or NaN there, and a stamped 100%
-// drive below the top (clip column 102) gives log ( 1 ) = 0 in the log
-// denominator. Every finite value is drawn as before. The reference log
-// curve is not guarded (main's, unchanged).
+// drive - the PQ near-black series reaching 100% at its last index (2% steps) -
+// gives log ( 1 ) = 0 in the stamped denominator, where main divided by
+// GrayLevelToGrayProp ( 50 ). Every finite value is drawn as before. The
+// reference log curve is not guarded (main's, unchanged).
 
 void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax)
 {

@@ -546,9 +546,6 @@ void C3DColorView::BuildScene()
 	ColorxyY wChroma( active.GetWhite() );
 	const int  gammaMode = GetConfig()->m_GammaOffsetType;
 	const int  dEgray    = GetConfig()->m_dE_gray;
-	const bool bRound    = GetConfig()->m_bUseRoundDown != FALSE;
-	const bool b10bit    = GetConfig()->GetUse10bitLevels() != FALSE;
-	const bool bLimRange = GetConfig()->GetRGB16_235() != FALSE;
 
 	// Grayscale (+ near-black/white): reference chromaticity is the target white;
 	// the reference luminance and the YWhite passed to GetDeltaE follow the

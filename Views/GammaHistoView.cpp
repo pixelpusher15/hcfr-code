@@ -259,7 +259,6 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	BOOL	bIRE = pDoc->GetMeasure()->m_bIREScaleMode;
 	double GammaOffset,GammaOpt,RefGammaOffset,RefGammaOpt,LuxGammaOffset,LuxGammaOpt,RefLuxGammaOffset,RefLuxGammaOpt;
 	m_yref_abs.clear();
-	m_yref_prop.clear();
 
 	bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
 	m_graphCtrl.SetXAxisProps(bIRE?"IRE":(LPSTR)(LPCSTR)GetConfig()->m_PercentGray, 10, 0, 100);
@@ -340,8 +339,15 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 					&& ReferenceGammaAtBlack(RefWhite, RefBlack, GammaOffset, &gamma) )
 				: ReferenceGammaAt(RefWhite, RefBlack, prop, GammaOffset, &gamma, &valy);
 
-			m_yref_abs.push_back(valy);
-			m_yref_prop.push_back(prop);
+			// The HDR delta's stored target is main's: evaluated at the primary
+			// document's SLOT i (GetGrayPercent on the current grid), whatever its
+			// reading's drive - an unstamped comparison trace takes it unchanged.
+			{
+				double gammaSlot, valySlot;
+				ReferenceGammaAt(RefWhite, RefBlack, GrayLevelToGrayProp ( pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ),
+								 GammaOffset, &gammaSlot, &valySlot);
+				m_yref_abs.push_back(valySlot);
+			}
 
 			if (isHDR)
 				m_graphCtrl.AddPoint(m_refLogGraphID, x, 0);
@@ -517,28 +523,34 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 		bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
 
 		// Reading PointIndex of THIS trace's document at its stamped drive, else
-		// its slot on the current grid.
-		double x = pDataSet->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, PointIndex );
-		const double prop = pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, PointIndex );
+		// its slot on the current grid - the stamp decoded once, the values
+		// GetGrayReadingLevel / Prop give.
+		double drive;
+		const bool bStamped = pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_GRAYSCALE, PointIndex, & drive );
+		const double slotLevel = pDataSet->GetMeasure()->GetGrayPercent ( PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+		double x = bStamped ? drive * 100.0 : slotLevel;
+		const double prop = bStamped ? drive : GrayLevelToGrayProp ( slotLevel, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 
 		double valxprime=(prop+GammaOffset)/(1.0+GammaOffset);
 
 		if (isHDR)
 		{
-			// The delta against the target at THIS trace's level. The reference
-			// pass evaluated m_yref_abs at the primary document's readings; a
-			// STAMPED comparison reading can sit at another drive, and then the
-			// target is evaluated at its own level, with the same white and black
-			// that pass used. An unstamped comparison reading takes the stored
-			// value, as main did, even when its nominal level differs.
-			double yref = ( PointIndex >= 0 && PointIndex < (int)m_yref_abs.size() ) ? m_yref_abs[PointIndex] : 0.0;
-			double stampedProp;
-			if ( PointIndex >= 0 && PointIndex < (int)m_yref_prop.size() && prop != m_yref_prop[PointIndex]
-				 && pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_GRAYSCALE, PointIndex, & stampedProp ) )
+			// The delta against the target: for a STAMPED reading (the primary's
+			// or a comparison document's) at its own drive, with the white and
+			// black the reference pass used; for an unstamped one main's stored
+			// value, the target at the primary's slot i - so unstamped traces draw
+			// as main whatever the primary's stamps are. Without a reference pass
+			// there is no target: 0, as before.
+			double yref = 0.0;
+			if ( PointIndex >= 0 && PointIndex < (int)m_yref_abs.size() )
 			{
-				double gammaAtProp, valyAtProp;
-				ReferenceGammaAt(m_yrefWhite, m_yrefBlack, prop, GammaOffset, &gammaAtProp, &valyAtProp);
-				yref = valyAtProp;
+				if ( bStamped )
+				{
+					double gammaAtDrive;
+					ReferenceGammaAt(m_yrefWhite, m_yrefBlack, drive, GammaOffset, &gammaAtDrive, &yref);
+				}
+				else
+					yref = m_yref_abs[PointIndex];
 			}
 			m_graphCtrl.AddPoint(GraphID, x, colorlevel - whitelvl * yref, lpMsg);
 		}
