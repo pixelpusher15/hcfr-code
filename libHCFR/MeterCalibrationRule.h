@@ -32,6 +32,14 @@
 // inst_unsupported and lists nothing (inst.c). The wrapper then says "No
 // calibrations needed." So a Calibrate does something exactly when the
 // driver's current mode lists a NON-DEFERRABLE available calibration.
+// The wrapper's other request, inst_calt_em_dark alone (dark_only: always on
+// the EX1, and after Yes to the white tile question), comes only after that
+// inst_calt_available request has found work: getCalibrationInstructions asks
+// for inst_calt_available first and stops at "No calibrations needed." when the
+// list is empty, and calibrate() (which sends em_dark) runs only on the
+// condition that first request returned. em_dark (0x400) is itself in the
+// non-deferrable mask, so a mode where it is available counts as having work;
+// one where it is not would answer inst_unsupported, which is nothing done.
 // Deferrable ones (inst_calt_ref_freq, inst_calt_emis_int_time) are never done
 // by the button: the drivers do them at the first reading (i1d3.c,
 // i1d3_read_sample, "Attempt a refresh display frame rate calibration if

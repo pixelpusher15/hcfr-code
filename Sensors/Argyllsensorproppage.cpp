@@ -128,9 +128,10 @@ BEGIN_MESSAGE_MAP(CArgyllSensorPropPage, CPropertyPageWithHelp)
     //}}AFX_MSG_MAP
     ON_BN_CLICKED(IDC_ARGYLL_SPECTRAL_BROWSE, OnSpectralBrowse)
     ON_BN_CLICKED(IDC_ARGYLL_SPECTRAL_CLEAR, OnSpectralClear)
-    // The selections a Calibrate commits and that can change what it does.
+    // The selections a Calibrate commits and that can change what it does. Not the
+    // Display Type: it cannot (MeterCalibrationRule.h), and a re-evaluation is a
+    // device command on some meters (the i1Pro3's board temperature read).
     ON_CBN_SELCHANGE(IDC_ARGYLLSENSOR_READINGTYPE_COMBO, OnCalibrateSelectionChange)
-    ON_CBN_SELCHANGE(IDC_ARGYLLSENSOR_DISPLAYTYPE_COMBO, OnCalibrateSelectionChange)
     ON_BN_CLICKED(IDC_ARGYLL_SENSOR_HIRES, OnCalibrateSelectionChange)
 END_MESSAGE_MAP()
 
@@ -438,7 +439,7 @@ void CArgyllSensorPropPage::OnCalibrateSelectionChange()
 // Type's index (CB_ERR when the list is empty, which the commit takes as a
 // change), and Hi-Res only when its checkbox is enabled. The Display Type's
 // selection does not enter: it cannot change what a Calibrate does
-// (MeterCalibrationRule.h), and its change only re-evaluates the button.
+// (MeterCalibrationRule.h), so its change does not re-evaluate the button.
 void CArgyllSensorPropPage::RefreshCalibrateButton()
 {
     CWnd* pBtn = GetDlgItem(IDC_ARGYLL_CALIBRATE);

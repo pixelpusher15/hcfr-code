@@ -4519,7 +4519,7 @@ BEGIN
     IDS_ARGYLL_READING_FAILED "La sonde n'a pas pu effectuer cette mesure."
     IDS_ARGYLL_START_FAILED "La sonde n'a pas pu d\xE9marrer."
     IDS_ARGYLL_WHITE_TILE_TITLE "Calibrage sur la tuile blanche"
-    IDS_ARGYLL_WHITE_TILE_SKIP "Ignorer le calibrage sur la tuile blanche ?\n\nSi vous l'ignorez, seul le calibrage du noir est effectu\xE9, et les calibrages qui nécessitent la tuile (le calibrage en longueur d'onde d'un i1Pro 2 ou i1Pro 3, et le calibrage fin de la haute r\xE9solution) conservent leurs valeurs précédentes."
+    IDS_ARGYLL_WHITE_TILE_SKIP "Ignorer le calibrage sur la tuile blanche ?\n\nSi vous l'ignorez, seul le calibrage du noir est effectu\xE9, et les calibrages qui n\xE9cessitent la tuile (le calibrage en longueur d'onde d'un i1Pro 2 ou i1Pro 3, et le calibrage fin de la haute r\xE9solution) conservent leurs valeurs pr\xE9c\xE9dentes."
     IDS_ARGYLL_CAL_DARK_NO_CAP "Posez la sonde face vers le bas sur une surface sombre et opaque afin qu'aucune lumi\xE8re n'atteigne son capteur, puis cliquez sur OK."
     IDS_ARGYLL_CAL_DARK_COVER "Couvrez le capteur de la sonde afin qu'aucune lumi\xE8re ne l'atteigne (avec son capuchon si elle en a un, ou face vers le bas sur une surface sombre et opaque), puis cliquez sur OK."
     IDS_ARGYLL_CAL_UOP_TRANS_WHITE "calibrage du blanc en transmission effectu\xE9 par l'utilisateur"

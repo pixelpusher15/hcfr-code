@@ -922,7 +922,7 @@ std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes, bool* t
             return "place instrument in dark not close to anything";
         case inst_calc_man_em_dark:
             // The i1Pro family has no cap; the drivers of the other meters that ask
-            // for this (DTP92, EX1, K10, SpyderX) do not say whether theirs has one.
+            // for this (DTP92, EX1, K10, SpyderX, SpyderX2) do not say whether theirs has one.
             if ( i1ProFamily )
                 return ResourceText(IDS_ARGYLL_CAL_DARK_NO_CAP,
                     "Place the instrument face down on a dark, opaque surface so that no light reaches its sensor, then click OK.", textIsLocalized);
