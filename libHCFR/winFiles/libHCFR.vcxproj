@@ -116,6 +116,7 @@
     <ClInclude Include="..\SensorCalibrationStream.h" />
     <ClInclude Include="..\UserPatchSetStream.h" />
     <ClInclude Include="..\WireSetup.h" />
+    <ClInclude Include="..\MeterCalibrationRule.h" />
     <ClInclude Include="..\CalibrationFile.h" />
     <ClInclude Include="..\CHCFile.h" />
     <ClInclude Include="..\Color.h" />

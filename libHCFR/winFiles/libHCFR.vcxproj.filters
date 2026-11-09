@@ -86,6 +86,9 @@
     <ClInclude Include="..\WireSetup.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\MeterCalibrationRule.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="..\CalibrationFile.h">
       <Filter>Header Files</Filter>
     </ClInclude>

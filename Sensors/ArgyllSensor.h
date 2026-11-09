@@ -102,6 +102,12 @@ public:
 private:
     ArgyllMeterWrapper* m_meter;
     SpectralSampleFiles *m_spectralSamples;
+    // The wrapper's start count right after this sensor's last start set the
+    // driver's mode (InitBody); m_meterStartKnown is false before the first. A
+    // different count now means another start - another document on the shared
+    // meter - has set the mode since.
+    unsigned int m_meterStartAtInit;
+    bool        m_meterStartKnown;
     // The base entry the last successful Display Type derive left selected, and the
     // entry it belongs to (-1 / 0xFFFFFFFF: none yet). Lets Init measure on the base
     // without deriving again while the record still matches (see Init).
@@ -191,6 +197,10 @@ public:
     ArgyllDeviceSettings PageDeviceSettings() const;
     void ShowDeviceSettingsOnPage(const ArgyllDeviceSettings& s);
     bool HasMeter() const { return m_meter != NULL; }
+    // Whether the page's "Calibrate meter" button is enabled for the page's current
+    // Reading Type and Hi-Res selections: disabled only when a Calibrate with them
+    // would do nothing, or with no meter (MeterCalibrationRule.h states the rule).
+    bool CalibrateButtonEnabled(UINT pageReadingType, BOOL pageHiRes);
     // CancelConfigure without putting the snapshot's sample back into the driver:
     // the page's Clear, which then clears everything.
     void CancelConfigureBeforeClear();
