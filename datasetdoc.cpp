@@ -225,7 +225,19 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 		    }
 		    else
 		    {
-			    // Error: close thread
+			    // Error: close thread. A sensor that says why (its error string) has the
+			    // reason shown once, with the sweeps' "An error occurred:" text, on the UI
+			    // thread (CMainFrame::OnBkgndMeasureStopped); one with no reason shows
+			    // nothing new.
+			    if ( ! pSensor -> GetErrorString ().IsEmpty () )
+			    {
+				    CString * pReason = new CString;
+				    pReason -> LoadString ( IDS_ANERROROCCURED );
+				    *pReason += pSensor -> GetErrorString ();
+				    CWnd * pMain = AfxGetMainWnd ();
+				    if ( pMain == NULL || ! pMain -> PostMessage ( WM_BKGND_MEASURE_STOPPED, 0, (LPARAM) pReason ) )
+					    delete pReason;
+			    }
 			    g_hThread = NULL;
 			    g_bTerminateThread = FALSE;
 
@@ -1536,8 +1548,11 @@ void CDataSetDoc::OnConfigureSensor()
 {
 	if ( IsMeasureSweepActive() ) return;
 	StopBackgroundMeasures ();
-    m_pSensor->SetSensorMatrixMod( m_pSensor->GetEffectiveMatrix() );
+	// BeginConfigure first: an Argyll sensor runs the measurement-start Init there,
+	// before its snapshot (#256), so the walk's baseline below is the effective matrix
+	// that Init left - and the walk composes only what the user changes in the sheet.
 	m_pSensor->BeginConfigure();
+    m_pSensor->SetSensorMatrixMod( m_pSensor->GetEffectiveMatrix() );
 	BOOL bConfigOk = m_pSensor->Configure();
 	if ( !bConfigOk )
 	{

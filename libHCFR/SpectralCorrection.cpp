@@ -197,6 +197,57 @@ bool MatrixCalibrationAllowed(const SpectralCorrectionRecord& rec)
 	return !( rec.IsPresent() && rec.basis == FIT_BASIS_DRIVER_CORRECTED );
 }
 
+bool ReadingsCarryUnrecordedDriverCorrection(const SpectralCorrectionRecord& rec, int fitBasis)
+{
+	return !rec.IsPresent() && fitBasis != FIT_BASIS_NATIVE;
+}
+
+void EffectiveChangedWithoutWalk(RawlessReadingsState& state, const Matrix& before, const Matrix& after,
+                                 bool readingsAlreadyThroughIt)
+{
+	if ( before == after || readingsAlreadyThroughIt )
+		return;
+	state.MatrixSetWithoutWalk();
+}
+
+bool SpectralRecordFromPathFile(const SpectralCorrectionRecord& rec, bool pathHashed, unsigned long long pathHash)
+{
+	if ( rec.source != SPECTRAL_SOURCE_FILE || rec.fileHash == 0 || !pathHashed )
+		return true;
+	return rec.fileHash == pathHash;
+}
+
+bool SpectralRecordApplied(const SpectralCorrectionRecord& rec, bool matricesExposed, bool holdsSamples,
+                           bool hasPath, const std::string& driverEntry)
+{
+	if ( !rec.IsPresent() || rec.basis == FIT_BASIS_NATIVE )
+		return true;
+	if ( matricesExposed )
+		return false;
+	if ( rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE )
+		return !hasPath && !driverEntry.empty() && driverEntry == rec.description;
+	return holdsSamples && hasPath;
+}
+
+bool SpectralClearAllowed(const SpectralCorrectionRecord& rec, bool hasPath, bool displayTypeListResyncs,
+                          bool recordEntrySelected)
+{
+	if ( rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE && displayTypeListResyncs && recordEntrySelected )
+		return false;
+	return hasPath || rec.IsPresent();
+}
+
+int PlainDisplayTypeEntry(int stored, const std::vector<bool>& corrected)
+{
+	const int n = (int)corrected.size();
+	if ( stored >= 0 && stored < n && !corrected[stored] )
+		return stored;
+	for ( int i = 0; i < n; ++i )
+		if ( !corrected[i] )
+			return i;
+	return -1;
+}
+
 #ifdef LIBHCFR_HAS_MFC
 void SpectralCorrectionRecord::Serialize(CArchive& ar)
 {

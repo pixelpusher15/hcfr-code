@@ -117,6 +117,8 @@ void CArgyllSensorPropPage::DoDataExchange(CDataExchange* pDX)
     // so transfer its state by hand rather than via a resource-bound DDX_Check.
     if (pDX->m_bSaveAndValidate && ::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
         m_DisableAIO = (m_AdaptCheckBox.GetCheck() == BST_CHECKED);
+    else if (!pDX->m_bSaveAndValidate && ::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
+        m_AdaptCheckBox.SetCheck(m_DisableAIO ? BST_CHECKED : BST_UNCHECKED);
 }
 
 
@@ -135,8 +137,24 @@ END_MESSAGE_MAP()
 void CArgyllSensorPropPage::OnCalibrate()
 {
     UpdateData(TRUE);
-    m_pSensor->GetPropertiesSheetValues();
-	m_pSensor->Calibrate();
+    // The page's settings (an Init when one changed), then Calibrate's own Init.
+    // Either can change the correction, so the status line, Clear, Browse and
+    // Calibrate are refreshed after them. One message per failure per click: a
+    // commit that failed and said so (its Init's failure, or that the settings were
+    // not kept) runs no Calibrate. The button follows the meter only as of the
+    // page's last refresh - a DDE command can run a failed start for this document
+    // or another one on the meter while the sheet is open - so a click that finds
+    // no meter, at the commit or at Calibrate's Init (INIT_FAILED_SILENT, nothing
+    // shown), says so. Every later meter call in the sheet checks for a lost meter.
+    const CArgyllSensor::InitResult commit = m_pSensor->CommitPageSettings();
+    CArgyllSensor::InitResult init = commit;
+    if ( commit == CArgyllSensor::INIT_OK )
+        m_pSensor->Calibrate(&init);
+    else
+        UpdateData(FALSE);      // a failed commit put the sensor's settings back on the page
+    if ( init == CArgyllSensor::INIT_FAILED_SILENT )
+        CArgyllSensor::ShowSheetNotice( IDS_ARGYLL_METER_UNAVAILABLE );
+    RefreshSpectralStatus();
 }
 
 
@@ -405,6 +423,10 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
 
 void CArgyllSensorPropPage::RefreshSpectralStatus()
 {
+    // Calibrate needs a meter: with none, a click could only do nothing. Every page
+    // has the button, whether or not it has the spectral row below.
+    if ( m_pSensor != NULL && GetDlgItem(IDC_ARGYLL_CALIBRATE) != NULL )
+        GetDlgItem(IDC_ARGYLL_CALIBRATE)->EnableWindow( m_pSensor->HasMeter() );
     if ( m_pSensor == NULL || !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
         return;
     CString s, fmt;
@@ -440,13 +462,20 @@ void CArgyllSensorPropPage::RefreshSpectralStatus()
         s.Format(fmt, (LPCSTR)none);
     }
     m_spectralStatus.SetWindowText(s);
-    // Clear only a browsed file. A Display Type correction is changed through
-    // the Display Type list, which is what removes it. A stored path with no
-    // record behind it (a moved file that could not be derived again) can always
-    // be cleared, so the warning's "clear it in the sensor properties" holds.
+    // Clear a browsed file. A Display Type correction is changed through the
+    // Display Type list, which is what removes it - where it can: on an i1d3 with
+    // the record's own entry selected. Anywhere else (a meter that never resyncs
+    // the list, an empty list, a record whose entry is gone or that came with a
+    // document onto a plain type) Clear removes it (SpectralClearAllowed). A stored
+    // path with no record behind it (a moved file that could not be derived again)
+    // can always be cleared, so the warning's "clear it in the sensor properties"
+    // holds.
     if ( ::IsWindow(m_spectralClearBtn.GetSafeHwnd()) )
-        m_spectralClearBtn.EnableWindow( ( rec.IsPresent() && rec.source == SPECTRAL_SOURCE_FILE )
-                                      || !m_pSensor->GetSpectralCorrectionPath().IsEmpty() );
+        m_spectralClearBtn.EnableWindow( m_pSensor->SpectralClearAllowedOnPage() );
+    // Browse needs a live meter that takes samples; after an Init in the sheet lets
+    // go of the meter it is disabled, or it would install a record nothing applies.
+    if ( ::IsWindow(m_spectralBrowseBtn.GetSafeHwnd()) )
+        m_spectralBrowseBtn.EnableWindow( m_pSensor->MeterSupportsSpectralSamples() );
 }
 
 void CArgyllSensorPropPage::OnSpectralBrowse()
@@ -478,7 +507,9 @@ void CArgyllSensorPropPage::OnSpectralClear()
     // installed: revert this sheet session's correction state first, then
     // drop the spectral fields. (CancelConfigure restores from the sheet's
     // opening snapshot and is idempotent, so a later Cancel still works.)
-    m_pSensor->CancelConfigure();
+    // The snapshot's sample is not put back into the driver first: the clear below
+    // discards it (CancelConfigureBeforeClear).
+    m_pSensor->CancelConfigureBeforeClear();
     m_pSensor->ClearSpectralCorrection();
     RefreshSpectralStatus();
 }

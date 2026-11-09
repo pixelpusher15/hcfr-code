@@ -65,6 +65,11 @@ protected:
 	// corrected, so it is stored with the document (CSensor stream v4) and a
 	// training file does not replace it (COneDeviceSensor::LoadCalibrationFile).
 	RawlessReadingsState m_rawlessReadings;
+	// True while Configure()'s sheet is up, its OK included (GetPropertiesSheetValues
+	// re-inits the meter after the sheet closes). An Init in that span books nothing
+	// for the raw-less readings: the sheet's walk or its Cancel accounts for every
+	// change made in it (EffectiveChangedWithoutWalk).
+	bool m_inSensorSheet;
 	// Configure() snapshot (BeginConfigure/CancelConfigure)
 	Matrix m_cfgSnapMatrix;
 	Matrix m_cfgSnapBodnerRaw[3], m_cfgSnapBodnerCal[3];
@@ -137,6 +142,12 @@ public:
 		UpdateBodnerInverseCache();
 	}
 	RawlessReadingsState & RawlessReadings() { return m_rawlessReadings; }
+	// A change of the effective matrix the sensor's own Init made, with no walk
+	// after it: `before` is GetEffectiveMatrix() from before Init's correction step.
+	// Updates the raw-less state as libHCFR's EffectiveChangedWithoutWalk says.
+	// Called only outside the sensor sheet (InSensorSheet).
+	void EffectiveChangedWithoutWalk(const Matrix& before, bool readingsAlreadyThroughIt);
+	bool InSensorSheet() const { return m_inSensorSheet; }
 	const Matrix * GetBodnerRawMatrices() const { return m_bodnerRawMatrix; }
 	const Matrix * GetBodnerCalMatrices() const { return m_bodnerCalMatrix; }
 

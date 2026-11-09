@@ -82,6 +82,9 @@ class CDataSetFrameInfo;
 #include "Generators\Generator.h"
 
 #define WM_BKGND_MEASURE_READY	WM_USER + 1279
+// The background thread stopped on an invalid reading; lParam: a new CString with
+// the reason, which the handler shows and deletes.
+#define WM_BKGND_MEASURE_STOPPED	WM_USER + 1280
 
 class CDataSetDoc : public CDocument
 {

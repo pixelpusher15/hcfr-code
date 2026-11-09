@@ -162,6 +162,7 @@ protected:
 	afx_msg LRESULT OnMiddleButton(WPARAM wParam, LPARAM lParam);
 
 	afx_msg LRESULT OnBkgndMeasureReady(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnBkgndMeasureStopped(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnHcfrUpdateAvailable(WPARAM wParam, LPARAM lParam);
 
 	DECLARE_MESSAGE_MAP()

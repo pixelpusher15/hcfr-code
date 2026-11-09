@@ -27,6 +27,7 @@
 
 #include <string>
 #include <vector>
+#include <iosfwd>
 #include <stdarg.h>
 
 struct _ccss;
@@ -35,6 +36,8 @@ class CColor;
 
 class SpectralSample
 {
+private:
+	bool createFromCorrelationCSVStream(std::istream& in, const std::string& csvPath);
 public:
     SpectralSample(void);
     SpectralSample(const SpectralSample& s);
@@ -52,6 +55,10 @@ public:
 	// than 401 values throws std::logic_error (a short row is a file at another
 	// resolution, not a spectrum to pad with zeros).
 	bool createFromCorrelationCSV(const std::string& csvPath);
+	// The same two readers on bytes already read from `samplePath` / `csvPath` (the
+	// path only names the sample), so a caller can hash and parse one read.
+	bool ReadBuffer(unsigned char* buf, size_t len, const std::string& samplePath);
+	bool createFromCorrelationCSVText(const std::string& text, const std::string& csvPath);
 
     // Get information about the sample. Currently we're only using getDescription()
     // getTech() and getDisplay() are included for future flexibility

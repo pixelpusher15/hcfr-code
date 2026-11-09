@@ -47,6 +47,7 @@ CSensor::CSensor()
 	m_sensorToXYZMatrixMod=IdentityMatrix(3);
 	m_calibrationMethod=CALIB_HCFR_DEFAULT;
 	m_fitBasis=FIT_BASIS_NATIVE;		// a fresh sensor has no legacy to honor; m_spectral starts empty
+	m_inSensorSheet=false;
 	for ( int k = 0; k < 3; k++ )
 	{
 		m_bodnerRawMatrix[k]=IdentityMatrix(3);
@@ -365,6 +366,11 @@ Matrix CSensor::GetEffectiveMatrix() const
 	return EffectiveSensorMatrix ( m_calibrationMethod, m_fitBasis, m_spectral, m_sensorToXYZMatrix );
 }
 
+void CSensor::EffectiveChangedWithoutWalk(const Matrix& before, bool readingsAlreadyThroughIt)
+{
+	::EffectiveChangedWithoutWalk ( m_rawlessReadings, before, GetEffectiveMatrix(), readingsAlreadyThroughIt );
+}
+
 void CSensor::ClearSpectralCorrection()
 {
 	m_spectral.Clear();
@@ -412,9 +418,13 @@ BOOL CSensor::Configure()
 	propertySheet.AddPage ( & m_SensorPropertiesPage );
 	propertySheet.SetActivePage(0);
 	SetPropertiesSheetValues();
+	// Every Init from here to the end of the OK (the page's Calibrate button, a
+	// setting committed by GetPropertiesSheetValues) is inside the sheet.
+	m_inSensorSheet = true;
 	int result=propertySheet.DoModal();
 	if(result == IDOK)
 		GetPropertiesSheetValues();
+	m_inSensorSheet = false;
 
 	return result==IDOK;
 }
