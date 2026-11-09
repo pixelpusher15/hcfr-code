@@ -1018,8 +1018,6 @@ double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, 
 // FALSE for every other reading - no stamp (older files), realDrive false
 // (placeholders, manual and external generators), unequal channels.
 bool ReadingWireGrayProp ( const CColor & aReading, double * pProp );
-// The reading's level as a percentage: its stamped drive, else slotLevel.
-double ReadingGrayLevel ( const CColor & aReading, double slotLevel );
 // The reading's level as a 0..1 proportion: its stamped drive, else
 // GrayLevelToGrayProp ( slotLevel, ... ) on the current grid.
 double ReadingGrayProp ( const CColor & aReading, double slotLevel, bool bUseRoundDown, bool b10bit, bool is16_235 );

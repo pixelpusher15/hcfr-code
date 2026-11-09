@@ -3741,7 +3741,7 @@ static void RunT46()
 
 // =============================================================================
 // T43 - where an existing gray reading sits on a gray-level axis (libHCFR
-// ReadingWireGrayProp / ReadingGrayLevel / ReadingGrayProp and the GraySeries
+// ReadingWireGrayProp / ReadingGrayProp and the GraySeries
 // accessor core behind CMeasure::GetGrayReadingLevel / Prop). Pure assertions,
 // no golden files. Every comparison is exact (==): the rule has no tolerance,
 // and the fallback must be bit for bit the value the describing sites computed
@@ -3782,6 +3782,18 @@ namespace T43Drive
         return (int)(floor(n / 100.0 * Grid(bits, range) + 0.5) + Black(bits, range));
     }
 
+    // r as the only reading of a near-white series whose one slot is nominal n
+    // (clip column n + 1): GraySeriesLevel / Prop of index 0 is the accessor's
+    // level for r, and GraySeriesSlotLevel the slot it falls back to.
+    static GraySeriesView OneSlot(const CColor* r, int n, bool rd, bool b10, bool lim)
+    {
+        GraySeriesView v;
+        v.series = GRAY_SERIES_NEAR_WHITE; v.readings = r; v.size = 1;
+        v.nominalLevels = NULL; v.nominalCount = 0; v.nearWhiteClipCol = n + 1; v.pqNearBlack = false;
+        v.bUseRoundDown = rd; v.b10bit = b10; v.is16_235 = lim;
+        return v;
+    }
+
     // Expect the reading at exactly `wantProp` (stamped drive taken) under the
     // current grid flags, whatever slot level the site passes.
     static void ExpectDrive(const char* what, const CColor& r, double slotLevel,
@@ -3792,7 +3804,7 @@ namespace T43Drive
             Fail("T43 %s: stamped drive not taken", what);
         else if (p != wantProp)
             Fail("T43 %s: drive %.17g, expected %.17g", what, p, wantProp);
-        const double lvl = ReadingGrayLevel(r, slotLevel);
+        const double lvl = GraySeriesLevel(OneSlot(&r, 50, rd, b10, lim), 0);
         if (lvl != wantProp * 100.0)
             Fail("T43 %s: level %.17g, expected %.17g", what, lvl, wantProp * 100.0);
         const double prop = ReadingGrayProp(r, slotLevel, rd, b10, lim);
@@ -3807,9 +3819,12 @@ namespace T43Drive
         double p = -1.0;
         if (ReadingWireGrayProp(r, &p))
             Fail("T43 %s: a drive (%.17g) was taken; expected the fallback", what, p);
-        const double lvl = ReadingGrayLevel(r, slotLevel);
-        if (lvl != slotLevel)
-            Fail("T43 %s: level %.17g, expected the slot %.17g", what, lvl, slotLevel);
+        const GraySeriesView one = OneSlot(&r, 30, rd, b10, lim);
+        const double lvl = GraySeriesLevel(one, 0);
+        if (lvl != GraySeriesSlotLevel(one, 0))
+            Fail("T43 %s: level %.17g, expected the slot %.17g", what, lvl, GraySeriesSlotLevel(one, 0));
+        if (GraySeriesProp(one, 0) != GrayLevelToGrayProp(GraySeriesSlotLevel(one, 0), rd, b10, lim))
+            Fail("T43 %s: series prop is not the slot's", what);
         const double want = GrayLevelToGrayProp(slotLevel, rd, b10, lim);
         const double prop = ReadingGrayProp(r, slotLevel, rd, b10, lim);
         if (prop != want)
@@ -3841,7 +3856,7 @@ static void RunT43()
             char what[64];
             _snprintf_s(what, sizeof(what), _TRUNCATE, "(a) full 8-bit code %d viewed limited", codes[k]);
             ExpectDrive(what, r, slotLimited, false, false, true, codes[k] / 255.0);
-            const double lvl = ReadingGrayLevel(r, slotLimited);
+            const double lvl = GraySeriesLevel(OneSlot(&r, n, false, false, true), 0);
             if (floor(lvl * 100.0 + 0.5) / 100.0 != shown[k])
                 Fail("T43 %s: %.4f%% does not read %.2f%%", what, lvl, shown[k]);
             if (lvl == slotLimited)
@@ -3980,7 +3995,7 @@ static void RunT43()
                     const int bits = b10 ? 10 : 8, range = lim ? L : F;
                     const double slot = ArrayIndexToGrayLevel(n, 101, false, b10, lim);
                     const CColor r = Stamped(slot, true, bits, range, CodeFor(n, bits, range));
-                    if (ReadingGrayLevel(r, slot) != slot
+                    if (GraySeriesLevel(OneSlot(&r, n, false, b10, lim), 0) != slot
                         || ReadingGrayProp(r, slot, false, b10, lim) != GrayLevelToGrayProp(slot, false, b10, lim))
                     {
                         if (bad++ < 5)

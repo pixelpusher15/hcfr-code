@@ -282,12 +282,13 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	
 	for (i=nStart, j=0; i<nEnd; i++, j++)
 	{
-		int colorTemp=GetDocument()->GetMeasure()->GetMeasurement(i).GetXYZValue().GetColorTemp(GetColorReference());
-		double Y=GetDocument()->GetMeasure()->GetMeasurement(i).GetXYZValue()[1];
+		const CColor reading = GetDocument()->GetMeasure()->GetMeasurement(i);	// fetched once per point
+		int colorTemp=reading.GetXYZValue().GetColorTemp(GetColorReference());
+		double Y=reading.GetXYZValue()[1];
 		
 		if ( Y > YMax )
 		YMax = Y;
-		ColorxyY aColor=GetDocument()->GetMeasure()->GetMeasurement(i).GetxyYValue();
+		ColorxyY aColor=reading.GetxyYValue();
 		ColorXYZ aMeasure;
 		
 		//check for GS measurement
@@ -306,13 +307,13 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if ( mode >= 4 )
 		        {
-			        double valx = ReadingGrayProp(GetDocument()->GetMeasure()->GetMeasurement(i), x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+			        double valx = ReadingGrayProp(reading, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
                     valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //					valy = min(valy, GetConfig()->m_TargetMaxL);
 		        }
 		        else
 		        {
-			        double valx=(ReadingGrayProp(GetDocument()->GetMeasure()->GetMeasurement(i), x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+			        double valx=(ReadingGrayProp(reading, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+Offset;
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -358,9 +359,9 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		//m_graphCtrl2.AddPoint(m_deltaEGraphID, j, GetDocument()->GetMeasure()->GetMeasurement(i).GetDeltaE(GetColorReference().GetWhite())); //stick with chromiticity only dE
 		//new
 		if (GetDocument()->GetMeasure()->GetGray(0).isValid())
-			m_graphCtrl2.AddPoint(m_deltaEGraphID, j, GetDocument()->GetMeasure()->GetMeasurement(i).GetDeltaE(YWhite, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight));
+			m_graphCtrl2.AddPoint(m_deltaEGraphID, j, reading.GetDeltaE(YWhite, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight));
 		else
-			m_graphCtrl2.AddPoint(m_deltaEGraphID, j, GetDocument()->GetMeasure()->GetMeasurement(i).GetDeltaE(GetColorReference().GetWhite())); //GS has not been run
+			m_graphCtrl2.AddPoint(m_deltaEGraphID, j, reading.GetDeltaE(GetColorReference().GetWhite())); //GS has not been run
 				
 		if(colorTemp > 1500 && colorTemp < 12000)
 			m_graphCtrl3.AddPoint(m_ColorTempGraphID, j, colorTemp);

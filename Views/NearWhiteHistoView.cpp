@@ -298,10 +298,18 @@ GraphID : graph ID for drawing
 LogGraphID : graph ID for log drawing, -1 if no Log drawing
 */
 
+// A point is handed to the chart only when its value is finite: a zero white,
+// a negative channel or log ( 1 ) gave main infinity or NaN there. Every finite
+// value is drawn exactly as before.
+static bool ChartValueFinite ( double v )
+{
+	return _finite ( v ) != 0;
+}
+
 void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID = -1)
 {
 	double max;
-	double colorlevel, whitelvl;
+	double colorlevel, whitelvl = 0.0;
 	char	szBuf [ 64 ];
 	LPCSTR	lpMsg = NULL;
 	
@@ -336,6 +344,15 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	{
 		max=pDataSet->GetMeasure()->GetNearWhite(Size-1).GetLuxValue();
 		colorlevel=pDataSet->GetMeasure()->GetNearWhite(PointIndex).GetLuxValue();
+		// whitelvl was never set here (main read it uninitialized). Taken as the
+		// near-black chart's lux branch takes it: the gray scale's top, else
+		// near white's top.
+		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
+		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
+		if (pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid())
+			whitelvl=pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxValue();
+		if (whitelvl == 0 && pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).isValid())
+			whitelvl=pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).GetLuxValue();
 	}
 
 	if ( pDataSet->GetMeasure()->GetNearWhite(PointIndex).HasLuxValue () )
@@ -360,7 +377,9 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
         : GrayLevelToGrayProp( (double)(PointIndex+101-Size), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
     if(whitelvl>0 && PointIndex != (Size-1))	// log scale is not valid for last value
 	{
-		m_logGraphCtrl.AddPoint(LogGraphID, xPlot, log(colorlevel/max)/log(xLog), lpMsg);
+		const double pointGamma = log(colorlevel/max)/log(xLog);
+		if ( ChartValueFinite ( pointGamma ) )
+			m_logGraphCtrl.AddPoint(LogGraphID, xPlot, pointGamma, lpMsg);
 	}
 
 	if (whitelvl < 0.1)
@@ -377,7 +396,11 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	else 
 	{
 		if (m_showL)
-	        m_graphCtrl.AddPoint(GraphID, xPlot, Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max), lpMsg, NULL);
+		{
+			const double l = Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max);
+			if ( ChartValueFinite ( l ) )
+		        m_graphCtrl.AddPoint(GraphID, xPlot, l, lpMsg, NULL);
+		}
 		else
 	        m_graphCtrl.AddPoint(GraphID, xPlot, Y_to_abY(colorlevel, 1.0), lpMsg, NULL);
 

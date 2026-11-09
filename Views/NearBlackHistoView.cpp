@@ -311,6 +311,14 @@ GraphID : graph ID for drawing
 LogGraphID : graph ID for log drawing, -1 if no Log drawing
 */
 
+// A point is handed to the chart only when its value is finite: a zero white,
+// a negative channel or log ( 1 ) gave main infinity or NaN there. Every finite
+// value is drawn exactly as before.
+static bool ChartValueFinite ( double v )
+{
+	return _finite ( v ) != 0;
+}
+
 void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax)
 {
 	double max,whitelvl;
@@ -387,21 +395,30 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 		: GrayLevelToGrayProp( (double)PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 	if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
 	{
-		m_logGraphCtrl.AddPoint(LogGraphID, xPlot, log(colorlevel/whitelvl)/log(xLog), lpMsg, NULL);
+		const double pointGamma = log(colorlevel/whitelvl)/log(xLog);
+		if ( ChartValueFinite ( pointGamma ) )
+			m_logGraphCtrl.AddPoint(LogGraphID, xPlot, pointGamma, lpMsg, NULL);
 	}
 
     if (!m_showL && !m_abY)
 	{
 		max = whitelvl;
-		if (ColorSpace == 1 && ColorIndex == 1)
-	        m_graphCtrl.AddPoint(GraphID, xPlot, (colorlevel/max)*100.0, lpMsg, whitelvl);
-		else
-	        m_graphCtrl.AddPoint(GraphID, xPlot, (colorlevel/max)*100.0, lpMsg, NULL);
+		if (ChartValueFinite ( (colorlevel/max)*100.0 ))	// no white (max = 0): main plotted infinity or NaN
+		{
+			if (ColorSpace == 1 && ColorIndex == 1)
+		        m_graphCtrl.AddPoint(GraphID, xPlot, (colorlevel/max)*100.0, lpMsg, whitelvl);
+			else
+		        m_graphCtrl.AddPoint(GraphID, xPlot, (colorlevel/max)*100.0, lpMsg, NULL);
+		}
 	}
 	else 
 	{
 		if (m_showL)
-	        m_graphCtrl.AddPoint(GraphID, xPlot, Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max), lpMsg, NULL);
+		{
+			const double l = Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max);
+			if ( ChartValueFinite ( l ) )
+		        m_graphCtrl.AddPoint(GraphID, xPlot, l, lpMsg, NULL);
+		}
 		else
 	        m_graphCtrl.AddPoint(GraphID, xPlot, Y_to_abY(colorlevel, 1.0), lpMsg, NULL);
 

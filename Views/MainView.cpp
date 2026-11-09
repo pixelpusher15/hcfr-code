@@ -3667,17 +3667,17 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 
 					if ( White.isValid() && Black.isValid())
 					{
-						double x, valx, valy;
+						double valx, valy;
 						double yblack = 0.0;
 						BOOL bIRE = GetDocument()->GetMeasure()->m_bIREScaleMode;
 						
 						if ( GetConfig ()->m_GammaOffsetType == 1 )
 							yblack = Black.GetY();
-						if (m_displayMode == 0)
-							x = GetDocument()->GetMeasure()->GetGrayPercent ( nCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 						// Near black / white: the reading's stamped drive, else the
-						// slot exactly as before (GrayLevelToGrayProp of the nominal).
-						else if (m_displayMode == 3)
+						// slot exactly as before (GrayLevelToGrayProp of the nominal:
+						// main's single truncation, which GetGrayReadingProp's fallback
+						// does not reproduce under round-down).
+						if (m_displayMode == 3)
 						{
 							if ( ! GetDocument()->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_NEAR_BLACK, nCol - 1, & valx ) )
 								valx = GrayLevelToGrayProp ( (double)(nCol - 1)*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
@@ -4426,9 +4426,7 @@ void CMainView::UpdateGrid()
 		{
             int i = GetDocument() -> GetMeasure () -> GetGrayScaleSize ();
             ColorxyY tmpColor(GetColorReference().GetWhite());
-			double x = ( m_displayMode == 0 )
-					   ? GetDocument()->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() )
-					   : ArrayIndexToGrayLevel ( j, nCount, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+			double x;	// case 2 (free measures): the level a reading without a stamped drive is given
 			int mode = GetConfig()->m_GammaOffsetType;
 			CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
 			CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
@@ -4529,6 +4527,7 @@ void CMainView::UpdateGrid()
 					 break;
 
 				case 2:
+					 x = ArrayIndexToGrayLevel ( j, nCount, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					 aColor = GetDocument()->GetMeasure()->GetMeasurement(j);					 
 					 bSpecialRef = TRUE;
 					 //assume white 1st
@@ -4631,7 +4630,6 @@ void CMainView::UpdateGrid()
 					 if ( pDataRef )
 						refDocColor = pDataRef->GetMeasure()->GetNearBlack(j);
 						
-					 x = ArrayIndexToGrayLevel ( j * (mode == 5?2:1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					 Black = GetDocument() -> GetMeasure () -> GetNearBlack(0);
 						
 					 if (GetConfig()->m_colorStandard == sRGB) mode = 99;
@@ -4680,7 +4678,6 @@ void CMainView::UpdateGrid()
 					 if ( pDataRef )
 						refDocColor = pDataRef->GetMeasure()->GetNearWhite(j);
 
-						x = ArrayIndexToGrayLevel ( GetDocument()->GetMeasure()->m_NearWhiteClipCol - nCount + j, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 						if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 
 						if (  (mode >= 4) )

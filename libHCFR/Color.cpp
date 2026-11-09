@@ -4907,14 +4907,6 @@ bool ReadingWireGrayProp ( const CColor & aReading, double * pProp )
 	return WireCodeToProp ( w.wireCode[1], w.wireBits, w.encodingRange, pProp );
 }
 
-double ReadingGrayLevel ( const CColor & aReading, double slotLevel )
-{
-	double prop;
-	if ( ReadingWireGrayProp ( aReading, & prop ) )
-		return prop * 100.0;
-	return slotLevel;
-}
-
 double ReadingGrayProp ( const CColor & aReading, double slotLevel, bool bUseRoundDown, bool b10bit, bool is16_235 )
 {
 	double prop;

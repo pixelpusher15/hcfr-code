@@ -330,22 +330,26 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 				// Compute reference Luminance regarding actual offset and reference gamma 
                 // fixed to use correct gamma predicts
                 // and added option to assume perfect gamma
-					double x;
+					// The level the reference is evaluated at. Gray scale, near black,
+					// near white: reading minCol - 1 of that series at its stamped drive,
+					// else its slot (CMeasure::GetGrayReadingProp, as the grid uses).
+					// Any other mode: the selected reading's own stamped drive, else
+					// gray slot minCol - 1 as before.
+					double prop;
 					switch (m_displayMode)
 					{
-						int Count;
+						case 0:
+						prop = m_pDocument->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, minCol - 1 );
+						break;
 						case 3:
-						x = ArrayIndexToGrayLevel ( (minCol - 1)*(GetConfig()->m_GammaOffsetType==5?2:1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+						prop = m_pDocument->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, minCol - 1 );
 						break;
 						case 4:
-						Count = m_pDocument -> GetMeasure()->GetNearWhiteScaleSize();
-						x = ArrayIndexToGrayLevel ( m_pDocument->GetMeasure()->m_NearWhiteClipCol - Count + (minCol - 1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+						prop = m_pDocument->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, minCol - 1 );
 						break;
 						default:
-						x = m_pDocument->GetMeasure()->GetGrayPercent ( minCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+						prop = ReadingGrayProp ( *m_pRefColor, m_pDocument->GetMeasure()->GetGrayPercent ( minCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					}
-					// x places the selected reading when it has no stamped drive;
-					// with one, the reference is at that drive (ReadingGrayProp).
 					double valy, Gamma, Offset;
                     Gamma = GetConfig()->m_GammaRef;
                     GetConfig()->m_GammaAvg = Gamma;
@@ -360,13 +364,13 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 					if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 					if ( mode >= 4 )
 			        {
-						double valx = ReadingGrayProp(*m_pRefColor, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+						double valx = prop;
 						valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //						valy = min(valy, GetConfig()->m_TargetMaxL);
 			        }
 			        else
 			        {
-				        double valx=(ReadingGrayProp(*m_pRefColor, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+				        double valx=(prop+Offset)/(1.0+Offset);
 				        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 						if (mode == 1) //black compensation target
 							valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
