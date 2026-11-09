@@ -117,6 +117,8 @@ void CArgyllSensorPropPage::DoDataExchange(CDataExchange* pDX)
     // so transfer its state by hand rather than via a resource-bound DDX_Check.
     if (pDX->m_bSaveAndValidate && ::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
         m_DisableAIO = (m_AdaptCheckBox.GetCheck() == BST_CHECKED);
+    else if (!pDX->m_bSaveAndValidate && ::IsWindow(m_AdaptCheckBox.GetSafeHwnd()))
+        m_AdaptCheckBox.SetCheck(m_DisableAIO ? BST_CHECKED : BST_UNCHECKED);
 }
 
 

@@ -4236,11 +4236,14 @@ namespace T45Order
         bool calFails;                  // ... and the calibration always fails
         bool unplugInSheet;             // the meter is unplugged while the sheet is open
         bool calFailsOnce;              // the first calibration fails, the next ones succeed
+        bool wrapperDeadInSheet;        // the shared driver is gone by the sheet's commit
+                                        // (InitReporting's isMeterStillValid: SILENT)
         std::string serial;
         std::vector<Entry> list;
         std::vector<DiskFile> disk;
         World() : exposed(true), holdsSamples(true), startFails(false), failObs(-1), throwEntry(-1),
-                  wrapperDead(false), needsCalibration(false), calFails(false), unplugInSheet(false), calFailsOnce(false), serial("A") {}
+                  wrapperDead(false), needsCalibration(false), calFails(false), unplugInSheet(false), calFailsOnce(false),
+                  wrapperDeadInSheet(false), serial("A") {}
         const DiskFile* File(const std::string& path) const
         {
             for (size_t i = 0; i < disk.size(); ++i)
@@ -4325,10 +4328,13 @@ namespace T45Order
         bool silentRevert;                  // a commit reverted settings and said nothing
         bool pageStale;                     // the page shows settings the sensor does not have
         bool calFailedOnce;
+        bool wrongNotice;                   // a notice that says what did not happen: "rejected"
+                                            // for a meter that was unavailable (r8 SILENT), or
+                                            // "could not be started" after it started
         Doc() : rawless(Native()), hasRaw(false), raw(Native()), rawValue(Native()), unrecorded(I3()),
                 crashed(false), messages(0), maxMessages(0), refusedSilently(false), silentClick(false),
                 settingsDroppedSilently(false), loopedForever(false), iniObserver(3),
-                notices(0), silentRevert(false), pageStale(false), calFailedOnce(false) {}
+                notices(0), silentRevert(false), pageStale(false), calFailedOnce(false), wrongNotice(false) {}
     };
 
     // The order a session runs in. Branch: the step at BeginConfigure on a started
@@ -4349,12 +4355,20 @@ namespace T45Order
     static const bool kIniAfterStart = true;
     // Each reading starts valid (MeasureColorInternal's SetMeasureValidity(TRUE)) (r8#2).
     static const bool kValidityReset = true;
-    // Ignore after an invalid reading stores noDataColor, not the clamped reading (r8#1).
-    static const bool kIgnoreStoresNoData = true;
+    // Ignore after an invalid reading keeps the reading CSensor::MeasureColor clamped
+    // to XYZ 1e-8, as on main (Kyle's round-9 ruling: the Ignore change is out of
+    // #256; the failed-reading design is its own issue). The model states it; no
+    // switch, because the branch does not change it.
     // A commit that reverts settings says so, and the page shows the sensor's settings
     // again (r8#3).
     static const bool kNoticeOnRevert = true;
     static const bool kResyncPage = true;
+    // A commit whose Init found the meter already unavailable (INIT_FAILED_SILENT)
+    // says the settings were not kept, not that the meter rejected them (r8, round 9).
+    static const bool kSilentSaysNotKept = true;
+    // A throw past a successful start (a setting's select) says a setting was not
+    // applied, not that the meter could not be started (r8, round 9).
+    static const bool kThrowAfterStartSaysNotApplied = true;
     static const Structure kMain   = { false, false, false, "main" };
 
     // CSensor::ClearSpectralCorrection
@@ -4631,7 +4645,7 @@ namespace T45Order
     static int InitR(Doc& d, const World& w, const Structure& st, bool dtChanged)
     {
         Sensor& s = d.s;
-        if (s.meterGone || w.wrapperDead)
+        if (s.meterGone || w.wrapperDead || ( w.wrapperDeadInSheet && s.inSheet ))
         {
             if (!st.rules)
                 d.crashed = true;
@@ -4653,8 +4667,10 @@ namespace T45Order
         {
             if (!st.rules)
                 d.crashed = true;                   // the throw escapes the handler
-            Message(d);                             // the wrapper's box (errorBoxShown)
-            return INIT_FAILED_ANNOUNCED;
+            else if (!kThrowAfterStartSaysNotApplied)
+                d.wrongNotice = true;               // IDS_ARGYLL_START_FAILED after a start
+            Message(d);                             // the wrapper's box, or HCFR's
+            return INIT_FAILED_ANNOUNCED;           // IDS_ARGYLL_SETTING_NOT_APPLIED
         }
         return INIT_OK;
     }
@@ -4831,7 +4847,11 @@ namespace T45Order
                 d.s.displayType = oldDT;            // not kept
                 d.s.observer = oldObs;
                 if (kNoticeOnRevert)
-                    ++d.notices;                    // IDS_ARGYLL_SETTINGS_REJECTED(_STOPPED)
+                {
+                    ++d.notices;                    // IDS_ARGYLL_SETTINGS_REJECTED(_STOPPED),
+                    if (r == INIT_FAILED_SILENT && !kSilentSaysNotKept)
+                        d.wrongNotice = true;       // or NOT_KEPT when nothing rejected them
+                }
                 else
                     d.silentRevert = true;
                 if (kResyncPage)
@@ -4982,9 +5002,10 @@ namespace T45Order
 
     // A sweep of nPatches (Measure.cpp's loop): the measurement start, then each
     // patch; an invalid reading shows the Abort/Retry/Ignore box ("An error
-    // occurred:" + the error string) and stores nothing; the answer is `answer`
-    // (0 abort, 1 retry once then abort, 2 ignore).
-    struct SweepResult { int stored, prompts, messages, fakeStored; };
+    // occurred:" + the error string); the answer is `answer` (0 abort, 1 retry once
+    // then abort, 2 ignore). Abort stores nothing more, Retry reads the patch again,
+    // Ignore keeps the clamped reading in the slot, as main does (`clamped`).
+    struct SweepResult { int stored, prompts, messages, clamped; };
     static SweepResult Sweep(Doc& d, const World& w, const Structure& st, int nPatches, int answer)
     {
         SweepResult r = { 0, 0, 0, 0 };
@@ -5006,11 +5027,9 @@ namespace T45Order
                 {
                     ++retries;
                     --i;                            // Retry
+                    continue;
                 }
-                // Ignore: the slot holds noDataColor (DropIgnoredReading), not the
-                // clamped reading.
-                if (!kIgnoreStoresNoData)
-                    ++r.fakeStored;
+                ++r.clamped;                        // Ignore: the clamped reading stays
                 continue;
             }
             ++r.stored;
@@ -5476,6 +5495,8 @@ namespace T45Order
             out += " silent-revert";
         if (e.pageStale)
             out += " page-stale";
+        if (e.wrongNotice)
+            out += " wrong-notice";
         // A setting the meter rejected is kept nowhere: a restart starts the meter
         // with the INI's settings (a new document) and the document's (r7#2).
         if (sc.w.failObs >= 0 && ( e.iniObserver == sc.w.failObs || e.s.observer == sc.w.failObs ))
@@ -5488,26 +5509,57 @@ namespace T45Order
         return out;
     }
 
-    // (i) r7#1: a sweep on a meter whose calibration always fails stores no reading,
-    // shows its Abort/Retry/Ignore box once per failing patch it is asked about, and
-    // stops on Abort; a continuous run ends at the first invalid reading.
+    // (i) r7#1: a sweep on a meter whose calibration always fails stores no good
+    // reading, shows its Abort/Retry/Ignore box once per failing patch it is asked
+    // about, and stops on Abort; Ignore keeps the clamped reading in each slot, as
+    // main does (round 9: not changed by #256); a continuous run ends at the first
+    // invalid reading.
+    static void CheckSweep();
+
+    // (j) round 9: a commit whose Init finds the shared driver already gone
+    // (INIT_FAILED_SILENT: InitReporting's isMeterStillValid) keeps nothing and says
+    // the settings were not kept - not that the meter rejected them. A modal sheet
+    // leaves no user path to a driver lost between BeginConfigure and the commit, so
+    // this is a direct check of Commit, not a row of the order table (a world that
+    // loses the driver under the sheet also leaves the page's Calibrate silent: see
+    // the round-9 report).
+    static void CheckSilentCommit()
+    {
+        World w = I1d3("A");
+        w.wrapperDeadInSheet = true;
+        Doc d;
+        d.s.inSheet = true;
+        const int oldDT = d.s.displayType, oldObs = d.s.observer;
+        int pageDT = oldDT + 1, pageObs = oldObs;
+        const int r = Commit(d, w, kBranch, pageDT, pageObs);
+        if (r != INIT_FAILED_SILENT)
+            Fail("T45 (j) commit on a lost driver: Init result %d, want INIT_FAILED_SILENT", r);
+        if (d.s.displayType != oldDT || pageDT != oldDT)
+            Fail("T45 (j) commit on a lost driver: Display Type %d, page %d, want %d kept on both",
+                 d.s.displayType, pageDT, oldDT);
+        if (d.notices != 1 || d.wrongNotice)
+            Fail("T45 (j) commit on a lost driver: %d notices, %s, want one NOT_KEPT", d.notices,
+                 d.wrongNotice ? "one says the meter rejected the settings" : "none wrong");
+    }
+
     static void CheckSweep()
     {
         World w = I1d3("A");
         w.needsCalibration = true;
         w.calFails = true;
-        struct { int answer, wantPrompts, wantMessages; const char* what; } rows[] = {
-            { 0, 1, 1, "Abort at the first box" },
-            { 1, 2, 2, "Retry once, then Abort" },
-            { 2, 21, 21, "Ignore every box" },
+        struct { int answer, wantPrompts, wantMessages, wantClamped; const char* what; } rows[] = {
+            { 0, 1, 1, 0, "Abort at the first box" },
+            { 1, 2, 2, 0, "Retry once, then Abort" },
+            { 2, 21, 21, 21, "Ignore every box (the clamped reading stays, as on main)" },
         };
         for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
         {
             Doc d;
             const SweepResult r = Sweep(d, w, kBranch, 21, rows[i].answer);
-            if (r.stored != 0 || r.fakeStored != 0)
-                Fail("T45 (i) %s: %d readings and %d clamped readings stored from a failed calibration",
-                     rows[i].what, r.stored, r.fakeStored);
+            if (r.stored != 0)
+                Fail("T45 (i) %s: %d good readings stored from a failed calibration", rows[i].what, r.stored);
+            if (r.clamped != rows[i].wantClamped)
+                Fail("T45 (i) %s: %d clamped readings kept, want %d", rows[i].what, r.clamped, rows[i].wantClamped);
             if (r.prompts != rows[i].wantPrompts)
                 Fail("T45 (i) %s: %d Abort/Retry/Ignore boxes, want %d", rows[i].what, r.prompts, rows[i].wantPrompts);
             if (r.messages != rows[i].wantMessages)
@@ -5810,6 +5862,7 @@ static void RunT45()
     T45Order::CheckPlainEntry();
     T45Order::CheckContentIdentity();
     T45Order::CheckSweep();
+    T45Order::CheckSilentCommit();
 }
 
 int main(int argc, char* argv[])

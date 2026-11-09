@@ -76,14 +76,6 @@ int                     GetGrayScalePresetCount () { return sizeof(s_grayPresets
 
 // Fill 'levels' with a uniform ramp of 'nPoints' nominal IRE percentages (0..100).
 // A Custom selection of N steps maps to nPoints = N+1.
-// An invalid reading the user answered with Ignore is not data: the slot holds
-// noDataColor, as the cube path stores it, instead of the reading CSensor clamped to
-// XYZ 1e-8 (#256).
-static void DropIgnoredReading ( CColor & slot )
-{
-	slot = noDataColor;
-}
-
 static void FillUniformGrayLevels(CArray<double,double> & levels, int nPoints)
 {
 	levels.SetSize(nPoints);
@@ -2353,8 +2345,6 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{
@@ -2583,8 +2573,6 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{
@@ -2695,8 +2683,6 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[size+i] );
 			}
 			else
 			{
@@ -2954,8 +2940,6 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{
@@ -3145,8 +3129,6 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{
@@ -3323,8 +3305,6 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{
@@ -3500,8 +3480,6 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{
@@ -3679,8 +3657,6 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{
@@ -3857,8 +3833,6 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{
@@ -4037,8 +4011,6 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{
@@ -4217,8 +4189,6 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{
@@ -5130,11 +5100,6 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-				{
-					DropIgnoredReading ( m_profileMeasureArray[i] );
-					m_profileGeneration++;
-				}
 			}
 			else
 			{
@@ -5437,8 +5402,6 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 						i--;
 						bRetry = TRUE;
 					}
-					if(result == IDIGNORE)
-						DropIgnoredReading ( measuredColor[(j*size)+i] );
 				}
 				else
 				{
@@ -5746,8 +5709,6 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 						i--;
 						bRetry = TRUE;
 					}
-					if(result == IDIGNORE)
-						DropIgnoredReading ( measuredColor[(j*size)+i] );
 				}
 				else
 				{
@@ -5980,8 +5941,6 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{
@@ -6175,8 +6134,6 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 					i--;
 					bRetry = TRUE;
 				}
-				if(result == IDIGNORE)
-					DropIgnoredReading ( measuredColor[i] );
 			}
 			else
 			{

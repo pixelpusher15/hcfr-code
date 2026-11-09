@@ -4389,6 +4389,7 @@ BEGIN
     IDS_ARGYLL_SETTINGS_REJECTED_STOPPED "El medidor no ha aceptado los ajustes cambiados en esta p\xE1gina y se ha detenido. Se conservan los ajustes anteriores; reinicie HCFR para volver a usar el medidor."
     IDS_ARGYLL_READING_FAILED "El medidor no ha podido tomar esta lectura."
     IDS_ARGYLL_START_FAILED "No se pudo iniciar el medidor."
+    IDS_ARGYLL_SETTING_NOT_APPLIED "El medidor se inici\xF3, pero no se pudo aplicar uno de sus ajustes."
     IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "El documento cargado incluye una corrección espectral de tipo de pantalla (%s) que no es el tipo de pantalla actual. Se sigue usando hasta que cambie el tipo de pantalla."
     IDS_SPECTRAL_COMPOSE_WARN   "El archivo que está cargando no tiene registro de la base del ajuste. La corrección espectral se aplicará además de su matriz (como hacía HCFR 4.1). ¿Continuar?"
     IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "La corrección espectral en uso (%s) se calculó para el medidor %s, no para el conectado, y aquí no hay ningún archivo de corrección a partir del cual volver a calcularla. Se sigue usando. Para calcularla para este medidor, seleccione su archivo de corrección en las propiedades del sensor."

@@ -37,6 +37,29 @@
 
 #include "../Tools/ArgyllMeterWrapper/SpectralSample.h"
 
+// The seven device settings an Init starts the meter with, as one value: the page,
+// the commit, its revert, the sheet's snapshot and the INI all go through it, so no
+// list of them can miss one. (The Debug checkbox is not one: it starts nothing.)
+struct ArgyllDeviceSettings
+{
+    UINT    readingType;
+    CString spectralType;
+    UINT    displayType;
+    UINT    intTime;
+    BOOL    hiRes;
+    BOOL    adapt;
+    BOOL    disableAIO;
+    bool operator==(const ArgyllDeviceSettings& o) const
+    {
+        return readingType == o.readingType && spectralType == o.spectralType && displayType == o.displayType
+            && intTime == o.intTime && hiRes == o.hiRes && adapt == o.adapt && disableAIO == o.disableAIO;
+    }
+    bool operator!=(const ArgyllDeviceSettings& o) const { return !( *this == o ); }
+    // The INI keys under the meter's name: all of them, or only those that differ
+    // from *onlyChangedFrom.
+    void WriteIni(const std::string& meterName, const ArgyllDeviceSettings* onlyChangedFrom = NULL) const;
+};
+
 class CArgyllSensor : public COneDeviceSensor  
 {
 public:
@@ -63,13 +86,7 @@ public:
     // the page's Calibrate button commits them mid-sheet - so a cancelled sheet puts
     // them back too. Valid only after a BeginConfigure.
     bool        m_cfgSnapDeviceValid;
-    UINT        m_cfgSnapDisplayType;
-    UINT        m_cfgSnapReadingType;
-    CString     m_cfgSnapSpectralType;
-    UINT        m_cfgSnapIntTime;
-    BOOL        m_cfgSnapHiRes;
-    BOOL        m_cfgSnapAdapt;
-    BOOL        m_cfgSnapDisableAIO;
+    ArgyllDeviceSettings m_cfgSnapDevice;
     bool        m_cfgSnapDebugMode;
     std::string m_cfgSnapMeterName;         // the meter's name at BeginConfigure (the INI keys)
     // Parsed-spectral-sample cache so Init does not re-read the file per
@@ -159,6 +176,11 @@ public:
     // GetPropertiesSheetValues with the result of the Init a changed setting ran.
     InitResult CommitPageSettings();
     bool PageDeviceSettingsDiffer(bool includeDebug) const;
+    // The members as one value, and back; the page's values, and onto the page.
+    ArgyllDeviceSettings DeviceSettings() const;
+    void SetDeviceSettings(const ArgyllDeviceSettings& s);
+    ArgyllDeviceSettings PageDeviceSettings() const;
+    void ShowDeviceSettingsOnPage(const ArgyllDeviceSettings& s);
     bool HasMeter() const { return m_meter != NULL; }
     // CancelConfigure without putting the snapshot's sample back into the driver:
     // the page's Clear, which then clears everything.
@@ -201,6 +223,9 @@ private:
     BOOL InitBody(BOOL bForSimultaneousMeasures);
     // CancelConfigure and CancelConfigureBeforeClear.
     void RestoreSnapshot(bool reapplyDriverSample);
+    // Init's start succeeded: a throw after it is a setting not applied, not a
+    // meter that did not start.
+    bool        m_startedThisInit;
     // Calibrate past its Init, inside its std::logic_error handler.
     bool CalibrateDevice();
     // The FILE-source fields of a record: source, description (the sample's display,
