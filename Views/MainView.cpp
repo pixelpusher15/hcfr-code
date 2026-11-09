@@ -2015,6 +2015,22 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 	}
 }
 
+// A grayscale column's label: the level of the reading in column i - its
+// stamped drive, else the slot on the current grid (CMeasure::
+// GetGrayReadingLevel). InitGrid writes it and UpdateGrid rewrites it, because
+// a continuous or background measure replaces the reading in a column without
+// an InitGrid.
+static CString GrayColumnLabel ( CMeasure * pMeasure, int i, BOOL bIRE )
+{
+	const double level = pMeasure->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i );
+	CString str;
+	if ( bIRE && i == 0 )
+		str.Format ( "%.1f", level );
+	else
+		str.Format ( "%d", (int) floor ( level + 0.5 ) );
+	return str;
+}
+
 void CMainView::InitGrid(bool sizeGrid)
 {
 	if(m_pGrayScaleGrid==NULL)
@@ -2231,10 +2247,7 @@ void CMainView::InitGrid(bool sizeGrid)
 		switch ( m_displayMode )
 		{
 			case 0:
-				 if ( bIRE && i==0 )
-					Item.strText.Format("%.1f",GetDocument()->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ));
-				 else
-					Item.strText.Format("%d", (int) floor(GetDocument()->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() )+0.5) );
+				 Item.strText = GrayColumnLabel ( GetDocument()->GetMeasure(), i, bIRE );
 				 break;
 
 			case 1:
@@ -3654,18 +3667,22 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 
 					if ( White.isValid() && Black.isValid())
 					{
-						double x, valx, valy;
+						double valx, valy;
 						double yblack = 0.0;
 						BOOL bIRE = GetDocument()->GetMeasure()->m_bIREScaleMode;
 						
 						if ( GetConfig ()->m_GammaOffsetType == 1 )
 							yblack = Black.GetY();
-						if (m_displayMode == 0)
-							x = GetDocument()->GetMeasure()->GetGrayPercent ( nCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
-						else if (m_displayMode == 3)
-							valx = GrayLevelToGrayProp ( (double)(nCol - 1)*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
-						else if (m_displayMode == 4)
-							valx = GrayLevelToGrayProp ( (double)(nCol - 1 + GetDocument()->GetMeasure()->m_NearWhiteClipCol - size) , GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+						// Near black / white: the reading's stamped drive, else the
+						// slot exactly as before: GraySeriesSlotProp, the nominal level
+						// truncated once (main's value; GetGrayReadingProp's fallback
+						// truncates twice under round-down).
+						if (m_displayMode == 3 || m_displayMode == 4)
+						{
+							const GraySeries series = ( m_displayMode == 3 ) ? GRAY_SERIES_NEAR_BLACK : GRAY_SERIES_NEAR_WHITE;
+							if ( ! GetDocument()->GetMeasure()->GetGrayReadingDrive ( series, nCol - 1, & valx ) )
+								valx = GraySeriesSlotProp ( GetDocument()->GetMeasure()->GetGraySeriesView ( series ), nCol - 1 );
+						}
 
 						int mode = GetConfig()->m_GammaOffsetType;
 						if (GetConfig()->m_colorStandard == sRGB) mode = 99;
@@ -3673,7 +3690,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						if ( mode >= 4 )
 						{
 							if (m_displayMode == 0)
-								valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+								valx = GetDocument()->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, nCol - 1 );
 							
 							if (mode == 5)
 							{
@@ -3687,7 +3704,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						else
 						{
 							if (m_displayMode == 0)
-		    					valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+		    					valx=(GetDocument()->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, nCol - 1 )+Offset)/(1.0+Offset);
 	    					valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 		    				str.Format ( "%.3f", yblack + ( valy * ( White.GetY () - yblack ) ) );
 						}
@@ -4405,9 +4422,7 @@ void CMainView::UpdateGrid()
 		{
             int i = GetDocument() -> GetMeasure () -> GetGrayScaleSize ();
             ColorxyY tmpColor(GetColorReference().GetWhite());
-			double x = ( m_displayMode == 0 )
-					   ? GetDocument()->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() )
-					   : ArrayIndexToGrayLevel ( j, nCount, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+			double x;	// case 2 (free measures): the level a reading without a stamped drive is given
 			int mode = GetConfig()->m_GammaOffsetType;
 			CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
 			CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
@@ -4417,6 +4432,7 @@ void CMainView::UpdateGrid()
 				case 0:
                      double valy;
 					 aColor = GetDocument()->GetMeasure()->GetGray(j);
+					 m_pGrayScaleGrid->SetItemText ( 0, j + 1, GrayColumnLabel ( GetDocument()->GetMeasure(), j, GetDocument()->GetMeasure()->m_bIREScaleMode ) );
 					 if ( pDataRef )
 					 {
 						refDocColor = pDataRef->GetMeasure()->GetGray(j);
@@ -4425,13 +4441,13 @@ void CMainView::UpdateGrid()
 					if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 					if (  (mode >= 4) )
 		            {
-				        double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				        double valx = GetDocument()->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, j );
 			            valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 						valy = min(valy, GetConfig()->m_TargetMaxL);
 		            }
 			        else
 			        {
-				        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+				        double valx=(GetDocument()->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, j )+Offset)/(1.0+Offset);
 				        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 						if (mode == 1) //black compensation target
 							valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -4507,6 +4523,7 @@ void CMainView::UpdateGrid()
 					 break;
 
 				case 2:
+					 x = ArrayIndexToGrayLevel ( j, nCount, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					 aColor = GetDocument()->GetMeasure()->GetMeasurement(j);					 
 					 bSpecialRef = TRUE;
 					 //assume white 1st
@@ -4521,12 +4538,12 @@ void CMainView::UpdateGrid()
 						if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 						if (  (mode >= 4) )
 			            {
-                            double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+                            double valx = ReadingGrayProp(aColor, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
                             valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 			            }
 			            else
 			            {
-				            double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+				            double valx=(ReadingGrayProp(aColor, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 				            valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 							if (mode == 1) //black compensation target
 								valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -4609,19 +4626,18 @@ void CMainView::UpdateGrid()
 					 if ( pDataRef )
 						refDocColor = pDataRef->GetMeasure()->GetNearBlack(j);
 						
-					 x = ArrayIndexToGrayLevel ( j * (mode == 5?2:1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					 Black = GetDocument() -> GetMeasure () -> GetNearBlack(0);
 						
 					 if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 
    					 if (  (mode >= 4) )
 			         {
-                         double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+                         double valx = GetDocument()->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, j );
                          valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 			         }
 			         else
 			         {
-				         double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+				         double valx=(GetDocument()->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, j )+Offset)/(1.0+Offset);
 				         valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 							
 						 if (mode == 1) //black compensation target
@@ -4658,17 +4674,16 @@ void CMainView::UpdateGrid()
 					 if ( pDataRef )
 						refDocColor = pDataRef->GetMeasure()->GetNearWhite(j);
 
-						x = ArrayIndexToGrayLevel ( GetDocument()->GetMeasure()->m_NearWhiteClipCol - nCount + j, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 						if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 
 						if (  (mode >= 4) )
 			            {
-                            double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+                            double valx = GetDocument()->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, j );
                             valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 			            }
 			            else
 			            {
-				            double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+				            double valx=(GetDocument()->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, j )+Offset)/(1.0+Offset);
 				            valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 							if (mode == 1) //black compensation target
 								valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -7848,13 +7863,13 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if (  (mode >= 4) )
 			    {
-					double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+					double valx = ReadingGrayProp(MeasuredColor, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 					valy = getL_EOTF
 						(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 			    }
 			    else
 			    {
-					double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+					double valx=(ReadingGrayProp(MeasuredColor, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 						valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;

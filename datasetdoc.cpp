@@ -4957,12 +4957,12 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 			}
 			break;
 		}
-			double x, v;
+			double v;
 
 			for (int i=0; i<Size; i++)
 			{
-				x = GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-				v = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				// Reading i at its stamped drive, else slot i on the current grid.
+				v = GetMeasure () -> GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i );
 				valx[i]=(v+Offset_opt)/(1.0+Offset_opt);
 			}
 

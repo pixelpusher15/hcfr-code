@@ -60,7 +60,9 @@ class CGammaGrapher
 	long m_greenLumDataRefLogGraphID;	//Ki
 	long m_blueLumDataRefLogGraphID;	//Ki
 
-	std::vector<double> m_yref_abs;	// per-view reference luminance (was a file-scope global -> cross-doc corruption)
+	std::vector<double> m_yref_abs;	// per-view reference luminance (was a file-scope global -> cross-doc corruption);
+									// main's value: the target at the primary document's SLOT i
+	CColor m_yrefWhite, m_yrefBlack;	// the white and black the reference pass evaluated with
 
 	// Updatable flags. Initialized with default values in constructor, can be changed before calling UpdateGraph
 	BOOL m_showReference;

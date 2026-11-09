@@ -169,13 +169,15 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
     		CColor White = pDoc -> GetMeasure () -> GetGray ( g_size - 1 );
 //	    	CColor Black = pDoc -> GetMeasure () -> GetGray ( 0 );
 	    	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
-			double x = ArrayIndexToGrayLevel ( i*(GetConfig()->m_GammaOffsetType==5?2:1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()); 
+			// Reading i at its stamped drive, else slot i on the current grid
+			// (CMeasure::GetGrayReadingLevel); the reference is evaluated there.
+			double x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_NEAR_BLACK, i );
 			double valx,val;//=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef) );
 			int mode = GetConfig()->m_GammaOffsetType;
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if ( mode >= 4 ) 
 			{
-			    valx = (GrayLevelToGrayProp( x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()));
+			    valx = pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, i );
 				if  (mode == 5)
 				{
 	                val = getL_EOTF( valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100 / White.GetY();
@@ -186,7 +188,7 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			}
 			else
 			{
-                valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+GammaOffset)/(1.0+GammaOffset);
+                valx=(pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, i )+GammaOffset)/(1.0+GammaOffset);
                 val=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 				if (mode == 1) //black compensation target
 					val = (Black.GetY() + ( val * ( White.GetY() - Black.GetY() ) )) / White.GetY();
@@ -309,6 +311,13 @@ GraphID : graph ID for drawing
 LogGraphID : graph ID for log drawing, -1 if no Log drawing
 */
 
+// Measured points are handed to the chart only when finite (_finite): a zero
+// white or a reading <= 0 gave main infinity or NaN there, and a stamped 100%
+// drive - the PQ near-black series reaching 100% at its last index (2% steps) -
+// gives log ( 1 ) = 0 in the stamped denominator, where main divided by
+// GrayLevelToGrayProp ( 50 ). Every finite value is drawn as before. The
+// reference log curve is not guarded (main's, unchanged).
+
 void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax)
 {
 	double max,whitelvl;
@@ -373,25 +382,45 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 		lpMsg = szBuf;
 	}
 	
+	// Reading PointIndex at its stamped drive, else its slot on the current grid
+	// (CMeasure::GetGrayReadingLevel). The log chart divides by that drive when
+	// there is one, consistent with X. A reading without one keeps the
+	// denominator it always had - PointIndex%, without the PQ doubling X has -
+	// so it draws exactly as before.
+	double drive;
+	const double xPlot = pDataSet->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_NEAR_BLACK, PointIndex );
+	const double xLog = pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_NEAR_BLACK, PointIndex, & drive )
+		? drive
+		: GrayLevelToGrayProp( (double)PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
 	if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
 	{
-		m_logGraphCtrl.AddPoint(LogGraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) * 100., log(colorlevel/whitelvl)/log(GrayLevelToGrayProp( (double)PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())), lpMsg, NULL);
+		const double pointGamma = log(colorlevel/whitelvl)/log(xLog);
+		if ( _finite ( pointGamma ) )
+			m_logGraphCtrl.AddPoint(LogGraphID, xPlot, pointGamma, lpMsg, NULL);
 	}
 
     if (!m_showL && !m_abY)
 	{
 		max = whitelvl;
-		if (ColorSpace == 1 && ColorIndex == 1)
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) * 100., (colorlevel/max)*100.0, lpMsg, whitelvl);
-		else
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) * 100., (colorlevel/max)*100.0, lpMsg, NULL);
+		const double pct = (colorlevel/max)*100.0;
+		if (_finite ( pct ))	// no white (max = 0): main plotted infinity or NaN
+		{
+			if (ColorSpace == 1 && ColorIndex == 1)
+		        m_graphCtrl.AddPoint(GraphID, xPlot, pct, lpMsg, whitelvl);
+			else
+		        m_graphCtrl.AddPoint(GraphID, xPlot, pct, lpMsg, NULL);
+		}
 	}
 	else 
 	{
 		if (m_showL)
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) * 100., Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max), lpMsg, NULL);
+		{
+			const double l = Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max);
+			if ( _finite ( l ) )
+		        m_graphCtrl.AddPoint(GraphID, xPlot, l, lpMsg, NULL);
+		}
 		else
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) * 100., Y_to_abY(colorlevel, 1.0), lpMsg, NULL);
+	        m_graphCtrl.AddPoint(GraphID, xPlot, Y_to_abY(colorlevel, 1.0), lpMsg, NULL);
 
 	}
 }

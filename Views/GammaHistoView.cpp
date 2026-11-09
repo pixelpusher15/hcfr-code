@@ -116,8 +116,10 @@ static double NudgeOffBlack(double valx, bool isHDR)
 	return ( !isHDR && valx <= 0.0 ) ? kBlackNudge : valx;
 }
 
-// The target EOTF at stimulus x (0..100): *pValY is its relative luminance and
-// *pGamma the log(y)/log(x) the chart plots. Returns FALSE where that gamma has
+// The target EOTF at gray level prop (0..1): *pValY is its relative luminance and
+// *pGamma the log(y)/log(x) the chart plots. prop is the reading's level
+// (CMeasure::GetGrayReadingProp: its stamped drive, else its slot on the
+// current grid); the black anchor (ReferenceGammaAtBlack) evaluates at 0. Returns FALSE where that gamma has
 // no value (x or y at zero, or a denominator of log(1)). Single definition,
 // because the measured trace needs the same number at reference white as the
 // reference curve does.
@@ -130,7 +132,7 @@ static double NudgeOffBlack(double valx, bool isHDR)
 // so a spectrum copy per grayscale point remains. Removing that one means
 // changing the signature in libHCFR/Color.h and every call site in the tree,
 // which is a wider change than this file.
-static BOOL ReferenceGammaAt(const CColor & White, const CColor & Black, double x, double GammaOffset, double *pGamma, double *pValY, bool bNudgeBlack = true)
+static BOOL ReferenceGammaAt(const CColor & White, const CColor & Black, double prop, double GammaOffset, double *pGamma, double *pValY, bool bNudgeBlack = true)
 {
 	int		mode = GetConfig()->m_GammaOffsetType;
 	bool	isHDR = (mode == 5 || mode == 7);
@@ -140,7 +142,7 @@ static BOOL ReferenceGammaAt(const CColor & White, const CColor & Black, double 
 
 	if ( mode >= 4 )
 	{
-		valx = NudgeOffWhite(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()), isHDR);
+		valx = NudgeOffWhite(prop, isHDR);
 		if (bNudgeBlack) valx = NudgeOffBlack(valx, isHDR);
 		if (mode == 5)
 			valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.;
@@ -149,7 +151,7 @@ static BOOL ReferenceGammaAt(const CColor & White, const CColor & Black, double 
 	}
 	else
 	{
-		valx = NudgeOffWhite((GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+GammaOffset)/(1.0+GammaOffset), isHDR);
+		valx = NudgeOffWhite((prop+GammaOffset)/(1.0+GammaOffset), isHDR);
 		if (bNudgeBlack) valx = NudgeOffBlack(valx, isHDR);
 		valy = pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 	}
@@ -321,19 +323,31 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		// Fetched once for the whole curve, not once per point - see ReferenceGammaAt.
 		CColor RefWhite = pDoc -> GetMeasure () -> GetOnOffWhite();
 		CColor RefBlack = pDoc -> GetMeasure () -> GetOnOffBlack();
+		m_yrefWhite = RefWhite;
+		m_yrefBlack = RefBlack;
 
 		for (int i=0; i<size; i++)
 		{
 			double x, gamma, valy;
-			x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+			// Reading i at its stamped drive, else slot i on the current grid.
+			x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i );
+			const double prop = pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i );
 			// Point 0 takes the anchor value, so the reference curve and the
 			// measured traces meet at the left edge the way they do at white.
 			BOOL bHasGamma = ( i == 0 && !isHDR )
-				? ( ReferenceGammaAt(RefWhite, RefBlack, x, GammaOffset, &gamma, &valy)
+				? ( ReferenceGammaAt(RefWhite, RefBlack, prop, GammaOffset, &gamma, &valy)
 					&& ReferenceGammaAtBlack(RefWhite, RefBlack, GammaOffset, &gamma) )
-				: ReferenceGammaAt(RefWhite, RefBlack, x, GammaOffset, &gamma, &valy);
+				: ReferenceGammaAt(RefWhite, RefBlack, prop, GammaOffset, &gamma, &valy);
 
-			m_yref_abs.push_back(valy);
+			// The HDR delta's stored target is main's: evaluated at the primary
+			// document's SLOT i (GetGrayPercent on the current grid), whatever its
+			// reading's drive - an unstamped comparison trace takes it unchanged.
+			{
+				double gammaSlot, valySlot;
+				ReferenceGammaAt(RefWhite, RefBlack, GrayLevelToGrayProp ( pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ),
+								 GammaOffset, &gammaSlot, &valySlot);
+				m_yref_abs.push_back(valySlot);
+			}
 
 			if (isHDR)
 				m_graphCtrl.AddPoint(m_refLogGraphID, x, 0);
@@ -349,7 +363,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 		// (x + offset) / (1+offset) 
 		for (int i=0; i<size; i++)
-			m_graphCtrl.AddPoint(m_avgLogGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), GammaOpt);
+			m_graphCtrl.AddPoint(m_avgLogGraphID, pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i ), GammaOpt);
 	}
 
 	if ( GetConfig () -> m_nLuminanceCurveMode == 2 )
@@ -360,7 +374,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 			// (x + offset) / (1+offset) 
 			for (int i=0; i<size; i++)
-				m_graphCtrl.AddPoint(m_luxmeterAvgLogGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), LuxGammaOpt);
+				m_graphCtrl.AddPoint(m_luxmeterAvgLogGraphID, pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i ), LuxGammaOpt);
 		}
 	}
 
@@ -508,12 +522,38 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	{
 		bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
 
-		double x = pDataSet->GetMeasure()->GetGrayPercent ( PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+		// Reading PointIndex of THIS trace's document at its stamped drive, else
+		// its slot on the current grid - the stamp decoded once, the values
+		// GetGrayReadingLevel / Prop give.
+		double drive;
+		const bool bStamped = pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_GRAYSCALE, PointIndex, & drive );
+		const double slotLevel = pDataSet->GetMeasure()->GetGrayPercent ( PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+		double x = bStamped ? drive * 100.0 : slotLevel;
+		const double prop = bStamped ? drive : GrayLevelToGrayProp ( slotLevel, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 
-		double valxprime=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+GammaOffset)/(1.0+GammaOffset);
+		double valxprime=(prop+GammaOffset)/(1.0+GammaOffset);
 
 		if (isHDR)
-			m_graphCtrl.AddPoint(GraphID, x, colorlevel - whitelvl * (PointIndex >= 0 && PointIndex < (int)m_yref_abs.size() ? m_yref_abs[PointIndex] : 0.0), lpMsg);
+		{
+			// The delta against the target: for a STAMPED reading (the primary's
+			// or a comparison document's) at its own drive, with the white and
+			// black the reference pass used; for an unstamped one main's stored
+			// value, the target at the primary's slot i - so unstamped traces draw
+			// as main whatever the primary's stamps are. Without a reference pass
+			// there is no target: 0, as before.
+			double yref = 0.0;
+			if ( PointIndex >= 0 && PointIndex < (int)m_yref_abs.size() )
+			{
+				if ( bStamped )
+				{
+					double gammaAtDrive;
+					ReferenceGammaAt(m_yrefWhite, m_yrefBlack, drive, GammaOffset, &gammaAtDrive, &yref);
+				}
+				else
+					yref = m_yref_abs[PointIndex];
+			}
+			m_graphCtrl.AddPoint(GraphID, x, colorlevel - whitelvl * yref, lpMsg);
+		}
 		else if (PointIndex == 0)
 		{
 			// Black, the anchor at the other end - see ReferenceGammaAtBlack.
@@ -544,7 +584,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 			// guard as the points below - a top patch that read no light gets no
 			// point rather than one sitting exactly on target.
 			double gammaWhite, valyWhite;
-			if ( ReferenceGammaAt(pDataSet->GetMeasure()->GetOnOffWhite(), pDataSet->GetMeasure()->GetOnOffBlack(), x, GammaOffset, &gammaWhite, &valyWhite) )
+			if ( ReferenceGammaAt(pDataSet->GetMeasure()->GetOnOffWhite(), pDataSet->GetMeasure()->GetOnOffBlack(), prop, GammaOffset, &gammaWhite, &valyWhite) )
 				m_graphCtrl.AddPoint(GraphID, x, gammaWhite, lpMsg);
 		}
 		else if (colorlevel > 0.0001)	// log scale is not valid for negative values

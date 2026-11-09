@@ -330,20 +330,26 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 				// Compute reference Luminance regarding actual offset and reference gamma 
                 // fixed to use correct gamma predicts
                 // and added option to assume perfect gamma
+					// The level the reference is evaluated at: the shown reading's
+					// (*m_pRefColor) stamped drive, else the slot minCol - 1 of the mode
+					// passed in, from the series accessor's slot arithmetic - the same
+					// value main computed here. minCol is not always a series index: the
+					// free-measures view calls Refresh ( last_Col + 1, last_Display ),
+					// where last_Col is the measured column, so the reading is always the
+					// one shown, never one fetched by index.
 					double x;
 					switch (m_displayMode)
 					{
-						int Count;
 						case 3:
-						x = ArrayIndexToGrayLevel ( (minCol - 1)*(GetConfig()->m_GammaOffsetType==5?2:1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+						x = GraySeriesSlotLevel ( m_pDocument->GetMeasure()->GetGraySeriesView ( GRAY_SERIES_NEAR_BLACK ), minCol - 1 );
 						break;
 						case 4:
-						Count = m_pDocument -> GetMeasure()->GetNearWhiteScaleSize();
-						x = ArrayIndexToGrayLevel ( m_pDocument->GetMeasure()->m_NearWhiteClipCol - Count + (minCol - 1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+						x = GraySeriesSlotLevel ( m_pDocument->GetMeasure()->GetGraySeriesView ( GRAY_SERIES_NEAR_WHITE ), minCol - 1 );
 						break;
 						default:
 						x = m_pDocument->GetMeasure()->GetGrayPercent ( minCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					}
+					const double prop = ReadingGrayProp ( *m_pRefColor, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					double valy, Gamma, Offset;
                     Gamma = GetConfig()->m_GammaRef;
                     GetConfig()->m_GammaAvg = Gamma;
@@ -358,13 +364,13 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 					if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 					if ( mode >= 4 )
 			        {
-						double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+						double valx = prop;
 						valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //						valy = min(valy, GetConfig()->m_TargetMaxL);
 			        }
 			        else
 			        {
-				        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+				        double valx=(prop+Offset)/(1.0+Offset);
 				        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 						if (mode == 1) //black compensation target
 							valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;

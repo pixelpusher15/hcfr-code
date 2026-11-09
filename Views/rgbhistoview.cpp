@@ -206,7 +206,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		// the plot below for the two conditions that make it one.
 		for (int i=0; i<size; i++)
 		{
-			double x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+			double x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i );	// its stamped drive, else slot i
             double valy;
 			ColorxyY aColor=pDoc->GetMeasure()->GetGray(i).GetxyYValue();
             ColorxyY tmpColor(GetColorReference().GetWhite());
@@ -226,13 +226,13 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if ( mode >= 4 )
 		        {
-			        double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+			        double valx = pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i );
                     valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //					valy = min(valy, GetConfig()->m_TargetMaxL);
 		        }
 		        else
 		        {
-			        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+			        double valx=(pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i )+Offset)/(1.0+Offset);
 			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+Offset;
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -348,7 +348,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			ColorxyY aColor, aColor2;
-		    double x = pDataRef->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+		    double x = pDataRef->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i );	// its stamped drive, else slot i
             double valy;			
 			
 			aColor=pDataRef->GetMeasure()->GetGray(i).GetxyYValue();
@@ -369,7 +369,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if ( mode >= 4 )
 		        {
-			        double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+			        double valx = pDataRef->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i );
                     valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //					valy = min(valy, GetConfig()->m_TargetMaxL);
 		        }
@@ -379,7 +379,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			        // pDataRef a few lines up. Offset belongs to the primary document,
 			        // so the comparison curve was built from the wrong fit - and
 			        // OffsetRef was computed and then never read.
-			        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+OffsetRef)/(1.0+OffsetRef);
+			        double valx=(pDataRef->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i )+OffsetRef)/(1.0+OffsetRef);
 			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+OffsetRef;
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhiteRefDoc - Black.GetY() ) )) / YWhiteRefDoc;

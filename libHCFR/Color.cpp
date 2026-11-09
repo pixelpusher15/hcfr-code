@@ -4820,6 +4820,166 @@ double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, 
 	return floor(v + 0.5) / grid;
 }
 
+// ---- Where an existing gray reading sits on a gray-level axis ----
+//
+// THE RULE. Every place that describes a gray, near-black or near-white reading
+// that already exists - the charts, the grid's labels, references, delta E and
+// gamma, ComputeGammaAndOffset - places it at the drive its wire stamp records,
+// and ONLY when the stamp says realDrive: a generator recorded displaying
+// exactly this stimulus and nothing else reached the screen until the reading
+// ended (WireSetup.h). In every other case the reading is placed at its slot's
+// level on the current grid, exactly as before the stamp existed:
+//   - no stamp: every file written before the stamp;
+//   - realDrive false: the reading was not of a patch HCFR displayed - the 0.5%
+//     and 50.196% placeholders the continuous and single measures store, the
+//     manual (disc) and external generators;
+//   - a real drive with unequal channels (stimulus or codes): the stamp says
+//     that is what was sent, so it is no gray patch and has no gray level.
+// No tolerance, no grid test and no neutrality guess: the stamp is a fact or it
+// is absent.
+//
+// WHICH NUMBER. When the stamp carries the codes HCFR computed (GDI, the test
+// window, PGenerator), the level is the code decoded on the stamp's OWN
+// encoding: (code - black) / (white - black), with black/white 0/255 or 16/235
+// at 8 bits and 0/1023 or 64/940 at 10 bits. That is the exact value the
+// current grid gives the same code (GrayLevelToGrayProp returns code/grid), so
+// a document viewed on the setup it was measured on is described bit for bit
+// as before. When the stamp has no codes (madVR and Chromecast take a 0..1
+// fraction and quantize themselves; the overlay is YUY2) the level is the
+// stored stimulus itself, stimulus / 100: the fraction those outputs were
+// handed. Codes that are present but cannot be decoded (bits or range unknown)
+// are a stamp that does not say what was sent: the slot level is used.
+//
+// THE AXIS. Every gray-level axis is a percentage of the signal range, black
+// code to white code, on whatever encoding carried the patch. So the decoded
+// level goes on the axis as it is, whatever the CURRENT range and bit depth
+// are: the full-range code 242 is 94.902% (242/255) when the document is
+// viewed with the limited range selected, and the limited code 224 is 94.977%
+// (208/219) when it is viewed with full range selected. It is never
+// re-quantized onto the current grid (that is what moved the near-white points
+// of a full-range document onto 94.98/95.89/96.80/98.17/99.09% under limited,
+// a zigzag), and its reference value is evaluated at the same proportion.
+// The decode uses encodingRange - the mapping HCFR applied - and never
+// deviceRange. In the correct limited setup with a PGenerator (HCFR limited,
+// TV limited, PGenerator output full) HCFR sends 16..235 codes through a
+// full-range pipe and the TV reads 16 as black and 235 as white: the stamp is
+// encodingRange limited / deviceRange full, and the level is (code - 16) / 219.
+static bool WireCodeToProp ( int code, int bits, int range, double * pProp )
+{
+	double black, white;
+	if ( bits == 8 )
+	{
+		if ( range == WIRE_RANGE_FULL )			{ black = 0.0;  white = 255.0; }
+		else if ( range == WIRE_RANGE_LIMITED )	{ black = 16.0; white = 235.0; }
+		else return false;
+	}
+	else if ( bits == 10 )
+	{
+		if ( range == WIRE_RANGE_FULL )			{ black = 0.0;  white = 1023.0; }
+		else if ( range == WIRE_RANGE_LIMITED )	{ black = 64.0; white = 940.0; }
+		else return false;
+	}
+	else
+		return false;
+	*pProp = ( (double) code - black ) / ( white - black );
+	return true;
+}
+
+bool ReadingWireGrayProp ( const CColor & aReading, double * pProp )
+{
+	if ( ! aReading.HasWireSetup () || ! aReading.HasStimulusValue () )
+		return false;
+	const CColorWireSetup w = aReading.GetWireSetup ();
+	if ( ! w.realDrive )
+		return false;							// not a patch HCFR displayed
+	const ColorRGBDisplay s = aReading.GetStimulusValue ();
+	if ( ! ( s[0] == s[1] && s[1] == s[2] ) )
+		return false;							// a colored patch: no gray level
+
+	const bool anyCode = ( w.wireCode[0] >= 0 || w.wireCode[1] >= 0 || w.wireCode[2] >= 0 );
+	if ( ! anyCode )
+	{
+		*pProp = s[1] / 100.0;					// a fraction handed to madVR / Chromecast / overlay
+		return true;
+	}
+	if ( ! ( w.wireCode[0] == w.wireCode[1] && w.wireCode[1] == w.wireCode[2] ) )
+		return false;							// unequal (or partly unknown) codes: no gray level
+	return WireCodeToProp ( w.wireCode[1], w.wireBits, w.encodingRange, pProp );
+}
+
+double ReadingGrayProp ( const CColor & aReading, double slotLevel, bool bUseRoundDown, bool b10bit, bool is16_235 )
+{
+	double prop;
+	if ( ReadingWireGrayProp ( aReading, & prop ) )
+		return prop;
+	return GrayLevelToGrayProp ( slotLevel, bUseRoundDown, b10bit, is16_235 );
+}
+
+// The grayscale's slot level: the stored nominal level snapped to the current
+// grid when the document carries one per slot, else the even ramp.
+// CMeasure::GetGrayPercent is this function.
+double GrayScaleSlotLevel ( int index, int size, const double * nominalLevels, int nominalCount, bool bUseRoundDown, bool b10bit, bool is16_235 )
+{
+	if ( nominalLevels != NULL && nominalCount == size && index >= 0 && index < size )
+		return GrayLevelToGrayProp ( nominalLevels[index], bUseRoundDown, b10bit, is16_235 ) * 100.0;
+	return ArrayIndexToGrayLevel ( index, size, bUseRoundDown, b10bit, is16_235 );
+}
+
+// The slot each series' sweep drives on the current grid (Measure.cpp's
+// near-black and near-white sweeps): near black at i% (2i% in PQ), near white
+// at clip - size + i %. ArrayIndexToGrayLevel ( n, 101, ... ) is the same
+// arithmetic as GrayLevelToGrayProp ( n, ... ) * 100, so this is also the X
+// every chart computed by the second form.
+double GraySeriesSlotLevel ( const GraySeriesView & v, int index )
+{
+	switch ( v.series )
+	{
+		case GRAY_SERIES_NEAR_BLACK:
+			return ArrayIndexToGrayLevel ( index * ( v.pqNearBlack ? 2 : 1 ), 101, v.bUseRoundDown, v.b10bit, v.is16_235 );
+		case GRAY_SERIES_NEAR_WHITE:
+			return ArrayIndexToGrayLevel ( v.nearWhiteClipCol - v.size + index, 101, v.bUseRoundDown, v.b10bit, v.is16_235 );
+		default:
+			return GrayScaleSlotLevel ( index, v.size, v.nominalLevels, v.nominalCount, v.bUseRoundDown, v.b10bit, v.is16_235 );
+	}
+}
+
+bool GraySeriesDriveProp ( const GraySeriesView & v, int index, double * pProp )
+{
+	if ( v.readings == NULL || index < 0 || index >= v.size )
+		return false;
+	return ReadingWireGrayProp ( v.readings[index], pProp );
+}
+
+double GraySeriesLevel ( const GraySeriesView & v, int index )
+{
+	double prop;
+	if ( GraySeriesDriveProp ( v, index, & prop ) )
+		return prop * 100.0;
+	return GraySeriesSlotLevel ( v, index );
+}
+
+double GraySeriesSlotProp ( const GraySeriesView & v, int index )
+{
+	switch ( v.series )
+	{
+		case GRAY_SERIES_NEAR_BLACK:
+			return GrayLevelToGrayProp ( (double) ( index * ( v.pqNearBlack ? 2 : 1 ) ), v.bUseRoundDown, v.b10bit, v.is16_235 );
+		case GRAY_SERIES_NEAR_WHITE:
+			return GrayLevelToGrayProp ( (double) ( v.nearWhiteClipCol - v.size + index ), v.bUseRoundDown, v.b10bit, v.is16_235 );
+		default:	// the gray scale: GraySeriesProp's fallback, two truncations (see Color.h)
+			return GrayLevelToGrayProp ( GrayScaleSlotLevel ( index, v.size, v.nominalLevels, v.nominalCount, v.bUseRoundDown, v.b10bit, v.is16_235 ),
+										 v.bUseRoundDown, v.b10bit, v.is16_235 );
+	}
+}
+
+double GraySeriesProp ( const GraySeriesView & v, int index )
+{
+	double prop;
+	if ( GraySeriesDriveProp ( v, index, & prop ) )
+		return prop;
+	return GrayLevelToGrayProp ( GraySeriesSlotLevel ( v, index ), v.bUseRoundDown, v.b10bit, v.is16_235 );
+}
+
 
 // Reference for black (0%) on the grayscale page, shared by the grid cells
 // and the RGB levels pane, so they print one number, and by the dE chart,
