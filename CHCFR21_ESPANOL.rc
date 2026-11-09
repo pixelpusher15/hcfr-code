@@ -3963,7 +3963,7 @@ BEGIN
     IDS_MEASUREGRAYANDCOLORS 
                             "¿Medir la escala de grises y los colores primarios y secundarios simultáneamente?\nAtención: los datos actuales se perderán...\n\nNota: puede cancelar la medición con la tecla ESCAPE."
     IDS_RUN_MANUAL_CALIBRATION 
-                            "¿Crear manualmente un archivo de corrección del medidor?\n\nHCFR muestra por turnos el rojo, el verde, el azul y el blanco y mide cada uno con el medidor que se va a corregir. Un segundo medidor de referencia, que HCFR no controla, mide el mismo parche: después de cada uno, anote su lectura (X, Y, Z o x, y, Y) y haga clic en Siguiente. Después del blanco, escriba las cuatro lecturas en el cuadro de diálogo que se abre. Cancelar detiene el proceso.\n\nSi HCFR puede controlar su medidor de referencia, use en su lugar ""Crear a partir de medidas de referencia existentes"" o ""Crear con medidas simultáneas""."
+                            "\xBFCrear manualmente un archivo de correcci\xF3n del medidor?\n\nHCFR muestra por turnos el rojo, el verde, el azul y el blanco y mide cada uno con el medidor que se va a corregir. Un segundo medidor de referencia, que HCFR no controla, mide el mismo parche: despu\xE9s de cada uno, anote su lectura (X, Y, Z o x, y, Y) y haga clic en Siguiente. Despu\xE9s del blanco, escriba las cuatro lecturas en el cuadro de di\xE1logo que se abre. Cancelar detiene el proceso.\n\nSi HCFR puede controlar su medidor de referencia, use en su lugar ""Crear a partir de medidas de referencia existentes"" o ""Crear con medidas simult\xE1neas""."
     IDS_DISTANCEINCIEXY     "Distancia a la referencia en CIExy"
     IDS_CANNOTMEASUREGRAYANDCOLORS 
                             "%s no puede mostrar la escala de grises, los primarios y los secundarios en una sola serie.\nUse los comandos individuales en su lugar."
@@ -4118,7 +4118,7 @@ BEGIN
     IDS_TI3_FILTER          "Archivos de medidas CGATS (*.ti3)|*.ti3||"
     IDS_TI3_NOTHING         "No hay nada que exportar a .ti3: este documento no tiene ningún perfil de pantalla medido ni ninguna lista de parches medida."
     IDS_TI3_WRITTEN         "%d medidas escritas (%d sin medir o no válidas, omitidas) en:\n\n%s"
-    IDS_MANUALCAL_TITLE     "Calibración manual"
+    IDS_MANUALCAL_TITLE     "Calibraci\xF3n manual"
     IDS_MANUALCAL_PROMPT    "%2 medido (parche %1 de 4).\n\nAnote la lectura de su medidor de referencia para este parche (X, Y, Z o x, y, Y) y haga clic en Siguiente. Cancelar detiene el proceso."
     IDS_MANUALCAL_NEXT      "Siguiente"
     IDS_MANUALCAL_CANCEL    "Cancelar"

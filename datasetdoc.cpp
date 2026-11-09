@@ -2191,22 +2191,9 @@ void BuildManualCalTemplate ( std::vector<WORD> & t )
 // HCFR's own window showing it (NULL for madVR, whose window is madTPG's).
 // FALSE when the pattern is not on a screen of ours (a remote generator), so
 // the prompt can sit on HCFR's window as any other prompt does.
-BOOL GetLocalPatternRect ( CGenerator * pGenerator, CRect & rPattern, CWnd * & pPatternOwner )
+BOOL GetLocalPatternRect ( CGenerator * pGenerator, const MONITORINFO & mi, CRect & rPattern, CWnd * & pPatternOwner )
 {
-	CWnd * pMain = AfxGetMainWnd ();
 	pPatternOwner = NULL;
-
-	// GDI's "test color window" mode: the patch is that floating window.
-	if ( pGenerator -> PaintsTestColorWnd () )
-	{
-		CWnd & wndTest = ( (CMainFrame *) pMain ) -> m_wndTestColorWnd;
-		if ( wndTest.GetSafeHwnd () && wndTest.IsWindowVisible () )
-		{
-			wndTest.GetWindowRect ( & rPattern );
-			pPatternOwner = & wndTest;
-			return TRUE;
-		}
-	}
 
 	if ( ! pGenerator -> IsKindOf ( RUNTIME_CLASS ( CGDIGenerator ) ) )
 		return FALSE;	// a hardware or DVD generator: the patch is on the display under test
@@ -2214,6 +2201,18 @@ BOOL GetLocalPatternRect ( CGenerator * pGenerator, CRect & rPattern, CWnd * & p
 	CGDIGenerator * pGDI = (CGDIGenerator *) pGenerator;
 	if ( pGDI -> m_nDisplayMode == DISPLAY_rPI || pGDI -> m_nDisplayMode == DISPLAY_ccast )
 		return FALSE;	// PGenerator, Chromecast: another device's screen
+
+	// GDI's "test color window" mode: the patch is that floating window.
+	if ( pGDI -> m_nDisplayMode == DISPLAY_GDI_Hide )
+	{
+		CWnd & wndTest = ( (CMainFrame *) AfxGetMainWnd () ) -> m_wndTestColorWnd;
+		if ( wndTest.GetSafeHwnd () && wndTest.IsWindowVisible () )
+		{
+			wndTest.GetWindowRect ( & rPattern );
+			pPatternOwner = & wndTest;
+			return TRUE;
+		}
+	}
 
 	// GDI full screen on the main window's monitor registers its window
 	// (CGDIGenerator::Init).
@@ -2233,9 +2232,6 @@ BOOL GetLocalPatternRect ( CGenerator * pGenerator, CRect & rPattern, CWnd * & p
 	// madVR (madTPG's window belongs to another process, on a monitor HCFR does
 	// not know), or no visible pattern window: assume the pattern fills the main
 	// window's monitor, so the prompt goes to one of its corners.
-	MONITORINFO mi;
-	mi.cbSize = sizeof ( mi );
-	::GetMonitorInfo ( ::MonitorFromWindow ( pMain -> GetSafeHwnd (), MONITOR_DEFAULTTONEAREST ), & mi );
 	rPattern = mi.rcMonitor;
 	return TRUE;
 }
@@ -2246,16 +2242,12 @@ BOOL GetLocalPatternRect ( CGenerator * pGenerator, CRect & rPattern, CWnd * & p
 // window elsewhere), else the first corner of the main window's monitor that
 // misses the pattern, else the first corner that misses the pattern's center
 // half (a full-screen pattern: patches are centered, and so is the meter).
-// bLocal and rPattern come from GetLocalPatternRect.
-CPoint PlaceManualCalPrompt ( BOOL bLocal, const CRect & rPattern, const CSize & size )
+// mi is the main window's monitor; bLocal and rPattern come from
+// GetLocalPatternRect.
+CPoint PlaceManualCalPrompt ( const MONITORINFO & mi, BOOL bLocal, const CRect & rPattern, const CSize & size )
 {
-	CWnd * pMain = AfxGetMainWnd ();
 	CRect rMain;
-	pMain -> GetWindowRect ( & rMain );
-
-	MONITORINFO mi;
-	mi.cbSize = sizeof ( mi );
-	::GetMonitorInfo ( ::MonitorFromWindow ( pMain -> GetSafeHwnd (), MONITOR_DEFAULTTONEAREST ), & mi );
+	AfxGetMainWnd () -> GetWindowRect ( & rMain );
 	CRect rWork ( mi.rcWork );
 
 	HDC hScreen = ::GetDC ( NULL );
@@ -2302,6 +2294,15 @@ BOOL CALLBACK CollectEnabledThreadWindows ( HWND hWnd, LPARAM lParam )
 	return TRUE;
 }
 
+void ReenableThreadWindows ( const std::vector<HWND> & disabled )
+{
+	for ( size_t i = disabled.size (); i -- > 0; )
+	{
+		if ( ::IsWindow ( disabled[i] ) )
+			::EnableWindow ( disabled[i], TRUE );
+	}
+}
+
 } // namespace
 
 // After one patch of Build Manually is measured, waits for the user to note the
@@ -2335,6 +2336,10 @@ static BOOL WaitForManualCalNext ( CGenerator * pGenerator, UINT nColorName, int
 	dlg.m_strNext.LoadString ( IDS_MANUALCAL_NEXT );
 	dlg.m_strCancel.LoadString ( IDS_MANUALCAL_CANCEL );
 
+	MONITORINFO mi;
+	mi.cbSize = sizeof ( mi );
+	::GetMonitorInfo ( ::MonitorFromWindow ( pMain -> GetSafeHwnd (), MONITOR_DEFAULTTONEAREST ), & mi );
+
 	// The owner decides the prompt's place in the z-order. A topmost prompt owned
 	// by the main frame pulls the main frame above a full-screen pattern with it,
 	// over the patch the meters read (seen on the bench). So: owned by HCFR's
@@ -2343,37 +2348,40 @@ static BOOL WaitForManualCalNext ( CGenerator * pGenerator, UINT nColorName, int
 	// pattern is on another device.
 	CRect rPattern;
 	CWnd * pPatternOwner = NULL;
-	BOOL bLocal = GetLocalPatternRect ( pGenerator, rPattern, pPatternOwner );
+	BOOL bLocal = GetLocalPatternRect ( pGenerator, mi, rPattern, pPatternOwner );
+	BOOL bUnowned = bLocal && ! pPatternOwner;
 	CWnd * pOwner = ! bLocal ? pMain : ( pPatternOwner ? pPatternOwner : CWnd::GetDesktopWindow () );
+
+	// Modal toward HCFR, the way CDialog::DoModal does it: every other window of
+	// this thread is disabled BEFORE the prompt exists. Disabling the main frame
+	// runs MFC's BeginModalState, which disables every window owned by the main
+	// frame; a prompt created first (owned by the main frame or the test color
+	// window) would be disabled with them and could never be answered.
+	std::vector<HWND> disabled;
+	::EnumThreadWindows ( ::GetCurrentThreadId (), CollectEnabledThreadWindows, (LPARAM) & disabled );
+	for ( size_t i = 0; i < disabled.size (); i ++ )
+		::EnableWindow ( disabled[i], FALSE );
 
 	std::vector<WORD> tpl;
 	BuildManualCalTemplate ( tpl );
 	if ( ! dlg.CreateIndirect ( (LPCDLGTEMPLATE) & tpl[0], pOwner ) )
 	{
 		// Not expected; a plain box still shows the step and pumps messages.
+		ReenableThreadWindows ( disabled );
 		return GetColorApp () -> InMeasureMessageBox ( strText, dlg.m_strTitle, MB_OKCANCEL | MB_ICONINFORMATION ) == IDOK;
 	}
 
-	// Modal toward HCFR (as a dialog's DoModal is toward its owner): nothing
-	// else of this thread takes input while the patch is up.
-	std::vector<HWND> disabled;
-	::EnumThreadWindows ( ::GetCurrentThreadId (), CollectEnabledThreadWindows, (LPARAM) & disabled );
-	for ( size_t i = 0; i < disabled.size (); i ++ )
-	{
-		if ( disabled[i] == dlg.GetSafeHwnd () )
-			disabled[i] = NULL;
-		else
-			::EnableWindow ( disabled[i], FALSE );
-	}
+	if ( bUnowned )
+		dlg.ModifyStyleEx ( 0, WS_EX_TOOLWINDOW );	// no taskbar button for an unowned prompt
 
 	CRect rPrompt;
 	dlg.GetWindowRect ( & rPrompt );
-	CPoint ptTopLeft = PlaceManualCalPrompt ( bLocal, rPattern, rPrompt.Size () );
-	dlg.SetWindowPos ( bLocal && ! pPatternOwner ? & CWnd::wndTopMost : & CWnd::wndTop, ptTopLeft.x, ptTopLeft.y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW );
+	CPoint ptTopLeft = PlaceManualCalPrompt ( mi, bLocal, rPattern, rPrompt.Size () );
+	dlg.SetWindowPos ( bUnowned ? & CWnd::wndTopMost : & CWnd::wndTop, ptTopLeft.x, ptTopLeft.y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW );
 	dlg.SetForegroundWindow ();
 	::SetCursor ( ::LoadCursor ( NULL, IDC_ARROW ) );
 
-	while ( dlg.m_nResult == 0 )
+	while ( dlg.m_nResult == 0 && ::IsWindow ( dlg.GetSafeHwnd () ) )
 	{
 		BOOL bGot = ::GetMessage ( & msg, NULL, 0, 0 );
 		if ( bGot == 0 || bGot == -1 )
@@ -2399,15 +2407,14 @@ static BOOL WaitForManualCalNext ( CGenerator * pGenerator, UINT nColorName, int
 			::DispatchMessage ( & msg );
 		}
 	}
+	int nResult = dlg.m_nResult;	// 0 when the prompt vanished without an answer: Cancel
 
 	// Re-enabled before the prompt goes, so the activation returns to HCFR.
-	for ( size_t i = disabled.size (); i -- > 0; )
-	{
-		if ( disabled[i] && ::IsWindow ( disabled[i] ) )
-			::EnableWindow ( disabled[i], TRUE );
-	}
-	int nResult = dlg.m_nResult;
-	dlg.DestroyWindow ();
+	ReenableThreadWindows ( disabled );
+	if ( ::IsWindow ( dlg.GetSafeHwnd () ) )
+		dlg.DestroyWindow ();
+	if ( bUnowned )
+		pMain -> SetForegroundWindow ();	// so the next box does not open behind madTPG
 
 	GetColorApp () -> BringPatternWindowToTop ();
 	GetColorApp () -> RestoreMeasureCursor ();
