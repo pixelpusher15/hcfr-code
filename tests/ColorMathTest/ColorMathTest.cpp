@@ -4366,9 +4366,18 @@ namespace T45Order
     // A commit whose Init found the meter already unavailable (INIT_FAILED_SILENT)
     // says the settings were not kept, not that the meter rejected them (r8, round 9).
     static const bool kSilentSaysNotKept = true;
-    // A throw past a successful start (a setting's select) says a setting was not
-    // applied, not that the meter could not be started (r8, round 9).
-    static const bool kThrowAfterStartSaysNotApplied = true;
+    // (Round 9's "setting not applied" switch is gone with its string in round 10:
+    // the DTP94's failing select shows the wrapper's own box before it throws, so
+    // HCFR's text was never seen. The model counts that box as the one message.)
+    // A commit that showed its revert notice returns INIT_FAILED_ANNOUNCED, a SILENT
+    // Init included (round 10 #4).
+    static const bool kRevertAnnounced = true;
+    // The page's Calibrate that finds no meter (the shared driver gone outside the
+    // sheet, by a DDE command's start) says so (round 10 #2).
+    static const bool kCalibrateSaysUnavailable = true;
+    // The continuous thread that stops on an invalid reading shows the sensor's
+    // error string once (round 10 #5).
+    static const bool kContinuousSaysWhy = true;
     static const Structure kMain   = { false, false, false, "main" };
 
     // CSensor::ClearSpectralCorrection
@@ -4667,10 +4676,8 @@ namespace T45Order
         {
             if (!st.rules)
                 d.crashed = true;                   // the throw escapes the handler
-            else if (!kThrowAfterStartSaysNotApplied)
-                d.wrongNotice = true;               // IDS_ARGYLL_START_FAILED after a start
-            Message(d);                             // the wrapper's box, or HCFR's
-            return INIT_FAILED_ANNOUNCED;           // IDS_ARGYLL_SETTING_NOT_APPLIED
+            Message(d);                             // the wrapper's "Set display type error"
+            return INIT_FAILED_ANNOUNCED;           // (errorBoxShown: HCFR adds nothing)
         }
         return INIT_OK;
     }
@@ -4681,16 +4688,26 @@ namespace T45Order
 
     // CArgyllSensor::Calibrate: false when it did not calibrate. inSheet: from the
     // page's button (main: a throw there is uncaught); else from a measurement
-    // (main: the throw ends the measurement).
-    static bool Calibrate(Doc& d, const World& w, const Structure& st, bool fromPage)
+    // (main: the throw ends the measurement). *unavailable: no meter and nothing
+    // shown (INIT_FAILED_SILENT) - the caller says so.
+    static bool Calibrate(Doc& d, const World& w, const Structure& st, bool fromPage, bool* unavailable = NULL)
     {
         Sensor& s = d.s;
+        if (unavailable)
+            *unavailable = false;
         if (st.rules && s.meterGone)
+        {
+            if (unavailable)
+                *unavailable = true;
             return false;
-        if (!Init(d, w, st, false))
+        }
+        const int init = InitR(d, w, st, false);
+        if (init != INIT_OK)
         {
             if (!st.rules && !d.crashed)
                 Message(d);                         // main: "Meter failed init check"
+            if (st.rules && unavailable)
+                *unavailable = ( init == INIT_FAILED_SILENT );
             return false;
         }
         if (w.calFails || ( w.calFailsOnce && !d.calFailedOnce ))
@@ -4861,6 +4878,8 @@ namespace T45Order
                 }
                 else
                     d.pageStale = true;
+                if (kNoticeOnRevert && kRevertAnnounced)
+                    return INIT_FAILED_ANNOUNCED;   // the notice was shown
             }
         }
         return r;
@@ -4928,8 +4947,11 @@ namespace T45Order
                 d.messages = 0;
                 const int r = Commit(d, w, st, pageDT, pageObs);
                 bool calibrated = false;
+                bool unavailable = false;
                 if (!st.rules || r == INIT_OK)      // main calibrated whatever the commit did
-                    calibrated = Calibrate(d, w, st, true);
+                    calibrated = Calibrate(d, w, st, true, &unavailable);
+                if (!calibrated && unavailable && kCalibrateSaysUnavailable)
+                    Message(d);                     // IDS_ARGYLL_METER_UNAVAILABLE (OnCalibrate)
                 if (!calibrated && d.messages == 0 && !d.crashed)
                     d.silentClick = true;
                 if (st.rules)
@@ -5398,6 +5420,11 @@ namespace T45Order
         World dead2 = a;
         dead2.wrapperDead = true;
         Add(v, "r5#2", "another document's failed start deleted the driver, OK", dead2, fileOwn, Steps(0), OK, SAME, VIOLATES);
+        // r10#2: the same loss while the sheet is open (a DDE command's start in another
+        // document): a Calibrate click says the meter is unavailable, not nothing.
+        World deadInSheet = a;
+        deadInSheet.wrapperDeadInSheet = true;
+        Add(v, "r10", "the shared driver lost under the sheet (DDE), Calibrate, OK", deadInSheet, fileOwn, Steps(1, CALIBRATE, 0), OK, DIFFERS, VIOLATES);
         // r5#4: an in-sheet start that fails for the Spectral Type lets go of the meter;
         // Browse is refreshed with the rest and cannot install a record nothing applies.
         World obsFails = a;
@@ -5518,11 +5545,12 @@ namespace T45Order
 
     // (j) round 9: a commit whose Init finds the shared driver already gone
     // (INIT_FAILED_SILENT: InitReporting's isMeterStillValid) keeps nothing and says
-    // the settings were not kept - not that the meter rejected them. A modal sheet
-    // leaves no user path to a driver lost between BeginConfigure and the commit, so
-    // this is a direct check of Commit, not a row of the order table (a world that
-    // loses the driver under the sheet also leaves the page's Calibrate silent: see
-    // the round-9 report).
+    // the settings were not kept - not that the meter rejected them - and returns
+    // INIT_FAILED_ANNOUNCED, since it said so (round 10 #4). The driver can be lost
+    // under the open sheet: the modal loop still dispatches a DDE command to another
+    // document on the meter, and its Init can fail and delete the shared driver
+    // (CMultiFrame::DdeCmdExec). The order table has the same world as row r10 (the
+    // page's Calibrate then says the meter is unavailable).
     static void CheckSilentCommit()
     {
         World w = I1d3("A");
@@ -5532,8 +5560,8 @@ namespace T45Order
         const int oldDT = d.s.displayType, oldObs = d.s.observer;
         int pageDT = oldDT + 1, pageObs = oldObs;
         const int r = Commit(d, w, kBranch, pageDT, pageObs);
-        if (r != INIT_FAILED_SILENT)
-            Fail("T45 (j) commit on a lost driver: Init result %d, want INIT_FAILED_SILENT", r);
+        if (r != INIT_FAILED_ANNOUNCED)
+            Fail("T45 (j) commit on a lost driver: result %d, want INIT_FAILED_ANNOUNCED (its notice was shown)", r);
         if (d.s.displayType != oldDT || pageDT != oldDT)
             Fail("T45 (j) commit on a lost driver: Display Type %d, page %d, want %d kept on both",
                  d.s.displayType, pageDT, oldDT);
@@ -5565,20 +5593,28 @@ namespace T45Order
             if (r.messages != rows[i].wantMessages)
                 Fail("T45 (i) %s: %d calibration-failure boxes, want %d", rows[i].what, r.messages, rows[i].wantMessages);
         }
-        // The continuous thread (datasetdoc.cpp): it ends at the first invalid reading.
+        // The continuous thread (datasetdoc.cpp): it ends at the first invalid reading
+        // and shows why once, after its cleanup ("An error occurred:" + the sensor's
+        // error string, as the sweeps' box), round 10 #5.
         {
             Doc d;
-            int readings = 0, posted = 0;
+            int readings = 0, posted = 0, stopBoxes = 0;
             Init(d, w, kBranch, false);
             for (int k = 0; k < 50; ++k)
             {
                 ++readings;
                 if (!Reading(d, w, kBranch))
+                {
+                    if (kContinuousSaysWhy)
+                        ++stopBoxes;                // stopReason, shown once
                     break;                          // "Error: close thread"
+                }
                 ++posted;
             }
             if (posted != 0 || readings != 1)
                 Fail("T45 (i) continuous: %d readings, %d posted, want 1 and 0", readings, posted);
+            if (stopBoxes != 1)
+                Fail("T45 (i) continuous: %d boxes say why it stopped, want 1", stopBoxes);
         }
         // r8#2: the first calibration fails, Retry succeeds: the reading after the
         // recovery is stored, and so is every later patch (the flag starts each

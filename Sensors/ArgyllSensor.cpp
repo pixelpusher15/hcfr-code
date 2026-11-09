@@ -243,7 +243,6 @@ CArgyllSensor::CArgyllSensor() :
     m_spectralCacheHash = 0;
     m_pathDropPending = false;
     m_beginInit = INIT_OK;
-    m_startedThisInit = false;
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
     m_pDevicePage = & m_ArgyllSensorPropertiesPage;  // Add Argyll settings page to property sheet
@@ -291,7 +290,6 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
     m_spectralCacheHash = 0;
     m_pathDropPending = false;
     m_beginInit = INIT_OK;
-    m_startedThisInit = false;
 
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
@@ -546,15 +544,10 @@ void CArgyllSensor::GetPropertiesSheetValues()
 }
 
 // Whether the page's device settings differ from the sensor's (the ones an Init
-// starts the meter with; with includeDebug, the Debug checkbox too). An empty Display
-// Type combo (-1) is no choice.
+// starts the meter with; with includeDebug, the Debug checkbox too).
 bool CArgyllSensor::PageDeviceSettingsDiffer(bool includeDebug) const
 {
-    // An empty Display Type combo (-1) is no change.
-    ArgyllDeviceSettings page = PageDeviceSettings();
-    if ( m_ArgyllSensorPropertiesPage.m_DisplayType < 0 )
-        page.displayType = m_DisplayType;
-    return page != DeviceSettings()
+    return PageDeviceSettings() != DeviceSettings()
         || ( includeDebug && m_debugMode != !!m_ArgyllSensorPropertiesPage.m_DebugMode );
 }
 
@@ -563,6 +556,12 @@ bool CArgyllSensor::PageDeviceSettingsDiffer(bool includeDebug) const
 CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
 {
     COneDeviceSensor::GetPropertiesSheetValues();
+    // An empty Display Type combo (an i1d3 with its diffuser over the sensor lists
+    // no types) reads back as CB_ERR, -1. That is "nothing to choose from", not a
+    // choice: keep the type the sensor has instead of storing -1, which Init then
+    // skips and which reached the INI and every later session.
+    if ( m_ArgyllSensorPropertiesPage.m_DisplayType < 0 )
+        m_ArgyllSensorPropertiesPage.m_DisplayType = m_DisplayType;
     // An Init in this sheet failed and let go of the meter: there is nothing to
     // commit the device settings to (and the registry keys are per meter name).
     // Settings the user changed since are not kept, and the user is told so.
@@ -578,13 +577,6 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
     }
     InitResult result = INIT_OK;
     std::string meterName(m_meter->getMeterName());
-
-    // An empty Display Type combo (an i1d3 with its diffuser over the sensor lists
-    // no types) reads back as CB_ERR, -1. That is "nothing to choose from", not a
-    // choice: keep the type the sensor has instead of storing -1, which Init then
-    // skips and which reached the INI and every later session.
-    if ( m_ArgyllSensorPropertiesPage.m_DisplayType < 0 )
-        m_ArgyllSensorPropertiesPage.m_DisplayType = m_DisplayType;
 
     if(m_debugMode != !!m_ArgyllSensorPropertiesPage.m_DebugMode) 
     {
@@ -632,6 +624,8 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
             msg.LoadString ( notice );
             title.LoadString ( IDS_ARGYLLSENSOR_PROPERTIES_TITLE );
             GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
+            // Shown: announced, a SILENT Init included (the caller says nothing more).
+            result = INIT_FAILED_ANNOUNCED;
         }
     }
     return result;
@@ -660,7 +654,6 @@ CArgyllSensor::InitResult CArgyllSensor::InitReporting( BOOL bForSimultaneousMea
         return INIT_FAILED_SILENT;
     }
     m_meter->clearErrorBoxShown();
-    m_startedThisInit = false;
     // A std::logic_error from the wrapper or the driver (a Display Type select that
     // fails: on the DTP94 it is a device command) is a failed Init: shown once, and
     // announced. The sensor keeps its meter: the driver started and stays usable.
@@ -672,10 +665,11 @@ CArgyllSensor::InitResult CArgyllSensor::InitReporting( BOOL bForSimultaneousMea
     }
     catch ( std::logic_error & e )
     {
-        // Past connectAndStartMeter the meter is running and a setting was not
-        // applied (the DTP94's Display Type select); before it, the start failed.
-        ShowUnlessWrapperDid(m_meter, LocalizedFailure(e.what(),
-            m_startedThisInit ? IDS_ARGYLL_SETTING_NOT_APPLIED : IDS_ARGYLL_START_FAILED), "Argyll Meter");
+        // The DTP94's failing Display Type select shows the wrapper's own box
+        // before it throws (errorBoxShown), so HCFR adds nothing; a throw with no
+        // box of its own gets HCFR's text ("Meter not initialized" maps to the
+        // meter unavailable, LocalizedFailure).
+        ShowUnlessWrapperDid(m_meter, LocalizedFailure(e.what(), IDS_ARGYLL_START_FAILED), "Argyll Meter");
         return INIT_FAILED_ANNOUNCED;
     }
 }
@@ -714,7 +708,6 @@ BOOL CArgyllSensor::InitBody( BOOL bForSimultaneousMeasures )
         m_meter = 0;
         return FALSE;
     }
-    m_startedThisInit = true;
     m_meter->setHiResMode(!!m_HiRes);
     // Apply the Rev. B AIO setting. The meter is initialised by now, so this
     // overrides whatever init_inst() selected and takes effect immediately on a
@@ -1937,15 +1930,23 @@ CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int
     return m_meter->getLastReading();
 }
 
-bool CArgyllSensor::Calibrate()
+bool CArgyllSensor::Calibrate(bool* unavailable)
 {
-    // No meter: an earlier Init failed, let go of it and said why (the page's
-    // Calibrate button is disabled then). Nothing to calibrate.
-    if ( m_meter == NULL )
+    if ( unavailable )
+        *unavailable = false;
+    // No meter (an earlier Init let go of it), or the shared driver gone since
+    // (another document's failed start - a DDE command can run one while this
+    // sheet is open): nothing to calibrate and nothing shown, so the caller says
+    // so. A measurement's caller does, with the reading's error string; the page's
+    // button does through *unavailable.
+    const InitResult init = ( m_meter == NULL ) ? INIT_FAILED_SILENT : InitReporting(FALSE);
+    if ( init != INIT_OK )
+    {
+        // INIT_FAILED_ANNOUNCED: the Init (or the wrapper) has said why.
+        if ( unavailable )
+            *unavailable = ( init == INIT_FAILED_SILENT );
         return false;
-    // A failed Init has said why (Init, or the wrapper): no second message.
-    if ( !Init(FALSE) )
-        return false;
+    }
     // The wrapper's calibrate and getCalibrationInstructions throw on a device
     // failure; Calibrate runs from the page's button (an MFC command handler) and
     // from a measurement, neither of which catches it. Shown once.

@@ -37,9 +37,12 @@
 
 #include "../Tools/ArgyllMeterWrapper/SpectralSample.h"
 
-// The seven device settings an Init starts the meter with, as one value: the page,
-// the commit, its revert, the sheet's snapshot and the INI all go through it, so no
-// list of them can miss one. (The Debug checkbox is not one: it starts nothing.)
+// The seven per-sensor device settings an Init starts the meter with, as one value:
+// the page, the commit, its revert, the sheet's snapshot and the INI all go through
+// it, so no list of them can miss one. The Debug checkbox also reaches the start (the
+// driver's log verbosity) but is not one of them: it is static, shared by every Argyll
+// sensor, written to the INI as soon as the commit sees it changed (before the Init),
+// and put back on its own by Cancel (m_cfgSnapDebugMode).
 struct ArgyllDeviceSettings
 {
     UINT    readingType;
@@ -147,7 +150,9 @@ public:
     virtual LPCSTR GetStandardSubDir ()    { return "Etalon_Argyll"; }
 
     // False when it did not calibrate (no meter, a failed Init, a device failure).
-    bool Calibrate();
+    // false when it did not calibrate. *unavailable (when given) is set when nothing
+    // was shown because there was no meter to calibrate: the caller says so.
+    bool Calibrate(bool* unavailable = NULL);
 
     // Spectral correction (restores the 2012 ccss apply path, extended to .csv).
     // Loads a .ccss or ColourSpace .csv onto the meter, derives the correction
@@ -223,9 +228,6 @@ private:
     BOOL InitBody(BOOL bForSimultaneousMeasures);
     // CancelConfigure and CancelConfigureBeforeClear.
     void RestoreSnapshot(bool reapplyDriverSample);
-    // Init's start succeeded: a throw after it is a setting not applied, not a
-    // meter that did not start.
-    bool        m_startedThisInit;
     // Calibrate past its Init, inside its std::logic_error handler.
     bool CalibrateDevice();
     // The FILE-source fields of a record: source, description (the sample's display,

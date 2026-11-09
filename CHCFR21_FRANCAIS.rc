@@ -4518,7 +4518,6 @@ BEGIN
     IDS_ARGYLL_SETTINGS_REJECTED_STOPPED "La sonde n'a pas accept\xE9 les r\xE9glages modifi\xE9s sur cette page et s'est arr\xEAt\xE9e. Les r\xE9glages pr\xE9c\xE9dents sont conserv\xE9s ; red\xE9marrez HCFR pour utiliser de nouveau la sonde."
     IDS_ARGYLL_READING_FAILED "La sonde n'a pas pu effectuer cette mesure."
     IDS_ARGYLL_START_FAILED "La sonde n'a pas pu d\xE9marrer."
-    IDS_ARGYLL_SETTING_NOT_APPLIED "La sonde a d\xE9marr\xE9, mais l'un de ses r\xE9glages n'a pas pu \xEAtre appliqu\xE9."
     IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "Le document chargé comporte une correction spectrale de type d'affichage (%s) qui n'est pas le type d'affichage actuel. Elle reste utilisée jusqu'à ce que vous changiez de type d'affichage."
     IDS_SPECTRAL_COMPOSE_WARN   "Le fichier que vous chargez ne comporte pas d'indication de base d'ajustement. La correction spectrale sera appliquée en plus de sa matrice (comme le faisait HCFR 4.1). Continuer ?"
     IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "La correction spectrale utilisée (%s) a été calculée pour la sonde %s, et non pour la sonde connectée, et aucun fichier de correction n'est disponible ici pour la calculer de nouveau. Elle reste utilisée. Pour la calculer pour cette sonde, sélectionnez son fichier de correction dans les propriétés du capteur."

@@ -139,12 +139,23 @@ void CArgyllSensorPropPage::OnCalibrate()
     UpdateData(TRUE);
     // The page's settings (an Init when one changed), then Calibrate's own Init.
     // Either can change the correction, so the status line, Clear, Browse and
-    // Calibrate are refreshed after them. A commit Init that fails has said why, or
-    // there was no meter (the button is disabled then): Calibrate does not run (one
-    // message per failure per click). Every later meter call in the sheet checks
-    // for a lost meter.
+    // Calibrate are refreshed after them. A commit that fails has said why (its
+    // Init's failure, or that the settings were not kept): Calibrate does not run
+    // (one message per failure per click). The button follows the meter only as of
+    // the page's last refresh - a meter lost outside the sheet (another document's
+    // start, run by a DDE command) leaves it enabled - so a click that finds no
+    // meter says so. Every later meter call in the sheet checks for a lost meter.
     if ( m_pSensor->CommitPageSettings() == CArgyllSensor::INIT_OK )
-        m_pSensor->Calibrate();
+    {
+        bool unavailable = false;
+        if ( !m_pSensor->Calibrate(&unavailable) && unavailable )
+        {
+            CString msg, title;
+            msg.LoadString ( IDS_ARGYLL_METER_UNAVAILABLE );
+            title.LoadString ( IDS_ARGYLLSENSOR_PROPERTIES_TITLE );
+            GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
+        }
+    }
     else
         UpdateData(FALSE);      // a rejected commit put the sensor's settings back on the page
     RefreshSpectralStatus();
