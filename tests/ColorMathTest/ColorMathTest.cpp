@@ -4328,13 +4328,14 @@ namespace T45Order
         bool silentRevert;                  // a commit reverted settings and said nothing
         bool pageStale;                     // the page shows settings the sensor does not have
         bool calFailedOnce;
+        bool calibrateEnabledWithoutMeter;  // the page's refresh left Calibrate on with no meter
         bool wrongNotice;                   // a notice that says what did not happen: "rejected"
                                             // for a meter that was unavailable (r8 SILENT), or
                                             // "could not be started" after it started
         Doc() : rawless(Native()), hasRaw(false), raw(Native()), rawValue(Native()), unrecorded(I3()),
                 crashed(false), messages(0), maxMessages(0), refusedSilently(false), silentClick(false),
                 settingsDroppedSilently(false), loopedForever(false), iniObserver(3),
-                notices(0), silentRevert(false), pageStale(false), calFailedOnce(false), wrongNotice(false) {}
+                notices(0), silentRevert(false), pageStale(false), calFailedOnce(false), calibrateEnabledWithoutMeter(false), wrongNotice(false) {}
     };
 
     // The order a session runs in. Branch: the step at BeginConfigure on a started
@@ -4944,12 +4945,19 @@ namespace T45Order
             {
                 if (!s.uiCalibrate)
                     break;
+                // The page refreshes Calibrate after each of its own actions, so a meter
+                // lost by one of them has disabled it (a loss outside the sheet happens
+                // inside this click's Inits in the model, and the click says so).
+                if (st.rules && s.meterGone)
+                    d.calibrateEnabledWithoutMeter = true;
                 d.messages = 0;
                 const int r = Commit(d, w, st, pageDT, pageObs);
                 bool calibrated = false;
                 bool unavailable = false;
                 if (!st.rules || r == INIT_OK)      // main calibrated whatever the commit did
                     calibrated = Calibrate(d, w, st, true, &unavailable);
+                else if (r == INIT_FAILED_SILENT)
+                    unavailable = true;             // the commit found no meter, said nothing
                 if (!calibrated && unavailable && kCalibrateSaysUnavailable)
                     Message(d);                     // IDS_ARGYLL_METER_UNAVAILABLE (OnCalibrate)
                 if (!calibrated && d.messages == 0 && !d.crashed)
@@ -5524,6 +5532,8 @@ namespace T45Order
             out += " page-stale";
         if (e.wrongNotice)
             out += " wrong-notice";
+        if (e.calibrateEnabledWithoutMeter)
+            out += " calibrate-enabled-without-meter";
         // A setting the meter rejected is kept nowhere: a restart starts the meter
         // with the INI's settings (a new document) and the document's (r7#2).
         if (sc.w.failObs >= 0 && ( e.iniObserver == sc.w.failObs || e.s.observer == sc.w.failObs ))

@@ -156,6 +156,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CNewMDIFrameWnd)
 	ON_MESSAGE(WM_DDE_POKE, OnDDEPoke)
 	ON_MESSAGE(WM_DDE_TERMINATE, OnDDETerminate)
 	ON_MESSAGE(WM_BKGND_MEASURE_READY, OnBkgndMeasureReady)
+	ON_MESSAGE(WM_BKGND_MEASURE_STOPPED, OnBkgndMeasureStopped)
 	ON_MESSAGE(WM_TOOLBAR_RBUTTONDOWN, OnRightButton)
 	ON_MESSAGE(WM_TOOLBAR_MBUTTONDOWN, OnMiddleButton)
 	ON_MESSAGE(WM_SETMESSAGESTRING, OnSetMessageString)
@@ -1146,6 +1147,21 @@ LRESULT CMainFrame::OnBkgndMeasureReady(WPARAM wParam, LPARAM lParam)
 	
 	pDoc -> OnBkgndMeasureReady();
 	
+	return 0;
+}
+
+// The background thread stopped on an invalid reading (datasetdoc.cpp): its
+// reason, shown on the UI thread.
+LRESULT CMainFrame::OnBkgndMeasureStopped(WPARAM wParam, LPARAM lParam)
+{
+	CString * pReason = (CString *) lParam;
+	if ( pReason )
+	{
+		CString title;
+		title.LoadString ( IDS_ERROR );
+		GetColorApp()->InMeasureMessageBox ( *pReason, title, MB_OK | MB_ICONERROR );
+		delete pReason;
+	}
 	return 0;
 }
 

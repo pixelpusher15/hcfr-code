@@ -134,10 +134,6 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
     	
 	    CColor			measuredColor;
 	    CString			Msg;
-		// Set when the thread stops on an invalid reading: what the sweeps show in
-		// their Abort/Retry/Ignore box ("An error occurred:" + the sensor's error
-		// string), shown once after the thread has cleaned up.
-		CString			stopReason;
 
 	    CView *			pView;
 	    POSITION		pos;
@@ -229,9 +225,19 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 		    }
 		    else
 		    {
-			    // Error: close thread
-			    stopReason.LoadString ( IDS_ANERROROCCURED );
-			    stopReason += pSensor -> GetErrorString ();
+			    // Error: close thread. A sensor that says why (its error string) has the
+			    // reason shown once, with the sweeps' "An error occurred:" text, on the UI
+			    // thread (CMainFrame::OnBkgndMeasureStopped); one with no reason shows
+			    // nothing new.
+			    if ( ! pSensor -> GetErrorString ().IsEmpty () )
+			    {
+				    CString * pReason = new CString;
+				    pReason -> LoadString ( IDS_ANERROROCCURED );
+				    *pReason += pSensor -> GetErrorString ();
+				    CWnd * pMain = AfxGetMainWnd ();
+				    if ( pMain == NULL || ! pMain -> PostMessage ( WM_BKGND_MEASURE_STOPPED, 0, (LPARAM) pReason ) )
+					    delete pReason;
+			    }
 			    g_hThread = NULL;
 			    g_bTerminateThread = FALSE;
 
@@ -276,13 +282,6 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 		
 	    pSensor -> Release ();
 	    DeleteCriticalSection (& g_CritSec );
-
-		if ( ! stopReason.IsEmpty () )
-		{
-			CString title;
-			title.LoadString ( IDS_ERROR );
-			GetColorApp()->InMeasureMessageBox ( stopReason, title, MB_OK | MB_ICONERROR );
-		}
 	
     }
     catch(std::exception& e)

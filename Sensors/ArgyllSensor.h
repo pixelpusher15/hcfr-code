@@ -42,7 +42,8 @@
 // it, so no list of them can miss one. The Debug checkbox also reaches the start (the
 // driver's log verbosity) but is not one of them: it is static, shared by every Argyll
 // sensor, written to the INI as soon as the commit sees it changed (before the Init),
-// and put back on its own by Cancel (m_cfgSnapDebugMode).
+// and put back on its own: by Cancel (m_cfgSnapDebugMode) and by a commit the meter
+// rejects.
 struct ArgyllDeviceSettings
 {
     UINT    readingType;
@@ -149,10 +150,13 @@ public:
 
     virtual LPCSTR GetStandardSubDir ()    { return "Etalon_Argyll"; }
 
-    // False when it did not calibrate (no meter, a failed Init, a device failure).
-    // false when it did not calibrate. *unavailable (when given) is set when nothing
-    // was shown because there was no meter to calibrate: the caller says so.
-    bool Calibrate(bool* unavailable = NULL);
+    // False when it did not calibrate: no meter, a failed Init, or a device failure.
+    // *init (when given) is the Init's result: INIT_FAILED_SILENT means there was no
+    // meter and nothing was shown (the caller says so), INIT_FAILED_ANNOUNCED a start
+    // that failed and said why, INIT_OK a calibration that failed after the start.
+    bool Calibrate(InitResult* init = NULL);
+    // The sensor sheet's warning box (the sheet's title, MB_ICONWARNING).
+    static void ShowSheetNotice(UINT id);
 
     // Spectral correction (restores the 2012 ccss apply path, extended to .csv).
     // Loads a .ccss or ColourSpace .csv onto the meter, derives the correction

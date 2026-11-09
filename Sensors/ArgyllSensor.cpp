@@ -175,6 +175,14 @@ static void WarnRecordNotAppliedOnce(UINT id, const std::string& description, co
 // the driver's reason, before some of its failures, and says so
 // (ArgyllMeterWrapper::errorBoxShown); for those HCFR shows nothing more. Every
 // other failure reaching Init or Calibrate is shown by HCFR, once.
+void CArgyllSensor::ShowSheetNotice(UINT id)
+{
+    CString msg, title;
+    msg.LoadString ( id );
+    title.LoadString ( IDS_ARGYLLSENSOR_PROPERTIES_TITLE );
+    GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
+}
+
 static void ShowUnlessWrapperDid(ArgyllMeterWrapper* meter, const CString& text, const char* title)
 {
     if ( meter == NULL || !meter->errorBoxShown() )
@@ -564,19 +572,23 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
         m_ArgyllSensorPropertiesPage.m_DisplayType = m_DisplayType;
     // An Init in this sheet failed and let go of the meter: there is nothing to
     // commit the device settings to (and the registry keys are per meter name).
-    // Settings the user changed since are not kept, and the user is told so.
+    // Settings the user changed since are not kept, the user is told so, and the
+    // page shows the sensor's settings again.
     if ( m_meter == NULL )
     {
         if ( !PageDeviceSettingsDiffer(true) )
             return INIT_FAILED_SILENT;
-        CString msg, title;
-        msg.LoadString ( IDS_ARGYLL_SETTINGS_NOT_KEPT );
-        title.LoadString ( IDS_ARGYLLSENSOR_PROPERTIES_TITLE );
-        GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
+        ShowDeviceSettingsOnPage( DeviceSettings() );
+        m_ArgyllSensorPropertiesPage.m_DebugMode = m_debugMode;
+        ShowSheetNotice( IDS_ARGYLL_SETTINGS_NOT_KEPT );
         return INIT_FAILED_ANNOUNCED;
     }
     InitResult result = INIT_OK;
     std::string meterName(m_meter->getMeterName());
+    // What a rejected commit puts back: the modified flag, and the Debug checkbox
+    // (written to the INI before the Init below starts the meter with it).
+    const BOOL wasModified = IsModified();
+    const bool previousDebug = m_debugMode;
 
     if(m_debugMode != !!m_ArgyllSensorPropertiesPage.m_DebugMode) 
     {
@@ -587,7 +599,6 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
 
     if ( PageDeviceSettingsDiffer(false) )
     {
-        const BOOL wasModified = IsModified();
         SetModifiedFlag(TRUE);
         // A Display Type chosen in the sheet: the Init below may drop a Display Type
         // correction with it (SyncSpectralRecordFromMeter); a load never does.
@@ -615,15 +626,17 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
             // failed start deleted the shared driver) and rejected nothing. The page
             // shows the settings the sensor has again.
             SetDeviceSettings( previous );
+            if ( m_debugMode != previousDebug )
+            {
+                m_debugMode = previousDebug;
+                GetConfig()->WriteProfileInt(meterName.c_str(), "DebugMode", m_debugMode?1:0);
+            }
             SetModifiedFlag(wasModified);
             ShowDeviceSettingsOnPage( previous );
-            const UINT notice = ( result == INIT_FAILED_SILENT ) ? IDS_ARGYLL_SETTINGS_NOT_KEPT
-                              : ( m_meter == NULL ) ? IDS_ARGYLL_SETTINGS_REJECTED_STOPPED
-                              : IDS_ARGYLL_SETTINGS_REJECTED;
-            CString msg, title;
-            msg.LoadString ( notice );
-            title.LoadString ( IDS_ARGYLLSENSOR_PROPERTIES_TITLE );
-            GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
+            m_ArgyllSensorPropertiesPage.m_DebugMode = m_debugMode;
+            ShowSheetNotice( ( result == INIT_FAILED_SILENT ) ? IDS_ARGYLL_SETTINGS_NOT_KEPT
+                           : ( m_meter == NULL ) ? IDS_ARGYLL_SETTINGS_REJECTED_STOPPED
+                           : IDS_ARGYLL_SETTINGS_REJECTED );
             // Shown: announced, a SILENT Init included (the caller says nothing more).
             result = INIT_FAILED_ANNOUNCED;
         }
@@ -1784,12 +1797,7 @@ BOOL CArgyllSensor::Configure()
     if ( m_meter == NULL )
     {
         if ( m_beginInit != INIT_FAILED_ANNOUNCED )
-        {
-            CString msg, title;
-            msg.LoadString ( IDS_ARGYLL_METER_UNAVAILABLE );
-            title.LoadString ( IDS_ARGYLLSENSOR_PROPERTIES_TITLE );
-            GetColorApp()->InMeasureMessageBox ( msg, title, MB_OK | MB_ICONWARNING );
-        }
+            ShowSheetNotice( IDS_ARGYLL_METER_UNAVAILABLE );
         return FALSE;
     }
     return COneDeviceSensor::Configure();
@@ -1912,11 +1920,16 @@ CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int
         // the same modal boxes for as long as it keeps failing.
         if(state == ArgyllMeterWrapper::NEEDS_MANUAL_CALIBRATION)
         {
-            if ( !Calibrate() )
+            InitResult init = INIT_OK;
+            if ( !Calibrate(&init) )
             {
-                // The cause: Calibrate's own Init lost the meter, or the calibration failed.
+                // The cause: no meter (Calibrate's Init lost it, or it was gone), a start
+                // that failed with the meter kept (the DTP94's Display Type select), or
+                // the calibration itself.
                 CString why;
-                why.LoadString ( m_meter == NULL ? IDS_ARGYLL_METER_UNAVAILABLE : IDS_ARGYLL_CALIBRATION_FAILED );
+                why.LoadString ( m_meter == NULL ? IDS_ARGYLL_METER_UNAVAILABLE
+                               : init != INIT_OK ? IDS_ARGYLL_START_FAILED
+                               : IDS_ARGYLL_CALIBRATION_FAILED );
                 SetErrorString ( why );
                 SetMeasureValidity(FALSE);
                 return noDataColor;
@@ -1930,23 +1943,19 @@ CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int
     return m_meter->getLastReading();
 }
 
-bool CArgyllSensor::Calibrate(bool* unavailable)
+bool CArgyllSensor::Calibrate(InitResult* initResult)
 {
-    if ( unavailable )
-        *unavailable = false;
-    // No meter (an earlier Init let go of it), or the shared driver gone since
-    // (another document's failed start - a DDE command can run one while this
-    // sheet is open): nothing to calibrate and nothing shown, so the caller says
-    // so. A measurement's caller does, with the reading's error string; the page's
-    // button does through *unavailable.
-    const InitResult init = ( m_meter == NULL ) ? INIT_FAILED_SILENT : InitReporting(FALSE);
+    // INIT_FAILED_SILENT: no meter (an earlier Init let go of it), or the shared
+    // driver gone since (a failed start in any document on the meter - a DDE
+    // command can run one while this sheet is open). Nothing to calibrate and
+    // nothing shown, so the caller says so: a measurement with the reading's error
+    // string, the page's button with its notice. INIT_FAILED_ANNOUNCED: the Init
+    // (or the wrapper) has said why.
+    const InitResult init = InitReporting(FALSE);
+    if ( initResult )
+        *initResult = init;
     if ( init != INIT_OK )
-    {
-        // INIT_FAILED_ANNOUNCED: the Init (or the wrapper) has said why.
-        if ( unavailable )
-            *unavailable = ( init == INIT_FAILED_SILENT );
         return false;
-    }
     // The wrapper's calibrate and getCalibrationInstructions throw on a device
     // failure; Calibrate runs from the page's button (an MFC command handler) and
     // from a measurement, neither of which catches it. Shown once.
