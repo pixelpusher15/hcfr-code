@@ -5010,49 +5010,32 @@ CColor BlackTargetReference ( const CColor & aMeasure, double YWhite, const CCol
 	return blackRef;
 }
 
-// THE NEAR-BLACK WHITE. A white is usable when it is valid, in the point's
-// quantity, and finite and > 0 in it:
-// - an R, G or B trace (colorSpace 0) divides its channel by the white's
-//   LUMA, Y, always: the luma normalization is deliberate (HCFR's RGB matrix
-//   gives R = G = B = Y at the target white, so the trace shows each channel's
-//   gain against it). Main took GetLuxOrLumaValue there, which in curve mode 1
-//   is the white's lux - a channel in cd/m2 divided by lux;
-// - a luma-or-lux trace (colorSpace 1) in curve mode 1 is lux for a reading
-//   that carries one and Y for one that does not, so the white must carry
-//   the same lux status as the point; outside mode 1 it is Y on both sides;
-// - a lux trace (colorSpace 2) needs a white that carries lux.
-// The gray scale's top when usable, else near white's top, else none (0).
-static bool NearBlackWhiteOf ( const CColor & c, int colorSpace, int luminanceCurveMode, bool pointHasLux, double * pY )
+// THE NEAR-CHART WHITE (near black's charts, near white's luma and lux
+// traces). The point is in lux when it shows one: a lux trace, or a luma trace
+// in luminance curve mode 1 whose reading carries a lux value. Then the white
+// must carry lux and its lux is used. Otherwise the point is in cd/m2 and the
+// white's Y is used, whatever its lux status. That includes the R, G and B
+// traces: they divide their channel by the white's LUMA on purpose (HCFR's RGB
+// matrix gives R = G = B = Y at the target white, so the trace shows each
+// channel's gain against it). Main took GetLuxOrLumaValue for every trace, the
+// white's lux in curve mode 1 - a point in cd/m2 divided by lux.
+// A white is usable when it is valid and that value is finite and > 0. The
+// gray scale's top when usable, else near white's top, else none (0).
+static double NearChartWhiteOf ( const CColor & c, bool bLux )
 {
-	if ( ! c.isValid () )
-		return false;
-	double y;
-	if ( colorSpace == 0 )
-		y = c.GetY ();
-	else if ( colorSpace == 1 )
-	{
-		if ( luminanceCurveMode == 1 && c.HasLuxValue () != pointHasLux )
-			return false;
-		y = c.GetLuxOrLumaValue ( luminanceCurveMode );
-	}
-	else
-	{
-		if ( ! c.HasLuxValue () )
-			return false;
-		y = c.GetLuxValue ();
-	}
-	if ( ! ( y > 0.0 && _finite ( y ) ) )
-		return false;
-	*pY = y;
-	return true;
+	if ( ! c.isValid () || ( bLux && ! c.HasLuxValue () ) )
+		return 0.0;
+	const double y = bLux ? c.GetLuxValue () : c.GetY ();
+	return ( y > 0.0 && _finite ( y ) ) ? y : 0.0;
 }
 
-double NearBlackChartWhite ( int colorSpace, int luminanceCurveMode, bool pointHasLux, const CColor & grayTop, const CColor & nearWhiteTop )
+double NearChartWhite ( int colorSpace, int luminanceCurveMode, bool pointHasLux, const CColor & grayTop, const CColor & nearWhiteTop, bool * pFromGrayTop )
 {
-	double y;
-	if ( NearBlackWhiteOf ( grayTop, colorSpace, luminanceCurveMode, pointHasLux, & y ) )
+	const bool bLux = ( colorSpace == 2 ) || ( colorSpace == 1 && luminanceCurveMode == 1 && pointHasLux );
+	double y = NearChartWhiteOf ( grayTop, bLux );
+	if ( pFromGrayTop )
+		*pFromGrayTop = ( y > 0.0 );
+	if ( y > 0.0 )
 		return y;
-	if ( NearBlackWhiteOf ( nearWhiteTop, colorSpace, luminanceCurveMode, pointHasLux, & y ) )
-		return y;
-	return 0.0;
+	return NearChartWhiteOf ( nearWhiteTop, bLux );
 }
