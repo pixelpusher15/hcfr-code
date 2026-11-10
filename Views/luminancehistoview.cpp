@@ -172,7 +172,7 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			double x, valx, valy;
 			// Reading i at its stamped drive, else slot i (CMeasure::GetGrayReadingLevel).
 			x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i );
-	    	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
+	    	CColor Black = pDoc -> GetMeasure () -> GetGrayScaleBlack();
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if (  (mode >= 4) )
 			{
@@ -370,19 +370,19 @@ void CLuminanceGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 		if (ColorSpace == 0) 
 		{
 			blacklvl=pDataSet->GetMeasure()->GetGray(0).GetRGBValue((GetColorReference()))[ColorIndex];
-			whitelvl=pDataSet->GetMeasure()->GetGray(Size-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+			whitelvl=pDataSet->GetMeasure()->GetGrayScaleWhite().GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 			colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetRGBValue((GetColorReference()))[ColorIndex];
 		}
 		else if (ColorSpace == 1) 
 		{
 			blacklvl=pDataSet->GetMeasure()->GetGray(0).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-			whitelvl=pDataSet->GetMeasure()->GetGray(Size-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+			whitelvl=pDataSet->GetMeasure()->GetGrayScaleWhite().GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 			colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 		}
 		else
 		{
 			blacklvl=pDataSet->GetMeasure()->GetGray(0).GetLuxValue();
-			whitelvl=pDataSet->GetMeasure()->GetGray(Size-1).GetLuxValue();
+			whitelvl=pDataSet->GetMeasure()->GetGrayScaleWhite().GetLuxValue();
 			colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxValue();
 		}
 

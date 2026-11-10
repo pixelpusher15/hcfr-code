@@ -1210,7 +1210,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	double r[6],g[6],b[6];
     double gamma=(GetConfig()->m_useMeasuredGamma)?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef);
 	CColor White = pDoc->GetMeasure()->GetGrayScaleWhite();
-	CColor Black = pDoc->GetMeasure()->GetOnOffBlack();
+	CColor Black = pDoc->GetMeasure()->GetGrayScaleBlack();
     bool isSpecial = (GetColorReference().m_standard==HDTVa||GetColorReference().m_standard==CC6||GetColorReference().m_standard==HDTVb||GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4);
 
 	if (isSpecial)
@@ -1261,10 +1261,11 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 //	double YWhite = redPrimaryColor[2]+greenPrimaryColor[2]+bluePrimaryColor[2];
 	double YWhite = 1.0;
 	
+	const CColor grayScaleWhite = pDoc -> GetMeasure () -> GetGrayScaleWhite ();
 	if ( pDoc -> GetMeasure () -> GetPrimeWhite ().isValid() && !( (current_mode>=4 && current_mode<=12) && (GetConfig()->m_colorStandard==HDTVb||GetConfig()->m_colorStandard==HDTVa)) )
 		YWhite = pDoc -> GetMeasure () -> GetPrimeWhite () [ 1 ]; //check here first
-	else if ( pDoc -> GetMeasure () -> GetGrayScaleWhite ().isValid() )
-		YWhite = pDoc -> GetMeasure () -> GetGrayScaleWhite () [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
+	else if ( grayScaleWhite.isValid() )
+		YWhite = grayScaleWhite [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
 		
 	double YWhiteRef = 1.0;
 	isSat = FALSE;
@@ -1358,10 +1359,11 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 
 //		YWhiteRef = datarefRed[1]+datarefGreen[1]+datarefBlue[1];
 		
+	const CColor grayScaleWhiteRef = pDataRef -> GetMeasure () -> GetGrayScaleWhite ();
 	if ( pDataRef -> GetMeasure () -> GetPrimeWhite ().isValid() && !( (current_mode>=4 && current_mode<=12) && (GetConfig()->m_colorStandard==HDTVb||GetConfig()->m_colorStandard==HDTVa)) )
 			YWhite = pDataRef -> GetMeasure () -> GetPrimeWhite () [ 1 ];
-		else if ( pDataRef -> GetMeasure () -> GetGrayScaleWhite ().isValid() )
-			YWhite = pDataRef -> GetMeasure () -> GetGrayScaleWhite () [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
+		else if ( grayScaleWhiteRef.isValid() )
+			YWhite = grayScaleWhiteRef [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
 	}
 
 	Msg.LoadString ( IDS_DATAREF_RED );
@@ -1941,7 +1943,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
             if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
             {
     			CColor White = pDoc -> GetMeasure () -> GetGray ( nSize - 1 );
-				CColor Black = pDoc->GetMeasure()->GetOnOffBlack();
+				CColor Black = pDoc->GetMeasure()->GetGrayScaleBlack();
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if (  (mode >= 4) )
 			    {
@@ -1996,8 +1998,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	
 	if ( pDoc -> GetMeasure () -> GetPrimeWhite ().isValid() && !( (current_mode>=4 && current_mode<=12) && (GetConfig()->m_colorStandard==HDTVb||GetConfig()->m_colorStandard==HDTVa)) )
 		YWhite = pDoc -> GetMeasure () -> GetPrimeWhite () [ 1 ]; //check here first
-	else if ( pDoc -> GetMeasure () -> GetGrayScaleWhite ().isValid() )
-		YWhite = pDoc -> GetMeasure () -> GetGrayScaleWhite () [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
+	else if ( grayScaleWhite.isValid() )
+		YWhite = grayScaleWhite [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
 
 	YWhiteRef = 1.0;
 
@@ -3016,10 +3018,11 @@ void CCIEChartView::OnDraw(CDC* pDC)
 		if ( pDoc->m_SelectedColor.isValid() )
 		{
 			double YWhite = 1.0;
+			const CColor grayScaleWhite = pDoc->GetMeasure()->GetGrayScaleWhite();
 			if ( pDoc->GetMeasure()->GetPrimeWhite().isValid() )
 				YWhite = pDoc->GetMeasure()->GetPrimeWhite() [ 1 ];
-			else if ( pDoc->GetMeasure()->GetGrayScaleWhite().isValid() )
-				YWhite = pDoc->GetMeasure()->GetGrayScaleWhite() [ 1 ];
+			else if ( grayScaleWhite.isValid() )
+				YWhite = grayScaleWhite [ 1 ];
 
 			CCIEGraphPoint newPoint ( pDoc->m_SelectedColor.GetXYZValue(), YWhite, "", m_Grapher.m_bCIEuv, m_Grapher.m_bCIEab );
 			m_Grapher.DrawGdiPlusMarker ( & dcDraw, & m_Grapher.m_measurePlotBitmap,
@@ -3694,7 +3697,7 @@ void CCIEChartView::UpdateTestColor ( CPoint point )
 	{
 		CColor	ClickedColor ( x, y );
 		CColor White = GetDocument()->GetMeasure()->GetGrayScaleWhite();
-		CColor Black = GetDocument()->GetMeasure()->GetOnOffBlack();
+		CColor Black = GetDocument()->GetMeasure()->GetGrayScaleBlack();
 		int cRef=GetColorReference().m_standard;
 		ClickedColor.SetY(1.0);
 		RGBColor = ClickedColor.GetRGBValue ((cRef == HDTVa || cRef == HDTVb)?CColorReference(HDTV):(cRef == UHDTV3 || cRef == UHDTV4)?CColorReference(UHDTV2):GetColorReference());

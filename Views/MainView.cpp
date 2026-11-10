@@ -1560,8 +1560,9 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		if (!b_minCol)
 			SetSelectedColor (m_SelectedColor, TRUE);
 
-		if ( GetDocument() -> GetMeasure () -> GetGrayScaleWhite ().isValid() )
-			YWhite = GetDocument() -> GetMeasure () -> GetGrayScaleWhite () [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
+		const CColor grayScaleWhite = GetDocument() -> GetMeasure () -> GetGrayScaleWhite ();
+		if ( grayScaleWhite.isValid() )
+			YWhite = grayScaleWhite [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
 		
 		if ( GetDocument() -> GetMeasure () -> GetPrimeWhite().isValid() )
 			if ((m_displayMode == 1 || (m_displayMode >=5 && m_displayMode <= 11)))
@@ -1734,7 +1735,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		ColorRGB meas(0.5,0.5,0.5);
 		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 		CColor White = GetDocument()->GetMeasure()->GetGrayScaleWhite();
-		CColor Black = GetDocument()->GetMeasure()->GetOnOffBlack();
+		CColor Black = GetDocument()->GetMeasure()->GetGrayScaleBlack();
 		int mode = GetConfig()->m_GammaOffsetType;
 		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor) / 94.37844;
 		// Manual generator (DVD) keeps the legacy 105.95640/94.37844 conventions
@@ -3519,7 +3520,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					else if ( isHDR )
 					{
 			            CColor White = GetDocument() -> GetMeasure () -> GetGrayScaleWhite();
-						CColor Black = GetDocument() -> GetMeasure() -> GetOnOffBlack();
+						CColor Black = GetDocument() -> GetMeasure() -> GetGrayScaleBlack();
 						double tmWhite = TmDiffuseWhiteNits(White, Black);
 						if (DVD)
 						{
@@ -3661,7 +3662,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					CColor White = GetDocument()->GetMeasure()->GetGrayScaleWhite();
 					CColor Black;
 					if (m_displayMode != 3)
-						Black = GetDocument()->GetMeasure()->GetOnOffBlack();
+						Black = GetDocument()->GetMeasure()->GetGrayScaleBlack();
 					else
 						Black = GetDocument()->GetMeasure()->GetNearBlack(0);
 
@@ -3713,7 +3714,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 				double  RefLuma [MAX_USER_CC_PATCH_SIZE], sat=double (nCol-1)/ double (satsize-1);
                 CColor White = GetDocument() -> GetMeasure () -> GetGrayScaleWhite();
 //	            CColor Black = GetDocument() -> GetMeasure () -> GetGray ( 0 );
-	            CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
+	            CColor Black = GetDocument() -> GetMeasure () -> GetGrayScaleBlack();
 				CColor satcolor;
 				// Retrieve color luminance coefficients matching actual reference
 
@@ -3754,7 +3755,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					white = GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1) / 2 );
 
 				if (!white.isValid() || m_displayMode == 0 || m_displayMode == 2 || m_displayMode == 3 || m_displayMode == 4)
-					white = GetDocument() -> GetMeasure () ->GetOnOffWhite();
+					white = GetDocument() -> GetMeasure () ->GetGrayScaleWhite();
 
 				if ( m_displayMode > 4 && (GetConfig()->m_colorStandard == HDTVa || GetConfig()->m_colorStandard == HDTVb ))
 					white = GetDocument() -> GetMeasure () ->GetOnOffWhite();
@@ -4363,7 +4364,7 @@ void CMainView::UpdateGrid()
 		}
         
 		CColor White = GetDocument() -> GetMeasure () -> GetGrayScaleWhite();
-	    CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
+	    CColor Black = GetDocument() -> GetMeasure () -> GetGrayScaleBlack();
 		if (!GetConfig()->m_bOverRideTargs && Black.isValid() && White.isValid() && (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7))
 		{
 			if (Black.GetY() < White.GetY())
@@ -4420,7 +4421,7 @@ void CMainView::UpdateGrid()
 			double x;	// case 2 (free measures): the level a reading without a stamped drive is given
 			int mode = GetConfig()->m_GammaOffsetType;
 			CColor White = GetDocument() -> GetMeasure () -> GetGrayScaleWhite();
-			CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
+			CColor Black = GetDocument() -> GetMeasure () -> GetGrayScaleBlack();
 
 			switch ( m_displayMode )
 			{
@@ -7731,8 +7732,9 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 
     GetConfig()->SetPropertiesSheetValues();
 	
-	if ( GetDocument() -> GetMeasure () -> GetGrayScaleWhite ().isValid() )
-		YWhite = GetDocument() -> GetMeasure () -> GetGrayScaleWhite () [ 1 ];
+	const CColor grayScaleWhite = GetDocument() -> GetMeasure () -> GetGrayScaleWhite ();
+	if ( grayScaleWhite.isValid() )
+		YWhite = grayScaleWhite [ 1 ];
 
 	int	n = GetDocument()->GetMeasure()->GetMeasurementsSize();
 
@@ -7789,8 +7791,9 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 
 		if (pDataRef)
 		{
-			if ( pDataRef -> GetMeasure () -> GetGrayScaleWhite ().isValid() )
-				YWhiteRefDoc = pDataRef -> GetMeasure () -> GetGrayScaleWhite () [ 1 ];
+			const CColor grayScaleWhiteRef = pDataRef -> GetMeasure () -> GetGrayScaleWhite ();
+			if ( grayScaleWhiteRef.isValid() )
+				YWhiteRefDoc = grayScaleWhiteRef [ 1 ];
 		}
 
 		GV_ITEM Item;
@@ -7853,7 +7856,7 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 						   : ArrayIndexToGrayLevel ( nCol, nCnt, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 				CColor White = GetDocument() -> GetMeasure () -> GetGrayScaleWhite();
 //	            CColor Black = GetDocument() -> GetMeasure () -> GetGray ( 0 );
-	            CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
+	            CColor Black = GetDocument() -> GetMeasure () -> GetGrayScaleBlack();
 				int mode = GetConfig()->m_GammaOffsetType;
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if (  (mode >= 4) )

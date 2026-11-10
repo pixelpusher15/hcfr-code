@@ -357,9 +357,9 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
                     if (GetConfig()->m_useMeasuredGamma)
 						GetConfig()->m_GammaAvg = (Gamma<1?2.2:floor((Gamma+.005)*100.)/100.);
                     GetConfig()->SetPropertiesSheetValues();
-            		CColor White = m_pDocument -> GetMeasure () -> GetGray ( nCount - 1 );
+            		CColor White = m_pDocument -> GetMeasure () -> GetGrayScaleWhite ();
 //	                CColor Black = m_pDocument -> GetMeasure () -> GetGray ( 0 );
-	                CColor Black = m_pDocument -> GetMeasure () -> GetOnOffBlack();
+	                CColor Black = m_pDocument -> GetMeasure () -> GetGrayScaleBlack();
 					int mode = GetConfig()->m_GammaOffsetType;
 					if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 					if ( mode >= 4 )

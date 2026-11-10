@@ -221,7 +221,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			if ( bRefY || m_showLumError )
 			{
             	CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite();
-	           	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
+	           	CColor Black = pDoc -> GetMeasure () -> GetGrayScaleBlack();
 				int mode = GetConfig()->m_GammaOffsetType;
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if ( mode >= 4 )
@@ -278,7 +278,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// every channel.
 			double fact = 1.0;
 			if ( m_showLumError )
-				fact = aColor[2] / (YTarget * pDoc->GetMeasure()->GetGrayScaleWhite()[1]);
+				fact = aColor[2] / (YTarget * YWhite);
 
 			// HIST-011: aColor[1] is the CIE y chromaticity, and it is the divisor for
 			// both X and Z below. A degenerate black reading - y == 0 while Y is still
@@ -305,7 +305,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// Balance divides by the patch's own luminance, so it needs only that
 			// second test. The target test is on YTarget, which dE_gray 2 does
 			// not overwrite.
-			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( !m_showLumError || HasMeasuredLight ( YTarget * pDoc->GetMeasure()->GetGrayScaleWhite()[1] ) ) && HasMeasuredLight ( aColor[2] ) ) ))
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( !m_showLumError || HasMeasuredLight ( YTarget * YWhite ) ) && HasMeasuredLight ( aColor[2] ) ) ))
 			{
 				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 				ColorRGB normColor(aMeasure, GetColorReference());
@@ -364,7 +364,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			if ( bRefY || m_showLumError )
 			{
             	CColor White = pDataRef -> GetMeasure () -> GetGrayScaleWhite();
-	           	CColor Black = pDataRef -> GetMeasure () -> GetOnOffBlack();
+	           	CColor Black = pDataRef -> GetMeasure () -> GetGrayScaleBlack();
 				int mode = GetConfig()->m_GammaOffsetType;
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if ( mode >= 4 )
@@ -410,7 +410,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// Balance (fact 1.0) or luminance error, as in the primary loop.
 			double fact = 1.0;
 			if ( m_showLumError )
-				fact = aColor[2] / (YTarget * pDataRef->GetMeasure()->GetGrayScaleWhite()[1]);
+				fact = aColor[2] / (YTarget * YWhiteRefDoc);
 
 			double YWhitePatch;
 			if ( !bMainDocHasColors )
@@ -427,7 +427,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// started at 1; point 0 is exactly where a meter hands back a degenerate
 			// chromaticity. Built inside the guard so the division does not happen at
 			// all when there is nothing to plot.
-			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( !m_showLumError || HasMeasuredLight ( YTarget * pDataRef->GetMeasure()->GetGrayScaleWhite()[1] ) ) && HasMeasuredLight ( aColor[2] ) ) ))
+			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( !m_showLumError || HasMeasuredLight ( YTarget * YWhiteRefDoc ) ) && HasMeasuredLight ( aColor[2] ) ) ))
 			{
 				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 				ColorRGB normColor(aMeasure, GetColorReference());

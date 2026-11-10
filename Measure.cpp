@@ -384,8 +384,8 @@ void CMeasure::BuildPrimarySecondaryColors(CGenerator * pGenerator, ColorRGBDisp
 	// several dE.)
 	if (GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)
 	{
-		CColor tmW = GetGray ( GetGrayScaleSize() - 1 );
-		CColor tmB = GetOnOffBlack();
+		CColor tmW = GetGrayScaleWhite ();
+		CColor tmB = GetGrayScaleBlack();
 		for (int ci = 0; ci < 6; ci++)
 		{
 			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
@@ -1495,8 +1495,8 @@ void CMeasure::GetRefProfileSat(int i, CColor & ccRef)
 {
 	ColorRGBDisplay rgbd = GetProfilePatchRGB ( i );
 	CColorReference cRef = GetColorReference();
-	CColor White = GetGray ( GetGrayScaleSize() - 1 );
-	CColor Black = GetOnOffBlack();
+	CColor White = GetGrayScaleWhite ();
+	CColor Black = GetGrayScaleBlack();
 	double gamma = GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef);
 	CColor tempColor;
 	int mode = GetConfig()->m_GammaOffsetType;
@@ -1694,7 +1694,7 @@ double CMeasure::ComputeProfileDEEx(const CColor & c, int i, ProfileDEParts * pP
 		// from the 1.0 = 10000 nits convention by GetHDRRefScale (the unified,
 		// tone-map-aware form the 3D viewer also uses; = 105.95640 with tone
 		// mapping off), measurement anchored to the measured white as-is.
-		double tmWhite = TmDiffuseWhiteNits( GetGrayScaleWhite(), GetOnOffBlack() );
+		double tmWhite = TmDiffuseWhiteNits( GetGrayScaleWhite(), GetGrayScaleBlack() );
 		if ( tmWhite > 0.0 )
 		{
 			// 10000/tmWhite IS GetHDRRefScale() here (mode-5 getL_EOTF ignores
@@ -8708,6 +8708,11 @@ CColor CMeasure::GetGrayScaleWhite() const
 	return GrayScaleWhite ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffWhite );
 }
 
+CColor CMeasure::GetGrayScaleBlack() const
+{
+	return GrayScaleBlack ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffBlack );
+}
+
 CColor CMeasure::GetPrimeWhite() const
 {
 	CColor clr;
@@ -8896,7 +8901,7 @@ PrimaryDENorm CMeasure::GetPrimaryDENorm(double yPrimeWhite, int nCol) const
 		return n;
 
 	CColor White = GetGrayScaleWhite();
-	CColor Black = GetOnOffBlack();
+	CColor Black = GetGrayScaleBlack();
 	ColorStandard standard = GetColorReference().m_standard;
 	bool bDiffuseAnchored = ( standard == UHDTV2 || standard == HDTV || standard == UHDTV
 							  || standard == UHDTV3 || standard == UHDTV4 || nCol == 7 );
@@ -8971,8 +8976,8 @@ static CColor WireModeledPrimaryReference ( const CMeasure & measure, const Colo
 	CColor White, Black;
 	if ( measure.GetGray(0).isValid() )
 	{
-		White = measure.GetGray ( measure.GetGrayScaleSize() - 1 );
-		Black = measure.GetOnOffBlack();
+		White = measure.GetGrayScaleWhite ();
+		Black = measure.GetGrayScaleBlack();
 	}
 	double gamma = GetConfig()->m_useMeasuredGamma ? GetConfig()->m_GammaAvg : GetConfig()->m_GammaRef;
 	bool b10 = GetConfig()->GetUse10bitLevels();
@@ -9224,9 +9229,9 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 	y = ystart + ( (yend - ystart) * sat_ratio );
 
 	CColor	aColor;
-    CColor White = CMeasure::GetGray ( CMeasure::GetGrayScaleSize() - 1 );
+    CColor White = CMeasure::GetGrayScaleWhite ();
 //	CColor Black = CMeasure::GetGray ( 0 );
-	CColor Black = CMeasure::GetOnOffBlack();
+	CColor Black = CMeasure::GetGrayScaleBlack();
     double gamma=GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef);
 
 	double tmWhite = TmDiffuseWhiteNits(White, Black);
@@ -9626,9 +9631,9 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 			break;
     } 
 
-    CColor White = CMeasure::GetGray ( CMeasure::GetGrayScaleSize() - 1 );
+    CColor White = CMeasure::GetGrayScaleWhite ();
 //	CColor Black = CMeasure::GetGray ( 0 );
-	CColor Black = CMeasure::GetOnOffBlack();
+	CColor Black = CMeasure::GetGrayScaleBlack();
     double gamma=GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef);
 	CColor tempColor;
 	int mode = GetConfig()->m_GammaOffsetType;

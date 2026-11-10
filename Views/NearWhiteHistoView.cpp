@@ -177,7 +177,7 @@ void CNearWhiteGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,g_size,false);
     		CColor White = pDoc -> GetMeasure () -> GetGray ( g_size - 1 );
 //	    	CColor Black = pDoc -> GetMeasure () -> GetGray ( 0 );
-	    	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
+	    	CColor Black = pDoc -> GetMeasure () -> GetGrayScaleBlack();
 			// Reading i at its stamped drive, else slot i on the current grid
 			// (CMeasure::GetGrayReadingLevel); the reference is evaluated there.
 			double x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_NEAR_WHITE, i );

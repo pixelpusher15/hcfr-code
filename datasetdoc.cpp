@@ -5186,17 +5186,17 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 	if (ColorSpace == 0) 
 	{
 		blacklvl=GetMeasure()->GetGray(0).GetRGBValue((GetColorReference()))[ColorIndex];
-		whitelvl=GetMeasure()->GetGray(Size-1).GetRGBValue((GetColorReference()))[ColorIndex];
+		whitelvl=GetMeasure()->GetGrayScaleWhite().GetRGBValue((GetColorReference()))[ColorIndex];
 	}
 	else if (ColorSpace == 1) 
 	{
 		blacklvl=GetMeasure()->GetGray(0).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		whitelvl=GetMeasure()->GetGray(Size-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+		whitelvl=GetMeasure()->GetGrayScaleWhite().GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 	}
 	else if (ColorSpace == 2) 
 	{
 		blacklvl=GetMeasure()->GetGray(0).GetLuxValue();
-		whitelvl=GetMeasure()->GetGray(Size-1).GetLuxValue();
+		whitelvl=GetMeasure()->GetGrayScaleWhite().GetLuxValue();
 	}
 	else
 	{
@@ -5205,13 +5205,13 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 		{
 			// When luxmeter values are authorized in curves, use preference for contrast/delta luminance
 			blacklvl=GetMeasure()->GetGray(0).GetPreferedLuxValue(GetConfig () -> m_bPreferLuxmeter);
-			whitelvl=GetMeasure()->GetGray(Size-1).GetPreferedLuxValue(GetConfig () -> m_bPreferLuxmeter);
+			whitelvl=GetMeasure()->GetGrayScaleWhite().GetPreferedLuxValue(GetConfig () -> m_bPreferLuxmeter);
 		}
 		else
 		{
 			// Use only colorimeter values
 			blacklvl=GetMeasure()->GetGray(0).GetLuminance();
-			whitelvl=GetMeasure()->GetGray(Size-1).GetLuminance();
+			whitelvl=GetMeasure()->GetGrayScaleWhite().GetLuminance();
 		}
 	}
 
@@ -5303,10 +5303,10 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 					int mode = GetConfig()->m_GammaOffsetType;
 					if (GetConfig()->m_colorStandard == sRGB) mode = 99;
                     if (m_bBT1886 || mode > 5) // !GetConfig()->m_useMeasuredGamma)
-                        avg += log(getL_EOTF(valx[i], GetMeasure()->GetGray(Size -1), GetMeasure()->GetGray(0), GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1))/log(valx[i]);
+                        avg += log(getL_EOTF(valx[i], GetMeasure()->GetGrayScaleWhite(), GetMeasure()->GetGray(0), GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1))/log(valx[i]);
                     else
 	                    if (mode == 5)// && !GetConfig()->m_useMeasuredGamma)
-			                avg += log(getL_EOTF(valx[i], GetMeasure()->GetGray(Size -1), GetMeasure()->GetGray(0), GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.)/log(valx[i]);
+			                avg += log(getL_EOTF(valx[i], GetMeasure()->GetGrayScaleWhite(), GetMeasure()->GetGray(0), GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.)/log(valx[i]);
 						else
 		    				avg += log(lumlvl[i])/log(valx[i]);
 					nb ++;

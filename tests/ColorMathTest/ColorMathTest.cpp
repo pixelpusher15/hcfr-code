@@ -6333,6 +6333,34 @@ static void RunT51()
     w = GrayScaleWhite(withBadTop, 3, onoff);
     if (w.GetY() == 52.0)
         Fail("T51 an inner slot stood in for an invalid top");
+    // a valid top whose Y is 0 or not finite is no white: the on/off white
+    // (the white test GetColorDEWhiteY and NearChartWhite apply)
+    CColor zeroTop[3] = { grays[0], grays[1], CColor(0.0, 0.0, 0.0) };
+    CColor nanTop[3] = { grays[0], grays[1], CColor(97.0, std::numeric_limits<double>::quiet_NaN(), 110.0) };
+    CColor negTop[3] = { grays[0], grays[1], CColor(97.0, -5.0, 110.0) };
+    if (GrayScaleWhite(zeroTop, 3, onoff).GetY() != 100.0)
+        Fail("T51 gray top with Y 0: Y %.17g, expected the on/off white's 100", GrayScaleWhite(zeroTop, 3, onoff).GetY());
+    if (GrayScaleWhite(nanTop, 3, onoff).GetY() != 100.0)
+        Fail("T51 gray top with Y NaN: Y %.17g, expected the on/off white's 100", GrayScaleWhite(nanTop, 3, onoff).GetY());
+    if (GrayScaleWhite(negTop, 3, onoff).GetY() != 100.0)
+        Fail("T51 gray top with Y < 0: Y %.17g, expected the on/off white's 100", GrayScaleWhite(negTop, 3, onoff).GetY());
+    // GrayScaleBlack, the twin: the measured 0% reading when valid with a finite
+    // Y (Y 0 is a black), else the on/off black as given
+    const CColor onoffBlack(0.30, 0.31, 0.33);
+    CColor b = GrayScaleBlack(grays, 3, onoffBlack);
+    if (b.GetY() != 0.1)
+        Fail("T51 valid gray 0%%: Y %.17g, expected the 0%% reading's 0.1", b.GetY());
+    CColor zeroBlack[3] = { CColor(0.0, 0.0, 0.0), grays[1], grays[2] };
+    if (GrayScaleBlack(zeroBlack, 3, onoffBlack).GetY() != 0.0)
+        Fail("T51 gray 0%% with Y 0: not taken as the black");
+    CColor badBlack[3] = { noDataColor, grays[1], grays[2] };
+    if (GrayScaleBlack(badBlack, 3, onoffBlack).GetY() != 0.31)
+        Fail("T51 invalid gray 0%%: Y %.17g, expected the on/off black's 0.31", GrayScaleBlack(badBlack, 3, onoffBlack).GetY());
+    CColor nanBlack[3] = { CColor(0.3, std::numeric_limits<double>::quiet_NaN(), 0.3), grays[1], grays[2] };
+    if (GrayScaleBlack(nanBlack, 3, onoffBlack).GetY() != 0.31)
+        Fail("T51 gray 0%% with Y NaN: Y %.17g, expected the on/off black's 0.31", GrayScaleBlack(nanBlack, 3, onoffBlack).GetY());
+    if (GrayScaleBlack(grays, 0, onoffBlack).GetY() != 0.31 || GrayScaleBlack(NULL, 3, onoffBlack).GetY() != 0.31)
+        Fail("T51 empty series or no readings: not the on/off black");
 }
 
 int main(int argc, char* argv[])

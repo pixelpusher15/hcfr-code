@@ -5100,6 +5100,18 @@ double NearChartWhite ( int colorSpace, int luminanceCurveMode, bool pointHasLux
 CColor GrayScaleWhite ( const CColor * readings, int size, const CColor & onOffWhite )
 {
 	if ( readings != NULL && size > 0 && readings[size-1].isValid () )
-		return readings[size-1];
+	{
+		const double y = readings[size-1].GetY ();
+		if ( _finite ( y ) && y > 0.0 )
+			return readings[size-1];
+	}
 	return onOffWhite;
+}
+
+// See Color.h: the gray scale's measured 0% reading, else the on/off black.
+CColor GrayScaleBlack ( const CColor * readings, int size, const CColor & onOffBlack )
+{
+	if ( readings != NULL && size > 0 && readings[0].isValid () && _finite ( readings[0].GetY () ) )
+		return readings[0];
+	return onOffBlack;
 }

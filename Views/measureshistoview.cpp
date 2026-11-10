@@ -302,7 +302,7 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
 			{
             	CColor White = GetDocument()-> GetMeasure () -> GetGrayScaleWhite();
-	           	CColor Black = GetDocument()-> GetMeasure () -> GetOnOffBlack();
+	           	CColor Black = GetDocument()-> GetMeasure () -> GetGrayScaleBlack();
 				int mode = GetConfig()->m_GammaOffsetType;
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if ( mode >= 4 )
@@ -337,7 +337,7 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				fact = 1.0;
 			}
 			else
-				fact = aColor[2] / (tmpColor[2] * GetDocument()->GetMeasure()->GetGrayScaleWhite()[1]);
+				fact = aColor[2] / (tmpColor[2] * YWhite);
 
 			aMeasure = ColorXYZ(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 		}

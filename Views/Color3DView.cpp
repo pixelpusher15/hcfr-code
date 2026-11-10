@@ -407,7 +407,7 @@ static double SceneDiffuseWhiteY( CMeasure * pM )
 	// the same diffuse white or bright patches/targets fly out of scale.
 	if ( GetConfig()->m_GammaOffsetType == 5 )
 	{
-		double tm = TmDiffuseWhiteNits( pM->GetGrayScaleWhite(), pM->GetOnOffBlack() );
+		double tm = TmDiffuseWhiteNits( pM->GetGrayScaleWhite(), pM->GetGrayScaleBlack() );
 		// never fall through to the SDR path here: its measured-white fallbacks
 		// return PEAK white in PQ (up to ~100x diffuse), which would collapse
 		// the whole scene toward the floor. Same fallback GetHDRRefScale uses.
@@ -576,7 +576,7 @@ void C3DColorView::BuildScene()
 		{
 			// theoretical luminance from the target gamma / EOTF curve
 			double gridRatio = GridGrayTargetRatio( pMeasure, pMeasure->GetGrayReadingProp( GRAY_SERIES_GRAYSCALE, i ),
-													pMeasure->GetOnOffBlack(), gsWhiteY, gammaOffset );
+													pMeasure->GetGrayScaleBlack(), gsWhiteY, gammaOffset );
 			deRatio   = gridRatio;
 			markRatio = gridRatio * markPerGrid;
 		}
@@ -620,7 +620,7 @@ void C3DColorView::BuildScene()
 				// PQ, near-white counts back from the clip col); near-black
 				// anchors getL_EOTF on its own first patch.
 				double valx = pMeasure->GetGrayReadingProp( nb ? GRAY_SERIES_NEAR_WHITE : GRAY_SERIES_NEAR_BLACK, i );
-				CColor blackRef = nb ? pMeasure->GetOnOffBlack() : pMeasure->GetNearBlack( 0 );
+				CColor blackRef = nb ? pMeasure->GetGrayScaleBlack() : pMeasure->GetNearBlack( 0 );
 				double gridRatio = GridGrayTargetRatio( pMeasure, valx, blackRef, gsWhiteY, gammaOffset );
 				deRatio   = gridRatio;
 				markRatio = gridRatio * markPerGrid;
