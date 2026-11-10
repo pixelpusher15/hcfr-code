@@ -3976,9 +3976,76 @@ namespace T43Drive
     }
 }
 
+// T43 (nbw) - the near charts' white in the point's quantity (libHCFR
+// NearChartWhite, near black's charts and near white's luma and lux traces).
+// Luminance curve mode 1 shows a reading's lux when it carries one, its Y
+// otherwise; main divided every near-black point by the gray top's
+// GetLuxOrLumaValue, so a point read without the luxmeter (cd/m2) was divided
+// by lux. The rule: a point in lux takes a white carrying lux, its lux; any
+// other point takes the white's Y, whatever its lux status. Synthetic whites:
+// Y 100 cd/m2 reading 300 lux (lux about 3x nits), near white's top Y 95 with
+// or without 285 lux.
+static void T43NearChartWhite()
+{
+    printf("T43 (nbw) near-chart white in the point's quantity...\n");
+    CColor grayLux(95.0, 100.0, 108.0), grayNits(95.0, 100.0, 108.0);
+    grayLux.SetLuxValue(300.0);
+    CColor nwLux(90.0, 95.0, 103.0), nwNits(90.0, 95.0, 103.0);
+    nwLux.SetLuxValue(285.0);
+    CColor grayZero(0.0, 0.0, 0.0);
+    struct Case { const char* what; int cs, mode; bool ptLux; const CColor* g; const CColor* nw; double want; bool fromGray; };
+    const Case cases[] = {
+        // the defect: mode 1, a point without lux, the gray top with lux -> its Y
+        { "mode 1 luma trace, point nits, gray top lux -> its Y", 1, 1, false, &grayLux, &nwNits, 100.0, true },
+        { "mode 1 luma trace, point nits, both whites lux -> gray top Y", 1, 1, false, &grayLux, &nwLux, 100.0, true },
+        { "mode 1 luma trace, point lux, gray top lux", 1, 1, true, &grayLux, &nwNits, 300.0, true },
+        { "mode 1 luma trace, point lux, gray top nits -> near white lux", 1, 1, true, &grayNits, &nwLux, 285.0, false },
+        { "mode 1 luma trace, point lux, no lux white -> none", 1, 1, true, &grayNits, &nwNits, 0.0, false },
+        { "mode 1 luma trace, point nits, gray top nits", 1, 1, false, &grayNits, &nwLux, 100.0, true },
+        // R/G/B traces: the white's luma, whatever its lux (the deliberate luma normalization)
+        { "mode 1 RGB trace, gray top lux -> its Y", 0, 1, false, &grayLux, &nwLux, 100.0, true },
+        { "mode 1 RGB trace, point lux, gray top lux -> its Y", 0, 1, true, &grayLux, &nwLux, 100.0, true },
+        // outside mode 1 every luma trace is Y on both sides: main's value
+        { "mode 0 luma trace, gray top lux -> its Y", 1, 0, true, &grayLux, &nwLux, 100.0, true },
+        { "mode 2 luma trace, gray top lux -> its Y", 1, 2, false, &grayLux, &nwLux, 100.0, true },
+        { "mode 0 RGB trace", 0, 0, false, &grayNits, &nwNits, 100.0, true },
+        // the lux trace: a white carrying lux (main: the gray top's lux, else near white's)
+        { "lux trace, gray top lux", 2, 2, true, &grayLux, &nwLux, 300.0, true },
+        { "lux trace, gray top nits -> near white lux", 2, 2, true, &grayNits, &nwLux, 285.0, false },
+        { "lux trace, no lux white -> none", 2, 2, true, &grayNits, &nwNits, 0.0, false },
+        // fallbacks
+        { "no gray top -> near white", 1, 0, false, &noDataColor, &nwNits, 95.0, false },
+        { "gray top Y 0 -> near white", 1, 0, false, &grayZero, &nwNits, 95.0, false },
+        { "no white at all -> none", 1, 0, false, &noDataColor, &noDataColor, 0.0, false },
+    };
+    for (const Case& c : cases)
+    {
+        bool fromGray = !c.fromGray;
+        const double w = NearChartWhite(c.cs, c.mode, c.ptLux, *c.g, *c.nw, &fromGray);
+        if (w != c.want || fromGray != c.fromGray)
+            Fail("T43 (nbw) %s: white %.17g (gray top %d), expected %.17g (gray top %d)", c.what, w, (int)fromGray, c.want, (int)c.fromGray);
+    }
+    // Every non-lux document, every curve mode, luma and RGB traces: main's
+    // value bit for bit, the gray top's GetLuxOrLumaValue ( mode ) (= Y).
+    for (int mode = 0; mode < 3; ++mode)
+        for (int cs = 0; cs < 2; ++cs)
+            if (NearChartWhite(cs, mode, false, grayNits, nwNits) != grayNits.GetLuxOrLumaValue(mode))
+                Fail("T43 (nbw) non-lux document, mode %d, colorSpace %d: not main's white", mode, cs);
+    // The shift the defect caused at 5%: a point at Y 5% of white, divided by
+    // 300 lux instead of 100 cd/m2, plotted log(3)/-log(0.05) = 0.367 gamma higher.
+    {
+        const double y = 100.0 * pow(0.05, 2.2);
+        const double right = log(y / NearChartWhite(1, 1, false, grayLux, nwNits)) / log(0.05);
+        const double wrong = log(y / grayLux.GetLuxOrLumaValue(1)) / log(0.05);
+        if (fabs(right - 2.2) > 1e-12 || fabs((wrong - right) - 0.36672) > 1e-4)
+            Fail("T43 (nbw) 5%% shift: right %.6f wrong %.6f", right, wrong);
+    }
+}
+
 static void RunT43()
 {
     printf("T43 gray reading level: stamped drive or the slot (wire stamp)...\n");
+    T43NearChartWhite();
     using namespace T43Drive;
     const int F = WIRE_RANGE_FULL, L = WIRE_RANGE_LIMITED;
 

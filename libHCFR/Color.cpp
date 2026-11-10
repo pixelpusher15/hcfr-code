@@ -5049,3 +5049,33 @@ CColor BlackTargetReference ( const CColor & aMeasure, double YWhite, const CCol
 	blackRef.SetxyYValue ( tmpColor );
 	return blackRef;
 }
+
+// THE NEAR-CHART WHITE (near black's charts, near white's luma and lux
+// traces). The point is in lux when it shows one: a lux trace, or a luma trace
+// in luminance curve mode 1 whose reading carries a lux value. Then the white
+// must carry lux and its lux is used. Otherwise the point is in cd/m2 and the
+// white's Y is used, whatever its lux status. That includes the R, G and B
+// traces: they divide their channel by the white's LUMA on purpose (HCFR's RGB
+// matrix gives R = G = B = Y at the target white, so the trace shows each
+// channel's gain against it). Main took GetLuxOrLumaValue for every trace, the
+// white's lux in curve mode 1 - a point in cd/m2 divided by lux.
+// A white is usable when it is valid and that value is finite and > 0. The
+// gray scale's top when usable, else near white's top, else none (0).
+static double NearChartWhiteOf ( const CColor & c, bool bLux )
+{
+	if ( ! c.isValid () || ( bLux && ! c.HasLuxValue () ) )
+		return 0.0;
+	const double y = bLux ? c.GetLuxValue () : c.GetY ();
+	return ( y > 0.0 && _finite ( y ) ) ? y : 0.0;
+}
+
+double NearChartWhite ( int colorSpace, int luminanceCurveMode, bool pointHasLux, const CColor & grayTop, const CColor & nearWhiteTop, bool * pFromGrayTop )
+{
+	const bool bLux = ( colorSpace == 2 ) || ( colorSpace == 1 && luminanceCurveMode == 1 && pointHasLux );
+	double y = NearChartWhiteOf ( grayTop, bLux );
+	if ( pFromGrayTop )
+		*pFromGrayTop = ( y > 0.0 );
+	if ( y > 0.0 )
+		return y;
+	return NearChartWhiteOf ( nearWhiteTop, bLux );
+}

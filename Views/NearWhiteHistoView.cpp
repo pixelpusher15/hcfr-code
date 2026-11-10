@@ -309,18 +309,16 @@ LogGraphID : graph ID for log drawing, -1 if no Log drawing
 // denominator. Every finite value is drawn as before. The reference log
 // curve is not guarded (main's, unchanged).
 
-// The lux white of the near-white lux trace, taken as the near-black chart's lux
-// branch takes it: the gray scale's top lux, else near white's top lux, else 0.
-static double NearChartLuxWhite ( CMeasure * pMeasure )
+// The white of the near-white luma and lux traces, in the point's quantity
+// (libHCFR NearChartWhite, as the near-black chart): the gray scale's top, else
+// near white's top, else 0.
+static double NearWhiteChartWhite ( CMeasure * pMeasure, int ColorSpace, int PointIndex )
 {
-	double lux = 0.0;
 	const int grayscalesize = pMeasure->GetGrayScaleSize();
 	const int nearwhitescalesize = pMeasure->GetNearWhiteScaleSize();
-	if ( grayscalesize > 0 && pMeasure->GetGray(grayscalesize-1).isValid() )
-		lux = pMeasure->GetGray(grayscalesize-1).GetLuxValue();
-	if ( lux == 0 && nearwhitescalesize > 0 && pMeasure->GetNearWhite(nearwhitescalesize-1).isValid() )
-		lux = pMeasure->GetNearWhite(nearwhitescalesize-1).GetLuxValue();
-	return lux;
+	return NearChartWhite ( ColorSpace, GetConfig () -> m_nLuminanceCurveMode, pMeasure->GetNearWhite(PointIndex).HasLuxValue (),
+							grayscalesize > 0 ? pMeasure->GetGray(grayscalesize-1) : noDataColor,
+							nearwhitescalesize > 0 ? pMeasure->GetNearWhite(nearwhitescalesize-1) : noDataColor );
 }
 
 // The camera-gamma offset this chart's reference curve evaluates its level with
@@ -366,22 +364,16 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	{
 		max=pDataSet->GetMeasure()->GetNearWhite(Size-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 		colorlevel=pDataSet->GetMeasure()->GetNearWhite(PointIndex).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
-		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
-
-		if (pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else if (pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else
-			whitelvl=0;
+		// In the point's quantity: main divided a point read without the
+		// luxmeter by the gray top's lux in luminance curve mode 1.
+		whitelvl = NearWhiteChartWhite ( pDataSet->GetMeasure(), ColorSpace, PointIndex );
 	}
 	else 
 	{
 		max=pDataSet->GetMeasure()->GetNearWhite(Size-1).GetLuxValue();
 		colorlevel=pDataSet->GetMeasure()->GetNearWhite(PointIndex).GetLuxValue();
 		// whitelvl was never set here (main read it uninitialized).
-		whitelvl = NearChartLuxWhite ( pDataSet->GetMeasure() );
+		whitelvl = NearWhiteChartWhite ( pDataSet->GetMeasure(), ColorSpace, PointIndex );
 	}
 
 	if ( pDataSet->GetMeasure()->GetNearWhite(PointIndex).HasLuxValue () )
