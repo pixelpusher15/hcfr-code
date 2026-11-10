@@ -200,7 +200,9 @@ void CNearWhiteGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// Plotted at the reading's level x when a camera-gamma offset shifts
 			// valx off it (as the gamma chart plots its reference), else at valx,
 			// as before.
-			if(val > 0 && i != (size-1))	// log scale is not valid for last value
+			// No point where the value is not finite: valx = 1 below the top
+			// (clip column 102) gives log ( 1 ) = 0.
+			if(val > 0 && i != (size-1) && _finite ( log(val)/log(valx) ))	// log scale is not valid for last value
 				 m_logGraphCtrl.AddPoint(m_refLogGraphID, ( mode < 4 && GammaOffset != 0.0 ) ? x : valx * 100, log(val)/log(valx));
 
 		}
@@ -335,6 +337,11 @@ static double PointGammaOffsetFor ( CDataSetDoc * pDataSet )
 	return PointGammaEffectiveOffset ( GetConfig()->m_GammaOffsetType, bsRGB, offset );
 }
 
+static bool NearChartIsPQ ()
+{
+	return GetConfig()->m_GammaOffsetType == 5 && GetConfig()->m_colorStandard != sRGB;
+}
+
 void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID = -1)
 {
 	double max;
@@ -401,7 +408,53 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
     // ( V + o ) / ( 1 + o ), o the document's own offset: so does the point
     // (PointGammaLevel; o = 0, and the level is xLog bit for bit, elsewhere).
     const double level = PointGammaLevel ( xLog, PointGammaOffsetFor ( pDataSet ) );
-    if(whitelvl>0 && PointIndex != (Size-1))	// log scale is not valid for last value
+    if ( NearChartIsPQ () )
+    {
+        // PQ: the reference beside it plots the EOTF relative to the gray scale's
+        // 100% reading (White.GetY ()) at the absolute level V. So the point
+        // divides Y by that reading, in the trace's quantity (as main's max: the
+        // channel, luma or lux - the log trace's own normalization), with V_white
+        // = 1, and V is the level it is drawn at (main counted it back from 101
+        // while X uses the clip column). The series' top (max) at its own level
+        // stands in only when the gray top is unusable: invalid, not > 0, or in
+        // luminance curve mode 1 of another lux status than the point. A 100%
+        // point below the top (clip column 102) has no point gamma.
+        double yWhite = max;
+        double vWhite = pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, Size-1 );
+        const int grayscalesize = pDataSet->GetMeasure()->GetGrayScaleSize();
+        if ( grayscalesize > 0 && pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid() )
+        {
+            const CColor grayTop = pDataSet->GetMeasure()->GetGray(grayscalesize-1);
+            const bool bPointLux = pDataSet->GetMeasure()->GetNearWhite(PointIndex).HasLuxValue();
+            double y = 0.0;
+            bool bSame;
+            if ( ColorSpace == 0 )
+            {
+                y = grayTop.GetRGBValue(GetColorReference())[ColorIndex];
+                bSame = true;
+            }
+            else if ( ColorSpace == 1 )
+            {
+                y = grayTop.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+                bSame = ( GetConfig () -> m_nLuminanceCurveMode != 1 ) || ( grayTop.HasLuxValue() == bPointLux );
+            }
+            else
+            {
+                y = grayTop.GetLuxValue();
+                bSame = grayTop.HasLuxValue() && bPointLux;
+            }
+            if ( bSame && y > 0.0 && _finite ( y ) )
+            {
+                yWhite = y;
+                vWhite = 1.0;
+            }
+        }
+        double pointGamma;
+        if ( whitelvl>0 && PointIndex != (Size-1)
+             && NearChartPointGamma ( colorlevel, pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, PointIndex ), yWhite, vWhite, 0.0, &pointGamma ) )
+            m_logGraphCtrl.AddPoint(LogGraphID, xPlot, pointGamma, lpMsg);
+    }
+    else if(whitelvl>0 && PointIndex != (Size-1))	// log scale is not valid for last value
 	{
 		const double pointGamma = log(colorlevel/max)/log(level);
 		if ( _finite ( pointGamma ) )

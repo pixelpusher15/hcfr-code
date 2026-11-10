@@ -3811,6 +3811,77 @@ static void T43CameraGamma()
 }
 
 // =============================================================================
+// T43 (pq) - PQ near-black / near-white log points in the reference's own
+// definition (NearChartPointGamma): Y relative to the gray scale's 100% reading,
+// V the level the point is drawn at, V_white = 1. Synthetic display: an ideal
+// SMPTE ST 2084 EOTF clipping at 1000 cd/m2 (the gray scale's 100% reads 1000),
+// 8-bit full, near white with clip column 76 (65..75%). The reference beside
+// the points plots log ( L ( V ) / L_white ) / log ( V ).
+// =============================================================================
+static double T43PQEotf(double e)
+{
+    // SMPTE ST 2084 EOTF, cd/m2
+    const double m1 = 2610.0 / 16384.0, m2 = 2523.0 / 4096.0 * 128.0;
+    const double c1 = 3424.0 / 4096.0, c2 = 2413.0 / 4096.0 * 32.0, c3 = 2392.0 / 4096.0 * 32.0;
+    const double p = pow(e, 1.0 / m2);
+    return 10000.0 * pow((std::max)(p - c1, 0.0) / (c2 - c3 * p), 1.0 / m1);
+}
+
+static void T43PQLog()
+{
+    printf("T43 (pq) PQ near-chart log points on the reference's white and level...\n");
+    const double peak = 1000.0;
+    auto Y = [&](double v) { return (std::min)(T43PQEotf(v), peak); };
+    auto V = [](int n) { return GrayLevelToGrayProp((double)n, false, false, false); };
+    // near white, clip column 76, size 11: 65..75%
+    const int clip = 76, size = 11;
+    const double vTop = V(clip - 1), yTop = Y(vTop);
+    for (int i = 0; i < size - 1; ++i)
+    {
+        const int n = clip - size + i;
+        const double v = V(n), y = Y(v);
+        const double ref = log(y / peak) / log(v);
+        double pg = 0.0;
+        if (!NearChartPointGamma(y, v, peak, 1.0, 0.0, &pg))
+        {
+            Fail("T43 (pq) near white %d%%: no point", n);
+            continue;
+        }
+        if (n >= 71 && n <= 74 && fabs(pg - ref) > 0.002)
+            Fail("T43 (pq) near white %d%%: %.4f, reference %.4f (want within 0.002)", n, pg, ref);
+        if (fabs(pg - ref) > 1e-12)
+            Fail("T43 (pq) near white %d%%: %.17g off the reference %.17g", n, pg, ref);
+        // the series' top (at 75%) taken as the white at V_white = 1 sits
+        // 0.07..0.09 low here (it reads less than the 100% white unless the
+        // display clips at the top), and main's level counted back from 101
+        // puts the point far off
+        double pgTop = 0.0;
+        NearChartPointGamma(y, v, yTop, 1.0, 0.0, &pgTop);
+        const double pgMain = log(y / yTop) / log(V(i + 101 - size));
+        if (n >= 71 && n <= 74 && !(ref - pgTop > 0.07 && ref - pgTop < 0.09))
+            Fail("T43 (pq) near white %d%%: series-top white %.4f vs reference %.4f, expected 0.07..0.09 low", n, pgTop, ref);
+        if (n >= 71 && n <= 74 && fabs(pgMain - ref) < 0.5)
+            Fail("T43 (pq) near white %d%%: main's form %.4f unexpectedly near the reference %.4f", n, pgMain, ref);
+    }
+    // near black in PQ: the level drawn is 2k%; on the reference at every step
+    for (int k = 1; k < 50; ++k)
+    {
+        const double v = V(2 * k), y = Y(v);
+        double pg = 0.0;
+        if (!NearChartPointGamma(y, v, peak, 1.0, 0.0, &pg) || fabs(pg - log(y / peak) / log(v)) > 1e-12)
+            Fail("T43 (pq) near black %d%%: %.6f, reference %.6f", 2 * k, pg, log(y / peak) / log(v));
+    }
+    // a 100% point below the top (clip column 102) and V = 0: no point; no white: no point
+    double pg = 0.0;
+    if (NearChartPointGamma(500.0, 1.0, peak, 1.0, 0.0, &pg) || NearChartPointGamma(0.1, 0.0, peak, 1.0, 0.0, &pg)
+        || NearChartPointGamma(500.0, 0.5, 0.0, 1.0, 0.0, &pg) || NearChartPointGamma(0.0, 0.5, peak, 1.0, 0.0, &pg))
+        Fail("T43 (pq) a point at V = 1, V = 0, without a white or at Y = 0 was drawn");
+    // a white standing in at its own level: Y and V normalized to the same reading
+    if (!NearChartPointGamma(Y(0.3), 0.3, Y(0.6), 0.6, 0.0, &pg) || fabs(pg - log(Y(0.3) / Y(0.6)) / log(0.5)) > 1e-12)
+        Fail("T43 (pq) white at its own level: %.17g", pg);
+}
+
+// =============================================================================
 // T43 - where an existing gray reading sits on a gray-level axis (libHCFR
 // ReadingWireGrayProp / ReadingGrayProp and the GraySeries
 // accessor core behind CMeasure::GetGrayReadingLevel / Prop). Pure assertions,
@@ -6013,6 +6084,7 @@ int main(int argc, char* argv[])
     RunT42();
     RunT43();
     T43CameraGamma();
+    T43PQLog();
     RunT44();
     RunT45();
     RunT46();

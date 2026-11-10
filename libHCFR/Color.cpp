@@ -4793,6 +4793,25 @@ double PointGammaLevel ( double prop, double offset )
 	return ( prop + offset ) / ( 1.0 + offset );
 }
 
+// A measured point of a near-chart log trace in the reference curve's own
+// definition: log ( y / yWhite ) / log ( L ( v ) / L ( vWhite ) ), L =
+// PointGammaLevel. The reference beside it plots log ( val ) / log ( valx ),
+// val relative to the gray scale's 100% reading and valx the absolute level:
+// so with that white, vWhite = 1. FALSE (no point) without a white > 0, where
+// v is not inside ( 0, 1 ) - a 100% patch below the top (clip column 102) has
+// log ( 1 ) = 0, and the reference drops it too - and where the value is not
+// finite.
+bool NearChartPointGamma ( double y, double v, double yWhite, double vWhite, double offset, double * pGamma )
+{
+	if ( ! ( yWhite > 0.0 && _finite ( yWhite ) ) || ! ( v > 0.0 && v < 1.0 ) )
+		return false;
+	const double g = log ( y / yWhite ) / log ( PointGammaLevel ( v, offset ) / PointGammaLevel ( vWhite, offset ) );
+	if ( ! _finite ( g ) )
+		return false;
+	*pGamma = g;
+	return true;
+}
+
 // The two gray-ramp quantizers below select their grid via VideoCodeGrid (see
 // SnapToVideoGrid above). Their legacy limited-range forms carried the black
 // offset explicitly (floor(x + 16.5) - 16.0, and 64.5 / 64.0 at 10 bits).
