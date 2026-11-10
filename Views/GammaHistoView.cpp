@@ -483,7 +483,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	{
 	if (ColorSpace == 0) 
 	{
-		blacklvl=pDataSet->GetMeasure()->GetGray(0).GetRGBValue((GetColorReference()))[ColorIndex];
+		blacklvl=Black.GetRGBValue((GetColorReference()))[ColorIndex];
 		whitelvl=White.GetRGBValue((GetColorReference()))[ColorIndex];
 		colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetRGBValue((GetColorReference()))[ColorIndex];
 		if (GetConfig()->m_GammaOffsetType == 5)
@@ -491,7 +491,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	}
 	else if (ColorSpace == 1) 
 	{
-		blacklvl=pDataSet->GetMeasure()->GetGray(0).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+		blacklvl=Black.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 		whitelvl=White.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 		colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 		if (GetConfig()->m_GammaOffsetType == 5)
@@ -499,7 +499,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	}
 	else 
 	{
-		blacklvl=pDataSet->GetMeasure()->GetGray(0).GetLuxValue();
+		blacklvl=Black.GetLuxValue();
 		whitelvl=White.GetLuxValue();
 		colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxValue();
 	}
