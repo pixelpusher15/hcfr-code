@@ -8722,16 +8722,17 @@ CColor CMeasure::GetGrayScaleBlack() const
 	// not the live preference. A gray scale swept under the override holds the
 	// override black in slot 0 together with the lux measured beside it (the
 	// sweep writes m_userBlack plus the lux there), so that slot is returned when
-	// it holds the override black; a slot 0 measured before the override was
-	// turned on holds the measured black, and m_userBlack (no lux) is returned.
+	// it holds the override black: valid, with NO raw value (the sweep writes no
+	// raw reading for it) and the override's Y exactly. X and Z are not compared:
+	// a pass re-derives them with other white-point constants, so the stored
+	// slot does not hold m_userBlack's X/Z bit for bit, while Y is untouched. A
+	// slot 0 with a raw value is a black measured before the override was turned
+	// on and is not returned; m_userBlack (no lux) is returned then.
 	if ( m_bOverRideBlack && m_userBlack.isValid () )
 	{
-		if ( m_grayMeasureArray.GetSize () > 0 && m_grayMeasureArray[0].isValid () )
-		{
-			const ColorXYZ s = m_grayMeasureArray[0].GetXYZValue (), u = m_userBlack.GetXYZValue ();
-			if ( s[0] == u[0] && s[1] == u[1] && s[2] == u[2] )
-				return m_grayMeasureArray[0];
-		}
+		if ( m_grayMeasureArray.GetSize () > 0 && m_grayMeasureArray[0].isValid ()
+			 && ! m_grayMeasureArray[0].HasRawXYZValue () && m_grayMeasureArray[0].GetY () == m_userBlack.GetY () )
+			return m_grayMeasureArray[0];
 		return m_userBlack;
 	}
 	return GrayScaleBlack ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffBlack );
