@@ -474,7 +474,6 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 
 	if (pDataSet->GetMeasure()->GetGray(PointIndex).isValid())
 	{
-		pDataSet->GetMeasure()->SetGray(Size-1, pDataSet->GetMeasure()->GetOnOffWhite());
 	if (ColorSpace == 0) 
 	{
 		blacklvl=pDataSet->GetMeasure()->GetGray(0).GetRGBValue((GetColorReference()))[ColorIndex];
