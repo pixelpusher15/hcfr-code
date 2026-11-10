@@ -1005,6 +1005,12 @@ extern void ClearUserPatchOverride ();
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );
+// The offset a near-chart point's level carries, as the reference curve beside
+// it: the document's fitted ComputeGammaAndOffset offset when the mode
+// (GammaOffsetType, 99 under the sRGB standard) is below 4, else 0.
+double PointGammaEffectiveOffset ( int gammaOffsetType, bool sRGBStandard, double fittedOffset );
+// A point's level for the log charts: ( prop + offset ) / ( 1 + offset ).
+double PointGammaLevel ( double prop, double offset );
 // is16_235 is REQUIRED (no default): it selects the 219/255/876/1023 code grid
 // exactly as SnapToVideoGrid does, and a default would silently leave any
 // un-updated call site quantizing a full-range wire against the limited grid.

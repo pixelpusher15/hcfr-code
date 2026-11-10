@@ -4772,6 +4772,27 @@ double HLG_SignalToScene ( double v )
 	return ( exp( ( v - c ) / a ) + b ) / 12.0;
 }
 
+// The near-black and near-white log charts plot, for the reference curve and
+// for every measured point, log ( Y relative to white ) / log ( level ). The
+// reference (NearBlackHistoView / NearWhiteHistoView UpdateGraph) evaluates its
+// level as ( valx + GammaOffset ) / ( 1 + GammaOffset ) when its mode - the
+// GammaOffsetType, 99 under the sRGB standard - is below 4, and as valx
+// otherwise; ComputeGammaAndOffset gives a non-zero offset only for types 2
+// and 3 (the camera gammas), so those are the modes where a point's level is
+// not its own proportion. The gamma chart applies the same offset to its
+// measured points (GammaHistoView, valxprime).
+double PointGammaEffectiveOffset ( int gammaOffsetType, bool sRGBStandard, double fittedOffset )
+{
+	const int mode = sRGBStandard ? 99 : gammaOffsetType;
+	return ( mode < 4 ) ? fittedOffset : 0.0;
+}
+
+// ( prop + offset ) / ( 1 + offset ): with offset 0 exactly prop, bit for bit.
+double PointGammaLevel ( double prop, double offset )
+{
+	return ( prop + offset ) / ( 1.0 + offset );
+}
+
 // The two gray-ramp quantizers below select their grid via VideoCodeGrid (see
 // SnapToVideoGrid above). Their legacy limited-range forms carried the black
 // offset explicitly (floor(x + 16.5) - 16.0, and 64.5 / 64.0 at 10 bits).
