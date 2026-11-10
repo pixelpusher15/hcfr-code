@@ -524,13 +524,13 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 		bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
 
 		// Reading PointIndex of THIS trace's document at its stamped drive, else
-		// its slot on the current grid - the stamp decoded once, the values
-		// GetGrayReadingLevel / Prop give.
+		// its slot on the current grid: the stamp decoded once, and the values
+		// GetGrayReadingLevel / Prop give (their fallbacks are the slot level and
+		// GraySeriesSlotProp). bStamped and drive also pick the HDR delta below.
 		double drive;
 		const bool bStamped = pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_GRAYSCALE, PointIndex, & drive );
-		const double slotLevel = pDataSet->GetMeasure()->GetGrayPercent ( PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
-		double x = bStamped ? drive * 100.0 : slotLevel;
-		const double prop = pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, PointIndex );
+		double x = bStamped ? drive * 100.0 : pDataSet->GetMeasure()->GetGrayPercent ( PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+		const double prop = bStamped ? drive : GraySeriesSlotProp ( pDataSet->GetMeasure()->GetGraySeriesView ( GRAY_SERIES_GRAYSCALE ), PointIndex );
 
 		double valxprime=(prop+GammaOffset)/(1.0+GammaOffset);
 
