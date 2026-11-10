@@ -368,11 +368,12 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	// scale's top, else near white's top, else none. In luminance curve mode 1
 	// a point read without the luxmeter is in cd/m2 and main divided it by the
 	// gray top's lux; an R, G or B trace divides by the white's luma.
+	bool bGrayWhite = false;		// whether the gray top is that white (the PQ log level below)
 	{
 		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
 		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
 		whitelvl = NearChartWhite ( ColorSpace, GetConfig () -> m_nLuminanceCurveMode, pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue (),
-										 pDataSet->GetMeasure()->GetGray(grayscalesize-1), pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1) );
+										 pDataSet->GetMeasure()->GetGray(grayscalesize-1), pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1), &bGrayWhite );
 	}
 
 	if ( pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue () )
@@ -405,12 +406,10 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 		// 100% reading, at the absolute level V. So the point divides Y by the same
 		// white (whitelvl: the gray top, its luma - the luma normalization is kept)
 		// with V_white = 1, and V is the level it is drawn at, 2k% (main divided by
-		// k%). When near white's top stands in for a missing gray top, its own
-		// level is V_white. A 100% point (V = 1) has no point gamma.
-		const int grayscalesize = pDataSet->GetMeasure()->GetGrayScaleSize();
+		// k%). When near white's top stands in for a missing gray top (NearChartWhite
+		// did not take the gray top), its own level is V_white. A 100% point (V = 1)
+		// has no point gamma.
 		const int nearwhitescalesize = pDataSet->GetMeasure()->GetNearWhiteScaleSize();
-		const bool bGrayWhite = grayscalesize > 0 && pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid()
-								&& ( ColorSpace != 2 || pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxValue() != 0 );
 		const double vWhite = ( bGrayWhite || nearwhitescalesize <= 0 ) ? 1.0
 							  : pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, nearwhitescalesize-1 );
 		double pointGamma;

@@ -311,14 +311,14 @@ LogGraphID : graph ID for log drawing, -1 if no Log drawing
 
 // The white of the near-white luma and lux traces, in the point's quantity
 // (libHCFR NearChartWhite, as the near-black chart): the gray scale's top, else
-// near white's top, else 0.
-static double NearWhiteChartWhite ( CMeasure * pMeasure, int ColorSpace, int PointIndex )
+// near white's top, else 0. *pFromGrayTop: whether the gray top was taken.
+static double NearWhiteChartWhite ( CMeasure * pMeasure, int ColorSpace, int PointIndex, bool * pFromGrayTop = NULL )
 {
 	const int grayscalesize = pMeasure->GetGrayScaleSize();
 	const int nearwhitescalesize = pMeasure->GetNearWhiteScaleSize();
 	return NearChartWhite ( ColorSpace, GetConfig () -> m_nLuminanceCurveMode, pMeasure->GetNearWhite(PointIndex).HasLuxValue (),
 							grayscalesize > 0 ? pMeasure->GetGray(grayscalesize-1) : noDataColor,
-							nearwhitescalesize > 0 ? pMeasure->GetNearWhite(nearwhitescalesize-1) : noDataColor );
+							nearwhitescalesize > 0 ? pMeasure->GetNearWhite(nearwhitescalesize-1) : noDataColor, pFromGrayTop );
 }
 
 // The camera-gamma offset this chart's reference curve evaluates its level with
@@ -404,42 +404,35 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
     {
         // PQ: the reference beside it plots the EOTF relative to the gray scale's
         // 100% reading (White.GetY ()) at the absolute level V. So the point
-        // divides Y by that reading, in the trace's quantity (as main's max: the
-        // channel, luma or lux - the log trace's own normalization), with V_white
-        // = 1, and V is the level it is drawn at (main counted it back from 101
-        // while X uses the clip column). The series' top (max) at its own level
-        // stands in only when the gray top is unusable: invalid, not > 0, or in
-        // luminance curve mode 1 of another lux status than the point. A 100%
-        // point below the top (clip column 102) has no point gamma.
+        // divides Y by that reading with V_white = 1, and V is the level it is
+        // drawn at (main counted it back from 101 while X uses the clip column).
+        // The white is in the trace's quantity: for the luma and lux traces the
+        // white the linear chart takes (NearChartWhite: the gray top, else
+        // near white's top at its own level); for an R, G or B trace the gray
+        // top's channel, as the log trace's own max, else the series' top (max)
+        // at its own level. A 100% point below the top (clip column 102) has no
+        // point gamma.
         double yWhite = max;
         double vWhite = pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, Size-1 );
-        const int grayscalesize = pDataSet->GetMeasure()->GetGrayScaleSize();
-        if ( grayscalesize > 0 && pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid() )
+        if ( ColorSpace == 0 )
         {
-            const CColor grayTop = pDataSet->GetMeasure()->GetGray(grayscalesize-1);
-            const bool bPointLux = pDataSet->GetMeasure()->GetNearWhite(PointIndex).HasLuxValue();
-            double y = 0.0;
-            bool bSame;
-            if ( ColorSpace == 0 )
+            const int grayscalesize = pDataSet->GetMeasure()->GetGrayScaleSize();
+            if ( grayscalesize > 0 && pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid() )
             {
-                y = grayTop.GetRGBValue(GetColorReference())[ColorIndex];
-                bSame = true;
+                const double y = pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetRGBValue(GetColorReference())[ColorIndex];
+                if ( y > 0.0 && _finite ( y ) )
+                {
+                    yWhite = y;
+                    vWhite = 1.0;
+                }
             }
-            else if ( ColorSpace == 1 )
-            {
-                y = grayTop.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-                bSame = ( GetConfig () -> m_nLuminanceCurveMode != 1 ) || ( grayTop.HasLuxValue() == bPointLux );
-            }
-            else
-            {
-                y = grayTop.GetLuxValue();
-                bSame = grayTop.HasLuxValue() && bPointLux;
-            }
-            if ( bSame && y > 0.0 && _finite ( y ) )
-            {
-                yWhite = y;
+        }
+        else
+        {
+            bool bGrayWhite = false;
+            yWhite = NearWhiteChartWhite ( pDataSet->GetMeasure(), ColorSpace, PointIndex, &bGrayWhite );
+            if ( bGrayWhite )
                 vWhite = 1.0;
-            }
         }
         double pointGamma;
         if ( whitelvl>0 && PointIndex != (Size-1)
