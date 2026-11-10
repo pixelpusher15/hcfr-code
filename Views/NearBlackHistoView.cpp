@@ -157,6 +157,23 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		valformax=pow((double)(size-1)/100.0, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef) );
 	}
 
+	// The camera-gamma offset of the log points (libHCFR PointGammaEffectiveOffset):
+	// the reference document's ComputeGammaAndOffset, the offset its reference
+	// curve below evaluates with; 0 at mode >= 4 and under the sRGB standard. A
+	// comparison document's trace takes the SAME offset: in types 2 and 3 it is
+	// a configuration constant (0.099, or the manual offset), and a comparison
+	// document without a gray scale would otherwise fit 0 and be drawn beside a
+	// reference at 0.099.
+	// (ComputeGammaAndOffset reads the gray scale's top: not called without one;
+	// it fits a non-zero offset only for more than two points anyway.)
+	double PointOffset = 0.0;
+	if ( pDoc->GetMeasure()->GetGrayScaleSize() > 2 )
+	{
+		double gammaOpt, fitted;
+		pDoc->ComputeGammaAndOffset ( &gammaOpt, &fitted, 1, 1, pDoc->GetMeasure()->GetGrayScaleSize(), false );
+		PointOffset = PointGammaEffectiveOffset ( GetConfig()->m_GammaOffsetType, GetConfig()->m_colorStandard == sRGB, fitted );
+	}
+
 	m_graphCtrl.ClearGraph(m_refGraphID);
 	m_logGraphCtrl.ClearGraph(m_refLogGraphID);
 	if (m_showReference && m_refGraphID != -1 && size > 0)
@@ -203,8 +220,12 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				else
 	                m_graphCtrl.AddPoint(m_refGraphID, x, Y_to_abY(val,White.GetY()));
 
-			if((val > 0) && (i != 0))	// log scale is not valid for first value
-				m_logGraphCtrl.AddPoint(m_refLogGraphID, valx * 100. , log(val)/log(valx), NULL, NULL);
+			// Plotted at the reading's level x when a camera-gamma offset shifts
+			// valx off it (as the gamma chart plots its reference), else at valx,
+			// as before.
+			// No point where the value is not finite (valx = 1 gives log ( 1 ) = 0).
+			if((val > 0) && (i != 0) && _finite ( log(val)/log(valx) ))	// log scale is not valid for first value
+				m_logGraphCtrl.AddPoint(m_refLogGraphID, ( mode < 4 && GammaOffset != 0.0 ) ? x : valx * 100. , log(val)/log(valx), NULL, NULL);
 
 			valformax = val;
 		}
@@ -220,9 +241,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(0,0,size,i,pDoc,m_redLumGraphID,m_redLumLogGraphID,valformax);
+				AddPointtoLumGraph(0,0,size,i,pDoc,m_redLumGraphID,m_redLumLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,0,size,i,pDataRef,m_redLumDataRefGraphID,m_redLumDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(0,0,size,i,pDataRef,m_redLumDataRefGraphID,m_redLumDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -236,9 +257,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(0,1,size,i,pDoc,m_greenLumGraphID,m_greenLumLogGraphID,valformax);
+				AddPointtoLumGraph(0,1,size,i,pDoc,m_greenLumGraphID,m_greenLumLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,1,size,i,pDataRef,m_greenLumDataRefGraphID,m_greenLumDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(0,1,size,i,pDataRef,m_greenLumDataRefGraphID,m_greenLumDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -251,9 +272,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(0,2,size,i,pDoc,m_blueLumGraphID,m_blueLumLogGraphID,valformax);
+				AddPointtoLumGraph(0,2,size,i,pDoc,m_blueLumGraphID,m_blueLumLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,2,size,i,pDataRef,m_blueLumDataRefGraphID,m_blueLumDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(0,2,size,i,pDataRef,m_blueLumDataRefGraphID,m_blueLumDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -266,9 +287,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(1,1,size,i,pDoc,m_luminanceGraphID,m_luminanceLogGraphID,valformax);
+				AddPointtoLumGraph(1,1,size,i,pDoc,m_luminanceGraphID,m_luminanceLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(1,1,size,i,pDataRef,m_luminanceDataRefGraphID,m_luminanceDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(1,1,size,i,pDataRef,m_luminanceDataRefGraphID,m_luminanceDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -283,9 +304,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			for (int i=0; i<size; i++)
 			{
 				if ( bDataPresent && pDoc->GetMeasure()->GetNearBlack(0).HasLuxValue() )
-					AddPointtoLumGraph(2,1,size,i,pDoc,m_luxmeterGraphID,m_luxmeterLogGraphID,valformax);
+					AddPointtoLumGraph(2,1,size,i,pDoc,m_luxmeterGraphID,m_luxmeterLogGraphID,valformax,PointOffset);
 				if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc) && pDataRef->GetMeasure()->GetNearBlack(0).HasLuxValue() )
-					AddPointtoLumGraph(2,1,size,i,pDataRef,m_luxmeterDataRefGraphID,m_luxmeterDataRefLogGraphID,valformax);
+					AddPointtoLumGraph(2,1,size,i,pDataRef,m_luxmeterDataRefGraphID,m_luxmeterDataRefLogGraphID,valformax,PointOffset);
 			}
 		}
 	}
@@ -318,7 +339,12 @@ LogGraphID : graph ID for log drawing, -1 if no Log drawing
 // GrayLevelToGrayProp ( 50 ). Every finite value is drawn as before. The
 // reference log curve is not guarded (main's, unchanged).
 
-void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax)
+static bool NearChartIsPQ ()
+{
+	return GetConfig()->m_GammaOffsetType == 5 && GetConfig()->m_colorStandard != sRGB;
+}
+
+void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax, double PointOffset)
 {
 	double max,whitelvl;
 	double colorlevel;
@@ -329,47 +355,29 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	{
 		max=pDataSet->GetMeasure()->GetNearBlack(Size-1).GetRGBValue(GetColorReference())[ColorIndex] / Valformax;
 		colorlevel=pDataSet->GetMeasure()->GetNearBlack(PointIndex).GetRGBValue(GetColorReference())[ColorIndex];
-
-		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
-		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
-
-		if (pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else if (pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else
-			whitelvl=0;
 	}
 	else if (ColorSpace == 1) 
 	{
 		max=pDataSet->GetMeasure()->GetNearBlack(Size-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode) / Valformax;
 		colorlevel=pDataSet->GetMeasure()->GetNearBlack(PointIndex).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-
-		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
-		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
-
-		if (pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else if (pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else
-			whitelvl=0;
 	}
 	else 
 	{
 		max=pDataSet->GetMeasure()->GetNearBlack(Size-1).GetLuxValue() / Valformax;
 		colorlevel=pDataSet->GetMeasure()->GetNearBlack(PointIndex).GetLuxValue();
+	}
 
+	// The white, in the point's quantity (libHCFR NearChartWhite): the gray
+	// scale's top, else near white's top, else none. In luminance curve mode 1
+	// a point read without the luxmeter is in cd/m2 and main divided it by the
+	// gray top's lux; an R, G or B trace divides by the white's luma.
+	bool bGrayWhite = false;		// whether the gray top is that white (the PQ log level below)
+	{
 		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
 		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
-
-		whitelvl=0;
-		
-		if (pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxValue();
-		
-		if (whitelvl == 0 && pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).GetLuxValue();
+		whitelvl = NearChartWhite ( ColorSpace, GetConfig () -> m_nLuminanceCurveMode, pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue (),
+										 grayscalesize > 0 ? pDataSet->GetMeasure()->GetGray(grayscalesize-1) : noDataColor,
+										 nearwhitescalesize > 0 ? pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1) : noDataColor, &bGrayWhite );
 	}
 
 	if ( pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue () )
@@ -392,9 +400,31 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	const double xLog = pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_NEAR_BLACK, PointIndex, & drive )
 		? drive
 		: GrayLevelToGrayProp( (double)PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-	if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
+	// In the camera-gamma modes the reference beside it divides by the level
+	// ( V + o ) / ( 1 + o ), o the document's own offset: so does the point
+	// (PointGammaLevel; o = 0, and the level is xLog bit for bit, elsewhere).
+	const double level = PointGammaLevel ( xLog, PointOffset );
+	if ( NearChartIsPQ () )
 	{
-		const double pointGamma = log(colorlevel/whitelvl)/log(xLog);
+		// PQ: the reference beside it plots the EOTF relative to the gray scale's
+		// 100% reading, at the absolute level V. So the point divides Y by the same
+		// white (whitelvl: the gray top, its luma - the luma normalization is kept)
+		// with V_white = 1, and V is the level it is drawn at, 2k% (main divided by
+		// k%). When near white's top stands in for a missing gray top (NearChartWhite
+		// did not take the gray top), its own level is V_white. A 100% point (V = 1)
+		// has no point gamma.
+		const int nearwhitescalesize = pDataSet->GetMeasure()->GetNearWhiteScaleSize();
+		// (at most 1: an unstamped near-white top at clip column 102 sits on 102%)
+		const double vWhite = ( bGrayWhite || nearwhitescalesize <= 0 ) ? 1.0
+							  : min ( pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, nearwhitescalesize-1 ), 1.0 );
+		double pointGamma;
+		if ( (whitelvl > 0) && (PointIndex != 0)
+			 && NearChartPointGamma ( colorlevel, pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, PointIndex ), whitelvl, vWhite, 0.0, &pointGamma ) )
+			m_logGraphCtrl.AddPoint(LogGraphID, xPlot, pointGamma, lpMsg, NULL);
+	}
+	else if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
+	{
+		const double pointGamma = log(colorlevel/whitelvl)/log(level);
 		if ( _finite ( pointGamma ) )
 			m_logGraphCtrl.AddPoint(LogGraphID, xPlot, pointGamma, lpMsg, NULL);
 	}

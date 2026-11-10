@@ -4279,6 +4279,7 @@ BEGIN
     IDS_ARGYLL_SETTINGS_REJECTED_STOPPED "The meter did not accept the settings changed on this page and has stopped. The previous settings are kept; restart HCFR to use the meter again."
     IDS_ARGYLL_READING_FAILED "The meter could not take this reading."
     IDS_ARGYLL_START_FAILED "The meter could not be started."
+    IDS_SENSOR_INVALID_READING "The meter returned an invalid reading."
     IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "The loaded document carries a Display Type spectral correction (%s) that is not the current Display Type. It stays in use until you change the Display Type."
     IDS_SPECTRAL_COMPOSE_WARN   "The file you are loading has no fit-basis record. The spectral correction will be applied on top of its matrix (as HCFR 4.1 did). Continue?"
     IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "The spectral correction in use (%s) was derived for meter %s, not the connected one, and there is no correction file here to derive it again from. It stays in use. To derive it for this meter, browse its correction file in the sensor properties."

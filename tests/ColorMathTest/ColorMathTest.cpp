@@ -3745,6 +3745,156 @@ static void RunT46()
 }
 
 // =============================================================================
+// T48 - the near-black / near-white log charts in the camera-gamma modes
+// (GammaOffsetType 2 and 3). The reference curve beside the points evaluates
+// its level as ( V + o ) / ( 1 + o ); a point divides by the same level
+// (PointGammaLevel, o from PointGammaEffectiveOffset). Every other mode has
+// offset 0, where the level must be the point's proportion bit for bit on all
+// four grids, so those charts draw exactly as before. Pure assertions.
+// =============================================================================
+static void RunT48()
+{
+    printf("T48 near-chart point level in the camera-gamma modes...\n");
+    // the effective offset: the fit below mode 4, 0 at mode >= 4 and under sRGB
+    for (int type = 0; type <= 7; ++type)
+    {
+        const double want = (type < 4) ? 0.099 : 0.0;
+        if (PointGammaEffectiveOffset(type, false, 0.099) != want)
+            Fail("T48 GammaOffsetType %d: effective offset %.17g, expected %.17g", type, PointGammaEffectiveOffset(type, false, 0.099), want);
+        if (PointGammaEffectiveOffset(type, true, 0.055) != 0.0)
+            Fail("T48 GammaOffsetType %d under sRGB: offset not 0", type);
+    }
+    // the level, bit for bit ( V + o ) / ( 1 + o ) written out here, on every
+    // near-chart slot and gray ramp slot of the four grids, both roundings, at
+    // o = 0 (modes 0/1/4+: the level is the proportion itself), 0.099 and 0.055
+    {
+        int bad = 0;
+        const double offsets[3] = { 0.0, 0.099, 0.055 };
+        for (int rd = 0; rd < 2; ++rd)
+            for (int b = 0; b < 2; ++b)
+                for (int g = 0; g < 2; ++g)
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        const double o = offsets[k];
+                        for (int n = 0; n <= 101; ++n)
+                        {
+                            const double p = GrayLevelToGrayProp((double)n, rd != 0, b != 0, g != 0);
+                            if (PointGammaLevel(p, o) != (p + o) / (1.0 + o)) ++bad;
+                            if (o == 0.0 && PointGammaLevel(p, o) != p) ++bad;
+                        }
+                        for (int n = 0; n <= 20; ++n)
+                        {
+                            const double p = ArrayIndexToGrayLevel(n, 21, rd != 0, b != 0, g != 0) / 100.0;
+                            if (PointGammaLevel(p, o) != (p + o) / (1.0 + o)) ++bad;
+                            if (o == 0.0 && PointGammaLevel(p, o) != p) ++bad;
+                        }
+                    }
+        if (bad)
+            Fail("T48 %d levels are not ( V + o ) / ( 1 + o ) bit for bit", bad);
+    }
+    // A noise-free display tracking the camera-gamma target, built independently
+    // of the code under test: Y / Y_white = pow ( ( V + 0.099 ) / 1.099, 2.22 ).
+    // Its point, log ( Y / Y_white ) / log ( PointGammaLevel ( V, o ) ), sits on
+    // the reference (2.22) within 1e-12 at every near-black level 1..99% of the
+    // 8-bit full grid. Dividing by log ( V ), as before, put it well off.
+    {
+        const double gamma = 2.22;
+        double worst = 0.0;
+        for (int n = 1; n <= 99; ++n)
+        {
+            const double v = GrayLevelToGrayProp((double)n, false, false, false);
+            const double yRel = pow((v + 0.099) / 1.099, gamma);
+            const double pg = log(yRel) / log(PointGammaLevel(v, PointGammaEffectiveOffset(2, false, 0.099)));
+            worst = (std::max)(worst, fabs(pg - gamma));
+        }
+        if (worst > 1e-12)
+            Fail("T48 ideal camera-gamma display: off the reference by %.3g", worst);
+        const double v = 13.0 / 255.0;		// 5.1%
+        const double lvl = PointGammaLevel(v, 0.099);
+        const double before = log(pow((v + 0.099) / 1.099, gamma)) / log(v);
+        if (fabs(lvl * 100.0 - 13.65) > 0.01 || fabs(before - 1.485) > 0.002)
+            Fail("T48 5.1%%: level %.4f%% (want 13.65), old point gamma %.4f (want 1.485)", lvl * 100.0, before);
+    }
+}
+
+// =============================================================================
+// T49 - PQ near-black / near-white log points in the reference's own
+// definition (NearChartPointGamma): Y relative to the gray scale's 100% reading,
+// V the level the point is drawn at, V_white = 1. Synthetic display: an ideal
+// SMPTE ST 2084 EOTF clipping at 1000 cd/m2 (the gray scale's 100% reads 1000),
+// 8-bit full, near white with clip column 76 (65..75%). The reference beside
+// the points plots log ( L ( V ) / L_white ) / log ( V ). The views' choice of
+// white and V_white (NearChartWhite and the series-top fallback in the near
+// charts) has no oracle here; it is exercised on the bench only.
+// =============================================================================
+static double T49PQEotf(double e)
+{
+    // SMPTE ST 2084 EOTF, cd/m2
+    const double m1 = 2610.0 / 16384.0, m2 = 2523.0 / 4096.0 * 128.0;
+    const double c1 = 3424.0 / 4096.0, c2 = 2413.0 / 4096.0 * 32.0, c3 = 2392.0 / 4096.0 * 32.0;
+    const double p = pow(e, 1.0 / m2);
+    return 10000.0 * pow((std::max)(p - c1, 0.0) / (c2 - c3 * p), 1.0 / m1);
+}
+
+static void RunT49()
+{
+    printf("T49 PQ near-chart log points on the reference's white and level...\n");
+    const double peak = 1000.0;
+    auto Y = [&](double v) { return (std::min)(T49PQEotf(v), peak); };
+    auto V = [](int n) { return GrayLevelToGrayProp((double)n, false, false, false); };
+    // near white, clip column 76, size 11: 65..75%
+    const int clip = 76, size = 11;
+    const double vTop = V(clip - 1), yTop = Y(vTop);
+    for (int i = 0; i < size - 1; ++i)
+    {
+        const int n = clip - size + i;
+        const double v = V(n), y = Y(v);
+        const double ref = log(y / peak) / log(v);
+        double pg = 0.0;
+        if (!NearChartPointGamma(y, v, peak, 1.0, 0.0, &pg))
+        {
+            Fail("T49 near white %d%%: no point", n);
+            continue;
+        }
+        if (fabs(pg - ref) > 1e-12)
+            Fail("T49 near white %d%%: %.17g off the reference %.17g", n, pg, ref);
+        // the series' top (at 75%) taken as the white at V_white = 1 sits
+        // 0.07..0.09 low here (it reads less than the 100% white unless the
+        // display clips at the top), and main's level counted back from 101
+        // puts the point far off
+        double pgTop = 0.0;
+        NearChartPointGamma(y, v, yTop, 1.0, 0.0, &pgTop);
+        const double pgMain = log(y / yTop) / log(V(i + 101 - size));
+        if (n >= 71 && n <= 74 && !(ref - pgTop > 0.07 && ref - pgTop < 0.09))
+            Fail("T49 near white %d%%: series-top white %.4f vs reference %.4f, expected 0.07..0.09 low", n, pgTop, ref);
+        if (n >= 71 && n <= 74 && fabs(pgMain - ref) < 0.5)
+            Fail("T49 near white %d%%: main's form %.4f unexpectedly near the reference %.4f", n, pgMain, ref);
+    }
+    // near black in PQ: the level drawn is 2k%; on the reference at every step
+    for (int k = 1; k < 50; ++k)
+    {
+        const double v = V(2 * k), y = Y(v);
+        double pg = 0.0;
+        if (!NearChartPointGamma(y, v, peak, 1.0, 0.0, &pg) || fabs(pg - log(y / peak) / log(v)) > 1e-12)
+            Fail("T49 near black %d%%: %.6f, reference %.6f", 2 * k, pg, log(y / peak) / log(v));
+    }
+    // a 100% point below the top (clip column 102) and V = 0: no point; no white: no point
+    double pg = 0.0;
+    if (NearChartPointGamma(500.0, 1.0, peak, 1.0, 0.0, &pg) || NearChartPointGamma(0.1, 0.0, peak, 1.0, 0.0, &pg)
+        || NearChartPointGamma(500.0, 0.5, 0.0, 1.0, 0.0, &pg) || NearChartPointGamma(0.0, 0.5, peak, 1.0, 0.0, &pg))
+        Fail("T49 a point at V = 1, V = 0, without a white or at Y = 0 was drawn");
+    // a white standing in at its own level: Y and V normalized to the same reading
+    if (!NearChartPointGamma(Y(0.3), 0.3, Y(0.6), 0.6, 0.0, &pg) || fabs(pg - log(Y(0.3) / Y(0.6)) / log(0.5)) > 1e-12)
+        Fail("T49 white at its own level: %.17g", pg);
+    // V_white outside ( 0, 1 ]: no point (V_white = 0 used to give a finite 0)
+    if (NearChartPointGamma(Y(0.3), 0.3, Y(0.6), 0.0, 0.0, &pg) || NearChartPointGamma(Y(0.3), 0.3, Y(0.6), 1.0117647058823529, 0.0, &pg)
+        || NearChartPointGamma(Y(0.3), 0.3, Y(0.6), -0.5, 0.0, &pg))
+        Fail("T49 a white at level 0, 258/255 or below 0 was used");
+    if (!NearChartPointGamma(Y(0.3), 0.3, peak, 1.0, 0.0, &pg))
+        Fail("T49 a white at level 1 was refused");
+}
+
+// =============================================================================
 // T43 - where an existing gray reading sits on a gray-level axis (libHCFR
 // ReadingWireGrayProp / ReadingGrayProp and the GraySeries
 // accessor core behind CMeasure::GetGrayReadingLevel / Prop). Pure assertions,
@@ -3839,9 +3989,76 @@ namespace T43Drive
     }
 }
 
+// T43 (nbw) - the near charts' white in the point's quantity (libHCFR
+// NearChartWhite, near black's charts and near white's luma and lux traces).
+// Luminance curve mode 1 shows a reading's lux when it carries one, its Y
+// otherwise; main divided every near-black point by the gray top's
+// GetLuxOrLumaValue, so a point read without the luxmeter (cd/m2) was divided
+// by lux. The rule: a point in lux takes a white carrying lux, its lux; any
+// other point takes the white's Y, whatever its lux status. Synthetic whites:
+// Y 100 cd/m2 reading 300 lux (lux about 3x nits), near white's top Y 95 with
+// or without 285 lux.
+static void T43NearChartWhite()
+{
+    printf("T43 (nbw) near-chart white in the point's quantity...\n");
+    CColor grayLux(95.0, 100.0, 108.0), grayNits(95.0, 100.0, 108.0);
+    grayLux.SetLuxValue(300.0);
+    CColor nwLux(90.0, 95.0, 103.0), nwNits(90.0, 95.0, 103.0);
+    nwLux.SetLuxValue(285.0);
+    CColor grayZero(0.0, 0.0, 0.0);
+    struct Case { const char* what; int cs, mode; bool ptLux; const CColor* g; const CColor* nw; double want; bool fromGray; };
+    const Case cases[] = {
+        // the defect: mode 1, a point without lux, the gray top with lux -> its Y
+        { "mode 1 luma trace, point nits, gray top lux -> its Y", 1, 1, false, &grayLux, &nwNits, 100.0, true },
+        { "mode 1 luma trace, point nits, both whites lux -> gray top Y", 1, 1, false, &grayLux, &nwLux, 100.0, true },
+        { "mode 1 luma trace, point lux, gray top lux", 1, 1, true, &grayLux, &nwNits, 300.0, true },
+        { "mode 1 luma trace, point lux, gray top nits -> near white lux", 1, 1, true, &grayNits, &nwLux, 285.0, false },
+        { "mode 1 luma trace, point lux, no lux white -> none", 1, 1, true, &grayNits, &nwNits, 0.0, false },
+        { "mode 1 luma trace, point nits, gray top nits", 1, 1, false, &grayNits, &nwLux, 100.0, true },
+        // R/G/B traces: the white's luma, whatever its lux (the deliberate luma normalization)
+        { "mode 1 RGB trace, gray top lux -> its Y", 0, 1, false, &grayLux, &nwLux, 100.0, true },
+        { "mode 1 RGB trace, point lux, gray top lux -> its Y", 0, 1, true, &grayLux, &nwLux, 100.0, true },
+        // outside mode 1 every luma trace is Y on both sides: main's value
+        { "mode 0 luma trace, gray top lux -> its Y", 1, 0, true, &grayLux, &nwLux, 100.0, true },
+        { "mode 2 luma trace, gray top lux -> its Y", 1, 2, false, &grayLux, &nwLux, 100.0, true },
+        { "mode 0 RGB trace", 0, 0, false, &grayNits, &nwNits, 100.0, true },
+        // the lux trace: a white carrying lux (main: the gray top's lux, else near white's)
+        { "lux trace, gray top lux", 2, 2, true, &grayLux, &nwLux, 300.0, true },
+        { "lux trace, gray top nits -> near white lux", 2, 2, true, &grayNits, &nwLux, 285.0, false },
+        { "lux trace, no lux white -> none", 2, 2, true, &grayNits, &nwNits, 0.0, false },
+        // fallbacks
+        { "no gray top -> near white", 1, 0, false, &noDataColor, &nwNits, 95.0, false },
+        { "gray top Y 0 -> near white", 1, 0, false, &grayZero, &nwNits, 95.0, false },
+        { "no white at all -> none", 1, 0, false, &noDataColor, &noDataColor, 0.0, false },
+    };
+    for (const Case& c : cases)
+    {
+        bool fromGray = !c.fromGray;
+        const double w = NearChartWhite(c.cs, c.mode, c.ptLux, *c.g, *c.nw, &fromGray);
+        if (w != c.want || fromGray != c.fromGray)
+            Fail("T43 (nbw) %s: white %.17g (gray top %d), expected %.17g (gray top %d)", c.what, w, (int)fromGray, c.want, (int)c.fromGray);
+    }
+    // Every non-lux document, every curve mode, luma and RGB traces: main's
+    // value bit for bit, the gray top's GetLuxOrLumaValue ( mode ) (= Y).
+    for (int mode = 0; mode < 3; ++mode)
+        for (int cs = 0; cs < 2; ++cs)
+            if (NearChartWhite(cs, mode, false, grayNits, nwNits) != grayNits.GetLuxOrLumaValue(mode))
+                Fail("T43 (nbw) non-lux document, mode %d, colorSpace %d: not main's white", mode, cs);
+    // The shift the defect caused at 5%: a point at Y 5% of white, divided by
+    // 300 lux instead of 100 cd/m2, plotted log(3)/-log(0.05) = 0.367 gamma higher.
+    {
+        const double y = 100.0 * pow(0.05, 2.2);
+        const double right = log(y / NearChartWhite(1, 1, false, grayLux, nwNits)) / log(0.05);
+        const double wrong = log(y / grayLux.GetLuxOrLumaValue(1)) / log(0.05);
+        if (fabs(right - 2.2) > 1e-12 || fabs((wrong - right) - 0.36672) > 1e-4)
+            Fail("T43 (nbw) 5%% shift: right %.6f wrong %.6f", right, wrong);
+    }
+}
+
 static void RunT43()
 {
     printf("T43 gray reading level: stamped drive or the slot (wire stamp)...\n");
+    T43NearChartWhite();
     using namespace T43Drive;
     const int F = WIRE_RANGE_FULL, L = WIRE_RANGE_LIMITED;
 
@@ -4115,40 +4332,85 @@ static void RunT43()
         if (GraySeriesSlotLevel(g, 2) != ArrayIndexToGrayLevel(2, 5, false, false, true))
             Fail("T43 (j) grayscale slot 2 with no nominal array: not the even ramp");
     }
-    // (k) GraySeriesSlotProp, the grid's reference-Y cells' slot (GetItemText):
-    //     bit for bit main's GrayLevelToGrayProp ( (double)(i)*(PQ?2:1) ) for near
-    //     black and GrayLevelToGrayProp ( (double)(i + clip - size) ) for near white,
-    //     on all four grids, with and without round-down.
+    // (k) The accessor's fallback for a reading with no stamped drive -
+    //     GraySeriesProp, which the charts, UpdateGrid's dE references and
+    //     GetItemText's reference-Y cells all use - and GraySeriesSlotProp are
+    //     one value, quantized ONCE from the level the sweep drives: floor(v)/grid
+    //     under round-down, floor(v + 0.5)/grid otherwise, v = the level on the
+    //     grid. Every slot of near black (SDR and PQ), near white (clip 101 and
+    //     76), the even gray ramp (2, 5, 11, 21 and 101 points) and a nominal-level
+    //     gray scale, on all four grids, with and without round-down. Under
+    //     round-to-nearest it is also bit for bit main's two-step value,
+    //     GrayLevelToGrayProp ( GraySeriesSlotLevel ), so an unstamped document
+    //     not using round-down draws exactly as before.
     {
-        int bad = 0;
-        CColor nb[51], nw[11];
+        int bad = 0, badMain = 0, n = 0;
+        CColor nb[51], nw[11], gs[101];
+        const double nominal[7] = { 0.0, 5.0, 20.0, 48.0, 67.0, 96.0, 100.0 };
         for (int rd = 0; rd < 2; ++rd)
             for (int b = 0; b < 2; ++b)
                 for (int g = 0; g < 2; ++g)
+                {
+                    const double grid = b ? (g ? 876.0 : 1023.0) : (g ? 219.0 : 255.0);
+                    // the single-truncation expression, written out here
+                    auto once = [&](double x) { return (rd ? floor(x) : floor(x + 0.5)) / grid; };
+                    auto check = [&](const GraySeriesView& v, int i, double want) {
+                        ++n;
+                        const double p = GraySeriesProp(v, i), s = GraySeriesSlotProp(v, i);
+                        if (p != want || s != want)
+                        {
+                            if (bad < 6)
+                                Fail("T43 (k) series %d size %d slot %d rd %d grid %.0f: prop %.17g slot prop %.17g, want %.17g",
+                                     (int)v.series, v.size, i, rd, grid, p, s, want);
+                            ++bad;
+                        }
+                        if (!rd && p != GrayLevelToGrayProp(GraySeriesSlotLevel(v, i), false, b != 0, g != 0))
+                            ++badMain;
+                    };
                     for (int pq = 0; pq < 2; ++pq)
                     {
                         GraySeriesView vb = OneSlot(nb, 0, rd != 0, b != 0, g != 0);
                         vb.series = GRAY_SERIES_NEAR_BLACK; vb.size = 51; vb.pqNearBlack = (pq != 0);
                         for (int i = 0; i < 51; ++i)
-                            if (GraySeriesSlotProp(vb, i) != GrayLevelToGrayProp((double)i * (pq ? 2 : 1), rd != 0, b != 0, g != 0)) ++bad;
-                        const int clips[2] = { 101, 76 };
-                        for (int c = 0; c < 2; ++c)
-                        {
-                            GraySeriesView vw = vb;
-                            vw.series = GRAY_SERIES_NEAR_WHITE; vw.readings = nw; vw.size = 11; vw.nearWhiteClipCol = clips[c];
-                            for (int i = 0; i < 11; ++i)
-                                if (GraySeriesSlotProp(vw, i) != GrayLevelToGrayProp((double)(i + clips[c] - 11), rd != 0, b != 0, g != 0)) ++bad;
-                        }
+                            check(vb, i, once((double)(i * (pq ? 2 : 1)) / 100.0 * grid));
                     }
+                    const int clips[2] = { 101, 76 };
+                    for (int c = 0; c < 2; ++c)
+                    {
+                        GraySeriesView vw = OneSlot(nw, 0, rd != 0, b != 0, g != 0);
+                        vw.size = 11; vw.nearWhiteClipCol = clips[c];
+                        for (int i = 0; i < 11; ++i)
+                            check(vw, i, once((double)(i + clips[c] - 11) / 100.0 * grid));
+                    }
+                    const int sizes[5] = { 2, 5, 11, 21, 101 };
+                    for (int k = 0; k < 5; ++k)
+                    {
+                        GraySeriesView vg = OneSlot(gs, 0, rd != 0, b != 0, g != 0);
+                        vg.series = GRAY_SERIES_GRAYSCALE; vg.size = sizes[k];
+                        for (int i = 0; i < sizes[k]; ++i)
+                            check(vg, i, once((double)i / (double)(sizes[k] - 1) * grid));
+                    }
+                    GraySeriesView vn = OneSlot(gs, 0, rd != 0, b != 0, g != 0);
+                    vn.series = GRAY_SERIES_GRAYSCALE; vn.size = 7; vn.nominalLevels = nominal; vn.nominalCount = 7;
+                    for (int i = 0; i < 7; ++i)
+                        check(vn, i, once(nominal[i] / 100.0 * grid));
+                }
         if (bad)
-            Fail("T43 (k) %d GraySeriesSlotProp values differ from main's single-truncation expressions", bad);
-        // and under round-down it differs from GraySeriesProp's fallback where main's
-        // two truncations differ (219 grid, near black 5%: 10/219 against 9/219)
+            Fail("T43 (k) %d of %d unstamped slot props are not the single-truncation value", bad, n);
+        if (badMain)
+            Fail("T43 (k) %d round-to-nearest slot props differ from main's two-step value", badMain);
+        // The case that moved: round-down, 219 grid, 5%. The disc shows code 10;
+        // main's two truncations evaluated 9/219 (near black, a 21-point and a
+        // nominal-5% gray scale alike).
         GraySeriesView vb = OneSlot(nb, 0, true, false, true);
         vb.series = GRAY_SERIES_NEAR_BLACK; vb.size = 51;
-        if (GraySeriesSlotProp(vb, 5) != 10.0 / 219.0 || GraySeriesProp(vb, 5) != 9.0 / 219.0)
-            Fail("T43 (k) round-down 5%% on 219: slot prop %.17g (want 10/219), series prop %.17g (want 9/219)",
-                 GraySeriesSlotProp(vb, 5), GraySeriesProp(vb, 5));
+        GraySeriesView vg = vb;
+        vg.series = GRAY_SERIES_GRAYSCALE; vg.readings = gs; vg.size = 21;
+        GraySeriesView vn = vg;
+        vn.size = 7; vn.nominalLevels = nominal; vn.nominalCount = 7;
+        if (GraySeriesProp(vb, 5) != 10.0 / 219.0 || GraySeriesProp(vg, 1) != 10.0 / 219.0 || GraySeriesProp(vn, 1) != 10.0 / 219.0)
+            Fail("T43 (k) round-down 5%% on 219: near black %.17g, ramp %.17g, nominal %.17g; want 10/219 each",
+                 GraySeriesProp(vb, 5), GraySeriesProp(vg, 1), GraySeriesProp(vn, 1));
     }
 }
 
@@ -5949,6 +6211,8 @@ int main(int argc, char* argv[])
     RunT44();
     RunT45();
     RunT46();
+    RunT48();
+    RunT49();
 
     if (g_failures)
     {

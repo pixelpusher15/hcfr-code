@@ -4772,6 +4772,46 @@ double HLG_SignalToScene ( double v )
 	return ( exp( ( v - c ) / a ) + b ) / 12.0;
 }
 
+// The near-black and near-white log charts plot, for the reference curve and
+// for every measured point, log ( Y relative to white ) / log ( level ). The
+// reference (NearBlackHistoView / NearWhiteHistoView UpdateGraph) evaluates its
+// level as ( valx + GammaOffset ) / ( 1 + GammaOffset ) when its mode - the
+// GammaOffsetType, 99 under the sRGB standard - is below 4, and as valx
+// otherwise; ComputeGammaAndOffset gives a non-zero offset only for types 2
+// and 3 (the camera gammas), so those are the modes where a point's level is
+// not its own proportion. The gamma chart applies the same offset to its
+// measured points (GammaHistoView, valxprime).
+double PointGammaEffectiveOffset ( int gammaOffsetType, bool sRGBStandard, double fittedOffset )
+{
+	const int mode = sRGBStandard ? 99 : gammaOffsetType;
+	return ( mode < 4 ) ? fittedOffset : 0.0;
+}
+
+// ( prop + offset ) / ( 1 + offset ): with offset 0 exactly prop, bit for bit.
+double PointGammaLevel ( double prop, double offset )
+{
+	return ( prop + offset ) / ( 1.0 + offset );
+}
+
+// A measured point of a near-chart log trace in the reference curve's own
+// definition: log ( y / yWhite ) / log ( L ( v ) / L ( vWhite ) ), L =
+// PointGammaLevel. The reference beside it plots log ( val ) / log ( valx ),
+// val relative to the gray scale's 100% reading and valx the absolute level:
+// so with that white, vWhite = 1. FALSE (no point) without a white > 0, where
+// v is not inside ( 0, 1 ) - a 100% patch below the top (clip column 102) has
+// log ( 1 ) = 0, and the reference drops it too - where vWhite is not inside
+// ( 0, 1 ], and where the value is not finite.
+bool NearChartPointGamma ( double y, double v, double yWhite, double vWhite, double offset, double * pGamma )
+{
+	if ( ! ( yWhite > 0.0 && _finite ( yWhite ) ) || ! ( v > 0.0 && v < 1.0 ) || ! ( vWhite > 0.0 && vWhite <= 1.0 ) )
+		return false;
+	const double g = log ( y / yWhite ) / log ( PointGammaLevel ( v, offset ) / PointGammaLevel ( vWhite, offset ) );
+	if ( ! _finite ( g ) )
+		return false;
+	*pGamma = g;
+	return true;
+}
+
 // The two gray-ramp quantizers below select their grid via VideoCodeGrid (see
 // SnapToVideoGrid above). Their legacy limited-range forms carried the black
 // offset explicitly (floor(x + 16.5) - 16.0, and 64.5 / 64.0 at 10 bits).
@@ -4958,6 +4998,14 @@ double GraySeriesLevel ( const GraySeriesView & v, int index )
 	return GraySeriesSlotLevel ( v, index );
 }
 
+// The slot's proportion, quantized ONCE from the level the sweep asked for:
+// floor(v) / grid under round-down, floor(v + 0.5) / grid otherwise, where v
+// is the nominal level on the grid. Re-quantizing the slot PERCENTAGE instead
+// (GrayLevelToGrayProp ( GraySeriesSlotLevel ( ... ) )) truncated twice under
+// round-down: code / grid * 100 / 100 * grid lands a hair below the code at
+// some levels and floor() drops a whole code (219 grid, 5%: 9/219 instead of
+// the 10/219 the disc shows). Under round-to-nearest the second rounding
+// returns the same code, so that value is unchanged bit for bit.
 double GraySeriesSlotProp ( const GraySeriesView & v, int index )
 {
 	switch ( v.series )
@@ -4966,9 +5014,17 @@ double GraySeriesSlotProp ( const GraySeriesView & v, int index )
 			return GrayLevelToGrayProp ( (double) ( index * ( v.pqNearBlack ? 2 : 1 ) ), v.bUseRoundDown, v.b10bit, v.is16_235 );
 		case GRAY_SERIES_NEAR_WHITE:
 			return GrayLevelToGrayProp ( (double) ( v.nearWhiteClipCol - v.size + index ), v.bUseRoundDown, v.b10bit, v.is16_235 );
-		default:	// the gray scale: GraySeriesProp's fallback, two truncations (see Color.h)
-			return GrayLevelToGrayProp ( GrayScaleSlotLevel ( index, v.size, v.nominalLevels, v.nominalCount, v.bUseRoundDown, v.b10bit, v.is16_235 ),
-										 v.bUseRoundDown, v.b10bit, v.is16_235 );
+		default:
+			if ( v.nominalLevels != NULL && v.nominalCount == v.size && index >= 0 && index < v.size )
+				return GrayLevelToGrayProp ( v.nominalLevels[index], v.bUseRoundDown, v.b10bit, v.is16_235 );
+			if ( v.size < 2 )
+				return 0.0;						// as ArrayIndexToGrayLevel: no ramp
+			{
+				// The even ramp, ArrayIndexToGrayLevel's arithmetic without its * 100.
+				const double grid = VideoCodeGrid ( v.b10bit, v.is16_235 );
+				const double x = (double) index / (double) ( v.size - 1 ) * grid;
+				return ( v.bUseRoundDown ? floor ( x ) : floor ( x + 0.5 ) ) / grid;
+			}
 	}
 }
 
@@ -4977,7 +5033,7 @@ double GraySeriesProp ( const GraySeriesView & v, int index )
 	double prop;
 	if ( GraySeriesDriveProp ( v, index, & prop ) )
 		return prop;
-	return GrayLevelToGrayProp ( GraySeriesSlotLevel ( v, index ), v.bUseRoundDown, v.b10bit, v.is16_235 );
+	return GraySeriesSlotProp ( v, index );
 }
 
 
@@ -5008,4 +5064,34 @@ CColor BlackTargetReference ( const CColor & aMeasure, double YWhite, const CCol
 	CColor blackRef;
 	blackRef.SetxyYValue ( tmpColor );
 	return blackRef;
+}
+
+// THE NEAR-CHART WHITE (near black's charts, near white's luma and lux
+// traces). The point is in lux when it shows one: a lux trace, or a luma trace
+// in luminance curve mode 1 whose reading carries a lux value. Then the white
+// must carry lux and its lux is used. Otherwise the point is in cd/m2 and the
+// white's Y is used, whatever its lux status. That includes the R, G and B
+// traces: they divide their channel by the white's LUMA on purpose (HCFR's RGB
+// matrix gives R = G = B = Y at the target white, so the trace shows each
+// channel's gain against it). Main took GetLuxOrLumaValue for every trace, the
+// white's lux in curve mode 1 - a point in cd/m2 divided by lux.
+// A white is usable when it is valid and that value is finite and > 0. The
+// gray scale's top when usable, else near white's top, else none (0).
+static double NearChartWhiteOf ( const CColor & c, bool bLux )
+{
+	if ( ! c.isValid () || ( bLux && ! c.HasLuxValue () ) )
+		return 0.0;
+	const double y = bLux ? c.GetLuxValue () : c.GetY ();
+	return ( y > 0.0 && _finite ( y ) ) ? y : 0.0;
+}
+
+double NearChartWhite ( int colorSpace, int luminanceCurveMode, bool pointHasLux, const CColor & grayTop, const CColor & nearWhiteTop, bool * pFromGrayTop )
+{
+	const bool bLux = ( colorSpace == 2 ) || ( colorSpace == 1 && luminanceCurveMode == 1 && pointHasLux );
+	double y = NearChartWhiteOf ( grayTop, bLux );
+	if ( pFromGrayTop )
+		*pFromGrayTop = ( y > 0.0 );
+	if ( y > 0.0 )
+		return y;
+	return NearChartWhiteOf ( nearWhiteTop, bLux );
 }

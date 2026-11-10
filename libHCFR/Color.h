@@ -1005,6 +1005,16 @@ extern void ClearUserPatchOverride ();
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );
+// The offset a near-chart point's level carries, as the reference curve beside
+// it: the document's fitted ComputeGammaAndOffset offset when the mode
+// (GammaOffsetType, 99 under the sRGB standard) is below 4, else 0.
+double PointGammaEffectiveOffset ( int gammaOffsetType, bool sRGBStandard, double fittedOffset );
+// A point's level for the log charts: ( prop + offset ) / ( 1 + offset ).
+double PointGammaLevel ( double prop, double offset );
+// A near-chart log point: log ( y / yWhite ) / log ( L ( v ) / L ( vWhite ) ),
+// L = PointGammaLevel. FALSE without a finite white > 0, for v outside ( 0, 1 ),
+// vWhite outside ( 0, 1 ], or for a non-finite result.
+bool NearChartPointGamma ( double y, double v, double yWhite, double vWhite, double offset, double * pGamma );
 // is16_235 is REQUIRED (no default): it selects the 219/255/876/1023 code grid
 // exactly as SnapToVideoGrid does, and a default would silently leave any
 // un-updated call site quantizing a full-range wire against the limited grid.
@@ -1021,6 +1031,14 @@ bool ReadingWireGrayProp ( const CColor & aReading, double * pProp );
 // The reading's level as a 0..1 proportion: its stamped drive, else
 // GrayLevelToGrayProp ( slotLevel, ... ) on the current grid.
 double ReadingGrayProp ( const CColor & aReading, double slotLevel, bool bUseRoundDown, bool b10bit, bool is16_235 );
+// The white a near-chart point is divided by, in the point's quantity: lux
+// when the point is in lux (colorSpace 2, or 1 in luminance curve mode 1 with a
+// point carrying lux) - the white must carry lux then - else the white's Y
+// (colorSpace 0, an R, G or B trace, always: the luma normalization). The gray
+// scale's top when usable (valid, that value finite and > 0), else near white's
+// top, else 0: no white, no point. *pFromGrayTop, when given, says whether the
+// gray top was taken.
+double NearChartWhite ( int colorSpace, int luminanceCurveMode, bool pointHasLux, const CColor & grayTop, const CColor & nearWhiteTop, bool * pFromGrayTop = NULL );
 
 // The three gray series CMeasure holds, each pairing slot i with reading i.
 enum GraySeries
@@ -1056,13 +1074,11 @@ bool GraySeriesDriveProp ( const GraySeriesView & v, int index, double * pProp )
 // Reading i's level: its stamped drive, else slot i on the current grid.
 double GraySeriesLevel ( const GraySeriesView & v, int index );		// percent
 double GraySeriesProp ( const GraySeriesView & v, int index );		// 0..1
-// Near black / near white: slot i's level as a 0..1 proportion truncated
-// ONCE, from its nominal level - GrayLevelToGrayProp ( i, or 2i in PQ ) for
-// near black, ( clip - size + i ) for near white. The grid's reference-Y cells
-// evaluate here; GraySeriesProp's fallback re-quantizes the slot percentage,
-// which truncates twice under round-down. The gray scale has no separate
-// nominal form here: it returns GraySeriesProp's fallback, GrayLevelToGrayProp
-// ( GrayScaleSlotLevel ), two truncations under round-down (no caller uses it).
+// Slot i's level as a 0..1 proportion, quantized ONCE from the level the sweep
+// drives: GrayLevelToGrayProp ( i, or 2i in PQ ) for near black, ( clip - size
+// + i ) for near white, the nominal level or the even ramp (floor(v)/grid under
+// round-down) for the gray scale. GraySeriesProp's fallback for a reading
+// without a stamped drive.
 double GraySeriesSlotProp ( const GraySeriesView & v, int index );
 double getL_EOTF ( double x, CColor White, CColor Black, double g_rel, double split, int mode, double m_DiffuseL = 94.37844, double m_MasterMinL = 0.0, double m_MasterMaxL = 4000.0, double m_TargetMinL = 0.00, double m_TargetMaxL = 700.0, bool ToneMap = FALSE, bool cBT2390 = FALSE, double m_TargetSysGamma = 1.2, double b_fact = 1.0, double E2_fact = 0.0, double E2_fact1 = 1.1 );
 
