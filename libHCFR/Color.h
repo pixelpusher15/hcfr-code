@@ -1089,7 +1089,12 @@ double GraySeriesSlotProp ( const GraySeriesView & v, int index );
 // new document the stored on/off white is a valid placeholder, so a document
 // without a gray scale gets exactly the white it got before. The black is
 // GrayScaleBlack, the same rule at the other end.
-CColor GrayScaleWhite ( const CColor * readings, int size, const CColor & onOffWhite );
+// isPlaceholder, when given, names a top that is not a reading (a document
+// without a gray scale keeps the constructor's placeholder in the top slot):
+// such a top is no top, and the on/off white is used. The near charts rank
+// their own series' top above the on/off white (NearChartWhite): a near
+// series' top is a reading.
+CColor GrayScaleWhite ( const CColor * readings, int size, const CColor & onOffWhite, bool ( * isPlaceholder ) ( const CColor & ) = NULL );
 // THE 0% BLACK of the gray scale (Kyle, 2026-11-10), the twin of GrayScaleWhite:
 // the gray scale's measured 0% reading, readings[0], when the series is
 // non-empty and that reading is valid with a finite Y; else onOffBlack as the

@@ -458,9 +458,9 @@ static double GridGrayWhiteY( CMeasure * pM )
 	// Deliberately the same test and fallback as UpdateGrid, down to accepting a
 	// valid-but-zero white: GetDeltaE substitutes 120 for YWhite <= 0 on both
 	// sides, so matching exactly keeps the two paths bit-identical.
-	int n = pM->GetGrayScaleSize();
-	if ( n > 0 && pM->GetGray( n - 1 ).isValid() )
-		return pM->GetGray( n - 1 )[1];
+	const CColor w = pM->GetGrayScaleWhite();
+	if ( w.isValid() )
+		return w[1];
 	return GetConfig()->m_TargetMaxL;      // same fallback as UpdateGrid
 }
 

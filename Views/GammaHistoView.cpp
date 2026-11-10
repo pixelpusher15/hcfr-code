@@ -328,8 +328,8 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		// so index and point stay in step without a placeholder.
 
 		// Fetched once for the whole curve, not once per point - see ReferenceGammaAt.
-		CColor RefWhite = pDoc -> GetMeasure () -> GetGrayScaleWhite();
-		CColor RefBlack = pDoc -> GetMeasure () -> GetGrayScaleBlack();
+		CColor RefWhite = DocWhite;
+		CColor RefBlack = DocBlack;
 		m_yrefWhite = RefWhite;
 		m_yrefBlack = RefBlack;
 

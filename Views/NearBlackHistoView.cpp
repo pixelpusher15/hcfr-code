@@ -376,7 +376,7 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
 		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
 		whitelvl = NearChartWhite ( ColorSpace, GetConfig () -> m_nLuminanceCurveMode, pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue (),
-										 grayscalesize > 0 ? pDataSet->GetMeasure()->GetGray(grayscalesize-1) : noDataColor,
+										 ( grayscalesize > 0 && ! CMeasure::IsRawlessPlaceholder ( pDataSet->GetMeasure()->GetGray(grayscalesize-1), false ) ) ? pDataSet->GetMeasure()->GetGray(grayscalesize-1) : noDataColor,
 										 nearwhitescalesize > 0 ? pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1) : noDataColor, &bGrayWhite );
 	}
 

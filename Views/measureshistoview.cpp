@@ -291,6 +291,9 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		ColorxyY aColor=reading.GetxyYValue();
 		ColorXYZ aMeasure;
 		
+		// the per-patch white (m_dE_gray 0) is a local: written into YWhite it was
+		// loop-carried into the next patch's reference (as rgbhistoview fixed)
+		double YWhitePatch = YWhite;
 		//check for GS measurement
 		if (GetDocument()->GetMeasure()->GetGray(0).isValid()) 
 		{
@@ -333,7 +336,7 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			if ( GetConfig ()->m_dE_gray == 0 )
 			{
 				// Use actual gray luminance as correct reference (absolute)
-	    		YWhite = aColor [ 2 ];
+	    		YWhitePatch = aColor [ 2 ];
 				fact = 1.0;
 			}
 			else
@@ -359,7 +362,7 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		//m_graphCtrl2.AddPoint(m_deltaEGraphID, j, GetDocument()->GetMeasure()->GetMeasurement(i).GetDeltaE(GetColorReference().GetWhite())); //stick with chromiticity only dE
 		//new
 		if (GetDocument()->GetMeasure()->GetGray(0).isValid())
-			m_graphCtrl2.AddPoint(m_deltaEGraphID, j, reading.GetDeltaE(YWhite, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight));
+			m_graphCtrl2.AddPoint(m_deltaEGraphID, j, reading.GetDeltaE(YWhitePatch, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight));
 		else
 			m_graphCtrl2.AddPoint(m_deltaEGraphID, j, reading.GetDeltaE(GetColorReference().GetWhite())); //GS has not been run
 				

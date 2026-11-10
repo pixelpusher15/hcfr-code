@@ -6300,6 +6300,13 @@ static void RunT47()
 // explicit on/off value (in a document it is the stored on/off white, the valid
 // placeholder on a new one). Pure assertions.
 // =============================================================================
+// T51: a top recognized as a placeholder (here: exactly Y 120, the shape of the
+// constructor's prime-white placeholder at TargetMaxL 120) is no top.
+static bool T51IsPlaceholder(const CColor& c)
+{
+    return c.GetY() == 120.0 && c.GetX() == 114.0564 && c.GetZ() == 130.6596;
+}
+
 static void RunT51()
 {
     printf("T51 gray scale 100%% white: measured top, else the on/off white...\n");
@@ -6349,6 +6356,15 @@ static void RunT51()
         Fail("T51 gray top with Y < 0: Y %.17g, expected the on/off white's 100", GrayScaleWhite(negTop, 3, onoff).GetY());
     if (GrayScaleWhite(infTop, 3, onoff).GetY() != 100.0)
         Fail("T51 gray top with Y +inf: Y %.17g, expected the on/off white's 100", GrayScaleWhite(infTop, 3, onoff).GetY());
+    // a placeholder-shaped top with a measured on/off white: the on/off white;
+    // the same top without the predicate is taken (it is valid with Y > 0)
+    CColor phTop[3] = { grays[0], grays[1], CColor(114.0564, 120.0, 130.6596) };
+    if (GrayScaleWhite(phTop, 3, onoff, T51IsPlaceholder).GetY() != 100.0)
+        Fail("T51 placeholder top: Y %.17g, expected the on/off white's 100", GrayScaleWhite(phTop, 3, onoff, T51IsPlaceholder).GetY());
+    if (GrayScaleWhite(phTop, 3, onoff).GetY() != 120.0)
+        Fail("T51 placeholder-shaped top without a predicate: not taken");
+    if (GrayScaleWhite(grays, 3, onoff, T51IsPlaceholder).GetY() != 102.0)
+        Fail("T51 a measured top was refused by the placeholder predicate");
     // GrayScaleBlack, the twin: the measured 0% reading when valid with a finite
     // Y (Y 0 is a black), else the on/off black as given
     const CColor onoffBlack(0.30, 0.31, 0.33);

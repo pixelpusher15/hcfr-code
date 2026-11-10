@@ -165,13 +165,14 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 	if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef != pDoc))
 	{
-		pDoc->ComputeGammaAndOffset(&RefGammaOpt, &RefGammaOffset, 1,1,size,false);
-		pDoc->ComputeGammaAndOffset(&RefLuxGammaOpt, &RefLuxGammaOffset, 2,1,size,false);
+		// the comparison document's own fit (as GammaHistoView; this fitted pDoc)
+		pDataRef->ComputeGammaAndOffset(&RefGammaOpt, &RefGammaOffset, 1,1,size,false);
+		pDataRef->ComputeGammaAndOffset(&RefLuxGammaOpt, &RefLuxGammaOffset, 2,1,size,false);
 	}
 			
 	int mode = GetConfig()->m_GammaOffsetType;
     
-	CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite();
+	CColor White = DocWhite;
 	if (m_showReference && m_refGraphID != -1)
 	{	
 		for (int i=0; i<size; i++)
@@ -179,7 +180,7 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			double x, valx, valy;
 			// Reading i at its stamped drive, else slot i (CMeasure::GetGrayReadingLevel).
 			x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i );
-	    	CColor Black = pDoc -> GetMeasure () -> GetGrayScaleBlack();
+	    	CColor Black = DocBlack;
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if (  (mode >= 4) )
 			{
@@ -222,7 +223,7 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	{	
 		int		nb = 0;
 		double	avg = 0.0;
-    	CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite();
+    	CColor White = DocWhite;
 
 		// Le calcul de la moyenne des gamma et la représentation en échelle log 
 		// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 

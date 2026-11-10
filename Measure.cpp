@@ -8703,19 +8703,37 @@ CColor CMeasure::GetOnOffWhite() const
 	return clr;
 } 
 
+// The constructor's top-gray placeholder is not a reading (IsRawlessPlaceholder).
+static bool GrayTopIsPlaceholder ( const CColor & c )
+{
+	return CMeasure::IsRawlessPlaceholder ( c, false );
+}
+
 CColor CMeasure::GetGrayScaleWhite() const
 {
-	return GrayScaleWhite ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffWhite );
+	return GrayScaleWhite ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffWhite, GrayTopIsPlaceholder );
 }
 
 CColor CMeasure::GetGrayScaleBlack() const
 {
-	// The user's black override is the user's decision above both readings: the
-	// sweeps write it into the on/off black (and the gray scale sweep into slot 0),
-	// but a gray scale measured before the override was turned on still holds the
-	// measured black. Same test the sweeps use (m_bOverRideBlack, CheckBlackOverride).
+	// The user's black override is the user's decision above both readings. The
+	// test is the DOCUMENT's recorded decision, m_bOverRideBlack: loaded from the
+	// file and refreshed from the preference by CheckBlackOverride at each sweep -
+	// not the live preference. A gray scale swept under the override holds the
+	// override black in slot 0 together with the lux measured beside it (the
+	// sweep writes m_userBlack plus the lux there), so that slot is returned when
+	// it holds the override black; a slot 0 measured before the override was
+	// turned on holds the measured black, and m_userBlack (no lux) is returned.
 	if ( m_bOverRideBlack && m_userBlack.isValid () )
+	{
+		if ( m_grayMeasureArray.GetSize () > 0 && m_grayMeasureArray[0].isValid () )
+		{
+			const ColorXYZ s = m_grayMeasureArray[0].GetXYZValue (), u = m_userBlack.GetXYZValue ();
+			if ( s[0] == u[0] && s[1] == u[1] && s[2] == u[2] )
+				return m_grayMeasureArray[0];
+		}
 		return m_userBlack;
+	}
 	return GrayScaleBlack ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffBlack );
 }
 
@@ -8772,9 +8790,9 @@ double CMeasure::GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) cons
 	// a 999 convention failure.
 	if ( isHDR && bCC && bMasciorCC )
 	{
-		int n = GetGrayScaleSize();
-		if ( n > 0 && GetGray(n - 1).isValid() && GetGray(n - 1).GetY() > 0.0 )
-			return GetGray(n - 1).GetY();
+		const CColor w = GetGrayScaleWhite();
+		if ( w.isValid() && w.GetY() > 0.0 )
+			return w.GetY();
 	}
 
 	CColor prime = GetPrimeWhite();

@@ -4123,8 +4123,9 @@ void CMainView::UpdateGrid()
 			YWhitePrime = YWhiteOnOff;
 
 		nCount = GetDocument() -> GetMeasure () -> GetGrayScaleSize ();
-		if ( GetDocument() -> GetMeasure () -> GetGray ( nCount - 1 ).isValid() )
-			YWhiteGray = GetDocument() -> GetMeasure () -> GetGray ( nCount - 1 ) [ 1 ];
+		const CColor gsWhiteGrid = GetDocument() -> GetMeasure () -> GetGrayScaleWhite ();
+		if ( gsWhiteGrid.isValid() )
+			YWhiteGray = gsWhiteGrid [ 1 ];
 
 		if (YWhite == -1)
 			YWhite = GetConfig()->m_TargetMaxL;
@@ -4147,8 +4148,9 @@ void CMainView::UpdateGrid()
 			if (refCount == nCount)
 			{
 				nCount = pDataRef -> GetMeasure () -> GetGrayScaleSize ();
-				if ( pDataRef -> GetMeasure () -> GetGray ( nCount - 1 ).isValid() )
-					YWhiteGrayRefDoc = pDataRef -> GetMeasure () -> GetGray ( nCount - 1 ) [ 1 ];
+				const CColor gsWhiteGridRef = pDataRef -> GetMeasure () -> GetGrayScaleWhite ();
+				if ( gsWhiteGridRef.isValid() )
+					YWhiteGrayRefDoc = gsWhiteGridRef [ 1 ];
 			}
 
 		}
