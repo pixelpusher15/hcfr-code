@@ -3845,7 +3845,7 @@ BEGIN
     IDS_MEASUREGRAYANDCOLORS 
                             "Measure gray scale, primary and secondary colors simultaneously ?\nWarning: actual data will be lost...\n\nNote: you can cancel measuring using ESCAPE key."
     IDS_RUN_MANUAL_CALIBRATION 
-                            "Create correction file using manual measuring of primary colors and white using a reference colorimeter ?\n\nWARNING: To display next color, type ENTER key - after taking notes of values measured from your reference colorimeter.\nYou can cancel measuring using ESCAPE key."
+                            "Build a meter correction file by hand?\n\nHCFR shows red, green, blue and white in turn and measures each one with the meter being corrected. A second, reference meter that HCFR does not drive reads the same patch: after each one, note its reading (X, Y, Z or x, y, Y), then click Next. After white, type the four readings into the dialog that opens. Cancel stops the run.\n\nIf HCFR can drive your reference meter, use ""Create using Existing Reference Measures"" or ""Build using simultaneous measures"" instead."
     IDS_DISTANCEINCIEXY     "Distance from reference in CIExy"
     IDS_CANNOTMEASUREGRAYANDCOLORS 
                             "%s cannot display gray scale, primaries and secondaries in one single series.\nPlease use single commands instead of this one."
@@ -4000,6 +4000,14 @@ BEGIN
     IDS_TI3_FILTER          "CGATS measurement files (*.ti3)|*.ti3||"
     IDS_TI3_NOTHING         "There is nothing to export to .ti3: this document has no measured display profile and no measured patch list."
     IDS_TI3_WRITTEN         "%d measures written (%d not measured or invalid, skipped) to:\n\n%s"
+    IDS_MANUALCAL_TITLE     "Manual Calibration"
+    IDS_MANUALCAL_PROMPT    "%2 measured (patch %1 of 4).\n\nNote your reference meter's reading of this patch (X, Y, Z or x, y, Y), then click Next. Cancel stops the run."
+    IDS_MANUALCAL_NEXT      "Next"
+    IDS_MANUALCAL_CANCEL    "Cancel"
+    IDS_MANUALCAL_RED       "Red"
+    IDS_MANUALCAL_GREEN     "Green"
+    IDS_MANUALCAL_BLUE      "Blue"
+    IDS_MANUALCAL_WHITE     "White"
     IDS_MEASUREDISPLAYPROFILE "Measure display profile (cube capture)"
     IDS_DELETEDISPLAYPROFILE "Delete display profile"
     IDS_SATLUMSHIFT         "Saturation - shifts"
