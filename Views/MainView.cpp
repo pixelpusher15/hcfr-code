@@ -3673,16 +3673,11 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						
 						if ( GetConfig ()->m_GammaOffsetType == 1 )
 							yblack = Black.GetY();
-						// Near black / white: the reading's stamped drive, else the
-						// slot exactly as before: GraySeriesSlotProp, the nominal level
-						// truncated once (main's value; GetGrayReadingProp's fallback
-						// truncates twice under round-down).
+						// Near black / white: the reading's stamped drive, else its
+						// slot truncated once - the accessor UpdateGrid's dE
+						// references and the charts use.
 						if (m_displayMode == 3 || m_displayMode == 4)
-						{
-							const GraySeries series = ( m_displayMode == 3 ) ? GRAY_SERIES_NEAR_BLACK : GRAY_SERIES_NEAR_WHITE;
-							if ( ! GetDocument()->GetMeasure()->GetGrayReadingDrive ( series, nCol - 1, & valx ) )
-								valx = GraySeriesSlotProp ( GetDocument()->GetMeasure()->GetGraySeriesView ( series ), nCol - 1 );
-						}
+							valx = GetDocument()->GetMeasure()->GetGrayReadingProp ( ( m_displayMode == 3 ) ? GRAY_SERIES_NEAR_BLACK : GRAY_SERIES_NEAR_WHITE, nCol - 1 );
 
 						int mode = GetConfig()->m_GammaOffsetType;
 						if (GetConfig()->m_colorStandard == sRGB) mode = 99;
