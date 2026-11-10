@@ -2100,6 +2100,14 @@
 #define IDS_TI3_FILTER                  60150
 #define IDS_TI3_NOTHING                 60151
 #define IDS_TI3_WRITTEN                 60152
+#define IDS_MANUALCAL_TITLE             60180
+#define IDS_MANUALCAL_PROMPT            60181
+#define IDS_MANUALCAL_NEXT              60182
+#define IDS_MANUALCAL_CANCEL            60183
+#define IDS_MANUALCAL_RED               60184
+#define IDS_MANUALCAL_GREEN             60185
+#define IDS_MANUALCAL_BLUE              60186
+#define IDS_MANUALCAL_WHITE             60187
 #define IDS_GRAPH_GSLUMERROR            60090
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549

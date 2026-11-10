@@ -4041,7 +4041,7 @@ BEGIN
     IDS_MEASUREGRAYANDCOLORS 
                             "Misura simultaneamente la scala di grigi, i colori primari e secondari ?\nWarning: i dati correnti saranno persi...\n\nNote: è possibile annullare la misurazione con il tasto ESC."
     IDS_RUN_MANUAL_CALIBRATION 
-                            "Creare un file di correzione utilizzando la misurazione manuale dei colori primari e del bianco con un colorimetro di riferimento ?\n\nWARNING: Per visualizzare il colore successivo, digitare il tasto ENTER - dopo aver preso nota dei valori misurati dal vostro colorimetro di riferimento.\nSi può annullare la misurazione con il tasto ESC."
+                            "Creare manualmente un file di correzione per il misuratore?\n\nHCFR mostra in sequenza rosso, verde, blu e bianco e misura ciascuno con il misuratore da correggere. Un secondo misuratore di riferimento, che HCFR non controlla, legge la stessa patch: dopo ognuna, annotate la sua lettura (X, Y, Z o x, y, Y), poi fate clic su Avanti. Dopo il bianco, inserite le quattro letture nella finestra che si apre. Annulla interrompe la procedura.\n\nSe HCFR pu\xF2 controllare il vostro misuratore di riferimento, usate invece ""Crea usando misurazioni di riferimento esistenti"" o ""Construisci usando misurazioni simultanee""."
     IDS_DISTANCEINCIEXY     "Distanza dal riferimento in CIExy"
     IDS_CANNOTMEASUREGRAYANDCOLORS 
                             "%s non può visualizzare la scala di grigi, i primari e i secondari in una sola serie.\nSi prega di usare comandi singoli invece di questo."
@@ -4196,6 +4196,14 @@ BEGIN
     IDS_TI3_FILTER          "File di misurazioni CGATS (*.ti3)|*.ti3||"
     IDS_TI3_NOTHING         "Non c'è nulla da esportare in .ti3: questo documento non contiene né un profilo del display misurato né un elenco di patch misurato."
     IDS_TI3_WRITTEN         "%d misurazioni scritte (%d non misurate o non valide, saltate) in:\n\n%s"
+    IDS_MANUALCAL_TITLE     "Calibrazione manuale"
+    IDS_MANUALCAL_PROMPT    "%2 misurato (patch %1 di 4).\n\nAnnotate la lettura del vostro misuratore di riferimento per questa patch (X, Y, Z o x, y, Y), poi fate clic su Avanti. Annulla interrompe la procedura."
+    IDS_MANUALCAL_NEXT      "Avanti"
+    IDS_MANUALCAL_CANCEL    "Annulla"
+    IDS_MANUALCAL_RED       "Rosso"
+    IDS_MANUALCAL_GREEN     "Verde"
+    IDS_MANUALCAL_BLUE      "Blu"
+    IDS_MANUALCAL_WHITE     "Bianco"
     IDS_MEASUREDISPLAYPROFILE "Misura il profilo del display"
     IDS_DELETEDISPLAYPROFILE "Cancella il profilo del display"
     IDS_SATLUMSHIFT         "Saturazione - turni"

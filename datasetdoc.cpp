@@ -2060,18 +2060,379 @@ static BOOL LoadCalibrationFileKeepingSpectral(CSensor* pSensor, CString & fileN
 	return TRUE;
 }
 
+// Build Manually: the wait after each measured patch. The old wait read only the
+// key messages of this thread and slept, so after a few seconds Windows marked
+// HCFR "Not responding" on the red field, nothing on screen said what to do, and
+// a click into the reference meter's own program took the keyboard focus away
+// for good. This prompt names the patch, keeps every window painting, takes a
+// click wherever the focus is, and still takes ENTER (Next) and ESCAPE (Cancel)
+// typed into any HCFR window. It never covers the patch being read: see
+// PlaceManualCalPrompt.
+namespace {
+
+const WORD MANUALCAL_TEXT_ID = 1000;	// the text control in the in-memory template
+
+class CManualCalPromptDlg : public CDialog
+{
+public:
+	CManualCalPromptDlg () : m_nResult ( 0 ) {}
+
+	int		m_nResult;		// 0 while waiting, then IDOK (Next) or IDCANCEL (Cancel)
+	CString	m_strTitle, m_strText, m_strNext, m_strCancel;
+
+protected:
+	virtual BOOL OnInitDialog ();
+	// Modeless: answer, never EndDialog. The caller's loop sees m_nResult.
+	virtual void OnOK () { m_nResult = IDOK; }
+	virtual void OnCancel () { m_nResult = IDCANCEL; }
+};
+
+BOOL CManualCalPromptDlg::OnInitDialog ()
+{
+	CDialog::OnInitDialog ();
+
+	SetWindowText ( m_strTitle );
+	SetDlgItemText ( IDOK, m_strNext );
+	SetDlgItemText ( IDCANCEL, m_strCancel );
+
+	CWnd * pText = GetDlgItem ( MANUALCAL_TEXT_ID );
+	pText -> SetWindowText ( m_strText );
+
+	// Grow the text to fit (the translations differ in length), and the buttons
+	// and the window with it.
+	CRect rText;
+	pText -> GetWindowRect ( & rText );
+	ScreenToClient ( & rText );
+	CRect rNeed ( 0, 0, rText.Width (), 0 );
+	{
+		CClientDC dc ( pText );
+		CFont * pOldFont = dc.SelectObject ( GetFont () );
+		dc.DrawText ( m_strText, & rNeed, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX | DT_LEFT );
+		dc.SelectObject ( pOldFont );
+	}
+	int dy = rNeed.Height () - rText.Height ();
+	if ( dy > 0 )
+	{
+		pText -> SetWindowPos ( NULL, 0, 0, rText.Width (), rNeed.Height (), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE );
+		const int nButtons[2] = { IDOK, IDCANCEL };
+		for ( int b = 0; b < 2; b ++ )
+		{
+			CRect r;
+			GetDlgItem ( nButtons[b] ) -> GetWindowRect ( & r );
+			ScreenToClient ( & r );
+			GetDlgItem ( nButtons[b] ) -> SetWindowPos ( NULL, r.left, r.top + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE );
+		}
+		CRect rWnd;
+		GetWindowRect ( & rWnd );
+		SetWindowPos ( NULL, 0, 0, rWnd.Width (), rWnd.Height () + dy, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE );
+	}
+
+	GotoDlgCtrl ( GetDlgItem ( IDOK ) );
+	return FALSE;	// the focus is set
+}
+
+// One DLGITEMTEMPLATE with a system class, an empty title (set in OnInitDialog)
+// and no creation data. Each item starts on a DWORD boundary.
+void ManualCalTemplateItem ( std::vector<WORD> & t, DWORD style, short x, short y, short cx, short cy, WORD id, WORD atom )
+{
+	if ( t.size () % 2 )
+		t.push_back ( 0 );
+	t.push_back ( LOWORD ( style ) );
+	t.push_back ( HIWORD ( style ) );
+	t.push_back ( 0 );	// dwExtendedStyle
+	t.push_back ( 0 );
+	t.push_back ( (WORD) x );
+	t.push_back ( (WORD) y );
+	t.push_back ( (WORD) cx );
+	t.push_back ( (WORD) cy );
+	t.push_back ( id );
+	t.push_back ( 0xFFFF );
+	t.push_back ( atom );	// 0x0080 button, 0x0082 static
+	t.push_back ( 0 );		// title
+	t.push_back ( 0 );		// creation data
+}
+
+// The prompt as an in-memory template: one text and two buttons, in dialog units.
+// No .rc dialog, so the five satellites carry only the strings.
+void BuildManualCalTemplate ( std::vector<WORD> & t )
+{
+	const short cx = 190, margin = 7, textH = 40, btnW = 50, btnH = 14;
+	const short btnY = margin + textH + margin;
+	const short cy = btnY + btnH + margin;
+	const DWORD style = DS_SETFONT | DS_MODALFRAME | DS_3DLOOK | WS_POPUP | WS_CAPTION | WS_SYSMENU;
+	const wchar_t * face = L"MS Shell Dlg";
+
+	t.push_back ( LOWORD ( style ) );
+	t.push_back ( HIWORD ( style ) );
+	t.push_back ( 0 );	// dwExtendedStyle
+	t.push_back ( 0 );
+	t.push_back ( 3 );	// cdit
+	t.push_back ( 0 );	// x, y: placed by PlaceManualCalPrompt
+	t.push_back ( 0 );
+	t.push_back ( (WORD) cx );
+	t.push_back ( (WORD) cy );
+	t.push_back ( 0 );	// no menu
+	t.push_back ( 0 );	// default class
+	t.push_back ( 0 );	// title: set in OnInitDialog
+	t.push_back ( 8 );	// point size (DS_SETFONT), as the .rc dialogs
+	for ( const wchar_t * p = face; * p; p ++ )
+		t.push_back ( (WORD) * p );
+	t.push_back ( 0 );
+
+	ManualCalTemplateItem ( t, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
+							margin, margin, cx - 2 * margin, textH, MANUALCAL_TEXT_ID, 0x0082 );
+	ManualCalTemplateItem ( t, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+							cx - margin - btnW - 4 - btnW, btnY, btnW, btnH, IDOK, 0x0080 );
+	ManualCalTemplateItem ( t, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+							cx - margin - btnW, btnY, btnW, btnH, IDCANCEL, 0x0080 );
+}
+
+// The rectangle the pattern occupies on one of this computer's screens, and
+// HCFR's own window showing it (NULL for madVR, whose window is madTPG's).
+// FALSE when the pattern is not on a screen of ours (a remote generator), so
+// the prompt can sit on HCFR's window as any other prompt does.
+BOOL GetLocalPatternRect ( CGenerator * pGenerator, const MONITORINFO & mi, CRect & rPattern, CWnd * & pPatternOwner )
+{
+	pPatternOwner = NULL;
+
+	if ( ! pGenerator -> IsKindOf ( RUNTIME_CLASS ( CGDIGenerator ) ) )
+		return FALSE;	// a hardware or DVD generator: the patch is on the display under test
+
+	CGDIGenerator * pGDI = (CGDIGenerator *) pGenerator;
+	if ( pGDI -> m_nDisplayMode == DISPLAY_rPI || pGDI -> m_nDisplayMode == DISPLAY_ccast )
+		return FALSE;	// PGenerator, Chromecast: another device's screen
+
+	// GDI's "test color window" mode: the patch is that floating window.
+	if ( pGDI -> m_nDisplayMode == DISPLAY_GDI_Hide )
+	{
+		CWnd & wndTest = ( (CMainFrame *) AfxGetMainWnd () ) -> m_wndTestColorWnd;
+		if ( wndTest.GetSafeHwnd () && wndTest.IsWindowVisible () )
+		{
+			wndTest.GetWindowRect ( & rPattern );
+			pPatternOwner = & wndTest;
+			return TRUE;
+		}
+	}
+
+	// GDI full screen on the main window's monitor registers its window
+	// (CGDIGenerator::Init).
+	CWnd * pPatternWnd = GetColorApp () -> m_pPatternWnd;
+	if ( pPatternWnd && ::IsWindow ( pPatternWnd -> GetSafeHwnd () ) && pPatternWnd -> IsWindowVisible () )
+	{
+		pPatternWnd -> GetWindowRect ( & rPattern );
+		pPatternOwner = pPatternWnd;
+		return TRUE;
+	}
+
+	// GDI full screen on another monitor than the main window's: the prompt on the
+	// main window cannot cover it.
+	if ( pGDI -> m_nDisplayMode != DISPLAY_madVR && pGDI -> IsOnOtherMonitor () )
+		return FALSE;
+
+	// madVR (madTPG's window belongs to another process, on a monitor HCFR does
+	// not know), or no visible pattern window: assume the pattern fills the main
+	// window's monitor, so the prompt goes to one of its corners.
+	rPattern = mi.rcMonitor;
+	return TRUE;
+}
+
+// Where the prompt goes. Never over the patch the reference meter reads: with a
+// pattern on our screens, centered on the main window only when that misses the
+// pattern entirely (the pattern is on another monitor, or a small test color
+// window elsewhere), else the first corner of the main window's monitor that
+// misses the pattern, else the first corner that misses the pattern's center
+// half (a full-screen pattern: patches are centered, and so is the meter).
+// mi is the main window's monitor; bLocal and rPattern come from
+// GetLocalPatternRect.
+CPoint PlaceManualCalPrompt ( const MONITORINFO & mi, BOOL bLocal, const CRect & rPattern, const CSize & size )
+{
+	CRect rMain;
+	AfxGetMainWnd () -> GetWindowRect ( & rMain );
+	CRect rWork ( mi.rcWork );
+
+	HDC hScreen = ::GetDC ( NULL );
+	int margin = ::MulDiv ( 8, ::GetDeviceCaps ( hScreen, LOGPIXELSX ), 96 );
+	::ReleaseDC ( NULL, hScreen );
+
+	CRect rCandidates[5];
+	CPoint ptCenter = rMain.CenterPoint ();
+	rCandidates[0] = CRect ( CPoint ( ptCenter.x - size.cx / 2, ptCenter.y - size.cy / 2 ), size );
+	// Kept on the work area, so a main window half off screen keeps the prompt on it.
+	if ( rCandidates[0].right > rWork.right )	rCandidates[0].OffsetRect ( rWork.right - rCandidates[0].right, 0 );
+	if ( rCandidates[0].bottom > rWork.bottom )	rCandidates[0].OffsetRect ( 0, rWork.bottom - rCandidates[0].bottom );
+	if ( rCandidates[0].left < rWork.left )		rCandidates[0].OffsetRect ( rWork.left - rCandidates[0].left, 0 );
+	if ( rCandidates[0].top < rWork.top )		rCandidates[0].OffsetRect ( 0, rWork.top - rCandidates[0].top );
+	rCandidates[1] = CRect ( CPoint ( rWork.right - margin - size.cx, rWork.bottom - margin - size.cy ), size );	// bottom right
+	rCandidates[2] = CRect ( CPoint ( rWork.right - margin - size.cx, rWork.top + margin ), size );				// top right
+	rCandidates[3] = CRect ( CPoint ( rWork.left + margin, rWork.bottom - margin - size.cy ), size );				// bottom left
+	rCandidates[4] = CRect ( CPoint ( rWork.left + margin, rWork.top + margin ), size );							// top left
+
+	if ( ! bLocal )
+		return rCandidates[0].TopLeft ();
+
+	CRect rCenterHalf ( rPattern );
+	rCenterHalf.DeflateRect ( rPattern.Width () / 4, rPattern.Height () / 4 );
+
+	CRect rTmp;
+	for ( int i = 0; i < 5; i ++ )
+	{
+		if ( ! rTmp.IntersectRect ( & rCandidates[i], & rPattern ) )
+			return rCandidates[i].TopLeft ();
+	}
+	for ( int i = 1; i < 5; i ++ )
+	{
+		if ( ! rTmp.IntersectRect ( & rCandidates[i], & rCenterHalf ) )
+			return rCandidates[i].TopLeft ();
+	}
+	return rCandidates[1].TopLeft ();	// a prompt wider and taller than a quarter screen
+}
+
+BOOL CALLBACK CollectEnabledThreadWindows ( HWND hWnd, LPARAM lParam )
+{
+	if ( ::IsWindowVisible ( hWnd ) && ::IsWindowEnabled ( hWnd ) )
+		( (std::vector<HWND> *) lParam ) -> push_back ( hWnd );
+	return TRUE;
+}
+
+void ReenableThreadWindows ( const std::vector<HWND> & disabled )
+{
+	for ( size_t i = disabled.size (); i -- > 0; )
+	{
+		if ( ::IsWindow ( disabled[i] ) )
+			::EnableWindow ( disabled[i], TRUE );
+	}
+}
+
+} // namespace
+
+// After one patch of Build Manually is measured, waits for the user to note the
+// reference meter's reading. nColorName names the patch, nPatch is 1 to 4.
+// Returns TRUE for Next, FALSE for Cancel (the caller releases the sensor and the
+// generator, as on ESCAPE before).
+static BOOL WaitForManualCalNext ( CGenerator * pGenerator, UINT nColorName, int nPatch )
+{
+	MSG		msg;
+	BOOL	bCancel = FALSE;
+
+	// Keys typed while the patch was measured: ESCAPE still cancels, as it always
+	// did; an ENTER typed before the prompt named this patch is dropped.
+	while ( ::PeekMessage ( & msg, NULL, WM_KEYDOWN, WM_KEYUP, PM_REMOVE ) )
+	{
+		if ( msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE )
+			bCancel = TRUE;
+	}
+	if ( bCancel )
+		return FALSE;
+
+	CString strColor, strPatch, strText;
+	strColor.LoadString ( nColorName );
+	strPatch.Format ( "%d", nPatch );
+	AfxFormatString2 ( strText, IDS_MANUALCAL_PROMPT, strPatch, strColor );
+
+	CWnd * pMain = AfxGetMainWnd ();
+	CManualCalPromptDlg dlg;
+	dlg.m_strTitle.LoadString ( IDS_MANUALCAL_TITLE );
+	dlg.m_strText = strText;
+	dlg.m_strNext.LoadString ( IDS_MANUALCAL_NEXT );
+	dlg.m_strCancel.LoadString ( IDS_MANUALCAL_CANCEL );
+
+	MONITORINFO mi;
+	mi.cbSize = sizeof ( mi );
+	::GetMonitorInfo ( ::MonitorFromWindow ( pMain -> GetSafeHwnd (), MONITOR_DEFAULTTONEAREST ), & mi );
+
+	// The owner decides the prompt's place in the z-order. A topmost prompt owned
+	// by the main frame pulls the main frame above a full-screen pattern with it,
+	// over the patch the meters read (seen on the bench). So: owned by HCFR's
+	// pattern window when there is one (it stays just above it), by nobody when
+	// the pattern is madTPG's (topmost on its own), by the main frame when the
+	// pattern is on another device.
+	CRect rPattern;
+	CWnd * pPatternOwner = NULL;
+	BOOL bLocal = GetLocalPatternRect ( pGenerator, mi, rPattern, pPatternOwner );
+	BOOL bUnowned = bLocal && ! pPatternOwner;
+	CWnd * pOwner = ! bLocal ? pMain : ( pPatternOwner ? pPatternOwner : CWnd::GetDesktopWindow () );
+
+	// Modal toward HCFR, the way CDialog::DoModal does it: every other window of
+	// this thread is disabled BEFORE the prompt exists. Disabling the main frame
+	// runs MFC's BeginModalState, which disables every window owned by the main
+	// frame; a prompt created first (owned by the main frame or the test color
+	// window) would be disabled with them and could never be answered.
+	std::vector<HWND> disabled;
+	::EnumThreadWindows ( ::GetCurrentThreadId (), CollectEnabledThreadWindows, (LPARAM) & disabled );
+	for ( size_t i = 0; i < disabled.size (); i ++ )
+		::EnableWindow ( disabled[i], FALSE );
+
+	std::vector<WORD> tpl;
+	BuildManualCalTemplate ( tpl );
+	if ( ! dlg.CreateIndirect ( (LPCDLGTEMPLATE) & tpl[0], pOwner ) )
+	{
+		// Not expected; a plain box still shows the step and pumps messages.
+		ReenableThreadWindows ( disabled );
+		return GetColorApp () -> InMeasureMessageBox ( strText, dlg.m_strTitle, MB_OKCANCEL | MB_ICONINFORMATION ) == IDOK;
+	}
+
+	if ( bUnowned )
+		dlg.ModifyStyleEx ( 0, WS_EX_TOOLWINDOW );	// no taskbar button for an unowned prompt
+
+	CRect rPrompt;
+	dlg.GetWindowRect ( & rPrompt );
+	CPoint ptTopLeft = PlaceManualCalPrompt ( mi, bLocal, rPattern, rPrompt.Size () );
+	dlg.SetWindowPos ( bUnowned ? & CWnd::wndTopMost : & CWnd::wndTop, ptTopLeft.x, ptTopLeft.y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW );
+	dlg.SetForegroundWindow ();
+	::SetCursor ( ::LoadCursor ( NULL, IDC_ARROW ) );
+
+	while ( dlg.m_nResult == 0 && ::IsWindow ( dlg.GetSafeHwnd () ) )
+	{
+		BOOL bGot = ::GetMessage ( & msg, NULL, 0, 0 );
+		if ( bGot == 0 || bGot == -1 )
+		{
+			if ( bGot == 0 )
+				::PostQuitMessage ( (int) msg.wParam );	// leave WM_QUIT for the app's own loop
+			dlg.m_nResult = IDCANCEL;
+			break;
+		}
+		// ENTER and ESCAPE sent to any other HCFR window answer the prompt, as
+		// the keys did before (the full-screen pattern window can still hold the
+		// focus). Inside the prompt the dialog handles them: ENTER presses the
+		// focused button.
+		if ( msg.message == WM_KEYDOWN && ( msg.wParam == VK_RETURN || msg.wParam == VK_ESCAPE )
+			 && msg.hwnd != dlg.GetSafeHwnd () && ! ::IsChild ( dlg.GetSafeHwnd (), msg.hwnd ) )
+		{
+			dlg.m_nResult = ( msg.wParam == VK_RETURN ) ? IDOK : IDCANCEL;
+			break;
+		}
+		if ( ! dlg.IsDialogMessage ( & msg ) )
+		{
+			::TranslateMessage ( & msg );
+			::DispatchMessage ( & msg );
+		}
+	}
+	int nResult = dlg.m_nResult;	// 0 when the prompt vanished without an answer: Cancel
+
+	// Re-enabled before the prompt goes, so the activation returns to HCFR.
+	ReenableThreadWindows ( disabled );
+	if ( ::IsWindow ( dlg.GetSafeHwnd () ) )
+		dlg.DestroyWindow ();
+	if ( bUnowned )
+		pMain -> SetForegroundWindow ();	// so the next box does not open behind madTPG
+
+	GetColorApp () -> BringPatternWindowToTop ();
+	GetColorApp () -> RestoreMeasureCursor ();
+
+	return nResult == IDOK;
+}
+
 void CDataSetDoc::OnCalibrationManual()
 {
 	int		i;
-	MSG		Msg;
-	BOOL	bEscape, bReturn;
+	BOOL	bEscape;
 	CColor	measuredColor[4];
 	CString	strMsg, Title;
 
 	if ( !ConfirmMatrixCalOverSpectral(m_pSensor) )
 		return;
 
-	if ( IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_RUN_MANUAL_CALIBRATION), "Manual Calibration", MB_YESNO | MB_ICONQUESTION ) )
+	if ( IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_RUN_MANUAL_CALIBRATION), _S(IDS_MANUALCAL_TITLE), MB_YESNO | MB_ICONQUESTION ) )
 	{
 		if(m_pGenerator->Init(5) != TRUE)
 		{
@@ -2109,25 +2470,13 @@ void CDataSetDoc::OnCalibrationManual()
 			if( m_pGenerator->DisplayRGBColor(ColorRGBDisplay(primaryIRELevel,0,0),CGenerator::MT_PRIMARY) )
 			{
 				bEscape = m_measure.WaitForDynamicIris ();
-				bReturn = FALSE;
 
 				if ( ! bEscape )
 					measure=m_pSensor->MeasureColor(ColorRGBDisplay(primaryIRELevel,0,0));
-				
-				while ( ! bEscape && ! bReturn )
-				{
-					while ( PeekMessage ( & Msg, NULL, WM_KEYDOWN, WM_KEYUP, TRUE ) )
-					{
-						if ( Msg.message == WM_KEYDOWN )
-						{
-							if ( Msg.wParam == VK_ESCAPE )
-								bEscape = TRUE;
-							else if ( Msg.wParam == VK_RETURN )
-								bReturn = TRUE;
-						}
-					}
-					Sleep(10);
-				}
+
+				// The patch stays up while the user notes the reference meter's reading.
+				if ( ! bEscape )
+					bEscape = ! WaitForManualCalNext ( m_pGenerator, IDS_MANUALCAL_RED, 1 );
 
 				if ( bEscape )
 				{
@@ -2169,25 +2518,13 @@ void CDataSetDoc::OnCalibrationManual()
 			if( m_pGenerator->DisplayRGBColor(ColorRGBDisplay(0,primaryIRELevel,0),CGenerator::MT_PRIMARY) )
 			{
 				bEscape = m_measure.WaitForDynamicIris ();
-				bReturn = FALSE;
 
 				if ( ! bEscape )
 					measure=m_pSensor->MeasureColor(ColorRGBDisplay(0,primaryIRELevel,0));
-				
-				while ( ! bEscape && ! bReturn )
-				{
-					while ( PeekMessage ( & Msg, NULL, WM_KEYDOWN, WM_KEYUP, TRUE ) )
-					{
-						if ( Msg.message == WM_KEYDOWN )
-						{
-							if ( Msg.wParam == VK_ESCAPE )
-								bEscape = TRUE;
-							else if ( Msg.wParam == VK_RETURN )
-								bReturn = TRUE;
-						}
-					}
-					Sleep(10);
-				}
+
+				// The patch stays up while the user notes the reference meter's reading.
+				if ( ! bEscape )
+					bEscape = ! WaitForManualCalNext ( m_pGenerator, IDS_MANUALCAL_GREEN, 2 );
 
 				if ( bEscape )
 				{
@@ -2229,25 +2566,13 @@ void CDataSetDoc::OnCalibrationManual()
 			if( m_pGenerator->DisplayRGBColor(ColorRGBDisplay(0,0,primaryIRELevel),CGenerator::MT_PRIMARY) )
 			{
 				bEscape = m_measure.WaitForDynamicIris ();
-				bReturn = FALSE;
 
 				if ( ! bEscape )
 					measure=m_pSensor->MeasureColor(ColorRGBDisplay(0,0,primaryIRELevel));
-				
-				while ( ! bEscape && ! bReturn )
-				{
-					while ( PeekMessage ( & Msg, NULL, WM_KEYDOWN, WM_KEYUP, TRUE ) )
-					{
-						if ( Msg.message == WM_KEYDOWN )
-						{
-							if ( Msg.wParam == VK_ESCAPE )
-								bEscape = TRUE;
-							else if ( Msg.wParam == VK_RETURN )
-								bReturn = TRUE;
-						}
-					}
-					Sleep(10);
-				}
+
+				// The patch stays up while the user notes the reference meter's reading.
+				if ( ! bEscape )
+					bEscape = ! WaitForManualCalNext ( m_pGenerator, IDS_MANUALCAL_BLUE, 3 );
 
 				if ( bEscape )
 				{
@@ -2289,25 +2614,13 @@ void CDataSetDoc::OnCalibrationManual()
 			if( m_pGenerator->DisplayRGBColor(ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel),CGenerator::MT_PRIMARY) )
 			{
 				bEscape = m_measure.WaitForDynamicIris ();
-				bReturn = FALSE;
 
 				if ( ! bEscape )
 					measure=m_pSensor->MeasureColor(ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel));
-				
-				while ( ! bEscape && ! bReturn )
-				{
-					while ( PeekMessage ( & Msg, NULL, WM_KEYDOWN, WM_KEYUP, TRUE ) )
-					{
-						if ( Msg.message == WM_KEYDOWN )
-						{
-							if ( Msg.wParam == VK_ESCAPE )
-								bEscape = TRUE;
-							else if ( Msg.wParam == VK_RETURN )
-								bReturn = TRUE;
-						}
-					}
-					Sleep(10);
-				}
+
+				// The patch stays up while the user notes the reference meter's reading.
+				if ( ! bEscape )
+					bEscape = ! WaitForManualCalNext ( m_pGenerator, IDS_MANUALCAL_WHITE, 4 );
 
 				if ( bEscape )
 				{

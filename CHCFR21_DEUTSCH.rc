@@ -3849,7 +3849,7 @@ BEGIN
     IDS_MEASUREGRAYANDCOLORS 
                             "Grautreppe, Primär- und Sekundärfarben simultan messen ?\nWarnung: Aktuelle Daten gehen verloren...\n\nBemerkung: Sie können die Messung mit ESCAPE abbrechen."
     IDS_RUN_MANUAL_CALIBRATION 
-                            "Kalibrierungsdatei aus manuellen Messungen der Primärfarben und Weiß mit einem Referenz Colorimeter erzeugen ?\n\nWarnung: Um die nächste Farbe anzuzeigen drücken Sie ENTER - nachdem Sie die Werte von Ihrem Referenz Colorimeter notiert haben.\nSie können die Messung mit ESCAPE abbrechen."
+                            "Kalibrierungsdatei manuell erstellen?\n\nHCFR zeigt nacheinander Rot, Gr\xFCn, Blau und Wei\xDF an und misst jede Farbe mit dem zu korrigierenden Messger\xE4t. Ein zweites Referenzmessger\xE4t, das HCFR nicht steuert, misst dasselbe Feld: Notieren Sie nach jedem Feld dessen Messwert (X, Y, Z oder x, y, Y) und klicken Sie dann auf Weiter. Geben Sie nach Wei\xDF die vier Messwerte in den sich \xF6ffnenden Dialog ein. Abbrechen beendet den Ablauf.\n\nWenn HCFR Ihr Referenzmessger\xE4t steuern kann, verwenden Sie stattdessen ""Aus vorhandenen Referenzmessungen erstellen"" oder ""Aus simultanen Messungen erstellen""."
     IDS_DISTANCEINCIEXY     "Abstand zur Referenz in CIExy"
     IDS_CANNOTMEASUREGRAYANDCOLORS 
                             "%s kann Grautreppe, Primärfarben und Sekundärfarben nicht in einer einzigen Serie anzeigen.\nBitte benutzen Sie einzelne Kommandos anstelle von diesem."
@@ -4003,6 +4003,14 @@ BEGIN
     IDS_TI3_FILTER          "CGATS-Messdateien (*.ti3)|*.ti3||"
     IDS_TI3_NOTHING         "Es gibt nichts in .ti3 zu exportieren: Dieses Dokument enthält weder ein gemessenes Display-Profil noch eine gemessene Patch-Liste."
     IDS_TI3_WRITTEN         "%d Messungen geschrieben (%d nicht gemessen oder ungültig, übersprungen) in:\n\n%s"
+    IDS_MANUALCAL_TITLE     "Manuelle Kalibrierung"
+    IDS_MANUALCAL_PROMPT    "%2 gemessen (Feld %1 von 4).\n\nNotieren Sie den Messwert Ihres Referenzmessger\xE4ts f\xFCr dieses Feld (X, Y, Z oder x, y, Y) und klicken Sie dann auf Weiter. Abbrechen beendet den Ablauf."
+    IDS_MANUALCAL_NEXT      "Weiter"
+    IDS_MANUALCAL_CANCEL    "Abbrechen"
+    IDS_MANUALCAL_RED       "Rot"
+    IDS_MANUALCAL_GREEN     "Gr\xFCn"
+    IDS_MANUALCAL_BLUE      "Blau"
+    IDS_MANUALCAL_WHITE     "Wei\xDF"
     IDS_MEASUREDISPLAYPROFILE "Display-Profil messen"
     IDS_DELETEDISPLAYPROFILE "Display-Profil löschen"
     IDS_SATLUMSHIFT         "Sättigungsverschiebung"

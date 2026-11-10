@@ -4088,7 +4088,7 @@ BEGIN
     IDS_MEASUREGRAYANDCOLORS 
                             "Mesure l'échelle de gris et les couleurs primaires et secondaires simultanément ?\nAttention les données actuelles seront perdues...\n\nNote: vous pouvez annuler les mesures en cours en appuyant sur la touche ESCAPE."
     IDS_RUN_MANUAL_CALIBRATION 
-                            "Lancer la procédure de calibrage manuelle par mesure des primaires et du blanc avec un colorimètre de référence ?\n\nATTENTION: pour passer d'une mire à une autre, appuyez sur la touche ENTREE - après avoir noté les valeurs retournées par votre colorimètre de référence.\nVous pouvez annuler les mesures en cours en appuyant sur la touche ESCAPE."
+                            "Fabriquer un \xE9talon manuellement ?\n\nHCFR affiche successivement le rouge, le vert, le bleu et le blanc et mesure chacun avec la sonde \xE0 corriger. Une seconde sonde, de r\xE9f\xE9rence, que HCFR ne pilote pas, mesure la m\xEAme mire : apr\xE8s chacune, notez sa mesure (X, Y, Z ou x, y, Y), puis cliquez sur Suivant. Apr\xE8s le blanc, saisissez les quatre mesures dans la fen\xEAtre qui s'ouvre. Annuler arr\xEAte la proc\xE9dure.\n\nSi HCFR peut piloter votre sonde de r\xE9f\xE9rence, utilisez plut\xF4t ""Cr\xE9ation \xE0 partir de Mesures de R\xE9f\xE9rence Existantes"" ou ""Fabriquer un \xE9talon \xE0 partir de mesures simultan\xE9es""."
     IDS_DISTANCEINCIEXY     "Distance de la référence dans CIExy"
     IDS_CANNOTMEASUREGRAYANDCOLORS 
                             "Le %s ne peut pas afficher l'échelle de gris, les primaires et les secondaires en un seul passage.\nVeuillez utiliser les commandes simples."
@@ -4242,6 +4242,14 @@ BEGIN
     IDS_TI3_FILTER          "Fichiers de mesures CGATS (*.ti3)|*.ti3||"
     IDS_TI3_NOTHING         "Rien à exporter en .ti3 : ce document ne contient ni profil d'affichage mesuré ni liste de patchs mesurée."
     IDS_TI3_WRITTEN         "%d mesures écrites (%d non mesurées ou invalides, ignorées) dans :\n\n%s"
+    IDS_MANUALCAL_TITLE     "Calibrage manuel"
+    IDS_MANUALCAL_PROMPT    "%2 mesur\xE9 (mire %1 sur 4).\n\nNotez la mesure de votre sonde de r\xE9f\xE9rence pour cette mire (X, Y, Z ou x, y, Y), puis cliquez sur Suivant. Annuler arr\xEAte la proc\xE9dure."
+    IDS_MANUALCAL_NEXT      "Suivant"
+    IDS_MANUALCAL_CANCEL    "Annuler"
+    IDS_MANUALCAL_RED       "Rouge"
+    IDS_MANUALCAL_GREEN     "Vert"
+    IDS_MANUALCAL_BLUE      "Bleu"
+    IDS_MANUALCAL_WHITE     "Blanc"
     IDS_MEASUREDISPLAYPROFILE "Mesurer le profil d'affichage"
     IDS_DELETEDISPLAYPROFILE "Supprimer le profil d'affichage"
     IDS_SATLUMSHIFT         "Saturation - écarts"
