@@ -340,11 +340,12 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				: ReferenceGammaAt(RefWhite, RefBlack, prop, GammaOffset, &gamma, &valy);
 
 			// The HDR delta's stored target is main's: evaluated at the primary
-			// document's SLOT i (GetGrayPercent on the current grid), whatever its
-			// reading's drive - an unstamped comparison trace takes it unchanged.
+			// document's SLOT i on the current grid (GraySeriesSlotProp, the
+			// accessor's fallback), whatever its reading's drive - an unstamped
+			// comparison trace takes it unchanged.
 			{
 				double gammaSlot, valySlot;
-				ReferenceGammaAt(RefWhite, RefBlack, GrayLevelToGrayProp ( pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ),
+				ReferenceGammaAt(RefWhite, RefBlack, GraySeriesSlotProp ( pDoc->GetMeasure()->GetGraySeriesView ( GRAY_SERIES_GRAYSCALE ), i ),
 								 GammaOffset, &gammaSlot, &valySlot);
 				m_yref_abs.push_back(valySlot);
 			}
@@ -529,7 +530,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 		const bool bStamped = pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_GRAYSCALE, PointIndex, & drive );
 		const double slotLevel = pDataSet->GetMeasure()->GetGrayPercent ( PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 		double x = bStamped ? drive * 100.0 : slotLevel;
-		const double prop = bStamped ? drive : GrayLevelToGrayProp ( slotLevel, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+		const double prop = pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, PointIndex );
 
 		double valxprime=(prop+GammaOffset)/(1.0+GammaOffset);
 
