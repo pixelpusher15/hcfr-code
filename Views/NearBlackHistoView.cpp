@@ -157,6 +157,23 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		valformax=pow((double)(size-1)/100.0, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef) );
 	}
 
+	// The camera-gamma offset of the log points (libHCFR PointGammaEffectiveOffset):
+	// the reference document's ComputeGammaAndOffset, the offset its reference
+	// curve below evaluates with; 0 at mode >= 4 and under the sRGB standard. A
+	// comparison document's trace takes the SAME offset: in types 2 and 3 it is
+	// a configuration constant (0.099, or the manual offset), and a comparison
+	// document without a gray scale would otherwise fit 0 and be drawn beside a
+	// reference at 0.099.
+	// (ComputeGammaAndOffset reads the gray scale's top: not called without one;
+	// it fits a non-zero offset only for more than two points anyway.)
+	double PointOffset = 0.0;
+	if ( pDoc->GetMeasure()->GetGrayScaleSize() > 2 )
+	{
+		double gammaOpt, fitted;
+		pDoc->ComputeGammaAndOffset ( &gammaOpt, &fitted, 1, 1, pDoc->GetMeasure()->GetGrayScaleSize(), false );
+		PointOffset = PointGammaEffectiveOffset ( GetConfig()->m_GammaOffsetType, GetConfig()->m_colorStandard == sRGB, fitted );
+	}
+
 	m_graphCtrl.ClearGraph(m_refGraphID);
 	m_logGraphCtrl.ClearGraph(m_refLogGraphID);
 	if (m_showReference && m_refGraphID != -1 && size > 0)
@@ -223,9 +240,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(0,0,size,i,pDoc,m_redLumGraphID,m_redLumLogGraphID,valformax);
+				AddPointtoLumGraph(0,0,size,i,pDoc,m_redLumGraphID,m_redLumLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,0,size,i,pDataRef,m_redLumDataRefGraphID,m_redLumDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(0,0,size,i,pDataRef,m_redLumDataRefGraphID,m_redLumDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -239,9 +256,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(0,1,size,i,pDoc,m_greenLumGraphID,m_greenLumLogGraphID,valformax);
+				AddPointtoLumGraph(0,1,size,i,pDoc,m_greenLumGraphID,m_greenLumLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,1,size,i,pDataRef,m_greenLumDataRefGraphID,m_greenLumDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(0,1,size,i,pDataRef,m_greenLumDataRefGraphID,m_greenLumDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -254,9 +271,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(0,2,size,i,pDoc,m_blueLumGraphID,m_blueLumLogGraphID,valformax);
+				AddPointtoLumGraph(0,2,size,i,pDoc,m_blueLumGraphID,m_blueLumLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,2,size,i,pDataRef,m_blueLumDataRefGraphID,m_blueLumDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(0,2,size,i,pDataRef,m_blueLumDataRefGraphID,m_blueLumDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -269,9 +286,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(1,1,size,i,pDoc,m_luminanceGraphID,m_luminanceLogGraphID,valformax);
+				AddPointtoLumGraph(1,1,size,i,pDoc,m_luminanceGraphID,m_luminanceLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(1,1,size,i,pDataRef,m_luminanceDataRefGraphID,m_luminanceDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(1,1,size,i,pDataRef,m_luminanceDataRefGraphID,m_luminanceDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -286,9 +303,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			for (int i=0; i<size; i++)
 			{
 				if ( bDataPresent && pDoc->GetMeasure()->GetNearBlack(0).HasLuxValue() )
-					AddPointtoLumGraph(2,1,size,i,pDoc,m_luxmeterGraphID,m_luxmeterLogGraphID,valformax);
+					AddPointtoLumGraph(2,1,size,i,pDoc,m_luxmeterGraphID,m_luxmeterLogGraphID,valformax,PointOffset);
 				if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc) && pDataRef->GetMeasure()->GetNearBlack(0).HasLuxValue() )
-					AddPointtoLumGraph(2,1,size,i,pDataRef,m_luxmeterDataRefGraphID,m_luxmeterDataRefLogGraphID,valformax);
+					AddPointtoLumGraph(2,1,size,i,pDataRef,m_luxmeterDataRefGraphID,m_luxmeterDataRefLogGraphID,valformax,PointOffset);
 			}
 		}
 	}
@@ -321,21 +338,7 @@ LogGraphID : graph ID for log drawing, -1 if no Log drawing
 // GrayLevelToGrayProp ( 50 ). Every finite value is drawn as before. The
 // reference log curve is not guarded (main's, unchanged).
 
-// The camera-gamma offset this chart's reference curve evaluates its level with
-// (PointGammaEffectiveOffset): the document's own ComputeGammaAndOffset, as the
-// gamma chart uses for each trace; 0 in every mode >= 4 and under the sRGB
-// standard, where the fit is not computed.
-static double PointGammaOffsetFor ( CDataSetDoc * pDataSet )
-{
-	const bool bsRGB = ( GetConfig()->m_colorStandard == sRGB );
-	if ( PointGammaEffectiveOffset ( GetConfig()->m_GammaOffsetType, bsRGB, 1.0 ) == 0.0 )
-		return 0.0;
-	double gammaOpt, offset;
-	pDataSet->ComputeGammaAndOffset ( &gammaOpt, &offset, 1, 1, pDataSet->GetMeasure()->GetGrayScaleSize(), false );
-	return PointGammaEffectiveOffset ( GetConfig()->m_GammaOffsetType, bsRGB, offset );
-}
-
-void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax)
+void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax, double PointOffset)
 {
 	double max,whitelvl;
 	double colorlevel;
@@ -412,7 +415,7 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	// In the camera-gamma modes the reference beside it divides by the level
 	// ( V + o ) / ( 1 + o ), o the document's own offset: so does the point
 	// (PointGammaLevel; o = 0, and the level is xLog bit for bit, elsewhere).
-	const double level = PointGammaLevel ( xLog, PointGammaOffsetFor ( pDataSet ) );
+	const double level = PointGammaLevel ( xLog, PointOffset );
 	if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
 	{
 		const double pointGamma = log(colorlevel/whitelvl)/log(level);

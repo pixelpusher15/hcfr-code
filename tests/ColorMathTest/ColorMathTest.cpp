@@ -3745,68 +3745,75 @@ static void RunT46()
 }
 
 // =============================================================================
-// T43 (cam) - the near-black / near-white log charts in the camera-gamma modes
+// T48 - the near-black / near-white log charts in the camera-gamma modes
 // (GammaOffsetType 2 and 3). The reference curve beside the points evaluates
-// its level as ( V + o ) / ( 1 + o ); a point now divides by the same level
+// its level as ( V + o ) / ( 1 + o ); a point divides by the same level
 // (PointGammaLevel, o from PointGammaEffectiveOffset). Every other mode has
 // offset 0, where the level must be the point's proportion bit for bit on all
-// four grids, so those charts draw exactly as before.
+// four grids, so those charts draw exactly as before. Pure assertions.
 // =============================================================================
-static void T43CameraGamma()
+static void RunT48()
 {
-    printf("T43 (cam) near-chart point level in the camera-gamma modes...\n");
+    printf("T48 near-chart point level in the camera-gamma modes...\n");
     // the effective offset: the fit below mode 4, 0 at mode >= 4 and under sRGB
     for (int type = 0; type <= 7; ++type)
     {
         const double want = (type < 4) ? 0.099 : 0.0;
         if (PointGammaEffectiveOffset(type, false, 0.099) != want)
-            Fail("T43 (cam) GammaOffsetType %d: effective offset %.17g, expected %.17g", type, PointGammaEffectiveOffset(type, false, 0.099), want);
+            Fail("T48 GammaOffsetType %d: effective offset %.17g, expected %.17g", type, PointGammaEffectiveOffset(type, false, 0.099), want);
         if (PointGammaEffectiveOffset(type, true, 0.055) != 0.0)
-            Fail("T43 (cam) GammaOffsetType %d under sRGB: offset not 0", type);
+            Fail("T48 GammaOffsetType %d under sRGB: offset not 0", type);
     }
-    // offset 0 (modes 0/1/4+): the level is the proportion bit for bit, every
-    // near-black/near-white slot and gray ramp slot on all four grids, both roundings
+    // the level, bit for bit ( V + o ) / ( 1 + o ) written out here, on every
+    // near-chart slot and gray ramp slot of the four grids, both roundings, at
+    // o = 0 (modes 0/1/4+: the level is the proportion itself), 0.099 and 0.055
     {
         int bad = 0;
+        const double offsets[3] = { 0.0, 0.099, 0.055 };
         for (int rd = 0; rd < 2; ++rd)
             for (int b = 0; b < 2; ++b)
                 for (int g = 0; g < 2; ++g)
-                {
-                    for (int n = 0; n <= 101; ++n)
+                    for (int k = 0; k < 3; ++k)
                     {
-                        const double p = GrayLevelToGrayProp((double)n, rd != 0, b != 0, g != 0);
-                        if (PointGammaLevel(p, 0.0) != p) ++bad;
+                        const double o = offsets[k];
+                        for (int n = 0; n <= 101; ++n)
+                        {
+                            const double p = GrayLevelToGrayProp((double)n, rd != 0, b != 0, g != 0);
+                            if (PointGammaLevel(p, o) != (p + o) / (1.0 + o)) ++bad;
+                            if (o == 0.0 && PointGammaLevel(p, o) != p) ++bad;
+                        }
+                        for (int n = 0; n <= 20; ++n)
+                        {
+                            const double p = ArrayIndexToGrayLevel(n, 21, rd != 0, b != 0, g != 0) / 100.0;
+                            if (PointGammaLevel(p, o) != (p + o) / (1.0 + o)) ++bad;
+                            if (o == 0.0 && PointGammaLevel(p, o) != p) ++bad;
+                        }
                     }
-                    for (int n = 0; n <= 20; ++n)
-                    {
-                        const double p = ArrayIndexToGrayLevel(n, 21, rd != 0, b != 0, g != 0) / 100.0;
-                        if (PointGammaLevel(p, 0.0) != p) ++bad;
-                    }
-                }
         if (bad)
-            Fail("T43 (cam) %d levels changed with offset 0", bad);
+            Fail("T48 %d levels are not ( V + o ) / ( 1 + o ) bit for bit", bad);
     }
-    // A noise-free display tracking the camera-gamma target (o = 0.099, gamma
-    // 2.22: Y / Y_white = ( ( V + o ) / ( 1 + o ) ) ^ 2.22) sits on the reference:
-    // every near-black level 1..99% on the 8-bit full grid plots 2.22 within 1e-12.
-    // Dividing by log ( V ), as before, put it well off (1.48 at 5.1%).
+    // A noise-free display tracking the camera-gamma target, built independently
+    // of the code under test: Y / Y_white = pow ( ( V + 0.099 ) / 1.099, 2.22 ).
+    // Its point, log ( Y / Y_white ) / log ( PointGammaLevel ( V, o ) ), sits on
+    // the reference (2.22) within 1e-12 at every near-black level 1..99% of the
+    // 8-bit full grid. Dividing by log ( V ), as before, put it well off.
     {
-        const double o = 0.099, gamma = 2.22;
+        const double gamma = 2.22;
         double worst = 0.0;
         for (int n = 1; n <= 99; ++n)
         {
             const double v = GrayLevelToGrayProp((double)n, false, false, false);
-            const double yRel = pow(PointGammaLevel(v, o), gamma);
-            const double pg = log(yRel) / log(PointGammaLevel(v, o));
+            const double yRel = pow((v + 0.099) / 1.099, gamma);
+            const double pg = log(yRel) / log(PointGammaLevel(v, PointGammaEffectiveOffset(2, false, 0.099)));
             worst = (std::max)(worst, fabs(pg - gamma));
         }
         if (worst > 1e-12)
-            Fail("T43 (cam) ideal camera-gamma display: off the reference by %.3g", worst);
+            Fail("T48 ideal camera-gamma display: off the reference by %.3g", worst);
         const double v = 13.0 / 255.0;		// 5.1%
-        const double lvl = PointGammaLevel(v, o);
-        const double before = log(pow(lvl, gamma)) / log(v);
+        const double lvl = PointGammaLevel(v, 0.099);
+        const double before = log(pow((v + 0.099) / 1.099, gamma)) / log(v);
         if (fabs(lvl * 100.0 - 13.65) > 0.01 || fabs(before - 1.485) > 0.002)
-            Fail("T43 (cam) 5.1%%: level %.4f%% (want 13.65), old point gamma %.4f (want 1.485)", lvl * 100.0, before);
+            Fail("T48 5.1%%: level %.4f%% (want 13.65), old point gamma %.4f (want 1.485)", lvl * 100.0, before);
     }
 }
 
@@ -6012,10 +6019,10 @@ int main(int argc, char* argv[])
     RunT41();
     RunT42();
     RunT43();
-    T43CameraGamma();
     RunT44();
     RunT45();
     RunT46();
+    RunT48();
 
     if (g_failures)
     {
