@@ -1889,9 +1889,9 @@ void CArgyllSensor::RestoreSnapshot(bool reapplyDriverSample)
 // A reading that fails says so (SetMeasureValidity(FALSE), with the reason as the
 // error string): every sweep and the continuous thread test IsMeasureValid - a
 // sweep shows its Abort/Retry/Ignore box (Abort stops, Retry reads again, Ignore
-// keeps the reading CSensor::MeasureColor clamped to XYZ 1e-8, as on main), the
-// continuous thread ends - instead of taking the clamped noDataColor as a good
-// reading and moving on. Each reading starts valid.
+// keeps the slot as CSensor::MeasureColor returns it: noDataColor, an invalid
+// placeholder, as 4.2.2 stored), the continuous thread ends - instead of taking
+// a failed reading as a good one and moving on. Each reading starts valid.
 CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int displaymode)
 {
     SetMeasureValidity(TRUE);

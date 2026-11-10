@@ -4998,6 +4998,14 @@ double GraySeriesLevel ( const GraySeriesView & v, int index )
 	return GraySeriesSlotLevel ( v, index );
 }
 
+// The slot's proportion, quantized ONCE from the level the sweep asked for:
+// floor(v) / grid under round-down, floor(v + 0.5) / grid otherwise, where v
+// is the nominal level on the grid. Re-quantizing the slot PERCENTAGE instead
+// (GrayLevelToGrayProp ( GraySeriesSlotLevel ( ... ) )) truncated twice under
+// round-down: code / grid * 100 / 100 * grid lands a hair below the code at
+// some levels and floor() drops a whole code (219 grid, 5%: 9/219 instead of
+// the 10/219 the disc shows). Under round-to-nearest the second rounding
+// returns the same code, so that value is unchanged bit for bit.
 double GraySeriesSlotProp ( const GraySeriesView & v, int index )
 {
 	switch ( v.series )
@@ -5006,9 +5014,17 @@ double GraySeriesSlotProp ( const GraySeriesView & v, int index )
 			return GrayLevelToGrayProp ( (double) ( index * ( v.pqNearBlack ? 2 : 1 ) ), v.bUseRoundDown, v.b10bit, v.is16_235 );
 		case GRAY_SERIES_NEAR_WHITE:
 			return GrayLevelToGrayProp ( (double) ( v.nearWhiteClipCol - v.size + index ), v.bUseRoundDown, v.b10bit, v.is16_235 );
-		default:	// the gray scale: GraySeriesProp's fallback, two truncations (see Color.h)
-			return GrayLevelToGrayProp ( GrayScaleSlotLevel ( index, v.size, v.nominalLevels, v.nominalCount, v.bUseRoundDown, v.b10bit, v.is16_235 ),
-										 v.bUseRoundDown, v.b10bit, v.is16_235 );
+		default:
+			if ( v.nominalLevels != NULL && v.nominalCount == v.size && index >= 0 && index < v.size )
+				return GrayLevelToGrayProp ( v.nominalLevels[index], v.bUseRoundDown, v.b10bit, v.is16_235 );
+			if ( v.size < 2 )
+				return 0.0;						// as ArrayIndexToGrayLevel: no ramp
+			{
+				// The even ramp, ArrayIndexToGrayLevel's arithmetic without its * 100.
+				const double grid = VideoCodeGrid ( v.b10bit, v.is16_235 );
+				const double x = (double) index / (double) ( v.size - 1 ) * grid;
+				return ( v.bUseRoundDown ? floor ( x ) : floor ( x + 0.5 ) ) / grid;
+			}
 	}
 }
 
@@ -5017,7 +5033,7 @@ double GraySeriesProp ( const GraySeriesView & v, int index )
 	double prop;
 	if ( GraySeriesDriveProp ( v, index, & prop ) )
 		return prop;
-	return GrayLevelToGrayProp ( GraySeriesSlotLevel ( v, index ), v.bUseRoundDown, v.b10bit, v.is16_235 );
+	return GraySeriesSlotProp ( v, index );
 }
 
 

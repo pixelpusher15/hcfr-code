@@ -4290,6 +4290,7 @@ BEGIN
     IDS_ARGYLL_SETTINGS_REJECTED_STOPPED "Das Messger\xE4t hat die auf dieser Seite ge\xE4nderten Einstellungen nicht angenommen und wurde angehalten. Die vorherigen Einstellungen bleiben erhalten; starten Sie HCFR neu, um das Messger\xE4t wieder zu verwenden."
     IDS_ARGYLL_READING_FAILED "Das Messger\xE4t konnte diese Messung nicht durchf\xFChren."
     IDS_ARGYLL_START_FAILED "Das Messger\xE4t konnte nicht gestartet werden."
+    IDS_SENSOR_INVALID_READING "Das Messger\xE4t hat eine ung\xFCltige Messung geliefert."
     IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "Das geladene Dokument enthält eine Spektralkorrektur aus einem Anzeigetyp (%s), der nicht der aktuelle Anzeigetyp ist. Sie bleibt in Gebrauch, bis Sie den Anzeigetyp ändern."
     IDS_SPECTRAL_COMPOSE_WARN   "Die zu ladende Datei enthält keine Angabe zur Grundlage der Anpassung. Die Spektralkorrektur wird zusätzlich zu ihrer Matrix angewendet (wie in HCFR 4.1). Fortfahren?"
     IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "Die verwendete Spektralkorrektur (%s) wurde für das Messgerät %s berechnet, nicht für das angeschlossene, und hier ist keine Korrekturdatei vorhanden, aus der sie neu berechnet werden kann. Sie bleibt in Gebrauch. Um sie für dieses Messgerät zu berechnen, wählen Sie ihre Korrekturdatei in den Sensoreigenschaften aus."
