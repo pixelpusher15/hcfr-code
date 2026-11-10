@@ -1560,8 +1560,8 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		if (!b_minCol)
 			SetSelectedColor (m_SelectedColor, TRUE);
 
-		if ( GetDocument() -> GetMeasure () -> GetOnOffWhite ().isValid() )
-			YWhite = GetDocument() -> GetMeasure () -> GetOnOffWhite () [ 1 ]; //onoff white is always grayscale white
+		if ( GetDocument() -> GetMeasure () -> GetGrayScaleWhite ().isValid() )
+			YWhite = GetDocument() -> GetMeasure () -> GetGrayScaleWhite () [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
 		
 		if ( GetDocument() -> GetMeasure () -> GetPrimeWhite().isValid() )
 			if ((m_displayMode == 1 || (m_displayMode >=5 && m_displayMode <= 11)))
@@ -1733,7 +1733,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		ColorRGB ref(.5,.5,.5);
 		ColorRGB meas(0.5,0.5,0.5);
 		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
-		CColor White = GetDocument()->GetMeasure()->GetOnOffWhite();
+		CColor White = GetDocument()->GetMeasure()->GetGrayScaleWhite();
 		CColor Black = GetDocument()->GetMeasure()->GetOnOffBlack();
 		int mode = GetConfig()->m_GammaOffsetType;
 		double tmWhite = TmDiffuseWhiteNits(noDataColor, noDataColor) / 94.37844;
@@ -3518,7 +3518,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 					}
 					else if ( isHDR )
 					{
-			            CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
+			            CColor White = GetDocument() -> GetMeasure () -> GetGrayScaleWhite();
 						CColor Black = GetDocument() -> GetMeasure() -> GetOnOffBlack();
 						double tmWhite = TmDiffuseWhiteNits(White, Black);
 						if (DVD)
@@ -3658,7 +3658,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 
 				if ( nCol >= 1 && nCol <= ((m_displayMode == 0)?nGrayScaleSize:size) )
 				{
-					CColor White = GetDocument()->GetMeasure()->GetOnOffWhite();
+					CColor White = GetDocument()->GetMeasure()->GetGrayScaleWhite();
 					CColor Black;
 					if (m_displayMode != 3)
 						Black = GetDocument()->GetMeasure()->GetOnOffBlack();
@@ -3711,7 +3711,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 				// Display primary/secondary/saturations colors delta luminance
 				int	    nCol2 = nCol, satsize=GetDocument()->GetMeasure()->GetSaturationSize();
 				double  RefLuma [MAX_USER_CC_PATCH_SIZE], sat=double (nCol-1)/ double (satsize-1);
-                CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
+                CColor White = GetDocument() -> GetMeasure () -> GetGrayScaleWhite();
 //	            CColor Black = GetDocument() -> GetMeasure () -> GetGray ( 0 );
 	            CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
 				CColor satcolor;
@@ -4362,7 +4362,7 @@ void CMainView::UpdateGrid()
 			break;
 		}
         
-		CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
+		CColor White = GetDocument() -> GetMeasure () -> GetGrayScaleWhite();
 	    CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
 		if (!GetConfig()->m_bOverRideTargs && Black.isValid() && White.isValid() && (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7))
 		{
@@ -4419,7 +4419,7 @@ void CMainView::UpdateGrid()
             ColorxyY tmpColor(GetColorReference().GetWhite());
 			double x;	// case 2 (free measures): the level a reading without a stamped drive is given
 			int mode = GetConfig()->m_GammaOffsetType;
-			CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
+			CColor White = GetDocument() -> GetMeasure () -> GetGrayScaleWhite();
 			CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
 
 			switch ( m_displayMode )
@@ -7731,8 +7731,8 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 
     GetConfig()->SetPropertiesSheetValues();
 	
-	if ( GetDocument() -> GetMeasure () -> GetOnOffWhite ().isValid() )
-		YWhite = GetDocument() -> GetMeasure () -> GetOnOffWhite () [ 1 ];
+	if ( GetDocument() -> GetMeasure () -> GetGrayScaleWhite ().isValid() )
+		YWhite = GetDocument() -> GetMeasure () -> GetGrayScaleWhite () [ 1 ];
 
 	int	n = GetDocument()->GetMeasure()->GetMeasurementsSize();
 
@@ -7789,8 +7789,8 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 
 		if (pDataRef)
 		{
-			if ( pDataRef -> GetMeasure () -> GetOnOffWhite ().isValid() )
-				YWhiteRefDoc = pDataRef -> GetMeasure () -> GetOnOffWhite () [ 1 ];
+			if ( pDataRef -> GetMeasure () -> GetGrayScaleWhite ().isValid() )
+				YWhiteRefDoc = pDataRef -> GetMeasure () -> GetGrayScaleWhite () [ 1 ];
 		}
 
 		GV_ITEM Item;
@@ -7851,7 +7851,7 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
 				double x = ( nCnt == GetDocument()->GetMeasure()->GetGrayScaleSize() )
 						   ? GetDocument()->GetMeasure()->GetGrayPercent ( nCol, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() )
 						   : ArrayIndexToGrayLevel ( nCol, nCnt, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
-				CColor White = GetDocument() -> GetMeasure () -> GetOnOffWhite();
+				CColor White = GetDocument() -> GetMeasure () -> GetGrayScaleWhite();
 //	            CColor Black = GetDocument() -> GetMeasure () -> GetGray ( 0 );
 	            CColor Black = GetDocument() -> GetMeasure () -> GetOnOffBlack();
 				int mode = GetConfig()->m_GammaOffsetType;

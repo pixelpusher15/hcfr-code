@@ -422,7 +422,7 @@ bool CExport::SavePDF()
 	double dEavg_sm = ((CMainView*)pView)->dEavg_sm;
 	double dEmax_sm = ((CMainView*)pView)->dEmax_sm;
 
-	double White = m_pDoc->GetMeasure()->GetOnOffWhite().GetY();
+	double White = m_pDoc->GetMeasure()->GetGrayScaleWhite().GetY();
 	double Black = m_pDoc->GetMeasure()->GetOnOffBlack().GetY();
 	if (Black > 0)
 		CR = White /Black;
@@ -1030,7 +1030,7 @@ bool CExport::SavePDF()
 		dEmax_sc = ((CMainView*)pView)->dEmax_sc;
 		dEavg_sm = ((CMainView*)pView)->dEavg_sm;
 		dEmax_sm = ((CMainView*)pView)->dEmax_sm;
-		White = pDataRef->GetMeasure()->GetOnOffWhite().GetY();
+		White = pDataRef->GetMeasure()->GetGrayScaleWhite().GetY();
 		Black = pDataRef->GetMeasure()->GetOnOffBlack().GetY();
 		if (Black > 0)
 			CR = White /Black;
@@ -1928,7 +1928,7 @@ bool CExport::SaveGrayScaleSheet()
 		{
 		    double x = m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
             double valy;
-			CColor White = m_pDoc -> GetMeasure () -> GetOnOffWhite();
+			CColor White = m_pDoc -> GetMeasure () -> GetGrayScaleWhite();
 			CColor Black = m_pDoc -> GetMeasure () -> GetOnOffBlack();
 			int mode = GetConfig()->m_GammaOffsetType;
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;

@@ -280,7 +280,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			white = m_pDocument->GetMeasure()->GetGray((m_pDocument->GetMeasure()->GetGrayScaleSize()-1) / 2 );
 
 		if (!white.isValid() || m_displayMode == 0 || m_displayMode == 2 || m_displayMode == 3 || m_displayMode == 4)
-			white = m_pDocument -> GetMeasure () ->GetOnOffWhite();
+			white = m_pDocument -> GetMeasure () ->GetGrayScaleWhite();
 		if ( m_displayMode > 4 && (GetConfig()->m_colorStandard == HDTVa || GetConfig()->m_colorStandard == HDTVb))
 			white = m_pDocument -> GetMeasure () ->GetOnOffWhite();
 

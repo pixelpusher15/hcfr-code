@@ -432,6 +432,10 @@ public:
 
 	CColor GetOnOffBlack() const;
 	CColor GetOnOffWhite() const;
+	// The gray scale's 100% white: its measured top reading, else the on/off
+	// white (libHCFR GrayScaleWhite). Every reader that means "100% white"
+	// uses this; the on/off white stays with the contrast measurement.
+	CColor GetGrayScaleWhite() const;
 	CColor GetPrimeWhite() const; //white reference for pseudo-color spaces
 	double GetHDRRefScale() const; //HDR-10 refs: 1=10000nits -> diffuse-white-relative
 	void SetOnOffBlack(const CColor & aColor) { m_OnOffBlack=aColor; m_isModified=TRUE; }

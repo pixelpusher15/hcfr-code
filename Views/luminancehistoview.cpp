@@ -164,7 +164,7 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			
 	int mode = GetConfig()->m_GammaOffsetType;
     
-	CColor White = pDoc -> GetMeasure () -> GetOnOffWhite();
+	CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite();
 	if (m_showReference && m_refGraphID != -1)
 	{	
 		for (int i=0; i<size; i++)
@@ -215,7 +215,7 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	{	
 		int		nb = 0;
 		double	avg = 0.0;
-    	CColor White = pDoc -> GetMeasure () -> GetOnOffWhite();
+    	CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite();
 
 		// Le calcul de la moyenne des gamma et la représentation en échelle log 
 		// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 

@@ -5095,3 +5095,11 @@ double NearChartWhite ( int colorSpace, int luminanceCurveMode, bool pointHasLux
 		return y;
 	return NearChartWhiteOf ( nearWhiteTop, bLux );
 }
+
+// See Color.h: the gray scale's measured 100% reading, else the on/off white.
+CColor GrayScaleWhite ( const CColor * readings, int size, const CColor & onOffWhite )
+{
+	if ( readings != NULL && size > 0 && readings[size-1].isValid () )
+		return readings[size-1];
+	return onOffWhite;
+}

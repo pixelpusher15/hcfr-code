@@ -321,7 +321,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		// so index and point stay in step without a placeholder.
 
 		// Fetched once for the whole curve, not once per point - see ReferenceGammaAt.
-		CColor RefWhite = pDoc -> GetMeasure () -> GetOnOffWhite();
+		CColor RefWhite = pDoc -> GetMeasure () -> GetGrayScaleWhite();
 		CColor RefBlack = pDoc -> GetMeasure () -> GetOnOffBlack();
 		m_yrefWhite = RefWhite;
 		m_yrefBlack = RefBlack;
@@ -566,7 +566,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 			// A raised black still shows: it lands on the 5% and 10% points,
 			// where the stimulus is big enough for the ratio to mean something.
 			double gammaBlack;
-			if ( ReferenceGammaAtBlack(pDataSet->GetMeasure()->GetOnOffWhite(), pDataSet->GetMeasure()->GetOnOffBlack(), GammaOffset, &gammaBlack) )
+			if ( ReferenceGammaAtBlack(pDataSet->GetMeasure()->GetGrayScaleWhite(), pDataSet->GetMeasure()->GetOnOffBlack(), GammaOffset, &gammaBlack) )
 				m_graphCtrl.AddPoint(GraphID, x, gammaBlack, lpMsg);
 		}
 		else if (PointIndex == Size-1 && colorlevel > 0.0001)
@@ -584,7 +584,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 			// guard as the points below - a top patch that read no light gets no
 			// point rather than one sitting exactly on target.
 			double gammaWhite, valyWhite;
-			if ( ReferenceGammaAt(pDataSet->GetMeasure()->GetOnOffWhite(), pDataSet->GetMeasure()->GetOnOffBlack(), prop, GammaOffset, &gammaWhite, &valyWhite) )
+			if ( ReferenceGammaAt(pDataSet->GetMeasure()->GetGrayScaleWhite(), pDataSet->GetMeasure()->GetOnOffBlack(), prop, GammaOffset, &gammaWhite, &valyWhite) )
 				m_graphCtrl.AddPoint(GraphID, x, gammaWhite, lpMsg);
 		}
 		else if (colorlevel > 0.0001)	// log scale is not valid for negative values

@@ -407,7 +407,7 @@ static double SceneDiffuseWhiteY( CMeasure * pM )
 	// the same diffuse white or bright patches/targets fly out of scale.
 	if ( GetConfig()->m_GammaOffsetType == 5 )
 	{
-		double tm = TmDiffuseWhiteNits( pM->GetOnOffWhite(), pM->GetOnOffBlack() );
+		double tm = TmDiffuseWhiteNits( pM->GetGrayScaleWhite(), pM->GetOnOffBlack() );
 		// never fall through to the SDR path here: its measured-white fallbacks
 		// return PEAK white in PQ (up to ~100x diffuse), which would collapse
 		// the whole scene toward the floor. Same fallback GetHDRRefScale uses.
@@ -479,7 +479,7 @@ static double GridGrayTargetRatio( CMeasure * pM, double valx, const CColor & bl
 		mode = 99;
 	if ( mode >= 4 )
 	{
-		double L = getL_EOTF( valx, pM->GetOnOffWhite(), blackRef,
+		double L = getL_EOTF( valx, pM->GetGrayScaleWhite(), blackRef,
 							  GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,
 							  GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL,
 							  GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL, GetConfig()->m_useToneMap,

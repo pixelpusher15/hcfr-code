@@ -6293,6 +6293,48 @@ static void RunT47()
     T47Cal::CheckAskSkipWhiteTile();
 }
 
+// =============================================================================
+// T51 - the gray scale's 100% white (libHCFR GrayScaleWhite, Kyle 2026-11-10):
+// the measured top gray reading when the series is non-empty and that reading
+// is valid, else the on/off white as stored. The fallback cases pass an
+// explicit on/off value (in a document it is the stored on/off white, the valid
+// placeholder on a new one). Pure assertions.
+// =============================================================================
+static void RunT51()
+{
+    printf("T51 gray scale 100%% white: measured top, else the on/off white...\n");
+    const CColor onoff(95.0, 100.0, 108.0);			// a contrast-measured white
+    CColor grays[3] = { CColor(0.1, 0.1, 0.1), CColor(50.0, 52.0, 56.0), CColor(97.0, 102.0, 110.0) };
+    // valid top: the top, not the on/off white (they differ: 102 against 100)
+    CColor w = GrayScaleWhite(grays, 3, onoff);
+    if (w.GetY() != 102.0 || w.GetX() != 97.0 || w.GetZ() != 110.0)
+        Fail("T51 valid gray top: Y %.17g, expected the top's 102", w.GetY());
+    // a one-point series is its own top
+    w = GrayScaleWhite(grays + 1, 1, onoff);
+    if (w.GetY() != 52.0)
+        Fail("T51 one-point series: Y %.17g, expected 52", w.GetY());
+    // invalid top: the on/off white
+    CColor withBadTop[3] = { grays[0], grays[1], noDataColor };
+    w = GrayScaleWhite(withBadTop, 3, onoff);
+    if (w.GetY() != 100.0)
+        Fail("T51 invalid gray top: Y %.17g, expected the on/off white's 100", w.GetY());
+    // empty series, and no array at all: the on/off white
+    w = GrayScaleWhite(grays, 0, onoff);
+    if (w.GetY() != 100.0)
+        Fail("T51 empty series: Y %.17g, expected the on/off white's 100", w.GetY());
+    w = GrayScaleWhite(NULL, 3, onoff);
+    if (w.GetY() != 100.0)
+        Fail("T51 no readings: Y %.17g, expected the on/off white's 100", w.GetY());
+    // both invalid: the on/off white as given (invalid), never a reading
+    w = GrayScaleWhite(withBadTop, 3, noDataColor);
+    if (w.isValid())
+        Fail("T51 invalid top and invalid on/off white: a valid white came back");
+    // only the top is looked at: a valid slot below an invalid top is not taken
+    w = GrayScaleWhite(withBadTop, 3, onoff);
+    if (w.GetY() == 52.0)
+        Fail("T51 an inner slot stood in for an invalid top");
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -6334,6 +6376,7 @@ int main(int argc, char* argv[])
     RunT47();
     RunT48();
     RunT49();
+    RunT51();
 
     if (g_failures)
     {

@@ -275,7 +275,7 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	int		GlvlTarget = 5;
 	int		nsize=GetDocument()->GetMeasure()->GetGrayScaleSize();
 
-	YWhite = GetDocument()->GetMeasure()->GetOnOffWhite()[1];
+	YWhite = GetDocument()->GetMeasure()->GetGrayScaleWhite()[1];
 	
 	GetDocument()->ComputeGammaAndOffset(&Gamma, &Offset, 3, 1, nsize,false);
 	CColor			refColor = GetColorReference().GetWhite();
@@ -301,7 +301,7 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			// Determine Reference Y luminance for Delta E calculus
 			if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
 			{
-            	CColor White = GetDocument()-> GetMeasure () -> GetOnOffWhite();
+            	CColor White = GetDocument()-> GetMeasure () -> GetGrayScaleWhite();
 	           	CColor Black = GetDocument()-> GetMeasure () -> GetOnOffBlack();
 				int mode = GetConfig()->m_GammaOffsetType;
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
@@ -337,7 +337,7 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 				fact = 1.0;
 			}
 			else
-				fact = aColor[2] / (tmpColor[2] * GetDocument()->GetMeasure()->GetOnOffWhite()[1]);
+				fact = aColor[2] / (tmpColor[2] * GetDocument()->GetMeasure()->GetGrayScaleWhite()[1]);
 
 			aMeasure = ColorXYZ(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 		}

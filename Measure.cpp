@@ -1694,7 +1694,7 @@ double CMeasure::ComputeProfileDEEx(const CColor & c, int i, ProfileDEParts * pP
 		// from the 1.0 = 10000 nits convention by GetHDRRefScale (the unified,
 		// tone-map-aware form the 3D viewer also uses; = 105.95640 with tone
 		// mapping off), measurement anchored to the measured white as-is.
-		double tmWhite = TmDiffuseWhiteNits( GetOnOffWhite(), GetOnOffBlack() );
+		double tmWhite = TmDiffuseWhiteNits( GetGrayScaleWhite(), GetOnOffBlack() );
 		if ( tmWhite > 0.0 )
 		{
 			// 10000/tmWhite IS GetHDRRefScale() here (mode-5 getL_EOTF ignores
@@ -8703,6 +8703,11 @@ CColor CMeasure::GetOnOffWhite() const
 	return clr;
 } 
 
+CColor CMeasure::GetGrayScaleWhite() const
+{
+	return GrayScaleWhite ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffWhite );
+}
+
 CColor CMeasure::GetPrimeWhite() const
 {
 	CColor clr;
@@ -8890,7 +8895,7 @@ PrimaryDENorm CMeasure::GetPrimaryDENorm(double yPrimeWhite, int nCol) const
 	if ( cfg->m_GammaOffsetType != 5 )
 		return n;
 
-	CColor White = GetOnOffWhite();
+	CColor White = GetGrayScaleWhite();
 	CColor Black = GetOnOffBlack();
 	ColorStandard standard = GetColorReference().m_standard;
 	bool bDiffuseAnchored = ( standard == UHDTV2 || standard == HDTV || standard == UHDTV
