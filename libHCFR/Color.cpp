@@ -4799,11 +4799,11 @@ double PointGammaLevel ( double prop, double offset )
 // val relative to the gray scale's 100% reading and valx the absolute level:
 // so with that white, vWhite = 1. FALSE (no point) without a white > 0, where
 // v is not inside ( 0, 1 ) - a 100% patch below the top (clip column 102) has
-// log ( 1 ) = 0, and the reference drops it too - and where the value is not
-// finite.
+// log ( 1 ) = 0, and the reference drops it too - where vWhite is not inside
+// ( 0, 1 ], and where the value is not finite.
 bool NearChartPointGamma ( double y, double v, double yWhite, double vWhite, double offset, double * pGamma )
 {
-	if ( ! ( yWhite > 0.0 && _finite ( yWhite ) ) || ! ( v > 0.0 && v < 1.0 ) )
+	if ( ! ( yWhite > 0.0 && _finite ( yWhite ) ) || ! ( v > 0.0 && v < 1.0 ) || ! ( vWhite > 0.0 && vWhite <= 1.0 ) )
 		return false;
 	const double g = log ( y / yWhite ) / log ( PointGammaLevel ( v, offset ) / PointGammaLevel ( vWhite, offset ) );
 	if ( ! _finite ( g ) )

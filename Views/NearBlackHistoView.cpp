@@ -414,8 +414,9 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 		// did not take the gray top), its own level is V_white. A 100% point (V = 1)
 		// has no point gamma.
 		const int nearwhitescalesize = pDataSet->GetMeasure()->GetNearWhiteScaleSize();
+		// (at most 1: an unstamped near-white top at clip column 102 sits on 102%)
 		const double vWhite = ( bGrayWhite || nearwhitescalesize <= 0 ) ? 1.0
-							  : pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, nearwhitescalesize-1 );
+							  : min ( pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, nearwhitescalesize-1 ), 1.0 );
 		double pointGamma;
 		if ( (whitelvl > 0) && (PointIndex != 0)
 			 && NearChartPointGamma ( colorlevel, pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, PointIndex ), whitelvl, vWhite, 0.0, &pointGamma ) )

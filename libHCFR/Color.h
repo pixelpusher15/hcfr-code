@@ -1013,7 +1013,7 @@ double PointGammaEffectiveOffset ( int gammaOffsetType, bool sRGBStandard, doubl
 double PointGammaLevel ( double prop, double offset );
 // A near-chart log point: log ( y / yWhite ) / log ( L ( v ) / L ( vWhite ) ),
 // L = PointGammaLevel. FALSE without a finite white > 0, for v outside ( 0, 1 ),
-// or for a non-finite result.
+// vWhite outside ( 0, 1 ], or for a non-finite result.
 bool NearChartPointGamma ( double y, double v, double yWhite, double vWhite, double offset, double * pGamma );
 // is16_235 is REQUIRED (no default): it selects the 219/255/876/1023 code grid
 // exactly as SnapToVideoGrid does, and a default would silently leave any

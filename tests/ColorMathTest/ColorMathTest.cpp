@@ -3823,7 +3823,9 @@ static void RunT48()
 // V the level the point is drawn at, V_white = 1. Synthetic display: an ideal
 // SMPTE ST 2084 EOTF clipping at 1000 cd/m2 (the gray scale's 100% reads 1000),
 // 8-bit full, near white with clip column 76 (65..75%). The reference beside
-// the points plots log ( L ( V ) / L_white ) / log ( V ).
+// the points plots log ( L ( V ) / L_white ) / log ( V ). The views' choice of
+// white and V_white (NearChartWhite and the series-top fallback in the near
+// charts) has no oracle here; it is exercised on the bench only.
 // =============================================================================
 static double T49PQEotf(double e)
 {
@@ -3854,8 +3856,6 @@ static void RunT49()
             Fail("T49 near white %d%%: no point", n);
             continue;
         }
-        if (n >= 71 && n <= 74 && fabs(pg - ref) > 0.002)
-            Fail("T49 near white %d%%: %.4f, reference %.4f (want within 0.002)", n, pg, ref);
         if (fabs(pg - ref) > 1e-12)
             Fail("T49 near white %d%%: %.17g off the reference %.17g", n, pg, ref);
         // the series' top (at 75%) taken as the white at V_white = 1 sits
@@ -3886,6 +3886,12 @@ static void RunT49()
     // a white standing in at its own level: Y and V normalized to the same reading
     if (!NearChartPointGamma(Y(0.3), 0.3, Y(0.6), 0.6, 0.0, &pg) || fabs(pg - log(Y(0.3) / Y(0.6)) / log(0.5)) > 1e-12)
         Fail("T49 white at its own level: %.17g", pg);
+    // V_white outside ( 0, 1 ]: no point (V_white = 0 used to give a finite 0)
+    if (NearChartPointGamma(Y(0.3), 0.3, Y(0.6), 0.0, 0.0, &pg) || NearChartPointGamma(Y(0.3), 0.3, Y(0.6), 1.0117647058823529, 0.0, &pg)
+        || NearChartPointGamma(Y(0.3), 0.3, Y(0.6), -0.5, 0.0, &pg))
+        Fail("T49 a white at level 0, 258/255 or below 0 was used");
+    if (!NearChartPointGamma(Y(0.3), 0.3, peak, 1.0, 0.0, &pg))
+        Fail("T49 a white at level 1 was refused");
 }
 
 // =============================================================================

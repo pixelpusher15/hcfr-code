@@ -347,6 +347,7 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 {
 	double max;
 	double colorlevel, whitelvl = 0.0;
+	bool	bWhiteIsGrayTop = false;	// luma / lux traces: NearChartWhite took the gray top (the PQ log level below)
 	char	szBuf [ 64 ];
 	LPCSTR	lpMsg = NULL;
 	
@@ -369,14 +370,14 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 		colorlevel=pDataSet->GetMeasure()->GetNearWhite(PointIndex).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 		// In the point's quantity: main divided a point read without the
 		// luxmeter by the gray top's lux in luminance curve mode 1.
-		whitelvl = NearWhiteChartWhite ( pDataSet->GetMeasure(), ColorSpace, PointIndex );
+		whitelvl = NearWhiteChartWhite ( pDataSet->GetMeasure(), ColorSpace, PointIndex, &bWhiteIsGrayTop );
 	}
 	else 
 	{
 		max=pDataSet->GetMeasure()->GetNearWhite(Size-1).GetLuxValue();
 		colorlevel=pDataSet->GetMeasure()->GetNearWhite(PointIndex).GetLuxValue();
 		// whitelvl was never set here (main read it uninitialized).
-		whitelvl = NearWhiteChartWhite ( pDataSet->GetMeasure(), ColorSpace, PointIndex );
+		whitelvl = NearWhiteChartWhite ( pDataSet->GetMeasure(), ColorSpace, PointIndex, &bWhiteIsGrayTop );
 	}
 
 	if ( pDataSet->GetMeasure()->GetNearWhite(PointIndex).HasLuxValue () )
@@ -390,10 +391,12 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	}
 	
     // Reading PointIndex at its stamped drive, else its slot on the current grid
-    // (CMeasure::GetGrayReadingLevel). The log chart divides by that drive when
-    // there is one, consistent with X. A reading without one keeps the
-    // denominator it always had - counted back from 101, not from the clip
-    // column X uses - so it draws exactly as before.
+    // (CMeasure::GetGrayReadingLevel). Outside PQ the log chart divides by that
+    // drive when there is one, consistent with X; a reading without one keeps
+    // main's denominator, counted back from 101 rather than from the clip column
+    // X uses, so SDR draws bit for bit as before (the clip column is 101 there,
+    // where the two agree). PQ, below, divides by the level the point is drawn
+    // at instead, which fixes that count for documents measured with a clip.
     double drive;
     const double xPlot = pDataSet->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_NEAR_WHITE, PointIndex );
     const double xLog = pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_NEAR_WHITE, PointIndex, & drive )
@@ -415,8 +418,10 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
         // top's channel, as the log trace's own max, else the series' top (max)
         // at its own level. A 100% point below the top (clip column 102) has no
         // point gamma.
+        // The series' top's level, at most 1: an unstamped top at clip column
+        // 102 sits on the 102% slot (258/255).
         double yWhite = max;
-        double vWhite = pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, Size-1 );
+        double vWhite = min ( pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, Size-1 ), 1.0 );
         if ( ColorSpace == 0 )
         {
             const int grayscalesize = pDataSet->GetMeasure()->GetGrayScaleSize();
@@ -432,9 +437,9 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
         }
         else
         {
-            bool bGrayWhite = false;
-            yWhite = NearWhiteChartWhite ( pDataSet->GetMeasure(), ColorSpace, PointIndex, &bGrayWhite );
-            if ( bGrayWhite )
+            // the white the linear chart above already took (whitelvl)
+            yWhite = whitelvl;
+            if ( bWhiteIsGrayTop )
                 vWhite = 1.0;
         }
         double pointGamma;
