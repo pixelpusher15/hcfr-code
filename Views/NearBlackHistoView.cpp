@@ -203,8 +203,11 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				else
 	                m_graphCtrl.AddPoint(m_refGraphID, x, Y_to_abY(val,White.GetY()));
 
+			// Plotted at the reading's level x when a camera-gamma offset shifts
+			// valx off it (as the gamma chart plots its reference), else at valx,
+			// as before.
 			if((val > 0) && (i != 0))	// log scale is not valid for first value
-				m_logGraphCtrl.AddPoint(m_refLogGraphID, valx * 100. , log(val)/log(valx), NULL, NULL);
+				m_logGraphCtrl.AddPoint(m_refLogGraphID, ( mode < 4 && GammaOffset != 0.0 ) ? x : valx * 100. , log(val)/log(valx), NULL, NULL);
 
 			valformax = val;
 		}
@@ -318,6 +321,20 @@ LogGraphID : graph ID for log drawing, -1 if no Log drawing
 // GrayLevelToGrayProp ( 50 ). Every finite value is drawn as before. The
 // reference log curve is not guarded (main's, unchanged).
 
+// The camera-gamma offset this chart's reference curve evaluates its level with
+// (PointGammaEffectiveOffset): the document's own ComputeGammaAndOffset, as the
+// gamma chart uses for each trace; 0 in every mode >= 4 and under the sRGB
+// standard, where the fit is not computed.
+static double PointGammaOffsetFor ( CDataSetDoc * pDataSet )
+{
+	const bool bsRGB = ( GetConfig()->m_colorStandard == sRGB );
+	if ( PointGammaEffectiveOffset ( GetConfig()->m_GammaOffsetType, bsRGB, 1.0 ) == 0.0 )
+		return 0.0;
+	double gammaOpt, offset;
+	pDataSet->ComputeGammaAndOffset ( &gammaOpt, &offset, 1, 1, pDataSet->GetMeasure()->GetGrayScaleSize(), false );
+	return PointGammaEffectiveOffset ( GetConfig()->m_GammaOffsetType, bsRGB, offset );
+}
+
 void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax)
 {
 	double max,whitelvl;
@@ -392,9 +409,13 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	const double xLog = pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_NEAR_BLACK, PointIndex, & drive )
 		? drive
 		: GrayLevelToGrayProp( (double)PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+	// In the camera-gamma modes the reference beside it divides by the level
+	// ( V + o ) / ( 1 + o ), o the document's own offset: so does the point
+	// (PointGammaLevel; o = 0, and the level is xLog bit for bit, elsewhere).
+	const double level = PointGammaLevel ( xLog, PointGammaOffsetFor ( pDataSet ) );
 	if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
 	{
-		const double pointGamma = log(colorlevel/whitelvl)/log(xLog);
+		const double pointGamma = log(colorlevel/whitelvl)/log(level);
 		if ( _finite ( pointGamma ) )
 			m_logGraphCtrl.AddPoint(LogGraphID, xPlot, pointGamma, lpMsg, NULL);
 	}
