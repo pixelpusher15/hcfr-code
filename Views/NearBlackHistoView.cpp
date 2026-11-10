@@ -223,7 +223,8 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// Plotted at the reading's level x when a camera-gamma offset shifts
 			// valx off it (as the gamma chart plots its reference), else at valx,
 			// as before.
-			if((val > 0) && (i != 0))	// log scale is not valid for first value
+			// No point where the value is not finite (valx = 1 gives log ( 1 ) = 0).
+			if((val > 0) && (i != 0) && _finite ( log(val)/log(valx) ))	// log scale is not valid for first value
 				m_logGraphCtrl.AddPoint(m_refLogGraphID, ( mode < 4 && GammaOffset != 0.0 ) ? x : valx * 100. , log(val)/log(valx), NULL, NULL);
 
 			valformax = val;
@@ -338,6 +339,11 @@ LogGraphID : graph ID for log drawing, -1 if no Log drawing
 // GrayLevelToGrayProp ( 50 ). Every finite value is drawn as before. The
 // reference log curve is not guarded (main's, unchanged).
 
+static bool NearChartIsPQ ()
+{
+	return GetConfig()->m_GammaOffsetType == 5 && GetConfig()->m_colorStandard != sRGB;
+}
+
 void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax, double PointOffset)
 {
 	double max,whitelvl;
@@ -365,12 +371,13 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	// scale's top, else near white's top, else none. In luminance curve mode 1
 	// a point read without the luxmeter is in cd/m2 and main divided it by the
 	// gray top's lux; an R, G or B trace divides by the white's luma.
+	bool bGrayWhite = false;		// whether the gray top is that white (the PQ log level below)
 	{
 		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
 		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
 		whitelvl = NearChartWhite ( ColorSpace, GetConfig () -> m_nLuminanceCurveMode, pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue (),
 										 grayscalesize > 0 ? pDataSet->GetMeasure()->GetGray(grayscalesize-1) : noDataColor,
-										 nearwhitescalesize > 0 ? pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1) : noDataColor );
+										 nearwhitescalesize > 0 ? pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1) : noDataColor, &bGrayWhite );
 	}
 
 	if ( pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue () )
@@ -397,7 +404,25 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	// ( V + o ) / ( 1 + o ), o the document's own offset: so does the point
 	// (PointGammaLevel; o = 0, and the level is xLog bit for bit, elsewhere).
 	const double level = PointGammaLevel ( xLog, PointOffset );
-	if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
+	if ( NearChartIsPQ () )
+	{
+		// PQ: the reference beside it plots the EOTF relative to the gray scale's
+		// 100% reading, at the absolute level V. So the point divides Y by the same
+		// white (whitelvl: the gray top, its luma - the luma normalization is kept)
+		// with V_white = 1, and V is the level it is drawn at, 2k% (main divided by
+		// k%). When near white's top stands in for a missing gray top (NearChartWhite
+		// did not take the gray top), its own level is V_white. A 100% point (V = 1)
+		// has no point gamma.
+		const int nearwhitescalesize = pDataSet->GetMeasure()->GetNearWhiteScaleSize();
+		// (at most 1: an unstamped near-white top at clip column 102 sits on 102%)
+		const double vWhite = ( bGrayWhite || nearwhitescalesize <= 0 ) ? 1.0
+							  : min ( pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, nearwhitescalesize-1 ), 1.0 );
+		double pointGamma;
+		if ( (whitelvl > 0) && (PointIndex != 0)
+			 && NearChartPointGamma ( colorlevel, pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, PointIndex ), whitelvl, vWhite, 0.0, &pointGamma ) )
+			m_logGraphCtrl.AddPoint(LogGraphID, xPlot, pointGamma, lpMsg, NULL);
+	}
+	else if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
 	{
 		const double pointGamma = log(colorlevel/whitelvl)/log(level);
 		if ( _finite ( pointGamma ) )
