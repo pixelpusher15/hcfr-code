@@ -1021,6 +1021,13 @@ bool ReadingWireGrayProp ( const CColor & aReading, double * pProp );
 // The reading's level as a 0..1 proportion: its stamped drive, else
 // GrayLevelToGrayProp ( slotLevel, ... ) on the current grid.
 double ReadingGrayProp ( const CColor & aReading, double slotLevel, bool bUseRoundDown, bool b10bit, bool is16_235 );
+// The white a near-black chart point is divided by, in the point's quantity:
+// colorSpace 0 (an R, G or B trace) the white's luma Y; 1 luma or lux as
+// GetLuxOrLumaValue ( luminanceCurveMode ), the white carrying a lux value
+// exactly when the point does in curve mode 1; 2 lux, the white carrying one.
+// The gray scale's top when usable (valid, that quantity finite and > 0),
+// else near white's top, else 0: no white, no point.
+double NearBlackChartWhite ( int colorSpace, int luminanceCurveMode, bool pointHasLux, const CColor & grayTop, const CColor & nearWhiteTop );
 
 // The three gray series CMeasure holds, each pairing slot i with reading i.
 enum GraySeries

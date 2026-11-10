@@ -329,47 +329,27 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	{
 		max=pDataSet->GetMeasure()->GetNearBlack(Size-1).GetRGBValue(GetColorReference())[ColorIndex] / Valformax;
 		colorlevel=pDataSet->GetMeasure()->GetNearBlack(PointIndex).GetRGBValue(GetColorReference())[ColorIndex];
-
-		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
-		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
-
-		if (pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else if (pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else
-			whitelvl=0;
 	}
 	else if (ColorSpace == 1) 
 	{
 		max=pDataSet->GetMeasure()->GetNearBlack(Size-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode) / Valformax;
 		colorlevel=pDataSet->GetMeasure()->GetNearBlack(PointIndex).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-
-		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
-		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
-
-		if (pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else if (pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else
-			whitelvl=0;
 	}
 	else 
 	{
 		max=pDataSet->GetMeasure()->GetNearBlack(Size-1).GetLuxValue() / Valformax;
 		colorlevel=pDataSet->GetMeasure()->GetNearBlack(PointIndex).GetLuxValue();
+	}
 
+	// The white, in the point's quantity (libHCFR NearBlackChartWhite): the gray
+	// scale's top, else near white's top, else none. In luminance curve mode 1
+	// a point read without the luxmeter is in cd/m2 and main divided it by the
+	// gray top's lux; an R, G or B trace divides by the white's luma.
+	{
 		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
 		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
-
-		whitelvl=0;
-		
-		if (pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxValue();
-		
-		if (whitelvl == 0 && pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).GetLuxValue();
+		whitelvl = NearBlackChartWhite ( ColorSpace, GetConfig () -> m_nLuminanceCurveMode, pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue (),
+										 pDataSet->GetMeasure()->GetGray(grayscalesize-1), pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1) );
 	}
 
 	if ( pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue () )
