@@ -319,6 +319,12 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	// A failed read comes back as noDataColor, which the clamps below would turn
 	// into a valid-looking color, so decide success before they run.
 	BOOL bMeasureOk = ( IsMeasureValid() && result.isValid() );
+	// A failed read stays noDataColor, as it did when AsyncMeasurer's catch returned
+	// it (4.2.2): the sweeps test IsMeasureValid, and a slot that keeps the reading
+	// on Abort or Ignore then holds an invalid placeholder the grid and charts
+	// recognize, not a valid-looking black of 1e-8.
+	if ( ! bMeasureOk )
+		return noDataColor;
 
 	result.SetX(max(result.GetX(),0.00000001));
 	result.SetY(max(result.GetY(),0.00000001));
