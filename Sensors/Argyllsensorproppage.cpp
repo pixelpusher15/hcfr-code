@@ -128,6 +128,11 @@ BEGIN_MESSAGE_MAP(CArgyllSensorPropPage, CPropertyPageWithHelp)
     //}}AFX_MSG_MAP
     ON_BN_CLICKED(IDC_ARGYLL_SPECTRAL_BROWSE, OnSpectralBrowse)
     ON_BN_CLICKED(IDC_ARGYLL_SPECTRAL_CLEAR, OnSpectralClear)
+    // The selections a Calibrate commits and that can change what it does. Not the
+    // Display Type: it cannot (MeterCalibrationRule.h), and a re-evaluation is a
+    // device command on some meters (the i1Pro3's board temperature read).
+    ON_CBN_SELCHANGE(IDC_ARGYLLSENSOR_READINGTYPE_COMBO, OnCalibrateSelectionChange)
+    ON_BN_CLICKED(IDC_ARGYLL_SENSOR_HIRES, OnCalibrateSelectionChange)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -418,15 +423,41 @@ BOOL CArgyllSensorPropPage::OnInitDialog()
     CWnd* pDbg = GetDlgItem(IDC_ARGYLL_SENSOR_DEBUG_CB);
     if (pDbg != NULL) { CPoint dp = M.at(LBLX + 1, 0); pDbg->MoveWindow(dp.x, rowBottom + M.ht(2), M.w(220), M.ht(10)); }
 
+    // A page without the spectral row has had no refresh: the button's first state.
+    if ( !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
+        RefreshCalibrateButton();
+
     return bRet;
+}
+
+void CArgyllSensorPropPage::OnCalibrateSelectionChange()
+{
+    RefreshCalibrateButton();
+}
+
+// The selections as OnCalibrate would commit them (UpdateData's DDX): the Reading
+// Type's index (CB_ERR when the list is empty, which the commit takes as a
+// change), and Hi-Res only when its checkbox is enabled. The Display Type's
+// selection does not enter: it cannot change what a Calibrate does
+// (MeterCalibrationRule.h), so its change does not re-evaluate the button.
+void CArgyllSensorPropPage::RefreshCalibrateButton()
+{
+    CWnd* pBtn = GetDlgItem(IDC_ARGYLL_CALIBRATE);
+    if ( m_pSensor == NULL || pBtn == NULL )
+        return;
+    CComboBox* pReadingType = (CComboBox*)GetDlgItem(IDC_ARGYLLSENSOR_READINGTYPE_COMBO);
+    const int readingType = ( pReadingType != NULL ) ? pReadingType->GetCurSel() : m_ReadingType;
+    const BOOL hiRes = m_HiResCheckBoxEnabled && ::IsWindow(m_HiResCheckBox.GetSafeHwnd())
+                    && m_HiResCheckBox.GetCheck() == BST_CHECKED;
+    pBtn->EnableWindow( m_pSensor->CalibrateButtonEnabled((UINT)readingType, hiRes) );
 }
 
 void CArgyllSensorPropPage::RefreshSpectralStatus()
 {
-    // Calibrate needs a meter: with none, a click could only do nothing. Every page
-    // has the button, whether or not it has the spectral row below.
-    if ( m_pSensor != NULL && GetDlgItem(IDC_ARGYLL_CALIBRATE) != NULL )
-        GetDlgItem(IDC_ARGYLL_CALIBRATE)->EnableWindow( m_pSensor->HasMeter() );
+    // Calibrate needs a meter, and something to calibrate: with neither, a click
+    // could only do nothing. Every page has the button, whether or not it has the
+    // spectral row below.
+    RefreshCalibrateButton();
     if ( m_pSensor == NULL || !::IsWindow(m_spectralStatus.GetSafeHwnd()) )
         return;
     CString s, fmt;

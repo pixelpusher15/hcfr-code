@@ -27,6 +27,7 @@
 #include "ColorHCFR.h"
 #include "ArgyllSensor.h"
 #include "ArchiveExtension.h"
+#include "MeterCalibrationRule.h"
 #include "SpectralSampleFiles.h"
 #include "SpectralSample.h"
 #include "../Generators/GDIGenerator.h"
@@ -251,6 +252,8 @@ CArgyllSensor::CArgyllSensor() :
     m_spectralCacheHash = 0;
     m_pathDropPending = false;
     m_beginInit = INIT_OK;
+    m_meterStartAtInit = 0;
+    m_meterStartKnown = false;
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
     m_pDevicePage = & m_ArgyllSensorPropertiesPage;  // Add Argyll settings page to property sheet
@@ -298,6 +301,8 @@ CArgyllSensor::CArgyllSensor(ArgyllMeterWrapper* meter) :
     m_spectralCacheHash = 0;
     m_pathDropPending = false;
     m_beginInit = INIT_OK;
+    m_meterStartAtInit = 0;
+    m_meterStartKnown = false;
 
     m_ArgyllSensorPropertiesPage.m_pSensor = this;
 
@@ -644,6 +649,29 @@ CArgyllSensor::InitResult CArgyllSensor::CommitPageSettings()
     return result;
 }
 
+// The rule and its evidence from the drivers: MeterCalibrationRule.h. The page's
+// Calibrate commits the page's selections and Inits before it calibrates, so the
+// button follows the selections on the page, not the committed ones: a Reading
+// Type or Hi-Res not committed yet means a mode the driver cannot be asked about,
+// and the button stays enabled. Hi-Res counts only on a meter that has it (the
+// page commits it as off otherwise). The driver is asked only when its answer is
+// used: on some meters the query is a device command (the i1Pro3 driver reads its
+// board temperature, i1pro3_check_calib).
+bool CArgyllSensor::CalibrateButtonEnabled(UINT pageReadingType, BOOL pageHiRes)
+{
+    if ( m_meter == NULL )
+        return MeterCalibrationRule::CalibrateEnabled(false, 0, false, 0, false, false, MeterCalibrationRule::CAL_UNKNOWN);
+    const bool hiResCounts = m_meter->doesSupportHiRes();
+    const bool pageHi = hiResCounts && pageHiRes;
+    const bool sensorHi = hiResCounts && m_HiRes;
+    const bool modeIsSensors = m_meterStartKnown && m_meter->getStartCount() == m_meterStartAtInit;
+    MeterCalibrationRule::Availability live = MeterCalibrationRule::CAL_UNKNOWN;
+    if ( pageReadingType == m_ReadingType && pageHi == sensorHi && modeIsSensors )
+        live = (MeterCalibrationRule::Availability)m_meter->getCalibrationAvailability();
+    return MeterCalibrationRule::CalibrateEnabled(true, pageReadingType, pageHi, m_ReadingType, sensorHi,
+                                                  modeIsSensors, live);
+}
+
 BOOL CArgyllSensor::Init( BOOL bForSimultaneousMeasures )
 {
     return InitReporting(bForSimultaneousMeasures) == INIT_OK;
@@ -722,6 +750,11 @@ BOOL CArgyllSensor::InitBody( BOOL bForSimultaneousMeasures )
         return FALSE;
     }
     m_meter->setHiResMode(!!m_HiRes);
+    // The driver's mode is this sensor's now (CalibrateButtonEnabled). Nothing below
+    // changes what a calibration does: AIO, averaging, the Display Type (only its
+    // refresh mode, which gates a deferrable calibration; MeterCalibrationRule.h).
+    m_meterStartAtInit = m_meter->getStartCount();
+    m_meterStartKnown = true;
     // Apply the Rev. B AIO setting. The meter is initialised by now, so this
     // overrides whatever init_inst() selected and takes effect immediately on a
     // settings change (Init() is re-run from GetPropertiesSheetValues), with no
@@ -2001,7 +2034,10 @@ bool CArgyllSensor::CalibrateDevice()
     while(state != ArgyllMeterWrapper::READY)
     {
 		TestWindowGuard testWindow;
-        std::string meterInstructions(m_meter->getCalibrationInstructions(m_HiRes != 0));
+        // A text the wrapper took from the language DLL gets its box title from
+        // there too; its English texts keep the English title.
+        bool instructionsLocalized = false;
+        std::string meterInstructions(m_meter->getCalibrationInstructions(m_HiRes != 0, &instructionsLocalized));
         if(meterInstructions.empty())
         {
             break;
@@ -2033,7 +2069,12 @@ bool CArgyllSensor::CalibrateDevice()
 				GetColorApp()->InMeasureMessageBox( "Place test window and meter on monitor to be calibrated.", "Calibration Instructions", MB_OK);
 			}
 		} else
-	        GetColorApp()->InMeasureMessageBox( meterInstructions.c_str(), "Calibration Instructions", MB_OK);
+		{
+			CString title("Calibration Instructions");
+			if ( instructionsLocalized )
+				title.LoadString( IDS_ARGYLL_CAL_INSTRUCTIONS_TITLE );
+	        GetColorApp()->InMeasureMessageBox( meterInstructions.c_str(), title, MB_OK);
+		}
 
 		state = m_meter->calibrate();
 		testWindow.Hide();      // as soon as the device is done, before any box below

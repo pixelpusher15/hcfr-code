@@ -6173,6 +6173,126 @@ static void RunT45()
     T45Order::CheckSilentCommit();
 }
 
+//////////////////////////////////////////////////////////////////////////
+// T47 - the Argyll sensor page's "Calibrate meter" availability rule and
+// the i1Pro white tile question (libHCFR/MeterCalibrationRule.h). Pure
+// assertion; no golden file; every expectation is an exact bool or enum.
+//   (a) FromDriver: only a NON-DEFERRABLE available calibration counts
+//       (the drivers drop the deferrable ones from inst_calt_available);
+//       no calibration capability is nothing; a failed query is unknown.
+//   (b) CalibrateEnabled: no meter is disabled; a Reading Type or Hi-Res
+//       selection that differs from the committed one is enabled whatever
+//       the driver says now; so is a driver mode another start has set;
+//       otherwise the driver's answer decides, and unknown is enabled.
+//   (c) AskSkipWhiteTile: only an i1Pro family meter, Hi-Res off, the
+//       driver asking for the white tile, and a dark calibration available.
+// The masks below are the driver's inst_cal_type bits (Tools/spectro/inst.h),
+// restated: ArgyllMeterWrapper.cpp static_asserts the two the rule uses.
+//////////////////////////////////////////////////////////////////////////
+#include "../../libHCFR/MeterCalibrationRule.h"
+
+namespace T47Cal
+{
+    using namespace MeterCalibrationRule;
+
+    const unsigned int CALT_EMIS_OFFSET  = 0x00000100u;  // inst_calt_emis_offset
+    const unsigned int CALT_EM_DARK      = 0x00000400u;  // inst_calt_em_dark
+    const unsigned int CALT_REF_WHITE    = 0x00000020u;  // inst_calt_ref_white
+    const unsigned int CALT_WAVELENGTH   = 0x00000010u;  // inst_calt_wavelength
+    const unsigned int CALT_EMIS_INTTIME = 0x00100000u;  // inst_calt_emis_int_time (deferrable)
+    const unsigned int CALT_REF_FREQ     = 0x00200000u;  // inst_calt_ref_freq (deferrable)
+
+    static const char* Name(Availability a)
+    {
+        return a == CAL_SOME ? "SOME" : a == CAL_NONE ? "NONE" : "UNKNOWN";
+    }
+
+    static void ExpectAvail(const char* what, Availability got, Availability want)
+    {
+        if ( got != want )
+            Fail("T47 (a) %s: got %s, want %s", what, Name(got), Name(want));
+    }
+
+    static void CheckFromDriver()
+    {
+        // i1d3 / Spyder on a refresh Display Type: ref_freq only (deferrable).
+        ExpectAvail("refresh-only list", FromDriver(true, true, CALT_REF_FREQ), CAL_NONE);
+        // i1d3 on a plain Display Type, or a driver without calibrate(): nothing.
+        ExpectAvail("empty list", FromDriver(true, true, 0u), CAL_NONE);
+        // i1Pro emissive spot: dark + integration time.
+        ExpectAvail("i1Pro emissive", FromDriver(true, true, CALT_EM_DARK | CALT_EMIS_INTTIME), CAL_SOME);
+        // i1Pro 2: wavelength + dark.
+        ExpectAvail("i1Pro 2 emissive", FromDriver(true, true, CALT_WAVELENGTH | CALT_EM_DARK), CAL_SOME);
+        // SpyderX, not ambient: black offset.
+        ExpectAvail("SpyderX display", FromDriver(true, true, CALT_EMIS_OFFSET), CAL_SOME);
+        // Only deferrable ones, both kinds.
+        ExpectAvail("deferrable only", FromDriver(true, true, CALT_REF_FREQ | CALT_EMIS_INTTIME), CAL_NONE);
+        // No calibration capability: CalibrateDevice stops with "No Cals found".
+        ExpectAvail("no capability", FromDriver(true, false, CALT_EM_DARK), CAL_NONE);
+        // A failed query says nothing, whatever the mask holds.
+        ExpectAvail("failed query", FromDriver(false, true, 0u), CAL_UNKNOWN);
+        ExpectAvail("failed query, mask set", FromDriver(false, false, CALT_EM_DARK), CAL_UNKNOWN);
+        // The mask is exactly inst_calt_n_dfrble_mask: its lowest and highest bits count,
+        // the pseudo-types below it and the deferrable ones above it do not.
+        ExpectAvail("lowest non-deferrable bit", FromDriver(true, true, 0x00000010u), CAL_SOME);
+        ExpectAvail("highest non-deferrable bit", FromDriver(true, true, 0x00008000u), CAL_SOME);
+        ExpectAvail("pseudo-type bits", FromDriver(true, true, 0x00000003u), CAL_NONE);
+        ExpectAvail("deferrable mask", FromDriver(true, true, 0x00f00000u), CAL_NONE);
+    }
+
+    static void ExpectEnabled(const char* what, bool got, bool want)
+    {
+        if ( got != want )
+            Fail("T47 (b) %s: got %s, want %s", what, got ? "enabled" : "disabled", want ? "enabled" : "disabled");
+    }
+
+    static void CheckCalibrateEnabled()
+    {
+        // No meter: disabled, whatever else holds (#256).
+        ExpectEnabled("no meter", CalibrateEnabled(false, 0, false, 0, false, true, CAL_SOME), false);
+        ExpectEnabled("no meter, settings differ", CalibrateEnabled(false, 2, true, 0, false, false, CAL_UNKNOWN), false);
+        // Same selections, the driver's mode is the sensor's: the driver decides.
+        ExpectEnabled("same, NONE", CalibrateEnabled(true, 0, false, 0, false, true, CAL_NONE), false);
+        ExpectEnabled("same, SOME", CalibrateEnabled(true, 0, false, 0, false, true, CAL_SOME), true);
+        ExpectEnabled("same, UNKNOWN", CalibrateEnabled(true, 0, false, 0, false, true, CAL_UNKNOWN), true);
+        ExpectEnabled("same Hi-Res on, NONE", CalibrateEnabled(true, 1, true, 1, true, true, CAL_NONE), false);
+        // A selection not committed yet: the commit Inits into another mode, which the
+        // live answer does not describe - enabled even when the current mode has nothing.
+        ExpectEnabled("Reading Type differs", CalibrateEnabled(true, 2, false, 0, false, true, CAL_NONE), true);
+        ExpectEnabled("Reading Type back to display", CalibrateEnabled(true, 0, false, 2, false, true, CAL_NONE), true);
+        ExpectEnabled("Hi-Res turned on", CalibrateEnabled(true, 0, true, 0, false, true, CAL_NONE), true);
+        ExpectEnabled("Hi-Res turned off", CalibrateEnabled(true, 0, false, 0, true, true, CAL_NONE), true);
+        ExpectEnabled("empty Reading Type list (CB_ERR)", CalibrateEnabled(true, 0xFFFFFFFFu, false, 0, false, true, CAL_NONE), true);
+        // Another document's start set the driver's mode since this sensor's Init.
+        ExpectEnabled("mode set by another start", CalibrateEnabled(true, 0, false, 0, false, false, CAL_NONE), true);
+    }
+
+    static void ExpectAsk(const char* what, bool got, bool want)
+    {
+        if ( got != want )
+            Fail("T47 (c) %s: got %s, want %s", what, got ? "asks" : "no question", want ? "asks" : "no question");
+    }
+
+    static void CheckAskSkipWhiteTile()
+    {
+        const unsigned int i1Pro2List = CALT_WAVELENGTH | CALT_EM_DARK | CALT_EMIS_INTTIME;
+        ExpectAsk("i1Pro 2, Hi-Res off, tile asked", AskSkipWhiteTile(true, false, true, i1Pro2List), true);
+        ExpectAsk("i1Pro, hi-res fine cal pending, Hi-Res off", AskSkipWhiteTile(true, false, true, CALT_REF_WHITE | CALT_EM_DARK), true);
+        ExpectAsk("Hi-Res on", AskSkipWhiteTile(true, true, true, i1Pro2List), false);
+        ExpectAsk("driver asks a dark calibration first", AskSkipWhiteTile(true, false, false, CALT_EM_DARK), false);
+        ExpectAsk("no dark calibration on its own", AskSkipWhiteTile(true, false, true, CALT_WAVELENGTH), false);
+        ExpectAsk("not an i1Pro", AskSkipWhiteTile(false, false, true, i1Pro2List), false);
+    }
+}
+
+static void RunT47()
+{
+    printf("T47 meter calibration availability rule...\n");
+    T47Cal::CheckFromDriver();
+    T47Cal::CheckCalibrateEnabled();
+    T47Cal::CheckAskSkipWhiteTile();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -6211,6 +6331,7 @@ int main(int argc, char* argv[])
     RunT44();
     RunT45();
     RunT46();
+    RunT47();
     RunT48();
     RunT49();
 
