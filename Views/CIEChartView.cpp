@@ -1922,7 +1922,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		
 		double YWhiteGray = YWhite;
 		if ( nSize > 0 )
-			YWhiteGray = pDoc -> GetMeasure () -> GetGray ( nSize - 1 ) [ 1 ];
+			YWhiteGray = pDoc -> GetMeasure () -> GetGrayScaleWhite () [ 1 ];
 		
 		
 		CColor GrayClr;
@@ -1942,7 +1942,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
             // Determine Reference Y luminance for Delta E calculus
             if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
             {
-    			CColor White = pDoc -> GetMeasure () -> GetGray ( nSize - 1 );
+    			CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite ();
 				CColor Black = pDoc->GetMeasure()->GetGrayScaleBlack();
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if (  (mode >= 4) )

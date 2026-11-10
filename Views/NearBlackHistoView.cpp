@@ -183,7 +183,7 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
         	int g_size=pDoc->GetMeasure()->GetGrayScaleSize();
 			double GammaOffset,GammaOpt;
 			pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,g_size,false);
-    		CColor White = pDoc -> GetMeasure () -> GetGray ( g_size - 1 );
+    		CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite ();
 //	    	CColor Black = pDoc -> GetMeasure () -> GetGray ( 0 );
 	    	CColor Black = pDoc -> GetMeasure () -> GetGrayScaleBlack();
 			// Reading i at its stamped drive, else slot i on the current grid

@@ -300,6 +300,13 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,size, false);
 	pDoc->ComputeGammaAndOffset(&LuxGammaOpt, &LuxGammaOffset, 2,1,size, false);
 
+	// The gray scale's white and black (GetGrayScaleWhite / Black), fetched once
+	// per document per draw and passed to every point.
+	const CColor DocWhite = pDoc->GetMeasure()->GetGrayScaleWhite();
+	const CColor DocBlack = pDoc->GetMeasure()->GetGrayScaleBlack();
+	const CColor RefDocWhite = pDataRef ? pDataRef->GetMeasure()->GetGrayScaleWhite() : noDataColor;
+	const CColor RefDocBlack = pDataRef ? pDataRef->GetMeasure()->GetGrayScaleBlack() : noDataColor;
+
 //	GammaOpt = floor(GammaOpt * 100) / 100;
 
 	if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
@@ -386,9 +393,9 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if (bDataPresent)
-				AddPointtoLumGraph(0,0,size,i,GammaOffset,pDoc,m_redLumLogGraphID,bIRE);
+				AddPointtoLumGraph(0,0,size,i,GammaOffset,pDoc,m_redLumLogGraphID,bIRE,DocWhite,DocBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,0,size,i,RefGammaOffset,pDataRef,m_redLumDataRefLogGraphID,bIRE);
+				AddPointtoLumGraph(0,0,size,i,RefGammaOffset,pDataRef,m_redLumDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack);
 		}
 	}
 
@@ -399,9 +406,9 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if (bDataPresent)
-				AddPointtoLumGraph(0,1,size,i,GammaOffset,pDoc,m_greenLumLogGraphID,bIRE);
+				AddPointtoLumGraph(0,1,size,i,GammaOffset,pDoc,m_greenLumLogGraphID,bIRE,DocWhite,DocBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,1,size,i,RefGammaOffset,pDataRef,m_greenLumDataRefLogGraphID,bIRE);
+				AddPointtoLumGraph(0,1,size,i,RefGammaOffset,pDataRef,m_greenLumDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack);
 		}
 	}
 
@@ -412,9 +419,9 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++) 
 		{
 			if (bDataPresent)
-				AddPointtoLumGraph(0,2,size,i,GammaOffset,pDoc,m_blueLumLogGraphID,bIRE);
+				AddPointtoLumGraph(0,2,size,i,GammaOffset,pDoc,m_blueLumLogGraphID,bIRE,DocWhite,DocBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,2,size,i,RefGammaOffset,pDataRef,m_blueLumDataRefLogGraphID,bIRE);
+				AddPointtoLumGraph(0,2,size,i,RefGammaOffset,pDataRef,m_blueLumDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack);
 		}
 	}
 
@@ -425,9 +432,9 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++) 
 		{
 			if (bDataPresent)
-				AddPointtoLumGraph(1,1,size,i,GammaOffset,pDoc,m_luminanceLogGraphID,bIRE);
+				AddPointtoLumGraph(1,1,size,i,GammaOffset,pDoc,m_luminanceLogGraphID,bIRE,DocWhite,DocBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(1,1,size,i,RefGammaOffset,pDataRef,m_luminanceDataRefLogGraphID,bIRE);
+				AddPointtoLumGraph(1,1,size,i,RefGammaOffset,pDataRef,m_luminanceDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack);
 		}
 	}
 
@@ -442,13 +449,13 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				if (bDataPresent)
 				{
 					if (pDoc->GetMeasure()->GetGray(0).HasLuxValue())
-						AddPointtoLumGraph(2,1,size,i,LuxGammaOffset,pDoc,m_luxmeterLogGraphID,bIRE);
+						AddPointtoLumGraph(2,1,size,i,LuxGammaOffset,pDoc,m_luxmeterLogGraphID,bIRE,DocWhite,DocBlack);
 				}
 				
 				if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
 				{
 					if (pDataRef->GetMeasure()->GetGray(0).HasLuxValue())
-						AddPointtoLumGraph(2,1,size,i,RefLuxGammaOffset,pDataRef,m_luxmeterDataRefLogGraphID,bIRE);
+						AddPointtoLumGraph(2,1,size,i,RefLuxGammaOffset,pDataRef,m_luxmeterDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack);
 				}
 			}
 		}
@@ -465,7 +472,7 @@ GraphID : graph ID for drawing
 LogGraphID : graph ID for log drawing, -1 if no Log drawing
 */
 
-void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,double GammaOffset,CDataSetDoc *pDataSet,long GraphID, BOOL bIRE)
+void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,double GammaOffset,CDataSetDoc *pDataSet,long GraphID, BOOL bIRE, const CColor & White, const CColor & Black)
 {
 	double blacklvl, whitelvl;
 	double colorlevel;
@@ -477,7 +484,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	if (ColorSpace == 0) 
 	{
 		blacklvl=pDataSet->GetMeasure()->GetGray(0).GetRGBValue((GetColorReference()))[ColorIndex];
-		whitelvl=pDataSet->GetMeasure()->GetGrayScaleWhite().GetRGBValue((GetColorReference()))[ColorIndex];
+		whitelvl=White.GetRGBValue((GetColorReference()))[ColorIndex];
 		colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetRGBValue((GetColorReference()))[ColorIndex];
 		if (GetConfig()->m_GammaOffsetType == 5)
 			whitelvl =  10000.;
@@ -485,7 +492,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	else if (ColorSpace == 1) 
 	{
 		blacklvl=pDataSet->GetMeasure()->GetGray(0).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		whitelvl=pDataSet->GetMeasure()->GetGrayScaleWhite().GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+		whitelvl=White.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 		colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 		if (GetConfig()->m_GammaOffsetType == 5)
 			whitelvl =  10000.;
@@ -493,7 +500,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	else 
 	{
 		blacklvl=pDataSet->GetMeasure()->GetGray(0).GetLuxValue();
-		whitelvl=pDataSet->GetMeasure()->GetGrayScaleWhite().GetLuxValue();
+		whitelvl=White.GetLuxValue();
 		colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxValue();
 	}
 
@@ -566,7 +573,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 			// A raised black still shows: it lands on the 5% and 10% points,
 			// where the stimulus is big enough for the ratio to mean something.
 			double gammaBlack;
-			if ( ReferenceGammaAtBlack(pDataSet->GetMeasure()->GetGrayScaleWhite(), pDataSet->GetMeasure()->GetGrayScaleBlack(), GammaOffset, &gammaBlack) )
+			if ( ReferenceGammaAtBlack(White, Black, GammaOffset, &gammaBlack) )
 				m_graphCtrl.AddPoint(GraphID, x, gammaBlack, lpMsg);
 		}
 		else if (PointIndex == Size-1 && colorlevel > 0.0001)
@@ -584,7 +591,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 			// guard as the points below - a top patch that read no light gets no
 			// point rather than one sitting exactly on target.
 			double gammaWhite, valyWhite;
-			if ( ReferenceGammaAt(pDataSet->GetMeasure()->GetGrayScaleWhite(), pDataSet->GetMeasure()->GetGrayScaleBlack(), prop, GammaOffset, &gammaWhite, &valyWhite) )
+			if ( ReferenceGammaAt(White, Black, prop, GammaOffset, &gammaWhite, &valyWhite) )
 				m_graphCtrl.AddPoint(GraphID, x, gammaWhite, lpMsg);
 		}
 		else if (colorlevel > 0.0001)	// log scale is not valid for negative values

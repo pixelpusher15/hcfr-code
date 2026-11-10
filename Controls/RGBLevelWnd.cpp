@@ -484,7 +484,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 								white.SetY(94.37844);
 						else
 							if ((GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR) && m_displayMode == 11)
-								white.SetY(m_pDocument->GetMeasure()->GetGray((m_pDocument->GetMeasure()->GetGrayScaleSize()-1)).GetY());
+								white.SetY(m_pDocument->GetMeasure()->GetGrayScaleWhite().GetY());
 							else
 								// Unified convention: the reference above is
 								// GetHDRRefScale-scaled (1.0 = tone-mapped diffuse
@@ -559,7 +559,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			else
 			{
 				if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
-					YWhite = m_pDocument->GetMeasure()->GetGray((m_pDocument->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
+					YWhite = m_pDocument->GetMeasure()->GetGrayScaleWhite().GetY() ;
 				else
 				{
 					// Unified HDR convention (matches the measures grid and the

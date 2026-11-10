@@ -175,7 +175,7 @@ void CNearWhiteGrapher::UpdateGraph ( CDataSetDoc * pDoc )
         	int g_size=pDoc->GetMeasure()->GetGrayScaleSize();
 			double GammaOffset,GammaOpt;
 			pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,g_size,false);
-    		CColor White = pDoc -> GetMeasure () -> GetGray ( g_size - 1 );
+    		CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite ();
 //	    	CColor Black = pDoc -> GetMeasure () -> GetGray ( 0 );
 	    	CColor Black = pDoc -> GetMeasure () -> GetGrayScaleBlack();
 			// Reading i at its stamped drive, else slot i on the current grid
@@ -424,10 +424,10 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
         double vWhite = min ( pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, Size-1 ), 1.0 );
         if ( ColorSpace == 0 )
         {
-            const int grayscalesize = pDataSet->GetMeasure()->GetGrayScaleSize();
-            if ( grayscalesize > 0 && pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid() )
+            const CColor gsWhite = pDataSet->GetMeasure()->GetGrayScaleWhite();
+            if ( gsWhite.isValid() )
             {
-                const double y = pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetRGBValue(GetColorReference())[ColorIndex];
+                const double y = gsWhite.GetRGBValue(GetColorReference())[ColorIndex];
                 if ( y > 0.0 && _finite ( y ) )
                 {
                     yWhite = y;

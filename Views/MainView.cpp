@@ -3536,7 +3536,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 						else
 						{
 							if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
-								YWhite = GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
+								YWhite = GetDocument()->GetMeasure()->GetGrayScaleWhite().GetY() ;
 							else
 							{
 								// Unified HDR convention: the reference is scaled by
@@ -3796,7 +3796,7 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 								white.SetY(94.37844);
 						else
 							if ((GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR) && m_displayMode == 11)
-								white.SetY(GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1)).GetY());
+								white.SetY(GetDocument()->GetMeasure()->GetGrayScaleWhite().GetY());
 							else
 								// Unified convention: references are GetHDRRefScale-scaled
 								// (1.0 = tone-mapped diffuse white), so normalize the

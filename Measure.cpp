@@ -8710,6 +8710,12 @@ CColor CMeasure::GetGrayScaleWhite() const
 
 CColor CMeasure::GetGrayScaleBlack() const
 {
+	// The user's black override is the user's decision above both readings: the
+	// sweeps write it into the on/off black (and the gray scale sweep into slot 0),
+	// but a gray scale measured before the override was turned on still holds the
+	// measured black. Same test the sweeps use (m_bOverRideBlack, CheckBlackOverride).
+	if ( m_bOverRideBlack && m_userBlack.isValid () )
+		return m_userBlack;
 	return GrayScaleBlack ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffBlack );
 }
 
