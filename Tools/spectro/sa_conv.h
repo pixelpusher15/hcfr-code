@@ -249,7 +249,7 @@ struct _sa_MD5 {
 extern sa_MD5 *new_sa_MD5(void);
 
 #define icmMD5 sa_MD5
-#define new_icmMD5 new_sa_MD5
+#define new_icmMD5(err) new_sa_MD5()
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /* A subset of numlib */

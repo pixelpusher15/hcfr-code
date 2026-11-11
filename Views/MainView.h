@@ -272,9 +272,9 @@ protected:
 	protected:
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
 	virtual void OnInitialUpdate(); // called first time after construct
-	virtual void OnActivateView(BOOL bActivate, CView* pActivateView, CView* pDeactiveView);	// per-doc patch-set cache refresh
 	BOOL IsMdiActiveDocument();	// MDI walk resolves to this view's document (activation-ordering guard)
 	int ModeComboIndexFor(int mode);	// display mode -> mode-combo item ("Custom Sequences" alias for 11+USER)
+	void SyncModeComboToCCMode();	// mode 11: select the item the current CC mode maps to
 	virtual BOOL OnPreparePrinting(CPrintInfo* pInfo);
 	virtual void OnBeginPrinting(CDC* pDC, CPrintInfo* pInfo);
 	virtual void OnEndPrinting(CDC* pDC, CPrintInfo* pInfo);
@@ -315,6 +315,8 @@ public:
 	afx_msg void OnSizePlus();
 	afx_msg void OnSizeMinus();
 	afx_msg void OnCcSetNamePicker();	// stats-bar name chip: user patch set picker (mode 11)
+	void ResyncCCControls();	// mode 11: combos and grid follow the CC state after activation
+	void SelectDisplayMode(int mode);	// show this display mode, as a mode-combo pick would
 
 // Generated message map functions
 protected:

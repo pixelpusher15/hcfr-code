@@ -78,6 +78,7 @@
 #include "Measure.h"
 #include "SimulatedSensor.h"
 #include "AccuracyTest.h"
+#include "ArchiveExtension.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -501,8 +502,8 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 	}
 	else if ( isHDR )
 	{
-		CColor White = m.GetOnOffWhite();
-		CColor Black = m.GetOnOffBlack();
+		CColor White = m.GetGrayScaleWhite();
+		CColor Black = m.GetGrayScaleBlack();
 		BOOL DVD = ( cfg->GetGeneratorType() == CColorHCFRConfig::enumManual );
 		double tmWhite;
 		if ( DVD )
@@ -774,8 +775,8 @@ static const int kSatSize  = 5;
 static void RefreshHdrTargets ( CMeasure & m )
 {
 	CColorHCFRConfig * cfg = GetConfig();
-	CColor White = m.GetOnOffWhite();
-	CColor Black = m.GetOnOffBlack();
+	CColor White = m.GetGrayScaleWhite();
+	CColor Black = m.GetGrayScaleBlack();
 	if ( !cfg->m_bOverRideTargs && Black.isValid() && White.isValid() && (cfg->m_GammaOffsetType == 5 || cfg->m_GammaOffsetType == 7) )
 	{
 		if ( Black.GetY() < White.GetY() )
@@ -819,8 +820,8 @@ static void RunGray ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 	m.SetOnOffWhite(m.GetGray(kGraySize - 1));		// MeasureGrayScale: measuredColor[size-1]
 	RefreshHdrTargets(m);							// converges (same values as bootstrap)
 
-	CColor White = m.GetOnOffWhite();
-	CColor Black = m.GetOnOffBlack();
+	CColor White = m.GetGrayScaleWhite();
+	CColor Black = m.GetGrayScaleBlack();
 
 	// dE per UpdateGrid case 0 + GetItemText grayscale branch. Black (the
 	// first column) is skipped: the grid prints its dE through
@@ -1102,6 +1103,288 @@ static void CheckPlaceholderSignature ( FamStat & stat )
 		stat.Add(999.0, "a non-placeholder white matched the placeholder signature");
 }
 
+// Both recalibration walks return the count the "N measurement(s) have no raw
+// sensor reading" notice shows, and a single-matrix walk that returns 0 re-arms
+// the sensor's RawlessReadingsState. Pin that count: the constructor's
+// placeholders (top gray slot, on/off black) are not readings, and a reading
+// held in two slots (the active saturation level and its m_satLevelStore entry,
+// the live color-checker array and its master band, a grayscale black and its
+// on/off copy) is one reading. Each case runs on its own fresh CMeasure, with
+// identity matrices, so only the count is under test.
+static int RawlessWalk ( CMeasure & m, bool bBodner )
+{
+	if ( bBodner )
+	{
+		Matrix raw[3] = { Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3) };
+		Matrix cal[3] = { Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3) };
+		return m.ApplySensorBodnerRecalibration(raw, cal);
+	}
+	return m.ApplySensorAdjustmentMatrix(Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3), false);
+}
+
+static CColor RawlessReading ( double x, double y, double z )
+{
+	CColor c;
+	c.SetXYZValue(ColorXYZ(x, y, z));	// no SetRawXYZValue: a pre-raw or hand-edited value
+	return c;
+}
+
+static CColor RawReading ( double x, double y, double z )
+{
+	CColor c = RawlessReading(x, y, z);
+	c.SetRawXYZValue(ColorXYZ(x, y, z));
+	return c;
+}
+
+static void CheckRawlessSkipCount ( FamStat & stat )
+{
+	for ( int w = 0; w < 2; w++ )
+	{
+		const bool bBodner = ( w == 1 );
+		const char * name = bBodner ? "Bodner" : "single-matrix";
+
+		// 1. Fresh document: only placeholders are left raw-less.
+		{
+			CMeasure m;
+			if ( ! CMeasure::IsRawlessPlaceholder(m.GetGray(m.GetGrayScaleSize()-1), false)
+				|| ! CMeasure::IsRawlessPlaceholder(m.GetOnOffBlack(), true) )
+				stat.Add(999.0, "ctor gray-top / on-off-black placeholder not recognised by IsRawlessPlaceholder");
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 0 )
+				stat.Add(999.0, "%s walk counted %d raw-less readings in a fresh document (want 0)", name, n);
+		}
+
+		// 2. Primaries and white measured (they carry raw), black left at the
+		// placeholder: nothing is skipped, so a stranded state re-arms.
+		{
+			CMeasure m;
+			m.SetRedPrimary(RawReading(41.0, 21.0, 2.0));
+			m.SetGreenPrimary(RawReading(36.0, 72.0, 12.0));
+			m.SetBluePrimary(RawReading(18.0, 7.0, 95.0));
+			m.SetPrimeWhite(RawReading(95.0, 100.0, 109.0));
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 0 )
+				stat.Add(999.0, "%s walk counted %d raw-less readings with primaries+white measured (want 0)", name, n);
+			RawlessReadingsState s;
+			s.MatrixSetWithoutWalk();
+			s.SingleMatrixWalked(n);
+			if ( ! bBodner && ! s.ComposeOntoRawless() )
+				stat.Add(999.0, "RawlessReadingsState did not re-arm after a walk with nothing to skip");
+		}
+
+		// 3. One raw-less reading in each mirrored pair: counted once each.
+		{
+			CMeasure m;
+			CColor sat = RawlessReading(30.0, 20.0, 5.0);
+			m.SetRedSat(0, sat);
+			m.GetSatLevelCount();	// mirrors the active level into m_satLevelStore
+			CColor cc = RawlessReading(12.0, 11.0, 9.0);
+			m.SetCC24Sat(0, cc);
+			m.SetCC24MasterSat(0, cc);
+			CColor black = RawlessReading(0.031, 0.033, 0.034);
+			m.SetGray(0, black);
+			m.SetOnOffBlack(black);
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 3 )
+				stat.Add(999.0, "%s walk counted %d raw-less readings for 3 mirrored ones (want 3)", name, n);
+		}
+
+		// 4. A raw-less black a hair off the placeholder signature is a reading.
+		{
+			CMeasure m;
+			ColorXYZ v = m.GetOnOffBlack().GetXYZValue();
+			double y = v[1] > 0.0 ? v[1] : 0.05;
+			m.SetOnOffBlack(RawlessReading(y * 0.95047 * 1.0001, y, y * 1.08833));
+			if ( CMeasure::IsRawlessPlaceholder(m.GetOnOffBlack(), true) )
+				stat.Add(999.0, "a non-placeholder black matched the placeholder signature");
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 1 )
+				stat.Add(999.0, "%s walk counted %d for one raw-less on/off black (want 1)", name, n);
+		}
+	}
+}
+
+// The user patch set collection's document-side contracts. Run once per process,
+// not per combo: none of this depends on the combo's configuration. USER_BAND is
+// the USER band base of the master array (USER_BAND_BASE in Measure.cpp).
+static const int USER_BAND = RANDOM250 * 100 + 250 + 500;
+
+static CUserPatchSet PatchSetOf ( const char * name, int nRows )
+{
+	CUserPatchSet s;
+	s.name = name;
+	s.rows.resize(nRows);
+	for ( int i = 0 ; i < nRows ; i ++ )
+	{
+		s.rows[i].patch = i + 1;
+		s.rows[i].r = s.rows[i].g = s.rows[i].b = 16 + i;
+	}
+	s.measures.assign(nRows, noDataColor);
+	return s;
+}
+
+static void CheckUserPatchSets ( FamStat & stat )
+{
+	static bool s_bDone = false;
+	if ( s_bDone )
+		return;
+	s_bDone = true;
+
+	Matrix doubled = Matrix::IdentityMatrix(3) * 2.0;
+
+	// Both recalibration walks reach a set that is not in the USER band. The
+	// active set shares its first raw reading, so the band's result is the expected
+	// value whatever the walk's formula. Each set has one raw-less reading: the
+	// inactive one counts, and the active one counts once (the band), not twice.
+	for ( int w = 0; w < 2; w++ )
+	{
+		const bool bBodner = ( w == 1 );
+		const char * name = bBodner ? "Bodner" : "single-matrix";
+		CMeasure m;
+		CUserPatchSet a = PatchSetOf("a", 2), b = PatchSetOf("b", 2);
+		a.measures[0] = RawReading(10.0, 20.0, 30.0);
+		a.measures[1] = RawlessReading(1.0, 2.0, 3.0);
+		b.measures[0] = RawReading(10.0, 20.0, 30.0);
+		b.measures[1] = RawlessReading(4.0, 5.0, 6.0);
+		int ia = m.AddUserPatchSet(a);
+		int ib = m.AddUserPatchSet(b);
+		ia = ( ib == 0 ) ? 1 : 0;
+		m.ActivateUserPatchSet(ib);
+		const double before = m.GetUserPatchSet(ia)->measures[0].GetXYZValue()[1];
+		int n;
+		if ( bBodner )
+		{
+			Matrix raw[3] = { Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3) };
+			Matrix cal[3] = { doubled, doubled, doubled };
+			n = m.ApplySensorBodnerRecalibration(raw, cal);
+		}
+		else
+			n = m.ApplySensorAdjustmentMatrix(doubled, doubled, false);
+		const double band = m.GetCC24MasterSat(USER_BAND).GetXYZValue()[1];
+		const double after = m.GetUserPatchSet(ia)->measures[0].GetXYZValue()[1];
+		if ( band == before )
+			stat.Add(999.0, "%s walk left the USER band alone", name);
+		if ( after != band )
+			stat.Add(999.0, "%s walk: inactive set reads Y %.6f, the band %.6f", name, after, band);
+		if ( n != 2 )
+			stat.Add(999.0, "%s walk counted %d raw-less readings over two sets (want 2)", name, n);
+	}
+
+	// A raw-less reading only an inactive set holds keeps a stranded state stranded.
+	{
+		CMeasure m;
+		CUserPatchSet a = PatchSetOf("a", 1), b = PatchSetOf("b", 1);
+		a.measures[0] = RawlessReading(1.0, 2.0, 3.0);
+		m.AddUserPatchSet(a);
+		m.ActivateUserPatchSet(m.AddUserPatchSet(b));
+		RawlessReadingsState s;
+		s.MatrixSetWithoutWalk();
+		s.SingleMatrixWalked(m.ApplySensorAdjustmentMatrix(doubled, doubled, false));
+		if ( s.ComposeOntoRawless() )
+			stat.Add(999.0, "a raw-less reading in an inactive set let RawlessReadingsState re-arm");
+	}
+
+	// The size projection counts the unmeasured rows of every set, not only the
+	// new one: a list that fits only until an older set is measured is refused.
+	{
+		CUserPatchSet a = PatchSetOf("a", 100), cand = PatchSetOf("c", 10);
+		CMeasure m0, m1;
+		ULONGLONG alone = m0.ProjectedUserPatchSetTrailerBytes(cand, -1);
+		std::vector<CUserPatchSet> trial;
+		trial.push_back(cand);
+		ULONGLONG perRow = ( alone - MeasureTrailerBytes(trial, -1) ) / 10;
+		m1.AddUserPatchSet(a);
+		trial.insert(trial.begin(), a);
+		ULONGLONG want = MeasureTrailerBytes(trial, -1) + 110 * perRow;
+		ULONGLONG got = m1.ProjectedUserPatchSetTrailerBytes(cand, -1);
+		if ( got != want )
+			stat.Add(999.0, "projection %I64u bytes, want %I64u (110 unmeasured rows of %I64u each)", got, want, perRow);
+	}
+
+	// A definition alone past the cap is an answer, not an exception out of the
+	// import. 10000 rows with 7000-byte names: 70 MB against the 64 MB cap.
+	{
+		CMeasure m;
+		CUserPatchSet huge = PatchSetOf("huge", MAX_USER_CC_PATCH_SIZE);
+		for ( size_t i = 0 ; i < huge.rows.size() ; i ++ )
+			huge.rows[i].name.assign(7000, 'n');
+		try
+		{
+			ULONGLONG n = m.ProjectedUserPatchSetTrailerBytes(huge, -1);
+			if ( n <= kMaxExtensionBytes )
+				stat.Add(999.0, "a 70 MB definition projected to %I64u bytes", n);
+		}
+		catch ( CArchiveException * e )
+		{
+			e->Delete();
+			stat.Add(999.0, "the size projection threw on a definition past the cap");
+		}
+	}
+
+	// m_CCStr follows the active set: GetInfoString quotes it on every activation.
+	{
+		CMeasure m;
+		CUserPatchSet a = PatchSetOf("a", 1), b = PatchSetOf("b", 1);
+		a.measures[0] = RawReading(10.0, 20.0, 30.0);
+		int ia = m.AddUserPatchSet(a);
+		int ib = m.AddUserPatchSet(b);
+		ia = ( ib == 0 ) ? 1 : 0;
+		m.ActivateUserPatchSet(ia);
+		if ( m.GetInfoString().Find(m.GetCCStr()) < 0 )
+			stat.Add(999.0, "info string does not carry the sweeps of the set just activated");
+		m.ActivateUserPatchSet(ib);
+		if ( m.GetInfoString().Find(m.GetCCStr()) < 0 )
+			stat.Add(999.0, "info string still claims the sweeps of the set just left");
+	}
+
+	// Readings with no usable definition become a set the grid can show: one row
+	// per reading at least, each driving the reading's own stimulus when it has one.
+	{
+		std::vector<CsvPatchRow> csv;
+		CString userPath;
+		int nCsv = -1;
+		if ( ResolveCCSetPath(USER, userPath, NULL) )
+			nCsv = ReadCsvPatchRows(userPath, csv, MAX_USER_CC_PATCH_SIZE, NULL, NULL);
+		const int nShort = ( nCsv > 0 ? nCsv : 0 ) + 2;	// more readings than any file row
+		CMeasure m;
+		for ( int i = 0 ; i < nShort ; i ++ )
+		{
+			CColor c = RawlessReading(1.0 + i, 2.0, 3.0);
+			if ( i == 1 )
+				c.SetStimulusValue(ColorRGBDisplay(50.0, 25.0, 75.0));
+			m.SetCC24MasterSat(USER_BAND + i, c);
+		}
+		m.MigrateLegacyUserBand();
+		CUserPatchSet * s = m.GetActiveUserPatchSet();
+		if ( s == NULL )
+			stat.Add(999.0, "migration left no active set");
+		else
+		{
+			if ( (int) s->rows.size() < nShort )
+				stat.Add(999.0, "migration: %d rows for %d readings", (int) s->rows.size(), nShort);
+			else
+			{
+				const int want = CsvPercentToCode(50.0, s->bits, s->range);
+				if ( s->rows[1].r != want )
+					stat.Add(999.0, "migration: row 1 drives %d, its reading's stimulus is code %d", s->rows[1].r, want);
+			}
+			if ( (int) s->measures.size() != nShort || ! s->measures[nShort - 1].isValid() )
+				stat.Add(999.0, "migration lost a reading");
+		}
+
+		// A file with more rows than the readings still defines them.
+		if ( nCsv >= 2 )
+		{
+			CMeasure m2;
+			m2.SetCC24MasterSat(USER_BAND, RawlessReading(1.0, 2.0, 3.0));
+			m2.MigrateLegacyUserBand();
+			CUserPatchSet * s2 = m2.GetActiveUserPatchSet();
+			if ( s2 == NULL || (int) s2->rows.size() != nCsv )
+				stat.Add(999.0, "migration: one reading, %d file rows, set has %d rows", nCsv, s2 ? (int) s2->rows.size() : -1);
+		}
+	}
+}
+
 static void RunConvWhite ( CMeasure & m, FamStat & stat )
 {
 	CColorHCFRConfig * cfg = GetConfig();
@@ -1111,6 +1394,8 @@ static void RunConvWhite ( CMeasure & m, FamStat & stat )
 	// it before the no-samples bail-out - every combo gets the gate checked.
 	CheckSub90Override(stat);
 	CheckPlaceholderSignature(stat);
+	CheckRawlessSkipCount(stat);
+	CheckUserPatchSets(stat);
 
 	if ( s_nConvSamples == 0 )
 		return;

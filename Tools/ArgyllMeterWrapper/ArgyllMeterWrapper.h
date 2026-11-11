@@ -64,6 +64,15 @@ public:
     /// see if the meter supports calibration
     bool doesMeterSupportCalibration();
 
+    /// What a calibrate() would do in the driver's current mode, without doing
+    /// it: a MeterCalibrationRule::Availability (libHCFR/MeterCalibrationRule.h).
+    /// CAL_UNKNOWN when the driver is gone or not started, or the query fails.
+    int getCalibrationAvailability();
+
+    /// Counts the starts (connectAndStartMeter calls) on this wrapper: each one
+    /// sets the driver's mode, for whichever document's sensor made it.
+    unsigned int getStartCount() const { return m_startCount; }
+
     // try and do a reading
     // the client application will need to handle the
     // possible non success conditions
@@ -111,7 +120,10 @@ public:
     /// if either take reading or calibrate returns 
     /// NEEDS_MANUAL_CALIBRATION then call this to find out
     /// what the user needs to do next
-    std::string getCalibrationInstructions(bool HiRes);
+    /// textIsLocalized: set true when the text returned is in the language of the
+    /// HCFR resources in use (so the caller titles its box in that language too),
+    /// false when it is one of the English texts.
+    std::string getCalibrationInstructions(bool HiRes, bool* textIsLocalized = NULL);
 
     /// if either take reading or calibrate returns 
     /// INCORRECT_POSITION then call this to find out
@@ -156,6 +168,13 @@ public:
     // Emission calibration matrices of the driver. i1d3 family only - the one bundled
     // driver whose struct the wrapper reads (see setDisableAIO). False for every other meter.
     bool canExposeCalibrationMatrices() const;
+    // True when one of this wrapper's own error boxes (init_inst, setting the observer
+    // or the integration time, Set display type error, Calibration Failed!) was shown
+    // since clearErrorBoxShown for a failure it then returns or throws: that failure
+    // has been told to the user, and the caller shows no second message for it. A box
+    // with no failure after it (the inst_wrong_setup one) does not set it.
+    bool errorBoxShown() const { return m_errorBoxShown; }
+    void clearErrorBoxShown() { m_errorBoxShown = false; }
     // The instrument serial number ("" when the driver has none).
     std::string getSerialNumber() const;
     // Derives the correction a spectral sample would make, using the driver's own fit:
@@ -177,6 +196,8 @@ public:
 
 private:
     void checkMeterIsInitialized();
+    // The capability test of doesMeterSupportCalibration, on a started meter.
+    bool calibrationCapabilityListed();
     // Reads the i1d3 driver's emission calibration: cal = ccmat * emis_cal, whether a
     // spectral sample is in force, whether ccmat is unity. False when not exposable.
     bool readCalibration(Matrix& cal, bool& sampleLoaded, bool& ccmatUnity);
@@ -189,6 +210,8 @@ private:
     BOOL dark_only;
     char m_calibrationMessage[200];    
     bool m_Adapt;
+    bool m_errorBoxShown;
+    unsigned int m_startCount;
     
     std::string m_SampleDescription;
 };

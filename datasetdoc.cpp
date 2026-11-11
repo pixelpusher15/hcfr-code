@@ -78,6 +78,7 @@ static char THIS_FILE[] = __FILE__;
 // Defined below (near the calibration entry points); used by the new-document
 // wizard's Argyll branch as well.
 static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor, LPCSTR fileToLoad = NULL);
+static bool RefuseMatrixCalOverDriverSpectral(CSensor* pSensor);
 static BOOL LoadCalibrationFileKeepingSpectral(CSensor* pSensor, CString & fileName);
 
 /////////////////////////////////////////////////////////////////////////////
@@ -191,6 +192,11 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 		    }
 
 		    // Perform one measure
+			// With no generator running nothing displayed g_CurrentColor: it is the
+			// 0.5% placeholder or the last test color. Drop any display record so
+			// the read can never be stamped as a real patch (WireSetup.h).
+			if ( ! g_bGDIGeneratorRunning )
+				WireDisplayRecord::Invalidate();
 		    measuredColor=pSensor->MeasureColor(g_CurrentColor);  // don't know the color to measure so default value to mid gray...
 		    if ( g_bTerminateThread )
 		    {
@@ -219,7 +225,19 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 		    }
 		    else
 		    {
-			    // Error: close thread
+			    // Error: close thread. A sensor that says why (its error string) has the
+			    // reason shown once, with the sweeps' "An error occurred:" text, on the UI
+			    // thread (CMainFrame::OnBkgndMeasureStopped); one with no reason shows
+			    // nothing new.
+			    if ( ! pSensor -> GetErrorString ().IsEmpty () )
+			    {
+				    CString * pReason = new CString;
+				    pReason -> LoadString ( IDS_ANERROROCCURED );
+				    *pReason += pSensor -> GetErrorString ();
+				    CWnd * pMain = AfxGetMainWnd ();
+				    if ( pMain == NULL || ! pMain -> PostMessage ( WM_BKGND_MEASURE_STOPPED, 0, (LPARAM) pReason ) )
+					    delete pReason;
+			    }
 			    g_hThread = NULL;
 			    g_bTerminateThread = FALSE;
 
@@ -485,6 +503,7 @@ BEGIN_MESSAGE_MAP(CDataSetDoc, CDocument)
 	ON_COMMAND(IDM_EXPORT_XLS, OnExportXls)
 	ON_COMMAND(IDM_EXPORT_CSV, OnExportCsv)
 	ON_COMMAND(IDM_EXPORT_PDF, OnExportPdf)
+	ON_COMMAND(IDM_EXPORT_TI3, OnExportTi3)
 	ON_UPDATE_COMMAND_UI(IDM_EXPORT_XLS, OnUpdateExportXls)
 	ON_COMMAND(IDM_CALIBRATION_SIM, OnCalibrationSim)
 	ON_COMMAND(IDM_CALIBRATION_MANUAL, OnCalibrationManual)
@@ -1386,6 +1405,7 @@ void CDataSetDoc::MeasureCC24SatScale()
 {
 	StopBackgroundMeasures ();
 	MeasureButtonStopScope _btn(this);
+	SyncCCTargets ();
 
 	if(m_measure.MeasureCC24SatScale(m_pSensor,m_pGenerator,this))
 		SetModifiedFlag(m_measure.IsModified());
@@ -1411,6 +1431,7 @@ void CDataSetDoc::MeasureAllSaturationScales()
 {
 	StopBackgroundMeasures ();
 	MeasureButtonStopScope _btn(this);
+	SyncCCTargets ();
 
 	if(m_measure.MeasureAllSaturationScales(m_pSensor,m_pGenerator,FALSE,this))
 		SetModifiedFlag(m_measure.IsModified());
@@ -1472,6 +1493,7 @@ void CDataSetDoc::MeasureContrast()
 void CDataSetDoc::AddMeasurement() 
 {
 	StopBackgroundMeasures ();
+	SyncCCTargets ();	// a re-measured slot is stamped from the cache
     POSITION pos;
     CView* pView;
     pos = this -> GetFirstViewPosition ();
@@ -1526,8 +1548,11 @@ void CDataSetDoc::OnConfigureSensor()
 {
 	if ( IsMeasureSweepActive() ) return;
 	StopBackgroundMeasures ();
-    m_pSensor->SetSensorMatrixMod( m_pSensor->GetEffectiveMatrix() );
+	// BeginConfigure first: an Argyll sensor runs the measurement-start Init there,
+	// before its snapshot (#256), so the walk's baseline below is the effective matrix
+	// that Init left - and the walk composes only what the user changes in the sheet.
 	m_pSensor->BeginConfigure();
+    m_pSensor->SetSensorMatrixMod( m_pSensor->GetEffectiveMatrix() );
 	BOOL bConfigOk = m_pSensor->Configure();
 	if ( !bConfigOk )
 	{
@@ -1773,6 +1798,16 @@ void CDataSetDoc::OnExportCsv()
 	exportVar.Save();
 }
 
+// CGATS .ti3 of the display profile and the patch lists (CExport::SaveTi3).
+void CDataSetDoc::OnExportTi3()
+{
+	StopBackgroundMeasures ();
+	if ( !ConfirmCalibrationMethodInSync() ) return;
+
+	CExport exportVar(this,CExport::TI3);
+	exportVar.Save();
+}
+
 BOOL CDataSetDoc::OnSaveDocument(LPCTSTR lpszPathName) 
 {
 	// TODO: Add your specialized code here and/or call the base class
@@ -1832,6 +1867,10 @@ void CDataSetDoc::OnCalibrationSim()
 		return;
 	}
 
+	// Before anything is measured: see RefuseMatrixCalOverDriverSpectral.
+	if ( RefuseMatrixCalOverDriverSpectral(m_pSensor) )
+		return;
+
 	Msg.LoadString ( IDS_RUN_SIM_CALIBRATION );
 	if ( IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_YESNO | MB_ICONQUESTION ) )
 	{
@@ -1880,6 +1919,11 @@ void CDataSetDoc::OnCalibrationExisting()
 		return;
     }
 
+	// Before the fit, and before the save question below (ComputeAdjustmentMatrix
+	// refuses too, but its caller would still offer to save the calibration).
+	if ( RefuseMatrixCalOverDriverSpectral(m_pSensor) )
+		return;
+
     ComputeAdjustmentMatrix();
 	// Save file
 	Msg.LoadString ( IDS_SAVECALDATA );
@@ -1889,15 +1933,33 @@ void CDataSetDoc::OnCalibrationExisting()
 
 }
 
+// A matrix calibration over a spectral correction the driver applies itself (a
+// meter whose calibration matrices are not exposed: record basis DRIVER_CORRECTED,
+// MatrixCalibrationAllowed false) is refused, with the reason, before anything is
+// measured or fitted. That meter's readings already carry the correction, so the
+// matrix would be fitted on corrected readings and then - the record and the
+// driver's sample cleared by SpectralSupersededByMatrixFit - applied to native
+// ones. Clearing the correction first (the sensor page) or keeping it as the
+// method are the two honest options; the message names both. True when refused.
+// Called by every matrix calibration entry point: the manual fit (through
+// ConfirmMatrixCalOverSpectral, and again after its sensor Init), the simultaneous
+// and existing-reference fits (before measuring, and in ComputeAdjustmentMatrix),
+// and the correction file loads (through ConfirmMatrixCalOverSpectral).
+static bool RefuseMatrixCalOverDriverSpectral(CSensor* pSensor)
+{
+	if ( pSensor == NULL || MatrixCalibrationAllowed(pSensor->GetSpectralRecord()) )
+		return false;
+	GetColorApp()->InMeasureMessageBox( _S(IDS_CALIB_SPECTRAL_IN_DRIVER), _S(IDS_ERROR), MB_OK | MB_ICONERROR );
+	return true;
+}
+
 // Before a matrix calibration replaces a spectral correction. Returns false to
 // abort the calibration; clears nothing. The fit sites call
 // SpectralSupersededByMatrixFit once the new correction is installed, so a
 // declined confirmation, a failed Init, an unreadable file or a singular fit
 // changes nothing.
-//   - A record the driver applies itself (a meter whose calibration matrices are
-//     not exposed: basis DRIVER_CORRECTED) cannot stay under a matrix, which would
-//     double-correct: the Yes/No "clear it?" question, as before. Asked whether
-//     or not it is the method in force - a matrix on top of it is the stack.
+//   - A record the driver applies itself (basis DRIVER_CORRECTED) is refused
+//     (RefuseMatrixCalOverDriverSpectral), whether or not it is the method in force.
 //   - Otherwise only when the spectral correction is the method in force: raw is
 //     native, the matrix is fitted on and applied to raw, and the spectral record
 //     stays in the sensor, dormant. The user is told so (OK/Cancel).
@@ -1908,17 +1970,13 @@ void CDataSetDoc::OnCalibrationExisting()
 static bool PeekCalibrationFile(LPCSTR fileName, int& method, int& basis);
 static bool ConfirmMatrixCalOverSpectral(CSensor* pSensor, LPCSTR fileToLoad)
 {
+	if ( RefuseMatrixCalOverDriverSpectral(pSensor) )
+		return false;
 	if ( pSensor == NULL || !pSensor->HasSpectralCorrection() )
 		return true;
 	const SpectralCorrectionRecord & rec = pSensor->GetSpectralRecord();
 	CString msg, title;
 	title.LoadString ( IDS_SPECTRAL_ACTIVE_TITLE );
-	if ( rec.basis == FIT_BASIS_DRIVER_CORRECTED )
-	{
-		msg.LoadString ( IDS_SPECTRAL_CLEAR_FOR_MATRIX );
-		return GetColorApp()->InMeasureMessageBox( msg, title,
-			MB_YESNO | MB_ICONQUESTION ) == IDYES;
-	}
 	if ( !pSensor->UsesSpectralMethod() )
 		return true;
 	int fileMethod = CALIB_HCFR_DEFAULT, fileBasis = FIT_BASIS_NATIVE;
@@ -2002,18 +2060,379 @@ static BOOL LoadCalibrationFileKeepingSpectral(CSensor* pSensor, CString & fileN
 	return TRUE;
 }
 
+// Build Manually: the wait after each measured patch. The old wait read only the
+// key messages of this thread and slept, so after a few seconds Windows marked
+// HCFR "Not responding" on the red field, nothing on screen said what to do, and
+// a click into the reference meter's own program took the keyboard focus away
+// for good. This prompt names the patch, keeps every window painting, takes a
+// click wherever the focus is, and still takes ENTER (Next) and ESCAPE (Cancel)
+// typed into any HCFR window. It never covers the patch being read: see
+// PlaceManualCalPrompt.
+namespace {
+
+const WORD MANUALCAL_TEXT_ID = 1000;	// the text control in the in-memory template
+
+class CManualCalPromptDlg : public CDialog
+{
+public:
+	CManualCalPromptDlg () : m_nResult ( 0 ) {}
+
+	int		m_nResult;		// 0 while waiting, then IDOK (Next) or IDCANCEL (Cancel)
+	CString	m_strTitle, m_strText, m_strNext, m_strCancel;
+
+protected:
+	virtual BOOL OnInitDialog ();
+	// Modeless: answer, never EndDialog. The caller's loop sees m_nResult.
+	virtual void OnOK () { m_nResult = IDOK; }
+	virtual void OnCancel () { m_nResult = IDCANCEL; }
+};
+
+BOOL CManualCalPromptDlg::OnInitDialog ()
+{
+	CDialog::OnInitDialog ();
+
+	SetWindowText ( m_strTitle );
+	SetDlgItemText ( IDOK, m_strNext );
+	SetDlgItemText ( IDCANCEL, m_strCancel );
+
+	CWnd * pText = GetDlgItem ( MANUALCAL_TEXT_ID );
+	pText -> SetWindowText ( m_strText );
+
+	// Grow the text to fit (the translations differ in length), and the buttons
+	// and the window with it.
+	CRect rText;
+	pText -> GetWindowRect ( & rText );
+	ScreenToClient ( & rText );
+	CRect rNeed ( 0, 0, rText.Width (), 0 );
+	{
+		CClientDC dc ( pText );
+		CFont * pOldFont = dc.SelectObject ( GetFont () );
+		dc.DrawText ( m_strText, & rNeed, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX | DT_LEFT );
+		dc.SelectObject ( pOldFont );
+	}
+	int dy = rNeed.Height () - rText.Height ();
+	if ( dy > 0 )
+	{
+		pText -> SetWindowPos ( NULL, 0, 0, rText.Width (), rNeed.Height (), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE );
+		const int nButtons[2] = { IDOK, IDCANCEL };
+		for ( int b = 0; b < 2; b ++ )
+		{
+			CRect r;
+			GetDlgItem ( nButtons[b] ) -> GetWindowRect ( & r );
+			ScreenToClient ( & r );
+			GetDlgItem ( nButtons[b] ) -> SetWindowPos ( NULL, r.left, r.top + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE );
+		}
+		CRect rWnd;
+		GetWindowRect ( & rWnd );
+		SetWindowPos ( NULL, 0, 0, rWnd.Width (), rWnd.Height () + dy, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE );
+	}
+
+	GotoDlgCtrl ( GetDlgItem ( IDOK ) );
+	return FALSE;	// the focus is set
+}
+
+// One DLGITEMTEMPLATE with a system class, an empty title (set in OnInitDialog)
+// and no creation data. Each item starts on a DWORD boundary.
+void ManualCalTemplateItem ( std::vector<WORD> & t, DWORD style, short x, short y, short cx, short cy, WORD id, WORD atom )
+{
+	if ( t.size () % 2 )
+		t.push_back ( 0 );
+	t.push_back ( LOWORD ( style ) );
+	t.push_back ( HIWORD ( style ) );
+	t.push_back ( 0 );	// dwExtendedStyle
+	t.push_back ( 0 );
+	t.push_back ( (WORD) x );
+	t.push_back ( (WORD) y );
+	t.push_back ( (WORD) cx );
+	t.push_back ( (WORD) cy );
+	t.push_back ( id );
+	t.push_back ( 0xFFFF );
+	t.push_back ( atom );	// 0x0080 button, 0x0082 static
+	t.push_back ( 0 );		// title
+	t.push_back ( 0 );		// creation data
+}
+
+// The prompt as an in-memory template: one text and two buttons, in dialog units.
+// No .rc dialog, so the five satellites carry only the strings.
+void BuildManualCalTemplate ( std::vector<WORD> & t )
+{
+	const short cx = 190, margin = 7, textH = 40, btnW = 50, btnH = 14;
+	const short btnY = margin + textH + margin;
+	const short cy = btnY + btnH + margin;
+	const DWORD style = DS_SETFONT | DS_MODALFRAME | DS_3DLOOK | WS_POPUP | WS_CAPTION | WS_SYSMENU;
+	const wchar_t * face = L"MS Shell Dlg";
+
+	t.push_back ( LOWORD ( style ) );
+	t.push_back ( HIWORD ( style ) );
+	t.push_back ( 0 );	// dwExtendedStyle
+	t.push_back ( 0 );
+	t.push_back ( 3 );	// cdit
+	t.push_back ( 0 );	// x, y: placed by PlaceManualCalPrompt
+	t.push_back ( 0 );
+	t.push_back ( (WORD) cx );
+	t.push_back ( (WORD) cy );
+	t.push_back ( 0 );	// no menu
+	t.push_back ( 0 );	// default class
+	t.push_back ( 0 );	// title: set in OnInitDialog
+	t.push_back ( 8 );	// point size (DS_SETFONT), as the .rc dialogs
+	for ( const wchar_t * p = face; * p; p ++ )
+		t.push_back ( (WORD) * p );
+	t.push_back ( 0 );
+
+	ManualCalTemplateItem ( t, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
+							margin, margin, cx - 2 * margin, textH, MANUALCAL_TEXT_ID, 0x0082 );
+	ManualCalTemplateItem ( t, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+							cx - margin - btnW - 4 - btnW, btnY, btnW, btnH, IDOK, 0x0080 );
+	ManualCalTemplateItem ( t, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+							cx - margin - btnW, btnY, btnW, btnH, IDCANCEL, 0x0080 );
+}
+
+// The rectangle the pattern occupies on one of this computer's screens, and
+// HCFR's own window showing it (NULL for madVR, whose window is madTPG's).
+// FALSE when the pattern is not on a screen of ours (a remote generator), so
+// the prompt can sit on HCFR's window as any other prompt does.
+BOOL GetLocalPatternRect ( CGenerator * pGenerator, const MONITORINFO & mi, CRect & rPattern, CWnd * & pPatternOwner )
+{
+	pPatternOwner = NULL;
+
+	if ( ! pGenerator -> IsKindOf ( RUNTIME_CLASS ( CGDIGenerator ) ) )
+		return FALSE;	// a hardware or DVD generator: the patch is on the display under test
+
+	CGDIGenerator * pGDI = (CGDIGenerator *) pGenerator;
+	if ( pGDI -> m_nDisplayMode == DISPLAY_rPI || pGDI -> m_nDisplayMode == DISPLAY_ccast )
+		return FALSE;	// PGenerator, Chromecast: another device's screen
+
+	// GDI's "test color window" mode: the patch is that floating window.
+	if ( pGDI -> m_nDisplayMode == DISPLAY_GDI_Hide )
+	{
+		CWnd & wndTest = ( (CMainFrame *) AfxGetMainWnd () ) -> m_wndTestColorWnd;
+		if ( wndTest.GetSafeHwnd () && wndTest.IsWindowVisible () )
+		{
+			wndTest.GetWindowRect ( & rPattern );
+			pPatternOwner = & wndTest;
+			return TRUE;
+		}
+	}
+
+	// GDI full screen on the main window's monitor registers its window
+	// (CGDIGenerator::Init).
+	CWnd * pPatternWnd = GetColorApp () -> m_pPatternWnd;
+	if ( pPatternWnd && ::IsWindow ( pPatternWnd -> GetSafeHwnd () ) && pPatternWnd -> IsWindowVisible () )
+	{
+		pPatternWnd -> GetWindowRect ( & rPattern );
+		pPatternOwner = pPatternWnd;
+		return TRUE;
+	}
+
+	// GDI full screen on another monitor than the main window's: the prompt on the
+	// main window cannot cover it.
+	if ( pGDI -> m_nDisplayMode != DISPLAY_madVR && pGDI -> IsOnOtherMonitor () )
+		return FALSE;
+
+	// madVR (madTPG's window belongs to another process, on a monitor HCFR does
+	// not know), or no visible pattern window: assume the pattern fills the main
+	// window's monitor, so the prompt goes to one of its corners.
+	rPattern = mi.rcMonitor;
+	return TRUE;
+}
+
+// Where the prompt goes. Never over the patch the reference meter reads: with a
+// pattern on our screens, centered on the main window only when that misses the
+// pattern entirely (the pattern is on another monitor, or a small test color
+// window elsewhere), else the first corner of the main window's monitor that
+// misses the pattern, else the first corner that misses the pattern's center
+// half (a full-screen pattern: patches are centered, and so is the meter).
+// mi is the main window's monitor; bLocal and rPattern come from
+// GetLocalPatternRect.
+CPoint PlaceManualCalPrompt ( const MONITORINFO & mi, BOOL bLocal, const CRect & rPattern, const CSize & size )
+{
+	CRect rMain;
+	AfxGetMainWnd () -> GetWindowRect ( & rMain );
+	CRect rWork ( mi.rcWork );
+
+	HDC hScreen = ::GetDC ( NULL );
+	int margin = ::MulDiv ( 8, ::GetDeviceCaps ( hScreen, LOGPIXELSX ), 96 );
+	::ReleaseDC ( NULL, hScreen );
+
+	CRect rCandidates[5];
+	CPoint ptCenter = rMain.CenterPoint ();
+	rCandidates[0] = CRect ( CPoint ( ptCenter.x - size.cx / 2, ptCenter.y - size.cy / 2 ), size );
+	// Kept on the work area, so a main window half off screen keeps the prompt on it.
+	if ( rCandidates[0].right > rWork.right )	rCandidates[0].OffsetRect ( rWork.right - rCandidates[0].right, 0 );
+	if ( rCandidates[0].bottom > rWork.bottom )	rCandidates[0].OffsetRect ( 0, rWork.bottom - rCandidates[0].bottom );
+	if ( rCandidates[0].left < rWork.left )		rCandidates[0].OffsetRect ( rWork.left - rCandidates[0].left, 0 );
+	if ( rCandidates[0].top < rWork.top )		rCandidates[0].OffsetRect ( 0, rWork.top - rCandidates[0].top );
+	rCandidates[1] = CRect ( CPoint ( rWork.right - margin - size.cx, rWork.bottom - margin - size.cy ), size );	// bottom right
+	rCandidates[2] = CRect ( CPoint ( rWork.right - margin - size.cx, rWork.top + margin ), size );				// top right
+	rCandidates[3] = CRect ( CPoint ( rWork.left + margin, rWork.bottom - margin - size.cy ), size );				// bottom left
+	rCandidates[4] = CRect ( CPoint ( rWork.left + margin, rWork.top + margin ), size );							// top left
+
+	if ( ! bLocal )
+		return rCandidates[0].TopLeft ();
+
+	CRect rCenterHalf ( rPattern );
+	rCenterHalf.DeflateRect ( rPattern.Width () / 4, rPattern.Height () / 4 );
+
+	CRect rTmp;
+	for ( int i = 0; i < 5; i ++ )
+	{
+		if ( ! rTmp.IntersectRect ( & rCandidates[i], & rPattern ) )
+			return rCandidates[i].TopLeft ();
+	}
+	for ( int i = 1; i < 5; i ++ )
+	{
+		if ( ! rTmp.IntersectRect ( & rCandidates[i], & rCenterHalf ) )
+			return rCandidates[i].TopLeft ();
+	}
+	return rCandidates[1].TopLeft ();	// a prompt wider and taller than a quarter screen
+}
+
+BOOL CALLBACK CollectEnabledThreadWindows ( HWND hWnd, LPARAM lParam )
+{
+	if ( ::IsWindowVisible ( hWnd ) && ::IsWindowEnabled ( hWnd ) )
+		( (std::vector<HWND> *) lParam ) -> push_back ( hWnd );
+	return TRUE;
+}
+
+void ReenableThreadWindows ( const std::vector<HWND> & disabled )
+{
+	for ( size_t i = disabled.size (); i -- > 0; )
+	{
+		if ( ::IsWindow ( disabled[i] ) )
+			::EnableWindow ( disabled[i], TRUE );
+	}
+}
+
+} // namespace
+
+// After one patch of Build Manually is measured, waits for the user to note the
+// reference meter's reading. nColorName names the patch, nPatch is 1 to 4.
+// Returns TRUE for Next, FALSE for Cancel (the caller releases the sensor and the
+// generator, as on ESCAPE before).
+static BOOL WaitForManualCalNext ( CGenerator * pGenerator, UINT nColorName, int nPatch )
+{
+	MSG		msg;
+	BOOL	bCancel = FALSE;
+
+	// Keys typed while the patch was measured: ESCAPE still cancels, as it always
+	// did; an ENTER typed before the prompt named this patch is dropped.
+	while ( ::PeekMessage ( & msg, NULL, WM_KEYDOWN, WM_KEYUP, PM_REMOVE ) )
+	{
+		if ( msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE )
+			bCancel = TRUE;
+	}
+	if ( bCancel )
+		return FALSE;
+
+	CString strColor, strPatch, strText;
+	strColor.LoadString ( nColorName );
+	strPatch.Format ( "%d", nPatch );
+	AfxFormatString2 ( strText, IDS_MANUALCAL_PROMPT, strPatch, strColor );
+
+	CWnd * pMain = AfxGetMainWnd ();
+	CManualCalPromptDlg dlg;
+	dlg.m_strTitle.LoadString ( IDS_MANUALCAL_TITLE );
+	dlg.m_strText = strText;
+	dlg.m_strNext.LoadString ( IDS_MANUALCAL_NEXT );
+	dlg.m_strCancel.LoadString ( IDS_MANUALCAL_CANCEL );
+
+	MONITORINFO mi;
+	mi.cbSize = sizeof ( mi );
+	::GetMonitorInfo ( ::MonitorFromWindow ( pMain -> GetSafeHwnd (), MONITOR_DEFAULTTONEAREST ), & mi );
+
+	// The owner decides the prompt's place in the z-order. A topmost prompt owned
+	// by the main frame pulls the main frame above a full-screen pattern with it,
+	// over the patch the meters read (seen on the bench). So: owned by HCFR's
+	// pattern window when there is one (it stays just above it), by nobody when
+	// the pattern is madTPG's (topmost on its own), by the main frame when the
+	// pattern is on another device.
+	CRect rPattern;
+	CWnd * pPatternOwner = NULL;
+	BOOL bLocal = GetLocalPatternRect ( pGenerator, mi, rPattern, pPatternOwner );
+	BOOL bUnowned = bLocal && ! pPatternOwner;
+	CWnd * pOwner = ! bLocal ? pMain : ( pPatternOwner ? pPatternOwner : CWnd::GetDesktopWindow () );
+
+	// Modal toward HCFR, the way CDialog::DoModal does it: every other window of
+	// this thread is disabled BEFORE the prompt exists. Disabling the main frame
+	// runs MFC's BeginModalState, which disables every window owned by the main
+	// frame; a prompt created first (owned by the main frame or the test color
+	// window) would be disabled with them and could never be answered.
+	std::vector<HWND> disabled;
+	::EnumThreadWindows ( ::GetCurrentThreadId (), CollectEnabledThreadWindows, (LPARAM) & disabled );
+	for ( size_t i = 0; i < disabled.size (); i ++ )
+		::EnableWindow ( disabled[i], FALSE );
+
+	std::vector<WORD> tpl;
+	BuildManualCalTemplate ( tpl );
+	if ( ! dlg.CreateIndirect ( (LPCDLGTEMPLATE) & tpl[0], pOwner ) )
+	{
+		// Not expected; a plain box still shows the step and pumps messages.
+		ReenableThreadWindows ( disabled );
+		return GetColorApp () -> InMeasureMessageBox ( strText, dlg.m_strTitle, MB_OKCANCEL | MB_ICONINFORMATION ) == IDOK;
+	}
+
+	if ( bUnowned )
+		dlg.ModifyStyleEx ( 0, WS_EX_TOOLWINDOW );	// no taskbar button for an unowned prompt
+
+	CRect rPrompt;
+	dlg.GetWindowRect ( & rPrompt );
+	CPoint ptTopLeft = PlaceManualCalPrompt ( mi, bLocal, rPattern, rPrompt.Size () );
+	dlg.SetWindowPos ( bUnowned ? & CWnd::wndTopMost : & CWnd::wndTop, ptTopLeft.x, ptTopLeft.y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW );
+	dlg.SetForegroundWindow ();
+	::SetCursor ( ::LoadCursor ( NULL, IDC_ARROW ) );
+
+	while ( dlg.m_nResult == 0 && ::IsWindow ( dlg.GetSafeHwnd () ) )
+	{
+		BOOL bGot = ::GetMessage ( & msg, NULL, 0, 0 );
+		if ( bGot == 0 || bGot == -1 )
+		{
+			if ( bGot == 0 )
+				::PostQuitMessage ( (int) msg.wParam );	// leave WM_QUIT for the app's own loop
+			dlg.m_nResult = IDCANCEL;
+			break;
+		}
+		// ENTER and ESCAPE sent to any other HCFR window answer the prompt, as
+		// the keys did before (the full-screen pattern window can still hold the
+		// focus). Inside the prompt the dialog handles them: ENTER presses the
+		// focused button.
+		if ( msg.message == WM_KEYDOWN && ( msg.wParam == VK_RETURN || msg.wParam == VK_ESCAPE )
+			 && msg.hwnd != dlg.GetSafeHwnd () && ! ::IsChild ( dlg.GetSafeHwnd (), msg.hwnd ) )
+		{
+			dlg.m_nResult = ( msg.wParam == VK_RETURN ) ? IDOK : IDCANCEL;
+			break;
+		}
+		if ( ! dlg.IsDialogMessage ( & msg ) )
+		{
+			::TranslateMessage ( & msg );
+			::DispatchMessage ( & msg );
+		}
+	}
+	int nResult = dlg.m_nResult;	// 0 when the prompt vanished without an answer: Cancel
+
+	// Re-enabled before the prompt goes, so the activation returns to HCFR.
+	ReenableThreadWindows ( disabled );
+	if ( ::IsWindow ( dlg.GetSafeHwnd () ) )
+		dlg.DestroyWindow ();
+	if ( bUnowned )
+		pMain -> SetForegroundWindow ();	// so the next box does not open behind madTPG
+
+	GetColorApp () -> BringPatternWindowToTop ();
+	GetColorApp () -> RestoreMeasureCursor ();
+
+	return nResult == IDOK;
+}
+
 void CDataSetDoc::OnCalibrationManual()
 {
 	int		i;
-	MSG		Msg;
-	BOOL	bEscape, bReturn;
+	BOOL	bEscape;
 	CColor	measuredColor[4];
 	CString	strMsg, Title;
 
 	if ( !ConfirmMatrixCalOverSpectral(m_pSensor) )
 		return;
 
-	if ( IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_RUN_MANUAL_CALIBRATION), "Manual Calibration", MB_YESNO | MB_ICONQUESTION ) )
+	if ( IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_RUN_MANUAL_CALIBRATION), _S(IDS_MANUALCAL_TITLE), MB_YESNO | MB_ICONQUESTION ) )
 	{
 		if(m_pGenerator->Init(5) != TRUE)
 		{
@@ -2032,6 +2451,16 @@ void CDataSetDoc::OnCalibrationManual()
 			return;
 		}
 
+		// Init can turn a native record into a driver-corrected one (a document's
+		// record met by a meter whose matrices are not exposed): asked again here,
+		// before the first patch is measured.
+		if ( RefuseMatrixCalOverDriverSpectral(m_pSensor) )
+		{
+			m_pSensor->Release();
+			m_pGenerator->Release(-99);
+			return;
+		}
+
 		double primaryIRELevel=100.0;	
 		CColor measure;
 		
@@ -2041,25 +2470,13 @@ void CDataSetDoc::OnCalibrationManual()
 			if( m_pGenerator->DisplayRGBColor(ColorRGBDisplay(primaryIRELevel,0,0),CGenerator::MT_PRIMARY) )
 			{
 				bEscape = m_measure.WaitForDynamicIris ();
-				bReturn = FALSE;
 
 				if ( ! bEscape )
 					measure=m_pSensor->MeasureColor(ColorRGBDisplay(primaryIRELevel,0,0));
-				
-				while ( ! bEscape && ! bReturn )
-				{
-					while ( PeekMessage ( & Msg, NULL, WM_KEYDOWN, WM_KEYUP, TRUE ) )
-					{
-						if ( Msg.message == WM_KEYDOWN )
-						{
-							if ( Msg.wParam == VK_ESCAPE )
-								bEscape = TRUE;
-							else if ( Msg.wParam == VK_RETURN )
-								bReturn = TRUE;
-						}
-					}
-					Sleep(10);
-				}
+
+				// The patch stays up while the user notes the reference meter's reading.
+				if ( ! bEscape )
+					bEscape = ! WaitForManualCalNext ( m_pGenerator, IDS_MANUALCAL_RED, 1 );
 
 				if ( bEscape )
 				{
@@ -2101,25 +2518,13 @@ void CDataSetDoc::OnCalibrationManual()
 			if( m_pGenerator->DisplayRGBColor(ColorRGBDisplay(0,primaryIRELevel,0),CGenerator::MT_PRIMARY) )
 			{
 				bEscape = m_measure.WaitForDynamicIris ();
-				bReturn = FALSE;
 
 				if ( ! bEscape )
 					measure=m_pSensor->MeasureColor(ColorRGBDisplay(0,primaryIRELevel,0));
-				
-				while ( ! bEscape && ! bReturn )
-				{
-					while ( PeekMessage ( & Msg, NULL, WM_KEYDOWN, WM_KEYUP, TRUE ) )
-					{
-						if ( Msg.message == WM_KEYDOWN )
-						{
-							if ( Msg.wParam == VK_ESCAPE )
-								bEscape = TRUE;
-							else if ( Msg.wParam == VK_RETURN )
-								bReturn = TRUE;
-						}
-					}
-					Sleep(10);
-				}
+
+				// The patch stays up while the user notes the reference meter's reading.
+				if ( ! bEscape )
+					bEscape = ! WaitForManualCalNext ( m_pGenerator, IDS_MANUALCAL_GREEN, 2 );
 
 				if ( bEscape )
 				{
@@ -2161,25 +2566,13 @@ void CDataSetDoc::OnCalibrationManual()
 			if( m_pGenerator->DisplayRGBColor(ColorRGBDisplay(0,0,primaryIRELevel),CGenerator::MT_PRIMARY) )
 			{
 				bEscape = m_measure.WaitForDynamicIris ();
-				bReturn = FALSE;
 
 				if ( ! bEscape )
 					measure=m_pSensor->MeasureColor(ColorRGBDisplay(0,0,primaryIRELevel));
-				
-				while ( ! bEscape && ! bReturn )
-				{
-					while ( PeekMessage ( & Msg, NULL, WM_KEYDOWN, WM_KEYUP, TRUE ) )
-					{
-						if ( Msg.message == WM_KEYDOWN )
-						{
-							if ( Msg.wParam == VK_ESCAPE )
-								bEscape = TRUE;
-							else if ( Msg.wParam == VK_RETURN )
-								bReturn = TRUE;
-						}
-					}
-					Sleep(10);
-				}
+
+				// The patch stays up while the user notes the reference meter's reading.
+				if ( ! bEscape )
+					bEscape = ! WaitForManualCalNext ( m_pGenerator, IDS_MANUALCAL_BLUE, 3 );
 
 				if ( bEscape )
 				{
@@ -2221,25 +2614,13 @@ void CDataSetDoc::OnCalibrationManual()
 			if( m_pGenerator->DisplayRGBColor(ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel),CGenerator::MT_PRIMARY) )
 			{
 				bEscape = m_measure.WaitForDynamicIris ();
-				bReturn = FALSE;
 
 				if ( ! bEscape )
 					measure=m_pSensor->MeasureColor(ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel));
-				
-				while ( ! bEscape && ! bReturn )
-				{
-					while ( PeekMessage ( & Msg, NULL, WM_KEYDOWN, WM_KEYUP, TRUE ) )
-					{
-						if ( Msg.message == WM_KEYDOWN )
-						{
-							if ( Msg.wParam == VK_ESCAPE )
-								bEscape = TRUE;
-							else if ( Msg.wParam == VK_RETURN )
-								bReturn = TRUE;
-						}
-					}
-					Sleep(10);
-				}
+
+				// The patch stays up while the user notes the reference meter's reading.
+				if ( ! bEscape )
+					bEscape = ! WaitForManualCalNext ( m_pGenerator, IDS_MANUALCAL_WHITE, 4 );
 
 				if ( bEscape )
 				{
@@ -3051,6 +3432,7 @@ void CDataSetDoc::OnSimSingleMeasurement()
 
 void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 {
+	SyncCCTargets ();
 	int				i, j;
 	int				NbDocs = 0;
 	int				nSteps = 0;
@@ -3528,6 +3910,11 @@ void CDataSetDoc::PerformSimultaneousMeasures ( int nMode )
 
 void CDataSetDoc::WaitKey(int Anim)
 {
+	WaitPatternKey(m_pGenerator, Anim);
+}
+
+void CDataSetDoc::WaitPatternKey(CGenerator * pGenerator, int Anim)
+{
 	BOOL	bKeyTyped = FALSE;
 	MSG		Msg;
 	bool	OFF = TRUE;
@@ -3541,15 +3928,15 @@ void CDataSetDoc::WaitKey(int Anim)
 				switch (Anim)
 				{
 					case 1:
-					m_pGenerator->DisplayClipLO();
+					pGenerator->DisplayClipLO();
 					OFF = FALSE;
 					break;
 					case 2:
-					m_pGenerator->DisplayClipHO();
+					pGenerator->DisplayClipHO();
 					OFF = FALSE;
 					break;
 					case 3:
-					m_pGenerator->DisplayNBO();
+					pGenerator->DisplayNBO();
 					OFF = FALSE;
 					break;
 				}
@@ -3560,15 +3947,15 @@ void CDataSetDoc::WaitKey(int Anim)
 				switch (Anim)
 				{
 					case 1:
-					m_pGenerator->DisplayClipL();
+					pGenerator->DisplayClipL();
 					OFF = TRUE;
 					break;
 					case 2:
-					m_pGenerator->DisplayClipH();
+					pGenerator->DisplayClipH();
 					OFF = TRUE;
 					break;
 					case 3:
-					m_pGenerator->DisplayNB();
+					pGenerator->DisplayNB();
 					Sleep(1000);
 					OFF = TRUE;
 					break;
@@ -4794,22 +5181,25 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 
 	double * lumlvl = new double [ Size ];
 	double * valx = new double [ Size ];
+	// The gray scale's white and black, fetched once (the per-point loop below reads them)
+	const CColor fitWhite = GetMeasure()->GetGrayScaleWhite();
+	const CColor fitBlack = GetMeasure()->GetGrayScaleBlack();
 	double * tmpx = new double [ Size ];
 
 	if (ColorSpace == 0) 
 	{
-		blacklvl=GetMeasure()->GetGray(0).GetRGBValue((GetColorReference()))[ColorIndex];
-		whitelvl=GetMeasure()->GetGray(Size-1).GetRGBValue((GetColorReference()))[ColorIndex];
+		blacklvl=fitBlack.GetRGBValue((GetColorReference()))[ColorIndex];
+		whitelvl=fitWhite.GetRGBValue((GetColorReference()))[ColorIndex];
 	}
 	else if (ColorSpace == 1) 
 	{
-		blacklvl=GetMeasure()->GetGray(0).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		whitelvl=GetMeasure()->GetGray(Size-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+		blacklvl=fitBlack.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+		whitelvl=fitWhite.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 	}
 	else if (ColorSpace == 2) 
 	{
-		blacklvl=GetMeasure()->GetGray(0).GetLuxValue();
-		whitelvl=GetMeasure()->GetGray(Size-1).GetLuxValue();
+		blacklvl=fitBlack.GetLuxValue();
+		whitelvl=fitWhite.GetLuxValue();
 	}
 	else
 	{
@@ -4817,14 +5207,14 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 		if ( nLumCurveMode > 0 )
 		{
 			// When luxmeter values are authorized in curves, use preference for contrast/delta luminance
-			blacklvl=GetMeasure()->GetGray(0).GetPreferedLuxValue(GetConfig () -> m_bPreferLuxmeter);
-			whitelvl=GetMeasure()->GetGray(Size-1).GetPreferedLuxValue(GetConfig () -> m_bPreferLuxmeter);
+			blacklvl=fitBlack.GetPreferedLuxValue(GetConfig () -> m_bPreferLuxmeter);
+			whitelvl=fitWhite.GetPreferedLuxValue(GetConfig () -> m_bPreferLuxmeter);
 		}
 		else
 		{
 			// Use only colorimeter values
-			blacklvl=GetMeasure()->GetGray(0).GetLuminance();
-			whitelvl=GetMeasure()->GetGray(Size-1).GetLuminance();
+			blacklvl=fitBlack.GetLuminance();
+			whitelvl=fitWhite.GetLuminance();
 		}
 	}
 
@@ -4898,12 +5288,12 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 			}
 			break;
 		}
-			double x, v;
+			double v;
 
 			for (int i=0; i<Size; i++)
 			{
-				x = GetMeasure () -> GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-				v = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				// Reading i at its stamped drive, else slot i on the current grid.
+				v = GetMeasure () -> GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i );
 				valx[i]=(v+Offset_opt)/(1.0+Offset_opt);
 			}
 
@@ -4916,10 +5306,10 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 					int mode = GetConfig()->m_GammaOffsetType;
 					if (GetConfig()->m_colorStandard == sRGB) mode = 99;
                     if (m_bBT1886 || mode > 5) // !GetConfig()->m_useMeasuredGamma)
-                        avg += log(getL_EOTF(valx[i], GetMeasure()->GetGray(Size -1), GetMeasure()->GetGray(0), GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1))/log(valx[i]);
+                        avg += log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1))/log(valx[i]);
                     else
 	                    if (mode == 5)// && !GetConfig()->m_useMeasuredGamma)
-			                avg += log(getL_EOTF(valx[i], GetMeasure()->GetGray(Size -1), GetMeasure()->GetGray(0), GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.)/log(valx[i]);
+			                avg += log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.)/log(valx[i]);
 						else
 		    				avg += log(lumlvl[i])/log(valx[i]);
 					nb ++;
@@ -4937,7 +5327,12 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 
 bool CDataSetDoc::CheckVideoLevel()
 {
-	if ( !m_pGenerator->m_b16_235 && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) != DISPLAY_ccast )
+	return CheckPatternVideoLevel(m_pGenerator);
+}
+
+bool CDataSetDoc::CheckPatternVideoLevel(CGenerator * pGenerator)
+{
+	if ( !pGenerator->m_b16_235 && GetConfig()->GetProfileInt("GDIGenerator","DisplayMode",DISPLAY_DEFAULT_MODE) != DISPLAY_ccast )
 	{
 		if (IDYES == GetColorApp()->InMeasureMessageBox( "Caution, pattern is designed for video level output\nand you have selected full range. Continue?", "Pattern display", MB_ICONQUESTION | MB_YESNO ) )
 			return TRUE;
@@ -4959,22 +5354,28 @@ void CDataSetDoc::OnBkgndMeasureReady()
 	{
 		EnterCriticalSection ( & g_CritSec );
 		pos = g_MeasuredColorList.GetHeadPosition ();
+		// The document's first view is its CMainView (the only view class in
+		// the doc template); it is the same for every queued reading, so fetch
+		// it once. Advancing a view iterator per reading ran out after the
+		// first and broke out, leaving the rest neither appended nor freed.
 		POSITION pos2 = g_pDataDocRunningThread -> GetFirstViewPosition ();
+		CView *pView = g_pDataDocRunningThread -> GetNextView ( pos2 );
 		
 		while ( pos )
 		{
-			CView *pView = g_pDataDocRunningThread -> GetNextView ( pos2 );
-			if (!pView)
-				break;
-			int m_d = ((CMainView*)pView)->m_displayMode;
-			int last_minCol = ((CMainView*)pView)->last_minCol;
 			pMeasurement = ( CColor * ) g_MeasuredColorList.GetNext ( pos );
 
-			m_measure.AppendMeasurements(*pMeasurement, m_d, last_minCol );
-			SetModifiedFlag(m_measure.IsModified());
+			if ( pView )
+			{
+				int m_d = ((CMainView*)pView)->m_displayMode;
+				int last_minCol = ((CMainView*)pView)->last_minCol;
 
-			SetSelectedColor ( *pMeasurement );
-			UpdateAllViews(NULL,UPD_FREEMEASUREAPPENDED,this);
+				m_measure.AppendMeasurements(*pMeasurement, m_d, last_minCol );
+				SetModifiedFlag(m_measure.IsModified());
+
+				SetSelectedColor ( *pMeasurement );
+				UpdateAllViews(NULL,UPD_FREEMEASUREAPPENDED,this);
+			}
 
 			delete pMeasurement;
 		}
@@ -4997,8 +5398,9 @@ void CDataSetDoc::OnMeasureOpenPatchList()
 {
 	if ( IsMeasureSweepActive () )
 		return;
-	CFileDialog dlg ( TRUE, "csv", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR,
-	                  "Patch list CSV (*.csv)|*.csv||" );
+	CString strFilter;
+	strFilter.LoadString ( IDS_PATCHLIST_FILTER );
+	CFileDialog dlg ( TRUE, "csv", NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR, strFilter );
 	if ( dlg.DoModal () == IDOK )
 		ImportUserPatchSetFile ( dlg.GetPathName () );
 }
@@ -5011,7 +5413,7 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 	if ( nRows <= 0 )
 	{
 		CString fmt, msg;
-		fmt.LoadString ( IDS_CSV_FILE_NOT_FOUND );
+		fmt.LoadString ( nRows == 0 ? IDS_CSV_NO_ROWS : IDS_CSV_FILE_NOT_FOUND );	// -1 = could not open
 		msg.Format ( fmt, path );
 		AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
 		return false;
@@ -5022,16 +5424,14 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 	m_measure.MigrateLegacyUserBand ();
 
 	CString cPath ( path );
-	int sl = cPath.ReverseFind ( '\\' );
-	std::string base = (LPCTSTR)( sl >= 0 ? cPath.Mid ( sl + 1 ) : cPath );
-	size_t dp = base.rfind ( ".csv" );
-	if ( dp != std::string::npos )
-		base.erase ( dp );
+	std::string base = CsvSetNameFromPath ( path );
 
-	// Re-opening a set: same name + same row count refreshes the definition in
-	// place and keeps the measures (the iterate-on-the-CSV workflow); a
-	// different count would misalign definition and measures, so it becomes a
-	// separate entry under a suffixed name. Measurements are never discarded.
+	// Re-opening a set: same name with every row still driving the same code, at
+	// the same depth and range, refreshes the definition in place and keeps the
+	// measures (the iterate-on-the-CSV workflow, renamed patches included). Any
+	// other change would leave readings under a definition that did not produce
+	// them, so it becomes a separate entry under a suffixed name. Measurements
+	// are never discarded.
 	int existing = -1;
 	for ( int i = 0; i < m_measure.GetUserPatchSetCount (); i++ )
 		if ( _stricmp ( m_measure.GetUserPatchSet ( i )->name.c_str (), base.c_str () ) == 0 )
@@ -5039,7 +5439,12 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 			existing = i;
 			break;
 		}
-	bool bRefresh = ( existing >= 0 && (int) m_measure.GetUserPatchSet ( existing )->rows.size () == nRows );
+	bool bRefresh = false;
+	if ( existing >= 0 )
+	{
+		const CUserPatchSet * pOld = m_measure.GetUserPatchSet ( existing );
+		bRefresh = ( pOld->bits == bits && pOld->range == range && CsvPatchCodesMatch ( pOld->rows, rows ) );
+	}
 
 	// A document holds at most kMaxUserPatchSets sets; the reader refuses more.
 	if ( ! bRefresh && m_measure.GetUserPatchSetCount () >= kMaxUserPatchSets )
@@ -5064,10 +5469,9 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 		ULONGLONG need = m_measure.ProjectedUserPatchSetTrailerBytes ( candidate, bRefresh ? existing : -1 );
 		if ( need > kMaxExtensionBytes )
 		{
-			const ULONGLONG MB = 1024 * 1024;
 			CString fmt, msg;
 			fmt.LoadString ( IDS_PATCHSETS_TOO_LARGE );
-			msg.Format ( fmt, (int) ( ( need + MB - 1 ) / MB ), (int) ( kMaxExtensionBytes / MB ) );
+			msg.Format ( fmt, (int) ( kMaxExtensionBytes / ( 1024 * 1024 ) ) );
 			AfxMessageBox ( msg, MB_OK | MB_ICONWARNING );
 			return false;
 		}
@@ -5109,6 +5513,19 @@ bool CDataSetDoc::ImportUserPatchSetFile(LPCTSTR path)
 
 	SwitchUserPatchSet ( idx );
 	return true;
+}
+
+// The CC target cache and the USER drive override are process-wide, and the
+// document that last filled them need not be this one: a sweep on another
+// document may have refused to let an activation refresh them. So every path
+// that drives or stamps USER patches fills them first, from this document's own
+// set rather than through the MDI walk - a queued run such as the Full Tilt
+// sequence can reach its CC sweep with another document in front. Never mid-sweep:
+// the running sweep stamps its readings from the cache.
+void CDataSetDoc::SyncCCTargets()
+{
+	if ( GetConfig () -> m_CCMode == USER && ! IsMeasureSweepActive () )
+		GetConfig () -> GetCColorsFrom ( m_measure.GetActiveUserPatchSet () );
 }
 
 void CDataSetDoc::SwitchUserPatchSet(int idx)
@@ -5472,6 +5889,7 @@ void CDataSetDoc::OnMeasureSatCC24()
 {
 	CString	Msg, MsgQueue, TmpStr;
 
+	SyncCCTargets ();	// the prompt quotes the patch count
 	BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
 	int		nNbPoints = (GetConfig()->m_CCMode==CCSG?96:isExtPat?GetConfig()->GetCColorsSize():(GetConfig()->m_CCMode==AXIS?71:24));
@@ -5564,6 +5982,7 @@ void CDataSetDoc::OnMeasureSatAll()
 {
 	CString	Msg, MsgQueue, TmpStr;
 
+	SyncCCTargets ();	// the prompt quotes the patch count
 	BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
     
@@ -5786,6 +6205,7 @@ void CDataSetDoc::OnUpdateMeasureSatPrimariesSecondaries(CCmdUI* pCmdUI)
 void CDataSetDoc::OnMeasureFullTiltBoogie()
 {
 	CString	Msg, MsgQueue, TmpStr;
+	SyncCCTargets ();	// the prompt quotes the patch count
 	BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
 	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
 

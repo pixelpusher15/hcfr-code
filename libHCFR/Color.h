@@ -37,6 +37,7 @@
 #include "libHCFR_Config.h"
 #include "Matrix.h"
 #include <string>   // std::string in CColorProvenance (below), before class CColor
+#include "WireSetup.h"   // CColorWireSetup, before class CColor
 
 typedef enum 
 {
@@ -376,6 +377,14 @@ public:
 	void ClearTimestamp();
 	bool HasTimestamp() const;
 	double GetTimestamp() const;		// 0.0 when none
+	// The wire-setup stamp (WireSetup.h): whether the stimulus is the patch the
+	// generator displayed for this reading, and how it went out on the wire.
+	// Stamped by CSensor::MeasureColor on every reading this build takes; a
+	// reading from an older file has none, which means unknown.
+	void SetWireSetup(const CColorWireSetup& aWire);
+	void ClearWireSetup();
+	bool HasWireSetup() const;
+	CColorWireSetup GetWireSetup() const;	// the defaults (realDrive false) when none
 
     void Output(ostream& ostr) const;
 
@@ -397,6 +406,7 @@ protected:
 	ColorRGBDisplay *	m_pStimulus;
 	CColorProvenance *	m_pProvenance;
 	double *	m_pTimestamp;
+	CColorWireSetup *	m_pWireSetup;
 
 #ifdef LIBHCFR_HAS_MFC
 private:
@@ -981,6 +991,12 @@ extern double CsvCodeToPercent ( double code, int bits, int range );
 // Exact inverse (round-to-nearest, clamped to the grid): stimulus percentage -> source code.
 // Used to reconstruct definition codes from stored stimuli during legacy .chc migration.
 extern int CsvPercentToCode ( double percent, int bits, int range );
+// Two definitions drive the same codes when they have the same row count and the
+// same r/g/b row by row; patch numbers and names are labels and do not count.
+extern bool CsvPatchCodesMatch ( const std::vector<CsvPatchRow> & a, const std::vector<CsvPatchRow> & b );
+// The display name of a patch list: the file's base name with no directory and
+// with a trailing .csv, in any case, removed.
+extern std::string CsvSetNameFromPath ( const char * path );
 // Active user patch set override (multi-set picker): the app installs the active set's
 // stored definition here so the USER drive path (GenerateCC24Colors) is self-contained -
 // no file read, and the source CSV may have changed or be gone. Copied, not referenced.
@@ -989,11 +1005,107 @@ extern void ClearUserPatchOverride ();
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );
+// The offset a near-chart point's level carries, as the reference curve beside
+// it: the document's fitted ComputeGammaAndOffset offset when the mode
+// (GammaOffsetType, 99 under the sRGB standard) is below 4, else 0.
+double PointGammaEffectiveOffset ( int gammaOffsetType, bool sRGBStandard, double fittedOffset );
+// A point's level for the log charts: ( prop + offset ) / ( 1 + offset ).
+double PointGammaLevel ( double prop, double offset );
+// A near-chart log point: log ( y / yWhite ) / log ( L ( v ) / L ( vWhite ) ),
+// L = PointGammaLevel. FALSE without a finite white > 0, for v outside ( 0, 1 ),
+// vWhite outside ( 0, 1 ], or for a non-finite result.
+bool NearChartPointGamma ( double y, double v, double yWhite, double vWhite, double offset, double * pGamma );
 // is16_235 is REQUIRED (no default): it selects the 219/255/876/1023 code grid
 // exactly as SnapToVideoGrid does, and a default would silently leave any
 // un-updated call site quantizing a full-range wire against the limited grid.
 double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 );
 double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 );
+
+// ---- Where an existing gray reading sits on a gray-level axis (Color.cpp) ----
+// TRUE, with *pProp the level as a 0..1 proportion of the signal range, only
+// when the reading's wire stamp (WireSetup.h) says HCFR put exactly this gray
+// on the wire: realDrive, R = G = B, and equal codes when codes are known.
+// FALSE for every other reading - no stamp (older files), realDrive false
+// (placeholders, manual and external generators), unequal channels.
+bool ReadingWireGrayProp ( const CColor & aReading, double * pProp );
+// The reading's level as a 0..1 proportion: its stamped drive, else
+// GrayLevelToGrayProp ( slotLevel, ... ) on the current grid.
+double ReadingGrayProp ( const CColor & aReading, double slotLevel, bool bUseRoundDown, bool b10bit, bool is16_235 );
+// The white a near-chart point is divided by, in the point's quantity: lux
+// when the point is in lux (colorSpace 2, or 1 in luminance curve mode 1 with a
+// point carrying lux) - the white must carry lux then - else the white's Y
+// (colorSpace 0, an R, G or B trace, always: the luma normalization). The gray
+// scale's top when usable (valid, that value finite and > 0), else near white's
+// top, else 0: no white, no point. *pFromGrayTop, when given, says whether the
+// gray top was taken.
+double NearChartWhite ( int colorSpace, int luminanceCurveMode, bool pointHasLux, const CColor & grayTop, const CColor & nearWhiteTop, bool * pFromGrayTop = NULL );
+
+// The three gray series CMeasure holds, each pairing slot i with reading i.
+enum GraySeries
+{
+	GRAY_SERIES_GRAYSCALE  = 0,		// GetGray, at GetGrayPercent
+	GRAY_SERIES_NEAR_BLACK = 1,		// GetNearBlack, 1% steps (2% in PQ)
+	GRAY_SERIES_NEAR_WHITE = 2		// GetNearWhite, 1% steps up to the clip column
+};
+
+// One gray series as CMeasure holds it (CMeasure::GetGraySeriesView), and the
+// CURRENT grid. Pointers are borrowed: build, use, discard.
+struct GraySeriesView
+{
+	GraySeries		series;
+	const CColor *	readings;			// readings[i] is the reading of slot i
+	int				size;				// number of slots
+	const double *	nominalLevels;		// grayscale: nominal % per slot, or NULL
+	int				nominalCount;		// used only when it equals size
+	int				nearWhiteClipCol;	// near white: the clip column (101 = none)
+	bool			pqNearBlack;		// near black: PQ, 2% steps
+	bool			bUseRoundDown;
+	bool			b10bit;
+	bool			is16_235;
+};
+
+// Slot i of the grayscale on the current grid: CMeasure::GetGrayPercent.
+double GrayScaleSlotLevel ( int index, int size, const double * nominalLevels, int nominalCount, bool bUseRoundDown, bool b10bit, bool is16_235 );
+// Slot i of the series on the current grid, as a percentage.
+double GraySeriesSlotLevel ( const GraySeriesView & v, int index );
+// Reading i of the series: ReadingWireGrayProp ( readings[index] ), FALSE
+// outside the series.
+bool GraySeriesDriveProp ( const GraySeriesView & v, int index, double * pProp );
+// Reading i's level: its stamped drive, else slot i on the current grid.
+double GraySeriesLevel ( const GraySeriesView & v, int index );		// percent
+double GraySeriesProp ( const GraySeriesView & v, int index );		// 0..1
+// Slot i's level as a 0..1 proportion, quantized ONCE from the level the sweep
+// drives: GrayLevelToGrayProp ( i, or 2i in PQ ) for near black, ( clip - size
+// + i ) for near white, the nominal level or the even ramp (floor(v)/grid under
+// round-down) for the gray scale. GraySeriesProp's fallback for a reading
+// without a stamped drive.
+double GraySeriesSlotProp ( const GraySeriesView & v, int index );
+// THE 100% WHITE of the gray scale (Kyle, 2026-11-10): the gray scale's
+// measured 100% reading, readings[size-1], when the series is non-empty and
+// that reading is valid with a finite Y > 0 (the test GetColorDEWhiteY and
+// NearChartWhite apply to a white); else onOffWhite as the caller stores it. The on/off
+// white belongs to the contrast measurement, which is NOT this: a contrast
+// measure re-reads white and must not move the gray scale's 100% point. On a
+// new document the stored on/off white is a valid placeholder, so a document
+// without a gray scale gets exactly the white it got before. The black is
+// GrayScaleBlack, the same rule at the other end.
+// isPlaceholder, when given, names a top that is not a reading (a document
+// without a gray scale keeps the constructor's placeholder in the top slot):
+// such a top is no top, and the on/off white is used. The near charts rank
+// their own series' top above the on/off white (NearChartWhite): a near
+// series' top is a reading.
+CColor GrayScaleWhite ( const CColor * readings, int size, const CColor & onOffWhite, bool ( * isPlaceholder ) ( const CColor & ) = NULL );
+// THE 0% BLACK of the gray scale (Kyle, 2026-11-10), the twin of GrayScaleWhite:
+// the gray scale's measured 0% reading, readings[0], when the series is
+// non-empty and that reading is valid with a finite Y; else onOffBlack as the
+// caller stores it. It is the black wherever the gray scale's 100% reading is
+// the white: the reference curves and anchors, the grid's reference cells,
+// the BT.1886 / black-compensation / HLG evaluations, the dE black targets and
+// the tone-map black (TargetMinL). The contrast measurement is NOT this: the
+// On/Off rows, the contrast ratio and its storage keep the on/off black. The
+// user's black override is applied by the caller (CMeasure::GetGrayScaleBlack
+// returns the override black when it is on), not here.
+CColor GrayScaleBlack ( const CColor * readings, int size, const CColor & onOffBlack );
 double getL_EOTF ( double x, CColor White, CColor Black, double g_rel, double split, int mode, double m_DiffuseL = 94.37844, double m_MasterMinL = 0.0, double m_MasterMaxL = 4000.0, double m_TargetMinL = 0.00, double m_TargetMaxL = 700.0, bool ToneMap = FALSE, bool cBT2390 = FALSE, double m_TargetSysGamma = 1.2, double b_fact = 1.0, double E2_fact = 0.0, double E2_fact1 = 1.1, bool bExtendSDR = FALSE );
 
 #endif // !defined(COLOR_H_INCLUDED_)

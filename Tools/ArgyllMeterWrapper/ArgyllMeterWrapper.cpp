@@ -47,10 +47,38 @@
 //#include "spyd2setup.h"
 #include "spyd2.h"
 //#undef SALONEINSTLIB
+#include "libHCFR/MeterCalibrationRule.h"
+// HCFR's resource ids (the language DLL's strings), included after the driver
+// headers so its macros cannot reach them.
+#include "resource.h"
+
+// MeterCalibrationRule restates two driver constants without the driver types.
+static_assert(MeterCalibrationRule::NonDeferrableMask == (unsigned int)inst_calt_n_dfrble_mask,
+              "MeterCalibrationRule::NonDeferrableMask must equal inst_calt_n_dfrble_mask");
+static_assert(MeterCalibrationRule::EmissiveDark == (unsigned int)inst_calt_em_dark,
+              "MeterCalibrationRule::EmissiveDark must equal inst_calt_em_dark");
 
 
 namespace
 {
+    // A string from the HCFR resources in use (the language DLL), in that
+    // language. The English text is the fallback for a process without HCFR's
+    // resources (the UnitTests executable links this library); localized says
+    // which one was returned.
+    std::string ResourceText(UINT id, const char* english, bool* localized)
+    {
+        CString s;
+        if ( AfxGetModuleState()->m_hCurrentResourceHandle != NULL && s.LoadString(id) && !s.IsEmpty() )
+        {
+            if ( localized )
+                *localized = true;
+            return std::string((LPCSTR)s);
+        }
+        if ( localized )
+            *localized = false;
+        return english;
+    }
+
     void warning_imp(void *cntx, struct _a1log *p, char *fmt, va_list args) 
     {
         ArgyllLogMessage("Debug", fmt, args);
@@ -187,6 +215,8 @@ ArgyllMeterWrapper::ArgyllMeterWrapper(_inst* meter) :
     m_nextCalibration(0),
     m_meterType(meter->get_itype(meter)),
 	m_Adapt(0),
+    m_errorBoxShown(false),
+    m_startCount(0),
     m_displayType(-1)	// no display type selected yet (resetSpectralSample reads it)
     
 {
@@ -204,6 +234,8 @@ ArgyllMeterWrapper::~ArgyllMeterWrapper()
 bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eReadingType readingType, CString SpectralType, bool debugmode, double int_time, bool refresh)
 {
    inst_code instCode;
+   // A start sets the driver's mode, successful or not (getStartCount).
+   ++m_startCount;
    if (debugmode)
     {
         // icom / icom->log can be NULL before init_inst() for some meters (e.g.
@@ -240,6 +272,7 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
         if(instCode != inst_ok)
         {
 			MessageBox(NULL, m_meter->interp_error(m_meter,instCode), "init_inst",MB_OK);
+            m_errorBoxShown = true;
             m_meter->del(m_meter);
             m_meter = 0;
             errorDescription = "Failed to initialize the instrument";
@@ -355,6 +388,7 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
         if (instCode != inst_ok)
         {
             MessageBox(NULL,m_meter->inst_interp_error(m_meter,instCode),"Error setting observer",MB_OK);
+            m_errorBoxShown = true;
             m_meter->del(m_meter);
             m_meter = 0;
             errorDescription = "Couldn't set observer mode";
@@ -400,6 +434,7 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
             if (instCode != inst_ok)
             {
                 MessageBox(NULL,m_meter->inst_interp_error(m_meter,instCode),"Integration time set error", MB_OK);
+                m_errorBoxShown = true;
                 m_meter->del(m_meter);
                 m_meter = 0;
                 errorDescription = "Couldn't set trigger mode";
@@ -429,6 +464,24 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
 bool ArgyllMeterWrapper::doesMeterSupportCalibration()
 {
     checkMeterIsInitialized();
+    return calibrationCapabilityListed();
+}
+
+// See MeterCalibrationRule.h for why the non-deferrable available calibrations of
+// the current mode are exactly what a calibrate() does. Asks nothing of a driver
+// that is gone or not started (checkMeterIsInitialized would start it).
+int ArgyllMeterWrapper::getCalibrationAvailability()
+{
+    if ( !isMeterStillValid() || !m_meter->inited )
+        return MeterCalibrationRule::CAL_UNKNOWN;
+    inst_cal_type needed(inst_calt_none);
+    inst_cal_type available(inst_calt_none);
+    const bool queryOk = ( m_meter->get_n_a_cals(m_meter, &needed, &available) == inst_ok );
+    return MeterCalibrationRule::FromDriver(queryOk, calibrationCapabilityListed(), (unsigned int)available);
+}
+
+bool ArgyllMeterWrapper::calibrationCapabilityListed()
+{
     inst_mode capabilities(inst_mode_none);
     inst2_capability capabilities2(inst2_none);
     inst3_capability capabilities3(inst3_none);
@@ -543,7 +596,12 @@ void ArgyllMeterWrapper::setDisplayType(int displayMode)
         {
             MessageBox(NULL, m_meter->inst_interp_error(m_meter, instCode),"Set display type error",MB_OK);
             if (instCode != inst_wrong_setup) //special case for ccmx without base type
+            {
+                // The box is this failure's message (errorBoxShown); after the
+                // inst_wrong_setup box no failure follows, so it sets nothing.
+                m_errorBoxShown = true;
                 throw std::logic_error("Set Display Type failed");
+            }
         }
     } 
 }
@@ -750,6 +808,7 @@ ArgyllMeterWrapper::eMeterState ArgyllMeterWrapper::calibrate()
     if(instCode != inst_ok)
     {
 		MessageBox(NULL, m_meter->interp_error(m_meter, instCode), "Calibration Failed!", MB_OK);
+        m_errorBoxShown = true;
         throw std::logic_error("Calibration failed");
     }
     //check if we need to try and get refresh rate
@@ -775,9 +834,12 @@ ArgyllMeterWrapper::eMeterState ArgyllMeterWrapper::calibrate()
     return READY;
 }
 
-std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes)
+std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes, bool* textIsLocalized)
 {
     checkMeterIsInitialized();
+    if ( textIsLocalized )
+        *textIsLocalized = false;
+    const bool i1ProFamily = ( m_meterType == instI1Pro || m_meterType == instI1Pro2 || m_meterType == instI1Pro3 );
     inst_code instCode(inst_ok);
     if(m_nextCalibration == 0)
     {
@@ -785,23 +847,45 @@ std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes)
         inst_calc_id_type calcidtype(inst_calc_id_none);
         dark_only = FALSE;
 		if (m_meterType == instEX1) dark_only = TRUE;
-        if ( (m_meterType == instI1Pro || m_meterType == instI1Pro2 || m_meterType == instI1Pro3) )
+
+        instCode = m_meter->calibrate(m_meter, &calType, (inst_cal_cond*)&m_nextCalibration, &calcidtype, m_calibrationMessage);
+
+        // The i1Pro family's white tile question, asked only when it is a real
+        // choice (MeterCalibrationRule::AskSkipWhiteTile): Hi-Res off, and the
+        // driver's first condition for the available calibrations is the white
+        // tile. The call above performed nothing: every step of the i1Pro and
+        // i1Pro3 calibrate() waits for its condition (none was given), and the
+        // driver asks for the tile first whenever a calibration it would do is
+        // made on it - the high resolution reflective fine calibration
+        // (inst_calt_ref_white) or, on an i1Pro 2 or i1Pro 3, the wavelength
+        // calibration (i1pro_imp.c and i1pro3_imp.c, "Make sure there's the right
+        // condition for any remaining calibrations"). Skipping it asks for the
+        // emissive dark calibration alone. With Hi-Res on the driver's request is
+        // taken as it is: no question.
+        if ( i1ProFamily && !isHiRes && isInstCodeReason(instCode, inst_cal_setup) )
         {
-            if ( IDYES == AfxMessageBox ( "Skip white tile calibration?", MB_YESNO | MB_ICONQUESTION ) )
+            const bool asksWhiteTile = ( ( m_nextCalibration & inst_calc_cond_mask ) == inst_calc_man_ref_white );
+            inst_cal_type needed(inst_calt_none);
+            inst_cal_type available(inst_calt_none);
+            if ( asksWhiteTile
+              && m_meter->get_n_a_cals(m_meter, &needed, &available) == inst_ok
+              && MeterCalibrationRule::AskSkipWhiteTile(i1ProFamily, isHiRes, asksWhiteTile, (unsigned int)available) )
             {
-                if (!isHiRes)
+                const std::string question = ResourceText(IDS_ARGYLL_WHITE_TILE_SKIP,
+                    "Skip the white tile calibration?\n\nIf you skip it, only the dark calibration is made, and the calibrations that need the tile (the wavelength calibration of an i1Pro 2 or i1Pro 3, and the high resolution fine calibration) keep their previous values.", NULL);
+                const std::string title = ResourceText(IDS_ARGYLL_WHITE_TILE_TITLE, "White tile calibration", NULL);
+                CWnd* owner = CWnd::GetSafeOwner(NULL);
+                if ( IDYES == ::MessageBox(owner ? owner->GetSafeHwnd() : NULL, question.c_str(), title.c_str(), MB_YESNO | MB_ICONQUESTION) )
                 {
                     calType = inst_calt_em_dark;
                     dark_only = TRUE;
-                }
-                else
-                {
-                    MessageBox(NULL, "White tile calibration is required when high resolution mode is selected", "High resolution mode", MB_OK);
+                    m_nextCalibration = 0;
+                    calcidtype = inst_calc_id_none;
+                    m_calibrationMessage[0] = '\0';
+                    instCode = m_meter->calibrate(m_meter, &calType, (inst_cal_cond*)&m_nextCalibration, &calcidtype, m_calibrationMessage);
                 }
             }
         }
-
-        instCode = m_meter->calibrate(m_meter, &calType, (inst_cal_cond*)&m_nextCalibration, &calcidtype, m_calibrationMessage);
 		if(instCode == inst_ok || isInstCodeReason(instCode, inst_unsupported))
         {
             // we don't need to do anything
@@ -825,9 +909,9 @@ std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes)
         case inst_calc_uop_ref_white:
             return "user operated reflective white calibration";
         case inst_calc_uop_trans_white:
-            return "user operated tranmissive white calibration";
+            return ResourceText(IDS_ARGYLL_CAL_UOP_TRANS_WHITE, "user operated transmissive white calibration", textIsLocalized);
         case inst_calc_uop_trans_dark:
-            return "user operated tranmissive dark calibration";
+            return ResourceText(IDS_ARGYLL_CAL_UOP_TRANS_DARK, "user operated transmissive dark calibration", textIsLocalized);
         case inst_calc_uop_mask:
             return "user operated calibration mask";
         case inst_calc_man_ref_white:
@@ -837,7 +921,13 @@ std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes)
         case inst_calc_man_ref_dark:
             return "place instrument in dark not close to anything";
         case inst_calc_man_em_dark:
-            return "place cap on instrument put on dark surface or white ref.";
+            // The i1Pro family has no cap; the drivers of the other meters that ask
+            // for this (DTP92, EX1, K10, SpyderX, SpyderX2) do not say whether theirs has one.
+            if ( i1ProFamily )
+                return ResourceText(IDS_ARGYLL_CAL_DARK_NO_CAP,
+                    "Place the instrument face down on a dark, opaque surface so that no light reaches its sensor, then click OK.", textIsLocalized);
+            return ResourceText(IDS_ARGYLL_CAL_DARK_COVER,
+                "Cover the instrument's sensor so that no light reaches it (with its cap if it has one, or face down on a dark, opaque surface), then click OK.", textIsLocalized);
         case inst_calc_man_cal_smode:
             return "Put instrument sensor in calibration position";
         case inst_calc_man_trans_white:
@@ -855,7 +945,7 @@ std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes)
         case inst_calc_emis_grey_darker:
             return "Provide a darker grey display test patch";
         case inst_calc_emis_grey_ligher:
-            return "Provide a darker grey display test patch";
+            return ResourceText(IDS_ARGYLL_CAL_GREY_LIGHTER, "Provide a lighter gray display test patch", textIsLocalized);
         case inst_calc_emis_mask:
             return "Display provided reference patch";
         case inst_calc_man_am_dark:

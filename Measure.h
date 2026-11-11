@@ -261,6 +261,15 @@ public:
 	void SetGrayScaleLevels(const double * pLevels, int count);	// install explicit (possibly non-uniform) IRE levels
 	// is16_235 is REQUIRED - see the note on ArrayIndexToGrayLevel in Color.h.
 	double GetGrayPercent(int index, bool bUseRoundDown, bool b10bit, bool is16_235) const;	// IRE % for a gray index
+	// An EXISTING gray, near-black or near-white reading's level, by index, for
+	// every place that describes one (THE RULE in libHCFR/Color.cpp): reading i of
+	// the series at its stamped drive, else slot i on the current grid. These own
+	// the pairing of index i with its reading and its slot; the grid flags are
+	// the current config's, as every describing site passed them.
+	GraySeriesView GetGraySeriesView(GraySeries series) const;
+	bool GetGrayReadingDrive(GraySeries series, int index, double * pProp) const;	// FALSE: no stamped gray drive
+	double GetGrayReadingLevel(GraySeries series, int index) const;	// percent
+	double GetGrayReadingProp(GraySeries series, int index) const;	// 0..1
 	int GetGrayScalePreset() const;	// matching preset index, or -1 (custom)
 	void SetIREScaleMode(BOOL bIRE);
 	CColor lastColor, previousColor;
@@ -423,6 +432,13 @@ public:
 
 	CColor GetOnOffBlack() const;
 	CColor GetOnOffWhite() const;
+	// The gray scale's 100% white: its measured top reading, else the on/off
+	// white (libHCFR GrayScaleWhite). Every reader that means "100% white"
+	// uses this; the on/off white stays with the contrast measurement.
+	CColor GetGrayScaleWhite() const;
+	// The gray scale's 0% black: its measured 0% reading, else the on/off black
+	// (libHCFR GrayScaleBlack). The on/off black stays with the contrast measurement.
+	CColor GetGrayScaleBlack() const;
 	CColor GetPrimeWhite() const; //white reference for pseudo-color spaces
 	double GetHDRRefScale() const; //HDR-10 refs: 1=10000nits -> diffuse-white-relative
 	void SetOnOffBlack(const CColor & aColor) { m_OnOffBlack=aColor; m_isModified=TRUE; }
@@ -431,6 +447,7 @@ public:
 	BOOL IsPrimeWhiteMeasured() const { return m_bPrimeWhiteMeasured; }
 	BOOL IsOnOffWhiteMeasured() const { return m_bOnOffWhiteMeasured; }
 	static bool IsPlaceholderWhite(const CColor & c, bool bOnOff);	// the ctor's nominal white, by value (load-time flag recovery)
+	static bool IsRawlessPlaceholder(const CColor & c, bool bBlack);	// the ctor's top-gray (bBlack false) or on/off-black placeholder: the walks neither recompute nor count it
 
 	BOOL MeasureContrast(CSensor *pSensor, CGenerator *pGenerator);
 	double GetOnOffContrast ();

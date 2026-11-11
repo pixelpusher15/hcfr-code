@@ -51,6 +51,7 @@
 #include "MultiFrm.h"
 #include "Views\MainView.h"
 #include "libHCFR\Color.h"
+#include "libHCFR\Ti3Export.h"
 jmp_buf env;
 
 void error_handler  (HPDF_STATUS   error_no,
@@ -259,6 +260,11 @@ CExport::~CExport()
 
 bool CExport::Save()
 {
+	// The .ti3 export has its own flow: no column options, no append/replace,
+	// one file per source (SaveTi3).
+	if ( m_type == TI3 )
+		return SaveTi3();
+
 	char *ext[4]={"xls","csv","icc","pdf"};
 	char *filter[4]={"Excel files (*.xls)|*.xls||","CSV files (*.cvs)|*.csv||","ICC files (*.icc)|*.icc||","PDF files (*.pdf)|*.pdf||"};
 	CString	Msg, Title;
@@ -841,7 +847,7 @@ bool CExport::SavePDF()
 	if (GetConfig()->m_GammaOffsetType == 5)
 	{
 		if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR)
-			YWhite = m_pDoc->GetMeasure()->GetGray((m_pDoc->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
+			YWhite = m_pDoc->GetMeasure()->GetGrayScaleWhite().GetY() ;
 		else
 		{
 			// Unified HDR convention (matches the measures grid): references are
@@ -1138,14 +1144,19 @@ bool CExport::SavePDF()
 		double nCount = pDataRef -> GetMeasure () -> GetGrayScaleSize ();
 		double Gamma = GetConfig()->m_GammaAvg;
 		double Offset;
-		if (nCount > 0)
+		// Page 2 is the reference document's: fit ITS grays (nCount is its size),
+		// and skip the power-law fit in HDR as page 1 does (issue #99).
+		if (nCount > 0 && !isHDR )
 		{
-			m_pDoc->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
+			pDataRef->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
 			sprintf(str,"Average measured gamma: %.2f, Color dE formula: %s",Gamma,(LPCTSTR)dEform2);
 		}
 		else
 		{
-			sprintf(str,"Average measured gamma: No data");
+			if (isHDR && nCount)
+				sprintf(str,"Average measured gamma: HDR mode");
+			else
+				sprintf(str,"Average measured gamma: No data");
 		}
 		HPDF_Page_ShowTextNextLine (page2, str);
 
@@ -1419,7 +1430,7 @@ bool CExport::SavePDF()
 		if (GetConfig()->m_GammaOffsetType == 5)
 		{
 			if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR)
-				YWhite = m_pDoc->GetMeasure()->GetGray((m_pDoc->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
+				YWhite = m_pDoc->GetMeasure()->GetGrayScaleWhite().GetY() ;
 			else
 			{
 				// Unified HDR convention: references are GetHDRRefScale-scaled
@@ -1468,7 +1479,7 @@ bool CExport::SavePDF()
 		{
 			aColor = pDataRef->GetMeasure()->GetCC24Sat(i);
 			pDataRef->GetMeasure()->GetRefCC24Sat(i, aReference);
-			aRef = aReference.GetRGBValue((cRef.m_standard==UHDTV3||cRef.m_standard==UHDTV4)?CColorReference(UHDTV2):GetColorReference());
+			aRef = aReference.GetRGBValue((cRef.m_standard==UHDTV3||cRef.m_standard==UHDTV4)?ContainerTransportReference(GetColorReference()):GetColorReference());
 			if (GetConfig()->m_GammaOffsetType == 5)
 			{
 				if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR)
@@ -1585,6 +1596,9 @@ bool CExport::SavePDF()
 // per enabled option. They are duplicated rather than shared because each guard sits
 // after its own sheet's header has been built; keeping both means a future sheet that
 // forgets the pre-check is still caught before it corrupts anything.
+// The saturation, near-black and near-white sheets follow the same rule with their
+// own heights (SaturationBlockRows / LevelsBlockRows, documented at those sheets),
+// except that a sheet ABSENT from the file is backfilled instead of refused.
 bool CExport::CheckExistingLayout()
 {
 	const int extraPerOption = ( m_bExportRaw ? 3 : 0 ) + ( m_bExportStimulus ? 3 : 0 );
@@ -1644,6 +1658,25 @@ bool CExport::CheckExistingLayout()
 		}
 	}
 
+	struct { const char * sheet; int blockRows; } newSheets[] =
+	{
+		{ "SaturationSheet", SaturationBlockRows() },
+		{ "NearBlackSheet", LevelsBlockRows() },
+		{ "NearWhiteSheet", LevelsBlockRows() },
+	};
+
+	for ( int n = 0; n < 3; n++ )
+	{
+		CString aFileName, SheetOrSeparator;
+		GetSheetFile( newSheets[n].sheet, aFileName, SheetOrSeparator );
+		CSpreadSheet ss( aFileName, SheetOrSeparator, false );
+		if ( !NewSheetLayoutMatches( ss.GetTotalRows() - 1, newSheets[n].blockRows ) )
+		{
+			m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+			return false;
+		}
+	}
+
 	return true;
 }
 
@@ -1666,6 +1699,9 @@ bool CExport::SaveSheets()
 	result&=SaveCCSheet();
 	result&=SaveSpectralSheet();
 	result&=SaveProfileSheet();
+	result&=SaveSaturationSheet();
+	result&=SaveLevelsSheet(false);	// near black
+	result&=SaveLevelsSheet(true);	// near white
 
 	if(!result)
 	{
@@ -1832,19 +1868,29 @@ bool CExport::SaveGrayScaleSheet()
 
 	if ( m_bExportStimulus )
 	{
-		// Grayscale drive is neutral: R = G = B = the gray level %.
+		// Prefer the drive stimulus captured with each reading, as the primaries and
+		// color-checker sheets do: the level rebuilt from the CURRENT round-down,
+		// 10-bit and 16-235 settings is a drive that was never sent once any of them
+		// changed after measuring. That rebuilt level (neutral: R = G = B = the gray
+		// level %) stays the fallback for readings taken before stimulus capture.
 		for (i=0; i<3; i++)
 		{
 			Rows.RemoveAll();
 			Rows.Add(legendStimRGB[i]);
 			for(j=0;j<size;j++)
-				Rows.Add((float)(m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
+			{
+				CColor gc = m_pDoc->GetMeasure()->GetGray(j);
+				if ( gc.isValid() && gc.HasStimulusValue() )
+					Rows.Add((float)gc.GetStimulusValue()[i]);
+				else
+					Rows.Add((float)(m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
+			}
 			result&=graySS.AddRow(Rows,rowNb,m_doReplace);
 			rowNb++;
 		}
 	}
 
-	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+	CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 
 	for (i=0; i<3; i++)
 	{
@@ -1873,7 +1919,7 @@ bool CExport::SaveGrayScaleSheet()
 
 	Rows.RemoveAll();
 	Rows.Add("DeltaE");
-	double YWhite = m_pDoc->GetMeasure()->GetGray(size-1)[1];
+	double YWhite = m_pDoc->GetMeasure()->GetGrayScaleWhite()[1];
 	for(j=0;j<size;j++)
 	{
 		CColor aColor = m_pDoc->GetMeasure()->GetGray(j);
@@ -1882,8 +1928,8 @@ bool CExport::SaveGrayScaleSheet()
 		{
 		    double x = m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
             double valy;
-			CColor White = m_pDoc -> GetMeasure () -> GetOnOffWhite();
-			CColor Black = m_pDoc -> GetMeasure () -> GetOnOffBlack();
+			CColor White = m_pDoc -> GetMeasure () -> GetGrayScaleWhite();
+			CColor Black = m_pDoc -> GetMeasure () -> GetGrayScaleBlack();
 			int mode = GetConfig()->m_GammaOffsetType;
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if (  (mode >= 4) )
@@ -2125,6 +2171,338 @@ bool CExport::SavePrimariesSheet()
 		m_errorStr=primariesSS.GetLastError();
 	return result;
 }
+
+// --- Saturation, near black and near white sheets ---------------------------------
+//
+// Block layout (one block per exported measure, stacked under one header row, columns
+// = steps 0..n-1 after the legend column; r = raw option, s = stimulus option, 0 or 1):
+//
+//   SaturationSheet   "% Sat" row (100*i/(n-1), the percent the sweep passes to the
+//                     generator), then for each of Red, Green, Blue, Yellow, Cyan,
+//                     Magenta: X, Y, Z, [Raw X/Y/Z], [Stim R/G/B, Stim captured].
+//                     Height = 1 + 6 * (3 + 3r + 4s).
+//   NearBlackSheet    level row (the % level sent), X, Y, Z, [Raw X/Y/Z],
+//   NearWhiteSheet    [Stim R/G/B, Stim captured], R, G, B, ColorTemp.
+//                     Height = 8 + 3r + 4s.
+//
+// The stimulus option adds FOUR rows here, not three: "Stim captured" is 1 where the
+// Stim R/G/B cells are the drive stimulus stored with that reading (GetStimulusValue,
+// captured by CSensor::MeasureColor) and 0 where they are recomputed with the sweep's
+// own generator math under the CURRENT settings (readings taken before stimulus
+// capture, or a step never measured). Both can occur in one block, so the source is
+// stated per cell. It is a number, not text: an XLS column takes its type from the
+// header row, and a text literal in a float column is an SQL error that fails the sheet.
+//
+// No DeltaE row: the grid's near-black, near-white and saturation dE each have their
+// own reference conventions, and a second copy of them here could drift from what the
+// grid shows. A wrong value would be worse than none.
+//
+// These sheets are newer than the files a user may be appending to. A sheet absent
+// from a file that already holds N measures is backfilled: every measure position up
+// to N (and N+1 on an append) gets a block, this measure's with data and the others
+// with their legends only, so the positional arithmetic holds for every later export.
+// The legends are what keep a placeholder block's rows in the sheet: the Excel driver
+// drops trailing rows with no text, which would leave the sheet short of N blocks.
+// Anything else that does not match N * height is refused (IDS_EXPORT_LAYOUT_MISMATCH),
+// as for the other sheets.
+
+int CExport::SaturationBlockRows() const
+{
+	return 1 + 6 * ( 3 + ( m_bExportRaw ? 3 : 0 ) + ( m_bExportStimulus ? 4 : 0 ) );
+}
+
+int CExport::LevelsBlockRows() const
+{
+	return 8 + ( m_bExportRaw ? 3 : 0 ) + ( m_bExportStimulus ? 4 : 0 );
+}
+
+// Shared by CheckExistingLayout and the sheet writers. existing = data rows already in
+// the sheet (its total rows less the header; <= 0 when the sheet is absent).
+bool CExport::NewSheetLayoutMatches(int existing, int blockRows) const
+{
+	if ( existing <= 0 )
+		return true;	// absent: backfilled by the writer
+	if ( m_numExistingMeasures > 0 )
+		return existing == m_numExistingMeasures * blockRows;
+	return m_doReplace || ( existing % blockRows ) == 0;
+}
+
+// Which measure positions to write, and where the first one starts. One position
+// (this measure's) normally; on a sheet absent from a file that already holds
+// measures, every position from 1 (see the backfill note above).
+void CExport::NewSheetBlockRange(CSpreadSheet & ss, int blockRows, int & first, int & last, int & target, long & rowNb) const
+{
+	int existing = ss.GetTotalRows() - 1;
+	target = m_doReplace ? m_numToReplace : m_numExistingMeasures + 1;
+	if ( existing <= 0 && m_numExistingMeasures > 0 )
+	{
+		first = 1;
+		last = m_doReplace ? m_numExistingMeasures : m_numExistingMeasures + 1;
+		rowNb = 2;
+		return;
+	}
+	first = last = target;
+	if ( m_doReplace )
+		rowNb = (long)( m_numToReplace - 1 ) * blockRows + 2;
+	else
+		rowNb = ss.GetTotalRows() + 1;
+}
+
+void CExport::GetSheetFile(const char * sheet, CString & aFileName, CString & SheetOrSeparator) const
+{
+	SheetOrSeparator = sheet;
+	if ( m_type == CSV )
+	{
+		aFileName = m_fileName + "." + SheetOrSeparator + ".csv";
+		SheetOrSeparator = m_separator;
+	}
+	else
+		aFileName = m_fileName;
+}
+
+// The rows common to both sheet kinds: X, Y, Z, then the optional raw and stimulus
+// rows. stim[j] is the fallback stimulus for step j (used when the reading has none).
+// size == 0 writes the legends alone (a backfilled placeholder block).
+bool CExport::AddReadingRows(CSpreadSheet & ss, long & rowNb, const CString & prefix,
+                             const CColor * colors, const ColorRGBDisplay * stim, int size)
+{
+	CRowArray Rows;
+	bool result = true;
+	int i, j;
+
+	for ( i = 0; i < 3; i++ )
+	{
+		Rows.RemoveAll();
+		Rows.Add(prefix + legendXYZ[i]);
+		for ( j = 0; j < size; j++ )
+			Rows.Add((float)colors[j][i]);
+		result &= ss.AddRow(Rows, rowNb, m_doReplace);
+		rowNb++;
+	}
+
+	if ( m_bExportRaw )
+	{
+		for ( i = 0; i < 3; i++ )
+		{
+			Rows.RemoveAll();
+			Rows.Add(prefix + legendRawXYZ[i]);
+			for ( j = 0; j < size; j++ )
+				Rows.Add((float)(colors[j].HasRawXYZValue() ? colors[j].GetRawXYZValue()[i] : -1.0));
+			result &= ss.AddRow(Rows, rowNb, m_doReplace);
+			rowNb++;
+		}
+	}
+
+	if ( m_bExportStimulus )
+	{
+		for ( i = 0; i < 3; i++ )
+		{
+			Rows.RemoveAll();
+			Rows.Add(prefix + legendStimRGB[i]);
+			for ( j = 0; j < size; j++ )
+			{
+				if ( colors[j].isValid() && colors[j].HasStimulusValue() )
+					Rows.Add((float)colors[j].GetStimulusValue()[i]);
+				else
+					Rows.Add((float)stim[j][i]);
+			}
+			result &= ss.AddRow(Rows, rowNb, m_doReplace);
+			rowNb++;
+		}
+		Rows.RemoveAll();
+		Rows.Add(prefix + "Stim captured");
+		for ( j = 0; j < size; j++ )
+			Rows.Add((float)(( colors[j].isValid() && colors[j].HasStimulusValue() ) ? 1.0 : 0.0));
+		result &= ss.AddRow(Rows, rowNb, m_doReplace);
+		rowNb++;
+	}
+
+	return result;
+}
+
+bool CExport::SaveSaturationSheet()
+{
+	CRowArray Rows;
+	CString tempString;
+	bool result = true;
+	int j;
+
+	CMeasure * pMeasure = m_pDoc->GetMeasure();
+	int size = pMeasure->GetSaturationSize();
+
+	CString aFileName, SheetOrSeparator;
+	GetSheetFile("SaturationSheet", aFileName, SheetOrSeparator);
+
+	CSpreadSheet satSS(aFileName, SheetOrSeparator, m_doBackup);
+	satSS.BeginTransaction();
+
+	Rows.RemoveAll();
+	Rows.Add("Measure");
+	for ( j = 0; j < size; j++ )
+	{
+		tempString.Format("%d", j);
+		Rows.Add(tempString, CRowArray::floatType);
+	}
+	result &= satSS.AddHeaders(Rows, true);
+
+	int blockRows = SaturationBlockRows();
+	if ( !NewSheetLayoutMatches(satSS.GetTotalRows() - 1, blockRows) )
+	{
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+		return false;
+	}
+	int first, last, target;
+	long rowNb;
+	NewSheetBlockRange(satSS, blockRows, first, last, target, rowNb);
+
+	// Fallback stimulus: the same GenerateSaturationColors call the sweeps make
+	// (MeasureRedSatScale ... MeasureAllSaturationScales), at the document's active
+	// saturation level, with the current transfer function, bit depth and range.
+	static const bool satChannels[6][3] =
+	{
+		{ true,  false, false },	// Red
+		{ false, true,  false },	// Green
+		{ false, false, true  },	// Blue
+		{ true,  true,  false },	// Yellow
+		{ false, true,  true  },	// Cyan
+		{ true,  false, true  }		// Magenta
+	};
+	std::vector<CColor> colors[6];
+	std::vector<ColorRGBDisplay> stim[6];
+	for ( int c = 0; c < 6; c++ )
+	{
+		colors[c].resize ( size > 0 ? size : 1 );
+		stim[c].resize ( size > 0 ? size : 1 );
+		if ( size > 0 )
+			GenerateSaturationColors(GetColorReference(), &stim[c][0], size, satChannels[c][0], satChannels[c][1], satChannels[c][2],
+			                         GetConfig()->m_GammaOffsetType, pMeasure->GetActiveSatLevel(),
+			                         GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+		for ( j = 0; j < size; j++ )
+		{
+			switch ( c )
+			{
+				case 0: colors[c][j] = pMeasure->GetRedSat(j); break;
+				case 1: colors[c][j] = pMeasure->GetGreenSat(j); break;
+				case 2: colors[c][j] = pMeasure->GetBlueSat(j); break;
+				case 3: colors[c][j] = pMeasure->GetYellowSat(j); break;
+				case 4: colors[c][j] = pMeasure->GetCyanSat(j); break;
+				default: colors[c][j] = pMeasure->GetMagentaSat(j); break;
+			}
+		}
+	}
+
+	for ( int m = first; m <= last; m++ )
+	{
+		int n = ( m == target ) ? size : 0;	// 0: legends only (backfilled placeholder)
+
+		Rows.RemoveAll();
+		Rows.Add("% Sat");
+		for ( j = 0; j < n; j++ )
+			Rows.Add((float)( size > 1 ? 100.0 * j / ( size - 1 ) : 0.0 ));
+		result &= satSS.AddRow(Rows, rowNb, m_doReplace);
+		rowNb++;
+
+		for ( int c = 0; c < 6; c++ )
+			result &= AddReadingRows(satSS, rowNb, CString(primariesName[c]) + " ", &colors[c][0], &stim[c][0], n);
+	}
+
+	result &= satSS.Commit();
+	if ( !result )
+		m_errorStr = satSS.GetLastError();
+	return result;
+}
+
+// Near black (bNearWhite false) or near white. The levels are the ones the sweeps
+// send (MeasureNearBlackScale / MeasureNearWhiteScale) and the views plot: near black
+// index i*(PQ ? 2 : 1), near white m_NearWhiteClipCol - size + i, on the 101-step
+// grid, through ArrayIndexToGrayLevel with the current round-down, bit depth and
+// range. The same level is the fallback stimulus (neutral, R = G = B).
+bool CExport::SaveLevelsSheet(bool bNearWhite)
+{
+	CRowArray Rows;
+	CString tempString;
+	bool result = true;
+	int i, j;
+
+	CMeasure * pMeasure = m_pDoc->GetMeasure();
+	int size = bNearWhite ? pMeasure->GetNearWhiteScaleSize() : pMeasure->GetNearBlackScaleSize();
+
+	CString aFileName, SheetOrSeparator;
+	GetSheetFile(bNearWhite ? "NearWhiteSheet" : "NearBlackSheet", aFileName, SheetOrSeparator);
+
+	CSpreadSheet levSS(aFileName, SheetOrSeparator, m_doBackup);
+	levSS.BeginTransaction();
+
+	Rows.RemoveAll();
+	Rows.Add("Measure");
+	for ( j = 0; j < size; j++ )
+	{
+		tempString.Format("%d", j);
+		Rows.Add(tempString, CRowArray::floatType);
+	}
+	result &= levSS.AddHeaders(Rows, true);
+
+	int blockRows = LevelsBlockRows();
+	if ( !NewSheetLayoutMatches(levSS.GetTotalRows() - 1, blockRows) )
+	{
+		m_errorStr.LoadString(IDS_EXPORT_LAYOUT_MISMATCH);
+		return false;
+	}
+	int first, last, target;
+	long rowNb;
+	NewSheetBlockRange(levSS, blockRows, first, last, target, rowNb);
+
+	std::vector<CColor> colors ( size > 0 ? size : 1 );
+	std::vector<ColorRGBDisplay> stim ( size > 0 ? size : 1 );
+	std::vector<double> level ( size > 0 ? size : 1 );
+	for ( j = 0; j < size; j++ )
+	{
+		int nCol = bNearWhite ? ( (int)pMeasure->m_NearWhiteClipCol - size + j )
+		                      : ( j * ( GetConfig()->m_GammaOffsetType == 5 ? 2 : 1 ) );
+		level[j] = ArrayIndexToGrayLevel(nCol, 101, GetConfig()->m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+		stim[j] = ColorRGBDisplay(level[j]);
+		colors[j] = bNearWhite ? pMeasure->GetNearWhite(j) : pMeasure->GetNearBlack(j);
+	}
+
+	CColorReference bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+
+	for ( int m = first; m <= last; m++ )
+	{
+		int n = ( m == target ) ? size : 0;	// 0: legends only (backfilled placeholder)
+
+		Rows.RemoveAll();
+		Rows.Add(GetConfig()->m_PercentGray);
+		for ( j = 0; j < n; j++ )
+			Rows.Add((float)level[j]);
+		result &= levSS.AddRow(Rows, rowNb, m_doReplace);
+		rowNb++;
+
+		result &= AddReadingRows(levSS, rowNb, CString(""), &colors[0], &stim[0], n);
+
+		for ( i = 0; i < 3; i++ )
+		{
+			Rows.RemoveAll();
+			Rows.Add(legendRGB[i]);
+			for ( j = 0; j < n; j++ )
+				Rows.Add((float)colors[j].GetRGBValue(bRef)[i]);
+			result &= levSS.AddRow(Rows, rowNb, m_doReplace);
+			rowNb++;
+		}
+
+		Rows.RemoveAll();
+		Rows.Add("ColorTemp");
+		for ( j = 0; j < n; j++ )
+			Rows.Add((float)colors[j].GetXYZValue().GetColorTemp(GetColorReference()));
+		result &= levSS.AddRow(Rows, rowNb, m_doReplace);
+		rowNb++;
+	}
+
+	result &= levSS.Commit();
+	if ( !result )
+		m_errorStr = levSS.GetLastError();
+	return result;
+}
+
 bool CExport::SaveSpectralSheet()
 {
 	CRowArray Rows;
@@ -2162,7 +2540,7 @@ bool CExport::SaveSpectralSheet()
 	spectralSS.BeginTransaction();
 
 	Rows.RemoveAll();
-	Rows.Add("Wavelength {nm}",CRowArray::floatType);
+	Rows.Add("Wavelength (nm)",CRowArray::floatType);
 	for (j=0;j<3;j++)
 		Rows.Add(primariesName[j],CRowArray::floatType);
 	Rows.Add("White",CRowArray::floatType);
@@ -2253,6 +2631,277 @@ bool CExport::SaveProfileSheet()
 	if(!result)
 		m_errorStr=profSS.GetLastError();
 	return result;
+}
+
+
+//////////////////////////////////////////////////////////////////////
+// CGATS CTI3 (.ti3) export of the display profile and the patch lists.
+//
+// One file per source, each a single-table CTI3 that ArgyllCMS and DisplayCAL
+// read (the writer is libHCFR/Ti3Export, on the in-tree CGATS library). The
+// first source with readings goes to the chosen file name, every further one
+// to "<name>.<source>.ti3" beside it, as the CSV export names its sheets.
+// Sources in order: the display profile cube, then every patch list of the
+// document in list order. Unmeasured and invalid slots are skipped; SAMPLE_ID
+// is the slot index + 1, so a skipped slot leaves a gap and every row still
+// names the slot it came from.
+//
+// Device values: the stimulus percent each reading stored at measure time
+// (CColor::GetStimulusValue, 0-100 of the signal range). A reading without
+// one (a file older than stimulus capture) gets the drive the measurement code
+// computes for that slot: the profile cube's generated patch
+// (GetProfilePatchRGB), or the patch list's definition codes decoded with the
+// list's own declared bit depth and range (CsvCodeToPercent); then, as the
+// sweep does, the container remap (RemapProfileToTransport, a no-op outside
+// UHDTV3/4) under the current settings.
+//
+// White (LUMINANCE_XYZ_CDM2, and Y = 100 after normalization): the source's
+// own reading at stimulus 100/100/100, taken in the same capture so no drift
+// between sessions enters the scale; when the source has none, the document's
+// measured grayscale white; when that is not measured either, the source's
+// brightest reading.
+//////////////////////////////////////////////////////////////////////
+
+namespace
+{
+	struct Ti3Source
+	{
+		CString suffix;		// file-name part for a source after the first
+		Ti3Table table;
+		int skipped;		// slots not exported (unmeasured, invalid, or no drive)
+	};
+
+	// Fill one row from a reading; false when the reading has no stimulus and
+	// no computed drive exists for its slot.
+	bool FillTi3Reading ( Ti3Reading & rd, const CColor & c, const ColorRGBDisplay * pDrive, int slot )
+	{
+		ColorRGBDisplay rgb;
+		if ( c.HasStimulusValue () )
+			rgb = c.GetStimulusValue ();
+		else if ( pDrive != NULL )
+			rgb = *pDrive;
+		else
+			return false;
+		ColorXYZ xyz = c.GetXYZValue ();
+		rd.sampleId = slot + 1;
+		for ( int ch = 0; ch < 3; ch++ )
+		{
+			rd.rgb[ch] = rgb[ch];
+			rd.xyz[ch] = xyz[ch];
+		}
+		rd.spectrum.clear ();
+		if ( c.HasSpectrum () )
+		{
+			CSpectrum s = c.GetSpectrum ();
+			rd.spectrum.resize ( s.GetRows () );
+			for ( int b = 0; b < s.GetRows (); b++ )
+				rd.spectrum[b] = s[b];
+		}
+		return true;
+	}
+
+	// The spectral layout of the first reading, kept only when every reading
+	// of the source carries a spectrum on that same layout.
+	void SetTi3SpectralLayout ( Ti3Table & t, const std::vector<CColor> & used )
+	{
+		t.specBands = 0;
+		if ( used.empty () || !used[0].HasSpectrum () )
+			return;
+		CSpectrum s0 = used[0].GetSpectrum ();
+		for ( size_t i = 1; i < used.size (); i++ )
+		{
+			if ( !used[i].HasSpectrum () )
+				return;
+			CSpectrum s = used[i].GetSpectrum ();
+			if ( s.GetRows () != s0.GetRows () || s.m_WaveLengthMin != s0.m_WaveLengthMin || s.m_WaveLengthMax != s0.m_WaveLengthMax )
+				return;
+		}
+		t.specBands = s0.GetRows ();
+		t.specStartNm = s0.m_WaveLengthMin;
+		t.specEndNm = s0.m_WaveLengthMax;
+	}
+
+	void SetTi3White ( Ti3Table & t, CMeasure * pM )
+	{
+		int best = -1;
+		for ( size_t i = 0; i < t.readings.size (); i++ )
+		{
+			const Ti3Reading & rd = t.readings[i];
+			if ( fabs ( rd.rgb[0] - 100.0 ) < 1e-6 && fabs ( rd.rgb[1] - 100.0 ) < 1e-6 && fabs ( rd.rgb[2] - 100.0 ) < 1e-6 )
+				if ( best < 0 || rd.xyz[1] > t.readings[best].xyz[1] )
+					best = (int) i;
+		}
+		if ( best < 0 && pM->GetGrayScaleSize () > 0 )
+		{
+			CColor w = pM->GetGrayScaleWhite ();
+			if ( w.isValid () && w.GetY () > 0.0 )
+			{
+				for ( int ch = 0; ch < 3; ch++ )
+					t.whiteXYZ[ch] = w.GetXYZValue ()[ch];
+				return;
+			}
+		}
+		if ( best < 0 )
+			for ( size_t i = 0; i < t.readings.size (); i++ )
+				if ( best < 0 || t.readings[i].xyz[1] > t.readings[best].xyz[1] )
+					best = (int) i;
+		if ( best >= 0 )
+			for ( int ch = 0; ch < 3; ch++ )
+				t.whiteXYZ[ch] = t.readings[best].xyz[ch];
+	}
+
+	// Add the valid readings of one source; drive[] (may be empty) holds the
+	// computed drive per slot for readings that carry no stimulus.
+	void AddTi3Source ( std::vector<Ti3Source> & out, CMeasure * pM, const CString & suffix, const CString & descriptor,
+	                    const std::vector<CColor> & readings, const std::vector<ColorRGBDisplay> & drive, int slots, int & skippedNoSource )
+	{
+		Ti3Source src;
+		src.suffix = suffix;
+		src.table.descriptor = (LPCSTR) descriptor;
+		src.table.originator = "ColorHCFR";
+		src.skipped = 0;
+		std::vector<CColor> used;
+		for ( int i = 0; i < slots; i++ )
+		{
+			Ti3Reading rd;
+			if ( i < (int) readings.size () && readings[i].isValid ()
+			  && FillTi3Reading ( rd, readings[i], ( i < (int) drive.size () ) ? &drive[i] : NULL, i ) )
+			{
+				src.table.readings.push_back ( rd );
+				used.push_back ( readings[i] );
+			}
+			else
+				src.skipped++;
+		}
+		if ( src.table.readings.empty () )
+		{
+			skippedNoSource += src.skipped;
+			return;
+		}
+		SetTi3SpectralLayout ( src.table, used );
+		SetTi3White ( src.table, pM );
+		out.push_back ( src );
+	}
+
+	CString Ti3SafeName ( const CString & name )
+	{
+		CString s = name;
+		const char * bad = "\\/:*?\"<>|";
+		for ( int i = 0; i < s.GetLength (); i++ )
+			if ( (unsigned char) s[i] < 32 || strchr ( bad, s[i] ) != NULL )
+				s.SetAt ( i, '_' );
+		s.Trim ();
+		return s.IsEmpty () ? CString ( "set" ) : s;
+	}
+}
+
+bool CExport::SaveTi3()
+{
+	CString Msg, Title;
+	Title.LoadString ( IDS_EXPORT );
+	CMeasure * pM = m_pDoc->GetMeasure();
+
+	std::vector<Ti3Source> sources;
+	int skippedNoSource = 0;
+
+	if ( pM->HasProfileMeasures () )
+	{
+		int n = pM->GetProfileMeasureSize ();
+		std::vector<CColor> readings ( n );
+		std::vector<ColorRGBDisplay> drive ( n );
+		for ( int i = 0; i < n; i++ )
+		{
+			readings[i] = pM->GetProfileMeasure ( i );
+			drive[i] = pM->GetProfilePatchRGB ( i );
+		}
+		if ( n > 0 )
+			RemapProfileToTransport ( &drive[0], n, GetColorReference(), GetConfig()->m_GammaOffsetType,
+			                          GetConfig()->GetUse10bitLevels() != FALSE, GetConfig()->GetRGB16_235() != FALSE );
+		CString desc;
+		desc.Format ( "ColorHCFR display profile, %d^3 cube%s", pM->GetProfileCubeSize (), pM->GetProfileGrayExtras () ? " + gray ramp" : "" );
+		AddTi3Source ( sources, pM, "Profile", desc, readings, drive, n, skippedNoSource );
+	}
+
+	// The active list's readings live in the measure band until harvested.
+	pM->SyncActiveUserPatchSetFromBand ();
+	for ( int s = 0; s < pM->GetUserPatchSetCount (); s++ )
+	{
+		const CUserPatchSet * set = pM->GetUserPatchSet ( s );
+		int nRows = (int) set->rows.size ();
+		std::vector<ColorRGBDisplay> drive ( nRows );
+		for ( int i = 0; i < nRows; i++ )
+			drive[i] = ColorRGBDisplay ( CsvCodeToPercent ( set->rows[i].r, set->bits, set->range ),
+			                             CsvCodeToPercent ( set->rows[i].g, set->bits, set->range ),
+			                             CsvCodeToPercent ( set->rows[i].b, set->bits, set->range ) );
+		if ( nRows > 0 )
+			RemapProfileToTransport ( &drive[0], nRows, GetColorReference(), GetConfig()->m_GammaOffsetType,
+			                          GetConfig()->GetUse10bitLevels() != FALSE, GetConfig()->GetRGB16_235() != FALSE );
+		int slots = max ( nRows, (int) set->measures.size () );
+		CString desc;
+		desc.Format ( "ColorHCFR patch list %s", set->name.c_str () );
+		AddTi3Source ( sources, pM, set->name.c_str (), desc, set->measures, drive, slots, skippedNoSource );
+	}
+
+	if ( sources.empty () )
+	{
+		Msg.LoadString ( IDS_TI3_NOTHING );
+		GetColorApp()->InMeasureMessageBox ( Msg, Title, MB_OK | MB_ICONINFORMATION );
+		return false;
+	}
+
+	CString filter;
+	filter.LoadString ( IDS_TI3_FILTER );
+	CFileDialog fileSaveDialog ( FALSE, "ti3", NULL, OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT, filter );
+	if ( fileSaveDialog.DoModal () != IDOK )
+		return false;
+
+	CString first = fileSaveDialog.GetPathName ();
+	CString base = first;
+	if ( base.GetLength () > 4 && base.Right ( 4 ).CompareNoCase ( ".ti3" ) == 0 )
+		base = base.Left ( base.GetLength () - 4 );
+
+	std::vector<CString> usedNames;
+	CString written;
+	int total = 0, skipped = skippedNoSource;
+	for ( size_t i = 0; i < sources.size (); i++ )
+	{
+		CString path = first;
+		if ( i > 0 )
+		{
+			CString name = Ti3SafeName ( sources[i].suffix ), tryName = name;
+			for ( int k = 2; ; k++ )
+			{
+				bool clash = false;
+				for ( size_t u = 0; u < usedNames.size (); u++ )
+					if ( usedNames[u].CompareNoCase ( tryName ) == 0 )
+						clash = true;
+				if ( !clash )
+					break;
+				tryName.Format ( "%s_%d", (LPCSTR) name, k );
+			}
+			usedNames.push_back ( tryName );
+			path = base + "." + tryName + ".ti3";
+		}
+		else
+			usedNames.push_back ( Ti3SafeName ( sources[i].suffix ) );
+
+		std::string err;
+		if ( !WriteTi3File ( path, sources[i].table, err ) )
+		{
+			Msg.LoadString ( IDS_ERREXPORT );
+			GetColorApp()->InMeasureMessageBox ( Msg + "\n" + path + "\n" + err.c_str (), Title, MB_OK | MB_ICONERROR );
+			return false;
+		}
+		total += (int) sources[i].table.readings.size ();
+		skipped += sources[i].skipped;
+		written += path + "\n";
+	}
+
+	CString fmt;
+	fmt.LoadString ( IDS_TI3_WRITTEN );
+	Msg.Format ( fmt, total, skipped, (LPCSTR) written );
+	GetColorApp()->InMeasureMessageBox ( Msg, Title, MB_OK | MB_ICONINFORMATION );
+	return true;
 }
 
 
@@ -2671,7 +3320,7 @@ bool CExport::SaveCCSheet()
 				Rows.Add(-1.0);
 		}
 		
-		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?CColorReference(UHDTV2):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
+		CColorReference  bRef = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)?ContainerTransportReference(GetColorReference()):(GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb)?CColorReference(HDTV):GetColorReference());
 
 		for(j=0;j<3;j++)
 		{
@@ -2722,7 +3371,7 @@ bool CExport::SaveCCSheet()
 		if (GetConfig()->m_GammaOffsetType == 5)
 		{
 			if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR)
-				YWhite = m_pDoc->GetMeasure()->GetGray((m_pDoc->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
+				YWhite = m_pDoc->GetMeasure()->GetGrayScaleWhite().GetY() ;
 			else
 			{
 				// Unified HDR convention: references are GetHDRRefScale-scaled

@@ -335,8 +335,11 @@ CColor CSimulatedSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, 
 	colSensor.SetY(colSensor.GetY() * (mode==5?10000.:White.GetY()));
 	colSensor.SetZ(colSensor.GetZ() * (mode==5?10000.:White.GetY()));
 
-	//cap peak white to target maxL
-	if (mode == 5 || mode == 7)
+	//cap peak white to target maxL. A black reading (Y == 0) must not go through the
+	//rescale: min(0, maxL) / 0 is NaN, which the sensor layer now rejects as a failed
+	//reading (it used to be clamped to 1e-8 by the max macro). Black takes the
+	//target-MinL branch below instead.
+	if ((mode == 5 || mode == 7) && colSensor.GetY() > 0.)
 	{
 		double rescale = min(colSensor.GetY(), GetConfig()->m_TargetMaxL)/colSensor.GetY();
 		colSensor.SetX(colSensor.GetX() * rescale);

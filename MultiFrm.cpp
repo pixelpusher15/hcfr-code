@@ -135,6 +135,7 @@ BEGIN_MESSAGE_MAP(CMultiFrame, CNewMDIChildWnd)
 	ON_WM_GETMINMAXINFO()
 	ON_WM_DESTROY()
 	ON_WM_SIZE()
+	ON_WM_MDIACTIVATE()
     ON_MESSAGE(WM_APPCOMMAND, OnAppCommand)
 	ON_NOTIFY(CTCN_SELCHANGE, IDC_TABCTRL, OnTabChanged)
 	ON_NOTIFY(CTCN_RCLICK, IDC_TABCTRL, OnRightClick)
@@ -194,6 +195,7 @@ CMultiFrame::CMultiFrame()
 	m_bHasStarted = FALSE;
 	m_bHide = FALSE;
 
+	m_pDocument = NULL;
 	m_NbTabbedViews = 0;
 	m_bDisplayTab = TRUE;
 	m_bTabUp = GetConfig()->GetProfileInt("DataSet View","UpperTabControl",FALSE);
@@ -274,6 +276,35 @@ void CMultiFrame::OnGetMinMaxInfo(MINMAXINFO FAR* lpMMI)
 		lpMMI->ptMinTrackSize.x = m_MinSize.x - 300;
 		lpMMI->ptMinTrackSize.y = m_MinSize.y - 200;
 	}*/
+}
+
+// MDI activation, not the view's OnActivateView: MFC tells only the frame's active
+// view (CMDIChildWnd::OnMDIActivate), so a document that comes back with a chart
+// tab in front would never reach CMainView. Mid-sweep nothing moves - the running
+// sweep stamps its readings from the cache; ~SweepActiveGuard catches up after it.
+void CMultiFrame::OnMDIActivate(BOOL bActivate, CWnd* pActivateWnd, CWnd* pDeactivateWnd)
+{
+	CNewMDIChildWnd::OnMDIActivate ( bActivate, pActivateWnd, pDeactivateWnd );
+	if ( bActivate && ! IsMeasureSweepActive () )
+		RefreshCCState ();
+}
+
+// Refresh whether or not the document HAS a set: one with an empty collection
+// must also displace the previous document's set from the cache (the empty
+// USER state), or its name and targets linger.
+void CMultiFrame::RefreshCCState()
+{
+	CDataSetDoc * pDoc = GetDocument ();
+	if ( pDoc == NULL )
+		return;
+	pDoc -> SyncCCTargets ();
+	POSITION pos = pDoc -> GetFirstViewPosition ();
+	while ( pos != NULL )
+	{
+		CView * pView = pDoc -> GetNextView ( pos );
+		if ( pView != NULL && pView -> IsKindOf ( RUNTIME_CLASS ( CMainView ) ) )
+			( (CMainView *) pView ) -> ResyncCCControls ();
+	}
 }
 
 void CMultiFrame::OnDestroy() 

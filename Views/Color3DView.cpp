@@ -407,7 +407,7 @@ static double SceneDiffuseWhiteY( CMeasure * pM )
 	// the same diffuse white or bright patches/targets fly out of scale.
 	if ( GetConfig()->m_GammaOffsetType == 5 )
 	{
-		double tm = TmDiffuseWhiteNits( pM->GetOnOffWhite(), pM->GetOnOffBlack() );
+		double tm = TmDiffuseWhiteNits( pM->GetGrayScaleWhite(), pM->GetGrayScaleBlack() );
 		// never fall through to the SDR path here: its measured-white fallbacks
 		// return PEAK white in PQ (up to ~100x diffuse), which would collapse
 		// the whole scene toward the floor. Same fallback GetHDRRefScale uses.
@@ -458,9 +458,9 @@ static double GridGrayWhiteY( CMeasure * pM )
 	// Deliberately the same test and fallback as UpdateGrid, down to accepting a
 	// valid-but-zero white: GetDeltaE substitutes 120 for YWhite <= 0 on both
 	// sides, so matching exactly keeps the two paths bit-identical.
-	int n = pM->GetGrayScaleSize();
-	if ( n > 0 && pM->GetGray( n - 1 ).isValid() )
-		return pM->GetGray( n - 1 )[1];
+	const CColor w = pM->GetGrayScaleWhite();
+	if ( w.isValid() )
+		return w[1];
 	return GetConfig()->m_TargetMaxL;      // same fallback as UpdateGrid
 }
 
@@ -469,18 +469,17 @@ static double GridGrayWhiteY( CMeasure * pM )
 // (MainView.cpp cases 0/3/4) exactly, including the mode-5 nits conversion and
 // the mode-1 black compensation. blackRef is the black the grid feeds
 // getL_EOTF: near-black passes its own first patch, the others the on/off black.
-static double GridGrayTargetRatio( CMeasure * pM, double x, const CColor & blackRef,
+// valx is the patch's gray level, 0..1: CMeasure::GetGrayReadingProp, its
+// stamped drive or else its slot on the current grid, as the grid uses.
+static double GridGrayTargetRatio( CMeasure * pM, double valx, const CColor & blackRef,
 								   double gsWhiteY, double gammaOffset )
 {
 	int mode = GetConfig()->m_GammaOffsetType;
 	if ( GetConfig()->m_colorStandard == sRGB )
 		mode = 99;
-	double valx = GrayLevelToGrayProp( x, GetConfig()->m_bUseRoundDown != FALSE,
-									   GetConfig()->GetUse10bitLevels() != FALSE,
-									   GetConfig()->GetRGB16_235() != FALSE );
 	if ( mode >= 4 )
 	{
-		double L = getL_EOTF( valx, pM->GetOnOffWhite(), blackRef,
+		double L = getL_EOTF( valx, pM->GetGrayScaleWhite(), blackRef,
 							  GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,
 							  GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL,
 							  GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL, GetConfig()->m_useToneMap,
@@ -547,9 +546,6 @@ void C3DColorView::BuildScene()
 	ColorxyY wChroma( active.GetWhite() );
 	const int  gammaMode = GetConfig()->m_GammaOffsetType;
 	const int  dEgray    = GetConfig()->m_dE_gray;
-	const bool bRound    = GetConfig()->m_bUseRoundDown != FALSE;
-	const bool b10bit    = GetConfig()->GetUse10bitLevels() != FALSE;
-	const bool bLimRange = GetConfig()->GetRGB16_235() != FALSE;
 
 	// Grayscale (+ near-black/white): reference chromaticity is the target white;
 	// the reference luminance and the YWhite passed to GetDeltaE follow the
@@ -579,8 +575,8 @@ void C3DColorView::BuildScene()
 		if ( dEgray == 1 )
 		{
 			// theoretical luminance from the target gamma / EOTF curve
-			double gridRatio = GridGrayTargetRatio( pMeasure, pMeasure->GetGrayPercent( i, bRound, b10bit, bLimRange ),
-													pMeasure->GetOnOffBlack(), gsWhiteY, gammaOffset );
+			double gridRatio = GridGrayTargetRatio( pMeasure, pMeasure->GetGrayReadingProp( GRAY_SERIES_GRAYSCALE, i ),
+													pMeasure->GetGrayScaleBlack(), gsWhiteY, gammaOffset );
 			deRatio   = gridRatio;
 			markRatio = gridRatio * markPerGrid;
 		}
@@ -598,7 +594,7 @@ void C3DColorView::BuildScene()
 		markT.SetxyYValue( wChroma[0], wChroma[1], markRatio );
 		wchar_t lbl[48];
 		std::wstring grayFmt = LoadResWide( IDS_3D_GRAYPCT );
-		swprintf( lbl, 48, grayFmt.c_str(), (int)( pMeasure->GetGrayPercent( i, bRound, b10bit, bLimRange ) + 0.5 ) );
+		swprintf( lbl, 48, grayFmt.c_str(), (int)( pMeasure->GetGrayReadingLevel( GRAY_SERIES_GRAYSCALE, i ) + 0.5 ) );
 		AppendMeasure( c, whiteY, ref, dET, markT, true, ywForDE, lbl, SRC_GRAY, i );
 	}
 
@@ -619,13 +615,13 @@ void C3DColorView::BuildScene()
 			double deRatio   = gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1];
 			if ( dEgray == 1 )
 			{
-				// Same stimulus level and black reference the grid feeds the
-				// curve: near-black steps by 2 in PQ and anchors getL_EOTF on
-				// its own first patch; near-white counts back from the clip col.
-				double x = nb ? ArrayIndexToGrayLevel( (int)pMeasure->m_NearWhiteClipCol - n + i, 101, bRound, b10bit, bLimRange )
-							  : ArrayIndexToGrayLevel( i * ( gammaMode == 5 ? 2 : 1 ), 101, bRound, b10bit, bLimRange );
-				CColor blackRef = nb ? pMeasure->GetOnOffBlack() : pMeasure->GetNearBlack( 0 );
-				double gridRatio = GridGrayTargetRatio( pMeasure, x, blackRef, gsWhiteY, gammaOffset );
+				// Same level and black reference the grid feeds the curve: the
+				// reading's stamped drive, else its slot (near-black steps by 2 in
+				// PQ, near-white counts back from the clip col); near-black
+				// anchors getL_EOTF on its own first patch.
+				double valx = pMeasure->GetGrayReadingProp( nb ? GRAY_SERIES_NEAR_WHITE : GRAY_SERIES_NEAR_BLACK, i );
+				CColor blackRef = nb ? pMeasure->GetGrayScaleBlack() : pMeasure->GetNearBlack( 0 );
+				double gridRatio = GridGrayTargetRatio( pMeasure, valx, blackRef, gsWhiteY, gammaOffset );
 				deRatio   = gridRatio;
 				markRatio = gridRatio * markPerGrid;
 			}
@@ -2497,13 +2493,8 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 		if ( pView != NULL && pView->IsKindOf( RUNTIME_CLASS( CMainView ) ) )
 		{
 			CMainView * pMain = (CMainView *)pView;
-			if ( mode >= 0 && pMain->m_comboMode.GetSafeHwnd() != NULL
-			  && pMain->m_comboMode.GetCurSel() != mode )
-			{
-				// switch the data grid to the right measurement category
-				pMain->m_comboMode.SetCurSel( mode );
-				pMain->OnSelchangeComboMode();
-			}
+			if ( mode >= 0 )
+				pMain->SelectDisplayMode( mode );	// switch the data grid to the right measurement category
 			if ( S.srcType == SRC_PROFILE )
 			{
 				// mode 13 has no grid to feed the reference comparator; drive the

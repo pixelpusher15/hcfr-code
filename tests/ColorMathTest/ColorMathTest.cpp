@@ -16,7 +16,11 @@
 // T18 asserts the whiter-than-white reference EOTF extension (bExtendSDR),
 // T19 asserts the #193 archive extension trailer: round trip, unknown-tag skip,
 // legacy bytes, rejections, the primitives, append-only values, and the legacy store,
-// and T22 asserts the test-color window paints each patch's own code.
+// T22 asserts the test-color window paints each patch's own code, and T41 asserts the
+// saturation-tracking hue/luminance errors and anchor transform. T44 writes a synthetic
+// set with the .ti3 export writer and reads it back through the in-tree CGATS reader.
+// T45 asserts that the #256 spectral-correction sync ends the same whichever comes
+// first, a measurement or the sensor sheet, and pins its rules.
 // The .chc round-trip originally planned for the T7
 // slot needs app-level linkage and is deliberately still not in this console harness.
 
@@ -26,6 +30,9 @@
 #include "../../libHCFR/ArchiveTags.h"
 #include "../../libHCFR/SpectralCorrection.h"
 #include <limits>
+#include "../../libHCFR/SaturationTracking.h"
+#include "../../libHCFR/Ti3Export.h"
+#include "../../Tools/spectro/cgats.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -34,6 +41,9 @@
 #include <string>
 #include <vector>
 #include <direct.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/utime.h>
 
 static int g_failures = 0;
 
@@ -2932,6 +2942,48 @@ namespace T32Spectral
         CheckMatrix("(f) native method basis, driver-corrected record -> M",
                     EffectiveSensorMatrix(CALIB_HCFR_DEFAULT, FIT_BASIS_NATIVE, drv, M), M, 1e-14);
     }
+
+    // (g) The matrix-calibration refusal (PR #237 review R1). A record the driver
+    // applies itself (basis DRIVER_CORRECTED) means the meter reports corrected
+    // readings: a matrix fitted on them would be applied to native readings once
+    // the record is cleared, so every matrix calibration entry point refuses. Every
+    // source x basis cell, stated independently: refused only for a present record
+    // with basis DRIVER_CORRECTED. The absent record carries DRIVER_CORRECTED as
+    // its basis, so a predicate that ignored IsPresent() fails here.
+    static void CheckMatrixCalibrationAllowed()
+    {
+        const int sources[] = { SPECTRAL_SOURCE_NONE, SPECTRAL_SOURCE_FILE, SPECTRAL_SOURCE_DISPLAY_TYPE };
+        const int bases[]   = { FIT_BASIS_UNKNOWN, FIT_BASIS_NATIVE, FIT_BASIS_DRIVER_CORRECTED };
+        int cells = 0, refused = 0;
+        for (int si = 0; si < 3; ++si)
+            for (int bi = 0; bi < 3; ++bi)
+            {
+                SpectralCorrectionRecord rec;
+                rec.source = sources[si];
+                rec.basis  = bases[bi];
+                const bool want = !( sources[si] != SPECTRAL_SOURCE_NONE && bases[bi] == FIT_BASIS_DRIVER_CORRECTED );
+                const bool got  = MatrixCalibrationAllowed(rec);
+                if (got != want)
+                    Fail("T32 (g) source %d basis %d: MatrixCalibrationAllowed %d, want %d",
+                         sources[si], bases[bi], (int) got, (int) want);
+                if (!got)
+                    ++refused;
+                ++cells;
+            }
+        if (cells != 9 || refused != 2)
+            Fail("T32 (g) table has %d cells and %d refusals, want 9 and 2", cells, refused);
+        // A default-constructed record (no spectral correction at all) allows it,
+        // and so does a cleared driver-corrected one.
+        SpectralCorrectionRecord none;
+        if (!MatrixCalibrationAllowed(none))
+            Fail("T32 (g) a default record refuses a matrix calibration");
+        SpectralCorrectionRecord cleared;
+        cleared.source = SPECTRAL_SOURCE_FILE;
+        cleared.basis  = FIT_BASIS_DRIVER_CORRECTED;
+        cleared.Clear();
+        if (!MatrixCalibrationAllowed(cleared))
+            Fail("T32 (g) a cleared driver-corrected record still refuses a matrix calibration");
+    }
 }
 
 static void RunT32()
@@ -2943,6 +2995,7 @@ static void RunT32()
     T32Spectral::CheckRecord();
     T32Spectral::CheckPersistedNumbers();
     T32Spectral::CheckDispatch();
+    T32Spectral::CheckMatrixCalibrationAllowed();
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2991,6 +3044,3534 @@ static void RunT13()
     printf("  %d HLG black cases checked\n", cases);
 }
 
+//////////////////////////////////////////////////////////////////////////
+// T41 - saturation-tracking oracle (pure assertion, no golden file). The
+// "Saturation - shifts" view's hue error, luminance error and anchor-preview
+// transform (libHCFR/SaturationTracking). Synthetic points about a D65-like
+// white in u'v': a known rotation must read back as that many degrees, wrapped
+// to -180..180; the anchor transform must put the anchor point itself on its
+// target (that is what the knob settings are chosen for); a point with no
+// error must come back unchanged; an anchor with no defined hue (target on the
+// white) must be the identity.
+//////////////////////////////////////////////////////////////////////////
+namespace T41
+{
+    const double kUw = 0.1978, kVw = 0.4683;    // u'v' of the synthetic white
+    const double kPi = 3.14159265358979323846;
+
+    // A point at polar (r, deg) about the white, as XYZ with luminance Y
+    static void Polar(double r, double deg, double Y, double xyz[3])
+    {
+        double u = kUw + r * cos(deg * kPi / 180.0);
+        double v = kVw + r * sin(deg * kPi / 180.0);
+        double X, Yo, Z;
+        SatTrackUvYToXYZ(u, v, Y, X, Yo, Z);
+        xyz[0] = X; xyz[1] = Yo; xyz[2] = Z;
+    }
+
+    static void Uv(const double xyz[3], double & u, double & v)
+    {
+        SatTrackXYZToUv(xyz[0], xyz[1], xyz[2], u, v);
+    }
+}
+
+static void RunT41()
+{
+    printf("T41 saturation-tracking oracle...\n");
+    using namespace T41;
+    int checks = 0;
+
+    // 1. Hue error of a known rotation, both signs and across the wrap
+    static const double rotations[] = { 5.0, -5.0, 0.0, 37.5, 175.0, 190.0, -190.0 };
+    static const double expected[]  = { 5.0, -5.0, 0.0, 37.5, 175.0, -170.0, 170.0 };
+    for (int i = 0; i < _countof(rotations); i++)
+    {
+        const double base = 20.0;                   // target direction, degrees
+        double t[3], m[3], ut, vt, um, vm;
+        Polar(0.08, base, 30.0, t);
+        Polar(0.08, base + rotations[i], 30.0, m);
+        Uv(t, ut, vt);
+        Uv(m, um, vm);
+        double h = SatTrackHueErrorDeg(um, vm, ut, vt, kUw, kVw);
+        if (fabs(h - expected[i]) > 1e-9)
+            Fail("T41 rotation %g: hue error %.12f, want %.12f +/- 1e-9", rotations[i], h, expected[i]);
+        checks++;
+    }
+    // A point on the white has no hue: 0 by definition
+    if (SatTrackHueErrorDeg(kUw, kVw, kUw + 0.05, kVw, kUw, kVw) != 0.0)
+        Fail("T41 measured on the white: hue error not 0");
+    if (SatTrackHueErrorDeg(kUw + 0.05, kVw, kUw, kVw, kUw, kVw) != 0.0)
+        Fail("T41 target on the white: hue error not 0");
+    checks += 2;
+
+    // 2. Radial and luminance errors of known ratios
+    {
+        double e = SatTrackRadialErrorPct(kUw + 0.066, kVw, kUw + 0.06, kVw, kUw, kVw);
+        if (fabs(e - 10.0) > 1e-9)
+            Fail("T41 radial 0.066/0.060: %.12f, want 10 +/- 1e-9", e);
+        double l = SatTrackLuminanceErrorPct(33.0, 30.0);
+        if (fabs(l - 10.0) > 1e-9)
+            Fail("T41 luminance 33/30: %.12f, want 10 +/- 1e-9", l);
+        if (SatTrackLuminanceErrorPct(5.0, 0.0) != 0.0)
+            Fail("T41 luminance against a zero target: not 0");
+        checks += 3;
+    }
+
+    // 3. The anchor point lands on its target, and the anchor reads the
+    //    errors that were put in
+    static const struct { double dHue, kSat, kLum; } errs[] =
+    {
+        { 7.0, 1.12, 0.93 }, { -4.5, 0.85, 1.08 }, { 0.0, 1.0, 1.0 }, { 30.0, 1.5, 0.5 }
+    };
+    for (int i = 0; i < _countof(errs); i++)
+    {
+        double t[3], m[3], out[3];
+        Polar(0.07, 112.0, 25.0, t);
+        Polar(0.07 * errs[i].kSat, 112.0 + errs[i].dHue, 25.0 * errs[i].kLum, m);
+        SatTrackAnchor a = SatTrackComputeAnchor(m, t, kUw, kVw);
+        if (!a.valid)
+        {
+            Fail("T41 anchor case %d: not valid", i);
+            continue;
+        }
+        if (fabs(a.hueDeg - errs[i].dHue) > 1e-9
+            || fabs(a.satPct - 100.0 * (errs[i].kSat - 1.0)) > 1e-9
+            || fabs(a.lumPct - 100.0 * (errs[i].kLum - 1.0)) > 1e-9)
+            Fail("T41 anchor case %d: errors H %.12f S %.12f L %.12f, want %g %g %g (+/- 1e-9)", i,
+                 a.hueDeg, a.satPct, a.lumPct, errs[i].dHue, 100.0 * (errs[i].kSat - 1.0), 100.0 * (errs[i].kLum - 1.0));
+        if (!SatTrackApplyAnchor(a, m, out))
+            Fail("T41 anchor case %d: apply failed", i);
+        double uo, vo, ut, vt;
+        Uv(out, uo, vo);
+        Uv(t, ut, vt);
+        if (fabs(uo - ut) > 1e-9 || fabs(vo - vt) > 1e-9 || fabs(out[1] - t[1]) > 1e-9)
+            Fail("T41 anchor case %d: anchor point lands at u'v'Y (%.12f %.12f %.12f), target (%.12f %.12f %.12f) +/- 1e-9",
+                 i, uo, vo, out[1], ut, vt, t[1]);
+        checks += 2;
+    }
+
+    // 4. A point with zero error is unchanged: an anchor that measured no
+    //    error (anchor point == target) moves no other point either
+    {
+        double t[3], p[3], q[3], out[3];
+        Polar(0.07, 250.0, 12.0, t);
+        SatTrackAnchor a = SatTrackComputeAnchor(t, t, kUw, kVw);
+        if (!a.valid || a.hueDeg != 0.0 || a.satPct != 0.0 || a.lumPct != 0.0)
+            Fail("T41 zero-error anchor: valid %d H %.17g S %.17g L %.17g, want valid and exactly 0",
+                 (int)a.valid, a.hueDeg, a.satPct, a.lumPct);
+        Polar(0.03, 247.0, 4.0, p);
+        Polar(0.11, 255.0, 20.0, q);
+        const double * pts[3] = { t, p, q };
+        for (int k = 0; k < 3; k++)
+        {
+            SatTrackApplyAnchor(a, pts[k], out);
+            for (int c = 0; c < 3; c++)
+                if (fabs(out[c] - pts[k][c]) > 1e-9)
+                    Fail("T41 zero-error anchor moved point %d component %d: %.12f -> %.12f (+/- 1e-9)",
+                         k, c, pts[k][c], out[c]);
+            checks++;
+        }
+    }
+
+    // 5. No defined hue at the anchor (target on the white): the identity, exactly
+    {
+        double w[3], m[3], out[3];
+        Polar(0.0, 0.0, 50.0, w);
+        Polar(0.05, 10.0, 40.0, m);
+        SatTrackAnchor a = SatTrackComputeAnchor(m, w, kUw, kVw);
+        if (a.valid)
+            Fail("T41 target on the white: anchor reported valid");
+        SatTrackApplyAnchor(a, m, out);
+        if (out[0] != m[0] || out[1] != m[1] || out[2] != m[2])
+            Fail("T41 invalid anchor is not the identity");
+        checks += 2;
+    }
+
+    // 6. A correction that pushes a point past the spectrum locus (Z < 0) is
+    //    refused, and the output is the unchanged input. Yellow-like point at
+    //    u'v' (0.2027, 0.5662), Z ~ 3% of Y (a measured BT.2020 yellow), with
+    //    an anchor that reads 10 percent undersaturated: scaling its radius by
+    //    1.1 puts 12 - 3u - 20v below 0
+    {
+        double t[3], m[3], y[3], out[3];
+        Polar(0.08, 90.0, 30.0, t);
+        Polar(0.08 / 1.1, 90.0, 30.0, m);           // anchor: 1/1.1 of the target radius
+        SatTrackAnchor a = SatTrackComputeAnchor(m, t, kUw, kVw);
+        double X, Yo, Z;
+        SatTrackUvYToXYZ(0.2027, 0.5662, 81.6, X, Yo, Z);
+        y[0] = X; y[1] = Yo; y[2] = Z;
+        if (!(Z > 0.0))
+            Fail("T41 locus case: synthetic yellow has Z %.6f, want > 0", Z);
+        bool ok = SatTrackApplyAnchor(a, y, out);
+        if (ok)
+            Fail("T41 locus case: correction past the locus was accepted");
+        if (out[0] != y[0] || out[1] != y[1] || out[2] != y[2])
+            Fail("T41 locus case: refused correction did not return the input");
+        checks += 3;
+    }
+
+    // 7. An anchor ON the locus is accepted: a target with Z exactly 0 (the
+    //    BT.2020 red corner, xy 0.708 0.292) and a measured point that is also
+    //    on the locus (Z = 0, as a simulated sensor reports a pure red) at
+    //    another x and Y. The anchor point must land on the target; its Z comes
+    //    back as round-off of either sign (about a quarter of this 8 x 5 x 5
+    //    grid goes negative, at -1e-14 or so), and that must not refuse it.
+    {
+        int refused = 0, cases = 0;
+        for (int iy = 0; iy < 8; iy++)
+        for (int im = 0; im < 5; im++)
+        for (int ix = 0; ix < 5; ix++)
+        {
+            const double ty = 3.0 + 2.5 * iy;
+            double t[3] = { ty * 0.708 / 0.292, ty, 0.0 };
+            double ut, vt, out[3];
+            Uv(t, ut, vt);
+            const double my = ty * (0.80 + 0.05 * im), mx = 0.708 + 0.01 * ix;
+            double m[3] = { my * mx / (1.0 - mx), my, 0.0 };
+            SatTrackAnchor a = SatTrackComputeAnchor(m, t, kUw, kVw);
+            cases++;
+            if (!a.valid || !SatTrackApplyAnchor(a, m, out))
+            {
+                refused++;
+                continue;
+            }
+            double uo, vo;
+            Uv(out, uo, vo);
+            if (fabs(uo - ut) > 1e-9 || fabs(vo - vt) > 1e-9 || fabs(out[1] - ty) > 1e-9 || out[2] < 0.0 || out[2] > 1e-9 * ty)
+                Fail("T41 locus target Y %g: lands at u'v'Y (%.12f %.12f %.12f) Z %.3g, target (%.12f %.12f %.12f) Z 0",
+                     ty, uo, vo, out[1], out[2], ut, vt, ty);
+        }
+        if (refused)
+            Fail("T41 locus target: %d of %d anchor points refused", refused, cases);
+
+        // Deterministic form of the same round-off: a valid, zero-error anchor
+        // applied to a locus color whose Z is -1e-13 * Y (what the u'v' round
+        // trip can return for Z = 0) is accepted with Z clamped to exactly 0;
+        // at -1e-6 * Y, far beyond round-off, it is refused
+        const double ty = 26.27;
+        double t[3] = { ty * 0.708 / 0.292, ty, 0.0 };
+        SatTrackAnchor a = SatTrackComputeAnchor(t, t, kUw, kVw);
+        double y1[3] = { t[0], ty, -1e-13 * ty }, y2[3] = { t[0], ty, -1e-6 * ty }, out[3] = { 0.0, 0.0, 0.0 };
+        if (!a.valid || !SatTrackApplyAnchor(a, y1, out) || out[2] != 0.0 || fabs(out[1] - ty) > 1e-9)
+            Fail("T41 locus round-off: Z = -1e-13 Y not accepted and clamped (valid %d, Z out %.3g)", (int)a.valid, out[2]);
+        if (SatTrackApplyAnchor(a, y2, out))
+            Fail("T41 locus round-off: Z = -1e-6 Y accepted");
+        cases += 2;
+        checks += cases;
+    }
+
+    printf("  %d saturation-tracking checks\n", checks);
+}
+
+// T42 - user patch set definition helpers (pure assertion, no golden file).
+// CsvPatchCodesMatch decides whether re-opening a patch list may keep the
+// readings of the set of that name: only when every row still drives the same
+// code. CsvSetNameFromPath names the set from the file.
+static void RunT42()
+{
+    printf("T42 user patch set definition helpers...\n");
+
+    std::vector<CsvPatchRow> a(3);
+    for (int i = 0; i < 3; i++)
+    {
+        a[i].patch = i + 1;
+        a[i].r = 16 + i; a[i].g = 32 + i; a[i].b = 64 + i;
+        a[i].name = "row";
+    }
+    std::vector<CsvPatchRow> b(a);
+    if (!CsvPatchCodesMatch(a, b))
+        Fail("T42 identical rows: not a match");
+    b[1].name = "renamed";
+    b[1].patch = 99;
+    if (!CsvPatchCodesMatch(a, b))
+        Fail("T42 a new label on the same codes: not a match");
+    for (int c = 0; c < 3; c++)
+    {
+        std::vector<CsvPatchRow> d(a);
+        (c == 0 ? d[2].r : c == 1 ? d[2].g : d[2].b) += 1;
+        if (CsvPatchCodesMatch(a, d))
+            Fail("T42 last row, channel %d one code off: reported a match", c);
+    }
+    std::vector<CsvPatchRow> shorter(a.begin(), a.begin() + 2);
+    if (CsvPatchCodesMatch(a, shorter))
+        Fail("T42 different row counts: reported a match");
+
+    static const struct { const char * path; const char * name; } kNames[] =
+    {
+        { "C:\\lists\\ramp.csv",     "ramp" },
+        { "C:\\lists\\ramp.CSV",     "ramp" },
+        { "C:\\lists\\Ramp.Csv",     "Ramp" },
+        { "ramp.csv",                    "ramp" },
+        { "C:\\lists\\ramp.csv.bak", "ramp.csv.bak" },
+        { "C:\\a.csv\\ramp",         "ramp" },
+        { "C:\\lists\\ramp",         "ramp" },
+    };
+    for (size_t i = 0; i < sizeof(kNames) / sizeof(kNames[0]); i++)
+    {
+        std::string got = CsvSetNameFromPath(kNames[i].path);
+        if (got != kNames[i].name)
+            Fail("T42 name of %s: '%s', want '%s'", kNames[i].path, got.c_str(), kNames[i].name);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T44 - CGATS CTI3 (.ti3) export round trip.
+// Writes synthetic tables with WriteTi3File (libHCFR/Ti3Export, the writer the
+// app's Export > Measures to ti3 file uses) and reads them back through the
+// in-tree CGATS reader (Tools/spectro/cgats.c, linked from the spectro library).
+// Header keywords, table type, field names and types, and every number are
+// compared. The library writes reals at 6 significant digits, so the exact
+// cases use values that print exactly at that precision (dyadic fractions of
+// at most 6 significant digits, white Y = 200 so the 100/Y_white scale is 0.5);
+// one case states the 6-digit bound for values that do not.
+//////////////////////////////////////////////////////////////////////////
+namespace T44
+{
+    // white (absolute cd/m2) and three readings with a gap in SAMPLE_ID (slot 3, 4 skipped)
+    static const double kWhite[3] = { 190.0, 200.0, 217.5 };
+    static const int    kIds[3]   = { 1, 2, 5 };
+    static const double kRgb[3][3] = { { 100.0, 100.0, 100.0 }, { 50.0, 25.0, 0.0 }, { 6.25, 12.5, 75.0 } };
+    static const double kXyz[3][3] = { { 190.0, 200.0, 217.5 }, { 41.25, 30.5, 8.75 }, { 12.125, 9.5, 60.25 } };
+    static const double kSpec[3][4] = { { 2.5, 4.0, 8.25, 1.125 }, { 0.5, 1.75, 3.0, 0.25 }, { 6.0, 0.125, 0.0, 9.5 } };
+
+    static Ti3Table Make(bool withSpectra)
+    {
+        Ti3Table t;
+        t.descriptor = "T44 synthetic set";
+        t.originator = "ColorMathTest";
+        for (int c = 0; c < 3; c++)
+            t.whiteXYZ[c] = kWhite[c];
+        t.specBands = 4;
+        t.specStartNm = 380.0;
+        t.specEndNm = 680.0;
+        for (int r = 0; r < 3; r++)
+        {
+            Ti3Reading rd;
+            rd.sampleId = kIds[r];
+            for (int c = 0; c < 3; c++)
+            {
+                rd.rgb[c] = kRgb[r][c];
+                rd.xyz[c] = kXyz[r][c];
+            }
+            if (withSpectra || r != 1)  // without spectra: the middle reading lacks one
+                rd.spectrum.assign(kSpec[r], kSpec[r] + 4);
+            t.readings.push_back(rd);
+        }
+        return t;
+    }
+
+    static std::string TempPath(const char* name)
+    {
+        char dir[MAX_PATH];
+        DWORD n = GetTempPathA(MAX_PATH, dir);
+        return std::string((n > 0 && n < MAX_PATH) ? dir : ".\\") + name;
+    }
+
+    static const char* Kw(cgats* p, const char* k)
+    {
+        int i = p->find_kword(p, 0, k);
+        return (i >= 0) ? p->t[0].kdata[i] : NULL;
+    }
+
+    static void CheckKw(cgats* p, const char* tag, const char* k, const char* want)
+    {
+        const char* got = Kw(p, k);
+        if (want == NULL)
+        {
+            if (got != NULL)
+                Fail("T44 %s: keyword %s present ('%s'), want absent", tag, k, got);
+        }
+        else if (got == NULL || strcmp(got, want) != 0)
+            Fail("T44 %s: keyword %s = '%s', want '%s'", tag, k, got ? got : "(absent)", want);
+    }
+
+    // Read path back; returns NULL (after a Fail) when the reader refuses it.
+    static cgats* ReadBack(const char* tag, const std::string& path)
+    {
+        cgats* p = new_cgats();
+        if (p == NULL)
+        {
+            Fail("T44 %s: new_cgats failed", tag);
+            return NULL;
+        }
+        p->add_other(p, "CTI3");
+        if (p->read_name(p, path.c_str()) < 0)
+        {
+            Fail("T44 %s: CGATS reader refused %s: %s", tag, path.c_str(), p->e.m);
+            p->del(p);
+            return NULL;
+        }
+        return p;
+    }
+
+    static void CheckRoundTrip(bool withSpectra)
+    {
+        const char* tag = withSpectra ? "spectral" : "no-spectra";
+        Ti3Table t = Make(withSpectra);
+        std::string path = TempPath(withSpectra ? "HCFR_T44_spectral.ti3" : "HCFR_T44_plain.ti3");
+        std::string err;
+        if (!WriteTi3File(path.c_str(), t, err))
+        {
+            Fail("T44 %s: WriteTi3File failed: %s", tag, err.c_str());
+            return;
+        }
+        cgats* p = ReadBack(tag, path);
+        if (p == NULL)
+            return;
+
+        if (p->ntables != 1)
+            Fail("T44 %s: %d tables, want 1", tag, p->ntables);
+        if (p->t[0].tt != tt_other || p->t[0].oi < 0 || p->t[0].oi >= p->nothers
+         || strcmp(p->others[p->t[0].oi], "CTI3") != 0)
+            Fail("T44 %s: table type is not CTI3", tag);
+
+        CheckKw(p, tag, "DESCRIPTOR", "T44 synthetic set");
+        CheckKw(p, tag, "ORIGINATOR", "ColorMathTest");
+        CheckKw(p, tag, "DEVICE_CLASS", "DISPLAY");
+        CheckKw(p, tag, "COLOR_REP", "RGB_XYZ");
+        CheckKw(p, tag, "NORMALIZED_TO_Y_100", "YES");
+        CheckKw(p, tag, "LUMINANCE_XYZ_CDM2", "190.000000 200.000000 217.500000");
+        CheckKw(p, tag, "INSTRUMENT_TYPE_SPECTRAL", withSpectra ? "YES" : "NO");
+        CheckKw(p, tag, "SPECTRAL_BANDS", withSpectra ? "4" : NULL);
+        CheckKw(p, tag, "SPECTRAL_START_NM", withSpectra ? "380.000000" : NULL);
+        CheckKw(p, tag, "SPECTRAL_END_NM", withSpectra ? "680.000000" : NULL);
+        if (Kw(p, "CREATED") == NULL)
+            Fail("T44 %s: no CREATED keyword", tag);
+        // the luminance keyword parses back to the absolute white exactly
+        const char* lum = Kw(p, "LUMINANCE_XYZ_CDM2");
+        double lx = 0, ly = 0, lz = 0;
+        if (lum == NULL || sscanf(lum, "%lf %lf %lf", &lx, &ly, &lz) != 3
+         || lx != kWhite[0] || ly != kWhite[1] || lz != kWhite[2])
+            Fail("T44 %s: LUMINANCE_XYZ_CDM2 does not parse back to the white", tag);
+
+        static const char* kNames[11] = { "SAMPLE_ID", "RGB_R", "RGB_G", "RGB_B", "XYZ_X", "XYZ_Y", "XYZ_Z",
+                                          "SPEC_380", "SPEC_480", "SPEC_580", "SPEC_680" };
+        const int nf = withSpectra ? 11 : 7;
+        if (p->t[0].nfields != nf)
+            Fail("T44 %s: %d fields, want %d", tag, p->t[0].nfields, nf);
+        else
+            for (int f = 0; f < nf; f++)
+            {
+                if (strcmp(p->t[0].fsym[f], kNames[f]) != 0)
+                    Fail("T44 %s: field %d is %s, want %s", tag, f, p->t[0].fsym[f], kNames[f]);
+                data_type want = (f == 0) ? nqcs_t : r_t;
+                if (p->t[0].ftype[f] != want)
+                    Fail("T44 %s: field %s has type %d, want %d", tag, kNames[f], (int)p->t[0].ftype[f], (int)want);
+            }
+
+        if (p->t[0].nsets != 3)
+            Fail("T44 %s: %d sets, want 3", tag, p->t[0].nsets);
+        else if (p->t[0].nfields == nf)
+        {
+            const double scale = 100.0 / kWhite[1];
+            for (int r = 0; r < 3; r++)
+            {
+                char id[16];
+                sprintf(id, "%d", kIds[r]);
+                if (p->t[0].ftype[0] == nqcs_t && strcmp((char*)p->t[0].fdata[r][0], id) != 0)
+                    Fail("T44 %s: set %d SAMPLE_ID '%s', want '%s'", tag, r, (char*)p->t[0].fdata[r][0], id);
+                for (int f = 1; f < nf; f++)
+                {
+                    if (p->t[0].ftype[f] != r_t)
+                        continue;
+                    double got = *(double*)p->t[0].fdata[r][f];
+                    double want = (f <= 3) ? kRgb[r][f - 1]
+                                : (f <= 6) ? kXyz[r][f - 4] * scale
+                                :            kSpec[r][f - 7] * scale;
+                    if (got != want)  // exact: every value prints exactly at 6 significant digits
+                        Fail("T44 %s: set %d %s = %.17g, want %.17g", tag, r, kNames[f], got, want);
+                }
+            }
+        }
+        p->del(p);
+        remove(path.c_str());
+    }
+
+    // Values that do not print exactly come back within the library's
+    // 6-significant-digit rounding: |back - v| <= 5e-6 * |v|.
+    static void CheckPrecisionBound()
+    {
+        Ti3Table t;
+        t.whiteXYZ[0] = 87.123456; t.whiteXYZ[1] = 93.7; t.whiteXYZ[2] = 101.987654;
+        Ti3Reading rd;
+        rd.sampleId = 7;
+        rd.rgb[0] = 100.0 / 3.0; rd.rgb[1] = 512.0 * 100.0 / 1023.0; rd.rgb[2] = 0.0123456789;
+        rd.xyz[0] = 12.3456789; rd.xyz[1] = 0.0987654321; rd.xyz[2] = 87.654321;
+        t.readings.push_back(rd);
+        std::string path = TempPath("HCFR_T44_precision.ti3"), err;
+        if (!WriteTi3File(path.c_str(), t, err))
+        {
+            Fail("T44 precision: WriteTi3File failed: %s", err.c_str());
+            return;
+        }
+        cgats* p = ReadBack("precision", path);
+        if (p == NULL)
+            return;
+        if (p->t[0].nsets != 1 || p->t[0].nfields != 7)
+            Fail("T44 precision: %d sets x %d fields, want 1 x 7", p->t[0].nsets, p->t[0].nfields);
+        else
+            for (int f = 1; f < 7; f++)
+            {
+                double want = (f <= 3) ? rd.rgb[f - 1] : rd.xyz[f - 4] * (100.0 / t.whiteXYZ[1]);
+                double got = (p->t[0].ftype[f] == r_t) ? *(double*)p->t[0].fdata[0][f] : -1.0;
+                if (fabs(got - want) > 5e-6 * fabs(want))
+                    Fail("T44 precision: field %d = %.17g, want %.17g within 5e-6 relative", f, got, want);
+            }
+        p->del(p);
+        remove(path.c_str());
+    }
+
+    static void CheckRefusals()
+    {
+        std::string err;
+        Ti3Table t = Make(true);
+        t.whiteXYZ[1] = 0.0;
+        if (WriteTi3File(TempPath("HCFR_T44_refused.ti3").c_str(), t, err) || err.empty())
+            Fail("T44 white Y = 0: written, want refused with a message");
+        t = Make(true);
+        t.readings.clear();
+        if (WriteTi3File(TempPath("HCFR_T44_refused.ti3").c_str(), t, err) || err.empty())
+            Fail("T44 no readings: written, want refused with a message");
+        t = Make(true);
+        if (WriteTi3File(TempPath("HCFR_T44_no_such_dir\\x.ti3").c_str(), t, err) || err.empty())
+            Fail("T44 unwritable path: reported success, want the library's error");
+        remove(TempPath("HCFR_T44_refused.ti3").c_str());
+
+        // spectral layout rules: whole-nm bands only, every reading on the layout
+        t = Make(true);
+        if (!Ti3HasSpectralColumns(t))
+            Fail("T44 380-680 nm, 4 bands, all readings: no spectral columns");
+        t.specEndNm = 685.0;   // 101.667 nm steps
+        if (Ti3HasSpectralColumns(t))
+            Fail("T44 fractional-nm bands: spectral columns, want none");
+        t = Make(true);
+        t.readings[2].spectrum.pop_back();
+        if (Ti3HasSpectralColumns(t))
+            Fail("T44 one spectrum short a band: spectral columns, want none");
+        if (Ti3SpectralFieldName(Make(true), 0) != "SPEC_380" || Ti3SpectralFieldName(Make(true), 3) != "SPEC_680")
+            Fail("T44 spectral field names");
+        const double w[3] = { 95.0471, 100.0, 108.883 };
+        if (Ti3LuminanceKeyword(w) != "95.047100 100.000000 108.883000")
+            Fail("T44 LUMINANCE_XYZ_CDM2 format: '%s'", Ti3LuminanceKeyword(w).c_str());
+    }
+}
+
+static void RunT44()
+{
+    printf("T44 CGATS .ti3 export round trip...\n");
+    T44::CheckRoundTrip(true);
+    T44::CheckRoundTrip(false);
+    T44::CheckPrecisionBound();
+    T44::CheckRefusals();
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T46 - the per-reading wire-setup stamp (CColor trailer tag
+// COLOR_WIRE_SETUP = 6, libHCFR/WireSetup.h) and the display record it is
+// taken from. Pure assertion; no golden file. Every expectation is exact:
+// the stamp is integers and a bool, so there is no tolerance anywhere.
+//   (a) every field survives Serialize store -> load;
+//   (b) a shorter value (an older writer) loads with the defaults after the
+//       ints it holds, and a longer one (a newer writer) loads the nine it
+//       knows; realDrive is true only for exactly 1;
+//   (c) a reading without the entry loads as unknown (no stamp, defaults);
+//   (d) the entry's bytes are pinned, and a load + re-save is byte-exact;
+//   (e) copy, assignment and Clear keep the stamp deep and separate, and the
+//       4.1 legacy store drops it;
+//   (f) WireDisplayRecord: a stamp is real only for exactly the recorded
+//       stimulus with nothing displayed since.
+//////////////////////////////////////////////////////////////////////////
+namespace T46Wire
+{
+    using T19Ext::Bytes;
+    using T19Ext::Entry;
+
+    static CColorWireSetup Sample()
+    {
+        CColorWireSetup s;
+        s.realDrive = true;
+        s.wireBits = 10;
+        s.encodingRange = WIRE_RANGE_LIMITED;
+        s.deviceRange = WIRE_RANGE_FULL;
+        s.generatorId = WIRE_GENERATOR_GDI;
+        s.outputMode = 6;
+        s.wireCode[0] = 64;
+        s.wireCode[1] = 502;
+        s.wireCode[2] = 940;
+        return s;
+    }
+
+    static void Describe(char* buf, size_t n, const CColorWireSetup& s)
+    {
+        _snprintf_s(buf, n, _TRUNCATE, "{%d, %d, %d, %d, %d, %d, %d/%d/%d}",
+                    s.realDrive ? 1 : 0, s.wireBits, s.encodingRange, s.deviceRange,
+                    s.generatorId, s.outputMode, s.wireCode[0], s.wireCode[1], s.wireCode[2]);
+    }
+
+    static void ExpectSetup(const char* what, const CColorWireSetup& got, const CColorWireSetup& want)
+    {
+        if (got != want)
+        {
+            char g[160], e[160];
+            Describe(g, sizeof(g), got);
+            Describe(e, sizeof(e), want);
+            Fail("T46 %s: stamp %s, expected %s", what, g, e);
+        }
+    }
+
+    // A 101 color, XYZ (0.25, 0.5, 0.75), whose trailer holds one tag-6 entry
+    // made of `ints`, then `extraBytes` stray bytes.
+    static Bytes ColorWithWireValue(const std::vector<int>& ints, int extraBytes)
+    {
+        Entry e;
+        e.tag = (BYTE)ArchiveTag::COLOR_WIRE_SETUP;
+        for (size_t i = 0; i < ints.size(); ++i)
+            T19Ext::PutInt(e.value, ints[i]);
+        for (int i = 0; i < extraBytes; ++i)
+            e.value.push_back((unsigned char)(0xA0 + i));
+        std::vector<Entry> entries(1, e);
+        Bytes b;
+        T19Ext::PutColor101(b, 0.25, 0.5, 0.75, entries);
+        return b;
+    }
+
+    static bool LoadOne(const char* what, const Bytes& b, CColor& out)
+    {
+        CException* e = T19Ext::Load(b, &out, 1);
+        if (e)
+        {
+            int cause = -1;
+            if (e->IsKindOf(RUNTIME_CLASS(CArchiveException)))
+                cause = ((CArchiveException*)e)->m_cause;
+            Fail("T46 %s: load threw %s (archive cause %d)", what,
+                 e->GetRuntimeClass()->m_lpszClassName, cause);
+            e->Delete();
+            return false;
+        }
+        return true;
+    }
+
+    // What a generator records: Sample()'s setup with all three codes = code.
+    static void Display(double r, double g, double b, int code, unsigned long* pSerial)
+    {
+        const double stim[3] = { r, g, b };
+        CColorWireSetup s = Sample();
+        s.realDrive = false;
+        s.wireCode[0] = s.wireCode[1] = s.wireCode[2] = code;
+        WireDisplayRecord::Record(stim, s);
+        if (pSerial)
+            WireDisplayRecord::StampFor(stim, pSerial);
+    }
+}
+
+static void RunT46()
+{
+    printf("T46 per-reading wire-setup stamp (tag 6)...\n");
+    using namespace T46Wire;
+    const CColorWireSetup kDefault;
+    const CColorWireSetup kSample = Sample();
+
+    // the defaults the reader fills in, as ArchiveTags.h states them
+    if (kDefault.realDrive || kDefault.wireBits != 0 || kDefault.encodingRange != -1
+        || kDefault.deviceRange != -1 || kDefault.generatorId != 0 || kDefault.outputMode != -1
+        || kDefault.wireCode[0] != -1 || kDefault.wireCode[1] != -1 || kDefault.wireCode[2] != -1)
+        Fail("T46 defaults: not (false, 0, -1, -1, 0, -1, -1, -1, -1)");
+
+    // (a) round trip of every field, with realDrive true and false
+    for (int k = 0; k < 2; ++k)
+    {
+        CColor c(0.25, 0.5, 0.75);
+        CColorWireSetup s = kSample;
+        if (k == 1)
+        {
+            s.realDrive = false;
+            s.wireBits = 8;
+            s.encodingRange = WIRE_RANGE_FULL;
+            s.deviceRange = WIRE_RANGE_UNKNOWN;
+            s.outputMode = 0;
+            s.wireCode[0] = 0; s.wireCode[1] = 128; s.wireCode[2] = 255;
+        }
+        c.SetWireSetup(s);
+        Bytes b = T19Ext::Store(c);
+        CColor back;
+        if (LoadOne("(a) round trip", b, back))
+        {
+            if (!back.HasWireSetup())
+                Fail("T46 (a) round trip %d: no stamp after load", k);
+            ExpectSetup(k ? "(a) round trip, realDrive false" : "(a) round trip, realDrive true",
+                        back.GetWireSetup(), s);
+        }
+    }
+
+    // (b) shorter values: n ints, every n from 0 to 9; then longer ones
+    {
+        const int full[9] = { 1, 10, 1, 0, 1, 6, 64, 502, 940 };
+        for (int n = 0; n <= 9; ++n)
+        {
+            std::vector<int> ints(full, full + n);
+            CColor back;
+            char what[64];
+            _snprintf_s(what, sizeof(what), _TRUNCATE, "(b) a value of %d ints", n);
+            if (!LoadOne(what, ColorWithWireValue(ints, 0), back))
+                continue;
+            if (!back.HasWireSetup())
+                Fail("T46 %s: no stamp after load", what);
+            CColorWireSetup want = kDefault;
+            if (n > 0) want.realDrive = true;
+            if (n > 1) want.wireBits = 10;
+            if (n > 2) want.encodingRange = 1;
+            if (n > 3) want.deviceRange = 0;
+            if (n > 4) want.generatorId = 1;
+            if (n > 5) want.outputMode = 6;
+            if (n > 6) want.wireCode[0] = 64;
+            if (n > 7) want.wireCode[1] = 502;
+            if (n > 8) want.wireCode[2] = 940;
+            ExpectSetup(what, back.GetWireSetup(), want);
+        }
+        // fields a newer writer appends are skipped; a partial int is not an int
+        static const int kExtra[] = { 2, 4, 7 };
+        for (int j = 0; j < 3; ++j)
+        {
+            std::vector<int> ints(full, full + 9);
+            CColor back;
+            char what[64];
+            _snprintf_s(what, sizeof(what), _TRUNCATE, "(b) nine ints then %d more bytes", kExtra[j]);
+            if (LoadOne(what, ColorWithWireValue(ints, kExtra[j]), back))
+                ExpectSetup(what, back.GetWireSetup(), kSample);
+        }
+        {
+            std::vector<int> ints(full, full + 3);
+            CColor back;
+            if (LoadOne("(b) three ints then 3 bytes", ColorWithWireValue(ints, 3), back))
+            {
+                CColorWireSetup want = kDefault;
+                want.realDrive = true; want.wireBits = 10; want.encodingRange = 1;
+                ExpectSetup("(b) three ints then 3 bytes", back.GetWireSetup(), want);
+            }
+        }
+        static const int kNotOne[] = { 0, 2, -1, 0x7FFFFFFF };
+        for (int j = 0; j < 4; ++j)
+        {
+            std::vector<int> ints(full, full + 9);
+            ints[0] = kNotOne[j];
+            CColor back;
+            if (LoadOne("(b) realDrive not 1", ColorWithWireValue(ints, 0), back)
+                && back.GetWireSetup().realDrive)
+                Fail("T46 (b) a stored realDrive of %d read as true", kNotOne[j]);
+        }
+    }
+
+    // (c) no stamp: a stored color without one, and a hand-built trailer
+    {
+        CColor c(0.25, 0.5, 0.75);
+        c.SetStimulusValue(ColorRGBDisplay(50.0, 50.0, 50.0));
+        CColor back;
+        back.SetWireSetup(kSample);		// a load replaces it
+        if (LoadOne("(c) stored without a stamp", T19Ext::Store(c), back))
+        {
+            if (back.HasWireSetup())
+                Fail("T46 (c) stored without a stamp: the load kept a stamp");
+            ExpectSetup("(c) stored without a stamp", back.GetWireSetup(), kDefault);
+        }
+        Bytes b;
+        T19Ext::PutColor101(b, 0.25, 0.5, 0.75, std::vector<Entry>());
+        CColor bare;
+        if (LoadOne("(c) empty trailer", b, bare) && bare.HasWireSetup())
+            Fail("T46 (c) empty trailer: a stamp appeared");
+        CColor fresh;
+        if (fresh.HasWireSetup())
+            Fail("T46 (c) a new CColor carries a stamp");
+    }
+
+    // (d) the bytes: a color whose only optional field is the stamp stores
+    // exactly version 101, XYZ, then one 41-byte entry (tag, cb = 36, 9 ints),
+    // and a load + re-save gives the same bytes
+    {
+        CColor c(0.25, 0.5, 0.75);
+        c.SetWireSetup(kSample);
+        Bytes got = T19Ext::Store(c);
+        const int ints[9] = { 1, 10, 1, 0, 1, 6, 64, 502, 940 };
+        Bytes want = ColorWithWireValue(std::vector<int>(ints, ints + 9), 0);
+        if (got != want)
+            Fail("T46 (d) stored bytes: %u bytes, expected the %u-byte pinned layout",
+                 (unsigned)got.size(), (unsigned)want.size());
+        CColor back;
+        if (LoadOne("(d) re-save", got, back) && T19Ext::Store(back) != got)
+            Fail("T46 (d) load + re-save is not byte-exact");
+
+        // with every other optional field present too
+        CColor full(0.25, 0.5, 0.75);
+        full.SetRawXYZValue(ColorXYZ(1.0, 2.0, 3.0));
+        full.SetStimulusValue(ColorRGBDisplay(10.0, 20.0, 30.0));
+        full.SetTimestamp(1789000000.5);
+        CColorProvenance p;
+        p.patchNumber = 3; p.sequenceIndex = 2; p.srcBits = 10; p.srcRange = 1;
+        p.name = "gray 50"; p.role = PROVENANCE_ROLE_COLOR;
+        full.SetProvenance(p);
+        full.SetWireSetup(kSample);
+        Bytes b1 = T19Ext::Store(full);
+        CColor back2;
+        if (LoadOne("(d) re-save with every field", b1, back2))
+        {
+            ExpectSetup("(d) re-save with every field", back2.GetWireSetup(), kSample);
+            if (T19Ext::Store(back2) != b1)
+                Fail("T46 (d) load + re-save with every field is not byte-exact");
+        }
+    }
+
+    // (e) copies are deep; Clear and ClearSpectrumLux drop the stamp; the
+    // legacy (4.1) store writes no trailer, so the stamp is dropped there
+    {
+        CColor a(0.25, 0.5, 0.75);
+        a.SetWireSetup(kSample);
+        CColor b(a);
+        CColor c;
+        c = a;
+        a.ClearWireSetup();
+        if (a.HasWireSetup())
+            Fail("T46 (e) ClearWireSetup left a stamp");
+        ExpectSetup("(e) copy constructor", b.GetWireSetup(), kSample);
+        ExpectSetup("(e) assignment", c.GetWireSetup(), kSample);
+        c = a;
+        if (c.HasWireSetup())
+            Fail("T46 (e) assigning a color without a stamp kept the old one");
+        b.ClearSpectrumLux();
+        if (b.HasWireSetup())
+            Fail("T46 (e) ClearSpectrumLux left the stamp");
+
+        CColor plain(0.25, 0.5, 0.75), stamped(0.25, 0.5, 0.75);
+        stamped.SetWireSetup(kSample);
+        Bytes lp, ls;
+        {
+            CColorLegacyStoreScope legacy;
+            lp = T19Ext::Store(plain);
+            ls = T19Ext::Store(stamped);
+        }
+        if (lp != ls)
+            Fail("T46 (e) the legacy store wrote the stamp (%u bytes against %u)",
+                 (unsigned)ls.size(), (unsigned)lp.size());
+    }
+
+    // (f) the display record
+    {
+        unsigned long serial = 0;
+        const double gray[3] = { 50.0, 50.0, 50.0 };
+        WireDisplayRecord::Invalidate();
+        ExpectSetup("(f) no record", WireDisplayRecord::StampFor(gray, &serial), kDefault);
+
+        Display(50.0, 50.0, 50.0, 128, NULL);
+        CColorWireSetup want = kSample;
+        want.wireCode[0] = want.wireCode[1] = want.wireCode[2] = 128;
+        ExpectSetup("(f) recorded stimulus", WireDisplayRecord::StampFor(gray, &serial), want);
+        if (!WireDisplayRecord::StillCurrent(serial))
+            Fail("T46 (f) nothing displayed, yet the record is not current");
+
+        // exactly this stimulus: one channel one ulp away is not it
+        const double offByUlp[3] = { 50.0, 50.0, nextafter(50.0, 51.0) };
+        ExpectSetup("(f) one ulp off", WireDisplayRecord::StampFor(offByUlp, NULL), kDefault);
+        const double placeholder[3] = { 0.5, 0.5, 0.5 };
+        ExpectSetup("(f) the 0.5% placeholder", WireDisplayRecord::StampFor(placeholder, NULL), kDefault);
+
+        // a display during the read moves the serial, even back to the same patch
+        WireDisplayRecord::StampFor(gray, &serial);
+        Display(50.0, 50.0, 50.0, 128, NULL);
+        if (WireDisplayRecord::StillCurrent(serial))
+            Fail("T46 (f) a display during the read left the read's serial current");
+        WireDisplayRecord::StampFor(gray, &serial);
+        WireDisplayRecord::Invalidate();
+        if (WireDisplayRecord::StillCurrent(serial))
+            Fail("T46 (f) an invalidation during the read left the serial current");
+        ExpectSetup("(f) after Invalidate", WireDisplayRecord::StampFor(gray, NULL), kDefault);
+
+        // the surface check: the recorded codes on the recorded surface keep the
+        // record, other codes there drop it, another surface is ignored
+        Display(50.0, 50.0, 50.0, 128, &serial);
+        const int same[3] = { 128, 128, 128 }, other[3] = { 127, 128, 128 };
+        WireDisplayRecord::NoteSurfacePaint(6, same);
+        if (!WireDisplayRecord::StillCurrent(serial) || !WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) a repaint with the recorded codes dropped the record");
+        WireDisplayRecord::NoteSurfacePaint(5, other);
+        if (!WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) a repaint of another surface dropped the record");
+        WireDisplayRecord::NoteSurfacePaint(6, other);
+        if (WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) a repaint with other codes on the recorded surface kept the record");
+
+        // Intensity re-key: only from the displayed stimulus, and only when the
+        // codes on the wire are the requested stimulus's own
+        const double dimmed[3] = { 50.0, 50.0, nextafter(50.0, 49.0) };
+        const int c128[3] = { 128, 128, 128 }, c127[3] = { 128, 128, 127 };
+        Display(dimmed[0], dimmed[1], dimmed[2], 128, NULL);
+        WireDisplayRecord::RekeyToRequested(gray, gray, c128);		// not the displayed stimulus
+        if (WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) re-key from a stimulus that was not displayed");
+        WireDisplayRecord::RekeyToRequested(dimmed, gray, c127);	// other codes
+        if (WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) re-key with codes that differ");
+        WireDisplayRecord::RekeyToRequested(dimmed, gray, c128);
+        if (!WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) re-key with the requested stimulus's own codes did not take");
+        if (WireDisplayRecord::StampFor(dimmed, NULL).realDrive)
+            Fail("T46 (f) the re-keyed record still answers for the displayed stimulus");
+        Display(dimmed[0], dimmed[1], dimmed[2], -1, NULL);			// codes unknown
+        WireDisplayRecord::RekeyToRequested(dimmed, gray, c128);
+        if (WireDisplayRecord::StampFor(gray, NULL).realDrive)
+            Fail("T46 (f) re-key of a record without codes");
+
+        // Peek, and a recorder's realDrive is never stored
+        double seen[3];
+        CColorWireSetup peeked;
+        if (!WireDisplayRecord::Peek(seen, &peeked) || seen[2] != dimmed[2] || peeked.realDrive)
+            Fail("T46 (f) Peek: not the current record, or realDrive stored as true");
+        WireDisplayRecord::Invalidate();
+        if (WireDisplayRecord::Peek(seen, &peeked))
+            Fail("T46 (f) Peek found a record after Invalidate");
+    }
+}
+
+// =============================================================================
+// T48 - the near-black / near-white log charts in the camera-gamma modes
+// (GammaOffsetType 2 and 3). The reference curve beside the points evaluates
+// its level as ( V + o ) / ( 1 + o ); a point divides by the same level
+// (PointGammaLevel, o from PointGammaEffectiveOffset). Every other mode has
+// offset 0, where the level must be the point's proportion bit for bit on all
+// four grids, so those charts draw exactly as before. Pure assertions.
+// =============================================================================
+static void RunT48()
+{
+    printf("T48 near-chart point level in the camera-gamma modes...\n");
+    // the effective offset: the fit below mode 4, 0 at mode >= 4 and under sRGB
+    for (int type = 0; type <= 7; ++type)
+    {
+        const double want = (type < 4) ? 0.099 : 0.0;
+        if (PointGammaEffectiveOffset(type, false, 0.099) != want)
+            Fail("T48 GammaOffsetType %d: effective offset %.17g, expected %.17g", type, PointGammaEffectiveOffset(type, false, 0.099), want);
+        if (PointGammaEffectiveOffset(type, true, 0.055) != 0.0)
+            Fail("T48 GammaOffsetType %d under sRGB: offset not 0", type);
+    }
+    // the level, bit for bit ( V + o ) / ( 1 + o ) written out here, on every
+    // near-chart slot and gray ramp slot of the four grids, both roundings, at
+    // o = 0 (modes 0/1/4+: the level is the proportion itself), 0.099 and 0.055
+    {
+        int bad = 0;
+        const double offsets[3] = { 0.0, 0.099, 0.055 };
+        for (int rd = 0; rd < 2; ++rd)
+            for (int b = 0; b < 2; ++b)
+                for (int g = 0; g < 2; ++g)
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        const double o = offsets[k];
+                        for (int n = 0; n <= 101; ++n)
+                        {
+                            const double p = GrayLevelToGrayProp((double)n, rd != 0, b != 0, g != 0);
+                            if (PointGammaLevel(p, o) != (p + o) / (1.0 + o)) ++bad;
+                            if (o == 0.0 && PointGammaLevel(p, o) != p) ++bad;
+                        }
+                        for (int n = 0; n <= 20; ++n)
+                        {
+                            const double p = ArrayIndexToGrayLevel(n, 21, rd != 0, b != 0, g != 0) / 100.0;
+                            if (PointGammaLevel(p, o) != (p + o) / (1.0 + o)) ++bad;
+                            if (o == 0.0 && PointGammaLevel(p, o) != p) ++bad;
+                        }
+                    }
+        if (bad)
+            Fail("T48 %d levels are not ( V + o ) / ( 1 + o ) bit for bit", bad);
+    }
+    // A noise-free display tracking the camera-gamma target, built independently
+    // of the code under test: Y / Y_white = pow ( ( V + 0.099 ) / 1.099, 2.22 ).
+    // Its point, log ( Y / Y_white ) / log ( PointGammaLevel ( V, o ) ), sits on
+    // the reference (2.22) within 1e-12 at every near-black level 1..99% of the
+    // 8-bit full grid. Dividing by log ( V ), as before, put it well off.
+    {
+        const double gamma = 2.22;
+        double worst = 0.0;
+        for (int n = 1; n <= 99; ++n)
+        {
+            const double v = GrayLevelToGrayProp((double)n, false, false, false);
+            const double yRel = pow((v + 0.099) / 1.099, gamma);
+            const double pg = log(yRel) / log(PointGammaLevel(v, PointGammaEffectiveOffset(2, false, 0.099)));
+            worst = (std::max)(worst, fabs(pg - gamma));
+        }
+        if (worst > 1e-12)
+            Fail("T48 ideal camera-gamma display: off the reference by %.3g", worst);
+        const double v = 13.0 / 255.0;		// 5.1%
+        const double lvl = PointGammaLevel(v, 0.099);
+        const double before = log(pow((v + 0.099) / 1.099, gamma)) / log(v);
+        if (fabs(lvl * 100.0 - 13.65) > 0.01 || fabs(before - 1.485) > 0.002)
+            Fail("T48 5.1%%: level %.4f%% (want 13.65), old point gamma %.4f (want 1.485)", lvl * 100.0, before);
+    }
+}
+
+// =============================================================================
+// T49 - PQ near-black / near-white log points in the reference's own
+// definition (NearChartPointGamma): Y relative to the gray scale's 100% reading,
+// V the level the point is drawn at, V_white = 1. Synthetic display: an ideal
+// SMPTE ST 2084 EOTF clipping at 1000 cd/m2 (the gray scale's 100% reads 1000),
+// 8-bit full, near white with clip column 76 (65..75%). The reference beside
+// the points plots log ( L ( V ) / L_white ) / log ( V ). The views' choice of
+// white and V_white (NearChartWhite and the series-top fallback in the near
+// charts) has no oracle here; it is exercised on the bench only.
+// =============================================================================
+static double T49PQEotf(double e)
+{
+    // SMPTE ST 2084 EOTF, cd/m2
+    const double m1 = 2610.0 / 16384.0, m2 = 2523.0 / 4096.0 * 128.0;
+    const double c1 = 3424.0 / 4096.0, c2 = 2413.0 / 4096.0 * 32.0, c3 = 2392.0 / 4096.0 * 32.0;
+    const double p = pow(e, 1.0 / m2);
+    return 10000.0 * pow((std::max)(p - c1, 0.0) / (c2 - c3 * p), 1.0 / m1);
+}
+
+static void RunT49()
+{
+    printf("T49 PQ near-chart log points on the reference's white and level...\n");
+    const double peak = 1000.0;
+    auto Y = [&](double v) { return (std::min)(T49PQEotf(v), peak); };
+    auto V = [](int n) { return GrayLevelToGrayProp((double)n, false, false, false); };
+    // near white, clip column 76, size 11: 65..75%
+    const int clip = 76, size = 11;
+    const double vTop = V(clip - 1), yTop = Y(vTop);
+    for (int i = 0; i < size - 1; ++i)
+    {
+        const int n = clip - size + i;
+        const double v = V(n), y = Y(v);
+        const double ref = log(y / peak) / log(v);
+        double pg = 0.0;
+        if (!NearChartPointGamma(y, v, peak, 1.0, 0.0, &pg))
+        {
+            Fail("T49 near white %d%%: no point", n);
+            continue;
+        }
+        if (fabs(pg - ref) > 1e-12)
+            Fail("T49 near white %d%%: %.17g off the reference %.17g", n, pg, ref);
+        // the series' top (at 75%) taken as the white at V_white = 1 sits
+        // 0.07..0.09 low here (it reads less than the 100% white unless the
+        // display clips at the top), and main's level counted back from 101
+        // puts the point far off
+        double pgTop = 0.0;
+        NearChartPointGamma(y, v, yTop, 1.0, 0.0, &pgTop);
+        const double pgMain = log(y / yTop) / log(V(i + 101 - size));
+        if (n >= 71 && n <= 74 && !(ref - pgTop > 0.07 && ref - pgTop < 0.09))
+            Fail("T49 near white %d%%: series-top white %.4f vs reference %.4f, expected 0.07..0.09 low", n, pgTop, ref);
+        if (n >= 71 && n <= 74 && fabs(pgMain - ref) < 0.5)
+            Fail("T49 near white %d%%: main's form %.4f unexpectedly near the reference %.4f", n, pgMain, ref);
+    }
+    // near black in PQ: the level drawn is 2k%; on the reference at every step
+    for (int k = 1; k < 50; ++k)
+    {
+        const double v = V(2 * k), y = Y(v);
+        double pg = 0.0;
+        if (!NearChartPointGamma(y, v, peak, 1.0, 0.0, &pg) || fabs(pg - log(y / peak) / log(v)) > 1e-12)
+            Fail("T49 near black %d%%: %.6f, reference %.6f", 2 * k, pg, log(y / peak) / log(v));
+    }
+    // a 100% point below the top (clip column 102) and V = 0: no point; no white: no point
+    double pg = 0.0;
+    if (NearChartPointGamma(500.0, 1.0, peak, 1.0, 0.0, &pg) || NearChartPointGamma(0.1, 0.0, peak, 1.0, 0.0, &pg)
+        || NearChartPointGamma(500.0, 0.5, 0.0, 1.0, 0.0, &pg) || NearChartPointGamma(0.0, 0.5, peak, 1.0, 0.0, &pg))
+        Fail("T49 a point at V = 1, V = 0, without a white or at Y = 0 was drawn");
+    // a white standing in at its own level: Y and V normalized to the same reading
+    if (!NearChartPointGamma(Y(0.3), 0.3, Y(0.6), 0.6, 0.0, &pg) || fabs(pg - log(Y(0.3) / Y(0.6)) / log(0.5)) > 1e-12)
+        Fail("T49 white at its own level: %.17g", pg);
+    // V_white outside ( 0, 1 ]: no point (V_white = 0 used to give a finite 0)
+    if (NearChartPointGamma(Y(0.3), 0.3, Y(0.6), 0.0, 0.0, &pg) || NearChartPointGamma(Y(0.3), 0.3, Y(0.6), 1.0117647058823529, 0.0, &pg)
+        || NearChartPointGamma(Y(0.3), 0.3, Y(0.6), -0.5, 0.0, &pg))
+        Fail("T49 a white at level 0, 258/255 or below 0 was used");
+    if (!NearChartPointGamma(Y(0.3), 0.3, peak, 1.0, 0.0, &pg))
+        Fail("T49 a white at level 1 was refused");
+}
+
+// =============================================================================
+// T43 - where an existing gray reading sits on a gray-level axis (libHCFR
+// ReadingWireGrayProp / ReadingGrayProp and the GraySeries
+// accessor core behind CMeasure::GetGrayReadingLevel / Prop). Pure assertions,
+// no golden files. Every comparison is exact (==): the rule has no tolerance,
+// and the fallback must be bit for bit the value the describing sites computed
+// before the stamp existed.
+// =============================================================================
+namespace T43Drive
+{
+    // A reading of a gray stimulus `level` (%) with a wire stamp.
+    static CColor Stamped(double level, bool realDrive, int bits, int range, int code,
+                          int deviceRange = WIRE_RANGE_UNKNOWN)
+    {
+        CColor c(0.3, 0.4, 0.5);
+        c.SetStimulusValue(ColorRGBDisplay(level));
+        CColorWireSetup w;
+        w.realDrive = realDrive;
+        w.wireBits = bits;
+        w.encodingRange = range;
+        w.deviceRange = deviceRange;
+        w.generatorId = WIRE_GENERATOR_GDI;
+        w.outputMode = 0;
+        w.wireCode[0] = w.wireCode[1] = w.wireCode[2] = code;
+        c.SetWireSetup(w);
+        return c;
+    }
+
+    static double Black(int bits, int range)
+    {
+        return range == WIRE_RANGE_LIMITED ? (bits == 10 ? 64.0 : 16.0) : 0.0;
+    }
+    static double Grid(int bits, int range)
+    {
+        return bits == 10 ? (range == WIRE_RANGE_LIMITED ? 876.0 : 1023.0)
+                          : (range == WIRE_RANGE_LIMITED ? 219.0 : 255.0);
+    }
+    // The code a sweep sends for nominal level n on a grid (round to nearest).
+    static int CodeFor(int n, int bits, int range)
+    {
+        return (int)(floor(n / 100.0 * Grid(bits, range) + 0.5) + Black(bits, range));
+    }
+
+    // r as the only reading of a near-white series whose one slot is nominal n
+    // (clip column n + 1): GraySeriesLevel / Prop of index 0 is the accessor's
+    // level for r, and GraySeriesSlotLevel the slot it falls back to.
+    static GraySeriesView OneSlot(const CColor* r, int n, bool rd, bool b10, bool lim)
+    {
+        GraySeriesView v;
+        v.series = GRAY_SERIES_NEAR_WHITE; v.readings = r; v.size = 1;
+        v.nominalLevels = NULL; v.nominalCount = 0; v.nearWhiteClipCol = n + 1; v.pqNearBlack = false;
+        v.bUseRoundDown = rd; v.b10bit = b10; v.is16_235 = lim;
+        return v;
+    }
+
+    // Expect the reading at exactly `wantProp` (stamped drive taken) under the
+    // current grid flags, whatever slot level the site passes.
+    static void ExpectDrive(const char* what, const CColor& r, double slotLevel,
+                            bool rd, bool b10, bool lim, double wantProp)
+    {
+        double p = -1.0;
+        if (!ReadingWireGrayProp(r, &p))
+            Fail("T43 %s: stamped drive not taken", what);
+        else if (p != wantProp)
+            Fail("T43 %s: drive %.17g, expected %.17g", what, p, wantProp);
+        const double lvl = GraySeriesLevel(OneSlot(&r, 50, rd, b10, lim), 0);
+        if (lvl != wantProp * 100.0)
+            Fail("T43 %s: level %.17g, expected %.17g", what, lvl, wantProp * 100.0);
+        const double prop = ReadingGrayProp(r, slotLevel, rd, b10, lim);
+        if (prop != wantProp)
+            Fail("T43 %s: prop %.17g, expected %.17g", what, prop, wantProp);
+    }
+
+    // Expect the fallback: the slot level and GrayLevelToGrayProp of it.
+    static void ExpectFallback(const char* what, const CColor& r, double slotLevel,
+                               bool rd, bool b10, bool lim)
+    {
+        double p = -1.0;
+        if (ReadingWireGrayProp(r, &p))
+            Fail("T43 %s: a drive (%.17g) was taken; expected the fallback", what, p);
+        // the series accessor, with its one slot at the caller's nominal level,
+        // must give back the caller's independently computed slotLevel
+        const GraySeriesView one = OneSlot(&r, (int)floor(slotLevel + 0.5), rd, b10, lim);
+        const double lvl = GraySeriesLevel(one, 0);
+        if (lvl != slotLevel)
+            Fail("T43 %s: level %.17g, expected the caller's slot %.17g", what, lvl, slotLevel);
+        if (GraySeriesProp(one, 0) != GrayLevelToGrayProp(slotLevel, rd, b10, lim))
+            Fail("T43 %s: series prop is not the caller's slot's", what);
+        const double want = GrayLevelToGrayProp(slotLevel, rd, b10, lim);
+        const double prop = ReadingGrayProp(r, slotLevel, rd, b10, lim);
+        if (prop != want)
+            Fail("T43 %s: prop %.17g, expected the slot's %.17g", what, prop, want);
+    }
+}
+
+// T43 (nbw) - the near charts' white in the point's quantity (libHCFR
+// NearChartWhite, near black's charts and near white's luma and lux traces).
+// Luminance curve mode 1 shows a reading's lux when it carries one, its Y
+// otherwise; main divided every near-black point by the gray top's
+// GetLuxOrLumaValue, so a point read without the luxmeter (cd/m2) was divided
+// by lux. The rule: a point in lux takes a white carrying lux, its lux; any
+// other point takes the white's Y, whatever its lux status. Synthetic whites:
+// Y 100 cd/m2 reading 300 lux (lux about 3x nits), near white's top Y 95 with
+// or without 285 lux.
+static void T43NearChartWhite()
+{
+    printf("T43 (nbw) near-chart white in the point's quantity...\n");
+    CColor grayLux(95.0, 100.0, 108.0), grayNits(95.0, 100.0, 108.0);
+    grayLux.SetLuxValue(300.0);
+    CColor nwLux(90.0, 95.0, 103.0), nwNits(90.0, 95.0, 103.0);
+    nwLux.SetLuxValue(285.0);
+    CColor grayZero(0.0, 0.0, 0.0);
+    struct Case { const char* what; int cs, mode; bool ptLux; const CColor* g; const CColor* nw; double want; bool fromGray; };
+    const Case cases[] = {
+        // the defect: mode 1, a point without lux, the gray top with lux -> its Y
+        { "mode 1 luma trace, point nits, gray top lux -> its Y", 1, 1, false, &grayLux, &nwNits, 100.0, true },
+        { "mode 1 luma trace, point nits, both whites lux -> gray top Y", 1, 1, false, &grayLux, &nwLux, 100.0, true },
+        { "mode 1 luma trace, point lux, gray top lux", 1, 1, true, &grayLux, &nwNits, 300.0, true },
+        { "mode 1 luma trace, point lux, gray top nits -> near white lux", 1, 1, true, &grayNits, &nwLux, 285.0, false },
+        { "mode 1 luma trace, point lux, no lux white -> none", 1, 1, true, &grayNits, &nwNits, 0.0, false },
+        { "mode 1 luma trace, point nits, gray top nits", 1, 1, false, &grayNits, &nwLux, 100.0, true },
+        // R/G/B traces: the white's luma, whatever its lux (the deliberate luma normalization)
+        { "mode 1 RGB trace, gray top lux -> its Y", 0, 1, false, &grayLux, &nwLux, 100.0, true },
+        { "mode 1 RGB trace, point lux, gray top lux -> its Y", 0, 1, true, &grayLux, &nwLux, 100.0, true },
+        // outside mode 1 every luma trace is Y on both sides: main's value
+        { "mode 0 luma trace, gray top lux -> its Y", 1, 0, true, &grayLux, &nwLux, 100.0, true },
+        { "mode 2 luma trace, gray top lux -> its Y", 1, 2, false, &grayLux, &nwLux, 100.0, true },
+        { "mode 0 RGB trace", 0, 0, false, &grayNits, &nwNits, 100.0, true },
+        // the lux trace: a white carrying lux (main: the gray top's lux, else near white's)
+        { "lux trace, gray top lux", 2, 2, true, &grayLux, &nwLux, 300.0, true },
+        { "lux trace, gray top nits -> near white lux", 2, 2, true, &grayNits, &nwLux, 285.0, false },
+        { "lux trace, no lux white -> none", 2, 2, true, &grayNits, &nwNits, 0.0, false },
+        // fallbacks
+        { "no gray top -> near white", 1, 0, false, &noDataColor, &nwNits, 95.0, false },
+        { "gray top Y 0 -> near white", 1, 0, false, &grayZero, &nwNits, 95.0, false },
+        { "no white at all -> none", 1, 0, false, &noDataColor, &noDataColor, 0.0, false },
+    };
+    for (const Case& c : cases)
+    {
+        bool fromGray = !c.fromGray;
+        const double w = NearChartWhite(c.cs, c.mode, c.ptLux, *c.g, *c.nw, &fromGray);
+        if (w != c.want || fromGray != c.fromGray)
+            Fail("T43 (nbw) %s: white %.17g (gray top %d), expected %.17g (gray top %d)", c.what, w, (int)fromGray, c.want, (int)c.fromGray);
+    }
+    // Every non-lux document, every curve mode, luma and RGB traces: main's
+    // value bit for bit, the gray top's GetLuxOrLumaValue ( mode ) (= Y).
+    for (int mode = 0; mode < 3; ++mode)
+        for (int cs = 0; cs < 2; ++cs)
+            if (NearChartWhite(cs, mode, false, grayNits, nwNits) != grayNits.GetLuxOrLumaValue(mode))
+                Fail("T43 (nbw) non-lux document, mode %d, colorSpace %d: not main's white", mode, cs);
+    // The shift the defect caused at 5%: a point at Y 5% of white, divided by
+    // 300 lux instead of 100 cd/m2, plotted log(3)/-log(0.05) = 0.367 gamma higher.
+    {
+        const double y = 100.0 * pow(0.05, 2.2);
+        const double right = log(y / NearChartWhite(1, 1, false, grayLux, nwNits)) / log(0.05);
+        const double wrong = log(y / grayLux.GetLuxOrLumaValue(1)) / log(0.05);
+        if (fabs(right - 2.2) > 1e-12 || fabs((wrong - right) - 0.36672) > 1e-4)
+            Fail("T43 (nbw) 5%% shift: right %.6f wrong %.6f", right, wrong);
+    }
+}
+
+static void RunT43()
+{
+    printf("T43 gray reading level: stamped drive or the slot (wire stamp)...\n");
+    T43NearChartWhite();
+    using namespace T43Drive;
+    const int F = WIRE_RANGE_FULL, L = WIRE_RANGE_LIMITED;
+
+    // (a) Dominic's case: near white 95..99% measured on an 8-bit FULL wire
+    //     (codes 242/245/247/250/252) and viewed with LIMITED selected. Each
+    //     reading sits at its own code/255, never at the limited grid's
+    //     94.98/95.89/96.80/98.17/99.09%.
+    {
+        const int codes[5] = { 242, 245, 247, 250, 252 };
+        const double shown[5] = { 94.90, 96.08, 96.86, 98.04, 98.82 };	// 2 decimals, as the brief states them
+        for (int k = 0; k < 5; ++k)
+        {
+            const int n = 95 + k;
+            if (CodeFor(n, 8, F) != codes[k])
+                Fail("T43 (a) code for %d%% on 8-bit full: %d, expected %d", n, CodeFor(n, 8, F), codes[k]);
+            const double stim = ArrayIndexToGrayLevel(n, 101, false, false, false);	// what the full-range sweep drove
+            const CColor r = Stamped(stim, true, 8, F, codes[k]);
+            const double slotLimited = ArrayIndexToGrayLevel(n, 101, false, false, true);
+            char what[64];
+            _snprintf_s(what, sizeof(what), _TRUNCATE, "(a) full 8-bit code %d viewed limited", codes[k]);
+            ExpectDrive(what, r, slotLimited, false, false, true, codes[k] / 255.0);
+            const double lvl = GraySeriesLevel(OneSlot(&r, n, false, false, true), 0);
+            if (floor(lvl * 100.0 + 0.5) / 100.0 != shown[k])
+                Fail("T43 %s: %.4f%% does not read %.2f%%", what, lvl, shown[k]);
+            if (lvl == slotLimited)
+                Fail("T43 %s: placed on the limited grid (%.4f%%)", what, slotLimited);
+        }
+    }
+
+    // (b) the reverse: 8-bit LIMITED codes viewed with FULL selected, and the
+    //     10-bit pairs both ways. Decoded on the stamp's own encoding.
+    {
+        struct Case { int bits, range; bool viewB10, viewLim; const char* name; };
+        const Case cases[] = {
+            {  8, L, false, false, "8-bit limited viewed full" },
+            { 10, F, true,  true,  "10-bit full viewed limited" },
+            { 10, L, true,  false, "10-bit limited viewed full" },
+            {  8, F, true,  true,  "8-bit full viewed 10-bit limited" },
+            { 10, L, false, false, "10-bit limited viewed 8-bit full" },
+        };
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); ++c)
+            for (int n = 95; n <= 99; ++n)
+            {
+                const Case& k = cases[c];
+                const int code = CodeFor(n, k.bits, k.range);
+                const CColor r = Stamped(ArrayIndexToGrayLevel(n, 101, false, k.bits == 10, k.range == L),
+                                         true, k.bits, k.range, code);
+                const double slot = ArrayIndexToGrayLevel(n, 101, false, k.viewB10, k.viewLim);
+                const double want = (code - Black(k.bits, k.range)) / Grid(k.bits, k.range);
+                char what[96];
+                _snprintf_s(what, sizeof(what), _TRUNCATE, "(b) %s, %d%% code %d", k.name, n, code);
+                ExpectDrive(what, r, slot, false, k.viewB10, k.viewLim, want);
+            }
+        // the limited reading named in Color.cpp's comment
+        ExpectDrive("(b) limited code 224 viewed full", Stamped(208.0 / 219.0 * 100.0, true, 8, L, 224),
+                    95.0, false, false, false, 208.0 / 219.0);
+    }
+
+    // (c) Kyle's limited setup: HCFR limited, TV limited, PGenerator output FULL.
+    //     The stamp says encodingRange limited, deviceRange full; the level is
+    //     decoded on encodingRange, (code - 16) / 219, never code / 255.
+    {
+        const CColor r = Stamped(208.0 / 219.0 * 100.0, true, 8, L, 224, F);
+        ExpectDrive("(c) HCFR limited / PGen full, viewed limited", r, 95.0, false, false, true, 208.0 / 219.0);
+        ExpectDrive("(c) HCFR limited / PGen full, viewed full", r, 95.0, false, false, false, 208.0 / 219.0);
+        double p = 0.0;
+        if (ReadingWireGrayProp(r, &p) && p == 224.0 / 255.0)
+            Fail("T43 (c) decoded on deviceRange");
+        const CColor r10 = Stamped(832.0 / 876.0 * 100.0, true, 10, L, 896, F);
+        ExpectDrive("(c) 10-bit HCFR limited / PGen full", r10, 95.0, false, true, true, 832.0 / 876.0);
+    }
+
+    // (d) no stamp falls back: a bare reading, one with a stimulus but no
+    //     stamp (a file written between the stimulus and the stamp), noDataColor.
+    for (int lim = 0; lim < 2; ++lim)
+        for (int b10 = 0; b10 < 2; ++b10)
+        {
+            const double slot = ArrayIndexToGrayLevel(30, 101, false, b10 != 0, lim != 0);
+            CColor bare(0.3, 0.4, 0.5);
+            ExpectFallback("(d) no stamp, no stimulus", bare, slot, false, b10 != 0, lim != 0);
+            CColor stim(0.3, 0.4, 0.5);
+            stim.SetStimulusValue(ColorRGBDisplay(31.0));
+            ExpectFallback("(d) a stimulus, no stamp", stim, slot, false, b10 != 0, lim != 0);
+            ExpectFallback("(d) noDataColor", noDataColor, slot, false, b10 != 0, lim != 0);
+        }
+
+    // (e) realDrive false falls back: the 0.5% and 50.196% (128/255)
+    //     placeholders written into a 30% slot - as CSensor stamps them (the
+    //     defaults) and with stale code fields beside realDrive false.
+    {
+        const double slot = ArrayIndexToGrayLevel(30, 101, false, false, true);
+        CColor p05(0.3, 0.4, 0.5);
+        p05.SetStimulusValue(ColorRGBDisplay(0.5));
+        p05.SetWireSetup(CColorWireSetup());
+        ExpectFallback("(e) 0.5% placeholder, default stamp", p05, slot, false, false, true);
+        CColor p50(0.3, 0.4, 0.5);
+        p50.SetStimulusValue(ColorRGBDisplay(128.0 / 255.0 * 100.0));
+        p50.SetWireSetup(CColorWireSetup());
+        ExpectFallback("(e) 50.196% placeholder, default stamp", p50, slot, false, false, true);
+        ExpectFallback("(e) 50.196% realDrive false with codes",
+                       Stamped(128.0 / 255.0 * 100.0, false, 8, F, 128), slot, false, false, true);
+        ExpectFallback("(e) 0.5% realDrive false, no codes",
+                       Stamped(0.5, false, 0, WIRE_RANGE_UNKNOWN, -1), slot, false, false, true);
+    }
+
+    // (f) a real drive with unequal channels is not a gray patch: falls back.
+    {
+        const double slot = ArrayIndexToGrayLevel(30, 101, false, false, false);
+        CColor s(0.3, 0.4, 0.5);
+        s.SetStimulusValue(ColorRGBDisplay(30.0, 30.0, 31.0));
+        CColorWireSetup w;
+        w.realDrive = true; w.wireBits = 8; w.encodingRange = F;
+        w.wireCode[0] = w.wireCode[1] = w.wireCode[2] = 77;
+        s.SetWireSetup(w);
+        ExpectFallback("(f) unequal stimulus, equal codes", s, slot, false, false, false);
+
+        CColor nocode(0.3, 0.4, 0.5);
+        nocode.SetStimulusValue(ColorRGBDisplay(30.0, 31.0, 30.0));
+        CColorWireSetup wn;
+        wn.realDrive = true;
+        nocode.SetWireSetup(wn);
+        ExpectFallback("(f) unequal stimulus, no codes", nocode, slot, false, false, false);
+
+        CColor c = Stamped(30.0, true, 8, F, 77);
+        CColorWireSetup wc = c.GetWireSetup();
+        wc.wireCode[2] = 78;
+        c.SetWireSetup(wc);
+        ExpectFallback("(f) equal stimulus, unequal codes", c, slot, false, false, false);
+        wc.wireCode[2] = 77; wc.wireCode[1] = -1;
+        c.SetWireSetup(wc);
+        ExpectFallback("(f) codes partly unknown", c, slot, false, false, false);
+    }
+
+    // (g) a real drive without codes (madVR, Chromecast, overlay): the stimulus
+    //     fraction itself. Codes that cannot be decoded: falls back.
+    {
+        CColor m(0.3, 0.4, 0.5);
+        m.SetStimulusValue(ColorRGBDisplay(30.0));
+        CColorWireSetup w;
+        w.realDrive = true; w.outputMode = 2;
+        m.SetWireSetup(w);
+        ExpectDrive("(g) madVR, no codes", m, 29.0, false, false, true, 30.0 / 100.0);
+        const double slot = ArrayIndexToGrayLevel(30, 101, false, false, false);
+        ExpectFallback("(g) codes with unknown bits", Stamped(30.0, true, 0, F, 77), slot, false, false, false);
+        ExpectFallback("(g) codes with unknown range", Stamped(30.0, true, 8, WIRE_RANGE_UNKNOWN, 77), slot, false, false, false);
+        ExpectFallback("(g) codes with 12 bits", Stamped(30.0, true, 12, F, 1229), slot, false, false, false);
+    }
+
+    // (h) on the setup it was measured on, a stamped reading is described bit
+    //     for bit as before: every nominal 0..100 on all four grids.
+    {
+        int bad = 0;
+        for (int b = 0; b < 2; ++b)
+            for (int g = 0; g < 2; ++g)
+                for (int n = 0; n <= 100; ++n)
+                {
+                    const bool b10 = b != 0, lim = g != 0;
+                    const int bits = b10 ? 10 : 8, range = lim ? L : F;
+                    const double slot = ArrayIndexToGrayLevel(n, 101, false, b10, lim);
+                    const CColor r = Stamped(slot, true, bits, range, CodeFor(n, bits, range));
+                    if (GraySeriesLevel(OneSlot(&r, n, false, b10, lim), 0) != slot
+                        || ReadingGrayProp(r, slot, false, b10, lim) != GrayLevelToGrayProp(slot, false, b10, lim))
+                    {
+                        if (bad++ < 5)
+                            Fail("T43 (h) %d%% on %d-bit %s: not the grid's value bit for bit", n, bits, lim ? "limited" : "full");
+                    }
+                }
+        if (bad > 5)
+            Fail("T43 (h) %d mismatches in all", bad);
+    }
+
+    // (i) the two slot forms the sites used are one value: ArrayIndexToGrayLevel
+    //     ( n, 101 ) == GrayLevelToGrayProp ( n ) * 100, every n, grid and
+    //     rounding (the near-black/white charts used the second form).
+    {
+        int bad = 0;
+        for (int rd = 0; rd < 2; ++rd)
+            for (int b = 0; b < 2; ++b)
+                for (int g = 0; g < 2; ++g)
+                    for (int n = 0; n <= 101; ++n)
+                        if (ArrayIndexToGrayLevel(n, 101, rd != 0, b != 0, g != 0)
+                            != GrayLevelToGrayProp((double)n, rd != 0, b != 0, g != 0) * 100.)
+                            ++bad;
+        if (bad)
+            Fail("T43 (i) %d slot levels differ between the two forms", bad);
+    }
+
+    // (j) the accessor core pairs slot i with reading i, and slot i is the
+    //     sweep's level for that series.
+    {
+        // near white, 5 slots, clip column 99 (not 101), 8-bit full wire viewed
+        // limited; reading 2 has no stamp, reading 3 a placeholder.
+        CColor nw[5];
+        const int clip = 99, size = 5;
+        for (int i = 0; i < size; ++i)
+        {
+            const int n = clip - size + i;
+            nw[i] = Stamped(ArrayIndexToGrayLevel(n, 101, false, false, false), true, 8, F, CodeFor(n, 8, F));
+        }
+        nw[2] = CColor(0.3, 0.4, 0.5);
+        nw[3] = Stamped(0.5, false, 0, WIRE_RANGE_UNKNOWN, -1);
+        GraySeriesView v;
+        v.series = GRAY_SERIES_NEAR_WHITE; v.readings = nw; v.size = size;
+        v.nominalLevels = NULL; v.nominalCount = 0; v.nearWhiteClipCol = clip; v.pqNearBlack = false;
+        v.bUseRoundDown = false; v.b10bit = false; v.is16_235 = true;
+        for (int i = 0; i < size; ++i)
+        {
+            const int n = clip - size + i;
+            const double slot = ArrayIndexToGrayLevel(n, 101, false, false, true);
+            if (GraySeriesSlotLevel(v, i) != slot)
+                Fail("T43 (j) near white slot %d: %.17g, expected %d%% on the grid (%.17g)", i, GraySeriesSlotLevel(v, i), n, slot);
+            const bool stamped = (i != 2 && i != 3);
+            const double wantProp = stamped ? CodeFor(n, 8, F) / 255.0 : GrayLevelToGrayProp(slot, false, false, true);
+            const double wantLvl = stamped ? CodeFor(n, 8, F) / 255.0 * 100.0 : slot;
+            double p;
+            if (GraySeriesDriveProp(v, i, &p) != stamped)
+                Fail("T43 (j) near white %d: drive %s, expected %s", i, stamped ? "absent" : "taken", stamped ? "taken" : "absent");
+            if (GraySeriesLevel(v, i) != wantLvl)
+                Fail("T43 (j) near white %d: level %.17g, expected %.17g", i, GraySeriesLevel(v, i), wantLvl);
+            if (GraySeriesProp(v, i) != wantProp)
+                Fail("T43 (j) near white %d: prop %.17g, expected %.17g", i, GraySeriesProp(v, i), wantProp);
+        }
+        double p;
+        if (GraySeriesDriveProp(v, -1, &p) || GraySeriesDriveProp(v, size, &p))
+            Fail("T43 (j) a drive outside the series");
+
+        // near black in PQ: slot i is 2i%, reading i its own drive.
+        CColor nb[4];
+        for (int i = 0; i < 4; ++i)
+            nb[i] = Stamped(ArrayIndexToGrayLevel(2 * i, 101, false, true, false), true, 10, F, CodeFor(2 * i, 10, F));
+        nb[1] = CColor(0.3, 0.4, 0.5);
+        GraySeriesView b = v;
+        b.series = GRAY_SERIES_NEAR_BLACK; b.readings = nb; b.size = 4; b.pqNearBlack = true;
+        b.b10bit = true; b.is16_235 = true;
+        for (int i = 0; i < 4; ++i)
+        {
+            const double slot = ArrayIndexToGrayLevel(2 * i, 101, false, true, true);
+            if (GraySeriesSlotLevel(b, i) != slot)
+                Fail("T43 (j) PQ near black slot %d: not %d%%", i, 2 * i);
+            const double want = (i == 1) ? slot : CodeFor(2 * i, 10, F) / 1023.0 * 100.0;
+            if (GraySeriesLevel(b, i) != want)
+                Fail("T43 (j) PQ near black %d: level %.17g, expected %.17g", i, GraySeriesLevel(b, i), want);
+        }
+        b.pqNearBlack = false;
+        if (GraySeriesSlotLevel(b, 3) != ArrayIndexToGrayLevel(3, 101, false, true, true))
+            Fail("T43 (j) SDR near black slot 3: not 3%%");
+
+        // grayscale with nominal levels per slot, and the even ramp without them.
+        const double nominal[5] = { 0.0, 10.0, 30.0, 75.0, 100.0 };
+        CColor gs[5];
+        for (int i = 0; i < 5; ++i)
+            gs[i] = CColor(0.3, 0.4, 0.5);
+        gs[3] = Stamped(GrayLevelToGrayProp(75.0, false, false, false) * 100.0, true, 8, F, CodeFor(75, 8, F));
+        GraySeriesView g = v;
+        g.series = GRAY_SERIES_GRAYSCALE; g.readings = gs; g.size = 5;
+        g.nominalLevels = nominal; g.nominalCount = 5; g.b10bit = false; g.is16_235 = true;
+        for (int i = 0; i < 5; ++i)
+        {
+            const double slot = GrayLevelToGrayProp(nominal[i], false, false, true) * 100.0;
+            if (GraySeriesSlotLevel(g, i) != slot || GrayScaleSlotLevel(i, 5, nominal, 5, false, false, true) != slot)
+                Fail("T43 (j) grayscale slot %d: not the nominal %.0f%% on the grid", i, nominal[i]);
+            const double want = (i == 3) ? CodeFor(75, 8, F) / 255.0 * 100.0 : slot;
+            if (GraySeriesLevel(g, i) != want)
+                Fail("T43 (j) grayscale %d: level %.17g, expected %.17g", i, GraySeriesLevel(g, i), want);
+        }
+        g.nominalCount = 4;		// a count mismatch: the even ramp, as GetGrayPercent
+        for (int i = 0; i < 5; ++i)
+            if (GraySeriesSlotLevel(g, i) != ArrayIndexToGrayLevel(i, 5, false, false, true))
+                Fail("T43 (j) grayscale slot %d without nominal levels: not the even ramp", i);
+        g.nominalLevels = NULL; g.nominalCount = 5;
+        if (GraySeriesSlotLevel(g, 2) != ArrayIndexToGrayLevel(2, 5, false, false, true))
+            Fail("T43 (j) grayscale slot 2 with no nominal array: not the even ramp");
+    }
+    // (k) The accessor's fallback for a reading with no stamped drive -
+    //     GraySeriesProp, which the charts, UpdateGrid's dE references and
+    //     GetItemText's reference-Y cells all use - and GraySeriesSlotProp are
+    //     one value, quantized ONCE from the level the sweep drives: floor(v)/grid
+    //     under round-down, floor(v + 0.5)/grid otherwise, v = the level on the
+    //     grid. Every slot of near black (SDR and PQ), near white (clip 101 and
+    //     76), the even gray ramp (2, 5, 11, 21 and 101 points) and a nominal-level
+    //     gray scale, on all four grids, with and without round-down. Under
+    //     round-to-nearest it is also bit for bit main's two-step value,
+    //     GrayLevelToGrayProp ( GraySeriesSlotLevel ), so an unstamped document
+    //     not using round-down draws exactly as before.
+    {
+        int bad = 0, badMain = 0, n = 0;
+        CColor nb[51], nw[11], gs[101];
+        const double nominal[7] = { 0.0, 5.0, 20.0, 48.0, 67.0, 96.0, 100.0 };
+        for (int rd = 0; rd < 2; ++rd)
+            for (int b = 0; b < 2; ++b)
+                for (int g = 0; g < 2; ++g)
+                {
+                    const double grid = b ? (g ? 876.0 : 1023.0) : (g ? 219.0 : 255.0);
+                    // the single-truncation expression, written out here
+                    auto once = [&](double x) { return (rd ? floor(x) : floor(x + 0.5)) / grid; };
+                    auto check = [&](const GraySeriesView& v, int i, double want) {
+                        ++n;
+                        const double p = GraySeriesProp(v, i), s = GraySeriesSlotProp(v, i);
+                        if (p != want || s != want)
+                        {
+                            if (bad < 6)
+                                Fail("T43 (k) series %d size %d slot %d rd %d grid %.0f: prop %.17g slot prop %.17g, want %.17g",
+                                     (int)v.series, v.size, i, rd, grid, p, s, want);
+                            ++bad;
+                        }
+                        if (!rd && p != GrayLevelToGrayProp(GraySeriesSlotLevel(v, i), false, b != 0, g != 0))
+                            ++badMain;
+                    };
+                    for (int pq = 0; pq < 2; ++pq)
+                    {
+                        GraySeriesView vb = OneSlot(nb, 0, rd != 0, b != 0, g != 0);
+                        vb.series = GRAY_SERIES_NEAR_BLACK; vb.size = 51; vb.pqNearBlack = (pq != 0);
+                        for (int i = 0; i < 51; ++i)
+                            check(vb, i, once((double)(i * (pq ? 2 : 1)) / 100.0 * grid));
+                    }
+                    const int clips[2] = { 101, 76 };
+                    for (int c = 0; c < 2; ++c)
+                    {
+                        GraySeriesView vw = OneSlot(nw, 0, rd != 0, b != 0, g != 0);
+                        vw.size = 11; vw.nearWhiteClipCol = clips[c];
+                        for (int i = 0; i < 11; ++i)
+                            check(vw, i, once((double)(i + clips[c] - 11) / 100.0 * grid));
+                    }
+                    const int sizes[5] = { 2, 5, 11, 21, 101 };
+                    for (int k = 0; k < 5; ++k)
+                    {
+                        GraySeriesView vg = OneSlot(gs, 0, rd != 0, b != 0, g != 0);
+                        vg.series = GRAY_SERIES_GRAYSCALE; vg.size = sizes[k];
+                        for (int i = 0; i < sizes[k]; ++i)
+                            check(vg, i, once((double)i / (double)(sizes[k] - 1) * grid));
+                    }
+                    GraySeriesView vn = OneSlot(gs, 0, rd != 0, b != 0, g != 0);
+                    vn.series = GRAY_SERIES_GRAYSCALE; vn.size = 7; vn.nominalLevels = nominal; vn.nominalCount = 7;
+                    for (int i = 0; i < 7; ++i)
+                        check(vn, i, once(nominal[i] / 100.0 * grid));
+                }
+        if (bad)
+            Fail("T43 (k) %d of %d unstamped slot props are not the single-truncation value", bad, n);
+        if (badMain)
+            Fail("T43 (k) %d round-to-nearest slot props differ from main's two-step value", badMain);
+        // The case that moved: round-down, 219 grid, 5%. The disc shows code 10;
+        // main's two truncations evaluated 9/219 (near black, a 21-point and a
+        // nominal-5% gray scale alike).
+        GraySeriesView vb = OneSlot(nb, 0, true, false, true);
+        vb.series = GRAY_SERIES_NEAR_BLACK; vb.size = 51;
+        GraySeriesView vg = vb;
+        vg.series = GRAY_SERIES_GRAYSCALE; vg.readings = gs; vg.size = 21;
+        GraySeriesView vn = vg;
+        vn.size = 7; vn.nominalLevels = nominal; vn.nominalCount = 7;
+        if (GraySeriesProp(vb, 5) != 10.0 / 219.0 || GraySeriesProp(vg, 1) != 10.0 / 219.0 || GraySeriesProp(vn, 1) != 10.0 / 219.0)
+            Fail("T43 (k) round-down 5%% on 219: near black %.17g, ramp %.17g, nominal %.17g; want 10/219 each",
+                 GraySeriesProp(vb, 5), GraySeriesProp(vg, 1), GraySeriesProp(vn, 1));
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T45 - issue #256: order independence of the spectral-correction sync (pure
+// assertion, no golden file).
+//
+// The property: what a session ends with - the readings, the record, the path, the
+// raw-less state, what the driver applies - must not depend on whether the first
+// Init of the session is a measurement's or the sensor sheet's. The
+// CSensor/CArgyllSensor glue needs MFC and a meter, so the harness below is a model
+// of it that calls the libHCFR rules the app calls (EffectiveSensorMatrix,
+// ReadingsCarryUnrecordedDriverCorrection, EffectiveChangedWithoutWalk,
+// SpectralRecordFromPathFile, SpectralRecordApplied, SpectralClearAllowed,
+// PlainDisplayTypeEntry, RawlessReadingsState) in the app's order:
+//   Init         - CArgyllSensor::Init: the start (connectAndStartMeter, which can
+//                  fail and let go of the meter), then ApplyCorrectionStep: the Display Type lookup by
+//                  text, the entry the driver is put on, the conversion for a meter
+//                  whose matrices are not exposed, the path rule, the re-apply,
+//                  SyncSpectralRecordFromMeter's branches (R5 included),
+//                  EnforceRecordApplied, the booking outside the sheet.
+//   Sheet        - CDataSetDoc::OnConfigureSensor: BeginConfigure (the
+//                  measurement-start Init, before the page is filled; a failed one
+//                  refuses the sheet), the walk baseline, the page's steps (Display
+//                  Type, Spectral Type, Calibrate, Clear - enabled as the page last
+//                  refreshed it), OK or Cancel, and the walk of the stored readings.
+// Every scenario of the #256 reviews runs in three orders - measurement first,
+// sheet first, and a Calibrate-then-Cancel sheet first - with OK, Cancel and Clear,
+// and the orders must end identical. Each scenario also runs in main's order (no
+// Init at BeginConfigure, nothing booked at a measurement, none of the rules), where
+// the reviews say it differs or breaks an invariant: the harness asserts that it
+// does, so it is shown to detect the defect. (a) is that table; (b)-(h) pin the
+// rules as tables. Readings are column vectors (the correction acts first).
+//////////////////////////////////////////////////////////////////////////
+namespace T45Order
+{
+    static Matrix Vec(double x, double y, double z)
+    {
+        Matrix v(0.0, 3, 1);
+        v(0,0) = x; v(1,0) = y; v(2,0) = z;
+        return v;
+    }
+
+    static Matrix I3() { return Matrix::IdentityMatrix(3); }
+
+    // A deterministic, diagonally dominant correction for (source, unit, observer):
+    // what the driver's own fit gives for a ccss/ccmx entry or a browsed file on one
+    // unit under one observer. Different arguments give different matrices.
+    static Matrix CorrFor(const std::string& source, const std::string& unit, int observer)
+    {
+        const std::string key = source + "|" + unit + "|" + std::to_string(observer);
+        unsigned long long h = Fnv1a64(key.data(), key.size());
+        Matrix m = I3();
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+            {
+                h = h * 6364136223846793005ULL + 1442695040888963407ULL;
+                const double u = (double)((h >> 33) & 0xFFFF) / 65535.0 - 0.5;
+                m(i,j) += ( i == j ? 0.08 : 0.03 ) * u;
+            }
+        return m;
+    }
+
+    static Matrix Fcmm()   { return T32Spectral::M3(0.98, 0.03, -0.01,  0.02, 1.01, 0.005,  -0.004, 0.012, 1.05); }
+    static Matrix Native() { return Vec(41.2, 43.7, 47.9); }
+
+    // hasBase: the driver finds the entry's base (deriveDisplayTypeCalibration
+    // gets past its list checks).
+    struct Entry { std::string text; bool corrected; bool hasBase; };
+    // content "" = not on disk; parses false = read and hashed, but not a sample.
+    struct DiskFile { std::string path; std::string content; bool parses; };
+
+    // The meter and the disk.
+    struct World
+    {
+        bool exposed;                   // canExposeCalibrationMatrices (the i1d3)
+        bool holdsSamples;              // doesMeterSupportSpectralSamples (inst2_ccss)
+        bool startFails;                // connectAndStartMeter fails (meter unplugged)
+        int failObs;                    // ... fails for this Spectral Type only (-1 none)
+        int throwEntry;                 // setDisplayType throws for this entry (-1 none):
+                                        // the DTP94's set_disp_type is a device command
+        bool wrapperDead;               // another document's failed start deleted the
+                                        // shared wrapper's driver
+        bool needsCalibration;          // a reading asks for a manual calibration
+        bool calFails;                  // ... and the calibration always fails
+        bool unplugInSheet;             // the meter is unplugged while the sheet is open
+        bool calFailsOnce;              // the first calibration fails, the next ones succeed
+        bool wrapperDeadInSheet;        // the shared driver is gone by the sheet's commit
+                                        // (InitReporting's isMeterStillValid: SILENT)
+        std::string serial;
+        std::vector<Entry> list;
+        std::vector<DiskFile> disk;
+        World() : exposed(true), holdsSamples(true), startFails(false), failObs(-1), throwEntry(-1),
+                  wrapperDead(false), needsCalibration(false), calFails(false), unplugInSheet(false), calFailsOnce(false),
+                  wrapperDeadInSheet(false), serial("A") {}
+        const DiskFile* File(const std::string& path) const
+        {
+            for (size_t i = 0; i < disk.size(); ++i)
+                if (disk[i].path == path && !disk[i].content.empty())
+                    return &disk[i];
+            return NULL;
+        }
+        int Find(const std::string& text) const
+        {
+            for (size_t i = 0; i < list.size(); ++i)
+                if (list[i].text == text)
+                    return (int)i;
+            return -1;
+        }
+        int Plain(int stored) const
+        {
+            std::vector<bool> corrected;
+            for (size_t i = 0; i < list.size(); ++i)
+                corrected.push_back(list[i].corrected);
+            return PlainDisplayTypeEntry(stored, corrected);
+        }
+    };
+
+    static unsigned long long HashOf(const std::string& content)
+    {
+        return Fnv1a64(content.data(), content.size());
+    }
+
+    // CSensor + CArgyllSensor correction state, the settings the page commits, and
+    // the driver state that matters here.
+    struct Sensor
+    {
+        int method, fitBasis;
+        SpectralCorrectionRecord rec;
+        Matrix matrix;
+        std::string path;
+        RawlessReadingsState rawless;
+        int displayType, observer;          // members (committed settings)
+        int driverObserver;                 // what the driver was last started with
+        int driverEntry;                    // the list entry the driver is on (-1 none)
+        int dtBaseFor;                      // m_dtBaseFor: the entry the last derive succeeded for
+        std::string driverSample;           // what the driver applies itself ("" none)
+        bool cacheValid; std::string cachePath, cacheContent;
+        bool pathCheckedValid; std::string pathCheckedPath; unsigned long long pathCheckedHash;
+        bool pathDropPending;
+        bool entryMissing;                  // m_displayTypeRecordEntryMissing
+        bool meterGone;                     // a failed Init set m_meter = 0
+        bool inSheet;
+        bool uiClear;                       // the Clear button as the page last refreshed it
+        bool uiBrowse;                      // the Browse button as the page last refreshed it
+        bool uiCalibrate;                   // the Calibrate button as the page last refreshed it
+        bool hasRow;                        // the page built its spectral row (status, Browse, Clear)
+        bool measureValid;                  // m_isMeasureValid: persists between readings
+        SpectralCorrectionRecord recAtLoss; // the record when the meter was lost
+        Sensor() : method(CALIB_HCFR_DEFAULT), fitBasis(FIT_BASIS_NATIVE), matrix(I3()), displayType(0),
+                   observer(3), driverObserver(3), driverEntry(-1), dtBaseFor(-1), cacheValid(false), pathCheckedValid(false),
+                   pathCheckedHash(0), pathDropPending(false), entryMissing(false), meterGone(false),
+                   inSheet(false), uiClear(false), uiBrowse(false), uiCalibrate(false), hasRow(false), measureValid(true) {}
+        Matrix Effective() const { return EffectiveSensorMatrix(method, fitBasis, rec, matrix); }
+        bool UsesSpectral() const { return method == CALIB_SPECTRAL_SAMPLE; }
+    };
+
+    // One raw-less reading (no raw value: 4.2.2 and earlier, or edited) and,
+    // optionally, one raw-carrying reading. unrecorded: the correction the readings
+    // carry that no record describes (what the 4.2.2 driver applied).
+    struct Doc
+    {
+        Sensor s;
+        Matrix rawless;
+        bool hasRaw;
+        Matrix raw, rawValue;
+        Matrix unrecorded;
+        std::vector<int> clearAllowed;      // what the page's Clear did, each time it was pressed
+        bool crashed;                       // main: a lost meter dereferenced, or a throw uncaught
+        int messages, maxMessages;          // messages in the current user action, and the most
+        bool refusedSilently;               // the sheet refused with no message
+        bool silentClick;                   // an enabled button clicked, nothing done, nothing shown
+        bool settingsDroppedSilently;       // settings confirmed with OK, not kept, not told
+        bool loopedForever;                 // a reading that retried a failing calibration
+        int iniObserver;                    // the INI's Spectral Type (new documents, a restart)
+        int notices;                        // NOT_KEPT / REJECTED notices shown
+        bool silentRevert;                  // a commit reverted settings and said nothing
+        bool pageStale;                     // the page shows settings the sensor does not have
+        bool calFailedOnce;
+        bool calibrateEnabledWithoutMeter;  // the page's refresh left Calibrate on with no meter
+        bool wrongNotice;                   // a notice that says what did not happen: "rejected"
+                                            // for a meter that was unavailable (r8 SILENT), or
+                                            // "could not be started" after it started
+        Doc() : rawless(Native()), hasRaw(false), raw(Native()), rawValue(Native()), unrecorded(I3()),
+                crashed(false), messages(0), maxMessages(0), refusedSilently(false), silentClick(false),
+                settingsDroppedSilently(false), loopedForever(false), iniObserver(3),
+                notices(0), silentRevert(false), pageStale(false), calFailedOnce(false), calibrateEnabledWithoutMeter(false), wrongNotice(false) {}
+    };
+
+    // The order a session runs in. Branch: the step at BeginConfigure on a started
+    // driver (else owed to the first change in the sheet), the booking outside the
+    // sheet, the rules (the path rule, SpectralRecordApplied, R5, the Clear rule, the
+    // refresh after Calibrate). Main: none (origin/main before #256).
+    struct Structure { bool presync, books, rules; const char* name; };
+    static const Structure kBranch = { true,  true,  true,  "branch" };
+    // MeasureColorInternal stops when Calibrate fails (r6#2).
+    static const bool kStopOnFailedCalibration = true;
+    // RefreshSpectralStatus sets Calibrate before its early return for a page with no
+    // spectral row (r7#3).
+    static const bool kCalibrateRefreshBeforeRow = true;
+    // A failed reading says so: SetMeasureValidity(FALSE) (r7#1).
+    static const bool kFailedReadingInvalid = true;
+    // CommitPageSettings writes the INI only after the start succeeds and puts the
+    // old settings back when it fails (r7#2).
+    static const bool kIniAfterStart = true;
+    // Each reading starts valid (MeasureColorInternal's SetMeasureValidity(TRUE)) (r8#2).
+    static const bool kValidityReset = true;
+    // Ignore after an invalid reading keeps the reading CSensor::MeasureColor clamped
+    // to XYZ 1e-8, as on main (Kyle's round-9 ruling: the Ignore change is out of
+    // #256; the failed-reading design is its own issue). The model states it; no
+    // switch, because the branch does not change it.
+    // A commit that reverts settings says so, and the page shows the sensor's settings
+    // again (r8#3).
+    static const bool kNoticeOnRevert = true;
+    static const bool kResyncPage = true;
+    // A commit whose Init found the meter already unavailable (INIT_FAILED_SILENT)
+    // says the settings were not kept, not that the meter rejected them (r8, round 9).
+    static const bool kSilentSaysNotKept = true;
+    // (Round 9's "setting not applied" switch is gone with its string in round 10:
+    // the DTP94's failing select shows the wrapper's own box before it throws, so
+    // HCFR's text was never seen. The model counts that box as the one message.)
+    // A commit that showed its revert notice returns INIT_FAILED_ANNOUNCED, a SILENT
+    // Init included (round 10 #4).
+    static const bool kRevertAnnounced = true;
+    // The page's Calibrate that finds no meter (the shared driver gone outside the
+    // sheet, by a DDE command's start) says so (round 10 #2).
+    static const bool kCalibrateSaysUnavailable = true;
+    // The continuous thread that stops on an invalid reading shows the sensor's
+    // error string once (round 10 #5).
+    static const bool kContinuousSaysWhy = true;
+    static const Structure kMain   = { false, false, false, "main" };
+
+    // CSensor::ClearSpectralCorrection
+    static void ClearRecord(Sensor& s)
+    {
+        s.rec.Clear();
+        if (s.UsesSpectral())
+        {
+            s.matrix = I3();
+            s.method = CALIB_HCFR_DEFAULT;
+            s.fitBasis = FIT_BASIS_NATIVE;
+        }
+    }
+
+    // CArgyllSensor::ClearSpectralCorrection
+    static void ClearArgyll(Sensor& s, const World& w)
+    {
+        if (!w.exposed)
+            s.driverSample = ( s.driverEntry >= 0 && w.list[s.driverEntry].corrected )
+                           ? "entry:" + w.list[s.driverEntry].text : "";
+        s.path.clear();
+        s.cacheValid = false;
+        ClearRecord(s);
+    }
+
+    // DropPathNotRecordFile
+    static void DropPath(Sensor& s, const World& w)
+    {
+        s.path.clear();
+        s.cacheValid = false;
+        s.pathCheckedValid = false;
+        s.pathDropPending = true;
+        if (!w.exposed)
+            s.driverSample = ( s.driverEntry >= 0 && w.list[s.driverEntry].corrected )
+                           ? "entry:" + w.list[s.driverEntry].text : "";
+    }
+
+    // KeepPathIfRecordFile
+    static bool KeepPath(Sensor& s, const World& w, const Structure& st, bool hashed, unsigned long long hash)
+    {
+        if (!st.rules || SpectralRecordFromPathFile(s.rec, hashed, hash))
+        {
+            if (hashed)
+            {
+                s.pathCheckedPath = s.path;
+                s.pathCheckedHash = hash;
+                s.pathCheckedValid = true;
+            }
+            return true;
+        }
+        DropPath(s, w);
+        return false;
+    }
+
+    // MakeFileRecord's identity fields
+    static SpectralCorrectionRecord FileRecord(const Sensor& s, const World& w, const std::string& content)
+    {
+        SpectralCorrectionRecord r;
+        r.source = SPECTRAL_SOURCE_FILE;
+        r.description = content;
+        r.fileHash = HashOf(content);
+        r.observer = s.driverObserver;
+        r.meterSerial = w.serial;
+        return r;
+    }
+
+    // SyncSpectralRecordFromMeter (the R3 question answered OK).
+    static void Sync(Sensor& s, const World& w, const Structure& st, bool dtChanged)
+    {
+        if (!w.exposed || s.entryMissing)
+            return;
+        const int obs = s.driverObserver;
+        const Entry& e = w.list[s.displayType];
+        if (e.corrected)
+        {
+            if (s.rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE && s.rec.description == e.text
+             && s.rec.meterSerial == w.serial && s.rec.observer == obs && s.dtBaseFor == s.displayType)
+            {
+                s.driverEntry = w.Plain(-1);                // DisplayTypeRecordIsCurrent: the base
+                return;
+            }
+            if (!e.hasBase)
+            {
+                // The derive stops before its list checks. R5 (rules): the driver is
+                // put on a plain entry; main left it on the corrected entry.
+                if (st.rules)
+                    s.driverEntry = w.Plain(s.displayType);
+                if (s.rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE && s.rec.description != e.text)
+                    ClearRecord(s);
+                return;
+            }
+            s.driverEntry = w.Plain(-1);                    // the derive leaves the base selected
+            s.dtBaseFor = s.displayType;
+            SpectralCorrectionRecord r;
+            r.source = SPECTRAL_SOURCE_DISPLAY_TYPE;
+            r.description = e.text;
+            r.observer = obs;
+            r.meterSerial = w.serial;
+            r.correction = CorrFor("entry:" + e.text, w.serial, obs);
+            r.basis = FIT_BASIS_NATIVE;
+            if (r != s.rec)
+            {
+                const bool noFit = ( s.method == CALIB_HCFR_DEFAULT && s.matrix.IsIdentity() );
+                bool makeMethod = noFit;
+                if (!s.UsesSpectral() && dtChanged)
+                    makeMethod = true;
+                s.rec = r;
+                if (s.UsesSpectral() || makeMethod)
+                {
+                    s.matrix = r.correction;
+                    s.method = CALIB_SPECTRAL_SAMPLE;
+                    s.fitBasis = FIT_BASIS_NATIVE;
+                }
+            }
+            return;
+        }
+        if (s.rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE)
+        {
+            if (dtChanged)
+                ClearRecord(s);
+            else if (s.path.empty())
+                return;
+        }
+        if (s.path.empty())
+            return;
+        const bool fileRecord = ( s.rec.source == SPECTRAL_SOURCE_FILE );
+        if (fileRecord && s.rec.meterSerial == w.serial && s.rec.observer == obs)
+            return;
+        const DiskFile* f = w.File(s.path);
+        const bool hashed = ( f != NULL );
+        if (!KeepPath(s, w, st, hashed, hashed ? HashOf(f->content) : 0))
+            return;
+        if (!hashed || !f->parses)
+            return;
+        SpectralCorrectionRecord r = FileRecord(s, w, f->content);
+        r.correction = CorrFor("file:" + f->content, w.serial, obs);
+        r.basis = FIT_BASIS_NATIVE;
+        const bool noFit = ( s.method == CALIB_HCFR_DEFAULT && s.matrix.IsIdentity() );
+        s.rec = r;
+        if (s.UsesSpectral() || ( !fileRecord && noFit ))
+        {
+            s.matrix = r.correction;
+            s.method = CALIB_SPECTRAL_SAMPLE;
+            s.fitBasis = FIT_BASIS_NATIVE;
+        }
+    }
+
+    // ReapplyPathSample (also CancelConfigure's way back to the snapshot's path)
+    static void Reapply(Sensor& s, const World& w, const Structure& st)
+    {
+        if (!w.holdsSamples)
+            return;                                         // the re-apply warning; nothing loaded
+        bool ok = s.cacheValid && s.cachePath == s.path;
+        bool dropped = false;
+        if (!ok)
+        {
+            const DiskFile* f = w.File(s.path);
+            const bool hashed = ( f != NULL );
+            if (!KeepPath(s, w, st, hashed, hashed ? HashOf(f->content) : 0))
+                dropped = true;
+            else if (hashed && f->parses)
+            {
+                s.cacheContent = f->content;
+                s.cachePath = s.path;
+                s.cacheValid = true;
+                ok = true;
+            }
+        }
+        if (ok)
+            s.driverSample = s.cacheContent;
+        if (!dropped && ok && s.rec.source != SPECTRAL_SOURCE_FILE)
+        {
+            SpectralCorrectionRecord r = FileRecord(s, w, s.cacheContent);
+            r.basis = FIT_BASIS_DRIVER_CORRECTED;
+            s.rec = r;
+            if (s.method == CALIB_HCFR_DEFAULT && s.matrix.IsIdentity())
+            {
+                s.method = CALIB_SPECTRAL_SAMPLE;
+                s.fitBasis = r.basis;
+            }
+        }
+    }
+
+    // EnforceRecordApplied
+    static void Enforce(Sensor& s, const World& w, const Structure& st, bool driverAppliedRecord)
+    {
+        s.pathDropPending = false;
+        if (!st.rules)
+            return;
+        std::string entry;
+        if (!w.exposed && s.displayType >= 0 && w.list[s.displayType].corrected)
+            entry = w.list[s.displayType].text;
+        if (SpectralRecordApplied(s.rec, w.exposed, w.holdsSamples, !s.path.empty(), entry))
+            return;
+        const bool wasMethod = s.UsesSpectral();
+        ClearRecord(s);
+        if (driverAppliedRecord && wasMethod)
+            s.fitBasis = FIT_BASIS_DRIVER_CORRECTED;
+    }
+
+    // CArgyllSensor::ApplyCorrectionStep
+    static bool Step(Doc& d, const World& w, const Structure& st, bool dtChanged)
+    {
+        Sensor& s = d.s;
+        const Matrix before = s.Effective();
+        const bool through = ReadingsCarryUnrecordedDriverCorrection(s.rec, s.fitBasis);
+        const bool driverAppliedRecord = s.rec.IsPresent() && s.rec.basis != FIT_BASIS_NATIVE;
+        // The Display Type record anchored to its entry's text (exposed meter).
+        s.entryMissing = false;
+        int plain = -1;
+        if (w.exposed && s.rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE && !dtChanged
+         && w.list[s.displayType].text != s.rec.description)
+        {
+            const int ix = w.Find(s.rec.description);
+            if (ix >= 0)
+            {
+                s.displayType = ix;
+                s.dtBaseFor = -1;
+            }
+            else
+            {
+                s.entryMissing = true;
+                plain = w.Plain(s.displayType);
+                if (plain >= 0)
+                    s.displayType = plain;
+            }
+        }
+        // The entry the driver is put on (setDisplayType). It throws for the entry the
+        // device rejects: the step stops here, after the repair and the lookup.
+        if (( s.entryMissing ? plain : s.displayType ) == w.throwEntry)
+            return false;
+        s.driverEntry = s.entryMissing ? plain : s.displayType;
+        if (!w.exposed)
+            s.driverSample = w.list[s.displayType].corrected ? "entry:" + w.list[s.displayType].text : "";
+        // The conversion for a meter whose matrices are not exposed.
+        if (!w.exposed && s.rec.IsPresent() && s.rec.basis == FIT_BASIS_NATIVE)
+        {
+            s.rec.correction = I3();
+            s.rec.basis = FIT_BASIS_DRIVER_CORRECTED;
+            if (s.UsesSpectral())
+            {
+                s.matrix = I3();
+                s.fitBasis = FIT_BASIS_DRIVER_CORRECTED;
+            }
+        }
+        // CheckPathAgainstRecord
+        if (st.rules && !s.path.empty() && s.rec.source == SPECTRAL_SOURCE_FILE && s.rec.fileHash != 0
+         && !( s.pathCheckedValid && s.pathCheckedPath == s.path && s.pathCheckedHash == s.rec.fileHash ))
+        {
+            const DiskFile* f = w.File(s.path);
+            KeepPath(s, w, st, f != NULL, f ? HashOf(f->content) : 0);
+        }
+        if (!s.path.empty() && !w.exposed)
+            Reapply(s, w, st);
+        Sync(s, w, st, dtChanged);
+        Enforce(s, w, st, driverAppliedRecord);
+        if (st.books && !s.inSheet)
+            EffectiveChangedWithoutWalk(s.rawless, before, s.Effective(), through);
+        return true;
+    }
+
+    static void Message(Doc& d)
+    {
+        ++d.messages;
+        if (d.messages > d.maxMessages)
+            d.maxMessages = d.messages;
+    }
+
+    // CArgyllSensor::Init: the start, then the step.
+    // Main: no NULL guard, no isMeterStillValid, no catch - a lost meter or a throw
+    // ends in a crash.
+    // CArgyllSensor::InitReporting
+    enum InitResult { INIT_OK, INIT_FAILED_ANNOUNCED, INIT_FAILED_SILENT };
+    static int InitR(Doc& d, const World& w, const Structure& st, bool dtChanged)
+    {
+        Sensor& s = d.s;
+        if (s.meterGone || w.wrapperDead || ( w.wrapperDeadInSheet && s.inSheet ))
+        {
+            if (!st.rules)
+                d.crashed = true;
+            if (!s.meterGone)
+                s.recAtLoss = s.rec;
+            s.meterGone = true;                     // the NULL guard / isMeterStillValid
+            return INIT_FAILED_SILENT;              // nothing shown
+        }
+        if (w.startFails || s.observer == w.failObs || ( w.unplugInSheet && s.inSheet ))
+        {
+            s.recAtLoss = s.rec;
+            s.meterGone = true;                     // m_meter = 0 (the driver is deleted)
+            s.driverSample.clear();
+            Message(d);                             // the wrapper's box or HCFR's, once
+            return INIT_FAILED_ANNOUNCED;
+        }
+        s.driverObserver = s.observer;
+        if (!Step(d, w, st, dtChanged))
+        {
+            if (!st.rules)
+                d.crashed = true;                   // the throw escapes the handler
+            Message(d);                             // the wrapper's "Set display type error"
+            return INIT_FAILED_ANNOUNCED;           // (errorBoxShown: HCFR adds nothing)
+        }
+        return INIT_OK;
+    }
+    static bool Init(Doc& d, const World& w, const Structure& st, bool dtChanged)
+    {
+        return InitR(d, w, st, dtChanged) == INIT_OK;
+    }
+
+    // CArgyllSensor::Calibrate: false when it did not calibrate. inSheet: from the
+    // page's button (main: a throw there is uncaught); else from a measurement
+    // (main: the throw ends the measurement). *unavailable: no meter and nothing
+    // shown (INIT_FAILED_SILENT) - the caller says so.
+    static bool Calibrate(Doc& d, const World& w, const Structure& st, bool fromPage, bool* unavailable = NULL)
+    {
+        Sensor& s = d.s;
+        if (unavailable)
+            *unavailable = false;
+        if (st.rules && s.meterGone)
+        {
+            if (unavailable)
+                *unavailable = true;
+            return false;
+        }
+        const int init = InitR(d, w, st, false);
+        if (init != INIT_OK)
+        {
+            if (!st.rules && !d.crashed)
+                Message(d);                         // main: "Meter failed init check"
+            if (st.rules && unavailable)
+                *unavailable = ( init == INIT_FAILED_SILENT );
+            return false;
+        }
+        if (w.calFails || ( w.calFailsOnce && !d.calFailedOnce ))
+        {
+            d.calFailedOnce = true;
+            Message(d);                             // the wrapper's "Calibration Failed!"
+            if (!st.rules && fromPage)
+                d.crashed = true;                   // main: uncaught in the handler
+            return false;
+        }
+        return true;
+    }
+
+    // The CSensor + CArgyllSensor snapshot, and CancelConfigure.
+    struct Snap { Sensor s; };
+    static void Cancel(Sensor& s, const World& w, const Structure& st, const Snap& snap, bool reapply)
+    {
+        bool restoreSample = false;
+        if (s.path != snap.s.path)
+        {
+            if (snap.s.path.empty())
+                s.driverSample.clear();
+            s.path = snap.s.path;
+            s.cacheValid = false;
+            restoreSample = reapply && !s.path.empty() && !w.exposed;
+        }
+        s.displayType = snap.s.displayType;
+        s.observer = snap.s.observer;
+        s.method = snap.s.method;
+        s.matrix = snap.s.matrix;
+        s.rec = snap.s.rec;
+        s.fitBasis = snap.s.fitBasis;
+        if (restoreSample)
+        {
+            const bool driverAppliedRecord = s.rec.IsPresent() && s.rec.basis != FIT_BASIS_NATIVE;
+            if (st.rules)
+                Reapply(s, w, st);
+            else
+            {
+                const DiskFile* f = w.File(s.path);
+                if (f && f->parses)
+                    s.driverSample = f->content;
+            }
+            Enforce(s, w, st, driverAppliedRecord);
+        }
+    }
+
+    static bool CorrectionChanged(const Sensor& s, const Snap& snap)
+    {
+        return s.method != snap.s.method || s.matrix != snap.s.matrix || s.fitBasis != snap.s.fitBasis
+            || s.rec != snap.s.rec || s.path != snap.s.path;
+    }
+
+    enum StepKind { SET_DT, SET_OBS, CALIBRATE, CLEAR, BROWSE };
+    struct Step_ { StepKind kind; int value; };
+    enum Outcome { OK, CANCEL };
+
+    // SpectralClearAllowedOnPage; main: a FILE record or a stored path.
+    static bool ClearAllowed(const Sensor& s, const World& w, const Structure& st)
+    {
+        if (!st.rules)
+            return s.rec.source == SPECTRAL_SOURCE_FILE || !s.path.empty();
+        const bool entrySelected = s.rec.source == SPECTRAL_SOURCE_DISPLAY_TYPE
+                                && w.list[s.displayType].corrected && w.list[s.displayType].text == s.rec.description;
+        return SpectralClearAllowed(s.rec, !s.path.empty(), true, entrySelected);
+    }
+
+    // RefreshSpectralStatus
+    static void Refresh(Sensor& s, const World& w, const Structure& st)
+    {
+        if (st.rules && kCalibrateRefreshBeforeRow)
+            s.uiCalibrate = !s.meterGone;                   // HasMeter, every page
+        if (!s.hasRow)
+            return;                                         // no spectral row: nothing more
+        if (st.rules && !kCalibrateRefreshBeforeRow)
+            s.uiCalibrate = !s.meterGone;
+        s.uiClear = ClearAllowed(s, w, st);
+        if (st.rules)
+            s.uiBrowse = !s.meterGone && w.holdsSamples;    // MeterSupportsSpectralSamples
+    }
+
+    // CArgyllSensor::ApplySpectralCorrection (the R3 question answered OK), when the
+    // Browse button is enabled and the selected Display Type does not refuse it.
+    static void Browse(Doc& d, const World& w, const Structure& st, int pageDT, int file)
+    {
+        Sensor& s = d.s;
+        if (!s.uiBrowse || w.list[pageDT].corrected)
+            return;
+        const DiskFile& f = w.disk[file];
+        if (f.content.empty() || !f.parses)
+            return;
+        SpectralCorrectionRecord r;
+        r.source = SPECTRAL_SOURCE_FILE;
+        r.description = f.content;
+        r.fileHash = HashOf(f.content);
+        r.observer = s.driverObserver;
+        r.meterSerial = s.meterGone ? "" : w.serial;
+        if (!s.meterGone && w.exposed)
+        {
+            r.correction = CorrFor("file:" + f.content, w.serial, s.driverObserver);
+            r.basis = FIT_BASIS_NATIVE;
+        }
+        else
+        {
+            if (!s.meterGone && w.holdsSamples)
+                s.driverSample = f.content;         // loadSpectralSample
+            r.basis = FIT_BASIS_DRIVER_CORRECTED;   // identity: the driver applies it
+        }
+        s.path = f.path;
+        s.rec = r;
+        s.matrix = r.correction;
+        s.method = CALIB_SPECTRAL_SAMPLE;
+        s.fitBasis = r.basis;
+        s.cacheValid = false;
+        if (st.rules)
+        {
+            // Seeded from the bytes just read (ApplySpectralCorrection).
+            s.cacheValid = true; s.cachePath = f.path; s.cacheContent = f.content;
+            s.pathCheckedValid = true; s.pathCheckedPath = f.path; s.pathCheckedHash = r.fileHash;
+        }
+    }
+
+    // GetPropertiesSheetValues: a changed setting is committed and re-inits.
+    // CArgyllSensor::CommitPageSettings
+    static int Commit(Doc& d, const World& w, const Structure& st, int& pageDT, int& pageObs)
+    {
+        const bool changed = ( pageDT != d.s.displayType || pageObs != d.s.observer );
+        if (d.s.meterGone)
+        {
+            if (!st.rules)
+                d.crashed = true;                   // main: m_meter->getMeterName()
+            else if (changed)
+                Message(d);                         // IDS_ARGYLL_SETTINGS_NOT_KEPT
+            if (changed && d.messages == 0 && !d.crashed)
+                d.settingsDroppedSilently = true;
+            return ( st.rules && changed ) ? INIT_FAILED_ANNOUNCED : INIT_FAILED_SILENT;
+        }
+        if (!changed)
+            return INIT_OK;
+        const bool dtChanged = ( pageDT != d.s.displayType );
+        const int oldDT = d.s.displayType, oldObs = d.s.observer;
+        d.s.displayType = pageDT;
+        d.s.observer = pageObs;
+        const bool iniFirst = !( st.rules && kIniAfterStart );
+        if (iniFirst)
+            d.iniObserver = pageObs;                // main: written before the start
+        const int r = InitR(d, w, st, dtChanged);
+        if (!iniFirst)
+        {
+            if (r == INIT_OK)
+                d.iniObserver = d.s.observer;
+            else
+            {
+                d.s.displayType = oldDT;            // not kept
+                d.s.observer = oldObs;
+                if (kNoticeOnRevert)
+                {
+                    ++d.notices;                    // IDS_ARGYLL_SETTINGS_REJECTED(_STOPPED),
+                    if (r == INIT_FAILED_SILENT && !kSilentSaysNotKept)
+                        d.wrongNotice = true;       // or NOT_KEPT when nothing rejected them
+                }
+                else
+                    d.silentRevert = true;
+                if (kResyncPage)
+                {
+                    pageDT = d.s.displayType;       // the page shows the sensor's settings
+                    pageObs = d.s.observer;
+                }
+                else
+                    d.pageStale = true;
+                if (kNoticeOnRevert && kRevertAnnounced)
+                    return INIT_FAILED_ANNOUNCED;   // the notice was shown
+            }
+        }
+        return r;
+    }
+
+    // CDataSetDoc::OnConfigureSensor
+    static void Sheet(Doc& d, const World& w, const Structure& st, const std::vector<Step_>& steps, Outcome out)
+    {
+        Sensor& s = d.s;
+        // CArgyllSensor::BeginConfigure: the measurement-start Init, then Configure,
+        // which refuses the sheet when there is no meter, with a message every time
+        // (the start's own, or IDS_ARGYLL_METER_UNAVAILABLE). A start that fails with
+        // the meter still held opens the sheet with no step applied.
+        d.messages = 0;
+        if (st.presync)
+        {
+            const int begin = InitR(d, w, st, false);
+            if (s.meterGone)
+            {
+                // Configure: IDS_ARGYLL_METER_UNAVAILABLE unless the start announced it.
+                if (begin != INIT_FAILED_ANNOUNCED)
+                    Message(d);
+                if (d.messages == 0)
+                    d.refusedSilently = true;
+                return;                             // OnConfigureSensor: as a Cancel
+            }
+        }
+        else if (s.meterGone || w.startFails || w.wrapperDead)
+        {
+            // Main: SetPropertiesSheetValues and the page fill reach the meter (a
+            // lost one is dereferenced; an unstartable one throws from
+            // checkMeterIsInitialized, uncaught).
+            d.crashed = true;
+            return;
+        }
+        Snap snap; snap.s = s;
+        Matrix mod = s.Effective();                 // SetSensorMatrixMod
+        s.inSheet = true;
+        // OnInitDialog: the spectral row for a meter that takes samples or a sensor
+        // with a correction; the Calibrate button on every page, enabled.
+        s.hasRow = w.holdsSamples || s.rec.IsPresent();
+        s.uiCalibrate = true;
+        s.uiClear = false;
+        s.uiBrowse = false;
+        if (s.hasRow)
+        {
+            Refresh(s, w, st);
+            s.uiBrowse = !s.meterGone && w.holdsSamples;
+        }
+        int pageDT = s.displayType, pageObs = s.observer;
+        for (size_t i = 0; i < steps.size(); ++i)
+        {
+            switch (steps[i].kind)
+            {
+            case SET_DT:  pageDT = steps[i].value; break;
+            case SET_OBS: pageObs = steps[i].value; break;
+            case BROWSE:
+                d.messages = 0;
+                Browse(d, w, st, pageDT, steps[i].value);
+                break;
+            case CALIBRATE:                         // OnCalibrate, when the button is enabled
+            {
+                if (!s.uiCalibrate)
+                    break;
+                // The page refreshes Calibrate after each of its own actions, so a meter
+                // lost by one of them has disabled it (a loss outside the sheet happens
+                // inside this click's Inits in the model, and the click says so).
+                if (st.rules && s.meterGone)
+                    d.calibrateEnabledWithoutMeter = true;
+                d.messages = 0;
+                const int r = Commit(d, w, st, pageDT, pageObs);
+                bool calibrated = false;
+                bool unavailable = false;
+                if (!st.rules || r == INIT_OK)      // main calibrated whatever the commit did
+                    calibrated = Calibrate(d, w, st, true, &unavailable);
+                else if (r == INIT_FAILED_SILENT)
+                    unavailable = true;             // the commit found no meter, said nothing
+                if (!calibrated && unavailable && kCalibrateSaysUnavailable)
+                    Message(d);                     // IDS_ARGYLL_METER_UNAVAILABLE (OnCalibrate)
+                if (!calibrated && d.messages == 0 && !d.crashed)
+                    d.silentClick = true;
+                if (st.rules)
+                    Refresh(s, w, st);              // main did not refresh here
+                break;
+            }
+            case CLEAR:                             // OnSpectralClear, when the button is enabled
+            {
+                d.clearAllowed.push_back(s.uiClear ? 1 : 0);
+                if (s.uiClear)
+                {
+                    // CancelConfigureBeforeClear: the snapshot's sample is not put
+                    // back into the driver (main: CancelConfigure re-applied it).
+                    Cancel(s, w, st, snap, !st.rules);
+                    ClearArgyll(s, w);
+                    Refresh(s, w, st);
+                }
+                break;
+            }
+            }
+        }
+        if (out == CANCEL)
+            Cancel(s, w, st, snap, true);
+        else
+        {
+            d.messages = 0;
+            Commit(d, w, st, pageDT, pageObs);       // the OK
+        }
+        s.inSheet = false;
+        if (out == OK && CorrectionChanged(s, snap))
+        {
+            const Matrix full = s.Effective();
+            int nSkipped = 0;
+            if (s.rawless.ComposeOntoRawless())
+                d.rawless = full * mod.GetInverse() * d.rawless;
+            else
+                nSkipped = 1;
+            s.rawless.SingleMatrixWalked(nSkipped);
+            if (d.hasRaw)
+                d.rawValue = full * d.raw;
+        }
+    }
+
+    // One reading (MeasureColorInternal): IsMeasureValid afterwards. Main: a failed
+    // calibration threw, and AsyncMeasurer's catch set the reading invalid.
+    static bool Reading(Doc& d, const World& w, const Structure& st)
+    {
+        Sensor& s = d.s;
+        if (st.rules && kValidityReset)
+            s.measureValid = true;                  // each reading starts valid
+        if (s.meterGone)
+        {
+            if (!st.rules)
+            {
+                d.crashed = true;                   // main: Init dereferences m_meter
+                return false;
+            }
+            if (kFailedReadingInvalid)
+                s.measureValid = false;
+            return s.measureValid;
+        }
+        if (!w.needsCalibration)
+            return s.measureValid;
+        if (Calibrate(d, w, st, false))
+            return s.measureValid;
+        if (!st.rules || kFailedReadingInvalid)
+            s.measureValid = false;                 // main: AsyncMeasurer's catch
+        return s.measureValid;
+    }
+
+    // A sweep of nPatches (Measure.cpp's loop): the measurement start, then each
+    // patch; an invalid reading shows the Abort/Retry/Ignore box ("An error
+    // occurred:" + the error string); the answer is `answer` (0 abort, 1 retry once
+    // then abort, 2 ignore). Abort stores nothing more, Retry reads the patch again,
+    // Ignore keeps the clamped reading in the slot, as main does (`clamped`).
+    struct SweepResult { int stored, prompts, messages, clamped; };
+    static SweepResult Sweep(Doc& d, const World& w, const Structure& st, int nPatches, int answer)
+    {
+        SweepResult r = { 0, 0, 0, 0 };
+        d.messages = 0;
+        if (!Init(d, w, st, false))
+        {
+            r.messages = d.messages;                // IDS_ERRINITSENSOR follows (pre-existing)
+            return r;
+        }
+        int retries = 0;
+        for (int i = 0; i < nPatches; ++i)
+        {
+            if (!Reading(d, w, st))
+            {
+                ++r.prompts;
+                if (answer == 0 || ( answer == 1 && retries > 0 ))
+                    break;                          // Abort
+                if (answer == 1)
+                {
+                    ++retries;
+                    --i;                            // Retry
+                    continue;
+                }
+                ++r.clamped;                        // Ignore: the clamped reading stays
+                continue;
+            }
+            ++r.stored;
+        }
+        r.messages = d.messages;
+        return r;
+    }
+
+    static void Measure(Doc& d, const World& w, const Structure& st)
+    {
+        d.messages = 0;
+        if (!Init(d, w, st, false))
+            return;                                 // a lost meter: noDataColor
+        if (!w.needsCalibration)
+            return;
+        // MeasureColorInternal: takeReading asks for a manual calibration until one
+        // succeeds. A failed Calibrate ends the reading with no data (main: the
+        // throw left the reading). Bounded here at 20 so a loop is visible.
+        for (int k = 0; k < 20; ++k)
+        {
+            const bool ok = Calibrate(d, w, st, false);
+            if (ok)
+                return;
+            if (!st.rules)
+                return;                             // main: the throw ended it
+            if (kStopOnFailedCalibration)
+                return;
+        }
+        d.loopedForever = true;
+    }
+
+    static bool NearVec(const Matrix& a, const Matrix& b, double rel)
+    {
+        double scale = 0.0;
+        for (int i = 0; i < a.GetRows(); ++i)
+            for (int j = 0; j < a.GetColumns(); ++j)
+                scale = fmax(scale, fmax(fabs(a(i,j)), fabs(b(i,j))));
+        for (int i = 0; i < a.GetRows(); ++i)
+            for (int j = 0; j < a.GetColumns(); ++j)
+                if (fabs(a(i,j) - b(i,j)) > rel * scale)
+                    return false;
+        return true;
+    }
+
+    // What differs between two orders' end states ("" when nothing).
+    static std::string Diff(const Doc& a, const Doc& b)
+    {
+        std::string out;
+        if (!NearVec(a.rawless, b.rawless, 1e-12)) out += " readings";
+        if (a.hasRaw && !NearVec(a.rawValue, b.rawValue, 1e-12)) out += " raw-carrying";
+        if (a.s.rec != b.s.rec) out += " record";
+        if (a.s.path != b.s.path) out += " path";
+        if (a.s.rawless.Get() != b.s.rawless.Get()) out += " raw-less-state";
+        if (a.s.method != b.s.method || a.s.fitBasis != b.s.fitBasis || !NearVec(a.s.matrix, b.s.matrix, 1e-12))
+            out += " method";
+        if (a.s.driverSample != b.s.driverSample || a.s.driverEntry != b.s.driverEntry) out += " driver";
+        if (a.s.displayType != b.s.displayType) out += " display-type";
+        return out;
+    }
+
+    struct Scenario
+    {
+        const char* id;                 // the finding it reproduces
+        std::string what;
+        World w;
+        Doc d;
+        std::vector<Step_> steps;
+        Outcome out;
+        bool mainDiffers;               // the reviews' claim: main's order differs
+        bool mainViolates;              // the reviews' claim: main breaks an invariant below
+        std::string wantRecord;         // the record that must stand ("": no check)
+        int wantDisplayType;            // the Display Type the user's OK must leave (-1: no check)
+        bool clearSeen;                 // the page's Clear must have been enabled once (else no check)
+        bool unrecordedTruth;           // the readings keep a correction no derive can express (R5)
+        Scenario() : out(OK), mainDiffers(false), mainViolates(false), wantDisplayType(-1), clearSeen(false), unrecordedTruth(false) {}
+    };
+
+    // Measurement first: a measurement's Init, the sheet, the next measurement.
+    // Sheet first: the sheet, the next measurement. Calibrate-Cancel first: a sheet
+    // in which Calibrate ran and that was cancelled, then the sheet, the next
+    // measurement (the driver is started, by a sheet, before the sheet under test).
+    static std::string RunOrders(const Scenario& sc, const Structure& st, Doc ends[3])
+    {
+        std::vector<Step_> calibrate(1);
+        calibrate[0].kind = CALIBRATE; calibrate[0].value = 0;
+        ends[0] = sc.d;
+        Measure(ends[0], sc.w, st);
+        Sheet(ends[0], sc.w, st, sc.steps, sc.out);
+        Measure(ends[0], sc.w, st);
+        ends[1] = sc.d;
+        Sheet(ends[1], sc.w, st, sc.steps, sc.out);
+        Measure(ends[1], sc.w, st);
+        ends[2] = sc.d;
+        Sheet(ends[2], sc.w, st, calibrate, CANCEL);
+        ends[2].clearAllowed.clear();
+        Sheet(ends[2], sc.w, st, sc.steps, sc.out);
+        Measure(ends[2], sc.w, st);
+        std::string out;
+        const std::string d1 = Diff(ends[0], ends[1]), d2 = Diff(ends[0], ends[2]);
+        if (!d1.empty()) out += " [sheet first:" + d1 + "]";
+        if (!d2.empty()) out += " [calibrate-cancel first:" + d2 + "]";
+        if (ends[0].clearAllowed != ends[1].clearAllowed || ends[0].clearAllowed != ends[2].clearAllowed)
+            out += " [clear-enabled]";
+        return out;
+    }
+
+    // The i1d3 list: two plain entries and three ccss/ccmx entries, plus an entry
+    // "N" whose base the driver does not find.
+    static World I1d3(const char* serial)
+    {
+        World w;
+        w.exposed = true;
+        w.serial = serial;
+        Entry list[] = { { "Non-Refresh", false, true }, { "Refresh", false, true }, { "E", true, true },
+                         { "E2", true, true }, { "L", true, true }, { "N", true, false } };
+        w.list.assign(list, list + 6);
+        DiskFile disk[] = { { "F.ccss", "F1", true }, { "G.ccss", "G1", true }, { "Fr.ccss", "F2", true },
+                            { "Bad.ccss", "BAD", false } };
+        w.disk.assign(disk, disk + 4);
+        return w;
+    }
+
+    // A Spyder: its driver takes samples, and lists the same installed entries.
+    static World Spyder()
+    {
+        World w = I1d3("S");
+        w.exposed = false;
+        return w;
+    }
+
+    static std::vector<Step_> Steps(int n, ...)
+    {
+        std::vector<Step_> v;
+        va_list ap;
+        va_start(ap, n);
+        for (int i = 0; i < n; ++i)
+        {
+            Step_ s;
+            s.kind = (StepKind)va_arg(ap, int);
+            s.value = va_arg(ap, int);
+            v.push_back(s);
+        }
+        va_end(ap);
+        return v;
+    }
+
+    enum { SAME = 0, DIFFERS = 1 };
+    enum { HOLDS = 0, VIOLATES = 1 };
+    static Scenario& Add(std::vector<Scenario>& v, const char* id, const std::string& what, const World& w, const Doc& d,
+                         const std::vector<Step_>& steps, Outcome out, int mainDiffers, int mainViolates)
+    {
+        Scenario sc;
+        sc.id = id; sc.what = what; sc.w = w; sc.d = d; sc.steps = steps; sc.out = out;
+        sc.mainDiffers = ( mainDiffers == DIFFERS ); sc.mainViolates = ( mainViolates == VIOLATES );
+        v.push_back(sc);
+        return v.back();
+    }
+
+    static SpectralCorrectionRecord DtRecord(const char* entry, const char* unit, int obs)
+    {
+        SpectralCorrectionRecord r;
+        r.source = SPECTRAL_SOURCE_DISPLAY_TYPE;
+        r.description = entry;
+        r.observer = obs;
+        r.meterSerial = unit;
+        r.correction = CorrFor(std::string("entry:") + entry, unit, obs);
+        r.basis = FIT_BASIS_NATIVE;
+        return r;
+    }
+
+    static SpectralCorrectionRecord FileRec(const char* content, const char* unit, int obs, bool driver)
+    {
+        SpectralCorrectionRecord r;
+        r.source = SPECTRAL_SOURCE_FILE;
+        r.description = content;
+        r.fileHash = HashOf(content);
+        r.observer = obs;
+        r.meterSerial = unit;
+        r.correction = driver ? I3() : CorrFor(std::string("file:") + content, unit, obs);
+        r.basis = driver ? FIT_BASIS_DRIVER_CORRECTED : FIT_BASIS_NATIVE;
+        return r;
+    }
+
+    // A 4.2.2.0 document (v1 sensor stream: method DEFAULT, basis UNKNOWN, no record)
+    // whose readings the i1d3 driver corrected with `through` (an entry or a file).
+    static Doc V1Doc(const Matrix& fit, int displayType, const std::string& through)
+    {
+        Doc d;
+        d.s.method = CALIB_HCFR_DEFAULT;
+        d.s.fitBasis = FIT_BASIS_UNKNOWN;
+        d.s.matrix = fit;
+        d.s.displayType = displayType;
+        d.unrecorded = CorrFor(through, "A", 3);
+        d.rawless = fit * d.unrecorded * Native();
+        return d;
+    }
+
+    // A document whose sensor uses `rec` as the method. For a driver-applied record
+    // the model's native reading is the one the driver corrected.
+    static Doc SpectralDoc(const SpectralCorrectionRecord& rec, int displayType, const char* path)
+    {
+        Doc d;
+        d.s.method = CALIB_SPECTRAL_SAMPLE;
+        d.s.rec = rec;
+        d.s.matrix = rec.correction;
+        d.s.fitBasis = rec.basis;
+        d.s.displayType = displayType;
+        d.s.path = path;
+        if (rec.basis == FIT_BASIS_DRIVER_CORRECTED)
+            d.s.driverSample = rec.source == SPECTRAL_SOURCE_FILE ? rec.description : "entry:" + rec.description;
+        d.rawless = rec.correction * Native();
+        return d;
+    }
+
+    static std::vector<Scenario> Scenarios()
+    {
+        std::vector<Scenario> v;
+        const World a = I1d3("A"), b = I1d3("B"), sp = Spyder();
+        const Matrix fits[2] = { I3(), Fcmm() };
+        const char* fitName[2] = { "no fit", "FCMM fit" };
+        for (int f = 0; f < 2; ++f)
+        {
+            // R2: a 4.2.2.0 document whose readings the driver corrected with its
+            // entry E. The first Init inside the sheet is a setting change at OK or
+            // the page's Calibrate; with neither, main runs no Init in the sheet.
+            const Doc v1e = V1Doc(fits[f], 2, "entry:E");
+            const std::string w1 = std::string("4.2.2 doc on entry E, ") + fitName[f];
+            Add(v, "R2", w1 + ", OK",                         a, v1e, Steps(0), OK, SAME, HOLDS);
+            Add(v, "R2", w1 + ", Calibrate, OK",              a, v1e, Steps(1, CALIBRATE, 0), OK, DIFFERS, HOLDS);
+            Add(v, "R2", w1 + ", Calibrate, Cancel",          a, v1e, Steps(1, CALIBRATE, 0), CANCEL, SAME, HOLDS);
+            Add(v, "R2", w1 + ", Spectral Type changed, OK",  a, v1e, Steps(1, SET_OBS, 4), OK, DIFFERS, HOLDS);
+            Add(v, "R2", w1 + ", Display Type -> E2, OK",     a, v1e, Steps(1, SET_DT, 3), OK, DIFFERS, HOLDS);
+            Add(v, "r2#3", w1 + ", Display Type -> plain, OK", a, v1e, Steps(1, SET_DT, 0), OK, DIFFERS, HOLDS);
+            // r1#3: no record, a browsed sample the driver applied, the page's Clear.
+            Doc v1f = V1Doc(fits[f], 0, "file:F1");
+            v1f.s.path = "F.ccss";
+            const std::string w3 = std::string("no record, sample F applied by the driver, ") + fitName[f];
+            Add(v, "r1#3", w3 + ", Clear, OK",     a, v1f, Steps(1, CLEAR, 0), OK, DIFFERS, HOLDS).clearSeen = true;
+            Add(v, "r1#3", w3 + ", Clear, Cancel", a, v1f, Steps(1, CLEAR, 0), CANCEL, SAME, HOLDS).clearSeen = true;
+            Add(v, "r1#3", w3 + ", OK",            a, v1f, Steps(0), OK, SAME, HOLDS);
+            // r2#4: entry E selected and applied by the driver, a stored path too.
+            Doc v1ep = v1e;
+            v1ep.s.path = "F.ccss";
+            const std::string w4 = std::string("no record, entry E applied by the driver, path F, ") + fitName[f];
+            Add(v, "r2#4", w4 + ", Clear, OK", a, v1ep, Steps(1, CLEAR, 0), OK, DIFFERS, HOLDS);
+            // r2#3: entry L applied by the driver, path F, the user leaves L for a plain entry.
+            Doc v1l = V1Doc(fits[f], 4, "entry:L");
+            v1l.s.path = "F.ccss";
+            const std::string w5 = std::string("no record, entry L applied by the driver, path F, ") + fitName[f];
+            Add(v, "r2#3", w5 + ", Display Type -> plain, OK", a, v1l, Steps(1, SET_DT, 0), OK, DIFFERS, HOLDS);
+            // r1#8: raw XYZ the driver had already corrected (a field-test build
+            // document), re-expressed by an Init in the sheet.
+            Doc ft = V1Doc(fits[f], 0, "file:F1");
+            ft.s.path = "F.ccss";
+            ft.hasRaw = true;
+            ft.raw = CorrFor("file:F1", "A", 3) * Native();
+            ft.rawValue = fits[f] * ft.raw;
+            const std::string w8 = std::string("raw already driver-corrected, path F, ") + fitName[f];
+            Add(v, "r1#8", w8 + ", Calibrate, OK", a, ft, Steps(1, CALIBRATE, 0), OK, DIFFERS, HOLDS);
+            // R5 / gap: the entry the readings went through has no base entry (the
+            // derive stops before selecting anything). Main leaves the driver on it.
+            const Doc v1n = V1Doc(fits[f], 5, "entry:N");
+            const std::string w9 = std::string("4.2.2 doc on entry N (no base entry), ") + fitName[f];
+            Add(v, "R5", w9 + ", Calibrate, OK", a, v1n, Steps(1, CALIBRATE, 0), OK, SAME, VIOLATES).unrecordedTruth = true;
+        }
+        // R5 with a record for that same entry: main applies it twice (driver and HCFR).
+        Doc dtN = SpectralDoc(DtRecord("N", "A", 3), 5, "");
+        Add(v, "R5", "entry N record, no base entry, Calibrate, OK", a, dtN, Steps(1, CALIBRATE, 0), OK, SAME, VIOLATES);
+        // Gap: the record's entry moved to another index (an installed file added),
+        // and the record's entry gone from the list. Main: Calibrate's Init moves the
+        // Display Type under the page, and OK commits the stale index as a choice.
+        World moved = a;
+        std::swap(moved.list[2], moved.list[3]);            // E now at 3, E2 at 2
+        const Doc dtE = SpectralDoc(DtRecord("E", "A", 3), 2, "");
+        Add(v, "gap", "entry E record, E moved to index 3, Calibrate, OK", moved, dtE, Steps(1, CALIBRATE, 0), OK, DIFFERS, HOLDS);
+        World gone = a;
+        gone.list[2].text = "X";
+        Add(v, "gap", "entry E record, E gone from the list, Calibrate, OK", gone, dtE, Steps(1, CALIBRATE, 0), OK, DIFFERS, HOLDS);
+        // Gap: a .ccss that hashes but does not parse, as the stored path.
+        Doc bad = V1Doc(I3(), 0, "file:F1");
+        bad.s.path = "Bad.ccss";
+        Add(v, "gap", "no record, path to a file that does not parse, Calibrate, OK", a, bad, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS).unrecordedTruth = true;
+        Doc badSpy = SpectralDoc(SpectralCorrectionRecord(), 0, "Bad.ccss");
+        badSpy.s.method = CALIB_HCFR_DEFAULT;
+        Add(v, "gap", "Spyder, no record, path to a file that does not parse, Calibrate, OK", sp, badSpy, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
+        // r1#1 / r2#5: unit B connected; the record was derived on unit A.
+        const Doc fileA = SpectralDoc(FileRec("F1", "A", 3, false), 0, "F.ccss");
+        Add(v, "r1#1", "unit B, FILE record from unit A, plain -> plain, OK", b, fileA, Steps(1, SET_DT, 1), OK, DIFFERS, HOLDS);
+        Add(v, "r1#1", "unit B, FILE record from unit A, OK", b, fileA, Steps(0), OK, SAME, HOLDS);
+        Add(v, "r1#1", "unit B, FILE record from unit A, Calibrate, Cancel", b, fileA, Steps(1, CALIBRATE, 0), CANCEL, SAME, HOLDS);
+        Add(v, "r2#5", "unit B, FILE record from unit A, -> entry E2, OK", b, fileA, Steps(1, SET_DT, 3), OK, DIFFERS, HOLDS);
+        const Doc dtA = SpectralDoc(DtRecord("E", "A", 3), 2, "");
+        Add(v, "r2#5", "unit B, entry E record from unit A, -> entry E2, OK", b, dtA, Steps(1, SET_DT, 3), OK, DIFFERS, HOLDS);
+        Add(v, "r2#5", "unit B, entry E record from unit A, OK", b, dtA, Steps(0), OK, SAME, HOLDS);
+        // r2#1: the Spectral Type changed with Calibrate, then Cancel or OK.
+        const Doc fileOwn = SpectralDoc(FileRec("F1", "A", 3, false), 0, "F.ccss");
+        Add(v, "r2#1", "FILE record, Spectral Type changed, Calibrate, Cancel", a, fileOwn, Steps(2, SET_OBS, 4, CALIBRATE, 0), CANCEL, SAME, HOLDS);
+        Add(v, "r2#1", "FILE record, Spectral Type changed, Calibrate, OK", a, fileOwn, Steps(2, SET_OBS, 4, CALIBRATE, 0), OK, SAME, HOLDS);
+        // r3#6: Calibrate commits a Display Type that changes what Clear may do; the
+        // page's Clear acts on the state after it.
+        Add(v, "r3#6", "FILE record, Display Type -> E, Calibrate, Clear, OK", a, fileOwn, Steps(3, SET_DT, 2, CALIBRATE, 0, CLEAR, 0), OK, SAME, HOLDS);
+        // r1#2 / r1#5 / r4#4: a Spyder given an i1d3 document's Display Type record.
+        // Its own list has an entry at that index, and the driver applies it: the
+        // record's own entry (applied), another corrected entry, or a plain one.
+        const Doc dtSpy = SpectralDoc(DtRecord("E", "A", 3), 2, "");
+        Add(v, "r1#5", "Spyder, i1d3 entry E record, E at that index, OK", sp, dtSpy, Steps(0), OK, SAME, HOLDS);
+        Add(v, "r1#2", "Spyder, i1d3 entry E record, E at that index, Calibrate, Clear, OK", sp, dtSpy, Steps(2, CALIBRATE, 0, CLEAR, 0), OK, DIFFERS, HOLDS);
+        Add(v, "r1#2", "Spyder, i1d3 entry E record, E at that index, -> plain, OK", sp, dtSpy, Steps(1, SET_DT, 0), OK, DIFFERS, VIOLATES);
+        World spOther = sp;
+        spOther.list[2].text = "E9";
+        Add(v, "r4#4", "Spyder, i1d3 entry E record, another entry at that index, OK", spOther, dtSpy, Steps(0), OK, SAME, VIOLATES);
+        World spPlain = sp;
+        spPlain.list[2].corrected = false;
+        Add(v, "r1#5", "Spyder, i1d3 entry E record, a plain entry at that index, Clear, OK", spPlain, dtSpy, Steps(1, CLEAR, 0), OK, SAME, VIOLATES);
+        // R4 on the i1d3: a FILE record from G (a correction file loaded after the
+        // Browse of F). Same unit (main: the path names another file than the record)
+        // and another unit (main: F derived again in G's place).
+        const Doc yOnF = SpectralDoc(FileRec("G1", "A", 3, false), 0, "F.ccss");
+        Add(v, "R4", "record from G, path F, same unit, OK", a, yOnF, Steps(0), OK, SAME, VIOLATES).wantRecord = "G1";
+        Add(v, "R4", "record from G, path F, unit B, OK", b, yOnF, Steps(0), OK, SAME, VIOLATES).wantRecord = "G1";
+        // r1#6 / r2#2: a Spyder whose path names another file than its record's (a
+        // record from G; F rewritten in place after its Browse). Main loads it.
+        const Doc spyG = SpectralDoc(FileRec("G1", "S", 3, true), 0, "F.ccss");
+        Add(v, "r1#6", "Spyder, record from G, path F, OK", sp, spyG, Steps(0), OK, SAME, VIOLATES);
+        const Doc spyR = SpectralDoc(FileRec("F1", "S", 3, true), 0, "Fr.ccss");
+        Add(v, "r2#2", "Spyder, path file rewritten after its Browse, OK", sp, spyR, Steps(0), OK, SAME, VIOLATES);
+        Add(v, "r2#2", "Spyder, path file rewritten, Calibrate, Cancel", sp, spyR, Steps(1, CALIBRATE, 0), CANCEL, SAME, VIOLATES);
+        // r3#3: a meter that takes no sample (a DTP94, a Spyder3) given a Spyder
+        // document's FILE record and its path.
+        World dtp = sp;
+        dtp.holdsSamples = false;
+        const Doc spyF = SpectralDoc(FileRec("F1", "S", 3, true), 0, "F.ccss");
+        Add(v, "r3#3", "meter without samples, Spyder's FILE record, its path, OK", dtp, spyF, Steps(0), OK, SAME, VIOLATES);
+        // r4: a start that fails (the meter unplugged): the sheet is refused cleanly, in
+        // every order; main dereferences the lost meter or lets the throw escape.
+        World dead = a;
+        dead.startFails = true;
+        Add(v, "r4", "i1d3 start fails, 4.2.2 doc on entry E, Calibrate, OK", dead, V1Doc(I3(), 2, "entry:E"), Steps(1, CALIBRATE, 0), OK, SAME, VIOLATES).unrecordedTruth = true;
+        World deadSpy = sp;
+        deadSpy.startFails = true;
+        Add(v, "r4", "Spyder start fails, its own browsed file, Clear, OK", deadSpy, SpectralDoc(FileRec("F1", "S", 3, true), 0, "F.ccss"), Steps(1, CLEAR, 0), OK, SAME, VIOLATES);
+        // r5#1: a start that fails with the meter still held (the DTP94 rejects the stored
+        // Display Type) opens the sheet with no step applied; the user picks another
+        // Display Type and the OK's commit Init runs with it. The same change made after
+        // a measurement in that state ends the same.
+        World dtpThrow = sp;
+        dtpThrow.holdsSamples = false;
+        dtpThrow.throwEntry = 2;
+        Scenario& t1 = Add(v, "r5#1", "DTP94 rejects the stored Display Type, -> plain, OK", dtpThrow, V1Doc(I3(), 2, "entry:E"), Steps(1, SET_DT, 0), OK, SAME, VIOLATES);
+        t1.unrecordedTruth = true; t1.wantDisplayType = 0;
+        Add(v, "r5#1", "DTP94 rejects the stored Display Type, Calibrate, Cancel", dtpThrow, V1Doc(I3(), 2, "entry:E"), Steps(1, CALIBRATE, 0), CANCEL, SAME, VIOLATES).unrecordedTruth = true;
+        World i1Throw = a;
+        i1Throw.throwEntry = 2;
+        Scenario& t3 = Add(v, "r5#1", "i1d3, 4.2.2 doc on E, the select of E throws, -> plain, Calibrate, OK", i1Throw, V1Doc(Fcmm(), 2, "entry:E"), Steps(2, SET_DT, 0, CALIBRATE, 0), OK, SAME, VIOLATES);
+        t3.unrecordedTruth = true; t3.wantDisplayType = 0;
+        // r5#6: a setting changed that still fails, then Calibrate: one message.
+        Add(v, "r5#6", "DTP94 rejects the stored Display Type, Spectral Type changed, Calibrate, Cancel", dtpThrow, V1Doc(I3(), 2, "entry:E"), Steps(2, SET_OBS, 4, CALIBRATE, 0), CANCEL, SAME, VIOLATES).unrecordedTruth = true;
+        // r5#7: a throw after the step moved the Display Type (the record's entry found
+        // at another index, and that index rejected): the partial step is the same in
+        // both orders.
+        World movedThrow = moved;
+        movedThrow.throwEntry = 3;
+        Add(v, "r5#7", "entry E record, E moved to 3, the select of 3 throws, -> plain, OK", movedThrow, dtE, Steps(1, SET_DT, 0), OK, SAME, VIOLATES).wantDisplayType = 0;
+        // r5#2: two documents on one meter; the other one's failed start deleted the
+        // shared driver. This one's sheet is refused with a message, no dereference.
+        World dead2 = a;
+        dead2.wrapperDead = true;
+        Add(v, "r5#2", "another document's failed start deleted the driver, OK", dead2, fileOwn, Steps(0), OK, SAME, VIOLATES);
+        // r10#2: the same loss while the sheet is open (a DDE command's start in another
+        // document): a Calibrate click says the meter is unavailable, not nothing.
+        World deadInSheet = a;
+        deadInSheet.wrapperDeadInSheet = true;
+        Add(v, "r10", "the shared driver lost under the sheet (DDE), Calibrate, OK", deadInSheet, fileOwn, Steps(1, CALIBRATE, 0), OK, DIFFERS, VIOLATES);
+        // r5#4: an in-sheet start that fails for the Spectral Type lets go of the meter;
+        // Browse is refreshed with the rest and cannot install a record nothing applies.
+        World obsFails = a;
+        obsFails.failObs = 4;
+        Add(v, "r5#4", "Spectral Type the meter fails on, Calibrate, Browse G, OK", obsFails, fileOwn, Steps(3, SET_OBS, 4, CALIBRATE, 0, BROWSE, 1), OK, DIFFERS, VIOLATES);
+        // r6#2: a meter whose calibration always fails (an i1Pro whose white tile keeps
+        // failing): a reading that asks for it ends with no data and one message, the
+        // page's Calibrate shows one message.
+        World calBad = a;
+        calBad.needsCalibration = true;
+        calBad.calFails = true;
+        Add(v, "r6#2", "calibration always fails, Calibrate, OK", calBad, fileOwn, Steps(1, CALIBRATE, 0), OK, SAME, VIOLATES);
+        // r6#6: after the meter is lost in the sheet, Calibrate is disabled, and settings
+        // changed and confirmed with OK are told not kept.
+        Add(v, "r6#6", "Spectral Type the meter fails on, Calibrate, Calibrate again, OK", obsFails, fileOwn, Steps(3, SET_OBS, 4, CALIBRATE, 0, CALIBRATE, 0), OK, DIFFERS, VIOLATES);
+        Add(v, "r6#6", "Spectral Type the meter fails on, Calibrate, Display Type changed, OK", obsFails, fileOwn, Steps(3, SET_OBS, 4, CALIBRATE, 0, SET_DT, 1), OK, DIFFERS, VIOLATES);
+        // r7#3: an i1Pro-like meter (no samples) with no correction has no spectral
+        // row; after the meter is lost, Calibrate is disabled all the same.
+        World i1pro = obsFails;
+        i1pro.exposed = false;
+        i1pro.holdsSamples = false;
+        Add(v, "r7#3", "no spectral row, Spectral Type the meter fails on, Calibrate, Calibrate again, OK", i1pro, Doc(), Steps(3, SET_OBS, 4, CALIBRATE, 0, CALIBRATE, 0), OK, DIFFERS, VIOLATES);
+        // r7#3: the same page, with the meter unplugged while the sheet is open (no
+        // setting changed): the second Calibrate is disabled, not a silent click.
+        World unplug = i1pro;
+        unplug.failObs = -1;
+        unplug.unplugInSheet = true;
+        Add(v, "r7#3", "no spectral row, unplugged in the sheet, Calibrate, Calibrate again, OK", unplug, Doc(), Steps(2, CALIBRATE, 0, CALIBRATE, 0), OK, DIFFERS, VIOLATES);
+        // r7#2: the rejected Spectral Type, then Cancel: neither the INI nor the
+        // document keeps it.
+        Add(v, "r7#2", "Spectral Type the meter fails on, Calibrate, Cancel", obsFails, fileOwn, Steps(2, SET_OBS, 4, CALIBRATE, 0), CANCEL, DIFFERS, VIOLATES);
+        // A Spyder's own browsed file, and an i1d3's: nothing changes in either order.
+        Add(v, "-", "Spyder, its own browsed file, Calibrate, OK", sp, spyF, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
+        Add(v, "-", "i1d3, its own browsed file, Calibrate, OK", a, fileOwn, Steps(1, CALIBRATE, 0), OK, SAME, HOLDS);
+        return v;
+    }
+
+    // The invariants every end state must hold; "" when it does, else what breaks.
+    static std::string Violations(const Scenario& sc, const Doc& e)
+    {
+        std::string out;
+        // The second invariant: no record says a correction is in force that nothing
+        // applies - and what applies it is the record's own: its file's sample, or its
+        // own Display Type entry (the driver of a meter whose matrices are not exposed).
+        // With no meter nothing is measured and nothing applies anything: the record
+        // is the document's, kept as it was (a failed start changes nothing).
+        if (!e.s.meterGone && e.s.rec.IsPresent() && e.s.rec.basis != FIT_BASIS_NATIVE)
+        {
+            const std::string want = e.s.rec.source == SPECTRAL_SOURCE_FILE ? e.s.rec.description
+                                                                            : "entry:" + e.s.rec.description;
+            if (sc.w.exposed || e.s.driverSample != want)
+                out += " unapplied-record";
+        }
+        // A meter whose matrices are exposed measures native: the driver is never left
+        // on a corrected entry (R5).
+        if (sc.w.exposed && e.s.driverEntry >= 0 && sc.w.list[e.s.driverEntry].corrected)
+            out += " driver-on-corrected-entry";
+        // A FILE record and a readable path name the same file (the R4 rule).
+        const DiskFile* f = sc.w.File(e.s.path);
+        if (e.s.rec.source == SPECTRAL_SOURCE_FILE && e.s.rec.fileHash != 0 && f != NULL
+         && HashOf(f->content) != e.s.rec.fileHash)
+            out += " path-not-record-file";
+        // The record the readings went through stands (R4).
+        if (!sc.wantRecord.empty() && e.s.rec.description != sc.wantRecord)
+            out += " record-replaced";
+        // The setting the user changed in the sheet is applied (r5#1: a failed start
+        // must not lock the user out of the sheet that changes it).
+        if (sc.wantDisplayType >= 0 && e.s.displayType != sc.wantDisplayType)
+            out += " setting-not-applied";
+        // Removing a record never forgets a correction the readings went through: a
+        // driver-applied record that is gone leaves the readings marked as carrying an
+        // unrecorded driver correction (r3#2).
+        if (sc.d.s.rec.IsPresent() && sc.d.s.rec.basis == FIT_BASIS_DRIVER_CORRECTED && !e.s.rec.IsPresent()
+         && !ReadingsCarryUnrecordedDriverCorrection(e.s.rec, e.s.fitBasis))
+            out += " forgot-driver-correction";
+        // Nothing dereferences a lost meter and no throw escapes (r4, r5).
+        if (e.crashed)
+            out += " crash";
+        // With no meter no record can come to say a correction is in force (r5#4: Browse
+        // after the meter was lost would install one).
+        if (e.s.meterGone && e.s.rec.IsPresent() && e.s.rec != e.s.recAtLoss)
+            out += " record-installed-without-meter";
+        // One message per failure per user action; a refused sheet always says why (r5).
+        if (e.maxMessages > 1)
+            out += " several-messages";
+        if (e.refusedSilently)
+            out += " refused-silently";
+        if (e.silentClick)
+            out += " silent-click";
+        if (e.settingsDroppedSilently)
+            out += " settings-dropped-silently";
+        if (e.loopedForever)
+            out += " calibration-loop";
+        if (e.silentRevert)
+            out += " silent-revert";
+        if (e.pageStale)
+            out += " page-stale";
+        if (e.wrongNotice)
+            out += " wrong-notice";
+        if (e.calibrateEnabledWithoutMeter)
+            out += " calibrate-enabled-without-meter";
+        // A setting the meter rejected is kept nowhere: a restart starts the meter
+        // with the INI's settings (a new document) and the document's (r7#2).
+        if (sc.w.failObs >= 0 && ( e.iniObserver == sc.w.failObs || e.s.observer == sc.w.failObs ))
+            out += " rejected-setting-kept";
+        // A start that fails changes nothing: the sheet is refused, the next
+        // measurement gets no data, and the correction state is the document's.
+        if (sc.w.startFails && ( e.s.rec != sc.d.s.rec || e.s.path != sc.d.s.path || e.s.method != sc.d.s.method
+                              || !NearVec(e.rawless, sc.d.rawless, 0.0) || e.s.rawless.Get() != sc.d.s.rawless.Get() ))
+            out += " failed-start-changed-state";
+        return out;
+    }
+
+    // (i) r7#1: a sweep on a meter whose calibration always fails stores no good
+    // reading, shows its Abort/Retry/Ignore box once per failing patch it is asked
+    // about, and stops on Abort; Ignore keeps the clamped reading in each slot, as
+    // main does (round 9: not changed by #256); a continuous run ends at the first
+    // invalid reading.
+    static void CheckSweep();
+
+    // (j) round 9: a commit whose Init finds the shared driver already gone
+    // (INIT_FAILED_SILENT: InitReporting's isMeterStillValid) keeps nothing and says
+    // the settings were not kept - not that the meter rejected them - and returns
+    // INIT_FAILED_ANNOUNCED, since it said so (round 10 #4). The driver can be lost
+    // under the open sheet: the modal loop still dispatches a DDE command to another
+    // document on the meter, and its Init can fail and delete the shared driver
+    // (CMultiFrame::DdeCmdExec). The order table has the same world as row r10 (the
+    // page's Calibrate then says the meter is unavailable).
+    static void CheckSilentCommit()
+    {
+        World w = I1d3("A");
+        w.wrapperDeadInSheet = true;
+        Doc d;
+        d.s.inSheet = true;
+        const int oldDT = d.s.displayType, oldObs = d.s.observer;
+        int pageDT = oldDT + 1, pageObs = oldObs;
+        const int r = Commit(d, w, kBranch, pageDT, pageObs);
+        if (r != INIT_FAILED_ANNOUNCED)
+            Fail("T45 (j) commit on a lost driver: result %d, want INIT_FAILED_ANNOUNCED (its notice was shown)", r);
+        if (d.s.displayType != oldDT || pageDT != oldDT)
+            Fail("T45 (j) commit on a lost driver: Display Type %d, page %d, want %d kept on both",
+                 d.s.displayType, pageDT, oldDT);
+        if (d.notices != 1 || d.wrongNotice)
+            Fail("T45 (j) commit on a lost driver: %d notices, %s, want one NOT_KEPT", d.notices,
+                 d.wrongNotice ? "one says the meter rejected the settings" : "none wrong");
+    }
+
+    static void CheckSweep()
+    {
+        World w = I1d3("A");
+        w.needsCalibration = true;
+        w.calFails = true;
+        struct { int answer, wantPrompts, wantMessages, wantClamped; const char* what; } rows[] = {
+            { 0, 1, 1, 0, "Abort at the first box" },
+            { 1, 2, 2, 0, "Retry once, then Abort" },
+            { 2, 21, 21, 21, "Ignore every box (the clamped reading stays, as on main)" },
+        };
+        for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
+        {
+            Doc d;
+            const SweepResult r = Sweep(d, w, kBranch, 21, rows[i].answer);
+            if (r.stored != 0)
+                Fail("T45 (i) %s: %d good readings stored from a failed calibration", rows[i].what, r.stored);
+            if (r.clamped != rows[i].wantClamped)
+                Fail("T45 (i) %s: %d clamped readings kept, want %d", rows[i].what, r.clamped, rows[i].wantClamped);
+            if (r.prompts != rows[i].wantPrompts)
+                Fail("T45 (i) %s: %d Abort/Retry/Ignore boxes, want %d", rows[i].what, r.prompts, rows[i].wantPrompts);
+            if (r.messages != rows[i].wantMessages)
+                Fail("T45 (i) %s: %d calibration-failure boxes, want %d", rows[i].what, r.messages, rows[i].wantMessages);
+        }
+        // The continuous thread (datasetdoc.cpp): it ends at the first invalid reading
+        // and shows why once, after its cleanup ("An error occurred:" + the sensor's
+        // error string, as the sweeps' box), round 10 #5.
+        {
+            Doc d;
+            int readings = 0, posted = 0, stopBoxes = 0;
+            Init(d, w, kBranch, false);
+            for (int k = 0; k < 50; ++k)
+            {
+                ++readings;
+                if (!Reading(d, w, kBranch))
+                {
+                    if (kContinuousSaysWhy)
+                        ++stopBoxes;                // stopReason, shown once
+                    break;                          // "Error: close thread"
+                }
+                ++posted;
+            }
+            if (posted != 0 || readings != 1)
+                Fail("T45 (i) continuous: %d readings, %d posted, want 1 and 0", readings, posted);
+            if (stopBoxes != 1)
+                Fail("T45 (i) continuous: %d boxes say why it stopped, want 1", stopBoxes);
+        }
+        // r8#2: the first calibration fails, Retry succeeds: the reading after the
+        // recovery is stored, and so is every later patch (the flag starts each
+        // reading valid again).
+        {
+            World once = I1d3("A");
+            once.needsCalibration = true;
+            once.calFailsOnce = true;
+            Doc d;
+            const SweepResult r = Sweep(d, once, kBranch, 21, 1);
+            if (r.stored != 21 || r.prompts != 1)
+                Fail("T45 (i) fail, Retry, recover: %d stored, %d boxes, want 21 and 1", r.stored, r.prompts);
+        }
+        // A meter that calibrates: every patch stored, no box.
+        {
+            World ok = I1d3("A");
+            ok.needsCalibration = true;
+            Doc d;
+            const SweepResult r = Sweep(d, ok, kBranch, 21, 0);
+            if (r.stored != 21 || r.prompts != 0)
+                Fail("T45 (i) a calibrating meter: %d stored, %d boxes, want 21 and 0", r.stored, r.prompts);
+        }
+    }
+
+    // (a) the order-independence table.
+    static void CheckOrders()
+    {
+        const std::vector<Scenario> v = Scenarios();
+        int nMainDiffers = 0, nMainViolates = 0;
+        printf("T45 (a) %d scenarios in three orders (measurement first, sheet first, calibrate-cancel first),\n"
+               "        then the invariants:\n", (int)v.size());
+        for (size_t i = 0; i < v.size(); ++i)
+        {
+            const Scenario& sc = v[i];
+            Doc be[3], me[3];
+            const std::string branch = RunOrders(sc, kBranch, be);
+            const std::string onMain = RunOrders(sc, kMain, me);
+            std::string mainBroken, branchBroken;
+            for (int k = 0; k < 3; ++k)
+            {
+                mainBroken += Violations(sc, me[k]);
+                branchBroken += Violations(sc, be[k]);
+            }
+            printf("  %-5s %-70s main:%s%s%s | branch:%s%s%s\n", sc.id, sc.what.c_str(),
+                   onMain.empty() ? " same" : onMain.c_str(), mainBroken.empty() ? "" : " /", mainBroken.c_str(),
+                   branch.empty() ? " same" : branch.c_str(), branchBroken.empty() ? "" : " /", branchBroken.c_str());
+            if (!branch.empty())
+                Fail("T45 (a) %s %s: the orders differ:%s", sc.id, sc.what.c_str(), branch.c_str());
+            if (!branchBroken.empty())
+                Fail("T45 (a) %s %s: invariant broken:%s", sc.id, sc.what.c_str(), branchBroken.c_str());
+            if (sc.mainDiffers != !onMain.empty())
+                Fail("T45 (a) %s %s: main's order %s, the review says it %s", sc.id, sc.what.c_str(),
+                     onMain.empty() ? "does not differ" : "differs", sc.mainDiffers ? "does" : "does not");
+            if (sc.mainViolates != !mainBroken.empty())
+                Fail("T45 (a) %s %s: main %s an invariant, the review says it %s", sc.id, sc.what.c_str(),
+                     mainBroken.empty() ? "holds" : "breaks", sc.mainViolates ? "breaks one" : "holds them");
+            if (sc.clearSeen && ( be[0].clearAllowed.empty() || be[0].clearAllowed[0] != 1 ))
+                Fail("T45 (a) %s %s: the page's Clear was not enabled", sc.id, sc.what.c_str());
+            nMainDiffers += onMain.empty() ? 0 : 1;
+            nMainViolates += mainBroken.empty() ? 0 : 1;
+            for (int k = 0; k < 3; ++k)
+            {
+                const Doc& e = be[k];
+                // Readings marked as embodying the matrix do: a composable raw-less
+                // reading is Effective * native, through the correction the readings
+                // carry unrecorded where no derive can express it (a 4.2.2 entry
+                // without a base, R5). A reading another unit's or
+                // another meter's correction went through must be stranded.
+                const Matrix u = ( sc.unrecordedTruth && ReadingsCarryUnrecordedDriverCorrection(e.s.rec, e.s.fitBasis) )
+                               ? e.unrecorded : I3();
+                if (e.s.rawless.ComposeOntoRawless() && !NearVec(e.rawless, e.s.Effective() * u * Native(), 1e-12))
+                    Fail("T45 (a) %s %s, order %d: raw-less reading is not Effective * native while marked composable",
+                         sc.id, sc.what.c_str(), k);
+            }
+        }
+        printf("T45 (a): main differs in %d of %d scenarios and breaks an invariant in %d\n",
+               nMainDiffers, (int)v.size(), nMainViolates);
+    }
+
+    static SpectralCorrectionRecord Rec(int source, int basis, unsigned long long hash)
+    {
+        SpectralCorrectionRecord r;
+        r.source = source;
+        r.description = "X";
+        r.basis = basis;
+        r.fileHash = hash;
+        return r;
+    }
+
+    // (b) ReadingsCarryUnrecordedDriverCorrection
+    static void CheckUnrecorded()
+    {
+        const SpectralCorrectionRecord none, file = Rec(SPECTRAL_SOURCE_FILE, FIT_BASIS_NATIVE, 1),
+                                       dt = Rec(SPECTRAL_SOURCE_DISPLAY_TYPE, FIT_BASIS_NATIVE, 0);
+        struct { const SpectralCorrectionRecord* rec; int basis; bool want; const char* what; } rows[] = {
+            { &none, FIT_BASIS_UNKNOWN,          true,  "no record, UNKNOWN" },
+            { &none, FIT_BASIS_DRIVER_CORRECTED, true,  "no record, DRIVER_CORRECTED" },
+            { &none, FIT_BASIS_NATIVE,           false, "no record, NATIVE" },
+            { &file, FIT_BASIS_UNKNOWN,          false, "FILE record, UNKNOWN" },
+            { &dt,   FIT_BASIS_DRIVER_CORRECTED, false, "Display Type record, DRIVER_CORRECTED" },
+        };
+        for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
+            if (ReadingsCarryUnrecordedDriverCorrection(*rows[i].rec, rows[i].basis) != rows[i].want)
+                Fail("T45 (b) %s: got %d", rows[i].what, (int)!rows[i].want);
+    }
+
+    // (c) EffectiveChangedWithoutWalk: exact equality is no change; a change the
+    // readings already went through leaves them composable; any other strands them,
+    // and a strand is never undone by a later call.
+    static void CheckBooking()
+    {
+        const Matrix c = CorrFor("entry:E", "A", 3), c2 = CorrFor("entry:E", "B", 3);
+        struct { Matrix before, after; bool through; bool want; const char* what; } rows[] = {
+            { c,    c,  false, true,  "unchanged" },
+            { I3(), c,  true,  true,  "re-expressed (the readings went through it)" },
+            { c,    c2, false, false, "another unit's correction" },
+            { c,    I3(), false, false, "the conversion for a meter whose matrices are not exposed" },
+        };
+        for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
+        {
+            RawlessReadingsState st;
+            EffectiveChangedWithoutWalk(st, rows[i].before, rows[i].after, rows[i].through);
+            if (st.ComposeOntoRawless() != rows[i].want)
+                Fail("T45 (c) %s: composable %d, want %d", rows[i].what, (int)st.ComposeOntoRawless(), (int)rows[i].want);
+        }
+        RawlessReadingsState stranded;
+        stranded.MatrixSetWithoutWalk();
+        EffectiveChangedWithoutWalk(stranded, I3(), c, true);
+        if (stranded.ComposeOntoRawless())
+            Fail("T45 (c) a re-expression re-armed stranded readings");
+    }
+
+    // (d) SpectralRecordFromPathFile (R4)
+    static void CheckPathRule()
+    {
+        const unsigned long long ha = HashOf("F1"), hb = HashOf("G1");
+        if (ha == hb)
+            Fail("T45 (d) the two files hash alike");
+        const SpectralCorrectionRecord file = Rec(SPECTRAL_SOURCE_FILE, FIT_BASIS_NATIVE, ha),
+                                       unhashed = Rec(SPECTRAL_SOURCE_FILE, FIT_BASIS_NATIVE, 0),
+                                       dt = Rec(SPECTRAL_SOURCE_DISPLAY_TYPE, FIT_BASIS_NATIVE, 0), none;
+        struct { const SpectralCorrectionRecord* rec; bool hashed; unsigned long long h; bool want; const char* what; } rows[] = {
+            { &file,     true,  ha, true,  "FILE record, its own file" },
+            { &file,     true,  hb, false, "FILE record, another file at the path" },
+            { &file,     false, 0,  true,  "FILE record, path unreadable" },
+            { &unhashed, true,  hb, true,  "FILE record without a hash" },
+            { &dt,       true,  hb, true,  "Display Type record" },
+            { &none,     true,  hb, true,  "no record" },
+        };
+        for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
+            if (SpectralRecordFromPathFile(*rows[i].rec, rows[i].hashed, rows[i].h) != rows[i].want)
+                Fail("T45 (d) %s: got %d", rows[i].what, (int)!rows[i].want);
+    }
+
+    // (e) SpectralRecordApplied (the second invariant; r3#3, r3#4)
+    static void CheckApplied()
+    {
+        const SpectralCorrectionRecord none, native = Rec(SPECTRAL_SOURCE_DISPLAY_TYPE, FIT_BASIS_NATIVE, 0),
+                                       driver = Rec(SPECTRAL_SOURCE_FILE, FIT_BASIS_DRIVER_CORRECTED, 1),
+                                       driverDt = Rec(SPECTRAL_SOURCE_DISPLAY_TYPE, FIT_BASIS_DRIVER_CORRECTED, 0);
+        // Rec() describes a record "X".
+        struct { const SpectralCorrectionRecord* rec; bool exposed, samples, path; const char* entry; bool want; const char* what; } rows[] = {
+            { &none,     true,  true,  false, "",  true,  "no record" },
+            { &native,   true,  true,  false, "",  true,  "NATIVE record, i1d3 (HCFR applies it)" },
+            { &native,   false, true,  false, "",  true,  "NATIVE record, Spyder (before the conversion)" },
+            { &driver,   false, true,  true,  "",  true,  "FILE record, Spyder with its path (the re-apply)" },
+            { &driver,   false, true,  false, "",  false, "FILE record, Spyder, path dropped (r2#2)" },
+            { &driver,   false, false, true,  "",  false, "FILE record, a meter without samples, with a path (r3#3)" },
+            { &driver,   true,  true,  true,  "",  false, "DRIVER_CORRECTED on an i1d3 (holds no sample)" },
+            { &driverDt, false, true,  false, "X", true,  "Display Type record, its entry selected on a Spyder (r3#4)" },
+            { &driverDt, false, false, false, "X", true,  "the same on a meter without samples (a ccmx entry)" },
+            { &driverDt, false, true,  false, "Y", false, "Display Type record, another entry selected (r3#4)" },
+            { &driverDt, false, true,  false, "",  false, "Display Type record, a plain entry selected (r1#5)" },
+            { &driverDt, false, true,  true,  "X", false, "Display Type record under a path's sample" },
+            { &driverDt, true,  true,  false, "X", false, "DRIVER_CORRECTED Display Type record on an i1d3" },
+        };
+        for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
+            if (SpectralRecordApplied(*rows[i].rec, rows[i].exposed, rows[i].samples, rows[i].path, rows[i].entry) != rows[i].want)
+                Fail("T45 (e) %s: got %d", rows[i].what, (int)!rows[i].want);
+    }
+
+    // (f) SpectralClearAllowed (the Spyder clear gap; r1#9; r2#4)
+    static void CheckClearRule()
+    {
+        const SpectralCorrectionRecord none, file = Rec(SPECTRAL_SOURCE_FILE, FIT_BASIS_NATIVE, 1),
+                                       dt = Rec(SPECTRAL_SOURCE_DISPLAY_TYPE, FIT_BASIS_NATIVE, 0);
+        struct { const SpectralCorrectionRecord* rec; bool path, resyncs, selected, want; const char* what; } rows[] = {
+            { &none, false, true,  false, false, "nothing" },
+            { &none, true,  true,  false, true,  "a stored path, no record" },
+            { &file, false, true,  false, true,  "FILE record, i1d3" },
+            { &file, false, false, false, true,  "FILE record, Spyder" },
+            { &dt,   false, true,  true,  false, "Display Type record, its entry selected, i1d3 (the list removes it)" },
+            { &dt,   true,  true,  true,  false, "the same with a stored path (the next Init derives it again)" },
+            { &dt,   false, true,  false, true,  "Display Type record, entry not selected (gone, or a plain type)" },
+            { &dt,   false, false, false, true,  "Display Type record, a meter that never resyncs, or none" },
+        };
+        for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
+            if (SpectralClearAllowed(*rows[i].rec, rows[i].path, rows[i].resyncs, rows[i].selected) != rows[i].want)
+                Fail("T45 (f) %s: got %d", rows[i].what, (int)!rows[i].want);
+    }
+
+    // (g) PlainDisplayTypeEntry (R5)
+    static void CheckPlainEntry()
+    {
+        std::vector<bool> list;
+        list.push_back(false); list.push_back(false); list.push_back(true); list.push_back(true);
+        struct { int stored, want; const char* what; } rows[] = {
+            { 1,  1, "stored plain entry" },
+            { 2,  0, "stored corrected entry" },
+            { 7,  0, "stored index past the end" },
+            { -1, 0, "no stored entry" },
+        };
+        for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
+        {
+            const int got = PlainDisplayTypeEntry(rows[i].stored, list);
+            if (got != rows[i].want)
+                Fail("T45 (g) %s: got %d want %d", rows[i].what, got, rows[i].want);
+        }
+        std::vector<bool> lateFirst;
+        lateFirst.push_back(true); lateFirst.push_back(false);
+        if (PlainDisplayTypeEntry(0, lateFirst) != 1)
+            Fail("T45 (g) the first plain entry is not entry 0");
+        std::vector<bool> allCorrected(3, true), empty;
+        if (PlainDisplayTypeEntry(0, allCorrected) != -1 || PlainDisplayTypeEntry(0, empty) != -1)
+            Fail("T45 (g) a list with no plain entry");
+    }
+
+    // (h) r2#6: identity is the content. A rewrite with the same size and the same
+    // modification time (what robocopy/xcopy preserve) is another file to the rule,
+    // because the bytes are hashed when they are used.
+    static void CheckContentIdentity()
+    {
+        const char* tmp = "t45_identity.tmp";
+        FILE* f = fopen(tmp, "wb");
+        if (!f)
+        {
+            Fail("T45 (h) cannot create %s", tmp);
+            return;
+        }
+        fwrite("CCSS-A", 1, 6, f);
+        fclose(f);
+        struct _stat64 st0;
+        unsigned long long h0 = 0, h1 = 0;
+        if (_stat64(tmp, &st0) != 0 || !Fnv1a64File(tmp, h0))
+        {
+            Fail("T45 (h) cannot read %s back", tmp);
+            remove(tmp);
+            return;
+        }
+        SpectralCorrectionRecord rec = Rec(SPECTRAL_SOURCE_FILE, FIT_BASIS_NATIVE, h0);
+        f = fopen(tmp, "wb");
+        if (f)
+        {
+            fwrite("CCSS-B", 1, 6, f);
+            fclose(f);
+        }
+        struct __utimbuf64 keep;
+        keep.actime = st0.st_atime;
+        keep.modtime = st0.st_mtime;
+        struct _stat64 st1;
+        const bool same = ( _utime64(tmp, &keep) == 0 && _stat64(tmp, &st1) == 0
+                         && st1.st_size == st0.st_size && st1.st_mtime == st0.st_mtime );
+        if (!same)
+            Fail("T45 (h) the rewrite did not keep the size and the time");
+        if (!Fnv1a64File(tmp, h1) || h1 == h0)
+            Fail("T45 (h) the rewritten file hashes as before: %016llx", h1);
+        if (SpectralRecordFromPathFile(rec, true, h1))
+            Fail("T45 (h) the rewritten file passes the path rule as the record's file");
+        remove(tmp);
+    }
+}
+
+static void RunT45()
+{
+    T45Order::CheckOrders();
+    T45Order::CheckUnrecorded();
+    T45Order::CheckBooking();
+    T45Order::CheckPathRule();
+    T45Order::CheckApplied();
+    T45Order::CheckClearRule();
+    T45Order::CheckPlainEntry();
+    T45Order::CheckContentIdentity();
+    T45Order::CheckSweep();
+    T45Order::CheckSilentCommit();
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T47 - the Argyll sensor page's "Calibrate meter" availability rule and
+// the i1Pro white tile question (libHCFR/MeterCalibrationRule.h). Pure
+// assertion; no golden file; every expectation is an exact bool or enum.
+//   (a) FromDriver: only a NON-DEFERRABLE available calibration counts
+//       (the drivers drop the deferrable ones from inst_calt_available);
+//       no calibration capability is nothing; a failed query is unknown.
+//   (b) CalibrateEnabled: no meter is disabled; a Reading Type or Hi-Res
+//       selection that differs from the committed one is enabled whatever
+//       the driver says now; so is a driver mode another start has set;
+//       otherwise the driver's answer decides, and unknown is enabled.
+//   (c) AskSkipWhiteTile: only an i1Pro family meter, Hi-Res off, the
+//       driver asking for the white tile, and a dark calibration available.
+// The masks below are the driver's inst_cal_type bits (Tools/spectro/inst.h),
+// restated: ArgyllMeterWrapper.cpp static_asserts the two the rule uses.
+//////////////////////////////////////////////////////////////////////////
+#include "../../libHCFR/MeterCalibrationRule.h"
+
+namespace T47Cal
+{
+    using namespace MeterCalibrationRule;
+
+    const unsigned int CALT_EMIS_OFFSET  = 0x00000100u;  // inst_calt_emis_offset
+    const unsigned int CALT_EM_DARK      = 0x00000400u;  // inst_calt_em_dark
+    const unsigned int CALT_REF_WHITE    = 0x00000020u;  // inst_calt_ref_white
+    const unsigned int CALT_WAVELENGTH   = 0x00000010u;  // inst_calt_wavelength
+    const unsigned int CALT_EMIS_INTTIME = 0x00100000u;  // inst_calt_emis_int_time (deferrable)
+    const unsigned int CALT_REF_FREQ     = 0x00200000u;  // inst_calt_ref_freq (deferrable)
+
+    static const char* Name(Availability a)
+    {
+        return a == CAL_SOME ? "SOME" : a == CAL_NONE ? "NONE" : "UNKNOWN";
+    }
+
+    static void ExpectAvail(const char* what, Availability got, Availability want)
+    {
+        if ( got != want )
+            Fail("T47 (a) %s: got %s, want %s", what, Name(got), Name(want));
+    }
+
+    static void CheckFromDriver()
+    {
+        // i1d3 / Spyder on a refresh Display Type: ref_freq only (deferrable).
+        ExpectAvail("refresh-only list", FromDriver(true, true, CALT_REF_FREQ), CAL_NONE);
+        // i1d3 on a plain Display Type, or a driver without calibrate(): nothing.
+        ExpectAvail("empty list", FromDriver(true, true, 0u), CAL_NONE);
+        // i1Pro emissive spot: dark + integration time.
+        ExpectAvail("i1Pro emissive", FromDriver(true, true, CALT_EM_DARK | CALT_EMIS_INTTIME), CAL_SOME);
+        // i1Pro 2: wavelength + dark.
+        ExpectAvail("i1Pro 2 emissive", FromDriver(true, true, CALT_WAVELENGTH | CALT_EM_DARK), CAL_SOME);
+        // SpyderX, not ambient: black offset.
+        ExpectAvail("SpyderX display", FromDriver(true, true, CALT_EMIS_OFFSET), CAL_SOME);
+        // Only deferrable ones, both kinds.
+        ExpectAvail("deferrable only", FromDriver(true, true, CALT_REF_FREQ | CALT_EMIS_INTTIME), CAL_NONE);
+        // No calibration capability: CalibrateDevice stops with "No Cals found".
+        ExpectAvail("no capability", FromDriver(true, false, CALT_EM_DARK), CAL_NONE);
+        // A failed query says nothing, whatever the mask holds.
+        ExpectAvail("failed query", FromDriver(false, true, 0u), CAL_UNKNOWN);
+        ExpectAvail("failed query, mask set", FromDriver(false, false, CALT_EM_DARK), CAL_UNKNOWN);
+        // The mask is exactly inst_calt_n_dfrble_mask: its lowest and highest bits count,
+        // the pseudo-types below it and the deferrable ones above it do not.
+        ExpectAvail("lowest non-deferrable bit", FromDriver(true, true, 0x00000010u), CAL_SOME);
+        ExpectAvail("highest non-deferrable bit", FromDriver(true, true, 0x00008000u), CAL_SOME);
+        ExpectAvail("pseudo-type bits", FromDriver(true, true, 0x00000003u), CAL_NONE);
+        ExpectAvail("deferrable mask", FromDriver(true, true, 0x00f00000u), CAL_NONE);
+    }
+
+    static void ExpectEnabled(const char* what, bool got, bool want)
+    {
+        if ( got != want )
+            Fail("T47 (b) %s: got %s, want %s", what, got ? "enabled" : "disabled", want ? "enabled" : "disabled");
+    }
+
+    static void CheckCalibrateEnabled()
+    {
+        // No meter: disabled, whatever else holds (#256).
+        ExpectEnabled("no meter", CalibrateEnabled(false, 0, false, 0, false, true, CAL_SOME), false);
+        ExpectEnabled("no meter, settings differ", CalibrateEnabled(false, 2, true, 0, false, false, CAL_UNKNOWN), false);
+        // Same selections, the driver's mode is the sensor's: the driver decides.
+        ExpectEnabled("same, NONE", CalibrateEnabled(true, 0, false, 0, false, true, CAL_NONE), false);
+        ExpectEnabled("same, SOME", CalibrateEnabled(true, 0, false, 0, false, true, CAL_SOME), true);
+        ExpectEnabled("same, UNKNOWN", CalibrateEnabled(true, 0, false, 0, false, true, CAL_UNKNOWN), true);
+        ExpectEnabled("same Hi-Res on, NONE", CalibrateEnabled(true, 1, true, 1, true, true, CAL_NONE), false);
+        // A selection not committed yet: the commit Inits into another mode, which the
+        // live answer does not describe - enabled even when the current mode has nothing.
+        ExpectEnabled("Reading Type differs", CalibrateEnabled(true, 2, false, 0, false, true, CAL_NONE), true);
+        ExpectEnabled("Reading Type back to display", CalibrateEnabled(true, 0, false, 2, false, true, CAL_NONE), true);
+        ExpectEnabled("Hi-Res turned on", CalibrateEnabled(true, 0, true, 0, false, true, CAL_NONE), true);
+        ExpectEnabled("Hi-Res turned off", CalibrateEnabled(true, 0, false, 0, true, true, CAL_NONE), true);
+        ExpectEnabled("empty Reading Type list (CB_ERR)", CalibrateEnabled(true, 0xFFFFFFFFu, false, 0, false, true, CAL_NONE), true);
+        // Another document's start set the driver's mode since this sensor's Init.
+        ExpectEnabled("mode set by another start", CalibrateEnabled(true, 0, false, 0, false, false, CAL_NONE), true);
+    }
+
+    static void ExpectAsk(const char* what, bool got, bool want)
+    {
+        if ( got != want )
+            Fail("T47 (c) %s: got %s, want %s", what, got ? "asks" : "no question", want ? "asks" : "no question");
+    }
+
+    static void CheckAskSkipWhiteTile()
+    {
+        const unsigned int i1Pro2List = CALT_WAVELENGTH | CALT_EM_DARK | CALT_EMIS_INTTIME;
+        ExpectAsk("i1Pro 2, Hi-Res off, tile asked", AskSkipWhiteTile(true, false, true, i1Pro2List), true);
+        ExpectAsk("i1Pro, hi-res fine cal pending, Hi-Res off", AskSkipWhiteTile(true, false, true, CALT_REF_WHITE | CALT_EM_DARK), true);
+        ExpectAsk("Hi-Res on", AskSkipWhiteTile(true, true, true, i1Pro2List), false);
+        ExpectAsk("driver asks a dark calibration first", AskSkipWhiteTile(true, false, false, CALT_EM_DARK), false);
+        ExpectAsk("no dark calibration on its own", AskSkipWhiteTile(true, false, true, CALT_WAVELENGTH), false);
+        ExpectAsk("not an i1Pro", AskSkipWhiteTile(false, false, true, i1Pro2List), false);
+    }
+}
+
+static void RunT47()
+{
+    printf("T47 meter calibration availability rule...\n");
+    T47Cal::CheckFromDriver();
+    T47Cal::CheckCalibrateEnabled();
+    T47Cal::CheckAskSkipWhiteTile();
+}
+
+// =============================================================================
+// T51 - the gray scale's 100% white (libHCFR GrayScaleWhite, Kyle 2026-11-10):
+// the measured top gray reading when the series is non-empty and that reading
+// is valid, else the on/off white as stored. The fallback cases pass an
+// explicit on/off value (in a document it is the stored on/off white, the valid
+// placeholder on a new one). Pure assertions.
+// =============================================================================
+// T51: a top recognized as a placeholder (here: exactly Y 120, the shape of the
+// constructor's prime-white placeholder at TargetMaxL 120) is no top.
+static bool T51IsPlaceholder(const CColor& c)
+{
+    return c.GetY() == 120.0 && c.GetX() == 114.0564 && c.GetZ() == 130.6596;
+}
+
+static void RunT51()
+{
+    printf("T51 gray scale 100%% white: measured top, else the on/off white...\n");
+    const CColor onoff(95.0, 100.0, 108.0);			// a contrast-measured white
+    CColor grays[3] = { CColor(0.1, 0.1, 0.1), CColor(50.0, 52.0, 56.0), CColor(97.0, 102.0, 110.0) };
+    // valid top: the top, not the on/off white (they differ: 102 against 100)
+    CColor w = GrayScaleWhite(grays, 3, onoff);
+    if (w.GetY() != 102.0 || w.GetX() != 97.0 || w.GetZ() != 110.0)
+        Fail("T51 valid gray top: Y %.17g, expected the top's 102", w.GetY());
+    // a one-point series is its own top
+    w = GrayScaleWhite(grays + 1, 1, onoff);
+    if (w.GetY() != 52.0)
+        Fail("T51 one-point series: Y %.17g, expected 52", w.GetY());
+    // invalid top: the on/off white
+    CColor withBadTop[3] = { grays[0], grays[1], noDataColor };
+    w = GrayScaleWhite(withBadTop, 3, onoff);
+    if (w.GetY() != 100.0)
+        Fail("T51 invalid gray top: Y %.17g, expected the on/off white's 100", w.GetY());
+    // empty series, and no array at all: the on/off white
+    w = GrayScaleWhite(grays, 0, onoff);
+    if (w.GetY() != 100.0)
+        Fail("T51 empty series: Y %.17g, expected the on/off white's 100", w.GetY());
+    w = GrayScaleWhite(NULL, 3, onoff);
+    if (w.GetY() != 100.0)
+        Fail("T51 no readings: Y %.17g, expected the on/off white's 100", w.GetY());
+    // both invalid: the on/off white as given (invalid), never a reading
+    w = GrayScaleWhite(withBadTop, 3, noDataColor);
+    if (w.isValid())
+        Fail("T51 invalid top and invalid on/off white: a valid white came back");
+    // only the top is looked at: a valid slot below an invalid top is not taken
+    w = GrayScaleWhite(withBadTop, 3, onoff);
+    if (w.GetY() == 52.0)
+        Fail("T51 an inner slot stood in for an invalid top");
+    // a valid top whose Y is 0 or not finite is no white: the on/off white
+    // (the white test GetColorDEWhiteY and NearChartWhite apply)
+    CColor zeroTop[3] = { grays[0], grays[1], CColor(0.0, 0.0, 0.0) };
+    CColor nanTop[3] = { grays[0], grays[1], CColor(97.0, std::numeric_limits<double>::quiet_NaN(), 110.0) };
+    CColor negTop[3] = { grays[0], grays[1], CColor(97.0, -0.5, 110.0) };
+    // (isValid accepts any component > -1, NaN fails it; -0.5 and +inf pass it, so
+    // these two exercise the finite / > 0 test itself)
+    CColor infTop[3] = { grays[0], grays[1], CColor(97.0, std::numeric_limits<double>::infinity(), 110.0) };
+    if (GrayScaleWhite(zeroTop, 3, onoff).GetY() != 100.0)
+        Fail("T51 gray top with Y 0: Y %.17g, expected the on/off white's 100", GrayScaleWhite(zeroTop, 3, onoff).GetY());
+    if (GrayScaleWhite(nanTop, 3, onoff).GetY() != 100.0)
+        Fail("T51 gray top with Y NaN: Y %.17g, expected the on/off white's 100", GrayScaleWhite(nanTop, 3, onoff).GetY());
+    if (GrayScaleWhite(negTop, 3, onoff).GetY() != 100.0)
+        Fail("T51 gray top with Y < 0: Y %.17g, expected the on/off white's 100", GrayScaleWhite(negTop, 3, onoff).GetY());
+    if (GrayScaleWhite(infTop, 3, onoff).GetY() != 100.0)
+        Fail("T51 gray top with Y +inf: Y %.17g, expected the on/off white's 100", GrayScaleWhite(infTop, 3, onoff).GetY());
+    // a placeholder-shaped top with a measured on/off white: the on/off white;
+    // the same top without the predicate is taken (it is valid with Y > 0)
+    CColor phTop[3] = { grays[0], grays[1], CColor(114.0564, 120.0, 130.6596) };
+    if (GrayScaleWhite(phTop, 3, onoff, T51IsPlaceholder).GetY() != 100.0)
+        Fail("T51 placeholder top: Y %.17g, expected the on/off white's 100", GrayScaleWhite(phTop, 3, onoff, T51IsPlaceholder).GetY());
+    if (GrayScaleWhite(phTop, 3, onoff).GetY() != 120.0)
+        Fail("T51 placeholder-shaped top without a predicate: not taken");
+    if (GrayScaleWhite(grays, 3, onoff, T51IsPlaceholder).GetY() != 102.0)
+        Fail("T51 a measured top was refused by the placeholder predicate");
+    // GrayScaleBlack, the twin: the measured 0% reading when valid with a finite
+    // Y (Y 0 is a black), else the on/off black as given
+    const CColor onoffBlack(0.30, 0.31, 0.33);
+    CColor b = GrayScaleBlack(grays, 3, onoffBlack);
+    if (b.GetY() != 0.1)
+        Fail("T51 valid gray 0%%: Y %.17g, expected the 0%% reading's 0.1", b.GetY());
+    CColor zeroBlack[3] = { CColor(0.0, 0.0, 0.0), grays[1], grays[2] };
+    if (GrayScaleBlack(zeroBlack, 3, onoffBlack).GetY() != 0.0)
+        Fail("T51 gray 0%% with Y 0: not taken as the black");
+    CColor badBlack[3] = { noDataColor, grays[1], grays[2] };
+    if (GrayScaleBlack(badBlack, 3, onoffBlack).GetY() != 0.31)
+        Fail("T51 invalid gray 0%%: Y %.17g, expected the on/off black's 0.31", GrayScaleBlack(badBlack, 3, onoffBlack).GetY());
+    CColor nanBlack[3] = { CColor(0.3, std::numeric_limits<double>::quiet_NaN(), 0.3), grays[1], grays[2] };
+    if (GrayScaleBlack(nanBlack, 3, onoffBlack).GetY() != 0.31)
+        Fail("T51 gray 0%% with Y NaN: Y %.17g, expected the on/off black's 0.31", GrayScaleBlack(nanBlack, 3, onoffBlack).GetY());
+    CColor infBlack[3] = { CColor(0.3, std::numeric_limits<double>::infinity(), 0.3), grays[1], grays[2] };
+    if (GrayScaleBlack(infBlack, 3, onoffBlack).GetY() != 0.31)
+        Fail("T51 gray 0%% with Y +inf: Y %.17g, expected the on/off black's 0.31", GrayScaleBlack(infBlack, 3, onoffBlack).GetY());
+    if (GrayScaleBlack(grays, 0, onoffBlack).GetY() != 0.31 || GrayScaleBlack(NULL, 3, onoffBlack).GetY() != 0.31)
+        Fail("T51 empty series or no readings: not the on/off black");
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -3024,6 +6605,16 @@ int main(int argc, char* argv[])
     RunT19();
     RunT32();
     RunT22();
+    RunT41();
+    RunT42();
+    RunT43();
+    RunT44();
+    RunT45();
+    RunT46();
+    RunT47();
+    RunT48();
+    RunT49();
+    RunT51();
 
     if (g_failures)
     {

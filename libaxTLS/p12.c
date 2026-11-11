@@ -98,14 +98,14 @@ int pkcs8_decode(SSL_CTX *ssl_ctx, SSLObjLoader *ssl_obj, const char *password)
 
     if (asn1_next_obj(buf, &offset, ASN1_SEQUENCE) < 0)
     {
-#ifdef CONFIG_SSL_FULL_MODE
+#ifdef CONFIG_DEBUG
         printf("Error: Invalid p8 ASN.1 file\n");
 #endif
         goto error;
     }
 
     /* unencrypted key? */
-    if (asn1_get_int(buf, &offset, &version) > 0 && *version == 0)
+    if (asn1_get_big_int(buf, &offset, &version) > 0 && *version == 0)
     {
         ret = p8_add_key(ssl_ctx, buf);
         goto error;
@@ -251,13 +251,13 @@ int pkcs12_decode(SSL_CTX *ssl_ctx, SSLObjLoader *ssl_obj, const char *password)
 
     if (asn1_next_obj(buf, &offset, ASN1_SEQUENCE) < 0)
     {
-#ifdef CONFIG_SSL_FULL_MODE
+#ifdef CONFIG_DEBUG
         printf("Error: Invalid p12 ASN.1 file\n");
 #endif
         goto error;
     }
 
-    if (asn1_get_int(buf, &offset, &version) < 0 || *version != 3)
+    if (asn1_get_big_int(buf, &offset, &version) < 0 || *version != 3)
     {
         ret = SSL_ERROR_INVALID_VERSION;
         goto error;
@@ -447,7 +447,7 @@ static int get_pbe_params(uint8_t *buf, int *offset,
     if (len != sizeof(pbeSH1RC4) || 
                     memcmp(&buf[*offset], pbeSH1RC4, sizeof(pbeSH1RC4)))
     {
-#ifdef CONFIG_SSL_FULL_MODE
+#ifdef CONFIG_DEBUG
         printf("Error: pkcs8/pkcs12 must use \"PBE-SHA1-RC4-128\"\n");
 #endif
         goto error;
@@ -463,7 +463,7 @@ static int get_pbe_params(uint8_t *buf, int *offset,
     *salt = &buf[*offset];
     *offset += len;
 
-    if ((len = asn1_get_int(buf, offset, &iter)) < 0)
+    if ((len = asn1_get_big_int(buf, offset, &iter)) < 0)
         goto error;
 
     *iterations = 0;

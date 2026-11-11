@@ -73,7 +73,15 @@ namespace ArchiveTag
 								// (CColorProvenanceRole). Append-only; a value
 								// without the role reads as role UNKNOWN.
 		COLOR_CONTEXT    = 4,	// reserved (Stage 2): int index into DOC_CONTEXTS
-		COLOR_TIMESTAMP  = 5	// Stage 1: double, seconds since the Unix epoch, sub-second
+		COLOR_TIMESTAMP  = 5,	// Stage 1: double, seconds since the Unix epoch, sub-second
+		COLOR_WIRE_SETUP = 6	// CColorWireSetup (libHCFR/WireSetup.h): 9 x int - realDrive
+								// (1 = true, anything else false), wireBits,
+								// encodingRange, deviceRange, generatorId,
+								// outputMode, wireCode[0..2]. Append-only: a
+								// reader takes the ints present and leaves the
+								// rest at their defaults (false, 0, -1, -1, 0,
+								// -1, -1, -1, -1). A reading without the entry
+								// is unknown.
 	};
 
 	// CMeasure (Measure.cpp), trailer from block version 22.

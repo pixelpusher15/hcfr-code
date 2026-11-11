@@ -26,6 +26,7 @@
 #include "Sensor.h"
 #include "Generator.h"
 #include "SensorCalibrationStream.h"
+#include <float.h>	// _finite
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -47,6 +48,7 @@ CSensor::CSensor()
 	m_sensorToXYZMatrixMod=IdentityMatrix(3);
 	m_calibrationMethod=CALIB_HCFR_DEFAULT;
 	m_fitBasis=FIT_BASIS_NATIVE;		// a fresh sensor has no legacy to honor; m_spectral starts empty
+	m_inSensorSheet=false;
 	for ( int k = 0; k < 3; k++ )
 	{
 		m_bodnerRawMatrix[k]=IdentityMatrix(3);
@@ -300,6 +302,22 @@ BOOL CSensor::Release()
 
 CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 {
+	// The wire-setup stamp (WireSetup.h): what the generator recorded putting on
+	// the wire, taken before the read when that record is for exactly this
+	// stimulus, and kept only if nothing else reached the screen until the read
+	// ends. A read with no such record - a placeholder stimulus, a manual or
+	// external generator - is stamped realDrive = false with every field unknown.
+	const double wireStim[3] = { aRGBValue[0], aRGBValue[1], aRGBValue[2] };
+	unsigned long wireSerial = 0;
+	CColorWireSetup wire = WireDisplayRecord::StampFor(wireStim, &wireSerial);
+
+	// Each reading starts valid, with no reason recorded: a failure is this
+	// reading's, never a flag or a reason left over from an earlier one (the
+	// sweeps' Retry calls straight back in here). A sensor's MeasureColorInternal
+	// that fails sets both again below.
+	SetMeasureValidity(TRUE);
+	SetErrorString(_T(""));
+
 	CColor result;
 	if (this->GetName() == "Simulated sensor")
 	    result = MeasureColorInternal(aRGBValue, displaymode);
@@ -308,7 +326,30 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	
 	// A failed read comes back as noDataColor, which the clamps below would turn
 	// into a valid-looking color, so decide success before they run.
-	BOOL bMeasureOk = ( IsMeasureValid() && result.isValid() );
+	// isValid rejects NaN (NaN > -1.0 is false) but passes +infinity, which the
+	// clamps would keep; _finite rejects both.
+	BOOL bMeasureOk = ( IsMeasureValid() && result.isValid()
+	                    && _finite(result.GetX()) && _finite(result.GetY()) && _finite(result.GetZ()) );
+	// A failed read stays noDataColor, as it did when AsyncMeasurer's catch returned
+	// it (4.2.2): the sweeps test IsMeasureValid, and a slot that keeps the reading
+	// on Abort or Ignore then holds an invalid placeholder the grid and charts
+	// recognize, not a valid-looking black of 1e-8.
+	// A driver can fail without saying so: an i1Pro with a broken dark calibration
+	// returned NaN XYZ with no error and the validity flag still TRUE, so the sweeps
+	// showed no Abort/Retry/Ignore box and stored the slot. Any reading that is not
+	// a finite XYZ is a failed reading: the flag goes FALSE here, and the reason is
+	// the sensor's own when it gave one, else IDS_SENSOR_INVALID_READING.
+	if ( ! bMeasureOk )
+	{
+		if ( GetErrorString().IsEmpty() )
+		{
+			CString why;
+			why.LoadString ( IDS_SENSOR_INVALID_READING );
+			SetErrorString ( why );
+		}
+		SetMeasureValidity(FALSE);
+		return noDataColor;
+	}
 
 	result.SetX(max(result.GetX(),0.00000001));
 	result.SetY(max(result.GetY(),0.00000001));
@@ -328,6 +369,9 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	GetSystemTimeAsFileTime(&ft);
 	ULONGLONG t = ((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
 	result.SetTimestamp((double)(t - 116444736000000000ULL) / 1e7);
+	if ( ! WireDisplayRecord::StillCurrent(wireSerial) )
+		wire = CColorWireSetup();
+	result.SetWireSetup(wire);
 
 	if ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX )
 		result.SetXYZValue(SelectAndApplyBodnerMatrixInv(result.GetXYZValue(), m_bodnerRawInverse, m_bodnerRawInvertible, m_bodnerCalMatrix));
@@ -351,6 +395,11 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 Matrix CSensor::GetEffectiveMatrix() const
 {
 	return EffectiveSensorMatrix ( m_calibrationMethod, m_fitBasis, m_spectral, m_sensorToXYZMatrix );
+}
+
+void CSensor::EffectiveChangedWithoutWalk(const Matrix& before, bool readingsAlreadyThroughIt)
+{
+	::EffectiveChangedWithoutWalk ( m_rawlessReadings, before, GetEffectiveMatrix(), readingsAlreadyThroughIt );
 }
 
 void CSensor::ClearSpectralCorrection()
@@ -400,9 +449,13 @@ BOOL CSensor::Configure()
 	propertySheet.AddPage ( & m_SensorPropertiesPage );
 	propertySheet.SetActivePage(0);
 	SetPropertiesSheetValues();
+	// Every Init from here to the end of the OK (the page's Calibrate button, a
+	// setting committed by GetPropertiesSheetValues) is inside the sheet.
+	m_inSensorSheet = true;
 	int result=propertySheet.DoModal();
 	if(result == IDOK)
 		GetPropertiesSheetValues();
+	m_inSensorSheet = false;
 
 	return result==IDOK;
 }

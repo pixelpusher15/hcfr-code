@@ -248,15 +248,44 @@ bool SpectralSample::createFromMeasurements(const CColor spectralReadings[], con
 }
 
 
+bool SpectralSample::ReadBuffer(unsigned char* buf, size_t len, const std::string& samplePath)
+{
+    if (buf == NULL || len == 0)
+    {
+        return false;
+    }
+    // buf_read_ccss reads through a CGATS memory file and does not keep the buffer.
+    if (m_ccss->buf_read_ccss(m_ccss, buf, len))
+    {
+        return false;
+    }
+    m_Path = samplePath;
+    m_Display = m_ccss->disp ? m_ccss->disp : "";
+    m_Tech = m_ccss->tech ? m_ccss->tech : "";
+    m_RefInstrument = m_ccss->ref ? m_ccss->ref : "";
+    setDescription(m_Tech.c_str(), m_Display.c_str());
+    return true;
+}
+
 bool SpectralSample::createFromCorrelationCSV(const std::string& csvPath)
+{
+	std::ifstream fh(csvPath.c_str(), std::ios::binary);
+	if (!fh.is_open())
+		throw std::logic_error("Cannot open correlation CSV file");
+	return createFromCorrelationCSVStream(fh, csvPath);
+}
+
+bool SpectralSample::createFromCorrelationCSVText(const std::string& text, const std::string& csvPath)
+{
+	std::istringstream fh(text);
+	return createFromCorrelationCSVStream(fh, csvPath);
+}
+
+bool SpectralSample::createFromCorrelationCSVStream(std::istream& fh, const std::string& csvPath)
 {
 	const int BANDS = 401;
 	const int START_NM = 380;
 	const int END_NM = 780;
-
-	std::ifstream fh(csvPath.c_str(), std::ios::binary);
-	if (!fh.is_open())
-		throw std::logic_error("Cannot open correlation CSV file");
 
 	// Parse every row into 401 spectral values.
 	std::vector< std::vector<double> > rows;
@@ -306,7 +335,6 @@ bool SpectralSample::createFromCorrelationCSV(const std::string& csvPath)
 			throw std::logic_error("Correlation CSV row has more than 401 values");
 		rows.push_back(vals);
 	}
-	fh.close();
 
 	// Global max, used both to drop empty rows and to normalize the set.
 	double gmax = 0.0;
