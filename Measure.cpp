@@ -34,6 +34,7 @@
 #include "Views\MainView.h"
 #include "MeasurePerf.h"
 #include "FailedReadingRule.h"
+#include "SweepConfirmRule.h"
 
 #include <math.h>
 #include <sstream>
@@ -8292,6 +8293,79 @@ CColor CMeasure::GetCC24MasterSat(int i) const
 	return m_cc24SatMeasureArray_master[i]; 
 } 
 
+// Whether a sweep writing the SweepConfirmRule mask 'sweep' would overwrite at
+// least one reading of this measure (the rule: SweepConfirmRule.h).
+BOOL CMeasure::SweepOverwritesData ( unsigned int sweep ) const
+{
+	using namespace SweepConfirmRule;
+
+	// The color checker slots a sweep of the active set overwrites: the band
+	// GetCC24Sat reads, whole, because a sweep's completion (and its abort
+	// salvage) copies the whole live band into it. A pre-3.3.0 file's data is
+	// still in the live array, which GetCC24Sat reads for it and the sweep wipes.
+	const CColor * ccSlots = NULL;
+	int ccCount = 0;
+	if ( m_bpreV10 > 0 )
+	{
+		ccSlots = m_cc24SatMeasureArray.GetData ();
+		ccCount = (int) m_cc24SatMeasureArray.GetSize ();
+	}
+	else
+	{
+		int iCC = GetConfig () -> m_CCMode;
+		int base = CC24MasterBandBase ( iCC ), width = CC24MasterBandSize ( iCC );
+		int size = (int) m_cc24SatMeasureArray_master.GetSize ();
+		if ( base >= 0 && base < size )
+		{
+			ccSlots = m_cc24SatMeasureArray_master.GetData () + base;
+			ccCount = min ( width, size - base );
+		}
+	}
+
+	// The first gray and near black slot and the on/off black: a synthetic
+	// override black is not a reading (SweepConfirmRule::IsSyntheticBlack) -
+	// the document's m_userBlack, which the sweeps copy there, and, while the
+	// live "Use Black Level" preference is on, the preference's black, which
+	// MainView writes into all three whatever the document's flag says
+	// (CMainView::UpdateGrid, the "store/retrieve real black measurements"
+	// block). A real black there is a reading.
+	const CColor * liveBlack = NULL;
+	CColor prefBlack;
+	if ( GetConfig () -> GetProfileDouble ( "References", "Use Black Level", 0 ) != 0 )
+	{
+		double Yblack = GetConfig () -> GetProfileDouble ( "References", "Manual Black Level", 0 );
+		prefBlack = CColor ( ColorXYZ ( Yblack * .95047, Yblack, Yblack * 1.0883 ) );	// as MainView builds it
+		liveBlack = &prefBlack;
+	}
+
+	// The placeholders: CMeasure::IsConstructorPlaceholder. The gray top can hold
+	// the on/off white's placeholder too: the luminance and gamma graphers copy
+	// the on/off white there whenever a gray point is valid
+	// (CLuminanceGrapher / CGammaGrapher::AddPointtoLumGraph).
+	const SeriesSlots table [] =
+	{
+		{ S_GRAY,			m_grayMeasureArray.GetData (),			(int) m_grayMeasureArray.GetSize (),		IsConstructorPlaceholder,	&m_userBlack,	liveBlack },
+		{ S_NEARBLACK,		m_nearBlackMeasureArray.GetData (),		(int) m_nearBlackMeasureArray.GetSize (),	NULL,						&m_userBlack,	liveBlack },
+		{ S_NEARWHITE,		m_nearWhiteMeasureArray.GetData (),		(int) m_nearWhiteMeasureArray.GetSize (),	NULL },
+		{ S_PRIMARIES,		m_primariesArray.GetData (),			(int) m_primariesArray.GetSize (),			NULL },
+		{ S_SECONDARIES,	m_secondariesArray.GetData (),			(int) m_secondariesArray.GetSize (),		NULL },
+		// the whites count only once measured (Measure.h, m_bPrimeWhiteMeasured), and never as a placeholder
+		{ S_PRIMEWHITE,		&m_PrimeWhite,							m_bPrimeWhiteMeasured ? 1 : 0,				IsConstructorPlaceholder },
+		{ S_ONOFFWHITE,		&m_OnOffWhite,							m_bOnOffWhiteMeasured ? 1 : 0,				IsConstructorPlaceholder },
+		{ S_ONOFFBLACK,		&m_OnOffBlack,							1,											IsConstructorPlaceholder,	&m_userBlack,	liveBlack },
+		{ S_ANSI,			&m_AnsiBlack,							1,											NULL },
+		{ S_ANSI,			&m_AnsiWhite,							1,											NULL },
+		{ S_SAT_RED,		m_redSatMeasureArray.GetData (),		(int) m_redSatMeasureArray.GetSize (),		NULL },
+		{ S_SAT_GREEN,		m_greenSatMeasureArray.GetData (),		(int) m_greenSatMeasureArray.GetSize (),	NULL },
+		{ S_SAT_BLUE,		m_blueSatMeasureArray.GetData (),		(int) m_blueSatMeasureArray.GetSize (),		NULL },
+		{ S_SAT_YELLOW,		m_yellowSatMeasureArray.GetData (),		(int) m_yellowSatMeasureArray.GetSize (),	NULL },
+		{ S_SAT_CYAN,		m_cyanSatMeasureArray.GetData (),		(int) m_cyanSatMeasureArray.GetSize (),		NULL },
+		{ S_SAT_MAGENTA,	m_magentaSatMeasureArray.GetData (),	(int) m_magentaSatMeasureArray.GetSize (),	NULL },
+		{ S_CC24,			ccSlots,								ccCount,									NULL },
+	};
+	return HoldsData ( sweep, table, (int) ( sizeof ( table ) / sizeof ( table[0] ) ) ) ? TRUE : FALSE;
+}
+
 CColor CMeasure::GetCC24Sat(int i) 
 { 
 	int iCC=GetConfig()->m_CCMode;
@@ -8836,8 +8910,7 @@ CColor CMeasure::GetGrayScaleBlack() const
 	// on and is not returned; m_userBlack (no lux) is returned then.
 	if ( GrayScaleBlackIsOverride () )
 	{
-		if ( m_grayMeasureArray.GetSize () > 0 && m_grayMeasureArray[0].isValid ()
-			 && ! m_grayMeasureArray[0].HasRawXYZValue () && m_grayMeasureArray[0].GetY () == m_userBlack.GetY () )
+		if ( m_grayMeasureArray.GetSize () > 0 && SweepConfirmRule::IsSyntheticBlack ( m_grayMeasureArray[0], m_userBlack ) )
 			return m_grayMeasureArray[0];
 		return m_userBlack;
 	}
