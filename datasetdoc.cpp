@@ -25,6 +25,7 @@
 #include "ColorHCFR.h"
 
 #include "DataSetDoc.h"
+#include "FailedReadingRule.h"
 
 #include "Measure.h"
 #include "MainView.h"
@@ -5172,18 +5173,30 @@ void CDataSetDoc::OnUpdateContinuousMeasurement(CCmdUI* pCmdUI)
 	}
 }
 
-void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886)
+bool CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886)
 {
 	int		nConfigOffsetType = GetConfig() -> m_GammaOffsetType;
 	int		nLumCurveMode = GetConfig () -> m_nLuminanceCurveMode;
 	double	blacklvl, whitelvl, graylvl, Offset_opt, Gamma_opt;
 	BOOL	bIRE = GetMeasure () -> m_bIREScaleMode;
 
-	double * lumlvl = new double [ Size ];
-	double * valx = new double [ Size ];
+	// The offset the configuration sets (never fitted): every return carries it.
+	const double configuredOffset = FailedReadingRule::ConfiguredGammaOffset ( nConfigOffsetType, GetConfig()->m_colorStandard == sRGB, GetConfig() -> m_manualGOffset );
 	// The gray scale's white and black, fetched once (the per-point loop below reads them)
 	const CColor fitWhite = GetMeasure()->GetGrayScaleWhite();
 	const CColor fitBlack = GetMeasure()->GetGrayScaleBlack();
+	// A black the fit does not have (GetGrayScaleBlack holds no reading: the
+	// 0% slot failed and the on/off black is the constructor's placeholder)
+	// never enters a fit that reads it: only the relative offset does
+	// (FailedReadingRule.h). Every other type fits as usual. The user's black
+	// override is a reading at any value (CMeasure::HoldsGrayScaleBlack, the same
+	// test the black-compensation targets use on the same black).
+	if ( FailedReadingRule::GammaFitNoBlack ( GetMeasure()->HoldsGrayScaleBlack(), nConfigOffsetType, configuredOffset, Gamma, Offset ) )
+		return false;
+	bool bFit = false;
+
+	double * lumlvl = new double [ Size ];
+	double * valx = new double [ Size ];
 	double * tmpx = new double [ Size ];
 
 	if (ColorSpace == 0) 
@@ -5247,47 +5260,13 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 
 
 	Gamma_opt = 1.0;
-	Offset_opt = 0.0;
+	Offset_opt = configuredOffset;
 
 			
 	if ((Size > 2) && (whitelvl > 0))
 	{
-		switch ( nConfigOffsetType )
-		{
-		case 0:
-		case 1:
-			Offset_opt = 0;
-			break;
-		case 2:
-			if(GetConfig()->m_colorStandard == sRGB)
-				Offset_opt = 0.055;
-			else
-				Offset_opt = 0.099;
-			break;
-		case 3:
-			Offset_opt = GetConfig() -> m_manualGOffset;
-			break;
-		case 4: //bt.1886
-			{
-				Offset_opt = 0.0;
-			}
-			break;
-		case 5: //ST2084
-			{
-				Offset_opt = 0.0;
-			}
-			break;
-		case 6: //L*
-			{
-				Offset_opt = 0.0;
-			}
-			break;
-		case 7: //BBC hgl
-			{
-				Offset_opt = 0.0;
-			}
-			break;
-		}
+		// Offset_opt is the configured offset (ConfiguredGammaOffset, above): the
+		// table that stood here gave the same value for every type.
 			double v;
 
 			for (int i=0; i<Size; i++)
@@ -5297,25 +5276,21 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 				valx[i]=(v+Offset_opt)/(1.0+Offset_opt);
 			}
 
-			int	nb = 0;
-			double avg = 0;
-			for (int i=1; i<Size-2; i++)
+			// The mean of the per-point gamma over the points that have light
+			// (FailedReadingRule::MeanPointGamma, which T50 checks); no point with
+			// light is no fit.
+			bFit = FailedReadingRule::MeanPointGamma ( Size, lumlvl, [&] ( int i ) -> double
 			{
-				if ( lumlvl[i] > 0.0 )
-				{
-					int mode = GetConfig()->m_GammaOffsetType;
-					if (GetConfig()->m_colorStandard == sRGB) mode = 99;
-                    if (m_bBT1886 || mode > 5) // !GetConfig()->m_useMeasuredGamma)
-                        avg += log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1))/log(valx[i]);
-                    else
-	                    if (mode == 5)// && !GetConfig()->m_useMeasuredGamma)
-			                avg += log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.)/log(valx[i]);
-						else
-		    				avg += log(lumlvl[i])/log(valx[i]);
-					nb ++;
-				}
-			}
-			Gamma_opt = avg / ( nb ? nb : 1 );
+				int mode = GetConfig()->m_GammaOffsetType;
+				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
+				if (m_bBT1886 || mode > 5)
+					return log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1))/log(valx[i]);
+				if (mode == 5)
+					return log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.)/log(valx[i]);
+				return log(lumlvl[i])/log(valx[i]);
+			}, & Gamma_opt );
+			if ( ! bFit )
+				Gamma_opt = FailedReadingRule::NoFitGamma;
 	}
 	*Offset = Offset_opt;
 	*Gamma = Gamma_opt;
@@ -5323,6 +5298,7 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 	delete[] lumlvl;
 	delete[] valx;
 	delete[] tmpx;
+	return bFit;
 }
 
 bool CDataSetDoc::CheckVideoLevel()

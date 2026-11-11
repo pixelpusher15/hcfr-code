@@ -353,7 +353,10 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 					double valy, Gamma, Offset;
                     Gamma = GetConfig()->m_GammaRef;
                     GetConfig()->m_GammaAvg = Gamma;
-                    m_pDocument->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
+                    // No fit (FailedReadingRule.h): Gamma keeps m_GammaRef, never the no-fit 1.0.
+                    double fitGamma = Gamma;
+                    const bool bFit = m_pDocument->ComputeGammaAndOffset(&fitGamma, &Offset, 1, 1, nCount, false);
+                    Gamma = FailedReadingRule::FittedGammaOr ( bFit, fitGamma, Gamma );
                     if (GetConfig()->m_useMeasuredGamma)
 						GetConfig()->m_GammaAvg = (Gamma<1?2.2:floor((Gamma+.005)*100.)/100.);
                     GetConfig()->SetPropertiesSheetValues();

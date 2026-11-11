@@ -25,6 +25,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "DataSetDoc.h"
+#include "FailedReadingRule.h"
 #include "DocTempl.h"
 #include "RGBHistoView.h"
 
@@ -189,10 +190,15 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		}
 	}
 	
-	if (pDataRef && !pDataRef->GetMeasure()->GetGray(0).isValid())
+	if (pDataRef && ! FailedReadingRule::AnyHeldReading ( size, [pDataRef] ( int i ) { return pDataRef->GetMeasure()->GetGray(i); },
+			[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } ) )	// as the main document: a failed black is left out, not the trace
 		pDataRef = NULL;
 
-	if (pDoc->GetMeasure()->GetGray(0).isValid())
+	// Any slot holding a reading (valid, not the constructor's placeholder
+	// white in the top slot of a new document) draws the chart; the loop leaves out each invalid point
+	// (a failed black no longer hides the chart, FailedReadingRule.h).
+	if ( FailedReadingRule::AnyHeldReading ( size, [pDoc] ( int i ) { return pDoc->GetMeasure()->GetGray(i); },
+			[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } ) )
 	{
 		// Retrieve gamma and offset
 		CColor			refColor = GetColorReference().GetWhite();
@@ -215,6 +221,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// tmpColor and refColor - the dE pane's reference - are still only
 			// written under the dE condition, so the dE pane does not move.
 			double YTarget = 0.0;
+			BOOL bNoTarget = FALSE;	// mode 1 without a valid black: no target (below)
 			BOOL bRefY = ( GetConfig ()->m_dE_gray > 0 || GetConfig ()-> m_dE_form == 5 );
 
 			// Determine Reference Y luminance for Delta E calculus
@@ -235,7 +242,15 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			        double valx=(pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i )+Offset)/(1.0+Offset);
 			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+Offset;
 					if (mode == 1) //black compensation target
-						valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
+					{
+						// The target needs the black: without a valid one the point's
+						// luminance error and its dE against the target are left out
+						// (FailedReadingRule.h).
+						if ( ! pDoc->GetMeasure()->HoldsGrayScaleBlack () )	// Black is its GetGrayScaleBlack
+							bNoTarget = TRUE;
+						else
+							valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
+					}
 		        }
 
 				if (mode == 5)
@@ -305,7 +320,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// Balance divides by the patch's own luminance, so it needs only that
 			// second test. The target test is on YTarget, which dE_gray 2 does
 			// not overwrite.
-			if (aColor.isValid() && aColor[1] > 0.0 && ( i > 0 || ( ( !m_showLumError || HasMeasuredLight ( YTarget * YWhite ) ) && HasMeasuredLight ( aColor[2] ) ) ))
+			if (aColor.isValid() && aColor[1] > 0.0 && ! ( bNoTarget && m_showLumError ) && ( i > 0 || ( ( !m_showLumError || HasMeasuredLight ( YTarget * YWhite ) ) && HasMeasuredLight ( aColor[2] ) ) ))
 			{
 				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 				ColorRGB normColor(aMeasure, GetColorReference());
@@ -319,7 +334,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// luminance - the chromaticity error alone, "is my black tinted", the
 			// quantity CalMAN prints at 0% - where it does not. A patch with no
 			// light has no chromaticity to be wrong about.
-			if(m_showDeltaE && ( i > 0 || HasMeasuredLight ( aColor[2] ) ))
+			if(m_showDeltaE && ! ( bNoTarget && bRefY ) && ( i > 0 || HasMeasuredLight ( aColor[2] ) ))
 			{
 				CColor dERef = ( i > 0 ) ? refColor : BlackTargetReference ( pDoc->GetMeasure()->GetGray(i), YWhitePatch, refColor, GetColorReference().GetWhite() );
 				if (aColor.isValid() && dERef.isValid())
@@ -335,10 +350,11 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 	if((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc)) 
 	{
-		BOOL			bMainDocHasColors = (pDoc->GetMeasure()->GetGray(0).isValid());
+		BOOL			bMainDocHasColors = FailedReadingRule::AnyHeldReading ( size, [pDoc] ( int i ) { return pDoc->GetMeasure()->GetGray(i); },
+								[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } );
 		CColor			refColor = GetColorReference().GetWhite();
 
-		if ( size && pDataRef->GetMeasure()->GetGray(0).isValid() )
+		if ( size )	// the fit judges its black itself; only the configured offset is read
 			pDataRef->ComputeGammaAndOffset(&Gamma, &OffsetRef, 3, 1, size,false);
 
 		YWhiteRefDoc = pDataRef->GetMeasure()->GetGrayScaleWhite()[1];
@@ -413,7 +429,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				fact = aColor[2] / (YTarget * YWhiteRefDoc);
 
 			double YWhitePatch;
-			if ( !bMainDocHasColors )
+			if ( !bMainDocHasColors || !aColor2.isValid() )	// a failed main-document point: its own luminance is not there
 				YWhitePatch = YWhiteRefPatch;
 			else if ( GetConfig ()->m_dE_gray == 0 )
 				YWhitePatch = aColor2 [ 2 ];
@@ -467,7 +483,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				// measured - SetGray writes only m_grayMeasureArray, leaving
 				// m_OnOffWhite at noDataColor - and that is a change to every point,
 				// not to black.
-				if (bMainDocHasColors && aColor.isValid()
+				if (bMainDocHasColors && aColor.isValid() && aColor2.isValid()
 					&& ( i > 0 || ( YWhitePatch > 0.0 && YWhiteRefPatch > 0.0 && HasMeasuredLight ( aColor2[2] ) ) ))
 						m_graphCtrl2.AddPoint(m_deltaEBetweenGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhitePatch,pDataRef->GetMeasure()->GetGray(i),YWhiteRefPatch, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight)); //Ki
 			}

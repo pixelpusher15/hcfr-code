@@ -25,6 +25,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "DataSetDoc.h"
+#include "FailedReadingRule.h"
 #include "DocTempl.h"
 #include "GammaHistoView.h"
 #include "math.h"
@@ -286,9 +287,16 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		}
 	}
 
-	if (pDoc->GetMeasure()->GetGray(0).isValid())
+	// Any slot holding a reading (valid, not the constructor's placeholder
+	// white in the top slot of a new document) draws the traces, each invalid point left out (a failed
+	// black no longer hides the chart, FailedReadingRule.h). The average line
+	// needs a fit: ComputeGammaAndOffset says whether it made one (not under a
+	// relative offset with a failed black).
+	if ( FailedReadingRule::AnyHeldReading ( size, [pDoc] ( int i ) { return pDoc->GetMeasure()->GetGray(i); },
+			[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } ) )
 		bDataPresent = TRUE;
-	if (pDataRef && !pDataRef->GetMeasure()->GetGray(0).isValid())
+	if (pDataRef && ! FailedReadingRule::AnyHeldReading ( size, [pDataRef] ( int i ) { return pDataRef->GetMeasure()->GetGray(i); },
+			[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } ) )	// as the main document: a failed black is left out, not the trace
 	    	pDataRef = NULL;
 
 	m_graphCtrl.ClearGraph(m_refLogGraphID);
@@ -297,8 +305,8 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 	
 	// Compute offset
-	pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,size, false);
-	pDoc->ComputeGammaAndOffset(&LuxGammaOpt, &LuxGammaOffset, 2,1,size, false);
+	const bool bGammaFit = pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,size, false);
+	const bool bLuxGammaFit = pDoc->ComputeGammaAndOffset(&LuxGammaOpt, &LuxGammaOffset, 2,1,size, false);
 
 	// The gray scale's white and black (GetGrayScaleWhite / Black), fetched once
 	// per document per draw and passed to every point.
@@ -365,7 +373,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	}
 	
 
-	if (m_showAverage && m_avgLogGraphID != -1 && size > 0 && bDataPresent && !(GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 ))
+	if (m_showAverage && m_avgLogGraphID != -1 && size > 0 && bDataPresent && bGammaFit && !(GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 ))
 	{	
 		// Le calcul de la moyenne des gamma et la représentation en échelle log 
 		// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
@@ -376,7 +384,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 	if ( GetConfig () -> m_nLuminanceCurveMode == 2 )
 	{
-		if (m_showAverage && m_luxmeterAvgLogGraphID != -1 && size > 0 && bDataPresent && pDoc->GetMeasure()->GetGray(0).HasLuxValue() )
+		if (m_showAverage && m_luxmeterAvgLogGraphID != -1 && size > 0 && bDataPresent && bLuxGammaFit && pDoc->GetMeasure()->GetGray(0).HasLuxValue() )
 		{	
 			// Le calcul de la moyenne des gamma et la représentation en échelle log 
 			// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
@@ -479,7 +487,10 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	char	szBuf [ 64 ];
 	LPCSTR	lpMsg = NULL;
 
-	if (pDataSet->GetMeasure()->GetGray(PointIndex).isValid())
+	// An invalid point is left out, and so is every point measured against an
+	// invalid black: the relative offset subtracts it from each of them.
+	if (pDataSet->GetMeasure()->GetGray(PointIndex).isValid()
+		&& ( GetConfig() -> m_GammaOffsetType != 1 || pDataSet->GetMeasure()->HoldsGrayScaleBlack () ))	// Black (blacklvl) is pDataSet's GetGrayScaleBlack
 	{
 	if (ColorSpace == 0) 
 	{

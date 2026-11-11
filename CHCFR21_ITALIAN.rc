@@ -4484,6 +4484,8 @@ BEGIN
     IDS_ARGYLL_CAL_GREY_LIGHTER "Mostrare una patch di prova grigia pi\xF9 chiara"
     IDS_ARGYLL_CAL_INSTRUCTIONS_TITLE "Istruzioni di calibrazione"
     IDS_SENSOR_INVALID_READING "Il misuratore ha restituito una lettura non valida."
+    IDS_ARGYLL_STILL_NEEDS_CALIBRATION "Il misuratore segnala ancora di dover essere calibrato dopo la calibrazione."
+    IDS_ARGYLL_CALIBRATION_UNAVAILABLE "Il misuratore segnala di dover essere calibrato, ma non \xE8 disponibile alcuna calibrazione."
     IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "Il documento caricato include una correzione spettrale da tipo di display (%s) che non è il tipo di display attuale. Resta in uso finché non si cambia il tipo di display."
     IDS_SPECTRAL_COMPOSE_WARN   "Il file che si sta caricando non contiene l'indicazione della base di adattamento. La correzione spettrale verrà applicata in aggiunta alla sua matrice (come faceva HCFR 4.1). Continuare?"
     IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "La correzione spettrale in uso (%s) è stata calcolata per il misuratore %s, non per quello collegato, e qui non c'è alcun file di correzione da cui calcolarla di nuovo. Resta in uso. Per calcolarla per questo misuratore, selezionare il suo file di correzione nelle proprietà del sensore."

@@ -4535,6 +4535,8 @@ BEGIN
     IDS_ARGYLL_CAL_GREY_LIGHTER "Affichez une mire de test grise plus claire"
     IDS_ARGYLL_CAL_INSTRUCTIONS_TITLE "Instructions de calibrage"
     IDS_SENSOR_INVALID_READING "La sonde a renvoy\xE9 une mesure non valide."
+    IDS_ARGYLL_STILL_NEEDS_CALIBRATION "La sonde indique toujours qu'elle doit \xEAtre \xE9talonn\xE9e apr\xE8s l'\xE9talonnage."
+    IDS_ARGYLL_CALIBRATION_UNAVAILABLE "La sonde indique qu'elle doit \xEAtre \xE9talonn\xE9e, mais aucun \xE9talonnage n'est disponible pour elle."
     IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "Le document chargé comporte une correction spectrale de type d'affichage (%s) qui n'est pas le type d'affichage actuel. Elle reste utilisée jusqu'à ce que vous changiez de type d'affichage."
     IDS_SPECTRAL_COMPOSE_WARN   "Le fichier que vous chargez ne comporte pas d'indication de base d'ajustement. La correction spectrale sera appliquée en plus de sa matrice (comme le faisait HCFR 4.1). Continuer ?"
     IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "La correction spectrale utilisée (%s) a été calculée pour la sonde %s, et non pour la sonde connectée, et aucun fichier de correction n'est disponible ici pour la calculer de nouveau. Elle reste utilisée. Pour la calculer pour cette sonde, sélectionnez son fichier de correction dans les propriétés du capteur."
