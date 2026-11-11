@@ -155,6 +155,15 @@ class CCIEChartGrapher
 	ColorXYZ		m_covAbPrimaries[3];
 	ColorXYZ		m_covSecondaries[3];	// yellow, cyan, magenta
 
+	// Off by default, matching the hide-on-stale-standard behavior above.
+	// Toggle on (via the CIE chart's right-click context menu) to skip that
+	// and always show fresh values computed from the existing measurement
+	// against whatever standard is currently selected -- e.g. to check how
+	// an existing measurement happens to cover a different standard
+	// without a separate re-measurement pass. On screen only: exports keep
+	// the hiding, and the staleness caches never read this flag.
+	BOOL			m_doCovAlwaysRecalc;
+
 	// Zoom handling, for window mode
 	UINT	m_ZoomFactor;	// Zoom factor = 1000 for 1:1 scale, 2000 for 2x zoom, and so on
 	int		m_DeltaX;		// When zoom active, delta values for picture scrolling in pixels
@@ -162,7 +171,7 @@ class CCIEChartGrapher
 
 	// Operations
 	void MakeBgBitmap(CRect rect,BOOL bWhiteBkgnd);
-	void DrawCoverageChips(CDC *pDC, CRect rcAnchor, CDataSetDoc * pDoc);
+	void DrawCoverageChips(CDC *pDC, CRect rcAnchor, CDataSetDoc * pDoc, BOOL bForExport);
 	void DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint = NULL, bool isSelected = FALSE, double dE10=100.0, bool isPrimeSec = FALSE);
 	bool DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int y, const CCIEGraphPoint& aGraphPoint, bool isSelected);
 	void DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd);
@@ -267,12 +276,14 @@ protected:
 	afx_msg void OnSize(UINT nType, int cx, int cy);
 	afx_msg void OnContextMenu(CWnd* pWnd, CPoint point);
 	afx_msg void OnUpdateCieShowbackground(CCmdUI* pCmdUI);
+	afx_msg void OnUpdateCieCovAlwaysRecalc(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateCieShowDeltaE(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateCieShowreferences(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateCieGraphShowDataRef(CCmdUI* pCmdUI);
 	afx_msg void OnCieShowreferences();
 	afx_msg void OnCieGraphShowDataRef();
 	afx_msg void OnCieShowbackground();
+	afx_msg void OnCieCovAlwaysRecalc();
 	afx_msg void OnCieShowDeltaE();
 	afx_msg void OnCieShowGrayScale();
 	afx_msg void OnCieShowSaturationScale();
