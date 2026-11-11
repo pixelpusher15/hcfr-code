@@ -473,7 +473,7 @@ void CColorHCFRConfig::InitDefaults()
 	m_TBViewsRightClickMode = 0;
 	m_TBViewsMiddleClickMode = 1;
 	m_bConfirmMeasures = TRUE;
-	m_bUseOnlyPrimaries = FALSE;
+	m_calibrationMethod = CALIB_HCFR_DEFAULT;
 	m_bUseImperialUnits = FALSE;
 	m_nLuminanceCurveMode = 0;
 	m_bPreferLuxmeter = FALSE;
@@ -642,7 +642,24 @@ BOOL CColorHCFRConfig::LoadSettings()
 	m_TBViewsRightClickMode = GetProfileInt("Advanced","TBViewsRightClickMode",0);
 	m_TBViewsMiddleClickMode = GetProfileInt("Advanced","TBViewsMiddleClickMode",1);
 	m_bConfirmMeasures = GetProfileInt("Advanced","ConfirmMeasures",1);
-	m_bUseOnlyPrimaries = GetProfileInt("Advanced","UseOnlyPrimaries",0);
+	{
+		// Migrate the old two-way "UseOnlyPrimaries" checkbox into the new
+		// 3-way calibration method setting the first time an upgraded profile
+		// is loaded; once "CalibrationMethod" has been written, it takes over.
+		int storedMethod = GetProfileInt("Advanced","CalibrationMethod",-1);
+		if ( storedMethod == -1 )
+		{
+			int legacyOnly = GetProfileInt("Advanced","UseOnlyPrimaries",0);
+			m_calibrationMethod = legacyOnly ? CALIB_CLASSIC_NIST : CALIB_HCFR_DEFAULT;
+			// Freeze the pre-migration checkbox value under its own key:
+			// SaveSettings rewrites UseOnlyPrimaries from the dropdown on every
+			// save (downgrade safety), so this frozen copy is what v1 sensor
+			// files must derive their method from (Sensors/Sensor.cpp).
+			WriteProfileInt("Advanced","LegacyUseOnlyPrimaries", legacyOnly);
+		}
+		else
+			m_calibrationMethod = storedMethod;
+	}
 	doHighlight = GetProfileInt("Advanced","Highlight",1);
 	m_bUseImperialUnits = GetProfileInt("Advanced","UseImperialUnits",0);
 	m_nLuminanceCurveMode = GetProfileInt("Advanced","LuminanceCurveMode",0);
@@ -736,7 +753,8 @@ void CColorHCFRConfig::SaveSettings()
 	WriteProfileInt("Advanced","TBViewsRightClickMode",m_TBViewsRightClickMode);
 	WriteProfileInt("Advanced","TBViewsMiddleClickMode",m_TBViewsMiddleClickMode);
 	WriteProfileInt("Advanced","ConfirmMeasures",m_bConfirmMeasures);
-	WriteProfileInt("Advanced","UseOnlyPrimaries",m_bUseOnlyPrimaries);
+	WriteProfileInt("Advanced","CalibrationMethod",m_calibrationMethod);
+	WriteProfileInt("Advanced","UseOnlyPrimaries",m_calibrationMethod==CALIB_CLASSIC_NIST ? 1 : 0);	// legacy key, kept for downgrade safety
 	WriteProfileInt("Advanced","Highlight",doHighlight);
 	WriteProfileInt("Advanced","UseImperialUnits",m_bUseImperialUnits);
 	WriteProfileInt("Advanced","LuminanceCurveMode",m_nLuminanceCurveMode);
@@ -857,7 +875,7 @@ void CColorHCFRConfig::SetPropertiesSheetValues()
 
 	m_advancedPropertiesPage.m_bConfirmMeasures = m_bConfirmMeasures;
 	m_advancedPropertiesPage.m_comPort = GetColorApp() -> m_LuxPort;
-	m_advancedPropertiesPage.m_bUseOnlyPrimaries = m_bUseOnlyPrimaries;
+	m_advancedPropertiesPage.m_calibrationMethod = m_calibrationMethod;
 	m_advancedPropertiesPage.doHighlight = doHighlight;
 	m_advancedPropertiesPage.m_bUseImperialUnits = m_bUseImperialUnits;
 	m_advancedPropertiesPage.m_nLuminanceCurveMode = m_nLuminanceCurveMode;
@@ -960,7 +978,7 @@ BOOL CColorHCFRConfig::GetPropertiesSheetValues()
 	m_TBViewsRightClickMode = m_toolbarPropertiesPage.m_TBViewsRightClickMode;
 	m_TBViewsMiddleClickMode = m_toolbarPropertiesPage.m_TBViewsMiddleClickMode;
 	m_bConfirmMeasures = m_advancedPropertiesPage.m_bConfirmMeasures;
-	m_bUseOnlyPrimaries = m_advancedPropertiesPage.m_bUseOnlyPrimaries;
+	m_calibrationMethod = m_advancedPropertiesPage.m_calibrationMethod;
 	doHighlight = m_advancedPropertiesPage.doHighlight;
 	m_bUseImperialUnits = m_advancedPropertiesPage.m_bUseImperialUnits;
 	m_nLuminanceCurveMode = m_advancedPropertiesPage.m_nLuminanceCurveMode;
@@ -1558,12 +1576,18 @@ std::vector<int> cTargetR;
 std::vector<int> cTargetG;
 std::vector<int> cTargetB;
 std::vector<std::string> cTargetN;
+std::vector<int> cTargetP;   // per-patch PatchNumber from the CSV (patch identity for provenance)
 std::string nFile;
 int numCC = 0;
 int cTargetBits = 8;    // bit depth of the loaded patch list (for range-aware target decode)
 int cTargetRange = -1;  // CSV range of the loaded patch list (-1 legacy/legal, 0 full, 1 legal, 2 extended)
 
-void CColorHCFRConfig::GetCColors() 
+void CColorHCFRConfig::GetCColors()
+{
+	GetCColorsFrom ( m_CCMode == USER ? GetActiveDocUserPatchSet () : NULL );
+}
+
+void CColorHCFRConfig::GetCColorsFrom(CUserPatchSet * pSet)
 {
 	// One shared resolver (drive/reference GenerateCC24Colors uses the same one) maps the CC mode
 	// to its patch-list file. Inline-array modes (GCD/MCD/CMC/...) carry no CSV - their targets come
@@ -1573,6 +1597,48 @@ void CColorHCFRConfig::GetCColors()
 	cTargetG.clear();
 	cTargetB.clear();
 	cTargetN.clear();
+	cTargetP.clear();
+	// Multi-set picker: with an active user patch set, the
+	// definition comes from the set itself (self-contained - the source CSV may have
+	// changed or be gone), and the same rows are installed as the libHCFR USER drive
+	// override so target and drive stay consistent by construction. Every other path
+	// through here clears the override, so it can never outlive this cache.
+	if (m_CCMode == USER)
+	{
+		if (pSet)
+		{
+			nFile = pSet->name;
+			cTargetBits = pSet->bits;
+			cTargetRange = pSet->range;
+			for (size_t i = 0; i < pSet->rows.size(); i++)
+			{
+				cTargetR.push_back(pSet->rows[i].r);
+				cTargetG.push_back(pSet->rows[i].g);
+				cTargetB.push_back(pSet->rows[i].b);
+				cTargetN.push_back(pSet->rows[i].name);
+				cTargetP.push_back(pSet->rows[i].patch);
+			}
+			numCC = (int)pSet->rows.size();
+			SetUserPatchOverride(pSet->rows, pSet->bits, pSet->range);
+			return;
+		}
+		// One door: with no loaded sequence USER is an EMPTY state. The legacy
+		// silent usercolors.csv read retired with the Custom Sequences mode -
+		// any file, usercolors.csv included, is loaded via Open patch list.
+		// (Legacy-document migration reads usercolors.csv by explicit path and
+		// is unaffected.)
+		ClearUserPatchOverride();
+		numCC = 0;
+		{
+			CString strNone;
+			strNone.LoadString(IDS_NO_SEQUENCE_LOADED);
+			nFile = (LPCTSTR)strNone;
+		}
+		cTargetBits = 8;
+		cTargetRange = -1;
+		return;
+	}
+	ClearUserPatchOverride();
 	if (!ResolveCCSetPath(m_CCMode, fName, NULL))
 	{
 		numCC = 0;
@@ -1596,6 +1662,7 @@ void CColorHCFRConfig::GetCColors()
 		cTargetG.push_back(rows[i].g);
 		cTargetB.push_back(rows[i].b);
 		cTargetN.push_back(rows[i].name);
+		cTargetP.push_back(rows[i].patch);
 	}
 	numCC = (nRows > 0) ? nRows : 0;   // 0 when the file is missing/unreadable, so size matches the vectors
 
@@ -1638,6 +1705,23 @@ std::string CColorHCFRConfig::GetCColorsN(int index)
 		     return cTargetN[index];
 			else
 			 return "";
+}
+
+// Assemble the label provenance for patch `index` captured at import (patch#, name, bit
+// depth, range). sequenceIndex stays -1 here - it is set at measure time. Bounds-guarded:
+// an out-of-range index yields default (unknown) provenance.
+CColorProvenance CColorHCFRConfig::GetCColorsProvenance(int index)
+{
+	CColorProvenance p;
+	if (index >= 0 && index < (int)cTargetN.size())
+	{
+		p.patchNumber   = (index < (int)cTargetP.size()) ? cTargetP[index] : index;
+		p.sequenceIndex = -1;
+		p.srcBits       = cTargetBits;
+		p.srcRange      = cTargetRange;
+		p.name          = cTargetN[index];
+	}
+	return p;
 }
 
 int CColorHCFRConfig::GetCColorsSize() 

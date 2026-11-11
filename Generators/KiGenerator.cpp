@@ -27,6 +27,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "KiGenerator.h"
+#include "ArchiveExtension.h"
 #include "SerialCom.h"
 
 #include <math.h>
@@ -132,18 +133,22 @@ void CKiGenerator::Serialize(CArchive& archive)
 	CGenerator::Serialize(archive) ;
 	if (archive.IsStoring())
 	{
-		int version=3;
+		int version=4;
 		archive << version;
 		archive << m_doScreenBlanking;
 		archive << m_comPort;
 		archive << m_showDialog;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 3 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 4 )
+			throw new CNewerSchemaException ( "CKiGenerator", version );
 		archive >> m_doScreenBlanking;
 		
 		if ( version >= 2 )
@@ -155,6 +160,18 @@ void CKiGenerator::Serialize(CArchive& archive)
 			archive >> m_showDialog;
 		else
 			m_showDialog = TRUE;
+
+		if ( version >= 4 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 
@@ -272,6 +289,7 @@ void CKiGenerator::GetPropertiesSheetValues()
 
 BOOL CKiGenerator::Init(UINT nbMeasure)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	BOOL bOk = InitRealComPort();
 
 	m_bBeforeFirstDisplay = TRUE;
@@ -482,6 +500,7 @@ BOOL CKiGenerator::ChangePatternSeries()
 
 BOOL CKiGenerator::DisplayGray(double aLevel, MeasureType nPatternType, BOOL bChangePattern)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	CString str, Msg, Title;
 	BOOL	Flag = FALSE;
 	BOOL	bContrast = FALSE;
@@ -693,6 +712,7 @@ BOOL CKiGenerator::DisplayGray(double aLevel, MeasureType nPatternType, BOOL bCh
 
 BOOL CKiGenerator::DisplayRGBColor( const ColorRGBDisplay& clrIn  ,MeasureType nPatternType, UINT nPatternInfo, BOOL bChangePattern,BOOL bSilentMode)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	BOOL	foundColor=TRUE;
 	CString str;
 	CString str2;
@@ -1065,6 +1085,7 @@ BOOL CKiGenerator::DisplayRGBColor( const ColorRGBDisplay& clrIn  ,MeasureType n
 
 BOOL CKiGenerator::DisplayAnsiBWRects(BOOL bInvert)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	BOOL	Flag = FALSE;
 	char	mStr[255];
 

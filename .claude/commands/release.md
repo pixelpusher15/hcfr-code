@@ -8,7 +8,7 @@ else, and at the end give them an exact, short list of anything only they can do
 
 Environment:
 - Toolchain example: **Visual Studio 18 Community** (adjust paths to your install), with the
-  MSVC **v142** toolset and MFC components installed (every `.vcxproj` uses `PlatformToolset v142`).
+  MSVC **v143** toolset and MFC components installed (every `.vcxproj` uses `PlatformToolset v143`).
   Console build binary: `C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com`
 - Solution `ColorHCFR_VS2019.sln`, active config **`Release|Win32`** (Win32 only; no x64).
 - MSI project `ColorHCFR_VS2019.vdproj` is in the solution and is set to build in
@@ -44,11 +44,15 @@ Follow these steps in order. Stop and wait where it says WAIT.
   `LC_ALL=C sed -i -E 's/^( (FILE|PRODUCT)VERSION) 4,1,0,0(\r?)$/\1 4,2,0,0\3/' <file>`
   (the `\r?` keeps the pattern working on CRLF files). Then check `git diff` shows only the
   version lines changed.
+- The version also appears as plain text, outside VERSIONINFO; bump these too:
+  - the five language satellites: the About box `LTEXT "Version <ver>",IDC_STATIC_VERSION` line
+    and the `IDR_MAINFRAME` title string (e.g. `"HCFR Colorimeter - <ver>"`);
+  - `ColorHCFR.rc` line 1, the `// <ver> Visual C++ generated resource script.` header.
 - **`ColorHCFR_VS2019.vdproj`** (Product section near the end of the file):
   - `ProductCode` — **new GUID** every release.
   - `PackageCode` — **new GUID** every release.
   - `ProductVersion` — bump (3-part, e.g. `8:4.2.0`).
-  - `OutputFilename` (~line 672) — `Release\\Installer\\HCFR-<ver>.msi`.
+  - `OutputFilename` (~line 654) — `Release\\Installer\\HCFR-<ver>.msi`.
   - **Never change `UpgradeCode`.** It is what lets a new MSI upgrade an installed one.
   Generate GUIDs with `powershell -NoProfile -Command "([guid]::NewGuid()).ToString().ToUpper()"`.
 - Grep afterwards to confirm no stale old-version string remains in any of the 7 `.rc` files
@@ -78,6 +82,14 @@ build variant (blocks until done; `devenv.exe` would return immediately).
 - Full solution (all 6 resource `.vcxproj`s, so every satellite DLL is current, plus the MSI,
   which the solution builds in `Release|Win32`):
   `"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com" ColorHCFR_VS2019.sln /Build "Release|Win32"`
+- On a Windows-on-ARM machine, skip the full-solution devenv line above: build the solution with
+  `C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\arm64\MSBuild.exe` (`-p:Configuration=Release -p:Platform=Win32 -p:WindowsTargetPlatformVersion=10.0.28000.0`), which
+  selects the native `HostArm64\x86` compiler, then run the `/Project` line below for the MSI.
+  The packaged binaries are x86 either way.
+- Windows SDK: use 10.0.28000.0 and name it in the release notes. The projects do not pin it
+  (`10.0` means the newest installed), so two machines can silently produce different binaries.
+  devenv takes no `-p:` property: if the newest SDK on the build machine is not 10.0.28000, build
+  the solution with MSBuild and the flag above, then run the `/Project` line for the MSI.
 - If the MSI didn't come out of that, build it explicitly:
   `"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\devenv.com" ColorHCFR_VS2019.sln /Project ColorHCFR_VS2019.vdproj /Build "Release|Win32"`
 - If devenv returns at once or sits with no output, check `Get-Process devenv | Select MainWindowTitle`.

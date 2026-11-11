@@ -593,9 +593,15 @@ void CGDIGenePropPage::PopulateCast()
 	{
 		if (m_GCast[i]->typ == cctyp_Audio)
 			continue;   // audio Cast devices (speakers) can't show patterns
-		m_cCastComboCtrl.AddString(m_GCast[i]->name);
-		if (ccastIp && sel < 0 && m_GCast.getCcastIpAddress(m_GCast[i]) == ccastIp)
-			sel = comboIdx;
+		// Show the address too: two devices can share a friendly name (two "Basement
+		// Shield"s), and the address is the key the selection is saved under.
+		unsigned int ip = m_GCast.getCcastIpAddress(m_GCast[i]);
+		CString label;
+		label.Format("%s (%s)", m_GCast[i]->name, m_GCast[i]->ip);
+		int idx = m_cCastComboCtrl.AddString(label);
+		m_cCastComboCtrl.SetItemData(idx, ip);
+		if (ccastIp && sel < 0 && ip == ccastIp)
+			sel = idx;
 		comboIdx++;
 	}
 	m_castHasDevice = (comboIdx > 0);
@@ -1075,8 +1081,11 @@ void CGDIGenePropPage::OnOK()
 		GuardCCModeOutputRange(GetConfig()->m_CCMode);
 	if (m_nDisplayMode == DISPLAY_ccast && m_castHasDevice)
 	{
-		CString name; m_cCastComboCtrl.GetWindowText(name);
-		GetConfig()->WriteProfileInt("GDIGenerator","CCastIp",m_GCast.getCcastIpAddress(m_GCast[(LPCTSTR)name]));
+		// Save the selected entry's own address (item data), never a lookup by the
+		// displayed name: duplicate friendly names used to save the first device.
+		int cur = m_cCastComboCtrl.GetCurSel();
+		if (cur != CB_ERR)
+			GetConfig()->WriteProfileInt("GDIGenerator","CCastIp",(int)m_cCastComboCtrl.GetItemData(cur));
 	}
 
 	if (GetConfig()->m_GammaOffsetType == 5)

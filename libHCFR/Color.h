@@ -36,6 +36,8 @@
 
 #include "libHCFR_Config.h"
 #include "Matrix.h"
+#include <string>   // std::string in CColorProvenance (below), before class CColor
+#include "WireSetup.h"   // CColorWireSetup, before class CColor
 
 typedef enum 
 {
@@ -248,6 +250,43 @@ public:
 #endif
 };
 
+// Per-measurement label provenance: which patch a reading corresponds to and how its
+// source stimulus was defined (bit depth / range / name). Lets a measurement stay
+// self-describing independent of the patch-list file it came from - the basis for
+// browsable multi-set patch lists and volumetric characterization. Optional, lazily
+// allocated, mirroring the raw-XYZ / stimulus optional fields on CColor.
+//
+// Stored in the CColor extension trailer as ArchiveTag::COLOR_PROVENANCE:
+// patchNumber, sequenceIndex, srcBits, srcRange (4 x int), name (CString),
+// then role (int). The value is append-only: a reader takes the fields it
+// knows and ignores any that follow, and a value without the role reads as
+// PROVENANCE_ROLE_UNKNOWN.
+
+// What a reading was for, as the source sequence row declared it. Per reading,
+// not per run, because one run mixes roles. A patch-list CSV declares none, so
+// every reading it drives is UNKNOWN. Values are stored; never renumber.
+enum CColorProvenanceRole
+{
+	PROVENANCE_ROLE_UNKNOWN        = -1,
+	PROVENANCE_ROLE_COLOR          = 0,	// C: an ordinary measured patch
+	PROVENANCE_ROLE_ANCHOR         = 1,	// A: a drift anchor
+	PROVENANCE_ROLE_PREROLL        = 2,	// P: a warm-up patch before the run
+	PROVENANCE_ROLE_VERIFICATION   = 3,	// V: a verification patch
+	PROVENANCE_ROLE_INTERSTITIAL   = 4,	// I: shown between patches, never measured
+	PROVENANCE_ROLE_IDENTIFICATION = 5	// X: identifies the run on the wire
+};
+
+struct CColorProvenance
+{
+	int         patchNumber;    // stable identity within the source list (-1 = unknown)
+	int         sequenceIndex;  // order measured within the sweep (-1 = unknown)
+	int         srcBits;        // source bit depth: 8 or 10 (0 = unknown)
+	int         srcRange;       // source CSV range: -1 legacy, 0 full, 1 legal, 2 extended
+	std::string name;           // patch name from the source list ("" = none)
+	int         role;           // CColorProvenanceRole
+	CColorProvenance() : patchNumber(-1), sequenceIndex(-1), srcBits(0), srcRange(-1), role(PROVENANCE_ROLE_UNKNOWN) {}
+};
+
 class CColor
 {
 public:
@@ -306,18 +345,94 @@ public:
 	double GetLuxOrLumaValue (const int luminanceCurveMode) const;
 	double GetPreferedLuxValue (bool preferLuxmeter) const;
     void applyAdjustmentMatrix(const Matrix& adjustment);
-    
+
+	// Uncorrected sensor reading, captured before any calibration matrix is applied.
+	// Retained so a measurement can be recalibrated later without composing deltas
+	// onto an already-corrected value (needed for per-sub-gamut Bodner recalibration).
+	void SetRawXYZValue(const ColorXYZ& aRaw);
+	void ClearRawXYZValue();
+	void ScaleXYZ(double fScale);
+	bool HasRawXYZValue() const;
+	ColorXYZ GetRawXYZValue() const;
+
+	// Drive stimulus (RGB %) that produced this reading, captured at measure time
+	// alongside the raw XYZ. Lets an export or a later recompute report the exact
+	// signal sent to the display rather than reconstructing it from the generator.
+	void SetStimulusValue(const ColorRGBDisplay& aStimulus);
+	void ClearStimulusValue();
+	bool HasStimulusValue() const;
+	ColorRGBDisplay GetStimulusValue() const;
+
+	// Label provenance (patch#/name/bit-depth/range) for a self-describing measurement.
+	// Optional, lazily allocated; mirrors the raw-XYZ / stimulus optional fields.
+	void SetProvenance(const CColorProvenance& aProv);
+	void ClearProvenance();
+	bool HasProvenance() const;
+	CColorProvenance GetProvenance() const;
+	// Wall-clock time of the reading, in seconds since the Unix epoch with a
+	// sub-second fraction, stamped at measure time beside the raw XYZ and the
+	// stimulus. Drift anchors need time, not index, to be plotted against the
+	// clock. Legacy readings carry none.
+	void SetTimestamp(double aTimestamp);
+	void ClearTimestamp();
+	bool HasTimestamp() const;
+	double GetTimestamp() const;		// 0.0 when none
+	// The wire-setup stamp (WireSetup.h): whether the stimulus is the patch the
+	// generator displayed for this reading, and how it went out on the wire.
+	// Stamped by CSensor::MeasureColor on every reading this build takes; a
+	// reading from an older file has none, which means unknown.
+	void SetWireSetup(const CColorWireSetup& aWire);
+	void ClearWireSetup();
+	bool HasWireSetup() const;
+	CColorWireSetup GetWireSetup() const;	// the defaults (realDrive false) when none
+
     void Output(ostream& ostr) const;
 
 #ifdef LIBHCFR_HAS_MFC
     void Serialize(CArchive& archive);
+
+	// When true, Serialize stores the pre-#193 layout (base 1/3/5/6, the two
+	// ignore matrices, a v1 spectrum, no trailer) that a 4.1 reader accepts.
+	// Set ONLY through CColorLegacyStoreScope, by the SaveOldCalibrationFile
+	// writer; never on a load.
+	static bool s_bStoreLegacy;
 #endif
 
 protected:
     ColorXYZ m_XYZValues;
 	CSpectrum *	m_pSpectrum;
 	double *	m_pLuxValue;
+	ColorXYZ *	m_pRawXYZValues;
+	ColorRGBDisplay *	m_pStimulus;
+	CColorProvenance *	m_pProvenance;
+	double *	m_pTimestamp;
+	CColorWireSetup *	m_pWireSetup;
+
+#ifdef LIBHCFR_HAS_MFC
+private:
+	// The load half of Serialize, run on a temporary so a refused load leaves
+	// the target color untouched.
+	void LoadFrom(CArchive& archive);
+#endif
 };
+
+#ifdef LIBHCFR_HAS_MFC
+// Switches CColor::Serialize to its legacy store layout for the lifetime of
+// the scope, and restores the previous setting on exit (so scopes nest and an
+// exception cannot leave it on). Used only by CCalibrationInfo::Serialize when
+// it writes its v1 (SaveOldCalibrationFile) block.
+struct CColorLegacyStoreScope
+{
+	CColorLegacyStoreScope() : m_bPrevious(CColor::s_bStoreLegacy) { CColor::s_bStoreLegacy = true; }
+	~CColorLegacyStoreScope() { CColor::s_bStoreLegacy = m_bPrevious; }
+
+private:
+	bool m_bPrevious;
+
+	CColorLegacyStoreScope(const CColorLegacyStoreScope&);
+	CColorLegacyStoreScope& operator=(const CColorLegacyStoreScope&);
+};
+#endif
 
 class CSpectrum: public Matrix
 {
@@ -764,12 +879,100 @@ extern ColorRGB ContainerPrimaryLinear(const CColorReference& active, int index)
 extern CColor theMeasure;
 extern CColor noDataColor;
 
+// Sensor reads come back with X, Y and Z each floored at 1e-8 before the
+// sensor matrix is applied (CSensor::MeasureColor), so a reading of no light
+// still has Y > 0 - at the equal-energy point, x = y = 1/3, with the default
+// identity matrix, which looks like a real tint. This cut (cd/m2) tells that
+// placeholder from light: 100x above the floor and
+// well under the ~1e-5 the most sensitive calibration meters resolve, so
+// every real reading, however dark, is kept. The contrast readouts use it
+// too (grayscale header and on/off), so "Infinity" and an empty black
+// agree.
+const double BLACK_MIN_LIGHT_Y = 0.000001;
+inline bool HasMeasuredLight ( double Y ) { return Y > BLACK_MIN_LIGHT_Y; }
+
+// Target for black (0%) on the grayscale page - see Color.cpp.
+extern CColor BlackTargetReference ( const CColor & aMeasure, double YWhite, const CColor & aReference, const CColor & refWhite );
+
 // Tool functions
 extern void GenerateSaturationColors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int nSteps, bool bRed, bool bGreen, bool bBlue, int mode = 0, double stimLevel = 1.0, bool b10bit = false, bool is16_235 = true);
 extern bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay* GenColors, int aCCMode, int mode, bool b10bit = false, bool is16_235 = true);
 extern int GenerateProfileColors (ColorRGBDisplay* GenColors, int maxEntries, int cubeN, bool bGrayExtras);
 extern void RemapProfileToTransport (ColorRGBDisplay* GenColors, int n, const CColorReference& colorReference, int mode, bool b10bit, bool is16_235);
-extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries);
+extern Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries, bool bScaleLuminance = true);
+
+// User-selectable colorimeter correction methods. Shared between CColorHCFRConfig
+// (the user's chosen setting) and CSensor (which method actually produced the
+// matrices a given sensor is using), so keep values in sync between the two.
+enum CalibrationMatrixMethod
+{
+	// Values are persisted (config + .chc) - never renumber; append new methods.
+	CALIB_CLASSIC_NIST			= 0,	// ASTM E1455-92 "RGB method": 3-primary tristimulus matrix, no white, no luminance scaling
+	CALIB_HCFR_DEFAULT			= 1,	// NIST Four-Color Method (FCMM, Ohno & Hardis 1997) + the paper's optional luminance scaling
+	CALIB_BODNER_THREEMATRIX	= 2,	// RGBW sub-gamut three-matrix method (Bodner & Robinson, SID 2019)
+	CALIB_FCMM_NO_LUM			= 3,	// NIST Four-Color Method (FCMM), chromaticity only - no luminance scaling
+	CALIB_SPECTRAL_SAMPLE		= 4,		// Spectral sample (ccss) correction derived from the meter driver's two
+										// emission calibration matrices (libHCFR/SpectralCorrection.h); applied by
+										// HCFR to native readings exactly like the FCMM matrix. Chosen by loading a
+										// sample, never from the Advanced page's method list.
+
+	// Not a method: one past the last one. Keep it last; readers refuse a
+	// stored method at or above it as a file from a newer HCFR.
+	CALIB_METHOD_COUNT
+};
+
+// Whether the stored readings that carry no raw sensor value (recorded before
+// raw capture existed, or edited by hand) still embody the sensor's CURRENT
+// single correction matrix. Only then may a matrix recalibration move them by
+// composing delta = new * inverse(current) onto them - the bComposeLegacy
+// argument of CMeasure::ApplySensorAdjustmentMatrix; otherwise they are left as
+// they are and counted in the skipped-readings notice.
+//
+// This is state, not something the previous calibration method can answer. A
+// Bodner fit and a matrix written without walking the readings (DDE
+// SetSensorMatrix, Change Sensor) each leave them embodying a matrix the sensor
+// no longer has, and every later matrix recalibration skips them again, so they
+// stay that way.
+// The rule that keyed on "the previous method was single-matrix" saw only the
+// first of those and forgot it after one recalibration. CSensor keeps one of
+// these and stores it in its stream (version 4).
+class RawlessReadingsState
+{
+public:
+	RawlessReadingsState() : m_embodyCurrentMatrix(true) {}
+	bool ComposeOntoRawless() const { return m_embodyCurrentMatrix; }
+	// A Bodner correction was installed: its single matrix is identity and its
+	// walk skipped every raw-less reading.
+	void BodnerInstalled() { m_embodyCurrentMatrix = false; }
+	// The single matrix was replaced and no reading was recomputed.
+	void MatrixSetWithoutWalk() { m_embodyCurrentMatrix = false; }
+	// A single-matrix recalibration walked the readings with ComposeOntoRawless()
+	// and skipped nSkipped raw-less ones. Composed readings embody the new matrix
+	// and skipped ones still do not, so the answer stands - unless the walk found
+	// none to skip: then nothing is stranded and every reading embodies the new
+	// matrix. A Bodner walk never re-arms it (BodnerInstalled): a reading edited
+	// under Bodner embodies the sub-gamut correction, not the identity matrix.
+	void SingleMatrixWalked(int nSkipped) { if ( nSkipped == 0 ) m_embodyCurrentMatrix = true; }
+	bool Get() const { return m_embodyCurrentMatrix; }
+	void Set(bool b) { m_embodyCurrentMatrix = b; }
+private:
+	bool m_embodyCurrentMatrix;
+};
+
+// Builds the three Bodner sub-gamut matrices (index 0=rgw, 1=gbw, 2=rbw) from the
+// four measured/reference primaries (index 0=R,1=G,2=B,3=W). outRawMatrix[k] holds
+// the raw (uncorrected) primary matrix for sub-gamut k, used both to build
+// outCalMatrix[k] = references*inverse(raw) and to reselect the sub-gamut for a
+// future raw reading (see SelectAndApplyBodnerMatrix). Throws std::logic_error if
+// any sub-gamut's raw matrix is singular.
+extern void ComputeBodnerThreeMatrices(const ColorXYZ measuresRGBW[4], const ColorXYZ referencesRGBW[4], Matrix outRawMatrix[3], Matrix outCalMatrix[3]);
+
+// Picks which of the three sub-gamut matrices applies to a raw XYZ reading (via the
+// non-negative "drive value" test from the paper) and returns the corrected XYZ.
+extern ColorXYZ SelectAndApplyBodnerMatrix(const ColorXYZ& rawXYZ, const Matrix rawMatrix[3], const Matrix calMatrix[3]);
+// Precomputed-inverse variant for hot paths (per-reading / per-sweep): rawInv[k]
+// and rawInvertible[k] must describe the corresponding raw sub-gamut matrix.
+extern ColorXYZ SelectAndApplyBodnerMatrixInv(const ColorXYZ& rawXYZ, const Matrix rawInv[3], const bool rawInvertible[3], const Matrix calMatrix[3]);
 extern int PiPercentToCode ( double percent, bool is16_235, int bits );
 // Range a ColourSpace patch-list CSV can declare in its header (import-range guard).
 // CSV_RANGE_NONE = no header / legacy default. The loader (ReadCsvPatchRows) reports the
@@ -778,20 +981,131 @@ enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_E
 // Shared patch-list parsing (one parser: ReadColorsFromCsv percentages + GetCColors codes/names).
 #include <vector>
 #include <string>
-struct CsvPatchRow { int patch, r, g, b; std::string name; };
+// role is a CColorProvenanceRole; a CSV declares none, so the parser leaves -1.
+struct CsvPatchRow { int patch, r, g, b; std::string name; int role = -1; };
 extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut );
 // Resolve a CC mode to its patch-list file (predefined CSV or USER) + HDR-recalc flag; false for inline-array modes.
 extern bool ResolveCCSetPath ( int aCCMode, CString & outPath, bool * recalcOut );
 // One source code -> HCFR stimulus percentage for a given bit depth + CSV range (range-aware target readback).
 extern double CsvCodeToPercent ( double code, int bits, int range );
+// Exact inverse (round-to-nearest, clamped to the grid): stimulus percentage -> source code.
+// Used to reconstruct definition codes from stored stimuli during legacy .chc migration.
+extern int CsvPercentToCode ( double percent, int bits, int range );
+// Two definitions drive the same codes when they have the same row count and the
+// same r/g/b row by row; patch numbers and names are labels and do not count.
+extern bool CsvPatchCodesMatch ( const std::vector<CsvPatchRow> & a, const std::vector<CsvPatchRow> & b );
+// The display name of a patch list: the file's base name with no directory and
+// with a trailing .csv, in any case, removed.
+extern std::string CsvSetNameFromPath ( const char * path );
+// Active user patch set override (multi-set picker): the app installs the active set's
+// stored definition here so the USER drive path (GenerateCC24Colors) is self-contained -
+// no file read, and the source CSV may have changed or be gone. Copied, not referenced.
+extern void SetUserPatchOverride ( const std::vector<CsvPatchRow> & rows, int bits, int range );
+extern void ClearUserPatchOverride ();
 extern int PiBackground8ToCode ( double v255, bool is16_235, int bits );
 extern double SnapToVideoGrid ( double v, bool b10bit, bool is16_235 = true );
 extern double HLG_SignalToScene ( double v );
+// The offset a near-chart point's level carries, as the reference curve beside
+// it: the document's fitted ComputeGammaAndOffset offset when the mode
+// (GammaOffsetType, 99 under the sRGB standard) is below 4, else 0.
+double PointGammaEffectiveOffset ( int gammaOffsetType, bool sRGBStandard, double fittedOffset );
+// A point's level for the log charts: ( prop + offset ) / ( 1 + offset ).
+double PointGammaLevel ( double prop, double offset );
+// A near-chart log point: log ( y / yWhite ) / log ( L ( v ) / L ( vWhite ) ),
+// L = PointGammaLevel. FALSE without a finite white > 0, for v outside ( 0, 1 ),
+// vWhite outside ( 0, 1 ], or for a non-finite result.
+bool NearChartPointGamma ( double y, double v, double yWhite, double vWhite, double offset, double * pGamma );
 // is16_235 is REQUIRED (no default): it selects the 219/255/876/1023 code grid
 // exactly as SnapToVideoGrid does, and a default would silently leave any
 // un-updated call site quantizing a full-range wire against the limited grid.
 double ArrayIndexToGrayLevel ( int nCol, int nSize, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 );
 double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, bool is16_235 );
+
+// ---- Where an existing gray reading sits on a gray-level axis (Color.cpp) ----
+// TRUE, with *pProp the level as a 0..1 proportion of the signal range, only
+// when the reading's wire stamp (WireSetup.h) says HCFR put exactly this gray
+// on the wire: realDrive, R = G = B, and equal codes when codes are known.
+// FALSE for every other reading - no stamp (older files), realDrive false
+// (placeholders, manual and external generators), unequal channels.
+bool ReadingWireGrayProp ( const CColor & aReading, double * pProp );
+// The reading's level as a 0..1 proportion: its stamped drive, else
+// GrayLevelToGrayProp ( slotLevel, ... ) on the current grid.
+double ReadingGrayProp ( const CColor & aReading, double slotLevel, bool bUseRoundDown, bool b10bit, bool is16_235 );
+// The white a near-chart point is divided by, in the point's quantity: lux
+// when the point is in lux (colorSpace 2, or 1 in luminance curve mode 1 with a
+// point carrying lux) - the white must carry lux then - else the white's Y
+// (colorSpace 0, an R, G or B trace, always: the luma normalization). The gray
+// scale's top when usable (valid, that value finite and > 0), else near white's
+// top, else 0: no white, no point. *pFromGrayTop, when given, says whether the
+// gray top was taken.
+double NearChartWhite ( int colorSpace, int luminanceCurveMode, bool pointHasLux, const CColor & grayTop, const CColor & nearWhiteTop, bool * pFromGrayTop = NULL );
+
+// The three gray series CMeasure holds, each pairing slot i with reading i.
+enum GraySeries
+{
+	GRAY_SERIES_GRAYSCALE  = 0,		// GetGray, at GetGrayPercent
+	GRAY_SERIES_NEAR_BLACK = 1,		// GetNearBlack, 1% steps (2% in PQ)
+	GRAY_SERIES_NEAR_WHITE = 2		// GetNearWhite, 1% steps up to the clip column
+};
+
+// One gray series as CMeasure holds it (CMeasure::GetGraySeriesView), and the
+// CURRENT grid. Pointers are borrowed: build, use, discard.
+struct GraySeriesView
+{
+	GraySeries		series;
+	const CColor *	readings;			// readings[i] is the reading of slot i
+	int				size;				// number of slots
+	const double *	nominalLevels;		// grayscale: nominal % per slot, or NULL
+	int				nominalCount;		// used only when it equals size
+	int				nearWhiteClipCol;	// near white: the clip column (101 = none)
+	bool			pqNearBlack;		// near black: PQ, 2% steps
+	bool			bUseRoundDown;
+	bool			b10bit;
+	bool			is16_235;
+};
+
+// Slot i of the grayscale on the current grid: CMeasure::GetGrayPercent.
+double GrayScaleSlotLevel ( int index, int size, const double * nominalLevels, int nominalCount, bool bUseRoundDown, bool b10bit, bool is16_235 );
+// Slot i of the series on the current grid, as a percentage.
+double GraySeriesSlotLevel ( const GraySeriesView & v, int index );
+// Reading i of the series: ReadingWireGrayProp ( readings[index] ), FALSE
+// outside the series.
+bool GraySeriesDriveProp ( const GraySeriesView & v, int index, double * pProp );
+// Reading i's level: its stamped drive, else slot i on the current grid.
+double GraySeriesLevel ( const GraySeriesView & v, int index );		// percent
+double GraySeriesProp ( const GraySeriesView & v, int index );		// 0..1
+// Slot i's level as a 0..1 proportion, quantized ONCE from the level the sweep
+// drives: GrayLevelToGrayProp ( i, or 2i in PQ ) for near black, ( clip - size
+// + i ) for near white, the nominal level or the even ramp (floor(v)/grid under
+// round-down) for the gray scale. GraySeriesProp's fallback for a reading
+// without a stamped drive.
+double GraySeriesSlotProp ( const GraySeriesView & v, int index );
+// THE 100% WHITE of the gray scale (Kyle, 2026-11-10): the gray scale's
+// measured 100% reading, readings[size-1], when the series is non-empty and
+// that reading is valid with a finite Y > 0 (the test GetColorDEWhiteY and
+// NearChartWhite apply to a white); else onOffWhite as the caller stores it. The on/off
+// white belongs to the contrast measurement, which is NOT this: a contrast
+// measure re-reads white and must not move the gray scale's 100% point. On a
+// new document the stored on/off white is a valid placeholder, so a document
+// without a gray scale gets exactly the white it got before. The black is
+// GrayScaleBlack, the same rule at the other end.
+// isPlaceholder, when given, names a top that is not a reading (a document
+// without a gray scale keeps the constructor's placeholder in the top slot):
+// such a top is no top, and the on/off white is used. The near charts rank
+// their own series' top above the on/off white (NearChartWhite): a near
+// series' top is a reading.
+CColor GrayScaleWhite ( const CColor * readings, int size, const CColor & onOffWhite, bool ( * isPlaceholder ) ( const CColor & ) = NULL );
+// THE 0% BLACK of the gray scale (Kyle, 2026-11-10), the twin of GrayScaleWhite:
+// the gray scale's measured 0% reading, readings[0], when the series is
+// non-empty and that reading is valid with a finite Y; else onOffBlack as the
+// caller stores it. It is the black wherever the gray scale's 100% reading is
+// the white: the reference curves and anchors, the grid's reference cells,
+// the BT.1886 / black-compensation / HLG evaluations, the dE black targets and
+// the tone-map black (TargetMinL). The contrast measurement is NOT this: the
+// On/Off rows, the contrast ratio and its storage keep the on/off black. The
+// user's black override is applied by the caller (CMeasure::GetGrayScaleBlack
+// returns the override black when it is on), not here.
+CColor GrayScaleBlack ( const CColor * readings, int size, const CColor & onOffBlack );
 double getL_EOTF ( double x, CColor White, CColor Black, double g_rel, double split, int mode, double m_DiffuseL = 94.37844, double m_MasterMinL = 0.0, double m_MasterMaxL = 4000.0, double m_TargetMinL = 0.00, double m_TargetMaxL = 700.0, bool ToneMap = FALSE, bool cBT2390 = FALSE, double m_TargetSysGamma = 1.2, double b_fact = 1.0, double E2_fact = 0.0, double E2_fact1 = 1.1 );
 
 #endif // !defined(COLOR_H_INCLUDED_)

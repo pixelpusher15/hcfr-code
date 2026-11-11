@@ -259,8 +259,10 @@ void CTargetWnd::Refresh(BOOL m_b16_235, int minCol, int nSize, int m_DisplayMod
 			STrailPoint pt;
 			pt.angle = atan2(m_deltay, m_deltax);
 			pt.radius = RingRadius(m_deltaE);
-			if ( m_trail.empty() || fabs(m_trail.back().angle - pt.angle) > 1e-6 ||
-				 fabs(m_trail.back().radius - pt.radius) > 1e-6 )
+			// A no-light read has no xy (see OnPaint): keep it off the trail.
+			if ( HasMeasuredLight ( m_pRefColor->GetY() ) &&
+				 ( m_trail.empty() || fabs(m_trail.back().angle - pt.angle) > 1e-6 ||
+				   fabs(m_trail.back().radius - pt.radius) > 1e-6 ) )
 			{
 				m_trail.push_back(pt);
 				while ( m_trail.size() > 5 )	// current read + up to 4 predecessors
@@ -335,6 +337,12 @@ void CTargetWnd::OnPaint()
 
 	if ( m_pRefColor == NULL || !m_pRefColor->isValid() )
 		return;		// Draw nothing more
+
+	// A reading with no measured light (a true-zero black) has no chromaticity:
+	// the sensor floor's xy would plot a fake cast and dE. Draw no current read,
+	// as the grid, RGB levels, charts and export leave it empty.
+	if ( !HasMeasuredLight ( m_pRefColor->GetY() ) )
+		return;
 
 	g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
 	g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);

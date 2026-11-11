@@ -397,6 +397,20 @@ BEGIN
     LTEXT           "Nivel [%]",IDC_STATIC,153,147,35,8
 END
 
+IDD_EXPORT_OPTIONS_DIALOG DIALOG 0, 0, 240, 90
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Opciones de exportación"
+FONT 8, "MS Sans Serif"
+BEGIN
+    LTEXT           "Elija qué datos adicionales incluir en la exportación:",IDC_STATIC,10,8,220,8
+    CONTROL         "Incluir valores XYZ brutos (sin corregir) del sensor",IDC_CHECK_EXPORT_RAW,
+                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,10,26,220,10
+    CONTROL         "Incluir valores de estímulo (señal RGB)",IDC_CHECK_EXPORT_STIMULUS,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,10,40,220,10
+    DEFPUSHBUTTON   "OK",IDOK,58,64,50,14,WS_GROUP
+    PUSHBUTTON      "Cancelar",IDCANCEL,120,64,50,14,WS_GROUP
+END
+
 IDD_EXPORTXLS_DIALOG DIALOG 0, 0, 226, 135
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Exportación a Excel"
@@ -418,8 +432,8 @@ STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Acerca del colorímetro HCFR"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    CONTROL         223,IDC_STATIC,"Estático",SS_BITMAP,7,7,172,62
-    LTEXT           "Version 4.2.0.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
+    CONTROL         223,IDC_STATIC,"Static",SS_BITMAP,7,7,172,62
+    LTEXT           "Version 4.2.2.0",IDC_STATIC_VERSION,7,76,119,8,SS_NOPREFIX
     LTEXT           "Copyright (C) 2012-2026 Hcfr Project\nCopyright (C) 2005-2008 Association Homecinema Francophone",IDC_STATIC2,7,88,168,24
     LTEXT           "hcfr.sourceforge.net",IDC_HOMECINEMA_HYPERLINK,7,119,80,8
     LTEXT           "IDC_PLACEHOLDER",IDC_PLACEHOLDER,4,136,177,117
@@ -630,7 +644,7 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,15,152,184,10
 END
 
-IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 222
+IDD_ARGYLL_SENSOR_PROP_PAGE DIALOGEX 0, 0, 309, 232
 STYLE DS_SETFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Sensor Argyll"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
@@ -775,51 +789,51 @@ EXSTYLE WS_EX_APPWINDOW
 CAPTION "Seleccione un patrón"
 FONT 8, "MS Sans Serif", 0, 0, 0x1
 BEGIN
-    GROUPBOX        "Herramientas",IDC_STATIC,4,64,192,79,0,WS_EX_TRANSPARENT
     GROUPBOX        "Colores",IDC_STATIC,4,6,192,56,0,WS_EX_TRANSPARENT
-    PUSHBUTTON      "Prueba de nivel de blanco",IDC_PATTERN_WHITE_LEVEL,129,46,60,10
-    PUSHBUTTON      "Prueba de nivel de negro",IDC_PATTERN_BLACK_LEVEL,69,46,60,10
-    PUSHBUTTON      "Degradado de todos los colores",IDC_PATTERN_ALL_SHAD,9,46,60,10
-    PUSHBUTTON      "Degradado azul",IDC_PATTERN_BLUE_SHAD,129,36,60,10
-    PUSHBUTTON      "Degradado verde",IDC_PATTERN_GREEN_SHAD,69,36,60,10
-    PUSHBUTTON      "Degradado rojo",IDC_PATTERN_RED_SHAD,9,36,60,10
-    PUSHBUTTON      "Azul",IDC_PATTERN_BLUE,69,26,30,10
-    PUSHBUTTON      "Verde",IDC_PATTERN_GREEN,39,26,30,10
-    PUSHBUTTON      "Rojo",IDC_PATTERN_RED,9,26,30,10
-    PUSHBUTTON      "Color",IDC_PATTERN_COLOR,159,16,30,10
-    PUSHBUTTON      "Negro +",IDC_PATTERN_BLACK_P,129,16,30,10
-    PUSHBUTTON      "Gris",IDC_PATTERN_GREY,99,16,30,10
-    PUSHBUTTON      "Blanco",IDC_PATTERN_WHITE,69,16,30,10
-    PUSHBUTTON      "Negro",IDC_PATTERN_BLACK,39,16,30,10
     PUSHBUTTON      "B&&N",IDC_PATTERN_BW,9,16,30,10
-    PUSHBUTTON      "Líneas horizontales",IDC_PATTERN_H_LINE,94,106,94,10
-    PUSHBUTTON      "Geometría",IDC_PATTERN_GEOM,94,86,94,10
-    PUSHBUTTON      "Líneas verticales",IDC_PATTERN_V_LINE,94,96,94,10
-    PUSHBUTTON      "Rejilla de convergencia",IDC_PATTERN_CONV_GRID,94,76,94,10
-    PUSHBUTTON      "Patrón de puntos azules",IDC_PATTERN_BLUE_DOT,10,106,79,10
-    PUSHBUTTON      "Patrón de puntos verdes",IDC_PATTERN_GREEN_DOT,10,96,79,10
-    PUSHBUTTON      "Patrón de puntos rojos",IDC_PATTERN_RED_DOT,10,86,79,10
-    PUSHBUTTON      "Patrón de puntos blancos",IDC_PATTERN_WHITE_DOT,10,76,79,10
-    PUSHBUTTON      "Amarillo",IDC_PATTERN_YELLOW,159,26,30,10
-    PUSHBUTTON      "Magenta",IDC_PATTERN_MAGENTA,129,26,30,10
+    PUSHBUTTON      "Negro",IDC_PATTERN_BLACK,39,16,30,10
+    PUSHBUTTON      "Blanco",IDC_PATTERN_WHITE,69,16,30,10
+    PUSHBUTTON      "Gris",IDC_PATTERN_GREY,99,16,30,10
+    PUSHBUTTON      "Negro +",IDC_PATTERN_BLACK_P,129,16,30,10
+    PUSHBUTTON      "Color",IDC_PATTERN_COLOR,159,16,30,10
+    PUSHBUTTON      "Rojo",IDC_PATTERN_RED,9,26,30,10
+    PUSHBUTTON      "Verde",IDC_PATTERN_GREEN,39,26,30,10
+    PUSHBUTTON      "Azul",IDC_PATTERN_BLUE,69,26,30,10
     PUSHBUTTON      "Cian",IDC_PATTERN_CYAN,99,26,30,10
+    PUSHBUTTON      "Magenta",IDC_PATTERN_MAGENTA,129,26,30,10
+    PUSHBUTTON      "Amarillo",IDC_PATTERN_YELLOW,159,26,30,10
+    PUSHBUTTON      "Degradado rojo",IDC_PATTERN_RED_SHAD,9,36,60,10
+    PUSHBUTTON      "Degradado verde",IDC_PATTERN_GREEN_SHAD,69,36,60,10
+    PUSHBUTTON      "Degradado azul",IDC_PATTERN_BLUE_SHAD,129,36,60,10
+    PUSHBUTTON      "Degradado de todos los colores",IDC_PATTERN_ALL_SHAD,9,46,60,10
+    PUSHBUTTON      "Prueba de nivel de negro",IDC_PATTERN_BLACK_LEVEL,69,46,60,10
+    PUSHBUTTON      "Prueba de nivel de blanco",IDC_PATTERN_WHITE_LEVEL,129,46,60,10
+    GROUPBOX        "Herramientas",IDC_STATIC,4,64,192,79,0,WS_EX_TRANSPARENT
+    PUSHBUTTON      "Patrón de puntos blancos",IDC_PATTERN_WHITE_DOT,10,76,79,10
+    PUSHBUTTON      "Rejilla de convergencia",IDC_PATTERN_CONV_GRID,94,76,94,10
+    PUSHBUTTON      "Patrón de puntos rojos",IDC_PATTERN_RED_DOT,10,86,79,10
+    PUSHBUTTON      "Geometría",IDC_PATTERN_GEOM,94,86,94,10
+    PUSHBUTTON      "Patrón de puntos verdes",IDC_PATTERN_GREEN_DOT,10,96,79,10
+    PUSHBUTTON      "Líneas verticales",IDC_PATTERN_V_LINE,94,96,94,10
+    PUSHBUTTON      "Patrón de puntos azules",IDC_PATTERN_BLUE_DOT,10,106,79,10
+    PUSHBUTTON      "Líneas horizontales",IDC_PATTERN_H_LINE,94,106,94,10
     PUSHBUTTON      "Brillo",IDC_PATTERN_ANIM_B,10,116,79,10
+    PUSHBUTTON      "SMPTE 75%",IDC_PATTERN_SMPTE75,94,116,46,10
+    PUSHBUTTON      "EIA 1956",IDC_PATTERN_1956,140,116,48,10
     PUSHBUTTON      "Contraste",IDC_PATTERN_ANIM_W,10,127,79,10
     PUSHBUTTON      "Imagen de prueba",IDC_PATTERN_PICTURE,94,126,94,10
+    GROUPBOX        "Imágenes, iris && definición ",IDC_STATIC,4,146,192,29
+    PUSHBUTTON      "Análisis de rejilla",IDC_PATTERN_PICT_GRID,9,159,60,10
+    PUSHBUTTON      "Patrones de fotos",IDC_PATTERN_PICT,69,159,60,10
+    PUSHBUTTON      "Iris && definición ",IDC_PATTERN_PICT_IRIS,129,159,60,10
+    GROUPBOX        "Contraste",IDC_STATIC,3,177,192,29
+    PUSHBUTTON      "Ansi 1",IDC_PATTERN_PICT_CANSI1,9,190,60,10
+    PUSHBUTTON      "Ansi 2",IDC_PATTERN_PICT_CANSI2,69,190,60,10
+    PUSHBUTTON      "Recuadros",IDC_PATTERN_PICT_CBOX,129,190,60,10
     LTEXT           "Anterior y Siguiente, o ""+"" and ""-"" keys (numpad) add or remove one level - or change picture pattern.",IDC_STATIC,3,209,193,18
     LTEXT           "Inicio o ""*"" key return to default pattern",IDC_STATIC,3,228,193,10
-    LTEXT           """ESC"" and ""Enter"" keys exit pattern display.",IDC_STATIC,3,253,193,11
     LTEXT           """SPACE"" key change display.",IDC_STATIC,3,240,193,10
-    GROUPBOX        "Imágenes, iris && definición ",IDC_STATIC,4,146,192,29
-    PUSHBUTTON      "Iris && definición ",IDC_PATTERN_PICT_IRIS,129,159,60,10
-    PUSHBUTTON      "Patrones de fotos",IDC_PATTERN_PICT,69,159,60,10
-    PUSHBUTTON      "Análisis de rejilla",IDC_PATTERN_PICT_GRID,9,159,60,10
-    GROUPBOX        "Contraste",IDC_STATIC,3,177,192,29
-    PUSHBUTTON      "Recuadros",IDC_PATTERN_PICT_CBOX,129,190,60,10
-    PUSHBUTTON      "Ansi 2",IDC_PATTERN_PICT_CANSI2,69,190,60,10
-    PUSHBUTTON      "Ansi 1",IDC_PATTERN_PICT_CANSI1,9,190,60,10
-    PUSHBUTTON      "EIA 1956",IDC_PATTERN_1956,140,116,48,10
-    PUSHBUTTON      "SMPTE 75%",IDC_PATTERN_SMPTE75,94,116,46,10
+    LTEXT           """ESC"" and ""Enter"" keys exit pattern display.",IDC_STATIC,3,253,193,11
 END
 
 IDD_REF_CHECKBOX DIALOG 0, 0, 113, 12
@@ -903,8 +917,6 @@ BEGIN
     GROUPBOX        "Inicio de las medidas",IDC_STATIC,7,7,199,28,WS_GROUP
     CONTROL         "Mensaje de confirmación",IDC_CHECK_CONFIRM,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,19,85,10
     GROUPBOX        "Archivos de calibración - Uso avanzado",IDC_STATIC,7,38,199,40,WS_GROUP
-    CONTROL         "No usar el blanco en el cálculo matricial (R1.x)",IDC_CHECK_CALIBRATION_OLD,
-                    "Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,13,62,145,10
     GROUPBOX        "Luxómetro LX-1108",IDC_STATIC,8,82,198,86,WS_GROUP
     LTEXT           "Puerto COM",IDC_STATIC,17,95,43,8,0,0,HIDC_STATIC
     COMBOBOX        IDC_LUXMETER_COM_COMBO,65,92,52,118,CBS_DROPDOWN | WS_VSCROLL | WS_GROUP | WS_TABSTOP
@@ -1053,7 +1065,7 @@ BEGIN
     GROUPBOX        "Pantalla de referencia",IDC_DISPLAY_GROUP,7,7,204,50
     RTEXT           "Nombre de la pantalla",IDC_STATIC,28,20,55,15
     RTEXT           "Tecnología de la pantalla",IDC_STATIC,17,38,66,15
-    EDITTEXT        IDC_DISPLAY_TECH,89,36,115,14,ES_AUTOHSCROLL
+    COMBOBOX        IDC_DISPLAY_TECH,89,36,115,150,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
 END
 
 
@@ -1377,13 +1389,13 @@ IDD_MAINVIEW_FORM DLGINIT
 BEGIN
     IDC_INFO_DISPLAY, 0x403, 8, 0
 0x7553, 0x6d6d, 0x7261, 0x0079, 
-    IDC_INFO_DISPLAY, 0x403, 13, 0
-0x6154, 0x6772, 0x7465, 0x2d20, 0x4320, 0x4549, "\000" 
+    IDC_INFO_DISPLAY, 0x403, 15, 0
+0x624f, 0x656a, 0x6974, 0x6f76, 0x2d20, 0x4320, 0x4549, "\000" 
     IDC_INFO_DISPLAY, 0x403, 9, 0
 0x7053, 0x6365, 0x7274, 0x6d75, "\000" 
-    IDC_INFO_DISPLAY, 0x403, 18, 0
-0x754c, 0x696d, 0x616e, 0x636e, 0x2065, 0x202d, 0x6147, 0x6d6d, 0x0061, 
-
+    IDC_INFO_DISPLAY, 0x403, 19, 0
+0x754c, 0x696d, 0x616e, 0x636e, 0x6169, 0x2d20, 0x4720, 0x6d61, 0x616d, 
+"\000" 
     IDC_INFO_DISPLAY, 0x403, 12, 0
 0x4752, 0x2042, 0x202d, 0x6147, 0x6d6d, 0x0061, 
     IDC_INFO_DISPLAY, 0x403, 11, 0
@@ -1403,9 +1415,9 @@ BEGIN
     IDC_INFO_DISPLAY, 0x403, 29, 0
 0x6153, 0x7574, 0x6172, 0x6974, 0x6e6f, 0x4c20, 0x6d75, 0x6e69, 0x6e61, 
 0x6563, 0x2d20, 0x5320, 0x6968, 0x7466, "\000" 
-    IDC_INFO_DISPLAY, 0x403, 21, 0
-0x6154, 0x6772, 0x7465, 0x2d20, 0x5220, 0x4247, 0x2d20, 0x4720, 0x6d61, 
-0x616d, "\000" 
+    IDC_INFO_DISPLAY, 0x403, 23, 0
+0x624f, 0x656a, 0x6974, 0x6f76, 0x2d20, 0x5220, 0x4247, 0x2d20, 0x4720, 
+0x6d61, 0x616d, "\000" 
     IDC_INFO_DISPLAY, 0x403, 5, 0
 0x7541, 0x6f74, "\000" 
     IDC_GRAYSCALESTEPS_COMBOMODE, 0x403, 11, 0
@@ -2059,6 +2071,17 @@ BEGIN
         MENUITEM "Cian",                        IDM_LUM_GRAPH_CYANSHIFT
         MENUITEM "Magenta",                     IDM_LUM_GRAPH_MAGENTASHIFT
         MENUITEM SEPARATOR
+        MENUITEM "Desplazamiento de saturaci\xF3n", IDM_SATSHIFT_QTY_SAT
+        MENUITEM "Error de tono",               IDM_SATSHIFT_QTY_HUE
+        MENUITEM "Error de luminancia",         IDM_SATSHIFT_QTY_LUM
+        POPUP "Punto de anclaje"
+        BEGIN
+            MENUITEM "Ninguno",                     IDM_SATSHIFT_ANCHOR_NONE
+            MENUITEM "50%",                         IDM_SATSHIFT_ANCHOR_50
+            MENUITEM "75%",                         IDM_SATSHIFT_ANCHOR_75
+            MENUITEM "100%",                        IDM_SATSHIFT_ANCHOR_100
+        END
+        MENUITEM SEPARATOR
         MENUITEM "Guardar...",                     IDM_GRAPH_SAVE
         POPUP "Escala"
         BEGIN
@@ -2099,7 +2122,8 @@ BEGIN
         MENUITEM "Mostrar la referencia",           IDM_RGB_GRAPH_REFERENCE
         MENUITEM "Mostrar la medida de referencia",   IDM_RGB_GRAPH_DATAREF
         MENUITEM "Curva Delta E",               IDM_RGB_GRAPH_DELTAE
-        MENUITEM "con gamma",                     IDM_RGB_GRAPH_GAMMA
+        MENUITEM "Balance",                     IDM_RGB_GRAPH_BALANCE
+        MENUITEM "Error de luminancia",         IDM_RGB_GRAPH_LUMERROR
         MENUITEM SEPARATOR
         MENUITEM "Guardar...",                     IDM_GRAPH_SAVE
         POPUP "Escala"
@@ -2189,9 +2213,84 @@ BEGIN
     END
     POPUP "Avan&zado"
     BEGIN
-        MENUITEM "&Patrones...",                IDM_PATTERN_DISP_ROOT
+        POPUP "&Objetivos\\Imágenes\\Patrones"
+        BEGIN
+            POPUP "Nive&les"
+            BEGIN
+                MENUITEM "&Negro +1% && +2% barras móviles", IDM_PATTERN_ANIM_BLACK
+                MENUITEM "Blanco -1% && -2% barras móviles", IDM_PATTERN_ANIM_WHITE
+                MENUITEM "Recorte de &sombras",            IDM_PATTERN_CLIPL
+                MENUITEM "Recorte de altas luces (&highlight)",         IDM_PATTERN_CLIPH
+                MENUITEM "&Cerca del negro",                 IDM_PATTERN_NB
+            END
+            POPUP "En&foque && resolución"
+            BEGIN
+                MENUITEM "&Alineación && convergencia",   IDM_PATTERN_ALIGN
+                MENUITEM "&Alineación && uniformidad",    IDM_PATTERN_ALIGN2
+                MENUITEM "&IMATEST",                    IDM_PATTERN_SHARP
+                MENUITEM "IS&O 12233:2000",             ID_FOCUSRESOLUTION_ISO12233
+                MENUITEM "&Belle Nuit",                 IDM_PATTERN_BN
+                MENUITEM "BBC HD &Test Card",           ID_FOCUSRESOLUTION_BBCHDTESTCARD
+                MENUITEM "&Phillips PM5644",            ID_FOCUSRESOLUTION_PHILLIPSPM5644
+                MENUITEM "&SMPTE RP-133",               IDM_PATTERN_VSMPTE
+                MENUITEM "&Zone Plate [lineal]",         ID_FOCUSRESOLUTION_ZONEPLATE
+            END
+            POPUP "&Gradientes && rampas"
+            BEGIN
+                MENUITEM "Gradiente &neutro",           IDM_PATTERN_GRADIENT
+                MENUITEM "Gradientes neutros &opuestos", IDM_PATTERN_GRADIENT2
+                MENUITEM "Rampas de luma RGBYCMW [sombras]", IDM_PATTERN_LRAMP
+                MENUITEM "Rampas de saturación RGBYCM [tintes]", IDM_PATTERN_SRAMP
+                MENUITEM "E&spectro [claro/completo/oscuro]", IDM_PATTERN_SPECTRUM
+                MENUITEM "Círculos &croma-gris",        IDM_PATTERN_ERAMP
+                POPUP "Gradientes &cruzados"
+                BEGIN
+                    MENUITEM "Juego completo [claro]",            ID_CROSSGRADIENTS_FULLSET
+                    MENUITEM "Juego completo [oscuro]",             ID_CROSSGRADIENTS_FULLSET33090
+                    MENUITEM "Gradiente cruzado rojo/verde",    IDM_PATTERN_RG
+                    MENUITEM "Gradiente cruzado rojo/azul",     IDM_PATTERN_RB
+                    MENUITEM "Gradiente cruzado verde/azul",   IDM_PATTERN_GB
+                    MENUITEM "Gradiente cruzado rojo/verde [oscuro]", IDM_PATTERN_RGd
+                    MENUITEM "Gradiente cruzado rojo/azul [oscuro]", IDM_PATTERN_RBd
+                    MENUITEM "Gradiente cruzado verde/azul [oscuro]", IDM_PATTERN_GBd
+                END
+                MENUITEM "Arcoíris de Granger [HSL]",       IDM_PATTERN_GRANGER
+            END
+            POPUP "Imágenes de &evaluación"
+            BEGIN
+                MENUITEM "&Rojo",                        IDM_PATTERN_TC0
+                MENUITEM "&Verde",                      IDM_PATTERN_TC1
+                MENUITEM "A&zul",                       IDM_PATTERN_TC2
+                MENUITEM "Amarillo",                     IDM_PATTERN_TC3
+                MENUITEM "&Cian",                       IDM_PATTERN_TC4
+                MENUITEM "&Magenta",                    IDM_PATTERN_TC5
+                MENUITEM SEPARATOR
+                MENUITEM "Tonos de &piel",                  IDM_PATTERN_TESTIMG
+                MENUITEM SEPARATOR
+                MENUITEM "Clave &alta",                   IDM_PATTERN_DR0
+                MENUITEM "Rango completo",                 IDM_PATTERN_DR1
+                MENUITEM "C&lave baja",                    IDM_PATTERN_DR2
+                MENUITEM SEPARATOR
+                POPUP "B&lanco && negro"
+                BEGIN
+                    MENUITEM "Mundo &gris",                 IDM_PATTERN_TV
+                    MENUITEM "&Sombras",                    IDM_PATTERN_TV2
+                END
+                MENUITEM SEPARATOR
+                POPUP "Definido por el usuario"
+                BEGIN
+                    MENUITEM "Usuario1",                       ID_USERDEFINED_USER1
+                    MENUITEM "Usuario2",                       ID_USERDEFINED_USER2
+                    MENUITEM "Usuario3",                       ID_USERDEFINED_USER3
+                    MENUITEM "Usuario4",                       ID_USERDEFINED_USER4
+                    MENUITEM "Usuario5",                       ID_USERDEFINED_USER5
+                    MENUITEM "Usuario6",                       ID_USERDEFINED_USER6
+                END
+            END
+            MENUITEM SEPARATOR
+            MENUITEM "Patrones &adicionales",        IDM_PATTERN_DISPLAY
+        END
         MENUITEM SEPARATOR
-        MENUITEM "Alineación",                   IDM_PATTERN_ALIGN
         MENUITEM "&Preferencias...",             IDM_GENERAL_CONFIG
         MENUITEM "&Idioma...",                IDM_LANGUAGE
     END
@@ -2288,6 +2387,7 @@ BEGIN
             MENUITEM "&Seleccionar...",                  IDM_CHANGE_GENERATOR
         END
         MENUITEM "Pará&metros...",              IDM_MEASURE_DEFINESCALE
+        MENUITEM "Abrir &lista de parches...",  IDM_MEASURE_OPEN_PATCHLIST
         MENUITEM SEPARATOR
         POPUP "So&nido de medida"
         BEGIN
@@ -2435,6 +2535,7 @@ BEGIN
         BEGIN
             MENUITEM "Medidas a archivo &xls",       IDM_EXPORT_XLS
             MENUITEM "Medidas a archivo &csv",       IDM_EXPORT_CSV
+            MENUITEM "Medidas a archivo &ti3",       IDM_EXPORT_TI3
             MENUITEM "Crear informe &PDF",          IDM_EXPORT_PDF
         END
         MENUITEM SEPARATOR
@@ -2862,8 +2963,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 4,2,0,0
- PRODUCTVERSION 4,2,0,0
+ FILEVERSION 4,2,2,0
+ PRODUCTVERSION 4,2,2,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -2881,12 +2982,12 @@ BEGIN
             VALUE "Comments", "Under GPL Licence"
             VALUE "CompanyName", "Association Homecinema Francophone"
             VALUE "FileDescription", "HCFR Colorimeter resources"
-            VALUE "FileVersion", "4.2.0.0"
+            VALUE "FileVersion", "4.2.2.0"
             VALUE "InternalName", "CHCFR21_ENGLISH"
             VALUE "LegalCopyright", "Copyright (C) 2005-2026"
             VALUE "OriginalFilename", "CHCFR21_ENGLISH.DLL"
             VALUE "ProductName", "HCFR Colorimeter English langage"
-            VALUE "ProductVersion", "4.2.0.0"
+            VALUE "ProductVersion", "4.2.2.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -2924,7 +3025,11 @@ END
 
 STRINGTABLE
 BEGIN
-    IDR_MAINFRAME           "Colorímetro HCFR - 4.2.0.0"
+    IDR_MAINFRAME           "Colorímetro HCFR - 4.2.2.0"
+    IDS_CALIB_RGB_MATRIX    "Matriz RGB (ASTM E1455-92)"
+    IDS_CALIB_FCMM_NOLUM    "NIST cuatro colores / FCMM (sin escalado de luminancia)"
+    IDS_CALIB_FCMM_LUM      "NIST cuatro colores / FCMM (con escalado de luminancia)"
+    IDS_CALIB_BODNER        "Bodner-Robinson tres matrices (pantallas RGBW)"
     IDR_MESURETYPE          "\nMedidas de color\nMedidas_de_color\nArchivo ColorHCFR (*.chc)\n.chc\nCOLORHCFR\nMedidas de color HCFR"
 END
 
@@ -3281,6 +3386,7 @@ BEGIN
     IDM_REFERENCE_CONFIG    "Define las referencias"
     IDM_EXPORT_CSV          "Exporta las medidas a un archivo .csv\nExportar a .csv"
     IDM_EXPORT_XLS          "Exporta las medidas a un archivo .xls\nExportar a .xls"
+    IDM_EXPORT_TI3          "Exporta las medidas del perfil de pantalla y de las listas de parches a archivos CGATS .ti3\nExportar a .ti3"
     IDM_HELP                "Muestra la ayuda\nAyuda"
     IDM_HELP_SUPPORT        "Ayuda: soporte técnico\nSoporte"
     IDM_HELP_FORUM          "Ayuda: foro hcfr.sourceforge.net\nForo"
@@ -3329,6 +3435,8 @@ BEGIN
                             "Coloque el sensor sobre la pantalla y pulse Sí para continuar.\nPuede interrumpir las lecturas pulsando la tecla <ESC>"
     IDS_SPECTRAL_SAMPLE_UNEXPECTED_EXCEPTION 
                             "Excepción inesperada al generar la muestra espectral de calibración del colorímetro"
+    IDS_SPECTRAL_SAMPLE_TOO_MANY_BANDS 
+                            "El espectrómetro devolvió más bandas espectrales de las que admite una muestra espectral de calibración del colorímetro"
     IDS_REC709aREDREF       "Rec709 (75%) referencia de rojo"
     IDS_REC709aGREENREF     "Rec709 (75%) referencia de verde"
     IDS_REC709aBLUEREF      "Rec709 (75%) referencia de azul"
@@ -3855,7 +3963,7 @@ BEGIN
     IDS_MEASUREGRAYANDCOLORS 
                             "¿Medir la escala de grises y los colores primarios y secundarios simultáneamente?\nAtención: los datos actuales se perderán...\n\nNota: puede cancelar la medición con la tecla ESCAPE."
     IDS_RUN_MANUAL_CALIBRATION 
-                            "¿Crear el archivo de corrección midiendo manualmente los colores primarios y el blanco con un colorímetro de referencia?\n\nATENCIÓN: para mostrar el color siguiente pulse INTRO, después de anotar los valores medidos por su colorímetro de referencia.\nPuede cancelar la medición con la tecla ESCAPE."
+                            "\xBFCrear manualmente un archivo de correcci\xF3n del medidor?\n\nHCFR muestra por turnos el rojo, el verde, el azul y el blanco y mide cada uno con el medidor que se va a corregir. Un segundo medidor de referencia, que HCFR no controla, mide el mismo parche: despu\xE9s de cada uno, anote su lectura (X, Y, Z o x, y, Y) y haga clic en Siguiente. Despu\xE9s del blanco, escriba las cuatro lecturas en el cuadro de di\xE1logo que se abre. Cancelar detiene el proceso.\n\nSi HCFR puede controlar su medidor de referencia, use en su lugar ""Crear a partir de medidas de referencia existentes"" o ""Crear con medidas simult\xE1neas""."
     IDS_DISTANCEINCIEXY     "Distancia a la referencia en CIExy"
     IDS_CANNOTMEASUREGRAYANDCOLORS 
                             "%s no puede mostrar la escala de grises, los primarios y los secundarios en una sola serie.\nUse los comandos individuales en su lugar."
@@ -3904,7 +4012,6 @@ BEGIN
     IDM_CONTINUOUS_MEASUREMENT 
                             "Iniciar o detener las medidas continuas\nIniciar o detener las medidas continuas"
     IDM_PATTERN_DISPLAY     "Muestra varios patrones..."
-    IDM_PATTERN_DISP_ROOT   "Muestra varios patrones..."
     IDM_TOGGLE_TAB          "Muestra las pestañas en la parte superior de la ventana\nPestañas arriba"
     IDM_VIEW_DATASET        "Muestra las medidas\nMedidas"
 END
@@ -3997,6 +4104,28 @@ BEGIN
     IDS_STIMPRESET_STANDARD "Estándar (pasos del 10%)"
     IDS_STIMPRESET_FINE     "Fino (pasos del 5%)"
     IDS_DISPLAYPROFILE      "Perfil de pantalla"
+    IDS_CUSTOMSEQUENCES     "Secuencias personalizadas"
+    IDS_PATCHSETS_TOO_LARGE "Añadir esta lista de parches superaría los %d MB que HCFR puede guardar en un documento cuando todas sus listas estén medidas. Use una lista más pequeña o cree un documento nuevo."
+    IDS_PATCHSETS_TOO_MANY "Este documento ya contiene %d listas de parches, el máximo que HCFR puede guardar en un documento. Cree un documento nuevo para esta lista."
+    IDS_CCSET_PICK_TIP      "Haga clic para seleccionar una secuencia"
+    IDS_CCSET_OPEN_LIST     "Abrir lista de parches..."
+    IDS_COMPARE_DRIVEN      "Enviado"
+    IDS_NO_SEQUENCE_LOADED  "Ninguna secuencia cargada"
+    IDS_PATCHLIST_FILTER    "Lista de parches CSV (*.csv)|*.csv||"
+    IDS_USERSET_MIGRATED    "Usuario (migrado)"
+    IDS_CSV_NO_ROWS         "Esta lista de parches no contiene filas de parches:\n\n%s"
+    IDS_USERSET_NONE_LOADED "No hay ninguna lista de parches cargada, por lo que no hay nada que medir. Cargue una con Abrir lista de parches..."
+    IDS_TI3_FILTER          "Archivos de medidas CGATS (*.ti3)|*.ti3||"
+    IDS_TI3_NOTHING         "No hay nada que exportar a .ti3: este documento no tiene ningún perfil de pantalla medido ni ninguna lista de parches medida."
+    IDS_TI3_WRITTEN         "%d medidas escritas (%d sin medir o no válidas, omitidas) en:\n\n%s"
+    IDS_MANUALCAL_TITLE     "Calibraci\xF3n manual"
+    IDS_MANUALCAL_PROMPT    "%2 medido (parche %1 de 4).\n\nAnote la lectura de su medidor de referencia para este parche (X, Y, Z o x, y, Y) y haga clic en Siguiente. Cancelar detiene el proceso."
+    IDS_MANUALCAL_NEXT      "Siguiente"
+    IDS_MANUALCAL_CANCEL    "Cancelar"
+    IDS_MANUALCAL_RED       "Rojo"
+    IDS_MANUALCAL_GREEN     "Verde"
+    IDS_MANUALCAL_BLUE      "Azul"
+    IDS_MANUALCAL_WHITE     "Blanco"
     IDS_MEASUREDISPLAYPROFILE "Medir el perfil de pantalla"
     IDS_DELETEDISPLAYPROFILE "Borrar el perfil de pantalla"
     IDS_SATLUMSHIFT         "Saturación - desviaciones"
@@ -4026,6 +4155,7 @@ BEGIN
     IDM_MEASURE_PRIMARIES   "Mide los colores primarios\nMedir los colores primarios"
     IDM_MEASURE_SECONDARIES "Mide los colores primarios y secundarios\nMedir los colores primarios y secundarios"
     IDM_MEASURE_DEFINESCALE "Define los parámetros de medida (número de niveles)"
+    IDM_MEASURE_OPEN_PATCHLIST "Cargar una lista de parches CSV como conjunto de parches de usuario"
     IDM_SOUND_NONE          "No reproducir ningún sonido tras una medida"
     IDM_SOUND_SHUTTER       "Reproduce un obturador de cámara tras cada medida"
     IDM_SOUND_CLICK         "Reproduce un clic de teclado tras cada medida"
@@ -4204,8 +4334,16 @@ BEGIN
     IDS_GRAPH_NWLUMRESPONSE     "Respuesta de luminancia cerca del blanco"
     IDS_GRAPH_SATSWEEPLUM       "Luminancia de los barridos de saturación"
     IDS_GRAPH_SATSCANSHIFTS     "Desviaciones de los barridos de saturación"
-    IDS_GRAPH_GSBALGAMMA        "Balance de la escala de grises con gamma"
-    IDS_GRAPH_GSBALNOGAMMA      "Balance de la escala de grises sin gamma"
+    IDS_GRAPH_SATSHIFT_SAT      "Desplazamiento de saturaci\xF3n"
+    IDS_GRAPH_SATSHIFT_HUE      "Error de tono (u'v')"
+    IDS_GRAPH_SATSHIFT_LUM      "Error de luminancia"
+    IDS_SATSHIFT_MEASURED       "%s (medido)"
+    IDS_SATSHIFT_TBL_AVG        "media 0-%d:"
+    IDS_SATSHIFT_TBL_AT100      "en 100:"
+    IDS_SATSHIFT_TBL_MAX        "m\xE1x"
+    IDS_GRAPH_GSBALNOGAMMA      "Balance de la escala de grises"
+    IDS_GRAPH_GSLUMERROR        "Niveles de gris, error de luminancia"
+    IDM_RGB_GRAPH_LUMERROR      "Mostrar cada canal como un error porcentual con signo respecto a su luminancia objetivo"
     IDS_GRAPH_EOTFGAMMA         "EOTF (Gamma)"
     IDS_GRAPH_REFMEASGAMMA      "Gamma de la medida de referencia"
     IDS_GRAPH_DELTALUM          "delta Luminancia"
@@ -4223,6 +4361,62 @@ BEGIN
     IDS_CIE_ILLUMINANT          "Iluminante"
     IDS_CC_COLORNAME            "Color %s"
     IDS_CC_COLORNAMEREF         "Color %s referencia"
+    IDS_SPECTRAL_TITLE          "Corrección espectral"
+    IDS_SPECTRAL_BROWSE         "Examinar..."
+    IDS_SPECTRAL_CLEAR          "Borrar"
+    IDS_SPECTRAL_STATUS_FMT     "Corrección espectral: %s"
+    IDS_SPECTRAL_LOADED         "(cargada)"
+    IDS_SPECTRAL_NONE           "Ninguna"
+    IDS_SPECTRAL_FILEFILTER     "Corrección espectral (*.ccss;*.csv)|*.ccss;*.csv|CCSS (*.ccss)|*.ccss|CSV de correlación (*.csv)|*.csv||"
+    IDS_SPECTRAL_REAPPLY_FAILED "No se pudo volver a aplicar al medidor la corrección espectral guardada:\n%s\n\nLas lecturas están SIN CORREGIR hasta que se vuelva a aplicar o se borre en las propiedades del sensor."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT "Este sensor tiene una calibración por matriz. La corrección espectral la sustituye para los valores mostrados. Cada lectura conserva su valor bruto, por lo que más adelante se puede volver a calcular una matriz.\n\n¿Continuar?"
+    IDS_SPECTRAL_ACTIVE_TITLE   "Corrección espectral activa"
+    IDS_SPECTRAL_CLEAR_FOR_MATRIX "Este sensor usa una corrección espectral (ccss/CSV) aplicada dentro del medidor.\nCalibrar con una matriz se sumaría a ella (corrección doble).\n\n¿Borrar la corrección espectral y calibrar con una matriz en su lugar?"
+    IDS_CALIB_METHOD_TITLE      "Método de calibración"
+    IDS_CALIB_METHOD_OUT_OF_SYNC "El método de calibración seleccionado en Opciones difiere del aplicado actualmente a estas medidas: no se recalcularon tras cambiar el método. La exportación reflejará el método APLICADO.\n\nPara recalcular primero, cancele y ejecute 'Crear a partir de medidas de referencia existentes' (o un comando de calibración).\n\n¿Continuar con la exportación?"
+    IDS_BODNER_SKIPPED_FMT      "%d medida(s) sin lectura bruta del sensor (registradas antes de la captura de valores brutos, o editadas a mano) se dejaron como estaban."
+    IDS_CALIB_NEED_RAW_PRIMARIES "Mida de nuevo primero los primarios y el blanco: los almacenados no tienen lectura bruta del sensor, y no se puede calcular una matriz a partir de valores con una corrección que el sensor ya no aplica (Bodner, o una matriz sustituida por una corrección espectral)."
+    IDS_CALIB_NEED_REF_WHITE    "El documento de referencia no tiene un blanco medido: mida primero su blanco (o los primarios con el blanco)."
+    IDS_SPECTRAL_SUPERSEDE_WARN "La calibraci\xF3n por matriz se calcular\xE1 sobre las lecturas sin corregir del medidor, y se aplicar\xE1 a ellas.\nLa correcci\xF3n espectral (%s) sigue cargada, pero ya no afectar\xE1 a los valores mostrados. Para volver a usarla: si es un archivo de correcci\xF3n, c\xE1rguelo de nuevo en las propiedades del sensor; si es una entrada de tipo de pantalla, elija un tipo de pantalla simple, pulse Aceptar y despu\xE9s vuelva a elegir la entrada.\n\n\xBFContinuar?"
+    IDS_SPECTRAL_STATUS_INACTIVE_FMT "Corrección espectral: %s (cargada, no aplicada: se usa una calibración por matriz)"
+    IDS_SPECTRAL_STATUS_DISPTYPE_FMT "Corrección espectral: %s (del tipo de pantalla)"
+    IDS_SPECTRAL_UNIT_MISMATCH  "La corrección espectral de este archivo se calculó para el medidor con número de serie %s; el medidor conectado es %s. Se ha vuelto a calcular a partir del medidor conectado."
+    IDS_SPECTRAL_BROWSE_REFUSED_DISPTYPE "El tipo de pantalla seleccionado ya incluye una corrección espectral. Elija un tipo de pantalla simple para usar un archivo de corrección."
+    IDS_SPECTRAL_STATUS_COMPOSED_FMT "Corrección espectral: %s (aplicada además de la calibración por matriz)"
+    IDS_SPECTRAL_DISPTYPE_FAILED "No se pudo calcular la corrección espectral del tipo de pantalla y se ha eliminado:\n%s"
+    IDS_SPECTRAL_DISPTYPE_NOT_APPLIED "No se pudo calcular la correcci\xF3n espectral del tipo de pantalla, por lo que no se aplica: las medidas se toman con un tipo de pantalla simple.\n%s"
+    IDS_SPECTRAL_PATH_NOT_RECORD_FILE "El archivo de correcci\xF3n espectral\n\n%s\n\nno es el archivo a partir del cual se calcul\xF3 la correcci\xF3n espectral en uso (%s), por lo que ya no est\xE1 vinculado a ella."
+    IDS_SPECTRAL_RECORD_NOT_APPLIED "La correcci\xF3n espectral (%s) no se puede aplicar con este medidor tal como est\xE1 configurado aqu\xED, por lo que se ha eliminado: las nuevas lecturas est\xE1n sin corregir. Para aplicar una correcci\xF3n espectral, seleccione su archivo de correcci\xF3n en las propiedades del sensor."
+    IDS_SPECTRAL_RECORD_NOT_APPLIED_NOSAMPLES "Este medidor no puede aplicar una correcci\xF3n espectral, por lo que se ha eliminado la correcci\xF3n espectral (%s): las nuevas lecturas est\xE1n sin corregir."
+    IDS_SPECTRAL_RECORD_NOT_APPLIED_ENTRY "La correcci\xF3n espectral (%s) no es el tipo de pantalla que aplica este medidor, por lo que se ha eliminado. Las nuevas lecturas se corrigen con el tipo de pantalla seleccionado (%s), que aplica el propio controlador del medidor."
+    IDS_SPECTRAL_PATH_NOT_RECORD_FILE_REMOVED "El archivo de correcci\xF3n espectral\n\n%s\n\nno es el archivo a partir del cual se calcul\xF3 la correcci\xF3n espectral en uso (%s), y nada m\xE1s aplica esa correcci\xF3n con este medidor, por lo que se ha eliminado: las nuevas lecturas est\xE1n sin corregir. Para aplicar una correcci\xF3n espectral, seleccione su archivo de correcci\xF3n en las propiedades del sensor."
+    IDS_ARGYLL_METER_UNAVAILABLE "El medidor de este sensor no est\xE1 disponible: no se pudo iniciar o se desconect\xF3. HCFR detecta los medidores una sola vez por sesi\xF3n: vuelva a conectar el medidor y reinicie HCFR para usarlo de nuevo."
+    IDS_ARGYLL_SETTINGS_NOT_KEPT "El medidor de este sensor no est\xE1 disponible, por lo que no se han conservado los ajustes cambiados en esta p\xE1gina. Vuelva a conectar el medidor y reinicie HCFR para usarlo de nuevo."
+    IDS_ARGYLL_CALIBRATION_FAILED "La calibraci\xF3n del medidor ha fallado."
+    IDS_ARGYLL_SETTINGS_REJECTED "El medidor no ha aceptado los ajustes cambiados en esta p\xE1gina, por lo que se conservan los ajustes anteriores."
+    IDS_ARGYLL_SETTINGS_REJECTED_STOPPED "El medidor no ha aceptado los ajustes cambiados en esta p\xE1gina y se ha detenido. Se conservan los ajustes anteriores; reinicie HCFR para volver a usar el medidor."
+    IDS_ARGYLL_READING_FAILED "El medidor no ha podido tomar esta lectura."
+    IDS_ARGYLL_START_FAILED "No se pudo iniciar el medidor."
+    IDS_ARGYLL_WHITE_TILE_TITLE "Calibraci\xF3n con la placa blanca"
+    IDS_ARGYLL_WHITE_TILE_SKIP "\xBFOmitir la calibraci\xF3n con la placa blanca?\n\nSi la omite, solo se realiza la calibraci\xF3n del negro, y las calibraciones que necesitan la placa (la calibraci\xF3n de longitud de onda de un i1Pro 2 o i1Pro 3, y la calibraci\xF3n fina de alta resoluci\xF3n) conservan sus valores anteriores."
+    IDS_ARGYLL_CAL_DARK_NO_CAP "Coloque el medidor boca abajo sobre una superficie oscura y opaca para que no llegue luz a su sensor y pulse OK."
+    IDS_ARGYLL_CAL_DARK_COVER "Cubra el sensor del medidor para que no le llegue luz (con su tapa, si la tiene, o boca abajo sobre una superficie oscura y opaca) y pulse OK."
+    IDS_ARGYLL_CAL_UOP_TRANS_WHITE "calibraci\xF3n del blanco en transmisi\xF3n realizada por el usuario"
+    IDS_ARGYLL_CAL_UOP_TRANS_DARK "calibraci\xF3n del negro en transmisi\xF3n realizada por el usuario"
+    IDS_ARGYLL_CAL_GREY_LIGHTER "Muestre un parche de prueba gris m\xE1s claro"
+    IDS_ARGYLL_CAL_INSTRUCTIONS_TITLE "Instrucciones de calibraci\xF3n"
+    IDS_SENSOR_INVALID_READING "El medidor ha devuelto una lectura no v\xE1lida."
+    IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "El documento cargado incluye una corrección espectral de tipo de pantalla (%s) que no es el tipo de pantalla actual. Se sigue usando hasta que cambie el tipo de pantalla."
+    IDS_SPECTRAL_COMPOSE_WARN   "El archivo que está cargando no tiene registro de la base del ajuste. La corrección espectral se aplicará además de su matriz (como hacía HCFR 4.1). ¿Continuar?"
+    IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "La corrección espectral en uso (%s) se calculó para el medidor %s, no para el conectado, y aquí no hay ningún archivo de corrección a partir del cual volver a calcularla. Se sigue usando. Para calcularla para este medidor, seleccione su archivo de corrección en las propiedades del sensor."
+    IDS_SPECTRAL_FILE_MOVED_NOTICE "El archivo de corrección espectral ya no está en la ubicación guardada:\n\n%s\n\nLa corrección calculada a partir de él se sigue usando para este medidor. Para usar el documento con otro medidor, o para volver a calcularla, seleccione el archivo en las propiedades del sensor."
+    IDS_CALIB_SPECTRAL_IN_DRIVER "Este medidor aplica su correcci\xF3n espectral dentro del controlador, por lo que una calibraci\xF3n por matriz se calcular\xEDa sobre lecturas ya corregidas. Borre primero la correcci\xF3n espectral en la p\xE1gina del sensor, o siga usando la correcci\xF3n espectral como m\xE9todo."
+    IDS_SPECTRAL_MATRIXCAL_PROMPT_DRIVER "Este sensor tiene una calibraci\xF3n por matriz. Este medidor aplica la correcci\xF3n espectral dentro de su controlador, solo a las lecturas nuevas: la calibraci\xF3n por matriz se elimina, y las lecturas ya tomadas se muestran sin ninguna correcci\xF3n hasta que se vuelvan a medir.\n\n\xBFContinuar?"
+    IDS_EXPORT_LAYOUT_MISMATCH  "No se puede añadir a este archivo: se exportó con opciones de Bruto/Estímulo distintas. Exporte a un archivo nuevo o repita la exportación con las mismas opciones que los datos existentes."
+    IDS_SCHEMA_NEWER        "Este archivo fue escrito por una versión más reciente de HCFR (%s versión %d). Actualice HCFR para abrirlo."
+    IDS_SCHEMA_UNRELEASED   "Este archivo fue escrito por una versión de desarrollo no publicada de HCFR (%s versión %d) y no se puede leer. Vuelva a generarlo."
+    IDS_SCHEMA_UNRELEASED_DOC "Este archivo fue escrito por una versión de desarrollo no publicada de HCFR (versión de documento %d). Ábralo con esa versión."
+    IDS_SCHEMA_UNKNOWN_FEATURE "Este archivo usa un elemento que esta versión de HCFR no tiene (%s). Probablemente fue escrito por una versión más reciente; actualice HCFR para abrirlo."
 END
 
 #endif    // Spanish (Spain, International Sort) resources

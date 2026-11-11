@@ -99,28 +99,28 @@ void CColorTempGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	// say here.
 	//
 	// What black does need is light to take a chromaticity from, which is the
-	// Y > 0 test. The 1500..12000 K window every point already passes through
+	// HasMeasuredLight test. The 1500..12000 K window every point already passes through
 	// then throws out the degenerate reads a meter hands back at ~0.1 cd/m2, so
 	// a black too dark or too noisy to have a colour temperature drops itself
 	// rather than dragging the Y scale to a bound.
 	for (int i=0; i<size; i++)
 	{
 		CColor aColor = pDoc->GetMeasure()->GetGray(i);
-		if ( i > 0 || aColor.GetY() > 0.0 )
+		if ( i > 0 || HasMeasuredLight ( aColor.GetY() ) )
 		{
 			int colorTemp=aColor.GetXYZValue().GetColorTemp(GetColorReference());
 			if(colorTemp > 1500 && colorTemp < 12000)
-				m_graphCtrl.AddPoint(m_ColorTempGraphID, pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), colorTemp);
+				m_graphCtrl.AddPoint(m_ColorTempGraphID, pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i ), colorTemp);
 		}
 
 		if ( m_showDataRef && pDataRef !=NULL && pDataRef != pDoc )
 		{
 			CColor aRefColor = pDataRef->GetMeasure()->GetGray(i);
-			if ( i > 0 || aRefColor.GetY() > 0.0 )
+			if ( i > 0 || HasMeasuredLight ( aRefColor.GetY() ) )
 			{
 				int colorTemp = aRefColor.GetXYZValue().GetColorTemp(GetColorReference());
 				if(colorTemp > 1500 && colorTemp < 12000)
-					m_graphCtrl.AddPoint(m_ColorTempDataRefGraphID, pDataRef->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() ), colorTemp);
+					m_graphCtrl.AddPoint(m_ColorTempDataRefGraphID, pDataRef->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i ), colorTemp);
 			}
 		}
 	}
@@ -278,41 +278,38 @@ void CColorTempHistoView::OnGraphSave()
 void CColorTempHistoView::OnGraphSettings() 
 {
 	m_Grapher.m_graphCtrl.ChangeSettings();
+	// Parameters... saves itself: series colors, gradient, PDF User Scales
+	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");
 	OnUpdate(NULL,NULL,NULL);
 }
 
 void CColorTempHistoView::OnGraphScaleCustom() 
 {
 	m_Grapher.m_graphCtrl.ChangeScale();
-	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 }
 
 void CColorTempHistoView::OnGraphScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitXScale(TRUE, 50.0);
 	m_Grapher.m_graphCtrl.FitYScale(TRUE, 50.0);
-	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnColortempGraphYScale1() 
 {
 	m_Grapher.m_graphCtrl.SetYScale(3000,9500);
-	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnColortempGraphYScale2() 
 {
 	m_Grapher.m_graphCtrl.SetYScale(5000,8000);
-	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphYScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,50.);
-	m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
@@ -343,21 +340,18 @@ void CColorTempHistoView::OnGraphYZoomOut()
 void CColorTempHistoView::OnGraphXScale1() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(0,100);
-		m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphXScale2() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(20,100);
-		m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 
 void CColorTempHistoView::OnGraphXScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
-		m_Grapher.m_graphCtrl.WriteSettings("ColorTemp Histo");		
 	Invalidate(FALSE);
 }
 

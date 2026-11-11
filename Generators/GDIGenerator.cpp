@@ -25,6 +25,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "GDIGenerator.h"
+#include "ArchiveExtension.h"
 #include "madTPG.h"
 #include "../PatternDisplay.h"
 #include "../libnum/numsup.h"
@@ -318,7 +319,7 @@ void CGDIGenerator::Serialize(CArchive& archive)
 
 	if (archive.IsStoring())
 	{
-		int version=3;
+		int version=4;
 		archive << version;
 		archive << m_displayWindow.m_offsetx;
 		archive << m_displayWindow.m_offsety;
@@ -327,13 +328,17 @@ void CGDIGenerator::Serialize(CArchive& archive)
 		archive << m_displayWindow.m_Intensity;
 		archive << m_activeMonitorNum;
 		archive << m_nDisplayMode;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 3 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 4 )
+			throw new CNewerSchemaException ( "CGDIGenerator", version );
 		if ( version > 2)
 		{
 			archive >> m_displayWindow.m_offsetx;
@@ -357,6 +362,18 @@ void CGDIGenerator::Serialize(CArchive& archive)
 		}
 		else
 			m_nDisplayMode = DISPLAY_DEFAULT_MODE;
+
+		if ( version >= 4 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 
@@ -530,6 +547,7 @@ void CGDIGenerator::GetPropertiesSheetValues()
 
 BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 //	GetColorApp()->InMeasureMessageBox( "    ** GDI Generator Init **", "Error", MB_ICONINFORMATION);
 	BOOL	bOk, bOnOtherMonitor;
 	GetMonitorList();
@@ -761,6 +779,19 @@ BOOL CGDIGenerator::DisplayRGBColormadVR( const ColorRGBDisplay& clr, bool first
 		return false;
       } 
 
+	{
+		// Wire-setup record (WireSetup.h): madVR reported the pattern shown. HCFR
+		// hands it a 0..1 fraction and madVR maps and dithers it, so the bits,
+		// HCFR's encoding and the codes are unknown. madVR's own levels are not
+		// recorded: madVR_GetBlackAndWhiteLevel's fallback test compares the two
+		// pointers, not the levels, so a value it returns is not a report.
+		CColorWireSetup wire;
+		wire.generatorId = WIRE_GENERATOR_GDI;
+		wire.outputMode = DISPLAY_madVR;
+		const double stim[3] = { clr[0], clr[1], clr[2] };
+		WireDisplayRecord::Record ( stim, wire );
+	}
+
 	PumpedPatternSettle();
 
 return TRUE;
@@ -837,6 +868,17 @@ BOOL CGDIGenerator::DisplayRGBCCast( const ColorRGBDisplay& clr, bool first, UIN
 	        MessageBox(0, "CCast Test pattern failure.", "set_color", MB_ICONERROR);
 			return false;
 		} 
+
+	{
+		// Wire-setup record (WireSetup.h): set_color succeeded. HCFR hands the
+		// Chromecast a 0..1 fraction and the cast library quantizes it, so the
+		// bits, HCFR's encoding and the codes are unknown.
+		CColorWireSetup wire;
+		wire.generatorId = WIRE_GENERATOR_GDI;
+		wire.outputMode = DISPLAY_ccast;
+		const double stim[3] = { clr[0], clr[1], clr[2] };
+		WireDisplayRecord::Record ( stim, wire );
+	}
 	  
 	PumpedPatternSettle();
 
@@ -912,7 +954,23 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 	CString debug=_T(CPat);
 
 		if (sock && CGenerator::_RB8PG_send && CPat[0])
+		{
 			CGenerator::_RB8PG_send(sock,CPat);
+			// Wire-setup record (WireSetup.h): the codes HCFR computed and handed
+			// to the PGenerator library in this command. HCFR does not read the
+			// device's reply, so what was handed over is the fact recorded. The
+			// device's own output range is not queried per patch: unknown.
+			CColorWireSetup wire;
+			wire.wireBits = bits;
+			wire.encodingRange = m_b16_235 ? WIRE_RANGE_LIMITED : WIRE_RANGE_FULL;
+			wire.generatorId = WIRE_GENERATOR_GDI;
+			wire.outputMode = DISPLAY_rPI;
+			wire.wireCode[0] = r;
+			wire.wireCode[1] = g;
+			wire.wireCode[2] = b;
+			const double stim[3] = { clr[0], clr[1], clr[2] };
+			WireDisplayRecord::Record ( stim, wire );
+		}
 		else
 			GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
 
@@ -925,6 +983,9 @@ return TRUE;
 BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nPatternType , UINT nPatternInfo , BOOL bChangePattern, BOOL bSilentMode)
 {
 	PerfDisplayScope _perfDisp;   // times this patch's display (all return paths); see MeasurePerf.h
+	// Whatever the record said, this call changes the screen; each output below
+	// records again only once it has put its patch on the wire (WireSetup.h).
+	WireDisplayRecord::Invalidate();
 	ColorRGBDisplay p_clr;
 	BOOL do_Intensity=false;
 	if ( nPatternType == MT_PRIMARY || nPatternType == MT_SECONDARY || nPatternType == MT_SAT_RED || nPatternType == MT_SAT_GREEN || nPatternType == MT_SAT_BLUE || nPatternType == MT_SAT_YELLOW || nPatternType == MT_SAT_CYAN || nPatternType == MT_SAT_MAGENTA || nPatternType == MT_ACTUAL)
@@ -973,6 +1034,21 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 		// CTargetWnd::Refresh does not repaint the window during a sweep (see
 		// PaintsTestColorWnd), so this paint is what the sensor reads.
 		( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) -> m_wndTestColorWnd.SetTestColor ( clr, m_b16_235 );
+		{
+			// Wire-setup record (WireSetup.h): the window paints each channel's
+			// nearest 8-bit code in this generator's range (CTestColorWnd::
+			// SetTestColor, OnPaint), and checks every later repaint against these
+			// codes. Intensity is not applied on this path.
+			CColorWireSetup wire;
+			wire.wireBits = 8;
+			wire.encodingRange = m_b16_235 ? WIRE_RANGE_LIMITED : WIRE_RANGE_FULL;
+			wire.generatorId = WIRE_GENERATOR_GDI;
+			wire.outputMode = DISPLAY_GDI_Hide;
+			for ( int c = 0; c < 3; c ++ )
+				wire.wireCode[c] = ColorRGBDisplay::TestWindowShownCode ( ColorRGBDisplay::TestWindowPickerCode ( clr[c], !!m_b16_235 ), !!m_b16_235 );
+			const double stim[3] = { clr[0], clr[1], clr[2] };
+			WireDisplayRecord::Record ( stim, wire );
+		}
 		// No generator settle for HCFR's own window: the Patch delay setting alone
 		// covers the display chain (compositing, GPU, HDMI, TV), as it did in 4.1.
 	} else
@@ -990,7 +1066,65 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 			// allowance (80ms) for their send + remote render, also as in 4.1. (Previously
 			// nPatternInfo was passed as bDisableWaiting, so whether the 80ms ran here
 			// depended on the sweep and patch index.)
-			m_displayWindow.DisplayRGBColor(do_Intensity?p_clr:clr, TRUE);
+		{
+			const ColorRGBDisplay & sent = do_Intensity ? p_clr : clr;
+			m_displayWindow.DisplayRGBColor(sent, TRUE);
+			// Wire-setup record (WireSetup.h) of what the window painted: the
+			// COLORREF DisplayRGBColorInternal kept in m_Color, in the mode it
+			// painted in (a failed overlay falls back to GDI). A GDI paint is an
+			// 8-bit RGB code; an overlay is YUY2, so its codes are unknown. Any
+			// other mode is not recorded. The stimulus recorded is the one painted:
+			// a patch Intensity dimmed is not the stimulus the caller measures.
+			UINT nPainted = m_displayWindow.m_nDisplayMode;
+			if ( nPainted == DISPLAY_GDI || nPainted == DISPLAY_GDI_nBG || nPainted == DISPLAY_OVERLAY )
+			{
+				CColorWireSetup wire;
+				wire.encodingRange = m_displayWindow.m_b16_235 ? WIRE_RANGE_LIMITED : WIRE_RANGE_FULL;
+				wire.generatorId = WIRE_GENERATOR_GDI;
+				wire.outputMode = (int) nPainted;
+				if ( nPainted != DISPLAY_OVERLAY )
+				{
+					wire.wireBits = 8;
+					wire.wireCode[0] = GetRValue ( m_displayWindow.m_Color );
+					wire.wireCode[1] = GetGValue ( m_displayWindow.m_Color );
+					wire.wireCode[2] = GetBValue ( m_displayWindow.m_Color );
+				}
+				const double stim[3] = { sent[0], sent[1], sent[2] };
+				WireDisplayRecord::Record ( stim, wire );
+			}
+		}
+	}
+
+	// Intensity sends p_clr, which differs from clr even at Intensity 100 (by up
+	// to an ulp), so the record above is for p_clr and a read of clr finds none.
+	// Where the output computed codes, compare them: when the codes on the wire
+	// are clr's own codes, the patch on the wire is exactly clr's, and the record
+	// is re-keyed to clr (WireSetup.h). madVR and Chromecast carry no codes and
+	// stay keyed to what they were sent.
+	if ( do_Intensity )
+	{
+		double shown[3];
+		CColorWireSetup wire;
+		if ( WireDisplayRecord::Peek ( shown, &wire )
+			&& shown[0] == p_clr[0] && shown[1] == p_clr[1] && shown[2] == p_clr[2] )
+		{
+			int codes[3] = { -1, -1, -1 };
+			if ( wire.outputMode == DISPLAY_rPI && ( wire.wireBits == 8 || wire.wireBits == 10 ) )
+			{
+				for ( int c = 0; c < 3; c ++ )
+					codes[c] = PiPercentToCode ( clr[c], !!m_b16_235, wire.wireBits );
+			}
+			else if ( wire.outputMode == DISPLAY_GDI || wire.outputMode == DISPLAY_GDI_nBG )
+			{
+				COLORREF ref = clr.GetColorRef ( m_displayWindow.m_b16_235 != FALSE );
+				codes[0] = GetRValue ( ref );
+				codes[1] = GetGValue ( ref );
+				codes[2] = GetBValue ( ref );
+			}
+			const double from[3] = { p_clr[0], p_clr[1], p_clr[2] };
+			const double to[3] = { clr[0], clr[1], clr[2] };
+			WireDisplayRecord::RekeyToRequested ( from, to, codes );
+		}
 	}
 
 	return TRUE;
@@ -1017,175 +1151,205 @@ BOOL CGDIGenerator::CanDisplayAnimatedPatterns(BOOL isSpecialty)
 
 BOOL CGDIGenerator::DisplayAnsiBWRects(BOOL bInvert)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayAnsiBWRects(bInvert);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayAnimatedBlack()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayAnimatedBlack();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayAnimatedWhite()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayAnimatedWhite();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayGradient()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayGradient();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayRG()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayRG();
 	return TRUE;
 }
 BOOL CGDIGenerator::DisplayRB()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayRB();
 	return TRUE;
 }
 BOOL CGDIGenerator::DisplayGB()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayGB();
 	return TRUE;
 }
 BOOL CGDIGenerator::DisplayRGd()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayRGd();
 	return TRUE;
 }
 BOOL CGDIGenerator::DisplayRBd()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayRBd();
 	return TRUE;
 }
 BOOL CGDIGenerator::DisplayGBd()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayGBd();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayGradient2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayGradient2();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayLramp()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayLramp();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayGranger()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayGranger();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::Display80()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.Display80();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayTV()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayTV();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayTV2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayTV2();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplaySpectrum()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplaySpectrum();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplaySramp()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplaySramp();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayVSMPTE()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayVSMPTE();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayEramp()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayEramp();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayTC0()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayTC0();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayTC1()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayTC1();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayTC2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayTC2();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayTC3()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayTC3();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayTC4()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayTC4();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayTC5()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayTC5();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayBN()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayBN();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayDR0()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayDR0();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayDR1()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayDR1();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayDR2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayDR2();
 	return TRUE;
 }
@@ -1193,174 +1357,203 @@ BOOL CGDIGenerator::DisplayDR2()
 
 BOOL CGDIGenerator::DisplayAlign()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayAlign();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayAlign2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayAlign2();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayUser1()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayUser1();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayUser2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayUser2();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayUser3()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayUser3();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayUser4()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayUser4();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayUser5()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayUser5();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayUser6()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayUser6();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplaySharp()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplaySharp();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayClipH()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayClipH();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayClipHO()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayClipHO();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayNBO()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayNBO();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayClipL()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayClipL();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayClipLO()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayClipLO();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayTestimg()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayTestimg();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayISO12233()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayISO12233();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayNB()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayNB();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayBBCHD()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayBBCHD();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayCROSSl()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayCROSSl();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayCROSSd()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayCROSSd();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayPM5644()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayPM5644();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayZONE()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayZONE();
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayDotPattern( const ColorRGBDisplay& clr , BOOL dot2, UINT nPads)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayDotPattern(clr, dot2, nPads);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayHVLinesPattern( const ColorRGBDisplay& clr , BOOL dot2, BOOL vLines)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayHVLinesPattern(clr, dot2, vLines);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayColorLevelPattern( INT clrLevel , BOOL dot2, UINT nPads)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayColorLevelPattern(clrLevel, dot2, nPads);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayGeomPattern( BOOL dot2, UINT nPads)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayGeomPattern(dot2, nPads);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayConvPattern( BOOL dot2, UINT nPads)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayConvPattern(dot2, nPads);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayColorPattern( BOOL dot2)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayColorPattern(dot2);
 	return TRUE;
 }
 
 BOOL CGDIGenerator::DisplayPatternPicture(HMODULE hInst, UINT nIDResource, BOOL bResizePict)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	m_displayWindow.DisplayPatternPicture(hInst,nIDResource,bResizePict);
 	return TRUE;
 }
