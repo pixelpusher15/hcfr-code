@@ -152,7 +152,11 @@ public:
 	void HideView(UINT nMsg);
 	void HideAllViews();
 
-	void ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886);
+	// Returns whether it fitted: false (Gamma 1.0) for an invalid black under the
+	// relative offset, fewer than three points, a white without light, or no mid
+	// point with light (every one failed or dark). Offset
+	// is the configured one in every case (it is never fitted).
+	bool ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886);
 	BOOL ComputeAdjustmentMatrix();
 	bool ConfirmCalibrationMethodInSync();
 

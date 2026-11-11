@@ -4079,6 +4079,7 @@ void CMainView::UpdateGrid()
 		double			YWhite = -1.0;
 		double			YWhiteRefDoc = -1.0;
 		double			Gamma,Offset = 0.0;
+		bool			bGammaFit = false;	// ComputeGammaAndOffset made a fit
 		COLORREF		clrSpecial1=RGB(128,128,128), clrSpecial2=RGB(128,128,128);
 		CDataSetDoc *	pDataRef = GetDataRef();
 		GV_ITEM Item;
@@ -4158,8 +4159,15 @@ void CMainView::UpdateGrid()
 		// Retrieve gamma and offset in case user has modified
         Gamma = GetConfig()->m_GammaRef;
         GetConfig()->m_GammaAvg = Gamma; //targets can be reference power law or modified for user average gamma, BT.1886 handled separately
-        if ( nCount && GetDocument()->GetMeasure()->GetGray(0).isValid() )
-            GetDocument()->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
+        // ComputeGammaAndOffset is the single judge of whether there is a fit
+        // (FailedReadingRule.h): without one Gamma keeps m_GammaRef, never the
+        // no-fit 1.0.
+        if ( nCount )
+        {
+            double fitGamma = Gamma;
+            bGammaFit = GetDocument()->ComputeGammaAndOffset(&fitGamma, &Offset, 1, 1, nCount, false);
+            Gamma = FailedReadingRule::FittedGammaOr ( bGammaFit, fitGamma, Gamma );
+        }
 
         if (GetConfig()->m_useMeasuredGamma)
 			GetConfig()->m_GammaAvg = (Gamma<1?2.2:floor((Gamma+.005)*100.)/100.);
@@ -4945,7 +4953,7 @@ void CMainView::UpdateGrid()
     				Tmp.LoadString ( IDS_GAMMAAVERAGE );
 	    			Msg += " ( ";
 		    		Msg += Tmp;
-			    	sprintf ( szBuf, ": %.2f, ", bHasMeas ? Gamma : 0.0 );
+			    	sprintf ( szBuf, ": %.2f, ", ( bHasMeas && bGammaFit ) ? Gamma : 0.0 );
 				    Msg += szBuf;					
 				    Tmp.LoadString ( IDS_CONTRAST );
 				    Msg += Tmp;
@@ -7726,8 +7734,15 @@ void CMainView::UpdateMeasurementsAfterBkgndMeasure ()
     Gamma = GetConfig()->m_GammaRef;
     GetConfig()->m_GammaAvg = Gamma; //targets can be reference power law or modified for user average gamma, BT.1886 handled separately
 
-	if ( nCount && GetDocument()->GetMeasure()->GetGray(0).isValid() )
-        GetDocument()->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
+	// ComputeGammaAndOffset is the single judge of whether there is a fit
+	// (FailedReadingRule.h): without one Gamma keeps m_GammaRef, never the
+	// no-fit 1.0.
+	if ( nCount )
+	{
+		double fitGamma = Gamma;
+		const bool bFit = GetDocument()->ComputeGammaAndOffset(&fitGamma, &Offset, 1, 1, nCount, false);
+		Gamma = FailedReadingRule::FittedGammaOr ( bFit, fitGamma, Gamma );
+	}
 
     if (GetConfig()->m_useMeasuredGamma)
 		GetConfig()->m_GammaAvg = (Gamma<1?2.2:floor((Gamma+.005)*100.)/100.);

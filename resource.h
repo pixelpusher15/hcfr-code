@@ -2077,6 +2077,9 @@
 #define IDS_ARGYLL_CAL_INSTRUCTIONS_TITLE 60197
 // Next free above every local and remote branch and worktree on 2026-11-09.
 #define IDS_SENSOR_INVALID_READING 60198
+// Next free above every local and remote branch and worktree on 2026-11-10.
+#define IDS_ARGYLL_STILL_NEEDS_CALIBRATION 60199
+#define IDS_ARGYLL_CALIBRATION_UNAVAILABLE 60200
 #define IDS_CALIB_NEED_REF_WHITE        60052
 #define IDS_EXPORT_LAYOUT_MISMATCH      59745
 #define IDS_SCHEMA_NEWER                59746

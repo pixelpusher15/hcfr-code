@@ -25,6 +25,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "DataSetDoc.h"
+#include "FailedReadingRule.h"
 #include "DocTempl.h"
 #include "LuminanceHistoView.h"
 #include "math.h"
@@ -141,10 +142,17 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		}
 	}
 
-	if (pDoc->GetMeasure()->GetGray(0).isValid())
+	// Any slot holding a reading (valid, not the constructor's placeholder
+	// white in the top slot of a new document) draws the traces, each invalid point left out (a failed
+	// black no longer hides the chart, FailedReadingRule.h). The average line
+	// needs a fit: ComputeGammaAndOffset says whether it made one (not under a
+	// relative offset with a failed black).
+	if ( FailedReadingRule::AnyHeldReading ( size, [pDoc] ( int i ) { return pDoc->GetMeasure()->GetGray(i); },
+			[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } ) )
 		bDataPresent = TRUE;
 
-	if (pDataRef && !pDataRef->GetMeasure()->GetGray(0).isValid())
+	if (pDataRef && ! FailedReadingRule::AnyHeldReading ( size, [pDataRef] ( int i ) { return pDataRef->GetMeasure()->GetGray(i); },
+			[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } ) )	// as the main document: a failed black is left out, not the trace
 		pDataRef = NULL;
 
 	m_graphCtrl.ClearGraph(m_refGraphID);
@@ -153,8 +161,8 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 	
 // Compute offset
-	pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,size,false);
-	pDoc->ComputeGammaAndOffset(&LuxGammaOpt, &LuxGammaOffset, 2,1,size,false);
+	const bool bGammaFit = pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,size,false);
+	const bool bLuxGammaFit = pDoc->ComputeGammaAndOffset(&LuxGammaOpt, &LuxGammaOffset, 2,1,size,false);
 
 	// The gray scale's white and black (GetGrayScaleWhite / Black), fetched once
 	// per document per draw and passed to every point.
@@ -198,7 +206,13 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
                 valx=(pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i )+GammaOffset)/(1.0+GammaOffset);
                 valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 				if (mode == 1) //black compensation target
+				{
+					// The target needs the black: no reference point without a
+					// valid one (FailedReadingRule.h).
+					if ( ! pDoc->GetMeasure()->HoldsGrayScaleBlack () )	// Black is its GetGrayScaleBlack (DocBlack)
+						continue;
 					valy = (Black.GetY() + ( valy * ( White.GetY() - Black.GetY() ) )) / White.GetY();
+				}
             }
 
             if (!m_showL && !m_abY && !m_logY)
@@ -219,7 +233,7 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	}
 	
 
-	if (m_showAverage && m_avgGraphID != -1 && size > 0 && bDataPresent && !m_logY)
+	if (m_showAverage && m_avgGraphID != -1 && size > 0 && bDataPresent && bGammaFit && !m_logY)
 	{	
 		int		nb = 0;
 		double	avg = 0.0;
@@ -254,7 +268,7 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 	if ( GetConfig () -> m_nLuminanceCurveMode == 2 )
 	{
-		if (m_showAverage && m_luxmeterAvgGraphID != -1 && size > 0 && bDataPresent && pDoc->GetMeasure()->GetGray(0).HasLuxValue() )
+		if (m_showAverage && m_luxmeterAvgGraphID != -1 && size > 0 && bDataPresent && bLuxGammaFit && pDoc->GetMeasure()->GetGray(0).HasLuxValue() )
 		{	
 			int		nb = 0;
 			double	avg = 0.0;

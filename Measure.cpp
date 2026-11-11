@@ -33,6 +33,7 @@
 #include "DataSetDoc.h"
 #include "Views\MainView.h"
 #include "MeasurePerf.h"
+#include "FailedReadingRule.h"
 
 #include <math.h>
 #include <sstream>
@@ -2204,6 +2205,8 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size);
 
 	if(pGenerator->Init(size) != TRUE)
@@ -2258,7 +2261,11 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
 
-				m_grayMeasureArray[i] = measuredColor[i];
+				// A failed reading never becomes data (FailedReadingRule.h): it is replaced
+				// by the slot's previous reading before the live write below and the commit
+				// loop after the sweep, so Abort and Ignore leave that reading in place.
+				if ( kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( m_grayMeasureArray[i] ), pSensor->IsMeasureValid() != FALSE ) ) )	// the live array: a passed reading only
+					m_grayMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
 				{
@@ -2279,7 +2286,7 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 				}
 			}
 
-			if ( bUseLuxValues && ! bEscape && i == 0 )
+			if ( bUseLuxValues && ! bEscape && i == 0 && ! kept.IsKept ( i ) )	// a kept black: no lux re-measure
 			{
 				int		nNbLoops = 0;
 				BOOL	bContinue;
@@ -2378,6 +2385,8 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 
 	for(int i=0;i<size;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		if (!i && m_bOverRideBlack)
 			m_grayMeasureArray[i] = m_userBlack;
 		else
@@ -2389,22 +2398,27 @@ BOOL CMeasure::MeasureGrayScale(CSensor *pSensor, CGenerator *pGenerator, CDataS
 			m_grayMeasureArray[i].ResetLuxValue ();
 	}
 
-	m_OnOffWhite = measuredColor[size-1];
-	m_bOnOffWhiteMeasured = m_OnOffWhite.isValid();
-	if (m_bOverRideBlack)
-		m_OnOffBlack = m_userBlack;
-	else		
-		m_OnOffBlack = measuredColor[0];
-
-	if ( bUseLuxValues )
+	// The fields derived from a slot come only from a slot that passed: a kept
+	// slot is skipped (FailedReadingRule.h).
+	if ( ! kept.IsKept ( size-1 ) )
 	{
-		m_OnOffWhite.SetLuxValue ( measuredLux[size-1] );
-		m_OnOffBlack.SetLuxValue ( measuredLux[0] );
+		m_OnOffWhite = measuredColor[size-1];
+		m_bOnOffWhiteMeasured = m_OnOffWhite.isValid();
+		if ( bUseLuxValues )
+			m_OnOffWhite.SetLuxValue ( measuredLux[size-1] );
+		else
+			m_OnOffWhite.ResetLuxValue ();
 	}
-	else
+	if ( ! kept.IsKept ( 0 ) )
 	{
-		m_OnOffWhite.ResetLuxValue ();
-		m_OnOffBlack.ResetLuxValue ();
+		if (m_bOverRideBlack)
+			m_OnOffBlack = m_userBlack;
+		else
+			m_OnOffBlack = measuredColor[0];
+		if ( bUseLuxValues )
+			m_OnOffBlack.SetLuxValue ( measuredLux[0] );
+		else
+			m_OnOffBlack.ResetLuxValue ();
 	}
 
 	m_binMeasure = FALSE;
@@ -2432,6 +2446,8 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size+6+GetConfig()->m_BWColorsToAdd);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size+6+GetConfig()->m_BWColorsToAdd);
 
 	if(pGenerator->Init(size+6+GetConfig()->m_BWColorsToAdd) != TRUE)
@@ -2486,7 +2502,8 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 					StartLuxMeasure ();
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() )));
-				m_grayMeasureArray[i] = measuredColor[i];
+				if ( kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( m_grayMeasureArray[i] ), pSensor->IsMeasureValid() != FALSE ) ) )	// the live array: a passed reading only
+					m_grayMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
 				{
@@ -2507,7 +2524,7 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 				}
 			}
 
-			if ( bUseLuxValues && ! bEscape && i == 0 )
+			if ( bUseLuxValues && ! bEscape && i == 0 && ! kept.IsKept ( i ) )	// a kept black: no lux re-measure
 			{
 				int		nNbLoops = 0;
 				BOOL	bContinue;
@@ -2627,9 +2644,10 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 					StartLuxMeasure ();
 
 				measuredColor[size+i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
-				if (i<3)
+				kept.Note ( size+i, FailedReadingRule::KeepPassedReading ( measuredColor[size+i], PreviousReading ( i < 3 ? m_primariesArray[i] : i < 6 ? m_secondariesArray[i-3] : i == 6 ? MeasuredPrimeWhite () : noDataColor ), pSensor->IsMeasureValid() != FALSE ) );
+				if (i<3 && ! kept.IsKept ( size+i ))	// the live array: a passed reading only
 					m_primariesArray[i] = measuredColor[size+i];
-				if (i>=3&&i<6)
+				if (i>=3&&i<6 && ! kept.IsKept ( size+i ))
 					m_secondariesArray[i-3] = measuredColor[size+i];
 				
 				if ( bUseLuxValues )
@@ -2712,6 +2730,8 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 
 	for(int i=0;i<size;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		if (!i && m_bOverRideBlack)
 			m_grayMeasureArray[i] = m_userBlack;
 		else
@@ -2725,6 +2745,8 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 
 	for(int i=0;i<3;i++)
 	{
+		if ( kept.IsKept ( i+size ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_primariesArray[i] = measuredColor[i+size];
 
 		if ( bUseLuxValues )
@@ -2735,6 +2757,8 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 
 	for(int i=0;i<3;i++)
 	{
+		if ( kept.IsKept ( i+size+3 ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_secondariesArray[i] = measuredColor[i+size+3];
 
 		if ( bUseLuxValues )
@@ -2743,25 +2767,30 @@ BOOL CMeasure::MeasureGrayScaleAndColors(CSensor *pSensor, CGenerator *pGenerato
 			m_secondariesArray[i].ResetLuxValue ();
 	}
 
-	m_OnOffWhite = measuredColor[size-1];
-	m_bOnOffWhiteMeasured = m_OnOffWhite.isValid();
-	if (m_bOverRideBlack)
-		m_OnOffBlack = m_userBlack;
-	else
-		m_OnOffBlack = measuredColor[0];
-
-	if ( bUseLuxValues )
+	// The fields derived from a slot come only from a slot that passed: a kept
+	// slot is skipped (FailedReadingRule.h).
+	if ( ! kept.IsKept ( size-1 ) )
 	{
-		m_OnOffWhite.SetLuxValue ( measuredLux[size-1] );
-		m_OnOffBlack.SetLuxValue ( measuredLux[0] );
+		m_OnOffWhite = measuredColor[size-1];
+		m_bOnOffWhiteMeasured = m_OnOffWhite.isValid();
+		if ( bUseLuxValues )
+			m_OnOffWhite.SetLuxValue ( measuredLux[size-1] );
+		else
+			m_OnOffWhite.ResetLuxValue ();
 	}
-	else
+	if ( ! kept.IsKept ( 0 ) )
 	{
-		m_OnOffWhite.ResetLuxValue ();
-//		m_OnOffBlack.ResetLuxValue ();
+		if (m_bOverRideBlack)
+			m_OnOffBlack = m_userBlack;
+		else
+			m_OnOffBlack = measuredColor[0];
+		if ( bUseLuxValues )
+			m_OnOffBlack.SetLuxValue ( measuredLux[0] );
+//		else
+//			m_OnOffBlack.ResetLuxValue ();
 	}
 
-	if ( GetConfig () -> m_BWColorsToAdd > 0 )
+	if ( GetConfig () -> m_BWColorsToAdd > 0 && ! kept.IsKept ( size+6 ) )
 	{
 		m_PrimeWhite = measuredColor[size+6];                
 		if ( bUseLuxValues )
@@ -2796,6 +2825,8 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size);
 
 	if(pGenerator->Init(size) != TRUE)
@@ -2853,7 +2884,8 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 					StartLuxMeasure ();
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( nCol, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
-				m_nearBlackMeasureArray[i] = measuredColor[i];
+				if ( kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( m_nearBlackMeasureArray[i] ), pSensor->IsMeasureValid() != FALSE ) ) )	// the live array: a passed reading only
+					m_nearBlackMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
 				{
@@ -2874,7 +2906,7 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 				}
 			}
 
-			if ( bUseLuxValues && ! bEscape && i == 0 )
+			if ( bUseLuxValues && ! bEscape && i == 0 && ! kept.IsKept ( i ) )	// a kept black: no lux re-measure
 			{
 				int		nNbLoops = 0;
 				BOOL	bContinue;
@@ -2972,6 +3004,8 @@ BOOL CMeasure::MeasureNearBlackScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 	for(int i=0;i<size;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		if (!i && m_bOverRideBlack)
 			m_nearBlackMeasureArray[i] = m_userBlack;
 		else
@@ -3011,6 +3045,8 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size);
 
 	if(pGenerator->Init(size) != TRUE)
@@ -3076,7 +3112,8 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 					StartLuxMeasure ();
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, ColorRGBDisplay(ArrayIndexToGrayLevel ( m_NearWhiteClipCol - size+i, 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())));
-				m_nearWhiteMeasureArray[i] = measuredColor[i];
+				if ( kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( m_nearWhiteMeasureArray[i] ), pSensor->IsMeasureValid() != FALSE ) ) )	// the live array: a passed reading only
+					m_nearWhiteMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
 				{
@@ -3161,6 +3198,8 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 	for(int i=0;i<size;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_nearWhiteMeasureArray[i] = measuredColor[i];
 		if ( bUseLuxValues )
 			m_nearWhiteMeasureArray[i].SetLuxValue ( measuredLux[i] );
@@ -3194,6 +3233,8 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size);
 
 	if(pGenerator->Init(size) != TRUE)
@@ -3252,7 +3293,8 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 					StartLuxMeasure ();
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
-				m_redSatMeasureArray[i] = measuredColor[i];
+				if ( kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( m_redSatMeasureArray[i] ), pSensor->IsMeasureValid() != FALSE ) ) )	// the live array: a passed reading only
+					m_redSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
 				{
@@ -3337,6 +3379,8 @@ BOOL CMeasure::MeasureRedSatScale(CSensor *pSensor, CGenerator *pGenerator, CDat
 
 	for(int i=0;i<size;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_redSatMeasureArray[i] = measuredColor[i];
 		if ( bUseLuxValues )
 			m_redSatMeasureArray[i].SetLuxValue ( measuredLux[i] );
@@ -3370,6 +3414,8 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size);
 
 	if(pGenerator->Init(size) != TRUE)
@@ -3427,7 +3473,8 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 					StartLuxMeasure ();
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
-				m_greenSatMeasureArray[i] = measuredColor[i];
+				if ( kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( m_greenSatMeasureArray[i] ), pSensor->IsMeasureValid() != FALSE ) ) )	// the live array: a passed reading only
+					m_greenSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
 				{
@@ -3512,6 +3559,8 @@ BOOL CMeasure::MeasureGreenSatScale(CSensor *pSensor, CGenerator *pGenerator, CD
 
 	for(int i=0;i<size;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_greenSatMeasureArray[i] = measuredColor[i];
 		if ( bUseLuxValues )
 			m_greenSatMeasureArray[i].SetLuxValue ( measuredLux[i] );
@@ -3545,6 +3594,8 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size);
 
 	if(pGenerator->Init(size) != TRUE)
@@ -3604,7 +3655,8 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 					StartLuxMeasure ();
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
-				m_blueSatMeasureArray[i] = measuredColor[i];
+				if ( kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( m_blueSatMeasureArray[i] ), pSensor->IsMeasureValid() != FALSE ) ) )	// the live array: a passed reading only
+					m_blueSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
 				{
@@ -3689,6 +3741,8 @@ BOOL CMeasure::MeasureBlueSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 	for(int i=0;i<size;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_blueSatMeasureArray[i] = measuredColor[i];
 		if ( bUseLuxValues )
 			m_blueSatMeasureArray[i].SetLuxValue ( measuredLux[i] );
@@ -3722,6 +3776,8 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size);
 
 	if(pGenerator->Init(size) != TRUE)
@@ -3780,7 +3836,8 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 					StartLuxMeasure ();
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
-				m_yellowSatMeasureArray[i] = measuredColor[i];
+				if ( kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( m_yellowSatMeasureArray[i] ), pSensor->IsMeasureValid() != FALSE ) ) )	// the live array: a passed reading only
+					m_yellowSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
 				{
@@ -3866,6 +3923,8 @@ BOOL CMeasure::MeasureYellowSatScale(CSensor *pSensor, CGenerator *pGenerator, C
 
 	for(int i=0;i<size;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_yellowSatMeasureArray[i] = measuredColor[i];
 		if ( bUseLuxValues )
 			m_yellowSatMeasureArray[i].SetLuxValue ( measuredLux[i] );
@@ -3899,6 +3958,8 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size);
 
 	if(pGenerator->Init(size) != TRUE)
@@ -3958,7 +4019,8 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 					StartLuxMeasure ();
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
-				m_cyanSatMeasureArray[i] = measuredColor[i];
+				if ( kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( m_cyanSatMeasureArray[i] ), pSensor->IsMeasureValid() != FALSE ) ) )	// the live array: a passed reading only
+					m_cyanSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
 				{
@@ -4044,6 +4106,8 @@ BOOL CMeasure::MeasureCyanSatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 	for(int i=0;i<size;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_cyanSatMeasureArray[i] = measuredColor[i];
 		if ( bUseLuxValues )
 			m_cyanSatMeasureArray[i].SetLuxValue ( measuredLux[i] );
@@ -4077,6 +4141,8 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size);
 
 	if(pGenerator->Init(size) != TRUE)
@@ -4136,7 +4202,8 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 					StartLuxMeasure ();
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
-				m_magentaSatMeasureArray[i] = measuredColor[i];
+				if ( kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( m_magentaSatMeasureArray[i] ), pSensor->IsMeasureValid() != FALSE ) ) )	// the live array: a passed reading only
+					m_magentaSatMeasureArray[i] = measuredColor[i];
 				
 				if ( bUseLuxValues )
 				{
@@ -4221,6 +4288,8 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 
 	for(int i=0;i<size;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_magentaSatMeasureArray[i] = measuredColor[i];
 		if ( bUseLuxValues )
 			m_magentaSatMeasureArray[i].SetLuxValue ( measuredLux[i] );
@@ -4247,6 +4316,67 @@ static BOOL RefuseEmptyUserSweep ( int nPatches )
 	strMsg.LoadString ( IDS_USERSET_NONE_LOADED );
 	GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
 	return TRUE;
+}
+
+bool CMeasure::IsConstructorPlaceholder ( const CColor & c )
+{
+	return IsRawlessPlaceholder ( c, false ) || IsRawlessPlaceholder ( c, true )
+		|| ( ! c.HasRawXYZValue() && IsPlaceholderWhite ( c, true ) );
+}
+
+bool CMeasure::HoldsGrayScaleBlack () const
+{
+	return FailedReadingRule::HoldsBlackReading ( GetGrayScaleBlack (), GrayScaleBlackIsOverride (), IsConstructorPlaceholder );
+}
+
+const CColor & CMeasure::PreviousReading ( const CColor & slot ) const
+{
+	return FailedReadingRule::PreviousReading ( slot, noDataColor, [] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } );
+}
+
+CArray<CColor,CColor> & CMeasure::SatArray ( int hue )
+{
+	CArray<CColor,CColor> * arrays [ 6 ] = { & m_redSatMeasureArray, & m_greenSatMeasureArray, & m_blueSatMeasureArray,
+										  & m_yellowSatMeasureArray, & m_cyanSatMeasureArray, & m_magentaSatMeasureArray };
+	return * arrays [ hue ];
+}
+
+const CArray<CColor,CColor> & CMeasure::SatArray ( int hue ) const
+{
+	return const_cast<CMeasure *> ( this ) -> SatArray ( hue );
+}
+
+const CColor & CMeasure::SatSlotReading ( int hue, int slot ) const
+{
+	return SatArray ( hue ) [ slot ];
+}
+
+int CMeasure::CC24MasterBandBase ( int iCC )
+{
+	return iCC <= RANDOM250 ? iCC * 100 : ( iCC == RANDOM500 ? PATTERN_SIZE + 250 : USER_BAND_BASE );
+}
+
+int CMeasure::CC24MasterBandSize ( int iCC )
+{
+	return iCC < RANDOM250 ? 100 : iCC == RANDOM250 ? 250 : iCC == RANDOM500 ? 500 : iCC == USER ? MAX_USER_CC_PATCH_SIZE : 0;
+}
+
+int CMeasure::CC24MCDSlot ( int iCC, int iter )
+{
+	return ( iCC != MCD ) ? iter : ( iter < 18 ? iter + 6 : 23 - iter );
+}
+
+int CMeasure::CC24MCDIter ( int iCC, int slot )
+{
+	return ( iCC != MCD ) ? slot : ( slot >= 6 ? slot - 6 : 23 - slot );
+}
+
+const CColor & CMeasure::CC24MasterSlotReading ( int slot ) const
+{
+	int i = slot + CC24MasterBandBase ( GetConfig()->m_CCMode );
+	if ( slot < 0 || i >= m_cc24SatMeasureArray_master.GetSize() )
+		return noDataColor;
+	return m_cc24SatMeasureArray_master[i];
 }
 
 // Shared stamp for every path that commits a measured CC patch (foreground
@@ -4290,6 +4420,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size);
 
 	if(pGenerator->Init(size) != TRUE)
@@ -4386,7 +4518,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		// use THAT slot -- the unpermuted [i] mirrored a default-constructed
 		// (thus "valid") placeholder for slots 0-5, which the live display
 		// showed mid-sweep and the abort salvage would publish.
-		int nSlot = (GetConfig()->m_CCMode != MCD) ? i : (i < 18 ? i + 6 : 23 - i);
+		int nSlot = CC24MCDSlot ( GetConfig()->m_CCMode, i );
 
 		UpdateViews(pDoc, 11);
 
@@ -4425,8 +4557,14 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				// Stamp provenance HERE (during the sweep), not only in the final commit loop, so the
 				// live point display shows Driven/unclamped as each patch reads - not the clamped Reference.
 				// Addressed by SLOT, like the store below: MCD permutes iteration and slot.
-				StampCCProvenance ( measuredColor[nSlot], nSlot );
-				m_cc24SatMeasureArray[nSlot] = measuredColor[nSlot];
+				// The live array was wiped at the start: the set's previous reading
+				// for this slot is in the master (FailedReadingRule.h).
+				kept.Note ( nSlot, FailedReadingRule::KeepPassedReading ( measuredColor[nSlot], PreviousReading ( CC24MasterSlotReading ( nSlot ) ), pSensor->IsMeasureValid() != FALSE ) );
+				if ( ! kept.IsKept ( nSlot ) )	// only a reading that passed is stamped and written live
+				{
+					StampCCProvenance ( measuredColor[nSlot], nSlot );
+					m_cc24SatMeasureArray[nSlot] = measuredColor[nSlot];
+				}
 
 				if ( bUseLuxValues )
 				{
@@ -4459,7 +4597,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 			if ( bEscape )
 			{
-				if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux ) && pDoc )
+				if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux, & kept ) && pDoc )
 					pDoc->SetModifiedFlag ( TRUE );
 				// the loop clears m_isSettling from patch 1 on and the config is
 				// persisted, so an abort that skipped this left the user's settling
@@ -4479,10 +4617,11 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 				int result=GetColorApp()->InMeasureMessageBox(strMsg+pSensor->GetErrorString(),Title,MB_ABORTRETRYIGNORE | MB_ICONERROR);
 				if(result == IDABORT)
 				{
-					// the reading that raised this dialog is known bad; only an
-					// explicit Ignore keeps it -- drop it before salvage publishes
+					// The failed patch is not this sweep's reading: out of the live band,
+					// so the salvage (which publishes only the slots this sweep read)
+					// leaves the set's previous reading in that slot, lux included.
 					m_cc24SatMeasureArray[nSlot] = noDataColor;
-					if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux ) && pDoc )
+					if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux, & kept ) && pDoc )
 						pDoc->SetModifiedFlag ( TRUE );
 					GetConfig()->m_isSettling = doSettling;
 					pSensor->Release();
@@ -4517,7 +4656,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		}
 		else
 		{
-			if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux ) && pDoc )
+			if ( SalvageCC24SatPartial ( bUseLuxValues, measuredLux, & kept ) && pDoc )
 				pDoc->SetModifiedFlag ( TRUE );
 			GetConfig()->m_isSettling = doSettling;
 			pSensor->Release();
@@ -4536,6 +4675,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 	for(int i=0;i<size;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_cc24SatMeasureArray[i] = measuredColor[i];
 		// measuredColor and the live array are addressed by SLOT (see nSlot in
 		// the sweep loop), but measuredLux is filled by ITERATION, and MCD
@@ -4546,7 +4687,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 		// agree on the lux column. (Unlike the salvage this loop needs no
 		// "lux canceled" test: LUX_CANCELED sets bEscape, which returns through
 		// the salvage path and never reaches here.)
-		int nIter = ( iCC != MCD ) ? i : ( i >= 6 ? i - 6 : 23 - i );
+		int nIter = CC24MCDIter ( iCC, i );
 		if ( bUseLuxValues )
 			m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[nIter] );
 		else
@@ -4560,18 +4701,13 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 
 	GetConfig()->m_isSettling = doSettling;
 
-	if (iCC < RANDOM250)
-		for (int i=0+100*iCC;i<100*(iCC+1);i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-iCC*100];
-	else if (iCC == RANDOM250)
-		for (int i=PATTERN_SIZE;i<PATTERN_SIZE+250;i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-PATTERN_SIZE];
-	else if (iCC == RANDOM500)
-		for (int i=PATTERN_SIZE+250;i<PATTERN_SIZE+250+500;i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-(PATTERN_SIZE+250)];
-	else if (iCC == USER)
-		for (int i=PATTERN_SIZE+250+500;i<PATTERN_SIZE+250+500+MAX_USER_CC_PATCH_SIZE;i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-(PATTERN_SIZE+250+500)];
+	{
+		// The active set's band of the master (CC24MasterBandBase / Size).
+		const int base = CC24MasterBandBase ( iCC ), n = CC24MasterBandSize ( iCC );
+		for ( int i = 0; i < n; i++ )
+			if ( ! kept.IsKept ( i ) )	// a kept slot: the master holds its reading already
+				m_cc24SatMeasureArray_master[base + i] = m_cc24SatMeasureArray[i];
+	}
 
 	m_binMeasure = FALSE;
 	UpdateViews(pDoc, 11);
@@ -5071,9 +5207,17 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 				if ( ! bUseLuxValues )
 					measured.ResetLuxValue ();
 
-				m_profileMeasureArray[i] = measured;
-				m_profileGeneration++;
-				nDone = i + 1;
+				// A failed patch keeps the slot's placeholder (FailedReadingRule.h).
+				// nDone is the index past the last patch that passed, so an Abort on a
+				// failed patch keeps the patches before it (a failed one among them
+				// stays a placeholder), and an Abort with no patch passed yet discards
+				// the capture.
+				if ( FailedReadingRule::KeepPassedReading ( measured, PreviousReading ( m_profileMeasureArray[i] ), pSensor->IsMeasureValid() != FALSE ) )
+				{
+					nDone = i + 1;
+					m_profileMeasureArray[i] = measured;	// a passed reading only
+					m_profileGeneration++;
+				}
 			}
 
 			while ( PeekMessage ( & Msg, NULL, WM_KEYDOWN, WM_KEYUP, TRUE ) )
@@ -5228,6 +5372,8 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 	CArray<double,int> measuredLux;
 
     measuredColor.SetSize(size*6+(ccSize));
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size*6+(ccSize));
 
 	if(pGenerator->Init(size*(bPrimaryOnly?3:6) + ccSize) != TRUE)
@@ -5330,26 +5476,31 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 						StartLuxMeasure ();
 
 					measuredColor[(j*size)+i] = PumpedRead(asyncMeasure, pSensor, GenColors[(j*size)+i], displaymode);
-					if ((i+j*size)<size)
+					// The color checker's slot for this patch: MCD permutes it, as in the
+					// commit below and MeasureCC24SatScale.
+					int ccSlot = CC24MCDSlot ( GetConfig()->m_CCMode, i );
+					kept.Note ( (j*size)+i, FailedReadingRule::KeepPassedReading ( measuredColor[(j*size)+i], PreviousReading ( j < 6 ? SatSlotReading ( j, i )
+						: CC24MasterSlotReading ( ccSlot ) ), pSensor->IsMeasureValid() != FALSE ) );
+					if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<size)
 						m_redSatMeasureArray[i] = measuredColor[j*size+i];
-					if ((i+j*size)<2*size&&(i+j*size)>=size)
+					if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<2*size&&(i+j*size)>=size)
 						m_greenSatMeasureArray[i] = measuredColor[j*size+i];
-					if ((i+j*size)<3*size&&(i+j*size)>=2*size)
+					if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<3*size&&(i+j*size)>=2*size)
 						m_blueSatMeasureArray[i] = measuredColor[j*size+i];
 					if (!bPrimaryOnly)
 					{
-						if ((i+j*size)<4*size&&(i+j*size)>=3*size)
+						if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<4*size&&(i+j*size)>=3*size)
 							m_yellowSatMeasureArray[i] = measuredColor[j*size+i];
-						if ((i+j*size)<5*size&&(i+j*size)>=4*size)
+						if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<5*size&&(i+j*size)>=4*size)
 							m_cyanSatMeasureArray[i] = measuredColor[j*size+i];
-						if ((i+j*size)<6*size&&(i+j*size)>=5*size)
+						if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<6*size&&(i+j*size)>=5*size)
 							m_magentaSatMeasureArray[i] = measuredColor[j*size+i];
-						if ((i+j*size)>=6*size)
-							{ m_cc24SatMeasureArray[i] = measuredColor[j*size+i]; StampCCProvenance ( m_cc24SatMeasureArray[i], i ); }
+						if ( ! kept.IsKept ( j*size+i ) && (i+j*size)>=6*size)
+							{ m_cc24SatMeasureArray[ccSlot] = measuredColor[j*size+i]; if ( ! kept.IsKept ( j*size+i ) ) StampCCProvenance ( m_cc24SatMeasureArray[ccSlot], ccSlot ); }
 					} else
 					{
-						if ((i+j*size)>=3*size)
-							{ m_cc24SatMeasureArray[i] = measuredColor[j*size+i]; StampCCProvenance ( m_cc24SatMeasureArray[i], i ); }
+						if ( ! kept.IsKept ( j*size+i ) && (i+j*size)>=3*size)
+							{ m_cc24SatMeasureArray[ccSlot] = measuredColor[j*size+i]; if ( ! kept.IsKept ( j*size+i ) ) StampCCProvenance ( m_cc24SatMeasureArray[ccSlot], ccSlot ); }
 					}
 					if ( bUseLuxValues )
 					{
@@ -5444,101 +5595,49 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 	if (bPatternRetry)
 		AfxMessageBox(pGenerator->GetRetryMessage(), MB_OK | MB_ICONWARNING);
 
+	// One pass: a kept slot is not written, not stamped, not reset
+	// (FailedReadingRule.h).
 	for ( i = 0 ; i < size ; i ++ )
+		for ( int h = 0 ; h < ( bPrimaryOnly ? 3 : 6 ) ; h ++ )
+		{
+			const int b = h*size + i;
+			if ( kept.IsKept ( b ) )
+				continue;
+			SatArray ( h ) [ i ] = measuredColor[b];
+			if ( bUseLuxValues )
+				SatArray ( h ) [ i ].SetLuxValue ( measuredLux[b] );
+			else
+				SatArray ( h ) [ i ].ResetLuxValue ();
+		}
+	// The color checker, by slot (CC24MCDSlot); provenance outside MCD only, as
+	// before.
+	for ( i = 0 ; i < ccSize && ! bPrimaryOnly ; i ++ )
 	{
-		m_redSatMeasureArray[i] = measuredColor[i];
-
-		m_greenSatMeasureArray[i] = measuredColor[size+i];
-
-		m_blueSatMeasureArray[i] = measuredColor[(2*size)+i];
-
+		const int b = 6*size + i;
+		if ( kept.IsKept ( b ) )
+			continue;
+		const int slot = CC24MCDSlot ( GetConfig()->m_CCMode, i );
+		m_cc24SatMeasureArray[slot] = measuredColor[b];
+		if ( GetConfig()->m_CCMode != MCD )
+			StampCCProvenance ( m_cc24SatMeasureArray[slot], slot );
 		if ( bUseLuxValues )
-		{
-			m_redSatMeasureArray[i].SetLuxValue ( measuredLux[i] );
-			m_greenSatMeasureArray[i].SetLuxValue ( measuredLux[size+i] );
-			m_blueSatMeasureArray[i].SetLuxValue ( measuredLux[(2*size)+i] );
-		}
+			m_cc24SatMeasureArray[slot].SetLuxValue ( measuredLux[b] );
 		else
-		{
-			m_redSatMeasureArray[i].ResetLuxValue ();
-			m_greenSatMeasureArray[i].ResetLuxValue ();
-			m_blueSatMeasureArray[i].ResetLuxValue ();
-		}
-
-		if ( ! bPrimaryOnly )
-		{
-			m_yellowSatMeasureArray[i] = measuredColor[(3*size)+i];
-
-			m_cyanSatMeasureArray[i] = measuredColor[(4*size)+i];
-
-			m_magentaSatMeasureArray[i] = measuredColor[(5*size)+i];
-
-			if ( bUseLuxValues )
-			{
-				m_yellowSatMeasureArray[i].SetLuxValue ( measuredLux[(3*size)+i] );
-				m_cyanSatMeasureArray[i].SetLuxValue ( measuredLux[(4*size)+i] );
-				m_magentaSatMeasureArray[i].SetLuxValue ( measuredLux[(5*size)+i] );
-			}
-			else
-			{
-				m_yellowSatMeasureArray[i].ResetLuxValue ();
-				m_cyanSatMeasureArray[i].ResetLuxValue ();
-				m_magentaSatMeasureArray[i].ResetLuxValue ();
-			}
-		}
-	}
-	for ( i = 0 ; i < ccSize ; i ++ )
-	{
-		if ( ! bPrimaryOnly )
-		{
-				if (GetConfig()->m_CCMode != MCD)
-				{
-					m_cc24SatMeasureArray[i] = measuredColor[(6*size)+i];
-					StampCCProvenance ( m_cc24SatMeasureArray[i], i );
-				}
-				else
-				{
-					if (i < 18)
-					    m_cc24SatMeasureArray[i+6] = measuredColor[(6*size)+i];
-					else
-						m_cc24SatMeasureArray[23-i] = measuredColor[(6*size)+i];
-				}
-
-			if ( bUseLuxValues )
-			{
-				if (GetConfig()->m_CCMode != MCD)
-				{
-					m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[(6*size)+i] );
-				}
-				else
-				{
-					if (i < 18)
-						m_cc24SatMeasureArray[i+6].SetLuxValue ( measuredLux[(6*size)+i] );
-					else
-						m_cc24SatMeasureArray[23-i].SetLuxValue ( measuredLux[(6*size)+i] );
-				}
-			}
-			else
-			{
-				m_cc24SatMeasureArray[i].ResetLuxValue ();
-			}
-		}
+			m_cc24SatMeasureArray[slot].ResetLuxValue ();
 	}
 
 	GetConfig()->m_isSettling = doSettling;
 	int iCC=GetConfig()->m_CCMode;
-	if (iCC < RANDOM250)
-		for (int i=0+100*iCC;i<100*(iCC+1);i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-iCC*100];
-	else if (iCC == RANDOM250)
-		for (int i=PATTERN_SIZE;i<PATTERN_SIZE+250;i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-PATTERN_SIZE];
-	else if (iCC == RANDOM500)
-		for (int i=PATTERN_SIZE+250;i<PATTERN_SIZE+250+500;i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-(PATTERN_SIZE+250)];
-	else if (iCC == USER)
-		for (int i=PATTERN_SIZE+250+500;i<PATTERN_SIZE+250+500+MAX_USER_CC_PATCH_SIZE;i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-(PATTERN_SIZE+250+500)];
+	// The color checker's band only when this sweep read it: with bPrimaryOnly
+	// the live band holds only the sweep-start wipe, which is not data.
+	if ( ! bPrimaryOnly )
+	{
+		// The active set's band of the master (CC24MasterBandBase / Size).
+		const int base = CC24MasterBandBase ( iCC ), n = CC24MasterBandSize ( iCC );
+		for ( int i = 0; i < n; i++ )
+			if ( i >= ccSize || ! kept.IsKept ( 6*size + CC24MCDIter ( iCC, i ) ) )	// a kept slot: the master holds it
+				m_cc24SatMeasureArray_master[base + i] = m_cc24SatMeasureArray[i];
+	}
 
 	m_binMeasure = FALSE;
 	UpdateViews(pDoc, 11);
@@ -5578,6 +5677,8 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 	CArray<double,int> measuredLux;
 
 	measuredColor.SetSize(size*6);
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( measuredColor.GetSize() );
 	measuredLux.SetSize(size*6);
 
 	if(pGenerator->Init(size*(bPrimaryOnly?3:6)) != TRUE)
@@ -5642,19 +5743,20 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 						StartLuxMeasure ();
 
 					measuredColor[(j*size)+i] = PumpedRead(asyncMeasure, pSensor, GenColors[(j*size)+i], displaymode);
-					if ((i+j*size)<size)
+					kept.Note ( (j*size)+i, FailedReadingRule::KeepPassedReading ( measuredColor[(j*size)+i], PreviousReading ( SatSlotReading ( j, i ) ), pSensor->IsMeasureValid() != FALSE ) );
+					if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<size)
 						m_redSatMeasureArray[i] = measuredColor[i];
-					if ((i+j*size)<size*2&&(i+j*size)>=size)
+					if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<size*2&&(i+j*size)>=size)
 						m_greenSatMeasureArray[i] = measuredColor[size+i];
-					if ((i+j*size)<size*3&&(i+j*size)>=2*size)
+					if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<size*3&&(i+j*size)>=2*size)
 						m_blueSatMeasureArray[i] = measuredColor[2*size+i];
 					if (!bPrimaryOnly)
 					{
-						if ((i+j*size)<size*4&&(i+j*size)>=3*size)
+						if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<size*4&&(i+j*size)>=3*size)
 							m_yellowSatMeasureArray[i] = measuredColor[3*size+i];
-						if ((i+j*size)<size*5&&(i+j*size)>=4*size)
+						if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<size*5&&(i+j*size)>=4*size)
 							m_cyanSatMeasureArray[i] = measuredColor[4*size+i];
-						if ((i+j*size)<size*6&&(i+j*size)>=5*size)
+						if ( ! kept.IsKept ( j*size+i ) && (i+j*size)<size*6&&(i+j*size)>=5*size)
 							m_magentaSatMeasureArray[i] = measuredColor[5*size+i];
 					}
 					
@@ -5751,49 +5853,20 @@ BOOL CMeasure::MeasurePrimarySecondarySaturationScales(CSensor *pSensor, CGenera
 	if (bPatternRetry)
 		AfxMessageBox(pGenerator->GetRetryMessage(), MB_OK | MB_ICONWARNING);
 
+	// One pass: a kept slot is not written, not stamped, not reset
+	// (FailedReadingRule.h).
 	for ( i = 0 ; i < size ; i ++ )
-	{
-		m_redSatMeasureArray[i] = measuredColor[i];
-
-		m_greenSatMeasureArray[i] = measuredColor[size+i];
-
-		m_blueSatMeasureArray[i] = measuredColor[(2*size)+i];
-
-		if ( bUseLuxValues )
+		for ( int h = 0 ; h < ( bPrimaryOnly ? 3 : 6 ) ; h ++ )
 		{
-			m_redSatMeasureArray[i].SetLuxValue ( measuredLux[i] );
-			m_greenSatMeasureArray[i].SetLuxValue ( measuredLux[size+i] );
-			m_blueSatMeasureArray[i].SetLuxValue ( measuredLux[(2*size)+i] );
-		}
-		else
-		{
-			m_redSatMeasureArray[i].ResetLuxValue ();
-			m_greenSatMeasureArray[i].ResetLuxValue ();
-			m_blueSatMeasureArray[i].ResetLuxValue ();
-		}
-
-		if ( ! bPrimaryOnly )
-		{
-			m_yellowSatMeasureArray[i] = measuredColor[(3*size)+i];
-
-			m_cyanSatMeasureArray[i] = measuredColor[(4*size)+i];
-
-			m_magentaSatMeasureArray[i] = measuredColor[(5*size)+i];
-
+			const int b = h*size + i;
+			if ( kept.IsKept ( b ) )
+				continue;
+			SatArray ( h ) [ i ] = measuredColor[b];
 			if ( bUseLuxValues )
-			{
-				m_yellowSatMeasureArray[i].SetLuxValue ( measuredLux[(3*size)+i] );
-				m_cyanSatMeasureArray[i].SetLuxValue ( measuredLux[(4*size)+i] );
-				m_magentaSatMeasureArray[i].SetLuxValue ( measuredLux[(5*size)+i] );
-			}
+				SatArray ( h ) [ i ].SetLuxValue ( measuredLux[b] );
 			else
-			{
-				m_yellowSatMeasureArray[i].ResetLuxValue ();
-				m_cyanSatMeasureArray[i].ResetLuxValue ();
-				m_magentaSatMeasureArray[i].ResetLuxValue ();
-			}
+				SatArray ( h ) [ i ].ResetLuxValue ();
 		}
-	}
 	GetConfig()->m_isSettling = doSettling;
 
 	m_binMeasure = FALSE;
@@ -5817,6 +5890,8 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 
 	BOOL	bUseLuxValues = TRUE;
 	double	measuredLux[5];
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( 5 );
 
 	if(pGenerator->Init(3 + GetConfig () -> m_BWColorsToAdd) != TRUE)
 	{
@@ -5888,7 +5963,8 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 					StartLuxMeasure ();
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
-				if (i < 3)
+				kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( i < 3 ? m_primariesArray[i] : i == 3 ? MeasuredPrimeWhite () : m_OnOffBlack ), pSensor->IsMeasureValid() != FALSE ) );
+				if (i < 3 && ! kept.IsKept ( i ))	// the live array: a passed reading only
 					m_primariesArray[i] = measuredColor[i];
 				if ( bUseLuxValues )
 				{
@@ -5964,6 +6040,8 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 
 	for(int i=0;i<3;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_primariesArray[i] = measuredColor[i];
 		if ( bUseLuxValues )
 			m_primariesArray[i].SetLuxValue ( measuredLux[i] );
@@ -5971,7 +6049,10 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 			m_primariesArray[i].ResetLuxValue ();
 	}
 
-	if ( GetConfig () -> m_BWColorsToAdd > 0 )
+	// The fields derived from a slot come only from a slot that passed: a kept
+	// white or black is skipped, its "measured" flag untouched (FailedReadingRule.h).
+	const bool bWhiteKept = GetConfig () -> m_BWColorsToAdd > 0 && kept.IsKept ( 3 );
+	if ( ! bWhiteKept && GetConfig () -> m_BWColorsToAdd > 0 )
 	{
 		m_PrimeWhite = measuredColor[3];                
 		if ( bUseLuxValues )
@@ -5979,14 +6060,15 @@ BOOL CMeasure::MeasurePrimaries(CSensor *pSensor, CGenerator *pGenerator, CDataS
 		else
 			m_PrimeWhite.ResetLuxValue ();
 	}
-	else
+	else if ( ! bWhiteKept )
 	{
 		m_PrimeWhite=noDataColor;
 	}
 	// covers both branches: a measured white is valid, noDataColor is not
-	m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
+	if ( ! bWhiteKept )
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 
-	if ( GetConfig () -> m_BWColorsToAdd > 1 )
+	if ( GetConfig () -> m_BWColorsToAdd > 1 && ! kept.IsKept ( 4 ) )
 	{
 		if (m_bOverRideBlack)
 			m_OnOffBlack = m_userBlack;
@@ -6030,6 +6112,8 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 
 	BOOL	bUseLuxValues = TRUE;
 	double	measuredLux[8];
+	// The slots this sweep keeps (FailedReadingRule.h), for the lux they keep.
+	FailedReadingRule::KeptSlots kept ( 8 );
 
 	if(pGenerator->Init(6+GetConfig()->m_BWColorsToAdd) != TRUE)
 	{
@@ -6078,10 +6162,11 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 					StartLuxMeasure ();
 
 				measuredColor[i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
+				kept.Note ( i, FailedReadingRule::KeepPassedReading ( measuredColor[i], PreviousReading ( i < 3 ? m_primariesArray[i] : i < 6 ? m_secondariesArray[i-3] : i == 6 ? MeasuredPrimeWhite () : m_OnOffBlack ), pSensor->IsMeasureValid() != FALSE ) );
 				
-				if (i<3)
+				if (i<3 && ! kept.IsKept ( i ))	// the live array: a passed reading only
 					m_primariesArray[i] = measuredColor[i];
-				if (i>=3&&i<6)
+				if (i>=3&&i<6 && ! kept.IsKept ( i ))
 					m_secondariesArray[i-3] = measuredColor[i];
 				if ( bUseLuxValues )
 				{
@@ -6156,6 +6241,8 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 	}
 	for(int i=0;i<3;i++)
 	{
+		if ( kept.IsKept ( i ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_primariesArray[i] = measuredColor[i];
 		if ( bUseLuxValues )
 			m_primariesArray[i].SetLuxValue ( measuredLux[i] );
@@ -6165,6 +6252,8 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 
 	for(int i=0;i<3;i++)
 	{
+		if ( kept.IsKept ( i+3 ) )
+			continue;	// a kept slot is not written (FailedReadingRule.h)
 		m_secondariesArray[i] = measuredColor[i+3];
 		if ( bUseLuxValues )
 			m_secondariesArray[i].SetLuxValue ( measuredLux[i+3] );
@@ -6172,7 +6261,10 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 			m_secondariesArray[i].ResetLuxValue ();
 	}
 
-	if ( GetConfig () -> m_BWColorsToAdd > 0 )
+	// The fields derived from a slot come only from a slot that passed: a kept
+	// white or black is skipped, its "measured" flag untouched (FailedReadingRule.h).
+	const bool bWhiteKept = GetConfig () -> m_BWColorsToAdd > 0 && kept.IsKept ( 6 );
+	if ( ! bWhiteKept && GetConfig () -> m_BWColorsToAdd > 0 )
 	{
 		m_PrimeWhite = measuredColor[6];                
 		if ( bUseLuxValues )
@@ -6180,14 +6272,15 @@ BOOL CMeasure::MeasureSecondaries(CSensor *pSensor, CGenerator *pGenerator, CDat
 		else
 			m_PrimeWhite.ResetLuxValue ();
 	}
-	else
+	else if ( ! bWhiteKept )
 	{
 		m_PrimeWhite=noDataColor;
 	}
 	// covers both branches: a measured white is valid, noDataColor is not
-	m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
+	if ( ! bWhiteKept )
+		m_bPrimeWhiteMeasured = m_PrimeWhite.isValid();
 
-	if ( GetConfig () -> m_BWColorsToAdd > 1 )
+	if ( GetConfig () -> m_BWColorsToAdd > 1 && ! kept.IsKept ( 7 ) )
 	{
 		if (m_bOverRideBlack)
 			m_OnOffBlack = m_userBlack;
@@ -6860,19 +6953,31 @@ BOOL CMeasure::AddMeasurement(CSensor *pSensor, CGenerator *pGenerator,  CGenera
 
 	if ( bOk )
 	{
-		measuredColor=pSensor->MeasureColor(clr, m_d);
-		if(!pSensor->IsMeasureValid())
+		// A free measure has no slot to keep (FailedReadingRule.h): Retry reads
+		// again, Ignore appends nothing, Abort leaves.
+		for ( ;; )
 		{
-			Title.LoadString ( IDS_ERROR );
-			Msg.LoadString ( IDS_ANERROROCCURED );
-			int result=GetColorApp()->InMeasureMessageBox(Msg+pSensor->GetErrorString(),Title,MB_ABORTRETRYIGNORE | MB_ICONERROR);
-			if(result == IDABORT)
+			measuredColor=pSensor->MeasureColor(clr, m_d);
+			FailedReadingRule::Answer answer = FailedReadingRule::ANSWER_IGNORE;
+			if(!pSensor->IsMeasureValid())
+			{
+				Title.LoadString ( IDS_ERROR );
+				Msg.LoadString ( IDS_ANERROROCCURED );
+				int result=GetColorApp()->InMeasureMessageBox(Msg+pSensor->GetErrorString(),Title,MB_ABORTRETRYIGNORE | MB_ICONERROR);
+				answer = ( result == IDABORT ) ? FailedReadingRule::ANSWER_ABORT
+					   : ( result == IDRETRY ) ? FailedReadingRule::ANSWER_RETRY : FailedReadingRule::ANSWER_IGNORE;
+			}
+			FailedReadingRule::FreeMeasureStep step = FailedReadingRule::FreeMeasureOutcome ( pSensor->IsMeasureValid() != FALSE, answer );
+			if ( step == FailedReadingRule::FREE_READ_AGAIN )
+				continue;
+			if ( step == FailedReadingRule::FREE_APPEND_NOTHING )
 			{
 				pSensor->Release();
 				if ( bDisplayColor )
 					pGenerator->Release(-99);
 				return FALSE;
 			}
+			break;
 		}
 	}
 	else
@@ -8236,27 +8341,30 @@ CColor CMeasure::GetCC24Sat(int i)
 // array: SweepActiveGuard clears m_binMeasure on every early return, after
 // which GetCC24Sat reads the per-set master array -- whose band is copied from
 // the live array only on sweep COMPLETION. The partial data was therefore
-// unreachable (grid went blank on stop). Publish the live band to the master
-// before an abort return; unmeasured entries are noDataColor, so the set's
-// stale remainder is wiped exactly like the sweep start wiped the live array.
+// unreachable (grid went blank on stop). Publish the slots this sweep read to
+// the master before an abort return. A slot it did not read is noDataColor in
+// the live band (the sweep start wiped it; the patch was never reached, or
+// failed and was answered Abort) and keeps the set's previous reading, as
+// every other sweep leaves the slots it did not read (FailedReadingRule.h).
 // Band mapping mirrors the completion copy at the end of MeasureCC24SatScale.
 // Returns TRUE when partial data was published (the caller then owns marking
 // the DOCUMENT modified -- the measure-level m_isModified set below never
 // reaches the doc on an aborted sweep, whose FALSE return skips the doc's
 // SetModifiedFlag call, so without this the salvaged data drew no save prompt
 // when realtime display was off).
-BOOL CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux)
+BOOL CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux, const FailedReadingRule::KeptSlots * kept)
 {
 	int iCC = GetConfig()->m_CCMode;
 
-	// Nothing measured -> leave the master untouched. Publishing the freshly
-	// wiped live band on a zero-progress abort (generator failure at patch 0,
-	// escape during the first iris wait) would destroy the set's previous
-	// completed run for no salvageable data.
+	// Nothing measured -> leave the master untouched and the document
+	// unmodified (generator failure at patch 0, escape during the first iris
+	// wait, Abort on a failed first patch).
 	BOOL bAnyValid = FALSE;
 	for (int i = 0; i < m_cc24SatMeasureArray.GetSize(); i++)
 	{
-		if ( ! m_cc24SatMeasureArray[i].isValid() )
+		// A slot this sweep kept is the set's previous reading, not a reading
+		// this sweep took: not counted, not stamped, not published.
+		if ( ! m_cc24SatMeasureArray[i].isValid() || ( kept && kept->IsKept ( i ) ) )
 			continue;
 		bAnyValid = TRUE;
 		// measuredLux is filled by ITERATION index while the live array is
@@ -8265,7 +8373,7 @@ BOOL CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int
 		// through paired each salvaged patch with another patch's lux and, past
 		// the point the sweep reached, stamped the zero-filled tail (CArray
 		// SetSize zero-fills doubles) as a real 0.0 reading.
-		int nIter = ( iCC != MCD ) ? i : ( i >= 6 ? i - 6 : 23 - i );
+		int nIter = CC24MCDIter ( iCC, i );
 		// measuredLux < 0 marks a patch whose lux capture was canceled
 		if ( bUseLuxValues && nIter < measuredLux.GetSize() && measuredLux[nIter] >= 0.0 )
 			m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[nIter] );
@@ -8275,18 +8383,12 @@ BOOL CMeasure::SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int
 	if ( ! bAnyValid )
 		return FALSE;
 
-	if (iCC < RANDOM250)
-		for (int i=0+100*iCC;i<100*(iCC+1);i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-iCC*100];
-	else if (iCC == RANDOM250)
-		for (int i=PATTERN_SIZE;i<PATTERN_SIZE+250;i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-PATTERN_SIZE];
-	else if (iCC == RANDOM500)
-		for (int i=PATTERN_SIZE+250;i<PATTERN_SIZE+250+500;i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-(PATTERN_SIZE+250)];
-	else if (iCC == USER)
-		for (int i=PATTERN_SIZE+250+500;i<PATTERN_SIZE+250+500+MAX_USER_CC_PATCH_SIZE;i++)
-				m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[i-(PATTERN_SIZE+250+500)];
+	{
+		const int base = CC24MasterBandBase ( iCC ), n = CC24MasterBandSize ( iCC );
+		for ( int i = 0; i < n; i++ )
+			if ( m_cc24SatMeasureArray[i].isValid() && ! ( kept && kept->IsKept ( i ) ) )
+				m_cc24SatMeasureArray_master[base + i] = m_cc24SatMeasureArray[i];
+	}
 
 	// Same bookkeeping as the completion path: the master changed, so the
 	// document must learn it is modified (save prompt on close) and the
@@ -8703,15 +8805,11 @@ CColor CMeasure::GetOnOffWhite() const
 	return clr;
 } 
 
-// The constructor's top-gray placeholder is not a reading (IsRawlessPlaceholder).
-static bool GrayTopIsPlaceholder ( const CColor & c )
-{
-	return CMeasure::IsRawlessPlaceholder ( c, false );
-}
-
 CColor CMeasure::GetGrayScaleWhite() const
 {
-	return GrayScaleWhite ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffWhite, GrayTopIsPlaceholder );
+	// A constructor placeholder in the top slot is no top (IsConstructorPlaceholder,
+	// the one placeholder test).
+	return GrayScaleWhite ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffWhite, IsConstructorPlaceholder );
 }
 
 CColor CMeasure::GetGrayScaleBlack() const
@@ -8728,7 +8826,7 @@ CColor CMeasure::GetGrayScaleBlack() const
 	// slot does not hold m_userBlack's X/Z bit for bit, while Y is untouched. A
 	// slot 0 with a raw value is a black measured before the override was turned
 	// on and is not returned; m_userBlack (no lux) is returned then.
-	if ( m_bOverRideBlack && m_userBlack.isValid () )
+	if ( GrayScaleBlackIsOverride () )
 	{
 		if ( m_grayMeasureArray.GetSize () > 0 && m_grayMeasureArray[0].isValid ()
 			 && ! m_grayMeasureArray[0].HasRawXYZValue () && m_grayMeasureArray[0].GetY () == m_userBlack.GetY () )

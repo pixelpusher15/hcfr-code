@@ -89,6 +89,9 @@
     <ClInclude Include="..\MeterCalibrationRule.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\FailedReadingRule.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="..\CalibrationFile.h">
       <Filter>Header Files</Filter>
     </ClInclude>

@@ -6387,6 +6387,616 @@ static void RunT51()
         Fail("T51 empty series or no readings: not the on/off black");
 }
 
+//////////////////////////////////////////////////////////////////////////
+// T50 - a failed reading never becomes data (libHCFR/FailedReadingRule.h).
+// Pure assertion; no golden file; every expectation is exact (XYZ copies
+// compared bit for bit, bools, enums, counts).
+//   (a) The sweep slot rule, through a model of the Measure.cpp sweep shape:
+//       read into the buffer, KeepPassedReading against the document's slot,
+//       the live write, the Abort / Retry / Ignore box, Abort returning before
+//       the commit loop that copies the buffer into the document and stamps
+//       this sweep's lux, skipping every slot KeptSlots noted. A failing
+//       patch answered Abort or Ignore leaves the slot's previous reading, on
+//       a document with one and on one without (the placeholder stays), with
+//       its own lux or none; Abort also leaves every later slot; Retry stores
+//       the second read.
+//   (b) FreeMeasureOutcome (CMeasure::AddMeasurement): a passed reading is
+//       appended, Retry reads again, Ignore and Abort append nothing.
+//   (a2) The same with the gray sweep's derived fields: a new document's top
+//       placeholder is not a previous reading (PreviousReading), and a kept
+//       slot is skipped by the commit, so nothing is derived from it: neither
+//       the on/off white nor its flag, nor an on/off black a primaries run
+//       measured.
+//   (c) GammaFitNoBlack (ComputeGammaAndOffset): an invalid black stops only the
+//       relative offset's fit (type 1), with gamma 1.0 and the configured offset
+//       (ConfiguredGammaOffset: type 2 0.099 or sRGB 0.055, type 3 the manual
+//       one, else 0); every other type fits, and MeanPointGamma gives a
+//       synthetic 2.4 power law back to 1e-12 with the black failed. A caller
+//       takes the fit only when there is one (FittedGammaOr), and the one black
+//       predicate (HoldsReading) refuses a failed and a placeholder black.
+//   (d) AnyHeldReading: the charts draw when any slot holds a reading, not
+//       only when slot 0 is valid; a new document's placeholder white in the
+//       top slot is not a reading.
+//   (e) AfterCalibration, through a model of the Argyll read loop
+//       (CArgyllSensor::MeasureColorInternal, Calibrate reporting success): a
+//       read that asks for calibration right after ONE Calibrate attempt fails,
+//       with "still needs calibration" when a calibration ran and "no
+//       calibration available" when the driver had none to run; a position
+//       prompt in between does not clear the attempt (AttemptAfterRead), only a
+//       reading does. Not covered: the out parameter
+//       through which CalibrateDevice says whether a calibration ran
+//       (ArgyllSensor.cpp, needs a driver).
+// Main's behavior (the sweeps store before the test, Retry and Ignore append
+// a free measure, no black guard, the slot 0 gate, calibrate again) fails
+// (a) on the document with a previous reading, and (b) to (e); so do the
+// round-2 cases (lux of a kept slot, offset 0 under the guard, the placeholder
+// counted as a reading).
+//////////////////////////////////////////////////////////////////////////
+#include "../../libHCFR/FailedReadingRule.h"
+
+namespace T50Fail
+{
+    using namespace FailedReadingRule;
+
+    // One read of a patch: what the sensor returns, and its verdict.
+    struct Read
+    {
+        CColor color;
+        bool passed;
+    };
+
+    static CColor Reading(double v) { return CColor(v, v + 1.0, v + 2.0); }
+
+    static bool Same(const CColor& a, const CColor& b)
+    {
+        return a.GetX() == b.GetX() && a.GetY() == b.GetY() && a.GetZ() == b.GetZ();
+    }
+
+    static const char* AnswerName(Answer a)
+    {
+        return a == ANSWER_ABORT ? "Abort" : a == ANSWER_RETRY ? "Retry" : "Ignore";
+    }
+
+    // reads[i]: the successive reads of patch i (a Retry takes the next one).
+    // Returns false on Abort (the commit loop never runs), true at the end.
+    // The luxmeter value the model's commit stamps on every slot it copies.
+    static const double SweepLux = 777.0;
+
+    static bool Sweep(std::vector<CColor>& doc, const std::vector<std::vector<Read> >& reads, Answer answer)
+    {
+        std::vector<CColor> measured(doc.size(), noDataColor);
+        std::vector<size_t> next(doc.size(), 0);
+        KeptSlots kept((int)doc.size());
+        for (int i = 0; i < (int)doc.size(); i++)
+        {
+            if (next[i] >= reads[i].size())
+            {
+                Fail("T50 (a) model: patch %d ran out of reads", i);
+                return false;
+            }
+            const Read& r = reads[i][next[i]++];
+            measured[i] = r.color;
+            if (kept.Note(i, KeepPassedReading(measured[i], doc[i], r.passed)))
+                doc[i] = measured[i];                   // the live write: a passed reading only
+            if (!r.passed)
+            {
+                if (answer == ANSWER_ABORT)
+                    return false;
+                if (answer == ANSWER_RETRY)
+                    i--;
+            }
+        }
+        for (int i = 0; i < (int)doc.size(); i++)      // the commit loop, with its lux stamp
+        {
+            if (kept.IsKept(i))
+                continue;                               // a kept slot is not written
+            doc[i] = measured[i];
+            doc[i].SetLuxValue(SweepLux);
+        }
+        return true;
+    }
+
+    static void ExpectSlots(const char* what, int failing, Answer answer,
+                            const std::vector<CColor>& doc, const std::vector<CColor>& want)
+    {
+        for (size_t i = 0; i < want.size(); i++)
+            if (!Same(doc[i], want[i]))
+                Fail("T50 (a) %s, patch %d fails, %s: slot %d holds (%g, %g, %g), want (%g, %g, %g)",
+                     what, failing, AnswerName(answer), (int)i, doc[i].GetX(), doc[i].GetY(), doc[i].GetZ(),
+                     want[i].GetX(), want[i].GetY(), want[i].GetZ());
+    }
+
+    static void CheckSweep()
+    {
+        const int N = 5;
+        const int failing[] = { 0, 2, 4 };
+        const Answer answers[] = { ANSWER_ABORT, ANSWER_IGNORE, ANSWER_RETRY };
+        for (int f = 0; f < 3; f++)
+        {
+            const int K = failing[f];
+            // Every patch reads Reading(10 (i+1)); patch K fails once first (a failed
+            // reading is noDataColor, CSensor::MeasureColor).
+            std::vector<std::vector<Read> > reads(N);
+            for (int i = 0; i < N; i++)
+            {
+                if (i == K)
+                {
+                    Read bad = { noDataColor, false };
+                    reads[i].push_back(bad);
+                }
+                Read good = { Reading(10.0 * (i + 1)), true };
+                reads[i].push_back(good);
+            }
+            for (int d = 0; d < 2; d++)
+            {
+                const bool hasPrevious = (d == 0);
+                std::vector<CColor> before;
+                for (int i = 0; i < N; i++)
+                {
+                    before.push_back(hasPrevious ? Reading(1000.0 + i) : noDataColor);
+                    if (hasPrevious && (i % 2) == 0)
+                        before[i].SetLuxValue(5.0 + i);     // even slots carry their own lux
+                }
+                const char* what = hasPrevious ? "document with a previous reading" : "document without one";
+                for (int a = 0; a < 3; a++)
+                {
+                    std::vector<CColor> doc = before;
+                    const bool completed = Sweep(doc, reads, answers[a]);
+                    std::vector<CColor> want;
+                    for (int i = 0; i < N; i++)
+                    {
+                        if (answers[a] == ANSWER_RETRY || i < K)
+                            want.push_back(Reading(10.0 * (i + 1)));
+                        else if (i == K || answers[a] == ANSWER_ABORT)
+                            want.push_back(before[i]);
+                        else
+                            want.push_back(Reading(10.0 * (i + 1)));
+                    }
+                    if (completed != (answers[a] != ANSWER_ABORT))
+                        Fail("T50 (a) %s, patch %d fails, %s: sweep %s", what, K, AnswerName(answers[a]),
+                             completed ? "completed" : "stopped");
+                    ExpectSlots(what, K, answers[a], doc, want);
+                    // The lux: a kept slot keeps its own (or none), every slot the commit
+                    // stored a passed reading in carries this sweep's.
+                    if (completed)
+                        for (int i = 0; i < N; i++)
+                        {
+                            const bool keptSlot = (answers[a] == ANSWER_IGNORE && i == K);
+                            const bool wantLux = keptSlot ? before[i].HasLuxValue() : true;
+                            const double wantValue = keptSlot ? (wantLux ? before[i].GetLuxValue() : 0.0) : SweepLux;
+                            if (doc[i].HasLuxValue() != wantLux || (wantLux && doc[i].GetLuxValue() != wantValue))
+                                Fail("T50 (a) %s, patch %d fails, %s: slot %d lux %s %g, want %s %g", what, K,
+                                     AnswerName(answers[a]), i, doc[i].HasLuxValue() ? "set" : "none",
+                                     doc[i].HasLuxValue() ? doc[i].GetLuxValue() : 0.0, wantLux ? "set" : "none", wantValue);
+                        }
+                    // Never data: no slot holds the failed reading unless it held the
+                    // placeholder before.
+                    for (int i = 0; i < N; i++)
+                        if (!doc[i].isValid() && before[i].isValid())
+                            Fail("T50 (a) %s, patch %d fails, %s: slot %d lost its reading to the failed one",
+                                 what, K, AnswerName(answers[a]), i);
+                }
+            }
+        }
+    }
+
+    // The AddMeasurement loop. Returns the number of reads taken.
+    static int FreeMeasure(std::vector<CColor>& list, const std::vector<Read>& reads, Answer answer)
+    {
+        int n = 0;
+        for (;;)
+        {
+            if (n >= (int)reads.size())
+            {
+                Fail("T50 (b) model ran out of reads");
+                return n;
+            }
+            const Read& r = reads[n++];
+            FreeMeasureStep step = FreeMeasureOutcome(r.passed, answer);
+            if (step == FREE_READ_AGAIN)
+                continue;
+            if (step == FREE_APPEND)
+                list.push_back(r.color);
+            return n;
+        }
+    }
+
+    static void CheckFreeMeasure()
+    {
+        const Read good = { Reading(42.0), true };
+        const Read bad = { noDataColor, false };
+        const Answer answers[] = { ANSWER_ABORT, ANSWER_IGNORE, ANSWER_RETRY };
+        for (int a = 0; a < 3; a++)
+        {
+            std::vector<CColor> list(1, Reading(7.0));
+            std::vector<Read> reads(1, good);
+            int n = FreeMeasure(list, reads, answers[a]);
+            if (n != 1 || list.size() != 2 || !Same(list[1], good.color))
+                Fail("T50 (b) passed reading, %s: %d reads, %d entries, want 1 read and the reading appended",
+                     AnswerName(answers[a]), n, (int)list.size());
+        }
+        {
+            std::vector<CColor> list(1, Reading(7.0));
+            std::vector<Read> reads;
+            reads.push_back(bad);
+            reads.push_back(good);
+            int n = FreeMeasure(list, reads, ANSWER_RETRY);
+            if (n != 2 || list.size() != 2 || !Same(list[1], good.color))
+                Fail("T50 (b) failed then passed, Retry: %d reads, %d entries, want 2 reads and the second appended",
+                     n, (int)list.size());
+        }
+        const Answer leave[] = { ANSWER_ABORT, ANSWER_IGNORE };
+        for (int a = 0; a < 2; a++)
+        {
+            std::vector<CColor> list(1, Reading(7.0));
+            std::vector<Read> reads(1, bad);
+            int n = FreeMeasure(list, reads, leave[a]);
+            if (n != 1 || list.size() != 1 || !Same(list[0], Reading(7.0)))
+                Fail("T50 (b) failed reading, %s: %d reads, %d entries, want 1 read and nothing appended",
+                     AnswerName(leave[a]), n, (int)list.size());
+        }
+    }
+
+    static void CheckGammaGuard()
+    {
+        // The offset the configuration sets: never fitted, so the guard keeps it.
+        struct { int type; bool sRGB; double manual; double want; } offsets[] = {
+            { 0, false, 0.07, 0.0 }, { 1, false, 0.07, 0.0 },
+            { 2, false, 0.07, 0.099 }, { 2, true, 0.07, 0.055 },
+            { 3, false, 0.07, 0.07 }, { 4, false, 0.07, 0.0 },
+            { 5, false, 0.07, 0.0 }, { 7, false, 0.07, 0.0 } };
+        for (int k = 0; k < (int)(sizeof(offsets) / sizeof(offsets[0])); k++)
+        {
+            double configured = ConfiguredGammaOffset(offsets[k].type, offsets[k].sRGB, offsets[k].manual);
+            if (configured != offsets[k].want)
+                Fail("T50 (c) offset type %d%s: configured offset %g, want %g", offsets[k].type,
+                     offsets[k].sRGB ? " sRGB" : "", configured, offsets[k].want);
+            // Only the relative offset (type 1) reads the black: an invalid one stops
+            // that fit alone; every other type fits as usual.
+            const bool wantStopped = (offsets[k].type == 1);
+            double gamma = 2.4, offset = 0.5;
+            const bool stopped = GammaFitNoBlack(false, offsets[k].type, configured, &gamma, &offset);
+            if (stopped != wantStopped)
+                Fail("T50 (c) offset type %d, invalid black: the fit %s, want it %s", offsets[k].type,
+                     stopped ? "is stopped" : "goes ahead", wantStopped ? "stopped" : "to go ahead");
+            if (stopped && (gamma != 1.0 || offset != offsets[k].want))
+                Fail("T50 (c) offset type %d%s, invalid black: gamma %g offset %g, want 1 and the configured %g",
+                     offsets[k].type, offsets[k].sRGB ? " sRGB" : "", gamma, offset, offsets[k].want);
+            if (!stopped && (gamma != 2.4 || offset != 0.5))
+                Fail("T50 (c) offset type %d, invalid black, fit goes ahead: outputs changed to %g, %g",
+                     offsets[k].type, gamma, offset);
+        }
+        for (int type = 0; type <= 7; type++)
+        {
+            double gamma = 2.4, offset = 0.099;
+            if (GammaFitNoBlack(true, type, 0.0, &gamma, &offset))
+                Fail("T50 (c) offset type %d, valid black: the fit is stopped", type);
+            if (gamma != 2.4 || offset != 0.099)
+                Fail("T50 (c) offset type %d, valid black: outputs changed to %g, %g", type, gamma, offset);
+        }
+
+        // The fit itself on a synthetic 21-point power law of gamma 2.4 with a
+        // failed black (slot 0 FX_NODATA): type 0 reads no black, so the guard
+        // lets it through and MeanPointGamma (the loop ComputeGammaAndOffset runs,
+        // points 1 .. 18) gives 2.4 back to 1e-12.
+        const int N = 21;
+        double x[N], lum[N];
+        for (int i = 0; i < N; i++)
+        {
+            x[i] = i / 20.0;
+            lum[i] = pow(x[i], 2.4);
+        }
+        lum[0] = -99999.99;   // the failed black's relative luminance (white 1)
+        double gamma = 1.0, offset = 0.0;
+        if (GammaFitNoBlack(false, 0, 0.0, &gamma, &offset))
+            Fail("T50 (c) synthetic series, type 0, invalid black: the fit is stopped (gamma %g)", gamma);
+        else
+        {
+            if (!MeanPointGamma(N, lum, [&](int i) { return log(lum[i]) / log(x[i]); }, &gamma))
+                Fail("T50 (c) synthetic series, type 0, invalid black: no fit");
+            if (fabs(gamma - 2.4) > 1e-12)
+                Fail("T50 (c) synthetic series, type 0, invalid black: gamma %.15g, want 2.4 (1e-12)", gamma);
+        }
+        // A caller takes the fit only when there is one: no fit keeps its own
+        // fallback (m_GammaRef), never the no-fit 1.0 as a target gamma.
+        if (FittedGammaOr(false, NoFitGamma, 2.4) != 2.4)
+            Fail("T50 (c) no fit: the caller's gamma is %g, want its fallback 2.4", FittedGammaOr(false, NoFitGamma, 2.4));
+        if (FittedGammaOr(true, 2.31, 2.4) != 2.31)
+            Fail("T50 (c) a fit: the caller's gamma is %g, want the fit 2.31", FittedGammaOr(true, 2.31, 2.4));
+        // The one black predicate (the fit and every black-compensation target): a
+        // failed black and a constructor placeholder black hold no reading.
+        const CColor placeholderBlack(0.5 * 0.95047, 0.5, 0.5 * 1.08833);     // PlaceholderOnOffBlack
+        auto isPlaceholder = [](const CColor& c)
+        {
+            if (!c.isValid() || c.HasRawXYZValue())
+                return false;
+            double y = c.GetY();
+            return y > 0.0 && fabs(c.GetZ() - y * 1.08833) <= 1e-9 * y && fabs(c.GetX() - y * 0.95047) <= 1e-9 * y;
+        };
+        if (HoldsReading(noDataColor, isPlaceholder))
+            Fail("T50 (c) the black predicate: a failed black holds a reading");
+        if (HoldsReading(placeholderBlack, isPlaceholder))
+            Fail("T50 (c) the black predicate: the constructor's placeholder black holds a reading");
+        CColor measuredBlack = Reading(0.05);
+        measuredBlack.SetRawXYZValue(measuredBlack.GetXYZValue());
+        if (!HoldsReading(measuredBlack, isPlaceholder))
+            Fail("T50 (c) the black predicate: a measured black holds no reading");
+        // Points without light are left out of the mean; none at all is no fit.
+        double dark[5] = { 0.0, 0.0, 0.0, 0.0, 0.0 };
+        double none = -1.0;
+        if (MeanPointGamma(5, dark, [](int) { return 99.0; }, &none))
+            Fail("T50 (c) no point with light: reported as a fit (mean %g)", none);
+        // The user's black override is a reading by decision: at 0 cd/m2 (an
+        // OLED) it has the all-zero placeholder's value and still holds one.
+        const CColor zeroBlack(0.0, 0.0, 0.0);
+        auto isZeroPlaceholder = [](const CColor& c) { return !c.HasRawXYZValue() && c.GetX() == 0.0 && c.GetY() == 0.0 && c.GetZ() == 0.0; };
+        if (!HoldsBlackReading(zeroBlack, true, isZeroPlaceholder))
+            Fail("T50 (c) the user's 0 cd/m2 black override: holds no reading");
+        if (HoldsBlackReading(zeroBlack, false, isZeroPlaceholder))
+            Fail("T50 (c) the all-zero black placeholder without the override: holds a reading");
+        if (HoldsBlackReading(noDataColor, true, isZeroPlaceholder))
+            Fail("T50 (c) a failed black with the override on: holds a reading");
+    }
+
+    // A reading as this build takes it: with its raw XYZ.
+    static CColor Measured(double v)
+    {
+        CColor c = Reading(v);
+        c.SetRawXYZValue(c.GetXYZValue());
+        return c;
+    }
+
+    // CMeasure::IsRawlessPlaceholder's top-gray rule, restated (the app passes
+    // the real one): no raw value and the constructor's exact D65 ratios.
+    static bool IsPlaceholder(const CColor& c)
+    {
+        if (!c.isValid() || c.HasRawXYZValue())
+            return false;
+        double y = c.GetY();
+        return y > 0.0 && fabs(c.GetX() - y * 0.95047) <= 1e-9 * y && fabs(c.GetZ() - y * 1.08883) <= 1e-9 * y;
+    }
+
+    static bool AnyValid(const std::vector<CColor>& v)
+    {
+        return AnyHeldReading((int)v.size(), [&v](int i) { return v[i]; },
+                              [](const CColor& c) { return IsPlaceholder(c); });
+    }
+
+    static void CheckChartGate()
+    {
+        // The constructor's top gray slot (PlaceholderPrimeWhite at m_TargetMaxL 100).
+        const CColor placeholder(95.047, 100.0, 108.883);
+        if (!IsPlaceholder(placeholder))
+            Fail("T50 (d) model: the placeholder white is not recognised");
+        std::vector<CColor> newDocument(21, noDataColor);
+        newDocument[20] = placeholder;
+        if (AnyValid(newDocument))
+            Fail("T50 (d) a new document (only the placeholder white in the top slot): the chart draws");
+        std::vector<CColor> placeholderAndOne(21, noDataColor);
+        placeholderAndOne[20] = placeholder;
+        placeholderAndOne[5] = Measured(5.0);
+        if (!AnyValid(placeholderAndOne))
+            Fail("T50 (d) one reading beside the placeholder white: the chart is hidden");
+        std::vector<CColor> blackFailed(3, Measured(5.0));
+        blackFailed[0] = noDataColor;
+        if (!AnyValid(blackFailed))
+            Fail("T50 (d) an invalid black with valid points: the chart is hidden");
+        std::vector<CColor> midFailed(3, Measured(5.0));
+        midFailed[1] = noDataColor;
+        if (!AnyValid(midFailed))
+            Fail("T50 (d) an invalid mid point: the chart is hidden");
+        std::vector<CColor> lastOnly(3, noDataColor);
+        lastOnly[2] = Measured(5.0);
+        if (!AnyValid(lastOnly))
+            Fail("T50 (d) only the last slot valid: the chart is hidden");
+        std::vector<CColor> none(3, noDataColor);
+        if (AnyValid(none))
+            Fail("T50 (d) no valid slot: the chart draws");
+        std::vector<CColor> empty;
+        if (AnyValid(empty))
+            Fail("T50 (d) no slot at all: the chart draws");
+    }
+
+    // A gray sweep's derived fields (CMeasure::MeasureGrayScale's commit): the
+    // on/off white from the top slot with its "measured" flag, the on/off black
+    // from slot 0.
+    struct Derived
+    {
+        CColor white;
+        bool whiteMeasured;
+        CColor black;
+    };
+
+    // The MeasureGrayScale shape with its derived fields: the previous reading
+    // through PreviousReading (a placeholder is not one), and a commit that
+    // skips a kept slot and derives nothing from it.
+    static void SweepGray(std::vector<CColor>& gray, Derived& dv, const std::vector<std::vector<Read> >& reads, Answer answer)
+    {
+        const int n = (int)gray.size();
+        std::vector<CColor> measured(n, noDataColor);
+        std::vector<size_t> next(n, 0);
+        KeptSlots kept(n);
+        for (int i = 0; i < n; i++)
+        {
+            const Read& r = reads[i][next[i]++];
+            measured[i] = r.color;
+            if (kept.Note(i, KeepPassedReading(measured[i],
+                                               PreviousReading(gray[i], noDataColor, [](const CColor& c) { return IsPlaceholder(c); }),
+                                               r.passed)))
+                gray[i] = measured[i];                  // the live write: a passed reading only
+            if (!r.passed)
+            {
+                if (answer == ANSWER_ABORT)
+                    return;
+                if (answer == ANSWER_RETRY)
+                    i--;
+            }
+        }
+        for (int i = 0; i < n; i++)
+            if (!kept.IsKept(i))
+                gray[i] = measured[i];
+        if (!kept.IsKept(n - 1))                        // derived only from a slot that passed
+        {
+            dv.white = measured[n - 1];
+            dv.whiteMeasured = dv.white.isValid();
+        }
+        if (!kept.IsKept(0))
+            dv.black = measured[0];
+    }
+
+    static void CheckDerived()
+    {
+        const int N = 5;
+        const CColor placeholder(95.047, 100.0, 108.883);          // PlaceholderPrimeWhite
+        const CColor onOffPlaceholder(95.047, 120.0, 108.883);     // PlaceholderOnOffWhite
+        // A new document: every gray slot empty but the top one, the placeholder.
+        // The top patch fails and is ignored.
+        {
+            std::vector<CColor> gray(N, noDataColor);
+            gray[N - 1] = placeholder;
+            Derived dv = { onOffPlaceholder, false, noDataColor };
+            std::vector<std::vector<Read> > reads(N);
+            for (int i = 0; i < N; i++)
+            {
+                if (i == N - 1)
+                {
+                    Read bad = { noDataColor, false };
+                    reads[i].push_back(bad);
+                }
+                else
+                {
+                    Read good = { Measured(10.0 * (i + 1)), true };
+                    reads[i].push_back(good);
+                }
+            }
+            SweepGray(gray, dv, reads, ANSWER_IGNORE);
+            // A kept slot changes nothing: the constructor's placeholder stays where
+            // it was (live write included), and nothing is derived from it.
+            if (!Same(gray[N - 1], placeholder))
+                Fail("T50 (a2) new document, top patch ignored: the top slot changed to (%g, %g, %g), want the placeholder unchanged",
+                     gray[N - 1].GetX(), gray[N - 1].GetY(), gray[N - 1].GetZ());
+            if (dv.whiteMeasured)
+                Fail("T50 (a2) new document, top patch ignored: the on/off white is flagged measured");
+            if (!Same(dv.white, onOffPlaceholder))
+                Fail("T50 (a2) new document, top patch ignored: the on/off white changed to (%g, %g, %g)",
+                     dv.white.GetX(), dv.white.GetY(), dv.white.GetZ());
+        }
+        // A black measured by a primaries run (the on/off black), no gray black yet;
+        // the gray black fails and is ignored.
+        {
+            std::vector<CColor> gray(N, noDataColor);
+            const CColor primariesBlack = Measured(0.05);
+            Derived dv = { Measured(300.0), true, primariesBlack };
+            std::vector<std::vector<Read> > reads(N);
+            for (int i = 0; i < N; i++)
+            {
+                if (i == 0)
+                {
+                    Read bad = { noDataColor, false };
+                    reads[i].push_back(bad);
+                }
+                else
+                {
+                    Read good = { Measured(10.0 * (i + 1)), true };
+                    reads[i].push_back(good);
+                }
+            }
+            SweepGray(gray, dv, reads, ANSWER_IGNORE);
+            if (!Same(dv.black, primariesBlack))
+                Fail("T50 (a2) gray black ignored: the on/off black the primaries run measured became (%g, %g, %g)",
+                     dv.black.GetX(), dv.black.GetY(), dv.black.GetZ());
+            if (!Same(dv.white, Measured(50.0)) || !dv.whiteMeasured)
+                Fail("T50 (a2) gray black ignored: the on/off white is not the new top reading");
+        }
+    }
+
+    enum State { READY, NEEDS_CALIBRATION, INCORRECT_POSITION };
+
+    enum Outcome { GOOD_READING, FAILS_STILL_NEEDS, FAILS_UNAVAILABLE, MODEL_RAN_OUT };
+
+    static const char* OutcomeName(Outcome o)
+    {
+        return o == GOOD_READING ? "a reading" : o == FAILS_STILL_NEEDS ? "failed, still needs calibration"
+             : o == FAILS_UNAVAILABLE ? "failed, no calibration available" : "the read loop ran out of reads";
+    }
+
+    // The CArgyllSensor::MeasureColorInternal loop with a Calibrate that always
+    // reports success, and runs a calibration unless calibrationRuns is false (the
+    // driver listed nothing to do).
+    static Outcome ArgyllRead(const std::vector<State>& states, int& calibrations, bool calibrationRuns = true)
+    {
+        calibrations = 0;
+        CalibrationAttempt attempt = CAL_ATTEMPT_NONE;
+        size_t r = 0;
+        State state = NEEDS_CALIBRATION;
+        while (state != READY)
+        {
+            if (r >= states.size())
+                return MODEL_RAN_OUT;
+            state = states[r++];
+            ReadAfterCalibration after = AfterCalibration(attempt, state == NEEDS_CALIBRATION);
+            if (after == READ_FAILS_STILL_NEEDS)
+                return FAILS_STILL_NEEDS;
+            if (after == READ_FAILS_UNAVAILABLE)
+                return FAILS_UNAVAILABLE;
+            attempt = AttemptAfterRead(attempt, state == READY);
+            if (state == NEEDS_CALIBRATION)
+            {
+                calibrations++;
+                attempt = calibrationRuns ? CAL_ATTEMPT_RAN : CAL_ATTEMPT_RAN_NOTHING;
+            }
+        }
+        return GOOD_READING;
+    }
+
+    static void ExpectRead(const char* what, const State* s, int n, Outcome want, int wantCals, bool calibrationRuns = true)
+    {
+        std::vector<State> states(s, s + n);
+        int cals = -1;
+        Outcome got = ArgyllRead(states, cals, calibrationRuns);
+        if (got != want || cals != wantCals)
+            Fail("T50 (e) %s: %s after %d Calibrate attempts, want %s after %d", what,
+                 OutcomeName(got), cals, OutcomeName(want), wantCals);
+    }
+
+    static void CheckCalibration()
+    {
+        const State ready[] = { READY };
+        ExpectRead("no calibration asked", ready, 1, GOOD_READING, 0);
+        const State once[] = { NEEDS_CALIBRATION, READY };
+        ExpectRead("a calibration that ran, next read fine", once, 2, GOOD_READING, 1);
+        const State again[] = { NEEDS_CALIBRATION, NEEDS_CALIBRATION, READY };
+        ExpectRead("a calibration that ran, the next read asks again", again, 3, FAILS_STILL_NEEDS, 1);
+        const State always[] = { NEEDS_CALIBRATION, NEEDS_CALIBRATION, NEEDS_CALIBRATION, NEEDS_CALIBRATION };
+        ExpectRead("a calibration that ran, every read asks", always, 4, FAILS_STILL_NEEDS, 1);
+        const State between[] = { NEEDS_CALIBRATION, INCORRECT_POSITION, NEEDS_CALIBRATION, READY };
+        // A position prompt between the Calibrate and the next ask does not clear
+        // the attempt: a meter alternating the two cannot loop.
+        ExpectRead("a position prompt between the Calibrate and the next ask", between, 4, FAILS_STILL_NEEDS, 1);
+        const State alternating[] = { NEEDS_CALIBRATION, INCORRECT_POSITION, NEEDS_CALIBRATION, INCORRECT_POSITION,
+                                      NEEDS_CALIBRATION, INCORRECT_POSITION, NEEDS_CALIBRATION, READY };
+        ExpectRead("a meter alternating asks and position prompts", alternating, 8, FAILS_STILL_NEEDS, 1);
+        const State positionThenReady[] = { NEEDS_CALIBRATION, INCORRECT_POSITION, READY };
+        ExpectRead("a calibration, a position prompt, then a reading", positionThenReady, 3, GOOD_READING, 1);
+        // A Calibrate the driver had nothing for: the next ask ends the reading with
+        // its own reason, never another silent round (the original B5 loop).
+        ExpectRead("ran nothing, the next read asks again", again, 3, FAILS_UNAVAILABLE, 1, false);
+        ExpectRead("ran nothing, every read asks", always, 4, FAILS_UNAVAILABLE, 1, false);
+        ExpectRead("ran nothing, next read fine", once, 2, GOOD_READING, 1, false);
+    }
+}
+
+static void RunT50()
+{
+    printf("T50 failed reading never becomes data...\n");
+    T50Fail::CheckSweep();
+    T50Fail::CheckFreeMeasure();
+    T50Fail::CheckGammaGuard();
+    T50Fail::CheckChartGate();
+    T50Fail::CheckDerived();
+    T50Fail::CheckCalibration();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -6428,6 +7038,7 @@ int main(int argc, char* argv[])
     RunT47();
     RunT48();
     RunT49();
+    RunT50();
     RunT51();
 
     if (g_failures)

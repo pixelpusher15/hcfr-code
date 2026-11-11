@@ -331,9 +331,9 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	BOOL bMeasureOk = ( IsMeasureValid() && result.isValid()
 	                    && _finite(result.GetX()) && _finite(result.GetY()) && _finite(result.GetZ()) );
 	// A failed read stays noDataColor, as it did when AsyncMeasurer's catch returned
-	// it (4.2.2): the sweeps test IsMeasureValid, and a slot that keeps the reading
-	// on Abort or Ignore then holds an invalid placeholder the grid and charts
-	// recognize, not a valid-looking black of 1e-8.
+	// it (4.2.2): the sweeps test IsMeasureValid and store only a reading that
+	// passed (FailedReadingRule.h), and whatever sees a failed one sees an invalid
+	// placeholder the grid and charts recognize, not a valid-looking black of 1e-8.
 	// A driver can fail without saying so: an i1Pro with a broken dark calibration
 	// returned NaN XYZ with no error and the validity flag still TRUE, so the sweeps
 	// showed no Abort/Retry/Ignore box and stored the slot. Any reading that is not
