@@ -21,14 +21,14 @@
     <CharacterSet>MultiByte</CharacterSet>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <UseOfMfc>Static</UseOfMfc>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <UseOfMfc>Static</UseOfMfc>
     <WholeProgramOptimization>true</WholeProgramOptimization>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -93,13 +93,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ArgyllMeterWrapper.cpp" />
-    <ClCompile Include="CGATSFile.cpp" />
     <ClCompile Include="SpectralSample.cpp" />
     <ClCompile Include="SpectralSampleFiles.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ArgyllMeterWrapper.h" />
-    <ClInclude Include="CGATSFile.h" />
     <ClInclude Include="SpectralSample.h" />
     <ClInclude Include="SpectralSampleFiles.h" />
   </ItemGroup>

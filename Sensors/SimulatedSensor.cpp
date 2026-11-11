@@ -25,6 +25,7 @@
 #include "ColorHCFR.h"
 
 #include "SimulatedSensor.h"
+#include "ArchiveExtension.h"
 
 #include <math.h>
 
@@ -98,7 +99,7 @@ void CSimulatedSensor::Serialize(CArchive& archive)
 
 	if (archive.IsStoring())
 	{
-		int version=2;
+		int version=3;
 		archive << version;
 		archive << m_offsetErrorMax;
 		// v1
@@ -110,13 +111,17 @@ void CSimulatedSensor::Serialize(CArchive& archive)
 		archive << m_gainErrorMax;
 		archive << m_doGammaError;
 		archive << m_gammaErrorMax;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 2 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 3 )
+			throw new CNewerSchemaException ( "CSimulatedSensor", version );
 		if ( version > 1 )
 			archive >> m_offsetErrorMax;
 
@@ -128,6 +133,18 @@ void CSimulatedSensor::Serialize(CArchive& archive)
 		archive >> m_gainErrorMax;
 		archive >> m_doGammaError;
 		archive >> m_gammaErrorMax;
+
+		if ( version >= 3 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 
@@ -318,8 +335,11 @@ CColor CSimulatedSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, 
 	colSensor.SetY(colSensor.GetY() * (mode==5?10000.:White.GetY()));
 	colSensor.SetZ(colSensor.GetZ() * (mode==5?10000.:White.GetY()));
 
-	//cap peak white to target maxL
-	if (mode == 5 || mode == 7)
+	//cap peak white to target maxL. A black reading (Y == 0) must not go through the
+	//rescale: min(0, maxL) / 0 is NaN, which the sensor layer now rejects as a failed
+	//reading (it used to be clamped to 1e-8 by the max macro). Black takes the
+	//target-MinL branch below instead.
+	if ((mode == 5 || mode == 7) && colSensor.GetY() > 0.)
 	{
 		double rescale = min(colSensor.GetY(), GetConfig()->m_TargetMaxL)/colSensor.GetY();
 		colSensor.SetX(colSensor.GetX() * rescale);

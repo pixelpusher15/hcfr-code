@@ -27,6 +27,7 @@
 #include "CriticalSection.h"
 #include "LockWhileInScope.h"
 #include <stdexcept>
+#include "libHCFR/SpectralCorrection.h"
 
 //#define SALONEINSTLIB
 //#define ENABLE_USB
@@ -46,10 +47,38 @@
 //#include "spyd2setup.h"
 #include "spyd2.h"
 //#undef SALONEINSTLIB
+#include "libHCFR/MeterCalibrationRule.h"
+// HCFR's resource ids (the language DLL's strings), included after the driver
+// headers so its macros cannot reach them.
+#include "resource.h"
+
+// MeterCalibrationRule restates two driver constants without the driver types.
+static_assert(MeterCalibrationRule::NonDeferrableMask == (unsigned int)inst_calt_n_dfrble_mask,
+              "MeterCalibrationRule::NonDeferrableMask must equal inst_calt_n_dfrble_mask");
+static_assert(MeterCalibrationRule::EmissiveDark == (unsigned int)inst_calt_em_dark,
+              "MeterCalibrationRule::EmissiveDark must equal inst_calt_em_dark");
 
 
 namespace
 {
+    // A string from the HCFR resources in use (the language DLL), in that
+    // language. The English text is the fallback for a process without HCFR's
+    // resources (the UnitTests executable links this library); localized says
+    // which one was returned.
+    std::string ResourceText(UINT id, const char* english, bool* localized)
+    {
+        CString s;
+        if ( AfxGetModuleState()->m_hCurrentResourceHandle != NULL && s.LoadString(id) && !s.IsEmpty() )
+        {
+            if ( localized )
+                *localized = true;
+            return std::string((LPCSTR)s);
+        }
+        if ( localized )
+            *localized = false;
+        return english;
+    }
+
     void warning_imp(void *cntx, struct _a1log *p, char *fmt, va_list args) 
     {
         ArgyllLogMessage("Debug", fmt, args);
@@ -67,6 +96,15 @@ namespace
     void error_imp(void *cntx, struct _a1log *p, char *fmt, va_list args)
     {
         ArgyllLogMessage("Debug", fmt, args);
+    }
+
+    // printf-style front end to ArgyllLogMessage, which takes a va_list
+    void wrapperLog(const char *fmt, ...)
+    {
+        va_list args;
+        va_start(args, fmt);
+        ArgyllLogMessage("Debug", const_cast<char *>(fmt), args);
+        va_end(args);
     }
 
     // check an actual inst code is a particular reason
@@ -176,7 +214,10 @@ ArgyllMeterWrapper::ArgyllMeterWrapper(_inst* meter) :
     m_meter(meter),
     m_nextCalibration(0),
     m_meterType(meter->get_itype(meter)),
-	m_Adapt(0)
+	m_Adapt(0),
+    m_errorBoxShown(false),
+    m_startCount(0),
+    m_displayType(-1)	// no display type selected yet (resetSpectralSample reads it)
     
 {
 }
@@ -193,6 +234,8 @@ ArgyllMeterWrapper::~ArgyllMeterWrapper()
 bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eReadingType readingType, CString SpectralType, bool debugmode, double int_time, bool refresh)
 {
    inst_code instCode;
+   // A start sets the driver's mode, successful or not (getStartCount).
+   ++m_startCount;
    if (debugmode)
     {
         // icom / icom->log can be NULL before init_inst() for some meters (e.g.
@@ -229,6 +272,7 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
         if(instCode != inst_ok)
         {
 			MessageBox(NULL, m_meter->interp_error(m_meter,instCode), "init_inst",MB_OK);
+            m_errorBoxShown = true;
             m_meter->del(m_meter);
             m_meter = 0;
             errorDescription = "Failed to initialize the instrument";
@@ -344,6 +388,7 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
         if (instCode != inst_ok)
         {
             MessageBox(NULL,m_meter->inst_interp_error(m_meter,instCode),"Error setting observer",MB_OK);
+            m_errorBoxShown = true;
             m_meter->del(m_meter);
             m_meter = 0;
             errorDescription = "Couldn't set observer mode";
@@ -389,6 +434,7 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
             if (instCode != inst_ok)
             {
                 MessageBox(NULL,m_meter->inst_interp_error(m_meter,instCode),"Integration time set error", MB_OK);
+                m_errorBoxShown = true;
                 m_meter->del(m_meter);
                 m_meter = 0;
                 errorDescription = "Couldn't set trigger mode";
@@ -418,6 +464,24 @@ bool ArgyllMeterWrapper::connectAndStartMeter(std::string& errorDescription, eRe
 bool ArgyllMeterWrapper::doesMeterSupportCalibration()
 {
     checkMeterIsInitialized();
+    return calibrationCapabilityListed();
+}
+
+// See MeterCalibrationRule.h for why the non-deferrable available calibrations of
+// the current mode are exactly what a calibrate() does. Asks nothing of a driver
+// that is gone or not started (checkMeterIsInitialized would start it).
+int ArgyllMeterWrapper::getCalibrationAvailability()
+{
+    if ( !isMeterStillValid() || !m_meter->inited )
+        return MeterCalibrationRule::CAL_UNKNOWN;
+    inst_cal_type needed(inst_calt_none);
+    inst_cal_type available(inst_calt_none);
+    const bool queryOk = ( m_meter->get_n_a_cals(m_meter, &needed, &available) == inst_ok );
+    return MeterCalibrationRule::FromDriver(queryOk, calibrationCapabilityListed(), (unsigned int)available);
+}
+
+bool ArgyllMeterWrapper::calibrationCapabilityListed()
+{
     inst_mode capabilities(inst_mode_none);
     inst2_capability capabilities2(inst2_none);
     inst3_capability capabilities3(inst3_none);
@@ -490,6 +554,24 @@ int ArgyllMeterWrapper::getDisplayType() const
     return m_displayType;
 }
 
+// Index of the entry the driver flags inst_dtflags_default in its display type
+// list, or 0 when it lists none (an i1d3 with its diffuser over the sensor lists
+// no types at all: i1d3_get_disptypesel returns 0 entries while p->dpos is set).
+int ArgyllMeterWrapper::getDefaultDisplayType()
+{
+    checkMeterIsInitialized();
+    inst_disptypesel* displayTypes = NULL;
+    int numItems = 0;
+    if (m_meter->get_disptypesel(m_meter, &numItems, &displayTypes, 0, 0) != inst_ok || displayTypes == NULL)
+        return 0;
+    for (int i = 0; i < numItems; i++)
+    {
+        if (displayTypes[i].flags & inst_dtflags_default)
+            return i;
+    }
+    return 0;
+}
+
 int ArgyllMeterWrapper::getReadingType() const
 {
     return m_readingType;
@@ -503,11 +585,23 @@ void ArgyllMeterWrapper::setDisplayType(int displayMode)
     {
         m_displayType = displayMode;
         inst_code instCode = m_meter->set_disptype(m_meter, displayMode);
+        // Setting the display type drops any loaded spectral sample: for the i1d3,
+        // set_disp_type -> i1d3_set_matcal frees p->samples unconditionally, and
+        // set_cal then falls back to the built-in calibration. Forget our "already
+        // loaded" marker with it, or the next loadSpectralSample returns early on a
+        // matching description and the correction is silently gone - which is what
+        // happened on every Init (one setDisplayType, then one loadSpectralSample).
+        m_SampleDescription.clear();
         if(instCode != inst_ok)
         {
             MessageBox(NULL, m_meter->inst_interp_error(m_meter, instCode),"Set display type error",MB_OK);
             if (instCode != inst_wrong_setup) //special case for ccmx without base type
+            {
+                // The box is this failure's message (errorBoxShown); after the
+                // inst_wrong_setup box no failure follows, so it sets nothing.
+                m_errorBoxShown = true;
                 throw std::logic_error("Set Display Type failed");
+            }
         }
     } 
 }
@@ -714,6 +808,7 @@ ArgyllMeterWrapper::eMeterState ArgyllMeterWrapper::calibrate()
     if(instCode != inst_ok)
     {
 		MessageBox(NULL, m_meter->interp_error(m_meter, instCode), "Calibration Failed!", MB_OK);
+        m_errorBoxShown = true;
         throw std::logic_error("Calibration failed");
     }
     //check if we need to try and get refresh rate
@@ -739,9 +834,12 @@ ArgyllMeterWrapper::eMeterState ArgyllMeterWrapper::calibrate()
     return READY;
 }
 
-std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes)
+std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes, bool* textIsLocalized)
 {
     checkMeterIsInitialized();
+    if ( textIsLocalized )
+        *textIsLocalized = false;
+    const bool i1ProFamily = ( m_meterType == instI1Pro || m_meterType == instI1Pro2 || m_meterType == instI1Pro3 );
     inst_code instCode(inst_ok);
     if(m_nextCalibration == 0)
     {
@@ -749,23 +847,45 @@ std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes)
         inst_calc_id_type calcidtype(inst_calc_id_none);
         dark_only = FALSE;
 		if (m_meterType == instEX1) dark_only = TRUE;
-        if ( (m_meterType == instI1Pro || m_meterType == instI1Pro2 || m_meterType == instI1Pro3) )
+
+        instCode = m_meter->calibrate(m_meter, &calType, (inst_cal_cond*)&m_nextCalibration, &calcidtype, m_calibrationMessage);
+
+        // The i1Pro family's white tile question, asked only when it is a real
+        // choice (MeterCalibrationRule::AskSkipWhiteTile): Hi-Res off, and the
+        // driver's first condition for the available calibrations is the white
+        // tile. The call above performed nothing: every step of the i1Pro and
+        // i1Pro3 calibrate() waits for its condition (none was given), and the
+        // driver asks for the tile first whenever a calibration it would do is
+        // made on it - the high resolution reflective fine calibration
+        // (inst_calt_ref_white) or, on an i1Pro 2 or i1Pro 3, the wavelength
+        // calibration (i1pro_imp.c and i1pro3_imp.c, "Make sure there's the right
+        // condition for any remaining calibrations"). Skipping it asks for the
+        // emissive dark calibration alone. With Hi-Res on the driver's request is
+        // taken as it is: no question.
+        if ( i1ProFamily && !isHiRes && isInstCodeReason(instCode, inst_cal_setup) )
         {
-            if ( IDYES == AfxMessageBox ( "Skip white tile calibration?", MB_YESNO | MB_ICONQUESTION ) )
+            const bool asksWhiteTile = ( ( m_nextCalibration & inst_calc_cond_mask ) == inst_calc_man_ref_white );
+            inst_cal_type needed(inst_calt_none);
+            inst_cal_type available(inst_calt_none);
+            if ( asksWhiteTile
+              && m_meter->get_n_a_cals(m_meter, &needed, &available) == inst_ok
+              && MeterCalibrationRule::AskSkipWhiteTile(i1ProFamily, isHiRes, asksWhiteTile, (unsigned int)available) )
             {
-                if (!isHiRes)
+                const std::string question = ResourceText(IDS_ARGYLL_WHITE_TILE_SKIP,
+                    "Skip the white tile calibration?\n\nIf you skip it, only the dark calibration is made, and the calibrations that need the tile (the wavelength calibration of an i1Pro 2 or i1Pro 3, and the high resolution fine calibration) keep their previous values.", NULL);
+                const std::string title = ResourceText(IDS_ARGYLL_WHITE_TILE_TITLE, "White tile calibration", NULL);
+                CWnd* owner = CWnd::GetSafeOwner(NULL);
+                if ( IDYES == ::MessageBox(owner ? owner->GetSafeHwnd() : NULL, question.c_str(), title.c_str(), MB_YESNO | MB_ICONQUESTION) )
                 {
                     calType = inst_calt_em_dark;
                     dark_only = TRUE;
-                }
-                else
-                {
-                    MessageBox(NULL, "White tile calibration is required when high resolution mode is selected", "High resolution mode", MB_OK);
+                    m_nextCalibration = 0;
+                    calcidtype = inst_calc_id_none;
+                    m_calibrationMessage[0] = '\0';
+                    instCode = m_meter->calibrate(m_meter, &calType, (inst_cal_cond*)&m_nextCalibration, &calcidtype, m_calibrationMessage);
                 }
             }
         }
-
-        instCode = m_meter->calibrate(m_meter, &calType, (inst_cal_cond*)&m_nextCalibration, &calcidtype, m_calibrationMessage);
 		if(instCode == inst_ok || isInstCodeReason(instCode, inst_unsupported))
         {
             // we don't need to do anything
@@ -789,9 +909,9 @@ std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes)
         case inst_calc_uop_ref_white:
             return "user operated reflective white calibration";
         case inst_calc_uop_trans_white:
-            return "user operated tranmissive white calibration";
+            return ResourceText(IDS_ARGYLL_CAL_UOP_TRANS_WHITE, "user operated transmissive white calibration", textIsLocalized);
         case inst_calc_uop_trans_dark:
-            return "user operated tranmissive dark calibration";
+            return ResourceText(IDS_ARGYLL_CAL_UOP_TRANS_DARK, "user operated transmissive dark calibration", textIsLocalized);
         case inst_calc_uop_mask:
             return "user operated calibration mask";
         case inst_calc_man_ref_white:
@@ -801,7 +921,13 @@ std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes)
         case inst_calc_man_ref_dark:
             return "place instrument in dark not close to anything";
         case inst_calc_man_em_dark:
-            return "place cap on instrument put on dark surface or white ref.";
+            // The i1Pro family has no cap; the drivers of the other meters that ask
+            // for this (DTP92, EX1, K10, SpyderX, SpyderX2) do not say whether theirs has one.
+            if ( i1ProFamily )
+                return ResourceText(IDS_ARGYLL_CAL_DARK_NO_CAP,
+                    "Place the instrument face down on a dark, opaque surface so that no light reaches its sensor, then click OK.", textIsLocalized);
+            return ResourceText(IDS_ARGYLL_CAL_DARK_COVER,
+                "Cover the instrument's sensor so that no light reaches it (with its cap if it has one, or face down on a dark, opaque surface), then click OK.", textIsLocalized);
         case inst_calc_man_cal_smode:
             return "Put instrument sensor in calibration position";
         case inst_calc_man_trans_white:
@@ -819,7 +945,7 @@ std::string ArgyllMeterWrapper::getCalibrationInstructions(bool isHiRes)
         case inst_calc_emis_grey_darker:
             return "Provide a darker grey display test patch";
         case inst_calc_emis_grey_ligher:
-            return "Provide a darker grey display test patch";
+            return ResourceText(IDS_ARGYLL_CAL_GREY_LIGHTER, "Provide a lighter gray display test patch", textIsLocalized);
         case inst_calc_emis_mask:
             return "Display provided reference patch";
         case inst_calc_man_am_dark:
@@ -875,6 +1001,247 @@ void ArgyllMeterWrapper::setDisableAIO(bool disable)
         i1d3 *p = (i1d3 *)m_meter;
         p->use_aio = (!disable && p->firmv >= 0x21a) ? 1 : 0;
     }
+}
+
+bool ArgyllMeterWrapper::canExposeCalibrationMatrices() const
+{
+    // Same type guard as setDisableAIO: only instI1Disp3 is backed by the i1d3 struct.
+    return m_meter != NULL && m_meterType == instI1Disp3;
+}
+
+std::string ArgyllMeterWrapper::getSerialNumber() const
+{
+    if (m_meter == NULL || m_meter->get_serial_no == NULL)
+    {
+        return "";
+    }
+    const char *serial = m_meter->get_serial_no(m_meter);
+    return serial != NULL ? std::string(serial) : std::string();
+}
+
+bool ArgyllMeterWrapper::readCalibration(Matrix& cal, bool& sampleLoaded, bool& ccmatUnity)
+{
+    if (!canExposeCalibrationMatrices())
+    {
+        return false;
+    }
+    // The bundled driver's private layout (i1d3.h): an Argyll refresh must re-check
+    // these fields, as it must for use_aio above.
+    i1d3 *p = (i1d3 *)m_meter;
+
+    // Orientation. i1d3_read_sample's emissive branch (i1d3.c) is
+    //     icmMulBy3x3(XYZ, p->emis_cal, XYZ);   then   icmMulBy3x3(XYZ, p->ccmat, XYZ);
+    // and icmMulBy3x3(out, M, in) (sa_MulBy3x3 here, SALONEINSTLIB) computes
+    // out[i] = M[i][0]*in[0] + M[i][1]*in[1] + M[i][2]*in[2], i.e. out = M * in with
+    // the C array row-major. So the Matrix is M(i,j) = arr[i][j], and the driver's
+    // reading is XYZ = ccmat * emis_cal * rgb: cal = ccmat * emis_cal.
+    Matrix emis(0.0, 3, 3);
+    Matrix ccm(0.0, 3, 3);
+    ccmatUnity = true;
+    for (int i = 0; i < 3; ++i)
+    {
+        for (int j = 0; j < 3; ++j)
+        {
+            emis(i, j) = p->emis_cal[i][j];
+            ccm(i, j) = p->ccmat[i][j];
+            // icmSetUnity3x3 writes exact 1.0/0.0, so an exact compare is right
+            if (p->ccmat[i][j] != (i == j ? 1.0 : 0.0))
+            {
+                ccmatUnity = false;
+            }
+        }
+    }
+    cal = ccm * emis;
+    // The same test i1d3_set_cal uses to choose the sample fit over the default one.
+    sampleLoaded = (p->samples != NULL && p->nsamp > 0);
+    return true;
+}
+
+bool ArgyllMeterWrapper::deriveSpectralCalibration(const SpectralSample& sample, Matrix& nativeCal, Matrix& currentCal, std::string& why)
+{
+    if (!canExposeCalibrationMatrices())
+    {
+        why = "This meter's calibration matrices cannot be read.";
+        return false;
+    }
+
+    bool ok = true;
+    bool sampleLoaded = false;
+    bool ccmatUnity = false;
+    Matrix current(Matrix::IdentityMatrix(3));
+    Matrix native(Matrix::IdentityMatrix(3));
+    try
+    {
+        // Force a real load: the "already loaded" marker must not skip it.
+        m_SampleDescription.clear();
+        loadSpectralSample(sample);
+        // The driver fitted emis_cal to the sample (i1d3_set_speccal + i1d3_set_cal).
+        if (!readCalibration(current, sampleLoaded, ccmatUnity) || !sampleLoaded)
+        {
+            why = "The meter did not keep the spectral sample.";
+            ok = false;
+        }
+    }
+    catch (std::logic_error& e)
+    {
+        why = e.what();
+        ok = false;
+    }
+
+    // Back to native on every path: re-selecting the current display type drops the
+    // sample and refits the default matrix. The driver holds no spectral state while
+    // HCFR measures; HCFR applies the correction itself.
+    try
+    {
+        resetSpectralSample();
+    }
+    catch (std::logic_error& e)
+    {
+        if (ok)
+        {
+            why = e.what();
+            ok = false;
+        }
+    }
+
+    if (ok && (!readCalibration(native, sampleLoaded, ccmatUnity) || sampleLoaded || !ccmatUnity))
+    {
+        why = "The meter did not return to its native calibration after the spectral sample was read out.";
+        ok = false;
+    }
+    if (ok && SpectralMatricesEqual(native, current))
+    {
+        why = "The spectral sample loaded but did not change the meter's calibration matrix";
+        ok = false;
+    }
+    if (!ok)
+    {
+        wrapperLog("ArgyllMeterWrapper: spectral sample not derived: %s", why.c_str());
+        return false;
+    }
+    nativeCal = native;
+    currentCal = current;
+    return true;
+}
+
+bool ArgyllMeterWrapper::isDisplayTypeCorrected(int index)
+{
+    if (m_meter == NULL || index < 0)
+    {
+        return false;
+    }
+    inst_disptypesel* displayTypes;
+    int numItems;
+    if (m_meter->get_disptypesel(m_meter, &numItems, &displayTypes, 0, 0) != inst_ok || index >= numItems)
+    {
+        return false;
+    }
+    return (displayTypes[index].flags & (inst_dtflags_ccss | inst_dtflags_ccmx)) != 0;
+}
+
+bool ArgyllMeterWrapper::deriveDisplayTypeCalibration(int displayTypeIndex, int& baseIndex, Matrix& nativeCal, Matrix& currentCal, std::string& why)
+{
+    if (!canExposeCalibrationMatrices())
+    {
+        why = "This meter's calibration matrices cannot be read.";
+        return false;
+    }
+    inst_disptypesel* displayTypes;
+    int numItems;
+    if (m_meter->get_disptypesel(m_meter, &numItems, &displayTypes, 0, 0) != inst_ok
+        || displayTypeIndex < 0 || displayTypeIndex >= numItems)
+    {
+        why = "The display type is not in the meter's list.";
+        return false;
+    }
+    const int flags = displayTypes[displayTypeIndex].flags;
+    const bool isCcss = (flags & inst_dtflags_ccss) != 0;
+    const bool isCcmx = (flags & inst_dtflags_ccmx) != 0;
+    if (!isCcss && !isCcmx)
+    {
+        why = "The display type carries no ccss or ccmx.";
+        return false;
+    }
+
+    // The entry's base, as the driver itself finds it (inst.c inst_creat_disptype_list,
+    // i1d3.c set_disp_type / set_base_disp_type). A ccmx entry is applied on top of the
+    // first plain entry whose cbid is the ccmx's cc_cbid. A ccss entry (cbid 0) replaces
+    // the default fit and sets the refresh mode from its own refr; the plain entry with
+    // the same refr is the same measurement mode under the default fit.
+    const int ccCbid = displayTypes[displayTypeIndex].cc_cbid;
+    const int refr = displayTypes[displayTypeIndex].refr;
+    int base = -1;
+    for (int i = 0; i < numItems; ++i)
+    {
+        if (displayTypes[i].flags & (inst_dtflags_ccss | inst_dtflags_ccmx))
+        {
+            continue;
+        }
+        // The refresh flag is compared as the driver uses it, zero or not: a ccss
+        // without DISPLAY_TYPE_REFRESH carries refr -1 (Tools/spectro/ccss.c, read_ccss:
+        // `p->refrmode = -1`), and the i1d3 driver runs any non-zero refr in refresh
+        // mode (i1d3.c update_refmode: `if (p->refrmode)` doubles the integration
+        // time). An exact compare against the built-ins' 0/1 found no base for it.
+        if (isCcmx ? (ccCbid != 0 && displayTypes[i].cbid == ccCbid) : ((displayTypes[i].refr != 0) == (refr != 0)))
+        {
+            base = i;
+            break;
+        }
+    }
+    if (base < 0)
+    {
+        why = "The display type's base entry was not found in the meter's list.";
+        return false;
+    }
+
+    bool ok = true;
+    bool sampleLoaded = false;
+    bool ccmatUnity = false;
+    Matrix current(Matrix::IdentityMatrix(3));
+    Matrix native(Matrix::IdentityMatrix(3));
+    inst_code instCode = m_meter->set_disptype(m_meter, displayTypeIndex);
+    m_SampleDescription.clear();
+    if (instCode != inst_ok)
+    {
+        why = m_meter->inst_interp_error(m_meter, instCode);
+        ok = false;
+    }
+    // A ccss entry must leave its sample in the driver; a ccmx entry its matrix.
+    else if (!readCalibration(current, sampleLoaded, ccmatUnity)
+        || (isCcss ? !sampleLoaded : (sampleLoaded || ccmatUnity)))
+    {
+        why = "The meter did not apply the display type's correction.";
+        ok = false;
+    }
+
+    // Leave the base selected on every path: the driver measures native.
+    instCode = m_meter->set_disptype(m_meter, base);
+    m_displayType = base;
+    m_SampleDescription.clear();
+    if (instCode != inst_ok && ok)
+    {
+        why = m_meter->inst_interp_error(m_meter, instCode);
+        ok = false;
+    }
+    if (ok && (!readCalibration(native, sampleLoaded, ccmatUnity) || sampleLoaded || !ccmatUnity))
+    {
+        why = "The meter did not return to its native calibration on the display type's base entry.";
+        ok = false;
+    }
+    if (ok && SpectralMatricesEqual(native, current))
+    {
+        why = "The display type's correction does not change the meter's calibration matrix.";
+        ok = false;
+    }
+    baseIndex = base;
+    if (!ok)
+    {
+        wrapperLog("ArgyllMeterWrapper: display type %d not derived: %s", displayTypeIndex, why.c_str());
+        return false;
+    }
+    nativeCal = native;
+    currentCal = current;
+    return true;
 }
 
 bool ArgyllMeterWrapper::doesSupportHiRes() const
@@ -967,11 +1334,50 @@ void ArgyllMeterWrapper::resetSpectralSample()
 {
     // reset the current description
     m_SampleDescription.clear();
-	inst_code instCode;
-	instCode=inst_ok;
-//    inst_code instCode = m_meter->col_cal_spec_set(m_meter, 0, 0);
-    //drop through this for now, it breaks refresh cal for d3 when user initiates using calibration button
-	//if user goes from a known ccss to none this will be a problem
+
+    // Take the samples out of the driver too. Leaving them to the next Init's
+    // setDisplayType was not enough: Init skips that call when HCFR holds no valid
+    // display type (the -1 an empty Display Type combo stores), and then "None"
+    // was shown while every reading stayed ccss-corrected for the session.
+    //
+    // A spectro never holds samples: it has no inst2_ccss capability,
+    // loadSpectralSample refuses it, and its col_cal_spec_set is inst.c's stub
+    // returning inst_unsupported - so there is nothing to clear. Nor does a driver
+    // that was never initialized (samples go in only after init: col_cal_spec_set
+    // returns inst_no_init before it); test that first, because the capability
+    // query below would otherwise connect and start the meter just to clear it.
+    if (m_meter == NULL || !m_meter->inited)
+        return;
+    if (!doesMeterSupportSpectralSamples())
+        return;
+
+    inst_code instCode;
+    int numTypes(getNumberOfDisplayTypes());
+    if (numTypes > 0 && m_displayType >= 0 && m_displayType < numTypes)
+    {
+        // Re-select the display type the meter is on. For the i1d3 that is
+        // set_disp_type, which for a native or ccmx entry runs i1d3_set_matcal
+        // (frees p->samples) and set_cal, and for an installed-ccss entry puts
+        // that entry's own samples back (i1d3_set_speccal); the Spyder's
+        // set_disp_type does the same (spyd2_set_matcal / spyd2_set_speccal).
+        // Either way the browsed samples are gone. It keeps the user's own type
+        // and, because the type's refresh mode is unchanged, update_refmode
+        // leaves the refresh calibration valid - the reason the old blanket
+        // col_cal_spec_set(NULL) call here was commented out ("breaks refresh
+        // cal for d3"): that one goes to the DEFAULT type instead.
+        instCode = m_meter->set_disptype(m_meter, m_displayType);
+    }
+    else
+    {
+        // No valid type to re-select (none set, or the list is empty): ask the
+        // driver for its default. i1d3_col_cal_spec_set and spyd2_col_cal_spec_set
+        // with NULL samples call set_default_disp_type, which frees the samples
+        // through set_disp_type as above. The refresh calibration survives only
+        // if the default type has the same refresh mode.
+        disptech dtech = disptech_unknown;
+        m_meter->get_disptechi(m_meter, &dtech, NULL, NULL);
+        instCode = m_meter->col_cal_spec_set(m_meter, dtech, NULL, 0);
+    }
 	if (instCode != inst_ok) 
     {
         std::string errorMessage("Resetting Colorimeter Calibration Spectral Samples failed with error :'");

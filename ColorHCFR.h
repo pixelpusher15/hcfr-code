@@ -93,6 +93,10 @@ class	CDataSetDoc ; //Ki
 CDataSetDoc * GetDataRef();	//Ki
 void SetDataRef(CDataSetDoc *m_pRefData);	//Ki
 void GuardCCModeOutputRange(int ccMode);	// import-range guard (USER patch list)
+struct CUserPatchSet;
+CUserPatchSet * GetActiveDocUserPatchSet();	// active doc's active user patch set, or NULL
+class CMeasure;
+void RefreshCCStateAfterSweep(const CMeasure * pSwept);	// the sweep is over: the document in front catches up
 void	UpdateDataRef(BOOL ActiveDataRef, CDataSetDoc * pDoc);	//Ki
 
 CColorHCFRConfig * GetConfig();
@@ -207,6 +211,8 @@ public:
 	afx_msg void OnUpdateViewSatLumshift(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateViewMeasuresCombo(CCmdUI* pCmdUI);
 	//}}AFX_MSG
+	afx_msg void OnFileOpenGuarded();
+	afx_msg BOOL OnOpenRecentFileGuarded(UINT nID);
 	DECLARE_MESSAGE_MAP()
 private:
     CrashDump m_enablesCrashDump;

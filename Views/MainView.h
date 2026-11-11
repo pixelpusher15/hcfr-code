@@ -55,11 +55,12 @@ class CCompSwatch : public CStatic
 public:
 	CCompSwatch() : m_side(0), m_fill(RGB(255,255,255)), m_hasColor(FALSE) {}
 
-	void SetContent(COLORREF fill, BOOL hasColor, LPCSTR value)
+	void SetContent(COLORREF fill, BOOL hasColor, LPCSTR value, LPCSTR label = NULL)
 	{
 		m_fill = fill;
 		m_hasColor = hasColor;
 		m_value = value;
+		m_label = label ? CString(label) : CString();   // per-update label override; empty = use control window text
 		if ( GetSafeHwnd() )
 			Invalidate(FALSE);
 	}
@@ -70,6 +71,7 @@ protected:
 	COLORREF	m_fill;
 	BOOL		m_hasColor;
 	CString		m_value;
+	CString		m_label;
 
 	afx_msg void OnPaint();
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
@@ -129,6 +131,7 @@ public:
 
 private:
     void AddColorToGrid(const ColorTriplet& color, GV_ITEM& Item, const char* format);
+    void BlankSelectedColorRows(GV_ITEM& Item, int count, int skip);
 
     BOOL		m_bPositionsInit;
     BOOL		m_bInSizeMove;
@@ -155,6 +158,10 @@ private:
 	CWnd *		m_pInfoWnd13;
 
 	void InsetInfoWindows();
+	void UpdateInfoDisplayLabels();
+	bool InfoPaneNeedsHDRRebuild() const;
+	CString m_infoDisplaySDRLabels[3];	// DLGINIT text of the gamma entries 3, 4 and 11
+	bool m_bInfoBuiltHDR;	// reference TF was PQ/HLG when the info pane was built
 
 
 // Attributes
@@ -265,6 +272,9 @@ protected:
 	protected:
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
 	virtual void OnInitialUpdate(); // called first time after construct
+	BOOL IsMdiActiveDocument();	// MDI walk resolves to this view's document (activation-ordering guard)
+	int ModeComboIndexFor(int mode);	// display mode -> mode-combo item ("Custom Sequences" alias for 11+USER)
+	void SyncModeComboToCCMode();	// mode 11: select the item the current CC mode maps to
 	virtual BOOL OnPreparePrinting(CPrintInfo* pInfo);
 	virtual void OnBeginPrinting(CDC* pDC, CPrintInfo* pInfo);
 	virtual void OnEndPrinting(CDC* pDC, CPrintInfo* pInfo);
@@ -304,6 +314,9 @@ public:
 	afx_msg void OnMeasureSatColorAllLevels();
 	afx_msg void OnSizePlus();
 	afx_msg void OnSizeMinus();
+	afx_msg void OnCcSetNamePicker();	// stats-bar name chip: user patch set picker (mode 11)
+	void ResyncCCControls();	// mode 11: combos and grid follow the CC state after activation
+	void SelectDisplayMode(int mode);	// show this display mode, as a mode-combo pick would
 
 // Generated message map functions
 protected:
@@ -348,6 +361,7 @@ protected:
 	afx_msg void OnRefs();
 	//}}AFX_MSG
 	afx_msg LRESULT OnSetUserInfoPostInitialUpdate(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnRebuildInfoDisplay(WPARAM wParam, LPARAM lParam);
  public:
 	DECLARE_MESSAGE_MAP()
 };

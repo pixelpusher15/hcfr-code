@@ -27,6 +27,7 @@
 #include "MainFrm.h"
 #include "Measure.h"
 #include "AsyncMeasurer.h"
+#include "ArchiveExtension.h"
 #include "Generator.h"
 #include "LuxScaleAdvisor.h"
 #include "DataSetDoc.h"
@@ -43,6 +44,9 @@ static char THIS_FILE[]=__FILE__;
 #endif
 
 #define PATTERN_SIZE (RANDOM250 * 100)
+// Base slot of the USER band inside m_cc24SatMeasureArray_master - the same
+// expression every CC read/write site uses for m_CCMode == USER.
+#define USER_BAND_BASE (PATTERN_SIZE + 250 + 500)
 
 //////////////////////////////////////////////////////////////////////
 // Grayscale level presets
@@ -237,6 +241,7 @@ struct SweepActiveGuard
             m_pMeasure->m_bAbortSweep = FALSE;
             m_pMeasure->m_bProfileCapturing = FALSE;
             g_bMeasureSweepActive = FALSE;
+            RefreshCCStateAfterSweep(m_pMeasure);
         }
     }
     BOOL Owned() const { return m_owned; }
@@ -379,8 +384,8 @@ void CMeasure::BuildPrimarySecondaryColors(CGenerator * pGenerator, ColorRGBDisp
 	// several dE.)
 	if (GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4)
 	{
-		CColor tmW = GetGray ( GetGrayScaleSize() - 1 );
-		CColor tmB = GetOnOffBlack();
+		CColor tmW = GetGrayScaleWhite ();
+		CColor tmB = GetGrayScaleBlack();
 		for (int ci = 0; ci < 6; ci++)
 		{
 			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
@@ -440,6 +445,45 @@ bool CMeasure::IsPlaceholderWhite ( const CColor & c, bool bOnOff )
 	return y > 0.0 && fabs ( v[0] - y * 0.95047 ) <= 1e-9 * y && fabs ( v[2] - y * 1.08883 ) <= 1e-9 * y;
 }
 
+// The nominal on/off black the constructor pre-loads. Its Z factor, 1.08833, is
+// a long-standing slip for D65's 1.08883; it stays, because every document saved
+// without a black measurement stores this value verbatim, and the odd ratio is
+// what makes the placeholder unmistakable (IsRawlessPlaceholder).
+static ColorXYZ PlaceholderOnOffBlack()
+{
+	double L = GetConfig()->m_TargetMinL;
+	return ColorXYZ ( L * 0.95047, L, L * 1.08833 );
+}
+
+// A constructor placeholder the recalibration walks must neither recompute nor
+// count as a raw-less reading: the top gray slot (PlaceholderPrimeWhite) or the
+// on/off black (PlaceholderOnOffBlack). The test is "no raw value AND the
+// placeholder's exact chromaticity ratios", which cannot take a real reading:
+// - every reading this build takes carries raw (CSensor::MeasureColor is the only
+//   caller of SetRawXYZValue), so it is never even compared;
+// - a raw-less reading (an older file, or a hand edit) would have to hit X/Y and
+//   Z/Y to 1e-9 relative. A meter's noise is orders of magnitude coarser, and the
+//   ratios are HCFR's own constants (D65 from x,y 0.3127,0.3290 gives X/Y
+//   0.950456, not 0.95047), so not even a modeled reading lands on them. The
+//   black's Z/Y of 1.08833 exists nowhere else; the synthetic blacks MainView and
+//   m_userBlack build use 1.0883, 3e-5 away;
+// - an all-zero black (the placeholder when m_TargetMinL is 0) is not stranded
+//   under any matrix, since M * 0 = 0, so leaving it out of the count is true
+//   for a real zero reading too.
+// Ratios, not values, so a later m_TargetMinL/MaxL change does not unmask it.
+bool CMeasure::IsRawlessPlaceholder ( const CColor & c, bool bBlack )
+{
+	if ( ! c.isValid() || c.HasRawXYZValue() )
+		return false;
+	if ( ! bBlack )
+		return IsPlaceholderWhite ( c, false );
+	ColorXYZ v = c.GetXYZValue();
+	double y = v[1];
+	if ( v[0] == 0.0 && y == 0.0 && v[2] == 0.0 )
+		return true;
+	return y > 0.0 && fabs ( v[0] - y * 0.95047 ) <= 1e-9 * y && fabs ( v[2] - y * 1.08833 ) <= 1e-9 * y;
+}
+
 IMPLEMENT_SERIAL(CMeasure, CObject, 1)
 
 CMeasure::CMeasure()
@@ -469,7 +513,13 @@ CMeasure::CMeasure()
 		else
 		{
 			int nGray = GetConfig()->GetProfileInt("Scale Sizes","Gray",10);	// legacy step count (points-1)
-			int nLegacy = ( nGray == 4 ) ? 0 : ( nGray == 10 ) ? 2 : ( nGray == 20 ) ? 4 : -1;
+			// Legacy step counts map onto s_grayPresets by index: 4 -> [0] 5-point,
+			// 10 -> [2] 11-point, 20 -> [5] 21-point. Reached only when the INI has
+			// no "GrayPreset" key (a profile written before the preset list existed)
+			// and "Gray" holds one of those three values; 20 used to land on [4],
+			// the 16-point near-black preset, so an upgrader's 21-point gray scale
+			// silently became a 16-point one.
+			int nLegacy = ( nGray == 4 ) ? 0 : ( nGray == 10 ) ? 2 : ( nGray == 20 ) ? 5 : -1;
 			if ( nLegacy >= 0 )
 			{
 				levels.SetSize(pPresets[nLegacy].count);
@@ -496,6 +546,7 @@ CMeasure::CMeasure()
 	m_cc24SatMeasureArray_master.SetSize(5 * MAX_USER_CC_PATCH_SIZE);
 
 	m_activeSatLevel = 1.0;
+	m_activeUserSet = -1;
 
 	m_profileGeneration = 0;
 	ClearProfileMeasures();
@@ -513,7 +564,7 @@ CMeasure::CMeasure()
 	for(int i=0;i<m_grayMeasureArray.GetSize();i++)	// Init default values: by default m_grayMeasureArray init to D65, Y=1
 		m_grayMeasureArray[i]=GetPrimary(0);	
 
-	m_grayMeasureArray[m_grayMeasureArray.GetSize()-1].SetXYZValue(ColorXYZ(GetConfig()->m_TargetMaxL*0.95047,GetConfig()->m_TargetMaxL,GetConfig()->m_TargetMaxL*1.08883));
+	m_grayMeasureArray[m_grayMeasureArray.GetSize()-1].SetXYZValue(PlaceholderPrimeWhite());	// a placeholder (IsRawlessPlaceholder)
 
 	for(int i=0;i<m_nearBlackMeasureArray.GetSize();i++)
 		m_nearBlackMeasureArray[i]=noDataColor;	
@@ -537,7 +588,7 @@ CMeasure::CMeasure()
 	m_bOnOffWhiteMeasured = FALSE;	// likewise a placeholder
 	m_PrimeWhite.SetXYZValue(PlaceholderPrimeWhite());
 	m_bPrimeWhiteMeasured = FALSE;	// the line above is a placeholder for the charts, not a reading
-	m_OnOffBlack.SetXYZValue(ColorXYZ(GetConfig()->m_TargetMinL*0.95047,GetConfig()->m_TargetMinL,GetConfig()->m_TargetMinL*1.08833));
+	m_OnOffBlack.SetXYZValue(PlaceholderOnOffBlack());	// a placeholder too (IsRawlessPlaceholder)
 	m_AnsiBlack=m_AnsiWhite=noDataColor;
 	m_CCStr = (CString)"";
 	SetInfoString((CString)"Calibration by: \r\nDisplay: \r\nNote: \r\n");
@@ -617,6 +668,8 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 				m_cc24SatMeasureArray[i]=p->m_cc24SatMeasureArray[i];
 			for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)
 				m_cc24SatMeasureArray_master[i]=p->m_cc24SatMeasureArray_master[i];
+			m_userPatchSets = p->m_userPatchSets;
+			m_activeUserSet = p->m_activeUserSet;
 			break;
 
 		case DUPLSECONDARIESSAT:		// Secondaries saturation measure
@@ -638,6 +691,8 @@ void CMeasure::Copy(CMeasure * p,UINT nId)
 				m_cc24SatMeasureArray[i]=p->m_cc24SatMeasureArray[i];
 			for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)
 				m_cc24SatMeasureArray_master[i]=p->m_cc24SatMeasureArray_master[i];
+			m_userPatchSets = p->m_userPatchSets;
+			m_activeUserSet = p->m_activeUserSet;
 			break;
 
 		case DUPLPRIMARIESCOL:		// Primaries measure
@@ -707,14 +762,15 @@ void CMeasure::Serialize(CArchive& ar)
 
 	if (ar.IsStoring())
 	{
-		// Version 21 only when a display profile exists: documents without one keep
-		// version 19 so they stay readable by older builds. 21 adds the two
-		// white-was-measured flags to the end of the version-20 profile block; 20
-		// itself stays readable, so profiles written by earlier builds still load.
-	    int version = HasProfileMeasures() ? 21 : 19;
+		// Version 22 (issue #193): the v21 layout with the display-profile block
+		// always present (empty when there is no profile, the two white-was-
+		// measured flags at its end either way), then an extension trailer. One
+		// version from here on: new fields go in the trailer.
+	    int version = 22;
 		ar << version;
 
 		StoreActiveSatLevel();	// capture the bound sweeps before writing the store
+		SyncActiveUserPatchSetFromBand();	// harvest the active set's measures from the USER band
 
 		ar << GetConfig()->m_BT2390_BS;
 		ar << GetConfig()->m_BT2390_WS;
@@ -866,8 +922,24 @@ void CMeasure::Serialize(CArchive& ar)
 			}
 		}
 
-		// Version 20: display profile capture (see version selection above)
-		if ( HasProfileMeasures() )
+		// Version 20: display profile capture. Since version 22 the block is
+		// always written; without a profile it is the settings, an empty
+		// measure list (just the end marker) and no anchors.
+		if ( ! HasProfileMeasures() )
+		{
+			ar << m_profileCubeSize;
+			ar << m_profileGrayExtras;
+			ar << m_profileDriftComp;
+			ar << m_profileCaptureSeconds;
+			ar << (int) 0;
+			MarkerColor.Serialize(ar);
+			ar << (int) 0;
+			// The loader reads the flags at the end of every version 21+ profile
+			// block, and since version 22 that block is always present.
+			ar << m_bPrimeWhiteMeasured;
+			ar << m_bOnOffWhiteMeasured;
+		}
+		else
 		{
 			ar << m_profileCubeSize;
 			ar << m_profileGrayExtras;
@@ -900,15 +972,20 @@ void CMeasure::Serialize(CArchive& ar)
 			ar << m_bPrimeWhiteMeasured;
 			ar << m_bOnOffWhiteMeasured;
 		}
+
+		// The trailer carries the user patch set collection (tag
+		// MEASURE_USER_PATCH_SETS, libHCFR/UserPatchSetStream.h) when there is
+		// one; the active set's measures were harvested from the USER band at
+		// the top of the store.
+		StoreMeasureTrailer ( ar, m_userPatchSets, m_activeUserSet );
 	}
 	else
 	{
 	    int version;
 		ar >> version;
 
-
-		if ( version > 21 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 22 )
+			throw new CNewerSchemaException ( "CMeasure", version );
 
 
 		if ( version > 16)
@@ -988,8 +1065,17 @@ void CMeasure::Serialize(CArchive& ar)
 				GetConfig()->m_whiteTarget = WhiteTarget(in[0]);
 				GetConfig()->m_CCMode = CCPatterns(in[1]);
 				GetConfig()->m_colorStandard = ColorStandard(in[2]);
+				// Read the old white before freeing the reference: the "Custom Color
+				// only" branch below passes it, as ApplySettings does (SHELL-016), and
+				// used to read it from the freed object. The constructor only uses it
+				// for a custom white, which that branch excludes.
+				ColorXYZ savedRefWhite;
 				if (GetColorApp()->m_pColorReference)
+				{
+					savedRefWhite = GetColorApp()->m_pColorReference->GetWhite();
 					delete GetColorApp()->m_pColorReference;
+					GetColorApp()->m_pColorReference = NULL;
+				}
 				if (WhiteTarget(in[0]) == DCUST && in[2] != CUSTOM) //Custom White only
 				{
 					ColorxyY whitecolor = ColorxyY(in2[3], in2[4]);
@@ -1000,7 +1086,7 @@ void CMeasure::Serialize(CArchive& ar)
 					ColorxyY redcolor = ColorxyY(in2[6], in2[9]);
 					ColorxyY greencolor = ColorxyY(in2[7], in2[10]);
 					ColorxyY bluecolor = ColorxyY(in2[5], in2[8]);
-					GetColorApp()->m_pColorReference = new CColorReference(ColorStandard(in[2]), WhiteTarget(in[0]), -1, " modified", GetColorApp()->m_pColorReference->GetWhite(), redcolor, greencolor, bluecolor);
+					GetColorApp()->m_pColorReference = new CColorReference(ColorStandard(in[2]), WhiteTarget(in[0]), -1, " modified", savedRefWhite, redcolor, greencolor, bluecolor);
 				}
 				else if (in[2] == CUSTOM && in[0] == DCUST)	//Both
 				{
@@ -1336,6 +1422,28 @@ void CMeasure::Serialize(CArchive& ar)
 			}
 			m_profileGeneration++;
 		}
+
+		// Version 22: extension trailer, the last thing in the block. A
+		// document without the MEASURE_USER_PATCH_SETS tag (every one before
+		// version 22, and any saved without a loaded set) has no sets.
+		m_userPatchSets.clear();
+		m_activeUserSet = -1;
+		if ( version >= 22 )
+		{
+			std::vector<CUserPatchSet> sets;
+			int active = -1;
+			LoadMeasureTrailer ( ar, sets, active );
+			m_userPatchSets.swap ( sets );
+			m_activeUserSet = active;
+		}
+
+		// A set-less document whose USER band holds readings gets them wrapped
+		// into one active set here, whatever its version: with no set loaded,
+		// GetCColors shows USER as empty ("No sequence loaded") and the
+		// readings would sit under no definition. No-op when sets were loaded
+		// or the band is empty.
+		MigrateLegacyUserBand ();
+
 		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
 
 	}
@@ -1387,8 +1495,8 @@ void CMeasure::GetRefProfileSat(int i, CColor & ccRef)
 {
 	ColorRGBDisplay rgbd = GetProfilePatchRGB ( i );
 	CColorReference cRef = GetColorReference();
-	CColor White = GetGray ( GetGrayScaleSize() - 1 );
-	CColor Black = GetOnOffBlack();
+	CColor White = GetGrayScaleWhite ();
+	CColor Black = GetGrayScaleBlack();
 	double gamma = GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef);
 	CColor tempColor;
 	int mode = GetConfig()->m_GammaOffsetType;
@@ -1586,7 +1694,7 @@ double CMeasure::ComputeProfileDEEx(const CColor & c, int i, ProfileDEParts * pP
 		// from the 1.0 = 10000 nits convention by GetHDRRefScale (the unified,
 		// tone-map-aware form the 3D viewer also uses; = 105.95640 with tone
 		// mapping off), measurement anchored to the measured white as-is.
-		double tmWhite = TmDiffuseWhiteNits( GetOnOffWhite(), GetOnOffBlack() );
+		double tmWhite = TmDiffuseWhiteNits( GetGrayScaleWhite(), GetGrayScaleBlack() );
 		if ( tmWhite > 0.0 )
 		{
 			// 10000/tmWhite IS GetHDRRefScale() here (mode-5 getL_EOTF ignores
@@ -1683,31 +1791,74 @@ void CMeasure::SetGrayScaleLevels(const double * pLevels, int count)
 
 double CMeasure::GetGrayPercent(int index, bool bUseRoundDown, bool b10bit, bool is16_235) const
 {
-	int size = m_grayMeasureArray.GetSize ();
+	// Snap the stored nominal IRE % to the active output grid. The stored
+	// levels are nominal percentages, never codes, so this is the one place
+	// the grid is applied to them - GrayLevelToGrayProp is the same snap
+	// expressed as a 0..1 proportion, so route through it and there is a
+	// single definition of the grid rounding. Without one nominal level per
+	// slot, the even ramp (ArrayIndexToGrayLevel); for a uniform level set the
+	// two agree exactly. The arithmetic is libHCFR's GrayScaleSlotLevel, which
+	// the series accessors below also use, so slot i has one definition.
+	//
+	// THE RULE: this is the level the NEXT measurement of gray slot i is
+	// driven at, on the CURRENT grid (range and bit depth); the sweeps, the
+	// background measure and the test-pattern window use it for exactly that.
+	// A reading that already exists is described by its wire stamp when the
+	// stamp says realDrive (GetGrayReadingLevel / Prop below, and THE RULE in
+	// libHCFR/Color.cpp), and by this value only otherwise - a file saved
+	// before the stamp, a placeholder, a manual or external generator. So a
+	// .chc measured on a full-range wire keeps its 10.196% (code 26 of 255)
+	// when opened on a limited-range setup, where the next sweep will drive
+	// 10.046% (code 22 of 219 above 16). m_grayIRELevelArray serializes the
+	// NOMINAL levels, so nothing on disk depends on the grid either way.
+	return GrayScaleSlotLevel ( index, m_grayMeasureArray.GetSize(), m_grayIRELevelArray.GetData(), m_grayIRELevelArray.GetSize(), bUseRoundDown, b10bit, is16_235 );
+}
 
-	if ( m_grayIRELevelArray.GetSize() == size && index >= 0 && index < size )
+GraySeriesView CMeasure::GetGraySeriesView(GraySeries series) const
+{
+	GraySeriesView v;
+	v.series = series;
+	v.nominalLevels = NULL;
+	v.nominalCount = 0;
+	v.nearWhiteClipCol = (int) m_NearWhiteClipCol;
+	v.pqNearBlack = ( GetConfig()->m_GammaOffsetType == 5 );
+	v.bUseRoundDown = ( GetConfig()->m_bUseRoundDown != FALSE );
+	v.b10bit = ( GetConfig()->GetUse10bitLevels() != FALSE );
+	v.is16_235 = ( GetConfig()->GetRGB16_235() != FALSE );
+	switch ( series )
 	{
-		// Snap the stored nominal IRE % to the active output grid. The stored
-		// levels are nominal percentages, never codes, so this is the one place
-		// the grid is applied to them - GrayLevelToGrayProp is the same snap
-		// expressed as a 0..1 proportion, so route through it and there is a
-		// single definition of the grid rounding.
-		// For a uniform level set this reproduces ArrayIndexToGrayLevel() exactly.
-		//
-		// SAVED DOCUMENTS: m_grayIRELevelArray serializes the NOMINAL levels, so
-		// nothing on disk is rewritten by the grid choice - the snap is applied
-		// live, at display time, from the CURRENT config. A .chc saved while the
-		// wire was full-range therefore reloads with 255-grid IRE labels (10.196%
-		// where the limited grid reads 10.046%), and the same document opened on
-		// a limited-range setup reads the limited labels. That is the same
-		// already-established behavior as toggling the 10-bit checkbox, and it is
-		// the correct one: the label must describe the grid the user is measuring
-		// on now, not the one the file happened to be captured on. The stored
-		// measurements are untouched either way.
-		return GrayLevelToGrayProp ( m_grayIRELevelArray[index], bUseRoundDown, b10bit, is16_235 ) * 100.0;
+		case GRAY_SERIES_NEAR_BLACK:
+			v.readings = m_nearBlackMeasureArray.GetData();
+			v.size = m_nearBlackMeasureArray.GetSize();
+			break;
+		case GRAY_SERIES_NEAR_WHITE:
+			v.readings = m_nearWhiteMeasureArray.GetData();
+			v.size = m_nearWhiteMeasureArray.GetSize();
+			break;
+		default:
+			v.series = GRAY_SERIES_GRAYSCALE;
+			v.readings = m_grayMeasureArray.GetData();
+			v.size = m_grayMeasureArray.GetSize();
+			v.nominalLevels = m_grayIRELevelArray.GetData();
+			v.nominalCount = m_grayIRELevelArray.GetSize();
+			break;
 	}
+	return v;
+}
 
-	return ArrayIndexToGrayLevel ( index, size, bUseRoundDown, b10bit, is16_235 );
+bool CMeasure::GetGrayReadingDrive(GraySeries series, int index, double * pProp) const
+{
+	return GraySeriesDriveProp ( GetGraySeriesView ( series ), index, pProp );
+}
+
+double CMeasure::GetGrayReadingLevel(GraySeries series, int index) const
+{
+	return GraySeriesLevel ( GetGraySeriesView ( series ), index );
+}
+
+double CMeasure::GetGrayReadingProp(GraySeries series, int index) const
+{
+	return GraySeriesProp ( GetGraySeriesView ( series ), index );
 }
 
 int CMeasure::GetGrayScalePreset() const
@@ -4084,6 +4235,35 @@ BOOL CMeasure::MeasureMagentaSatScale(CSensor *pSensor, CGenerator *pGenerator, 
 	return TRUE;
 }
 
+// USER with no rows has nothing to drive, and the sweep's closing band copy would
+// still wipe every reading the USER band holds. Refused, with the reason, before
+// the sweep touches anything.
+static BOOL RefuseEmptyUserSweep ( int nPatches )
+{
+	if ( GetConfig()->m_CCMode != USER || nPatches > 0 )
+		return FALSE;
+	CString strMsg, Title;
+	Title.LoadString ( IDS_ERROR );
+	strMsg.LoadString ( IDS_USERSET_NONE_LOADED );
+	GetColorApp()->InMeasureMessageBox(strMsg,Title,MB_ICONERROR | MB_OK);
+	return TRUE;
+}
+
+// Shared stamp for every path that commits a measured CC patch (foreground
+// sweep, all-saturations sweep, background validate, single-slot re-measure).
+// Rides alongside the stimulus/raw-XYZ the sensor already captured; label
+// provenance only exists for file-backed sets, so inline modes no-op here.
+void CMeasure::StampCCProvenance ( CColor & c, int slotIndex )
+{
+	BOOL isExtPat =( GetConfig()->m_CCMode == USER || GetConfig()->m_CCMode == CM10SAT || GetConfig()->m_CCMode == CM10SAT75 || GetConfig()->m_CCMode == CM5SAT || GetConfig()->m_CCMode == CM5SAT75 || GetConfig()->m_CCMode == CM4SAT || GetConfig()->m_CCMode == CM4SAT75 || GetConfig()->m_CCMode == CM4LUM || GetConfig()->m_CCMode == CM5LUM || GetConfig()->m_CCMode == CM10LUM || GetConfig()->m_CCMode == RANDOM250 || GetConfig()->m_CCMode == RANDOM500 || GetConfig()->m_CCMode == CM6NB || GetConfig()->m_CCMode == CMDNR || GetConfig()->m_CCMode == MASCIOR50);
+	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
+	if ( !isExtPat )
+		return;
+	CColorProvenance prov = GetConfig()->GetCColorsProvenance(slotIndex);
+	prov.sequenceIndex = slotIndex;
+	c.SetProvenance(prov);
+}
+
 BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDataSetDoc *pDoc)
 {
 	SweepActiveGuard _sweepGuard(this, "ColorChecker");
@@ -4101,6 +4281,8 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	isExtPat = (isExtPat || GetConfig()->m_CCMode > 19);
 
     if (isExtPat) size = GetConfig()->GetCColorsSize();
+	if ( RefuseEmptyUserSweep ( size ) )
+		return FALSE;
 
     CArray<CColor,int> measuredColor;
 
@@ -4240,6 +4422,10 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 						measuredColor[23-i] = PumpedRead(asyncMeasure, pSensor, GenColors[i], displaymode);
 				}
 
+				// Stamp provenance HERE (during the sweep), not only in the final commit loop, so the
+				// live point display shows Driven/unclamped as each patch reads - not the clamped Reference.
+				// Addressed by SLOT, like the store below: MCD permutes iteration and slot.
+				StampCCProvenance ( measuredColor[nSlot], nSlot );
 				m_cc24SatMeasureArray[nSlot] = measuredColor[nSlot];
 
 				if ( bUseLuxValues )
@@ -4365,6 +4551,11 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 			m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[nIter] );
 		else
 			m_cc24SatMeasureArray[i].ResetLuxValue ();
+		// Stamp per-patch label provenance (patch#/name/bit-depth/range) so the measurement stays
+		// self-describing independent of the patch-list file it came from - this rides alongside the
+		// stimulus/raw-XYZ the sensor already stamped. File-backed sets only (isExtPat); inline modes
+		// (GCD/MCD/...) carry no patch list. sequenceIndex records the order measured.
+		StampCCProvenance ( m_cc24SatMeasureArray[i], i );
 	}
 
 	GetConfig()->m_isSettling = doSettling;
@@ -4406,10 +4597,10 @@ void CMeasure::ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, do
 		double f = fFrom + t * ( fTo - fFrom );
 		if ( f <= 0.0 )
 			continue;
-		double x = m_profileMeasureArray[j].GetX() / f;
-		double y = m_profileMeasureArray[j].GetY() / f;
-		double z = m_profileMeasureArray[j].GetZ() / f;
-		m_profileMeasureArray[j].SetXYZValue ( ColorXYZ(x, y, z) );
+		// Scalar drift compensation: write it through the stored raw as well
+		// (a scalar commutes with the correction matrix), so the raw stays in
+		// step with the corrected value it is supposed to reproduce.
+		m_profileMeasureArray[j].ScaleXYZ ( 1.0 / f );
 	}
 	m_profileGeneration++;
 }
@@ -5017,6 +5208,8 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
          ccSize = GetConfig()->GetCColorsSize();
 		 break;
 	}
+	if ( ! bPrimaryOnly && RefuseEmptyUserSweep ( ccSize ) )
+		return FALSE;
 	
 	CGenerator::MeasureType	SaturationType [ 7 ] =
 							{
@@ -5152,11 +5345,11 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 						if ((i+j*size)<6*size&&(i+j*size)>=5*size)
 							m_magentaSatMeasureArray[i] = measuredColor[j*size+i];
 						if ((i+j*size)>=6*size)
-							m_cc24SatMeasureArray[i] = measuredColor[j*size+i];
+							{ m_cc24SatMeasureArray[i] = measuredColor[j*size+i]; StampCCProvenance ( m_cc24SatMeasureArray[i], i ); }
 					} else
 					{
 						if ((i+j*size)>=3*size)
-							m_cc24SatMeasureArray[i] = measuredColor[j*size+i];
+							{ m_cc24SatMeasureArray[i] = measuredColor[j*size+i]; StampCCProvenance ( m_cc24SatMeasureArray[i], i ); }
 					}
 					if ( bUseLuxValues )
 					{
@@ -5280,21 +5473,17 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 
 			m_magentaSatMeasureArray[i] = measuredColor[(5*size)+i];
 
-			m_cc24SatMeasureArray[i] = measuredColor[(6*size)+i];
-
 			if ( bUseLuxValues )
 			{
 				m_yellowSatMeasureArray[i].SetLuxValue ( measuredLux[(3*size)+i] );
 				m_cyanSatMeasureArray[i].SetLuxValue ( measuredLux[(4*size)+i] );
 				m_magentaSatMeasureArray[i].SetLuxValue ( measuredLux[(5*size)+i] );
-				m_cc24SatMeasureArray[i].SetLuxValue ( measuredLux[(6*size)+i] );
 			}
 			else
 			{
 				m_yellowSatMeasureArray[i].ResetLuxValue ();
 				m_cyanSatMeasureArray[i].ResetLuxValue ();
 				m_magentaSatMeasureArray[i].ResetLuxValue ();
-				m_cc24SatMeasureArray[i].ResetLuxValue ();
 			}
 		}
 	}
@@ -5305,6 +5494,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 				if (GetConfig()->m_CCMode != MCD)
 				{
 					m_cc24SatMeasureArray[i] = measuredColor[(6*size)+i];
+					StampCCProvenance ( m_cc24SatMeasureArray[i], i );
 				}
 				else
 				{
@@ -6567,10 +6757,13 @@ double CMeasure::GetOnOffContrast ()
 	double	black = m_OnOffBlack.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	double	white = m_OnOffWhite.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	
-	if ( black > 0.0 && white > black )
+	// No measured light is the sensor floor's placeholder, not a black level:
+	// against a white that has light, report it as the zero it stands for
+	// (-1, printed as Infinite). With no measured white there is no ratio.
+	if ( HasMeasuredLight ( black ) && white > black )
 		return ( white / black );
 	else
-		if (black == 0)
+		if ( black >= 0.0 && !HasMeasuredLight ( black ) && HasMeasuredLight ( white ) )
 			return -1.0;
 		else
 			return -2.0;
@@ -6581,10 +6774,11 @@ double CMeasure::GetAnsiContrast ()
 	double	black = m_AnsiBlack.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	double	white = m_AnsiWhite.GetPreferedLuxValue (GetConfig () -> m_bPreferLuxmeter);
 	
-	if ( black > 0.000001 && white > black )
+	// Same contract as GetOnOffContrast.
+	if ( HasMeasuredLight ( black ) && white > black )
 		return ( white / black );
 	else
-		if (black == 0)
+		if ( black >= 0.0 && !HasMeasuredLight ( black ) && HasMeasuredLight ( white ) )
 			return -1.0;
 		else
 			return -2.0;
@@ -6658,6 +6852,9 @@ BOOL CMeasure::AddMeasurement(CSensor *pSensor, CGenerator *pGenerator,  CGenera
 	{
         // don't know the color to measure so default value to mid gray...
 		clr = ColorRGBDisplay(RGB(128,128,128));
+		// Nothing displayed this placeholder: drop any display record so the
+		// read can never be stamped as a real patch (WireSetup.h).
+		WireDisplayRecord::Invalidate();
 		bOk = TRUE;
 	}
 
@@ -6699,75 +6896,282 @@ BOOL CMeasure::AddMeasurement(CSensor *pSensor, CGenerator *pGenerator,  CGenera
 	return TRUE;
 }
 
-void CMeasure::ApplySensorAdjustmentMatrix(const Matrix& aMatrix)
+// Recalibrates a single stored measurement. When the measurement retains its
+// original raw (uncorrected) sensor reading, fullMatrix is applied to that raw
+// value directly; otherwise (legacy data recorded before raw-value capture was
+// added) fall back to composing deltaMatrix onto the already-corrected value,
+// matching this function's previous behavior. deltaMatrix and fullMatrix must
+// be equivalent (deltaMatrix = fullMatrix * inverse(previous full matrix)) -
+// passing the same matrix for both is fine when there is no meaningful "delta"
+// (e.g. a freshly loaded calibration file replacing everything wholesale).
+// bComposeLegacy false: the raw-less value embodies an untracked matrix (the sensor
+// was on Bodner, which skipped it) - leave it and count it, as the Bodner path does.
+static void ReapplyAdjustmentMatrix(CColor& color, const Matrix& deltaMatrix, const Matrix& fullMatrix, bool bComposeLegacy, int& nSkipped)
 {
-	for(int i=0;i<m_grayMeasureArray.GetSize();i++)  // Preserve sensor values 
+	if ( color.HasRawXYZValue() )
+		color.SetXYZValue(ColorXYZ(fullMatrix * color.GetRawXYZValue()));
+	else if ( !bComposeLegacy )
+	{
+		if ( color.isValid() )
+			nSkipped++;
+	}
+	else
+		color.applyAdjustmentMatrix(deltaMatrix);
+}
+
+// Recalibrates a single stored measurement under Bodner's per-sub-gamut method.
+// Requires the raw sensor reading (there is no meaningful delta-compose fallback
+// for a per-sub-gamut method); returns false only when the slot actually holds a
+// measurement (isValid()) but has no raw value (legacy data). Slots that were
+// simply never measured (still noDataColor) are left alone and don't count as a
+// recalibration failure.
+static bool ReapplyBodnerMatrix(CColor& color, const Matrix rawInv[3], const bool rawOk[3], const Matrix calMatrix[3])
+{
+	if ( !color.isValid() )
+		return true;
+
+	if ( !color.HasRawXYZValue() )
+		return false;
+
+	color.SetXYZValue(SelectAndApplyBodnerMatrixInv(color.GetRawXYZValue(), rawInv, rawOk, calMatrix));
+	return true;
+}
+
+// Two slots holding one raw-less reading: a grayscale run copies its black and
+// white into the on/off contrast slots, and a version <= 8 file seeds the prime
+// white from the on/off one. Both copies are recomputed, but the reading is
+// counted once. Bit-identical XYZ with no raw on either side: two separate meter
+// readings never agree to the last bit, and both copies take the same transform
+// in every walk, so they stay identical. (Two all-zero blacks would match too;
+// a zero is not stranded under any matrix, so the count stays true.)
+static bool SameRawlessReading ( const CColor & a, const CColor & b )
+{
+	if ( ! a.isValid() || ! b.isValid() || a.HasRawXYZValue() || b.HasRawXYZValue() )
+		return false;
+	ColorXYZ va = a.GetXYZValue(), vb = b.GetXYZValue();
+	return va[0] == vb[0] && va[1] == vb[1] && va[2] == vb[2];
+}
+
+// Which copies of the mirrored readings a walk counts (both are recomputed):
+// - color checker: the array GetCC24Sat serves - the live array for a pre-3.3.0
+//   file (m_bpreV10, no per-set master), else the master; the live array is
+//   then a working copy of one master band.
+// - saturation: the live m_*SatMeasureArray sweeps; m_satLevelStore's entry for
+//   the active level is their mirror (StoreActiveSatLevel). Every other level
+//   is counted from the store.
+// - on/off black and white, prime white: unless they hold the same raw-less
+//   reading as the slot they were copied from (SameRawlessReading).
+// - the top gray slot and the on/off black are not walked at all while they
+//   hold the constructor's placeholder (IsRawlessPlaceholder).
+int CMeasure::ApplySensorAdjustmentMatrix(const Matrix& deltaMatrix, const Matrix& fullMatrix, bool bComposeLegacy)
+{
+	int nSkipped = 0;
+	int nMirror = 0;	// skips in a copy whose reading is counted elsewhere
+	const int nGray = m_grayMeasureArray.GetSize();
+	// Taken before the walk: a composed placeholder would lose its signature.
+	const bool bGrayTopPlaceholder = nGray > 0 && IsRawlessPlaceholder ( m_grayMeasureArray[nGray-1], false );
+	const bool bBlackPlaceholder = IsRawlessPlaceholder ( m_OnOffBlack, true );
+	const bool bBlackCopy = nGray > 0 && SameRawlessReading ( m_OnOffBlack, m_grayMeasureArray[0] );
+	const bool bOnOffWhiteCopy = nGray > 0 && SameRawlessReading ( m_OnOffWhite, m_grayMeasureArray[nGray-1] );
+	const bool bPrimeWhiteCopy = SameRawlessReading ( m_PrimeWhite, m_OnOffWhite )
+		|| ( nGray > 0 && SameRawlessReading ( m_PrimeWhite, m_grayMeasureArray[nGray-1] ) );
+	for(int i=0;i<nGray;i++)  // Preserve sensor values
+	{
+				if (!i && m_bOverRideBlack)
+					m_grayMeasureArray[i] = m_userBlack;
+				else if ( i == nGray-1 && bGrayTopPlaceholder )
+					;	// the constructor's placeholder, not a reading
+				else
+					ReapplyAdjustmentMatrix(m_grayMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+
+	for(int i=0;i<m_nearBlackMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_nearBlackMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_nearWhiteMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_nearWhiteMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_redSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_redSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_greenSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_greenSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_blueSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_blueSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_yellowSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_yellowSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_cyanSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_cyanSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<m_magentaSatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_magentaSatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	int & nCountLiveCC = ( m_bpreV10 > 0 ) ? nSkipped : nMirror;
+	int & nCountMasterCC = ( m_bpreV10 > 0 ) ? nMirror : nSkipped;
+	for(int i=0;i<m_cc24SatMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_cc24SatMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nCountLiveCC);
+	}
+	for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_cc24SatMeasureArray_master[i], deltaMatrix, fullMatrix, bComposeLegacy, nCountMasterCC);
+	}
+	for(int i=0;i<m_profileMeasureArray.GetSize();i++)  // Preserve sensor values
+	{
+		ReapplyAdjustmentMatrix(m_profileMeasureArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<3;i++)
+	{
+		ReapplyAdjustmentMatrix(m_primariesArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+	for(int i=0;i<3;i++)
+	{
+		ReapplyAdjustmentMatrix(m_secondariesArray[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	}
+
+	// The on/off black placeholder is left out like the unmeasured whites below.
+	if (!m_bOverRideBlack && !bBlackPlaceholder)
+		ReapplyAdjustmentMatrix(m_OnOffBlack, deltaMatrix, fullMatrix, bComposeLegacy, bBlackCopy ? nMirror : nSkipped);
+
+	// An unmeasured white is the constructor's placeholder (nominal D65 at the
+	// target luminance), not a reading: neither recalibrate it nor count it as a
+	// skipped raw-less reading - counted, it kept nSkipped above 0 on every walk,
+	// so a stranded state never re-armed and each walk showed the skip notice.
+	if ( m_bOnOffWhiteMeasured )
+		ReapplyAdjustmentMatrix(m_OnOffWhite, deltaMatrix, fullMatrix, bComposeLegacy, bOnOffWhiteCopy ? nMirror : nSkipped);
+
+	if ( m_bPrimeWhiteMeasured )
+		ReapplyAdjustmentMatrix(m_PrimeWhite, deltaMatrix, fullMatrix, bComposeLegacy, bPrimeWhiteCopy ? nMirror : nSkipped);
+
+	ReapplyAdjustmentMatrix(m_AnsiBlack, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+
+	ReapplyAdjustmentMatrix(m_AnsiWhite, deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+
+	// Every measured saturation level, not only the one bound into the six arrays
+	// above (the bound level is mirrored there, so both copies are recomputed,
+	// and that level is counted from the arrays above).
+	const int nActiveSat = FindSatLevelIndex ( m_satLevelStore, m_activeSatLevel );
+	for ( size_t s = 0; s < m_satLevelStore.size(); s++ )
+		for ( int c = 0; c < 6; c++ )
+			for ( size_t i = 0; i < m_satLevelStore[s].sat[c].size(); i++ )
+				ReapplyAdjustmentMatrix(m_satLevelStore[s].sat[c][i], deltaMatrix, fullMatrix, bComposeLegacy,
+					( (int) s == nActiveSat ) ? nMirror : nSkipped);
+	// Every user patch set the USER band is not holding. The active set's readings
+	// live in the band, walked above; its own copy is replaced by the next harvest
+	// (SyncActiveUserPatchSetFromBand), so it is neither walked nor counted here.
+	for ( size_t s = 0; s < m_userPatchSets.size(); s++ )
+		if ( (int) s != m_activeUserSet )
+			for ( size_t i = 0; i < m_userPatchSets[s].measures.size(); i++ )
+				ReapplyAdjustmentMatrix(m_userPatchSets[s].measures[i], deltaMatrix, fullMatrix, bComposeLegacy, nSkipped);
+	// The walk rewrote every profile cube entry: honor the m_profileGeneration
+	// contract (Measure.h), or Color3DView keeps the gamut volume and coverage it
+	// cached for the cube as it was before the recalibration.
+	if ( m_profileMeasureArray.GetSize() > 0 )
+		m_profileGeneration++;
+	return nSkipped;
+}
+
+int CMeasure::ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Matrix calMatrix[3])
+{
+	int nSkipped = 0;
+	// The sub-gamut inverses are invariant across the whole sweep - compute
+	// them once instead of per measurement (Gauss-Jordan per call).
+	Matrix rawInv[3];
+	bool rawOk[3];
+	for ( int k = 0; k < 3; k++ )
+	{
+		rawOk[k] = ( rawMatrix[k].Determinant() != 0.0 );
+		rawInv[k] = rawOk[k] ? rawMatrix[k].GetInverse() : Matrix::IdentityMatrix(3);
+	}
+	// Counts and mirrors as in ApplySensorAdjustmentMatrix (see the note above it).
+	// BODNER_REAPPLY_COUNT's bCount false: a copy whose reading is counted elsewhere.
+	#define BODNER_REAPPLY_COUNT(color, bCount) if (!ReapplyBodnerMatrix((color), rawInv, rawOk, calMatrix) && (bCount)) nSkipped++;
+	#define BODNER_REAPPLY(color) BODNER_REAPPLY_COUNT(color, true)
+	const int nGray = m_grayMeasureArray.GetSize();
+	// A placeholder has no raw, so the walk leaves it as it is; it is only not counted.
+	const bool bGrayTopPlaceholder = nGray > 0 && IsRawlessPlaceholder ( m_grayMeasureArray[nGray-1], false );
+	const bool bBlackPlaceholder = IsRawlessPlaceholder ( m_OnOffBlack, true );
+	const bool bBlackCopy = nGray > 0 && SameRawlessReading ( m_OnOffBlack, m_grayMeasureArray[0] );
+	const bool bOnOffWhiteCopy = nGray > 0 && SameRawlessReading ( m_OnOffWhite, m_grayMeasureArray[nGray-1] );
+	const bool bPrimeWhiteCopy = SameRawlessReading ( m_PrimeWhite, m_OnOffWhite )
+		|| ( nGray > 0 && SameRawlessReading ( m_PrimeWhite, m_grayMeasureArray[nGray-1] ) );
+	const bool bCountLiveCC = ( m_bpreV10 > 0 );
+
+	for(int i=0;i<nGray;i++)  // Preserve sensor values
 	{
 				if (!i && m_bOverRideBlack)
 					m_grayMeasureArray[i] = m_userBlack;
 				else
-					m_grayMeasureArray[i].applyAdjustmentMatrix(aMatrix);
+					BODNER_REAPPLY_COUNT(m_grayMeasureArray[i], !( i == nGray-1 && bGrayTopPlaceholder ));
 	}
 
-	for(int i=0;i<m_nearBlackMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_nearBlackMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_nearWhiteMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_nearWhiteMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_redSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_redSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_greenSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_greenSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_blueSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_blueSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_yellowSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_yellowSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_cyanSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_cyanSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_magentaSatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_magentaSatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_cc24SatMeasureArray.GetSize();i++)  // Preserve sensor values 
-	{
-		m_cc24SatMeasureArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)  // Preserve sensor values 
-	{
-		m_cc24SatMeasureArray_master[i].applyAdjustmentMatrix(aMatrix);
-	}
+	for(int i=0;i<m_nearBlackMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_nearBlackMeasureArray[i]);
+	for(int i=0;i<m_nearWhiteMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_nearWhiteMeasureArray[i]);
+	for(int i=0;i<m_redSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_redSatMeasureArray[i]);
+	for(int i=0;i<m_greenSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_greenSatMeasureArray[i]);
+	for(int i=0;i<m_blueSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_blueSatMeasureArray[i]);
+	for(int i=0;i<m_yellowSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_yellowSatMeasureArray[i]);
+	for(int i=0;i<m_cyanSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_cyanSatMeasureArray[i]);
+	for(int i=0;i<m_magentaSatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_magentaSatMeasureArray[i]);
+	for(int i=0;i<m_cc24SatMeasureArray.GetSize();i++)
+		BODNER_REAPPLY_COUNT(m_cc24SatMeasureArray[i], bCountLiveCC);
+	for(int i=0;i<m_cc24SatMeasureArray_master.GetSize();i++)
+		BODNER_REAPPLY_COUNT(m_cc24SatMeasureArray_master[i], !bCountLiveCC);
+	for(int i=0;i<m_profileMeasureArray.GetSize();i++)
+		BODNER_REAPPLY(m_profileMeasureArray[i]);
 	for(int i=0;i<3;i++)
-	{
-		m_primariesArray[i].applyAdjustmentMatrix(aMatrix);
-	}
+		BODNER_REAPPLY(m_primariesArray[i]);
 	for(int i=0;i<3;i++)
-	{
-		m_secondariesArray[i].applyAdjustmentMatrix(aMatrix);
-	}
-	
+		BODNER_REAPPLY(m_secondariesArray[i]);
+
 	if (!m_bOverRideBlack)
-		m_OnOffBlack.applyAdjustmentMatrix(aMatrix);
-	
-	m_OnOffWhite.applyAdjustmentMatrix(aMatrix);
+		BODNER_REAPPLY_COUNT(m_OnOffBlack, !bBlackPlaceholder && !bBlackCopy);
 
-	m_PrimeWhite.applyAdjustmentMatrix(aMatrix);
+	// Unmeasured whites are placeholders - see ApplySensorAdjustmentMatrix.
+	if ( m_bOnOffWhiteMeasured )
+		BODNER_REAPPLY_COUNT(m_OnOffWhite, !bOnOffWhiteCopy);
+	if ( m_bPrimeWhiteMeasured )
+		BODNER_REAPPLY_COUNT(m_PrimeWhite, !bPrimeWhiteCopy);
+	BODNER_REAPPLY(m_AnsiBlack);
+	BODNER_REAPPLY(m_AnsiWhite);
+	// Every measured saturation level - see ApplySensorAdjustmentMatrix; the
+	// active level's entry mirrors the arrays above and is not counted again.
+	const int nActiveSat = FindSatLevelIndex ( m_satLevelStore, m_activeSatLevel );
+	for ( size_t s = 0; s < m_satLevelStore.size(); s++ )
+		for ( int c = 0; c < 6; c++ )
+			for ( size_t i = 0; i < m_satLevelStore[s].sat[c].size(); i++ )
+				BODNER_REAPPLY_COUNT(m_satLevelStore[s].sat[c][i], (int) s != nActiveSat);
+	// Every user patch set the USER band is not holding - see ApplySensorAdjustmentMatrix.
+	for ( size_t s = 0; s < m_userPatchSets.size(); s++ )
+		if ( (int) s != m_activeUserSet )
+			for ( size_t i = 0; i < m_userPatchSets[s].measures.size(); i++ )
+				BODNER_REAPPLY(m_userPatchSets[s].measures[i]);
+	// Same contract as ApplySensorAdjustmentMatrix: the cube was rewritten.
+	if ( m_profileMeasureArray.GetSize() > 0 )
+		m_profileGeneration++;
 
-	m_AnsiBlack.applyAdjustmentMatrix(aMatrix);
-	
-	m_AnsiWhite.applyAdjustmentMatrix(aMatrix);
+	#undef BODNER_REAPPLY
+	#undef BODNER_REAPPLY_COUNT
+	return nSkipped;
 }
 
 BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
@@ -7252,26 +7656,29 @@ void CMeasure::FreeMeasurementAppended(int isPrimary, int last_minCol)
 			break;
 		case 11: //color checker
 			SetCC24Sat(last_minCol - 1, m_measurementsArray[n-1]);
+			// A re-measured slot gets its label provenance back (the free-measure
+			// record itself stays unlabeled); the master copies below then carry it.
+			StampCCProvenance ( m_cc24SatMeasureArray[last_minCol - 1], last_minCol - 1 );
 			int iCC=GetConfig()->m_CCMode, i;
 			if (iCC < RANDOM250)
 			{
 				i = 0 + 100*iCC + last_minCol - 1;
-						m_cc24SatMeasureArray_master[i] = m_measurementsArray[n-1];
+						m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[last_minCol - 1];
 			}
 			else if (iCC == RANDOM250)
 			{
 				i = PATTERN_SIZE + last_minCol -1;
-						m_cc24SatMeasureArray_master[i] = m_measurementsArray[n-1];
+						m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[last_minCol - 1];
 			}
 			else if (iCC == RANDOM500)
 			{
 				i = PATTERN_SIZE + 250 + last_minCol -1;
-						m_cc24SatMeasureArray_master[i] = m_measurementsArray[n-1];
+						m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[last_minCol - 1];
 			}
 			else if (iCC == USER) 
 			{
 				i = PATTERN_SIZE + 250 + 500 + last_minCol - 1;
-						m_cc24SatMeasureArray_master[i] = m_measurementsArray[n-1];
+						m_cc24SatMeasureArray_master[i] = m_cc24SatMeasureArray[last_minCol - 1];
 			}
 			break;
 		}
@@ -7694,6 +8101,7 @@ BOOL CMeasure::ValidateBackgroundCC24SatScale ( BOOL bUseLuxValues, double * pLu
 		for ( int i = 0; i<m_cc24SatMeasureArray.GetSize() ; i++ )
 		{
 			m_cc24SatMeasureArray[i] = (*m_pBkMeasuredColor)[i];
+			StampCCProvenance ( m_cc24SatMeasureArray[i], i );
 
 			if ( bUseLuxValues )
 				m_cc24SatMeasureArray[i].SetLuxValue ( pLuxValues[i] );
@@ -7896,7 +8304,7 @@ CString CMeasure::GetCCStr() const
 		"CalMAN Skin \r\n",
 		"Chromapure Skin \r\n",
 		"CalMAN SG \r\n",
-		"CalMAN 10 pt Lum. \r\n",
+		"RGB Luminance Axis \r\n",
 		"CalMAN 4 pt Lum. \r\n",
 		"CalMAN 5 pt Lum. \r\n",
 		"CalMAN 10 pt Lum. \r\n",
@@ -7927,6 +8335,10 @@ CString CMeasure::GetCCStr() const
 		"Random 500 \r\n",
 		"User\r\n"
 	};
+	// Band bases follow the enum via PATTERN_SIZE (= RANDOM250*100). The old
+	// hardcoded 2300-based literals froze the pre-LG enum layout (RANDOM250==24
+	// in 2018), so after the LG sets grew the enum these probes landed inside
+	// LG bands and the RANDOM250/RANDOM500/User lines reported wrong slots.
 	for (int i=0;i<=USER;i++)
 	{
 		if (i<RANDOM250)
@@ -7946,19 +8358,276 @@ CString CMeasure::GetCCStr() const
 				}
 		}
 		if (i==RANDOM250)
-			if (m_cc24SatMeasureArray_master[2300+100].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE].isValid())
 				mStr+=sweeps[i];
 		if (i==RANDOM500)
-			if (m_cc24SatMeasureArray_master[2300+100+250].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250].isValid())
 				mStr+=sweeps[i];
 		if (i==USER)
-			if (m_cc24SatMeasureArray_master[2300+100+250+500].isValid())
+			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250+500].isValid())
 				mStr+=sweeps[i];
 	}
 	return mStr+="\r\n";
 }
 
-CColor CMeasure::GetPrimary(int i) const 
+//////////////////////////////////////////////////////////////////////
+// User patch set collection (multi-set picker)
+//
+// The USER band of m_cc24SatMeasureArray_master (and the working array,
+// which mirrors it after every sweep) stays the live storage for whichever
+// set is active, so all sweep/commit/stamp/reapply paths work unchanged.
+// The collection only touches the band when the active set changes and
+// when the document is saved.
+//////////////////////////////////////////////////////////////////////
+
+CUserPatchSet * CMeasure::GetUserPatchSet(int idx)
+{
+	if ( idx < 0 || idx >= (int)m_userPatchSets.size() )
+		return NULL;
+	return &m_userPatchSets[idx];
+}
+
+CUserPatchSet * CMeasure::GetActiveUserPatchSet()
+{
+	return GetUserPatchSet ( m_activeUserSet );
+}
+
+int CMeasure::AddUserPatchSet(const CUserPatchSet & set)
+{
+	int pos = 0;
+	while ( pos < (int)m_userPatchSets.size() && _stricmp ( m_userPatchSets[pos].name.c_str(), set.name.c_str() ) < 0 )
+		pos++;
+	m_userPatchSets.insert ( m_userPatchSets.begin() + pos, set );
+	if ( m_activeUserSet >= pos )
+		m_activeUserSet++;
+	m_isModified = TRUE;
+	return pos;
+}
+
+void CMeasure::SyncActiveUserPatchSetFromBand()
+{
+	if ( m_activeUserSet < 0 || m_activeUserSet >= (int)m_userPatchSets.size() )
+		return;
+	CUserPatchSet & set = m_userPatchSets[m_activeUserSet];
+	// Harvest at least the definition's worth of slots, plus anything valid
+	// beyond it (defensive: migration can leave more measures than rows).
+	int n = (int)set.rows.size();
+	if ( n > MAX_USER_CC_PATCH_SIZE )
+		n = MAX_USER_CC_PATCH_SIZE;
+	for ( int i = n; i < MAX_USER_CC_PATCH_SIZE; i++ )
+		if ( m_cc24SatMeasureArray_master[USER_BAND_BASE + i].isValid() )
+			n = i + 1;
+	set.measures.assign ( n, noDataColor );
+	for ( int i = 0; i < n; i++ )
+		set.measures[i] = m_cc24SatMeasureArray_master[USER_BAND_BASE + i];
+}
+
+void CMeasure::ActivateUserPatchSet(int idx)
+{
+	if ( idx == m_activeUserSet )
+		return;
+	if ( idx < 0 || idx >= (int)m_userPatchSets.size() )
+		return;
+
+	SyncActiveUserPatchSetFromBand ();	// harvest the outgoing set (no-op when none active)
+	m_activeUserSet = idx;
+
+	// Mimic post-sweep state: both the working array and the USER band hold
+	// the incoming set's measures, so every consumer (with or without
+	// m_binMeasure, single-slot re-measure, reapply passes) sees the same data.
+	const CUserPatchSet & set = m_userPatchSets[idx];
+	for ( int i = 0; i < MAX_USER_CC_PATCH_SIZE; i++ )
+	{
+		const CColor & c = ( i < (int)set.measures.size() ) ? set.measures[i] : noDataColor;
+		m_cc24SatMeasureArray[i] = c;
+		m_cc24SatMeasureArray_master[USER_BAND_BASE + i] = c;
+	}
+	m_isModified = TRUE;
+	m_CCStr = GetCCStr();	// the USER line follows the band
+}
+
+// The size check behind Open patch list...: the trailer as it would be saved
+// with `set` in the collection, plus one stored reading for every row of every
+// set that has none yet, so a list that fits now still fits once it is measured.
+// A definition already past the cap is reported as past it: the trailer writer
+// refuses it by throwing, which is the answer here, not an error.
+// A projected reading is the size of the largest first reading of any set in
+// the document (spectral readings make a set several times larger), or, in a
+// document with none, of a reading stamped the way a colorimeter sweep stamps
+// it. A set's index (4 bytes) is counted with each reading.
+ULONGLONG CMeasure::ProjectedUserPatchSetTrailerBytes(const CUserPatchSet & set, int replaceIdx)
+{
+	SyncActiveUserPatchSetFromBand ();	// the active set's readings live in the band
+	std::vector<CUserPatchSet> trial ( m_userPatchSets );
+	if ( replaceIdx >= 0 && replaceIdx < (int)trial.size() )
+		trial[replaceIdx] = set;
+	else
+		trial.push_back ( set );
+
+	ULONGLONG reading = 0;
+	for ( size_t s = 0; s < trial.size(); s++ )
+		for ( size_t i = 0; i < trial[s].measures.size(); i++ )
+			if ( trial[s].measures[i].isValid() )
+			{
+				ULONGLONG n = SerializedColorBytes ( trial[s].measures[i] );
+				if ( n > reading )
+					reading = n;
+				break;
+			}
+	if ( reading == 0 )
+	{
+		size_t longest = 0;
+		for ( size_t s = 0; s < trial.size(); s++ )
+			for ( size_t i = 0; i < trial[s].rows.size(); i++ )
+				if ( trial[s].rows[i].name.size() > longest )
+					longest = trial[s].rows[i].name.size();
+		CColor c ( 1.0, 1.0, 1.0 );
+		c.SetLuxValue ( 1.0 );
+		c.SetRawXYZValue ( ColorXYZ ( 1.0, 1.0, 1.0 ) );
+		c.SetStimulusValue ( ColorRGBDisplay ( 1.0, 1.0, 1.0 ) );
+		c.SetTimestamp ( 1.0 );
+		c.SetWireSetup ( CColorWireSetup () );	// every reading this build takes carries one
+		CColorProvenance prov;
+		prov.name.assign ( longest, 'n' );
+		c.SetProvenance ( prov );
+		reading = SerializedColorBytes ( c );
+	}
+
+	ULONGLONG unmeasured = 0;
+	for ( size_t s = 0; s < trial.size(); s++ )
+		for ( size_t i = 0; i < trial[s].rows.size(); i++ )
+			if ( i >= trial[s].measures.size() || !trial[s].measures[i].isValid() )
+				unmeasured++;
+
+	ULONGLONG trailer;
+	try
+	{
+		trailer = MeasureTrailerBytes ( trial, m_activeUserSet );
+	}
+	catch ( CArchiveException * e )
+	{
+		e -> Delete ();
+		return (ULONGLONG) kMaxExtensionBytes + 1;
+	}
+	return trailer + unmeasured * ( 4 + reading );
+}
+
+// A display name only, stored in the file as it stands when the set is made: a
+// document saved under any language or older build keeps the name it was saved
+// with, and nothing compares it.
+static std::string MigratedSetName ()
+{
+	CString name;
+	name.LoadString ( IDS_USERSET_MIGRATED );
+	return std::string ( (LPCTSTR) name );
+}
+
+void CMeasure::MigrateLegacyUserBand()
+{
+	// Wrap USER-band measures that belong to no set into one set so they
+	// appear in the picker and stay bound to a definition. Called when a
+	// document loads with no sets (any version), and before the first
+	// AddUserPatchSet of a document that measured USER data with no set
+	// loaded in this session, so opening a file can never discard them. The
+	// band stays in place - it is now the active set's window.
+	if ( !m_userPatchSets.empty() )
+		return;
+
+	int count = 0;
+	for ( int i = 0; i < MAX_USER_CC_PATCH_SIZE; i++ )
+		if ( m_cc24SatMeasureArray_master[USER_BAND_BASE + i].isValid() )
+			count = i + 1;
+	if ( count == 0 )
+		return;
+
+	CUserPatchSet set;
+	set.measures.assign ( count, noDataColor );
+	for ( int i = 0; i < count; i++ )
+		set.measures[i] = m_cc24SatMeasureArray_master[USER_BAND_BASE + i];
+
+	// Definition reconstruction, best source first.
+	// 1) Every valid point carries label provenance + its driven stimulus
+	//    (documents measured since the provenance work): rebuild the rows from
+	//    the measurements themselves - authoritative, survives file drift.
+	bool allStamped = true;
+	for ( int i = 0; i < count && allStamped; i++ )
+		if ( set.measures[i].isValid() && ( !set.measures[i].HasProvenance() || !set.measures[i].HasStimulusValue() ) )
+			allStamped = false;
+	if ( allStamped )
+	{
+		CColorProvenance firstProv;
+		for ( int i = 0; i < count; i++ )
+			if ( set.measures[i].isValid() ) { firstProv = set.measures[i].GetProvenance(); break; }
+		set.name = MigratedSetName ();
+		set.bits = ( firstProv.srcBits == 10 ) ? 10 : 8;
+		set.range = firstProv.srcRange;
+		set.rows.resize ( count );
+		for ( int i = 0; i < count; i++ )
+		{
+			CsvPatchRow & row = set.rows[i];
+			if ( set.measures[i].isValid() )
+			{
+				CColorProvenance prov = set.measures[i].GetProvenance();
+				ColorRGBDisplay stim = set.measures[i].GetStimulusValue();
+				row.patch = prov.patchNumber;
+				row.name = prov.name;
+				row.r = CsvPercentToCode ( stim[0], set.bits, set.range );
+				row.g = CsvPercentToCode ( stim[1], set.bits, set.range );
+				row.b = CsvPercentToCode ( stim[2], set.bits, set.range );
+			}
+			else
+			{
+				row.patch = i;
+				row.r = row.g = row.b = 0;
+			}
+		}
+	}
+	else
+	{
+		// 2) usercolors.csv still describes this data (the pre-collection
+		//    definition source) when it has a row for every reading; 3) otherwise
+		//    rebuild one row per reading, from its stimulus where it kept one and
+		//    a black placeholder where not: a set with fewer rows than readings
+		//    hides them from the grid, and with none a sweep could erase them.
+		CString userPath;
+		std::vector<CsvPatchRow> rows;
+		int bits = 8, range = CSV_RANGE_NONE;
+		int nRows = -1;
+		if ( ResolveCCSetPath ( USER, userPath, NULL ) )
+			nRows = ReadCsvPatchRows ( userPath, rows, MAX_USER_CC_PATCH_SIZE, &bits, &range );
+		if ( nRows >= count )
+		{
+			set.name = CsvSetNameFromPath ( userPath );
+			set.srcPath = (LPCTSTR)userPath;
+			set.bits = bits;
+			set.range = range;
+			set.rows = rows;
+		}
+		else
+		{
+			set.name = MigratedSetName ();
+			set.rows.resize ( count );
+			for ( int i = 0; i < count; i++ )
+			{
+				CsvPatchRow & row = set.rows[i];
+				row.patch = i;
+				row.r = row.g = row.b = 0;
+				if ( set.measures[i].isValid() && set.measures[i].HasStimulusValue() )
+				{
+					ColorRGBDisplay stim = set.measures[i].GetStimulusValue();
+					row.r = CsvPercentToCode ( stim[0], set.bits, set.range );
+					row.g = CsvPercentToCode ( stim[1], set.bits, set.range );
+					row.b = CsvPercentToCode ( stim[2], set.bits, set.range );
+				}
+			}
+		}
+	}
+
+	m_userPatchSets.push_back ( set );
+	m_activeUserSet = 0;
+}
+
+CColor CMeasure::GetPrimary(int i) const
 { 
 	return m_primariesArray[i]; 
 } 
@@ -8034,6 +8703,41 @@ CColor CMeasure::GetOnOffWhite() const
 	return clr;
 } 
 
+// The constructor's top-gray placeholder is not a reading (IsRawlessPlaceholder).
+static bool GrayTopIsPlaceholder ( const CColor & c )
+{
+	return CMeasure::IsRawlessPlaceholder ( c, false );
+}
+
+CColor CMeasure::GetGrayScaleWhite() const
+{
+	return GrayScaleWhite ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffWhite, GrayTopIsPlaceholder );
+}
+
+CColor CMeasure::GetGrayScaleBlack() const
+{
+	// The user's black override is the user's decision above both readings. The
+	// test is the DOCUMENT's recorded decision, m_bOverRideBlack: loaded from the
+	// file and refreshed from the preference by CheckBlackOverride at each sweep -
+	// not the live preference. A gray scale swept under the override holds the
+	// override black in slot 0 together with the lux measured beside it (the
+	// sweep writes m_userBlack plus the lux there), so that slot is returned when
+	// it holds the override black: valid, with NO raw value (the sweep writes no
+	// raw reading for it) and the override's Y exactly. X and Z are not compared:
+	// a pass re-derives them with other white-point constants, so the stored
+	// slot does not hold m_userBlack's X/Z bit for bit, while Y is untouched. A
+	// slot 0 with a raw value is a black measured before the override was turned
+	// on and is not returned; m_userBlack (no lux) is returned then.
+	if ( m_bOverRideBlack && m_userBlack.isValid () )
+	{
+		if ( m_grayMeasureArray.GetSize () > 0 && m_grayMeasureArray[0].isValid ()
+			 && ! m_grayMeasureArray[0].HasRawXYZValue () && m_grayMeasureArray[0].GetY () == m_userBlack.GetY () )
+			return m_grayMeasureArray[0];
+		return m_userBlack;
+	}
+	return GrayScaleBlack ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), m_OnOffBlack );
+}
+
 CColor CMeasure::GetPrimeWhite() const
 {
 	CColor clr;
@@ -8087,9 +8791,9 @@ double CMeasure::GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) cons
 	// a 999 convention failure.
 	if ( isHDR && bCC && bMasciorCC )
 	{
-		int n = GetGrayScaleSize();
-		if ( n > 0 && GetGray(n - 1).isValid() && GetGray(n - 1).GetY() > 0.0 )
-			return GetGray(n - 1).GetY();
+		const CColor w = GetGrayScaleWhite();
+		if ( w.isValid() && w.GetY() > 0.0 )
+			return w.GetY();
 	}
 
 	CColor prime = GetPrimeWhite();
@@ -8221,8 +8925,8 @@ PrimaryDENorm CMeasure::GetPrimaryDENorm(double yPrimeWhite, int nCol) const
 	if ( cfg->m_GammaOffsetType != 5 )
 		return n;
 
-	CColor White = GetOnOffWhite();
-	CColor Black = GetOnOffBlack();
+	CColor White = GetGrayScaleWhite();
+	CColor Black = GetGrayScaleBlack();
 	ColorStandard standard = GetColorReference().m_standard;
 	bool bDiffuseAnchored = ( standard == UHDTV2 || standard == HDTV || standard == UHDTV
 							  || standard == UHDTV3 || standard == UHDTV4 || nCol == 7 );
@@ -8297,8 +9001,8 @@ static CColor WireModeledPrimaryReference ( const CMeasure & measure, const Colo
 	CColor White, Black;
 	if ( measure.GetGray(0).isValid() )
 	{
-		White = measure.GetGray ( measure.GetGrayScaleSize() - 1 );
-		Black = measure.GetOnOffBlack();
+		White = measure.GetGrayScaleWhite ();
+		Black = measure.GetGrayScaleBlack();
 	}
 	double gamma = GetConfig()->m_useMeasuredGamma ? GetConfig()->m_GammaAvg : GetConfig()->m_GammaRef;
 	bool b10 = GetConfig()->GetUse10bitLevels();
@@ -8550,9 +9254,9 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 	y = ystart + ( (yend - ystart) * sat_ratio );
 
 	CColor	aColor;
-    CColor White = CMeasure::GetGray ( CMeasure::GetGrayScaleSize() - 1 );
+    CColor White = CMeasure::GetGrayScaleWhite ();
 //	CColor Black = CMeasure::GetGray ( 0 );
-	CColor Black = CMeasure::GetOnOffBlack();
+	CColor Black = CMeasure::GetGrayScaleBlack();
     double gamma=GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef);
 
 	double tmWhite = TmDiffuseWhiteNits(White, Black);
@@ -8952,9 +9656,9 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 			break;
     } 
 
-    CColor White = CMeasure::GetGray ( CMeasure::GetGrayScaleSize() - 1 );
+    CColor White = CMeasure::GetGrayScaleWhite ();
 //	CColor Black = CMeasure::GetGray ( 0 );
-	CColor Black = CMeasure::GetOnOffBlack();
+	CColor Black = CMeasure::GetGrayScaleBlack();
     double gamma=GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef);
 	CColor tempColor;
 	int mode = GetConfig()->m_GammaOffsetType;

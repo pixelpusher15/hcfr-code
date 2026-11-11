@@ -28,6 +28,7 @@
 #include "Color.h"
 #include "madTPG.h"
 #include "Generator.h"
+#include "ArchiveExtension.h"
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -89,7 +90,7 @@ void CGenerator::Serialize(CArchive& archive)
 	CObject::Serialize(archive) ;
 	if (archive.IsStoring())
 	{
-		int version=6;
+		int version=7;
 		archive << version;
 		archive << m_doScreenBlanking;
 		archive << m_b16_235;
@@ -97,13 +98,17 @@ void CGenerator::Serialize(CArchive& archive)
 		archive << m_bdispTrip;
 		archive << m_bLinear;
 		archive << m_brPi_user;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 6 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 7 )
+			throw new CNewerSchemaException ( "CGenerator", version );
 		archive >> m_doScreenBlanking;
 		if ( version > 1 )
 			archive >> m_b16_235;
@@ -115,6 +120,18 @@ void CGenerator::Serialize(CArchive& archive)
 			archive >> m_bLinear;
 		if ( version > 5 )
 			archive >>	m_brPi_user;
+
+		if ( version >= 7 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 
@@ -473,6 +490,7 @@ BOOL CGenerator::SendPGeneratorCommand(LPCSTR cmd)
 
 BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	nMeasureNumber = nbMeasure; 
 	m_initShowedError = FALSE;
 	CGDIGenerator Cgen;
@@ -779,278 +797,334 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 
 BOOL CGenerator::DisplayRGBColorrPI(const ColorRGBDisplay& aRGBColor, MeasureType nPatternType, UINT nPatternInfo )
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayRGBColormadVR(const ColorRGBDisplay& aRGBColor, MeasureType nPatternType, UINT nPatternInfo )
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayRGBCCast(const ColorRGBDisplay& aRGBColor, MeasureType nPatternType, UINT nPatternInfo )
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayRGBColor(const ColorRGBDisplay& aRGBColor, MeasureType nPatternType, UINT nPatternInfo,  BOOL bChangePattern,BOOL bSilentMode)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 
 BOOL CGenerator::DisplayAnsiBWRects(BOOL bInvert)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayAnimatedBlack()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayAnimatedWhite()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayGradient()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayRG()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayRB()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 BOOL CGenerator::DisplayGB()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 BOOL CGenerator::DisplayRGd()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 BOOL CGenerator::DisplayRBd()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 BOOL CGenerator::DisplayGBd()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayGradient2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayLramp()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayGranger()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::Display80()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayTV()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayTV2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplaySpectrum()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplaySramp()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayVSMPTE()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayEramp()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayTC0()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayTC1()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayTC2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayTC3()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayTC4()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayTC5()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayBN()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayDR0()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayDR1()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayDR2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayAlign()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayAlign2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayUser1()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayUser2()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayUser3()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayUser4()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayUser5()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayUser6()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplaySharp()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayClipH()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayClipHO()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayNBO()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayClipL()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayClipLO()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayTestimg()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayISO12233()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayNB()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayBBCHD()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayCROSSl()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayCROSSd()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayPM5644()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
 BOOL CGenerator::DisplayZONE()
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return TRUE;	  // need to be overriden
 }
 
@@ -1061,12 +1135,14 @@ BOOL CGenerator::CanDisplayAnsiBWRects()
 
 BOOL CGenerator::DisplayGray(double aLevel, MeasureType nPatternType , BOOL bChangePattern)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	return DisplayRGBColor(ColorRGBDisplay(aLevel), nPatternType ,bChangePattern); 
 }
 
 
 BOOL CGenerator::Release(INT nbNext)
 {
+	WireDisplayRecord::Invalidate();	// released: no display record holds (WireSetup.h)
 	CGDIGenerator Cgen;
 
 	if (Cgen.m_nDisplayMode == DISPLAY_madVR)

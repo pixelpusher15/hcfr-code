@@ -82,13 +82,42 @@ class CSatLumShiftGrapher
 	BOOL m_showMagenta;
 	BOOL m_showDataRef;
 
+	// Top-pane quantity (SATSHIFT_QTY_*) and anchor preview (SATSHIFT_ANCHOR_*).
+	// The quantity is read from the INI here; the anchor starts at None and is
+	// set only by the view, so a grapher built for an export never previews.
+	int m_quantity;
+	int m_anchor;
+
+	// The measured sweep, drawn thin and dotted under an anchor preview (the
+	// solid curves then show the prediction). Hue order R G B Y C M.
+	long m_measSatGraphID[6];
+	long m_measColorGraphID[6];
+
 // Operations
 public:
 	void UpdateGraph ( CDataSetDoc * pDoc );
+	// Title and Y unit of the top pane for m_quantity
+	void SetQuantityLabels ();
+	// SetQuantityLabels plus the quantity's axis step, grow limits and its
+	// narrow preset scale
+	void ApplyQuantityScale ();
 
 private:
-	void PlotHue ( CDataSetDoc * pSrc, int hue, int size, long satID, long colorID );
+	struct AnchorRow
+	{
+		bool	valid;
+		bool	hasLast;					// false: the last step's prediction left the spectrum locus
+		double	avgDE, lastDE, maxDE;		// predicted dE: mean over 0 < t <= anchor, last step, max
+		double	hueDeg, satPct, lumPct;		// errors at the anchor step
+	};
+	void PlotHue ( CDataSetDoc * pSrc, int hue, int size, long satID, long colorID,
+				   int anchor = 0, long measSatID = -1, long measColorID = -1, AnchorRow * pRow = NULL );
 };
+
+// m_quantity values (also the order of IDM_SATSHIFT_QTY_SAT..IDM_SATSHIFT_QTY_LUM)
+enum { SATSHIFT_QTY_SAT = 0, SATSHIFT_QTY_HUE = 1, SATSHIFT_QTY_LUM = 2 };
+// m_anchor values (also the order of IDM_SATSHIFT_ANCHOR_NONE..IDM_SATSHIFT_ANCHOR_100)
+enum { SATSHIFT_ANCHOR_NONE = 0, SATSHIFT_ANCHOR_50 = 1, SATSHIFT_ANCHOR_75 = 2, SATSHIFT_ANCHOR_100 = 3 };
 
 
 class CSatLumShiftView : public CSavingView
@@ -162,6 +191,8 @@ protected:
 	afx_msg void OnDeltaEGraphScaleCustom();
 	afx_msg void OnHelp();
 	//}}AFX_MSG
+	afx_msg void OnSatShiftQuantity(UINT nID);
+	afx_msg void OnSatShiftAnchor(UINT nID);
 	DECLARE_MESSAGE_MAP()
 };
 

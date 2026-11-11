@@ -23,6 +23,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "ToolbarPropPage.h"
+#include "RadioExchange.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -51,8 +52,12 @@ void CToolbarPropPage::DoDataExchange(CDataExchange* pDX)
 {
 	CPropertyPageWithHelp::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CToolbarPropPage)
-	DDX_Radio(pDX, IDC_RADIO_TBV_1, m_TBViewsRightClickMode);
-	DDX_Radio(pDX, IDC_RADIO_TBV_5, m_TBViewsMiddleClickMode);
+	static const UINT kRightClickRadios[] =
+		{ IDC_RADIO_TBV_1, IDC_RADIO_TBV_2, IDC_RADIO_TBV_3, IDC_RADIO_TBV_4 };
+	DDX_RadioByID(pDX, m_TBViewsRightClickMode, kRightClickRadios);
+	static const UINT kMiddleClickRadios[] =
+		{ IDC_RADIO_TBV_5, IDC_RADIO_TBV_6, IDC_RADIO_TBV_7, IDC_RADIO_TBV_8 };
+	DDX_RadioByID(pDX, m_TBViewsMiddleClickMode, kMiddleClickRadios);
 	//}}AFX_DATA_MAP
 }
 

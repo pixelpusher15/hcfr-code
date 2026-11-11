@@ -31,6 +31,8 @@
 #include "MultiFrm.h"
 
 #include "DocTempl.h"
+#include "ArchiveExtension.h"
+#include "DocEnumerator.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -189,6 +191,57 @@ CDocument* CMyMultiDocTemplate::OpenDocumentFile(LPCTSTR lpszPathName,
 
 	return pDocument;
 }
+
+CDocument* CMyMultiDocTemplate::OpenDocumentFile(LPCTSTR lpszPathName,
+	BOOL bAddToMRU, BOOL bMakeVisible)
+{
+	if ( lpszPathName == NULL )
+		return CNewMultiDocTemplate::OpenDocumentFile ( lpszPathName, bAddToMRU, bMakeVisible );
+
+	// Drag-drop and DDE opens reach here mid-sweep (every sweep pump dispatches
+	// them), and so can menu opens through the pumps that dispatch everything;
+	// CColorHCFRApp refuses File > Open and recent files earlier, before their
+	// dialog or MRU removal. Loading a file rewrites app-wide preferences and
+	// refreshes every open document, so refuse it mid-sweep. A beep, not a message
+	// box: a modal box here would stall the sweep's pump until dismissed.
+	if ( IsMeasureSweepActive () )
+	{
+		MessageBeep ( MB_ICONWARNING );
+		return NULL;
+	}
+
+	// Loading a file rewrites app-wide preferences (CMeasure::Serialize): its HDR
+	// targets always, the reference / TF / dE settings when the user accepts the
+	// "Preferences in saved file differ" prompt. Snapshot what ApplySettings
+	// regenerates on change, then refresh the other documents as it does.
+	ColorStandard	OriginalColorStandard = GetConfig()->m_colorStandard;
+	WhiteTarget		OriginalWhiteTarget = GetConfig()->m_whiteTarget;
+	CCPatterns		OriginalCCMode = GetConfig()->m_CCMode;
+
+	CDocument *		pNewDoc = CNewMultiDocTemplate::OpenDocumentFile ( lpszPathName, bAddToMRU, bMakeVisible );
+
+	// Only now, after the base open: the new document's views exist during
+	// OnOpenDocument but get their initial update after it, and a data-reference
+	// document forwards its refresh to every document. On a failed load the base
+	// has already destroyed the new frame, so the loop never reaches it.
+	if ( OriginalColorStandard != GetConfig()->m_colorStandard || OriginalWhiteTarget != GetConfig()->m_whiteTarget )
+	{
+		CWaitCursor	wait;
+		GetColorApp() -> CreateCIEBitmaps ( FALSE );
+	}
+	if ( OriginalCCMode != GetConfig()->m_CCMode )
+		GetConfig()->GetCColors();
+
+	CDocEnumerator	docEnumerator;
+	CDocument *		pDoc;
+	while ( ( pDoc = docEnumerator.Next () ) != NULL )
+	{
+		if ( pDoc != pNewDoc )
+			pDoc -> UpdateAllViews ( NULL, UPD_EVERYTHING );
+	}
+
+	return pNewDoc;
+}
 /////////////////////////////////////////////////////////////////////////////
 // Classes for window positions serialization
 
@@ -214,19 +267,35 @@ void CDataSetViewInfo::Serialize(CArchive& ar)
 {
 	if ( ar.IsStoring () )
 	{
-		int	version = 1;
+		int	version = 2;
 		ar << version;
 		ar << m_nViewIndex;
 		ar << m_dwUserInfo;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(ar);
 	}
 	else
 	{
 		int	version;
 		ar >> version;
-		if ( version > 1 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 2 )
+			throw new CNewerSchemaException ( "CDataSetViewInfo", version );
 		ar >> m_nViewIndex;
 		ar >> m_dwUserInfo;
+
+		if ( version >= 2 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(ar);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 
@@ -287,7 +356,7 @@ void CDataSetFrameInfo::Serialize(CArchive& ar)
 
 	if ( ar.IsStoring () )
 	{
-		int	version = 1;
+		int	version = 2;
 		ar << version;
 		ar << m_FramePlacement.showCmd;
 		ar << m_FramePlacement.ptMinPosition;
@@ -302,6 +371,10 @@ void CDataSetFrameInfo::Serialize(CArchive& ar)
 			pViewInfo = ( CDataSetViewInfo * ) m_ViewInfoList.GetNext ( pos );
 			pViewInfo -> Serialize ( ar );
 		}
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(ar);
 	}
 	else
 	{
@@ -309,8 +382,8 @@ void CDataSetFrameInfo::Serialize(CArchive& ar)
 		int	version;
 
 		ar >> version;
-		if ( version > 1 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 2 )
+			throw new CNewerSchemaException ( "CDataSetFrameInfo", version );
 
 		// Clean actual data
 		pos = m_ViewInfoList.GetHeadPosition ();
@@ -332,6 +405,18 @@ void CDataSetFrameInfo::Serialize(CArchive& ar)
 			pViewInfo = new CDataSetViewInfo;
 			pViewInfo -> Serialize ( ar );
 			m_ViewInfoList.AddTail ( pViewInfo );
+		}
+
+		if ( version >= 2 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(ar);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
 		}
 	}
 }
@@ -390,7 +475,7 @@ void CDataSetWindowPositions::Serialize(CArchive& ar)
 
 	if ( ar.IsStoring () )
 	{
-		int	version = 1;
+		int	version = 2;
 		ar << version;
 		ar << m_nActiveFrame;
 		ar << m_FrameInfoList.GetCount ();
@@ -401,6 +486,10 @@ void CDataSetWindowPositions::Serialize(CArchive& ar)
 			pFrameInfo = ( CDataSetFrameInfo * ) m_FrameInfoList.GetNext ( pos );
 			pFrameInfo -> Serialize ( ar );
 		}
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(ar);
 	}
 	else
 	{
@@ -408,8 +497,8 @@ void CDataSetWindowPositions::Serialize(CArchive& ar)
 		int	version;
 
 		ar >> version;
-		if ( version > 1 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 2 )
+			throw new CNewerSchemaException ( "CDataSetWindowPositions", version );
 
 		// Clean actual data
 		pos = m_FrameInfoList.GetHeadPosition ();
@@ -427,6 +516,18 @@ void CDataSetWindowPositions::Serialize(CArchive& ar)
 			pFrameInfo = new CDataSetFrameInfo;
 			pFrameInfo -> Serialize ( ar );
 			m_FrameInfoList.AddTail ( pFrameInfo );
+		}
+
+		if ( version >= 2 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(ar);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
 		}
 	}
 }

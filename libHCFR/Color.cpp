@@ -28,6 +28,8 @@
 //    GetColorReference linked to global app var -> replaced by arguments in impacted functions
 
 #include "Color.h"
+#include "ArchiveExtension.h"
+#include "ArchiveTags.h"
 #include "Endianness.h"
 #include "CriticalSection.h"
 #include "LockWhileInScope.h"
@@ -1643,7 +1645,23 @@ static void BuildBT2390Table ( double m_diffuseL, double m_MinML, double m_MaxML
 
 double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double split, int mode, double m_diffuseL, double m_MinML, double m_MaxML, double m_MinTL, double m_MaxTL, bool ToneMap, bool cBT2390, double bbc_gamma, double b_fact, double E2_fact, double E2_fact1)
 {
-	if (valx == 0 && mode > 4) return (ToneMap?m_MinTL / 100.:0.0);
+	// HLG black is its OOTF's lift, bbc_beta / White.Y (case 7 below): the
+	// display's target black against its own white, scaled like every other
+	// HLG step. Returned here because the OOTF itself would take
+	// pow(0, bbc_gamma - 1), inf for a system gamma below 1.
+	//
+	// The shortcut after it is PQ's: m_MinTL / 100 is PQ's /100 nit scaling,
+	// keyed off its tone-mapping switch (the DV curves, 8 and 9, keep the
+	// shortcut as they had it; their tables are relative to their own peak, so
+	// that value is legacy). It used to
+	// catch every mode above 4, so HLG, L* and sRGB took it too - zero with
+	// tone mapping off, and with it on (the switch persists after leaving PQ)
+	// a black target L* and sRGB do not have and HLG had scaled wrongly. L*
+	// and sRGB come out at exactly 0 from their own formulas below.
+	// <= 0: a negative signal is clamped to 0 below, which would reach the
+	// same pow for HLG, so it takes this return too.
+	if (valx <= 0 && mode == 7) return ( White.isValid() && White.GetY() > 0.0 ) ? m_MinTL / White.GetY() : 0.0;
+	if (valx == 0 && ( mode == 5 || mode == 8 || mode == 9 )) return (ToneMap?m_MinTL / 100.:0.0);
 	if (valx < 0)
 		valx = 0;
 	if (valx > 1)
@@ -1773,7 +1791,7 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 				// Which is just as well, because getting here is still gated on the
 				// SIGNAL as well as on `ToneMap && mode == 5` promoting to case 10: a
 				// caller asking for a rebuild with valx == 0 takes the
-				// `valx == 0 && mode > 4` early return at the top of this function and
+				// `valx == 0` PQ early return at the top of this function and
 				// builds nothing, leaving BT2390x/y as they were. That is the half of
 				// MATH-008 case -10 used to be exposed to; it is why case -10 calls
 				// BuildBT2390Table itself rather than coming through here, and it is
@@ -1790,7 +1808,7 @@ double getL_EOTF ( double valx, CColor White, CColor Black, double g_rel, double
 				// mode 5 and cBT2390 = TRUE, which made the build depend on getting past
 				// the top-of-function guards and on `ToneMap && mode == 5` promoting to
 				// case 10. Both let it through without a table: a valx of 0 tripped the
-				// `valx == 0 && mode > 4` early return and came back before the branch
+				// `valx == 0` PQ early return and came back before the branch
 				// ran (MATH-008), and a caller reaching mode -10 with ToneMap false
 				// skipped the promotion entirely - either way the search below indexed
 				// BT2390y[0] on an empty vector. Calling the builder directly removes the
@@ -2457,18 +2475,43 @@ CColor::CColor():m_XYZValues(1.0,3,1)
 {
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
+	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
+	m_pProvenance = NULL;
+	m_pTimestamp = NULL;
+	m_pWireSetup = NULL;
 }
 
 CColor::CColor(const CColor &aColor):m_XYZValues(aColor.m_XYZValues)
 {
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
+	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
+	m_pProvenance = NULL;
+	m_pTimestamp = NULL;
+	m_pWireSetup = NULL;
 
 	if ( aColor.m_pSpectrum )
 		m_pSpectrum = new CSpectrum ( *aColor.m_pSpectrum );
 
 	if ( aColor.m_pLuxValue )
 		m_pLuxValue = new double ( *aColor.m_pLuxValue );
+
+	if ( aColor.m_pRawXYZValues )
+		m_pRawXYZValues = new ColorXYZ ( *aColor.m_pRawXYZValues );
+
+	if ( aColor.m_pStimulus )
+		m_pStimulus = new ColorRGBDisplay ( *aColor.m_pStimulus );
+
+	if ( aColor.m_pProvenance )
+		m_pProvenance = new CColorProvenance ( *aColor.m_pProvenance );
+
+	if ( aColor.m_pTimestamp )
+		m_pTimestamp = new double ( *aColor.m_pTimestamp );
+
+	if ( aColor.m_pWireSetup )
+		m_pWireSetup = new CColorWireSetup ( *aColor.m_pWireSetup );
 }
 
 CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
@@ -2478,6 +2521,11 @@ CColor::CColor(const ColorXYZ& aMatrix):m_XYZValues(aMatrix)
 
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
+	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
+	m_pProvenance = NULL;
+	m_pTimestamp = NULL;
+	m_pWireSetup = NULL;
 }
 
 CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
@@ -2487,6 +2535,11 @@ CColor::CColor(double ax,double ay):m_XYZValues(0.0,3,1)
 
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
+	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
+	m_pProvenance = NULL;
+	m_pTimestamp = NULL;
+	m_pWireSetup = NULL;
 }
 
 CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
@@ -2497,6 +2550,11 @@ CColor::CColor(double aX,double aY, double aZ):m_XYZValues(0.0,3,1)
 
 	m_pSpectrum = NULL;
 	m_pLuxValue = NULL;
+	m_pRawXYZValues = NULL;
+	m_pStimulus = NULL;
+	m_pProvenance = NULL;
+	m_pTimestamp = NULL;
+	m_pWireSetup = NULL;
 }
 
 CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
@@ -2505,6 +2563,11 @@ CColor::CColor(ifstream &theFile):m_XYZValues(0.0,3,1)
 
     m_pSpectrum = NULL;
     m_pLuxValue = NULL;
+    m_pRawXYZValues = NULL;
+    m_pStimulus = NULL;
+    m_pProvenance = NULL;
+    m_pTimestamp = NULL;
+    m_pWireSetup = NULL;
 
     theFile.read((char*)&version, 4);
     version = littleEndianUint32ToHost(version);
@@ -2542,6 +2605,166 @@ void CColor::ClearSpectrumLux()
 		delete m_pLuxValue;
 		m_pLuxValue = NULL;
 	}
+
+	ClearRawXYZValue();
+	ClearStimulusValue();
+	ClearProvenance();
+	ClearTimestamp();
+	ClearWireSetup();
+}
+
+void CColor::SetRawXYZValue(const ColorXYZ& aRaw)
+{
+	if ( m_pRawXYZValues )
+		delete m_pRawXYZValues;
+
+	m_pRawXYZValues = new ColorXYZ ( aRaw );
+}
+
+void CColor::ClearRawXYZValue()
+{
+	if ( m_pRawXYZValues )
+	{
+		delete m_pRawXYZValues;
+		m_pRawXYZValues = NULL;
+	}
+}
+
+// Scales the corrected XYZ and, when present, the raw sensor XYZ by the same
+// factor. For scalar renormalizations (the set-white-Y rescale, profile-drift
+// compensation) this keeps raw provenance exact: a scalar commutes with any
+// linear correction - including Bodner's, whose sub-gamut selection depends
+// only on the raw chromaticity, which uniform scaling preserves - so a later
+// recompute-from-raw reproduces the rescaled value instead of resurrecting
+// the pre-rescale reading.
+void CColor::ScaleXYZ(double fScale)
+{
+	SetX(GetX()*fScale);
+	SetY(GetY()*fScale);
+	SetZ(GetZ()*fScale);
+	if ( HasRawXYZValue() )
+	{
+		ColorXYZ raw = GetRawXYZValue();
+		SetRawXYZValue(ColorXYZ(raw[0]*fScale, raw[1]*fScale, raw[2]*fScale));
+	}
+}
+
+bool CColor::HasRawXYZValue() const
+{
+	return ( m_pRawXYZValues != NULL );
+}
+
+ColorXYZ CColor::GetRawXYZValue() const
+{
+	return ( m_pRawXYZValues ? (*m_pRawXYZValues) : m_XYZValues );
+}
+
+void CColor::SetStimulusValue(const ColorRGBDisplay& aStimulus)
+{
+	if ( m_pStimulus )
+		delete m_pStimulus;
+
+	m_pStimulus = new ColorRGBDisplay ( aStimulus );
+}
+
+void CColor::ClearStimulusValue()
+{
+	if ( m_pStimulus )
+	{
+		delete m_pStimulus;
+		m_pStimulus = NULL;
+	}
+}
+
+bool CColor::HasStimulusValue() const
+{
+	return ( m_pStimulus != NULL );
+}
+
+ColorRGBDisplay CColor::GetStimulusValue() const
+{
+	return ( m_pStimulus ? (*m_pStimulus) : ColorRGBDisplay() );
+}
+
+void CColor::SetProvenance(const CColorProvenance& aProv)
+{
+	if ( m_pProvenance )
+		delete m_pProvenance;
+
+	m_pProvenance = new CColorProvenance ( aProv );
+}
+
+void CColor::ClearProvenance()
+{
+	if ( m_pProvenance )
+	{
+		delete m_pProvenance;
+		m_pProvenance = NULL;
+	}
+}
+
+bool CColor::HasProvenance() const
+{
+	return ( m_pProvenance != NULL );
+}
+
+CColorProvenance CColor::GetProvenance() const
+{
+	return ( m_pProvenance ? (*m_pProvenance) : CColorProvenance() );
+}
+
+void CColor::SetTimestamp(double aTimestamp)
+{
+	if ( m_pTimestamp )
+		delete m_pTimestamp;
+
+	m_pTimestamp = new double ( aTimestamp );
+}
+
+void CColor::ClearTimestamp()
+{
+	if ( m_pTimestamp )
+	{
+		delete m_pTimestamp;
+		m_pTimestamp = NULL;
+	}
+}
+
+bool CColor::HasTimestamp() const
+{
+	return ( m_pTimestamp != NULL );
+}
+
+double CColor::GetTimestamp() const
+{
+	return ( m_pTimestamp ? (*m_pTimestamp) : 0.0 );
+}
+
+void CColor::SetWireSetup(const CColorWireSetup& aWire)
+{
+	if ( m_pWireSetup )
+		delete m_pWireSetup;
+
+	m_pWireSetup = new CColorWireSetup ( aWire );
+}
+
+void CColor::ClearWireSetup()
+{
+	if ( m_pWireSetup )
+	{
+		delete m_pWireSetup;
+		m_pWireSetup = NULL;
+	}
+}
+
+bool CColor::HasWireSetup() const
+{
+	return ( m_pWireSetup != NULL );
+}
+
+CColorWireSetup CColor::GetWireSetup() const
+{
+	return ( m_pWireSetup ? (*m_pWireSetup) : CColorWireSetup() );
 }
 
 CColor& CColor::operator =(const CColor& aColor)
@@ -2558,6 +2781,21 @@ CColor& CColor::operator =(const CColor& aColor)
 
 	if ( aColor.m_pLuxValue )
 		m_pLuxValue = new double ( *aColor.m_pLuxValue );
+
+	if ( aColor.m_pRawXYZValues )
+		m_pRawXYZValues = new ColorXYZ ( *aColor.m_pRawXYZValues );
+
+	if ( aColor.m_pStimulus )
+		m_pStimulus = new ColorRGBDisplay ( *aColor.m_pStimulus );
+
+	if ( aColor.m_pProvenance )
+		m_pProvenance = new CColorProvenance ( *aColor.m_pProvenance );
+
+	if ( aColor.m_pTimestamp )
+		m_pTimestamp = new double ( *aColor.m_pTimestamp );
+
+	if ( aColor.m_pWireSetup )
+		m_pWireSetup = new CColorWireSetup ( *aColor.m_pWireSetup );
 
 	return *this;
 }
@@ -2775,30 +3013,72 @@ ostream& operator <<(ostream& ostr, const CColor& obj)
 }
 
 #ifdef LIBHCFR_HAS_MFC
+bool CColor::s_bStoreLegacy = false;
+
 void CColor::Serialize(CArchive& archive)
 {
+	// Stream version = base + 100 (issue #193). The base encodes spectrum/lux
+	// presence exactly as it always has (1/3/5/6 written; 2 and 4 are real old
+	// files with an int bandwidth), and everything optional beyond that lives
+	// in a tagged extension trailer (ArchiveExtension.h, tags in ArchiveTags.h)
+	// that a reader walks by byte count, so a field this build does not know
+	// is skipped, never a desync. Files at version 100+ drop the two dead 3x3
+	// "ignore" matrices (184 bytes per color) that every legacy version carried.
+	//
+	// Versions 10..99 were the unreleased tens-digit bitfield encoding of the
+	// Bodner branch (+10 raw, +20 stimulus); they never shipped and are
+	// rejected rather than parsed.
 	if (archive.IsStoring())
 	{
-		int version=1;
+		int base = 1;
 
 		if ( m_pLuxValue )
 		{
 			if ( m_pSpectrum )
-				version = 6;
+				base = 6;
 			else
-				version = 3;
+				base = 3;
 		}
 		else if ( m_pSpectrum )
 		{
-			version = 5;
+			base = 5;
 		}
 
-		archive << version;
-		m_XYZValues.Serialize(archive) ;
+		if ( s_bStoreLegacy )
+		{
+			// SaveOldCalibrationFile only (CColorLegacyStoreScope): the pre-#193
+			// layout, which a 4.1 reader accepts. Bare base 1/3/5/6, XYZ, the two
+			// zero 3x3 "ignore" matrices, then spectrum and lux in the order the
+			// legacy reader expects, and no trailer. Raw XYZ, stimulus,
+			// timestamp, provenance and the wire setup have no legacy
+			// encoding and are dropped. T19 (g) pins these bytes against the (c) goldens
+			// captured from the old writer.
+			archive << base;
+			m_XYZValues.Serialize(archive) ;
 
-        Matrix ignore(0.0, 3, 3);
-		ignore.Serialize(archive);
-		ignore.Serialize(archive);
+			Matrix ignore(0.0, 3, 3);
+			ignore.Serialize(archive);
+			ignore.Serialize(archive);
+
+			if ( m_pSpectrum )
+			{
+				archive << m_pSpectrum -> GetRows ();
+				archive << m_pSpectrum -> m_WaveLengthMin;
+				archive << m_pSpectrum -> m_WaveLengthMax;
+				archive << m_pSpectrum -> m_BandWidth;
+				// CSpectrum v1 (version int, then the matrix): a 4.1 reader
+				// refuses the v2 that CSpectrum::Serialize now writes.
+				archive << (int) 1;
+				m_pSpectrum -> Matrix::Serialize(archive);
+			}
+
+			if ( m_pLuxValue )
+				archive << (* m_pLuxValue);
+			return;
+		}
+
+		archive << ( base + 100 );
+		m_XYZValues.Serialize(archive) ;
 
 		if ( m_pSpectrum )
 		{
@@ -2811,58 +3091,280 @@ void CColor::Serialize(CArchive& archive)
 
 		if ( m_pLuxValue )
 			archive << (* m_pLuxValue);
+
+		// The trailer is written unconditionally: an empty one is four zero
+		// bytes, and its presence never depends on the data.
+		CExtensionWriter ext;
+
+		if ( m_pRawXYZValues )
+		{
+			m_pRawXYZValues -> Serialize ( ext.BeginTag ( ArchiveTag::COLOR_RAW_XYZ ) );
+			ext.EndTag ();
+		}
+
+		if ( m_pStimulus )
+		{
+			m_pStimulus -> Serialize ( ext.BeginTag ( ArchiveTag::COLOR_STIMULUS ) );
+			ext.EndTag ();
+		}
+
+		if ( m_pTimestamp )
+		{
+			ext.BeginTag ( ArchiveTag::COLOR_TIMESTAMP ) << (* m_pTimestamp);
+			ext.EndTag ();
+		}
+
+		if ( m_pProvenance )
+		{
+			// patchNumber, sequenceIndex, srcBits, srcRange, name, role. New
+			// fields go after role; never reorder (see CColorProvenance).
+			CArchive& value = ext.BeginTag ( ArchiveTag::COLOR_PROVENANCE );
+			value << m_pProvenance->patchNumber;
+			value << m_pProvenance->sequenceIndex;
+			value << m_pProvenance->srcBits;
+			value << m_pProvenance->srcRange;
+			value << CString ( m_pProvenance->name.c_str() );
+			value << m_pProvenance->role;
+			ext.EndTag ();
+		}
+
+		if ( m_pWireSetup )
+		{
+			// realDrive (as int 1/0), wireBits, encodingRange, deviceRange,
+			// generatorId, outputMode, wireCode[0..2]. New fields go at the
+			// end; never reorder (ArchiveTags.h, COLOR_WIRE_SETUP).
+			CArchive& value = ext.BeginTag ( ArchiveTag::COLOR_WIRE_SETUP );
+			value << (int) ( m_pWireSetup->realDrive ? 1 : 0 );
+			value << m_pWireSetup->wireBits;
+			value << m_pWireSetup->encodingRange;
+			value << m_pWireSetup->deviceRange;
+			value << m_pWireSetup->generatorId;
+			value << m_pWireSetup->outputMode;
+			value << m_pWireSetup->wireCode[0];
+			value << m_pWireSetup->wireCode[1];
+			value << m_pWireSetup->wireCode[2];
+			ext.EndTag ();
+		}
+
+		ext.Write(archive);
 	}
 	else
 	{
-		int version;
-		archive >> version;
-		
-		if ( version > 6 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
-		
-		m_XYZValues.Serialize(archive) ;
+		// Load into a temporary and assign only once the whole block has been
+		// read: an exception anywhere in LoadFrom (a newer or unreleased
+		// version, a truncated or malformed trailer) propagates before the
+		// assignment, so a refused load leaves this color exactly as it was.
+		CColor loaded;
+		loaded.LoadFrom(archive);
+		*this = loaded;
+	}
+}
+
+void CColor::LoadFrom(CArchive& archive)
+{
+	int version;
+	archive >> version;
+
+	if ( version >= 10 && version < 100 )
+		throw new CNewerSchemaException ( "CColor", version, true );
+	if ( version >= 200 )
+		throw new CNewerSchemaException ( "CColor", version );
+
+	int  base = version % 100;
+	bool hasTrailer = ( version >= 100 );
+
+	// 1..6, not the writer's {1,3,5,6}: bases 2 and 4 are genuinely old
+	// files that store the spectrum bandwidth as an int.
+	if ( base < 1 || base > 6 )
+		AfxThrowArchiveException ( CArchiveException::badSchema );
+
+	m_XYZValues.Serialize(archive) ;
+
+	if ( ! hasTrailer )
+	{
+		// Legacy only: two 3x3 matrices that were never read back.
 		Matrix ignore(0.0, 3, 3);
 		ignore.Serialize(archive);
 		ignore.Serialize(archive);
+	}
 
-		if ( m_pSpectrum )
+	if ( m_pSpectrum )
+	{
+		delete m_pSpectrum;
+		m_pSpectrum = NULL;
+	}
+
+	if ( m_pLuxValue )
+	{
+		delete m_pLuxValue;
+		m_pLuxValue = NULL;
+	}
+
+	if ( m_pRawXYZValues )
+	{
+		delete m_pRawXYZValues;
+		m_pRawXYZValues = NULL;
+	}
+
+	if ( m_pStimulus )
+	{
+		delete m_pStimulus;
+		m_pStimulus = NULL;
+	}
+
+	if ( m_pTimestamp )
+	{
+		delete m_pTimestamp;
+		m_pTimestamp = NULL;
+	}
+
+	if ( m_pProvenance )
+	{
+		delete m_pProvenance;
+		m_pProvenance = NULL;
+	}
+
+	if ( m_pWireSetup )
+	{
+		delete m_pWireSetup;
+		m_pWireSetup = NULL;
+	}
+
+	if ( base == 2 || base == 4 || base == 5 || base == 6 )
+	{
+		int NbBands, WaveLengthMin, WaveLengthMax;
+		double dBandWidth;
+		archive >> NbBands;
+		archive >> WaveLengthMin;
+		archive >> WaveLengthMax;
+		if ( base == 2 || base == 4 )
 		{
-			delete m_pSpectrum;
-			m_pSpectrum = NULL;
+			int nBandWidth;
+			archive >> nBandWidth;
+			dBandWidth = nBandWidth;
 		}
-
-		if ( m_pLuxValue )
+		else
 		{
-			delete m_pLuxValue;
-			m_pLuxValue = NULL;
+			archive >> dBandWidth;
 		}
+		m_pSpectrum = new CSpectrum ( NbBands, WaveLengthMin, WaveLengthMax, dBandWidth );
+		m_pSpectrum -> Serialize(archive);
+	}
 
-		if ( version == 2 || version == 4 || version == 5 || version == 6 )
+	if ( base == 3 || base == 4 || base == 6 )
+	{
+		m_pLuxValue = new double;
+		archive >> (* m_pLuxValue);
+	}
+
+	if ( hasTrailer )
+	{
+		CExtensionReader ext(archive);
+		BYTE  tag;
+		DWORD cb;
+
+		while ( ext.Next(tag, cb) )
 		{
-			int NbBands, WaveLengthMin, WaveLengthMax;
-			double dBandWidth;
-			archive >> NbBands;
-			archive >> WaveLengthMin;
-			archive >> WaveLengthMax;
-			if ( version == 2 || version == 4 )
+			switch ( tag )
 			{
-				int nBandWidth;
-				archive >> nBandWidth;
-				dBandWidth = nBandWidth;
-			}
-			else
-			{
-				archive >> dBandWidth;
-			}
-			m_pSpectrum = new CSpectrum ( NbBands, WaveLengthMin, WaveLengthMax, dBandWidth );
-			m_pSpectrum -> Serialize(archive);
-		}
+				// A repeated tag replaces the earlier value (last one wins);
+				// the earlier allocation is freed, not leaked. Readers must not
+				// rely on a tag appearing at most once.
+				case ArchiveTag::COLOR_RAW_XYZ:
+				{
+					// This runs on Serialize's temporary, so a short or
+					// malformed value throws out of here and the caller's
+					// color is never assigned - it is left as it was.
+					CArchive& value = ext.Value();
+					delete m_pRawXYZValues;
+					m_pRawXYZValues = NULL;
+					m_pRawXYZValues = new ColorXYZ ( Matrix(0.0,3,1) );
+					m_pRawXYZValues -> Serialize(value);
+					break;
+				}
 
-		if ( version == 3 || version == 4 || version == 6 )
-		{
-			m_pLuxValue = new double;
-			archive >> (* m_pLuxValue);
+				case ArchiveTag::COLOR_STIMULUS:
+				{
+					CArchive& value = ext.Value();
+					delete m_pStimulus;
+					m_pStimulus = NULL;
+					m_pStimulus = new ColorRGBDisplay ( 0.0, 0.0, 0.0 );
+					m_pStimulus -> Serialize(value);
+					break;
+				}
+
+				case ArchiveTag::COLOR_TIMESTAMP:
+				{
+					CArchive& value = ext.Value();
+					delete m_pTimestamp;
+					m_pTimestamp = NULL;
+					m_pTimestamp = new double;
+					value >> (* m_pTimestamp);
+					break;
+				}
+
+				case ArchiveTag::COLOR_PROVENANCE:
+				{
+					CArchive& value = ext.Value();
+					delete m_pProvenance;
+					m_pProvenance = NULL;
+					m_pProvenance = new CColorProvenance;
+					value >> m_pProvenance->patchNumber;
+					value >> m_pProvenance->sequenceIndex;
+					value >> m_pProvenance->srcBits;
+					value >> m_pProvenance->srcRange;
+					CString name;
+					value >> name;
+					m_pProvenance->name = (LPCTSTR) name;
+					// The role was appended after the first five fields, so a
+					// value may end before it. Flush hands the archive's unread
+					// buffer back to the value's memory file, whose position
+					// then counts exactly what has been consumed.
+					value.Flush();
+					CFile* pValueFile = value.GetFile();
+					if ( pValueFile->GetLength() - pValueFile->GetPosition() >= sizeof(int) )
+						value >> m_pProvenance->role;
+					else
+						m_pProvenance->role = PROVENANCE_ROLE_UNKNOWN;
+					break;
+				}
+
+				case ArchiveTag::COLOR_WIRE_SETUP:
+				{
+					// Append-only: take the whole ints the value holds, in
+					// order, and leave every field after them at its default,
+					// so a shorter value from an older writer is a partial
+					// stamp and never a failed load. Bytes past the ninth int
+					// belong to fields this build does not know; Close skips
+					// them. realDrive is true only for exactly 1.
+					CArchive& value = ext.Value();
+					delete m_pWireSetup;
+					m_pWireSetup = NULL;
+					m_pWireSetup = new CColorWireSetup;
+					int v[9];
+					DWORD n = cb / (DWORD) sizeof(int);
+					if ( n > 9 )
+						n = 9;
+					for ( DWORD i = 0; i < n; i ++ )
+						value >> v[i];
+					if ( n > 0 ) m_pWireSetup->realDrive     = ( v[0] == 1 );
+					if ( n > 1 ) m_pWireSetup->wireBits      = v[1];
+					if ( n > 2 ) m_pWireSetup->encodingRange = v[2];
+					if ( n > 3 ) m_pWireSetup->deviceRange   = v[3];
+					if ( n > 4 ) m_pWireSetup->generatorId   = v[4];
+					if ( n > 5 ) m_pWireSetup->outputMode    = v[5];
+					if ( n > 6 ) m_pWireSetup->wireCode[0]   = v[6];
+					if ( n > 7 ) m_pWireSetup->wireCode[1]   = v[7];
+					if ( n > 8 ) m_pWireSetup->wireCode[2]   = v[8];
+					break;
+				}
+
+				default:
+					ext.Skip();
+					break;
+			}
 		}
+		ext.Close();
 	}
 }
 #endif
@@ -2933,17 +3435,31 @@ void CSpectrum::Serialize(CArchive& archive)
 {
 	if (archive.IsStoring())
 	{
-		int version=1;
+		// v2 (issue #193): v1 plus an extension trailer, empty so far.
+		int version=2;
 		archive << version;
 		Matrix::Serialize(archive);
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 1 )
+		if ( version > 2 )
+			throw new CNewerSchemaException ( "CSpectrum", version );
+		if ( version < 1 )
 			AfxThrowArchiveException ( CArchiveException::badSchema );
 		Matrix::Serialize(archive);
+		if ( version >= 2 )
+		{
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 #endif
@@ -2967,6 +3483,49 @@ double CsvCodeToPercent(double code, int bits, int range)
 	if (range == CSV_RANGE_EXTENDED)
 		return pct;
 	return ( pct < 0.0 ) ? 0.0 : ( pct > 100.0 ? 100.0 : pct );
+}
+
+// Exact inverse of CsvCodeToPercent for percentages that came off the native
+// grid (round-to-nearest, clamped to [0, maxCode]); reconstructs definition
+// codes from stored stimuli during legacy .chc migration. Extended super-white
+// (>100%) maps back onto the legal slope up to the grid ceiling.
+bool CsvPatchCodesMatch(const std::vector<CsvPatchRow> & a, const std::vector<CsvPatchRow> & b)
+{
+	if ( a.size() != b.size() )
+		return false;
+	for ( size_t i = 0; i < a.size(); i++ )
+		if ( a[i].r != b[i].r || a[i].g != b[i].g || a[i].b != b[i].b )
+			return false;
+	return true;
+}
+
+std::string CsvSetNameFromPath(const char * path)
+{
+	std::string base ( path );
+	size_t sl = base.find_last_of ( "\\/" );
+	if ( sl != std::string::npos )
+		base.erase ( 0, sl + 1 );
+	if ( base.size() >= 4 && _stricmp ( base.c_str() + base.size() - 4, ".csv" ) == 0 )
+		base.erase ( base.size() - 4 );
+	return base;
+}
+
+int CsvPercentToCode(double percent, int bits, int range)
+{
+	int maxCode = (1 << bits) - 1;
+	double code;
+	if (range == CSV_RANGE_FULL)
+		code = percent * maxCode / 100.0;
+	else
+	{
+		double black = 16.0  * (1 << (bits - 8));
+		double white = 235.0 * (1 << (bits - 8));
+		code = black + percent * ( white - black ) / 100.0;
+	}
+	int c = (int) floor ( code + 0.5 );
+	if ( c < 0 ) c = 0;
+	if ( c > maxCode ) c = maxCode;
+	return c;
 }
 
 // Shared low-level patch-list parser: reads a CSV into raw code rows (patch#, R,G,B, name),
@@ -3077,6 +3636,33 @@ int ReadColorsFromCsv(ColorRGBDisplay* genColors, int maxEntries, CString csvPat
 			CsvCodeToPercent(rows[i].g, bits, range),
 			CsvCodeToPercent(rows[i].b, bits, range));
 	return n;
+}
+
+// Active user patch set override (multi-set picker). The app copies the active
+// set's stored definition in here (via SetUserPatchOverride, from GetCColors) so
+// the USER case of GenerateCC24Colors below is self-contained - the source CSV
+// may have changed or be gone. An owned copy, so no dangling pointers into
+// document-owned vectors; installed/cleared exclusively by GetCColors so it
+// cannot drift from the target cache.
+static std::vector<CsvPatchRow> s_userOverrideRows;
+static int s_userOverrideBits = 8;
+static int s_userOverrideRange = CSV_RANGE_NONE;
+static bool s_userOverrideSet = false;
+
+void SetUserPatchOverride ( const std::vector<CsvPatchRow> & rows, int bits, int range )
+{
+	s_userOverrideRows = rows;
+	s_userOverrideBits = bits;
+	s_userOverrideRange = range;
+	s_userOverrideSet = true;
+}
+
+void ClearUserPatchOverride ()
+{
+	s_userOverrideRows.clear();
+	s_userOverrideBits = 8;
+	s_userOverrideRange = CSV_RANGE_NONE;
+	s_userOverrideSet = false;
 }
 
 static int AppendProfileGray(ColorRGBDisplay* GenColors, int maxEntries, int cnt, int cubeN, double level)
@@ -3571,6 +4157,21 @@ bool GenerateCC24Colors (const CColorReference& colorReference, ColorRGBDisplay*
         }
     case USER:
         {//read in user defined colors
+			if (s_userOverrideSet)
+			{
+				// Multi-set picker: drive colors come from the active set's stored
+				// definition, decoded exactly like ReadColorsFromCsv decodes the file.
+				n_elements = (int)s_userOverrideRows.size();
+				if (n_elements > MAX_USER_CC_PATCH_SIZE)
+					n_elements = MAX_USER_CC_PATCH_SIZE;
+				for (int i = 0; i < n_elements; i++)
+					GenColors[i] = ColorRGBDisplay(
+						CsvCodeToPercent(s_userOverrideRows[i].r, s_userOverrideBits, s_userOverrideRange),
+						CsvCodeToPercent(s_userOverrideRows[i].g, s_userOverrideBits, s_userOverrideRange),
+						CsvCodeToPercent(s_userOverrideRows[i].b, s_userOverrideBits, s_userOverrideRange));
+				m_bRecalc = false;   // USER never HDR-recalcs (same as the resolver reports)
+				break;
+			}
 			CString userPath;
 			ResolveCCSetPath(aCCMode, userPath, &m_bRecalc);   // USER -> module-dir usercolors.csv
 			n_elements = ReadColorsFromCsv(GenColors, MAX_USER_CC_PATCH_SIZE, userPath);
@@ -3914,7 +4515,84 @@ Matrix ComputeConversionMatrix3Colour(const ColorXYZ measures[3], const ColorXYZ
     return result;
 }
 
-Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries)
+void ComputeBodnerThreeMatrices(const ColorXYZ measuresRGBW[4], const ColorXYZ referencesRGBW[4], Matrix outRawMatrix[3], Matrix outCalMatrix[3])
+{
+    // Sub-gamut triples, sharing the white primary: rgw, gbw, rbw
+    static const int subGamutIndices[3][2] = { {0,1}, {1,2}, {0,2} };
+
+    for ( int k = 0; k < 3; k++ )
+    {
+        int i1 = subGamutIndices[k][0];
+        int i2 = subGamutIndices[k][1];
+
+        ColorXYZ measuresTriple[3]   = { measuresRGBW[i1],   measuresRGBW[i2],   measuresRGBW[3] };
+        ColorXYZ referencesTriple[3] = { referencesRGBW[i1], referencesRGBW[i2], referencesRGBW[3] };
+
+        Matrix rawXYZ(measuresTriple[0]);
+        rawXYZ.CMAC(measuresTriple[1]);
+        rawXYZ.CMAC(measuresTriple[2]);
+
+        if ( rawXYZ.Determinant() == 0 )
+        {
+            throw std::logic_error("Can't invert Bodner sub-gamut raw matrix");
+        }
+
+        outRawMatrix[k] = rawXYZ;
+        outCalMatrix[k] = ComputeConversionMatrix3Colour(measuresTriple, referencesTriple);
+    }
+}
+
+ColorXYZ SelectAndApplyBodnerMatrix(const ColorXYZ& rawXYZ, const Matrix rawMatrix[3], const Matrix calMatrix[3])
+{
+    Matrix rawInv[3];
+    bool rawOk[3];
+    for ( int k = 0; k < 3; k++ )
+    {
+        rawOk[k] = ( rawMatrix[k].Determinant() != 0 );
+        rawInv[k] = rawOk[k] ? rawMatrix[k].GetInverse() : Matrix::IdentityMatrix(3);
+    }
+    return SelectAndApplyBodnerMatrixInv(rawXYZ, rawInv, rawOk, calMatrix);
+}
+
+ColorXYZ SelectAndApplyBodnerMatrixInv(const ColorXYZ& rawXYZ, const Matrix rawInv[3], const bool rawInvertible[3], const Matrix calMatrix[3])
+{
+    double worstNegativeSum = -1.0;
+    int bestSubGamut = 0;
+
+    for ( int k = 0; k < 3; k++ )
+    {
+        if ( !rawInvertible[k] )
+            continue;
+
+        Matrix drive = rawInv[k] * rawXYZ;
+
+        double negativeSum = 0.0;
+        for ( int row = 0; row < 3; row++ )
+        {
+            if ( drive(row,0) < 0.0 )
+                negativeSum += -drive(row,0);
+        }
+
+        if ( negativeSum == 0.0 )
+        {
+            // All drive values non-negative: rawXYZ falls inside this sub-gamut.
+            return ColorXYZ(calMatrix[k] * rawXYZ);
+        }
+
+        // Fallback tie-break (not specified verbatim by the paper for the
+        // multi-negative case): remember the sub-gamut whose drive values are
+        // least negative overall, in case no sub-gamut matches cleanly.
+        if ( worstNegativeSum < 0.0 || negativeSum < worstNegativeSum )
+        {
+            worstNegativeSum = negativeSum;
+            bestSubGamut = k;
+        }
+    }
+
+    return ColorXYZ(calMatrix[bestSubGamut] * rawXYZ);
+}
+
+Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ references[3], const ColorXYZ & WhiteTest, const ColorXYZ & WhiteRef, bool	bUseOnlyPrimaries, bool bScaleLuminance)
 {
     if (!WhiteTest.isValid() || !WhiteRef.isValid() || bUseOnlyPrimaries)
     {
@@ -3955,15 +4633,22 @@ Matrix ComputeConversionMatrix(const ColorXYZ measures[3], const ColorXYZ refere
     // Compute component distribution for measured white
     Matrix M(measuresxyz * km);
 
-    // Compute transformation matrix
+    // Compute transformation matrix (this core is the NIST Four-Color Method /
+    // FCMM: pure chromaticity, independent of Y).
     Matrix transform(N * M.GetInverse());
 
-    // find out error adjustment in white value with this matrix
-    ColorXYZ testResult(transform * WhiteTest);
-    double errorAdjustment(WhiteRef[1] / testResult[1]);
+    // Optional luminance correction from the FCMM paper's conclusion: scale the
+    // matrix so the corrected white luminance matches the reference. Skipped for
+    // CALIB_FCMM_NO_LUM, which keeps the method strictly chromaticity-based.
+    if ( bScaleLuminance )
+    {
+        // find out error adjustment in white value with this matrix
+        ColorXYZ testResult(transform * WhiteTest);
+        double errorAdjustment(WhiteRef[1] / testResult[1]);
 
-    // and scale the matrix with this value
-    transform *= errorAdjustment;
+        // and scale the matrix with this value
+        transform *= errorAdjustment;
+    }
 
     return transform;
 }
@@ -4087,6 +4772,46 @@ double HLG_SignalToScene ( double v )
 	return ( exp( ( v - c ) / a ) + b ) / 12.0;
 }
 
+// The near-black and near-white log charts plot, for the reference curve and
+// for every measured point, log ( Y relative to white ) / log ( level ). The
+// reference (NearBlackHistoView / NearWhiteHistoView UpdateGraph) evaluates its
+// level as ( valx + GammaOffset ) / ( 1 + GammaOffset ) when its mode - the
+// GammaOffsetType, 99 under the sRGB standard - is below 4, and as valx
+// otherwise; ComputeGammaAndOffset gives a non-zero offset only for types 2
+// and 3 (the camera gammas), so those are the modes where a point's level is
+// not its own proportion. The gamma chart applies the same offset to its
+// measured points (GammaHistoView, valxprime).
+double PointGammaEffectiveOffset ( int gammaOffsetType, bool sRGBStandard, double fittedOffset )
+{
+	const int mode = sRGBStandard ? 99 : gammaOffsetType;
+	return ( mode < 4 ) ? fittedOffset : 0.0;
+}
+
+// ( prop + offset ) / ( 1 + offset ): with offset 0 exactly prop, bit for bit.
+double PointGammaLevel ( double prop, double offset )
+{
+	return ( prop + offset ) / ( 1.0 + offset );
+}
+
+// A measured point of a near-chart log trace in the reference curve's own
+// definition: log ( y / yWhite ) / log ( L ( v ) / L ( vWhite ) ), L =
+// PointGammaLevel. The reference beside it plots log ( val ) / log ( valx ),
+// val relative to the gray scale's 100% reading and valx the absolute level:
+// so with that white, vWhite = 1. FALSE (no point) without a white > 0, where
+// v is not inside ( 0, 1 ) - a 100% patch below the top (clip column 102) has
+// log ( 1 ) = 0, and the reference drops it too - where vWhite is not inside
+// ( 0, 1 ], and where the value is not finite.
+bool NearChartPointGamma ( double y, double v, double yWhite, double vWhite, double offset, double * pGamma )
+{
+	if ( ! ( yWhite > 0.0 && _finite ( yWhite ) ) || ! ( v > 0.0 && v < 1.0 ) || ! ( vWhite > 0.0 && vWhite <= 1.0 ) )
+		return false;
+	const double g = log ( y / yWhite ) / log ( PointGammaLevel ( v, offset ) / PointGammaLevel ( vWhite, offset ) );
+	if ( ! _finite ( g ) )
+		return false;
+	*pGamma = g;
+	return true;
+}
+
 // The two gray-ramp quantizers below select their grid via VideoCodeGrid (see
 // SnapToVideoGrid above). Their legacy limited-range forms carried the black
 // offset explicitly (floor(x + 16.5) - 16.0, and 64.5 / 64.0 at 10 bits).
@@ -4135,3 +4860,258 @@ double GrayLevelToGrayProp ( double Level, bool m_bUseRoundDown, bool m_b10bit, 
 	return floor(v + 0.5) / grid;
 }
 
+// ---- Where an existing gray reading sits on a gray-level axis ----
+//
+// THE RULE. Every place that describes a gray, near-black or near-white reading
+// that already exists - the charts, the grid's labels, references, delta E and
+// gamma, ComputeGammaAndOffset - places it at the drive its wire stamp records,
+// and ONLY when the stamp says realDrive: a generator recorded displaying
+// exactly this stimulus and nothing else reached the screen until the reading
+// ended (WireSetup.h). In every other case the reading is placed at its slot's
+// level on the current grid, exactly as before the stamp existed:
+//   - no stamp: every file written before the stamp;
+//   - realDrive false: the reading was not of a patch HCFR displayed - the 0.5%
+//     and 50.196% placeholders the continuous and single measures store, the
+//     manual (disc) and external generators;
+//   - a real drive with unequal channels (stimulus or codes): the stamp says
+//     that is what was sent, so it is no gray patch and has no gray level.
+// No tolerance, no grid test and no neutrality guess: the stamp is a fact or it
+// is absent.
+//
+// WHICH NUMBER. When the stamp carries the codes HCFR computed (GDI, the test
+// window, PGenerator), the level is the code decoded on the stamp's OWN
+// encoding: (code - black) / (white - black), with black/white 0/255 or 16/235
+// at 8 bits and 0/1023 or 64/940 at 10 bits. That is the exact value the
+// current grid gives the same code (GrayLevelToGrayProp returns code/grid), so
+// a document viewed on the setup it was measured on is described bit for bit
+// as before. When the stamp has no codes (madVR and Chromecast take a 0..1
+// fraction and quantize themselves; the overlay is YUY2) the level is the
+// stored stimulus itself, stimulus / 100: the fraction those outputs were
+// handed. Codes that are present but cannot be decoded (bits or range unknown)
+// are a stamp that does not say what was sent: the slot level is used.
+//
+// THE AXIS. Every gray-level axis is a percentage of the signal range, black
+// code to white code, on whatever encoding carried the patch. So the decoded
+// level goes on the axis as it is, whatever the CURRENT range and bit depth
+// are: the full-range code 242 is 94.902% (242/255) when the document is
+// viewed with the limited range selected, and the limited code 224 is 94.977%
+// (208/219) when it is viewed with full range selected. It is never
+// re-quantized onto the current grid (that is what moved the near-white points
+// of a full-range document onto 94.98/95.89/96.80/98.17/99.09% under limited,
+// a zigzag), and its reference value is evaluated at the same proportion.
+// The decode uses encodingRange - the mapping HCFR applied - and never
+// deviceRange. In the correct limited setup with a PGenerator (HCFR limited,
+// TV limited, PGenerator output full) HCFR sends 16..235 codes through a
+// full-range pipe and the TV reads 16 as black and 235 as white: the stamp is
+// encodingRange limited / deviceRange full, and the level is (code - 16) / 219.
+static bool WireCodeToProp ( int code, int bits, int range, double * pProp )
+{
+	double black, white;
+	if ( bits == 8 )
+	{
+		if ( range == WIRE_RANGE_FULL )			{ black = 0.0;  white = 255.0; }
+		else if ( range == WIRE_RANGE_LIMITED )	{ black = 16.0; white = 235.0; }
+		else return false;
+	}
+	else if ( bits == 10 )
+	{
+		if ( range == WIRE_RANGE_FULL )			{ black = 0.0;  white = 1023.0; }
+		else if ( range == WIRE_RANGE_LIMITED )	{ black = 64.0; white = 940.0; }
+		else return false;
+	}
+	else
+		return false;
+	*pProp = ( (double) code - black ) / ( white - black );
+	return true;
+}
+
+bool ReadingWireGrayProp ( const CColor & aReading, double * pProp )
+{
+	if ( ! aReading.HasWireSetup () || ! aReading.HasStimulusValue () )
+		return false;
+	const CColorWireSetup w = aReading.GetWireSetup ();
+	if ( ! w.realDrive )
+		return false;							// not a patch HCFR displayed
+	const ColorRGBDisplay s = aReading.GetStimulusValue ();
+	if ( ! ( s[0] == s[1] && s[1] == s[2] ) )
+		return false;							// a colored patch: no gray level
+
+	const bool anyCode = ( w.wireCode[0] >= 0 || w.wireCode[1] >= 0 || w.wireCode[2] >= 0 );
+	if ( ! anyCode )
+	{
+		*pProp = s[1] / 100.0;					// a fraction handed to madVR / Chromecast / overlay
+		return true;
+	}
+	if ( ! ( w.wireCode[0] == w.wireCode[1] && w.wireCode[1] == w.wireCode[2] ) )
+		return false;							// unequal (or partly unknown) codes: no gray level
+	return WireCodeToProp ( w.wireCode[1], w.wireBits, w.encodingRange, pProp );
+}
+
+double ReadingGrayProp ( const CColor & aReading, double slotLevel, bool bUseRoundDown, bool b10bit, bool is16_235 )
+{
+	double prop;
+	if ( ReadingWireGrayProp ( aReading, & prop ) )
+		return prop;
+	return GrayLevelToGrayProp ( slotLevel, bUseRoundDown, b10bit, is16_235 );
+}
+
+// The grayscale's slot level: the stored nominal level snapped to the current
+// grid when the document carries one per slot, else the even ramp.
+// CMeasure::GetGrayPercent is this function.
+double GrayScaleSlotLevel ( int index, int size, const double * nominalLevels, int nominalCount, bool bUseRoundDown, bool b10bit, bool is16_235 )
+{
+	if ( nominalLevels != NULL && nominalCount == size && index >= 0 && index < size )
+		return GrayLevelToGrayProp ( nominalLevels[index], bUseRoundDown, b10bit, is16_235 ) * 100.0;
+	return ArrayIndexToGrayLevel ( index, size, bUseRoundDown, b10bit, is16_235 );
+}
+
+// The slot each series' sweep drives on the current grid (Measure.cpp's
+// near-black and near-white sweeps): near black at i% (2i% in PQ), near white
+// at clip - size + i %. ArrayIndexToGrayLevel ( n, 101, ... ) is the same
+// arithmetic as GrayLevelToGrayProp ( n, ... ) * 100, so this is also the X
+// every chart computed by the second form.
+double GraySeriesSlotLevel ( const GraySeriesView & v, int index )
+{
+	switch ( v.series )
+	{
+		case GRAY_SERIES_NEAR_BLACK:
+			return ArrayIndexToGrayLevel ( index * ( v.pqNearBlack ? 2 : 1 ), 101, v.bUseRoundDown, v.b10bit, v.is16_235 );
+		case GRAY_SERIES_NEAR_WHITE:
+			return ArrayIndexToGrayLevel ( v.nearWhiteClipCol - v.size + index, 101, v.bUseRoundDown, v.b10bit, v.is16_235 );
+		default:
+			return GrayScaleSlotLevel ( index, v.size, v.nominalLevels, v.nominalCount, v.bUseRoundDown, v.b10bit, v.is16_235 );
+	}
+}
+
+bool GraySeriesDriveProp ( const GraySeriesView & v, int index, double * pProp )
+{
+	if ( v.readings == NULL || index < 0 || index >= v.size )
+		return false;
+	return ReadingWireGrayProp ( v.readings[index], pProp );
+}
+
+double GraySeriesLevel ( const GraySeriesView & v, int index )
+{
+	double prop;
+	if ( GraySeriesDriveProp ( v, index, & prop ) )
+		return prop * 100.0;
+	return GraySeriesSlotLevel ( v, index );
+}
+
+// The slot's proportion, quantized ONCE from the level the sweep asked for:
+// floor(v) / grid under round-down, floor(v + 0.5) / grid otherwise, where v
+// is the nominal level on the grid. Re-quantizing the slot PERCENTAGE instead
+// (GrayLevelToGrayProp ( GraySeriesSlotLevel ( ... ) )) truncated twice under
+// round-down: code / grid * 100 / 100 * grid lands a hair below the code at
+// some levels and floor() drops a whole code (219 grid, 5%: 9/219 instead of
+// the 10/219 the disc shows). Under round-to-nearest the second rounding
+// returns the same code, so that value is unchanged bit for bit.
+double GraySeriesSlotProp ( const GraySeriesView & v, int index )
+{
+	switch ( v.series )
+	{
+		case GRAY_SERIES_NEAR_BLACK:
+			return GrayLevelToGrayProp ( (double) ( index * ( v.pqNearBlack ? 2 : 1 ) ), v.bUseRoundDown, v.b10bit, v.is16_235 );
+		case GRAY_SERIES_NEAR_WHITE:
+			return GrayLevelToGrayProp ( (double) ( v.nearWhiteClipCol - v.size + index ), v.bUseRoundDown, v.b10bit, v.is16_235 );
+		default:
+			if ( v.nominalLevels != NULL && v.nominalCount == v.size && index >= 0 && index < v.size )
+				return GrayLevelToGrayProp ( v.nominalLevels[index], v.bUseRoundDown, v.b10bit, v.is16_235 );
+			if ( v.size < 2 )
+				return 0.0;						// as ArrayIndexToGrayLevel: no ramp
+			{
+				// The even ramp, ArrayIndexToGrayLevel's arithmetic without its * 100.
+				const double grid = VideoCodeGrid ( v.b10bit, v.is16_235 );
+				const double x = (double) index / (double) ( v.size - 1 ) * grid;
+				return ( v.bUseRoundDown ? floor ( x ) : floor ( x + 0.5 ) ) / grid;
+			}
+	}
+}
+
+double GraySeriesProp ( const GraySeriesView & v, int index )
+{
+	double prop;
+	if ( GraySeriesDriveProp ( v, index, & prop ) )
+		return prop;
+	return GraySeriesSlotProp ( v, index );
+}
+
+
+// Reference for black (0%) on the grayscale page, shared by the grid cells
+// and the RGB levels pane, so they print one number, and by the dE chart,
+// the CIE chart and the export (the charts and export weigh gray-world
+// differently in PQ, as they do on every step).
+// The w/gamma target there is the transfer function's own: the display's
+// black for BT.1886, black compensation and HLG with a target black, light
+// for tone-mapped PQ and the camera-gamma offsets, but exactly zero for a
+// pure power law, L*, sRGB and PQ without tone mapping.
+// A zero target has no finite luminance error, and with Y == 0 its XYZ is all
+// zeros, so the white point's chromaticity is gone with it: rebuild it from
+// the reference white at the measured luminance - the target "Absolute Y
+// w/o gamma" uses - which leaves black's tint as the only error. The test is
+// in cd/m2 (aReference's Y is relative to YWhite), so a target built from a
+// floored on/off black counts as zero instead of blowing the ratio up.
+// noDataColor when there is no target or no white to scale by.
+CColor BlackTargetReference ( const CColor & aMeasure, double YWhite, const CColor & aReference, const CColor & refWhite )
+{
+	if ( !aReference.isValid() || !( YWhite > 0.0 ) )
+		return noDataColor;
+	if ( HasMeasuredLight ( aReference.GetY() * YWhite ) )
+		return aReference;
+
+	ColorxyY tmpColor ( refWhite.GetxyYValue() );
+	tmpColor[2] = aMeasure.GetY() / YWhite;
+	CColor blackRef;
+	blackRef.SetxyYValue ( tmpColor );
+	return blackRef;
+}
+
+// THE NEAR-CHART WHITE (near black's charts, near white's luma and lux
+// traces). The point is in lux when it shows one: a lux trace, or a luma trace
+// in luminance curve mode 1 whose reading carries a lux value. Then the white
+// must carry lux and its lux is used. Otherwise the point is in cd/m2 and the
+// white's Y is used, whatever its lux status. That includes the R, G and B
+// traces: they divide their channel by the white's LUMA on purpose (HCFR's RGB
+// matrix gives R = G = B = Y at the target white, so the trace shows each
+// channel's gain against it). Main took GetLuxOrLumaValue for every trace, the
+// white's lux in curve mode 1 - a point in cd/m2 divided by lux.
+// A white is usable when it is valid and that value is finite and > 0. The
+// gray scale's top when usable, else near white's top, else none (0).
+static double NearChartWhiteOf ( const CColor & c, bool bLux )
+{
+	if ( ! c.isValid () || ( bLux && ! c.HasLuxValue () ) )
+		return 0.0;
+	const double y = bLux ? c.GetLuxValue () : c.GetY ();
+	return ( y > 0.0 && _finite ( y ) ) ? y : 0.0;
+}
+
+double NearChartWhite ( int colorSpace, int luminanceCurveMode, bool pointHasLux, const CColor & grayTop, const CColor & nearWhiteTop, bool * pFromGrayTop )
+{
+	const bool bLux = ( colorSpace == 2 ) || ( colorSpace == 1 && luminanceCurveMode == 1 && pointHasLux );
+	double y = NearChartWhiteOf ( grayTop, bLux );
+	if ( pFromGrayTop )
+		*pFromGrayTop = ( y > 0.0 );
+	if ( y > 0.0 )
+		return y;
+	return NearChartWhiteOf ( nearWhiteTop, bLux );
+}
+
+// See Color.h: the gray scale's measured 100% reading, else the on/off white.
+CColor GrayScaleWhite ( const CColor * readings, int size, const CColor & onOffWhite, bool ( * isPlaceholder ) ( const CColor & ) )
+{
+	if ( readings != NULL && size > 0 && readings[size-1].isValid () && ! ( isPlaceholder && isPlaceholder ( readings[size-1] ) ) )
+	{
+		const double y = readings[size-1].GetY ();
+		if ( _finite ( y ) && y > 0.0 )
+			return readings[size-1];
+	}
+	return onOffWhite;
+}
+
+// See Color.h: the gray scale's measured 0% reading, else the on/off black.
+CColor GrayScaleBlack ( const CColor * readings, int size, const CColor & onOffBlack )
+{
+	if ( readings != NULL && size > 0 && readings[0].isValid () && _finite ( readings[0].GetY () ) )
+		return readings[0];
+	return onOffBlack;
+}

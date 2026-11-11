@@ -33,9 +33,52 @@ CStatsBarWnd::CStatsBarWnd()
 	m_pGlyphFont = NULL;
 	m_pressZone = 0;
 	m_hoverZone = 0;
+	m_nameZoneCmd = 0;
 	m_rcEditZone.SetRectEmpty();
 	m_rcPlusZone.SetRectEmpty();
 	m_rcMinusZone.SetRectEmpty();
+	m_rcNameZone.SetRectEmpty();
+}
+
+void CStatsBarWnd::SetNameText(LPCTSTR lpszName)
+{
+	CString strName(lpszName);
+	if (strName == m_namePrefix)
+		return;
+	m_namePrefix = strName;
+	Parse(m_strText);	// re-split: the declared name is one verbatim chip
+	if (::IsWindow(GetSafeHwnd()))
+		Invalidate(FALSE);
+}
+
+void CStatsBarWnd::SetNameZoneCommand(int cmdId)
+{
+	if (m_nameZoneCmd == cmdId)
+		return;
+	m_nameZoneCmd = cmdId;
+	m_rcNameZone.SetRectEmpty();	// recomputed on the next paint
+	if (::IsWindow(GetSafeHwnd()))
+	{
+		if (cmdId != 0)
+			EnableToolTips(TRUE);	// idempotent; feeds OnToolHitTest below
+		Invalidate(FALSE);
+	}
+}
+
+INT_PTR CStatsBarWnd::OnToolHitTest(CPoint point, TOOLINFO* pTI) const
+{
+	if (m_nameZoneCmd != 0 && m_rcNameZone.PtInRect(point))
+	{
+		pTI->hwnd = m_hWnd;
+		pTI->uId = 1;
+		pTI->uFlags &= ~TTF_IDISHWND;
+		pTI->rect = m_rcNameZone;
+		CString strTip;
+		strTip.LoadString(IDS_CCSET_PICK_TIP);
+		pTI->lpszText = _tcsdup(strTip);	// MFC frees with free()
+		return 1;
+	}
+	return CWnd::OnToolHitTest(point, pTI);
 }
 
 void CStatsBarWnd::SetHeaderModel(CButton* pEditBtn, CFont* pGlyphFont)
@@ -145,6 +188,17 @@ void CStatsBarWnd::Parse(LPCTSTR lpszText)
 	CString s(lpszText);
 	s.TrimLeft();
 	s.TrimRight();
+
+	// A declared set name is one verbatim chip: names may themselves contain
+	// parentheses or brackets ("set (2)") which the group splitter below would
+	// otherwise chop into separate chips.
+	if (!m_namePrefix.IsEmpty() && s.GetLength() >= m_namePrefix.GetLength()
+			&& s.Left(m_namePrefix.GetLength()) == m_namePrefix)
+	{
+		m_segments.Add(m_namePrefix);
+		s = s.Mid(m_namePrefix.GetLength());
+		s.TrimLeft();
+	}
 	int n = s.GetLength();
 	int i = 0;
 	int plainStart = 0;		// start of the current run of non-bracket text
@@ -308,6 +362,12 @@ void CStatsBarWnd::OnPaint()
 		m_rcEditZone.SetRectEmpty(); m_rcPlusZone.SetRectEmpty(); m_rcMinusZone.SetRectEmpty();
 	}
 
+	// Clickable name chip (chip 0 while armed): hover/press shades matching the
+	// +/- header buttons, so the affordance reads the same across the bar.
+	CBrush brChipHot(bDark ? RGB(82, 82, 85) : RGB(255, 255, 255));
+	CBrush brChipPress(bDark ? RGB(85, 85, 88) : RGB(225, 225, 225));
+	m_rcNameZone.SetRectEmpty();
+
 	int x = rc.left + STATSBAR_GAP;
 	int cnt = (int) m_segments.GetSize();
 	for (int i = 0; i < cnt; i++)
@@ -319,8 +379,19 @@ void CStatsBarWnd::OnPaint()
 			break;	// would run under the header cluster
 		CRect chip(x, chipTop, x + chipW, chipBottom);
 
+		BOOL bNameChip = (i == 0 && m_nameZoneCmd != 0);
+		if (bNameChip)
+		{
+			m_rcNameZone = chip;
+			if (m_pressZone == m_nameZoneCmd)
+				memDC.SelectObject(&brChipPress);
+			else if (m_hoverZone == m_nameZoneCmd)
+				memDC.SelectObject(&brChipHot);
+		}
 		memDC.RoundRect(chip, CPoint(6, 6));
 		memDC.DrawText(seg, chip, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+		if (bNameChip)
+			memDC.SelectObject(&brChip);
 
 		x += chipW + STATSBAR_GAP;
 	}
@@ -428,6 +499,7 @@ void CStatsBarWnd::OnLButtonDown(UINT nFlags, CPoint point)
 	if (m_rcPlusZone.PtInRect(point))       zone = IDC_SIZE_PLUS;
 	else if (m_rcMinusZone.PtInRect(point)) zone = IDC_SIZE_MINUS;
 	else if (m_rcEditZone.PtInRect(point) && m_pEditBtn != NULL && m_pEditBtn->IsWindowEnabled()) zone = IDC_EDITGRID_CHECK;
+	else if (m_nameZoneCmd != 0 && m_rcNameZone.PtInRect(point)) zone = m_nameZoneCmd;
 	if (zone != 0)
 	{
 		m_pressZone = zone;
@@ -458,6 +530,16 @@ void CStatsBarWnd::OnLButtonUp(UINT nFlags, CPoint point)
 			}
 			return;
 		}
+		if (m_nameZoneCmd != 0 && zone == m_nameZoneCmd)
+		{
+			if (m_rcNameZone.PtInRect(point))
+			{
+				CWnd* pParent = GetParent();
+				if (pParent != NULL)	// Post, not Send: the picker opens a menu loop
+					pParent->PostMessage(WM_COMMAND, MAKEWPARAM(m_nameZoneCmd, BN_CLICKED), (LPARAM)GetSafeHwnd());
+			}
+			return;
+		}
 		BOOL hit = (zone == IDC_SIZE_PLUS  && m_rcPlusZone.PtInRect(point)) ||
 		           (zone == IDC_SIZE_MINUS && m_rcMinusZone.PtInRect(point));
 		if (hit)
@@ -480,6 +562,7 @@ void CStatsBarWnd::OnMouseMove(UINT nFlags, CPoint point)
 	if (m_rcPlusZone.PtInRect(point))       hz = IDC_SIZE_PLUS;
 	else if (m_rcMinusZone.PtInRect(point)) hz = IDC_SIZE_MINUS;
 	else if (m_rcEditZone.PtInRect(point))  hz = IDC_EDITGRID_CHECK;
+	else if (m_nameZoneCmd != 0 && m_rcNameZone.PtInRect(point)) hz = m_nameZoneCmd;
 	if (hz != m_hoverZone)
 	{
 		m_hoverZone = hz;
