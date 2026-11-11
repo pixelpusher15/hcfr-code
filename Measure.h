@@ -546,9 +546,19 @@ public:
 	// Whether the gray scale's black is the user's override (the document's
 	// recorded decision, m_bOverRideBlack): GetGrayScaleBlack returns it then.
 	bool GrayScaleBlackIsOverride () const { return m_bOverRideBlack && m_userBlack.isValid (); }
+	// Whether the user's black override is IN EFFECT: the document's recorded
+	// decision (GrayScaleBlackIsOverride) or the live "Use Black Level"
+	// preference. The two differ on purpose. The recorded decision picks the
+	// VALUE GetGrayScaleBlack returns; "in effect" answers whether the black the
+	// views read is the user's: with the live preference on, MainView writes the
+	// preference's black into gray[0], near-black[0] and the on/off black
+	// whatever the document's flag says, and that slot is what GetGrayScaleBlack
+	// returns. Only HoldsGrayScaleBlack asks it.
+	bool BlackOverrideInEffect () const;
 	// Whether GetGrayScaleBlack holds a reading the fit and the black-compensation
-	// targets may take: HoldsReading, except that the user's override is a reading
-	// by decision at any value, 0 cd/m2 included (FailedReadingRule::HoldsBlackReading).
+	// targets may take: HoldsReading, except that with the override in effect the
+	// black is a reading by decision at any value, 0 cd/m2 included
+	// (FailedReadingRule::HoldsBlackReading).
 	bool HoldsGrayScaleBlack () const;
 	const CColor & SatSlotReading ( int hue, int slot ) const;
 	const CColor & CC24MasterSlotReading ( int slot ) const;

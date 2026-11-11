@@ -4324,9 +4324,16 @@ bool CMeasure::IsConstructorPlaceholder ( const CColor & c )
 		|| ( ! c.HasRawXYZValue() && IsPlaceholderWhite ( c, true ) );
 }
 
+bool CMeasure::BlackOverrideInEffect () const
+{
+	// The live preference read as CheckBlackOverride reads it.
+	return GrayScaleBlackIsOverride ()
+		|| GetConfig()->GetProfileDouble ( "References", "Use Black Level", 0 ) != 0;
+}
+
 bool CMeasure::HoldsGrayScaleBlack () const
 {
-	return FailedReadingRule::HoldsBlackReading ( GetGrayScaleBlack (), GrayScaleBlackIsOverride (), IsConstructorPlaceholder );
+	return FailedReadingRule::HoldsBlackReading ( GetGrayScaleBlack (), BlackOverrideInEffect (), IsConstructorPlaceholder );
 }
 
 const CColor & CMeasure::PreviousReading ( const CColor & slot ) const
