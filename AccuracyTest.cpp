@@ -502,8 +502,8 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 	}
 	else if ( isHDR )
 	{
-		CColor White = m.GetOnOffWhite();
-		CColor Black = m.GetOnOffBlack();
+		CColor White = m.GetGrayScaleWhite();
+		CColor Black = m.GetGrayScaleBlack();
 		BOOL DVD = ( cfg->GetGeneratorType() == CColorHCFRConfig::enumManual );
 		double tmWhite;
 		if ( DVD )
@@ -775,8 +775,8 @@ static const int kSatSize  = 5;
 static void RefreshHdrTargets ( CMeasure & m )
 {
 	CColorHCFRConfig * cfg = GetConfig();
-	CColor White = m.GetOnOffWhite();
-	CColor Black = m.GetOnOffBlack();
+	CColor White = m.GetGrayScaleWhite();
+	CColor Black = m.GetGrayScaleBlack();
 	if ( !cfg->m_bOverRideTargs && Black.isValid() && White.isValid() && (cfg->m_GammaOffsetType == 5 || cfg->m_GammaOffsetType == 7) )
 	{
 		if ( Black.GetY() < White.GetY() )
@@ -820,8 +820,8 @@ static void RunGray ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 	m.SetOnOffWhite(m.GetGray(kGraySize - 1));		// MeasureGrayScale: measuredColor[size-1]
 	RefreshHdrTargets(m);							// converges (same values as bootstrap)
 
-	CColor White = m.GetOnOffWhite();
-	CColor Black = m.GetOnOffBlack();
+	CColor White = m.GetGrayScaleWhite();
+	CColor Black = m.GetGrayScaleBlack();
 
 	// dE per UpdateGrid case 0 + GetItemText grayscale branch. Black (the
 	// first column) is skipped: the grid prints its dE through

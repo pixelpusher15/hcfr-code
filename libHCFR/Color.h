@@ -1080,6 +1080,32 @@ double GraySeriesProp ( const GraySeriesView & v, int index );		// 0..1
 // round-down) for the gray scale. GraySeriesProp's fallback for a reading
 // without a stamped drive.
 double GraySeriesSlotProp ( const GraySeriesView & v, int index );
+// THE 100% WHITE of the gray scale (Kyle, 2026-11-10): the gray scale's
+// measured 100% reading, readings[size-1], when the series is non-empty and
+// that reading is valid with a finite Y > 0 (the test GetColorDEWhiteY and
+// NearChartWhite apply to a white); else onOffWhite as the caller stores it. The on/off
+// white belongs to the contrast measurement, which is NOT this: a contrast
+// measure re-reads white and must not move the gray scale's 100% point. On a
+// new document the stored on/off white is a valid placeholder, so a document
+// without a gray scale gets exactly the white it got before. The black is
+// GrayScaleBlack, the same rule at the other end.
+// isPlaceholder, when given, names a top that is not a reading (a document
+// without a gray scale keeps the constructor's placeholder in the top slot):
+// such a top is no top, and the on/off white is used. The near charts rank
+// their own series' top above the on/off white (NearChartWhite): a near
+// series' top is a reading.
+CColor GrayScaleWhite ( const CColor * readings, int size, const CColor & onOffWhite, bool ( * isPlaceholder ) ( const CColor & ) = NULL );
+// THE 0% BLACK of the gray scale (Kyle, 2026-11-10), the twin of GrayScaleWhite:
+// the gray scale's measured 0% reading, readings[0], when the series is
+// non-empty and that reading is valid with a finite Y; else onOffBlack as the
+// caller stores it. It is the black wherever the gray scale's 100% reading is
+// the white: the reference curves and anchors, the grid's reference cells,
+// the BT.1886 / black-compensation / HLG evaluations, the dE black targets and
+// the tone-map black (TargetMinL). The contrast measurement is NOT this: the
+// On/Off rows, the contrast ratio and its storage keep the on/off black. The
+// user's black override is applied by the caller (CMeasure::GetGrayScaleBlack
+// returns the override black when it is on), not here.
+CColor GrayScaleBlack ( const CColor * readings, int size, const CColor & onOffBlack );
 double getL_EOTF ( double x, CColor White, CColor Black, double g_rel, double split, int mode, double m_DiffuseL = 94.37844, double m_MasterMinL = 0.0, double m_MasterMaxL = 4000.0, double m_TargetMinL = 0.00, double m_TargetMaxL = 700.0, bool ToneMap = FALSE, bool cBT2390 = FALSE, double m_TargetSysGamma = 1.2, double b_fact = 1.0, double E2_fact = 0.0, double E2_fact1 = 1.1 );
 
 #endif // !defined(COLOR_H_INCLUDED_)

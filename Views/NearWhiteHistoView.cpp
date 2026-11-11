@@ -175,9 +175,9 @@ void CNearWhiteGrapher::UpdateGraph ( CDataSetDoc * pDoc )
         	int g_size=pDoc->GetMeasure()->GetGrayScaleSize();
 			double GammaOffset,GammaOpt;
 			pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,g_size,false);
-    		CColor White = pDoc -> GetMeasure () -> GetGray ( g_size - 1 );
+    		CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite ();
 //	    	CColor Black = pDoc -> GetMeasure () -> GetGray ( 0 );
-	    	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
+	    	CColor Black = pDoc -> GetMeasure () -> GetGrayScaleBlack();
 			// Reading i at its stamped drive, else slot i on the current grid
 			// (CMeasure::GetGrayReadingLevel); the reference is evaluated there.
 			double x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_NEAR_WHITE, i );
@@ -334,7 +334,7 @@ static double NearWhiteChartWhite ( CMeasure * pMeasure, int ColorSpace, int Poi
 	const int grayscalesize = pMeasure->GetGrayScaleSize();
 	const int nearwhitescalesize = pMeasure->GetNearWhiteScaleSize();
 	return NearChartWhite ( ColorSpace, GetConfig () -> m_nLuminanceCurveMode, pMeasure->GetNearWhite(PointIndex).HasLuxValue (),
-							grayscalesize > 0 ? pMeasure->GetGray(grayscalesize-1) : noDataColor,
+							( grayscalesize > 0 && ! CMeasure::IsRawlessPlaceholder ( pMeasure->GetGray(grayscalesize-1), false ) ) ? pMeasure->GetGray(grayscalesize-1) : noDataColor,
 							nearwhitescalesize > 0 ? pMeasure->GetNearWhite(nearwhitescalesize-1) : noDataColor, pFromGrayTop );
 }
 
@@ -356,11 +356,10 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 		max=pDataSet->GetMeasure()->GetNearWhite(Size-1).GetRGBValue(GetColorReference())[ColorIndex];
 		colorlevel=pDataSet->GetMeasure()->GetNearWhite(PointIndex).GetRGBValue(GetColorReference())[ColorIndex];
 
-		if (pDataSet->GetMeasure()->GetOnOffWhite().isValid())
-			whitelvl=pDataSet->GetMeasure()->GetOnOffWhite().GetY();
-		else if (pDataSet->GetMeasure()->GetNearWhite(Size-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetNearWhite(Size-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else
+		// The same white as the luma and lux traces (NearChartWhite: the gray top,
+		// else near white's top), its luma: one chart, one white at 100%.
+		whitelvl = NearWhiteChartWhite ( pDataSet->GetMeasure(), ColorSpace, PointIndex, &bWhiteIsGrayTop );
+		if ( ! ( whitelvl > 0.0 ) )
 			whitelvl=100.;
 
 	}
@@ -424,10 +423,11 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
         double vWhite = min ( pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, Size-1 ), 1.0 );
         if ( ColorSpace == 0 )
         {
-            const int grayscalesize = pDataSet->GetMeasure()->GetGrayScaleSize();
-            if ( grayscalesize > 0 && pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid() )
+            // the reading the linear chart took (bWhiteIsGrayTop): the gray top's
+            // channel, else the series' top (max) at its own level
+            if ( bWhiteIsGrayTop )
             {
-                const double y = pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetRGBValue(GetColorReference())[ColorIndex];
+                const double y = pDataSet->GetMeasure()->GetGray(pDataSet->GetMeasure()->GetGrayScaleSize()-1).GetRGBValue(GetColorReference())[ColorIndex];
                 if ( y > 0.0 && _finite ( y ) )
                 {
                     yWhite = y;

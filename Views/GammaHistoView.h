@@ -77,7 +77,7 @@ class CGammaGrapher
 	void UpdateGraph ( CDataSetDoc * pDoc );
 
 protected:
-	void AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex, double GammaOffset, CDataSetDoc *pDataSet, long GraphID, BOOL bIRE);
+	void AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex, double GammaOffset, CDataSetDoc *pDataSet, long GraphID, BOOL bIRE, const CColor & White, const CColor & Black);
 };
 
 class CGammaHistoView : public CSavingView

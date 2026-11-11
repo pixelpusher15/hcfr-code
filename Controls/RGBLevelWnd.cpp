@@ -280,7 +280,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			white = m_pDocument->GetMeasure()->GetGray((m_pDocument->GetMeasure()->GetGrayScaleSize()-1) / 2 );
 
 		if (!white.isValid() || m_displayMode == 0 || m_displayMode == 2 || m_displayMode == 3 || m_displayMode == 4)
-			white = m_pDocument -> GetMeasure () ->GetOnOffWhite();
+			white = m_pDocument -> GetMeasure () ->GetGrayScaleWhite();
 		if ( m_displayMode > 4 && (GetConfig()->m_colorStandard == HDTVa || GetConfig()->m_colorStandard == HDTVb))
 			white = m_pDocument -> GetMeasure () ->GetOnOffWhite();
 
@@ -357,9 +357,9 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
                     if (GetConfig()->m_useMeasuredGamma)
 						GetConfig()->m_GammaAvg = (Gamma<1?2.2:floor((Gamma+.005)*100.)/100.);
                     GetConfig()->SetPropertiesSheetValues();
-            		CColor White = m_pDocument -> GetMeasure () -> GetGray ( nCount - 1 );
+            		CColor White = m_pDocument -> GetMeasure () -> GetGrayScaleWhite ();
 //	                CColor Black = m_pDocument -> GetMeasure () -> GetGray ( 0 );
-	                CColor Black = m_pDocument -> GetMeasure () -> GetOnOffBlack();
+	                CColor Black = m_pDocument -> GetMeasure () -> GetGrayScaleBlack();
 					int mode = GetConfig()->m_GammaOffsetType;
 					if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 					if ( mode >= 4 )
@@ -484,7 +484,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 								white.SetY(94.37844);
 						else
 							if ((GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR) && m_displayMode == 11)
-								white.SetY(m_pDocument->GetMeasure()->GetGray((m_pDocument->GetMeasure()->GetGrayScaleSize()-1)).GetY());
+								white.SetY(m_pDocument->GetMeasure()->GetGrayScaleWhite().GetY());
 							else
 								// Unified convention: the reference above is
 								// GetHDRRefScale-scaled (1.0 = tone-mapped diffuse
@@ -559,7 +559,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			else
 			{
 				if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
-					YWhite = m_pDocument->GetMeasure()->GetGray((m_pDocument->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
+					YWhite = m_pDocument->GetMeasure()->GetGrayScaleWhite().GetY() ;
 				else
 				{
 					// Unified HDR convention (matches the measures grid and the

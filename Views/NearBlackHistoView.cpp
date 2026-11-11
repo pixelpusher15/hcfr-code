@@ -183,9 +183,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
         	int g_size=pDoc->GetMeasure()->GetGrayScaleSize();
 			double GammaOffset,GammaOpt;
 			pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,g_size,false);
-    		CColor White = pDoc -> GetMeasure () -> GetGray ( g_size - 1 );
+    		CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite ();
 //	    	CColor Black = pDoc -> GetMeasure () -> GetGray ( 0 );
-	    	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
+	    	CColor Black = pDoc -> GetMeasure () -> GetGrayScaleBlack();
 			// Reading i at its stamped drive, else slot i on the current grid
 			// (CMeasure::GetGrayReadingLevel); the reference is evaluated there.
 			double x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_NEAR_BLACK, i );
@@ -376,7 +376,7 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
 		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
 		whitelvl = NearChartWhite ( ColorSpace, GetConfig () -> m_nLuminanceCurveMode, pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue (),
-										 grayscalesize > 0 ? pDataSet->GetMeasure()->GetGray(grayscalesize-1) : noDataColor,
+										 ( grayscalesize > 0 && ! CMeasure::IsRawlessPlaceholder ( pDataSet->GetMeasure()->GetGray(grayscalesize-1), false ) ) ? pDataSet->GetMeasure()->GetGray(grayscalesize-1) : noDataColor,
 										 nearwhitescalesize > 0 ? pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1) : noDataColor, &bGrayWhite );
 	}
 

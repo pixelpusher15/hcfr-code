@@ -847,7 +847,7 @@ bool CExport::SavePDF()
 	if (GetConfig()->m_GammaOffsetType == 5)
 	{
 		if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR)
-			YWhite = m_pDoc->GetMeasure()->GetGray((m_pDoc->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
+			YWhite = m_pDoc->GetMeasure()->GetGrayScaleWhite().GetY() ;
 		else
 		{
 			// Unified HDR convention (matches the measures grid): references are
@@ -1430,7 +1430,7 @@ bool CExport::SavePDF()
 		if (GetConfig()->m_GammaOffsetType == 5)
 		{
 			if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR)
-				YWhite = m_pDoc->GetMeasure()->GetGray((m_pDoc->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
+				YWhite = m_pDoc->GetMeasure()->GetGrayScaleWhite().GetY() ;
 			else
 			{
 				// Unified HDR convention: references are GetHDRRefScale-scaled
@@ -1919,7 +1919,7 @@ bool CExport::SaveGrayScaleSheet()
 
 	Rows.RemoveAll();
 	Rows.Add("DeltaE");
-	double YWhite = m_pDoc->GetMeasure()->GetGray(size-1)[1];
+	double YWhite = m_pDoc->GetMeasure()->GetGrayScaleWhite()[1];
 	for(j=0;j<size;j++)
 	{
 		CColor aColor = m_pDoc->GetMeasure()->GetGray(j);
@@ -1928,8 +1928,8 @@ bool CExport::SaveGrayScaleSheet()
 		{
 		    double x = m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
             double valy;
-			CColor White = m_pDoc -> GetMeasure () -> GetOnOffWhite();
-			CColor Black = m_pDoc -> GetMeasure () -> GetOnOffBlack();
+			CColor White = m_pDoc -> GetMeasure () -> GetGrayScaleWhite();
+			CColor Black = m_pDoc -> GetMeasure () -> GetGrayScaleBlack();
 			int mode = GetConfig()->m_GammaOffsetType;
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if (  (mode >= 4) )
@@ -2733,7 +2733,7 @@ namespace
 		}
 		if ( best < 0 && pM->GetGrayScaleSize () > 0 )
 		{
-			CColor w = pM->GetGray ( pM->GetGrayScaleSize () - 1 );
+			CColor w = pM->GetGrayScaleWhite ();
 			if ( w.isValid () && w.GetY () > 0.0 )
 			{
 				for ( int ch = 0; ch < 3; ch++ )
@@ -3371,7 +3371,7 @@ bool CExport::SaveCCSheet()
 		if (GetConfig()->m_GammaOffsetType == 5)
 		{
 			if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR)
-				YWhite = m_pDoc->GetMeasure()->GetGray((m_pDoc->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
+				YWhite = m_pDoc->GetMeasure()->GetGrayScaleWhite().GetY() ;
 			else
 			{
 				// Unified HDR convention: references are GetHDRRefScale-scaled
