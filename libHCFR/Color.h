@@ -1106,6 +1106,6 @@ CColor GrayScaleWhite ( const CColor * readings, int size, const CColor & onOffW
 // user's black override is applied by the caller (CMeasure::GetGrayScaleBlack
 // returns the override black when it is on), not here.
 CColor GrayScaleBlack ( const CColor * readings, int size, const CColor & onOffBlack );
-double getL_EOTF ( double x, CColor White, CColor Black, double g_rel, double split, int mode, double m_DiffuseL = 94.37844, double m_MasterMinL = 0.0, double m_MasterMaxL = 4000.0, double m_TargetMinL = 0.00, double m_TargetMaxL = 700.0, bool ToneMap = FALSE, bool cBT2390 = FALSE, double m_TargetSysGamma = 1.2, double b_fact = 1.0, double E2_fact = 0.0, double E2_fact1 = 1.1 );
+double getL_EOTF ( double x, CColor White, CColor Black, double g_rel, double split, int mode, double m_DiffuseL = 94.37844, double m_MasterMinL = 0.0, double m_MasterMaxL = 4000.0, double m_TargetMinL = 0.00, double m_TargetMaxL = 700.0, bool ToneMap = FALSE, bool cBT2390 = FALSE, double m_TargetSysGamma = 1.2, double b_fact = 1.0, double E2_fact = 0.0, double E2_fact1 = 1.1, bool bExtendSDR = FALSE );
 
 #endif // !defined(COLOR_H_INCLUDED_)

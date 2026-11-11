@@ -1590,6 +1590,7 @@ void CMeasure::GetRefProfileSat(int i, CColor & ccRef)
 		qr = SnapToVideoGrid( qr, b10, lim );
 		qg = SnapToVideoGrid( qg, b10, lim );
 		qb = SnapToVideoGrid( qb, b10, lim );
+		// Inputs here are generated in [0,1] (never EXTENDED/WTW); the super-white reference extrapolation lives in GetRefCC24Sat only.
 		r=(r<=0||r>=1)?min(max(r,0),1):getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 		g=(g<=0||g>=1)?min(max(g,0),1):getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 		b=(b<=0||b>=1)?min(max(b,0),1):getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
@@ -9439,6 +9440,7 @@ CColor CMeasure::GetRefSat(int i, double sat_ratio, bool special, double stimLev
 			qr = SnapToVideoGrid( qr, b10, lim );
 			qg = SnapToVideoGrid( qg, b10, lim );
 			qb = SnapToVideoGrid( qb, b10, lim );
+			// Inputs here are generated in [0,1] (never EXTENDED/WTW); the super-white reference extrapolation lives in GetRefCC24Sat only.
 			r=(qr<=0||qr>=1)?min(max(qr,0),1):pow(qr,gamma);
 			g=(qg<=0||qg>=1)?min(max(qg,0),1):pow(qg,gamma);
 			b=(qb<=0||qb>=1)?min(max(qb,0),1):pow(qb,gamma);
@@ -9902,6 +9904,14 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 		double qr,qg,qb;
 		bool b10 = GetConfig()->GetUse10bitLevels();
 		bool lim = GetConfig()->GetRGB16_235();
+		// EXTENDED (whiter-than-white) sets: extrapolate the SDR reference EOTF past
+		// 100% instead of pinning the reference to flat white. Assumes the device
+		// tracks its curve through super-white (LG-style panels); a reference monitor
+		// that hard-clips at 100% will legitimately show rising dE on WTW patches.
+		// SDR relative modes only; PQ/HLG keep the clip. Bounded at 1.1 stimulus
+		// (importer max: 8-bit 255 = 109.1%, 10-bit 1023 = 109.5%).
+		bool extWTW = ( GetConfig()->m_CCMode == USER &&
+		                GetConfig()->GetCColorsProvenance(i).srcRange == CSV_RANGE_EXTENDED );
 		if (mode == 5 || mode == 7)
 		{
 			// rawWireHDR (plain-standard non-recalc sets): the stored triplet
@@ -9924,6 +9934,15 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 			qr = SnapToVideoGrid( qr, b10, lim );
 			qg = SnapToVideoGrid( qg, b10, lim );
 			qb = SnapToVideoGrid( qb, b10, lim );
+			// WTW does not exist in PQ/HLG (absolute EOTF / hybrid): clip an EXTENDED
+			// set's super-white wire signal to max signal so it gets the tone-mapped/capped
+			// 100% target, not the valx>1 guard flat 10,000 nits. Other sets are untouched.
+			if (extWTW)
+			{
+				qr = min(qr, 1.0);
+				qg = min(qg, 1.0);
+				qb = min(qb, 1.0);
+			}
 			r = getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 			g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
 			b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / (mode==5?100.:1.0);
@@ -9941,9 +9960,18 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 			qr = SnapToVideoGrid( qr, b10, lim );
 			qg = SnapToVideoGrid( qg, b10, lim );
 			qb = SnapToVideoGrid( qb, b10, lim );
-			r=(r<=0||r>=1)?min(max(r,0),1):getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
-			g=(g<=0||g>=1)?min(max(g,0),1):getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
-			b=(b<=0||b>=1)?min(max(b,0),1):getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
+			if (extWTW && r > 1)
+				r = getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1, TRUE);
+			else
+				r=(r<=0||r>=1)?min(max(r,0),1):getL_EOTF(qr,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
+			if (extWTW && g > 1)
+				g = getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1, TRUE);
+			else
+				g=(g<=0||g>=1)?min(max(g,0),1):getL_EOTF(qg,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
+			if (extWTW && b > 1)
+				b = getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1, TRUE);
+			else
+				b=(b<=0||b>=1)?min(max(b,0),1):getL_EOTF(qb,White,Black,GetConfig()->m_GammaRel, GetConfig()->m_Split, mode);
 		}
 		else if ( mode < 4 )
 		{
@@ -9953,9 +9981,9 @@ void CMeasure::GetRefCC24Sat(int i, CColor& ccRef) const
 			qr = SnapToVideoGrid( qr, b10, lim );
 			qg = SnapToVideoGrid( qg, b10, lim );
 			qb = SnapToVideoGrid( qb, b10, lim );
-			r=(qr<=0||qr>=1)?min(max(qr,0),1):pow(qr, gamma);
-			g=(qg<=0||qg>=1)?min(max(qg,0),1):pow(qg, gamma);
-			b=(qb<=0||qb>=1)?min(max(qb,0),1):pow(qb, gamma);
+			r=(qr<=0||qr>=1)?((extWTW && qr>1)?pow(min(qr,1.1),gamma):min(max(qr,0),1)):pow(qr, gamma);
+			g=(qg<=0||qg>=1)?((extWTW && qg>1)?pow(min(qg,1.1),gamma):min(max(qg,0),1)):pow(qg, gamma);
+			b=(qb<=0||qb>=1)?((extWTW && qb>1)?pow(min(qb,1.1),gamma):min(max(qb,0),1)):pow(qb, gamma);
 		}
 
 	}
