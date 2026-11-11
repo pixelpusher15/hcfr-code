@@ -6387,6 +6387,126 @@ static void RunT51()
         Fail("T51 empty series or no readings: not the on/off black");
 }
 
+//////////////////////////////////////////////////////////////////////////
+// T53: PGenerator port-85 decisions (libHCFR/PGenProtocol.h). Pure assertions,
+// no golden file. The reply strings are the forms the 1.6 daemon and
+// PGenerator-Plus send once PgSend has stripped the frame byte; the PID value
+// is illustrative.
+//   (a) renderer probe classification and the PID-reporting latch;
+//   (b) before the batch: an empty probe is asked again, never "unsupported";
+//       a renderer that is down is waited for, nothing is sent into it;
+//   (c) after the restart: a new PID is up, the old PID or silence is not;
+//   (d) RESTARTPGENERATOR refusals;
+//   (e) conf integers: no value is not 0; DV needs both flags read cleanly;
+//   (f) legal black and the DV range rule; the DoVi combo mapping.
+//////////////////////////////////////////////////////////////////////////
+#include "../../libHCFR/PGenProtocol.h"
+
+static void RunT53()
+{
+    using namespace PGenProtocol;
+    printf("T53: PGenerator port-85 decisions\n");
+
+    // (a)
+    if (ClassifyExec("") != EXEC_EMPTY || ClassifyExec(NULL) != EXEC_EMPTY || ClassifyExec(" \r\n") != EXEC_EMPTY)
+        Fail("T53 (a) empty or blank reply not EXEC_EMPTY");
+    if (ClassifyExec("OK:Executed Pid 1234") != EXEC_PID)
+        Fail("T53 (a) PID reply not EXEC_PID");
+    if (ClassifyExec("OK:Not executed") != EXEC_NOT_EXECUTED)
+        Fail("T53 (a) 'Not executed' not EXEC_NOT_EXECUTED");
+    if (ClassifyExec("ERR:Unknown command") != EXEC_OTHER)
+        Fail("T53 (a) unknown-command reply not EXEC_OTHER");
+    if (ConfirmsPidReporting(EXEC_EMPTY) || ConfirmsPidReporting(EXEC_OTHER))
+        Fail("T53 (a) empty or other reply latches PID reporting");
+    if (!ConfirmsPidReporting(EXEC_PID) || !ConfirmsPidReporting(EXEC_NOT_EXECUTED))
+        Fail("T53 (a) PID or 'Not executed' does not latch PID reporting");
+
+    // (b) four probes, as Generator.cpp kPgPreProbes
+    const int N = 4;
+    for (int p = 1; p < N; p++)
+    {
+        if (PreRestartStep(EXEC_EMPTY, p, N, false) != PRE_PROBE_AGAIN)
+            Fail("T53 (b) empty probe %d of %d on unknown firmware: not asked again", p, N);
+        if (PreRestartStep(EXEC_EMPTY, p, N, true) != PRE_PROBE_AGAIN)
+            Fail("T53 (b) empty probe %d of %d on known firmware: not asked again", p, N);
+    }
+    if (PreRestartStep(EXEC_EMPTY, 2, N, false) == PRE_SEND_LEGACY)
+        Fail("T53 (b) two empty probes read as firmware without the command");
+    if (PreRestartStep(EXEC_EMPTY, N, N, false) != PRE_SEND_UNVERIFIED)
+        Fail("T53 (b) all probes empty, unknown firmware: not PRE_SEND_UNVERIFIED");
+    if (PreRestartStep(EXEC_EMPTY, N, N, true) != PRE_WAIT_FOR_RENDERER)
+        Fail("T53 (b) all probes empty, PID-reporting firmware: not waited for");
+    if (PreRestartStep(EXEC_NOT_EXECUTED, 1, N, false) != PRE_WAIT_FOR_RENDERER
+        || PreRestartStep(EXEC_NOT_EXECUTED, 1, N, true) != PRE_WAIT_FOR_RENDERER)
+        Fail("T53 (b) renderer 'Not executed': batch not held back");
+    if (PreRestartStep(EXEC_PID, 1, N, false) != PRE_SEND || PreRestartStep(EXEC_PID, N, N, true) != PRE_SEND)
+        Fail("T53 (b) renderer PID: not PRE_SEND");
+    if (PreRestartStep(EXEC_OTHER, 1, N, false) != PRE_SEND_LEGACY)
+        Fail("T53 (b) firmware without the command: not the legacy grace period");
+    if (PreRestartStep(EXEC_OTHER, 1, N, true) != PRE_PROBE_AGAIN)
+        Fail("T53 (b) garbled reply on PID-reporting firmware: not asked again");
+
+    // (c)
+    if (PostRestartStep(EXEC_PID, true, false, true) != POST_UP)
+        Fail("T53 (c) new PID: not POST_UP");
+    if (PostRestartStep(EXEC_PID, false, false, true) != POST_KEEP_POLLING)
+        Fail("T53 (c) old renderer's PID passed as up");
+    if (PostRestartStep(EXEC_PID, false, true, true) != POST_DOWN)
+        Fail("T53 (c) only the old PID by the deadline: not POST_DOWN");
+    if (PostRestartStep(EXEC_NOT_EXECUTED, true, false, true) != POST_KEEP_POLLING
+        || PostRestartStep(EXEC_NOT_EXECUTED, true, true, true) != POST_DOWN)
+        Fail("T53 (c) 'Not executed': not polled, then POST_DOWN");
+    if (PostRestartStep(EXEC_EMPTY, true, false, false) != POST_KEEP_POLLING
+        || PostRestartStep(EXEC_EMPTY, true, true, true) != POST_DOWN)
+        Fail("T53 (c) silence: up before the deadline, or not down on PID-reporting firmware");
+    if (PostRestartStep(EXEC_EMPTY, true, true, false) != POST_UP_UNVERIFIED)
+        Fail("T53 (c) silence on firmware never seen answering: not the legacy assumption");
+    if (PostRestartStep(EXEC_OTHER, true, false, false) != POST_UP_UNVERIFIED
+        || PostRestartStep(EXEC_OTHER, true, false, true) != POST_KEEP_POLLING)
+        Fail("T53 (c) unknown reply: wrong for unknown or PID-reporting firmware");
+
+    // (d)
+    const char* refused[] = { "ERR:Refused", "OK:ERR:Refused", "Refused", " ERR:Busy" };
+    for (int i = 0; i < 4; i++)
+        if (!RestartRefused(refused[i]))
+            Fail("T53 (d) '%s' not read as a refusal", refused[i]);
+    const char* notRefused[] = { "", "OK", "OK:", "OK:RESTARTPGENERATOR" };
+    for (int i = 0; i < 4; i++)
+        if (RestartRefused(notRefused[i]))
+            Fail("T53 (d) '%s' read as a refusal", notRefused[i]);
+    if (RestartRefused(NULL))
+        Fail("T53 (d) no reply read as a refusal");
+
+    // (e)
+    if (ConfIntOr("", -1) != -1 || ConfIntOr(NULL, -1) != -1 || ConfIntOr("-", -1) != -1 || ConfIntOr("1a", -1) != -1)
+        Fail("T53 (e) a reply without a number not read as unknown");
+    if (ConfIntOr("0", -1) != 0 || ConfIntOr("2", -1) != 2 || ConfIntOr("1000", -1) != 1000 || ConfIntOr("-3", 7) != -3)
+        Fail("T53 (e) a number not read as itself");
+    if (!DoviStateFromConf("1", "1", false) || DoviStateFromConf("1", "0", true) || DoviStateFromConf("0", "1", true)
+        || DoviStateFromConf("0", "0", true))
+        Fail("T53 (e) DV state: both flags not required");
+    if (!DoviStateFromConf("", "1", true) || DoviStateFromConf("", "1", false)
+        || !DoviStateFromConf("1", "OK", true) || !DoviStateFromConf("2", "1", true))
+        Fail("T53 (e) DV state: an unreadable flag changed the known state");
+
+    // (f)
+    if (LegalBlackCode(false, 8) != 0 || LegalBlackCode(false, 10) != 0)
+        Fail("T53 (f) black outside DV not 0");
+    if (LegalBlackCode(true, 8) != 16 || LegalBlackCode(true, 10) != 64)
+        Fail("T53 (f) DV black not 16 / 64");
+    if (!RangeAllowedForDolbyVision(false, false) || !RangeAllowedForDolbyVision(false, true)
+        || !RangeAllowedForDolbyVision(true, true) || RangeAllowedForDolbyVision(true, false))
+        Fail("T53 (f) DV range rule: full range under DV not refused, or something else refused");
+    if (DoviModeToComboIndex(1) != 0 || DoviModeToComboIndex(2) != 1 || DoviModeToComboIndex(0) != 2
+        || DoviModeToComboIndex(-1) != 0)
+        Fail("T53 (f) map mode -> combo: 1/2/0/-1 not 0/1/2/0 (unknown shown as Perceptual?)");
+    for (int sel = 0; sel < 3; sel++)
+        if (DoviModeToComboIndex(ComboIndexToDoviMode(sel)) != sel)
+            Fail("T53 (f) combo %d does not round-trip through its map mode", sel);
+    if (ComboIndexToDoviMode(0) != 1 || ComboIndexToDoviMode(1) != 2 || ComboIndexToDoviMode(2) != 0)
+        Fail("T53 (f) combo -> map mode: 0/1/2 not 1/2/0 (rig-verified values)");
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -6429,6 +6549,7 @@ int main(int argc, char* argv[])
     RunT48();
     RunT49();
     RunT51();
+    RunT53();
 
     if (g_failures)
     {

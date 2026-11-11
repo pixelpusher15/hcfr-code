@@ -24,6 +24,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "GDIGenerator.h"
+#include "PGenProtocol.h"
 #include <uxtheme.h>
 #include <vsstyle.h>
 #pragma comment(lib, "uxtheme.lib")
@@ -800,7 +801,8 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 		m_doviCombo.AddString(_T("Verify / Absolute"));
 		m_doviCombo.AddString(_T("Calibrate / Relative"));
 		m_doviCombo.AddString(_T("Perceptual"));
-		int sel = (st.doviMode == 2) ? 1 : ((st.doviMode == 0) ? 2 : 0);
+		// doviMode -1 = the generator gave no value: shown as Verify, as before Perceptual
+		int sel = PGenProtocol::DoviModeToComboIndex(st.doviMode);
 		m_doviCombo.SetCurSel(sel); m_doviInit = sel;
 	}
 	{ CPoint p = M.at(LX, Y0 + 6 * PITCH + 3); m_hdrDrm.Create(LS(IDS_PGEN_HDR_DRM), WS_CHILD, CRect(p.x, p.y, p.x + M.w(FULLW - LX), p.y + M.ht(9)), this); m_hdrDrm.SetFont(font); }
@@ -878,7 +880,7 @@ void CPGenSettingsDlg::OnOK()
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), dovi); cmds.Add(c);
 		}
 	}
-	{ int sel = m_doviCombo.GetCurSel(); if (sel >= 0 && sel != m_doviInit && drSel == 2) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_MAP_MODE:%d"), (sel == 1) ? 2 : ((sel == 2) ? 0 : 1)); cmds.Add(c); } }
+	{ int sel = m_doviCombo.GetCurSel(); if (sel >= 0 && sel != m_doviInit && drSel == 2) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_MAP_MODE:%d"), PGenProtocol::ComboIndexToDoviMode(sel)); cmds.Add(c); } }
 	{ int sel = m_drm[0].GetCurSel(); if (sel >= 0 && sel != m_drmInit[0] && drSel == 1) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_EOTF:%d"), kPgEOv[sel]); cmds.Add(c); } }
 	{ int sel = m_drm[1].GetCurSel(); if (sel >= 0 && sel != m_drmInit[1] && drSel == 1) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_PRIMARIES:%d"), kPgPRv[sel]); cmds.Add(c); } }
 	{
@@ -902,6 +904,10 @@ void CPGenSettingsDlg::OnOK()
 		{ MSG m; while (PeekMessage(&m, NULL, WM_KEYFIRST, WM_KEYLAST, PM_REMOVE)) {} while (PeekMessage(&m, NULL, WM_MOUSEFIRST, WM_MOUSELAST, PM_REMOVE)) {} }
 		if (res == CGenerator::PGAPPLY_NOT_REACHED)
 			AfxMessageBox(LS(IDS_PGEN_ST_NOCONNECT), MB_OK | MB_ICONWARNING);
+		else if (res == CGenerator::PGAPPLY_REFUSED)
+			AfxMessageBox(LS(IDS_PGEN_RESTART_REFUSED), MB_OK | MB_ICONWARNING);
+		else if (res == CGenerator::PGAPPLY_NOT_READY)
+			AfxMessageBox(LS(IDS_PGEN_RENDERER_NOT_READY), MB_OK | MB_ICONWARNING);
 		else if (res == CGenerator::PGAPPLY_RENDERER_DOWN)
 		{
 			// The settings just applied may be what keeps the renderer down, so the reboot
@@ -912,7 +918,12 @@ void CPGenSettingsDlg::OnOK()
 				int rb;
 				{ CWaitCursor wait; rb = m_pGenerator->RebootPGeneratorAndWait(); }
 				if (rb == CGenerator::PGAPPLY_NOT_REACHED)
+				{
 					AfxMessageBox(LS(IDS_PGEN_ST_NOCONNECT), MB_OK | MB_ICONWARNING);
+					// the host was just proven down: show it disconnected rather than have the
+					// caller's refresh block in the vendor DLL's connect against it
+					m_action = 1;
+				}
 				else if (rb == CGenerator::PGAPPLY_RENDERER_DOWN)
 					AfxMessageBox(LS(IDS_PGEN_REBOOT_NOHELP), MB_OK | MB_ICONWARNING);
 			}

@@ -130,13 +130,17 @@ public:
 	virtual BOOL Init(UINT nbMeasure = 0, bool isSpecial =  FALSE);
 	BOOL QueryPGeneratorInfo(CStringArray& vals, CString& err);
 	// ApplyPGeneratorConf: PGAPPLY_OK, PGAPPLY_RENDERER_DOWN (sent and restarted, but the
-	// renderer did not come back), PGAPPLY_NOT_REACHED (nothing was sent).
-	enum { PGAPPLY_NOT_REACHED = 0, PGAPPLY_RENDERER_DOWN = 1, PGAPPLY_OK = 2 };
+	// renderer did not come back), PGAPPLY_NOT_REACHED (nothing was sent), PGAPPLY_REFUSED
+	// (sent, but the generator refused RESTARTPGENERATOR), PGAPPLY_NOT_READY (the renderer
+	// was down before the batch and did not come up: nothing was sent).
+	enum { PGAPPLY_NOT_REACHED = 0, PGAPPLY_RENDERER_DOWN = 1, PGAPPLY_OK = 2, PGAPPLY_REFUSED = 3, PGAPPLY_NOT_READY = 4 };
 	int ApplyPGeneratorConf(const CStringArray& cmds);
 	int RebootPGeneratorAndWait();   // CMD:REBOOT, wait for port 85 and the renderer; PGAPPLY_* result
 	int QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids, PGenSettings& st);
 	static void InvalidatePGenCache();
 	static BOOL PGenDolbyVision();   // last known DV state of the PGenerator (Init query / Apply batch)
+	static int PGenBlackCode(int bits);   // black HCFR itself sends: legal black (16 / 64 at 10 bit) under DV, else 0
+	BOOL PGenDoviRangeOk();   // FALSE (after telling the user) when DV is on and the range is full
 	BOOL m_initShowedError;
 	BOOL SendPGeneratorCommand(LPCSTR cmd);
 	virtual BOOL DisplayGray(double aLevel,MeasureType nPatternType, BOOL bChangePattern = TRUE);
