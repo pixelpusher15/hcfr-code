@@ -7625,6 +7625,139 @@ static void RunT53()
         Fail("T53 (f) combo -> map mode: 0/1/2 not 1/2/0 (rig-verified values)");
 }
 
+//////////////////////////////////////////////////////////////////////////
+// T54 - a finite reading with a negative component is a reading
+// (libHCFR/FailedReadingRule.h SensorReadingPassed, the rule
+// CSensor::MeasureColor applies before its 1e-8 clamps). Pure assertion; no
+// golden file; every expectation is an exact bool.
+//   (a) The three readings an i1Display 3 returned on a Dolby Vision red patch
+//       (2026-11-11, unclamped Argyll path) pass. Only X and Z were recorded
+//       for the second and third, so their Y is the first reading's Y/X
+//       ratio applied to their X (stated, not measured; Y plays no part in
+//       why the old rule failed them).
+//   (b) A slightly negative X, Y or Z passes; so does a negative Y of any
+//       finite size above the no-data limit (the decision: a finite negative
+//       luminance is a reading and MeasureColor floors it at 1e-8, as before
+//       e26a1edf).
+//   (c) A good XYZ with the driver's flag FALSE fails.
+//   (d) NaN, +infinity and -infinity in each component fail.
+//   (e) noDataColor fails, and so does one component at FX_NODATA with the
+//       other two good, in each position.
+//   (f) The margin, NoDataComponentLimit = FX_NODATA / 2: a component exactly
+//       at the limit fails, the next double above it passes, and so do
+//       -49999.99 and -1e4.
+// The old rule (isValid && finite) fails (a) on the full-level red (Z -1.203),
+// and (b) on the negative Y and the large negative component.
+//////////////////////////////////////////////////////////////////////////
+namespace T54Negative
+{
+    using FailedReadingRule::SensorReadingPassed;
+    using FailedReadingRule::NoDataComponentLimit;
+
+    static void Expect(const char* what, bool driverValid, double X, double Y, double Z, bool expected)
+    {
+        bool got = SensorReadingPassed(driverValid, X, Y, Z);
+        if (got != expected)
+            Fail("T54 %s: SensorReadingPassed(%d, %.17g, %.17g, %.17g) = %d, expected %d",
+                 what, driverValid ? 1 : 0, X, Y, Z, got ? 1 : 0, expected ? 1 : 0);
+    }
+
+    static void CheckMeasuredRed()
+    {
+        const double yOverX = 81.3 / 165.1;
+        Expect("red full level", true, 165.1, 81.3, -1.203, true);
+        Expect("red second reading", true, 87.8, 87.8 * yOverX, -0.634, true);
+        Expect("red third reading", true, 38.0, 38.0 * yOverX, -0.264, true);
+    }
+
+    static void CheckNegatives()
+    {
+        Expect("slightly negative X", true, -0.004, 0.002, 0.003, true);
+        Expect("slightly negative Z", true, 12.0, 6.0, -0.01, true);
+        Expect("slightly negative Y", true, 0.001, -0.0005, 0.002, true);
+        Expect("negative Y below -1", true, 2.0, -3.5, 2.0, true);
+        Expect("all three negative", true, -0.2, -0.1, -0.3, true);
+        Expect("large negative Z", true, 1500.0, 700.0, -12.0, true);
+        Expect("zero", true, 0.0, 0.0, 0.0, true);
+    }
+
+    static void CheckDriverFlag()
+    {
+        Expect("driver flag FALSE on a good reading", false, 50.0, 52.0, 55.0, false);
+        Expect("driver flag FALSE on the red", false, 165.1, 81.3, -1.203, false);
+    }
+
+    static void CheckNonFinite()
+    {
+        const double bad[3] = { std::numeric_limits<double>::quiet_NaN(),
+                                std::numeric_limits<double>::infinity(),
+                                -std::numeric_limits<double>::infinity() };
+        const char* badName[3] = { "NaN", "+inf", "-inf" };
+        for (int b = 0; b < 3; b++)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                double v[3] = { 50.0, 52.0, 55.0 };
+                v[c] = bad[b];
+                char what[64];
+                sprintf_s(what, sizeof(what), "%s in component %d", badName[b], c);
+                Expect(what, true, v[0], v[1], v[2], false);
+            }
+        }
+    }
+
+    static void CheckNoData()
+    {
+        Expect("noDataColor", true, noDataColor.GetX(), noDataColor.GetY(), noDataColor.GetZ(), false);
+        for (int c = 0; c < 3; c++)
+        {
+            double v[3] = { 50.0, 52.0, 55.0 };
+            v[c] = FX_NODATA;
+            char what[64];
+            sprintf_s(what, sizeof(what), "FX_NODATA in component %d", c);
+            Expect(what, true, v[0], v[1], v[2], false);
+        }
+    }
+
+    static void CheckMargin()
+    {
+        if (NoDataComponentLimit != FX_NODATA / 2.0)
+            Fail("T54 NoDataComponentLimit = %.17g, expected FX_NODATA / 2 = %.17g", NoDataComponentLimit, FX_NODATA / 2.0);
+        const double above = nextafter(NoDataComponentLimit, 0.0);
+        for (int c = 0; c < 3; c++)
+        {
+            double atLimit[3] = { 50.0, 52.0, 55.0 };
+            double justAbove[3] = { 50.0, 52.0, 55.0 };
+            double halfPlus[3] = { 50.0, 52.0, 55.0 };
+            double tenK[3] = { 50.0, 52.0, 55.0 };
+            atLimit[c] = NoDataComponentLimit;
+            justAbove[c] = above;
+            halfPlus[c] = -49999.99;
+            tenK[c] = -1e4;
+            char what[64];
+            sprintf_s(what, sizeof(what), "component %d at the limit", c);
+            Expect(what, true, atLimit[0], atLimit[1], atLimit[2], false);
+            sprintf_s(what, sizeof(what), "component %d one ulp above the limit", c);
+            Expect(what, true, justAbove[0], justAbove[1], justAbove[2], true);
+            sprintf_s(what, sizeof(what), "component %d at -49999.99", c);
+            Expect(what, true, halfPlus[0], halfPlus[1], halfPlus[2], true);
+            sprintf_s(what, sizeof(what), "component %d at -1e4", c);
+            Expect(what, true, tenK[0], tenK[1], tenK[2], true);
+        }
+    }
+}
+
+static void RunT54()
+{
+    printf("T54 a finite negative component is a reading...\n");
+    T54Negative::CheckMeasuredRed();
+    T54Negative::CheckNegatives();
+    T54Negative::CheckDriverFlag();
+    T54Negative::CheckNonFinite();
+    T54Negative::CheckNoData();
+    T54Negative::CheckMargin();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -7671,6 +7804,7 @@ int main(int argc, char* argv[])
     RunT51();
     RunT52();
     RunT53();
+    RunT54();
 
     if (g_failures)
     {
