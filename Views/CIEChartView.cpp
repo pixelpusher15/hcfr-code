@@ -852,13 +852,20 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	//    by the tone-mapped diffuse white (its mode-5 YWhiteRef), which this
 	//    call path does not reproduce; a*b* is untested there.
 	//  - No measured white: the measured Lab needs the display's own white.
-	//    Both whites start as constructor placeholders that pass isValid(),
-	//    so only the measured flags say a reading exists.
+	//    The prime white first, as DrawChart does, then THE white: the gray
+	//    scale's measured 100% (GetGrayScaleWhite), which falls back to the
+	//    on/off white. The prime and on/off whites start as constructor
+	//    placeholders that pass isValid(), so a measured flag (or, for the
+	//    on/off fallback, its placeholder signature) says a reading exists.
 	double YWhiteAB = 0.0;
 	if ( pDoc->GetMeasure()->IsPrimeWhiteMeasured() && pDoc->GetMeasure()->GetPrimeWhite().isValid() )
 		YWhiteAB = pDoc->GetMeasure()->GetPrimeWhite()[1];
-	else if ( pDoc->GetMeasure()->IsOnOffWhiteMeasured() && pDoc->GetMeasure()->GetOnOffWhite().isValid() )
-		YWhiteAB = pDoc->GetMeasure()->GetOnOffWhite()[1];
+	else
+	{
+		const CColor gsWhiteAB = pDoc->GetMeasure()->GetGrayScaleWhite();
+		if ( gsWhiteAB.isValid() && ( pDoc->GetMeasure()->IsOnOffWhiteMeasured() || ! CMeasure::IsPlaceholderWhite ( gsWhiteAB, true ) ) )
+			YWhiteAB = gsWhiteAB[1];
+	}
 	BOOL abAllowed = GetConfig()->m_GammaOffsetType != 5 && YWhiteAB > 0.0;
 
 	BOOL showXYUV = hasPrimaries && !xyuvStale;
