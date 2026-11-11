@@ -1985,6 +1985,7 @@ BEGIN
         MENUITEM "Mostrar Delta E = 3 y 10",  IDM_CIE_SHOWDELTAE
         MENUITEM "Modo CIE u'v'",               IDM_CIE_UV
         MENUITEM "Modo CIE a*b*",               IDM_CIE_AB
+        MENUITEM "Mostrar cobertura % tras cambiar el gamut", IDM_CIE_COV_ALWAYS_RECALC
         MENUITEM "Peor 10%",                   IDM_CIE_WORST10
         MENUITEM "Mostrar las referencias",          IDM_CIE_SHOWREFERENCES
         MENUITEM "Guardar...",                     IDM_CIE_SAVECHART
@@ -4411,6 +4412,8 @@ BEGIN
     IDS_ARGYLL_CAL_GREY_LIGHTER "Muestre un parche de prueba gris m\xE1s claro"
     IDS_ARGYLL_CAL_INSTRUCTIONS_TITLE "Instrucciones de calibraci\xF3n"
     IDS_SENSOR_INVALID_READING "El medidor ha devuelto una lectura no v\xE1lida."
+    IDS_ARGYLL_STILL_NEEDS_CALIBRATION "El medidor sigue indicando que necesita calibraci\xF3n despu\xE9s de calibrarlo."
+    IDS_ARGYLL_CALIBRATION_UNAVAILABLE "El medidor indica que necesita calibraci\xF3n, pero no hay ninguna calibraci\xF3n disponible para \xE9l."
     IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "El documento cargado incluye una corrección espectral de tipo de pantalla (%s) que no es el tipo de pantalla actual. Se sigue usando hasta que cambie el tipo de pantalla."
     IDS_SPECTRAL_COMPOSE_WARN   "El archivo que está cargando no tiene registro de la base del ajuste. La corrección espectral se aplicará además de su matriz (como hacía HCFR 4.1). ¿Continuar?"
     IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "La corrección espectral en uso (%s) se calculó para el medidor %s, no para el conectado, y aquí no hay ningún archivo de corrección a partir del cual volver a calcularla. Se sigue usando. Para calcularla para este medidor, seleccione su archivo de corrección en las propiedades del sensor."

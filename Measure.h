@@ -145,6 +145,8 @@ struct CSatLevelSet
 };
 
 
+#include "FailedReadingRule.h"
+
 class CMeasure : public CObject
 {
 public:
@@ -320,7 +322,8 @@ public:
 	CString GetCCStr() const;
 	// Publish an aborted color-checker sweep's partial live data to the
 	// per-set master array (the post-sweep read source); see Measure.cpp.
-	BOOL SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux);
+	// kept: the slots the sweep kept (FailedReadingRule.h), left out of both.
+	BOOL SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux, const FailedReadingRule::KeptSlots * kept = NULL);
 
 	// User patch set collection (multi-set picker). The active set's measures
 	// live in the USER band of the master array while active; they are
@@ -448,6 +451,7 @@ public:
 	BOOL IsOnOffWhiteMeasured() const { return m_bOnOffWhiteMeasured; }
 	static bool IsPlaceholderWhite(const CColor & c, bool bOnOff);	// the ctor's nominal white, by value (load-time flag recovery)
 	static bool IsRawlessPlaceholder(const CColor & c, bool bBlack);	// the ctor's top-gray (bBlack false) or on/off-black placeholder: the walks neither recompute nor count it
+	BOOL SweepOverwritesData(unsigned int sweep) const;	// would a sweep writing this SweepConfirmRule mask overwrite a reading (not a placeholder)
 
 	BOOL MeasureContrast(CSensor *pSensor, CGenerator *pGenerator);
 	double GetOnOffContrast ();
@@ -524,6 +528,53 @@ public:
 	// patch. File-backed sets only (no-op for the inline GCD/MCD/... modes);
 	// slotIndex is the m_cc24SatMeasureArray slot and doubles as sequenceIndex.
 	void StampCCProvenance ( CColor & c, int slotIndex );
+	// What the document holds in a slot a sweep is about to fill: the reading
+	// a failed patch leaves there (FailedReadingRule.h). PreviousReading: the
+	// slot, or noDataColor when it holds a constructor placeholder (top gray
+	// white, on/off white or black), which no meter measured. SatSlotReading:
+	// slot of the hue-th saturation array. CC24MasterSlotReading: slot of the
+	// active color-checker set, from the master array, since the sweep wipes the
+	// live one when it starts. MeasuredPrimeWhite: the prime white, or noDataColor
+	// when none was measured (the constructor's placeholder white passes isValid()).
+	const CColor & PreviousReading ( const CColor & slot ) const;
+	// A nominal value the constructor pre-loads, not a reading: the rawless top
+	// gray / prime white placeholder, the rawless on/off white placeholder, the
+	// on/off black placeholder (IsPlaceholderWhite, IsRawlessPlaceholder).
+	static bool IsConstructorPlaceholder ( const CColor & c );
+	// A reading a target or a fit may take: valid, and not a placeholder
+	// (FailedReadingRule.h).
+	static bool HoldsReading ( const CColor & c ) { return FailedReadingRule::HoldsReading ( c, IsConstructorPlaceholder ); }
+	// Whether the gray scale's black is the user's override (the document's
+	// recorded decision, m_bOverRideBlack): GetGrayScaleBlack returns it then.
+	bool GrayScaleBlackIsOverride () const { return m_bOverRideBlack && m_userBlack.isValid (); }
+	// Whether the user's black override is IN EFFECT: the document's recorded
+	// decision (GrayScaleBlackIsOverride) or the live "Use Black Level"
+	// preference. The two differ on purpose. The recorded decision picks the
+	// VALUE GetGrayScaleBlack returns; "in effect" answers whether the black the
+	// views read is the user's: with the live preference on, MainView writes the
+	// preference's black into gray[0], near-black[0] and the on/off black
+	// whatever the document's flag says, and that slot is what GetGrayScaleBlack
+	// returns. Only HoldsGrayScaleBlack asks it.
+	bool BlackOverrideInEffect () const;
+	// Whether GetGrayScaleBlack holds a reading the fit and the black-compensation
+	// targets may take: HoldsReading, except that with the override in effect the
+	// black is a reading by decision at any value, 0 cd/m2 included
+	// (FailedReadingRule::HoldsBlackReading).
+	bool HoldsGrayScaleBlack () const;
+	const CColor & SatSlotReading ( int hue, int slot ) const;
+	const CColor & CC24MasterSlotReading ( int slot ) const;
+	// The hue-th saturation array (0 red, 1 green, 2 blue, 3 yellow, 4 cyan, 5 magenta).
+	CArray<CColor,CColor> & SatArray ( int hue );
+	const CArray<CColor,CColor> & SatArray ( int hue ) const;
+	// The active color-checker set's band in m_cc24SatMeasureArray_master: its
+	// first index and its length, for the m_CCMode iCC (the mapping GetCC24Sat reads).
+	static int CC24MasterBandBase ( int iCC );
+	static int CC24MasterBandSize ( int iCC );
+	// The color checker's MCD order: iteration iter of the sweep fills slot
+	// CC24MCDSlot, slot fills at iteration CC24MCDIter (identity for every other iCC).
+	static int CC24MCDSlot ( int iCC, int iter );
+	static int CC24MCDIter ( int iCC, int slot );
+	const CColor & MeasuredPrimeWhite () const { return m_bPrimeWhiteMeasured ? m_PrimeWhite : noDataColor; }
 	BOOL ValidateBackgroundGrayScaleAndColors ( BOOL bUseLuxValues, double * pLuxValues );
 	BOOL ValidateBackgroundSingleMeasurement ( BOOL bUseLuxValues, double * pLuxValues );
 

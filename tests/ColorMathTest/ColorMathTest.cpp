@@ -13,6 +13,7 @@
 // T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
 // T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table,
 // T14 asserts the CsvPercentToCode inverse round-trips every code the decode distinguishes,
+// T18 asserts the whiter-than-white reference EOTF extension (bExtendSDR),
 // T19 asserts the #193 archive extension trailer: round trip, unknown-tag skip,
 // legacy bytes, rejections, the primitives, append-only values, and the legacy store,
 // T22 asserts the test-color window paints each patch's own code, and T41 asserts the
@@ -1159,6 +1160,190 @@ static void RunT14()
             Fail("T14 bits=%d legal sub-black clamp", bits);
         if (CsvPercentToCode(CsvCodeToPercent(maxCode, bits, CSV_RANGE_LEGAL), bits, CSV_RANGE_LEGAL) != white)
             Fail("T14 bits=%d legal super-white clamp", bits);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T18 - WTW (whiter-than-white) reference EOTF extension oracle (pure
+// assertion, no golden file).
+//
+// EXTENDED-range patch sets drive stimulus up to ~109.5% (10-bit code 1023).
+// getL_EOTF gained a defaulted bExtendSDR flag: when TRUE and the mode is a
+// relative SDR curve (BT.1886=4, L*=6, sRGB=99), a stimulus above 1.0 is
+// capped at 1.1 and fed through the normal formula instead of returning flat
+// white, so a WTW reference follows the extrapolated curve. Everything else -
+// every existing call site (flag defaults FALSE), PQ, HLG, inverse modes -
+// must be bit-identical to the old clip behavior. This oracle pins:
+//   (a) the default-arg contract: no flag => exactly the old clip values;
+//       HLG stays clipped even WITH the flag (scope guard);
+//   (b) seam continuity at 1.0 (the formulas equal 1.0 there, so the strict
+//       valx>1 gate cannot introduce a step), and for relative BT.1886
+//       the step stays within the exponent refinement's last correction;
+//   (c) monotone growth over (1, 1.1] and a hard cap binding above 1.1;
+//   (d) known closed-form values for each extended curve;
+//   (e) the importer chain: real EXTENDED max codes decode below the 1.1
+//       cap, so the cap never distorts a real patch list.
+//////////////////////////////////////////////////////////////////////////
+static double EotfPlain(double v, int mode, double split = 0.0)
+{
+    return getL_EOTF(v, noDataColor, noDataColor, 0.0, split, mode);
+}
+static double EotfExt(double v, int mode, double split = 0.0)
+{
+    return getL_EOTF(v, noDataColor, noDataColor, 0.0, split, mode,
+                     94.37844, 0.0, 4000.0, 0.00, 700.0, false, false,
+                     1.2, 1.0, 0.0, 1.1, true);
+}
+// The relative-BT.1886 exponent refinement of getL_EOTF, reproduced only to
+// read out its last correction: e8 is the exponent the final a,b were built
+// from, e9 the one Lbt uses. maxL/minL are noDataColor's 100 / 0.012.
+static void RelBt1886Refine(double g_rel, double split, double& b, double& e8, double& e9)
+{
+    const double maxL = 100.0, minL = 0.012;
+    double yh = maxL * pow(0.5, g_rel), off = split / 100.0 * minL, e = g_rel, a;
+    a = pow(pow(maxL, 1.0 / e) - pow(off, 1.0 / e), e);
+    b = pow(off, 1.0 / e) / (pow(maxL, 1.0 / e) - pow(off, 1.0 / e));
+    e = (log(yh) - log(a)) / log(0.5 + b);
+    e8 = e;
+    for (int i = 0; i < 9; i++)
+    {
+        e8 = e;
+        a = pow(pow(maxL, 1.0 / e) - pow(off, 1.0 / e), e);
+        b = pow(off, 1.0 / e) / (pow(maxL, 1.0 / e) - pow(off, 1.0 / e));
+        e = (log(yh) - log(a)) / log(0.5 + b);
+    }
+    e9 = e;
+}
+
+static void RunT18()
+{
+    printf("T18 WTW reference EOTF extension oracle...\n");
+
+    static const int sdrModes[] = { 4, 6, 99 };   // BT.1886, L*, sRGB
+
+    // (a) default-arg regression: without the flag, >1 still clips exactly
+    static const double overs[] = { 1.0 + 1e-9, 1.05, 1.09, 5.0 };
+    for (int m = 0; m < _countof(sdrModes); m++)
+        for (int v = 0; v < _countof(overs); v++)
+            if (EotfPlain(overs[v], sdrModes[m]) != 1.0)
+                Fail("T18a mode=%d valx=%g: unflagged over-range no longer clips to 1.0",
+                     sdrModes[m], overs[v]);
+    for (int v = 0; v < _countof(overs); v++)
+    {
+        if (EotfPlain(overs[v], 5) != 100.0)
+            Fail("T18a PQ valx=%g: over-range no longer returns 100", overs[v]);
+        if (EotfExt(overs[v], 7) != 1.0)
+            Fail("T18a HLG valx=%g: over-range extended flag must stay clipped", overs[v]);
+    }
+
+    // (b) seam continuity at 1.0: extended value just above the seam matches
+    // the unflagged value at exactly 1.0 (formula equals 1.0 there)
+    for (int m = 0; m < _countof(sdrModes); m++)
+    {
+        double at1  = EotfPlain(1.0, sdrModes[m]);
+        double just = EotfExt(1.0 + 1e-9, sdrModes[m]);
+        if (fabs(just - at1) > 1e-6)
+            Fail("T18b mode=%d: seam step %.9f -> %.9f", sdrModes[m], at1, just);
+    }
+    // BT.1886 with a black-offset split engaged: seam still continuous
+    {
+        double at1  = EotfPlain(1.0, 4, 75.0);
+        double just = EotfExt(1.0 + 1e-9, 4, 75.0);
+        if (fabs(just - at1) > 1e-6)
+            Fail("T18b BT.1886 split=75: seam step %.9f -> %.9f", at1, just);
+    }
+    // Relative BT.1886 (g_rel != 0; the app default is 0, absolute). getL_EOTF
+    // refines the exponent in a fixed 9-pass loop with no convergence test, so
+    // the curve meets white only to that loop's last correction. For the a,b
+    // built from e8, a*(1+b)^e8 == maxL exactly (algebra), and Lbt(1) uses e9,
+    // so f(1) - 1 = maxL*((1+b)^(e9-e8) - 1) / (maxL + minL*(1 - split/100)).
+    // The unflagged path clips to exactly 1.0 at the seam, so f(1) - 1 is the
+    // step the extended branch adds there. Bound: first order in (e9-e8), with
+    // a 1e-6 relative margin for the dropped higher-order terms plus 16 ulp
+    // of rounding in the a/b/pow chain:
+    //   |step| <= |e9-e8| * ln(1+b) * maxL/(maxL+c) * (1 + 1e-6) + 16*eps.
+    {
+        static const double grels[]  = { 2.4, 2.2 };
+        static const double splits[] = { 0.0, 75.0, 100.0 };
+        const double eps = std::numeric_limits<double>::epsilon();
+        for (int g = 0; g < _countof(grels); g++)
+            for (int s = 0; s < _countof(splits); s++)
+            {
+                double step = getL_EOTF(1.0, noDataColor, noDataColor, grels[g], splits[s], 4) - 1.0;
+                double b, e8, e9;
+                RelBt1886Refine(grels[g], splits[s], b, e8, e9);
+                double c = 0.012 * (1.0 - splits[s] / 100.0);
+                double bound = fabs(e9 - e8) * log(1.0 + b) * 100.0 / (100.0 + c) * (1.0 + 1e-6) + 16.0 * eps;
+                printf("  T18b rel BT.1886 g_rel=%.1f split=%3.0f: seam step %.3e (bound %.3e)\n",
+                       grels[g], splits[s], step, bound);
+                if (!(fabs(step) <= bound))
+                    Fail("T18b rel BT.1886 g_rel=%g split=%g: seam step %.3e exceeds %.3e",
+                         grels[g], splits[s], step, bound);
+                // and the extended branch just above the seam continues from it
+                double just = getL_EOTF(1.0 + 1e-9, noDataColor, noDataColor, grels[g], splits[s], 4,
+                                        94.37844, 0.0, 4000.0, 0.00, 700.0, false, false,
+                                        1.2, 1.0, 0.0, 1.1, true);
+                if (!(just > 1.0 + step) || just - (1.0 + step) > 1e-8)
+                    Fail("T18b rel BT.1886 g_rel=%g split=%g: extended f(1+1e-9)=%.15f not continuous with f(1)=%.15f",
+                         grels[g], splits[s], just, 1.0 + step);
+            }
+    }
+
+    // (c) monotone over (1, 1.1], capped and bounded above 1.1
+    for (int m = 0; m < _countof(sdrModes); m++)
+    {
+        double prev = EotfExt(1.0 + 1e-9, sdrModes[m]);
+        for (double v = 1.005; v <= 1.1 + 1e-12; v += 0.005)
+        {
+            double y = EotfExt(v, sdrModes[m]);
+            if (y < prev - 1e-12)
+            {
+                Fail("T18c mode=%d: extended curve falls %.9f -> %.9f at %.3f",
+                     sdrModes[m], prev, y, v);
+                break;
+            }
+            if (y <= 1.0 - 1e-9 || y >= 2.0)
+            {
+                Fail("T18c mode=%d: extended value %.9f out of (1,2) at %.3f",
+                     sdrModes[m], y, v);
+                break;
+            }
+            prev = y;
+        }
+        if (EotfExt(1.12, sdrModes[m]) != EotfExt(1.1, sdrModes[m]))
+            Fail("T18c mode=%d: 1.1 cap not binding above 1.1", sdrModes[m]);
+    }
+
+    // (d) known closed-form values (formulas from getL_EOTF with noDataColor:
+    // maxL=100, minL=0.012, split=0, exp0=2.4)
+    {
+        double v = 1.087;
+        double want = pow((v + 0.055) / 1.055, 2.4);
+        if (fabs(EotfExt(v, 99) - want) > 1e-12)
+            Fail("T18d sRGB(%g): %.15f != %.15f", v, EotfExt(v, 99), want);
+        v = 1.05;
+        want = pow((v * 100.0 + 16.0) / 116.0, 3.0);
+        if (fabs(EotfExt(v, 6) - want) > 1e-12)
+            Fail("T18d L*(%g): %.15f != %.15f", v, EotfExt(v, 6), want);
+        want = (100.0 * pow(v, 2.4) + 0.012) / 100.012;
+        if (fabs(EotfExt(v, 4) - want) > 1e-12)
+            Fail("T18d BT.1886(%g): %.15f != %.15f", v, EotfExt(v, 4), want);
+    }
+
+    // (e) importer chain: real EXTENDED max codes stay under the 1.1 cap and
+    // extend through the curve
+    {
+        double v8  = CsvCodeToPercent(255, 8, CSV_RANGE_EXTENDED) / 100.0;   // (255-16)/219
+        double v10 = CsvCodeToPercent(1023, 10, CSV_RANGE_EXTENDED) / 100.0; // (1023-64)/876
+        if (fabs(v8 - (255.0 - 16.0) / 219.0) > 1e-12 || v8 >= 1.1)
+            Fail("T18e 8-bit extended max decodes to %.9f (cap would bind)", v8);
+        if (fabs(v10 - (1023.0 - 64.0) / 876.0) > 1e-12 || v10 >= 1.1)
+            Fail("T18e 10-bit extended max decodes to %.9f (cap would bind)", v10);
+        double want = pow((v8 + 0.055) / 1.055, 2.4);
+        if (fabs(EotfExt(v8, 99) - want) > 1e-12)
+            Fail("T18e sRGB chain: %.15f != %.15f", EotfExt(v8, 99), want);
+        if (pow(min(v8, 1.1), 2.4) <= 1.0)   // the mode<4 call-site shape
+            Fail("T18e power-gamma chain not above white");
     }
 }
 
@@ -6388,6 +6573,939 @@ static void RunT51()
 }
 
 //////////////////////////////////////////////////////////////////////////
+// T50 - a failed reading never becomes data (libHCFR/FailedReadingRule.h).
+// Pure assertion; no golden file; every expectation is exact (XYZ copies
+// compared bit for bit, bools, enums, counts).
+//   (a) The sweep slot rule, through a model of the Measure.cpp sweep shape:
+//       read into the buffer, KeepPassedReading against the document's slot,
+//       the live write, the Abort / Retry / Ignore box, Abort returning before
+//       the commit loop that copies the buffer into the document and stamps
+//       this sweep's lux, skipping every slot KeptSlots noted. A failing
+//       patch answered Abort or Ignore leaves the slot's previous reading, on
+//       a document with one and on one without (the placeholder stays), with
+//       its own lux or none; Abort also leaves every later slot; Retry stores
+//       the second read.
+//   (b) FreeMeasureOutcome (CMeasure::AddMeasurement): a passed reading is
+//       appended, Retry reads again, Ignore and Abort append nothing.
+//   (a2) The same with the gray sweep's derived fields: a new document's top
+//       placeholder is not a previous reading (PreviousReading), and a kept
+//       slot is skipped by the commit, so nothing is derived from it: neither
+//       the on/off white nor its flag, nor an on/off black a primaries run
+//       measured.
+//   (c) GammaFitNoBlack (ComputeGammaAndOffset): an invalid black stops only the
+//       relative offset's fit (type 1), with gamma 1.0 and the configured offset
+//       (ConfiguredGammaOffset: type 2 0.099 or sRGB 0.055, type 3 the manual
+//       one, else 0); every other type fits, and MeanPointGamma gives a
+//       synthetic 2.4 power law back to 1e-12 with the black failed. A caller
+//       takes the fit only when there is one (FittedGammaOr), and the one black
+//       predicate (HoldsReading) refuses a failed and a placeholder black.
+//   (d) AnyHeldReading: the charts draw when any slot holds a reading, not
+//       only when slot 0 is valid; a new document's placeholder white in the
+//       top slot is not a reading.
+//   (e) AfterCalibration, through a model of the Argyll read loop
+//       (CArgyllSensor::MeasureColorInternal, Calibrate reporting success): a
+//       read that asks for calibration right after ONE Calibrate attempt fails,
+//       with "still needs calibration" when a calibration ran and "no
+//       calibration available" when the driver had none to run; a position
+//       prompt in between does not clear the attempt (AttemptAfterRead), only a
+//       reading does. Not covered: the out parameter
+//       through which CalibrateDevice says whether a calibration ran
+//       (ArgyllSensor.cpp, needs a driver).
+// Main's behavior (the sweeps store before the test, Retry and Ignore append
+// a free measure, no black guard, the slot 0 gate, calibrate again) fails
+// (a) on the document with a previous reading, and (b) to (e); so do the
+// round-2 cases (lux of a kept slot, offset 0 under the guard, the placeholder
+// counted as a reading).
+//////////////////////////////////////////////////////////////////////////
+#include "../../libHCFR/FailedReadingRule.h"
+
+namespace T50Fail
+{
+    using namespace FailedReadingRule;
+
+    // One read of a patch: what the sensor returns, and its verdict.
+    struct Read
+    {
+        CColor color;
+        bool passed;
+    };
+
+    static CColor Reading(double v) { return CColor(v, v + 1.0, v + 2.0); }
+
+    static bool Same(const CColor& a, const CColor& b)
+    {
+        return a.GetX() == b.GetX() && a.GetY() == b.GetY() && a.GetZ() == b.GetZ();
+    }
+
+    static const char* AnswerName(Answer a)
+    {
+        return a == ANSWER_ABORT ? "Abort" : a == ANSWER_RETRY ? "Retry" : "Ignore";
+    }
+
+    // reads[i]: the successive reads of patch i (a Retry takes the next one).
+    // Returns false on Abort (the commit loop never runs), true at the end.
+    // The luxmeter value the model's commit stamps on every slot it copies.
+    static const double SweepLux = 777.0;
+
+    static bool Sweep(std::vector<CColor>& doc, const std::vector<std::vector<Read> >& reads, Answer answer)
+    {
+        std::vector<CColor> measured(doc.size(), noDataColor);
+        std::vector<size_t> next(doc.size(), 0);
+        KeptSlots kept((int)doc.size());
+        for (int i = 0; i < (int)doc.size(); i++)
+        {
+            if (next[i] >= reads[i].size())
+            {
+                Fail("T50 (a) model: patch %d ran out of reads", i);
+                return false;
+            }
+            const Read& r = reads[i][next[i]++];
+            measured[i] = r.color;
+            if (kept.Note(i, KeepPassedReading(measured[i], doc[i], r.passed)))
+                doc[i] = measured[i];                   // the live write: a passed reading only
+            if (!r.passed)
+            {
+                if (answer == ANSWER_ABORT)
+                    return false;
+                if (answer == ANSWER_RETRY)
+                    i--;
+            }
+        }
+        for (int i = 0; i < (int)doc.size(); i++)      // the commit loop, with its lux stamp
+        {
+            if (kept.IsKept(i))
+                continue;                               // a kept slot is not written
+            doc[i] = measured[i];
+            doc[i].SetLuxValue(SweepLux);
+        }
+        return true;
+    }
+
+    static void ExpectSlots(const char* what, int failing, Answer answer,
+                            const std::vector<CColor>& doc, const std::vector<CColor>& want)
+    {
+        for (size_t i = 0; i < want.size(); i++)
+            if (!Same(doc[i], want[i]))
+                Fail("T50 (a) %s, patch %d fails, %s: slot %d holds (%g, %g, %g), want (%g, %g, %g)",
+                     what, failing, AnswerName(answer), (int)i, doc[i].GetX(), doc[i].GetY(), doc[i].GetZ(),
+                     want[i].GetX(), want[i].GetY(), want[i].GetZ());
+    }
+
+    static void CheckSweep()
+    {
+        const int N = 5;
+        const int failing[] = { 0, 2, 4 };
+        const Answer answers[] = { ANSWER_ABORT, ANSWER_IGNORE, ANSWER_RETRY };
+        for (int f = 0; f < 3; f++)
+        {
+            const int K = failing[f];
+            // Every patch reads Reading(10 (i+1)); patch K fails once first (a failed
+            // reading is noDataColor, CSensor::MeasureColor).
+            std::vector<std::vector<Read> > reads(N);
+            for (int i = 0; i < N; i++)
+            {
+                if (i == K)
+                {
+                    Read bad = { noDataColor, false };
+                    reads[i].push_back(bad);
+                }
+                Read good = { Reading(10.0 * (i + 1)), true };
+                reads[i].push_back(good);
+            }
+            for (int d = 0; d < 2; d++)
+            {
+                const bool hasPrevious = (d == 0);
+                std::vector<CColor> before;
+                for (int i = 0; i < N; i++)
+                {
+                    before.push_back(hasPrevious ? Reading(1000.0 + i) : noDataColor);
+                    if (hasPrevious && (i % 2) == 0)
+                        before[i].SetLuxValue(5.0 + i);     // even slots carry their own lux
+                }
+                const char* what = hasPrevious ? "document with a previous reading" : "document without one";
+                for (int a = 0; a < 3; a++)
+                {
+                    std::vector<CColor> doc = before;
+                    const bool completed = Sweep(doc, reads, answers[a]);
+                    std::vector<CColor> want;
+                    for (int i = 0; i < N; i++)
+                    {
+                        if (answers[a] == ANSWER_RETRY || i < K)
+                            want.push_back(Reading(10.0 * (i + 1)));
+                        else if (i == K || answers[a] == ANSWER_ABORT)
+                            want.push_back(before[i]);
+                        else
+                            want.push_back(Reading(10.0 * (i + 1)));
+                    }
+                    if (completed != (answers[a] != ANSWER_ABORT))
+                        Fail("T50 (a) %s, patch %d fails, %s: sweep %s", what, K, AnswerName(answers[a]),
+                             completed ? "completed" : "stopped");
+                    ExpectSlots(what, K, answers[a], doc, want);
+                    // The lux: a kept slot keeps its own (or none), every slot the commit
+                    // stored a passed reading in carries this sweep's.
+                    if (completed)
+                        for (int i = 0; i < N; i++)
+                        {
+                            const bool keptSlot = (answers[a] == ANSWER_IGNORE && i == K);
+                            const bool wantLux = keptSlot ? before[i].HasLuxValue() : true;
+                            const double wantValue = keptSlot ? (wantLux ? before[i].GetLuxValue() : 0.0) : SweepLux;
+                            if (doc[i].HasLuxValue() != wantLux || (wantLux && doc[i].GetLuxValue() != wantValue))
+                                Fail("T50 (a) %s, patch %d fails, %s: slot %d lux %s %g, want %s %g", what, K,
+                                     AnswerName(answers[a]), i, doc[i].HasLuxValue() ? "set" : "none",
+                                     doc[i].HasLuxValue() ? doc[i].GetLuxValue() : 0.0, wantLux ? "set" : "none", wantValue);
+                        }
+                    // Never data: no slot holds the failed reading unless it held the
+                    // placeholder before.
+                    for (int i = 0; i < N; i++)
+                        if (!doc[i].isValid() && before[i].isValid())
+                            Fail("T50 (a) %s, patch %d fails, %s: slot %d lost its reading to the failed one",
+                                 what, K, AnswerName(answers[a]), i);
+                }
+            }
+        }
+    }
+
+    // The AddMeasurement loop. Returns the number of reads taken.
+    static int FreeMeasure(std::vector<CColor>& list, const std::vector<Read>& reads, Answer answer)
+    {
+        int n = 0;
+        for (;;)
+        {
+            if (n >= (int)reads.size())
+            {
+                Fail("T50 (b) model ran out of reads");
+                return n;
+            }
+            const Read& r = reads[n++];
+            FreeMeasureStep step = FreeMeasureOutcome(r.passed, answer);
+            if (step == FREE_READ_AGAIN)
+                continue;
+            if (step == FREE_APPEND)
+                list.push_back(r.color);
+            return n;
+        }
+    }
+
+    static void CheckFreeMeasure()
+    {
+        const Read good = { Reading(42.0), true };
+        const Read bad = { noDataColor, false };
+        const Answer answers[] = { ANSWER_ABORT, ANSWER_IGNORE, ANSWER_RETRY };
+        for (int a = 0; a < 3; a++)
+        {
+            std::vector<CColor> list(1, Reading(7.0));
+            std::vector<Read> reads(1, good);
+            int n = FreeMeasure(list, reads, answers[a]);
+            if (n != 1 || list.size() != 2 || !Same(list[1], good.color))
+                Fail("T50 (b) passed reading, %s: %d reads, %d entries, want 1 read and the reading appended",
+                     AnswerName(answers[a]), n, (int)list.size());
+        }
+        {
+            std::vector<CColor> list(1, Reading(7.0));
+            std::vector<Read> reads;
+            reads.push_back(bad);
+            reads.push_back(good);
+            int n = FreeMeasure(list, reads, ANSWER_RETRY);
+            if (n != 2 || list.size() != 2 || !Same(list[1], good.color))
+                Fail("T50 (b) failed then passed, Retry: %d reads, %d entries, want 2 reads and the second appended",
+                     n, (int)list.size());
+        }
+        const Answer leave[] = { ANSWER_ABORT, ANSWER_IGNORE };
+        for (int a = 0; a < 2; a++)
+        {
+            std::vector<CColor> list(1, Reading(7.0));
+            std::vector<Read> reads(1, bad);
+            int n = FreeMeasure(list, reads, leave[a]);
+            if (n != 1 || list.size() != 1 || !Same(list[0], Reading(7.0)))
+                Fail("T50 (b) failed reading, %s: %d reads, %d entries, want 1 read and nothing appended",
+                     AnswerName(leave[a]), n, (int)list.size());
+        }
+    }
+
+    static void CheckGammaGuard()
+    {
+        // The offset the configuration sets: never fitted, so the guard keeps it.
+        struct { int type; bool sRGB; double manual; double want; } offsets[] = {
+            { 0, false, 0.07, 0.0 }, { 1, false, 0.07, 0.0 },
+            { 2, false, 0.07, 0.099 }, { 2, true, 0.07, 0.055 },
+            { 3, false, 0.07, 0.07 }, { 4, false, 0.07, 0.0 },
+            { 5, false, 0.07, 0.0 }, { 7, false, 0.07, 0.0 } };
+        for (int k = 0; k < (int)(sizeof(offsets) / sizeof(offsets[0])); k++)
+        {
+            double configured = ConfiguredGammaOffset(offsets[k].type, offsets[k].sRGB, offsets[k].manual);
+            if (configured != offsets[k].want)
+                Fail("T50 (c) offset type %d%s: configured offset %g, want %g", offsets[k].type,
+                     offsets[k].sRGB ? " sRGB" : "", configured, offsets[k].want);
+            // Only the relative offset (type 1) reads the black: an invalid one stops
+            // that fit alone; every other type fits as usual.
+            const bool wantStopped = (offsets[k].type == 1);
+            double gamma = 2.4, offset = 0.5;
+            const bool stopped = GammaFitNoBlack(false, offsets[k].type, configured, &gamma, &offset);
+            if (stopped != wantStopped)
+                Fail("T50 (c) offset type %d, invalid black: the fit %s, want it %s", offsets[k].type,
+                     stopped ? "is stopped" : "goes ahead", wantStopped ? "stopped" : "to go ahead");
+            if (stopped && (gamma != 1.0 || offset != offsets[k].want))
+                Fail("T50 (c) offset type %d%s, invalid black: gamma %g offset %g, want 1 and the configured %g",
+                     offsets[k].type, offsets[k].sRGB ? " sRGB" : "", gamma, offset, offsets[k].want);
+            if (!stopped && (gamma != 2.4 || offset != 0.5))
+                Fail("T50 (c) offset type %d, invalid black, fit goes ahead: outputs changed to %g, %g",
+                     offsets[k].type, gamma, offset);
+        }
+        for (int type = 0; type <= 7; type++)
+        {
+            double gamma = 2.4, offset = 0.099;
+            if (GammaFitNoBlack(true, type, 0.0, &gamma, &offset))
+                Fail("T50 (c) offset type %d, valid black: the fit is stopped", type);
+            if (gamma != 2.4 || offset != 0.099)
+                Fail("T50 (c) offset type %d, valid black: outputs changed to %g, %g", type, gamma, offset);
+        }
+
+        // The fit itself on a synthetic 21-point power law of gamma 2.4 with a
+        // failed black (slot 0 FX_NODATA): type 0 reads no black, so the guard
+        // lets it through and MeanPointGamma (the loop ComputeGammaAndOffset runs,
+        // points 1 .. 18) gives 2.4 back to 1e-12.
+        const int N = 21;
+        double x[N], lum[N];
+        for (int i = 0; i < N; i++)
+        {
+            x[i] = i / 20.0;
+            lum[i] = pow(x[i], 2.4);
+        }
+        lum[0] = -99999.99;   // the failed black's relative luminance (white 1)
+        double gamma = 1.0, offset = 0.0;
+        if (GammaFitNoBlack(false, 0, 0.0, &gamma, &offset))
+            Fail("T50 (c) synthetic series, type 0, invalid black: the fit is stopped (gamma %g)", gamma);
+        else
+        {
+            if (!MeanPointGamma(N, lum, [&](int i) { return log(lum[i]) / log(x[i]); }, &gamma))
+                Fail("T50 (c) synthetic series, type 0, invalid black: no fit");
+            if (fabs(gamma - 2.4) > 1e-12)
+                Fail("T50 (c) synthetic series, type 0, invalid black: gamma %.15g, want 2.4 (1e-12)", gamma);
+        }
+        // A caller takes the fit only when there is one: no fit keeps its own
+        // fallback (m_GammaRef), never the no-fit 1.0 as a target gamma.
+        if (FittedGammaOr(false, NoFitGamma, 2.4) != 2.4)
+            Fail("T50 (c) no fit: the caller's gamma is %g, want its fallback 2.4", FittedGammaOr(false, NoFitGamma, 2.4));
+        if (FittedGammaOr(true, 2.31, 2.4) != 2.31)
+            Fail("T50 (c) a fit: the caller's gamma is %g, want the fit 2.31", FittedGammaOr(true, 2.31, 2.4));
+        // The one black predicate (the fit and every black-compensation target): a
+        // failed black and a constructor placeholder black hold no reading.
+        const CColor placeholderBlack(0.5 * 0.95047, 0.5, 0.5 * 1.08833);     // PlaceholderOnOffBlack
+        auto isPlaceholder = [](const CColor& c)
+        {
+            if (!c.isValid() || c.HasRawXYZValue())
+                return false;
+            double y = c.GetY();
+            return y > 0.0 && fabs(c.GetZ() - y * 1.08833) <= 1e-9 * y && fabs(c.GetX() - y * 0.95047) <= 1e-9 * y;
+        };
+        if (HoldsReading(noDataColor, isPlaceholder))
+            Fail("T50 (c) the black predicate: a failed black holds a reading");
+        if (HoldsReading(placeholderBlack, isPlaceholder))
+            Fail("T50 (c) the black predicate: the constructor's placeholder black holds a reading");
+        CColor measuredBlack = Reading(0.05);
+        measuredBlack.SetRawXYZValue(measuredBlack.GetXYZValue());
+        if (!HoldsReading(measuredBlack, isPlaceholder))
+            Fail("T50 (c) the black predicate: a measured black holds no reading");
+        // Points without light are left out of the mean; none at all is no fit.
+        double dark[5] = { 0.0, 0.0, 0.0, 0.0, 0.0 };
+        double none = -1.0;
+        if (MeanPointGamma(5, dark, [](int) { return 99.0; }, &none))
+            Fail("T50 (c) no point with light: reported as a fit (mean %g)", none);
+        // The user's black override is a reading by decision: at 0 cd/m2 (an
+        // OLED) it has the all-zero placeholder's value and still holds one.
+        const CColor zeroBlack(0.0, 0.0, 0.0);
+        auto isZeroPlaceholder = [](const CColor& c) { return !c.HasRawXYZValue() && c.GetX() == 0.0 && c.GetY() == 0.0 && c.GetZ() == 0.0; };
+        if (!HoldsBlackReading(zeroBlack, true, isZeroPlaceholder))
+            Fail("T50 (c) the user's 0 cd/m2 black override: holds no reading");
+        if (HoldsBlackReading(zeroBlack, false, isZeroPlaceholder))
+            Fail("T50 (c) the all-zero black placeholder without the override: holds a reading");
+        if (HoldsBlackReading(noDataColor, true, isZeroPlaceholder))
+            Fail("T50 (c) a failed black with the override on: holds a reading");
+    }
+
+    // A reading as this build takes it: with its raw XYZ.
+    static CColor Measured(double v)
+    {
+        CColor c = Reading(v);
+        c.SetRawXYZValue(c.GetXYZValue());
+        return c;
+    }
+
+    // CMeasure::IsRawlessPlaceholder's top-gray rule, restated (the app passes
+    // the real one): no raw value and the constructor's exact D65 ratios.
+    static bool IsPlaceholder(const CColor& c)
+    {
+        if (!c.isValid() || c.HasRawXYZValue())
+            return false;
+        double y = c.GetY();
+        return y > 0.0 && fabs(c.GetX() - y * 0.95047) <= 1e-9 * y && fabs(c.GetZ() - y * 1.08883) <= 1e-9 * y;
+    }
+
+    static bool AnyValid(const std::vector<CColor>& v)
+    {
+        return AnyHeldReading((int)v.size(), [&v](int i) { return v[i]; },
+                              [](const CColor& c) { return IsPlaceholder(c); });
+    }
+
+    static void CheckChartGate()
+    {
+        // The constructor's top gray slot (PlaceholderPrimeWhite at m_TargetMaxL 100).
+        const CColor placeholder(95.047, 100.0, 108.883);
+        if (!IsPlaceholder(placeholder))
+            Fail("T50 (d) model: the placeholder white is not recognised");
+        std::vector<CColor> newDocument(21, noDataColor);
+        newDocument[20] = placeholder;
+        if (AnyValid(newDocument))
+            Fail("T50 (d) a new document (only the placeholder white in the top slot): the chart draws");
+        std::vector<CColor> placeholderAndOne(21, noDataColor);
+        placeholderAndOne[20] = placeholder;
+        placeholderAndOne[5] = Measured(5.0);
+        if (!AnyValid(placeholderAndOne))
+            Fail("T50 (d) one reading beside the placeholder white: the chart is hidden");
+        std::vector<CColor> blackFailed(3, Measured(5.0));
+        blackFailed[0] = noDataColor;
+        if (!AnyValid(blackFailed))
+            Fail("T50 (d) an invalid black with valid points: the chart is hidden");
+        std::vector<CColor> midFailed(3, Measured(5.0));
+        midFailed[1] = noDataColor;
+        if (!AnyValid(midFailed))
+            Fail("T50 (d) an invalid mid point: the chart is hidden");
+        std::vector<CColor> lastOnly(3, noDataColor);
+        lastOnly[2] = Measured(5.0);
+        if (!AnyValid(lastOnly))
+            Fail("T50 (d) only the last slot valid: the chart is hidden");
+        std::vector<CColor> none(3, noDataColor);
+        if (AnyValid(none))
+            Fail("T50 (d) no valid slot: the chart draws");
+        std::vector<CColor> empty;
+        if (AnyValid(empty))
+            Fail("T50 (d) no slot at all: the chart draws");
+    }
+
+    // A gray sweep's derived fields (CMeasure::MeasureGrayScale's commit): the
+    // on/off white from the top slot with its "measured" flag, the on/off black
+    // from slot 0.
+    struct Derived
+    {
+        CColor white;
+        bool whiteMeasured;
+        CColor black;
+    };
+
+    // The MeasureGrayScale shape with its derived fields: the previous reading
+    // through PreviousReading (a placeholder is not one), and a commit that
+    // skips a kept slot and derives nothing from it.
+    static void SweepGray(std::vector<CColor>& gray, Derived& dv, const std::vector<std::vector<Read> >& reads, Answer answer)
+    {
+        const int n = (int)gray.size();
+        std::vector<CColor> measured(n, noDataColor);
+        std::vector<size_t> next(n, 0);
+        KeptSlots kept(n);
+        for (int i = 0; i < n; i++)
+        {
+            const Read& r = reads[i][next[i]++];
+            measured[i] = r.color;
+            if (kept.Note(i, KeepPassedReading(measured[i],
+                                               PreviousReading(gray[i], noDataColor, [](const CColor& c) { return IsPlaceholder(c); }),
+                                               r.passed)))
+                gray[i] = measured[i];                  // the live write: a passed reading only
+            if (!r.passed)
+            {
+                if (answer == ANSWER_ABORT)
+                    return;
+                if (answer == ANSWER_RETRY)
+                    i--;
+            }
+        }
+        for (int i = 0; i < n; i++)
+            if (!kept.IsKept(i))
+                gray[i] = measured[i];
+        if (!kept.IsKept(n - 1))                        // derived only from a slot that passed
+        {
+            dv.white = measured[n - 1];
+            dv.whiteMeasured = dv.white.isValid();
+        }
+        if (!kept.IsKept(0))
+            dv.black = measured[0];
+    }
+
+    static void CheckDerived()
+    {
+        const int N = 5;
+        const CColor placeholder(95.047, 100.0, 108.883);          // PlaceholderPrimeWhite
+        const CColor onOffPlaceholder(95.047, 120.0, 108.883);     // PlaceholderOnOffWhite
+        // A new document: every gray slot empty but the top one, the placeholder.
+        // The top patch fails and is ignored.
+        {
+            std::vector<CColor> gray(N, noDataColor);
+            gray[N - 1] = placeholder;
+            Derived dv = { onOffPlaceholder, false, noDataColor };
+            std::vector<std::vector<Read> > reads(N);
+            for (int i = 0; i < N; i++)
+            {
+                if (i == N - 1)
+                {
+                    Read bad = { noDataColor, false };
+                    reads[i].push_back(bad);
+                }
+                else
+                {
+                    Read good = { Measured(10.0 * (i + 1)), true };
+                    reads[i].push_back(good);
+                }
+            }
+            SweepGray(gray, dv, reads, ANSWER_IGNORE);
+            // A kept slot changes nothing: the constructor's placeholder stays where
+            // it was (live write included), and nothing is derived from it.
+            if (!Same(gray[N - 1], placeholder))
+                Fail("T50 (a2) new document, top patch ignored: the top slot changed to (%g, %g, %g), want the placeholder unchanged",
+                     gray[N - 1].GetX(), gray[N - 1].GetY(), gray[N - 1].GetZ());
+            if (dv.whiteMeasured)
+                Fail("T50 (a2) new document, top patch ignored: the on/off white is flagged measured");
+            if (!Same(dv.white, onOffPlaceholder))
+                Fail("T50 (a2) new document, top patch ignored: the on/off white changed to (%g, %g, %g)",
+                     dv.white.GetX(), dv.white.GetY(), dv.white.GetZ());
+        }
+        // A black measured by a primaries run (the on/off black), no gray black yet;
+        // the gray black fails and is ignored.
+        {
+            std::vector<CColor> gray(N, noDataColor);
+            const CColor primariesBlack = Measured(0.05);
+            Derived dv = { Measured(300.0), true, primariesBlack };
+            std::vector<std::vector<Read> > reads(N);
+            for (int i = 0; i < N; i++)
+            {
+                if (i == 0)
+                {
+                    Read bad = { noDataColor, false };
+                    reads[i].push_back(bad);
+                }
+                else
+                {
+                    Read good = { Measured(10.0 * (i + 1)), true };
+                    reads[i].push_back(good);
+                }
+            }
+            SweepGray(gray, dv, reads, ANSWER_IGNORE);
+            if (!Same(dv.black, primariesBlack))
+                Fail("T50 (a2) gray black ignored: the on/off black the primaries run measured became (%g, %g, %g)",
+                     dv.black.GetX(), dv.black.GetY(), dv.black.GetZ());
+            if (!Same(dv.white, Measured(50.0)) || !dv.whiteMeasured)
+                Fail("T50 (a2) gray black ignored: the on/off white is not the new top reading");
+        }
+    }
+
+    enum State { READY, NEEDS_CALIBRATION, INCORRECT_POSITION };
+
+    enum Outcome { GOOD_READING, FAILS_STILL_NEEDS, FAILS_UNAVAILABLE, MODEL_RAN_OUT };
+
+    static const char* OutcomeName(Outcome o)
+    {
+        return o == GOOD_READING ? "a reading" : o == FAILS_STILL_NEEDS ? "failed, still needs calibration"
+             : o == FAILS_UNAVAILABLE ? "failed, no calibration available" : "the read loop ran out of reads";
+    }
+
+    // The CArgyllSensor::MeasureColorInternal loop with a Calibrate that always
+    // reports success, and runs a calibration unless calibrationRuns is false (the
+    // driver listed nothing to do).
+    static Outcome ArgyllRead(const std::vector<State>& states, int& calibrations, bool calibrationRuns = true)
+    {
+        calibrations = 0;
+        CalibrationAttempt attempt = CAL_ATTEMPT_NONE;
+        size_t r = 0;
+        State state = NEEDS_CALIBRATION;
+        while (state != READY)
+        {
+            if (r >= states.size())
+                return MODEL_RAN_OUT;
+            state = states[r++];
+            ReadAfterCalibration after = AfterCalibration(attempt, state == NEEDS_CALIBRATION);
+            if (after == READ_FAILS_STILL_NEEDS)
+                return FAILS_STILL_NEEDS;
+            if (after == READ_FAILS_UNAVAILABLE)
+                return FAILS_UNAVAILABLE;
+            attempt = AttemptAfterRead(attempt, state == READY);
+            if (state == NEEDS_CALIBRATION)
+            {
+                calibrations++;
+                attempt = calibrationRuns ? CAL_ATTEMPT_RAN : CAL_ATTEMPT_RAN_NOTHING;
+            }
+        }
+        return GOOD_READING;
+    }
+
+    static void ExpectRead(const char* what, const State* s, int n, Outcome want, int wantCals, bool calibrationRuns = true)
+    {
+        std::vector<State> states(s, s + n);
+        int cals = -1;
+        Outcome got = ArgyllRead(states, cals, calibrationRuns);
+        if (got != want || cals != wantCals)
+            Fail("T50 (e) %s: %s after %d Calibrate attempts, want %s after %d", what,
+                 OutcomeName(got), cals, OutcomeName(want), wantCals);
+    }
+
+    static void CheckCalibration()
+    {
+        const State ready[] = { READY };
+        ExpectRead("no calibration asked", ready, 1, GOOD_READING, 0);
+        const State once[] = { NEEDS_CALIBRATION, READY };
+        ExpectRead("a calibration that ran, next read fine", once, 2, GOOD_READING, 1);
+        const State again[] = { NEEDS_CALIBRATION, NEEDS_CALIBRATION, READY };
+        ExpectRead("a calibration that ran, the next read asks again", again, 3, FAILS_STILL_NEEDS, 1);
+        const State always[] = { NEEDS_CALIBRATION, NEEDS_CALIBRATION, NEEDS_CALIBRATION, NEEDS_CALIBRATION };
+        ExpectRead("a calibration that ran, every read asks", always, 4, FAILS_STILL_NEEDS, 1);
+        const State between[] = { NEEDS_CALIBRATION, INCORRECT_POSITION, NEEDS_CALIBRATION, READY };
+        // A position prompt between the Calibrate and the next ask does not clear
+        // the attempt: a meter alternating the two cannot loop.
+        ExpectRead("a position prompt between the Calibrate and the next ask", between, 4, FAILS_STILL_NEEDS, 1);
+        const State alternating[] = { NEEDS_CALIBRATION, INCORRECT_POSITION, NEEDS_CALIBRATION, INCORRECT_POSITION,
+                                      NEEDS_CALIBRATION, INCORRECT_POSITION, NEEDS_CALIBRATION, READY };
+        ExpectRead("a meter alternating asks and position prompts", alternating, 8, FAILS_STILL_NEEDS, 1);
+        const State positionThenReady[] = { NEEDS_CALIBRATION, INCORRECT_POSITION, READY };
+        ExpectRead("a calibration, a position prompt, then a reading", positionThenReady, 3, GOOD_READING, 1);
+        // A Calibrate the driver had nothing for: the next ask ends the reading with
+        // its own reason, never another silent round (the original B5 loop).
+        ExpectRead("ran nothing, the next read asks again", again, 3, FAILS_UNAVAILABLE, 1, false);
+        ExpectRead("ran nothing, every read asks", always, 4, FAILS_UNAVAILABLE, 1, false);
+        ExpectRead("ran nothing, next read fine", once, 2, GOOD_READING, 1, false);
+    }
+}
+
+static void RunT50()
+{
+    printf("T50 failed reading never becomes data...\n");
+    T50Fail::CheckSweep();
+    T50Fail::CheckFreeMeasure();
+    T50Fail::CheckGammaGuard();
+    T50Fail::CheckChartGate();
+    T50Fail::CheckDerived();
+    T50Fail::CheckCalibration();
+}
+
+//////////////////////////////////////////////////////////////////////////
+// T52 - when a sweep start asks "...? Warning: actual data will be lost..."
+// (libHCFR/SweepConfirmRule.h). Pure assertion; no golden file; every
+// expectation is an exact bool or bit mask.
+//   (a) a series with no slots, or only noDataColor slots, holds no data;
+//   (b) one reading in any slot (first, middle, last) is data;
+//   (c) a placeholder is not a reading when the series names its test, and
+//       is one when it does not (the constructor's gray layout: noDataColor
+//       below a valid nominal top slot);
+//   (d) the multi-series rule: only the series the sweep's mask names
+//       count, any one of them holding data is enough, and two entries for
+//       one series (the ANSI black and white) are both looked at;
+//   (e) the sweep masks against a table of the slots each sweep body
+//       assigns (read from Measure.cpp, lines cited), per B/W patch count;
+//   (f) Confirm measures is the master switch: no data or the switch off,
+//       no question (SweepStartAsks passes the switch into AskBeforeSweep);
+//   (g) the black override's synthetic black in the first slot is not a
+//       reading; a real black there, or the value in another slot, is.
+//////////////////////////////////////////////////////////////////////////
+#include "../../libHCFR/SweepConfirmRule.h"
+
+namespace T52Confirm
+{
+    using namespace SweepConfirmRule;
+
+    // A synthetic placeholder: valid, recognized by its exact XYZ.
+    static bool IsMarker(const CColor & c)
+    {
+        if ( !c.isValid() )
+            return false;
+        ColorXYZ v = c.GetXYZValue();
+        return v[0] == 1.25 && v[1] == 2.5 && v[2] == 5.0;
+    }
+    static CColor Marker()              { return CColor(1.25, 2.5, 5.0); }
+    static CColor Reading(double y)     { return CColor(0.95 * y, y, 1.09 * y); }
+
+    static void Expect(const char* what, bool got, bool want)
+    {
+        if ( got != want )
+            Fail("T52 %s: got %s, want %s", what, got ? "true" : "false", want ? "true" : "false");
+    }
+
+    static void CheckSlots()
+    {
+        CColor none[5] = { noDataColor, noDataColor, noDataColor, noDataColor, noDataColor };
+        SeriesSlots s = { S_GRAY, none, 5, NULL };
+        if ( Reading(10.0).isValid() != true || noDataColor.isValid() != false || Marker().isValid() != true )
+            Fail("T52 setup: Reading/Marker must be valid and noDataColor invalid");
+
+        // (a)
+        SeriesSlots empty = { S_GRAY, none, 0, NULL };
+        Expect("(a) zero slots", SlotsHoldData(empty), false);
+        SeriesSlots nullSlots = { S_CC24, NULL, 10, NULL };
+        Expect("(a) no slot array", SlotsHoldData(nullSlots), false);
+        Expect("(a) all noDataColor", SlotsHoldData(s), false);
+
+        // (b) one reading anywhere
+        const int where[3] = { 0, 2, 4 };
+        for ( int k = 0; k < 3; k++ )
+        {
+            CColor one[5] = { noDataColor, noDataColor, noDataColor, noDataColor, noDataColor };
+            one[where[k]] = Reading(42.0);
+            SeriesSlots t = { S_GRAY, one, 5, NULL };
+            char what[64];
+            sprintf_s(what, "(b) one reading in slot %d of 5", where[k]);
+            Expect(what, SlotsHoldData(t), true);
+            // a count that stops before the reading does not see it
+            SeriesSlots shortT = { S_GRAY, one, where[k], NULL };
+            sprintf_s(what, "(b) reading in slot %d, count %d", where[k], where[k]);
+            Expect(what, SlotsHoldData(shortT), false);
+        }
+
+        // (c) the constructor's gray layout: noDataColor, a valid nominal top slot
+        CColor ctorGray[5] = { noDataColor, noDataColor, noDataColor, noDataColor, Marker() };
+        SeriesSlots g = { S_GRAY, ctorGray, 5, IsMarker };
+        Expect("(c) placeholder top slot, test named", SlotsHoldData(g), false);
+        SeriesSlots gNoTest = { S_GRAY, ctorGray, 5, NULL };
+        Expect("(c) placeholder top slot, no test (isValid alone)", SlotsHoldData(gNoTest), true);
+        CColor allMarkers[3] = { Marker(), Marker(), Marker() };
+        SeriesSlots m = { S_GRAY, allMarkers, 3, IsMarker };
+        Expect("(c) placeholders only", SlotsHoldData(m), false);
+        CColor measured[5] = { Reading(0.05), noDataColor, noDataColor, noDataColor, Marker() };
+        SeriesSlots gm = { S_GRAY, measured, 5, IsMarker };
+        Expect("(c) a reading below a placeholder", SlotsHoldData(gm), true);
+        Expect("(c) IsReading placeholder", IsReading(Marker(), IsMarker), false);
+        Expect("(c) IsReading reading", IsReading(Reading(1.0), IsMarker), true);
+        Expect("(c) IsReading noDataColor", IsReading(noDataColor, NULL), false);
+        // a white flagged measured that holds a placeholder (a version 8 file
+        // loads the gray-top placeholder into the on/off white): the entry has
+        // count 1 and names the test, so it is still no data
+        CColor whitePh = Marker();
+        SeriesSlots flaggedPh = { S_ONOFFWHITE, &whitePh, 1, IsMarker };
+        Expect("(c) flagged white holding a placeholder", SlotsHoldData(flaggedPh), false);
+        CColor whiteReal = Reading(110.0);
+        SeriesSlots flaggedReal = { S_ONOFFWHITE, &whiteReal, 1, IsMarker };
+        Expect("(c) flagged white holding a reading", SlotsHoldData(flaggedReal), true);
+        SeriesSlots unflagged = { S_ONOFFWHITE, &whiteReal, 0, IsMarker };
+        Expect("(c) white whose flag is clear", SlotsHoldData(unflagged), false);
+    }
+
+    static void CheckMultiSeries()
+    {
+        CColor gray[4]  = { noDataColor, noDataColor, noDataColor, Marker() };
+        CColor prim[3]  = { noDataColor, Reading(20.0), noDataColor };
+        CColor red[5]   = { noDataColor, noDataColor, noDataColor, noDataColor, noDataColor };
+        CColor ansiB = noDataColor, ansiW = Reading(100.0);
+        const SeriesSlots table[] =
+        {
+            { S_GRAY,      gray, 4, IsMarker },
+            { S_PRIMARIES, prim, 3, NULL },
+            { S_SAT_RED,   red,  5, NULL },
+            { S_ANSI,      &ansiB, 1, NULL },
+            { S_ANSI,      &ansiW, 1, NULL },
+        };
+        const int n = (int) (sizeof(table) / sizeof(table[0]));
+        Expect("(d) gray only (placeholder)", HoldsData(S_GRAY, table, n), false);
+        Expect("(d) primaries only", HoldsData(S_PRIMARIES, table, n), true);
+        Expect("(d) red saturation only", HoldsData(S_SAT_RED, table, n), false);
+        Expect("(d) gray + red, neither holds data", HoldsData(S_GRAY | S_SAT_RED, table, n), false);
+        Expect("(d) gray + primaries, one holds data", HoldsData(S_GRAY | S_PRIMARIES, table, n), true);
+        Expect("(d) a series not in the table", HoldsData(S_NEARBLACK | S_CC24, table, n), false);
+        Expect("(d) empty mask", HoldsData(0u, table, n), false);
+        Expect("(d) ANSI: the second entry holds the reading", HoldsData(S_ANSI, table, n), true);
+        Expect("(d) empty table", HoldsData(0xFFFFFFFFu, table, 0), false);
+        // a composite sweep mask sees data in any series it names
+        Expect("(d) grayscale+colors over primaries data", HoldsData(GrayScaleAndColors(1), table, n), true);
+        Expect("(d) all saturations over no saturation data", HoldsData(AllSaturations, table, n), false);
+
+        // a contrast measured alone is protected from a gray scale sweep,
+        // which writes the on/off pair; the simultaneous gray scale does not
+        CColor onoffW = Reading(120.0);
+        const SeriesSlots contrastOnly[] =
+        {
+            { S_GRAY,       gray,    4, IsMarker },
+            { S_ONOFFWHITE, &onoffW, 1, NULL },
+        };
+        Expect("(d) gray scale over a lone on/off white", HoldsData(GrayScale, contrastOnly, 2), true);
+        Expect("(d) simultaneous gray scale over a lone on/off white", HoldsData(SimGrayScale, contrastOnly, 2), false);
+        Expect("(d) contrast over a lone on/off white", HoldsData(Contrast(true), contrastOnly, 2), true);
+    }
+
+    // The slots each sweep body assigns, read from Measure.cpp (the line
+    // numbers of the writes). Written as slot names, not from the header's
+    // masks, so a mask that drops or gains a slot disagrees.
+    struct SlotName { const char* name; unsigned int bit; };
+    static const SlotName kSlots[] = {
+        { "gray", S_GRAY }, { "nb", S_NEARBLACK }, { "nw", S_NEARWHITE },
+        { "prim", S_PRIMARIES }, { "sec", S_SECONDARIES }, { "pw", S_PRIMEWHITE },
+        { "onoffB", S_ONOFFBLACK }, { "onoffW", S_ONOFFWHITE }, { "ansi", S_ANSI },
+        { "satR", S_SAT_RED }, { "satG", S_SAT_GREEN }, { "satB", S_SAT_BLUE },
+        { "satY", S_SAT_YELLOW }, { "satC", S_SAT_CYAN }, { "satM", S_SAT_MAGENTA },
+        { "cc", S_CC24 } };
+
+    static unsigned int Slots(const char* list)
+    {
+        unsigned int m = 0;
+        std::string s(list);
+        size_t i = 0;
+        while ( i < s.size() )
+        {
+            size_t j = s.find(' ', i);
+            if ( j == std::string::npos ) j = s.size();
+            std::string tok = s.substr(i, j - i);
+            bool found = tok.empty();
+            for ( size_t k = 0; k < sizeof(kSlots) / sizeof(kSlots[0]); k++ )
+                if ( tok == kSlots[k].name ) { m |= kSlots[k].bit; found = true; }
+            if ( !found )
+                Fail("T52 (e) table: unknown slot name '%s'", tok.c_str());
+            i = j + 1;
+        }
+        return m;
+    }
+
+    static void ExpectMask(const char* what, unsigned int got, const char* writes)
+    {
+        unsigned int want = Slots(writes);
+        if ( got != want )
+            Fail("T52 (e) %s: header mask 0x%04X, sweep body writes 0x%04X (%s)", what, got, want, writes);
+    }
+
+    static void CheckMasks()
+    {
+        // MeasureGrayScale: gray 2269/2392/2394, on/off white 2406, on/off black 2416/2418.
+        ExpectMask("GrayScale", GrayScale, "gray onoffW onoffB");
+        // ValidateBackgroundGrayScale: gray 7614/7618/7620 only.
+        ExpectMask("SimGrayScale", SimGrayScale, "gray");
+        // MeasureGrayScaleAndColors: gray 2507/2737/2739, primaries 2650/2751, secondaries
+        // 2652/2763, on/off white 2775, on/off black 2785/2787; white reference 2796
+        // only under "m_BWColorsToAdd > 0" (2794).
+        ExpectMask("GrayScaleAndColors, no B/W patch", GrayScaleAndColors(0), "gray prim sec onoffW onoffB");
+        ExpectMask("GrayScaleAndColors, white patch", GrayScaleAndColors(1), "gray prim sec onoffW onoffB pw");
+        ExpectMask("GrayScaleAndColors, white and black", GrayScaleAndColors(2), "gray prim sec onoffW onoffB pw");
+        // ValidateBackgroundGrayScaleAndColors: gray 7985-7991, primaries 8000,
+        // secondaries 8009, white reference 8017 (unconditional), on/off black 8020/8022.
+        ExpectMask("SimGrayScaleAndColors", SimGrayScaleAndColors, "gray prim sec pw onoffB");
+        // MeasurePrimaries: primaries 5976/6053, white reference 6065 or noDataColor 6073
+        // (both branches of 6063), on/off black 6082/6084 under "> 1" (6079).
+        // ValidateBackgroundPrimaries the same: 7872, 7882/7890 (7879), 7896/7898 under
+        // ">= 5" steps (7893; 3 + B/W).
+        ExpectMask("Primaries, no B/W patch", Primaries(0), "prim pw");
+        ExpectMask("Primaries, white patch", Primaries(1), "prim pw");
+        ExpectMask("Primaries, white and black", Primaries(2), "prim pw onoffB");
+        // MeasureSecondaries: primaries 6176/6254, secondaries 6178/6265, white reference
+        // 6277/6285 (both branches of 6275), on/off black 6294/6296 under "> 1" (6291).
+        // ValidateBackgroundSecondaries: 7925, 7934, 7945/7953, 7959/7961 under ">= 8" (7956).
+        ExpectMask("Secondaries, no B/W patch", Secondaries(0), "prim sec pw");
+        ExpectMask("Secondaries, white patch", Secondaries(1), "prim sec pw");
+        ExpectMask("Secondaries, white and black", Secondaries(2), "prim sec pw onoffB");
+        // MeasurePrimarySecondarySaturationScales(TRUE): red, green, blue 5756-5760 and
+        // 5872 (h < 3, 5867); the yellow/cyan/magenta writes sit under "!bPrimaryOnly" (5761).
+        ExpectMask("PrimarySaturations", PrimarySaturations, "satR satG satB");
+        // ... (FALSE): all six, 5756-5768 and 5872.
+        ExpectMask("AllSixSaturations", AllSixSaturations, "satR satG satB satY satC satM");
+        // MeasureAllSaturationScales(FALSE): six saturations 5493-5505/5614, the live CC
+        // array 5445/5507/5628 and its master band 5647 (under "! bPrimaryOnly", 5641).
+        ExpectMask("AllSaturations", AllSaturations, "satR satG satB satY satC satM cc");
+        // MeasureContrast: on/off black 6477/6489, on/off white 6569; ANSI 6694/6806/6832
+        // only inside "if(pGenerator->CanDisplayAnsiBWRects())" (6594).
+        ExpectMask("Contrast, ANSI rectangles", Contrast(true), "onoffB onoffW ansi");
+        ExpectMask("Contrast, no ANSI rectangles", Contrast(false), "onoffB onoffW");
+        // OnMeasureFullTiltBoogie runs MeasureGrayScaleAndColors, near black (2889/3011/3013),
+        // near white (3117/3204), MeasureAllSaturationScales and MeasureContrast.
+        ExpectMask("FullRun, no B/W patch", FullRun(0, true),
+                   "gray prim sec onoffW onoffB nb nw satR satG satB satY satC satM cc ansi");
+        ExpectMask("FullRun, white patch", FullRun(1, true),
+                   "gray prim sec onoffW onoffB pw nb nw satR satG satB satY satC satM cc ansi");
+        ExpectMask("FullRun, white patch, no ANSI rectangles", FullRun(1, false),
+                   "gray prim sec onoffW onoffB pw nb nw satR satG satB satY satC satM cc");
+        const unsigned int bits[16] = { S_GRAY, S_NEARBLACK, S_NEARWHITE, S_PRIMARIES, S_SECONDARIES,
+            S_PRIMEWHITE, S_ONOFFBLACK, S_ONOFFWHITE, S_ANSI, S_SAT_RED, S_SAT_GREEN, S_SAT_BLUE,
+            S_SAT_YELLOW, S_SAT_CYAN, S_SAT_MAGENTA, S_CC24 };
+        unsigned int seen = 0;
+        for ( int k = 0; k < 16; k++ )
+        {
+            if ( ( seen & bits[k] ) != 0 || bits[k] == 0 || ( bits[k] & ( bits[k] - 1 ) ) != 0 )
+                Fail("T52 (e) series bit %d is not a distinct single bit (0x%04X)", k, bits[k]);
+            seen |= bits[k];
+        }
+    }
+
+    // (g) the black override: the synthetic black (m_userBlack as the sweeps
+    // copy it: same XYZ, no raw) in the first slot is not a reading; a real
+    // black there is, and so is the synthetic value in any other slot
+    static void CheckBlackOverride()
+    {
+        const CColor userBlack(0.05 * 0.95047, 0.05, 0.05 * 1.0883);   // Measure.cpp CheckBlackOverride
+        CColor gray[4] = { userBlack, noDataColor, noDataColor, noDataColor };
+        SeriesSlots g = { S_GRAY, gray, 4, NULL, &userBlack };
+        Expect("(g) synthetic black in slot 0", SlotsHoldData(g), false);
+        SeriesSlots gNo = { S_GRAY, gray, 4, NULL, NULL };
+        Expect("(g) synthetic black in slot 0, no override value given", SlotsHoldData(gNo), true);
+
+        // a real black measured before the override was switched on: raw carried
+        CColor realRaw = userBlack;
+        realRaw.SetRawXYZValue(ColorXYZ(0.05 * 0.95047, 0.05, 0.05 * 1.0883));
+        CColor grayRaw[4] = { realRaw, noDataColor, noDataColor, noDataColor };
+        SeriesSlots gr = { S_GRAY, grayRaw, 4, NULL, &userBlack };
+        Expect("(g) real black (raw) in slot 0", SlotsHoldData(gr), true);
+        // a raw-less real black of another value (a pre-raw file)
+        CColor grayOther[4] = { Reading(0.07), noDataColor, noDataColor, noDataColor };
+        SeriesSlots go = { S_GRAY, grayOther, 4, NULL, &userBlack };
+        Expect("(g) another black value in slot 0", SlotsHoldData(go), true);
+        // the app re-derives X and Z after the copy: same Y, other X/Z, no raw
+        CColor rederived(0.047523464475027963, 0.05, 0.054448524048047453);
+        CColor grayRe[4] = { rederived, noDataColor, noDataColor, noDataColor };
+        SeriesSlots gre = { S_GRAY, grayRe, 4, NULL, &userBlack };
+        Expect("(g) same Y, other X/Z, no raw", SlotsHoldData(gre), false);
+        // one ulp away in Y is another value
+        CColor nearly(0.05 * 0.95047, nextafter(0.05, 1.0), 0.05 * 1.0883);
+        CColor grayNear[4] = { nearly, noDataColor, noDataColor, noDataColor };
+        SeriesSlots gn = { S_GRAY, grayNear, 4, NULL, &userBlack };
+        Expect("(g) Y one ulp off", SlotsHoldData(gn), true);
+        // only the first slot is exempt
+        CColor graySecond[4] = { noDataColor, userBlack, noDataColor, noDataColor };
+        SeriesSlots g2 = { S_GRAY, graySecond, 4, NULL, &userBlack };
+        Expect("(g) synthetic value in slot 1", SlotsHoldData(g2), true);
+        // the slots above the black still count
+        CColor grayAbove[4] = { userBlack, Reading(5.0), noDataColor, noDataColor };
+        SeriesSlots ga = { S_GRAY, grayAbove, 4, NULL, &userBlack };
+        Expect("(g) a reading above the synthetic black", SlotsHoldData(ga), true);
+
+        // the on/off black: one slot
+        CColor onoffSyn = userBlack;
+        SeriesSlots os = { S_ONOFFBLACK, &onoffSyn, 1, NULL, &userBlack };
+        Expect("(g) on/off black synthetic", SlotsHoldData(os), false);
+        SeriesSlots orr = { S_ONOFFBLACK, &realRaw, 1, NULL, &userBlack };
+        Expect("(g) on/off black real", SlotsHoldData(orr), true);
+        Expect("(g) IsSyntheticBlack noDataColor", IsSyntheticBlack(noDataColor, userBlack), false);
+        Expect("(g) IsSyntheticBlack against noDataColor", IsSyntheticBlack(userBlack, noDataColor), false);
+        // the live "Use Black Level" preference: MainView writes ITS black into
+        // slot 0 whatever the document flag says, and its Y can differ from the
+        // document's m_userBlack (a file saved with another black level)
+        const CColor prefBlack(0.08 * 0.95047, 0.08, 0.08 * 1.0883);
+        CColor grayPref[4] = { prefBlack, noDataColor, noDataColor, noDataColor };
+        SeriesSlots gp = { S_GRAY, grayPref, 4, NULL, &userBlack, &prefBlack };
+        Expect("(g) the live preference's black in slot 0", SlotsHoldData(gp), false);
+        SeriesSlots gpNo = { S_GRAY, grayPref, 4, NULL, &userBlack, NULL };
+        Expect("(g) the preference's black with the preference off", SlotsHoldData(gpNo), true);
+        SeriesSlots gpu = { S_GRAY, gray, 4, NULL, &userBlack, &prefBlack };
+        Expect("(g) the document's black with the preference on", SlotsHoldData(gpu), false);
+        SeriesSlots gpr = { S_GRAY, grayRaw, 4, NULL, &userBlack, &prefBlack };
+        Expect("(g) a real black with the preference on", SlotsHoldData(gpr), true);
+    }
+
+    static void CheckAsk()
+    {
+        Expect("(f) switch off, no data", AskBeforeSweep(false, false), false);
+        Expect("(f) switch off, data", AskBeforeSweep(false, true), false);
+        Expect("(f) switch on, no data", AskBeforeSweep(true, false), false);
+        Expect("(f) switch on, data", AskBeforeSweep(true, true), true);
+    }
+}
+
+static void RunT52()
+{
+    printf("T52 sweep-start confirmation only over data...\n");
+    T52Confirm::CheckSlots();
+    T52Confirm::CheckMultiSeries();
+    T52Confirm::CheckMasks();
+    T52Confirm::CheckBlackOverride();
+    T52Confirm::CheckAsk();
+}
+
+//////////////////////////////////////////////////////////////////////////
 // T53: PGenerator port-85 decisions (libHCFR/PGenProtocol.h). Pure assertions,
 // no golden file. The reply strings are the forms the 1.6 daemon and
 // PGenerator-Plus send once PgSend has stripped the frame byte; the PID value
@@ -6536,6 +7654,7 @@ int main(int argc, char* argv[])
     RunT12();
     RunT13();
     RunT14();
+    RunT18();
     RunT19();
     RunT32();
     RunT22();
@@ -6548,7 +7667,9 @@ int main(int argc, char* argv[])
     RunT47();
     RunT48();
     RunT49();
+    RunT50();
     RunT51();
+    RunT52();
     RunT53();
 
     if (g_failures)

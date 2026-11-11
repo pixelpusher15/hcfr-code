@@ -571,8 +571,10 @@ bool CExport::SavePDF()
 	bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType== 7);
 	if (nCount > 0 && !isHDR )
 	{
-		m_pDoc->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
-		sprintf(str,"Average measured gamma: %.2f, Color dE formula: %s",Gamma,(LPCTSTR)dEform2);
+		if ( m_pDoc->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false) )
+			sprintf(str,"Average measured gamma: %.2f, Color dE formula: %s",Gamma,(LPCTSTR)dEform2);
+		else	// no fit (an invalid black): no gamma to print, never the 1.0 placeholder
+			sprintf(str,"Average measured gamma: No data, Color dE formula: %s",(LPCTSTR)dEform2);
 	}
 	else
 	{
@@ -1148,8 +1150,10 @@ bool CExport::SavePDF()
 		// and skip the power-law fit in HDR as page 1 does (issue #99).
 		if (nCount > 0 && !isHDR )
 		{
-			pDataRef->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
-			sprintf(str,"Average measured gamma: %.2f, Color dE formula: %s",Gamma,(LPCTSTR)dEform2);
+			if ( pDataRef->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false) )
+				sprintf(str,"Average measured gamma: %.2f, Color dE formula: %s",Gamma,(LPCTSTR)dEform2);
+			else	// no fit (an invalid black): no gamma to print, never the 1.0 placeholder
+				sprintf(str,"Average measured gamma: No data, Color dE formula: %s",(LPCTSTR)dEform2);
 		}
 		else
 		{
@@ -1914,16 +1918,31 @@ bool CExport::SaveGrayScaleSheet()
 	CColor		refColor = GetColorReference().GetWhite();
 //    ColorXYZ aColor(m_pDoc->GetMeasure()->GetGray(i).GetXYZValue());
 
-	if ( size && m_pDoc->GetMeasure()->GetGray(0).isValid() )
+	// No black gate: the fit guards an invalid black itself (FailedReadingRule.h)
+	// instead of leaving Gamma and Offset unset below. This sheet writes no gamma;
+	// the DeltaE row uses only Offset, which the configuration sets (never fitted).
+	if ( size )
 		m_pDoc->ComputeGammaAndOffset(&Gamma, &Offset, 3, 1, size, false);
 
 	Rows.RemoveAll();
 	Rows.Add("DeltaE");
-	double YWhite = m_pDoc->GetMeasure()->GetGrayScaleWhite()[1];
+	// The white the absolute targets scale by, the gray scale's 100% white
+	// (GetGrayScaleWhite): without a reading there (a failed or ignored top patch
+	// on a document with no measured white at all) there is no target, and
+	// the cells stay empty (FailedReadingRule.h). The relative mode (dE_gray 0)
+	// takes each patch's own luminance and does not read it.
+	const CColor targetWhite = m_pDoc->GetMeasure()->GetGrayScaleWhite();
+	const bool bTargetWhite = CMeasure::HoldsReading ( targetWhite ) && targetWhite[1] > 0.0;
+	double YWhite = targetWhite[1];
 	for(j=0;j<size;j++)
 	{
 		CColor aColor = m_pDoc->GetMeasure()->GetGray(j);
 		// Determine Reference Y luminance for Delta E calculus
+		if ( ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 ) && ! bTargetWhite )
+		{
+			Rows.Add("");
+			continue;
+		}
 		if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
 		{
 		    double x = m_pDoc->GetMeasure()->GetGrayPercent ( j, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );

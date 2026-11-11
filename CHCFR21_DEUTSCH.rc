@@ -1829,6 +1829,7 @@ BEGIN
         MENUITEM "Delta E = 3 und 10 anzeigen", IDM_CIE_SHOWDELTAE
         MENUITEM "CIE u'v' Modus",              IDM_CIE_UV
         MENUITEM "CIE a*b* Modus",              IDM_CIE_AB
+        MENUITEM "Abdeckung % nach Gamut-Wechsel anzeigen", IDM_CIE_COV_ALWAYS_RECALC
         MENUITEM "Schlechteste 10%",                   IDM_CIE_WORST10
         MENUITEM "Referenzen anzeigen",         IDM_CIE_SHOWREFERENCES
         MENUITEM "Speichern...",                IDM_CIE_SAVECHART
@@ -4312,6 +4313,8 @@ BEGIN
     IDS_ARGYLL_CAL_GREY_LIGHTER "Zeigen Sie ein helleres graues Testfeld an"
     IDS_ARGYLL_CAL_INSTRUCTIONS_TITLE "Kalibrierungsanweisungen"
     IDS_SENSOR_INVALID_READING "Das Messger\xE4t hat eine ung\xFCltige Messung geliefert."
+    IDS_ARGYLL_STILL_NEEDS_CALIBRATION "Das Messger\xE4t meldet nach der Kalibrierung weiterhin, dass es kalibriert werden muss."
+    IDS_ARGYLL_CALIBRATION_UNAVAILABLE "Das Messger\xE4t meldet, dass es kalibriert werden muss, aber f\xFCr dieses Messger\xE4t ist keine Kalibrierung verf\xFCgbar."
     IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "Das geladene Dokument enthält eine Spektralkorrektur aus einem Anzeigetyp (%s), der nicht der aktuelle Anzeigetyp ist. Sie bleibt in Gebrauch, bis Sie den Anzeigetyp ändern."
     IDS_SPECTRAL_COMPOSE_WARN   "Die zu ladende Datei enthält keine Angabe zur Grundlage der Anpassung. Die Spektralkorrektur wird zusätzlich zu ihrer Matrix angewendet (wie in HCFR 4.1). Fortfahren?"
     IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "Die verwendete Spektralkorrektur (%s) wurde für das Messgerät %s berechnet, nicht für das angeschlossene, und hier ist keine Korrekturdatei vorhanden, aus der sie neu berechnet werden kann. Sie bleibt in Gebrauch. Um sie für dieses Messgerät zu berechnen, wählen Sie ihre Korrekturdatei in den Sensoreigenschaften aus."

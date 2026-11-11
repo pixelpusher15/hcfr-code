@@ -1862,6 +1862,7 @@ BEGIN
         MENUITEM "Display Delta E = 3 and 10",  IDM_CIE_SHOWDELTAE
         MENUITEM "CIE u'v' mode",               IDM_CIE_UV
         MENUITEM "CIE a*b* mode",               IDM_CIE_AB
+        MENUITEM "Show coverage % after gamut change", IDM_CIE_COV_ALWAYS_RECALC
         MENUITEM "Worst 10%",                   IDM_CIE_WORST10
         MENUITEM "Display references",          IDM_CIE_SHOWREFERENCES
         MENUITEM "Save...",                     IDM_CIE_SAVECHART
@@ -4293,6 +4294,8 @@ BEGIN
     IDS_ARGYLL_CAL_GREY_LIGHTER "Provide a lighter gray display test patch"
     IDS_ARGYLL_CAL_INSTRUCTIONS_TITLE "Calibration Instructions"
     IDS_SENSOR_INVALID_READING "The meter returned an invalid reading."
+    IDS_ARGYLL_STILL_NEEDS_CALIBRATION "The meter still reports that it needs calibration after calibrating."
+    IDS_ARGYLL_CALIBRATION_UNAVAILABLE "The meter reports that it needs calibration, but no calibration is available for it."
     IDS_SPECTRAL_LOADED_DISPTYPE_NOTICE "The loaded document carries a Display Type spectral correction (%s) that is not the current Display Type. It stays in use until you change the Display Type."
     IDS_SPECTRAL_COMPOSE_WARN   "The file you are loading has no fit-basis record. The spectral correction will be applied on top of its matrix (as HCFR 4.1 did). Continue?"
     IDS_SPECTRAL_FOREIGN_RECORD_NOTICE "The spectral correction in use (%s) was derived for meter %s, not the connected one, and there is no correction file here to derive it again from. It stays in use. To derive it for this meter, browse its correction file in the sensor properties."

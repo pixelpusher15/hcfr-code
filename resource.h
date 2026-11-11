@@ -1166,6 +1166,7 @@
 #define ID_MEASURES_FULLTILTBOOGIE      33078
 #define ID_FOCUSRESOLUTION_CONVERGENCE  33078
 #define IDM_CIE_AB                      33079
+#define IDM_CIE_COV_ALWAYS_RECALC       33119
 #define ID_FOCUSRESOLUTION_ISO12233     33079
 #define IDM_PATTERN_80                  33080
 #define ID_FOCUSRESOLUTION_EIA1956      33081
@@ -2077,6 +2078,9 @@
 #define IDS_ARGYLL_CAL_INSTRUCTIONS_TITLE 60197
 // Next free above every local and remote branch and worktree on 2026-11-09.
 #define IDS_SENSOR_INVALID_READING 60198
+// Next free above every local and remote branch and worktree on 2026-11-10.
+#define IDS_ARGYLL_STILL_NEEDS_CALIBRATION 60199
+#define IDS_ARGYLL_CALIBRATION_UNAVAILABLE 60200
 #define IDS_CALIB_NEED_REF_WHITE        60052
 #define IDS_EXPORT_LAYOUT_MISMATCH      59745
 #define IDS_SCHEMA_NEWER                59746
@@ -2127,7 +2131,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        1404
-#define _APS_NEXT_COMMAND_VALUE         33119
+#define _APS_NEXT_COMMAND_VALUE         33120
 #define _APS_NEXT_CONTROL_VALUE         1565
 #define _APS_NEXT_SYMED_VALUE           143
 #endif

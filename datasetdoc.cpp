@@ -25,6 +25,7 @@
 #include "ColorHCFR.h"
 
 #include "DataSetDoc.h"
+#include "FailedReadingRule.h"
 
 #include "Measure.h"
 #include "MainView.h"
@@ -67,6 +68,7 @@
 #include "ScaleSizes.h"
 
 #include "DocEnumerator.h"
+#include "SweepConfirmRule.h"
 #include <math.h>
 
 #ifdef _DEBUG
@@ -3343,9 +3345,39 @@ BOOL CDataSetDoc::ComputeAdjustmentMatrix()
 	return bOk;
 }
 
+// The sweep-start confirmation ("...? Warning: actual data will be lost..."):
+// asked only when Confirm measures is on and the sweep would overwrite a
+// reading (SweepConfirmRule.h). bAllDocs: a simultaneous sweep, which writes
+// every open document (PerformSimultaneousMeasures).
+static BOOL SweepStartAsks ( CDataSetDoc * pThis, unsigned int sweep, BOOL bAllDocs )
+{
+	// The master switch: off, no sweep asks, and no slot is scanned.
+	const bool bConfirm = ( GetConfig () -> m_bConfirmMeasures != FALSE );
+	BOOL bData = FALSE;
+	if ( bConfirm )
+	{
+		bData = pThis -> GetMeasure () -> SweepOverwritesData ( sweep );
+		if ( bAllDocs && ! bData )
+		{
+			CDocEnumerator	docEnumerator;
+			CDocument *	pDoc;
+			while ( ! bData && ( pDoc = docEnumerator.Next () ) != NULL )
+				if ( pDoc != pThis && pDoc -> IsKindOf ( RUNTIME_CLASS ( CDataSetDoc ) ) )
+					bData = ( (CDataSetDoc *) pDoc ) -> GetMeasure () -> SweepOverwritesData ( sweep );
+		}
+	}
+	return SweepConfirmRule::AskBeforeSweep ( bConfirm, bData != FALSE ) ? TRUE : FALSE;
+}
+
+// TRUE when the sweep may start: no question is due, or the user answered Yes.
+static BOOL ConfirmSweepStart ( CDataSetDoc * pThis, unsigned int sweep, BOOL bAllDocs, LPCSTR lpText, LPCSTR lpCaption, UINT uType )
+{
+	return ! SweepStartAsks ( pThis, sweep, bAllDocs ) || IDYES == GetColorApp () -> InMeasureMessageBox ( lpText, lpCaption, uType );
+}
+
 void CDataSetDoc::OnSimGrayscale() 
 {
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( (CString) (LPCTSTR)IDS_MEASUREGRAYSCALE_SIM, "Measure", MB_YESNO | MB_ICONQUESTION ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::SimGrayScale, TRUE, (CString) (LPCTSTR)IDS_MEASUREGRAYSCALE_SIM, "Measure", MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( 0 );
 }
 
@@ -3353,7 +3385,7 @@ void CDataSetDoc::OnSimGrayscaleAndColors()
 {
 	if ( m_pGenerator -> CanDisplayGrayAndColorsSeries () )
 	{
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASUREGRAYANDCOLORS), "Measure",MB_YESNO | MB_ICONQUESTION ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::SimGrayScaleAndColors, TRUE, _S(IDS_MEASUREGRAYANDCOLORS), "Measure",MB_YESNO | MB_ICONQUESTION ) )
 			PerformSimultaneousMeasures ( -3 );
 	}
 	else
@@ -3366,66 +3398,71 @@ void CDataSetDoc::OnSimGrayscaleAndColors()
 
 void CDataSetDoc::OnSimPrimaries() 
 {
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASUREPRIMARIES_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::Primaries ( GetConfig () -> m_BWColorsToAdd ), TRUE, _S(IDS_MEASUREPRIMARIES_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( -1 );
 }
 
 void CDataSetDoc::OnSimSecondaries() 
 {
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASURESECONDARIES_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::Secondaries ( GetConfig () -> m_BWColorsToAdd ), TRUE, _S(IDS_MEASURESECONDARIES_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( -2 );
 }
 
 void CDataSetDoc::OnSimNearblack() 
 {
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASURENEARBLACK_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::S_NEARBLACK, TRUE, _S(IDS_MEASURENEARBLACK_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( 1 );
 }
 
 void CDataSetDoc::OnSimNearwhite() 
 {
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASURENEARWHITE_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::S_NEARWHITE, TRUE, _S(IDS_MEASURENEARWHITE_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( 2 );
 }
 
 void CDataSetDoc::OnSimSatRed() 
 {
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASURESATRED_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_RED, TRUE, _S(IDS_MEASURESATRED_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( 3 );
 }
 
 void CDataSetDoc::OnSimSatGreen() 
 {
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASURESATGREEN_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_GREEN, TRUE, _S(IDS_MEASURESATGREEN_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( 4 );
 }
 
 void CDataSetDoc::OnSimSatBlue() 
 {
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASURESATBLUE_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_BLUE, TRUE, _S(IDS_MEASURESATBLUE_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( 5 );
 }
 
 void CDataSetDoc::OnSimSatYellow() 
 {
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASURESATYELLOW_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_YELLOW, TRUE, _S(IDS_MEASURESATYELLOW_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( 6 );
 }
 
 void CDataSetDoc::OnSimSatCyan() 
 {
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASURESATCYAN_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_CYAN, TRUE, _S(IDS_MEASURESATCYAN_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( 7 );
 }
 
 void CDataSetDoc::OnSimSatMagenta() 
 {
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASURESATMAGENTA_SIM), "On measure",  MB_YESNO | MB_ICONQUESTION ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_MAGENTA, TRUE, _S(IDS_MEASURESATMAGENTA_SIM), "On measure",  MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( 8 );
 }
 
 void CDataSetDoc::OnSimSingleMeasurement() 
 {
+	// Asked whenever Confirm measures is on, as before: what a free measure
+	// writes depends on the grid cell selected when it lands
+	// (FreeMeasurementAppended: a primary or secondary, the white reference, the
+	// on/off black, a near black/white or saturation step, the CC band), which no
+	// sweep mask names.
 	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_MEASURESINGLE_SIM), "On measure", MB_YESNO | MB_ICONQUESTION ) )
 		PerformSimultaneousMeasures ( -4 );
 }
@@ -5172,18 +5209,30 @@ void CDataSetDoc::OnUpdateContinuousMeasurement(CCmdUI* pCmdUI)
 	}
 }
 
-void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886)
+bool CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886)
 {
 	int		nConfigOffsetType = GetConfig() -> m_GammaOffsetType;
 	int		nLumCurveMode = GetConfig () -> m_nLuminanceCurveMode;
 	double	blacklvl, whitelvl, graylvl, Offset_opt, Gamma_opt;
 	BOOL	bIRE = GetMeasure () -> m_bIREScaleMode;
 
-	double * lumlvl = new double [ Size ];
-	double * valx = new double [ Size ];
+	// The offset the configuration sets (never fitted): every return carries it.
+	const double configuredOffset = FailedReadingRule::ConfiguredGammaOffset ( nConfigOffsetType, GetConfig()->m_colorStandard == sRGB, GetConfig() -> m_manualGOffset );
 	// The gray scale's white and black, fetched once (the per-point loop below reads them)
 	const CColor fitWhite = GetMeasure()->GetGrayScaleWhite();
 	const CColor fitBlack = GetMeasure()->GetGrayScaleBlack();
+	// A black the fit does not have (GetGrayScaleBlack holds no reading: the
+	// 0% slot failed and the on/off black is the constructor's placeholder)
+	// never enters a fit that reads it: only the relative offset does
+	// (FailedReadingRule.h). Every other type fits as usual. The user's black
+	// override is a reading at any value (CMeasure::HoldsGrayScaleBlack, the same
+	// test the black-compensation targets use on the same black).
+	if ( FailedReadingRule::GammaFitNoBlack ( GetMeasure()->HoldsGrayScaleBlack(), nConfigOffsetType, configuredOffset, Gamma, Offset ) )
+		return false;
+	bool bFit = false;
+
+	double * lumlvl = new double [ Size ];
+	double * valx = new double [ Size ];
 	double * tmpx = new double [ Size ];
 
 	if (ColorSpace == 0) 
@@ -5247,47 +5296,13 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 
 
 	Gamma_opt = 1.0;
-	Offset_opt = 0.0;
+	Offset_opt = configuredOffset;
 
 			
 	if ((Size > 2) && (whitelvl > 0))
 	{
-		switch ( nConfigOffsetType )
-		{
-		case 0:
-		case 1:
-			Offset_opt = 0;
-			break;
-		case 2:
-			if(GetConfig()->m_colorStandard == sRGB)
-				Offset_opt = 0.055;
-			else
-				Offset_opt = 0.099;
-			break;
-		case 3:
-			Offset_opt = GetConfig() -> m_manualGOffset;
-			break;
-		case 4: //bt.1886
-			{
-				Offset_opt = 0.0;
-			}
-			break;
-		case 5: //ST2084
-			{
-				Offset_opt = 0.0;
-			}
-			break;
-		case 6: //L*
-			{
-				Offset_opt = 0.0;
-			}
-			break;
-		case 7: //BBC hgl
-			{
-				Offset_opt = 0.0;
-			}
-			break;
-		}
+		// Offset_opt is the configured offset (ConfiguredGammaOffset, above): the
+		// table that stood here gave the same value for every type.
 			double v;
 
 			for (int i=0; i<Size; i++)
@@ -5297,25 +5312,21 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 				valx[i]=(v+Offset_opt)/(1.0+Offset_opt);
 			}
 
-			int	nb = 0;
-			double avg = 0;
-			for (int i=1; i<Size-2; i++)
+			// The mean of the per-point gamma over the points that have light
+			// (FailedReadingRule::MeanPointGamma, which T50 checks); no point with
+			// light is no fit.
+			bFit = FailedReadingRule::MeanPointGamma ( Size, lumlvl, [&] ( int i ) -> double
 			{
-				if ( lumlvl[i] > 0.0 )
-				{
-					int mode = GetConfig()->m_GammaOffsetType;
-					if (GetConfig()->m_colorStandard == sRGB) mode = 99;
-                    if (m_bBT1886 || mode > 5) // !GetConfig()->m_useMeasuredGamma)
-                        avg += log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1))/log(valx[i]);
-                    else
-	                    if (mode == 5)// && !GetConfig()->m_useMeasuredGamma)
-			                avg += log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.)/log(valx[i]);
-						else
-		    				avg += log(lumlvl[i])/log(valx[i]);
-					nb ++;
-				}
-			}
-			Gamma_opt = avg / ( nb ? nb : 1 );
+				int mode = GetConfig()->m_GammaOffsetType;
+				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
+				if (m_bBT1886 || mode > 5)
+					return log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1))/log(valx[i]);
+				if (mode == 5)
+					return log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.)/log(valx[i]);
+				return log(lumlvl[i])/log(valx[i]);
+			}, & Gamma_opt );
+			if ( ! bFit )
+				Gamma_opt = FailedReadingRule::NoFitGamma;
 	}
 	*Offset = Offset_opt;
 	*Gamma = Gamma_opt;
@@ -5323,6 +5334,7 @@ void CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 	delete[] lumlvl;
 	delete[] valx;
 	delete[] tmpx;
+	return bFit;
 }
 
 bool CDataSetDoc::CheckVideoLevel()
@@ -5556,7 +5568,7 @@ void CDataSetDoc::OnMeasureGrayscale()
 	Msg.LoadString ( IDS_RUNGRAYSCALEON );
 	TmpStr.Format ( " %d ", nNbPoints );
 	Msg += TmpStr + MsgQueue;
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::GrayScale, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 	{
 		MeasureGrayScale();
 
@@ -5580,7 +5592,7 @@ void CDataSetDoc::OnMeasurePrimaries()
 		GetColorApp()->InMeasureMessageBox("Please run the grayscale measures scan first so that color targets can be calculated.","No grayscale measures found!",MB_OK);
 	else
 	{
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_RUNPRIMARIES), "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::Primaries ( GetConfig () -> m_BWColorsToAdd ), FALSE, _S(IDS_RUNPRIMARIES), "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasurePrimaries();
 		
@@ -5604,7 +5616,7 @@ void CDataSetDoc::OnMeasureSecondaries()
 		GetColorApp()->InMeasureMessageBox("Please run the grayscale measures scan first so that color targets can be calculated.","No grayscale measures found!",MB_OK);
 	else
 	{
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( _S(IDS_RUNSECONDARIES), "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::Secondaries ( GetConfig () -> m_BWColorsToAdd ), FALSE, _S(IDS_RUNSECONDARIES), "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasureSecondaries();
 		
@@ -5636,7 +5648,7 @@ void CDataSetDoc::OnMeasureNearblack()
     	Msg.LoadString ( IDS_RUNNEARBLACKON );
 	    TmpStr.Format ( " %d ", nNbPoints );
 	    Msg += TmpStr + MsgQueue;
-	    if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+	    if ( ConfirmSweepStart ( this, SweepConfirmRule::S_NEARBLACK, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 	    {
 		    MeasureNearBlackScale();
 
@@ -5666,7 +5678,7 @@ void CDataSetDoc::OnMeasureNearwhite()
     	Msg.LoadString ( IDS_RUNNEARWHITEON );
 	    TmpStr.Format ( " %d ", nNbPoints );
 	    Msg += TmpStr + MsgQueue;
-	    if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+	    if ( ConfirmSweepStart ( this, SweepConfirmRule::S_NEARWHITE, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 	    {
 		    MeasureNearWhiteScale();
 
@@ -5700,7 +5712,7 @@ void CDataSetDoc::OnMeasureSatRed()
 		Msg.LoadString ( IDS_RUNSATREDON );
 		TmpStr.Format ( " %d ", nNbPoints );
 		Msg += TmpStr + MsgQueue;
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_RED, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasureRedSatScale();
 
@@ -5735,7 +5747,7 @@ void CDataSetDoc::OnMeasureSatGreen()
 		Msg.LoadString ( IDS_RUNSATGREENON );
 		TmpStr.Format ( " %d ", nNbPoints );
 		Msg += TmpStr + MsgQueue;
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_GREEN, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasureGreenSatScale();
 
@@ -5770,7 +5782,7 @@ void CDataSetDoc::OnMeasureSatBlue()
 		Msg.LoadString ( IDS_RUNSATBLUEON );
 		TmpStr.Format ( " %d ", nNbPoints );
 		Msg += TmpStr + MsgQueue;
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_BLUE, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasureBlueSatScale();
 
@@ -5805,7 +5817,7 @@ void CDataSetDoc::OnMeasureSatYellow()
 		Msg.LoadString ( IDS_RUNSATYELLOWON );
 		TmpStr.Format ( " %d ", nNbPoints );
 		Msg += TmpStr + MsgQueue;
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_YELLOW, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasureYellowSatScale();
 
@@ -5840,7 +5852,7 @@ void CDataSetDoc::OnMeasureSatCyan()
 		Msg.LoadString ( IDS_RUNSATCYANON );
 		TmpStr.Format ( " %d ", nNbPoints );
 		Msg += TmpStr + MsgQueue;
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_CYAN, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasureCyanSatScale();
 
@@ -5875,7 +5887,7 @@ void CDataSetDoc::OnMeasureSatMagenta()
 		Msg.LoadString ( IDS_RUNSATMAGENTAON );
 		TmpStr.Format ( " %d ", nNbPoints );
 		Msg += TmpStr + MsgQueue;
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::S_SAT_MAGENTA, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasureMagentaSatScale();
 
@@ -5910,7 +5922,7 @@ void CDataSetDoc::OnMeasureSatCC24()
 		Msg.LoadString ( IDS_RUNSATCC24ON );
 		TmpStr.Format ( " %d ", nNbPoints );
 		Msg += TmpStr + MsgQueue;
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::S_CC24, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasureCC24SatScale();
 
@@ -5964,7 +5976,7 @@ void CDataSetDoc::OnMeasureContrast()
 	CString	Msg;
 	
 	Msg.LoadString ( IDS_RUNCONTRAST );
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::Contrast ( m_pGenerator -> CanDisplayAnsiBWRects () != FALSE ), FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 	{
 		MeasureContrast();
 
@@ -6004,7 +6016,7 @@ void CDataSetDoc::OnMeasureSatAll()
 		Msg.LoadString ( IDS_RUNALLSATON );
 		TmpStr.Format ( " %d ", nNbPoints );
 		Msg += TmpStr + MsgQueue;
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::AllSaturations, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasureAllSaturationScales();
 
@@ -6119,7 +6131,7 @@ void CDataSetDoc::OnMeasureGrayscaleColors()
 	Msg.LoadString ( IDS_MEASUREGRAYANDCOLORSON );
 	TmpStr.Format ( " %d ", nNbPoints );
 	Msg += TmpStr + MsgQueue;
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::GrayScaleAndColors ( GetConfig () -> m_BWColorsToAdd ), FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 	{
 		MeasureGrayScaleAndColors();
 
@@ -6153,7 +6165,7 @@ void CDataSetDoc::OnMeasureSatPrimaries()
 		Msg.LoadString ( IDS_RUNPRIMSATON );
 		TmpStr.Format ( " %d ", nNbPoints );
 		Msg += TmpStr + MsgQueue;
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::PrimarySaturations, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasurePrimarySaturationScales();
 
@@ -6182,7 +6194,7 @@ void CDataSetDoc::OnMeasureSatPrimariesSecondaries()
 		Msg.LoadString ( IDS_RUNPRIMSATON2 );
 		TmpStr.Format ( " %d ", nNbPoints );
 		Msg += TmpStr + MsgQueue;
-		if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+		if ( ConfirmSweepStart ( this, SweepConfirmRule::AllSixSaturations, FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 		{
 			MeasurePrimarySecondarySaturationScales();
 
@@ -6221,7 +6233,7 @@ void CDataSetDoc::OnMeasureFullTiltBoogie()
 //	Msg.LoadString ( IDS_MEASUREGRAYANDCOLORSON );
 	TmpStr.Format ( "Run Gray scale, Near Black/White, Primaries/Secondaries, and Color Checker patterns on  %d ", nNbPoints );
 	Msg += TmpStr + MsgQueue;
-	if ( ! GetConfig()->m_bConfirmMeasures || IDYES == GetColorApp()->InMeasureMessageBox( Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
+	if ( ConfirmSweepStart ( this, SweepConfirmRule::FullRun ( GetConfig () -> m_BWColorsToAdd, m_pGenerator -> CanDisplayAnsiBWRects () != FALSE ), FALSE, Msg, "On measure", MB_ICONQUESTION | MB_YESNO ) )
 	{
 			MeasureGrayScaleAndColors();
 			BOOL doSettling=GetConfig()->m_isSettling;

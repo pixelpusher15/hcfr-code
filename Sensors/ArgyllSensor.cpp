@@ -28,6 +28,7 @@
 #include "ArgyllSensor.h"
 #include "ArchiveExtension.h"
 #include "MeterCalibrationRule.h"
+#include "FailedReadingRule.h"
 #include "SpectralSampleFiles.h"
 #include "SpectralSample.h"
 #include "../Generators/GDIGenerator.h"
@@ -1922,9 +1923,9 @@ void CArgyllSensor::RestoreSnapshot(bool reapplyDriverSample)
 // A reading that fails says so (SetMeasureValidity(FALSE), with the reason as the
 // error string): every sweep and the continuous thread test IsMeasureValid - a
 // sweep shows its Abort/Retry/Ignore box (Abort stops, Retry reads again, Ignore
-// keeps the slot as CSensor::MeasureColor returns it: noDataColor, an invalid
-// placeholder, as 4.2.2 stored), the continuous thread ends - instead of taking
-// a failed reading as a good one and moving on. Each reading starts valid.
+// skips the patch; the slot keeps the document's previous reading either way,
+// FailedReadingRule.h), the continuous thread ends - instead of taking a failed
+// reading as a good one and moving on. Each reading starts valid.
 CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int displaymode)
 {
     SetMeasureValidity(TRUE);
@@ -1937,6 +1938,8 @@ CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int
         return noDataColor;
     }
     ArgyllMeterWrapper::eMeterState state(ArgyllMeterWrapper::NEEDS_MANUAL_CALIBRATION);
+    // The Calibrate attempt since the previous read (FailedReadingRule.h).
+    FailedReadingRule::CalibrationAttempt attempt = FailedReadingRule::CAL_ATTEMPT_NONE;
     while(state != ArgyllMeterWrapper::READY)
     {
         try
@@ -1949,12 +1952,28 @@ CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int
             SetMeasureValidity(FALSE);
             return noDataColor;
         }
+        // The meter asks again right after a Calibrate attempt: a failed reading,
+        // through the sweep's Abort / Retry / Ignore box, instead of calibrating
+        // for as long as the meter asks. The reason says whether a calibration ran
+        // and did not take, or the driver had none to run (FailedReadingRule.h).
+        FailedReadingRule::ReadAfterCalibration after = FailedReadingRule::AfterCalibration ( attempt, state == ArgyllMeterWrapper::NEEDS_MANUAL_CALIBRATION );
+        if ( after != FailedReadingRule::READ_GOES_ON )
+        {
+            CString why;
+            why.LoadString ( after == FailedReadingRule::READ_FAILS_STILL_NEEDS ? IDS_ARGYLL_STILL_NEEDS_CALIBRATION
+                                                                                : IDS_ARGYLL_CALIBRATION_UNAVAILABLE );
+            SetErrorString ( why );
+            SetMeasureValidity(FALSE);
+            return noDataColor;
+        }
+        attempt = FailedReadingRule::AttemptAfterRead ( attempt, state == ArgyllMeterWrapper::READY );
         // A calibration that fails ends the reading: retrying it would loop through
         // the same modal boxes for as long as it keeps failing.
         if(state == ArgyllMeterWrapper::NEEDS_MANUAL_CALIBRATION)
         {
             InitResult init = INIT_OK;
-            if ( !Calibrate(&init) )
+            bool calibrationRan = false;
+            if ( !Calibrate(&init, &calibrationRan) )
             {
                 // The cause: no meter (Calibrate's Init lost it, or it was gone), a start
                 // that failed with the meter kept (the DTP94's Display Type select), or
@@ -1967,6 +1986,9 @@ CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int
                 SetMeasureValidity(FALSE);
                 return noDataColor;
             }
+            // CalibrateDevice reports whether m_meter->calibrate() ran: with empty
+            // instructions it returns true having calibrated nothing.
+            attempt = calibrationRan ? FailedReadingRule::CAL_ATTEMPT_RAN : FailedReadingRule::CAL_ATTEMPT_RAN_NOTHING;
         }
         if(state == ArgyllMeterWrapper::INCORRECT_POSITION)
         {
@@ -1976,7 +1998,7 @@ CColor CArgyllSensor::MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int
     return m_meter->getLastReading();
 }
 
-bool CArgyllSensor::Calibrate(InitResult* initResult)
+bool CArgyllSensor::Calibrate(InitResult* initResult, bool* calibrated)
 {
     // INIT_FAILED_SILENT: no meter (an earlier Init let go of it), or the shared
     // driver gone since (a failed start in any document on the meter - a DDE
@@ -1995,7 +2017,7 @@ bool CArgyllSensor::Calibrate(InitResult* initResult)
     try
     {
         m_meter->clearErrorBoxShown();
-        return CalibrateDevice();
+        return CalibrateDevice(calibrated);
     }
     catch ( std::logic_error & e )
     {
@@ -2022,8 +2044,11 @@ namespace
     };
 }
 
-bool CArgyllSensor::CalibrateDevice()
+bool CArgyllSensor::CalibrateDevice(bool* calibrated)
 {
+    if ( calibrated )
+        *calibrated = false;
+    bool ran = false;   // m_meter->calibrate() has run
     if(!m_meter->doesMeterSupportCalibration())
     {
         GetColorApp()->InMeasureMessageBox( "No calibration capabilities are defined for this probe.","No Cals found",MB_OK);
@@ -2077,6 +2102,9 @@ bool CArgyllSensor::CalibrateDevice()
 		}
 
 		state = m_meter->calibrate();
+		ran = true;
+		if ( calibrated )
+			*calibrated = true;
 		testWindow.Hide();      // as soon as the device is done, before any box below
 
         if(state == ArgyllMeterWrapper::INCORRECT_POSITION)
@@ -2084,7 +2112,11 @@ bool CArgyllSensor::CalibrateDevice()
             GetColorApp()->InMeasureMessageBox( m_meter->getIncorrectPositionInstructions().c_str(), "Incorrect Position", MB_OK+MB_ICONHAND);
         }
     }
-    GetColorApp()->InMeasureMessageBox( "Device is now calibrated.  If the device requires it return to the correct measurement position.", "Calibration Complete", MB_OK);
+    // Only a calibration that ran completes: with nothing to run the driver has
+    // said so ("No calibrations needed."), and a read that still asks fails with
+    // IDS_ARGYLL_CALIBRATION_UNAVAILABLE.
+    if ( ran )
+        GetColorApp()->InMeasureMessageBox( "Device is now calibrated.  If the device requires it return to the correct measurement position.", "Calibration Complete", MB_OK);
     return true;
 }
 

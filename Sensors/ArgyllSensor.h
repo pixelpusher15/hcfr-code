@@ -160,7 +160,8 @@ public:
     // *init (when given) is the Init's result: INIT_FAILED_SILENT means there was no
     // meter and nothing was shown (the caller says so), INIT_FAILED_ANNOUNCED a start
     // that failed and said why, INIT_OK a calibration that failed after the start.
-    bool Calibrate(InitResult* init = NULL);
+    // *calibrated (when given): whether a calibration actually ran (CalibrateDevice).
+    bool Calibrate(InitResult* init = NULL, bool* calibrated = NULL);
     // The sensor sheet's warning box (the sheet's title, MB_ICONWARNING).
     static void ShowSheetNotice(UINT id);
 
@@ -243,7 +244,9 @@ private:
     // CancelConfigure and CancelConfigureBeforeClear.
     void RestoreSnapshot(bool reapplyDriverSample);
     // Calibrate past its Init, inside its std::logic_error handler.
-    bool CalibrateDevice();
+    // *calibrated (when given): true once m_meter->calibrate() has run; false when
+    // the driver listed nothing to do (empty instructions), which still returns true.
+    bool CalibrateDevice(bool* calibrated = NULL);
     // The FILE-source fields of a record: source, description (the sample's display,
     // else its description, else m_spectralCorrectionDesc), file hash, observer and
     // meter serial. The caller sets the matrices and the basis. knownHash: the hash of
