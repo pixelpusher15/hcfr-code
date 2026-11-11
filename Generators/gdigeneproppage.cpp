@@ -24,6 +24,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "GDIGenerator.h"
+#include "PGenProtocol.h"
 #include <uxtheme.h>
 #include <vsstyle.h>
 #pragma comment(lib, "uxtheme.lib")
@@ -712,6 +713,7 @@ CPGenSettingsDlg::CPGenSettingsDlg(CWnd* pParent) : CDialog(CPGenSettingsDlg::ID
 	m_pGenerator = NULL;
 	m_action = 0;
 	m_applied = FALSE;
+	m_busy = FALSE;
 }
 
 static const TCHAR* const kPgCF[] = { _T("RGB"), _T("YCbCr 4:4:4"), _T("YCbCr 4:2:2") };
@@ -765,8 +767,14 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 		CPoint lp = M.at(LX, y + 2); m_aviL[5].Create(LS(IDS_PGEN_DYNRANGE), WS_CHILD | WS_VISIBLE, CRect(lp.x, lp.y, lp.x + M.w(LW), lp.y + M.ht(9)), this); m_aviL[5].SetFont(font);
 		CPoint cp = M.at(CX, y); m_avi[5].Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_AVI_BASE + 5); m_avi[5].SetFont(font);
 		for (int j = 0; j < 3; j++) m_avi[5].AddString(kPgDR[j]);
-		int sel = (st.isLLDovi || st.isStdDovi) ? 2 : (st.isHdr ? 1 : 0);
-		m_avi[5].SetCurSel(sel); m_aviInit[5] = sel;
+		// DV needs both flags; a generator left with IS_STD_DOVI alone (what the previous
+		// HCFR build sent) is on SDR/HDR, and showing it so lets the user select DV and have
+		// the batch go out.
+		int sel = (st.isLLDovi && st.isStdDovi) ? 2 : (st.isHdr ? 1 : 0);
+		m_avi[5].SetCurSel(sel);
+		// Half-set flags: no choice equals the generator's state, so any Apply sends the full
+		// dynamic-range batch and clears or sets all four DV keys together.
+		m_aviInit[5] = (st.isLLDovi != st.isStdDovi) ? -1 : sel;
 	}
 	{
 		int y = Y0 + PITCH;
@@ -792,7 +800,9 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 		CPoint cp = M.at(CX, y); m_doviCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(cp.x, cp.y, cp.x + M.w(CW), cp.y + M.ht(80)), this, IDC_PGEN_DOVI_COMBO); m_doviCombo.SetFont(font);
 		m_doviCombo.AddString(_T("Verify / Absolute"));
 		m_doviCombo.AddString(_T("Calibrate / Relative"));
-		int sel = (st.doviMode == 2) ? 1 : 0;
+		m_doviCombo.AddString(_T("Perceptual"));
+		// doviMode -1 = the generator gave no value: shown as Verify, as before Perceptual
+		int sel = PGenProtocol::DoviModeToComboIndex(st.doviMode);
 		m_doviCombo.SetCurSel(sel); m_doviInit = sel;
 	}
 	{ CPoint p = M.at(LX, Y0 + 6 * PITCH + 3); m_hdrDrm.Create(LS(IDS_PGEN_HDR_DRM), WS_CHILD, CRect(p.x, p.y, p.x + M.w(FULLW - LX), p.y + M.ht(9)), this); m_hdrDrm.SetFont(font); }
@@ -844,6 +854,7 @@ BOOL CPGenSettingsDlg::OnInitDialog()
 
 void CPGenSettingsDlg::OnOK()
 {
+	if (m_busy) return;
 	CStringArray cmds;
 	int drSel = (m_avi[5].GetSafeHwnd()) ? m_avi[5].GetCurSel() : -1;
 	{ int sel = m_avi[0].GetCurSel(); if (sel >= 0 && sel != m_aviInit[0] && sel < m_resIds.GetSize()) { CString c; c.Format(_T("CMD:SET_MODE:%d"), m_resIds[sel]); cmds.Add(c); } }
@@ -859,13 +870,17 @@ void CPGenSettingsDlg::OnOK()
 			CString c;
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_SDR:%d"), isSdr); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_HDR:%d"), isHdr); cmds.Add(c);
-			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:%d"), 0); cmds.Add(c);
+			// Dolby Vision needs IS_LL_DOVI and DV_INTERFACE set together with IS_STD_DOVI:
+			// with them at 0 the PGenerator 1.6 kernel never emits the Dolby vendor InfoFrame
+			// and the display stays in SDR (measured 2026-11-05, Sony A80J; ColourSpace sets
+			// the same three). Off (SDR/HDR) clears all of them.
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:%d"), dovi); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_IS_STD_DOVI:%d"), dovi); cmds.Add(c);
 			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_STATUS:%d"), dovi); cmds.Add(c);
-			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), 0); cmds.Add(c);
+			c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_INTERFACE:%d"), dovi); cmds.Add(c);
 		}
 	}
-	{ int sel = m_doviCombo.GetCurSel(); if (sel >= 0 && sel != m_doviInit && drSel == 2) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_MAP_MODE:%d"), (sel == 1) ? 2 : 1); cmds.Add(c); } }
+	{ int sel = m_doviCombo.GetCurSel(); if (sel >= 0 && sel != m_doviInit && drSel == 2) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_DV_MAP_MODE:%d"), PGenProtocol::ComboIndexToDoviMode(sel)); cmds.Add(c); } }
 	{ int sel = m_drm[0].GetCurSel(); if (sel >= 0 && sel != m_drmInit[0] && drSel == 1) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_EOTF:%d"), kPgEOv[sel]); cmds.Add(c); } }
 	{ int sel = m_drm[1].GetCurSel(); if (sel >= 0 && sel != m_drmInit[1] && drSel == 1) { CString c; c.Format(_T("CMD:SET_PGENERATOR_CONF_PRIMARIES:%d"), kPgPRv[sel]); cmds.Add(c); } }
 	{
@@ -878,7 +893,42 @@ void CPGenSettingsDlg::OnOK()
 			CString c; c.Format(_T("CMD:%s:%d"), nm[i], v); cmds.Add(c);
 		}
 	}
-	if (cmds.GetSize() > 0 && m_pGenerator) { CWaitCursor wait; m_pGenerator->ApplyPGeneratorConf(cmds); m_applied = TRUE; }
+	if (cmds.GetSize() > 0 && m_pGenerator)
+	{
+		struct Busy { BOOL& b; Busy(BOOL& x) : b(x) { b = TRUE; } ~Busy() { b = FALSE; } } busy(m_busy);
+		int res;
+		{ CWaitCursor wait; res = m_pGenerator->ApplyPGeneratorConf(cmds); }
+		m_applied = TRUE;
+		// Input queued during the wait must not land on the boxes below (an Enter pressed
+		// 20 s ago must not answer the reboot question).
+		{ MSG m; while (PeekMessage(&m, NULL, WM_KEYFIRST, WM_KEYLAST, PM_REMOVE)) {} while (PeekMessage(&m, NULL, WM_MOUSEFIRST, WM_MOUSELAST, PM_REMOVE)) {} }
+		if (res == CGenerator::PGAPPLY_NOT_REACHED)
+			AfxMessageBox(LS(IDS_PGEN_ST_NOCONNECT), MB_OK | MB_ICONWARNING);
+		else if (res == CGenerator::PGAPPLY_REFUSED)
+			AfxMessageBox(LS(IDS_PGEN_RESTART_REFUSED), MB_OK | MB_ICONWARNING);
+		else if (res == CGenerator::PGAPPLY_NOT_READY)
+			AfxMessageBox(LS(IDS_PGEN_RENDERER_NOT_READY), MB_OK | MB_ICONWARNING);
+		else if (res == CGenerator::PGAPPLY_RENDERER_DOWN)
+		{
+			// The settings just applied may be what keeps the renderer down, so the reboot
+			// is offered, never done unasked (it also ends any other client's session), and
+			// No is the default answer.
+			if (AfxMessageBox(LS(IDS_PGEN_RENDERER_DOWN), MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES)
+			{
+				int rb;
+				{ CWaitCursor wait; rb = m_pGenerator->RebootPGeneratorAndWait(); }
+				if (rb == CGenerator::PGAPPLY_NOT_REACHED)
+				{
+					AfxMessageBox(LS(IDS_PGEN_ST_NOCONNECT), MB_OK | MB_ICONWARNING);
+					// the host was just proven down: show it disconnected rather than have the
+					// caller's refresh block in the vendor DLL's connect against it
+					m_action = 1;
+				}
+				else if (rb == CGenerator::PGAPPLY_RENDERER_DOWN)
+					AfxMessageBox(LS(IDS_PGEN_REBOOT_NOHELP), MB_OK | MB_ICONWARNING);
+			}
+		}
+	}
 	// Apply applies and closes. ApplyPGeneratorConf already ends every batch with
 	// RESTARTPGENERATOR:, so the settings take effect without a manual restart; closing here
 	// also avoids the stale-baseline hazards of a kept-open dialog (the *Init change-detection
@@ -946,8 +996,15 @@ void CPGenSettingsDlg::UpdateDynRangeState()
 	CenterWindow();
 }
 
+void CPGenSettingsDlg::OnCancel()
+{
+	if (m_busy) return;
+	CDialog::OnCancel();
+}
+
 void CPGenSettingsDlg::OnReboot()
 {
+	if (m_busy) return;
 	if (AfxMessageBox(LS(IDS_PGEN_REBOOT_CONFIRM), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
 	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("CMD:REBOOT"); }
 	m_action = 1;
@@ -956,6 +1013,7 @@ void CPGenSettingsDlg::OnReboot()
 
 void CPGenSettingsDlg::OnRestartSw()
 {
+	if (m_busy) return;
 	if (AfxMessageBox(LS(IDS_PGEN_RESTART_CONFIRM), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
 	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("RESTARTPGENERATOR:"); }
 	m_action = 1;
@@ -964,6 +1022,7 @@ void CPGenSettingsDlg::OnRestartSw()
 
 void CPGenSettingsDlg::OnShutdown()
 {
+	if (m_busy) return;
 	if (AfxMessageBox(LS(IDS_PGEN_SHUTDOWN_CONFIRM), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
 	if (m_pGenerator) { CWaitCursor wait; m_pGenerator->SendPGeneratorCommand("CMD:HALT"); }
 	m_action = 2;

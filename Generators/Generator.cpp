@@ -29,6 +29,7 @@
 #include "madTPG.h"
 #include "Generator.h"
 #include "ArchiveExtension.h"
+#include "PGenProtocol.h"
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -224,6 +225,126 @@ static char* PgDiscoverIP(RB8PG_discovery disc)
 static SOCKET g_pgenSock = (SOCKET)0;
 static SOCKET PgGetConn(RB8PG_connect conn, char* ip) { if (!g_pgenSock) g_pgenSock = PgSafeConn(conn, ip); return g_pgenSock; }
 static void PgDropConn(RB8PG_close clsf) { if (g_pgenSock) { PgSafeClose(clsf, g_pgenSock); g_pgenSock = (SOCKET)0; } }
+// Dolby Vision state of the generator. Under DV the renderer treats code 0 as below black
+// and shows a full red field for it (PGenerator 1.6, measured 2026-11-05), so every "black"
+// HCFR itself sends to the PGenerator is formatted with PGenBlackCode(bits): legal black in
+// DV (16 at 8 bit, 64 at 10 bit), 0 otherwise.
+static BOOL g_pgenDovi = FALSE;
+BOOL CGenerator::PGenDolbyVision() { return g_pgenDovi; }
+// DV is engaged only with BOTH flags set: IS_STD_DOVI alone, which the previous HCFR build
+// sent, leaves the generator in SDR (measured 2026-11-05). Exact command match.
+static void PgNoteDoviFromCmds(const CStringArray& cmds)
+{
+	int stdDv = -1, llDv = -1;
+	for (int i = 0; i < cmds.GetSize(); i++)
+	{
+		if (cmds[i] == _T("CMD:SET_PGENERATOR_CONF_IS_STD_DOVI:1")) stdDv = 1;
+		else if (cmds[i] == _T("CMD:SET_PGENERATOR_CONF_IS_STD_DOVI:0")) stdDv = 0;
+		else if (cmds[i] == _T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:1")) llDv = 1;
+		else if (cmds[i] == _T("CMD:SET_PGENERATOR_CONF_IS_LL_DOVI:0")) llDv = 0;
+	}
+	if (stdDv != -1 && llDv != -1) g_pgenDovi = (stdDv == 1 && llDv == 1);
+	else if (stdDv == 0 || llDv == 0) g_pgenDovi = FALSE;
+}
+// Parsed with PgenParseVal like every other conf read, so any reply framing it accepts is
+// read the same way here. PgSend leaves a 1 s receive timeout on the socket; a caller that
+// goes on to the vendor DLL's blocking reads restores its own timeout afterwards.
+static void PgReadDoviState(SOCKET s)
+{
+	CString a = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_STD_DOVI"), "GET_PGENERATOR_CONF_IS_STD_DOVI");
+	CString b = PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_LL_DOVI"), "GET_PGENERATOR_CONF_IS_LL_DOVI");
+	// A lost reply must not turn a known DV state off (black would go out as 0 = red field).
+	g_pgenDovi = PGenProtocol::DoviStateFromConf((LPCTSTR)a, (LPCTSTR)b, !!g_pgenDovi) ? TRUE : FALSE;
+}
+int CGenerator::PGenBlackCode(int bits) { return PGenProtocol::LegalBlackCode(!!g_pgenDovi, bits); }
+
+// Sleep while letting paint and sent messages through. Input is NOT dispatched: a click on
+// Apply or Reboot during the wait would re-enter the dialog and send a second restart to a
+// generator that is still restarting, the hang this wait exists to prevent.
+static void PgPumpSleep(DWORD ms)
+{
+	DWORD t0 = GetTickCount();
+	do
+	{
+		MSG m;
+		for (int n = 0; n < 50 && PeekMessage(&m, NULL, 0, 0, PM_REMOVE | PM_QS_PAINT | PM_QS_SENDMESSAGE); n++) { TranslateMessage(&m); DispatchMessage(&m); }
+		Sleep(100);
+	} while (GetTickCount() - t0 < ms);
+}
+
+// This firmware answers GET_PGENERATOR_IS_EXECUTED. Set only by a reply that shows it
+// (a PID or "Not executed"), never cleared: an empty reply is a timeout, not an answer.
+static BOOL g_pgenReportsPid = FALSE;
+static BOOL PgReplyHasPid(const CStringA& r) { return r.Find("Pid") >= 0; }
+static BOOL PgReplyNotExec(const CStringA& r) { return r.Find("Not executed") >= 0; }
+static PGenProtocol::ExecReply PgProbeExec(SOCKET s, CStringA& reply)
+{
+	reply = PgSend(s, "CMD:GET_PGENERATOR_IS_EXECUTED");
+	PGenProtocol::ExecReply c = PGenProtocol::ClassifyExec(reply);
+	if (PGenProtocol::ConfirmsPidReporting(c)) g_pgenReportsPid = TRUE;
+	return c;
+}
+static const int kPgPreProbes = 4;              // empty probes before Apply decides without an answer
+static const DWORD kPgUnverifiedWaitMs = 10000; // firmware never seen answering: how long to poll
+
+// Waits for GET_PGENERATOR_IS_EXECUTED to report a renderer PID other than oldPid (the one
+// read before the restart, so a reply from the not-yet-killed renderer does not pass). An
+// empty or unexpected reply means the daemon is busy or a frame arrived late: "not yet",
+// never success (PGenProtocol::PostRestartStep). Firmware not known to answer the query is
+// polled for kPgUnverifiedWaitMs and then assumed up, the behavior before this wait existed.
+// After RESTARTPGENERATOR the renderer is normally back within 5 s. *pidOut, when given,
+// receives the PID reply that ended the wait.
+static BOOL PgWaitRenderer(SOCKET s, DWORD waitMs, const CStringA& oldPid, CStringA* pidOut)
+{
+	DWORD t0 = GetTickCount();
+	for (;;)
+	{
+		CStringA r;
+		PGenProtocol::ExecReply c = PgProbeExec(s, r);
+		DWORD lim = g_pgenReportsPid ? waitMs : min(waitMs, kPgUnverifiedWaitMs);
+		PGenProtocol::PostRestart st = PGenProtocol::PostRestartStep(c, r != oldPid, GetTickCount() - t0 > lim, !!g_pgenReportsPid);
+		if (st == PGenProtocol::POST_UP) { if (pidOut) *pidOut = r; return TRUE; }
+		if (st == PGenProtocol::POST_UP_UNVERIFIED) return TRUE;
+		if (st == PGenProtocol::POST_DOWN) return FALSE;
+		PgPumpSleep(1000);
+	}
+}
+
+// Non-blocking probe of port 85 with a short timeout: the vendor DLL's connect blocks for
+// about 20 s per attempt against a host that is still booting.
+// The vendor DLL starts Winsock in RB8PG_connect and stops it in RB8PG_close, so with no
+// other connection open the process has no Winsock reference: take one here.
+static BOOL PgPortOpen(const char* ip, DWORD timeoutMs)
+{
+	int o[4];
+	if (sscanf_s(ip, "%d.%d.%d.%d", &o[0], &o[1], &o[2], &o[3]) != 4) return FALSE;
+	for (int i = 0; i < 4; i++) if (o[i] < 0 || o[i] > 255) return FALSE;
+	WSADATA wsd;
+	if (WSAStartup(MAKEWORD(2, 2), &wsd) != 0) return FALSE;
+	BOOL ok = FALSE;
+	SOCKET t = socket(AF_INET, SOCK_STREAM, 0);
+	if (t != INVALID_SOCKET)
+	{
+		sockaddr_in a; memset(&a, 0, sizeof(a));
+		a.sin_family = AF_INET; a.sin_port = htons(85);
+		a.sin_addr.S_un.S_un_b.s_b1 = (unsigned char)o[0]; a.sin_addr.S_un.S_un_b.s_b2 = (unsigned char)o[1];
+		a.sin_addr.S_un.S_un_b.s_b3 = (unsigned char)o[2]; a.sin_addr.S_un.S_un_b.s_b4 = (unsigned char)o[3];
+		u_long nb = 1;
+		if (ioctlsocket(t, FIONBIO, &nb) == 0)
+		{
+			connect(t, (sockaddr*)&a, sizeof(a));
+			fd_set w; FD_ZERO(&w); FD_SET(t, &w);
+			fd_set e; FD_ZERO(&e); FD_SET(t, &e);
+			timeval tv; tv.tv_sec = timeoutMs / 1000; tv.tv_usec = (timeoutMs % 1000) * 1000;
+			// a refused connection shows up in the except set on Windows: that is "not open"
+			ok = (select(0, NULL, &w, &e, &tv) == 1 && FD_ISSET(t, &w));
+		}
+		closesocket(t);
+	}
+	WSACleanup();
+	return ok;
+}
+
 static SOCKET PgLiveConn(RB8PG_connect conn, RB8PG_close clsf, RB8PG_get getf, char* ip)
 {
 	for (int attempt = 0; attempt < 2; attempt++)
@@ -274,7 +395,7 @@ BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
 	
 
 	CString status = _T("SDR");
-	if (isLLDov == "1" || isStdDov == "1") status = _T("Dolby Vision");
+	if (isLLDov == "1" && isStdDov == "1") status = _T("Dolby Vision");   // both flags: STD alone is SDR on the wire
 	else if (isHdr == "1") status = _T("HDR");
 
 	CString resval = res;
@@ -325,32 +446,126 @@ BOOL CGenerator::QueryPGeneratorInfo(CStringArray& vals, CString& err)
 }
 
 
-BOOL CGenerator::ApplyPGeneratorConf(const CStringArray& cmds)
+int CGenerator::ApplyPGeneratorConf(const CStringArray& cmds)
 {
-	if (cmds.GetSize() == 0) return TRUE;
+	if (cmds.GetSize() == 0) return PGAPPLY_OK;
 	InvalidatePGenCache();
 	HINSTANCE hLib = PgenLib();
-	if (!hLib) return FALSE;
+	if (!hLib) return PGAPPLY_NOT_REACHED;
 	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
 	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
 	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
 	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
-	if (!disc || !conn || !getf || !clsf) { return FALSE; }
+	if (!disc || !conn || !getf || !clsf) { return PGAPPLY_NOT_REACHED; }
 
 	char* ip = PgDiscoverIP(disc);
-	if (!ip || strlen(ip) <= 5) { return FALSE; }
+	if (!ip || strlen(ip) <= 5) { return PGAPPLY_NOT_REACHED; }
 
 	SOCKET s = PgLiveConn(conn, clsf, getf, ip);
-	if (!s) { g_pgenIp[0] = 0; return FALSE; }
+	if (!s) { g_pgenIp[0] = 0; return PGAPPLY_NOT_REACHED; }
 
+	// Probe the renderer before anything is sent (PGenProtocol::PreRestartStep). An empty
+	// reply is a timeout and is asked again. Firmware without GET_PGENERATOR_IS_EXECUTED
+	// answers something else: for it Apply keeps its old behavior, a fixed grace period
+	// after the restart.
+	CStringA oldPid;
+	PGenProtocol::PreRestart pre = PGenProtocol::PRE_SEND_UNVERIFIED;
+	for (int probe = 1; ; probe++)
+	{
+		PGenProtocol::ExecReply c = PgProbeExec(s, oldPid);
+		pre = PGenProtocol::PreRestartStep(c, probe, kPgPreProbes, !!g_pgenReportsPid);
+		if (pre != PGenProtocol::PRE_PROBE_AGAIN) break;
+		PgPumpSleep(500);
+	}
+	if (pre == PGenProtocol::PRE_WAIT_FOR_RENDERER)
+	{
+		// The renderer is down or restarting: a batch and restart sent into that state hung
+		// the 1.6 daemon until a power cycle. Wait for it to run first; nothing is sent if it
+		// does not, and its PID becomes the one the restart must replace.
+		if (!PgWaitRenderer(s, 30000, CStringA(), &oldPid)) { PgDropConn(clsf); return PGAPPLY_NOT_READY; }
+	}
+	else if (pre != PGenProtocol::PRE_SEND)
+		oldPid.Empty();   // no PID read: any PID after the restart counts
 	for (int i = 0; i < cmds.GetSize(); i++)
 		PgSend(s, (LPCTSTR)cmds[i]);
+	BOOL wasDovi = g_pgenDovi;
+	PgNoteDoviFromCmds(cmds);
 	Sleep(150);
-	PgSend(s, "RESTARTPGENERATOR:");
+	CStringA restartReply = PgSend(s, "RESTARTPGENERATOR:");
+	if (PGenProtocol::RestartRefused(restartReply))
+	{
+		// The conf keys are set but the running renderer still shows the old state, so the
+		// DV state on the wire is either one: keep legal black if either may be DV.
+		if (wasDovi) g_pgenDovi = TRUE;
+		PgDropConn(clsf);
+		return PGAPPLY_REFUSED;
+	}
+	// Wait for the renderer instead of returning blind: a second Apply sent while the
+	// generator was still restarting hung the 1.6 daemon until a power cycle. A renderer that
+	// does not come back is reported to the caller, which may offer a reboot; the settings
+	// just applied can be the reason, so no reboot happens here.
+	BOOL up;
+	if (pre == PGenProtocol::PRE_SEND_LEGACY) { PgPumpSleep(3000); up = TRUE; }
+	else { PgPumpSleep(2000); up = PgWaitRenderer(s, 30000, oldPid, NULL); }
 	PgDropConn(clsf);
+	return up ? PGAPPLY_OK : PGAPPLY_RENDERER_DOWN;
+}
 
-	
-	return TRUE;
+// The Dolby Vision tunnel is limited range only (PGenProtocol::RangeAllowedForDolbyVision).
+// Init refuses a full-range measurement under DV instead of rewriting its patch codes: a
+// near-black sweep would otherwise measure several stimuli at one code.
+BOOL CGenerator::PGenDoviRangeOk()
+{
+	if (PGenProtocol::RangeAllowedForDolbyVision(!!g_pgenDovi, !!m_b16_235)) return TRUE;
+	CString msg; msg.LoadString(IDS_PGEN_DV_NEEDS_LIMITED);
+	m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox(msg, "PGenerator", MB_ICONWARNING);
+	return FALSE;
+}
+
+// Reboot the generator and wait until port 85 answers and a renderer PID is reported
+// (about 45 s on a Pi 4 with firmware 1.6; up to ~3 min allowed). Called only after the user
+// agreed to the reboot.
+int CGenerator::RebootPGeneratorAndWait()
+{
+	HINSTANCE hLib = PgenLib();
+	if (!hLib) return PGAPPLY_NOT_REACHED;
+	RB8PG_discovery disc = (RB8PG_discovery)GetProcAddress(hLib, "RB8PG_discovery@0");
+	RB8PG_connect   conn = (RB8PG_connect)GetProcAddress(hLib, "RB8PG_connect@4");
+	RB8PG_get       getf = (RB8PG_get)GetProcAddress(hLib, "RB8PG_get@8");
+	RB8PG_close     clsf = (RB8PG_close)GetProcAddress(hLib, "RB8PG_close@4");
+	if (!disc || !conn || !getf || !clsf) return PGAPPLY_NOT_REACHED;
+	char* ip = PgDiscoverIP(disc);
+	if (!ip || strlen(ip) <= 5) return PGAPPLY_NOT_REACHED;
+	SOCKET s = PgLiveConn(conn, clsf, getf, ip);
+	if (!s) { g_pgenIp[0] = 0; return PGAPPLY_NOT_REACHED; }
+	PgSend(s, "CMD:REBOOT");
+	PgDropConn(clsf);
+	PgPumpSleep(20000);
+	// Port 85 is probed without blocking; the vendor DLL connects only once it is open. A
+	// renderer PID is success; "Not executed" keeps polling; firmware without the command
+	// counts as up as soon as the port answers, which is all it can tell us.
+	int res = PGAPPLY_RENDERER_DOWN;
+	BOOL reached = FALSE;
+	DWORD t0 = GetTickCount();
+	while (GetTickCount() - t0 < 150000)
+	{
+		PgPumpSleep(3000);
+		if (!PgPortOpen(ip, 2000)) continue;   // every iteration starts disconnected
+		s = PgLiveConn(conn, clsf, getf, ip);
+		if (!s) continue;
+		reached = TRUE;
+		CStringA r = PgSend(s, "CMD:GET_PGENERATOR_IS_EXECUTED");
+		if (PgReplyHasPid(r)) { res = PGAPPLY_OK; break; }
+		// firmware that never reported a PID: the port answering is all it can tell us; a
+		// firmware known to report one must do so (a late frame could otherwise pass here)
+		if (!g_pgenReportsPid && !r.IsEmpty() && !PgReplyNotExec(r)) { res = PGAPPLY_OK; break; }
+		// Start the next iteration from a fresh connection: a reply that arrives after
+		// PgSend's window would otherwise be read as the answer to the next command.
+		PgDropConn(clsf);
+	}
+	PgDropConn(clsf);
+	if (!reached) { g_pgenIp[0] = 0; return PGAPPLY_NOT_REACHED; }
+	return res;
 }
 
 // Decodes the base64 body of a PGenerator GET_MODES_AVAILABLE reply.
@@ -415,7 +630,8 @@ int CGenerator::QueryPGeneratorModes(CStringArray& labels, CArray<int,int>& ids,
 	st.isStdDovi   = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_IS_STD_DOVI"), "GET_PGENERATOR_CONF_IS_STD_DOVI"));
 	st.eotf        = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_EOTF"), "GET_PGENERATOR_CONF_EOTF"));
 	st.primaries   = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_PRIMARIES"), "GET_PGENERATOR_CONF_PRIMARIES"));
-	st.doviMode    = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_DV_MAP_MODE"), "GET_PGENERATOR_CONF_DV_MAP_MODE"));
+	// -1 = no value (empty or bare "OK:" reply), which atoi would read as 0 = Perceptual
+	st.doviMode    = PGenProtocol::ConfIntOr((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_DV_MAP_MODE"), "GET_PGENERATOR_CONF_DV_MAP_MODE"), -1);
 	st.maxLuma     = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_LUMA"), "GET_PGENERATOR_CONF_MAX_LUMA"));
 	st.minLuma     = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MIN_LUMA"), "GET_PGENERATOR_CONF_MIN_LUMA"));
 	st.maxCll      = atoi((LPCTSTR)PgenParseVal(PgSend(s, "CMD:GET_PGENERATOR_CONF_MAX_CLL"), "GET_PGENERATOR_CONF_MAX_CLL"));
@@ -513,6 +729,12 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 					PgSafeClose(_RB8PG_close, sock);
 					sock = (SOCKET)0;
 				}
+				else
+				{
+					PgReadDoviState(sock);   // DV may have been changed by another client
+					setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&_rt, sizeof(_rt));
+					if (!PGenDoviRangeOk()) return false;
+				}
 			}
 			if (!sock) //initialization
 			{
@@ -584,14 +806,27 @@ BOOL CGenerator::Init(UINT nbMeasure, bool isSpecial)
 								cs6=cs4.Mid(3);
 								cs6.Remove('M');
 								rPi_memSize = atoi(cs6);
+								{
+									// PgSend sets its own receive timeout; put back the one the vendor
+									// DLL left on its socket. Unreadable: leave the socket alone and keep
+									// the last known DV state.
+									DWORD _rt0 = 0; int _rl = sizeof(_rt0);
+									if (getsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&_rt0, &_rl) == 0 && _rl == sizeof(_rt0))
+									{
+										PgReadDoviState(sock);
+										setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&_rt0, sizeof(_rt0));
+									}
+								}
+								if (!PGenDoviRangeOk()) return false;
 								GetConfig()->WriteProfileInt("GDIGenerator", "rPiGPU", rPi_memSize);
 								GetConfig()->WriteProfileInt("GDIGenerator", "rPiWidth", rPi_xWidth);
 								GetConfig()->WriteProfileInt("GDIGenerator", "rPiHeight", rPi_yHeight);
 								CString msg;
-								msg.Format("RGB=TEXT;12,0;100;16,128,128;0,0,0;100,300;Initializing PGenerator at: "+cs+" Res [%dx%d], GPU Mem [%dM]",rPi_xWidth, rPi_yHeight,rPi_memSize);
+								const int k0 = PGenBlackCode(8);   // TEXT is an 8-bit command
+								msg.Format("RGB=TEXT;12,0;100;16,128,128;%d,%d,%d;100,300;Initializing PGenerator at: "+cs+" Res [%dx%d], GPU Mem [%dM]",k0,k0,k0,rPi_xWidth, rPi_yHeight,rPi_memSize);
 								_RB8PG_send(sock,msg);
 								Sleep(3000);
-								if (rPi_memSize >= 192)
+								if (rPi_memSize >= 192 && !g_pgenDovi)
 								{
 									_RB8PG_send(sock,"RGB=IMAGE;1920,1080;100;255,255,255;0,0,0;-1,-1;/var/lib/PGenerator/images-HCFR/gbramp.png");
 									Sleep(1000);
@@ -1159,11 +1394,16 @@ BOOL CGenerator::Release(INT nbNext)
 				CString msg;
 				if (nbNext == -1)
 				{
-					msg.Format("RGB=TEXT;14,0;100;16,128,128;0,0,0;100,300;End of sequence");
+					const int k0 = PGenBlackCode(8);
+					msg.Format("RGB=TEXT;14,0;100;16,128,128;%d,%d,%d;100,300;End of sequence",k0,k0,k0);
 					_RB8PG_send(sock,msg);
 					Sleep(2000);
 				}
-				_RB8PG_send(sock,"TESTTEMPLATE:PatternDynamic:0,0,0");
+				{
+					const int k0 = PGenBlackCode(8);   // the PatternDynamic template is 8-bit
+					msg.Format("TESTTEMPLATE:PatternDynamic:%d,%d,%d",k0,k0,k0);
+					_RB8PG_send(sock,msg);
+				}
 			}
 			else
 				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error communicating with PGenerator", "Error", MB_ICONINFORMATION);
@@ -1175,10 +1415,12 @@ BOOL CGenerator::Release(INT nbNext)
 			if (_RB8PG_send)
 			{
 				CString msg;
-				msg.Format("RGB=TEXT;14,0;100;16,128,128;0,0,0;100,300;Disconnecting from PGenerator");
+				const int k0 = PGenBlackCode(8);
+				msg.Format("RGB=TEXT;14,0;100;16,128,128;%d,%d,%d;100,300;Disconnecting from PGenerator",k0,k0,k0);
 				_RB8PG_send(sock,msg);
 				Sleep(3000);
-				_RB8PG_send(sock,"TESTTEMPLATE:PatternDynamic:0,0,0");
+				msg.Format("TESTTEMPLATE:PatternDynamic:%d,%d,%d",k0,k0,k0);
+				_RB8PG_send(sock,msg);
 			}
 			else
 				m_initShowedError = TRUE, GetColorApp()->InMeasureMessageBox( "Error communicating with PGenerator", "Error", MB_ICONINFORMATION);

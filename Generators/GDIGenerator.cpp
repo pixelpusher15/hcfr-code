@@ -912,6 +912,23 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 	int bgG = PiBackground8ToCode ( G1, !!m_b16_235, bits );
 	int bgB = PiBackground8ToCode ( B1, !!m_b16_235, bits );
 
+	// Under Dolby Vision the PGenerator renderer shows code 0 as a full red field (it is below
+	// DV black). Init refuses full range under DV (CGenerator::PGenDoviRangeOk), so in 16-235
+	// a patch reaches this guard only below 0% or when DV was switched on after Init. The
+	// codes are still kept at legal black for the screen's sake, but such a patch is not the
+	// stimulus it was asked for, so no wire record is left for it below: its readings carry no
+	// realDrive (WireSetup.h).
+	bool patchRaised = false;
+	{
+		const int lo = CGenerator::PGenBlackCode(bits);   // 0 outside DV: no-op
+		if (r < lo) r = lo, patchRaised = true;
+		if (g < lo) g = lo, patchRaised = true;
+		if (b < lo) b = lo, patchRaised = true;
+		if (bgR < lo) bgR = lo;
+		if (bgG < lo) bgG = lo;
+		if (bgB < lo) bgB = lo;
+	}
+
 	m_nPat++;
 
 	int x2 = Cgen.m_offsetx;
@@ -932,7 +949,10 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 			abl = PiPercentToCode ( GetConfig()->m_ablLevel, !!m_b16_235, 10 );
 		else
 			abl = ColorRGBDisplay::ConvertPercentToCode ( GetConfig()->m_ablLevel, !!m_b16_235, 8 );
-		sprintf_s(CPat,"RGB=%s;%d,%d;100;%d,%d,%d;%d,%d,%d;-1,-1", bits == 10 ? "RECTANGLE10bit" : "RECTANGLE", (int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_xWidth),(int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_yHeight),abl,abl,abl,0,0,0);
+		// same guard as above: code 0 is a red field under DV
+		const int ablBg = CGenerator::PGenBlackCode(bits);
+		if (abl < ablBg) abl = ablBg;
+		sprintf_s(CPat,"RGB=%s;%d,%d;100;%d,%d,%d;%d,%d,%d;-1,-1", bits == 10 ? "RECTANGLE10bit" : "RECTANGLE", (int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_xWidth),(int)(pow((double)(Cgen.m_rectSizePercent)/100.0,0.5) * rPi_yHeight),abl,abl,abl,ablBg,ablBg,ablBg);
 		if (sock && CGenerator::_RB8PG_send && CPat[0])
 			CGenerator::_RB8PG_send(sock,CPat);
 		else
@@ -969,7 +989,8 @@ BOOL CGDIGenerator::DisplayRGBColorrPI( const ColorRGBDisplay& clr, bool first, 
 			wire.wireCode[1] = g;
 			wire.wireCode[2] = b;
 			const double stim[3] = { clr[0], clr[1], clr[2] };
-			WireDisplayRecord::Record ( stim, wire );
+			if ( ! patchRaised )
+				WireDisplayRecord::Record ( stim, wire );
 		}
 		else
 			GetColorApp()->InMeasureMessageBox( "Error communicating with rPI", "Error", MB_ICONINFORMATION);
