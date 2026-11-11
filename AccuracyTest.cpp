@@ -79,6 +79,7 @@
 #include "SimulatedSensor.h"
 #include "AccuracyTest.h"
 #include "ArchiveExtension.h"
+#include "SweepConfirmRule.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -1204,6 +1205,117 @@ static void CheckRawlessSkipCount ( FamStat & stat )
 	}
 }
 
+// The sweep-start confirmation's data test (CMeasure::SweepOverwritesData; the
+// rule is libHCFR/SweepConfirmRule.h, its engine ColorMathTest T52). Pinned on
+// real CMeasure objects: a fresh document holds no data for any sweep; one
+// reading answers TRUE for exactly the masks that name its slot; the
+// constructor placeholders - including a flagged on/off white holding the
+// prime placeholder and the gray top holding the on/off one - and the black
+// override's synthetic black (no raw, the user's Y) are not data; a real black
+// under the override (raw, or another Y) is.
+static void ExpectSweepData ( FamStat & stat, CMeasure & m, const char * what, unsigned int named )
+{
+	using namespace SweepConfirmRule;
+	static const unsigned int bits[16] = { S_GRAY, S_NEARBLACK, S_NEARWHITE, S_PRIMARIES, S_SECONDARIES,
+		S_PRIMEWHITE, S_ONOFFBLACK, S_ONOFFWHITE, S_ANSI, S_SAT_RED, S_SAT_GREEN, S_SAT_BLUE,
+		S_SAT_YELLOW, S_SAT_CYAN, S_SAT_MAGENTA, S_CC24 };
+	for ( int k = 0 ; k < 16 ; k ++ )
+	{
+		bool want = ( bits[k] & named ) != 0;
+		bool got = m.SweepOverwritesData(bits[k]) != FALSE;
+		if ( got != want )
+			stat.Add(999.0, "sweep data: %s: series 0x%04X answers %s (want %s)", what, bits[k], got ? "data" : "no data", want ? "data" : "no data");
+	}
+	bool wantAll = ( named != 0 );
+	if ( ( m.SweepOverwritesData(FullRun(2, true)) != FALSE ) != wantAll )
+		stat.Add(999.0, "sweep data: %s: the full run answers %s", what, wantAll ? "no data" : "data");
+}
+
+static void CheckSweepOverwritesData ( FamStat & stat )
+{
+	using namespace SweepConfirmRule;
+	CColorHCFRConfig * cfg = GetConfig();
+	const CCPatterns savedCC = cfg->m_CCMode;
+	cfg->m_CCMode = GCD;
+
+	{ CMeasure m; ExpectSweepData(stat, m, "fresh document", 0); }
+	{ CMeasure m; m.SetGray(3, RawReading(20, 21, 22)); ExpectSweepData(stat, m, "one gray reading", S_GRAY); }
+	{ CMeasure m; m.SetOnOffWhite(RawReading(95, 100, 108)); ExpectSweepData(stat, m, "on/off white reading", S_ONOFFWHITE); }
+	{ CMeasure m; m.SetOnOffBlack(RawReading(0.05, 0.06, 0.07)); ExpectSweepData(stat, m, "on/off black reading", S_ONOFFBLACK); }
+	{ CMeasure m; m.SetPrimeWhite(RawReading(94, 99, 107)); ExpectSweepData(stat, m, "prime white reading", S_PRIMEWHITE); }
+	{ CMeasure m; m.SetNearBlack(1, RawReading(0.5, 0.5, 0.6)); ExpectSweepData(stat, m, "near black reading", S_NEARBLACK); }
+	{ CMeasure m; m.SetRedSat(2, RawReading(10, 5, 1)); ExpectSweepData(stat, m, "red saturation reading", S_SAT_RED); }
+
+	// the color checker: the active set's master band only
+	{
+		CMeasure m;
+		cfg->m_CCMode = MCD;
+		m.SetCC24MasterSat(CMeasure::CC24MasterBandBase(MCD) + 5, RawReading(30, 31, 32));
+		ExpectSweepData(stat, m, "MCD band reading, MCD active", S_CC24);
+		cfg->m_CCMode = USER;
+		ExpectSweepData(stat, m, "MCD band reading, USER active", 0);
+		m.SetCC24MasterSat(CMeasure::CC24MasterBandBase(USER) + CMeasure::CC24MasterBandSize(USER) - 1, RawReading(40, 41, 42));
+		ExpectSweepData(stat, m, "USER band reading at the band's last slot", S_CC24);
+		cfg->m_CCMode = GCD;
+		ExpectSweepData(stat, m, "MCD and USER band readings, GCD active", 0);
+		cfg->m_CCMode = MCD;
+		ExpectSweepData(stat, m, "back to MCD", S_CC24);
+		cfg->m_CCMode = GCD;
+	}
+
+	// placeholders
+	{
+		CMeasure m;
+		CColor prime = m.GetPrimeWhite();		// the constructor's prime placeholder
+		m.SetOnOffWhite(prime);					// flagged measured, holding a placeholder
+		if ( ! m.IsOnOffWhiteMeasured() )
+			stat.Add(999.0, "sweep data: setup: SetOnOffWhite did not flag the white measured");
+		ExpectSweepData(stat, m, "flagged on/off white holding the prime placeholder", 0);
+	}
+	{
+		CMeasure m;
+		m.SetGray(m.GetGrayScaleSize()-1, m.GetOnOffWhite());	// what the graphers copy there
+		ExpectSweepData(stat, m, "gray top holding the on/off white placeholder", 0);
+	}
+	{
+		CMeasure m;
+		m.SetPrimeWhite(m.GetOnOffWhite());	// a version 8 file's prime white
+		ExpectSweepData(stat, m, "flagged prime white holding the on/off placeholder", 0);
+	}
+
+	// the black override
+	{
+		CMeasure m;
+		m.m_bOverRideBlack = TRUE;
+		m.m_userBlack = CColor(ColorXYZ(0.05*.95047, 0.05, 0.05*1.0883));	// as CheckBlackOverride builds it
+		m.SetGray(0, m.m_userBlack);
+		m.SetNearBlack(0, m.m_userBlack);
+		m.SetOnOffBlack(m.m_userBlack);
+		ExpectSweepData(stat, m, "override on, synthetic black in gray 0, near black 0, on/off black", 0);
+		// as the app holds it after re-deriving X and Z: same Y, no raw
+		const CColor rederived(ColorXYZ(0.047523464475027963, 0.05, 0.054448524048047453));
+		m.SetGray(0, rederived);
+		m.SetNearBlack(0, rederived);
+		m.SetOnOffBlack(rederived);
+		ExpectSweepData(stat, m, "override on, re-derived synthetic black (same Y, no raw)", 0);
+		m.SetNearBlack(0, CColor(ColorXYZ(0.0475, 0.0501, 0.0544)));
+		ExpectSweepData(stat, m, "override on, raw-less black of another Y in near black 0", S_NEARBLACK);
+		m.SetNearBlack(0, m.m_userBlack);
+		m.SetGray(0, RawReading(0.05*.95047, 0.05, 0.05*1.0883));
+		ExpectSweepData(stat, m, "override on, real black in gray 0", S_GRAY);
+	}
+	{
+		CMeasure m;
+		m.m_bOverRideBlack = TRUE;
+		m.m_userBlack = CColor(ColorXYZ(0.05*.95047, 0.05, 0.05*1.0883));
+		m.SetOnOffBlack(RawReading(0.02, 0.021, 0.023));
+		m.SetNearBlack(0, RawReading(0.02, 0.021, 0.023));
+		ExpectSweepData(stat, m, "override on, real on/off and near blacks", S_ONOFFBLACK | S_NEARBLACK);
+	}
+
+	cfg->m_CCMode = savedCC;
+}
+
 // The user patch set collection's document-side contracts. Run once per process,
 // not per combo: none of this depends on the combo's configuration. USER_BAND is
 // the USER band base of the master array (USER_BAND_BASE in Measure.cpp).
@@ -1395,6 +1507,7 @@ static void RunConvWhite ( CMeasure & m, FamStat & stat )
 	CheckSub90Override(stat);
 	CheckPlaceholderSignature(stat);
 	CheckRawlessSkipCount(stat);
+	CheckSweepOverwritesData(stat);
 	CheckUserPatchSets(stat);
 
 	if ( s_nConvSamples == 0 )

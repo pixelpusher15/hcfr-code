@@ -7182,6 +7182,329 @@ static void RunT50()
     T50Fail::CheckCalibration();
 }
 
+//////////////////////////////////////////////////////////////////////////
+// T52 - when a sweep start asks "...? Warning: actual data will be lost..."
+// (libHCFR/SweepConfirmRule.h). Pure assertion; no golden file; every
+// expectation is an exact bool or bit mask.
+//   (a) a series with no slots, or only noDataColor slots, holds no data;
+//   (b) one reading in any slot (first, middle, last) is data;
+//   (c) a placeholder is not a reading when the series names its test, and
+//       is one when it does not (the constructor's gray layout: noDataColor
+//       below a valid nominal top slot);
+//   (d) the multi-series rule: only the series the sweep's mask names
+//       count, any one of them holding data is enough, and two entries for
+//       one series (the ANSI black and white) are both looked at;
+//   (e) the sweep masks against a table of the slots each sweep body
+//       assigns (read from Measure.cpp, lines cited), per B/W patch count;
+//   (f) Confirm measures is the master switch: no data or the switch off,
+//       no question (SweepStartAsks passes the switch into AskBeforeSweep);
+//   (g) the black override's synthetic black in the first slot is not a
+//       reading; a real black there, or the value in another slot, is.
+//////////////////////////////////////////////////////////////////////////
+#include "../../libHCFR/SweepConfirmRule.h"
+
+namespace T52Confirm
+{
+    using namespace SweepConfirmRule;
+
+    // A synthetic placeholder: valid, recognized by its exact XYZ.
+    static bool IsMarker(const CColor & c)
+    {
+        if ( !c.isValid() )
+            return false;
+        ColorXYZ v = c.GetXYZValue();
+        return v[0] == 1.25 && v[1] == 2.5 && v[2] == 5.0;
+    }
+    static CColor Marker()              { return CColor(1.25, 2.5, 5.0); }
+    static CColor Reading(double y)     { return CColor(0.95 * y, y, 1.09 * y); }
+
+    static void Expect(const char* what, bool got, bool want)
+    {
+        if ( got != want )
+            Fail("T52 %s: got %s, want %s", what, got ? "true" : "false", want ? "true" : "false");
+    }
+
+    static void CheckSlots()
+    {
+        CColor none[5] = { noDataColor, noDataColor, noDataColor, noDataColor, noDataColor };
+        SeriesSlots s = { S_GRAY, none, 5, NULL };
+        if ( Reading(10.0).isValid() != true || noDataColor.isValid() != false || Marker().isValid() != true )
+            Fail("T52 setup: Reading/Marker must be valid and noDataColor invalid");
+
+        // (a)
+        SeriesSlots empty = { S_GRAY, none, 0, NULL };
+        Expect("(a) zero slots", SlotsHoldData(empty), false);
+        SeriesSlots nullSlots = { S_CC24, NULL, 10, NULL };
+        Expect("(a) no slot array", SlotsHoldData(nullSlots), false);
+        Expect("(a) all noDataColor", SlotsHoldData(s), false);
+
+        // (b) one reading anywhere
+        const int where[3] = { 0, 2, 4 };
+        for ( int k = 0; k < 3; k++ )
+        {
+            CColor one[5] = { noDataColor, noDataColor, noDataColor, noDataColor, noDataColor };
+            one[where[k]] = Reading(42.0);
+            SeriesSlots t = { S_GRAY, one, 5, NULL };
+            char what[64];
+            sprintf_s(what, "(b) one reading in slot %d of 5", where[k]);
+            Expect(what, SlotsHoldData(t), true);
+            // a count that stops before the reading does not see it
+            SeriesSlots shortT = { S_GRAY, one, where[k], NULL };
+            sprintf_s(what, "(b) reading in slot %d, count %d", where[k], where[k]);
+            Expect(what, SlotsHoldData(shortT), false);
+        }
+
+        // (c) the constructor's gray layout: noDataColor, a valid nominal top slot
+        CColor ctorGray[5] = { noDataColor, noDataColor, noDataColor, noDataColor, Marker() };
+        SeriesSlots g = { S_GRAY, ctorGray, 5, IsMarker };
+        Expect("(c) placeholder top slot, test named", SlotsHoldData(g), false);
+        SeriesSlots gNoTest = { S_GRAY, ctorGray, 5, NULL };
+        Expect("(c) placeholder top slot, no test (isValid alone)", SlotsHoldData(gNoTest), true);
+        CColor allMarkers[3] = { Marker(), Marker(), Marker() };
+        SeriesSlots m = { S_GRAY, allMarkers, 3, IsMarker };
+        Expect("(c) placeholders only", SlotsHoldData(m), false);
+        CColor measured[5] = { Reading(0.05), noDataColor, noDataColor, noDataColor, Marker() };
+        SeriesSlots gm = { S_GRAY, measured, 5, IsMarker };
+        Expect("(c) a reading below a placeholder", SlotsHoldData(gm), true);
+        Expect("(c) IsReading placeholder", IsReading(Marker(), IsMarker), false);
+        Expect("(c) IsReading reading", IsReading(Reading(1.0), IsMarker), true);
+        Expect("(c) IsReading noDataColor", IsReading(noDataColor, NULL), false);
+        // a white flagged measured that holds a placeholder (a version 8 file
+        // loads the gray-top placeholder into the on/off white): the entry has
+        // count 1 and names the test, so it is still no data
+        CColor whitePh = Marker();
+        SeriesSlots flaggedPh = { S_ONOFFWHITE, &whitePh, 1, IsMarker };
+        Expect("(c) flagged white holding a placeholder", SlotsHoldData(flaggedPh), false);
+        CColor whiteReal = Reading(110.0);
+        SeriesSlots flaggedReal = { S_ONOFFWHITE, &whiteReal, 1, IsMarker };
+        Expect("(c) flagged white holding a reading", SlotsHoldData(flaggedReal), true);
+        SeriesSlots unflagged = { S_ONOFFWHITE, &whiteReal, 0, IsMarker };
+        Expect("(c) white whose flag is clear", SlotsHoldData(unflagged), false);
+    }
+
+    static void CheckMultiSeries()
+    {
+        CColor gray[4]  = { noDataColor, noDataColor, noDataColor, Marker() };
+        CColor prim[3]  = { noDataColor, Reading(20.0), noDataColor };
+        CColor red[5]   = { noDataColor, noDataColor, noDataColor, noDataColor, noDataColor };
+        CColor ansiB = noDataColor, ansiW = Reading(100.0);
+        const SeriesSlots table[] =
+        {
+            { S_GRAY,      gray, 4, IsMarker },
+            { S_PRIMARIES, prim, 3, NULL },
+            { S_SAT_RED,   red,  5, NULL },
+            { S_ANSI,      &ansiB, 1, NULL },
+            { S_ANSI,      &ansiW, 1, NULL },
+        };
+        const int n = (int) (sizeof(table) / sizeof(table[0]));
+        Expect("(d) gray only (placeholder)", HoldsData(S_GRAY, table, n), false);
+        Expect("(d) primaries only", HoldsData(S_PRIMARIES, table, n), true);
+        Expect("(d) red saturation only", HoldsData(S_SAT_RED, table, n), false);
+        Expect("(d) gray + red, neither holds data", HoldsData(S_GRAY | S_SAT_RED, table, n), false);
+        Expect("(d) gray + primaries, one holds data", HoldsData(S_GRAY | S_PRIMARIES, table, n), true);
+        Expect("(d) a series not in the table", HoldsData(S_NEARBLACK | S_CC24, table, n), false);
+        Expect("(d) empty mask", HoldsData(0u, table, n), false);
+        Expect("(d) ANSI: the second entry holds the reading", HoldsData(S_ANSI, table, n), true);
+        Expect("(d) empty table", HoldsData(0xFFFFFFFFu, table, 0), false);
+        // a composite sweep mask sees data in any series it names
+        Expect("(d) grayscale+colors over primaries data", HoldsData(GrayScaleAndColors(1), table, n), true);
+        Expect("(d) all saturations over no saturation data", HoldsData(AllSaturations, table, n), false);
+
+        // a contrast measured alone is protected from a gray scale sweep,
+        // which writes the on/off pair; the simultaneous gray scale does not
+        CColor onoffW = Reading(120.0);
+        const SeriesSlots contrastOnly[] =
+        {
+            { S_GRAY,       gray,    4, IsMarker },
+            { S_ONOFFWHITE, &onoffW, 1, NULL },
+        };
+        Expect("(d) gray scale over a lone on/off white", HoldsData(GrayScale, contrastOnly, 2), true);
+        Expect("(d) simultaneous gray scale over a lone on/off white", HoldsData(SimGrayScale, contrastOnly, 2), false);
+        Expect("(d) contrast over a lone on/off white", HoldsData(Contrast(true), contrastOnly, 2), true);
+    }
+
+    // The slots each sweep body assigns, read from Measure.cpp (the line
+    // numbers of the writes). Written as slot names, not from the header's
+    // masks, so a mask that drops or gains a slot disagrees.
+    struct SlotName { const char* name; unsigned int bit; };
+    static const SlotName kSlots[] = {
+        { "gray", S_GRAY }, { "nb", S_NEARBLACK }, { "nw", S_NEARWHITE },
+        { "prim", S_PRIMARIES }, { "sec", S_SECONDARIES }, { "pw", S_PRIMEWHITE },
+        { "onoffB", S_ONOFFBLACK }, { "onoffW", S_ONOFFWHITE }, { "ansi", S_ANSI },
+        { "satR", S_SAT_RED }, { "satG", S_SAT_GREEN }, { "satB", S_SAT_BLUE },
+        { "satY", S_SAT_YELLOW }, { "satC", S_SAT_CYAN }, { "satM", S_SAT_MAGENTA },
+        { "cc", S_CC24 } };
+
+    static unsigned int Slots(const char* list)
+    {
+        unsigned int m = 0;
+        std::string s(list);
+        size_t i = 0;
+        while ( i < s.size() )
+        {
+            size_t j = s.find(' ', i);
+            if ( j == std::string::npos ) j = s.size();
+            std::string tok = s.substr(i, j - i);
+            bool found = tok.empty();
+            for ( size_t k = 0; k < sizeof(kSlots) / sizeof(kSlots[0]); k++ )
+                if ( tok == kSlots[k].name ) { m |= kSlots[k].bit; found = true; }
+            if ( !found )
+                Fail("T52 (e) table: unknown slot name '%s'", tok.c_str());
+            i = j + 1;
+        }
+        return m;
+    }
+
+    static void ExpectMask(const char* what, unsigned int got, const char* writes)
+    {
+        unsigned int want = Slots(writes);
+        if ( got != want )
+            Fail("T52 (e) %s: header mask 0x%04X, sweep body writes 0x%04X (%s)", what, got, want, writes);
+    }
+
+    static void CheckMasks()
+    {
+        // MeasureGrayScale: gray 2269/2392/2394, on/off white 2406, on/off black 2416/2418.
+        ExpectMask("GrayScale", GrayScale, "gray onoffW onoffB");
+        // ValidateBackgroundGrayScale: gray 7614/7618/7620 only.
+        ExpectMask("SimGrayScale", SimGrayScale, "gray");
+        // MeasureGrayScaleAndColors: gray 2507/2737/2739, primaries 2650/2751, secondaries
+        // 2652/2763, on/off white 2775, on/off black 2785/2787; white reference 2796
+        // only under "m_BWColorsToAdd > 0" (2794).
+        ExpectMask("GrayScaleAndColors, no B/W patch", GrayScaleAndColors(0), "gray prim sec onoffW onoffB");
+        ExpectMask("GrayScaleAndColors, white patch", GrayScaleAndColors(1), "gray prim sec onoffW onoffB pw");
+        ExpectMask("GrayScaleAndColors, white and black", GrayScaleAndColors(2), "gray prim sec onoffW onoffB pw");
+        // ValidateBackgroundGrayScaleAndColors: gray 7985-7991, primaries 8000,
+        // secondaries 8009, white reference 8017 (unconditional), on/off black 8020/8022.
+        ExpectMask("SimGrayScaleAndColors", SimGrayScaleAndColors, "gray prim sec pw onoffB");
+        // MeasurePrimaries: primaries 5976/6053, white reference 6065 or noDataColor 6073
+        // (both branches of 6063), on/off black 6082/6084 under "> 1" (6079).
+        // ValidateBackgroundPrimaries the same: 7872, 7882/7890 (7879), 7896/7898 under
+        // ">= 5" steps (7893; 3 + B/W).
+        ExpectMask("Primaries, no B/W patch", Primaries(0), "prim pw");
+        ExpectMask("Primaries, white patch", Primaries(1), "prim pw");
+        ExpectMask("Primaries, white and black", Primaries(2), "prim pw onoffB");
+        // MeasureSecondaries: primaries 6176/6254, secondaries 6178/6265, white reference
+        // 6277/6285 (both branches of 6275), on/off black 6294/6296 under "> 1" (6291).
+        // ValidateBackgroundSecondaries: 7925, 7934, 7945/7953, 7959/7961 under ">= 8" (7956).
+        ExpectMask("Secondaries, no B/W patch", Secondaries(0), "prim sec pw");
+        ExpectMask("Secondaries, white patch", Secondaries(1), "prim sec pw");
+        ExpectMask("Secondaries, white and black", Secondaries(2), "prim sec pw onoffB");
+        // MeasurePrimarySecondarySaturationScales(TRUE): red, green, blue 5756-5760 and
+        // 5872 (h < 3, 5867); the yellow/cyan/magenta writes sit under "!bPrimaryOnly" (5761).
+        ExpectMask("PrimarySaturations", PrimarySaturations, "satR satG satB");
+        // ... (FALSE): all six, 5756-5768 and 5872.
+        ExpectMask("AllSixSaturations", AllSixSaturations, "satR satG satB satY satC satM");
+        // MeasureAllSaturationScales(FALSE): six saturations 5493-5505/5614, the live CC
+        // array 5445/5507/5628 and its master band 5647 (under "! bPrimaryOnly", 5641).
+        ExpectMask("AllSaturations", AllSaturations, "satR satG satB satY satC satM cc");
+        // MeasureContrast: on/off black 6477/6489, on/off white 6569; ANSI 6694/6806/6832
+        // only inside "if(pGenerator->CanDisplayAnsiBWRects())" (6594).
+        ExpectMask("Contrast, ANSI rectangles", Contrast(true), "onoffB onoffW ansi");
+        ExpectMask("Contrast, no ANSI rectangles", Contrast(false), "onoffB onoffW");
+        // OnMeasureFullTiltBoogie runs MeasureGrayScaleAndColors, near black (2889/3011/3013),
+        // near white (3117/3204), MeasureAllSaturationScales and MeasureContrast.
+        ExpectMask("FullRun, no B/W patch", FullRun(0, true),
+                   "gray prim sec onoffW onoffB nb nw satR satG satB satY satC satM cc ansi");
+        ExpectMask("FullRun, white patch", FullRun(1, true),
+                   "gray prim sec onoffW onoffB pw nb nw satR satG satB satY satC satM cc ansi");
+        ExpectMask("FullRun, white patch, no ANSI rectangles", FullRun(1, false),
+                   "gray prim sec onoffW onoffB pw nb nw satR satG satB satY satC satM cc");
+        const unsigned int bits[16] = { S_GRAY, S_NEARBLACK, S_NEARWHITE, S_PRIMARIES, S_SECONDARIES,
+            S_PRIMEWHITE, S_ONOFFBLACK, S_ONOFFWHITE, S_ANSI, S_SAT_RED, S_SAT_GREEN, S_SAT_BLUE,
+            S_SAT_YELLOW, S_SAT_CYAN, S_SAT_MAGENTA, S_CC24 };
+        unsigned int seen = 0;
+        for ( int k = 0; k < 16; k++ )
+        {
+            if ( ( seen & bits[k] ) != 0 || bits[k] == 0 || ( bits[k] & ( bits[k] - 1 ) ) != 0 )
+                Fail("T52 (e) series bit %d is not a distinct single bit (0x%04X)", k, bits[k]);
+            seen |= bits[k];
+        }
+    }
+
+    // (g) the black override: the synthetic black (m_userBlack as the sweeps
+    // copy it: same XYZ, no raw) in the first slot is not a reading; a real
+    // black there is, and so is the synthetic value in any other slot
+    static void CheckBlackOverride()
+    {
+        const CColor userBlack(0.05 * 0.95047, 0.05, 0.05 * 1.0883);   // Measure.cpp CheckBlackOverride
+        CColor gray[4] = { userBlack, noDataColor, noDataColor, noDataColor };
+        SeriesSlots g = { S_GRAY, gray, 4, NULL, &userBlack };
+        Expect("(g) synthetic black in slot 0", SlotsHoldData(g), false);
+        SeriesSlots gNo = { S_GRAY, gray, 4, NULL, NULL };
+        Expect("(g) synthetic black in slot 0, no override value given", SlotsHoldData(gNo), true);
+
+        // a real black measured before the override was switched on: raw carried
+        CColor realRaw = userBlack;
+        realRaw.SetRawXYZValue(ColorXYZ(0.05 * 0.95047, 0.05, 0.05 * 1.0883));
+        CColor grayRaw[4] = { realRaw, noDataColor, noDataColor, noDataColor };
+        SeriesSlots gr = { S_GRAY, grayRaw, 4, NULL, &userBlack };
+        Expect("(g) real black (raw) in slot 0", SlotsHoldData(gr), true);
+        // a raw-less real black of another value (a pre-raw file)
+        CColor grayOther[4] = { Reading(0.07), noDataColor, noDataColor, noDataColor };
+        SeriesSlots go = { S_GRAY, grayOther, 4, NULL, &userBlack };
+        Expect("(g) another black value in slot 0", SlotsHoldData(go), true);
+        // the app re-derives X and Z after the copy: same Y, other X/Z, no raw
+        CColor rederived(0.047523464475027963, 0.05, 0.054448524048047453);
+        CColor grayRe[4] = { rederived, noDataColor, noDataColor, noDataColor };
+        SeriesSlots gre = { S_GRAY, grayRe, 4, NULL, &userBlack };
+        Expect("(g) same Y, other X/Z, no raw", SlotsHoldData(gre), false);
+        // one ulp away in Y is another value
+        CColor nearly(0.05 * 0.95047, nextafter(0.05, 1.0), 0.05 * 1.0883);
+        CColor grayNear[4] = { nearly, noDataColor, noDataColor, noDataColor };
+        SeriesSlots gn = { S_GRAY, grayNear, 4, NULL, &userBlack };
+        Expect("(g) Y one ulp off", SlotsHoldData(gn), true);
+        // only the first slot is exempt
+        CColor graySecond[4] = { noDataColor, userBlack, noDataColor, noDataColor };
+        SeriesSlots g2 = { S_GRAY, graySecond, 4, NULL, &userBlack };
+        Expect("(g) synthetic value in slot 1", SlotsHoldData(g2), true);
+        // the slots above the black still count
+        CColor grayAbove[4] = { userBlack, Reading(5.0), noDataColor, noDataColor };
+        SeriesSlots ga = { S_GRAY, grayAbove, 4, NULL, &userBlack };
+        Expect("(g) a reading above the synthetic black", SlotsHoldData(ga), true);
+
+        // the on/off black: one slot
+        CColor onoffSyn = userBlack;
+        SeriesSlots os = { S_ONOFFBLACK, &onoffSyn, 1, NULL, &userBlack };
+        Expect("(g) on/off black synthetic", SlotsHoldData(os), false);
+        SeriesSlots orr = { S_ONOFFBLACK, &realRaw, 1, NULL, &userBlack };
+        Expect("(g) on/off black real", SlotsHoldData(orr), true);
+        Expect("(g) IsSyntheticBlack noDataColor", IsSyntheticBlack(noDataColor, userBlack), false);
+        Expect("(g) IsSyntheticBlack against noDataColor", IsSyntheticBlack(userBlack, noDataColor), false);
+        // the live "Use Black Level" preference: MainView writes ITS black into
+        // slot 0 whatever the document flag says, and its Y can differ from the
+        // document's m_userBlack (a file saved with another black level)
+        const CColor prefBlack(0.08 * 0.95047, 0.08, 0.08 * 1.0883);
+        CColor grayPref[4] = { prefBlack, noDataColor, noDataColor, noDataColor };
+        SeriesSlots gp = { S_GRAY, grayPref, 4, NULL, &userBlack, &prefBlack };
+        Expect("(g) the live preference's black in slot 0", SlotsHoldData(gp), false);
+        SeriesSlots gpNo = { S_GRAY, grayPref, 4, NULL, &userBlack, NULL };
+        Expect("(g) the preference's black with the preference off", SlotsHoldData(gpNo), true);
+        SeriesSlots gpu = { S_GRAY, gray, 4, NULL, &userBlack, &prefBlack };
+        Expect("(g) the document's black with the preference on", SlotsHoldData(gpu), false);
+        SeriesSlots gpr = { S_GRAY, grayRaw, 4, NULL, &userBlack, &prefBlack };
+        Expect("(g) a real black with the preference on", SlotsHoldData(gpr), true);
+    }
+
+    static void CheckAsk()
+    {
+        Expect("(f) switch off, no data", AskBeforeSweep(false, false), false);
+        Expect("(f) switch off, data", AskBeforeSweep(false, true), false);
+        Expect("(f) switch on, no data", AskBeforeSweep(true, false), false);
+        Expect("(f) switch on, data", AskBeforeSweep(true, true), true);
+    }
+}
+
+static void RunT52()
+{
+    printf("T52 sweep-start confirmation only over data...\n");
+    T52Confirm::CheckSlots();
+    T52Confirm::CheckMultiSeries();
+    T52Confirm::CheckMasks();
+    T52Confirm::CheckBlackOverride();
+    T52Confirm::CheckAsk();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -7226,6 +7549,7 @@ int main(int argc, char* argv[])
     RunT49();
     RunT50();
     RunT51();
+    RunT52();
 
     if (g_failures)
     {

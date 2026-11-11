@@ -451,6 +451,7 @@ public:
 	BOOL IsOnOffWhiteMeasured() const { return m_bOnOffWhiteMeasured; }
 	static bool IsPlaceholderWhite(const CColor & c, bool bOnOff);	// the ctor's nominal white, by value (load-time flag recovery)
 	static bool IsRawlessPlaceholder(const CColor & c, bool bBlack);	// the ctor's top-gray (bBlack false) or on/off-black placeholder: the walks neither recompute nor count it
+	BOOL SweepOverwritesData(unsigned int sweep) const;	// would a sweep writing this SweepConfirmRule mask overwrite a reading (not a placeholder)
 
 	BOOL MeasureContrast(CSensor *pSensor, CGenerator *pGenerator);
 	double GetOnOffContrast ();
