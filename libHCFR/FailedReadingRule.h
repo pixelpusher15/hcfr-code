@@ -21,10 +21,12 @@
 // knows. Header only, no MFC or driver types, so ColorMathTest (T50) checks the
 // same functions the app calls.
 //
-// A reading fails when the sensor says so (CSensor::MeasureColor: the driver
-// flagged it, or the XYZ is not finite) - IsMeasureValid() is FALSE, the reading
-// is noDataColor and the sensor's error string says why. Every sweep then shows
-// its Abort / Retry / Ignore box. What happens to the document:
+// A reading fails when the sensor says so (CSensor::MeasureColor through
+// SensorReadingPassed: the driver flagged it, the XYZ is not finite, or it is
+// the no-data value) - IsMeasureValid() is FALSE, the reading is noDataColor
+// and the sensor's error string says why. A finite reading with a negative
+// component is a reading. Every sweep then shows its Abort / Retry / Ignore
+// box. What happens to the document:
 //
 // - A sweep (Measure.cpp, every slot it fills: gray scale, near black, near
 //   white, the saturations, primaries and secondaries, the color checker, the
@@ -59,9 +61,47 @@
 #define FAILEDREADINGRULE_H_INCLUDED
 
 #include <vector>
+#include <cmath>        // std::isfinite
+#include "Color.h"      // FX_NODATA
 
 namespace FailedReadingRule
 {
+    // A component at or below this is the no-data marker, never light: half of
+    // FX_NODATA (-99999.99), so -49999.995. A sensor that fails returns
+    // noDataColor, every component exactly FX_NODATA, and CSensor::MeasureColor
+    // tests it before any clamp or matrix; the half margin also recognizes it
+    // after arithmetic that keeps it within a factor of two (an average with a
+    // real reading, a near-identity matrix). No meter reads -50000: a real
+    // negative component is a fraction of a percent of the positive ones (an
+    // i1Display 3 on a full-level red read Z -1.203 at X 165.1, -0.73%), so it
+    // would take an X of millions of cd/m2. Not a small absolute threshold such
+    // as isValid's -1.0: a real negative component grows with the light, and
+    // that threshold failed a bright red.
+    const double NoDataComponentLimit = FX_NODATA / 2.0;
+
+    inline bool IsNoDataComponent(double v)
+    {
+        return v <= NoDataComponentLimit;
+    }
+
+    // Whether a reading just taken from a sensor passed (CSensor::MeasureColor,
+    // and the sweeps that re-test what it returned): the driver did not flag it
+    // (driverValid, IsMeasureValid), X, Y and Z are all finite (NaN and
+    // +/-infinity fail; ColorTriplet::isValid passes +infinity), and no
+    // component is the no-data value. Nothing else fails a reading: a finite
+    // negative component, Y included, is a reading, and MeasureColor floors each
+    // component at 1e-8, as it did before 4adfeab2 and e26a1edf (2026-11-09) and
+    // in 4.2.2. ColorTriplet::isValid (every component > -1.0) is for stored
+    // slots, which are clamped, not for a fresh reading.
+    inline bool SensorReadingPassed(bool driverValid, double X, double Y, double Z)
+    {
+        if ( !driverValid )
+            return false;
+        if ( !std::isfinite(X) || !std::isfinite(Y) || !std::isfinite(Z) )
+            return false;
+        return !IsNoDataComponent(X) && !IsNoDataComponent(Y) && !IsNoDataComponent(Z);
+    }
+
     // The user's answer to the Abort / Retry / Ignore box a failed reading raises.
     enum Answer
     {

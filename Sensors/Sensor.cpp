@@ -26,7 +26,7 @@
 #include "Sensor.h"
 #include "Generator.h"
 #include "SensorCalibrationStream.h"
-#include <float.h>	// _finite
+#include "FailedReadingRule.h"	// SensorReadingPassed
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -325,11 +325,16 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 		result = MeasureColorInternal(aRGBValue);
 	
 	// A failed read comes back as noDataColor, which the clamps below would turn
-	// into a valid-looking color, so decide success before they run.
-	// isValid rejects NaN (NaN > -1.0 is false) but passes +infinity, which the
-	// clamps would keep; _finite rejects both.
-	BOOL bMeasureOk = ( IsMeasureValid() && result.isValid()
-	                    && _finite(result.GetX()) && _finite(result.GetY()) && _finite(result.GetZ()) );
+	// into a valid-looking color, so decide success before they run. The rule is
+	// FailedReadingRule::SensorReadingPassed: the driver flagged it, or X, Y or Z
+	// is not finite (the clamps would keep +infinity), or it is the no-data value.
+	// Not isValid (every component > -1.0): a colorimeter on a bright saturated
+	// red reads a negative Z that grows with the light (an i1Display 3 read
+	// X 165.1, Y 81.3, Z -1.203 on a full-level red), and isValid failed that
+	// good reading. A finite negative component, Y included, is a reading: the
+	// clamps floor it at 1e-8.
+	BOOL bMeasureOk = FailedReadingRule::SensorReadingPassed ( IsMeasureValid() != FALSE,
+	                    result.GetX(), result.GetY(), result.GetZ() ) ? TRUE : FALSE;
 	// A failed read stays noDataColor, as it did when AsyncMeasurer's catch returned
 	// it (4.2.2): the sweeps test IsMeasureValid and store only a reading that
 	// passed (FailedReadingRule.h), and whatever sees a failed one sees an invalid
@@ -337,8 +342,9 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	// A driver can fail without saying so: an i1Pro with a broken dark calibration
 	// returned NaN XYZ with no error and the validity flag still TRUE, so the sweeps
 	// showed no Abort/Retry/Ignore box and stored the slot. Any reading that is not
-	// a finite XYZ is a failed reading: the flag goes FALSE here, and the reason is
-	// the sensor's own when it gave one, else IDS_SENSOR_INVALID_READING.
+	// a finite XYZ, or is the no-data value, is a failed reading: the flag goes
+	// FALSE here, and the reason is the sensor's own when it gave one, else
+	// IDS_SENSOR_INVALID_READING.
 	if ( ! bMeasureOk )
 	{
 		if ( GetErrorString().IsEmpty() )
