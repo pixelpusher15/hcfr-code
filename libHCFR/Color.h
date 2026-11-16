@@ -32,7 +32,7 @@
 
 #define FX_NODATA -99999.99
 
-#define MAX_USER_CC_PATCH_SIZE 10000
+#include "CsvPatchRows.h"   // MAX_USER_CC_PATCH_SIZE, CSV_RANGE_*, CsvPatchRow, the MFC-free parser
 
 #include "libHCFR_Config.h"
 #include "Matrix.h"
@@ -974,20 +974,11 @@ extern ColorXYZ SelectAndApplyBodnerMatrix(const ColorXYZ& rawXYZ, const Matrix 
 // and rawInvertible[k] must describe the corresponding raw sub-gamut matrix.
 extern ColorXYZ SelectAndApplyBodnerMatrixInv(const ColorXYZ& rawXYZ, const Matrix rawInv[3], const bool rawInvertible[3], const Matrix calMatrix[3]);
 extern int PiPercentToCode ( double percent, bool is16_235, int bits );
-// Range a ColourSpace patch-list CSV can declare in its header (import-range guard).
-// CSV_RANGE_NONE = no header / legacy default. The loader (ReadCsvPatchRows) reports the
-// declared range via its rangeOut - the guard reads it from there so they can't diverge.
-enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_EXTENDED = 2 };
-// Shared patch-list parsing (one parser: ReadColorsFromCsv percentages + GetCColors codes/names).
-#include <vector>
-#include <string>
-// role is a CColorProvenanceRole; a CSV declares none, so the parser leaves -1.
-struct CsvPatchRow { int patch, r, g, b; std::string name; int role = -1; };
+// Shared patch-list parsing lives in CsvPatchRows.h (MFC-free); this CString overload
+// forwards to it for the app-side callers.
 extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut );
 // Resolve a CC mode to its patch-list file (predefined CSV or USER) + HDR-recalc flag; false for inline-array modes.
 extern bool ResolveCCSetPath ( int aCCMode, CString & outPath, bool * recalcOut );
-// One source code -> HCFR stimulus percentage for a given bit depth + CSV range (range-aware target readback).
-extern double CsvCodeToPercent ( double code, int bits, int range );
 // Exact inverse (round-to-nearest, clamped to the grid): stimulus percentage -> source code.
 // Used to reconstruct definition codes from stored stimuli during legacy .chc migration.
 extern int CsvPercentToCode ( double percent, int bits, int range );
