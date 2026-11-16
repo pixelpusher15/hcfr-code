@@ -41,7 +41,7 @@ public:
 	CString m_displayName;
 	CString m_displayTech;
 	CEdit m_displayNameCtrl;
-	CEdit m_displayTechCtrl;
+	CComboBox m_displayTechCtrl;
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support

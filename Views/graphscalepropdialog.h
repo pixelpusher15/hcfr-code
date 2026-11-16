@@ -65,6 +65,7 @@ protected:
 	//{{AFX_MSG(CGraphScalePropDialog)
 	afx_msg void OnHelp();
 	afx_msg BOOL OnHelpInfo ( HELPINFO * pHelpInfo );
+	virtual BOOL OnInitDialog();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

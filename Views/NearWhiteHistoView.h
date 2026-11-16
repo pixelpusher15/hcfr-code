@@ -85,7 +85,7 @@ class CNearWhiteGrapher
 	void UpdateGraph ( CDataSetDoc * pDoc );
 
 protected:
-	void AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID);
+	void AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID,double PointOffset);
 };
 
 class CNearWhiteHistoView : public CSavingView

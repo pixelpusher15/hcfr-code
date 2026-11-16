@@ -8,6 +8,8 @@ Guards the 8-bit signal path while the 10-bit work lands. Part of the plan in
   legacy implementation carried inside the test (no golden file). This is the core 8-bit
   contract; ~1M-point sweep per range plus grid and clamp edges. **Never update the frozen
   copy** — if T1 fails, the live quantizer changed behavior.
+- **T1b** — `ConvertPercentToCode`: at 8 bits it must equal the T1 frozen oracle at every
+  input; at 10 bits it is checked structurally (endpoints, clamps, monotonicity, limited grid).
 - **T2/T3** — `ArrayIndexToGrayLevel` / `GrayLevelToGrayProp` tables for all grayscale sizes,
   all three rounding modes (normal / round-down / 10-bit disc) **and both wire ranges**, vs
   golden files. The `is16_235` column selects the native code grid (219 limited / 255 full at
@@ -45,6 +47,17 @@ Guards the 8-bit signal path while the 10-bit work lands. Part of the plan in
   instead of Rec.709. `CUSTOM` is excluded because constructing one corrupts the global
   Rec.601 primaries (see the comment above `RunT10`); `CC6` skips the second leg only.
   Note this pins the shared helper, **not** any view's use of it — nothing here links MFC.
+- **T11** — BT.2390 tone-map monotonicity oracle (no golden file): the forward tone-mapped
+  PQ curve must be non-decreasing in the signal, including near black, where the harness
+  (which pins the mastering and target blacks to 0) cannot see it.
+- **T12** — BT.2390 inverse-LUT oracle (no golden file): the inverse path (mode -10) must
+  build its table on every call and round-trip in luminance, forward(inverse(y)) == y.
+- **T13** — HLG black oracle (no golden file): at a signal of 0 (and below) HLG must return
+  its BT.2100 black lift, target black / white Y, exactly, stay finite for a system gamma
+  below 1, and be continuous with the curve just above 0. The harness pins the target black
+  to 0, so this is the only test that reaches it.
+- **T22** — test-color window oracle (no golden file): the code the window paints for a
+  patch must be the patch's own 8-bit code in its range, the code the references snap to.
 - **T57** — `DisplayModel` v1 recovery oracle (no golden file): a synthetic display with
   known per-channel gammas, primary matrix, and black offset must be recovered exactly
   from noise-free samples; weight semantics (a weight-0 sample must leave matrix, gammas,
@@ -53,10 +66,7 @@ Guards the 8-bit signal path while the 10-bit work lands. Part of the plan in
   input-contract rejection (non-finite fields, negative weight, stimulus outside [0,1]);
   failed re-fit preserves the previous model; unfitted-model transforms refuse;
   parameter-provenance flags (fitted / gray-derived / assumed) for gammas and black,
-  including quantization-jittered gray ramps staying in the gray pool. **T11/T12** (the
-  BT.2390 tone-map and inverse-LUT oracles) landed on `main` while this branch was open
-  and have no entry of their own here yet — check the open branches before assigning
-  any new T number.
+  including quantization-jittered gray ramps staying in the gray pool.
 
 ## Build & run
 Build `libHCFR` first, then this project (Debug|Win32 only):
