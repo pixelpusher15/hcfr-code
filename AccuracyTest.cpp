@@ -78,6 +78,8 @@
 #include "Measure.h"
 #include "SimulatedSensor.h"
 #include "AccuracyTest.h"
+#include "ArchiveExtension.h"
+#include "SweepConfirmRule.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -462,7 +464,11 @@ static double GridYWhite ( const CMeasure & m, bool bSpecial, bool bCC )
 		y = GetConfig()->m_TargetMaxL;
 	// CC only, SDR only: a primaries run made below 90% stimulus (UpdateGrid
 	// ~3819-3826).
-	if ( bCC && onoff.isValid() && GetConfig()->m_GammaOffsetType != 5
+	// Mirrors GetColorDEWhiteY's gate exactly, m_bOnOffWhiteMeasured included:
+	// the ctor's placeholder on/off white is isValid() at m_TargetMaxL, so
+	// without this the harness would keep applying an override production no
+	// longer applies -- a phantom grid-vs-viewer split in the convPV families.
+	if ( bCC && m.IsOnOffWhiteMeasured() && onoff.isValid() && GetConfig()->m_GammaOffsetType != 5
 		 && yOnOff > 0 && yPrime / yOnOff < 0.9 )
 		y = yOnOff;
 	return y;
@@ -488,10 +494,17 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 	double YWhite = YWhiteIn, RefWhite = 1.0;
 	const CColorReference & cRef = GetColorReference();
 
-	if ( isHDR )
+	if ( isHDR && displayMode == 1 )
 	{
-		CColor White = m.GetOnOffWhite();
-		CColor Black = m.GetOnOffBlack();
+		// the grid's primaries normalisation itself, not a mirror of it
+		PrimaryDENorm pn = m.GetPrimaryDENorm(YWhite, nCol);
+		YWhite = pn.yWhite;
+		RefWhite = pn.refWhite;
+	}
+	else if ( isHDR )
+	{
+		CColor White = m.GetGrayScaleWhite();
+		CColor Black = m.GetGrayScaleBlack();
 		BOOL DVD = ( cfg->GetGeneratorType() == CColorHCFRConfig::enumManual );
 		double tmWhite;
 		if ( DVD )
@@ -499,36 +512,11 @@ static double GridColorDE ( const CMeasure & m, const CColor & aMeasure, const C
 			// The Mascior disc redefines white as its level-502 (50.0%) patch =
 			// 92.254965 nits, un-snapped, instead of the GDI wire's 50.22831%
 			// code -> TmDiffuseWhiteNits. (MainView.cpp ~3103-3126.)
-			bool shiftDiffuse = ( fabs(cfg->m_DiffuseL - 94.0) > 0.5 );
 			tmWhite = getL_EOTF(0.50, White, Black, cfg->m_GammaRel, cfg->m_Split, 5, cfg->m_DiffuseL,
 								cfg->m_MasterMinL, cfg->m_MasterMaxL, cfg->m_TargetMinL, cfg->m_TargetMaxL,
 								cfg->m_useToneMap, FALSE, cfg->m_TargetSysGamma,
 								cfg->m_BT2390_BS, cfg->m_BT2390_WS, cfg->m_BT2390_WS1) * 100.0;
-			if ( displayMode == 1 )
-			{
-				if ( cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7 )
-					RefWhite = YWhite / ( !shiftDiffuse ? 92.254965 : tmWhite );
-				else
-				{
-					RefWhite = YWhite / tmWhite;
-					YWhite = YWhite * 94.37844 / tmWhite;
-				}
-			}
-			else
-			{
-				if ( ( (cRef.m_standard == UHDTV2 && nCol == satsize) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV ) && displayMode != 11 )
-					RefWhite = YWhite / tmWhite;
-				else
-				{
-					RefWhite = YWhite / tmWhite;
-					YWhite = YWhite * 94.37844 / tmWhite;
-				}
-			}
-		}
-		else if ( displayMode == 1 )
-		{
-			tmWhite = TmDiffuseWhiteNits(White, Black);
-			if ( cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || cRef.m_standard == UHDTV3 || cRef.m_standard == UHDTV4 || nCol == 7 )
+			if ( ( (cRef.m_standard == UHDTV2 && nCol == satsize) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV ) && displayMode != 11 )
 				RefWhite = YWhite / tmWhite;
 			else
 			{
@@ -788,12 +776,12 @@ static const int kSatSize  = 5;
 static void RefreshHdrTargets ( CMeasure & m )
 {
 	CColorHCFRConfig * cfg = GetConfig();
-	CColor White = m.GetOnOffWhite();
-	CColor Black = m.GetOnOffBlack();
+	CColor White = m.GetGrayScaleWhite();
+	CColor Black = m.GetGrayScaleBlack();
 	if ( !cfg->m_bOverRideTargs && Black.isValid() && White.isValid() && (cfg->m_GammaOffsetType == 5 || cfg->m_GammaOffsetType == 7) )
 	{
 		if ( Black.GetY() < White.GetY() )
-			cfg->m_TargetMinL = Black.GetY() > 1e-5 ? Black.GetY() : 0.0;
+			cfg->m_TargetMinL = HasMeasuredLight ( Black.GetY() ) ? Black.GetY() : 0.0;	// mirrors MainView::UpdateGrid
 		else
 			cfg->m_TargetMinL = 0.0;
 		if ( White.GetY() > 0 )
@@ -833,11 +821,14 @@ static void RunGray ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 	m.SetOnOffWhite(m.GetGray(kGraySize - 1));		// MeasureGrayScale: measuredColor[size-1]
 	RefreshHdrTargets(m);							// converges (same values as bootstrap)
 
-	CColor White = m.GetOnOffWhite();
-	CColor Black = m.GetOnOffBlack();
+	CColor White = m.GetGrayScaleWhite();
+	CColor Black = m.GetGrayScaleBlack();
 
-	// dE per UpdateGrid case 0 + GetItemText grayscale branch. The grid
-	// leaves the first column (black) without a dE; skip it the same way.
+	// dE per UpdateGrid case 0 + GetItemText grayscale branch. Black (the
+	// first column) is skipped: the grid prints its dE through
+	// BlackTargetReference but keeps it out of the grayscale average, and this
+	// harness pins TargetMinL to 0, so neither that path nor the HLG black lift
+	// in getL_EOTF is exercised here.
 	double YWhite = m.GetGray(kGraySize - 1).GetY();
 	for ( i = 1 ; i < kGraySize ; i ++ )
 	{
@@ -869,89 +860,14 @@ static void RunGray ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, 
 	}
 }
 
-// Primaries + secondaries + white/black rows; mirrors MeasurePrimaries'
-// GenColors construction (Measure.cpp ~1693-1785) incl. the UHDTV3/4
-// ContainerPrimaryLinear chain and the HDTVa/b HDR re-encode.
+// Primaries + secondaries + white/black rows: the sweeps' own patches
+// (CMeasure::BuildPrimarySecondaryColors), so the harness checks the codes
+// the sweeps and the test-window preview send. NULL generator: the
+// manual-DVD Mascior 50.00 white is not modeled here.
 static void RunPrimaries ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, FamStat & stat )
 {
-	CColorHCFRConfig * cfg = GetConfig();
-	int mode = cfg->m_GammaOffsetType;
-	BOOL isSpecial = FALSE;
-
-	double primaryIRELevel = 100.0;
-	if ( mode == 5 )
-		primaryIRELevel = 50.22831;		// non-DVD wire (manual-generator Mascior 50.00 not modeled here)
-
-	ColorRGBDisplay GenColors[8] =
-	{
-		ColorRGBDisplay(primaryIRELevel,0,0),
-		ColorRGBDisplay(0,primaryIRELevel,0),
-		ColorRGBDisplay(0,0,primaryIRELevel),
-		ColorRGBDisplay(primaryIRELevel,primaryIRELevel,0),
-		ColorRGBDisplay(0,primaryIRELevel,primaryIRELevel),
-		ColorRGBDisplay(primaryIRELevel,0,primaryIRELevel),
-		ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel),
-		ColorRGBDisplay(0,0,0)
-	};
-	if ( GetColorReference().m_standard == HDTVb )
-	{
-		GenColors[0] = ColorRGBDisplay(79.9087,10.0457,10.0457);
-		GenColors[1] = ColorRGBDisplay(30.137,79.9087,30.137);
-		GenColors[2] = ColorRGBDisplay(50.2283,50.2283,79.9087);
-		GenColors[3] = ColorRGBDisplay(79.9087,79.9087,10.0457);
-		GenColors[4] = ColorRGBDisplay(10.0457,79.9087,79.9087);
-		GenColors[5] = ColorRGBDisplay(79.9087,10.0457,79.9087);
-		isSpecial = TRUE;
-	}
-	else if ( GetColorReference().m_standard == HDTVa )
-	{
-		GenColors[0] = ColorRGBDisplay(68.04,20.09,20.09);
-		GenColors[1] = ColorRGBDisplay(27.85,73.06,27.85);
-		GenColors[2] = ColorRGBDisplay(19.18,19.18,50.22);
-		GenColors[3] = ColorRGBDisplay(73.9726,73.9726,33.3333);
-		GenColors[4] = ColorRGBDisplay(36.07,73.06,73.06);
-		GenColors[5] = ColorRGBDisplay(64.3836,29.2237,64.3836);
-		GenColors[6] = ColorRGBDisplay(75.0,75.0,75.0);
-		isSpecial = TRUE;
-	}
-	else if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 )
-	{
-		if ( !(mode == 5 || mode == 7) )
-			isSpecial = TRUE;
-		GenColors[6] = ColorRGBDisplay(primaryIRELevel,primaryIRELevel,primaryIRELevel);
-		GenColors[7] = ColorRGBDisplay(0,0,0);
-	}
-
-	if ( GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 )
-	{
-		CColor tmW = m.GetGray(m.GetGrayScaleSize() - 1);
-		CColor tmB = m.GetOnOffBlack();
-		for ( int ci = 0 ; ci < 6 ; ci ++ )
-		{
-			ColorRGB clin = ContainerPrimaryLinear(GetColorReference(), ci);
-			for ( int ck = 0 ; ck < 3 ; ck ++ )
-			{
-				double cv = clin[ck];
-				if ( mode == 5 )
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv / 105.95640, tmW, tmB, cfg->m_GammaRel, cfg->m_Split, -5);
-				else if ( mode == 7 )
-					cv = (cv <= 0.0) ? 0.0 : getL_EOTF(cv, tmW, tmB, cfg->m_GammaRel, cfg->m_Split, -7);
-				else
-					cv = (cv <= 0.0 || cv >= 1.0) ? min(max(cv, 0.0), 1.0) : pow(cv, 1.0 / 2.22);
-				GenColors[ci][ck] = min(max(cv, 0.0), 1.0) * 100.0;
-			}
-		}
-	}
-
-	if ( (mode == 5 || mode == 7) && isSpecial )
-	{
-		for ( int i = 0 ; i <= 5 ; i ++ )
-		{
-			GenColors[i][0] = 100. * getL_EOTF(pow(GenColors[i][0] / 100., 2.22), noDataColor, noDataColor, 0, 0, -1 * mode);
-			GenColors[i][1] = 100. * getL_EOTF(pow(GenColors[i][1] / 100., 2.22), noDataColor, noDataColor, 0, 0, -1 * mode);
-			GenColors[i][2] = 100. * getL_EOTF(pow(GenColors[i][2] / 100., 2.22), noDataColor, noDataColor, 0, 0, -1 * mode);
-		}
-	}
+	ColorRGBDisplay GenColors[8];
+	m.BuildPrimarySecondaryColors ( NULL, GenColors );
 
 	// MT_PRIMARY/MT_SECONDARY patches (incl. the white anchor) are dimmed by
 	// the window Intensity on the real wire.
@@ -1111,10 +1027,489 @@ static void RunCC ( const Combo & c, CMeasure & m, CSimulatedSensor & sensor, CC
 static const double kPrimeWhiteGain = 0.965;
 static const double kOnOffWhiteGain = 0.982;
 
+// The sub-90%-stimulus override, both directions, on a document whose ON/OFF
+// white is the constructor's placeholder - the state a standalone display
+// profile starts in, and the one the whole m_bOnOffWhiteMeasured gate exists for.
+//
+// The perturbation family above cannot reach it: its gains put the ratio at
+// 0.965/0.982 = 0.983, and the only combos where the ratio does drop below 0.9
+// are HDTVa/HDTVb, where bSpecial has already selected the on/off white so the
+// override is a no-op. So before this, deleting the gate from EITHER
+// GetColorDEWhiteY or GridYWhite left the whole 834-combo run unchanged.
+//
+// Asserting the VALUE and not just pane/viewer agreement is the point: the two
+// are mirrors, so a gate deleted from both would still agree - on the wrong
+// white. Case 1 pins "unmeasured on/off white does NOT override a real prime
+// white", case 2 pins "a measured one still does".
+static void CheckSub90Override ( FamStat & stat )
+{
+	CColorHCFRConfig * cfg = GetConfig();
+	// The override is SDR-only and never fires for the special standards.
+	if ( cfg->m_GammaOffsetType == 5 )
+		return;
+	if ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb )
+		return;
+
+	// Fresh CMeasure: both whites are the ctor placeholder at m_TargetMaxL and
+	// BOTH flags are FALSE. That state is not reachable through the public
+	// setters - SetOnOffWhite derives the flag from isValid() - which is exactly
+	// why this case needs its own CMeasure rather than perturbing the shared one.
+	CMeasure m;
+	const double yOnOff = m.GetOnOffWhite().GetY();
+	if ( !( yOnOff > 0.0 ) )
+		return;
+
+	// A real prime white 20% below the placeholder: ratio 0.8, comfortably under
+	// the 0.9 threshold, so the override is armed in both cases below.
+	const double yPrime = yOnOff * 0.8;
+	CColor prime;
+	prime.SetXYZValue(ColorXYZ(yPrime * 0.95047, yPrime, yPrime * 1.08883));
+	m.SetPrimeWhite(prime);
+
+	// Case 1: on/off white never measured -> the override must NOT fire.
+	double gridY = GridYWhite(m, false, true);
+	double paneY = m.GetColorDEWhiteY(false, true, false);
+	if ( fabs(gridY - yPrime) > 1e-6 || fabs(paneY - yPrime) > 1e-6 )
+		stat.Add(999.0, "sub90 override fired on an UNMEASURED on/off white "
+						"(grid %.4f, pane %.4f, want prime %.4f)", gridY, paneY, yPrime);
+
+	// Case 2: same numbers, on/off white now a reading -> the override must fire.
+	m.SetOnOffWhite(m.GetOnOffWhite());		// same value, but now flagged measured
+	gridY = GridYWhite(m, false, true);
+	paneY = m.GetColorDEWhiteY(false, true, false);
+	if ( fabs(gridY - yOnOff) > 1e-6 || fabs(paneY - yOnOff) > 1e-6 )
+		stat.Add(999.0, "sub90 override did NOT fire on a MEASURED on/off white "
+						"(grid %.4f, pane %.4f, want on/off %.4f)", gridY, paneY, yOnOff);
+}
+
+// The load path re-derives both white-was-measured flags for every pre-21 file
+// by recognising the constructor's placeholders by value. Pin both directions at
+// this combo's m_TargetMaxL: the ctor's own whites must match (or a reopened
+// document reads them as measured again and the sub-90 override returns), and a
+// white a hair off the signature must not (or a real reading is discarded on
+// reload).
+static void CheckPlaceholderSignature ( FamStat & stat )
+{
+	CMeasure m;
+	if ( ! CMeasure::IsPlaceholderWhite(m.GetPrimeWhite(), false) )
+		stat.Add(999.0, "ctor prime-white placeholder not recognised by IsPlaceholderWhite");
+	if ( ! CMeasure::IsPlaceholderWhite(m.GetOnOffWhite(), true) )
+		stat.Add(999.0, "ctor on/off-white placeholder not recognised by IsPlaceholderWhite");
+
+	CColor p = m.GetPrimeWhite(), o = m.GetOnOffWhite();
+	ColorXYZ pv = p.GetXYZValue(), ov = o.GetXYZValue();
+	p.SetXYZValue(ColorXYZ(pv[0] * 1.0001, pv[1], pv[2]));
+	o.SetXYZValue(ColorXYZ(ov[0] * 1.0001, ov[1], ov[2]));
+	if ( CMeasure::IsPlaceholderWhite(p, false) || CMeasure::IsPlaceholderWhite(o, true) )
+		stat.Add(999.0, "a non-placeholder white matched the placeholder signature");
+}
+
+// Both recalibration walks return the count the "N measurement(s) have no raw
+// sensor reading" notice shows, and a single-matrix walk that returns 0 re-arms
+// the sensor's RawlessReadingsState. Pin that count: the constructor's
+// placeholders (top gray slot, on/off black) are not readings, and a reading
+// held in two slots (the active saturation level and its m_satLevelStore entry,
+// the live color-checker array and its master band, a grayscale black and its
+// on/off copy) is one reading. Each case runs on its own fresh CMeasure, with
+// identity matrices, so only the count is under test.
+static int RawlessWalk ( CMeasure & m, bool bBodner )
+{
+	if ( bBodner )
+	{
+		Matrix raw[3] = { Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3) };
+		Matrix cal[3] = { Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3) };
+		return m.ApplySensorBodnerRecalibration(raw, cal);
+	}
+	return m.ApplySensorAdjustmentMatrix(Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3), false);
+}
+
+static CColor RawlessReading ( double x, double y, double z )
+{
+	CColor c;
+	c.SetXYZValue(ColorXYZ(x, y, z));	// no SetRawXYZValue: a pre-raw or hand-edited value
+	return c;
+}
+
+static CColor RawReading ( double x, double y, double z )
+{
+	CColor c = RawlessReading(x, y, z);
+	c.SetRawXYZValue(ColorXYZ(x, y, z));
+	return c;
+}
+
+static void CheckRawlessSkipCount ( FamStat & stat )
+{
+	for ( int w = 0; w < 2; w++ )
+	{
+		const bool bBodner = ( w == 1 );
+		const char * name = bBodner ? "Bodner" : "single-matrix";
+
+		// 1. Fresh document: only placeholders are left raw-less.
+		{
+			CMeasure m;
+			if ( ! CMeasure::IsRawlessPlaceholder(m.GetGray(m.GetGrayScaleSize()-1), false)
+				|| ! CMeasure::IsRawlessPlaceholder(m.GetOnOffBlack(), true) )
+				stat.Add(999.0, "ctor gray-top / on-off-black placeholder not recognised by IsRawlessPlaceholder");
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 0 )
+				stat.Add(999.0, "%s walk counted %d raw-less readings in a fresh document (want 0)", name, n);
+		}
+
+		// 2. Primaries and white measured (they carry raw), black left at the
+		// placeholder: nothing is skipped, so a stranded state re-arms.
+		{
+			CMeasure m;
+			m.SetRedPrimary(RawReading(41.0, 21.0, 2.0));
+			m.SetGreenPrimary(RawReading(36.0, 72.0, 12.0));
+			m.SetBluePrimary(RawReading(18.0, 7.0, 95.0));
+			m.SetPrimeWhite(RawReading(95.0, 100.0, 109.0));
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 0 )
+				stat.Add(999.0, "%s walk counted %d raw-less readings with primaries+white measured (want 0)", name, n);
+			RawlessReadingsState s;
+			s.MatrixSetWithoutWalk();
+			s.SingleMatrixWalked(n);
+			if ( ! bBodner && ! s.ComposeOntoRawless() )
+				stat.Add(999.0, "RawlessReadingsState did not re-arm after a walk with nothing to skip");
+		}
+
+		// 3. One raw-less reading in each mirrored pair: counted once each.
+		{
+			CMeasure m;
+			CColor sat = RawlessReading(30.0, 20.0, 5.0);
+			m.SetRedSat(0, sat);
+			m.GetSatLevelCount();	// mirrors the active level into m_satLevelStore
+			CColor cc = RawlessReading(12.0, 11.0, 9.0);
+			m.SetCC24Sat(0, cc);
+			m.SetCC24MasterSat(0, cc);
+			CColor black = RawlessReading(0.031, 0.033, 0.034);
+			m.SetGray(0, black);
+			m.SetOnOffBlack(black);
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 3 )
+				stat.Add(999.0, "%s walk counted %d raw-less readings for 3 mirrored ones (want 3)", name, n);
+		}
+
+		// 4. A raw-less black a hair off the placeholder signature is a reading.
+		{
+			CMeasure m;
+			ColorXYZ v = m.GetOnOffBlack().GetXYZValue();
+			double y = v[1] > 0.0 ? v[1] : 0.05;
+			m.SetOnOffBlack(RawlessReading(y * 0.95047 * 1.0001, y, y * 1.08833));
+			if ( CMeasure::IsRawlessPlaceholder(m.GetOnOffBlack(), true) )
+				stat.Add(999.0, "a non-placeholder black matched the placeholder signature");
+			int n = RawlessWalk(m, bBodner);
+			if ( n != 1 )
+				stat.Add(999.0, "%s walk counted %d for one raw-less on/off black (want 1)", name, n);
+		}
+	}
+}
+
+// The sweep-start confirmation's data test (CMeasure::SweepOverwritesData; the
+// rule is libHCFR/SweepConfirmRule.h, its engine ColorMathTest T52). Pinned on
+// real CMeasure objects: a fresh document holds no data for any sweep; one
+// reading answers TRUE for exactly the masks that name its slot; the
+// constructor placeholders - including a flagged on/off white holding the
+// prime placeholder and the gray top holding the on/off one - and the black
+// override's synthetic black (no raw, the user's Y) are not data; a real black
+// under the override (raw, or another Y) is.
+static void ExpectSweepData ( FamStat & stat, CMeasure & m, const char * what, unsigned int named )
+{
+	using namespace SweepConfirmRule;
+	static const unsigned int bits[16] = { S_GRAY, S_NEARBLACK, S_NEARWHITE, S_PRIMARIES, S_SECONDARIES,
+		S_PRIMEWHITE, S_ONOFFBLACK, S_ONOFFWHITE, S_ANSI, S_SAT_RED, S_SAT_GREEN, S_SAT_BLUE,
+		S_SAT_YELLOW, S_SAT_CYAN, S_SAT_MAGENTA, S_CC24 };
+	for ( int k = 0 ; k < 16 ; k ++ )
+	{
+		bool want = ( bits[k] & named ) != 0;
+		bool got = m.SweepOverwritesData(bits[k]) != FALSE;
+		if ( got != want )
+			stat.Add(999.0, "sweep data: %s: series 0x%04X answers %s (want %s)", what, bits[k], got ? "data" : "no data", want ? "data" : "no data");
+	}
+	bool wantAll = ( named != 0 );
+	if ( ( m.SweepOverwritesData(FullRun(2, true)) != FALSE ) != wantAll )
+		stat.Add(999.0, "sweep data: %s: the full run answers %s", what, wantAll ? "no data" : "data");
+}
+
+static void CheckSweepOverwritesData ( FamStat & stat )
+{
+	using namespace SweepConfirmRule;
+	CColorHCFRConfig * cfg = GetConfig();
+	const CCPatterns savedCC = cfg->m_CCMode;
+	cfg->m_CCMode = GCD;
+
+	{ CMeasure m; ExpectSweepData(stat, m, "fresh document", 0); }
+	{ CMeasure m; m.SetGray(3, RawReading(20, 21, 22)); ExpectSweepData(stat, m, "one gray reading", S_GRAY); }
+	{ CMeasure m; m.SetOnOffWhite(RawReading(95, 100, 108)); ExpectSweepData(stat, m, "on/off white reading", S_ONOFFWHITE); }
+	{ CMeasure m; m.SetOnOffBlack(RawReading(0.05, 0.06, 0.07)); ExpectSweepData(stat, m, "on/off black reading", S_ONOFFBLACK); }
+	{ CMeasure m; m.SetPrimeWhite(RawReading(94, 99, 107)); ExpectSweepData(stat, m, "prime white reading", S_PRIMEWHITE); }
+	{ CMeasure m; m.SetNearBlack(1, RawReading(0.5, 0.5, 0.6)); ExpectSweepData(stat, m, "near black reading", S_NEARBLACK); }
+	{ CMeasure m; m.SetRedSat(2, RawReading(10, 5, 1)); ExpectSweepData(stat, m, "red saturation reading", S_SAT_RED); }
+
+	// the color checker: the active set's master band only
+	{
+		CMeasure m;
+		cfg->m_CCMode = MCD;
+		m.SetCC24MasterSat(CMeasure::CC24MasterBandBase(MCD) + 5, RawReading(30, 31, 32));
+		ExpectSweepData(stat, m, "MCD band reading, MCD active", S_CC24);
+		cfg->m_CCMode = USER;
+		ExpectSweepData(stat, m, "MCD band reading, USER active", 0);
+		m.SetCC24MasterSat(CMeasure::CC24MasterBandBase(USER) + CMeasure::CC24MasterBandSize(USER) - 1, RawReading(40, 41, 42));
+		ExpectSweepData(stat, m, "USER band reading at the band's last slot", S_CC24);
+		cfg->m_CCMode = GCD;
+		ExpectSweepData(stat, m, "MCD and USER band readings, GCD active", 0);
+		cfg->m_CCMode = MCD;
+		ExpectSweepData(stat, m, "back to MCD", S_CC24);
+		cfg->m_CCMode = GCD;
+	}
+
+	// placeholders
+	{
+		CMeasure m;
+		CColor prime = m.GetPrimeWhite();		// the constructor's prime placeholder
+		m.SetOnOffWhite(prime);					// flagged measured, holding a placeholder
+		if ( ! m.IsOnOffWhiteMeasured() )
+			stat.Add(999.0, "sweep data: setup: SetOnOffWhite did not flag the white measured");
+		ExpectSweepData(stat, m, "flagged on/off white holding the prime placeholder", 0);
+	}
+	{
+		CMeasure m;
+		m.SetGray(m.GetGrayScaleSize()-1, m.GetOnOffWhite());	// what the graphers copy there
+		ExpectSweepData(stat, m, "gray top holding the on/off white placeholder", 0);
+	}
+	{
+		CMeasure m;
+		m.SetPrimeWhite(m.GetOnOffWhite());	// a version 8 file's prime white
+		ExpectSweepData(stat, m, "flagged prime white holding the on/off placeholder", 0);
+	}
+
+	// the black override
+	{
+		CMeasure m;
+		m.m_bOverRideBlack = TRUE;
+		m.m_userBlack = CColor(ColorXYZ(0.05*.95047, 0.05, 0.05*1.0883));	// as CheckBlackOverride builds it
+		m.SetGray(0, m.m_userBlack);
+		m.SetNearBlack(0, m.m_userBlack);
+		m.SetOnOffBlack(m.m_userBlack);
+		ExpectSweepData(stat, m, "override on, synthetic black in gray 0, near black 0, on/off black", 0);
+		// as the app holds it after re-deriving X and Z: same Y, no raw
+		const CColor rederived(ColorXYZ(0.047523464475027963, 0.05, 0.054448524048047453));
+		m.SetGray(0, rederived);
+		m.SetNearBlack(0, rederived);
+		m.SetOnOffBlack(rederived);
+		ExpectSweepData(stat, m, "override on, re-derived synthetic black (same Y, no raw)", 0);
+		m.SetNearBlack(0, CColor(ColorXYZ(0.0475, 0.0501, 0.0544)));
+		ExpectSweepData(stat, m, "override on, raw-less black of another Y in near black 0", S_NEARBLACK);
+		m.SetNearBlack(0, m.m_userBlack);
+		m.SetGray(0, RawReading(0.05*.95047, 0.05, 0.05*1.0883));
+		ExpectSweepData(stat, m, "override on, real black in gray 0", S_GRAY);
+	}
+	{
+		CMeasure m;
+		m.m_bOverRideBlack = TRUE;
+		m.m_userBlack = CColor(ColorXYZ(0.05*.95047, 0.05, 0.05*1.0883));
+		m.SetOnOffBlack(RawReading(0.02, 0.021, 0.023));
+		m.SetNearBlack(0, RawReading(0.02, 0.021, 0.023));
+		ExpectSweepData(stat, m, "override on, real on/off and near blacks", S_ONOFFBLACK | S_NEARBLACK);
+	}
+
+	cfg->m_CCMode = savedCC;
+}
+
+// The user patch set collection's document-side contracts. Run once per process,
+// not per combo: none of this depends on the combo's configuration. USER_BAND is
+// the USER band base of the master array (USER_BAND_BASE in Measure.cpp).
+static const int USER_BAND = RANDOM250 * 100 + 250 + 500;
+
+static CUserPatchSet PatchSetOf ( const char * name, int nRows )
+{
+	CUserPatchSet s;
+	s.name = name;
+	s.rows.resize(nRows);
+	for ( int i = 0 ; i < nRows ; i ++ )
+	{
+		s.rows[i].patch = i + 1;
+		s.rows[i].r = s.rows[i].g = s.rows[i].b = 16 + i;
+	}
+	s.measures.assign(nRows, noDataColor);
+	return s;
+}
+
+static void CheckUserPatchSets ( FamStat & stat )
+{
+	static bool s_bDone = false;
+	if ( s_bDone )
+		return;
+	s_bDone = true;
+
+	Matrix doubled = Matrix::IdentityMatrix(3) * 2.0;
+
+	// Both recalibration walks reach a set that is not in the USER band. The
+	// active set shares its first raw reading, so the band's result is the expected
+	// value whatever the walk's formula. Each set has one raw-less reading: the
+	// inactive one counts, and the active one counts once (the band), not twice.
+	for ( int w = 0; w < 2; w++ )
+	{
+		const bool bBodner = ( w == 1 );
+		const char * name = bBodner ? "Bodner" : "single-matrix";
+		CMeasure m;
+		CUserPatchSet a = PatchSetOf("a", 2), b = PatchSetOf("b", 2);
+		a.measures[0] = RawReading(10.0, 20.0, 30.0);
+		a.measures[1] = RawlessReading(1.0, 2.0, 3.0);
+		b.measures[0] = RawReading(10.0, 20.0, 30.0);
+		b.measures[1] = RawlessReading(4.0, 5.0, 6.0);
+		int ia = m.AddUserPatchSet(a);
+		int ib = m.AddUserPatchSet(b);
+		ia = ( ib == 0 ) ? 1 : 0;
+		m.ActivateUserPatchSet(ib);
+		const double before = m.GetUserPatchSet(ia)->measures[0].GetXYZValue()[1];
+		int n;
+		if ( bBodner )
+		{
+			Matrix raw[3] = { Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3), Matrix::IdentityMatrix(3) };
+			Matrix cal[3] = { doubled, doubled, doubled };
+			n = m.ApplySensorBodnerRecalibration(raw, cal);
+		}
+		else
+			n = m.ApplySensorAdjustmentMatrix(doubled, doubled, false);
+		const double band = m.GetCC24MasterSat(USER_BAND).GetXYZValue()[1];
+		const double after = m.GetUserPatchSet(ia)->measures[0].GetXYZValue()[1];
+		if ( band == before )
+			stat.Add(999.0, "%s walk left the USER band alone", name);
+		if ( after != band )
+			stat.Add(999.0, "%s walk: inactive set reads Y %.6f, the band %.6f", name, after, band);
+		if ( n != 2 )
+			stat.Add(999.0, "%s walk counted %d raw-less readings over two sets (want 2)", name, n);
+	}
+
+	// A raw-less reading only an inactive set holds keeps a stranded state stranded.
+	{
+		CMeasure m;
+		CUserPatchSet a = PatchSetOf("a", 1), b = PatchSetOf("b", 1);
+		a.measures[0] = RawlessReading(1.0, 2.0, 3.0);
+		m.AddUserPatchSet(a);
+		m.ActivateUserPatchSet(m.AddUserPatchSet(b));
+		RawlessReadingsState s;
+		s.MatrixSetWithoutWalk();
+		s.SingleMatrixWalked(m.ApplySensorAdjustmentMatrix(doubled, doubled, false));
+		if ( s.ComposeOntoRawless() )
+			stat.Add(999.0, "a raw-less reading in an inactive set let RawlessReadingsState re-arm");
+	}
+
+	// The size projection counts the unmeasured rows of every set, not only the
+	// new one: a list that fits only until an older set is measured is refused.
+	{
+		CUserPatchSet a = PatchSetOf("a", 100), cand = PatchSetOf("c", 10);
+		CMeasure m0, m1;
+		ULONGLONG alone = m0.ProjectedUserPatchSetTrailerBytes(cand, -1);
+		std::vector<CUserPatchSet> trial;
+		trial.push_back(cand);
+		ULONGLONG perRow = ( alone - MeasureTrailerBytes(trial, -1) ) / 10;
+		m1.AddUserPatchSet(a);
+		trial.insert(trial.begin(), a);
+		ULONGLONG want = MeasureTrailerBytes(trial, -1) + 110 * perRow;
+		ULONGLONG got = m1.ProjectedUserPatchSetTrailerBytes(cand, -1);
+		if ( got != want )
+			stat.Add(999.0, "projection %I64u bytes, want %I64u (110 unmeasured rows of %I64u each)", got, want, perRow);
+	}
+
+	// A definition alone past the cap is an answer, not an exception out of the
+	// import. 10000 rows with 7000-byte names: 70 MB against the 64 MB cap.
+	{
+		CMeasure m;
+		CUserPatchSet huge = PatchSetOf("huge", MAX_USER_CC_PATCH_SIZE);
+		for ( size_t i = 0 ; i < huge.rows.size() ; i ++ )
+			huge.rows[i].name.assign(7000, 'n');
+		try
+		{
+			ULONGLONG n = m.ProjectedUserPatchSetTrailerBytes(huge, -1);
+			if ( n <= kMaxExtensionBytes )
+				stat.Add(999.0, "a 70 MB definition projected to %I64u bytes", n);
+		}
+		catch ( CArchiveException * e )
+		{
+			e->Delete();
+			stat.Add(999.0, "the size projection threw on a definition past the cap");
+		}
+	}
+
+	// m_CCStr follows the active set: GetInfoString quotes it on every activation.
+	{
+		CMeasure m;
+		CUserPatchSet a = PatchSetOf("a", 1), b = PatchSetOf("b", 1);
+		a.measures[0] = RawReading(10.0, 20.0, 30.0);
+		int ia = m.AddUserPatchSet(a);
+		int ib = m.AddUserPatchSet(b);
+		ia = ( ib == 0 ) ? 1 : 0;
+		m.ActivateUserPatchSet(ia);
+		if ( m.GetInfoString().Find(m.GetCCStr()) < 0 )
+			stat.Add(999.0, "info string does not carry the sweeps of the set just activated");
+		m.ActivateUserPatchSet(ib);
+		if ( m.GetInfoString().Find(m.GetCCStr()) < 0 )
+			stat.Add(999.0, "info string still claims the sweeps of the set just left");
+	}
+
+	// Readings with no usable definition become a set the grid can show: one row
+	// per reading at least, each driving the reading's own stimulus when it has one.
+	{
+		std::vector<CsvPatchRow> csv;
+		CString userPath;
+		int nCsv = -1;
+		if ( ResolveCCSetPath(USER, userPath, NULL) )
+			nCsv = ReadCsvPatchRows(userPath, csv, MAX_USER_CC_PATCH_SIZE, NULL, NULL);
+		const int nShort = ( nCsv > 0 ? nCsv : 0 ) + 2;	// more readings than any file row
+		CMeasure m;
+		for ( int i = 0 ; i < nShort ; i ++ )
+		{
+			CColor c = RawlessReading(1.0 + i, 2.0, 3.0);
+			if ( i == 1 )
+				c.SetStimulusValue(ColorRGBDisplay(50.0, 25.0, 75.0));
+			m.SetCC24MasterSat(USER_BAND + i, c);
+		}
+		m.MigrateLegacyUserBand();
+		CUserPatchSet * s = m.GetActiveUserPatchSet();
+		if ( s == NULL )
+			stat.Add(999.0, "migration left no active set");
+		else
+		{
+			if ( (int) s->rows.size() < nShort )
+				stat.Add(999.0, "migration: %d rows for %d readings", (int) s->rows.size(), nShort);
+			else
+			{
+				const int want = CsvPercentToCode(50.0, s->bits, s->range);
+				if ( s->rows[1].r != want )
+					stat.Add(999.0, "migration: row 1 drives %d, its reading's stimulus is code %d", s->rows[1].r, want);
+			}
+			if ( (int) s->measures.size() != nShort || ! s->measures[nShort - 1].isValid() )
+				stat.Add(999.0, "migration lost a reading");
+		}
+
+		// A file with more rows than the readings still defines them.
+		if ( nCsv >= 2 )
+		{
+			CMeasure m2;
+			m2.SetCC24MasterSat(USER_BAND, RawlessReading(1.0, 2.0, 3.0));
+			m2.MigrateLegacyUserBand();
+			CUserPatchSet * s2 = m2.GetActiveUserPatchSet();
+			if ( s2 == NULL || (int) s2->rows.size() != nCsv )
+				stat.Add(999.0, "migration: one reading, %d file rows, set has %d rows", nCsv, s2 ? (int) s2->rows.size() : -1);
+		}
+	}
+}
+
 static void RunConvWhite ( CMeasure & m, FamStat & stat )
 {
 	CColorHCFRConfig * cfg = GetConfig();
 	bool special = ( cfg->m_colorStandard == HDTVa || cfg->m_colorStandard == HDTVb );
+
+	// Independent of the perturbation below (it builds its own CMeasure), so run
+	// it before the no-samples bail-out - every combo gets the gate checked.
+	CheckSub90Override(stat);
+	CheckPlaceholderSignature(stat);
+	CheckRawlessSkipCount(stat);
+	CheckSweepOverwritesData(stat);
+	CheckUserPatchSets(stat);
+
 	if ( s_nConvSamples == 0 )
 		return;
 

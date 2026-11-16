@@ -60,6 +60,7 @@ void CManualDVDGenerator::Copy(CGenerator * p)
 
 BOOL CManualDVDGenerator::DisplayGray(double aLevel, MeasureType nPatternType,BOOL bChangePattern)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	BOOL	bRet;
 	CString str, Msg, Title;
 
@@ -80,6 +81,7 @@ BOOL CManualDVDGenerator::DisplayGray(double aLevel, MeasureType nPatternType,BO
 
 BOOL CManualDVDGenerator::DisplayRGBColor( const ColorRGBDisplay& clrIn ,MeasureType nPatternType, UINT nPatternInfo,  BOOL bChangePattern,BOOL bSilentMode)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	BOOL	bRet;
 	CString Msg, str1,str2,str3, Title;
     COLORREF clr(clrIn.GetColorRef(false));
@@ -689,6 +691,7 @@ char*  PatName[96]={
 
 BOOL CManualDVDGenerator::DisplayAnsiBWRects(BOOL bInvert)
 {
+	WireDisplayRecord::Invalidate();	// another pattern, or none: no display record holds (WireSetup.h)
 	BOOL	bRet;
 	CString str, Title;
 

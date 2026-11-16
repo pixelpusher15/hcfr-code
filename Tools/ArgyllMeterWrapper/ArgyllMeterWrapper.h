@@ -64,6 +64,15 @@ public:
     /// see if the meter supports calibration
     bool doesMeterSupportCalibration();
 
+    /// What a calibrate() would do in the driver's current mode, without doing
+    /// it: a MeterCalibrationRule::Availability (libHCFR/MeterCalibrationRule.h).
+    /// CAL_UNKNOWN when the driver is gone or not started, or the query fails.
+    int getCalibrationAvailability();
+
+    /// Counts the starts (connectAndStartMeter calls) on this wrapper: each one
+    /// sets the driver's mode, for whichever document's sensor made it.
+    unsigned int getStartCount() const { return m_startCount; }
+
     // try and do a reading
     // the client application will need to handle the
     // possible non success conditions
@@ -74,6 +83,8 @@ public:
     int getNumberOfDisplayTypes();
     const char* getDisplayTypeText(int displayModeIndex);
     int getDisplayType() const;
+    // the driver's default display type index (0 when it lists none)
+    int getDefaultDisplayType();
     int getReadingType() const;
     void setDisplayType(int displayMode);
     int m_obType;
@@ -109,7 +120,10 @@ public:
     /// if either take reading or calibrate returns 
     /// NEEDS_MANUAL_CALIBRATION then call this to find out
     /// what the user needs to do next
-    std::string getCalibrationInstructions(bool HiRes);
+    /// textIsLocalized: set true when the text returned is in the language of the
+    /// HCFR resources in use (so the caller titles its box in that language too),
+    /// false when it is one of the English texts.
+    std::string getCalibrationInstructions(bool HiRes, bool* textIsLocalized = NULL);
 
     /// if either take reading or calibrate returns 
     /// INCORRECT_POSITION then call this to find out
@@ -151,8 +165,42 @@ public:
     // is the meter in refresh mode
     virtual bool isRefresh();
 
+    // Emission calibration matrices of the driver. i1d3 family only - the one bundled
+    // driver whose struct the wrapper reads (see setDisableAIO). False for every other meter.
+    bool canExposeCalibrationMatrices() const;
+    // True when one of this wrapper's own error boxes (init_inst, setting the observer
+    // or the integration time, Set display type error, Calibration Failed!) was shown
+    // since clearErrorBoxShown for a failure it then returns or throws: that failure
+    // has been told to the user, and the caller shows no second message for it. A box
+    // with no failure after it (the inst_wrong_setup one) does not set it.
+    bool errorBoxShown() const { return m_errorBoxShown; }
+    void clearErrorBoxShown() { m_errorBoxShown = false; }
+    // The instrument serial number ("" when the driver has none).
+    std::string getSerialNumber() const;
+    // Derives the correction a spectral sample would make, using the driver's own fit:
+    // loads the sample, reads ccmat * emis_cal (currentCal), restores the current display
+    // type (which drops the sample and refits the native matrix), reads it again
+    // (nativeCal). Leaves the driver NATIVE. False (driver untouched or restored, why set)
+    // when not exposable, when either read is not in the state it must be in (sample
+    // present after load; no sample and unity ccmat after restore), or when the two are
+    // equal (SpectralMatricesEqual): the sample did not change the matrix.
+    bool deriveSpectralCalibration(const SpectralSample& sample, Matrix& nativeCal, Matrix& currentCal, std::string& why);
+    // Same for a ccss/ccmx entry of the display-type list (index as the list numbers it):
+    // selects the entry, reads currentCal, selects its BASE entry, reads nativeCal, and
+    // leaves the base entry selected. The base of a ccmx entry is the list entry whose
+    // cbid == entry.cc_cbid; of a ccss entry the entry with the same refresh flag and
+    // flags carrying neither ccss nor ccmx. False as above, or when the entry is a plain one.
+    bool deriveDisplayTypeCalibration(int displayTypeIndex, int& baseIndex, Matrix& nativeCal, Matrix& currentCal, std::string& why);
+    // True when list entry `index` carries a ccss or a ccmx (public inst_disptypesel flags).
+    bool isDisplayTypeCorrected(int index);
+
 private:
     void checkMeterIsInitialized();
+    // The capability test of doesMeterSupportCalibration, on a started meter.
+    bool calibrationCapabilityListed();
+    // Reads the i1d3 driver's emission calibration: cal = ccmat * emis_cal, whether a
+    // spectral sample is in force, whether ccmat is unity. False when not exposable.
+    bool readCalibration(Matrix& cal, bool& sampleLoaded, bool& ccmatUnity);
     _inst* m_meter;
     int m_displayType;
     int m_meterType;
@@ -162,6 +210,8 @@ private:
     BOOL dark_only;
     char m_calibrationMessage[200];    
     bool m_Adapt;
+    bool m_errorBoxShown;
+    unsigned int m_startCount;
     
     std::string m_SampleDescription;
 };
