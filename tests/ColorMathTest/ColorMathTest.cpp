@@ -12,7 +12,7 @@
 // copy of the legacy quantizer, T5/T7/T8/T9 assert quantizer and generator invariants,
 // T10 asserts gamut-basis consistency, T11 asserts BT.2390 tone-map monotonicity,
 // T12 asserts the BT.2390 inverse LUT round-trips and never faults on an empty table,
-// and T13 asserts DisplayModel fit recovery and its input contracts. Check the open
+// and T57 asserts DisplayModel fit recovery and its input contracts. Check the open
 // branches before assigning any new T number. The .chc round-trip originally planned
 // for the T7 slot needs app-level linkage and is deliberately still not in this
 // console harness.
@@ -1080,7 +1080,7 @@ static void RunT12()
 
 //////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
-// T13 — DisplayModel v1 recovery oracle (pure assertion, no golden file).
+// T57 — DisplayModel v1 recovery oracle (pure assertion, no golden file).
 // A synthetic display with known per-channel gammas, primary matrix, and
 // black offset generates noise-free samples; the fitted model must recover
 // the parameters, the weight input must behave as a weight (0 excludes, a
@@ -1088,7 +1088,7 @@ static void RunT12()
 // in-gamut colors and flag out-of-gamut ones.
 //////////////////////////////////////////////////////////////////////////
 
-namespace T13
+namespace T57
 {
     // Rec.709-ish primary columns scaled to Y=100 white, arbitrary but fixed.
     static const double kM[3][3] = {
@@ -1135,34 +1135,34 @@ namespace T13
     }
 }
 
-static void RunT13()
+static void RunT57()
 {
-    printf("T13 DisplayModel v1 recovery oracle...\n");
-    using namespace T13;
+    printf("T57 DisplayModel v1 recovery oracle...\n");
+    using namespace T57;
 
     std::vector<DisplayModelSample> set;
     BuildSet(set);
 
     DisplayModel m;
     if (!m.Fit(set) || !m.IsValid())
-        { Fail("T13 fit rejected a well-formed sample set"); return; }
+        { Fail("T57 fit rejected a well-formed sample set"); return; }
 
     // Parameter recovery on noise-free data.
     for (int c = 0; c < 3; ++c)
         if (fabs(m.Gamma(c) - kGamma[c]) > 1e-6)
-            Fail("T13 gamma[%d]=%.9f expected %.9f", c, m.Gamma(c), kGamma[c]);
+            Fail("T57 gamma[%d]=%.9f expected %.9f", c, m.Gamma(c), kGamma[c]);
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 3; ++c)
             if (fabs(m.MatrixRow(r)[c] - kM[r][c]) > 1e-6)
-                Fail("T13 M[%d][%d]=%.9f expected %.9f", r, c, m.MatrixRow(r)[c], kM[r][c]);
+                Fail("T57 M[%d][%d]=%.9f expected %.9f", r, c, m.MatrixRow(r)[c], kM[r][c]);
     for (int k = 0; k < 3; ++k)
         if (fabs(m.BlackXYZ()[k] - kBlack[k]) > 1e-9)
-            Fail("T13 black[%d]=%.9f expected %.9f", k, m.BlackXYZ()[k], kBlack[k]);
+            Fail("T57 black[%d]=%.9f expected %.9f", k, m.BlackXYZ()[k], kBlack[k]);
     if (m.Report().rmsXYZ > 1e-6 || m.Report().maxXYZ > 1e-6)
-        Fail("T13 residuals on exact data: rms=%.3g max=%.3g",
+        Fail("T57 residuals on exact data: rms=%.3g max=%.3g",
              m.Report().rmsXYZ, m.Report().maxXYZ);
     if (m.Report().samplesUsed != (int)set.size())
-        Fail("T13 samplesUsed=%d expected %d", m.Report().samplesUsed, (int)set.size());
+        Fail("T57 samplesUsed=%d expected %d", m.Report().samplesUsed, (int)set.size());
 
     // Weight semantics: a corrupted sample at weight 0 must change nothing...
     std::vector<DisplayModelSample> poisoned = set;
@@ -1175,25 +1175,25 @@ static void RunT13()
     poisoned.push_back(bad);
     DisplayModel mz;
     if (!mz.Fit(poisoned))
-        Fail("T13 weight-0 fit rejected");
+        Fail("T57 weight-0 fit rejected");
     else
     {
         for (int r = 0; r < 3; ++r)
             for (int c = 0; c < 3; ++c)
                 if (fabs(mz.MatrixRow(r)[c] - m.MatrixRow(r)[c]) > 1e-12)
-                    Fail("T13 weight-0 sample altered the fit at M[%d][%d]", r, c);
+                    Fail("T57 weight-0 sample altered the fit at M[%d][%d]", r, c);
         for (int c = 0; c < 3; ++c)
             if (mz.Gamma(c) != m.Gamma(c) || mz.BlackXYZ()[c] != m.BlackXYZ()[c])
-                Fail("T13 weight-0 sample altered gamma/black[%d]", c);
+                Fail("T57 weight-0 sample altered gamma/black[%d]", c);
         if (mz.Report().samplesUsed != m.Report().samplesUsed)
-            Fail("T13 weight-0 sample counted in samplesUsed");
+            Fail("T57 weight-0 sample counted in samplesUsed");
     }
 
     // ...and the same sample at a heavy weight must pull the fit measurably.
     poisoned.back().weight = 25.0;
     DisplayModel mh;
     if (!mh.Fit(poisoned))
-        Fail("T13 heavy-weight fit rejected");
+        Fail("T57 heavy-weight fit rejected");
     else
     {
         double drift = 0.0;
@@ -1201,9 +1201,9 @@ static void RunT13()
             for (int c = 0; c < 3; ++c)
                 drift += fabs(mh.MatrixRow(r)[c] - m.MatrixRow(r)[c]);
         if (drift < 1e-3)
-            Fail("T13 heavy corrupt sample did not influence the fit (drift=%.3g)", drift);
+            Fail("T57 heavy corrupt sample did not influence the fit (drift=%.3g)", drift);
         if (mh.Report().rmsXYZ <= m.Report().rmsXYZ)
-            Fail("T13 heavy corrupt sample did not raise fit residuals");
+            Fail("T57 heavy corrupt sample did not raise fit residuals");
     }
 
     // Inverse round-trip across an in-gamut lattice.
@@ -1215,11 +1215,11 @@ static void RunT13()
                 double XYZ[3], back[3], again[3];
                 m.SignalToXYZ(rgb, XYZ);
                 if (!m.XYZToSignal(XYZ, back))
-                    { Fail("T13 inverse flagged in-gamut %d %d %d", r, g, b); continue; }
+                    { Fail("T57 inverse flagged in-gamut %d %d %d", r, g, b); continue; }
                 m.SignalToXYZ(back, again);
                 for (int k = 0; k < 3; ++k)
                     if (fabs(again[k] - XYZ[k]) > 1e-9)
-                        Fail("T13 round-trip drift at %d %d %d comp %d: %.3g",
+                        Fail("T57 round-trip drift at %d %d %d comp %d: %.3g",
                              r, g, b, k, fabs(again[k] - XYZ[k]));
             }
 
@@ -1227,22 +1227,22 @@ static void RunT13()
     double outXYZ[3] = { 150.0, 20.0, 10.0 };   // far beyond the red primary
     double clamped[3];
     if (m.XYZToSignal(outXYZ, clamped))
-        Fail("T13 out-of-gamut XYZ not flagged");
+        Fail("T57 out-of-gamut XYZ not flagged");
     for (int k = 0; k < 3; ++k)
         if (clamped[k] < 0.0 || clamped[k] > 1.0)
-            Fail("T13 clamped signal escaped [0,1]: %.6f", clamped[k]);
+            Fail("T57 clamped signal escaped [0,1]: %.6f", clamped[k]);
 
     // Degenerate input must be rejected: too few samples, and no variation.
     std::vector<DisplayModelSample> tiny(set.begin(), set.begin() + 5);
     DisplayModel mt;
     if (mt.Fit(tiny) || mt.IsValid())
-        Fail("T13 fit accepted a 5-sample set");
+        Fail("T57 fit accepted a 5-sample set");
     std::vector<DisplayModelSample> flat;
     for (int i = 0; i < 12; ++i)
         Add(flat, 0.5, 0.5, 0.5, 1);
     DisplayModel mf;
     if (mf.Fit(flat))
-        Fail("T13 fit accepted a no-variation set");
+        Fail("T57 fit accepted a no-variation set");
 
     // Contract violations must reject the fit: non-finite fields and
     // out-of-range stimulus. A slightly negative measured XYZ is legal.
@@ -1251,15 +1251,15 @@ static void RunT13()
         std::vector<DisplayModelSample> v;
 
         v = set; v[3].XYZ[1] = kNan;
-        DisplayModel a; if (a.Fit(v)) Fail("T13 fit accepted a NaN XYZ");
+        DisplayModel a; if (a.Fit(v)) Fail("T57 fit accepted a NaN XYZ");
         v = set; v[3].weight = kNan;
-        DisplayModel b; if (b.Fit(v)) Fail("T13 fit accepted a NaN weight");
+        DisplayModel b; if (b.Fit(v)) Fail("T57 fit accepted a NaN weight");
         v = set; v[3].weight = -1.0;
-        DisplayModel n2; if (n2.Fit(v)) Fail("T13 fit accepted a negative weight");
+        DisplayModel n2; if (n2.Fit(v)) Fail("T57 fit accepted a negative weight");
         v = set; v[3].rgb[0] = 235.0 / 219.0;   // WTW stimulus, outside [0,1]
-        DisplayModel c; if (c.Fit(v)) Fail("T13 fit accepted rgb > 1");
+        DisplayModel c; if (c.Fit(v)) Fail("T57 fit accepted rgb > 1");
         v = set; v[3].XYZ[2] = -0.001;          // probe noise near black: legal
-        DisplayModel d; if (!d.Fit(v)) Fail("T13 fit rejected a slightly negative XYZ");
+        DisplayModel d; if (!d.Fit(v)) Fail("T57 fit rejected a slightly negative XYZ");
     }
 
     // A failed re-fit must leave the previous model fully intact.
@@ -1267,27 +1267,27 @@ static void RunT13()
     {
         DisplayModel r;
         if (!r.Fit(set))
-            Fail("T13 refit baseline rejected");
+            Fail("T57 refit baseline rejected");
         else if (r.Fit(flat))
-            Fail("T13 refit accepted a degenerate set");
+            Fail("T57 refit accepted a degenerate set");
         else
         {
             double beforeXYZ[3], probeRgb[3] = { 0.5, 0.5, 0.5 };
             m.SignalToXYZ(probeRgb, beforeXYZ);
             if (!r.IsValid())
-                Fail("T13 failed refit invalidated the previous model");
+                Fail("T57 failed refit invalidated the previous model");
             for (int c2 = 0; c2 < 3; ++c2)
                 if (r.Gamma(c2) != m.Gamma(c2))
-                    Fail("T13 failed refit altered gamma[%d]", c2);
+                    Fail("T57 failed refit altered gamma[%d]", c2);
             for (int r2 = 0; r2 < 3; ++r2)
                 for (int c2 = 0; c2 < 3; ++c2)
                     if (r.MatrixRow(r2)[c2] != m.MatrixRow(r2)[c2])
-                        Fail("T13 failed refit altered M[%d][%d]", r2, c2);
+                        Fail("T57 failed refit altered M[%d][%d]", r2, c2);
             double afterXYZ[3];
             r.SignalToXYZ(probeRgb, afterXYZ);
             for (int k = 0; k < 3; ++k)
                 if (afterXYZ[k] != beforeXYZ[k])
-                    Fail("T13 failed refit changed the forward transform");
+                    Fail("T57 failed refit changed the forward transform");
         }
     }
 
@@ -1296,11 +1296,11 @@ static void RunT13()
         DisplayModel u;
         double rgb[3], XYZ[3] = { 20.0, 21.0, 22.0 };
         if (u.XYZToSignal(XYZ, rgb))
-            Fail("T13 unfitted model claimed in-gamut");
+            Fail("T57 unfitted model claimed in-gamut");
         double fwd[3] = { -1, -1, -1 }, half[3] = { 0.5, 0.5, 0.5 };
         u.SignalToXYZ(half, fwd);
         if (fwd[0] != 0.0 || fwd[1] != 0.0 || fwd[2] != 0.0)
-            Fail("T13 unfitted forward transform not zeroed");
+            Fail("T57 unfitted forward transform not zeroed");
     }
 
     // Weight-scale invariance: uniformly rescaling all weights must not
@@ -1311,15 +1311,15 @@ static void RunT13()
             scaled[i].weight *= 1e-13;
         DisplayModel s;
         if (!s.Fit(scaled))
-            Fail("T13 tiny-weight fit rejected");
+            Fail("T57 tiny-weight fit rejected");
         else
             for (int c2 = 0; c2 < 3; ++c2)
             {
                 if (fabs(s.Gamma(c2) - m.Gamma(c2)) > 1e-9)
-                    Fail("T13 weight rescale changed gamma[%d]: %.9f vs %.9f",
+                    Fail("T57 weight rescale changed gamma[%d]: %.9f vs %.9f",
                          c2, s.Gamma(c2), m.Gamma(c2));
                 if (s.Report().gammaSource[c2] != DM_PARAM_FITTED)
-                    Fail("T13 tiny-weight gammaSource[%d] not FITTED", c2);
+                    Fail("T57 tiny-weight gammaSource[%d] not FITTED", c2);
             }
     }
 
@@ -1356,7 +1356,7 @@ static void RunT13()
         v.push_back(v[v.size() - 3]);
         DisplayModel g;
         if (!g.Fit(v))
-            Fail("T13 gray-fallback fit rejected");
+            Fail("T57 gray-fallback fit rejected");
         else
         {
             // Red has two reads at one level (no slope), green/blue one each:
@@ -1364,13 +1364,13 @@ static void RunT13()
             for (int c2 = 0; c2 < 3; ++c2)
             {
                 if (fabs(g.Gamma(c2) - eqGamma) > 1e-6)
-                    Fail("T13 gamma[%d]=%.6f, expected gray-derived %.6f",
+                    Fail("T57 gamma[%d]=%.6f, expected gray-derived %.6f",
                          c2, g.Gamma(c2), eqGamma);
                 if (g.Report().gammaSource[c2] != DM_PARAM_FROM_GRAYS)
-                    Fail("T13 gammaSource[%d] should be FROM_GRAYS", c2);
+                    Fail("T57 gammaSource[%d] should be FROM_GRAYS", c2);
             }
             if (g.Report().blackSource != DM_PARAM_FITTED)
-                Fail("T13 ramp includes true black; blackSource should be FITTED");
+                Fail("T57 ramp includes true black; blackSource should be FITTED");
         }
 
         // Quantization jitter must not empty the gray pool: the same display,
@@ -1404,14 +1404,14 @@ static void RunT13()
         }
         DisplayModel gj;
         if (!gj.Fit(vj))
-            Fail("T13 jittered-gray fit rejected");
+            Fail("T57 jittered-gray fit rejected");
         else
             for (int c2 = 0; c2 < 3; ++c2)
             {
                 if (gj.Report().gammaSource[c2] != DM_PARAM_FROM_GRAYS)
-                    Fail("T13 jittered grays fell out of the gray pool (channel %d)", c2);
+                    Fail("T57 jittered grays fell out of the gray pool (channel %d)", c2);
                 if (fabs(gj.Gamma(c2) - eqGamma) > 1e-3)
-                    Fail("T13 jittered-gray gamma[%d]=%.6f expected ~%.6f",
+                    Fail("T57 jittered-gray gamma[%d]=%.6f expected ~%.6f",
                          c2, gj.Gamma(c2), eqGamma);
             }
     }
@@ -1432,11 +1432,11 @@ static void RunT13()
         Add(v, 0.40, 0.70, 0.90, 1);
         DisplayModel a;
         if (!a.Fit(v))
-            Fail("T13 mixed-color fit rejected");
+            Fail("T57 mixed-color fit rejected");
         else
             for (int c2 = 0; c2 < 3; ++c2)
                 if (a.Report().gammaSource[c2] != DM_PARAM_ASSUMED)
-                    Fail("T13 mixed-color gammaSource[%d] should be ASSUMED", c2);
+                    Fail("T57 mixed-color gammaSource[%d] should be ASSUMED", c2);
     }
 
     // A lit near-black patch must not pollute the flare estimate.
@@ -1445,15 +1445,15 @@ static void RunT13()
         Add(v, 0.005, 0.005, 0.005, 1);   // 0.5% gray: lit, not black
         DisplayModel nb;
         if (!nb.Fit(v))
-            Fail("T13 near-black fit rejected");
+            Fail("T57 near-black fit rejected");
         else
         {
             for (int k = 0; k < 3; ++k)
                 if (fabs(nb.BlackXYZ()[k] - kBlack[k]) > 1e-9)
-                    Fail("T13 near-black patch polluted black[%d]: %.9f expected %.9f",
+                    Fail("T57 near-black patch polluted black[%d]: %.9f expected %.9f",
                          k, nb.BlackXYZ()[k], kBlack[k]);
             if (nb.Report().blackSource != DM_PARAM_FITTED)
-                Fail("T13 blackSource should be FITTED when a true black is present");
+                Fail("T57 blackSource should be FITTED when a true black is present");
         }
     }
 }
@@ -1487,7 +1487,7 @@ int main(int argc, char* argv[])
     RunT10();
     RunT11();
     RunT12();
-    RunT13();
+    RunT57();
 
     if (g_failures)
     {
