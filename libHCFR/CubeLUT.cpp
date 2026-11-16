@@ -34,19 +34,11 @@
 
 namespace
 {
-    const int kMinSize = 2;
-    const int kMaxSize = 256;
-
     // Cached "C" locale used for every numeric conversion in this file.
     _locale_t CNumericLocale()
     {
         static _locale_t loc = _create_locale(LC_NUMERIC, "C");
         return loc;
-    }
-
-    bool IsFiniteValue(double v)
-    {
-        return _finite(v) != 0;
     }
 
     void AppendDouble(std::string& out, double v)
@@ -117,7 +109,7 @@ namespace
 
     bool ParseFiniteToken(const std::string& token, double& value)
     {
-        return ParseNumberToken(token, value) && IsFiniteValue(value);
+        return ParseNumberToken(token, value) && CubeLUT::IsFiniteValue(value);
     }
 
     bool ParseIntToken(const std::string& token, int& value)
@@ -160,6 +152,26 @@ namespace
     }
 }
 
+const int CubeLUT::kMinSize;
+const int CubeLUT::kMaxSize;
+
+bool CubeLUT::ValidSize(int size)
+{
+    return size >= kMinSize && size <= kMaxSize;
+}
+
+bool CubeLUT::IsFiniteValue(double v)
+{
+    return _finite(v) != 0;
+}
+
+bool CubeLUT::ValidDomainComponent(double dmin, double dmax)
+{
+    // The rationale for the span check is on the declaration in CubeLUT.h.
+    return IsFiniteValue(dmin) && IsFiniteValue(dmax)
+        && dmax > dmin && IsFiniteValue(dmax - dmin);
+}
+
 CubeLUT::CubeLUT()
     : m_size(0)
 {
@@ -169,7 +181,7 @@ CubeLUT::CubeLUT()
 
 bool CubeLUT::Create(int size)
 {
-    if (size < kMinSize || size > kMaxSize)
+    if (!ValidSize(size))
         return false;
 
     // Build the whole lattice before touching any member, so a failure
@@ -200,6 +212,7 @@ bool CubeLUT::Create(int size)
     m_title.clear();
     m_domainMin[0] = m_domainMin[1] = m_domainMin[2] = 0.0;
     m_domainMax[0] = m_domainMax[1] = m_domainMax[2] = 1.0;
+    m_contract = LutContract();
     return true;
 }
 
@@ -241,16 +254,8 @@ bool CubeLUT::SetDomain(const double dmin[3], const double dmax[3])
     if (dmin == 0 || dmax == 0)
         return false;
     for (int k = 0; k < 3; ++k)
-    {
-        if (!IsFiniteValue(dmin[k]) || !IsFiniteValue(dmax[k]))
+        if (!ValidDomainComponent(dmin[k], dmax[k]))
             return false;
-        if (!(dmax[k] > dmin[k]))
-            return false;
-        // Both ends finite is not enough: (-1e308, 1e308) overflows the
-        // span Evaluate divides by, turning every evaluation constant.
-        if (!IsFiniteValue(dmax[k] - dmin[k]))
-            return false;
-    }
     for (int k = 0; k < 3; ++k)
     {
         m_domainMin[k] = dmin[k];
@@ -525,7 +530,7 @@ bool CubeLUT::ReadParsed(const std::string& text)
                     m_lastError = "LUT_3D_SIZE needs one integer";
                     return false;
                 }
-                if (v < kMinSize || v > kMaxSize)
+                if (!ValidSize(v))
                 {
                     m_lastError = "LUT_3D_SIZE out of range (2..256)";
                     return false;
@@ -700,7 +705,16 @@ bool CubeLUT::ReadParsed(const std::string& text)
         m_domainMin[k] = dmin[k];
         m_domainMax[k] = dmax[k];
     }
+    m_contract = LutContract();     // the file format carries no contract
     m_lastError.clear();
+    return true;
+}
+
+bool CubeLUT::SetContract(const LutContract& contract)
+{
+    if (!ValidContract(contract))
+        return false;
+    m_contract = contract;
     return true;
 }
 

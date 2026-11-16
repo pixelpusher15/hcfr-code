@@ -42,6 +42,9 @@
     <ClCompile Include="..\CubeLUT.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\LutOps.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\Endianness.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -108,6 +111,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\CubeLUT.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\LutContract.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\LutOps.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\Endianness.h">
