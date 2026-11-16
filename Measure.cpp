@@ -4779,7 +4779,10 @@ bool CMeasure::MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor,
 		return true;
 	}
 	CColor anchor = PumpedRead ( am, pSensor, whiteRGB, displaymode );
-	if ( ! pSensor->IsMeasureValid() || ! anchor.isValid() || anchor.GetY() <= 0.0 )
+	// The sensor's rule for a reading (FailedReadingRule::SensorReadingPassed), not
+	// isValid: after the sensor matrix a good reading can have a component below -1.
+	if ( ! FailedReadingRule::SensorReadingPassed ( pSensor->IsMeasureValid() != FALSE, anchor.GetX(), anchor.GetY(), anchor.GetZ() )
+	     || anchor.GetY() <= 0.0 )
 		return true;
 
 	if ( firstAnchorY <= 0.0 )
@@ -5059,7 +5062,10 @@ BOOL CMeasure::MeasureDisplayProfile(CSensor *pSensor, CGenerator *pGenerator, C
 			if ( m_bAbortSweep )
 				return -1;
 
-			if ( ! pSensor->IsMeasureValid() || ! out.isValid() )
+			// The sensor's rule for a reading (FailedReadingRule::SensorReadingPassed),
+			// not isValid: after the sensor matrix a good reading of a bright saturated
+			// patch can have a component below -1.
+			if ( ! FailedReadingRule::SensorReadingPassed ( pSensor->IsMeasureValid() != FALSE, out.GetX(), out.GetY(), out.GetZ() ) )
 			{
 				Title.LoadString ( IDS_ERROR );
 				strMsg.LoadString ( IDS_ANERROROCCURED );
