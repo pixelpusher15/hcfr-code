@@ -979,9 +979,6 @@ extern int PiPercentToCode ( double percent, bool is16_235, int bits );
 extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut );
 // Resolve a CC mode to its patch-list file (predefined CSV or USER) + HDR-recalc flag; false for inline-array modes.
 extern bool ResolveCCSetPath ( int aCCMode, CString & outPath, bool * recalcOut );
-// Exact inverse (round-to-nearest, clamped to the grid): stimulus percentage -> source code.
-// Used to reconstruct definition codes from stored stimuli during legacy .chc migration.
-extern int CsvPercentToCode ( double percent, int bits, int range );
 // Two definitions drive the same codes when they have the same row count and the
 // same r/g/b row by row; patch numbers and names are labels and do not count.
 extern bool CsvPatchCodesMatch ( const std::vector<CsvPatchRow> & a, const std::vector<CsvPatchRow> & b );
