@@ -43,6 +43,7 @@ CSensorPropPage::CSensorPropPage() : CPropertyPageWithHelp(CSensorPropPage::IDD)
 	//}}AFX_DATA_INIT
 
 	m_pGrid=NULL;
+	m_bMatrixEditable=TRUE;
 	m_matrix=IdentityMatrix(3);
 }
 
@@ -99,7 +100,7 @@ BOOL CSensorPropPage::OnInitDialog()
 	m_pGrid->SetRowCount(3);     // fill it up with stuff
 	m_pGrid->SetColumnCount(3);
 	
-	m_pGrid->SetEditable(TRUE);
+	m_pGrid->SetEditable(m_bMatrixEditable);
 	m_pGrid->EnableDragAndDrop(TRUE);
 
 	m_pGrid->ExpandToFit(TRUE);

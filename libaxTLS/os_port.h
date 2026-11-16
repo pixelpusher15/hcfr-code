@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, Cameron Rich
+ * Copyright (c) 2007-2016, Cameron Rich
  * 
  * All rights reserved.
  * 
@@ -41,14 +41,15 @@
 extern "C" {
 #endif
 
+//#include "os_int.h"		// GWG
+#include "axTLS_config.h"
 #include <stdio.h>
 
-#if defined(NEVER) && defined(WIN32)
-#define STDCALL                 __stdcall
-#define EXP_FUNC                __declspec(dllexport)
-#else
-#define STDCALL
-#define EXP_FUNC
+#ifndef STDCALL				// GWG
+# define STDCALL
+#endif
+#ifndef EXP_FUNC
+# define EXP_FUNC
 #endif
 
 #if defined(_WIN32_WCE)
@@ -69,7 +70,7 @@ extern "C" {
 #include <fcntl.h>
 #endif      /* _WIN32_WCE */
 
-#include <winsock.h>
+#include <winsock2.h>		// GWG
 #include <direct.h>
 #undef getpid
 #undef open
@@ -97,9 +98,15 @@ extern "C" {
 #define strdup(A)               _strdup(A)
 #define chroot(A)               _chdir(A)
 #define chdir(A)                _chdir(A)
-//#define alloca(A)               _alloca(A)
+//#define alloca(A)               _alloca(A)		// GWG
 #ifndef lseek
 #define lseek(A,B,C)            _lseek(A,B,C)
+#endif
+
+#ifndef __GNUC__
+# define be64toh(x) _byteswap_uint64(x)
+#else
+# define be64toh(x) __builtin_bswap64(x)
 #endif
 
 /* This fix gets around a problem where a win32 application on a cygwin xterm
@@ -117,10 +124,10 @@ extern "C" {
 typedef int socklen_t;
 
 EXP_FUNC void STDCALL gettimeofday(struct timeval* t,void* timezone);
-EXP_FUNC int STDCALL getdomainname(char *buf, int buf_size);
 #ifndef __GNUC__
 EXP_FUNC int STDCALL strcasecmp(const char *s1, const char *s2);
 #endif
+EXP_FUNC int STDCALL getdomainname(char *buf, int buf_size);
 
 #else   /* Not Win32 */
 
@@ -136,26 +143,27 @@ EXP_FUNC int STDCALL strcasecmp(const char *s1, const char *s2);
 #include <sys/wait.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#if defined(__APPLE__)
+# include <libkern/OSByteOrder.h>
+# define be64toh(x) OSSwapBigToHostInt64(x)
+#else
+# include <asm/byteorder.h>
+# ifndef be64toh
+#  define be64toh(x) __be64_to_cpu(x)
+# endif
+#endif
 
 #define SOCKET_READ(A,B,C)      read(A,B,C)
 #define SOCKET_WRITE(A,B,C)     write(A,B,C)
 #define SOCKET_CLOSE(A)         if (A >= 0) close(A)
 #define TTY_FLUSH()
 
+
 #endif  /* Not Win32 */
 
-#include "os_int.h"
+#include "os_int.h"		// GWG
 
 /* some functions to mutate the way these work */
-#define malloc(A)       ax_malloc(A)
-#ifndef realloc
-#define realloc(A,B)    ax_realloc(A,B)
-#endif
-#define calloc(A,B)     ax_calloc(A,B)
-
-EXP_FUNC void * STDCALL ax_malloc(size_t s);
-EXP_FUNC void * STDCALL ax_realloc(void *y, size_t s);
-EXP_FUNC void * STDCALL ax_calloc(size_t n, size_t s);
 EXP_FUNC int STDCALL ax_open(const char *pathname, int flags); 
 
 #ifdef CONFIG_PLATFORM_LINUX

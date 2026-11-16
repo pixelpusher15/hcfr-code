@@ -30,6 +30,7 @@
 #endif // _MSC_VER > 1000
 
 #include "Color.h"
+#include "UserPatchSetStream.h"	// CUserPatchSet
 #include "Sensors\Sensor.h"
 #include "Generators\Generator.h"
 #include <vector>
@@ -82,6 +83,19 @@ struct ColorDENorm
 	ColorDENorm() : whiteY(0.0), refWhite(1.0), markScale(1.0), deScale(1.0) {}
 };
 
+// The primaries/secondaries page's dE normalisation (displayMode 1), so the
+// measures grid, the RGB levels pane, the PDF report and /accuracytest spend
+// the same numbers. See CMeasure::GetPrimaryDENorm. Usage:
+//   measured.GetDeltaE( yWhite, ref, refWhite, ..., gwWeight )
+struct PrimaryDENorm
+{
+	double	yWhite;		// white the MEASUREMENT is normalised by
+	double	refWhite;	// YWhiteRef for the reference
+	int		gwWeight;	// gray-world weight to pass (none in PQ)
+
+	PrimaryDENorm() : yWhite(0.0), refWhite(1.0), gwWeight(0) {}
+};
+
 #define	DUPLGRAYLEVEL		0
 #define	DUPLNEARBLACK		1
 #define	DUPLNEARWHITE		2
@@ -131,6 +145,8 @@ struct CSatLevelSet
 };
 
 
+#include "FailedReadingRule.h"
+
 class CMeasure : public CObject
 {
 public:
@@ -146,7 +162,35 @@ protected:
 	CArray<CColor,CColor> m_measurementsArray;
 	CColor m_OnOffBlack;
 	CColor m_OnOffWhite;
+	// Same placeholder problem as m_bPrimeWhiteMeasured below, for the on/off
+	// white. Only the sub-90%-stimulus OVERRIDE consults this: the plain
+	// fallbacks are still free to use the placeholder, because standing in for a
+	// white nobody measured is what it is for.
+	BOOL m_bOnOffWhiteMeasured;
 	CColor m_PrimeWhite;
+	// TRUE once a real reading has been written to m_PrimeWhite. The constructor
+	// pre-loads a nominal D65 at m_TargetMaxL so the charts always have something
+	// to draw, and that placeholder is indistinguishable from a measurement --
+	// isValid() and GetY() > 0 both pass -- so anything that needs to know whether
+	// white was ever MEASURED has to ask this, not the color.
+	//
+	// PERSISTENCE (both flags): CMeasure v21 (released in 4.2.0.0: the two
+	// white-measured flags after the profile block, written only when a display
+	// profile exists); v22 = v21 + the extension trailer, with the profile
+	// block always written, so every document this build saves carries them.
+	// v21 is a released layout and must always be read. A document of version
+	// 20 or older has no
+	// flags, and they are re-derived on load: valid and NOT the constructor's
+	// placeholder, which IsPlaceholderWhite (Measure.cpp) recognises by its exact
+	// signature. That is also what recovers documents written before the flags
+	// existed. The whites
+	// themselves are stored verbatim either way, so nothing downstream ever sees a
+	// value it could not already see. An earlier revision tried to encode "unmeasured" by writing
+	// noDataColor into the version-19 prime-white slot: that conflated "never
+	// measured" with "primaries deleted", which loads as INVALID, and handed
+	// Export's unguarded GetPrimeWhite().GetY() sites (Export.cpp ~558/~814)
+	// FX_NODATA where they used to get the placeholder. Do not reintroduce it.
+	BOOL m_bPrimeWhiteMeasured;
 	CColor m_AnsiBlack;
 	CColor m_AnsiWhite;
 	CArray<CColor,CColor> m_nearBlackMeasureArray;
@@ -161,6 +205,8 @@ protected:
 	CArray<CColor,CColor> m_cc24SatMeasureArray_master;
 	std::vector<CSatLevelSet> m_satLevelStore;	// all measured stimulus levels (active mirrored in m_*SatMeasureArray)
 	double m_activeSatLevel;	// signal-domain amplitude the bound sweeps were measured at
+	std::vector<CUserPatchSet> m_userPatchSets;	// document-owned user patch set collection (alphabetical)
+	int m_activeUserSet;	// index into m_userPatchSets whose measures occupy the USER band (-1 = none)
 	// Display profile capture (serialized as version 20, block written only when data exists)
 	CArray<CColor,CColor> m_profileMeasureArray;	// dense RGB-cube characterization, generation order
 	std::vector<CColor> m_profileDriftAnchors;		// white drift anchors, capture order
@@ -171,6 +217,7 @@ protected:
 	double m_profileCaptureSeconds;					// wall-clock duration of the capture
 	std::vector<ColorRGBDisplay> m_profileGenCache;	// GetProfilePatchRGB cache (not serialized)
 	int m_profileGenCacheKey;						// cubeSize*2+grayExtras the cache was built for
+	int m_profileGeneration;						// bumped on every write to m_profileMeasureArray (not serialized)
 	CString m_infoStr;
 	CString m_CCStr;
 public:
@@ -216,6 +263,15 @@ public:
 	void SetGrayScaleLevels(const double * pLevels, int count);	// install explicit (possibly non-uniform) IRE levels
 	// is16_235 is REQUIRED - see the note on ArrayIndexToGrayLevel in Color.h.
 	double GetGrayPercent(int index, bool bUseRoundDown, bool b10bit, bool is16_235) const;	// IRE % for a gray index
+	// An EXISTING gray, near-black or near-white reading's level, by index, for
+	// every place that describes one (THE RULE in libHCFR/Color.cpp): reading i of
+	// the series at its stamped drive, else slot i on the current grid. These own
+	// the pairing of index i with its reading and its slot; the grid flags are
+	// the current config's, as every describing site passed them.
+	GraySeriesView GetGraySeriesView(GraySeries series) const;
+	bool GetGrayReadingDrive(GraySeries series, int index, double * pProp) const;	// FALSE: no stamped gray drive
+	double GetGrayReadingLevel(GraySeries series, int index) const;	// percent
+	double GetGrayReadingProp(GraySeries series, int index) const;	// 0..1
 	int GetGrayScalePreset() const;	// matching preset index, or -1 (custom)
 	void SetIREScaleMode(BOOL bIRE);
 	CColor lastColor, previousColor;
@@ -266,12 +322,32 @@ public:
 	CString GetCCStr() const;
 	// Publish an aborted color-checker sweep's partial live data to the
 	// per-set master array (the post-sweep read source); see Measure.cpp.
-	BOOL SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux);
+	// kept: the slots the sweep kept (FailedReadingRule.h), left out of both.
+	BOOL SalvageCC24SatPartial(BOOL bUseLuxValues, const CArray<double,int> & measuredLux, const FailedReadingRule::KeptSlots * kept = NULL);
+
+	// User patch set collection (multi-set picker). The active set's measures
+	// live in the USER band of the master array while active; they are
+	// harvested back into the set on switch and on save.
+	int GetUserPatchSetCount() const { return (int)m_userPatchSets.size(); }
+	int GetActiveUserPatchSetIndex() const { return m_activeUserSet; }
+	CUserPatchSet * GetUserPatchSet(int idx);
+	CUserPatchSet * GetActiveUserPatchSet();
+	int AddUserPatchSet(const CUserPatchSet & set);	// alphabetical insert; returns the index; keeps m_activeUserSet pointing at the same set
+	void ActivateUserPatchSet(int idx);				// harvest band -> outgoing set, load incoming set -> band + working array
+	void SyncActiveUserPatchSetFromBand();			// harvest band -> active set (no-op when none active)
+	void MigrateLegacyUserBand();					// wrap USER-band measures that belong to no set into one set (load + first-add safety)
+	// Trailer bytes the document would need with `set` added (replaceIdx < 0)
+	// or in place of set replaceIdx, once every unmeasured row of `set` holds
+	// a reading; see Measure.cpp.
+	ULONGLONG ProjectedUserPatchSetTrailerBytes(const CUserPatchSet & set, int replaceIdx);
 
 	// Display profile capture
 	CColor GetProfileMeasure(int i) const;
-	void SetProfileMeasure(int i,const CColor & aColor) {m_profileMeasureArray[i]=aColor; m_isModified=TRUE; }
 	int GetProfileMeasureSize() const { return m_profileMeasureArray.GetSize(); }
+	// Changes whenever the cube's contents do (capture, drift rescale, load, copy,
+	// clear), so a consumer caching a derivative of the cube can key on it
+	// instead of guessing from a proxy value.
+	int GetProfileGeneration() const { return m_profileGeneration; }
 	BOOL HasProfileMeasures() const { return m_profileCubeSize > 0 && m_profileMeasureArray.GetSize() > 0; }
 	int GetProfileCubeSize() const { return m_profileCubeSize; }
 	BOOL GetProfileGrayExtras() const { return m_profileGrayExtras; }
@@ -297,8 +373,26 @@ public:
 	double ComputeProfileDE(const CColor & measured, int i) { return ComputeProfileDEEx( measured, i, NULL ); }
 	double GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) const;	// the white the grid normalises sat/CC dE by (measured, NOT the theoretical tmWhite)
 	ColorDENorm GetColorDENorm(int displayMode) const;	// the whole sat/CC dE normalisation, shared by every consumer
+	PrimaryDENorm GetPrimaryDENorm(double yPrimeWhite, int nCol) const;	// the primaries page's dE normalisation; nCol 1..8, 7 = white
 	// Live profile-capture state (not serialized): the profiling pane pauses/observes through these
 	volatile BOOL m_bProfilePause;
+	// The capture is in its reference prologue (grayscale + primaries/secondaries/
+	// white, see MeasureDisplayProfile), not on a cube patch: m_currentIndex is
+	// still 0, so the pane shows these instead of patch 0.
+	volatile BOOL m_bProfileMeasuringRefs;
+	int m_profileRefIndex, m_profileRefCount;	// progress through the prologue
+	// The stimulus on screen during a capture (percent): prologue patch, cube patch
+	// after any container remap, or drift anchor. The pane's swatch and the
+	// test-color preview (CTargetWnd) show it; in Window mode the GDI generator
+	// paints the patch into that window itself.
+	ColorRGBDisplay m_profileShownRGB;
+	// TRUE from the start of a capture -- before the reference prologue -- until
+	// the closing drift anchor has rescaled the last segment. The array is written
+	// in place throughout, so nothing derived from it is final before this drops
+	// (m_binMeasure cannot say this: it is raised by every sweep, including ones
+	// that leave the cube alone). CTargetWnd's test-window branch relies on it
+	// being up through the prologue, so do not raise it later.
+	BOOL m_bProfileCapturing;
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0
 
 protected:
@@ -341,11 +435,23 @@ public:
 
 	CColor GetOnOffBlack() const;
 	CColor GetOnOffWhite() const;
+	// The gray scale's 100% white: its measured top reading, else the on/off
+	// white (libHCFR GrayScaleWhite). Every reader that means "100% white"
+	// uses this; the on/off white stays with the contrast measurement.
+	CColor GetGrayScaleWhite() const;
+	// The gray scale's 0% black: its measured 0% reading, else the on/off black
+	// (libHCFR GrayScaleBlack). The on/off black stays with the contrast measurement.
+	CColor GetGrayScaleBlack() const;
 	CColor GetPrimeWhite() const; //white reference for pseudo-color spaces
 	double GetHDRRefScale() const; //HDR-10 refs: 1=10000nits -> diffuse-white-relative
 	void SetOnOffBlack(const CColor & aColor) { m_OnOffBlack=aColor; m_isModified=TRUE; }
-	void SetOnOffWhite(const CColor & aColor) { m_OnOffWhite=aColor; m_isModified=TRUE; }
-	void SetPrimeWhite(const CColor & aColor) { m_PrimeWhite=aColor; m_isModified=TRUE; }
+	void SetOnOffWhite(const CColor & aColor) { m_OnOffWhite=aColor; m_bOnOffWhiteMeasured=aColor.isValid(); m_isModified=TRUE; }
+	void SetPrimeWhite(const CColor & aColor) { m_PrimeWhite=aColor; m_bPrimeWhiteMeasured=aColor.isValid(); m_isModified=TRUE; }
+	BOOL IsPrimeWhiteMeasured() const { return m_bPrimeWhiteMeasured; }
+	BOOL IsOnOffWhiteMeasured() const { return m_bOnOffWhiteMeasured; }
+	static bool IsPlaceholderWhite(const CColor & c, bool bOnOff);	// the ctor's nominal white, by value (load-time flag recovery)
+	static bool IsRawlessPlaceholder(const CColor & c, bool bBlack);	// the ctor's top-gray (bBlack false) or on/off-black placeholder: the walks neither recompute nor count it
+	BOOL SweepOverwritesData(unsigned int sweep) const;	// would a sweep writing this SweepConfirmRule mask overwrite a reading (not a placeholder)
 
 	BOOL MeasureContrast(CSensor *pSensor, CGenerator *pGenerator);
 	double GetOnOffContrast ();
@@ -375,10 +481,30 @@ public:
 	BOOL IsModified() { return m_isModified; }
 	void AbortMeasure() { m_bAbortSweep = TRUE; }
 
-    void ApplySensorAdjustmentMatrix(const Matrix & matrixAdjustment);
+    // deltaMatrix is composed onto already-corrected values for legacy measurements
+    // that predate raw-value capture (no HasRawXYZValue()); fullMatrix is applied
+    // directly to the stored raw value for measurements that have one. The two
+    // must be equivalent ways of expressing "what the sensor's correction should
+    // now be" - deltaMatrix = fullMatrix * inverse(previousFullMatrix).
+    // bComposeLegacy says whether a measurement WITHOUT a raw value embodies that
+    // previous full matrix - true after any single-matrix method, false when the
+    // sensor was on Bodner: its single matrix is identity and the raw-less values
+    // still carry whatever matrix corrected them before Bodner skipped them, so
+    // composing the delta would stack the new matrix onto the old one. They are
+    // then left alone and counted; the count is returned (0 when composing).
+    // No default: the answer is the sensor's RawlessReadings().ComposeOntoRawless()
+    // (RawlessReadingsState, Color.h), and a caller that forgot it composed onto
+    // readings the state marks stranded.
+    int ApplySensorAdjustmentMatrix(const Matrix & deltaMatrix, const Matrix & fullMatrix, bool bComposeLegacy);
+    // Recalibrates every stored measurement under Bodner's per-sub-gamut method.
+    // Returns the count of measurements that had no stored raw value (predating
+    // raw-value capture) and so could not be recalibrated.
+    int ApplySensorBodnerRecalibration(const Matrix rawMatrix[3], const Matrix calMatrix[3]);
 
 	BOOL WaitForDynamicIris ( BOOL bIgnoreEscape = FALSE, CDataSetDoc *pDoc = NULL );
 	BOOL CheckBlackOverride (  );
+	int GetProfileRefReadCount () const;	// reads in a capture's reference prologue
+	void BuildPrimarySecondaryColors ( CGenerator * pGenerator, ColorRGBDisplay GenColors [ 8 ] );	// R,G,B,Y,C,M,white,black as the sweeps drive them
 	void UpdateViews ( CDataSetDoc *pDoc = NULL, int Sequence = 0 );
 	void UpdateTstWnd ( CDataSetDoc *pDoc, int Sequence );
 	int m_currentIndex, m_currentSequence, displaymode;
@@ -398,6 +524,57 @@ public:
 	BOOL ValidateBackgroundCyanSatScale ( BOOL bUseLuxValues, double * pLuxValues );
 	BOOL ValidateBackgroundMagentaSatScale ( BOOL bUseLuxValues, double * pLuxValues );
 	BOOL ValidateBackgroundCC24SatScale ( BOOL bUseLuxValues, double * pLuxValues );
+	// Stamp label provenance (patch#/name/srcBits/srcRange) onto a measured CC
+	// patch. File-backed sets only (no-op for the inline GCD/MCD/... modes);
+	// slotIndex is the m_cc24SatMeasureArray slot and doubles as sequenceIndex.
+	void StampCCProvenance ( CColor & c, int slotIndex );
+	// What the document holds in a slot a sweep is about to fill: the reading
+	// a failed patch leaves there (FailedReadingRule.h). PreviousReading: the
+	// slot, or noDataColor when it holds a constructor placeholder (top gray
+	// white, on/off white or black), which no meter measured. SatSlotReading:
+	// slot of the hue-th saturation array. CC24MasterSlotReading: slot of the
+	// active color-checker set, from the master array, since the sweep wipes the
+	// live one when it starts. MeasuredPrimeWhite: the prime white, or noDataColor
+	// when none was measured (the constructor's placeholder white passes isValid()).
+	const CColor & PreviousReading ( const CColor & slot ) const;
+	// A nominal value the constructor pre-loads, not a reading: the rawless top
+	// gray / prime white placeholder, the rawless on/off white placeholder, the
+	// on/off black placeholder (IsPlaceholderWhite, IsRawlessPlaceholder).
+	static bool IsConstructorPlaceholder ( const CColor & c );
+	// A reading a target or a fit may take: valid, and not a placeholder
+	// (FailedReadingRule.h).
+	static bool HoldsReading ( const CColor & c ) { return FailedReadingRule::HoldsReading ( c, IsConstructorPlaceholder ); }
+	// Whether the gray scale's black is the user's override (the document's
+	// recorded decision, m_bOverRideBlack): GetGrayScaleBlack returns it then.
+	bool GrayScaleBlackIsOverride () const { return m_bOverRideBlack && m_userBlack.isValid (); }
+	// Whether the user's black override is IN EFFECT: the document's recorded
+	// decision (GrayScaleBlackIsOverride) or the live "Use Black Level"
+	// preference. The two differ on purpose. The recorded decision picks the
+	// VALUE GetGrayScaleBlack returns; "in effect" answers whether the black the
+	// views read is the user's: with the live preference on, MainView writes the
+	// preference's black into gray[0], near-black[0] and the on/off black
+	// whatever the document's flag says, and that slot is what GetGrayScaleBlack
+	// returns. Only HoldsGrayScaleBlack asks it.
+	bool BlackOverrideInEffect () const;
+	// Whether GetGrayScaleBlack holds a reading the fit and the black-compensation
+	// targets may take: HoldsReading, except that with the override in effect the
+	// black is a reading by decision at any value, 0 cd/m2 included
+	// (FailedReadingRule::HoldsBlackReading).
+	bool HoldsGrayScaleBlack () const;
+	const CColor & SatSlotReading ( int hue, int slot ) const;
+	const CColor & CC24MasterSlotReading ( int slot ) const;
+	// The hue-th saturation array (0 red, 1 green, 2 blue, 3 yellow, 4 cyan, 5 magenta).
+	CArray<CColor,CColor> & SatArray ( int hue );
+	const CArray<CColor,CColor> & SatArray ( int hue ) const;
+	// The active color-checker set's band in m_cc24SatMeasureArray_master: its
+	// first index and its length, for the m_CCMode iCC (the mapping GetCC24Sat reads).
+	static int CC24MasterBandBase ( int iCC );
+	static int CC24MasterBandSize ( int iCC );
+	// The color checker's MCD order: iteration iter of the sweep fills slot
+	// CC24MCDSlot, slot fills at iteration CC24MCDIter (identity for every other iCC).
+	static int CC24MCDSlot ( int iCC, int iter );
+	static int CC24MCDIter ( int iCC, int slot );
+	const CColor & MeasuredPrimeWhite () const { return m_bPrimeWhiteMeasured ? m_PrimeWhite : noDataColor; }
 	BOOL ValidateBackgroundGrayScaleAndColors ( BOOL bUseLuxValues, double * pLuxValues );
 	BOOL ValidateBackgroundSingleMeasurement ( BOOL bUseLuxValues, double * pLuxValues );
 

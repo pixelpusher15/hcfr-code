@@ -30,22 +30,13 @@
     <ClCompile Include="crypto_misc.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="gen_cert.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="hmac.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="loader.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="md2.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="md5.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="openssl.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="os_port.c">
@@ -61,6 +52,15 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="sha1.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="sha256.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="sha384.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="sha512.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="tls1.c">

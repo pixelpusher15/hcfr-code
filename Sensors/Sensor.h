@@ -30,6 +30,7 @@
 
 #include "Color.h"
 #include "SensorPropPage.h"
+#include "SpectralCorrection.h"
 
 class CGenerator;
 
@@ -45,6 +46,40 @@ protected:
 	BOOL m_isMeasureValid;
 	Matrix m_sensorToXYZMatrix;
     Matrix m_sensorToXYZMatrixMod;
+	int m_calibrationMethod;					// CalibrationMatrixMethod: which method produced the matrices below
+	Matrix m_bodnerRawMatrix[3];				// Bodner sub-gamut raw-primary matrices (rgw/gbw/rbw), only valid when m_calibrationMethod == CALIB_BODNER_THREEMATRIX
+	Matrix m_bodnerCalMatrix[3];				// Bodner sub-gamut calibration matrices (rgw/gbw/rbw)
+	// Cached inverses of m_bodnerRawMatrix (maintained by
+	// UpdateBodnerInverseCache): the sub-gamut selection needs them for
+	// every reading, and Gauss-Jordan per reading is measurably slow.
+	Matrix m_bodnerRawInverse[3];
+	bool   m_bodnerRawInvertible[3];
+	// The spectral (ccss) correction this sensor knows, for which unit, with both
+	// driver matrices (libHCFR/SpectralCorrection.h). It can be present but dormant:
+	// fitting a matrix method does not destroy it. CALIB_SPECTRAL_SAMPLE applies its
+	// correction through m_sensorToXYZMatrix like any other single-matrix method.
+	SpectralCorrectionRecord m_spectral;
+	int m_fitBasis;							// SpectralFitBasis: what the method's matrices expect as input
+	// Whether the document's raw-less readings still embody m_sensorToXYZMatrix
+	// (see RawlessReadingsState, Color.h). It describes the readings this sensor
+	// corrected, so it is stored with the document (CSensor stream v4) and a
+	// training file does not replace it (COneDeviceSensor::LoadCalibrationFile).
+	RawlessReadingsState m_rawlessReadings;
+	// True while Configure()'s sheet is up, its OK included (GetPropertiesSheetValues
+	// re-inits the meter after the sheet closes). An Init in that span books nothing
+	// for the raw-less readings: the sheet's walk or its Cancel accounts for every
+	// change made in it (EffectiveChangedWithoutWalk).
+	bool m_inSensorSheet;
+	// Configure() snapshot (BeginConfigure/CancelConfigure)
+	Matrix m_cfgSnapMatrix;
+	Matrix m_cfgSnapBodnerRaw[3], m_cfgSnapBodnerCal[3];
+	int  m_cfgSnapMethod;
+	SpectralCorrectionRecord m_cfgSnapSpectral;
+	int  m_cfgSnapFitBasis;
+	// The matrix SetPropertiesSheetValues put into m_SensorPropertiesPage. Kept so
+	// GetPropertiesSheetValues can tell a user grid edit from a value the sheet was
+	// merely shown - see the comment there.
+	Matrix m_sheetMatrixShown;
 	time_t m_calibrationTime;
 	int		m_PropertySheetTitle;
 	CSensorPropPage m_SensorPropertiesPage;
@@ -76,6 +111,45 @@ public:
 	void SetSensorMatrixMod(Matrix aMatrix) { m_sensorToXYZMatrixMod=aMatrix; m_calibrationTime=time(NULL);}
 	Matrix GetSensorMatrix() {return m_sensorToXYZMatrix; }
 	Matrix GetSensorMatrixMod() {return m_sensorToXYZMatrixMod; }
+	// The single matrix every reading and every recompute goes through for the
+	// non-Bodner methods: the method's matrix, composed on the spectral correction when
+	// the method's matrices were fitted on driver-corrected readings (basis not NATIVE)
+	// and a record is present. Identity for Bodner (callers branch on it first).
+	Matrix GetEffectiveMatrix() const;
+
+	void SetCalibrationMethod(int aMethod) { m_calibrationMethod=aMethod; }
+	int GetCalibrationMethod() const { return m_calibrationMethod; }
+	int CalibrationMethodAtBeginConfigure() const { return m_cfgSnapMethod; }	// what the sheet opened on
+	void UpdateBodnerInverseCache();
+	virtual bool CorrectionChangedSinceBeginConfigure() const;
+	void SetBodnerMatrices(const Matrix aRawMatrix[3], const Matrix aCalMatrix[3])
+	{
+		for ( int k = 0; k < 3; k++ )
+		{
+			m_bodnerRawMatrix[k] = aRawMatrix[k];
+			m_bodnerCalMatrix[k] = aCalMatrix[k];
+		}
+		UpdateBodnerInverseCache();
+		m_calibrationTime=time(NULL);
+	}
+	void ClearBodnerMatrices()
+	{
+		for ( int k = 0; k < 3; k++ )
+		{
+			m_bodnerRawMatrix[k] = Matrix::IdentityMatrix(3);
+			m_bodnerCalMatrix[k] = Matrix::IdentityMatrix(3);
+		}
+		UpdateBodnerInverseCache();
+	}
+	RawlessReadingsState & RawlessReadings() { return m_rawlessReadings; }
+	// A change of the effective matrix the sensor's own Init made, with no walk
+	// after it: `before` is GetEffectiveMatrix() from before Init's correction step.
+	// Updates the raw-less state as libHCFR's EffectiveChangedWithoutWalk says.
+	// Called only outside the sensor sheet (InSensorSheet).
+	void EffectiveChangedWithoutWalk(const Matrix& before, bool readingsAlreadyThroughIt);
+	bool InSensorSheet() const { return m_inSensorSheet; }
+	const Matrix * GetBodnerRawMatrices() const { return m_bodnerRawMatrix; }
+	const Matrix * GetBodnerCalMatrices() const { return m_bodnerCalMatrix; }
 
 	virtual BOOL IsMeasureValid() {return m_isMeasureValid; }
 	virtual void SetMeasureValidity(BOOL isValid) { m_isMeasureValid=isValid; }
@@ -89,17 +163,52 @@ public:
 	virtual BOOL IsModified() { return m_isModified; }
 	virtual void SetModifiedFlag( BOOL bModified ) { m_isModified = bModified; }
 
+	// Snapshot/restore of the correction state around Configure(). Needed because
+	// the Argyll spectral Browse commits immediately (device sample + matrices +
+	// modified flag) - a cancelled sheet must restore all of it. Derived classes
+	// extend both (see CArgyllSensor).
+	virtual void BeginConfigure();
+	virtual void CancelConfigure();
+
 	virtual LPCSTR GetStandardSubDir ()	{ return ""; }
 
+	// Spectral (ccss/CSV) correction. Only Argyll spectral-capable colorimeters
+	// create one (CArgyllSensor); the record lives here so a correction file and a
+	// document carry it beside the method it may be.
+	const SpectralCorrectionRecord& GetSpectralRecord() const { return m_spectral; }
+	void SetSpectralRecord(const SpectralCorrectionRecord& r) { m_spectral = r; }
+	int  GetFitBasis() const { return m_fitBasis; }
+	void SetFitBasis(int b) { m_fitBasis = b; }
+	bool UsesSpectralMethod() const { return m_calibrationMethod == CALIB_SPECTRAL_SAMPLE; }
+	// TRUE when a record exists, dormant or not (drives the page row and the prompts).
+	virtual BOOL HasSpectralCorrection() const { return m_spectral.IsPresent(); }
+	// Drops the record; a sensor whose method was the spectral one falls back to no
+	// correction. CArgyllSensor also drops the sample from the meter.
+	virtual void ClearSpectralCorrection();
+	// After a matrix fit replaced the spectral method: a driver-applied record cannot
+	// coexist with a matrix (double correction) and is cleared; a native-basis record stays, dormant.
+	void SpectralSupersededByMatrixFit();
+
 	CTime GetCalibrationTime() { return CTime(m_calibrationTime); }
-	int IsCalibrated() 
-	{ 
+	int IsCalibrated()
+	{
 		if (m_sensorToXYZMatrix.IsIdentity () && m_sensorToXYZMatrixMod.IsIdentity ())
 			return 0;
 		else
 			if (!m_sensorToXYZMatrix.IsIdentity ())
 				return 1;
 		return 2;
+	}
+
+	// True when a correction is actually being applied to every MeasureColor reading:
+	// a live non-identity sensor matrix (RGB/FCMM), OR the Bodner sub-gamut matrices.
+	// IsCalibrated() alone returns 0 for a Bodner sensor (its m_sensorToXYZMatrix is
+	// identity - the correction lives in m_bodnerRawMatrix[]), so UI gates that ask
+	// "is a correction live?" must use this to see the Bodner case. Mirrors the
+	// bHasCorrection test in datasetdoc.cpp.
+	bool IsCorrectionActive()
+	{
+		return ( IsCalibrated() == 1 ) || ( m_calibrationMethod == CALIB_BODNER_THREEMATRIX );
 	}
 	
 	

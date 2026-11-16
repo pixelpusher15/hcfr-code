@@ -82,6 +82,9 @@ class CDataSetFrameInfo;
 #include "Generators\Generator.h"
 
 #define WM_BKGND_MEASURE_READY	WM_USER + 1279
+// The background thread stopped on an invalid reading; lParam: a new CString with
+// the reason, which the handler shows and deletes.
+#define WM_BKGND_MEASURE_STOPPED	WM_USER + 1280
 
 class CDataSetDoc : public CDocument
 {
@@ -130,18 +133,32 @@ public:
 	void MeasureContrast();
 	void AddMeasurement();
 	bool CheckVideoLevel();
+	// Also used by CMainFrame to show these patterns with no document open
+	static bool CheckPatternVideoLevel(CGenerator * pGenerator);
+	static void WaitPatternKey(CGenerator * pGenerator, int Anim = 0);
 	//void CalibrateSensor(BOOL doUpdateValues=TRUE);
 
 	CMeasure *GetMeasure() { return &m_measure; }
 	CGenerator *GetGenerator() { return m_pGenerator; }
 	CSensor *GetSensor() { return m_pSensor; }
 
+	// Multi-set picker: load a patch-list CSV into the collection / switch the
+	// active set (shared by the Measures menu item and the stats-bar picker).
+	bool ImportUserPatchSetFile(LPCTSTR path);
+	void SwitchUserPatchSet(int idx);
+	void SyncCCTargets();	// USER: fill the process-wide CC target cache from THIS document's set
+
 	void ShowViewOnTop(UINT nMsg);
 	void HideView(UINT nMsg);
 	void HideAllViews();
 
-	void ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886);
+	// Returns whether it fitted: false (Gamma 1.0) for an invalid black under the
+	// relative offset, fewer than three points, a white without light, or no mid
+	// point with light (every one failed or dark). Offset
+	// is the configured one in every case (it is never fitted).
+	bool ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886);
 	BOOL ComputeAdjustmentMatrix();
+	bool ConfirmCalibrationMethodInSync();
 
 	void SetSelectedColor ( const CColor & clr )	{ m_SelectedColor = clr; }
 	void SetLastColor ( const CColor & clr )	{ m_LastColor = clr; }
@@ -156,6 +173,7 @@ public:
 	virtual BOOL CanCloseFrame(CFrameWnd* pFrame);
 	virtual BOOL OnSaveDocument(LPCTSTR lpszPathName);
 	//}}AFX_VIRTUAL
+	virtual void ReportSaveLoadException(LPCTSTR lpszPathName, CException* e, BOOL bSaving, UINT nIDPDefault);
 
 public:
 	virtual void SetModifiedFlag( BOOL bModified = TRUE );
@@ -194,6 +212,7 @@ protected:
 	afx_msg void OnExportXls();
 	afx_msg void OnExportCsv();
 	afx_msg void OnExportPdf();
+	afx_msg void OnExportTi3();
 	afx_msg void OnUpdateExportXls(CCmdUI* pCmdUI);
 	afx_msg void OnCalibrationSim();
 	afx_msg void OnCalibrationManual();
@@ -261,6 +280,7 @@ protected:
 	afx_msg void OnUpdateMeasureSecondaries(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateContinuousMeasurement(CCmdUI* pCmdUI);
 	afx_msg void OnMeasureDefinescale();
+	afx_msg void OnMeasureOpenPatchList();
 	afx_msg void OnMeasureNearblack();
 	afx_msg void OnUpdateMeasureNearblack(CCmdUI* pCmdUI);
 	afx_msg void OnMeasureNearwhite();
@@ -307,6 +327,7 @@ protected:
 	afx_msg void OnLoadCalibrationFile();
 	afx_msg void OnUpdateSaveCalibrationFile(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateLoadCalibrationFile(CCmdUI* pCmdUI);
+	afx_msg void OnUpdateCalibrationExisting(CCmdUI* pCmdUI);
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

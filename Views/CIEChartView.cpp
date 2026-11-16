@@ -33,6 +33,7 @@
 #include "graphcontrol.h"
 #include "GdiPlusAA.h"
 #include "GamutCoverage.h"
+#include "GamutName.h"
 #include "Views\MainView.h"
 
 #ifdef _DEBUG
@@ -157,6 +158,7 @@ CCIEChartGrapher::CCIEChartGrapher()
 	m_datarefMagentaBitmap.LoadBitmap(IDB_REFCROSS_MAGENTA);
 
 	m_doDisplayBackground=GetConfig()->GetProfileInt("CIE Chart","Display Background",TRUE);
+	m_doCovAlwaysRecalc=GetConfig()->GetProfileInt("CIE Chart","Coverage Always Recalc",FALSE);
 	m_doDisplayDeltaERef=GetConfig()->GetProfileInt("CIE Chart","Display Delta E",FALSE);
 	m_doShowReferences=GetConfig()->GetProfileInt("CIE Chart","Show References",TRUE);
 	m_doShowDataRef=GetConfig()->GetProfileInt("CIE Chart","Show Reference Data",TRUE);
@@ -177,6 +179,7 @@ CCIEChartGrapher::CCIEChartGrapher()
 	isSat = FALSE;
 
 	m_covValid = FALSE;
+	m_covAbValid = FALSE;
 
 	m_pMarkerGraphics = NULL;
 	m_markerScale = 1.0f;
@@ -731,19 +734,60 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 
 }
 
-// Gamut coverage chips (top right): [gamut] [xy: n%] [u'v': n%]. The
-// gamut-name chip always shows; the coverage percentages are the measured
-// primaries triangle vs the displayed reference triangle (area intersection
-// / reference area) in xy and u'v'. Not shown in CIE a*b* mode (the metric
-// is a chromaticity-plane one). The percentages hide when the gamut is
-// changed until the primaries are re-measured, since old primaries don't
-// belong to the new reference.
+// Exact match of three measured colors against a coverage-chip cache: any
+// re-measure changes the doubles, so equality means "not re-measured".
+static bool SameColors3 ( const ColorXYZ & c0, const ColorXYZ & c1, const ColorXYZ & c2, const ColorXYZ cache[3] )
+{
+	const ColorXYZ * c[3] = { & c0, & c1, & c2 };
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			if ( (*c[i])[j] != cache[i][j] )
+				return false;
+	return true;
+}
+
+// Gamut coverage chips (top right): [gamut] [xy: n%] [u'v': n%] [a*b*: n%],
+// all shown together in every chart view. The gamut-name chip always shows.
+//
+// xy/u'v': the measured R,G,B primaries triangle vs the displayed reference
+// triangle (area intersection / reference area) -- a pure chromaticity-plane
+// metric, blind to luminance by construction (see GamutCoverage.h).
+//
+// a*b*: NOT the same metric re-plotted. A 3-point R,G,B triangle would
+// dilute a single bad channel's effect across only three vertices, and
+// would stay completely unmoved by a pure luminance shortfall in a
+// secondary (Y/C/M) -- the exact blind spot this chip exists to close. So
+// this path uses all six of R,Y,G,C,B,M as an a*b* hexagon instead
+// (GamutCoveragePolygon in GamutCoverage.h/.cpp). Because a* and b* both
+// carry the f(Y/Yn) term from the Lab formulas, a channel that loses
+// luminance at an unchanged xy chromaticity visibly compresses toward the
+// neutral point on this hexagon -- which is the point of computing it this
+// way rather than mirroring the triangle metric into this plane.
+//
+// Showing all three together (rather than switching which ones appear
+// based on the active view) is deliberate: they answer different
+// questions, and comparing them is often the useful part -- e.g. xy and
+// u'v' both reading 100% while a*b* reads 99.8% on the same measurement
+// says the primaries are chromaticity-perfect but a secondary has a small
+// residual luminance-driven chroma pull, a distinction neither metric
+// shown alone would reveal.
+//
+// The percentages hide when the gamut is changed until the relevant
+// measured data is re-measured, since old measurements don't belong to the
+// new reference -- matching the original xy/u'v' chip design. xy/u'v' only
+// need the primaries to have been re-measured; a*b* needs both the
+// primaries and the secondaries -- so it's possible for one to show while
+// the other is still hidden if only some patches have been re-measured.
+// a*b* is also not shown in PQ mode or without a measured white (below).
+// The "Show coverage % after gamut change" toggle (m_doCovAlwaysRecalc)
+// overrides that hiding on screen only (bForExport FALSE); a baked export
+// keeps the hiding. The toggle never reaches the cache refresh.
 // The row anchors to rcAnchor's top-right: the client rect when overlaid on
 // screen paints (OnDraw calls this after every blit so the chips stay pinned
 // under zoom/pan), the image rect when baked into exports.
-void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDoc * pDoc )
+void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDoc * pDoc, BOOL bForExport )
 {
-	if ( m_bCIEab || min(rcAnchor.Width(),rcAnchor.Height()) <= FX_MINSIZETOSHOW_REFDETAILS )
+	if ( min(rcAnchor.Width(),rcAnchor.Height()) <= FX_MINSIZETOSHOW_REFDETAILS )
 		return;
 
 	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetRedPrimary().GetXYZValue();
@@ -752,58 +796,155 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	BOOL hasPrimaries = redPrimaryColor.isValid() && greenPrimaryColor.isValid() &&
 						bluePrimaryColor.isValid();
 
-	// Short names for the mainstream gamuts; everything else (incl. the
-	// reduced-primary HDTVa/HDTVb pseudo-gamuts) uses its own reference
-	// name so the label always matches the triangle actually drawn.
+	// a*b* additionally needs the secondaries to build the hexagon. Fetched
+	// unconditionally (not just in a*b* mode) since all three metrics are
+	// shown together regardless of which chart view is active.
+	ColorXYZ yellowSecondaryColor  = pDoc->GetMeasure()->GetYellowSecondary().GetXYZValue();
+	ColorXYZ cyanSecondaryColor    = pDoc->GetMeasure()->GetCyanSecondary().GetXYZValue();
+	ColorXYZ magentaSecondaryColor = pDoc->GetMeasure()->GetMagentaSecondary().GetXYZValue();
+	BOOL hasSecondariesForAb = yellowSecondaryColor.isValid() && cyanSecondaryColor.isValid() &&
+							   magentaSecondaryColor.isValid();
+
 	WCHAR gamutName[64];
-	switch (GetColorReference().m_standard)
+	GamutShortName(GetColorReference(), gamutName, 64);
+
+	// Each metric keeps its own staleness cache. A percentage is stale (and
+	// hidden) when the reference standard changed since that metric's cache
+	// was written while the data it depends on stayed put -- i.e. the gamut
+	// was switched without a fresh measurement; re-measuring re-shows it.
+	// xy/u'v' depend on the primaries only (the original chip's rule,
+	// unchanged, so a primaries-only project behaves exactly as before).
+	// a*b* depends on the primaries AND the secondaries, so it stays stale
+	// while EITHER set is unchanged, and it keeps its own copy of the
+	// primaries: the xy/u'v' cache absorbs a primaries re-measure at once,
+	// and comparing a*b* against it would keep a*b* stale after a later
+	// secondaries pass.
+	ColorStandard curStd = GetColorReference().m_standard;
+	BOOL xyuvStale = m_covValid && m_covStandard != curStd
+		&& SameColors3(redPrimaryColor, greenPrimaryColor, bluePrimaryColor, m_covPrimaries);
+	BOOL abStale   = m_covAbValid && m_covAbStandard != curStd
+		&& ( SameColors3(redPrimaryColor, greenPrimaryColor, bluePrimaryColor, m_covAbPrimaries)
+		  || SameColors3(yellowSecondaryColor, cyanSecondaryColor, magentaSecondaryColor, m_covSecondaries) );
+
+	// Cache refresh: keyed on staleness alone, never on whether a value is
+	// shown, so nothing that only changes the display can rewrite a cache.
+	// Skipping it while stale is what keeps a hidden value hidden on the
+	// next paint instead of absorbing the new standard.
+	if (hasPrimaries && !xyuvStale)
 	{
-		case HDTV: case UHDTV4: wcscpy_s(gamutName, L"Rec.709");  break;
-		case UHDTV: case UHDTV3: wcscpy_s(gamutName, L"DCI-P3");   break;
-		case UHDTV2:            wcscpy_s(gamutName, L"Rec.2020");  break;
-		default:
-			swprintf_s(gamutName, 64, L"%S", GetColorReference().GetName().c_str());
-			break;
+		m_covStandard = curStd;
+		m_covPrimaries[0] = redPrimaryColor;
+		m_covPrimaries[1] = greenPrimaryColor;
+		m_covPrimaries[2] = bluePrimaryColor;
+		m_covValid = TRUE;
+	}
+	if (hasPrimaries && hasSecondariesForAb && !abStale)
+	{
+		m_covAbStandard = curStd;
+		m_covAbPrimaries[0] = redPrimaryColor;
+		m_covAbPrimaries[1] = greenPrimaryColor;
+		m_covAbPrimaries[2] = bluePrimaryColor;
+		m_covSecondaries[0] = yellowSecondaryColor;
+		m_covSecondaries[1] = cyanSecondaryColor;
+		m_covSecondaries[2] = magentaSecondaryColor;
+		m_covAbValid = TRUE;
 	}
 
-	// Decide whether the coverage percentages are current. They are stale
-	// (and hidden) if the reference standard changed while the measured
-	// primaries stayed put -- i.e. the gamut was switched without a fresh
-	// measurement. Re-measuring changes the primaries and re-shows them.
-	ColorStandard curStd = GetColorReference().m_standard;
-	BOOL showPct = FALSE;
-	double covXY = 0.0, covUV = 0.0;
-	if (hasPrimaries)
+	// a*b* is withheld (neither computed nor shown) where it would be a
+	// number we cannot stand behind -- this chip is baked into exports:
+	//  - PQ (m_GammaOffsetType == 5): DrawChart rescales the reference side
+	//    by the tone-mapped diffuse white (its mode-5 YWhiteRef), which this
+	//    call path does not reproduce; a*b* is untested there.
+	//  - No measured white: the measured Lab needs the display's own white.
+	//    The prime white first, as DrawChart does, then THE white: the gray
+	//    scale's measured 100% (GetGrayScaleWhite), which falls back to the
+	//    on/off white. The prime and on/off whites start as constructor
+	//    placeholders that pass isValid(), so a measured flag (or, for the
+	//    on/off fallback, its placeholder signature) says a reading exists.
+	double YWhiteAB = 0.0;
+	if ( pDoc->GetMeasure()->IsPrimeWhiteMeasured() && pDoc->GetMeasure()->GetPrimeWhite().isValid() )
+		YWhiteAB = pDoc->GetMeasure()->GetPrimeWhite()[1];
+	else
 	{
-		BOOL primsSame = m_covValid
-			&& redPrimaryColor[0]   == m_covPrimaries[0][0] && redPrimaryColor[1]   == m_covPrimaries[0][1] && redPrimaryColor[2]   == m_covPrimaries[0][2]
-			&& greenPrimaryColor[0] == m_covPrimaries[1][0] && greenPrimaryColor[1] == m_covPrimaries[1][1] && greenPrimaryColor[2] == m_covPrimaries[1][2]
-			&& bluePrimaryColor[0]  == m_covPrimaries[2][0] && bluePrimaryColor[1]  == m_covPrimaries[2][1] && bluePrimaryColor[2]  == m_covPrimaries[2][2];
-		BOOL stdSame = m_covValid && (m_covStandard == curStd);
+		const CColor gsWhiteAB = pDoc->GetMeasure()->GetGrayScaleWhite();
+		if ( gsWhiteAB.isValid() && ( pDoc->GetMeasure()->IsOnOffWhiteMeasured() || ! CMeasure::IsPlaceholderWhite ( gsWhiteAB, true ) ) )
+			YWhiteAB = gsWhiteAB[1];
+	}
+	BOOL abAllowed = GetConfig()->m_GammaOffsetType != 5 && YWhiteAB > 0.0;
 
-		if (m_covValid && !stdSame && primsSame)
+	// The toggle bypasses the stale-hide here and nowhere else: the cache
+	// refresh above does not read it, so turning it off again hides exactly
+	// what would have been hidden had it never been on; and an export never
+	// bypasses, so a saved chart only carries numbers the default rule shows.
+	BOOL bBypass  = m_doCovAlwaysRecalc && !bForExport;
+	BOOL showXYUV = hasPrimaries && (bBypass || !xyuvStale);
+	BOOL showAB   = hasPrimaries && hasSecondariesForAb && abAllowed && (bBypass || !abStale);
+	double covXY = 0.0, covUV = 0.0, covAB = 0.0;
+
+	if (showXYUV)
+	{
+		ColorxyY measured[3] = { ColorxyY(redPrimaryColor),
+								 ColorxyY(greenPrimaryColor),
+								 ColorxyY(bluePrimaryColor) };
+		// the triangle drawn on the chart is the active reference's primaries
+		// (for P3/709 inside a 2020 container these are already the inner gamut)
+		ColorxyY refTri[3] = { ColorxyY(GetColorReference().GetRed()),
+							   ColorxyY(GetColorReference().GetGreen()),
+							   ColorxyY(GetColorReference().GetBlue()) };
+		covXY = GamutCoverage(measured, refTri, GAMUT_PLANE_XY) * 100.0;
+		covUV = GamutCoverage(measured, refTri, GAMUT_PLANE_UV) * 100.0;
+	}
+
+	if (showAB)
+	{
+		// Measured colors are raw sensor XYZ (Y in absolute cd/m^2,
+		// e.g. ~10-170), while CColorReference::GetRed()/GetYellow()/
+		// etc. are explicitly documented as "relative-to-white
+		// luminance... white luminance reference value is 1" -- a
+		// completely different scale. Mixing them under a single
+		// YWhiteRef=1.0 (as an earlier version of this code did)
+		// inflates the measured hexagon's Lab magnitude so much it
+		// swallows the correctly-scaled reference hexagon entirely,
+		// pinning coverage near 100% regardless of actual accuracy.
+		// The fix mirrors the existing, working precedent a few
+		// hundred lines below (the actual plotted marker
+		// construction): measured colors use YWhite (the display's
+		// own measured white luminance), reference colors use 1.0
+		// (matching CColorReference's own convention).
+		// YWhiteAB is resolved above, from a MEASURED white only.
+		// NOTE: the existing code this mirrors additionally special-
+		// cases HDTVa/HDTVb against a UI mode range (current_mode)
+		// that isn't in scope in this function; that narrow case is
+		// not replicated here.
+
+		// SDR only: PQ never reaches this block (abAllowed above).
+		CColorReference bRefAb = ((GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4) ? CColorReference(UHDTV2) :
+								   (GetColorReference().m_standard == HDTVa || GetColorReference().m_standard == HDTVb) ? CColorReference(HDTV) : GetColorReference());
+
+		ColorLab measLab[6] = {
+			ColorLab(ColorXYZ(redPrimaryColor),      YWhiteAB, bRefAb),
+			ColorLab(ColorXYZ(yellowSecondaryColor), YWhiteAB, bRefAb),
+			ColorLab(ColorXYZ(greenPrimaryColor),    YWhiteAB, bRefAb),
+			ColorLab(ColorXYZ(cyanSecondaryColor),   YWhiteAB, bRefAb),
+			ColorLab(ColorXYZ(bluePrimaryColor),     YWhiteAB, bRefAb),
+			ColorLab(ColorXYZ(magentaSecondaryColor),YWhiteAB, bRefAb),
+		};
+		ColorLab refLab[6] = {
+			ColorLab(ColorXYZ(GetColorReference().GetRed()),     1.0, bRefAb),
+			ColorLab(ColorXYZ(GetColorReference().GetYellow()),  1.0, bRefAb),
+			ColorLab(ColorXYZ(GetColorReference().GetGreen()),   1.0, bRefAb),
+			ColorLab(ColorXYZ(GetColorReference().GetCyan()),    1.0, bRefAb),
+			ColorLab(ColorXYZ(GetColorReference().GetBlue()),    1.0, bRefAb),
+			ColorLab(ColorXYZ(GetColorReference().GetMagenta()), 1.0, bRefAb),
+		};
+
+		std::vector<GamutPoint> measHex(6), refHex(6);
+		for (int i = 0; i < 6; i++)
 		{
-			showPct = FALSE;	// gamut changed, primaries not re-measured
+			measHex[i] = GamutPoint{ measLab[i][1], measLab[i][2] };	// a*, b*
+			refHex[i]  = GamutPoint{ refLab[i][1],  refLab[i][2]  };
 		}
-		else
-		{
-			showPct = TRUE;
-			ColorxyY measured[3] = { ColorxyY(redPrimaryColor),
-									 ColorxyY(greenPrimaryColor),
-									 ColorxyY(bluePrimaryColor) };
-			// the triangle drawn on the chart is the active reference's primaries
-			// (for P3/709 inside a 2020 container these are already the inner gamut)
-			ColorxyY refTri[3] = { ColorxyY(GetColorReference().GetRed()),
-								   ColorxyY(GetColorReference().GetGreen()),
-								   ColorxyY(GetColorReference().GetBlue()) };
-			covXY = GamutCoverage(measured, refTri, GAMUT_PLANE_XY) * 100.0;
-			covUV = GamutCoverage(measured, refTri, GAMUT_PLANE_UV) * 100.0;
-			m_covStandard = curStd;
-			m_covPrimaries[0] = redPrimaryColor;
-			m_covPrimaries[1] = greenPrimaryColor;
-			m_covPrimaries[2] = bluePrimaryColor;
-			m_covValid = TRUE;
-		}
+		covAB = GamutCoveragePolygon(measHex, refHex) * 100.0;
 	}
 
 	// Pill stat chips like the target widget's, anchored top right,
@@ -821,19 +962,27 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	Gdiplus::Color nBorder = bDark ? Gdiplus::Color(255, 72, 72, 72)    : Gdiplus::Color(255, 205, 207, 213);
 	Gdiplus::Color nText   = bDark ? Gdiplus::Color(255, 215, 215, 215) : Gdiplus::Color(255, 70, 74, 80);
 
-	// Visual order left-to-right is [gamut] [xy] [u'v']; priority is the
-	// reverse, so if the row can't fit the chart width drop u'v' first,
-	// then xy, always keeping the gamut name.
-	WCHAR uvBuf[64], xyBuf[64];
-	const WCHAR * ordered[3];
-	int nChips = 0;
+	// Visual order left-to-right is [gamut] [xy] [u'v'] [a*b*], shown
+	// together in every chart view. Narrow-window fallback: if the row can't
+	// fit the chart width, chips drop from the right (a*b*, then u'v', then
+	// xy), always keeping the gamut name -- except in the a*b* view, where
+	// a*b* is the chip for the chart on screen and goes last (u'v', xy, a*b*).
+	WCHAR uvBuf[64], xyBuf[64], abBuf[64];
+	const WCHAR * ordered[4];
+	int nChips = 0, iAB = -1;
 	ordered[nChips++] = gamutName;
-	if (showPct)
+	if (showXYUV)
 	{
 		swprintf_s(xyBuf, 64, L"xy: %.1f%%", covXY);
 		swprintf_s(uvBuf, 64, L"u'v': %.1f%%", covUV);
 		ordered[nChips++] = xyBuf;
 		ordered[nChips++] = uvBuf;
+	}
+	if (showAB)
+	{
+		swprintf_s(abBuf, 64, L"a*b*: %.1f%%", covAB);
+		iAB = nChips;
+		ordered[nChips++] = abBuf;
 	}
 
 	const Gdiplus::REAL pad = 8.0f, gap = 6.0f;
@@ -841,8 +990,18 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	Gdiplus::REAL total = 0.0f;
 	for (int i = 0; i < nChips; i++)
 		total += MeasureStatChip(g, chipFont, ordered[i]).Width + (i ? gap : 0.0f);
-	while (nChips > 1 && total > avail)	// drop lowest-priority (rightmost) chips
-		total -= MeasureStatChip(g, chipFont, ordered[--nChips]).Width + gap;
+	while (nChips > 1 && total > avail)	// drop lowest-priority chips
+	{
+		int iDrop = nChips - 1;			// the rightmost...
+		if (m_bCIEab && iDrop == iAB && iDrop > 1)
+			iDrop--;					// ...or, in the a*b* view, the one left of a*b*
+		total -= MeasureStatChip(g, chipFont, ordered[iDrop]).Width + gap;
+		for (int k = iDrop; k < nChips - 1; k++)
+			ordered[k] = ordered[k + 1];
+		nChips--;
+		if (iAB > iDrop)
+			iAB--;
+	}
 
 	Gdiplus::REAL bottom = (Gdiplus::REAL)rcAnchor.top + pad + MeasureStatChip(g, chipFont, gamutName).Height;
 	Gdiplus::REAL xRight = (Gdiplus::REAL)rcAnchor.right - pad;
@@ -1219,8 +1378,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		rgb[i]=aColor[i].GetRGBValue ( bRef );
 	double r[6],g[6],b[6];
     double gamma=(GetConfig()->m_useMeasuredGamma)?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef);
-	CColor White = pDoc->GetMeasure()->GetOnOffWhite();
-	CColor Black = pDoc->GetMeasure()->GetOnOffBlack();
+	CColor White = pDoc->GetMeasure()->GetGrayScaleWhite();
+	CColor Black = pDoc->GetMeasure()->GetGrayScaleBlack();
     bool isSpecial = (GetColorReference().m_standard==HDTVa||GetColorReference().m_standard==CC6||GetColorReference().m_standard==HDTVb||GetColorReference().m_standard==UHDTV3||GetColorReference().m_standard==UHDTV4);
 
 	if (isSpecial)
@@ -1271,10 +1430,11 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 //	double YWhite = redPrimaryColor[2]+greenPrimaryColor[2]+bluePrimaryColor[2];
 	double YWhite = 1.0;
 	
+	const CColor grayScaleWhite = pDoc -> GetMeasure () -> GetGrayScaleWhite ();
 	if ( pDoc -> GetMeasure () -> GetPrimeWhite ().isValid() && !( (current_mode>=4 && current_mode<=12) && (GetConfig()->m_colorStandard==HDTVb||GetConfig()->m_colorStandard==HDTVa)) )
 		YWhite = pDoc -> GetMeasure () -> GetPrimeWhite () [ 1 ]; //check here first
-	else if ( pDoc -> GetMeasure () -> GetOnOffWhite ().isValid() )
-		YWhite = pDoc -> GetMeasure () -> GetOnOffWhite () [ 1 ]; //onoff white is always grayscale white
+	else if ( grayScaleWhite.isValid() )
+		YWhite = grayScaleWhite [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
 		
 	double YWhiteRef = 1.0;
 	isSat = FALSE;
@@ -1368,10 +1528,11 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 
 //		YWhiteRef = datarefRed[1]+datarefGreen[1]+datarefBlue[1];
 		
+	const CColor grayScaleWhiteRef = pDataRef -> GetMeasure () -> GetGrayScaleWhite ();
 	if ( pDataRef -> GetMeasure () -> GetPrimeWhite ().isValid() && !( (current_mode>=4 && current_mode<=12) && (GetConfig()->m_colorStandard==HDTVb||GetConfig()->m_colorStandard==HDTVa)) )
 			YWhite = pDataRef -> GetMeasure () -> GetPrimeWhite () [ 1 ];
-		else if ( pDataRef -> GetMeasure () -> GetOnOffWhite ().isValid() )
-			YWhite = pDataRef -> GetMeasure () -> GetOnOffWhite () [ 1 ]; //onoff white is always grayscale white
+		else if ( grayScaleWhiteRef.isValid() )
+			YWhite = grayScaleWhiteRef [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
 	}
 
 	Msg.LoadString ( IDS_DATAREF_RED );
@@ -1866,18 +2027,14 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			pDC->SelectObject(pOldFont);
 		}
 
-		// Gamut coverage chips (top right): [gamut] [xy: n%] [u'v': n%]. The
-		// gamut-name chip always shows; the coverage percentages are the measured
-		// primaries triangle vs the displayed reference triangle (area
-		// intersection / reference area) in xy and u'v'. Not shown in CIE a*b*
-		// mode (the metric is a chromaticity-plane one). The percentages hide
-		// when the gamut is changed until the primaries are re-measured, since
-		// old primaries don't belong to the new reference.
+		// Gamut coverage chips (top right): [gamut] [xy] [u'v'] [a*b*]. What each
+		// percentage measures, and when it is hidden, is described at
+		// DrawCoverageChips.
 		// Coverage chips are baked into exports here; screen paints overlay
 		// them in OnDraw after the blit instead, so they stay pinned to the
 		// window's top-right corner while the chart is zoomed or panned.
 		if ( ! pWnd )
-			DrawCoverageChips ( pDC, rect, pDoc );
+			DrawCoverageChips ( pDC, rect, pDoc, TRUE );
 
 		if(hasPrimaries && hasSecondaries && !m_bCIEab)
 		{
@@ -1930,7 +2087,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		
 		double YWhiteGray = YWhite;
 		if ( nSize > 0 )
-			YWhiteGray = pDoc -> GetMeasure () -> GetGray ( nSize - 1 ) [ 1 ];
+			YWhiteGray = pDoc -> GetMeasure () -> GetGrayScaleWhite () [ 1 ];
 		
 		
 		CColor GrayClr;
@@ -1942,7 +2099,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		{
 			CString str;
 			Msg.LoadString ( IDS_GRAYIRE );
-			str.Format(Msg,(int)(pDoc->GetMeasure()->GetGrayPercent(i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+0.5));
+			str.Format(Msg,(int)(pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i )+0.5));	// its stamped drive, else slot i
             ColorXYZ aColor(pDoc->GetMeasure()->GetGray(i).GetXYZValue());
             ColorXYZ refColor(GetColorReference().GetWhite());
             double valy;
@@ -1950,19 +2107,18 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
             // Determine Reference Y luminance for Delta E calculus
             if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
             {
-				double x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
-    			CColor White = pDoc -> GetMeasure () -> GetGray ( nSize - 1 );
-				CColor Black = pDoc->GetMeasure()->GetOnOffBlack();
+    			CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite ();
+				CColor Black = pDoc->GetMeasure()->GetGrayScaleBlack();
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if (  (mode >= 4) )
 			    {
-				   double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				   double valx = pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i );
                    valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //				   valy = min(valy, GetConfig()->m_TargetMaxL);
 			    }
 			    else
 			    {
-				   double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+				   double valx=(pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i )+Offset)/(1.0+Offset);
 				   valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -1984,6 +2140,19 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
                     YWhiteGray = aColor [ 1 ];
             }
 
+            // Black on the grid cell's terms (BlackTargetReference): no point
+            // for a black with no measured light - its xy is the sensor floor's
+            // 1/3, 1/3 - and a tint-only target where the w/gamma one is zero.
+            if ( i == 0 )
+            {
+                if ( !HasMeasuredLight ( aColor[1] ) )
+                    continue;
+                CColor blackRef = BlackTargetReference ( pDoc->GetMeasure()->GetGray(i), YWhiteGray, CColor ( refColor ), GetColorReference().GetWhite() );
+                if ( !blackRef.isValid() )
+                    continue;
+                refColor = blackRef.GetXYZValue();
+            }
+
             CCIEGraphPoint grayRef(refColor, 1.0,"", m_bCIEuv, m_bCIEab);
 
             CCIEGraphPoint grayPoint(pDoc->GetMeasure()->GetGray(i).GetXYZValue(), YWhiteGray, str, m_bCIEuv, m_bCIEab);
@@ -1994,8 +2163,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	
 	if ( pDoc -> GetMeasure () -> GetPrimeWhite ().isValid() && !( (current_mode>=4 && current_mode<=12) && (GetConfig()->m_colorStandard==HDTVb||GetConfig()->m_colorStandard==HDTVa)) )
 		YWhite = pDoc -> GetMeasure () -> GetPrimeWhite () [ 1 ]; //check here first
-	else if ( pDoc -> GetMeasure () -> GetOnOffWhite ().isValid() )
-		YWhite = pDoc -> GetMeasure () -> GetOnOffWhite () [ 1 ]; //onoff white is always grayscale white
+	else if ( grayScaleWhite.isValid() )
+		YWhite = grayScaleWhite [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
 
 	YWhiteRef = 1.0;
 
@@ -2015,37 +2184,44 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint RedPointRef(pDoc->GetMeasure()->GetRefSat(0, (double)i / (double)(pDoc->GetMeasure()->GetSaturationSize()-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,RedPointRef,&m_redSatRefBitmap,rect,pTooltip,pWnd);
+			// Draw a target only for a step that has been measured.
+			if ( pDoc->GetMeasure()->GetRedSat(i).isValid() )
+				DrawAlphaBitmap(pDC,RedPointRef,&m_redSatRefBitmap,rect,pTooltip,pWnd);
 			Msg.LoadString ( IDS_GREENSATPERCENTREF );
 			str.Format(Msg, (i*100/(pDoc->GetMeasure()->GetSaturationSize()-1)));
 			CCIEGraphPoint GreenPointRef(pDoc->GetMeasure()->GetRefSat(1, (double)i / (double)(pDoc->GetMeasure()->GetSaturationSize()-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,GreenPointRef,&m_greenSatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetGreenSat(i).isValid() )
+				DrawAlphaBitmap(pDC,GreenPointRef,&m_greenSatRefBitmap,rect,pTooltip,pWnd);
 						Msg.LoadString ( IDS_BLUESATPERCENTREF );
 			str.Format(Msg, (i*100/(pDoc->GetMeasure()->GetSaturationSize()-1)));
 			CCIEGraphPoint BluePointRef(pDoc->GetMeasure()->GetRefSat(2, (double)i / (double)(pDoc->GetMeasure()->GetSaturationSize()-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,BluePointRef,&m_blueSatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetBlueSat(i).isValid() )
+				DrawAlphaBitmap(pDC,BluePointRef,&m_blueSatRefBitmap,rect,pTooltip,pWnd);
 			Msg.LoadString ( IDS_YELLOWSATPERCENTREF );
 			str.Format(Msg, (i*100/(pDoc->GetMeasure()->GetSaturationSize()-1)));
 			CCIEGraphPoint YellowPointRef(pDoc->GetMeasure()->GetRefSat(3, (double)i / (double)(pDoc->GetMeasure()->GetSaturationSize()-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,YellowPointRef,&m_yellowSatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetYellowSat(i).isValid() )
+				DrawAlphaBitmap(pDC,YellowPointRef,&m_yellowSatRefBitmap,rect,pTooltip,pWnd);
 			Msg.LoadString ( IDS_CYANSATPERCENTREF );
 			str.Format(Msg, (i*100/(pDoc->GetMeasure()->GetSaturationSize()-1)));
 			CCIEGraphPoint CyanPointRef(pDoc->GetMeasure()->GetRefSat(4, (double)i / (double)(pDoc->GetMeasure()->GetSaturationSize()-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,CyanPointRef,&m_cyanSatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCyanSat(i).isValid() )
+				DrawAlphaBitmap(pDC,CyanPointRef,&m_cyanSatRefBitmap,rect,pTooltip,pWnd);
 			Msg.LoadString ( IDS_MAGENTASATPERCENTREF );
 			str.Format(Msg, (i*100/(pDoc->GetMeasure()->GetSaturationSize()-1)));
 			CCIEGraphPoint MagentaPointRef(pDoc->GetMeasure()->GetRefSat(5, (double)i / (double)(pDoc->GetMeasure()->GetSaturationSize()-1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb)).GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,MagentaPointRef,&m_magentaSatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetMagentaSat(i).isValid() )
+				DrawAlphaBitmap(pDC,MagentaPointRef,&m_magentaSatRefBitmap,rect,pTooltip,pWnd);
 			}
 
 		}
@@ -2064,7 +2240,9 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc1Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc1Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			// Draw a target only for a patch that has been measured.
+			if ( pDoc->GetMeasure()->GetCC24Sat(0).isValid() )
+				DrawAlphaBitmap(pDC,cc1Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 		
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_2a:(GetConfig()->m_CCMode == SKIN?IDS_CC_2b:IDS_CC_2) );
 			str.Format(Msg, 10);
@@ -2072,7 +2250,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc2Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc2Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(1).isValid() )
+				DrawAlphaBitmap(pDC,cc2Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_3a:(GetConfig()->m_CCMode == SKIN?IDS_CC_3b:IDS_CC_3) );
 			str.Format(Msg, 10);
@@ -2080,7 +2259,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc3Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc3Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(2).isValid() )
+				DrawAlphaBitmap(pDC,cc3Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_4a:(GetConfig()->m_CCMode == SKIN?IDS_CC_4b:IDS_CC_4) );
 			str.Format(Msg, 10);
@@ -2088,7 +2268,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc4Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc4Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(3).isValid() )
+				DrawAlphaBitmap(pDC,cc4Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_5a:(GetConfig()->m_CCMode == SKIN?IDS_CC_5b:IDS_CC_5) );
 			str.Format(Msg, 10);
@@ -2096,7 +2277,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc5Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc5Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(4).isValid() )
+				DrawAlphaBitmap(pDC,cc5Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_6a:(GetConfig()->m_CCMode == SKIN?IDS_CC_6b:IDS_CC_6) );
 			str.Format(Msg, 10);
@@ -2104,7 +2286,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc6Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc6Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(5).isValid() )
+				DrawAlphaBitmap(pDC,cc6Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_7a:(GetConfig()->m_CCMode == SKIN?IDS_CC_7b:IDS_CC_7) );
 			str.Format(Msg, 10);
@@ -2112,7 +2295,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc7Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc7Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(6).isValid() )
+				DrawAlphaBitmap(pDC,cc7Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_8a:(GetConfig()->m_CCMode == SKIN?IDS_CC_8b:IDS_CC_8) );
 			str.Format(Msg, 10);
@@ -2120,7 +2304,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc8Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc8Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(7).isValid() )
+				DrawAlphaBitmap(pDC,cc8Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_9a:(GetConfig()->m_CCMode == SKIN?IDS_CC_9b:IDS_CC_9) );
 			str.Format(Msg, 10);
@@ -2128,7 +2313,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc9Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc9Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(8).isValid() )
+				DrawAlphaBitmap(pDC,cc9Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_10a:(GetConfig()->m_CCMode == SKIN?IDS_CC_10b:IDS_CC_10) );
 			str.Format(Msg, 10);
@@ -2136,7 +2322,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc10Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc10Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(9).isValid() )
+				DrawAlphaBitmap(pDC,cc10Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_11a:(GetConfig()->m_CCMode == SKIN?IDS_CC_11b:IDS_CC_11) );
 			str.Format(Msg, 10);
@@ -2144,7 +2331,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc11Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc11Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(10).isValid() )
+				DrawAlphaBitmap(pDC,cc11Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_12a:(GetConfig()->m_CCMode == SKIN?IDS_CC_12b:IDS_CC_12) );
 			str.Format(Msg, 10);
@@ -2152,7 +2340,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc12Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc12Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(11).isValid() )
+				DrawAlphaBitmap(pDC,cc12Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_13a:(GetConfig()->m_CCMode == SKIN?IDS_CC_13b:IDS_CC_13) );
 			str.Format(Msg, 10);
@@ -2160,7 +2349,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc13Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc13Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(12).isValid() )
+				DrawAlphaBitmap(pDC,cc13Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_14a:(GetConfig()->m_CCMode == SKIN?IDS_CC_14b:IDS_CC_14) );
 			str.Format(Msg, 10);
@@ -2168,7 +2358,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc14Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc14Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(13).isValid() )
+				DrawAlphaBitmap(pDC,cc14Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_15a:(GetConfig()->m_CCMode == SKIN?IDS_CC_15b:IDS_CC_15) );
 			str.Format(Msg, 10);
@@ -2176,7 +2367,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc15Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc15Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(14).isValid() )
+				DrawAlphaBitmap(pDC,cc15Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_16a:(GetConfig()->m_CCMode == SKIN?IDS_CC_16b:IDS_CC_16) );
 			str.Format(Msg, 10);
@@ -2184,7 +2376,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc16Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc16Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(15).isValid() )
+				DrawAlphaBitmap(pDC,cc16Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_17a:(GetConfig()->m_CCMode == SKIN?IDS_CC_17b:IDS_CC_17) );
 			str.Format(Msg, 10);
@@ -2192,7 +2385,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc17Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc17Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(16).isValid() )
+				DrawAlphaBitmap(pDC,cc17Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_18a:(GetConfig()->m_CCMode == SKIN?IDS_CC_18b:IDS_CC_18) );
 			str.Format(Msg, 10);
@@ -2200,7 +2394,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc18Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc18Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(17).isValid() )
+				DrawAlphaBitmap(pDC,cc18Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_19a:(GetConfig()->m_CCMode == SKIN?IDS_CC_19b:IDS_CC_19) );
 			str.Format(Msg, 10);
@@ -2208,7 +2403,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc19Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc19Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(18).isValid() )
+				DrawAlphaBitmap(pDC,cc19Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_20a:(GetConfig()->m_CCMode == SKIN?IDS_CC_20b:IDS_CC_20) );
 			str.Format(Msg, 10);
@@ -2216,7 +2412,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc20Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc20Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(19).isValid() )
+				DrawAlphaBitmap(pDC,cc20Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_21a:(GetConfig()->m_CCMode == SKIN?IDS_CC_21b:IDS_CC_21) );
 			str.Format(Msg, 10);
@@ -2224,7 +2421,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc21Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc21Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(20).isValid() )
+				DrawAlphaBitmap(pDC,cc21Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_22a:(GetConfig()->m_CCMode == SKIN?IDS_CC_22b:IDS_CC_22) );
 			str.Format(Msg, 10);			
@@ -2232,7 +2430,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc22Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc22Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(21).isValid() )
+				DrawAlphaBitmap(pDC,cc22Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 			
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_23a:(GetConfig()->m_CCMode == SKIN?IDS_CC_23b:IDS_CC_23) );
 			str.Format(Msg, 10);
@@ -2240,7 +2439,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc23Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab);
-			DrawAlphaBitmap(pDC,cc23Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(22).isValid() )
+				DrawAlphaBitmap(pDC,cc23Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
 
 			Msg.LoadString ( GetConfig()->m_CCMode == CMC?IDS_CC_24a:(GetConfig()->m_CCMode == SKIN?IDS_CC_24b:IDS_CC_24) );
 			str.Format(Msg, 10);
@@ -2248,7 +2448,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 			CCIEGraphPoint cc24Point(ccolor.GetXYZValue(),
 								  YWhiteRef,
 								  str, m_bCIEuv, m_bCIEab );
-			DrawAlphaBitmap(pDC,cc24Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			if ( pDoc->GetMeasure()->GetCC24Sat(23).isValid() )
+				DrawAlphaBitmap(pDC,cc24Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
             }
             else
             {
@@ -2263,7 +2464,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		            	CCIEGraphPoint cc24Point(ccolor.GetXYZValue(),
 	        					  YWhiteRef,
 		        				  str, m_bCIEuv, m_bCIEab );
-			            DrawAlphaBitmap(pDC,cc24Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			            if ( pDoc->GetMeasure()->GetCC24Sat(i).isValid() )
+			            	DrawAlphaBitmap(pDC,cc24Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
                     }
                 }
                 else
@@ -2280,7 +2482,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		        	    CCIEGraphPoint cc24Point(ccolor.GetXYZValue(),
 			        					  YWhiteRef,
 				        				  str, m_bCIEuv, m_bCIEab );
-			            DrawAlphaBitmap(pDC,cc24Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
+			            if ( pDoc->GetMeasure()->GetCC24Sat(i).isValid() )
+			            	DrawAlphaBitmap(pDC,cc24Point,&m_cc24SatRefBitmap,rect,pTooltip,pWnd);
                     }
                 }
 
@@ -2777,12 +2980,14 @@ BEGIN_MESSAGE_MAP(CCIEChartView, CSavingView)
 	ON_WM_TIMER()
 	ON_WM_CONTEXTMENU()
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWBACKGROUND, OnUpdateCieShowbackground)
+	ON_UPDATE_COMMAND_UI(IDM_CIE_COV_ALWAYS_RECALC, OnUpdateCieCovAlwaysRecalc)
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWDELTAE, OnUpdateCieShowDeltaE)
 	ON_UPDATE_COMMAND_UI(IDM_CIE_SHOWREFERENCES, OnUpdateCieShowreferences)
 	ON_UPDATE_COMMAND_UI(IDM_LUM_GRAPH_DATAREF, OnUpdateCieGraphShowDataRef)
 	ON_COMMAND(IDM_CIE_SHOWREFERENCES, OnCieShowreferences)
 	ON_COMMAND(IDM_LUM_GRAPH_DATAREF, OnCieGraphShowDataRef)
 	ON_COMMAND(IDM_CIE_SHOWBACKGROUND, OnCieShowbackground)
+	ON_COMMAND(IDM_CIE_COV_ALWAYS_RECALC, OnCieCovAlwaysRecalc)
 	ON_COMMAND(IDM_CIE_SHOWDELTAE, OnCieShowDeltaE)
 	ON_COMMAND(IDM_CIE_SHOWGRAYSCALE, OnCieShowGrayScale)
 	ON_COMMAND(IDM_CIE_SHOWSATURATIONSCALE, OnCieShowSaturationScale)
@@ -2980,10 +3185,11 @@ void CCIEChartView::OnDraw(CDC* pDC)
 		if ( pDoc->m_SelectedColor.isValid() )
 		{
 			double YWhite = 1.0;
+			const CColor grayScaleWhite = pDoc->GetMeasure()->GetGrayScaleWhite();
 			if ( pDoc->GetMeasure()->GetPrimeWhite().isValid() )
 				YWhite = pDoc->GetMeasure()->GetPrimeWhite() [ 1 ];
-			else if ( pDoc->GetMeasure()->GetOnOffWhite().isValid() )
-				YWhite = pDoc->GetMeasure()->GetOnOffWhite() [ 1 ];
+			else if ( grayScaleWhite.isValid() )
+				YWhite = grayScaleWhite [ 1 ];
 
 			CCIEGraphPoint newPoint ( pDoc->m_SelectedColor.GetXYZValue(), YWhite, "", m_Grapher.m_bCIEuv, m_Grapher.m_bCIEab );
 			m_Grapher.DrawGdiPlusMarker ( & dcDraw, & m_Grapher.m_measurePlotBitmap,
@@ -3048,7 +3254,7 @@ void CCIEChartView::OnDraw(CDC* pDC)
 
 	// The coverage chips are not part of the retained chart, so they stay
 	// pinned to the window's top-right whatever the zoom/pan state
-	m_Grapher.DrawCoverageChips ( pOut, rect, pDoc );
+	m_Grapher.DrawCoverageChips ( pOut, rect, pDoc, FALSE );
 
 	if ( pOldOut )
 	{
@@ -3192,6 +3398,12 @@ void CCIEChartView::OnUpdateCieShowbackground(CCmdUI* pCmdUI)
 	pCmdUI->SetCheck(m_Grapher.m_doDisplayBackground);
 }
 
+void CCIEChartView::OnUpdateCieCovAlwaysRecalc(CCmdUI* pCmdUI)
+{
+	pCmdUI->Enable();
+	pCmdUI->SetCheck(m_Grapher.m_doCovAlwaysRecalc);
+}
+
 void CCIEChartView::OnUpdateCieShowDeltaE(CCmdUI* pCmdUI) 
 {
 	pCmdUI->Enable();
@@ -3264,6 +3476,13 @@ void CCIEChartView::OnCieShowbackground()
 	CRect rect;
 	GetReferenceRect(&rect);
 	m_Grapher.MakeBgBitmap(rect,GetConfig()->m_bWhiteBkgndOnScreen);
+	Invalidate(FALSE);
+}
+
+void CCIEChartView::OnCieCovAlwaysRecalc()
+{
+	m_Grapher.m_doCovAlwaysRecalc = !m_Grapher.m_doCovAlwaysRecalc;
+	GetConfig()->WriteProfileInt("CIE Chart","Coverage Always Recalc",m_Grapher.m_doCovAlwaysRecalc);
 	Invalidate(FALSE);
 }
 
@@ -3657,8 +3876,8 @@ void CCIEChartView::UpdateTestColor ( CPoint point )
 	if ( x > 0.0 && x < 1.0 && y > 0.0 && y < 1.0 )
 	{
 		CColor	ClickedColor ( x, y );
-		CColor White = GetDocument()->GetMeasure()->GetOnOffWhite();
-		CColor Black = GetDocument()->GetMeasure()->GetOnOffBlack();
+		CColor White = GetDocument()->GetMeasure()->GetGrayScaleWhite();
+		CColor Black = GetDocument()->GetMeasure()->GetGrayScaleBlack();
 		int cRef=GetColorReference().m_standard;
 		ClickedColor.SetY(1.0);
 		RGBColor = ClickedColor.GetRGBValue ((cRef == HDTVa || cRef == HDTVb)?CColorReference(HDTV):(cRef == UHDTV3 || cRef == UHDTV4)?CColorReference(UHDTV2):GetColorReference());
@@ -3676,8 +3895,7 @@ void CCIEChartView::UpdateTestColor ( CPoint point )
 		nB = (int) (b/cmax*coef+base);
 	}
 
-	( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.m_colorPicker.SetColor ( RGB(nR,nG,nB) );
-	( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.RedrawWindow ();
+	( (CMainFrame *) ( AfxGetApp () -> m_pMainWnd ) ) ->m_wndTestColorWnd.SetTestColor ( RGB(nR,nG,nB) );
 }
 
 void CCIEChartView::GetReferenceRect ( LPRECT lpRect )
