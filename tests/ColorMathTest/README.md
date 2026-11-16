@@ -58,6 +58,15 @@ Guards the 8-bit signal path while the 10-bit work lands. Part of the plan in
   to 0, so this is the only test that reaches it.
 - **T22** — test-color window oracle (no golden file): the code the window paints for a
   patch must be the patch's own 8-bit code in its range, the code the references snap to.
+- **T57** — `DisplayModel` v1 recovery oracle (no golden file): a synthetic display with
+  known per-channel gammas, primary matrix, and black offset must be recovered exactly
+  from noise-free samples; weight semantics (a weight-0 sample must leave matrix, gammas,
+  black, and `samplesUsed` unchanged; a heavy corrupt sample must pull the fit; uniform
+  weight rescaling must change nothing); inverse round-trip and out-of-gamut flag/clamp;
+  input-contract rejection (non-finite fields, negative weight, stimulus outside [0,1]);
+  failed re-fit preserves the previous model; unfitted-model transforms refuse;
+  parameter-provenance flags (fitted / gray-derived / assumed) for gammas and black,
+  including quantization-jittered gray ramps staying in the gray pool.
 
 ## Build & run
 Build `libHCFR` first, then this project (Debug|Win32 only):
