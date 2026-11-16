@@ -1,29 +1,7 @@
-========================================================================
-    STATIC LIBRARY : libaxTLS Project Overview
-========================================================================
+This is a cut down version of axTLS, just for client operation.
+It has been modified to return timeout status rather than
+erroring, and to be able to call ssl_read asynchronously
+once the handshaking is complete.
 
-AppWizard has created this libaxTLS library project for you.
-
-No source files were created as part of your project.
-
-
-libaxTLS.vcxproj
-    This is the main project file for VC++ projects generated using an Application Wizard.
-    It contains information about the version of Visual C++ that generated the file, and
-    information about the platforms, configurations, and project features selected with the
-    Application Wizard.
-
-libaxTLS.vcxproj.filters
-    This is the filters file for VC++ projects generated using an Application Wizard. 
-    It contains information about the association between the files in your project 
-    and the filters. This association is used in the IDE to show grouping of files with
-    similar extensions under a specific node (for e.g. ".cpp" files are associated with the
-    "Source Files" filter).
-
-/////////////////////////////////////////////////////////////////////////////
-Other notes:
-
-AppWizard uses "TODO:" comments to indicate parts of the source code you
-should add to or customize.
-
-/////////////////////////////////////////////////////////////////////////////
+It is not used for any security sensitive purpose, but is used purely to
+communicate with the ChromeCast.

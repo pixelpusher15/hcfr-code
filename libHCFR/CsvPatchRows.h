@@ -52,7 +52,8 @@
 // declared range via rangeOut so producers and consumers share one spelling.
 enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_EXTENDED = 2 };
 
-struct CsvPatchRow { int patch, r, g, b; std::string name; };
+// role is a CColorProvenanceRole; a CSV declares none, so the parser leaves -1.
+struct CsvPatchRow { int patch, r, g, b; std::string name; int role = -1; };
 
 // Reads up to maxRows rows into `rows` (cleared first). Returns the row
 // count, or -1 when the file cannot be opened. bitsOut (8 or 10, default 8)

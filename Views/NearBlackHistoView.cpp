@@ -157,6 +157,23 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		valformax=pow((double)(size-1)/100.0, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef) );
 	}
 
+	// The camera-gamma offset of the log points (libHCFR PointGammaEffectiveOffset):
+	// the reference document's ComputeGammaAndOffset, the offset its reference
+	// curve below evaluates with; 0 at mode >= 4 and under the sRGB standard. A
+	// comparison document's trace takes the SAME offset: in types 2 and 3 it is
+	// a configuration constant (0.099, or the manual offset), and a comparison
+	// document without a gray scale would otherwise fit 0 and be drawn beside a
+	// reference at 0.099.
+	// (ComputeGammaAndOffset reads the gray scale's top: not called without one;
+	// it fits a non-zero offset only for more than two points anyway.)
+	double PointOffset = 0.0;
+	if ( pDoc->GetMeasure()->GetGrayScaleSize() > 2 )
+	{
+		double gammaOpt, fitted;
+		pDoc->ComputeGammaAndOffset ( &gammaOpt, &fitted, 1, 1, pDoc->GetMeasure()->GetGrayScaleSize(), false );
+		PointOffset = PointGammaEffectiveOffset ( GetConfig()->m_GammaOffsetType, GetConfig()->m_colorStandard == sRGB, fitted );
+	}
+
 	m_graphCtrl.ClearGraph(m_refGraphID);
 	m_logGraphCtrl.ClearGraph(m_refLogGraphID);
 	if (m_showReference && m_refGraphID != -1 && size > 0)
@@ -166,16 +183,18 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
         	int g_size=pDoc->GetMeasure()->GetGrayScaleSize();
 			double GammaOffset,GammaOpt;
 			pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,g_size,false);
-    		CColor White = pDoc -> GetMeasure () -> GetGray ( g_size - 1 );
+    		CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite ();
 //	    	CColor Black = pDoc -> GetMeasure () -> GetGray ( 0 );
-	    	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
-			double x = ArrayIndexToGrayLevel ( i*(GetConfig()->m_GammaOffsetType==5?2:1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()); 
+	    	CColor Black = pDoc -> GetMeasure () -> GetGrayScaleBlack();
+			// Reading i at its stamped drive, else slot i on the current grid
+			// (CMeasure::GetGrayReadingLevel); the reference is evaluated there.
+			double x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_NEAR_BLACK, i );
 			double valx,val;//=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef) );
 			int mode = GetConfig()->m_GammaOffsetType;
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if ( mode >= 4 ) 
 			{
-			    valx = (GrayLevelToGrayProp( x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()));
+			    valx = pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, i );
 				if  (mode == 5)
 				{
 	                val = getL_EOTF( valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100 / White.GetY();
@@ -186,7 +205,7 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			}
 			else
 			{
-                valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+GammaOffset)/(1.0+GammaOffset);
+                valx=(pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, i )+GammaOffset)/(1.0+GammaOffset);
                 val=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 				if (mode == 1) //black compensation target
 					val = (Black.GetY() + ( val * ( White.GetY() - Black.GetY() ) )) / White.GetY();
@@ -201,8 +220,12 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				else
 	                m_graphCtrl.AddPoint(m_refGraphID, x, Y_to_abY(val,White.GetY()));
 
-			if((val > 0) && (i != 0))	// log scale is not valid for first value
-				m_logGraphCtrl.AddPoint(m_refLogGraphID, valx * 100. , log(val)/log(valx), NULL, NULL);
+			// Plotted at the reading's level x when a camera-gamma offset shifts
+			// valx off it (as the gamma chart plots its reference), else at valx,
+			// as before.
+			// No point where the value is not finite (valx = 1 gives log ( 1 ) = 0).
+			if((val > 0) && (i != 0) && _finite ( log(val)/log(valx) ))	// log scale is not valid for first value
+				m_logGraphCtrl.AddPoint(m_refLogGraphID, ( mode < 4 && GammaOffset != 0.0 ) ? x : valx * 100. , log(val)/log(valx), NULL, NULL);
 
 			valformax = val;
 		}
@@ -218,9 +241,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(0,0,size,i,pDoc,m_redLumGraphID,m_redLumLogGraphID,valformax);
+				AddPointtoLumGraph(0,0,size,i,pDoc,m_redLumGraphID,m_redLumLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,0,size,i,pDataRef,m_redLumDataRefGraphID,m_redLumDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(0,0,size,i,pDataRef,m_redLumDataRefGraphID,m_redLumDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -234,9 +257,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(0,1,size,i,pDoc,m_greenLumGraphID,m_greenLumLogGraphID,valformax);
+				AddPointtoLumGraph(0,1,size,i,pDoc,m_greenLumGraphID,m_greenLumLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,1,size,i,pDataRef,m_greenLumDataRefGraphID,m_greenLumDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(0,1,size,i,pDataRef,m_greenLumDataRefGraphID,m_greenLumDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -249,9 +272,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(0,2,size,i,pDoc,m_blueLumGraphID,m_blueLumLogGraphID,valformax);
+				AddPointtoLumGraph(0,2,size,i,pDoc,m_blueLumGraphID,m_blueLumLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,2,size,i,pDataRef,m_blueLumDataRefGraphID,m_blueLumDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(0,2,size,i,pDataRef,m_blueLumDataRefGraphID,m_blueLumDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -264,9 +287,9 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if ( bDataPresent )
-				AddPointtoLumGraph(1,1,size,i,pDoc,m_luminanceGraphID,m_luminanceLogGraphID,valformax);
+				AddPointtoLumGraph(1,1,size,i,pDoc,m_luminanceGraphID,m_luminanceLogGraphID,valformax,PointOffset);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(1,1,size,i,pDataRef,m_luminanceDataRefGraphID,m_luminanceDataRefLogGraphID,valformax);
+				AddPointtoLumGraph(1,1,size,i,pDataRef,m_luminanceDataRefGraphID,m_luminanceDataRefLogGraphID,valformax,PointOffset);
 		}
 	}
 
@@ -281,16 +304,18 @@ void CNearBlackGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			for (int i=0; i<size; i++)
 			{
 				if ( bDataPresent && pDoc->GetMeasure()->GetNearBlack(0).HasLuxValue() )
-					AddPointtoLumGraph(2,1,size,i,pDoc,m_luxmeterGraphID,m_luxmeterLogGraphID,valformax);
+					AddPointtoLumGraph(2,1,size,i,pDoc,m_luxmeterGraphID,m_luxmeterLogGraphID,valformax,PointOffset);
 				if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc) && pDataRef->GetMeasure()->GetNearBlack(0).HasLuxValue() )
-					AddPointtoLumGraph(2,1,size,i,pDataRef,m_luxmeterDataRefGraphID,m_luxmeterDataRefLogGraphID,valformax);
+					AddPointtoLumGraph(2,1,size,i,pDataRef,m_luxmeterDataRefGraphID,m_luxmeterDataRefLogGraphID,valformax,PointOffset);
 			}
 		}
 	}
+	// X always spans the measured window, on both charts. Y is refit unless
+	// the user set it in this view this session; no saved scale is applied.
 	m_graphCtrl.FitXScale(TRUE,1);
-	m_graphCtrl.FitYScale(TRUE,(m_showL||m_abY)?1.0:1,FALSE);
-	m_logGraphCtrl.ReadSettings("Near Black Histo Log");
-	m_graphCtrl.ReadSettings("Near Black Histo");
+	if ( !m_graphCtrl.m_bUserYScale )
+		m_graphCtrl.FitYScale(TRUE,(m_showL||m_abY)?1.0:1,FALSE);
+	m_logGraphCtrl.FitXScale(TRUE,1);
 }
 
 
@@ -307,7 +332,19 @@ GraphID : graph ID for drawing
 LogGraphID : graph ID for log drawing, -1 if no Log drawing
 */
 
-void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax)
+// Measured points are handed to the chart only when finite (_finite): a zero
+// white or a reading <= 0 gave main infinity or NaN there, and a stamped 100%
+// drive - the PQ near-black series reaching 100% at its last index (2% steps) -
+// gives log ( 1 ) = 0 in the stamped denominator, where main divided by
+// GrayLevelToGrayProp ( 50 ). Every finite value is drawn as before. The
+// reference log curve is not guarded (main's, unchanged).
+
+static bool NearChartIsPQ ()
+{
+	return GetConfig()->m_GammaOffsetType == 5 && GetConfig()->m_colorStandard != sRGB;
+}
+
+void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID, double Valformax, double PointOffset)
 {
 	double max,whitelvl;
 	double colorlevel;
@@ -318,47 +355,29 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	{
 		max=pDataSet->GetMeasure()->GetNearBlack(Size-1).GetRGBValue(GetColorReference())[ColorIndex] / Valformax;
 		colorlevel=pDataSet->GetMeasure()->GetNearBlack(PointIndex).GetRGBValue(GetColorReference())[ColorIndex];
-
-		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
-		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
-
-		if (pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else if (pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else
-			whitelvl=0;
 	}
 	else if (ColorSpace == 1) 
 	{
 		max=pDataSet->GetMeasure()->GetNearBlack(Size-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode) / Valformax;
 		colorlevel=pDataSet->GetMeasure()->GetNearBlack(PointIndex).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-
-		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
-		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
-
-		if (pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else if (pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else
-			whitelvl=0;
 	}
 	else 
 	{
 		max=pDataSet->GetMeasure()->GetNearBlack(Size-1).GetLuxValue() / Valformax;
 		colorlevel=pDataSet->GetMeasure()->GetNearBlack(PointIndex).GetLuxValue();
+	}
 
+	// The white, in the point's quantity (libHCFR NearChartWhite): the gray
+	// scale's top, else near white's top, else none. In luminance curve mode 1
+	// a point read without the luxmeter is in cd/m2 and main divided it by the
+	// gray top's lux; an R, G or B trace divides by the white's luma.
+	bool bGrayWhite = false;		// whether the gray top is that white (the PQ log level below)
+	{
 		int grayscalesize=pDataSet->GetMeasure()->GetGrayScaleSize();
 		int nearwhitescalesize=pDataSet->GetMeasure()->GetNearWhiteScaleSize();
-
-		whitelvl=0;
-		
-		if (pDataSet->GetMeasure()->GetGray(grayscalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetGray(grayscalesize-1).GetLuxValue();
-		
-		if (whitelvl == 0 && pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).isValid())
-			whitelvl=pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1).GetLuxValue();
+		whitelvl = NearChartWhite ( ColorSpace, GetConfig () -> m_nLuminanceCurveMode, pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue (),
+										 ( grayscalesize > 0 && ! CMeasure::IsRawlessPlaceholder ( pDataSet->GetMeasure()->GetGray(grayscalesize-1), false ) ) ? pDataSet->GetMeasure()->GetGray(grayscalesize-1) : noDataColor,
+										 nearwhitescalesize > 0 ? pDataSet->GetMeasure()->GetNearWhite(nearwhitescalesize-1) : noDataColor, &bGrayWhite );
 	}
 
 	if ( pDataSet->GetMeasure()->GetNearBlack(PointIndex).HasLuxValue () )
@@ -371,25 +390,67 @@ void CNearBlackGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 		lpMsg = szBuf;
 	}
 	
-	if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
+	// Reading PointIndex at its stamped drive, else its slot on the current grid
+	// (CMeasure::GetGrayReadingLevel). The log chart divides by that drive when
+	// there is one, consistent with X. A reading without one keeps the
+	// denominator it always had - PointIndex%, without the PQ doubling X has -
+	// so it draws exactly as before.
+	double drive;
+	const double xPlot = pDataSet->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_NEAR_BLACK, PointIndex );
+	const double xLog = pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_NEAR_BLACK, PointIndex, & drive )
+		? drive
+		: GrayLevelToGrayProp( (double)PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+	// In the camera-gamma modes the reference beside it divides by the level
+	// ( V + o ) / ( 1 + o ), o the document's own offset: so does the point
+	// (PointGammaLevel; o = 0, and the level is xLog bit for bit, elsewhere).
+	const double level = PointGammaLevel ( xLog, PointOffset );
+	if ( NearChartIsPQ () )
 	{
-		m_logGraphCtrl.AddPoint(LogGraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) * 100., log(colorlevel/whitelvl)/log(GrayLevelToGrayProp( (double)PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())), lpMsg, NULL);
+		// PQ: the reference beside it plots the EOTF relative to the gray scale's
+		// 100% reading, at the absolute level V. So the point divides Y by the same
+		// white (whitelvl: the gray top, its luma - the luma normalization is kept)
+		// with V_white = 1, and V is the level it is drawn at, 2k% (main divided by
+		// k%). When near white's top stands in for a missing gray top (NearChartWhite
+		// did not take the gray top), its own level is V_white. A 100% point (V = 1)
+		// has no point gamma.
+		const int nearwhitescalesize = pDataSet->GetMeasure()->GetNearWhiteScaleSize();
+		// (at most 1: an unstamped near-white top at clip column 102 sits on 102%)
+		const double vWhite = ( bGrayWhite || nearwhitescalesize <= 0 ) ? 1.0
+							  : min ( pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_WHITE, nearwhitescalesize-1 ), 1.0 );
+		double pointGamma;
+		if ( (whitelvl > 0) && (PointIndex != 0)
+			 && NearChartPointGamma ( colorlevel, pDataSet->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_NEAR_BLACK, PointIndex ), whitelvl, vWhite, 0.0, &pointGamma ) )
+			m_logGraphCtrl.AddPoint(LogGraphID, xPlot, pointGamma, lpMsg, NULL);
+	}
+	else if((whitelvl > 0)&&(PointIndex != 0))	// log scale is not valid for first value
+	{
+		const double pointGamma = log(colorlevel/whitelvl)/log(level);
+		if ( _finite ( pointGamma ) )
+			m_logGraphCtrl.AddPoint(LogGraphID, xPlot, pointGamma, lpMsg, NULL);
 	}
 
     if (!m_showL && !m_abY)
 	{
 		max = whitelvl;
-		if (ColorSpace == 1 && ColorIndex == 1)
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) * 100., (colorlevel/max)*100.0, lpMsg, whitelvl);
-		else
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) * 100., (colorlevel/max)*100.0, lpMsg, NULL);
+		const double pct = (colorlevel/max)*100.0;
+		if (_finite ( pct ))	// no white (max = 0): main plotted infinity or NaN
+		{
+			if (ColorSpace == 1 && ColorIndex == 1)
+		        m_graphCtrl.AddPoint(GraphID, xPlot, pct, lpMsg, whitelvl);
+			else
+		        m_graphCtrl.AddPoint(GraphID, xPlot, pct, lpMsg, NULL);
+		}
 	}
 	else 
 	{
 		if (m_showL)
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) * 100., Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max), lpMsg, NULL);
+		{
+			const double l = Y_to_L(whitelvl?colorlevel/whitelvl:colorlevel/max);
+			if ( _finite ( l ) )
+		        m_graphCtrl.AddPoint(GraphID, xPlot, l, lpMsg, NULL);
+		}
 		else
-	        m_graphCtrl.AddPoint(GraphID, GrayLevelToGrayProp( (double)PointIndex*(GetConfig()->m_GammaOffsetType==5?2:1), GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) * 100., Y_to_abY(colorlevel, 1.0), lpMsg, NULL);
+	        m_graphCtrl.AddPoint(GraphID, xPlot, Y_to_abY(colorlevel, 1.0), lpMsg, NULL);
 
 	}
 }
@@ -600,6 +661,7 @@ void CNearBlackHistoView::OnLumGraphL()
 	GetConfig()->WriteProfileInt("Near Black Histo","Absolute Y",m_Grapher.m_abY);
 	OnUpdate(NULL,NULL,NULL);
 	OnGraphYScaleFit();
+	m_Grapher.m_graphCtrl.m_bUserYScale = FALSE;	// a unit change, not a user Y choice
 }
 
 void CNearBlackHistoView::OnLumGraphYab() 
@@ -612,6 +674,7 @@ void CNearBlackHistoView::OnLumGraphYab()
 	m_Grapher.m_graphCtrl.SetYAxisProps(m_Grapher.m_abY?" cd m-2 ":m_Grapher.m_abY?"":"%", .1, 0, 10);
 	OnUpdate(NULL,NULL,NULL);
 	OnGraphYScaleFit();
+	m_Grapher.m_graphCtrl.m_bUserYScale = FALSE;	// a unit change, not a user Y choice
 }
 
 void CNearBlackHistoView::OnLumGraphRedLum() 
@@ -696,6 +759,10 @@ void CNearBlackHistoView::OnGraphSettings()
 	m_Grapher.m_graphCtrl.RemoveGraph(tmpGraphID2);
 	m_Grapher.m_graphCtrl.RemoveGraph(tmpGraphID1);
 
+	// Parameters... saves itself: series colors, gradient, PDF User Scales
+	m_Grapher.m_graphCtrl.WriteSettings("Near Black Histo");
+	m_Grapher.m_logGraphCtrl.WriteSettings("Near Black Histo Log");
+
 	OnUpdate(NULL,NULL,NULL);
 }
 
@@ -706,13 +773,13 @@ void CNearBlackHistoView::OnGraphScaleCustom()
 	else
 		m_Grapher.m_graphCtrl.ChangeScale();
 
-	m_Grapher.m_graphCtrl.WriteSettings("Near Black Histo");
-	m_Grapher.m_logGraphCtrl.WriteSettings("Near Black Histo Log");
 	OnUpdate(NULL,NULL,NULL);
 }
 
 void CNearBlackHistoView::OnGraphScaleFit() 
 {
+	// A user Y choice: it sticks in this view until a unit change
+	( m_Grapher.m_doLogMode ? m_Grapher.m_logGraphCtrl : m_Grapher.m_graphCtrl ).m_bUserYScale = TRUE;
 	if(m_Grapher.m_doLogMode)
 	{
 		m_Grapher.m_logGraphCtrl.FitXScale(TRUE,1);
@@ -724,31 +791,29 @@ void CNearBlackHistoView::OnGraphScaleFit()
 		m_Grapher.m_graphCtrl.FitYScale(TRUE,(m_Grapher.m_showL||m_Grapher.m_abY)?1:0.1);
 	}
 
-	m_Grapher.m_graphCtrl.WriteSettings("Near Black Histo");
-	m_Grapher.m_logGraphCtrl.WriteSettings("Near Black Histo Log");
 	OnUpdate(NULL,NULL,NULL);
 }
 
 void CNearBlackHistoView::OnLuminanceGraphYScale1() 
 {
+	m_Grapher.m_graphCtrl.m_bUserYScale = TRUE;	// a user Y choice
 	m_Grapher.m_graphCtrl.SetYScale(0,m_Grapher.m_showL?10:1.0);
 
-	m_Grapher.m_graphCtrl.WriteSettings("Near Black Histo");
-	m_Grapher.m_logGraphCtrl.WriteSettings("Near Black Histo Log");
 	OnUpdate(NULL,NULL,NULL);
 }
 
 void CNearBlackHistoView::OnGammaGraphYScale1() 
 {
+	m_Grapher.m_logGraphCtrl.m_bUserYScale = TRUE;	// a user Y choice
 	m_Grapher.m_logGraphCtrl.SetYScale(1,3);
 
-	m_Grapher.m_graphCtrl.WriteSettings("Near Black Histo");
-	m_Grapher.m_logGraphCtrl.WriteSettings("Near Black Histo Log");
 	OnUpdate(NULL,NULL,NULL);
 }
 
 void CNearBlackHistoView::OnGraphYScaleFit() 
 {
+	// A user Y choice: it sticks in this view until a unit change
+	( m_Grapher.m_doLogMode ? m_Grapher.m_logGraphCtrl : m_Grapher.m_graphCtrl ).m_bUserYScale = TRUE;
 	if(m_Grapher.m_doLogMode)
 		m_Grapher.m_logGraphCtrl.FitYScale(TRUE,0.1);
 	else

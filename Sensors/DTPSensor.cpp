@@ -24,6 +24,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "DTPSensor.h"
+#include "ArchiveExtension.h"
 #include "SerialCom.h"
 
 #include <math.h>
@@ -100,20 +101,24 @@ void CDTPSensor::Serialize(CArchive& archive)
 
 	if (archive.IsStoring())
 	{
-		int version=3;
+		int version=4;
 		archive << version;
 		archive << m_CalibrationMode;
 		archive << m_timeout;
 		archive << m_bUseInternalOffsets;
 		archive << m_debugMode;
 		archive << m_bAverageReads;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 3 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 4 )
+			throw new CNewerSchemaException ( "CDTPSensor", version );
 		archive >> m_CalibrationMode;
 		archive >> m_timeout;
 		archive >> m_bUseInternalOffsets;
@@ -126,6 +131,18 @@ void CDTPSensor::Serialize(CArchive& archive)
 			archive >> m_bAverageReads;
 		else
 			m_bAverageReads = FALSE;
+
+		if ( version >= 4 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 
 		m_bNeedInit = TRUE;
 	}

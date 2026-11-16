@@ -104,6 +104,7 @@ public:
 	BOOL			m_bDDERunning;
 
 	CDataSetDoc *	GetDocument()	{ return (CDataSetDoc*) m_pDocument; }
+	void			RefreshCCState();	// the process-wide CC state follows this frame's document
 
 // Internal flags to control new frame creation
 private:
@@ -156,6 +157,7 @@ protected:
 	afx_msg void OnGetMinMaxInfo(MINMAXINFO FAR* lpMMI);
 	afx_msg void OnDestroy();
 	afx_msg void OnSize(UINT nType, int cx, int cy);
+	afx_msg void OnMDIActivate(BOOL bActivate, CWnd* pActivateWnd, CWnd* pDeactivateWnd);
 	afx_msg void OnTabChanged(NMHDR* pNMHDR, LRESULT* pResult);
 	afx_msg void OnRightClick(NMHDR* pNMHDR, LRESULT* pResult);
 	afx_msg void OnToggleTab();
