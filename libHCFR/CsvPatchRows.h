@@ -82,12 +82,15 @@ std::string CsvFormatHeaderLine(int bits, int range);
 // (> 100%) and sub-black (< 0%), LEGAL and the legacy default clamp to [0,100].
 double CsvCodeToPercent(double code, int bits, int range);
 
-// The inverse: percent -> nearest integer code at bits/range, clamped to the
-// code span 0..2^bits-1. FULL maps 0..100 onto the full span; LEGAL and
-// EXTENDED onto the video range (identical for 0..100; EXTENDED is where
-// out-of-range percents land beyond it). This is the live signal path's
-// quantizer (PiPercentToCode in Color.cpp), so what a file says is what the
-// generator drives.
+// Exact inverse (round-to-nearest, clamped to the grid): stimulus percentage -> source code.
+// Used to reconstruct definition codes from stored stimuli during legacy .chc migration.
+int CsvPercentToCode ( double percent, int bits, int range );
+
+// The inverse under the name the sequence writers use: it forwards to
+// CsvPercentToCode, so there is one percent -> code mapping. Nearest integer
+// code at bits/range, clamped to the code span 0..2^bits-1. FULL maps 0..100
+// onto the full span; LEGAL and EXTENDED onto the video range (identical for
+// 0..100; EXTENDED is where out-of-range percents land beyond it).
 int CsvCodeFromPercent(double pct, int bits, int range);
 
 // True when `pct` survives the round trip CsvCodeFromPercent ->

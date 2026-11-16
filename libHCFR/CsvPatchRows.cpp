@@ -26,12 +26,6 @@
 #include <fstream>
 #include <sstream>
 
-// The percent -> device-code quantizer of the live signal path
-// (Color.cpp). Declared here instead of including Color.h, which drags MFC
-// types into the translation unit; the signature is plain types, so any
-// drift is a link error.
-extern int PiPercentToCode(double percent, bool is16_235, int bits);
-
 double CsvCodeToPercent(double code, int bits, int range)
 {
 	int maxCode = (1 << bits) - 1;
@@ -159,11 +153,32 @@ std::string CsvFormatHeaderLine(int bits, int range)
     return std::string(buf);
 }
 
-// The live signal path's quantizer is the inverse, so what a file says is
-// what the generator drives.
+// Exact inverse of CsvCodeToPercent for percentages that came off the native
+// grid (round-to-nearest, clamped to [0, maxCode]); reconstructs definition
+// codes from stored stimuli during legacy .chc migration. Extended super-white
+// (>100%) maps back onto the legal slope up to the grid ceiling.
+int CsvPercentToCode(double percent, int bits, int range)
+{
+	int maxCode = (1 << bits) - 1;
+	double code;
+	if (range == CSV_RANGE_FULL)
+		code = percent * maxCode / 100.0;
+	else
+	{
+		double black = 16.0  * (1 << (bits - 8));
+		double white = 235.0 * (1 << (bits - 8));
+		code = black + percent * ( white - black ) / 100.0;
+	}
+	int c = (int) floor ( code + 0.5 );
+	if ( c < 0 ) c = 0;
+	if ( c > maxCode ) c = maxCode;
+	return c;
+}
+
+// The sequence writers' name for the same mapping: one quantizer, not two.
 int CsvCodeFromPercent(double pct, int bits, int range)
 {
-    return PiPercentToCode(pct, range != CSV_RANGE_FULL, bits);
+    return CsvPercentToCode(pct, bits, range);
 }
 
 bool CsvPercentRepresentable(double pct, int bits, int range)
