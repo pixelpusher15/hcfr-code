@@ -45,6 +45,12 @@ CMeasuresHistoView::CMeasuresHistoView()
 {
 	//{{AFX_DATA_INIT(CMeasuresHistoView)
 	//}}AFX_DATA_INIT
+	// OnUpdate reads these (first from OnInitialUpdate) before OnDraw has
+	// copied CMainView's last_Display / last_Col / last_Size into them;
+	// start from the values CMainView itself starts with (MainView.cpp ctor).
+	l_Display = 0;
+	l_nCol = 5;
+	l_nSize = 11;
 	int		nMaxX=10;
 	CString	Msg;
 	m_XScale=GetConfig()->GetProfileInt("Combo Histo","XScale",1);
@@ -269,21 +275,25 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 	int		GlvlTarget = 5;
 	int		nsize=GetDocument()->GetMeasure()->GetGrayScaleSize();
 
-	YWhite = GetDocument()->GetMeasure()->GetOnOffWhite()[1];
+	YWhite = GetDocument()->GetMeasure()->GetGrayScaleWhite()[1];
 	
 	GetDocument()->ComputeGammaAndOffset(&Gamma, &Offset, 3, 1, nsize,false);
 	CColor			refColor = GetColorReference().GetWhite();
 	
 	for (i=nStart, j=0; i<nEnd; i++, j++)
 	{
-		int colorTemp=GetDocument()->GetMeasure()->GetMeasurement(i).GetXYZValue().GetColorTemp(GetColorReference());
-		double Y=GetDocument()->GetMeasure()->GetMeasurement(i).GetXYZValue()[1];
+		const CColor reading = GetDocument()->GetMeasure()->GetMeasurement(i);	// fetched once per point
+		int colorTemp=reading.GetXYZValue().GetColorTemp(GetColorReference());
+		double Y=reading.GetXYZValue()[1];
 		
 		if ( Y > YMax )
 		YMax = Y;
-		ColorxyY aColor=GetDocument()->GetMeasure()->GetMeasurement(i).GetxyYValue();
+		ColorxyY aColor=reading.GetxyYValue();
 		ColorXYZ aMeasure;
 		
+		// the per-patch white (m_dE_gray 0) is a local: written into YWhite it was
+		// loop-carried into the next patch's reference (as rgbhistoview fixed)
+		double YWhitePatch = YWhite;
 		//check for GS measurement
 		if (GetDocument()->GetMeasure()->GetGray(0).isValid()) 
 		{
@@ -294,19 +304,19 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			// Determine Reference Y luminance for Delta E calculus
 			if ( GetConfig ()->m_dE_gray > 0 || GetConfig ()->m_dE_form == 5 )
 			{
-            	CColor White = GetDocument()-> GetMeasure () -> GetOnOffWhite();
-	           	CColor Black = GetDocument()-> GetMeasure () -> GetOnOffBlack();
+            	CColor White = GetDocument()-> GetMeasure () -> GetGrayScaleWhite();
+	           	CColor Black = GetDocument()-> GetMeasure () -> GetGrayScaleBlack();
 				int mode = GetConfig()->m_GammaOffsetType;
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if ( mode >= 4 )
 		        {
-			        double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+			        double valx = ReadingGrayProp(reading, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
                     valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //					valy = min(valy, GetConfig()->m_TargetMaxL);
 		        }
 		        else
 		        {
-			        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+			        double valx=(ReadingGrayProp(reading, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
 			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+Offset;
 					if (mode == 1) //black compensation target
 						valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -326,11 +336,11 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 			if ( GetConfig ()->m_dE_gray == 0 )
 			{
 				// Use actual gray luminance as correct reference (absolute)
-	    		YWhite = aColor [ 2 ];
+	    		YWhitePatch = aColor [ 2 ];
 				fact = 1.0;
 			}
 			else
-				fact = aColor[2] / (tmpColor[2] * GetDocument()->GetMeasure()->GetOnOffWhite()[1]);
+				fact = aColor[2] / (tmpColor[2] * YWhite);
 
 			aMeasure = ColorXYZ(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 		}
@@ -352,9 +362,9 @@ void CMeasuresHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		//m_graphCtrl2.AddPoint(m_deltaEGraphID, j, GetDocument()->GetMeasure()->GetMeasurement(i).GetDeltaE(GetColorReference().GetWhite())); //stick with chromiticity only dE
 		//new
 		if (GetDocument()->GetMeasure()->GetGray(0).isValid())
-			m_graphCtrl2.AddPoint(m_deltaEGraphID, j, GetDocument()->GetMeasure()->GetMeasurement(i).GetDeltaE(YWhite, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight));
+			m_graphCtrl2.AddPoint(m_deltaEGraphID, j, reading.GetDeltaE(YWhitePatch, refColor, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight));
 		else
-			m_graphCtrl2.AddPoint(m_deltaEGraphID, j, GetDocument()->GetMeasure()->GetMeasurement(i).GetDeltaE(GetColorReference().GetWhite())); //GS has not been run
+			m_graphCtrl2.AddPoint(m_deltaEGraphID, j, reading.GetDeltaE(GetColorReference().GetWhite())); //GS has not been run
 				
 		if(colorTemp > 1500 && colorTemp < 12000)
 			m_graphCtrl3.AddPoint(m_ColorTempGraphID, j, colorTemp);
@@ -709,6 +719,12 @@ void CMeasuresHistoView::OnGraphSettings()
 	m_graphCtrl.RemoveGraph(tmpGraphID2);
 	m_graphCtrl.RemoveGraph(tmpGraphID1);
 
+	// Parameters... saves itself: series colors, gradient, PDF User Scales
+	m_graphCtrl.WriteSettings("Combo Luminance Histo");
+	m_graphCtrl1.WriteSettings("Combo RGB Histo");
+	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
+	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
+
 	OnUpdate(NULL,NULL,NULL);
 }
 
@@ -721,10 +737,6 @@ void CMeasuresHistoView::OnRGBGraphYScale1()
 {
 	m_graphCtrl1.SetYScale(0,200);
 	m_graphCtrl1.SetYAxisProps("%", 40, 0, 400);
-	m_graphCtrl.WriteSettings("Combo Luminance Histo");
-	m_graphCtrl1.WriteSettings("Combo RGB Histo");
-	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
-	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
 	Invalidate(FALSE);
 }
 
@@ -732,10 +744,6 @@ void CMeasuresHistoView::OnRGBGraphYScale2()
 {
 	m_graphCtrl1.SetYScale(50,150);
 	m_graphCtrl1.SetYAxisProps("%", 20, 0, 400);
-	m_graphCtrl.WriteSettings("Combo Luminance Histo");
-	m_graphCtrl1.WriteSettings("Combo RGB Histo");
-	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
-	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
 	Invalidate(FALSE);
 }
 
@@ -743,10 +751,6 @@ void CMeasuresHistoView::OnRGBGraphYScale3()
 {
 	m_graphCtrl1.SetYScale(80,120);
 	m_graphCtrl1.SetYAxisProps("%", 10, 0, 400);
-	m_graphCtrl.WriteSettings("Combo Luminance Histo");
-	m_graphCtrl1.WriteSettings("Combo RGB Histo");
-	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
-	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
 	Invalidate(FALSE);
 }
 
@@ -754,10 +758,6 @@ void CMeasuresHistoView::OnDeltaEGraphYScale1()
 {
 	m_graphCtrl2.SetYScale(0,20);
 	m_graphCtrl2.SetYAxisProps("", 2, 0, 40);
-	m_graphCtrl.WriteSettings("Combo Luminance Histo");
-	m_graphCtrl1.WriteSettings("Combo RGB Histo");
-	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
-	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
 	Invalidate(FALSE);
 }
 
@@ -765,30 +765,18 @@ void CMeasuresHistoView::OnDeltaEGraphYScale2()
 {
 	m_graphCtrl2.SetYScale(0,5);
 	m_graphCtrl2.SetYAxisProps("", 1, 0, 40);
-	m_graphCtrl.WriteSettings("Combo Luminance Histo");
-	m_graphCtrl1.WriteSettings("Combo RGB Histo");
-	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
-	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
 	Invalidate(FALSE);
 }
 
 void CMeasuresHistoView::OnColortempGraphYScale1() 
 {
 	m_graphCtrl3.SetYScale(3000,9500);
-	m_graphCtrl.WriteSettings("Combo Luminance Histo");
-	m_graphCtrl1.WriteSettings("Combo RGB Histo");
-	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
-	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
 	Invalidate(FALSE);
 }
 
 void CMeasuresHistoView::OnColortempGraphYScale2() 
 {
 	m_graphCtrl3.SetYScale(4000,8000);
-	m_graphCtrl.WriteSettings("Combo Luminance Histo");
-	m_graphCtrl1.WriteSettings("Combo RGB Histo");
-	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
-	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
 	Invalidate(FALSE);
 }
 
@@ -800,10 +788,6 @@ void CMeasuresHistoView::OnGraphXScale10()
 	m_graphCtrl1.SetXScale(0,10);
 	m_graphCtrl2.SetXScale(0,10);
 	m_graphCtrl3.SetXScale(0,10);
-	m_graphCtrl.WriteSettings("Combo Luminance Histo");
-	m_graphCtrl1.WriteSettings("Combo RGB Histo");
-	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
-	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
 	OnUpdate(NULL,NULL,NULL);
 }
 
@@ -815,10 +799,6 @@ void CMeasuresHistoView::OnGraphXScale20()
 	m_graphCtrl1.SetXScale(0,20);
 	m_graphCtrl2.SetXScale(0,20);
 	m_graphCtrl3.SetXScale(0,20);
-	m_graphCtrl.WriteSettings("Combo Luminance Histo");
-	m_graphCtrl1.WriteSettings("Combo RGB Histo");
-	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
-	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
 	OnUpdate(NULL,NULL,NULL);
 }
 
@@ -830,10 +810,6 @@ void CMeasuresHistoView::OnGraphXScale50()
 	m_graphCtrl1.SetXScale(0,50);
 	m_graphCtrl2.SetXScale(0,50);
 	m_graphCtrl3.SetXScale(0,50);
-	m_graphCtrl.WriteSettings("Combo Luminance Histo");
-	m_graphCtrl1.WriteSettings("Combo RGB Histo");
-	m_graphCtrl2.WriteSettings("Combo RGB Histo2");
-	m_graphCtrl3.WriteSettings("Combo ColorTemp Histo");
 	OnUpdate(NULL,NULL,NULL);
 }
 

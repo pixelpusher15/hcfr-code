@@ -210,7 +210,7 @@ BOOL ws							/* Force webserver */
 	int forcedef = ws?1:0;	/* Force default reciever app. */
 
 	if ((p = (chws *)calloc(sizeof(chws), 1)) == NULL) {
-		error("new_chws: calloc failed");
+		a1loge(g_log, 1, "new_chws: calloc failed\n");
 		return NULL;
 	}
 
@@ -246,7 +246,7 @@ BOOL ws							/* Force webserver */
 
 	/* Connect to the chrome cast */
 	if ((p->cc = new_ccast(cc_id, forcedef)) == NULL) {
-		error("new_ccast: failed");
+		a1loge(g_log, 1, "new_chws: new_ccast() failed\n");
 		chws_del(p);
 		return NULL;
 	}
@@ -376,7 +376,8 @@ double r, double g, double b	/* Color values 0.0 - 1.0 */
 			 NULL,
 #endif
 			 NULL, 0.0)) == NULL) {	/* 3.5.0 added mxerr param (0.0 = default) */
-			error("ccwin: new_render2d() failed");
+			a1loge(g_log, 1, "ccwin: new_render2d() failed\n");
+			return 1;
 		}
 	
 		/* Set the background color */
@@ -405,8 +406,11 @@ double r, double g, double b	/* Color values 0.0 - 1.0 */
 				rgb[i] = p->r_rgb[i] * 255.0;
 			get_ccast_dith(dpat, rgb);
 
-			if ((cpat = malloc(sizeof(double) * MXPATSIZE * MXPATSIZE * TOTC2D)) == NULL)
-				error("ccwin: malloc of dither pattern failed");
+			if ((cpat = malloc(sizeof(double) * MXPATSIZE * MXPATSIZE * TOTC2D)) == NULL) {
+				a1loge(g_log, 1, "ccwin: malloc of dither pattern failed\n");
+				r->del(r);
+				return 1;
+			}
 			
 			for (i = 0; i < CCDITHSIZE; i++) {
 				for (j = 0; j < CCDITHSIZE; j++) {
@@ -425,28 +429,40 @@ double r, double g, double b	/* Color values 0.0 - 1.0 */
 #pragma message("############################# ccwin.c TEST_PATTERN defined ! ##")
 		if (getenv("ARGYLL_CCAST_TEST_PATTERN") != NULL) {
 			verbose(0, "Writing test pattern to '%s'\n","testpattern.png");
-			if (r->write(r, "testpattern.png", 1, NULL, NULL, png_file))
-				error("ccwin: render->write failed");
+			if (r->write(r, "testpattern.png", 1, NULL, NULL, png_file)) {
+				a1loge(g_log, 1, "ccwin: render->write failed\n");
+				r->del(r);
+				return 1;
+			}
 		}
 #else	/* !CCTEST_PATTERN */
 # ifdef WRITE_PNG		/* Write it to a file so that we can look at it */
 #  pragma message("############################# spectro/ccwin.c WRITE_PNG is enabled ######")
-		if (r->write(r, "ccwin.png", 1, NULL, NULL, png_file))
-			error("ccwin: render->write failed");
+		if (r->write(r, "ccwin.png", 1, NULL, NULL, png_file)) {
+			a1loge(g_log, 1, "ccwin: render->write failed\n");
+			r->del(r);
+			return 1;
+		}
 # endif	/* WRITE_PNG */
 #endif	/* !CCTEST_PATTERN */
 
 #ifdef DO_TIMING
 		stime = msec_time();
 #endif
-		if (r->write(r, "MemoryBuf", 1, &ibuf, &ilen, png_mem))
-			error("ccwin: render->write failed");
+		if (r->write(r, "MemoryBuf", 1, &ibuf, &ilen, png_mem)) {
+			a1loge(g_log, 1, "ccwin: render->write failed\n");
+			r->del(r);
+			return 1;
+		}
+		r->del(r);		/* PNG is in ibuf now; the render object was never freed before */
 #ifdef DO_TIMING
 		stime = msec_time() - stime;
 		printf("render->write took %d msec\n",stime);
 #endif
-		if (ws->update(ws, ibuf, ilen, bg))
-			error("ccwin: color update failed");
+		if (ws->update(ws, ibuf, ilen, bg)) {
+			a1loge(g_log, 1, "ccwin: color update failed\n");
+			return 1;
+		}
 //		p->ccix = p->ncix;
 	}
 

@@ -87,7 +87,8 @@ BEGIN_MESSAGE_MAP(CColorHCFRApp, CWinApp)
 	//}}AFX_MSG_MAP
 	// Standard file based document commands
 	ON_COMMAND(ID_FILE_NEW, CWinApp::OnFileNew)
-	ON_COMMAND(ID_FILE_OPEN, CWinApp::OnFileOpen)
+	ON_COMMAND(ID_FILE_OPEN, OnFileOpenGuarded)
+	ON_COMMAND_EX_RANGE(ID_FILE_MRU_FILE1, ID_FILE_MRU_FILE16, OnOpenRecentFileGuarded)
 	// Standard print setup command
 	ON_COMMAND(ID_FILE_PRINT_SETUP, CWinApp::OnFilePrintSetup)
 END_MESSAGE_MAP()
@@ -193,6 +194,39 @@ CDataSetDoc * GetDataRef()	//Ki
 	return theApp.m_pReferenceData; 
 }
 
+// The active document's active user patch set, or NULL (no main window / no
+// active child / no document / empty collection). Same MDI walk the pre-v10
+// migration in CMeasure::GetCC24Sat uses.
+CUserPatchSet * GetActiveDocUserPatchSet()
+{
+	CMDIFrameWnd * pMainWnd = (CMDIFrameWnd *) AfxGetMainWnd ();
+	if (pMainWnd == NULL)
+		return NULL;
+	CMDIChildWnd * pChild = pMainWnd -> MDIGetActive ();
+	if (pChild == NULL)
+		return NULL;
+	CDataSetDoc * pDoc = (CDataSetDoc *) pChild -> GetActiveDocument ();
+	if (pDoc == NULL)
+		return NULL;
+	return pDoc -> GetMeasure () -> GetActiveUserPatchSet ();
+}
+
+// A sweep's end: activations it held back take effect now. The sweeping document
+// itself needs nothing - it filled the cache for its own sweep and its wrapper
+// repaints it - so only another document in front is refreshed.
+void RefreshCCStateAfterSweep(const CMeasure * pSwept)
+{
+	CMDIFrameWnd * pMainWnd = (CMDIFrameWnd *) AfxGetMainWnd ();
+	if (pMainWnd == NULL)
+		return;
+	CMDIChildWnd * pChild = pMainWnd -> MDIGetActive ();
+	if (pChild == NULL || ! pChild -> IsKindOf ( RUNTIME_CLASS ( CMultiFrame ) ))
+		return;
+	CDataSetDoc * pDoc = ( (CMultiFrame *) pChild ) -> GetDocument ();
+	if (pDoc != NULL && pDoc -> GetMeasure () != pSwept)
+		( (CMultiFrame *) pChild ) -> RefreshCCState ();
+}
+
 // Import-range guard: an EXTENDED (whiter-than-white) USER patch list carries super-white
 // codes (>100%), and only a 16-235 output can emit them - a Full output clamps 236-255 to
 // 255 at the encoder, silently destroying the gradations. Warn ONLY for that. (Legal/Full
@@ -206,21 +240,16 @@ void GuardCCModeOutputRange(int ccMode)
 	// write) rather than the cached GetRGB16_235(), so the guard is correct even when called
 	// from the settings OnOK before ApplySettings has re-synced the cache.
 	if (GetConfig()->GetProfileInt("GDIGenerator", "RGB_16_235", 1) != 0)
-		return;                                  // already 16-235: super-white is emitted fine (no file read needed).
+		return;                                  // already 16-235: super-white is emitted fine.
 	                                             // Default 1 matches the canonical RGB_16_235 default (ColorHCFRConfig
 	                                             // / GDIGenerator) - the INI ships without this key, so a 0 default here
 	                                             // would warn spuriously when output actually defaults to 16-235.
-	char modPath[MAX_PATH];
-	GetModuleFileName(NULL, modPath, sizeof(modPath));
-	LPSTR pSlash = strrchr(modPath, '\\');
-	if (pSlash) pSlash[1] = '\0';
-	// Read the declared range from the loader itself (rangeOut) so the guard can't disagree
-	// with what actually gets loaded. maxRows=1 reads just the header + first row.
-	std::vector<CsvPatchRow> rows;
-	int bits = 8, range = CSV_RANGE_NONE;
-	ReadCsvPatchRows(CString(modPath) + "usercolors.csv", rows, 1, &bits, &range);
-	if (range != CSV_RANGE_EXTENDED)
-		return;                                  // only Extended has super-white to lose
+	// A loaded set is self-contained, so its declared range is authoritative. With no
+	// set USER is the empty state (GetCColors) and no file stands in for one, so there
+	// is nothing to lose. Only Extended has super-white to lose.
+	CUserPatchSet * pSet = GetActiveDocUserPatchSet();
+	if (pSet == NULL || pSet->range != CSV_RANGE_EXTENDED)
+		return;
 	CString msg;
 	msg.LoadString(IDS_CSV_RANGE_EXTENDED_WARN);
 	AfxMessageBox(msg, MB_OK | MB_ICONWARNING);
@@ -559,6 +588,30 @@ BEGIN_MESSAGE_MAP(CAboutDlg, CDialog)
 	//{{AFX_MSG_MAP(CAboutDlg)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
+
+// The sweep pumps that dispatch every message (pattern settle, full-screen and
+// meter waits) can deliver these commands mid-sweep. Refuse them up front: the
+// template refuses the open anyway (CMyMultiDocTemplate::OpenDocumentFile), but
+// only after File > Open's dialog, and MFC drops a refused recent file from the list.
+void CColorHCFRApp::OnFileOpenGuarded()
+{
+	if ( IsMeasureSweepActive () )
+	{
+		MessageBeep ( MB_ICONWARNING );
+		return;
+	}
+	CWinApp::OnFileOpen ();
+}
+
+BOOL CColorHCFRApp::OnOpenRecentFileGuarded(UINT nID)
+{
+	if ( IsMeasureSweepActive () )
+	{
+		MessageBeep ( MB_ICONWARNING );
+		return TRUE;
+	}
+	return CWinApp::OnOpenRecentFile ( nID );
+}
 
 // App command to run the dialog
 void CColorHCFRApp::OnAppAbout()

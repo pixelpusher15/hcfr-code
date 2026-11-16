@@ -131,7 +131,7 @@ void CSatLumGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	m_graphCtrl.ClearGraph(m_ref_magentaLumGraphID);
 
 	CColor NoDataColor;
-	double WhiteY = pDoc->GetMeasure()->GetOnOffWhite().GetLuminance(), ref_coeff=1.0;
+	double WhiteY = pDoc->GetMeasure()->GetGrayScaleWhite().GetLuminance(), ref_coeff=1.0;
 	double tmWhite = TmDiffuseWhiteNits(NoDataColor, NoDataColor);
 	
 	if (pDoc->GetMeasure()->GetPrimeWhite().isValid() &&  !(GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb))

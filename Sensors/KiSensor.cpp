@@ -27,6 +27,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "KiSensor.h"
+#include "ArchiveExtension.h"
 #include "SerialCom.h"
 
 #include <math.h>
@@ -202,7 +203,7 @@ void CKiSensor::Serialize(CArchive& archive)
 
 	if (archive.IsStoring())
 	{
-		int version=2;
+		int version=3;
 		archive << version;
 		archive << m_comPort;
 		archive << m_timeoutMesure;
@@ -212,13 +213,17 @@ void CKiSensor::Serialize(CArchive& archive)
 		archive << m_nSensorsUsed;
 		archive << m_nInterlaceMode;
 		archive << m_bFastMeasure;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 2 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 3 )
+			throw new CNewerSchemaException ( "CKiSensor", version );
 		if ( version == 1 )
 		{
 			// Old sensor dialog parameters
@@ -254,6 +259,18 @@ void CKiSensor::Serialize(CArchive& archive)
 			archive >> m_nSensorsUsed;
 			archive >> m_nInterlaceMode;
 			archive >> m_bFastMeasure;
+		}
+
+		if ( version >= 3 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
 		}
 	}
 }

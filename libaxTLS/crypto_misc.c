@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, Cameron Rich
+ * Copyright (c) 2007-2019, Cameron Rich
  * 
  * All rights reserved.
  * 
@@ -56,7 +56,7 @@ static HCRYPTPROV gCryptProv;
 static uint8_t entropy_pool[ENTROPY_POOL_SIZE];
 #endif
 
-const char * const unsupported_str = "Error: Feature not supported";
+const char * const unsupported_str = "Error: Feature not supported\n";
 
 #ifndef CONFIG_SSL_SKELETON_MODE
 /** 
@@ -72,7 +72,7 @@ int get_file(const char *filename, uint8_t **buf)
 
     if (stream == NULL)
     {
-#ifdef CONFIG_SSL_FULL_MODE         
+#ifdef CONFIG_DEBUG         
         printf("file '%s' does not exist\n", filename); TTY_FLUSH();
 #endif
         return -1;
@@ -104,7 +104,7 @@ int get_file(const char *filename, uint8_t **buf)
 EXP_FUNC void STDCALL RNG_initialize()
 {
 #if !defined(WIN32) && defined(CONFIG_USE_DEV_URANDOM)
-    rng_fd = ax_open("/dev/urandom", O_RDONLY);
+    rng_fd = open("/dev/urandom", O_RDONLY);
 #elif defined(WIN32) && defined(CONFIG_WIN32_USE_CRYPTO_LIB)
     if (!CryptAcquireContext(&gCryptProv, 
                       NULL, NULL, PROV_RSA_FULL, 0))
@@ -116,15 +116,16 @@ EXP_FUNC void STDCALL RNG_initialize()
                        PROV_RSA_FULL, 
                        CRYPT_NEWKEYSET))
         {
-            printf("CryptoLib: %x\n", GetLastError());
+            printf("CryptoLib: %x\n", unsupported_str, GetLastError());
             exit(1);
         }
     }
 #else
     /* start of with a stack to copy across */
-    int i = 0;
-    memcpy(entropy_pool, &i, ENTROPY_POOL_SIZE);
-    srand((unsigned int)(size_t)&i); 
+//    rand_r((unsigned int *)entropy_pool); 	// GWG
+    int i = rand();
+    memset(entropy_pool, 0, ENTROPY_POOL_SIZE);
+    memcpy(entropy_pool, &i, sizeof(int));
 #endif
 }
 
@@ -156,18 +157,19 @@ EXP_FUNC void STDCALL RNG_terminate(void)
 /**
  * Set a series of bytes with a random number. Individual bytes can be 0
  */
-EXP_FUNC void STDCALL get_random(int num_rand_bytes, uint8_t *rand_data)
+EXP_FUNC int STDCALL get_random(int num_rand_bytes, uint8_t *rand_data)
 {   
 #if !defined(WIN32) && defined(CONFIG_USE_DEV_URANDOM)
-    /* use the Linux default */
-    read(rng_fd, rand_data, num_rand_bytes);    /* read from /dev/urandom */
+    /* use the Linux default - read from /dev/urandom */
+    if (read(rng_fd, rand_data, num_rand_bytes) < 0) 
+        return -1;
 #elif defined(WIN32) && defined(CONFIG_WIN32_USE_CRYPTO_LIB)
     /* use Microsoft Crypto Libraries */
     CryptGenRandom(gCryptProv, num_rand_bytes, rand_data);
 #else   /* nothing else to use, so use a custom RNG */
     /* The method we use when we've got nothing better. Use RC4, time 
        and a couple of random seeds to generate a random sequence */
-    RC4_CTX rng_ctx;
+    AES_CTX rng_ctx;
     struct timeval tv;
     MD5_CTX rng_digest_ctx;
     uint8_t digest[MD5_SIZE];
@@ -186,10 +188,10 @@ EXP_FUNC void STDCALL get_random(int num_rand_bytes, uint8_t *rand_data)
     MD5_Final(digest, &rng_digest_ctx);
 
     /* come up with the random sequence */
-    RC4_setup(&rng_ctx, digest, MD5_SIZE); /* use as a key */
+    AES_set_key(&rng_ctx, digest, (const uint8_t *)ep, AES_MODE_128); /* use as a key */
     memcpy(rand_data, entropy_pool, num_rand_bytes < ENTROPY_POOL_SIZE ?
 				num_rand_bytes : ENTROPY_POOL_SIZE);
-    RC4_crypt(&rng_ctx, rand_data, rand_data, num_rand_bytes);
+    AES_cbc_encrypt(&rng_ctx, rand_data, rand_data, num_rand_bytes);
 
     /* move things along */
     for (i = ENTROPY_POOL_SIZE-1; i >= MD5_SIZE ; i--)
@@ -198,27 +200,31 @@ EXP_FUNC void STDCALL get_random(int num_rand_bytes, uint8_t *rand_data)
     /* insert the digest at the start of the entropy pool */
     memcpy(entropy_pool, digest, MD5_SIZE);
 #endif
+    return 0;
 }
 
 /**
  * Set a series of bytes with a random number. Individual bytes are not zero.
  */
-void get_random_NZ(int num_rand_bytes, uint8_t *rand_data)
+int get_random_NZ(int num_rand_bytes, uint8_t *rand_data)
 {
     int i;
-    get_random(num_rand_bytes, rand_data);
+    if (get_random(num_rand_bytes, rand_data))
+        return -1;
 
     for (i = 0; i < num_rand_bytes; i++)
     {
         while (rand_data[i] == 0)  /* can't be 0 */
             rand_data[i] = (uint8_t)(rand());
     }
+
+    return 0;
 }
 
 /**
  * Some useful diagnostic routines
  */
-#if defined(CONFIG_SSL_FULL_MODE) || defined(CONFIG_DEBUG)
+#if defined(CONFIG_DEBUG)
 int hex_finish;
 int hex_index;
 
@@ -282,10 +288,12 @@ EXP_FUNC void STDCALL print_blob(const char *format,
     va_end(ap);
     TTY_FLUSH();
 }
-#elif defined(WIN32)
+#else
+#if defined(WIN32)
 /* VC6.0 doesn't handle variadic macros */
 EXP_FUNC void STDCALL print_blob(const char *format, const uint8_t *data,
         int size, ...) {}
+#endif
 #endif
 
 #if defined(CONFIG_SSL_HAS_PEM) || defined(CONFIG_HTTP_HAS_AUTHORIZATION)
@@ -355,7 +363,7 @@ EXP_FUNC int STDCALL base64_decode(const char *in, int len,
     ret = 0;
 
 error:
-#ifdef CONFIG_SSL_FULL_MODE
+#ifdef CONFIG_DEBUG
     if (ret < 0)
         printf("Error: Invalid base64\n"); TTY_FLUSH();
 #endif
