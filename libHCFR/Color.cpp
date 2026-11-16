@@ -3469,10 +3469,6 @@ void CSpectrum::Serialize(CArchive& archive)
 }
 #endif
 
-// Exact inverse of CsvCodeToPercent for percentages that came off the native
-// grid (round-to-nearest, clamped to [0, maxCode]); reconstructs definition
-// codes from stored stimuli during legacy .chc migration. Extended super-white
-// (>100%) maps back onto the legal slope up to the grid ceiling.
 bool CsvPatchCodesMatch(const std::vector<CsvPatchRow> & a, const std::vector<CsvPatchRow> & b)
 {
 	if ( a.size() != b.size() )
@@ -3494,25 +3490,8 @@ std::string CsvSetNameFromPath(const char * path)
 	return base;
 }
 
-int CsvPercentToCode(double percent, int bits, int range)
-{
-	int maxCode = (1 << bits) - 1;
-	double code;
-	if (range == CSV_RANGE_FULL)
-		code = percent * maxCode / 100.0;
-	else
-	{
-		double black = 16.0  * (1 << (bits - 8));
-		double white = 235.0 * (1 << (bits - 8));
-		code = black + percent * ( white - black ) / 100.0;
-	}
-	int c = (int) floor ( code + 0.5 );
-	if ( c < 0 ) c = 0;
-	if ( c > maxCode ) c = maxCode;
-	return c;
-}
-
-// The patch-list CSV parser and CsvCodeToPercent live in CsvPatchRows.cpp (MFC-free).
+// The patch-list CSV parser, CsvCodeToPercent and CsvPercentToCode live in
+// CsvPatchRows.cpp (MFC-free).
 // This overload keeps the CString call sites unchanged.
 int ReadCsvPatchRows(CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut)
 {
