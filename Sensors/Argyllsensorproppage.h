@@ -69,6 +69,17 @@ public:
     CArgyllSensor* m_pSensor;
     BOOL       m_bNotifyAmbientSwitch;
 
+    // Spectral (ccss/CSV) correction row, created programmatically in OnInitDialog
+    // only when the meter supports spectral samples (no resource-template controls,
+    // so it works across every language DLL).
+    CStatic    m_spectralStatus;
+    CButton    m_spectralBrowseBtn;
+    CButton    m_spectralClearBtn;
+    void       RefreshSpectralStatus();
+    // Enables "Calibrate meter" only when a Calibrate with the page's current
+    // selections has something to do (CArgyllSensor::CalibrateButtonEnabled).
+    void       RefreshCalibrateButton();
+
     // Rev. B AIO disable (i1d3 / ColorMunki Display). The checkbox is created
     // programmatically (no resource control) so it works regardless of which
     // language resource DLL provides the dialog template.
@@ -99,6 +110,9 @@ protected:
     afx_msg void OnCalibrate();
     afx_msg void OnSelchangeModeCombo();
     //}}AFX_MSG
+    afx_msg void OnSpectralBrowse();
+    afx_msg void OnSpectralClear();
+    afx_msg void OnCalibrateSelectionChange();
     DECLARE_MESSAGE_MAP()
 
 };

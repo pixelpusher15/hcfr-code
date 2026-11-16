@@ -113,6 +113,7 @@ CGraphControl::CGraphControl()
 	m_maxYGrow=100;
 	m_yAxisStep=10.0;
 	m_pYUnitStr=NULL;
+	m_bUserYScale=FALSE;
 	SetScale(0,100,0,100);
 }
 
@@ -181,27 +182,11 @@ bool CGraphControl::ReadSettings(LPSTR aConfigStr, BOOL bReadGraphSettings)
 	m_doShowYLabel=GetConfig()->GetProfileInt(aConfigStr,"Show Y Labels",TRUE);
 	m_doShowAllPoints=GetConfig()->GetProfileInt(aConfigStr,"Show All Points",TRUE);
 	m_doShowAllToolTips=GetConfig()->GetProfileInt(aConfigStr,"Show All ToolTips",TRUE);
+	// Saved axis scales (Min/Max X and Y, their grow limits and steps) are
+	// not applied: a scale belongs to the view, for this session only. A
+	// saved X narrower than the data hid measured points. The keys an
+	// existing INI still holds are ignored, not deleted.
 	bool userScale = FALSE;
-
-/* GGA: Do not use saved scale data */
-	// do not read settings if not in config => avoid to overwrite defaults set by parent
-	if(GetConfig()->IsProfileEntryDefined(aConfigStr,"Max Y") )
-	{
-		userScale = TRUE;
-		m_minX=GetConfig()->GetProfileDouble(aConfigStr,"Min X",0);
-		m_maxX=GetConfig()->GetProfileDouble(aConfigStr,"Max X",100);
-		m_minXGrow=GetConfig()->GetProfileDouble(aConfigStr,"Min Grow X",0);
-		m_maxXGrow=GetConfig()->GetProfileDouble(aConfigStr,"Max Grow X",100);
-		m_xAxisStep=GetConfig()->GetProfileDouble(aConfigStr,"Axis Step X",10);
-		m_minY=GetConfig()->GetProfileDouble(aConfigStr,"Min Y",0);
-		m_maxY=GetConfig()->GetProfileDouble(aConfigStr,"Max Y",100);
-		m_minYGrow=GetConfig()->GetProfileDouble(aConfigStr,"Min Grow Y",0);
-		m_maxYGrow=GetConfig()->GetProfileDouble(aConfigStr,"Max Grow Y",100);
-		m_yAxisStep=GetConfig()->GetProfileDouble(aConfigStr,"Axis Step Y",10);
-		
-		SetScale(m_minX,m_maxX,m_minY,m_maxY);
-	}
-//*/
 
 	if(bReadGraphSettings)
 		for(int i=0;i<m_graphArray.GetSize();i++)
@@ -236,16 +221,7 @@ void CGraphControl::WriteSettings(LPSTR aConfigStr)
 	GetConfig()->WriteProfileInt(aConfigStr,"Show All Points",m_doShowAllPoints);
 	GetConfig()->WriteProfileInt(aConfigStr,"Show All ToolTips",m_doShowAllToolTips);
 
-	GetConfig()->WriteProfileDouble(aConfigStr,"Min X",m_minX);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Max X",m_maxX);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Min Grow X",m_minXGrow);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Max Grow X",m_maxXGrow);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Axis Step X",m_xAxisStep);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Min Y",m_minY);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Max Y",m_maxY);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Min Grow Y",m_minYGrow);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Max Grow Y",m_maxYGrow);
-	GetConfig()->WriteProfileDouble(aConfigStr,"Axis Step Y",m_yAxisStep);
+	// No axis scale is written: a scale change is this view, this session.
 
 	for(int i=0;i<m_graphArray.GetSize();i++)
 	{
@@ -300,7 +276,7 @@ void CGraphControl::CopySettings(const CGraphControl & aGraphControl, int aGraph
 	m_graphArray.SetAtGrow(aGraphDestIndex,aGraphControl.m_graphArray.GetAt(aGraphSrcIndex));
 }
 
-void CGraphControl::ChangeScale()
+BOOL CGraphControl::ChangeScale()
 {
 	CGraphScalePropDialog dialog;
 
@@ -317,19 +293,18 @@ void CGraphControl::ChangeScale()
 
 	if(dialog.DoModal() == IDOK)
 	{
-		m_minX=dialog.m_minX;
-		m_maxX=dialog.m_maxX;
-		m_minXGrow=dialog.m_minXGrow;
-		m_maxXGrow=dialog.m_maxXGrow;
-		m_xAxisStep=dialog.m_xAxisStep;
+		// X follows the data and is shown read-only: only Y is taken back
 		m_minY=dialog.m_minY;
 		m_maxY=dialog.m_maxY;
 		m_minYGrow=dialog.m_minYGrow;
 		m_maxYGrow=dialog.m_maxYGrow;
 		m_yAxisStep=dialog.m_yAxisStep;
+		m_bUserYScale=TRUE;
 		SetScale(m_minX,m_maxX,m_minY,m_maxY);
 		Invalidate(FALSE);
+		return TRUE;
 	}
+	return FALSE;
 }
 
 BEGIN_MESSAGE_MAP(CGraphControl, CWnd)
@@ -407,6 +382,7 @@ void CGraphControl::GrowYScale(double deltaMinY, double deltaMaxY)
 	m_maxY=maxY;
 	m_minY=minY;
 	m_yScale=1.0/(m_maxY-m_minY);
+	m_bUserYScale=TRUE;
 }
 
 void CGraphControl::ShiftXScale(double deltaX)
@@ -433,6 +409,7 @@ void CGraphControl::ShiftYScale(double deltaY)
 	m_minY=minY;
 	m_maxY=maxY;
 	m_yScale=1.0/(m_maxY-m_minY);
+	m_bUserYScale=TRUE;
 }
 
 void CGraphControl::FitXScale(BOOL doRound, double roundStep)
@@ -448,6 +425,11 @@ void CGraphControl::FitXScale(BOOL doRound, double roundStep)
 			if(m_graphArray[j].m_pointArray[i].x > maxX)
 				maxX=m_graphArray[j].m_pointArray[i].x;
 		}
+	// No point at all: the untouched sentinels would reach SetScale as
+	// minX > maxX and flip the X axis. Keep the current scale.
+	if ( minX > maxX )
+		return;
+
 	if(doRound)
 	{
 		minX=(floor(minX/roundStep)-1) * roundStep;
@@ -510,6 +492,11 @@ void CGraphControl::FitYScale(BOOL doRound, double roundStep, bool isGamma)
 			break;
 	}
 
+	// No point inside [m_minX, m_maxX]: the untouched sentinels would reach
+	// SetScale as minY > maxY and flip the Y axis. Keep the current scale.
+	if ( minY > maxY )
+		return;
+
 	if(doRound)
 	{
 		minY=(floor(minY/roundStep)-1) * roundStep;
@@ -552,17 +539,12 @@ void CGraphControl::FitYScale(BOOL doRound, double roundStep, bool isGamma)
 
 int CGraphControl::GetGraphX(double x,CRect rect) 
 {
-	// Display-only snap: measured stimuli are quantized to video levels
-	// (e.g. "40%" is really 39.7% with round-down), which puts points a few
-	// pixels off the axis grid lines. Snap x onto a grid line when it is
-	// within half a video level so the charts read cleanly; tooltips keep
-	// showing the true value.
-	if ( m_xAxisStep > 0 )
-	{
-		double snapped = floor(x/m_xAxisStep+0.5)*m_xAxisStep;
-		if ( fabs(x-snapped) < min(0.5, m_xAxisStep*0.25) )
-			x = snapped;
-	}
+	// No snapping: a point is drawn at its true X. Measured stimuli sit on
+	// video codes, which are unevenly spaced against a whole-percent axis
+	// (near white on the 255 grid steps 3,2,3,2 codes per percent), while Y
+	// is the value at that true level. Pulling X onto the nearest grid line
+	// drew uneven steps as even ones and turned smooth measured and
+	// reference curves into zigzags. The tooltip carries the same X.
 	// Width()-1, not Width(): m_maxX has to land on the last VISIBLE column, the
 	// mirror of m_minX landing on the first. Mapping to Width() put it one column
 	// past the edge, so the top grid line was clipped away and a data point on
@@ -981,6 +963,10 @@ void CGraphControl::DrawAxis(CDC *pDC, CRect rect, BOOL bWhiteBkgnd)
 
 	for(int i=0;i<=nSteps;i++)
 	{
+		// One rounding per line, not a running sum: an accumulated step can land
+		// a hair under a whole value and truncate one pixel short of a point
+		// drawn at that value (GetGraphX no longer snaps it back).
+		xVal=m_minX+i*m_xAxisStep;
 		int x=GetGraphX(xVal,rect);
 		// Draw axis line
 		if(m_doShowAxis)
@@ -1144,12 +1130,96 @@ void CGraphControl::OnPaint()
 	pDC -> SetBkColor ( RGB(255,255,255) );
 	pDC -> SelectObject ( pOldFont );
 
+	DrawOverlayRows ( pDC, rect, 2 + TitleSize.cy + 2, bWhiteBkgnd );
+
 	CBrush fxBorderBrush ( RGB ( 128, 128, 128 ) );
 	pDC -> FrameRect ( rect, & fxBorderBrush );
 
 }
 
-void CGraphControl::OnSize(UINT nType, int cx, int cy) 
+// The m_overlayRows block: the axis-label font and colors, top right, each
+// cell haloed like the axis labels so it stays readable over the curves.
+// Columns are as wide as their widest cell; a numeric column sits one space
+// after the cell before it (a label and its value read as a pair), any other
+// column three spaces after.
+void CGraphControl::DrawOverlayRows(CDC *pDC, CRect rect, int top, BOOL bWhiteBkgnd)
+{
+	const int nRows = (int)m_overlayRows.GetSize();
+	if ( nRows == 0 )
+		return;
+
+	const int kMaxCols = 16;
+	CFont font;
+	font.CreateFont(GetConfig()->ScaleFloor(14,16),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,0,OUT_TT_ONLY_PRECIS,CLIP_DEFAULT_PRECIS,PROOF_QUALITY,VARIABLE_PITCH | FF_SWISS,_T("Segoe UI"));
+	CFont* pOldFont = pDC->SelectObject(&font);
+	pDC->SetBkMode(TRANSPARENT);
+	pDC->SetTextAlign(TA_TOP | TA_LEFT);
+
+	int colW[kMaxCols] = { 0 };
+	bool colNum[kMaxCols] = { false };
+	int nCols = 0;
+	for ( int r = 0; r < nRows; r++ )
+	{
+		int c = 0, start = 0;
+		const CString & row = m_overlayRows[r];
+		while ( c < kMaxCols && start <= row.GetLength() )
+		{
+			int tab = row.Find('\t', start);
+			CString cell = ( tab < 0 ) ? row.Mid(start) : row.Mid(start, tab - start);
+			int w = pDC->GetTextExtent(cell).cx;
+			if ( w > colW[c] )
+				colW[c] = w;
+			if ( r == 0 )
+				colNum[c] = ( !cell.IsEmpty() && strchr("0123456789+-.", cell[0]) != NULL );
+			c++;
+			if ( tab < 0 )
+				break;
+			start = tab + 1;
+		}
+		if ( c > nCols )
+			nCols = c;
+	}
+
+	const int space = pDC->GetTextExtent(" ").cx;
+	int colX[kMaxCols];
+	int total = 0;
+	for ( int c = 0; c < nCols; c++ )
+	{
+		if ( c )
+			total += colNum[c] ? space : 3 * space;
+		colX[c] = total;
+		total += colW[c];
+	}
+
+	TEXTMETRIC tm;
+	pDC->GetTextMetrics(&tm);
+	const int x0 = rect.right - GetConfig()->Scale(8) - total;
+	const COLORREF halo = bWhiteBkgnd ? RGB(255,255,255) : RGB(0,0,0);
+	pDC->SetTextColor(bWhiteBkgnd ? RGB(64,64,64) : RGB(192,192,192));
+
+	for ( int r = 0; r < nRows; r++ )
+	{
+		int c = 0, start = 0;
+		const CString & row = m_overlayRows[r];
+		const int y = top + r * tm.tmHeight;
+		while ( c < kMaxCols && start <= row.GetLength() )
+		{
+			int tab = row.Find('\t', start);
+			CString cell = ( tab < 0 ) ? row.Mid(start) : row.Mid(start, tab - start);
+			bool bRight = ( !cell.IsEmpty() && strchr("0123456789+-.", cell[0]) != NULL );
+			int x = x0 + colX[c] + ( bRight ? colW[c] - pDC->GetTextExtent(cell).cx : 0 );
+			DrawHaloText(pDC, x, y, cell, halo);
+			c++;
+			if ( tab < 0 )
+				break;
+			start = tab + 1;
+		}
+	}
+
+	pDC->SelectObject(pOldFont);
+}
+
+void CGraphControl::OnSize(UINT nType, int cx, int cy)
 {
 	CWnd::OnSize(nType, cx, cy);
 }

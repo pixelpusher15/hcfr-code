@@ -32,6 +32,8 @@
 
 extern bool IsExcelDriverInsalled();
 
+class CSpreadSheet;
+
 class CExport  
 {
 public:
@@ -40,7 +42,8 @@ public:
 		XLS=0,
 		CSV=1,
 		ICC=2,
-		PDF=3
+		PDF=3,
+		TI3=4
 	};
 
 private:
@@ -52,8 +55,12 @@ private:
 	CString m_separator;
 	CString m_errorStr;
 	int m_numToReplace;
+	int m_numExistingMeasures;	// count of measures already in the target file (for replace-layout guard)
+	bool m_bExportRaw;			// include raw (uncorrected) sensor XYZ rows/columns
+	bool m_bExportStimulus;		// include RGB stimulus (drive) rows/columns
 
 	bool SaveSheets();
+	bool CheckExistingLayout();
 	bool SaveGeneralSheet();
 	bool SaveGrayScaleSheet();
 	bool SavePrimariesSheet();
@@ -61,6 +68,16 @@ private:
 	bool SaveCCSheet();
 	bool SaveSpectralSheet();
 	bool SaveProfileSheet();
+	bool SaveSaturationSheet();
+	bool SaveLevelsSheet(bool bNearWhite);
+	bool SaveTi3();
+	int SaturationBlockRows() const;
+	int LevelsBlockRows() const;
+	bool NewSheetLayoutMatches(int existing, int blockRows) const;
+	void NewSheetBlockRange(CSpreadSheet & ss, int blockRows, int & first, int & last, int & target, long & rowNb) const;
+	void GetSheetFile(const char * sheet, CString & aFileName, CString & SheetOrSeparator) const;
+	bool AddReadingRows(CSpreadSheet & ss, long & rowNb, const CString & prefix,
+	                    const CColor * colors, const ColorRGBDisplay * stim, int size);
 
 public:
 	CExport(CDataSetDoc *pDoc, ExportType type);

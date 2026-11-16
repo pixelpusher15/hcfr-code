@@ -65,6 +65,16 @@ private:
 
 	        if (nRead != 10)
 		        bRead= false;
+            if (bRead){
+                // A placement saved on a monitor that is gone (undocked laptop,
+                // resolution change) would open the window off-screen with no way
+                // to reach it: treat it as unsaved so the callers show the default
+                // placement instead. SetWindowPlacement also requires length set.
+                wp.length= sizeof(wp);
+                if( MonitorFromRect(&wp.rcNormalPosition, MONITOR_DEFAULTTONULL)==NULL ){
+                    bRead= false;
+                }
+            }
         }
         return bRead;
     }

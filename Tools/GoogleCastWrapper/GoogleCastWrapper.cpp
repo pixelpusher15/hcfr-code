@@ -51,7 +51,7 @@ const ccast_id *CGoogleCastWrapper::operator[](const char *name) const
 const ccast_id *CGoogleCastWrapper::getCcastByIp(unsigned int ip) const
 {
 	ccast_id *ret = NULL;
-	char ipStr[14];
+	char ipStr[16];	// "255.255.255.255" + NUL; [14] overflowed sprintf_s on any 14-char IP (#39)
 
 	sprintf_s(ipStr,  "%d.%d.%d.%d", (ip >> 24) & 0xFF,  (ip >> 16) & 0xFF, (ip >> 8) & 0xFF, ip & 0xFF);
 	OutputDebugStringA(ipStr);

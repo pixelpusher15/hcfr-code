@@ -41,6 +41,11 @@ public:
 // Dialog Data
 	BOOL	m_isModified;
 	BOOL	m_bSave;
+	// values as they were when the tab was activated: the document stores
+	// these three (CMeasure::Serialize), so only a change to them sets m_bSave
+	int		m_dE_formold;
+	int		m_dE_grayold;
+	int		gw_Weightold;
 
 	//{{AFX_DATA(CAdvancedPropPage)
 	enum { IDD = IDD_ADVANCED_PROP_PAGE };
@@ -54,12 +59,19 @@ public:
 	int 		m_dE_preset;
 	int 		m_dE_gray;
 	int 		gw_Weight;
-	BOOL		m_bUseOnlyPrimaries;
+	int 		m_calibrationMethod;
 	BOOL		m_bUseImperialUnits;
 	int 		m_nLuminanceCurveMode;
 	BOOL		m_bPreferLuxmeter;
 	BOOL		doHighlight;
 	//}}AFX_DATA
+
+	// Programmatic dropdown that replaces the three calibration-method radios,
+	// so a fourth method can be offered without editing the localized dialog
+	// templates. Items load from the string table (IDS_CALIB_*); item data holds
+	// the CalibrationMatrixMethod enum value.
+	CComboBox	m_calibMethodCombo;
+	void SyncCalibMethodFromCombo();
 
 	virtual UINT GetHelpId ( LPSTR lpszTopic );
 
@@ -70,6 +82,7 @@ public:
 	virtual BOOL OnApply();
 	virtual BOOL OnSetActive();
 	virtual BOOL OnInitDialog();
+	virtual BOOL OnKillActive();
 	protected:
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
 	//}}AFX_VIRTUAL
@@ -83,6 +96,7 @@ protected:
 	afx_msg void OnSelchangeDeTolerance();
 	//}}AFX_MSG
 	afx_msg void OnControlClicked(UINT nID);
+	afx_msg void OnSelchangeCalibMethod();
 	DECLARE_MESSAGE_MAP()
 
 };

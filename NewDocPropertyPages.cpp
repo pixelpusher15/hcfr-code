@@ -24,6 +24,7 @@
 #include "resource.h"
 #include "ColorHCFR.h"
 #include "NewDocPropertyPages.h"
+#include "RadioExchange.h"
 #include "ArgyllMeterWrapper.h"
 
 #ifdef _DEBUG
@@ -155,7 +156,9 @@ void CSensorSelectionPropPage::DoDataExchange(CDataExchange* pDX)
     }
 
 	DDX_CBString(pDX, IDC_SENSORCHOICE_COMBO, m_sensorChoice);
-	DDX_Radio(pDX, IDC_SENSORTRAININGMODE_RADIO1, m_sensorTrainingMode);
+	static const UINT kSensorTrainingRadios[] =
+		{ IDC_SENSORTRAININGMODE_RADIO1, IDC_SENSORTRAININGMODE_RADIO2 };
+	DDX_RadioByID(pDX, m_sensorTrainingMode, kSensorTrainingRadios);
 
 	if(pDX->m_bSaveAndValidate != 0)	// 0=init 1=save
 		m_currentID=m_sensorChoiceCtrl.GetItemData(m_sensorChoiceCtrl.GetCurSel());
@@ -332,6 +335,16 @@ void CSensorSelectionPropPage::OnSelchangeSensorchoiceCombo()
 			// No calibration file
 			GetDlgItem (IDC_SENSORTRAININGMODE_RADIO1) -> EnableWindow ( FALSE );
 			GetDlgItem (IDC_SENSORTRAININGMODE_RADIO2) -> EnableWindow ( FALSE );
+			m_trainingFileCombo.EnableWindow ( FALSE );
+		}
+		else if ( ! bFileFound )
+		{
+			// No file to load, so "use existing" would hand the document an empty
+			// path to open. Put the sensor on the other choice - create a new
+			// correction file (HCFR, simulated) or none (the rest) - which stays
+			// available.
+			CheckRadioButton ( IDC_SENSORTRAININGMODE_RADIO2, IDC_SENSORTRAININGMODE_RADIO1, IDC_SENSORTRAININGMODE_RADIO2 );
+			GetDlgItem (IDC_SENSORTRAININGMODE_RADIO1) -> EnableWindow ( FALSE );
 			m_trainingFileCombo.EnableWindow ( FALSE );
 		}
 	}

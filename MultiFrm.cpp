@@ -135,6 +135,7 @@ BEGIN_MESSAGE_MAP(CMultiFrame, CNewMDIChildWnd)
 	ON_WM_GETMINMAXINFO()
 	ON_WM_DESTROY()
 	ON_WM_SIZE()
+	ON_WM_MDIACTIVATE()
     ON_MESSAGE(WM_APPCOMMAND, OnAppCommand)
 	ON_NOTIFY(CTCN_SELCHANGE, IDC_TABCTRL, OnTabChanged)
 	ON_NOTIFY(CTCN_RCLICK, IDC_TABCTRL, OnRightClick)
@@ -194,6 +195,7 @@ CMultiFrame::CMultiFrame()
 	m_bHasStarted = FALSE;
 	m_bHide = FALSE;
 
+	m_pDocument = NULL;
 	m_NbTabbedViews = 0;
 	m_bDisplayTab = TRUE;
 	m_bTabUp = GetConfig()->GetProfileInt("DataSet View","UpperTabControl",FALSE);
@@ -274,6 +276,35 @@ void CMultiFrame::OnGetMinMaxInfo(MINMAXINFO FAR* lpMMI)
 		lpMMI->ptMinTrackSize.x = m_MinSize.x - 300;
 		lpMMI->ptMinTrackSize.y = m_MinSize.y - 200;
 	}*/
+}
+
+// MDI activation, not the view's OnActivateView: MFC tells only the frame's active
+// view (CMDIChildWnd::OnMDIActivate), so a document that comes back with a chart
+// tab in front would never reach CMainView. Mid-sweep nothing moves - the running
+// sweep stamps its readings from the cache; ~SweepActiveGuard catches up after it.
+void CMultiFrame::OnMDIActivate(BOOL bActivate, CWnd* pActivateWnd, CWnd* pDeactivateWnd)
+{
+	CNewMDIChildWnd::OnMDIActivate ( bActivate, pActivateWnd, pDeactivateWnd );
+	if ( bActivate && ! IsMeasureSweepActive () )
+		RefreshCCState ();
+}
+
+// Refresh whether or not the document HAS a set: one with an empty collection
+// must also displace the previous document's set from the cache (the empty
+// USER state), or its name and targets linger.
+void CMultiFrame::RefreshCCState()
+{
+	CDataSetDoc * pDoc = GetDocument ();
+	if ( pDoc == NULL )
+		return;
+	pDoc -> SyncCCTargets ();
+	POSITION pos = pDoc -> GetFirstViewPosition ();
+	while ( pos != NULL )
+	{
+		CView * pView = pDoc -> GetNextView ( pos );
+		if ( pView != NULL && pView -> IsKindOf ( RUNTIME_CLASS ( CMainView ) ) )
+			( (CMainView *) pView ) -> ResyncCCControls ();
+	}
 }
 
 void CMultiFrame::OnDestroy() 
@@ -2258,7 +2289,7 @@ BOOL CMultiFrame::DdeCmdExec ( CString & strCommand, BOOL bCanSendAckMsg, HWND h
 	BOOL		bDisplay = FALSE;
 	BOOL		bNoWait = FALSE;
 	BOOL		bUpdateName = FALSE;
-	int			bSensorCalibrated = GetDocument() -> m_pSensor -> IsCalibrated ();
+	int			bSensorCalibrated = GetDocument() -> m_pSensor -> IsCorrectionActive ();
 	LPARAM		lHint = UPD_EVERYTHING;
 	Matrix		SensorMatrix ( 0.0, 3, 3 );
 	Matrix		WhiteMatrix ( 0.0, 3, 1 );
@@ -2298,7 +2329,12 @@ BOOL CMultiFrame::DdeCmdExec ( CString & strCommand, BOOL bCanSendAckMsg, HWND h
 	}
 	else if ( _stricmp ( (LPCSTR) strCmd, "CalibrateSensor" ) == 0 ) // modif BP
 	{
-		GetDocument () -> m_pSensor->Configure ( );
+		// Route through the document's full configure path (IDM_CONFIGURE_SENSOR ->
+		// OnConfigureSensor) instead of a bare Configure(): that path carries the
+		// BeginConfigure/CancelConfigure snapshot (a cancelled sheet restores a
+		// spectral apply the Browse committed) and the IsModified recompute of
+		// stored measurements, both of which this DDE shortcut used to skip.
+		SendMessage ( WM_COMMAND, IDM_CONFIGURE_SENSOR );
 	}
 	else if ( _stricmp ( (LPCSTR) strCmd, "ClearMeasurements" ) == 0 ) // modif BP
 	{
@@ -2328,10 +2364,33 @@ BOOL CMultiFrame::DdeCmdExec ( CString & strCommand, BOOL bCanSendAckMsg, HWND h
 				}
 			}
 
-			if ( nRow == 3 && nCol == 3 && pos == NULL )
+			if ( GetDocument () -> m_pSensor -> GetCalibrationMethod () == CALIB_BODNER_THREEMATRIX )
+			{
+				// Refused, with the same negative acknowledgement a malformed matrix
+				// gets. This command replaces the matrix without recomputing any stored
+				// reading, which on a single-matrix sensor only leaves the grid under the
+				// old matrix. On a Bodner sensor it would leave the grid Bodner-corrected
+				// while the method reads single-matrix, so the guards that key on a
+				// Bodner sensor (the IDS_CALIB_NEED_RAW_PRIMARIES refusal) would miss the
+				// next recalibration. Leave Bodner through a calibration command, which
+				// recomputes the readings.
+				bOk = FALSE;
+			}
+			else if ( nRow == 3 && nCol == 3 && pos == NULL )
 			{
 				GetDocument () -> m_pSensor -> SetSensorMatrix ( SensorMatrix );
 				GetDocument () -> m_pSensor -> SetSensorMatrixMod (Matrix::IdentityMatrix(3));
+				// A DDE-supplied matrix is a single-matrix correction: make it the
+				// authoritative method (a three-color or no-luminance FCMM label would
+				// otherwise describe a matrix it did not produce). Bodner is refused
+				// above; the Bodner pairs are cleared anyway so SaveCalibrationFile
+				// can never write stale ones.
+				GetDocument () -> m_pSensor -> SetCalibrationMethod ( CALIB_HCFR_DEFAULT );
+				GetDocument () -> m_pSensor -> ClearBodnerMatrices ();
+				// No stored reading was recomputed, so the raw-less ones still embody
+				// the previous matrix: a later recalibration must not compose onto
+				// them (RawlessReadingsState, Color.h).
+				GetDocument () -> m_pSensor -> RawlessReadings ().MatrixSetWithoutWalk ();
 			}
 			else
 			{

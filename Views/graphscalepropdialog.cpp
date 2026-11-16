@@ -90,3 +90,39 @@ BOOL CGraphScalePropDialog::OnHelpInfo ( HELPINFO * pHelpInfo )
 	OnHelp ();
 	return TRUE;
 }
+
+BOOL CGraphScalePropDialog::OnInitDialog()
+{
+	CDialog::OnInitDialog();
+
+	// X follows the measured range and is not a user setting: show the
+	// horizontal group read-only. The group box and its labels have no ID
+	// of their own, so disable every control inside the box that holds
+	// the X min field.
+	CWnd *pXMin = GetDlgItem ( IDC_XMIN_EDIT );
+	if ( pXMin )
+	{
+		CRect rcEdit;
+		pXMin -> GetWindowRect ( &rcEdit );
+		for ( CWnd *pBox = GetWindow ( GW_CHILD ); pBox; pBox = pBox -> GetNextWindow () )
+		{
+			char szClass [ 16 ];
+			::GetClassName ( pBox -> m_hWnd, szClass, sizeof ( szClass ) );
+			if ( _stricmp ( szClass, "Button" ) != 0 || ( pBox -> GetStyle () & BS_TYPEMASK ) != BS_GROUPBOX )
+				continue;
+			CRect rcBox;
+			pBox -> GetWindowRect ( &rcBox );
+			if ( !rcBox.PtInRect ( rcEdit.CenterPoint () ) )
+				continue;
+			for ( CWnd *pCtl = GetWindow ( GW_CHILD ); pCtl; pCtl = pCtl -> GetNextWindow () )
+			{
+				CRect rcCtl;
+				pCtl -> GetWindowRect ( &rcCtl );
+				if ( rcBox.PtInRect ( rcCtl.CenterPoint () ) )
+					pCtl -> EnableWindow ( FALSE );
+			}
+			break;
+		}
+	}
+	return TRUE;
+}

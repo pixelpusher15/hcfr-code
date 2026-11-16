@@ -25,6 +25,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "DataSetDoc.h"
+#include "FailedReadingRule.h"
 #include "DocTempl.h"
 #include "LuminanceHistoView.h"
 #include "math.h"
@@ -141,10 +142,17 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		}
 	}
 
-	if (pDoc->GetMeasure()->GetGray(0).isValid())
+	// Any slot holding a reading (valid, not the constructor's placeholder
+	// white in the top slot of a new document) draws the traces, each invalid point left out (a failed
+	// black no longer hides the chart, FailedReadingRule.h). The average line
+	// needs a fit: ComputeGammaAndOffset says whether it made one (not under a
+	// relative offset with a failed black).
+	if ( FailedReadingRule::AnyHeldReading ( size, [pDoc] ( int i ) { return pDoc->GetMeasure()->GetGray(i); },
+			[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } ) )
 		bDataPresent = TRUE;
 
-	if (pDataRef && !pDataRef->GetMeasure()->GetGray(0).isValid())
+	if (pDataRef && ! FailedReadingRule::AnyHeldReading ( size, [pDataRef] ( int i ) { return pDataRef->GetMeasure()->GetGray(i); },
+			[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } ) )	// as the main document: a failed black is left out, not the trace
 		pDataRef = NULL;
 
 	m_graphCtrl.ClearGraph(m_refGraphID);
@@ -153,29 +161,38 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 	
 // Compute offset
-	pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,size,false);
-	pDoc->ComputeGammaAndOffset(&LuxGammaOpt, &LuxGammaOffset, 2,1,size,false);
+	const bool bGammaFit = pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,size,false);
+	const bool bLuxGammaFit = pDoc->ComputeGammaAndOffset(&LuxGammaOpt, &LuxGammaOffset, 2,1,size,false);
+
+	// The gray scale's white and black (GetGrayScaleWhite / Black), fetched once
+	// per document per draw and passed to every point.
+	const CColor DocWhite = pDoc->GetMeasure()->GetGrayScaleWhite();
+	const CColor DocBlack = pDoc->GetMeasure()->GetGrayScaleBlack();
+	const CColor RefDocWhite = pDataRef ? pDataRef->GetMeasure()->GetGrayScaleWhite() : noDataColor;
+	const CColor RefDocBlack = pDataRef ? pDataRef->GetMeasure()->GetGrayScaleBlack() : noDataColor;
 
 	if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef != pDoc))
 	{
-		pDoc->ComputeGammaAndOffset(&RefGammaOpt, &RefGammaOffset, 1,1,size,false);
-		pDoc->ComputeGammaAndOffset(&RefLuxGammaOpt, &RefLuxGammaOffset, 2,1,size,false);
+		// the comparison document's own fit (as GammaHistoView; this fitted pDoc)
+		pDataRef->ComputeGammaAndOffset(&RefGammaOpt, &RefGammaOffset, 1,1,size,false);
+		pDataRef->ComputeGammaAndOffset(&RefLuxGammaOpt, &RefLuxGammaOffset, 2,1,size,false);
 	}
 			
 	int mode = GetConfig()->m_GammaOffsetType;
     
-	CColor White = pDoc -> GetMeasure () -> GetOnOffWhite();
+	CColor White = DocWhite;
 	if (m_showReference && m_refGraphID != -1)
 	{	
 		for (int i=0; i<size; i++)
 		{
 			double x, valx, valy;
-			x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
-	    	CColor Black = pDoc -> GetMeasure () -> GetOnOffBlack();
+			// Reading i at its stamped drive, else slot i (CMeasure::GetGrayReadingLevel).
+			x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i );
+	    	CColor Black = DocBlack;
 			if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 			if (  (mode >= 4) )
 			{
-				valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+				valx = pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i );
 				if (mode == 5)
 				{
 					valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100. / (White.GetY());
@@ -186,10 +203,16 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			}
 			else
             {
-                valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+GammaOffset)/(1.0+GammaOffset);
+                valx=(pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i )+GammaOffset)/(1.0+GammaOffset);
                 valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 				if (mode == 1) //black compensation target
+				{
+					// The target needs the black: no reference point without a
+					// valid one (FailedReadingRule.h).
+					if ( ! pDoc->GetMeasure()->HoldsGrayScaleBlack () )	// Black is its GetGrayScaleBlack (DocBlack)
+						continue;
 					valy = (Black.GetY() + ( valy * ( White.GetY() - Black.GetY() ) )) / White.GetY();
+				}
             }
 
             if (!m_showL && !m_abY && !m_logY)
@@ -210,11 +233,11 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	}
 	
 
-	if (m_showAverage && m_avgGraphID != -1 && size > 0 && bDataPresent && !m_logY)
+	if (m_showAverage && m_avgGraphID != -1 && size > 0 && bDataPresent && bGammaFit && !m_logY)
 	{	
 		int		nb = 0;
 		double	avg = 0.0;
-    	CColor White = pDoc -> GetMeasure () -> GetOnOffWhite();
+    	CColor White = DocWhite;
 
 		// Le calcul de la moyenne des gamma et la représentation en échelle log 
 		// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
@@ -222,9 +245,9 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			double x, valx, valy;
-			x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+			x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i );
 
-			valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+GammaOffset)/(1.0+GammaOffset);
+			valx=(pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i )+GammaOffset)/(1.0+GammaOffset);
             valy=pow(valx, GammaOpt );
             if (mode != 5)
 			{
@@ -245,7 +268,7 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 	if ( GetConfig () -> m_nLuminanceCurveMode == 2 )
 	{
-		if (m_showAverage && m_luxmeterAvgGraphID != -1 && size > 0 && bDataPresent && pDoc->GetMeasure()->GetGray(0).HasLuxValue() )
+		if (m_showAverage && m_luxmeterAvgGraphID != -1 && size > 0 && bDataPresent && bLuxGammaFit && pDoc->GetMeasure()->GetGray(0).HasLuxValue() )
 		{	
 			int		nb = 0;
 			double	avg = 0.0;
@@ -256,9 +279,9 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			for (int i=0; i<size; i++)
 			{
 				double x, valx, valy;
-				x = pDoc->GetMeasure()->GetGrayPercent ( i, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+				x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i );
 
-				valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+LuxGammaOffset)/(1.0+LuxGammaOffset);
+				valx=(pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i )+LuxGammaOffset)/(1.0+LuxGammaOffset);
 				valy=pow(valx, LuxGammaOpt );
 
 				m_graphCtrl.AddPoint(m_luxmeterAvgGraphID, x, valy*100.0);
@@ -273,9 +296,9 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if (bDataPresent)
-				AddPointtoLumGraph(0,0,size,i,GammaOffset,pDoc,m_redLumGraphID,bIRE);
+				AddPointtoLumGraph(0,0,size,i,GammaOffset,pDoc,m_redLumGraphID,bIRE,DocWhite,DocBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,0,size,i,RefGammaOffset,pDataRef,m_redLumDataRefGraphID,bIRE);
+				AddPointtoLumGraph(0,0,size,i,RefGammaOffset,pDataRef,m_redLumDataRefGraphID,bIRE,RefDocWhite,RefDocBlack);
 		}
 	}
 
@@ -286,9 +309,9 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			if (bDataPresent)
-				AddPointtoLumGraph(0,1,size,i,GammaOffset,pDoc,m_greenLumGraphID,bIRE);
+				AddPointtoLumGraph(0,1,size,i,GammaOffset,pDoc,m_greenLumGraphID,bIRE,DocWhite,DocBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,1,size,i,RefGammaOffset,pDataRef,m_greenLumDataRefGraphID,bIRE);
+				AddPointtoLumGraph(0,1,size,i,RefGammaOffset,pDataRef,m_greenLumDataRefGraphID,bIRE,RefDocWhite,RefDocBlack);
 		}
 	}
 
@@ -299,9 +322,9 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++) 
 		{
 			if (bDataPresent)
-				AddPointtoLumGraph(0,2,size,i,GammaOffset,pDoc,m_blueLumGraphID,bIRE);
+				AddPointtoLumGraph(0,2,size,i,GammaOffset,pDoc,m_blueLumGraphID,bIRE,DocWhite,DocBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,2,size,i,RefGammaOffset,pDataRef,m_blueLumDataRefGraphID,bIRE);
+				AddPointtoLumGraph(0,2,size,i,RefGammaOffset,pDataRef,m_blueLumDataRefGraphID,bIRE,RefDocWhite,RefDocBlack);
 		}
 	}
 
@@ -312,9 +335,9 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++) 
 		{
 			if (bDataPresent)
-				AddPointtoLumGraph(1,1,size,i,GammaOffset,pDoc,m_luminanceGraphID,bIRE);
+				AddPointtoLumGraph(1,1,size,i,GammaOffset,pDoc,m_luminanceGraphID,bIRE,DocWhite,DocBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(1,1,size,i,RefGammaOffset,pDataRef,m_luminanceDataRefGraphID,bIRE);
+				AddPointtoLumGraph(1,1,size,i,RefGammaOffset,pDataRef,m_luminanceDataRefGraphID,bIRE,RefDocWhite,RefDocBlack);
 		}
 	}
 
@@ -329,17 +352,23 @@ void CLuminanceGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 				if (bDataPresent)
 				{
 					if (pDoc->GetMeasure()->GetGray(0).HasLuxValue())
-						AddPointtoLumGraph(2,1,size,i,LuxGammaOffset,pDoc,m_luxmeterGraphID,bIRE);
+						AddPointtoLumGraph(2,1,size,i,LuxGammaOffset,pDoc,m_luxmeterGraphID,bIRE,DocWhite,DocBlack);
 				}
 				
 				if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
 				{
 					if (pDataRef->GetMeasure()->GetGray(0).HasLuxValue())
-						AddPointtoLumGraph(2,1,size,i,RefLuxGammaOffset,pDataRef,m_luxmeterDataRefGraphID,bIRE);
+						AddPointtoLumGraph(2,1,size,i,RefLuxGammaOffset,pDataRef,m_luxmeterDataRefGraphID,bIRE,RefDocWhite,RefDocBlack);
 				}
 			}
 		}
 	}
+
+	// cd/m2 and log modes have no fixed range: fit Y to the data on every
+	// update unless the user set Y in this view this session. % and L*
+	// keep their 0-100 scale.
+	if ( ( m_abY || m_logY ) && !m_graphCtrl.m_bUserYScale )
+		m_graphCtrl.FitYScale(TRUE,m_logY?1:10);
 }
 
 /*
@@ -351,7 +380,7 @@ PointIndex : Point index on graph
 GraphID : graph ID for drawing
 */
 
-void CLuminanceGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,double GammaOffset,CDataSetDoc *pDataSet,long GraphID, BOOL bIRE)
+void CLuminanceGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,double GammaOffset,CDataSetDoc *pDataSet,long GraphID, BOOL bIRE, const CColor & White, const CColor & Black)
 {
 	double colorlevel;
 	double blacklvl, whitelvl;
@@ -359,24 +388,23 @@ void CLuminanceGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	LPCSTR	lpMsg = NULL;
 	if (pDataSet->GetMeasure()->GetGray(PointIndex).isValid())
 	{
-		pDataSet->GetMeasure()->SetGray(Size-1, pDataSet->GetMeasure()->GetOnOffWhite());
 
 		if (ColorSpace == 0) 
 		{
-			blacklvl=pDataSet->GetMeasure()->GetGray(0).GetRGBValue((GetColorReference()))[ColorIndex];
-			whitelvl=pDataSet->GetMeasure()->GetGray(Size-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+			blacklvl=Black.GetRGBValue((GetColorReference()))[ColorIndex];
+			whitelvl=White.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 			colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetRGBValue((GetColorReference()))[ColorIndex];
 		}
 		else if (ColorSpace == 1) 
 		{
-			blacklvl=pDataSet->GetMeasure()->GetGray(0).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-			whitelvl=pDataSet->GetMeasure()->GetGray(Size-1).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+			blacklvl=Black.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+			whitelvl=White.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 			colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 		}
 		else
 		{
-			blacklvl=pDataSet->GetMeasure()->GetGray(0).GetLuxValue();
-			whitelvl=pDataSet->GetMeasure()->GetGray(Size-1).GetLuxValue();
+			blacklvl=Black.GetLuxValue();
+			whitelvl=White.GetLuxValue();
 			colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxValue();
 		}
 
@@ -395,7 +423,7 @@ void CLuminanceGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
 	// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 	// (x + offset) / (1+offset) 
 
-		double x = pDataSet->GetMeasure()->GetGrayPercent ( PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+		double x = pDataSet->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, PointIndex );
 		if (!m_showL && !m_abY && !m_logY)
 		{
 			if (ColorSpace == 1 && ColorIndex == 1)
@@ -624,6 +652,7 @@ void CLuminanceHistoView::OnLumGraphL()
 	m_Grapher.m_graphCtrl.SetYAxisProps(m_Grapher.m_abY?" cd m-2 ":m_Grapher.m_showL?"":m_Grapher.m_logY?"":"%", m_Grapher.m_logY?0.5:10, 0, m_Grapher.m_logY?4:100);
 	OnUpdate(NULL,NULL,NULL);
 	OnGraphYScaleFit(); 
+	m_Grapher.m_graphCtrl.m_bUserYScale = FALSE;	// a unit change, not a user Y choice
 }
 
 void CLuminanceHistoView::OnLumGraphYab() 
@@ -641,6 +670,7 @@ void CLuminanceHistoView::OnLumGraphYab()
 	m_Grapher.m_graphCtrl.SetYAxisProps(m_Grapher.m_abY?" cd m-2 ":m_Grapher.m_showL?"":m_Grapher.m_logY?"":"%", m_Grapher.m_logY?0.5:10, 0, m_Grapher.m_logY?4:100);
 	OnUpdate(NULL,NULL,NULL);
 	OnGraphYScaleFit();
+	m_Grapher.m_graphCtrl.m_bUserYScale = FALSE;	// a unit change, not a user Y choice
 }
 
 void CLuminanceHistoView::OnLumGraphYlog() 
@@ -658,6 +688,7 @@ void CLuminanceHistoView::OnLumGraphYlog()
 	m_Grapher.m_graphCtrl.SetYAxisProps(m_Grapher.m_abY?" cd m-2 ":m_Grapher.m_showL?"":m_Grapher.m_logY?"":"%", m_Grapher.m_logY?0.5:10, 0, m_Grapher.m_logY?4:100);
 	OnUpdate(NULL,NULL,NULL);
 	OnGraphYScaleFit();
+	m_Grapher.m_graphCtrl.m_bUserYScale = FALSE;	// a unit change, not a user Y choice
 }
 
 void CLuminanceHistoView::OnLumGraphRedLum() 
@@ -690,6 +721,8 @@ void CLuminanceHistoView::OnGraphSettings()
 {
 	// Add log graphs to first graph control to allow setting change 
 	m_Grapher.m_graphCtrl.ChangeSettings();
+	// Parameters... saves itself: series colors, gradient, PDF User Scales
+	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 
 	OnUpdate(NULL,NULL,NULL);
 }
@@ -697,32 +730,31 @@ void CLuminanceHistoView::OnGraphSettings()
 void CLuminanceHistoView::OnGraphScaleCustom() 
 {
 	m_Grapher.m_graphCtrl.ChangeScale();
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 }
 
 void CLuminanceHistoView::OnGraphScaleFit() 
 {
+	m_Grapher.m_graphCtrl.m_bUserYScale = TRUE;	// a user Y choice
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,m_Grapher.m_logY?1:10);
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnLuminanceGraphYScale1() 
 {
+	m_Grapher.m_graphCtrl.m_bUserYScale = TRUE;	// a user Y choice
 	if (m_Grapher.m_abY || m_Grapher.m_logY || m_Grapher.m_showL)
 		m_Grapher.m_graphCtrl.FitYScale(TRUE,m_Grapher.m_logY?1:10);
 	else
 		m_Grapher.m_graphCtrl.SetYScale(0,100);
 	
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphYScaleFit() 
 {
+	m_Grapher.m_graphCtrl.m_bUserYScale = TRUE;	// a user Y choice
 	m_Grapher.m_graphCtrl.FitYScale(TRUE,m_Grapher.m_logY?1:10);
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 
@@ -753,21 +785,18 @@ void CLuminanceHistoView::OnGraphYZoomOut()
 void CLuminanceHistoView::OnGraphXScale1() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(0,100);
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphXScale2() 
 {
 	m_Grapher.m_graphCtrl.SetXScale(20,100);
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 
 void CLuminanceHistoView::OnGraphXScaleFit() 
 {
 	m_Grapher.m_graphCtrl.FitXScale(TRUE);
-	m_Grapher.m_graphCtrl.WriteSettings("Luminance Histo");
 	Invalidate(FALSE);
 }
 

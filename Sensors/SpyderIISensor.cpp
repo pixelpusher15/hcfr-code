@@ -24,6 +24,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "SpyderIISensor.h"
+#include "ArchiveExtension.h"
 
 // Include for device interface (this device interface is outside GNU GPL license)
 #ifdef USE_NON_FREE_CODE
@@ -87,22 +88,26 @@ void CSpyderIISensor::Serialize(CArchive& archive)
 
 	if (archive.IsStoring())
 	{
-		int version=(m_debugMode ? 4 : 3);
+		int version=5;
 		archive << version;
 		archive << m_CalibrationMode;
 		archive << m_ReadTime;
 		archive << m_bAdjustTime;
 		archive << m_bAverageReads;
-		
-		if ( version > 3 )
-			archive << m_debugMode;
+		// v5 writes the debug flag always; v4 wrote it only when it was set,
+		// which made the block's length depend on its own data.
+		archive << m_debugMode;
+
+		// Forward-compatible extension trailer (ArchiveExtension.h); empty here.
+		CExtensionWriter ext;
+		ext.Write(archive);
 	}
 	else
 	{
 		int version;
 		archive >> version;
-		if ( version > 4 )
-			AfxThrowArchiveException ( CArchiveException::badSchema );
+		if ( version > 5 )
+			throw new CNewerSchemaException ( "CSpyderIISensor", version );
 		archive >> m_CalibrationMode;
 		archive >> m_ReadTime;
 		
@@ -120,6 +125,18 @@ void CSpyderIISensor::Serialize(CArchive& archive)
 			archive >> m_debugMode;
 		else
 			m_debugMode = FALSE;
+
+		if ( version >= 5 )
+		{
+			// Skip any field a newer build added to this block.
+			CExtensionReader ext(archive);
+			BYTE  tag;
+			DWORD cb;
+
+			while ( ext.Next(tag, cb) )
+				ext.Skip();
+			ext.Close();
+		}
 	}
 }
 
