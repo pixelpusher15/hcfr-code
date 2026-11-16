@@ -57,7 +57,7 @@ int bi_compare(bigint *bia, bigint *bib);
 void bi_set_mod(BI_CTX *ctx, bigint *bim, int mod_offset);
 void bi_free_mod(BI_CTX *ctx, int mod_offset);
 
-#ifdef CONFIG_SSL_FULL_MODE
+#ifdef CONFIG_DEBUG
 void bi_print(const char *label, bigint *bi);
 bigint *bi_str_import(BI_CTX *ctx, const char *data);
 #endif

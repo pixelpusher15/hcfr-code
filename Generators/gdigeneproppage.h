@@ -150,6 +150,7 @@ public:
 	CGDIGenerator* m_pGenerator;
 	int m_action;
 	BOOL m_applied;		// TRUE once Apply actually sent a command batch (gates the caller's auto-refresh)
+	BOOL m_busy;		// TRUE while Apply waits for the generator: no second command batch, reboot or restart
 protected:
 	CComboBox m_avi[6];
 	CStatic m_aviL[6];
@@ -171,6 +172,7 @@ protected:
 	CStatic m_hdrAviLine, m_hdrDrmLine;
 	virtual BOOL OnInitDialog();
 	virtual void OnOK();
+	virtual void OnCancel();
 	afx_msg void OnFormatChanged();
 	void UpdateRangeState();
 	afx_msg void OnReboot();
