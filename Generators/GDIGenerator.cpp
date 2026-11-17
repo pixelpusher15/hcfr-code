@@ -2723,6 +2723,8 @@ bool CGDIGenerator_MuriTestConnection(bool useNet, const CString& ip, const CStr
 CString CGDIGenerator_MuriActivePort() { CSingleLock lock ( &s_genSerialLock, TRUE ); return MuriActivePort(); }
 CString CGDIGenerator_MuriActiveIp()   { CSingleLock lock ( &s_genSerialLock, TRUE ); return MuriActiveIp(); }
 
+static bool MuriSendBlackKnown(int csId, int depth);	// defined after MuriSessionColorSpace
+
 bool CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString& comPort,
 	int timingId, int csId, int bt2020, int hdrMode, int bitDepth, CString& msgOut, DWORD* appliedOut)
 {
@@ -2762,13 +2764,25 @@ bool CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString
 	const struct { int cat; int val; } cmds[] = {
 		{  97, timingId }, {  99, csId    }, { 112, bt2020 },
 		{ 111, hdrMode  }, { 100, bitDepth } };
+	DWORD landed = 0;
+	bool failed = false;
 	for (int i = 0; i < (int)(sizeof(cmds) / sizeof(cmds[0])); ++i)
 	{
 		if (cmds[i].val < 0) continue;		// unchanged since the dialog opened - nothing to send
-		if (!MuriCmdSingle(cmds[i].cat, cmds[i].val)) { msgOut = s_muriDiag; return false; }
-		if (appliedOut) *appliedOut |= (1u << i);	// the device took this one; it is now state
+		if (!MuriCmdSingle(cmds[i].cat, cmds[i].val)) { msgOut = s_muriDiag; failed = true; break; }
+		landed |= (1u << i);	// the device took this one; it is now state
 	}
-	msgOut.Format(LS(IDS_GEN_MURI_APPLIED), useNet ? _T("HTTP") : _T("serial"), (LPCTSTR)s_muriDiag);
+	if (appliedOut) *appliedOut = landed;
+	CString diag = s_muriDiag;	// the last setting's report, before the black below replaces it
+	// Any setting that landed - a partial Apply included - ends on a full black patch. After an
+	// output change the device redraws the last patch it was given (seen on the rig 2026-11-17,
+	// offset on screen at 1080p24), which can be a bright measurement window left on the display.
+	// The patch re-asserts the colour space and depth just applied; one that was not part of this
+	// Apply is read back from the device, because the 0x008C colour-space byte rewrites cat 99.
+	if (landed)
+		MuriSendBlackKnown((landed & (1u << 1)) ? csId : -1, (landed & (1u << 4)) ? bitDepth : -1);
+	if (failed) return false;
+	msgOut.Format(LS(IDS_GEN_MURI_APPLIED), useNet ? _T("HTTP") : _T("serial"), (LPCTSTR)diag);
 	return true;
 }
 
@@ -2862,6 +2876,112 @@ static int MuriSessionColorSpace()
 {
 	int cs = MuriReadColorSpaceId();
 	return (cs >= 0) ? cs : 0;
+}
+
+// The device's output settings as its status readout reports them, each in the value space the
+// settings dialog and the Apply commands use; -1 for a field the readout did not report.
+//   timing = cat 97 (kMuriTimings id), cs = cat 99 (0..4), gamut = cat 112 (0 = BT.709, 1 = BT.2020),
+//   hdr = cat 111 (0..10), depth = cat 100 (0 = 8, 1 = 10, 2 = 12 bit)
+struct MuriDevState { int timing, cs, gamut, hdr, depth; };
+
+// Read the state over the transport MuriConnect selected. Serial uses the read keywords
+// MuriSerialStatusReadout uses. Network uses the same WebReq.CGI VIDEOGEN body the panel readout
+// parses: its HEX<cat>NUM<id> echoes carry the command ids directly (hardware-verified to match
+// the serial reads - 0x8061 = 20 alongside HEX61NUM20), and the labelled fields the panel shows
+// stand in for colour space, depth and gamut when no echo carried them. Returns false when the
+// device did not answer at all.
+static bool MuriReadDevState(MuriDevState& st)
+{
+	st.timing = st.cs = st.gamut = st.hdr = st.depth = -1;
+	if (!s_muriUseNet)
+	{
+		st.timing = MuriSerialReadValue(0x8061);
+		st.cs     = MuriSerialReadValue(0x8063);
+		// Two silent reads: nothing is answering. Stop rather than wait out a read timeout on
+		// each remaining keyword, so an absent device costs the dialog two timeouts, not five.
+		if (st.timing < 0 && st.cs < 0) return false;
+		st.depth  = MuriSerialReadValue(0x8064);
+		st.hdr    = MuriSerialReadValue(0x806F);
+		st.gamut  = MuriSerialReadValue(0x8070);
+	}
+	else
+	{
+		CString body;
+		if (!MuriHttpGetBody("WebReq.CGI", "VIDEOGEN", body) || body.IsEmpty()) return false;
+		CString csText, depthText, gamutText;
+		int pos = 0, len = body.GetLength();
+		while (pos < len)
+		{
+			int d = pos; while (d < len) { TCHAR c = body[d]; if (c == _T('&') || c == _T('\r') || c == _T('\n')) break; d++; }
+			CString t = body.Mid(pos, d - pos); t.TrimLeft(); t.TrimRight();
+			int eq = t.Find(_T('=')); if (eq >= 0 && t.Left(eq).CompareNoCase(_T("VIDEOGEN")) == 0) t = t.Mid(eq + 1);
+			CString u = t; u.MakeUpper();
+			int np = u.Find(_T("NUM"));
+			if (u.Left(3) == _T("HEX") && np > 3)
+			{
+				// A pattern echo carries a bank (BER); no output setting does.
+				if (u.Find(_T("BER")) < 0)
+				{
+					int cat = (int)_tcstol(u.Mid(3, np - 3), NULL, 16);
+					int val = _ttoi(u.Mid(np + 3));
+					switch (cat)
+					{
+					case 0x61: if (st.timing < 0) st.timing = val; break;
+					case 0x63: if (st.cs     < 0) st.cs     = val; break;
+					case 0x64: if (st.depth  < 0) st.depth  = val; break;
+					case 0x6F: if (st.hdr    < 0) st.hdr    = val; break;
+					case 0x70: if (st.gamut  < 0) st.gamut  = val; break;
+					}
+				}
+			}
+			else if (csText.IsEmpty() && (t.Find(_T("RGB")) >= 0 || t.Find(_T("YC")) >= 0)) csText = t;
+			else if (depthText.IsEmpty() && t.GetLength() >= 4 && t.Right(3).CompareNoCase(_T("Bit")) == 0) depthText = t;
+			else if (gamutText.IsEmpty() && (t.CompareNoCase(_T("Enable")) == 0 || t.CompareNoCase(_T("Disable")) == 0)) gamutText = t;
+			pos = d + 1;
+		}
+		// The labelled fields, mapped as MuriReadColorSpaceId and MuriStatusReadout map them.
+		if (st.cs < 0 && !csText.IsEmpty())
+		{
+			if (csText.Find(_T("RGB")) >= 0) st.cs = (csText.Find(_T("0-255")) >= 0) ? 0 : (csText.Find(_T("16-235")) >= 0) ? 1 : -1;
+			else if (csText.Find(_T("444")) >= 0) st.cs = 2;
+			else if (csText.Find(_T("422")) >= 0) st.cs = 3;
+			else if (csText.Find(_T("420")) >= 0) st.cs = 4;
+		}
+		if (st.depth < 0 && !depthText.IsEmpty())
+		{
+			int bits = _ttoi(depthText);
+			st.depth = (bits == 8) ? 0 : (bits == 10) ? 1 : (bits == 12) ? 2 : -1;
+		}
+		if (st.gamut < 0 && !gamutText.IsEmpty())
+			st.gamut = (gamutText.CompareNoCase(_T("Enable")) == 0) ? 1 : 0;
+	}
+	// A value outside the device's own enum is not a reading of it.
+	if (st.cs    > 4)  st.cs    = -1;
+	if (st.depth > 2)  st.depth = -1;
+	if (st.hdr   > 10) st.hdr   = -1;
+	if (st.gamut > 1)  st.gamut = -1;
+	return st.timing >= 0 || st.cs >= 0 || st.gamut >= 0 || st.hdr >= 0 || st.depth >= 0;
+}
+
+// A full black 0x008C patch on the transport MuriConnect selected: code 0 over a code-0 surround,
+// full size. The colour-space byte rewrites the device's cat-99 register (see MuriCmdRgbTriplet),
+// so it must be the one the device is in: the caller's when it knows it, else the device's own,
+// else the last one Apply recorded, else 0 - what an unconfigured session sends (see Init).
+// The depth byte follows the same order, ending at the page's level depth.
+static bool MuriSendBlackKnown(int csId, int depth)
+{
+	if (csId < 0 || depth < 0)
+	{
+		MuriDevState st;
+		MuriReadDevState(st);
+		if (csId < 0)  csId  = st.cs;
+		if (depth < 0) depth = st.depth;
+	}
+	if (csId < 0) csId = GetConfig()->GetProfileInt("GDIGenerator","MuriColorSpaceId",-1);
+	if (csId < 0 || csId > 4) csId = 0;
+	if (depth < 0 || depth > 2) depth = GetConfig()->GetUse10bitLevels() ? 1 : 0;
+	MuriSetTcpPort(GetConfig()->GetProfileInt("GDIGenerator","MuriTcpPort",23));	// network patches go over raw TCP
+	return MuriCmdRgbTriplet(0, 0, 0, 0, 0, 0, 100, depth, csId);
 }
 
 // Serial equivalent of MuriStatusReadout: query the individual read keywords and map
