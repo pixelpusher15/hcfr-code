@@ -4284,6 +4284,7 @@ BEGIN
     IDS_GEN_MURI_INIT_FAIL          "Der Murideo Seven-G konnte nicht erreicht werden.\nPrüfen Sie die IP-Adresse (Netzwerk) oder den COM-Anschluss (seriell) in den Generatoroptionen."
     IDS_GEN_SERIAL_LINK_LOST        "Der Generator antwortet nicht mehr über seinen seriellen Anschluss.\nSchließen Sie ihn wieder an und wählen Sie Wiederholen, oder Abbrechen, um die Sequenz zu beenden."
     IDS_GEN_NETWORK_LINK_LOST       "Der Generator antwortet nicht mehr über das Netzwerk.\nPrüfen Sie die Verbindung und wählen Sie Wiederholen, oder Abbrechen, um die Sequenz zu beenden."
+    IDS_GEN_PATCH_LOST_RUN_STOPPED  "Das Muster hat den %s nicht erreicht, daher wurden die kontinuierlichen Messungen gestoppt.\nPrüfen Sie die Verbindung zum Generator und starten Sie die Messungen erneut."
     IDS_GEN_CONFIGURED              "(konfiguriert)"
     IDS_GEN_DVDO_CONNECTED          "Verbunden mit dem DVDO AVLab TPG an %s (%s) - Testbilder über AA-Volltripel."
     IDS_GEN_DVDO_NO_RESPOND         "%s geöffnet, aber kein DVDO AVLab hat geantwortet - falscher Anschluss, oder Gerät aus?"

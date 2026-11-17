@@ -4523,6 +4523,7 @@ BEGIN
     IDS_GEN_MURI_INIT_FAIL          "Impossible de joindre le Murideo Seven-G.\nVérifiez l'adresse IP (réseau) ou le port COM (série) dans les options du générateur."
     IDS_GEN_SERIAL_LINK_LOST        "Le générateur ne répond plus sur son port série.\nReconnectez-le puis choisissez Réessayer, ou Annuler pour arrêter la séquence."
     IDS_GEN_NETWORK_LINK_LOST       "Le générateur ne répond plus sur le réseau.\nVérifiez la connexion puis choisissez Réessayer, ou Annuler pour arrêter la séquence."
+    IDS_GEN_PATCH_LOST_RUN_STOPPED  "La mire n'est pas parvenue au %s : les mesures en continu ont été arrêtées.\nVérifiez la connexion au générateur, puis relancez les mesures."
     IDS_GEN_CONFIGURED              "(configuré)"
     IDS_GEN_DVDO_CONNECTED          "Connecté au DVDO AVLab TPG sur %s (%s) - mires via triplet complet AA."
     IDS_GEN_DVDO_NO_RESPOND         "Port %s ouvert mais aucune réponse du DVDO AVLab - mauvais port, ou appareil éteint ?"

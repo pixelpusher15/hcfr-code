@@ -4297,6 +4297,7 @@ BEGIN
     IDS_GEN_MURI_INIT_FAIL          "Could not reach the Murideo Seven-G.\nCheck the IP address (network) or COM port (serial) in the generator options."
     IDS_GEN_SERIAL_LINK_LOST        "The generator stopped responding on its serial port.\nReconnect it and choose Retry, or Cancel to stop the sequence."
     IDS_GEN_NETWORK_LINK_LOST       "The generator stopped responding on the network.\nCheck the connection and choose Retry, or Cancel to stop the sequence."
+    IDS_GEN_PATCH_LOST_RUN_STOPPED  "The pattern did not reach the %s, so the continuous measures were stopped.\nCheck the connection to the generator, then start the measures again."
     IDS_GEN_CONFIGURED              "(configured)"
     IDS_GEN_DVDO_CONNECTED          "Connected to the DVDO AVLab TPG on %s (%s) - using AA full-triplet patches."
     IDS_GEN_DVDO_NO_RESPOND         "Opened %s but no DVDO AVLab replied - wrong port, or the device is off?"

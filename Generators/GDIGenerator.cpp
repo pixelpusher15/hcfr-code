@@ -2940,6 +2940,7 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 	if (maxTries > 10) maxTries = 10;
 	const DWORD dwRetryPause = 200;
 	bool sent = false;
+	int sentCode[3] = { -1, -1, -1 };	// R G B of the AA frame the device acknowledged
 
 	// Outer loop = the user's decision; inner loop = the automatic attempts. Retry runs the
 	// attempts again, so a device that is still disconnected simply brings the box straight
@@ -3018,6 +3019,8 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 			char val[96];
 			sprintf(val, "%d %d %d %d %d %d %d %d", r, g, b, win, bg, rng, m_dvdoColorSpace, rng);
 			sent = DvdoCommand("AA", std::vector<std::string>(1, val));
+			if (sent)
+				sentCode[0] = r, sentCode[1] = g, sentCode[2] = b;
 		}
 		if (sent) break;
 		// Off the UI thread there is no box: that is Cancel. Continuous measurement calls
@@ -3040,6 +3043,24 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 
 	if (!sent)
 		return FALSE;		// stop the sequence rather than measure a stale patch
+
+	{
+		// Wire-setup record (WireSetup.h), only now that the device acknowledged the AA
+		// frame (a failed send returned above, leaving DisplayRGBColor's invalidation in
+		// place). The codes are the R G B of that frame: always 8-bit, in HCFR's encoding
+		// (m_b16_235). The device's output range is the 6th AA field HCFR sent, but the
+		// device does not report it back - its ack carries no value - so it stays unknown.
+		CColorWireSetup wire;
+		wire.wireBits = 8;
+		wire.encodingRange = m_b16_235 ? WIRE_RANGE_LIMITED : WIRE_RANGE_FULL;
+		wire.generatorId = WIRE_GENERATOR_GDI;
+		wire.outputMode = DISPLAY_DVDO;
+		wire.wireCode[0] = sentCode[0];
+		wire.wireCode[1] = sentCode[1];
+		wire.wireCode[2] = sentCode[2];
+		const double stim[3] = { clr[0], clr[1], clr[2] };
+		WireDisplayRecord::Record ( stim, wire );
+	}
 
 	// Courtesy settle wait, mirroring the other external wires.
 	DWORD dwWait = GetConfig()->GetProfileInt("Debug","WaitAfterDisplayPattern",80);
@@ -3136,6 +3157,25 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 
 	if (!sent)
 		return FALSE;		// stop the sequence rather than measure a stale patch
+
+	{
+		// Wire-setup record (WireSetup.h), only now that the 0x008C frame was sent (a
+		// failed send returned above, leaving DisplayRGBColor's invalidation in place).
+		// As on the PGenerator path: the codes HCFR computed and handed to the device in
+		// this frame, at the depth the frame declared, in HCFR's encoding (m_b16_235).
+		// The device's own range rides in the color-space byte HCFR sent, but the device
+		// does not report it back for this patch, so it stays unknown.
+		CColorWireSetup wire;
+		wire.wireBits = bits;
+		wire.encodingRange = lim ? WIRE_RANGE_LIMITED : WIRE_RANGE_FULL;
+		wire.generatorId = WIRE_GENERATOR_GDI;
+		wire.outputMode = DISPLAY_MURIDEO;
+		wire.wireCode[0] = r;
+		wire.wireCode[1] = g;
+		wire.wireCode[2] = b;
+		const double stim[3] = { clr[0], clr[1], clr[2] };
+		WireDisplayRecord::Record ( stim, wire );
+	}
 	return TRUE;
 }
 
@@ -3277,10 +3317,16 @@ BOOL CGDIGenerator::DisplayRGBColor( const ColorRGBDisplay& clr , MeasureType nP
 			&& shown[0] == p_clr[0] && shown[1] == p_clr[1] && shown[2] == p_clr[2] )
 		{
 			int codes[3] = { -1, -1, -1 };
-			if ( wire.outputMode == DISPLAY_rPI && ( wire.wireBits == 8 || wire.wireBits == 10 ) )
+			if ( ( wire.outputMode == DISPLAY_rPI || wire.outputMode == DISPLAY_MURIDEO )
+				&& ( wire.wireBits == 8 || wire.wireBits == 10 ) )
 			{
 				for ( int c = 0; c < 3; c ++ )
 					codes[c] = PiPercentToCode ( clr[c], !!m_b16_235, wire.wireBits );
+			}
+			else if ( wire.outputMode == DISPLAY_DVDO && wire.wireBits == 8 )
+			{
+				for ( int c = 0; c < 3; c ++ )
+					codes[c] = ColorRGBDisplay::ConvertPercentToBYTE ( clr[c], m_b16_235 != 0 );
 			}
 			else if ( wire.outputMode == DISPLAY_GDI || wire.outputMode == DISPLAY_GDI_nBG )
 			{

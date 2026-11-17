@@ -125,6 +125,22 @@ static CRITICAL_SECTION g_CritSec;
 static CPtrList			g_MeasuredColorList;
 volatile BOOL			g_bInsideBkgndRefresh = FALSE;
 
+// The generator a patch that never arrived was meant for, named in the stop reason
+// below: a wired output by its device, as its Retry/Cancel caption names it; any other
+// generator by its own name.
+static CString BkgndGeneratorName ( CGenerator * pGenerator )
+{
+	if ( pGenerator -> IsKindOf ( RUNTIME_CLASS ( CGDIGenerator ) ) )
+	{
+		int nMode = ( (CGDIGenerator *) pGenerator ) -> m_nDisplayMode;
+		if ( nMode == DISPLAY_DVDO )
+			return _T("DVDO AVLab TPG");
+		if ( nMode == DISPLAY_MURIDEO )
+			return _T("Murideo Seven-G");
+	}
+	return pGenerator -> GetName ();
+}
+
 // The background thread function
 static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 {
@@ -252,6 +268,17 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 				    CString * pReason = new CString;
 				    pReason -> LoadString ( IDS_ANERROROCCURED );
 				    *pReason += pSensor -> GetErrorString ();
+				    CWnd * pMain = AfxGetMainWnd ();
+				    if ( pMain == NULL || ! pMain -> PostMessage ( WM_BKGND_MEASURE_STOPPED, 0, (LPARAM) pReason ) )
+					    delete pReason;
+			    }
+			    else if ( ! bPatternOk )
+			    {
+				    // The patch never reached the generator: its link was lost, and on this
+				    // worker the generator took that as Cancel without a box. A run never stops
+				    // without the user learning why, so this reason is shown once, the same way.
+				    CString * pReason = new CString;
+				    pReason -> Format ( IDS_GEN_PATCH_LOST_RUN_STOPPED, (LPCTSTR) BkgndGeneratorName ( pGenerator ) );
 				    CWnd * pMain = AfxGetMainWnd ();
 				    if ( pMain == NULL || ! pMain -> PostMessage ( WM_BKGND_MEASURE_STOPPED, 0, (LPARAM) pReason ) )
 					    delete pReason;

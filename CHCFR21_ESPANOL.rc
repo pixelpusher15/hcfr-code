@@ -4415,6 +4415,7 @@ BEGIN
     IDS_GEN_MURI_INIT_FAIL          "No se pudo alcanzar el Murideo Seven-G.\nCompruebe la dirección IP (red) o el puerto COM (serie) en las opciones del generador."
     IDS_GEN_SERIAL_LINK_LOST        "El generador ha dejado de responder en su puerto serie.\nVuelva a conectarlo y elija Reintentar, o Cancelar para detener la secuencia."
     IDS_GEN_NETWORK_LINK_LOST       "El generador ha dejado de responder en la red.\nCompruebe la conexión y elija Reintentar, o Cancelar para detener la secuencia."
+    IDS_GEN_PATCH_LOST_RUN_STOPPED  "El patrón no llegó al %s, por lo que se detuvieron las medidas continuas.\nCompruebe la conexión con el generador y vuelva a iniciar las medidas."
     IDS_GEN_CONFIGURED              "(configurado)"
     IDS_GEN_DVDO_CONNECTED          "Conectado al DVDO AVLab TPG en %s (%s) - usando parches AA de triplete completo."
     IDS_GEN_DVDO_NO_RESPOND         "Se abrió %s pero ningún DVDO AVLab respondió - ¿puerto incorrecto o dispositivo apagado?"
