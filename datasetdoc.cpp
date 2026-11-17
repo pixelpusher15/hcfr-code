@@ -1028,8 +1028,47 @@ void CDataSetDoc::Serialize(CArchive& ar)
 		ar << header2;
 		ar << version;
 
-		// save Measure
-		m_measure.Serialize(ar);
+		// save Measure. A main view showing the black override holds the
+		// document's own black (CMainView::InitGrid swaps it out): the file gets
+		// that black, as unticking the override would leave it, and the open
+		// document goes back to showing the override. Newest view first: a view
+		// opened while another swapped captured the override value itself.
+		CArray<CMainView*, CMainView*> swapViews;
+		POSITION posView = GetFirstViewPosition();
+		while (posView)
+		{
+			CView * v = GetNextView(posView);
+			if (v && v->IsKindOf(RUNTIME_CLASS(CMainView)) && ((CMainView*)v)->HoldsSwappedBlack())
+				swapViews.Add((CMainView*)v);
+		}
+		CColor shownGray0 = noDataColor, shownNearBlack0 = noDataColor, shownOnOffBlack = noDataColor;
+		if (swapViews.GetSize() > 0)
+		{
+			shownGray0 = m_measure.GetGray(0);
+			shownNearBlack0 = m_measure.GetNearBlack(0);
+			shownOnOffBlack = m_measure.GetOnOffBlack();
+			for (INT_PTR i = swapViews.GetSize() - 1; i >= 0; i--)
+				swapViews[i]->PutBackSwappedBlack();
+		}
+		auto showOverrideAgain = [&]()
+		{
+			if (swapViews.GetSize() > 0)
+			{
+				m_measure.SetGray(0, shownGray0);
+				m_measure.SetNearBlack(0, shownNearBlack0);
+				m_measure.SetOnOffBlack(shownOnOffBlack);
+			}
+		};
+		try
+		{
+			m_measure.Serialize(ar);
+		}
+		catch (...)
+		{
+			showOverrideAgain();
+			throw;
+		}
+		showOverrideAgain();
 
 		// save Sensor & Generator
 		ar << m_pSensor;

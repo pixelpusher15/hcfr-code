@@ -7758,6 +7758,98 @@ static void RunT54()
     T54Negative::CheckMargin();
 }
 
+//////////////////////////////////////////////////////////////////////////
+// T58: the black-override swap's restore (libHCFR/BlackOverrideRule.h).
+// Pure assertions, no golden file. CMainView::InitGrid swaps the override
+// into the 0% slots and keeps the document's black; unticking (and a save)
+// writes it back. A capture taken before its series held data must not be
+// written back over a series a sweep has filled since (it blanked the 0% slot
+// and collapsed the gray-scale analysis); every other capture comes back.
+//   (a) CapturePredatesData: all four input pairs, exact;
+//   (b) RestoresCapture: all four input pairs, exact;
+//   (c) the composed scenarios, each named after what the user did.
+//////////////////////////////////////////////////////////////////////////
+#include "../../libHCFR/BlackOverrideRule.h"
+
+namespace T58Swap
+{
+    // (captured slot holds a reading, series held a reading at capture, series holds one now)
+    static bool Restores(bool capturedHolds, bool seriesThen, bool seriesNow)
+    {
+        return BlackOverrideRule::RestoresCapture(
+            BlackOverrideRule::CapturePredatesData(capturedHolds, seriesThen), seriesNow);
+    }
+
+    static void CheckPredates()
+    {
+        struct { bool captured, series, expect; } rows[] = {
+            { false, false, true  },    // empty slot, empty series: before any data
+            { false, true,  false },    // empty 0% of a measured series (a failed black)
+            { true,  false, false },    // a black reading, nothing else measured
+            { true,  true,  false },    // a measured series with its black
+        };
+        for (auto & r : rows)
+        {
+            bool got = BlackOverrideRule::CapturePredatesData(r.captured, r.series);
+            if (got != r.expect)
+                Fail("T58(a) CapturePredatesData(captured=%d, series=%d) = %d, expected %d",
+                     r.captured, r.series, got, r.expect);
+        }
+    }
+
+    static void CheckRestores()
+    {
+        struct { bool predates, seriesNow, expect; } rows[] = {
+            { false, false, true  },
+            { false, true,  true  },
+            { true,  false, true  },    // still nothing measured: the empty slot comes back
+            { true,  true,  false },    // a sweep filled the series since: keep the slot
+        };
+        for (auto & r : rows)
+        {
+            bool got = BlackOverrideRule::RestoresCapture(r.predates, r.seriesNow);
+            if (got != r.expect)
+                Fail("T58(b) RestoresCapture(predates=%d, seriesNow=%d) = %d, expected %d",
+                     r.predates, r.seriesNow, got, r.expect);
+        }
+    }
+
+    static void CheckScenarios()
+    {
+        struct { const char * what; bool captured, then, now, expect; } rows[] = {
+            // P1b: new document, override on, gray scale swept, override unticked:
+            // the empty capture must not blank the swept series' 0%.
+            { "sweep under the override, then untick", false, false, true,  false },
+            // P2b/P4a: a measured black, override ticked, saved: the reading goes back.
+            { "measured black, tick, save",            true,  true,  true,  true  },
+            // the same after the series was deleted while swapped
+            { "measured black, series deleted",        true,  true,  false, true  },
+            // override ticked and unticked on a document nothing was measured in
+            { "empty document, tick, untick",          false, false, false, true  },
+            // a series whose black failed (empty 0%) stays empty
+            { "failed black, tick, untick",            false, true,  true,  true  },
+            // a near-black series never swept while the gray scale was (P1a's nb[0])
+            { "unswept series, other series swept",    false, false, false, true  },
+            // a second window opened under the swap captured the override value
+            { "second view's capture",                 true,  true,  true,  true  },
+        };
+        for (auto & r : rows)
+        {
+            bool got = Restores(r.captured, r.then, r.now);
+            if (got != r.expect)
+                Fail("T58(c) %s: restores=%d, expected %d", r.what, got, r.expect);
+        }
+    }
+}
+
+static void RunT58()
+{
+    printf("T58 black-override swap restore...\n");
+    T58Swap::CheckPredates();
+    T58Swap::CheckRestores();
+    T58Swap::CheckScenarios();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -7805,6 +7897,7 @@ int main(int argc, char* argv[])
     RunT52();
     RunT53();
     RunT54();
+    RunT58();
 
     if (g_failures)
     {
