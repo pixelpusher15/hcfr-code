@@ -27,6 +27,8 @@
 #include "DocTempl.h"
 #include "Color3DView.h"
 #include "MainView.h"
+#include "GamutName.h"		// the chips label their gamut like the CIE chart does
+#include "GamutVolume.h"
 #include "GdiPlusAA.h"
 #include "math.h"
 #include <stdio.h>
@@ -57,6 +59,34 @@ static std::wstring LoadResWide( UINT nID )
 	if ( n )
 		MultiByteToWideChar( CP_ACP, 0, (LPCSTR)s, s.GetLength(), &w[0], n );
 	return w;
+}
+
+// Text for one of the gamut-volume chips. The format string lives in the
+// satellite resource DLL, so it can come back empty (a language DLL that was not
+// rebuilt -- building only ColorHCFR leaves them stale) or with a conversion a
+// translator mistyped. "%.1f" is the part that is never translated, so require
+// it and otherwise fall back to the bare percentage: an unlabelled number beats
+// an empty pill, and beats handing swprintf a spec that does not match the
+// double it is passed. Length is the other thing a translation can get wrong:
+// _TRUNCATE cuts an over-long label at the buffer instead of leaving it
+// indeterminate the way a failed swprintf would.
+static void ProfilePctChip( wchar_t (&out)[64], UINT nID, double pct )
+{
+	// Safe means EXACTLY one "%.1f" and no other conversion: a translation that
+	// kept the float but added a stray "%s" would otherwise reach swprintf and
+	// have it read a second argument that was never passed.
+	std::wstring fmt = LoadResWide( nID );
+	bool ok = false;
+	for ( size_t i = 0; i < fmt.size(); i++ )
+	{
+		if ( fmt[i] != L'%' )
+			continue;
+		if ( fmt.compare( i, 2, L"%%" ) == 0 )          { i++; continue; }
+		if ( fmt.compare( i, 4, L"%.1f" ) == 0 && !ok ) { ok = true; i += 3; continue; }
+		ok = false;
+		break;
+	}
+	_snwprintf_s( out, 64, _TRUNCATE, ok ? fmt.c_str() : L"%.1f%%", pct );
 }
 
 static const double k2PI = 6.283185307179586;
@@ -185,6 +215,7 @@ C3DColorView::C3DColorView()
 	, m_freeInScene(0)
 	, m_profileInScene(0)
 	, m_lumTop(1.0)
+	, m_volValid(false), m_volDirty(true), m_volPct(0.0), m_covPct(0.0), m_volKeyValid(false)
 	, m_baseValid(false)
 	, m_gamutValid(false)
 	, m_texDC(NULL), m_texBmp(NULL), m_texOld(NULL), m_texBits(NULL), m_texW(0), m_texH(0), m_texSig(-1)
@@ -376,7 +407,7 @@ static double SceneDiffuseWhiteY( CMeasure * pM )
 	// the same diffuse white or bright patches/targets fly out of scale.
 	if ( GetConfig()->m_GammaOffsetType == 5 )
 	{
-		double tm = TmDiffuseWhiteNits( pM->GetOnOffWhite(), pM->GetOnOffBlack() );
+		double tm = TmDiffuseWhiteNits( pM->GetGrayScaleWhite(), pM->GetGrayScaleBlack() );
 		// never fall through to the SDR path here: its measured-white fallbacks
 		// return PEAK white in PQ (up to ~100x diffuse), which would collapse
 		// the whole scene toward the floor. Same fallback GetHDRRefScale uses.
@@ -427,9 +458,9 @@ static double GridGrayWhiteY( CMeasure * pM )
 	// Deliberately the same test and fallback as UpdateGrid, down to accepting a
 	// valid-but-zero white: GetDeltaE substitutes 120 for YWhite <= 0 on both
 	// sides, so matching exactly keeps the two paths bit-identical.
-	int n = pM->GetGrayScaleSize();
-	if ( n > 0 && pM->GetGray( n - 1 ).isValid() )
-		return pM->GetGray( n - 1 )[1];
+	const CColor w = pM->GetGrayScaleWhite();
+	if ( w.isValid() )
+		return w[1];
 	return GetConfig()->m_TargetMaxL;      // same fallback as UpdateGrid
 }
 
@@ -438,18 +469,17 @@ static double GridGrayWhiteY( CMeasure * pM )
 // (MainView.cpp cases 0/3/4) exactly, including the mode-5 nits conversion and
 // the mode-1 black compensation. blackRef is the black the grid feeds
 // getL_EOTF: near-black passes its own first patch, the others the on/off black.
-static double GridGrayTargetRatio( CMeasure * pM, double x, const CColor & blackRef,
+// valx is the patch's gray level, 0..1: CMeasure::GetGrayReadingProp, its
+// stamped drive or else its slot on the current grid, as the grid uses.
+static double GridGrayTargetRatio( CMeasure * pM, double valx, const CColor & blackRef,
 								   double gsWhiteY, double gammaOffset )
 {
 	int mode = GetConfig()->m_GammaOffsetType;
 	if ( GetConfig()->m_colorStandard == sRGB )
 		mode = 99;
-	double valx = GrayLevelToGrayProp( x, GetConfig()->m_bUseRoundDown != FALSE,
-									   GetConfig()->GetUse10bitLevels() != FALSE,
-									   GetConfig()->GetRGB16_235() != FALSE );
 	if ( mode >= 4 )
 	{
-		double L = getL_EOTF( valx, pM->GetOnOffWhite(), blackRef,
+		double L = getL_EOTF( valx, pM->GetGrayScaleWhite(), blackRef,
 							  GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,
 							  GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL,
 							  GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL, GetConfig()->m_useToneMap,
@@ -474,6 +504,7 @@ void C3DColorView::BuildScene()
 	m_points.clear();
 	m_gamutValid = false;
 	m_baseValid  = false;
+	m_volDirty   = true;  // reference, white or cube may all have moved
 	m_selected   = -1;    // indices are invalid after a rebuild
 
 	CDataSetDoc * pDoc = GetDocument();
@@ -515,9 +546,6 @@ void C3DColorView::BuildScene()
 	ColorxyY wChroma( active.GetWhite() );
 	const int  gammaMode = GetConfig()->m_GammaOffsetType;
 	const int  dEgray    = GetConfig()->m_dE_gray;
-	const bool bRound    = GetConfig()->m_bUseRoundDown != FALSE;
-	const bool b10bit    = GetConfig()->GetUse10bitLevels() != FALSE;
-	const bool bLimRange = GetConfig()->GetRGB16_235() != FALSE;
 
 	// Grayscale (+ near-black/white): reference chromaticity is the target white;
 	// the reference luminance and the YWhite passed to GetDeltaE follow the
@@ -547,8 +575,8 @@ void C3DColorView::BuildScene()
 		if ( dEgray == 1 )
 		{
 			// theoretical luminance from the target gamma / EOTF curve
-			double gridRatio = GridGrayTargetRatio( pMeasure, pMeasure->GetGrayPercent( i, bRound, b10bit, bLimRange ),
-													pMeasure->GetOnOffBlack(), gsWhiteY, gammaOffset );
+			double gridRatio = GridGrayTargetRatio( pMeasure, pMeasure->GetGrayReadingProp( GRAY_SERIES_GRAYSCALE, i ),
+													pMeasure->GetGrayScaleBlack(), gsWhiteY, gammaOffset );
 			deRatio   = gridRatio;
 			markRatio = gridRatio * markPerGrid;
 		}
@@ -566,7 +594,7 @@ void C3DColorView::BuildScene()
 		markT.SetxyYValue( wChroma[0], wChroma[1], markRatio );
 		wchar_t lbl[48];
 		std::wstring grayFmt = LoadResWide( IDS_3D_GRAYPCT );
-		swprintf( lbl, 48, grayFmt.c_str(), (int)( pMeasure->GetGrayPercent( i, bRound, b10bit, bLimRange ) + 0.5 ) );
+		swprintf( lbl, 48, grayFmt.c_str(), (int)( pMeasure->GetGrayReadingLevel( GRAY_SERIES_GRAYSCALE, i ) + 0.5 ) );
 		AppendMeasure( c, whiteY, ref, dET, markT, true, ywForDE, lbl, SRC_GRAY, i );
 	}
 
@@ -587,13 +615,13 @@ void C3DColorView::BuildScene()
 			double deRatio   = gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1];
 			if ( dEgray == 1 )
 			{
-				// Same stimulus level and black reference the grid feeds the
-				// curve: near-black steps by 2 in PQ and anchors getL_EOTF on
-				// its own first patch; near-white counts back from the clip col.
-				double x = nb ? ArrayIndexToGrayLevel( (int)pMeasure->m_NearWhiteClipCol - n + i, 101, bRound, b10bit, bLimRange )
-							  : ArrayIndexToGrayLevel( i * ( gammaMode == 5 ? 2 : 1 ), 101, bRound, b10bit, bLimRange );
-				CColor blackRef = nb ? pMeasure->GetOnOffBlack() : pMeasure->GetNearBlack( 0 );
-				double gridRatio = GridGrayTargetRatio( pMeasure, x, blackRef, gsWhiteY, gammaOffset );
+				// Same level and black reference the grid feeds the curve: the
+				// reading's stamped drive, else its slot (near-black steps by 2 in
+				// PQ, near-white counts back from the clip col); near-black
+				// anchors getL_EOTF on its own first patch.
+				double valx = pMeasure->GetGrayReadingProp( nb ? GRAY_SERIES_NEAR_WHITE : GRAY_SERIES_NEAR_BLACK, i );
+				CColor blackRef = nb ? pMeasure->GetGrayScaleBlack() : pMeasure->GetNearBlack( 0 );
+				double gridRatio = GridGrayTargetRatio( pMeasure, valx, blackRef, gsWhiteY, gammaOffset );
 				deRatio   = gridRatio;
 				markRatio = gridRatio * markPerGrid;
 			}
@@ -1748,6 +1776,69 @@ void C3DColorView::Render(const CRect& rc)
 			swprintf( buf + len, 160 - len, L"   \x2022   %d hidden", nHidden );
 		}
 		g.DrawString( buf, -1, &fontSmall, Gdiplus::PointF( 8.0f, 6.0f ), &dim );
+
+		// Gamut volume / coverage chips, top right: the volumetric counterpart of
+		// the CIE chart's coverage row, drawn with the same pills. Only a display-
+		// profile cube can produce them; without one the row is simply absent,
+		// exactly as the CIE chart hides its percentages when the primaries are
+		// missing. The lazy recompute lands here (not in Render's hot path) so a
+		// rotation never pays for it.
+		//
+		// The cube is the only source for these numbers, so they follow its layer:
+		// with the profile points hidden the cloud and the point count above drop
+		// them, and a percentage still sitting up here would read as if it
+		// described whatever sweep is left on screen. The recompute waits for the
+		// layer too -- m_volDirty stays up meanwhile, so showing it again pays once.
+		if ( m_volDirty && m_showProfilePts )
+			UpdateGamutVolume();
+		if ( m_volValid && m_showProfilePts )
+		{
+			WCHAR gamutName[64], covBuf[64], volBuf[64];
+			// The scene reference, not GetColorReference(): the chips score the cube
+			// against the solid actually drawn, and must be labelled with it. At
+			// HDTVa/b that is Rec.709 while the CIE chart says "75% HDTV Rec709" --
+			// deliberate, not drift. Those standards' "primaries" are 75%-saturation
+			// patch targets inside a plain Rec.709 display, so the CIE chips there
+			// report how well the patches hit their targets, whereas a gamut VOLUME
+			// against a patch triangle would be meaningless; the display's gamut is
+			// Rec.709, and an ideal one reads 100 / 100 here.
+			GamutShortName( SceneGamutReference(), gamutName, 64 );
+			ProfilePctChip( covBuf, IDS_3DVIEW_GAMUTCOV, m_covPct );
+			ProfilePctChip( volBuf, IDS_3DVIEW_GAMUTVOL, m_volPct );
+
+			// UnitPixel, so unlike the UnitPoint overlay text it does not follow the
+			// display DPI on its own -- scale it, or on a 200% display the pills
+			// stay 12px beside a header at twice the size, and `avail` below then
+			// compares a scaled header width against unscaled chips.
+			Gdiplus::Font  chipFont( L"Segoe UI", (Gdiplus::REAL)GetConfig()->Scale( 12 ),
+									 Gdiplus::FontStyleRegular, Gdiplus::UnitPixel );
+			Gdiplus::Color cFill( 255, 42, 42, 42 ), cBorder( 255, 72, 72, 72 ), cText( 255, 215, 215, 215 );
+
+			// Visual order is [gamut] [coverage] [volume]; when the row will not
+			// fit beside the header text, volume drops first, then coverage --
+			// coverage is the headline, and the gamut name keeps it unambiguous.
+			const WCHAR * ordered[3] = { gamutName, covBuf, volBuf };
+			int nChips = 3;
+			const Gdiplus::REAL pad = (Gdiplus::REAL)GetConfig()->Scale( 8 ),
+								gap = (Gdiplus::REAL)GetConfig()->Scale( 6 );
+			Gdiplus::RectF hdrBounds;
+			g.MeasureString( buf, -1, &fontSmall, Gdiplus::PointF( 0.0f, 0.0f ), &hdrBounds );
+			Gdiplus::REAL avail = (Gdiplus::REAL)w - 2.0f * pad - hdrBounds.Width - 2.0f * gap;
+			Gdiplus::REAL rowW = 0.0f;   // not "total": Render already has one
+			for ( int ci = 0; ci < nChips; ci++ )
+				rowW += MeasureStatChip( g, chipFont, ordered[ci] ).Width + ( ci ? gap : 0.0f );
+			while ( nChips > 1 && rowW > avail )
+				rowW -= MeasureStatChip( g, chipFont, ordered[--nChips] ).Width + gap;
+
+			if ( rowW <= avail )
+			{
+				Gdiplus::REAL bottom = pad + MeasureStatChip( g, chipFont, gamutName ).Height;
+				Gdiplus::REAL xRight = (Gdiplus::REAL)w - pad;
+				for ( int ci = nChips - 1; ci >= 0; ci-- )
+					xRight -= DrawStatChip( g, chipFont, ordered[ci], xRight, bottom, cFill, cBorder, cText ) + gap;
+			}
+		}
+
 		g.DrawString( L"drag: rotate    shift+drag: pan    wheel: zoom    click: inspect    right-click: options",
 					  -1, &fontSmall, Gdiplus::PointF( 8.0f, (float)( h - 20 ) ), &dim );
 
@@ -1975,6 +2066,92 @@ void C3DColorView::AppendNewProfileMeasures()
 		lastAppended = i + 1;	// keep m_profileInScene-1 pointing at a valid patch
 	}
 	m_profileInScene = lastAppended;
+	m_volDirty = true;		// the cube grew: the chips owe a fresh number
+}
+
+// Volume and coverage of the measured display gamut against the reference one,
+// both as a percentage of the reference solid (see libHCFR/GamutVolume.h).
+//
+// The source is the display-profile cube and nothing else: an N^3 grid is what
+// makes the solid's interior known, and hence the intersection computable. The
+// primaries/secondaries alone would give only 8 corners (~10% low on volume,
+// and no way to tell inside from outside), and ramps plus saturation sweeps
+// would assume the display is additive - the very thing this measures.
+//
+// The white anchor lives inside the cube (its own 100% corner), not in the
+// scene's m_lumTop: coverage is a media-relative question about gamut shape, and
+// in HDR-10 normalising by the TargetMaxL peak would report a display's
+// luminance headroom as missing gamut. The chips can therefore read near 100%
+// while the cloud visibly sits low inside a peak-normalised solid -- different
+// questions, both answered elsewhere on screen.
+void C3DColorView::UpdateGamutVolume()
+{
+	m_volDirty = false;
+
+	CDataSetDoc * pDoc = GetDocument();
+	CMeasure * pMeasure = ( pDoc != NULL ) ? pDoc->GetMeasure() : NULL;
+	if ( pMeasure == NULL || !pMeasure->HasProfileMeasures() )
+		{ m_volValid = m_volKeyValid = false; return; }
+
+	// Nothing in the array is final while the capture runs. The cube's white
+	// corner is its last node but not the sequence's: with gray extras on it
+	// turns valid while the extras are still being measured, and the closing
+	// drift anchor then rescales the last segment -- a number computed in
+	// between would appear, then silently change. Every appended patch also
+	// re-dirties this, so the early out is what keeps a live sweep from walking
+	// the whole cube on each repaint.
+	if ( pMeasure->m_bProfileCapturing )
+		{ m_volValid = m_volKeyValid = false; return; }
+
+	int cubeN = pMeasure->GetProfileCubeSize();
+	if ( cubeN < 2 )
+		{ m_volValid = m_volKeyValid = false; return; }
+	int need = cubeN * cubeN * cubeN;
+	if ( pMeasure->GetProfileMeasureSize() < need )
+		{ m_volValid = m_volKeyValid = false; return; }	// stopped before the cube closed
+
+	CColorReference ref = SceneGamutReference();
+
+	// BuildScene re-dirties this, and a rebuild follows essentially any document
+	// hint -- so with a cube already in the document a grayscale or saturation
+	// sweep would re-walk 9261 vertices and ~150k tetrahedra on every repaint
+	// (31 ms at 21^3 in a Debug build) only to arrive at the same number. So key
+	// the recompute on what it actually depends on: the cube's contents, through
+	// CMeasure's generation counter (bumped on every write to the array, so a
+	// hole cached as "no number" is keyed honestly too), and the reference's
+	// white and primaries, which are all ComputeGamutVolume reads from it.
+	double key[VOL_KEY_LEN];
+	ColorXYZ rw = ref.GetWhite(), rr = ref.GetRed(), rg = ref.GetGreen(), rb = ref.GetBlue();
+	int k = 0;
+	key[k++] = pMeasure->GetProfileGeneration();
+	for ( int i = 0; i < 3; i++ )
+	{
+		key[k++] = rw[i];  key[k++] = rr[i];  key[k++] = rg[i];  key[k++] = rb[i];
+	}
+	ASSERT( k == VOL_KEY_LEN );		// every slot written, or the tail is garbage
+	if ( m_volKeyValid && memcmp( key, m_volKey, sizeof( key ) ) == 0 )
+		return;		// same cube, same reference: the number already on screen stands
+	memcpy( m_volKey, key, sizeof( key ) );
+	m_volKeyValid = true;
+	m_volValid    = false;
+
+	std::vector<ColorXYZ> cube( (size_t)need );
+	for ( int i = 0; i < need; i++ )
+	{
+		CColor c = pMeasure->GetProfileMeasure( i );
+		if ( !c.isValid() )
+			return;	// a hole anywhere (a stopped capture, an ignored sensor error)
+					// leaves the solid undefined: show no number
+		cube[i] = c.GetXYZValue();
+	}
+
+	GamutVolumeResult r = ComputeGamutVolume( &cube[0], cubeN, ref );
+	if ( !r.valid )
+		return;
+
+	m_volPct   = r.VolumeRatio();
+	m_covPct   = r.Coverage();
+	m_volValid = true;
 }
 
 // Consume a pending selection request: find the point matching the requested
@@ -2316,13 +2493,8 @@ void C3DColorView::PushSelectionToMainView(const ScenePoint & S)
 		if ( pView != NULL && pView->IsKindOf( RUNTIME_CLASS( CMainView ) ) )
 		{
 			CMainView * pMain = (CMainView *)pView;
-			if ( mode >= 0 && pMain->m_comboMode.GetSafeHwnd() != NULL
-			  && pMain->m_comboMode.GetCurSel() != mode )
-			{
-				// switch the data grid to the right measurement category
-				pMain->m_comboMode.SetCurSel( mode );
-				pMain->OnSelchangeComboMode();
-			}
+			if ( mode >= 0 )
+				pMain->SelectDisplayMode( mode );	// switch the data grid to the right measurement category
 			if ( S.srcType == SRC_PROFILE )
 			{
 				// mode 13 has no grid to feed the reference comparator; drive the

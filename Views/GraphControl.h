@@ -84,6 +84,7 @@ public:
 	BOOL m_doShowAllToolTips;
 
 	BOOL m_doShowXLabel;
+	BOOL m_doShowXUnitOnAxis;	// set by the owner, not a user setting - see DrawAxis
 	BOOL m_doShowYLabel;
 	BOOL m_doShowDataLabel;
 
@@ -96,8 +97,18 @@ public:
 	double m_minYGrow,m_maxYGrow;
 	double m_minX,m_minY;
 	double m_maxX,m_maxY;
+	// Set when the user changes Y in this view (zoom, shift, preset,
+	// Values..., Auto-adjust). Session state, never saved: a view that
+	// refits Y on a data update skips that fit while it is set.
+	BOOL m_bUserYScale;
 	LPSTR  m_pXUnitStr;
 	LPSTR  m_pYUnitStr;
+
+	// Optional text block drawn at the top right of the plot, on screen only
+	// (not in saved images). One string per row; cells separated by '\t' line
+	// up in columns, cells that start with a digit, sign or point right-aligned.
+	// Empty = nothing drawn. The owner fills it and invalidates.
+	CStringArray m_overlayRows;
 	
 protected:
 	CPPToolTip m_tooltip;
@@ -130,7 +141,7 @@ public:
 	void WriteSettings(LPSTR aConfigStr);
 	void ChangeSettings();
 	void CopySettings(const CGraphControl & aGraphControl, int aGraphSrcIndex, int aGraphDestIndex);
-	void ChangeScale();
+	BOOL ChangeScale();
 
 	void SetScale(double minX, double maxX, double minY, double maxY);
 	void SetXScale(double minX, double maxX) { SetScale(minX,maxX,m_minY,m_maxY); }
@@ -157,6 +168,7 @@ protected:
 	int GetGraphX(double x,CRect rect);
 	int GetGraphY(double y,CRect rect);
 	CPoint GetGraphPoint(CDecimalPoint aPoint,CRect rect);
+	void DrawOverlayRows(CDC *pDC, CRect rect, int top, BOOL bWhiteBkgnd);
 
 	// Generated message map functions
 protected:

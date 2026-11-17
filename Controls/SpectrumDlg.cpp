@@ -79,6 +79,7 @@ int CSpectrumWnd::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	m_graphCtrl.SetScale(350,800,0,10);
 	m_graphCtrl.m_doGradientBg = FALSE;
 	m_graphCtrl.m_doSpectrumBg = TRUE;
+	m_graphCtrl.m_doShowXUnitOnAxis = TRUE;		// wavelengths: "420" alone says nothing
 	m_graphCtrl.m_doShowAllPoints = TRUE;
 	m_graphCtrl.m_doShowAllToolTips = TRUE;
 	m_graphCtrl.m_doUserScales = FALSE;

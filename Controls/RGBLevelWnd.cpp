@@ -69,6 +69,7 @@ CRGBLevelWnd::CRGBLevelWnd()
 	m_pRefColor = NULL;
 	m_pDocument = NULL;
 	m_bLumaMode = FALSE;
+	m_bHasReference = TRUE;
 	m_redValue = 0.;
 	m_greenValue = 0.;
 	m_blueValue = 0.;
@@ -83,11 +84,22 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 {
     
 	BOOL bWasLumaMode = m_bLumaMode;
+	// aReference is a member and the ladder below does not claim every column, so
+	// a column it misses used to be read against whatever the PREVIOUS selection
+	// left behind. Track whether this call actually found a target instead of
+	// letting a stale one stand in for one.
+	m_bHasReference = TRUE;
     double cx,cy,cz,cxref,cyref,czref;
 	CColorReference cRef= (GetColorReference());
 	int satsize=m_pDocument->GetMeasure()->GetSaturationSize();
 	BOOL DVD = (GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual);
 
+	// Black (0%) of the grayscale and near-black pages; set once m_bLumaMode is
+	// final, below.
+	BOOL bBlackCol = FALSE;
+	// Column 1 of those pages that is NOT their 0% reading: a free measure
+	// arriving with the stale page label. It keeps the gates it always had.
+	BOOL bStaleFirstCol = FALSE;
 	if ( m_pRefColor)
 	{
 		if (minCol > 0)
@@ -132,6 +144,26 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			{
 				m_bLumaMode = TRUE;
 				aReference = m_pDocument->GetMeasure()->GetRefSat(5, double(minCol-1) / double(nSize -1), (GetConfig()->m_colorStandard==HDTVa||GetConfig()->m_colorStandard==HDTVb));
+			}
+			// Black, the last column of Primaries and Secondaries. No branch used to
+			// claim it and there is no final else, so it fell through holding the
+			// previous column's target: pick Magenta then Black and the pane read
+			// 100% green, Cyan then Black 100% red - always the complement of the
+			// last selection, because where the stale target's channel is zero the
+			// level maths correctly answers "on target". The maths is not the bug;
+			// the target is.
+			//
+			// The measures grid already settled what this column's target is - case
+			// 1, j == 7 sets refColor = noDataColor and prints no dE, since black's
+			// target on a page that judges every other column with luminance
+			// included is simply no light. Match it, and say so rather than
+			// printing a 0.0 that looks like a reading. The xyY readout beside the
+			// bars is computed from the measurement and is unaffected.
+			else if ( m_displayMode == 1 && minCol == 8 )
+			{
+				m_bLumaMode = TRUE;
+				m_bHasReference = FALSE;
+				aReference = noDataColor;
 			}
 			else if ( m_displayMode == 1 && (minCol == 1 || m_pRefColor->GetDeltaxy ( m_pDocument->GetMeasure()->GetRefPrimary(0), cRef ) < 0.05))
 			{
@@ -209,6 +241,38 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			}
 		} 
 
+		// Neither ladder claims every column, and a call that claims none leaves
+		// aReference holding the previous selection's. The reference-relative
+		// branch below - the only one that reads it - then skips silently, so the
+		// level members keep the last selection's numbers while the pane still
+		// draws them as data. That is how the black column's own case escaped: pick
+		// Black in Primaries (aReference = noDataColor, levels zeroed), then let a
+		// measuring refresh arrive on the minCol <= 0 path with detect-primaries
+		// off - all seven of its branches are gated on it and there is no final
+		// else - and the pane paints three enabled bars reading 0.0%, the
+		// reading-shaped zero this column exists to avoid. Placed after the ladders
+		// so m_bLumaMode is final; the HDR rescale below runs only for display
+		// modes whose ladder always claims a target. The other branch computes its
+		// levels without aReference, so it is not gated on one.
+		if ( m_bLumaMode && !aReference.isValid() )
+			m_bHasReference = FALSE;
+		bBlackCol = ( minCol == 1 && !m_bLumaMode && ( m_displayMode == 0 || m_displayMode == 3 ) );
+		if ( bBlackCol )
+		{
+			// Free measures arrive with minCol 1 and the grayscale page's stale
+			// m_displayMode (see below), so the black rules - a target from the
+			// transfer function's 0% - only apply to the page's own 0% reading.
+			// m_pRefColor is a copy of it (CMainView::SetSelectedColor).
+			CColor black0 = ( m_displayMode == 3 ) ? m_pDocument->GetMeasure()->GetNearBlack(0) : m_pDocument->GetMeasure()->GetGray(0);
+			bBlackCol = ( black0.GetX() == m_pRefColor->GetX() && black0.GetY() == m_pRefColor->GetY() && black0.GetZ() == m_pRefColor->GetZ() );
+			bStaleFirstCol = !bBlackCol;
+		}
+		// A black (or stale-labelled column 1) with no measured light has nothing
+		// to show: empty wells, as the grid, charts and export leave it empty,
+		// not bars reading 0.0%.
+		if ( ( bBlackCol || bStaleFirstCol ) && !HasMeasuredLight ( m_pRefColor->GetY() ) )
+			m_bHasReference = FALSE;
+
 		BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 && (m_displayMode == 1 || m_displayMode >= 5 && m_displayMode <= 11 || m_displayMode == 13) );
 		CColor white = m_pDocument->GetMeasure()->GetPrimeWhite();
 
@@ -216,12 +280,12 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 			white = m_pDocument->GetMeasure()->GetGray((m_pDocument->GetMeasure()->GetGrayScaleSize()-1) / 2 );
 
 		if (!white.isValid() || m_displayMode == 0 || m_displayMode == 2 || m_displayMode == 3 || m_displayMode == 4)
-			white = m_pDocument -> GetMeasure () ->GetOnOffWhite();
+			white = m_pDocument -> GetMeasure () ->GetGrayScaleWhite();
 		if ( m_displayMode > 4 && (GetConfig()->m_colorStandard == HDTVa || GetConfig()->m_colorStandard == HDTVb))
 			white = m_pDocument -> GetMeasure () ->GetOnOffWhite();
 
 		//special case check if user has done a less than 100% primaries run and use grayscale white instead for colorchecker
-		if (m_pDocument->GetMeasure()->GetOnOffWhite().isValid())
+		if (m_pDocument->GetMeasure()->IsOnOffWhiteMeasured() && m_pDocument->GetMeasure()->GetOnOffWhite().isValid())
 			if ((m_pDocument->GetMeasure()->GetPrimeWhite()[1] / m_pDocument->GetMeasure()->GetOnOffWhite()[1] < 0.9) && (m_displayMode == 11 || m_displayMode == 13)  && GetConfig()->m_GammaOffsetType != 5)
 				white = m_pDocument -> GetMeasure () ->GetOnOffWhite();
 		
@@ -266,41 +330,50 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 				// Compute reference Luminance regarding actual offset and reference gamma 
                 // fixed to use correct gamma predicts
                 // and added option to assume perfect gamma
+					// The level the reference is evaluated at: the shown reading's
+					// (*m_pRefColor) stamped drive, else the slot minCol - 1 of the mode
+					// passed in, from the series accessor's slot arithmetic - the same
+					// value main computed here. minCol is not always a series index: the
+					// free-measures view calls Refresh ( last_Col + 1, last_Display ),
+					// where last_Col is the measured column, so the reading is always the
+					// one shown, never one fetched by index.
 					double x;
 					switch (m_displayMode)
 					{
-						int Count;
 						case 3:
-						x = ArrayIndexToGrayLevel ( (minCol - 1)*(GetConfig()->m_GammaOffsetType==5?2:1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+						x = GraySeriesSlotLevel ( m_pDocument->GetMeasure()->GetGraySeriesView ( GRAY_SERIES_NEAR_BLACK ), minCol - 1 );
 						break;
 						case 4:
-						Count = m_pDocument -> GetMeasure()->GetNearWhiteScaleSize();
-						x = ArrayIndexToGrayLevel ( m_pDocument->GetMeasure()->m_NearWhiteClipCol - Count + (minCol - 1), 101, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
+						x = GraySeriesSlotLevel ( m_pDocument->GetMeasure()->GetGraySeriesView ( GRAY_SERIES_NEAR_WHITE ), minCol - 1 );
 						break;
 						default:
 						x = m_pDocument->GetMeasure()->GetGrayPercent ( minCol - 1, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					}
+					const double prop = ReadingGrayProp ( *m_pRefColor, x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
 					double valy, Gamma, Offset;
                     Gamma = GetConfig()->m_GammaRef;
                     GetConfig()->m_GammaAvg = Gamma;
-                    m_pDocument->ComputeGammaAndOffset(&Gamma, &Offset, 1, 1, nCount, false);
+                    // No fit (FailedReadingRule.h): Gamma keeps m_GammaRef, never the no-fit 1.0.
+                    double fitGamma = Gamma;
+                    const bool bFit = m_pDocument->ComputeGammaAndOffset(&fitGamma, &Offset, 1, 1, nCount, false);
+                    Gamma = FailedReadingRule::FittedGammaOr ( bFit, fitGamma, Gamma );
                     if (GetConfig()->m_useMeasuredGamma)
 						GetConfig()->m_GammaAvg = (Gamma<1?2.2:floor((Gamma+.005)*100.)/100.);
                     GetConfig()->SetPropertiesSheetValues();
-            		CColor White = m_pDocument -> GetMeasure () -> GetGray ( nCount - 1 );
+            		CColor White = m_pDocument -> GetMeasure () -> GetGrayScaleWhite ();
 //	                CColor Black = m_pDocument -> GetMeasure () -> GetGray ( 0 );
-	                CColor Black = m_pDocument -> GetMeasure () -> GetOnOffBlack();
+	                CColor Black = m_pDocument -> GetMeasure () -> GetGrayScaleBlack();
 					int mode = GetConfig()->m_GammaOffsetType;
 					if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 					if ( mode >= 4 )
 			        {
-						double valx = GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235());
+						double valx = prop;
 						valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode,GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //						valy = min(valy, GetConfig()->m_TargetMaxL);
 			        }
 			        else
 			        {
-				        double valx=(GrayLevelToGrayProp(x, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235())+Offset)/(1.0+Offset);
+				        double valx=(prop+Offset)/(1.0+Offset);
 				        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef));
 						if (mode == 1) //black compensation target
 							valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -331,7 +404,26 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 
             ColorXYZ normColor;
 
-            if(aColor[1] > 0.0 && (minCol != 1 || m_displayMode == 4))
+            // Column 1 of the grayscale and near-black pages is black. It shows
+            // whenever the patch has light in it - without, its xy is the sensor
+            // floor's equal-energy point, not a reading. Where the w/gamma target
+            // at black has light (BT.1886, black compensation, HLG with a target
+            // black, tone-mapped PQ, camera-gamma offsets) the usual ratio applies. Where it does not (power law, L*,
+            // sRGB, PQ without tone mapping) that ratio has no finite value, or a
+            // meaningless huge one, so the bars fall back to black's tint
+            // alone, the reading black is adjusted against. The balance chart
+            // (rgbhistoview.cpp) leaves that point out instead. Free measures
+            // reach here with minCol 1 meaning something else, and carrying a stale
+            // m_displayMode - MainView's case 2 assigns none of last_Col, last_Size
+            // or last_Display - so one selected after a grayscale or near-black
+            // column arrives labelled as that page. It fails the 0% match that sets
+            // bBlackCol and keeps the gate it had before (bStaleFirstCol): shown
+            // except on w/gamma, where its column-1 target is the curve's 0%.
+            if ( bBlackCol && GetConfig()->m_dE_gray == 1 && !HasMeasuredLight ( tmpColor[2] * white.GetY() ) )
+                fact = 1.0;
+
+            if(aColor[1] > 0.0 && (minCol != 1 || m_displayMode == 4 || (bBlackCol && HasMeasuredLight ( aColor[2] ))
+                || (bStaleFirstCol && GetConfig()->m_dE_gray != 1 && HasMeasuredLight ( aColor[2] ))))
             {
                 normColor[0]=(aColor[0]/aColor[1])*fact;
                 normColor[1]=1.0*fact;
@@ -369,7 +461,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 						tmWhite = getL_EOTF(0.50, noDataColor, noDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
 						if (m_displayMode == 1)
 						{
-							if (GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || minCol == 7)
+							if (GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 || minCol == 7)
 								white.SetY(!shiftDiffuse?92.254965:tmWhite);
 							else
 								white.SetY(94.37844);
@@ -389,13 +481,13 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 					else
 					{
 						if (m_displayMode == 1)
-							if (GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV || minCol == 7)
+							if (GetColorReference().m_standard == UHDTV2 || GetColorReference().m_standard == HDTV || GetColorReference().m_standard == UHDTV || GetColorReference().m_standard == UHDTV3 || GetColorReference().m_standard == UHDTV4 || minCol == 7)
 								white.SetY(tmWhite);
 							else
 								white.SetY(94.37844);
 						else
 							if ((GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR) && m_displayMode == 11)
-								white.SetY(m_pDocument->GetMeasure()->GetGray((m_pDocument->GetMeasure()->GetGrayScaleSize()-1)).GetY());
+								white.SetY(m_pDocument->GetMeasure()->GetGrayScaleWhite().GetY());
 							else
 								// Unified convention: the reference above is
 								// GetHDRRefScale-scaled (1.0 = tone-mapped diffuse
@@ -441,23 +533,16 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		}
 
 		double RefWhite = 1.0;
-		if ( isHDR )
+		if ( isHDR && m_displayMode == 1 )
 		{
-			bool shiftDiffuse = (abs(GetConfig()->m_DiffuseL-94.0)>0.5);
+			// the measures grid's primaries normalisation, from the same prime white
+			PrimaryDENorm pn = m_pDocument->GetMeasure()->GetPrimaryDENorm(YWhite, minCol);
+			YWhite = pn.yWhite;
+			RefWhite = pn.refWhite;
+		}
+		else if ( isHDR )
+		{
 			if (DVD)
-			{
-				if (m_displayMode == 1)
-				{
-						tmWhite = getL_EOTF(0.50, noDataColor, noDataColor, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;								
-						if ( (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || minCol == 7) ) //fix for P3/Mascior
-							RefWhite = YWhite / (!shiftDiffuse?92.254965:tmWhite);
-				else
-				{
-						RefWhite = YWhite / (tmWhite);
-						YWhite = YWhite * 94.37844 / (tmWhite);
-				}
-			}
-			else
 			{
 				if ( ((cRef.m_standard == UHDTV2 && minCol == satsize ) || cRef.m_standard == HDTV || cRef.m_standard == UHDTV)  && m_displayMode != 11 && m_displayMode != 13)// && !shiftDiffuse) //fixes skin && nCol == satsize
 					RefWhite = YWhite / (tmWhite);
@@ -474,23 +559,10 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 					YWhite = YWhite * 94.37844 / (tmWhite);
 				}
 			}
-		}
-		else
-		{
-			if (m_displayMode == 1)
-			{
-				if (cRef.m_standard == UHDTV2 || cRef.m_standard == HDTV || cRef.m_standard == UHDTV || minCol == 7)
-					RefWhite = YWhite / (tmWhite) ;
-				else
-				{
-					RefWhite = YWhite / (tmWhite) ;
-					YWhite = YWhite * 94.37844 / (tmWhite) ;
-				}
-			}
 			else
 			{
 				if (GetConfig()->m_CCMode >= MASCIOR50 && GetConfig()->m_CCMode <= CCMAXHDR && m_displayMode == 11)
-					YWhite = m_pDocument->GetMeasure()->GetGray((m_pDocument->GetMeasure()->GetGrayScaleSize()-1)).GetY() ;
+					YWhite = m_pDocument->GetMeasure()->GetGrayScaleWhite().GetY() ;
 				else
 				{
 					// Unified HDR convention (matches the measures grid and the
@@ -500,9 +572,14 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 					RefWhite = YWhite / (tmWhite) ;
 				}
 			}
-			}
 		}
-		m_dEValue = aReference.isValid()?float(m_pRefColor->GetDeltaE(YWhite, aReference, RefWhite, cRef, GetConfig()->m_dE_form, !m_bLumaMode,  GetConfig()->gw_Weight )):0 ;
+		// Black's target goes through the grid cell's helper, so a zero w/gamma
+		// target that lost its chromaticity is rebuilt the same way there and here.
+		CColor dERef = aReference;
+		if ( bBlackCol && aReference.isValid() )
+			dERef = BlackTargetReference ( *m_pRefColor, YWhite, aReference, GetColorReference().GetWhite() );
+		// the grid's gray-world weight: none in PQ
+		m_dEValue = dERef.isValid()?float(m_pRefColor->GetDeltaE(YWhite, dERef, RefWhite, cRef, GetConfig()->m_dE_form, !m_bLumaMode, GetConfig()->m_GammaOffsetType == 5 ? 3 : GetConfig()->gw_Weight )):0 ;
     } //have valid m_prefcolor
 	else
 	{
@@ -510,7 +587,25 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		//m_pRef
 	}
 
-	if (m_dEValue > 40 || (minCol == 1 && !m_bLumaMode && m_displayMode != 4) ) m_dEValue = 0.;
+	// Black keeps its dE on the grayscale grid cell's terms: whenever it has light
+	// in it, against the w/gamma target where that has light and against its
+	// own luminance (tint alone) where it does not. A black with no measured light
+	// has no chromaticity to be wrong about, so it stays suppressed. A stale-
+	// labelled free measure keeps its old rule: dE where the target is set to
+	// the measured luminance (dE_gray 2 / dE_form 5).
+	BOOL bFirstCol = ( minCol == 1 && !m_bLumaMode && m_displayMode != 4 );
+	BOOL bFirstColDE = ( ( bBlackCol || ( bStaleFirstCol && ( GetConfig()->m_dE_gray == 2 || GetConfig()->m_dE_form == 5 ) ) )
+						 && HasMeasuredLight ( m_pRefColor->GetY() ) );
+
+	if (m_dEValue > 40 || ( bFirstCol && !bFirstColDE ) ) m_dEValue = 0.;
+
+	// With no target neither branch above ran, so the level members still hold the
+	// previous column's numbers. OnDraw does not print them, but it does scale the
+	// well off the largest of them - clear them so the empty wells are drawn the
+	// same way every time.
+	if ( !m_bHasReference )
+		m_redValue = m_greenValue = m_blueValue = 0.f;
+
 	Invalidate(FALSE);
 
 	CString title;
@@ -571,7 +666,9 @@ void CRGBLevelWnd::OnPaint()
 	// empty track and a bright filled bar.
 	COLORREF dashClr   = bDark ? RGB(228,228,232) : RGB(64,64,68);
 
-	BOOL hasData = (m_pRefColor != NULL && m_pRefColor->isValid());
+	// Every bar in this pane is reference-relative, so with no target there is
+	// nothing here to draw - see the black column in Refresh.
+	BOOL hasData = (m_pRefColor != NULL && m_pRefColor->isValid() && m_bHasReference);
 
 	// Layout: four rounded tracks with the value and channel labels below them.
 	float margin    = (float) MulDiv(4, dpiY, 96);
@@ -639,7 +736,11 @@ void CRGBLevelWnd::OnPaint()
 	Gdiplus::StringFormat fmt(Gdiplus::StringFormatFlagsNoWrap | Gdiplus::StringFormatFlagsNoClip);
 	fmt.SetAlignment(Gdiplus::StringAlignmentCenter);
 
-	static const WCHAR* letters[4] = { L"R", L"G", L"B", L"\x0394" L"E" };
+	// Same condition as the HSV title and bar colors: the bars then plot
+	// hue, saturation and value, so label them H, S, V.
+	static const WCHAR* rgbLetters[4] = { L"R", L"G", L"B", L"\x0394" L"E" };
+	static const WCHAR* hsvLetters[4] = { L"H", L"S", L"V", L"\x0394" L"E" };
+	const WCHAR* const* letters = ( m_bLumaMode && GetConfig()->m_useHSV ) ? hsvLetters : rgbLetters;
 
 	for ( int i = 0; i < 4; i++ )
 	{

@@ -24,6 +24,7 @@
 #include "stdafx.h"
 #include "ColorHCFR.h"
 #include "GeneralPropPage.h"
+#include "RadioExchange.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -94,7 +95,9 @@ void CGeneralPropPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Check(pDX, IDC_CHECK_DISPLAYRT, bDisplayRT);
 	DDX_Check(pDX, IDC_CHECK_DISABLEDPI, m_bDisableHighDPI);
 	DDX_Check(pDX, IDC_CHECK_ABL, m_bABL);
-	DDX_Radio(pDX, IDC_RADIO1, m_BWColorsToAdd);
+	static const UINT kBWColorsRadios[] =
+		{ IDC_RADIO1, IDC_RADIO2, IDC_RADIO3 };
+	DDX_RadioByID(pDX, m_BWColorsToAdd, kBWColorsRadios);
 	DDX_Check(pDX, IDC_CHECK_DETECT_PRIMARIES, m_bDetectPrimaries);
 	DDX_Check(pDX, IDC_IS_SETTLING, m_isSettling);
 	DDX_Check(pDX, IDC_CHECK_USE_HSV, m_useHSV);

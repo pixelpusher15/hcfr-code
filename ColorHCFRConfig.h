@@ -41,6 +41,8 @@
 extern CString GetColorStandardName(int nStandard);
 extern bool StandardAllowsHDR(int nStandard);
 
+struct CUserPatchSet;
+
 class CColorHCFRConfig
 {
 public:
@@ -141,7 +143,7 @@ public:
 	int		m_TBViewsRightClickMode;
 	int		m_TBViewsMiddleClickMode;
 	BOOL	m_bConfirmMeasures;
-	BOOL	m_bUseOnlyPrimaries;
+	int		m_calibrationMethod;	// CalibrationMatrixMethod: which correction-matrix method to use
 	BOOL	m_bUseImperialUnits;
 	int		m_nLuminanceCurveMode;
 	BOOL	m_bPreferLuxmeter;
@@ -174,7 +176,9 @@ public:
     int GetCColorsSize();
     ColorRGB GetCColorsT(int index);
 	std::string GetCColorsN(int index);
-    void GetCColors();
+	CColorProvenance GetCColorsProvenance(int index);
+    void GetCColors();	// USER: from the MDI-active document's active set
+    void GetCColorsFrom(CUserPatchSet * pSet);	// USER: from this set (NULL = none loaded)
 	CString strLang;
 
 	bool SetGeneratorType(GeneratorType type);
@@ -195,6 +199,14 @@ public:
 
 	void DisplayHelp ( UINT nId, LPCSTR lpszTopic );
 	void EnsurePathExists ( CString strPath );
+
+	// Folder holding the sensor correction files (.thc). It lives under the
+	// user's profile and not in the install directory: that directory is
+	// read-only when installed under Program Files, and an uninstall removes
+	// everything in it, corrections the user made included. Returns FALSE when
+	// the folder does not exist and cannot be created; strPath is filled in
+	// either way so a caller can name the folder in a message.
+	BOOL GetEtalonPath ( CString & strPath );
 
 	// --- High-DPI support (Phase 0) --------------------------------------
 	// 96 DPI == 100% scaling. GetDpiForHWND prefers the per-monitor Win10

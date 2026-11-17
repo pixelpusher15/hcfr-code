@@ -85,7 +85,7 @@ class CNearBlackGrapher
 	void UpdateGraph ( CDataSetDoc * pDoc );
 
 protected:
-	void AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID,double Valformax);
+	void AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,CDataSetDoc *pDataSet,long GraphID,long LogGraphID,double Valformax,double PointOffset);
 };
 
 class CNearBlackHistoView : public CSavingView
