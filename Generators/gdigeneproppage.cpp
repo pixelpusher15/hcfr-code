@@ -480,7 +480,7 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 		m_outputCombo.AddString(LS(IDS_GEN_OUT_CAST));
 		m_outputCombo.AddString(LS(IDS_GEN_OUT_PGEN));
 		m_outputCombo.AddString(_T("DVDO AVLab TPG"));
-		m_outputCombo.AddString(_T("Murideo Seven-G"));
+		m_outputCombo.AddString(_T("Murideo SEVEN-G"));
 	}
 	m_outputCombo.SetCurSel(ModeToCombo(m_nDisplayMode));
 
@@ -560,7 +560,7 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 
 	// --- Murideo Seven-G config panel (programmatic, mirrors the DVDO panel) ---
 	m_grpMuri = new CButton();
-	{ CPoint gp = M.at(GRP_X, 26); m_grpMuri->Create(_T("Murideo Seven-G"), WS_CHILD | WS_VISIBLE | BS_GROUPBOX, CRect(gp.x, gp.y, gp.x + M.w(GRP_W), gp.y + M.ht(80)), this, (UINT)IDC_STATIC); m_grpMuri->SetFont(font); m_dynAll.Add(m_grpMuri); }
+	{ CPoint gp = M.at(GRP_X, 26); m_grpMuri->Create(_T("Murideo SEVEN-G"), WS_CHILD | WS_VISIBLE | BS_GROUPBOX, CRect(gp.x, gp.y, gp.x + M.w(GRP_W), gp.y + M.ht(80)), this, (UINT)IDC_STATIC); m_grpMuri->SetFont(font); m_dynAll.Add(m_grpMuri); }
 	m_lblMuriPatGrp    = AddText(this, m_dynAll, font, M, LS(IDS_GEN_PATTERN_GROUP),  LBL_X, 0, 60, 9);
 	m_lblMuriPat       = AddText(this, m_dynAll, font, M, LS(IDS_GEN_PATTERN),        LBL_X, 0, 60, 9);
 	if (!m_muriReadout.GetSafeHwnd())      { m_muriReadout.Create(WS_CHILD | ES_MULTILINE | ES_READONLY | WS_TABSTOP | WS_VSCROLL | ES_AUTOVSCROLL, CRect(0,0,M.w(166),M.ht(88)), this, IDC_MURI_READOUT); m_muriReadout.SetFont(font); }

@@ -759,7 +759,7 @@ BOOL CGDIGenerator::Init(UINT nbMeasure, bool isSpecial)
 			if ( ! connected )
 			{
 				if ( ! m_initShowedError )
-					GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_MURI_INIT_FAIL), "Murideo Seven-G", MB_ICONERROR);
+					GetColorApp()->InMeasureMessageBox(LS(IDS_GEN_MURI_INIT_FAIL), "Murideo SEVEN-G", MB_ICONERROR);
 				m_initShowedError = TRUE;
 			}
 			bOk = bOk && connected;	// combine with the base CGenerator::Init result, don't mask its failure
@@ -3287,7 +3287,7 @@ BOOL CGDIGenerator::DisplayRGBColorMurideo( const ColorRGBDisplay& clr, bool /*f
 		// Same message pair serves every wired generator; the caption names the device. The
 		// Seven-G reaches both arms of this depending on the transport it is configured for.
 		UINT nLostMsg = m_muriUseNetwork ? IDS_GEN_NETWORK_LINK_LOST : IDS_GEN_SERIAL_LINK_LOST;
-		if (GetColorApp()->InMeasureMessageBox(LS(nLostMsg), "Murideo Seven-G",
+		if (GetColorApp()->InMeasureMessageBox(LS(nLostMsg), "Murideo SEVEN-G",
 			MB_RETRYCANCEL | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND) != IDRETRY)
 			break;
 		// Retry is the user saying they have reconnected the device. MuriCmdRgbTriplet

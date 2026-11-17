@@ -136,7 +136,7 @@ static CString BkgndGeneratorName ( CGenerator * pGenerator )
 		if ( nMode == DISPLAY_DVDO )
 			return _T("DVDO AVLab TPG");
 		if ( nMode == DISPLAY_MURIDEO )
-			return _T("Murideo Seven-G");
+			return _T("Murideo SEVEN-G");
 	}
 	return pGenerator -> GetName ();
 }

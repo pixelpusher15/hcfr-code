@@ -3258,7 +3258,7 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 						dName = "DVDO AVLab TPG";
 						break;
 						case 9:
-						dName = "Murideo Seven-G";
+						dName = "Murideo SEVEN-G";
 						break;
 				}
 				m_generatorName.SetString(dName);
@@ -8463,7 +8463,7 @@ void CMainView::InitGroups()
 			dName = "DVDO AVLab TPG";
 			break;
 			case 9:
-			dName = "Murideo Seven-G";
+			dName = "Murideo SEVEN-G";
 			break;
 		}
 		m_generatorName.SetString(dName);
