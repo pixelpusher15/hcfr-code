@@ -2809,6 +2809,19 @@ bool CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString
 	return ok;
 }
 
+// "Patterns off" for the panel button. The UART document and the web interface give the SEVEN-G
+// no command that clears a built-in pattern, but any 0x008C patch takes the screen back from one
+// (rig, 2026-11-17), so this sends the full black one - which also leaves the device exactly where
+// the next sweep's first patch would. See MuriSendBlackKnown for the colour-space byte.
+bool CGDIGenerator_MuriPatternsOff(bool useNet, const CString& ip, const CString& comPort, CString& msgOut)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	if (!MuriConnect(useNet, ip, comPort)) { msgOut = s_muriDiag; return false; }
+	bool ok = MuriSendBlackKnown(-1, -1);
+	msgOut = s_muriDiag;
+	return ok;
+}
+
 // Multi-line labeled readout (label\tvalue lines) for the panel status box.
 bool CGDIGenerator_MuriQueryReadout(const CString& ip, CString& readoutOut)
 {

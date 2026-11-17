@@ -81,6 +81,7 @@ static char THIS_FILE[] = __FILE__;
 #define IDC_MURI_EDID_REFRESH_BTN 1743
 #define IDC_MURI_EDID_COPY_BTN    1744
 #define IDC_MURI_EDID_CLOSE_BTN   1745
+#define IDC_MURI_OFF_BTN      1748		// main-panel "Patterns off" (1746/1747 are taken on seveng-dv/field-test)
 
 // Implemented in GDIGenerator.cpp: open the port, run output setup, then close.
 extern bool CGDIGenerator_DvdoTestConnection(const CString& comPort, CString& fwOut);
@@ -122,6 +123,7 @@ extern bool        CGDIGenerator_MuriTestConnection(bool useNet, const CString& 
 extern bool        CGDIGenerator_MuriApplyOutput(bool useNet, const CString& ip, const CString& comPort, int timingId, int csId, int bt2020, int hdrMode, int bitDepth, CString& msgOut, DWORD* appliedOut = NULL);
 extern bool        CGDIGenerator_MuriReadSinkInfo(bool useNet, const CString& ip, const CString& comPort, int tcpPort, CString& summaryOut);
 extern bool        CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString& comPort, int patternId, int patternBer, CString& msgOut);
+extern bool        CGDIGenerator_MuriPatternsOff(bool useNet, const CString& ip, const CString& comPort, CString& msgOut);
 extern bool        CGDIGenerator_MuriQueryReadout(const CString& ip, CString& readoutOut);
 extern bool        CGDIGenerator_MuriQueryReadoutSerial(const CString& comPort, CString& readoutOut);
 extern bool        CGDIGenerator_MuriQueryState(bool useNet, const CString& ip, const CString& comPort, int& timingId, int& csId, int& bt2020, int& hdrMode, int& bitDepth);
@@ -228,6 +230,7 @@ BEGIN_MESSAGE_MAP(CGDIGenePropPage, CPropertyPageWithHelp)
 	ON_BN_CLICKED(IDC_DVDO_SETTINGS_BTN, OnDvdoSettings)
 	ON_CBN_SELCHANGE(IDC_DVDO_PATCAT_COMBO, OnDvdoCatChange)
 	ON_BN_CLICKED(IDC_MURI_SHOW_BTN, OnMuriShow)
+	ON_BN_CLICKED(IDC_MURI_OFF_BTN, OnMuriOff)
 	ON_BN_CLICKED(IDC_MURI_REFRESH_BTN, OnMuriRefresh)
 	ON_BN_CLICKED(IDC_MURI_SETTINGS_BTN, OnMuriSettings)
 	ON_BN_CLICKED(IDC_MURI_EDID_BTN, OnMuriEdid)
@@ -571,6 +574,7 @@ void CGDIGenePropPage::BuildRuntimeLayout()
 		for (int i = 0; i < CGDIGenerator_MuriPatGroups(); ++i) m_muriPatGrpCombo.AddString(CString(CGDIGenerator_MuriPatGroupName(i))); }
 	if (!m_muriPatCombo.GetSafeHwnd())     { m_muriPatCombo.Create(WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, CRect(0,0,M.w(120),M.ht(200)), this, IDC_MURI_PAT_COMBO); m_muriPatCombo.SetFont(font); }
 	if (!m_muriShowBtn.GetSafeHwnd())      { m_muriShowBtn.Create(LS(IDS_GEN_SHOW_PATTERN), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(64),M.ht(14)), this, IDC_MURI_SHOW_BTN); m_muriShowBtn.SetFont(font); }
+	if (!m_muriOffBtn.GetSafeHwnd())       { m_muriOffBtn.Create(LS(IDS_GEN_PATTERNS_OFF), WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, CRect(0,0,M.w(60),M.ht(14)), this, IDC_MURI_OFF_BTN); m_muriOffBtn.SetFont(font); }
 	if (!m_muriStatus.GetSafeHwnd())       { m_muriStatus.Create(_T(""), WS_CHILD | SS_LEFT | SS_NOPREFIX, CRect(0,0,M.w(150),M.ht(18)), this, IDC_MURI_STATUS); m_muriStatus.SetFont(font); }
 	{
 		int gi = 0, ii = 0;
@@ -633,7 +637,7 @@ void CGDIGenePropPage::Relayout()
 	if (m_pgenRefreshBtn.GetSafeHwnd()) m_pgenRefreshBtn.ShowWindow(SW_HIDE);
 	{ CWnd* dv[] = { &m_dvdoStatus, &m_dvdoPatCatCombo, &m_dvdoPatCombo, &m_dvdoShowBtn, &m_dvdoOffBtn, &m_dvdoReadout, &m_dvdoRefreshBtn, &m_dvdoSettingsBtn };
 	  for (int i = 0; i < (int)(sizeof(dv)/sizeof(dv[0])); i++) if (dv[i]->GetSafeHwnd()) dv[i]->ShowWindow(SW_HIDE); }
-	{ CWnd* mu[] = { &m_muriPatGrpCombo, &m_muriPatCombo, &m_muriShowBtn, &m_muriStatus,
+	{ CWnd* mu[] = { &m_muriPatGrpCombo, &m_muriPatCombo, &m_muriShowBtn, &m_muriOffBtn, &m_muriStatus,
 	                 &m_muriReadout, &m_muriRefreshBtn, &m_muriSettingsBtn, &m_muriEdidBtn };
 	  for (int i = 0; i < (int)(sizeof(mu)/sizeof(mu[0])); i++) if (mu[i]->GetSafeHwnd()) mu[i]->ShowWindow(SW_HIDE); }
 	CWnd* labels[] = { m_lblScreen, m_lblSize, m_lblApl, m_lblIntensity, m_lblXoff, m_lblYoff, m_lblCastDev, m_lblRange, m_lblOffset,
@@ -738,6 +742,7 @@ void CGDIGenePropPage::Relayout()
 		{ CPoint p = M.at(72, cy); m_muriPatCombo.MoveWindow(p.x, p.y, grpRightPx - M.w(4) - M.at(72,0).x, M.ht(200)); m_muriPatCombo.ShowWindow(SW_SHOW); }
 		cy += ROW_F;
 		{ CPoint p = M.at(72, cy); m_muriShowBtn.MoveWindow(p.x, p.y, M.w(64), M.ht(14)); m_muriShowBtn.ShowWindow(SW_SHOW); }
+		{ CPoint p = M.at(72 + 68, cy); m_muriOffBtn.MoveWindow(p.x, p.y, M.w(60), M.ht(14)); m_muriOffBtn.ShowWindow(SW_SHOW); }	// as on the DVDO panel
 		cy += ROW_F;
 		// Own full-width, two-line row, as on the DVDO panel: beside Show it had ~39 dlu, and
 		// "Showing: <name>" lost the name. The group frame grows with cy.
@@ -2327,6 +2332,7 @@ void CGDIGenePropPage::RefreshMuriStatus()
 		// Lock out the controls that also drive s_muriPort (serial) / the device while the
 		// worker queries, so a click can't interleave with it. Re-enabled in OnMuriQueryDone.
 		if (m_muriShowBtn.GetSafeHwnd())     m_muriShowBtn.EnableWindow(FALSE);
+		if (m_muriOffBtn.GetSafeHwnd())      m_muriOffBtn.EnableWindow(FALSE);
 		if (m_muriSettingsBtn.GetSafeHwnd()) m_muriSettingsBtn.EnableWindow(FALSE);
 		if (m_muriEdidBtn.GetSafeHwnd())     m_muriEdidBtn.EnableWindow(FALSE);
 	}
@@ -2337,6 +2343,7 @@ LRESULT CGDIGenePropPage::OnMuriQueryDone(WPARAM, LPARAM lp)
 	MuriQueryCtx* c = (MuriQueryCtx*)lp;
 	m_muriQuerying = FALSE;
 	if (m_muriShowBtn.GetSafeHwnd())     m_muriShowBtn.EnableWindow(TRUE);		// re-enable the port-sharing controls
+	if (m_muriOffBtn.GetSafeHwnd())      m_muriOffBtn.EnableWindow(TRUE);
 	if (m_muriSettingsBtn.GetSafeHwnd()) m_muriSettingsBtn.EnableWindow(TRUE);
 	if (m_muriEdidBtn.GetSafeHwnd())     m_muriEdidBtn.EnableWindow(TRUE);
 	if (m_muriReadout.GetSafeHwnd()) m_muriReadout.SetWindowText(c->text);
@@ -2359,6 +2366,20 @@ void CGDIGenePropPage::OnMuriShow()
 	bool ok = CGDIGenerator_MuriShowPattern(net, ip, com, patternId, patternBer, msg);
 	if (ok) { CString pn; m_muriPatCombo.GetLBText(pi, pn); m_muriStatus.SetWindowText(LS(IDS_GEN_SHOWING) + pn); }
 	else m_muriStatus.SetWindowText(msg);		// show the HTTP diagnostic only on failure
+}
+
+// Take the screen back from a built-in pattern: a full black patch, since the device has no
+// pattern-off command (see CGDIGenerator_MuriPatternsOff). Mirrors OnDvdoOff.
+void CGDIGenePropPage::OnMuriOff()
+{
+	bool net; CString ip, com; MuriXport(net, ip, com);
+	if (net && ip.IsEmpty()) { m_muriStatus.SetWindowText(LS(IDS_GEN_ENTER_MURI_IP_FIRST)); return; }
+	if (!net && com.IsEmpty()) { m_muriStatus.SetWindowText(LS(IDS_GEN_SET_MURI_COM_SETTINGS)); return; }
+	CString msg;
+	bool ok;
+	{ CWaitCursor wait; ok = CGDIGenerator_MuriPatternsOff(net, ip, com, msg); }
+	if (ok) m_muriStatus.SetWindowText(LS(IDS_GEN_PATTERNS_OFF) + LS(IDS_GEN_TEST_OFF_BLACK));	// "Patterns off (off = full black)"
+	else m_muriStatus.SetWindowText(msg);
 }
 
 BOOL CGDIGenePropPage::OnKillActive()

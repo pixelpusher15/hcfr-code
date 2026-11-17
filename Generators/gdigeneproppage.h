@@ -105,7 +105,7 @@ public:
 	CStatic		*m_lblMuriPatGrp, *m_lblMuriPat;
 	CComboBox	m_muriPatGrpCombo, m_muriPatCombo;
 	CEdit		m_muriReadout;
-	CButton		m_muriShowBtn, m_muriRefreshBtn, m_muriSettingsBtn, m_muriEdidBtn;
+	CButton		m_muriShowBtn, m_muriOffBtn, m_muriRefreshBtn, m_muriSettingsBtn, m_muriEdidBtn;
 	CStatic		m_muriStatus;
 	BOOL m_pgenQuerying;
 	BOOL m_dvdoQuerying;
@@ -148,6 +148,7 @@ protected:
 	afx_msg void OnDvdoCatChange();
 	void PopulateDvdoPatternCombo(int cat);
 	afx_msg void OnMuriShow();
+	afx_msg void OnMuriOff();
 	afx_msg void OnMuriRefresh();
 	afx_msg void OnMuriSettings();
 	afx_msg void OnMuriEdid();
