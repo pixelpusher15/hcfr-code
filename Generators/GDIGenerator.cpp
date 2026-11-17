@@ -3821,9 +3821,65 @@ void CGDIGenerator_OpenGeneratorComPorts(std::vector<std::string>& out)
 	if (s_muriOpen && !s_muriOpenPort.IsEmpty()) out.push_back((LPCSTR)s_muriOpenPort);
 }
 
+// Run end on a wired generator: put a full black field on screen before the transport is
+// let go. Release is where every measurement run ends - normal completion, Escape/Stop, a
+// sensor-error Abort, a lost patch (DisplayRGBColor returned FALSE and the caller released),
+// the continuous-measurement worker stopping, and the pattern tools closing - so this is the
+// one place that covers them all, as CGenerator::Release does for PGenerator with its black
+// PatternDynamic template. Without it the device kept the last patch the sweep sent (on an
+// SDR sweep, a bright white window) on an unattended display: an OLED burn-in risk.
+//
+// One attempt, no Retry/Cancel box: this also runs on the continuous-measurement worker and
+// after a lost-patch abort, where the device may be gone. The cost is then bounded by the
+// transport's own timeouts (a failed COM open returns at once; a TCP connect is capped at 3 s).
+//
+// DVDO: an AA frame, not 80=35. AA always renders, while an 80 pattern renders only in the
+// "Test Patterns" pass-through mode (see NOTE 1 in DvdoOpen). The frame is the black AA patch
+// CGDIGenerator_DvdoApplyOutput already sends, with the session's colour space and output range,
+// so it changes nothing about the device's format. Code 0 is black in either range: it IS black
+// for a full-range output and at or below black for a limited one.
+static void DvdoRunEndBlack(const CString& comPort, int colorSpace, int outputRange)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	if (!s_dvdoOpen)
+	{
+		CString fw;
+		if (comPort.IsEmpty() || !DvdoOpen(comPort, 0, &fw, false /*no setup*/)) return;
+	}
+	if (!s_dvdoArmed) { DvdoSendPattern(kDvdoArmPattern); s_dvdoArmed = true; }	// AA renders only once armed
+	int rng = (outputRange != 0) ? 0 : 1;	// AA range field: 0 = Limited, 1 = Full (see DisplayRGBColorDVDO)
+	char v[96];
+	sprintf(v, "%d %d %d %d %d %d %d %d", 0, 0, 0, 100, 0, rng, colorSpace, rng);
+	DvdoCommand("AA", std::vector<std::string>(1, v));		// ack not required: see DvdoApplyOutput
+	FlushFileBuffers(s_dvdoPort.hComm);
+}
+
+// Murideo: a 0x008C patch of code 0 at full size over a code-0 surround - the black PGenerator
+// gets outside Dolby Vision (PGenBlackCode). The colour-space byte rewrites the device's cat-99
+// register (see MuriCmdRgbTriplet), so it carries the session's id, exactly as the sweep's own
+// patches did, and the depth byte the sweep's depth.
+static void MuriRunEndBlack(bool useNet, const CString& ip, const CString& comPort, int tcpPort, int csId, int depth)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	MuriSetTcpPort((tcpPort > 0) ? tcpPort : 23);
+	if (!MuriConnect(useNet, ip, comPort)) return;
+	if (csId < 0 || csId > 4) csId = MuriSessionColorSpace();	// never learned this session: as Init does
+	MuriCmdRgbTriplet(0, 0, 0, 0, 0, 0, 100, depth, csId);
+}
+
 BOOL CGDIGenerator::Release(INT nbNext)
 {
 	GetColorApp() -> SetPatternWindow ( NULL );
+	// Black first, while the transport is still up - see DvdoRunEndBlack. Keyed on the output the
+	// patches were routed to (DisplayRGBColor routes on the page's mode), so a GDI or madVR run
+	// never touches a wired device the user may have left showing a pattern of their own.
+	// There is no queued inter-run hold in HCFR to exempt: nbNext is only PGenerator's
+	// "End of sequence" caption and the Ki/manual-DVD remaining-count, and both still end black.
+	if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_DVDO)
+		DvdoRunEndBlack(m_dvdoComPort, m_dvdoColorSpace, m_dvdoOutputRange);
+	else if (m_GDIGenePropertiesPage.m_nDisplayMode == DISPLAY_MURIDEO)
+		MuriRunEndBlack(m_muriUseNetwork != 0, m_muriIp, m_muriComPort, m_muriTcpPort, m_muriColorSpaceId,
+			GetConfig()->GetUse10bitLevels() ? 1 : 0);
 	// Unconditional: Show and Apply deliberately leave the port open, so a session that
 	// ends after the user has switched the output back to GDI would otherwise strand the
 	// handle. Both closers are no-ops when nothing is open.
