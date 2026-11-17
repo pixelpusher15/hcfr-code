@@ -3038,6 +3038,27 @@ bool CGDIGenerator_MuriQueryReadoutSerial(const CString& comPort, CString& reado
 	return ok && !readoutOut.IsEmpty();
 }
 
+// The device's current output settings, for the settings dialog to start from (see
+// CMuriSettingsDlg::OnReadDeviceState). Same readout, transport rules and timeouts as the panel's
+// status query: the network side uses whatever address is live and never adopts one; the serial
+// side closes only a port it opened itself. Each field is -1 where the readout did not report it;
+// false when the device did not answer at all.
+bool CGDIGenerator_MuriQueryState(bool useNet, const CString& ip, const CString& comPort,
+	int& timingId, int& csId, int& bt2020, int& hdrMode, int& bitDepth)
+{
+	CSingleLock lock ( &s_genSerialLock, TRUE );
+	timingId = csId = bt2020 = hdrMode = bitDepth = -1;
+	bool wasOpen = s_muriOpen;
+	if (!MuriConnect(useNet, ip, useNet ? CString() : comPort, false)) return false;
+	MuriDevState st;
+	bool ok = MuriReadDevState(st);
+	if (!useNet && !wasOpen)
+		MuriClose();
+	if (!ok) return false;
+	timingId = st.timing; csId = st.cs; bt2020 = st.gamut; hdrMode = st.hdr; bitDepth = st.depth;
+	return true;
+}
+
 BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*first*/, UINT /*nPattern*/ )
 {
 	CSingleLock lock ( &s_genSerialLock, TRUE );

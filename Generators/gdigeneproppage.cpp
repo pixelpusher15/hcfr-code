@@ -124,6 +124,7 @@ extern bool        CGDIGenerator_MuriReadSinkInfo(bool useNet, const CString& ip
 extern bool        CGDIGenerator_MuriShowPattern(bool useNet, const CString& ip, const CString& comPort, int patternId, int patternBer, CString& msgOut);
 extern bool        CGDIGenerator_MuriQueryReadout(const CString& ip, CString& readoutOut);
 extern bool        CGDIGenerator_MuriQueryReadoutSerial(const CString& comPort, CString& readoutOut);
+extern bool        CGDIGenerator_MuriQueryState(bool useNet, const CString& ip, const CString& comPort, int& timingId, int& csId, int& bt2020, int& hdrMode, int& bitDepth);
 
 IMPLEMENT_DYNCREATE(CGDIGenePropPage, CPropertyPageWithHelp)
 
@@ -206,6 +207,7 @@ void CGDIGenePropPage::DoDataExchange(CDataExchange* pDX)
 #define WM_PGEN_QUERY_DONE (WM_USER + 172)
 #define WM_DVDO_QUERY_DONE (WM_USER + 173)
 #define WM_MURI_QUERY_DONE (WM_USER + 174)
+#define WM_MURI_DLG_READSTATE (WM_USER + 175)	// CMuriSettingsDlg: read the device once the dialog shows
 
 #define IDC_PGEN_FORMAT_COMBO   (IDC_PGEN_AVI_BASE + 1)
 #define IDC_PGEN_DYNRANGE_COMBO (IDC_PGEN_AVI_BASE + 5)
@@ -1278,6 +1280,7 @@ BEGIN_MESSAGE_MAP(CMuriSettingsDlg, CDialog)
 	ON_BN_CLICKED(IDC_MURI_NET_CHECK, OnNetToggle)
 	ON_CBN_SELCHANGE(IDC_MURI_TGRP_COMBO, OnTgrpChange)
 	ON_CBN_SELCHANGE(IDC_MURI_FMT_COMBO, OnFmtChange)
+	ON_MESSAGE(WM_MURI_DLG_READSTATE, OnReadDeviceState)
 END_MESSAGE_MAP()
 
 void CMuriSettingsDlg::MuriXport(bool& useNet, CString& ip, CString& com)
@@ -1508,7 +1511,65 @@ BOOL CMuriSettingsDlg::OnInitDialog()
 	m_initGamut = iGamut;
 	m_initHdr   = iHdr;
 	m_initDepth = iDepth;
+	// The configuration is only what HCFR last told the device; the device may since have been
+	// set from its front panel or web page. Ask it, once the dialog is on screen.
+	PostMessage(WM_MURI_DLG_READSTATE);
 	return TRUE;
+}
+
+// Start from the device's ACTUAL state. Filled from the configuration alone, the dialog showed
+// e.g. 720p60 for a device at 2160p23.98 - and since Apply skips a value equal to its open-time
+// baseline, applying the value shown sent nothing at all (rig, 2026-11-17). Every field the
+// readout reports now sets both the control and its baseline, so the baseline is what the device
+// holds: Apply then skips exactly what would not change the device and sends everything else.
+// A field the readout does not report, or a device that does not answer, keeps the configuration
+// values loaded above. A value the dialog cannot show (an id outside its tables, 12-bit depth)
+// shows as "(unchanged)": the device is known NOT to be in any listed state, so preselecting the
+// configured one would be the same wrong display this fixes.
+//
+// Synchronous, on the same readout and timeouts as the panel's status query (WinINet's 3 s caps
+// on the network; on serial MuriReadDevState stops after two silent reads). Apply and Detect are
+// disabled meanwhile so neither can act on the configuration's baseline.
+LRESULT CMuriSettingsDlg::OnReadDeviceState(WPARAM, LPARAM)
+{
+	bool net; CString ip, com; MuriXport(net, ip, com);
+	if ((net && ip.IsEmpty()) || (!net && com.IsEmpty())) return 0;	// nowhere to ask
+	m_applyBtn.EnableWindow(FALSE); m_testBtn.EnableWindow(FALSE);
+	m_status.SetWindowText(LS(IDS_GEN_QUERYING));
+	m_status.UpdateWindow();
+	int timing, cs, gamut, hdr, depth;
+	bool ok;
+	{ CWaitCursor wait; ok = CGDIGenerator_MuriQueryState(net, ip, com, timing, cs, gamut, hdr, depth); }
+	m_applyBtn.EnableWindow(TRUE); m_testBtn.EnableWindow(TRUE);
+	if (!ok)
+	{
+		m_status.SetWindowText(net ? LSf(IDS_GEN_NO_RESPONSE_FROM, ip) : LSf(IDS_GEN_NO_RESPONSE_ON, com));
+		return 0;
+	}
+	m_status.SetWindowText(_T(""));
+	if (timing >= 0)
+	{
+		int gi = 0, ii = 0;
+		if (CGDIGenerator_MuriFindTiming(timing, gi, ii))
+		{ SelValue(m_tgrpCombo, gi); PopulateTimingCombo(gi); m_timingCombo.SetCurSel(ii); m_initTiming = timing; }
+		else
+		{ SelValue(m_tgrpCombo, -1); PopulateTimingCombo(-1); m_initTiming = -1; }
+	}
+	if (cs >= 0)	// cat-99 id 0..4 -> format + range, the inverse of ComboCsId
+	{
+		SelValue(m_fmtCombo,   (cs <= 1) ? 0 : cs - 1);
+		SelValue(m_rangeCombo, (cs == 0) ? 0 : 1);
+		OnFmtChange();
+		m_initCs = ComboCsId();
+	}
+	if (gamut >= 0) { SelValue(m_gamutCombo, gamut); m_initGamut = gamut; }
+	if (hdr >= 0)   { SelValue(m_hdrCombo,   hdr);   m_initHdr   = hdr; }
+	if (depth >= 0)
+	{
+		int d = (depth <= 1) ? depth : -1;	// the combo offers 8 and 10 bit only
+		SelValue(m_depthCombo, d); m_initDepth = d;
+	}
+	return 0;
 }
 
 void CMuriSettingsDlg::OnTest()

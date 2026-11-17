@@ -253,6 +253,7 @@ protected:
 	afx_msg void OnTgrpChange();
 	afx_msg void OnFmtChange();
 	afx_msg void OnNetToggle();
+	afx_msg LRESULT OnReadDeviceState(WPARAM, LPARAM);
 	void UpdateTransportEnable();
 	DECLARE_MESSAGE_MAP()
 };
