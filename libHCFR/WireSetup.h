@@ -38,7 +38,8 @@
 //   outputMode     that generator's output mode (the DisplayMode int of the
 //                  GDI generator: 0 GDI, 1 overlay, 2 madVR, 3 GDI no
 //                  background, 4 Chromecast, 5 test-color window, 6 rPI /
-//                  PGenerator, 7 VMR9); -1 = unknown.
+//                  PGenerator, 7 VMR9, 8 DVDO AVLab TPG, 9 Murideo Seven-G);
+//                  -1 = unknown.
 //   wireCode[3]    the integer R, G, B codes sent after quantization, when HCFR
 //                  computed them; -1 = unknown.
 //

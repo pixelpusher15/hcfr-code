@@ -1150,8 +1150,8 @@ LRESULT CMainFrame::OnBkgndMeasureReady(WPARAM wParam, LPARAM lParam)
 	return 0;
 }
 
-// The background thread stopped on an invalid reading (datasetdoc.cpp): its
-// reason, shown on the UI thread.
+// The background thread stopped on an invalid reading, or on a patch that never
+// reached the generator (datasetdoc.cpp): its reason, shown on the UI thread.
 LRESULT CMainFrame::OnBkgndMeasureStopped(WPARAM wParam, LPARAM lParam)
 {
 	CString * pReason = (CString *) lParam;
