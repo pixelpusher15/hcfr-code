@@ -109,6 +109,7 @@
     <ClCompile Include="..\SpectralCorrection.cpp" />
     <ClCompile Include="..\SaturationTracking.cpp" />
     <ClCompile Include="..\Ti3Export.cpp" />
+    <ClCompile Include="..\PatchLabel.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\ArchiveExtension.h" />
@@ -134,6 +135,7 @@
     <ClInclude Include="..\SpectralCorrection.h" />
     <ClInclude Include="..\SaturationTracking.h" />
     <ClInclude Include="..\Ti3Export.h" />
+    <ClInclude Include="..\PatchLabel.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\ReadMe.txt" />

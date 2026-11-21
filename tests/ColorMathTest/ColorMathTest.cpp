@@ -7758,6 +7758,365 @@ static void RunT54()
     T54Negative::CheckMargin();
 }
 
+// T59 - patch-list row labels (libHCFR/PatchLabel.h). Pure assertions, no
+// golden files. Every expectation is stated exactly: kind, color, black and
+// white flags compare equal; level and desaturation are compared to the value
+// written out here within 1e-12 (they are a few double operations away from
+// the stated fraction, never an approximation of it).
+namespace T59Label
+{
+    static const double kTol = 1e-12;
+
+    static const char* KindName(int k)
+    {
+        switch (k)
+        {
+            case PATCH_KIND_UNLABELED:  return "unlabeled";
+            case PATCH_KIND_OTHER:      return "other";
+            case PATCH_KIND_GRAY:       return "gray";
+            case PATCH_KIND_PRIMARY:    return "primary";
+            case PATCH_KIND_SECONDARY:  return "secondary";
+            case PATCH_KIND_SATURATION: return "saturation";
+        }
+        return "?";
+    }
+
+    static bool Same(const PatchLabel& a, const PatchLabel& b)
+    {
+        return a.kind == b.kind && a.color == b.color && a.level == b.level
+            && a.desaturation == b.desaturation && a.isBlack == b.isBlack && a.isWhite == b.isWhite;
+    }
+
+    static void Expect(const char* what, int r, int g, int b, int bits, int range,
+                       int kind, int color, double level, double desat, bool isBlack, bool isWhite)
+    {
+        PatchLabel l = ClassifyPatch(r, g, b, bits, range);
+        if (l.kind != kind || l.color != color || l.isBlack != isBlack || l.isWhite != isWhite
+            || fabs(l.level - level) > kTol || fabs(l.desaturation - desat) > kTol)
+            Fail("T59 %s (%d,%d,%d) %d-bit range %d: got %s color %d level %.15g desat %.15g black %d white %d;"
+                 " expected %s color %d level %.15g desat %.15g black %d white %d",
+                 what, r, g, b, bits, range,
+                 KindName(l.kind), l.color, l.level, l.desaturation, (int)l.isBlack, (int)l.isWhite,
+                 KindName(kind), color, level, desat, (int)isBlack, (int)isWhite);
+    }
+
+    static void Gray(const char* w, int c, int bits, int range, double level, bool blk, bool wht)
+    { Expect(w, c, c, c, bits, range, PATCH_KIND_GRAY, PATCH_COLOR_NONE, level, 0.0, blk, wht); }
+    static void Prim(const char* w, int r, int g, int b, int bits, int range, int color, double level)
+    { Expect(w, r, g, b, bits, range, PATCH_KIND_PRIMARY, color, level, 0.0, false, false); }
+    static void Sec(const char* w, int r, int g, int b, int bits, int range, int color, double level)
+    { Expect(w, r, g, b, bits, range, PATCH_KIND_SECONDARY, color, level, 0.0, false, false); }
+    static void Sat(const char* w, int r, int g, int b, int bits, int range, int color, double level, double desat)
+    { Expect(w, r, g, b, bits, range, PATCH_KIND_SATURATION, color, level, desat, false, false); }
+    static void Other(const char* w, int r, int g, int b, int bits, int range)
+    { Expect(w, r, g, b, bits, range, PATCH_KIND_OTHER, PATCH_COLOR_NONE, 0.0, 0.0, false, false); }
+
+    // 8-bit full: black 0, white 255, level = code * 100 / 255.
+    static void CheckFull8()
+    {
+        const int F = CSV_RANGE_FULL;
+        Gray("full8 black", 0, 8, F, 0.0, true, false);
+        Gray("full8 white", 255, 8, F, 100.0, false, true);
+        Gray("full8 mid gray", 128, 8, F, 12800.0 / 255.0, false, false);
+        Prim("full8 red 100", 255, 0, 0, 8, F, PATCH_COLOR_RED, 100.0);
+        Prim("full8 green 100", 0, 255, 0, 8, F, PATCH_COLOR_GREEN, 100.0);
+        Prim("full8 blue 100", 0, 0, 255, 8, F, PATCH_COLOR_BLUE, 100.0);
+        Prim("full8 red 191", 191, 0, 0, 8, F, PATCH_COLOR_RED, 19100.0 / 255.0);
+        Prim("full8 green 191", 0, 191, 0, 8, F, PATCH_COLOR_GREEN, 19100.0 / 255.0);
+        Prim("full8 blue 191", 0, 0, 191, 8, F, PATCH_COLOR_BLUE, 19100.0 / 255.0);
+        Sec("full8 yellow 100", 255, 255, 0, 8, F, PATCH_COLOR_YELLOW, 100.0);
+        Sec("full8 cyan 100", 0, 255, 255, 8, F, PATCH_COLOR_CYAN, 100.0);
+        Sec("full8 magenta 100", 255, 0, 255, 8, F, PATCH_COLOR_MAGENTA, 100.0);
+        Sec("full8 yellow 191", 191, 191, 0, 8, F, PATCH_COLOR_YELLOW, 19100.0 / 255.0);
+        Sec("full8 cyan 191", 0, 191, 191, 8, F, PATCH_COLOR_CYAN, 19100.0 / 255.0);
+        Sec("full8 magenta 191", 191, 0, 191, 8, F, PATCH_COLOR_MAGENTA, 19100.0 / 255.0);
+        // The six saturation lines at 100%: desaturation = 128 / 255.
+        Sat("full8 red sat", 255, 128, 128, 8, F, PATCH_COLOR_RED, 100.0, 128.0 / 255.0);
+        Sat("full8 green sat", 128, 255, 128, 8, F, PATCH_COLOR_GREEN, 100.0, 128.0 / 255.0);
+        Sat("full8 blue sat", 128, 128, 255, 8, F, PATCH_COLOR_BLUE, 100.0, 128.0 / 255.0);
+        Sat("full8 yellow sat", 255, 255, 128, 8, F, PATCH_COLOR_YELLOW, 100.0, 128.0 / 255.0);
+        Sat("full8 cyan sat", 128, 255, 255, 8, F, PATCH_COLOR_CYAN, 100.0, 128.0 / 255.0);
+        Sat("full8 magenta sat", 255, 128, 255, 8, F, PATCH_COLOR_MAGENTA, 100.0, 128.0 / 255.0);
+        // And at a lower level: upper 191, lower 64, desaturation = 64 / 191.
+        Sat("full8 red sat 191", 191, 64, 64, 8, F, PATCH_COLOR_RED, 19100.0 / 255.0, 64.0 / 191.0);
+        Sat("full8 cyan sat 191", 64, 191, 191, 8, F, PATCH_COLOR_CYAN, 19100.0 / 255.0, 64.0 / 191.0);
+        // Near misses: one code off from equal leaves three different codes.
+        Other("full8 gray near miss", 128, 129, 127, 8, F);
+        Other("full8 red near miss", 255, 1, 0, 8, F);
+        Other("full8 yellow near miss", 255, 254, 0, 8, F);
+        Other("full8 red sat near miss", 255, 128, 129, 8, F);
+        Other("full8 magenta sat near miss", 255, 128, 254, 8, F);
+        Other("full8 cube point", 51, 102, 204, 8, F);
+        // One channel of a gray one code off is NOT other: the two upper
+        // channels are equal and the third is above black, which is the
+        // secondary's line toward white (desaturation 127 / 128).
+        Sat("full8 gray one low", 128, 128, 127, 8, F, PATCH_COLOR_YELLOW, 12800.0 / 255.0, 127.0 / 128.0);
+        // ...and one code high is on the primary's line (desaturation 128 / 129).
+        Sat("full8 gray one high", 128, 129, 128, 8, F, PATCH_COLOR_GREEN, 12900.0 / 255.0, 128.0 / 129.0);
+    }
+
+    // 8-bit legal: black 16, white 235, level = (code - 16) * 100 / 219,
+    // codes clamped to 16..235 before they are classified.
+    static void CheckLegal8()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        Gray("legal8 black", 16, 8, L, 0.0, true, false);
+        Gray("legal8 white", 235, 8, L, 100.0, false, true);
+        Gray("legal8 mid gray", 126, 8, L, 11000.0 / 219.0, false, false);
+        Gray("legal8 code 0 is black", 0, 8, L, 0.0, true, false);
+        Gray("legal8 code 255 is white", 255, 8, L, 100.0, false, true);
+        Prim("legal8 red 100", 235, 16, 16, 8, L, PATCH_COLOR_RED, 100.0);
+        Prim("legal8 green 100", 16, 235, 16, 8, L, PATCH_COLOR_GREEN, 100.0);
+        Prim("legal8 blue 100", 16, 16, 235, 8, L, PATCH_COLOR_BLUE, 100.0);
+        Prim("legal8 red with sub-black zeros", 235, 0, 0, 8, L, PATCH_COLOR_RED, 100.0);
+        Prim("legal8 red 180", 180, 16, 16, 8, L, PATCH_COLOR_RED, 16400.0 / 219.0);
+        Sec("legal8 yellow 100", 235, 235, 16, 8, L, PATCH_COLOR_YELLOW, 100.0);
+        Sec("legal8 cyan 180", 16, 180, 180, 8, L, PATCH_COLOR_CYAN, 16400.0 / 219.0);
+        Sec("legal8 magenta 100", 235, 16, 235, 8, L, PATCH_COLOR_MAGENTA, 100.0);
+        Sat("legal8 red sat", 235, 126, 126, 8, L, PATCH_COLOR_RED, 100.0, 110.0 / 219.0);
+        Sat("legal8 green sat", 126, 235, 126, 8, L, PATCH_COLOR_GREEN, 100.0, 110.0 / 219.0);
+        Sat("legal8 blue sat", 126, 126, 235, 8, L, PATCH_COLOR_BLUE, 100.0, 110.0 / 219.0);
+        Sat("legal8 yellow sat", 235, 235, 126, 8, L, PATCH_COLOR_YELLOW, 100.0, 110.0 / 219.0);
+        Sat("legal8 cyan sat", 126, 235, 235, 8, L, PATCH_COLOR_CYAN, 100.0, 110.0 / 219.0);
+        Sat("legal8 magenta sat", 235, 126, 235, 8, L, PATCH_COLOR_MAGENTA, 100.0, 110.0 / 219.0);
+        Sat("legal8 blue sat 180", 71, 71, 180, 8, L, PATCH_COLOR_BLUE, 16400.0 / 219.0, 55.0 / 164.0);
+        Other("legal8 gray near miss", 126, 127, 125, 8, L);
+        Other("legal8 green near miss", 17, 235, 16, 8, L);
+        Other("legal8 cyan near miss", 16, 235, 234, 8, L);
+        // Super-white is clamped: (240, 126, 126) drives (235, 126, 126).
+        Sat("legal8 clamped red sat", 240, 126, 126, 8, L, PATCH_COLOR_RED, 100.0, 110.0 / 219.0);
+    }
+
+    // No header: the loader's legacy default, legal-range codes clamped,
+    // 8-bit unless a BITDEPTH header said 10. Same labels as LEGAL, bit for bit.
+    static void CheckNone()
+    {
+        const int codes[][3] = { {16,16,16}, {235,235,235}, {126,126,126}, {0,0,0}, {255,255,255},
+                                 {235,16,16}, {16,235,235}, {235,126,126}, {126,127,125}, {240,4,4} };
+        for (size_t i = 0; i < sizeof(codes) / sizeof(codes[0]); i++)
+        {
+            PatchLabel n = ClassifyPatch(codes[i][0], codes[i][1], codes[i][2], 8, CSV_RANGE_NONE);
+            PatchLabel l = ClassifyPatch(codes[i][0], codes[i][1], codes[i][2], 8, CSV_RANGE_LEGAL);
+            if (!Same(n, l))
+                Fail("T59 none8 (%d,%d,%d): NONE gives %s level %.15g, LEGAL gives %s level %.15g",
+                     codes[i][0], codes[i][1], codes[i][2], KindName(n.kind), n.level, KindName(l.kind), l.level);
+        }
+        Gray("none10 mid gray", 502, 10, CSV_RANGE_NONE, 50.0, false, false);
+        Prim("none10 red", 940, 64, 64, 10, CSV_RANGE_NONE, PATCH_COLOR_RED, 100.0);
+    }
+
+    // 10-bit full: black 0, white 1023, level = code * 100 / 1023.
+    static void CheckFull10()
+    {
+        const int F = CSV_RANGE_FULL;
+        Gray("full10 black", 0, 10, F, 0.0, true, false);
+        Gray("full10 white", 1023, 10, F, 100.0, false, true);
+        Gray("full10 mid gray", 512, 10, F, 51200.0 / 1023.0, false, false);
+        Prim("full10 red 100", 1023, 0, 0, 10, F, PATCH_COLOR_RED, 100.0);
+        Prim("full10 blue 767", 0, 0, 767, 10, F, PATCH_COLOR_BLUE, 76700.0 / 1023.0);
+        Sec("full10 magenta 100", 1023, 0, 1023, 10, F, PATCH_COLOR_MAGENTA, 100.0);
+        Sec("full10 yellow 767", 767, 767, 0, 10, F, PATCH_COLOR_YELLOW, 76700.0 / 1023.0);
+        Sat("full10 green sat", 512, 1023, 512, 10, F, PATCH_COLOR_GREEN, 100.0, 512.0 / 1023.0);
+        Sat("full10 yellow sat", 1023, 1023, 512, 10, F, PATCH_COLOR_YELLOW, 100.0, 512.0 / 1023.0);
+        Other("full10 gray near miss", 512, 511, 513, 10, F);
+        Other("full10 blue near miss", 1, 0, 1023, 10, F);
+        // 10-bit codes 255 are not white.
+        Gray("full10 code 255", 255, 10, F, 25500.0 / 1023.0, false, false);
+    }
+
+    // 10-bit legal: black 64, white 940, level = (code - 64) * 100 / 876.
+    static void CheckLegal10()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        Gray("legal10 black", 64, 10, L, 0.0, true, false);
+        Gray("legal10 white", 940, 10, L, 100.0, false, true);
+        Gray("legal10 mid gray", 502, 10, L, 50.0, false, false);
+        Gray("legal10 code 0 is black", 0, 10, L, 0.0, true, false);
+        Gray("legal10 code 1023 is white", 1023, 10, L, 100.0, false, true);
+        Prim("legal10 red 100", 940, 64, 64, 10, L, PATCH_COLOR_RED, 100.0);
+        Prim("legal10 green 50", 64, 502, 64, 10, L, PATCH_COLOR_GREEN, 50.0);
+        Sec("legal10 cyan 100", 64, 940, 940, 10, L, PATCH_COLOR_CYAN, 100.0);
+        Sec("legal10 yellow 50", 502, 502, 64, 10, L, PATCH_COLOR_YELLOW, 50.0);
+        Sat("legal10 magenta sat", 940, 502, 940, 10, L, PATCH_COLOR_MAGENTA, 100.0, 0.5);
+        Sat("legal10 red sat", 940, 502, 502, 10, L, PATCH_COLOR_RED, 100.0, 0.5);
+        Sat("legal10 blue sat 50", 283, 283, 502, 10, L, PATCH_COLOR_BLUE, 50.0, 0.5);
+        Other("legal10 gray near miss", 502, 503, 501, 10, L);
+        Other("legal10 red near miss", 940, 65, 64, 10, L);
+        // 8-bit black code 16 under a 10-bit legal list is below black: clamped.
+        Gray("legal10 code 16 is black", 16, 10, L, 0.0, true, false);
+    }
+
+    // Extended: codes as written, below black and above white keep their kind.
+    static void CheckExtended()
+    {
+        const int E = CSV_RANGE_EXTENDED;
+        Gray("ext8 black", 16, 8, E, 0.0, true, false);
+        Gray("ext8 white", 235, 8, E, 100.0, false, true);
+        Gray("ext8 below black", 4, 8, E, -1200.0 / 219.0, false, false);
+        Gray("ext8 code 0", 0, 8, E, -1600.0 / 219.0, false, false);
+        Gray("ext8 super-white", 250, 8, E, 23400.0 / 219.0, false, false);
+        Prim("ext8 red super-white", 250, 16, 16, 8, E, PATCH_COLOR_RED, 23400.0 / 219.0);
+        Prim("ext8 red below black", 4, 16, 16, 8, E, PATCH_COLOR_RED, -1200.0 / 219.0);
+        Sec("ext8 cyan below black", 16, 4, 4, 8, E, PATCH_COLOR_CYAN, -1200.0 / 219.0);
+        Sec("ext8 magenta super-white", 250, 16, 250, 8, E, PATCH_COLOR_MAGENTA, 23400.0 / 219.0);
+        Sat("ext8 red sat super-white", 250, 126, 126, 8, E, PATCH_COLOR_RED, 23400.0 / 219.0, 110.0 / 234.0);
+        Sat("ext8 yellow sat", 235, 235, 126, 8, E, PATCH_COLOR_YELLOW, 100.0, 110.0 / 219.0);
+        // A lower channel below black is off every saturation line.
+        Other("ext8 red, others below black", 200, 4, 4, 8, E);
+        Other("ext8 cyan pair, red below black", 4, 200, 200, 8, E);
+        Other("ext8 gray near miss", 4, 5, 3, 8, E);
+        Gray("ext10 black", 64, 10, E, 0.0, true, false);
+        Gray("ext10 code 0", 0, 10, E, -6400.0 / 876.0, false, false);
+        Prim("ext10 red super-white", 1019, 64, 64, 10, E, PATCH_COLOR_RED, 95500.0 / 876.0);
+        Sat("ext10 green sat", 502, 940, 502, 10, E, PATCH_COLOR_GREEN, 100.0, 0.5);
+    }
+
+    static void CheckBadDepth()
+    {
+        PatchLabel l = ClassifyPatch(128, 128, 128, 12, CSV_RANGE_FULL);
+        if (l.kind != PATCH_KIND_UNLABELED || l.color != PATCH_COLOR_NONE)
+            Fail("T59 12-bit: got %s color %d, expected unlabeled color -1", KindName(l.kind), l.color);
+        PatchLabel d;
+        if (d.kind != PATCH_KIND_UNLABELED || d.color != PATCH_COLOR_NONE || d.level != 0.0
+            || d.desaturation != 0.0 || d.isBlack || d.isWhite)
+            Fail("T59 default PatchLabel is not unlabeled/none/0/0/false/false");
+    }
+
+    // A mixed list (gray ramp, primaries, secondaries, saturation steps, cube
+    // points) labeled in order and again shuffled by a fixed permutation: every
+    // row gets the same label wherever it stands.
+    static void CheckShuffled()
+    {
+        const int codes[][3] = {
+            {16,16,16}, {235,235,235}, {126,126,126}, {60,60,60}, {180,180,180},
+            {235,16,16}, {16,235,16}, {16,16,235}, {180,16,16},
+            {235,235,16}, {16,235,235}, {235,16,235}, {180,180,16},
+            {235,126,126}, {126,235,126}, {126,126,235}, {235,235,126}, {126,235,235}, {235,126,235},
+            {60,120,180}, {16,126,235}, {235,126,16}, {126,127,125} };
+        const int n = (int)(sizeof(codes) / sizeof(codes[0]));
+        std::vector<CsvPatchRow> ordered(n);
+        for (int i = 0; i < n; i++)
+        {
+            ordered[i].patch = i;
+            ordered[i].r = codes[i][0];
+            ordered[i].g = codes[i][1];
+            ordered[i].b = codes[i][2];
+        }
+        std::vector<CsvPatchRow> shuffled(ordered);
+        // Fisher-Yates with a fixed LCG seed: deterministic, not order-preserving.
+        unsigned int seed = 20261121u;
+        for (int i = n - 1; i > 0; i--)
+        {
+            seed = seed * 1664525u + 1013904223u;
+            int j = (int)(seed % (unsigned int)(i + 1));
+            if (j != i)	// no self-swap: it self-move-assigns the name
+                std::swap(shuffled[i], shuffled[j]);
+        }
+        int moved = 0;
+        for (int i = 0; i < n; i++)
+            if (shuffled[i].patch != i)
+                moved++;
+        if (moved < n / 2)
+            Fail("T59 shuffle moved only %d of %d rows", moved, n);
+        LabelPatchRows(ordered, 8, CSV_RANGE_LEGAL);
+        LabelPatchRows(shuffled, 8, CSV_RANGE_LEGAL);
+        int counts[5] = { 0, 0, 0, 0, 0 };
+        for (int i = 0; i < n; i++)
+        {
+            const CsvPatchRow& s = shuffled[i];
+            const CsvPatchRow& o = ordered[s.patch];
+            if (!Same(s.label, o.label))
+                Fail("T59 shuffled row %d (patch %d): %s level %.15g, in order %s level %.15g",
+                     i, s.patch, KindName(s.label.kind), s.label.level, KindName(o.label.kind), o.label.level);
+            if (o.label.kind >= 0 && o.label.kind < 5)
+                counts[o.label.kind]++;
+        }
+        // other, gray, primary, secondary, saturation
+        if (counts[0] != 4 || counts[1] != 5 || counts[2] != 4 || counts[3] != 4 || counts[4] != 6)
+            Fail("T59 mixed list counts other/gray/primary/secondary/sat = %d/%d/%d/%d/%d, expected 4/5/4/4/6",
+                 counts[0], counts[1], counts[2], counts[3], counts[4]);
+    }
+
+    // A reading carries the label in memory only: the stored bytes are the
+    // same with or without it, a loaded reading has none, and RelabelReading
+    // recomputes it from the stored stimulus and provenance.
+    static void CheckReading()
+    {
+        const int bits = 10, range = CSV_RANGE_LEGAL;
+        const int r = 940, g = 502, b = 502;	// red saturation step, desaturation 0.5
+        CColor c(0.4, 0.3, 0.2);
+        c.SetStimulusValue(ColorRGBDisplay(CsvCodeToPercent(r, bits, range),
+                                           CsvCodeToPercent(g, bits, range),
+                                           CsvCodeToPercent(b, bits, range)));
+        CColorProvenance prov;
+        prov.patchNumber = 7;
+        prov.srcBits = bits;
+        prov.srcRange = range;
+        c.SetProvenance(prov);
+        T19Ext::Bytes plain = T19Ext::Store(c);
+
+        PatchLabel want = ClassifyPatch(r, g, b, bits, range);
+        if (want.kind != PATCH_KIND_SATURATION || want.color != PATCH_COLOR_RED)
+            Fail("T59 reading: row is %s color %d, expected saturation red", KindName(want.kind), want.color);
+        PatchLabel got = PatchLabelFromReading(c);
+        if (!Same(got, want))
+            Fail("T59 reading: from stimulus %s level %.15g, from codes %s level %.15g",
+                 KindName(got.kind), got.level, KindName(want.kind), want.level);
+
+        RelabelReading(c);
+        if (!Same(c.GetProvenance().label, want))
+            Fail("T59 RelabelReading did not set the label");
+        CColor copy(c);
+        if (!Same(copy.GetProvenance().label, want))
+            Fail("T59 a copied reading lost its label");
+        T19Ext::Bytes labeled = T19Ext::Store(c);
+        if (labeled != plain)
+            Fail("T59 the label changed the stored reading (%u bytes vs %u)",
+                 (unsigned)labeled.size(), (unsigned)plain.size());
+
+        CColor back;
+        CException* e = T19Ext::Load(labeled, &back, 1);
+        if (e)
+        {
+            e->Delete();
+            Fail("T59 reading did not load back");
+            return;
+        }
+        if (back.GetProvenance().label.kind != PATCH_KIND_UNLABELED)
+            Fail("T59 a loaded reading has label %s, expected unlabeled", KindName(back.GetProvenance().label.kind));
+        RelabelReading(back);
+        if (!Same(back.GetProvenance().label, want))
+            Fail("T59 RelabelReading after load: %s level %.15g", KindName(back.GetProvenance().label.kind),
+                 back.GetProvenance().label.level);
+
+        // No provenance or no stimulus: unlabeled, and RelabelReading adds nothing.
+        CColor bare(0.4, 0.3, 0.2);
+        if (PatchLabelFromReading(bare).kind != PATCH_KIND_UNLABELED)
+            Fail("T59 a reading without provenance got a label");
+        RelabelReading(bare);
+        if (bare.HasProvenance())
+            Fail("T59 RelabelReading gave a bare reading provenance");
+        CColor noStim(0.4, 0.3, 0.2);
+        noStim.SetProvenance(prov);
+        if (PatchLabelFromReading(noStim).kind != PATCH_KIND_UNLABELED)
+            Fail("T59 a reading without a stimulus got a label");
+    }
+}
+
+static void RunT59()
+{
+    printf("T59 patch-list row labels...\n");
+    T59Label::CheckFull8();
+    T59Label::CheckLegal8();
+    T59Label::CheckNone();
+    T59Label::CheckFull10();
+    T59Label::CheckLegal10();
+    T59Label::CheckExtended();
+    T59Label::CheckBadDepth();
+    T59Label::CheckShuffled();
+    T59Label::CheckReading();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -7805,6 +8164,7 @@ int main(int argc, char* argv[])
     RunT52();
     RunT53();
     RunT54();
+    RunT59();
 
     if (g_failures)
     {

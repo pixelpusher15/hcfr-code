@@ -66,6 +66,9 @@
     <ClCompile Include="..\Ti3Export.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\PatchLabel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\ArchiveExtension.h">
@@ -132,6 +135,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\Ti3Export.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\PatchLabel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

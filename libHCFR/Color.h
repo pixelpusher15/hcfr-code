@@ -38,6 +38,7 @@
 #include "Matrix.h"
 #include <string>   // std::string in CColorProvenance (below), before class CColor
 #include "WireSetup.h"   // CColorWireSetup, before class CColor
+#include "PatchLabel.h"  // PatchLabel in CColorProvenance and CsvPatchRow
 
 typedef enum 
 {
@@ -284,6 +285,10 @@ struct CColorProvenance
 	int         srcRange;       // source CSV range: -1 legacy, 0 full, 1 legal, 2 extended
 	std::string name;           // patch name from the source list ("" = none)
 	int         role;           // CColorProvenanceRole
+	// What color the patch is (PatchLabel.h). In memory only: it is NOT
+	// stored in COLOR_PROVENANCE, so the stream is unchanged; a loaded
+	// reading gets it back from its stored stimulus (RelabelReading).
+	PatchLabel  label;
 	CColorProvenance() : patchNumber(-1), sequenceIndex(-1), srcBits(0), srcRange(-1), role(PROVENANCE_ROLE_UNKNOWN) {}
 };
 
@@ -982,7 +987,17 @@ enum { CSV_RANGE_NONE = -1, CSV_RANGE_FULL = 0, CSV_RANGE_LEGAL = 1, CSV_RANGE_E
 #include <vector>
 #include <string>
 // role is a CColorProvenanceRole; a CSV declares none, so the parser leaves -1.
-struct CsvPatchRow { int patch, r, g, b; std::string name; int role = -1; };
+// label is what color the row is (PatchLabel.h), set by LabelPatchRows from the
+// codes; in memory only, never stored with the row.
+struct CsvPatchRow { int patch, r, g, b; std::string name; int role = -1; PatchLabel label; };
+// Labels every row from its codes and the list's bit depth and range (ClassifyPatch).
+extern void LabelPatchRows ( std::vector<CsvPatchRow> & rows, int bits, int range );
+// A reading's label recomputed from what it stores: its stimulus, mapped back to
+// codes with CsvPercentToCode at its provenance bit depth and range. UNLABELED
+// without provenance, without a stimulus, or with a bit depth other than 8 or 10.
+extern PatchLabel PatchLabelFromReading ( const CColor & aReading );
+// Sets a reading's provenance label from PatchLabelFromReading; no-op without provenance.
+extern void RelabelReading ( CColor & aReading );
 extern int ReadCsvPatchRows ( CString csvPath, std::vector<CsvPatchRow> & rows, int maxRows, int * bitsOut, int * rangeOut );
 // Resolve a CC mode to its patch-list file (predefined CSV or USER) + HDR-recalc flag; false for inline-array modes.
 extern bool ResolveCCSetPath ( int aCCMode, CString & outPath, bool * recalcOut );
