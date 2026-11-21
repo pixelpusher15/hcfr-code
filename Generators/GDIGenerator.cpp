@@ -3084,6 +3084,12 @@ BOOL CGDIGenerator::DisplayRGBColorDVDO( const ColorRGBDisplay& clr, bool /*firs
 	// once at construction and would send a stale size.
 	int win = (int)m_displayWindow.m_rectSizePercent;
 	if (win <= 0 || win > 100) win = 100;
+	// The AA frame's Window field is the SIDE of the window, in percent of the screen's width
+	// and height (rig 2026-11-21: 50 filled half the width and half the height). HCFR's size
+	// setting is percent of the screen AREA on every other output, so send the side that
+	// gives that area: 10 -> 32, 25 -> 50, 100 -> 100.
+	win = (int)(sqrt(win / 100.0) * 100.0 + 0.5);
+	if (win < 1) win = 1;
 
 	// A patch that never reaches the device is NOT a cosmetic failure: the TPG keeps showing
 	// the previous patch and the sweep would measure it against the wrong stimulus, silently
