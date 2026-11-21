@@ -631,6 +631,7 @@ CMainView::CMainView()
 	m_pInfoWnd13 = NULL;
 
 	m_displayType=GetConfig()->GetProfileInt("MainView","Display type",HCFR_xyY_VIEW);
+	m_bShowPatchLabels=GetConfig()->GetProfileInt("MainView","Show Patch Labels",1) != 0;
 	dEavg_gs=0;
 	dEmax_gs=0;
 	dEavg_cc=0;
@@ -2032,6 +2033,66 @@ static CString GrayColumnLabel ( CMeasure * pMeasure, int i, BOOL bIRE )
 	return str;
 }
 
+// A patch label's level as grid text: whole percents bare, else one decimal.
+static CString PatchLabelLevelText ( double level )
+{
+	CString s;
+	double r = floor ( level * 10.0 + 0.5 ) / 10.0;
+	if ( r == floor ( r ) )
+		s.Format ( "%.0f%%", r );
+	else
+		s.Format ( "%.1f%%", r );
+	return s;
+}
+
+// The short text of a patch-list row's label (PatchLabel.h): "Black",
+// "White", "Gray 40%", "Red 75%", "Red sat 75%"; blank for other.
+static CString PatchLabelText ( const PatchLabel & l )
+{
+	static const UINT colorIds[6] = { IDS_RED, IDS_GREEN, IDS_BLUE, IDS_YELLOW, IDS_CYAN, IDS_MAGENTA };
+	CString s, name, fmt;
+	switch ( l.kind )
+	{
+		case PATCH_KIND_GRAY:
+			if ( l.isBlack )
+				s.LoadString ( IDS_BLACK );
+			else if ( l.isWhite )
+				s.LoadString ( IDS_WHITE );
+			else
+			{
+				name.LoadString ( IDS_PATCHLABEL_GRAY );
+				s.Format ( "%s %s", (LPCTSTR) name, (LPCTSTR) PatchLabelLevelText ( l.level ) );
+			}
+			break;
+		case PATCH_KIND_PRIMARY:
+		case PATCH_KIND_SECONDARY:
+			if ( l.color >= 0 && l.color < 6 )
+			{
+				name.LoadString ( colorIds[l.color] );
+				s.Format ( "%s %s", (LPCTSTR) name, (LPCTSTR) PatchLabelLevelText ( l.level ) );
+			}
+			break;
+		case PATCH_KIND_SATURATION:
+			if ( l.color >= 0 && l.color < 6 )
+			{
+				name.LoadString ( colorIds[l.color] );
+				fmt.LoadString ( IDS_PATCHLABEL_SAT );
+				s.Format ( fmt, (LPCTSTR) name, (LPCTSTR) PatchLabelLevelText ( l.level ) );
+			}
+			break;
+		default:
+			break;
+	}
+	return s;
+}
+
+// The patch-list grid (mode 11 on a USER list) shows one label row after
+// every other row while the switch in the list's name-chip menu is on.
+BOOL CMainView::ShowPatchLabelRow()
+{
+	return m_bShowPatchLabels && m_displayMode == 11 && GetConfig()->m_CCMode == USER;
+}
+
 void CMainView::InitGrid(bool sizeGrid)
 {
 	if(m_pGrayScaleGrid==NULL)
@@ -2173,6 +2234,11 @@ void CMainView::InitGrid(bool sizeGrid)
 			nRows ++;
 	}
 
+	// The label row (ShowPatchLabelRow) is the last one. nRows stays the
+	// count UpdateGrid fills, so the lux rows keep their positions.
+	BOOL bLabelRow = ShowPatchLabelRow ();
+	int nGridRows = nRows + ( bLabelRow ? 1 : 0 );
+
 	m_pGrayScaleGrid->SetTextColor(FxGetSysColor(COLOR_WINDOWTEXT));
 	m_pGrayScaleGrid->SetTextBkColor(FxGetSysColor(COLOR_WINDOW));
 	m_pGrayScaleGrid->SetFixedTextColor(FxGetSysColor(COLOR_WINDOWTEXT));
@@ -2181,7 +2247,7 @@ void CMainView::InitGrid(bool sizeGrid)
 	m_pGrayScaleGrid->SetFixedRowCount(1);
 	m_pGrayScaleGrid->SetFixedColumnCount(1);
 
-    m_pGrayScaleGrid->SetRowCount(nRows + 1);     
+    m_pGrayScaleGrid->SetRowCount(nGridRows + 1);     
     m_pGrayScaleGrid->SetColumnCount(size+1);
 	
 	m_pGrayScaleGrid->SetFixedColumnSelection(TRUE);
@@ -2463,7 +2529,7 @@ void CMainView::InitGrid(bool sizeGrid)
 		m_pGrayScaleGrid->SetItem(&Item);
 		m_pGrayScaleGrid->SetItemFont(Item.row,Item.col, &lf); // Set the font to bold
 
-		for ( int i2 = 4; i2 <= nRows ; i2++ )
+		for ( int i2 = 4; i2 <= nGridRows ; i2++ )
 		{
 			m_pGrayScaleGrid->SetItemBkColour ( i2, i+1, GridBk( (i2&1) ? RGB(240,240,240) : RGB(224,224,224) ) );
 			m_pGrayScaleGrid->SetItemState ( i2, i+1, m_pGrayScaleGrid->GetItemState(i2,i+1) | GVIS_READONLY );
@@ -2630,6 +2696,25 @@ void CMainView::InitGrid(bool sizeGrid)
 		m_pGrayScaleGrid->SetItem(&Item);
 	}
 
+	// The label row depends on the list definition only, not on readings,
+	// so it is filled here; UpdateGrid never reaches it.
+	if ( bLabelRow )
+	{
+		Item.row = nRows + 1;
+		Item.col = 0;
+		m_pGrayScaleGrid->SetItemFont(Item.row,Item.col, &lf);
+		Item.strText.LoadString ( IDS_PATCHLABEL_ROW );
+		m_pGrayScaleGrid->SetItem(&Item);
+		Item.nFormat = DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX;
+		for ( i = 0; i < size; i++ )
+		{
+			Item.col = i + 1;
+			Item.strText = PatchLabelText ( GetConfig()->GetCColorsLabel ( i ) );
+			m_pGrayScaleGrid->SetItem(&Item);
+		}
+		Item.nFormat = DT_CENTER|DT_WORDBREAK;
+	}
+
 	if (sizeGrid)
 	{
 		m_pGrayScaleGrid->AutoSizeColumns();
@@ -2650,7 +2735,7 @@ void CMainView::InitGrid(bool sizeGrid)
 		height = max(height, 18);
 		if (height == 18)
 		{
-			for ( i = 1 ; i <= nRows ; i ++ )
+			for ( i = 1 ; i <= nGridRows ; i ++ )
 				m_pGrayScaleGrid -> SetRowHeight ( i, height);
 		}
 
@@ -6940,6 +7025,7 @@ void CMainView::UpdateParamCombos()
 #define IDM_CCSET_PICKER_FIRST	50000
 #define IDM_CCSET_PICKER_MAX	256
 #define IDM_CCSET_PICKER_OPEN	(IDM_CCSET_PICKER_FIRST + IDM_CCSET_PICKER_MAX)
+#define IDM_CCSET_PICKER_LABELS	(IDM_CCSET_PICKER_OPEN + 1)
 
 void CMainView::OnCcSetNamePicker()
 {
@@ -6965,6 +7051,10 @@ void CMainView::OnCcSetNamePicker()
 	CString strOpen;
 	strOpen.LoadString ( IDS_CCSET_OPEN_LIST );
 	menu.AppendMenu ( MF_STRING, IDM_CCSET_PICKER_OPEN, strOpen );
+	menu.AppendMenu ( MF_SEPARATOR );
+	CString strLabels;
+	strLabels.LoadString ( IDS_PATCHLABEL_SHOW );
+	menu.AppendMenu ( MF_STRING | ( m_bShowPatchLabels ? MF_CHECKED : MF_UNCHECKED ), IDM_CCSET_PICKER_LABELS, strLabels );
 
 	CPoint pt;
 	GetCursorPos ( &pt );
@@ -6973,6 +7063,13 @@ void CMainView::OnCcSetNamePicker()
 		pDoc -> SwitchUserPatchSet ( cmd - IDM_CCSET_PICKER_FIRST );
 	else if ( cmd == IDM_CCSET_PICKER_OPEN )
 		AfxGetMainWnd () -> PostMessage ( WM_COMMAND, IDM_MEASURE_OPEN_PATCHLIST );	// routes to the active doc's handler
+	else if ( cmd == IDM_CCSET_PICKER_LABELS )
+	{
+		m_bShowPatchLabels = ! m_bShowPatchLabels;
+		GetConfig () -> WriteProfileInt ( "MainView", "Show Patch Labels", m_bShowPatchLabels ? 1 : 0 );
+		InitGrid ( true );	// the row count changes
+		UpdateGrid ();
+	}
 }
 
 void CMainView::OnSelchangeComboSteps()

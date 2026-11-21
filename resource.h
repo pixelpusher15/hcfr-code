@@ -2118,6 +2118,10 @@
 #define IDS_PGEN_RESTART_REFUSED         60201
 #define IDS_PGEN_RENDERER_NOT_READY      60202
 #define IDS_PGEN_DV_NEEDS_LIMITED        60203
+#define IDS_PATCHLABEL_SHOW              60270
+#define IDS_PATCHLABEL_ROW               60271
+#define IDS_PATCHLABEL_GRAY              60272
+#define IDS_PATCHLABEL_SAT               60273
 #define IDC_PROFILE_PANE                1558
 #define IDC_COMBO_DE_TOLERANCE          1549
 #define IDC_COMBO_UPDATE_RING           1550
