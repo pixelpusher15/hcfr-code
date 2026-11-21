@@ -336,6 +336,7 @@ public:
 	void ActivateUserPatchSet(int idx);				// harvest band -> outgoing set, load incoming set -> band + working array
 	void SyncActiveUserPatchSetFromBand();			// harvest band -> active set (no-op when none active)
 	void MigrateLegacyUserBand();					// wrap USER-band measures that belong to no set into one set (load + first-add safety)
+	void RelabelLoadedReadings();					// recompute every CC reading's in-memory patch label after a load (PatchLabel.h)
 	// Trailer bytes the document would need with `set` added (replaceIdx < 0)
 	// or in place of set replaceIdx, once every unmeasured row of `set` holds
 	// a reading; see Measure.cpp.

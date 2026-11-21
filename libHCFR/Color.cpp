@@ -3615,6 +3615,7 @@ int ReadCsvPatchRows(CString csvPath, std::vector<CsvPatchRow> & rows, int maxRo
 		}
 		rows.push_back(pr);
 	}
+	LabelPatchRows(rows, bits, range);
 	if (bitsOut)  *bitsOut  = bits;
 	if (rangeOut) *rangeOut = range;
 	return (int)rows.size();

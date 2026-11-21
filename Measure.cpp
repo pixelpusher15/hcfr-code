@@ -1446,6 +1446,10 @@ void CMeasure::Serialize(CArchive& ar)
 		// or the band is empty.
 		MigrateLegacyUserBand ();
 
+		// Labels are not stored: every color-checker reading that kept its
+		// provenance gets its label back from its stimulus (RelabelReading).
+		RelabelLoadedReadings ();
+
 		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
 
 	}
@@ -8813,8 +8817,20 @@ void CMeasure::MigrateLegacyUserBand()
 		}
 	}
 
+	LabelPatchRows ( set.rows, set.bits, set.range );
 	m_userPatchSets.push_back ( set );
 	m_activeUserSet = 0;
+}
+
+void CMeasure::RelabelLoadedReadings()
+{
+	for ( int i = 0; i < m_cc24SatMeasureArray.GetSize(); i++ )
+		RelabelReading ( m_cc24SatMeasureArray[i] );
+	for ( int i = 0; i < m_cc24SatMeasureArray_master.GetSize(); i++ )
+		RelabelReading ( m_cc24SatMeasureArray_master[i] );
+	for ( size_t s = 0; s < m_userPatchSets.size(); s++ )
+		for ( size_t i = 0; i < m_userPatchSets[s].measures.size(); i++ )
+			RelabelReading ( m_userPatchSets[s].measures[i] );
 }
 
 CColor CMeasure::GetPrimary(int i) const
