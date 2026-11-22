@@ -1868,6 +1868,84 @@ double CMeasure::GetGrayReadingProp(GraySeries series, int index) const
 	return GraySeriesProp ( GetGraySeriesView ( series ), index );
 }
 
+// The live "Use Black Level" preference's black, as MainView builds it, when
+// the preference is on: it writes this into the first gray and near black slot
+// whatever the document's flag says. NULL when the preference is off.
+static const CColor * LivePreferenceBlack ( CColor & storage )
+{
+	if ( GetConfig () -> GetProfileDouble ( "References", "Use Black Level", 0 ) == 0 )
+		return NULL;
+	double Yblack = GetConfig () -> GetProfileDouble ( "References", "Manual Black Level", 0 );
+	storage = CColor ( ColorXYZ ( Yblack * .95047, Yblack, Yblack * 1.0883 ) );	// as MainView builds it
+	return & storage;
+}
+
+bool CMeasure::GraySweepHoldsReading() const
+{
+	CColor prefBlack;
+	SweepConfirmRule::SeriesSlots gray = { SweepConfirmRule::S_GRAY, m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (),
+	                                       IsConstructorPlaceholder, &m_userBlack, LivePreferenceBlack ( prefBlack ) };
+	return SweepConfirmRule::SlotsHoldData ( gray );
+}
+
+GrayRamp CMeasure::GetGrayGraphRamp() const
+{
+	GrayRamp sweep;
+	BuildSweepGrayRamp ( GetGraySeriesView ( GRAY_SERIES_GRAYSCALE ), & sweep );
+	const bool sweepHolds = GraySweepHoldsReading ();
+	if ( sweepHolds || m_bpreV10 > 0 || m_activeUserSet < 0 || m_activeUserSet >= (int) m_userPatchSets.size () )
+		return sweep;
+
+	// The active set's readings are the USER band of the master array (the
+	// band-as-window, see the user patch set collection below), slot i paired
+	// with row i of the set's own definition.
+	const CUserPatchSet & set = m_userPatchSets[m_activeUserSet];
+	int nBand = (int) m_cc24SatMeasureArray_master.GetSize () - USER_BAND_BASE;
+	if ( nBand > MAX_USER_CC_PATCH_SIZE )
+		nBand = MAX_USER_CC_PATCH_SIZE;
+	if ( nBand <= 0 || set.rows.empty () )
+		return sweep;
+	GrayRamp list;
+	BuildListGrayRamp ( & set.rows[0], (int) set.rows.size (), m_cc24SatMeasureArray_master.GetData () + USER_BAND_BASE, nBand, & list );
+	return ( ChooseGrayRampSource ( sweepHolds, ! list.points.empty () ) == GRAY_RAMP_LIST ) ? list : sweep;
+}
+
+CColor CMeasure::GetGrayGraphWhite(const GrayRamp & ramp) const
+{
+	if ( ramp.source == GRAY_RAMP_SWEEP )
+		return GetGrayScaleWhite ();
+	CColor w = GrayRampWhite ( ramp, noDataColor );
+	if ( GrayRampWhiteUsable ( w ) )
+		return w;
+	if ( m_bOnOffWhiteMeasured && HoldsReading ( m_OnOffWhite ) && GrayRampWhiteUsable ( m_OnOffWhite ) )
+		return m_OnOffWhite;
+	return noDataColor;
+}
+
+CColor CMeasure::GetGrayGraphBlack(const GrayRamp & ramp) const
+{
+	if ( ramp.source == GRAY_RAMP_SWEEP || BlackOverrideInEffect () )
+		return GetGrayScaleBlack ();
+	return GrayRampBlack ( ramp, GetGrayScaleBlack () );
+}
+
+bool CMeasure::HoldsGrayGraphBlack(const GrayRamp & ramp) const
+{
+	if ( ramp.source == GRAY_RAMP_SWEEP )
+		return HoldsGrayScaleBlack ();
+	return FailedReadingRule::HoldsBlackReading ( GetGrayGraphBlack ( ramp ), BlackOverrideInEffect (), IsConstructorPlaceholder );
+}
+
+CColor CMeasure::GetGrayGraphTop(const GrayRamp & ramp) const
+{
+	if ( ramp.source == GRAY_RAMP_SWEEP )
+	{
+		const int n = (int) m_grayMeasureArray.GetSize ();
+		return ( n > 0 && ! IsRawlessPlaceholder ( m_grayMeasureArray[n-1], false ) ) ? m_grayMeasureArray[n-1] : noDataColor;
+	}
+	return GrayRampWhite ( ramp, noDataColor );
+}
+
 int CMeasure::GetGrayScalePreset() const
 {
 	const GrayScalePreset *	pPresets = GetGrayScalePresets();
@@ -8339,14 +8417,8 @@ BOOL CMeasure::SweepOverwritesData ( unsigned int sweep ) const
 	// MainView writes into all three whatever the document's flag says
 	// (CMainView::UpdateGrid, the "store/retrieve real black measurements"
 	// block). A real black there is a reading.
-	const CColor * liveBlack = NULL;
 	CColor prefBlack;
-	if ( GetConfig () -> GetProfileDouble ( "References", "Use Black Level", 0 ) != 0 )
-	{
-		double Yblack = GetConfig () -> GetProfileDouble ( "References", "Manual Black Level", 0 );
-		prefBlack = CColor ( ColorXYZ ( Yblack * .95047, Yblack, Yblack * 1.0883 ) );	// as MainView builds it
-		liveBlack = &prefBlack;
-	}
+	const CColor * liveBlack = LivePreferenceBlack ( prefBlack );
 
 	// The placeholders: CMeasure::IsConstructorPlaceholder. The gray top can hold
 	// the on/off white's placeholder too: the luminance and gamma graphers copy

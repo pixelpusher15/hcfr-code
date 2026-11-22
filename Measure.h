@@ -31,6 +31,7 @@
 
 #include "Color.h"
 #include "UserPatchSetStream.h"	// CUserPatchSet
+#include "GrayRamp.h"			// GrayRamp
 #include "Sensors\Sensor.h"
 #include "Generators\Generator.h"
 #include <vector>
@@ -272,6 +273,27 @@ public:
 	bool GetGrayReadingDrive(GraySeries series, int index, double * pProp) const;	// FALSE: no stamped gray drive
 	double GetGrayReadingLevel(GraySeries series, int index) const;	// percent
 	double GetGrayReadingProp(GraySeries series, int index) const;	// 0..1
+	// The gray graphs' readings (libHCFR GrayRamp.h): the gray sweep when it
+	// holds a reading (GraySweepHoldsReading), else the active patch list's
+	// grays when one is measured, else the sweep. The list is this document's
+	// active set, classified from its own rows, whatever the CC mode is.
+	GrayRamp GetGrayGraphRamp() const;
+	// Whether the gray sweep holds a reading: a valid slot that is neither a
+	// constructor placeholder nor the black override's synthetic black (the
+	// S_GRAY test of SweepOverwritesData).
+	bool GraySweepHoldsReading() const;
+	// The ramp's white and black. For the sweep exactly GetGrayScaleWhite /
+	// GetGrayScaleBlack / HoldsGrayScaleBlack. For a list: its 100% gray when
+	// usable, else the on/off white when it holds a reading, else noDataColor
+	// (no white: the white-normalized traces are not drawn); the user's black
+	// when the override is in effect, else its 0% gray, else GetGrayScaleBlack.
+	CColor GetGrayGraphWhite(const GrayRamp & ramp) const;
+	CColor GetGrayGraphBlack(const GrayRamp & ramp) const;
+	bool HoldsGrayGraphBlack(const GrayRamp & ramp) const;
+	// The gray top the near charts take as their white (NearChartWhite): for
+	// the sweep its last slot unless that is the rawless placeholder, for a
+	// list its usable 100% gray; else noDataColor.
+	CColor GetGrayGraphTop(const GrayRamp & ramp) const;
 	int GetGrayScalePreset() const;	// matching preset index, or -1 (custom)
 	void SetIREScaleMode(BOOL bIRE);
 	CColor lastColor, previousColor;
