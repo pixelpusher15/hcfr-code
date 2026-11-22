@@ -79,12 +79,18 @@ void CColorTempGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	m_graphCtrl.ClearGraph(m_ColorTempDataRefGraphID); //Ki
 
 	CDataSetDoc *pDataRef = GetDataRef();
-	int size=pDoc->GetMeasure()->GetGrayScaleSize();
+	// The gray graphs' readings (CMeasure::GetGrayGraphRamp): the gray sweep, or
+	// the active patch list's grays when the sweep holds no reading.
+	const GrayRamp ramp = pDoc->GetMeasure()->GetGrayGraphRamp();
+	int size=(int)ramp.points.size();
 
 	if ( pDataRef )
 	{
-		// Check if data reference is comparable
-		if ( pDataRef->GetMeasure()->GetGrayScaleSize() != size || pDataRef->GetMeasure()->m_bIREScaleMode != bIRE )
+		// Check if data reference is comparable: sweep against sweep only, a
+		// list's points pair with nothing in another document. A comparison
+		// document is read slot for slot below, as before.
+		if ( ramp.source != GRAY_RAMP_SWEEP || pDataRef->GetMeasure()->GetGrayGraphRamp().source != GRAY_RAMP_SWEEP
+			|| pDataRef->GetMeasure()->GetGrayScaleSize() != size || pDataRef->GetMeasure()->m_bIREScaleMode != bIRE )
 		{
 			// Cannot use data reference
 			pDataRef = NULL;
@@ -105,12 +111,12 @@ void CColorTempGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	// rather than dragging the Y scale to a bound.
 	for (int i=0; i<size; i++)
 	{
-		CColor aColor = pDoc->GetMeasure()->GetGray(i);
-		if ( i > 0 || HasMeasuredLight ( aColor.GetY() ) )
+		CColor aColor = ramp.points[i].reading;
+		if ( GrayRampDraws ( ramp, i ) && ( ! ramp.points[i].isBlack || HasMeasuredLight ( aColor.GetY() ) ) )
 		{
 			int colorTemp=aColor.GetXYZValue().GetColorTemp(GetColorReference());
 			if(colorTemp > 1500 && colorTemp < 12000)
-				m_graphCtrl.AddPoint(m_ColorTempGraphID, pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i ), colorTemp);
+				m_graphCtrl.AddPoint(m_ColorTempGraphID, ramp.points[i].level, colorTemp);
 		}
 
 		if ( m_showDataRef && pDataRef !=NULL && pDataRef != pDoc )
@@ -204,7 +210,8 @@ void CColorTempHistoView::OnInitialUpdate()
 void CColorTempHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint) 
 {
 	// Update this view only when we are concerned
-	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA || lHint == UPD_FREEMEASUREAPPENDED || (lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE && lHint != UPD_REALTIME + 13))
+	// UPD_CC24SAT: a patch-list run, whose grays this chart draws without a sweep
+	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA || lHint == UPD_FREEMEASUREAPPENDED || lHint == UPD_CC24SAT || (lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE && lHint != UPD_REALTIME + 13))
 	{
 		m_Grapher.UpdateGraph ( GetDocument () );
 		RedrawWindow( NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW );

@@ -75,7 +75,7 @@ public:
 	void UpdateGraph ( CDataSetDoc * pDoc );
 
 protected:
-	void AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex, double GammaOffset, CDataSetDoc *pDataSet,long GraphID, BOOL bIRE, const CColor & White, const CColor & Black);
+	void AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex, double GammaOffset, CDataSetDoc *pDataSet,long GraphID, BOOL bIRE, const CColor & White, const CColor & Black, const struct GrayRamp & ramp, bool bNoWhite);
 };
 
 class CLuminanceHistoView : public CSavingView
