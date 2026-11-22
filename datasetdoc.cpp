@@ -5333,7 +5333,7 @@ bool CDataSetDoc::ComputeRampGammaAndOffset(const GrayRamp & ramp, const CColor 
 			// The mean of the per-point gamma over the points that have light
 			// (FailedReadingRule::MeanPointGamma, which T50 checks); no point with
 			// light is no fit.
-			bFit = FailedReadingRule::MeanPointGamma ( Size, lumlvl, [&] ( int i ) -> double
+			auto pointGamma = [&] ( int i ) -> double
 			{
 				int mode = GetConfig()->m_GammaOffsetType;
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
@@ -5342,7 +5342,14 @@ bool CDataSetDoc::ComputeRampGammaAndOffset(const GrayRamp & ramp, const CColor 
 				if (mode == 5)
 					return log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.)/log(valx[i]);
 				return log(lumlvl[i])/log(valx[i]);
-			}, & Gamma_opt );
+			};
+			// A list's black and white are not its first and last points (it can hold
+			// grays below 0% and above 100%, or neither end at all): its fit takes the
+			// grays strictly between them, by value (GrayRampFitsPoint).
+			if ( ramp.source == GRAY_RAMP_LIST )
+				bFit = FailedReadingRule::MeanPointGammaOver ( Size, lumlvl, [&] ( int i ) { return GrayRampFitsPoint ( ramp, i ); }, pointGamma, & Gamma_opt );
+			else
+				bFit = FailedReadingRule::MeanPointGamma ( Size, lumlvl, pointGamma, & Gamma_opt );
 			if ( ! bFit )
 				Gamma_opt = FailedReadingRule::NoFitGamma;
 	}

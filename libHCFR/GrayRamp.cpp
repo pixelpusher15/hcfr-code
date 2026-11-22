@@ -255,3 +255,10 @@ bool GrayRampDraws ( const GrayRamp & r, int i )
 		return true;
 	return r.points[i].prop >= 0.0 && r.points[i].prop <= 1.0;
 }
+
+bool GrayRampFitsPoint ( const GrayRamp & r, int i )
+{
+	if ( r.source != GRAY_RAMP_LIST || i < 0 || i >= (int) r.points.size() )
+		return false;
+	return r.points[i].prop > 0.0 && r.points[i].prop < 1.0;
+}

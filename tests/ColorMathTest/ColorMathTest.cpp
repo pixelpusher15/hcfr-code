@@ -8611,7 +8611,72 @@ namespace T60Ramp
                 if (!r.points[1].isBlack || !r.points[2].isWhite || r.blackIndex != 1 || r.whiteIndex != 2
                     || !GrayRampDraws(r, 1) || !GrayRampDraws(r, 2))
                     Fail("T60 extended: black/white at 16/235 not found (indices %d/%d)", r.blackIndex, r.whiteIndex);
+                // The gamma fit takes no point of this list: below black, black,
+                // white and above white each have no per-point gamma.
+                for (int i = 0; i < 4; i++)
+                {
+                    if (GrayRampFitsPoint(r, i))
+                        Fail("T60 extended: point %d (prop %.17g) enters the gamma fit", i, r.points[i].prop);
+                }
             }
+        }
+        {
+            // The fit over a list is by value, not by position. An extended-range
+            // list of a display at gamma 2.2 exactly: codes 5 and 16 (below black,
+            // black), 60, 126, 180 (mid grays), 235 and 245, 250 (white and two
+            // above). The mean of log(Y/Yw) / log(level) over the points
+            // GrayRampFitsPoint admits is 2.2; by position (points 1 .. size-3,
+            // the sweep's rule) it would take black (level 0) and white (level 1).
+            const int E = CSV_RANGE_EXTENDED;
+            const int codes[8] = { 5, 16, 60, 126, 180, 235, 245, 250 };
+            const double Yw = 100.0;
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int i = 0; i < 8; i++)
+            {
+                const double v = (codes[i] - 16) / 219.0;
+                const double Y = (v <= 0.0) ? 0.05 : Yw * pow(v, 2.2);
+                rows.push_back(Gray(codes[i], 8, E));
+                readings.push_back(Reading(Y * 0.95, Y, Y * 1.09, codes[i], 8, E));
+            }
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 8 || r.blackIndex != 1 || r.whiteIndex != 5)
+                Fail("T60 list fit: %d points, black %d white %d; expected 8, 1, 5", (int)r.points.size(), r.blackIndex, r.whiteIndex);
+            else
+            {
+                double lum[8];
+                int nFit = 0;
+                for (int i = 0; i < 8; i++)
+                {
+                    lum[i] = r.points[i].reading.GetY() / Yw;
+                    const bool expectFit = (i >= 2 && i <= 4);
+                    if (GrayRampFitsPoint(r, i) != expectFit)
+                        Fail("T60 list fit: point %d (prop %.17g) fits %d, expected %d", i, r.points[i].prop,
+                             (int)GrayRampFitsPoint(r, i), (int)expectFit);
+                    if (GrayRampFitsPoint(r, i))
+                        nFit++;
+                }
+                double gamma = 0.0;
+                const bool fit = FailedReadingRule::MeanPointGammaOver(8, lum,
+                    [&](int i) { return GrayRampFitsPoint(r, i); },
+                    [&](int i) { return log(lum[i]) / log(r.points[i].prop); }, &gamma);
+                if (!fit || nFit != 3 || fabs(gamma - 2.2) > 1e-9)
+                    Fail("T60 list fit: fit %d over %d points, gamma %.17g; expected 1, 3, 2.2 within 1e-9", (int)fit, nFit, gamma);
+                // no point admitted is no fit, with the 1 in the divisor
+                double none = 7.0;
+                if (FailedReadingRule::MeanPointGammaOver(8, lum, [](int) { return false; }, [](int) { return 99.0; }, &none) || none != 0.0)
+                    Fail("T60 list fit: no admitted point gave a fit (mean %.17g)", none);
+            }
+            // A sweep ramp keeps the positional rule: GrayRampFitsPoint admits none.
+            GrayRamp sweep = r;
+            sweep.source = GRAY_RAMP_SWEEP;
+            for (int i = 0; i < (int)sweep.points.size(); i++)
+            {
+                if (GrayRampFitsPoint(sweep, i))
+                    Fail("T60 list fit: sweep point %d admitted by the list rule", i);
+            }
+            if (GrayRampFitsPoint(r, -1) || GrayRampFitsPoint(r, 8))
+                Fail("T60 list fit: an index outside the ramp was admitted");
         }
         {
             std::vector<CsvPatchRow> rows;

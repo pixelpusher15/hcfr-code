@@ -120,4 +120,14 @@ GrayRampSource ChooseGrayRampSource ( bool sweepHoldsReading, bool listHasPoint 
 // Whether point i is drawn: every sweep point, and a list point inside 0..1.
 bool GrayRampDraws ( const GrayRamp & r, int i );
 
+// Whether point i of a LIST ramp enters the gamma fit: a gray strictly between
+// 0% and 100%. The per-point gamma is log(Y) / log(level): at 0% and below the
+// level has no logarithm, at 100% it is 0 (the white is what Y is divided by),
+// and above 100% the display is past the white the curve is defined to. A
+// list's black and white can sit anywhere in its points (an extended-range
+// list has grays below 0% and above 100%), so the test is by value. A sweep
+// ramp keeps its own rule (FailedReadingRule::MeanPointGamma, points 1 ..
+// size-3): false here.
+bool GrayRampFitsPoint ( const GrayRamp & r, int i );
+
 #endif // GRAYRAMP_H_INCLUDED_
