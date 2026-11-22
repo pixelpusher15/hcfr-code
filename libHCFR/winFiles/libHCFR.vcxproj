@@ -110,6 +110,7 @@
     <ClCompile Include="..\SaturationTracking.cpp" />
     <ClCompile Include="..\Ti3Export.cpp" />
     <ClCompile Include="..\PatchLabel.cpp" />
+    <ClCompile Include="..\GrayRamp.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\ArchiveExtension.h" />
@@ -136,6 +137,7 @@
     <ClInclude Include="..\SaturationTracking.h" />
     <ClInclude Include="..\Ti3Export.h" />
     <ClInclude Include="..\PatchLabel.h" />
+    <ClInclude Include="..\GrayRamp.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\ReadMe.txt" />

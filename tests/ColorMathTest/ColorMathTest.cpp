@@ -8117,6 +8117,543 @@ static void RunT59()
     T59Label::CheckReading();
 }
 
+// ---------------------------------------------------------------------------
+// T60: the gray graph ramp (libHCFR GrayRamp.h). Pure assertions, no golden
+// files. Every value comes from integer codes or binary-exact synthetic
+// readings, so every comparison is exact (==).
+// ---------------------------------------------------------------------------
+#include "../../libHCFR/GrayRamp.h"
+
+namespace T60Ramp
+{
+    static CsvPatchRow Row(int r, int g, int b, int bits, int range, int role = -1)
+    {
+        CsvPatchRow row;
+        row.patch = r * 1000000 + g * 1000 + b;
+        row.r = r; row.g = g; row.b = b;
+        row.role = role;
+        row.label = ClassifyPatch(r, g, b, bits, range);
+        return row;
+    }
+    static CsvPatchRow Gray(int code, int bits, int range, int role = -1)
+    { return Row(code, code, code, bits, range, role); }
+
+    // A reading of a gray of `code`, its stimulus the code's percent.
+    static CColor Reading(double X, double Y, double Z, int code, int bits, int range)
+    {
+        CColor c(X, Y, Z);
+        const double s = CsvCodeToPercent(code, bits, range);
+        c.SetStimulusValue(ColorRGBDisplay(s, s, s));
+        return c;
+    }
+    // The same, stamped: HCFR drove wireCode on an 8-bit wire of wireRange.
+    static CColor Stamped(double X, double Y, double Z, int code, int bits, int range, int wireCode, int wireRange)
+    {
+        CColor c = Reading(X, Y, Z, code, bits, range);
+        CColorWireSetup w;
+        w.realDrive = true;
+        w.wireBits = 8;
+        w.encodingRange = wireRange;
+        w.generatorId = WIRE_GENERATOR_GDI;
+        w.outputMode = 0;
+        w.wireCode[0] = w.wireCode[1] = w.wireCode[2] = wireCode;
+        c.SetWireSetup(w);
+        return c;
+    }
+
+    static bool SameXYZ(const CColor& a, const CColor& b)
+    {
+        const ColorXYZ x = a.GetXYZValue(), y = b.GetXYZValue();
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    }
+
+    static bool SamePoint(const GrayRampPoint& a, const GrayRampPoint& b)
+    {
+        return a.level == b.level && a.prop == b.prop && a.nominalProp == b.nominalProp
+            && a.stamped == b.stamped && a.isBlack == b.isBlack && a.isWhite == b.isWhite
+            && a.members == b.members && SameXYZ(a.reading, b.reading)
+            && a.reading.HasLuxValue() == b.reading.HasLuxValue()
+            && (!a.reading.HasLuxValue() || a.reading.GetLuxValue() == b.reading.GetLuxValue());
+    }
+
+    static GrayRamp Build(const std::vector<CsvPatchRow>& rows, const std::vector<CColor>& readings)
+    {
+        GrayRamp r;
+        BuildListGrayRamp(rows.empty() ? NULL : &rows[0], (int)rows.size(),
+                          readings.empty() ? NULL : &readings[0], (int)readings.size(), &r);
+        return r;
+    }
+
+    // 1. A shuffled list gives the ramp the ordered one does.
+    static void CheckShuffled()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        const int codes[6] = { 16, 17, 30, 126, 126, 235 };
+        const double ys[6]  = { 0.5, 1.0, 4.0, 40.0, 44.0, 100.0 };
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        for (int i = 0; i < 6; i++)
+        {
+            rows.push_back(Gray(codes[i], 8, L));
+            readings.push_back(Reading(ys[i] * 0.5, ys[i], ys[i] * 2.0, codes[i], 8, L));
+        }
+        // with colored rows mixed in
+        rows.push_back(Row(235, 16, 16, 8, L));
+        readings.push_back(Reading(40.0, 20.0, 2.0, 235, 8, L));
+        rows.push_back(Row(126, 126, 16, 8, L));
+        readings.push_back(Reading(30.0, 35.0, 3.0, 126, 8, L));
+
+        const GrayRamp ordered = Build(rows, readings);
+        static const int perm[8] = { 5, 7, 3, 0, 6, 4, 1, 2 };	// fixed, not random
+        std::vector<CsvPatchRow> srows;
+        std::vector<CColor> sreads;
+        for (int i = 0; i < 8; i++)
+        {
+            srows.push_back(rows[perm[i]]);
+            sreads.push_back(readings[perm[i]]);
+        }
+        const GrayRamp shuffled = Build(srows, sreads);
+
+        if (ordered.points.size() != 5)
+            Fail("T60 shuffled: ordered list gave %d points, expected 5", (int)ordered.points.size());
+        if (shuffled.points.size() != ordered.points.size())
+            Fail("T60 shuffled: %d points, ordered %d", (int)shuffled.points.size(), (int)ordered.points.size());
+        else
+            for (size_t i = 0; i < ordered.points.size(); i++)
+                if (!SamePoint(ordered.points[i], shuffled.points[i]))
+                    Fail("T60 shuffled: point %d differs (level %.17g vs %.17g, Y %.17g vs %.17g)", (int)i,
+                         ordered.points[i].level, shuffled.points[i].level,
+                         ordered.points[i].reading.GetY(), shuffled.points[i].reading.GetY());
+        if (shuffled.blackIndex != ordered.blackIndex || shuffled.whiteIndex != ordered.whiteIndex)
+            Fail("T60 shuffled: black/white index %d/%d, ordered %d/%d",
+                 shuffled.blackIndex, shuffled.whiteIndex, ordered.blackIndex, ordered.whiteIndex);
+        for (size_t i = 1; i < ordered.points.size(); i++)
+            if (!(ordered.points[i - 1].prop < ordered.points[i].prop))
+                Fail("T60 shuffled: points %d and %d not ascending", (int)i - 1, (int)i);
+        if (ordered.source != GRAY_RAMP_LIST)
+            Fail("T60 shuffled: source %d, expected the list", (int)ordered.source);
+    }
+
+    // 2. Each point at its own level, never step i of n.
+    static void CheckOwnLevels()
+    {
+        struct Case { int bits, range; int codes[5]; };
+        const Case cases[3] = {
+            { 8,  CSV_RANGE_LEGAL, { 16, 17, 30, 126, 235 } },
+            { 10, CSV_RANGE_FULL,  { 0, 1, 512, 700, 1023 } },
+            { 10, CSV_RANGE_LEGAL, { 64, 65, 300, 502, 940 } },
+        };
+        for (int c = 0; c < 3; c++)
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int i = 4; i >= 0; i--)	// handed over top down
+            {
+                const int code = cases[c].codes[i];
+                rows.push_back(Gray(code, cases[c].bits, cases[c].range));
+                readings.push_back(Reading(1.0, 1.0 + i, 1.0, code, cases[c].bits, cases[c].range));
+            }
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 5)
+            {
+                Fail("T60 own levels case %d: %d points, expected 5", c, (int)r.points.size());
+                continue;
+            }
+            for (int i = 0; i < 5; i++)
+            {
+                const double want = CsvCodeToPercent(cases[c].codes[i], cases[c].bits, cases[c].range) / 100.0;
+                const GrayRampPoint& p = r.points[i];
+                if (p.prop != want || p.nominalProp != want || p.level != p.prop * 100.0 || p.stamped)
+                    Fail("T60 own levels case %d point %d: prop %.17g nominal %.17g level %.17g stamped %d; expected %.17g",
+                         c, i, p.prop, p.nominalProp, p.level, (int)p.stamped, want);
+                if (p.reading.GetY() != 1.0 + i)
+                    Fail("T60 own levels case %d point %d: reading Y %.17g, expected %d", c, i, p.reading.GetY(), 1 + i);
+            }
+        }
+    }
+
+    // 3. Repeated signals: one averaged point.
+    static void CheckDuplicates()
+    {
+        const int F = CSV_RANGE_FULL;
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            const double ys[3] = { 14.0, 10.0, 12.0 };
+            for (int i = 0; i < 3; i++)
+            {
+                rows.push_back(Gray(128, 8, F));
+                CColor c = Reading(ys[i] - 2.0, ys[i], ys[i] + 10.0, 128, 8, F);
+                c.SetLuxValue(ys[i] * 0.5);
+                readings.push_back(c);
+            }
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 1)
+                Fail("T60 duplicates: %d points, expected 1", (int)r.points.size());
+            else
+            {
+                const GrayRampPoint& p = r.points[0];
+                const ColorXYZ x = p.reading.GetXYZValue();
+                if (p.members != 3 || x[0] != 10.0 || x[1] != 12.0 || x[2] != 22.0)
+                    Fail("T60 duplicates: members %d XYZ %.17g %.17g %.17g, expected 3 and 10 12 22",
+                         p.members, x[0], x[1], x[2]);
+                if (!p.reading.HasLuxValue() || p.reading.GetLuxValue() != 6.0)
+                    Fail("T60 duplicates: lux %s %.17g, expected 6", p.reading.HasLuxValue() ? "present" : "absent",
+                         p.reading.HasLuxValue() ? p.reading.GetLuxValue() : 0.0);
+                if (!p.reading.HasStimulusValue() || p.reading.GetStimulusValue()[1] != CsvCodeToPercent(128, 8, F))
+                    Fail("T60 duplicates: the average lost its stimulus");
+                if (p.firstRow != 0)
+                    Fail("T60 duplicates: firstRow %d, expected 0", p.firstRow);
+            }
+        }
+        {
+            // a failed reading does not count; a member without lux drops the lux
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(64, 8, F));  readings.push_back(Reading(1.0, 10.0, 1.0, 64, 8, F));
+            rows.push_back(Gray(64, 8, F));  readings.push_back(noDataColor);
+            rows.push_back(Gray(64, 8, F));  readings.push_back(Reading(3.0, 14.0, 5.0, 64, 8, F));
+            readings[0].SetLuxValue(2.0);
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 1 || r.points[0].members != 2 || r.points[0].reading.GetY() != 12.0
+                || r.points[0].reading.GetX() != 2.0 || r.points[0].reading.GetZ() != 3.0)
+                Fail("T60 duplicates with a failed reading: %d points, members %d, Y %.17g; expected 1, 2, 12",
+                     (int)r.points.size(), r.points.empty() ? 0 : r.points[0].members,
+                     r.points.empty() ? 0.0 : r.points[0].reading.GetY());
+            else if (r.points[0].reading.HasLuxValue())
+                Fail("T60 duplicates: lux kept although one member had none");
+        }
+        {
+            // one reading: that reading, unchanged
+            std::vector<CsvPatchRow> rows(1, Gray(200, 8, F));
+            std::vector<CColor> readings(1, Reading(0.1, 0.3, 0.7, 200, 8, F));
+            readings[0].SetLuxValue(0.9);
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 1 || r.points[0].members != 1 || !SameXYZ(r.points[0].reading, readings[0])
+                || !r.points[0].reading.HasLuxValue() || r.points[0].reading.GetLuxValue() != 0.9)
+                Fail("T60 duplicates: a single reading was not kept unchanged");
+        }
+    }
+
+    // 4. Codes the list's range clamps to the same code are one signal.
+    static void CheckClampedMerge()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        rows.push_back(Gray(10, 8, L));  readings.push_back(Reading(0.25, 0.5, 0.25, 10, 8, L));
+        rows.push_back(Gray(16, 8, L));  readings.push_back(Reading(0.75, 1.5, 0.75, 16, 8, L));
+        const GrayRamp r = Build(rows, readings);
+        if (r.points.size() != 1 || r.points[0].members != 2 || !r.points[0].isBlack
+            || r.points[0].level != 0.0 || r.points[0].reading.GetY() != 1.0 || r.blackIndex != 0)
+            Fail("T60 clamped codes 10 and 16 (legal): %d points, members %d, black %d, level %.17g, Y %.17g;"
+                 " expected one black point of 2 at 0 with Y 1",
+                 (int)r.points.size(), r.points.empty() ? 0 : r.points[0].members,
+                 r.points.empty() ? 0 : (int)r.points[0].isBlack,
+                 r.points.empty() ? 0.0 : r.points[0].level, r.points.empty() ? 0.0 : r.points[0].reading.GetY());
+    }
+
+    // 5. Only gray rows with a counted role and a valid reading.
+    static void CheckExcluded()
+    {
+        const int F = CSV_RANGE_FULL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        // not gray
+        rows.push_back(Row(255, 0, 0, 8, F));     readings.push_back(Reading(40, 20, 2, 255, 8, F));
+        rows.push_back(Row(255, 255, 0, 8, F));   readings.push_back(Reading(70, 90, 9, 255, 8, F));
+        rows.push_back(Row(255, 128, 128, 8, F)); readings.push_back(Reading(60, 50, 40, 255, 8, F));
+        rows.push_back(Row(10, 20, 30, 8, F));    readings.push_back(Reading(1, 1, 1, 10, 8, F));
+        CsvPatchRow unlabeled = Gray(50, 8, F);
+        unlabeled.label = PatchLabel();
+        rows.push_back(unlabeled);               readings.push_back(Reading(5, 5, 5, 50, 8, F));
+        // gray, excluded roles
+        rows.push_back(Gray(60, 8, F, PROVENANCE_ROLE_ANCHOR));         readings.push_back(Reading(6, 6, 6, 60, 8, F));
+        rows.push_back(Gray(61, 8, F, PROVENANCE_ROLE_PREROLL));        readings.push_back(Reading(6, 6, 6, 61, 8, F));
+        rows.push_back(Gray(62, 8, F, PROVENANCE_ROLE_INTERSTITIAL));   readings.push_back(Reading(6, 6, 6, 62, 8, F));
+        rows.push_back(Gray(63, 8, F, PROVENANCE_ROLE_IDENTIFICATION)); readings.push_back(Reading(6, 6, 6, 63, 8, F));
+        // gray, no valid reading
+        rows.push_back(Gray(70, 8, F));           readings.push_back(noDataColor);
+        // gray, counted roles
+        rows.push_back(Gray(80, 8, F, PROVENANCE_ROLE_UNKNOWN));        readings.push_back(Reading(8, 8, 8, 80, 8, F));
+        rows.push_back(Gray(81, 8, F, PROVENANCE_ROLE_COLOR));          readings.push_back(Reading(8, 8, 8, 81, 8, F));
+        rows.push_back(Gray(82, 8, F, PROVENANCE_ROLE_VERIFICATION));   readings.push_back(Reading(8, 8, 8, 82, 8, F));
+        const GrayRamp r = Build(rows, readings);
+        if (r.points.size() != 3)
+            Fail("T60 excluded rows: %d points, expected 3 (codes 80, 81, 82)", (int)r.points.size());
+        else
+            for (int i = 0; i < 3; i++)
+                if (r.points[i].firstRow != 10 + i)
+                    Fail("T60 excluded rows: point %d is row %d, expected %d", i, r.points[i].firstRow, 10 + i);
+    }
+
+    // 6. A point sits at its stamped drive when every reading agrees on one.
+    static void CheckStamped()
+    {
+        const int F = CSV_RANGE_FULL;
+        const double stampedProp = (126.0 - 16.0) / (235.0 - 16.0);
+        const double nominal = CsvCodeToPercent(128, 8, F) / 100.0;
+        {
+            std::vector<CsvPatchRow> rows(1, Gray(128, 8, F));
+            std::vector<CColor> readings(1, Stamped(1, 20, 1, 128, 8, F, 126, WIRE_RANGE_LIMITED));
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 1 || !r.points[0].stamped || r.points[0].prop != stampedProp
+                || r.points[0].level != stampedProp * 100.0 || r.points[0].nominalProp != nominal)
+                Fail("T60 stamped: prop %.17g stamped %d nominal %.17g; expected %.17g, 1, %.17g",
+                     r.points.empty() ? 0.0 : r.points[0].prop, r.points.empty() ? 0 : (int)r.points[0].stamped,
+                     r.points.empty() ? 0.0 : r.points[0].nominalProp, stampedProp, nominal);
+        }
+        {
+            std::vector<CsvPatchRow> rows(1, Gray(128, 8, F));
+            std::vector<CColor> readings(1, Reading(1, 20, 1, 128, 8, F));
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 1 || r.points[0].stamped || r.points[0].prop != nominal)
+                Fail("T60 unstamped: prop %.17g stamped %d; expected %.17g, 0",
+                     r.points.empty() ? 0.0 : r.points[0].prop, r.points.empty() ? 0 : (int)r.points[0].stamped, nominal);
+        }
+        {
+            // two stamps that disagree, and a stamped reading beside an unstamped one
+            std::vector<CsvPatchRow> rows(2, Gray(128, 8, F));
+            std::vector<CColor> a;
+            a.push_back(Stamped(1, 20, 1, 128, 8, F, 126, WIRE_RANGE_LIMITED));
+            a.push_back(Stamped(1, 22, 1, 128, 8, F, 127, WIRE_RANGE_LIMITED));
+            std::vector<CColor> b;
+            b.push_back(Stamped(1, 20, 1, 128, 8, F, 126, WIRE_RANGE_LIMITED));
+            b.push_back(Reading(1, 22, 1, 128, 8, F));
+            const GrayRamp ra = Build(rows, a), rb = Build(rows, b);
+            if (ra.points.size() != 1 || ra.points[0].stamped || ra.points[0].prop != nominal)
+                Fail("T60 disagreeing stamps: the point did not fall back to its nominal level");
+            if (rb.points.size() != 1 || rb.points[0].stamped || rb.points[0].prop != nominal)
+                Fail("T60 stamped beside unstamped: the point did not fall back to its nominal level");
+        }
+    }
+
+    // 7. Black and white are the grays at exactly 0% and 100%, by value.
+    static void CheckBlackWhite()
+    {
+        const int F = CSV_RANGE_FULL;
+        const CColor fallback(0.25, 0.5, 0.75);
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(255, 8, F)); readings.push_back(Reading(95, 100, 108, 255, 8, F));
+            rows.push_back(Gray(128, 8, F)); readings.push_back(Reading(20, 21, 22, 128, 8, F));
+            rows.push_back(Gray(0, 8, F));   readings.push_back(Reading(0.05, 0.0625, 0.07, 0, 8, F));
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 3 || r.blackIndex != 0 || r.whiteIndex != 2
+                || !r.points[0].isBlack || !r.points[2].isWhite || r.points[1].isBlack || r.points[1].isWhite
+                || r.points[2].level != 100.0 || r.points[0].level != 0.0)
+                Fail("T60 black/white: black %d white %d over %d points; expected 0, 2 of 3",
+                     r.blackIndex, r.whiteIndex, (int)r.points.size());
+            if (GrayRampWhite(r, fallback).GetY() != 100.0)
+                Fail("T60 black/white: GrayRampWhite gave Y %.17g, expected 100", GrayRampWhite(r, fallback).GetY());
+            if (GrayRampBlack(r, fallback).GetY() != 0.0625)
+                Fail("T60 black/white: GrayRampBlack gave Y %.17g, expected 0.0625", GrayRampBlack(r, fallback).GetY());
+        }
+        {
+            // no 0% and no 100%: both fall back
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(64, 8, F));  readings.push_back(Reading(5, 6, 7, 64, 8, F));
+            rows.push_back(Gray(192, 8, F)); readings.push_back(Reading(50, 52, 56, 192, 8, F));
+            const GrayRamp r = Build(rows, readings);
+            if (r.blackIndex != -1 || r.whiteIndex != -1)
+                Fail("T60 no black/white: indices %d/%d, expected -1/-1", r.blackIndex, r.whiteIndex);
+            if (GrayRampWhite(r, fallback).GetY() != 0.5 || GrayRampBlack(r, fallback).GetY() != 0.5)
+                Fail("T60 no black/white: the fallback was not returned");
+        }
+        {
+            // a failed 0% reading leaves no black; a 100% reading without light is no white
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(0, 8, F));   readings.push_back(noDataColor);
+            rows.push_back(Gray(255, 8, F)); readings.push_back(Reading(0.0, 0.0, 0.0, 255, 8, F));
+            const GrayRamp r = Build(rows, readings);
+            if (r.blackIndex != -1 || GrayRampBlack(r, fallback).GetY() != 0.5)
+                Fail("T60 failed black: blackIndex %d, expected -1 and the fallback", r.blackIndex);
+            if (r.whiteIndex < 0 || GrayRampWhite(r, fallback).GetY() != 0.5)
+                Fail("T60 dark white: whiteIndex %d, expected a white point and the fallback", r.whiteIndex);
+            if (GrayRampWhiteUsable(noDataColor) || GrayRampWhiteUsable(CColor(0.0, 0.0, 0.0)) || !GrayRampWhiteUsable(fallback))
+                Fail("T60 GrayRampWhiteUsable: wrong answer");
+        }
+    }
+
+    // 8. The sweep wins when it holds a reading.
+    static void CheckSweepWins()
+    {
+        if (ChooseGrayRampSource(true, true) != GRAY_RAMP_SWEEP)
+            Fail("T60 sweep wins: a sweep reading and a list gave the list");
+        if (ChooseGrayRampSource(true, false) != GRAY_RAMP_SWEEP)
+            Fail("T60 sweep wins: a sweep reading alone gave the list");
+        if (ChooseGrayRampSource(false, true) != GRAY_RAMP_LIST)
+            Fail("T60 sweep wins: no sweep reading and a list gave the sweep");
+        if (ChooseGrayRampSource(false, false) != GRAY_RAMP_SWEEP)
+            Fail("T60 sweep wins: nothing at all gave the list");
+
+        // The sweep's "holds a reading" is the S_GRAY test: the override's
+        // synthetic black in slot 0 is not a reading, a measured slot is.
+        const CColor userBlack(0.0475, 0.05, 0.0544);
+        CColor slots[3] = { userBlack, noDataColor, noDataColor };
+        SweepConfirmRule::SeriesSlots s = { SweepConfirmRule::S_GRAY, slots, 3, NULL, &userBlack, NULL };
+        if (SweepConfirmRule::SlotsHoldData(s))
+            Fail("T60 sweep wins: a synthetic black alone counted as a sweep reading");
+        slots[1] = CColor(10.0, 11.0, 12.0);
+        slots[1].SetRawXYZValue(ColorXYZ(10.0, 11.0, 12.0));
+        if (!SweepConfirmRule::SlotsHoldData(s))
+            Fail("T60 sweep wins: a measured slot did not count as a sweep reading");
+    }
+
+    // 9. The sweep's ramp is the GraySeries helpers, slot for slot.
+    static void CheckSweepParity()
+    {
+        CColor readings[5];
+        for (int i = 0; i < 5; i++)
+            readings[i] = CColor(1.0 + i, 2.0 + i, 3.0 + i);
+        // slot 2 stamped at full-range code 128, slot 3 stamped with unequal codes
+        {
+            readings[2].SetStimulusValue(ColorRGBDisplay(50.0, 50.0, 50.0));
+            CColorWireSetup w;
+            w.realDrive = true; w.wireBits = 8; w.encodingRange = WIRE_RANGE_FULL;
+            w.wireCode[0] = w.wireCode[1] = w.wireCode[2] = 128;
+            readings[2].SetWireSetup(w);
+            readings[3].SetStimulusValue(ColorRGBDisplay(70.0, 70.0, 70.0));
+            w.wireCode[0] = 178; w.wireCode[1] = 179; w.wireCode[2] = 178;
+            readings[3].SetWireSetup(w);
+        }
+        const double nominal[5] = { 0.0, 10.0, 33.3, 80.0, 100.0 };
+        for (int variant = 0; variant < 4; variant++)
+        {
+            GraySeriesView v;
+            v.series = GRAY_SERIES_GRAYSCALE;
+            v.readings = readings;
+            v.size = 5;
+            v.nominalLevels = (variant & 1) ? nominal : NULL;
+            v.nominalCount = (variant & 1) ? 5 : 0;
+            v.nearWhiteClipCol = 101;
+            v.pqNearBlack = false;
+            v.bUseRoundDown = (variant & 2) != 0;
+            v.b10bit = false;
+            v.is16_235 = true;
+            GrayRamp r;
+            BuildSweepGrayRamp(v, &r);
+            if (r.source != GRAY_RAMP_SWEEP || r.points.size() != 5 || r.blackIndex != 0 || r.whiteIndex != 4)
+            {
+                Fail("T60 sweep parity variant %d: source %d, %d points, black %d white %d",
+                     variant, (int)r.source, (int)r.points.size(), r.blackIndex, r.whiteIndex);
+                continue;
+            }
+            for (int i = 0; i < 5; i++)
+            {
+                const GrayRampPoint& p = r.points[i];
+                double d;
+                const bool stamped = GraySeriesDriveProp(v, i, &d);
+                if (p.level != GraySeriesLevel(v, i) || p.prop != GraySeriesProp(v, i)
+                    || p.nominalProp != GraySeriesSlotProp(v, i) || p.stamped != stamped
+                    || p.isBlack != (i == 0) || p.isWhite != (i == 4) || p.firstRow != i || p.members != 1
+                    || !SameXYZ(p.reading, readings[i]))
+                    Fail("T60 sweep parity variant %d slot %d: level %.17g/%.17g prop %.17g/%.17g nominal %.17g/%.17g stamped %d/%d",
+                         variant, i, p.level, GraySeriesLevel(v, i), p.prop, GraySeriesProp(v, i),
+                         p.nominalProp, GraySeriesSlotProp(v, i), (int)p.stamped, (int)stamped);
+                if (!GrayRampDraws(r, i))
+                    Fail("T60 sweep parity variant %d slot %d: a sweep point is not drawn", variant, i);
+            }
+            if (!r.points[2].stamped || r.points[3].stamped)
+                Fail("T60 sweep parity variant %d: the stamp setup did not take (slot 2 %d, slot 3 %d)",
+                     variant, (int)r.points[2].stamped, (int)r.points[3].stamped);
+        }
+        GraySeriesView empty;
+        empty.series = GRAY_SERIES_GRAYSCALE; empty.readings = readings; empty.size = 0;
+        empty.nominalLevels = NULL; empty.nominalCount = 0; empty.nearWhiteClipCol = 101;
+        empty.pqNearBlack = false; empty.bUseRoundDown = false; empty.b10bit = false; empty.is16_235 = true;
+        GrayRamp re;
+        BuildSweepGrayRamp(empty, &re);
+        if (!re.points.empty() || re.blackIndex != -1 || re.whiteIndex != -1)
+            Fail("T60 sweep parity: an empty sweep gave %d points", (int)re.points.size());
+    }
+
+    // 10. Short lists, extended range, empty input, unequal counts.
+    static void CheckEdges()
+    {
+        const int F = CSV_RANGE_FULL;
+        for (int n = 2; n <= 3; n++)
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int i = 0; i < n; i++)
+            {
+                const int code = i * 255 / (n - 1);
+                rows.push_back(Gray(code, 8, F));
+                readings.push_back(Reading(1, 1.0 + i, 1, code, 8, F));
+            }
+            const GrayRamp r = Build(rows, readings);
+            if ((int)r.points.size() != n || r.blackIndex != 0 || r.whiteIndex != n - 1)
+                Fail("T60 %d-gray list: %d points, black %d white %d", n, (int)r.points.size(), r.blackIndex, r.whiteIndex);
+        }
+        {
+            const int E = CSV_RANGE_EXTENDED;
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(5, 8, E));   readings.push_back(Reading(0.1, 0.1, 0.1, 5, 8, E));
+            rows.push_back(Gray(16, 8, E));  readings.push_back(Reading(0.2, 0.2, 0.2, 16, 8, E));
+            rows.push_back(Gray(235, 8, E)); readings.push_back(Reading(90, 95, 99, 235, 8, E));
+            rows.push_back(Gray(250, 8, E)); readings.push_back(Reading(95, 100, 105, 250, 8, E));
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 4)
+                Fail("T60 extended: %d points, expected 4", (int)r.points.size());
+            else
+            {
+                if (!(r.points[0].prop < 0.0) || r.points[0].isBlack || GrayRampDraws(r, 0))
+                    Fail("T60 extended: code 5 prop %.17g black %d drawn %d; expected < 0, 0, 0",
+                         r.points[0].prop, (int)r.points[0].isBlack, (int)GrayRampDraws(r, 0));
+                if (!(r.points[3].prop > 1.0) || r.points[3].isWhite || GrayRampDraws(r, 3))
+                    Fail("T60 extended: code 250 prop %.17g white %d drawn %d; expected > 1, 0, 0",
+                         r.points[3].prop, (int)r.points[3].isWhite, (int)GrayRampDraws(r, 3));
+                if (!r.points[1].isBlack || !r.points[2].isWhite || r.blackIndex != 1 || r.whiteIndex != 2
+                    || !GrayRampDraws(r, 1) || !GrayRampDraws(r, 2))
+                    Fail("T60 extended: black/white at 16/235 not found (indices %d/%d)", r.blackIndex, r.whiteIndex);
+            }
+        }
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            const GrayRamp r = Build(rows, readings);
+            if (!r.points.empty() || r.blackIndex != -1 || r.whiteIndex != -1 || r.source != GRAY_RAMP_LIST)
+                Fail("T60 empty list: %d points, indices %d/%d", (int)r.points.size(), r.blackIndex, r.whiteIndex);
+        }
+        {
+            // more readings than rows (the band is wider than the list), and fewer
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(0, 8, F));   readings.push_back(Reading(0.1, 0.1, 0.1, 0, 8, F));
+            rows.push_back(Gray(255, 8, F)); readings.push_back(Reading(95, 100, 108, 255, 8, F));
+            for (int i = 0; i < 3; i++)
+                readings.push_back(Reading(5, 5, 5, 128, 8, F));
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 2)
+                Fail("T60 readings past the rows: %d points, expected 2", (int)r.points.size());
+            GrayRamp r2;
+            BuildListGrayRamp(&rows[0], 2, &readings[0], 1, &r2);
+            if (r2.points.size() != 1 || r2.whiteIndex != -1)
+                Fail("T60 rows past the readings: %d points, white %d; expected 1, -1", (int)r2.points.size(), r2.whiteIndex);
+        }
+    }
+}
+
+static void RunT60()
+{
+    printf("T60 gray graph ramp...\n");
+    T60Ramp::CheckShuffled();
+    T60Ramp::CheckOwnLevels();
+    T60Ramp::CheckDuplicates();
+    T60Ramp::CheckClampedMerge();
+    T60Ramp::CheckExcluded();
+    T60Ramp::CheckStamped();
+    T60Ramp::CheckBlackWhite();
+    T60Ramp::CheckSweepWins();
+    T60Ramp::CheckSweepParity();
+    T60Ramp::CheckEdges();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -8165,6 +8702,7 @@ int main(int argc, char* argv[])
     RunT53();
     RunT54();
     RunT59();
+    RunT60();
 
     if (g_failures)
     {
