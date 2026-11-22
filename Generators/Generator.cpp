@@ -257,6 +257,16 @@ static void PgReadDoviState(SOCKET s)
 	g_pgenDovi = PGenProtocol::DoviStateFromConf((LPCTSTR)a, (LPCTSTR)b, !!g_pgenDovi) ? TRUE : FALSE;
 }
 int CGenerator::PGenBlackCode(int bits) { return PGenProtocol::LegalBlackCode(!!g_pgenDovi, bits); }
+// The black left on screen at the end of a run and on disconnect: a full-field patch at the
+// resolution Init read from the generator (PGenProtocol::FullFieldBlackCommand has the why).
+static CString PgClosingBlackCmd()
+{
+	char cmd[96];
+	PGenProtocol::FullFieldBlackCommand(cmd, sizeof(cmd), !!g_pgenDovi,
+		GetConfig()->GetProfileInt("GDIGenerator", "rPiWidth", 1920),
+		GetConfig()->GetProfileInt("GDIGenerator", "rPiHeight", 1080));
+	return CString(cmd);
+}
 
 // Sleep while letting paint and sent messages through. Input is NOT dispatched: a click on
 // Apply or Reboot during the wait would re-enter the dialog and send a second restart to a
@@ -1400,8 +1410,7 @@ BOOL CGenerator::Release(INT nbNext)
 					Sleep(2000);
 				}
 				{
-					const int k0 = PGenBlackCode(8);   // the PatternDynamic template is 8-bit
-					msg.Format("TESTTEMPLATE:PatternDynamic:%d,%d,%d",k0,k0,k0);
+					msg = PgClosingBlackCmd();
 					_RB8PG_send(sock,msg);
 				}
 			}
@@ -1419,7 +1428,7 @@ BOOL CGenerator::Release(INT nbNext)
 				msg.Format("RGB=TEXT;14,0;100;16,128,128;%d,%d,%d;100,300;Disconnecting from PGenerator",k0,k0,k0);
 				_RB8PG_send(sock,msg);
 				Sleep(3000);
-				msg.Format("TESTTEMPLATE:PatternDynamic:%d,%d,%d",k0,k0,k0);
+				msg = PgClosingBlackCmd();
 				_RB8PG_send(sock,msg);
 			}
 			else

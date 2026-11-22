@@ -36,6 +36,7 @@
 #define PGENPROTOCOL_H_INCLUDED
 
 #include <string.h>
+#include <stdio.h>
 
 namespace PGenProtocol
 {
@@ -168,6 +169,28 @@ namespace PGenProtocol
 		if (sel == 1) return 2;
 		if (sel == 2) return 0;
 		return 1;
+	}
+
+	// The black HCFR leaves on screen at the end of a run and on disconnect: a
+	// full-field RGB=RECTANGLE patch on a black background, the command every
+	// measurement patch uses, so any generator that draws patches draws it.
+	// HCFR sent "TESTTEMPLATE:PatternDynamic:k,k,k" here until 2026-11: Rampecho
+	// 3.0.6 answers that "ERR" and keeps the last patch up (rig 2026-11-21: the
+	// 100% white of a gray scale stayed on screen after the run and after HCFR
+	// closed). RECTANGLE is the 8-bit command, so black is LegalBlackCode(dv, 8).
+	// A width or height that is not positive falls back to 1920 x 1080; with the
+	// background black as well, a size smaller than the output still leaves the
+	// whole screen black. Returns false, with out empty, when out is too small.
+	inline bool FullFieldBlackCommand(char* out, size_t cbOut, bool dolbyVision, int width, int height)
+	{
+		if (!out || cbOut == 0) return false;
+		if (width <= 0 || height <= 0) { width = 1920; height = 1080; }
+		const int k = LegalBlackCode(dolbyVision, 8);
+		char buf[96];
+		int n = sprintf_s(buf, sizeof(buf), "RGB=RECTANGLE;%d,%d;100;%d,%d,%d;%d,%d,%d;-1,-1", width, height, k, k, k, k, k, k);
+		if (n <= 0 || (size_t)n >= cbOut) { out[0] = 0; return false; }
+		memcpy(out, buf, (size_t)n + 1);
+		return true;
 	}
 }
 

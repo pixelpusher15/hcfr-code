@@ -7516,7 +7516,8 @@ static void RunT52()
 //   (c) after the restart: a new PID is up, the old PID or silence is not;
 //   (d) RESTARTPGENERATOR refusals;
 //   (e) conf integers: no value is not 0; DV needs both flags read cleanly;
-//   (f) legal black and the DV range rule; the DoVi combo mapping.
+//   (f) legal black and the DV range rule; the DoVi combo mapping;
+//   (g) the closing black is a full-field RECTANGLE patch, exact text.
 //////////////////////////////////////////////////////////////////////////
 #include "../../libHCFR/PGenProtocol.h"
 
@@ -7623,6 +7624,27 @@ static void RunT53()
             Fail("T53 (f) combo %d does not round-trip through its map mode", sel);
     if (ComboIndexToDoviMode(0) != 1 || ComboIndexToDoviMode(1) != 2 || ComboIndexToDoviMode(2) != 0)
         Fail("T53 (f) combo -> map mode: 0/1/2 not 1/2/0 (rig-verified values)");
+
+    // (g) the closing black is a full-field RECTANGLE patch, never a template
+    {
+        char cmd[96];
+        if (!FullFieldBlackCommand(cmd, sizeof(cmd), false, 3840, 2160)
+            || strcmp(cmd, "RGB=RECTANGLE;3840,2160;100;0,0,0;0,0,0;-1,-1") != 0)
+            Fail("T53 (g) closing black outside DV: got \"%s\"", cmd);
+        if (!FullFieldBlackCommand(cmd, sizeof(cmd), true, 1920, 1080)
+            || strcmp(cmd, "RGB=RECTANGLE;1920,1080;100;16,16,16;16,16,16;-1,-1") != 0)
+            Fail("T53 (g) closing black under DV (code 0 is a red field there): got \"%s\"", cmd);
+        if (!FullFieldBlackCommand(cmd, sizeof(cmd), false, 0, 0)
+            || strcmp(cmd, "RGB=RECTANGLE;1920,1080;100;0,0,0;0,0,0;-1,-1") != 0)
+            Fail("T53 (g) closing black with no stored resolution: got \"%s\"", cmd);
+        if (strstr(cmd, "TEMPLATE") != NULL)
+            Fail("T53 (g) closing black is a template command (Rampecho answers ERR and keeps the patch)");
+        char tiny[8] = "x";
+        if (FullFieldBlackCommand(tiny, sizeof(tiny), false, 3840, 2160) || tiny[0] != 0)
+            Fail("T53 (g) closing black into a too-small buffer did not fail empty");
+        if (FullFieldBlackCommand(NULL, 0, false, 3840, 2160))
+            Fail("T53 (g) closing black into no buffer did not fail");
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////
