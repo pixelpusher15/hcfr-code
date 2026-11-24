@@ -125,6 +125,22 @@ static CRITICAL_SECTION g_CritSec;
 static CPtrList			g_MeasuredColorList;
 volatile BOOL			g_bInsideBkgndRefresh = FALSE;
 
+// The generator a patch that never arrived was meant for, named in the stop reason
+// below: a wired output by its device, as its Retry/Cancel caption names it; any other
+// generator by its own name.
+static CString BkgndGeneratorName ( CGenerator * pGenerator )
+{
+	if ( pGenerator -> IsKindOf ( RUNTIME_CLASS ( CGDIGenerator ) ) )
+	{
+		int nMode = ( (CGDIGenerator *) pGenerator ) -> m_nDisplayMode;
+		if ( nMode == DISPLAY_DVDO )
+			return _T("DVDO AVLab TPG");
+		if ( nMode == DISPLAY_MURIDEO )
+			return _T("Murideo SEVEN-G");
+	}
+	return pGenerator -> GetName ();
+}
+
 // The background thread function
 static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 {
@@ -162,6 +178,14 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 			    break;
 		    }
 
+			// FALSE from DisplayRGBColor is a patch that never reached the generator: the wired
+			// generators (DVDO/Murideo) return it when their link is lost, and on this worker
+			// they take it as Cancel rather than raise Retry/Cancel (see DisplayRGBColorDVDO).
+			// Measuring then would record the previous patch as this color, so the run ends
+			// through the error path below. That path, not g_bTerminateThread, is how this loop
+			// ends itself: it also clears g_hThread, and this thread's CWinThread deletes itself
+			// on exit, so a later Stop would otherwise wait on a freed object.
+			BOOL bPatternOk = TRUE;
 			if ( g_bGDIGeneratorRunning )
 		    {
 				CGenerator::MeasureType MT = CGenerator::MT_UNKNOWN;
@@ -170,6 +194,8 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 				m_nPat++;
 				if ( ( (m_nPat % GetConfig()->m_ablFreq) == 0) && GetConfig()->m_bABL )
 				{
+					// Result not checked: this ABL refresh frame is always followed by the real patch
+					// below (its condition includes the same ABL test), and that one is checked.
 					pGenerator->DisplayRGBColor(ColorRGBDisplay((double)GetConfig()->m_ablLevel), MT);
 					Sleep(GetConfig()->m_ablDuration);
 				}
@@ -181,32 +207,37 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 					if ( m_d == 1 || (m_d < 11 && m_d > 4) )
 						MT = CGenerator::MT_ACTUAL;
 
-						pGenerator->DisplayRGBColor(clr, MT);
+						if ( ! pGenerator->DisplayRGBColor(clr, MT) )
+							bPatternOk = FALSE;
 
-						// The read below follows straight away, so wait the Patch delay after a
-						// color change (as the sweeps do in WaitForDynamicIris); otherwise the
-						// first read mixes the old and new color. Short steps keep Stop responsive.
-						DWORD dwDelay = (DWORD)abs(GetConfig()->m_latencyTime);
-						DWORD dwStart = GetTickCount();
-						while ( ! g_bTerminateThread && (GetTickCount() - dwStart) < dwDelay )
-							Sleep ( 10 );
+						if ( bPatternOk )
+						{
+							// The read below follows straight away, so wait the Patch delay after a
+							// color change (as the sweeps do in WaitForDynamicIris); otherwise the
+							// first read mixes the old and new color. Short steps keep Stop responsive.
+							DWORD dwDelay = (DWORD)abs(GetConfig()->m_latencyTime);
+							DWORD dwStart = GetTickCount();
+							while ( ! g_bTerminateThread && (GetTickCount() - dwStart) < dwDelay )
+								Sleep ( 10 );
+						}
 			    }
 		    }
 
-		    // Perform one measure
+		    // Perform one measure - not of a patch that never reached the generator
 			// With no generator running nothing displayed g_CurrentColor: it is the
 			// 0.5% placeholder or the last test color. Drop any display record so
 			// the read can never be stamped as a real patch (WireSetup.h).
 			if ( ! g_bGDIGeneratorRunning )
 				WireDisplayRecord::Invalidate();
-		    measuredColor=pSensor->MeasureColor(g_CurrentColor);  // don't know the color to measure so default value to mid gray...
+		    if ( bPatternOk )
+			    measuredColor=pSensor->MeasureColor(g_CurrentColor);  // don't know the color to measure so default value to mid gray...
 		    if ( g_bTerminateThread )
 		    {
 			    // Exit
 			    break;
 		    }
 
-		    if(pSensor->IsMeasureValid())
+		    if( bPatternOk && pSensor->IsMeasureValid())
 		    {
 			    if ( ! g_bTerminateThread )
 			    {
@@ -227,15 +258,27 @@ static UINT __cdecl BkgndThreadFunc ( LPVOID lpParameter )
 		    }
 		    else
 		    {
-			    // Error: close thread. A sensor that says why (its error string) has the
-			    // reason shown once, with the sweeps' "An error occurred:" text, on the UI
-			    // thread (CMainFrame::OnBkgndMeasureStopped); one with no reason shows
-			    // nothing new.
-			    if ( ! pSensor -> GetErrorString ().IsEmpty () )
+			    // Error (no valid measure, or the patch was not displayed): close thread.
+			    // A sensor that says why (its error string) has the reason shown once, with
+			    // the sweeps' "An error occurred:" text, on the UI thread
+			    // (CMainFrame::OnBkgndMeasureStopped); one with no reason shows nothing new.
+			    // A patch that never reached the generator was not read: no sensor reason.
+			    if ( bPatternOk && ! pSensor -> GetErrorString ().IsEmpty () )
 			    {
 				    CString * pReason = new CString;
 				    pReason -> LoadString ( IDS_ANERROROCCURED );
 				    *pReason += pSensor -> GetErrorString ();
+				    CWnd * pMain = AfxGetMainWnd ();
+				    if ( pMain == NULL || ! pMain -> PostMessage ( WM_BKGND_MEASURE_STOPPED, 0, (LPARAM) pReason ) )
+					    delete pReason;
+			    }
+			    else if ( ! bPatternOk )
+			    {
+				    // The patch never reached the generator: its link was lost, and on this
+				    // worker the generator took that as Cancel without a box. A run never stops
+				    // without the user learning why, so this reason is shown once, the same way.
+				    CString * pReason = new CString;
+				    pReason -> Format ( IDS_GEN_PATCH_LOST_RUN_STOPPED, (LPCTSTR) BkgndGeneratorName ( pGenerator ) );
 				    CWnd * pMain = AfxGetMainWnd ();
 				    if ( pMain == NULL || ! pMain -> PostMessage ( WM_BKGND_MEASURE_STOPPED, 0, (LPARAM) pReason ) )
 					    delete pReason;
@@ -356,7 +399,20 @@ BOOL StartBackgroundMeasures ( CDataSetDoc * pDoc )
 				CGenerator::MeasureType MT = CGenerator::MT_UNKNOWN;							
 				if ( m_d <= 1 || (m_d < 11 && m_d > 4) )
 					MT = CGenerator::MT_ACTUAL;
-				pDoc->GetGenerator()->DisplayRGBColor(clr,MT, m_nPat);
+				if ( ! pDoc->GetGenerator()->DisplayRGBColor(clr,MT, m_nPat) )
+				{
+					// The first patch never reached the generator and the user chose Cancel in its
+					// Retry/Cancel box (this is the UI thread): do not start measuring a screen that
+					// is not showing it. Unwind what the Init above set up.
+					pDoc->GetGenerator()->Release(-99);
+					pDoc->m_pSensor->Release ();
+					if ( g_bGeneratorUsesScreenBlanking )
+					{
+						pDoc->GetGenerator()->m_doScreenBlanking = TRUE;
+						g_bGeneratorUsesScreenBlanking = FALSE;
+					}
+					return FALSE;
+				}
 				Sleep(500); //delay 1st pattern, after that delay is not needed [no color change]
 				g_bGDIGeneratorRunning = TRUE;
 			}
