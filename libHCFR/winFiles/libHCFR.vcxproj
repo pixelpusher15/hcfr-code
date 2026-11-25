@@ -138,6 +138,7 @@
     <ClInclude Include="..\Ti3Export.h" />
     <ClInclude Include="..\PatchLabel.h" />
     <ClInclude Include="..\GrayRamp.h" />
+    <ClInclude Include="..\SummarySources.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\ReadMe.txt" />

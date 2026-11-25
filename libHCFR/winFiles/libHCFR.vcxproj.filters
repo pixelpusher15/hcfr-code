@@ -146,6 +146,9 @@
     <ClInclude Include="..\GrayRamp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\SummarySources.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\ReadMe.txt" />

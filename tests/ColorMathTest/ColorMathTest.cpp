@@ -8719,6 +8719,239 @@ static void RunT60()
     T60Ramp::CheckEdges();
 }
 
+// ---------------------------------------------------------------------------
+// T61: what the Summary and the grid say is in use (SummarySources.h). The
+// white and black of the gray graphs and where each comes from, every branch
+// of each decision plus the properties that hold over every combination of
+// facts; the luminance precision; when the patch-list line shows the average
+// gamma; and which user patch sets the Summary names. Pure assertions, no
+// golden files; every value is exact.
+// ---------------------------------------------------------------------------
+#include "../../libHCFR/SummarySources.h"
+
+namespace T61Summary
+{
+    static const char * WhiteName(GrayGraphWhiteSource s)
+    {
+        switch (s)
+        {
+        case GRAY_WHITE_NONE: return "none";
+        case GRAY_WHITE_SWEEP_TOP: return "sweep top";
+        case GRAY_WHITE_LIST: return "list 100%";
+        case GRAY_WHITE_CONTRAST: return "contrast";
+        case GRAY_WHITE_NOMINAL: return "nominal";
+        }
+        return "?";
+    }
+    static const char * BlackName(GrayGraphBlackSource s)
+    {
+        switch (s)
+        {
+        case GRAY_BLACK_NONE: return "none";
+        case GRAY_BLACK_OVERRIDE: return "override";
+        case GRAY_BLACK_SWEEP_ZERO: return "sweep 0%";
+        case GRAY_BLACK_LIST: return "list 0%";
+        case GRAY_BLACK_CONTRAST: return "contrast";
+        case GRAY_BLACK_NOMINAL: return "nominal";
+        }
+        return "?";
+    }
+
+    // bits: listRamp, sweepTopUsable, listWhiteUsable, contrastValid, contrastMeasured, contrastUsable
+    static GrayGraphWhiteFacts W(int list, int top, int listW, int cValid, int cMeas, int cUse)
+    {
+        GrayGraphWhiteFacts f;
+        f.listRamp = list != 0; f.sweepTopUsable = top != 0; f.listWhiteUsable = listW != 0;
+        f.contrastValid = cValid != 0; f.contrastMeasured = cMeas != 0; f.contrastUsable = cUse != 0;
+        return f;
+    }
+    static void ExpectWhite(const char * what, const GrayGraphWhiteFacts & f, GrayGraphWhiteSource want)
+    {
+        GrayGraphWhiteSource got = ChooseGrayGraphWhiteSource(f);
+        if (got != want)
+            Fail("T61 white, %s: %s, expected %s", what, WhiteName(got), WhiteName(want));
+    }
+
+    static void CheckWhite()
+    {
+        // A patch list: its 100% gray first, whatever else holds.
+        ExpectWhite("list with its 100% gray", W(1, 1, 1, 1, 1, 1), GRAY_WHITE_LIST);
+        ExpectWhite("list with its 100% gray, nothing else", W(1, 0, 1, 0, 0, 0), GRAY_WHITE_LIST);
+        // ... else a measured, usable on/off white.
+        ExpectWhite("list without 100%, measured contrast white", W(1, 0, 0, 1, 1, 1), GRAY_WHITE_CONTRAST);
+        // ... never the sweep top, never the nominal white.
+        ExpectWhite("list without 100%, sweep top usable only", W(1, 1, 0, 0, 0, 0), GRAY_WHITE_NONE);
+        ExpectWhite("list without 100%, nominal contrast white", W(1, 0, 0, 1, 0, 1), GRAY_WHITE_NONE);
+        ExpectWhite("list without 100%, measured white with Y <= 0", W(1, 0, 0, 1, 1, 0), GRAY_WHITE_NONE);
+        ExpectWhite("list without 100%, nothing", W(1, 0, 0, 0, 0, 0), GRAY_WHITE_NONE);
+        // The sweep: its top first.
+        ExpectWhite("sweep with its top", W(0, 1, 0, 1, 1, 1), GRAY_WHITE_SWEEP_TOP);
+        ExpectWhite("sweep with its top, nominal contrast white", W(0, 1, 0, 1, 0, 1), GRAY_WHITE_SWEEP_TOP);
+        // ... else the on/off white as it is.
+        ExpectWhite("sweep without top, measured contrast white", W(0, 0, 0, 1, 1, 1), GRAY_WHITE_CONTRAST);
+        ExpectWhite("sweep without top, measured white with Y <= 0", W(0, 0, 0, 1, 1, 0), GRAY_WHITE_CONTRAST);
+        ExpectWhite("sweep without top, never measured (new document)", W(0, 0, 0, 1, 0, 1), GRAY_WHITE_NOMINAL);
+        ExpectWhite("sweep without top, invalid on/off white", W(0, 0, 0, 0, 0, 0), GRAY_WHITE_NONE);
+        // A list 100% gray is not the sweep's white.
+        ExpectWhite("sweep, list white usable but not drawn", W(0, 0, 1, 1, 0, 1), GRAY_WHITE_NOMINAL);
+
+        // Properties over every combination of the six facts.
+        for (int m = 0; m < 64; m++)
+        {
+            GrayGraphWhiteFacts f = W(m & 1, m & 2, m & 4, m & 8, m & 16, m & 32);
+            GrayGraphWhiteSource s = ChooseGrayGraphWhiteSource(f);
+            if (f.listRamp && (s == GRAY_WHITE_SWEEP_TOP || s == GRAY_WHITE_NOMINAL))
+                Fail("T61 white, facts %d: a list ramp took %s", m, WhiteName(s));
+            if (!f.listRamp && s == GRAY_WHITE_LIST)
+                Fail("T61 white, facts %d: the sweep took the list's white", m);
+            if (s == GRAY_WHITE_NOMINAL && f.contrastMeasured)
+                Fail("T61 white, facts %d: a measured on/off white called nominal", m);
+            if (s == GRAY_WHITE_CONTRAST && !f.contrastMeasured)
+                Fail("T61 white, facts %d: an unmeasured on/off white called a reading", m);
+        }
+    }
+
+    // bits: listRamp, overrideInEffect, docOverride, listBlackUsable, sweepBlackUsable,
+    //       sweepBlackSynthetic, contrastValid, contrastSynthetic, contrastNominal
+    static GrayGraphBlackFacts B(int list, int inEffect, int doc, int listB, int sweepB, int sweepSyn, int cValid, int cSyn, int cNom)
+    {
+        GrayGraphBlackFacts f;
+        f.listRamp = list != 0; f.overrideInEffect = inEffect != 0; f.docOverride = doc != 0;
+        f.listBlackUsable = listB != 0; f.sweepBlackUsable = sweepB != 0; f.sweepBlackSynthetic = sweepSyn != 0;
+        f.contrastValid = cValid != 0; f.contrastSynthetic = cSyn != 0; f.contrastNominal = cNom != 0;
+        return f;
+    }
+    static void ExpectBlack(const char * what, const GrayGraphBlackFacts & f, GrayGraphBlackSource want)
+    {
+        GrayGraphBlackSource got = ChooseGrayGraphBlackSource(f);
+        if (got != want)
+            Fail("T61 black, %s: %s, expected %s", what, BlackName(got), BlackName(want));
+    }
+
+    static void CheckBlack()
+    {
+        // A patch list without the override: its 0% gray first.
+        ExpectBlack("list with its 0% gray", B(1, 0, 0, 1, 1, 0, 1, 0, 0), GRAY_BLACK_LIST);
+        // The override in effect beats the list's 0% gray.
+        ExpectBlack("list, document override", B(1, 1, 1, 1, 0, 0, 1, 0, 0), GRAY_BLACK_OVERRIDE);
+        ExpectBlack("list, live preference only, synthetic sweep slot", B(1, 1, 0, 1, 1, 1, 1, 0, 0), GRAY_BLACK_OVERRIDE);
+        ExpectBlack("list, live preference only, synthetic on/off black", B(1, 1, 0, 1, 0, 0, 1, 1, 0), GRAY_BLACK_OVERRIDE);
+        // A list without a 0% gray falls to GetGrayScaleBlack's chain.
+        ExpectBlack("list without 0%, measured contrast black", B(1, 0, 0, 0, 0, 0, 1, 0, 0), GRAY_BLACK_CONTRAST);
+        ExpectBlack("list without 0%, nominal black", B(1, 0, 0, 0, 0, 0, 1, 0, 1), GRAY_BLACK_NOMINAL);
+        ExpectBlack("list without 0%, invalid on/off black", B(1, 0, 0, 0, 0, 0, 0, 0, 0), GRAY_BLACK_NONE);
+        // The sweep: the document's override first.
+        ExpectBlack("sweep, document override", B(0, 1, 1, 0, 1, 0, 1, 0, 0), GRAY_BLACK_OVERRIDE);
+        // ... else the 0% slot: a reading, or the override's synthetic black.
+        ExpectBlack("sweep 0% reading", B(0, 0, 0, 0, 1, 0, 1, 0, 0), GRAY_BLACK_SWEEP_ZERO);
+        ExpectBlack("sweep 0% reading, live preference on", B(0, 1, 0, 0, 1, 0, 1, 1, 0), GRAY_BLACK_SWEEP_ZERO);
+        ExpectBlack("sweep 0% synthetic", B(0, 0, 0, 0, 1, 1, 1, 0, 0), GRAY_BLACK_OVERRIDE);
+        // ... else the on/off black.
+        ExpectBlack("sweep without 0%, contrast black", B(0, 0, 0, 0, 0, 0, 1, 0, 0), GRAY_BLACK_CONTRAST);
+        ExpectBlack("sweep without 0%, synthetic on/off black", B(0, 0, 0, 0, 0, 0, 1, 1, 0), GRAY_BLACK_OVERRIDE);
+        ExpectBlack("sweep without 0%, nominal black (new document)", B(0, 0, 0, 0, 0, 0, 1, 0, 1), GRAY_BLACK_NOMINAL);
+        ExpectBlack("sweep without 0%, invalid on/off black", B(0, 0, 0, 0, 0, 0, 0, 0, 1), GRAY_BLACK_NONE);
+        // A list 0% gray is not the sweep's black.
+        ExpectBlack("sweep, list black usable but not drawn", B(0, 0, 0, 1, 0, 0, 1, 0, 0), GRAY_BLACK_CONTRAST);
+
+        // Properties over every combination of the nine facts.
+        for (int m = 0; m < 512; m++)
+        {
+            GrayGraphBlackFacts f = B(m & 1, m & 2, m & 4, m & 8, m & 16, m & 32, m & 64, m & 128, m & 256);
+            GrayGraphBlackSource s = ChooseGrayGraphBlackSource(f);
+            if (s == GRAY_BLACK_LIST && (!f.listRamp || f.overrideInEffect || !f.listBlackUsable))
+                Fail("T61 black, facts %d: the list's 0%% gray taken out of turn", m);
+            if (f.docOverride && s != GRAY_BLACK_OVERRIDE)
+                Fail("T61 black, facts %d: the document's override lost to %s", m, BlackName(s));
+            if (s == GRAY_BLACK_SWEEP_ZERO && (!f.sweepBlackUsable || f.sweepBlackSynthetic))
+                Fail("T61 black, facts %d: the sweep's 0%% taken when it is not a reading", m);
+            if (s == GRAY_BLACK_NONE && f.sweepBlackUsable)
+                Fail("T61 black, facts %d: none with a usable sweep black", m);
+        }
+    }
+
+    static void CheckDecimals()
+    {
+        struct { double y; int want; const char * text; } cases[] = {
+            { 120.4375, 1, "120.4" }, { 100.0, 1, "100.0" }, { 99.99, 2, "99.99" }, { 10.0, 2, "10.00" },
+            { 9.9990, 3, "9.999" }, { 1.0, 3, "1.000" }, { 0.0512, 4, "0.0512" }, { 0.0, 4, "0.0000" },
+            { -0.25, 4, "-0.2500" }, { -250.0, 1, "-250.0" } };
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        {
+            int d = SummaryLuminanceDecimals(cases[i].y);
+            char buf[64];
+            sprintf_s(buf, "%.*f", d, cases[i].y);
+            if (d != cases[i].want || strcmp(buf, cases[i].text) != 0)
+                Fail("T61 decimals of %.17g: %d (\"%s\"), expected %d (\"%s\")", cases[i].y, d, buf, cases[i].want, cases[i].text);
+        }
+        const double inf = std::numeric_limits<double>::infinity();
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        if (SummaryLuminanceDecimals(inf) != 4 || SummaryLuminanceDecimals(nan) != 4)
+            Fail("T61 decimals of a value that is not finite: %d / %d, expected 4 / 4", SummaryLuminanceDecimals(inf), SummaryLuminanceDecimals(nan));
+    }
+
+    static void CheckGammaShown()
+    {
+        for (int type = 0; type <= 8; type++)
+        {
+            const bool lineDrawn = (type != 5 && type != 7);
+            if (PatchListGammaShown(true, true, type) != lineDrawn)
+                Fail("T61 gamma shown, fit and data, offset type %d: %d, expected %d", type, (int)PatchListGammaShown(true, true, type), (int)lineDrawn);
+            if (PatchListGammaShown(false, true, type))
+                Fail("T61 gamma shown without a fit, offset type %d", type);
+            if (PatchListGammaShown(true, false, type))
+                Fail("T61 gamma shown without a reading, offset type %d", type);
+            if (PatchListGammaShown(false, false, type))
+                Fail("T61 gamma shown with neither, offset type %d", type);
+        }
+    }
+
+    static void CheckUserSets()
+    {
+        CColor empty[4] = { noDataColor, noDataColor, noDataColor, noDataColor };
+        CColor last[4] = { noDataColor, noDataColor, noDataColor, CColor(1.0, 2.0, 3.0) };
+        CColor first[4] = { CColor(1.0, 2.0, 3.0), noDataColor, noDataColor, noDataColor };
+        if (AnyValidReading(empty, 4))
+            Fail("T61 any valid reading: four unmeasured slots count");
+        if (!AnyValidReading(last, 4))
+            Fail("T61 any valid reading: a reading in the last slot only is missed");
+        if (!AnyValidReading(first, 4))
+            Fail("T61 any valid reading: a reading in the first slot is missed");
+        if (AnyValidReading(last, 3))
+            Fail("T61 any valid reading: a slot past n counted");
+        if (AnyValidReading(NULL, 4) || AnyValidReading(last, 0))
+            Fail("T61 any valid reading: no readings counted");
+
+        // The active set reads the band, every other set its stored readings.
+        if (!UserSetSummaryListed(true, last, 4, NULL, 0))
+            Fail("T61 user set: the active set's band reading missed");
+        if (UserSetSummaryListed(true, empty, 4, first, 4))
+            Fail("T61 user set: the active set listed from stale stored readings");
+        if (!UserSetSummaryListed(false, empty, 4, last, 4))
+            Fail("T61 user set: an inactive set's stored reading missed");
+        if (UserSetSummaryListed(false, first, 4, empty, 4))
+            Fail("T61 user set: an inactive set listed from the band");
+        if (UserSetSummaryListed(false, first, 4, NULL, 0))
+            Fail("T61 user set: an inactive set with no stored readings listed");
+
+        struct { const char * name; bool empty; } names[] = {
+            { "", true }, { " ", true }, { " \t\r\n", true }, { "skin tones", false }, { " a ", false }, { "set (2)", false } };
+        for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+            if (PatchListNameIsEmpty(names[i].name) != names[i].empty)
+                Fail("T61 name \"%s\": empty %d, expected %d", names[i].name, (int)!names[i].empty, (int)names[i].empty);
+    }
+}
+
+static void RunT61()
+{
+    printf("T61 summary sources...\n");
+    T61Summary::CheckWhite();
+    T61Summary::CheckBlack();
+    T61Summary::CheckDecimals();
+    T61Summary::CheckGammaShown();
+    T61Summary::CheckUserSets();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -8768,6 +9001,7 @@ int main(int argc, char* argv[])
     RunT54();
     RunT59();
     RunT60();
+    RunT61();
 
     if (g_failures)
     {
