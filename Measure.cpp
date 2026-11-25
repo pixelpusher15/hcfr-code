@@ -35,6 +35,7 @@
 #include "MeasurePerf.h"
 #include "FailedReadingRule.h"
 #include "SweepConfirmRule.h"
+#include "SummarySources.h"
 
 #include <math.h>
 #include <sstream>
@@ -1944,6 +1945,94 @@ CColor CMeasure::GetGrayGraphTop(const GrayRamp & ramp) const
 		return ( n > 0 && ! IsRawlessPlaceholder ( m_grayMeasureArray[n-1], false ) ) ? m_grayMeasureArray[n-1] : noDataColor;
 	}
 	return GrayRampWhite ( ramp, noDataColor );
+}
+
+CString CMeasure::GetInfoString() const
+{
+	return m_infoStr + GetGeneratedInfoString ();
+}
+
+CString CMeasure::GetGeneratedInfoString() const
+{
+	return m_CCStr + GetGrayGraphAnchorStr ();
+}
+
+// "<Y> cd/m2" at the precision SummaryLuminanceDecimals gives.
+static CString SummaryLuminanceText ( double y )
+{
+	CString s;
+	s.Format ( "%.*f cd/m\xB2", SummaryLuminanceDecimals ( y ), y );
+	return s;
+}
+
+CString CMeasure::GetGrayGraphAnchorStr() const
+{
+	// The facts, each by the same test the code that takes the white and the
+	// black applies (GetGrayGraphWhite / GetGrayGraphBlack, GetGrayScaleWhite /
+	// GetGrayScaleBlack); the decision is SummarySources.h's, the value the
+	// one those functions return.
+	const GrayRamp ramp = GetGrayGraphRamp ();
+	const bool listRamp = ( ramp.source == GRAY_RAMP_LIST );
+	const CColor * gray = m_grayMeasureArray.GetData ();
+	const int nGray = (int) m_grayMeasureArray.GetSize ();
+
+	GrayGraphWhiteFacts wf;
+	wf.listRamp = listRamp;
+	wf.sweepTopUsable = GrayScaleWhite ( gray, nGray, noDataColor, IsConstructorPlaceholder ).isValid ();
+	wf.listWhiteUsable = GrayRampWhiteUsable ( GrayRampWhite ( ramp, noDataColor ) );
+	wf.contrastValid = m_OnOffWhite.isValid ();
+	wf.contrastMeasured = m_bOnOffWhiteMeasured && HoldsReading ( m_OnOffWhite );
+	wf.contrastUsable = GrayRampWhiteUsable ( m_OnOffWhite );
+	const GrayGraphWhiteSource ws = ChooseGrayGraphWhiteSource ( wf );
+
+	// The override's synthetic black: the document's m_userBlack, or the live
+	// "Use Black Level" preference's black MainView writes (the two
+	// SweepConfirmRule recognizes in the first gray slot).
+	CColor prefStorage;
+	const CColor * pPref = LivePreferenceBlack ( prefStorage );
+	auto synthetic = [&] ( const CColor & c ) {
+		return SweepConfirmRule::IsSyntheticBlack ( c, m_userBlack ) || ( pPref && SweepConfirmRule::IsSyntheticBlack ( c, *pPref ) );
+	};
+	GrayGraphBlackFacts bf;
+	bf.listRamp = listRamp;
+	bf.overrideInEffect = BlackOverrideInEffect ();
+	bf.docOverride = GrayScaleBlackIsOverride ();
+	bf.listBlackUsable = GrayRampBlack ( ramp, noDataColor ).isValid ();
+	bf.sweepBlackUsable = GrayScaleBlack ( gray, nGray, noDataColor ).isValid ();
+	bf.sweepBlackSynthetic = nGray > 0 && synthetic ( m_grayMeasureArray[0] );
+	bf.contrastValid = m_OnOffBlack.isValid ();
+	bf.contrastSynthetic = synthetic ( m_OnOffBlack );
+	bf.contrastNominal = IsRawlessPlaceholder ( m_OnOffBlack, true );
+	const GrayGraphBlackSource bs = ChooseGrayGraphBlackSource ( bf );
+
+	CString str, line, fmt, src;
+	if ( ws == GRAY_WHITE_NONE )
+		line.LoadString ( listRamp ? IDS_GRAYGRAPH_WHITE_NONE_LIST : IDS_GRAYGRAPH_WHITE_NONE );
+	else
+	{
+		src.LoadString ( ws == GRAY_WHITE_SWEEP_TOP ? IDS_GRAYGRAPH_SRC_SWEEP_WHITE
+		               : ws == GRAY_WHITE_LIST ? IDS_GRAYGRAPH_SRC_LIST_WHITE
+		               : ws == GRAY_WHITE_CONTRAST ? IDS_GRAYGRAPH_SRC_CONTRAST
+		               : IDS_GRAYGRAPH_SRC_NOMINAL );
+		fmt.LoadString ( IDS_GRAYGRAPH_WHITE_LINE );
+		line.Format ( fmt, (LPCTSTR) SummaryLuminanceText ( GetGrayGraphWhite ( ramp ).GetY () ), (LPCTSTR) src );
+	}
+	str = line + "\r\n";
+
+	if ( bs == GRAY_BLACK_NONE )
+		line.LoadString ( IDS_GRAYGRAPH_BLACK_NONE );
+	else
+	{
+		src.LoadString ( bs == GRAY_BLACK_OVERRIDE ? IDS_GRAYGRAPH_SRC_OVERRIDE
+		               : bs == GRAY_BLACK_SWEEP_ZERO ? IDS_GRAYGRAPH_SRC_SWEEP_BLACK
+		               : bs == GRAY_BLACK_LIST ? IDS_GRAYGRAPH_SRC_LIST_BLACK
+		               : bs == GRAY_BLACK_CONTRAST ? IDS_GRAYGRAPH_SRC_CONTRAST
+		               : IDS_GRAYGRAPH_SRC_NOMINAL );
+		fmt.LoadString ( IDS_GRAYGRAPH_BLACK_LINE );
+		line.Format ( fmt, (LPCTSTR) SummaryLuminanceText ( GetGrayGraphBlack ( ramp ).GetY () ), (LPCTSTR) src );
+	}
+	str += line + "\r\n";
+	return str;
 }
 
 int CMeasure::GetGrayScalePreset() const

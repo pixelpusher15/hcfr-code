@@ -493,7 +493,16 @@ public:
 	void InsertMeasurement(int i, CColor & aColor) { m_measurementsArray.InsertAt(i,aColor); m_isModified=TRUE; }
 	void FreeMeasurementAppended(int isPrimary, int last_minCol);
 
-	CString GetInfoString() const { return m_infoStr+m_CCStr; }
+	// The Summary: the user's text, then the generated lines
+	// (GetGeneratedInfoString).
+	CString GetInfoString() const;
+	// What HCFR appends to the user's text: the color checker sweeps active
+	// (m_CCStr) and the gray graphs' white and black (GetGrayGraphAnchorStr).
+	CString GetGeneratedInfoString() const;
+	// Two lines: the white and the black the gray graphs use right now
+	// (GetGrayGraphWhite / GetGrayGraphBlack of GetGrayGraphRamp), each with
+	// its luminance and where it comes from (SummarySources.h decides).
+	CString GetGrayGraphAnchorStr() const;
 	void SetInfoString(CString & aStr) { m_infoStr = aStr; } 
 
 	CColor GetRefPrimary(int i) const;
