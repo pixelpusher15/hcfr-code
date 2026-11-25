@@ -3186,7 +3186,13 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		// window text -- so an ungated write would never compare equal and would
 		// retitle and repaint an unrelated widget on every sweep end. Gate on the
 		// downcast rather than testing it after the write.
-		if ( lHint == UPD_CC24SAT && m_pInfoWnd )
+		// Every hint, not only UPD_CC24SAT: the generated lines also state the
+		// white and black the gray graphs use (CMeasure::GetGrayGraphAnchorStr),
+		// which change when a gray sweep or a contrast measurement ends and when
+		// the black override is switched. A pane left showing old lines would
+		// also defeat OnChangeInfosEdit, which removes the generated lines from
+		// what the user typed only when the pane ends with the current ones.
+		if ( m_pInfoWnd )
 		{
 			CEditEx * pSummaryEdit = DYNAMIC_DOWNCAST ( CEditEx, m_pInfoWnd );
 			if ( pSummaryEdit )
