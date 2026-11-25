@@ -10217,6 +10217,16 @@ void CMainView::OnChangeInfosEdit()
 	{
 		CString str;
 		m_pInfoWnd -> GetWindowText ( str );
+		// The pane shows the user's text followed by the lines HCFR generates
+		// (CMeasure::GetGeneratedInfoString), and GetInfoString appends those
+		// lines again: keep only the user's part, so the generated lines - the
+		// gray graphs' white and black among them, which change with every
+		// measurement - are not frozen into the summary as typed text and shown
+		// twice. Text edited inside the generated lines no longer ends with them
+		// and is kept whole, as before.
+		const CString strGen = GetDocument()->GetMeasure()->GetGeneratedInfoString();
+		if ( ! strGen.IsEmpty () && str.GetLength () >= strGen.GetLength () && str.Right ( strGen.GetLength () ) == strGen )
+			str = str.Left ( str.GetLength () - strGen.GetLength () );
 		GetDocument()->GetMeasure()->SetInfoString(str);
 		GetDocument()->SetModifiedFlag(TRUE);
 	}
