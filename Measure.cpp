@@ -1451,6 +1451,10 @@ void CMeasure::Serialize(CArchive& ar)
 		// provenance gets its label back from its stimulus (RelabelReading).
 		RelabelLoadedReadings ();
 
+		// The sweeps-active text names the user patch sets, which arrive with
+		// the trailer above - after the band was read and the text first built.
+		m_CCStr = GetCCStr ();
+
 		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
 
 	}
@@ -8719,8 +8723,40 @@ CString CMeasure::GetCCStr() const
 			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250].isValid())
 				mStr+=sweeps[i];
 		if (i==USER)
-			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250+500].isValid())
+		{
+			// Every user patch set that holds a valid reading, by its own name
+			// (UserSetSummaryListed): the active set's readings are the USER band
+			// (its live storage), every other set's its stored readings
+			// (CUserPatchSet::measures, refreshed from the band on every switch).
+			// Any valid reading counts, as for the built-in sets above. Readings in
+			// the band with no active set (a document part-way through loading,
+			// before MigrateLegacyUserBand wraps them) keep the old "User" line.
+			int nBand = (int)m_cc24SatMeasureArray_master.GetSize() - USER_BAND_BASE;
+			if (nBand > MAX_USER_CC_PATCH_SIZE)
+				nBand = MAX_USER_CC_PATCH_SIZE;
+			const CColor * band = ( nBand > 0 ) ? m_cc24SatMeasureArray_master.GetData() + USER_BAND_BASE : NULL;
+			if ( nBand < 0 )
+				nBand = 0;
+			const bool bActiveSet = ( m_activeUserSet >= 0 && m_activeUserSet < (int)m_userPatchSets.size() );
+			if ( ! bActiveSet && AnyValidReading ( band, nBand ) )
 				mStr+=sweeps[i];
+			for ( int s = 0; s < (int)m_userPatchSets.size(); s++ )
+			{
+				const CUserPatchSet & set = m_userPatchSets[s];
+				if ( ! UserSetSummaryListed ( s == m_activeUserSet, band, nBand, set.measures.empty() ? NULL : &set.measures[0], (int)set.measures.size() ) )
+					continue;
+				CString line;
+				if ( PatchListNameIsEmpty ( set.name ) )
+					line.LoadString ( IDS_CCSTR_PATCHLIST_UNNAMED );
+				else
+				{
+					CString fmt;
+					fmt.LoadString ( IDS_CCSTR_PATCHLIST );
+					line.Format ( fmt, set.name.c_str() );
+				}
+				mStr += line + "\r\n";
+			}
+		}
 	}
 	return mStr+="\r\n";
 }
