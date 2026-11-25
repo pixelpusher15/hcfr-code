@@ -46,6 +46,7 @@
 #include "SpectrumDlg.h"
 #include "../ColorHCFRConfig.h"
 #include "../Measure.h"
+#include "SummarySources.h"
 
 #include "DocEnumerator.h"	//Ki
 #include "../ScaleSizes.h"
@@ -5369,6 +5370,28 @@ void CMainView::UpdateGrid()
 					Msg += dEform;
                     if (GetConfig()->doHighlight)
 					    m_grayScaleGroup.SetBorderColor (fxUseCustomColor ? FxGetSysColor(COLOR_BTNFACE) : FxGetSysColor(COLOR_3DSHADOW));
+			}
+			// A patch list: the average gamma of the gray graphs beside its dE, the
+			// number the gamma graph's average line draws - the same ramp
+			// (GetGrayGraphRamp), the same fit (the ramp overload of
+			// ComputeGammaAndOffset with the gamma grapher's arguments) and the same
+			// gates (PatchListGammaShown). No fit, no number.
+			if ( GetConfig () -> m_CCMode == USER )
+			{
+				const GrayRamp listRamp = GetDocument () -> GetMeasure () -> GetGrayGraphRamp ();
+				double listGamma = 0.0, listOffset = 0.0;
+				const bool bListFit = GetDocument () -> ComputeGammaAndOffset ( listRamp, &listGamma, &listOffset, 1, 1, false );
+				const bool bListData = FailedReadingRule::AnyHeldReading ( (int) listRamp.points.size (), [&listRamp] ( int i ) { return listRamp.points[i].reading; },
+					[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } );
+				if ( PatchListGammaShown ( bListFit, bListData, GetConfig () -> m_GammaOffsetType ) )
+				{
+					char szGamma [ 64 ];
+					sprintf_s ( szGamma, ": %.2f )", listGamma );
+					Tmp.LoadString ( IDS_GAMMAAVERAGE );
+					Msg += " ( ";
+					Msg += Tmp;
+					Msg += szGamma;
+				}
 			}
 			m_grayScaleGroup.SetText ( Msg );
 		}
