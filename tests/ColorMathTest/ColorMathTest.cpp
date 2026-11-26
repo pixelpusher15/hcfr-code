@@ -8952,6 +8952,318 @@ static void RunT61()
     T61Summary::CheckUserSets();
 }
 
+// T62: primaries and secondaries from a patch list (libHCFR/PrimarySet.h).
+// Pure assertions, no golden files. Every expectation exact.
+#include "../../libHCFR/PrimarySet.h"
+
+namespace T62Prim
+{
+    struct Grid { int bits, range, black, white; const char* name; };
+    static const Grid kGrids[4] = {
+        { 8,  CSV_RANGE_FULL,  0,  255,  "8-bit full"  },
+        { 8,  CSV_RANGE_LEGAL, 16, 235,  "8-bit legal" },
+        { 10, CSV_RANGE_FULL,  0,  1023, "10-bit full" },
+        { 10, CSV_RANGE_LEGAL, 64, 940,  "10-bit legal" },
+    };
+    static const char* kColor[6] = { "red", "green", "blue", "yellow", "cyan", "magenta" };
+
+    static CsvPatchRow Row(int r, int g, int b, int bits, int range, int role = -1)
+    { return T60Ramp::Row(r, g, b, bits, range, role); }
+
+    // The row of color c (PatchLabelColor) with the lit channels at code `hi`
+    // and the others at code `lo`.
+    static CsvPatchRow ColorRow(int c, int hi, int lo, int bits, int range, int role = -1)
+    {
+        static const int lit[6][3] = { {1,0,0}, {0,1,0}, {0,0,1}, {1,1,0}, {0,1,1}, {1,0,1} };
+        return Row(lit[c][0] ? hi : lo, lit[c][1] ? hi : lo, lit[c][2] ? hi : lo, bits, range, role);
+    }
+
+    static bool SameXYZ(const CColor& a, const CColor& b) { return T60Ramp::SameXYZ(a, b); }
+
+    static ListPrimarySet Build(const std::vector<CsvPatchRow>& rows, const std::vector<CColor>& readings)
+    {
+        ListPrimarySet s;
+        BuildListPrimarySet(rows.empty() ? NULL : &rows[0], (int)rows.size(),
+                            readings.empty() ? NULL : &readings[0], (int)readings.size(), &s);
+        return s;
+    }
+
+    static int Present(const ListPrimarySet& s)
+    {
+        int n = 0;
+        for (int c = 0; c < 6; c++)
+            n += s.entries[c].present ? 1 : 0;
+        return n;
+    }
+
+    // 1. Each of the six colors found at 100% in all four bit/range cases, a
+    // single reading unchanged; ramp steps, gray, saturation steps and other
+    // rows around them are not taken.
+    static void CheckSixAtFull()
+    {
+        for (int g = 0; g < 4; g++)
+        {
+            const Grid& G = kGrids[g];
+            const int mid = (G.black + G.white) / 2;
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            int rowOf[6];
+            for (int c = 0; c < 6; c++)
+            {
+                rows.push_back(ColorRow(c, mid, G.black, G.bits, G.range));	// a ramp step
+                readings.push_back(CColor(90.0 + c, 90.0, 90.0));
+                rowOf[c] = (int)rows.size();
+                rows.push_back(ColorRow(c, G.white, G.black, G.bits, G.range));
+                readings.push_back(CColor(10.0 + c, 20.0 + c, 30.0 + c));
+                rows.push_back(ColorRow(c, G.white, mid, G.bits, G.range));	// a saturation step
+                readings.push_back(CColor(80.0, 80.0 + c, 80.0));
+            }
+            rows.push_back(Row(G.white, G.white, G.white, G.bits, G.range));
+            readings.push_back(CColor(95.0, 100.0, 108.0));
+            rows.push_back(Row(G.white, mid, G.black, G.bits, G.range));	// other
+            readings.push_back(CColor(70.0, 60.0, 5.0));
+
+            const ListPrimarySet s = Build(rows, readings);
+            for (int c = 0; c < 6; c++)
+            {
+                const PrimarySetEntry& e = s.entries[c];
+                const CColor want(10.0 + c, 20.0 + c, 30.0 + c);
+                if (!e.present || e.members != 1 || e.firstRow != rowOf[c] || !SameXYZ(e.reading, want))
+                    Fail("T62 %s %s: present %d members %d row %d (want %d) Y %.17g (want %.17g)",
+                         G.name, kColor[c], (int)e.present, e.members, e.firstRow, rowOf[c],
+                         e.reading.GetY(), want.GetY());
+            }
+            if (!s.HasPrimary() || !s.HasSecondary())
+                Fail("T62 %s: HasPrimary %d HasSecondary %d, expected 1 1", G.name, (int)s.HasPrimary(), (int)s.HasSecondary());
+        }
+    }
+
+    // 2. A 75% primary alone gives no entry; nor does a ramp without its top.
+    static void CheckLowerLevels()
+    {
+        for (int g = 0; g < 4; g++)
+        {
+            const Grid& G = kGrids[g];
+            const int c75 = G.black + (G.white - G.black) * 3 / 4;
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(ColorRow(PATCH_COLOR_RED, c75, G.black, G.bits, G.range));
+            readings.push_back(CColor(30.0, 15.0, 1.0));
+            for (int k = 1; k <= 3; k++)	// a green ramp to 75%
+            {
+                rows.push_back(ColorRow(PATCH_COLOR_GREEN, G.black + (G.white - G.black) * k / 4, G.black, G.bits, G.range));
+                readings.push_back(CColor(10.0 * k, 20.0 * k, 3.0 * k));
+            }
+            rows.push_back(ColorRow(PATCH_COLOR_CYAN, c75, G.black, G.bits, G.range));
+            readings.push_back(CColor(20.0, 30.0, 40.0));
+            const ListPrimarySet s = Build(rows, readings);
+            if (Present(s) != 0 || s.HasPrimary() || s.HasSecondary())
+                Fail("T62 %s lower levels: %d entries, HasPrimary %d HasSecondary %d, expected none",
+                     G.name, Present(s), (int)s.HasPrimary(), (int)s.HasSecondary());
+        }
+    }
+
+    // 3. Repeats are one signal, averaged; codes a legal list clamps onto
+    // the white drive the same signal and join it.
+    static void CheckRepeats()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        rows.push_back(Row(16, 16, 16, 8, L));          readings.push_back(CColor(0.1, 0.1, 0.1));
+        rows.push_back(Row(235, 16, 16, 8, L));         readings.push_back(CColor(40.0, 20.0, 2.0));
+        rows.push_back(Row(235, 235, 16, 8, L));        readings.push_back(CColor(70.0, 80.0, 10.0));
+        rows.push_back(Row(235, 16, 16, 8, L));         readings.push_back(CColor(44.0, 22.0, 2.0));
+        rows.push_back(Row(250, 3, 3, 8, L));           readings.push_back(CColor(54.0, 27.0, 5.0));	// clamps to 235,16,16
+        const ListPrimarySet s = Build(rows, readings);
+        const PrimarySetEntry& r = s.entries[PATCH_COLOR_RED];
+        if (!r.present || r.members != 3 || r.firstRow != 1 || !SameXYZ(r.reading, CColor(46.0, 23.0, 3.0)))
+            Fail("T62 repeats red: present %d members %d row %d XYZ %.17g %.17g %.17g, expected 1 3 1 46 23 3",
+                 (int)r.present, r.members, r.firstRow, r.reading.GetX(), r.reading.GetY(), r.reading.GetZ());
+        const PrimarySetEntry& y = s.entries[PATCH_COLOR_YELLOW];
+        if (!y.present || y.members != 1 || !SameXYZ(y.reading, CColor(70.0, 80.0, 10.0)))
+            Fail("T62 repeats yellow: present %d members %d Y %.17g, expected 1 1 80", (int)y.present, y.members, y.reading.GetY());
+        if (Present(s) != 2)
+            Fail("T62 repeats: %d entries, expected 2", Present(s));
+    }
+
+    // 4. A shuffled list gives bit-identical entries to the ordered one.
+    static void CheckShuffled()
+    {
+        const int F = CSV_RANGE_FULL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        // values chosen so a sum in another order rounds differently
+        const double xs[4] = { 0.1, 0.2, 0.3, 1e16 };
+        for (int k = 0; k < 4; k++)
+        {
+            rows.push_back(ColorRow(PATCH_COLOR_BLUE, 1023, 0, 10, F));
+            readings.push_back(CColor(xs[k], 0.7 + xs[k], 3.0 * xs[k]));
+            rows.push_back(ColorRow(PATCH_COLOR_MAGENTA, 1023, 0, 10, F));
+            readings.push_back(CColor(xs[3 - k] * 2.0, xs[k], xs[k] + 0.05));
+        }
+        rows.push_back(ColorRow(PATCH_COLOR_BLUE, 512, 0, 10, F));
+        readings.push_back(CColor(1.0, 1.0, 1.0));
+        rows.push_back(Row(1023, 1023, 1023, 10, F));
+        readings.push_back(CColor(95.0, 100.0, 108.0));
+
+        const ListPrimarySet ordered = Build(rows, readings);
+        static const int perm[10] = { 7, 2, 9, 0, 5, 3, 8, 1, 6, 4 };	// fixed, not random
+        std::vector<CsvPatchRow> srows;
+        std::vector<CColor> sreads;
+        for (int i = 0; i < 10; i++)
+        {
+            srows.push_back(rows[perm[i]]);
+            sreads.push_back(readings[perm[i]]);
+        }
+        const ListPrimarySet shuffled = Build(srows, sreads);
+        if (Present(ordered) != 2 || !ordered.entries[PATCH_COLOR_BLUE].present || !ordered.entries[PATCH_COLOR_MAGENTA].present)
+            Fail("T62 shuffled: ordered list gave %d entries, expected blue and magenta", Present(ordered));
+        for (int c = 0; c < 6; c++)
+        {
+            const PrimarySetEntry& a = ordered.entries[c];
+            const PrimarySetEntry& b = shuffled.entries[c];
+            if (a.present != b.present || a.members != b.members || !SameXYZ(a.reading, b.reading))
+                Fail("T62 shuffled %s: present %d/%d members %d/%d X %.17g/%.17g Y %.17g/%.17g Z %.17g/%.17g",
+                     kColor[c], (int)a.present, (int)b.present, a.members, b.members,
+                     a.reading.GetX(), b.reading.GetX(), a.reading.GetY(), b.reading.GetY(),
+                     a.reading.GetZ(), b.reading.GetZ());
+        }
+        if (ordered.entries[PATCH_COLOR_BLUE].members != 4)
+            Fail("T62 shuffled: blue averaged %d readings, expected 4", ordered.entries[PATCH_COLOR_BLUE].members);
+    }
+
+    // 5. Invalid readings are skipped; a color with only invalid ones has no entry.
+    static void CheckInvalid()
+    {
+        const int F = CSV_RANGE_FULL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        rows.push_back(ColorRow(PATCH_COLOR_RED, 255, 0, 8, F));     readings.push_back(noDataColor);
+        rows.push_back(ColorRow(PATCH_COLOR_RED, 255, 0, 8, F));     readings.push_back(CColor(41.0, 21.0, 2.0));
+        rows.push_back(ColorRow(PATCH_COLOR_GREEN, 255, 0, 8, F));   readings.push_back(noDataColor);
+        rows.push_back(ColorRow(PATCH_COLOR_CYAN, 255, 0, 8, F));    // no reading: beyond the readings' count
+        readings.resize(rows.size() - 1);
+        const ListPrimarySet s = Build(rows, readings);
+        const PrimarySetEntry& r = s.entries[PATCH_COLOR_RED];
+        if (!r.present || r.members != 1 || r.firstRow != 1 || !SameXYZ(r.reading, CColor(41.0, 21.0, 2.0)))
+            Fail("T62 invalid: red present %d members %d row %d Y %.17g, expected 1 1 1 21",
+                 (int)r.present, r.members, r.firstRow, r.reading.GetY());
+        if (s.entries[PATCH_COLOR_GREEN].present || s.entries[PATCH_COLOR_CYAN].present)
+            Fail("T62 invalid: green present %d cyan present %d, expected 0 0",
+                 (int)s.entries[PATCH_COLOR_GREEN].present, (int)s.entries[PATCH_COLOR_CYAN].present);
+        if (s.entries[PATCH_COLOR_GREEN].reading.isValid())
+            Fail("T62 invalid: green's reading is valid, expected noDataColor");
+        ListPrimarySet none;
+        BuildListPrimarySet(NULL, 0, NULL, 0, &none);
+        if (Present(none) != 0)
+            Fail("T62 invalid: empty input gave %d entries", Present(none));
+    }
+
+    // 6. Anchor, warm-up, interstitial and identification roles are skipped;
+    // the CSV's -1, COLOR and VERIFICATION count.
+    static void CheckRoles()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        const int skipped[4] = { PROVENANCE_ROLE_ANCHOR, PROVENANCE_ROLE_PREROLL,
+                                 PROVENANCE_ROLE_INTERSTITIAL, PROVENANCE_ROLE_IDENTIFICATION };
+        const int counted[3] = { PROVENANCE_ROLE_UNKNOWN, PROVENANCE_ROLE_COLOR, PROVENANCE_ROLE_VERIFICATION };
+        for (int k = 0; k < 4; k++)
+        {
+            std::vector<CsvPatchRow> rows(1, ColorRow(PATCH_COLOR_GREEN, 940, 64, 10, L, skipped[k]));
+            std::vector<CColor> readings(1, CColor(30.0, 60.0, 10.0));
+            if (Present(Build(rows, readings)) != 0)
+                Fail("T62 roles: role %d counted, expected skipped", skipped[k]);
+        }
+        for (int k = 0; k < 3; k++)
+        {
+            std::vector<CsvPatchRow> rows(1, ColorRow(PATCH_COLOR_GREEN, 940, 64, 10, L, counted[k]));
+            std::vector<CColor> readings(1, CColor(30.0, 60.0, 10.0));
+            if (!Build(rows, readings).entries[PATCH_COLOR_GREEN].present)
+                Fail("T62 roles: role %d skipped, expected counted", counted[k]);
+        }
+        for (int c = 0; c < 6; c++)	// the row test against the wrong color
+            if (PrimarySetRowCounts(ColorRow(c, 235, 16, 8, L), (c + 1) % 6))
+                Fail("T62 roles: a %s row counts as %s", kColor[c], kColor[(c + 1) % 6]);
+    }
+
+    // 7. Extended range: a code above white is not 100%; the white code is.
+    static void CheckExtended()
+    {
+        const int E = CSV_RANGE_EXTENDED;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        rows.push_back(ColorRow(PATCH_COLOR_RED, 254, 16, 8, E));      readings.push_back(CColor(50.0, 25.0, 3.0));
+        rows.push_back(ColorRow(PATCH_COLOR_RED, 235, 16, 8, E));      readings.push_back(CColor(40.0, 20.0, 2.0));
+        rows.push_back(ColorRow(PATCH_COLOR_CYAN, 1019, 64, 10, E));   readings.push_back(CColor(30.0, 50.0, 90.0));
+        rows.push_back(ColorRow(PATCH_COLOR_YELLOW, 940, 64, 10, E));  readings.push_back(CColor(70.0, 80.0, 9.0));
+        rows.push_back(ColorRow(PATCH_COLOR_BLUE, 235, 4, 8, E));      readings.push_back(CColor(15.0, 6.0, 80.0));	// others below black: other
+        const ListPrimarySet s = Build(rows, readings);
+        const PrimarySetEntry& r = s.entries[PATCH_COLOR_RED];
+        if (!r.present || r.members != 1 || r.firstRow != 1 || !SameXYZ(r.reading, CColor(40.0, 20.0, 2.0)))
+            Fail("T62 extended: red present %d members %d row %d Y %.17g, expected the 235 row alone (Y 20)",
+                 (int)r.present, r.members, r.firstRow, r.reading.GetY());
+        if (s.entries[PATCH_COLOR_CYAN].present)
+            Fail("T62 extended: cyan over white (1019) taken as 100%%");
+        if (!s.entries[PATCH_COLOR_YELLOW].present || s.entries[PATCH_COLOR_YELLOW].members != 1)
+            Fail("T62 extended: yellow at 940 not taken");
+        if (s.entries[PATCH_COLOR_BLUE].present)
+            Fail("T62 extended: blue with channels below black taken");
+        if (Present(s) != 2)
+            Fail("T62 extended: %d entries, expected 2", Present(s));
+    }
+
+    // 8. The chooser, per group, and the run match.
+    static void CheckChooser()
+    {
+        struct Case { bool dedicated, list, match; PrimarySetSource want; };
+        const Case cases[8] = {
+            { true,  true,  true,  PRIMARY_SET_DEDICATED },
+            { true,  false, true,  PRIMARY_SET_DEDICATED },
+            { true,  true,  false, PRIMARY_SET_DEDICATED },
+            { false, true,  true,  PRIMARY_SET_LIST },
+            { false, false, true,  PRIMARY_SET_DEDICATED },
+            { false, true,  false, PRIMARY_SET_DEDICATED },
+            { false, false, false, PRIMARY_SET_DEDICATED },
+            { true,  false, false, PRIMARY_SET_DEDICATED },
+        };
+        for (int k = 0; k < 8; k++)
+        {
+            const PrimarySetSource got = ChoosePrimarySetSource(cases[k].dedicated, cases[k].list, cases[k].match);
+            if (got != cases[k].want)
+                Fail("T62 chooser (%d,%d,%d): %d, expected %d", (int)cases[k].dedicated, (int)cases[k].list,
+                     (int)cases[k].match, (int)got, (int)cases[k].want);
+        }
+        if (!ListPrimariesMatchRun(100.0, true))
+            Fail("T62 match: 100%% pure channels does not match");
+        if (ListPrimariesMatchRun(50.22831, true))
+            Fail("T62 match: the HDR10 50.22831%% run matches a 100%% list");
+        if (ListPrimariesMatchRun(100.0, false))
+            Fail("T62 match: a run of mixed channels matches");
+        // Primaries and secondaries are separate groups: a list with only
+        // secondaries has no primary.
+        std::vector<CsvPatchRow> rows(1, ColorRow(PATCH_COLOR_MAGENTA, 255, 0, 8, CSV_RANGE_FULL));
+        std::vector<CColor> readings(1, CColor(50.0, 25.0, 60.0));
+        const ListPrimarySet s = Build(rows, readings);
+        if (s.HasPrimary() || !s.HasSecondary())
+            Fail("T62 groups: magenta alone gives HasPrimary %d HasSecondary %d, expected 0 1",
+                 (int)s.HasPrimary(), (int)s.HasSecondary());
+    }
+}
+
+static void RunT62()
+{
+    printf("T62 primaries and secondaries from a patch list...\n");
+    T62Prim::CheckSixAtFull();
+    T62Prim::CheckLowerLevels();
+    T62Prim::CheckRepeats();
+    T62Prim::CheckShuffled();
+    T62Prim::CheckInvalid();
+    T62Prim::CheckRoles();
+    T62Prim::CheckExtended();
+    T62Prim::CheckChooser();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -9002,6 +9314,7 @@ int main(int argc, char* argv[])
     RunT59();
     RunT60();
     RunT61();
+    RunT62();
 
     if (g_failures)
     {
