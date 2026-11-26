@@ -145,4 +145,47 @@ PrimarySetChoice ChoosePrimarySetShown ( bool dedicatedHoldsReading, bool listHa
 // caches that must treat a change of source as new data.
 int PrimarySetShownKey ( const PrimarySetChoice & c );
 
+// The primaries page of the main grid (CMainView, display mode 1). Its page
+// columns (the grid column minus one) are 0..2 red, green, blue, 3..5 yellow,
+// cyan, magenta, 6 the white and 7 the black. Each group of the page shows what
+// the CIE chart shows for it (ChoosePrimarySetShown, chosen per group); the
+// white and the black are the dedicated measurement's.
+enum PrimaryPageColumnRead
+{
+	PRIMARY_PAGE_DEDICATED   = 0,	// the dedicated measurement, exactly as before:
+									// the white, the black, a group shown from the
+									// dedicated measurement, any other column
+	PRIMARY_PAGE_LIST        = 1,	// the list's readings, with the references
+	PRIMARY_PAGE_LIST_NO_REF = 2	// the list's readings, without the references
+									// (referenceApplies false): no dE
+};
+
+// What page column col reads, given the choices for the primaries and the
+// secondaries.
+PrimaryPageColumnRead PrimaryPageColumnSource ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries );
+
+// Whether an edit, a paste or a clear of a cell in page column col may write
+// the dedicated measurement: only for a column that reads it. A column showing
+// a list's readings is read-only, so the list's readings never reach the
+// dedicated primaries, secondaries or white.
+bool PrimaryPageColumnWritesDedicated ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries );
+
+// Whether a row of the page (GetItemText's component) is derived from the
+// app's references: the dE (3), the xy error (4), and the luminance against the
+// reference and the reference luminance (5 and 6; 7 and 8 when a data reference
+// document puts its dE and xy error at 5 and 6). The values (0..2) and the data
+// reference document's rows are not. A PRIMARY_PAGE_LIST_NO_REF column leaves
+// these rows empty.
+bool PrimaryPageRowUsesReference ( int component, bool hasDataRef );
+
+// The note the page's caption carries: which groups show a list's readings.
+enum PrimaryPageNote
+{
+	PRIMARY_PAGE_NOTE_NONE        = 0,
+	PRIMARY_PAGE_NOTE_PRIMARIES   = 1,
+	PRIMARY_PAGE_NOTE_SECONDARIES = 2,
+	PRIMARY_PAGE_NOTE_BOTH        = 3
+};
+PrimaryPageNote PrimaryPageSourceNote ( const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries );
+
 #endif // PRIMARYSET_H_INCLUDED_

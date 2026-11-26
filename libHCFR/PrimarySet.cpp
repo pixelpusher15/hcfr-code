@@ -138,3 +138,36 @@ int PrimarySetShownKey ( const PrimarySetChoice & c )
 		return 0;
 	return c.runLevelRows ? 2 : 1;
 }
+
+PrimaryPageColumnRead PrimaryPageColumnSource ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries )
+{
+	if ( col < 0 || col > 5 )
+		return PRIMARY_PAGE_DEDICATED;	// the white, the black, outside the page
+	const PrimarySetChoice & c = ( col < 3 ) ? primaries : secondaries;
+	if ( c.source != PRIMARY_SET_LIST )
+		return PRIMARY_PAGE_DEDICATED;
+	return c.referenceApplies ? PRIMARY_PAGE_LIST : PRIMARY_PAGE_LIST_NO_REF;
+}
+
+bool PrimaryPageColumnWritesDedicated ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries )
+{
+	return PrimaryPageColumnSource ( col, primaries, secondaries ) == PRIMARY_PAGE_DEDICATED;
+}
+
+bool PrimaryPageRowUsesReference ( int component, bool hasDataRef )
+{
+	if ( component == 3 || component == 4 )
+		return true;
+	return hasDataRef ? ( component == 7 || component == 8 ) : ( component == 5 || component == 6 );
+}
+
+PrimaryPageNote PrimaryPageSourceNote ( const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries )
+{
+	const bool p = ( primaries.source == PRIMARY_SET_LIST );
+	const bool s = ( secondaries.source == PRIMARY_SET_LIST );
+	if ( p && s )
+		return PRIMARY_PAGE_NOTE_BOTH;
+	if ( p )
+		return PRIMARY_PAGE_NOTE_PRIMARIES;
+	return s ? PRIMARY_PAGE_NOTE_SECONDARIES : PRIMARY_PAGE_NOTE_NONE;
+}

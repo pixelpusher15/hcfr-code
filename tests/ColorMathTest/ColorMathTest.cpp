@@ -9460,6 +9460,99 @@ namespace T62Prim
             if (!SameXYZ(ss.entries[c].reading, CColor(80.0 + c, 90.0 + c, 20.0 + c)))
                 Fail("T62 HDR10 groups: %s shows Y %.17g, expected the 100%% %.17g", kColor[c], ss.entries[c].reading.GetY(), 90.0 + c);
     }
+
+    // 13. The main grid's primaries page (MainView display mode 1): what each
+    // page column reads, which columns an edit may write, which rows are the
+    // references', and the caption's note. Page columns 0..2 R,G,B, 3..5 Y,C,M,
+    // 6 white, 7 black.
+    static void ExpectPage(const char* what, const PrimarySetChoice& p, const PrimarySetChoice& s, const int expected[8])
+    {
+        for (int col = 0; col < 8; col++)
+        {
+            const int got = (int)PrimaryPageColumnSource(col, p, s);
+            if (got != expected[col])
+                Fail("T62 page %s: column %d reads %d, expected %d", what, col, got, expected[col]);
+            const bool writes = PrimaryPageColumnWritesDedicated(col, p, s);
+            if (writes != (expected[col] == PRIMARY_PAGE_DEDICATED))
+                Fail("T62 page %s: column %d writes the dedicated measurement %d, expected %d",
+                     what, col, (int)writes, (int)(expected[col] == PRIMARY_PAGE_DEDICATED));
+        }
+        // Outside the page: the dedicated measurement, writable, as before.
+        const int outside[4] = { -1, 8, 9, 100 };
+        for (int k = 0; k < 4; k++)
+            if (PrimaryPageColumnSource(outside[k], p, s) != PRIMARY_PAGE_DEDICATED || !PrimaryPageColumnWritesDedicated(outside[k], p, s))
+                Fail("T62 page %s: column %d outside the page is not the dedicated measurement", what, outside[k]);
+    }
+
+    static void CheckPrimaryPage()
+    {
+        const int D = PRIMARY_PAGE_DEDICATED, L = PRIMARY_PAGE_LIST, N = PRIMARY_PAGE_LIST_NO_REF;
+        const double kSdr = 100.0;
+        // Both groups measured by the dedicated run, at either run level: the
+        // page reads the dedicated measurement everywhere, writable, no note.
+        const PrimarySetChoice ded = ChoosePrimarySetShown(true, true, true, kSdr, true);
+        const PrimarySetChoice dedHdr = ChoosePrimarySetShown(true, true, true, kHdr10Run, true);
+        const int allD[8] = { D, D, D, D, D, D, D, D };
+        ExpectPage("dedicated, SDR", ded, ded, allD);
+        ExpectPage("dedicated, HDR10", dedHdr, dedHdr, allD);
+        // A list-only document under SDR: both groups from the list, with
+        // references; the white and the black stay the dedicated measurement's.
+        const PrimarySetChoice listSdr = ChoosePrimarySetShown(false, false, true, kSdr, true);
+        const int bothL[8] = { L, L, L, L, L, L, D, D };
+        ExpectPage("list, SDR", listSdr, listSdr, bothL);
+        // The groups separately: dedicated primaries, list secondaries, and the
+        // reverse.
+        const int secL[8] = { D, D, D, L, L, L, D, D };
+        const int primL[8] = { L, L, L, D, D, D, D, D };
+        ExpectPage("dedicated primaries, list secondaries", ded, listSdr, secL);
+        ExpectPage("list primaries, dedicated secondaries", listSdr, ded, primL);
+        // HDR10: run-level primaries with references, 100%-only secondaries
+        // without (the HDR10 groups of check 12).
+        const PrimarySetChoice runHdr = ChoosePrimarySetShown(false, true, true, kHdr10Run, true);
+        const PrimarySetChoice fullHdr = ChoosePrimarySetShown(false, false, true, kHdr10Run, true);
+        const int hdr[8] = { L, L, L, N, N, N, D, D };
+        ExpectPage("HDR10, run-level primaries, 100% secondaries", runHdr, fullHdr, hdr);
+        const int hdrBothN[8] = { N, N, N, N, N, N, D, D };
+        ExpectPage("HDR10, 100% rows only", fullHdr, fullHdr, hdrBothN);
+        // Mixed channels (HDTVa/b, UHDTV3/4): nothing from the list.
+        const PrimarySetChoice mixed = ChoosePrimarySetShown(false, true, true, kSdr, false);
+        ExpectPage("mixed channels", mixed, mixed, allD);
+        // No list, no dedicated reading: the dedicated measurement, as before.
+        const PrimarySetChoice none = ChoosePrimarySetShown(false, false, false, kSdr, true);
+        ExpectPage("nothing measured", none, none, allD);
+
+        // The rows the references make, without and with a data reference
+        // document (whose dE and xy error take rows 5 and 6).
+        const bool noRef[10] = { false, false, false, true, true, true, true, false, false, false };
+        const bool withRef[10] = { false, false, false, true, true, false, false, true, true, false };
+        for (int comp = 0; comp < 10; comp++)
+        {
+            if (PrimaryPageRowUsesReference(comp, false) != noRef[comp])
+                Fail("T62 page row %d without a data reference: uses the reference %d, expected %d",
+                     comp, (int)PrimaryPageRowUsesReference(comp, false), (int)noRef[comp]);
+            if (PrimaryPageRowUsesReference(comp, true) != withRef[comp])
+                Fail("T62 page row %d with a data reference: uses the reference %d, expected %d",
+                     comp, (int)PrimaryPageRowUsesReference(comp, true), (int)withRef[comp]);
+        }
+
+        // The caption's note names the groups shown from a list, with or
+        // without references.
+        struct { const PrimarySetChoice* p; const PrimarySetChoice* s; int note; const char* what; } notes[] = {
+            { &ded,     &ded,     PRIMARY_PAGE_NOTE_NONE,        "dedicated" },
+            { &none,    &none,    PRIMARY_PAGE_NOTE_NONE,        "nothing measured" },
+            { &listSdr, &ded,     PRIMARY_PAGE_NOTE_PRIMARIES,   "list primaries" },
+            { &ded,     &listSdr, PRIMARY_PAGE_NOTE_SECONDARIES, "list secondaries" },
+            { &listSdr, &listSdr, PRIMARY_PAGE_NOTE_BOTH,        "list, SDR" },
+            { &runHdr,  &fullHdr, PRIMARY_PAGE_NOTE_BOTH,        "HDR10 groups" },
+            { &mixed,   &mixed,   PRIMARY_PAGE_NOTE_NONE,        "mixed channels" },
+        };
+        for (int k = 0; k < (int)(sizeof(notes) / sizeof(notes[0])); k++)
+        {
+            const int got = (int)PrimaryPageSourceNote(*notes[k].p, *notes[k].s);
+            if (got != notes[k].note)
+                Fail("T62 page note %s: %d, expected %d", notes[k].what, got, notes[k].note);
+        }
+    }
 }
 
 static void RunT62()
@@ -9477,6 +9570,7 @@ static void RunT62()
     T62Prim::CheckBothLevels();
     T62Prim::CheckShownChoice();
     T62Prim::CheckHdr10Groups();
+    T62Prim::CheckPrimaryPage();
 }
 
 int main(int argc, char* argv[])
