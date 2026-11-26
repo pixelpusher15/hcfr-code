@@ -5222,6 +5222,22 @@ void CMainView::UpdateGrid()
                     if (GetConfig()->doHighlight)
                         m_grayScaleGroup.SetBorderColor (fxUseCustomColor ? FxGetSysColor(COLOR_BTNFACE) : FxGetSysColor(COLOR_3DSHADOW));
 			}
+			// The values of a group shown from a patch list are the list's, not a
+			// primaries run's: the caption says so (PrimaryPageSourceNote).
+			UINT nPageNote = 0;
+			switch ( PrimaryPageSourceNote ( pageChoice[0], pageChoice[1] ) )
+			{
+				case PRIMARY_PAGE_NOTE_PRIMARIES:   nPageNote = IDS_PRIMPAGE_LIST_PRIMARIES; break;
+				case PRIMARY_PAGE_NOTE_SECONDARIES: nPageNote = IDS_PRIMPAGE_LIST_SECONDARIES; break;
+				case PRIMARY_PAGE_NOTE_BOTH:        nPageNote = IDS_PRIMPAGE_LIST_BOTH; break;
+				default: break;
+			}
+			if ( nPageNote != 0 )
+			{
+				Tmp.LoadString ( nPageNote );
+				Msg += " - ";
+				Msg += Tmp;
+			}
 			m_grayScaleGroup.SetText ( Msg );
 		} else if ( m_displayMode > 4 && m_displayMode < 11 )
 		{
