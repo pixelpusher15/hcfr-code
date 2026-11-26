@@ -31,10 +31,13 @@
 // is over 100%). A color with no such row has no entry.
 //
 // Which source the views show is CMeasure::GetShownPrimary / GetShownSecondary:
-// per group (R,G,B and Y,C,M separately, ChoosePrimarySetSource), the dedicated
+// per group (R,G,B and Y,C,M separately, ChoosePrimarySetShown), the dedicated
 // measurement when it holds a reading, else the list when it has an entry in
-// that group and its 100% signal is the one HCFR's own primaries run drives
-// (ListPrimariesMatchRun), else the dedicated measurement.
+// that group and HCFR's own primaries run drives pure channels, else the
+// dedicated measurement. Which of the list's rows: when the run drives 100%,
+// the 100% rows; when it drives a lower level (HDR10, 50.22831%), the rows at
+// that level (BuildListPrimarySetAtLevel), else the 100% rows - drawn, but
+// without the references (no dE), see ChoosePrimarySetShown.
 
 #if !defined(PRIMARYSET_H_INCLUDED_)
 #define PRIMARYSET_H_INCLUDED_
@@ -87,5 +90,59 @@ bool ListPrimariesMatchRun ( double runLevel, bool runPureChannels );
 // when it has an entry in the group and matches the run; else the dedicated
 // measurement.
 PrimarySetSource ChoosePrimarySetSource ( bool dedicatedHoldsReading, bool listHasEntry, bool listMatchesRun );
+
+// The 10-bit legal code a level lands on: round(64 + level * 8.76), level in
+// percent of the nominal range, as a label's level (CsvCodeToPercent) and
+// HCFR's run level both are. HDR10's run level, 50.22831, gives 504; so do the
+// 8-bit legal code 126 and the full-range codes a generator drives for it (8-bit
+// 128, 10-bit 514). Two levels are the same signal when they give the same
+// code: an exact comparison of doubles would miss a label decoded from a code.
+int PrimarySetLevelCode ( double level );
+
+// Whether a patch-list row is color's signal at level: labeled that color's
+// primary or secondary, with a role that counts, and its level and level give
+// the same PrimarySetLevelCode.
+bool PrimarySetRowCountsAtLevel ( const CsvPatchRow & row, int color, double level );
+
+// BuildListPrimarySet with the rows at level (PrimarySetRowCountsAtLevel) in
+// place of the 100% rows.
+void BuildListPrimarySetAtLevel ( const CsvPatchRow * rows, int nRows, const CColor * readings, int nReadings, double level, ListPrimarySet * out );
+
+// What one group of the views shows (ChoosePrimarySetShown).
+struct PrimarySetChoice
+{
+	PrimarySetSource source;
+	bool runLevelRows;		// LIST: the rows at a run level below 100%
+							// (BuildListPrimarySetAtLevel); else the 100% rows
+							// (BuildListPrimarySet). False for DEDICATED.
+	bool referenceApplies;	// the app's references, and so a dE, apply to the
+							// shown set
+	PrimarySetChoice() : source(PRIMARY_SET_DEDICATED), runLevelRows(false), referenceApplies(true) {}
+};
+
+// One group of the views, given what HCFR's own primaries run drives (runLevel
+// percent, runPureChannels as for ListPrimariesMatchRun):
+//   - the dedicated measurement when it holds a reading (with references);
+//   - a run of mixed channels (HDTVa / HDTVb, UHDTV3 / UHDTV4): the dedicated
+//     measurement, whatever the list holds;
+//   - a run at 100%: the list's 100% rows when it has an entry in the group,
+//     with references;
+//   - a run below 100% (HDR10): the list's rows at the run level when it has an
+//     entry there, with references, exactly as the dedicated run; else its 100%
+//     rows when it has an entry there, WITHOUT references. The references are
+//     the run level's, and a real display's 100% primaries in HDR10 are not a
+//     run-level color pushed up: tone mapping moves them, and on WRGB panels
+//     the white subpixel desaturates them, so a dE against the run level's
+//     reference would measure the display's tone mapping, not its gamut. The
+//     triangle they draw still shows where the panel's full primaries are.
+//   - otherwise the dedicated measurement.
+// The run level's rows win over the 100% rows; the choice is per group, never
+// per color, so one triangle never mixes two levels.
+PrimarySetChoice ChoosePrimarySetShown ( bool dedicatedHoldsReading, bool listHasRunLevelEntry, bool listHasFullEntry, double runLevel, bool runPureChannels );
+
+// A key that differs between the three things a group can show (the
+// dedicated measurement, the list's 100% rows, the list's run-level rows), for
+// caches that must treat a change of source as new data.
+int PrimarySetShownKey ( const PrimarySetChoice & c );
 
 #endif // PRIMARYSET_H_INCLUDED_

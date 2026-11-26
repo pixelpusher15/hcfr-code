@@ -23,6 +23,7 @@
 #include "PrimarySet.h"
 #include "GrayRamp.h"
 #include <vector>
+#include <math.h>
 
 bool PrimarySetRowCounts ( const CsvPatchRow & row, int color )
 {
@@ -34,7 +35,23 @@ bool PrimarySetRowCounts ( const CsvPatchRow & row, int color )
 	return row.label.kind == kind && row.label.level == 100.0 && PatchListRoleCounts ( row.role );
 }
 
-void BuildListPrimarySet ( const CsvPatchRow * rows, int nRows, const CColor * readings, int nReadings, ListPrimarySet * out )
+bool PrimarySetRowCountsAtLevel ( const CsvPatchRow & row, int color, double level )
+{
+	if ( color < PATCH_COLOR_RED || color > PATCH_COLOR_MAGENTA || row.label.color != color )
+		return false;
+	const int kind = ( color <= PATCH_COLOR_BLUE ) ? PATCH_KIND_PRIMARY : PATCH_KIND_SECONDARY;
+	return row.label.kind == kind && PrimarySetLevelCode ( row.label.level ) == PrimarySetLevelCode ( level )
+		&& PatchListRoleCounts ( row.role );
+}
+
+int PrimarySetLevelCode ( double level )
+{
+	return (int) floor ( 64.0 + level * 8.76 + 0.5 );
+}
+
+// The six entries from the rows that count: at exactly 100% (atLevel false,
+// PrimarySetRowCounts) or at level (PrimarySetRowCountsAtLevel).
+static void BuildEntries ( const CsvPatchRow * rows, int nRows, const CColor * readings, int nReadings, bool atLevel, double level, ListPrimarySet * out )
 {
 	*out = ListPrimarySet ();
 	if ( rows == NULL || readings == NULL )
@@ -46,7 +63,8 @@ void BuildListPrimarySet ( const CsvPatchRow * rows, int nRows, const CColor * r
 	for ( int i = 0; i < n; i++ )
 	{
 		const int color = rows[i].label.color;
-		if ( ! PrimarySetRowCounts ( rows[i], color ) || ! readings[i].isValid() )
+		const bool counts = atLevel ? PrimarySetRowCountsAtLevel ( rows[i], color, level ) : PrimarySetRowCounts ( rows[i], color );
+		if ( ! counts || ! readings[i].isValid() )
 			continue;
 		members[color].push_back ( & readings[i] );
 		if ( firstRow[color] < 0 )
@@ -65,6 +83,16 @@ void BuildListPrimarySet ( const CsvPatchRow * rows, int nRows, const CColor * r
 	}
 }
 
+void BuildListPrimarySet ( const CsvPatchRow * rows, int nRows, const CColor * readings, int nReadings, ListPrimarySet * out )
+{
+	BuildEntries ( rows, nRows, readings, nReadings, false, 100.0, out );
+}
+
+void BuildListPrimarySetAtLevel ( const CsvPatchRow * rows, int nRows, const CColor * readings, int nReadings, double level, ListPrimarySet * out )
+{
+	BuildEntries ( rows, nRows, readings, nReadings, true, level, out );
+}
+
 bool ListPrimariesMatchRun ( double runLevel, bool runPureChannels )
 {
 	return runPureChannels && runLevel == 100.0;
@@ -75,4 +103,38 @@ PrimarySetSource ChoosePrimarySetSource ( bool dedicatedHoldsReading, bool listH
 	if ( dedicatedHoldsReading )
 		return PRIMARY_SET_DEDICATED;
 	return ( listHasEntry && listMatchesRun ) ? PRIMARY_SET_LIST : PRIMARY_SET_DEDICATED;
+}
+
+PrimarySetChoice ChoosePrimarySetShown ( bool dedicatedHoldsReading, bool listHasRunLevelEntry, bool listHasFullEntry, double runLevel, bool runPureChannels )
+{
+	PrimarySetChoice c;	// the dedicated measurement, with references
+	if ( dedicatedHoldsReading || ! runPureChannels )
+		return c;
+	if ( PrimarySetLevelCode ( runLevel ) == PrimarySetLevelCode ( 100.0 ) )
+	{
+		if ( listHasFullEntry )
+			c.source = PRIMARY_SET_LIST;
+		return c;
+	}
+	if ( listHasRunLevelEntry )
+	{
+		c.source = PRIMARY_SET_LIST;
+		c.runLevelRows = true;
+	}
+	else if ( listHasFullEntry )
+	{
+		// 100% rows under a run below 100% (HDR10): the references are the run
+		// level's, and tone mapping (and, on WRGB panels, the white subpixel)
+		// moves a real display's 100% primaries away from them - drawn, no dE.
+		c.source = PRIMARY_SET_LIST;
+		c.referenceApplies = false;
+	}
+	return c;
+}
+
+int PrimarySetShownKey ( const PrimarySetChoice & c )
+{
+	if ( c.source != PRIMARY_SET_LIST )
+		return 0;
+	return c.runLevelRows ? 2 : 1;
 }

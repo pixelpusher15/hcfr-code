@@ -9257,6 +9257,209 @@ namespace T62Prim
             Fail("T62 groups: magenta alone gives HasPrimary %d HasSecondary %d, expected 0 1",
                  (int)s.HasPrimary(), (int)s.HasSecondary());
     }
+
+    // HDR10's run level, as Measure.cpp PrimaryPatchIRELevel gives it.
+    static const double kHdr10Run = 50.22831;
+
+    static ListPrimarySet BuildAt(const std::vector<CsvPatchRow>& rows, const std::vector<CColor>& readings, double level)
+    {
+        ListPrimarySet s;
+        BuildListPrimarySetAtLevel(rows.empty() ? NULL : &rows[0], (int)rows.size(),
+                                   readings.empty() ? NULL : &readings[0], (int)readings.size(), level, &s);
+        return s;
+    }
+
+    static const char* ChoiceText(const PrimarySetChoice& c, char* buf, size_t n)
+    {
+        sprintf_s(buf, n, "source %d runLevelRows %d ref %d", (int)c.source, (int)c.runLevelRows, (int)c.referenceApplies);
+        return buf;
+    }
+
+    static void ExpectChoice(const char* what, const PrimarySetChoice& got, PrimarySetSource source, bool runLevelRows, bool ref)
+    {
+        if (got.source != source || got.runLevelRows != runLevelRows || got.referenceApplies != ref)
+        {
+            char a[96], b[96];
+            PrimarySetChoice want;
+            want.source = source; want.runLevelRows = runLevelRows; want.referenceApplies = ref;
+            Fail("T62 %s: %s, expected %s", what, ChoiceText(got, a, sizeof a), ChoiceText(want, b, sizeof b));
+        }
+    }
+
+    // 9. Levels compared by 10-bit legal code: HDR10's run level is 504, and
+    // the codes that drive it in each bit depth and range match it; the codes
+    // beside them do not.
+    static void CheckLevelCode()
+    {
+        if (PrimarySetLevelCode(kHdr10Run) != 504)
+            Fail("T62 level code of %.17g: %d, expected 504", kHdr10Run, PrimarySetLevelCode(kHdr10Run));
+        if (PrimarySetLevelCode(100.0) != 940 || PrimarySetLevelCode(0.0) != 64 || PrimarySetLevelCode(50.0) != 502)
+            Fail("T62 level code of 100 / 0 / 50: %d / %d / %d, expected 940 / 64 / 502",
+                 PrimarySetLevelCode(100.0), PrimarySetLevelCode(0.0), PrimarySetLevelCode(50.0));
+        struct Case { int bits, range, code; bool match; };
+        const Case cases[12] = {
+            { 10, CSV_RANGE_LEGAL, 504, true  }, { 10, CSV_RANGE_LEGAL, 503, false }, { 10, CSV_RANGE_LEGAL, 505, false },
+            { 8,  CSV_RANGE_LEGAL, 126, true  }, { 8,  CSV_RANGE_LEGAL, 125, false }, { 8,  CSV_RANGE_LEGAL, 127, false },
+            { 8,  CSV_RANGE_FULL,  128, true  }, { 8,  CSV_RANGE_FULL,  127, false }, { 8,  CSV_RANGE_FULL,  129, false },
+            { 10, CSV_RANGE_FULL,  514, true  }, { 10, CSV_RANGE_FULL,  513, false }, { 10, CSV_RANGE_FULL,  515, false },
+        };
+        for (int k = 0; k < 12; k++)
+        {
+            const Case& c = cases[k];
+            const int black = (c.range == CSV_RANGE_FULL) ? 0 : 16 << (c.bits - 8);
+            for (int col = 0; col < 6; col++)
+            {
+                const CsvPatchRow row = ColorRow(col, c.code, black, c.bits, c.range);
+                if (PrimarySetRowCountsAtLevel(row, col, kHdr10Run) != c.match)
+                    Fail("T62 level code: %s at %d-bit %s code %d (level %.17g, code %d) counts %d at the HDR10 run, expected %d",
+                         kColor[col], c.bits, c.range == CSV_RANGE_FULL ? "full" : "legal", c.code, row.label.level,
+                         PrimarySetLevelCode(row.label.level), (int)!c.match, (int)c.match);
+                if (PrimarySetRowCountsAtLevel(row, (col + 1) % 6, kHdr10Run))
+                    Fail("T62 level code: a %s row counts as %s", kColor[col], kColor[(col + 1) % 6]);
+            }
+        }
+        // The role test applies at the run level as at 100%.
+        if (PrimarySetRowCountsAtLevel(ColorRow(PATCH_COLOR_RED, 504, 64, 10, CSV_RANGE_LEGAL, PROVENANCE_ROLE_ANCHOR), PATCH_COLOR_RED, kHdr10Run))
+            Fail("T62 level code: an anchor row counts at the HDR10 run");
+        // A gray at the run level is no primary.
+        if (PrimarySetRowCountsAtLevel(Row(504, 504, 504, 10, CSV_RANGE_LEGAL), PATCH_COLOR_RED, kHdr10Run))
+            Fail("T62 level code: a gray at 504 counts as red");
+    }
+
+    // 10. A list with both levels: the run-level set takes only the run-level
+    // rows, the 100% set only the 100% rows, in all four bit/range cases.
+    static void CheckBothLevels()
+    {
+        const int runCode[4] = { 128, 126, 514, 504 };	// kGrids order
+        for (int g = 0; g < 4; g++)
+        {
+            const Grid& G = kGrids[g];
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int c = 0; c < 6; c++)
+            {
+                rows.push_back(ColorRow(c, G.white, G.black, G.bits, G.range));
+                readings.push_back(CColor(60.0 + c, 70.0 + c, 80.0 + c));
+                rows.push_back(ColorRow(c, runCode[g], G.black, G.bits, G.range));
+                readings.push_back(CColor(6.0 + c, 7.0 + c, 8.0 + c));
+            }
+            const ListPrimarySet atRun = BuildAt(rows, readings, kHdr10Run);
+            const ListPrimarySet full = Build(rows, readings);
+            for (int c = 0; c < 6; c++)
+            {
+                const PrimarySetEntry& r = atRun.entries[c];
+                if (!r.present || r.members != 1 || r.firstRow != 2 * c + 1 || !SameXYZ(r.reading, CColor(6.0 + c, 7.0 + c, 8.0 + c)))
+                    Fail("T62 %s %s at the HDR10 run: present %d members %d row %d Y %.17g, expected 1 1 %d %.17g",
+                         G.name, kColor[c], (int)r.present, r.members, r.firstRow, r.reading.GetY(), 2 * c + 1, 7.0 + c);
+                const PrimarySetEntry& f = full.entries[c];
+                if (!f.present || f.members != 1 || f.firstRow != 2 * c || !SameXYZ(f.reading, CColor(60.0 + c, 70.0 + c, 80.0 + c)))
+                    Fail("T62 %s %s at 100%%: present %d members %d row %d Y %.17g, expected 1 1 %d %.17g",
+                         G.name, kColor[c], (int)f.present, f.members, f.firstRow, f.reading.GetY(), 2 * c, 70.0 + c);
+            }
+        }
+        // A list with only 100% rows has nothing at the run level, and one with
+        // only run-level rows nothing at 100%.
+        std::vector<CsvPatchRow> rows(1, ColorRow(PATCH_COLOR_GREEN, 940, 64, 10, CSV_RANGE_LEGAL));
+        std::vector<CColor> readings(1, CColor(30.0, 60.0, 10.0));
+        if (Present(BuildAt(rows, readings, kHdr10Run)) != 0)
+            Fail("T62 a 100%% green counts at the HDR10 run");
+        rows[0] = ColorRow(PATCH_COLOR_GREEN, 504, 64, 10, CSV_RANGE_LEGAL);
+        if (Present(Build(rows, readings)) != 0)
+            Fail("T62 a run-level green counts at 100%%");
+        // Repeats at the run level are averaged, as at 100%.
+        rows.push_back(ColorRow(PATCH_COLOR_GREEN, 126, 16, 8, CSV_RANGE_LEGAL));
+        readings.push_back(CColor(34.0, 64.0, 14.0));
+        const PrimarySetEntry& e = BuildAt(rows, readings, kHdr10Run).entries[PATCH_COLOR_GREEN];
+        if (!e.present || e.members != 2 || e.firstRow != 0 || !SameXYZ(e.reading, CColor(32.0, 62.0, 12.0)))
+            Fail("T62 run-level repeats: present %d members %d row %d Y %.17g, expected 1 2 0 62",
+                 (int)e.present, e.members, e.firstRow, e.reading.GetY());
+    }
+
+    // 11. What a group shows, per bullet of the rule.
+    static void CheckShownChoice()
+    {
+        const PrimarySetSource D = PRIMARY_SET_DEDICATED, L = PRIMARY_SET_LIST;
+        // Not HDR10, a run of 100% pure channels: unchanged - the list's 100%
+        // rows with references, and the same source ChoosePrimarySetSource gives.
+        for (int ded = 0; ded <= 1; ded++)
+            for (int run = 0; run <= 1; run++)
+                for (int full = 0; full <= 1; full++)
+                {
+                    const PrimarySetChoice c = ChoosePrimarySetShown(ded != 0, run != 0, full != 0, 100.0, true);
+                    const bool list = !ded && full;
+                    char what[96];
+                    sprintf_s(what, "shown, run 100%%, dedicated %d run-level %d full %d", ded, run, full);
+                    ExpectChoice(what, c, list ? L : D, false, true);
+                    if (c.source != ChoosePrimarySetSource(ded != 0, full != 0, ListPrimariesMatchRun(100.0, true)))
+                        Fail("T62 %s: disagrees with ChoosePrimarySetSource", what);
+                }
+        // HDR10: rows at the run level count, with references; they win over
+        // 100% rows.
+        ExpectChoice("shown, HDR10, run-level and 100% rows", ChoosePrimarySetShown(false, true, true, kHdr10Run, true), L, true, true);
+        ExpectChoice("shown, HDR10, run-level rows only", ChoosePrimarySetShown(false, true, false, kHdr10Run, true), L, true, true);
+        // HDR10 and only 100% rows: drawn from them, without references.
+        ExpectChoice("shown, HDR10, 100% rows only", ChoosePrimarySetShown(false, false, true, kHdr10Run, true), L, false, false);
+        ExpectChoice("shown, HDR10, no rows", ChoosePrimarySetShown(false, false, false, kHdr10Run, true), D, false, true);
+        // HDR10 with the dedicated run measured: the dedicated run, with references.
+        for (int run = 0; run <= 1; run++)
+            for (int full = 0; full <= 1; full++)
+                ExpectChoice("shown, HDR10, dedicated measured", ChoosePrimarySetShown(true, run != 0, full != 0, kHdr10Run, true), D, false, true);
+        // HDTVa / HDTVb and UHDTV3 / UHDTV4 (mixed channels): nothing from a
+        // list, at either run level.
+        const double levels[2] = { 100.0, kHdr10Run };
+        for (int lv = 0; lv < 2; lv++)
+            for (int run = 0; run <= 1; run++)
+                for (int full = 0; full <= 1; full++)
+                    ExpectChoice("shown, mixed channels", ChoosePrimarySetShown(false, run != 0, full != 0, levels[lv], false), D, false, true);
+        // The run level is compared by code too: a level on the 100% code is a
+        // 100% run, one on another code is not.
+        ExpectChoice("shown, run 99.99%", ChoosePrimarySetShown(false, true, true, 99.99, true), L, false, true);
+        ExpectChoice("shown, run 50.00% (code 502), 100% rows only", ChoosePrimarySetShown(false, false, true, 50.0, true), L, false, false);
+
+        // The three things a group can show have three keys.
+        PrimarySetChoice ded, full, run;
+        full.source = L;
+        run.source = L; run.runLevelRows = true;
+        const int kd = PrimarySetShownKey(ded), kf = PrimarySetShownKey(full), kr = PrimarySetShownKey(run);
+        if (kd == kf || kd == kr || kf == kr)
+            Fail("T62 shown keys: dedicated %d, 100%% rows %d, run-level rows %d, expected three different", kd, kf, kr);
+        if (PrimarySetShownKey(ChoosePrimarySetShown(false, false, true, kHdr10Run, true)) != kf
+            || PrimarySetShownKey(ChoosePrimarySetShown(false, true, true, kHdr10Run, true)) != kr
+            || PrimarySetShownKey(ChoosePrimarySetShown(true, true, true, kHdr10Run, true)) != kd)
+            Fail("T62 shown keys: the chooser's choices do not map to their keys");
+    }
+
+    // 12. One HDR10 list, the groups chosen separately: run-level primaries are
+    // shown with references, 100%-only secondaries without.
+    static void CheckHdr10Groups()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        for (int c = 0; c < 3; c++)
+        {
+            rows.push_back(ColorRow(c, 504, 64, 10, L));     readings.push_back(CColor(5.0 + c, 6.0 + c, 7.0 + c));
+            rows.push_back(ColorRow(c, 940, 64, 10, L));     readings.push_back(CColor(50.0 + c, 60.0 + c, 70.0 + c));
+        }
+        for (int c = 3; c < 6; c++)
+        {
+            rows.push_back(ColorRow(c, 940, 64, 10, L));     readings.push_back(CColor(80.0 + c, 90.0 + c, 20.0 + c));
+        }
+        const ListPrimarySet atRun = BuildAt(rows, readings, kHdr10Run);
+        const ListPrimarySet full = Build(rows, readings);
+        const PrimarySetChoice p = ChoosePrimarySetShown(false, atRun.HasPrimary(), full.HasPrimary(), kHdr10Run, true);
+        const PrimarySetChoice s = ChoosePrimarySetShown(false, atRun.HasSecondary(), full.HasSecondary(), kHdr10Run, true);
+        ExpectChoice("HDR10 groups, primaries", p, PRIMARY_SET_LIST, true, true);
+        ExpectChoice("HDR10 groups, secondaries", s, PRIMARY_SET_LIST, false, false);
+        const ListPrimarySet& ps = p.runLevelRows ? atRun : full;
+        const ListPrimarySet& ss = s.runLevelRows ? atRun : full;
+        for (int c = 0; c < 3; c++)
+            if (!SameXYZ(ps.entries[c].reading, CColor(5.0 + c, 6.0 + c, 7.0 + c)))
+                Fail("T62 HDR10 groups: %s shows Y %.17g, expected the run-level %.17g", kColor[c], ps.entries[c].reading.GetY(), 6.0 + c);
+        for (int c = 3; c < 6; c++)
+            if (!SameXYZ(ss.entries[c].reading, CColor(80.0 + c, 90.0 + c, 20.0 + c)))
+                Fail("T62 HDR10 groups: %s shows Y %.17g, expected the 100%% %.17g", kColor[c], ss.entries[c].reading.GetY(), 90.0 + c);
+    }
 }
 
 static void RunT62()
@@ -9270,6 +9473,10 @@ static void RunT62()
     T62Prim::CheckRoles();
     T62Prim::CheckExtended();
     T62Prim::CheckChooser();
+    T62Prim::CheckLevelCode();
+    T62Prim::CheckBothLevels();
+    T62Prim::CheckShownChoice();
+    T62Prim::CheckHdr10Groups();
 }
 
 int main(int argc, char* argv[])

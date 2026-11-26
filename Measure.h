@@ -300,19 +300,26 @@ public:
 	// when the document has no active set with rows and a band.
 	bool GetActiveUserBand(const CsvPatchRow ** pRows, int * pRowCount, const CColor ** pReadings, int * pReadingCount) const;
 	// The primaries and secondaries the display views show (libHCFR
-	// PrimarySet.h), per group: the dedicated measurement (GetPrimary /
-	// GetSecondary, returned unchanged) when it holds a reading, else the
-	// active patch list's 100% readings when it has one in the group and HCFR's
-	// own primaries run drives 100% pure channels, else the dedicated
+	// PrimarySet.h, ChoosePrimarySetShown), per group: the dedicated
+	// measurement (GetPrimary / GetSecondary, returned unchanged) when it holds
+	// a reading; else, when HCFR's own primaries run drives pure channels, the
+	// active patch list's readings at the run's level (100%, or HDR10's
+	// 50.22831%) when it has one in the group, else under HDR10 its 100%
+	// readings, shown without references (no dE); else the dedicated
 	// measurement. i is 0..2 (red, green, blue / yellow, cyan, magenta). A color
 	// the chosen list lacks is noDataColor. GetPrimary / GetSecondary are not
 	// affected: calibration, exports and the accuracy test read those.
 	CColor GetShownPrimary(int i) const;
 	CColor GetShownSecondary(int i) const;
 	PrimarySetSource GetShownPrimarySource(bool bSecondaries) const;
+	// The choice behind the shown group (bSecondaries: Y,C,M), including whether
+	// the references (a dE) apply to it; pSet, when not NULL, receives the list
+	// entries the choice reads (empty for the dedicated measurement).
+	PrimarySetChoice GetShownPrimaryChoice(bool bSecondaries, ListPrimarySet * pSet) const;
 	bool PrimariesHoldReading() const;	// a valid dedicated primary (the S_PRIMARIES test of SweepOverwritesData)
 	bool SecondariesHoldReading() const;	// the same for the secondaries
 	ListPrimarySet GetListPrimarySet() const;	// the active set's, empty without one
+	ListPrimarySet GetListPrimarySetAtLevel(double level) const;	// the same, rows at level (BuildListPrimarySetAtLevel)
 	int GetGrayScalePreset() const;	// matching preset index, or -1 (custom)
 	void SetIREScaleMode(BOOL bIRE);
 	CColor lastColor, previousColor;

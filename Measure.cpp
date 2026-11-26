@@ -1988,32 +1988,60 @@ ListPrimarySet CMeasure::GetListPrimarySet() const
 	return s;
 }
 
-// Whether a list's 100% primaries are the signal HCFR's own primaries run
-// drives (BuildPrimarySecondaryColors): PrimaryPatchIRELevel, 100 except
-// under HDR10, on single and paired channels, which the 75% gamuts (HDTVa,
-// HDTVb: wire tables) and P3 / Rec.709 inside BT.2020 (UHDTV3, UHDTV4: the
-// inner primary encoded in the container) do not drive.
-static bool ListPrimariesMatchOwnRun()
+ListPrimarySet CMeasure::GetListPrimarySetAtLevel(double level) const
+{
+	ListPrimarySet s;
+	const CsvPatchRow * rows = NULL;
+	const CColor * readings = NULL;
+	int nRows = 0, nReadings = 0;
+	if ( GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
+		BuildListPrimarySetAtLevel ( rows, nRows, readings, nReadings, level, & s );
+	return s;
+}
+
+// The signal HCFR's own primaries run drives (BuildPrimarySecondaryColors):
+// PrimaryPatchIRELevel, 100 except under HDR10, on single and paired
+// channels, which the 75% gamuts (HDTVa, HDTVb: wire tables) and P3 / Rec.709
+// inside BT.2020 (UHDTV3, UHDTV4: the inner primary encoded in the container)
+// do not drive.
+static void OwnPrimariesRunSignal(double * pLevel, bool * pPure)
 {
 	const ColorStandard s = GetColorReference().m_standard;
-	const bool pure = ! ( s == HDTVa || s == HDTVb || s == UHDTV3 || s == UHDTV4 );
-	return ListPrimariesMatchRun ( PrimaryPatchIRELevel ( NULL ), pure );
+	*pPure = ! ( s == HDTVa || s == HDTVb || s == UHDTV3 || s == UHDTV4 );
+	*pLevel = PrimaryPatchIRELevel ( NULL );
+}
+
+PrimarySetChoice CMeasure::GetShownPrimaryChoice(bool bSecondaries, ListPrimarySet * pSet) const
+{
+	double runLevel = 100.0;
+	bool pure = true;
+	OwnPrimariesRunSignal ( & runLevel, & pure );
+	const bool dedicated = bSecondaries ? SecondariesHoldReading () : PrimariesHoldReading ();
+	ListPrimarySet full, atRun;
+	if ( ! dedicated )
+	{
+		full = GetListPrimarySet ();
+		atRun = GetListPrimarySetAtLevel ( runLevel );
+	}
+	const PrimarySetChoice c = ChoosePrimarySetShown ( dedicated,
+		bSecondaries ? atRun.HasSecondary () : atRun.HasPrimary (),
+		bSecondaries ? full.HasSecondary () : full.HasPrimary (), runLevel, pure );
+	if ( pSet != NULL )
+		*pSet = c.runLevelRows ? atRun : full;
+	return c;
 }
 
 PrimarySetSource CMeasure::GetShownPrimarySource(bool bSecondaries) const
 {
-	if ( bSecondaries ? SecondariesHoldReading () : PrimariesHoldReading () )
-		return PRIMARY_SET_DEDICATED;
-	const ListPrimarySet s = GetListPrimarySet ();
-	return ChoosePrimarySetSource ( false, bSecondaries ? s.HasSecondary () : s.HasPrimary (), ListPrimariesMatchOwnRun () );
+	return GetShownPrimaryChoice ( bSecondaries, NULL ).source;
 }
 
 CColor CMeasure::GetShownPrimary(int i) const
 {
 	if ( PrimariesHoldReading () )
 		return GetPrimary ( i );
-	const ListPrimarySet s = GetListPrimarySet ();
-	if ( ChoosePrimarySetSource ( false, s.HasPrimary (), ListPrimariesMatchOwnRun () ) == PRIMARY_SET_LIST )
+	ListPrimarySet s;
+	if ( GetShownPrimaryChoice ( false, & s ).source == PRIMARY_SET_LIST )
 		return s.entries[i].reading;
 	return GetPrimary ( i );
 }
@@ -2022,8 +2050,8 @@ CColor CMeasure::GetShownSecondary(int i) const
 {
 	if ( SecondariesHoldReading () )
 		return GetSecondary ( i );
-	const ListPrimarySet s = GetListPrimarySet ();
-	if ( ChoosePrimarySetSource ( false, s.HasSecondary (), ListPrimariesMatchOwnRun () ) == PRIMARY_SET_LIST )
+	ListPrimarySet s;
+	if ( GetShownPrimaryChoice ( true, & s ).source == PRIMARY_SET_LIST )
 		return s.entries[3 + i].reading;
 	return GetSecondary ( i );
 }

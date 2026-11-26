@@ -1482,6 +1482,12 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(0).GetXYZValue();
 	ColorXYZ greenPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(1).GetXYZValue();
 	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetShownPrimary(2).GetXYZValue();
+	// Whether the references apply to the shown sets: not for a list's 100%
+	// primaries / secondaries under HDR10, whose references are the run level's
+	// (ChoosePrimarySetShown). Those markers carry no reference, so their
+	// tooltips have no dE.
+	const bool bPrimariesRef = pDoc->GetMeasure()->GetShownPrimaryChoice(false, NULL).referenceApplies;
+	const bool bSecondariesRef = pDoc->GetMeasure()->GetShownPrimaryChoice(true, NULL).referenceApplies;
 
 	BOOL hasPrimaries= redPrimaryColor.isValid() && greenPrimaryColor.isValid() &&
 					   bluePrimaryColor.isValid();
@@ -2057,16 +2063,16 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 
 		if ( hasPrimaries )
 		{
-			DrawAlphaBitmap(pDC,redPrimaryPoint,&m_redPrimaryBitmap,rect,pTooltip,pWnd,&refRedPrimaryPoint, FALSE, dE10, TRUE);
-			DrawAlphaBitmap(pDC,greenPrimaryPoint,&m_greenPrimaryBitmap,rect,pTooltip,pWnd,&refGreenPrimaryPoint, FALSE, dE10, TRUE);
-			DrawAlphaBitmap(pDC,bluePrimaryPoint,&m_bluePrimaryBitmap,rect,pTooltip,pWnd,&refBluePrimaryPoint, FALSE, dE10, TRUE);
+			DrawAlphaBitmap(pDC,redPrimaryPoint,&m_redPrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refRedPrimaryPoint : NULL, FALSE, dE10, TRUE);
+			DrawAlphaBitmap(pDC,greenPrimaryPoint,&m_greenPrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refGreenPrimaryPoint : NULL, FALSE, dE10, TRUE);
+			DrawAlphaBitmap(pDC,bluePrimaryPoint,&m_bluePrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refBluePrimaryPoint : NULL, FALSE, dE10, TRUE);
 		}
 		
 		if ( hasSecondaries )
 		{
-			DrawAlphaBitmap(pDC,yellowSecondaryPoint,&m_yellowSecondaryBitmap,rect,pTooltip,pWnd,&refYellowSecondaryPoint, FALSE, dE10, TRUE);
-			DrawAlphaBitmap(pDC,cyanSecondaryPoint,&m_cyanSecondaryBitmap,rect,pTooltip,pWnd,&refCyanSecondaryPoint, FALSE, dE10,  TRUE);
-			DrawAlphaBitmap(pDC,magentaSecondaryPoint,&m_magentaSecondaryBitmap,rect,pTooltip,pWnd,&refMagentaSecondaryPoint, FALSE, dE10, TRUE);
+			DrawAlphaBitmap(pDC,yellowSecondaryPoint,&m_yellowSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refYellowSecondaryPoint : NULL, FALSE, dE10, TRUE);
+			DrawAlphaBitmap(pDC,cyanSecondaryPoint,&m_cyanSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refCyanSecondaryPoint : NULL, FALSE, dE10,  TRUE);
+			DrawAlphaBitmap(pDC,magentaSecondaryPoint,&m_magentaSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refMagentaSecondaryPoint : NULL, FALSE, dE10, TRUE);
 		}
 
 		if ( hasdatarefPrimaries )
