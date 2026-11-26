@@ -1452,6 +1452,20 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	else if ( grayScaleWhite.isValid() )
 		YWhite = grayScaleWhite [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
 		
+	// The white the shown primaries and secondaries are judged against: with
+	// the prime white unmeasured and a group shown from a patch list, the
+	// list's white (CMeasure::GetShownPrimaryListWhite), the one the main
+	// grid's primaries page uses, so the two give the same dE. This YWhite
+	// reaches only the primary and secondary markers and, under HDR10, their
+	// references (YWhiteRef below); the data reference markers take their
+	// document's white, the gray markers GetGrayScaleWhite, and the
+	// saturation and color checker markers the white recomputed before them.
+	{
+		CColor listWhite;
+		if ( pDoc -> GetMeasure () -> GetShownPrimaryListWhite ( & listWhite ) )
+			YWhite = listWhite [ 1 ];
+	}
+
 	double YWhiteRef = 1.0;
 	isSat = FALSE;
 

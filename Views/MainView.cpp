@@ -1569,6 +1569,14 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		if ( GetDocument() -> GetMeasure () -> GetPrimeWhite().isValid() )
 			if ((m_displayMode == 1 || (m_displayMode >=5 && m_displayMode <= 11)))
 				YWhite = GetDocument() -> GetMeasure () -> GetPrimeWhite () [1]; //use physical Lab coords for display even in shifted diffuse case
+		// The primaries page judges its shown groups against the list's white
+		// when one applies (GetShownPrimaryListWhite); so does its Lab here.
+		if ( m_displayMode == 1 )
+		{
+			CColor listWhite;
+			if ( GetDocument() -> GetMeasure () -> GetShownPrimaryListWhite ( & listWhite ) )
+				YWhite = listWhite [ 1 ];
+		}
 		
 		Item.strText.Format("%.3f",m_SelectedColor.GetLuminance());
 		Item.row = 0;
@@ -3844,6 +3852,10 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 				}
 
 				CColor white = GetDocument()->GetMeasure()->GetPrimeWhite();
+				// The primaries page: the list's white when one applies
+				// (GetShownPrimaryWhite), else exactly this one.
+				if ( m_displayMode == 1 )
+					white = GetDocument()->GetMeasure()->GetShownPrimaryWhite ( white );
 
 				if (!white.isValid() && isHDR)
 					white = GetDocument()->GetMeasure()->GetGray((GetDocument()->GetMeasure()->GetGrayScaleSize()-1) / 2 );
@@ -4491,10 +4503,20 @@ void CMainView::UpdateGrid()
 		// black are the dedicated measurement's.
 		PrimarySetChoice pageChoice[2];
 		ListPrimarySet pageSet[2];
+		CColor pageWhite = noDataColor;
+		bool bPageListWhite = false;
 		if ( m_displayMode == 1 )
 		{
 			pageChoice[0] = GetDocument()->GetMeasure()->GetShownPrimaryChoice ( false, & pageSet[0] );
 			pageChoice[1] = GetDocument()->GetMeasure()->GetShownPrimaryChoice ( true, & pageSet[1] );
+			// The white the shown groups are judged against: with the prime white
+			// unmeasured and a group from the list, the list's white
+			// (CMeasure::GetShownPrimaryListWhite) - the white column, and the
+			// YWhite of the luminance percentages and dE, as the CIE chart uses it.
+			// Otherwise YWhite stays the prime white chain above.
+			bPageListWhite = GetDocument()->GetMeasure()->GetShownPrimaryListWhite ( & pageWhite );
+			if ( bPageListWhite )
+				YWhite = pageWhite [ 1 ];
 		}
 
 		// Incremental pass eligibility: mode 11 with a column cache built by a
@@ -4612,7 +4634,9 @@ void CMainView::UpdateGrid()
 					 else if ( j == 6 )
 					 {
 						refColor = GetColorReference().GetWhite();
-						if (GetDocument()->GetMeasure()->GetPrimeWhite().isValid())
+						if ( bPageListWhite )
+							aColor = pageWhite;	// the list's white, read-only (PrimaryPageColumnSource)
+						else if (GetDocument()->GetMeasure()->GetPrimeWhite().isValid())
 							aColor = GetDocument()->GetMeasure()->GetPrimeWhite();
 						YWhite = aColor [ 1 ];
 
@@ -5548,8 +5572,9 @@ void CMainView::UpdateContrastValuesInGrid ()
 }
 
 // What grid column iColumn (1..8) of the primaries page reads
-// (PrimaryPageColumnSource, the choice UpdateGrid shows); for a column showing
-// a list's readings, *pListReading receives the reading shown (noDataColor
+// (PrimaryPageColumnSource, the choice UpdateGrid shows, the white column
+// included when the list's white applies); for a column showing a list's
+// readings, *pListReading receives the reading shown (noDataColor
 // otherwise). pListReading may be NULL.
 static PrimaryPageColumnRead PrimaryPageColumn ( const CMeasure * pMeasure, int iColumn, CColor * pListReading )
 {
@@ -5557,9 +5582,11 @@ static PrimaryPageColumnRead PrimaryPageColumn ( const CMeasure * pMeasure, int 
 	const PrimarySetChoice p = pMeasure->GetShownPrimaryChoice ( false, & s[0] );
 	const PrimarySetChoice q = pMeasure->GetShownPrimaryChoice ( true, & s[1] );
 	const int col = iColumn - 1;
-	const PrimaryPageColumnRead r = PrimaryPageColumnSource ( col, p, q );
+	CColor white;
+	const bool bListWhite = pMeasure->GetShownPrimaryListWhite ( & white );
+	const PrimaryPageColumnRead r = PrimaryPageColumnSource ( col, p, q, bListWhite );
 	if ( pListReading != NULL )
-		*pListReading = ( r == PRIMARY_PAGE_DEDICATED ) ? noDataColor : s[ col < 3 ? 0 : 1 ].entries[col].reading;
+		*pListReading = ( r == PRIMARY_PAGE_DEDICATED ) ? noDataColor : ( col == 6 ) ? white : s[ col < 3 ? 0 : 1 ].entries[col].reading;
 	return r;
 }
 
@@ -5744,8 +5771,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 	// The primaries page: a column showing a patch list's readings never writes
 	// the dedicated measurement (BeginEdit refuses it; this holds if anything
 	// reaches here anyway). -1 makes the grid put the old text back.
-	if ( m_displayMode == 1 && ! PrimaryPageColumnWritesDedicated ( pItem->iColumn - 1,
-		 GetDocument()->GetMeasure()->GetShownPrimaryChoice ( false, NULL ), GetDocument()->GetMeasure()->GetShownPrimaryChoice ( true, NULL ) ) )
+	if ( m_displayMode == 1 && PrimaryPageColumn ( GetDocument()->GetMeasure(), pItem->iColumn, NULL ) != PRIMARY_PAGE_DEDICATED )
 	{
 		*pResult = -1;
 		return;

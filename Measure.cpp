@@ -2056,6 +2056,32 @@ CColor CMeasure::GetShownSecondary(int i) const
 	return GetSecondary ( i );
 }
 
+bool CMeasure::GetShownPrimaryListWhite(CColor * pWhite) const
+{
+	// A measured prime white is the dedicated run's: every caller keeps it.
+	if ( m_bPrimeWhiteMeasured )
+		return false;
+	const bool anyList = GetShownPrimaryChoice ( false, NULL ).source == PRIMARY_SET_LIST
+					  || GetShownPrimaryChoice ( true, NULL ).source == PRIMARY_SET_LIST;
+	CColor w = noDataColor;
+	bool listHasWhite = false;
+	const CsvPatchRow * rows = NULL;
+	const CColor * readings = NULL;
+	int nRows = 0, nReadings = 0;
+	if ( anyList && GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
+		listHasWhite = BuildListWhiteAtLevel ( rows, nRows, readings, nReadings, PrimeWhiteIRELevel ( NULL ), & w );
+	if ( ChooseShownWhite ( m_bPrimeWhiteMeasured != FALSE, anyList, listHasWhite ) != SHOWN_WHITE_LIST )
+		return false;
+	*pWhite = w;
+	return true;
+}
+
+CColor CMeasure::GetShownPrimaryWhite(const CColor & callerWhite) const
+{
+	CColor w;
+	return GetShownPrimaryListWhite ( & w ) ? w : callerWhite;
+}
+
 CString CMeasure::GetInfoString() const
 {
 	return m_infoStr + GetGeneratedInfoString ();

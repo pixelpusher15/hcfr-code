@@ -316,6 +316,15 @@ public:
 	// the references (a dE) apply to it; pSet, when not NULL, receives the list
 	// entries the choice reads (empty for the dedicated measurement).
 	PrimarySetChoice GetShownPrimaryChoice(bool bSecondaries, ListPrimarySet * pSet) const;
+	// The white the shown primaries and secondaries are judged against (libHCFR
+	// ChooseShownWhite): with the prime white unmeasured and a group shown from
+	// the active patch list, the list's gray at the level HCFR's primaries run
+	// measures its white at (PrimeWhiteIRELevel: 100%, 50.22831% under HDR10;
+	// BuildListWhiteAtLevel). GetShownPrimaryListWhite gives it (TRUE) or
+	// FALSE when none applies; GetShownPrimaryWhite returns it, else exactly
+	// callerWhite - the white and fallback chain each caller has always used.
+	bool GetShownPrimaryListWhite(CColor * pWhite) const;
+	CColor GetShownPrimaryWhite(const CColor & callerWhite) const;
 	bool PrimariesHoldReading() const;	// a valid dedicated primary (the S_PRIMARIES test of SweepOverwritesData)
 	bool SecondariesHoldReading() const;	// the same for the secondaries
 	ListPrimarySet GetListPrimarySet() const;	// the active set's, empty without one
