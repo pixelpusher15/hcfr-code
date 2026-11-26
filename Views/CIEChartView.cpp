@@ -180,6 +180,9 @@ CCIEChartGrapher::CCIEChartGrapher()
 
 	m_covValid = FALSE;
 	m_covAbValid = FALSE;
+	m_covPrimKey = 0;
+	m_covAbPrimKey = 0;
+	m_covSecKey = 0;
 
 	m_pMarkerGraphics = NULL;
 	m_markerScale = 1.0f;
@@ -749,6 +752,11 @@ static bool SameColors3 ( const ColorXYZ & c0, const ColorXYZ & c1, const ColorX
 // Gamut coverage chips (top right): [gamut] [xy: n%] [u'v': n%] [a*b*: n%],
 // all shown together in every chart view. The gamut-name chip always shows.
 //
+// The measured colors are the ones the chart draws (CMeasure::GetShownPrimary
+// / GetShownSecondary): the dedicated measurement, or a patch list's readings,
+// including a list's 100% primaries under HDR10, which the chart draws without
+// a dE. The figures describe the triangle that is drawn.
+//
 // xy/u'v': the measured R,G,B primaries triangle vs the displayed reference
 // triangle (area intersection / reference area) -- a pure chromaticity-plane
 // metric, blind to luminance by construction (see GamutCoverage.h).
@@ -790,20 +798,22 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	if ( min(rcAnchor.Width(),rcAnchor.Height()) <= FX_MINSIZETOSHOW_REFDETAILS )
 		return;
 
-	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetRedPrimary().GetXYZValue();
-	ColorXYZ greenPrimaryColor=pDoc->GetMeasure()->GetGreenPrimary().GetXYZValue();
-	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetBluePrimary().GetXYZValue();
+	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(0).GetXYZValue();
+	ColorXYZ greenPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(1).GetXYZValue();
+	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetShownPrimary(2).GetXYZValue();
 	BOOL hasPrimaries = redPrimaryColor.isValid() && greenPrimaryColor.isValid() &&
 						bluePrimaryColor.isValid();
+	const int primKey = PrimarySetShownKey ( pDoc->GetMeasure()->GetShownPrimaryChoice(false, NULL) );
 
 	// a*b* additionally needs the secondaries to build the hexagon. Fetched
 	// unconditionally (not just in a*b* mode) since all three metrics are
 	// shown together regardless of which chart view is active.
-	ColorXYZ yellowSecondaryColor  = pDoc->GetMeasure()->GetYellowSecondary().GetXYZValue();
-	ColorXYZ cyanSecondaryColor    = pDoc->GetMeasure()->GetCyanSecondary().GetXYZValue();
-	ColorXYZ magentaSecondaryColor = pDoc->GetMeasure()->GetMagentaSecondary().GetXYZValue();
+	ColorXYZ yellowSecondaryColor  = pDoc->GetMeasure()->GetShownSecondary(0).GetXYZValue();
+	ColorXYZ cyanSecondaryColor    = pDoc->GetMeasure()->GetShownSecondary(1).GetXYZValue();
+	ColorXYZ magentaSecondaryColor = pDoc->GetMeasure()->GetShownSecondary(2).GetXYZValue();
 	BOOL hasSecondariesForAb = yellowSecondaryColor.isValid() && cyanSecondaryColor.isValid() &&
 							   magentaSecondaryColor.isValid();
+	const int secKey = PrimarySetShownKey ( pDoc->GetMeasure()->GetShownPrimaryChoice(true, NULL) );
 
 	WCHAR gamutName[64];
 	GamutShortName(GetColorReference(), gamutName, 64);
@@ -818,13 +828,16 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	// while EITHER set is unchanged, and it keeps its own copy of the
 	// primaries: the xy/u'v' cache absorbs a primaries re-measure at once,
 	// and comparing a*b* against it would keep a*b* stale after a later
-	// secondaries pass.
+	// secondaries pass. The data is unchanged only when its source is too (the
+	// key): a switch between the dedicated measurement and a list, or between
+	// a list's run-level and 100% rows, is new data; new list readings change
+	// the colors.
 	ColorStandard curStd = GetColorReference().m_standard;
-	BOOL xyuvStale = m_covValid && m_covStandard != curStd
+	BOOL xyuvStale = m_covValid && m_covStandard != curStd && m_covPrimKey == primKey
 		&& SameColors3(redPrimaryColor, greenPrimaryColor, bluePrimaryColor, m_covPrimaries);
 	BOOL abStale   = m_covAbValid && m_covAbStandard != curStd
-		&& ( SameColors3(redPrimaryColor, greenPrimaryColor, bluePrimaryColor, m_covAbPrimaries)
-		  || SameColors3(yellowSecondaryColor, cyanSecondaryColor, magentaSecondaryColor, m_covSecondaries) );
+		&& ( ( m_covAbPrimKey == primKey && SameColors3(redPrimaryColor, greenPrimaryColor, bluePrimaryColor, m_covAbPrimaries) )
+		  || ( m_covSecKey == secKey && SameColors3(yellowSecondaryColor, cyanSecondaryColor, magentaSecondaryColor, m_covSecondaries) ) );
 
 	// Cache refresh: keyed on staleness alone, never on whether a value is
 	// shown, so nothing that only changes the display can rewrite a cache.
@@ -836,6 +849,7 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 		m_covPrimaries[0] = redPrimaryColor;
 		m_covPrimaries[1] = greenPrimaryColor;
 		m_covPrimaries[2] = bluePrimaryColor;
+		m_covPrimKey = primKey;
 		m_covValid = TRUE;
 	}
 	if (hasPrimaries && hasSecondariesForAb && !abStale)
@@ -847,6 +861,8 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 		m_covSecondaries[0] = yellowSecondaryColor;
 		m_covSecondaries[1] = cyanSecondaryColor;
 		m_covSecondaries[2] = magentaSecondaryColor;
+		m_covAbPrimKey = primKey;
+		m_covSecKey = secKey;
 		m_covAbValid = TRUE;
 	}
 
@@ -1477,8 +1493,8 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 
 	// The primaries and secondaries the views show (CMeasure::GetShownPrimary):
 	// the dedicated measurement when it holds a reading, else a patch list's
-	// 100% readings. The coverage chips and the data reference keep reading
-	// the dedicated measurement.
+	// readings (ChoosePrimarySetShown). The coverage chips read the same; the
+	// data reference keeps reading the dedicated measurement.
 	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(0).GetXYZValue();
 	ColorXYZ greenPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(1).GetXYZValue();
 	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetShownPrimary(2).GetXYZValue();

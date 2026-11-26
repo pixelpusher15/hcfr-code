@@ -147,13 +147,19 @@ class CCIEChartGrapher
 	// the percentage is hidden (the gamut-name chip still shows). xy/u'v'
 	// depend on the primaries only; a*b* on the primaries and secondaries,
 	// so it keeps its own copy of the primaries (see DrawCoverageChips).
+	// The data is the shown primaries / secondaries (CMeasure::GetShownPrimary);
+	// the keys (PrimarySetShownKey) record where they came from, so a change of
+	// source is new data even if the colors were equal.
 	BOOL			m_covValid;			// xy/u'v'
 	ColorStandard	m_covStandard;
 	ColorXYZ		m_covPrimaries[3];
+	int				m_covPrimKey;
 	BOOL			m_covAbValid;		// a*b*
 	ColorStandard	m_covAbStandard;
 	ColorXYZ		m_covAbPrimaries[3];
+	int				m_covAbPrimKey;
 	ColorXYZ		m_covSecondaries[3];	// yellow, cyan, magenta
+	int				m_covSecKey;
 
 	// Off by default, matching the hide-on-stale-standard behavior above.
 	// Toggle on (via the CIE chart's right-click context menu) to skip that
