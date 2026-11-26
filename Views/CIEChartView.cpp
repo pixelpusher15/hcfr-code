@@ -1475,9 +1475,13 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	CCIEGraphPoint colorTempPoint5500(ColorXYZ(ColorxyY(0.3346,0.3451)), 1.0, Msg+" 5500", m_bCIEuv, m_bCIEab);   
 	CCIEGraphPoint colorTempPoint9300(ColorXYZ(ColorxyY(0.2866,0.2950)), 1.0, Msg+" 9300", m_bCIEuv, m_bCIEab);   
 
-	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetRedPrimary().GetXYZValue();
-	ColorXYZ greenPrimaryColor=pDoc->GetMeasure()->GetGreenPrimary().GetXYZValue();
-	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetBluePrimary().GetXYZValue();
+	// The primaries and secondaries the views show (CMeasure::GetShownPrimary):
+	// the dedicated measurement when it holds a reading, else a patch list's
+	// 100% readings. The coverage chips and the data reference keep reading
+	// the dedicated measurement.
+	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(0).GetXYZValue();
+	ColorXYZ greenPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(1).GetXYZValue();
+	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetShownPrimary(2).GetXYZValue();
 
 	BOOL hasPrimaries= redPrimaryColor.isValid() && greenPrimaryColor.isValid() &&
 					   bluePrimaryColor.isValid();
@@ -1490,9 +1494,9 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	Msg.LoadString ( IDS_BLUEPRIMARY );
 	CCIEGraphPoint bluePrimaryPoint(bluePrimaryColor, YWhite, Msg, m_bCIEuv, m_bCIEab);
 
-	ColorXYZ yellowSecondaryColor=pDoc->GetMeasure()->GetYellowSecondary().GetXYZValue();
-	ColorXYZ cyanSecondaryColor=pDoc->GetMeasure()->GetCyanSecondary().GetXYZValue();
-	ColorXYZ magentaSecondaryColor=pDoc->GetMeasure()->GetMagentaSecondary().GetXYZValue();
+	ColorXYZ yellowSecondaryColor=pDoc->GetMeasure()->GetShownSecondary(0).GetXYZValue();
+	ColorXYZ cyanSecondaryColor=pDoc->GetMeasure()->GetShownSecondary(1).GetXYZValue();
+	ColorXYZ magentaSecondaryColor=pDoc->GetMeasure()->GetShownSecondary(2).GetXYZValue();
 
 	BOOL hasSecondaries= yellowSecondaryColor.isValid() && cyanSecondaryColor.isValid() &&
 					   magentaSecondaryColor.isValid();
