@@ -2130,7 +2130,9 @@ void CMainView::InitGrid(bool sizeGrid)
 	else if ( m_displayMode == 1 )
 	{
 		size = 8;
-		bHasLuxValues = GetDocument()->GetMeasure()->GetRedPrimary().HasLuxValue ();
+		// The red primary the page shows (GetShownPrimary: the dedicated
+		// measurement when it holds a reading, as UpdateGrid reads it).
+		bHasLuxValues = GetDocument()->GetMeasure()->GetShownPrimary(0).HasLuxValue ();
 		if ( bHasLuxValues )
 		{
 			if ( GetDocument()->GetMeasure()->GetOnOffWhite().isValid() )
@@ -4294,7 +4296,7 @@ void CMainView::UpdateGrid()
   				YWhite = YWhitePrime;
 				YWhiteRefDoc = YWhitePrimeRefDoc;
 				 nCount = 8;
-				 bHasLuxValues = GetDocument()->GetMeasure()->GetRedPrimary().HasLuxValue ();
+				 bHasLuxValues = GetDocument()->GetMeasure()->GetShownPrimary(0).HasLuxValue ();	// as InitGrid
 				 if ( bHasLuxValues )
 				 {
 					if ( GetDocument()->GetMeasure()->GetOnOffWhite().isValid() )
@@ -4482,6 +4484,19 @@ void CMainView::UpdateGrid()
 					
 		YWhite_for_color_comp = YWhite;
 
+		// The primaries page (mode 1): each group shows what the CIE chart shows
+		// for it (CMeasure::GetShownPrimaryChoice), chosen separately; a column
+		// reads the dedicated measurement, the list's readings, or the list's
+		// readings without references (PrimaryPageColumnSource). The white and the
+		// black are the dedicated measurement's.
+		PrimarySetChoice pageChoice[2];
+		ListPrimarySet pageSet[2];
+		if ( m_displayMode == 1 )
+		{
+			pageChoice[0] = GetDocument()->GetMeasure()->GetShownPrimaryChoice ( false, & pageSet[0] );
+			pageChoice[1] = GetDocument()->GetMeasure()->GetShownPrimaryChoice ( true, & pageSet[1] );
+		}
+
 		// Incremental pass eligibility: mode 11 with a column cache built by a
 		// prior full pass over the SAME patch count. Anything else (first pass,
 		// CC set switched, manual edits) takes the full rebuild, which (re)sizes
@@ -4580,15 +4595,17 @@ void CMainView::UpdateGrid()
 				case 1:
 					 if ( j < 3 )
 					 {
-						aColor = GetDocument()->GetMeasure()->GetPrimary(j);
-						refColor = GetDocument()->GetMeasure()->GetRefPrimary(j);
+						const PrimaryPageColumnRead pageRead = PrimaryPageColumnSource ( j, pageChoice[0], pageChoice[1] );
+						aColor = ( pageRead == PRIMARY_PAGE_DEDICATED ) ? GetDocument()->GetMeasure()->GetPrimary(j) : pageSet[0].entries[j].reading;
+						refColor = ( pageRead == PRIMARY_PAGE_LIST_NO_REF ) ? noDataColor : GetDocument()->GetMeasure()->GetRefPrimary(j);
 						if ( pDataRef )
 							refDocColor = pDataRef->GetMeasure()->GetPrimary(j);
 					 }
 					 else if ( j < 6 )
 					 {
-						aColor = GetDocument()->GetMeasure()->GetSecondary(j-3);
-						refColor = GetDocument()->GetMeasure()->GetRefSecondary(j-3);
+						const PrimaryPageColumnRead pageRead = PrimaryPageColumnSource ( j, pageChoice[0], pageChoice[1] );
+						aColor = ( pageRead == PRIMARY_PAGE_DEDICATED ) ? GetDocument()->GetMeasure()->GetSecondary(j-3) : pageSet[1].entries[j].reading;
+						refColor = ( pageRead == PRIMARY_PAGE_LIST_NO_REF ) ? noDataColor : GetDocument()->GetMeasure()->GetRefSecondary(j-3);
 						if ( pDataRef )
 							refDocColor = pDataRef->GetMeasure()->GetSecondary(j-3);
 					 }
@@ -4951,6 +4968,19 @@ void CMainView::UpdateGrid()
 				else
 				{
 					Item.strText = GetItemText ( aColor, YWhite, refColor, refDocColor, YWhiteRefDoc, i, j+1, Offset, isGS );
+					// A list's readings the references do not apply to (an HDR10 list's
+					// 100% rows, PRIMARY_PAGE_LIST_NO_REF): the rows the references make
+					// are empty, not zero, and the dE cell loses any highlight it had.
+					if ( m_displayMode == 1 && PrimaryPageColumnSource ( j, pageChoice[0], pageChoice[1] ) == PRIMARY_PAGE_LIST_NO_REF
+						 && PrimaryPageRowUsesReference ( i, pDataRef != NULL ) )
+					{
+						Item.strText.Empty ();
+						if ( i == 3 )
+						{
+							m_pGrayScaleGrid->SetItemBkColour ( 4, j+1, CLR_DEFAULT );
+							m_pGrayScaleGrid->SetItemFgColour ( 4, j+1, CLR_DEFAULT );
+						}
+					}
 				}
 				
 				m_pGrayScaleGrid->SetItem(&Item);
@@ -5007,7 +5037,12 @@ void CMainView::UpdateGrid()
 		switch ( m_displayMode )
 		{
 		case 0: case 3: case 4: bHasMeas = GetDocument()->GetMeasure()->GetGray(0).isValid(); break;
-		case 1: bHasMeas = GetDocument()->GetMeasure()->GetRedPrimary().isValid(); break;
+		case 1:
+			// The red primary shown, or the yellow secondary when the secondaries
+			// are shown from a list (the groups are chosen separately).
+			bHasMeas = GetDocument()->GetMeasure()->GetShownPrimary(0).isValid()
+				|| ( pageChoice[1].source == PRIMARY_SET_LIST && pageSet[1].entries[3].reading.isValid() );
+			break;
 		case 5: bHasMeas = GetDocument()->GetMeasure()->GetRedSat(0).isValid(); break;
 		case 6: bHasMeas = GetDocument()->GetMeasure()->GetGreenSat(0).isValid(); break;
 		case 7: bHasMeas = GetDocument()->GetMeasure()->GetBlueSat(0).isValid(); break;
@@ -5496,6 +5531,22 @@ void CMainView::UpdateContrastValuesInGrid ()
 	m_pGrayScaleGrid->SetItem(&Item);
 }
 
+// What grid column iColumn (1..8) of the primaries page reads
+// (PrimaryPageColumnSource, the choice UpdateGrid shows); for a column showing
+// a list's readings, *pListReading receives the reading shown (noDataColor
+// otherwise). pListReading may be NULL.
+static PrimaryPageColumnRead PrimaryPageColumn ( const CMeasure * pMeasure, int iColumn, CColor * pListReading )
+{
+	ListPrimarySet s[2];
+	const PrimarySetChoice p = pMeasure->GetShownPrimaryChoice ( false, & s[0] );
+	const PrimarySetChoice q = pMeasure->GetShownPrimaryChoice ( true, & s[1] );
+	const int col = iColumn - 1;
+	const PrimaryPageColumnRead r = PrimaryPageColumnSource ( col, p, q );
+	if ( pListReading != NULL )
+		*pListReading = ( r == PRIMARY_PAGE_DEDICATED ) ? noDataColor : s[ col < 3 ? 0 : 1 ].entries[col].reading;
+	return r;
+}
+
 void CMainView::OnGrayScaleGridBeginEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 {
 
@@ -5518,7 +5569,19 @@ void CMainView::OnGrayScaleGridBeginEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 			 break;
 
 		case 1:
-			 if ( pItem->iColumn < 4 )
+			 // A column showing a patch list's readings is read-only
+			 // (PrimaryPageColumnWritesDedicated): an edit, a paste or a clear
+			 // would write the dedicated measurement, so the grid's request is
+			 // refused. A copy (OnEditCopy, pResult NULL) reads the value shown.
+			 if ( PrimaryPageColumn ( GetDocument()->GetMeasure(), pItem->iColumn, & aColorMeasure ) != PRIMARY_PAGE_DEDICATED )
+			 {
+				if ( pResult != NULL )
+				{
+					*pResult = -1;
+					return;
+				}
+			 }
+			 else if ( pItem->iColumn < 4 )
 				aColorMeasure=GetDocument()->GetMeasure()->GetPrimary(pItem->iColumn-1);
 			 else if ( pItem->iColumn < 7 )
 				aColorMeasure=GetDocument()->GetMeasure()->GetSecondary(pItem->iColumn-4);
@@ -5661,6 +5724,16 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
     // Check that cell is valid
 	if ( pItem->iColumn < 1 || pItem->iRow > 3)
 		return;
+
+	// The primaries page: a column showing a patch list's readings never writes
+	// the dedicated measurement (BeginEdit refuses it; this holds if anything
+	// reaches here anyway). -1 makes the grid put the old text back.
+	if ( m_displayMode == 1 && ! PrimaryPageColumnWritesDedicated ( pItem->iColumn - 1,
+		 GetDocument()->GetMeasure()->GetShownPrimaryChoice ( false, NULL ), GetDocument()->GetMeasure()->GetShownPrimaryChoice ( true, NULL ) ) )
+	{
+		*pResult = -1;
+		return;
+	}
 
 	CString aNewStr=m_pGrayScaleGrid->GetItemText(pItem->iRow,pItem->iColumn);
 	aNewStr.Replace(",",".");	// replace decimal separator if necessary
@@ -6184,6 +6257,8 @@ void CMainView::OnGrayScaleGridEndSelChange(NMHDR *pNotifyStruct,LRESULT* pResul
 		SetSelectedColor ( noDataColor );	// if more than one column selected => no data selected t avoid confusion
 	else
 	{
+		CColor pageSel;	// mode 1: the list's reading a column shows
+		PrimaryPageColumnRead pageRead = PRIMARY_PAGE_DEDICATED;
 		switch ( m_displayMode )
 		{
 			case 0:
@@ -6191,7 +6266,17 @@ void CMainView::OnGrayScaleGridEndSelChange(NMHDR *pNotifyStruct,LRESULT* pResul
 				 break;
 
 			case 1:
-				 if ( minCol < 4 )
+				 // A column showing a list's readings selects the reading shown;
+				 // without references, nothing - the RGB levels and target panes
+				 // would compare it with the run level's reference.
+				 pageRead = PrimaryPageColumn ( GetDocument()->GetMeasure(), minCol, & pageSel );
+				 if ( pageRead != PRIMARY_PAGE_DEDICATED )
+				 {
+					if ( pageRead == PRIMARY_PAGE_LIST_NO_REF )
+						pageSel = noDataColor;
+					SetSelectedColor ( pageSel );
+				 }
+				 else if ( minCol < 4 )
 					SetSelectedColor ( GetDocument()->GetMeasure()->GetPrimary(minCol-1) );
 				 else if ( minCol < 7 )
 					SetSelectedColor ( GetDocument()->GetMeasure()->GetSecondary(minCol-4) );
