@@ -1898,8 +1898,20 @@ GrayRamp CMeasure::GetGrayGraphRamp() const
 	GrayRamp sweep;
 	BuildSweepGrayRamp ( GetGraySeriesView ( GRAY_SERIES_GRAYSCALE ), & sweep );
 	const bool sweepHolds = GraySweepHoldsReading ();
-	if ( sweepHolds || m_bpreV10 > 0 || m_activeUserSet < 0 || m_activeUserSet >= (int) m_userPatchSets.size () )
+	const CsvPatchRow * rows = NULL;
+	const CColor * readings = NULL;
+	int nRows = 0, nReadings = 0;
+	if ( sweepHolds || ! GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
 		return sweep;
+	GrayRamp list;
+	BuildListGrayRamp ( rows, nRows, readings, nReadings, & list );
+	return ( ChooseGrayRampSource ( sweepHolds, ! list.points.empty () ) == GRAY_RAMP_LIST ) ? list : sweep;
+}
+
+bool CMeasure::GetActiveUserBand(const CsvPatchRow ** pRows, int * pRowCount, const CColor ** pReadings, int * pReadingCount) const
+{
+	if ( m_bpreV10 > 0 || m_activeUserSet < 0 || m_activeUserSet >= (int) m_userPatchSets.size () )
+		return false;
 
 	// The active set's readings are the USER band of the master array (the
 	// band-as-window, see the user patch set collection below), slot i paired
@@ -1909,10 +1921,12 @@ GrayRamp CMeasure::GetGrayGraphRamp() const
 	if ( nBand > MAX_USER_CC_PATCH_SIZE )
 		nBand = MAX_USER_CC_PATCH_SIZE;
 	if ( nBand <= 0 || set.rows.empty () )
-		return sweep;
-	GrayRamp list;
-	BuildListGrayRamp ( & set.rows[0], (int) set.rows.size (), m_cc24SatMeasureArray_master.GetData () + USER_BAND_BASE, nBand, & list );
-	return ( ChooseGrayRampSource ( sweepHolds, ! list.points.empty () ) == GRAY_RAMP_LIST ) ? list : sweep;
+		return false;
+	*pRows = & set.rows[0];
+	*pRowCount = (int) set.rows.size ();
+	*pReadings = m_cc24SatMeasureArray_master.GetData () + USER_BAND_BASE;
+	*pReadingCount = nBand;
+	return true;
 }
 
 CColor CMeasure::GetGrayGraphWhite(const GrayRamp & ramp) const
@@ -1949,6 +1963,69 @@ CColor CMeasure::GetGrayGraphTop(const GrayRamp & ramp) const
 		return ( n > 0 && ! IsRawlessPlaceholder ( m_grayMeasureArray[n-1], false ) ) ? m_grayMeasureArray[n-1] : noDataColor;
 	}
 	return GrayRampWhite ( ramp, noDataColor );
+}
+
+bool CMeasure::PrimariesHoldReading() const
+{
+	SweepConfirmRule::SeriesSlots s = { SweepConfirmRule::S_PRIMARIES, m_primariesArray.GetData (), (int) m_primariesArray.GetSize (), NULL };
+	return SweepConfirmRule::SlotsHoldData ( s );
+}
+
+bool CMeasure::SecondariesHoldReading() const
+{
+	SweepConfirmRule::SeriesSlots s = { SweepConfirmRule::S_SECONDARIES, m_secondariesArray.GetData (), (int) m_secondariesArray.GetSize (), NULL };
+	return SweepConfirmRule::SlotsHoldData ( s );
+}
+
+ListPrimarySet CMeasure::GetListPrimarySet() const
+{
+	ListPrimarySet s;
+	const CsvPatchRow * rows = NULL;
+	const CColor * readings = NULL;
+	int nRows = 0, nReadings = 0;
+	if ( GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
+		BuildListPrimarySet ( rows, nRows, readings, nReadings, & s );
+	return s;
+}
+
+// Whether a list's 100% primaries are the signal HCFR's own primaries run
+// drives (BuildPrimarySecondaryColors): PrimaryPatchIRELevel, 100 except
+// under HDR10, on single and paired channels, which the 75% gamuts (HDTVa,
+// HDTVb: wire tables) and P3 / Rec.709 inside BT.2020 (UHDTV3, UHDTV4: the
+// inner primary encoded in the container) do not drive.
+static bool ListPrimariesMatchOwnRun()
+{
+	const ColorStandard s = GetColorReference().m_standard;
+	const bool pure = ! ( s == HDTVa || s == HDTVb || s == UHDTV3 || s == UHDTV4 );
+	return ListPrimariesMatchRun ( PrimaryPatchIRELevel ( NULL ), pure );
+}
+
+PrimarySetSource CMeasure::GetShownPrimarySource(bool bSecondaries) const
+{
+	if ( bSecondaries ? SecondariesHoldReading () : PrimariesHoldReading () )
+		return PRIMARY_SET_DEDICATED;
+	const ListPrimarySet s = GetListPrimarySet ();
+	return ChoosePrimarySetSource ( false, bSecondaries ? s.HasSecondary () : s.HasPrimary (), ListPrimariesMatchOwnRun () );
+}
+
+CColor CMeasure::GetShownPrimary(int i) const
+{
+	if ( PrimariesHoldReading () )
+		return GetPrimary ( i );
+	const ListPrimarySet s = GetListPrimarySet ();
+	if ( ChoosePrimarySetSource ( false, s.HasPrimary (), ListPrimariesMatchOwnRun () ) == PRIMARY_SET_LIST )
+		return s.entries[i].reading;
+	return GetPrimary ( i );
+}
+
+CColor CMeasure::GetShownSecondary(int i) const
+{
+	if ( SecondariesHoldReading () )
+		return GetSecondary ( i );
+	const ListPrimarySet s = GetListPrimarySet ();
+	if ( ChoosePrimarySetSource ( false, s.HasSecondary (), ListPrimariesMatchOwnRun () ) == PRIMARY_SET_LIST )
+		return s.entries[3 + i].reading;
+	return GetSecondary ( i );
 }
 
 CString CMeasure::GetInfoString() const

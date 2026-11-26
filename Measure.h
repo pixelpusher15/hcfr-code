@@ -32,6 +32,7 @@
 #include "Color.h"
 #include "UserPatchSetStream.h"	// CUserPatchSet
 #include "GrayRamp.h"			// GrayRamp
+#include "PrimarySet.h"			// ListPrimarySet
 #include "Sensors\Sensor.h"
 #include "Generators\Generator.h"
 #include <vector>
@@ -294,6 +295,24 @@ public:
 	// the sweep its last slot unless that is the rawless placeholder, for a
 	// list its usable 100% gray; else noDataColor.
 	CColor GetGrayGraphTop(const GrayRamp & ramp) const;
+	// The active patch set's rows and readings (the USER band of the master
+	// array, slot i paired with row i), as the list graphs take them. FALSE
+	// when the document has no active set with rows and a band.
+	bool GetActiveUserBand(const CsvPatchRow ** pRows, int * pRowCount, const CColor ** pReadings, int * pReadingCount) const;
+	// The primaries and secondaries the display views show (libHCFR
+	// PrimarySet.h), per group: the dedicated measurement (GetPrimary /
+	// GetSecondary, returned unchanged) when it holds a reading, else the
+	// active patch list's 100% readings when it has one in the group and HCFR's
+	// own primaries run drives 100% pure channels, else the dedicated
+	// measurement. i is 0..2 (red, green, blue / yellow, cyan, magenta). A color
+	// the chosen list lacks is noDataColor. GetPrimary / GetSecondary are not
+	// affected: calibration, exports and the accuracy test read those.
+	CColor GetShownPrimary(int i) const;
+	CColor GetShownSecondary(int i) const;
+	PrimarySetSource GetShownPrimarySource(bool bSecondaries) const;
+	bool PrimariesHoldReading() const;	// a valid dedicated primary (the S_PRIMARIES test of SweepOverwritesData)
+	bool SecondariesHoldReading() const;	// the same for the secondaries
+	ListPrimarySet GetListPrimarySet() const;	// the active set's, empty without one
 	int GetGrayScalePreset() const;	// matching preset index, or -1 (custom)
 	void SetIREScaleMode(BOOL bIRE);
 	CColor lastColor, previousColor;
