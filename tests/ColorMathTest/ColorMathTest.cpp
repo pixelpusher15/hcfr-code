@@ -8892,18 +8892,26 @@ namespace T61Summary
 
     static void CheckGammaShown()
     {
+        // The ramp is the list's own (GRAY_RAMP_LIST): the gamma graph's gates.
         for (int type = 0; type <= 8; type++)
         {
             const bool lineDrawn = (type != 5 && type != 7);
-            if (PatchListGammaShown(true, true, type) != lineDrawn)
-                Fail("T61 gamma shown, fit and data, offset type %d: %d, expected %d", type, (int)PatchListGammaShown(true, true, type), (int)lineDrawn);
-            if (PatchListGammaShown(false, true, type))
+            if (PatchListGammaShown(true, true, true, type) != lineDrawn)
+                Fail("T61 gamma shown, fit and data, offset type %d: %d, expected %d", type, (int)PatchListGammaShown(true, true, true, type), (int)lineDrawn);
+            if (PatchListGammaShown(true, false, true, type))
                 Fail("T61 gamma shown without a fit, offset type %d", type);
-            if (PatchListGammaShown(true, false, type))
+            if (PatchListGammaShown(true, true, false, type))
                 Fail("T61 gamma shown without a reading, offset type %d", type);
-            if (PatchListGammaShown(false, false, type))
+            if (PatchListGammaShown(true, false, false, type))
                 Fail("T61 gamma shown with neither, offset type %d", type);
         }
+        // A gray scale sweep supplies the ramp (GRAY_RAMP_SWEEP): its gamma
+        // describes the sweep, so the list line never shows one, fit or not.
+        for (int type = 0; type <= 8; type++)
+            for (int fit = 0; fit <= 1; fit++)
+                for (int data = 0; data <= 1; data++)
+                    if (PatchListGammaShown(false, fit != 0, data != 0, type))
+                        Fail("T61 gamma shown from a sweep ramp, fit %d data %d offset type %d", fit, data, type);
     }
 
     static void CheckUserSets()

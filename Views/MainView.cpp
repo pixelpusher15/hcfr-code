@@ -5381,7 +5381,8 @@ void CMainView::UpdateGrid()
 			// number the gamma graph's average line draws - the same ramp
 			// (GetGrayGraphRamp), the same fit (the ramp overload of
 			// ComputeGammaAndOffset with the gamma grapher's arguments) and the same
-			// gates (PatchListGammaShown). No fit, no number.
+			// gates (PatchListGammaShown). No fit, no number; and none when the ramp
+			// is a gray scale sweep's, whose gamma does not describe the list.
 			if ( GetConfig () -> m_CCMode == USER )
 			{
 				const GrayRamp listRamp = GetDocument () -> GetMeasure () -> GetGrayGraphRamp ();
@@ -5389,7 +5390,7 @@ void CMainView::UpdateGrid()
 				const bool bListFit = GetDocument () -> ComputeGammaAndOffset ( listRamp, &listGamma, &listOffset, 1, 1, false );
 				const bool bListData = FailedReadingRule::AnyHeldReading ( (int) listRamp.points.size (), [&listRamp] ( int i ) { return listRamp.points[i].reading; },
 					[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } );
-				if ( PatchListGammaShown ( bListFit, bListData, GetConfig () -> m_GammaOffsetType ) )
+				if ( PatchListGammaShown ( listRamp.source == GRAY_RAMP_LIST, bListFit, bListData, GetConfig () -> m_GammaOffsetType ) )
 				{
 					char szGamma [ 64 ];
 					sprintf_s ( szGamma, ": %.2f )", listGamma );

@@ -141,13 +141,16 @@ inline int SummaryLuminanceDecimals ( double y )
 	return 4;
 }
 
-// Whether the grid's patch-list line shows the average gamma: exactly when the
-// gamma graph draws its average line (GammaHistoView.cpp) - a fit, a reading
-// among the ramp's points, and not a PQ or HLG transfer (types 5 and 7, which
-// draw no average line).
-inline bool PatchListGammaShown ( bool fit, bool dataPresent, int gammaOffsetType )
+// Whether the grid's patch-list line shows the average gamma. Only when the
+// gray ramp in use is the one built from the list itself (listRamp: the ramp's
+// source is GRAY_RAMP_LIST, GrayRamp.h); when a gray scale sweep supplies the
+// ramp, that gamma describes the sweep, not the list, and the list line shows
+// none. Then exactly when the gamma graph draws its average line
+// (GammaHistoView.cpp) - a fit, a reading among the ramp's points, and not a PQ
+// or HLG transfer (types 5 and 7, which draw no average line).
+inline bool PatchListGammaShown ( bool listRamp, bool fit, bool dataPresent, int gammaOffsetType )
 {
-	return fit && dataPresent && gammaOffsetType != 5 && gammaOffsetType != 7;
+	return listRamp && fit && dataPresent && gammaOffsetType != 5 && gammaOffsetType != 7;
 }
 
 // Whether any of n readings is valid: the test the built-in color checker sets
