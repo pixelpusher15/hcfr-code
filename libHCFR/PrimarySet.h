@@ -188,4 +188,38 @@ enum PrimaryPageNote
 };
 PrimaryPageNote PrimaryPageSourceNote ( const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries );
 
+// The white the shown primaries and secondaries are judged against
+// (CMeasure::GetShownPrimaryWhite): the primaries page's luminance percentages
+// and dE, its white column, and the CIE chart's primary and secondary markers
+// divide by it. HCFR's own primaries run measures its white (the prime white)
+// at the primaries' level: 100%, and 50.22831% under HDR10 (PrimeWhiteIRELevel
+// in Measure.cpp). A list's white is its gray at that level: every gray row
+// (GrayRampRowCounts) whose level gives the same PrimarySetLevelCode, its valid
+// readings averaged with AverageGrayReadings, the first being the lowest row -
+// the members and the averaging the list's gray ramp gives a point (rows at
+// two codes that land on one 10-bit legal code are one signal here, as for the
+// primaries). At 100% it is the gray ramp's white bit for bit. TRUE with *out
+// when the average is a white a chart may divide by (GrayRampWhiteUsable);
+// FALSE with *out untouched otherwise.
+bool BuildListWhiteAtLevel ( const CsvPatchRow * rows, int nRows, const CColor * readings, int nReadings, double level, CColor * out );
+
+enum ShownWhiteSource
+{
+	SHOWN_WHITE_CALLER = 0,	// each caller's own white, exactly as before
+	SHOWN_WHITE_LIST   = 1	// the list's white (BuildListWhiteAtLevel)
+};
+
+// The list's white only when the prime white was not measured, at least one
+// group is shown from the list, and the list has a white at the run's white
+// level; otherwise each caller keeps its own white and fallbacks. Never a
+// white the list does not hold.
+ShownWhiteSource ChooseShownWhite ( bool primeWhiteMeasured, bool anyGroupFromList, bool listHasWhite );
+
+// PrimaryPageColumnSource and PrimaryPageColumnWritesDedicated with the white
+// column: whiteFromList (ChooseShownWhite gave SHOWN_WHITE_LIST) makes column
+// 6 PRIMARY_PAGE_LIST - the reference white applies to it - so it shows the
+// list's white and is read-only. Without it, exactly the three-argument forms.
+PrimaryPageColumnRead PrimaryPageColumnSource ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList );
+bool PrimaryPageColumnWritesDedicated ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList );
+
 #endif // PRIMARYSET_H_INCLUDED_

@@ -171,3 +171,45 @@ PrimaryPageNote PrimaryPageSourceNote ( const PrimarySetChoice & primaries, cons
 		return PRIMARY_PAGE_NOTE_PRIMARIES;
 	return s ? PRIMARY_PAGE_NOTE_SECONDARIES : PRIMARY_PAGE_NOTE_NONE;
 }
+
+bool BuildListWhiteAtLevel ( const CsvPatchRow * rows, int nRows, const CColor * readings, int nReadings, double level, CColor * out )
+{
+	if ( rows == NULL || readings == NULL )
+		return false;
+	const int n = ( nRows < nReadings ) ? nRows : nReadings;
+	const int code = PrimarySetLevelCode ( level );
+	std::vector<const CColor *> members;
+	int first = -1;
+	for ( int i = 0; i < n; i++ )
+	{
+		if ( ! GrayRampRowCounts ( rows[i] ) || ! readings[i].isValid() || PrimarySetLevelCode ( rows[i].label.level ) != code )
+			continue;
+		members.push_back ( & readings[i] );
+		if ( first < 0 )
+			first = i;
+	}
+	if ( members.empty () )
+		return false;
+	const CColor w = AverageGrayReadings ( & members[0], (int) members.size (), & readings[first] );
+	if ( ! GrayRampWhiteUsable ( w ) )
+		return false;
+	*out = w;
+	return true;
+}
+
+ShownWhiteSource ChooseShownWhite ( bool primeWhiteMeasured, bool anyGroupFromList, bool listHasWhite )
+{
+	return ( ! primeWhiteMeasured && anyGroupFromList && listHasWhite ) ? SHOWN_WHITE_LIST : SHOWN_WHITE_CALLER;
+}
+
+PrimaryPageColumnRead PrimaryPageColumnSource ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList )
+{
+	if ( col == 6 && whiteFromList )
+		return PRIMARY_PAGE_LIST;
+	return PrimaryPageColumnSource ( col, primaries, secondaries );
+}
+
+bool PrimaryPageColumnWritesDedicated ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList )
+{
+	return PrimaryPageColumnSource ( col, primaries, secondaries, whiteFromList ) == PRIMARY_PAGE_DEDICATED;
+}

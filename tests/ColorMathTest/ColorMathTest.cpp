@@ -9553,6 +9553,134 @@ namespace T62Prim
                 Fail("T62 page note %s: %d, expected %d", notes[k].what, got, notes[k].note);
         }
     }
+
+    // 14. The white the shown primaries and secondaries are judged against:
+    // the list's gray at the level HCFR's own run measures its white at (100%,
+    // 50.22831% under HDR10), matched by PrimarySetLevelCode.
+    static bool WhiteAt(const std::vector<CsvPatchRow>& rows, const std::vector<CColor>& readings, double level, CColor* out)
+    {
+        return BuildListWhiteAtLevel(rows.empty() ? NULL : &rows[0], (int)rows.size(),
+                                     readings.empty() ? NULL : &readings[0], (int)readings.size(), level, out);
+    }
+
+    static void CheckShownWhite()
+    {
+        // The chooser: the list's white only with the prime white unmeasured, a
+        // group shown from the list and a white in the list.
+        for (int pm = 0; pm <= 1; pm++)
+            for (int any = 0; any <= 1; any++)
+                for (int has = 0; has <= 1; has++)
+                {
+                    const int got = (int)ChooseShownWhite(pm != 0, any != 0, has != 0);
+                    const int expected = (!pm && any && has) ? SHOWN_WHITE_LIST : SHOWN_WHITE_CALLER;
+                    if (got != expected)
+                        Fail("T62 white chooser: prime measured %d, list group %d, list white %d gives %d, expected %d",
+                             pm, any, has, got, expected);
+                }
+
+        // 100%: in every grid the 100% grays are averaged, the 50% gray and a
+        // 100% red are not taken, and the white is the gray ramp's white bit for
+        // bit.
+        for (int g = 0; g < 4; g++)
+        {
+            const Grid& G = kGrids[g];
+            const int mid = (G.black + G.white) / 2;
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Row(mid, mid, mid, G.bits, G.range));                 readings.push_back(CColor(40.0, 42.0, 44.0));
+            rows.push_back(Row(G.white, G.white, G.white, G.bits, G.range));     readings.push_back(CColor(90.0, 100.0, 110.0));
+            rows.push_back(ColorRow(PATCH_COLOR_RED, G.white, G.black, G.bits, G.range)); readings.push_back(CColor(50.0, 25.0, 5.0));
+            rows.push_back(Row(G.white, G.white, G.white, G.bits, G.range));     readings.push_back(CColor(92.0, 102.0, 112.0));
+            CColor w = noDataColor;
+            if (!WhiteAt(rows, readings, 100.0, &w) || !SameXYZ(w, CColor(91.0, 101.0, 111.0)))
+                Fail("T62 white %s at 100%%: Y %.17g, expected the average 101", G.name, w.GetY());
+            GrayRamp ramp;
+            BuildListGrayRamp(&rows[0], (int)rows.size(), &readings[0], (int)readings.size(), &ramp);
+            const CColor rw = GrayRampWhite(ramp, noDataColor);
+            if (!SameXYZ(w, rw) || w.GetX() != rw.GetX() || w.GetY() != rw.GetY() || w.GetZ() != rw.GetZ())
+                Fail("T62 white %s at 100%%: Y %.17g, the gray ramp's white Y %.17g, expected identical", G.name, w.GetY(), rw.GetY());
+        }
+
+        // HDR10: the gray on the run level's code, in every grid (10-bit legal
+        // 504, 8-bit legal 126, 8-bit full 128, 10-bit full 514); the 100% gray
+        // of the same list is not taken, and is still the white at 100%.
+        struct { int bits, range, code; const char* name; } hdr[4] = {
+            { 10, CSV_RANGE_LEGAL, 504, "10-bit legal 504" }, { 8, CSV_RANGE_LEGAL, 126, "8-bit legal 126" },
+            { 8,  CSV_RANGE_FULL,  128, "8-bit full 128" },   { 10, CSV_RANGE_FULL, 514, "10-bit full 514" },
+        };
+        for (int k = 0; k < 4; k++)
+        {
+            const int top = (hdr[k].bits == 8) ? (hdr[k].range == CSV_RANGE_LEGAL ? 235 : 255) : (hdr[k].range == CSV_RANGE_LEGAL ? 940 : 1023);
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Row(top, top, top, hdr[k].bits, hdr[k].range));                         readings.push_back(CColor(570.0, 600.0, 650.0));
+            rows.push_back(Row(hdr[k].code, hdr[k].code, hdr[k].code, hdr[k].bits, hdr[k].range)); readings.push_back(CColor(89.0, 94.0, 102.0));
+            CColor w = noDataColor;
+            if (!WhiteAt(rows, readings, kHdr10Run, &w) || !SameXYZ(w, CColor(89.0, 94.0, 102.0)))
+                Fail("T62 white %s at the HDR10 run level: Y %.17g, expected 94", hdr[k].name, w.GetY());
+            if (!WhiteAt(rows, readings, 100.0, &w) || !SameXYZ(w, CColor(570.0, 600.0, 650.0)))
+                Fail("T62 white %s at 100%%: Y %.17g, expected 600", hdr[k].name, w.GetY());
+        }
+
+        // Repeats at the run level are averaged, across grids on the same code.
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Row(504, 504, 504, 10, CSV_RANGE_LEGAL)); readings.push_back(CColor(88.0, 93.0, 101.0));
+            rows.push_back(Row(126, 126, 126, 8, CSV_RANGE_LEGAL));  readings.push_back(CColor(90.0, 95.0, 103.0));
+            CColor w = noDataColor;
+            if (!WhiteAt(rows, readings, kHdr10Run, &w) || !SameXYZ(w, CColor(89.0, 94.0, 102.0)))
+                Fail("T62 white run-level repeats: Y %.17g, expected the average 94", w.GetY());
+        }
+
+        // Nothing at the level: the neighbors 503 and 505, a red on 504, a
+        // skipped role, an invalid reading, a zero luminance. FALSE, and the
+        // white handed in is untouched.
+        {
+            struct { CsvPatchRow row; CColor reading; const char* what; } none[6] = {
+                { Row(503, 503, 503, 10, CSV_RANGE_LEGAL), CColor(89.0, 94.0, 102.0), "gray 503" },
+                { Row(505, 505, 505, 10, CSV_RANGE_LEGAL), CColor(89.0, 94.0, 102.0), "gray 505" },
+                { ColorRow(PATCH_COLOR_RED, 504, 64, 10, CSV_RANGE_LEGAL), CColor(40.0, 20.0, 2.0), "red 504" },
+                { Row(504, 504, 504, 10, CSV_RANGE_LEGAL, PROVENANCE_ROLE_ANCHOR), CColor(89.0, 94.0, 102.0), "anchor gray 504" },
+                { Row(504, 504, 504, 10, CSV_RANGE_LEGAL), noDataColor, "gray 504 without a reading" },
+                { Row(504, 504, 504, 10, CSV_RANGE_LEGAL), CColor(0.0, 0.0, 0.0), "gray 504 reading zero" },
+            };
+            for (int k = 0; k < 6; k++)
+            {
+                std::vector<CsvPatchRow> rows(1, none[k].row);
+                std::vector<CColor> readings(1, none[k].reading);
+                CColor w(1.0, 2.0, 3.0);
+                if (WhiteAt(rows, readings, kHdr10Run, &w) || !SameXYZ(w, CColor(1.0, 2.0, 3.0)))
+                    Fail("T62 white: %s gives a white at the HDR10 run level (Y %.17g), expected none", none[k].what, w.GetY());
+            }
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            CColor w(1.0, 2.0, 3.0);
+            if (WhiteAt(rows, readings, 100.0, &w) || !SameXYZ(w, CColor(1.0, 2.0, 3.0)))
+                Fail("T62 white: an empty list gives a white");
+        }
+
+        // The page's white column: the list's white makes column 6 a read-only
+        // list column; without it the three-argument rule, unchanged.
+        const PrimarySetChoice listSdr = ChoosePrimarySetShown(false, false, true, 100.0, true);
+        const PrimarySetChoice ded = ChoosePrimarySetShown(true, true, true, 100.0, true);
+        for (int col = -1; col < 9; col++)
+        {
+            const int plain = (int)PrimaryPageColumnSource(col, listSdr, listSdr);
+            const int off = (int)PrimaryPageColumnSource(col, listSdr, listSdr, false);
+            const int on = (int)PrimaryPageColumnSource(col, listSdr, listSdr, true);
+            const int expectedOn = (col == 6) ? PRIMARY_PAGE_LIST : plain;
+            if (off != plain || on != expectedOn)
+                Fail("T62 page white column %d: without the list white %d (expected %d), with it %d (expected %d)",
+                     col, off, plain, on, expectedOn);
+            if (PrimaryPageColumnWritesDedicated(col, listSdr, listSdr, true) != (expectedOn == PRIMARY_PAGE_DEDICATED)
+                || PrimaryPageColumnWritesDedicated(col, ded, ded, false) != PrimaryPageColumnWritesDedicated(col, ded, ded))
+                Fail("T62 page white column %d: the write rule disagrees with the column it reads", col);
+        }
+        if (PrimaryPageColumnSource(6, listSdr, listSdr, true) != PRIMARY_PAGE_LIST || PrimaryPageColumnWritesDedicated(6, listSdr, listSdr, true)
+            || PrimaryPageColumnSource(7, listSdr, listSdr, true) != PRIMARY_PAGE_DEDICATED || !PrimaryPageColumnWritesDedicated(7, listSdr, listSdr, true))
+            Fail("T62 page: with the list's white, the white column must read the list read-only and the black stay dedicated");
+    }
 }
 
 static void RunT62()
@@ -9571,6 +9699,7 @@ static void RunT62()
     T62Prim::CheckShownChoice();
     T62Prim::CheckHdr10Groups();
     T62Prim::CheckPrimaryPage();
+    T62Prim::CheckShownWhite();
 }
 
 int main(int argc, char* argv[])
