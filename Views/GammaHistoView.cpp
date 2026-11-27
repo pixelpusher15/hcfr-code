@@ -325,9 +325,19 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	const bool bDocHoldsBlack = pDoc->GetMeasure()->HoldsGrayGraphBlack(ramp);
 	const bool bRefHoldsBlack = pDataRef ? pDataRef->GetMeasure()->HoldsGrayGraphBlack(refRamp) : false;
 	// A patch list with no usable white (no 100% gray, no measured on/off
-	// white) has nothing to divide by: every curve of this chart is relative
-	// to the white, so none is drawn.
+	// white) has nothing to divide by: the curves of this chart are relative
+	// to the white, so they are not drawn.
 	const bool bNoWhite = ( ramp.source == GRAY_RAMP_LIST && ! GrayRampWhiteUsable ( DocWhite ) );
+	// Except under PQ (offset type 5), where the reference and the luminance
+	// trace are absolute: AddPointtoLumGraph takes 10000 for the white of the
+	// luminance trace, and getL_EOTF's BT.2084 curves (case 5, and case 10 when
+	// tone mapping promotes it) never read the white or the black, so the target
+	// it returns is the same whatever white is passed. Those two still draw. The
+	// lux trace divides by the white's own lux value in every mode and keeps
+	// bNoWhite; the average line and the RGB traces are not drawn under PQ at
+	// all. HLG (type 7) scales its target by the white (getL_EOTF case 7) and
+	// keeps the gate, as does every SDR type.
+	const bool bNoAbsoluteWhite = bNoWhite && GetConfig()->m_GammaOffsetType != 5;
 
 //	GammaOpt = floor(GammaOpt * 100) / 100;
 
@@ -340,7 +350,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		pDataRef->ComputeGammaAndOffset(refRamp, &RefLuxGammaOpt, &RefLuxGammaOffset, 2,1,false);
 	}
 
-	if ( ! bNoWhite && ( m_showReference && m_refLogGraphID != -1 && size > 0 || (m_refLogGraphID != -1 && (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 ))))
+	if ( ! bNoAbsoluteWhite && ( m_showReference && m_refLogGraphID != -1 && size > 0 || (m_refLogGraphID != -1 && (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 ))))
 	{	
 		// Both ends of the log scale are singular - log(0) at black, log(1) at
 		// white - and NudgeOffBlack/NudgeOffWhite are what let the curve be
@@ -460,7 +470,7 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	{
 		for (int i=0; i<size; i++) 
 		{
-			if (bDataPresent && !bNoWhite)
+			if (bDataPresent && !bNoAbsoluteWhite)
 				AddPointtoLumGraph(1,1,size,i,GammaOffset,pDoc,m_luminanceLogGraphID,bIRE,DocWhite,DocBlack,ramp,bDocHoldsBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
 				AddPointtoLumGraph(1,1,size,i,RefGammaOffset,pDataRef,m_luminanceDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack,refRamp,bRefHoldsBlack);
