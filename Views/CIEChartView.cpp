@@ -557,6 +557,13 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 				str.Format("<font color=\"#A0EE80\">u': %.3f, v': %.3f\n",aGraphPoint.x,aGraphPoint.y);
 			else
 				str.Format("<font color=\"#004080\">u': %.3f, v': %.3f\n",aGraphPoint.x,aGraphPoint.y);
+		else if ( ! bShowLab )
+			// No white to be judged against (bShowLab false): no luminance
+			// percentage either, it would be against a stand-in white.
+			if (dark)
+				str.Format("<font color=\"#A0EE80\">x: %.3f, y: %.3f\n",aGraphPoint.x,aGraphPoint.y);
+			else
+				str.Format("<font color=\"#004080\">x: %.3f, y: %.3f\n",aGraphPoint.x,aGraphPoint.y);
 		else
 			if (dark)
 				str.Format("<font color=\"#A0EE80\">x: %.3f, y: %.3f, Y: %.2f%%\n",aGraphPoint.x,aGraphPoint.y,aGraphPoint.GetNormalizedColor()[1]*100);
