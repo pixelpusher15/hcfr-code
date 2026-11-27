@@ -294,6 +294,23 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		if (m_pDocument->GetMeasure()->IsOnOffWhiteMeasured() && m_pDocument->GetMeasure()->GetOnOffWhite().isValid())
 			if ((m_pDocument->GetMeasure()->GetPrimeWhite()[1] / m_pDocument->GetMeasure()->GetOnOffWhite()[1] < 0.9) && (m_displayMode == 11 || m_displayMode == 13)  && GetConfig()->m_GammaOffsetType != 5)
 				white = m_pDocument -> GetMeasure () ->GetOnOffWhite();
+
+		// A column of the patch-list page (mode 11 on the user set): the list
+		// point's white (CMeasure::GetListPointWhiteSource), the one the grid's
+		// dE for it uses, when the rule names one. With no white the widget shows
+		// nothing (PatchListLevelsHidden): its bars and its dE are all against
+		// the white. Under HDR10 its bars are against the tone-mapped diffuse
+		// white and it cannot leave the dE alone empty, so it keeps its own white
+		// chain there. SHOWN_WHITE_CALLER: exactly the chain above.
+		if ( m_displayMode == 11 && GetConfig()->m_CCMode == USER )
+		{
+			CColor listWhite;
+			const ShownWhiteSource listWhiteSource = m_pDocument->GetMeasure()->GetListPointWhiteSource ( & listWhite );
+			if ( ShownWhiteIsChosen ( listWhiteSource ) )
+				white = listWhite;
+			else if ( PatchListLevelsHidden ( listWhiteSource, GetConfig()->m_GammaOffsetType == 5 ) )
+				m_bHasReference = FALSE;
+		}
 		
     	int nCount = m_pDocument -> GetMeasure () -> GetGrayScaleSize ();
         double YWhite = white.GetY();
