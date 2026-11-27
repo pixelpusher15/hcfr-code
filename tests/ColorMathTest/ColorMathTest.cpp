@@ -9496,33 +9496,9 @@ namespace T62Prim
             Fail("T62 extended: %d entries, expected 2", Present(s));
     }
 
-    // 8. The chooser, per group, and the run match.
+    // 8. The groups (the chooser itself is CheckShownChoice).
     static void CheckChooser()
     {
-        struct Case { bool dedicated, list, match; PrimarySetSource want; };
-        const Case cases[8] = {
-            { true,  true,  true,  PRIMARY_SET_DEDICATED },
-            { true,  false, true,  PRIMARY_SET_DEDICATED },
-            { true,  true,  false, PRIMARY_SET_DEDICATED },
-            { false, true,  true,  PRIMARY_SET_LIST },
-            { false, false, true,  PRIMARY_SET_DEDICATED },
-            { false, true,  false, PRIMARY_SET_DEDICATED },
-            { false, false, false, PRIMARY_SET_DEDICATED },
-            { true,  false, false, PRIMARY_SET_DEDICATED },
-        };
-        for (int k = 0; k < 8; k++)
-        {
-            const PrimarySetSource got = ChoosePrimarySetSource(cases[k].dedicated, cases[k].list, cases[k].match);
-            if (got != cases[k].want)
-                Fail("T62 chooser (%d,%d,%d): %d, expected %d", (int)cases[k].dedicated, (int)cases[k].list,
-                     (int)cases[k].match, (int)got, (int)cases[k].want);
-        }
-        if (!ListPrimariesMatchRun(100.0, true))
-            Fail("T62 match: 100%% pure channels does not match");
-        if (ListPrimariesMatchRun(50.22831, true))
-            Fail("T62 match: the HDR10 50.22831%% run matches a 100%% list");
-        if (ListPrimariesMatchRun(100.0, false))
-            Fail("T62 match: a run of mixed channels matches");
         // Primaries and secondaries are separate groups: a list with only
         // secondaries has no primary.
         std::vector<CsvPatchRow> rows(1, ColorRow(PATCH_COLOR_MAGENTA, 255, 0, 8, CSV_RANGE_FULL));
@@ -9655,19 +9631,19 @@ namespace T62Prim
     {
         const PrimarySetSource D = PRIMARY_SET_DEDICATED, L = PRIMARY_SET_LIST;
         // Not HDR10, a run of 100% pure channels: unchanged - the list's 100%
-        // rows with references, and the same source ChoosePrimarySetSource gives.
-        for (int ded = 0; ded <= 1; ded++)
-            for (int run = 0; run <= 1; run++)
-                for (int full = 0; full <= 1; full++)
-                {
-                    const PrimarySetChoice c = ChoosePrimarySetShown(ded != 0, run != 0, full != 0, 100.0, true);
-                    const bool list = !ded && full;
-                    char what[96];
-                    sprintf_s(what, "shown, run 100%%, dedicated %d run-level %d full %d", ded, run, full);
-                    ExpectChoice(what, c, list ? L : D, false, true);
-                    if (c.source != ChoosePrimarySetSource(ded != 0, full != 0, ListPrimariesMatchRun(100.0, true)))
-                        Fail("T62 %s: disagrees with ChoosePrimarySetSource", what);
-                }
+        // rows with references exactly when the dedicated measurement holds no
+        // reading and the list has a 100% entry in the group (the behavior the
+        // first chooser had), whatever the run-level flag says. A literal table.
+        struct { int ded, run, full; PrimarySetSource want; } atFull[8] = {
+            { 0, 0, 0, D }, { 0, 0, 1, L }, { 0, 1, 0, D }, { 0, 1, 1, L },
+            { 1, 0, 0, D }, { 1, 0, 1, D }, { 1, 1, 0, D }, { 1, 1, 1, D } };
+        for (int k = 0; k < 8; k++)
+        {
+            const PrimarySetChoice c = ChoosePrimarySetShown(atFull[k].ded != 0, atFull[k].run != 0, atFull[k].full != 0, 100.0, true);
+            char what[96];
+            sprintf_s(what, "shown, run 100%%, dedicated %d run-level %d full %d", atFull[k].ded, atFull[k].run, atFull[k].full);
+            ExpectChoice(what, c, atFull[k].want, false, true);
+        }
         // HDR10: rows at the run level count, with references; they win over
         // 100% rows.
         ExpectChoice("shown, HDR10, run-level and 100% rows", ChoosePrimarySetShown(false, true, true, kHdr10Run, true), L, true, true);

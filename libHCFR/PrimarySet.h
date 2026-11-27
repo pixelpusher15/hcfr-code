@@ -78,19 +78,6 @@ bool PrimarySetRowCounts ( const CsvPatchRow & row, int color );
 // reading is valid.
 void BuildListPrimarySet ( const CsvPatchRow * rows, int nRows, const CColor * readings, int nReadings, ListPrimarySet * out );
 
-// Whether a list's 100% primaries and secondaries are the signal HCFR's own
-// primaries run drives, so the reference they are drawn against applies to
-// them: the run drives each at runLevel percent (100 except HDR10, which drives
-// 50.22831), and drives single and paired channels only when runPureChannels
-// (not the 75% gamuts HDTVa / HDTVb, nor P3 / Rec.709 inside BT.2020, which
-// drive the inner gamut's primary encoded in the container). Both are needed.
-bool ListPrimariesMatchRun ( double runLevel, bool runPureChannels );
-
-// One group: the dedicated measurement when it holds a reading; else the list
-// when it has an entry in the group and matches the run; else the dedicated
-// measurement.
-PrimarySetSource ChoosePrimarySetSource ( bool dedicatedHoldsReading, bool listHasEntry, bool listMatchesRun );
-
 // The 10-bit legal code a level lands on: round(64 + level * 8.76), level in
 // percent of the nominal range, as a label's level (CsvCodeToPercent) and
 // HCFR's run level both are. HDR10's run level, 50.22831, gives 504; so do the
@@ -121,7 +108,10 @@ struct PrimarySetChoice
 };
 
 // One group of the views, given what HCFR's own primaries run drives (runLevel
-// percent, runPureChannels as for ListPrimariesMatchRun):
+// percent: 100 except HDR10, which drives 50.22831; runPureChannels when the
+// run drives single and paired channels - not the 75% gamuts HDTVa / HDTVb,
+// nor P3 / Rec.709 inside BT.2020, which drive the inner gamut's primary
+// encoded in the container):
 //   - the dedicated measurement when it holds a reading (with references);
 //   - a run of mixed channels (HDTVa / HDTVb, UHDTV3 / UHDTV4): the dedicated
 //     measurement, whatever the list holds;

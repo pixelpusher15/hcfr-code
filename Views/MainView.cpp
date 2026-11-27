@@ -5642,6 +5642,19 @@ static PrimaryPageColumnRead PrimaryPageColumn ( const CMeasure * pMeasure, int 
 	return r;
 }
 
+// Whether an edit, a paste or a clear of grid column iColumn (1..8) of the
+// primaries page may write the dedicated measurement
+// (PrimaryPageColumnWritesDedicated, with the choice and the white UpdateGrid
+// shows): only a column that reads it.
+static bool PrimaryPageColumnWritable ( const CMeasure * pMeasure, int iColumn )
+{
+	const PrimarySetChoice p = pMeasure->GetShownPrimaryChoice ( false, NULL );
+	const PrimarySetChoice q = pMeasure->GetShownPrimaryChoice ( true, NULL );
+	CColor white = noDataColor;
+	const ShownWhiteSource ws = PrimaryPageWhite ( pMeasure, & white );
+	return PrimaryPageColumnWritesDedicated ( iColumn - 1, p, q, ShownWhiteIsChosen ( ws ), ws == SHOWN_WHITE_NONE );
+}
+
 void CMainView::OnGrayScaleGridBeginEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 {
 
@@ -5668,8 +5681,9 @@ void CMainView::OnGrayScaleGridBeginEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 			 // (PrimaryPageColumnWritesDedicated): an edit, a paste or a clear
 			 // would write the dedicated measurement, so the grid's request is
 			 // refused. A copy (OnEditCopy, pResult NULL) reads the value shown.
-			 if ( PrimaryPageColumn ( GetDocument()->GetMeasure(), pItem->iColumn, & aColorMeasure ) != PRIMARY_PAGE_DEDICATED )
+			 if ( ! PrimaryPageColumnWritable ( GetDocument()->GetMeasure(), pItem->iColumn ) )
 			 {
+				PrimaryPageColumn ( GetDocument()->GetMeasure(), pItem->iColumn, & aColorMeasure );	// the value shown, for a copy
 				if ( pResult != NULL )
 				{
 					*pResult = -1;
@@ -5823,7 +5837,7 @@ void CMainView::OnGrayScaleGridEndEdit(NMHDR *pNotifyStruct,LRESULT* pResult)
 	// The primaries page: a column showing a patch list's readings never writes
 	// the dedicated measurement (BeginEdit refuses it; this holds if anything
 	// reaches here anyway). -1 makes the grid put the old text back.
-	if ( m_displayMode == 1 && PrimaryPageColumn ( GetDocument()->GetMeasure(), pItem->iColumn, NULL ) != PRIMARY_PAGE_DEDICATED )
+	if ( m_displayMode == 1 && ! PrimaryPageColumnWritable ( GetDocument()->GetMeasure(), pItem->iColumn ) )
 	{
 		*pResult = -1;
 		return;

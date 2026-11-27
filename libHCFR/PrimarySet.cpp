@@ -93,18 +93,6 @@ void BuildListPrimarySetAtLevel ( const CsvPatchRow * rows, int nRows, const CCo
 	BuildEntries ( rows, nRows, readings, nReadings, true, level, out );
 }
 
-bool ListPrimariesMatchRun ( double runLevel, bool runPureChannels )
-{
-	return runPureChannels && runLevel == 100.0;
-}
-
-PrimarySetSource ChoosePrimarySetSource ( bool dedicatedHoldsReading, bool listHasEntry, bool listMatchesRun )
-{
-	if ( dedicatedHoldsReading )
-		return PRIMARY_SET_DEDICATED;
-	return ( listHasEntry && listMatchesRun ) ? PRIMARY_SET_LIST : PRIMARY_SET_DEDICATED;
-}
-
 PrimarySetChoice ChoosePrimarySetShown ( bool dedicatedHoldsReading, bool listHasRunLevelEntry, bool listHasFullEntry, double runLevel, bool runPureChannels )
 {
 	PrimarySetChoice c;	// the dedicated measurement, with references

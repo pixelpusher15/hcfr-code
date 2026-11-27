@@ -311,7 +311,6 @@ public:
 	// affected: calibration, exports and the accuracy test read those.
 	CColor GetShownPrimary(int i) const;
 	CColor GetShownSecondary(int i) const;
-	PrimarySetSource GetShownPrimarySource(bool bSecondaries) const;
 	// The choice behind the shown group (bSecondaries: Y,C,M), including whether
 	// the references (a dE) apply to it; pSet, when not NULL, receives the list
 	// entries the choice reads (empty for the dedicated measurement).

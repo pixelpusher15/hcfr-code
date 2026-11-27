@@ -2031,11 +2031,6 @@ PrimarySetChoice CMeasure::GetShownPrimaryChoice(bool bSecondaries, ListPrimaryS
 	return c;
 }
 
-PrimarySetSource CMeasure::GetShownPrimarySource(bool bSecondaries) const
-{
-	return GetShownPrimaryChoice ( bSecondaries, NULL ).source;
-}
-
 CColor CMeasure::GetShownPrimary(int i) const
 {
 	if ( PrimariesHoldReading () )
