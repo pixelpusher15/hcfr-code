@@ -3920,8 +3920,12 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 
 				// The patch-list page: the list point's white UpdateGrid chose
 				// (m_listPointWhite, CMeasure::GetListPointWhiteSource), the one its
-				// dE uses, when it chose one; else exactly the chain above.
-				if ( m_displayMode == 11 && GetConfig()->m_CCMode == USER && m_listPointWhite.isValid() )
+				// dE uses, when it chose one; else exactly the chain above. Not
+				// under HDR10: there these rows are absolute (the white's Y becomes
+				// the tone-mapped diffuse white below), but the white's lux value
+				// stays, and a list white averaged from lux-stamped readings carries
+				// one (AverageGrayReadings) that "prefer luxmeter" would divide by.
+				if ( m_displayMode == 11 && GetConfig()->m_CCMode == USER && m_listPointWhite.isValid() && ! isHDR )
 					white = m_listPointWhite;
 				
 				if ( isHDR )
