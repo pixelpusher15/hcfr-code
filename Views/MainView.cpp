@@ -5520,6 +5520,14 @@ void CMainView::UpdateGrid()
 					dEavg_cc = dEavg / dEcntSafe;
 					dEmax_cc = dEmax;
 				}
+				else if ( bListNoWhite )
+				{
+					// The user list with no white has no dE: the report's figure is
+					// absent ("No data", as before any measure), not the last one
+					// this page computed. Every other set keeps its last figure.
+					dEavg_cc = 0;
+					dEmax_cc = 0;
+				}
 				float a = 2.0, b = 3;
 				Tmp.LoadString ( IDS_DELTAEAVERAGE );
 				Msg += " ( ";
