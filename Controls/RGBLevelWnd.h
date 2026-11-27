@@ -48,6 +48,10 @@ public:
     float               m_dEValue;
 	BOOL			    m_bLumaMode;
 	BOOL			    m_bHasReference;
+	// The R, G and B bars are drawn but the dE is not (blank, not zero): a
+	// patch-list column under HDR10 with no list point white, whose bars are
+	// absolute while its dE would need the missing white.
+	BOOL			    m_bNoDE;
 
 	CColor *		m_pRefColor;
 	CDataSetDoc *	m_pDocument;

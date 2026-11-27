@@ -10344,6 +10344,29 @@ namespace T62Prim
         if (ListPointWhiteChanged(SHOWN_WHITE_NONE, noDataColor, SHOWN_WHITE_NONE, noDataColor))
             Fail("T62 list white changed: none to none reports a change");
     }
+
+    // 23. The RGB levels widget's dE alone empty (PatchListLevelsDEHidden):
+    // only with no white under HDR10, where the bars are absolute; never
+    // together with the whole widget empty (PatchListLevelsHidden), and with
+    // no white exactly one of the two holds.
+    static void CheckListPointLevelsDE()
+    {
+        const ShownWhiteSource all[5] = { SHOWN_WHITE_CALLER, SHOWN_WHITE_LIST, SHOWN_WHITE_NONE, SHOWN_WHITE_GRAY_SCALE, SHOWN_WHITE_ON_OFF };
+        for (int w = 0; w < 5; w++)
+            for (int a = 0; a <= 1; a++)
+            {
+                const bool expected = (all[w] == SHOWN_WHITE_NONE) && a == 1;
+                const bool got = PatchListLevelsDEHidden(all[w], a != 0);
+                if (got != expected)
+                    Fail("T62 list point levels dE: choice %d (HDR10 %d) dE hidden %d, expected %d",
+                         (int)all[w], a, (int)got, (int)expected);
+                const bool whole = PatchListLevelsHidden(all[w], a != 0);
+                if (got && whole)
+                    Fail("T62 list point levels dE: choice %d (HDR10 %d) hides the dE and the whole widget", (int)all[w], a);
+                if (all[w] == SHOWN_WHITE_NONE && got == whole)
+                    Fail("T62 list point levels dE: no white (HDR10 %d) gives dE hidden %d and widget hidden %d", a, (int)got, (int)whole);
+            }
+    }
 }
 
 static void RunT62()
@@ -10371,6 +10394,7 @@ static void RunT62()
     T62Prim::CheckListPointRows();
     T62Prim::CheckListPointWhiteBand();
     T62Prim::CheckListPointWhiteChanged();
+    T62Prim::CheckListPointLevelsDE();
 }
 
 int main(int argc, char* argv[])

@@ -354,8 +354,13 @@ bool ListPointWhiteChanged ( ShownWhiteSource before, const CColor & whiteBefore
 // Whether the RGB levels widget shows nothing for a list point with the white
 // choice ws: with no white (SHOWN_WHITE_NONE), except under absoluteLuminance
 // (HDR10), where its bars are judged against the tone-mapped diffuse white
-// and only its dE would need the missing white; the widget cannot leave its
-// dE alone empty, so there it keeps its own white chain.
+// and only its dE needs the missing white (PatchListLevelsDEHidden).
 bool PatchListLevelsHidden ( ShownWhiteSource ws, bool absoluteLuminance );
+
+// Whether the RGB levels widget shows its R, G and B bars but no dE for a list
+// point with the white choice ws: with no white under absoluteLuminance
+// (HDR10), where the bars are absolute and the dE alone needs the missing
+// white. Never together with PatchListLevelsHidden.
+bool PatchListLevelsDEHidden ( ShownWhiteSource ws, bool absoluteLuminance );
 
 #endif // PRIMARYSET_H_INCLUDED_

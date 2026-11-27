@@ -70,6 +70,7 @@ CRGBLevelWnd::CRGBLevelWnd()
 	m_pDocument = NULL;
 	m_bLumaMode = FALSE;
 	m_bHasReference = TRUE;
+	m_bNoDE = FALSE;
 	m_redValue = 0.;
 	m_greenValue = 0.;
 	m_blueValue = 0.;
@@ -89,6 +90,7 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 	// left behind. Track whether this call actually found a target instead of
 	// letting a stale one stand in for one.
 	m_bHasReference = TRUE;
+	m_bNoDE = FALSE;
     double cx,cy,cz,cxref,cyref,czref;
 	CColorReference cRef= (GetColorReference());
 	int satsize=m_pDocument->GetMeasure()->GetSaturationSize();
@@ -300,8 +302,9 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 		// dE for it uses, when the rule names one. With no white the widget shows
 		// nothing (PatchListLevelsHidden): its bars and its dE are all against
 		// the white. Under HDR10 its bars are against the tone-mapped diffuse
-		// white and it cannot leave the dE alone empty, so it keeps its own white
-		// chain there. SHOWN_WHITE_CALLER: exactly the chain above.
+		// white, so they stay (on the chain above, whose Y the bars replace) and
+		// only the dE is left out (PatchListLevelsDEHidden, m_bNoDE), as the
+		// grid's dE is. SHOWN_WHITE_CALLER: exactly the chain above.
 		if ( m_displayMode == 11 && GetConfig()->m_CCMode == USER )
 		{
 			CColor listWhite;
@@ -310,6 +313,8 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 				white = listWhite;
 			else if ( PatchListLevelsHidden ( listWhiteSource, GetConfig()->m_GammaOffsetType == 5 ) )
 				m_bHasReference = FALSE;
+			else if ( PatchListLevelsDEHidden ( listWhiteSource, GetConfig()->m_GammaOffsetType == 5 ) )
+				m_bNoDE = TRUE;
 		}
 		
     	int nCount = m_pDocument -> GetMeasure () -> GetGrayScaleSize ();
@@ -621,6 +626,10 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 						 && HasMeasuredLight ( m_pRefColor->GetY() ) );
 
 	if (m_dEValue > 40 || ( bFirstCol && !bFirstColDE ) ) m_dEValue = 0.;
+	// No dE (m_bNoDE): not a figure against a stand-in white; OnPaint leaves
+	// the dE well empty.
+	if ( m_bNoDE )
+		m_dEValue = 0.;
 
 	// With no target neither branch above ran, so the level members still hold the
 	// previous column's numbers. OnDraw does not print them, but it does scale the
@@ -781,7 +790,8 @@ void CRGBLevelWnd::OnPaint()
 		// bar -- moves with the preset. Drawn on TOP of the bar below.
 		float dashY = (i < 3) ? (trackBot - 100.0f * yScale) : (trackBot - (float)deWarn * dEScale);
 
-		if ( hasData )
+		// m_bNoDE: the dE well is empty, as every well is with no data.
+		if ( hasData && ! ( i == 3 && m_bNoDE ) )
 		{
 			float v = (i < 3) ? vals[i] * yScale : vals[i] * dEScale;
 			if ( v > trackH ) v = trackH;

@@ -287,6 +287,11 @@ bool PatchListLevelsHidden ( ShownWhiteSource ws, bool absoluteLuminance )
 	return ws == SHOWN_WHITE_NONE && ! absoluteLuminance;
 }
 
+bool PatchListLevelsDEHidden ( ShownWhiteSource ws, bool absoluteLuminance )
+{
+	return ws == SHOWN_WHITE_NONE && absoluteLuminance;
+}
+
 ListPointWhiteBand ChooseListPointWhiteBand ( bool runInProgress, bool liveHasWhite, bool masterHasWhite )
 {
 	if ( runInProgress && liveHasWhite )
