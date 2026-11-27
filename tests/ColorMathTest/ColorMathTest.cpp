@@ -8976,6 +8976,22 @@ namespace T61Summary
             if (d != cases[i].want || strcmp(buf, cases[i].text) != 0)
                 Fail("T61 decimals of %.17g: %d (\"%s\"), expected %d (\"%s\")", cases[i].y, d, buf, cases[i].want, cases[i].text);
         }
+        // Just under each boundary: the rule is about the PRINTED number, so a
+        // value that rounds up to 100, 10 or 1 prints with that boundary's
+        // decimals ("100.0", not "100.00"); one that stays under keeps its own.
+        struct { double y; int want; const char * text; } edges[] = {
+            { 99.996, 1, "100.0" },    { 9.9996, 2, "10.00" },    { 0.99996, 3, "1.000" },
+            { -99.996, 1, "-100.0" },  { -9.9996, 2, "-10.00" },  { -0.99996, 3, "-1.000" },
+            { 99.994, 2, "99.99" },    { 9.9994, 3, "9.999" },    { 0.99994, 4, "0.9999" },
+            { 99.9999999, 1, "100.0" }, { 0.00004, 4, "0.0000" } };
+        for (size_t i = 0; i < sizeof(edges) / sizeof(edges[0]); i++)
+        {
+            int d = SummaryLuminanceDecimals(edges[i].y);
+            char buf[64];
+            sprintf_s(buf, "%.*f", d, edges[i].y);
+            if (d != edges[i].want || strcmp(buf, edges[i].text) != 0)
+                Fail("T61 decimals just under a boundary, %.17g: %d (\"%s\"), expected %d (\"%s\")", edges[i].y, d, buf, edges[i].want, edges[i].text);
+        }
         const double inf = std::numeric_limits<double>::infinity();
         const double nan = std::numeric_limits<double>::quiet_NaN();
         if (SummaryLuminanceDecimals(inf) != 4 || SummaryLuminanceDecimals(nan) != 4)
