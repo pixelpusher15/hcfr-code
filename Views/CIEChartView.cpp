@@ -903,6 +903,19 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 		if ( gsWhiteAB.isValid() && ( pDoc->GetMeasure()->IsOnOffWhiteMeasured() || ! CMeasure::IsPlaceholderWhite ( gsWhiteAB, true ) ) )
 			YWhiteAB = gsWhiteAB[1];
 	}
+	// The shown groups' white wins when the one rule names one (the list's, the
+	// gray scale's or the on/off white, CMeasure::GetShownPrimaryWhiteSource),
+	// so the a*b* figure uses the white the hexagon's markers are judged
+	// against; with none (SHOWN_WHITE_NONE) the figure is withheld as the
+	// markers' dE is. SHOWN_WHITE_CALLER keeps the white above.
+	{
+		CColor shownWhite;
+		const ShownWhiteSource ws = pDoc->GetMeasure()->GetShownPrimaryWhiteSource ( & shownWhite );
+		if ( ShownWhiteIsChosen ( ws ) )
+			YWhiteAB = shownWhite[1];
+		else if ( ws == SHOWN_WHITE_NONE )
+			YWhiteAB = 0.0;
+	}
 	BOOL abAllowed = GetConfig()->m_GammaOffsetType != 5 && YWhiteAB > 0.0;
 
 	// The toggle bypasses the stale-hide here and nowhere else: the cache
@@ -1471,25 +1484,21 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		
 	// The white the shown primaries and secondaries are judged against: with
 	// the prime white unmeasured and a group shown from a patch list, the
-	// list's white (CMeasure::GetShownPrimaryListWhite), the one the main
-	// grid's primaries page uses, so the two give the same dE. This YWhite
+	// list's white, else a white the document measured (the gray scale's
+	// 100%, then the on/off white; CMeasure::GetShownPrimaryWhiteSource), the
+	// one the main grid's primaries page uses, so the two give the same dE. This YWhite
 	// reaches only the primary and secondary markers and, under HDR10, their
 	// references (YWhiteRef below); the data reference markers take their
 	// document's white, the gray markers GetGrayScaleWhite, and the
 	// saturation and color checker markers the white recomputed before them.
-	// With no white at all (SHOWN_WHITE_NONE: no list white, and the chain
-	// above lands on the constructor's placeholder or on 1.0, CallerWhiteIsMeasured
-	// with the measured test of DrawCoverageChips), the groups shown from the list
+	// With no white at all (SHOWN_WHITE_NONE), the groups shown from the list
 	// get no reference below, so their tooltips carry no dE.
 	ShownWhiteSource chartWhite = SHOWN_WHITE_CALLER;
 	{
-		const bool bChartPrime = pDoc -> GetMeasure () -> GetPrimeWhite ().isValid() && !( (current_mode>=4 && current_mode<=12) && (GetConfig()->m_colorStandard==HDTVb||GetConfig()->m_colorStandard==HDTVa));
-		const bool bChainMeasured = CallerWhiteIsMeasured ( bChartPrime, pDoc -> GetMeasure () -> IsPrimeWhiteMeasured () != FALSE, grayScaleWhite.isValid() != FALSE,
-			pDoc -> GetMeasure () -> IsOnOffWhiteMeasured () || ! CMeasure::IsPlaceholderWhite ( grayScaleWhite, true ) );
-		CColor listWhite;
-		const ShownWhiteSource ws = pDoc -> GetMeasure () -> GetShownPrimaryWhiteSource ( bChainMeasured, & listWhite );
-		if ( ws == SHOWN_WHITE_LIST )
-			YWhite = listWhite [ 1 ];
+		CColor shownWhite;
+		const ShownWhiteSource ws = pDoc -> GetMeasure () -> GetShownPrimaryWhiteSource ( & shownWhite );
+		if ( ShownWhiteIsChosen ( ws ) )
+			YWhite = shownWhite [ 1 ];
 		chartWhite = ws;
 	}
 

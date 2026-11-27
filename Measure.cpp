@@ -2056,12 +2056,12 @@ CColor CMeasure::GetShownSecondary(int i) const
 	return GetSecondary ( i );
 }
 
-bool CMeasure::GetShownPrimaryListWhite(CColor * pWhite) const
+bool CMeasure::GetShownPrimaryChosenWhite(CColor * pWhite) const
 {
-	return GetShownPrimaryWhiteSource ( true, pWhite ) == SHOWN_WHITE_LIST;
+	return ShownWhiteIsChosen ( GetShownPrimaryWhiteSource ( pWhite ) );
 }
 
-ShownWhiteSource CMeasure::GetShownPrimaryWhiteSource(bool callerWhiteMeasured, CColor * pWhite) const
+ShownWhiteSource CMeasure::GetShownPrimaryWhiteSource(CColor * pWhite) const
 {
 	// A measured prime white is the dedicated run's: every caller keeps it.
 	if ( m_bPrimeWhiteMeasured )
@@ -2075,16 +2075,27 @@ ShownWhiteSource CMeasure::GetShownPrimaryWhiteSource(bool callerWhiteMeasured, 
 	int nRows = 0, nReadings = 0;
 	if ( anyList && GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
 		listHasWhite = BuildListWhiteAtLevel ( rows, nRows, readings, nReadings, PrimeWhiteIRELevel ( NULL ), & w );
-	const ShownWhiteSource r = ChooseShownWhite ( m_bPrimeWhiteMeasured != FALSE, anyList, listHasWhite, callerWhiteMeasured );
+	// A white the document measured, for a run whose white is its 100% white:
+	// the gray scale's top slot unless it is the constructor's placeholder, and
+	// the on/off white only when flagged measured and holding a reading.
+	const bool whiteLevelIsFull = PrimarySetLevelCode ( PrimeWhiteIRELevel ( NULL ) ) == PrimarySetLevelCode ( 100.0 );
+	const CColor grayWhite = GrayScaleWhite ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), noDataColor, IsConstructorPlaceholder );
+	const bool grayMeasured = grayWhite.isValid () && GrayRampWhiteUsable ( grayWhite );
+	const bool onOffMeasured = m_bOnOffWhiteMeasured && HoldsReading ( m_OnOffWhite ) && GrayRampWhiteUsable ( m_OnOffWhite );
+	const ShownWhiteSource r = ChooseShownPrimaryWhite ( m_bPrimeWhiteMeasured != FALSE, anyList, listHasWhite, whiteLevelIsFull, grayMeasured, onOffMeasured );
 	if ( r == SHOWN_WHITE_LIST )
 		*pWhite = w;
+	else if ( r == SHOWN_WHITE_GRAY_SCALE )
+		*pWhite = grayWhite;
+	else if ( r == SHOWN_WHITE_ON_OFF )
+		*pWhite = m_OnOffWhite;
 	return r;
 }
 
 CColor CMeasure::GetShownPrimaryWhite(const CColor & callerWhite) const
 {
 	CColor w;
-	return GetShownPrimaryListWhite ( & w ) ? w : callerWhite;
+	return GetShownPrimaryChosenWhite ( & w ) ? w : callerWhite;
 }
 
 CString CMeasure::GetInfoString() const

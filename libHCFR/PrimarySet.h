@@ -213,10 +213,32 @@ enum ShownWhiteSource
 {
 	SHOWN_WHITE_CALLER = 0,	// each caller's own white, exactly as before
 	SHOWN_WHITE_LIST   = 1,	// the list's white (BuildListWhiteAtLevel)
-	SHOWN_WHITE_NONE   = 2	// no white: the groups shown from the list are
+	SHOWN_WHITE_NONE   = 2,	// no white: the groups shown from the list are
 							// judged against nothing (no dE, no luminance
 							// against the reference)
+	SHOWN_WHITE_GRAY_SCALE = 3,	// the gray scale's measured 100% (ChooseShownPrimaryWhite)
+	SHOWN_WHITE_ON_OFF     = 4	// a measured on/off white (ChooseShownPrimaryWhite)
 };
+
+// The one white rule for the views of the shown primaries and secondaries -
+// the main grid's primaries page, the RGB levels widget and the CIE chart
+// (markers, hover and the a*b* coverage figure) - behind
+// CMeasure::GetShownPrimaryWhiteSource. With the prime white measured, or no
+// group shown from the list: SHOWN_WHITE_CALLER, every caller keeps exactly
+// its own white. Otherwise: (1) the list's own white (listHasWhite,
+// BuildListWhiteAtLevel at the prime white's level); else (2), only when the
+// run measures its white at 100% (whiteLevelIsFull: not HDR10, whose prime
+// white is its 50.22831% diffuse white, nor HDTVa's 75%), a white the document
+// measured: the gray scale's 100% (grayScaleWhiteMeasured) first, then the
+// on/off white (onOffWhiteMeasured) - the caller passes false for a
+// constructor placeholder, which is never measured; else (3) SHOWN_WHITE_NONE.
+// ChooseShownWhite with callerWhiteMeasured false is steps (1) and (3).
+ShownWhiteSource ChooseShownPrimaryWhite ( bool primeWhiteMeasured, bool anyGroupFromList, bool listHasWhite, bool whiteLevelIsFull, bool grayScaleWhiteMeasured, bool onOffWhiteMeasured );
+
+// Whether ws puts a white of its own in place of the caller's: the list's, the
+// gray scale's or the on/off white. Such a white is the one the shown groups
+// are judged against and the white column shows (read-only).
+bool ShownWhiteIsChosen ( ShownWhiteSource ws );
 
 // The list's white only when the prime white was not measured, at least one
 // group is shown from the list, and the list has a white at the run's white
@@ -231,7 +253,8 @@ ShownWhiteSource ChooseShownWhite ( bool primeWhiteMeasured, bool anyGroupFromLi
 // Whether a caller's own white chain lands on a measured white: its first
 // white when that one is valid (primeValid; measured when primeMeasured), else
 // its fallback (measured when fallbackValid and fallbackMeasured). A chain
-// that ends on a stand-in has none.
+// that ends on a stand-in has none. The app no longer calls it: each view's
+// own chain gave way to the one rule, ChooseShownPrimaryWhite.
 bool CallerWhiteIsMeasured ( bool primeValid, bool primeMeasured, bool fallbackValid, bool fallbackMeasured );
 
 // Whether a group shown as c has a white to be judged against, given the
@@ -242,9 +265,10 @@ bool CallerWhiteIsMeasured ( bool primeValid, bool primeMeasured, bool fallbackV
 bool PrimarySetHasWhite ( const PrimarySetChoice & c, ShownWhiteSource ws );
 
 // PrimaryPageColumnSource and PrimaryPageColumnWritesDedicated with the white
-// column: whiteFromList (ChooseShownWhite gave SHOWN_WHITE_LIST) makes column
-// 6 PRIMARY_PAGE_LIST - the reference white applies to it - so it shows the
-// list's white and is read-only. noWhite (SHOWN_WHITE_NONE) makes column 6
+// column: whiteFromList (a white the rule chose, ShownWhiteIsChosen: the
+// list's, the gray scale's or the on/off white) makes column 6
+// PRIMARY_PAGE_LIST - the reference white applies to it - so it shows that
+// white and is read-only. noWhite (SHOWN_WHITE_NONE) makes column 6
 // PRIMARY_PAGE_WHITE_NONE and a PRIMARY_PAGE_LIST column
 // PRIMARY_PAGE_LIST_NO_WHITE; a PRIMARY_PAGE_LIST_NO_REF column and the
 // dedicated columns stay as they are. whiteFromList wins over noWhite. Without

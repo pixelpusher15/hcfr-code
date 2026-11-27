@@ -275,9 +275,10 @@ void CRGBLevelWnd::Refresh(int minCol, int m_displayMode, int nSize)
 
 		BOOL isHDR = ( GetConfig()->m_GammaOffsetType == 5 && (m_displayMode == 1 || m_displayMode >= 5 && m_displayMode <= 11 || m_displayMode == 13) );
 		CColor white = m_pDocument->GetMeasure()->GetPrimeWhite();
-		// The primaries page judges its shown groups against the list's white
-		// when one applies (CMeasure::GetShownPrimaryWhite, as the grid's
-		// UpdateGrid / GetItemText do); otherwise exactly the prime white above.
+		// The primaries page judges its shown groups against the white the one
+		// rule chooses when it chooses one (CMeasure::GetShownPrimaryWhite, as the
+		// grid's UpdateGrid / GetItemText and the CIE chart do); otherwise
+		// exactly the prime white above.
 		if ( m_displayMode == 1 )
 			white = m_pDocument->GetMeasure()->GetShownPrimaryWhite ( white );
 

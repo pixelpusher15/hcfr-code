@@ -316,21 +316,26 @@ public:
 	// the references (a dE) apply to it; pSet, when not NULL, receives the list
 	// entries the choice reads (empty for the dedicated measurement).
 	PrimarySetChoice GetShownPrimaryChoice(bool bSecondaries, ListPrimarySet * pSet) const;
-	// The white the shown primaries and secondaries are judged against (libHCFR
-	// ChooseShownWhite): with the prime white unmeasured and a group shown from
-	// the active patch list, the list's gray at the level HCFR's primaries run
-	// measures its white at (PrimeWhiteIRELevel: 100%, 50.22831% under HDR10;
-	// BuildListWhiteAtLevel). GetShownPrimaryListWhite gives it (TRUE) or
-	// FALSE when none applies; GetShownPrimaryWhite returns it, else exactly
-	// callerWhite - the white and fallback chain each caller has always used.
-	bool GetShownPrimaryListWhite(CColor * pWhite) const;
+	// The white the shown primaries and secondaries are judged against: the one
+	// rule (libHCFR ChooseShownPrimaryWhite) the primaries page, the RGB levels
+	// widget and the CIE chart (markers, hover, the a*b* coverage figure) all
+	// take. With the prime white measured, or no group shown from the active
+	// patch list: SHOWN_WHITE_CALLER, each caller's own white. Otherwise the
+	// list's gray at the level HCFR's primaries run measures its white at
+	// (PrimeWhiteIRELevel: 100%, 50.22831% under HDR10; BuildListWhiteAtLevel);
+	// else, when that level is 100%, the gray scale's measured 100% (its top slot
+	// with a finite Y above 0 that is not the constructor's placeholder:
+	// GrayScaleWhite with IsConstructorPlaceholder and no fallback), else a
+	// measured on/off white (flagged measured, HoldsReading, GrayRampWhiteUsable:
+	// the test GetGrayGraphWhite applies); else SHOWN_WHITE_NONE (the groups
+	// shown from the list then get no dE). *pWhite receives the white for the
+	// three choices that name one (ShownWhiteIsChosen) and is untouched otherwise.
+	ShownWhiteSource GetShownPrimaryWhiteSource(CColor * pWhite) const;
+	// GetShownPrimaryWhiteSource's white when it names one (TRUE), else FALSE.
+	bool GetShownPrimaryChosenWhite(CColor * pWhite) const;
+	// That white, else exactly callerWhite - the white and fallback chain each
+	// caller has always used.
 	CColor GetShownPrimaryWhite(const CColor & callerWhite) const;
-	// The same choice for a caller whose own white chain lands on a measured
-	// white or not (callerWhiteMeasured, CallerWhiteIsMeasured): SHOWN_WHITE_LIST
-	// with *pWhite, SHOWN_WHITE_NONE when a group is shown from the list, the
-	// list has no white and the caller's chain has none either (the groups shown
-	// from the list then get no dE), else SHOWN_WHITE_CALLER.
-	ShownWhiteSource GetShownPrimaryWhiteSource(bool callerWhiteMeasured, CColor * pWhite) const;
 	bool PrimariesHoldReading() const;	// a valid dedicated primary (the S_PRIMARIES test of SweepOverwritesData)
 	bool SecondariesHoldReading() const;	// the same for the secondaries
 	ListPrimarySet GetListPrimarySet() const;	// the active set's, empty without one

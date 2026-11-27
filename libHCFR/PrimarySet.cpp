@@ -206,6 +206,23 @@ ShownWhiteSource ChooseShownWhite ( bool primeWhiteMeasured, bool anyGroupFromLi
 	return callerWhiteMeasured ? SHOWN_WHITE_CALLER : SHOWN_WHITE_NONE;
 }
 
+ShownWhiteSource ChooseShownPrimaryWhite ( bool primeWhiteMeasured, bool anyGroupFromList, bool listHasWhite, bool whiteLevelIsFull, bool grayScaleWhiteMeasured, bool onOffWhiteMeasured )
+{
+	const ShownWhiteSource r = ChooseShownWhite ( primeWhiteMeasured, anyGroupFromList, listHasWhite, false );
+	if ( r != SHOWN_WHITE_NONE )
+		return r;	// the caller's own white, or the list's
+	if ( whiteLevelIsFull && grayScaleWhiteMeasured )
+		return SHOWN_WHITE_GRAY_SCALE;
+	if ( whiteLevelIsFull && onOffWhiteMeasured )
+		return SHOWN_WHITE_ON_OFF;
+	return SHOWN_WHITE_NONE;
+}
+
+bool ShownWhiteIsChosen ( ShownWhiteSource ws )
+{
+	return ws == SHOWN_WHITE_LIST || ws == SHOWN_WHITE_GRAY_SCALE || ws == SHOWN_WHITE_ON_OFF;
+}
+
 bool PrimarySetHasWhite ( const PrimarySetChoice & c, ShownWhiteSource ws )
 {
 	return ! ( ws == SHOWN_WHITE_NONE && c.source == PRIMARY_SET_LIST );

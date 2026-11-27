@@ -1572,13 +1572,14 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		if ( GetDocument() -> GetMeasure () -> GetPrimeWhite().isValid() )
 			if ((m_displayMode == 1 || (m_displayMode >=5 && m_displayMode <= 11)))
 				YWhite = GetDocument() -> GetMeasure () -> GetPrimeWhite () [1]; //use physical Lab coords for display even in shifted diffuse case
-		// The primaries page judges its shown groups against the list's white
-		// when one applies (GetShownPrimaryListWhite); so does its Lab here.
+		// The primaries page judges its shown groups against the white the one
+		// rule chooses when it chooses one (GetShownPrimaryChosenWhite); so does
+		// its Lab here.
 		if ( m_displayMode == 1 )
 		{
-			CColor listWhite;
-			if ( GetDocument() -> GetMeasure () -> GetShownPrimaryListWhite ( & listWhite ) )
-				YWhite = listWhite [ 1 ];
+			CColor chosenWhite;
+			if ( GetDocument() -> GetMeasure () -> GetShownPrimaryChosenWhite ( & chosenWhite ) )
+				YWhite = chosenWhite [ 1 ];
 		}
 		
 		Item.strText.Format("%.3f",m_SelectedColor.GetLuminance());
@@ -3868,8 +3869,8 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 				}
 
 				CColor white = GetDocument()->GetMeasure()->GetPrimeWhite();
-				// The primaries page: the list's white when one applies
-				// (GetShownPrimaryWhite), else exactly this one.
+				// The primaries page: the white the one rule chooses when it
+				// chooses one (GetShownPrimaryWhite), else exactly this one.
 				if ( m_displayMode == 1 )
 					white = GetDocument()->GetMeasure()->GetShownPrimaryWhite ( white );
 
@@ -4171,16 +4172,13 @@ LPSTR CMainView::GetGridRowLabel(int aComponentNum)
 	return "Undef";
 }
 
-// The white the primaries page judges its shown groups against
-// (CMeasure::GetShownPrimaryWhiteSource), given the page's own white chain:
-// the prime white when valid, else the on/off white (UpdateGrid's YWhitePrime;
-// its last fallback, the target luminance, is a stand-in). A placeholder is no
-// measured white (CallerWhiteIsMeasured).
+// The white the primaries page judges its shown groups against: the one rule
+// the CIE chart and the RGB levels widget take too
+// (CMeasure::GetShownPrimaryWhiteSource). SHOWN_WHITE_CALLER leaves the page's
+// own chain (UpdateGrid's YWhitePrime) exactly as it was.
 static ShownWhiteSource PrimaryPageWhite ( const CMeasure * pMeasure, CColor * pWhite )
 {
-	const bool bMeasured = CallerWhiteIsMeasured ( pMeasure->GetPrimeWhite().isValid() != FALSE, pMeasure->IsPrimeWhiteMeasured() != FALSE,
-												 pMeasure->GetOnOffWhite().isValid() != FALSE, pMeasure->IsOnOffWhiteMeasured() != FALSE );
-	return pMeasure->GetShownPrimaryWhiteSource ( bMeasured, pWhite );
+	return pMeasure->GetShownPrimaryWhiteSource ( pWhite );
 }
 
 void CMainView::UpdateGrid()
@@ -4532,7 +4530,7 @@ void CMainView::UpdateGrid()
 		PrimarySetChoice pageChoice[2];
 		ListPrimarySet pageSet[2];
 		CColor pageWhite = noDataColor;
-		bool bPageListWhite = false;
+		bool bPageChosenWhite = false;
 		bool bPageNoWhite = false;
 		CColor pageNoRef = noDataColor;	// the reference a row with no value gets
 		if ( m_displayMode == 1 )
@@ -4540,17 +4538,17 @@ void CMainView::UpdateGrid()
 			pageChoice[0] = GetDocument()->GetMeasure()->GetShownPrimaryChoice ( false, & pageSet[0] );
 			pageChoice[1] = GetDocument()->GetMeasure()->GetShownPrimaryChoice ( true, & pageSet[1] );
 			// The white the shown groups are judged against: with the prime white
-			// unmeasured and a group from the list, the list's white
-			// (CMeasure::GetShownPrimaryListWhite) - the white column, and the
+			// unmeasured and a group from the list, the list's white, else a white
+			// the document measured (the gray scale's 100%, then the on/off white;
+			// CMeasure::GetShownPrimaryWhiteSource) - the white column, and the
 			// YWhite of the luminance percentages and dE, as the CIE chart uses it.
 			// Otherwise YWhite stays the prime white chain above.
 			const ShownWhiteSource pageWhiteSource = PrimaryPageWhite ( GetDocument()->GetMeasure(), & pageWhite );
-			bPageListWhite = ( pageWhiteSource == SHOWN_WHITE_LIST );
-			// No white at all (SHOWN_WHITE_NONE: no list white, and the chain
-			// above lands on a placeholder or a stand-in): the list's groups get no
-			// dE or luminance figures and the white column stays empty.
+			bPageChosenWhite = ShownWhiteIsChosen ( pageWhiteSource );
+			// No white at all (SHOWN_WHITE_NONE: none of those): the list's groups
+			// get no dE or luminance figures and the white column stays empty.
 			bPageNoWhite = ( pageWhiteSource == SHOWN_WHITE_NONE );
-			if ( bPageListWhite )
+			if ( bPageChosenWhite )
 				YWhite = pageWhite [ 1 ];
 		}
 
@@ -4672,8 +4670,8 @@ void CMainView::UpdateGrid()
 						// Nothing carried over from column 5: with neither white below, the
 						// column is empty, and YWhite stays the page's white chain above.
 						aColor = noDataColor;
-						if ( bPageListWhite )
-							aColor = pageWhite;	// the list's white, read-only (PrimaryPageColumnSource)
+						if ( bPageChosenWhite )
+							aColor = pageWhite;	// the chosen white, read-only (PrimaryPageColumnSource)
 						else if (GetDocument()->GetMeasure()->GetPrimeWhite().isValid())
 							aColor = GetDocument()->GetMeasure()->GetPrimeWhite();
 						if ( aColor.isValid () )
@@ -5040,7 +5038,7 @@ void CMainView::UpdateGrid()
 					// its dE enters neither the average nor the max, and the dE cell loses
 					// any highlight it had.
 					const bool bPageRowBlank = ( m_displayMode == 1 && ! PrimaryPageRowShown (
-						PrimaryPageColumnSource ( j, pageChoice[0], pageChoice[1], bPageListWhite, bPageNoWhite ), i, pDataRef != NULL ) );
+						PrimaryPageColumnSource ( j, pageChoice[0], pageChoice[1], bPageChosenWhite, bPageNoWhite ), i, pDataRef != NULL ) );
 					Item.strText = GetItemText ( aColor, YWhite, bPageRowBlank ? pageNoRef : refColor, refDocColor, YWhiteRefDoc, i, j+1, Offset, isGS );
 					if ( bPageRowBlank )
 					{
@@ -5630,7 +5628,7 @@ static PrimaryPageColumnRead PrimaryPageColumn ( const CMeasure * pMeasure, int 
 	const int col = iColumn - 1;
 	CColor white = noDataColor;
 	const ShownWhiteSource ws = PrimaryPageWhite ( pMeasure, & white );
-	const PrimaryPageColumnRead r = PrimaryPageColumnSource ( col, p, q, ws == SHOWN_WHITE_LIST, ws == SHOWN_WHITE_NONE );
+	const PrimaryPageColumnRead r = PrimaryPageColumnSource ( col, p, q, ShownWhiteIsChosen ( ws ), ws == SHOWN_WHITE_NONE );
 	if ( pListReading != NULL )
 		*pListReading = ( r == PRIMARY_PAGE_DEDICATED || r == PRIMARY_PAGE_WHITE_NONE ) ? noDataColor : ( col == 6 ) ? white : s[ col < 3 ? 0 : 1 ].entries[col].reading;
 	return r;

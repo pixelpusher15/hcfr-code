@@ -10068,6 +10068,57 @@ namespace T62Prim
         if (!PrimarySetHasWhite(fullHdr, SHOWN_WHITE_LIST) || !PrimarySetHasWhite(fullHdr, SHOWN_WHITE_CALLER) || fullHdr.referenceApplies)
             Fail("T62 group white: the HDR10 100%% rows must keep a white and lack the references");
     }
+
+    // 17. The one white rule every view of the shown groups takes
+    // (ChooseShownPrimaryWhite, CMeasure::GetShownPrimaryWhiteSource). With a
+    // measured prime white, or no group from the list: the caller's own white.
+    // Otherwise the list's white; else, when the run measures its white at
+    // 100%, a white the document measured - the gray scale's 100% first, then
+    // the on/off white; else none. A placeholder is never "measured": the
+    // caller says so through the two flags. All 64 cases.
+    static void CheckWhiteRule()
+    {
+        for (int k = 0; k < 64; k++)
+        {
+            const bool pm = (k & 1) != 0, any = (k & 2) != 0, has = (k & 4) != 0;
+            const bool full = (k & 8) != 0, gray = (k & 16) != 0, onoff = (k & 32) != 0;
+            ShownWhiteSource expected;
+            if (pm || !any)
+                expected = SHOWN_WHITE_CALLER;
+            else if (has)
+                expected = SHOWN_WHITE_LIST;
+            else if (full && gray)
+                expected = SHOWN_WHITE_GRAY_SCALE;
+            else if (full && onoff)
+                expected = SHOWN_WHITE_ON_OFF;
+            else
+                expected = SHOWN_WHITE_NONE;
+            const ShownWhiteSource got = ChooseShownPrimaryWhite(pm, any, has, full, gray, onoff);
+            if (got != expected)
+                Fail("T62 white rule: prime measured %d, list group %d, list white %d, white level 100%% %d, gray scale %d,"
+                     " on/off %d gives %d, expected %d", (int)pm, (int)any, (int)has, (int)full, (int)gray, (int)onoff,
+                     (int)got, (int)expected);
+        }
+        // Which choices put a white of their own in place of the caller's.
+        const ShownWhiteSource all[5] = { SHOWN_WHITE_CALLER, SHOWN_WHITE_LIST, SHOWN_WHITE_NONE, SHOWN_WHITE_GRAY_SCALE, SHOWN_WHITE_ON_OFF };
+        const bool chosen[5] = { false, true, false, true, true };
+        for (int w = 0; w < 5; w++)
+            if (ShownWhiteIsChosen(all[w]) != chosen[w])
+                Fail("T62 white rule: choice %d chosen %d, expected %d", (int)all[w], (int)ShownWhiteIsChosen(all[w]), (int)chosen[w]);
+        // A group from the list has a white under every choice but none.
+        const PrimarySetChoice listSdr = ChoosePrimarySetShown(false, false, true, 100.0, true);
+        if (!PrimarySetHasWhite(listSdr, SHOWN_WHITE_GRAY_SCALE) || !PrimarySetHasWhite(listSdr, SHOWN_WHITE_ON_OFF))
+            Fail("T62 white rule: a list group judged against the gray scale or on/off white has no white");
+        // A chosen white is the white column's, read-only, as the list's is.
+        const PrimarySetChoice ded = ChoosePrimarySetShown(true, true, true, 100.0, true);
+        for (int w = 3; w < 5; w++)
+        {
+            const bool c = ShownWhiteIsChosen(all[w]);
+            if (PrimaryPageColumnSource(6, listSdr, ded, c, all[w] == SHOWN_WHITE_NONE) != PRIMARY_PAGE_LIST
+                || PrimaryPageColumnWritesDedicated(6, listSdr, ded, c, all[w] == SHOWN_WHITE_NONE))
+                Fail("T62 white rule: choice %d does not make the white column the chosen white, read-only", (int)all[w]);
+        }
+    }
 }
 
 static void RunT62()
@@ -10089,6 +10140,7 @@ static void RunT62()
     T62Prim::CheckShownWhite();
     T62Prim::CheckNoWhite();
     T62Prim::CheckGroupWhite();
+    T62Prim::CheckWhiteRule();
 }
 
 int main(int argc, char* argv[])
