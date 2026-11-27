@@ -286,3 +286,36 @@ bool PatchListLevelsHidden ( ShownWhiteSource ws, bool absoluteLuminance )
 {
 	return ws == SHOWN_WHITE_NONE && ! absoluteLuminance;
 }
+
+ListPointWhiteBand ChooseListPointWhiteBand ( bool runInProgress, bool liveHasWhite, bool masterHasWhite )
+{
+	if ( runInProgress && liveHasWhite )
+		return LIST_WHITE_BAND_LIVE;
+	if ( masterHasWhite )
+		return LIST_WHITE_BAND_MASTER;
+	return LIST_WHITE_BAND_NONE;
+}
+
+ListPointWhiteBand BuildListPointWhite ( const CsvPatchRow * rows, int nRows, const CColor * liveReadings, int nLive, const CColor * masterReadings, int nMaster, bool runInProgress, double level, CColor * out )
+{
+	CColor live = noDataColor, master = noDataColor;
+	const bool liveHas = runInProgress && liveReadings != NULL
+		&& BuildListWhiteAtLevel ( rows, nRows, liveReadings, nLive, level, & live );
+	const bool masterHas = masterReadings != NULL
+		&& BuildListWhiteAtLevel ( rows, nRows, masterReadings, nMaster, level, & master );
+	const ListPointWhiteBand band = ChooseListPointWhiteBand ( runInProgress, liveHas, masterHas );
+	if ( band == LIST_WHITE_BAND_LIVE )
+		*out = live;
+	else if ( band == LIST_WHITE_BAND_MASTER )
+		*out = master;
+	return band;
+}
+
+bool ListPointWhiteChanged ( ShownWhiteSource before, const CColor & whiteBefore, ShownWhiteSource now, const CColor & whiteNow )
+{
+	if ( before != now )
+		return true;
+	if ( ! ShownWhiteIsChosen ( now ) )
+		return false;
+	return whiteBefore.GetX () != whiteNow.GetX () || whiteBefore.GetY () != whiteNow.GetY () || whiteBefore.GetZ () != whiteNow.GetZ ();
+}

@@ -241,6 +241,7 @@ struct SweepActiveGuard
         {
             PerfSweepEnd();
             m_pMeasure->m_binMeasure = FALSE;
+            m_pMeasure->m_bCCSweepLive = FALSE;
             m_pMeasure->m_bAbortSweep = FALSE;
             m_pMeasure->m_bProfileCapturing = FALSE;
             g_bMeasureSweepActive = FALSE;
@@ -495,6 +496,7 @@ CMeasure::CMeasure()
 	m_isModified = FALSE;
 	m_bpreV10 = 0;
 	m_binMeasure = FALSE;
+	m_bCCSweepLive = FALSE;
 	m_bAbortSweep = FALSE;
 	bDisplayRT = TRUE;
 	m_primariesArray.SetSize(3);
@@ -1929,6 +1931,25 @@ bool CMeasure::GetActiveUserBand(const CsvPatchRow ** pRows, int * pRowCount, co
 	return true;
 }
 
+bool CMeasure::UserListRunReadings(const CColor ** pReadings, int * pReadingCount) const
+{
+	if ( ! m_binMeasure || ! m_bCCSweepLive || GetConfig()->m_CCMode != USER )
+		return false;
+	const CsvPatchRow * rows = NULL;
+	const CColor * stored = NULL;
+	int nRows = 0, nStored = 0;
+	if ( ! GetActiveUserBand ( & rows, & nRows, & stored, & nStored ) )
+		return false;
+	int n = (int) m_cc24SatMeasureArray.GetSize ();
+	if ( n > MAX_USER_CC_PATCH_SIZE )
+		n = MAX_USER_CC_PATCH_SIZE;
+	if ( n <= 0 )
+		return false;
+	*pReadings = m_cc24SatMeasureArray.GetData ();
+	*pReadingCount = n;
+	return true;
+}
+
 CColor CMeasure::GetGrayGraphWhite(const GrayRamp & ramp) const
 {
 	if ( ramp.source == GRAY_RAMP_SWEEP )
@@ -2095,7 +2116,17 @@ ShownWhiteSource CMeasure::ResolveShownWhite(bool bListPoints, bool anyGroupFrom
 	if ( bListPoints ? ( GetConfig()->m_CCMode == USER ) : anyList )
 		haveBand = GetActiveUserBand ( & rows, & nRows, & readings, & nReadings );
 	const bool userList = bListPoints && haveBand;
-	if ( haveBand )
+	if ( haveBand && bListPoints )
+	{
+		// The list's points while a run of the list is in progress: the white of
+		// the live readings the page shows, once they hold one, else the stored
+		// (previous run's) white; outside a run the stored one only.
+		const CColor * live = NULL;
+		int nLive = 0;
+		const bool runLive = UserListRunReadings ( & live, & nLive );
+		listHasWhite = BuildListPointWhite ( rows, nRows, live, nLive, readings, nReadings, runLive, PrimeWhiteIRELevel ( NULL ), & w ) != LIST_WHITE_BAND_NONE;
+	}
+	else if ( haveBand )
 		listHasWhite = BuildListWhiteAtLevel ( rows, nRows, readings, nReadings, PrimeWhiteIRELevel ( NULL ), & w );
 	// A white the document measured, for a run whose white is its 100% white:
 	// the gray scale's top slot unless it is the constructor's placeholder, and
@@ -4861,6 +4892,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	for (int i=0;i<MAX_USER_CC_PATCH_SIZE;i++)
 		m_cc24SatMeasureArray[i] = noDataColor;
 	m_binMeasure = TRUE;
+	m_bCCSweepLive = TRUE;	// the live array is this run's (Measure.h)
 	m_currentIndex = 0;
 	for(int i=0;i<size;i++)
 	{
@@ -5799,6 +5831,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 	m_cc24SatMeasureArray[i] = noDataColor;
 
 	m_binMeasure = TRUE;
+	m_bCCSweepLive = TRUE;	// the live array is this run's (Measure.h)
 	for ( j = 0 ; j < ( bPrimaryOnly ? 3 : 7 ) ; j ++ )
 	{
 		m_currentIndex = 0;

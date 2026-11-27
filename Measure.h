@@ -225,6 +225,13 @@ protected:
 public:
 	BOOL	m_bIREScaleMode;
 	BOOL	m_binMeasure;
+	// TRUE from the start of a color checker sweep (MeasureCC24SatScale, and
+	// MeasureAllSaturationScales, whose last leg is one) until SweepActiveGuard
+	// ends it: the sweep has wiped the live array m_cc24SatMeasureArray and
+	// fills it patch by patch, and GetCC24Sat shows it while m_binMeasure is up.
+	// Only the two together say the live readings are this run's (the other
+	// sweeps raise m_binMeasure too, with the live array left as it was).
+	BOOL	m_bCCSweepLive;
 	volatile BOOL	m_bAbortSweep;
 	BOOL	bDisplayRT;
 	UINT	m_bpreV10;
@@ -346,6 +353,11 @@ public:
 	// white chain, unchanged) with the prime white measured, outside the user
 	// set (another color checker set, or no active user band) and under HDTVa /
 	// HDTVb. *pWhite as GetShownPrimaryWhiteSource.
+	// While a run of the user list is in progress (UserListRunReadings) the
+	// list's white is the one of this run's live readings - the ones the
+	// patch-list page and the CIE chart show - as soon as they hold one, else
+	// the stored readings' (the previous run's), else the fallbacks above
+	// (libHCFR BuildListPointWhite). Outside a run: the stored readings only.
 	ShownWhiteSource GetListPointWhiteSource(CColor * pWhite) const;
 	// That white when it names one, else exactly callerWhite.
 	CColor GetListPointWhite(const CColor & callerWhite) const;
@@ -482,6 +494,11 @@ protected:
 	// shown groups) and GetListPointWhiteSource (bListPoints true): the facts
 	// read once, the choice ChooseShownPrimaryWhite / ChooseListPointWhite.
 	ShownWhiteSource ResolveShownWhite(bool bListPoints, bool anyGroupFromList, CColor * pWhite) const;
+	// The live readings of a run of the active user list in progress (a color
+	// checker sweep on the USER set, m_bCCSweepLive with m_binMeasure): the
+	// live array, slot i paired with row i of the set as in the stored band.
+	// FALSE outside such a run.
+	bool UserListRunReadings(const CColor ** pReadings, int * pReadingCount) const;
 	bool MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx, BOOL bIgnoreAbort = FALSE);
 	void ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, double fTo);
 public:

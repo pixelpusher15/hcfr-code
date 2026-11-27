@@ -318,6 +318,39 @@ ShownWhiteSource ChooseListPointWhite ( bool userList, bool specialStandard, boo
 // reference) are chromaticity or raw readings and never are.
 bool PatchListRowUsesWhite ( int component, bool hasDataRef, bool absoluteLuminance );
 
+// Which readings of the active user list give its points' own white
+// (ChooseListPointWhite's listHasWhite) while a run of that list is in
+// progress. During the run the patch-list page shows the LIVE readings (the
+// sweep wiped them at its start and fills them patch by patch), while the
+// list's stored readings (the master band) are the previous run's until the
+// run ends. So: (1) the white of this run's live readings, as soon as they
+// hold a usable one at the white level (liveHasWhite); else (2) the stored
+// readings' white (masterHasWhite, the previous run of the list); else (3)
+// none, and the caller's later fallbacks apply. Outside a run
+// (runInProgress false) the live readings are never used: the stored white or
+// none, exactly as before.
+enum ListPointWhiteBand
+{
+	LIST_WHITE_BAND_NONE   = 0,	// neither holds a white at the level
+	LIST_WHITE_BAND_LIVE   = 1,	// this run's live readings
+	LIST_WHITE_BAND_MASTER = 2	// the list's stored readings
+};
+ListPointWhiteBand ChooseListPointWhiteBand ( bool runInProgress, bool liveHasWhite, bool masterHasWhite );
+
+// That choice applied: BuildListWhiteAtLevel on the live readings (only with
+// runInProgress) and on the stored ones, both paired with the same rows, then
+// ChooseListPointWhiteBand. *out is the chosen band's white (same level rule
+// and averaging as BuildListWhiteAtLevel); untouched with LIST_WHITE_BAND_NONE.
+ListPointWhiteBand BuildListPointWhite ( const CsvPatchRow * rows, int nRows, const CColor * liveReadings, int nLive, const CColor * masterReadings, int nMaster, bool runInProgress, double level, CColor * out );
+
+// Whether the list point white changed between two passes of the patch-list
+// page: a different source, or the same chosen source (ShownWhiteIsChosen)
+// with a different white (X, Y or Z not bit-identical). The whites of a source
+// that chooses none (SHOWN_WHITE_CALLER, SHOWN_WHITE_NONE) are not compared.
+// The page's incremental pass during a run keeps earlier columns computed
+// against the white of their own pass, so a change forces a full pass.
+bool ListPointWhiteChanged ( ShownWhiteSource before, const CColor & whiteBefore, ShownWhiteSource now, const CColor & whiteNow );
+
 // Whether the RGB levels widget shows nothing for a list point with the white
 // choice ws: with no white (SHOWN_WHITE_NONE), except under absoluteLuminance
 // (HDR10), where its bars are judged against the tone-mapped diffuse white

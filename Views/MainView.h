@@ -206,6 +206,12 @@ public:
 	// GetItemText's luminance rows on the patch-list page; noDataColor when
 	// the page keeps its own white chain. Set by every UpdateGrid.
 	CColor m_listPointWhite;
+	// The list point white source (ShownWhiteSource) and white of the last
+	// UpdateGrid pass of the patch-list page: a change during a run forces a
+	// full pass (ListPointWhiteChanged), so no column keeps a dE or luminance
+	// computed against the white before it.
+	int m_listPointWhiteSourceSeen;
+	CColor m_listPointWhiteSeen;
 	CColor m_oldBlackNB;
 	CColor m_oldBlackOnOff;	// the on/off black the override swap took out (InitGrid)
 	// per captured slot: the capture predates its series' data (BlackOverrideRule)

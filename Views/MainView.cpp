@@ -638,6 +638,8 @@ CMainView::CMainView()
 	dEmax_gs=0;
 	dEavg_cc=0;
 	dEmax_cc=0;
+	m_listPointWhiteSourceSeen = SHOWN_WHITE_CALLER;
+	m_listPointWhiteSeen = noDataColor;
 	dEavg_sr=0;
 	dEmax_sr=0;
 	dEavg_sg=0;
@@ -4585,6 +4587,7 @@ void CMainView::UpdateGrid()
 		// (PatchListRowUsesWhite) are empty, not zero. SHOWN_WHITE_CALLER keeps
 		// the chain above exactly; the other color checker sets never get here.
 		bool bListNoWhite = false;
+		bool bListWhiteMoved = false;
 		m_listPointWhite = noDataColor;
 		if ( m_displayMode == 11 && GetConfig()->m_CCMode == USER )
 		{
@@ -4596,6 +4599,14 @@ void CMainView::UpdateGrid()
 				m_listPointWhite = listWhite;
 			}
 			bListNoWhite = ( listWhiteSource == SHOWN_WHITE_NONE );
+			// During a run the white can arrive or move (the run's own white is
+			// read, or replaces the previous run's): the columns an earlier
+			// incremental pass filled were judged against the old one, so this
+			// pass is a full one (below). Only then: an unchanged white keeps the
+			// incremental pass.
+			bListWhiteMoved = ListPointWhiteChanged ( (ShownWhiteSource) m_listPointWhiteSourceSeen, m_listPointWhiteSeen, listWhiteSource, m_listPointWhite );
+			m_listPointWhiteSourceSeen = listWhiteSource;
+			m_listPointWhiteSeen = m_listPointWhite;
 		}
 
 		// Incremental pass eligibility: mode 11 with a column cache built by a
@@ -4604,7 +4615,7 @@ void CMainView::UpdateGrid()
 		// the cache -- the grid analog of the 3D viewer's stale-scene guard.
 		int jFirst = 0, jLast = nCount - 1;
 		bool bIncrPass = ( nIncrCol >= 1 && nIncrCol <= nCount &&
-						   m_displayMode == 11 && (int)m_ccDECache.size() == nCount );
+						   m_displayMode == 11 && (int)m_ccDECache.size() == nCount && ! bListWhiteMoved );
 		if ( bIncrPass )
 		{
 			// Catch-up window: refresh every column measured since the last

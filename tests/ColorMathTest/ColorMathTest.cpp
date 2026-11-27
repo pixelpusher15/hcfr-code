@@ -10209,6 +10209,141 @@ namespace T62Prim
                          (int)all[w], a, (int)PatchListLevelsHidden(all[w], a != 0), (int)expected);
             }
     }
+
+    // 21. The list point white while a run of the list is in progress
+    // (ChooseListPointWhiteBand / BuildListPointWhite): this run's live
+    // readings once they hold a white at the level, else the stored readings
+    // (the previous run), else none; outside a run the live readings are never
+    // used. The chooser for all 8 cases, then the builder on a first run and a
+    // re-run of one list, patch by patch.
+    static void CheckListPointWhiteBand()
+    {
+        for (int k = 0; k < 8; k++)
+        {
+            const bool run = (k & 1) != 0, live = (k & 2) != 0, master = (k & 4) != 0;
+            ListPointWhiteBand expected;
+            if (run && live)
+                expected = LIST_WHITE_BAND_LIVE;
+            else if (master)
+                expected = LIST_WHITE_BAND_MASTER;
+            else
+                expected = LIST_WHITE_BAND_NONE;
+            const ListPointWhiteBand got = ChooseListPointWhiteBand(run, live, master);
+            if (got != expected)
+                Fail("T62 list white band: run %d, live white %d, stored white %d gives %d, expected %d",
+                     (int)run, (int)live, (int)master, (int)got, (int)expected);
+        }
+
+        // A 10-bit legal list: 50% gray, 100% white, 100% red, 100% white.
+        std::vector<CsvPatchRow> rows;
+        rows.push_back(Row(502, 502, 502, 10, CSV_RANGE_LEGAL));
+        rows.push_back(Row(940, 940, 940, 10, CSV_RANGE_LEGAL));
+        rows.push_back(ColorRow(PATCH_COLOR_RED, 940, 64, 10, CSV_RANGE_LEGAL));
+        rows.push_back(Row(940, 940, 940, 10, CSV_RANGE_LEGAL));
+        const int n = (int)rows.size();
+        const CColor kMid(20.0, 21.0, 22.0), kRed(41.0, 21.0, 2.0);
+        const CColor kW1(95.0, 100.0, 108.0), kW2(97.0, 102.0, 110.0);
+        const CColor kOld(80.0, 84.0, 90.0);
+        const CColor kSentinel(1.0, 2.0, 3.0);
+        struct Step { int filled; bool run; int band; const CColor* white; const char* what; };
+
+        // First run in a new document: nothing stored. The live readings fill
+        // in list order; the white is there from the first 100% gray read.
+        {
+            std::vector<CColor> master(n, noDataColor), live(n, noDataColor);
+            const CColor fill[4] = { kMid, kW1, kRed, kW2 };
+            const CColor avg(96.0, 101.0, 109.0);
+            const Step steps[] = {
+                { 0, true,  LIST_WHITE_BAND_NONE, NULL,  "first run, nothing read" },
+                { 1, true,  LIST_WHITE_BAND_NONE, NULL,  "first run, the 50% gray read" },
+                { 2, true,  LIST_WHITE_BAND_LIVE, &kW1,  "first run, the first white read" },
+                { 3, true,  LIST_WHITE_BAND_LIVE, &kW1,  "first run, the red read" },
+                { 4, true,  LIST_WHITE_BAND_LIVE, &avg,  "first run, both whites read" },
+                { 4, false, LIST_WHITE_BAND_NONE, NULL,  "first run's live readings outside a run" },
+            };
+            for (int s = 0; s < (int)(sizeof(steps) / sizeof(steps[0])); s++)
+            {
+                for (int i = 0; i < n; i++)
+                    live[i] = (i < steps[s].filled) ? fill[i] : noDataColor;
+                CColor w = kSentinel;
+                const int got = (int)BuildListPointWhite(&rows[0], n, &live[0], n, &master[0], n, steps[s].run, 100.0, &w);
+                if (got != steps[s].band)
+                    Fail("T62 list white band: %s gives band %d, expected %d", steps[s].what, got, steps[s].band);
+                const CColor& want = steps[s].white ? *steps[s].white : kSentinel;
+                if (!SameXYZ(w, want))
+                    Fail("T62 list white band: %s gives Y %.17g, expected %.17g", steps[s].what, w.GetY(), want.GetY());
+            }
+        }
+
+        // A re-run: the stored readings are the previous run's (white kOld).
+        // Until this run reads a white the stored one stands; once it does,
+        // this run's; outside a run the stored one, whatever the live array holds.
+        {
+            std::vector<CColor> master(n, noDataColor), live(n, noDataColor);
+            master[0] = kMid; master[1] = kOld; master[2] = kRed; master[3] = kOld;
+            const CColor fill[4] = { kMid, kW1, kRed, kW2 };
+            const Step steps[] = {
+                { 0, true,  LIST_WHITE_BAND_MASTER, &kOld, "re-run, nothing read" },
+                { 1, true,  LIST_WHITE_BAND_MASTER, &kOld, "re-run, the 50% gray read" },
+                { 2, true,  LIST_WHITE_BAND_LIVE,   &kW1,  "re-run, the first white read" },
+                { 2, false, LIST_WHITE_BAND_MASTER, &kOld, "re-run's live readings outside a run" },
+            };
+            for (int s = 0; s < (int)(sizeof(steps) / sizeof(steps[0])); s++)
+            {
+                for (int i = 0; i < n; i++)
+                    live[i] = (i < steps[s].filled) ? fill[i] : noDataColor;
+                CColor w = kSentinel;
+                const int got = (int)BuildListPointWhite(&rows[0], n, &live[0], n, &master[0], n, steps[s].run, 100.0, &w);
+                if (got != steps[s].band)
+                    Fail("T62 list white band: %s gives band %d, expected %d", steps[s].what, got, steps[s].band);
+                if (!SameXYZ(w, *steps[s].white))
+                    Fail("T62 list white band: %s gives Y %.17g, expected %.17g", steps[s].what, w.GetY(), steps[s].white->GetY());
+            }
+            // The live white is BuildListWhiteAtLevel's on the live readings, bit for bit.
+            for (int i = 0; i < n; i++)
+                live[i] = fill[i];
+            CColor viaBand = noDataColor, direct = noDataColor;
+            BuildListPointWhite(&rows[0], n, &live[0], n, &master[0], n, true, 100.0, &viaBand);
+            WhiteAt(rows, live, 100.0, &direct);
+            if (viaBand.GetX() != direct.GetX() || viaBand.GetY() != direct.GetY() || viaBand.GetZ() != direct.GetZ())
+                Fail("T62 list white band: the live white Y %.17g is not BuildListWhiteAtLevel's %.17g", viaBand.GetY(), direct.GetY());
+        }
+
+        // No live array (NULL) during a run: the stored white.
+        {
+            std::vector<CColor> master(n, noDataColor);
+            master[1] = kOld;
+            CColor w = kSentinel;
+            if (BuildListPointWhite(&rows[0], n, NULL, 0, &master[0], n, true, 100.0, &w) != LIST_WHITE_BAND_MASTER || !SameXYZ(w, kOld))
+                Fail("T62 list white band: no live readings during a run does not give the stored white");
+        }
+    }
+
+    // 22. When the patch-list page must take a full pass because the list
+    // point white moved (ListPointWhiteChanged): a different source always;
+    // the same chosen source only when X, Y or Z differ; never for two
+    // sources that choose no white, whatever whites they carry.
+    static void CheckListPointWhiteChanged()
+    {
+        const CColor a(95.0, 100.0, 108.0), b(95.0, 100.000001, 108.0), c(95.0, 100.0, 108.5), d(95.5, 100.0, 108.0);
+        const ShownWhiteSource all[5] = { SHOWN_WHITE_CALLER, SHOWN_WHITE_LIST, SHOWN_WHITE_NONE, SHOWN_WHITE_GRAY_SCALE, SHOWN_WHITE_ON_OFF };
+        for (int p = 0; p < 5; p++)
+            for (int q = 0; q < 5; q++)
+            {
+                const bool chosen = all[q] == SHOWN_WHITE_LIST || all[q] == SHOWN_WHITE_GRAY_SCALE || all[q] == SHOWN_WHITE_ON_OFF;
+                const CColor* others[4] = { &a, &b, &c, &d };
+                for (int o = 0; o < 4; o++)
+                {
+                    const bool expected = (p != q) || (chosen && o != 0);
+                    if (ListPointWhiteChanged(all[p], a, all[q], *others[o]) != expected)
+                        Fail("T62 list white changed: source %d -> %d, white %d: %d, expected %d",
+                             (int)all[p], (int)all[q], o, (int)!expected, (int)expected);
+                }
+            }
+        // No white before and after (noDataColor both sides): unchanged.
+        if (ListPointWhiteChanged(SHOWN_WHITE_NONE, noDataColor, SHOWN_WHITE_NONE, noDataColor))
+            Fail("T62 list white changed: none to none reports a change");
+    }
 }
 
 static void RunT62()
@@ -10234,6 +10369,8 @@ static void RunT62()
     T62Prim::CheckDataRefRows();
     T62Prim::CheckListPointWhite();
     T62Prim::CheckListPointRows();
+    T62Prim::CheckListPointWhiteBand();
+    T62Prim::CheckListPointWhiteChanged();
 }
 
 int main(int argc, char* argv[])
