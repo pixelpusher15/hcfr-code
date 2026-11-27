@@ -4669,11 +4669,15 @@ void CMainView::UpdateGrid()
 					 else if ( j == 6 )
 					 {
 						refColor = GetColorReference().GetWhite();
+						// Nothing carried over from column 5: with neither white below, the
+						// column is empty, and YWhite stays the page's white chain above.
+						aColor = noDataColor;
 						if ( bPageListWhite )
 							aColor = pageWhite;	// the list's white, read-only (PrimaryPageColumnSource)
 						else if (GetDocument()->GetMeasure()->GetPrimeWhite().isValid())
 							aColor = GetDocument()->GetMeasure()->GetPrimeWhite();
-						YWhite = aColor [ 1 ];
+						if ( aColor.isValid () )
+							YWhite = aColor [ 1 ];
 						if ( bPageNoWhite )
 							aColor = noDataColor;	// no white: the column is empty, no stand-in shown
 
