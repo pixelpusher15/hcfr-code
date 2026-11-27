@@ -5031,13 +5031,14 @@ void CMainView::UpdateGrid()
 				else
 				{
 					// The primaries page: a row its column cannot fill
-					// (PrimaryPageRowShown) is empty, not zero - the rows the references
-					// make for a list without references (an HDR10 list's 100% rows), the
+					// (PrimaryPageCellShown) is empty, not zero - the rows the references
+					// make for a list without references (an HDR10 list's 100% rows), and
+					// there the rows comparing it with a data reference document too, the
 					// rows the white makes for a list with no white, every row of the
 					// white column with no white. GetItemText gets no reference for it, so
 					// its dE enters neither the average nor the max, and the dE cell loses
 					// any highlight it had.
-					const bool bPageRowBlank = ( m_displayMode == 1 && ! PrimaryPageRowShown (
+					const bool bPageRowBlank = ( m_displayMode == 1 && ! PrimaryPageCellShown (
 						PrimaryPageColumnSource ( j, pageChoice[0], pageChoice[1], bPageChosenWhite, bPageNoWhite ), i, pDataRef != NULL ) );
 					Item.strText = GetItemText ( aColor, YWhite, bPageRowBlank ? pageNoRef : refColor, refDocColor, YWhiteRefDoc, i, j+1, Offset, isGS );
 					if ( bPageRowBlank )

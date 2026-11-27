@@ -291,4 +291,12 @@ bool PrimaryPageRowUsesWhite ( int component, bool hasDataRef );
 // PRIMARY_PAGE_LIST_NO_WHITE; no row for PRIMARY_PAGE_WHITE_NONE.
 bool PrimaryPageRowShown ( PrimaryPageColumnRead read, int component, bool hasDataRef );
 
+// What the page shows in a cell: PrimaryPageRowShown, and for a
+// PRIMARY_PAGE_LIST_NO_REF column beside a data reference document also not
+// the rows comparing it with that document (its dE and xy error, components 5
+// and 6): they would set the list's 100% readings (HDR10, no references)
+// against the other document's run-level primaries. Every other column kind
+// is exactly PrimaryPageRowShown.
+bool PrimaryPageCellShown ( PrimaryPageColumnRead read, int component, bool hasDataRef );
+
 #endif // PRIMARYSET_H_INCLUDED_

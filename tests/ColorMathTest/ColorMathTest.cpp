@@ -10119,6 +10119,35 @@ namespace T62Prim
                 Fail("T62 white rule: choice %d does not make the white column the chosen white, read-only", (int)all[w]);
         }
     }
+
+    // 18. A column of a list's 100% readings shown without references (HDR10)
+    // beside a data reference document: the rows comparing it with the other
+    // document (its dE and xy error, components 5 and 6) are empty too - they
+    // would set the list's 100% readings against that document's run-level
+    // primaries. Every other column kind keeps exactly PrimaryPageRowShown.
+    static void CheckDataRefRows()
+    {
+        for (int r = 0; r < 5; r++)
+            for (int comp = 0; comp < 10; comp++)
+                for (int dr = 0; dr <= 1; dr++)
+                {
+                    const PrimaryPageColumnRead read = (PrimaryPageColumnRead)r;
+                    const bool hd = dr != 0;
+                    bool expected = PrimaryPageRowShown(read, comp, hd);
+                    if (read == PRIMARY_PAGE_LIST_NO_REF && hd && (comp == 5 || comp == 6))
+                        expected = false;
+                    if (PrimaryPageCellShown(read, comp, hd) != expected)
+                        Fail("T62 data reference rows: column kind %d row %d (data reference %d) shown %d, expected %d",
+                             r, comp, dr, (int)PrimaryPageCellShown(read, comp, hd), (int)expected);
+                }
+        // Spelled out for the HDR10 100% column with a data reference: the
+        // values and nothing else.
+        const bool want[10] = { true, true, true, false, false, false, false, false, false, true };
+        for (int comp = 0; comp < 10; comp++)
+            if (PrimaryPageCellShown(PRIMARY_PAGE_LIST_NO_REF, comp, true) != want[comp])
+                Fail("T62 data reference rows: HDR10 100%% column row %d shown %d, expected %d",
+                     comp, (int)PrimaryPageCellShown(PRIMARY_PAGE_LIST_NO_REF, comp, true), (int)want[comp]);
+    }
 }
 
 static void RunT62()
@@ -10141,6 +10170,7 @@ static void RunT62()
     T62Prim::CheckNoWhite();
     T62Prim::CheckGroupWhite();
     T62Prim::CheckWhiteRule();
+    T62Prim::CheckDataRefRows();
 }
 
 int main(int argc, char* argv[])

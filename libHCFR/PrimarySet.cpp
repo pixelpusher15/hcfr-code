@@ -269,3 +269,10 @@ bool PrimaryPageRowShown ( PrimaryPageColumnRead read, int component, bool hasDa
 		default:                         return true;
 	}
 }
+
+bool PrimaryPageCellShown ( PrimaryPageColumnRead read, int component, bool hasDataRef )
+{
+	if ( read == PRIMARY_PAGE_LIST_NO_REF && hasDataRef && ( component == 5 || component == 6 ) )
+		return false;
+	return PrimaryPageRowShown ( read, component, hasDataRef );
+}
