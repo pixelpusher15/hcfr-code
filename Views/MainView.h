@@ -201,6 +201,11 @@ public:
 	void RefreshSummaryPane();	// rewrite the Summary pane when the document's text differs from it
 	CColor m_oldBlackGS, refColor_for_color_comp;
 	double YWhite_for_color_comp;
+	// The white UpdateGrid judges the user patch list's own points against
+	// (CMeasure::GetListPointWhiteSource) when that rule names one, for
+	// GetItemText's luminance rows on the patch-list page; noDataColor when
+	// the page keeps its own white chain. Set by every UpdateGrid.
+	CColor m_listPointWhite;
 	CColor m_oldBlackNB;
 	CColor m_oldBlackOnOff;	// the on/off black the override swap took out (InitGrid)
 	// per captured slot: the capture predates its series' data (BlackOverrideRule)

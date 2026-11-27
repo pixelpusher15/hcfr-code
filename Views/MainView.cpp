@@ -1581,6 +1581,19 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			if ( GetDocument() -> GetMeasure () -> GetShownPrimaryChosenWhite ( & chosenWhite ) )
 				YWhite = chosenWhite [ 1 ];
 		}
+		// A column of the patch-list page (mode 11 on the user set): the list
+		// point's white (CMeasure::GetListPointWhiteSource), the one its dE uses;
+		// with none, no L*a*b* or LCH (blank, not zero) - they would be against
+		// a stand-in white.
+		bool bListNoWhite = false;
+		if ( m_displayMode == 11 && GetConfig()->m_CCMode == USER )
+		{
+			CColor listWhite;
+			const ShownWhiteSource listWhiteSource = GetDocument() -> GetMeasure () -> GetListPointWhiteSource ( & listWhite );
+			if ( ShownWhiteIsChosen ( listWhiteSource ) )
+				YWhite = listWhite [ 1 ];
+			bListNoWhite = ( listWhiteSource == SHOWN_WHITE_NONE );
+		}
 		
 		Item.strText.Format("%.3f",m_SelectedColor.GetLuminance());
 		Item.row = 0;
@@ -1640,7 +1653,11 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		if ( bNoLight )
 			BlankSelectedColorRows ( Item, 3, 0 );
         AddColorToGrid(m_SelectedColor.GetLabValue(YWhite, bRef), Item, "%.2f");
+		if ( bListNoWhite )
+			BlankSelectedColorRows ( Item, 3, 0 );
         AddColorToGrid(m_SelectedColor.GetLCHValue(YWhite, bRef), Item, "%.2f");
+		if ( bListNoWhite )
+			BlankSelectedColorRows ( Item, 3, 0 );
         AddColorToGrid(m_SelectedColor.GetLMSValue(1.0, bRef), Item, "%.2f");
 	}
 	else
@@ -3887,6 +3904,12 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 				if (GetDocument()->GetMeasure()->IsOnOffWhiteMeasured() && GetDocument()->GetMeasure()->GetOnOffWhite().isValid())
 					if ((GetDocument()->GetMeasure()->GetPrimeWhite()[1] / GetDocument()->GetMeasure()->GetOnOffWhite()[1] < 0.9) && m_displayMode == 11  && GetConfig()->m_GammaOffsetType !=5)
 						white = GetDocument() -> GetMeasure () ->GetOnOffWhite();
+
+				// The patch-list page: the list point's white UpdateGrid chose
+				// (m_listPointWhite, CMeasure::GetListPointWhiteSource), the one its
+				// dE uses, when it chose one; else exactly the chain above.
+				if ( m_displayMode == 11 && GetConfig()->m_CCMode == USER && m_listPointWhite.isValid() )
+					white = m_listPointWhite;
 				
 				if ( isHDR )
 				{
@@ -4552,6 +4575,29 @@ void CMainView::UpdateGrid()
 				YWhite = pageWhite [ 1 ];
 		}
 
+		// The patch-list page (mode 11 on the user set): the list's own points
+		// are judged against the white the shown primaries are
+		// (CMeasure::GetListPointWhiteSource: with the prime white unmeasured,
+		// the list's own white, else the gray scale's measured 100%, then a
+		// measured on/off white), so one reading gets one dE as a list point and
+		// as a primary. That white is the YWhite of the dE and, through
+		// m_listPointWhite, of the luminance rows. With none, the rows it makes
+		// (PatchListRowUsesWhite) are empty, not zero. SHOWN_WHITE_CALLER keeps
+		// the chain above exactly; the other color checker sets never get here.
+		bool bListNoWhite = false;
+		m_listPointWhite = noDataColor;
+		if ( m_displayMode == 11 && GetConfig()->m_CCMode == USER )
+		{
+			CColor listWhite;
+			const ShownWhiteSource listWhiteSource = GetDocument()->GetMeasure()->GetListPointWhiteSource ( & listWhite );
+			if ( ShownWhiteIsChosen ( listWhiteSource ) )
+			{
+				YWhite = listWhite [ 1 ];
+				m_listPointWhite = listWhite;
+			}
+			bListNoWhite = ( listWhiteSource == SHOWN_WHITE_NONE );
+		}
+
 		// Incremental pass eligibility: mode 11 with a column cache built by a
 		// prior full pass over the SAME patch count. Anything else (first pass,
 		// CC set switched, manual edits) takes the full rebuild, which (re)sizes
@@ -5038,8 +5084,12 @@ void CMainView::UpdateGrid()
 					// white column with no white. GetItemText gets no reference for it, so
 					// its dE enters neither the average nor the max, and the dE cell loses
 					// any highlight it had.
+					// The patch-list page with no white: the rows the white makes
+					// (PatchListRowUsesWhite; under HDR10 the luminance rows are
+					// absolute and stay), the same way.
 					const bool bPageRowBlank = ( m_displayMode == 1 && ! PrimaryPageCellShown (
-						PrimaryPageColumnSource ( j, pageChoice[0], pageChoice[1], bPageChosenWhite, bPageNoWhite ), i, pDataRef != NULL ) );
+						PrimaryPageColumnSource ( j, pageChoice[0], pageChoice[1], bPageChosenWhite, bPageNoWhite ), i, pDataRef != NULL ) )
+						|| ( bListNoWhite && PatchListRowUsesWhite ( i, pDataRef != NULL, isHDR ) );
 					Item.strText = GetItemText ( aColor, YWhite, bPageRowBlank ? pageNoRef : refColor, refDocColor, YWhiteRefDoc, i, j+1, Offset, isGS );
 					if ( bPageRowBlank )
 					{
