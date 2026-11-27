@@ -675,6 +675,7 @@ CMainView::CMainView()
 	last_Display = 0;
 	m_YWhite = 100.;
 	m_RefWhite = 1.;
+	m_bSelNoReference = FALSE;
 	m_ref_r = 0.,m_ref_g = 0.,m_ref_b = 0.;
 	m_meas_r = 0.,m_meas_g = 0.,m_meas_b = 0.;
 	m_ref_r1 = 0.,m_ref_g1 = 0.,m_ref_b1 = 0.;
@@ -1781,12 +1782,18 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 
 		double m_meas_rd, m_meas_gd, m_meas_bd, m_ref_rd, m_ref_gd, m_ref_bd;
 
-		if (m_RefColor.isValid())
+		// A selected column with no reference (m_bSelNoReference) keeps none:
+		// the last one would be another column's target.
+		const BOOL bNoRef = m_bSelNoReference;
+		const BOOL bNoWhite = bNoRef && m_YWhite <= 0.0;
+		if ( bNoRef )
+			;
+		else if (m_RefColor.isValid())
 			m_lastRefColor = m_RefColor;
 		else
 			m_RefColor = m_lastRefColor; //restore last reference when using freemeasures where minCol = -1
 
-		if (m_SelectedColor.isValid())
+		if (m_SelectedColor.isValid() && ! bNoRef)
 		{
 			ref = ColorRGB(m_RefColor.GetRGBValue(bRef));
 			if (mode == 5)
@@ -1855,7 +1862,8 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			trip1.SetString("No\nMeasure\n");				
 			ColorRGB meas2;
 		 
-			if (m_SelectedColor.isValid())
+			// With no white either the measured half has nothing to be scaled by.
+			if (m_SelectedColor.isValid() && ! bNoWhite)
 			{
 				CColor meas_Color = m_SelectedColor; //for patch color
 				CColor meas_Color2 = meas_Color; //for patch triplet
@@ -2043,8 +2051,10 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		// comparator's one-frame flash.
 		{
 			BOOL bSel = m_SelectedColor.isValid();
-			m_Ccomp.SetContent(RGB((int)floor(m_meas_r1*255.+0.5),(int)floor(m_meas_g1*255.+0.5),(int)floor(m_meas_b1*255.+0.5)), bSel, trip1.SpanExcluding("\n"));
-			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel, trip2.SpanExcluding("\n"), bDrivenMode ? (LPCSTR) strDriven : NULL);
+			// No reference: the reference half is an empty pill; no white either:
+			// the measured half too (CCompSwatch draws no fill and no triplet).
+			m_Ccomp.SetContent(RGB((int)floor(m_meas_r1*255.+0.5),(int)floor(m_meas_g1*255.+0.5),(int)floor(m_meas_b1*255.+0.5)), bSel && ! bNoWhite, trip1.SpanExcluding("\n"));
+			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel && ! bNoRef, trip2.SpanExcluding("\n"), bDrivenMode ? (LPCSTR) strDriven : NULL);
 		}
 	}
 }
@@ -3199,6 +3209,7 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 					if ( !w.isValid () )
 						w = pProfMeasure->GetOnOffWhite ();
 					m_RefColor = profRef;
+					m_bSelNoReference = FALSE;
 					m_RefWhite = 1.0;
 					m_YWhite = ( w.isValid () && w.GetY () > 0.0 ) ? w.GetY () : 1.0;
 					// PQ HDR: same bridge as SelectProfilePatch -- GetRefProfileSat
@@ -4642,6 +4653,11 @@ void CMainView::UpdateGrid()
 			m_ccDHCache.assign ( nCount, -1.0 );
 			m_nGridLastRTCol = -1;
 		}
+		// The comparator's state for the selected column (m_RefColor & co) comes
+		// from the pass over that column: GetItemText sets it on the column's
+		// dE, the dE row below clears it when the column has none.
+		if ( ! bIncrPass || ( minCol - 1 >= jFirst && minCol - 1 <= jLast ) )
+			m_bSelNoReference = FALSE;
 
 		for( int j = jFirst ; j <= jLast ; j ++ )
 		{
@@ -5109,6 +5125,24 @@ void CMainView::UpdateGrid()
 						{
 							m_pGrayScaleGrid->SetItemBkColour ( 4, j+1, CLR_DEFAULT );
 							m_pGrayScaleGrid->SetItemFgColour ( 4, j+1, CLR_DEFAULT );
+							// The selected column has no dE: the comparator gets no
+							// reference (not the previous column's), and its white
+							// is this column's - none on the patch-list page with no
+							// white or for a primaries-page column with no white;
+							// else the YWhite GetItemText's dE would have used.
+							if ( j + 1 == minCol )
+							{
+								m_bSelNoReference = TRUE;
+								m_RefColor = noDataColor;
+								m_RefWhite = 1.0;
+								m_dE = 0.0;
+								if ( bListNoWhite || ( m_displayMode == 1 && bPageNoWhite ) )
+									m_YWhite = -1.0;
+								else if ( isHDR && m_displayMode == 1 )
+									m_YWhite = GetDocument()->GetMeasure()->GetPrimaryDENorm ( YWhite, j+1 ).yWhite;
+								else
+									m_YWhite = YWhite;
+							}
 						}
 					}
 				}
@@ -7924,6 +7958,7 @@ void CMainView::SelectProfilePatch(int idx)
 	if ( !w.isValid () )
 		w = pMeasure->GetOnOffWhite ();
 	m_RefColor = profRef;
+	m_bSelNoReference = FALSE;
 	m_RefWhite = 1.0;
 	m_YWhite = ( w.isValid () && w.GetY () > 0.0 ) ? w.GetY () : 1.0;
 

@@ -222,6 +222,12 @@ public:
 	int last_Display;
 	double m_RefWhite;
 	double m_YWhite, m_dE;
+	// The selected column has no reference (UpdateGrid: its dE row is empty,
+	// the patch-list page with no white or a primaries-page column without
+	// references or white). m_RefColor is then noDataColor on purpose and the
+	// comparator shows no reference instead of the last one; m_YWhite <= 0
+	// says it has no white either, so its measured half is not drawn.
+	BOOL m_bSelNoReference;
 	bool isGS;
 	double r1, r2;
 	double g1, g2;
