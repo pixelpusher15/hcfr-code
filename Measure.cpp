@@ -2095,12 +2095,6 @@ ShownWhiteSource CMeasure::GetListPointWhiteSource(CColor * pWhite) const
 	return ResolveShownWhite ( true, false, pWhite );
 }
 
-CColor CMeasure::GetListPointWhite(const CColor & callerWhite) const
-{
-	CColor w;
-	return ShownWhiteIsChosen ( GetListPointWhiteSource ( & w ) ) ? w : callerWhite;
-}
-
 ShownWhiteSource CMeasure::ResolveShownWhite(bool bListPoints, bool anyGroupFromList, CColor * pWhite) const
 {
 	const bool anyList = anyGroupFromList;

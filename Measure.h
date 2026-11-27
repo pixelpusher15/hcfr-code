@@ -359,8 +359,6 @@ public:
 	// the stored readings' (the previous run's), else the fallbacks above
 	// (libHCFR BuildListPointWhite). Outside a run: the stored readings only.
 	ShownWhiteSource GetListPointWhiteSource(CColor * pWhite) const;
-	// That white when it names one, else exactly callerWhite.
-	CColor GetListPointWhite(const CColor & callerWhite) const;
 	bool PrimariesHoldReading() const;	// a valid dedicated primary (the S_PRIMARIES test of SweepOverwritesData)
 	bool SecondariesHoldReading() const;	// the same for the secondaries
 	ListPrimarySet GetListPrimarySet() const;	// the active set's, empty without one
