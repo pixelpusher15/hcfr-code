@@ -8794,6 +8794,137 @@ namespace T60Ramp
                 Fail("T60 rows past the readings: %d points, white %d; expected 1, -1", (int)r2.points.size(), r2.whiteIndex);
         }
     }
+
+    // 11. An average that cannot depend on the order: three readings of one
+    // code whose double sum does (0.1 + 0.2 + 0.3 != 0.3 + 0.2 + 0.1), handed
+    // over first in one order and then in the reverse one, another gray between
+    // them. CheckShuffled's repeated code has two members, and a sum of two is
+    // the same in either order, so it cannot see this.
+    static void CheckOrderFree()
+    {
+        const int F = CSV_RANGE_FULL;
+        const double v[3] = { 0.1, 0.2, 0.3 };
+        if ((v[0] + v[1]) + v[2] == (v[2] + v[1]) + v[0])
+            Fail("T60 order-free: the values sum the same in both orders, so the check proves nothing");
+        GrayRamp r[2];
+        for (int dir = 0; dir < 2; dir++)
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int k = 0; k < 3; k++)
+            {
+                const double y = v[dir == 0 ? k : 2 - k];
+                CColor c = Reading(y, y, y, 128, 8, F);
+                c.SetLuxValue(y);
+                c.SetRawXYZValue(ColorXYZ(y, y, y));
+                rows.push_back(Gray(128, 8, F));
+                readings.push_back(c);
+                if (k == 0)
+                {
+                    rows.push_back(Gray(64, 8, F));
+                    readings.push_back(Reading(5.0, 5.0, 5.0, 64, 8, F));
+                }
+            }
+            r[dir] = Build(rows, readings);
+        }
+        if (r[0].points.size() != 2 || r[1].points.size() != 2)
+        {
+            Fail("T60 order-free: %d and %d points, expected 2 and 2", (int)r[0].points.size(), (int)r[1].points.size());
+            return;
+        }
+        const GrayRampPoint & a = r[0].points[1];
+        const GrayRampPoint & b = r[1].points[1];
+        const ColorXYZ ra = a.reading.GetRawXYZValue(), rb = b.reading.GetRawXYZValue();
+        if (a.members != 3 || b.members != 3 || !SameXYZ(a.reading, b.reading))
+            Fail("T60 order-free: XYZ %.17g %.17g %.17g vs %.17g %.17g %.17g (members %d, %d); expected bit-identical",
+                 a.reading.GetX(), a.reading.GetY(), a.reading.GetZ(), b.reading.GetX(), b.reading.GetY(), b.reading.GetZ(),
+                 a.members, b.members);
+        if (!a.reading.HasLuxValue() || !b.reading.HasLuxValue() || a.reading.GetLuxValue() != b.reading.GetLuxValue())
+            Fail("T60 order-free: lux %.17g vs %.17g; expected bit-identical",
+                 a.reading.HasLuxValue() ? a.reading.GetLuxValue() : -1.0, b.reading.HasLuxValue() ? b.reading.GetLuxValue() : -1.0);
+        if (!a.reading.HasRawXYZValue() || !b.reading.HasRawXYZValue() || ra[0] != rb[0] || ra[1] != rb[1] || ra[2] != rb[2])
+            Fail("T60 order-free: raw XYZ %.17g vs %.17g; expected bit-identical", ra[1], rb[1]);
+    }
+
+    // 12. A point of several readings that all carry the same wire stamp sits
+    // at that stamp, and its average keeps the stamp.
+    static void CheckStampedMembers()
+    {
+        const int F = CSV_RANGE_FULL;
+        const double stampedProp = (126.0 - 16.0) / (235.0 - 16.0);
+        const double nominal = CsvCodeToPercent(128, 8, F) / 100.0;
+        std::vector<CsvPatchRow> rows(3, Gray(128, 8, F));
+        std::vector<CColor> readings;
+        for (int k = 0; k < 3; k++)
+            readings.push_back(Stamped(1, 20.0 + k, 1, 128, 8, F, 126, WIRE_RANGE_LIMITED));
+        const GrayRamp r = Build(rows, readings);
+        if (r.points.size() != 1)
+        {
+            Fail("T60 stamped members: %d points, expected 1", (int)r.points.size());
+            return;
+        }
+        const GrayRampPoint & p = r.points[0];
+        if (p.members != 3 || !p.stamped || p.prop != stampedProp || p.level != stampedProp * 100.0
+            || p.nominalProp != nominal || p.reading.GetY() != 21.0)
+            Fail("T60 stamped members: members %d stamped %d prop %.17g level %.17g nominal %.17g Y %.17g;"
+                 " expected 3, 1, %.17g, %.17g, %.17g, 21",
+                 p.members, (int)p.stamped, p.prop, p.level, p.nominalProp, p.reading.GetY(),
+                 stampedProp, stampedProp * 100.0, nominal);
+        if (!p.reading.HasWireSetup() || p.reading.GetWireSetup() != readings[0].GetWireSetup())
+            Fail("T60 stamped members: the average lost the shared wire stamp");
+    }
+
+    // 13. The fit's rule on short lists (GrayRampFitsPoint, MeanPointGammaOver):
+    // the grays strictly between 0% and 100% enter it, so a list of black and
+    // white alone has no fit, black + one mid gray + white fits that gray, and
+    // two mid grays fit both. A display at gamma 2.2 exactly; the gamma is
+    // compared within 1e-12 (one log ratio, or the mean of two).
+    // ComputeRampGammaAndOffset (datasetdoc.cpp) also requires more than two
+    // points before it fits at all, which the last case does not reach.
+    static void CheckShortFit()
+    {
+        const int F = CSV_RANGE_FULL;
+        struct Case { const char * what; int n; int codes[3]; bool fit; int nFit; };
+        const Case cases[3] = {
+            { "black and white",           2, { 0, 255, 0 },   false, 0 },
+            { "black, one gray and white", 3, { 0, 128, 255 }, true,  1 },
+            { "two mid grays",             2, { 64, 192, 0 },  true,  2 } };
+        for (int c = 0; c < 3; c++)
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int i = 0; i < cases[c].n; i++)
+            {
+                const int code = cases[c].codes[i];
+                const double prop = CsvCodeToPercent(code, 8, F) / 100.0;
+                const double Y = (code == 0) ? 0.05 : 100.0 * pow(prop, 2.2);
+                rows.push_back(Gray(code, 8, F));
+                readings.push_back(Reading(Y * 0.95, Y, Y * 1.09, code, 8, F));
+            }
+            const GrayRamp r = Build(rows, readings);
+            if ((int)r.points.size() != cases[c].n)
+            {
+                Fail("T60 short fit, %s: %d points, expected %d", cases[c].what, (int)r.points.size(), cases[c].n);
+                continue;
+            }
+            double lum[3];
+            int nFit = 0;
+            for (int i = 0; i < cases[c].n; i++)
+            {
+                lum[i] = r.points[i].reading.GetY() / 100.0;
+                if (GrayRampFitsPoint(r, i))
+                    nFit++;
+            }
+            double gamma = 7.0;
+            const bool fit = FailedReadingRule::MeanPointGammaOver(cases[c].n, lum,
+                [&](int i) { return GrayRampFitsPoint(r, i); },
+                [&](int i) { return log(lum[i]) / log(r.points[i].prop); }, &gamma);
+            const double want = cases[c].fit ? 2.2 : 0.0;
+            if (fit != cases[c].fit || nFit != cases[c].nFit || fabs(gamma - want) > 1e-12)
+                Fail("T60 short fit, %s: fit %d over %d points, gamma %.17g; expected %d, %d, %.17g within 1e-12",
+                     cases[c].what, (int)fit, nFit, gamma, (int)cases[c].fit, cases[c].nFit, want);
+        }
+    }
 }
 
 static void RunT60()
@@ -8809,6 +8940,9 @@ static void RunT60()
     T60Ramp::CheckSweepWins();
     T60Ramp::CheckSweepParity();
     T60Ramp::CheckEdges();
+    T60Ramp::CheckOrderFree();
+    T60Ramp::CheckStampedMembers();
+    T60Ramp::CheckShortFit();
 }
 
 // ---------------------------------------------------------------------------
