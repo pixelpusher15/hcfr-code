@@ -156,8 +156,14 @@ enum PrimaryPageColumnRead
 									// the white, the black, a group shown from the
 									// dedicated measurement, any other column
 	PRIMARY_PAGE_LIST        = 1,	// the list's readings, with the references
-	PRIMARY_PAGE_LIST_NO_REF = 2	// the list's readings, without the references
+	PRIMARY_PAGE_LIST_NO_REF = 2,	// the list's readings, without the references
 									// (referenceApplies false): no dE
+	PRIMARY_PAGE_LIST_NO_WHITE = 3,	// the list's readings, with the references but
+									// no white to judge them against
+									// (SHOWN_WHITE_NONE): no dE, no luminance
+									// against the reference; xy error kept
+	PRIMARY_PAGE_WHITE_NONE  = 4	// the white column with no white
+									// (SHOWN_WHITE_NONE): every row empty
 };
 
 // What page column col reads, given the choices for the primaries and the
@@ -206,20 +212,52 @@ bool BuildListWhiteAtLevel ( const CsvPatchRow * rows, int nRows, const CColor *
 enum ShownWhiteSource
 {
 	SHOWN_WHITE_CALLER = 0,	// each caller's own white, exactly as before
-	SHOWN_WHITE_LIST   = 1	// the list's white (BuildListWhiteAtLevel)
+	SHOWN_WHITE_LIST   = 1,	// the list's white (BuildListWhiteAtLevel)
+	SHOWN_WHITE_NONE   = 2	// no white: the groups shown from the list are
+							// judged against nothing (no dE, no luminance
+							// against the reference)
 };
 
 // The list's white only when the prime white was not measured, at least one
 // group is shown from the list, and the list has a white at the run's white
-// level; otherwise each caller keeps its own white and fallbacks. Never a
-// white the list does not hold.
-ShownWhiteSource ChooseShownWhite ( bool primeWhiteMeasured, bool anyGroupFromList, bool listHasWhite );
+// level. When the list has no such white and the caller's own chain would land
+// on no measured white either (callerWhiteMeasured false: the constructor's
+// placeholder or a stand-in like the target luminance), no white at all.
+// Otherwise each caller keeps its own white and fallbacks. Never a white the
+// list does not hold. With callerWhiteMeasured left true, SHOWN_WHITE_NONE is
+// never given.
+ShownWhiteSource ChooseShownWhite ( bool primeWhiteMeasured, bool anyGroupFromList, bool listHasWhite, bool callerWhiteMeasured = true );
+
+// Whether a caller's own white chain lands on a measured white: its first
+// white when that one is valid (primeValid; measured when primeMeasured), else
+// its fallback (measured when fallbackValid and fallbackMeasured). A chain
+// that ends on a stand-in has none.
+bool CallerWhiteIsMeasured ( bool primeValid, bool primeMeasured, bool fallbackValid, bool fallbackMeasured );
 
 // PrimaryPageColumnSource and PrimaryPageColumnWritesDedicated with the white
 // column: whiteFromList (ChooseShownWhite gave SHOWN_WHITE_LIST) makes column
 // 6 PRIMARY_PAGE_LIST - the reference white applies to it - so it shows the
-// list's white and is read-only. Without it, exactly the three-argument forms.
-PrimaryPageColumnRead PrimaryPageColumnSource ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList );
-bool PrimaryPageColumnWritesDedicated ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList );
+// list's white and is read-only. noWhite (SHOWN_WHITE_NONE) makes column 6
+// PRIMARY_PAGE_WHITE_NONE and a PRIMARY_PAGE_LIST column
+// PRIMARY_PAGE_LIST_NO_WHITE; a PRIMARY_PAGE_LIST_NO_REF column and the
+// dedicated columns stay as they are. whiteFromList wins over noWhite. Without
+// either, exactly the three-argument forms.
+PrimaryPageColumnRead PrimaryPageColumnSource ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList, bool noWhite = false );
+bool PrimaryPageColumnWritesDedicated ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList, bool noWhite = false );
+
+// Whether a row of the page (GetItemText's component) is derived from the
+// white: the dE (3), and the luminance against the reference and the reference
+// luminance (5 and 6; with a data reference document its dE at 5, which is
+// judged against the white too, and the luminance rows at 7 and 8). The values
+// (0..2), the xy error (4, chromaticity only) and the data reference's xy
+// error (6 with one) are not.
+bool PrimaryPageRowUsesWhite ( int component, bool hasDataRef );
+
+// Whether a row of a page column has a value, by what the column reads: every
+// row for PRIMARY_PAGE_DEDICATED and PRIMARY_PAGE_LIST; not the rows the
+// references make (PrimaryPageRowUsesReference) for PRIMARY_PAGE_LIST_NO_REF;
+// not the rows the white makes (PrimaryPageRowUsesWhite) for
+// PRIMARY_PAGE_LIST_NO_WHITE; no row for PRIMARY_PAGE_WHITE_NONE.
+bool PrimaryPageRowShown ( PrimaryPageColumnRead read, int component, bool hasDataRef );
 
 #endif // PRIMARYSET_H_INCLUDED_

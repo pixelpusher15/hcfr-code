@@ -9681,6 +9681,91 @@ namespace T62Prim
             || PrimaryPageColumnSource(7, listSdr, listSdr, true) != PRIMARY_PAGE_DEDICATED || !PrimaryPageColumnWritesDedicated(7, listSdr, listSdr, true))
             Fail("T62 page: with the list's white, the white column must read the list read-only and the black stay dedicated");
     }
+
+    // 15. A list without a white: the prime white unmeasured, a group from the
+    // list, no gray at the run's white level, and the caller's own chain on no
+    // measured white. No stand-in white, no dE.
+    static void CheckNoWhite()
+    {
+        // The chooser, all sixteen cases.
+        for (int pm = 0; pm <= 1; pm++)
+            for (int any = 0; any <= 1; any++)
+                for (int has = 0; has <= 1; has++)
+                    for (int cm = 0; cm <= 1; cm++)
+                    {
+                        const int got = (int)ChooseShownWhite(pm != 0, any != 0, has != 0, cm != 0);
+                        int expected = SHOWN_WHITE_CALLER;
+                        if (!pm && any && has)
+                            expected = SHOWN_WHITE_LIST;
+                        else if (!pm && any && !has && !cm)
+                            expected = SHOWN_WHITE_NONE;
+                        if (got != expected)
+                            Fail("T62 no white: chooser prime %d list group %d list white %d caller measured %d gives %d, expected %d",
+                                 pm, any, has, cm, got, expected);
+                        if (cm && got != (int)ChooseShownWhite(pm != 0, any != 0, has != 0))
+                            Fail("T62 no white: the three-argument chooser differs from a measured caller white (%d %d %d)", pm, any, has);
+                    }
+
+        // The caller's chain: its first white when valid, else its fallback.
+        for (int pv = 0; pv <= 1; pv++)
+            for (int pmz = 0; pmz <= 1; pmz++)
+                for (int fv = 0; fv <= 1; fv++)
+                    for (int fm = 0; fm <= 1; fm++)
+                    {
+                        const bool expected = pv ? (pmz != 0) : (fv && fm);
+                        if (CallerWhiteIsMeasured(pv != 0, pmz != 0, fv != 0, fm != 0) != expected)
+                            Fail("T62 no white: caller chain prime valid %d measured %d fallback valid %d measured %d, expected %d",
+                                 pv, pmz, fv, fm, (int)expected);
+                    }
+
+        // The page's columns.
+        const int D = PRIMARY_PAGE_DEDICATED, N = PRIMARY_PAGE_LIST_NO_REF, X = PRIMARY_PAGE_LIST_NO_WHITE, Z = PRIMARY_PAGE_WHITE_NONE;
+        const PrimarySetChoice listSdr = ChoosePrimarySetShown(false, false, true, 100.0, true);
+        const PrimarySetChoice ded = ChoosePrimarySetShown(true, true, true, 100.0, true);
+        const PrimarySetChoice runHdr = ChoosePrimarySetShown(false, true, true, kHdr10Run, true);
+        const PrimarySetChoice fullHdr = ChoosePrimarySetShown(false, false, true, kHdr10Run, true);
+        struct { const PrimarySetChoice* p; const PrimarySetChoice* s; int cols[8]; const char* what; } pages[4] = {
+            { &listSdr, &listSdr, { X, X, X, X, X, X, Z, D }, "list, SDR" },
+            { &ded,     &listSdr, { D, D, D, X, X, X, Z, D }, "dedicated primaries, list secondaries" },
+            { &runHdr,  &fullHdr, { X, X, X, N, N, N, Z, D }, "HDR10 groups" },
+            { &ded,     &ded,     { D, D, D, D, D, D, Z, D }, "dedicated (not a case the chooser gives)" },
+        };
+        for (int k = 0; k < 4; k++)
+            for (int col = 0; col < 8; col++)
+            {
+                const int got = (int)PrimaryPageColumnSource(col, *pages[k].p, *pages[k].s, false, true);
+                if (got != pages[k].cols[col])
+                    Fail("T62 no white page %s: column %d reads %d, expected %d", pages[k].what, col, got, pages[k].cols[col]);
+                if (PrimaryPageColumnWritesDedicated(col, *pages[k].p, *pages[k].s, false, true) != (pages[k].cols[col] == D))
+                    Fail("T62 no white page %s: column %d write rule disagrees", pages[k].what, col);
+                // The list's white wins over no white; without either, the plain rule.
+                if (PrimaryPageColumnSource(col, *pages[k].p, *pages[k].s, true, true) != PrimaryPageColumnSource(col, *pages[k].p, *pages[k].s, true)
+                    || PrimaryPageColumnSource(col, *pages[k].p, *pages[k].s, false, false) != PrimaryPageColumnSource(col, *pages[k].p, *pages[k].s))
+                    Fail("T62 no white page %s: column %d, the white flags do not reduce to the earlier rules", pages[k].what, col);
+            }
+
+        // The rows the white makes, without and with a data reference document.
+        const bool noRef[10] = { false, false, false, true, false, true, true, false, false, false };
+        const bool withRef[10] = { false, false, false, true, false, true, false, true, true, false };
+        for (int comp = 0; comp < 10; comp++)
+        {
+            if (PrimaryPageRowUsesWhite(comp, false) != noRef[comp] || PrimaryPageRowUsesWhite(comp, true) != withRef[comp])
+                Fail("T62 no white: row %d uses the white %d / %d (data reference), expected %d / %d", comp,
+                     (int)PrimaryPageRowUsesWhite(comp, false), (int)PrimaryPageRowUsesWhite(comp, true), (int)noRef[comp], (int)withRef[comp]);
+            for (int dr = 0; dr <= 1; dr++)
+            {
+                const bool hd = dr != 0;
+                const bool shown[5] = { true, true, !PrimaryPageRowUsesReference(comp, hd), !(hd ? withRef[comp] : noRef[comp]), false };
+                for (int r = 0; r < 5; r++)
+                    if (PrimaryPageRowShown((PrimaryPageColumnRead)r, comp, hd) != shown[r])
+                        Fail("T62 no white: column kind %d row %d (data reference %d) shown %d, expected %d",
+                             r, comp, dr, (int)PrimaryPageRowShown((PrimaryPageColumnRead)r, comp, hd), (int)shown[r]);
+            }
+        }
+        // The xy error (4) stays in a no-white column; the dE (3) does not.
+        if (!PrimaryPageRowShown(PRIMARY_PAGE_LIST_NO_WHITE, 4, false) || PrimaryPageRowShown(PRIMARY_PAGE_LIST_NO_WHITE, 3, false))
+            Fail("T62 no white: a no-white column must keep its xy error and drop its dE");
+    }
 }
 
 static void RunT62()
@@ -9700,6 +9785,7 @@ static void RunT62()
     T62Prim::CheckHdr10Groups();
     T62Prim::CheckPrimaryPage();
     T62Prim::CheckShownWhite();
+    T62Prim::CheckNoWhite();
 }
 
 int main(int argc, char* argv[])

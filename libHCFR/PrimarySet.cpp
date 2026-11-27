@@ -197,19 +197,53 @@ bool BuildListWhiteAtLevel ( const CsvPatchRow * rows, int nRows, const CColor *
 	return true;
 }
 
-ShownWhiteSource ChooseShownWhite ( bool primeWhiteMeasured, bool anyGroupFromList, bool listHasWhite )
+ShownWhiteSource ChooseShownWhite ( bool primeWhiteMeasured, bool anyGroupFromList, bool listHasWhite, bool callerWhiteMeasured )
 {
-	return ( ! primeWhiteMeasured && anyGroupFromList && listHasWhite ) ? SHOWN_WHITE_LIST : SHOWN_WHITE_CALLER;
+	if ( primeWhiteMeasured || ! anyGroupFromList )
+		return SHOWN_WHITE_CALLER;
+	if ( listHasWhite )
+		return SHOWN_WHITE_LIST;
+	return callerWhiteMeasured ? SHOWN_WHITE_CALLER : SHOWN_WHITE_NONE;
 }
 
-PrimaryPageColumnRead PrimaryPageColumnSource ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList )
+bool CallerWhiteIsMeasured ( bool primeValid, bool primeMeasured, bool fallbackValid, bool fallbackMeasured )
+{
+	if ( primeValid )
+		return primeMeasured;
+	return fallbackValid && fallbackMeasured;
+}
+
+PrimaryPageColumnRead PrimaryPageColumnSource ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList, bool noWhite )
 {
 	if ( col == 6 && whiteFromList )
 		return PRIMARY_PAGE_LIST;
-	return PrimaryPageColumnSource ( col, primaries, secondaries );
+	if ( whiteFromList || ! noWhite )
+		return PrimaryPageColumnSource ( col, primaries, secondaries );
+	if ( col == 6 )
+		return PRIMARY_PAGE_WHITE_NONE;
+	const PrimaryPageColumnRead r = PrimaryPageColumnSource ( col, primaries, secondaries );
+	return ( r == PRIMARY_PAGE_LIST ) ? PRIMARY_PAGE_LIST_NO_WHITE : r;
 }
 
-bool PrimaryPageColumnWritesDedicated ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList )
+bool PrimaryPageColumnWritesDedicated ( int col, const PrimarySetChoice & primaries, const PrimarySetChoice & secondaries, bool whiteFromList, bool noWhite )
 {
-	return PrimaryPageColumnSource ( col, primaries, secondaries, whiteFromList ) == PRIMARY_PAGE_DEDICATED;
+	return PrimaryPageColumnSource ( col, primaries, secondaries, whiteFromList, noWhite ) == PRIMARY_PAGE_DEDICATED;
+}
+
+bool PrimaryPageRowUsesWhite ( int component, bool hasDataRef )
+{
+	if ( component == 3 || component == 5 )
+		return true;
+	return hasDataRef ? ( component == 7 || component == 8 ) : ( component == 6 );
+}
+
+bool PrimaryPageRowShown ( PrimaryPageColumnRead read, int component, bool hasDataRef )
+{
+	switch ( read )
+	{
+		case PRIMARY_PAGE_LIST_NO_REF:   return ! PrimaryPageRowUsesReference ( component, hasDataRef );
+		case PRIMARY_PAGE_LIST_NO_WHITE: return ! PrimaryPageRowUsesWhite ( component, hasDataRef );
+		case PRIMARY_PAGE_WHITE_NONE:    return false;
+		default:                         return true;
+	}
 }
