@@ -8928,6 +8928,7 @@ int CMeasure::AddUserPatchSet(const CUserPatchSet & set)
 	if ( m_activeUserSet >= pos )
 		m_activeUserSet++;
 	m_isModified = TRUE;
+	m_CCStr = GetCCStr();	// the Summary names every set that holds a reading
 	return pos;
 }
 
@@ -9153,6 +9154,10 @@ void CMeasure::MigrateLegacyUserBand()
 	LabelPatchRows ( set.rows, set.bits, set.range );
 	m_userPatchSets.push_back ( set );
 	m_activeUserSet = 0;
+	// The band's readings are now this set's: the Summary names it, not "User".
+	// An import that wraps them and then refreshes this same set (or stops on a
+	// size or count check) activates nothing, so the text is rebuilt here.
+	m_CCStr = GetCCStr();
 }
 
 void CMeasure::RelabelLoadedReadings()

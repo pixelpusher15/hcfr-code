@@ -29,6 +29,8 @@
 
 #include "Color.h"
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 
 // Where the white the gray graphs use comes from (CMeasure::GetGrayGraphWhite).
@@ -125,13 +127,9 @@ inline GrayGraphBlackSource ChooseGrayGraphBlackSource ( const GrayGraphBlackFac
 	return GRAY_BLACK_CONTRAST;
 }
 
-// Decimals a luminance in cd/m2 is printed with: 1 from 100 up, 2 from 10, 3
-// from 1, 4 below (a black). By magnitude; a value that is not finite gets 4.
-inline int SummaryLuminanceDecimals ( double y )
+// The decimals the magnitude a alone calls for (SummaryLuminanceDecimals).
+inline int SummaryLuminanceDecimalsOfMagnitude ( double a )
 {
-	const double a = fabs ( y );
-	if ( ! ( a <= 1e300 ) )
-		return 4;
 	if ( a >= 100.0 )
 		return 1;
 	if ( a >= 10.0 )
@@ -139,6 +137,26 @@ inline int SummaryLuminanceDecimals ( double y )
 	if ( a >= 1.0 )
 		return 3;
 	return 4;
+}
+
+// Decimals a luminance in cd/m2 is printed with: 1 from 100 up, 2 from 10, 3
+// from 1, 4 below (a black), judged on the PRINTED number: 99.996 printed with
+// 2 decimals reads "100.00", so it gets 1 and prints "100.0". The rounding is
+// the CRT's own (the same "%.*f" the caller formats with). The boundaries are a
+// factor of 10 apart, so one step down is always enough. A value that is not
+// finite gets 4.
+inline int SummaryLuminanceDecimals ( double y )
+{
+	const double a = fabs ( y );
+	if ( ! ( a <= 1e300 ) )
+		return 4;
+	const int d = SummaryLuminanceDecimalsOfMagnitude ( a );
+	if ( d == 1 )
+		return 1;
+	char buf[64];	// a < 100 here: "99.9999" fits with room to spare
+	snprintf ( buf, sizeof ( buf ), "%.*f", d, a );
+	const int printed = SummaryLuminanceDecimalsOfMagnitude ( strtod ( buf, NULL ) );
+	return printed < d ? printed : d;
 }
 
 // Whether the grid's patch-list line shows the average gamma. Only when the
@@ -181,6 +199,21 @@ inline bool PatchListNameIsEmpty ( const std::string & name )
 		if ( name[i] != ' ' && name[i] != '\t' && name[i] != '\r' && name[i] != '\n' )
 			return false;
 	return true;
+}
+
+// The user's own part of the Summary pane's text. The pane shows the user's
+// text followed by the generated lines (CMeasure::GetGeneratedInfoString) it
+// was last written with, shownGenerated - which can be older than the
+// document's current string until the pane is next refreshed. Stripping
+// against the string actually shown means a stale pane never turns generated
+// lines into typed text. A pane that does not end with it (the user edited
+// inside the generated lines) is kept whole.
+inline std::string SummaryUserText ( const std::string & pane, const std::string & shownGenerated )
+{
+	const size_t n = shownGenerated.size ();
+	if ( n > 0 && pane.size () >= n && pane.compare ( pane.size () - n, n, shownGenerated ) == 0 )
+		return pane.substr ( 0, pane.size () - n );
+	return pane;
 }
 
 #endif // SUMMARYSOURCES_H_INCLUDED_

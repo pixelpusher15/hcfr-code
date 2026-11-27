@@ -197,9 +197,14 @@ public:
 	BOOL m_userBlack;
 	BOOL m_bShowPatchLabels;	// patch-list label row on/off (INI MainView, Show Patch Labels)
 	BOOL ShowPatchLabelRow();	// the label row is in the grid now
+	CString m_strSummaryShownGen;	// the generated lines the Summary pane was last written with (SummaryUserText)
+	void RefreshSummaryPane();	// rewrite the Summary pane when the document's text differs from it
 	CColor m_oldBlackGS, refColor_for_color_comp;
 	double YWhite_for_color_comp;
 	CColor m_oldBlackNB;
+	CColor m_oldBlackOnOff;	// the on/off black the override swap took out (InitGrid)
+	// per captured slot: the capture predates its series' data (BlackOverrideRule)
+	bool m_bOldBlackGSPredatesData, m_bOldBlackNBPredatesData, m_bOldBlackOnOffPredatesData;
 	bool isSelectedWhiteY;
 	int last_Col;
 	int last_Size;
@@ -254,6 +259,11 @@ public:
 	virtual BOOL PreTranslateMessage( MSG* pMsg);
 	void InitGrid(bool sizeGrid=false);
 	void UpdateGrid();
+	// The black-override swap (InitGrid): whether this view holds the document's
+	// own black, and writing it back into the document (BlackOverrideRule.h).
+	// PutBackSwappedBlack leaves the swap on; InitGrid ends it on untick.
+	BOOL HoldsSwappedBlack() const { return m_userBlack; }
+	void PutBackSwappedBlack();
 
 protected:
 	void InitSelectedColorGrid();

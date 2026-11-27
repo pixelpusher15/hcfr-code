@@ -50,6 +50,7 @@
 
 #include "DocEnumerator.h"	//Ki
 #include "../ScaleSizes.h"
+#include "BlackOverrideRule.h"
 #include <math.h>
 #include <algorithm>
 #include <vector>
@@ -662,6 +663,8 @@ CMainView::CMainView()
 	m_userBlack = FALSE;
 	m_oldBlackGS = noDataColor;
 	m_oldBlackNB = noDataColor;
+	m_oldBlackOnOff = noDataColor;
+	m_bOldBlackGSPredatesData = m_bOldBlackNBPredatesData = m_bOldBlackOnOffPredatesData = false;
 	GetConfig()->m_bSave = FALSE;
 	GetConfig()->m_bSave2 = FALSE;
 	isSelectedWhiteY = FALSE;
@@ -2102,6 +2105,42 @@ BOOL CMainView::ShowPatchLabelRow()
 	return m_bShowPatchLabels && m_displayMode == 11 && GetConfig()->m_CCMode == USER;
 }
 
+// Whether a series holds a reading outside its 0% slot (CMeasure::HoldsReading:
+// a new document's top gray placeholder is none).
+static bool GraySeriesHoldsReading(CMeasure * pMeasure)
+{
+	for (int i = 1; i < pMeasure->GetGrayScaleSize(); i++)
+		if (CMeasure::HoldsReading(pMeasure->GetGray(i)))
+			return true;
+	return false;
+}
+
+static bool NearBlackSeriesHoldsReading(CMeasure * pMeasure)
+{
+	for (int i = 1; i < pMeasure->GetNearBlackScaleSize(); i++)
+		if (CMeasure::HoldsReading(pMeasure->GetNearBlack(i)))
+			return true;
+	return false;
+}
+
+// Writes back the gray 0%, near-black 0% and on/off black the override swap
+// (InitGrid) took out of the document, each into its own slot, except a capture
+// taken before its series held data when the series holds data now: a sweep
+// under the override filled it, and its 0% slot keeps the sweep's black
+// (BlackOverrideRule.h). Runs on untick and around a save (CDataSetDoc::Serialize).
+void CMainView::PutBackSwappedBlack()
+{
+	if (!m_userBlack)
+		return;
+	CMeasure * pMeasure = GetDocument()->GetMeasure();
+	if (BlackOverrideRule::RestoresCapture(m_bOldBlackGSPredatesData, GraySeriesHoldsReading(pMeasure)))
+		pMeasure->SetGray(0, m_oldBlackGS);
+	if (BlackOverrideRule::RestoresCapture(m_bOldBlackNBPredatesData, NearBlackSeriesHoldsReading(pMeasure)))
+		pMeasure->SetNearBlack(0, m_oldBlackNB);
+	if (BlackOverrideRule::RestoresCapture(m_bOldBlackOnOffPredatesData, pMeasure->IsOnOffWhiteMeasured() != FALSE))
+		pMeasure->SetOnOffBlack(m_oldBlackOnOff);
+}
+
 void CMainView::InitGrid(bool sizeGrid)
 {
 	if(m_pGrayScaleGrid==NULL)
@@ -2757,8 +2796,13 @@ void CMainView::InitGrid(bool sizeGrid)
 	{
 		if (!m_userBlack)
 		{
-			m_oldBlackGS = GetDocument()->GetMeasure()->GetGray(0);
-			m_oldBlackNB = GetDocument()->GetMeasure()->GetNearBlack(0);
+			CMeasure * pMeasure = GetDocument()->GetMeasure();
+			m_oldBlackGS = pMeasure->GetGray(0);
+			m_oldBlackNB = pMeasure->GetNearBlack(0);
+			m_oldBlackOnOff = pMeasure->GetOnOffBlack();
+			m_bOldBlackGSPredatesData = BlackOverrideRule::CapturePredatesData(CMeasure::HoldsReading(m_oldBlackGS), GraySeriesHoldsReading(pMeasure));
+			m_bOldBlackNBPredatesData = BlackOverrideRule::CapturePredatesData(CMeasure::HoldsReading(m_oldBlackNB), NearBlackSeriesHoldsReading(pMeasure));
+			m_bOldBlackOnOffPredatesData = BlackOverrideRule::CapturePredatesData(CMeasure::HoldsReading(m_oldBlackOnOff), pMeasure->IsOnOffWhiteMeasured() != FALSE);
 			double Yblack = GetConfig()->GetProfileDouble("References","Manual Black Level",0);
 			GetDocument()->GetMeasure()->SetGray(0, ColorXYZ(Yblack*.95047,Yblack,Yblack*1.0883));
 			GetDocument()->GetMeasure()->SetNearBlack(0, ColorXYZ(Yblack*.95047,Yblack,Yblack*1.0883)) ;
@@ -2770,9 +2814,7 @@ void CMainView::InitGrid(bool sizeGrid)
 	{
 		if (m_userBlack)
 		{
-			GetDocument()->GetMeasure()->SetGray(0, m_oldBlackGS);
-			GetDocument()->GetMeasure()->SetNearBlack(0, m_oldBlackNB) ;
-			GetDocument()->GetMeasure()->SetOnOffBlack(m_oldBlackGS) ;
+			PutBackSwappedBlack();
 			m_userBlack = FALSE;
 		}
 	}
@@ -3086,6 +3128,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		}
 		UpdateGrid();		
 		UpdateMeasurementsAfterBkgndMeasure ();
+		// the gray slots written above are the white and black the generated lines state
+		RefreshSummaryPane ();
 	}
 	else if ( lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE ) //optimized for realtime
 	{
@@ -3168,6 +3212,7 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 		if ( m_pInfoWnd ) //in case colorchecker slot is updated
 		{
+				m_strSummaryShownGen = GetDocument()->GetMeasure()->GetGeneratedInfoString();
 				m_pInfoWnd -> SetWindowTextA(GetDocument()->GetMeasure()->GetInfoString());
 				// The text just came from the document, so the recorded commands
 				// describe text that is no longer there: drop them.
@@ -3184,43 +3229,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		if ( !( (lHint >= UPD_PRIMARIES && lHint <= UPD_FREEMEASURES) || lHint == UPD_CC24SAT ) )
 			CFormView::OnUpdate(pSender, lHint, pHint);
 
-		// m_CCStr is rebuilt when a color checker sweep ends -- on completion,
-		// and on the abort salvage. Both are AFTER the sweep's last realtime
-		// hint, and UPD_CC24SAT (25) is below UPD_REALTIME (26), so the summary
-		// pane's only other refresh (in the realtime branch above) never saw the
-		// new string: the sweeps-active list stayed as it was when the pane was
-		// last created. Refresh it here, and only when the text really changed,
-		// so a summary the user is part-way through typing is left alone.
-		// Only info display entry 0 owns this text: m_pInfoWnd is a CTargetWnd,
-		// CSpectrumWnd or CSubFrame for every other entry, and those return empty
-		// window text -- so an ungated write would never compare equal and would
-		// retitle and repaint an unrelated widget on every sweep end. Gate on the
-		// downcast rather than testing it after the write.
-		// Every hint, not only UPD_CC24SAT: the generated lines also state the
-		// white and black the gray graphs use (CMeasure::GetGrayGraphAnchorStr),
-		// which change when a gray sweep or a contrast measurement ends and when
-		// the black override is switched. A pane left showing old lines would
-		// also defeat OnChangeInfosEdit, which removes the generated lines from
-		// what the user typed only when the pane ends with the current ones.
-		if ( m_pInfoWnd )
-		{
-			CEditEx * pSummaryEdit = DYNAMIC_DOWNCAST ( CEditEx, m_pInfoWnd );
-			if ( pSummaryEdit )
-			{
-				CString strNew = GetDocument()->GetMeasure()->GetInfoString();
-				CString strOld;
-				pSummaryEdit -> GetWindowText ( strOld );
-				if ( strOld != strNew )
-				{
-					pSummaryEdit -> SetWindowTextA ( strNew );
-					// the text came from the document, so the control's recorded
-					// commands describe text that is no longer there
-					pSummaryEdit -> EmptyUndoBuffer ();
-					pSummaryEdit -> Invalidate ();
-					pSummaryEdit -> UpdateWindow ();
-				}
-			}
-		}
+		// The Summary pane is refreshed at the end of this branch (RefreshSummaryPane),
+		// after everything here that can change what its generated lines say.
 
 		if ( m_displayType == HCFR_SENSORRGB_VIEW )
 		{
@@ -3472,6 +3482,12 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 		if (m_bPositionsInit) { LayoutTopRow(); OnSize(0,0,0); }   // re-fit the gen/sensor panes to the new labels
 			if (::IsWindow(m_statsBar.GetSafeHwnd())) m_statsBar.Invalidate(FALSE);   // refresh the bar-drawn Edit checkbox (enabled/checked state)
+
+		// Last, so the pane describes the document as this update leaves it:
+		// InitGrid swaps the "Override black" synthetic black into gray slot 0
+		// (or puts the measured one back), and UPD_FREEMEASUREAPPENDED writes
+		// gray slots, both above - the generated lines state that black and white.
+		RefreshSummaryPane ();
 	}
 }
 
@@ -9239,6 +9255,7 @@ void CMainView::OnSelchangeInfoDisplay()
 
 			 pEdit -> Create (WS_VISIBLE | WS_CHILD | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN, Rect, this, IDC_INFO_VIEW );
 			 pEdit -> SetFont ( GetFont () );		 
+			 m_strSummaryShownGen = GetDocument()->GetMeasure()->GetGeneratedInfoString();
 			 pEdit -> SetWindowText ( GetDocument()->GetMeasure()->GetInfoString() );
 
 			 // The initial fill reaches the control as WM_SETTEXT, which CEditEx
@@ -10368,6 +10385,44 @@ void CMainView::OnSelchangeInfoDisplay()
 	InsetInfoWindows ();
 }
 
+// Rewrites the Summary pane (info display entry 0) with the document's text
+// when it differs from what the pane shows, and remembers the generated lines
+// it now ends with for OnChangeInfosEdit. Only when the text really changed, so
+// a summary the user is part-way through typing is left alone. Only entry 0
+// owns this text: m_pInfoWnd is a CTargetWnd, CSpectrumWnd or CSubFrame for
+// every other entry, and those return empty window text -- so an ungated write
+// would never compare equal and would retitle and repaint an unrelated widget
+// on every update. Gate on the downcast rather than testing it after the write.
+// Called on every hint, not only a color checker sweep's end (which rebuilds
+// m_CCStr after the sweep's last realtime hint): the generated lines also state
+// the white and black the gray graphs use (CMeasure::GetGrayGraphAnchorStr),
+// which change when a gray sweep or a contrast measurement ends and when the
+// black override is switched.
+void CMainView::RefreshSummaryPane()
+{
+	if ( ! m_pInfoWnd )
+		return;
+	CEditEx * pSummaryEdit = DYNAMIC_DOWNCAST ( CEditEx, m_pInfoWnd );
+	if ( ! pSummaryEdit )
+		return;
+	const CString strGen = GetDocument()->GetMeasure()->GetGeneratedInfoString();
+	const CString strNew = GetDocument()->GetMeasure()->GetInfoString();
+	CString strOld;
+	pSummaryEdit -> GetWindowText ( strOld );
+	// the pane reads the user's text followed by strGen from here on; set
+	// before the write, so a change notification it raises strips the right lines
+	m_strSummaryShownGen = strGen;
+	if ( strOld != strNew )
+	{
+		pSummaryEdit -> SetWindowTextA ( strNew );
+		// the text came from the document, so the control's recorded
+		// commands describe text that is no longer there
+		pSummaryEdit -> EmptyUndoBuffer ();
+		pSummaryEdit -> Invalidate ();
+		pSummaryEdit -> UpdateWindow ();
+	}
+}
+
 void CMainView::OnChangeInfosEdit() 
 {
 	// TODO: If this is a RICHEDIT control, the control will not
@@ -10383,11 +10438,12 @@ void CMainView::OnChangeInfosEdit()
 		// lines again: keep only the user's part, so the generated lines - the
 		// gray graphs' white and black among them, which change with every
 		// measurement - are not frozen into the summary as typed text and shown
-		// twice. Text edited inside the generated lines no longer ends with them
-		// and is kept whole, as before.
-		const CString strGen = GetDocument()->GetMeasure()->GetGeneratedInfoString();
-		if ( ! strGen.IsEmpty () && str.GetLength () >= strGen.GetLength () && str.Right ( strGen.GetLength () ) == strGen )
-			str = str.Left ( str.GetLength () - strGen.GetLength () );
+		// twice. The lines removed are the ones the pane was last written with
+		// (m_strSummaryShownGen), not the document's current ones: a pane not yet
+		// refreshed still ends with the old lines (SummaryUserText). Text edited
+		// inside the generated lines no longer ends with them and is kept whole,
+		// as before.
+		str = SummaryUserText ( std::string ( (LPCTSTR) str ), std::string ( (LPCTSTR) m_strSummaryShownGen ) ).c_str ();
 		GetDocument()->GetMeasure()->SetInfoString(str);
 		GetDocument()->SetModifiedFlag(TRUE);
 	}

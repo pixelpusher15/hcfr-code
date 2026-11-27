@@ -677,6 +677,18 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 					aColor2.SetZ(aColor2.GetZ() * YWhite / tmWhite);
 				}
 
+				// The box is filled from aColor1 as it stands here. Under PQ a saturation
+				// or patch-list point has just been rescaled, so the light-or-dark choice
+				// made above from the unscaled color can be the wrong one (dark text on a
+				// near-black box). Choose again from the fill and recolor the text.
+				{
+					const bool darkFill = aColor1.GetY() < 0.30;
+					if ( darkFill != dark )
+					{
+						str.Replace ( dark ? "#A0EE80" : "#004080", darkFill ? "#A0EE80" : "#004080" );
+						dark = darkFill;
+					}
+				}
 				ColorRGB measCol = ColorRGB(aColor1.GetRGBValue(HdtvPlotRef()));
 				ColorRGB refCol = ColorRGB(aColor2.GetRGBValue(HdtvPlotRef()));
 				double r1=min(max(measCol[0],0),1);
