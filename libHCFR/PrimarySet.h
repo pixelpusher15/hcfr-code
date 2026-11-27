@@ -234,6 +234,13 @@ ShownWhiteSource ChooseShownWhite ( bool primeWhiteMeasured, bool anyGroupFromLi
 // that ends on a stand-in has none.
 bool CallerWhiteIsMeasured ( bool primeValid, bool primeMeasured, bool fallbackValid, bool fallbackMeasured );
 
+// Whether a group shown as c has a white to be judged against, given the
+// white choice ws: not a group shown from the list when there is no white
+// (SHOWN_WHITE_NONE); every other group, including any group shown from the
+// dedicated measurement. Without it a view shows no dE for the group and
+// nothing computed against a white (the CIE chart's L*a*b* line).
+bool PrimarySetHasWhite ( const PrimarySetChoice & c, ShownWhiteSource ws );
+
 // PrimaryPageColumnSource and PrimaryPageColumnWritesDedicated with the white
 // column: whiteFromList (ChooseShownWhite gave SHOWN_WHITE_LIST) makes column
 // 6 PRIMARY_PAGE_LIST - the reference white applies to it - so it shows the

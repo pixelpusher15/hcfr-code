@@ -9766,6 +9766,33 @@ namespace T62Prim
         if (!PrimaryPageRowShown(PRIMARY_PAGE_LIST_NO_WHITE, 4, false) || PrimaryPageRowShown(PRIMARY_PAGE_LIST_NO_WHITE, 3, false))
             Fail("T62 no white: a no-white column must keep its xy error and drop its dE");
     }
+
+    // 16. Whether a shown group has a white: only a group from the list with
+    // no white has none; a dedicated group always has one.
+    static void CheckGroupWhite()
+    {
+        const PrimarySetChoice listSdr = ChoosePrimarySetShown(false, false, true, 100.0, true);
+        const PrimarySetChoice fullHdr = ChoosePrimarySetShown(false, false, true, kHdr10Run, true);
+        const PrimarySetChoice runHdr = ChoosePrimarySetShown(false, true, true, kHdr10Run, true);
+        const PrimarySetChoice ded = ChoosePrimarySetShown(true, true, true, 100.0, true);
+        struct { const PrimarySetChoice* c; const char* what; bool list; } groups[4] = {
+            { &listSdr, "list, SDR", true }, { &fullHdr, "list, HDR10 100% rows (no references)", true },
+            { &runHdr, "list, HDR10 run level", true }, { &ded, "dedicated", false },
+        };
+        const ShownWhiteSource ws[3] = { SHOWN_WHITE_CALLER, SHOWN_WHITE_LIST, SHOWN_WHITE_NONE };
+        for (int g = 0; g < 4; g++)
+            for (int w = 0; w < 3; w++)
+            {
+                const bool expected = !(groups[g].list && ws[w] == SHOWN_WHITE_NONE);
+                if (PrimarySetHasWhite(*groups[g].c, ws[w]) != expected)
+                    Fail("T62 group white: %s with white choice %d has a white %d, expected %d",
+                         groups[g].what, (int)ws[w], (int)PrimarySetHasWhite(*groups[g].c, ws[w]), (int)expected);
+            }
+        // The HDR10 no-reference group keeps its white whenever one exists:
+        // only the references are missing there.
+        if (!PrimarySetHasWhite(fullHdr, SHOWN_WHITE_LIST) || !PrimarySetHasWhite(fullHdr, SHOWN_WHITE_CALLER) || fullHdr.referenceApplies)
+            Fail("T62 group white: the HDR10 100%% rows must keep a white and lack the references");
+    }
 }
 
 static void RunT62()
@@ -9786,6 +9813,7 @@ static void RunT62()
     T62Prim::CheckPrimaryPage();
     T62Prim::CheckShownWhite();
     T62Prim::CheckNoWhite();
+    T62Prim::CheckGroupWhite();
 }
 
 int main(int argc, char* argv[])

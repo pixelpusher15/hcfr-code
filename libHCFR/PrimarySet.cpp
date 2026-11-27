@@ -206,6 +206,11 @@ ShownWhiteSource ChooseShownWhite ( bool primeWhiteMeasured, bool anyGroupFromLi
 	return callerWhiteMeasured ? SHOWN_WHITE_CALLER : SHOWN_WHITE_NONE;
 }
 
+bool PrimarySetHasWhite ( const PrimarySetChoice & c, ShownWhiteSource ws )
+{
+	return ! ( ws == SHOWN_WHITE_NONE && c.source == PRIMARY_SET_LIST );
+}
+
 bool CallerWhiteIsMeasured ( bool primeValid, bool primeMeasured, bool fallbackValid, bool fallbackMeasured )
 {
 	if ( primeValid )

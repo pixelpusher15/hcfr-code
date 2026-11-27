@@ -178,7 +178,7 @@ class CCIEChartGrapher
 	// Operations
 	void MakeBgBitmap(CRect rect,BOOL bWhiteBkgnd);
 	void DrawCoverageChips(CDC *pDC, CRect rcAnchor, CDataSetDoc * pDoc, BOOL bForExport);
-	void DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint = NULL, bool isSelected = FALSE, double dE10=100.0, bool isPrimeSec = FALSE);
+	void DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint = NULL, bool isSelected = FALSE, double dE10=100.0, bool isPrimeSec = FALSE, bool bShowLab = true);
 	bool DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int y, const CCIEGraphPoint& aGraphPoint, bool isSelected);
 	void DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd);
 	void SaveGraphFile ( CDataSetDoc * pDoc, CSize ImageSize, LPCSTR lpszPathName, int ImageFormat = 0, int ImageQuality = 95, bool PDF=FALSE );

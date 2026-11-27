@@ -519,7 +519,7 @@ bool CCIEChartGrapher::DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int 
 	return true;
 }
 
-void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint, bool isSelected, double dE10, bool isPrimeSat)
+void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint, bool isSelected, double dE10, bool isPrimeSat, bool bShowLab)
 {
 	ASSERT(pBitmap);
 	ASSERT(pDC);
@@ -564,8 +564,13 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 				str.Format("<font color=\"#004080\">x: %.3f, y: %.3f, Y: %.2f%%\n",aGraphPoint.x,aGraphPoint.y,aGraphPoint.GetNormalizedColor()[1]*100);
 
 
+			// No L*a*b* line for a point with no white to be judged against
+			// (bShowLab false): its L*a*b* would be relative to a stand-in.
+			if ( bShowLab )
+			{
 			str1.Format("L*a*b*: %.2f %.3f %.3f",aGraphPoint.L,aGraphPoint.a,aGraphPoint.b);
 			str += str1;
+			}
 
 		if ( pRefPoint )
 		{
@@ -1464,7 +1469,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	// above lands on the constructor's placeholder or on 1.0, CallerWhiteIsMeasured
 	// with the measured test of DrawCoverageChips), the groups shown from the list
 	// get no reference below, so their tooltips carry no dE.
-	bool bChartNoWhite = false;
+	ShownWhiteSource chartWhite = SHOWN_WHITE_CALLER;
 	{
 		const bool bChartPrime = pDoc -> GetMeasure () -> GetPrimeWhite ().isValid() && !( (current_mode>=4 && current_mode<=12) && (GetConfig()->m_colorStandard==HDTVb||GetConfig()->m_colorStandard==HDTVa));
 		const bool bChainMeasured = CallerWhiteIsMeasured ( bChartPrime, pDoc -> GetMeasure () -> IsPrimeWhiteMeasured () != FALSE, grayScaleWhite.isValid() != FALSE,
@@ -1473,7 +1478,7 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 		const ShownWhiteSource ws = pDoc -> GetMeasure () -> GetShownPrimaryWhiteSource ( bChainMeasured, & listWhite );
 		if ( ws == SHOWN_WHITE_LIST )
 			YWhite = listWhite [ 1 ];
-		bChartNoWhite = ( ws == SHOWN_WHITE_NONE );
+		chartWhite = ws;
 	}
 
 	double YWhiteRef = 1.0;
@@ -1526,12 +1531,15 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	// primaries / secondaries under HDR10, whose references are the run level's
 	// (ChoosePrimarySetShown). Those markers carry no reference, so their
 	// tooltips have no dE.
-	// Nor do a list's groups when there is no white (bChartNoWhite); a group
-	// from the dedicated measurement keeps its reference.
+	// Nor do a list's groups when there is no white (PrimarySetHasWhite), which
+	// also drop their L*a*b* line; a group from the dedicated measurement keeps
+	// both.
 	const PrimarySetChoice primShown = pDoc->GetMeasure()->GetShownPrimaryChoice(false, NULL);
 	const PrimarySetChoice secShown = pDoc->GetMeasure()->GetShownPrimaryChoice(true, NULL);
-	const bool bPrimariesRef = primShown.referenceApplies && ! ( bChartNoWhite && primShown.source == PRIMARY_SET_LIST );
-	const bool bSecondariesRef = secShown.referenceApplies && ! ( bChartNoWhite && secShown.source == PRIMARY_SET_LIST );
+	const bool bPrimariesLab = PrimarySetHasWhite ( primShown, chartWhite );
+	const bool bSecondariesLab = PrimarySetHasWhite ( secShown, chartWhite );
+	const bool bPrimariesRef = primShown.referenceApplies && bPrimariesLab;
+	const bool bSecondariesRef = secShown.referenceApplies && bSecondariesLab;
 
 	BOOL hasPrimaries= redPrimaryColor.isValid() && greenPrimaryColor.isValid() &&
 					   bluePrimaryColor.isValid();
@@ -2107,16 +2115,16 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 
 		if ( hasPrimaries )
 		{
-			DrawAlphaBitmap(pDC,redPrimaryPoint,&m_redPrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refRedPrimaryPoint : NULL, FALSE, dE10, TRUE);
-			DrawAlphaBitmap(pDC,greenPrimaryPoint,&m_greenPrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refGreenPrimaryPoint : NULL, FALSE, dE10, TRUE);
-			DrawAlphaBitmap(pDC,bluePrimaryPoint,&m_bluePrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refBluePrimaryPoint : NULL, FALSE, dE10, TRUE);
+			DrawAlphaBitmap(pDC,redPrimaryPoint,&m_redPrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refRedPrimaryPoint : NULL, FALSE, dE10, TRUE, bPrimariesLab);
+			DrawAlphaBitmap(pDC,greenPrimaryPoint,&m_greenPrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refGreenPrimaryPoint : NULL, FALSE, dE10, TRUE, bPrimariesLab);
+			DrawAlphaBitmap(pDC,bluePrimaryPoint,&m_bluePrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refBluePrimaryPoint : NULL, FALSE, dE10, TRUE, bPrimariesLab);
 		}
 		
 		if ( hasSecondaries )
 		{
-			DrawAlphaBitmap(pDC,yellowSecondaryPoint,&m_yellowSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refYellowSecondaryPoint : NULL, FALSE, dE10, TRUE);
-			DrawAlphaBitmap(pDC,cyanSecondaryPoint,&m_cyanSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refCyanSecondaryPoint : NULL, FALSE, dE10,  TRUE);
-			DrawAlphaBitmap(pDC,magentaSecondaryPoint,&m_magentaSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refMagentaSecondaryPoint : NULL, FALSE, dE10, TRUE);
+			DrawAlphaBitmap(pDC,yellowSecondaryPoint,&m_yellowSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refYellowSecondaryPoint : NULL, FALSE, dE10, TRUE, bSecondariesLab);
+			DrawAlphaBitmap(pDC,cyanSecondaryPoint,&m_cyanSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refCyanSecondaryPoint : NULL, FALSE, dE10,  TRUE, bSecondariesLab);
+			DrawAlphaBitmap(pDC,magentaSecondaryPoint,&m_magentaSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refMagentaSecondaryPoint : NULL, FALSE, dE10, TRUE, bSecondariesLab);
 		}
 
 		if ( hasdatarefPrimaries )
