@@ -9048,6 +9048,38 @@ namespace T61Summary
             if (PatchListNameIsEmpty(names[i].name) != names[i].empty)
                 Fail("T61 name \"%s\": empty %d, expected %d", names[i].name, (int)!names[i].empty, (int)names[i].empty);
     }
+
+    // SummaryUserText: the user's part of the Summary pane is what precedes the
+    // generated lines the pane was last written with. A pane left showing an
+    // older string than the document's current one (the generated lines
+    // changed and the pane was not refreshed yet) must still give back only
+    // what the user typed.
+    static void CheckUserText()
+    {
+        const std::string user = "Projector, lamp at 500 h\r\n";
+        const std::string genOld = "Patch lists: grays\r\nWhite: 100.0 cd/m\xB2 (gray scale 100%)\r\n";
+        const std::string genNew = "Patch lists: grays\r\nWhite: 101.2 cd/m\xB2 (gray scale 100%)\r\n";
+        struct { const char * what; std::string pane, shown, want; } cases[] = {
+            { "current pane",                 user + genNew,          genNew, user },
+            { "stale pane",                   user + genOld,          genOld, user },
+            { "typed into a stale pane",      user + "x" + genOld,    genOld, user + "x" },
+            { "generated lines edited",       user + genOld + "y",    genOld, user + genOld + "y" },
+            { "only the generated lines",     genOld,                 genOld, "" },
+            { "nothing generated",            user,                   "",     user },
+            { "pane shorter than the string", "W",                    genOld, "W" },
+            { "empty pane",                   "",                     genOld, "" } };
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        {
+            const std::string got = SummaryUserText(cases[i].pane, cases[i].shown);
+            if (got != cases[i].want)
+                Fail("T61 user text, %s: \"%s\", expected \"%s\"", cases[i].what, got.c_str(), cases[i].want.c_str());
+        }
+        // Why the shown string and not the current one: stripping a stale pane
+        // against the current string removes nothing, and the old generated
+        // lines would be stored as the user's own text.
+        if (SummaryUserText(user + genOld, genNew) != user + genOld)
+            Fail("T61 user text: a stale pane stripped against the current string changed");
+    }
 }
 
 static void RunT61()
@@ -9058,6 +9090,7 @@ static void RunT61()
     T61Summary::CheckDecimals();
     T61Summary::CheckGammaShown();
     T61Summary::CheckUserSets();
+    T61Summary::CheckUserText();
 }
 
 int main(int argc, char* argv[])

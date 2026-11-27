@@ -198,4 +198,19 @@ inline bool PatchListNameIsEmpty ( const std::string & name )
 	return true;
 }
 
+// The user's own part of the Summary pane's text. The pane shows the user's
+// text followed by the generated lines (CMeasure::GetGeneratedInfoString) it
+// was last written with, shownGenerated - which can be older than the
+// document's current string until the pane is next refreshed. Stripping
+// against the string actually shown means a stale pane never turns generated
+// lines into typed text. A pane that does not end with it (the user edited
+// inside the generated lines) is kept whole.
+inline std::string SummaryUserText ( const std::string & pane, const std::string & shownGenerated )
+{
+	const size_t n = shownGenerated.size ();
+	if ( n > 0 && pane.size () >= n && pane.compare ( pane.size () - n, n, shownGenerated ) == 0 )
+		return pane.substr ( 0, pane.size () - n );
+	return pane;
+}
+
 #endif // SUMMARYSOURCES_H_INCLUDED_
