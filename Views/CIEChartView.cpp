@@ -1460,10 +1460,20 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	// references (YWhiteRef below); the data reference markers take their
 	// document's white, the gray markers GetGrayScaleWhite, and the
 	// saturation and color checker markers the white recomputed before them.
+	// With no white at all (SHOWN_WHITE_NONE: no list white, and the chain
+	// above lands on the constructor's placeholder or on 1.0, CallerWhiteIsMeasured
+	// with the measured test of DrawCoverageChips), the groups shown from the list
+	// get no reference below, so their tooltips carry no dE.
+	bool bChartNoWhite = false;
 	{
+		const bool bChartPrime = pDoc -> GetMeasure () -> GetPrimeWhite ().isValid() && !( (current_mode>=4 && current_mode<=12) && (GetConfig()->m_colorStandard==HDTVb||GetConfig()->m_colorStandard==HDTVa));
+		const bool bChainMeasured = CallerWhiteIsMeasured ( bChartPrime, pDoc -> GetMeasure () -> IsPrimeWhiteMeasured () != FALSE, grayScaleWhite.isValid() != FALSE,
+			pDoc -> GetMeasure () -> IsOnOffWhiteMeasured () || ! CMeasure::IsPlaceholderWhite ( grayScaleWhite, true ) );
 		CColor listWhite;
-		if ( pDoc -> GetMeasure () -> GetShownPrimaryListWhite ( & listWhite ) )
+		const ShownWhiteSource ws = pDoc -> GetMeasure () -> GetShownPrimaryWhiteSource ( bChainMeasured, & listWhite );
+		if ( ws == SHOWN_WHITE_LIST )
 			YWhite = listWhite [ 1 ];
+		bChartNoWhite = ( ws == SHOWN_WHITE_NONE );
 	}
 
 	double YWhiteRef = 1.0;
@@ -1516,8 +1526,12 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	// primaries / secondaries under HDR10, whose references are the run level's
 	// (ChoosePrimarySetShown). Those markers carry no reference, so their
 	// tooltips have no dE.
-	const bool bPrimariesRef = pDoc->GetMeasure()->GetShownPrimaryChoice(false, NULL).referenceApplies;
-	const bool bSecondariesRef = pDoc->GetMeasure()->GetShownPrimaryChoice(true, NULL).referenceApplies;
+	// Nor do a list's groups when there is no white (bChartNoWhite); a group
+	// from the dedicated measurement keeps its reference.
+	const PrimarySetChoice primShown = pDoc->GetMeasure()->GetShownPrimaryChoice(false, NULL);
+	const PrimarySetChoice secShown = pDoc->GetMeasure()->GetShownPrimaryChoice(true, NULL);
+	const bool bPrimariesRef = primShown.referenceApplies && ! ( bChartNoWhite && primShown.source == PRIMARY_SET_LIST );
+	const bool bSecondariesRef = secShown.referenceApplies && ! ( bChartNoWhite && secShown.source == PRIMARY_SET_LIST );
 
 	BOOL hasPrimaries= redPrimaryColor.isValid() && greenPrimaryColor.isValid() &&
 					   bluePrimaryColor.isValid();

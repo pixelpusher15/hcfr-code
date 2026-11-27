@@ -2058,9 +2058,14 @@ CColor CMeasure::GetShownSecondary(int i) const
 
 bool CMeasure::GetShownPrimaryListWhite(CColor * pWhite) const
 {
+	return GetShownPrimaryWhiteSource ( true, pWhite ) == SHOWN_WHITE_LIST;
+}
+
+ShownWhiteSource CMeasure::GetShownPrimaryWhiteSource(bool callerWhiteMeasured, CColor * pWhite) const
+{
 	// A measured prime white is the dedicated run's: every caller keeps it.
 	if ( m_bPrimeWhiteMeasured )
-		return false;
+		return SHOWN_WHITE_CALLER;
 	const bool anyList = GetShownPrimaryChoice ( false, NULL ).source == PRIMARY_SET_LIST
 					  || GetShownPrimaryChoice ( true, NULL ).source == PRIMARY_SET_LIST;
 	CColor w = noDataColor;
@@ -2070,10 +2075,10 @@ bool CMeasure::GetShownPrimaryListWhite(CColor * pWhite) const
 	int nRows = 0, nReadings = 0;
 	if ( anyList && GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
 		listHasWhite = BuildListWhiteAtLevel ( rows, nRows, readings, nReadings, PrimeWhiteIRELevel ( NULL ), & w );
-	if ( ChooseShownWhite ( m_bPrimeWhiteMeasured != FALSE, anyList, listHasWhite ) != SHOWN_WHITE_LIST )
-		return false;
-	*pWhite = w;
-	return true;
+	const ShownWhiteSource r = ChooseShownWhite ( m_bPrimeWhiteMeasured != FALSE, anyList, listHasWhite, callerWhiteMeasured );
+	if ( r == SHOWN_WHITE_LIST )
+		*pWhite = w;
+	return r;
 }
 
 CColor CMeasure::GetShownPrimaryWhite(const CColor & callerWhite) const

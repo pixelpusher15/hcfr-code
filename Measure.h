@@ -325,6 +325,12 @@ public:
 	// callerWhite - the white and fallback chain each caller has always used.
 	bool GetShownPrimaryListWhite(CColor * pWhite) const;
 	CColor GetShownPrimaryWhite(const CColor & callerWhite) const;
+	// The same choice for a caller whose own white chain lands on a measured
+	// white or not (callerWhiteMeasured, CallerWhiteIsMeasured): SHOWN_WHITE_LIST
+	// with *pWhite, SHOWN_WHITE_NONE when a group is shown from the list, the
+	// list has no white and the caller's chain has none either (the groups shown
+	// from the list then get no dE), else SHOWN_WHITE_CALLER.
+	ShownWhiteSource GetShownPrimaryWhiteSource(bool callerWhiteMeasured, CColor * pWhite) const;
 	bool PrimariesHoldReading() const;	// a valid dedicated primary (the S_PRIMARIES test of SweepOverwritesData)
 	bool SecondariesHoldReading() const;	// the same for the secondaries
 	ListPrimarySet GetListPrimarySet() const;	// the active set's, empty without one
