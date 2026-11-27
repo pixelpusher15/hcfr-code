@@ -5107,10 +5107,17 @@ void CMainView::UpdateGrid()
 		{
 		case 0: case 3: case 4: bHasMeas = GetDocument()->GetMeasure()->GetGray(0).isValid(); break;
 		case 1:
-			// The red primary shown, or the yellow secondary when the secondaries
-			// are shown from a list (the groups are chosen separately).
-			bHasMeas = GetDocument()->GetMeasure()->GetShownPrimary(0).isValid()
-				|| ( pageChoice[1].source == PRIMARY_SET_LIST && pageSet[1].entries[3].reading.isValid() );
+			// The red primary shown (the dedicated measurement's rule, unchanged),
+			// or any color column of a group shown from a list that holds a valid
+			// reading: a list's group need not have red, or yellow, to have dEs
+			// (the groups are chosen separately).
+			bHasMeas = GetDocument()->GetMeasure()->GetShownPrimary(0).isValid();
+			for ( int c = 0; c < 6 && ! bHasMeas; c++ )
+			{
+				const int g = ( c < 3 ) ? 0 : 1;
+				if ( pageChoice[g].source == PRIMARY_SET_LIST && pageSet[g].entries[c].reading.isValid() )
+					bHasMeas = TRUE;
+			}
 			break;
 		case 5: bHasMeas = GetDocument()->GetMeasure()->GetRedSat(0).isValid(); break;
 		case 6: bHasMeas = GetDocument()->GetMeasure()->GetGreenSat(0).isValid(); break;
