@@ -335,6 +335,20 @@ public:
 	// That white, else exactly callerWhite - the white and fallback chain each
 	// caller has always used.
 	CColor GetShownPrimaryWhite(const CColor & callerWhite) const;
+	// The white the active user patch list's OWN points are judged against
+	// (libHCFR ChooseListPointWhite): the patch-list page of the main grid
+	// (display mode 11 with m_CCMode == USER), its dE average, the CIE chart's
+	// list-point markers, the RGB levels widget and the selected-color pane for
+	// a list column. The shown primaries' rule, with the list's points always
+	// shown from the list, read from the same facts as
+	// GetShownPrimaryWhiteSource, so a reading judged as a list point and as a
+	// PRIMARY marker meets the same white. SHOWN_WHITE_CALLER (each view's own
+	// white chain, unchanged) with the prime white measured, outside the user
+	// set (another color checker set, or no active user band) and under HDTVa /
+	// HDTVb. *pWhite as GetShownPrimaryWhiteSource.
+	ShownWhiteSource GetListPointWhiteSource(CColor * pWhite) const;
+	// That white when it names one, else exactly callerWhite.
+	CColor GetListPointWhite(const CColor & callerWhite) const;
 	bool PrimariesHoldReading() const;	// a valid dedicated primary (the S_PRIMARIES test of SweepOverwritesData)
 	bool SecondariesHoldReading() const;	// the same for the secondaries
 	ListPrimarySet GetListPrimarySet() const;	// the active set's, empty without one
@@ -464,6 +478,10 @@ public:
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0
 
 protected:
+	// GetShownPrimaryWhiteSource (bListPoints false, anyGroupFromList from the
+	// shown groups) and GetListPointWhiteSource (bListPoints true): the facts
+	// read once, the choice ChooseShownPrimaryWhite / ChooseListPointWhite.
+	ShownWhiteSource ResolveShownWhite(bool bListPoints, bool anyGroupFromList, CColor * pWhite) const;
 	bool MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx, BOOL bIgnoreAbort = FALSE);
 	void ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, double fTo);
 public:

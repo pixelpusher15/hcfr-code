@@ -2063,12 +2063,39 @@ ShownWhiteSource CMeasure::GetShownPrimaryWhiteSource(CColor * pWhite) const
 		return SHOWN_WHITE_CALLER;
 	const bool anyList = GetShownPrimaryChoice ( false, NULL ).source == PRIMARY_SET_LIST
 					  || GetShownPrimaryChoice ( true, NULL ).source == PRIMARY_SET_LIST;
+	return ResolveShownWhite ( false, anyList, pWhite );
+}
+
+ShownWhiteSource CMeasure::GetListPointWhiteSource(CColor * pWhite) const
+{
+	// A measured prime white is the dedicated run's: every view keeps it.
+	if ( m_bPrimeWhiteMeasured )
+		return SHOWN_WHITE_CALLER;
+	return ResolveShownWhite ( true, false, pWhite );
+}
+
+CColor CMeasure::GetListPointWhite(const CColor & callerWhite) const
+{
+	CColor w;
+	return ShownWhiteIsChosen ( GetListPointWhiteSource ( & w ) ) ? w : callerWhite;
+}
+
+ShownWhiteSource CMeasure::ResolveShownWhite(bool bListPoints, bool anyGroupFromList, CColor * pWhite) const
+{
+	const bool anyList = anyGroupFromList;
 	CColor w = noDataColor;
 	bool listHasWhite = false;
 	const CsvPatchRow * rows = NULL;
 	const CColor * readings = NULL;
 	int nRows = 0, nReadings = 0;
-	if ( anyList && GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
+	// The list's points: the user set shown (the color checker page and
+	// markers read the USER band) with an active band behind it. The shown
+	// primaries: a group shown from the list.
+	bool haveBand = false;
+	if ( bListPoints ? ( GetConfig()->m_CCMode == USER ) : anyList )
+		haveBand = GetActiveUserBand ( & rows, & nRows, & readings, & nReadings );
+	const bool userList = bListPoints && haveBand;
+	if ( haveBand )
 		listHasWhite = BuildListWhiteAtLevel ( rows, nRows, readings, nReadings, PrimeWhiteIRELevel ( NULL ), & w );
 	// A white the document measured, for a run whose white is its 100% white:
 	// the gray scale's top slot unless it is the constructor's placeholder, and
@@ -2077,7 +2104,10 @@ ShownWhiteSource CMeasure::GetShownPrimaryWhiteSource(CColor * pWhite) const
 	const CColor grayWhite = GrayScaleWhite ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), noDataColor, IsConstructorPlaceholder );
 	const bool grayMeasured = grayWhite.isValid () && GrayRampWhiteUsable ( grayWhite );
 	const bool onOffMeasured = m_bOnOffWhiteMeasured && HoldsReading ( m_OnOffWhite ) && GrayRampWhiteUsable ( m_OnOffWhite );
-	const ShownWhiteSource r = ChooseShownPrimaryWhite ( m_bPrimeWhiteMeasured != FALSE, anyList, listHasWhite, whiteLevelIsFull, grayMeasured, onOffMeasured );
+	const ColorStandard standard = GetColorReference().m_standard;
+	const ShownWhiteSource r = bListPoints
+		? ChooseListPointWhite ( userList, standard == HDTVa || standard == HDTVb, m_bPrimeWhiteMeasured != FALSE, listHasWhite, whiteLevelIsFull, grayMeasured, onOffMeasured )
+		: ChooseShownPrimaryWhite ( m_bPrimeWhiteMeasured != FALSE, anyList, listHasWhite, whiteLevelIsFull, grayMeasured, onOffMeasured );
 	if ( r == SHOWN_WHITE_LIST )
 		*pWhite = w;
 	else if ( r == SHOWN_WHITE_GRAY_SCALE )
