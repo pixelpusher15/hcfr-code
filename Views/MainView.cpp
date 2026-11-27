@@ -49,6 +49,7 @@
 
 #include "DocEnumerator.h"	//Ki
 #include "../ScaleSizes.h"
+#include "BlackOverrideRule.h"
 #include <math.h>
 #include <algorithm>
 #include <vector>
@@ -660,6 +661,8 @@ CMainView::CMainView()
 	m_userBlack = FALSE;
 	m_oldBlackGS = noDataColor;
 	m_oldBlackNB = noDataColor;
+	m_oldBlackOnOff = noDataColor;
+	m_bOldBlackGSPredatesData = m_bOldBlackNBPredatesData = m_bOldBlackOnOffPredatesData = false;
 	GetConfig()->m_bSave = FALSE;
 	GetConfig()->m_bSave2 = FALSE;
 	isSelectedWhiteY = FALSE;
@@ -2032,6 +2035,42 @@ static CString GrayColumnLabel ( CMeasure * pMeasure, int i, BOOL bIRE )
 	return str;
 }
 
+// Whether a series holds a reading outside its 0% slot (CMeasure::HoldsReading:
+// a new document's top gray placeholder is none).
+static bool GraySeriesHoldsReading(CMeasure * pMeasure)
+{
+	for (int i = 1; i < pMeasure->GetGrayScaleSize(); i++)
+		if (CMeasure::HoldsReading(pMeasure->GetGray(i)))
+			return true;
+	return false;
+}
+
+static bool NearBlackSeriesHoldsReading(CMeasure * pMeasure)
+{
+	for (int i = 1; i < pMeasure->GetNearBlackScaleSize(); i++)
+		if (CMeasure::HoldsReading(pMeasure->GetNearBlack(i)))
+			return true;
+	return false;
+}
+
+// Writes back the gray 0%, near-black 0% and on/off black the override swap
+// (InitGrid) took out of the document, each into its own slot, except a capture
+// taken before its series held data when the series holds data now: a sweep
+// under the override filled it, and its 0% slot keeps the sweep's black
+// (BlackOverrideRule.h). Runs on untick and around a save (CDataSetDoc::Serialize).
+void CMainView::PutBackSwappedBlack()
+{
+	if (!m_userBlack)
+		return;
+	CMeasure * pMeasure = GetDocument()->GetMeasure();
+	if (BlackOverrideRule::RestoresCapture(m_bOldBlackGSPredatesData, GraySeriesHoldsReading(pMeasure)))
+		pMeasure->SetGray(0, m_oldBlackGS);
+	if (BlackOverrideRule::RestoresCapture(m_bOldBlackNBPredatesData, NearBlackSeriesHoldsReading(pMeasure)))
+		pMeasure->SetNearBlack(0, m_oldBlackNB);
+	if (BlackOverrideRule::RestoresCapture(m_bOldBlackOnOffPredatesData, pMeasure->IsOnOffWhiteMeasured() != FALSE))
+		pMeasure->SetOnOffBlack(m_oldBlackOnOff);
+}
+
 void CMainView::InitGrid(bool sizeGrid)
 {
 	if(m_pGrayScaleGrid==NULL)
@@ -2661,8 +2700,13 @@ void CMainView::InitGrid(bool sizeGrid)
 	{
 		if (!m_userBlack)
 		{
-			m_oldBlackGS = GetDocument()->GetMeasure()->GetGray(0);
-			m_oldBlackNB = GetDocument()->GetMeasure()->GetNearBlack(0);
+			CMeasure * pMeasure = GetDocument()->GetMeasure();
+			m_oldBlackGS = pMeasure->GetGray(0);
+			m_oldBlackNB = pMeasure->GetNearBlack(0);
+			m_oldBlackOnOff = pMeasure->GetOnOffBlack();
+			m_bOldBlackGSPredatesData = BlackOverrideRule::CapturePredatesData(CMeasure::HoldsReading(m_oldBlackGS), GraySeriesHoldsReading(pMeasure));
+			m_bOldBlackNBPredatesData = BlackOverrideRule::CapturePredatesData(CMeasure::HoldsReading(m_oldBlackNB), NearBlackSeriesHoldsReading(pMeasure));
+			m_bOldBlackOnOffPredatesData = BlackOverrideRule::CapturePredatesData(CMeasure::HoldsReading(m_oldBlackOnOff), pMeasure->IsOnOffWhiteMeasured() != FALSE);
 			double Yblack = GetConfig()->GetProfileDouble("References","Manual Black Level",0);
 			GetDocument()->GetMeasure()->SetGray(0, ColorXYZ(Yblack*.95047,Yblack,Yblack*1.0883));
 			GetDocument()->GetMeasure()->SetNearBlack(0, ColorXYZ(Yblack*.95047,Yblack,Yblack*1.0883)) ;
@@ -2674,9 +2718,7 @@ void CMainView::InitGrid(bool sizeGrid)
 	{
 		if (m_userBlack)
 		{
-			GetDocument()->GetMeasure()->SetGray(0, m_oldBlackGS);
-			GetDocument()->GetMeasure()->SetNearBlack(0, m_oldBlackNB) ;
-			GetDocument()->GetMeasure()->SetOnOffBlack(m_oldBlackGS) ;
+			PutBackSwappedBlack();
 			m_userBlack = FALSE;
 		}
 	}
