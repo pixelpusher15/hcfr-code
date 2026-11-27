@@ -2951,6 +2951,29 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
              }
              else
              {
+					// The user set's own points are judged against the white the shown
+					// primaries are (CMeasure::GetListPointWhiteSource: with the prime
+					// white unmeasured, the list's own white, else the gray scale's
+					// measured 100%, then a measured on/off white), so a reading's hover
+					// dE is the one its PRIMARY marker and the patch-list page give. Under
+					// HDR10 the reference carries that white too (YWhiteRef above: its base
+					// / tmWhite * YWhite). With no white a point gets no reference, so no
+					// dE, and no L*a*b* or luminance percentage. SHOWN_WHITE_CALLER and
+					// every other extended set: exactly YWhite and YWhiteRef.
+					double listYWhite = YWhite, listYWhiteRef = YWhiteRef;
+					bool bListLab = true;
+					if ( GetConfig()->m_CCMode == USER )
+					{
+						CColor listWhite;
+						const ShownWhiteSource listWs = pDoc->GetMeasure()->GetListPointWhiteSource ( & listWhite );
+						if ( ShownWhiteIsChosen ( listWs ) )
+						{
+							listYWhite = listWhite [ 1 ];
+							if ( GetConfig()->m_GammaOffsetType == 5 )
+								listYWhiteRef = ( 1. / 105.9564 * tmWhite / 94.37844 ) / tmWhite * listYWhite;
+						}
+						bListLab = ( listWs != SHOWN_WHITE_NONE );
+					}
                     for (int i=0; i < GetConfig()->GetCColorsSize(); i++)
                     {
 						std::string name = GetConfig()->GetCColorsN(i);
@@ -2959,12 +2982,12 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 						str.Format( (LPCSTR)ccFmt, name.c_str() );
 		        	    pDoc->GetMeasure()->GetRefCC24Sat(i, ccolor);
 		        	    CCIEGraphPoint cc24PointRef(ccolor.GetXYZValue(),
-								  YWhiteRef,
+								  listYWhiteRef,
 				        				  str, m_bCIEuv, m_bCIEab );
     		    	    CCIEGraphPoint cc24Point(pDoc->GetMeasure()->GetCC24Sat(i).GetXYZValue(),
-			    					  YWhite,
+			    					  listYWhite,
 				    				  str, m_bCIEuv, m_bCIEab );
-	    		        DrawAlphaBitmap(pDC,cc24Point,&m_grayPlotBitmap,rect,pTooltip,pWnd,&cc24PointRef, FALSE, dE10);
+	    		        DrawAlphaBitmap(pDC,cc24Point,&m_grayPlotBitmap,rect,pTooltip,pWnd,bListLab ? &cc24PointRef : NULL, FALSE, dE10, FALSE, bListLab);
                     }
              }
          }
