@@ -10124,6 +10124,91 @@ namespace T62Prim
                 Fail("T62 data reference rows: HDR10 100%% column row %d shown %d, expected %d",
                      comp, (int)PrimaryPageCellShown(PRIMARY_PAGE_LIST_NO_REF, comp, true), (int)want[comp]);
     }
+
+    // 19. The white a user list's own points are judged against
+    // (ChooseListPointWhite): not a user list, or a special 75% standard, keeps
+    // the caller's white; else exactly the shown primaries' rule with a group
+    // from the list - a measured prime white keeps the caller's, then the
+    // list's own white, then (white level 100% only) the gray scale's measured
+    // 100%, then a measured on/off white, else none. All 128 cases, the
+    // expectation spelled out independently of ChooseShownPrimaryWhite.
+    static void CheckListPointWhite()
+    {
+        for (int k = 0; k < 128; k++)
+        {
+            const bool user = (k & 1) != 0, special = (k & 2) != 0, pm = (k & 4) != 0, has = (k & 8) != 0;
+            const bool full = (k & 16) != 0, gray = (k & 32) != 0, onoff = (k & 64) != 0;
+            ShownWhiteSource expected;
+            if (!user || special || pm)
+                expected = SHOWN_WHITE_CALLER;
+            else if (has)
+                expected = SHOWN_WHITE_LIST;
+            else if (full && gray)
+                expected = SHOWN_WHITE_GRAY_SCALE;
+            else if (full && onoff)
+                expected = SHOWN_WHITE_ON_OFF;
+            else
+                expected = SHOWN_WHITE_NONE;
+            const ShownWhiteSource got = ChooseListPointWhite(user, special, pm, has, full, gray, onoff);
+            if (got != expected)
+                Fail("T62 list point white: user list %d, special %d, prime measured %d, list white %d, white level 100%% %d,"
+                     " gray scale %d, on/off %d gives %d, expected %d", (int)user, (int)special, (int)pm, (int)has,
+                     (int)full, (int)gray, (int)onoff, (int)got, (int)expected);
+            // The same white as the shown primaries whenever a group is shown
+            // from the list (the agreement the views rely on).
+            if (user && !special && got != ChooseShownPrimaryWhite(pm, true, has, full, gray, onoff))
+                Fail("T62 list point white: case %d differs from the shown primaries' white", k);
+        }
+        // The field case: SDR, a user list with its own 100% white, no
+        // primaries run: the list's white, as the primary markers get.
+        if (ChooseListPointWhite(true, false, false, true, true, false, false) != SHOWN_WHITE_LIST)
+            Fail("T62 list point white: SDR list with its own white does not get it");
+        // HDR10 (white level 50.22831%): no list white at that level, a
+        // measured gray scale and on/off white: none - they are 100% whites.
+        if (ChooseListPointWhite(true, false, false, false, false, true, true) != SHOWN_WHITE_NONE)
+            Fail("T62 list point white: HDR10 list without a run-level white falls back to a 100%% white");
+        // A built-in color checker set keeps the caller's white even with a list white.
+        if (ChooseListPointWhite(false, false, false, true, true, true, true) != SHOWN_WHITE_CALLER)
+            Fail("T62 list point white: a built-in set does not keep the caller's white");
+    }
+
+    // 20. The rows of the patch-list page the list point's white makes
+    // (PatchListRowUsesWhite), spelled out for every layout: the dE always,
+    // the data reference dE (5 with one), the luminance rows unless HDR10's
+    // absolute ones. Relative luminance is exactly the primaries page's
+    // PrimaryPageRowUsesWhite.
+    static void CheckListPointRows()
+    {
+        const bool want[4][10] = {
+            { false, false, false, true, false, true,  true,  false, false, false },	// no data ref, relative
+            { false, false, false, true, false, false, false, false, false, false },	// no data ref, HDR10
+            { false, false, false, true, false, true,  false, true,  true,  false },	// data ref, relative
+            { false, false, false, true, false, true,  false, false, false, false },	// data ref, HDR10
+        };
+        for (int v = 0; v < 4; v++)
+        {
+            const bool hd = (v & 2) != 0, abs = (v & 1) != 0;
+            for (int comp = 0; comp < 10; comp++)
+            {
+                const bool got = PatchListRowUsesWhite(comp, hd, abs);
+                if (got != want[v][comp])
+                    Fail("T62 list point rows: row %d (data reference %d, HDR10 %d) uses the white %d, expected %d",
+                         comp, (int)hd, (int)abs, (int)got, (int)want[v][comp]);
+                if (!abs && got != PrimaryPageRowUsesWhite(comp, hd))
+                    Fail("T62 list point rows: row %d (data reference %d) differs from the primaries page", comp, (int)hd);
+            }
+        }
+        // The RGB levels widget: empty only with no white, and not under HDR10.
+        const ShownWhiteSource all[5] = { SHOWN_WHITE_CALLER, SHOWN_WHITE_LIST, SHOWN_WHITE_NONE, SHOWN_WHITE_GRAY_SCALE, SHOWN_WHITE_ON_OFF };
+        for (int w = 0; w < 5; w++)
+            for (int a = 0; a <= 1; a++)
+            {
+                const bool expected = (all[w] == SHOWN_WHITE_NONE) && a == 0;
+                if (PatchListLevelsHidden(all[w], a != 0) != expected)
+                    Fail("T62 list point levels: choice %d (HDR10 %d) hidden %d, expected %d",
+                         (int)all[w], a, (int)PatchListLevelsHidden(all[w], a != 0), (int)expected);
+            }
+    }
 }
 
 static void RunT62()
@@ -10147,6 +10232,8 @@ static void RunT62()
     T62Prim::CheckGroupWhite();
     T62Prim::CheckWhiteRule();
     T62Prim::CheckDataRefRows();
+    T62Prim::CheckListPointWhite();
+    T62Prim::CheckListPointRows();
 }
 
 int main(int argc, char* argv[])

@@ -289,4 +289,40 @@ bool PrimaryPageRowShown ( PrimaryPageColumnRead read, int component, bool hasDa
 // is exactly PrimaryPageRowShown.
 bool PrimaryPageCellShown ( PrimaryPageColumnRead read, int component, bool hasDataRef );
 
+// The white the active user patch list's OWN points are judged against
+// (CMeasure::GetListPointWhiteSource): the patch-list page of the main grid
+// (display mode 11 on the user set) - its dE, luminance rows and dE average -
+// the list-point markers of the CIE chart, the RGB levels widget and the
+// selected-color pane for a list column. The same rule as the shown primaries
+// (ChooseShownPrimaryWhite) with the list's points always shown from the list,
+// so a reading judged as a list point and as a primary marker gets the same
+// white: with the prime white measured, SHOWN_WHITE_CALLER (each view keeps
+// exactly its own white chain); else the list's own white at the prime white's
+// level (listHasWhite: BuildListWhiteAtLevel at 100%, 50.22831% under HDR10);
+// else, only when that level is 100% (whiteLevelIsFull), the gray scale's
+// measured 100% and then a measured on/off white; else SHOWN_WHITE_NONE (no dE
+// and no white-relative figures). Not a user list (userList false: a built-in
+// color checker or saturation set) or a special 75% standard (HDTVa, HDTVb,
+// whose color checker points are judged against the on/off white, not the
+// prime white's 75% level): SHOWN_WHITE_CALLER, unchanged.
+ShownWhiteSource ChooseListPointWhite ( bool userList, bool specialStandard, bool primeWhiteMeasured, bool listHasWhite, bool whiteLevelIsFull, bool grayScaleWhiteMeasured, bool onOffWhiteMeasured );
+
+// Whether a row of the patch-list page (GetItemText's component, laid out as
+// the primaries page's) is judged against the list point's white, so is empty
+// when there is none: the dE (3), the dE against a data reference document (5
+// with one), and the luminance against the reference and the reference
+// luminance (5 and 6; 7 and 8 with a data reference). With absoluteLuminance
+// (HDR10: those two rows are the reference's own luminance against the
+// tone-mapped diffuse white, which no measured white enters) the luminance
+// rows are not. The values (0..2) and the xy errors (4; 6 with a data
+// reference) are chromaticity or raw readings and never are.
+bool PatchListRowUsesWhite ( int component, bool hasDataRef, bool absoluteLuminance );
+
+// Whether the RGB levels widget shows nothing for a list point with the white
+// choice ws: with no white (SHOWN_WHITE_NONE), except under absoluteLuminance
+// (HDR10), where its bars are judged against the tone-mapped diffuse white
+// and only its dE would need the missing white; the widget cannot leave its
+// dE alone empty, so there it keeps its own white chain.
+bool PatchListLevelsHidden ( ShownWhiteSource ws, bool absoluteLuminance );
+
 #endif // PRIMARYSET_H_INCLUDED_

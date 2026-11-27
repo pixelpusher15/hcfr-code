@@ -264,3 +264,25 @@ bool PrimaryPageCellShown ( PrimaryPageColumnRead read, int component, bool hasD
 		return false;
 	return PrimaryPageRowShown ( read, component, hasDataRef );
 }
+
+ShownWhiteSource ChooseListPointWhite ( bool userList, bool specialStandard, bool primeWhiteMeasured, bool listHasWhite, bool whiteLevelIsFull, bool grayScaleWhiteMeasured, bool onOffWhiteMeasured )
+{
+	if ( ! userList || specialStandard )
+		return SHOWN_WHITE_CALLER;
+	// The list's points are shown from the list: the shown primaries' rule
+	// with a group from the list.
+	return ChooseShownPrimaryWhite ( primeWhiteMeasured, true, listHasWhite, whiteLevelIsFull, grayScaleWhiteMeasured, onOffWhiteMeasured );
+}
+
+bool PatchListRowUsesWhite ( int component, bool hasDataRef, bool absoluteLuminance )
+{
+	if ( component == 3 || ( hasDataRef && component == 5 ) )
+		return true;	// a dE
+	const bool luminanceRow = hasDataRef ? ( component == 7 || component == 8 ) : ( component == 5 || component == 6 );
+	return luminanceRow && ! absoluteLuminance;
+}
+
+bool PatchListLevelsHidden ( ShownWhiteSource ws, bool absoluteLuminance )
+{
+	return ws == SHOWN_WHITE_NONE && ! absoluteLuminance;
+}
