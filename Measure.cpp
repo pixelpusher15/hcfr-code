@@ -3383,8 +3383,7 @@ BOOL CMeasure::MeasureNearWhiteScale(CSensor *pSensor, CGenerator *pGenerator, C
 		return FALSE;
 	}
 	
-	CString pName = pSensor->GetName();
-	if(pSensor->Init(pName == "Simulated sensor"?TRUE:FALSE) != TRUE)
+	if(pSensor->Init(pSensor->isSimulated()?TRUE:FALSE) != TRUE)
 	{
 		Title.LoadString ( IDS_ERROR );
 		strMsg.LoadString ( IDS_ERRINITSENSOR );
@@ -7627,7 +7626,7 @@ BOOL CMeasure::WaitForDynamicIris ( BOOL bIgnoreEscape, CDataSetDoc *pDoc )
 	{
 		nLoopTime = nLatencyTime;
 		if (pDoc)
-			if (pDoc->GetSensor()->GetName() == "Simulated sensor")
+			if (pDoc->GetSensor()->isSimulated())
 				nLoopTime = 10;
 	}
 
