@@ -569,6 +569,11 @@ void C3DColorView::BuildScene()
 		CColor c = pMeasure->GetGray( i );
 		if ( !c.isValid() )
 			continue;
+		// A document with no gray-scale reading holds a placeholder white in the
+		// top gray (CMeasure::IsRawlessPlaceholder): nothing was measured, so it
+		// is not a point, and it stays out of the count and the dE figures.
+		if ( i == n - 1 && CMeasure::IsRawlessPlaceholder( c, false ) )
+			continue;
 		double measRatio = whiteY   > 0.0 ? c[1] / whiteY   : c[1];   // marker: scene white
 		double deRatio   = gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1];   // dE: grid gray white
 		double markRatio = measRatio;         // default: chroma-only target
@@ -777,7 +782,13 @@ void C3DColorView::BuildScene()
 	// genuinely different from the saturation one - the sub-90%-stimulus ON/OFF
 	// fallback is CC-only, and the Mascior-style HDR sets keep their own * 100
 	// convention against the grayscale top - hence the separate query.
-	const ColorDENorm ccNorm = pMeasure->GetColorDENorm( 11 );
+	// A user patch list's points are judged against the list point white the
+	// grid's patch-list page uses (CMeasure::GetListPointDENorm); with none
+	// (SHOWN_WHITE_NONE) they get no target and no dE, as the page shows no
+	// dE. Every built-in set, and a document whose prime white was measured,
+	// get GetColorDENorm( 11 ) exactly.
+	ColorDENorm ccNorm;
+	const bool ccHasWhite = pMeasure->GetListPointDENorm( &ccNorm );
 	const double ccDEWhite   = ( ccNorm.whiteY > 0.0 ) ? ccNorm.whiteY : whiteY;
 	// Unconditional, like the saturation block: a bare 1.0 here would leave the
 	// dE reference unscaled while the marker still plots at * 100 for a Mascior
@@ -799,6 +810,8 @@ void C3DColorView::BuildScene()
 			continue;
 		CColor refC;
 		pMeasure->GetRefCC24Sat( i, refC );
+		if ( !ccHasWhite )
+			refC = noDataColor;	// no white: AppendMeasure gives no target, no dE
 		CColor refMark = refC, refDE = refC;
 		if ( refC.isValid() )
 		{

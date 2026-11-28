@@ -2095,6 +2095,17 @@ ShownWhiteSource CMeasure::GetListPointWhiteSource(CColor * pWhite) const
 	return ResolveShownWhite ( true, false, pWhite );
 }
 
+bool CMeasure::GetListPointDENorm(ColorDENorm * pNorm) const
+{
+	CColor w = noDataColor;
+	const ShownWhiteSource ws = GetListPointWhiteSource ( & w );
+	double y = 0.0;	// 0: GetColorDENorm's own white (SHOWN_WHITE_CALLER)
+	if ( ! ListPointDEWhiteY ( ws, w, 0.0, & y ) )
+		return false;
+	*pNorm = GetColorDENorm ( 11, y );
+	return true;
+}
+
 ShownWhiteSource CMeasure::ResolveShownWhite(bool bListPoints, bool anyGroupFromList, CColor * pWhite) const
 {
 	const bool anyList = anyGroupFromList;
@@ -9444,7 +9455,7 @@ double CMeasure::GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) cons
 // a disc capture (Export) therefore keep an explicit, commented DVD branch. The
 // resulting grid-vs-viewer split is tracked by the manual-generator entries in
 // /accuracytest's kKnownFails.
-ColorDENorm CMeasure::GetColorDENorm(int displayMode) const
+ColorDENorm CMeasure::GetColorDENorm(int displayMode, double whiteYOverride) const
 {
 	// 5..10 saturation, 11 color checker. Nothing else is modelled: the grid
 	// normalises grayscale (0..4), primaries (1) and the profile cube (13)
@@ -9459,7 +9470,9 @@ ColorDENorm CMeasure::GetColorDENorm(int displayMode) const
 	bool mascior  = ( bCC && IsMasciorCC(cfg->m_CCMode) );
 
 	ColorDENorm n;
-	n.whiteY    = GetColorDEWhiteY(bSpecial, bCC, mascior);
+	// A white given by the caller (the list point white, GetListPointDENorm)
+	// takes the place of GetColorDEWhiteY; everything below follows from it.
+	n.whiteY    = ( whiteYOverride > 0.0 ) ? whiteYOverride : GetColorDEWhiteY(bSpecial, bCC, mascior);
 	n.refWhite  = 1.0;
 	n.markScale = 1.0;
 	n.deScale   = 1.0;

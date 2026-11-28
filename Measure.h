@@ -359,6 +359,13 @@ public:
 	// the stored readings' (the previous run's), else the fallbacks above
 	// (libHCFR BuildListPointWhite). Outside a run: the stored readings only.
 	ShownWhiteSource GetListPointWhiteSource(CColor * pWhite) const;
+	// The color checker dE normalisation (GetColorDENorm(11)) for the points of
+	// the set shown, judged against the list point white: GetListPointWhiteSource
+	// through libHCFR ListPointDEWhiteY. SHOWN_WHITE_CALLER (every built-in set,
+	// the prime white measured): exactly GetColorDENorm(11). A chosen white:
+	// GetColorDENorm(11) with that white in place of GetColorDEWhiteY. No white
+	// (SHOWN_WHITE_NONE): FALSE, *pNorm untouched, and the points have no dE.
+	bool GetListPointDENorm(ColorDENorm * pNorm) const;
 	bool PrimariesHoldReading() const;	// a valid dedicated primary (the S_PRIMARIES test of SweepOverwritesData)
 	bool SecondariesHoldReading() const;	// the same for the secondaries
 	ListPrimarySet GetListPrimarySet() const;	// the active set's, empty without one
@@ -464,7 +471,9 @@ public:
 	double ComputeProfileDEEx(const CColor & measured, int i, ProfileDEParts * pParts);
 	double ComputeProfileDE(const CColor & measured, int i) { return ComputeProfileDEEx( measured, i, NULL ); }
 	double GetColorDEWhiteY(bool bSpecial, bool bCC, bool bMasciorCC) const;	// the white the grid normalises sat/CC dE by (measured, NOT the theoretical tmWhite)
-	ColorDENorm GetColorDENorm(int displayMode) const;	// the whole sat/CC dE normalisation, shared by every consumer
+	// whiteYOverride > 0 takes the place of GetColorDEWhiteY as the white (the
+	// list point white, GetListPointDENorm); otherwise exactly as before.
+	ColorDENorm GetColorDENorm(int displayMode, double whiteYOverride = 0.0) const;	// the whole sat/CC dE normalisation, shared by every consumer
 	PrimaryDENorm GetPrimaryDENorm(double yPrimeWhite, int nCol) const;	// the primaries page's dE normalisation; nCol 1..8, 7 = white
 	// Live profile-capture state (not serialized): the profiling pane pauses/observes through these
 	volatile BOOL m_bProfilePause;

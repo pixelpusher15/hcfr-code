@@ -945,6 +945,19 @@ bool CExport::SavePDF()
 	else
 		YWhite = m_pDoc->GetMeasure()->GetOnOffWhite().GetY();
 
+	// A user patch list's points: the list point white the grid's patch-list
+	// page judges them against (CMeasure::GetListPointWhiteSource,
+	// ListPointDEWhiteY) in place of YWhite, before the HDR10 normalization
+	// below, as the page applies it. With none (bCCNoWhite) the swatches keep
+	// YWhite, as the comparator keeps the measured swatch, and no dE is
+	// printed. Every built-in set, and a measured prime white, keep YWhite.
+	bool bCCNoWhite = false;
+	{
+		CColor listWhite;
+		const ShownWhiteSource listWhiteSource = m_pDoc->GetMeasure()->GetListPointWhiteSource ( & listWhite );
+		bCCNoWhite = ! ListPointDEWhiteY ( listWhiteSource, listWhite, YWhite, & YWhite );
+	}
+
 	RefWhite = 1.0;
 	if (GetConfig()->m_GammaOffsetType == 5)
 	{
@@ -1042,7 +1055,10 @@ bool CExport::SavePDF()
 			aMeasure[1] = 0.5;
 			aMeasure[2] = 0.5;
 		}
-		sprintf(str2,"%.2f",dE);
+		if ( bCCNoWhite )
+			str2[0] = '\0';	// no white: no dE, as on the patch-list page
+		else
+			sprintf(str2,"%.2f",dE);
 
 		aRef[0]=pow(aRef[0],1.0/2.22);
 		aRef[1]=pow(aRef[1],1.0/2.22);
@@ -1530,6 +1546,14 @@ bool CExport::SavePDF()
 	else
 		YWhite = m_pDoc->GetMeasure()->GetOnOffWhite().GetY();
 
+		// The points on this page are the reference document's: its own list
+		// point white, by the rule of the page above.
+		{
+			CColor listWhite;
+			const ShownWhiteSource listWhiteSource = pDataRef->GetMeasure()->GetListPointWhiteSource ( & listWhite );
+			bCCNoWhite = ! ListPointDEWhiteY ( listWhiteSource, listWhite, YWhite, & YWhite );
+		}
+
 		RefWhite = 1.0;
 		if (GetConfig()->m_GammaOffsetType == 5)
 		{
@@ -1624,7 +1648,10 @@ bool CExport::SavePDF()
 				aMeasure[1] = 0.5;
 				aMeasure[2] = 0.5;
 			}
-			sprintf(str2,"%.2f",dE);
+			if ( bCCNoWhite )
+				str2[0] = '\0';	// no white: no dE, as on the patch-list page
+			else
+				sprintf(str2,"%.2f",dE);
 
 			aRef[0]=pow(aRef[0],1.0/2.22);
 			aRef[1]=pow(aRef[1],1.0/2.22);
@@ -3329,6 +3356,14 @@ bool CExport::SaveCCSheet()
 		ccStimValid = ( GenerateCC24Colors(GetColorReference(), &ccStim[0], GetConfig()->m_CCMode, GetConfig()->m_GammaOffsetType, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235()) != FALSE );
 	}
 
+	// A user patch list's points: the list point white the grid's patch-list
+	// page judges them against (CMeasure::GetListPointWhiteSource), read once.
+	// ListPointDEWhiteY below puts it in place of YWhite; with none the dE
+	// cell is empty, as the page shows none. Every built-in set, and a
+	// measured prime white, keep YWhite.
+	CColor ccListWhite;
+	const ShownWhiteSource ccListWhiteSource = m_pDoc->GetMeasure()->GetListPointWhiteSource ( & ccListWhite );
+
 	if(m_doReplace)
 		rowNb=(m_numToReplace-1)*size+2;
 	else
@@ -3496,6 +3531,7 @@ bool CExport::SaveCCSheet()
 			YWhite = m_pDoc->GetMeasure()->GetPrimeWhite().GetY();
 		else
 			YWhite = m_pDoc->GetMeasure()->GetOnOffWhite().GetY();
+		const bool bNoWhite = ! ListPointDEWhiteY ( ccListWhiteSource, ccListWhite, YWhite, & YWhite );
 
 		CColor NoDataColor;
 		double tmWhite = TmDiffuseWhiteNits(NoDataColor, NoDataColor);
@@ -3534,7 +3570,9 @@ bool CExport::SaveCCSheet()
 			}
 		}
 
-		if (aColor.isValid())
+		if (aColor.isValid() && bNoWhite)
+			Rows.Add("");	// no white: no dE (an empty cell, as for a gray with no target)
+		else if (aColor.isValid())
 			Rows.Add(aColor.GetDeltaE(YWhite, aReference, RefWhite, bRef, GetConfig()->m_dE_form, false, GetConfig()->gw_Weight ));
 		else
 			Rows.Add(-1);
