@@ -3759,6 +3759,16 @@ BEGIN
     IDS_EXPORT              "Export"
     IDS_NOMEASURES          "Die Datei ist leer. Soll diese Messung hinzugefügt werden ?"
     IDS_ERREXPORT           "Ein unerwarteter Fehler ist beim Export aufgetreten:"
+    IDS_PDFERR_TITLE        "Fehler beim PDF-Report"
+    IDS_PDFERR_INUSE        "Der Report konnte nicht gespeichert werden unter\n%s\n\nDie Datei ist in einem anderen Programm geöffnet oder schreibgeschützt. Wenn sie in Ihrem PDF-Viewer geöffnet ist, schließen Sie sie dort und versuchen Sie es erneut."
+    IDS_PDFERR_NOFOLDER     "Der Report konnte nicht gespeichert werden unter\n%s\n\nDieser Ordner existiert nicht. Wählen Sie einen anderen Ordner und versuchen Sie es erneut."
+    IDS_PDFERR_CANNOTOPEN   "Der Report konnte nicht gespeichert werden unter\n%s\n\nWindows hat das Anlegen der Datei verweigert. Prüfen Sie den Dateinamen und den Ordner und versuchen Sie es dann erneut."
+    IDS_PDFERR_WRITE        "Das Speichern des Reports unter\n%s\nwurde vorzeitig abgebrochen. Möglicherweise ist der Datenträger voll oder das Laufwerk wurde entfernt."
+    IDS_PDFERR_MEMORY       "Es ist nicht genügend Arbeitsspeicher vorhanden, um den Report zu erstellen."
+    IDS_PDFERR_GENERIC      "Die PDF-Bibliothek hat beim Erstellen des Reports einen Fehler gemeldet."
+    IDS_PDFERR_CODES        "Fehlercode %04X, Detail %04X (bitte bei Supportanfragen angeben)."
+    IDS_PDFERR_CONTINUE     "Ja: Export fortsetzen.  Nein: Export abbrechen."
+    IDS_PDFERR_GRAPHS       "Der Report wurde ohne einige seiner Diagramme gespeichert (%d fehlen): Sie konnten nicht in den Ordner\n%s\ngeschrieben werden. Prüfen Sie, ob dieser Ordner existiert und Sie darin schreiben dürfen, und exportieren Sie dann erneut."
     IDS_MEASURESCANCELED    "Messung abgebrochen"
 END
 

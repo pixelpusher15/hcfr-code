@@ -52,18 +52,74 @@
 #include "Views\MainView.h"
 #include "libHCFR\Color.h"
 #include "libHCFR\Ti3Export.h"
+#include "libHCFR\PdfErrorRule.h"
 jmp_buf env;
+
+// What error_handler needs to know about the export in progress
+// (PdfErrorRule.h). reportPath is set only while HPDF_SaveToFile runs, so a
+// file error can name the report; loadingImage is set while an optional image
+// loads, and an error then is silent; missingGraphs counts the graph images
+// SavePDF could not write, left out of the report.
+static struct
+{
+	const char *	reportPath;
+	bool			loadingImage;
+	int				missingGraphs;
+} g_pdfExport = { NULL, false, 0 };
 
 void error_handler  (HPDF_STATUS   error_no,
                 HPDF_STATUS   detail_no,
                 void         *user_data)
 {
-	char msg[256];
-    _snprintf (msg, sizeof(msg), "ERROR: error_no=%04X, detail_no=%04X, File already open?\n", (HPDF_UINT)error_no,
-                (HPDF_UINT)detail_no);
-    msg[sizeof(msg)-1] = 0;
-			if(GetColorApp()->InMeasureMessageBox(msg,"PDF ERROR, Yes to continue",MB_YESNO)!=IDYES)
-    longjmp(env, 1);
+	// An image the report embeds is optional (draw_image, draw_image2): an
+	// error while one loads leaves it out, and the caller clears the error.
+	if ( g_pdfExport.loadingImage )
+		return;
+
+	int answer;
+	{
+		// The strings live in this block so they are destroyed before the
+		// longjmp below, which does not run their destructors.
+		CString path ( g_pdfExport.reportPath ? g_pdfExport.reportPath : "" );
+		CString text, codes, prompt, title;
+		switch ( PdfErrorRule::Classify ( error_no, detail_no, g_pdfExport.reportPath != NULL ) )
+		{
+			case PdfErrorRule::OutputInUse:			text.Format ( IDS_PDFERR_INUSE, (LPCSTR) path ); break;
+			case PdfErrorRule::OutputFolderMissing:	text.Format ( IDS_PDFERR_NOFOLDER, (LPCSTR) path ); break;
+			case PdfErrorRule::OutputCannotOpen:	text.Format ( IDS_PDFERR_CANNOTOPEN, (LPCSTR) path ); break;
+			case PdfErrorRule::OutputWriteFailed:	text.Format ( IDS_PDFERR_WRITE, (LPCSTR) path ); break;
+			case PdfErrorRule::OutOfMemory:			text.LoadString ( IDS_PDFERR_MEMORY ); break;
+			default:								text.LoadString ( IDS_PDFERR_GENERIC ); break;
+		}
+		codes.Format ( IDS_PDFERR_CODES, (HPDF_UINT) error_no, (HPDF_UINT) detail_no );
+		prompt.LoadString ( IDS_PDFERR_CONTINUE );
+		title.LoadString ( IDS_PDFERR_TITLE );
+		answer = GetColorApp()->InMeasureMessageBox ( text + "\n\n" + codes + "\n\n" + prompt, title, MB_YESNO );
+	}
+	if ( answer != IDYES )
+		longjmp(env, 1);
+}
+
+// %APPDATA%\color: the logo is read from it and the graph images are written
+// to it.
+static CString PdfImageFolder ()
+{
+	const char * path = getenv ( "APPDATA" );
+	return CString ( path ? path : "" ) + "\\color";
+}
+
+// Loads an image the report can do without. NULL, with no message, when the
+// file is not there (checked first, so libharu is never asked to open it) or
+// libharu cannot read it; the caller clears the error a failed load leaves.
+static HPDF_Image LoadOptionalPng ( HPDF_Doc pdf, const char * path )
+{
+	DWORD attributes = GetFileAttributes ( path );
+	if ( attributes == INVALID_FILE_ATTRIBUTES || ( attributes & FILE_ATTRIBUTE_DIRECTORY ) )
+		return NULL;
+	g_pdfExport.loadingImage = true;
+	HPDF_Image image = HPDF_LoadPngImageFromFile ( pdf, path );
+	g_pdfExport.loadingImage = false;
+	return image;
 }
 
 void
@@ -88,7 +144,9 @@ draw_image (HPDF_Doc     pdf,
     _snprintf(filename1, sizeof(filename1), "%s%s%s", path, FILE_SEPARATOR, filename);
     filename1[sizeof(filename1)-1] = 0;
 
-    image = HPDF_LoadPngImageFromFile (pdf, filename1);
+    /* The logo is optional: a missing or unreadable logo.png leaves it out of
+       the report, with no message (LoadOptionalPng). */
+    image = LoadOptionalPng (pdf, filename1);
 
     /* Draw the logo at a fixed display height (in points), preserving aspect
        ratio, so its on-page size does not depend on the source PNG's pixel
@@ -140,7 +198,12 @@ draw_image2 (HPDF_Doc     pdf,
 	_snprintf(filename1, sizeof(filename1), "%s%s%s", path, FILE_SEPARATOR, filename);
     filename1[sizeof(filename1)-1] = 0;
 
-    image = HPDF_LoadPngImageFromFile (pdf, filename1);
+    /* A graph image SavePDF could not write is left out of the report and
+       counted, so SavePDF says once, at the end, which folder it could not
+       write to (a missing or read-only %APPDATA%\color). */
+    image = LoadOptionalPng (pdf, filename1);
+    if ( ! image )
+        g_pdfExport.missingGraphs ++;
 
     /* Draw image to the canvas. Guard against a failed load (NULL image):
        drawing a NULL handle here is what crashes the app when a source PNG is
@@ -151,6 +214,11 @@ draw_image2 (HPDF_Doc     pdf,
         /* Clear the failed-load error so a successful save doesn't re-fire
            error_handler (see draw_image). */
         HPDF_ResetError (pdf);
+
+    /* libharu has copied the image; remove the file so that, when the next
+       graph cannot be written, its place stays empty instead of showing
+       this graph again. */
+    DeleteFile ( filename1 );
 
     /* Print the text. */
     HPDF_Page_BeginText (page);
@@ -427,6 +495,13 @@ bool CExport::SavePDF()
 	if (Black > 0)
 		CR = White /Black;
 
+	g_pdfExport.reportPath = NULL;
+	g_pdfExport.loadingImage = false;
+	g_pdfExport.missingGraphs = 0;
+	/* A graph image left from an earlier export must never stand in for one
+	   this export could not write (draw_image2). */
+	DeleteFile ( PdfImageFolder () + "\\temp.png" );
+
     pdf = HPDF_New (error_handler, NULL);
 
     if (!pdf) {
@@ -439,6 +514,8 @@ bool CExport::SavePDF()
 
     /* error-handler */
     if (setjmp(env)) {
+        g_pdfExport.reportPath = NULL;
+        g_pdfExport.loadingImage = false;
         HPDF_Free (pdf);
         return false;
     }
@@ -1579,12 +1656,25 @@ bool CExport::SavePDF()
 	MemDC.DeleteDC();
 	MemDC2.DeleteDC();
 
-	/* save the document to a file */
-    HPDF_SaveToFile (pdf, afileName);
+	/* save the document to a file. reportPath lets error_handler name the
+	   file and tell a PDF viewer holding it open from a missing folder. */
+	g_pdfExport.reportPath = afileName;
+    HPDF_STATUS saved = HPDF_SaveToFile (pdf, afileName);
+	g_pdfExport.reportPath = NULL;
 
     /* clean up */
     HPDF_Free (pdf);
 	GetConfig()->m_bWhiteBkgndOnFile=bk;
+
+	/* One message for every graph image that could not be written (see
+	   draw_image2), naming the folder, instead of one box per graph. */
+	if ( saved == HPDF_OK && g_pdfExport.missingGraphs > 0 )
+	{
+		CString Msg, Title;
+		Msg.Format ( IDS_PDFERR_GRAPHS, g_pdfExport.missingGraphs, (LPCSTR) PdfImageFolder () );
+		Title.LoadString ( IDS_EXPORT );
+		GetColorApp()->InMeasureMessageBox ( Msg, Title, MB_OK | MB_ICONWARNING );
+	}
 	return true;
 }
 

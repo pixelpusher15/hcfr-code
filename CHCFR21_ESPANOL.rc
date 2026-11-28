@@ -3866,6 +3866,16 @@ BEGIN
     IDS_EXPORT              "Exportar"
     IDS_NOMEASURES          "Este archivo está vacío. ¿Desea añadir esta medida?"
     IDS_ERREXPORT           "Se ha producido un error inesperado durante la exportación:"
+    IDS_PDFERR_TITLE        "Error del informe PDF"
+    IDS_PDFERR_INUSE        "No se pudo guardar el informe en\n%s\n\nEl archivo está abierto en otro programa o es de solo lectura. Si está abierto en su visor de PDF, ciérrelo allí e inténtelo de nuevo."
+    IDS_PDFERR_NOFOLDER     "No se pudo guardar el informe en\n%s\n\nEsa carpeta no existe. Elija otra carpeta e inténtelo de nuevo."
+    IDS_PDFERR_CANNOTOPEN   "No se pudo guardar el informe en\n%s\n\nWindows no permitió crear el archivo. Compruebe el nombre del archivo y la carpeta, y vuelva a intentarlo."
+    IDS_PDFERR_WRITE        "El guardado del informe en\n%s\nfalló a medio camino. Puede que el disco esté lleno o que se haya retirado la unidad."
+    IDS_PDFERR_MEMORY       "No hay memoria suficiente para crear el informe."
+    IDS_PDFERR_GENERIC      "La biblioteca PDF informó de un error al crear el informe."
+    IDS_PDFERR_CODES        "Código de error %04X, detalle %04X (indíquelos si pide ayuda)."
+    IDS_PDFERR_CONTINUE     "Sí: continuar la exportación.  No: detener la exportación."
+    IDS_PDFERR_GRAPHS       "El informe se guardó sin algunos de sus gráficos (faltan %d): no se pudieron escribir en la carpeta\n%s\nCompruebe que esa carpeta existe y que puede escribir en ella, y vuelva a exportar."
     IDS_MEASURESCANCELED    "Medidas canceladas"
 END
 

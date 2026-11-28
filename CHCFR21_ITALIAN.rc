@@ -3944,6 +3944,16 @@ BEGIN
     IDS_EXPORT              "Exporto"
     IDS_NOMEASURES          "Questo file è vuoto. Vuoi aggiungere questa misura ?"
     IDS_ERREXPORT           "Spiacenti, si è verificato un errore inaspettato durante l'esportazione:"
+    IDS_PDFERR_TITLE        "Errore del rapporto PDF"
+    IDS_PDFERR_INUSE        "Impossibile salvare il rapporto in\n%s\n\nIl file è aperto in un altro programma oppure è di sola lettura. Se è aperto nel visualizzatore PDF, chiuderlo lì e riprovare."
+    IDS_PDFERR_NOFOLDER     "Impossibile salvare il rapporto in\n%s\n\nLa cartella non esiste. Scegliere un'altra cartella e riprovare."
+    IDS_PDFERR_CANNOTOPEN   "Impossibile salvare il rapporto in\n%s\n\nWindows ha rifiutato di creare il file. Controllare il nome del file e la cartella, quindi riprovare."
+    IDS_PDFERR_WRITE        "Il salvataggio del rapporto in\n%s\nnon è stato completato. Il disco potrebbe essere pieno, oppure l'unità potrebbe essere stata rimossa."
+    IDS_PDFERR_MEMORY       "Memoria insufficiente per creare il rapporto."
+    IDS_PDFERR_GENERIC      "La libreria PDF ha segnalato un errore durante la creazione del rapporto."
+    IDS_PDFERR_CODES        "Codice errore %04X, dettaglio %04X (da indicare nelle richieste di assistenza)."
+    IDS_PDFERR_CONTINUE     "Sì: continua l'esportazione.  No: interrompi l'esportazione."
+    IDS_PDFERR_GRAPHS       "Il rapporto è stato salvato senza alcuni grafici (%d mancanti): non è stato possibile scriverli nella cartella\n%s\nVerificare che la cartella esista e che sia possibile scriverci, quindi esportare di nuovo."
     IDS_MEASURESCANCELED    "Misure annullate"
 END
 

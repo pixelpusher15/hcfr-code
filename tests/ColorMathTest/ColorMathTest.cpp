@@ -10149,6 +10149,68 @@ static void RunT62()
     T62Prim::CheckDataRefRows();
 }
 
+//////////////////////////////////////////////////////////////////////////
+// T63: what a libharu error during the PDF report export tells the user
+// (libHCFR/PdfErrorRule.h, called by Export.cpp's error_handler). A box that
+// guessed "File already open?" for every error, shown for a missing logo
+// (error 1017, detail 0002), is what this replaces.
+//   (a) the libharu codes (libharu/include/hpdf_error.h) and the C errno
+//       values the mapping is built on, exact;
+//   (b) Classify on every row the export can reach, exact.
+//////////////////////////////////////////////////////////////////////////
+#include "../../libHCFR/PdfErrorRule.h"
+
+namespace T63Pdf
+{
+    static void CheckConstants()
+    {
+        struct { const char * name; long got, expect; } rows[] = {
+            { "HPDF_FAILD_TO_ALLOC_MEM", HPDF_FAILD_TO_ALLOC_MEM, 0x1015 },
+            { "HPDF_FILE_IO_ERROR",      HPDF_FILE_IO_ERROR,      0x1016 },
+            { "HPDF_FILE_OPEN_ERROR",    HPDF_FILE_OPEN_ERROR,    0x1017 },
+            { "ENOENT",                  ENOENT,                  2 },
+            { "EACCES",                  EACCES,                  13 },
+        };
+        for (auto & r : rows)
+            if (r.got != r.expect)
+                Fail("T63(a) %s = 0x%lX, expected 0x%lX", r.name, r.got, r.expect);
+    }
+
+    static void CheckClassify()
+    {
+        using namespace PdfErrorRule;
+        struct { const char * what; unsigned long errorNo, detailNo; bool saving; Cause expect; } rows[] = {
+            { "report open in a PDF viewer (sharing violation)", 0x1017, 13, true,  OutputInUse },
+            { "report folder does not exist",                    0x1017, 2,  true,  OutputFolderMissing },
+            { "report name refused (EINVAL)",                    0x1017, 22, true,  OutputCannotOpen },
+            { "report open failed, no errno",                    0x1017, 0,  true,  OutputCannotOpen },
+            { "write to the report failed (ferror flag)",        0x1016, 1,  true,  OutputWriteFailed },
+            { "write to the report failed, flag 0",              0x1016, 0,  true,  OutputWriteFailed },
+            { "open error outside the save (the old box)",       0x1017, 2,  false, Other },
+            { "access error outside the save",                   0x1017, 13, false, Other },
+            { "read error outside the save",                     0x1016, 1,  false, Other },
+            { "out of memory while building",                    0x1015, 0,  false, OutOfMemory },
+            { "out of memory while saving",                      0x1015, 0,  true,  OutOfMemory },
+            { "invalid document while saving",                   0x1025, 0,  true,  Other },
+            { "damaged PNG",                                     0x103B, 0,  false, Other },
+        };
+        for (auto & r : rows)
+        {
+            Cause got = Classify(r.errorNo, r.detailNo, r.saving);
+            if (got != r.expect)
+                Fail("T63(b) %s: Classify(0x%04lX, 0x%04lX, saving=%d) = %d, expected %d",
+                     r.what, r.errorNo, r.detailNo, r.saving, (int)got, (int)r.expect);
+        }
+    }
+}
+
+static void RunT63()
+{
+    printf("T63 PDF export error causes...\n");
+    T63Pdf::CheckConstants();
+    T63Pdf::CheckClassify();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -10201,6 +10263,7 @@ int main(int argc, char* argv[])
     RunT60();
     RunT61();
     RunT62();
+    RunT63();
 
     if (g_failures)
     {
