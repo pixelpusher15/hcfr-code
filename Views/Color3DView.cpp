@@ -569,6 +569,11 @@ void C3DColorView::BuildScene()
 		CColor c = pMeasure->GetGray( i );
 		if ( !c.isValid() )
 			continue;
+		// A document with no gray-scale reading holds a placeholder white in the
+		// top gray (CMeasure::IsRawlessPlaceholder): nothing was measured, so it
+		// is not a point, and it stays out of the count and the dE figures.
+		if ( i == n - 1 && CMeasure::IsRawlessPlaceholder( c, false ) )
+			continue;
 		double measRatio = whiteY   > 0.0 ? c[1] / whiteY   : c[1];   // marker: scene white
 		double deRatio   = gsWhiteY > 0.0 ? c[1] / gsWhiteY : c[1];   // dE: grid gray white
 		double markRatio = measRatio;         // default: chroma-only target
