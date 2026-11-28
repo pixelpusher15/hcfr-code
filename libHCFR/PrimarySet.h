@@ -289,4 +289,78 @@ bool PrimaryPageRowShown ( PrimaryPageColumnRead read, int component, bool hasDa
 // is exactly PrimaryPageRowShown.
 bool PrimaryPageCellShown ( PrimaryPageColumnRead read, int component, bool hasDataRef );
 
+// The white the active user patch list's OWN points are judged against
+// (CMeasure::GetListPointWhiteSource): the patch-list page of the main grid
+// (display mode 11 on the user set) - its dE, luminance rows and dE average -
+// the list-point markers of the CIE chart, the RGB levels widget and the
+// selected-color pane for a list column. The same rule as the shown primaries
+// (ChooseShownPrimaryWhite) with the list's points always shown from the list,
+// so a reading judged as a list point and as a primary marker gets the same
+// white: with the prime white measured, SHOWN_WHITE_CALLER (each view keeps
+// exactly its own white chain); else the list's own white at the prime white's
+// level (listHasWhite: BuildListWhiteAtLevel at 100%, 50.22831% under HDR10);
+// else, only when that level is 100% (whiteLevelIsFull), the gray scale's
+// measured 100% and then a measured on/off white; else SHOWN_WHITE_NONE (no dE
+// and no white-relative figures). Not a user list (userList false: a built-in
+// color checker or saturation set) or a special 75% standard (HDTVa, HDTVb,
+// whose color checker points are judged against the on/off white, not the
+// prime white's 75% level): SHOWN_WHITE_CALLER, unchanged.
+ShownWhiteSource ChooseListPointWhite ( bool userList, bool specialStandard, bool primeWhiteMeasured, bool listHasWhite, bool whiteLevelIsFull, bool grayScaleWhiteMeasured, bool onOffWhiteMeasured );
+
+// Whether a row of the patch-list page (GetItemText's component, laid out as
+// the primaries page's) is judged against the list point's white, so is empty
+// when there is none: the dE (3), the dE against a data reference document (5
+// with one), and the luminance against the reference and the reference
+// luminance (5 and 6; 7 and 8 with a data reference). With absoluteLuminance
+// (HDR10: those two rows are the reference's own luminance against the
+// tone-mapped diffuse white, which no measured white enters) the luminance
+// rows are not. The values (0..2) and the xy errors (4; 6 with a data
+// reference) are chromaticity or raw readings and never are.
+bool PatchListRowUsesWhite ( int component, bool hasDataRef, bool absoluteLuminance );
+
+// Which readings of the active user list give its points' own white
+// (ChooseListPointWhite's listHasWhite) while a run of that list is in
+// progress. During the run the patch-list page shows the LIVE readings (the
+// sweep wiped them at its start and fills them patch by patch), while the
+// list's stored readings (the master band) are the previous run's until the
+// run ends. So: (1) the white of this run's live readings, as soon as they
+// hold a usable one at the white level (liveHasWhite); else (2) the stored
+// readings' white (masterHasWhite, the previous run of the list); else (3)
+// none, and the caller's later fallbacks apply. Outside a run
+// (runInProgress false) the live readings are never used: the stored white or
+// none, exactly as before.
+enum ListPointWhiteBand
+{
+	LIST_WHITE_BAND_NONE   = 0,	// neither holds a white at the level
+	LIST_WHITE_BAND_LIVE   = 1,	// this run's live readings
+	LIST_WHITE_BAND_MASTER = 2	// the list's stored readings
+};
+ListPointWhiteBand ChooseListPointWhiteBand ( bool runInProgress, bool liveHasWhite, bool masterHasWhite );
+
+// That choice applied: BuildListWhiteAtLevel on the live readings (only with
+// runInProgress) and on the stored ones, both paired with the same rows, then
+// ChooseListPointWhiteBand. *out is the chosen band's white (same level rule
+// and averaging as BuildListWhiteAtLevel); untouched with LIST_WHITE_BAND_NONE.
+ListPointWhiteBand BuildListPointWhite ( const CsvPatchRow * rows, int nRows, const CColor * liveReadings, int nLive, const CColor * masterReadings, int nMaster, bool runInProgress, double level, CColor * out );
+
+// Whether the list point white changed between two passes of the patch-list
+// page: a different source, or the same chosen source (ShownWhiteIsChosen)
+// with a different white (X, Y or Z not bit-identical). The whites of a source
+// that chooses none (SHOWN_WHITE_CALLER, SHOWN_WHITE_NONE) are not compared.
+// The page's incremental pass during a run keeps earlier columns computed
+// against the white of their own pass, so a change forces a full pass.
+bool ListPointWhiteChanged ( ShownWhiteSource before, const CColor & whiteBefore, ShownWhiteSource now, const CColor & whiteNow );
+
+// Whether the RGB levels widget shows nothing for a list point with the white
+// choice ws: with no white (SHOWN_WHITE_NONE), except under absoluteLuminance
+// (HDR10), where its bars are judged against the tone-mapped diffuse white
+// and only its dE needs the missing white (PatchListLevelsDEHidden).
+bool PatchListLevelsHidden ( ShownWhiteSource ws, bool absoluteLuminance );
+
+// Whether the RGB levels widget shows its R, G and B bars but no dE for a list
+// point with the white choice ws: with no white under absoluteLuminance
+// (HDR10), where the bars are absolute and the dE alone needs the missing
+// white. Never together with PatchListLevelsHidden.
+bool PatchListLevelsDEHidden ( ShownWhiteSource ws, bool absoluteLuminance );
+
 #endif // PRIMARYSET_H_INCLUDED_

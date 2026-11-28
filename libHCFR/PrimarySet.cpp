@@ -264,3 +264,63 @@ bool PrimaryPageCellShown ( PrimaryPageColumnRead read, int component, bool hasD
 		return false;
 	return PrimaryPageRowShown ( read, component, hasDataRef );
 }
+
+ShownWhiteSource ChooseListPointWhite ( bool userList, bool specialStandard, bool primeWhiteMeasured, bool listHasWhite, bool whiteLevelIsFull, bool grayScaleWhiteMeasured, bool onOffWhiteMeasured )
+{
+	if ( ! userList || specialStandard )
+		return SHOWN_WHITE_CALLER;
+	// The list's points are shown from the list: the shown primaries' rule
+	// with a group from the list.
+	return ChooseShownPrimaryWhite ( primeWhiteMeasured, true, listHasWhite, whiteLevelIsFull, grayScaleWhiteMeasured, onOffWhiteMeasured );
+}
+
+bool PatchListRowUsesWhite ( int component, bool hasDataRef, bool absoluteLuminance )
+{
+	if ( component == 3 || ( hasDataRef && component == 5 ) )
+		return true;	// a dE
+	const bool luminanceRow = hasDataRef ? ( component == 7 || component == 8 ) : ( component == 5 || component == 6 );
+	return luminanceRow && ! absoluteLuminance;
+}
+
+bool PatchListLevelsHidden ( ShownWhiteSource ws, bool absoluteLuminance )
+{
+	return ws == SHOWN_WHITE_NONE && ! absoluteLuminance;
+}
+
+bool PatchListLevelsDEHidden ( ShownWhiteSource ws, bool absoluteLuminance )
+{
+	return ws == SHOWN_WHITE_NONE && absoluteLuminance;
+}
+
+ListPointWhiteBand ChooseListPointWhiteBand ( bool runInProgress, bool liveHasWhite, bool masterHasWhite )
+{
+	if ( runInProgress && liveHasWhite )
+		return LIST_WHITE_BAND_LIVE;
+	if ( masterHasWhite )
+		return LIST_WHITE_BAND_MASTER;
+	return LIST_WHITE_BAND_NONE;
+}
+
+ListPointWhiteBand BuildListPointWhite ( const CsvPatchRow * rows, int nRows, const CColor * liveReadings, int nLive, const CColor * masterReadings, int nMaster, bool runInProgress, double level, CColor * out )
+{
+	CColor live = noDataColor, master = noDataColor;
+	const bool liveHas = runInProgress && liveReadings != NULL
+		&& BuildListWhiteAtLevel ( rows, nRows, liveReadings, nLive, level, & live );
+	const bool masterHas = masterReadings != NULL
+		&& BuildListWhiteAtLevel ( rows, nRows, masterReadings, nMaster, level, & master );
+	const ListPointWhiteBand band = ChooseListPointWhiteBand ( runInProgress, liveHas, masterHas );
+	if ( band == LIST_WHITE_BAND_LIVE )
+		*out = live;
+	else if ( band == LIST_WHITE_BAND_MASTER )
+		*out = master;
+	return band;
+}
+
+bool ListPointWhiteChanged ( ShownWhiteSource before, const CColor & whiteBefore, ShownWhiteSource now, const CColor & whiteNow )
+{
+	if ( before != now )
+		return true;
+	if ( ! ShownWhiteIsChosen ( now ) )
+		return false;
+	return whiteBefore.GetX () != whiteNow.GetX () || whiteBefore.GetY () != whiteNow.GetY () || whiteBefore.GetZ () != whiteNow.GetZ ();
+}

@@ -201,6 +201,17 @@ public:
 	void RefreshSummaryPane();	// rewrite the Summary pane when the document's text differs from it
 	CColor m_oldBlackGS, refColor_for_color_comp;
 	double YWhite_for_color_comp;
+	// The white UpdateGrid judges the user patch list's own points against
+	// (CMeasure::GetListPointWhiteSource) when that rule names one, for
+	// GetItemText's luminance rows on the patch-list page; noDataColor when
+	// the page keeps its own white chain. Set by every UpdateGrid.
+	CColor m_listPointWhite;
+	// The list point white source (ShownWhiteSource) and white of the last
+	// UpdateGrid pass of the patch-list page: a change during a run forces a
+	// full pass (ListPointWhiteChanged), so no column keeps a dE or luminance
+	// computed against the white before it.
+	int m_listPointWhiteSourceSeen;
+	CColor m_listPointWhiteSeen;
 	CColor m_oldBlackNB;
 	CColor m_oldBlackOnOff;	// the on/off black the override swap took out (InitGrid)
 	// per captured slot: the capture predates its series' data (BlackOverrideRule)
@@ -211,6 +222,15 @@ public:
 	int last_Display;
 	double m_RefWhite;
 	double m_YWhite, m_dE;
+	// The selected column has no reference (UpdateGrid: its dE row is empty,
+	// the patch-list page with no white or a primaries-page column without
+	// references or white). m_RefColor is then noDataColor on purpose and the
+	// comparator shows no reference instead of the last one.
+	BOOL m_bSelNoReference;
+	// With m_bSelNoReference: the column has no white either. m_YWhite is then
+	// the white the view's own chain gives that column, which only colors the
+	// measured swatch; its code triplet is not printed.
+	BOOL m_bSelNoWhite;
 	bool isGS;
 	double r1, r2;
 	double g1, g2;

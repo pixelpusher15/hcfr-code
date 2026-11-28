@@ -638,6 +638,8 @@ CMainView::CMainView()
 	dEmax_gs=0;
 	dEavg_cc=0;
 	dEmax_cc=0;
+	m_listPointWhiteSourceSeen = SHOWN_WHITE_CALLER;
+	m_listPointWhiteSeen = noDataColor;
 	dEavg_sr=0;
 	dEmax_sr=0;
 	dEavg_sg=0;
@@ -673,6 +675,8 @@ CMainView::CMainView()
 	last_Display = 0;
 	m_YWhite = 100.;
 	m_RefWhite = 1.;
+	m_bSelNoReference = FALSE;
+	m_bSelNoWhite = FALSE;
 	m_ref_r = 0.,m_ref_g = 0.,m_ref_b = 0.;
 	m_meas_r = 0.,m_meas_g = 0.,m_meas_b = 0.;
 	m_ref_r1 = 0.,m_ref_g1 = 0.,m_ref_b1 = 0.;
@@ -1581,6 +1585,19 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			if ( GetDocument() -> GetMeasure () -> GetShownPrimaryChosenWhite ( & chosenWhite ) )
 				YWhite = chosenWhite [ 1 ];
 		}
+		// A column of the patch-list page (mode 11 on the user set): the list
+		// point's white (CMeasure::GetListPointWhiteSource), the one its dE uses;
+		// with none, no L*a*b* or LCH (blank, not zero) - they would be against
+		// a stand-in white.
+		bool bListNoWhite = false;
+		if ( m_displayMode == 11 && GetConfig()->m_CCMode == USER )
+		{
+			CColor listWhite;
+			const ShownWhiteSource listWhiteSource = GetDocument() -> GetMeasure () -> GetListPointWhiteSource ( & listWhite );
+			if ( ShownWhiteIsChosen ( listWhiteSource ) )
+				YWhite = listWhite [ 1 ];
+			bListNoWhite = ( listWhiteSource == SHOWN_WHITE_NONE );
+		}
 		
 		Item.strText.Format("%.3f",m_SelectedColor.GetLuminance());
 		Item.row = 0;
@@ -1640,7 +1657,11 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		if ( bNoLight )
 			BlankSelectedColorRows ( Item, 3, 0 );
         AddColorToGrid(m_SelectedColor.GetLabValue(YWhite, bRef), Item, "%.2f");
+		if ( bListNoWhite )
+			BlankSelectedColorRows ( Item, 3, 0 );
         AddColorToGrid(m_SelectedColor.GetLCHValue(YWhite, bRef), Item, "%.2f");
+		if ( bListNoWhite )
+			BlankSelectedColorRows ( Item, 3, 0 );
         AddColorToGrid(m_SelectedColor.GetLMSValue(1.0, bRef), Item, "%.2f");
 	}
 	else
@@ -1762,12 +1783,18 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 
 		double m_meas_rd, m_meas_gd, m_meas_bd, m_ref_rd, m_ref_gd, m_ref_bd;
 
-		if (m_RefColor.isValid())
+		// A selected column with no reference (m_bSelNoReference) keeps none:
+		// the last one would be another column's target.
+		const BOOL bNoRef = m_bSelNoReference;
+		const BOOL bNoWhite = bNoRef && m_bSelNoWhite;
+		if ( bNoRef )
+			;
+		else if (m_RefColor.isValid())
 			m_lastRefColor = m_RefColor;
 		else
 			m_RefColor = m_lastRefColor; //restore last reference when using freemeasures where minCol = -1
 
-		if (m_SelectedColor.isValid())
+		if (m_SelectedColor.isValid() && ! bNoRef)
 		{
 			ref = ColorRGB(m_RefColor.GetRGBValue(bRef));
 			if (mode == 5)
@@ -1983,8 +2010,35 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 
 			trip2.SetString("No\nMeasure\n");
 			bool bDrivenMode = false;
+			bool bNoRefDriven = false;
 			CString strDriven;
-			if (m_SelectedColor.isValid())
+			int drivenCodes[3];
+			double drivenStim[3];
+			if ( bNoRef && m_SelectedColor.isValid() && m_SelectedColor.HasProvenance() && m_SelectedColor.HasStimulusValue() )
+			{
+				const ColorRGBDisplay stim = m_SelectedColor.GetStimulusValue();
+				for ( int k = 0; k < 3; k++ )
+					drivenStim[k] = stim[k];
+				bNoRefDriven = DrivenCodesFromStimulus ( drivenStim, m_SelectedColor.GetProvenance().srcBits, m_SelectedColor.GetProvenance().srcRange, drivenCodes );
+			}
+			if ( bNoRefDriven )
+			{
+				// A column with no reference: the second half shows what the
+				// reading's own stamp says was driven - its codes on its own grid,
+				// and the color of that signal through the swatch chain above
+				// (m_ref_r* is the encoded signal there). No white is involved.
+				bDrivenMode = true;
+				strDriven.LoadString ( IDS_COMPARE_DRIVEN );
+				trip2.Format("%d,%d,%d\n%s", drivenCodes[0], drivenCodes[1], drivenCodes[2], (LPCTSTR) strDriven);
+				m_ref_r = drivenStim[0] / 100.;
+				m_ref_g = drivenStim[1] / 100.;
+				m_ref_b = drivenStim[2] / 100.;
+				ColorXYZ drivenXYZ(ColorRGB(pow(m_ref_r,2.22),pow(m_ref_g,2.22),pow(m_ref_b,2.22)), bRef);
+				m_ref_r1 = pow(min(max(ColorRGB(drivenXYZ,CColorReference(HDTV))[0],0.0),1.0),1./2.22);
+				m_ref_g1 = pow(min(max(ColorRGB(drivenXYZ,CColorReference(HDTV))[1],0.0),1.0),1./2.22);
+				m_ref_b1 = pow(min(max(ColorRGB(drivenXYZ,CColorReference(HDTV))[2],0.0),1.0),1./2.22);
+			}
+			else if (m_SelectedColor.isValid())
 			{
 				// WTW / EXTENDED patches have no gamma-defined reference above white, so show the DRIVEN
 				// code (the measurement own stimulus, encoded via its provenance) in place of the always-
@@ -2024,8 +2078,13 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		// comparator's one-frame flash.
 		{
 			BOOL bSel = m_SelectedColor.isValid();
-			m_Ccomp.SetContent(RGB((int)floor(m_meas_r1*255.+0.5),(int)floor(m_meas_g1*255.+0.5),(int)floor(m_meas_b1*255.+0.5)), bSel, trip1.SpanExcluding("\n"));
-			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel, trip2.SpanExcluding("\n"), bDrivenMode ? (LPCSTR) strDriven : NULL);
+			// No reference: the second half shows what was driven (bNoRefDriven),
+			// or is an empty pill for a reading without a stimulus and
+			// provenance. No white either (m_bSelNoWhite): the measured half
+			// keeps its color, scaled by the view's own white for the column, but
+			// prints no code triplet, which would be a figure against that stand-in.
+			m_Ccomp.SetContent(RGB((int)floor(m_meas_r1*255.+0.5),(int)floor(m_meas_g1*255.+0.5),(int)floor(m_meas_b1*255.+0.5)), bSel, bNoWhite ? "" : (LPCSTR) trip1.SpanExcluding("\n"));
+			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel && ( ! bNoRef || bNoRefDriven ), trip2.SpanExcluding("\n"), bDrivenMode ? (LPCSTR) strDriven : NULL);
 		}
 	}
 }
@@ -3180,6 +3239,7 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 					if ( !w.isValid () )
 						w = pProfMeasure->GetOnOffWhite ();
 					m_RefColor = profRef;
+					m_bSelNoReference = FALSE;
 					m_RefWhite = 1.0;
 					m_YWhite = ( w.isValid () && w.GetY () > 0.0 ) ? w.GetY () : 1.0;
 					// PQ HDR: same bridge as SelectProfilePatch -- GetRefProfileSat
@@ -3887,6 +3947,16 @@ CString CMainView::GetItemText(CColor & aMeasure, double YWhite, CColor & aRefer
 				if (GetDocument()->GetMeasure()->IsOnOffWhiteMeasured() && GetDocument()->GetMeasure()->GetOnOffWhite().isValid())
 					if ((GetDocument()->GetMeasure()->GetPrimeWhite()[1] / GetDocument()->GetMeasure()->GetOnOffWhite()[1] < 0.9) && m_displayMode == 11  && GetConfig()->m_GammaOffsetType !=5)
 						white = GetDocument() -> GetMeasure () ->GetOnOffWhite();
+
+				// The patch-list page: the list point's white UpdateGrid chose
+				// (m_listPointWhite, CMeasure::GetListPointWhiteSource), the one its
+				// dE uses, when it chose one; else exactly the chain above. Not
+				// under HDR10: there these rows are absolute (the white's Y becomes
+				// the tone-mapped diffuse white below), but the white's lux value
+				// stays, and a list white averaged from lux-stamped readings carries
+				// one (AverageGrayReadings) that "prefer luxmeter" would divide by.
+				if ( m_displayMode == 11 && GetConfig()->m_CCMode == USER && m_listPointWhite.isValid() && ! isHDR )
+					white = m_listPointWhite;
 				
 				if ( isHDR )
 				{
@@ -4552,13 +4622,45 @@ void CMainView::UpdateGrid()
 				YWhite = pageWhite [ 1 ];
 		}
 
+		// The patch-list page (mode 11 on the user set): the list's own points
+		// are judged against the white the shown primaries are
+		// (CMeasure::GetListPointWhiteSource: with the prime white unmeasured,
+		// the list's own white, else the gray scale's measured 100%, then a
+		// measured on/off white), so one reading gets one dE as a list point and
+		// as a primary. That white is the YWhite of the dE and, through
+		// m_listPointWhite, of the luminance rows. With none, the rows it makes
+		// (PatchListRowUsesWhite) are empty, not zero. SHOWN_WHITE_CALLER keeps
+		// the chain above exactly; the other color checker sets never get here.
+		bool bListNoWhite = false;
+		bool bListWhiteMoved = false;
+		m_listPointWhite = noDataColor;
+		if ( m_displayMode == 11 && GetConfig()->m_CCMode == USER )
+		{
+			CColor listWhite;
+			const ShownWhiteSource listWhiteSource = GetDocument()->GetMeasure()->GetListPointWhiteSource ( & listWhite );
+			if ( ShownWhiteIsChosen ( listWhiteSource ) )
+			{
+				YWhite = listWhite [ 1 ];
+				m_listPointWhite = listWhite;
+			}
+			bListNoWhite = ( listWhiteSource == SHOWN_WHITE_NONE );
+			// During a run the white can arrive or move (the run's own white is
+			// read, or replaces the previous run's): the columns an earlier
+			// incremental pass filled were judged against the old one, so this
+			// pass is a full one (below). Only then: an unchanged white keeps the
+			// incremental pass.
+			bListWhiteMoved = ListPointWhiteChanged ( (ShownWhiteSource) m_listPointWhiteSourceSeen, m_listPointWhiteSeen, listWhiteSource, m_listPointWhite );
+			m_listPointWhiteSourceSeen = listWhiteSource;
+			m_listPointWhiteSeen = m_listPointWhite;
+		}
+
 		// Incremental pass eligibility: mode 11 with a column cache built by a
 		// prior full pass over the SAME patch count. Anything else (first pass,
 		// CC set switched, manual edits) takes the full rebuild, which (re)sizes
 		// the cache -- the grid analog of the 3D viewer's stale-scene guard.
 		int jFirst = 0, jLast = nCount - 1;
 		bool bIncrPass = ( nIncrCol >= 1 && nIncrCol <= nCount &&
-						   m_displayMode == 11 && (int)m_ccDECache.size() == nCount );
+						   m_displayMode == 11 && (int)m_ccDECache.size() == nCount && ! bListWhiteMoved );
 		if ( bIncrPass )
 		{
 			// Catch-up window: refresh every column measured since the last
@@ -4584,6 +4686,14 @@ void CMainView::UpdateGrid()
 			m_ccDCCache.assign ( nCount, -1.0 );
 			m_ccDHCache.assign ( nCount, -1.0 );
 			m_nGridLastRTCol = -1;
+		}
+		// The comparator's state for the selected column (m_RefColor & co) comes
+		// from the pass over that column: GetItemText sets it on the column's
+		// dE, the dE row below clears it when the column has none.
+		if ( ! bIncrPass || ( minCol - 1 >= jFirst && minCol - 1 <= jLast ) )
+		{
+			m_bSelNoReference = FALSE;
+			m_bSelNoWhite = FALSE;
 		}
 
 		for( int j = jFirst ; j <= jLast ; j ++ )
@@ -5038,8 +5148,12 @@ void CMainView::UpdateGrid()
 					// white column with no white. GetItemText gets no reference for it, so
 					// its dE enters neither the average nor the max, and the dE cell loses
 					// any highlight it had.
+					// The patch-list page with no white: the rows the white makes
+					// (PatchListRowUsesWhite; under HDR10 the luminance rows are
+					// absolute and stay), the same way.
 					const bool bPageRowBlank = ( m_displayMode == 1 && ! PrimaryPageCellShown (
-						PrimaryPageColumnSource ( j, pageChoice[0], pageChoice[1], bPageChosenWhite, bPageNoWhite ), i, pDataRef != NULL ) );
+						PrimaryPageColumnSource ( j, pageChoice[0], pageChoice[1], bPageChosenWhite, bPageNoWhite ), i, pDataRef != NULL ) )
+						|| ( bListNoWhite && PatchListRowUsesWhite ( i, pDataRef != NULL, isHDR ) );
 					Item.strText = GetItemText ( aColor, YWhite, bPageRowBlank ? pageNoRef : refColor, refDocColor, YWhiteRefDoc, i, j+1, Offset, isGS );
 					if ( bPageRowBlank )
 					{
@@ -5048,6 +5162,33 @@ void CMainView::UpdateGrid()
 						{
 							m_pGrayScaleGrid->SetItemBkColour ( 4, j+1, CLR_DEFAULT );
 							m_pGrayScaleGrid->SetItemFgColour ( 4, j+1, CLR_DEFAULT );
+							// The selected column has no dE: the comparator gets no
+							// reference (not the previous column's). Its m_YWhite is
+							// the one GetItemText's dE would have used for it: the
+							// page's white, or with none (m_bSelNoWhite) YWhite, which
+							// is then the view's own chain - the white this column
+							// was scaled by before the list point white - normalized
+							// the way GetItemText normalizes it under HDR10.
+							if ( j + 1 == minCol )
+							{
+								m_bSelNoReference = TRUE;
+								m_bSelNoWhite = bListNoWhite || ( m_displayMode == 1 && bPageNoWhite );
+								m_RefColor = noDataColor;
+								m_RefWhite = 1.0;
+								m_dE = 0.0;
+								if ( isHDR && m_displayMode == 1 )
+									m_YWhite = GetDocument()->GetMeasure()->GetPrimaryDENorm ( YWhite, j+1 ).yWhite;
+								else if ( isHDR && m_displayMode == 11 && GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual )
+								{
+									// GetItemText's manual-generator (DVD) branch for a user list
+									CColor dvdWhite = GetDocument()->GetMeasure()->GetGrayScaleWhite();
+									CColor dvdBlack = GetDocument()->GetMeasure()->GetGrayScaleBlack();
+									double tmW = getL_EOTF(0.50, dvdWhite, dvdBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+									m_YWhite = YWhite * 94.37844 / tmW;
+								}
+								else
+									m_YWhite = YWhite;
+							}
 						}
 					}
 				}
@@ -5424,6 +5565,14 @@ void CMainView::UpdateGrid()
 				{
 					dEavg_cc = dEavg / dEcntSafe;
 					dEmax_cc = dEmax;
+				}
+				else if ( bListNoWhite )
+				{
+					// The user list with no white has no dE: the report's figure is
+					// absent ("No data", as before any measure), not the last one
+					// this page computed. Every other set keeps its last figure.
+					dEavg_cc = 0;
+					dEmax_cc = 0;
 				}
 				float a = 2.0, b = 3;
 				Tmp.LoadString ( IDS_DELTAEAVERAGE );
@@ -7863,6 +8012,7 @@ void CMainView::SelectProfilePatch(int idx)
 	if ( !w.isValid () )
 		w = pMeasure->GetOnOffWhite ();
 	m_RefColor = profRef;
+	m_bSelNoReference = FALSE;
 	m_RefWhite = 1.0;
 	m_YWhite = ( w.isValid () && w.GetY () > 0.0 ) ? w.GetY () : 1.0;
 

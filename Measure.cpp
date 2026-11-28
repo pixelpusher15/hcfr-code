@@ -241,6 +241,7 @@ struct SweepActiveGuard
         {
             PerfSweepEnd();
             m_pMeasure->m_binMeasure = FALSE;
+            m_pMeasure->m_bCCSweepLive = FALSE;
             m_pMeasure->m_bAbortSweep = FALSE;
             m_pMeasure->m_bProfileCapturing = FALSE;
             g_bMeasureSweepActive = FALSE;
@@ -495,6 +496,7 @@ CMeasure::CMeasure()
 	m_isModified = FALSE;
 	m_bpreV10 = 0;
 	m_binMeasure = FALSE;
+	m_bCCSweepLive = FALSE;
 	m_bAbortSweep = FALSE;
 	bDisplayRT = TRUE;
 	m_primariesArray.SetSize(3);
@@ -1929,6 +1931,25 @@ bool CMeasure::GetActiveUserBand(const CsvPatchRow ** pRows, int * pRowCount, co
 	return true;
 }
 
+bool CMeasure::UserListRunReadings(const CColor ** pReadings, int * pReadingCount) const
+{
+	if ( ! m_binMeasure || ! m_bCCSweepLive || GetConfig()->m_CCMode != USER )
+		return false;
+	const CsvPatchRow * rows = NULL;
+	const CColor * stored = NULL;
+	int nRows = 0, nStored = 0;
+	if ( ! GetActiveUserBand ( & rows, & nRows, & stored, & nStored ) )
+		return false;
+	int n = (int) m_cc24SatMeasureArray.GetSize ();
+	if ( n > MAX_USER_CC_PATCH_SIZE )
+		n = MAX_USER_CC_PATCH_SIZE;
+	if ( n <= 0 )
+		return false;
+	*pReadings = m_cc24SatMeasureArray.GetData ();
+	*pReadingCount = n;
+	return true;
+}
+
 CColor CMeasure::GetGrayGraphWhite(const GrayRamp & ramp) const
 {
 	if ( ramp.source == GRAY_RAMP_SWEEP )
@@ -2063,12 +2084,43 @@ ShownWhiteSource CMeasure::GetShownPrimaryWhiteSource(CColor * pWhite) const
 		return SHOWN_WHITE_CALLER;
 	const bool anyList = GetShownPrimaryChoice ( false, NULL ).source == PRIMARY_SET_LIST
 					  || GetShownPrimaryChoice ( true, NULL ).source == PRIMARY_SET_LIST;
+	return ResolveShownWhite ( false, anyList, pWhite );
+}
+
+ShownWhiteSource CMeasure::GetListPointWhiteSource(CColor * pWhite) const
+{
+	// A measured prime white is the dedicated run's: every view keeps it.
+	if ( m_bPrimeWhiteMeasured )
+		return SHOWN_WHITE_CALLER;
+	return ResolveShownWhite ( true, false, pWhite );
+}
+
+ShownWhiteSource CMeasure::ResolveShownWhite(bool bListPoints, bool anyGroupFromList, CColor * pWhite) const
+{
+	const bool anyList = anyGroupFromList;
 	CColor w = noDataColor;
 	bool listHasWhite = false;
 	const CsvPatchRow * rows = NULL;
 	const CColor * readings = NULL;
 	int nRows = 0, nReadings = 0;
-	if ( anyList && GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
+	// The list's points: the user set shown (the color checker page and
+	// markers read the USER band) with an active band behind it. The shown
+	// primaries: a group shown from the list.
+	bool haveBand = false;
+	if ( bListPoints ? ( GetConfig()->m_CCMode == USER ) : anyList )
+		haveBand = GetActiveUserBand ( & rows, & nRows, & readings, & nReadings );
+	const bool userList = bListPoints && haveBand;
+	if ( haveBand && bListPoints )
+	{
+		// The list's points while a run of the list is in progress: the white of
+		// the live readings the page shows, once they hold one, else the stored
+		// (previous run's) white; outside a run the stored one only.
+		const CColor * live = NULL;
+		int nLive = 0;
+		const bool runLive = UserListRunReadings ( & live, & nLive );
+		listHasWhite = BuildListPointWhite ( rows, nRows, live, nLive, readings, nReadings, runLive, PrimeWhiteIRELevel ( NULL ), & w ) != LIST_WHITE_BAND_NONE;
+	}
+	else if ( haveBand )
 		listHasWhite = BuildListWhiteAtLevel ( rows, nRows, readings, nReadings, PrimeWhiteIRELevel ( NULL ), & w );
 	// A white the document measured, for a run whose white is its 100% white:
 	// the gray scale's top slot unless it is the constructor's placeholder, and
@@ -2077,7 +2129,10 @@ ShownWhiteSource CMeasure::GetShownPrimaryWhiteSource(CColor * pWhite) const
 	const CColor grayWhite = GrayScaleWhite ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), noDataColor, IsConstructorPlaceholder );
 	const bool grayMeasured = grayWhite.isValid () && GrayRampWhiteUsable ( grayWhite );
 	const bool onOffMeasured = m_bOnOffWhiteMeasured && HoldsReading ( m_OnOffWhite ) && GrayRampWhiteUsable ( m_OnOffWhite );
-	const ShownWhiteSource r = ChooseShownPrimaryWhite ( m_bPrimeWhiteMeasured != FALSE, anyList, listHasWhite, whiteLevelIsFull, grayMeasured, onOffMeasured );
+	const ColorStandard standard = GetColorReference().m_standard;
+	const ShownWhiteSource r = bListPoints
+		? ChooseListPointWhite ( userList, standard == HDTVa || standard == HDTVb, m_bPrimeWhiteMeasured != FALSE, listHasWhite, whiteLevelIsFull, grayMeasured, onOffMeasured )
+		: ChooseShownPrimaryWhite ( m_bPrimeWhiteMeasured != FALSE, anyList, listHasWhite, whiteLevelIsFull, grayMeasured, onOffMeasured );
 	if ( r == SHOWN_WHITE_LIST )
 		*pWhite = w;
 	else if ( r == SHOWN_WHITE_GRAY_SCALE )
@@ -4831,6 +4886,7 @@ BOOL CMeasure::MeasureCC24SatScale(CSensor *pSensor, CGenerator *pGenerator, CDa
 	for (int i=0;i<MAX_USER_CC_PATCH_SIZE;i++)
 		m_cc24SatMeasureArray[i] = noDataColor;
 	m_binMeasure = TRUE;
+	m_bCCSweepLive = TRUE;	// the live array is this run's (Measure.h)
 	m_currentIndex = 0;
 	for(int i=0;i<size;i++)
 	{
@@ -5769,6 +5825,7 @@ BOOL CMeasure::MeasureAllSaturationScales(CSensor *pSensor, CGenerator *pGenerat
 	m_cc24SatMeasureArray[i] = noDataColor;
 
 	m_binMeasure = TRUE;
+	m_bCCSweepLive = TRUE;	// the live array is this run's (Measure.h)
 	for ( j = 0 ; j < ( bPrimaryOnly ? 3 : 7 ) ; j ++ )
 	{
 		m_currentIndex = 0;

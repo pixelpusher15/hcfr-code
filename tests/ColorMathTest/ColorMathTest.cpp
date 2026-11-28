@@ -10124,6 +10124,299 @@ namespace T62Prim
                 Fail("T62 data reference rows: HDR10 100%% column row %d shown %d, expected %d",
                      comp, (int)PrimaryPageCellShown(PRIMARY_PAGE_LIST_NO_REF, comp, true), (int)want[comp]);
     }
+
+    // 19. The white a user list's own points are judged against
+    // (ChooseListPointWhite): not a user list, or a special 75% standard, keeps
+    // the caller's white; else exactly the shown primaries' rule with a group
+    // from the list - a measured prime white keeps the caller's, then the
+    // list's own white, then (white level 100% only) the gray scale's measured
+    // 100%, then a measured on/off white, else none. All 128 cases, the
+    // expectation spelled out independently of ChooseShownPrimaryWhite.
+    static void CheckListPointWhite()
+    {
+        for (int k = 0; k < 128; k++)
+        {
+            const bool user = (k & 1) != 0, special = (k & 2) != 0, pm = (k & 4) != 0, has = (k & 8) != 0;
+            const bool full = (k & 16) != 0, gray = (k & 32) != 0, onoff = (k & 64) != 0;
+            ShownWhiteSource expected;
+            if (!user || special || pm)
+                expected = SHOWN_WHITE_CALLER;
+            else if (has)
+                expected = SHOWN_WHITE_LIST;
+            else if (full && gray)
+                expected = SHOWN_WHITE_GRAY_SCALE;
+            else if (full && onoff)
+                expected = SHOWN_WHITE_ON_OFF;
+            else
+                expected = SHOWN_WHITE_NONE;
+            const ShownWhiteSource got = ChooseListPointWhite(user, special, pm, has, full, gray, onoff);
+            if (got != expected)
+                Fail("T62 list point white: user list %d, special %d, prime measured %d, list white %d, white level 100%% %d,"
+                     " gray scale %d, on/off %d gives %d, expected %d", (int)user, (int)special, (int)pm, (int)has,
+                     (int)full, (int)gray, (int)onoff, (int)got, (int)expected);
+            // The same white as the shown primaries whenever a group is shown
+            // from the list (the agreement the views rely on).
+            if (user && !special && got != ChooseShownPrimaryWhite(pm, true, has, full, gray, onoff))
+                Fail("T62 list point white: case %d differs from the shown primaries' white", k);
+        }
+        // The field case: SDR, a user list with its own 100% white, no
+        // primaries run: the list's white, as the primary markers get.
+        if (ChooseListPointWhite(true, false, false, true, true, false, false) != SHOWN_WHITE_LIST)
+            Fail("T62 list point white: SDR list with its own white does not get it");
+        // HDR10 (white level 50.22831%): no list white at that level, a
+        // measured gray scale and on/off white: none - they are 100% whites.
+        if (ChooseListPointWhite(true, false, false, false, false, true, true) != SHOWN_WHITE_NONE)
+            Fail("T62 list point white: HDR10 list without a run-level white falls back to a 100%% white");
+        // A built-in color checker set keeps the caller's white even with a list white.
+        if (ChooseListPointWhite(false, false, false, true, true, true, true) != SHOWN_WHITE_CALLER)
+            Fail("T62 list point white: a built-in set does not keep the caller's white");
+    }
+
+    // 20. The rows of the patch-list page the list point's white makes
+    // (PatchListRowUsesWhite), spelled out for every layout: the dE always,
+    // the data reference dE (5 with one), the luminance rows unless HDR10's
+    // absolute ones. Relative luminance is exactly the primaries page's
+    // PrimaryPageRowUsesWhite.
+    static void CheckListPointRows()
+    {
+        const bool want[4][10] = {
+            { false, false, false, true, false, true,  true,  false, false, false },	// no data ref, relative
+            { false, false, false, true, false, false, false, false, false, false },	// no data ref, HDR10
+            { false, false, false, true, false, true,  false, true,  true,  false },	// data ref, relative
+            { false, false, false, true, false, true,  false, false, false, false },	// data ref, HDR10
+        };
+        for (int v = 0; v < 4; v++)
+        {
+            const bool hd = (v & 2) != 0, abs = (v & 1) != 0;
+            for (int comp = 0; comp < 10; comp++)
+            {
+                const bool got = PatchListRowUsesWhite(comp, hd, abs);
+                if (got != want[v][comp])
+                    Fail("T62 list point rows: row %d (data reference %d, HDR10 %d) uses the white %d, expected %d",
+                         comp, (int)hd, (int)abs, (int)got, (int)want[v][comp]);
+                if (!abs && got != PrimaryPageRowUsesWhite(comp, hd))
+                    Fail("T62 list point rows: row %d (data reference %d) differs from the primaries page", comp, (int)hd);
+            }
+        }
+        // The RGB levels widget: empty only with no white, and not under HDR10.
+        const ShownWhiteSource all[5] = { SHOWN_WHITE_CALLER, SHOWN_WHITE_LIST, SHOWN_WHITE_NONE, SHOWN_WHITE_GRAY_SCALE, SHOWN_WHITE_ON_OFF };
+        for (int w = 0; w < 5; w++)
+            for (int a = 0; a <= 1; a++)
+            {
+                const bool expected = (all[w] == SHOWN_WHITE_NONE) && a == 0;
+                if (PatchListLevelsHidden(all[w], a != 0) != expected)
+                    Fail("T62 list point levels: choice %d (HDR10 %d) hidden %d, expected %d",
+                         (int)all[w], a, (int)PatchListLevelsHidden(all[w], a != 0), (int)expected);
+            }
+    }
+
+    // 21. The list point white while a run of the list is in progress
+    // (ChooseListPointWhiteBand / BuildListPointWhite): this run's live
+    // readings once they hold a white at the level, else the stored readings
+    // (the previous run), else none; outside a run the live readings are never
+    // used. The chooser for all 8 cases, then the builder on a first run and a
+    // re-run of one list, patch by patch.
+    static void CheckListPointWhiteBand()
+    {
+        for (int k = 0; k < 8; k++)
+        {
+            const bool run = (k & 1) != 0, live = (k & 2) != 0, master = (k & 4) != 0;
+            ListPointWhiteBand expected;
+            if (run && live)
+                expected = LIST_WHITE_BAND_LIVE;
+            else if (master)
+                expected = LIST_WHITE_BAND_MASTER;
+            else
+                expected = LIST_WHITE_BAND_NONE;
+            const ListPointWhiteBand got = ChooseListPointWhiteBand(run, live, master);
+            if (got != expected)
+                Fail("T62 list white band: run %d, live white %d, stored white %d gives %d, expected %d",
+                     (int)run, (int)live, (int)master, (int)got, (int)expected);
+        }
+
+        // A 10-bit legal list: 50% gray, 100% white, 100% red, 100% white.
+        std::vector<CsvPatchRow> rows;
+        rows.push_back(Row(502, 502, 502, 10, CSV_RANGE_LEGAL));
+        rows.push_back(Row(940, 940, 940, 10, CSV_RANGE_LEGAL));
+        rows.push_back(ColorRow(PATCH_COLOR_RED, 940, 64, 10, CSV_RANGE_LEGAL));
+        rows.push_back(Row(940, 940, 940, 10, CSV_RANGE_LEGAL));
+        const int n = (int)rows.size();
+        const CColor kMid(20.0, 21.0, 22.0), kRed(41.0, 21.0, 2.0);
+        const CColor kW1(95.0, 100.0, 108.0), kW2(97.0, 102.0, 110.0);
+        const CColor kOld(80.0, 84.0, 90.0);
+        const CColor kSentinel(1.0, 2.0, 3.0);
+        struct Step { int filled; bool run; int band; const CColor* white; const char* what; };
+
+        // First run in a new document: nothing stored. The live readings fill
+        // in list order; the white is there from the first 100% gray read.
+        {
+            std::vector<CColor> master(n, noDataColor), live(n, noDataColor);
+            const CColor fill[4] = { kMid, kW1, kRed, kW2 };
+            const CColor avg(96.0, 101.0, 109.0);
+            const Step steps[] = {
+                { 0, true,  LIST_WHITE_BAND_NONE, NULL,  "first run, nothing read" },
+                { 1, true,  LIST_WHITE_BAND_NONE, NULL,  "first run, the 50% gray read" },
+                { 2, true,  LIST_WHITE_BAND_LIVE, &kW1,  "first run, the first white read" },
+                { 3, true,  LIST_WHITE_BAND_LIVE, &kW1,  "first run, the red read" },
+                { 4, true,  LIST_WHITE_BAND_LIVE, &avg,  "first run, both whites read" },
+                { 4, false, LIST_WHITE_BAND_NONE, NULL,  "first run's live readings outside a run" },
+            };
+            for (int s = 0; s < (int)(sizeof(steps) / sizeof(steps[0])); s++)
+            {
+                for (int i = 0; i < n; i++)
+                    live[i] = (i < steps[s].filled) ? fill[i] : noDataColor;
+                CColor w = kSentinel;
+                const int got = (int)BuildListPointWhite(&rows[0], n, &live[0], n, &master[0], n, steps[s].run, 100.0, &w);
+                if (got != steps[s].band)
+                    Fail("T62 list white band: %s gives band %d, expected %d", steps[s].what, got, steps[s].band);
+                const CColor& want = steps[s].white ? *steps[s].white : kSentinel;
+                if (!SameXYZ(w, want))
+                    Fail("T62 list white band: %s gives Y %.17g, expected %.17g", steps[s].what, w.GetY(), want.GetY());
+            }
+        }
+
+        // A re-run: the stored readings are the previous run's (white kOld).
+        // Until this run reads a white the stored one stands; once it does,
+        // this run's; outside a run the stored one, whatever the live array holds.
+        {
+            std::vector<CColor> master(n, noDataColor), live(n, noDataColor);
+            master[0] = kMid; master[1] = kOld; master[2] = kRed; master[3] = kOld;
+            const CColor fill[4] = { kMid, kW1, kRed, kW2 };
+            const Step steps[] = {
+                { 0, true,  LIST_WHITE_BAND_MASTER, &kOld, "re-run, nothing read" },
+                { 1, true,  LIST_WHITE_BAND_MASTER, &kOld, "re-run, the 50% gray read" },
+                { 2, true,  LIST_WHITE_BAND_LIVE,   &kW1,  "re-run, the first white read" },
+                { 2, false, LIST_WHITE_BAND_MASTER, &kOld, "re-run's live readings outside a run" },
+            };
+            for (int s = 0; s < (int)(sizeof(steps) / sizeof(steps[0])); s++)
+            {
+                for (int i = 0; i < n; i++)
+                    live[i] = (i < steps[s].filled) ? fill[i] : noDataColor;
+                CColor w = kSentinel;
+                const int got = (int)BuildListPointWhite(&rows[0], n, &live[0], n, &master[0], n, steps[s].run, 100.0, &w);
+                if (got != steps[s].band)
+                    Fail("T62 list white band: %s gives band %d, expected %d", steps[s].what, got, steps[s].band);
+                if (!SameXYZ(w, *steps[s].white))
+                    Fail("T62 list white band: %s gives Y %.17g, expected %.17g", steps[s].what, w.GetY(), steps[s].white->GetY());
+            }
+            // The live white is BuildListWhiteAtLevel's on the live readings, bit for bit.
+            for (int i = 0; i < n; i++)
+                live[i] = fill[i];
+            CColor viaBand = noDataColor, direct = noDataColor;
+            BuildListPointWhite(&rows[0], n, &live[0], n, &master[0], n, true, 100.0, &viaBand);
+            WhiteAt(rows, live, 100.0, &direct);
+            if (viaBand.GetX() != direct.GetX() || viaBand.GetY() != direct.GetY() || viaBand.GetZ() != direct.GetZ())
+                Fail("T62 list white band: the live white Y %.17g is not BuildListWhiteAtLevel's %.17g", viaBand.GetY(), direct.GetY());
+        }
+
+        // No live array (NULL) during a run: the stored white.
+        {
+            std::vector<CColor> master(n, noDataColor);
+            master[1] = kOld;
+            CColor w = kSentinel;
+            if (BuildListPointWhite(&rows[0], n, NULL, 0, &master[0], n, true, 100.0, &w) != LIST_WHITE_BAND_MASTER || !SameXYZ(w, kOld))
+                Fail("T62 list white band: no live readings during a run does not give the stored white");
+        }
+    }
+
+    // 22. When the patch-list page must take a full pass because the list
+    // point white moved (ListPointWhiteChanged): a different source always;
+    // the same chosen source only when X, Y or Z differ; never for two
+    // sources that choose no white, whatever whites they carry.
+    static void CheckListPointWhiteChanged()
+    {
+        const CColor a(95.0, 100.0, 108.0), b(95.0, 100.000001, 108.0), c(95.0, 100.0, 108.5), d(95.5, 100.0, 108.0);
+        const ShownWhiteSource all[5] = { SHOWN_WHITE_CALLER, SHOWN_WHITE_LIST, SHOWN_WHITE_NONE, SHOWN_WHITE_GRAY_SCALE, SHOWN_WHITE_ON_OFF };
+        for (int p = 0; p < 5; p++)
+            for (int q = 0; q < 5; q++)
+            {
+                const bool chosen = all[q] == SHOWN_WHITE_LIST || all[q] == SHOWN_WHITE_GRAY_SCALE || all[q] == SHOWN_WHITE_ON_OFF;
+                const CColor* others[4] = { &a, &b, &c, &d };
+                for (int o = 0; o < 4; o++)
+                {
+                    const bool expected = (p != q) || (chosen && o != 0);
+                    if (ListPointWhiteChanged(all[p], a, all[q], *others[o]) != expected)
+                        Fail("T62 list white changed: source %d -> %d, white %d: %d, expected %d",
+                             (int)all[p], (int)all[q], o, (int)!expected, (int)expected);
+                }
+            }
+        // No white before and after (noDataColor both sides): unchanged.
+        if (ListPointWhiteChanged(SHOWN_WHITE_NONE, noDataColor, SHOWN_WHITE_NONE, noDataColor))
+            Fail("T62 list white changed: none to none reports a change");
+    }
+
+    // 24. The comparator's Driven codes for a column with no reference
+    // (DrivenCodesFromStimulus): every code of every grid a list declares
+    // (8 / 10 bit, full / legal / extended, and a legacy range -1 as legal)
+    // comes back from its own stimulus (CsvCodeToPercent) exactly; a full-range
+    // code is not read on the legal grid; other bit depths give nothing.
+    static void CheckDrivenCodes()
+    {
+        const int ranges[4] = { CSV_RANGE_FULL, CSV_RANGE_LEGAL, CSV_RANGE_EXTENDED, -1 };
+        for (int bi = 0; bi < 2; bi++)
+        {
+            const int bits = bi ? 10 : 8, maxCode = (1 << bits) - 1, k = 1 << (bits - 8);
+            for (int ri = 0; ri < 4; ri++)
+            {
+                const int range = ranges[ri];
+                // Legal and legacy grids clamp the stimulus to 0..100%, so only
+                // their 16..235 codes come back; full and extended take every code.
+                const int lo = (range == CSV_RANGE_LEGAL || range == -1) ? 16 * k : 0;
+                const int hi = (range == CSV_RANGE_LEGAL || range == -1) ? 235 * k : maxCode;
+                int bad = 0;
+                for (int c = lo; c <= hi; c++)
+                {
+                    const double s[3] = { CsvCodeToPercent(c, bits, range), CsvCodeToPercent(hi - (c - lo), bits, range), CsvCodeToPercent(lo, bits, range) };
+                    int out[3] = { -7, -7, -7 };
+                    if (!DrivenCodesFromStimulus(s, bits, range, out) || out[0] != c || out[1] != hi - (c - lo) || out[2] != lo)
+                    {
+                        if (bad++ < 3)
+                            Fail("T62 driven codes: %d-bit range %d code %d gives %d,%d,%d", bits, range, c, out[0], out[1], out[2]);
+                    }
+                }
+            }
+        }
+        // 8-bit full 128 is 50.196%: on the legal grid that would be 126, not 128.
+        const double half[3] = { CsvCodeToPercent(128, 8, CSV_RANGE_FULL), 0.0, 100.0 };
+        int out[3] = { 0, 0, 0 };
+        if (!DrivenCodesFromStimulus(half, 8, CSV_RANGE_FULL, out) || out[0] != 128 || out[1] != 0 || out[2] != 255)
+            Fail("T62 driven codes: 8-bit full 128,0,255 gives %d,%d,%d", out[0], out[1], out[2]);
+        // An extended 8-bit super-white (109.1%) is 255 on the legal slope.
+        const double wtw[3] = { CsvCodeToPercent(255, 8, CSV_RANGE_EXTENDED), 100.0, 0.0 };
+        if (!DrivenCodesFromStimulus(wtw, 8, CSV_RANGE_EXTENDED, out) || out[0] != 255 || out[1] != 235 || out[2] != 16)
+            Fail("T62 driven codes: 8-bit extended 255,235,16 gives %d,%d,%d", out[0], out[1], out[2]);
+        // Unknown or other bit depths: nothing, codes untouched.
+        const int badBits[3] = { 0, 12, 16 };
+        for (int b = 0; b < 3; b++)
+        {
+            int keep[3] = { -1, -2, -3 };
+            if (DrivenCodesFromStimulus(half, badBits[b], CSV_RANGE_FULL, keep) || keep[0] != -1 || keep[1] != -2 || keep[2] != -3)
+                Fail("T62 driven codes: %d-bit gives codes", badBits[b]);
+        }
+    }
+
+    // 23. The RGB levels widget's dE alone empty (PatchListLevelsDEHidden):
+    // only with no white under HDR10, where the bars are absolute; never
+    // together with the whole widget empty (PatchListLevelsHidden), and with
+    // no white exactly one of the two holds.
+    static void CheckListPointLevelsDE()
+    {
+        const ShownWhiteSource all[5] = { SHOWN_WHITE_CALLER, SHOWN_WHITE_LIST, SHOWN_WHITE_NONE, SHOWN_WHITE_GRAY_SCALE, SHOWN_WHITE_ON_OFF };
+        for (int w = 0; w < 5; w++)
+            for (int a = 0; a <= 1; a++)
+            {
+                const bool expected = (all[w] == SHOWN_WHITE_NONE) && a == 1;
+                const bool got = PatchListLevelsDEHidden(all[w], a != 0);
+                if (got != expected)
+                    Fail("T62 list point levels dE: choice %d (HDR10 %d) dE hidden %d, expected %d",
+                         (int)all[w], a, (int)got, (int)expected);
+                const bool whole = PatchListLevelsHidden(all[w], a != 0);
+                if (got && whole)
+                    Fail("T62 list point levels dE: choice %d (HDR10 %d) hides the dE and the whole widget", (int)all[w], a);
+                if (all[w] == SHOWN_WHITE_NONE && got == whole)
+                    Fail("T62 list point levels dE: no white (HDR10 %d) gives dE hidden %d and widget hidden %d", a, (int)got, (int)whole);
+            }
+    }
 }
 
 static void RunT62()
@@ -10147,6 +10440,12 @@ static void RunT62()
     T62Prim::CheckGroupWhite();
     T62Prim::CheckWhiteRule();
     T62Prim::CheckDataRefRows();
+    T62Prim::CheckListPointWhite();
+    T62Prim::CheckListPointRows();
+    T62Prim::CheckListPointWhiteBand();
+    T62Prim::CheckListPointWhiteChanged();
+    T62Prim::CheckListPointLevelsDE();
+    T62Prim::CheckDrivenCodes();
 }
 
 int main(int argc, char* argv[])

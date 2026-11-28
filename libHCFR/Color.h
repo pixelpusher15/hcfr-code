@@ -1006,6 +1006,11 @@ extern double CsvCodeToPercent ( double code, int bits, int range );
 // Exact inverse (round-to-nearest, clamped to the grid): stimulus percentage -> source code.
 // Used to reconstruct definition codes from stored stimuli during legacy .chc migration.
 extern int CsvPercentToCode ( double percent, int bits, int range );
+// The codes a reading was driven with: its stimulus (percent per channel) on
+// its own stamped grid (CsvPercentToCode at the provenance's srcBits and
+// srcRange; a legacy range -1 is the legal grid, as there). FALSE with codes
+// untouched when bits is not a grid a patch list declares (8 or 10).
+extern bool DrivenCodesFromStimulus ( const double stimPct[3], int bits, int range, int codes[3] );
 // Two definitions drive the same codes when they have the same row count and the
 // same r/g/b row by row; patch numbers and names are labels and do not count.
 extern bool CsvPatchCodesMatch ( const std::vector<CsvPatchRow> & a, const std::vector<CsvPatchRow> & b );

@@ -225,6 +225,13 @@ protected:
 public:
 	BOOL	m_bIREScaleMode;
 	BOOL	m_binMeasure;
+	// TRUE from the start of a color checker sweep (MeasureCC24SatScale, and
+	// MeasureAllSaturationScales, whose last leg is one) until SweepActiveGuard
+	// ends it: the sweep has wiped the live array m_cc24SatMeasureArray and
+	// fills it patch by patch, and GetCC24Sat shows it while m_binMeasure is up.
+	// Only the two together say the live readings are this run's (the other
+	// sweeps raise m_binMeasure too, with the live array left as it was).
+	BOOL	m_bCCSweepLive;
 	volatile BOOL	m_bAbortSweep;
 	BOOL	bDisplayRT;
 	UINT	m_bpreV10;
@@ -335,6 +342,23 @@ public:
 	// That white, else exactly callerWhite - the white and fallback chain each
 	// caller has always used.
 	CColor GetShownPrimaryWhite(const CColor & callerWhite) const;
+	// The white the active user patch list's OWN points are judged against
+	// (libHCFR ChooseListPointWhite): the patch-list page of the main grid
+	// (display mode 11 with m_CCMode == USER), its dE average, the CIE chart's
+	// list-point markers, the RGB levels widget and the selected-color pane for
+	// a list column. The shown primaries' rule, with the list's points always
+	// shown from the list, read from the same facts as
+	// GetShownPrimaryWhiteSource, so a reading judged as a list point and as a
+	// PRIMARY marker meets the same white. SHOWN_WHITE_CALLER (each view's own
+	// white chain, unchanged) with the prime white measured, outside the user
+	// set (another color checker set, or no active user band) and under HDTVa /
+	// HDTVb. *pWhite as GetShownPrimaryWhiteSource.
+	// While a run of the user list is in progress (UserListRunReadings) the
+	// list's white is the one of this run's live readings - the ones the
+	// patch-list page and the CIE chart show - as soon as they hold one, else
+	// the stored readings' (the previous run's), else the fallbacks above
+	// (libHCFR BuildListPointWhite). Outside a run: the stored readings only.
+	ShownWhiteSource GetListPointWhiteSource(CColor * pWhite) const;
 	bool PrimariesHoldReading() const;	// a valid dedicated primary (the S_PRIMARIES test of SweepOverwritesData)
 	bool SecondariesHoldReading() const;	// the same for the secondaries
 	ListPrimarySet GetListPrimarySet() const;	// the active set's, empty without one
@@ -464,6 +488,15 @@ public:
 	double m_profileCurrentDrift;	// last anchor's drift factor minus 1.0
 
 protected:
+	// GetShownPrimaryWhiteSource (bListPoints false, anyGroupFromList from the
+	// shown groups) and GetListPointWhiteSource (bListPoints true): the facts
+	// read once, the choice ChooseShownPrimaryWhite / ChooseListPointWhite.
+	ShownWhiteSource ResolveShownWhite(bool bListPoints, bool anyGroupFromList, CColor * pWhite) const;
+	// The live readings of a run of the active user list in progress (a color
+	// checker sweep on the USER set, m_bCCSweepLive with m_binMeasure): the
+	// live array, slot i paired with row i of the set as in the stored band.
+	// FALSE outside such a run.
+	bool UserListRunReadings(const CColor ** pReadings, int * pReadingCount) const;
 	bool MeasureProfileDriftAnchor(CAsyncMeasurer & am, CSensor * pSensor, CGenerator * pGenerator, CDataSetDoc * pDoc, int patchIdx, double & firstAnchorY, double & prevFactor, int & prevIdx, BOOL bIgnoreAbort = FALSE);
 	void ApplyProfileDriftSegment(int fromIdx, int toIdx, double fFrom, double fTo);
 public:
