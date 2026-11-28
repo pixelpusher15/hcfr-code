@@ -147,13 +147,19 @@ class CCIEChartGrapher
 	// the percentage is hidden (the gamut-name chip still shows). xy/u'v'
 	// depend on the primaries only; a*b* on the primaries and secondaries,
 	// so it keeps its own copy of the primaries (see DrawCoverageChips).
+	// The data is the shown primaries / secondaries (CMeasure::GetShownPrimary);
+	// the keys (PrimarySetShownKey) record where they came from, so a change of
+	// source is new data even if the colors were equal.
 	BOOL			m_covValid;			// xy/u'v'
 	ColorStandard	m_covStandard;
 	ColorXYZ		m_covPrimaries[3];
+	int				m_covPrimKey;
 	BOOL			m_covAbValid;		// a*b*
 	ColorStandard	m_covAbStandard;
 	ColorXYZ		m_covAbPrimaries[3];
+	int				m_covAbPrimKey;
 	ColorXYZ		m_covSecondaries[3];	// yellow, cyan, magenta
+	int				m_covSecKey;
 
 	// Off by default, matching the hide-on-stale-standard behavior above.
 	// Toggle on (via the CIE chart's right-click context menu) to skip that
@@ -172,7 +178,7 @@ class CCIEChartGrapher
 	// Operations
 	void MakeBgBitmap(CRect rect,BOOL bWhiteBkgnd);
 	void DrawCoverageChips(CDC *pDC, CRect rcAnchor, CDataSetDoc * pDoc, BOOL bForExport);
-	void DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint = NULL, bool isSelected = FALSE, double dE10=100.0, bool isPrimeSec = FALSE);
+	void DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint = NULL, bool isSelected = FALSE, double dE10=100.0, bool isPrimeSec = FALSE, bool bShowLab = true);
 	bool DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int y, const CCIEGraphPoint& aGraphPoint, bool isSelected);
 	void DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd);
 	void SaveGraphFile ( CDataSetDoc * pDoc, CSize ImageSize, LPCSTR lpszPathName, int ImageFormat = 0, int ImageQuality = 95, bool PDF=FALSE );

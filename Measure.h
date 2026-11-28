@@ -32,6 +32,7 @@
 #include "Color.h"
 #include "UserPatchSetStream.h"	// CUserPatchSet
 #include "GrayRamp.h"			// GrayRamp
+#include "PrimarySet.h"			// ListPrimarySet
 #include "Sensors\Sensor.h"
 #include "Generators\Generator.h"
 #include <vector>
@@ -294,6 +295,50 @@ public:
 	// the sweep its last slot unless that is the rawless placeholder, for a
 	// list its usable 100% gray; else noDataColor.
 	CColor GetGrayGraphTop(const GrayRamp & ramp) const;
+	// The active patch set's rows and readings (the USER band of the master
+	// array, slot i paired with row i), as the list graphs take them. FALSE
+	// when the document has no active set with rows and a band.
+	bool GetActiveUserBand(const CsvPatchRow ** pRows, int * pRowCount, const CColor ** pReadings, int * pReadingCount) const;
+	// The primaries and secondaries the display views show (libHCFR
+	// PrimarySet.h, ChoosePrimarySetShown), per group: the dedicated
+	// measurement (GetPrimary / GetSecondary, returned unchanged) when it holds
+	// a reading; else, when HCFR's own primaries run drives pure channels, the
+	// active patch list's readings at the run's level (100%, or HDR10's
+	// 50.22831%) when it has one in the group, else under HDR10 its 100%
+	// readings, shown without references (no dE); else the dedicated
+	// measurement. i is 0..2 (red, green, blue / yellow, cyan, magenta). A color
+	// the chosen list lacks is noDataColor. GetPrimary / GetSecondary are not
+	// affected: calibration, exports and the accuracy test read those.
+	CColor GetShownPrimary(int i) const;
+	CColor GetShownSecondary(int i) const;
+	// The choice behind the shown group (bSecondaries: Y,C,M), including whether
+	// the references (a dE) apply to it; pSet, when not NULL, receives the list
+	// entries the choice reads (empty for the dedicated measurement).
+	PrimarySetChoice GetShownPrimaryChoice(bool bSecondaries, ListPrimarySet * pSet) const;
+	// The white the shown primaries and secondaries are judged against: the one
+	// rule (libHCFR ChooseShownPrimaryWhite) the primaries page, the RGB levels
+	// widget and the CIE chart (markers, hover, the a*b* coverage figure) all
+	// take. With the prime white measured, or no group shown from the active
+	// patch list: SHOWN_WHITE_CALLER, each caller's own white. Otherwise the
+	// list's gray at the level HCFR's primaries run measures its white at
+	// (PrimeWhiteIRELevel: 100%, 50.22831% under HDR10; BuildListWhiteAtLevel);
+	// else, when that level is 100%, the gray scale's measured 100% (its top slot
+	// with a finite Y above 0 that is not the constructor's placeholder:
+	// GrayScaleWhite with IsConstructorPlaceholder and no fallback), else a
+	// measured on/off white (flagged measured, HoldsReading, GrayRampWhiteUsable:
+	// the test GetGrayGraphWhite applies); else SHOWN_WHITE_NONE (the groups
+	// shown from the list then get no dE). *pWhite receives the white for the
+	// three choices that name one (ShownWhiteIsChosen) and is untouched otherwise.
+	ShownWhiteSource GetShownPrimaryWhiteSource(CColor * pWhite) const;
+	// GetShownPrimaryWhiteSource's white when it names one (TRUE), else FALSE.
+	bool GetShownPrimaryChosenWhite(CColor * pWhite) const;
+	// That white, else exactly callerWhite - the white and fallback chain each
+	// caller has always used.
+	CColor GetShownPrimaryWhite(const CColor & callerWhite) const;
+	bool PrimariesHoldReading() const;	// a valid dedicated primary (the S_PRIMARIES test of SweepOverwritesData)
+	bool SecondariesHoldReading() const;	// the same for the secondaries
+	ListPrimarySet GetListPrimarySet() const;	// the active set's, empty without one
+	ListPrimarySet GetListPrimarySetAtLevel(double level) const;	// the same, rows at level (BuildListPrimarySetAtLevel)
 	int GetGrayScalePreset() const;	// matching preset index, or -1 (custom)
 	void SetIREScaleMode(BOOL bIRE);
 	CColor lastColor, previousColor;

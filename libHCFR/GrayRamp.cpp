@@ -51,12 +51,17 @@ void BuildSweepGrayRamp ( const GraySeriesView & v, GrayRamp * out )
 	out->whiteIndex = v.size - 1;
 }
 
+bool PatchListRoleCounts ( int role )
+{
+	return role == PROVENANCE_ROLE_UNKNOWN || role == PROVENANCE_ROLE_COLOR
+		|| role == PROVENANCE_ROLE_VERIFICATION;
+}
+
 bool GrayRampRowCounts ( const CsvPatchRow & row )
 {
 	if ( row.label.kind != PATCH_KIND_GRAY )
 		return false;
-	return row.role == PROVENANCE_ROLE_UNKNOWN || row.role == PROVENANCE_ROLE_COLOR
-		|| row.role == PROVENANCE_ROLE_VERIFICATION;
+	return PatchListRoleCounts ( row.role );
 }
 
 namespace

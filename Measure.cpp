@@ -1898,8 +1898,20 @@ GrayRamp CMeasure::GetGrayGraphRamp() const
 	GrayRamp sweep;
 	BuildSweepGrayRamp ( GetGraySeriesView ( GRAY_SERIES_GRAYSCALE ), & sweep );
 	const bool sweepHolds = GraySweepHoldsReading ();
-	if ( sweepHolds || m_bpreV10 > 0 || m_activeUserSet < 0 || m_activeUserSet >= (int) m_userPatchSets.size () )
+	const CsvPatchRow * rows = NULL;
+	const CColor * readings = NULL;
+	int nRows = 0, nReadings = 0;
+	if ( sweepHolds || ! GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
 		return sweep;
+	GrayRamp list;
+	BuildListGrayRamp ( rows, nRows, readings, nReadings, & list );
+	return ( ChooseGrayRampSource ( sweepHolds, ! list.points.empty () ) == GRAY_RAMP_LIST ) ? list : sweep;
+}
+
+bool CMeasure::GetActiveUserBand(const CsvPatchRow ** pRows, int * pRowCount, const CColor ** pReadings, int * pReadingCount) const
+{
+	if ( m_bpreV10 > 0 || m_activeUserSet < 0 || m_activeUserSet >= (int) m_userPatchSets.size () )
+		return false;
 
 	// The active set's readings are the USER band of the master array (the
 	// band-as-window, see the user patch set collection below), slot i paired
@@ -1909,10 +1921,12 @@ GrayRamp CMeasure::GetGrayGraphRamp() const
 	if ( nBand > MAX_USER_CC_PATCH_SIZE )
 		nBand = MAX_USER_CC_PATCH_SIZE;
 	if ( nBand <= 0 || set.rows.empty () )
-		return sweep;
-	GrayRamp list;
-	BuildListGrayRamp ( & set.rows[0], (int) set.rows.size (), m_cc24SatMeasureArray_master.GetData () + USER_BAND_BASE, nBand, & list );
-	return ( ChooseGrayRampSource ( sweepHolds, ! list.points.empty () ) == GRAY_RAMP_LIST ) ? list : sweep;
+		return false;
+	*pRows = & set.rows[0];
+	*pRowCount = (int) set.rows.size ();
+	*pReadings = m_cc24SatMeasureArray_master.GetData () + USER_BAND_BASE;
+	*pReadingCount = nBand;
+	return true;
 }
 
 CColor CMeasure::GetGrayGraphWhite(const GrayRamp & ramp) const
@@ -1949,6 +1963,134 @@ CColor CMeasure::GetGrayGraphTop(const GrayRamp & ramp) const
 		return ( n > 0 && ! IsRawlessPlaceholder ( m_grayMeasureArray[n-1], false ) ) ? m_grayMeasureArray[n-1] : noDataColor;
 	}
 	return GrayRampWhite ( ramp, noDataColor );
+}
+
+bool CMeasure::PrimariesHoldReading() const
+{
+	SweepConfirmRule::SeriesSlots s = { SweepConfirmRule::S_PRIMARIES, m_primariesArray.GetData (), (int) m_primariesArray.GetSize (), NULL };
+	return SweepConfirmRule::SlotsHoldData ( s );
+}
+
+bool CMeasure::SecondariesHoldReading() const
+{
+	SweepConfirmRule::SeriesSlots s = { SweepConfirmRule::S_SECONDARIES, m_secondariesArray.GetData (), (int) m_secondariesArray.GetSize (), NULL };
+	return SweepConfirmRule::SlotsHoldData ( s );
+}
+
+ListPrimarySet CMeasure::GetListPrimarySet() const
+{
+	ListPrimarySet s;
+	const CsvPatchRow * rows = NULL;
+	const CColor * readings = NULL;
+	int nRows = 0, nReadings = 0;
+	if ( GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
+		BuildListPrimarySet ( rows, nRows, readings, nReadings, & s );
+	return s;
+}
+
+ListPrimarySet CMeasure::GetListPrimarySetAtLevel(double level) const
+{
+	ListPrimarySet s;
+	const CsvPatchRow * rows = NULL;
+	const CColor * readings = NULL;
+	int nRows = 0, nReadings = 0;
+	if ( GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
+		BuildListPrimarySetAtLevel ( rows, nRows, readings, nReadings, level, & s );
+	return s;
+}
+
+// The signal HCFR's own primaries run drives (BuildPrimarySecondaryColors):
+// PrimaryPatchIRELevel, 100 except under HDR10, on single and paired
+// channels, which the 75% gamuts (HDTVa, HDTVb: wire tables) and P3 / Rec.709
+// inside BT.2020 (UHDTV3, UHDTV4: the inner primary encoded in the container)
+// do not drive.
+static void OwnPrimariesRunSignal(double * pLevel, bool * pPure)
+{
+	const ColorStandard s = GetColorReference().m_standard;
+	*pPure = ! ( s == HDTVa || s == HDTVb || s == UHDTV3 || s == UHDTV4 );
+	*pLevel = PrimaryPatchIRELevel ( NULL );
+}
+
+PrimarySetChoice CMeasure::GetShownPrimaryChoice(bool bSecondaries, ListPrimarySet * pSet) const
+{
+	double runLevel = 100.0;
+	bool pure = true;
+	OwnPrimariesRunSignal ( & runLevel, & pure );
+	const bool dedicated = bSecondaries ? SecondariesHoldReading () : PrimariesHoldReading ();
+	ListPrimarySet full, atRun;
+	if ( ! dedicated )
+	{
+		full = GetListPrimarySet ();
+		atRun = GetListPrimarySetAtLevel ( runLevel );
+	}
+	const PrimarySetChoice c = ChoosePrimarySetShown ( dedicated,
+		bSecondaries ? atRun.HasSecondary () : atRun.HasPrimary (),
+		bSecondaries ? full.HasSecondary () : full.HasPrimary (), runLevel, pure );
+	if ( pSet != NULL )
+		*pSet = c.runLevelRows ? atRun : full;
+	return c;
+}
+
+CColor CMeasure::GetShownPrimary(int i) const
+{
+	if ( PrimariesHoldReading () )
+		return GetPrimary ( i );
+	ListPrimarySet s;
+	if ( GetShownPrimaryChoice ( false, & s ).source == PRIMARY_SET_LIST )
+		return s.entries[i].reading;
+	return GetPrimary ( i );
+}
+
+CColor CMeasure::GetShownSecondary(int i) const
+{
+	if ( SecondariesHoldReading () )
+		return GetSecondary ( i );
+	ListPrimarySet s;
+	if ( GetShownPrimaryChoice ( true, & s ).source == PRIMARY_SET_LIST )
+		return s.entries[3 + i].reading;
+	return GetSecondary ( i );
+}
+
+bool CMeasure::GetShownPrimaryChosenWhite(CColor * pWhite) const
+{
+	return ShownWhiteIsChosen ( GetShownPrimaryWhiteSource ( pWhite ) );
+}
+
+ShownWhiteSource CMeasure::GetShownPrimaryWhiteSource(CColor * pWhite) const
+{
+	// A measured prime white is the dedicated run's: every caller keeps it.
+	if ( m_bPrimeWhiteMeasured )
+		return SHOWN_WHITE_CALLER;
+	const bool anyList = GetShownPrimaryChoice ( false, NULL ).source == PRIMARY_SET_LIST
+					  || GetShownPrimaryChoice ( true, NULL ).source == PRIMARY_SET_LIST;
+	CColor w = noDataColor;
+	bool listHasWhite = false;
+	const CsvPatchRow * rows = NULL;
+	const CColor * readings = NULL;
+	int nRows = 0, nReadings = 0;
+	if ( anyList && GetActiveUserBand ( & rows, & nRows, & readings, & nReadings ) )
+		listHasWhite = BuildListWhiteAtLevel ( rows, nRows, readings, nReadings, PrimeWhiteIRELevel ( NULL ), & w );
+	// A white the document measured, for a run whose white is its 100% white:
+	// the gray scale's top slot unless it is the constructor's placeholder, and
+	// the on/off white only when flagged measured and holding a reading.
+	const bool whiteLevelIsFull = PrimarySetLevelCode ( PrimeWhiteIRELevel ( NULL ) ) == PrimarySetLevelCode ( 100.0 );
+	const CColor grayWhite = GrayScaleWhite ( m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (), noDataColor, IsConstructorPlaceholder );
+	const bool grayMeasured = grayWhite.isValid () && GrayRampWhiteUsable ( grayWhite );
+	const bool onOffMeasured = m_bOnOffWhiteMeasured && HoldsReading ( m_OnOffWhite ) && GrayRampWhiteUsable ( m_OnOffWhite );
+	const ShownWhiteSource r = ChooseShownPrimaryWhite ( m_bPrimeWhiteMeasured != FALSE, anyList, listHasWhite, whiteLevelIsFull, grayMeasured, onOffMeasured );
+	if ( r == SHOWN_WHITE_LIST )
+		*pWhite = w;
+	else if ( r == SHOWN_WHITE_GRAY_SCALE )
+		*pWhite = grayWhite;
+	else if ( r == SHOWN_WHITE_ON_OFF )
+		*pWhite = m_OnOffWhite;
+	return r;
+}
+
+CColor CMeasure::GetShownPrimaryWhite(const CColor & callerWhite) const
+{
+	CColor w;
+	return GetShownPrimaryChosenWhite ( & w ) ? w : callerWhite;
 }
 
 CString CMeasure::GetInfoString() const

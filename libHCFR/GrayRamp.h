@@ -84,9 +84,13 @@ struct GrayRamp
 // The sweep, slot for slot (see above). An empty series gives no points.
 void BuildSweepGrayRamp ( const GraySeriesView & v, GrayRamp * out );
 
-// Whether a patch-list row is drawn on the gray graphs: labeled gray, with
-// the role a CSV leaves (-1), COLOR or VERIFICATION. Anchors, warm-up
-// patches, interstitials and identification patches are not.
+// Whether a patch-list row's role lets it stand for its color on a graph: the
+// role a CSV leaves (-1), COLOR or VERIFICATION. Anchors, warm-up patches,
+// interstitials and identification patches do not.
+bool PatchListRoleCounts ( int role );
+
+// Whether a patch-list row is drawn on the gray graphs: labeled gray, with a
+// role that counts (PatchListRoleCounts).
 bool GrayRampRowCounts ( const CsvPatchRow & row );
 
 // The list's gray points: rows[i] paired with readings[i], for i below both

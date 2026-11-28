@@ -9134,18 +9134,26 @@ namespace T61Summary
 
     static void CheckGammaShown()
     {
+        // The ramp is the list's own (GRAY_RAMP_LIST): the gamma graph's gates.
         for (int type = 0; type <= 8; type++)
         {
             const bool lineDrawn = (type != 5 && type != 7);
-            if (PatchListGammaShown(true, true, type) != lineDrawn)
-                Fail("T61 gamma shown, fit and data, offset type %d: %d, expected %d", type, (int)PatchListGammaShown(true, true, type), (int)lineDrawn);
-            if (PatchListGammaShown(false, true, type))
+            if (PatchListGammaShown(true, true, true, type) != lineDrawn)
+                Fail("T61 gamma shown, fit and data, offset type %d: %d, expected %d", type, (int)PatchListGammaShown(true, true, true, type), (int)lineDrawn);
+            if (PatchListGammaShown(true, false, true, type))
                 Fail("T61 gamma shown without a fit, offset type %d", type);
-            if (PatchListGammaShown(true, false, type))
+            if (PatchListGammaShown(true, true, false, type))
                 Fail("T61 gamma shown without a reading, offset type %d", type);
-            if (PatchListGammaShown(false, false, type))
+            if (PatchListGammaShown(true, false, false, type))
                 Fail("T61 gamma shown with neither, offset type %d", type);
         }
+        // A gray scale sweep supplies the ramp (GRAY_RAMP_SWEEP): its gamma
+        // describes the sweep, so the list line never shows one, fit or not.
+        for (int type = 0; type <= 8; type++)
+            for (int fit = 0; fit <= 1; fit++)
+                for (int data = 0; data <= 1; data++)
+                    if (PatchListGammaShown(false, fit != 0, data != 0, type))
+                        Fail("T61 gamma shown from a sweep ramp, fit %d data %d offset type %d", fit, data, type);
     }
 
     static void CheckUserSets()
@@ -9227,6 +9235,920 @@ static void RunT61()
     T61Summary::CheckUserText();
 }
 
+// T62: primaries and secondaries from a patch list (libHCFR/PrimarySet.h).
+// Pure assertions, no golden files. Every expectation exact.
+#include "../../libHCFR/PrimarySet.h"
+
+namespace T62Prim
+{
+    struct Grid { int bits, range, black, white; const char* name; };
+    static const Grid kGrids[4] = {
+        { 8,  CSV_RANGE_FULL,  0,  255,  "8-bit full"  },
+        { 8,  CSV_RANGE_LEGAL, 16, 235,  "8-bit legal" },
+        { 10, CSV_RANGE_FULL,  0,  1023, "10-bit full" },
+        { 10, CSV_RANGE_LEGAL, 64, 940,  "10-bit legal" },
+    };
+    static const char* kColor[6] = { "red", "green", "blue", "yellow", "cyan", "magenta" };
+
+    static CsvPatchRow Row(int r, int g, int b, int bits, int range, int role = -1)
+    { return T60Ramp::Row(r, g, b, bits, range, role); }
+
+    // The row of color c (PatchLabelColor) with the lit channels at code `hi`
+    // and the others at code `lo`.
+    static CsvPatchRow ColorRow(int c, int hi, int lo, int bits, int range, int role = -1)
+    {
+        static const int lit[6][3] = { {1,0,0}, {0,1,0}, {0,0,1}, {1,1,0}, {0,1,1}, {1,0,1} };
+        return Row(lit[c][0] ? hi : lo, lit[c][1] ? hi : lo, lit[c][2] ? hi : lo, bits, range, role);
+    }
+
+    static bool SameXYZ(const CColor& a, const CColor& b) { return T60Ramp::SameXYZ(a, b); }
+
+    static ListPrimarySet Build(const std::vector<CsvPatchRow>& rows, const std::vector<CColor>& readings)
+    {
+        ListPrimarySet s;
+        BuildListPrimarySet(rows.empty() ? NULL : &rows[0], (int)rows.size(),
+                            readings.empty() ? NULL : &readings[0], (int)readings.size(), &s);
+        return s;
+    }
+
+    static int Present(const ListPrimarySet& s)
+    {
+        int n = 0;
+        for (int c = 0; c < 6; c++)
+            n += s.entries[c].present ? 1 : 0;
+        return n;
+    }
+
+    // 1. Each of the six colors found at 100% in all four bit/range cases, a
+    // single reading unchanged; ramp steps, gray, saturation steps and other
+    // rows around them are not taken.
+    static void CheckSixAtFull()
+    {
+        for (int g = 0; g < 4; g++)
+        {
+            const Grid& G = kGrids[g];
+            const int mid = (G.black + G.white) / 2;
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            int rowOf[6];
+            for (int c = 0; c < 6; c++)
+            {
+                rows.push_back(ColorRow(c, mid, G.black, G.bits, G.range));	// a ramp step
+                readings.push_back(CColor(90.0 + c, 90.0, 90.0));
+                rowOf[c] = (int)rows.size();
+                rows.push_back(ColorRow(c, G.white, G.black, G.bits, G.range));
+                readings.push_back(CColor(10.0 + c, 20.0 + c, 30.0 + c));
+                rows.push_back(ColorRow(c, G.white, mid, G.bits, G.range));	// a saturation step
+                readings.push_back(CColor(80.0, 80.0 + c, 80.0));
+            }
+            rows.push_back(Row(G.white, G.white, G.white, G.bits, G.range));
+            readings.push_back(CColor(95.0, 100.0, 108.0));
+            rows.push_back(Row(G.white, mid, G.black, G.bits, G.range));	// other
+            readings.push_back(CColor(70.0, 60.0, 5.0));
+
+            const ListPrimarySet s = Build(rows, readings);
+            for (int c = 0; c < 6; c++)
+            {
+                const PrimarySetEntry& e = s.entries[c];
+                const CColor want(10.0 + c, 20.0 + c, 30.0 + c);
+                if (!e.present || e.members != 1 || e.firstRow != rowOf[c] || !SameXYZ(e.reading, want))
+                    Fail("T62 %s %s: present %d members %d row %d (want %d) Y %.17g (want %.17g)",
+                         G.name, kColor[c], (int)e.present, e.members, e.firstRow, rowOf[c],
+                         e.reading.GetY(), want.GetY());
+            }
+            if (!s.HasPrimary() || !s.HasSecondary())
+                Fail("T62 %s: HasPrimary %d HasSecondary %d, expected 1 1", G.name, (int)s.HasPrimary(), (int)s.HasSecondary());
+        }
+    }
+
+    // 2. A 75% primary alone gives no entry; nor does a ramp without its top.
+    static void CheckLowerLevels()
+    {
+        for (int g = 0; g < 4; g++)
+        {
+            const Grid& G = kGrids[g];
+            const int c75 = G.black + (G.white - G.black) * 3 / 4;
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(ColorRow(PATCH_COLOR_RED, c75, G.black, G.bits, G.range));
+            readings.push_back(CColor(30.0, 15.0, 1.0));
+            for (int k = 1; k <= 3; k++)	// a green ramp to 75%
+            {
+                rows.push_back(ColorRow(PATCH_COLOR_GREEN, G.black + (G.white - G.black) * k / 4, G.black, G.bits, G.range));
+                readings.push_back(CColor(10.0 * k, 20.0 * k, 3.0 * k));
+            }
+            rows.push_back(ColorRow(PATCH_COLOR_CYAN, c75, G.black, G.bits, G.range));
+            readings.push_back(CColor(20.0, 30.0, 40.0));
+            const ListPrimarySet s = Build(rows, readings);
+            if (Present(s) != 0 || s.HasPrimary() || s.HasSecondary())
+                Fail("T62 %s lower levels: %d entries, HasPrimary %d HasSecondary %d, expected none",
+                     G.name, Present(s), (int)s.HasPrimary(), (int)s.HasSecondary());
+        }
+    }
+
+    // 3. Repeats are one signal, averaged; codes a legal list clamps onto
+    // the white drive the same signal and join it.
+    static void CheckRepeats()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        rows.push_back(Row(16, 16, 16, 8, L));          readings.push_back(CColor(0.1, 0.1, 0.1));
+        rows.push_back(Row(235, 16, 16, 8, L));         readings.push_back(CColor(40.0, 20.0, 2.0));
+        rows.push_back(Row(235, 235, 16, 8, L));        readings.push_back(CColor(70.0, 80.0, 10.0));
+        rows.push_back(Row(235, 16, 16, 8, L));         readings.push_back(CColor(44.0, 22.0, 2.0));
+        rows.push_back(Row(250, 3, 3, 8, L));           readings.push_back(CColor(54.0, 27.0, 5.0));	// clamps to 235,16,16
+        const ListPrimarySet s = Build(rows, readings);
+        const PrimarySetEntry& r = s.entries[PATCH_COLOR_RED];
+        if (!r.present || r.members != 3 || r.firstRow != 1 || !SameXYZ(r.reading, CColor(46.0, 23.0, 3.0)))
+            Fail("T62 repeats red: present %d members %d row %d XYZ %.17g %.17g %.17g, expected 1 3 1 46 23 3",
+                 (int)r.present, r.members, r.firstRow, r.reading.GetX(), r.reading.GetY(), r.reading.GetZ());
+        const PrimarySetEntry& y = s.entries[PATCH_COLOR_YELLOW];
+        if (!y.present || y.members != 1 || !SameXYZ(y.reading, CColor(70.0, 80.0, 10.0)))
+            Fail("T62 repeats yellow: present %d members %d Y %.17g, expected 1 1 80", (int)y.present, y.members, y.reading.GetY());
+        if (Present(s) != 2)
+            Fail("T62 repeats: %d entries, expected 2", Present(s));
+    }
+
+    // 4. A shuffled list gives bit-identical entries to the ordered one.
+    static void CheckShuffled()
+    {
+        const int F = CSV_RANGE_FULL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        // values chosen so a sum in another order rounds differently
+        const double xs[4] = { 0.1, 0.2, 0.3, 1e16 };
+        for (int k = 0; k < 4; k++)
+        {
+            rows.push_back(ColorRow(PATCH_COLOR_BLUE, 1023, 0, 10, F));
+            readings.push_back(CColor(xs[k], 0.7 + xs[k], 3.0 * xs[k]));
+            rows.push_back(ColorRow(PATCH_COLOR_MAGENTA, 1023, 0, 10, F));
+            readings.push_back(CColor(xs[3 - k] * 2.0, xs[k], xs[k] + 0.05));
+        }
+        rows.push_back(ColorRow(PATCH_COLOR_BLUE, 512, 0, 10, F));
+        readings.push_back(CColor(1.0, 1.0, 1.0));
+        rows.push_back(Row(1023, 1023, 1023, 10, F));
+        readings.push_back(CColor(95.0, 100.0, 108.0));
+
+        const ListPrimarySet ordered = Build(rows, readings);
+        static const int perm[10] = { 7, 2, 9, 0, 5, 3, 8, 1, 6, 4 };	// fixed, not random
+        std::vector<CsvPatchRow> srows;
+        std::vector<CColor> sreads;
+        for (int i = 0; i < 10; i++)
+        {
+            srows.push_back(rows[perm[i]]);
+            sreads.push_back(readings[perm[i]]);
+        }
+        const ListPrimarySet shuffled = Build(srows, sreads);
+        if (Present(ordered) != 2 || !ordered.entries[PATCH_COLOR_BLUE].present || !ordered.entries[PATCH_COLOR_MAGENTA].present)
+            Fail("T62 shuffled: ordered list gave %d entries, expected blue and magenta", Present(ordered));
+        for (int c = 0; c < 6; c++)
+        {
+            const PrimarySetEntry& a = ordered.entries[c];
+            const PrimarySetEntry& b = shuffled.entries[c];
+            if (a.present != b.present || a.members != b.members || !SameXYZ(a.reading, b.reading))
+                Fail("T62 shuffled %s: present %d/%d members %d/%d X %.17g/%.17g Y %.17g/%.17g Z %.17g/%.17g",
+                     kColor[c], (int)a.present, (int)b.present, a.members, b.members,
+                     a.reading.GetX(), b.reading.GetX(), a.reading.GetY(), b.reading.GetY(),
+                     a.reading.GetZ(), b.reading.GetZ());
+        }
+        if (ordered.entries[PATCH_COLOR_BLUE].members != 4)
+            Fail("T62 shuffled: blue averaged %d readings, expected 4", ordered.entries[PATCH_COLOR_BLUE].members);
+    }
+
+    // 5. Invalid readings are skipped; a color with only invalid ones has no entry.
+    static void CheckInvalid()
+    {
+        const int F = CSV_RANGE_FULL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        rows.push_back(ColorRow(PATCH_COLOR_RED, 255, 0, 8, F));     readings.push_back(noDataColor);
+        rows.push_back(ColorRow(PATCH_COLOR_RED, 255, 0, 8, F));     readings.push_back(CColor(41.0, 21.0, 2.0));
+        rows.push_back(ColorRow(PATCH_COLOR_GREEN, 255, 0, 8, F));   readings.push_back(noDataColor);
+        rows.push_back(ColorRow(PATCH_COLOR_CYAN, 255, 0, 8, F));    // no reading: beyond the readings' count
+        readings.resize(rows.size() - 1);
+        const ListPrimarySet s = Build(rows, readings);
+        const PrimarySetEntry& r = s.entries[PATCH_COLOR_RED];
+        if (!r.present || r.members != 1 || r.firstRow != 1 || !SameXYZ(r.reading, CColor(41.0, 21.0, 2.0)))
+            Fail("T62 invalid: red present %d members %d row %d Y %.17g, expected 1 1 1 21",
+                 (int)r.present, r.members, r.firstRow, r.reading.GetY());
+        if (s.entries[PATCH_COLOR_GREEN].present || s.entries[PATCH_COLOR_CYAN].present)
+            Fail("T62 invalid: green present %d cyan present %d, expected 0 0",
+                 (int)s.entries[PATCH_COLOR_GREEN].present, (int)s.entries[PATCH_COLOR_CYAN].present);
+        if (s.entries[PATCH_COLOR_GREEN].reading.isValid())
+            Fail("T62 invalid: green's reading is valid, expected noDataColor");
+        ListPrimarySet none;
+        BuildListPrimarySet(NULL, 0, NULL, 0, &none);
+        if (Present(none) != 0)
+            Fail("T62 invalid: empty input gave %d entries", Present(none));
+    }
+
+    // 6. Anchor, warm-up, interstitial and identification roles are skipped;
+    // the CSV's -1, COLOR and VERIFICATION count.
+    static void CheckRoles()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        const int skipped[4] = { PROVENANCE_ROLE_ANCHOR, PROVENANCE_ROLE_PREROLL,
+                                 PROVENANCE_ROLE_INTERSTITIAL, PROVENANCE_ROLE_IDENTIFICATION };
+        const int counted[3] = { PROVENANCE_ROLE_UNKNOWN, PROVENANCE_ROLE_COLOR, PROVENANCE_ROLE_VERIFICATION };
+        for (int k = 0; k < 4; k++)
+        {
+            std::vector<CsvPatchRow> rows(1, ColorRow(PATCH_COLOR_GREEN, 940, 64, 10, L, skipped[k]));
+            std::vector<CColor> readings(1, CColor(30.0, 60.0, 10.0));
+            if (Present(Build(rows, readings)) != 0)
+                Fail("T62 roles: role %d counted, expected skipped", skipped[k]);
+        }
+        for (int k = 0; k < 3; k++)
+        {
+            std::vector<CsvPatchRow> rows(1, ColorRow(PATCH_COLOR_GREEN, 940, 64, 10, L, counted[k]));
+            std::vector<CColor> readings(1, CColor(30.0, 60.0, 10.0));
+            if (!Build(rows, readings).entries[PATCH_COLOR_GREEN].present)
+                Fail("T62 roles: role %d skipped, expected counted", counted[k]);
+        }
+        for (int c = 0; c < 6; c++)	// the row test against the wrong color
+            if (PrimarySetRowCounts(ColorRow(c, 235, 16, 8, L), (c + 1) % 6))
+                Fail("T62 roles: a %s row counts as %s", kColor[c], kColor[(c + 1) % 6]);
+    }
+
+    // 7. Extended range: a code above white is not 100%; the white code is.
+    static void CheckExtended()
+    {
+        const int E = CSV_RANGE_EXTENDED;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        rows.push_back(ColorRow(PATCH_COLOR_RED, 254, 16, 8, E));      readings.push_back(CColor(50.0, 25.0, 3.0));
+        rows.push_back(ColorRow(PATCH_COLOR_RED, 235, 16, 8, E));      readings.push_back(CColor(40.0, 20.0, 2.0));
+        rows.push_back(ColorRow(PATCH_COLOR_CYAN, 1019, 64, 10, E));   readings.push_back(CColor(30.0, 50.0, 90.0));
+        rows.push_back(ColorRow(PATCH_COLOR_YELLOW, 940, 64, 10, E));  readings.push_back(CColor(70.0, 80.0, 9.0));
+        rows.push_back(ColorRow(PATCH_COLOR_BLUE, 235, 4, 8, E));      readings.push_back(CColor(15.0, 6.0, 80.0));	// others below black: other
+        const ListPrimarySet s = Build(rows, readings);
+        const PrimarySetEntry& r = s.entries[PATCH_COLOR_RED];
+        if (!r.present || r.members != 1 || r.firstRow != 1 || !SameXYZ(r.reading, CColor(40.0, 20.0, 2.0)))
+            Fail("T62 extended: red present %d members %d row %d Y %.17g, expected the 235 row alone (Y 20)",
+                 (int)r.present, r.members, r.firstRow, r.reading.GetY());
+        if (s.entries[PATCH_COLOR_CYAN].present)
+            Fail("T62 extended: cyan over white (1019) taken as 100%%");
+        if (!s.entries[PATCH_COLOR_YELLOW].present || s.entries[PATCH_COLOR_YELLOW].members != 1)
+            Fail("T62 extended: yellow at 940 not taken");
+        if (s.entries[PATCH_COLOR_BLUE].present)
+            Fail("T62 extended: blue with channels below black taken");
+        if (Present(s) != 2)
+            Fail("T62 extended: %d entries, expected 2", Present(s));
+    }
+
+    // 8. The groups (the chooser itself is CheckShownChoice).
+    static void CheckChooser()
+    {
+        // Primaries and secondaries are separate groups: a list with only
+        // secondaries has no primary.
+        std::vector<CsvPatchRow> rows(1, ColorRow(PATCH_COLOR_MAGENTA, 255, 0, 8, CSV_RANGE_FULL));
+        std::vector<CColor> readings(1, CColor(50.0, 25.0, 60.0));
+        const ListPrimarySet s = Build(rows, readings);
+        if (s.HasPrimary() || !s.HasSecondary())
+            Fail("T62 groups: magenta alone gives HasPrimary %d HasSecondary %d, expected 0 1",
+                 (int)s.HasPrimary(), (int)s.HasSecondary());
+    }
+
+    // HDR10's run level, as Measure.cpp PrimaryPatchIRELevel gives it.
+    static const double kHdr10Run = 50.22831;
+
+    static ListPrimarySet BuildAt(const std::vector<CsvPatchRow>& rows, const std::vector<CColor>& readings, double level)
+    {
+        ListPrimarySet s;
+        BuildListPrimarySetAtLevel(rows.empty() ? NULL : &rows[0], (int)rows.size(),
+                                   readings.empty() ? NULL : &readings[0], (int)readings.size(), level, &s);
+        return s;
+    }
+
+    static const char* ChoiceText(const PrimarySetChoice& c, char* buf, size_t n)
+    {
+        sprintf_s(buf, n, "source %d runLevelRows %d ref %d", (int)c.source, (int)c.runLevelRows, (int)c.referenceApplies);
+        return buf;
+    }
+
+    static void ExpectChoice(const char* what, const PrimarySetChoice& got, PrimarySetSource source, bool runLevelRows, bool ref)
+    {
+        if (got.source != source || got.runLevelRows != runLevelRows || got.referenceApplies != ref)
+        {
+            char a[96], b[96];
+            PrimarySetChoice want;
+            want.source = source; want.runLevelRows = runLevelRows; want.referenceApplies = ref;
+            Fail("T62 %s: %s, expected %s", what, ChoiceText(got, a, sizeof a), ChoiceText(want, b, sizeof b));
+        }
+    }
+
+    // 9. Levels compared by 10-bit legal code: HDR10's run level is 504, and
+    // the codes that drive it in each bit depth and range match it; the codes
+    // beside them do not.
+    static void CheckLevelCode()
+    {
+        if (PrimarySetLevelCode(kHdr10Run) != 504)
+            Fail("T62 level code of %.17g: %d, expected 504", kHdr10Run, PrimarySetLevelCode(kHdr10Run));
+        if (PrimarySetLevelCode(100.0) != 940 || PrimarySetLevelCode(0.0) != 64 || PrimarySetLevelCode(50.0) != 502)
+            Fail("T62 level code of 100 / 0 / 50: %d / %d / %d, expected 940 / 64 / 502",
+                 PrimarySetLevelCode(100.0), PrimarySetLevelCode(0.0), PrimarySetLevelCode(50.0));
+        struct Case { int bits, range, code; bool match; };
+        const Case cases[12] = {
+            { 10, CSV_RANGE_LEGAL, 504, true  }, { 10, CSV_RANGE_LEGAL, 503, false }, { 10, CSV_RANGE_LEGAL, 505, false },
+            { 8,  CSV_RANGE_LEGAL, 126, true  }, { 8,  CSV_RANGE_LEGAL, 125, false }, { 8,  CSV_RANGE_LEGAL, 127, false },
+            { 8,  CSV_RANGE_FULL,  128, true  }, { 8,  CSV_RANGE_FULL,  127, false }, { 8,  CSV_RANGE_FULL,  129, false },
+            { 10, CSV_RANGE_FULL,  514, true  }, { 10, CSV_RANGE_FULL,  513, false }, { 10, CSV_RANGE_FULL,  515, false },
+        };
+        for (int k = 0; k < 12; k++)
+        {
+            const Case& c = cases[k];
+            const int black = (c.range == CSV_RANGE_FULL) ? 0 : 16 << (c.bits - 8);
+            for (int col = 0; col < 6; col++)
+            {
+                const CsvPatchRow row = ColorRow(col, c.code, black, c.bits, c.range);
+                if (PrimarySetRowCountsAtLevel(row, col, kHdr10Run) != c.match)
+                    Fail("T62 level code: %s at %d-bit %s code %d (level %.17g, code %d) counts %d at the HDR10 run, expected %d",
+                         kColor[col], c.bits, c.range == CSV_RANGE_FULL ? "full" : "legal", c.code, row.label.level,
+                         PrimarySetLevelCode(row.label.level), (int)!c.match, (int)c.match);
+                if (PrimarySetRowCountsAtLevel(row, (col + 1) % 6, kHdr10Run))
+                    Fail("T62 level code: a %s row counts as %s", kColor[col], kColor[(col + 1) % 6]);
+            }
+        }
+        // The role test applies at the run level as at 100%.
+        if (PrimarySetRowCountsAtLevel(ColorRow(PATCH_COLOR_RED, 504, 64, 10, CSV_RANGE_LEGAL, PROVENANCE_ROLE_ANCHOR), PATCH_COLOR_RED, kHdr10Run))
+            Fail("T62 level code: an anchor row counts at the HDR10 run");
+        // A gray at the run level is no primary.
+        if (PrimarySetRowCountsAtLevel(Row(504, 504, 504, 10, CSV_RANGE_LEGAL), PATCH_COLOR_RED, kHdr10Run))
+            Fail("T62 level code: a gray at 504 counts as red");
+    }
+
+    // 10. A list with both levels: the run-level set takes only the run-level
+    // rows, the 100% set only the 100% rows, in all four bit/range cases.
+    static void CheckBothLevels()
+    {
+        const int runCode[4] = { 128, 126, 514, 504 };	// kGrids order
+        for (int g = 0; g < 4; g++)
+        {
+            const Grid& G = kGrids[g];
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int c = 0; c < 6; c++)
+            {
+                rows.push_back(ColorRow(c, G.white, G.black, G.bits, G.range));
+                readings.push_back(CColor(60.0 + c, 70.0 + c, 80.0 + c));
+                rows.push_back(ColorRow(c, runCode[g], G.black, G.bits, G.range));
+                readings.push_back(CColor(6.0 + c, 7.0 + c, 8.0 + c));
+            }
+            const ListPrimarySet atRun = BuildAt(rows, readings, kHdr10Run);
+            const ListPrimarySet full = Build(rows, readings);
+            for (int c = 0; c < 6; c++)
+            {
+                const PrimarySetEntry& r = atRun.entries[c];
+                if (!r.present || r.members != 1 || r.firstRow != 2 * c + 1 || !SameXYZ(r.reading, CColor(6.0 + c, 7.0 + c, 8.0 + c)))
+                    Fail("T62 %s %s at the HDR10 run: present %d members %d row %d Y %.17g, expected 1 1 %d %.17g",
+                         G.name, kColor[c], (int)r.present, r.members, r.firstRow, r.reading.GetY(), 2 * c + 1, 7.0 + c);
+                const PrimarySetEntry& f = full.entries[c];
+                if (!f.present || f.members != 1 || f.firstRow != 2 * c || !SameXYZ(f.reading, CColor(60.0 + c, 70.0 + c, 80.0 + c)))
+                    Fail("T62 %s %s at 100%%: present %d members %d row %d Y %.17g, expected 1 1 %d %.17g",
+                         G.name, kColor[c], (int)f.present, f.members, f.firstRow, f.reading.GetY(), 2 * c, 70.0 + c);
+            }
+        }
+        // A list with only 100% rows has nothing at the run level, and one with
+        // only run-level rows nothing at 100%.
+        std::vector<CsvPatchRow> rows(1, ColorRow(PATCH_COLOR_GREEN, 940, 64, 10, CSV_RANGE_LEGAL));
+        std::vector<CColor> readings(1, CColor(30.0, 60.0, 10.0));
+        if (Present(BuildAt(rows, readings, kHdr10Run)) != 0)
+            Fail("T62 a 100%% green counts at the HDR10 run");
+        rows[0] = ColorRow(PATCH_COLOR_GREEN, 504, 64, 10, CSV_RANGE_LEGAL);
+        if (Present(Build(rows, readings)) != 0)
+            Fail("T62 a run-level green counts at 100%%");
+        // Repeats at the run level are averaged, as at 100%.
+        rows.push_back(ColorRow(PATCH_COLOR_GREEN, 126, 16, 8, CSV_RANGE_LEGAL));
+        readings.push_back(CColor(34.0, 64.0, 14.0));
+        const PrimarySetEntry& e = BuildAt(rows, readings, kHdr10Run).entries[PATCH_COLOR_GREEN];
+        if (!e.present || e.members != 2 || e.firstRow != 0 || !SameXYZ(e.reading, CColor(32.0, 62.0, 12.0)))
+            Fail("T62 run-level repeats: present %d members %d row %d Y %.17g, expected 1 2 0 62",
+                 (int)e.present, e.members, e.firstRow, e.reading.GetY());
+    }
+
+    // 11. What a group shows, per bullet of the rule.
+    static void CheckShownChoice()
+    {
+        const PrimarySetSource D = PRIMARY_SET_DEDICATED, L = PRIMARY_SET_LIST;
+        // Not HDR10, a run of 100% pure channels: unchanged - the list's 100%
+        // rows with references exactly when the dedicated measurement holds no
+        // reading and the list has a 100% entry in the group (the behavior the
+        // first chooser had), whatever the run-level flag says. A literal table.
+        struct { int ded, run, full; PrimarySetSource want; } atFull[8] = {
+            { 0, 0, 0, D }, { 0, 0, 1, L }, { 0, 1, 0, D }, { 0, 1, 1, L },
+            { 1, 0, 0, D }, { 1, 0, 1, D }, { 1, 1, 0, D }, { 1, 1, 1, D } };
+        for (int k = 0; k < 8; k++)
+        {
+            const PrimarySetChoice c = ChoosePrimarySetShown(atFull[k].ded != 0, atFull[k].run != 0, atFull[k].full != 0, 100.0, true);
+            char what[96];
+            sprintf_s(what, "shown, run 100%%, dedicated %d run-level %d full %d", atFull[k].ded, atFull[k].run, atFull[k].full);
+            ExpectChoice(what, c, atFull[k].want, false, true);
+        }
+        // HDR10: rows at the run level count, with references; they win over
+        // 100% rows.
+        ExpectChoice("shown, HDR10, run-level and 100% rows", ChoosePrimarySetShown(false, true, true, kHdr10Run, true), L, true, true);
+        ExpectChoice("shown, HDR10, run-level rows only", ChoosePrimarySetShown(false, true, false, kHdr10Run, true), L, true, true);
+        // HDR10 and only 100% rows: drawn from them, without references.
+        ExpectChoice("shown, HDR10, 100% rows only", ChoosePrimarySetShown(false, false, true, kHdr10Run, true), L, false, false);
+        ExpectChoice("shown, HDR10, no rows", ChoosePrimarySetShown(false, false, false, kHdr10Run, true), D, false, true);
+        // HDR10 with the dedicated run measured: the dedicated run, with references.
+        for (int run = 0; run <= 1; run++)
+            for (int full = 0; full <= 1; full++)
+                ExpectChoice("shown, HDR10, dedicated measured", ChoosePrimarySetShown(true, run != 0, full != 0, kHdr10Run, true), D, false, true);
+        // HDTVa / HDTVb and UHDTV3 / UHDTV4 (mixed channels): nothing from a
+        // list, at either run level.
+        const double levels[2] = { 100.0, kHdr10Run };
+        for (int lv = 0; lv < 2; lv++)
+            for (int run = 0; run <= 1; run++)
+                for (int full = 0; full <= 1; full++)
+                    ExpectChoice("shown, mixed channels", ChoosePrimarySetShown(false, run != 0, full != 0, levels[lv], false), D, false, true);
+        // The run level is compared by code too: a level on the 100% code is a
+        // 100% run, one on another code is not.
+        ExpectChoice("shown, run 99.99%", ChoosePrimarySetShown(false, true, true, 99.99, true), L, false, true);
+        ExpectChoice("shown, run 50.00% (code 502), 100% rows only", ChoosePrimarySetShown(false, false, true, 50.0, true), L, false, false);
+
+        // The three things a group can show have three keys.
+        PrimarySetChoice ded, full, run;
+        full.source = L;
+        run.source = L; run.runLevelRows = true;
+        const int kd = PrimarySetShownKey(ded), kf = PrimarySetShownKey(full), kr = PrimarySetShownKey(run);
+        if (kd == kf || kd == kr || kf == kr)
+            Fail("T62 shown keys: dedicated %d, 100%% rows %d, run-level rows %d, expected three different", kd, kf, kr);
+        if (PrimarySetShownKey(ChoosePrimarySetShown(false, false, true, kHdr10Run, true)) != kf
+            || PrimarySetShownKey(ChoosePrimarySetShown(false, true, true, kHdr10Run, true)) != kr
+            || PrimarySetShownKey(ChoosePrimarySetShown(true, true, true, kHdr10Run, true)) != kd)
+            Fail("T62 shown keys: the chooser's choices do not map to their keys");
+    }
+
+    // 12. One HDR10 list, the groups chosen separately: run-level primaries are
+    // shown with references, 100%-only secondaries without.
+    static void CheckHdr10Groups()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        for (int c = 0; c < 3; c++)
+        {
+            rows.push_back(ColorRow(c, 504, 64, 10, L));     readings.push_back(CColor(5.0 + c, 6.0 + c, 7.0 + c));
+            rows.push_back(ColorRow(c, 940, 64, 10, L));     readings.push_back(CColor(50.0 + c, 60.0 + c, 70.0 + c));
+        }
+        for (int c = 3; c < 6; c++)
+        {
+            rows.push_back(ColorRow(c, 940, 64, 10, L));     readings.push_back(CColor(80.0 + c, 90.0 + c, 20.0 + c));
+        }
+        const ListPrimarySet atRun = BuildAt(rows, readings, kHdr10Run);
+        const ListPrimarySet full = Build(rows, readings);
+        const PrimarySetChoice p = ChoosePrimarySetShown(false, atRun.HasPrimary(), full.HasPrimary(), kHdr10Run, true);
+        const PrimarySetChoice s = ChoosePrimarySetShown(false, atRun.HasSecondary(), full.HasSecondary(), kHdr10Run, true);
+        ExpectChoice("HDR10 groups, primaries", p, PRIMARY_SET_LIST, true, true);
+        ExpectChoice("HDR10 groups, secondaries", s, PRIMARY_SET_LIST, false, false);
+        const ListPrimarySet& ps = p.runLevelRows ? atRun : full;
+        const ListPrimarySet& ss = s.runLevelRows ? atRun : full;
+        for (int c = 0; c < 3; c++)
+            if (!SameXYZ(ps.entries[c].reading, CColor(5.0 + c, 6.0 + c, 7.0 + c)))
+                Fail("T62 HDR10 groups: %s shows Y %.17g, expected the run-level %.17g", kColor[c], ps.entries[c].reading.GetY(), 6.0 + c);
+        for (int c = 3; c < 6; c++)
+            if (!SameXYZ(ss.entries[c].reading, CColor(80.0 + c, 90.0 + c, 20.0 + c)))
+                Fail("T62 HDR10 groups: %s shows Y %.17g, expected the 100%% %.17g", kColor[c], ss.entries[c].reading.GetY(), 90.0 + c);
+    }
+
+    // 13. The main grid's primaries page (MainView display mode 1): what each
+    // page column reads, which columns an edit may write, which rows are the
+    // references', and the caption's note. Page columns 0..2 R,G,B, 3..5 Y,C,M,
+    // 6 white, 7 black.
+    static void ExpectPage(const char* what, const PrimarySetChoice& p, const PrimarySetChoice& s, const int expected[8])
+    {
+        for (int col = 0; col < 8; col++)
+        {
+            const int got = (int)PrimaryPageColumnSource(col, p, s);
+            if (got != expected[col])
+                Fail("T62 page %s: column %d reads %d, expected %d", what, col, got, expected[col]);
+            const bool writes = PrimaryPageColumnWritesDedicated(col, p, s);
+            if (writes != (expected[col] == PRIMARY_PAGE_DEDICATED))
+                Fail("T62 page %s: column %d writes the dedicated measurement %d, expected %d",
+                     what, col, (int)writes, (int)(expected[col] == PRIMARY_PAGE_DEDICATED));
+        }
+        // Outside the page: the dedicated measurement, writable, as before.
+        const int outside[4] = { -1, 8, 9, 100 };
+        for (int k = 0; k < 4; k++)
+            if (PrimaryPageColumnSource(outside[k], p, s) != PRIMARY_PAGE_DEDICATED || !PrimaryPageColumnWritesDedicated(outside[k], p, s))
+                Fail("T62 page %s: column %d outside the page is not the dedicated measurement", what, outside[k]);
+    }
+
+    static void CheckPrimaryPage()
+    {
+        const int D = PRIMARY_PAGE_DEDICATED, L = PRIMARY_PAGE_LIST, N = PRIMARY_PAGE_LIST_NO_REF;
+        const double kSdr = 100.0;
+        // Both groups measured by the dedicated run, at either run level: the
+        // page reads the dedicated measurement everywhere, writable, no note.
+        const PrimarySetChoice ded = ChoosePrimarySetShown(true, true, true, kSdr, true);
+        const PrimarySetChoice dedHdr = ChoosePrimarySetShown(true, true, true, kHdr10Run, true);
+        const int allD[8] = { D, D, D, D, D, D, D, D };
+        ExpectPage("dedicated, SDR", ded, ded, allD);
+        ExpectPage("dedicated, HDR10", dedHdr, dedHdr, allD);
+        // A list-only document under SDR: both groups from the list, with
+        // references; the white and the black stay the dedicated measurement's.
+        const PrimarySetChoice listSdr = ChoosePrimarySetShown(false, false, true, kSdr, true);
+        const int bothL[8] = { L, L, L, L, L, L, D, D };
+        ExpectPage("list, SDR", listSdr, listSdr, bothL);
+        // The groups separately: dedicated primaries, list secondaries, and the
+        // reverse.
+        const int secL[8] = { D, D, D, L, L, L, D, D };
+        const int primL[8] = { L, L, L, D, D, D, D, D };
+        ExpectPage("dedicated primaries, list secondaries", ded, listSdr, secL);
+        ExpectPage("list primaries, dedicated secondaries", listSdr, ded, primL);
+        // HDR10: run-level primaries with references, 100%-only secondaries
+        // without (the HDR10 groups of check 12).
+        const PrimarySetChoice runHdr = ChoosePrimarySetShown(false, true, true, kHdr10Run, true);
+        const PrimarySetChoice fullHdr = ChoosePrimarySetShown(false, false, true, kHdr10Run, true);
+        const int hdr[8] = { L, L, L, N, N, N, D, D };
+        ExpectPage("HDR10, run-level primaries, 100% secondaries", runHdr, fullHdr, hdr);
+        const int hdrBothN[8] = { N, N, N, N, N, N, D, D };
+        ExpectPage("HDR10, 100% rows only", fullHdr, fullHdr, hdrBothN);
+        // Mixed channels (HDTVa/b, UHDTV3/4): nothing from the list.
+        const PrimarySetChoice mixed = ChoosePrimarySetShown(false, true, true, kSdr, false);
+        ExpectPage("mixed channels", mixed, mixed, allD);
+        // No list, no dedicated reading: the dedicated measurement, as before.
+        const PrimarySetChoice none = ChoosePrimarySetShown(false, false, false, kSdr, true);
+        ExpectPage("nothing measured", none, none, allD);
+
+        // The rows the references make, without and with a data reference
+        // document (whose dE and xy error take rows 5 and 6).
+        const bool noRef[10] = { false, false, false, true, true, true, true, false, false, false };
+        const bool withRef[10] = { false, false, false, true, true, false, false, true, true, false };
+        for (int comp = 0; comp < 10; comp++)
+        {
+            if (PrimaryPageRowUsesReference(comp, false) != noRef[comp])
+                Fail("T62 page row %d without a data reference: uses the reference %d, expected %d",
+                     comp, (int)PrimaryPageRowUsesReference(comp, false), (int)noRef[comp]);
+            if (PrimaryPageRowUsesReference(comp, true) != withRef[comp])
+                Fail("T62 page row %d with a data reference: uses the reference %d, expected %d",
+                     comp, (int)PrimaryPageRowUsesReference(comp, true), (int)withRef[comp]);
+        }
+
+        // The caption's note names the groups shown from a list, with or
+        // without references.
+        struct { const PrimarySetChoice* p; const PrimarySetChoice* s; int note; const char* what; } notes[] = {
+            { &ded,     &ded,     PRIMARY_PAGE_NOTE_NONE,        "dedicated" },
+            { &none,    &none,    PRIMARY_PAGE_NOTE_NONE,        "nothing measured" },
+            { &listSdr, &ded,     PRIMARY_PAGE_NOTE_PRIMARIES,   "list primaries" },
+            { &ded,     &listSdr, PRIMARY_PAGE_NOTE_SECONDARIES, "list secondaries" },
+            { &listSdr, &listSdr, PRIMARY_PAGE_NOTE_BOTH,        "list, SDR" },
+            { &runHdr,  &fullHdr, PRIMARY_PAGE_NOTE_BOTH,        "HDR10 groups" },
+            { &mixed,   &mixed,   PRIMARY_PAGE_NOTE_NONE,        "mixed channels" },
+        };
+        for (int k = 0; k < (int)(sizeof(notes) / sizeof(notes[0])); k++)
+        {
+            const int got = (int)PrimaryPageSourceNote(*notes[k].p, *notes[k].s);
+            if (got != notes[k].note)
+                Fail("T62 page note %s: %d, expected %d", notes[k].what, got, notes[k].note);
+        }
+    }
+
+    // 14. The white the shown primaries and secondaries are judged against:
+    // the list's gray at the level HCFR's own run measures its white at (100%,
+    // 50.22831% under HDR10), matched by PrimarySetLevelCode.
+    static bool WhiteAt(const std::vector<CsvPatchRow>& rows, const std::vector<CColor>& readings, double level, CColor* out)
+    {
+        return BuildListWhiteAtLevel(rows.empty() ? NULL : &rows[0], (int)rows.size(),
+                                     readings.empty() ? NULL : &readings[0], (int)readings.size(), level, out);
+    }
+
+    static void CheckShownWhite()
+    {
+        // The chooser: the list's white only with the prime white unmeasured, a
+        // group shown from the list and a white in the list.
+        for (int pm = 0; pm <= 1; pm++)
+            for (int any = 0; any <= 1; any++)
+                for (int has = 0; has <= 1; has++)
+                {
+                    const int got = (int)ChooseShownWhite(pm != 0, any != 0, has != 0);
+                    const int expected = (!pm && any && has) ? SHOWN_WHITE_LIST : SHOWN_WHITE_CALLER;
+                    if (got != expected)
+                        Fail("T62 white chooser: prime measured %d, list group %d, list white %d gives %d, expected %d",
+                             pm, any, has, got, expected);
+                }
+
+        // 100%: in every grid the 100% grays are averaged, the 50% gray and a
+        // 100% red are not taken, and the white is the gray ramp's white bit for
+        // bit.
+        for (int g = 0; g < 4; g++)
+        {
+            const Grid& G = kGrids[g];
+            const int mid = (G.black + G.white) / 2;
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Row(mid, mid, mid, G.bits, G.range));                 readings.push_back(CColor(40.0, 42.0, 44.0));
+            rows.push_back(Row(G.white, G.white, G.white, G.bits, G.range));     readings.push_back(CColor(90.0, 100.0, 110.0));
+            rows.push_back(ColorRow(PATCH_COLOR_RED, G.white, G.black, G.bits, G.range)); readings.push_back(CColor(50.0, 25.0, 5.0));
+            rows.push_back(Row(G.white, G.white, G.white, G.bits, G.range));     readings.push_back(CColor(92.0, 102.0, 112.0));
+            CColor w = noDataColor;
+            if (!WhiteAt(rows, readings, 100.0, &w) || !SameXYZ(w, CColor(91.0, 101.0, 111.0)))
+                Fail("T62 white %s at 100%%: Y %.17g, expected the average 101", G.name, w.GetY());
+            GrayRamp ramp;
+            BuildListGrayRamp(&rows[0], (int)rows.size(), &readings[0], (int)readings.size(), &ramp);
+            const CColor rw = GrayRampWhite(ramp, noDataColor);
+            if (!SameXYZ(w, rw) || w.GetX() != rw.GetX() || w.GetY() != rw.GetY() || w.GetZ() != rw.GetZ())
+                Fail("T62 white %s at 100%%: Y %.17g, the gray ramp's white Y %.17g, expected identical", G.name, w.GetY(), rw.GetY());
+        }
+
+        // HDR10: the gray on the run level's code, in every grid (10-bit legal
+        // 504, 8-bit legal 126, 8-bit full 128, 10-bit full 514); the 100% gray
+        // of the same list is not taken, and is still the white at 100%.
+        struct { int bits, range, code; const char* name; } hdr[4] = {
+            { 10, CSV_RANGE_LEGAL, 504, "10-bit legal 504" }, { 8, CSV_RANGE_LEGAL, 126, "8-bit legal 126" },
+            { 8,  CSV_RANGE_FULL,  128, "8-bit full 128" },   { 10, CSV_RANGE_FULL, 514, "10-bit full 514" },
+        };
+        for (int k = 0; k < 4; k++)
+        {
+            const int top = (hdr[k].bits == 8) ? (hdr[k].range == CSV_RANGE_LEGAL ? 235 : 255) : (hdr[k].range == CSV_RANGE_LEGAL ? 940 : 1023);
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Row(top, top, top, hdr[k].bits, hdr[k].range));                         readings.push_back(CColor(570.0, 600.0, 650.0));
+            rows.push_back(Row(hdr[k].code, hdr[k].code, hdr[k].code, hdr[k].bits, hdr[k].range)); readings.push_back(CColor(89.0, 94.0, 102.0));
+            CColor w = noDataColor;
+            if (!WhiteAt(rows, readings, kHdr10Run, &w) || !SameXYZ(w, CColor(89.0, 94.0, 102.0)))
+                Fail("T62 white %s at the HDR10 run level: Y %.17g, expected 94", hdr[k].name, w.GetY());
+            if (!WhiteAt(rows, readings, 100.0, &w) || !SameXYZ(w, CColor(570.0, 600.0, 650.0)))
+                Fail("T62 white %s at 100%%: Y %.17g, expected 600", hdr[k].name, w.GetY());
+        }
+
+        // Repeats at the run level are averaged, across grids on the same code.
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Row(504, 504, 504, 10, CSV_RANGE_LEGAL)); readings.push_back(CColor(88.0, 93.0, 101.0));
+            rows.push_back(Row(126, 126, 126, 8, CSV_RANGE_LEGAL));  readings.push_back(CColor(90.0, 95.0, 103.0));
+            CColor w = noDataColor;
+            if (!WhiteAt(rows, readings, kHdr10Run, &w) || !SameXYZ(w, CColor(89.0, 94.0, 102.0)))
+                Fail("T62 white run-level repeats: Y %.17g, expected the average 94", w.GetY());
+        }
+
+        // Nothing at the level: the neighbors 503 and 505, a red on 504, a
+        // skipped role, an invalid reading, a zero luminance. FALSE, and the
+        // white handed in is untouched.
+        {
+            struct { CsvPatchRow row; CColor reading; const char* what; } none[6] = {
+                { Row(503, 503, 503, 10, CSV_RANGE_LEGAL), CColor(89.0, 94.0, 102.0), "gray 503" },
+                { Row(505, 505, 505, 10, CSV_RANGE_LEGAL), CColor(89.0, 94.0, 102.0), "gray 505" },
+                { ColorRow(PATCH_COLOR_RED, 504, 64, 10, CSV_RANGE_LEGAL), CColor(40.0, 20.0, 2.0), "red 504" },
+                { Row(504, 504, 504, 10, CSV_RANGE_LEGAL, PROVENANCE_ROLE_ANCHOR), CColor(89.0, 94.0, 102.0), "anchor gray 504" },
+                { Row(504, 504, 504, 10, CSV_RANGE_LEGAL), noDataColor, "gray 504 without a reading" },
+                { Row(504, 504, 504, 10, CSV_RANGE_LEGAL), CColor(0.0, 0.0, 0.0), "gray 504 reading zero" },
+            };
+            for (int k = 0; k < 6; k++)
+            {
+                std::vector<CsvPatchRow> rows(1, none[k].row);
+                std::vector<CColor> readings(1, none[k].reading);
+                CColor w(1.0, 2.0, 3.0);
+                if (WhiteAt(rows, readings, kHdr10Run, &w) || !SameXYZ(w, CColor(1.0, 2.0, 3.0)))
+                    Fail("T62 white: %s gives a white at the HDR10 run level (Y %.17g), expected none", none[k].what, w.GetY());
+            }
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            CColor w(1.0, 2.0, 3.0);
+            if (WhiteAt(rows, readings, 100.0, &w) || !SameXYZ(w, CColor(1.0, 2.0, 3.0)))
+                Fail("T62 white: an empty list gives a white");
+        }
+
+        // The page's white column: the list's white makes column 6 a read-only
+        // list column; without it the three-argument rule, unchanged.
+        const PrimarySetChoice listSdr = ChoosePrimarySetShown(false, false, true, 100.0, true);
+        const PrimarySetChoice ded = ChoosePrimarySetShown(true, true, true, 100.0, true);
+        for (int col = -1; col < 9; col++)
+        {
+            const int plain = (int)PrimaryPageColumnSource(col, listSdr, listSdr);
+            const int off = (int)PrimaryPageColumnSource(col, listSdr, listSdr, false);
+            const int on = (int)PrimaryPageColumnSource(col, listSdr, listSdr, true);
+            const int expectedOn = (col == 6) ? PRIMARY_PAGE_LIST : plain;
+            if (off != plain || on != expectedOn)
+                Fail("T62 page white column %d: without the list white %d (expected %d), with it %d (expected %d)",
+                     col, off, plain, on, expectedOn);
+            if (PrimaryPageColumnWritesDedicated(col, listSdr, listSdr, true) != (expectedOn == PRIMARY_PAGE_DEDICATED)
+                || PrimaryPageColumnWritesDedicated(col, ded, ded, false) != PrimaryPageColumnWritesDedicated(col, ded, ded))
+                Fail("T62 page white column %d: the write rule disagrees with the column it reads", col);
+        }
+        if (PrimaryPageColumnSource(6, listSdr, listSdr, true) != PRIMARY_PAGE_LIST || PrimaryPageColumnWritesDedicated(6, listSdr, listSdr, true)
+            || PrimaryPageColumnSource(7, listSdr, listSdr, true) != PRIMARY_PAGE_DEDICATED || !PrimaryPageColumnWritesDedicated(7, listSdr, listSdr, true))
+            Fail("T62 page: with the list's white, the white column must read the list read-only and the black stay dedicated");
+    }
+
+    // 15. A list without a white: the prime white unmeasured, a group from the
+    // list, no gray at the run's white level, and the caller's own chain on no
+    // measured white. No stand-in white, no dE.
+    static void CheckNoWhite()
+    {
+        // The chooser, all sixteen cases.
+        for (int pm = 0; pm <= 1; pm++)
+            for (int any = 0; any <= 1; any++)
+                for (int has = 0; has <= 1; has++)
+                    for (int cm = 0; cm <= 1; cm++)
+                    {
+                        const int got = (int)ChooseShownWhite(pm != 0, any != 0, has != 0, cm != 0);
+                        int expected = SHOWN_WHITE_CALLER;
+                        if (!pm && any && has)
+                            expected = SHOWN_WHITE_LIST;
+                        else if (!pm && any && !has && !cm)
+                            expected = SHOWN_WHITE_NONE;
+                        if (got != expected)
+                            Fail("T62 no white: chooser prime %d list group %d list white %d caller measured %d gives %d, expected %d",
+                                 pm, any, has, cm, got, expected);
+                        if (cm && got != (int)ChooseShownWhite(pm != 0, any != 0, has != 0))
+                            Fail("T62 no white: the three-argument chooser differs from a measured caller white (%d %d %d)", pm, any, has);
+                    }
+
+        // The caller's chain: its first white when valid, else its fallback.
+        for (int pv = 0; pv <= 1; pv++)
+            for (int pmz = 0; pmz <= 1; pmz++)
+                for (int fv = 0; fv <= 1; fv++)
+                    for (int fm = 0; fm <= 1; fm++)
+                    {
+                        const bool expected = pv ? (pmz != 0) : (fv && fm);
+                        if (CallerWhiteIsMeasured(pv != 0, pmz != 0, fv != 0, fm != 0) != expected)
+                            Fail("T62 no white: caller chain prime valid %d measured %d fallback valid %d measured %d, expected %d",
+                                 pv, pmz, fv, fm, (int)expected);
+                    }
+
+        // The page's columns.
+        const int D = PRIMARY_PAGE_DEDICATED, N = PRIMARY_PAGE_LIST_NO_REF, X = PRIMARY_PAGE_LIST_NO_WHITE, Z = PRIMARY_PAGE_WHITE_NONE;
+        const PrimarySetChoice listSdr = ChoosePrimarySetShown(false, false, true, 100.0, true);
+        const PrimarySetChoice ded = ChoosePrimarySetShown(true, true, true, 100.0, true);
+        const PrimarySetChoice runHdr = ChoosePrimarySetShown(false, true, true, kHdr10Run, true);
+        const PrimarySetChoice fullHdr = ChoosePrimarySetShown(false, false, true, kHdr10Run, true);
+        struct { const PrimarySetChoice* p; const PrimarySetChoice* s; int cols[8]; const char* what; } pages[4] = {
+            { &listSdr, &listSdr, { X, X, X, X, X, X, Z, D }, "list, SDR" },
+            { &ded,     &listSdr, { D, D, D, X, X, X, Z, D }, "dedicated primaries, list secondaries" },
+            { &runHdr,  &fullHdr, { X, X, X, N, N, N, Z, D }, "HDR10 groups" },
+            { &ded,     &ded,     { D, D, D, D, D, D, Z, D }, "dedicated (not a case the chooser gives)" },
+        };
+        for (int k = 0; k < 4; k++)
+            for (int col = 0; col < 8; col++)
+            {
+                const int got = (int)PrimaryPageColumnSource(col, *pages[k].p, *pages[k].s, false, true);
+                if (got != pages[k].cols[col])
+                    Fail("T62 no white page %s: column %d reads %d, expected %d", pages[k].what, col, got, pages[k].cols[col]);
+                if (PrimaryPageColumnWritesDedicated(col, *pages[k].p, *pages[k].s, false, true) != (pages[k].cols[col] == D))
+                    Fail("T62 no white page %s: column %d write rule disagrees", pages[k].what, col);
+                // The list's white wins over no white; without either, the plain rule.
+                if (PrimaryPageColumnSource(col, *pages[k].p, *pages[k].s, true, true) != PrimaryPageColumnSource(col, *pages[k].p, *pages[k].s, true)
+                    || PrimaryPageColumnSource(col, *pages[k].p, *pages[k].s, false, false) != PrimaryPageColumnSource(col, *pages[k].p, *pages[k].s))
+                    Fail("T62 no white page %s: column %d, the white flags do not reduce to the earlier rules", pages[k].what, col);
+            }
+
+        // The rows the white makes, without and with a data reference document.
+        const bool noRef[10] = { false, false, false, true, false, true, true, false, false, false };
+        const bool withRef[10] = { false, false, false, true, false, true, false, true, true, false };
+        for (int comp = 0; comp < 10; comp++)
+        {
+            if (PrimaryPageRowUsesWhite(comp, false) != noRef[comp] || PrimaryPageRowUsesWhite(comp, true) != withRef[comp])
+                Fail("T62 no white: row %d uses the white %d / %d (data reference), expected %d / %d", comp,
+                     (int)PrimaryPageRowUsesWhite(comp, false), (int)PrimaryPageRowUsesWhite(comp, true), (int)noRef[comp], (int)withRef[comp]);
+            for (int dr = 0; dr <= 1; dr++)
+            {
+                const bool hd = dr != 0;
+                const bool shown[5] = { true, true, !PrimaryPageRowUsesReference(comp, hd), !(hd ? withRef[comp] : noRef[comp]), false };
+                for (int r = 0; r < 5; r++)
+                    if (PrimaryPageRowShown((PrimaryPageColumnRead)r, comp, hd) != shown[r])
+                        Fail("T62 no white: column kind %d row %d (data reference %d) shown %d, expected %d",
+                             r, comp, dr, (int)PrimaryPageRowShown((PrimaryPageColumnRead)r, comp, hd), (int)shown[r]);
+            }
+        }
+        // The xy error (4) stays in a no-white column; the dE (3) does not.
+        if (!PrimaryPageRowShown(PRIMARY_PAGE_LIST_NO_WHITE, 4, false) || PrimaryPageRowShown(PRIMARY_PAGE_LIST_NO_WHITE, 3, false))
+            Fail("T62 no white: a no-white column must keep its xy error and drop its dE");
+    }
+
+    // 16. Whether a shown group has a white: only a group from the list with
+    // no white has none; a dedicated group always has one.
+    static void CheckGroupWhite()
+    {
+        const PrimarySetChoice listSdr = ChoosePrimarySetShown(false, false, true, 100.0, true);
+        const PrimarySetChoice fullHdr = ChoosePrimarySetShown(false, false, true, kHdr10Run, true);
+        const PrimarySetChoice runHdr = ChoosePrimarySetShown(false, true, true, kHdr10Run, true);
+        const PrimarySetChoice ded = ChoosePrimarySetShown(true, true, true, 100.0, true);
+        struct { const PrimarySetChoice* c; const char* what; bool list; } groups[4] = {
+            { &listSdr, "list, SDR", true }, { &fullHdr, "list, HDR10 100% rows (no references)", true },
+            { &runHdr, "list, HDR10 run level", true }, { &ded, "dedicated", false },
+        };
+        const ShownWhiteSource ws[3] = { SHOWN_WHITE_CALLER, SHOWN_WHITE_LIST, SHOWN_WHITE_NONE };
+        for (int g = 0; g < 4; g++)
+            for (int w = 0; w < 3; w++)
+            {
+                const bool expected = !(groups[g].list && ws[w] == SHOWN_WHITE_NONE);
+                if (PrimarySetHasWhite(*groups[g].c, ws[w]) != expected)
+                    Fail("T62 group white: %s with white choice %d has a white %d, expected %d",
+                         groups[g].what, (int)ws[w], (int)PrimarySetHasWhite(*groups[g].c, ws[w]), (int)expected);
+            }
+        // The HDR10 no-reference group keeps its white whenever one exists:
+        // only the references are missing there.
+        if (!PrimarySetHasWhite(fullHdr, SHOWN_WHITE_LIST) || !PrimarySetHasWhite(fullHdr, SHOWN_WHITE_CALLER) || fullHdr.referenceApplies)
+            Fail("T62 group white: the HDR10 100%% rows must keep a white and lack the references");
+    }
+
+    // 17. The one white rule every view of the shown groups takes
+    // (ChooseShownPrimaryWhite, CMeasure::GetShownPrimaryWhiteSource). With a
+    // measured prime white, or no group from the list: the caller's own white.
+    // Otherwise the list's white; else, when the run measures its white at
+    // 100%, a white the document measured - the gray scale's 100% first, then
+    // the on/off white; else none. A placeholder is never "measured": the
+    // caller says so through the two flags. All 64 cases.
+    static void CheckWhiteRule()
+    {
+        for (int k = 0; k < 64; k++)
+        {
+            const bool pm = (k & 1) != 0, any = (k & 2) != 0, has = (k & 4) != 0;
+            const bool full = (k & 8) != 0, gray = (k & 16) != 0, onoff = (k & 32) != 0;
+            ShownWhiteSource expected;
+            if (pm || !any)
+                expected = SHOWN_WHITE_CALLER;
+            else if (has)
+                expected = SHOWN_WHITE_LIST;
+            else if (full && gray)
+                expected = SHOWN_WHITE_GRAY_SCALE;
+            else if (full && onoff)
+                expected = SHOWN_WHITE_ON_OFF;
+            else
+                expected = SHOWN_WHITE_NONE;
+            const ShownWhiteSource got = ChooseShownPrimaryWhite(pm, any, has, full, gray, onoff);
+            if (got != expected)
+                Fail("T62 white rule: prime measured %d, list group %d, list white %d, white level 100%% %d, gray scale %d,"
+                     " on/off %d gives %d, expected %d", (int)pm, (int)any, (int)has, (int)full, (int)gray, (int)onoff,
+                     (int)got, (int)expected);
+        }
+        // Which choices put a white of their own in place of the caller's.
+        const ShownWhiteSource all[5] = { SHOWN_WHITE_CALLER, SHOWN_WHITE_LIST, SHOWN_WHITE_NONE, SHOWN_WHITE_GRAY_SCALE, SHOWN_WHITE_ON_OFF };
+        const bool chosen[5] = { false, true, false, true, true };
+        for (int w = 0; w < 5; w++)
+            if (ShownWhiteIsChosen(all[w]) != chosen[w])
+                Fail("T62 white rule: choice %d chosen %d, expected %d", (int)all[w], (int)ShownWhiteIsChosen(all[w]), (int)chosen[w]);
+        // A group from the list has a white under every choice but none.
+        const PrimarySetChoice listSdr = ChoosePrimarySetShown(false, false, true, 100.0, true);
+        if (!PrimarySetHasWhite(listSdr, SHOWN_WHITE_GRAY_SCALE) || !PrimarySetHasWhite(listSdr, SHOWN_WHITE_ON_OFF))
+            Fail("T62 white rule: a list group judged against the gray scale or on/off white has no white");
+        // A chosen white is the white column's, read-only, as the list's is.
+        const PrimarySetChoice ded = ChoosePrimarySetShown(true, true, true, 100.0, true);
+        for (int w = 3; w < 5; w++)
+        {
+            const bool c = ShownWhiteIsChosen(all[w]);
+            if (PrimaryPageColumnSource(6, listSdr, ded, c, all[w] == SHOWN_WHITE_NONE) != PRIMARY_PAGE_LIST
+                || PrimaryPageColumnWritesDedicated(6, listSdr, ded, c, all[w] == SHOWN_WHITE_NONE))
+                Fail("T62 white rule: choice %d does not make the white column the chosen white, read-only", (int)all[w]);
+        }
+    }
+
+    // 18. A column of a list's 100% readings shown without references (HDR10)
+    // beside a data reference document: the rows comparing it with the other
+    // document (its dE and xy error, components 5 and 6) are empty too - they
+    // would set the list's 100% readings against that document's run-level
+    // primaries. Every other column kind keeps exactly PrimaryPageRowShown.
+    static void CheckDataRefRows()
+    {
+        for (int r = 0; r < 5; r++)
+            for (int comp = 0; comp < 10; comp++)
+                for (int dr = 0; dr <= 1; dr++)
+                {
+                    const PrimaryPageColumnRead read = (PrimaryPageColumnRead)r;
+                    const bool hd = dr != 0;
+                    bool expected = PrimaryPageRowShown(read, comp, hd);
+                    if (read == PRIMARY_PAGE_LIST_NO_REF && hd && (comp == 5 || comp == 6))
+                        expected = false;
+                    if (PrimaryPageCellShown(read, comp, hd) != expected)
+                        Fail("T62 data reference rows: column kind %d row %d (data reference %d) shown %d, expected %d",
+                             r, comp, dr, (int)PrimaryPageCellShown(read, comp, hd), (int)expected);
+                }
+        // Spelled out for the HDR10 100% column with a data reference: the
+        // values and nothing else.
+        const bool want[10] = { true, true, true, false, false, false, false, false, false, true };
+        for (int comp = 0; comp < 10; comp++)
+            if (PrimaryPageCellShown(PRIMARY_PAGE_LIST_NO_REF, comp, true) != want[comp])
+                Fail("T62 data reference rows: HDR10 100%% column row %d shown %d, expected %d",
+                     comp, (int)PrimaryPageCellShown(PRIMARY_PAGE_LIST_NO_REF, comp, true), (int)want[comp]);
+    }
+}
+
+static void RunT62()
+{
+    printf("T62 primaries and secondaries from a patch list...\n");
+    T62Prim::CheckSixAtFull();
+    T62Prim::CheckLowerLevels();
+    T62Prim::CheckRepeats();
+    T62Prim::CheckShuffled();
+    T62Prim::CheckInvalid();
+    T62Prim::CheckRoles();
+    T62Prim::CheckExtended();
+    T62Prim::CheckChooser();
+    T62Prim::CheckLevelCode();
+    T62Prim::CheckBothLevels();
+    T62Prim::CheckShownChoice();
+    T62Prim::CheckHdr10Groups();
+    T62Prim::CheckPrimaryPage();
+    T62Prim::CheckShownWhite();
+    T62Prim::CheckNoWhite();
+    T62Prim::CheckGroupWhite();
+    T62Prim::CheckWhiteRule();
+    T62Prim::CheckDataRefRows();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -9278,6 +10200,7 @@ int main(int argc, char* argv[])
     RunT59();
     RunT60();
     RunT61();
+    RunT62();
 
     if (g_failures)
     {

@@ -180,6 +180,9 @@ CCIEChartGrapher::CCIEChartGrapher()
 
 	m_covValid = FALSE;
 	m_covAbValid = FALSE;
+	m_covPrimKey = 0;
+	m_covAbPrimKey = 0;
+	m_covSecKey = 0;
 
 	m_pMarkerGraphics = NULL;
 	m_markerScale = 1.0f;
@@ -516,7 +519,7 @@ bool CCIEChartGrapher::DrawGdiPlusMarker(CDC *pDC, CBitmap *pBitmap, int x, int 
 	return true;
 }
 
-void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint, bool isSelected, double dE10, bool isPrimeSat)
+void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoint, CBitmap *pBitmap, CRect rect, CPPToolTip * pTooltip, CWnd * pWnd, CCIEGraphPoint * pRefPoint, bool isSelected, double dE10, bool isPrimeSat, bool bShowLab)
 {
 	ASSERT(pBitmap);
 	ASSERT(pDC);
@@ -554,6 +557,13 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 				str.Format("<font color=\"#A0EE80\">u': %.3f, v': %.3f\n",aGraphPoint.x,aGraphPoint.y);
 			else
 				str.Format("<font color=\"#004080\">u': %.3f, v': %.3f\n",aGraphPoint.x,aGraphPoint.y);
+		else if ( ! bShowLab )
+			// No white to be judged against (bShowLab false): no luminance
+			// percentage either, it would be against a stand-in white.
+			if (dark)
+				str.Format("<font color=\"#A0EE80\">x: %.3f, y: %.3f\n",aGraphPoint.x,aGraphPoint.y);
+			else
+				str.Format("<font color=\"#004080\">x: %.3f, y: %.3f\n",aGraphPoint.x,aGraphPoint.y);
 		else
 			if (dark)
 				str.Format("<font color=\"#A0EE80\">x: %.3f, y: %.3f, Y: %.2f%%\n",aGraphPoint.x,aGraphPoint.y,aGraphPoint.GetNormalizedColor()[1]*100);
@@ -561,8 +571,13 @@ void CCIEChartGrapher::DrawAlphaBitmap(CDC *pDC, const CCIEGraphPoint& aGraphPoi
 				str.Format("<font color=\"#004080\">x: %.3f, y: %.3f, Y: %.2f%%\n",aGraphPoint.x,aGraphPoint.y,aGraphPoint.GetNormalizedColor()[1]*100);
 
 
+			// No L*a*b* line for a point with no white to be judged against
+			// (bShowLab false): its L*a*b* would be relative to a stand-in.
+			if ( bShowLab )
+			{
 			str1.Format("L*a*b*: %.2f %.3f %.3f",aGraphPoint.L,aGraphPoint.a,aGraphPoint.b);
 			str += str1;
+			}
 
 		if ( pRefPoint )
 		{
@@ -761,6 +776,11 @@ static bool SameColors3 ( const ColorXYZ & c0, const ColorXYZ & c1, const ColorX
 // Gamut coverage chips (top right): [gamut] [xy: n%] [u'v': n%] [a*b*: n%],
 // all shown together in every chart view. The gamut-name chip always shows.
 //
+// The measured colors are the ones the chart draws (CMeasure::GetShownPrimary
+// / GetShownSecondary): the dedicated measurement, or a patch list's readings,
+// including a list's 100% primaries under HDR10, which the chart draws without
+// a dE. The figures describe the triangle that is drawn.
+//
 // xy/u'v': the measured R,G,B primaries triangle vs the displayed reference
 // triangle (area intersection / reference area) -- a pure chromaticity-plane
 // metric, blind to luminance by construction (see GamutCoverage.h).
@@ -802,20 +822,22 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	if ( min(rcAnchor.Width(),rcAnchor.Height()) <= FX_MINSIZETOSHOW_REFDETAILS )
 		return;
 
-	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetRedPrimary().GetXYZValue();
-	ColorXYZ greenPrimaryColor=pDoc->GetMeasure()->GetGreenPrimary().GetXYZValue();
-	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetBluePrimary().GetXYZValue();
+	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(0).GetXYZValue();
+	ColorXYZ greenPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(1).GetXYZValue();
+	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetShownPrimary(2).GetXYZValue();
 	BOOL hasPrimaries = redPrimaryColor.isValid() && greenPrimaryColor.isValid() &&
 						bluePrimaryColor.isValid();
+	const int primKey = PrimarySetShownKey ( pDoc->GetMeasure()->GetShownPrimaryChoice(false, NULL) );
 
 	// a*b* additionally needs the secondaries to build the hexagon. Fetched
 	// unconditionally (not just in a*b* mode) since all three metrics are
 	// shown together regardless of which chart view is active.
-	ColorXYZ yellowSecondaryColor  = pDoc->GetMeasure()->GetYellowSecondary().GetXYZValue();
-	ColorXYZ cyanSecondaryColor    = pDoc->GetMeasure()->GetCyanSecondary().GetXYZValue();
-	ColorXYZ magentaSecondaryColor = pDoc->GetMeasure()->GetMagentaSecondary().GetXYZValue();
+	ColorXYZ yellowSecondaryColor  = pDoc->GetMeasure()->GetShownSecondary(0).GetXYZValue();
+	ColorXYZ cyanSecondaryColor    = pDoc->GetMeasure()->GetShownSecondary(1).GetXYZValue();
+	ColorXYZ magentaSecondaryColor = pDoc->GetMeasure()->GetShownSecondary(2).GetXYZValue();
 	BOOL hasSecondariesForAb = yellowSecondaryColor.isValid() && cyanSecondaryColor.isValid() &&
 							   magentaSecondaryColor.isValid();
+	const int secKey = PrimarySetShownKey ( pDoc->GetMeasure()->GetShownPrimaryChoice(true, NULL) );
 
 	WCHAR gamutName[64];
 	GamutShortName(GetColorReference(), gamutName, 64);
@@ -830,13 +852,16 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 	// while EITHER set is unchanged, and it keeps its own copy of the
 	// primaries: the xy/u'v' cache absorbs a primaries re-measure at once,
 	// and comparing a*b* against it would keep a*b* stale after a later
-	// secondaries pass.
+	// secondaries pass. The data is unchanged only when its source is too (the
+	// key): a switch between the dedicated measurement and a list, or between
+	// a list's run-level and 100% rows, is new data; new list readings change
+	// the colors.
 	ColorStandard curStd = GetColorReference().m_standard;
-	BOOL xyuvStale = m_covValid && m_covStandard != curStd
+	BOOL xyuvStale = m_covValid && m_covStandard != curStd && m_covPrimKey == primKey
 		&& SameColors3(redPrimaryColor, greenPrimaryColor, bluePrimaryColor, m_covPrimaries);
 	BOOL abStale   = m_covAbValid && m_covAbStandard != curStd
-		&& ( SameColors3(redPrimaryColor, greenPrimaryColor, bluePrimaryColor, m_covAbPrimaries)
-		  || SameColors3(yellowSecondaryColor, cyanSecondaryColor, magentaSecondaryColor, m_covSecondaries) );
+		&& ( ( m_covAbPrimKey == primKey && SameColors3(redPrimaryColor, greenPrimaryColor, bluePrimaryColor, m_covAbPrimaries) )
+		  || ( m_covSecKey == secKey && SameColors3(yellowSecondaryColor, cyanSecondaryColor, magentaSecondaryColor, m_covSecondaries) ) );
 
 	// Cache refresh: keyed on staleness alone, never on whether a value is
 	// shown, so nothing that only changes the display can rewrite a cache.
@@ -848,6 +873,7 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 		m_covPrimaries[0] = redPrimaryColor;
 		m_covPrimaries[1] = greenPrimaryColor;
 		m_covPrimaries[2] = bluePrimaryColor;
+		m_covPrimKey = primKey;
 		m_covValid = TRUE;
 	}
 	if (hasPrimaries && hasSecondariesForAb && !abStale)
@@ -859,6 +885,8 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 		m_covSecondaries[0] = yellowSecondaryColor;
 		m_covSecondaries[1] = cyanSecondaryColor;
 		m_covSecondaries[2] = magentaSecondaryColor;
+		m_covAbPrimKey = primKey;
+		m_covSecKey = secKey;
 		m_covAbValid = TRUE;
 	}
 
@@ -881,6 +909,19 @@ void CCIEChartGrapher::DrawCoverageChips ( CDC * pDC, CRect rcAnchor, CDataSetDo
 		const CColor gsWhiteAB = pDoc->GetMeasure()->GetGrayScaleWhite();
 		if ( gsWhiteAB.isValid() && ( pDoc->GetMeasure()->IsOnOffWhiteMeasured() || ! CMeasure::IsPlaceholderWhite ( gsWhiteAB, true ) ) )
 			YWhiteAB = gsWhiteAB[1];
+	}
+	// The shown groups' white wins when the one rule names one (the list's, the
+	// gray scale's or the on/off white, CMeasure::GetShownPrimaryWhiteSource),
+	// so the a*b* figure uses the white the hexagon's markers are judged
+	// against; with none (SHOWN_WHITE_NONE) the figure is withheld as the
+	// markers' dE is. SHOWN_WHITE_CALLER keeps the white above.
+	{
+		CColor shownWhite;
+		const ShownWhiteSource ws = pDoc->GetMeasure()->GetShownPrimaryWhiteSource ( & shownWhite );
+		if ( ShownWhiteIsChosen ( ws ) )
+			YWhiteAB = shownWhite[1];
+		else if ( ws == SHOWN_WHITE_NONE )
+			YWhiteAB = 0.0;
 	}
 	BOOL abAllowed = GetConfig()->m_GammaOffsetType != 5 && YWhiteAB > 0.0;
 
@@ -1448,6 +1489,26 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	else if ( grayScaleWhite.isValid() )
 		YWhite = grayScaleWhite [ 1 ]; // the gray scale's measured 100% (GetGrayScaleWhite)
 		
+	// The white the shown primaries and secondaries are judged against: with
+	// the prime white unmeasured and a group shown from a patch list, the
+	// list's white, else a white the document measured (the gray scale's
+	// 100%, then the on/off white; CMeasure::GetShownPrimaryWhiteSource), the
+	// one the main grid's primaries page uses, so the two give the same dE. This YWhite
+	// reaches only the primary and secondary markers and, under HDR10, their
+	// references (YWhiteRef below); the data reference markers take their
+	// document's white, the gray markers GetGrayScaleWhite, and the
+	// saturation and color checker markers the white recomputed before them.
+	// With no white at all (SHOWN_WHITE_NONE), the groups shown from the list
+	// get no reference below, so their tooltips carry no dE.
+	ShownWhiteSource chartWhite = SHOWN_WHITE_CALLER;
+	{
+		CColor shownWhite;
+		const ShownWhiteSource ws = pDoc -> GetMeasure () -> GetShownPrimaryWhiteSource ( & shownWhite );
+		if ( ShownWhiteIsChosen ( ws ) )
+			YWhite = shownWhite [ 1 ];
+		chartWhite = ws;
+	}
+
 	double YWhiteRef = 1.0;
 	isSat = FALSE;
 
@@ -1487,9 +1548,26 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	CCIEGraphPoint colorTempPoint5500(ColorXYZ(ColorxyY(0.3346,0.3451)), 1.0, Msg+" 5500", m_bCIEuv, m_bCIEab);   
 	CCIEGraphPoint colorTempPoint9300(ColorXYZ(ColorxyY(0.2866,0.2950)), 1.0, Msg+" 9300", m_bCIEuv, m_bCIEab);   
 
-	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetRedPrimary().GetXYZValue();
-	ColorXYZ greenPrimaryColor=pDoc->GetMeasure()->GetGreenPrimary().GetXYZValue();
-	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetBluePrimary().GetXYZValue();
+	// The primaries and secondaries the views show (CMeasure::GetShownPrimary):
+	// the dedicated measurement when it holds a reading, else a patch list's
+	// readings (ChoosePrimarySetShown). The coverage chips read the same; the
+	// data reference keeps reading the dedicated measurement.
+	ColorXYZ redPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(0).GetXYZValue();
+	ColorXYZ greenPrimaryColor=pDoc->GetMeasure()->GetShownPrimary(1).GetXYZValue();
+	ColorXYZ bluePrimaryColor=pDoc->GetMeasure()->GetShownPrimary(2).GetXYZValue();
+	// Whether the references apply to the shown sets: not for a list's 100%
+	// primaries / secondaries under HDR10, whose references are the run level's
+	// (ChoosePrimarySetShown). Those markers carry no reference, so their
+	// tooltips have no dE.
+	// Nor do a list's groups when there is no white (PrimarySetHasWhite), which
+	// also drop their L*a*b* line; a group from the dedicated measurement keeps
+	// both.
+	const PrimarySetChoice primShown = pDoc->GetMeasure()->GetShownPrimaryChoice(false, NULL);
+	const PrimarySetChoice secShown = pDoc->GetMeasure()->GetShownPrimaryChoice(true, NULL);
+	const bool bPrimariesLab = PrimarySetHasWhite ( primShown, chartWhite );
+	const bool bSecondariesLab = PrimarySetHasWhite ( secShown, chartWhite );
+	const bool bPrimariesRef = primShown.referenceApplies && bPrimariesLab;
+	const bool bSecondariesRef = secShown.referenceApplies && bSecondariesLab;
 
 	BOOL hasPrimaries= redPrimaryColor.isValid() && greenPrimaryColor.isValid() &&
 					   bluePrimaryColor.isValid();
@@ -1502,9 +1580,9 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 	Msg.LoadString ( IDS_BLUEPRIMARY );
 	CCIEGraphPoint bluePrimaryPoint(bluePrimaryColor, YWhite, Msg, m_bCIEuv, m_bCIEab);
 
-	ColorXYZ yellowSecondaryColor=pDoc->GetMeasure()->GetYellowSecondary().GetXYZValue();
-	ColorXYZ cyanSecondaryColor=pDoc->GetMeasure()->GetCyanSecondary().GetXYZValue();
-	ColorXYZ magentaSecondaryColor=pDoc->GetMeasure()->GetMagentaSecondary().GetXYZValue();
+	ColorXYZ yellowSecondaryColor=pDoc->GetMeasure()->GetShownSecondary(0).GetXYZValue();
+	ColorXYZ cyanSecondaryColor=pDoc->GetMeasure()->GetShownSecondary(1).GetXYZValue();
+	ColorXYZ magentaSecondaryColor=pDoc->GetMeasure()->GetShownSecondary(2).GetXYZValue();
 
 	BOOL hasSecondaries= yellowSecondaryColor.isValid() && cyanSecondaryColor.isValid() &&
 					   magentaSecondaryColor.isValid();
@@ -2065,16 +2143,16 @@ void CCIEChartGrapher::DrawChart(CDataSetDoc * pDoc, CDC* pDC, CRect rect, CPPTo
 
 		if ( hasPrimaries )
 		{
-			DrawAlphaBitmap(pDC,redPrimaryPoint,&m_redPrimaryBitmap,rect,pTooltip,pWnd,&refRedPrimaryPoint, FALSE, dE10, TRUE);
-			DrawAlphaBitmap(pDC,greenPrimaryPoint,&m_greenPrimaryBitmap,rect,pTooltip,pWnd,&refGreenPrimaryPoint, FALSE, dE10, TRUE);
-			DrawAlphaBitmap(pDC,bluePrimaryPoint,&m_bluePrimaryBitmap,rect,pTooltip,pWnd,&refBluePrimaryPoint, FALSE, dE10, TRUE);
+			DrawAlphaBitmap(pDC,redPrimaryPoint,&m_redPrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refRedPrimaryPoint : NULL, FALSE, dE10, TRUE, bPrimariesLab);
+			DrawAlphaBitmap(pDC,greenPrimaryPoint,&m_greenPrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refGreenPrimaryPoint : NULL, FALSE, dE10, TRUE, bPrimariesLab);
+			DrawAlphaBitmap(pDC,bluePrimaryPoint,&m_bluePrimaryBitmap,rect,pTooltip,pWnd,bPrimariesRef ? &refBluePrimaryPoint : NULL, FALSE, dE10, TRUE, bPrimariesLab);
 		}
 		
 		if ( hasSecondaries )
 		{
-			DrawAlphaBitmap(pDC,yellowSecondaryPoint,&m_yellowSecondaryBitmap,rect,pTooltip,pWnd,&refYellowSecondaryPoint, FALSE, dE10, TRUE);
-			DrawAlphaBitmap(pDC,cyanSecondaryPoint,&m_cyanSecondaryBitmap,rect,pTooltip,pWnd,&refCyanSecondaryPoint, FALSE, dE10,  TRUE);
-			DrawAlphaBitmap(pDC,magentaSecondaryPoint,&m_magentaSecondaryBitmap,rect,pTooltip,pWnd,&refMagentaSecondaryPoint, FALSE, dE10, TRUE);
+			DrawAlphaBitmap(pDC,yellowSecondaryPoint,&m_yellowSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refYellowSecondaryPoint : NULL, FALSE, dE10, TRUE, bSecondariesLab);
+			DrawAlphaBitmap(pDC,cyanSecondaryPoint,&m_cyanSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refCyanSecondaryPoint : NULL, FALSE, dE10,  TRUE, bSecondariesLab);
+			DrawAlphaBitmap(pDC,magentaSecondaryPoint,&m_magentaSecondaryBitmap,rect,pTooltip,pWnd,bSecondariesRef ? &refMagentaSecondaryPoint : NULL, FALSE, dE10, TRUE, bSecondariesLab);
 		}
 
 		if ( hasdatarefPrimaries )
