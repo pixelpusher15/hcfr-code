@@ -676,6 +676,7 @@ CMainView::CMainView()
 	m_YWhite = 100.;
 	m_RefWhite = 1.;
 	m_bSelNoReference = FALSE;
+	m_bSelNoWhite = FALSE;
 	m_ref_r = 0.,m_ref_g = 0.,m_ref_b = 0.;
 	m_meas_r = 0.,m_meas_g = 0.,m_meas_b = 0.;
 	m_ref_r1 = 0.,m_ref_g1 = 0.,m_ref_b1 = 0.;
@@ -1785,7 +1786,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		// A selected column with no reference (m_bSelNoReference) keeps none:
 		// the last one would be another column's target.
 		const BOOL bNoRef = m_bSelNoReference;
-		const BOOL bNoWhite = bNoRef && m_YWhite <= 0.0;
+		const BOOL bNoWhite = bNoRef && m_bSelNoWhite;
 		if ( bNoRef )
 			;
 		else if (m_RefColor.isValid())
@@ -1862,8 +1863,7 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 			trip1.SetString("No\nMeasure\n");				
 			ColorRGB meas2;
 		 
-			// With no white either the measured half has nothing to be scaled by.
-			if (m_SelectedColor.isValid() && ! bNoWhite)
+			if (m_SelectedColor.isValid())
 			{
 				CColor meas_Color = m_SelectedColor; //for patch color
 				CColor meas_Color2 = meas_Color; //for patch triplet
@@ -2051,9 +2051,11 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		// comparator's one-frame flash.
 		{
 			BOOL bSel = m_SelectedColor.isValid();
-			// No reference: the reference half is an empty pill; no white either:
-			// the measured half too (CCompSwatch draws no fill and no triplet).
-			m_Ccomp.SetContent(RGB((int)floor(m_meas_r1*255.+0.5),(int)floor(m_meas_g1*255.+0.5),(int)floor(m_meas_b1*255.+0.5)), bSel && ! bNoWhite, trip1.SpanExcluding("\n"));
+			// No reference: the reference half is an empty pill. No white either
+			// (m_bSelNoWhite): the measured half keeps its color, scaled by the
+			// view's own white for the column, but prints no code triplet, which
+			// would be a figure against that stand-in.
+			m_Ccomp.SetContent(RGB((int)floor(m_meas_r1*255.+0.5),(int)floor(m_meas_g1*255.+0.5),(int)floor(m_meas_b1*255.+0.5)), bSel, bNoWhite ? "" : (LPCSTR) trip1.SpanExcluding("\n"));
 			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel && ! bNoRef, trip2.SpanExcluding("\n"), bDrivenMode ? (LPCSTR) strDriven : NULL);
 		}
 	}
@@ -4661,7 +4663,10 @@ void CMainView::UpdateGrid()
 		// from the pass over that column: GetItemText sets it on the column's
 		// dE, the dE row below clears it when the column has none.
 		if ( ! bIncrPass || ( minCol - 1 >= jFirst && minCol - 1 <= jLast ) )
+		{
 			m_bSelNoReference = FALSE;
+			m_bSelNoWhite = FALSE;
+		}
 
 		for( int j = jFirst ; j <= jLast ; j ++ )
 		{
@@ -5130,20 +5135,29 @@ void CMainView::UpdateGrid()
 							m_pGrayScaleGrid->SetItemBkColour ( 4, j+1, CLR_DEFAULT );
 							m_pGrayScaleGrid->SetItemFgColour ( 4, j+1, CLR_DEFAULT );
 							// The selected column has no dE: the comparator gets no
-							// reference (not the previous column's), and its white
-							// is this column's - none on the patch-list page with no
-							// white or for a primaries-page column with no white;
-							// else the YWhite GetItemText's dE would have used.
+							// reference (not the previous column's). Its m_YWhite is
+							// the one GetItemText's dE would have used for it: the
+							// page's white, or with none (m_bSelNoWhite) YWhite, which
+							// is then the view's own chain - the white this column
+							// was scaled by before the list point white - normalized
+							// the way GetItemText normalizes it under HDR10.
 							if ( j + 1 == minCol )
 							{
 								m_bSelNoReference = TRUE;
+								m_bSelNoWhite = bListNoWhite || ( m_displayMode == 1 && bPageNoWhite );
 								m_RefColor = noDataColor;
 								m_RefWhite = 1.0;
 								m_dE = 0.0;
-								if ( bListNoWhite || ( m_displayMode == 1 && bPageNoWhite ) )
-									m_YWhite = -1.0;
-								else if ( isHDR && m_displayMode == 1 )
+								if ( isHDR && m_displayMode == 1 )
 									m_YWhite = GetDocument()->GetMeasure()->GetPrimaryDENorm ( YWhite, j+1 ).yWhite;
+								else if ( isHDR && m_displayMode == 11 && GetConfig()->GetGeneratorType() == CColorHCFRConfig::enumManual )
+								{
+									// GetItemText's manual-generator (DVD) branch for a user list
+									CColor dvdWhite = GetDocument()->GetMeasure()->GetGrayScaleWhite();
+									CColor dvdBlack = GetDocument()->GetMeasure()->GetGrayScaleBlack();
+									double tmW = getL_EOTF(0.50, dvdWhite, dvdBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, 5, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) * 100.0;
+									m_YWhite = YWhite * 94.37844 / tmW;
+								}
 								else
 									m_YWhite = YWhite;
 							}

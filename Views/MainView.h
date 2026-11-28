@@ -225,9 +225,12 @@ public:
 	// The selected column has no reference (UpdateGrid: its dE row is empty,
 	// the patch-list page with no white or a primaries-page column without
 	// references or white). m_RefColor is then noDataColor on purpose and the
-	// comparator shows no reference instead of the last one; m_YWhite <= 0
-	// says it has no white either, so its measured half is not drawn.
+	// comparator shows no reference instead of the last one.
 	BOOL m_bSelNoReference;
+	// With m_bSelNoReference: the column has no white either. m_YWhite is then
+	// the white the view's own chain gives that column, which only colors the
+	// measured swatch; its code triplet is not printed.
+	BOOL m_bSelNoWhite;
 	bool isGS;
 	double r1, r2;
 	double g1, g2;
