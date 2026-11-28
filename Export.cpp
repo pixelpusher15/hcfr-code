@@ -449,11 +449,34 @@ bool CExport::SavePDF()
 	POSITION		pos;
 	double CR = 0.0;
 
-	bool bk=GetConfig()->m_bWhiteBkgndOnFile != 0;
+	// The graphs are drawn with m_bWhiteBkgndOnFile off. The user's setting
+	// comes back on every way out of SavePDF: on success, when HPDF_New fails,
+	// and when the user answers No in error_handler. That longjmp lands in
+	// this function's own setjmp, after this guard was made, and the function
+	// then returns normally, so the guard's destructor runs.
+	struct WhiteBkgndRestore
+	{
+		BOOL saved;
+		~WhiteBkgndRestore () { GetConfig()->m_bWhiteBkgndOnFile = saved; }
+	} whiteBkgndRestore = { GetConfig()->m_bWhiteBkgndOnFile };
 	GetConfig()->m_bWhiteBkgndOnFile=FALSE;
 	pos = m_pDoc -> GetFirstViewPosition ();
 	pView = m_pDoc -> GetNextView ( pos );
 	int current_mode = ((CMainView*)pView)->m_displayMode;
+	// The dE figures are collected by putting the view through its pages
+	// (below), which leaves it on the gray-scale page, and the CIE chart drawn
+	// for the report reads the view's page (CCIEChartGrapher::DrawChart), so
+	// the view stays there for the whole export, as it always has. It goes
+	// back to the page the user was on, its grid rebuilt (UpdateAllGrids runs
+	// InitGrid, which owns the row count, then UpdateGrid), on every way out,
+	// for the same reason as the guard above. The mode combo is never changed
+	// by the export, so it matches the grid again.
+	struct DisplayModeRestore
+	{
+		CMainView * pMainView;
+		int saved;
+		~DisplayModeRestore () { pMainView->m_displayMode = saved; pMainView->UpdateAllGrids (); }
+	} displayModeRestore = { (CMainView*)pView, current_mode };
 	((CMainView*)pView)->m_displayMode = 11;
 	((CMainView*)pView)->UpdateAllGrids();
 	((CMainView*)pView)->m_displayMode = 10;
@@ -1664,7 +1687,6 @@ bool CExport::SavePDF()
 
     /* clean up */
     HPDF_Free (pdf);
-	GetConfig()->m_bWhiteBkgndOnFile=bk;
 
 	/* One message for every graph image that could not be written (see
 	   draw_image2), naming the folder, instead of one box per graph. */
