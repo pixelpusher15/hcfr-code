@@ -2010,8 +2010,35 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 
 			trip2.SetString("No\nMeasure\n");
 			bool bDrivenMode = false;
+			bool bNoRefDriven = false;
 			CString strDriven;
-			if (m_SelectedColor.isValid())
+			int drivenCodes[3];
+			double drivenStim[3];
+			if ( bNoRef && m_SelectedColor.isValid() && m_SelectedColor.HasProvenance() && m_SelectedColor.HasStimulusValue() )
+			{
+				const ColorRGBDisplay stim = m_SelectedColor.GetStimulusValue();
+				for ( int k = 0; k < 3; k++ )
+					drivenStim[k] = stim[k];
+				bNoRefDriven = DrivenCodesFromStimulus ( drivenStim, m_SelectedColor.GetProvenance().srcBits, m_SelectedColor.GetProvenance().srcRange, drivenCodes );
+			}
+			if ( bNoRefDriven )
+			{
+				// A column with no reference: the second half shows what the
+				// reading's own stamp says was driven - its codes on its own grid,
+				// and the color of that signal through the swatch chain above
+				// (m_ref_r* is the encoded signal there). No white is involved.
+				bDrivenMode = true;
+				strDriven.LoadString ( IDS_COMPARE_DRIVEN );
+				trip2.Format("%d,%d,%d\n%s", drivenCodes[0], drivenCodes[1], drivenCodes[2], (LPCTSTR) strDriven);
+				m_ref_r = drivenStim[0] / 100.;
+				m_ref_g = drivenStim[1] / 100.;
+				m_ref_b = drivenStim[2] / 100.;
+				ColorXYZ drivenXYZ(ColorRGB(pow(m_ref_r,2.22),pow(m_ref_g,2.22),pow(m_ref_b,2.22)), bRef);
+				m_ref_r1 = pow(min(max(ColorRGB(drivenXYZ,CColorReference(HDTV))[0],0.0),1.0),1./2.22);
+				m_ref_g1 = pow(min(max(ColorRGB(drivenXYZ,CColorReference(HDTV))[1],0.0),1.0),1./2.22);
+				m_ref_b1 = pow(min(max(ColorRGB(drivenXYZ,CColorReference(HDTV))[2],0.0),1.0),1./2.22);
+			}
+			else if (m_SelectedColor.isValid())
 			{
 				// WTW / EXTENDED patches have no gamma-defined reference above white, so show the DRIVEN
 				// code (the measurement own stimulus, encoded via its provenance) in place of the always-
@@ -2051,12 +2078,13 @@ void CMainView::RefreshSelection(bool b_minCol, bool inMeasure)
 		// comparator's one-frame flash.
 		{
 			BOOL bSel = m_SelectedColor.isValid();
-			// No reference: the reference half is an empty pill. No white either
-			// (m_bSelNoWhite): the measured half keeps its color, scaled by the
-			// view's own white for the column, but prints no code triplet, which
-			// would be a figure against that stand-in.
+			// No reference: the second half shows what was driven (bNoRefDriven),
+			// or is an empty pill for a reading without a stimulus and
+			// provenance. No white either (m_bSelNoWhite): the measured half
+			// keeps its color, scaled by the view's own white for the column, but
+			// prints no code triplet, which would be a figure against that stand-in.
 			m_Ccomp.SetContent(RGB((int)floor(m_meas_r1*255.+0.5),(int)floor(m_meas_g1*255.+0.5),(int)floor(m_meas_b1*255.+0.5)), bSel, bNoWhite ? "" : (LPCSTR) trip1.SpanExcluding("\n"));
-			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel && ! bNoRef, trip2.SpanExcluding("\n"), bDrivenMode ? (LPCSTR) strDriven : NULL);
+			m_Ccomp3.SetContent(RGB((int)floor(m_ref_r1*255.+0.5),(int)floor(m_ref_g1*255.+0.5),(int)floor(m_ref_b1*255.+0.5)), bSel && ( ! bNoRef || bNoRefDriven ), trip2.SpanExcluding("\n"), bDrivenMode ? (LPCSTR) strDriven : NULL);
 		}
 	}
 }

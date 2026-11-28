@@ -3533,6 +3533,15 @@ int CsvPercentToCode(double percent, int bits, int range)
 	return c;
 }
 
+bool DrivenCodesFromStimulus ( const double stimPct[3], int bits, int range, int codes[3] )
+{
+	if ( bits != 8 && bits != 10 )
+		return false;
+	for ( int k = 0; k < 3; k++ )
+		codes[k] = CsvPercentToCode ( stimPct[k], bits, range );
+	return true;
+}
+
 // Shared low-level patch-list parser: reads a CSV into raw code rows (patch#, R,G,B, name),
 // header/patch-column aware, reporting the declared bit depth + range. One parser feeds both
 // ReadColorsFromCsv (percentages) and CColorHCFRConfig::GetCColors (codes + names).

@@ -10345,6 +10345,56 @@ namespace T62Prim
             Fail("T62 list white changed: none to none reports a change");
     }
 
+    // 24. The comparator's Driven codes for a column with no reference
+    // (DrivenCodesFromStimulus): every code of every grid a list declares
+    // (8 / 10 bit, full / legal / extended, and a legacy range -1 as legal)
+    // comes back from its own stimulus (CsvCodeToPercent) exactly; a full-range
+    // code is not read on the legal grid; other bit depths give nothing.
+    static void CheckDrivenCodes()
+    {
+        const int ranges[4] = { CSV_RANGE_FULL, CSV_RANGE_LEGAL, CSV_RANGE_EXTENDED, -1 };
+        for (int bi = 0; bi < 2; bi++)
+        {
+            const int bits = bi ? 10 : 8, maxCode = (1 << bits) - 1, k = 1 << (bits - 8);
+            for (int ri = 0; ri < 4; ri++)
+            {
+                const int range = ranges[ri];
+                // Legal and legacy grids clamp the stimulus to 0..100%, so only
+                // their 16..235 codes come back; full and extended take every code.
+                const int lo = (range == CSV_RANGE_LEGAL || range == -1) ? 16 * k : 0;
+                const int hi = (range == CSV_RANGE_LEGAL || range == -1) ? 235 * k : maxCode;
+                int bad = 0;
+                for (int c = lo; c <= hi; c++)
+                {
+                    const double s[3] = { CsvCodeToPercent(c, bits, range), CsvCodeToPercent(hi - (c - lo), bits, range), CsvCodeToPercent(lo, bits, range) };
+                    int out[3] = { -7, -7, -7 };
+                    if (!DrivenCodesFromStimulus(s, bits, range, out) || out[0] != c || out[1] != hi - (c - lo) || out[2] != lo)
+                    {
+                        if (bad++ < 3)
+                            Fail("T62 driven codes: %d-bit range %d code %d gives %d,%d,%d", bits, range, c, out[0], out[1], out[2]);
+                    }
+                }
+            }
+        }
+        // 8-bit full 128 is 50.196%: on the legal grid that would be 126, not 128.
+        const double half[3] = { CsvCodeToPercent(128, 8, CSV_RANGE_FULL), 0.0, 100.0 };
+        int out[3] = { 0, 0, 0 };
+        if (!DrivenCodesFromStimulus(half, 8, CSV_RANGE_FULL, out) || out[0] != 128 || out[1] != 0 || out[2] != 255)
+            Fail("T62 driven codes: 8-bit full 128,0,255 gives %d,%d,%d", out[0], out[1], out[2]);
+        // An extended 8-bit super-white (109.1%) is 255 on the legal slope.
+        const double wtw[3] = { CsvCodeToPercent(255, 8, CSV_RANGE_EXTENDED), 100.0, 0.0 };
+        if (!DrivenCodesFromStimulus(wtw, 8, CSV_RANGE_EXTENDED, out) || out[0] != 255 || out[1] != 235 || out[2] != 16)
+            Fail("T62 driven codes: 8-bit extended 255,235,16 gives %d,%d,%d", out[0], out[1], out[2]);
+        // Unknown or other bit depths: nothing, codes untouched.
+        const int badBits[3] = { 0, 12, 16 };
+        for (int b = 0; b < 3; b++)
+        {
+            int keep[3] = { -1, -2, -3 };
+            if (DrivenCodesFromStimulus(half, badBits[b], CSV_RANGE_FULL, keep) || keep[0] != -1 || keep[1] != -2 || keep[2] != -3)
+                Fail("T62 driven codes: %d-bit gives codes", badBits[b]);
+        }
+    }
+
     // 23. The RGB levels widget's dE alone empty (PatchListLevelsDEHidden):
     // only with no white under HDR10, where the bars are absolute; never
     // together with the whole widget empty (PatchListLevelsHidden), and with
@@ -10395,6 +10445,7 @@ static void RunT62()
     T62Prim::CheckListPointWhiteBand();
     T62Prim::CheckListPointWhiteChanged();
     T62Prim::CheckListPointLevelsDE();
+    T62Prim::CheckDrivenCodes();
 }
 
 int main(int argc, char* argv[])
