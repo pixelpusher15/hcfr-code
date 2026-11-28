@@ -76,6 +76,8 @@ protected:
 	double m_offsetR;
 	double m_offsetG;
 	double m_offsetB;
+public:
+    virtual bool isSimulated() const { return true; }
 private:
     virtual CColor MeasureColorInternal(const ColorRGBDisplay& aRGBValue, int displaymode);
 };

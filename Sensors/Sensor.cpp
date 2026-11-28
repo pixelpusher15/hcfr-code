@@ -319,7 +319,7 @@ CColor CSensor::MeasureColor(const ColorRGBDisplay& aRGBValue, int displaymode)
 	SetErrorString(_T(""));
 
 	CColor result;
-	if (this->GetName() == "Simulated sensor")
+	if (this->isSimulated())
 	    result = MeasureColorInternal(aRGBValue, displaymode);
 	else
 		result = MeasureColorInternal(aRGBValue);

@@ -223,6 +223,10 @@ public:
     virtual bool isColorimeter() const { return true; }
     virtual int ReadingType() const {return 0;}
     virtual bool supportsAvg() const { return false; }
+    // True only for the simulated sensor. Ask this, never GetName(): the name
+    // is translated ("Simulierter Sensor"), so a comparison with the English
+    // text fails in every other language.
+    virtual bool isSimulated() const { return false; }
     virtual void setAvgEnabled(bool) {}
     virtual bool getAvgEnabled() const { return false; }
 private:
