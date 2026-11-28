@@ -292,6 +292,22 @@ bool PatchListLevelsDEHidden ( ShownWhiteSource ws, bool absoluteLuminance )
 	return ws == SHOWN_WHITE_NONE && absoluteLuminance;
 }
 
+bool ListPointDEWhiteY ( ShownWhiteSource ws, const CColor & chosenWhite, double callerWhiteY, double * whiteY )
+{
+	if ( ws == SHOWN_WHITE_NONE )
+		return false;
+	if ( ! ShownWhiteIsChosen ( ws ) )
+	{
+		*whiteY = callerWhiteY;	// the output's own chain, unchanged
+		return true;
+	}
+	const double y = chosenWhite.GetY ();
+	if ( ! ( y > 0.0 ) )
+		return false;
+	*whiteY = y;
+	return true;
+}
+
 ListPointWhiteBand ChooseListPointWhiteBand ( bool runInProgress, bool liveHasWhite, bool masterHasWhite )
 {
 	if ( runInProgress && liveHasWhite )

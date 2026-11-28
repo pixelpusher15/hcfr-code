@@ -10417,6 +10417,57 @@ namespace T62Prim
                     Fail("T62 list point levels dE: no white (HDR10 %d) gives dE hidden %d and widget hidden %d", a, (int)got, (int)whole);
             }
     }
+
+    // 25. The white a user list point's dE is normalized by outside the main
+    // grid - the 3D viewer, the PDF report and the CSV/XLS sheet
+    // (ListPointDEWhiteY). SHOWN_WHITE_CALLER: the caller's own white, bit for
+    // bit, whatever the chosen white holds; a chosen white: its Y, whatever the
+    // caller's; no white, or a chosen white with no positive Y: FALSE and the
+    // white untouched. Every built-in set and a measured prime white reach
+    // SHOWN_WHITE_CALLER through ChooseListPointWhite, so keep their white.
+    static void CheckListPointDEWhite()
+    {
+        const double kUntouched = -12345.678;
+        const CColor listWhite(95.25, 87.5, 101.75);
+        const double callers[4] = { 101.3, 0.0, -1.0, 1e-300 };
+        for (int c = 0; c < 4; c++)
+        {
+            double y = kUntouched;
+            if (!ListPointDEWhiteY(SHOWN_WHITE_CALLER, listWhite, callers[c], &y) || y != callers[c])
+                Fail("T62 list point dE white: caller white %.17g gives %.17g, expected it unchanged", callers[c], y);
+            const ShownWhiteSource chosen[3] = { SHOWN_WHITE_LIST, SHOWN_WHITE_GRAY_SCALE, SHOWN_WHITE_ON_OFF };
+            for (int w = 0; w < 3; w++)
+            {
+                y = kUntouched;
+                if (!ListPointDEWhiteY(chosen[w], listWhite, callers[c], &y) || y != 87.5)
+                    Fail("T62 list point dE white: choice %d (caller %.17g) gives %.17g, expected the chosen 87.5", (int)chosen[w], callers[c], y);
+                const CColor noY[2] = { CColor(95.0, 0.0, 108.0), noDataColor };
+                for (int z = 0; z < 2; z++)
+                {
+                    y = kUntouched;
+                    if (ListPointDEWhiteY(chosen[w], noY[z], callers[c], &y) || y != kUntouched)
+                        Fail("T62 list point dE white: choice %d with a white of no Y (%d) gives a white %.17g", (int)chosen[w], z, y);
+                }
+            }
+            y = kUntouched;
+            if (ListPointDEWhiteY(SHOWN_WHITE_NONE, listWhite, callers[c], &y) || y != kUntouched)
+                Fail("T62 list point dE white: no white (caller %.17g) gives a white %.17g", callers[c], y);
+        }
+        // Built-in sets and HDTVa/HDTVb (not a user list, or special), and a
+        // measured prime white: the caller's white, for every other fact.
+        for (int f = 0; f < 64; f++)
+        {
+            const bool has = (f & 1) != 0, full = (f & 2) != 0, gray = (f & 4) != 0, onoff = (f & 8) != 0;
+            const bool fixedCases[3][3] = { { false, false, (f & 16) != 0 }, { true, true, (f & 16) != 0 }, { true, (f & 32) != 0, true } };
+            for (int k = 0; k < 3; k++)
+            {
+                const ShownWhiteSource ws = ChooseListPointWhite(fixedCases[k][0], fixedCases[k][1], fixedCases[k][2], has, full, gray, onoff);
+                double y = kUntouched;
+                if (!ListPointDEWhiteY(ws, listWhite, 101.3, &y) || y != 101.3)
+                    Fail("T62 list point dE white: case %d facts %d gives %.17g, expected the caller's 101.3", k, f, y);
+            }
+        }
+    }
 }
 
 static void RunT62()
@@ -10446,6 +10497,7 @@ static void RunT62()
     T62Prim::CheckListPointWhiteChanged();
     T62Prim::CheckListPointLevelsDE();
     T62Prim::CheckDrivenCodes();
+    T62Prim::CheckListPointDEWhite();
 }
 
 int main(int argc, char* argv[])

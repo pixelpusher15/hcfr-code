@@ -363,4 +363,18 @@ bool PatchListLevelsHidden ( ShownWhiteSource ws, bool absoluteLuminance );
 // white. Never together with PatchListLevelsHidden.
 bool PatchListLevelsDEHidden ( ShownWhiteSource ws, bool absoluteLuminance );
 
+// The white Y a user list point's dE (and what else is judged against the
+// white) is normalized by in the outputs that grade the list's points apart
+// from the main grid - the 3D viewer, the color checker pages of the PDF
+// report and the CSV/XLS color checker sheet - from the white choice ws
+// (CMeasure::GetListPointWhiteSource) and chosenWhite, the white that choice
+// fills in. SHOWN_WHITE_CALLER (the prime white measured, a built-in set, a
+// special 75% standard): callerWhiteY, each output's own white chain,
+// exactly. A chosen white (ShownWhiteIsChosen: the list's, the gray scale's
+// or the on/off white): its Y, the YWhite of the grid's patch-list page.
+// Both TRUE with *whiteY set. SHOWN_WHITE_NONE, or a chosen white with no
+// positive Y: no white, FALSE with *whiteY untouched - the output shows no
+// dE for the point, as the page shows none, never one against a stand-in.
+bool ListPointDEWhiteY ( ShownWhiteSource ws, const CColor & chosenWhite, double callerWhiteY, double * whiteY );
+
 #endif // PRIMARYSET_H_INCLUDED_
