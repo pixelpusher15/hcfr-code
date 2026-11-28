@@ -144,6 +144,7 @@ void LoadUserPatchSets(CArchive& ar, std::vector<CUserPatchSet>& sets, int& acti
 			row.name = ReadString(ar);
 			ar >> row.role;
 		}
+		LabelPatchRows(set.rows, set.bits, set.range);	// labels are not stored
 
 		int nMeasures = 0;
 		ar >> nMeasures;

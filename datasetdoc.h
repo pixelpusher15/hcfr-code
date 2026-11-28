@@ -157,6 +157,11 @@ public:
 	// point with light (every one failed or dark). Offset
 	// is the configured one in every case (it is never fitted).
 	bool ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886);
+	// The same fit over a gray graph ramp (libHCFR GrayRamp.h) with the measure's
+	// GetGrayGraphWhite / GetGrayGraphBlack. The signature above is the fit over
+	// the gray sweep's ramp (its first Size slots) with GetGrayScaleWhite / Black.
+	bool ComputeGammaAndOffset(const GrayRamp & ramp, double * Gamma, double * Offset, int ColorSpace, int ColorIndex, bool m_bBT1886);
+	bool ComputeRampGammaAndOffset(const GrayRamp & ramp, const CColor & fitWhite, const CColor & fitBlack, bool holdsBlack, double * Gamma, double * Offset, int ColorSpace, int ColorIndex, bool m_bBT1886);
 	BOOL ComputeAdjustmentMatrix();
 	bool ConfirmCalibrationMethodInSync();
 

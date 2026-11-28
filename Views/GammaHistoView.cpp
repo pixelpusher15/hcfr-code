@@ -275,12 +275,19 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	m_graphCtrl.m_graphArray[0].p_Title=strGamma;
 
 	CDataSetDoc *pDataRef = GetDataRef();
-	int size=pDoc->GetMeasure()->GetGrayScaleSize();
+	// The gray graphs' readings (CMeasure::GetGrayGraphRamp): the gray sweep, or
+	// the active patch list's grays when the sweep holds no reading.
+	const GrayRamp ramp = pDoc->GetMeasure()->GetGrayGraphRamp();
+	GrayRamp refRamp;
+	int size=(int)ramp.points.size();
 
 	if ( pDataRef )
 	{
-		// Check if data reference is comparable
-		if ( pDataRef->GetMeasure()->GetGrayScaleSize() != size || pDataRef->GetMeasure()->m_bIREScaleMode != bIRE )
+		refRamp = pDataRef->GetMeasure()->GetGrayGraphRamp();
+		// Check if data reference is comparable: sweep against sweep only, a
+		// list's points pair with nothing in another document
+		if ( ramp.source != GRAY_RAMP_SWEEP || refRamp.source != GRAY_RAMP_SWEEP
+			|| (int)refRamp.points.size() != size || pDataRef->GetMeasure()->m_bIREScaleMode != bIRE )
 		{
 			// Cannot use data reference
 			pDataRef = NULL;
@@ -292,10 +299,10 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	// black no longer hides the chart, FailedReadingRule.h). The average line
 	// needs a fit: ComputeGammaAndOffset says whether it made one (not under a
 	// relative offset with a failed black).
-	if ( FailedReadingRule::AnyHeldReading ( size, [pDoc] ( int i ) { return pDoc->GetMeasure()->GetGray(i); },
+	if ( FailedReadingRule::AnyHeldReading ( size, [&ramp] ( int i ) { return ramp.points[i].reading; },
 			[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } ) )
 		bDataPresent = TRUE;
-	if (pDataRef && ! FailedReadingRule::AnyHeldReading ( size, [pDataRef] ( int i ) { return pDataRef->GetMeasure()->GetGray(i); },
+	if (pDataRef && ! FailedReadingRule::AnyHeldReading ( size, [&refRamp] ( int i ) { return refRamp.points[i].reading; },
 			[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } ) )	// as the main document: a failed black is left out, not the trace
 	    	pDataRef = NULL;
 
@@ -305,15 +312,32 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 
 	
 	// Compute offset
-	const bool bGammaFit = pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,size, false);
-	const bool bLuxGammaFit = pDoc->ComputeGammaAndOffset(&LuxGammaOpt, &LuxGammaOffset, 2,1,size, false);
+	const bool bGammaFit = pDoc->ComputeGammaAndOffset(ramp, &GammaOpt, &GammaOffset, 1,1, false);
+	const bool bLuxGammaFit = pDoc->ComputeGammaAndOffset(ramp, &LuxGammaOpt, &LuxGammaOffset, 2,1, false);
 
-	// The gray scale's white and black (GetGrayScaleWhite / Black), fetched once
-	// per document per draw and passed to every point.
-	const CColor DocWhite = pDoc->GetMeasure()->GetGrayScaleWhite();
-	const CColor DocBlack = pDoc->GetMeasure()->GetGrayScaleBlack();
-	const CColor RefDocWhite = pDataRef ? pDataRef->GetMeasure()->GetGrayScaleWhite() : noDataColor;
-	const CColor RefDocBlack = pDataRef ? pDataRef->GetMeasure()->GetGrayScaleBlack() : noDataColor;
+	// The ramp's white and black (CMeasure::GetGrayGraphWhite / Black: for the
+	// sweep GetGrayScaleWhite / Black), fetched once per document per draw and
+	// passed to every point.
+	const CColor DocWhite = pDoc->GetMeasure()->GetGrayGraphWhite(ramp);
+	const CColor DocBlack = pDoc->GetMeasure()->GetGrayGraphBlack(ramp);
+	const CColor RefDocWhite = pDataRef ? pDataRef->GetMeasure()->GetGrayGraphWhite(refRamp) : noDataColor;
+	const CColor RefDocBlack = pDataRef ? pDataRef->GetMeasure()->GetGrayGraphBlack(refRamp) : noDataColor;
+	const bool bDocHoldsBlack = pDoc->GetMeasure()->HoldsGrayGraphBlack(ramp);
+	const bool bRefHoldsBlack = pDataRef ? pDataRef->GetMeasure()->HoldsGrayGraphBlack(refRamp) : false;
+	// A patch list with no usable white (no 100% gray, no measured on/off
+	// white) has nothing to divide by: the curves of this chart are relative
+	// to the white, so they are not drawn.
+	const bool bNoWhite = ( ramp.source == GRAY_RAMP_LIST && ! GrayRampWhiteUsable ( DocWhite ) );
+	// Except under PQ (offset type 5), where the reference and the luminance
+	// trace are absolute: AddPointtoLumGraph takes 10000 for the white of the
+	// luminance trace, and getL_EOTF's BT.2084 curves (case 5, and case 10 when
+	// tone mapping promotes it) never read the white or the black, so the target
+	// it returns is the same whatever white is passed. Those two still draw. The
+	// lux trace divides by the white's own lux value in every mode and keeps
+	// bNoWhite; the average line and the RGB traces are not drawn under PQ at
+	// all. HLG (type 7) scales its target by the white (getL_EOTF case 7) and
+	// keeps the gate, as does every SDR type.
+	const bool bNoAbsoluteWhite = bNoWhite && GetConfig()->m_GammaOffsetType != 5;
 
 //	GammaOpt = floor(GammaOpt * 100) / 100;
 
@@ -322,11 +346,11 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		// The comparison document's own fit: these offsets are handed to
 		// AddPointtoLumGraph for the pDataRef traces, so fitting them on pDoc
 		// described the wrong document (rgbhistoview.cpp does it on pDataRef).
-		pDataRef->ComputeGammaAndOffset(&RefGammaOpt, &RefGammaOffset, 1,1,size,false);
-		pDataRef->ComputeGammaAndOffset(&RefLuxGammaOpt, &RefLuxGammaOffset, 2,1,size,false);
+		pDataRef->ComputeGammaAndOffset(refRamp, &RefGammaOpt, &RefGammaOffset, 1,1,false);
+		pDataRef->ComputeGammaAndOffset(refRamp, &RefLuxGammaOpt, &RefLuxGammaOffset, 2,1,false);
 	}
 
-	if (m_showReference && m_refLogGraphID != -1 && size > 0 || (m_refLogGraphID != -1 && (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 )))
+	if ( ! bNoAbsoluteWhite && ( m_showReference && m_refLogGraphID != -1 && size > 0 || (m_refLogGraphID != -1 && (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7 ))))
 	{	
 		// Both ends of the log scale are singular - log(0) at black, log(1) at
 		// white - and NudgeOffBlack/NudgeOffWhite are what let the curve be
@@ -344,28 +368,33 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		for (int i=0; i<size; i++)
 		{
 			double x, gamma, valy;
-			// Reading i at its stamped drive, else slot i on the current grid.
-			x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i );
-			const double prop = pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i );
-			// Point 0 takes the anchor value, so the reference curve and the
+			// Point i at its stamped drive, else its nominal level (the sweep:
+			// slot i on the current grid).
+			x = ramp.points[i].level;
+			const double prop = ramp.points[i].prop;
+			// The black point takes the anchor value, so the reference curve and the
 			// measured traces meet at the left edge the way they do at white.
-			BOOL bHasGamma = ( i == 0 && !isHDR )
+			BOOL bHasGamma = ( ramp.points[i].isBlack && !isHDR )
 				? ( ReferenceGammaAt(RefWhite, RefBlack, prop, GammaOffset, &gamma, &valy)
 					&& ReferenceGammaAtBlack(RefWhite, RefBlack, GammaOffset, &gamma) )
 				: ReferenceGammaAt(RefWhite, RefBlack, prop, GammaOffset, &gamma, &valy);
 
 			// The HDR delta's stored target is main's: evaluated at the primary
-			// document's SLOT i on the current grid (GraySeriesSlotProp, the
-			// accessor's fallback), whatever its reading's drive - an unstamped
-			// comparison trace takes it unchanged.
+			// document's NOMINAL level of point i (the sweep: slot i on the
+			// current grid, GraySeriesSlotProp), whatever its reading's drive -
+			// an unstamped comparison trace takes it unchanged.
 			{
 				double gammaSlot, valySlot;
-				ReferenceGammaAt(RefWhite, RefBlack, GraySeriesSlotProp ( pDoc->GetMeasure()->GetGraySeriesView ( GRAY_SERIES_GRAYSCALE ), i ),
+				ReferenceGammaAt(RefWhite, RefBlack, ramp.points[i].nominalProp,
 								 GammaOffset, &gammaSlot, &valySlot);
 				m_yref_abs.push_back(valySlot);
 			}
 
-			if (isHDR)
+			if ( ! GrayRampDraws ( ramp, i ) )
+			{
+				// an extended-range list gray: kept in the ramp, not drawn
+			}
+			else if (isHDR)
 				m_graphCtrl.AddPoint(m_refLogGraphID, x, 0);
 			else if (bHasGamma)
 				m_graphCtrl.AddPoint(m_refLogGraphID, x, gamma);
@@ -379,18 +408,20 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 		// (x + offset) / (1+offset) 
 		for (int i=0; i<size; i++)
-			m_graphCtrl.AddPoint(m_avgLogGraphID, pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i ), GammaOpt);
+			if ( GrayRampDraws ( ramp, i ) )
+				m_graphCtrl.AddPoint(m_avgLogGraphID, ramp.points[i].level, GammaOpt);
 	}
 
 	if ( GetConfig () -> m_nLuminanceCurveMode == 2 )
 	{
-		if (m_showAverage && m_luxmeterAvgLogGraphID != -1 && size > 0 && bDataPresent && bLuxGammaFit && pDoc->GetMeasure()->GetGray(0).HasLuxValue() )
+		if (m_showAverage && m_luxmeterAvgLogGraphID != -1 && size > 0 && bDataPresent && bLuxGammaFit && ramp.points[0].reading.HasLuxValue() )
 		{	
 			// Le calcul de la moyenne des gamma et la représentation en échelle log 
 			// ne se fait plus avec l'échelle des x = % de blanc mais avec la formule : 
 			// (x + offset) / (1+offset) 
 			for (int i=0; i<size; i++)
-				m_graphCtrl.AddPoint(m_luxmeterAvgLogGraphID, pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i ), LuxGammaOpt);
+				if ( GrayRampDraws ( ramp, i ) )
+					m_graphCtrl.AddPoint(m_luxmeterAvgLogGraphID, ramp.points[i].level, LuxGammaOpt);
 		}
 	}
 
@@ -400,10 +431,10 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	{
 		for (int i=0; i<size; i++)
 		{
-			if (bDataPresent)
-				AddPointtoLumGraph(0,0,size,i,GammaOffset,pDoc,m_redLumLogGraphID,bIRE,DocWhite,DocBlack);
+			if (bDataPresent && !bNoWhite)
+				AddPointtoLumGraph(0,0,size,i,GammaOffset,pDoc,m_redLumLogGraphID,bIRE,DocWhite,DocBlack,ramp,bDocHoldsBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,0,size,i,RefGammaOffset,pDataRef,m_redLumDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack);
+				AddPointtoLumGraph(0,0,size,i,RefGammaOffset,pDataRef,m_redLumDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack,refRamp,bRefHoldsBlack);
 		}
 	}
 
@@ -413,10 +444,10 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	{
 		for (int i=0; i<size; i++)
 		{
-			if (bDataPresent)
-				AddPointtoLumGraph(0,1,size,i,GammaOffset,pDoc,m_greenLumLogGraphID,bIRE,DocWhite,DocBlack);
+			if (bDataPresent && !bNoWhite)
+				AddPointtoLumGraph(0,1,size,i,GammaOffset,pDoc,m_greenLumLogGraphID,bIRE,DocWhite,DocBlack,ramp,bDocHoldsBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,1,size,i,RefGammaOffset,pDataRef,m_greenLumDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack);
+				AddPointtoLumGraph(0,1,size,i,RefGammaOffset,pDataRef,m_greenLumDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack,refRamp,bRefHoldsBlack);
 		}
 	}
 
@@ -426,10 +457,10 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	{
 		for (int i=0; i<size; i++) 
 		{
-			if (bDataPresent)
-				AddPointtoLumGraph(0,2,size,i,GammaOffset,pDoc,m_blueLumLogGraphID,bIRE,DocWhite,DocBlack);
+			if (bDataPresent && !bNoWhite)
+				AddPointtoLumGraph(0,2,size,i,GammaOffset,pDoc,m_blueLumLogGraphID,bIRE,DocWhite,DocBlack,ramp,bDocHoldsBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(0,2,size,i,RefGammaOffset,pDataRef,m_blueLumDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack);
+				AddPointtoLumGraph(0,2,size,i,RefGammaOffset,pDataRef,m_blueLumDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack,refRamp,bRefHoldsBlack);
 		}
 	}
 
@@ -439,10 +470,10 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	{
 		for (int i=0; i<size; i++) 
 		{
-			if (bDataPresent)
-				AddPointtoLumGraph(1,1,size,i,GammaOffset,pDoc,m_luminanceLogGraphID,bIRE,DocWhite,DocBlack);
+			if (bDataPresent && !bNoAbsoluteWhite)
+				AddPointtoLumGraph(1,1,size,i,GammaOffset,pDoc,m_luminanceLogGraphID,bIRE,DocWhite,DocBlack,ramp,bDocHoldsBlack);
 			if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
-				AddPointtoLumGraph(1,1,size,i,RefGammaOffset,pDataRef,m_luminanceDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack);
+				AddPointtoLumGraph(1,1,size,i,RefGammaOffset,pDataRef,m_luminanceDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack,refRamp,bRefHoldsBlack);
 		}
 	}
 
@@ -454,16 +485,16 @@ void CGammaGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		{
 			for (int i=0; i<size; i++) 
 			{
-				if (bDataPresent)
+				if (bDataPresent && !bNoWhite)
 				{
-					if (pDoc->GetMeasure()->GetGray(0).HasLuxValue())
-						AddPointtoLumGraph(2,1,size,i,LuxGammaOffset,pDoc,m_luxmeterLogGraphID,bIRE,DocWhite,DocBlack);
+					if (ramp.points[0].reading.HasLuxValue())
+						AddPointtoLumGraph(2,1,size,i,LuxGammaOffset,pDoc,m_luxmeterLogGraphID,bIRE,DocWhite,DocBlack,ramp,bDocHoldsBlack);
 				}
 				
 				if ((m_showDataRef)&&(pDataRef !=NULL)&&(pDataRef !=pDoc))
 				{
-					if (pDataRef->GetMeasure()->GetGray(0).HasLuxValue())
-						AddPointtoLumGraph(2,1,size,i,RefLuxGammaOffset,pDataRef,m_luxmeterDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack);
+					if (refRamp.points[0].reading.HasLuxValue())
+						AddPointtoLumGraph(2,1,size,i,RefLuxGammaOffset,pDataRef,m_luxmeterDataRefLogGraphID,bIRE,RefDocWhite,RefDocBlack,refRamp,bRefHoldsBlack);
 				}
 			}
 		}
@@ -480,23 +511,28 @@ GraphID : graph ID for drawing
 LogGraphID : graph ID for log drawing, -1 if no Log drawing
 */
 
-void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,double GammaOffset,CDataSetDoc *pDataSet,long GraphID, BOOL bIRE, const CColor & White, const CColor & Black)
+void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,int PointIndex,double GammaOffset,CDataSetDoc *pDataSet,long GraphID, BOOL bIRE, const CColor & White, const CColor & Black, const GrayRamp & ramp, bool bHoldsBlack)
 {
 	double blacklvl, whitelvl;
 	double colorlevel;
 	char	szBuf [ 64 ];
 	LPCSTR	lpMsg = NULL;
+	// Point PointIndex of pDataSet's gray graph ramp (CMeasure::GetGrayGraphRamp),
+	// and whether its black holds a reading (HoldsGrayGraphBlack).
+	if ( ! GrayRampDraws ( ramp, PointIndex ) )
+		return;
+	const GrayRampPoint & pt = ramp.points[PointIndex];
 
 	// An invalid point is left out, and so is every point measured against an
 	// invalid black: the relative offset subtracts it from each of them.
-	if (pDataSet->GetMeasure()->GetGray(PointIndex).isValid()
-		&& ( GetConfig() -> m_GammaOffsetType != 1 || pDataSet->GetMeasure()->HoldsGrayScaleBlack () ))	// Black (blacklvl) is pDataSet's GetGrayScaleBlack
+	if (pt.reading.isValid()
+		&& ( GetConfig() -> m_GammaOffsetType != 1 || bHoldsBlack ))	// Black (blacklvl) is pDataSet's GetGrayGraphBlack
 	{
 	if (ColorSpace == 0) 
 	{
 		blacklvl=Black.GetRGBValue((GetColorReference()))[ColorIndex];
 		whitelvl=White.GetRGBValue((GetColorReference()))[ColorIndex];
-		colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetRGBValue((GetColorReference()))[ColorIndex];
+		colorlevel=pt.reading.GetRGBValue((GetColorReference()))[ColorIndex];
 		if (GetConfig()->m_GammaOffsetType == 5)
 			whitelvl =  10000.;
 	}
@@ -504,7 +540,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	{
 		blacklvl=Black.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 		whitelvl=White.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+		colorlevel=pt.reading.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
 		if (GetConfig()->m_GammaOffsetType == 5)
 			whitelvl =  10000.;
 	}
@@ -512,7 +548,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	{
 		blacklvl=Black.GetLuxValue();
 		whitelvl=White.GetLuxValue();
-		colorlevel=pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxValue();
+		colorlevel=pt.reading.GetLuxValue();
 	}
 
 	if(GetConfig() -> m_GammaOffsetType == 1 )
@@ -522,12 +558,12 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 		blacklvl = 0;
 	}
 
-	if ( pDataSet->GetMeasure()->GetGray(PointIndex).HasLuxValue () )
+	if ( pt.reading.HasLuxValue () )
 	{
 		if ( GetConfig () ->m_bUseImperialUnits )
-			sprintf ( szBuf, "%.5g Ft-cd", pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxValue() * 0.0929 );
+			sprintf ( szBuf, "%.5g Ft-cd", pt.reading.GetLuxValue() * 0.0929 );
 		else
-			sprintf ( szBuf, "%.5g Lux", pDataSet->GetMeasure()->GetGray(PointIndex).GetLuxValue() );
+			sprintf ( szBuf, "%.5g Lux", pt.reading.GetLuxValue() );
 		
 		lpMsg = szBuf;
 	}
@@ -540,14 +576,14 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 	{
 		bool isHDR = (GetConfig()->m_GammaOffsetType == 5 || GetConfig()->m_GammaOffsetType == 7);
 
-		// Reading PointIndex of THIS trace's document at its stamped drive, else
-		// its slot on the current grid: the stamp decoded once, and the values
-		// GetGrayReadingLevel / Prop give (their fallbacks are the slot level and
-		// GraySeriesSlotProp). bStamped and drive also pick the HDR delta below.
-		double drive;
-		const bool bStamped = pDataSet->GetMeasure()->GetGrayReadingDrive ( GRAY_SERIES_GRAYSCALE, PointIndex, & drive );
-		double x = bStamped ? drive * 100.0 : pDataSet->GetMeasure()->GetGrayPercent ( PointIndex, GetConfig () -> m_bUseRoundDown, GetConfig()->GetUse10bitLevels(), GetConfig()->GetRGB16_235() );
-		const double prop = bStamped ? drive : GraySeriesSlotProp ( pDataSet->GetMeasure()->GetGraySeriesView ( GRAY_SERIES_GRAYSCALE ), PointIndex );
+		// Point PointIndex of THIS trace's document at its stamped drive, else
+		// its nominal level (the sweep: its slot on the current grid, the values
+		// GetGrayReadingLevel / Prop give). bStamped and drive also pick the HDR
+		// delta below.
+		const bool bStamped = pt.stamped;
+		const double drive = pt.prop;
+		double x = pt.level;
+		const double prop = pt.prop;
 
 		double valxprime=(prop+GammaOffset)/(1.0+GammaOffset);
 
@@ -572,7 +608,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 			}
 			m_graphCtrl.AddPoint(GraphID, x, colorlevel - whitelvl * yref, lpMsg);
 		}
-		else if (PointIndex == 0)
+		else if (pt.isBlack)
 		{
 			// Black, the anchor at the other end - see ReferenceGammaAtBlack.
 			// 0% stimulus puts out the display's black by construction, exactly
@@ -587,7 +623,7 @@ void CGammaGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Size,in
 			if ( ReferenceGammaAtBlack(White, Black, GammaOffset, &gammaBlack) )
 				m_graphCtrl.AddPoint(GraphID, x, gammaBlack, lpMsg);
 		}
-		else if (PointIndex == Size-1 && colorlevel > 0.0001)
+		else if (pt.isWhite && colorlevel > 0.0001)
 		{
 			// The top patch IS the white every other point is divided by, so its
 			// own log(y)/log(x) is 0/0 and the trace used to stop one patch short
@@ -695,7 +731,8 @@ void CGammaHistoView::OnInitialUpdate()
 void CGammaHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint) 
 {
 	// Update this view only when we are concerned
-	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA  || lHint == UPD_FREEMEASUREAPPENDED || (lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE && lHint != UPD_REALTIME + 13))
+	// UPD_CC24SAT: a patch-list run, whose grays this chart draws without a sweep
+	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA  || lHint == UPD_FREEMEASUREAPPENDED || lHint == UPD_CC24SAT || (lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE && lHint != UPD_REALTIME + 13))
 	{
 		m_Grapher.UpdateGraph ( GetDocument () );
 		RedrawWindow( NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW );

@@ -177,6 +177,7 @@ public:
     ColorRGB GetCColorsT(int index);
 	std::string GetCColorsN(int index);
 	CColorProvenance GetCColorsProvenance(int index);
+	PatchLabel GetCColorsLabel(int index);	// what color patch `index` is (PatchLabel.h)
     void GetCColors();	// USER: from the MDI-active document's active set
     void GetCColorsFrom(CUserPatchSet * pSet);	// USER: from this set (NULL = none loaded)
 	CString strLang;

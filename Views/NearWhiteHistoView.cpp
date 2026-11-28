@@ -157,27 +157,31 @@ void CNearWhiteGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	// reference at 0.099.
 	// (ComputeGammaAndOffset reads the gray scale's top: not called without one;
 	// it fits a non-zero offset only for more than two points anyway.)
+	// The gray graphs' ramp (CMeasure::GetGrayGraphRamp): the white and the fit
+	// come from it, the points from this chart's own sweep.
+	const GrayRamp grayRamp = pDoc->GetMeasure()->GetGrayGraphRamp();
+	// A patch list with no usable white: the reference, relative to it, is not drawn.
+	const bool bNoWhite = ( grayRamp.source == GRAY_RAMP_LIST && ! GrayRampWhiteUsable ( pDoc->GetMeasure()->GetGrayGraphWhite ( grayRamp ) ) );
 	double PointOffset = 0.0;
-	if ( pDoc->GetMeasure()->GetGrayScaleSize() > 2 )
+	if ( (int) grayRamp.points.size() > 2 )
 	{
 		double gammaOpt, fitted;
-		pDoc->ComputeGammaAndOffset ( &gammaOpt, &fitted, 1, 1, pDoc->GetMeasure()->GetGrayScaleSize(), false );
+		pDoc->ComputeGammaAndOffset ( grayRamp, &gammaOpt, &fitted, 1, 1, false );
 		PointOffset = PointGammaEffectiveOffset ( GetConfig()->m_GammaOffsetType, GetConfig()->m_colorStandard == sRGB, fitted );
 	}
 
 	m_graphCtrl.ClearGraph(m_refGraphID);
 	m_logGraphCtrl.ClearGraph(m_refLogGraphID);
 
-	if (m_showReference && m_refGraphID != -1 && size > 0)
-	{	
+	if (m_showReference && m_refGraphID != -1 && size > 0 && !bNoWhite)
+	{
 		for (int i=0; i<size; i++)
 		{
-        	int g_size=pDoc->GetMeasure()->GetGrayScaleSize();
 			double GammaOffset,GammaOpt;
-			pDoc->ComputeGammaAndOffset(&GammaOpt, &GammaOffset, 1,1,g_size,false);
-    		CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite ();
+			pDoc->ComputeGammaAndOffset(grayRamp, &GammaOpt, &GammaOffset, 1,1,false);
+    		CColor White = pDoc -> GetMeasure () -> GetGrayGraphWhite ( grayRamp );
 //	    	CColor Black = pDoc -> GetMeasure () -> GetGray ( 0 );
-	    	CColor Black = pDoc -> GetMeasure () -> GetGrayScaleBlack();
+	    	CColor Black = pDoc -> GetMeasure () -> GetGrayGraphBlack ( grayRamp );
 			// Reading i at its stamped drive, else slot i on the current grid
 			// (CMeasure::GetGrayReadingLevel); the reference is evaluated there.
 			double x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_NEAR_WHITE, i );
@@ -331,10 +335,11 @@ LogGraphID : graph ID for log drawing, -1 if no Log drawing
 // near white's top, else 0. *pFromGrayTop: whether the gray top was taken.
 static double NearWhiteChartWhite ( CMeasure * pMeasure, int ColorSpace, int PointIndex, bool * pFromGrayTop = NULL )
 {
-	const int grayscalesize = pMeasure->GetGrayScaleSize();
+	// The gray top: the gray graphs' white (CMeasure::GetGrayGraphTop; for the
+	// sweep its last slot unless that is the placeholder).
 	const int nearwhitescalesize = pMeasure->GetNearWhiteScaleSize();
 	return NearChartWhite ( ColorSpace, GetConfig () -> m_nLuminanceCurveMode, pMeasure->GetNearWhite(PointIndex).HasLuxValue (),
-							( grayscalesize > 0 && ! CMeasure::IsRawlessPlaceholder ( pMeasure->GetGray(grayscalesize-1), false ) ) ? pMeasure->GetGray(grayscalesize-1) : noDataColor,
+							pMeasure->GetGrayGraphTop ( pMeasure->GetGrayGraphRamp () ),
 							nearwhitescalesize > 0 ? pMeasure->GetNearWhite(nearwhitescalesize-1) : noDataColor, pFromGrayTop );
 }
 
@@ -427,7 +432,7 @@ void CNearWhiteGrapher::AddPointtoLumGraph(int ColorSpace,int ColorIndex,int Siz
             // channel, else the series' top (max) at its own level
             if ( bWhiteIsGrayTop )
             {
-                const double y = pDataSet->GetMeasure()->GetGray(pDataSet->GetMeasure()->GetGrayScaleSize()-1).GetRGBValue(GetColorReference())[ColorIndex];
+                const double y = pDataSet->GetMeasure()->GetGrayGraphTop ( pDataSet->GetMeasure()->GetGrayGraphRamp () ).GetRGBValue(GetColorReference())[ColorIndex];
                 if ( y > 0.0 && _finite ( y ) )
                 {
                     yWhite = y;

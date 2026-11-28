@@ -46,6 +46,7 @@
 #include "SpectrumDlg.h"
 #include "../ColorHCFRConfig.h"
 #include "../Measure.h"
+#include "SummarySources.h"
 
 #include "DocEnumerator.h"	//Ki
 #include "../ScaleSizes.h"
@@ -632,6 +633,7 @@ CMainView::CMainView()
 	m_pInfoWnd13 = NULL;
 
 	m_displayType=GetConfig()->GetProfileInt("MainView","Display type",HCFR_xyY_VIEW);
+	m_bShowPatchLabels=GetConfig()->GetProfileInt("MainView","Show Patch Labels",1) != 0;
 	dEavg_gs=0;
 	dEmax_gs=0;
 	dEavg_cc=0;
@@ -2035,6 +2037,66 @@ static CString GrayColumnLabel ( CMeasure * pMeasure, int i, BOOL bIRE )
 	return str;
 }
 
+// A patch label's level as grid text: whole percents bare, else one decimal.
+static CString PatchLabelLevelText ( double level )
+{
+	CString s;
+	double r = floor ( level * 10.0 + 0.5 ) / 10.0;
+	if ( r == floor ( r ) )
+		s.Format ( "%.0f%%", r );
+	else
+		s.Format ( "%.1f%%", r );
+	return s;
+}
+
+// The short text of a patch-list row's label (PatchLabel.h): "Black",
+// "White", "Gray 40%", "Red 75%", "Red sat 75%"; blank for other.
+static CString PatchLabelText ( const PatchLabel & l )
+{
+	static const UINT colorIds[6] = { IDS_RED, IDS_GREEN, IDS_BLUE, IDS_YELLOW, IDS_CYAN, IDS_MAGENTA };
+	CString s, name, fmt;
+	switch ( l.kind )
+	{
+		case PATCH_KIND_GRAY:
+			if ( l.isBlack )
+				s.LoadString ( IDS_BLACK );
+			else if ( l.isWhite )
+				s.LoadString ( IDS_WHITE );
+			else
+			{
+				name.LoadString ( IDS_PATCHLABEL_GRAY );
+				s.Format ( "%s %s", (LPCTSTR) name, (LPCTSTR) PatchLabelLevelText ( l.level ) );
+			}
+			break;
+		case PATCH_KIND_PRIMARY:
+		case PATCH_KIND_SECONDARY:
+			if ( l.color >= 0 && l.color < 6 )
+			{
+				name.LoadString ( colorIds[l.color] );
+				s.Format ( "%s %s", (LPCTSTR) name, (LPCTSTR) PatchLabelLevelText ( l.level ) );
+			}
+			break;
+		case PATCH_KIND_SATURATION:
+			if ( l.color >= 0 && l.color < 6 )
+			{
+				name.LoadString ( colorIds[l.color] );
+				fmt.LoadString ( IDS_PATCHLABEL_SAT );
+				s.Format ( fmt, (LPCTSTR) name, (LPCTSTR) PatchLabelLevelText ( l.level ) );
+			}
+			break;
+		default:
+			break;
+	}
+	return s;
+}
+
+// The patch-list grid (mode 11 on a USER list) shows one label row after
+// every other row while the switch in the list's name-chip menu is on.
+BOOL CMainView::ShowPatchLabelRow()
+{
+	return m_bShowPatchLabels && m_displayMode == 11 && GetConfig()->m_CCMode == USER;
+}
+
 // Whether a series holds a reading outside its 0% slot (CMeasure::HoldsReading:
 // a new document's top gray placeholder is none).
 static bool GraySeriesHoldsReading(CMeasure * pMeasure)
@@ -2212,6 +2274,11 @@ void CMainView::InitGrid(bool sizeGrid)
 			nRows ++;
 	}
 
+	// The label row (ShowPatchLabelRow) is the last one. nRows stays the
+	// count UpdateGrid fills, so the lux rows keep their positions.
+	BOOL bLabelRow = ShowPatchLabelRow ();
+	int nGridRows = nRows + ( bLabelRow ? 1 : 0 );
+
 	m_pGrayScaleGrid->SetTextColor(FxGetSysColor(COLOR_WINDOWTEXT));
 	m_pGrayScaleGrid->SetTextBkColor(FxGetSysColor(COLOR_WINDOW));
 	m_pGrayScaleGrid->SetFixedTextColor(FxGetSysColor(COLOR_WINDOWTEXT));
@@ -2220,7 +2287,7 @@ void CMainView::InitGrid(bool sizeGrid)
 	m_pGrayScaleGrid->SetFixedRowCount(1);
 	m_pGrayScaleGrid->SetFixedColumnCount(1);
 
-    m_pGrayScaleGrid->SetRowCount(nRows + 1);     
+    m_pGrayScaleGrid->SetRowCount(nGridRows + 1);     
     m_pGrayScaleGrid->SetColumnCount(size+1);
 	
 	m_pGrayScaleGrid->SetFixedColumnSelection(TRUE);
@@ -2502,7 +2569,7 @@ void CMainView::InitGrid(bool sizeGrid)
 		m_pGrayScaleGrid->SetItem(&Item);
 		m_pGrayScaleGrid->SetItemFont(Item.row,Item.col, &lf); // Set the font to bold
 
-		for ( int i2 = 4; i2 <= nRows ; i2++ )
+		for ( int i2 = 4; i2 <= nGridRows ; i2++ )
 		{
 			m_pGrayScaleGrid->SetItemBkColour ( i2, i+1, GridBk( (i2&1) ? RGB(240,240,240) : RGB(224,224,224) ) );
 			m_pGrayScaleGrid->SetItemState ( i2, i+1, m_pGrayScaleGrid->GetItemState(i2,i+1) | GVIS_READONLY );
@@ -2669,6 +2736,25 @@ void CMainView::InitGrid(bool sizeGrid)
 		m_pGrayScaleGrid->SetItem(&Item);
 	}
 
+	// The label row depends on the list definition only, not on readings,
+	// so it is filled here; UpdateGrid never reaches it.
+	if ( bLabelRow )
+	{
+		Item.row = nRows + 1;
+		Item.col = 0;
+		m_pGrayScaleGrid->SetItemFont(Item.row,Item.col, &lf);
+		Item.strText.LoadString ( IDS_PATCHLABEL_ROW );
+		m_pGrayScaleGrid->SetItem(&Item);
+		Item.nFormat = DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX;
+		for ( i = 0; i < size; i++ )
+		{
+			Item.col = i + 1;
+			Item.strText = PatchLabelText ( GetConfig()->GetCColorsLabel ( i ) );
+			m_pGrayScaleGrid->SetItem(&Item);
+		}
+		Item.nFormat = DT_CENTER|DT_WORDBREAK;
+	}
+
 	if (sizeGrid)
 	{
 		m_pGrayScaleGrid->AutoSizeColumns();
@@ -2689,7 +2775,7 @@ void CMainView::InitGrid(bool sizeGrid)
 		height = max(height, 18);
 		if (height == 18)
 		{
-			for ( i = 1 ; i <= nRows ; i ++ )
+			for ( i = 1 ; i <= nGridRows ; i ++ )
 				m_pGrayScaleGrid -> SetRowHeight ( i, height);
 		}
 
@@ -3032,6 +3118,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		}
 		UpdateGrid();		
 		UpdateMeasurementsAfterBkgndMeasure ();
+		// the gray slots written above are the white and black the generated lines state
+		RefreshSummaryPane ();
 	}
 	else if ( lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE ) //optimized for realtime
 	{
@@ -3114,6 +3202,7 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 		if ( m_pInfoWnd ) //in case colorchecker slot is updated
 		{
+				m_strSummaryShownGen = GetDocument()->GetMeasure()->GetGeneratedInfoString();
 				m_pInfoWnd -> SetWindowTextA(GetDocument()->GetMeasure()->GetInfoString());
 				// The text just came from the document, so the recorded commands
 				// describe text that is no longer there: drop them.
@@ -3130,37 +3219,8 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 		if ( !( (lHint >= UPD_PRIMARIES && lHint <= UPD_FREEMEASURES) || lHint == UPD_CC24SAT ) )
 			CFormView::OnUpdate(pSender, lHint, pHint);
 
-		// m_CCStr is rebuilt when a color checker sweep ends -- on completion,
-		// and on the abort salvage. Both are AFTER the sweep's last realtime
-		// hint, and UPD_CC24SAT (25) is below UPD_REALTIME (26), so the summary
-		// pane's only other refresh (in the realtime branch above) never saw the
-		// new string: the sweeps-active list stayed as it was when the pane was
-		// last created. Refresh it here, and only when the text really changed,
-		// so a summary the user is part-way through typing is left alone.
-		// Only info display entry 0 owns this text: m_pInfoWnd is a CTargetWnd,
-		// CSpectrumWnd or CSubFrame for every other entry, and those return empty
-		// window text -- so an ungated write would never compare equal and would
-		// retitle and repaint an unrelated widget on every sweep end. Gate on the
-		// downcast rather than testing it after the write.
-		if ( lHint == UPD_CC24SAT && m_pInfoWnd )
-		{
-			CEditEx * pSummaryEdit = DYNAMIC_DOWNCAST ( CEditEx, m_pInfoWnd );
-			if ( pSummaryEdit )
-			{
-				CString strNew = GetDocument()->GetMeasure()->GetInfoString();
-				CString strOld;
-				pSummaryEdit -> GetWindowText ( strOld );
-				if ( strOld != strNew )
-				{
-					pSummaryEdit -> SetWindowTextA ( strNew );
-					// the text came from the document, so the control's recorded
-					// commands describe text that is no longer there
-					pSummaryEdit -> EmptyUndoBuffer ();
-					pSummaryEdit -> Invalidate ();
-					pSummaryEdit -> UpdateWindow ();
-				}
-			}
-		}
+		// The Summary pane is refreshed at the end of this branch (RefreshSummaryPane),
+		// after everything here that can change what its generated lines say.
 
 		if ( m_displayType == HCFR_SENSORRGB_VIEW )
 		{
@@ -3412,6 +3472,12 @@ void CMainView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint)
 
 		if (m_bPositionsInit) { LayoutTopRow(); OnSize(0,0,0); }   // re-fit the gen/sensor panes to the new labels
 			if (::IsWindow(m_statsBar.GetSafeHwnd())) m_statsBar.Invalidate(FALSE);   // refresh the bar-drawn Edit checkbox (enabled/checked state)
+
+		// Last, so the pane describes the document as this update leaves it:
+		// InitGrid swaps the "Override black" synthetic black into gray slot 0
+		// (or puts the measured one back), and UPD_FREEMEASUREAPPENDED writes
+		// gray slots, both above - the generated lines state that black and white.
+		RefreshSummaryPane ();
 	}
 }
 
@@ -5327,6 +5393,28 @@ void CMainView::UpdateGrid()
                     if (GetConfig()->doHighlight)
 					    m_grayScaleGroup.SetBorderColor (fxUseCustomColor ? FxGetSysColor(COLOR_BTNFACE) : FxGetSysColor(COLOR_3DSHADOW));
 			}
+			// A patch list: the average gamma of the gray graphs beside its dE, the
+			// number the gamma graph's average line draws - the same ramp
+			// (GetGrayGraphRamp), the same fit (the ramp overload of
+			// ComputeGammaAndOffset with the gamma grapher's arguments) and the same
+			// gates (PatchListGammaShown). No fit, no number.
+			if ( GetConfig () -> m_CCMode == USER )
+			{
+				const GrayRamp listRamp = GetDocument () -> GetMeasure () -> GetGrayGraphRamp ();
+				double listGamma = 0.0, listOffset = 0.0;
+				const bool bListFit = GetDocument () -> ComputeGammaAndOffset ( listRamp, &listGamma, &listOffset, 1, 1, false );
+				const bool bListData = FailedReadingRule::AnyHeldReading ( (int) listRamp.points.size (), [&listRamp] ( int i ) { return listRamp.points[i].reading; },
+					[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } );
+				if ( PatchListGammaShown ( bListFit, bListData, GetConfig () -> m_GammaOffsetType ) )
+				{
+					char szGamma [ 64 ];
+					sprintf_s ( szGamma, ": %.2f )", listGamma );
+					Tmp.LoadString ( IDS_GAMMAAVERAGE );
+					Msg += " ( ";
+					Msg += Tmp;
+					Msg += szGamma;
+				}
+			}
 			m_grayScaleGroup.SetText ( Msg );
 		}
 	}
@@ -6982,6 +7070,7 @@ void CMainView::UpdateParamCombos()
 #define IDM_CCSET_PICKER_FIRST	50000
 #define IDM_CCSET_PICKER_MAX	256
 #define IDM_CCSET_PICKER_OPEN	(IDM_CCSET_PICKER_FIRST + IDM_CCSET_PICKER_MAX)
+#define IDM_CCSET_PICKER_LABELS	(IDM_CCSET_PICKER_OPEN + 1)
 
 void CMainView::OnCcSetNamePicker()
 {
@@ -7007,6 +7096,10 @@ void CMainView::OnCcSetNamePicker()
 	CString strOpen;
 	strOpen.LoadString ( IDS_CCSET_OPEN_LIST );
 	menu.AppendMenu ( MF_STRING, IDM_CCSET_PICKER_OPEN, strOpen );
+	menu.AppendMenu ( MF_SEPARATOR );
+	CString strLabels;
+	strLabels.LoadString ( IDS_PATCHLABEL_SHOW );
+	menu.AppendMenu ( MF_STRING | ( m_bShowPatchLabels ? MF_CHECKED : MF_UNCHECKED ), IDM_CCSET_PICKER_LABELS, strLabels );
 
 	CPoint pt;
 	GetCursorPos ( &pt );
@@ -7015,6 +7108,13 @@ void CMainView::OnCcSetNamePicker()
 		pDoc -> SwitchUserPatchSet ( cmd - IDM_CCSET_PICKER_FIRST );
 	else if ( cmd == IDM_CCSET_PICKER_OPEN )
 		AfxGetMainWnd () -> PostMessage ( WM_COMMAND, IDM_MEASURE_OPEN_PATCHLIST );	// routes to the active doc's handler
+	else if ( cmd == IDM_CCSET_PICKER_LABELS )
+	{
+		m_bShowPatchLabels = ! m_bShowPatchLabels;
+		GetConfig () -> WriteProfileInt ( "MainView", "Show Patch Labels", m_bShowPatchLabels ? 1 : 0 );
+		InitGrid ( true );	// the row count changes
+		UpdateGrid ();
+	}
 }
 
 void CMainView::OnSelchangeComboSteps()
@@ -9000,6 +9100,7 @@ void CMainView::OnSelchangeInfoDisplay()
 
 			 pEdit -> Create (WS_VISIBLE | WS_CHILD | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN, Rect, this, IDC_INFO_VIEW );
 			 pEdit -> SetFont ( GetFont () );		 
+			 m_strSummaryShownGen = GetDocument()->GetMeasure()->GetGeneratedInfoString();
 			 pEdit -> SetWindowText ( GetDocument()->GetMeasure()->GetInfoString() );
 
 			 // The initial fill reaches the control as WM_SETTEXT, which CEditEx
@@ -10129,6 +10230,44 @@ void CMainView::OnSelchangeInfoDisplay()
 	InsetInfoWindows ();
 }
 
+// Rewrites the Summary pane (info display entry 0) with the document's text
+// when it differs from what the pane shows, and remembers the generated lines
+// it now ends with for OnChangeInfosEdit. Only when the text really changed, so
+// a summary the user is part-way through typing is left alone. Only entry 0
+// owns this text: m_pInfoWnd is a CTargetWnd, CSpectrumWnd or CSubFrame for
+// every other entry, and those return empty window text -- so an ungated write
+// would never compare equal and would retitle and repaint an unrelated widget
+// on every update. Gate on the downcast rather than testing it after the write.
+// Called on every hint, not only a color checker sweep's end (which rebuilds
+// m_CCStr after the sweep's last realtime hint): the generated lines also state
+// the white and black the gray graphs use (CMeasure::GetGrayGraphAnchorStr),
+// which change when a gray sweep or a contrast measurement ends and when the
+// black override is switched.
+void CMainView::RefreshSummaryPane()
+{
+	if ( ! m_pInfoWnd )
+		return;
+	CEditEx * pSummaryEdit = DYNAMIC_DOWNCAST ( CEditEx, m_pInfoWnd );
+	if ( ! pSummaryEdit )
+		return;
+	const CString strGen = GetDocument()->GetMeasure()->GetGeneratedInfoString();
+	const CString strNew = GetDocument()->GetMeasure()->GetInfoString();
+	CString strOld;
+	pSummaryEdit -> GetWindowText ( strOld );
+	// the pane reads the user's text followed by strGen from here on; set
+	// before the write, so a change notification it raises strips the right lines
+	m_strSummaryShownGen = strGen;
+	if ( strOld != strNew )
+	{
+		pSummaryEdit -> SetWindowTextA ( strNew );
+		// the text came from the document, so the control's recorded
+		// commands describe text that is no longer there
+		pSummaryEdit -> EmptyUndoBuffer ();
+		pSummaryEdit -> Invalidate ();
+		pSummaryEdit -> UpdateWindow ();
+	}
+}
+
 void CMainView::OnChangeInfosEdit() 
 {
 	// TODO: If this is a RICHEDIT control, the control will not
@@ -10139,6 +10278,17 @@ void CMainView::OnChangeInfosEdit()
 	{
 		CString str;
 		m_pInfoWnd -> GetWindowText ( str );
+		// The pane shows the user's text followed by the lines HCFR generates
+		// (CMeasure::GetGeneratedInfoString), and GetInfoString appends those
+		// lines again: keep only the user's part, so the generated lines - the
+		// gray graphs' white and black among them, which change with every
+		// measurement - are not frozen into the summary as typed text and shown
+		// twice. The lines removed are the ones the pane was last written with
+		// (m_strSummaryShownGen), not the document's current ones: a pane not yet
+		// refreshed still ends with the old lines (SummaryUserText). Text edited
+		// inside the generated lines no longer ends with them and is kept whole,
+		// as before.
+		str = SummaryUserText ( std::string ( (LPCTSTR) str ), std::string ( (LPCTSTR) m_strSummaryShownGen ) ).c_str ();
 		GetDocument()->GetMeasure()->SetInfoString(str);
 		GetDocument()->SetModifiedFlag(TRUE);
 	}

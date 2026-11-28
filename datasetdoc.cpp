@@ -5250,6 +5250,25 @@ void CDataSetDoc::OnUpdateContinuousMeasurement(CCmdUI* pCmdUI)
 
 bool CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int ColorSpace,int ColorIndex,int Size, bool m_bBT1886)
 {
+	// The gray sweep, slot for slot: point i is GetGray ( i ) at
+	// GetGrayReadingProp ( i ), so the fit is the one this function always made.
+	GrayRamp ramp;
+	BuildSweepGrayRamp ( GetMeasure () -> GetGraySeriesView ( GRAY_SERIES_GRAYSCALE ), & ramp );
+	if ( (int) ramp.points.size () > Size )
+		ramp.points.resize ( Size > 0 ? Size : 0 );
+	return ComputeRampGammaAndOffset ( ramp, GetMeasure () -> GetGrayScaleWhite (), GetMeasure () -> GetGrayScaleBlack (), GetMeasure () -> HoldsGrayScaleBlack (),
+	                                   Gamma, Offset, ColorSpace, ColorIndex, m_bBT1886 );
+}
+
+bool CDataSetDoc::ComputeGammaAndOffset(const GrayRamp & ramp, double * Gamma, double * Offset, int ColorSpace, int ColorIndex, bool m_bBT1886)
+{
+	return ComputeRampGammaAndOffset ( ramp, GetMeasure () -> GetGrayGraphWhite ( ramp ), GetMeasure () -> GetGrayGraphBlack ( ramp ), GetMeasure () -> HoldsGrayGraphBlack ( ramp ),
+	                                   Gamma, Offset, ColorSpace, ColorIndex, m_bBT1886 );
+}
+
+bool CDataSetDoc::ComputeRampGammaAndOffset(const GrayRamp & ramp, const CColor & fitWhite, const CColor & fitBlack, bool holdsBlack, double * Gamma, double * Offset, int ColorSpace, int ColorIndex, bool m_bBT1886)
+{
+	const int Size = (int) ramp.points.size ();
 	int		nConfigOffsetType = GetConfig() -> m_GammaOffsetType;
 	int		nLumCurveMode = GetConfig () -> m_nLuminanceCurveMode;
 	double	blacklvl, whitelvl, graylvl, Offset_opt, Gamma_opt;
@@ -5257,16 +5276,14 @@ bool CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 
 	// The offset the configuration sets (never fitted): every return carries it.
 	const double configuredOffset = FailedReadingRule::ConfiguredGammaOffset ( nConfigOffsetType, GetConfig()->m_colorStandard == sRGB, GetConfig() -> m_manualGOffset );
-	// The gray scale's white and black, fetched once (the per-point loop below reads them)
-	const CColor fitWhite = GetMeasure()->GetGrayScaleWhite();
-	const CColor fitBlack = GetMeasure()->GetGrayScaleBlack();
+	// fitWhite / fitBlack: the ramp's white and black, fetched once by the caller
 	// A black the fit does not have (GetGrayScaleBlack holds no reading: the
 	// 0% slot failed and the on/off black is the constructor's placeholder)
 	// never enters a fit that reads it: only the relative offset does
 	// (FailedReadingRule.h). Every other type fits as usual. The user's black
 	// override is a reading at any value (CMeasure::HoldsGrayScaleBlack, the same
 	// test the black-compensation targets use on the same black).
-	if ( FailedReadingRule::GammaFitNoBlack ( GetMeasure()->HoldsGrayScaleBlack(), nConfigOffsetType, configuredOffset, Gamma, Offset ) )
+	if ( FailedReadingRule::GammaFitNoBlack ( holdsBlack, nConfigOffsetType, configuredOffset, Gamma, Offset ) )
 		return false;
 	bool bFit = false;
 
@@ -5312,17 +5329,17 @@ bool CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 	for (int i=0; i<Size; i++)
 	{	
 		if (ColorSpace == 0)
-			graylvl=GetMeasure()->GetGray(i).GetRGBValue((GetColorReference()))[ColorIndex];
+			graylvl=ramp.points[i].reading.GetRGBValue((GetColorReference()))[ColorIndex];
 		else if (ColorSpace == 1)
-			graylvl=GetMeasure()->GetGray(i).GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
-		else if (ColorSpace == 2) 
-			graylvl=GetMeasure()->GetGray(i).GetLuxValue();
+			graylvl=ramp.points[i].reading.GetLuxOrLumaValue(GetConfig () -> m_nLuminanceCurveMode);
+		else if (ColorSpace == 2)
+			graylvl=ramp.points[i].reading.GetLuxValue();
 		else
 		{
 			if ( nLumCurveMode > 0 )
-				graylvl=GetMeasure()->GetGray(i).GetPreferedLuxValue(GetConfig () -> m_bPreferLuxmeter);
+				graylvl=ramp.points[i].reading.GetPreferedLuxValue(GetConfig () -> m_bPreferLuxmeter);
 			else
-				graylvl=GetMeasure()->GetGray(i).GetLuminance();
+				graylvl=ramp.points[i].reading.GetLuminance();
 		}
 
 		if ( nConfigOffsetType == 1 )
@@ -5346,15 +5363,16 @@ bool CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 
 			for (int i=0; i<Size; i++)
 			{
-				// Reading i at its stamped drive, else slot i on the current grid.
-				v = GetMeasure () -> GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i );
+				// Point i at its stamped drive, else its nominal level (the sweep:
+				// slot i on the current grid, GetGrayReadingProp).
+				v = ramp.points[i].prop;
 				valx[i]=(v+Offset_opt)/(1.0+Offset_opt);
 			}
 
 			// The mean of the per-point gamma over the points that have light
 			// (FailedReadingRule::MeanPointGamma, which T50 checks); no point with
 			// light is no fit.
-			bFit = FailedReadingRule::MeanPointGamma ( Size, lumlvl, [&] ( int i ) -> double
+			auto pointGamma = [&] ( int i ) -> double
 			{
 				int mode = GetConfig()->m_GammaOffsetType;
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
@@ -5363,7 +5381,14 @@ bool CDataSetDoc::ComputeGammaAndOffset(double * Gamma, double * Offset, int Col
 				if (mode == 5)
 					return log(getL_EOTF(valx[i], fitWhite, fitBlack, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1) / 100.)/log(valx[i]);
 				return log(lumlvl[i])/log(valx[i]);
-			}, & Gamma_opt );
+			};
+			// A list's black and white are not its first and last points (it can hold
+			// grays below 0% and above 100%, or neither end at all): its fit takes the
+			// grays strictly between them, by value (GrayRampFitsPoint).
+			if ( ramp.source == GRAY_RAMP_LIST )
+				bFit = FailedReadingRule::MeanPointGammaOver ( Size, lumlvl, [&] ( int i ) { return GrayRampFitsPoint ( ramp, i ); }, pointGamma, & Gamma_opt );
+			else
+				bFit = FailedReadingRule::MeanPointGamma ( Size, lumlvl, pointGamma, & Gamma_opt );
 			if ( ! bFit )
 				Gamma_opt = FailedReadingRule::NoFitGamma;
 	}

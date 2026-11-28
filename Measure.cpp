@@ -35,6 +35,7 @@
 #include "MeasurePerf.h"
 #include "FailedReadingRule.h"
 #include "SweepConfirmRule.h"
+#include "SummarySources.h"
 
 #include <math.h>
 #include <sstream>
@@ -1446,6 +1447,14 @@ void CMeasure::Serialize(CArchive& ar)
 		// or the band is empty.
 		MigrateLegacyUserBand ();
 
+		// Labels are not stored: every color-checker reading that kept its
+		// provenance gets its label back from its stimulus (RelabelReading).
+		RelabelLoadedReadings ();
+
+		// The sweeps-active text names the user patch sets, which arrive with
+		// the trailer above - after the band was read and the text first built.
+		m_CCStr = GetCCStr ();
+
 		StoreActiveSatLevel();	// seed/sync the active entry from the bound sweeps
 
 	}
@@ -1862,6 +1871,172 @@ double CMeasure::GetGrayReadingLevel(GraySeries series, int index) const
 double CMeasure::GetGrayReadingProp(GraySeries series, int index) const
 {
 	return GraySeriesProp ( GetGraySeriesView ( series ), index );
+}
+
+// The live "Use Black Level" preference's black, as MainView builds it, when
+// the preference is on: it writes this into the first gray and near black slot
+// whatever the document's flag says. NULL when the preference is off.
+static const CColor * LivePreferenceBlack ( CColor & storage )
+{
+	if ( GetConfig () -> GetProfileDouble ( "References", "Use Black Level", 0 ) == 0 )
+		return NULL;
+	double Yblack = GetConfig () -> GetProfileDouble ( "References", "Manual Black Level", 0 );
+	storage = CColor ( ColorXYZ ( Yblack * .95047, Yblack, Yblack * 1.0883 ) );	// as MainView builds it
+	return & storage;
+}
+
+bool CMeasure::GraySweepHoldsReading() const
+{
+	CColor prefBlack;
+	SweepConfirmRule::SeriesSlots gray = { SweepConfirmRule::S_GRAY, m_grayMeasureArray.GetData (), (int) m_grayMeasureArray.GetSize (),
+	                                       IsConstructorPlaceholder, &m_userBlack, LivePreferenceBlack ( prefBlack ) };
+	return SweepConfirmRule::SlotsHoldData ( gray );
+}
+
+GrayRamp CMeasure::GetGrayGraphRamp() const
+{
+	GrayRamp sweep;
+	BuildSweepGrayRamp ( GetGraySeriesView ( GRAY_SERIES_GRAYSCALE ), & sweep );
+	const bool sweepHolds = GraySweepHoldsReading ();
+	if ( sweepHolds || m_bpreV10 > 0 || m_activeUserSet < 0 || m_activeUserSet >= (int) m_userPatchSets.size () )
+		return sweep;
+
+	// The active set's readings are the USER band of the master array (the
+	// band-as-window, see the user patch set collection below), slot i paired
+	// with row i of the set's own definition.
+	const CUserPatchSet & set = m_userPatchSets[m_activeUserSet];
+	int nBand = (int) m_cc24SatMeasureArray_master.GetSize () - USER_BAND_BASE;
+	if ( nBand > MAX_USER_CC_PATCH_SIZE )
+		nBand = MAX_USER_CC_PATCH_SIZE;
+	if ( nBand <= 0 || set.rows.empty () )
+		return sweep;
+	GrayRamp list;
+	BuildListGrayRamp ( & set.rows[0], (int) set.rows.size (), m_cc24SatMeasureArray_master.GetData () + USER_BAND_BASE, nBand, & list );
+	return ( ChooseGrayRampSource ( sweepHolds, ! list.points.empty () ) == GRAY_RAMP_LIST ) ? list : sweep;
+}
+
+CColor CMeasure::GetGrayGraphWhite(const GrayRamp & ramp) const
+{
+	if ( ramp.source == GRAY_RAMP_SWEEP )
+		return GetGrayScaleWhite ();
+	CColor w = GrayRampWhite ( ramp, noDataColor );
+	if ( GrayRampWhiteUsable ( w ) )
+		return w;
+	if ( m_bOnOffWhiteMeasured && HoldsReading ( m_OnOffWhite ) && GrayRampWhiteUsable ( m_OnOffWhite ) )
+		return m_OnOffWhite;
+	return noDataColor;
+}
+
+CColor CMeasure::GetGrayGraphBlack(const GrayRamp & ramp) const
+{
+	if ( ramp.source == GRAY_RAMP_SWEEP || BlackOverrideInEffect () )
+		return GetGrayScaleBlack ();
+	return GrayRampBlack ( ramp, GetGrayScaleBlack () );
+}
+
+bool CMeasure::HoldsGrayGraphBlack(const GrayRamp & ramp) const
+{
+	if ( ramp.source == GRAY_RAMP_SWEEP )
+		return HoldsGrayScaleBlack ();
+	return FailedReadingRule::HoldsBlackReading ( GetGrayGraphBlack ( ramp ), BlackOverrideInEffect (), IsConstructorPlaceholder );
+}
+
+CColor CMeasure::GetGrayGraphTop(const GrayRamp & ramp) const
+{
+	if ( ramp.source == GRAY_RAMP_SWEEP )
+	{
+		const int n = (int) m_grayMeasureArray.GetSize ();
+		return ( n > 0 && ! IsRawlessPlaceholder ( m_grayMeasureArray[n-1], false ) ) ? m_grayMeasureArray[n-1] : noDataColor;
+	}
+	return GrayRampWhite ( ramp, noDataColor );
+}
+
+CString CMeasure::GetInfoString() const
+{
+	return m_infoStr + GetGeneratedInfoString ();
+}
+
+CString CMeasure::GetGeneratedInfoString() const
+{
+	return m_CCStr + GetGrayGraphAnchorStr ();
+}
+
+// "<Y> cd/m2" at the precision SummaryLuminanceDecimals gives.
+static CString SummaryLuminanceText ( double y )
+{
+	CString s;
+	s.Format ( "%.*f cd/m\xB2", SummaryLuminanceDecimals ( y ), y );
+	return s;
+}
+
+CString CMeasure::GetGrayGraphAnchorStr() const
+{
+	// The facts, each by the same test the code that takes the white and the
+	// black applies (GetGrayGraphWhite / GetGrayGraphBlack, GetGrayScaleWhite /
+	// GetGrayScaleBlack); the decision is SummarySources.h's, the value the
+	// one those functions return.
+	const GrayRamp ramp = GetGrayGraphRamp ();
+	const bool listRamp = ( ramp.source == GRAY_RAMP_LIST );
+	const CColor * gray = m_grayMeasureArray.GetData ();
+	const int nGray = (int) m_grayMeasureArray.GetSize ();
+
+	GrayGraphWhiteFacts wf;
+	wf.listRamp = listRamp;
+	wf.sweepTopUsable = GrayScaleWhite ( gray, nGray, noDataColor, IsConstructorPlaceholder ).isValid ();
+	wf.listWhiteUsable = GrayRampWhiteUsable ( GrayRampWhite ( ramp, noDataColor ) );
+	wf.contrastValid = m_OnOffWhite.isValid ();
+	wf.contrastMeasured = m_bOnOffWhiteMeasured && HoldsReading ( m_OnOffWhite );
+	wf.contrastUsable = GrayRampWhiteUsable ( m_OnOffWhite );
+	const GrayGraphWhiteSource ws = ChooseGrayGraphWhiteSource ( wf );
+
+	// The override's synthetic black: the document's m_userBlack, or the live
+	// "Use Black Level" preference's black MainView writes (the two
+	// SweepConfirmRule recognizes in the first gray slot).
+	CColor prefStorage;
+	const CColor * pPref = LivePreferenceBlack ( prefStorage );
+	auto synthetic = [&] ( const CColor & c ) {
+		return SweepConfirmRule::IsSyntheticBlack ( c, m_userBlack ) || ( pPref && SweepConfirmRule::IsSyntheticBlack ( c, *pPref ) );
+	};
+	GrayGraphBlackFacts bf;
+	bf.listRamp = listRamp;
+	bf.overrideInEffect = BlackOverrideInEffect ();
+	bf.docOverride = GrayScaleBlackIsOverride ();
+	bf.listBlackUsable = GrayRampBlack ( ramp, noDataColor ).isValid ();
+	bf.sweepBlackUsable = GrayScaleBlack ( gray, nGray, noDataColor ).isValid ();
+	bf.sweepBlackSynthetic = nGray > 0 && synthetic ( m_grayMeasureArray[0] );
+	bf.contrastValid = m_OnOffBlack.isValid ();
+	bf.contrastSynthetic = synthetic ( m_OnOffBlack );
+	bf.contrastNominal = IsRawlessPlaceholder ( m_OnOffBlack, true );
+	const GrayGraphBlackSource bs = ChooseGrayGraphBlackSource ( bf );
+
+	CString str, line, fmt, src;
+	if ( ws == GRAY_WHITE_NONE )
+		line.LoadString ( listRamp ? IDS_GRAYGRAPH_WHITE_NONE_LIST : IDS_GRAYGRAPH_WHITE_NONE );
+	else
+	{
+		src.LoadString ( ws == GRAY_WHITE_SWEEP_TOP ? IDS_GRAYGRAPH_SRC_SWEEP_WHITE
+		               : ws == GRAY_WHITE_LIST ? IDS_GRAYGRAPH_SRC_LIST_WHITE
+		               : ws == GRAY_WHITE_CONTRAST ? IDS_GRAYGRAPH_SRC_CONTRAST
+		               : IDS_GRAYGRAPH_SRC_NOMINAL );
+		fmt.LoadString ( IDS_GRAYGRAPH_WHITE_LINE );
+		line.Format ( fmt, (LPCTSTR) SummaryLuminanceText ( GetGrayGraphWhite ( ramp ).GetY () ), (LPCTSTR) src );
+	}
+	str = line + "\r\n";
+
+	if ( bs == GRAY_BLACK_NONE )
+		line.LoadString ( IDS_GRAYGRAPH_BLACK_NONE );
+	else
+	{
+		src.LoadString ( bs == GRAY_BLACK_OVERRIDE ? IDS_GRAYGRAPH_SRC_OVERRIDE
+		               : bs == GRAY_BLACK_SWEEP_ZERO ? IDS_GRAYGRAPH_SRC_SWEEP_BLACK
+		               : bs == GRAY_BLACK_LIST ? IDS_GRAYGRAPH_SRC_LIST_BLACK
+		               : bs == GRAY_BLACK_CONTRAST ? IDS_GRAYGRAPH_SRC_CONTRAST
+		               : IDS_GRAYGRAPH_SRC_NOMINAL );
+		fmt.LoadString ( IDS_GRAYGRAPH_BLACK_LINE );
+		line.Format ( fmt, (LPCTSTR) SummaryLuminanceText ( GetGrayGraphBlack ( ramp ).GetY () ), (LPCTSTR) src );
+	}
+	str += line + "\r\n";
+	return str;
 }
 
 int CMeasure::GetGrayScalePreset() const
@@ -8335,14 +8510,8 @@ BOOL CMeasure::SweepOverwritesData ( unsigned int sweep ) const
 	// MainView writes into all three whatever the document's flag says
 	// (CMainView::UpdateGrid, the "store/retrieve real black measurements"
 	// block). A real black there is a reading.
-	const CColor * liveBlack = NULL;
 	CColor prefBlack;
-	if ( GetConfig () -> GetProfileDouble ( "References", "Use Black Level", 0 ) != 0 )
-	{
-		double Yblack = GetConfig () -> GetProfileDouble ( "References", "Manual Black Level", 0 );
-		prefBlack = CColor ( ColorXYZ ( Yblack * .95047, Yblack, Yblack * 1.0883 ) );	// as MainView builds it
-		liveBlack = &prefBlack;
-	}
+	const CColor * liveBlack = LivePreferenceBlack ( prefBlack );
 
 	// The placeholders: CMeasure::IsConstructorPlaceholder. The gray top can hold
 	// the on/off white's placeholder too: the luminance and gamma graphers copy
@@ -8554,8 +8723,40 @@ CString CMeasure::GetCCStr() const
 			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250].isValid())
 				mStr+=sweeps[i];
 		if (i==USER)
-			if (m_cc24SatMeasureArray_master[PATTERN_SIZE+250+500].isValid())
+		{
+			// Every user patch set that holds a valid reading, by its own name
+			// (UserSetSummaryListed): the active set's readings are the USER band
+			// (its live storage), every other set's its stored readings
+			// (CUserPatchSet::measures, refreshed from the band on every switch).
+			// Any valid reading counts, as for the built-in sets above. Readings in
+			// the band with no active set (a document part-way through loading,
+			// before MigrateLegacyUserBand wraps them) keep the old "User" line.
+			int nBand = (int)m_cc24SatMeasureArray_master.GetSize() - USER_BAND_BASE;
+			if (nBand > MAX_USER_CC_PATCH_SIZE)
+				nBand = MAX_USER_CC_PATCH_SIZE;
+			const CColor * band = ( nBand > 0 ) ? m_cc24SatMeasureArray_master.GetData() + USER_BAND_BASE : NULL;
+			if ( nBand < 0 )
+				nBand = 0;
+			const bool bActiveSet = ( m_activeUserSet >= 0 && m_activeUserSet < (int)m_userPatchSets.size() );
+			if ( ! bActiveSet && AnyValidReading ( band, nBand ) )
 				mStr+=sweeps[i];
+			for ( int s = 0; s < (int)m_userPatchSets.size(); s++ )
+			{
+				const CUserPatchSet & set = m_userPatchSets[s];
+				if ( ! UserSetSummaryListed ( s == m_activeUserSet, band, nBand, set.measures.empty() ? NULL : &set.measures[0], (int)set.measures.size() ) )
+					continue;
+				CString line;
+				if ( PatchListNameIsEmpty ( set.name ) )
+					line.LoadString ( IDS_CCSTR_PATCHLIST_UNNAMED );
+				else
+				{
+					CString fmt;
+					fmt.LoadString ( IDS_CCSTR_PATCHLIST );
+					line.Format ( fmt, set.name.c_str() );
+				}
+				mStr += line + "\r\n";
+			}
+		}
 	}
 	return mStr+="\r\n";
 }
@@ -8591,6 +8792,7 @@ int CMeasure::AddUserPatchSet(const CUserPatchSet & set)
 	if ( m_activeUserSet >= pos )
 		m_activeUserSet++;
 	m_isModified = TRUE;
+	m_CCStr = GetCCStr();	// the Summary names every set that holds a reading
 	return pos;
 }
 
@@ -8813,8 +9015,24 @@ void CMeasure::MigrateLegacyUserBand()
 		}
 	}
 
+	LabelPatchRows ( set.rows, set.bits, set.range );
 	m_userPatchSets.push_back ( set );
 	m_activeUserSet = 0;
+	// The band's readings are now this set's: the Summary names it, not "User".
+	// An import that wraps them and then refreshes this same set (or stops on a
+	// size or count check) activates nothing, so the text is rebuilt here.
+	m_CCStr = GetCCStr();
+}
+
+void CMeasure::RelabelLoadedReadings()
+{
+	for ( int i = 0; i < m_cc24SatMeasureArray.GetSize(); i++ )
+		RelabelReading ( m_cc24SatMeasureArray[i] );
+	for ( int i = 0; i < m_cc24SatMeasureArray_master.GetSize(); i++ )
+		RelabelReading ( m_cc24SatMeasureArray_master[i] );
+	for ( size_t s = 0; s < m_userPatchSets.size(); s++ )
+		for ( size_t i = 0; i < m_userPatchSets[s].measures.size(); i++ )
+			RelabelReading ( m_userPatchSets[s].measures[i] );
 }
 
 CColor CMeasure::GetPrimary(int i) const

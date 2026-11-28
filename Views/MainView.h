@@ -195,6 +195,10 @@ public:
 	double dE10;
 	double dE10min;
 	BOOL m_userBlack;
+	BOOL m_bShowPatchLabels;	// patch-list label row on/off (INI MainView, Show Patch Labels)
+	BOOL ShowPatchLabelRow();	// the label row is in the grid now
+	CString m_strSummaryShownGen;	// the generated lines the Summary pane was last written with (SummaryUserText)
+	void RefreshSummaryPane();	// rewrite the Summary pane when the document's text differs from it
 	CColor m_oldBlackGS, refColor_for_color_comp;
 	double YWhite_for_color_comp;
 	CColor m_oldBlackNB;

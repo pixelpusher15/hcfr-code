@@ -1577,6 +1577,7 @@ std::vector<int> cTargetG;
 std::vector<int> cTargetB;
 std::vector<std::string> cTargetN;
 std::vector<int> cTargetP;   // per-patch PatchNumber from the CSV (patch identity for provenance)
+std::vector<PatchLabel> cTargetL;   // per-patch label from the codes (PatchLabel.h)
 std::string nFile;
 int numCC = 0;
 int cTargetBits = 8;    // bit depth of the loaded patch list (for range-aware target decode)
@@ -1598,6 +1599,7 @@ void CColorHCFRConfig::GetCColorsFrom(CUserPatchSet * pSet)
 	cTargetB.clear();
 	cTargetN.clear();
 	cTargetP.clear();
+	cTargetL.clear();
 	// Multi-set picker: with an active user patch set, the
 	// definition comes from the set itself (self-contained - the source CSV may have
 	// changed or be gone), and the same rows are installed as the libHCFR USER drive
@@ -1617,6 +1619,7 @@ void CColorHCFRConfig::GetCColorsFrom(CUserPatchSet * pSet)
 				cTargetB.push_back(pSet->rows[i].b);
 				cTargetN.push_back(pSet->rows[i].name);
 				cTargetP.push_back(pSet->rows[i].patch);
+				cTargetL.push_back(ClassifyPatch(pSet->rows[i].r, pSet->rows[i].g, pSet->rows[i].b, pSet->bits, pSet->range));
 			}
 			numCC = (int)pSet->rows.size();
 			SetUserPatchOverride(pSet->rows, pSet->bits, pSet->range);
@@ -1663,6 +1666,7 @@ void CColorHCFRConfig::GetCColorsFrom(CUserPatchSet * pSet)
 		cTargetB.push_back(rows[i].b);
 		cTargetN.push_back(rows[i].name);
 		cTargetP.push_back(rows[i].patch);
+		cTargetL.push_back(ClassifyPatch(rows[i].r, rows[i].g, rows[i].b, bits, range));
 	}
 	numCC = (nRows > 0) ? nRows : 0;   // 0 when the file is missing/unreadable, so size matches the vectors
 
@@ -1720,8 +1724,18 @@ CColorProvenance CColorHCFRConfig::GetCColorsProvenance(int index)
 		p.srcBits       = cTargetBits;
 		p.srcRange      = cTargetRange;
 		p.name          = cTargetN[index];
+		p.label         = GetCColorsLabel(index);
 	}
 	return p;
+}
+
+// The label of patch `index` of the loaded list; UNLABELED out of range or
+// for an inline-array mode, which has no codes.
+PatchLabel CColorHCFRConfig::GetCColorsLabel(int index)
+{
+	if (index >= 0 && index < (int)cTargetL.size())
+		return cTargetL[index];
+	return PatchLabel();
 }
 
 int CColorHCFRConfig::GetCColorsSize() 

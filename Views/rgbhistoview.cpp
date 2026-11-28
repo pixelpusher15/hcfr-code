@@ -178,12 +178,18 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 		m_graphCtrl2.ShowWindow(m_showDeltaE ? SW_SHOW : SW_HIDE);
 
 	CDataSetDoc *pDataRef = GetDataRef();
-	int size=pDoc->GetMeasure()->GetGrayScaleSize();
+	// The gray graphs' readings (CMeasure::GetGrayGraphRamp): the gray sweep, or
+	// the active patch list's grays when the sweep holds no reading.
+	const GrayRamp ramp = pDoc->GetMeasure()->GetGrayGraphRamp();
+	int size=(int)ramp.points.size();
 
 	if ( pDataRef )
 	{
-		// Check if data reference is comparable
-		if ( pDataRef->GetMeasure()->GetGrayScaleSize() != size || pDataRef->GetMeasure()->m_bIREScaleMode != bIRE )
+		// Check if data reference is comparable: sweep against sweep only, a
+		// list's points pair with nothing in another document. A comparison
+		// document is read slot for slot below, as before.
+		if ( ramp.source != GRAY_RAMP_SWEEP || pDataRef->GetMeasure()->GetGrayGraphRamp().source != GRAY_RAMP_SWEEP
+			|| pDataRef->GetMeasure()->GetGrayScaleSize() != size || pDataRef->GetMeasure()->m_bIREScaleMode != bIRE )
 		{
 			// Cannot use data reference
 			pDataRef = NULL;
@@ -197,24 +203,35 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 	// Any slot holding a reading (valid, not the constructor's placeholder
 	// white in the top slot of a new document) draws the chart; the loop leaves out each invalid point
 	// (a failed black no longer hides the chart, FailedReadingRule.h).
-	if ( FailedReadingRule::AnyHeldReading ( size, [pDoc] ( int i ) { return pDoc->GetMeasure()->GetGray(i); },
+	if ( FailedReadingRule::AnyHeldReading ( size, [&ramp] ( int i ) { return ramp.points[i].reading; },
 			[] ( const CColor & c ) { return CMeasure::IsConstructorPlaceholder ( c ); } ) )
 	{
 		// Retrieve gamma and offset
 		CColor			refColor = GetColorReference().GetWhite();
 
 		if ( size )
-			pDoc->ComputeGammaAndOffset(&Gamma, &Offset, 3, 1, size,false);
+			pDoc->ComputeGammaAndOffset(ramp, &Gamma, &Offset, 3, 1, false);
 
-		YWhite = pDoc->GetMeasure()->GetGrayScaleWhite()[1];
+		// The ramp's white and black (CMeasure::GetGrayGraphWhite / Black: for the
+		// sweep GetGrayScaleWhite / Black).
+		const CColor DocWhite = pDoc->GetMeasure()->GetGrayGraphWhite(ramp);
+		const CColor DocBlack = pDoc->GetMeasure()->GetGrayGraphBlack(ramp);
+		YWhite = DocWhite[1];
+		// A patch list with no usable white (no 100% gray, no measured on/off
+		// white): the balance draws (each patch against its own luminance), the
+		// luminance error and the delta E, which need the white, do not.
+		const bool bNoWhite = ( ramp.source == GRAY_RAMP_LIST && ! GrayRampWhiteUsable ( DocWhite ) );
 
 		// From 0: the black patch's BALANCE is a real reading - see the guard on
 		// the plot below for the two conditions that make it one.
 		for (int i=0; i<size; i++)
 		{
-			double x = pDoc->GetMeasure()->GetGrayReadingLevel ( GRAY_SERIES_GRAYSCALE, i );	// its stamped drive, else slot i
+			if ( ! GrayRampDraws ( ramp, i ) )
+				continue;	// an extended-range list gray: kept in the ramp, not drawn
+			const GrayRampPoint & pt = ramp.points[i];
+			double x = pt.level;	// its stamped drive, else its nominal level (the sweep: slot i)
             double valy;
-			ColorxyY aColor=pDoc->GetMeasure()->GetGray(i).GetxyYValue();
+			ColorxyY aColor=pt.reading.GetxyYValue();
             ColorxyY tmpColor(GetColorReference().GetWhite());
 			// Target Y relative to the display white, for the luminance error
 			// mode. Computed by the block below, which also runs for that mode;
@@ -227,26 +244,26 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// Determine Reference Y luminance for Delta E calculus
 			if ( bRefY || m_showLumError )
 			{
-            	CColor White = pDoc -> GetMeasure () -> GetGrayScaleWhite();
-	           	CColor Black = pDoc -> GetMeasure () -> GetGrayScaleBlack();
+            	CColor White = DocWhite;
+	           	CColor Black = DocBlack;
 				int mode = GetConfig()->m_GammaOffsetType;
 				if (GetConfig()->m_colorStandard == sRGB) mode = 99;
 				if ( mode >= 4 )
 		        {
-			        double valx = pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i );
+			        double valx = pt.prop;
                     valy = getL_EOTF(valx, White, Black, GetConfig()->m_GammaRel, GetConfig()->m_Split, mode, GetConfig()->m_DiffuseL, GetConfig()->m_MasterMinL, GetConfig()->m_MasterMaxL, GetConfig()->m_TargetMinL, GetConfig()->m_TargetMaxL,GetConfig()->m_useToneMap, FALSE, GetConfig()->m_TargetSysGamma, GetConfig()->m_BT2390_BS, GetConfig()->m_BT2390_WS, GetConfig()->m_BT2390_WS1);
 //					valy = min(valy, GetConfig()->m_TargetMaxL);
 		        }
 		        else
 		        {
-			        double valx=(pDoc->GetMeasure()->GetGrayReadingProp ( GRAY_SERIES_GRAYSCALE, i )+Offset)/(1.0+Offset);
+			        double valx=(pt.prop+Offset)/(1.0+Offset);
 			        valy=pow(valx, GetConfig()->m_useMeasuredGamma?(GetConfig()->m_GammaAvg):(GetConfig()->m_GammaRef))+Offset;
 					if (mode == 1) //black compensation target
 					{
 						// The target needs the black: without a valid one the point's
 						// luminance error and its dE against the target are left out
 						// (FailedReadingRule.h).
-						if ( ! pDoc->GetMeasure()->HoldsGrayScaleBlack () )	// Black is its GetGrayScaleBlack
+						if ( ! pDoc->GetMeasure()->HoldsGrayGraphBlack ( ramp ) )	// Black is its GetGrayGraphBlack
 							bNoTarget = TRUE;
 						else
 							valy = (Black.GetY() + ( valy * ( YWhite - Black.GetY() ) )) / YWhite;
@@ -320,7 +337,7 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// Balance divides by the patch's own luminance, so it needs only that
 			// second test. The target test is on YTarget, which dE_gray 2 does
 			// not overwrite.
-			if (aColor.isValid() && aColor[1] > 0.0 && ! ( bNoTarget && m_showLumError ) && ( i > 0 || ( ( !m_showLumError || HasMeasuredLight ( YTarget * YWhite ) ) && HasMeasuredLight ( aColor[2] ) ) ))
+			if (aColor.isValid() && aColor[1] > 0.0 && ! ( bNoTarget && m_showLumError ) && ! ( bNoWhite && m_showLumError ) && ( ! pt.isBlack || ( ( !m_showLumError || HasMeasuredLight ( YTarget * YWhite ) ) && HasMeasuredLight ( aColor[2] ) ) ))
 			{
 				ColorXYZ aMeasure(aColor[0]/aColor[1] * fact, fact, (1.0-(aColor[0]+aColor[1]))/aColor[1] * fact);
 				ColorRGB normColor(aMeasure, GetColorReference());
@@ -334,15 +351,15 @@ void CRGBGrapher::UpdateGraph ( CDataSetDoc * pDoc )
 			// luminance - the chromaticity error alone, "is my black tinted", the
 			// quantity CalMAN prints at 0% - where it does not. A patch with no
 			// light has no chromaticity to be wrong about.
-			if(m_showDeltaE && ! ( bNoTarget && bRefY ) && ( i > 0 || HasMeasuredLight ( aColor[2] ) ))
+			if(m_showDeltaE && ! bNoWhite && ! ( bNoTarget && bRefY ) && ( ! pt.isBlack || HasMeasuredLight ( aColor[2] ) ))
 			{
-				CColor dERef = ( i > 0 ) ? refColor : BlackTargetReference ( pDoc->GetMeasure()->GetGray(i), YWhitePatch, refColor, GetColorReference().GetWhite() );
+				CColor dERef = ( ! pt.isBlack ) ? refColor : BlackTargetReference ( pt.reading, YWhitePatch, refColor, GetColorReference().GetWhite() );
 				if (aColor.isValid() && dERef.isValid())
 				{
 					CString str;
-					ColorLab aColorLab = pDoc->GetMeasure()->GetGray(i).GetLabValue(YWhitePatch, GetColorReference());
+					ColorLab aColorLab = pt.reading.GetLabValue(YWhitePatch, GetColorReference());
 					str.Format("L*a*b*:%.2f %.2f %.2f",aColorLab[0],aColorLab[1],aColorLab[2]);
-					m_graphCtrl2.AddPoint(m_deltaEGraphID, x, pDoc->GetMeasure()->GetGray(i).GetDeltaE(YWhitePatch, dERef, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight), str);
+					m_graphCtrl2.AddPoint(m_deltaEGraphID, x, pt.reading.GetDeltaE(YWhitePatch, dERef, 1.0, GetColorReference(), GetConfig()->m_dE_form, true, GetConfig()->gw_Weight), str);
 				}
 			}
 		}
@@ -585,7 +602,8 @@ void CRGBHistoView::OnInitialUpdate()
 void CRGBHistoView::OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint) 
 {
 	// Update this view only when we are concerned
-	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_SENSORCONFIG || lHint == UPD_FREEMEASUREAPPENDED || (lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE && lHint != UPD_REALTIME + 13))
+	// UPD_CC24SAT: a patch-list run, whose grays this chart draws without a sweep
+	if ( lHint == UPD_EVERYTHING || lHint == UPD_GRAYSCALEANDCOLORS || lHint == UPD_GRAYSCALE || lHint == UPD_DATAREFDOC || lHint == UPD_REFERENCEDATA || lHint == UPD_ARRAYSIZES || lHint == UPD_GENERALREFERENCES || lHint == UPD_SENSORCONFIG || lHint == UPD_FREEMEASUREAPPENDED || lHint == UPD_CC24SAT || (lHint >= UPD_REALTIME && lHint != UPD_DISPLAYPROFILE && lHint != UPD_REALTIME + 13))
 	{
 		m_Grapher.UpdateGraph ( GetDocument () );
 		// Keep the two stacked charts' x-axes aligned so their vertical gridlines line up:

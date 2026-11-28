@@ -265,6 +265,26 @@ namespace FailedReadingRule
         return nb > 0;
     }
 
+    // The same mean over the points fits(i) admits, for a ramp whose black and
+    // white are not its first and last points (a patch list's grays, GrayRamp.h:
+    // GrayRampFitsPoint). Points 1 .. size-3 above are the gray sweep's rule.
+    template <class Fits, class PointGamma>
+    inline bool MeanPointGammaOver(int size, const double * lum, Fits fits, PointGamma pointGamma, double * mean)
+    {
+        int nb = 0;
+        double avg = 0;
+        for ( int i = 0; i < size; i++ )
+        {
+            if ( fits(i) && lum[i] > 0.0 )
+            {
+                avg += pointGamma(i);
+                nb ++;
+            }
+        }
+        *mean = avg / ( nb ? nb : 1 );
+        return nb > 0;
+    }
+
     // Whether any of the n slots get(0) .. get(n-1) holds a reading: valid, and
     // not a constructor placeholder (isPlaceholder; the app passes
     // CMeasure::IsConstructorPlaceholder, since a new document's top gray slot

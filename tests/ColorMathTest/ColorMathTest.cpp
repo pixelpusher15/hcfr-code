@@ -7850,6 +7850,1383 @@ static void RunT58()
     T58Swap::CheckScenarios();
 }
 
+// T59 - patch-list row labels (libHCFR/PatchLabel.h). Pure assertions, no
+// golden files. Every expectation is stated exactly: kind, color, black and
+// white flags compare equal; level and desaturation are compared to the value
+// written out here within 1e-12 (they are a few double operations away from
+// the stated fraction, never an approximation of it).
+namespace T59Label
+{
+    static const double kTol = 1e-12;
+
+    static const char* KindName(int k)
+    {
+        switch (k)
+        {
+            case PATCH_KIND_UNLABELED:  return "unlabeled";
+            case PATCH_KIND_OTHER:      return "other";
+            case PATCH_KIND_GRAY:       return "gray";
+            case PATCH_KIND_PRIMARY:    return "primary";
+            case PATCH_KIND_SECONDARY:  return "secondary";
+            case PATCH_KIND_SATURATION: return "saturation";
+        }
+        return "?";
+    }
+
+    static bool Same(const PatchLabel& a, const PatchLabel& b)
+    {
+        return a.kind == b.kind && a.color == b.color && a.level == b.level
+            && a.desaturation == b.desaturation && a.isBlack == b.isBlack && a.isWhite == b.isWhite;
+    }
+
+    static void Expect(const char* what, int r, int g, int b, int bits, int range,
+                       int kind, int color, double level, double desat, bool isBlack, bool isWhite)
+    {
+        PatchLabel l = ClassifyPatch(r, g, b, bits, range);
+        if (l.kind != kind || l.color != color || l.isBlack != isBlack || l.isWhite != isWhite
+            || fabs(l.level - level) > kTol || fabs(l.desaturation - desat) > kTol)
+            Fail("T59 %s (%d,%d,%d) %d-bit range %d: got %s color %d level %.15g desat %.15g black %d white %d;"
+                 " expected %s color %d level %.15g desat %.15g black %d white %d",
+                 what, r, g, b, bits, range,
+                 KindName(l.kind), l.color, l.level, l.desaturation, (int)l.isBlack, (int)l.isWhite,
+                 KindName(kind), color, level, desat, (int)isBlack, (int)isWhite);
+    }
+
+    static void Gray(const char* w, int c, int bits, int range, double level, bool blk, bool wht)
+    { Expect(w, c, c, c, bits, range, PATCH_KIND_GRAY, PATCH_COLOR_NONE, level, 0.0, blk, wht); }
+    static void Prim(const char* w, int r, int g, int b, int bits, int range, int color, double level)
+    { Expect(w, r, g, b, bits, range, PATCH_KIND_PRIMARY, color, level, 0.0, false, false); }
+    static void Sec(const char* w, int r, int g, int b, int bits, int range, int color, double level)
+    { Expect(w, r, g, b, bits, range, PATCH_KIND_SECONDARY, color, level, 0.0, false, false); }
+    static void Sat(const char* w, int r, int g, int b, int bits, int range, int color, double level, double desat)
+    { Expect(w, r, g, b, bits, range, PATCH_KIND_SATURATION, color, level, desat, false, false); }
+    static void Other(const char* w, int r, int g, int b, int bits, int range)
+    { Expect(w, r, g, b, bits, range, PATCH_KIND_OTHER, PATCH_COLOR_NONE, 0.0, 0.0, false, false); }
+
+    // 8-bit full: black 0, white 255, level = code * 100 / 255.
+    static void CheckFull8()
+    {
+        const int F = CSV_RANGE_FULL;
+        Gray("full8 black", 0, 8, F, 0.0, true, false);
+        Gray("full8 white", 255, 8, F, 100.0, false, true);
+        Gray("full8 mid gray", 128, 8, F, 12800.0 / 255.0, false, false);
+        Prim("full8 red 100", 255, 0, 0, 8, F, PATCH_COLOR_RED, 100.0);
+        Prim("full8 green 100", 0, 255, 0, 8, F, PATCH_COLOR_GREEN, 100.0);
+        Prim("full8 blue 100", 0, 0, 255, 8, F, PATCH_COLOR_BLUE, 100.0);
+        Prim("full8 red 191", 191, 0, 0, 8, F, PATCH_COLOR_RED, 19100.0 / 255.0);
+        Prim("full8 green 191", 0, 191, 0, 8, F, PATCH_COLOR_GREEN, 19100.0 / 255.0);
+        Prim("full8 blue 191", 0, 0, 191, 8, F, PATCH_COLOR_BLUE, 19100.0 / 255.0);
+        Sec("full8 yellow 100", 255, 255, 0, 8, F, PATCH_COLOR_YELLOW, 100.0);
+        Sec("full8 cyan 100", 0, 255, 255, 8, F, PATCH_COLOR_CYAN, 100.0);
+        Sec("full8 magenta 100", 255, 0, 255, 8, F, PATCH_COLOR_MAGENTA, 100.0);
+        Sec("full8 yellow 191", 191, 191, 0, 8, F, PATCH_COLOR_YELLOW, 19100.0 / 255.0);
+        Sec("full8 cyan 191", 0, 191, 191, 8, F, PATCH_COLOR_CYAN, 19100.0 / 255.0);
+        Sec("full8 magenta 191", 191, 0, 191, 8, F, PATCH_COLOR_MAGENTA, 19100.0 / 255.0);
+        // The six saturation lines at 100%: desaturation = 128 / 255.
+        Sat("full8 red sat", 255, 128, 128, 8, F, PATCH_COLOR_RED, 100.0, 128.0 / 255.0);
+        Sat("full8 green sat", 128, 255, 128, 8, F, PATCH_COLOR_GREEN, 100.0, 128.0 / 255.0);
+        Sat("full8 blue sat", 128, 128, 255, 8, F, PATCH_COLOR_BLUE, 100.0, 128.0 / 255.0);
+        Sat("full8 yellow sat", 255, 255, 128, 8, F, PATCH_COLOR_YELLOW, 100.0, 128.0 / 255.0);
+        Sat("full8 cyan sat", 128, 255, 255, 8, F, PATCH_COLOR_CYAN, 100.0, 128.0 / 255.0);
+        Sat("full8 magenta sat", 255, 128, 255, 8, F, PATCH_COLOR_MAGENTA, 100.0, 128.0 / 255.0);
+        // And at a lower level: upper 191, lower 64, desaturation = 64 / 191.
+        Sat("full8 red sat 191", 191, 64, 64, 8, F, PATCH_COLOR_RED, 19100.0 / 255.0, 64.0 / 191.0);
+        Sat("full8 cyan sat 191", 64, 191, 191, 8, F, PATCH_COLOR_CYAN, 19100.0 / 255.0, 64.0 / 191.0);
+        // Near misses: one code off from equal leaves three different codes.
+        Other("full8 gray near miss", 128, 129, 127, 8, F);
+        Other("full8 red near miss", 255, 1, 0, 8, F);
+        Other("full8 yellow near miss", 255, 254, 0, 8, F);
+        Other("full8 red sat near miss", 255, 128, 129, 8, F);
+        Other("full8 magenta sat near miss", 255, 128, 254, 8, F);
+        Other("full8 cube point", 51, 102, 204, 8, F);
+        // One channel of a gray one code off is NOT other: the two upper
+        // channels are equal and the third is above black, which is the
+        // secondary's line toward white (desaturation 127 / 128).
+        Sat("full8 gray one low", 128, 128, 127, 8, F, PATCH_COLOR_YELLOW, 12800.0 / 255.0, 127.0 / 128.0);
+        // ...and one code high is on the primary's line (desaturation 128 / 129).
+        Sat("full8 gray one high", 128, 129, 128, 8, F, PATCH_COLOR_GREEN, 12900.0 / 255.0, 128.0 / 129.0);
+    }
+
+    // 8-bit legal: black 16, white 235, level = (code - 16) * 100 / 219,
+    // codes clamped to 16..235 before they are classified.
+    static void CheckLegal8()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        Gray("legal8 black", 16, 8, L, 0.0, true, false);
+        Gray("legal8 white", 235, 8, L, 100.0, false, true);
+        Gray("legal8 mid gray", 126, 8, L, 11000.0 / 219.0, false, false);
+        Gray("legal8 code 0 is black", 0, 8, L, 0.0, true, false);
+        Gray("legal8 code 255 is white", 255, 8, L, 100.0, false, true);
+        Prim("legal8 red 100", 235, 16, 16, 8, L, PATCH_COLOR_RED, 100.0);
+        Prim("legal8 green 100", 16, 235, 16, 8, L, PATCH_COLOR_GREEN, 100.0);
+        Prim("legal8 blue 100", 16, 16, 235, 8, L, PATCH_COLOR_BLUE, 100.0);
+        Prim("legal8 red with sub-black zeros", 235, 0, 0, 8, L, PATCH_COLOR_RED, 100.0);
+        Prim("legal8 red 180", 180, 16, 16, 8, L, PATCH_COLOR_RED, 16400.0 / 219.0);
+        Sec("legal8 yellow 100", 235, 235, 16, 8, L, PATCH_COLOR_YELLOW, 100.0);
+        Sec("legal8 cyan 180", 16, 180, 180, 8, L, PATCH_COLOR_CYAN, 16400.0 / 219.0);
+        Sec("legal8 magenta 100", 235, 16, 235, 8, L, PATCH_COLOR_MAGENTA, 100.0);
+        Sat("legal8 red sat", 235, 126, 126, 8, L, PATCH_COLOR_RED, 100.0, 110.0 / 219.0);
+        Sat("legal8 green sat", 126, 235, 126, 8, L, PATCH_COLOR_GREEN, 100.0, 110.0 / 219.0);
+        Sat("legal8 blue sat", 126, 126, 235, 8, L, PATCH_COLOR_BLUE, 100.0, 110.0 / 219.0);
+        Sat("legal8 yellow sat", 235, 235, 126, 8, L, PATCH_COLOR_YELLOW, 100.0, 110.0 / 219.0);
+        Sat("legal8 cyan sat", 126, 235, 235, 8, L, PATCH_COLOR_CYAN, 100.0, 110.0 / 219.0);
+        Sat("legal8 magenta sat", 235, 126, 235, 8, L, PATCH_COLOR_MAGENTA, 100.0, 110.0 / 219.0);
+        Sat("legal8 blue sat 180", 71, 71, 180, 8, L, PATCH_COLOR_BLUE, 16400.0 / 219.0, 55.0 / 164.0);
+        Other("legal8 gray near miss", 126, 127, 125, 8, L);
+        Other("legal8 green near miss", 17, 235, 16, 8, L);
+        Other("legal8 cyan near miss", 16, 235, 234, 8, L);
+        // Super-white is clamped: (240, 126, 126) drives (235, 126, 126).
+        Sat("legal8 clamped red sat", 240, 126, 126, 8, L, PATCH_COLOR_RED, 100.0, 110.0 / 219.0);
+    }
+
+    // No header: the loader's legacy default, legal-range codes clamped,
+    // 8-bit unless a BITDEPTH header said 10. Same labels as LEGAL, bit for bit.
+    static void CheckNone()
+    {
+        const int codes[][3] = { {16,16,16}, {235,235,235}, {126,126,126}, {0,0,0}, {255,255,255},
+                                 {235,16,16}, {16,235,235}, {235,126,126}, {126,127,125}, {240,4,4} };
+        for (size_t i = 0; i < sizeof(codes) / sizeof(codes[0]); i++)
+        {
+            PatchLabel n = ClassifyPatch(codes[i][0], codes[i][1], codes[i][2], 8, CSV_RANGE_NONE);
+            PatchLabel l = ClassifyPatch(codes[i][0], codes[i][1], codes[i][2], 8, CSV_RANGE_LEGAL);
+            if (!Same(n, l))
+                Fail("T59 none8 (%d,%d,%d): NONE gives %s level %.15g, LEGAL gives %s level %.15g",
+                     codes[i][0], codes[i][1], codes[i][2], KindName(n.kind), n.level, KindName(l.kind), l.level);
+        }
+        Gray("none10 mid gray", 502, 10, CSV_RANGE_NONE, 50.0, false, false);
+        Prim("none10 red", 940, 64, 64, 10, CSV_RANGE_NONE, PATCH_COLOR_RED, 100.0);
+    }
+
+    // 10-bit full: black 0, white 1023, level = code * 100 / 1023.
+    static void CheckFull10()
+    {
+        const int F = CSV_RANGE_FULL;
+        Gray("full10 black", 0, 10, F, 0.0, true, false);
+        Gray("full10 white", 1023, 10, F, 100.0, false, true);
+        Gray("full10 mid gray", 512, 10, F, 51200.0 / 1023.0, false, false);
+        Prim("full10 red 100", 1023, 0, 0, 10, F, PATCH_COLOR_RED, 100.0);
+        Prim("full10 blue 767", 0, 0, 767, 10, F, PATCH_COLOR_BLUE, 76700.0 / 1023.0);
+        Sec("full10 magenta 100", 1023, 0, 1023, 10, F, PATCH_COLOR_MAGENTA, 100.0);
+        Sec("full10 yellow 767", 767, 767, 0, 10, F, PATCH_COLOR_YELLOW, 76700.0 / 1023.0);
+        Sat("full10 green sat", 512, 1023, 512, 10, F, PATCH_COLOR_GREEN, 100.0, 512.0 / 1023.0);
+        Sat("full10 yellow sat", 1023, 1023, 512, 10, F, PATCH_COLOR_YELLOW, 100.0, 512.0 / 1023.0);
+        Other("full10 gray near miss", 512, 511, 513, 10, F);
+        Other("full10 blue near miss", 1, 0, 1023, 10, F);
+        // 10-bit codes 255 are not white.
+        Gray("full10 code 255", 255, 10, F, 25500.0 / 1023.0, false, false);
+    }
+
+    // 10-bit legal: black 64, white 940, level = (code - 64) * 100 / 876.
+    static void CheckLegal10()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        Gray("legal10 black", 64, 10, L, 0.0, true, false);
+        Gray("legal10 white", 940, 10, L, 100.0, false, true);
+        Gray("legal10 mid gray", 502, 10, L, 50.0, false, false);
+        Gray("legal10 code 0 is black", 0, 10, L, 0.0, true, false);
+        Gray("legal10 code 1023 is white", 1023, 10, L, 100.0, false, true);
+        Prim("legal10 red 100", 940, 64, 64, 10, L, PATCH_COLOR_RED, 100.0);
+        Prim("legal10 green 50", 64, 502, 64, 10, L, PATCH_COLOR_GREEN, 50.0);
+        Sec("legal10 cyan 100", 64, 940, 940, 10, L, PATCH_COLOR_CYAN, 100.0);
+        Sec("legal10 yellow 50", 502, 502, 64, 10, L, PATCH_COLOR_YELLOW, 50.0);
+        Sat("legal10 magenta sat", 940, 502, 940, 10, L, PATCH_COLOR_MAGENTA, 100.0, 0.5);
+        Sat("legal10 red sat", 940, 502, 502, 10, L, PATCH_COLOR_RED, 100.0, 0.5);
+        Sat("legal10 blue sat 50", 283, 283, 502, 10, L, PATCH_COLOR_BLUE, 50.0, 0.5);
+        Other("legal10 gray near miss", 502, 503, 501, 10, L);
+        Other("legal10 red near miss", 940, 65, 64, 10, L);
+        // 8-bit black code 16 under a 10-bit legal list is below black: clamped.
+        Gray("legal10 code 16 is black", 16, 10, L, 0.0, true, false);
+    }
+
+    // Extended: codes as written, below black and above white keep their kind.
+    static void CheckExtended()
+    {
+        const int E = CSV_RANGE_EXTENDED;
+        Gray("ext8 black", 16, 8, E, 0.0, true, false);
+        Gray("ext8 white", 235, 8, E, 100.0, false, true);
+        Gray("ext8 below black", 4, 8, E, -1200.0 / 219.0, false, false);
+        Gray("ext8 code 0", 0, 8, E, -1600.0 / 219.0, false, false);
+        Gray("ext8 super-white", 250, 8, E, 23400.0 / 219.0, false, false);
+        Prim("ext8 red super-white", 250, 16, 16, 8, E, PATCH_COLOR_RED, 23400.0 / 219.0);
+        Prim("ext8 red below black", 4, 16, 16, 8, E, PATCH_COLOR_RED, -1200.0 / 219.0);
+        Sec("ext8 cyan below black", 16, 4, 4, 8, E, PATCH_COLOR_CYAN, -1200.0 / 219.0);
+        Sec("ext8 magenta super-white", 250, 16, 250, 8, E, PATCH_COLOR_MAGENTA, 23400.0 / 219.0);
+        Sat("ext8 red sat super-white", 250, 126, 126, 8, E, PATCH_COLOR_RED, 23400.0 / 219.0, 110.0 / 234.0);
+        Sat("ext8 yellow sat", 235, 235, 126, 8, E, PATCH_COLOR_YELLOW, 100.0, 110.0 / 219.0);
+        // A lower channel below black is off every saturation line.
+        Other("ext8 red, others below black", 200, 4, 4, 8, E);
+        Other("ext8 cyan pair, red below black", 4, 200, 200, 8, E);
+        Other("ext8 gray near miss", 4, 5, 3, 8, E);
+        Gray("ext10 black", 64, 10, E, 0.0, true, false);
+        Gray("ext10 code 0", 0, 10, E, -6400.0 / 876.0, false, false);
+        Prim("ext10 red super-white", 1019, 64, 64, 10, E, PATCH_COLOR_RED, 95500.0 / 876.0);
+        Sat("ext10 green sat", 502, 940, 502, 10, E, PATCH_COLOR_GREEN, 100.0, 0.5);
+    }
+
+    static void CheckBadDepth()
+    {
+        PatchLabel l = ClassifyPatch(128, 128, 128, 12, CSV_RANGE_FULL);
+        if (l.kind != PATCH_KIND_UNLABELED || l.color != PATCH_COLOR_NONE)
+            Fail("T59 12-bit: got %s color %d, expected unlabeled color -1", KindName(l.kind), l.color);
+        PatchLabel d;
+        if (d.kind != PATCH_KIND_UNLABELED || d.color != PATCH_COLOR_NONE || d.level != 0.0
+            || d.desaturation != 0.0 || d.isBlack || d.isWhite)
+            Fail("T59 default PatchLabel is not unlabeled/none/0/0/false/false");
+    }
+
+    // A mixed list (gray ramp, primaries, secondaries, saturation steps, cube
+    // points) labeled in order and again shuffled by a fixed permutation: every
+    // row gets the same label wherever it stands.
+    static void CheckShuffled()
+    {
+        const int codes[][3] = {
+            {16,16,16}, {235,235,235}, {126,126,126}, {60,60,60}, {180,180,180},
+            {235,16,16}, {16,235,16}, {16,16,235}, {180,16,16},
+            {235,235,16}, {16,235,235}, {235,16,235}, {180,180,16},
+            {235,126,126}, {126,235,126}, {126,126,235}, {235,235,126}, {126,235,235}, {235,126,235},
+            {60,120,180}, {16,126,235}, {235,126,16}, {126,127,125} };
+        const int n = (int)(sizeof(codes) / sizeof(codes[0]));
+        std::vector<CsvPatchRow> ordered(n);
+        for (int i = 0; i < n; i++)
+        {
+            ordered[i].patch = i;
+            ordered[i].r = codes[i][0];
+            ordered[i].g = codes[i][1];
+            ordered[i].b = codes[i][2];
+        }
+        std::vector<CsvPatchRow> shuffled(ordered);
+        // Fisher-Yates with a fixed LCG seed: deterministic, not order-preserving.
+        unsigned int seed = 20261121u;
+        for (int i = n - 1; i > 0; i--)
+        {
+            seed = seed * 1664525u + 1013904223u;
+            int j = (int)(seed % (unsigned int)(i + 1));
+            if (j != i)	// no self-swap: it self-move-assigns the name
+                std::swap(shuffled[i], shuffled[j]);
+        }
+        int moved = 0;
+        for (int i = 0; i < n; i++)
+            if (shuffled[i].patch != i)
+                moved++;
+        if (moved < n / 2)
+            Fail("T59 shuffle moved only %d of %d rows", moved, n);
+        LabelPatchRows(ordered, 8, CSV_RANGE_LEGAL);
+        LabelPatchRows(shuffled, 8, CSV_RANGE_LEGAL);
+        int counts[5] = { 0, 0, 0, 0, 0 };
+        for (int i = 0; i < n; i++)
+        {
+            const CsvPatchRow& s = shuffled[i];
+            const CsvPatchRow& o = ordered[s.patch];
+            if (!Same(s.label, o.label))
+                Fail("T59 shuffled row %d (patch %d): %s level %.15g, in order %s level %.15g",
+                     i, s.patch, KindName(s.label.kind), s.label.level, KindName(o.label.kind), o.label.level);
+            if (o.label.kind >= 0 && o.label.kind < 5)
+                counts[o.label.kind]++;
+        }
+        // other, gray, primary, secondary, saturation
+        if (counts[0] != 4 || counts[1] != 5 || counts[2] != 4 || counts[3] != 4 || counts[4] != 6)
+            Fail("T59 mixed list counts other/gray/primary/secondary/sat = %d/%d/%d/%d/%d, expected 4/5/4/4/6",
+                 counts[0], counts[1], counts[2], counts[3], counts[4]);
+    }
+
+    // A reading carries the label in memory only: the stored bytes are the
+    // same with or without it, a loaded reading has none, and RelabelReading
+    // recomputes it from the stored stimulus and provenance.
+    static void CheckReading()
+    {
+        const int bits = 10, range = CSV_RANGE_LEGAL;
+        const int r = 940, g = 502, b = 502;	// red saturation step, desaturation 0.5
+        CColor c(0.4, 0.3, 0.2);
+        c.SetStimulusValue(ColorRGBDisplay(CsvCodeToPercent(r, bits, range),
+                                           CsvCodeToPercent(g, bits, range),
+                                           CsvCodeToPercent(b, bits, range)));
+        CColorProvenance prov;
+        prov.patchNumber = 7;
+        prov.srcBits = bits;
+        prov.srcRange = range;
+        c.SetProvenance(prov);
+        T19Ext::Bytes plain = T19Ext::Store(c);
+
+        PatchLabel want = ClassifyPatch(r, g, b, bits, range);
+        if (want.kind != PATCH_KIND_SATURATION || want.color != PATCH_COLOR_RED)
+            Fail("T59 reading: row is %s color %d, expected saturation red", KindName(want.kind), want.color);
+        PatchLabel got = PatchLabelFromReading(c);
+        if (!Same(got, want))
+            Fail("T59 reading: from stimulus %s level %.15g, from codes %s level %.15g",
+                 KindName(got.kind), got.level, KindName(want.kind), want.level);
+
+        RelabelReading(c);
+        if (!Same(c.GetProvenance().label, want))
+            Fail("T59 RelabelReading did not set the label");
+        CColor copy(c);
+        if (!Same(copy.GetProvenance().label, want))
+            Fail("T59 a copied reading lost its label");
+        T19Ext::Bytes labeled = T19Ext::Store(c);
+        if (labeled != plain)
+            Fail("T59 the label changed the stored reading (%u bytes vs %u)",
+                 (unsigned)labeled.size(), (unsigned)plain.size());
+
+        CColor back;
+        CException* e = T19Ext::Load(labeled, &back, 1);
+        if (e)
+        {
+            e->Delete();
+            Fail("T59 reading did not load back");
+            return;
+        }
+        if (back.GetProvenance().label.kind != PATCH_KIND_UNLABELED)
+            Fail("T59 a loaded reading has label %s, expected unlabeled", KindName(back.GetProvenance().label.kind));
+        RelabelReading(back);
+        if (!Same(back.GetProvenance().label, want))
+            Fail("T59 RelabelReading after load: %s level %.15g", KindName(back.GetProvenance().label.kind),
+                 back.GetProvenance().label.level);
+
+        // No provenance or no stimulus: unlabeled, and RelabelReading adds nothing.
+        CColor bare(0.4, 0.3, 0.2);
+        if (PatchLabelFromReading(bare).kind != PATCH_KIND_UNLABELED)
+            Fail("T59 a reading without provenance got a label");
+        RelabelReading(bare);
+        if (bare.HasProvenance())
+            Fail("T59 RelabelReading gave a bare reading provenance");
+        CColor noStim(0.4, 0.3, 0.2);
+        noStim.SetProvenance(prov);
+        if (PatchLabelFromReading(noStim).kind != PATCH_KIND_UNLABELED)
+            Fail("T59 a reading without a stimulus got a label");
+    }
+}
+
+static void RunT59()
+{
+    printf("T59 patch-list row labels...\n");
+    T59Label::CheckFull8();
+    T59Label::CheckLegal8();
+    T59Label::CheckNone();
+    T59Label::CheckFull10();
+    T59Label::CheckLegal10();
+    T59Label::CheckExtended();
+    T59Label::CheckBadDepth();
+    T59Label::CheckShuffled();
+    T59Label::CheckReading();
+}
+
+// ---------------------------------------------------------------------------
+// T60: the gray graph ramp (libHCFR GrayRamp.h). Pure assertions, no golden
+// files. Every value comes from integer codes or binary-exact synthetic
+// readings, so every comparison is exact (==).
+// ---------------------------------------------------------------------------
+#include "../../libHCFR/GrayRamp.h"
+
+namespace T60Ramp
+{
+    static CsvPatchRow Row(int r, int g, int b, int bits, int range, int role = -1)
+    {
+        CsvPatchRow row;
+        row.patch = r * 1000000 + g * 1000 + b;
+        row.r = r; row.g = g; row.b = b;
+        row.role = role;
+        row.label = ClassifyPatch(r, g, b, bits, range);
+        return row;
+    }
+    static CsvPatchRow Gray(int code, int bits, int range, int role = -1)
+    { return Row(code, code, code, bits, range, role); }
+
+    // A reading of a gray of `code`, its stimulus the code's percent.
+    static CColor Reading(double X, double Y, double Z, int code, int bits, int range)
+    {
+        CColor c(X, Y, Z);
+        const double s = CsvCodeToPercent(code, bits, range);
+        c.SetStimulusValue(ColorRGBDisplay(s, s, s));
+        return c;
+    }
+    // The same, stamped: HCFR drove wireCode on an 8-bit wire of wireRange.
+    static CColor Stamped(double X, double Y, double Z, int code, int bits, int range, int wireCode, int wireRange)
+    {
+        CColor c = Reading(X, Y, Z, code, bits, range);
+        CColorWireSetup w;
+        w.realDrive = true;
+        w.wireBits = 8;
+        w.encodingRange = wireRange;
+        w.generatorId = WIRE_GENERATOR_GDI;
+        w.outputMode = 0;
+        w.wireCode[0] = w.wireCode[1] = w.wireCode[2] = wireCode;
+        c.SetWireSetup(w);
+        return c;
+    }
+
+    static bool SameXYZ(const CColor& a, const CColor& b)
+    {
+        const ColorXYZ x = a.GetXYZValue(), y = b.GetXYZValue();
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    }
+
+    static bool SamePoint(const GrayRampPoint& a, const GrayRampPoint& b)
+    {
+        return a.level == b.level && a.prop == b.prop && a.nominalProp == b.nominalProp
+            && a.stamped == b.stamped && a.isBlack == b.isBlack && a.isWhite == b.isWhite
+            && a.members == b.members && SameXYZ(a.reading, b.reading)
+            && a.reading.HasLuxValue() == b.reading.HasLuxValue()
+            && (!a.reading.HasLuxValue() || a.reading.GetLuxValue() == b.reading.GetLuxValue());
+    }
+
+    static GrayRamp Build(const std::vector<CsvPatchRow>& rows, const std::vector<CColor>& readings)
+    {
+        GrayRamp r;
+        BuildListGrayRamp(rows.empty() ? NULL : &rows[0], (int)rows.size(),
+                          readings.empty() ? NULL : &readings[0], (int)readings.size(), &r);
+        return r;
+    }
+
+    // 1. A shuffled list gives the ramp the ordered one does.
+    static void CheckShuffled()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        const int codes[6] = { 16, 17, 30, 126, 126, 235 };
+        const double ys[6]  = { 0.5, 1.0, 4.0, 40.0, 44.0, 100.0 };
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        for (int i = 0; i < 6; i++)
+        {
+            rows.push_back(Gray(codes[i], 8, L));
+            readings.push_back(Reading(ys[i] * 0.5, ys[i], ys[i] * 2.0, codes[i], 8, L));
+        }
+        // with colored rows mixed in
+        rows.push_back(Row(235, 16, 16, 8, L));
+        readings.push_back(Reading(40.0, 20.0, 2.0, 235, 8, L));
+        rows.push_back(Row(126, 126, 16, 8, L));
+        readings.push_back(Reading(30.0, 35.0, 3.0, 126, 8, L));
+
+        const GrayRamp ordered = Build(rows, readings);
+        static const int perm[8] = { 5, 7, 3, 0, 6, 4, 1, 2 };	// fixed, not random
+        std::vector<CsvPatchRow> srows;
+        std::vector<CColor> sreads;
+        for (int i = 0; i < 8; i++)
+        {
+            srows.push_back(rows[perm[i]]);
+            sreads.push_back(readings[perm[i]]);
+        }
+        const GrayRamp shuffled = Build(srows, sreads);
+
+        if (ordered.points.size() != 5)
+            Fail("T60 shuffled: ordered list gave %d points, expected 5", (int)ordered.points.size());
+        if (shuffled.points.size() != ordered.points.size())
+            Fail("T60 shuffled: %d points, ordered %d", (int)shuffled.points.size(), (int)ordered.points.size());
+        else
+            for (size_t i = 0; i < ordered.points.size(); i++)
+                if (!SamePoint(ordered.points[i], shuffled.points[i]))
+                    Fail("T60 shuffled: point %d differs (level %.17g vs %.17g, Y %.17g vs %.17g)", (int)i,
+                         ordered.points[i].level, shuffled.points[i].level,
+                         ordered.points[i].reading.GetY(), shuffled.points[i].reading.GetY());
+        if (shuffled.blackIndex != ordered.blackIndex || shuffled.whiteIndex != ordered.whiteIndex)
+            Fail("T60 shuffled: black/white index %d/%d, ordered %d/%d",
+                 shuffled.blackIndex, shuffled.whiteIndex, ordered.blackIndex, ordered.whiteIndex);
+        for (size_t i = 1; i < ordered.points.size(); i++)
+            if (!(ordered.points[i - 1].prop < ordered.points[i].prop))
+                Fail("T60 shuffled: points %d and %d not ascending", (int)i - 1, (int)i);
+        if (ordered.source != GRAY_RAMP_LIST)
+            Fail("T60 shuffled: source %d, expected the list", (int)ordered.source);
+    }
+
+    // 2. Each point at its own level, never step i of n.
+    static void CheckOwnLevels()
+    {
+        struct Case { int bits, range; int codes[5]; };
+        const Case cases[3] = {
+            { 8,  CSV_RANGE_LEGAL, { 16, 17, 30, 126, 235 } },
+            { 10, CSV_RANGE_FULL,  { 0, 1, 512, 700, 1023 } },
+            { 10, CSV_RANGE_LEGAL, { 64, 65, 300, 502, 940 } },
+        };
+        for (int c = 0; c < 3; c++)
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int i = 4; i >= 0; i--)	// handed over top down
+            {
+                const int code = cases[c].codes[i];
+                rows.push_back(Gray(code, cases[c].bits, cases[c].range));
+                readings.push_back(Reading(1.0, 1.0 + i, 1.0, code, cases[c].bits, cases[c].range));
+            }
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 5)
+            {
+                Fail("T60 own levels case %d: %d points, expected 5", c, (int)r.points.size());
+                continue;
+            }
+            for (int i = 0; i < 5; i++)
+            {
+                const double want = CsvCodeToPercent(cases[c].codes[i], cases[c].bits, cases[c].range) / 100.0;
+                const GrayRampPoint& p = r.points[i];
+                if (p.prop != want || p.nominalProp != want || p.level != p.prop * 100.0 || p.stamped)
+                    Fail("T60 own levels case %d point %d: prop %.17g nominal %.17g level %.17g stamped %d; expected %.17g",
+                         c, i, p.prop, p.nominalProp, p.level, (int)p.stamped, want);
+                if (p.reading.GetY() != 1.0 + i)
+                    Fail("T60 own levels case %d point %d: reading Y %.17g, expected %d", c, i, p.reading.GetY(), 1 + i);
+            }
+        }
+    }
+
+    // 3. Repeated signals: one averaged point.
+    static void CheckDuplicates()
+    {
+        const int F = CSV_RANGE_FULL;
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            const double ys[3] = { 14.0, 10.0, 12.0 };
+            for (int i = 0; i < 3; i++)
+            {
+                rows.push_back(Gray(128, 8, F));
+                CColor c = Reading(ys[i] - 2.0, ys[i], ys[i] + 10.0, 128, 8, F);
+                c.SetLuxValue(ys[i] * 0.5);
+                readings.push_back(c);
+            }
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 1)
+                Fail("T60 duplicates: %d points, expected 1", (int)r.points.size());
+            else
+            {
+                const GrayRampPoint& p = r.points[0];
+                const ColorXYZ x = p.reading.GetXYZValue();
+                if (p.members != 3 || x[0] != 10.0 || x[1] != 12.0 || x[2] != 22.0)
+                    Fail("T60 duplicates: members %d XYZ %.17g %.17g %.17g, expected 3 and 10 12 22",
+                         p.members, x[0], x[1], x[2]);
+                if (!p.reading.HasLuxValue() || p.reading.GetLuxValue() != 6.0)
+                    Fail("T60 duplicates: lux %s %.17g, expected 6", p.reading.HasLuxValue() ? "present" : "absent",
+                         p.reading.HasLuxValue() ? p.reading.GetLuxValue() : 0.0);
+                if (!p.reading.HasStimulusValue() || p.reading.GetStimulusValue()[1] != CsvCodeToPercent(128, 8, F))
+                    Fail("T60 duplicates: the average lost its stimulus");
+                if (p.firstRow != 0)
+                    Fail("T60 duplicates: firstRow %d, expected 0", p.firstRow);
+            }
+        }
+        {
+            // a failed reading does not count; a member without lux drops the lux
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(64, 8, F));  readings.push_back(Reading(1.0, 10.0, 1.0, 64, 8, F));
+            rows.push_back(Gray(64, 8, F));  readings.push_back(noDataColor);
+            rows.push_back(Gray(64, 8, F));  readings.push_back(Reading(3.0, 14.0, 5.0, 64, 8, F));
+            readings[0].SetLuxValue(2.0);
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 1 || r.points[0].members != 2 || r.points[0].reading.GetY() != 12.0
+                || r.points[0].reading.GetX() != 2.0 || r.points[0].reading.GetZ() != 3.0)
+                Fail("T60 duplicates with a failed reading: %d points, members %d, Y %.17g; expected 1, 2, 12",
+                     (int)r.points.size(), r.points.empty() ? 0 : r.points[0].members,
+                     r.points.empty() ? 0.0 : r.points[0].reading.GetY());
+            else if (r.points[0].reading.HasLuxValue())
+                Fail("T60 duplicates: lux kept although one member had none");
+        }
+        {
+            // one reading: that reading, unchanged
+            std::vector<CsvPatchRow> rows(1, Gray(200, 8, F));
+            std::vector<CColor> readings(1, Reading(0.1, 0.3, 0.7, 200, 8, F));
+            readings[0].SetLuxValue(0.9);
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 1 || r.points[0].members != 1 || !SameXYZ(r.points[0].reading, readings[0])
+                || !r.points[0].reading.HasLuxValue() || r.points[0].reading.GetLuxValue() != 0.9)
+                Fail("T60 duplicates: a single reading was not kept unchanged");
+        }
+    }
+
+    // 4. Codes the list's range clamps to the same code are one signal.
+    static void CheckClampedMerge()
+    {
+        const int L = CSV_RANGE_LEGAL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        rows.push_back(Gray(10, 8, L));  readings.push_back(Reading(0.25, 0.5, 0.25, 10, 8, L));
+        rows.push_back(Gray(16, 8, L));  readings.push_back(Reading(0.75, 1.5, 0.75, 16, 8, L));
+        const GrayRamp r = Build(rows, readings);
+        if (r.points.size() != 1 || r.points[0].members != 2 || !r.points[0].isBlack
+            || r.points[0].level != 0.0 || r.points[0].reading.GetY() != 1.0 || r.blackIndex != 0)
+            Fail("T60 clamped codes 10 and 16 (legal): %d points, members %d, black %d, level %.17g, Y %.17g;"
+                 " expected one black point of 2 at 0 with Y 1",
+                 (int)r.points.size(), r.points.empty() ? 0 : r.points[0].members,
+                 r.points.empty() ? 0 : (int)r.points[0].isBlack,
+                 r.points.empty() ? 0.0 : r.points[0].level, r.points.empty() ? 0.0 : r.points[0].reading.GetY());
+    }
+
+    // 5. Only gray rows with a counted role and a valid reading.
+    static void CheckExcluded()
+    {
+        const int F = CSV_RANGE_FULL;
+        std::vector<CsvPatchRow> rows;
+        std::vector<CColor> readings;
+        // not gray
+        rows.push_back(Row(255, 0, 0, 8, F));     readings.push_back(Reading(40, 20, 2, 255, 8, F));
+        rows.push_back(Row(255, 255, 0, 8, F));   readings.push_back(Reading(70, 90, 9, 255, 8, F));
+        rows.push_back(Row(255, 128, 128, 8, F)); readings.push_back(Reading(60, 50, 40, 255, 8, F));
+        rows.push_back(Row(10, 20, 30, 8, F));    readings.push_back(Reading(1, 1, 1, 10, 8, F));
+        CsvPatchRow unlabeled = Gray(50, 8, F);
+        unlabeled.label = PatchLabel();
+        rows.push_back(unlabeled);               readings.push_back(Reading(5, 5, 5, 50, 8, F));
+        // gray, excluded roles
+        rows.push_back(Gray(60, 8, F, PROVENANCE_ROLE_ANCHOR));         readings.push_back(Reading(6, 6, 6, 60, 8, F));
+        rows.push_back(Gray(61, 8, F, PROVENANCE_ROLE_PREROLL));        readings.push_back(Reading(6, 6, 6, 61, 8, F));
+        rows.push_back(Gray(62, 8, F, PROVENANCE_ROLE_INTERSTITIAL));   readings.push_back(Reading(6, 6, 6, 62, 8, F));
+        rows.push_back(Gray(63, 8, F, PROVENANCE_ROLE_IDENTIFICATION)); readings.push_back(Reading(6, 6, 6, 63, 8, F));
+        // gray, no valid reading
+        rows.push_back(Gray(70, 8, F));           readings.push_back(noDataColor);
+        // gray, counted roles
+        rows.push_back(Gray(80, 8, F, PROVENANCE_ROLE_UNKNOWN));        readings.push_back(Reading(8, 8, 8, 80, 8, F));
+        rows.push_back(Gray(81, 8, F, PROVENANCE_ROLE_COLOR));          readings.push_back(Reading(8, 8, 8, 81, 8, F));
+        rows.push_back(Gray(82, 8, F, PROVENANCE_ROLE_VERIFICATION));   readings.push_back(Reading(8, 8, 8, 82, 8, F));
+        const GrayRamp r = Build(rows, readings);
+        if (r.points.size() != 3)
+            Fail("T60 excluded rows: %d points, expected 3 (codes 80, 81, 82)", (int)r.points.size());
+        else
+            for (int i = 0; i < 3; i++)
+                if (r.points[i].firstRow != 10 + i)
+                    Fail("T60 excluded rows: point %d is row %d, expected %d", i, r.points[i].firstRow, 10 + i);
+    }
+
+    // 6. A point sits at its stamped drive when every reading agrees on one.
+    static void CheckStamped()
+    {
+        const int F = CSV_RANGE_FULL;
+        const double stampedProp = (126.0 - 16.0) / (235.0 - 16.0);
+        const double nominal = CsvCodeToPercent(128, 8, F) / 100.0;
+        {
+            std::vector<CsvPatchRow> rows(1, Gray(128, 8, F));
+            std::vector<CColor> readings(1, Stamped(1, 20, 1, 128, 8, F, 126, WIRE_RANGE_LIMITED));
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 1 || !r.points[0].stamped || r.points[0].prop != stampedProp
+                || r.points[0].level != stampedProp * 100.0 || r.points[0].nominalProp != nominal)
+                Fail("T60 stamped: prop %.17g stamped %d nominal %.17g; expected %.17g, 1, %.17g",
+                     r.points.empty() ? 0.0 : r.points[0].prop, r.points.empty() ? 0 : (int)r.points[0].stamped,
+                     r.points.empty() ? 0.0 : r.points[0].nominalProp, stampedProp, nominal);
+        }
+        {
+            std::vector<CsvPatchRow> rows(1, Gray(128, 8, F));
+            std::vector<CColor> readings(1, Reading(1, 20, 1, 128, 8, F));
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 1 || r.points[0].stamped || r.points[0].prop != nominal)
+                Fail("T60 unstamped: prop %.17g stamped %d; expected %.17g, 0",
+                     r.points.empty() ? 0.0 : r.points[0].prop, r.points.empty() ? 0 : (int)r.points[0].stamped, nominal);
+        }
+        {
+            // two stamps that disagree, and a stamped reading beside an unstamped one
+            std::vector<CsvPatchRow> rows(2, Gray(128, 8, F));
+            std::vector<CColor> a;
+            a.push_back(Stamped(1, 20, 1, 128, 8, F, 126, WIRE_RANGE_LIMITED));
+            a.push_back(Stamped(1, 22, 1, 128, 8, F, 127, WIRE_RANGE_LIMITED));
+            std::vector<CColor> b;
+            b.push_back(Stamped(1, 20, 1, 128, 8, F, 126, WIRE_RANGE_LIMITED));
+            b.push_back(Reading(1, 22, 1, 128, 8, F));
+            const GrayRamp ra = Build(rows, a), rb = Build(rows, b);
+            if (ra.points.size() != 1 || ra.points[0].stamped || ra.points[0].prop != nominal)
+                Fail("T60 disagreeing stamps: the point did not fall back to its nominal level");
+            if (rb.points.size() != 1 || rb.points[0].stamped || rb.points[0].prop != nominal)
+                Fail("T60 stamped beside unstamped: the point did not fall back to its nominal level");
+        }
+    }
+
+    // 7. Black and white are the grays at exactly 0% and 100%, by value.
+    static void CheckBlackWhite()
+    {
+        const int F = CSV_RANGE_FULL;
+        const CColor fallback(0.25, 0.5, 0.75);
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(255, 8, F)); readings.push_back(Reading(95, 100, 108, 255, 8, F));
+            rows.push_back(Gray(128, 8, F)); readings.push_back(Reading(20, 21, 22, 128, 8, F));
+            rows.push_back(Gray(0, 8, F));   readings.push_back(Reading(0.05, 0.0625, 0.07, 0, 8, F));
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 3 || r.blackIndex != 0 || r.whiteIndex != 2
+                || !r.points[0].isBlack || !r.points[2].isWhite || r.points[1].isBlack || r.points[1].isWhite
+                || r.points[2].level != 100.0 || r.points[0].level != 0.0)
+                Fail("T60 black/white: black %d white %d over %d points; expected 0, 2 of 3",
+                     r.blackIndex, r.whiteIndex, (int)r.points.size());
+            if (GrayRampWhite(r, fallback).GetY() != 100.0)
+                Fail("T60 black/white: GrayRampWhite gave Y %.17g, expected 100", GrayRampWhite(r, fallback).GetY());
+            if (GrayRampBlack(r, fallback).GetY() != 0.0625)
+                Fail("T60 black/white: GrayRampBlack gave Y %.17g, expected 0.0625", GrayRampBlack(r, fallback).GetY());
+        }
+        {
+            // no 0% and no 100%: both fall back
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(64, 8, F));  readings.push_back(Reading(5, 6, 7, 64, 8, F));
+            rows.push_back(Gray(192, 8, F)); readings.push_back(Reading(50, 52, 56, 192, 8, F));
+            const GrayRamp r = Build(rows, readings);
+            if (r.blackIndex != -1 || r.whiteIndex != -1)
+                Fail("T60 no black/white: indices %d/%d, expected -1/-1", r.blackIndex, r.whiteIndex);
+            if (GrayRampWhite(r, fallback).GetY() != 0.5 || GrayRampBlack(r, fallback).GetY() != 0.5)
+                Fail("T60 no black/white: the fallback was not returned");
+        }
+        {
+            // a failed 0% reading leaves no black; a 100% reading without light is no white
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(0, 8, F));   readings.push_back(noDataColor);
+            rows.push_back(Gray(255, 8, F)); readings.push_back(Reading(0.0, 0.0, 0.0, 255, 8, F));
+            const GrayRamp r = Build(rows, readings);
+            if (r.blackIndex != -1 || GrayRampBlack(r, fallback).GetY() != 0.5)
+                Fail("T60 failed black: blackIndex %d, expected -1 and the fallback", r.blackIndex);
+            if (r.whiteIndex < 0 || GrayRampWhite(r, fallback).GetY() != 0.5)
+                Fail("T60 dark white: whiteIndex %d, expected a white point and the fallback", r.whiteIndex);
+            if (GrayRampWhiteUsable(noDataColor) || GrayRampWhiteUsable(CColor(0.0, 0.0, 0.0)) || !GrayRampWhiteUsable(fallback))
+                Fail("T60 GrayRampWhiteUsable: wrong answer");
+        }
+    }
+
+    // 8. The sweep wins when it holds a reading.
+    static void CheckSweepWins()
+    {
+        if (ChooseGrayRampSource(true, true) != GRAY_RAMP_SWEEP)
+            Fail("T60 sweep wins: a sweep reading and a list gave the list");
+        if (ChooseGrayRampSource(true, false) != GRAY_RAMP_SWEEP)
+            Fail("T60 sweep wins: a sweep reading alone gave the list");
+        if (ChooseGrayRampSource(false, true) != GRAY_RAMP_LIST)
+            Fail("T60 sweep wins: no sweep reading and a list gave the sweep");
+        if (ChooseGrayRampSource(false, false) != GRAY_RAMP_SWEEP)
+            Fail("T60 sweep wins: nothing at all gave the list");
+
+        // The sweep's "holds a reading" is the S_GRAY test: the override's
+        // synthetic black in slot 0 is not a reading, a measured slot is.
+        const CColor userBlack(0.0475, 0.05, 0.0544);
+        CColor slots[3] = { userBlack, noDataColor, noDataColor };
+        SweepConfirmRule::SeriesSlots s = { SweepConfirmRule::S_GRAY, slots, 3, NULL, &userBlack, NULL };
+        if (SweepConfirmRule::SlotsHoldData(s))
+            Fail("T60 sweep wins: a synthetic black alone counted as a sweep reading");
+        slots[1] = CColor(10.0, 11.0, 12.0);
+        slots[1].SetRawXYZValue(ColorXYZ(10.0, 11.0, 12.0));
+        if (!SweepConfirmRule::SlotsHoldData(s))
+            Fail("T60 sweep wins: a measured slot did not count as a sweep reading");
+    }
+
+    // 9. The sweep's ramp is the GraySeries helpers, slot for slot.
+    static void CheckSweepParity()
+    {
+        CColor readings[5];
+        for (int i = 0; i < 5; i++)
+            readings[i] = CColor(1.0 + i, 2.0 + i, 3.0 + i);
+        // slot 2 stamped at full-range code 128, slot 3 stamped with unequal codes
+        {
+            readings[2].SetStimulusValue(ColorRGBDisplay(50.0, 50.0, 50.0));
+            CColorWireSetup w;
+            w.realDrive = true; w.wireBits = 8; w.encodingRange = WIRE_RANGE_FULL;
+            w.wireCode[0] = w.wireCode[1] = w.wireCode[2] = 128;
+            readings[2].SetWireSetup(w);
+            readings[3].SetStimulusValue(ColorRGBDisplay(70.0, 70.0, 70.0));
+            w.wireCode[0] = 178; w.wireCode[1] = 179; w.wireCode[2] = 178;
+            readings[3].SetWireSetup(w);
+        }
+        const double nominal[5] = { 0.0, 10.0, 33.3, 80.0, 100.0 };
+        for (int variant = 0; variant < 4; variant++)
+        {
+            GraySeriesView v;
+            v.series = GRAY_SERIES_GRAYSCALE;
+            v.readings = readings;
+            v.size = 5;
+            v.nominalLevels = (variant & 1) ? nominal : NULL;
+            v.nominalCount = (variant & 1) ? 5 : 0;
+            v.nearWhiteClipCol = 101;
+            v.pqNearBlack = false;
+            v.bUseRoundDown = (variant & 2) != 0;
+            v.b10bit = false;
+            v.is16_235 = true;
+            GrayRamp r;
+            BuildSweepGrayRamp(v, &r);
+            if (r.source != GRAY_RAMP_SWEEP || r.points.size() != 5 || r.blackIndex != 0 || r.whiteIndex != 4)
+            {
+                Fail("T60 sweep parity variant %d: source %d, %d points, black %d white %d",
+                     variant, (int)r.source, (int)r.points.size(), r.blackIndex, r.whiteIndex);
+                continue;
+            }
+            for (int i = 0; i < 5; i++)
+            {
+                const GrayRampPoint& p = r.points[i];
+                double d;
+                const bool stamped = GraySeriesDriveProp(v, i, &d);
+                if (p.level != GraySeriesLevel(v, i) || p.prop != GraySeriesProp(v, i)
+                    || p.nominalProp != GraySeriesSlotProp(v, i) || p.stamped != stamped
+                    || p.isBlack != (i == 0) || p.isWhite != (i == 4) || p.firstRow != i || p.members != 1
+                    || !SameXYZ(p.reading, readings[i]))
+                    Fail("T60 sweep parity variant %d slot %d: level %.17g/%.17g prop %.17g/%.17g nominal %.17g/%.17g stamped %d/%d",
+                         variant, i, p.level, GraySeriesLevel(v, i), p.prop, GraySeriesProp(v, i),
+                         p.nominalProp, GraySeriesSlotProp(v, i), (int)p.stamped, (int)stamped);
+                if (!GrayRampDraws(r, i))
+                    Fail("T60 sweep parity variant %d slot %d: a sweep point is not drawn", variant, i);
+            }
+            if (!r.points[2].stamped || r.points[3].stamped)
+                Fail("T60 sweep parity variant %d: the stamp setup did not take (slot 2 %d, slot 3 %d)",
+                     variant, (int)r.points[2].stamped, (int)r.points[3].stamped);
+        }
+        GraySeriesView empty;
+        empty.series = GRAY_SERIES_GRAYSCALE; empty.readings = readings; empty.size = 0;
+        empty.nominalLevels = NULL; empty.nominalCount = 0; empty.nearWhiteClipCol = 101;
+        empty.pqNearBlack = false; empty.bUseRoundDown = false; empty.b10bit = false; empty.is16_235 = true;
+        GrayRamp re;
+        BuildSweepGrayRamp(empty, &re);
+        if (!re.points.empty() || re.blackIndex != -1 || re.whiteIndex != -1)
+            Fail("T60 sweep parity: an empty sweep gave %d points", (int)re.points.size());
+    }
+
+    // 10. Short lists, extended range, empty input, unequal counts.
+    static void CheckEdges()
+    {
+        const int F = CSV_RANGE_FULL;
+        for (int n = 2; n <= 3; n++)
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int i = 0; i < n; i++)
+            {
+                const int code = i * 255 / (n - 1);
+                rows.push_back(Gray(code, 8, F));
+                readings.push_back(Reading(1, 1.0 + i, 1, code, 8, F));
+            }
+            const GrayRamp r = Build(rows, readings);
+            if ((int)r.points.size() != n || r.blackIndex != 0 || r.whiteIndex != n - 1)
+                Fail("T60 %d-gray list: %d points, black %d white %d", n, (int)r.points.size(), r.blackIndex, r.whiteIndex);
+        }
+        {
+            const int E = CSV_RANGE_EXTENDED;
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(5, 8, E));   readings.push_back(Reading(0.1, 0.1, 0.1, 5, 8, E));
+            rows.push_back(Gray(16, 8, E));  readings.push_back(Reading(0.2, 0.2, 0.2, 16, 8, E));
+            rows.push_back(Gray(235, 8, E)); readings.push_back(Reading(90, 95, 99, 235, 8, E));
+            rows.push_back(Gray(250, 8, E)); readings.push_back(Reading(95, 100, 105, 250, 8, E));
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 4)
+                Fail("T60 extended: %d points, expected 4", (int)r.points.size());
+            else
+            {
+                if (!(r.points[0].prop < 0.0) || r.points[0].isBlack || GrayRampDraws(r, 0))
+                    Fail("T60 extended: code 5 prop %.17g black %d drawn %d; expected < 0, 0, 0",
+                         r.points[0].prop, (int)r.points[0].isBlack, (int)GrayRampDraws(r, 0));
+                if (!(r.points[3].prop > 1.0) || r.points[3].isWhite || GrayRampDraws(r, 3))
+                    Fail("T60 extended: code 250 prop %.17g white %d drawn %d; expected > 1, 0, 0",
+                         r.points[3].prop, (int)r.points[3].isWhite, (int)GrayRampDraws(r, 3));
+                if (!r.points[1].isBlack || !r.points[2].isWhite || r.blackIndex != 1 || r.whiteIndex != 2
+                    || !GrayRampDraws(r, 1) || !GrayRampDraws(r, 2))
+                    Fail("T60 extended: black/white at 16/235 not found (indices %d/%d)", r.blackIndex, r.whiteIndex);
+                // The gamma fit takes no point of this list: below black, black,
+                // white and above white each have no per-point gamma.
+                for (int i = 0; i < 4; i++)
+                {
+                    if (GrayRampFitsPoint(r, i))
+                        Fail("T60 extended: point %d (prop %.17g) enters the gamma fit", i, r.points[i].prop);
+                }
+            }
+        }
+        {
+            // The fit over a list is by value, not by position. An extended-range
+            // list of a display at gamma 2.2 exactly: codes 5 and 16 (below black,
+            // black), 60, 126, 180 (mid grays), 235 and 245, 250 (white and two
+            // above). The mean of log(Y/Yw) / log(level) over the points
+            // GrayRampFitsPoint admits is 2.2; by position (points 1 .. size-3,
+            // the sweep's rule) it would take black (level 0) and white (level 1).
+            const int E = CSV_RANGE_EXTENDED;
+            const int codes[8] = { 5, 16, 60, 126, 180, 235, 245, 250 };
+            const double Yw = 100.0;
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int i = 0; i < 8; i++)
+            {
+                const double v = (codes[i] - 16) / 219.0;
+                const double Y = (v <= 0.0) ? 0.05 : Yw * pow(v, 2.2);
+                rows.push_back(Gray(codes[i], 8, E));
+                readings.push_back(Reading(Y * 0.95, Y, Y * 1.09, codes[i], 8, E));
+            }
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 8 || r.blackIndex != 1 || r.whiteIndex != 5)
+                Fail("T60 list fit: %d points, black %d white %d; expected 8, 1, 5", (int)r.points.size(), r.blackIndex, r.whiteIndex);
+            else
+            {
+                double lum[8];
+                int nFit = 0;
+                for (int i = 0; i < 8; i++)
+                {
+                    lum[i] = r.points[i].reading.GetY() / Yw;
+                    const bool expectFit = (i >= 2 && i <= 4);
+                    if (GrayRampFitsPoint(r, i) != expectFit)
+                        Fail("T60 list fit: point %d (prop %.17g) fits %d, expected %d", i, r.points[i].prop,
+                             (int)GrayRampFitsPoint(r, i), (int)expectFit);
+                    if (GrayRampFitsPoint(r, i))
+                        nFit++;
+                }
+                double gamma = 0.0;
+                const bool fit = FailedReadingRule::MeanPointGammaOver(8, lum,
+                    [&](int i) { return GrayRampFitsPoint(r, i); },
+                    [&](int i) { return log(lum[i]) / log(r.points[i].prop); }, &gamma);
+                if (!fit || nFit != 3 || fabs(gamma - 2.2) > 1e-9)
+                    Fail("T60 list fit: fit %d over %d points, gamma %.17g; expected 1, 3, 2.2 within 1e-9", (int)fit, nFit, gamma);
+                // no point admitted is no fit, with the 1 in the divisor
+                double none = 7.0;
+                if (FailedReadingRule::MeanPointGammaOver(8, lum, [](int) { return false; }, [](int) { return 99.0; }, &none) || none != 0.0)
+                    Fail("T60 list fit: no admitted point gave a fit (mean %.17g)", none);
+            }
+            // A sweep ramp keeps the positional rule: GrayRampFitsPoint admits none.
+            GrayRamp sweep = r;
+            sweep.source = GRAY_RAMP_SWEEP;
+            for (int i = 0; i < (int)sweep.points.size(); i++)
+            {
+                if (GrayRampFitsPoint(sweep, i))
+                    Fail("T60 list fit: sweep point %d admitted by the list rule", i);
+            }
+            if (GrayRampFitsPoint(r, -1) || GrayRampFitsPoint(r, 8))
+                Fail("T60 list fit: an index outside the ramp was admitted");
+        }
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            const GrayRamp r = Build(rows, readings);
+            if (!r.points.empty() || r.blackIndex != -1 || r.whiteIndex != -1 || r.source != GRAY_RAMP_LIST)
+                Fail("T60 empty list: %d points, indices %d/%d", (int)r.points.size(), r.blackIndex, r.whiteIndex);
+        }
+        {
+            // more readings than rows (the band is wider than the list), and fewer
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            rows.push_back(Gray(0, 8, F));   readings.push_back(Reading(0.1, 0.1, 0.1, 0, 8, F));
+            rows.push_back(Gray(255, 8, F)); readings.push_back(Reading(95, 100, 108, 255, 8, F));
+            for (int i = 0; i < 3; i++)
+                readings.push_back(Reading(5, 5, 5, 128, 8, F));
+            const GrayRamp r = Build(rows, readings);
+            if (r.points.size() != 2)
+                Fail("T60 readings past the rows: %d points, expected 2", (int)r.points.size());
+            GrayRamp r2;
+            BuildListGrayRamp(&rows[0], 2, &readings[0], 1, &r2);
+            if (r2.points.size() != 1 || r2.whiteIndex != -1)
+                Fail("T60 rows past the readings: %d points, white %d; expected 1, -1", (int)r2.points.size(), r2.whiteIndex);
+        }
+    }
+
+    // 11. An average that cannot depend on the order: three readings of one
+    // code whose double sum does (0.1 + 0.2 + 0.3 != 0.3 + 0.2 + 0.1), handed
+    // over first in one order and then in the reverse one, another gray between
+    // them. CheckShuffled's repeated code has two members, and a sum of two is
+    // the same in either order, so it cannot see this.
+    static void CheckOrderFree()
+    {
+        const int F = CSV_RANGE_FULL;
+        const double v[3] = { 0.1, 0.2, 0.3 };
+        if ((v[0] + v[1]) + v[2] == (v[2] + v[1]) + v[0])
+            Fail("T60 order-free: the values sum the same in both orders, so the check proves nothing");
+        GrayRamp r[2];
+        for (int dir = 0; dir < 2; dir++)
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int k = 0; k < 3; k++)
+            {
+                const double y = v[dir == 0 ? k : 2 - k];
+                CColor c = Reading(y, y, y, 128, 8, F);
+                c.SetLuxValue(y);
+                c.SetRawXYZValue(ColorXYZ(y, y, y));
+                rows.push_back(Gray(128, 8, F));
+                readings.push_back(c);
+                if (k == 0)
+                {
+                    rows.push_back(Gray(64, 8, F));
+                    readings.push_back(Reading(5.0, 5.0, 5.0, 64, 8, F));
+                }
+            }
+            r[dir] = Build(rows, readings);
+        }
+        if (r[0].points.size() != 2 || r[1].points.size() != 2)
+        {
+            Fail("T60 order-free: %d and %d points, expected 2 and 2", (int)r[0].points.size(), (int)r[1].points.size());
+            return;
+        }
+        const GrayRampPoint & a = r[0].points[1];
+        const GrayRampPoint & b = r[1].points[1];
+        const ColorXYZ ra = a.reading.GetRawXYZValue(), rb = b.reading.GetRawXYZValue();
+        if (a.members != 3 || b.members != 3 || !SameXYZ(a.reading, b.reading))
+            Fail("T60 order-free: XYZ %.17g %.17g %.17g vs %.17g %.17g %.17g (members %d, %d); expected bit-identical",
+                 a.reading.GetX(), a.reading.GetY(), a.reading.GetZ(), b.reading.GetX(), b.reading.GetY(), b.reading.GetZ(),
+                 a.members, b.members);
+        if (!a.reading.HasLuxValue() || !b.reading.HasLuxValue() || a.reading.GetLuxValue() != b.reading.GetLuxValue())
+            Fail("T60 order-free: lux %.17g vs %.17g; expected bit-identical",
+                 a.reading.HasLuxValue() ? a.reading.GetLuxValue() : -1.0, b.reading.HasLuxValue() ? b.reading.GetLuxValue() : -1.0);
+        if (!a.reading.HasRawXYZValue() || !b.reading.HasRawXYZValue() || ra[0] != rb[0] || ra[1] != rb[1] || ra[2] != rb[2])
+            Fail("T60 order-free: raw XYZ %.17g vs %.17g; expected bit-identical", ra[1], rb[1]);
+    }
+
+    // 12. A point of several readings that all carry the same wire stamp sits
+    // at that stamp, and its average keeps the stamp.
+    static void CheckStampedMembers()
+    {
+        const int F = CSV_RANGE_FULL;
+        const double stampedProp = (126.0 - 16.0) / (235.0 - 16.0);
+        const double nominal = CsvCodeToPercent(128, 8, F) / 100.0;
+        std::vector<CsvPatchRow> rows(3, Gray(128, 8, F));
+        std::vector<CColor> readings;
+        for (int k = 0; k < 3; k++)
+            readings.push_back(Stamped(1, 20.0 + k, 1, 128, 8, F, 126, WIRE_RANGE_LIMITED));
+        const GrayRamp r = Build(rows, readings);
+        if (r.points.size() != 1)
+        {
+            Fail("T60 stamped members: %d points, expected 1", (int)r.points.size());
+            return;
+        }
+        const GrayRampPoint & p = r.points[0];
+        if (p.members != 3 || !p.stamped || p.prop != stampedProp || p.level != stampedProp * 100.0
+            || p.nominalProp != nominal || p.reading.GetY() != 21.0)
+            Fail("T60 stamped members: members %d stamped %d prop %.17g level %.17g nominal %.17g Y %.17g;"
+                 " expected 3, 1, %.17g, %.17g, %.17g, 21",
+                 p.members, (int)p.stamped, p.prop, p.level, p.nominalProp, p.reading.GetY(),
+                 stampedProp, stampedProp * 100.0, nominal);
+        if (!p.reading.HasWireSetup() || p.reading.GetWireSetup() != readings[0].GetWireSetup())
+            Fail("T60 stamped members: the average lost the shared wire stamp");
+    }
+
+    // 13. The fit's rule on short lists (GrayRampFitsPoint, MeanPointGammaOver):
+    // the grays strictly between 0% and 100% enter it, so a list of black and
+    // white alone has no fit, black + one mid gray + white fits that gray, and
+    // two mid grays fit both. A display at gamma 2.2 exactly; the gamma is
+    // compared within 1e-12 (one log ratio, or the mean of two).
+    // ComputeRampGammaAndOffset (datasetdoc.cpp) also requires more than two
+    // points before it fits at all, which the last case does not reach.
+    static void CheckShortFit()
+    {
+        const int F = CSV_RANGE_FULL;
+        struct Case { const char * what; int n; int codes[3]; bool fit; int nFit; };
+        const Case cases[3] = {
+            { "black and white",           2, { 0, 255, 0 },   false, 0 },
+            { "black, one gray and white", 3, { 0, 128, 255 }, true,  1 },
+            { "two mid grays",             2, { 64, 192, 0 },  true,  2 } };
+        for (int c = 0; c < 3; c++)
+        {
+            std::vector<CsvPatchRow> rows;
+            std::vector<CColor> readings;
+            for (int i = 0; i < cases[c].n; i++)
+            {
+                const int code = cases[c].codes[i];
+                const double prop = CsvCodeToPercent(code, 8, F) / 100.0;
+                const double Y = (code == 0) ? 0.05 : 100.0 * pow(prop, 2.2);
+                rows.push_back(Gray(code, 8, F));
+                readings.push_back(Reading(Y * 0.95, Y, Y * 1.09, code, 8, F));
+            }
+            const GrayRamp r = Build(rows, readings);
+            if ((int)r.points.size() != cases[c].n)
+            {
+                Fail("T60 short fit, %s: %d points, expected %d", cases[c].what, (int)r.points.size(), cases[c].n);
+                continue;
+            }
+            double lum[3];
+            int nFit = 0;
+            for (int i = 0; i < cases[c].n; i++)
+            {
+                lum[i] = r.points[i].reading.GetY() / 100.0;
+                if (GrayRampFitsPoint(r, i))
+                    nFit++;
+            }
+            double gamma = 7.0;
+            const bool fit = FailedReadingRule::MeanPointGammaOver(cases[c].n, lum,
+                [&](int i) { return GrayRampFitsPoint(r, i); },
+                [&](int i) { return log(lum[i]) / log(r.points[i].prop); }, &gamma);
+            const double want = cases[c].fit ? 2.2 : 0.0;
+            if (fit != cases[c].fit || nFit != cases[c].nFit || fabs(gamma - want) > 1e-12)
+                Fail("T60 short fit, %s: fit %d over %d points, gamma %.17g; expected %d, %d, %.17g within 1e-12",
+                     cases[c].what, (int)fit, nFit, gamma, (int)cases[c].fit, cases[c].nFit, want);
+        }
+    }
+}
+
+static void RunT60()
+{
+    printf("T60 gray graph ramp...\n");
+    T60Ramp::CheckShuffled();
+    T60Ramp::CheckOwnLevels();
+    T60Ramp::CheckDuplicates();
+    T60Ramp::CheckClampedMerge();
+    T60Ramp::CheckExcluded();
+    T60Ramp::CheckStamped();
+    T60Ramp::CheckBlackWhite();
+    T60Ramp::CheckSweepWins();
+    T60Ramp::CheckSweepParity();
+    T60Ramp::CheckEdges();
+    T60Ramp::CheckOrderFree();
+    T60Ramp::CheckStampedMembers();
+    T60Ramp::CheckShortFit();
+}
+
+// ---------------------------------------------------------------------------
+// T61: what the Summary and the grid say is in use (SummarySources.h). The
+// white and black of the gray graphs and where each comes from, every branch
+// of each decision plus the properties that hold over every combination of
+// facts; the luminance precision; when the patch-list line shows the average
+// gamma; and which user patch sets the Summary names. Pure assertions, no
+// golden files; every value is exact.
+// ---------------------------------------------------------------------------
+#include "../../libHCFR/SummarySources.h"
+
+namespace T61Summary
+{
+    static const char * WhiteName(GrayGraphWhiteSource s)
+    {
+        switch (s)
+        {
+        case GRAY_WHITE_NONE: return "none";
+        case GRAY_WHITE_SWEEP_TOP: return "sweep top";
+        case GRAY_WHITE_LIST: return "list 100%";
+        case GRAY_WHITE_CONTRAST: return "contrast";
+        case GRAY_WHITE_NOMINAL: return "nominal";
+        }
+        return "?";
+    }
+    static const char * BlackName(GrayGraphBlackSource s)
+    {
+        switch (s)
+        {
+        case GRAY_BLACK_NONE: return "none";
+        case GRAY_BLACK_OVERRIDE: return "override";
+        case GRAY_BLACK_SWEEP_ZERO: return "sweep 0%";
+        case GRAY_BLACK_LIST: return "list 0%";
+        case GRAY_BLACK_CONTRAST: return "contrast";
+        case GRAY_BLACK_NOMINAL: return "nominal";
+        }
+        return "?";
+    }
+
+    // bits: listRamp, sweepTopUsable, listWhiteUsable, contrastValid, contrastMeasured, contrastUsable
+    static GrayGraphWhiteFacts W(int list, int top, int listW, int cValid, int cMeas, int cUse)
+    {
+        GrayGraphWhiteFacts f;
+        f.listRamp = list != 0; f.sweepTopUsable = top != 0; f.listWhiteUsable = listW != 0;
+        f.contrastValid = cValid != 0; f.contrastMeasured = cMeas != 0; f.contrastUsable = cUse != 0;
+        return f;
+    }
+    static void ExpectWhite(const char * what, const GrayGraphWhiteFacts & f, GrayGraphWhiteSource want)
+    {
+        GrayGraphWhiteSource got = ChooseGrayGraphWhiteSource(f);
+        if (got != want)
+            Fail("T61 white, %s: %s, expected %s", what, WhiteName(got), WhiteName(want));
+    }
+
+    static void CheckWhite()
+    {
+        // A patch list: its 100% gray first, whatever else holds.
+        ExpectWhite("list with its 100% gray", W(1, 1, 1, 1, 1, 1), GRAY_WHITE_LIST);
+        ExpectWhite("list with its 100% gray, nothing else", W(1, 0, 1, 0, 0, 0), GRAY_WHITE_LIST);
+        // ... else a measured, usable on/off white.
+        ExpectWhite("list without 100%, measured contrast white", W(1, 0, 0, 1, 1, 1), GRAY_WHITE_CONTRAST);
+        // ... never the sweep top, never the nominal white.
+        ExpectWhite("list without 100%, sweep top usable only", W(1, 1, 0, 0, 0, 0), GRAY_WHITE_NONE);
+        ExpectWhite("list without 100%, nominal contrast white", W(1, 0, 0, 1, 0, 1), GRAY_WHITE_NONE);
+        ExpectWhite("list without 100%, measured white with Y <= 0", W(1, 0, 0, 1, 1, 0), GRAY_WHITE_NONE);
+        ExpectWhite("list without 100%, nothing", W(1, 0, 0, 0, 0, 0), GRAY_WHITE_NONE);
+        // The sweep: its top first.
+        ExpectWhite("sweep with its top", W(0, 1, 0, 1, 1, 1), GRAY_WHITE_SWEEP_TOP);
+        ExpectWhite("sweep with its top, nominal contrast white", W(0, 1, 0, 1, 0, 1), GRAY_WHITE_SWEEP_TOP);
+        // ... else the on/off white as it is.
+        ExpectWhite("sweep without top, measured contrast white", W(0, 0, 0, 1, 1, 1), GRAY_WHITE_CONTRAST);
+        ExpectWhite("sweep without top, measured white with Y <= 0", W(0, 0, 0, 1, 1, 0), GRAY_WHITE_CONTRAST);
+        ExpectWhite("sweep without top, never measured (new document)", W(0, 0, 0, 1, 0, 1), GRAY_WHITE_NOMINAL);
+        ExpectWhite("sweep without top, invalid on/off white", W(0, 0, 0, 0, 0, 0), GRAY_WHITE_NONE);
+        // A list 100% gray is not the sweep's white.
+        ExpectWhite("sweep, list white usable but not drawn", W(0, 0, 1, 1, 0, 1), GRAY_WHITE_NOMINAL);
+
+        // Properties over every combination of the six facts.
+        for (int m = 0; m < 64; m++)
+        {
+            GrayGraphWhiteFacts f = W(m & 1, m & 2, m & 4, m & 8, m & 16, m & 32);
+            GrayGraphWhiteSource s = ChooseGrayGraphWhiteSource(f);
+            if (f.listRamp && (s == GRAY_WHITE_SWEEP_TOP || s == GRAY_WHITE_NOMINAL))
+                Fail("T61 white, facts %d: a list ramp took %s", m, WhiteName(s));
+            if (!f.listRamp && s == GRAY_WHITE_LIST)
+                Fail("T61 white, facts %d: the sweep took the list's white", m);
+            if (s == GRAY_WHITE_NOMINAL && f.contrastMeasured)
+                Fail("T61 white, facts %d: a measured on/off white called nominal", m);
+            if (s == GRAY_WHITE_CONTRAST && !f.contrastMeasured)
+                Fail("T61 white, facts %d: an unmeasured on/off white called a reading", m);
+        }
+    }
+
+    // bits: listRamp, overrideInEffect, docOverride, listBlackUsable, sweepBlackUsable,
+    //       sweepBlackSynthetic, contrastValid, contrastSynthetic, contrastNominal
+    static GrayGraphBlackFacts B(int list, int inEffect, int doc, int listB, int sweepB, int sweepSyn, int cValid, int cSyn, int cNom)
+    {
+        GrayGraphBlackFacts f;
+        f.listRamp = list != 0; f.overrideInEffect = inEffect != 0; f.docOverride = doc != 0;
+        f.listBlackUsable = listB != 0; f.sweepBlackUsable = sweepB != 0; f.sweepBlackSynthetic = sweepSyn != 0;
+        f.contrastValid = cValid != 0; f.contrastSynthetic = cSyn != 0; f.contrastNominal = cNom != 0;
+        return f;
+    }
+    static void ExpectBlack(const char * what, const GrayGraphBlackFacts & f, GrayGraphBlackSource want)
+    {
+        GrayGraphBlackSource got = ChooseGrayGraphBlackSource(f);
+        if (got != want)
+            Fail("T61 black, %s: %s, expected %s", what, BlackName(got), BlackName(want));
+    }
+
+    static void CheckBlack()
+    {
+        // A patch list without the override: its 0% gray first.
+        ExpectBlack("list with its 0% gray", B(1, 0, 0, 1, 1, 0, 1, 0, 0), GRAY_BLACK_LIST);
+        // The override in effect beats the list's 0% gray.
+        ExpectBlack("list, document override", B(1, 1, 1, 1, 0, 0, 1, 0, 0), GRAY_BLACK_OVERRIDE);
+        ExpectBlack("list, live preference only, synthetic sweep slot", B(1, 1, 0, 1, 1, 1, 1, 0, 0), GRAY_BLACK_OVERRIDE);
+        ExpectBlack("list, live preference only, synthetic on/off black", B(1, 1, 0, 1, 0, 0, 1, 1, 0), GRAY_BLACK_OVERRIDE);
+        // A list without a 0% gray falls to GetGrayScaleBlack's chain.
+        ExpectBlack("list without 0%, measured contrast black", B(1, 0, 0, 0, 0, 0, 1, 0, 0), GRAY_BLACK_CONTRAST);
+        ExpectBlack("list without 0%, nominal black", B(1, 0, 0, 0, 0, 0, 1, 0, 1), GRAY_BLACK_NOMINAL);
+        ExpectBlack("list without 0%, invalid on/off black", B(1, 0, 0, 0, 0, 0, 0, 0, 0), GRAY_BLACK_NONE);
+        // The sweep: the document's override first.
+        ExpectBlack("sweep, document override", B(0, 1, 1, 0, 1, 0, 1, 0, 0), GRAY_BLACK_OVERRIDE);
+        // ... else the 0% slot: a reading, or the override's synthetic black.
+        ExpectBlack("sweep 0% reading", B(0, 0, 0, 0, 1, 0, 1, 0, 0), GRAY_BLACK_SWEEP_ZERO);
+        ExpectBlack("sweep 0% reading, live preference on", B(0, 1, 0, 0, 1, 0, 1, 1, 0), GRAY_BLACK_SWEEP_ZERO);
+        ExpectBlack("sweep 0% synthetic", B(0, 0, 0, 0, 1, 1, 1, 0, 0), GRAY_BLACK_OVERRIDE);
+        // ... else the on/off black.
+        ExpectBlack("sweep without 0%, contrast black", B(0, 0, 0, 0, 0, 0, 1, 0, 0), GRAY_BLACK_CONTRAST);
+        ExpectBlack("sweep without 0%, synthetic on/off black", B(0, 0, 0, 0, 0, 0, 1, 1, 0), GRAY_BLACK_OVERRIDE);
+        ExpectBlack("sweep without 0%, nominal black (new document)", B(0, 0, 0, 0, 0, 0, 1, 0, 1), GRAY_BLACK_NOMINAL);
+        ExpectBlack("sweep without 0%, invalid on/off black", B(0, 0, 0, 0, 0, 0, 0, 0, 1), GRAY_BLACK_NONE);
+        // A list 0% gray is not the sweep's black.
+        ExpectBlack("sweep, list black usable but not drawn", B(0, 0, 0, 1, 0, 0, 1, 0, 0), GRAY_BLACK_CONTRAST);
+
+        // Properties over every combination of the nine facts.
+        for (int m = 0; m < 512; m++)
+        {
+            GrayGraphBlackFacts f = B(m & 1, m & 2, m & 4, m & 8, m & 16, m & 32, m & 64, m & 128, m & 256);
+            GrayGraphBlackSource s = ChooseGrayGraphBlackSource(f);
+            if (s == GRAY_BLACK_LIST && (!f.listRamp || f.overrideInEffect || !f.listBlackUsable))
+                Fail("T61 black, facts %d: the list's 0%% gray taken out of turn", m);
+            if (f.docOverride && s != GRAY_BLACK_OVERRIDE)
+                Fail("T61 black, facts %d: the document's override lost to %s", m, BlackName(s));
+            if (s == GRAY_BLACK_SWEEP_ZERO && (!f.sweepBlackUsable || f.sweepBlackSynthetic))
+                Fail("T61 black, facts %d: the sweep's 0%% taken when it is not a reading", m);
+            if (s == GRAY_BLACK_NONE && f.sweepBlackUsable)
+                Fail("T61 black, facts %d: none with a usable sweep black", m);
+        }
+    }
+
+    static void CheckDecimals()
+    {
+        struct { double y; int want; const char * text; } cases[] = {
+            { 120.4375, 1, "120.4" }, { 100.0, 1, "100.0" }, { 99.99, 2, "99.99" }, { 10.0, 2, "10.00" },
+            { 9.9990, 3, "9.999" }, { 1.0, 3, "1.000" }, { 0.0512, 4, "0.0512" }, { 0.0, 4, "0.0000" },
+            { -0.25, 4, "-0.2500" }, { -250.0, 1, "-250.0" } };
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        {
+            int d = SummaryLuminanceDecimals(cases[i].y);
+            char buf[64];
+            sprintf_s(buf, "%.*f", d, cases[i].y);
+            if (d != cases[i].want || strcmp(buf, cases[i].text) != 0)
+                Fail("T61 decimals of %.17g: %d (\"%s\"), expected %d (\"%s\")", cases[i].y, d, buf, cases[i].want, cases[i].text);
+        }
+        // Just under each boundary: the rule is about the PRINTED number, so a
+        // value that rounds up to 100, 10 or 1 prints with that boundary's
+        // decimals ("100.0", not "100.00"); one that stays under keeps its own.
+        struct { double y; int want; const char * text; } edges[] = {
+            { 99.996, 1, "100.0" },    { 9.9996, 2, "10.00" },    { 0.99996, 3, "1.000" },
+            { -99.996, 1, "-100.0" },  { -9.9996, 2, "-10.00" },  { -0.99996, 3, "-1.000" },
+            { 99.994, 2, "99.99" },    { 9.9994, 3, "9.999" },    { 0.99994, 4, "0.9999" },
+            { 99.9999999, 1, "100.0" }, { 0.00004, 4, "0.0000" } };
+        for (size_t i = 0; i < sizeof(edges) / sizeof(edges[0]); i++)
+        {
+            int d = SummaryLuminanceDecimals(edges[i].y);
+            char buf[64];
+            sprintf_s(buf, "%.*f", d, edges[i].y);
+            if (d != edges[i].want || strcmp(buf, edges[i].text) != 0)
+                Fail("T61 decimals just under a boundary, %.17g: %d (\"%s\"), expected %d (\"%s\")", edges[i].y, d, buf, edges[i].want, edges[i].text);
+        }
+        const double inf = std::numeric_limits<double>::infinity();
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        if (SummaryLuminanceDecimals(inf) != 4 || SummaryLuminanceDecimals(nan) != 4)
+            Fail("T61 decimals of a value that is not finite: %d / %d, expected 4 / 4", SummaryLuminanceDecimals(inf), SummaryLuminanceDecimals(nan));
+    }
+
+    static void CheckGammaShown()
+    {
+        for (int type = 0; type <= 8; type++)
+        {
+            const bool lineDrawn = (type != 5 && type != 7);
+            if (PatchListGammaShown(true, true, type) != lineDrawn)
+                Fail("T61 gamma shown, fit and data, offset type %d: %d, expected %d", type, (int)PatchListGammaShown(true, true, type), (int)lineDrawn);
+            if (PatchListGammaShown(false, true, type))
+                Fail("T61 gamma shown without a fit, offset type %d", type);
+            if (PatchListGammaShown(true, false, type))
+                Fail("T61 gamma shown without a reading, offset type %d", type);
+            if (PatchListGammaShown(false, false, type))
+                Fail("T61 gamma shown with neither, offset type %d", type);
+        }
+    }
+
+    static void CheckUserSets()
+    {
+        CColor empty[4] = { noDataColor, noDataColor, noDataColor, noDataColor };
+        CColor last[4] = { noDataColor, noDataColor, noDataColor, CColor(1.0, 2.0, 3.0) };
+        CColor first[4] = { CColor(1.0, 2.0, 3.0), noDataColor, noDataColor, noDataColor };
+        if (AnyValidReading(empty, 4))
+            Fail("T61 any valid reading: four unmeasured slots count");
+        if (!AnyValidReading(last, 4))
+            Fail("T61 any valid reading: a reading in the last slot only is missed");
+        if (!AnyValidReading(first, 4))
+            Fail("T61 any valid reading: a reading in the first slot is missed");
+        if (AnyValidReading(last, 3))
+            Fail("T61 any valid reading: a slot past n counted");
+        if (AnyValidReading(NULL, 4) || AnyValidReading(last, 0))
+            Fail("T61 any valid reading: no readings counted");
+
+        // The active set reads the band, every other set its stored readings.
+        if (!UserSetSummaryListed(true, last, 4, NULL, 0))
+            Fail("T61 user set: the active set's band reading missed");
+        if (UserSetSummaryListed(true, empty, 4, first, 4))
+            Fail("T61 user set: the active set listed from stale stored readings");
+        if (!UserSetSummaryListed(false, empty, 4, last, 4))
+            Fail("T61 user set: an inactive set's stored reading missed");
+        if (UserSetSummaryListed(false, first, 4, empty, 4))
+            Fail("T61 user set: an inactive set listed from the band");
+        if (UserSetSummaryListed(false, first, 4, NULL, 0))
+            Fail("T61 user set: an inactive set with no stored readings listed");
+
+        struct { const char * name; bool empty; } names[] = {
+            { "", true }, { " ", true }, { " \t\r\n", true }, { "skin tones", false }, { " a ", false }, { "set (2)", false } };
+        for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+            if (PatchListNameIsEmpty(names[i].name) != names[i].empty)
+                Fail("T61 name \"%s\": empty %d, expected %d", names[i].name, (int)!names[i].empty, (int)names[i].empty);
+    }
+
+    // SummaryUserText: the user's part of the Summary pane is what precedes the
+    // generated lines the pane was last written with. A pane left showing an
+    // older string than the document's current one (the generated lines
+    // changed and the pane was not refreshed yet) must still give back only
+    // what the user typed.
+    static void CheckUserText()
+    {
+        const std::string user = "Projector, lamp at 500 h\r\n";
+        const std::string genOld = "Patch lists: grays\r\nWhite: 100.0 cd/m\xB2 (gray scale 100%)\r\n";
+        const std::string genNew = "Patch lists: grays\r\nWhite: 101.2 cd/m\xB2 (gray scale 100%)\r\n";
+        struct { const char * what; std::string pane, shown, want; } cases[] = {
+            { "current pane",                 user + genNew,          genNew, user },
+            { "stale pane",                   user + genOld,          genOld, user },
+            { "typed into a stale pane",      user + "x" + genOld,    genOld, user + "x" },
+            { "generated lines edited",       user + genOld + "y",    genOld, user + genOld + "y" },
+            { "only the generated lines",     genOld,                 genOld, "" },
+            { "nothing generated",            user,                   "",     user },
+            { "pane shorter than the string", "W",                    genOld, "W" },
+            { "empty pane",                   "",                     genOld, "" } };
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        {
+            const std::string got = SummaryUserText(cases[i].pane, cases[i].shown);
+            if (got != cases[i].want)
+                Fail("T61 user text, %s: \"%s\", expected \"%s\"", cases[i].what, got.c_str(), cases[i].want.c_str());
+        }
+        // Why the shown string and not the current one: stripping a stale pane
+        // against the current string removes nothing, and the old generated
+        // lines would be stored as the user's own text.
+        if (SummaryUserText(user + genOld, genNew) != user + genOld)
+            Fail("T61 user text: a stale pane stripped against the current string changed");
+    }
+}
+
+static void RunT61()
+{
+    printf("T61 summary sources...\n");
+    T61Summary::CheckWhite();
+    T61Summary::CheckBlack();
+    T61Summary::CheckDecimals();
+    T61Summary::CheckGammaShown();
+    T61Summary::CheckUserSets();
+    T61Summary::CheckUserText();
+}
+
 int main(int argc, char* argv[])
 {
     const char* mode = (argc > 1) ? argv[1] : "verify";
@@ -7898,6 +9275,9 @@ int main(int argc, char* argv[])
     RunT53();
     RunT54();
     RunT58();
+    RunT59();
+    RunT60();
+    RunT61();
 
     if (g_failures)
     {
