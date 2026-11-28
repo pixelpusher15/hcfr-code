@@ -3990,6 +3990,16 @@ BEGIN
     IDS_EXPORT              "Exportation"
     IDS_NOMEASURES          "Le fichier ne contient aucune mesure. Etes-vous sûr de vouloir rajouter la mesure ?"
     IDS_ERREXPORT           "Désolé, une erreur est survenue lors de l'export:"
+    IDS_PDFERR_TITLE        "Erreur du rapport PDF"
+    IDS_PDFERR_INUSE        "Le rapport n'a pas pu être enregistré dans\n%s\n\nLe fichier est ouvert dans un autre programme, ou il est en lecture seule. S'il est ouvert dans votre lecteur PDF, fermez-le puis réessayez."
+    IDS_PDFERR_NOFOLDER     "Le rapport n'a pas pu être enregistré dans\n%s\n\nCe dossier n'existe pas. Choisissez un autre dossier et réessayez."
+    IDS_PDFERR_CANNOTOPEN   "Le rapport n'a pas pu être enregistré dans\n%s\n\nWindows a refusé de créer le fichier. Vérifiez le nom du fichier et le dossier, puis réessayez."
+    IDS_PDFERR_WRITE        "L'enregistrement du rapport dans\n%s\na échoué en cours de route. Le disque est peut-être plein, ou le lecteur a été retiré."
+    IDS_PDFERR_MEMORY       "Mémoire insuffisante pour créer le rapport."
+    IDS_PDFERR_GENERIC      "La bibliothèque PDF a signalé une erreur pendant la création du rapport."
+    IDS_PDFERR_CODES        "Code d'erreur %04X, détail %04X (à indiquer si vous demandez de l'aide)."
+    IDS_PDFERR_CONTINUE     "Oui : continuer l'export.  Non : arrêter l'export."
+    IDS_PDFERR_GRAPHS       "Le rapport a été enregistré sans certains de ses graphiques (%d manquants) : ils n'ont pas pu être écrits dans le dossier\n%s\nVérifiez que ce dossier existe et que vous pouvez y écrire, puis exportez à nouveau."
     IDS_MEASURESCANCELED    "Mesures annulées"
 END
 

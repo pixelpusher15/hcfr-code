@@ -1440,6 +1440,16 @@
 #define IDS_EXPORT                      41676
 #define IDS_NOMEASURES                  41677
 #define IDS_ERREXPORT                   41678
+#define IDS_PDFERR_TITLE                60291
+#define IDS_PDFERR_INUSE                60292
+#define IDS_PDFERR_NOFOLDER             60293
+#define IDS_PDFERR_CANNOTOPEN           60294
+#define IDS_PDFERR_WRITE                60295
+#define IDS_PDFERR_MEMORY               60296
+#define IDS_PDFERR_GENERIC              60297
+#define IDS_PDFERR_CODES                60298
+#define IDS_PDFERR_CONTINUE             60299
+#define IDS_PDFERR_GRAPHS               60300
 #define IDS_MEASURESCANCELED            41679
 #define IDS_ANERROROCCURED              41680
 #define IDS_SPYDER                      41681

@@ -3748,6 +3748,16 @@ BEGIN
     IDS_EXPORT              "Export"
     IDS_NOMEASURES          "This file is empty. Do you want to add this measure ?"
     IDS_ERREXPORT           "Sorry, an unexpected error occurred during export:"
+    IDS_PDFERR_TITLE        "PDF report error"
+    IDS_PDFERR_INUSE        "The report could not be saved to\n%s\n\nThe file is open in another program, or it is read-only. If it is open in your PDF viewer, close it there and try again."
+    IDS_PDFERR_NOFOLDER     "The report could not be saved to\n%s\n\nThat folder does not exist. Choose another folder and try again."
+    IDS_PDFERR_CANNOTOPEN   "The report could not be saved to\n%s\n\nWindows refused to create the file. Check the file name and the folder, then try again."
+    IDS_PDFERR_WRITE        "Saving the report to\n%s\nfailed partway through. The disk may be full, or the drive may have been removed."
+    IDS_PDFERR_MEMORY       "There is not enough memory to build the report."
+    IDS_PDFERR_GENERIC      "The PDF library reported an error while building the report."
+    IDS_PDFERR_CODES        "Error code %04X, detail %04X (quote these when you ask for support)."
+    IDS_PDFERR_CONTINUE     "Yes: continue the export.  No: stop the export."
+    IDS_PDFERR_GRAPHS       "The report was saved without some of its graphs (%d missing): they could not be written to the folder\n%s\nCheck that this folder exists and that you can write to it, then export again."
     IDS_MEASURESCANCELED    "Measures cancelled"
 END
 
